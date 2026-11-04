@@ -1,0 +1,53 @@
+# feathrise_editor_map：正式作者工作台的地图、地形、传送与植被编辑。
+[package]
+name = "feathrise_editor_map"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[features]
+# 有限验收工作流不进入普通发行构建；真实作者校验仍属于常规功能。
+validation = []
+# 作者工具测试使用中性地图夹具。
+runtime_test_support = []
+
+[dependencies]
+feathrise_plugin_api = { workspace = true, features = ["blob-io"] }
+feathrise_author_tools = { workspace = true }
+feathrise_editor_documents_model = { workspace = true }
+feathrise_editor_assets = { workspace = true }
+feathrise_editor_surface_model = { workspace = true }
+avian3d = { workspace = true }
+bevy = { workspace = true, features = ["system_clipboard"] } # 编辑器复制路径/备注粘贴使用操作系统剪贴板，而不是仅进程内缓冲。
+feathrise_atmosphere = { workspace = true } # 编辑器离屏相机与玩法相机复用地图天空盒加载、热更新和失败回退。
+feathrise_billboard_text = { workspace = true } # 编辑器离屏相机接管传送标签朝向与可见距离，避免仍面向玩法相机。
+feathrise_scene_core = { workspace = true } # 场景基础契约统一按模块消费。
+feathrise_environment = { workspace = true, features = ["full"] }
+feathrise_fps_display = { workspace = true } # F3与F4共用唯一非持久化逐档LOD状态，避免两块面板互相覆盖。
+feathrise_grounding = { workspace = true }
+feathrise_map_content = { workspace = true }
+feathrise_map_terrain = { workspace = true } # 编辑器直接编辑GLB顶点并复用运行时高度派生与白模编码。
+feathrise_portal = { workspace = true }
+feathrise_scene = { workspace = true, features = ["test_panel"] } # 编辑器临时地形着色预览由场景材质同步资源提供。
+feathrise_settings = { workspace = true } # 编辑器的二十一个专业数值框分别持久化右拖灵敏度。
+feathrise_editor_core = { workspace = true } # 原共享状态和 ECS 类型的唯一契约。
+feathrise_editor_ui = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+image = { workspace = true }
+gltf = { version = "1.4.1", default-features = false, features = ["utils", "names"] } # 复用Bevy已锁定解析器，仅后台读取旧地图实际地形三角。
+sha2 = { workspace = true } # 保存前后比较terrain.glb精确摘要，阻止覆盖Blender并发导出。
+regex = "=1.13.1" # 复用已锁定引擎，仅后台处理转义后的字面查询、Unicode大小写及全词边界。
+proc-macro2 = { version = "=1.0.107", features = ["span-locations"] } # 后台识别Rust路径字面量与原文位置，避免把注释当引用。
+syn = { version = "=2.0.119", default-features = false, features = ["parsing"] } # 只解码字符串字面量，不构建完整源码AST。
+symphonia = { version = "=0.5.5", default-features = false, features = ["ogg", "vorbis", "wav", "pcm", "flac", "mp3"] } # 音频试听先在后台受检解码，不扩展正式Bevy音频feature或在主线程seek。
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem", "Win32_System_Registry"] } # 只读安装记录用于后台识别外部IDE。
+
+[dev-dependencies]
+feathrise_runtime = { workspace = true }
+feathrise_editor_documents = { workspace = true } # 测试注入真实内容操作与布局工厂，生产只依赖model契约。
+feathrise_scene = { workspace = true, features = ["runtime_test_support"] } # 真实属性/手柄回归复用场景身份表，不在编辑器伪造TerrainObjectQueries结果。
+feathrise_editor_core = { workspace = true, features = ["runtime_test_support"] } # 独立进程的真实创建回归只写隔离作者目录。
+feathrise_editor_surface = { workspace = true } # 真实宿主夹具通过同一插件装配，生产依赖图不反向依赖实现。

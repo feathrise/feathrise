@@ -1,0 +1,12 @@
+# 地表预设唯一草稿、控件和跨库调度契约。
+[package]
+name = "feathrise_editor_surface_model"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bevy = { workspace = true }
+feathrise_editor_core = { workspace = true }
+feathrise_editor_ui = { workspace = true }
+feathrise_map_content = { workspace = true }

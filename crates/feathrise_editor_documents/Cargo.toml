@@ -1,0 +1,15 @@
+# 文档内容处理与作者界面，不依赖地图实现。
+[package]
+name = "feathrise_editor_documents"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bevy = { workspace = true }
+feathrise_editor_core = { workspace = true }
+feathrise_editor_documents_model = { workspace = true }
+feathrise_editor_ui = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+pulldown-cmark = { version = "0.13.4", default-features = false } # CommonMark解析归文档域，HTML只作为文字显示。

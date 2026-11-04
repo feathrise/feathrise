@@ -1,0 +1,115 @@
+# 编辑器独立仓库基础检查：默认固定公开 SDK 与补丁修订，仓库变量可显式覆盖。
+name: Windows editor check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: editor-check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [default, validation]
+    env:
+      FEATHRISE_SDK_REPOSITORY: ${{ vars.FEATHRISE_SDK_REPOSITORY || 'hwyrq/feathrise_runtime' }}
+      FEATHRISE_SDK_REV: ${{ vars.FEATHRISE_SDK_REV || 'a476d2374cdc0383efe25129e0003c8fd2733f01' }}
+      FEATHRISE_PATCH_REPOSITORY: ${{ vars.FEATHRISE_PATCH_REPOSITORY || 'hwyrq/feathrise_patches' }}
+      FEATHRISE_PATCH_REV: ${{ vars.FEATHRISE_PATCH_REV || '3c251d3530980b66e49b4748769db36ae9c6bd5a' }}
+    steps:
+      - name: Require the public patch repository and full revision
+        shell: pwsh
+        run: |
+          if ($env:FEATHRISE_PATCH_REPOSITORY -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' -or $env:FEATHRISE_PATCH_REV -notmatch '^[0-9a-fA-F]{40}$') {
+            throw '请配置 FEATHRISE_PATCH_REPOSITORY=owner/repository 和 FEATHRISE_PATCH_REV=完整 40 位补丁仓提交。'
+          }
+      - name: Require the public SDK repository and full revision
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:FEATHRISE_SDK_REPOSITORY -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
+            throw 'FEATHRISE_SDK_REPOSITORY 必须为 owner/repository；请修正仓库变量，或移除覆盖以使用公开默认值。'
+          }
+          if ($env:FEATHRISE_SDK_REV -notmatch '^[0-9a-fA-F]{40}$') {
+            throw '请配置 FEATHRISE_SDK_REV 为 SDK 完整 40 位提交 ID；不能使用分支、tag 或短修订。'
+          }
+      # actions/checkout v4.2.2；各检出均不持久化凭据。
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: feathrise
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ${{ env.FEATHRISE_SDK_REPOSITORY }}
+          ref: ${{ env.FEATHRISE_SDK_REV }}
+          path: feathrise_runtime
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ${{ env.FEATHRISE_PATCH_REPOSITORY }}
+          ref: ${{ env.FEATHRISE_PATCH_REV }}
+          path: feathrise_patches
+          persist-credentials: false
+      - name: Confirm the SDK checkout identity
+        shell: pwsh
+        working-directory: feathrise_runtime
+        run: |
+          $actual = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $env:FEATHRISE_SDK_REV) { throw 'SDK 检出身份与指定修订不一致。' }
+      - name: Check editor with existing Windows Rust and MSVC
+        shell: pwsh
+        working-directory: feathrise
+        env:
+          CHECK_VARIANT: ${{ matrix.variant }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          if (!(Test-Path -LiteralPath $vswhere)) { throw 'Runner 缺少 Visual Studio Installer/vswhere。' }
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$installation) { throw 'Runner 缺少 MSVC x64/x86 工具。' }
+          Import-Module (Join-Path $installation 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+          rustup show active-toolchain
+          if ($LASTEXITCODE -ne 0) { throw 'Runner 没有可用的 Rust 工具链。' }
+          rustc --version --verbose
+          if ($LASTEXITCODE -ne 0) { throw 'rustc 无法启动。' }
+          $sysroot = rustc --print sysroot
+          if ($LASTEXITCODE -ne 0) { throw '无法定位现有 Rust 工具链。' }
+          $linkerDirectory = Join-Path $sysroot 'lib/rustlib/x86_64-pc-windows-msvc/bin'
+          if (!(Test-Path -LiteralPath (Join-Path $linkerDirectory 'rust-lld.exe'))) { throw '当前工具链缺少 rust-lld.exe。' }
+          $env:PATH = "$linkerDirectory;$env:PATH"
+          # SDK 自有包与第三方补丁分别采用已核对修订的检出。
+          $localSdkConfig = Join-Path $env:RUNNER_TEMP 'feathrise-local-sdk.toml'
+          $sdkRoot = (Resolve-Path -LiteralPath '../feathrise_runtime').Path
+          $patchRoot = (Resolve-Path -LiteralPath '../feathrise_patches').Path
+          $patchRevision = git -C $patchRoot rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $patchRevision -ne $env:FEATHRISE_PATCH_REV) { throw '补丁仓检出身份与指定修订不一致。' }
+          $patchConfig = Join-Path $patchRoot '.cargo/config.toml'
+          $metadata = cargo metadata --manifest-path "$sdkRoot/Cargo.toml" --no-deps --format-version 1
+          if ($LASTEXITCODE -ne 0) { throw '无法读取指定修订的 SDK Cargo 图。' }
+          $localPackages = ($metadata | ConvertFrom-Json).packages | Where-Object {
+            $null -eq $_.source -and $_.name -ne 'feathrise_sdk_workspace_tests'
+          }
+          $patches = foreach ($package in $localPackages) {
+            $packageRoot = Split-Path -Parent $package.manifest_path
+            $relativePath = [IO.Path]::GetRelativePath($sdkRoot, $packageRoot)
+            if ([IO.Path]::IsPathRooted($relativePath) -or $relativePath -match '^\.\.([\\/]|$)') { throw 'SDK 本地依赖越出指定检出目录。' }
+            $path = $packageRoot.Replace('\', '/') | ConvertTo-Json -Compress
+            "$($package.name) = { path = $path }"
+          }
+          @('[patch.crates-io]') + $patches | Set-Content -LiteralPath $localSdkConfig -Encoding utf8
+          $cargoArguments = @('--config', $patchConfig, '--config', $localSdkConfig, 'check', '--locked', '-p', 'feathrise_host', '-p', 'feathrise_game_template', '-p', 'feathrise_editor_map', '--tests')
+          if ($env:CHECK_VARIANT -eq 'validation') { $cargoArguments += @('--features', 'feathrise_host/validation') }
+          elseif ($env:CHECK_VARIANT -ne 'default') { throw '未知检查组合。' }
+          cargo @cargoArguments
+          if ($LASTEXITCODE -ne 0) { throw "Cargo 检查失败，退出码 $LASTEXITCODE。" }

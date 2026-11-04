@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "presets": [{
+    "id": "fixture-yard",
+    "label": "测试组合",
+    "members": [
+      {"id":"part-00","asset_path":"fixtures/block.glb","local_translation":[0,0,0],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-01","asset_path":"fixtures/block.glb","local_translation":[-7,0,0],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-02","asset_path":"fixtures/block.glb","local_translation":[2,0,0],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-03","asset_path":"fixtures/block.glb","local_translation":[3,0,0],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-04","asset_path":"fixtures/block.glb","local_translation":[4,0,0],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-05","asset_path":"fixtures/block.glb","local_translation":[5,0,0],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-06","asset_path":"fixtures/block.glb","local_translation":[0,0,1],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-07","asset_path":"fixtures/block.glb","local_translation":[1,0,1],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-08","asset_path":"fixtures/block.glb","local_translation":[2,0,1],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-09","asset_path":"fixtures/block.glb","local_translation":[3,0,1],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-10","asset_path":"fixtures/block.glb","local_translation":[4,0,1],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-11","asset_path":"fixtures/block.glb","local_translation":[5,0,1],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-12","asset_path":"fixtures/block.glb","local_translation":[0,0,2],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-13","asset_path":"fixtures/block.glb","local_translation":[1,0,2],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-14","asset_path":"fixtures/block.glb","local_translation":[2,0,2],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-15","asset_path":"fixtures/block.glb","local_translation":[3,0,2],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-16","asset_path":"fixtures/block.glb","local_translation":[4,0,2],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-17","asset_path":"fixtures/block.glb","local_translation":[5,0,2],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-18","asset_path":"fixtures/block.glb","local_translation":[0,0,3],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-19","asset_path":"fixtures/block.glb","local_translation":[1,0,3],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-20","asset_path":"fixtures/block.glb","local_translation":[2,0,3],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-21","asset_path":"fixtures/block.glb","local_translation":[3,0,3],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-22","asset_path":"fixtures/block.glb","local_translation":[4,0,3],"local_yaw_degrees":0,"scale":[1,1,1]},
+      {"id":"part-23","asset_path":"fixtures/block.glb","local_translation":[5,0,3],"local_yaw_degrees":0,"scale":[1,1,1]}
+    ]
+  }]
+}

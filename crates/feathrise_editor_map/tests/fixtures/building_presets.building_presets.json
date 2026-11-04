@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "presets": [{
+    "id": "fixture-house",
+    "label": "测试建筑",
+    "asset_path": "fixtures/house.glb",
+    "footprint": {"center":[0.0,0.0],"half_extents":[2.0,2.0]},
+    "entrance": {"position":[0.0,0.0,2.0],"outward_yaw_degrees":0.0,"clearance_half_extents":[1.0,1.5]},
+    "vegetation_clearance": {"center":[0.0,0.0],"half_extents":[2.0,2.0]}
+  }]
+}

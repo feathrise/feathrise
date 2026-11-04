@@ -1,0 +1,14 @@
+# 编辑器UI库：三套独立可选配色和通用作者控件。
+[package]
+name = "feathrise_editor_ui"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bevy = { workspace = true }
+feathrise_ui_widgets = { workspace = true }
+feathrise_editor_core = { workspace = true } # 静态帮助模板与动态作者控件共用默认字体选择规则。
+
+[dev-dependencies]
+feathrise_runtime = { workspace = true }

@@ -1,0 +1,12 @@
+# 本机联调配置由编辑器自己读取；独立发布的源码检出可使用自己的公开补丁配置。
+include = [{ path = "local-sdk.toml", optional = true }]
+
+# 在feathrise/直接cargo run启动Feathrise，使用本工作区默认的target/输出目录。
+# editor_prototype/验证原型及其已有缓存保持独立，不再把正式编辑器产物写进validation/。
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"
+
+# 内嵌目录显式绑定源码 assets，使用现有或自定义 target 缓存时结果一致。
+[env]
+BEVY_ASSET_PATH = { value = "assets", relative = true }

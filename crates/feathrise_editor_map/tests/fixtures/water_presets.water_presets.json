@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "presets": [{
+    "id": "fixture-water",
+    "label": "测试水体",
+    "base_color_srgba": [0.3, 0.4, 0.5, 0.8],
+    "perceptual_roughness": 0.2,
+    "reflectance": 0.5,
+    "trough_darkening": 0.0,
+    "shore_wave_attenuation": 1.0,
+    "macro_waves": [
+      {"direction":[1.0,0.0],"amplitude_meters":0.0,"wavelength_meters":1.0,"speed_meters_per_second":0.0,"steepness":0.0},
+      {"direction":[0.0,1.0],"amplitude_meters":0.0,"wavelength_meters":1.0,"speed_meters_per_second":0.0,"steepness":0.0},
+      {"direction":[1.0,0.0],"amplitude_meters":0.0,"wavelength_meters":1.0,"speed_meters_per_second":0.0,"steepness":0.0},
+      {"direction":[0.0,1.0],"amplitude_meters":0.0,"wavelength_meters":1.0,"speed_meters_per_second":0.0,"steepness":0.0}
+    ],
+    "micro_normals": [
+      {"tile_meters":1.0,"velocity_meters_per_second":[0.0,0.0],"strength":0.0},
+      {"tile_meters":1.0,"velocity_meters_per_second":[0.0,0.0],"strength":0.0}
+    ]
+  }]
+}

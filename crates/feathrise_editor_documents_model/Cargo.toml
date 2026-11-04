@@ -1,0 +1,10 @@
+# 文档内容、场景固定组件与工厂契约，不依赖地图实现。
+[package]
+name = "feathrise_editor_documents_model"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bevy = { workspace = true }
+feathrise_editor_core = { workspace = true }

@@ -1,0 +1,8 @@
+# 编辑器内建图标、字体与测试资源作为仓库内真实字节保存，独立检出不借用原游戏LFS对象。
+*.png binary -filter
+*.ico binary -filter
+*.otf binary -filter
+*.ttf binary -filter
+*.gltf binary -filter
+*.glb binary -filter
+*.ktx2 binary -filter

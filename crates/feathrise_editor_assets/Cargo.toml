@@ -1,0 +1,18 @@
+# 编辑器资产写入与离线纹理派生；不依赖地图宿主。
+[package]
+name = "feathrise_editor_assets"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+feathrise_editor_core = { workspace = true }
+feathrise_map_content = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+bevy = { workspace = true } # 保留 KTX2 编码经实际 Bevy 图像加载器读取的回归。
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }

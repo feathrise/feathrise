@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "scope": "同一世界范围、32×32作者R8、相同世界轨迹；只比较生产笔刷数据语义，不代表窗口输入或GPU时延",
+  "world_min": [-8.0, -8.0],
+  "world_max": [8.0, 8.0],
+  "resolution": [32, 32],
+  "radius": 0.65,
+  "strength": 1.0,
+  "target_density": 255,
+  "delta_seconds": 0.016666667,
+  "cases": [
+    {"name": "tap", "points": [[0.25, 0.25]], "hold_frames": 0, "strokes": 1, "initial": 0, "erase": false},
+    {"name": "hold", "points": [[0.25, 0.25]], "hold_frames": 30, "strokes": 1, "initial": 0, "erase": false},
+    {"name": "U", "points": [[-3.0, 2.0], [-3.0, -1.0], [-2.0, -2.0], [0.0, -2.5], [2.0, -2.0], [3.0, -1.0], [3.0, 2.0]], "hold_frames": 0, "strokes": 1, "initial": 0, "erase": false},
+    {"name": "S", "points": [[2.5, 2.0], [0.0, 3.0], [-2.0, 2.0], [-2.0, 1.0], [2.0, -1.0], [2.0, -2.0], [0.0, -3.0], [-2.5, -2.0]], "hold_frames": 0, "strokes": 1, "initial": 0, "erase": false},
+    {"name": "repeat", "points": [[0.25, 0.25]], "hold_frames": 0, "strokes": 2, "initial": 0, "erase": false},
+    {"name": "erase", "points": [[-2.0, 0.25], [2.0, 0.25]], "hold_frames": 0, "strokes": 1, "initial": 180, "erase": true}
+  ]
+}

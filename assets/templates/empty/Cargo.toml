@@ -1,0 +1,34 @@
+[package]
+name = "feathrise_game_template"
+version = "0.1.0"
+edition = "2024"
+publish = false
+default-run = "project"
+
+[[bin]]
+name = "project"
+path = "src/main.rs"
+
+[features]
+default = ["raytracing"]
+raytracing = ["feathrise_runtime/raytracing"]
+dlss = ["dlss_frame_generation"]
+fsr = ["fsr3_upscaling", "fsr3_frame_generation"]
+rtx_rendering = ["raytracing", "feathrise_runtime/rtx_rendering"]
+dlss_frame_generation = ["rtx_rendering", "feathrise_runtime/dlss_frame_generation"]
+fsr3_upscaling = ["feathrise_runtime/fsr3_upscaling"]
+fsr3_frame_generation = ["feathrise_runtime/fsr3_frame_generation"]
+physics_debug = ["feathrise_runtime/physics_debug"]
+initial_items = [] # 空模板不因调试特性添加领域专属的初始物品。
+
+validation = ["feathrise_runtime/validation"]
+function_hotpatch = ["bevy/hotpatching", "feathrise_runtime/function_hotpatch"]
+
+# 只登记无状态的数值函数；其他源码改动仍由完整构建与重启承接。
+[package.metadata.feathrise.hotpatch]
+enabled = true
+functions = ["src/controller.rs::walk_speed", "src/controller.rs::run_speed"]
+
+[dependencies]
+bevy = { version = "=0.19.1", default-features = false, features = ["dynamic_linking", "free_camera"] } # 工程应用显式选择开发动态链接，SDK库不替应用决定。
+feathrise_runtime = { version = "0.1.0", default-features = false, features = ["default_font"] }

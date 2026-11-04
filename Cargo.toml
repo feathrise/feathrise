@@ -1,0 +1,157 @@
+[package]
+name = "feathrise_host"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+default-run = "feathrise"
+
+# 程序名保持品牌小写；Cargo包与作者库按Feathrise归属统一命名。
+[[bin]]
+name = "feathrise"
+path = "src/main.rs"
+
+[features]
+# 通用作者工具始终安装；工程领域工具由版本化DLL/SO接口在打开工程时加载。
+default = ["raytracing"]
+raytracing = ["feathrise_runtime/raytracing"]
+dlss = ["dlss_frame_generation"]
+fsr = ["fsr3_upscaling", "fsr3_frame_generation"]
+rtx_rendering = ["raytracing", "bevy/dlss", "feathrise_runtime/rtx_rendering"]
+dlss_frame_generation = ["rtx_rendering", "dep:feathrise_frame_generation", "feathrise_runtime/dlss_frame_generation", "feathrise_fps_display/dlss_frame_generation"]
+fsr3_upscaling = ["feathrise_runtime/fsr3_upscaling"]
+fsr3_frame_generation = ["dep:feathrise_fsr3_frame_generation", "feathrise_runtime/fsr3_frame_generation", "feathrise_fps_display/fsr3_frame_generation"]
+physics_debug = ["feathrise_runtime/physics_debug"]
+initial_items = ["feathrise_runtime/initial_items"]
+
+validation = ["feathrise_project/validation", "feathrise_editor_map/validation", "feathrise_runtime/validation"]
+
+[dependencies]
+feathrise_runtime_manifest = { version = "=0.1.0" } # 固定与 SDK 构建/启动一致的交付身份，默认构建无需 DLSS 工具链。
+feathrise_plugin_api = { version = "=0.1.0", features = ["reader"] }
+libloading = "=0.8.9"
+object = { version = "=0.40.0", default-features = false, features = ["read", "std"] } # 三平台运行副本静态解析精确依赖，复用插件SDK同版本。
+bevy_embedded_assets = "=0.16.0"
+bevy = { version = "=0.19.1", features = ["dynamic_linking", "bevy_ui_widgets", "hotpatching", "file_watcher", "jpeg", "pbr_specular_textures", "serialize"] } # 动态链接只由宿主应用选择，作者库可静态进入独立DLL。
+avian3d = { version = "0.7.0", features = ["debug-plugin"] }
+bevy_framepace = "0.22.0"
+bevy_hanabi = { version = "0.19.0", default-features = false, features = ["3d"] }
+async-channel = "2.5"
+# 复用Bevy已锁定的文字栈，为内嵌等宽字体明确登记中文缺字回退，不依赖系统字体。
+parley = { version = "=0.9.0", default-features = false }
+raw-window-handle = "=0.6.2"
+feathrise_editor_ui = { path = "crates/feathrise_editor_ui" }
+feathrise_editor_core = { path = "crates/feathrise_editor_core" }
+feathrise_editor_assets = { path = "crates/feathrise_editor_assets" }
+feathrise_editor_map = { path = "crates/feathrise_editor_map" }
+feathrise_editor_documents = { path = "crates/feathrise_editor_documents" }
+feathrise_editor_surface = { path = "crates/feathrise_editor_surface" }
+feathrise_editor_surface_model = { workspace = true } # 普通地表作者的保存/恢复验收使用独立测试夹具。
+feathrise_runtime = { version = "0.1.0", default-features = false, features = ["test_panel", "default_font"] }
+feathrise_settings = { version = "0.1.0" }
+feathrise_editor_protocol = { version = "0.1.0" }
+feathrise_author_tools = { version = "0.1.0" }
+feathrise_map_content = { version = "0.1.0" }
+feathrise_scene = { version = "0.1.0" }
+feathrise_portal = { version = "0.1.0" }
+feathrise_scene_core = { version = "0.1.0" } # 场景基础契约统一按模块消费。
+feathrise_fps_display = { version = "0.1.0" }
+feathrise_frame_generation = { version = "0.1.0", optional = true }
+feathrise_fsr3_frame_generation = { version = "0.1.0", optional = true }
+feathrise_project = { path = "crates/feathrise_project" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+sha2 = "=0.11.0"
+notify = "=8.2.0" # 复用已锁定的原生文件事件；源码监听不在作者帧遍历工程。
+syn = { version = "=2.0.119", features = ["full"] } # 热补丁只比较真实Rust语法树，不用文本正则猜测ABI兼容。
+quote = "=1.0.47"
+toml = { workspace = true }
+semver = "=1.0.28" # registry 来源必须是明确的发布版本，不将分支名或宽泛范围当作固定 SDK。
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_Security", "Win32_System_LibraryLoader", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Input_Ime", "Win32_UI_HiDpi", "Win32_UI_Controls", "Win32_UI_Shell"] }
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] }
+
+[target.'cfg(unix)'.dependencies]
+# 原生进程组／共享帧环及可取消的系统文件选择器；Windows仍使用现有STA与Job对象。
+libc = "=0.2.191"
+rfd = "=0.17.2"
+
+[dev-dependencies]
+feathrise_runtime = { workspace = true }
+feathrise_plugin_api = { version = "=0.1.0", features = ["reader-test-support"] }
+bevy = { version = "=0.19.1", features = ["free_camera"] } # 直接驱动新工程模板的原生相机，不在普通宿主安装控制器。
+feathrise_project = { path = "crates/feathrise_project", features = ["validation"] }
+
+[build-dependencies]
+sha2 = "=0.11.0"
+serde_json = "=1.0.154"
+# 品牌资源只属于作者宿主，不进入工程模板或 SDK 运行库。
+winresource = { version = "=0.1.31", default-features = false }
+
+[workspace]
+resolver = "3"
+members = [".", "assets/templates/empty", "crates/*"]
+default-members = ["."]
+
+# 独立编辑器有自己的 Cargo 工作区，默认只启动作者宿主；玩法在打开工程后后台构建。
+[workspace.dependencies]
+feathrise_runtime = { version = "0.1.0", default-features = false, features = ["default_font"] } # 回归使用 SDK 内嵌字体，不读取同级仓库资源。
+feathrise_plugin_api = { version = "=0.1.0" }
+feathrise_author_tools = { version = "0.1.0" } # 两端共享工具语义，不交换任意线段或ECS句柄。
+feathrise_editor_documents_model = { path = "crates/feathrise_editor_documents_model" }
+feathrise_editor_documents = { path = "crates/feathrise_editor_documents" }
+feathrise_editor_assets = { path = "crates/feathrise_editor_assets" }
+feathrise_editor_surface_model = { path = "crates/feathrise_editor_surface_model" }
+feathrise_editor_surface = { path = "crates/feathrise_editor_surface" }
+feathrise_scene_core = { version = "0.1.0" } # 场景基础契约统一按模块消费。
+
+bevy = { version = "=0.19.1", default-features = true, features = [
+    "file_watcher",
+    "bevy_ui_widgets",
+    # 工程 GLB 可能嵌入 JPEG 贴图；Bevy 未启用该 feature 时会拒绝 image/jpeg。
+    "jpeg",
+    # 工程 GLB 使用 KHR_materials_specular；开启后 Bevy 才会应用 specularTexture。
+    "pbr_specular_textures",
+] }
+
+avian3d = { version = "0.7.0", features = ["debug-plugin"] }
+
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] } # 地图编辑器回写PNG，并在后台读取常见PBR PNG/JPEG源图派生纹理数组。
+
+sha2 = "0.11.0"
+toml = "1.1.4"
+
+feathrise_fps_display = { version = "0.1.0" } # FPS 显示组件
+feathrise_grounding = { version = "0.1.0" } # 统一按 Avian 真实地形高度吸附所有地面实体
+feathrise_scene = { version = "0.1.0" } # 工程数据驱动地图、渲染与资源生命周期。
+feathrise_environment = { version = "0.1.0" } # 统一聚合GPU叶片植被、树木及灌木岩石固定景观，消费者通过feature按需启用。
+feathrise_editor_core = { path = "crates/feathrise_editor_core" } # 编辑器跨功能标签、输入和预览契约。
+feathrise_editor_ui = { path = "crates/feathrise_editor_ui" } # 编辑器 UI 库：独立暖墨主题与作者控件。
+feathrise_ui_widgets = { version = "0.1.0" } # 无主题共享控件与唯一输入状态机。
+feathrise_billboard_text = { version = "0.1.0" } # 通用离屏烘焙文字 Billboard 插件（可独立开源）
+feathrise_atmosphere = { version = "0.1.0" } # 世界时间、天体光照、天气模拟与环境表现
+feathrise_portal = { version = "0.1.0" } # 传送门系统（场景切换）
+feathrise_settings = { version = "0.1.0" } # 公共渲染请求与质量参数；编辑器偏好归自身作者库。
+feathrise_map_content = { version = "0.1.0" } # 数据驱动地图清单、私有地图文件与传送图公共资产契约。
+feathrise_map_terrain = { version = "0.1.0" } # 动态地图GLB拓扑、内存高度场与白模编码共享纯算法。
+
+# 经常修改的工作区源码保持低优化；外部依赖高优化，也避免 Windows 未优化 Bevy 动态库超出 PE 导出表上限。
+[profile.dev]
+opt-level = 0
+debug = "line-tables-only"
+strip = false
+
+# Cargo 的通配符只覆盖非工作区成员，新增作者库不需要逐包维护优化覆盖。
+[profile.dev.package."*"]
+opt-level = 3
+
+# Windows实测scene缓存静态库存在anon.*缺失定义；沿用已有局部规避，保留原256分片及优化等级。
+[profile.dev.package.feathrise_scene]
+incremental = false
+codegen-units = 256
+
+
+# 保留工程运行命令和缓存名称，优化规则统一继承 dev。
+[profile.render-dev]
+inherits = "dev"

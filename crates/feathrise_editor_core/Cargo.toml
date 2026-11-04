@@ -1,0 +1,19 @@
+# 编辑器共享标签、输入与预览契约；不依赖具体作者功能。
+[package]
+name = "feathrise_editor_core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[features]
+runtime_test_support = [] # 仅根程序开发测试启用独立作者目录，真实保存回归不写用户地图。
+
+[dependencies]
+bevy = { workspace = true }
+
+serde = { workspace = true }
+feathrise_settings = { workspace = true }
+feathrise_scene_core = { workspace = true } # 场景基础契约统一按模块消费。
+
+[dev-dependencies]
+serde_json = { workspace = true }

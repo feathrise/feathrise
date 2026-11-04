@@ -1,0 +1,9 @@
+# 构建缓存与本地验收产物；锁文件随应用源码提交。
+!Cargo.lock
+/target/
+/.cargo/local-sdk.toml
+/.local/
+**/__pycache__/
+
+# 正式品牌材料由仓外目录显式提供，不随公开源码提交。
+/build/branding/

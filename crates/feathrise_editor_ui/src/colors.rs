@@ -1,0 +1,63 @@
+//! 编辑器规范逻辑色与原版暖墨外观；可选绘制色由theme集中映射，不改变控件状态判断。
+use bevy::prelude::Color;
+
+pub const TEXT_SHADOW_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.82);
+pub const OVERLAY_BG: Color = Color::srgb(0.063, 0.059, 0.051);
+pub const SCENE_OVERLAY_BG: Color = Color::srgba(0.018, 0.016, 0.014, 0.34);
+pub const PANEL_BG: Color = Color::srgb(0.105, 0.098, 0.086);
+pub const PANEL_BG_STRONG: Color = Color::srgb(0.078, 0.073, 0.064);
+pub const PANEL_BG_SECTION: Color = Color::srgb(0.125, 0.117, 0.103);
+pub const SLOT_BG: Color = Color::srgba(0.035, 0.030, 0.024, 0.74);
+pub const SLOT_BG_FILLED: Color = Color::srgba(0.070, 0.062, 0.052, 0.94);
+pub const SLOT_BG_DISABLED: Color = Color::srgba(0.026, 0.024, 0.022, 0.62);
+pub const MODEL_PREVIEW_BG: Color = Color::srgb(0.084, 0.081, 0.075);
+pub const COPPER_BORDER: Color = Color::srgb(0.66, 0.51, 0.30);
+pub const COPPER_BORDER_WEAK: Color = Color::srgba(0.42, 0.39, 0.33, 0.35);
+pub const DANGER_BG: Color = Color::srgba(0.36, 0.070, 0.055, 0.76);
+pub const DANGER_BORDER: Color = Color::srgba(0.78, 0.28, 0.20, 0.58);
+pub const DANGER_TEXT: Color = Color::srgb(1.0, 0.86, 0.78);
+pub const TEXT_PRIMARY: Color = Color::srgb(0.89, 0.87, 0.82);
+pub const TEXT_MUTED: Color = Color::srgb(0.65, 0.62, 0.56);
+pub const TEXT_DIM: Color = Color::srgba(0.650, 0.600, 0.520, 0.48);
+pub const TEXT_HINT: Color = Color::srgb(0.56, 0.53, 0.48);
+pub const TEXT_ACCENT: Color = Color::srgb(0.83, 0.68, 0.45);
+pub const TEXT_VALUE: Color = Color::srgb(0.80, 0.78, 0.71);
+pub const TEXT_GREEN: Color = Color::srgb(0.61, 0.72, 0.42);
+// 源码按语义区分，沿用暖墨、铜金与草木色；选区和IME候选继续采用原生样式。
+pub const SYNTAX_KEY: Color = TEXT_ACCENT;
+pub const SYNTAX_KEYWORD: Color = Color::srgb(0.88, 0.65, 0.44);
+pub const SYNTAX_STRING: Color = Color::srgb(0.68, 0.77, 0.53);
+pub const SYNTAX_NUMBER: Color = Color::srgb(0.80, 0.71, 0.59);
+pub const SYNTAX_COMMENT: Color = Color::srgb(0.56, 0.59, 0.52);
+pub const SYNTAX_TYPE: Color = Color::srgb(0.70, 0.79, 0.76);
+pub const TEXT_TAB_ACTIVE: Color = TEXT_PRIMARY;
+pub const TEXT_TAB_INACTIVE: Color = TEXT_MUTED;
+pub const BUTTON_SETTINGS_HOVERED: Color = Color::srgba(0.10, 0.078, 0.052, 0.78);
+pub const BUTTON_SETTINGS_PRESSED: Color = Color::srgba(0.14, 0.10, 0.064, 0.84);
+pub const BUTTON_DEV_SMALL_NORMAL: Color = Color::srgb(0.15, 0.14, 0.12);
+pub const BUTTON_DEV_SMALL_HOVERED: Color = Color::srgb(0.20, 0.18, 0.15);
+pub const BUTTON_DEV_SMALL_PRESSED: Color = Color::srgb(0.24, 0.20, 0.15);
+pub const TAB_ACTIVE_BG: Color = Color::srgba(0.22, 0.15, 0.075, 0.76);
+pub const TAB_INACTIVE_BG: Color = SLOT_BG;
+pub const TAB_HOVERED_BG: Color = Color::srgba(0.30, 0.20, 0.095, 0.82);
+pub const TAB_PRESSED_BG: Color = Color::srgba(0.36, 0.24, 0.110, 0.88);
+pub const TAB_ACTIVE_BORDER: Color = COPPER_BORDER;
+pub const TAB_INACTIVE_BORDER: Color = COPPER_BORDER_WEAK;
+pub const INPUT_BG: Color = Color::srgba(0.030, 0.026, 0.022, 0.88);
+pub const INPUT_BORDER: Color = COPPER_BORDER_WEAK;
+pub const INPUT_ACTIVE_BG: Color = Color::srgba(0.105, 0.078, 0.050, 0.90);
+pub const INPUT_ACTIVE_BORDER: Color = COPPER_BORDER;
+pub const INPUT_DISABLED_BG: Color = SLOT_BG_DISABLED;
+pub const INPUT_DISABLED_BORDER: Color = Color::srgba(0.38, 0.30, 0.18, 0.22);
+pub const TRACK_BG: Color = INPUT_BG;
+pub const THUMB_BG: Color = Color::srgb(0.86, 0.64, 0.30);
+pub const SELECT_BG: Color = Color::srgb(0.22, 0.18, 0.125);
+pub const SELECT_BG_HOVER: Color = Color::srgb(0.27, 0.22, 0.155);
+pub const SELECT_BG_PRESSED: Color = Color::srgb(0.30, 0.25, 0.17);
+
+// 作者对话框统一使用弱边界与同一层次色；三套主题映射保留原逻辑色和透明度。
+pub const DIALOG_BG: Color = PANEL_BG_STRONG;
+pub const DIALOG_HEADER_BG: Color = PANEL_BG_SECTION;
+pub const DIALOG_BORDER: Color = COPPER_BORDER_WEAK;
+pub const DIALOG_BACKDROP: Color = Color::srgba(0.0, 0.0, 0.0, 0.45);
+pub const COMPACT_BUTTON_BG: Color = Color::srgba(0.090, 0.074, 0.056, 0.82);

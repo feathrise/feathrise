@@ -1,0 +1,17 @@
+# 地表预设私有表单、输入与后台保存；由根应用并列安装。
+[package]
+name = "feathrise_editor_surface"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bevy = { workspace = true }
+feathrise_editor_surface_model = { workspace = true }
+feathrise_editor_assets = { workspace = true }
+feathrise_editor_core = { workspace = true }
+feathrise_editor_ui = { workspace = true }
+feathrise_map_content = { workspace = true }
+image = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
