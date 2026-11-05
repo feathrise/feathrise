@@ -321,8 +321,10 @@ pub(super) fn input(
                 if let Some(path) = path {
                     match documents.expand(path.clone(), &mut workspace) {
                         Ok(()) => {
+                            let loading = documents.is_loading(&path);
                             if let Some(doc) =
                                 documents.documents.iter_mut().find(|doc| doc.path == path)
+                                    .filter(|_| !loading)
                             {
                                 doc.mode = ViewMode::Edit;
                             }

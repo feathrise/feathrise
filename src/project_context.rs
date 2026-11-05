@@ -156,7 +156,7 @@ fn validate_scene(selection: &SceneSelection, roots: usize) -> Result<(), String
                 .is_some_and(|value| {
                     value.len() == 1 && matches!(value.as_bytes()[0], b'1'..=b'9')
                 });
-        if text.len() > 255
+        if component_too_long(text)
             || text.contains([':', '#', '?'])
             || text.ends_with(['.', ' '])
             || text.chars().any(char::is_control)
@@ -198,6 +198,14 @@ fn contains_directory(parent: &Path, child: &Path) -> bool {
     child.starts_with(parent)
 }
 
+fn component_too_long(text: &str) -> bool {
+    // 单个名称遵循当前文件系统的计数单位；清单整体的字节预算仍由调用处单独约束。
+    #[cfg(windows)]
+    { text.encode_utf16().count() > 255 }
+    #[cfg(not(windows))]
+    { text.len() > 255 }
+}
+
 pub(super) fn safe_directory(root: &Path, relative: &Path) -> Result<PathBuf, String> {
     if relative.as_os_str().is_empty() || relative.components().count() > 16 {
         return Err("工程目录相对路径必须非空且最多16层".into());
@@ -208,7 +216,7 @@ pub(super) fn safe_directory(root: &Path, relative: &Path) -> Result<PathBuf, St
             return Err("工程目录必须是工程根内的相对路径，不能包含父目录跳转".into());
         };
         let text = name.to_str().ok_or("工程目录必须使用UTF-8名称")?;
-        if text.len() > 255
+        if component_too_long(text)
             || text.contains(':')
             || text.ends_with(['.', ' '])
             || text.chars().any(char::is_control)
@@ -400,5 +408,48 @@ mod tests {
             );
         }
         fs::remove_dir(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_startup_scene_names_use_utf16_component_limits() {
+        let selection = SceneSelection {
+            root: 0,
+            path: format!("{}.glb", "场".repeat(100)),
+            scene: 0,
+        };
+        assert!(selection.path.len() > 255);
+        assert!(validate_scene(&selection, 1).is_ok());
+        assert!(validate_scene(&SceneSelection {
+            path: format!("{}.glb", "😀".repeat(126)),
+            ..selection
+        }, 1).is_err(), "非BMP字符占两个UTF-16单元，仍需拒绝真实超长文件名");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_long_chinese_project_directories_can_be_resolved_and_created() {
+        let root = fixture(); // 独占创建；失败回归也只清理本次精确创建的目录。
+        let asset_name = "资".repeat(100);
+        let data_name = "作".repeat(100);
+        let id = "045f04e0-1234-4abc-8def-123456789abc";
+        let result = (|| -> Result<(Vec<PathBuf>, PathBuf), String> {
+            fs::create_dir(root.join(&asset_name)).map_err(|error| error.to_string())?;
+            let context = ProjectContext::resolve(
+                &root, id, "中文目录回归", 2,
+                Some(vec![PathBuf::from(&asset_name)]),
+                Some(PathBuf::from(&data_name)), None,
+            )?;
+            let data = context.ensure_data_directory()?;
+            Ok((context.asset_roots, data))
+        })();
+        // 不递归删除，不触碰任何共享夹具或作者工程；先清理再报告业务断言失败。
+        let _ = fs::remove_dir(root.join(&data_name).join(id));
+        let _ = fs::remove_dir(root.join(&data_name));
+        let _ = fs::remove_dir(root.join(&asset_name));
+        fs::remove_dir(&root).unwrap();
+        let (assets, data) = result.unwrap();
+        assert_eq!(assets, vec![root.join(asset_name)]);
+        assert_eq!(data, root.join(data_name).join(id));
     }
 }

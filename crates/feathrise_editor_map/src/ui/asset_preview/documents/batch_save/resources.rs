@@ -21,7 +21,7 @@ impl DocumentBatchSaveState {
         if self.running { return Ok(false); }
         let failures = self.files.iter()
             .filter(|file| file.outcome == super::types::FileOutcome::Failed)
-            .map(|file| format!("{}：{}", file.path, file.detail))
+            .map(|file| format!("{}：{}", super::super::source::display_path(&file.path), file.detail))
             .collect::<Vec<_>>();
         if failures.is_empty() { Ok(true) }
         else { Err(format!("部分文档保存失败，草稿保留：{}", failures.join("；"))) }

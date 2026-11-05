@@ -63,6 +63,35 @@ fn asset_continuous_edit_preserves_mixed_newlines_and_unicode_around_replacement
 }
 
 #[test]
+fn asset_continuous_insert_uses_dominant_newlines_and_preserves_existing_bytes() {
+    for (original, newline) in [
+        ("\u{feff}首行\n第二行\r\n第三行\r\n", "\r\n"),
+        ("\u{feff}首行\r\n第二行\n第三行\n", "\n"),
+        ("首行\r\n第二行\n", "\r\n"),
+        ("首行\n第二行\r\n", "\n"),
+        ("只有一行", "\n"),
+    ] {
+        let fixture = Fixture::new();
+        fixture.write(original);
+        let mut app = app(&fixture);
+        let source = app.world().resource::<DocumentState>().current().unwrap().source_text().to_owned();
+        {
+            let mut state = app.world_mut().resource_mut::<DocumentState>();
+            state.current_mut().unwrap().edit(&format!("{source}新增行\n"));
+            assert_eq!(std::fs::read_to_string(fixture.root.join("说明.md")).unwrap(), original);
+            state.request_save();
+        }
+        settle(&mut app);
+        let expected = format!("{original}新增行{newline}");
+        assert_eq!(std::fs::read_to_string(fixture.root.join("说明.md")).unwrap(), expected);
+        assert!(!app.world().resource::<DocumentState>().current().unwrap().dirty());
+        let reopened = fixture.document();
+        assert_eq!(reopened.source_text(), expected.trim_start_matches('\u{feff}').replace("\r\n", "\n"));
+        assert_eq!(reopened.pages.concat(), expected.trim_start_matches('\u{feff}'));
+    }
+}
+
+#[test]
 fn asset_continuous_preview_builds_with_a_fixed_budget_and_retires_old_tree() {
     let fixture = Fixture::new();
     let source = format!("{}最后一行", "连续正文\n".repeat(5_000));

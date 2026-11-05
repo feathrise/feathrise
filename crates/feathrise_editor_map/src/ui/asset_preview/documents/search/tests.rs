@@ -27,16 +27,21 @@ use std::{
 };
 
 static COUNT: AtomicU64 = AtomicU64::new(0);
-pub(super) struct Fixture(pub(super) PathBuf);
+pub(super) struct Fixture(pub(super) PathBuf, PathBuf, String);
 impl Fixture {
     pub(super) fn new() -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "rpg-asset-search-{}-{}",
+        let parent = std::env::temp_dir().canonicalize().unwrap();
+        let owner = format!(
+            "rpg-asset-search-{}-{}-{}",
             std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
             COUNT.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        Self(root)
+        );
+        let root = parent.join(&owner);
+        std::fs::create_dir(&root).unwrap(); // 独占目录保护旧现场，不复用PID碰撞或崩溃残留。
+        let root = root.canonicalize().unwrap();
+        std::fs::write(root.join(".feathrise-test-owner"), &owner).unwrap();
+        Self(root, parent, owner)
     }
     pub(super) fn write(&self, path: &str, text: impl AsRef<[u8]>) {
         let target = self.0.join(path);
@@ -83,7 +88,14 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        // 只有解析后仍位于临时父根、且持有本轮标记的原绝对目录可以递归删除。
+        if self.0.is_absolute()
+            && self.0.parent() == Some(self.1.as_path())
+            && self.0.canonicalize().ok().as_ref() == Some(&self.0)
+            && std::fs::read_to_string(self.0.join(".feathrise-test-owner")).ok().as_deref() == Some(self.2.as_str())
+        {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
     }
 }
 
@@ -225,6 +237,30 @@ fn cross_file_worker_uses_unsaved_draft_instead_of_disk_and_checks_read_limits()
 }
 
 #[test]
+fn cross_file_worker_ignores_project_source_drafts_outside_asset_scope() {
+    let assets = Fixture::new();
+    assets.write("a.txt", "长剑资产");
+    let project = Fixture::new();
+    project.write("src/main.rs", "// 长剑源码");
+    let mut code = project.doc("src/main.rs");
+    code.path = "project://src/main.rs".into();
+    code.edit("// 长剑源码草稿");
+    let mut request = assets.request("长剑");
+    request.drafts.push(Draft {
+        stamp: DraftStamp { key: code.source_key(), revision: code.revision },
+        text: code.source.clone(),
+        dirty: code.dirty(),
+    });
+    let result = search(request);
+    assert_eq!(result.hits, 1, "资产查询不能混入工程源码草稿");
+    assert_eq!(result.scanned, 1);
+    assert!(result.drafts.is_empty());
+    assert_eq!(result.files.len(), 1);
+    assert_eq!(result.files[0].path, "a.txt");
+    assert_eq!(std::fs::read_to_string(project.0.join("src/main.rs")).unwrap(), "// 长剑源码");
+}
+
+#[test]
 fn cross_file_worker_rejects_outside_scope_and_reports_cancellation_and_result_cap() {
     let fixture = Fixture::new();
     fixture.write("a.txt", "x".repeat(MAX_HITS + 5));
@@ -267,6 +303,53 @@ pub(super) fn control_app(fixture: &Fixture) -> (App, Entity) {
     text.editor.set_text("长剑");
     let field = app.world_mut().spawn((SearchField::Query, text)).id();
     (app, field)
+}
+
+#[test]
+fn cross_file_asset_queries_ignore_project_drafts_when_snapshotting_and_invalidating() {
+    let assets = Fixture::new();
+    assets.write("a.txt", "长剑资产");
+    let project = Fixture::new();
+    project.write("src/main.rs", "// 长剑源码");
+    let mut code = project.doc("src/main.rs");
+    code.path = "project://src/main.rs".into();
+    code.edit("// 长剑源码草稿");
+    let (mut app, _) = control_app(&assets);
+    app.world_mut().resource_mut::<MapEditorSidebarState>().navigator = EditorNavigatorTab::Assets;
+    app.world_mut().resource_mut::<DocumentState>().documents = vec![assets.doc("a.txt"), code];
+    {
+        let mut state = app.world_mut().resource_mut::<AssetSearchState>();
+        state.open = true;
+        state.query = "长剑".into();
+    }
+    let submit = app.world_mut().spawn((SearchAction::Submit, feathrise_editor_ui::EditorButtonClick::triggered())).id();
+    app.update();
+    app.world_mut().get_mut::<feathrise_editor_ui::EditorButtonClick>(submit).unwrap().invalidate();
+    let ticket = app.world().resource::<AssetSearchState>().ticket;
+    let drafts = &app.world().resource::<AssetSearchState>().running.as_ref().unwrap().drafts;
+    assert_eq!(drafts.len(), 1, "资产查询快照只包含资产会话");
+    assert_eq!(drafts[0].stamp.key.path, "a.txt");
+    app.world_mut().resource_mut::<DocumentState>().documents[1].edit("// 在途查询期间修改源码");
+    for _ in 0..2000 {
+        app.update();
+        let state = app.world().resource::<AssetSearchState>();
+        assert_eq!(state.ticket, ticket, "源码草稿变更不能取消资产查询");
+        if state.current().is_some() { break; }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    let result = app.world().resource::<AssetSearchState>().current().unwrap();
+    assert_eq!(result.files.len(), 1);
+    app.world_mut().resource_mut::<DocumentState>().documents[1].edit("// 查询完成后修改源码");
+    app.update();
+    assert_eq!(app.world().resource::<AssetSearchState>().ticket, ticket);
+    assert!(app.world().resource::<AssetSearchState>().current().is_some());
+
+    app.world_mut().resource_mut::<AssetSearchState>().request_references("models/sword.glb".into(), assets.0.clone());
+    app.update();
+    let state = app.world().resource::<AssetSearchState>();
+    let drafts = &state.running.as_ref().unwrap().drafts;
+    assert_eq!(drafts.len(), 1, "资产引用查询也不能冻结工程源码草稿");
+    assert_eq!(drafts[0].stamp.key.path, "a.txt");
 }
 
 #[test]

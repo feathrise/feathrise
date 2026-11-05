@@ -625,8 +625,12 @@ fn stage_inner(
             if old.is_none() && replace {
                 return Err("此安装范围未安装该插件，请使用安装".into());
             }
+            // 旧目录和继承行本身不占本范围单文件名额；挂在其上的本范围Install仍须预留一个槽位。
             if old.is_none()
-                && current.entries.iter().filter(|e| !e.inherited).count() >= MAX_PLUGINS
+                && current.entries.iter().filter(|entry| {
+                    (!entry.inherited && !entry.legacy)
+                        || entry.pending.as_ref().is_some_and(|pending| pending.kind == PendingKind::Install)
+                }).count() >= MAX_PLUGINS
             {
                 return Err("每个安装范围最多安装16个原生插件".into());
             }
@@ -1336,6 +1340,11 @@ fn read_settings(store: &Store) -> Result<Settings, String> {
         });
     }
     let value: Settings = read_json(&path, MAX_JSON)?;
+    validate_settings(&value)?;
+    Ok(value)
+}
+/// 读取与发布共用上限，避免失败操作先写出第257个ID，再令整个范围的配置无法读回。
+fn validate_settings(value: &Settings) -> Result<(), String> {
     if value.format != 1
         || value.disabled.len() > MAX_ENTRIES
         || value.disabled.iter().any(|id| !valid_id(id))
@@ -1344,7 +1353,7 @@ fn read_settings(store: &Store) -> Result<Settings, String> {
     {
         return Err("插件启停配置无效".into());
     }
-    Ok(value)
+    Ok(())
 }
 fn empty_journal(scope: PluginScope) -> Journal {
     Journal {
@@ -1370,8 +1379,16 @@ fn read_journal(store: &Store) -> Result<JournalRead, String> {
     }
     let journal: Journal =
         serde_json::from_value(value).map_err(|e| format!("插件待生效日志无效：{e}"))?;
+    validate_journal(&journal, store.scope)?;
+    Ok(JournalRead {
+        journal,
+        legacy: None,
+    })
+}
+/// 继承项和本地项共用工程计划预算；写入前拒绝超限，不能破坏此前已登记的合法计划。
+fn validate_journal(journal: &Journal, scope: PluginScope) -> Result<(), String> {
     if journal.format != JOURNAL_FORMAT
-        || journal.scope != store.scope
+        || journal.scope != scope
         || journal.changes.len() > MAX_PLUGINS
     {
         return Err("插件待生效日志格式、范围或数量无效".into());
@@ -1382,10 +1399,7 @@ fn read_journal(store: &Store) -> Result<JournalRead, String> {
             return Err("待生效插件身份与记录不一致".into());
         }
     }
-    Ok(JournalRead {
-        journal,
-        legacy: None,
-    })
+    Ok(())
 }
 fn read_index(store: &Store) -> Result<GlobalIndex, String> {
     if store.scope != PluginScope::Global {
@@ -1417,9 +1431,11 @@ fn write_index(store: &Store, index: &GlobalIndex) -> Result<(), String> {
     write_json(&store.plugins, "index.json", index)
 }
 fn write_settings(store: &Store, settings: &Settings) -> Result<(), String> {
+    validate_settings(settings)?;
     write_json(&store.manager, "state.json", settings)
 }
 fn write_journal(store: &Store, journal: &Journal) -> Result<(), String> {
+    validate_journal(journal, store.scope)?;
     write_json(&store.manager, "pending.json", journal)
 }
 fn write_receipt(store: &Store, record: &PendingRecord) -> Result<(), String> {

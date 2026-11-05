@@ -16,6 +16,7 @@ pub(crate) struct DocumentState {
     pub(super) central_active: bool,
     pub(super) documents: Vec<Document>,
     pub(super) pending_load: Option<LoadRequest>,
+    pub(super) loading: Option<LoadRequest>, // 唯一IO槽中真实读取的目标；保存和外部核对不能误禁编辑。
     pub(super) load_ticket: u64,
     pub(super) io: Option<Task<IoResult>>,
     pub(super) saving: Option<String>,
@@ -41,6 +42,7 @@ impl Default for DocumentState {
             central_active: false,
             documents: Vec::new(),
             pending_load: None,
+            loading: None,
             load_ticket: 0,
             io: None,
             saving: None,
@@ -56,6 +58,12 @@ impl Default for DocumentState {
 }
 
 impl DocumentState {
+    /// 只冻结仍可能采用的重载目标；切标签失效的旧票据不阻止其他会话继续编辑。
+    pub(super) fn is_loading(&self, path: &str) -> bool {
+        self.pending_load.iter().chain(self.loading.iter())
+            .any(|request| request.ticket == self.load_ticket && request.path == path)
+    }
+
     /// 只等待显式写入和保存前校验，不把只读加载/语法诊断或未保存草稿当作保存。
     pub(crate) fn saved_play_pending(&self) -> bool {
         self.saving.is_some() || !self.saving_batch.is_empty() || self.json.saved_play_pending()

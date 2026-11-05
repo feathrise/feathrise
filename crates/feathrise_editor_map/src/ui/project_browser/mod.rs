@@ -26,6 +26,13 @@ pub(crate) struct ProjectBrowserTaskSet;
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ProjectBrowserRoutingSet;
 
+/// 文档等独立GPU夹具复用正式来源显隐，避免只建左栏却把真正的资产正文留在隐藏状态。
+#[cfg(test)]
+pub(crate) fn install_asset_view_for_tests(app: &mut App) {
+    app.insert_resource(ProjectBrowserState { view: ProjectBrowserView::Assets, ..default() })
+        .add_systems(Update, presentation::views.in_set(crate::MapEditorSystemSet::Presentation));
+}
+
 pub(crate) fn install(app: &mut App) {
     use crate::{MapEditorSystemSet, asset_catalog::project_files};
     app.init_resource::<ProjectBrowserState>()

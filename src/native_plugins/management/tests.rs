@@ -808,6 +808,127 @@ fn legacy_directory_does_not_load_but_new_same_id_file_takes_over_without_deleti
 }
 
 #[test]
+fn sixteen_legacy_directories_do_not_block_same_id_single_file_migration() {
+    let f = Fixture::new();
+    let mut originals = Vec::new();
+    for index in 0..16 {
+        let legacy = f.project().join("plugins").join(format!("legacy-{index}"));
+        fs::create_dir_all(&legacy).unwrap();
+        let manifest = serde_json::to_vec_pretty(&serde_json::json!({
+            "format": 1, "id": format!("fixture.legacy-{index}"), "tool": "旧格式迁移夹具",
+        })).unwrap();
+        for (name, bytes) in [
+            ("plugin.json", manifest),
+            ("old.dll", format!("preserved-old-binary-{index}").into_bytes()),
+            ("author-note.txt", format!("preserved-author-note-{index}").into_bytes()),
+        ] {
+            let path = legacy.join(name);
+            fs::write(&path, &bytes).unwrap();
+            originals.push((path, bytes));
+        }
+    }
+    let before = f.catalog(PluginScope::Project);
+    assert_eq!(before.entries.len(), 16);
+    assert!(before.entries.iter().all(|entry| entry.legacy));
+    let source = f.package("migrated", "fixture.legacy-0", "1.0.0");
+    let new_bytes = fs::read(&source).unwrap();
+    // 旧目录不参与有效插件预算；迁移必须通过原安装及重开事务，不能靠先归档旧包腾出槽位。
+    let staged = packages::stage_at(&f.roots, PluginScope::Project, ManagementCommand::Install {
+        source, replace: false,
+    });
+    assert!(staged.is_ok(), "16个旧目录中仍应允许同ID新单文件接管：{staged:?}");
+    assert!(!f.installed("fixture.legacy-0").exists());
+    f.apply();
+    let catalog = f.catalog(PluginScope::Project);
+    let migrated = catalog.entries.iter().find(|entry| entry.id == "fixture.legacy-0").unwrap();
+    assert!(!migrated.legacy && migrated.error.is_none() && migrated.enabled && migrated.pending.is_none());
+    assert_eq!(catalog.entries.iter().filter(|entry| !entry.legacy).count(), 1);
+    assert_eq!(fs::read(f.installed("fixture.legacy-0")).unwrap(), new_bytes);
+    for (path, bytes) in originals {
+        assert_eq!(fs::read(&path).unwrap(), bytes, "迁移不得改写或删除旧包文件：{}", path.display());
+    }
+    assert_eq!(fs::read(f.project().join("assets/author.txt")).unwrap(), b"author-data-must-survive");
+}
+
+#[test]
+fn sixteen_single_file_plugins_still_reject_a_seventeenth_install() {
+    let f = Fixture::new();
+    let mut originals = Vec::new();
+    for index in 0..16 {
+        let id = format!("fixture.current-{index}");
+        f.install(PluginScope::Project, &format!("current-{index}"), &id, "1.0.0");
+        let path = f.installed(&id);
+        originals.push((path.clone(), fs::read(path).unwrap()));
+    }
+    let pending = f.manager(PluginScope::Project).join("pending.json");
+    let before = fs::read(&pending).unwrap();
+    // 排除旧目录不能放宽真实单文件上限，失败必须保留原16个插件和原日志。
+    let result = packages::stage_at(&f.roots, PluginScope::Project, ManagementCommand::Install {
+        source: f.package("overflow", "fixture.overflow", "1.0.0"), replace: false,
+    });
+    assert!(result.unwrap_err().contains("最多安装16个"));
+    assert_eq!(fs::read(&pending).unwrap(), before);
+    assert!(!f.installed("fixture.overflow").exists());
+    let catalog = f.catalog(PluginScope::Project);
+    assert_eq!(catalog.entries.len(), 16);
+    assert!(catalog.entries.iter().all(|entry| !entry.legacy && entry.error.is_none() && entry.pending.is_none()));
+    for (path, bytes) in originals {
+        assert_eq!(fs::read(path).unwrap(), bytes);
+    }
+    assert_eq!(fs::read(f.project().join("assets/author.txt")).unwrap(), b"author-data-must-survive");
+}
+
+#[test]
+fn pending_install_on_legacy_or_inherited_row_reserves_the_last_single_file_slot() {
+    for inherited in [false, true] {
+        let f = Fixture::new();
+        let mut originals = Vec::new();
+        for index in 0..15 {
+            let id = format!("fixture.current-{index}");
+            f.install(PluginScope::Project, &format!("current-{index}"), &id, "1.0.0");
+            let path = f.installed(&id);
+            originals.push((path.clone(), fs::read(path).unwrap()));
+        }
+        if inherited {
+            f.install(PluginScope::Global, "global", "fixture.legacy", "1.0.0");
+            let path = f.global_path("fixture.legacy");
+            originals.push((path.clone(), fs::read(path).unwrap()));
+        } else {
+            let legacy = legacy_package(&f);
+            for name in ["plugin.json", "old.dll"] {
+                let path = legacy.join(name);
+                originals.push((path.clone(), fs::read(path).unwrap()));
+            }
+        }
+        let source = f.package("local", "fixture.legacy", "2.0.0");
+        let new_bytes = fs::read(&source).unwrap();
+        // 同ID计划沿用旧目录或继承行展示；行标志不能让已登记的本地Install绕过16个名额。
+        let catalog = f.stage(PluginScope::Project, ManagementCommand::Install { source, replace: false });
+        assert_eq!(catalog.entries.iter().filter(|entry| entry.pending.as_ref()
+            .is_some_and(|pending| pending.kind == PendingKind::Install)).count(), 1);
+        let pending = f.manager(PluginScope::Project).join("pending.json");
+        let before = fs::read(&pending).unwrap();
+        let overflow = packages::stage_at(&f.roots, PluginScope::Project, ManagementCommand::Install {
+            source: f.package("overflow", "fixture.overflow", "1.0.0"), replace: false,
+        });
+        assert!(overflow.unwrap_err().contains("最多安装16个"), "待安装须预留最后一个名额：inherited={inherited}");
+        assert_eq!(fs::read(&pending).unwrap(), before, "拒绝溢出不能改写原迁移计划");
+        assert!(!f.installed("fixture.overflow").exists());
+        f.apply();
+        let catalog = f.catalog(PluginScope::Project);
+        assert_eq!(catalog.entries.len(), 16);
+        assert!(catalog.entries.iter().all(|entry| !entry.inherited && !entry.legacy
+            && entry.error.is_none() && entry.pending.is_none()));
+        assert_eq!(fs::read(f.installed("fixture.legacy")).unwrap(), new_bytes);
+        assert!(f.journal(PluginScope::Project).changes.is_empty());
+        for (path, bytes) in originals {
+            assert_eq!(fs::read(&path).unwrap(), bytes, "原文件必须保持：{}", path.display());
+        }
+        assert_eq!(fs::read(f.project().join("assets/author.txt")).unwrap(), b"author-data-must-survive");
+    }
+}
+
+#[test]
 fn legacy_pending_is_never_executed_and_cancel_archives_journal_without_cleaning_old_files() {
     let f = Fixture::new();
     let manager = f.manager(PluginScope::Project);
@@ -990,6 +1111,37 @@ fn inherited_disable_survives_same_reopen_global_upgrade_or_removal_and_future_r
 }
 
 #[test]
+fn project_pending_limit_rejects_inherited_overflow_before_publishing_journal() {
+    let f = Fixture::new();
+    for index in 0..16 {
+        let id = format!("fixture.global-{index}");
+        f.install(PluginScope::Global, &format!("global-{index}"), &id, "1.0.0");
+    }
+    f.install(PluginScope::Project, "local", "fixture.local", "1.0.0");
+    assert_eq!(f.catalog(PluginScope::Project).entries.len(), 17);
+    for index in 0..16 {
+        f.stage(PluginScope::Project, enable(&format!("fixture.global-{index}"), false));
+    }
+    let pending = f.manager(PluginScope::Project).join("pending.json");
+    let before = fs::read(&pending).unwrap();
+    assert_eq!(f.journal(PluginScope::Project).changes.len(), 16);
+    // 继承项和本地项共享工程计划预算；拒绝第17条前不能先发布一份自身都无法读取的日志。
+    let result = packages::stage_at(&f.roots, PluginScope::Project, enable("fixture.local", false));
+    assert!(result.is_err(), "超过16条的计划必须在写入前拒绝");
+    assert_eq!(fs::read(&pending).unwrap(), before, "失败请求不得破坏前16条有效计划的原始日志");
+    let catalog = f.catalog(PluginScope::Project);
+    assert_eq!(catalog.entries.iter().filter(|entry| entry.pending.is_some()).count(), 16);
+    assert!(catalog.entries.iter().find(|entry| entry.id == "fixture.local").unwrap().pending.is_none());
+    f.apply();
+    let catalog = f.catalog(PluginScope::Project);
+    assert!(catalog.entries.iter().all(|entry| entry.pending.is_none()));
+    assert!(catalog.entries.iter().filter(|entry| entry.inherited).all(|entry| !entry.enabled));
+    assert!(catalog.entries.iter().find(|entry| entry.id == "fixture.local").unwrap().enabled);
+    assert!(f.catalog(PluginScope::Global).entries.iter().all(|entry| entry.enabled));
+    assert_eq!(fs::read(f.project().join("assets/author.txt")).unwrap(), b"author-data-must-survive");
+}
+
+#[test]
 fn explicit_inherited_disablement_survives_local_install_enablement_and_removal() {
     let f = Fixture::new();
     f.install(PluginScope::Global, "global", "fixture.tool", "1.0.0");
@@ -1090,4 +1242,70 @@ fn enablement_receipt_failure_restores_both_local_and_inherited_preferences() {
         assert!(f.catalog(PluginScope::Project).entries[0].enabled);
         assert!(f.catalog(PluginScope::Global).entries[0].enabled);
     }
+}
+
+#[test]
+fn enablement_settings_limits_reject_overflow_without_corrupting_existing_preferences() {
+    for (scope, inherited) in [
+        (PluginScope::Project, false),
+        (PluginScope::Project, true),
+        (PluginScope::Global, false),
+    ] {
+        let f = Fixture::new();
+        f.install(if inherited { PluginScope::Global } else { scope }, "current", "fixture.current", "1.0.0");
+        let manager = f.manager(scope);
+        fs::create_dir_all(&manager).unwrap();
+        let mut settings = Settings { format: 1, ..Default::default() };
+        let disabled = if inherited { &mut settings.inherited_disabled } else { &mut settings.disabled };
+        // 历史禁用ID在移除插件后仍保留；256条是生产读取器接受的合法上界，不构造非法状态。
+        disabled.extend((0..256).map(|index| format!("fixture.retired-{index}")));
+        let before = serde_json::to_vec_pretty(&settings).unwrap();
+        let state = manager.join("state.json");
+        fs::write(&state, &before).unwrap();
+        assert!(f.catalog(scope).entries[0].enabled);
+        f.stage(scope, enable("fixture.current", false));
+        let warnings = packages::apply_pending_with_roots(&f.roots);
+        assert!(fs::read(&state).unwrap() == before,
+            "第257个禁用ID不得先写坏合法偏好：{scope:?}/{inherited}/{warnings:?}");
+        assert!(!warnings.is_empty(), "超出偏好预算必须报告实际失败");
+        assert!(f.journal(scope).changes.contains_key("fixture.current"), "失败后保留原计划供重试或撤销");
+        let catalog = f.catalog(scope);
+        assert!(catalog.entries[0].enabled && catalog.entries[0].pending.is_some());
+        assert_eq!(fs::read(f.project().join("assets/author.txt")).unwrap(), b"author-data-must-survive");
+    }
+}
+
+#[test]
+fn overflow_disable_keeps_its_plan_while_later_enable_commits_and_allows_retry() {
+    let f = Fixture::new();
+    f.install(PluginScope::Project, "current", "fixture.a-current", "1.0.0");
+    f.install(PluginScope::Project, "disabled", "fixture.z-disabled", "1.0.0");
+    let mut settings = Settings { format: 1, ..Default::default() };
+    settings.disabled.extend((0..255).map(|index| format!("fixture.retired-{index}")));
+    settings.disabled.insert("fixture.z-disabled".into());
+    let state = f.manager(PluginScope::Project).join("state.json");
+    fs::write(&state, serde_json::to_vec_pretty(&settings).unwrap()).unwrap();
+    let catalog = f.catalog(PluginScope::Project);
+    assert!(catalog.entries.iter().find(|entry| entry.id == "fixture.a-current").unwrap().enabled);
+    assert!(!catalog.entries.iter().find(|entry| entry.id == "fixture.z-disabled").unwrap().enabled);
+    // BTreeMap先处理停用，再处理启用；失败候选不能借后续成功计划一起落盘。
+    f.stage(PluginScope::Project, enable("fixture.a-current", false));
+    f.stage(PluginScope::Project, enable("fixture.z-disabled", true));
+    let warnings = packages::apply_pending_with_roots(&f.roots);
+    assert_eq!(warnings.len(), 1, "仅第一个超限计划失败，后续合法启用仍须执行：{warnings:?}");
+    let written: Settings = serde_json::from_slice(&fs::read(&state).unwrap()).unwrap();
+    settings.disabled.remove("fixture.z-disabled");
+    assert_eq!(written.disabled, settings.disabled, "不得夹带此前失败的停用意图");
+    assert_eq!(written.inherited_disabled, settings.inherited_disabled);
+    let journal = f.journal(PluginScope::Project);
+    assert_eq!(journal.changes.len(), 1);
+    assert!(journal.changes.contains_key("fixture.a-current"));
+    assert!(f.catalog(PluginScope::Project).entries.iter().all(|entry| entry.enabled));
+    // 合法启用已经释放一个偏好槽位，下一次原事务重试才允许采用之前失败的停用。
+    f.apply();
+    let catalog = f.catalog(PluginScope::Project);
+    assert!(catalog.entries.iter().all(|entry| entry.pending.is_none()));
+    assert!(!catalog.entries.iter().find(|entry| entry.id == "fixture.a-current").unwrap().enabled);
+    assert!(catalog.entries.iter().find(|entry| entry.id == "fixture.z-disabled").unwrap().enabled);
+    assert_eq!(fs::read(f.project().join("assets/author.txt")).unwrap(), b"author-data-must-survive");
 }

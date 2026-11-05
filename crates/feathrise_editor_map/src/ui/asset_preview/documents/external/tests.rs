@@ -112,7 +112,7 @@ fn external_refresh_preserves_newly_queued_selection_load_and_uses_a_fresh_sourc
     let fixture = Fixture::new(); let mut state = fixture.state();
     state.load_ticket = 0; // 缓存/测试会话代次也必须比刷新票据旧。
     fixture.write("更新"); let reply = check(&state);
-    state.pending_load = Some(LoadRequest { path: "下一篇.md".into(), ticket: 2 });
+    state.pending_load = Some(LoadRequest { path: "下一篇.md".into(), ticket: 2, expected_document: None });
     systems::adopt(&mut state, reply);
     assert!(state.current().unwrap().generation > 1);
     assert_eq!(state.pending_load.as_ref().unwrap().path, "下一篇.md");
@@ -154,7 +154,7 @@ fn external_check_keeps_single_io_slot_and_explicit_load_priority() {
     systems::drive(&mut state, false);
     assert!(state.external.requested && state.io.is_some());
     state.io = None;
-    state.pending_load = Some(LoadRequest { path: "下一篇.md".into(), ticket: 2 });
+    state.pending_load = Some(LoadRequest { path: "下一篇.md".into(), ticket: 2, expected_document: None });
     systems::drive(&mut state, false);
     assert!(state.external.requested && state.io.is_none());
     state.pending_load = None;

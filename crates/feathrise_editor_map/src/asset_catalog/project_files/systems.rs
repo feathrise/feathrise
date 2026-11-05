@@ -68,6 +68,8 @@ pub(super) fn adopt(catalog: &mut EditorProjectFileCatalog, completed: ScanResul
             catalog.feedback = Some(AssetCatalogFeedback { revision: request.revision, result: Ok(()) });
         }
         Err(error) => {
+            // 失败仍显示最后采用的目录；后续刷新/筛选必须从该目录恢复，不能反复扫描失败目标。
+            catalog.requested_folder = catalog.current_folder.clone();
             catalog.feedback = Some(AssetCatalogFeedback { revision: request.revision, result: Err(error) });
         }
     }

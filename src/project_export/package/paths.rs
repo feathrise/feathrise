@@ -23,7 +23,8 @@ pub(super) fn relative(path: &Path) -> Result<(), String> {
         let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
             || stem.strip_prefix("COM").or_else(|| stem.strip_prefix("LPT"))
                 .is_some_and(|value| value.len() == 1 && matches!(value.as_bytes()[0], b'1'..=b'9'));
-        if name.len() > 255 || name.contains([':', '<', '>', '"', '|', '?', '*'])
+        // Windows 的单个文件名预算按 UTF-16 单元计算，不能把合法中文名按 UTF-8 字节误判超长。
+        if name.encode_utf16().count() > 255 || name.contains([':', '<', '>', '"', '|', '?', '*'])
             || name.ends_with(['.', ' ']) || name.chars().any(char::is_control) || device {
             return Err("导出路径包含不安全的Windows名称".into());
         }
@@ -54,7 +55,7 @@ pub(super) fn contains(root: &Path, path: &Path) -> bool {
             (None, _) => return true,
             (Some(left), Some(right)) => {
                 #[cfg(windows)]
-                let equal = left.as_os_str().to_string_lossy().eq_ignore_ascii_case(&right.as_os_str().to_string_lossy());
+                let equal = windows_component_equal(left.as_os_str(), right.as_os_str());
                 #[cfg(not(windows))]
                 let equal = left == right;
                 if !equal { return false; }
@@ -62,6 +63,23 @@ pub(super) fn contains(root: &Path, path: &Path) -> bool {
             _ => return false,
         }
     }
+}
+
+#[cfg(windows)]
+fn windows_component_equal(left: &std::ffi::OsStr, right: &std::ffi::OsStr) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    const CSTR_EQUAL: i32 = 2;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CompareStringOrdinal(left: *const u16, left_len: i32, right: *const u16, right_len: i32, ignore_case: i32) -> i32;
+    }
+    if left == right { return true; }
+    let left: Vec<_> = left.encode_wide().collect();
+    let right: Vec<_> = right.encode_wide().collect();
+    let (Ok(left_len), Ok(right_len)) = (i32::try_from(left.len()), i32::try_from(right.len())) else { return false; };
+    // Windows序数大小写规则覆盖Ä/ä等同一目录名；仅比较ASCII会把空资产根误当作可发布目标。
+    // 缓冲区在调用期间保持有效，并显式传入UTF-16长度；仅CSTR_EQUAL表示相同，不能接受排序结果。
+    unsafe { CompareStringOrdinal(left.as_ptr(), left_len, right.as_ptr(), right_len, 1) == CSTR_EQUAL }
 }
 
 fn overlaps(left: &Path, right: &Path) -> bool { contains(left, right) || contains(right, left) }

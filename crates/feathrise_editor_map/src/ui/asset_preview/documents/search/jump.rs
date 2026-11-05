@@ -48,6 +48,9 @@ pub(super) fn prepare(
         state.jump = None;
         return;
     }
+    if documents.is_loading(&jump.path) {
+        return; // 保留定位意图，载入成功后再校验新正文；不得把待丢弃的旧正文切回编辑。
+    }
     let Some(doc) = documents.current_mut().filter(|doc| doc.path == jump.path) else {
         if !documents.error.is_empty() {
             state.hint = documents.error.clone();

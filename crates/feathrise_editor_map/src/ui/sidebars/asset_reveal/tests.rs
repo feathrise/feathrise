@@ -7,6 +7,10 @@ use feathrise_map_content::MapAssetKind; // 使用正式资产分类。 // 真�
 
 /// 构造一个已滚到预览区、目标文件位于上方的资产页。
 fn fixture(scale: f32) -> (App, Entity) {
+    fixture_with_navigation_shell(scale, false)
+}
+
+fn fixture_with_navigation_shell(scale: f32, with_shell: bool) -> (App, Entity) {
     let mut catalog = EditorAssetCatalog::default(); // 目录IO槽保持空闲。
     catalog.entries.push(EditorAssetEntry {
         asset_path: "models/tree.glb".to_owned(), // 与selected_asset完整路径相同。
@@ -28,6 +32,20 @@ fn fixture(scale: f32) -> (App, Entity) {
         .insert_resource(sidebar)
         .insert_resource(crate::ui::project_browser::ProjectBrowserState { view: crate::ui::project_browser::ProjectBrowserView::Assets, ..default() })
         .add_systems(Update, sync_asset_reveal_scroll); // 使用真实Query与Local去重。
+    if with_shell {
+        // 正式外壳先于资产正文生成；Node自动附带ScrollPosition，但裁切外壳不是滚动宿主。
+        app.world_mut().spawn((
+            MapEditorSidebarPage(EditorSidebarTab::Navigator(EditorNavigatorTab::Assets)),
+            Node { overflow: Overflow::clip(), ..default() },
+            ComputedNode {
+                size: Vec2::new(300.0, 200.0) * scale,
+                content_size: Vec2::new(300.0, 200.0) * scale,
+                inverse_scale_factor: scale.recip(),
+                ..default()
+            },
+            UiGlobalTransform::from(Affine2::from_translation(Vec2::new(150.0, 200.0) * scale)),
+        ));
+    }
     let page = app
         .world_mut()
         .spawn((
@@ -68,6 +86,58 @@ fn reveal_scroll_handles_ui_scale_and_runs_only_once() {
         app.world_mut().get_mut::<ScrollPosition>(page).unwrap().y = 140.0; // 作者自行滚回预览区。
         app.update(); // 同一revision不能抢回滚动。
         assert_eq!(app.world().get::<ScrollPosition>(page).unwrap().y, 140.0); // 新的手动操作优先。
+    }
+}
+
+#[test]
+fn reveal_scroll_targets_asset_content_when_navigation_shell_coexists() {
+    for scale in [1.0, 1.5, 2.0] {
+        let (mut app, page) = fixture_with_navigation_shell(scale, true);
+        app.update();
+        assert_eq!(app.world().get::<ScrollPosition>(page).unwrap().y, 0.0,
+            "正式资产正文必须接收一次性定位，不能由带旧页标记的裁切外壳消费");
+        let world = app.world_mut();
+        let shell = world.query_filtered::<&ScrollPosition, With<MapEditorSidebarPage>>().single(world).unwrap();
+        assert_eq!(shell.y, 0.0, "外层导航页不是资产滚动宿主");
+    }
+}
+
+#[test]
+fn reveal_scroll_uses_legacy_page_only_when_asset_content_is_absent() {
+    for scale in [1.0, 1.5, 2.0] {
+        let (mut app, page) = fixture(scale);
+        app.world_mut().entity_mut(page)
+            .remove::<crate::ui::project_browser::ProjectBrowserContent>()
+            .insert(MapEditorSidebarPage(EditorSidebarTab::Navigator(EditorNavigatorTab::Assets)));
+        app.update();
+        assert_eq!(app.world().get::<ScrollPosition>(page).unwrap().y, 0.0,
+            "没有独立资产正文的旧布局仍须完成原定位");
+    }
+}
+
+#[test]
+fn reveal_scroll_waits_for_hidden_or_unlaid_asset_content_without_consuming_on_shell() {
+    for scale in [1.0, 1.5, 2.0] {
+        for zero_layout in [false, true] {
+            let (mut app, page) = fixture_with_navigation_shell(scale, true);
+            if zero_layout {
+                app.world_mut().get_mut::<ComputedNode>(page).unwrap().size.y = 0.0;
+            } else {
+                app.world_mut().get_mut::<Node>(page).unwrap().display = Display::None;
+            }
+            app.update();
+            assert_eq!(app.world().get::<ScrollPosition>(page).unwrap().y, 250.0,
+                "正文未形成可见布局时先保留当前滚动");
+            // 只恢复实际布局可用状态，不重新请求或修改定位票据；同一意图必须仍能收口。
+            if zero_layout {
+                app.world_mut().get_mut::<ComputedNode>(page).unwrap().size.y = 200.0 * scale;
+            } else {
+                app.world_mut().get_mut::<Node>(page).unwrap().display = Display::Flex;
+            }
+            app.update();
+            assert_eq!(app.world().get::<ScrollPosition>(page).unwrap().y, 0.0,
+                "不能因外壳先可见就消费正文尚未完成的定位：scale={scale}，zero_layout={zero_layout}");
+        }
     }
 }
 

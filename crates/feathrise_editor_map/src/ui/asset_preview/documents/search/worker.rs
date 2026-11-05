@@ -1,6 +1,6 @@
 //! 后台受检遍历和串行内容搜索；阻塞读取属于IO池，Unicode匹配属于计算池。
 
-use super::super::{io, navigation};
+use super::super::{io, navigation, source};
 use super::{constants::*, missing_assets, references, types::*};
 use crate::asset_catalog::document_format;
 use bevy::tasks::AsyncComputeTaskPool;
@@ -192,6 +192,7 @@ pub(super) async fn run(
         drafts: request
             .drafts
             .iter()
+            .filter(|draft| !source::is_project(&draft.stamp.key.path))
             .map(|draft| draft.stamp.clone())
             .collect(),
         ..Default::default()
@@ -249,6 +250,8 @@ pub(super) async fn run(
         if request.cancel.load(Ordering::Relaxed) || result.limited {
             break;
         }
+        // 后台也核验命名空间，防止旧请求把工程源码草稿伪装成资产路径结果。
+        if source::is_project(&draft.stamp.key.path) { continue; }
         if in_folder(&draft.stamp.key.path, &request.folder)
             && if request.references { references::accepts(&draft.stamp.key.path) }
                 else { accepts(&draft.stamp.key.path, &request.filters) }

@@ -39,7 +39,7 @@ pub(super) enum FileOutcome {
 }
 
 pub(super) struct FileReport {
-    pub path: String,
+    pub path: String, // 完整文档身份；源码和资产的显示路径相同也必须是两份独立保存项。
     pub outcome: FileOutcome,
     pub detail: String,
 }

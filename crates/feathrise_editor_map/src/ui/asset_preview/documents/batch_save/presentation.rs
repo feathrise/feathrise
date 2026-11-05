@@ -56,7 +56,7 @@ pub(super) fn sync(
         // 展示字符串也固定预算；磁盘错误与会话状态仍保留完整原因供后续单文件查看。
         body.push_str(&format!(
             "\n[{outcome}] {}：{}",
-            clipped(&file.path, 160),
+            clipped(super::super::source::display_path(&file.path), 160),
             clipped(&file.detail, 240)
         ));
     }

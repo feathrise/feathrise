@@ -48,6 +48,8 @@ fn fixture() -> Fixture {
     };
     workspace.active_tab = PresetWorkspaceTab::AssetPreview;
     let mut app = App::new();
+    // 复用正式注册入口，同时提供资产与工程文件消息，避免独立夹具落后于生产系统参数。
+    crate::ui::external_files::register_requests(&mut app);
     app.insert_resource(workspace)
         .insert_resource(documents)
         .insert_resource(media)
@@ -67,7 +69,6 @@ fn fixture() -> Fixture {
         .add_message::<super::messages::CloseAllAssetTabs>()
         .add_message::<super::messages::CloseUnmodifiedAssetTabs>()
         .add_message::<super::super::documents::SaveAllDocuments>()
-        .add_message::<crate::ui::external_files::OpenExternalFile>()
         .add_message::<crate::ui::asset_context_menu::CopyAssetPath>()
         .insert_resource(crate::ui::external_files::ExternalEditors::for_tests(&[crate::ui::external_files::ExternalEditor::VsCode]))
         .add_systems(

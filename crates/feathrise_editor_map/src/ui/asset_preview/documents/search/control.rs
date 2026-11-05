@@ -1,6 +1,6 @@
 //! 搜索快捷键、显式后台请求与滚轮所有权；候选和未完成输入不能执行文件动作。
 
-use super::super::resources::DocumentState;
+use super::super::{resources::DocumentState, source};
 use super::{components::*, resources::AssetSearchState, types::*, worker};
 use crate::{
     resources::*,
@@ -141,7 +141,8 @@ pub(super) fn input(
             ticket: state.ticket, root: documents.root.clone(), folder: String::new(),
             query: state.reference_target.clone().unwrap_or_default(), references: true, missing_assets: state.missing_assets,
             filters: Vec::new(), case_sensitive: true, whole_word: false,
-            drafts: documents.documents.iter().map(|doc| Draft {
+            // 工程源码与资产共用会话容量，但资产查询只冻结其自身受检根内的草稿。
+            drafts: documents.documents.iter().filter(|doc| !source::is_project(&doc.path)).map(|doc| Draft {
                 stamp: DraftStamp { key: doc.source_key(), revision: doc.revision },
                 text: doc.source.clone(), dirty: doc.dirty(),
             }).collect(),
@@ -280,6 +281,7 @@ pub(super) fn input(
                     drafts: documents
                         .documents
                         .iter()
+                        .filter(|doc| !source::is_project(&doc.path))
                         .map(|doc| Draft {
                             stamp: DraftStamp {
                                 key: doc.source_key(),

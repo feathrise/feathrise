@@ -233,6 +233,15 @@ pub(super) fn actions(
             }
             continue;
         }
+        if action == DocumentAction::Edit
+            && state.active.as_deref().is_some_and(|path| state.is_loading(path))
+        {
+            if let Some(doc) = state.current_mut() {
+                doc.mode = ViewMode::Preview;
+                doc.status = "正在重新载入，完成后可编辑；读取失败会保留原草稿".into();
+            }
+            continue;
+        }
         let Some(doc) = state.current_mut() else {
             continue;
         };

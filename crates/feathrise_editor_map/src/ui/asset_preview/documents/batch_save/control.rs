@@ -61,7 +61,7 @@ pub(in super::super) fn request(
         }
         let index = state.files.len();
         let mut report = FileReport {
-            path: super::super::source::display_path(&key.path).into(),
+            path: key.path.clone(), // 去重和回执匹配使用完整命名空间；展示时才移除project://。
             outcome: FileOutcome::Pending,
             detail: "正在保存点击时的草稿…".into(),
         };

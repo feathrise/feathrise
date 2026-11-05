@@ -90,9 +90,16 @@ pub(super) fn load(root: &Path, relative: &str) -> Result<(DiskIdentity, SourceC
     if text.contains('\0') {
         return Err("文件包含二进制字符，不能作为文本编辑".into());
     }
-    let crlf = text
-        .find('\n')
-        .is_some_and(|index| index > 0 && text.as_bytes()[index - 1] == b'\r');
+    // 混合文件的新换行遵循主要格式，而非碰巧位于第一行的格式；平票时沿用首个换行。
+    // 统计留在原受检读取的IO任务内，原始字节和正文LF坐标仍保持各自的来源。
+    let (mut crlf_count, mut lf_count, mut first_crlf) = (0, 0, None);
+    for (index, byte) in text.bytes().enumerate() {
+        if byte != b'\n' { continue; }
+        let crlf = index > 0 && text.as_bytes()[index - 1] == b'\r';
+        first_crlf.get_or_insert(crlf);
+        if crlf { crlf_count += 1; } else { lf_count += 1; }
+    }
+    let crlf = crlf_count > lf_count || crlf_count == lf_count && first_crlf.unwrap_or(false);
     let disk = DiskIdentity {
         path,
         digest: Sha256::digest(&bytes).into(),
