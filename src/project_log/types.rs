@@ -84,6 +84,8 @@ pub(super) struct LogEvent {
 }
 
 pub(super) struct LogLine {
+    // 完成行的任务身份只供显式诊断；采用门仍在 LogEvent 上检查完整任务身份。
+    #[cfg(feature = "validation")]
     pub task: LogTask,
     // 显式诊断保留真实管道来源；不影响主线按字节偏移维护阅读选区的逻辑。
     #[cfg(feature = "validation")]

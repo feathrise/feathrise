@@ -21,6 +21,7 @@ const MAX_TEMPLATE_FILES: usize = 512;
 const MAX_TEMPLATE_BYTES: u64 = 512 * 1024 * 1024;
 
 /// 新建工程的依赖锁定也是构建工具任务；切工程／退出必须能取消其专属子树。
+#[cfg(any(test, feature = "validation"))]
 pub(crate) fn create_with_control(
     destination: &Path,
     name: &str,

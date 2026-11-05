@@ -52,8 +52,6 @@ pub(super) struct TargetText;
 pub(super) struct StatusText;
 #[derive(Component)]
 pub(super) struct MenuNode;
-#[derive(Component)]
-pub(super) struct Mounted;
 
 #[derive(Component)]
 pub(super) struct AboutOverlay;

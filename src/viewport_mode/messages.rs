@@ -10,8 +10,5 @@ pub(crate) struct RequestViewportMode(pub ViewportMode);
 pub(super) struct RequestBuildProfile(pub feathrise_editor_core::ProjectBuildProfile);
 
 #[derive(Message, Debug, Clone, Copy)]
-pub(crate) struct ViewportModeChanged {
-    pub previous: ViewportMode,
-    pub current: ViewportMode,
-    pub revision: u64,
-}
+// 消息只确认切换已受理；当前模式和代次统一从 ViewportModeState 读取。
+pub(crate) struct ViewportModeChanged;

@@ -72,6 +72,7 @@ struct ControlState {
 }
 
 impl BuildControl {
+    #[cfg(test)]
     pub(crate) fn with_input_guard(log: Option<crate::project_log::ProjectLogSink>, input_guard: Option<InputGuard>) -> Self {
         Self(Arc::new(ControlState { log, input_guard, ..Default::default() }))
     }

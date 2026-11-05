@@ -98,7 +98,8 @@ fn run() -> Result<(), String> {
     let resource_mode = resource_paths::initialize()?;
     // 仅显式覆盖可跨实例传递；工程默认使用自己的target，不能继承宿主的默认缓存。
     let target_override = writable_paths::build_target_override(target)?;
-    let target = writable_paths::build_target(resource_mode, target_override.clone())?;
+    // 默认启动也保留原缓存路径校验；返回值只由显式validation夹具使用。
+    let _validation_target = writable_paths::build_target(resource_mode, target_override.clone())?;
     // 每类验收各自创建独占夹具，不能同时选择而静默忽略另一个入口。
     let reports = [native_report.is_some(), embedded_report.is_some(), embedded_build_cancel_report.is_some(), plugin_report.is_some(), code_iteration_report.is_some(), export_report.is_some()];
     if reports.into_iter().filter(|selected| *selected).count() > 1 {
@@ -106,25 +107,25 @@ fn run() -> Result<(), String> {
     }
     if let Some(report) = embedded_build_cancel_report {
         #[cfg(all(feature = "validation", windows))]
-        return embedded_viewport::validation::build_cancel::run(target, report);
+        return embedded_viewport::validation::build_cancel::run(_validation_target, report);
         #[cfg(not(all(feature = "validation", windows)))]
         { let _ = report; return Err("工程3D停止编译验收需要Windows及显式validation".into()); }
     }
     if let Some(report) = export_report {
         #[cfg(all(feature = "validation", windows))]
-        return project_export::validation::run(target, report);
+        return project_export::validation::run(_validation_target, report);
         #[cfg(not(all(feature = "validation", windows)))]
         { let _ = report; return Err("工程导出窗口验收需要Windows及显式validation".into()); }
     }
     if let Some(report) = code_iteration_report {
         #[cfg(all(feature = "validation", windows))]
-        return code_iteration::validation::run(target, report);
+        return code_iteration::validation::run(_validation_target, report);
         #[cfg(not(all(feature = "validation", windows)))]
         { let _ = report; return Err("此代码迭代窗口专项需要Windows及显式validation".into()); }
     }
     if let Some(report) = embedded_report {
         #[cfg(all(feature = "validation", windows))]
-        return embedded_viewport::validation::run(target, report);
+        return embedded_viewport::validation::run(_validation_target, report);
         #[cfg(not(all(feature = "validation", windows)))]
         {
             let _ = report;
@@ -133,13 +134,13 @@ fn run() -> Result<(), String> {
     }
     if let Some(report) = plugin_report {
         #[cfg(feature = "validation")]
-        return native_plugins::validation::run(target, report, plugin_package.ok_or("插件验收需要--plugin-package")?);
+        return native_plugins::validation::run(_validation_target, report, plugin_package.ok_or("插件验收需要--plugin-package")?);
         #[cfg(not(feature = "validation"))]
         { let _ = (report, plugin_package); return Err("插件验收需要显式启用validation".into()); }
     }
     if let Some(report) = native_report {
         #[cfg(all(feature = "validation", windows))]
-        return native_validation::run(target, report);
+        return native_validation::run(_validation_target, report);
         #[cfg(not(all(feature = "validation", windows)))]
         {
             let _ = report;

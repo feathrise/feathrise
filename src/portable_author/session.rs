@@ -35,7 +35,10 @@ pub(crate) struct HostSession {
 impl HostSession {
     pub(crate) fn new(token: &str) -> Result<Self, String> {
         let directory = std::env::temp_dir().join(format!("feathrise-author-{token}"));
+        #[cfg(unix)]
         let mut builder = std::fs::DirBuilder::new();
+        #[cfg(not(unix))]
+        let builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         {
             use std::os::unix::fs::DirBuilderExt;

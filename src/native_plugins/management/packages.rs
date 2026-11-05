@@ -163,10 +163,13 @@ fn valid_digest(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
+// 旧工程根便捷入口只用于隔离回归；生产始终显式传递工程/全局来源和作用域。
+#[cfg(test)]
 pub(crate) fn disabled_ids(root: &Path) -> Result<BTreeSet<String>, String> {
     let roots = normalize_roots(&roots_for_project(root)?)?;
     Ok(read_settings(&store_for(&roots, PluginScope::Project, false)?)?.disabled)
 }
+#[cfg(test)]
 pub(crate) fn catalog(root: &Path) -> Result<Catalog, String> {
     catalog_at(&roots_for_project(root)?, PluginScope::Project)
 }
@@ -530,11 +533,9 @@ fn attach_pending(
     Ok(())
 }
 
+#[cfg(test)]
 pub(crate) fn stage(root: &Path, command: ManagementCommand) -> Result<Catalog, String> {
     stage_at(&roots_for_project(root)?, PluginScope::Project, command)
-}
-pub(crate) fn stage_update(root: &Path, source: PathBuf, id: &str) -> Result<Catalog, String> {
-    stage_update_at(&roots_for_project(root)?, PluginScope::Project, source, id)
 }
 pub(crate) fn stage_at(
     roots: &PluginRoots,
@@ -861,6 +862,7 @@ fn cancel_legacy(store: &Store, id: &str, mut value: serde_json::Value) -> Resul
     }
 }
 
+#[cfg(test)]
 pub(crate) fn apply_pending(root: &Path) -> Vec<String> {
     match roots_for_project(root) {
         Ok(roots) => apply_pending_with_roots(&roots),

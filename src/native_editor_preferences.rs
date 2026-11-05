@@ -288,13 +288,13 @@ fn capture_and_poll(settings: Res<EditorSettings>, runtime: NonSend<Runtime>) {
 /// 不接触磁盘的输入门；候选准备、作者活动和返首页读回期间都没有首页设置写权限。
 pub(crate) fn home_ready(world: &World) -> bool {
     world
-        .get_non_send_resource::<Runtime>()
+        .get_non_send::<Runtime>()
         .is_none_or(|runtime| runtime.0.borrow().authority == Authority::Home)
 }
 
 /// 只在真实保存末值后交出写权限；调用方必须在同一主帧封住设置输入，再创建会读取偏好的候选。
 pub(crate) fn yield_to_author(world: &mut World) -> Result<bool, String> {
-    let Some(runtime) = world.get_non_send_resource::<Runtime>() else {
+    let Some(runtime) = world.get_non_send::<Runtime>() else {
         return Ok(true);
     };
     match runtime.0.borrow().authority {
@@ -305,7 +305,7 @@ pub(crate) fn yield_to_author(world: &mut World) -> Result<bool, String> {
     if !ready_to_exit(world, false)? {
         return Ok(false);
     }
-    let runtime = world.non_send_resource::<Runtime>();
+    let runtime = world.non_send::<Runtime>();
     let mut state = runtime.0.borrow_mut();
     state.authority = Authority::Author;
     state.generation = state.generation.wrapping_add(1);
@@ -314,7 +314,7 @@ pub(crate) fn yield_to_author(world: &mut World) -> Result<bool, String> {
 
 /// 宿主每帧只非阻塞轮询固定大小的设置。所有作者都退出后才异步重读，绝不用root旧快照争写。
 pub(crate) fn poll_host(world: &mut World, authors_present: bool) -> Option<String> {
-    let runtime = world.get_non_send_resource::<Runtime>()?;
+    let runtime = world.get_non_send::<Runtime>()?;
     let shared = Rc::clone(&runtime.0);
     let mut state = shared.borrow_mut();
     let previous_error = state.error().map(str::to_owned);
@@ -375,7 +375,7 @@ pub(crate) fn poll_host(world: &mut World, authors_present: bool) -> Option<Stri
 
 /// 排空当前持权者的最后快照，供原关闭授权及候选交接复用；false时继续事件循环，不等待后台IO。
 pub(crate) fn ready_to_exit(world: &mut World, retry: bool) -> Result<bool, String> {
-    let Some(runtime) = world.get_non_send_resource::<Runtime>() else {
+    let Some(runtime) = world.get_non_send::<Runtime>() else {
         return Ok(true);
     };
     let latest = EditorSettingsData::from(world.resource::<EditorSettings>());

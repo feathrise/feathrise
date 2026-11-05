@@ -87,7 +87,7 @@ impl Plugin for ProjectLogPlugin {
     fn build(&self, app: &mut App) {
         let (channel, inbox) = ProjectLogChannel::new(&self.project_id);
         let state = ProjectLogState::new(&channel, &self.project_name);
-        app.insert_resource(channel).insert_resource(state).insert_non_send_resource(inbox)
+        app.insert_resource(channel).insert_resource(state).insert_non_send(inbox)
             .add_systems(Update, scene::mount.before(systems::present))
             .add_systems(Update, reading::readonly.before(bevy::text::apply_text_edits).before(systems::collect))
             .add_systems(PostUpdate, reading::readonly.before(bevy::text::apply_text_edits))

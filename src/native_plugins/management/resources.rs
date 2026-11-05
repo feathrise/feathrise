@@ -6,7 +6,7 @@ use bevy::{
 };
 use std::{
     collections::BTreeMap,
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 #[derive(Resource)]
@@ -96,7 +96,8 @@ impl PluginManagerState {
     pub(crate) fn has_project(&self) -> bool {
         self.roots.project.is_some()
     }
-    pub(crate) fn project_root(&self) -> Option<&Path> {
+    #[cfg(test)]
+    pub(crate) fn project_root(&self) -> Option<&std::path::Path> {
         self.roots.project.as_deref()
     }
     pub(crate) fn captures_input(&self) -> bool {
@@ -137,6 +138,7 @@ impl PluginManagerState {
     pub(crate) fn refresh_scope(&mut self, scope: PluginScope) -> Result<(), String> {
         self.start(scope, None, None)
     }
+    #[cfg(test)]
     pub(super) fn install_package(
         &mut self,
         source: PathBuf,

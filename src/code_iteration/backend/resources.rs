@@ -211,9 +211,6 @@ impl Backend {
             })
         }))
     }
-    pub(crate) fn current_profile(&self) -> ProjectBuildProfile {
-        self.shared.profile()
-    }
     pub(crate) fn cleanup_failed(&self) -> bool { self.shared.control.cleanup_failed() }
     pub(crate) fn is_current(&self, identity: &BuildIdentity) -> bool {
         self.project_id == identity.project_id

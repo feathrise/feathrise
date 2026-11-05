@@ -364,20 +364,6 @@ pub(crate) fn activate_child(parent: usize, pid: u32, child: usize) -> Result<()
     Ok(())
 }
 
-/// 仍让原作者关闭事务判断未保存内容；不能TerminateProcess或直接销毁作者窗口。
-pub(crate) fn request_close(child: usize) -> Result<(), String> {
-    let child = child as HWND;
-    unsafe {
-        if IsWindow(child) == 0 {
-            return Err("请求关闭的作者窗口已经不存在".into());
-        }
-        if PostMessageW(child, WM_CLOSE, 0, 0) == 0 {
-            return Err(win32_error("无法请求关闭作者工程"));
-        }
-    }
-    Ok(())
-}
-
 /// 已确认当前作者退出后，将焦点交还持续存在的主工作台；不提升后台窗口，不触碰候选子窗口。
 pub(crate) fn restore_host_focus(world: &mut World, parent: usize) -> Result<(), String> {
     let parent = parent as HWND;

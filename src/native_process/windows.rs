@@ -71,6 +71,7 @@ impl From<&str> for SpawnFailure {
 
 impl JobProcess {
     /// 仅在后台调用。返回的三个 File 依次为父端 stdin、stdout、stderr。
+    #[cfg(test)] // 生产入口使用带明确工作目录及环境的 Command；此便捷入口只供进程回归夹具。
     pub fn spawn(exe: &Path, args: &[OsString]) -> Result<(Self, File, File, File), String> {
         let spawned = Self::spawn_inner(exe, args, false, None).map_err(|failure| failure.message)?;
         Ok((
@@ -92,6 +93,7 @@ impl JobProcess {
 
     /// 专用控制管道与标准流互不混用；返回父控制写、父控制读、stdout、stderr。
     /// 子端句柄通过保留的两个 CLI 参数传递，并与三标准流共同加入继承白名单。
+    #[cfg(test)]
     pub fn spawn_runtime(
         exe: &Path,
         args: &[OsString],
@@ -324,6 +326,7 @@ impl JobProcess {
 /// 两个值必须是本次 `spawn_runtime` 传入、仍然打开且不同的匿名管道子端，
 /// 当前进程必须拥有它们的唯一关闭责任。每对句柄只能调用一次；错误返回也会关闭
 /// 已接管的两个句柄。不得把其他打开文件、标准流或借用的句柄传给本函数。
+#[cfg(test)] // 仅测试夹具把宿主自身作为子端启动；真实工程子端由 SDK 接管管道。
 pub unsafe fn child_channels(read: usize, write: usize) -> Result<(File, File), String> {
     if read == 0 || write == 0 || read == usize::MAX || write == usize::MAX || read == write {
         return Err("专用控制管道需要两个有效且不同的继承句柄".into());

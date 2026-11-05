@@ -42,6 +42,8 @@ pub(crate) struct HotpatchOutput {
     pub pdb: PathBuf,
     /// 完整跳表只进入受控产物包，不能复制到普通 IPC 元信息或 UI 状态。
     pub jump_table_json: Arc<Vec<u8>>,
+    // 回归断言核对解析条数；正式采用只使用已校验的完整跳转表。
+    #[cfg(test)]
     pub entry_count: usize,
     pub aslr_reference: u64,
     pub new_base_address: u64,
@@ -121,7 +123,9 @@ pub(crate) fn parse_hotpatch_output(output: &[u8]) -> Result<HotpatchOutput, Str
     let integer = |name: &str| table[name].as_u64().ok_or_else(|| format!("jump_table.{name} 不是 u64"));
     Ok(HotpatchOutput {
         pdb: library.with_extension("pdb"), library, artifacts,
-        jump_table_json: freeze(&body["jump_table"] )?, entry_count: map.len(),
+        jump_table_json: freeze(&body["jump_table"] )?,
+        #[cfg(test)]
+        entry_count: map.len(),
         aslr_reference: integer("aslr_reference")?, new_base_address: integer("new_base_address")?,
         ifunc_count: integer("ifunc_count")?,
         windows_sources_normalized: false,

@@ -75,6 +75,7 @@ impl Preferences {
     }
 
     /// 明确传入主目录的默认数据，便于隔离测试；不创建默认工程目录或偏好文件。
+    #[cfg(test)]
     pub(crate) fn default_for_home(home: &Path) -> Result<Self, String> {
         Self::default_at(preferences_file(home)?, home)
     }
@@ -156,6 +157,7 @@ impl Preferences {
         self.legacy_file.as_deref()
     }
 
+    #[cfg(any(test, feature = "validation"))]
     pub(crate) fn home(&self) -> &Path {
         &self.home
     }
@@ -167,6 +169,7 @@ impl Preferences {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn restore_default_project_directory(&mut self) {
         self.default_project_directory = self.home.join("feathrise");
     }

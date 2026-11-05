@@ -6,10 +6,6 @@ mod windows;
 mod unix;
 
 #[cfg(windows)]
-pub use windows::{JobProcess, child_channels};
-#[cfg(windows)]
-pub(crate) use windows::SpawnFailure;
+pub use windows::JobProcess;
 #[cfg(unix)]
-pub use unix::{JobProcess, child_channels};
-#[cfg(unix)]
-pub(crate) use unix::SpawnFailure;
+pub use unix::JobProcess;

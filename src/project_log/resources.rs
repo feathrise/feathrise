@@ -67,6 +67,7 @@ impl ProjectLogChannel {
     }
 
     /// 通用采集入口保留给自有验收夹具；生产任务必须显式标明所属目标。
+    #[cfg(test)]
     pub(crate) fn begin(&self) -> ProjectLogSink {
         self.begin_task(LogTaskKind::General)
     }
@@ -238,6 +239,7 @@ impl ProjectLogState {
         let start = self.next_offset;
         self.next_offset += event.text.len() as u64 + 1;
         self.lines.push_back(LogLine {
+            #[cfg(feature = "validation")]
             task: event.task,
             #[cfg(feature = "validation")]
             source: event.source,

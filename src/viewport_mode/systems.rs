@@ -30,23 +30,17 @@ pub(super) fn apply(
         return;
     }
     let mut state = world.resource_mut::<ViewportModeState>();
-    let previous = state.selected;
     state.selected = request.0;
     state.revision = state.revision.wrapping_add(1).max(1);
     state.status = match request.0 {
         super::ViewportMode::SavedWorld => "已切换到编辑器 3D；点击“启动”运行已保存的工程".into(),
         super::ViewportMode::EmbeddedWorld => "已切换到工程3D；正在准备常驻视口".into(),
     };
-    let changed = ViewportModeChanged {
-        previous,
-        current: state.selected,
-        revision: state.revision,
-    };
     let feedback = state.status.clone();
     if let Some(mut launch) = world.get_resource_mut::<feathrise_editor_core::ProjectLaunchSettings>() {
         launch.preview = request.0 == super::ViewportMode::EmbeddedWorld;
     }
-    world.write_message(changed);
+    world.write_message(ViewportModeChanged);
     world.write_message(SavedPlayFeedback(feedback));
 }
 

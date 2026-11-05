@@ -3,7 +3,7 @@ use feathrise_plugin_api::*;
 use std::{
     collections::BTreeMap,
     ffi::c_void,
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 pub(super) use super::management::types::PackageManifest as Manifest;
@@ -20,7 +20,8 @@ pub(super) struct Discovery {
     pub warnings: Vec<String>,
 }
 
-pub(super) fn discover(root: &Path) -> Result<Discovery, String> {
+#[cfg(test)]
+pub(super) fn discover(root: &std::path::Path) -> Result<Discovery, String> {
     discover_with_roots(&super::management::packages::roots_for_project(root)?)
 }
 

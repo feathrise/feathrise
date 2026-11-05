@@ -439,6 +439,7 @@ fn validate_game_contract(bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
 fn read_artifacts(output: impl Read, manifest: &Path, log: Option<crate::project_log::ProjectLogSink>) -> Result<CargoArtifacts, String> {
     read_artifacts_with_diagnostics(output, manifest, manifest.parent().unwrap_or(Path::new(".")), log, None)
 }
