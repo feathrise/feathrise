@@ -652,6 +652,45 @@ fn legacy_with_diagnostics(fixture: &Fixture) -> (PathBuf, PluginRoots, crate::n
 }
 
 #[test]
+fn utf8_bom_legacy_archive_preserves_bytes_and_resolves_its_own_diagnostic() {
+    use crate::native_plugins::resources::NativeTools;
+    let fixture = Fixture::new();
+    let (legacy, roots, _) = legacy_with_diagnostics(&fixture);
+    let manifest = legacy.join("plugin.json");
+    let mut original = vec![0xef, 0xbb, 0xbf];
+    original.extend(fs::read(&manifest).unwrap());
+    fs::write(&manifest, &original).unwrap();
+    // Windows旧工具可能保留UTF-8 BOM；列表、诊断来源和归档必须识别同一份清单原字节。
+    let catalog = packages::catalog_at(&roots, PluginScope::Project).unwrap();
+    let entry = catalog.entries.iter().find(|entry| entry.id == "fixture.legacy").unwrap();
+    assert!(entry.legacy);
+    let discovery = crate::native_plugins::loader::discover_with_roots(&roots).unwrap();
+    assert!(discovery.origins.contains_key("fixture.legacy"), "已识别的BOM旧包仍须保留精确诊断来源");
+    let remaining: Vec<_> = discovery.warnings.iter()
+        .filter(|error| !error.starts_with("fixture.legacy：")).cloned().collect();
+    let mut app = fixture.app();
+    app.insert_resource(diagnostic_native(discovery.warnings, discovery.states, discovery.origins));
+    systems::poll(app.world_mut());
+    let revision = app.world().resource::<PluginManagerState>().revision;
+    click(app.world_mut(), ManagerAction::Select("fixture.legacy".into()), revision);
+    let revision = app.world().resource::<PluginManagerState>().revision;
+    click(app.world_mut(), ManagerAction::RequestRemove("fixture.legacy".into()), revision);
+    assert!(legacy.is_dir(), "确认前不得移动旧包");
+    let revision = app.world().resource::<PluginManagerState>().revision;
+    click(app.world_mut(), ManagerAction::ConfirmRemove, revision);
+    poll_until_idle(app.world_mut());
+    assert!(!legacy.exists(), "确认移除须完成真实归档事务");
+    assert_eq!(app.world().resource::<NativeTools>().errors, remaining);
+    let receipt = fs::read_dir(fixture.project.join(".editor/plugin-management/receipts"))
+        .unwrap().next().unwrap().unwrap().path();
+    let record: serde_json::Value = serde_json::from_slice(&fs::read(receipt).unwrap()).unwrap();
+    let archived = PathBuf::from(record["archived"].as_str().unwrap());
+    assert_eq!(fs::read(archived.join("plugin.json")).unwrap(), original, "归档须保留BOM及完整原字节");
+    assert_eq!(fs::read(archived.join("old.dll")).unwrap(), b"legacy-source");
+    assert_eq!(fs::read(fixture.project.join("assets/author-data.txt")).unwrap(), b"author-must-survive");
+}
+
+#[test]
 fn archive_resolves_only_its_unloaded_legacy_diagnostic_and_keeps_other_failures_blocking() {
     use crate::native_plugins::resources::NativeTools;
     let fixture = Fixture::new();

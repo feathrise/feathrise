@@ -1,6 +1,6 @@
 //! 搜索任务非阻塞采用及输入身份核验；改变条件、草稿或目录不会采用迟到结果。
 
-use super::super::resources::DocumentState;
+use super::super::{resources::DocumentState, source};
 use super::{resources::AssetSearchState, types::*, worker};
 use crate::resources::{EditorAssetCatalog, MapEditorState};
 use bevy::{
@@ -17,7 +17,7 @@ fn drafts_current(stamps: &[DraftStamp], documents: &DocumentState) -> bool {
                 && doc.revision == stamp.revision
         })
     }) && documents.documents.iter().all(|doc| {
-        !doc.dirty()
+        source::is_project(&doc.path) || !doc.dirty()
             || stamps.iter().any(|stamp| {
                 stamp.key.path == doc.path
                     && stamp.key.generation == doc.generation
@@ -34,7 +34,8 @@ fn request_drafts_current(request: &SearchRequest, documents: &DocumentState) ->
                 && doc.revision == draft.stamp.revision
         })
     }) && documents.documents.iter().all(|doc| {
-        !doc.dirty()
+        // 未纳入资产快照的工程源码变更不使本次资产查询失效。
+        source::is_project(&doc.path) || !doc.dirty()
             || request.drafts.iter().any(|draft| {
                 draft.stamp.key.path == doc.path
                     && draft.stamp.key.generation == doc.generation

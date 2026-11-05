@@ -112,6 +112,7 @@ pub(super) struct SourceContents {
 pub(super) struct LoadRequest {
     pub path: String,
     pub ticket: u64,
+    pub expected_document: Option<(SourceKey, u64)>, // 丢弃确认只授权替换这一代、这一修订；首次加载要求仍无会话。
 }
 
 pub(super) enum IoResult {

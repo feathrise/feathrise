@@ -95,6 +95,7 @@ pub(super) fn prepare(
         state.pending = None; state.ready = None; return;
     }
     if host.is_some_and(|host| host.active) { return; } // 诊断窗关闭释放帧只暂存意图，等原宿主门真正释放。
+    if documents.is_loading(&pending.path) { return; } // 等本次载入采用后再固定代次，不能用旧正文行列任务吞掉诊断意图。
     let Some(doc) = documents.current_mut().filter(|doc| doc.path == pending.path) else {
         if !documents.error.is_empty() { state.pending = None; state.ready = None; }
         return;

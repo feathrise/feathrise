@@ -257,7 +257,7 @@ fn modal_document_change_and_f12_exit_cancel_before_existing_close_flow() {
 #[test]
 fn real_asset_menu_owner_blocks_mesh_shortcuts_without_locking_its_closed_state() {
     use crate::{
-        components::{MapEditorAssetRow, MapEditorRoot},
+        components::{AssetRowBinding, MapEditorAssetRow, MapEditorRoot},
         resources::EditorAssetCatalog,
         types::EditorAssetEntry,
         ui::{
@@ -274,10 +274,17 @@ fn real_asset_menu_owner_blocks_mesh_shortcuts_without_locking_its_closed_state(
         .add_message::<asset_context_menu::CopyAssetPath>()
         .add_message::<OpenExternalFile>();
     app.world_mut().resource_mut::<MapEditorSidebarState>().navigator = EditorNavigatorTab::Assets;
-    app.world_mut().resource_mut::<EditorAssetCatalog>().entries.push(EditorAssetEntry {
-        asset_path: "gltf/menu-owner.glb".into(), display_name: "菜单目标".into(),
-        is_directory: false, kind: feathrise_map_content::MapAssetKind::Scene,
-    });
+    {
+        let mut catalog = app.world_mut().resource_mut::<EditorAssetCatalog>();
+        // 连续目录只接受已采用且位于可见窗口的行；仅填entries仍属于尚未显示的目录夹具。
+        catalog.requested_revision = 7;
+        catalog.applied_revision = 7;
+        catalog.visible_count = 1;
+        catalog.entries.push(EditorAssetEntry {
+            asset_path: "gltf/menu-owner.glb".into(), display_name: "菜单目标".into(),
+            is_directory: false, kind: feathrise_map_content::MapAssetKind::Scene,
+        });
+    }
     let mut window = Window { focused: true, ..default() };
     window.set_physical_cursor_position(Some(Vec2::new(100.0, 100.0).as_dvec2()));
     app.world_mut().spawn((window, bevy::window::PrimaryWindow));
@@ -288,6 +295,7 @@ fn real_asset_menu_owner_blocks_mesh_shortcuts_without_locking_its_closed_state(
     ));
     app.world_mut().spawn((
         MapEditorAssetRow { slot: 0, entry_index: Some(0) }, Interaction::Hovered, Node::default(),
+        AssetRowBinding { revision: 7, viewport_revision: 0, index: Some(0) },
     ));
     assert!(!app.world().resource::<AssetContextMenuState>().owns_mouse());
     enter(&mut app, node); // 已安装但关闭的外部菜单不能阻止正常 Tab 进入。

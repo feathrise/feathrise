@@ -18,16 +18,23 @@ use std::{
 static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Fixture {
     root: PathBuf,
+    parent: PathBuf,
+    owner: String,
 }
 impl Fixture {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "rpg-batch-save-{}-{}",
+        let parent = std::env::temp_dir().canonicalize().unwrap();
+        let owner = format!(
+            "rpg-batch-save-{}-{}-{}",
             std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
             NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        Self { root }
+        );
+        let root = parent.join(&owner);
+        std::fs::create_dir(&root).unwrap(); // 独占创建本轮夹具，不接管同名旧目录。
+        let root = root.canonicalize().unwrap();
+        std::fs::write(root.join(".feathrise-test-owner"), &owner).unwrap();
+        Self { root, parent, owner }
     }
     fn doc(&self, path: &str, original: &str, draft: &str) -> Document {
         std::fs::write(self.root.join(path), original).unwrap();
@@ -74,6 +81,14 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
+        // 先核对临时父根、绝对路径和本轮归属，再修改只读权限或递归清理。
+        if !self.root.is_absolute()
+            || self.root.parent() != Some(self.parent.as_path())
+            || self.root.canonicalize().ok().as_ref() != Some(&self.root)
+            || std::fs::read_to_string(self.root.join(".feathrise-test-owner")).ok().as_deref() != Some(self.owner.as_str())
+        {
+            return;
+        }
         for entry in std::fs::read_dir(&self.root).unwrap().flatten() {
             if let Ok(metadata) = entry.metadata() {
                 let mut permissions = metadata.permissions();
@@ -142,6 +157,90 @@ fn batch_save_all_includes_parked_and_closed_drafts_but_never_clean_files() {
             .all(|file| file.outcome == FileOutcome::Saved)
     );
     assert!(!report.running);
+}
+
+#[test]
+fn batch_save_project_source_success_receipt_finishes_report() {
+    check_project_source_receipt(false);
+}
+
+#[test]
+fn batch_save_project_source_conflict_receipt_reports_failure() {
+    check_project_source_receipt(true);
+}
+
+fn check_project_source_receipt(conflict: bool) {
+    let f = Fixture::new();
+    std::fs::create_dir(f.root.join("src")).unwrap();
+    std::fs::create_dir(f.root.join("assets")).unwrap();
+    let mut source = f.doc("src/main.rs", "// 原源码\n", "// 已提交的源码草稿\n");
+    source.path = "project://src/main.rs".into();
+    let mut asset = f.doc("assets/notes.md", "原资产\n", "已提交的资产草稿\n");
+    asset.path = "notes.md".into();
+    if conflict {
+        std::fs::write(f.root.join("src/main.rs"), "// 外部修改\n").unwrap();
+    }
+    let mut app = f.app(vec![source, asset]);
+    {
+        let mut documents = app.world_mut().resource_mut::<DocumentState>();
+        documents.root = f.root.join("assets");
+        documents.project_root = Some(f.root.clone());
+    }
+    // 工程关闭走原保存桥，仍须等待同一份后台逐文件回执，失败不能放行退出。
+    assert_eq!(super::super::project_close::request(app.world_mut()), Ok(()));
+    assert_eq!(super::super::project_close::poll(app.world()), Ok(false));
+    settle(&mut app);
+    assert_eq!(f.read("src/main.rs"), if conflict { "// 外部修改\n" } else { "// 已提交的源码草稿\n" });
+    assert_eq!(f.read("assets/notes.md"), "已提交的资产草稿\n");
+    let documents = app.world().resource::<DocumentState>();
+    assert_eq!(documents.documents[0].dirty(), conflict);
+    assert!(!documents.documents[1].dirty());
+    assert_eq!(documents.documents[0].source_text(), "// 已提交的源码草稿\n");
+    let report = app.world().resource::<DocumentBatchSaveState>();
+    assert!(!report.running);
+    assert_eq!(report.files.len(), 2);
+    assert_eq!((report.files[0].outcome.clone(), report.project_close_result().is_err()),
+        (if conflict { FileOutcome::Failed } else { FileOutcome::Saved }, conflict),
+        "源码回执必须结清报告行，真实冲突必须向工程关闭返回失败");
+    assert_eq!(report.files[1].outcome, FileOutcome::Saved);
+    if conflict {
+        assert!(report.files[0].detail.contains("外部修改"));
+        let error = super::super::project_close::poll(app.world()).unwrap_err();
+        assert!(error.contains("src/main.rs") && error.contains("外部修改"));
+        assert!(!error.contains("project://"), "内部文档命名空间不能出现在关闭错误文案中");
+    } else {
+        assert_eq!(super::super::project_close::poll(app.world()), Ok(true));
+    }
+}
+
+#[test]
+fn batch_save_project_and_asset_with_equal_display_paths_both_reach_disk() {
+    let f = Fixture::new();
+    std::fs::create_dir(f.root.join("src")).unwrap();
+    std::fs::create_dir(f.root.join("assets")).unwrap();
+    std::fs::create_dir(f.root.join("assets/src")).unwrap();
+    let mut source = f.doc("src/main.rs", "// 原源码\n", "// 新源码\n");
+    source.path = "project://src/main.rs".into();
+    let mut asset = f.doc("assets/src/main.rs", "// 原资产\n", "// 新资产\n");
+    asset.path = "src/main.rs".into();
+    // 用户先打开源码再打开同显示路径资产，两份物理文件必须分别冻结并完成原保存事务。
+    let mut app = f.app(vec![source, asset]);
+    {
+        let mut documents = app.world_mut().resource_mut::<DocumentState>();
+        documents.root = f.root.join("assets");
+        documents.project_root = Some(f.root.clone());
+    }
+    request(&mut app, SaveScope::All);
+    settle(&mut app);
+    assert_eq!(f.read("src/main.rs"), "// 新源码\n");
+    assert_eq!(f.read("assets/src/main.rs"), "// 新资产\n",
+        "同显示路径的资产不能被源码报告行当作重复文件跳过");
+    assert!(app.world().resource::<DocumentState>().documents.iter().all(|doc| !doc.dirty()));
+    let report = app.world().resource::<DocumentBatchSaveState>();
+    assert_eq!(report.files.len(), 2);
+    assert!(report.files.iter().all(|file| file.outcome == FileOutcome::Saved));
+    assert!(!report.running);
+    assert_eq!(report.project_close_result(), Ok(true));
 }
 
 #[test]
@@ -337,6 +436,7 @@ fn batch_save_single_flight_and_pending_load_reject_without_replacing_report_tic
     app.world_mut().resource_mut::<DocumentState>().pending_load = Some(LoadRequest {
         path: "a.txt".into(),
         ticket: 10,
+        expected_document: None,
     });
     request(&mut app, SaveScope::All);
     assert_eq!(

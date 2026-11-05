@@ -21,7 +21,7 @@ pub(super) fn bind(
     // 重新载入和会话淘汰使旧输入失效；最多8份，后台文件不参与原生排版系统。
     inputs.sessions.retain(|entry| state.documents.iter().any(|doc| doc.path == entry.key.path && doc.generation == entry.key.generation));
     let doc = state.current();
-    let editing = doc.filter(|doc| state.visible && doc.mode == ViewMode::Edit);
+    let editing = doc.filter(|doc| state.visible && doc.mode == ViewMode::Edit && !state.is_loading(&doc.path));
     if let Some(previous_key) = source.key.as_ref().filter(|key| {
         editing.is_none_or(|doc| key.path != doc.path || key.generation != doc.generation)
     }).cloned() {
@@ -29,6 +29,7 @@ pub(super) fn bind(
         let previous = std::mem::take(&mut *input);
         if let Some(previous_doc) = state.documents.iter().find(|doc| doc.path == previous_key.path && doc.generation == previous_key.generation)
             && !previous.is_composing() && previous.pending_paste.is_none() && previous.pending_edits.is_empty()
+            && previous.value() == previous_doc.source_text() // 被重载门拒绝的残余输入不能在失败后从原生缓存回灌。
         {
             inputs.sessions.push(NativeDocumentInput { key: previous_key, revision: previous_doc.revision, input: previous, scroll: scroll.0 });
         }

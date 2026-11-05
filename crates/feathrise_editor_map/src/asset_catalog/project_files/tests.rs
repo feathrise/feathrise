@@ -140,6 +140,103 @@ fn failed_or_stale_scan_keeps_adopted_directory_and_source_switch_clears_selecti
     assert_eq!(catalog.retired_entries.as_ref().unwrap()[0].asset_path, "wrong.rs");
 }
 
+fn settle_project_files(app: &mut App) {
+    let started = std::time::Instant::now();
+    loop {
+        app.update();
+        let catalog = app.world().resource::<EditorProjectFileCatalog>();
+        if !catalog.is_loading() && catalog.task.is_none() { return; }
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "真实工程目录扫描未收口");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+fn failed_directory_navigation() -> (Fixture, App) {
+    let fixture = Fixture::new();
+    std::fs::create_dir(fixture.root.join("vanished")).unwrap();
+    fixture.file("Cargo.toml");
+    let mut catalog = EditorProjectFileCatalog::default();
+    catalog.bind_project_source(1, Some(fixture.root.clone()));
+    catalog.active = true;
+    let mut app = App::new();
+    app.add_plugins(bevy::app::TaskPoolPlugin::default()).insert_resource(catalog)
+        .add_systems(Update, (start_project_file_scan, poll_project_file_scan).chain());
+    settle_project_files(&mut app);
+    let index = app.world().resource::<EditorProjectFileCatalog>().entries.iter()
+        .position(|entry| entry.asset_path == "vanished").unwrap();
+    assert!(app.world_mut().resource_mut::<EditorProjectFileCatalog>().select_entry(index).is_none());
+    // 已显示目录在点击后被外部移除；继续让原后台扫描产生失败，不伪造完成值或目录身份。
+    std::fs::remove_dir(fixture.root.join("vanished")).unwrap();
+    settle_project_files(&mut app);
+    let catalog = app.world().resource::<EditorProjectFileCatalog>();
+    assert!(catalog.feedback.as_ref().unwrap().result.is_err());
+    assert!(catalog.current_folder.is_empty(), "失败后界面应继续表示最后采用的工程根");
+    assert!(catalog.entries.iter().any(|entry| entry.asset_path == "Cargo.toml"));
+    (fixture, app)
+}
+
+#[test]
+fn failed_navigation_refresh_rescans_the_last_adopted_directory() {
+    let (fixture, mut app) = failed_directory_navigation();
+    fixture.file("new.rs");
+    app.world_mut().resource_mut::<EditorProjectFileCatalog>().navigate(ProjectFileNavigation::Refresh);
+    settle_project_files(&mut app);
+    let catalog = app.world().resource::<EditorProjectFileCatalog>();
+    assert!(catalog.feedback.as_ref().unwrap().result.is_ok(), "刷新当前工程根不能继续扫描已失败的子目录");
+    assert!(catalog.current_folder.is_empty());
+    assert!(catalog.entries.iter().any(|entry| entry.asset_path == "new.rs"));
+    assert!(!catalog.entries.iter().any(|entry| entry.asset_path == "vanished"));
+}
+
+#[test]
+fn failed_navigation_filter_rescans_the_last_adopted_directory() {
+    let (fixture, mut app) = failed_directory_navigation();
+    fixture.file("kept.rs");
+    app.world_mut().resource_mut::<EditorProjectFileCatalog>().set_filter("kept");
+    settle_project_files(&mut app);
+    let catalog = app.world().resource::<EditorProjectFileCatalog>();
+    assert!(catalog.feedback.as_ref().unwrap().result.is_ok(), "名称筛选应作用于仍在显示的工程根");
+    assert!(catalog.current_folder.is_empty());
+    assert_eq!(catalog.entries.iter().map(|entry| entry.asset_path.as_str()).collect::<Vec<_>>(), ["kept.rs"]);
+}
+
+#[test]
+fn late_failed_scan_cannot_redirect_newer_directory_navigation() {
+    use std::{sync::mpsc::sync_channel, time::Duration};
+    use bevy::{app::TaskPoolPlugin, tasks::IoTaskPool};
+    let fixture = Fixture::new();
+    for folder in ["vanished", "current"] { std::fs::create_dir(fixture.root.join(folder)).unwrap(); }
+    fixture.file("current/kept.rs");
+    let mut catalog = EditorProjectFileCatalog::default();
+    catalog.bind_project_source(1, Some(fixture.root.clone()));
+    catalog.active = true;
+    let mut app = App::new();
+    app.add_plugins(TaskPoolPlugin::default()).insert_resource(catalog)
+        .add_systems(Update, (start_project_file_scan, poll_project_file_scan).chain());
+    settle_project_files(&mut app);
+    let old = {
+        let mut catalog = app.world_mut().resource_mut::<EditorProjectFileCatalog>();
+        catalog.request_folder("vanished").unwrap();
+        request(&catalog)
+    };
+    let (release, wait) = sync_channel(1);
+    // 仅延迟真实IO的执行，让旧失败在新目录请求之后到达；完成值仍由原扫描产生。
+    app.world_mut().resource_mut::<EditorProjectFileCatalog>().task = Some(IoTaskPool::get().spawn(async move {
+        wait.recv_timeout(Duration::from_secs(5)).unwrap();
+        Some(scan_request(old))
+    }));
+    std::fs::remove_dir(fixture.root.join("vanished")).unwrap();
+    app.world_mut().resource_mut::<EditorProjectFileCatalog>().request_folder("current").unwrap();
+    app.update();
+    assert!(app.world().resource::<EditorProjectFileCatalog>().is_loading());
+    release.send(()).unwrap();
+    settle_project_files(&mut app);
+    let catalog = app.world().resource::<EditorProjectFileCatalog>();
+    assert!(catalog.feedback.as_ref().unwrap().result.is_ok());
+    assert_eq!(catalog.current_folder, "current", "迟到失败不能把后续导航改回先前显示的目录");
+    assert_eq!(catalog.entries.iter().map(|entry| entry.asset_path.as_str()).collect::<Vec<_>>(), ["current/kept.rs"]);
+}
+
 #[test]
 fn single_inflight_scan_remains_owned_until_it_finishes_and_only_latest_filter_is_adopted() {
     use std::{sync::mpsc::sync_channel, time::Duration};

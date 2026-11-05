@@ -25,6 +25,13 @@ pub(in super::super) fn gpu_assert_search(
     snapshot: fn(&mut App, Handle<Image>, &str, u32),
 ) {
     crate::ui::external_files::install_probe(app);
+    // 同一作者会话可以停放工程源码，但资产搜索不能将它当成第四份资产结果。
+    let project = super::tests::Fixture::new();
+    project.write("src/main.rs", "// 长剑源码\n");
+    let mut code = project.doc("src/main.rs");
+    code.path = "project://src/main.rs".into();
+    code.edit("// 长剑源码草稿\n");
+    app.world_mut().resource_mut::<DocumentState>().documents.push(code);
     let source_entity = source(app);
     chord(app, window, KeyCode::KeyF, true);
     assert!(app.world().resource::<AssetSearchState>().open);
@@ -58,6 +65,16 @@ pub(in super::super) fn gpu_assert_search(
             .len(),
         3
     );
+    let result = app.world().resource::<AssetSearchState>().result.clone().unwrap();
+    let ticket = app.world().resource::<AssetSearchState>().ticket;
+    app.world_mut().resource_mut::<DocumentState>().documents.iter_mut()
+        .find(|doc| doc.path == "project://src/main.rs").unwrap().edit("// 长剑源码继续修改\n");
+    frames(app, 3);
+    let state = app.world().resource::<AssetSearchState>();
+    assert_eq!(state.ticket, ticket, "停放的工程源码变更不能取消资产搜索");
+    assert!(std::sync::Arc::ptr_eq(state.result.as_ref().unwrap(), &result));
+    assert!(state.current().is_some());
+    assert_eq!(std::fs::read_to_string(project.0.join("src/main.rs")).unwrap(), "// 长剑源码\n");
     assert_layout(app, query);
     let (ticket, index, path, line) = {
         let state = app.world().resource::<AssetSearchState>();
@@ -131,13 +148,13 @@ pub(in super::super) fn gpu_assert_search(
     let height = app.world().get::<ComputedNode>(view).unwrap().size().y;
     let outer = {
         let world = app.world_mut();
+        // 工程页已把资产来源放进独立滚动正文，外层导航页不再兼任这个滚动实体。
         world
-            .query_filtered::<Entity, (
-                With<crate::components::MapEditorLeftPanelScroll>,
-                With<crate::ui::sidebars::MapEditorSidebarPage>,
-            )>()
+            .query_filtered::<(Entity, &crate::ui::project_browser::ProjectBrowserContent), With<crate::components::MapEditorLeftPanelScroll>>()
             .iter(world)
-            .find(|entity| world.get::<Node>(*entity).unwrap().display != Display::None)
+            .find(|(entity, content)| content.0 == crate::ui::project_browser::ProjectBrowserView::Assets
+                && world.get::<Node>(*entity).unwrap().display != Display::None)
+            .map(|(entity, _)| entity)
             .unwrap()
     };
     let outer_before = app.world().get::<ScrollPosition>(outer).unwrap().y;

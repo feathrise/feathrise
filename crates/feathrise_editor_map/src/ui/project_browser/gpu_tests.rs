@@ -153,10 +153,24 @@ fn file_row(app: &mut App, path: &str) -> Entity {
 
 fn asset_row(app: &mut App, path: &str) -> Entity {
     let world = app.world_mut();
-    let index = world.resource::<EditorAssetCatalog>().entries.iter()
-        .position(|entry| entry.asset_path == path).unwrap();
-    world.query::<(Entity, &MapEditorAssetRow)>().iter(world)
-        .find_map(|(entity, row)| (row.entry_index == Some(index)).then_some(entity)).unwrap()
+    let (index, catalog_state) = {
+        let catalog = world.resource::<EditorAssetCatalog>();
+        let index = catalog.entries.iter().position(|entry| entry.asset_path == path)
+            .unwrap_or_else(|| panic!("目标资产不在已采用目录：path={path}，folder={}，revision={}/{}，entries={}",
+                catalog.current_folder, catalog.applied_revision, catalog.requested_revision, catalog.entries.len()));
+        (index, format!("folder={}，revision={}/{}，window={}+{}，anchor={:?}", catalog.current_folder,
+            catalog.applied_revision, catalog.requested_revision, catalog.visible_start, catalog.visible_count, catalog.scroll_anchor))
+    };
+    let found = world.query::<(Entity, &MapEditorAssetRow)>().iter(world)
+        .find_map(|(entity, row)| (row.entry_index == Some(index)).then_some(entity));
+    found.unwrap_or_else(|| {
+        // 失败时保留真实目录、行池和宿主布局，区分定位未采用与已采用却未滚入正文。
+        let bound = world.query::<&MapEditorAssetRow>().iter(world)
+            .map(|row| (row.slot, row.entry_index)).collect::<Vec<_>>();
+        let scrolls = world.query::<(&ProjectBrowserContent, &ScrollPosition, &ComputedNode)>().iter(world)
+            .map(|(content, scroll, node)| (content.0, scroll.0, node.size(), node.content_size())).collect::<Vec<_>>();
+        panic!("目标资产未进入可见行池：path={path}，index={index}，{catalog_state}；bound={bound:?}；scrolls={scrolls:?}");
+    })
 }
 
 fn assets_ready(world: &mut World) -> bool {

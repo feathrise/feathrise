@@ -100,6 +100,20 @@ fn independently_moved_package_keeps_exact_relative_identity_and_hashes() {
     assert_eq!(fs::read(moved.join("secondary/models/mesh.glb")).unwrap(), b"saved model bytes");
 }
 
+#[cfg(windows)]
+#[test]
+fn long_chinese_asset_and_destination_names_can_be_exported() {
+    let fixture = Fixture::new();
+    let name = format!("{}.glb", "中".repeat(100));
+    let asset = fixture.project.root.join("assets").join(&name);
+    fs::write(&asset, b"valid Windows asset").unwrap();
+    let destination = fixture.root.join("出".repeat(100));
+    let receipt = fixture.export(&destination, &BuildControl::default()).unwrap();
+    assert_eq!(receipt.directory, destination);
+    assert_eq!(fs::read(receipt.directory.join("assets").join(name)).unwrap(), b"valid Windows asset");
+    manifest::verify(&receipt.directory, &fixture.project, &BuildControl::default(), false).unwrap();
+}
+
 #[test]
 fn repeated_export_replaces_only_verified_previous_package() {
     let fixture = Fixture::new();
@@ -181,6 +195,48 @@ fn output_cannot_overlap_source_assets_author_data_cache_or_engine_source() {
         assert!(fs::read_dir(directory).unwrap().next().is_none());
     }
     assert_eq!(fs::read(fixture.project.root.join("src/main.rs")).unwrap(), "作者源码，不进入导出".as_bytes());
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_directory_comparison_is_symmetric_and_preserves_component_boundaries() {
+    let assets = Path::new(r"C:\project\assets");
+    let output = Path::new(r"C:\project\output");
+    assert!(!paths::contains(assets, output));
+    assert!(!paths::contains(output, assets), "排序大于不能误判为相同目录");
+
+    let upper = Path::new(r"C:\project\Ässets");
+    let lower = Path::new(r"C:\project\ässets");
+    assert!(paths::contains(upper, lower));
+    assert!(paths::contains(lower, upper));
+    let child = Path::new(r"C:\project\ässets\nested\output");
+    assert!(paths::contains(upper, child));
+    assert!(!paths::contains(child, upper));
+    assert!(!paths::contains(upper, Path::new(r"C:\project\ässets-extra\output")));
+}
+
+#[cfg(windows)]
+#[test]
+fn unicode_case_aliases_cannot_repurpose_an_empty_asset_root_as_export_output() {
+    let mut fixture = Fixture::new();
+    let assets = fixture.project.root.join("Ässets");
+    fs::create_dir(&assets).unwrap();
+    let descriptor = fixture.project.root.join("editor-project.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&descriptor).unwrap()).unwrap();
+    value["asset_roots"].as_array_mut().unwrap().push("Ässets".into());
+    let saved_descriptor = serde_json::to_vec_pretty(&value).unwrap();
+    fs::write(&descriptor, &saved_descriptor).unwrap();
+    fixture.project = crate::project::open(&fixture.project.root).unwrap();
+    let alias = fixture.project.root.join("ässets");
+    assert_eq!(assets.canonicalize().unwrap(), alias.canonicalize().unwrap(), "本机大小写变体必须指向同一实际目录");
+    // 既保护被直接选中的空资产根，也保护输入中既有父目录使用大小写别名的子目标。
+    for destination in [&alias, &alias.join("nested-output")] {
+        let error = paths::destination(&fixture.project, destination, &fixture.target).unwrap_err();
+        assert!(error.contains("资产根"), "{error}");
+    }
+    assert!(fs::read_dir(&assets).unwrap().next().is_none(), "拒绝后空资产根必须保持原状");
+    assert_eq!(fs::read(descriptor).unwrap(), saved_descriptor);
+    assert_eq!(fs::read(fixture.project.root.join("assets/config.json")).unwrap(), b"{\"value\":1}");
 }
 
 #[test]
@@ -282,6 +338,18 @@ fn relative_paths_reject_windows_devices_and_traversal() {
         assert!(paths::relative(Path::new(path)).is_err(), "{path}");
     }
     assert!(paths::relative(Path::new("assets/中文 模型.glb")).is_ok());
+}
+
+#[test]
+fn relative_paths_measure_windows_names_in_utf16_units() {
+    // 合法中文名称的 UTF-8 字节可能超过255；非BMP字符则占两个 UTF-16 单元。
+    let chinese = format!("{}.glb", "中".repeat(100));
+    assert!(chinese.len() > 255);
+    assert!(paths::relative(Path::new(&chinese)).is_ok());
+    let full_budget = format!("{}a", "😀".repeat(127));
+    assert!(paths::relative(Path::new(&full_budget)).is_ok());
+    assert!(paths::relative(Path::new(&format!("{full_budget}a"))).is_err());
+    assert!(paths::relative(Path::new(&"a".repeat(256))).is_err());
 }
 
 #[test]

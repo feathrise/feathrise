@@ -840,7 +840,10 @@ fn production_plugin_manager_gpu_and_reopen_transactions() {
     // 旧目录包只有显式确认后才能归档；不删除目录中的原始内容或作者资产。
     let legacy = root.join("plugins/legacy-removal-fixture");
     fs::create_dir(&legacy).unwrap();
-    write_new(&legacy.join("plugin.json"), r#"{"format":1,"id":"example.legacy","tool":"旧包归档夹具"}"#.as_bytes());
+    // 覆盖Windows旧作者工具写出的UTF-8 BOM：发现、诊断和归档应采用同一原始清单身份。
+    let mut legacy_manifest = vec![0xef, 0xbb, 0xbf];
+    legacy_manifest.extend_from_slice(r#"{"format":1,"id":"example.legacy","tool":"旧包归档夹具"}"#.as_bytes());
+    write_new(&legacy.join("plugin.json"), &legacy_manifest);
     write_new(&legacy.join("old.dll"), b"legacy-bytes-must-survive");
     let legacy_baseline = asset_bytes(&legacy);
 
@@ -866,6 +869,10 @@ fn production_plugin_manager_gpu_and_reopen_transactions() {
         .map(|entry| entry.path().join("legacy/legacy-removal-fixture"))
         .find(|path| path.is_dir()).expect("旧目录必须仍存在于事务归档中");
     assert_eq!(asset_bytes(&archive), legacy_baseline, "归档不得丢失或改写旧包字节");
+    let archived_manifest = fs::read(archive.join("plugin.json")).unwrap();
+    let legacy_utf8_bom_preserved = archived_manifest.starts_with(&[0xef, 0xbb, 0xbf])
+        && archived_manifest == legacy_manifest;
+    assert!(legacy_utf8_bom_preserved, "归档后的清单必须保留UTF-8 BOM和完整原字节");
     assert!(!app.world().resource::<PluginManagerState>().rows.iter().any(|row| row.id == "example.legacy"));
     let receipts: Vec<Value> = fs::read_dir(root.join(".editor/plugin-management/receipts")).unwrap()
         .map(|item| serde_json::from_slice(&fs::read(item.unwrap().path()).unwrap()).unwrap())
@@ -980,7 +987,8 @@ fn production_plugin_manager_gpu_and_reopen_transactions() {
 
     write_new(&output.join("evidence.json"), &serde_json::to_vec_pretty(&json!({"passed":true,"project":root,"images":images,
         "native_process_probes":probes,"global_fixture":global,"actual_two_binary_versions":true,"button_feedback":feedback_proofs,
-        "legacy_archive":archive,"legacy_bytes_preserved":true,"home_global_install_toggle_update_remove_and_recovery_committed":true,"os_directory_window_verified":false,
+        "legacy_archive":archive,"legacy_bytes_preserved":true,"legacy_utf8_bom_preserved":legacy_utf8_bom_preserved,
+        "home_global_install_toggle_update_remove_and_recovery_committed":true,"os_directory_window_verified":false,
         "failure_notification":notification_proof,
         "legacy_failed_discovery_cleanup":legacy_diagnostic_proof,
         "author_data_unchanged":true,"author_files_checked":author_baseline.len(),"os_input_verified":false,

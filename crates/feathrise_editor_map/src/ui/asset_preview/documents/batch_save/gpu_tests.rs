@@ -26,6 +26,7 @@ pub(in super::super) fn gpu_assert_batch_save(
     target: Handle<Image>,
     width: u32,
     root: &Path,
+    project: &Path,
     snapshot: fn(&mut App, Handle<Image>, &str, u32),
 ) {
     let source = source(app);
@@ -222,7 +223,61 @@ pub(in super::super) fn gpu_assert_batch_save(
             .unwrap()
             .dirty()
     );
-    snapshot(app, target, "asset-browser-batch-save-document.png", width);
+    snapshot(app, target.clone(), "asset-browser-batch-save-document.png", width);
+
+    // 依次使用原会话加载和同一原生正文编辑源码、同显示路径资产；8份预算仍由原淘汰规则维护。
+    std::fs::create_dir(project.join("src")).unwrap();
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::write(project.join("src/main.rs"), "// 原工程源码\n").unwrap();
+    std::fs::write(root.join("src/main.rs"), "// 原同名资产\n").unwrap();
+    open_for_edit(app, window, camera, "project://src/main.rs");
+    assert_eq!(self::source(app), source);
+    assert_eq!(app.world().resource::<DocumentState>().current().unwrap().source_text(), "// 原工程源码\n");
+    set_source(app, source, "// 中文源码完整草稿\n");
+    open_for_edit(app, window, camera, "src/main.rs");
+    assert_eq!(self::source(app), source);
+    assert_eq!(app.world().resource::<DocumentState>().current().unwrap().source_text(), "// 原同名资产\n");
+    set_source(app, source, "// 中文资产完整草稿\n");
+    assert_eq!(std::fs::read_to_string(project.join("src/main.rs")).unwrap(), "// 原工程源码\n");
+    assert_eq!(std::fs::read_to_string(root.join("src/main.rs")).unwrap(), "// 原同名资产\n");
+    click(app, window, camera, DocumentAction::SaveAll);
+    settle(app);
+    assert_eq!(std::fs::read_to_string(project.join("src/main.rs")).unwrap(), "// 中文源码完整草稿\n");
+    assert_eq!(std::fs::read_to_string(root.join("src/main.rs")).unwrap(), "// 中文资产完整草稿\n");
+    {
+        let documents = app.world().resource::<DocumentState>();
+        let report = app.world().resource::<DocumentBatchSaveState>();
+        assert!(documents.documents.len() <= super::super::constants::MAX_DOCUMENTS);
+        for key in ["project://src/main.rs", "src/main.rs"] {
+            let document = documents.documents.iter().find(|doc| doc.path == key).unwrap();
+            assert!(!document.dirty() && document.history.can_undo());
+            assert_eq!(report.files.iter().find(|file| file.path == key).unwrap().outcome, FileOutcome::Saved);
+        }
+        assert!(!report.running);
+        assert_eq!(report.files.len(), 3, "原有外部冲突和两份同显示路径草稿必须分别产生回执");
+        assert_eq!(report.files.iter().filter(|file| file.outcome == FileOutcome::Failed).count(), 1);
+    }
+    // 检查正式回执文字，不把内部身份直接展示，也不能留下已经结清的“进行中”行。
+    {
+        let world = app.world_mut();
+        let bodies: Vec<_> = world.query_filtered::<&Text, With<SaveReportBody>>().iter(world).collect();
+        assert!(!bodies.is_empty());
+        for body in bodies {
+            assert_eq!(body.as_str().matches("[成功] src/main.rs：").count(), 2);
+            assert!(!body.as_str().contains("project://") && !body.as_str().contains("[进行中]"));
+        }
+    }
+    assert_eq!(self::source(app), source);
+    snapshot(app, target, "asset-browser-batch-save-project-and-asset.png", width);
+}
+
+fn open_for_edit(app: &mut App, window: Entity, camera: Entity, path: &str) {
+    app.world_mut().resource_scope(|world, mut documents: Mut<DocumentState>| {
+        documents.expand(path.into(), &mut world.resource_mut::<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>()).unwrap();
+    });
+    settle(app); // 原异步读取采用后才进入编辑，不直接构造或替换Document内容。
+    assert_eq!(app.world().resource::<DocumentState>().current().unwrap().path, path);
+    click(app, window, camera, DocumentAction::Edit);
 }
 
 fn document(root: &Path, path: &str, original: &str, draft: &str) -> Document {
@@ -260,6 +315,7 @@ fn settle(app: &mut App) {
     for _ in 0..200 {
         frames(app, 1);
         if app.world().resource::<DocumentState>().io.is_none()
+            && app.world().resource::<DocumentState>().pending_load.is_none()
             && !app.world().resource::<DocumentBatchSaveState>().running
         {
             frames(app, 4);

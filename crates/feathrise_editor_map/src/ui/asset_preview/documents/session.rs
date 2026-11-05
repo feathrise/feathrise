@@ -176,9 +176,12 @@ impl DocumentState {
             return;
         }
         self.load_ticket = self.load_ticket.wrapping_add(1);
+        let expected_document = self.documents.iter().find(|doc| doc.path == path)
+            .map(|doc| (doc.source_key(), doc.revision));
         self.pending_load = Some(LoadRequest {
             path,
             ticket: self.load_ticket,
+            expected_document,
         });
         self.error.clear();
     }
@@ -236,6 +239,9 @@ pub(super) fn capture_edits(
     if sources.is_empty() {
         return;
     } // 稳定帧不复制全文，也不标记草稿资源Changed。
+    if state.active.as_deref().is_some_and(|path| state.is_loading(path)) {
+        return; // 即使其他入口切回Edit，旧绑定的本帧残余输入也不能写进待替换正文。
+    }
     for (binding, text) in &sources {
         let Some(doc) = state.current().filter(|doc| doc.mode == ViewMode::Edit) else {
             return;
@@ -329,6 +335,7 @@ pub(super) fn drive_tasks(
         && let Some(result) = state.io.as_mut().and_then(check_ready)
     {
         state.io = None;
+        state.loading = None; // 成功、失败及旧票据均结清读取身份，失败后原草稿可以重新编辑。
         state.saving = None;
         state.saving_batch.clear();
         match result {
@@ -338,7 +345,15 @@ pub(super) fn drive_tasks(
                 if request.ticket == state.load_ticket
                     && state.active.as_deref() == Some(&request.path)
                 {
+                    let current = state.documents.iter().find(|doc| doc.path == request.path)
+                        .map(|doc| (doc.source_key(), doc.revision));
                     match result {
+                        Ok(_) if current != request.expected_document => {
+                            // 输入解绑之外仍复核完整旧会话身份，不能覆盖确认后发生的撤销或业务改字。
+                            let error = "重新载入期间文档已变化，已取消载入；当前草稿和历史已保留";
+                            if let Some(doc) = state.current_mut() { doc.status = error.into(); }
+                            state.error = error.into();
+                        }
                         Ok((disk, pages)) => {
                             let format =
                                 document_format(&request.path).expect("IO只采用白名单文本文档");
@@ -425,6 +440,7 @@ pub(super) fn drive_tasks(
     if state.io.is_none() {
         if let Some(request) = state.pending_load.take() {
             let roots = state.source_roots();
+            state.loading = Some(request.clone());
             state.io = Some(IoTaskPool::get().spawn(async move {
                 let result = io::load_source(&roots, &request.path);
                 IoResult::Loaded(request, result)

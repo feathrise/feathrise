@@ -86,7 +86,8 @@ fn cached_templates_keep_relative_sdk_paths_bound_to_external_configuration() {
     let cached = fixture.root.join("缓存/资源身份");
     let template = cached.join("assets/templates/empty");
     fs::create_dir_all(template.join("src")).unwrap();
-    let source = "[package]\nname = \"feathrise_game_template\"\nversion = \"0.1.0\"\nedition = \"2024\"\ndefault-run = \"game\"\n[[bin]]\nname = \"game\"\npath = \"src/main.rs\"\n[dependencies]\nfeathrise_runtime = { path = \"ignored\", default-features = false }\n";
+    // 缓存夹具沿用正式模板的唯一project入口，再由工程UUID派生实际目标名。
+    let source = "[package]\nname = \"feathrise_game_template\"\nversion = \"0.1.0\"\nedition = \"2024\"\ndefault-run = \"project\"\n[[bin]]\nname = \"project\"\npath = \"src/main.rs\"\n[dependencies]\nfeathrise_runtime = { path = \"ignored\", default-features = false }\n";
     fs::write(template.join("Cargo.toml"), source).unwrap();
     fs::write(template.join("src/main.rs"), "fn main() {}\n").unwrap();
     fs::write(template.join("build.rs"), "fn main() {}\n").unwrap();
@@ -98,10 +99,11 @@ fn cached_templates_keep_relative_sdk_paths_bound_to_external_configuration() {
     assert!(!fixture.editor.join("Cargo.lock").exists());
     let configuration_before = fs::read(fixture.editor.join(CONFIG_NAME)).unwrap();
     let project = fixture.root.join("生成缓存工程");
+    let project_id = super::super::new_uuid().unwrap();
     super::super::empty::write_with_sdk_configuration(
         &project,
         "缓存模板工程",
-        &super::super::new_uuid().unwrap(),
+        &project_id,
         &cached,
         &fixture.editor,
         &crate::build_process::BuildControl::default(),
@@ -109,6 +111,10 @@ fn cached_templates_keep_relative_sdk_paths_bound_to_external_configuration() {
     ).unwrap();
 
     let manifest: Value = toml::from_str(&fs::read_to_string(project.join("Cargo.toml")).unwrap()).unwrap();
+    let target = format!("project-{project_id}");
+    assert_eq!(manifest["bin"].as_array().unwrap().len(), 1);
+    assert_eq!(manifest["bin"][0]["name"].as_str(), Some(target.as_str()));
+    assert_eq!(manifest["package"]["default-run"].as_str(), Some(target.as_str()));
     let expected = super::super::toml_path(&fixture.sdk).unwrap();
     assert_eq!(manifest["dependencies"]["feathrise_runtime"]["path"].as_str(), Some(expected.as_str()));
     for (package, directory) in PATCHES {

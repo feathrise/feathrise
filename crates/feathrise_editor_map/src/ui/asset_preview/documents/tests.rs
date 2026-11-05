@@ -22,18 +22,26 @@ mod history_save; // 真实保存回执、历史保存点与按未保存状态�
 mod close_validation; // 普通关闭夹具通过真实文档保存队列处理冲突和重试。
 mod themes; // 三套正式主题的GPU绘制、设置模态与原生草稿保留。
 mod external; // 外部修改提示、真实菜单命中与单一原生输入刷新。
+mod reload; // 真实重载期间的输入冻结、失败恢复及保存/核对/其他会话的可编辑边界。
 struct Fixture {
     root: PathBuf,
+    parent: PathBuf,
+    owner: String,
 }
 impl Fixture {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "rpg-markdown-{}-{}",
+        let parent = std::env::temp_dir().canonicalize().unwrap();
+        let owner = format!(
+            "rpg-markdown-{}-{}-{}",
             std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
             COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        Self { root }
+        );
+        let root = parent.join(&owner);
+        std::fs::create_dir(&root).unwrap(); // 独占创建失败即停止，不能接管旧验收留下的目录。
+        let root = root.canonicalize().unwrap();
+        std::fs::write(root.join(".feathrise-test-owner"), &owner).unwrap();
+        Self { root, parent, owner }
     }
     fn write(&self, value: impl AsRef<[u8]>) {
         std::fs::write(self.root.join("说明.md"), value).unwrap();
@@ -66,7 +74,14 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
+        // 递归清理前复核绝对路径、临时父根与本轮标记；目录被替换或改归属时保留现场。
+        if self.root.is_absolute()
+            && self.root.parent() == Some(self.parent.as_path())
+            && self.root.canonicalize().ok().as_ref() == Some(&self.root)
+            && std::fs::read_to_string(self.root.join(".feathrise-test-owner")).ok().as_deref() == Some(self.owner.as_str())
+        {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
     }
 }
 
@@ -424,6 +439,7 @@ fn markdown_old_io_keeps_slot_until_finished_and_only_latest_request_is_loaded()
                 LoadRequest {
                     path: "说明.md".into(),
                     ticket: 0,
+                    expected_document: None,
                 },
                 Err("过期任务".into()),
             )
@@ -470,7 +486,9 @@ fn markdown_save_rejects_same_length_external_edit_and_keeps_both_versions() {
         "外部文本"
     );
     assert_eq!(doc.source_text(), "自己的草稿");
-    assert_eq!(std::fs::read_dir(&fixture.root).unwrap().count(), 1); // 冲突不能留下stage/backup。
+    // 归属元数据属于夹具本身；实际文档以外仍不能留下stage/backup。
+    assert_eq!(std::fs::read_dir(&fixture.root).unwrap()
+        .filter(|entry| entry.as_ref().unwrap().file_name() != ".feathrise-test-owner").count(), 1);
 }
 
 #[test]
@@ -586,6 +604,7 @@ fn markdown_late_load_and_parse_results_cannot_replace_current_document() {
                 LoadRequest {
                     path: "说明.md".into(),
                     ticket: 1,
+                    expected_document: None,
                 },
                 result,
             )
@@ -760,6 +779,84 @@ fn markdown_reload_requires_discard_confirmation_and_ime_blocks_save() {
             .status
             .contains("中文输入")
     );
+}
+
+#[test]
+fn markdown_reload_keeps_old_native_input_unbound_until_real_read_is_adopted() {
+    use bevy::{ecs::system::RunSystemOnce, input_focus::InputFocus,
+        text::{FontCx, LayoutCx}, ui::widget::TextScroll};
+    use crate::resources::{EditorTextInputGuard, MapEditorNumericScrubMouseGuard, MapEditorState};
+    use crate::ui::sidebars::{EditorRightSidebarTab, MapEditorSidebarState};
+
+    let fixture = Fixture::new();
+    fixture.write("载入时的磁盘原文\n");
+    let mut document = fixture.document();
+    document.edit("确认丢弃前的旧草稿\n");
+    let original_key = document.source_key();
+    let mut sidebar = MapEditorSidebarState::default();
+    sidebar.right = EditorRightSidebarTab::Assets;
+    let mut font = FontCx::default();
+    let embedded = Font::from_bytes(feathrise_runtime::app::default_font::DEFAULT_FONT_BYTES.to_vec());
+    font.context.collection.register_fonts(embedded.data, None);
+    font.set_sans_serif_family("Noto Sans CJK SC").unwrap();
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .insert_resource(feathrise_editor_documents::content_operations())
+        .insert_resource(font).init_resource::<LayoutCx>()
+        .init_resource::<bevy::clipboard::Clipboard>()
+        .init_resource::<InputFocus>().init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<EditorTextInputGuard>().init_resource::<MapEditorNumericScrubMouseGuard>()
+        .init_resource::<super::resources::DocumentInputs>()
+        .init_resource::<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>()
+        .insert_resource(MapEditorState { open: true, selected_asset: Some("说明.md".into()), ..default() })
+        .insert_resource(sidebar)
+        .insert_resource(DocumentState {
+            root: fixture.root.clone(), active: Some("说明.md".into()), visible: true,
+            load_ticket: original_key.generation, documents: vec![document], ..default()
+        })
+        .add_systems(Update, (bevy::text::apply_text_edits, session::capture_edits, super::native::bind).chain());
+    let source = app.world_mut().spawn((DocumentSource::default(), EditableText::default(),
+        TextScroll::default(), ComputedNode::default())).id();
+    app.update();
+    app.update(); // 官方队列采用原生绑定的TextStart，后续原文件动作不被初始化队列拦截。
+    assert_eq!(app.world().get::<DocumentSource>(source).unwrap().key.as_ref(), Some(&original_key));
+    let button = app.world_mut().spawn((DocumentAction::Reload,
+        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)).id();
+    app.world_mut().run_system_once(super::interaction::actions).unwrap();
+    assert!(app.world().resource::<DocumentState>().current().unwrap().confirm_reload);
+    assert!(app.world().resource::<DocumentState>().pending_load.is_none());
+    fixture.write("本次重新载入的真实磁盘版本\n");
+    app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
+    app.world_mut().run_system_once(super::interaction::actions).unwrap();
+    assert!(app.world().resource::<DocumentState>().pending_load.is_some());
+    app.world_mut().run_system_once(session::drive_tasks).unwrap();
+    assert!(app.world().resource::<DocumentState>().io.is_some());
+    app.update();
+    assert!(app.world().get::<DocumentSource>(source).unwrap().key.is_none());
+
+    // 原IO已启动真实受检读取；只暂缓主线程轮询，确定性保留结果尚未采用的输入窗口。
+    // 不伪造Pending/Loaded，不阻塞共享IO池；后续必须在固定期限内采用并核对真实磁盘正文。
+    app.world_mut().entity_mut(button).insert((DocumentAction::Edit,
+        feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().run_system_once(super::interaction::actions).unwrap();
+    app.update();
+    let rebound = app.world().get::<DocumentSource>(source).unwrap().key.clone();
+    let waiting_mode = app.world().resource::<DocumentState>().current().unwrap().mode;
+    let started = std::time::Instant::now();
+    loop {
+        app.world_mut().run_system_once(session::drive_tasks).unwrap();
+        app.update();
+        let state = app.world().resource::<DocumentState>();
+        if state.io.is_none() && state.pending_load.is_none() && state.parser.is_none() { break; }
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "真实重载未在5秒内结清");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    let state = app.world().resource::<DocumentState>();
+    assert_eq!(state.current().unwrap().source_text(), "本次重新载入的真实磁盘版本\n");
+    assert_ne!(state.current().unwrap().source_key(), original_key);
+    assert_eq!(std::fs::read_to_string(fixture.root.join("说明.md")).unwrap(), "本次重新载入的真实磁盘版本\n");
+    assert_eq!(rebound, None, "重载回执采用前，原Edit动作不能重新绑定即将丢弃的旧正文");
+    assert_eq!(waiting_mode, ViewMode::Preview);
 }
 
 /// 手动验收实际资产侧栏与官方中文输入；只保存临时文档，离屏渲染不会留下占用游戏exe的进程。
@@ -956,16 +1053,23 @@ fn gpu_document_sidebar(
     };
     // 密集单行JSON虽字符多，软换行高度仍可能不到一万像素；长滚动入口另由多行JSON验证。
     let tall_document = original.chars().count() > 8192 && screenshot_type != "syntax-dense";
-    // 批量保存依赖正式搜索，多文档依赖真实资产行双击；夹具须保留左侧导航才能覆盖实际入口。
-    let with_asset_navigation = matches!(screenshot_type, "batch-save" | "multi-document");
+    // 搜索、路径查询及快捷入口均已随工程浏览迁至左栏；夹具须构造原导航树与来源显隐。
+    let with_asset_navigation = matches!(screenshot_type,
+        "cross-search" | "cross-replace" | "batch-save" | "references" | "missing-assets" | "shortcuts" | "multi-document");
     let fixture = Fixture::new();
-    std::fs::write(fixture.root.join(path), original).unwrap();
+    // 混合保存需要独立工程/资产受检根；两者仍只位于本轮独占夹具之内。
+    let asset_root = if screenshot_type == "batch-save" {
+        let assets = fixture.root.join("assets");
+        std::fs::create_dir(&assets).unwrap();
+        assets
+    } else { fixture.root.clone() };
+    std::fs::write(asset_root.join(path), original).unwrap();
     if matches!(screenshot_type, "cross-search" | "cross-replace" | "batch-save") {
-        std::fs::create_dir_all(fixture.root.join("config")).unwrap();
-        std::fs::create_dir_all(fixture.root.join("scripts")).unwrap();
-        std::fs::write(fixture.root.join("config/武器.json"), "{\n  \"名称\": \"长剑\",\n  \"说明\": \"长剑\"\n}\n").unwrap();
-        std::fs::write(fixture.root.join("另一个.JSON"), "{\"名称\":\"长剑\"}\n").unwrap();
-        std::fs::write(fixture.root.join("scripts/剑.rs"), "// 长剑 角色技能\n".repeat(40)).unwrap();
+        std::fs::create_dir_all(asset_root.join("config")).unwrap();
+        std::fs::create_dir_all(asset_root.join("scripts")).unwrap();
+        std::fs::write(asset_root.join("config/武器.json"), "{\n  \"名称\": \"长剑\",\n  \"说明\": \"长剑\"\n}\n").unwrap();
+        std::fs::write(asset_root.join("另一个.JSON"), "{\"名称\":\"长剑\"}\n").unwrap();
+        std::fs::write(asset_root.join("scripts/剑.rs"), "// 长剑 角色技能\n".repeat(40)).unwrap();
     }
     if matches!(screenshot_type, "references" | "missing-assets") {
         std::fs::create_dir_all(fixture.root.join("config")).unwrap();
@@ -977,7 +1081,7 @@ fn gpu_document_sidebar(
     if screenshot_type == "multi-document" {
         std::fs::write(fixture.root.join("第二代码.rs"), "fn main() {\n    println!(\"第二文件\");\n}\n").unwrap();
     }
-    let target_font = fixture.root.join(crate::ui::scene::FONT_PATH);
+    let target_font = asset_root.join(crate::ui::scene::FONT_PATH);
     std::fs::create_dir_all(target_font.parent().unwrap()).unwrap();
     std::fs::write(target_font, feathrise_runtime::app::default_font::DEFAULT_FONT_BYTES).unwrap();
     let mut app = App::new();
@@ -995,7 +1099,7 @@ fn gpu_document_sidebar(
                 ..default()
             })
             .set(AssetPlugin {
-                file_path: fixture.root.to_string_lossy().into(),
+                file_path: asset_root.to_string_lossy().into(),
                 watch_for_changes_override: (screenshot_type.starts_with("json-tools-") || screenshot_type.starts_with("replace-tools-") || matches!(screenshot_type, "cross-search" | "cross-replace" | "batch-save" | "references" | "missing-assets" | "shortcuts")).then_some(false), // 工具验证检查实际文件字节，无需临时目录退出时的文件监视回调。
                 ..default()
             })
@@ -1051,6 +1155,9 @@ fn gpu_document_sidebar(
     }
     app.add_plugins((feathrise_editor_ui::EditorButtonInputPlugin, feathrise_editor_documents::DocumentsEditorPlugin));
     super::install(&mut app);
+    if with_asset_navigation {
+        crate::ui::project_browser::install_asset_view_for_tests(&mut app);
+    }
     app.insert_resource(crate::ui::external_files::ExternalEditors::for_tests(&crate::ui::external_files::ExternalEditor::ALL)); // UI夹具固定三种安装结果，不依赖开发机实际安装。
     if screenshot_type == "themes" {
         app.add_plugins(feathrise_editor_ui::EditorThemePlugin)
@@ -1098,7 +1205,10 @@ fn gpu_document_sidebar(
             .resource_mut::<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>()
             .active_tab = crate::ui::vegetation_preset_editor::PresetWorkspaceTab::Domain("test.author", 0);
     }
-    app.world_mut().resource_mut::<DocumentState>().root = fixture.root.clone();
+    app.world_mut().resource_mut::<DocumentState>().root = asset_root.clone();
+    if screenshot_type == "batch-save" {
+        app.world_mut().resource_mut::<DocumentState>().project_root = Some(fixture.root.clone());
+    }
     if screenshot_type == "shortcuts" {
         let project = fixture.root.join("导航临时项目");
         let root = project.join("assets");
@@ -1149,7 +1259,7 @@ fn gpu_document_sidebar(
             bevy::camera::RenderTarget::from(target.clone()),
         ))
         .id();
-    let menu_root = matches!(screenshot_type, "multi-document" | "batch-save" | "themes" | "external" | "references" | "missing-assets" | "shortcuts").then(|| app.world_mut().spawn((
+    let menu_root = (with_asset_navigation || matches!(screenshot_type, "themes" | "external")).then(|| app.world_mut().spawn((
         crate::components::MapEditorRoot, bevy::ui::UiTargetCamera(camera), Node {
             position_type: PositionType::Absolute, width: px(width as f32), height: px(height as f32), ..default()
         },
@@ -1288,7 +1398,7 @@ fn gpu_document_sidebar(
         return;
     }
     if screenshot_type == "batch-save" {
-        super::batch_save::gpu_assert_batch_save(&mut app, window, camera, target, width, &fixture.root, snapshot);
+        super::batch_save::gpu_assert_batch_save(&mut app, window, camera, target, width, &asset_root, &fixture.root, snapshot);
         return;
     }
     super::syntax::gpu_assert_syntax(&mut app, path, false);

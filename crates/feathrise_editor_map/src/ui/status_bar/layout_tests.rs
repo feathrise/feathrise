@@ -308,6 +308,7 @@ fn loading_footer_keeps_recovery_and_details_inside_without_moving_workbench() {
 fn compact_header_keeps_commands_inside_and_map_before_context_and_details() {
     use crate::components::{MapEditorActionButton, MapEditorCurrentMapText, MapEditorSettingsButton};
     use crate::types::{EditorAction, EditorSettingsAction};
+    use crate::workbench::WorkbenchHeaderItem;
     for (width, scale) in [(1280.0, 1.0), (1280.0, 1.5), (1920.0, 1.25)] {
         let mut app = page(width, 720.0, scale, 1.0);
         let world = app.world_mut();
@@ -325,17 +326,34 @@ fn compact_header_keeps_commands_inside_and_map_before_context_and_details() {
         let footer_bounds = bounds::<StatusFooter>(&mut app);
         assert!((header_bounds.height() - 28.0 * scale).abs() < 1.1);
         let world = app.world_mut();
-        for action in [EditorAction::Save, EditorAction::Undo, EditorAction::Redo, EditorAction::Close] {
+        for (action, slot) in [
+            (EditorAction::Save, Some(WorkbenchHeaderItem::Save)),
+            (EditorAction::Undo, Some(WorkbenchHeaderItem::Undo)),
+            (EditorAction::Redo, Some(WorkbenchHeaderItem::Redo)),
+            (EditorAction::Close, None),
+        ] {
             let buttons = world.query::<(Entity, &MapEditorActionButton, &ComputedNode, &UiGlobalTransform)>()
                 .iter(world).filter(|(_, button, ..)| button.0 == action).map(|(entity, _, node, at)| (entity, Rect::from_center_size(at.translation, node.size()))).collect::<Vec<_>>();
             assert_eq!(buttons.len(), 1, "顶栏命令不能重复创建：{action:?}");
             let (button, rect) = buttons[0];
-            assert_eq!(world.get::<ChildOf>(button).unwrap().parent(), header);
+            let parent = world.get::<ChildOf>(button).unwrap().parent();
+            // 一体标题栏通过明确槽位移动原命令，不能再把槽位容器误判成脱离顶栏。
+            if let Some(slot) = slot {
+                assert_eq!(world.get::<WorkbenchHeaderItem>(parent), Some(&slot));
+                assert_eq!(world.get::<ChildOf>(parent).unwrap().parent(), header);
+            } else {
+                assert_eq!(parent, header, "启动入口仍须直属顶栏");
+            }
+            assert!(world.get::<InheritedVisibility>(button).is_some_and(|visibility| visibility.get()), "顶栏命令必须真实可见：{action:?}");
+            assert!(rect.width() > 0.0 && rect.height() > 0.0, "顶栏命令必须保留可用面积：{action:?}");
             assert!(rect.min.x >= header_bounds.min.x - 1.1 && rect.max.x <= header_bounds.max.x + 1.1, "窄窗顶栏命令越界：{action:?}");
             assert!(rect.min.y >= header_bounds.min.y - 1.1 && rect.max.y <= header_bounds.max.y + 1.1);
         }
         let settings = world.query::<(Entity, &MapEditorSettingsButton)>().iter(world)
             .find(|(_, button)| button.0 == EditorSettingsAction::Open).unwrap().0;
+        let settings_slot = world.get::<ChildOf>(settings).unwrap().parent();
+        assert_eq!(world.get::<WorkbenchHeaderItem>(settings_slot), Some(&WorkbenchHeaderItem::Settings));
+        assert_eq!(world.get::<ChildOf>(settings_slot).unwrap().parent(), header);
         assert!(world.get::<Children>(settings).unwrap().iter().any(|child| world.get::<Text>(child).is_some_and(|text| text.as_str() == "设置")));
         let (map, computed, at) = world.query_filtered::<(Entity, &ComputedNode, &UiGlobalTransform), With<MapEditorCurrentMapText>>().single(world).unwrap();
         let map_bounds = Rect::from_center_size(at.translation, computed.size());

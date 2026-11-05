@@ -44,10 +44,14 @@ pub(crate) fn sync_asset_reveal_scroll(
         *consumed = Some(identity); // 失效也是完成，不让它下次开页复活。
         return;
     }
+    // 正式正文与旧标记外壳可同时存在；正文暂隐藏/零布局时也要等待，不能在外壳消费定位。
+    let has_asset_content = pages.iter().any(|(_, view, ..)|
+        view.is_some_and(|view| view.0 == crate::ui::project_browser::ProjectBrowserView::Assets));
     let Some((_, _, page_node, page, page_transform, mut scroll)) = pages
         .iter_mut()
         .find(|(marker, view, ..)| view.is_some_and(|view| view.0 == crate::ui::project_browser::ProjectBrowserView::Assets)
-            || marker.is_some_and(|marker| marker.0 == EditorSidebarTab::Navigator(EditorNavigatorTab::Assets)))
+            || !has_asset_content && view.is_none()
+                && marker.is_some_and(|marker| marker.0 == EditorSidebarTab::Navigator(EditorNavigatorTab::Assets)))
     else {
         return;
     }; // 初次生成前等待UI挂载。

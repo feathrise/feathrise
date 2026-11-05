@@ -20,7 +20,10 @@ pub(super) fn archive(store: &Store, entry: &PackageEntry) -> Result<ArchivedLeg
     validate_component(name)?;
     // 防止界面看到的旧包在点击前已换成另一个身份；无法确认的旧清单不被擅自搬动。
     let manifest_bytes = read_limited(&source.join("plugin.json"), MAX_JSON)?;
-    let manifest: serde_json::Value = serde_json::from_slice(&manifest_bytes).map_err(error)?;
+    // 与列表发现采用相同的BOM解析约定；身份摘要和归档仍保留清单的完整原字节。
+    let manifest: serde_json::Value = serde_json::from_slice(
+        manifest_bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&manifest_bytes),
+    ).map_err(error)?;
     if manifest.get("id").and_then(|id| id.as_str()) != Some(entry.id.as_str()) {
         return Err("旧包身份已改变，原目录保留，请刷新后重试".into());
     }
@@ -89,7 +92,9 @@ pub(super) fn diagnostic_origin(entry: &PackageEntry) -> Result<PluginOrigin, St
         return Err("旧包诊断来源不是目录".into());
     }
     let bytes = read_limited(&path.join("plugin.json"), MAX_JSON)?;
-    let manifest: serde_json::Value = serde_json::from_slice(&bytes).map_err(error)?;
+    let manifest: serde_json::Value = serde_json::from_slice(
+        bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes),
+    ).map_err(error)?;
     if manifest.get("id").and_then(|id| id.as_str()) != Some(entry.id.as_str()) {
         return Err("旧包诊断来源身份不匹配".into());
     }
