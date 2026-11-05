@@ -11,8 +11,8 @@ use std::path::{Component, Path, PathBuf};
 
 const MAX_PATH_BYTES: usize = 8192;
 
-/// 覆盖顺序固定为命令行、Cargo 环境、运行模式默认值；子作者随后收到同一绝对路径。
-pub(crate) fn build_target(mode: ResourceMode, explicit: Option<PathBuf>) -> Result<PathBuf, String> {
+/// 只冻结显式覆盖；主窗口不能把自己的默认缓存当成所有工程的默认值。
+pub(crate) fn build_target_override(explicit: Option<PathBuf>) -> Result<Option<PathBuf>, String> {
     let environment = std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from);
     if let Some((path, label)) = selected_override(explicit.as_deref(), environment.as_deref()) {
         // 只在确有相对覆盖时读取 cwd；固定后 F12 或作者实例切换 cwd 不会改变缓存身份。
@@ -21,7 +21,15 @@ pub(crate) fn build_target(mode: ResourceMode, explicit: Option<PathBuf>) -> Res
         } else {
             std::env::current_dir().map_err(|error| format!("无法解析 {label} 的启动目录：{error}"))?
         };
-        return absolute_target(path, &cwd, label);
+        return absolute_target(path, &cwd, label).map(Some);
+    }
+    Ok(None)
+}
+
+/// 编辑器自身及独立验收工具的缓存；工程默认目录由 project_target 单独确定。
+pub(crate) fn build_target(mode: ResourceMode, explicit: Option<PathBuf>) -> Result<PathBuf, String> {
+    if let Some(target) = build_target_override(explicit)? {
+        return Ok(target);
     }
     let resources = crate::project_template_root();
     if mode == ResourceMode::Development {
@@ -31,6 +39,16 @@ pub(crate) fn build_target(mode: ResourceMode, explicit: Option<PathBuf>) -> Res
     let local_data = std::env::var_os(variable).map(PathBuf::from);
     let home = if local_data.is_none() { Some(user_home()?) } else { None };
     default_target(mode, &resources, local_data.as_deref(), home.as_deref())
+}
+
+/// 每个工程默认使用自己的 target；启动、热更新和导出共用本次工程冻结后的目录。
+pub(crate) fn project_target(root: &Path, explicit: Option<&Path>) -> Result<PathBuf, String> {
+    if let Some(target) = explicit {
+        // 显式覆盖沿用原路径规则；只更换默认归属，不额外收紧既有覆盖的词法形式。
+        return absolute_target(target, Path::new(""), "--target-dir");
+    }
+    validate_absolute(root, "工程根目录")?;
+    Ok(root.join("target"))
 }
 
 fn selected_override<'a>(

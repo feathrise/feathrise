@@ -39,6 +39,9 @@ fn command_line_wins_then_cargo_environment_and_relative_override_is_frozen_once
     // 作者实例收到绝对 --target-dir，切到工程目录也不能二次解释它。
     assert_eq!(absolute_target(&chosen, &root("project-cwd"), "--target-dir").unwrap(), chosen);
     assert_eq!(absolute_target(&command_line, Path::new(""), "--target-dir").unwrap(), command_line);
+    assert_eq!(project_target(&root("project"), Some(&chosen)).unwrap(), chosen);
+    let parent_segments = startup.join("old/../existing-cache");
+    assert_eq!(project_target(&root("project"), Some(&parent_segments)).unwrap(), parent_segments);
 }
 
 #[test]

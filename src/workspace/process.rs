@@ -21,7 +21,9 @@ pub(super) struct AuthorProcess {
 }
 
 impl AuthorProcess {
-    pub fn spawn(project: Project, target: &Path, parent: usize) -> Result<Self, String> {
+    pub fn spawn(project: Project, target_override: Option<&Path>, parent: usize) -> Result<Self, String> {
+        // 切工程时重新取当前工程的target，不把编辑器或上一个工程的默认缓存传下去。
+        let target = crate::writable_paths::project_target(&project.root, target_override)?;
         let token = format!(
             "{}-{}",
             std::process::id(),
@@ -37,7 +39,7 @@ impl AuthorProcess {
             .args(["--native-editor", "--project"])
             .arg(&project.root)
             .arg("--target-dir")
-            .arg(target)
+            .arg(&target)
             .env("NEW_EDITOR_MANAGED_INSTANCE", "1")
             .env(
                 "FEATHRISE_WORKSPACE_PARENT_PID",

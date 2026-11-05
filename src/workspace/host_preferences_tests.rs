@@ -42,7 +42,7 @@ impl Fixture {
             .add_message::<AppExit>();
         let completion = Some(author_preferences::install_host(&mut app, store));
         let host = Host {
-            target: root.join("unused-target"),
+            target_override: None,
             preferences,
             preferences_job: None,
             job: None,

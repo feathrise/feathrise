@@ -167,10 +167,11 @@ fn cancelled_validation_does_not_poison_the_next_attempt_control() {
     assert!(!next_attempt.cleanup_failed());
 }
 #[test]
-fn both_cargo_actions_use_the_frozen_profile_and_original_cache() {
+fn both_cargo_actions_use_the_frozen_profile_and_current_project_cache() {
     use feathrise_editor_core::ProjectBuildProfile;
     let fixture = Fixture::new();
-    let target = fixture.root.join("existing-target");
+    let target = crate::writable_paths::project_target(&fixture.project.root, None).unwrap();
+    assert_eq!(target, fixture.project.root.join("target"));
     for action in ["build", "run"] {
         for (profile, expected) in [(ProjectBuildProfile::Debug, "render-dev"), (ProjectBuildProfile::Release, "release")] {
             let mut command = std::process::Command::new("unused-cargo");
@@ -184,6 +185,44 @@ fn both_cargo_actions_use_the_frozen_profile_and_original_cache() {
             assert!(command.get_envs().any(|(key, value)| key == "CARGO_TARGET_DIR" && value == Some(target.as_os_str())));
         }
     }
+}
+
+#[test]
+fn switching_projects_keeps_real_cargo_outputs_in_each_projects_target() {
+    use feathrise_editor_core::ProjectBuildProfile;
+    let first = Fixture::new();
+    let second = Fixture::new();
+    for fixture in [&first, &second] {
+        // 只在本轮独占的无依赖工程运行真实Cargo检查，避免把参数断言冒充落盘验证。
+        fs::write(&fixture.project.manifest, format!(
+            "[package]\nname='{}'\nversion='0.1.0'\nedition='2024'\n[profile.render-dev]\ninherits='dev'\n",
+            fixture.project.package,
+        )).unwrap();
+        fs::write(fixture.root.join("Cargo.lock"), format!(
+            "version = 4\n[[package]]\nname = '{}'\nversion = '0.1.0'\n", fixture.project.package,
+        )).unwrap();
+        fs::create_dir(fixture.root.join("src")).unwrap();
+        fs::write(fixture.root.join("src/main.rs"), "// 本轮缓存归属夹具，无外部依赖。\nfn main() {}\n").unwrap();
+    }
+    let mut targets = Vec::new();
+    for fixture in [&first, &second, &first] {
+        let target = crate::writable_paths::project_target(&fixture.project.root, None).unwrap();
+        let source = fs::read(fixture.root.join("src/main.rs")).unwrap();
+        let draft = fs::read(fixture.root.join("author-draft.sentinel")).unwrap();
+        let mut command = std::process::Command::new(env!("CARGO"));
+        command.args(["check", "--offline"]);
+        super::configure_project_cargo(&mut command, &fixture.project, &target, ProjectBuildProfile::Debug);
+        let output = command.output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(target, fixture.project.root.join("target"));
+        assert!(fs::read_dir(target.join("render-dev/deps")).unwrap().any(|entry|
+            entry.unwrap().path().extension().is_some_and(|extension| extension == "rmeta")));
+        assert_eq!(fs::read(fixture.root.join("src/main.rs")).unwrap(), source);
+        assert_eq!(fs::read(fixture.root.join("author-draft.sentinel")).unwrap(), draft);
+        targets.push(target);
+    }
+    assert_ne!(targets[0], targets[1]);
+    assert_eq!(targets[0], targets[2]);
 }
 
 fn fat_metadata_version(fixture: &Fixture) -> super::PreparedGame {

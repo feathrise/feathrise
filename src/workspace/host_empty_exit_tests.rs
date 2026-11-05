@@ -24,7 +24,7 @@ fn fixture() -> (App, Host) {
     let home = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
         .join("target/host-empty-exit-unit");
     let host = Host {
-        target: home.join("target"), preferences: Preferences::default_for_home(&home).unwrap(),
+        target_override: Some(home.join("target")), preferences: Preferences::default_for_home(&home).unwrap(),
         preferences_job: None, job: None, prepared: None, picker: None, current: None, candidate: None, retiring: None,
         want_close: false, close_sent: false, exit_app: false, notice: String::new(), changed: true,
         initial: Some(home.join("pending-project")),
@@ -155,7 +155,7 @@ fn empty_workspace_plugin_command_opens_global_manager_without_starting_a_projec
     use crate::native_plugins::management::{PluginManagerState, types::PluginScope};
     let (mut app, mut host) = fixture();
     let initial = host.initial.clone();
-    app.insert_resource(PluginManagerState::with_roots(None, host.target.join("owned-global")));
+    app.insert_resource(PluginManagerState::with_roots(None, host.target_override.as_ref().unwrap().join("owned-global")));
     handle(&mut host, app.world_mut(), 0, None, WorkspaceCommand::OpenPlugins);
     let manager = app.world().resource::<PluginManagerState>();
     assert!(manager.open && !manager.has_project());
@@ -168,7 +168,7 @@ fn empty_workspace_plugin_command_opens_global_manager_without_starting_a_projec
 fn authorized_empty_exit_still_waits_for_the_global_plugin_writer() {
     use crate::native_plugins::management::PluginManagerState;
     let (mut app, mut host) = fixture();
-    let mut manager = PluginManagerState::with_roots(None, host.target.join("owned-global"));
+    let mut manager = PluginManagerState::with_roots(None, host.target_override.as_ref().unwrap().join("owned-global"));
     manager.busy = true;
     app.insert_resource(manager);
     host.exit_app = true;

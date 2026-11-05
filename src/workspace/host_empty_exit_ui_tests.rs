@@ -349,7 +349,7 @@ fn empty_workspace_exit_requires_a_real_choice_and_preserves_the_original_form()
     let window = app.world_mut().spawn((Window { resolution: (1280, 720).into(), ..default() }, PrimaryWindow)).id();
     app.insert_resource(PointerFixture { window, camera, image: image.clone(), position: None });
     app.insert_non_send(Host {
-        target: output.join("未使用构建目录"), preferences, preferences_job: None, job: None, prepared: None, picker: None,
+        target_override: None, preferences, preferences_job: None, job: None, prepared: None, picker: None,
         current: None, candidate: None, retiring: None, want_close: false, close_sent: false, exit_app: false,
         notice: "未打开工程".into(), changed: true, initial: None,
     });

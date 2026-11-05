@@ -23,7 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(crate) fn run(initial: Option<PathBuf>, target: PathBuf) -> Result<(), String> {
+pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) -> Result<(), String> {
     trace("准备主窗口环境");
     feathrise_runtime::prepare_vulkan_environment();
     let (preferences, error) = super::preferences()?;
@@ -86,7 +86,7 @@ pub(crate) fn run(initial: Option<PathBuf>, target: PathBuf) -> Result<(), Strin
         unfocused_mode: UpdateMode::reactive_low_power(Duration::from_millis(32)),
     })
     .insert_non_send(Host {
-        target,
+        target_override,
         preferences,
         preferences_job: None,
         job: None,
@@ -554,7 +554,7 @@ fn poll_prepared(host: &mut Host, world: &mut World, parent: usize) {
     // flush和交权限在同一Last完成；候选尚未显示时首页也不能再接受会丢失的末次设置输入。
     sync_preferences_access(world);
     let project = host.prepared.take().expect("已核对唯一预检结果");
-    match AuthorProcess::spawn(project, &host.target, parent) {
+    match AuthorProcess::spawn(project, host.target_override.as_deref(), parent) {
         Ok(candidate) => {
             host.candidate = Some(candidate);
             host.notice("正在准备目标工程工作台；当前工程保持打开…");

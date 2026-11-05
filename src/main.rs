@@ -96,8 +96,9 @@ fn run() -> Result<(), String> {
     }
     // 窗口、AssetServer 和后台工程任务共用启动时确定的唯一资源根；不依赖工程 cwd。
     let resource_mode = resource_paths::initialize()?;
-    // 安装资源保持只读；开发默认继续复用已有 target，命令行与 Cargo 环境覆盖优先。
-    let target = writable_paths::build_target(resource_mode, target)?;
+    // 仅显式覆盖可跨实例传递；工程默认使用自己的target，不能继承宿主的默认缓存。
+    let target_override = writable_paths::build_target_override(target)?;
+    let target = writable_paths::build_target(resource_mode, target_override.clone())?;
     // 每类验收各自创建独占夹具，不能同时选择而静默忽略另一个入口。
     let reports = [native_report.is_some(), embedded_report.is_some(), embedded_build_cancel_report.is_some(), plugin_report.is_some(), code_iteration_report.is_some(), export_report.is_some()];
     if reports.into_iter().filter(|selected| *selected).count() > 1 {
@@ -147,9 +148,10 @@ fn run() -> Result<(), String> {
     }
     if native {
         let project = project::open(&root.ok_or("--native-editor需要--project")?)?;
+        let target = writable_paths::project_target(&project.root, target_override.as_deref())?;
         return native_editor::run(project, target);
     }
-    workspace::run(root, target)
+    workspace::run(root, target_override)
 }
 pub(crate) fn project_template_root() -> PathBuf {
     feathrise_editor_core::editor_resource_root()

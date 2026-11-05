@@ -21,7 +21,8 @@ pub(super) struct Picker {
     pub origin: Option<u32>,
 }
 pub(super) struct Host {
-    pub target: PathBuf,
+    /// 仅保存用户显式覆盖；默认缓存须随当前工程确定。
+    pub target_override: Option<PathBuf>,
     pub preferences: Preferences,
     pub preferences_job: Option<PreferencesJob>,
     pub job: Option<OpenJob>,
