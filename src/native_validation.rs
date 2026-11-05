@@ -61,6 +61,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     let control = BuildControl::default();
     let before = protected_files(&repository)?;
     let started = Instant::now();
+    let export_lifecycle = std::env::var_os("FEATHRISE_NATIVE_EXPORT").as_deref() == Some(std::ffi::OsStr::new("1"));
     let mut steps = Vec::new();
     let result = (|| -> Result<(), String> {
         // 旧分离管理器已随原型归档。本轮只验证当前作者实例和保存后普通游戏，
@@ -305,17 +306,28 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         verify_map_tools(&roots[0], &ordinary, &proof["map_tools"])?;
         author_tools::verify(&roots[0], &ordinary, &proof["author_tools"])?;
         steps.push(json!({"stage":"edited_author_content_in_ordinary_cargo_run","passed":true,"report":ordinary}));
-        let embedded = crate::embedded_viewport::validation::run_owned_project(
-            &roots[0], &target, &work.join("embedded-comparison"),
-        )?;
-        steps.push(json!({"stage":"embedded_resident_world_comparison","passed":true,"report":embedded}));
+        // 发布后连续链选择保存后F12与同工程导出；额外常驻/原生交接仍由原无开关专项独立证明。
+        if export_lifecycle {
+            let exported = crate::project_export::validation::run_owned_project(&target, &work, &roots[0], &control)?;
+            let game = &exported["independent"]["game"];
+            verify_placement(game, proof)?;
+            verify_map_tools(&roots[0], game, &proof["map_tools"])?;
+            author_tools::verify(&roots[0], game, &proof["author_tools"])?;
+            steps.push(json!({"stage":"saved_reopened_project_exported_and_run_without_source","passed":true,"report":exported}));
+        } else {
+            let embedded = crate::embedded_viewport::validation::run_owned_project(
+                &roots[0], &target, &work.join("embedded-comparison"),
+            )?;
+            steps.push(json!({"stage":"embedded_resident_world_comparison","passed":true,"report":embedded}));
+        }
         Ok(())
     })();
     let after = protected_files(&repository)?;
     let unchanged = before == after;
     let passed = result.is_ok() && unchanged && !control.cleanup_failed();
     fs::write(&report, serde_json::to_vec_pretty(&json!({
-        "schema":4,"scope":"dual_world_modes_neutral_scene_and_ordinary_authoring", "passed":passed,
+        "schema":4,"scope":if export_lifecycle { "saved_project_lifecycle_with_same_project_export" } else { "dual_world_modes_neutral_scene_and_ordinary_authoring" }, "passed":passed,
+        "resident_mode_comparison_included":!export_lifecycle,
         "excluded_scope":"player initialization, movement, inventory, skills and combat",
         "elapsed_seconds":started.elapsed().as_secs_f64(),"work_directory":work,
         // 移动程序验收必须记录实际绑定的资源根，不能只凭窗口成功推定使用了安装资源。

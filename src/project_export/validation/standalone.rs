@@ -37,7 +37,7 @@ fn isolated_environment(command: &mut Command) -> Result<Value, String> {
     Ok(json!({"removed":removed,"path":path.to_string_lossy(),"toolchain_on_path":false}))
 }
 
-pub(super) fn run(work: &Path, delivered: &Path, marker: &Value, project: &Project) -> Result<Value, String> {
+pub(super) fn run(work: &Path, delivered: &Path, marker: &Value, project: &Project, saved_author_tools: bool, control: &BuildControl) -> Result<Value, String> {
     // 重命名前再次证明路径和来源：这里只能使本轮独占夹具暂不可达，不接受普通工程。
     if crate::embedded_viewport::validation::code_iteration_owner(&project.root)? != *project
         || project.root.parent() != Some(work) || delivered.parent() != Some(work) || delivered.starts_with(&project.root) {
@@ -56,6 +56,8 @@ pub(super) fn run(work: &Path, delivered: &Path, marker: &Value, project: &Proje
     command.current_dir(&cwd);
     let environment = isolated_environment(&mut command)?;
     command.env("NEW_EDITOR_GAME_SMOKE_DIR", &output).env("NEW_EDITOR_GAME_SMOKE_SECONDS", "180");
+    // 连续流程要求运行端读取刚保存的专业作者结果；原独立导出夹具未编辑这些域，保持原范围。
+    if saved_author_tools { command.env("NEW_EDITOR_NATIVE_SMOKE_AUTHOR_TOOLS", "1"); }
     write_new(&output.join("source-retirement.json"), &serde_json::to_vec_pretty(&json!({
         "schema":1,"purpose":"owned-export-source-temporarily-unavailable","original":project.root,"retired":retired
     })).map_err(|error|error.to_string())?)?;
@@ -64,7 +66,7 @@ pub(super) fn run(work: &Path, delivered: &Path, marker: &Value, project: &Proje
     // 无论真实进程成功或失败都先恢复自有源码，失败报告保留退休位置，绝不删除现场。
     let result = (|| -> Result<Value, String> {
         if project.root.try_exists().map_err(|error| error.to_string())? { return Err("原工程路径仍然可达，独立证据无效".into()); }
-        let process = build_process::run(&command, &BuildControl::default(), Some(Duration::from_secs(240)), super::fixture::tail)?;
+        let process = build_process::run(&command, control, Some(Duration::from_secs(240)), super::fixture::tail)?;
         write_new(&output.join("process.log"), format!("{}\n{}", process.stdout, process.stderr).as_bytes())?;
         if process.exit_code != 0 { return Err(format!("独立交付程序退出{}：{}", process.exit_code, process.stderr)); }
         let game = verify_game(delivered, &output, project)?;

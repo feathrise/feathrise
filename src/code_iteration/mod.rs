@@ -17,6 +17,8 @@ mod tests;
 mod lifecycle_tests;
 
 pub(crate) use resources::CodeIterationState;
+#[cfg(feature = "validation")]
+pub(crate) use types::CodeIterationPhase;
 pub(crate) use backend::{Backend, BuildIdentity, Event, PreparedVersion};
 pub(crate) use backend::export_source_identity;
 pub(crate) use backend::{PreparedArtifact, capture_source};

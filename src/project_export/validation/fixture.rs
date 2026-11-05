@@ -34,7 +34,22 @@ fn scenario(target: &Path, work: &Path, selected: Scenario, evidence: &mut Value
     let root = crate::project_template::create_with_control(&work.join(label), label, &repository, &BuildControl::default())?;
     evidence["project_root"] = json!(root);
     crate::native_validation::prepare_workspace_fixture(&root, label)?;
-    let project = embedded::code_iteration_owner(&root)?;
+    owned_scenario(target, work, &root, selected, false, &BuildControl::default(), evidence)
+}
+
+/// 完整公开消费验收导出刚刚保存、关闭并重开的同一工程，不用新夹具替代连续流程。
+pub(crate) fn run_owned_project(target: &Path, work: &Path, root: &Path, control: &BuildControl) -> Result<Value, String> {
+    let mut evidence = json!({"work":work,"project_root":root,"scenario":Scenario::Portable.label()});
+    owned_scenario(target, work, root, Scenario::Portable, true, control, &mut evidence)?;
+    Ok(evidence)
+}
+
+fn owned_scenario(target: &Path, work: &Path, root: &Path, selected: Scenario, saved_author_tools: bool, control: &BuildControl, evidence: &mut Value) -> Result<(), String> {
+    // 不接受任意已有工程；父级独占归属、正式夹具来源和规范化父子路径必须全部匹配。
+    let project = embedded::code_iteration_owner(root)?;
+    if project.root != root || project.root.parent() != Some(work) {
+        return Err("导出连续流程只能操作本轮工作根内已确认归属的工程".into());
+    }
     // 任何源码和启动设置都在打开作者窗口前准备；窗口中的源码监听不应因验收自身改动撤销导出。
     let startup = root.join(crate::startup_document::FILE_NAME);
     let mut document = if startup.try_exists().map_err(|error|error.to_string())? {
@@ -62,7 +77,8 @@ fn scenario(target: &Path, work: &Path, selected: Scenario, evidence: &mut Value
     crate::native_validation::isolate_author_command(&mut command, &output)?;
     println!("FEATHRISE_EXPORT_VALIDATION_COORDINATOR editor {}", root.display());
     let budget = if selected == Scenario::CustomCancelRetry { 5700 } else { 2100 };
-    let process = build_process::run(&command, &BuildControl::default(), Some(Duration::from_secs(budget)), tail)?;
+    // 连续验收共用外层控制牌，任一子进程未确认退出都会反映到最终 cleanup_confirmed。
+    let process = build_process::run(&command, control, Some(Duration::from_secs(budget)), tail)?;
     write_new(&output.join("editor-process.log"), format!("{}\n{}", process.stdout, process.stderr).as_bytes())?;
     evidence["editor_process_exit"] = json!(process.exit_code);
     let after = embedded::code_iteration_asset_hashes(&root)?;
@@ -98,7 +114,7 @@ fn scenario(target: &Path, work: &Path, selected: Scenario, evidence: &mut Value
     evidence["delivered"] = json!(delivered);
     evidence["copied_outside_project_and_all_bytes_verified"] = json!(true);
     println!("FEATHRISE_EXPORT_VALIDATION_COORDINATOR standalone {}", delivered.display());
-    let independent = standalone::run(work, &delivered, &marker, &project)?;
+    let independent = standalone::run(work, &delivered, &marker, &project, saved_author_tools, control)?;
     // GPU中出现的实例只允许来自已保存地图，不能把窗口中未保存立方体偷偷打进包。
     let unsaved = child["stages"].as_array().and_then(|stages|stages.iter().find(|step|step["stage"] == "unsaved_author_draft_prepared"))
         .ok_or("原窗口缺少未保存草稿证据")?;

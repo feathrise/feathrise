@@ -92,7 +92,8 @@ pub(super) fn verify(root: &Path, control: &BuildControl) -> Result<Value, Strin
 /// 新命名和旧命名都属于作者边界；改名不能使依赖审计漏过同一份编辑器代码。
 fn reject_author_packages(names: &BTreeSet<String>) -> Result<(), String> {
     for name in names {
-        if name.starts_with("feathrise_editor_")
+        // SDK 的无 Bevy 进程协议是正式运行边界；仅豁免这个已发布包，不放开其余作者前缀。
+        if (name.starts_with("feathrise_editor_") && name != "feathrise_editor_protocol")
             || name.starts_with("rpg_editor_")
             || matches!(name.as_str(), "feathrise_host" | "feathrise_project"
                 | "new_editor_host" | "new_editor_project"
@@ -193,11 +194,11 @@ mod tests {
     fn renamed_and_legacy_author_packages_cannot_enter_the_game_runtime_graph() {
         let clean = BTreeSet::from([
             "feathrise_game_template".into(), "feathrise_runtime".into(),
-            "feathrise_scene_core".into(),
+            "feathrise_scene_core".into(), "feathrise_editor_protocol".into(),
         ]);
         assert!(reject_author_packages(&clean).is_ok());
         for forbidden in [
-            "feathrise_editor_map", "feathrise_editor_documents_model", "feathrise_host",
+            "feathrise_editor_map", "feathrise_editor_documents_model", "feathrise_editor_protocol_extra", "feathrise_host",
             "feathrise_project", "rpg_editor_map", "new_editor_host", "new_editor_project",
             "new_editor_runtime", "editor_guest",
         ] {

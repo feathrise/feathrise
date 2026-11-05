@@ -23,8 +23,9 @@ fn main() {
             .expect("无法编译Feathrise程序图标资源");
     }
     if target_os == "windows" && target_env == "msvc" && opt_level == "0" {
-        // 原完整BSN在opt0构造时超出默认1MiB；仅增加保留虚拟地址，仍按需提交栈页。
-        println!("cargo::rustc-link-arg-bin=feathrise=/STACK:8388608");
+        // 原完整BSN在opt0构造时超出默认1MiB；各宿主目标（含隔离验收程序名）使用同一预算。
+        // 仅增加保留虚拟地址，仍按需提交栈页，不改变依赖库或其他 profile。
+        println!("cargo::rustc-link-arg-bins=/STACK:8388608");
     }
 }
 
@@ -79,9 +80,24 @@ fn validation_extension() {
 fn resource_identity() {
     use sha2::{Digest, Sha256};
     use std::{fs, path::PathBuf};
+    // 与资源嵌入器共享来源变化信号；跨工作树复用 target 时，另一份检出的旧 mtime
+    // 可能仍被 Cargo 判为 fresh，不能只跟踪相对文件而让身份落后于新嵌入字节。
+    println!("cargo::rerun-if-env-changed=BEVY_ASSET_PATH");
+    // Cargo 内置 CARGO_MANIFEST_DIR 不参与环境变化跟踪；由项目配置提供独立绑定，
+    // 即使显式共用同一 assets 根，换检出后也重新读取该检出的清单与 Cargo.lock。
+    const SOURCE_VARIABLE: &str = "FEATHRISE_BUILD_SOURCE_ROOT";
+    println!("cargo::rerun-if-env-changed={SOURCE_VARIABLE}");
+    let source_root = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let configured_root = PathBuf::from(std::env::var_os(SOURCE_VARIABLE).expect(
+        "缺少编辑器构建来源绑定；请在编辑器源码根目录执行 Cargo，或显式传入 --config <源码根>/.cargo/config.toml"
+    ));
+    assert!(configured_root.is_absolute(), "{SOURCE_VARIABLE} 必须为源码根的绝对路径");
+    assert_eq!(configured_root.canonicalize().expect("编辑器构建来源根不可读取"),
+        source_root.canonicalize().expect("编辑器 Cargo 源码根不可读取"),
+        "{SOURCE_VARIABLE} 与当前编辑器源码根不一致；请加载当前源码的 .cargo/config.toml");
     println!("cargo::rerun-if-changed=build/runtime_resources.json");
     let manifest: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string("build/runtime_resources.json").expect("无法读取作者资源清单"),
+        &fs::read_to_string(source_root.join("build/runtime_resources.json")).expect("无法读取作者资源清单"),
     ).expect("作者资源清单格式错误");
     let mut files = manifest["required_files"].as_array().expect("资源清单缺少文件列表")
         .iter().map(|v| v.as_str().expect("资源路径必须为字符串")).collect::<Vec<_>>();
@@ -89,7 +105,7 @@ fn resource_identity() {
     let mut hash = Sha256::new();
     for path in files {
         println!("cargo::rerun-if-changed={path}");
-        let bytes = fs::read(path).unwrap_or_else(|e| panic!("作者资源 {path} 不可读取：{e}"));
+        let bytes = fs::read(source_root.join(path)).unwrap_or_else(|e| panic!("作者资源 {path} 不可读取：{e}"));
         hash.update(path.as_bytes());
         hash.update([0]);
         hash.update(Sha256::digest(&bytes));

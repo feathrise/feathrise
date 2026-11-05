@@ -12,6 +12,8 @@ use toml::{Value, map::Map};
 const CONFIG_LIMIT: usize = 16 * 1024;
 const MANIFEST_LIMIT: usize = 64 * 1024;
 const CONFIG_NAME: &str = "sdk-source.toml";
+// 默认配方与随仓配置共用一个来源；移动程序缺配置时不再探测开发机的同级 SDK。
+const DEFAULT_CONFIGURATION: &str = include_str!("../sdk-source.toml");
 const PATCHES: [(&str, &str); 8] = [
     ("avian3d", "avian3d"),
     ("bevy_anti_alias", "bevy_anti_alias"),
@@ -54,23 +56,18 @@ impl SdkSource {
     fn load_checked(configuration_root: &Path) -> Result<Self, String> {
         // 这是 sdk-source.toml 的实际父目录，不一定是解出的模板/字体等静态资源根。
         let file = configuration_root.join(CONFIG_NAME);
-        let configuration = match File::open(&file) {
-            Ok(stream) => {
-                let text = read_bounded(stream, CONFIG_LIMIT, &file)?;
-                let value: Configuration = toml::from_str(&text)
-                    .map_err(|error| format!("SDK 来源配置无效（{}）：{error}", file.display()))?;
-                if value.format != 1 {
-                    return Err(format!("SDK 来源配置版本不支持：{}", value.format));
-                }
-                value.source
-            }
-            // 只有文件确实不存在才兼容旧源码布局；无权限、格式错误都不能悄悄换成另一 SDK。
-            Err(error) if error.kind() == ErrorKind::NotFound => SourceConfiguration::Path {
-                path: "../feathrise_runtime".into(),
-                patch_path: None,
-            },
+        let text = match File::open(&file) {
+            Ok(stream) => read_bounded(stream, CONFIG_LIMIT, &file)?,
+            // 只有文件确实不存在才采用随程序的默认配方；无权限、格式错误都不能换来源。
+            Err(error) if error.kind() == ErrorKind::NotFound => DEFAULT_CONFIGURATION.to_owned(),
             Err(error) => return Err(format!("SDK 来源配置不可读（{}）：{error}", file.display())),
         };
+        let value: Configuration = toml::from_str(&text)
+            .map_err(|error| format!("SDK 来源配置无效（{}）：{error}", file.display()))?;
+        if value.format != 1 {
+            return Err(format!("SDK 来源配置版本不支持：{}", value.format));
+        }
+        let configuration = value.source;
         match configuration {
             SourceConfiguration::Path { path, patch_path } => {
                 validate_text(&path, "SDK 本地路径", 4096)?;

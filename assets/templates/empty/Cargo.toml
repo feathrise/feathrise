@@ -31,4 +31,4 @@ functions = ["src/controller.rs::walk_speed", "src/controller.rs::run_speed"]
 
 [dependencies]
 bevy = { version = "=0.19.1", default-features = false, features = ["dynamic_linking", "free_camera"] } # 工程应用显式选择开发动态链接，SDK库不替应用决定。
-feathrise_runtime = { version = "0.1.0", default-features = false, features = ["default_font"] }
+feathrise_runtime = { version = "=0.1.0", default-features = false, features = ["default_font"] }

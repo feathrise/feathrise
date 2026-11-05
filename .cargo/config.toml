@@ -10,3 +10,5 @@ linker = "rust-lld"
 # 内嵌目录显式绑定源码 assets，使用现有或自定义 target 缓存时结果一致。
 [env]
 BEVY_ASSET_PATH = { value = "assets", relative = true }
+# 来源根由当前检出绑定，独立于允许显式覆盖的资源目录；用于跨工作树缓存失效。
+FEATHRISE_BUILD_SOURCE_ROOT = { value = ".", relative = true, force = true }

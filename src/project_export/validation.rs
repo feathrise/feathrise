@@ -8,7 +8,7 @@ mod resources;
 mod standalone;
 mod custom;
 
-pub(crate) use fixture::run;
+pub(crate) use fixture::{run, run_owned_project};
 
 use self::resources::{Phase, Plan, Scenario};
 pub(crate) use self::resources::Completion;

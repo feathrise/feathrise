@@ -193,7 +193,11 @@ fn observe(
     cameras: Query<(&Camera, &Projection, &GlobalTransform), With<Camera3d>>,
     placements: Query<(&feathrise_scene::MapPlacementInstance, &GlobalTransform)>,
     active: Res<feathrise_map_content::ActiveDynamicMap>,
-    play_status: Res<NativePlayStatus>,
+    (play_status, code_iteration, project_logs): (
+        Res<NativePlayStatus>,
+        Option<Res<crate::code_iteration::CodeIterationState>>,
+        Option<Res<crate::project_log::ProjectLogState>>,
+    ),
     authoring: Res<native_authoring_validation::NativeAuthoringValidation>,
     mut play: MessageWriter<RunSavedProject>,
     mut exit: MessageWriter<AppExit>,
@@ -357,6 +361,14 @@ fn observe(
         return;
     }
 
+    // 首轮明确注入了坏工程入口，保留其代码状态供分析；干净打开/重开不能带着代码失败仍计为通过。
+    let injected_recovery = plan.recovery_report.as_ref().and_then(|report| report.as_ref().ok())
+        .is_some_and(|report| report.failure_observed && report.descriptor_restored && report.owner_marker_checked);
+    let code_iteration_error = match code_iteration.as_deref() {
+        Some(state) if state.phase == crate::code_iteration::CodeIterationPhase::Failed && !injected_recovery => Some(state.status.as_str()),
+        None => Some("原完整编辑器未安装代码迭代状态，无法核对打开后的后台服务"),
+        _ => None,
+    };
     let passed = ready
         && editor_3d_ready
         && save_complete
@@ -365,6 +377,7 @@ fn observe(
         && !authoring_failed
         && plan.recovery_ready
         && !recovery_failed
+        && code_iteration_error.is_none()
         && (!plan.run_saved_play || plan.play_result.as_ref().is_some_and(Result::is_ok))
         && !plan.cancel_requested;
     let instances = placements.iter().filter(|(instance, _)| instance.map_id().as_str() == "M1-SAMPLE" && instance.is_active())
@@ -391,6 +404,18 @@ fn observe(
         "camera_3d_count": cameras.iter().count(),
     });
     // 报告按验收域逐项组装，保留既有扁平字段，避免单个 json! 宏的递归深度随字段增长。
+    // 仅最终报告采集一次有界快照，不在每帧复制日志；Watcher/工具探测失败也保留原 status，而非只看编译诊断。
+    report["code_iteration"] = code_iteration.as_deref().map(|state| json!({
+        "project_id":state.project_id,"project_root":state.project_root,
+        "phase":format!("{:?}",state.phase),"status":state.status,
+        "diagnostic_revision":state.diagnostic_revision,"diagnostic_count":state.diagnostics.len(),
+        "diagnostics":state.diagnostics.iter().take(32).collect::<Vec<_>>(),
+        "diagnostics_truncated":state.diagnostics.len() > 32,
+        "failure_injected_recovery_observed":injected_recovery,
+    })).unwrap_or(serde_json::Value::Null);
+    report["code_iteration_error"] = json!(code_iteration_error);
+    report["project_log_tail"] = project_logs.as_deref().map(crate::project_log::ProjectLogState::validation_tail)
+        .unwrap_or(serde_json::Value::Null);
     report["editor_views"] = json!(cameras.iter().take(8).map(|(camera, projection, transform)| json!({
             "active":camera.is_active,"position":transform.translation().to_array(),
             "projection":format!("{projection:?}"),
@@ -468,6 +493,7 @@ fn observe(
                                 .or_else(|| report["preset_authoring"]["error"].as_str())
                                 .or_else(|| report["saved_play_recovery"]["Err"].as_str())
                                 .or_else(|| report["saved_play_result"]["Err"].as_str())
+                                .or_else(|| report["code_iteration_error"].as_str())
                                 .unwrap_or("原界面、字体、工程目录或作者回执未在时限内同时就绪");
                             return Err(format!("原完整编辑器验收未通过：{reason}"));
                         }

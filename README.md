@@ -18,7 +18,7 @@ cargo --config .cargo/registry-sdk.toml run --locked
 
 SDK 由 crates.io 提供，八项渲染补丁由 Cargo 从固定 Git 提交取得。此入口用于没有 `.cargo/local-sdk.toml` 的独立检出；本机联调配置与公开配置分别使用，避免混合两种补丁来源。
 
-新建工程的来源由 `sdk-source.toml` 选择。使用公开 SDK 时，将其中的 `[source]` 内容设为：
+新建工程默认使用 crates.io SDK `=0.1.0` 与固定公开补丁，不依赖编辑器旁边的源码目录。源码根或 EXE 旁的 `sdk-source.toml` 默认已经配置为：
 
 ```toml
 [source]
@@ -28,7 +28,7 @@ git = "https://github.com/hwyrq/feathrise_patches.git"
 rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a"
 ```
 
-保留文件顶层的 `format = 1`。此设置只影响之后新建的工程；已有工程继续使用各自的清单和锁文件。
+文件顶层保留 `format = 1`。外置配置缺失时使用程序内嵌的默认配方；配置存在但不可读或格式错误时明确报错。此设置只影响之后新建的工程；已有工程继续使用各自的清单和锁文件。
 
 ### 本地源码联调
 
@@ -58,7 +58,7 @@ cargo fetch --locked
 cargo run --locked
 ```
 
-`.cargo/local-sdk.toml` 负责编辑器本身的编译依赖；`sdk-source.toml` 负责之后新建工程的 SDK 来源，默认本地路径与上面的目录布局一致。现有源码 CI 的固定修订与检查范围见 [Windows CI](docs/ci.md)，它与 registry 消费验收分别记录。
+`.cargo/local-sdk.toml` 负责编辑器本身的编译依赖；新建工程仍默认使用公开 SDK。需要让之后新建的工程也参与本地联调时，显式将 `sdk-source.toml` 的 `[source]` 改为 `kind = "path"`、`path = "../feathrise_runtime"`、`patch_path = "../feathrise_patches"`。这会在生成工程中记录本机绝对路径。[Windows CI](docs/ci.md)分别检查固定修订的源码联调与已发布 SDK 的 registry 消费，两种来源均覆盖默认与 validation 组合。
 
 开发产物为 `target/debug/feathrise.exe`，内部 Cargo 包名为 `feathrise_host`。普通用户可使用编译好的编辑器；创建和运行工程仍需要工程所用的 Rust/Cargo 环境。
 

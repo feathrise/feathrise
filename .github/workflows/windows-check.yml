@@ -1,4 +1,4 @@
-# 编辑器独立仓库基础检查：默认固定公开 SDK 与补丁修订，仓库变量可显式覆盖。
+# 编辑器独立仓库检查：源码联调与真正 crates.io 消费分别验收，均使用固定公开补丁。
 name: Windows editor check
 
 on:
@@ -20,6 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        source: [source, registry]
         variant: [default, validation]
     env:
       FEATHRISE_SDK_REPOSITORY: ${{ vars.FEATHRISE_SDK_REPOSITORY || 'hwyrq/feathrise_runtime' }}
@@ -28,12 +29,14 @@ jobs:
       FEATHRISE_PATCH_REV: ${{ vars.FEATHRISE_PATCH_REV || '3c251d3530980b66e49b4748769db36ae9c6bd5a' }}
     steps:
       - name: Require the public patch repository and full revision
+        if: matrix.source == 'source'
         shell: pwsh
         run: |
           if ($env:FEATHRISE_PATCH_REPOSITORY -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' -or $env:FEATHRISE_PATCH_REV -notmatch '^[0-9a-fA-F]{40}$') {
             throw '请配置 FEATHRISE_PATCH_REPOSITORY=owner/repository 和 FEATHRISE_PATCH_REV=完整 40 位补丁仓提交。'
           }
       - name: Require the public SDK repository and full revision
+        if: matrix.source == 'source'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -49,18 +52,21 @@ jobs:
           path: feathrise
           persist-credentials: false
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        if: matrix.source == 'source'
         with:
           repository: ${{ env.FEATHRISE_SDK_REPOSITORY }}
           ref: ${{ env.FEATHRISE_SDK_REV }}
           path: feathrise_runtime
           persist-credentials: false
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        if: matrix.source == 'source'
         with:
           repository: ${{ env.FEATHRISE_PATCH_REPOSITORY }}
           ref: ${{ env.FEATHRISE_PATCH_REV }}
           path: feathrise_patches
           persist-credentials: false
       - name: Confirm the SDK checkout identity
+        if: matrix.source == 'source'
         shell: pwsh
         working-directory: feathrise_runtime
         run: |
@@ -76,8 +82,13 @@ jobs:
           "cargo-home=$cargoHome" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           $rustcIdentity = rustc --version --verbose
           if ($LASTEXITCODE -ne 0) { throw '无法读取现有 Rust 工具链的缓存身份。' }
-          # 编译缓存绑定真实工具链和两份外部源码身份，不随编辑器每次提交整体失效。
-          $identity = (@($rustcIdentity) + @($env:FEATHRISE_SDK_REPOSITORY, $env:FEATHRISE_SDK_REV, $env:FEATHRISE_PATCH_REPOSITORY, $env:FEATHRISE_PATCH_REV)) -join "`n"
+          # 源码矩阵绑定两份检出身份，registry 矩阵绑定公开配方；两者均绑定真实工具链。
+          $sourceIdentity = if ('${{ matrix.source }}' -eq 'registry') {
+            Get-Content -LiteralPath '.cargo/registry-sdk.toml' -Encoding utf8 -Raw
+          } else {
+            @($env:FEATHRISE_SDK_REPOSITORY, $env:FEATHRISE_SDK_REV, $env:FEATHRISE_PATCH_REPOSITORY, $env:FEATHRISE_PATCH_REV)
+          }
+          $identity = (@($rustcIdentity) + @($sourceIdentity)) -join "`n"
           $sha256 = [System.Security.Cryptography.SHA256]::Create()
           try {
             $digest = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($identity))
@@ -86,7 +97,7 @@ jobs:
             $sha256.Dispose()
           }
           "build-identity=$buildIdentity" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-      # actions/cache v4.3.0；下载缓存不绑定编译组合或工具链，两组矩阵可复用相同依赖归档。
+      # actions/cache v4.3.0；下载缓存不绑定来源、编译组合或工具链，四组矩阵可复用依赖归档。
       - name: Restore Cargo dependency downloads
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
@@ -102,13 +113,15 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: feathrise/target
-          key: ${{ runner.os }}-${{ runner.arch }}-editor-check-v1-${{ matrix.variant }}-${{ steps.cargo-cache.outputs.build-identity }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml', 'feathrise/.github/workflows/windows-check.yml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-editor-check-v2-${{ matrix.source }}-${{ matrix.variant }}-${{ steps.cargo-cache.outputs.build-identity }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml', 'feathrise/.cargo/registry-sdk.toml', 'feathrise/.github/workflows/windows-check.yml') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-editor-check-v1-${{ matrix.variant }}-${{ steps.cargo-cache.outputs.build-identity }}-
+            ${{ runner.os }}-${{ runner.arch }}-editor-check-v2-${{ matrix.source }}-${{ matrix.variant }}-${{ steps.cargo-cache.outputs.build-identity }}-
+            ${{ matrix.source == 'source' && format('{0}-{1}-editor-check-v1-{2}-{3}-', runner.os, runner.arch, matrix.variant, steps.cargo-cache.outputs.build-identity) || '' }}
       - name: Check editor with existing Windows Rust and MSVC
         shell: pwsh
         working-directory: feathrise
         env:
+          CHECK_SOURCE: ${{ matrix.source }}
           CHECK_VARIANT: ${{ matrix.variant }}
         run: |
           $ErrorActionPreference = 'Stop'
@@ -127,6 +140,20 @@ jobs:
           $linkerDirectory = Join-Path $sysroot 'lib/rustlib/x86_64-pc-windows-msvc/bin'
           if (!(Test-Path -LiteralPath (Join-Path $linkerDirectory 'rust-lld.exe'))) { throw '当前工具链缺少 rust-lld.exe。' }
           $env:PATH = "$linkerDirectory;$env:PATH"
+          if ($env:CHECK_SOURCE -eq 'registry') {
+            # 本矩阵只检出编辑器，禁止本机联调覆盖；公开补丁配方不受源码矩阵的仓库变量影响。
+            if (Test-Path -LiteralPath '.cargo/local-sdk.toml') { throw 'Registry 检查不能加载本机 SDK 覆盖。' }
+            $featureArguments = @()
+            if ($env:CHECK_VARIANT -eq 'validation') { $featureArguments = @('--features', 'feathrise_host/validation') }
+            elseif ($env:CHECK_VARIANT -ne 'default') { throw '未知检查组合。' }
+            # 仓内锁文件属于源码联调；先仅在临时检出解析公开来源，再锁定整个检查。
+            cargo --config .cargo/registry-sdk.toml fetch
+            if ($LASTEXITCODE -ne 0) { throw 'Registry 依赖下载或锁文件解析失败。' }
+            cargo --config .cargo/registry-sdk.toml check --locked -p feathrise_host -p feathrise_game_template -p feathrise_editor_map --tests @featureArguments
+            if ($LASTEXITCODE -ne 0) { throw "Registry Cargo 检查失败，退出码 $LASTEXITCODE。" }
+            return
+          }
+          if ($env:CHECK_SOURCE -ne 'source') { throw '未知依赖来源。' }
           # SDK 自有包与第三方补丁分别采用已核对修订的检出。
           $localSdkConfig = Join-Path $env:RUNNER_TEMP 'feathrise-local-sdk.toml'
           $sdkRoot = (Resolve-Path -LiteralPath '../feathrise_runtime').Path

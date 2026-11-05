@@ -56,11 +56,41 @@ fn generated(source: &SdkSource) -> Value {
 }
 
 #[test]
-fn missing_config_keeps_legacy_layout_and_explicit_local_paths_are_not_cwd_relative() {
+fn default_and_missing_configuration_use_published_sdk_without_neighbor_checkouts() {
     let fixture = Fixture::new();
-    for configured in [false, true] {
-        if configured { fixture.config("kind='path'\npath='../feathrise_runtime'"); }
-        let value = generated(&SdkSource::load(&fixture.editor).unwrap());
+    let expected: Value = toml::from_str(include_str!("../.cargo/registry-sdk.toml")).unwrap();
+    // 即使同级有可用的本地 SDK，默认也必须保持公开来源；移走它后应得到同一个依赖图。
+    for sibling_exists in [true, false] {
+        if !sibling_exists { fs::rename(&fixture.sdk, fixture.root.join("unused-sdk")).unwrap(); }
+        for configured in [false, true] {
+            if configured {
+                fs::write(fixture.editor.join(CONFIG_NAME), DEFAULT_CONFIGURATION).unwrap();
+            } else if fixture.editor.join(CONFIG_NAME).exists() {
+                fs::remove_file(fixture.editor.join(CONFIG_NAME)).unwrap();
+            }
+            let source = SdkSource::load(&fixture.editor).unwrap();
+            let value = generated(&source);
+            let sdk = &value["dependencies"]["feathrise_runtime"];
+            assert_eq!(sdk["version"].as_str(), Some("=0.1.0"));
+            assert_eq!(sdk["default-features"].as_bool(), Some(false));
+            assert!(sdk.get("path").is_none());
+            assert!(sdk.get("git").is_none());
+            assert_eq!(value["patch"]["crates-io"], expected["patch"]["crates-io"]);
+            let mut command = Command::new("cargo");
+            source.apply_network_policy(&mut command);
+            assert!(!command.get_args().any(|arg| arg == "--offline"));
+            assert_eq!(fixture.editor.join(CONFIG_NAME).exists(), configured);
+        }
+    }
+}
+
+#[test]
+fn explicit_local_paths_keep_legacy_patch_layout_and_are_not_cwd_relative() {
+    let fixture = Fixture::new();
+    fixture.config("kind='path'\npath='../feathrise_runtime'");
+    let source = SdkSource::load(&fixture.editor).unwrap();
+    {
+        let value = generated(&source);
         assert_eq!(value["dependencies"]["feathrise_runtime"]["path"].as_str(), Some(super::super::toml_path(&fixture.sdk).unwrap().as_str()));
         assert_eq!(value["bin"][0]["path"].as_str(), Some("src/main.rs"));
         assert_eq!(value["dependencies"]["feathrise_runtime"]["default-features"].as_bool(), Some(false));
@@ -69,6 +99,9 @@ fn missing_config_keeps_legacy_layout_and_explicit_local_paths_are_not_cwd_relat
             assert_eq!(value["patch"]["crates-io"][package]["path"].as_str(), Some(expected.as_str()));
         }
     }
+    let mut command = Command::new("cargo");
+    source.apply_network_policy(&mut command);
+    assert!(command.get_args().any(|arg| arg == "--offline"));
     let renamed = fixture.root.join("本地 SDK 带空格");
     fs::rename(&fixture.sdk, &renamed).unwrap();
     fixture.config("kind='path'\npath='../本地 SDK 带空格'");
