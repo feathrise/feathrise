@@ -66,6 +66,45 @@ jobs:
         run: |
           $actual = git rev-parse HEAD
           if ($LASTEXITCODE -ne 0 -or $actual -ne $env:FEATHRISE_SDK_REV) { throw 'SDK 检出身份与指定修订不一致。' }
+      - name: Identify the Cargo cache and existing Rust toolchain
+        id: cargo-cache
+        shell: pwsh
+        working-directory: feathrise
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE '.cargo' }
+          "cargo-home=$cargoHome" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $rustcIdentity = rustc --version --verbose
+          if ($LASTEXITCODE -ne 0) { throw '无法读取现有 Rust 工具链的缓存身份。' }
+          # 编译缓存绑定真实工具链和两份外部源码身份，不随编辑器每次提交整体失效。
+          $identity = (@($rustcIdentity) + @($env:FEATHRISE_SDK_REPOSITORY, $env:FEATHRISE_SDK_REV, $env:FEATHRISE_PATCH_REPOSITORY, $env:FEATHRISE_PATCH_REV)) -join "`n"
+          $sha256 = [System.Security.Cryptography.SHA256]::Create()
+          try {
+            $digest = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($identity))
+            $buildIdentity = [System.BitConverter]::ToString($digest).Replace('-', '').ToLowerInvariant()
+          } finally {
+            $sha256.Dispose()
+          }
+          "build-identity=$buildIdentity" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      # actions/cache v4.3.0；下载缓存不绑定编译组合或工具链，两组矩阵可复用相同依赖归档。
+      - name: Restore Cargo dependency downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ${{ steps.cargo-cache.outputs.cargo-home }}/registry/index
+            ${{ steps.cargo-cache.outputs.cargo-home }}/registry/cache
+            ${{ steps.cargo-cache.outputs.cargo-home }}/git/db
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-downloads-v1-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-downloads-v1-
+      # 每个组合保留自己的编译产物；锁或清单变化可先恢复相同工具链/源码组合的依赖，再由 Cargo 判定重编译。
+      - name: Restore editor dependency build artifacts
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: feathrise/target
+          key: ${{ runner.os }}-${{ runner.arch }}-editor-check-v1-${{ matrix.variant }}-${{ steps.cargo-cache.outputs.build-identity }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml', 'feathrise/.github/workflows/windows-check.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-editor-check-v1-${{ matrix.variant }}-${{ steps.cargo-cache.outputs.build-identity }}-
       - name: Check editor with existing Windows Rust and MSVC
         shell: pwsh
         working-directory: feathrise
