@@ -8,11 +8,35 @@
 
 需要 Rust/Cargo；Windows 还需要 MSVC x64/x86 工具与 Windows SDK。链接器使用现有 Rust 工具链中的 `rust-lld`。
 
-当前源码构建使用固定修订的公开 SDK 和补丁仓，通过本机路径覆盖接入，无需等待 SDK 发布到 crates.io。将本仓库检出到 `feathrise/`，在其父目录执行：
+SDK 0.1.0 已发布。独立检出本编辑器后，在 `feathrise/` 使用随仓提供的[公开依赖配置](.cargo/registry-sdk.toml)：
+
+```powershell
+# 首次从源码覆盖切换到 registry 时，生成与公开来源对应的锁文件。
+cargo --config .cargo/registry-sdk.toml fetch
+cargo --config .cargo/registry-sdk.toml run --locked
+```
+
+SDK 由 crates.io 提供，八项渲染补丁由 Cargo 从固定 Git 提交取得。此入口用于没有 `.cargo/local-sdk.toml` 的独立检出；本机联调配置与公开配置分别使用，避免混合两种补丁来源。
+
+新建工程的来源由 `sdk-source.toml` 选择。使用公开 SDK 时，将其中的 `[source]` 内容设为：
+
+```toml
+[source]
+kind = "registry"
+version = "0.1.0"
+git = "https://github.com/hwyrq/feathrise_patches.git"
+rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a"
+```
+
+保留文件顶层的 `format = 1`。此设置只影响之后新建的工程；已有工程继续使用各自的清单和锁文件。
+
+### 本地源码联调
+
+需要同时修改 SDK 时，将本仓库检出到 `feathrise/`，在其父目录执行：
 
 ```powershell
 git clone https://github.com/hwyrq/feathrise_runtime.git
-git -C feathrise_runtime checkout --detach a476d2374cdc0383efe25129e0003c8fd2733f01
+git -C feathrise_runtime checkout --detach 3dd0b6494a33da9f6851e0595dd1a36104f3beab
 git clone https://github.com/hwyrq/feathrise_patches.git
 git -C feathrise_patches checkout --detach 3c251d3530980b66e49b4748769db36ae9c6bd5a
 ```
@@ -34,7 +58,7 @@ cargo fetch --locked
 cargo run --locked
 ```
 
-`.cargo/local-sdk.toml` 负责编辑器本身的编译依赖；`sdk-source.toml` 负责之后新建工程的 SDK 来源，默认本地路径与上面的目录布局一致。公开 CI 使用相同的固定修订，见 [Windows CI](docs/ci.md)。
+`.cargo/local-sdk.toml` 负责编辑器本身的编译依赖；`sdk-source.toml` 负责之后新建工程的 SDK 来源，默认本地路径与上面的目录布局一致。现有源码 CI 的固定修订与检查范围见 [Windows CI](docs/ci.md)，它与 registry 消费验收分别记录。
 
 开发产物为 `target/debug/feathrise.exe`，内部 Cargo 包名为 `feathrise_host`。普通用户可使用编译好的编辑器；创建和运行工程仍需要工程所用的 Rust/Cargo 环境。
 
