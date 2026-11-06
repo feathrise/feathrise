@@ -1,4 +1,7 @@
 //! 正式独立编辑器入口；无参数在本目录 cargo run 进入工作台。
+// 普通 Windows Release 作为桌面应用启动；开发与显式验收仍保留控制台诊断。
+#![cfg_attr(all(target_os = "windows", not(debug_assertions), not(feature = "validation")), windows_subsystem = "windows")]
+
 mod branding;
 mod build_process;
 mod build_artifacts; // 所有开发启动共用独立版本副本，不占用下一轮Cargo输出。

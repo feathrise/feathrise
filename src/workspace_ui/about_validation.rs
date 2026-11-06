@@ -103,15 +103,22 @@ fn capture(world: &mut World, plan: &mut AboutValidation, name: &str) {
     for (text, layout, node, at, visible, parent) in world.query::<(&Text, &bevy::text::TextLayoutInfo,
         &ComputedNode, &UiGlobalTransform, &InheritedVisibility, &ChildOf)>().iter(world) {
         if !visible.get() || !matches!(text.0.as_str(), "关于 Feathrise" | "Feathrise（羽立）" | "关闭 (Esc)" | "许可与署名")
-            && text.0 != concat!("版本 ", env!("CARGO_PKG_VERSION")) { continue; }
+            && text.0 != concat!("版本 ", env!("CARGO_PKG_VERSION")) && text.0 != about::REPOSITORY_URL { continue; }
         let bounds = Rect::from_center_size(at.translation, node.size());
         assert!(!layout.glyphs.is_empty() && rect.contains(bounds.center()), "关于文字必须真正排版在面板内");
         if text.0 == "关于 Feathrise" {
             assert!(!node.is_empty() && world.get::<AboutHeader>(parent.parent()).is_some(), "标题文字必须直接占据非零标题栏正文");
         }
+        if text.0 == about::REPOSITORY_URL {
+            let button = parent.parent();
+            assert!(rect.contains(bounds.min) && rect.contains(bounds.max), "GitHub 地址必须完整排版在关于面板内");
+            assert!(world.get::<about::AboutRepository>(button).is_some()
+                && world.get::<Button>(button).is_some() && world.get::<feathrise_editor_ui::EditorButtonClick>(button).is_some(),
+                "GitHub 完整地址必须由实际可点击按钮承载");
+        }
         words.push(json!({"text":text.0,"bounds":[bounds.min.x,bounds.min.y,bounds.max.x,bounds.max.y]}));
     }
-    assert_eq!(words.len(), 5, "名称、版本、标题、关闭按钮和已内嵌许可入口均须可见");
+    assert_eq!(words.len(), 6, "名称、版本、标题、GitHub 地址、关闭按钮和已内嵌许可入口均须可见");
     assert_eq!(world.get::<Node>(panel_id).unwrap().border, feathrise_editor_ui::dialog_panel_node().border);
     plan.proofs.push(json!({"capture":name,"words":words,"panel":[rect.min.x,rect.min.y,rect.max.x,rect.max.y]}));
     world.spawn(Screenshot::primary_window()).observe(save_to_disk(plan.directory.join(name)));

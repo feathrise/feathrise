@@ -19,6 +19,9 @@ fn main() {
             .set("FileDescription", "Feathrise（羽立）编辑器")
             .set("InternalName", "feathrise")
             .set("OriginalFilename", "feathrise.exe")
+            // 预发布后缀与「关于」同取 Cargo 版本，Windows 文件属性也能识别具体候选。
+            .set("FileVersion", env!("CARGO_PKG_VERSION"))
+            .set("ProductVersion", env!("CARGO_PKG_VERSION"))
             .compile()
             .expect("无法编译Feathrise程序图标资源");
     }
@@ -61,16 +64,20 @@ fn embed_licenses() {
     assert!(!data.is_empty() && data.len() as u64 <= LIMIT, "许可文档必须为不超过 4 MiB 的非空文本");
     let text = std::str::from_utf8(&data).expect("许可文档必须为 UTF-8");
     assert!(!text.trim_start().starts_with('<'), "许可文档使用纯文本");
-    // 在构建时索引页边界，窗口每次只对有限长度的许可正文排版。
-    const PAGE_BYTES: usize = 3072;
+    // 构建时按全文容量分到最多50页。每页至少32 KiB，避免完整发行文档出现数百页。
+    // 向后最多找1 KiB内的行尾，保留UTF-8边界；4 MiB输入下单页仍小于84 KiB。
+    const MAX_PAGES: usize = 50;
+    const LINE_LOOKAHEAD: usize = 1024;
+    let page_bytes = (32 * 1024).max(text.len().div_ceil(MAX_PAGES));
     let mut offsets = vec![0];
     let mut start = 0;
     while start < text.len() {
-        let mut end = (start + PAGE_BYTES).min(text.len());
-        while !text.is_char_boundary(end) { end -= 1; }
+        let mut end = (start + page_bytes).min(text.len());
+        while !text.is_char_boundary(end) { end += 1; }
         if end < text.len() {
-            if let Some(line_end) = data[start + PAGE_BYTES / 2..end].iter().rposition(|&byte| byte == b'\n') {
-                end = start + PAGE_BYTES / 2 + line_end + 1;
+            let line_limit = (end + LINE_LOOKAHEAD).min(text.len());
+            if let Some(line_end) = data[end..line_limit].iter().position(|&byte| byte == b'\n') {
+                end += line_end + 1;
             }
         }
         offsets.push(end);

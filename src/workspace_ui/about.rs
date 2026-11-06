@@ -2,6 +2,7 @@
 
 use super::{components::*, resources::{AboutState, Presentation}};
 use bevy::{input::mouse::{MouseScrollUnit, MouseWheel}, input_focus::InputFocus, prelude::*,
+    tasks::{IoTaskPool, Task, futures::check_ready},
     ui::{FocusPolicy, RelativeCursorPosition}, ui_widgets::{ControlOrientation, Scrollbar, ScrollbarThumb},
     window::PrimaryWindow};
 use feathrise_editor_map::workbench::WorkbenchHeader;
@@ -10,6 +11,10 @@ use feathrise_editor_ui::{EditorButtonClick, colors as c};
 const LICENSE_DOCUMENT: &str = include_str!(concat!(env!("OUT_DIR"), "/distribution-licenses.txt"));
 const LICENSE_OFFSETS: &[usize] = include!(concat!(env!("OUT_DIR"), "/distribution-license-pages.rs"));
 pub(super) const LICENSE_PAGE_COUNT: usize = LICENSE_OFFSETS.len() - 1;
+pub(super) const REPOSITORY_URL: &str = "https://github.com/feathrise/feathrise";
+
+#[derive(Component)]
+pub(super) struct AboutRepository;
 
 pub(super) fn license_page(index: usize) -> &'static str {
     &LICENSE_DOCUMENT[LICENSE_OFFSETS[index]..LICENSE_OFFSETS[index + 1]]
@@ -63,6 +68,9 @@ pub(super) fn mount(
                         body.spawn(caption(&font, "Feathrise（羽立）", 22.));
                         // 编译期读取宿主的实际版本，升级包版本后关于内容自动同步。
                         body.spawn(caption(&font, concat!("版本 ", env!("CARGO_PKG_VERSION")), 13.));
+                        // 显示完整仓库地址，点击时交给系统默认浏览器，离线查看关于仍可读到来源。
+                        feathrise_editor_ui::spawn_custom_text_button(body, AboutRepository,
+                            font.clone(), REPOSITORY_URL, feathrise_editor_ui::dialog_button_style(false));
                         body.spawn(caption(&font, "基于 Bevy 的通用 3D 编辑器。", 13.));
                         body.spawn(caption(&font, "在统一工作台中创建工程、编辑场景，并预览与运行。", 13.));
                         body.spawn(caption(&font, "羽翼升起，让想法成形。", 13.));
@@ -119,10 +127,16 @@ pub(super) fn input(
     export: Option<Res<crate::project_export::ui::ExportOverlayState>>,
     plugins: Option<Res<crate::native_plugins::management::PluginManagerState>>,
     buttons: Query<(&Action, &EditorButtonClick, &InheritedVisibility), Changed<EditorButtonClick>>,
+    repository_buttons: Query<(&EditorButtonClick, &InheritedVisibility), (With<AboutRepository>, Changed<EditorButtonClick>)>,
+    mut repository_task: Local<Option<Task<Result<(), String>>>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut focus: ResMut<InputFocus>,
 ) {
+    if let Some(task) = repository_task.as_mut() && let Some(result) = check_ready(task) {
+        *repository_task = None;
+        if let Err(error) = result { error!("{error}"); }
+    }
     let was_open = state.open;
     let close_active = close.is_some_and(|close| close.captures_input());
     if close_active {
@@ -152,6 +166,21 @@ pub(super) fn input(
                 _ => {}
             }
         }
+        if was_open && state.open && state.license_page.is_none() && repository_task.is_none()
+            && repository_buttons.iter().any(|(click, visible)| visible.get() && click.is_clicked())
+        {
+            // 系统打开操作与现有目录入口一致，在单个后台槽执行，主线程只轮询结果。
+            *repository_task = Some(IoTaskPool::get().spawn(async {
+                #[cfg(target_os = "windows")]
+                let mut command = std::process::Command::new("explorer.exe");
+                #[cfg(target_os = "macos")]
+                let mut command = std::process::Command::new("open");
+                #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+                let mut command = std::process::Command::new("xdg-open");
+                command.arg(REPOSITORY_URL).spawn().map(|_| ())
+                    .map_err(|error| format!("无法打开 GitHub 仓库：{error}"))
+            }));
+        }
         if was_open && keys.just_pressed(KeyCode::Escape) { state.open = false; }
     }
     if !state.open { state.license_page = None; }
@@ -168,9 +197,9 @@ pub(super) fn input(
 pub(super) fn present(
     state: Res<AboutState>,
     mut nodes: Query<(&mut Node, Has<AboutOverlay>, Has<AboutPanel>, Has<AboutHeader>, Option<&AboutBody>,
-        Has<AboutLicenseRegion>, Has<AboutFooter>), (Without<Action>,
+        Has<AboutLicenseRegion>, Has<AboutFooter>), (Without<Action>, Without<AboutRepository>,
         Or<(With<AboutOverlay>, With<AboutPanel>, With<AboutHeader>, With<AboutBody>, With<AboutLicenseRegion>, With<AboutFooter>)>)>,
-    mut buttons: Query<(&Action, &ChildOf, &mut Node)>,
+    mut buttons: Query<(Option<&Action>, &ChildOf, &mut Node), Or<(With<Action>, With<AboutRepository>)>>,
     mut text: Query<(&mut Text, Has<AboutTitle>, Has<AboutLicenseToggleLabel>),
         Or<(With<AboutTitle>, With<AboutLicenseToggleLabel>, With<AboutLicenseText>)>>,
     headers: Query<(), With<AboutHeader>>,
@@ -212,9 +241,9 @@ pub(super) fn present(
     }
     for (action, parent, mut node) in &mut buttons {
         let primary = match action {
-            Action::CloseAbout => true,
-            Action::OpenLicenses => false,
-            Action::StepLicensePage(step) => {
+            Some(Action::CloseAbout) => true,
+            Some(Action::OpenLicenses) | None => false,
+            Some(Action::StepLicensePage(step)) => {
                 node.display = if step_page(state.license_page, *step).is_some() { Display::Flex } else { Display::None };
                 false
             }
