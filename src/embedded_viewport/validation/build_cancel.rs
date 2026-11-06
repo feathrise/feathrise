@@ -16,7 +16,8 @@ const PURPOSE: &str = "owned-embedded-startup-build-cancel";
 const REPORT_FILE: &str = "build-cancel-editor.json";
 const START_FILE: &str = ".validation-build-started.json";
 const RETRY_FILE: &str = ".validation-build-retried.json";
-const RELEASE_FILE: &str = ".validation-build-release";
+// 放行是夹具数据；显式.txt避免无扩展名的创建事件被源码监听当作潜在源码目录，误排额外构建。
+const RELEASE_FILE: &str = ".validation-build-release.txt";
 const TEMPLATE_BUILD_SCRIPT: &str = include_str!("../../../assets/templates/empty/build.rs");
 
 /// 此源码只写入本轮独占夹具。真实Cargo执行它后才有启动证据，验收不会直接生成该标记。
@@ -27,8 +28,8 @@ fn main() {
     let root = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("Cargo manifest root"));
     assert_eq!(fs::read_to_string(root.join(".validation-build-token")).unwrap(), "@NONCE@");
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=.validation-build-release");
-    let released = root.join(".validation-build-release").is_file();
+    println!("cargo:rerun-if-changed=.validation-build-release.txt");
+    let released = root.join(".validation-build-release.txt").is_file();
     let marker = root.join(if released { ".validation-build-retried.json" } else { ".validation-build-started.json" });
     let mut marker = fs::OpenOptions::new().write(true).create_new(true).open(marker).unwrap();
     writeln!(marker, "{{\"schema\":1,\"nonce\":\"@NONCE@\",\"project_id\":\"@PROJECT_ID@\",\"pid\":{},\"released\":{}}}",
@@ -38,7 +39,7 @@ fn main() {
         // 等待发生在真正的Cargo子进程里；超时必须失败，不能让停止按钮错过窗口却计成功。
         let started = Instant::now();
         while started.elapsed() < Duration::from_secs(180) {
-            assert!(!root.join(".validation-build-release").exists(), "首次构建不得由验收提前放行");
+            assert!(!root.join(".validation-build-release.txt").exists(), "首次构建不得由验收提前放行");
             std::thread::sleep(Duration::from_millis(50));
         }
         panic!("受控真实编译未在180秒内通过原停止入口取消");

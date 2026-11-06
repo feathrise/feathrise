@@ -160,7 +160,7 @@ fn tail(mut reader: fs::File) -> Result<String, String> {
 const STAGES: &[&str] = &[
     "opened_with_embedded_preference", "unsaved_author_draft_prepared", "real_cargo_build_script_running_and_stop_button_gpu",
     "original_stop_compilation_pressed", "cancelled_cargo_worker_and_process_really_drained", "actual_stopped_ui_gpu",
-    "original_editor_3d_selected", "editor_3d_stable_without_automatic_restart", "original_editor_undo_after_stop",
+    "project_3d_stable_without_automatic_restart", "original_editor_3d_selected", "editor_3d_stable_without_automatic_restart", "original_editor_undo_after_stop",
     "original_editor_redo_after_stop", "editor_3d_usable_actual_gpu", "owned_retry_gate_released_after_drain",
     "original_project_3d_retry_pressed", "explicit_retry_started_new_real_slot", "retry_adopted_preserved_author_and_real_gpu",
     "retry_host_ui_gpu", "back_to_editor_3d_and_retry_worker_drained",
@@ -178,6 +178,7 @@ fn verify(child: &Value, project: &Project, directory: &Path, target: &Path, non
         return Err("停止编译实际作者报告未通过或归属不一致".into());
     }
     verify_stage_order(child)?;
+    verify_code_watching(child)?;
     let opened = step(child, STAGES[0])?;
     if opened["selected"] != "embedded_world" || opened["selection_revision"] != 1 || opened["status"]["starts"] != 1
         || opened["status"]["ready"] != false || opened["initial_mode_input_injected"] != false { return Err("没有证明打开工程直接采用隔离工程3D偏好".into()); }
@@ -191,22 +192,24 @@ fn verify(child: &Value, project: &Project, directory: &Path, target: &Path, non
     let build_image = PathBuf::from(started["build"]["image"].as_str().ok_or("缺少真实build.rs进程路径")?).canonicalize().map_err(|error|error.to_string())?;
     if !build_image.starts_with(target) || build_image.file_name().is_none_or(|name|name != "build-script-build.exe") { return Err("运行标记未对应本轮缓存中的真实Cargo build.rs可执行文件".into()); }
     let baseline = &step(child, STAGES[1])?["author"];
-    for stage in [STAGES[2], STAGES[3], STAGES[4], STAGES[6], STAGES[7]] {
+    for stage in [STAGES[2], STAGES[3], STAGES[4], STAGES[5], STAGES[6], STAGES[7], STAGES[8]] {
         if &step(child, stage)?["author"] != baseline { return Err(format!("{stage}改变作者草稿、修订或历史")); }
     }
-    let stable = step(child, STAGES[7])?;
+    let project_stable = step(child, STAGES[6])?;
+    verify_stopped_project(stop, drain, step(child, STAGES[5])?, project_stable, step(child, STAGES[7])?)?;
+    let stable = step(child, STAGES[8])?;
     if stable["observed_frames"].as_u64().unwrap_or(0) < 60 || stable["observed_ms"].as_f64().unwrap_or(0.) < 3000.
         || stable["status"]["starts"] != 1 || stable["status"]["active"] != false || stable["selected"] != "saved_world" { return Err("停止后编辑器3D没有经过真实持续观察，或出现自动重启".into()); }
-    let restored = &step(child, STAGES[9])?["author"];
-    verify_history_settlement(&step(child, STAGES[9])?["history_settlement"], &stable["presentation"])?;
+    let restored = &step(child, STAGES[10])?["author"];
+    verify_history_settlement(&step(child, STAGES[10])?["history_settlement"], &stable["presentation"])?;
     for field in ["placements", "dirty", "save_sequence", "undo_len", "redo_len", "last_added_id"] {
         if restored[field] != baseline[field] { return Err(format!("原Undo/Redo后没有恢复作者{field}")); }
     }
-    let retry = step(child, STAGES[13])?;
+    let retry = step(child, STAGES[14])?;
     if retry["status"]["starts"] != 2 || retry["status"]["completed"] != 1 || retry["status"]["active"] != true
         || retry["session"].as_u64().is_none_or(|session|session == 0) || retry["session"] == stop["session"]
         || retry["control_cancelled"] != false { return Err("显式重试没有获得新的真实工作槽和会话身份".into()); }
-    let final_step = step(child, STAGES[16])?;
+    let final_step = step(child, STAGES[17])?;
     if final_step["status"]["starts"] != 2 || final_step["status"]["completed"] != 2 || final_step["status"]["active"] != false
         || final_step["runtime_slot_present"] != false || final_step["selected"] != "saved_world" || &final_step["author"] != restored {
         return Err("显式重试最终未真实排空或丢失恢复后的作者现场".into());
@@ -214,7 +217,7 @@ fn verify(child: &Value, project: &Project, directory: &Path, target: &Path, non
     let retried = read_json(&project.root.join(RETRY_FILE))?;
     if retried["nonce"] != nonce || retried["project_id"] != project.id || retried["released"] != true
         || !project.root.join(RELEASE_FILE).is_file() { return Err("显式重试没有再次经过本轮真实Cargo构建脚本".into()); }
-    let guest = step(child, STAGES[14])?;
+    let guest = step(child, STAGES[15])?;
     if &guest["author"] != restored || guest["guest"]["game"]["source"] != "real-project-world"
         || guest["guest"]["game"]["pid"] != guest["pid"] || guest["guest"]["game"]["world_id"] != guest["world_id"]
         || guest["guest"]["game"]["revision"] != guest["applied_revision"] || guest["guest"]["game"]["mode"] != "editing"
@@ -225,13 +228,15 @@ fn verify(child: &Value, project: &Project, directory: &Path, target: &Path, non
     super::super::window_evidence::verify_record(guest, &guest["guest"]["game"], &child["host_pid"])?;
     let mut captures = Vec::new();
     for (stage, name) in [(STAGES[2], "compiling-stop-visible.png"), (STAGES[5], "compilation-stopped.png"),
-        (STAGES[10], "editor3d-usable.png"), (STAGES[15], "retry-engine-ready.png")] {
+        (STAGES[11], "editor3d-usable.png"), (STAGES[16], "retry-engine-ready.png")] {
         captures.push(super::evidence::verify_png(&directory.join(name), &step(child, stage)?["capture"])?);
     }
     captures.push(super::evidence::verify_png(&directory.join("retry-game.png"), &guest["guest"]["png"])?);
     if read_json(&directory.join("retry-game.json"))? != guest["guest"]["game"] { return Err("重新连接的不可变游戏GPU记录与当前作者阶段不一致".into()); }
     Ok(json!({"required_stages":STAGES.len(),"captures":captures,"real_cargo_cancel_and_retry":true,
-        "asset_hashes_checked_outside_app":true,"original_stop_button_route":true,"no_automatic_restart_ms":stable["observed_ms"]}))
+        "asset_hashes_checked_outside_app":true,"original_stop_button_route":true,"stop_kept_project_3d":true,
+        "code_iteration_watching_at_all_stages":true,
+        "project_3d_no_automatic_restart_ms":project_stable["observed_ms"],"no_automatic_restart_ms":stable["observed_ms"]}))
 }
 
 fn verify_stage_order(child: &Value) -> Result<(), String> {
@@ -242,6 +247,17 @@ fn verify_stage_order(child: &Value) -> Result<(), String> {
         let index = steps.iter().position(|step|step["stage"] == *name).unwrap();
         if previous.is_some_and(|previous|index <= previous) { return Err("停止编译必需阶段顺序错误".into()); }
         previous = Some(index);
+    }
+    Ok(())
+}
+
+/// 本场景只改作者草稿，不编辑源码；工程3D就绪不能遮盖夹具误触发的独立代码编译或失败。
+fn verify_code_watching(child: &Value) -> Result<(), String> {
+    for stage in STAGES {
+        let code = &step(child, stage)?["code_iteration"];
+        if code["phase"] != "Watching" {
+            return Err(format!("停止编译验收阶段{stage}意外改变代码监听状态：phase={}，status={}", code["phase"], code["status"]));
+        }
     }
     Ok(())
 }
@@ -257,6 +273,28 @@ fn verify_cancel(started: &Value, stop: &Value, drain: &Value) -> Result<(), Str
         || drain["status"]["completed"] != 1 || drain["status"].get("error") != Some(&Value::Null)
         || drain["compilation_stopped"] != true || drain["pending_play"] != false || drain["restart_requested"] != false
         || drain.get("identity") != Some(&Value::Null) { return Err("缺少真实Cargo运行、原停止入口或线程/进程完整收口证据".into()); }
+    Ok(())
+}
+
+/// 原停止不能自行改变选择；只有后续真实编辑器3D按钮输入才允许离开工程3D。
+fn verify_stopped_project(stop: &Value, drain: &Value, capture: &Value, stable: &Value, local: &Value) -> Result<(), String> {
+    if stop["selected"] != "embedded_world" || stop["selection_revision"] != 1 {
+        return Err("停止前工程3D选择不是本轮打开的原修订".into());
+    }
+    for proof in [drain, capture, stable, local] {
+        if proof["selected"] != stop["selected"] || proof["selection_revision"] != stop["selection_revision"] {
+            return Err("停止编译擅自切换模式或改变工程3D选择修订".into());
+        }
+    }
+    if stable["observed_frames"].as_u64().unwrap_or(0) < 60
+        || stable["observed_ms"].as_f64().is_none_or(|ms|!ms.is_finite() || ms < 3000.)
+        || stable["status"]["starts"] != 1 || stable["status"]["completed"] != 1
+        || stable["status"]["active"] != false || stable["status"]["ready"] != false
+        || stable["runtime_slot_present"] != false || stable["retry_button"]["label"] != "预览"
+        || stable["retry_button"]["visible"] != true || stable["retry_button"]["disabled"] != false
+        || local["input"] != "original Editor3D Button + EditorButtonClick" {
+        return Err("停止后未证明工程3D持续稳定、原预览入口恢复及明确的模式切回输入".into());
+    }
     Ok(())
 }
 
@@ -308,6 +346,20 @@ mod tests {
     }
 
     #[test]
+    fn ready_project_cannot_hide_unexpected_code_build_or_failure_in_any_required_stage() {
+        let valid = json!({"passed":true,"steps":STAGES.iter().map(|stage|json!({"stage":stage,
+            "status":{"ready":true},"code_iteration":{"phase":"Watching","status":"保存代码后自动编译"}})).collect::<Vec<_>>()});
+        verify_code_watching(&valid).unwrap();
+        for index in 0..STAGES.len() {
+            for phase in [json!("Building"), json!("Failed"), json!("Ready"), Value::Null] {
+                let mut bad = valid.clone();
+                bad["steps"][index]["code_iteration"]["phase"] = phase;
+                assert!(verify_code_watching(&bad).unwrap_err().contains(STAGES[index]));
+            }
+        }
+    }
+
+    #[test]
     fn stop_requires_cancelled_control_drained_slot_and_same_held_process_exit() {
         let started = json!({"build":{"image_in_current_target":true,"process_alive":true,"marker":{"pid":73}}});
         let stop = json!({"input":"original visible StopCompilation Button + EditorButtonClick","session":7,
@@ -322,6 +374,27 @@ mod tests {
         }
         let mut unrelated = drain; unrelated["build_process"]["pid"] = json!(74);
         assert!(verify_cancel(&started,&stop,&unrelated).is_err());
+    }
+
+    #[test]
+    fn stopped_project_evidence_rejects_automatic_return_restart_or_unusable_retry() {
+        let selected = json!({"selected":"embedded_world","selection_revision":1});
+        let mut stable = selected.clone();
+        stable.as_object_mut().unwrap().extend(json!({"observed_frames":60,"observed_ms":3000.,
+            "runtime_slot_present":false,"status":{"starts":1,"completed":1,"active":false,"ready":false},
+            "retry_button":{"label":"预览","visible":true,"disabled":false}}).as_object().unwrap().clone());
+        let mut local = selected.clone();
+        local["input"] = json!("original Editor3D Button + EditorButtonClick");
+        verify_stopped_project(&selected, &selected, &selected, &stable, &local).unwrap();
+        for (path, value) in [("/selected", json!("saved_world")), ("/selection_revision", json!(2)),
+            ("/observed_frames", json!(59)), ("/observed_ms", json!(2999.)), ("/status/starts", json!(2)),
+            ("/runtime_slot_present", json!(true)), ("/retry_button/disabled", json!(true))] {
+            let mut bad = stable.clone();
+            *bad.pointer_mut(path).unwrap() = value;
+            assert!(verify_stopped_project(&selected, &selected, &selected, &bad, &local).is_err(), "{path}");
+        }
+        local["input"] = json!("production stop returned to editor3D");
+        assert!(verify_stopped_project(&selected, &selected, &selected, &stable, &local).is_err());
     }
 
     #[test]

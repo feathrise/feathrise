@@ -7,7 +7,7 @@ use std::{path::PathBuf, sync::{Arc, Mutex}, time::Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Phase {
-    Open, Map, Draft, Build, CaptureBuild, Stop, Drain, CaptureStopped, Local, WaitLocal,
+    Open, Map, Draft, Build, CaptureBuild, Stop, Drain, CaptureStopped, StableStopped, Local, WaitLocal,
     StableLocal, Undo, Redo, RedoSettle, CaptureLocal, Release, Retry, StartingRetry, Guest, CaptureRetry,
     ReturnLocal, DrainRetry, FailureDrain, Write, Closing, Finished,
 }

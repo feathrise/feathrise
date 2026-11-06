@@ -169,6 +169,42 @@ fn code_apply_queues_a_saved_launch_without_claiming_it_started() {
 }
 
 #[test]
+fn native_backend_rejects_a_dx_candidate_before_queuing_a_standalone_restart() {
+    let (mut app, marker, proof) = app();
+    app.insert_resource(ProjectBuildBackend::Native);
+    let project = app.world().resource::<NativePlaySettings>().project.clone();
+    let prepared = std::sync::Arc::new(prepared_for_test(&project, default()));
+    let error = request_code_apply(app.world_mut(), prepared, 21).unwrap_err();
+    assert!(error.contains("构建方式"));
+    let runtime = app.world().non_send::<NativePlayRuntime>();
+    assert!(runtime.code_apply_pending.is_none());
+    assert!(runtime.code_apply_status.is_none());
+    assert!(runtime.active.is_none());
+    assert_eq!(app.world().resource::<NativePlayStatus>().started, 1);
+    assert!(app.world().get::<SameAuthorWorld>(marker).is_some());
+    assert_eq!(app.world().resource::<AuthorProof>(), &proof);
+}
+
+#[test]
+fn changing_backend_while_a_code_apply_is_pending_rejects_it_before_spawning() {
+    let (mut app, marker, proof) = app();
+    let project = app.world().resource::<NativePlaySettings>().project.clone();
+    request_code_apply(app.world_mut(), std::sync::Arc::new(prepared_for_test(&project, default())), 22).unwrap();
+    // 原UI运行门会拒绝此操作；在底层身份门模拟外部配置变化，确认迟到候选仍不能越过。
+    app.insert_resource(ProjectBuildBackend::Native);
+    code_apply::advance(app.world_mut());
+    let runtime = app.world().non_send::<NativePlayRuntime>();
+    assert!(runtime.code_apply_pending.is_none());
+    assert!(runtime.active.is_none());
+    let result = code_apply_status(app.world()).unwrap();
+    assert_eq!((result.token, result.state), (22, CodeApplyState::Failed));
+    assert!(result.error.unwrap().contains("构建方式"));
+    assert_eq!(app.world().resource::<NativePlayStatus>().started, 1, "身份失效前不得产生新启动尝试");
+    assert!(app.world().get::<SameAuthorWorld>(marker).is_some());
+    assert_eq!(app.world().resource::<AuthorProof>(), &proof);
+}
+
+#[test]
 fn code_apply_keeps_the_original_saved_map_until_the_old_worker_really_finishes() {
     let (mut app, marker, proof) = app();
     let (release, wait) = mpsc::sync_channel(1);

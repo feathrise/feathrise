@@ -26,10 +26,11 @@ pub(crate) struct ViewportModeAvailability {
     pub blocked_reason: Option<String>,
 }
 
-/// 只保留本次停止的返回意图；后台真实收口并通过原切换门后才改变选择及个人偏好。
+/// 停止按钮保留工程3D；只有明确选择编辑器3D才在后台真实收口后改变模式及个人偏好。
 #[derive(Resource, Default)]
 pub(super) struct CompilationReturn {
     pub(super) selection_revision: Option<u64>,
+    pub(super) return_to_editor: bool,
 }
 
 /// 下拉打开与关闭当帧都占有输入，后续释放继续沿用作者层的鼠标静默门。

@@ -336,6 +336,7 @@ fn verify_imports_file(path: &Path, imports: &[(PathBuf, String)]) -> Result<(),
 }
 
 fn execute(command: &Command, input: Option<Vec<u8>>, project: &Project, control: &BuildControl, diagnostics: Diagnostics) -> Result<Vec<u8>, String> {
+    build_process::log_build_command(command, control);
     let root = project.root.clone(); let log = control.log_sink();
     let reader = move |output| read_output(output, &root, log, diagnostics);
     let result = if let Some(input) = input { build_process::run_with_input(command, control, None, input, reader) }

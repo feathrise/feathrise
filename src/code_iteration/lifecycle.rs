@@ -64,6 +64,7 @@ pub(crate) fn ready_to_exit(world: &mut World) -> Result<bool, String> {
 /// 返回true才消费正常构建回执；恢复期间旧实例仍占唯一槽，后台补偿首扫覆盖停监听保存。
 pub(super) fn advance(
     runtime: &mut CodeIterationRuntime, state: &mut CodeIterationState, profile: ProjectBuildProfile,
+    build_backend: crate::native_play::ProjectBuildBackend,
 ) -> bool {
     match runtime.lifecycle {
         BackendLifecycle::Running => return true,
@@ -77,7 +78,7 @@ pub(super) fn advance(
     }
     let settings = &runtime.settings;
     match Backend::spawn_resumed(settings.project.clone(), settings.target.clone(), profile,
-        settings.logs.clone(), runtime.last_generation)
+        settings.logs.clone(), runtime.last_generation, build_backend)
     {
         Ok(backend) => {
             state.generation = backend.current_generation();

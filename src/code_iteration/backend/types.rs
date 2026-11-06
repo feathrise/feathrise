@@ -10,6 +10,8 @@ pub(crate) struct BuildIdentity {
     pub project_id: String,
     pub root: PathBuf,
     pub profile: ProjectBuildProfile,
+    pub build_backend: crate::native_play::ProjectBuildBackend,
+    pub backend_revision: u64,
     /// 保存/配置代次跨取消恢复严格递增；即使源码改后还原，旧版本也失去采用权。
     pub generation: u64,
     pub source_sha256: String,
@@ -19,6 +21,8 @@ pub(crate) struct BuildIdentity {
 impl BuildIdentity {
     pub(super) fn json(&self) -> serde_json::Value {
         serde_json::json!({"project_id":self.project_id,"root":self.root,"profile":self.profile.cargo_profile(),
+            "build_backend":self.build_backend.key(),
+            "backend_revision":self.backend_revision,
             "generation":self.generation,"source_sha256":self.source_sha256,"context_sha256":self.context_sha256})
     }
 }
@@ -40,6 +44,7 @@ pub(crate) enum PreparedArtifact {
 pub(crate) enum Event {
     Waiting {
         generation: u64,
+        backend_revision: u64,
     },
     Building {
         identity: BuildIdentity,
@@ -55,6 +60,8 @@ pub(crate) enum Event {
 pub(super) struct BuildRequest {
     pub generation: u64,
     pub profile: ProjectBuildProfile,
+    pub build_backend: crate::native_play::ProjectBuildBackend,
+    pub backend_revision: u64,
     pub source: super::source::SourceSnapshot,
 }
 

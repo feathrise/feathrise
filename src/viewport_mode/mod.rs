@@ -14,6 +14,8 @@ mod ui;
 #[cfg(test)]
 mod ui_tests;
 #[cfg(all(test, windows))]
+mod backend_tests;
+#[cfg(all(test, windows))]
 mod gpu_tests;
 pub(crate) mod window;
 
@@ -50,10 +52,12 @@ pub(crate) fn install(
         .init_resource::<resources::CompilationReturn>()
         .init_resource::<feathrise_editor_core::ProjectLaunchInterruption>()
         .init_resource::<BuildProfileMenuState>()
+        .init_resource::<crate::native_play::ProjectBuildBackend>()
         .init_resource::<ViewportGeometry>()
         .add_message::<RequestViewportMode>()
         .add_message::<ViewportModeChanged>()
         .add_message::<messages::RequestBuildProfile>()
+        .add_message::<messages::RequestBuildBackend>()
         .add_message::<feathrise_editor_map::standalone::SavedPlayFeedback>()
         .add_systems(Update, ui::mount.before(ViewportModeInput))
         .add_systems(Update, ui::mount_launch.before(ViewportModeInput))
@@ -67,7 +71,7 @@ pub(crate) fn install(
             .before(ViewportModeInput))
         .add_systems(
             Update,
-            (ui::input, profile_ui::input, compilation::return_when_stopped, systems::apply, systems::apply_profile)
+            (ui::input, profile_ui::input, compilation::return_when_stopped, systems::apply, systems::apply_profile, systems::apply_backend)
                 .chain()
                 .in_set(ViewportModeInput)
                 .after(feathrise_editor_ui::update_editor_button_clicks)

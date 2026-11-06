@@ -18,6 +18,8 @@ pub(super) struct Shared {
     pub control: BuildControl,
     pub generation: AtomicU64,
     pub profile: AtomicU8,
+    /// 低位是DX/原生选择，其余位保留切换历史；与源码代次分开，切换不额外排第二次编译。
+    pub build_backend: AtomicU64,
     pub stopped: AtomicBool,
     /// 只有监听与构建线程访问此一槽；运行中的构建占另一个固定槽，不因过期而提前归还。
     pub latest: Mutex<Option<BuildRequest>>,
@@ -31,6 +33,14 @@ impl Shared {
     }
     pub fn profile(&self) -> ProjectBuildProfile {
         decode_profile(self.profile.load(Ordering::Acquire))
+    }
+    pub fn build_selection(&self) -> (crate::native_play::ProjectBuildBackend, u64) {
+        let revision = self.build_backend.load(Ordering::Acquire);
+        (if revision & 1 == 1 { crate::native_play::ProjectBuildBackend::Native }
+        else { crate::native_play::ProjectBuildBackend::Dx }, revision)
+    }
+    pub fn current_build(&self, generation: u64, profile: ProjectBuildProfile, backend: crate::native_play::ProjectBuildBackend, revision: u64) -> bool {
+        self.current(generation, profile) && self.build_selection() == (backend, revision) && self.generation() == generation
     }
     pub fn stopped(&self) -> bool {
         self.stopped.load(Ordering::Acquire) || self.control.is_cancelled()
@@ -78,7 +88,7 @@ impl Backend {
         build_release: mpsc::Receiver<()>,
     ) -> (Self, mpsc::Receiver<()>, mpsc::Receiver<()>) {
         let shared = Arc::new(Shared { control, generation: AtomicU64::new(1),
-            profile: AtomicU8::new(encode_profile(profile)), stopped: AtomicBool::new(false),
+            profile: AtomicU8::new(encode_profile(profile)), build_backend: AtomicU64::new(0), stopped: AtomicBool::new(false),
             latest: Mutex::new(None), wake: Condvar::new(), output_scope: Arc::default() });
         let (_events, receiver) = mpsc::sync_channel(16);
         let (patch_sender, _patch_context) = mpsc::sync_channel(1);
@@ -113,9 +123,10 @@ impl Backend {
         profile: ProjectBuildProfile,
         logs: Option<ProjectLogChannel>,
         previous_generation: u64,
+        build_backend: crate::native_play::ProjectBuildBackend,
     ) -> Result<Self, String> {
         let start = resumed_start(previous_generation)?;
-        Ok(Self::spawn_started(project, target, profile, logs, start))
+        Ok(Self::spawn_started_with_backend(project, target, profile, logs, start, build_backend))
     }
 
     fn spawn_started(
@@ -124,6 +135,13 @@ impl Backend {
         profile: ProjectBuildProfile,
         logs: Option<ProjectLogChannel>,
         start: WatchStart,
+    ) -> Self {
+        Self::spawn_started_with_backend(project, target, profile, logs, start, crate::native_play::ProjectBuildBackend::Dx)
+    }
+
+    fn spawn_started_with_backend(
+        project: Project, target: PathBuf, profile: ProjectBuildProfile, logs: Option<ProjectLogChannel>,
+        start: WatchStart, build_backend: crate::native_play::ProjectBuildBackend,
     ) -> Self {
         let control = logs
             .map(|logs| {
@@ -134,6 +152,7 @@ impl Backend {
             control,
             generation: AtomicU64::new(start.generation()),
             profile: AtomicU8::new(encode_profile(profile)),
+            build_backend: AtomicU64::new(u64::from(build_backend == crate::native_play::ProjectBuildBackend::Native)),
             stopped: AtomicBool::new(false),
             latest: Mutex::new(None),
             wake: Condvar::new(),
@@ -187,9 +206,25 @@ impl Backend {
         }
     }
 
+    /// 仅撤销旧候选；工程3D协调器拥有这次重新构建，源码监听不能再重复构建一次。
+    /// 选择与修订以单个原子值发布，DX→原生→DX也不能复活旧成功结果。
+    pub(crate) fn set_build_backend(&self, backend: crate::native_play::ProjectBuildBackend) -> bool {
+        let encoded = u64::from(backend == crate::native_play::ProjectBuildBackend::Native);
+        let previous = self.shared.build_backend.load(Ordering::Acquire);
+        if previous & 1 == encoded { return false; }
+        if let Some(next) = previous.checked_add(1) {
+            // 此入口只有作者线程写；后台只读取一次冻结本请求的选择和修订。
+            self.shared.build_backend.store(next, Ordering::Release);
+        } else {
+            self.cancel(); // 不能回绕复活旧候选。
+        }
+        true
+    }
+
     pub(crate) fn current_generation(&self) -> u64 {
         self.shared.generation()
     }
+    pub(crate) fn backend_revision(&self) -> u64 { self.shared.build_selection().1 }
     pub(crate) fn generation_is_current(&self, generation: u64, profile: ProjectBuildProfile) -> bool {
         self.shared.current(generation, profile)
     }
@@ -215,7 +250,7 @@ impl Backend {
     pub(crate) fn is_current(&self, identity: &BuildIdentity) -> bool {
         self.project_id == identity.project_id
             && self.root == identity.root
-            && self.shared.current(identity.generation, identity.profile)
+            && self.shared.current_build(identity.generation, identity.profile, identity.build_backend, identity.backend_revision)
     }
     pub(crate) fn try_recv(&self) -> Result<Event, mpsc::TryRecvError> {
         self.receiver.try_recv()
@@ -267,7 +302,7 @@ impl Backend {
         if cleanup_failed { control.mark_cleanup_failed(); }
         let shared = Arc::new(Shared {
             control, generation: AtomicU64::new(generation),
-            profile: AtomicU8::new(encode_profile(profile)), stopped: AtomicBool::new(false),
+            profile: AtomicU8::new(encode_profile(profile)), build_backend: AtomicU64::new(0), stopped: AtomicBool::new(false),
             latest: Mutex::new(None), wake: Condvar::new(),
             output_scope: Arc::default(),
         });
@@ -328,6 +363,7 @@ mod tests {
             control: BuildControl::default(),
             generation: AtomicU64::new(5),
             profile: AtomicU8::new(0),
+            build_backend: AtomicU64::new(0),
             stopped: AtomicBool::new(false),
             latest: Mutex::new(None),
             wake: Condvar::new(),
@@ -359,7 +395,7 @@ mod tests {
         let root = PathBuf::from("C:/owned-resumed-code-fixture");
         let shared = Arc::new(Shared {
             control: BuildControl::default(), generation: AtomicU64::new(start.generation()),
-            profile: AtomicU8::new(0), stopped: AtomicBool::new(false),
+            profile: AtomicU8::new(0), build_backend: AtomicU64::new(0), stopped: AtomicBool::new(false),
             latest: Mutex::new(None), wake: Condvar::new(),
             output_scope: Arc::default(),
         });
@@ -371,7 +407,7 @@ mod tests {
             source_thread: None, build_thread: None,
         };
         let mut identity = BuildIdentity {
-            project_id: "owned-resumed-code".into(), root, profile: ProjectBuildProfile::Debug,
+            project_id: "owned-resumed-code".into(), root, profile: ProjectBuildProfile::Debug, build_backend: Default::default(), backend_revision: 0,
             generation: 73, source_sha256: "same-source".into(), context_sha256: "same-context".into(),
         };
         assert!(!backend.is_current(&identity));
@@ -381,6 +417,23 @@ mod tests {
         identity.profile = ProjectBuildProfile::Release;
         assert!(!backend.is_current(&identity));
         identity.profile = ProjectBuildProfile::Debug;
+        assert!(backend.set_build_backend(crate::native_play::ProjectBuildBackend::Native));
+        assert!(!backend.is_current(&identity), "更换工具须拒绝旧DX产物");
+        assert_eq!(backend.current_generation(), 74, "工具切换由工程3D重建，不能冒充源码保存再编译一次");
+        identity.generation = backend.current_generation();
+        assert!(!backend.is_current(&identity), "代次相同也不能混用另一种构建产物");
+        identity.build_backend = crate::native_play::ProjectBuildBackend::Native;
+        identity.backend_revision = 1;
+        assert!(backend.is_current(&identity));
+        assert!(!backend.set_build_backend(crate::native_play::ProjectBuildBackend::Native));
+        assert!(backend.is_current(&identity), "重复选择不额外换代");
+        assert!(backend.set_build_backend(crate::native_play::ProjectBuildBackend::Dx));
+        assert!(!backend.is_current(&identity), "切回DX不能复活原生候选");
+        identity.build_backend = crate::native_play::ProjectBuildBackend::Dx;
+        identity.backend_revision = 0;
+        assert!(!backend.is_current(&identity), "切回同一个DX也不能复活首次候选");
+        identity.backend_revision = 2;
+        assert!(backend.is_current(&identity));
         identity.project_id = "another-project".into();
         assert!(!backend.is_current(&identity));
         backend.cancel();
@@ -394,7 +447,7 @@ mod tests {
     fn generation_exhaustion_cancels_instead_of_reviving_old_tokens() {
         let shared = Shared {
             control: BuildControl::default(), generation: AtomicU64::new(u64::MAX),
-            profile: AtomicU8::new(0), stopped: AtomicBool::new(false),
+            profile: AtomicU8::new(0), build_backend: AtomicU64::new(0), stopped: AtomicBool::new(false),
             latest: Mutex::new(None), wake: Condvar::new(),
             output_scope: Arc::default(),
         };
@@ -409,7 +462,7 @@ mod tests {
     fn full_patch_mailbox_retries_none_invalidation_instead_of_marking_it_delivered() {
         let shared = Arc::new(Shared {
             control: BuildControl::default(), generation: AtomicU64::new(1),
-            profile: AtomicU8::new(0), stopped: AtomicBool::new(false),
+            profile: AtomicU8::new(0), build_backend: AtomicU64::new(0), stopped: AtomicBool::new(false),
             latest: Mutex::new(None), wake: Condvar::new(),
             output_scope: Arc::default(),
         });

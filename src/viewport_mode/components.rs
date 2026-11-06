@@ -46,3 +46,12 @@ pub(super) struct ProfileBackdrop;
 /// None 显示当前配置，Some 为菜单中带选中标记的配置项。
 #[derive(Component)]
 pub(super) struct ProfileLabel(pub Option<feathrise_editor_core::ProjectBuildProfile>);
+
+#[derive(Component)]
+pub(super) struct BackendOptions;
+
+#[derive(Component)]
+pub(super) struct BackendOption(pub crate::native_play::ProjectBuildBackend);
+
+#[derive(Component)]
+pub(super) struct BackendLabel(pub crate::native_play::ProjectBuildBackend);

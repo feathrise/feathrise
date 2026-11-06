@@ -31,6 +31,9 @@ pub(super) fn prepare(project: &Project, target: &Path, profile: ProjectBuildPro
     let mut features = features::identity();
     if !features.is_empty() { features.push(','); }
     features.push_str("function_hotpatch");
+    if let Some(log) = control.log_sink() {
+        log.task_message(&format!("构建方式：DX；配置：render-dev；缓存：{}；启用函数热更新", target.display()));
+    }
     let fat = hotpatch::toolchain::fat(project, target, control, &features, diagnostics)?;
     if source != capture_source(project, target, control)? { return Err("完整热更新基线构建期间源码变化，请等待最新编译".into()); }
     let dlls = hotpatch::toolchain::runtime_dlls(&fat, target, control)?;
@@ -51,7 +54,7 @@ pub(super) fn prepare(project: &Project, target: &Path, profile: ProjectBuildPro
     Ok(Some(PreparedGame {
         executable: bundle.executable.clone(), target: target.to_owned(), linked_paths: vec![bundle.directory.clone()],
         dlls, build_outputs: Vec::new(), project_id: project.id.clone(), project_root: project.root.clone(),
-        profile, bundle: Some(bundle), hotpatch: Some(baseline),
+        profile, build_backend: crate::native_play::ProjectBuildBackend::Dx, bundle: Some(bundle), hotpatch: Some(baseline),
     }))
 }
 

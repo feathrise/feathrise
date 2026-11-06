@@ -10,6 +10,7 @@ use std::{sync::{Arc, mpsc}, time::{Duration, Instant}};
 
 pub(crate) fn patch_context(world: &World) -> Option<PatchContext> {
     if world.get_resource::<ViewportModeState>()?.selected != ViewportMode::EmbeddedWorld
+        || crate::native_play::ProjectBuildBackend::selected(world) != crate::native_play::ProjectBuildBackend::Dx
         || world.get_resource::<ProjectLaunchSettings>().is_some_and(|settings| settings.profile != ProjectBuildProfile::Debug) {
         return None;
     }
@@ -86,6 +87,7 @@ pub(super) fn advance(world: &mut World, runtime: &mut Runtime, status: &mut Emb
         return;
     }
     let invalid = selected != ViewportMode::EmbeddedWorld || profile != ProjectBuildProfile::Debug
+        || crate::native_play::ProjectBuildBackend::selected(world) != crate::native_play::ProjectBuildBackend::Dx
         || runtime.exit_requested || runtime.close_return_requested || runtime.code_apply.is_some()
         || runtime.restart_requested || runtime.pending_edit || runtime.pending_play || runtime.waiting_mode.is_some()
         || status.playing || !crate::code_iteration::generation_is_current(world, flight.token)

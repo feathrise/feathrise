@@ -34,12 +34,13 @@ pub(super) fn run(
     project: Project,
     target: PathBuf,
     request: RunSavedProject,
+    build_backend: super::ProjectBuildBackend,
     control: &BuildControl,
     progress: &SyncSender<String>,
     started: Option<SyncSender<()>>,
 ) -> Result<u32, String> {
-    let prepared = prepare(&project, &target, request.map_id.as_deref(), request.profile, control)?;
-    run_prepared(project, Arc::new(prepared), request, control, progress, started)
+    let prepared = prepare_with_backend(&project, &target, request.map_id.as_deref(), request.profile, build_backend, control, None)?;
+    run_prepared(project, Arc::new(prepared), request, build_backend, control, progress, started)
 }
 
 /// 显式采用后台已完成的不可变版本；直接运行副本，避免 Windows 占用 Cargo 的下一次链接目标。
@@ -47,11 +48,14 @@ pub(super) fn run_prepared(
     project: Project,
     prepared: Arc<PreparedGame>,
     request: RunSavedProject,
+    build_backend: super::ProjectBuildBackend,
     control: &BuildControl,
     progress: &SyncSender<String>,
     started: Option<SyncSender<()>>,
 ) -> Result<u32, String> {
-    if !prepared.matches_project(&project, request.profile) { return Err("运行版本不属于当前工程或构建配置".into()); }
+    if !prepared.matches_project(&project, request.profile) || !prepared.matches_backend(build_backend) {
+        return Err("运行版本不属于当前工程、构建配置或构建方式".into());
+    }
     if project::open(&project.root)? != project { return Err("工程清单已变化，拒绝运行旧工程版本".into()); }
     if let Some(map_id) = request.map_id.as_deref() { validate_requested_map(&project, map_id, control)?; }
     let warning = if request.has_unsaved_changes {
@@ -93,6 +97,7 @@ pub(crate) struct PreparedGame {
     project_id: String,
     project_root: PathBuf,
     profile: ProjectBuildProfile,
+    build_backend: super::ProjectBuildBackend,
     bundle: Option<crate::build_artifacts::PublishedBundle>,
     pub(crate) hotpatch: Option<Arc<crate::code_iteration::hotpatch::FatBaseline>>,
 }
@@ -105,7 +110,8 @@ pub(crate) fn build_feature_identity() -> String { features::identity() }
 pub(crate) fn prepared_for_test(project: &Project, profile: ProjectBuildProfile) -> PreparedGame {
     PreparedGame { executable: project.root.join("test-version/game.exe"), target: project.root.join("unused-target"),
         linked_paths: Vec::new(), dlls: Vec::new(), build_outputs: Vec::new(),
-        project_id: project.id.clone(), project_root: project.root.clone(), profile, bundle: None, hotpatch: None }
+        project_id: project.id.clone(), project_root: project.root.clone(), profile,
+        build_backend: super::ProjectBuildBackend::Dx, bundle: None, hotpatch: None }
 }
 
 // 普通启动与自动编译共用一个取消感知后台门；不能各自再启动 Cargo 等待同一缓存锁。
@@ -165,7 +171,7 @@ pub(crate) fn prepare_export(
     // 显式厂商原生组合有独立的运行库前提，基础 Windows 导出才要求整个依赖闭包免装 VC Redist。
     let no_vc_redist = cfg!(all(windows, target_env = "msvc"))
         && !cfg!(any(feature = "rtx_rendering", feature = "dlss_frame_generation", feature = "fsr3_frame_generation"));
-    prepare_build(project, target, None, profile, control, None, no_vc_redist)
+    prepare_build(project, target, None, profile, super::ProjectBuildBackend::Dx, control, None, no_vc_redist)
 }
 
 pub(crate) fn prepare_with_diagnostics(
@@ -176,7 +182,15 @@ pub(crate) fn prepare_with_diagnostics(
     control: &BuildControl,
     diagnostics: Option<DiagnosticCallback>,
 ) -> Result<PreparedGame, String> {
-    prepare_build(project, target, map_id, profile, control, diagnostics, false)
+    prepare_with_backend(project, target, map_id, profile, super::ProjectBuildBackend::Dx, control, diagnostics)
+}
+
+/// 构建方式随本次请求冻结；计时含工具准备、实际构建与运行副本发布，排除宿主构建槽排队。
+pub(crate) fn prepare_with_backend(
+    project: &Project, target: &Path, map_id: Option<&str>, profile: ProjectBuildProfile,
+    build_backend: super::ProjectBuildBackend, control: &BuildControl, diagnostics: Option<DiagnosticCallback>,
+) -> Result<PreparedGame, String> {
+    prepare_build(project, target, map_id, profile, build_backend, control, diagnostics, false)
 }
 
 fn prepare_build(
@@ -184,11 +198,13 @@ fn prepare_build(
     target: &Path,
     map_id: Option<&str>,
     profile: ProjectBuildProfile,
+    build_backend: super::ProjectBuildBackend,
     control: &BuildControl,
     diagnostics: Option<DiagnosticCallback>,
     no_vc_redist: bool,
 ) -> Result<PreparedGame, String> {
     let _guard = acquire_build_slot(control)?;
+    let started = std::time::Instant::now();
     control.check()?;
     if project::open(&project.root)? != *project {
         return Err("工程清单已变化，请重新打开工程".into());
@@ -201,8 +217,16 @@ fn prepare_build(
     let target = target.canonicalize().map_err(|error| crate::environment_diagnostics::cache_failure(&target, "确认构建缓存目录", &error))?;
     // 独立交付只运行已保存工程，无需加载 F12 的 fat 热补丁基线或其动态 CRT。
     #[cfg(windows)]
-    if !no_vc_redist && let Some(prepared) = hotpatch::prepare(project, &target, profile, control, diagnostics.clone())? {
+    if !no_vc_redist && build_backend == super::ProjectBuildBackend::Dx
+        && let Some(prepared) = hotpatch::prepare(project, &target, profile, control, diagnostics.clone())? {
+        if let Some(log) = control.log_sink() {
+            log.task_message(&format!("DX 工程构建与产物准备完成，用时 {:.2} 秒", started.elapsed().as_secs_f64()));
+        }
         return Ok(prepared);
+    }
+    if let Some(log) = control.log_sink() {
+        log.task_message(&format!("构建方式：原生 Cargo；配置：{}；缓存：{}{}", profile.cargo_profile(), target.display(),
+            if build_backend == super::ProjectBuildBackend::Dx { "；当前组合使用完整编译路径" } else { "；不启用DX函数热更新" }));
     }
     let cargo = std::env::var_os("EDITOR_HOST_CARGO")
         .or_else(|| std::env::var_os("CARGO"))
@@ -226,6 +250,7 @@ fn prepare_build(
         command.env("CARGO_TERM_PROGRESS_WHEN", "always").env("CARGO_TERM_PROGRESS_WIDTH", "100")
             .env("CARGO_TERM_COLOR", "always");
     }
+    build_process::log_build_command(&command, control);
     let build = build_process::run_cargo(&command, control, None, move |output| {
         read_artifacts_with_diagnostics(output, &manifest, &project_root, log, diagnostics)
     })?;
@@ -247,10 +272,14 @@ fn prepare_build(
         validate_requested_map(&project, id, control)?;
     }
     if let Some(log) = control.log_sink() { log.task_message("工程构建完成"); }
-    PreparedGame { executable, target, linked_paths: build.stdout.linked_paths,
+    let prepared = PreparedGame { executable, target, linked_paths: build.stdout.linked_paths,
         dlls: build.stdout.dlls, build_outputs: build.stdout.build_outputs,
-        project_id: project.id.clone(), project_root: project.root.clone(), profile, bundle: None, hotpatch: None,
-    }.snapshot(project, control, no_vc_redist)
+        project_id: project.id.clone(), project_root: project.root.clone(), profile, build_backend, bundle: None, hotpatch: None,
+    }.snapshot(project, control, no_vc_redist)?;
+    if let Some(log) = control.log_sink() {
+        log.task_message(&format!("原生 Cargo 工程构建与产物准备完成，用时 {:.2} 秒", started.elapsed().as_secs_f64()));
+    }
+    Ok(prepared)
 }
 
 impl PreparedGame {
@@ -263,6 +292,10 @@ impl PreparedGame {
     /// 主线程只做固定字段检查；源码/工具链与产物 SHA 的完整检查已经在后台完成。
     pub(crate) fn matches_project(&self, project: &Project, profile: ProjectBuildProfile) -> bool {
         self.project_id == project.id && self.project_root == project.root && self.profile == profile
+    }
+
+    pub(crate) fn matches_backend(&self, backend: super::ProjectBuildBackend) -> bool {
+        self.build_backend == backend
     }
 
     fn snapshot(&self, project: &Project, control: &BuildControl, no_vc_redist: bool) -> Result<Self, String> {

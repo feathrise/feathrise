@@ -80,7 +80,7 @@ fn finish_current(app: &mut App) {
 fn completed_retirement_keeps_its_final_generation_and_resumes_only_once() {
     let (mut app, release) = held_app(73, false);
     let identity = super::BuildIdentity { project_id: "close-recovery-fixture".into(),
-        root: app.world().resource::<CodeIterationState>().project_root.clone(), profile: Default::default(),
+        root: app.world().resource::<CodeIterationState>().project_root.clone(), profile: Default::default(), build_backend: Default::default(), backend_revision: 0,
         generation: 73, source_sha256: "已采用源码".into(), context_sha256: "原上下文".into() };
     app.world_mut().resource_mut::<CodeIterationState>().applied = Some(identity.clone());
     let marker = app.world_mut().spawn((Name::new("作者现场"), Transform::from_xyz(1., 2., 3.))).id();
@@ -149,13 +149,35 @@ fn ordinary_cancel_keeps_the_running_backend_and_idle_poll_does_not_dirty_ui() {
 }
 
 #[test]
+fn editor_3d_auto_build_keeps_the_selected_native_backend_across_mode_changes() {
+    use crate::{native_play::ProjectBuildBackend, viewport_mode::{ViewportMode, ViewportModeState}};
+    let (mut app, release) = held_app(29, false);
+    app.insert_resource(ViewportModeState::default()).insert_resource(ProjectBuildBackend::Native);
+    app.world_mut().run_system_once(super::systems::poll).unwrap();
+    let project = &app.world().non_send::<CodeIterationRuntime>().settings.project;
+    let identity = super::BuildIdentity { project_id: project.id.clone(), root: project.root.clone(),
+        profile: Default::default(), build_backend: ProjectBuildBackend::Native, backend_revision: 1,
+        generation: 29, source_sha256: "所选原生源码".into(), context_sha256: "原上下文".into() };
+    assert!(app.world().non_send::<CodeIterationRuntime>().backend.as_ref().unwrap().is_current(&identity),
+        "编辑器3D的自动编译必须采用顶栏的原生选择");
+    for mode in [ViewportMode::EmbeddedWorld, ViewportMode::SavedWorld] {
+        app.world_mut().resource_mut::<ViewportModeState>().selected = mode;
+        app.world_mut().run_system_once(super::systems::poll).unwrap();
+        let backend = app.world().non_send::<CodeIterationRuntime>().backend.as_ref().unwrap();
+        assert!(backend.is_current(&identity), "切换呈现方式不能恢复DX或撤销同后端候选");
+        assert_eq!(backend.current_generation(), 29, "只改呈现方式不能假装保存源码重新编译");
+    }
+    release.send(()).unwrap(); wait_finished(&app); finish_current(&mut app);
+}
+
+#[test]
 fn retained_close_message_blocks_only_its_new_frame_and_not_a_later_apply() {
     for same_frame in [false, true] {
         let (mut app, release) = held_app(31, false);
         let project = app.world().non_send::<CodeIterationRuntime>().settings.project.clone();
         let version = std::sync::Arc::new(super::PreparedVersion {
             identity: super::BuildIdentity { project_id: project.id.clone(), root: project.root.clone(),
-                profile: Default::default(), generation: 30,
+                profile: Default::default(), build_backend: Default::default(), backend_revision: 0, generation: 30,
                 source_sha256: "旧候选".into(), context_sha256: "原上下文".into() },
             artifact: super::PreparedArtifact::Restart(std::sync::Arc::new(crate::native_play::prepared_for_test(&project, Default::default()))),
         });

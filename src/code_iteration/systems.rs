@@ -15,18 +15,24 @@ pub(super) fn sync_patch_context(world: &mut World) {
 
 pub(super) fn poll(
     launch: Res<ProjectLaunchSettings>,
+    build_backend: Option<Res<crate::native_play::ProjectBuildBackend>>,
     mut state: ResMut<super::CodeIterationState>,
     mut runtime: NonSendMut<CodeIterationRuntime>,
 ) {
     // 稳定运行不借用整个作者状态的可变引用，避免每帧误标changed并触发代码UI重排。
+    let selected_backend = build_backend.map_or(crate::native_play::ProjectBuildBackend::Dx, |backend| *backend);
     if runtime.lifecycle != BackendLifecycle::Running
-        && !super::lifecycle::advance(&mut runtime, &mut state, launch.profile) { return; }
-    if runtime.profile != launch.profile {
+        && !super::lifecycle::advance(&mut runtime, &mut state, launch.profile, selected_backend) { return; }
+    let backend_changed = runtime.backend.as_ref().is_some_and(|backend| backend.set_build_backend(selected_backend));
+    let profile_changed = runtime.profile != launch.profile;
+    if profile_changed || backend_changed {
         if let Some(backend) = runtime.backend.as_ref() { backend.set_profile(launch.profile); }
         runtime.profile = launch.profile;
         state.pending = None;
-        state.phase = Phase::Waiting;
-        state.status = format!("代码：等待{}配置的最新版本", launch.profile.label());
+        state.phase = if profile_changed { Phase::Waiting } else { Phase::Watching };
+        state.status = if profile_changed { format!("代码：等待{}配置的最新版本", launch.profile.label()) }
+            else { format!("代码：{} / {}；保存源码后自动编译", launch.profile.label(), selected_backend.label()) };
+        clear_diagnostics(&mut state);
     }
     let Some(backend) = runtime.backend.as_ref() else { return; };
     for _ in 0..8 { // 完成邮箱与每帧消费均固定预算；完整诊断不在帧上解析。
@@ -44,7 +50,8 @@ pub(super) fn poll(
         };
         let current = match &event {
             Event::Building { identity } | Event::Finished { identity, .. } => backend.is_current(identity),
-            Event::Waiting { generation } => *generation == backend.current_generation(),
+            Event::Waiting { generation, backend_revision } => *generation == backend.current_generation()
+                && *backend_revision == backend.backend_revision(),
             Event::Failed(_) => true,
         };
         adopt_event(&mut state, event, current);
@@ -55,7 +62,7 @@ pub(super) fn poll(
 pub(super) fn adopt_event(state: &mut super::CodeIterationState, event: Event, current: bool) {
     if !current { return; }
     match event {
-        Event::Waiting { generation } => {
+        Event::Waiting { generation, .. } => {
             state.generation = generation;
             state.pending = None;
             state.phase = Phase::Waiting;
@@ -117,6 +124,7 @@ pub(super) fn guard_application(world: &mut World) {
             let current = world.non_send::<CodeIterationRuntime>().backend.as_ref()
                 .is_some_and(|backend| backend.is_current(&flight.version.identity))
                 && world.resource::<ProjectLaunchSettings>().profile == flight.version.identity.profile
+                && crate::native_play::ProjectBuildBackend::effective(world) == flight.version.identity.build_backend
                 && world.resource::<ViewportModeState>().selected == flight.mode;
             (flight.token, flight.mode, current)
         })
@@ -146,7 +154,8 @@ pub(super) fn apply(
     let Some(version) = state.pending.as_ref().filter(|version| version.identity.generation == request.generation).cloned() else { return; };
     let current = world.non_send::<CodeIterationRuntime>().backend.as_ref().is_some_and(|backend| backend.is_current(&version.identity));
     let profile = world.resource::<ProjectLaunchSettings>().profile;
-    if !current || version.identity.profile != profile {
+    if !current || version.identity.profile != profile
+        || version.identity.build_backend != crate::native_play::ProjectBuildBackend::effective(world) {
         let mut state = world.resource_mut::<super::CodeIterationState>();
         state.pending = None;
         state.phase = Phase::Waiting;

@@ -79,7 +79,8 @@ impl Plugin for CodeIterationPlugin {
                 profile, lifecycle: BackendLifecycle::Running, last_generation: 1, failure: None,
             })
             .add_message::<RequestApplyCode>()
-            .add_systems(Update, (systems::sync_patch_context, systems::poll).chain().before(CodeIterationInput))
+            .add_systems(Update, (systems::sync_patch_context, systems::poll).chain()
+                .after(crate::viewport_mode::ViewportModeInput).before(CodeIterationInput))
             .add_systems(Update, ui::mount.before(CodeIterationInput))
             .add_systems(Update, (systems::guard_application, ui::input, systems::apply).chain()
                 .in_set(CodeIterationInput)

@@ -145,6 +145,7 @@ pub(super) struct Runtime {
     pub attempted_selection: u64,
     /// 与attempted_selection一起锁定本次Job身份；构建期间不可读取后来UI选项。
     pub attempted_profile: Option<feathrise_editor_core::ProjectBuildProfile>,
+    pub attempted_backend: Option<crate::native_play::ProjectBuildBackend>,
     /// 显式停止只撤销本次未就绪启动；保留已尝试的选择/配置，防止下一帧自动重编译。
     pub compilation_stopped: bool,
     /// 停止时的界面输入与原Job身份分开记录；同帧已改配置也不能在排空后偷偷重启。

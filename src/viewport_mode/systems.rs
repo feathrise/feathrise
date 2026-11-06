@@ -80,6 +80,40 @@ pub(super) fn apply_profile(
     world.write_message(SavedPlayFeedback(message));
 }
 
+/// 构建工具与Debug/Release经过同一业务门；代次只在受理时递增，迟到的旧点击不会重放。
+pub(super) fn apply_backend(
+    world: &mut World,
+    mut cursor: Local<bevy::ecs::message::MessageCursor<super::messages::RequestBuildBackend>>,
+) {
+    let Some(request) = cursor.read(world.resource::<Messages<super::messages::RequestBuildBackend>>()).last().copied() else { return; };
+    let mode = world.resource::<ViewportModeState>().selected;
+    if request.0 == crate::native_play::ProjectBuildBackend::selected(world) { return; }
+    let reason = crate::native_play::build_profile_blocker(world)
+        .or_else(|| crate::project_export::build_profile_blocker(world))
+        .or_else(|| crate::embedded_viewport::build_profile_blocker(world))
+        .or_else(|| blocked_reason(world, mode));
+    if let Some(reason) = reason {
+        world.resource_mut::<ViewportModeState>().status = reason.clone();
+        world.write_message(SavedPlayFeedback(reason));
+        return;
+    }
+    world.insert_resource(request.0);
+    let embedded = mode == super::ViewportMode::EmbeddedWorld;
+    let restarting = embedded && world.get_resource::<crate::embedded_viewport::EmbeddedStatus>().is_some_and(|status| status.active);
+    world.resource_mut::<feathrise_editor_core::ProjectLaunchSettings>().switching_profile = restarting;
+    let message = if embedded {
+        format!("工程3D已选择{}；正在{}，作者草稿和历史保留", request.0.label(),
+            if restarting { "结束旧实例并重新构建" } else { "准备构建" })
+    } else {
+        format!("已选择{}；下次启动使用此构建方式", request.0.label())
+    };
+    let mut state = world.resource_mut::<ViewportModeState>();
+    // 工程3D切换需驱动原预览重建；编辑器3D只更改下次启动工具，不擅自创建运行实例。
+    if embedded { state.revision = state.revision.wrapping_add(1).max(1); }
+    state.status = message.clone();
+    world.write_message(SavedPlayFeedback(message));
+}
+
 pub(super) fn blocked_reason(world: &World, requested: super::ViewportMode) -> Option<String> {
     if !requested.supported() {
         return Some("当前系统使用编辑器3D；点击“启动”运行已保存的工程".into());

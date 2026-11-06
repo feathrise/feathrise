@@ -22,6 +22,7 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
     let selection_revision = world.resource::<ViewportModeState>().revision;
     let profile = world.get_resource::<feathrise_editor_core::ProjectLaunchSettings>()
         .map_or(default(), |settings| settings.profile);
+    let build_backend = crate::native_play::ProjectBuildBackend::selected(world);
     let geometry = world.resource::<ViewportGeometry>().clone();
     let request = requests
         .read(world.resource::<Messages<RunSavedProject>>())
@@ -41,7 +42,8 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
 
     poll(world, &mut runtime, &mut status);
     super::hotpatch::advance(world, &mut runtime, &mut status, selected, profile);
-    if runtime.attempted_profile.is_some_and(|attempted| attempted != profile) {
+    if runtime.attempted_profile.is_some_and(|attempted| attempted != profile)
+        || runtime.attempted_backend.is_some_and(|attempted| attempted != build_backend) {
         runtime.pending_play = false;
         runtime.pending_edit = false;
         runtime.restart_requested = false;
@@ -94,7 +96,8 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
         && (runtime.code_apply.is_none() || super::code_apply::ready_to_start(&runtime))
         && ((runtime.compilation_stop_input != Some((selection_revision, profile))
                 && (selection_revision != runtime.attempted_selection
-                    || runtime.attempted_profile != Some(profile)))
+                    || runtime.attempted_profile != Some(profile)
+                    || runtime.attempted_backend.is_some_and(|attempted| attempted != build_backend)))
             || requested
             || runtime.restart_requested
             || super::code_apply::ready_to_start(&runtime))
@@ -108,6 +111,7 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
             geometry.clone(),
             selection_revision,
             profile,
+            build_backend,
             prepared,
         );
         runtime.restart_requested = false;
@@ -126,6 +130,7 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
         && runtime.code_apply.is_none()
         && runtime.hotpatch.flight.is_none()
         && runtime.attempted_profile.is_none_or(|attempted| attempted == profile)
+        && runtime.attempted_backend.is_none_or(|attempted| attempted == build_backend)
     {
         // 顶部预览按钮复用既有可靠模式交接，stop_only仍沿用旧消息合同。
         if status.playing {
@@ -259,7 +264,8 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
     present_play_wait(world, &mut runtime, &status, selected, Instant::now());
     if let Some(mut launch) = world.get_resource_mut::<feathrise_editor_core::ProjectLaunchSettings>() {
         launch.switching_profile = runtime.active.is_some() && !runtime.compilation_stopped
-            && runtime.attempted_profile.is_some_and(|attempted| attempted != profile);
+            && (runtime.attempted_profile.is_some_and(|attempted| attempted != profile)
+                || runtime.attempted_backend.is_some_and(|attempted| attempted != build_backend));
     }
     world.insert_resource(status);
     world.insert_non_send(runtime);
@@ -471,6 +477,7 @@ fn start(
     geometry: ViewportGeometry,
     selection: u64,
     profile: feathrise_editor_core::ProjectBuildProfile,
+    build_backend: crate::native_play::ProjectBuildBackend,
     prepared: Option<Arc<crate::native_play::PreparedGame>>,
 ) {
     let settings = world.resource::<Settings>();
@@ -500,6 +507,7 @@ fn start(
             project,
             target,
             profile,
+            build_backend,
             prepared,
             geometry,
             worker_identity,
@@ -510,7 +518,7 @@ fn start(
         #[cfg(not(windows))]
         let result: Result<(), String> = {
             // UI和偏好均已屏蔽此能力；异常外部请求也明确失败，绝不伪造工程呈现回执。
-            drop((project, target, profile, prepared, geometry, worker_identity, worker_control, commands, events));
+            drop((project, target, profile, build_backend, prepared, geometry, worker_identity, worker_control, commands, events));
             Err("工程 3D 需要 Windows 窗口支持。请切换到编辑器 3D，再点击“启动”".into())
         };
         let _ = result_sender.send(result);
@@ -526,6 +534,7 @@ fn start(
     runtime.identity = Some(identity);
     runtime.attempted_selection = selection;
     runtime.attempted_profile = Some(profile);
+    runtime.attempted_backend = Some(build_backend);
     runtime.compilation_stopped = false;
     runtime.compilation_stop_input = None;
     runtime.waiting_mode = None;
@@ -1689,6 +1698,15 @@ mod tests {
 
     #[test]
     fn changing_build_profile_joins_the_old_job_before_one_new_attempt() {
+        changing_build_choice_joins_before_restart(false);
+    }
+
+    #[test]
+    fn changing_build_backend_joins_the_old_job_before_one_new_attempt() {
+        changing_build_choice_joins_before_restart(true);
+    }
+
+    fn changing_build_choice_joins_before_restart(change_backend: bool) {
         use feathrise_editor_core::{ProjectBuildProfile, ProjectLaunchSettings};
         let (sender, _commands) = mpsc::sync_channel(4);
         let (_events, receiver) = mpsc::sync_channel(4);
@@ -1699,6 +1717,7 @@ mod tests {
         let mut runtime = Runtime::default();
         runtime.attempted_selection = 1;
         runtime.attempted_profile = Some(ProjectBuildProfile::Debug);
+        runtime.attempted_backend = Some(crate::native_play::ProjectBuildBackend::Dx);
         runtime.active = Some(Active { control, sender, receiver, result,
             thread: thread::spawn(move || { wait.recv().unwrap(); let _ = finished.send(Ok(())); }),
         });
@@ -1714,7 +1733,10 @@ mod tests {
         world.init_resource::<EmbeddedSnapshotState>();
         world.init_resource::<feathrise_editor_map::standalone::embedded_overlay::EmbeddedOverlay>();
         world.resource_mut::<EmbeddedSnapshotState>().revision = 42;
-        world.insert_resource(ProjectLaunchSettings { profile: ProjectBuildProfile::Release, preview: true, switching_profile: true });
+        let profile = if change_backend { ProjectBuildProfile::Debug } else { ProjectBuildProfile::Release };
+        let backend = if change_backend { crate::native_play::ProjectBuildBackend::Native } else { crate::native_play::ProjectBuildBackend::Dx };
+        world.insert_resource(backend);
+        world.insert_resource(ProjectLaunchSettings { profile, preview: true, switching_profile: true });
         world.insert_resource(EmbeddedStatus { active: true, ready: true, starts: 1, ..default() });
         world.insert_non_send(runtime);
         let mut schedule = Schedule::default();
@@ -1743,7 +1765,8 @@ mod tests {
         world.resource_mut::<ViewportGeometry>().parent_hwnd = 1;
         schedule.run(&mut world);
         assert_eq!(world.resource::<EmbeddedStatus>().starts, 2);
-        assert_eq!(world.non_send::<Runtime>().attempted_profile, Some(ProjectBuildProfile::Release));
+        assert_eq!(world.non_send::<Runtime>().attempted_profile, Some(profile));
+        assert_eq!(world.non_send::<Runtime>().attempted_backend, Some(backend));
         let deadline = Instant::now() + Duration::from_secs(3);
         while world.non_send::<Runtime>().active.is_some() {
             assert!(Instant::now() < deadline);

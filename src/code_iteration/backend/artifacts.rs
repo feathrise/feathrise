@@ -32,6 +32,7 @@ pub(super) fn context(
     let mut parts = vec![
         request.source.environment_sha256.clone(),
         request.profile.cargo_profile().into(),
+        request.build_backend.key().into(),
         crate::native_play::build_feature_identity(),
     ];
     for (program, args) in [
@@ -87,7 +88,7 @@ pub(super) fn prepare(
         }
     });
     let result = (|| {
-        if !shared.current(request.generation, request.profile) {
+        if !shared.current_build(request.generation, request.profile, request.build_backend, request.backend_revision) {
             return Err("较新的源码已保存，本次旧构建不再采用".into());
         }
         if source::capture(project, target, &shared.control)? != request.source {
@@ -99,20 +100,20 @@ pub(super) fn prepare(
             )?;
             PreparedArtifact::Patch(Arc::new(patch))
         } else {
-            let mut prepared = crate::native_play::prepare_game_with_diagnostics(
-                project, target, None, request.profile, &shared.control, Some(callback),
+            let mut prepared = crate::native_play::prepare_game_with_backend(
+                project, target, None, request.profile, request.build_backend, &shared.control, Some(callback),
             )?;
             prepared.bind_build_metadata(serde_json::json!({"build_identity":identity.json(),"source_files":request.source.files,"source_bytes":request.source.bytes}), &shared.control)?;
             PreparedArtifact::Restart(Arc::new(prepared))
         };
         // 全部复制完成后再重扫并核原子代次；源码 ABA 不能只凭前后摘要相同获得采用权。
-        if !shared.current(request.generation, request.profile)
+        if !shared.current_build(request.generation, request.profile, request.build_backend, request.backend_revision)
             || source::capture(project, target, &shared.control)? != request.source
-            || !shared.current(request.generation, request.profile)
+            || !shared.current_build(request.generation, request.profile, request.build_backend, request.backend_revision)
         {
             return Err("构建期间已有较新的源码保存，本次产物已过期".into());
         }
-        if !shared.current(request.generation, request.profile) {
+        if !shared.current_build(request.generation, request.profile, request.build_backend, request.backend_revision) {
             return Err("运行版本准备期间已有新保存，拒绝旧产物".into());
         }
         Ok(Arc::new(PreparedVersion {
@@ -128,7 +129,8 @@ pub(super) fn prepare(
 }
 
 fn patch_compatible(project: &Project, request: &BuildRequest, context: &PatchContext) -> bool {
-    request.profile == ProjectBuildProfile::Debug
+    request.build_backend == crate::native_play::ProjectBuildBackend::Dx
+        && request.profile == ProjectBuildProfile::Debug
         && context.target.project_id == project.id
         && context.target.base_build == context.baseline.base_build
         && inputs_compatible(&request.source, &context.baseline.source)

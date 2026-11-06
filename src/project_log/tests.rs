@@ -5,6 +5,28 @@ use bevy::{input_focus::InputFocus, prelude::*};
 use std::{io::Read, sync::atomic::Ordering};
 
 #[test]
+fn build_command_log_keeps_actual_arguments_and_long_paths_without_environment_dump() {
+    let (channel, inbox) = ProjectLogChannel::new("构建命令夹具");
+    let sink = channel.begin();
+    let mut state = ProjectLogState::new(&channel, "构建命令夹具");
+    state.generation = channel.generation.load(Ordering::Acquire);
+    let mut command = std::process::Command::new("C:/工具目录/dx.exe");
+    command.current_dir("D:/我的工程").args(["build", "--fat-binary", "--profile", "render-dev", "--features", "raytracing"])
+        .arg("a'b $value").arg("目录".repeat(220)).arg("last-argument")
+        .env("BUILD_COMMAND_TEST_SECRET", "must-not-appear");
+    crate::build_process::log_build_command(&command, &crate::build_process::BuildControl::with_log(sink));
+    for event in inbox.0.try_iter() { state.adopt(event); }
+    let text = state.text();
+    assert!(text.contains("工作目录：D:/我的工程"));
+    assert!(text.contains("'C:/工具目录/dx.exe' build --fat-binary --profile render-dev --features raytracing"));
+    assert!(text.contains(if cfg!(windows) { "'a''b $value'" } else { "'a'\"'\"'b $value'" }));
+    assert!(text.ends_with("last-argument"), "超过1KiB的实际命令不能静默丢失末尾参数");
+    assert!(!text.contains("must-not-appear"));
+    assert!(!text.contains("BUILD_COMMAND_TEST_SECRET"));
+    assert_eq!(command.get_args().last().unwrap(), "last-argument", "显示不能改写实际构建参数");
+}
+
+#[test]
 fn stream_keeps_original_bytes_while_sanitizing_split_utf8_and_terminal_escapes() {
     let (channel, inbox) = ProjectLogChannel::new("日志工程");
     let sink = channel.begin();

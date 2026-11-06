@@ -112,6 +112,31 @@ pub(crate) struct ProcessOutput<T> {
     pub(crate) stderr: String,
 }
 
+/// 在最终参数确定后记录真实构建入口；不使用Command的Debug输出，避免把环境变量整份写进日志。
+/// 沿用正文解码器的有界分段，长命令不会被任务标题的单行上限静默截断。
+pub(crate) fn log_build_command(command: &Command, control: &BuildControl) {
+    let Some(sink) = control.log_sink() else { return; };
+    let mut log = crate::project_log::LogDecoder::new(Some(sink), crate::project_log::LogSource::Build);
+    if let Some(directory) = command.get_current_dir() {
+        log.write(format!("工作目录：{}\n", directory.display()).as_bytes());
+    }
+    log.write(if cfg!(windows) { "构建命令（PowerShell）：\n& ".as_bytes() } else { "构建命令：\n".as_bytes() });
+    for (index, value) in std::iter::once(command.get_program()).chain(command.get_args()).enumerate() {
+        if index != 0 { log.write(b" "); }
+        let text = value.to_string_lossy();
+        // Windows用PowerShell单引号，Unix用shell单引号；空值、中文、空格和元字符保持参数边界。
+        let plain = !text.is_empty() && text.bytes().all(|byte|
+            byte.is_ascii_alphanumeric() || b"_-+=:./".contains(&byte) || cfg!(windows) && byte == b'\\');
+        if plain { log.write(text.as_bytes()); }
+        else {
+            let quoted = text.replace('\'', if cfg!(windows) { "''" } else { "'\"'\"'" });
+            log.write(format!("'{quoted}'").as_bytes());
+        }
+    }
+    log.write(b"\n");
+    log.finish();
+}
+
 /// Cargo 仍使用相同的唯一后台槽和 Job；只在真实失败后补充环境定位，不额外启动探测程序。
 pub(crate) fn run_cargo<T: Send + 'static>(
     command: &Command,

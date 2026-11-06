@@ -54,9 +54,10 @@ pub(crate) fn request_code_apply(
     if let Some(reason) = code_apply_blocker(world) { return Err(reason); }
     let profile = world.get_resource::<feathrise_editor_core::ProjectLaunchSettings>()
         .map_or(default(), |settings| settings.profile);
+    let build_backend = super::ProjectBuildBackend::selected(world);
     let settings = world.resource::<NativePlaySettings>();
-    if !prepared.matches_project(&settings.project, profile) {
-        return Err("新代码产物与当前工程或构建配置不一致，本次未应用".into());
+    if !prepared.matches_project(&settings.project, profile) || !prepared.matches_backend(build_backend) {
+        return Err("新代码产物与当前工程、构建配置或构建方式不一致，本次未应用".into());
     }
     let request = world.non_send::<NativePlayRuntime>().active_request.clone()
         .unwrap_or_else(|| feathrise_editor_map::standalone::current_saved_play_request(world, profile));
@@ -121,8 +122,11 @@ pub(super) fn advance(world: &mut World) {
     }
     let pending = world.non_send_mut::<NativePlayRuntime>().code_apply_pending.take().unwrap();
     let project = world.resource::<NativePlaySettings>().project.clone();
-    if !pending.prepared.matches_project(&project, pending.request.profile) {
-        fail(&mut world.non_send_mut::<NativePlayRuntime>(), "产物工程身份变化，未启动新版本");
+    let build_backend = super::ProjectBuildBackend::selected(world);
+    // 等待旧进程退出期间选择也可能失效，必须在创建新Job前再次核对完整启动身份。
+    if !pending.prepared.matches_project(&project, pending.request.profile)
+        || !pending.prepared.matches_backend(build_backend) {
+        fail(&mut world.non_send_mut::<NativePlayRuntime>(), "产物工程身份或构建方式变化，未启动新版本");
         return;
     }
     let control = world.get_resource::<crate::project_log::ProjectLogChannel>()
@@ -135,7 +139,7 @@ pub(super) fn advance(world: &mut World) {
     let request = pending.request.clone();
     let prepared = pending.prepared;
     let handle = thread::spawn(move || {
-        let result = super::worker::run_prepared(project, prepared, request, &worker_control, &progress_tx, Some(started_tx));
+        let result = super::worker::run_prepared(project, prepared, request, build_backend, &worker_control, &progress_tx, Some(started_tx));
         let _ = result_tx.send(result);
     });
     let mut runtime = world.non_send_mut::<NativePlayRuntime>();

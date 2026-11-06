@@ -164,7 +164,17 @@ fn original_launch_stop_button_cancels_owned_worker_without_publishing_preview()
     for _ in 0..16 { fixture.frame(); }
     assert!(!fixture.world.get::<EditorButtonClick>(button).unwrap().is_clicked());
     assert_waiting_for_original_worker(&fixture);
-    assert_one_return_after_original_worker_exits(&mut fixture);
+    fixture.finish_worker();
+    for _ in 0..32 { fixture.frame(); }
+    assert!(fixture.world.non_send::<Runtime>().active.is_none());
+    assert_eq!(fixture.world.resource::<ViewportModeState>().selected, ViewportMode::EmbeddedWorld);
+    assert_eq!(fixture.world.resource::<ViewportModeState>().revision, 1);
+    assert!(fixture.world.resource::<Messages<crate::viewport_mode::ViewportModeChanged>>().is_empty(),
+        "原停止按钮只取消本次编译，不能改写视口选择及个人偏好");
+    assert_eq!(fixture.world.resource::<EmbeddedStatus>().starts, 1);
+    assert_eq!(fixture.world.resource::<EmbeddedStatus>().completed, 1);
+    assert!(fixture.world.resource::<Messages<RunSavedProject>>().is_empty());
+    fixture.assert_author_preserved();
 }
 
 #[test]
@@ -177,6 +187,22 @@ fn original_editor_3d_button_stops_compilation_and_returns_only_after_real_drain
     fixture.world.get_mut::<EditorButtonClick>(button).unwrap().invalidate();
     assert_waiting_for_original_worker(&fixture);
     for _ in 0..16 { fixture.frame(); }
+    assert_waiting_for_original_worker(&fixture);
+    assert_one_return_after_original_worker_exits(&mut fixture);
+}
+
+#[test]
+fn original_editor_3d_button_can_request_return_while_the_stop_button_is_draining() {
+    use feathrise_editor_ui::EditorButtonClick;
+    let mut fixture = fixture(Ok(()));
+    let mode_button = with_original_inputs(&mut fixture);
+    fixture.world.spawn((Button, feathrise_editor_core::ProjectLaunchButton,
+        EditorButtonClick::triggered(), InheritedVisibility::VISIBLE));
+    fixture.frame();
+    assert_waiting_for_original_worker(&fixture);
+    *fixture.world.get_mut::<EditorButtonClick>(mode_button).unwrap() = EditorButtonClick::triggered();
+    fixture.frame();
+    fixture.world.get_mut::<EditorButtonClick>(mode_button).unwrap().invalidate();
     assert_waiting_for_original_worker(&fixture);
     assert_one_return_after_original_worker_exits(&mut fixture);
 }

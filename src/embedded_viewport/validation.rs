@@ -2,6 +2,7 @@
 //! 仅显式 validation 构建和本轮自建夹具安装；所有成功条件来自原业务或真实GPU观测。
 
 mod empty_fixture;
+mod build_backend;
 mod close_evidence;
 mod live_fixture;
 mod live_preview;
@@ -133,6 +134,9 @@ pub(crate) fn install(app: &mut App, project_root: &Path) -> Result<(), String> 
     }
     if std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("native-preview") {
         return native_preview_validation::install(app, &project.root, directory);
+    }
+    if std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("build-backend") {
+        return build_backend::install(app, directory);
     }
     if std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("preview-chrome") {
         return crate::window_chrome::preview_validation::install(app, &project.root, directory);

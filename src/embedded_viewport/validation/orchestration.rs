@@ -104,6 +104,7 @@ pub(crate) fn run_owned_project(
     fs::create_dir(output).map_err(|error| error.to_string())?;
     let preview_chrome = std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("preview-chrome");
     let native_preview = std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("native-preview");
+    let build_backend = std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("build-backend");
     // 私有RPG装配仅属于这一显式自有夹具；准备完全部源码/字体后才建立运行期资产字节基线。
     if native_preview { prepare_native_preview(&project.root, output)?; }
     let before = asset_hashes(&project.root)?;
@@ -141,7 +142,7 @@ pub(crate) fn run_owned_project(
     )
     .map_err(|error| error.to_string())?;
     let after = asset_hashes(&project.root)?;
-    let report_path = output.join(if native_preview { "native-preview.json" } else if preview_chrome { "preview-chrome.json" } else { "embedded-editor.json" });
+    let report_path = output.join(if build_backend { "build-backend.json" } else if native_preview { "native-preview.json" } else if preview_chrome { "preview-chrome.json" } else { "embedded-editor.json" });
     let mut report: Value = serde_json::from_slice(&fs::read(&report_path).map_err(|error| {
         format!(
             "常驻验收未生成回执：{error}；退出{}；{}",
@@ -155,7 +156,8 @@ pub(crate) fn run_owned_project(
     if before != after || run.exit_code != 0 {
         report["passed"] = json!(false);
     }
-    let gpu = if native_preview { super::native_preview_validation::verify(output, &report) }
+    let gpu = if build_backend { super::build_backend::verify(output, &report) }
+        else if native_preview { super::native_preview_validation::verify(output, &report) }
         else if preview_chrome { verify_preview_chrome(output, &report) } else { verify_guest_evidence(output, &report) };
     match &gpu {
         Ok(evidence) => report["game_gpu_evidence"] = json!(evidence),
@@ -218,6 +220,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         run_owned_project(&root, &target, &work.join("embedded-comparison"))
     })();
     let scope=match std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() {
+        Ok("build-backend") => "project_build_backend_owned_window_validation",
         Ok("native-preview") => "native_preview_owned_window_validation",
         Ok("preview-chrome") => "preview_chrome_owned_three_level_window_validation",
         _ => "resident_dual_mode_owned_window_validation",

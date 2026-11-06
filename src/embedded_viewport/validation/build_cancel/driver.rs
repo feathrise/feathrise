@@ -161,6 +161,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
         }
         Phase::Drain => {
             ensure_author(world, plan)?;
+            ensure_project_selected(world)?;
             let control = plan.control.as_ref().ok_or("取消前控制牌未绑定")?;
             let runtime = world.non_send::<Runtime>();
             if !control.is_cancelled() || !runtime.compilation_stopped {
@@ -182,19 +183,32 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
         }
         Phase::CaptureStopped => {
             ensure_author(world, plan)?;
+            ensure_stopped_idle(world, ViewportMode::EmbeddedWorld)?;
+            ensure_project_selected(world)?;
             if evidence::original_button(world, "停止编译")?.is_some() { return Err("真实收口后停止编译按钮仍可点击".into()); }
             if let Some(capture) = evidence::screenshot(world, plan, "compilation-stopped.png")? {
                 record(world, "actual_stopped_ui_gpu", json!({"capture":capture}), plan);
-                plan.advance(Phase::Local);
+                plan.advance(Phase::StableStopped);
+            }
+        }
+        Phase::StableStopped => {
+            ensure_author(world, plan)?;
+            ensure_stopped_idle(world, ViewportMode::EmbeddedWorld)?;
+            ensure_project_selected(world)?;
+            // 原停止只撤销构建；持续观察保留的工程3D，并确认原“预览”入口已恢复可用。
+            if plan.changed.elapsed() >= Duration::from_secs(3) && plan.frames >= 60 {
+                if let Some((_,button)) = evidence::original_button(world, "预览")? {
+                    record(world, "project_3d_stable_without_automatic_restart", json!({"observed_frames":plan.frames,
+                        "observed_ms":plan.changed.elapsed().as_secs_f64()*1000.,"retry_button":button}), plan);
+                    plan.advance(Phase::Local);
+                }
             }
         }
         Phase::Local => {
             ensure_author(world, plan)?;
-            let already_local = world.resource::<ViewportModeState>().selected == ViewportMode::SavedWorld;
-            if already_local {
-                record(world, "original_editor_3d_selected", json!({"input":"production stop returned to editor3D"}), plan);
-                plan.advance(Phase::WaitLocal);
-            } else if let Some((button,ui)) = evidence::original_button(world, "编辑器 3D")? {
+            ensure_stopped_idle(world, ViewportMode::EmbeddedWorld)?;
+            ensure_project_selected(world)?;
+            if let Some((button,ui)) = evidence::original_button(world, "编辑器 3D")? {
                 record(world, "original_editor_3d_selected", json!({"input":"original Editor3D Button + EditorButtonClick","button":ui}), plan);
                 evidence::pulse(world, button); plan.pulse = Some(button);
                 plan.advance(Phase::WaitLocal);
@@ -386,11 +400,23 @@ fn ensure_real_build(world: &World, plan: &Plan) -> Result<(), String> {
 }
 
 fn ensure_local_idle(world: &World) -> Result<(), String> {
+    ensure_stopped_idle(world, ViewportMode::SavedWorld)
+}
+
+fn ensure_project_selected(world: &World) -> Result<(), String> {
+    let selected = world.resource::<ViewportModeState>();
+    if selected.selected != ViewportMode::EmbeddedWorld || selected.revision != 1 {
+        return Err("原停止按钮改变了工程3D选择或个人偏好修订".into());
+    }
+    Ok(())
+}
+
+fn ensure_stopped_idle(world: &World, selected: ViewportMode) -> Result<(), String> {
     let status = world.resource::<EmbeddedStatus>();
     let runtime = world.non_send::<Runtime>();
-    if world.resource::<ViewportModeState>().selected != ViewportMode::SavedWorld || status.active || runtime.active.is_some()
+    if world.resource::<ViewportModeState>().selected != selected || status.active || runtime.active.is_some()
         || status.starts != 1 || status.completed != 1 || !runtime.compilation_stopped || runtime.pending_play || runtime.restart_requested {
-        return Err("停止后的编辑器3D观察期出现自动重启、未收口槽位或旧运行意图".into());
+        return Err("停止后的观察期出现模式误切、自动重启、未收口槽位或旧运行意图".into());
     }
     Ok(())
 }
@@ -440,9 +466,33 @@ fn record(world: &World, stage: &str, extra: Value, plan: &mut Plan) {
         "applied_revision":world.resource::<EmbeddedStatus>().applied_revision,
         "mode":if world.resource::<EmbeddedStatus>().playing {"playing"} else {"editing"},
         "elapsed_ms":plan.started.elapsed().as_secs_f64()*1000.});
+    // 工程实例就绪不能替代独立代码监听的状态；只读摘取本阶段真实错误，不清理或覆盖失败投影。
+    if let Some(code) = world.get_resource::<crate::code_iteration::CodeIterationState>() {
+        let diagnostics: Vec<_> = code.diagnostics.iter().take(8).map(|diagnostic| json!({
+            "level":diagnostic.level,"message":bounded_evidence(&diagnostic.message, 1024),
+            "message_truncated":diagnostic.message.len() > 1024,"code":diagnostic.code,"location":diagnostic.location,
+        })).collect();
+        proof["code_iteration"] = json!({"phase":format!("{:?}", code.phase),
+            "status":bounded_evidence(&code.status, 8 * 1024),"status_truncated":code.status.len() > 8 * 1024,
+            "diagnostic_revision":code.diagnostic_revision,"diagnostic_count":code.diagnostics.len(),"diagnostics":diagnostics});
+    }
+    if let Some(logs) = world.get_resource::<crate::project_log::ProjectLogState>() {
+        let mut tail = logs.validation_tail();
+        if let Some(lines) = tail["lines"].as_array_mut() {
+            let excess = lines.len().saturating_sub(16);
+            lines.drain(..excess);
+        }
+        proof["project_log_tail"] = tail;
+    }
     if let Some(extra) = extra.as_object() { proof.as_object_mut().unwrap().extend(extra.clone()); }
     plan.steps.push(proof);
     println!("FEATHRISE_EMBEDDED_BUILD_CANCEL_STEP {stage}");
+}
+
+fn bounded_evidence(text: &str, maximum: usize) -> &str {
+    let mut end = text.len().min(maximum);
+    while !text.is_char_boundary(end) { end -= 1; }
+    &text[..end]
 }
 
 fn report(plan: &mut Plan) {

@@ -50,6 +50,7 @@ fn shared_at(generation: u64) -> Arc<Shared> {
         control: BuildControl::default(),
         generation: AtomicU64::new(generation),
         profile: AtomicU8::new(0),
+        build_backend: AtomicU64::new(0),
         stopped: AtomicBool::new(false),
         latest: Mutex::new(None),
         wake: Condvar::new(),
@@ -122,7 +123,7 @@ fn second_capture_with_a_new_dependency_cannot_publish_an_unwatched_baseline_or_
         assert!(progress.baseline);
         if start.rebuild_current_source() {
             assert_eq!(shared.latest.lock().unwrap().as_ref().unwrap().source, current);
-            assert!(matches!(receiver.try_recv().unwrap(), Event::Waiting { generation: 1 }));
+            assert!(matches!(receiver.try_recv().unwrap(), Event::Waiting { generation: 1, backend_revision: 0 }));
         } else {
             assert!(shared.latest.lock().unwrap().is_none());
             assert!(receiver.try_recv().is_err());

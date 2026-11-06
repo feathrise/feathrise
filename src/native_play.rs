@@ -10,12 +10,12 @@ mod worker;
 #[path = "native_play_code_apply.rs"]
 mod code_apply;
 
-pub(crate) use worker::{build_feature_identity, prepare as prepare_game, prepare_export, prepare_with_diagnostics as prepare_game_with_diagnostics, PreparedGame};
-pub(crate) use worker::prepare_function_patch;
+pub(crate) use worker::{build_feature_identity, prepare as prepare_game, prepare_export, PreparedGame};
+pub(crate) use worker::{prepare_function_patch, prepare_with_backend as prepare_game_with_backend};
 #[cfg(test)]
 pub(crate) use worker::prepared_for_test;
 pub(crate) use code_apply::{cancel_pending_code_apply, code_apply_blocker, code_apply_status, request_code_apply};
-pub(crate) use resources::{CodeApplyState, CodeApplyStatus};
+pub(crate) use resources::{CodeApplyState, CodeApplyStatus, ProjectBuildBackend};
 
 use bevy::{
     ecs::message::MessageCursor,
@@ -100,6 +100,7 @@ fn request_play(
     mut feedback: MessageWriter<SavedPlayFeedback>,
     mut mode: Option<ResMut<StandaloneEditorMode>>,
     viewport: Option<Res<crate::viewport_mode::ViewportModeState>>,
+    backend: Option<Res<ProjectBuildBackend>>,
     embedded: Option<Res<crate::embedded_viewport::EmbeddedStatus>>,
     logs: Option<Res<crate::project_log::ProjectLogChannel>>,
 ) {
@@ -147,13 +148,15 @@ fn request_play(
     let (started_tx, started_rx) = mpsc::sync_channel(1);
     let project = settings.project.clone();
     let target = settings.target.clone();
+    // 受理时冻结与顶栏相同的构建工具，后台任务不能回落到默认DX或回读之后的选择。
+    let build_backend = backend.map_or(ProjectBuildBackend::Dx, |backend| *backend);
     runtime.active_request = Some(request.clone());
     runtime.code_apply_active_token = None;
     runtime.code_apply_started = None;
     runtime.launch_started = Some(started_rx);
     let job_control = control.clone();
     let handle = thread::spawn(move || {
-        let result = worker::run(project, target, request, &job_control, &progress_tx, Some(started_tx));
+        let result = worker::run(project, target, request, build_backend, &job_control, &progress_tx, Some(started_tx));
         let _ = result_tx.send(result);
     });
     runtime.active = Some(resources::ActivePlay {
@@ -179,9 +182,9 @@ fn request_play(
 pub(crate) fn build_profile_blocker(world: &World) -> Option<String> {
     let runtime = world.get_non_send::<NativePlayRuntime>()?;
     if runtime.cleanup_failed || runtime.exit_requested {
-        Some("退出或子进程收口尚未确认，暂不能切换Debug/Release；作者现场保留".into())
+        Some("退出或子进程收口尚未确认，暂不能切换构建选项；作者现场保留".into())
     } else if runtime.active.is_some() || runtime.code_apply_pending.is_some() {
-        Some("请先结束当前工程运行或构建，再切换Debug/Release".into())
+        Some("请先结束当前工程运行或构建，再切换构建选项".into())
     } else {
         None
     }

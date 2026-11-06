@@ -17,7 +17,7 @@ fn project() -> crate::project::Project {
 
 fn identity(generation: u64) -> BuildIdentity {
     let project = project();
-    BuildIdentity { project_id: project.id, root: project.root, profile: default_profile(), generation,
+    BuildIdentity { project_id: project.id, root: project.root, profile: default_profile(), build_backend: Default::default(), backend_revision: 0, generation,
         source_sha256: format!("source-{generation}"), context_sha256: "fixture-context".into() }
 }
 
@@ -109,7 +109,7 @@ fn new_save_clears_stale_diagnostics_without_clearing_the_applied_version() {
     let mut state = CodeIterationState::new(&project());
     state.applied = Some(identity(2));
     state.diagnostics = std::sync::Arc::new(vec![CompilerDiagnostic { level: DiagnosticLevel::Error, message: "旧诊断".into(), code: None, location: None }]);
-    adopt_event(&mut state, Event::Waiting { generation: 4 }, true);
+    adopt_event(&mut state, Event::Waiting { generation: 4, backend_revision: 0 }, true);
     assert!(state.diagnostics.is_empty());
     assert_eq!(state.applied, Some(identity(2)));
     assert_eq!(state.phase, Phase::Waiting);
@@ -234,7 +234,7 @@ fn cancelling_close_waits_for_both_old_threads_and_restores_a_new_input_lease() 
     let old_guard = super::export_input_guard(fixture.app.world()).unwrap();
     assert!((old_guard.0)());
     let project = fixture.app.world().non_send::<CodeIterationRuntime>().settings.project.clone();
-    let identity = BuildIdentity { project_id: project.id.clone(), root: project.root.clone(), profile: default_profile(),
+    let identity = BuildIdentity { project_id: project.id.clone(), root: project.root.clone(), profile: default_profile(), build_backend: Default::default(), backend_revision: 0,
         generation: 1, source_sha256: "old-source".into(), context_sha256: "old-context".into() };
     let version = Arc::new(super::PreparedVersion { identity: identity.clone(),
         artifact: super::PreparedArtifact::Restart(Arc::new(crate::native_play::prepared_for_test(&project, default_profile()))) });

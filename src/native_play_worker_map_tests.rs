@@ -98,6 +98,26 @@ fn saved_play_accepts_old_current_and_custom_package_names_without_migrating_aut
     }
 }
 
+#[test]
+fn prepared_standalone_worker_rejects_the_other_backend_before_any_spawn() {
+    use crate::native_play::ProjectBuildBackend::{Dx, Native};
+    let fixture = Fixture::new();
+    for (built_with, selected) in [(Dx, Native), (Native, Dx)] {
+        let mut prepared = super::prepared_for_test(&fixture.project, Default::default());
+        prepared.build_backend = built_with;
+        let request = feathrise_editor_map::standalone::RunSavedProject {
+            profile: Default::default(), map_id: None, has_unsaved_changes: false, stop_only: false,
+        };
+        let (progress, progress_rx) = std::sync::mpsc::sync_channel(4);
+        let (started, started_rx) = std::sync::mpsc::sync_channel(1);
+        let error = super::run_prepared(fixture.project.clone(), std::sync::Arc::new(prepared), request,
+            selected, &BuildControl::default(), &progress, Some(started)).unwrap_err();
+        assert!(error.contains("构建方式"));
+        assert!(progress_rx.try_recv().is_err());
+        assert!(started_rx.try_recv().is_err(), "后端不匹配时不能创建游戏Job或发布启动回执");
+    }
+}
+
 impl Drop for Fixture {
     fn drop(&mut self) {
         let temporary = std::env::temp_dir().canonicalize().unwrap();

@@ -245,9 +245,10 @@ impl WatchProgress {
             return Ok(true); // 打开工程只建立基线，首个原生预览仍走既有启动流程。
         }
         self.baseline = true;
-        let request = BuildRequest { generation, profile: shared.profile(), source: snapshot };
+        let (build_backend, backend_revision) = shared.build_selection();
+        let request = BuildRequest { generation, profile: shared.profile(), build_backend, backend_revision, source: snapshot };
         *shared.latest.lock().map_err(|_| "最新源码等待槽异常")? = Some(request);
-        let _ = events.try_send(Event::Waiting { generation });
+        let _ = events.try_send(Event::Waiting { generation, backend_revision });
         shared.wake.notify_one();
         Ok(true)
     }
@@ -411,13 +412,15 @@ pub(super) fn build(
         let Some(request) = request else {
             continue;
         };
-        if !shared.current(request.generation, request.profile) {
+        if !shared.current_build(request.generation, request.profile, request.build_backend, request.backend_revision) {
             continue;
         }
         let mut identity = BuildIdentity {
             project_id: project.id.clone(),
             root: project.root.clone(),
             profile: request.profile,
+            build_backend: request.build_backend,
+            backend_revision: request.backend_revision,
             generation: request.generation,
             source_sha256: request.source.sha256.clone(),
             context_sha256: request.source.environment_sha256.clone(),

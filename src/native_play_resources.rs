@@ -4,6 +4,31 @@ use crate::{build_process::BuildControl, project::Project};
 use bevy::prelude::*;
 use std::{path::PathBuf, sync::{Arc, mpsc::Receiver}, thread::JoinHandle};
 
+/// 两种3D方式共用当前会话的构建选择；默认保持DX，原生模式不准备fat基线或函数补丁。
+/// 只改变工具入口，不改工程清单、优化等级、并行额度或已有缓存。
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ProjectBuildBackend {
+    #[default]
+    Dx,
+    Native,
+}
+
+impl ProjectBuildBackend {
+    pub(crate) fn label(self) -> &'static str {
+        match self { Self::Dx => "DX", Self::Native => "原生 Cargo" }
+    }
+    pub(crate) fn key(self) -> &'static str {
+        match self { Self::Dx => "dx", Self::Native => "native" }
+    }
+    pub(crate) fn selected(world: &World) -> Self {
+        world.get_resource::<Self>().copied().unwrap_or_default()
+    }
+    /// 独立启动、工程3D及自动源码编译使用同一选择，切换呈现方式不能暗中恢复DX。
+    pub(crate) fn effective(world: &World) -> Self {
+        Self::selected(world)
+    }
+}
+
 /// 应用回执只描述本次明确请求；源码代次与工程身份由代码迭代协调器绑定token。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodeApplyState {

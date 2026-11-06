@@ -1,6 +1,7 @@
 //! 启动配置下拉复用原配置请求；菜单只拥有展示和输入，不接管构建或游戏生命周期。
 
 use super::{components::*, resources::BuildProfileMenuState};
+use crate::native_play::ProjectBuildBackend;
 use bevy::{input_focus::InputFocus, prelude::*, ui::{FocusPolicy, RelativeCursorPosition}, window::PrimaryWindow};
 use feathrise_editor_core::{ProjectBuildProfile, ProjectLaunchSettings};
 use feathrise_editor_ui::{EditorButtonClick, colors as c};
@@ -19,7 +20,7 @@ pub(super) fn mount(header: &mut ChildSpawnerCommands, font: &Handle<Font>) {
                 },
                 BackgroundColor(c::BUTTON_DEV_SMALL_NORMAL), BorderColor::all(c::COPPER_BORDER_WEAK),
             )).with_child((
-                ProfileLabel(None), Text::new("Debug ▼"),
+                ProfileLabel(None), Text::new("Debug · DX ▼"),
                 TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
                 TextColor(c::TEXT_PRIMARY), TextLayout::no_wrap(), Pickable::IGNORE,
             ));
@@ -28,7 +29,7 @@ pub(super) fn mount(header: &mut ChildSpawnerCommands, font: &Handle<Font>) {
                 Interaction::None, RelativeCursorPosition::default(),
                 Node {
                     display: Display::None, position_type: PositionType::Absolute,
-                    right: px(0), top: px(28), width: px(112),
+                    right: px(0), top: px(28), width: px(148),
                     flex_direction: FlexDirection::Column, padding: UiRect::all(px(4)),
                     row_gap: px(2), border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(3)), ..default()
                 },
@@ -50,6 +51,24 @@ pub(super) fn mount(header: &mut ChildSpawnerCommands, font: &Handle<Font>) {
                         TextColor(c::TEXT_PRIMARY), TextLayout::no_wrap(), Pickable::IGNORE,
                     ));
                 }
+                // 两种3D方式都可选择启动工具，共用配置菜单的遮罩和释放帧输入门。
+                menu.spawn((BackendOptions, Node { display: Display::Flex, width: percent(100),
+                    flex_direction: FlexDirection::Column, row_gap: px(2), ..default() }))
+                    .with_children(|options| {
+                        options.spawn((Node { height: px(1), margin: UiRect::vertical(px(3)), ..default() },
+                            BackgroundColor(c::COPPER_BORDER_WEAK), Pickable::IGNORE));
+                        for backend in [ProjectBuildBackend::Dx, ProjectBuildBackend::Native] {
+                            options.spawn((Button, BackendOption(backend), Name::new(backend.label()),
+                                feathrise_editor_ui::ButtonColors::new(c::BUTTON_DEV_SMALL_NORMAL, c::BUTTON_DEV_SMALL_HOVERED, c::BUTTON_DEV_SMALL_PRESSED),
+                                Node { width: percent(100), height: px(26), padding: UiRect::horizontal(px(5)),
+                                    align_items: AlignItems::Center, border: UiRect::all(px(1)),
+                                    border_radius: BorderRadius::all(px(2)), ..default() },
+                                BackgroundColor(c::BUTTON_DEV_SMALL_NORMAL), BorderColor::all(c::COPPER_BORDER_WEAK),
+                            )).with_child((BackendLabel(backend), Text::new(backend.label()),
+                                TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
+                                TextColor(c::TEXT_PRIMARY), TextLayout::no_wrap(), Pickable::IGNORE));
+                        }
+                    });
             });
         });
     // 遮罩按整个作者窗口拦截外部点击；工程原生子窗由同一宿主浮层门临时让出。
@@ -65,6 +84,7 @@ pub(super) fn mount(header: &mut ChildSpawnerCommands, font: &Handle<Font>) {
 pub(super) fn input(
     toggles: Query<&EditorButtonClick, With<ProfileToggle>>,
     options: Query<(&ProfileOption, &EditorButtonClick), Changed<EditorButtonClick>>,
+    backends: Query<(&BackendOption, &EditorButtonClick), Changed<EditorButtonClick>>,
     panels: Query<&RelativeCursorPosition, Or<(With<ProfileMenu>, With<ProfileToggle>)>>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -79,6 +99,7 @@ pub(super) fn input(
     mut focus: ResMut<InputFocus>,
     mut state: ResMut<BuildProfileMenuState>,
     mut requests: MessageWriter<super::messages::RequestBuildProfile>,
+    mut backend_requests: MessageWriter<super::messages::RequestBuildBackend>,
 ) {
     let was_open = state.open;
     let blocked = windows.iter().any(|window| !window.focused)
@@ -104,6 +125,9 @@ pub(super) fn input(
                 // 只发布原请求；业务门拒绝时仍回显实际采用的配置，不假装已经切换成功。
                 requests.write(super::messages::RequestBuildProfile(profile));
                 state.open = false;
+            } else if let Some(backend) = backends.iter().find_map(|(option, click)| click.is_clicked().then_some(option.0)) {
+                backend_requests.write(super::messages::RequestBuildBackend(backend));
+                state.open = false;
             }
         }
     }
@@ -114,12 +138,15 @@ pub(super) fn present(
     mut commands: Commands,
     state: Res<BuildProfileMenuState>,
     launch: Res<ProjectLaunchSettings>,
+    backend: Res<ProjectBuildBackend>,
     mut panels: Query<&mut Node, Or<(With<ProfileMenu>, With<ProfileBackdrop>)>>,
     toggles: Query<(Entity, Has<GlobalZIndex>), With<ProfileToggle>>,
     mut labels: Query<(&ProfileLabel, &mut Text)>,
     mut options: Query<(&ProfileOption, &mut BorderColor)>,
+    mut backend_labels: Query<(&BackendLabel, &mut Text), Without<ProfileLabel>>,
+    mut backend_options: Query<(&BackendOption, &mut BorderColor), Without<ProfileOption>>,
 ) {
-    if !state.is_changed() && !launch.is_changed() { return; }
+    if !state.is_changed() && !launch.is_changed() && !backend.is_changed() { return; }
     for mut node in &mut panels {
         node.display = if state.open { Display::Flex } else { Display::None };
     }
@@ -130,12 +157,19 @@ pub(super) fn present(
     }
     for (label, mut text) in &mut labels {
         let caption = match label.0 {
-            None => format!("{} ▼", launch.profile.label()),
+            None => format!("{} · {} ▼", launch.profile.label(), backend.label()),
             Some(profile) => format!("{} {}", if profile == launch.profile { "✓" } else { "  " }, profile.label()),
         };
         if text.as_str() != caption { **text = caption; }
     }
     for (option, mut border) in &mut options {
         *border = BorderColor::all(if option.0 == launch.profile { c::COPPER_BORDER } else { c::COPPER_BORDER_WEAK });
+    }
+    for (label, mut text) in &mut backend_labels {
+        let caption = format!("{} {}", if label.0 == *backend { "✓" } else { "  " }, label.0.label());
+        if text.as_str() != caption { **text = caption; }
+    }
+    for (option, mut border) in &mut backend_options {
+        *border = BorderColor::all(if option.0 == *backend { c::COPPER_BORDER } else { c::COPPER_BORDER_WEAK });
     }
 }

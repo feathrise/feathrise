@@ -39,7 +39,8 @@ pub(crate) fn request_code_apply(
     if let Some(reason) = super::systems::play_blocker(world) { return Err(reason); }
     let profile = world.get_resource::<feathrise_editor_core::ProjectLaunchSettings>()
         .map_or(default(), |settings| settings.profile);
-    if !prepared.matches_project(&world.resource::<Settings>().project, profile) {
+    if !prepared.matches_project(&world.resource::<Settings>().project, profile)
+        || !prepared.matches_backend(crate::native_play::ProjectBuildBackend::selected(world)) {
         return Err("新代码产物与当前工程或构建配置不一致，本次未应用".into());
     }
     let status = world.resource::<EmbeddedStatus>();
@@ -98,7 +99,8 @@ pub(super) fn before_start(
         Some("工程关闭已接管，本次代码应用已取消；作者现场保留".into())
     } else if let Some(error) = &runtime.cleanup_failure {
         Some(error.clone())
-    } else if !apply.prepared.matches_project(&world.resource::<Settings>().project, profile) {
+    } else if !apply.prepared.matches_project(&world.resource::<Settings>().project, profile)
+        || !apply.prepared.matches_backend(crate::native_play::ProjectBuildBackend::selected(world)) {
         Some("当前工程或构建配置已变化，未继续应用旧候选版本".into())
     } else if matches!(apply.stage, CodeApplyStage::Starting | CodeApplyStage::Synchronizing | CodeApplyStage::Restoring)
         && (runtime.active.is_none() || status.error.is_some())
