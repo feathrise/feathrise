@@ -13,8 +13,10 @@ path = "src/main.rs"
 
 [features]
 # 通用作者工具始终安装；工程领域工具由版本化DLL/SO接口在打开工程时加载。
-default = ["raytracing"]
+default = ["raytracing", "bevy_dynamic_linking"]
 raytracing = ["feathrise_runtime/raytracing"]
+# 日常增量编译沿用 Bevy DLL，单文件发布从同一依赖图关闭这个开发选项。
+bevy_dynamic_linking = ["bevy/dynamic_linking"]
 dlss = ["dlss_frame_generation"]
 fsr = ["fsr3_upscaling", "fsr3_frame_generation"]
 rtx_rendering = ["raytracing", "bevy/dlss", "feathrise_runtime/rtx_rendering"]
@@ -32,7 +34,7 @@ feathrise_plugin_api = { version = "=0.1.0", features = ["reader"] }
 libloading = "=0.8.9"
 object = { version = "=0.40.0", default-features = false, features = ["read", "std"] } # 三平台运行副本静态解析精确依赖，复用插件SDK同版本。
 bevy_embedded_assets = "=0.16.0"
-bevy = { version = "=0.19.1", features = ["dynamic_linking", "bevy_ui_widgets", "hotpatching", "file_watcher", "jpeg", "pbr_specular_textures", "serialize"] } # 动态链接只由宿主应用选择，作者库可静态进入独立DLL。
+bevy = { version = "=0.19.1", features = ["bevy_ui_widgets", "hotpatching", "file_watcher", "jpeg", "pbr_specular_textures", "serialize"] }
 avian3d = { version = "0.7.0", features = ["debug-plugin"] }
 bevy_framepace = "0.22.0"
 bevy_hanabi = { version = "0.19.0", default-features = false, features = ["3d"] }

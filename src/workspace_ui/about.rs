@@ -2,9 +2,22 @@
 
 use super::{components::*, resources::{AboutState, Presentation}};
 use bevy::{input::mouse::{MouseScrollUnit, MouseWheel}, input_focus::InputFocus, prelude::*,
-    ui::{FocusPolicy, RelativeCursorPosition}, window::PrimaryWindow};
+    ui::{FocusPolicy, RelativeCursorPosition}, ui_widgets::{ControlOrientation, Scrollbar, ScrollbarThumb},
+    window::PrimaryWindow};
 use feathrise_editor_map::workbench::WorkbenchHeader;
 use feathrise_editor_ui::{EditorButtonClick, colors as c};
+
+const LICENSE_DOCUMENT: &str = include_str!(concat!(env!("OUT_DIR"), "/distribution-licenses.txt"));
+const LICENSE_OFFSETS: &[usize] = include!(concat!(env!("OUT_DIR"), "/distribution-license-pages.rs"));
+pub(super) const LICENSE_PAGE_COUNT: usize = LICENSE_OFFSETS.len() - 1;
+
+pub(super) fn license_page(index: usize) -> &'static str {
+    &LICENSE_DOCUMENT[LICENSE_OFFSETS[index]..LICENSE_OFFSETS[index + 1]]
+}
+
+fn step_page(page: Option<usize>, step: isize) -> Option<usize> {
+    page?.checked_add_signed(step).filter(|&index| index < LICENSE_PAGE_COUNT)
+}
 
 fn caption(font: &Handle<Font>, text: &str, size: f32) -> impl Bundle {
     (Text::new(text), TextFont { font: font.clone().into(), font_size: size.into(), ..default() },
@@ -36,11 +49,11 @@ pub(super) fn mount(
                     )).with_children(|header| {
                         // 标题文字直接参与标题栏布局，避免空容器的零正文尺寸裁掉实际字形。
                         header.spawn(caption(&font, "关于 Feathrise", 13.))
-                            .insert(Node { flex_grow: 1., min_width: px(0), ..default() });
+                            .insert((AboutTitle, Node { flex_grow: 1., min_width: px(0), ..default() }));
                         feathrise_editor_ui::spawn_custom_text_button(header, Action::CloseAbout,
                             font.clone(), "×", feathrise_editor_ui::dialog_close_button_style());
                     });
-                    panel.spawn((AboutBody, RelativeCursorPosition::default(), ScrollPosition::default(),
+                    panel.spawn((AboutBody::Overview, RelativeCursorPosition::default(), ScrollPosition::default(),
                         Node { overflow: Overflow::scroll_y(), ..feathrise_editor_ui::dialog_body_node() },
                     )).with_children(|body| {
                         if let Some(brand) = &brand {
@@ -54,9 +67,42 @@ pub(super) fn mount(
                         body.spawn(caption(&font, "在统一工作台中创建工程、编辑场景，并预览与运行。", 13.));
                         body.spawn(caption(&font, "羽翼升起，让想法成形。", 13.));
                     });
+                    if LICENSE_PAGE_COUNT > 0 {
+                        panel.spawn((AboutLicenseRegion, Node { display: Display::None,
+                            width: percent(100), min_height: px(0), flex_direction: FlexDirection::Column, ..default() },
+                        )).with_children(|region| {
+                            let body = region.spawn((AboutBody::Licenses, RelativeCursorPosition::default(), ScrollPosition::default(),
+                                Node { overflow: Overflow::scroll_y(),
+                                    ..feathrise_editor_ui::dialog_body_node() },
+                            )).with_children(|body| {
+                                body.spawn(caption(&font, "", 13.)).insert((AboutLicenseText,
+                                    TextLayout::linebreak(bevy::text::LineBreak::WordOrCharacter),
+                                    // 正文高度按阅读区的换行宽度测量，滑到末尾时仍能读到最后一行。
+                                    Node { width: percent(100), flex_shrink: 0., min_width: px(0), ..default() }));
+                            }).id();
+                            // 轨道固定在正文外侧的预留边距中，不参与正文高度测量，也不随内容滚走。
+                            region.spawn((AboutLicenseScrollbar, Scrollbar::new(body, ControlOrientation::Vertical, 24.),
+                                RelativeCursorPosition::default(), FocusPolicy::Block, Visibility::Hidden,
+                                Node { position_type: PositionType::Absolute, width: px(8), top: px(6), bottom: px(6), right: px(6),
+                                    border_radius: BorderRadius::all(px(4)), ..default() },
+                                BackgroundColor(c::PANEL_BG_SECTION),
+                            )).with_child((ScrollbarThumb { border_radius: BorderRadius::all(px(4)), ..default() },
+                                BackgroundColor(c::COPPER_BORDER)));
+                        });
+                    }
                     panel.spawn((AboutFooter, feathrise_editor_ui::dialog_footer_node(),
                         BackgroundColor(c::DIALOG_HEADER_BG), BorderColor::all(c::DIALOG_BORDER),
                     )).with_children(|footer| {
+                        if LICENSE_PAGE_COUNT > 0 {
+                            for (step, label) in [(-1, "上一页"), (1, "下一页")] {
+                                let mut style = feathrise_editor_ui::dialog_button_style(false);
+                                style.node.display = Display::None;
+                                feathrise_editor_ui::spawn_custom_text_button(footer, Action::StepLicensePage(step),
+                                    font.clone(), label, style);
+                            }
+                            feathrise_editor_ui::spawn_custom_text_button_with_text_marker(footer, Action::OpenLicenses,
+                                AboutLicenseToggleLabel, font.clone(), "许可与署名", feathrise_editor_ui::dialog_button_style(false));
+                        }
                         feathrise_editor_ui::spawn_custom_text_button(footer, Action::CloseAbout,
                             font.clone(), "关闭 (Esc)", feathrise_editor_ui::dialog_button_style(true));
                     });
@@ -95,11 +141,20 @@ pub(super) fn input(
                     focus.clear(); // 清除原文本焦点，正文内容和草稿仍保留。
                 }
                 Action::CloseAbout if was_open => state.open = false,
+                Action::OpenLicenses if was_open && state.open && LICENSE_PAGE_COUNT > 0 => {
+                    state.license_page = state.license_page.is_none().then_some(0);
+                }
+                Action::StepLicensePage(step) if was_open && state.open => {
+                    if let Some(page) = step_page(state.license_page, *step) {
+                        state.license_page = Some(page);
+                    }
+                }
                 _ => {}
             }
         }
         if was_open && keys.just_pressed(KeyCode::Escape) { state.open = false; }
     }
+    if !state.open { state.license_page = None; }
     let mouse_busy = mouse.get_pressed().next().is_some()
         || mouse.get_just_pressed().next().is_some() || mouse.get_just_released().next().is_some();
     // 松开关闭按钮及按Esc的当前帧仍归浮层；鼠标静默后才允许背景接收新的动作。
@@ -112,11 +167,16 @@ pub(super) fn input(
 
 pub(super) fn present(
     state: Res<AboutState>,
-    mut nodes: Query<(&mut Node, Has<AboutOverlay>, Has<AboutHeader>, Has<AboutBody>, Has<AboutFooter>),
-        (Without<Action>, Or<(With<AboutOverlay>, With<AboutHeader>, With<AboutBody>, With<AboutFooter>)>)>,
+    mut nodes: Query<(&mut Node, Has<AboutOverlay>, Has<AboutPanel>, Has<AboutHeader>, Option<&AboutBody>,
+        Has<AboutLicenseRegion>, Has<AboutFooter>), (Without<Action>,
+        Or<(With<AboutOverlay>, With<AboutPanel>, With<AboutHeader>, With<AboutBody>, With<AboutLicenseRegion>, With<AboutFooter>)>)>,
     mut buttons: Query<(&Action, &ChildOf, &mut Node)>,
+    mut text: Query<(&mut Text, Has<AboutTitle>, Has<AboutLicenseToggleLabel>),
+        Or<(With<AboutTitle>, With<AboutLicenseToggleLabel>, With<AboutLicenseText>)>>,
     headers: Query<(), With<AboutHeader>>,
-    mut bodies: Query<(&RelativeCursorPosition, &ComputedNode, &mut ScrollPosition), With<AboutBody>>,
+    mut bodies: Query<(&AboutBody, &RelativeCursorPosition, &ComputedNode, &mut ScrollPosition)>,
+    mut tracks: Query<(&Scrollbar, &RelativeCursorPosition, &mut Visibility), With<AboutLicenseScrollbar>>,
+    mut previous_page: Local<Option<usize>>,
     mut wheels: MessageReader<MouseWheel>,
     windows: Query<&Window, With<PrimaryWindow>>,
     scale: Option<Res<UiScale>>,
@@ -124,15 +184,21 @@ pub(super) fn present(
     let available = windows.single().map_or(Vec2::new(1280., 720.), |window| window.size())
         / scale.map_or(1., |scale| scale.0).max(0.25);
     let compact = feathrise_editor_ui::dialog_uses_compact_layout(available);
-    for (mut node, overlay, header, body, footer) in &mut nodes {
+    let active_body = if state.license_page.is_some() { AboutBody::Licenses } else { AboutBody::Overview };
+    for (mut node, overlay, panel, header, body, license_region, footer) in &mut nodes {
         if overlay {
             node.display = if state.open { Display::Flex } else { Display::None };
+        } else if panel {
+            node.width = px(if active_body == AboutBody::Licenses { 760. } else { 440. });
+        } else if license_region {
+            node.display = if active_body == AboutBody::Licenses { Display::Flex } else { Display::None };
         } else {
             // 极小视口继续使用公共紧凑配方，正文独立滚动，关闭操作始终留在固定底栏。
             let recipe = if header {
                 if compact { feathrise_editor_ui::dialog_compact_header_node() }
                 else { feathrise_editor_ui::dialog_header_node() }
-            } else if body {
+            } else if let Some(body) = body {
+                node.display = if *body == active_body { Display::Flex } else { Display::None };
                 if compact { feathrise_editor_ui::dialog_compact_body_node() }
                 else { feathrise_editor_ui::dialog_body_node() }
             } else if footer {
@@ -140,29 +206,75 @@ pub(super) fn present(
                 else { feathrise_editor_ui::dialog_footer_node() }
             } else { continue; };
             node.padding = recipe.padding;
+            if body == Some(&AboutBody::Licenses) { node.padding.right = px(22); }
             node.min_height = recipe.min_height;
         }
     }
     for (action, parent, mut node) in &mut buttons {
-        if *action != Action::CloseAbout { continue; }
+        let primary = match action {
+            Action::CloseAbout => true,
+            Action::OpenLicenses => false,
+            Action::StepLicensePage(step) => {
+                node.display = if step_page(state.license_page, *step).is_some() { Display::Flex } else { Display::None };
+                false
+            }
+            _ => continue,
+        };
         let style = if headers.contains(parent.parent()) {
             if compact { feathrise_editor_ui::dialog_compact_close_button_style() }
             else { feathrise_editor_ui::dialog_close_button_style() }
-        } else if compact { feathrise_editor_ui::dialog_compact_button_style(true) }
-        else { feathrise_editor_ui::dialog_button_style(true) };
+        } else if compact { feathrise_editor_ui::dialog_compact_button_style(primary) }
+        else { feathrise_editor_ui::dialog_button_style(primary) };
         node.height = style.node.height;
         node.width = style.node.width;
         node.min_width = style.node.min_width;
         node.padding = style.node.padding;
     }
-    for wheel in wheels.read() {
-        if !state.open { continue; }
-        for (cursor, node, mut offset) in &mut bodies {
-            if !cursor.cursor_over() || node.is_empty() { continue; }
-            let amount = if wheel.unit == MouseScrollUnit::Line { wheel.y * 24. }
-                else { wheel.y * node.inverse_scale_factor() };
-            let max = ((node.content_size().y - node.size().y) * node.inverse_scale_factor()).max(0.);
-            offset.y = (offset.y - amount).clamp(0., max);
+    let page_changed = *previous_page != state.license_page;
+    for (mut text, title, toggle) in &mut text {
+        if !page_changed && !text.is_added() { continue; }
+        text.0 = if title {
+            state.license_page.map_or_else(|| "关于 Feathrise".into(),
+                |page| format!("许可与署名  {}/{LICENSE_PAGE_COUNT}", page + 1))
+        } else if toggle {
+            if state.license_page.is_some() { "返回关于".into() } else { "许可与署名".into() }
+        } else {
+            state.license_page.map_or("", license_page).to_owned()
+        };
+    }
+    if page_changed {
+        *previous_page = state.license_page;
+        for (body, _, _, mut offset) in &mut bodies {
+            if *body == AboutBody::Licenses { offset.y = 0.; }
         }
     }
+    let mut pointer_over_track = false;
+    for (bar, cursor, mut visibility) in &mut tracks {
+        let mut scrollable = false;
+        if state.open && active_body == AboutBody::Licenses
+            && let Ok((_, _, node, mut offset)) = bodies.get_mut(bar.target)
+            && !node.is_empty()
+        {
+            let max = vertical_scroll_range(node);
+            if offset.y > max { offset.y = max; }
+            scrollable = max > 0.;
+        }
+        // 隐藏短页的轨道但保留边距，正文换行宽度不随轨道显示反复变化。
+        visibility.set_if_neq(if scrollable { Visibility::Inherited } else { Visibility::Hidden });
+        pointer_over_track |= scrollable && cursor.cursor_over();
+    }
+    for wheel in wheels.read() {
+        if !state.open { continue; }
+        for (body, cursor, node, mut offset) in &mut bodies {
+            let pointer_over = cursor.cursor_over() || *body == AboutBody::Licenses && pointer_over_track;
+            if *body != active_body || !pointer_over || node.is_empty() { continue; }
+            let amount = if wheel.unit == MouseScrollUnit::Line { wheel.y * 24. }
+                else { wheel.y * node.inverse_scale_factor() };
+            offset.y = (offset.y - amount).clamp(0., vertical_scroll_range(node));
+        }
+    }
+}
+
+fn vertical_scroll_range(node: &ComputedNode) -> f32 {
+    ((node.content_size().y - node.size().y + node.scrollbar_size.y) * node.inverse_scale_factor()).max(0.)
 }

@@ -4,10 +4,10 @@ fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     validation_extension();
     resource_identity();
+    embed_licenses();
     let branding = branding_resources();
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
-    let opt_level = std::env::var("OPT_LEVEL").unwrap_or_default();
     if target_os == "windows" {
         let mut resources = winresource::WindowsResource::new();
         if let Some(directory) = branding {
@@ -22,11 +22,63 @@ fn main() {
             .compile()
             .expect("无法编译Feathrise程序图标资源");
     }
-    if target_os == "windows" && target_env == "msvc" && opt_level == "0" {
-        // 原完整BSN在opt0构造时超出默认1MiB；各宿主目标（含隔离验收程序名）使用同一预算。
-        // 仅增加保留虚拟地址，仍按需提交栈页，不改变依赖库或其他 profile。
+    if target_os == "windows" && target_env == "msvc" {
+        // 发布版的主窗口初始化也会超过默认 1 MiB。各宿主目标统一预留 8 MiB，栈页仍按需提交。
         println!("cargo::rustc-link-arg-bins=/STACK:8388608");
     }
+}
+
+/// 源码构建内嵌本仓许可；单文件发行可以传入按实际依赖生成的正文。
+fn embed_licenses() {
+    use std::{env, fs, io::Read, path::PathBuf};
+    const VARIABLE: &str = "FEATHRISE_LICENSE_DOCUMENT";
+    const LIMIT: u64 = 4 * 1024 * 1024;
+    println!("cargo::rerun-if-env-changed={VARIABLE}");
+    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    let mut data = Vec::new();
+    if let Some(path) = env::var_os(VARIABLE).map(PathBuf::from) {
+        assert!(env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+            && env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+            && env::var("PROFILE").as_deref() == Ok("release"),
+            "发行许可文档用于 Windows MSVC Release");
+        assert!(env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default().split(',').any(|v| v == "crt-static")
+            && ["CARGO_FEATURE_BEVY_DYNAMIC_LINKING", "CARGO_FEATURE_RTX_RENDERING", "CARGO_FEATURE_FSR3_FRAME_GENERATION"]
+                .iter().all(|name| env::var_os(name).is_none()),
+            "单文件发行需要静态 CRT，且不能选择 Bevy 动态链接或依赖外置 DLL 的厂商组件");
+        assert!(path.is_absolute() && path.is_file(), "{VARIABLE} 必须是已生成许可文档的绝对路径");
+        println!("cargo::rerun-if-changed={}", path.display());
+        fs::File::open(path).expect("无法打开发行许可文档").take(LIMIT + 1)
+            .read_to_end(&mut data).expect("无法读取发行许可文档");
+    } else {
+        // 普通 Cargo 构建只需编辑器源码检出，直接复用仓库随附的声明和许可原文。
+        data.extend_from_slice("Feathrise 源码许可与署名\n\n本页收录源码仓库的许可原文和第三方说明。\n\n".as_bytes());
+        for name in ["THIRD_PARTY_NOTICES.md", "LICENSE-MIT", "LICENSE-APACHE"] {
+            println!("cargo::rerun-if-changed={name}");
+            data.extend(fs::read(name).unwrap_or_else(|error| panic!("无法读取 {name}：{error}")));
+            data.extend_from_slice(b"\n\n");
+        }
+    }
+    assert!(!data.is_empty() && data.len() as u64 <= LIMIT, "许可文档必须为不超过 4 MiB 的非空文本");
+    let text = std::str::from_utf8(&data).expect("许可文档必须为 UTF-8");
+    assert!(!text.trim_start().starts_with('<'), "许可文档使用纯文本");
+    // 在构建时索引页边界，窗口每次只对有限长度的许可正文排版。
+    const PAGE_BYTES: usize = 3072;
+    let mut offsets = vec![0];
+    let mut start = 0;
+    while start < text.len() {
+        let mut end = (start + PAGE_BYTES).min(text.len());
+        while !text.is_char_boundary(end) { end -= 1; }
+        if end < text.len() {
+            if let Some(line_end) = data[start + PAGE_BYTES / 2..end].iter().rposition(|&byte| byte == b'\n') {
+                end = start + PAGE_BYTES / 2 + line_end + 1;
+            }
+        }
+        offsets.push(end);
+        start = end;
+    }
+    fs::write(out.join("distribution-licenses.txt"), data).expect("无法内嵌发行许可文档");
+    fs::write(out.join("distribution-license-pages.rs"), format!("&{offsets:?}"))
+        .expect("无法写入发行许可分页索引");
 }
 
 /// 正式Logo由仓外私有材料提供；普通源码构建不探测父仓或用户目录，也不下载品牌文件。

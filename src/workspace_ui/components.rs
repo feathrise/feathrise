@@ -14,6 +14,8 @@ pub(super) enum Action {
     CloseProject,
     ShowAbout,
     CloseAbout,
+    OpenLicenses,
+    StepLicensePage(isize),
     QuitApp,
     SetStartup,
     ExportProject,
@@ -60,6 +62,16 @@ pub(super) struct AboutPanel;
 #[derive(Component)]
 pub(super) struct AboutHeader;
 #[derive(Component)]
-pub(super) struct AboutBody;
+pub(super) struct AboutTitle;
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AboutBody { Overview, Licenses }
 #[derive(Component)]
 pub(super) struct AboutFooter;
+#[derive(Component)]
+pub(super) struct AboutLicenseText;
+#[derive(Component)]
+pub(super) struct AboutLicenseRegion;
+#[derive(Component)]
+pub(super) struct AboutLicenseScrollbar;
+#[derive(Component)]
+pub(super) struct AboutLicenseToggleLabel;

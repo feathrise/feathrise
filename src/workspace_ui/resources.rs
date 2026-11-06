@@ -7,11 +7,12 @@ use super::{
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// 关于只持有浮层输入租约；不切换工程页，也不修改作者文档或表单。
+/// 关于持有浮层输入租约。许可与概览在同一个面板内切换。
 #[derive(Resource, Default)]
 pub(crate) struct AboutState {
     pub(super) open: bool,
     pub(super) captured: bool,
+    pub(super) license_page: Option<usize>,
 }
 
 impl AboutState {
