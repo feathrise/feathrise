@@ -38,7 +38,7 @@ mod workspace; // 在中央与侧栏之间原位挂载同一棵文档UI。
 pub(crate) mod validation; // 仅显式有限验收访问固定文本会话，不另建保存管线。
 
 pub(crate) use resources::{DocumentState, DocumentMinimapState};
-pub(crate) use project_files::{OpenProjectDocument, OpenProjectInEditor};
+pub(crate) use project_files::OpenProjectDocument;
 pub(crate) use source::is_project as is_project_document;
 pub(crate) use search::AssetSearchState;
 pub(crate) use search::AssetReplaceState;

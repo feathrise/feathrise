@@ -56,12 +56,10 @@ pub(crate) fn files_panel() -> impl Scene {
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }),
             (ProjectFileList::default() Node { width: percent(100), min_width: px(0), height: px(0), flex_shrink: 0.0,
                 position_type: PositionType::Relative, overflow: Overflow::clip() }),
-            (ProjectFileSelectionText Text("选择文件后可打开文本或使用外部IDE") template_value(FocusPolicy::Pass)
+            (ProjectFileSelectionText Text("双击文本文件打开；右键显示文件操作") template_value(FocusPolicy::Pass)
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_VALUE) TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }),
-            (Node { width: percent(100), height: px(26), min_width: px(0), flex_shrink: 0.0, column_gap: px(4) }
-                Children [(action_button("打开文本", ProjectFileAction::Open)), (action_button("外部IDE", ProjectFileAction::External))]),
         ]
     }
 }

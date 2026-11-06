@@ -12,6 +12,7 @@ mod window;
 mod gpu_tests;
 
 pub(crate) use components::ProjectBrowserContent;
+pub(crate) use components::ProjectFileRow; // 共用路径菜单仅读取可见行绑定身份，不持有整个工程目录。
 pub(crate) use resources::{ProjectBrowserState, ProjectFileViewport};
 pub(crate) use scene::files_panel;
 pub(crate) use types::ProjectBrowserView;

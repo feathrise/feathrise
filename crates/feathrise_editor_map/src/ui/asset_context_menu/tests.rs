@@ -10,7 +10,7 @@ use super::components::{AssetMenuBackdrop, AssetMenuCopyButton, AssetMenuPopup};
 use super::helpers::*; // 直接验证生产坐标与身份判定。
 use super::messages::CopyAssetPath; // 只记录复制意图，绝不安装真实剪贴板写系统。
 use super::resources::AssetContextMenuState; // 可观察菜单会话。
-use super::types::AssetMenuTarget; // 身份失效测试所用的冻结来源。
+use super::types::{AssetMenuSource, AssetMenuTarget}; // 身份失效测试所用的冻结来源。
 use super::types::AssetPathCopyKind;
 use crate::authoring::TerrainExternalChangeState; // 默认关闭地形冲突模态。
 use crate::components::{AssetRowBinding, MapEditorAssetRow, MapEditorRoot}; // 复用正式固定行池和根节点。
@@ -24,6 +24,7 @@ use crate::ui::rows::ASSET_ROW_COUNT; // 测试与生产固定资产行池使用
 use crate::ui::sidebars::{EditorNavigatorTab, MapEditorSidebarState}; // 仅左侧资产页可打开菜单。
 
 mod input; // 开关、点击、失效及点透回归。
+mod project; // 工程根到assets之前的同一右键菜单及可见行身份回归。
 
 /// 只收集业务复制消息，避免测试对操作系统剪贴板产生副作用。
 #[derive(Resource, Default)]
@@ -365,6 +366,7 @@ fn frozen_target_requires_the_original_path_window_revision_and_map() {
         revision: 7,
         viewport_revision: catalog.viewport_revision,
         map_id: editor.selected_map_id.clone(),
+        source: AssetMenuSource::Assets,
     }; // 与当前条目完整匹配。
     assert!(target_is_current(&target, catalog, &editor)); // 有效时允许点击复制。
     target.viewport_revision = target.viewport_revision.wrapping_add(1);
@@ -398,7 +400,7 @@ fn frozen_target_supports_late_absolute_entries_and_rejects_scroll_rebinding() {
     catalog.viewport_revision = 5;
     let editor = MapEditorState { open: true, ..default() };
     let target = AssetMenuTarget { path: "models/item-77.glb".into(), index: 77,
-        revision: 7, viewport_revision: 5, map_id: None };
+        revision: 7, viewport_revision: 5, map_id: None, source: AssetMenuSource::Assets };
     assert!(target_is_current(&target, &catalog, &editor), "任意可见条目都可使用菜单，不限旧第一页");
     catalog.viewport_revision += 1;
     assert!(!target_is_current(&target, &catalog, &editor), "窗口换绑后不能沿用旧菜单");

@@ -3,7 +3,7 @@
 pub(crate) mod action_availability; // 顶栏与视口命令的样式、说明和输入共享真实可用资格。
 pub(crate) mod actions; // 工具按钮、快捷键和选中态回显。
 pub(crate) mod external_files; // 资产外部打开共享结构化请求与唯一后台启动槽。
-pub(crate) mod asset_context_menu; // 资产列表右键复制真实路径，菜单关闭帧仍阻止作者输入点透。
+pub(crate) mod asset_context_menu; // 工程与资产行右键复制真实路径，菜单关闭帧仍阻止作者输入点透。
 pub(crate) mod asset_shortcuts; // 项目内资产收藏和最近访问，不保存作者内容。
 pub(crate) mod asset_preview; // 右侧资产行选择后的二维纹理与独立GLB/GLTF离屏预览。
 pub(crate) mod project_browser; // 同一浏览入口的资产与工程文件视图，原资产业务保持独立。

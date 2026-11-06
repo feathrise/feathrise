@@ -1,18 +1,28 @@
-//! 资产右键菜单固定节点与边界适配；沿用当前F12主题，不改变列表或预览的布局。
+//! 工程与资产右键菜单共用固定节点及边界适配；沿用F12主题，不改变列表或预览布局。
 
 use feathrise_editor_ui::metrics as ui_metrics;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*; // 原生节点、交互及变更检测。
 use bevy::ui::FocusPolicy; // 透明遮罩阻止数字框和旧列表点透。
 use crate::ui::theme as colors; // 统一使用项目已定义的颜色。
 
 use super::components::{AssetMenuBackdrop, AssetMenuCopyButton, AssetMenuExternalButton, AssetMenuPopup, AssetMenuReferencesButton, AssetMenuFavoriteButton};
 use crate::ui::external_files::{ExternalEditors, ExternalFileAction, EXTERNAL_MENU_ITEMS};
-use super::helpers::{sized_menu_rect, target_is_current}; // 显示前复验Tasks阶段可能已经更新的目录。
+use super::helpers::{project_target_is_current, sized_menu_rect, target_is_current}; // 显示前复验Tasks阶段可能已经更新的目录。
 use super::resources::AssetContextMenuState; // 唯一菜单会话。
-use super::types::AssetPathCopyKind;
+use super::types::{AssetMenuSource, AssetPathCopyKind};
 use crate::components::MapEditorRoot; // 菜单作为F12根的子节点，关闭时自然隐藏。
 use crate::resources::{EditorAssetCatalog, MapEditorState}; // 只读来源和会话状态。
 use crate::ui::sidebars::MapEditorSidebarState; // 离开左侧资产页立即撤下菜单。
+use crate::{asset_catalog::project_files::EditorProjectFileCatalog, ui::project_browser::{ProjectBrowserContent, ProjectBrowserState, ProjectBrowserView, ProjectFileViewport}};
+
+#[derive(SystemParam)]
+pub(super) struct ProjectMenuView<'w, 's> {
+    catalog: Option<Res<'w, EditorProjectFileCatalog>>,
+    viewport: Option<Res<'w, ProjectFileViewport>>,
+    scrolls: Query<'w, 's, (&'static ProjectBrowserContent, &'static ScrollPosition)>,
+    browser: Option<Res<'w, ProjectBrowserState>>,
+}
 
 /// 编辑器根首次出现时创建一次菜单，之后只切显隐和位置。
 pub(super) fn setup_menu(
@@ -129,6 +139,7 @@ pub(super) fn setup_menu(
 pub(super) fn sync_menu(
     mut menu: ResMut<AssetContextMenuState>, // Tasks刚采用新目录时也能撤销旧目标。
     catalog: Res<EditorAssetCatalog>,        // 只读取修订与单条来源。
+    project: ProjectMenuView,
     editor: Res<MapEditorState>,             // 关闭F12或切图不遗留菜单。
     sidebar: Res<MapEditorSidebarState>,     // 菜单只属于资产页。
     layout: Option<Res<crate::resources::MapEditorLayoutState>>,
@@ -136,33 +147,47 @@ pub(super) fn sync_menu(
     available: Res<ExternalEditors>, // 只读后台完成的三份安装身份，菜单内不执行文件IO。
     shortcuts: Option<Res<crate::ui::asset_shortcuts::AssetShortcuts>>,
     favorites: Query<&Children, With<AssetMenuFavoriteButton>>,
+    mut favorite_nodes: Query<&mut Node, (With<AssetMenuFavoriteButton>, Without<AssetMenuBackdrop>, Without<AssetMenuPopup>, Without<AssetMenuExternalButton>, Without<AssetMenuReferencesButton>)>,
     mut nodes: Query<
         (&mut Node, Option<&AssetMenuBackdrop>),
-        (Or<(With<AssetMenuBackdrop>, With<AssetMenuPopup>)>, Without<AssetMenuReferencesButton>),
+        (Or<(With<AssetMenuBackdrop>, With<AssetMenuPopup>)>, Without<AssetMenuReferencesButton>, Without<AssetMenuFavoriteButton>),
     >, // 一个查询修改两类Node，避免B0001重叠借用。
     mut buttons: Query<
         (&Interaction, &mut BackgroundColor, &mut BorderColor),
         (Or<(With<AssetMenuCopyButton>, With<AssetMenuExternalButton>, With<AssetMenuReferencesButton>, With<AssetMenuFavoriteButton>)>, Changed<Interaction>),
     >, // 固定菜单项仅按交互边沿回显。
     mut external_nodes: Query<(&AssetMenuExternalButton, &mut Node, Option<&Children>),
-        (Without<AssetMenuBackdrop>, Without<AssetMenuPopup>, Without<AssetMenuReferencesButton>)>, // 与面板Node查询互斥，避免B0001。
-    mut reference_nodes: Query<&mut Node, (With<AssetMenuReferencesButton>, Without<AssetMenuBackdrop>, Without<AssetMenuPopup>)>,
+        (Without<AssetMenuBackdrop>, Without<AssetMenuPopup>, Without<AssetMenuReferencesButton>, Without<AssetMenuFavoriteButton>)>, // 与面板Node查询互斥，避免B0001。
+    mut reference_nodes: Query<&mut Node, (With<AssetMenuReferencesButton>, Without<AssetMenuBackdrop>, Without<AssetMenuPopup>, Without<AssetMenuFavoriteButton>)>,
     mut labels: Query<&mut Text>, // 同一固定节点按文件/目录切文案，不重建菜单。
-    browser: Option<Res<crate::ui::project_browser::ProjectBrowserState>>,
 ) {
+    let project_scroll = project.scrolls.iter().find(|(view, _)| view.0 == ProjectBrowserView::ProjectFiles)
+        .map(|(_, scroll)| scroll);
     if menu.target.as_ref().is_some_and(|target| {
         !sidebar.assets_browser_visible()
-            || browser.as_ref().is_some_and(|browser| !browser.assets_visible())
             || layout.as_ref().is_some_and(|layout| !layout.content_shown())
-            || !target_is_current(target, &catalog, &editor)
+            || !match &target.source {
+                AssetMenuSource::Assets => project.browser.as_ref().is_none_or(|browser| browser.assets_visible())
+                    && target_is_current(target, &catalog, &editor),
+                AssetMenuSource::Project { .. } => project.browser.as_ref().is_some_and(|browser| !browser.assets_visible())
+                    && project.catalog.as_ref().zip(project.viewport.as_ref()).zip(project_scroll)
+                        .is_some_and(|((catalog, viewport), scroll)| project_target_is_current(target, catalog, viewport, scroll, &editor)),
+            }
     }) {
         menu.target = None; // 过期行不在新目录上继续展示“复制路径”。
         menu.captured_this_frame = true; // 同一帧刚关菜单也不能补触发底层鼠标。
     }
-    let file = menu.target.as_ref().and_then(|target| catalog.entries.get(target.index))
-        .is_some_and(|entry| !entry.is_directory); // 文件定位首行，目录只打开当前项目。
-    let favorite = menu.target.as_ref().is_some_and(|target| shortcuts.as_ref()
+    let asset_target = menu.target.as_ref().is_none_or(|target| matches!(&target.source, AssetMenuSource::Assets));
+    let file = menu.target.as_ref().and_then(|target| match &target.source {
+        AssetMenuSource::Assets => catalog.entries.get(target.index),
+        AssetMenuSource::Project { .. } => project.catalog.as_ref().and_then(|catalog| catalog.entries.get(target.index)),
+    }).is_some_and(|entry| !entry.is_directory); // 文件定位首行，目录只打开当前项目。
+    let favorite = asset_target && menu.target.as_ref().is_some_and(|target| shortcuts.as_ref()
         .is_some_and(|shortcuts| shortcuts.is_favorite(&target.path, !file)));
+    for mut node in &mut favorite_nodes {
+        let display = if asset_target { Display::Flex } else { Display::None };
+        if node.display != display { node.display = display; }
+    }
     for children in &favorites {
         let value = if favorite { "取消收藏" } else { "收藏" };
         for child in children {
@@ -170,7 +195,7 @@ pub(super) fn sync_menu(
         }
     }
     for mut node in &mut reference_nodes {
-        let display = if file { Display::Flex } else { Display::None };
+        let display = if asset_target && file { Display::Flex } else { Display::None };
         if node.display != display { node.display = display; }
     }
     for (action, mut node, children) in &mut external_nodes {
@@ -195,7 +220,8 @@ pub(super) fn sync_menu(
     if let Ok(root) = roots.single() {
         if menu.is_changed() || root.is_changed() || available.is_changed() {
             let viewport = root.size() * root.inverse_scale_factor(); // 所有位置和宽高一次换算成逻辑像素。
-            let rect = sized_menu_rect(menu.anchor, viewport, available.menu_size(file, if file { 4 } else { 3 }, 144.0));
+            let base_rows = if asset_target { if file { 4 } else { 3 } } else { 2 };
+            let rect = sized_menu_rect(menu.anchor, viewport, available.menu_size(file, base_rows, 144.0));
             for (mut node, backdrop) in &mut nodes {
                 if backdrop.is_some() {
                     node.display = if menu.target.is_some() {

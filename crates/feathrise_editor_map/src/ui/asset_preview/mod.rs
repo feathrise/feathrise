@@ -53,7 +53,7 @@ pub(crate) use sidebar::{asset_properties_page, assets_page};
 pub(crate) use sidebar::install_snapshot_presentation;
 pub(crate) use types::AssetPreviewState; // 摆放工具只读取当前预览的Scene0或primitive稳定目标。
 pub(crate) use documents::DocumentState; // 文字编辑独占本页快捷键，格式识别由资产目录统一维护。
-pub(crate) use documents::{OpenProjectDocument, OpenProjectInEditor};
+pub(crate) use documents::OpenProjectDocument;
 pub(crate) use documents::DocumentMinimapState; // 中央小地图与世界编辑共用鼠标及滚轮所有权。
 pub(crate) use documents::{AssetSearchState, asset_search_panel}; // 资产栏搜索独立后台任务，点击结果复用中央文档。
 pub(crate) use documents::AssetReplaceState; // 中央替换预览视区接管滚轮，不改变原保存入口。

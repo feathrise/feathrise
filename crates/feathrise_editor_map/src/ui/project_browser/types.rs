@@ -12,6 +12,4 @@ pub(super) enum ProjectFileAction {
     #[default]
     Up,
     Refresh,
-    Open,
-    External,
 }

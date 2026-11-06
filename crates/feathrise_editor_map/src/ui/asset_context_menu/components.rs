@@ -1,4 +1,4 @@
-//! 资产右键菜单的固定UI节点标记，与其他编辑器按钮保持查询互斥。
+//! 工程与资产右键菜单的固定UI节点标记，与其他编辑器按钮保持查询互斥。
 
 use bevy::prelude::Component; // 菜单节点只携带轻量身份。
 
@@ -14,7 +14,7 @@ pub(super) struct AssetMenuPopup;
 #[derive(Component)] // 不复用EditorAction，避免落入普通按钮分派。
 pub(super) struct AssetMenuCopyButton(pub super::types::AssetPathCopyKind);
 
-/// 外部入口仍只操作右键冻结的资产，不切换左键选择。
+/// 外部入口只操作右键冻结的工程或资产条目，不切换左键选择。
 #[derive(Component)]
 pub(super) struct AssetMenuExternalButton(pub crate::ui::external_files::ExternalFileAction);
 

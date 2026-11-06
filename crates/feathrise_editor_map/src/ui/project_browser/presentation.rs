@@ -123,7 +123,7 @@ pub(super) fn files(
     for (mut text, mut color, directory, count, feedback, selection) in &mut fields {
         let value = if directory.is_some() { folder.as_str() } else if count.is_some() { summary.as_str() }
             else if feedback.is_some() { status }
-            else if selection.is_some() { selected.unwrap_or("选择文件后可打开文本或使用外部IDE") } else { continue; };
+            else if selection.is_some() { selected.unwrap_or("双击文本文件打开；右键显示文件操作") } else { continue; };
         if text.0 != value { text.0 = value.to_owned(); }
         if feedback.is_some() { color.set_if_neq(TextColor(if error.is_some() { colors::TEXT_ACCENT } else { colors::TEXT_MUTED })); }
     }
@@ -137,21 +137,13 @@ pub(super) fn files(
 
 pub(super) fn action_feedback(
     catalog: Res<EditorProjectFileCatalog>,
-    documents: Option<Res<crate::ui::asset_preview::DocumentState>>,
-    mut selected: Local<Option<crate::asset_catalog::project_files::ProjectFileIdentity>>,
-    mut buttons: Query<(&ProjectFileActionButton, &Interaction, &Children, &mut BackgroundColor, &mut BorderColor, Option<&mut EditorButtonClick>)>,
+    mut buttons: Query<(&ProjectFileActionButton, &Interaction, &Children, &mut BackgroundColor, &mut BorderColor)>,
     mut labels: Query<&mut TextColor>,
 ) {
-    let rebound = *selected != catalog.selected_file;
-    if rebound { *selected = catalog.selected_file.clone(); }
-    for (button, interaction, children, mut background, mut border, click) in &mut buttons {
-        if rebound && matches!(button.0, ProjectFileAction::Open | ProjectFileAction::External)
-            && let Some(mut click) = click { click.invalidate(); } // 旧文件按下期间换选，松开不能被改派给新文件。
+    for (button, interaction, children, mut background, mut border) in &mut buttons {
         let enabled = match button.0 {
-            ProjectFileAction::Open => documents.is_some() && catalog.selected_file.as_ref().is_some_and(|file| crate::asset_catalog::document_format(&file.relative_path).is_some()),
-            ProjectFileAction::External => documents.is_some() && catalog.selected_file.is_some(),
             ProjectFileAction::Up => !catalog.current_folder.is_empty(),
-            _ => catalog.project_root().is_some(),
+            ProjectFileAction::Refresh => catalog.project_root().is_some(),
         };
         background.set_if_neq(BackgroundColor(if !enabled { colors::PANEL_BG } else { match interaction {
             Interaction::Pressed => colors::SELECT_BG_PRESSED,

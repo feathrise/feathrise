@@ -1,4 +1,4 @@
-//! 资产列表右键菜单：复制路径或打开冻结资产的外部编辑器与文件夹，不修改选择、预设或地图。
+//! 工程与资产列表共用右键菜单：冻结行路径后复制或外部打开，不修改选择、预设或地图。
 
 use bevy::prelude::*; // 菜单安装复用现有编辑器阶段和系统剪贴板。
 
@@ -37,6 +37,7 @@ pub(crate) fn install(app: &mut App) {
     app.init_resource::<AssetContextMenuState>() // 同一时刻只允许一个菜单。
         .init_resource::<Clipboard>() // DefaultPlugins已提供时不重复创建系统剪贴板。
         .add_message::<messages::CopyAssetPath>() // 测试可验证复制意图而不污染真实剪贴板。
+        .add_message::<messages::CopyProjectPath>() // 工程根路径独立核验，避免按assets身份复制源码。
         .add_systems(
             Update, // 所有输入按当前帧真实按键边沿消费。
             (systems::control_menu, systems::copy_requested_path)

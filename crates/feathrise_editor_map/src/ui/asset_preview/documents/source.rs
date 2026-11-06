@@ -68,6 +68,11 @@ impl DocumentState {
             .map_err(|_| "工程文件路径包含无法复制的字符".into())
     }
 
+    pub(crate) fn has_unsaved_project_draft(&self, project: &Path, relative: &str) -> bool {
+        self.project_root.as_deref() == Some(project)
+            && project_key(&self.root, project, relative).is_ok_and(|key| self.has_unsaved_draft(&key))
+    }
+
     pub(super) fn bind_project_source(&mut self, root: &Path, assets: Option<&Path>) -> Result<(), String> {
         if self.project_root.as_deref().is_some_and(|current| current != root) {
             return Err("文件会话属于另一工程，请先正常关闭旧工程".into());

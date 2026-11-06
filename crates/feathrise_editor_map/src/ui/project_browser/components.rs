@@ -15,11 +15,11 @@ pub(super) struct ProjectFileList {
 }
 
 #[derive(Component, Clone, Copy, Default)]
-pub(super) struct ProjectFileRow {
-    pub(super) slot: usize,
-    pub(super) entry_index: Option<usize>,
-    pub(super) revision: u64,
-    pub(super) viewport_revision: u64,
+pub(crate) struct ProjectFileRow {
+    pub(crate) slot: usize,
+    pub(crate) entry_index: Option<usize>,
+    pub(crate) revision: u64,
+    pub(crate) viewport_revision: u64,
 }
 
 #[derive(Component, Clone, Copy, Default)]

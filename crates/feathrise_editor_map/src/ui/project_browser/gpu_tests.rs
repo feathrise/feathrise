@@ -6,6 +6,7 @@ use crate::{
     components::{MapEditorAssetRow, MapEditorActionButton},
     resources::MapEditorState,
     types::EditorAction,
+    ui::asset_context_menu::{AssetContextMenuState, AssetMenuFavoriteButton},
     ui::sidebars::{EditorNavigatorTab, EditorSidebarTab, MapEditorSidebarTabButton, MapEditorSidebarPage},
     workbench::{WorkbenchModel, WorkbenchUiPlugin},
 };
@@ -21,20 +22,35 @@ use std::{fs::OpenOptions, path::Path, time::{Duration, Instant}};
 #[derive(Resource, Default)]
 struct NextPointer(Option<(Entity, bool)>);
 
+#[derive(Resource, Default)]
+struct NextRightPointer(Option<(Entity, bool)>);
+
+#[derive(Resource, Default)]
+struct MenuInputProbe(bool);
+
+fn probe_menu_input(menu: Res<AssetContextMenuState>, mut probe: ResMut<MenuInputProbe>) {
+    probe.0 = menu.owns_mouse();
+}
+
 #[derive(Resource)]
 struct ChineseFont(Handle<Font>);
 
 // 显式测试在官方焦点投影之后提供按下/释放，原EditorButtonInput仍负责捕获、可见性和合法释放。
 fn pointer(
     mut pending: ResMut<NextPointer>,
+    mut right: ResMut<NextRightPointer>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut buttons: Query<(&mut Interaction, &mut bevy::ui::RelativeCursorPosition)>,
 ) {
-    let Some((entity, down)) = pending.0.take() else { return; };
+    let (entity, down, button) = if let Some((entity, down)) = pending.0.take() {
+        (entity, down, MouseButton::Left)
+    } else if let Some((entity, down)) = right.0.take() {
+        (entity, down, MouseButton::Right)
+    } else { return; };
     let (mut interaction, mut cursor) = buttons.get_mut(entity).unwrap();
     cursor.cursor_over = true;
-    *interaction = if down { Interaction::Pressed } else { Interaction::Hovered };
-    if down { mouse.press(MouseButton::Left); } else { mouse.release(MouseButton::Left); }
+    *interaction = if down && button == MouseButton::Left { Interaction::Pressed } else { Interaction::Hovered };
+    if down { mouse.press(button); } else { mouse.release(button); }
 }
 
 fn frame(app: &mut App) {
@@ -72,6 +88,41 @@ fn click(app: &mut App, entity: Entity) {
     frame(app);
 }
 
+fn right_click(app: &mut App, entity: Entity) -> Option<Entity> {
+    assert!(!app.world().get::<ComputedNode>(entity).unwrap().is_empty(), "只右击真实布局中的工程行");
+    let primary = {
+        let world = app.world_mut();
+        world.query_filtered::<Entity, With<bevy::window::PrimaryWindow>>().iter(world).next()
+    };
+    let created = primary.is_none().then(|| app.world_mut().spawn((bevy::window::PrimaryWindow,
+        Window { focused: true, ..default() })).id()); // 离屏工作台原本无Winit窗口；菜单仍需原生坐标来源。
+    for _ in 0..4 { frame(app); } // 新窗口进入焦点和布局系统后，再读取真实工程行中心。
+    let center = app.world().get::<UiGlobalTransform>(entity).unwrap().translation;
+    {
+        let world = app.world_mut();
+        let mut window = world.get_mut::<Window>(primary.or(created).unwrap()).unwrap();
+        window.focused = true;
+        window.set_physical_cursor_position(Some(bevy::math::DVec2::new(center.x as f64, center.y as f64)));
+    }
+    app.world_mut().resource_mut::<NextRightPointer>().0 = Some((entity, true));
+    frame(app);
+    assert!(app.world().resource::<AssetContextMenuState>().owns_mouse(), "工程行右键必须由正式路径菜单取得鼠标；input={}，view={:?}，open={}，active={}，loading={}，viewport={}，scroll={:?}，row={:?}，rowrev={:?}，interaction={:?}，guard={}，cursor={:?}",
+        app.world().resource::<MenuInputProbe>().0,
+        app.world().resource::<ProjectBrowserState>().view, app.world().resource::<MapEditorState>().open,
+        app.world().resource::<EditorProjectFileCatalog>().active, app.world().resource::<EditorProjectFileCatalog>().is_loading(),
+        app.world().resource::<super::ProjectFileViewport>().revision,
+        app.world().resource::<super::ProjectFileViewport>().scroll,
+        app.world().get::<ProjectFileRow>(entity).unwrap().entry_index,
+        app.world().get::<ProjectFileRow>(entity).unwrap().viewport_revision,
+        app.world().get::<Interaction>(entity).unwrap(),
+        app.world().resource::<crate::resources::MapEditorNumericScrubMouseGuard>().blocked(),
+        app.world().get::<Window>(primary.or(created).unwrap()).unwrap().physical_cursor_position());
+    app.world_mut().resource_mut::<NextRightPointer>().0 = Some((entity, false));
+    frame(app);
+    frame(app);
+    created
+}
+
 fn project_action(app: &mut App, wanted: ProjectFileAction) -> Entity {
     let world = app.world_mut();
     world.query::<(Entity, &ProjectFileActionButton)>().iter(world)
@@ -88,7 +139,7 @@ fn no_scope_switches(world: &mut World) {
     let page = world.query::<(Entity, &MapEditorSidebarPage)>().iter(world)
         .find_map(|(entity, page)| (page.0 == EditorSidebarTab::Navigator(EditorNavigatorTab::Assets)).then_some(entity)).unwrap();
     for (entity, text) in world.query::<(Entity, &Text)>().iter(world) {
-        if !matches!(text.0.as_str(), "资产" | "工程文件" | "上一页" | "下一页") { continue; }
+        if !matches!(text.0.as_str(), "资产" | "工程文件" | "上一页" | "下一页" | "打开文本" | "外部IDE") { continue; }
         let mut ancestor = entity;
         for _ in 0..32 {
             assert_ne!(ancestor, page, "工程目录不应保留分类或分页按钮：{}", text.0);
@@ -258,13 +309,18 @@ fn production_project_browser_gpu_navigates_project_assets_and_opens_source() {
         .init_resource::<crate::resources::EditorTextInputGuard>()
         .init_resource::<crate::resources::MapBrowserDragState>()
         .init_resource::<crate::authoring::TerrainExternalChangeState>()
+        .init_resource::<feathrise_editor_ui::ActiveNumericInputScrub>()
         .init_resource::<crate::ui::asset_preview::types::AssetPreviewState>()
         .init_resource::<NextPointer>()
+        .init_resource::<NextRightPointer>()
+        .init_resource::<MenuInputProbe>()
         .insert_resource(WorkbenchModel { context: 71, asset_root: Some(root.join("assets")),
             project_root: Some(root.clone()), ..default() })
         .add_systems(PreUpdate, pointer.after(bevy::ui::UiSystems::Focus)
             .before(feathrise_editor_ui::update_editor_button_clicks));
-    crate::ui::external_files::register_requests(&mut app);
+    crate::ui::asset_context_menu::install(&mut app); // 夹具显式安装生产右键系统；普通工作台插件只装基础浏览器。
+    app.add_systems(Update, probe_menu_input.after(crate::ui::asset_context_menu::AssetMenuInput)
+        .before(crate::MapEditorSystemSet::Tasks));
     crate::ui::asset_preview::install_project_browser_test_documents(&mut app);
     crate::ui::asset_thumbnails::install_presentation_test(&mut app); // 核对原缩略图布局；不声称执行bin资产的GPU烘焙。
     let started = Instant::now();
@@ -301,6 +357,23 @@ fn production_project_browser_gpu_navigates_project_assets_and_opens_source() {
     assert!(paths.contains(&"src") && paths.contains(&"Cargo.toml") && paths.contains(&"assets"));
     assert!(!paths.contains(&"target") && !paths.contains(&".git") && !paths.contains(&".trash"));
     snapshot(&mut app, &target, &output.join("01-project-root.png"));
+    let cargo = file_row(&mut app, "Cargo.toml");
+    assert_row_visible(app.world(), cargo, ProjectBrowserView::ProjectFiles);
+    let mock_window = right_click(&mut app, cargo);
+    let favorite_display = {
+        let world = app.world_mut();
+        world.query_filtered::<&Node, With<AssetMenuFavoriteButton>>().iter(world)
+            .map(|node| node.display).collect::<Vec<_>>()
+    };
+    assert_eq!(favorite_display, vec![Display::None], "工程文件菜单不应显示资产专属收藏入口");
+    snapshot(&mut app, &target, &output.join("01-project-root-menu.png"));
+    app.world_mut().resource_mut::<NextRightPointer>().0 = Some((cargo, true));
+    frame(&mut app);
+    app.world_mut().resource_mut::<NextRightPointer>().0 = Some((cargo, false));
+    frame(&mut app);
+    frame(&mut app);
+    assert!(!app.world().resource::<AssetContextMenuState>().owns_mouse());
+    if let Some(window) = mock_window { app.world_mut().despawn(window); }
     let src = file_row(&mut app, "src");
     click(&mut app, src);
     wait(&mut app, |world| files_ready(world) && world.resource::<EditorProjectFileCatalog>().current_folder == "src");
@@ -326,9 +399,8 @@ fn production_project_browser_gpu_navigates_project_assets_and_opens_source() {
     assert_eq!(app.world().resource::<EditorProjectFileCatalog>().selected_file.as_ref().unwrap().relative_path, "src/zzz-last.rs");
     no_scope_switches(app.world_mut());
     snapshot(&mut app, &target, &output.join("02-project-last-file.png"));
-    let open = project_action(&mut app, ProjectFileAction::Open);
-    assert_row_visible(app.world(), open, ProjectBrowserView::ProjectFiles);
-    click(&mut app, open);
+    click(&mut app, main);
+    click(&mut app, main); // 移除重复动作按钮后，仍经原行双击进入唯一中央文档会话。
     // 原打开行为先显示只读代码预览；必须通过真实“编辑”按钮，才能核对唯一原生输入。
     wait(&mut app, |world| world.query_filtered::<&Text, With<DocumentStatus>>().iter(world)
         .any(|text| text.contains("UTF-8")));
@@ -441,6 +513,7 @@ fn production_project_browser_gpu_navigates_project_assets_and_opens_source() {
         "reference_reveal_uses_original_scan": true, "source_center_full_height": true,
         "hidden_entries": ["target", ".git", ".trash"],
         "pagination_controls": false, "project_directory_entries": 194, "asset_directory_entries": 193,
+        "project_root_context_menu": true, "project_only_favorite_hidden": true, "project_action_buttons": false,
         "project_last_file_opened": true, "asset_last_file_selected": true,
         "thumbnail_last_file_visible": true, "deep_reference_reveal_visible": true,
         "project_row_pool": file_pool, "asset_row_pool": asset_pool,

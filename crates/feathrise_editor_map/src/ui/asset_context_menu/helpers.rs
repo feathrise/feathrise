@@ -1,13 +1,15 @@
-//! 资产菜单的纯身份校验、缩放坐标换算和剪贴板反馈，稳定帧不做文件IO。
+//! 工程与资产菜单的纯身份校验、缩放坐标换算和剪贴板反馈，稳定帧不做文件IO。
 
 use bevy::clipboard::ClipboardError; // 复制失败必须给出真实结果，不伪报成功。
 use bevy::prelude::{Rect, Vec2}; // 所有边界计算统一使用UI逻辑像素。
 use std::path::{Component, Path, PathBuf};
-use super::{constants::MAX_COPY_PATH_BYTES, messages::CopyAssetPath, types::AssetPathCopyKind};
+use super::{constants::MAX_COPY_PATH_BYTES, messages::{CopyAssetPath, CopyProjectPath}, types::AssetPathCopyKind};
 
 use super::resources::AssetContextMenuState; // 只读所有权由统一编辑器鼠标门消费。
-use super::types::AssetMenuTarget; // 冻结路径、页索引和版本。
+use super::types::{AssetMenuSource, AssetMenuTarget}; // 冻结路径、页索引和版本。
 use crate::resources::{EditorAssetCatalog, MapEditorState}; // 校验只借用现有目录，不改变作者数据。
+use crate::{asset_catalog::project_files::EditorProjectFileCatalog, ui::project_browser::ProjectFileViewport};
+use bevy::prelude::ScrollPosition;
 
 impl AssetContextMenuState {
     /// 菜单活动及其关闭帧都独占鼠标，避免复制按钮同时绘制地图。
@@ -22,7 +24,8 @@ pub(super) fn target_is_current(
     catalog: &EditorAssetCatalog, // 当前已公开目录。
     editor: &MapEditorState,      // 当前F12会话。
 ) -> bool {
-    editor.open // 隐藏编辑器绝不能留下悬浮菜单。
+    matches!(&target.source, AssetMenuSource::Assets)
+        && editor.open // 隐藏编辑器绝不能留下悬浮菜单。
         && !editor.close_requested // 安全关闭等待也结束浏览操作。
         && editor.pending_map_transition.is_none() // 切图请求已经使旧菜单失效。
         && editor.selected_map_id == target.map_id // 不把另一张图的会话当作同一来源。
@@ -32,6 +35,24 @@ pub(super) fn target_is_current(
         && target.index >= catalog.visible_start
         && target.index < catalog.visible_start.saturating_add(catalog.visible_count)
         && catalog.entries.get(target.index).is_some_and(|entry| entry.asset_path == target.path) // O(1)复核完整路径，文件和目录都可复制。
+}
+
+/// 工程行只有完整来源、滚动窗口和当前路径均未换代时，才能执行冻结菜单动作。
+pub(super) fn project_target_is_current(
+    target: &AssetMenuTarget,
+    catalog: &EditorProjectFileCatalog,
+    viewport: &ProjectFileViewport,
+    scroll: &ScrollPosition,
+    editor: &MapEditorState,
+) -> bool {
+    let AssetMenuSource::Project { root, context } = &target.source else { return false; };
+    editor.open && !editor.close_requested && editor.pending_map_transition.is_none()
+        && editor.selected_map_id == target.map_id && catalog.active
+        && catalog.project_root() == Some(root.as_path()) && catalog.source_context() == Some(*context)
+        && catalog.requested_revision == target.revision && catalog.applied_revision == target.revision
+        && viewport.revision == target.viewport_revision && viewport.scroll == scroll.0
+        && target.index >= viewport.first && target.index < viewport.first.saturating_add(viewport.capacity)
+        && catalog.entries.get(target.index).is_some_and(|entry| entry.asset_path == target.path)
 }
 
 /// 物理鼠标位置只除一次最终UI倍率，支持系统DPI与游戏UiScale叠加。
@@ -75,6 +96,40 @@ pub(super) fn copy_path_status(
         Ok(path) => copy_asset_text_status(description, &path, write),
         Err(error) => format!("复制{description}失败：{error}"), // 路径无效时不覆盖用户原剪贴板。
     }
+}
+
+/// 工程目录相对路径以显式项目根为准；复制地址不需要重新读取磁盘或跟随目录链接。
+pub(super) fn copy_project_path_status(
+    request: &CopyProjectPath,
+    write: impl FnOnce(&str) -> Result<(), ClipboardError>,
+) -> String {
+    let description = request.kind.description();
+    match project_path_to_copy(&request.root, &request.path, request.kind) {
+        Ok(path) => copy_asset_text_status(description, &path, write),
+        Err(error) => format!("复制{description}失败：{error}"),
+    }
+}
+
+pub(super) fn project_path_to_copy(root: &Path, relative: &str, kind: AssetPathCopyKind) -> Result<String, String> {
+    if relative.is_empty() || relative.len() > MAX_COPY_PATH_BYTES || relative.contains(['\\', ':'])
+        || Path::new(relative).components().any(|part| !matches!(part, Component::Normal(_))) {
+        return Err("只能复制工程根内的相对路径".into());
+    }
+    if !root.is_absolute() || root.as_os_str().len() > MAX_COPY_PATH_BYTES {
+        return Err("无法确定当前工程的绝对路径".into());
+    }
+    if kind == AssetPathCopyKind::Relative { return Ok(relative.to_owned()); }
+    let mut absolute = PathBuf::new();
+    for part in root.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => { if !absolute.pop() { return Err("工程根路径无效".into()); } }
+            _ => absolute.push(part.as_os_str()),
+        }
+    }
+    for part in Path::new(relative).components() { absolute.push(part.as_os_str()); }
+    crate::ui::external_files::platform_path(&absolute).into_os_string().into_string()
+        .map_err(|_| "绝对路径包含无法复制的字符".into())
 }
 
 /// 相对复制以当前项目为根；绝对复制对原始assets根做词法归一，源文件删除或目录为链接时仍可复制地址。

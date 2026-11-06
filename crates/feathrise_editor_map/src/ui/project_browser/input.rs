@@ -1,4 +1,4 @@
-//! 工程目录的文件动作；只发布文档/IDE意图，不把源码当作场景资产。
+//! 工程目录的文件动作；双击只发布文档意图，不把源码当作场景资产。
 
 use super::{components::*, resources::{ProjectBrowserState, ProjectFileViewport}, types::*, window};
 use crate::{
@@ -50,7 +50,7 @@ pub(super) fn update_active(
 pub(super) fn files(
     gate: BrowserInputGate,
     state: Res<ProjectBrowserState>,
-    mut editor: ResMut<MapEditorState>,
+    editor: Res<MapEditorState>,
     mut catalog: ResMut<EditorProjectFileCatalog>,
     mut assets: ResMut<EditorAssetCatalog>,
     viewport: Res<ProjectFileViewport>,
@@ -62,7 +62,6 @@ pub(super) fn files(
     documents: Option<Res<crate::ui::asset_preview::DocumentState>>,
     mut last_click: Local<Option<(ProjectFileIdentity, u64, u64, f64)>>,
     mut open: Option<ResMut<Messages<crate::ui::asset_preview::OpenProjectDocument>>>,
-    mut external: Option<ResMut<Messages<crate::ui::asset_preview::OpenProjectInEditor>>>,
 ) {
     if state.view != ProjectBrowserView::ProjectFiles || !gate.available(&editor) {
         *last_click = None;
@@ -80,27 +79,12 @@ pub(super) fn files(
     for (click, button) in &buttons {
         if !click.is_clicked() { continue; }
         let navigation = match button.0 {
-            ProjectFileAction::Up => Some(ProjectFileNavigation::Up),
-            ProjectFileAction::Refresh => Some(ProjectFileNavigation::Refresh),
-            _ => None,
+            ProjectFileAction::Up => ProjectFileNavigation::Up,
+            ProjectFileAction::Refresh => ProjectFileNavigation::Refresh,
         };
-        if let Some(navigation) = navigation {
-            assets.cancel_pending_reveal();
-            catalog.navigate(navigation);
-            *last_click = None;
-        } else if let Some(identity) = catalog.selected_file.clone() {
-            assets.cancel_pending_reveal();
-            if documents.is_none() { continue; } // 无工程工作台不安装另一份文本生命周期或向无人消费的邮箱发打开意图。
-            match button.0 {
-                ProjectFileAction::Open if crate::asset_catalog::document_format(&identity.relative_path).is_some() => {
-                    if let Some(open) = open.as_mut() { open.write(crate::ui::asset_preview::OpenProjectDocument { identity }); }
-                }
-                ProjectFileAction::External => {
-                    if let Some(external) = external.as_mut() { external.write(crate::ui::asset_preview::OpenProjectInEditor { identity }); }
-                }
-                _ => editor.status = "此文件不支持内置文本编辑，可使用外部IDE打开".into(),
-            }
-        }
+        assets.cancel_pending_reveal();
+        catalog.navigate(navigation);
+        *last_click = None;
     }
     if catalog.is_loading() { return; } // 保留旧目录仅供阅读；新请求完成前不接受旧行的迟到释放。
     let Some((_, scroll)) = scrolls.iter().find(|(source, _)| source.0 == ProjectBrowserView::ProjectFiles) else { return; };

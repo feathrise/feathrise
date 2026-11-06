@@ -216,14 +216,16 @@ pub(super) fn open_project_file(root: &Path, request: &OpenExternalFile, availab
         return Ok(format!("已请求打开 {} 的所在文件夹", request.path));
     }
     let editor = request.action.editor().ok_or("请选择明确的外部编辑器")?;
-    if !path.is_file() { return Err("只有工程文件可以使用此IDE入口".into()); }
+    let directory = path.is_dir();
+    if !path.is_file() && !directory { return Err("工程路径不是可打开的文件或目录".into()); }
+    if directory && request.action.location().is_some() { return Err("只有文件可以定位到指定行".into()); }
     let project = request.action.in_project().then_some(root.as_path());
-    let args = editor_arguments(editor, project, &path, request.action.location(), false);
+    let args = editor_arguments(editor, project, &path, request.action.location(), directory);
     launch_editor_with(editor, available, &args, super::discovery::discover, |mut command| {
         if editor == ExternalEditor::RustRover { command.spawn().map(|_| true) }
         else { command.status().map(|status| status.success()) }
     })?;
-    Ok(format!("已请求用 {} 打开 {}{}", editor.name(), request.path,
+    Ok(format!("已请求用 {} 打开 {}{}", editor.name(), if directory && project.is_some() { "当前工程" } else { &request.path },
         if request.has_draft { " · 外部读取磁盘版本，内置草稿保留" } else { "" }))
 }
 

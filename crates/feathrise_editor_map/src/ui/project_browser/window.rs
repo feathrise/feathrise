@@ -28,7 +28,7 @@ pub(super) fn prepare(
     if style.height != px(height) { style.height = px(height); }
     let inverse = page.inverse_scale_factor;
     if page.size().y > 0. && inverse.is_finite() && inverse > 0. {
-        // 整体内容包括上方目录和筛选、下方打开动作；这里只替换列表旧高度，不增加第二层滚动。
+        // 整体内容包括上方目录与筛选、下方文件选择；这里只替换列表旧高度，不增加第二层滚动。
         let maximum = ((page.content_size().y - page.size().y + page.scrollbar_size.y - list.size().y) * inverse + height).max(0.);
         let clamped = scroll.y.clamp(0., maximum);
         if scroll.y != clamped { scroll.y = clamped; }
