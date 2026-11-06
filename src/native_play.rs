@@ -10,7 +10,7 @@ mod worker;
 #[path = "native_play_code_apply.rs"]
 mod code_apply;
 
-pub(crate) use worker::{build_feature_identity, prepare as prepare_game, prepare_with_diagnostics as prepare_game_with_diagnostics, PreparedGame};
+pub(crate) use worker::{build_feature_identity, prepare as prepare_game, prepare_export, prepare_with_diagnostics as prepare_game_with_diagnostics, PreparedGame};
 pub(crate) use worker::prepare_function_patch;
 #[cfg(test)]
 pub(crate) use worker::prepared_for_test;

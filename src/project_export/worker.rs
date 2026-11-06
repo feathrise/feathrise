@@ -11,9 +11,9 @@ pub(super) fn run(
 ) -> Result<ExportReceipt, String> {
     control.check()?;
     let _ = progress.try_send(format!("正在构建{}工程…", profile.label()));
-    // 共享原构建单飞门、Cargo配置与动态库来源；导出不另建一套缓存或运行游戏。
+    // 共享原构建单飞门、Cargo 配置与缓存；交付版本由导出专用链接策略构建。
     let before = crate::code_iteration::export_source_identity(project, target, control)?;
-    let mut prepared = crate::native_play::prepare_game(project, target, None, profile, control)?;
+    let mut prepared = crate::native_play::prepare_export(project, target, profile, control)?;
     if crate::code_iteration::export_source_identity(project, target, control)? != before {
         return Err("构建期间工程源码已变化，请重新导出；原输出保留".into());
     }

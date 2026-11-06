@@ -36,7 +36,7 @@ pub(super) fn prepare(project: &Project, target: &Path, profile: ProjectBuildPro
     let dlls = hotpatch::toolchain::runtime_dlls(&fat, target, control)?;
     let profile_dir = fat.artifacts.executable.parent().ok_or("fat产物缺少父目录")?;
     let search = vec![profile_dir.to_owned(), profile_dir.join("deps"), rust_runtime_directory(project, control)?];
-    let mut files = build_artifacts::runtime_files(&fat.artifacts.executable, target, &dlls, &search, control)?;
+    let mut files = build_artifacts::runtime_files(&fat.artifacts.executable, target, &dlls, &search, false, control)?;
     files.push(build_artifacts::RuntimeFile { source: fat.artifacts.pdb.clone(),
         relative: fat.artifacts.pdb.file_name().ok_or("fat产物缺少PDB名")?.into() });
     let bundle = build_artifacts::publish(target, &project.context.storage_key, &fat.artifacts.executable, &files,

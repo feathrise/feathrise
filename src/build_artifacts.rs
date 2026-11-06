@@ -77,12 +77,13 @@ pub(crate) fn runtime_files(
     target: &Path,
     dlls: &[CargoDll],
     search_paths: &[PathBuf],
+    no_vc_redist: bool,
     control: &BuildControl,
 ) -> Result<Vec<RuntimeFile>, String> {
     #[cfg(unix)]
-    { unix::runtime_files(executable, target, dlls, search_paths, control) }
+    { let _ = no_vc_redist; unix::runtime_files(executable, target, dlls, search_paths, control) }
     #[cfg(windows)]
-    { runtime_files_windows(executable, target, dlls, search_paths, control) }
+    { runtime_files_windows(executable, target, dlls, search_paths, no_vc_redist, control) }
 }
 
 #[cfg(windows)]
@@ -91,6 +92,7 @@ fn runtime_files_windows(
     target: &Path,
     dlls: &[CargoDll],
     search_paths: &[PathBuf],
+    no_vc_redist: bool,
     control: &BuildControl,
 ) -> Result<Vec<RuntimeFile>, String> {
     let mut candidates = BTreeMap::new();
@@ -121,9 +123,13 @@ fn runtime_files_windows(
         if visited.len() > FILE_LIMIT {
             return Err("运行依赖闭包超过 256 项".into());
         }
-        for name in pe::imported_dlls(&binary)? {
+        for name in pe::imported_dlls(&binary, no_vc_redist)? {
             control.check()?;
             let lower = name.to_ascii_lowercase();
+            // 导出不能把开发机上碰巧已安装的 VC DLL 当成系统自带库。
+            if no_vc_redist && pe::is_vc_runtime(&lower) {
+                return Err(format!("免装 VC Redist 的导出仍依赖运行库：{} -> {name}。请将相应原生依赖以静态 CRT 重新构建。", binary.display()));
+            }
             let source = if let Some(source) = candidates.get(&lower) {
                 Some(source.clone())
             } else if lower.starts_with("bevy_dylib-") {

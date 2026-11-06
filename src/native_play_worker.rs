@@ -156,6 +156,18 @@ pub(crate) fn prepare(
     prepare_with_diagnostics(project, target, map_id, profile, control, None)
 }
 
+pub(crate) fn prepare_export(
+    project: &Project,
+    target: &Path,
+    profile: ProjectBuildProfile,
+    control: &BuildControl,
+) -> Result<PreparedGame, String> {
+    // 显式厂商原生组合有独立的运行库前提，基础 Windows 导出才要求整个依赖闭包免装 VC Redist。
+    let no_vc_redist = cfg!(all(windows, target_env = "msvc"))
+        && !cfg!(any(feature = "rtx_rendering", feature = "dlss_frame_generation", feature = "fsr3_frame_generation"));
+    prepare_build(project, target, None, profile, control, None, no_vc_redist)
+}
+
 pub(crate) fn prepare_with_diagnostics(
     project: &Project,
     target: &Path,
@@ -163,6 +175,18 @@ pub(crate) fn prepare_with_diagnostics(
     profile: ProjectBuildProfile,
     control: &BuildControl,
     diagnostics: Option<DiagnosticCallback>,
+) -> Result<PreparedGame, String> {
+    prepare_build(project, target, map_id, profile, control, diagnostics, false)
+}
+
+fn prepare_build(
+    project: &Project,
+    target: &Path,
+    map_id: Option<&str>,
+    profile: ProjectBuildProfile,
+    control: &BuildControl,
+    diagnostics: Option<DiagnosticCallback>,
+    no_vc_redist: bool,
 ) -> Result<PreparedGame, String> {
     let _guard = acquire_build_slot(control)?;
     control.check()?;
@@ -175,8 +199,9 @@ pub(crate) fn prepare_with_diagnostics(
     }
     fs::create_dir_all(&target).map_err(|error| crate::environment_diagnostics::cache_failure(&target, "准备构建缓存", &error))?;
     let target = target.canonicalize().map_err(|error| crate::environment_diagnostics::cache_failure(&target, "确认构建缓存目录", &error))?;
+    // 独立交付只运行已保存工程，无需加载 F12 的 fat 热补丁基线或其动态 CRT。
     #[cfg(windows)]
-    if let Some(prepared) = hotpatch::prepare(project, &target, profile, control, diagnostics.clone())? {
+    if !no_vc_redist && let Some(prepared) = hotpatch::prepare(project, &target, profile, control, diagnostics.clone())? {
         return Ok(prepared);
     }
     let cargo = std::env::var_os("EDITOR_HOST_CARGO")
@@ -186,6 +211,9 @@ pub(crate) fn prepare_with_diagnostics(
     // 启动普通game而非DLL或作者宿主；Cargo自动判断新源码，未改源码时直接复用缓存。
     command.arg("build");
     configure_project_cargo(&mut command, project, &target, profile);
+    if no_vc_redist {
+        configure_export_crt(&mut command);
+    }
     command.args(["--bins", "--message-format=json"]);
     // 只依据该工程自己的依赖决定是否允许取源，不把编辑器的新建配置套到旧工程上。
     crate::project_template::apply_project_network_policy(&project.manifest, &mut command)?;
@@ -222,7 +250,7 @@ pub(crate) fn prepare_with_diagnostics(
     PreparedGame { executable, target, linked_paths: build.stdout.linked_paths,
         dlls: build.stdout.dlls, build_outputs: build.stdout.build_outputs,
         project_id: project.id.clone(), project_root: project.root.clone(), profile, bundle: None, hotpatch: None,
-    }.snapshot(project, control)
+    }.snapshot(project, control, no_vc_redist)
 }
 
 impl PreparedGame {
@@ -237,13 +265,13 @@ impl PreparedGame {
         self.project_id == project.id && self.project_root == project.root && self.profile == profile
     }
 
-    pub(crate) fn snapshot(&self, project: &Project, control: &BuildControl) -> Result<Self, String> {
+    fn snapshot(&self, project: &Project, control: &BuildControl, no_vc_redist: bool) -> Result<Self, String> {
         if !self.matches_project(project, self.profile) { return Err("运行副本的工程身份不匹配".into()); }
         if let Some(bundle) = &self.bundle { crate::build_artifacts::verify(bundle, control)?; return Ok(self.clone()); }
         let mut search_paths = self.linked_paths.clone();
         let profile = self.executable.parent().ok_or("工程产物缺少 profile 目录")?;
         search_paths.extend([profile.join("deps"), profile.to_path_buf(), rust_runtime_directory(project, control)?]);
-        let mut files = crate::build_artifacts::runtime_files(&self.executable, &self.target, &self.dlls, &search_paths, control)?;
+        let mut files = crate::build_artifacts::runtime_files(&self.executable, &self.target, &self.dlls, &search_paths, no_vc_redist, control)?;
         append_vendor_runtime(&self.build_outputs, &self.target, &mut files)?;
         let bundle = crate::build_artifacts::publish(&self.target, &project.context.storage_key, &self.executable, &files,
             serde_json::json!({"project_id":project.id,"project_root":project.root,"profile":self.profile.cargo_profile()}), control)?;
@@ -375,6 +403,23 @@ fn configure_project_cargo(command: &mut Command, project: &Project, target: &Pa
         .args(["-p", &project.package, "--profile", profile.cargo_profile()])
         .current_dir(&project.root)
         .env("CARGO_TARGET_DIR", target);
+}
+
+fn configure_export_crt(command: &mut Command) {
+    const STATIC_CRT: &str = "-Ctarget-feature=+crt-static";
+    // Cargo 优先采用这两种环境变量。向已生效的值追加标志，避免丢失作者显式传入的参数。
+    if let Some(mut flags) = std::env::var_os("CARGO_ENCODED_RUSTFLAGS") {
+        if !flags.is_empty() { flags.push("\x1f"); }
+        flags.push(STATIC_CRT);
+        command.env("CARGO_ENCODED_RUSTFLAGS", flags);
+    } else if let Some(mut flags) = std::env::var_os("RUSTFLAGS") {
+        flags.push(" ");
+        flags.push(STATIC_CRT);
+        command.env("RUSTFLAGS", flags);
+    } else {
+        // 使用独立的 cfg 键与工程的具体 target 配置合并，避免改写工程的 Cargo 文件或目标选择。
+        command.args(["--config", r#"target.'cfg(all(windows, target_env = "msvc"))'.rustflags=['-Ctarget-feature=+crt-static']"#]);
+    }
 }
 
 fn validate_requested_map(
