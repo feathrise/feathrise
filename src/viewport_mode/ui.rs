@@ -48,7 +48,7 @@ pub(super) fn mount(
                         .with_children(|button| {
                             button.spawn((
                                 ModeLabel,
-                                Text::new(mode.label()),
+                                feathrise_editor_ui::localization::editor_label(mode.label()),
                                 TextFont {
                                     font: font.clone().into(),
                                     font_size: 12.0.into(),
@@ -141,19 +141,23 @@ pub(super) fn input(
 
 pub(super) fn present(
     state: Res<ViewportModeState>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     launch: Res<ProjectLaunchSettings>,
     interruption: Option<Res<feathrise_editor_core::ProjectLaunchInterruption>>,
     mut statuses: Query<&mut Text, (With<ModeStatus>, Without<ProjectLaunchLabel>)>,
     mut launch_labels: Query<&mut Text, (With<ProjectLaunchLabel>, Without<ModeStatus>, Without<ModeLabel>)>,
     mut buttons: Query<(&ModeButton, &Interaction, &mut BorderColor, &mut BackgroundColor, &mut feathrise_editor_ui::ButtonColors)>,
 ) {
+    let locale = locale.as_deref().copied().unwrap_or_default();
+    let status = locale.editor_notice(&state.status);
     for mut text in &mut statuses {
-        if text.as_str() != state.status {
-            **text = state.status.clone();
+        if text.as_str() != status.as_ref() {
+            **text = status.as_ref().to_owned();
         }
     }
     for mut text in &mut launch_labels {
         let caption = interruption.as_ref().and_then(|phase|phase.action_label()).unwrap_or_else(||launch.action_label());
+        let caption = locale.editor_label(caption);
         if text.as_str() != caption { **text = caption.into(); }
     }
     // 文字始终使用挂载时的固定名称；选中态只变底色与边框，不插入会使按钮变宽的圆点。

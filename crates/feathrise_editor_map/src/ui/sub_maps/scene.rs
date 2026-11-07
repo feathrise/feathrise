@@ -13,7 +13,7 @@ fn button(label: &str, action: Action) -> impl Scene {
             border_radius: BorderRadius::all(px(3)), align_items: AlignItems::Center,
             justify_content: JustifyContent::Center, padding: UiRect::horizontal(px(3)) }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(Text(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+        Children [(Text(label) feathrise_editor_ui::localization::label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY))]
     }
 }
@@ -36,7 +36,7 @@ pub(crate) fn panel() -> impl Scene {
             flex_shrink: 0.0, row_gap: px(3), padding: UiRect::top(px(4)) }
         Children [
             (crate::ui::context_help::section_header("子地图", "在父地图调整子地图引用的整体位置与朝向；内部内容请打开源地图编辑。复制或移除只操作当前引用，不修改源地图内容。")),
-            (Summary Text("子地图")
+            (Summary Text("子地图") feathrise_editor_ui::localization::label_scene("子地图")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED)),
             (ListViewport crate::ui::list_layout::SceneObjectListScroll bevy::ui::RelativeCursorPosition::default() ScrollPosition::default()

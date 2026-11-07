@@ -116,11 +116,16 @@ pub(crate) struct ProcessOutput<T> {
 /// 沿用正文解码器的有界分段，长命令不会被任务标题的单行上限静默截断。
 pub(crate) fn log_build_command(command: &Command, control: &BuildControl) {
     let Some(sink) = control.log_sink() else { return; };
+    let locale = sink.locale();
     let mut log = crate::project_log::LogDecoder::new(Some(sink), crate::project_log::LogSource::Build);
     if let Some(directory) = command.get_current_dir() {
-        log.write(format!("工作目录：{}\n", directory.display()).as_bytes());
+        let label = locale.format("log.command.directory", &[("path", directory.display().to_string())]);
+        log.write(label.as_bytes());
+        log.write(b"\n");
     }
-    log.write(if cfg!(windows) { "构建命令（PowerShell）：\n& ".as_bytes() } else { "构建命令：\n".as_bytes() });
+    let key = if cfg!(windows) { "log.command.powershell" } else { "log.command.shell" };
+    log.write(locale.text(key).as_bytes());
+    log.write(if cfg!(windows) { b"\n& " } else { b"\n" });
     for (index, value) in std::iter::once(command.get_program()).chain(command.get_args()).enumerate() {
         if index != 0 { log.write(b" "); }
         let text = value.to_string_lossy();

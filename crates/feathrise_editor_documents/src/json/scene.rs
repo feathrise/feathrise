@@ -14,7 +14,7 @@ pub(crate) fn format_button() -> impl Scene {
             border: px(1), border_radius: BorderRadius::all(px(3)) }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text("格式化") template_value(FocusPolicy::Pass)
+            Text("格式化") feathrise_editor_ui::localization::label_scene("格式化") template_value(FocusPolicy::Pass)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -34,7 +34,7 @@ pub(crate) fn diagnostic() -> impl Scene {
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
             TextColor(colors::TEXT_HINT)
         ), (
-            Text("定位错误") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+            Text("定位错误") feathrise_editor_ui::localization::label_scene("定位错误") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_ACCENT)
         )]

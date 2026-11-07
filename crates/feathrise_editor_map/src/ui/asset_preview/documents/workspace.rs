@@ -6,10 +6,12 @@ use crate::ui::workspace_tabs::{spawn_preset_tab, tab_list_node};
 use crate::ui::{scene::FONT_PATH, vegetation_preset_editor::VegetationPresetEditorState};
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
+use feathrise_editor_ui::{localization::EditorLocale, workspace_tabs::WorkspaceTabButton};
 
 pub(super) fn sync(
     mut commands: Commands,
     state: Res<DocumentState>,
+    locale: Option<Res<EditorLocale>>,
     server: Res<AssetServer>,
     workspace: Option<Res<VegetationPresetEditorState>>,
     replacement: Option<Res<super::search::AssetReplaceState>>,
@@ -18,6 +20,8 @@ pub(super) fn sync(
     panels: Query<(Entity, &ChildOf), With<DocumentPanel>>,
     hosts: Query<Entity, With<MapEditorPresetTabScroll>>,
     roots: Query<Entity, With<DocumentTabRoot>>,
+    tab_buttons: Query<(&DocumentAction, &Children), With<WorkspaceTabButton>>,
+    mut tab_text: Query<&mut Text>,
     added_ui: Query<
         (),
         Or<(
@@ -28,7 +32,8 @@ pub(super) fn sync(
     >,
     mut painted: Local<Option<Vec<(u64, String, bool, bool)>>>,
 ) {
-    if !state.is_changed() && added_ui.is_empty() && replacement.as_ref().is_none_or(|state| !state.is_changed()) {
+    let locale_changed = locale.as_ref().is_some_and(|locale| locale.is_changed());
+    if !state.is_changed() && !locale_changed && added_ui.is_empty() && replacement.as_ref().is_none_or(|state| !state.is_changed()) {
         return; // 稳定帧不复制路径、不重挂父关系，也不重画标签。
     }
     for (_, mut node) in &mut centers {
@@ -66,7 +71,20 @@ pub(super) fn sync(
         (tab.id, tab.path.clone(), dirty, active)
     }).collect();
     key.sort_by_key(|tab| tab.0); // 最多8项，切换活动文件不改变标签的打开顺序。
+    let locale = locale.as_deref().copied().unwrap_or_default();
     if painted.as_ref() == Some(&key) && (key.is_empty() || !roots.is_empty()) {
+        // 语言是呈现修订。原活动标签、关闭动作及其命中实体都继续使用同一身份。
+        if locale_changed {
+            for (action, children) in &tab_buttons {
+                let DocumentAction::ActivateTab(id) = action else { continue };
+                let Some((_, path, dirty, _)) = key.iter().find(|tab| tab.0 == *id) else { continue };
+                for child in children.iter() {
+                    if let Ok(mut text) = tab_text.get_mut(child) {
+                        text.set_if_neq(Text::new(tab_caption(locale, path, *dirty)));
+                    }
+                }
+            }
+        }
         return;
     } // 只在路径、未保存状态或激活状态变化时重画标签。
     *painted = Some(key.clone());
@@ -82,14 +100,18 @@ pub(super) fn sync(
             .spawn((DocumentTabRoot, RelativeCursorPosition::default(), tab_list_node())) // 右键覆盖标题与关闭键，祖先裁剪仍有效。
             .with_children(|row| {
                 for (id, path, dirty, active) in key {
-                    let filename = path.rsplit('/').next().unwrap_or(&path);
-                    let label = format!("文档 · {filename}{}", if dirty { " *" } else { "" });
+                    let label = tab_caption(locale, &path, dirty);
                     spawn_preset_tab(row, &font, &label,
                         (DocumentAction::ActivateTab(id), crate::ui::external_files::ExternalFileTab(path.clone()), RelativeCursorPosition::default()),
                         (DocumentAction::CloseTab(id), crate::ui::external_files::ExternalFileTab(path), RelativeCursorPosition::default()), active, false);
                 }
             });
     });
+}
+
+fn tab_caption(locale: EditorLocale, path: &str, dirty: bool) -> String {
+    let filename = path.rsplit('/').next().unwrap_or(path);
+    locale.format("document.tab", &[("file", filename.into()), ("dirty", if dirty { " *" } else { "" }.into())])
 }
 
 /// 离屏布局夹具使用真实文件会话和标签同步；不启动加载、解析、保存或文件检查。

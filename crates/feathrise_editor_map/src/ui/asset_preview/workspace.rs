@@ -5,7 +5,7 @@ use bevy::{
     text::FontSourceTemplate,
     ui::{FocusPolicy, RelativeCursorPosition},
 };
-use feathrise_editor_ui::metrics as ui_metrics;
+use feathrise_editor_ui::{localization::EditorLocale, metrics as ui_metrics, workspace_tabs::WorkspaceTabButton};
 
 use super::{components::*, resources::*, types::*};
 use crate::components::MapEditorPresetTabScroll;
@@ -67,7 +67,7 @@ fn launch_button(label: &str, action: AssetPreviewWorkspaceAction) -> impl Scene
             border: px(1), border_radius: BorderRadius::all(px(3)) }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label) template_value(FocusPolicy::Pass)
+            Text(label) feathrise_editor_ui::localization::label_scene(label) template_value(FocusPolicy::Pass)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -457,6 +457,7 @@ pub(super) fn sync_presentation(
     state: Res<AssetPreviewState>,
     editor: Res<MapEditorState>,
     server: Res<AssetServer>,
+    locale: Option<Res<EditorLocale>>,
     drafts: (
         Option<Res<super::AnimationEditorState>>,
         Option<Res<super::DocumentState>>,
@@ -474,7 +475,9 @@ pub(super) fn sync_presentation(
             With<AssetPreviewDocumentLaunch>,
         )>,
     >,
-    mut labels: Query<&mut Text, With<AssetPreviewExpandLabel>>,
+    mut labels: Query<&mut Text>,
+    expand_labels: Query<Entity, With<AssetPreviewExpandLabel>>,
+    tab_buttons: Query<(&AssetPreviewWorkspaceAction, &Children), With<WorkspaceTabButton>>,
     hosts: Query<Entity, With<MapEditorPresetTabScroll>>,
     roots: Query<Entity, With<AssetPreviewTabRoot>>,
     added: Query<
@@ -487,9 +490,11 @@ pub(super) fn sync_presentation(
     >,
     mut painted: Local<Option<Vec<(u64, String, bool, bool)>>>,
 ) {
+    let locale_changed = locale.as_ref().is_some_and(|locale| locale.is_changed());
     if !media.is_changed()
         && !state.is_changed()
         && !editor.is_changed()
+        && !locale_changed
         && added.is_empty()
         && !drafts.0.as_ref().is_some_and(|state| state.is_changed())
     {
@@ -514,13 +519,14 @@ pub(super) fn sync_presentation(
             node.display = display;
         }
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let label = if media.central_active {
-        "返回侧栏"
+        locale.text("label.return-to-sidebar")
     } else {
-        "放大"
+        locale.text("label.zoom-in")
     };
-    for mut text in &mut labels {
-        if text.0 != label {
+    for entity in &expand_labels {
+        if let Ok(mut text) = labels.get_mut(entity) && text.0 != label {
             text.0 = label.into();
         }
     }
@@ -549,6 +555,18 @@ pub(super) fn sync_presentation(
             .collect();
     key.sort_by_key(|entry| entry.0);
     if painted.as_ref() == Some(&key) && (key.is_empty() || !roots.is_empty()) {
+        // 媒体标签切换语言时仅更新标题，保留画布、活动标签和当前点击身份。
+        if locale_changed {
+            for (action, children) in &tab_buttons {
+                let AssetPreviewWorkspaceAction::ActivateTab(id) = action else { continue };
+                let Some((_, path, _, dirty)) = key.iter().find(|tab| tab.0 == *id) else { continue };
+                for child in children.iter() {
+                    if let Ok(mut text) = labels.get_mut(child) {
+                        text.set_if_neq(Text::new(media_tab_caption(locale, path, *dirty)));
+                    }
+                }
+            }
+        }
         return;
     }
     *painted = Some(key.clone());
@@ -568,11 +586,7 @@ pub(super) fn sync_presentation(
             ))
             .with_children(|row| {
                 for (id, path, active, dirty) in key {
-                    let label = format!(
-                        "预览 · {}{}",
-                        path.rsplit('/').next().unwrap_or(&path),
-                        if dirty { " *" } else { "" }
-                    );
+                    let label = media_tab_caption(locale, &path, dirty);
                     crate::ui::workspace_tabs::spawn_preset_tab(
                         row,
                         &font,
@@ -593,6 +607,11 @@ pub(super) fn sync_presentation(
                 }
             });
     });
+}
+
+fn media_tab_caption(locale: EditorLocale, path: &str, dirty: bool) -> String {
+    let file = path.rsplit('/').next().unwrap_or(path);
+    locale.format("asset.preview.tab", &[("file", file.into()), ("dirty", if dirty { " *" } else { "" }.into())])
 }
 
 #[cfg(test)]

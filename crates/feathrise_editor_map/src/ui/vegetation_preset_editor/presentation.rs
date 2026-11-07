@@ -1,6 +1,7 @@
 //! 预设管理内嵌面板的增量文字、显隐、焦点和按钮反馈。
 
 use bevy::prelude::*; // Query、Text与UI颜色组件。
+use feathrise_editor_ui::localization::EditorLocale;
 use feathrise_map_content::{
     BladePresetMotion, VegetationPresetCollision, VegetationPresetRegistry, VegetationPresetRuntime,
 }; // 摘要直接读取正式运行时枚举。
@@ -21,6 +22,7 @@ pub(super) fn sync_panel(
     state: Res<VegetationPresetEditorState>,
     editor: Res<MapEditorState>,
     registry: Option<Res<VegetationPresetRegistry>>,
+    locale: Option<Res<EditorLocale>>,
     mut summaries: Query<&mut Text, With<PresetEditorSummaryText>>,
     mut statuses: Query<
         &mut Text,
@@ -47,15 +49,17 @@ pub(super) fn sync_panel(
         ),
     >,
 ) {
-    let summary = panel_summary(&state, &editor, registry.as_deref());
+    let locale = locale.as_deref().copied().unwrap_or_default();
+    let summary = panel_summary(&state, &editor, registry.as_deref(), locale);
     for mut text in &mut summaries {
         if **text != summary {
             **text = summary.clone();
         }
     }
+    let status = locale.editor_notice(&state.status);
     for mut text in &mut statuses {
-        if **text != state.status {
-            **text = state.status.clone();
+        if text.as_str() != status.as_ref() {
+            **text = status.to_string();
         }
     }
     if state.is_changed() {
@@ -104,52 +108,51 @@ fn panel_summary(
     state: &VegetationPresetEditorState,
     editor: &MapEditorState,
     registry: Option<&VegetationPresetRegistry>,
+    locale: EditorLocale,
 ) -> String {
     let selected_asset = editor
         .selected_asset
         .as_deref()
         .map(|path| shorten(path, 34))
-        .unwrap_or_else(|| "未选择".to_owned()); // 字段前缀已说明是资产，不重复内部称谓。
+        .unwrap_or_else(|| locale.text("vegetation.selection.no_asset").to_owned());
     if let Some(draft) = state.active_draft() {
         let mode = match &draft.mode {
-            PresetDraftMode::Create => "新建",
-            PresetDraftMode::Edit { .. } => "编辑",
+            PresetDraftMode::Create => "vegetation.selection.new",
+            PresetDraftMode::Edit { .. } => "label.edit",
         };
-        return format!(
-            "{mode}：{}{}\n{} · 资产：{}", // 显示作者名称与保存状态，技术ID留在详细表单。
-            draft.descriptor.label,        // 名称比内部ID更适合侧栏定位。
-            if draft.dirty() { "（未保存）" } else { "" }, // 直接解释原来的星号。
-            runtime_summary(&draft.descriptor.runtime), // 使用中文类型摘要。
-            selected_asset                 // 保留新建所用资产的短路径。
-        );
+        return locale.format("vegetation.selection.draft", &[
+            ("mode", locale.text(mode).to_owned()),
+            ("name", draft.descriptor.label.clone()),
+            ("dirty", if draft.dirty() { locale.text("vegetation.selection.unsaved").to_owned() } else { String::new() }),
+            ("type", runtime_summary(&draft.descriptor.runtime, locale)),
+            ("asset", selected_asset),
+        ]);
     }
     let Some(id) = editor.vegetation_selected_preset_id.as_deref() else {
-        return format!("所选预设：无\n资产：{selected_asset}"); // 未选择时也保持固定字段层级。
+        return locale.format("vegetation.selection.empty", &[("asset", selected_asset)]);
     };
     match registry.and_then(|registry| registry.resolve(id)) {
-        Some(preset) => format!(
-            "所选：{} · {}\n资产：{}", // 去掉窄侧栏中无助于操作的技术ID。
-            preset.label,
-            runtime_summary(&preset.runtime),
-            selected_asset
-        ),
-        None => format!("所选预设暂不可用：{id}\n请等待预设库更新，或重新选择。"), // 仅异常时保留ID以定位失效引用，并给出后续操作。
+        Some(preset) => locale.format("vegetation.selection.selected", &[
+            ("name", preset.label.clone()),
+            ("type", runtime_summary(&preset.runtime, locale)),
+            ("asset", selected_asset),
+        ]),
+        None => locale.format("vegetation.selection.unavailable", &[("id", id.to_owned())]),
     }
 }
 
 /// 返回Blade运动或Mesh碰撞的后端摘要。
-fn runtime_summary(runtime: &VegetationPresetRuntime) -> String {
+fn runtime_summary(runtime: &VegetationPresetRuntime, locale: EditorLocale) -> String {
     match runtime {
         VegetationPresetRuntime::Blade { motion, .. } => {
-            format!("草本 · {}", motion_name(motion)) // 与“新建草本预设”按钮一致。
+            locale.format("vegetation.type.blade", &[("motion", locale.editor_label(motion_name(motion)).to_owned())])
         }
         VegetationPresetRuntime::Mesh {
             lods, collision, ..
-        } => format!(
-            "模型 · {}档细节 · {}",
-            lods.len(),
-            collision_name(collision)
-        ), // 解释档数用途，避免直接显示后端名称。
+        } => locale.format("vegetation.type.mesh", &[
+            ("count", lods.len().to_string()),
+            ("collision", locale.editor_label(collision_name(collision)).to_owned()),
+        ]),
     }
 }
 

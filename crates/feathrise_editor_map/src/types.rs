@@ -37,6 +37,7 @@ pub(crate) enum EditorSettingsAction {
     IncreaseScale,
     SetAutoScale,
     SetScale(u16),
+    SetLocale(feathrise_editor_core::EditorLocalePreference),
     SetColorTheme(feathrise_editor_core::EditorColorTheme),
     ToggleTerrainBackfaces,
     ResetLayout,

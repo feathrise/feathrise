@@ -25,7 +25,7 @@ fn tab(page: GameplaySidebarPage) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -34,7 +34,7 @@ fn tab(page: GameplaySidebarPage) -> impl Scene {
 
 fn heading(label: &str) -> impl Scene {
     bsn! {
-        Text(label)
+        Text(label) feathrise_editor_ui::localization::label_scene(label)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
         TextColor(colors::TEXT_ACCENT)
         TextLayout { linebreak: LineBreak::AnyCharacter }
@@ -70,7 +70,7 @@ fn browse(label: &str, action: GameplaySidebarBrowse) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -115,7 +115,7 @@ fn boundary_panel() -> impl Scene {
                 Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 } // 三个公共数值框纵排，原字段身份、实时拖动和撤销不变。
             ),
             (
-                MapEditorBoundaryText Text("区域边界：等待地图作者数据")
+                MapEditorBoundaryText Text("区域边界：等待地图作者数据") feathrise_editor_ui::localization::label_scene("区域边界：等待地图作者数据")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_VALUE)
                 TextLayout { linebreak: LineBreak::AnyCharacter }

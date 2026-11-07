@@ -9,7 +9,7 @@ use crate::ui::{
 use bevy::{prelude::*, text::FontSourceTemplate};
 use feathrise_editor_ui::{
     NumericInputScrubConfig, NumericInputSpec, NumericScrubFieldOptions, NumericScrubFieldStyle,
-    NumericValue, spawn_numeric_scrub_field,
+    NumericValue, spawn_localized_numeric_scrub_field,
 };
 
 fn button(label: &str, action: Action) -> impl Scene {
@@ -19,11 +19,11 @@ fn button(label: &str, action: Action) -> impl Scene {
     border: px(1), border_radius: BorderRadius::all(px(2)), align_items: AlignItems::Center,
     justify_content: JustifyContent::Center, padding: UiRect::horizontal(px(3)) }
     BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
-    Children [(ActionLabel(action) Text(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+    Children [(ActionLabel(action) Text(label) feathrise_editor_ui::localization::label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
         TextColor(colors::TEXT_PRIMARY))] }, lod_binding)
 }
 fn caption(label: &str) -> impl Scene {
-    bsn! { Text(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
+    bsn! { Text(label) feathrise_editor_ui::localization::label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
     TextColor(colors::TEXT_MUTED) TextLayout::linebreak(LineBreak::AnyCharacter)
     Node { width: percent(100), min_width: px(0) } }
 }
@@ -96,7 +96,7 @@ fn lod_value_cell(index: usize, column: LodColumn, display: bool) -> impl Scene 
 fn lod_heading(label: &str) -> impl Scene {
     let grow = if label == "LOD" { 0.0 } else { 1.0 };
     let basis = if label == "LOD" { px(28) } else { px(0) };
-    bsn! { template_value(Text(label.to_owned())) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
+    bsn! { Text(label) feathrise_editor_ui::localization::label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
         TextColor(colors::TEXT_MUTED) TextLayout::no_wrap()
         Node { flex_grow: grow, flex_basis: basis, min_width: px(0) } }
 }
@@ -126,7 +126,7 @@ fn axis_row(label: &str, first: usize) -> impl Scene {
     bsn! { template_value(axis_row_node())
         Children [
             // 位置/缩放的组标签作为每行独立模板值绑定。
-            (template_value(Text(label.to_owned())) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
+            (Text(label) feathrise_editor_ui::localization::label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED) Node { width: px(32), flex_shrink: 0.0 }),
             (compact_slot(Field::Selected(first))), (compact_slot(Field::Selected(first + 1))),
             (compact_slot(Field::Selected(first + 2))),
@@ -137,7 +137,7 @@ fn axis_row(label: &str, first: usize) -> impl Scene {
 fn rotation_row() -> impl Scene {
     bsn! { template_value(axis_row_node())
         Children [
-            (Text("旋转") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
+            (Text("旋转") feathrise_editor_ui::localization::label_scene("旋转") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED) Node { width: px(32), flex_shrink: 0.0 }),
             (compact_slot(Field::Rotation(0))), (compact_slot(Field::Rotation(1))), (compact_slot(Field::Rotation(2))),
         ] }
@@ -187,7 +187,7 @@ pub(crate) fn panel() -> impl Scene {
                         (Text("?") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_HINT) Pickable::IGNORE),
                         (CreationSummary feathrise_editor_ui::context_help::ContextHelpBody
-                            Text("高度网格高度域不是平面厚度；Clipmap高度不受此项限制；体素高为初始实心盒高。原始 GLB 使用资产几何。")
+                            Text("高度网格高度域不是平面厚度；Clipmap高度不受此项限制；体素高为初始实心盒高。原始 GLB 使用资产几何。") feathrise_editor_ui::localization::label_scene("高度网格高度域不是平面厚度；Clipmap高度不受此项限制；体素高为初始实心盒高。原始 GLB 使用资产几何。")
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_MUTED) TextLayout::linebreak(LineBreak::AnyCharacter)
                             Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }),
@@ -201,7 +201,7 @@ pub(crate) fn scene_list_panel() -> impl Scene {
     bsn! { MeshSceneListRoot Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column,
     flex_shrink: 0.0, row_gap: px(3), padding: UiRect::top(px(4)) }
     Children [
-        (ListSummary Text("当前地图暂无独立网格。")
+        (ListSummary Text("当前地图暂无独立网格。") feathrise_editor_ui::localization::label_scene("当前地图暂无独立网格。")
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
             TextColor(colors::TEXT_MUTED) TextLayout::linebreak(LineBreak::AnyCharacter)
             Node { width: percent(100), min_width: px(0) }),
@@ -327,7 +327,7 @@ pub(super) fn setup(
             unit_font_size: 9.5,
         });
         commands.entity(entity).with_children(|parent| {
-            let root = spawn_numeric_scrub_field(parent, field, feathrise_editor_core::editor_font(&server, FONT_PATH), options);
+            let root = spawn_localized_numeric_scrub_field(parent, field, feathrise_editor_core::editor_font(&server, FONT_PATH), options);
             if let Some(row) = lod_row { parent.commands().entity(root).insert(LodFieldRow(row)); }
             parent
                 .commands()
@@ -383,7 +383,7 @@ pub(crate) fn properties_panel() -> impl Scene {
                 flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 } Children [
                 (Node { width: percent(100), min_width: px(0), height: px(26),
                     align_items: AlignItems::Center, column_gap: px(4), flex_shrink: 0.0 } Children [
-                    (Text("名称") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
+                    (Text("名称") feathrise_editor_ui::localization::label_scene("名称") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                         TextColor(colors::TEXT_MUTED) TextLayout::no_wrap() Node { width: px(32), flex_shrink: 0.0 }),
                     (NameInput crate::ui::text_input::EditorTextInput
                         template_value(crate::ui::text_input::single_line_input("", 128))
@@ -407,14 +407,14 @@ pub(crate) fn properties_panel() -> impl Scene {
                 (PanelSection(Section::Type) Node { width: percent(100), min_width: px(0),
                     flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 } Children [
                     (Node { width: percent(100), min_width: px(0), height: px(26), column_gap: px(4), align_items: AlignItems::Center, flex_shrink: 0.0 } Children [
-                        (Text("类型") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
+                        (Text("类型") feathrise_editor_ui::localization::label_scene("类型") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                             TextColor(colors::TEXT_MUTED) Node { width: px(67), flex_shrink: 0.0 }),
                         (RepresentationSummary Text("") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_VALUE) Node { flex_grow: 1.0, min_width: px(0), height: px(26), padding: UiRect::axes(px(5), px(4)), border: px(1) }
                             BackgroundColor(colors::INPUT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)),
                     ]),
                     (Node { width: percent(100), min_width: px(0), height: px(24), column_gap: px(4), align_items: AlignItems::Center, flex_shrink: 0.0 } Children [
-                        (Text("源格距") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
+                        (Text("源格距") feathrise_editor_ui::localization::label_scene("源格距") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                             TextColor(colors::TEXT_MUTED) Node { width: px(67), flex_shrink: 0.0 }),
                         (compact_slot(Field::Selected(7))),
                     ]),

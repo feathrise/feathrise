@@ -1,6 +1,6 @@
 //! 列表/缩略图工具条、固定槽位子节点和自适应网格；不重建资产行。
 
-use feathrise_editor_ui::metrics as ui_metrics;
+use feathrise_editor_ui::{localization::{EditorLocale, label_scene}, metrics as ui_metrics};
 use super::{components::*, constants::*, resources::ThumbnailState, types::ThumbnailResult};
 use crate::components::{MapEditorAssetList, MapEditorAssetRow, MapEditorAssetRowText};
 use crate::resources::{EditorAssetCatalog, MapEditorState};
@@ -13,14 +13,15 @@ use feathrise_editor_core::EditorSettings;
 use feathrise_editor_core::AssetBrowserViewMode;
 
 fn mode_button(label: &str, mode: AssetBrowserViewMode) -> impl Scene {
+    let minimum = if mode == AssetBrowserViewMode::Thumbnails { px(86) } else { px(38) };
     bsn! {
         Button ViewModeButton(mode)
-        Node { height: px(26), flex_grow: 1.0, flex_basis: px(0), min_width: px(0),
+        Node { height: px(26), flex_grow: 1.0, flex_basis: px(0), min_width: minimum,
             border: px(1), border_radius: BorderRadius::all(px(3)),
             align_items: AlignItems::Center, justify_content: JustifyContent::Center }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+            Text(label) label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
     }
@@ -28,7 +29,7 @@ fn mode_button(label: &str, mode: AssetBrowserViewMode) -> impl Scene {
 
 pub(crate) fn view_mode_controls() -> impl Scene {
     bsn! {
-        Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), column_gap: px(4), flex_shrink: 0.0 }
+        Node { height: px(26), flex_grow: 1.0, flex_basis: px(128), min_width: px(128), column_gap: px(4), flex_shrink: 0.0 }
         Children [
             (mode_button("列表", AssetBrowserViewMode::List)),
             (mode_button("缩略图", AssetBrowserViewMode::Thumbnails)),
@@ -142,6 +143,7 @@ pub(crate) fn grid_layout(width: f32, count: usize) -> GridLayout {
 #[allow(clippy::type_complexity)]
 pub(super) fn sync_presentation(
     settings: Res<EditorSettings>,
+    locale: Option<Res<EditorLocale>>,
     catalog: Res<EditorAssetCatalog>,
     editor: Res<MapEditorState>,
     state: Res<ThumbnailState>,
@@ -382,11 +384,12 @@ pub(super) fn sync_presentation(
             node.display = display;
         }
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (marker, mut text) in &mut statuses {
         let label = source_for_slot(marker.0)
             .map(|entry| {
                 if entry.is_directory {
-                    return "目录".to_owned();
+                    return locale.text("asset.thumbnail.folder").into();
                 }
                 if let Some(cached) = state.cache.get(&entry.asset_path) {
                     return match &cached.result {
@@ -397,30 +400,29 @@ pub(super) fn sync_presentation(
                                 .as_ref()
                                 .is_some_and(|job| job.path == entry.asset_path) =>
                         {
-                            "生成中…".into()
+                            locale.text("asset.thumbnail.generating").into()
                         }
-                        ThumbnailResult::Queued => "等待预览".into(),
+                        ThumbnailResult::Queued => locale.text("label.waiting-for-preview").into(),
                         ThumbnailResult::Ready(_) => String::new(),
                     };
                 }
                 if let Some(format) = crate::asset_catalog::document_format(&entry.asset_path) {
                     return if format == crate::asset_catalog::DocumentFormat::Markdown {
-                        "Markdown文档".into()
+                        locale.text("asset.thumbnail.markdown").into()
                     } else {
-                        format!("{}文件", format.label())
+                        locale.format("asset.thumbnail.document", &[("format", locale.editor_label(format.label()).into())])
                     };
                 }
                 if super::super::asset_preview::preview_file_kind(&entry.asset_path)
                     == super::super::asset_preview::AssetPreviewFileKind::Audio
                 {
-                    return "音频 · 可试听".into(); // 不为音频启动图片/模型缩略图任务。
+                    return locale.text("asset.thumbnail.audio").into(); // 不为音频启动图片/模型缩略图任务。
                 }
-                match entry.kind {
-                    MapAssetKind::Scene | MapAssetKind::Texture => "检查中…",
-                    MapAssetKind::Data => "数据",
-                    MapAssetKind::Unsupported => "只读文件",
-                }
-                .into()
+                locale.text(match entry.kind {
+                    MapAssetKind::Scene | MapAssetKind::Texture => "asset.thumbnail.inspecting",
+                    MapAssetKind::Data => "asset.thumbnail.data",
+                    MapAssetKind::Unsupported => "asset.thumbnail.read_only",
+                }).into()
             })
             .unwrap_or_default();
         if text.0 != label {

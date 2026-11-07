@@ -118,6 +118,7 @@ pub(crate) fn spawn_vegetation_layer_rows(
 pub(crate) fn sync_vegetation_layer_rows(
     mut editor: ResMut<MapEditorState>,
     session: Res<EditorAuthoringSession>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     added_containers: Query<(), Added<MapEditorVegetationLayerList>>, // 面板重建时即使作者修订稳定也必须初始化高度。
     mut containers: Query<
         &mut Node,
@@ -145,9 +146,12 @@ pub(crate) fn sync_vegetation_layer_rows(
     >,
 ) {
     let container_added = !added_containers.is_empty(); // 新BSN容器必须绕过稳定资源的早退一次。
-    if !editor.open || (!(editor.is_changed() || session.is_changed()) && !container_added) {
+    if !editor.open || (!(editor.is_changed() || session.is_changed()) && !container_added
+        && !locale.as_ref().is_some_and(|locale| locale.is_changed()))
+    {
         return;
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let vegetation = session
         .draft
         .as_ref()
@@ -178,7 +182,7 @@ pub(crate) fn sync_vegetation_layer_rows(
         + 1; // 空作者列表仍显示稳定第1/1页摘要。
     for (mut text, _, _, title) in &mut texts {
         if title.is_some() {
-            **text = if layer_count == 0 {
+            let value = if layer_count == 0 {
                 // 空态给出下一步，不显示没有意义的第1/1页。
                 "作者图层 · 暂无\n先选预设，再点“新建空白层”。".to_owned() // 明确显式建层工作流。
             } else if page_count == 1 {
@@ -191,6 +195,10 @@ pub(crate) fn sync_vegetation_layer_rows(
                     editor.vegetation_layer_page + 1
                 ) // 当前页与总页数紧凑排列。
             }; // 文案仅在已有变更检测路径更新。
+            let value = locale.editor_notice(&value);
+            if text.as_str() != value.as_ref() {
+                **text = value.into_owned();
+            }
         }
     }
     for mut container in &mut containers {
@@ -222,11 +230,11 @@ pub(crate) fn sync_vegetation_layer_rows(
                 .find(|output| output.id == layer.output_layer_id)
         });
         let visible = if layer.enabled { "●" } else { "○" };
-        let locked = if layer.locked { "锁" } else { "编" };
+        let locked = locale.editor_label(if layer.locked { "锁" } else { "编" });
         let group_text = group
-            .map(|value| format!("{}/{}", value.label, value.mode.label()))
-            .unwrap_or_else(|| "失效组".to_owned());
-        let output_text = output.map_or("失效输出", |value| value.label.as_str());
+            .map(|value| format!("{}/{}", value.label, locale.editor_label(value.mode.label())))
+            .unwrap_or_else(|| locale.text("vegetation.layers.invalid_group").to_owned());
+        let output_text = output.map_or_else(|| locale.text("vegetation.layers.invalid_output"), |value| value.label.as_str());
         for child in children.iter() {
             if let Ok((mut text, mut color, row_text, _)) = texts.get_mut(child)
                 && row_text.is_some()

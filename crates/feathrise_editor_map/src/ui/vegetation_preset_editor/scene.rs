@@ -32,7 +32,7 @@ fn preset_button(label: &str, action: PresetEditorAction) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                 font_size: px(ui_metrics::FONT_CONTROL),
@@ -74,7 +74,7 @@ pub(crate) fn vegetation_preset_editor_panel() -> impl Scene {
         }
         Children [
             (
-                Text("全局预设库")
+                Text("全局预设库") feathrise_editor_ui::localization::label_scene("全局预设库")
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_CONTROL),
@@ -83,7 +83,7 @@ pub(crate) fn vegetation_preset_editor_panel() -> impl Scene {
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
             ),
             (
-                Text("所有地图共用；编辑或删除预设不等于删除当前地图图层。")
+                Text("所有地图共用；编辑或删除预设不等于删除当前地图图层。") feathrise_editor_ui::localization::label_scene("所有地图共用；编辑或删除预设不等于删除当前地图图层。")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED)
                 TextLayout { linebreak: LineBreak::AnyCharacter }
@@ -93,7 +93,7 @@ pub(crate) fn vegetation_preset_editor_panel() -> impl Scene {
             (two_button_row("编辑所选预设", PresetEditorAction::EditSelected, "删除所选预设", PresetEditorAction::DeleteSelected)), // 统一所选对象用语。
             (
                 PresetEditorSummaryText
-                Text("当前预设：尚未选择")
+                Text("当前预设：尚未选择") feathrise_editor_ui::localization::label_scene("当前预设：尚未选择")
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_CONTROL), // 主要选择摘要不再使用过小字号。

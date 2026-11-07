@@ -33,7 +33,7 @@ fn button(action: StatusAction, label: &'static str, height: f32) -> impl Scene 
             padding: UiRect::horizontal(px(4)), border_radius: BorderRadius::all(px(3)) }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
             TextLayout::no_wrap()
@@ -56,25 +56,31 @@ pub(in crate::ui) fn footer() -> impl Scene {
                 Node { flex_grow: 1.0, flex_shrink: 1.0, min_width: px(0),
                     align_items: AlignItems::Center, column_gap: px(6), overflow: Overflow::clip_x() }
                 Children [
-                    (Node { width: px(38), flex_shrink: 0.0 } Children [(text(StatusTextRole::Phase, "就绪"))]),
-                    (MapEditorStatusText StatusText(StatusTextRole::Summary)
-                        Text("编辑器正在初始化")
-                        TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-                        TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap()
-                        template_value(FocusPolicy::Pass)
-                        Node { flex_grow: 1.0, flex_shrink: 1.0, min_width: px(0), overflow: Overflow::clip_x() }),
-                    (text(StatusTextRole::Task, "")),
+                    (Node { min_width: px(38), flex_shrink: 0.0 } Children [(text(StatusTextRole::Phase, "就绪"))]),
+                    // 裁切必须由文字的父节点承担，避免多段英文跨入邻格。详情仍展示完整回执。
+                    (Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }
+                        Children [(
+                            MapEditorStatusText StatusText(StatusTextRole::Summary)
+                            Text("编辑器正在初始化") feathrise_editor_ui::localization::label_scene("编辑器正在初始化")
+                            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+                            TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap()
+                            template_value(FocusPolicy::Pass)
+                            Node { min_width: px(0) }
+                        )]),
+                    (Node { max_width: percent(30), min_width: px(0), overflow: Overflow::clip_x() }
+                        Children [(text(StatusTextRole::Task, ""))]),
                     (Node { width: percent(36), max_width: px(420), min_width: px(0), flex_shrink: 1.0,
                         justify_content: JustifyContent::FlexEnd, overflow: Overflow::clip_x() }
                         Children [(
                             MapEditorCurrentMapText
-                            Text("当前地图：等待目录")
+                            Text("当前地图：等待目录") feathrise_editor_ui::localization::label_scene("当前地图：等待目录")
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_MUTED) TextLayout::no_wrap()
                             template_value(FocusPolicy::Pass)
                             Node { max_width: percent(100), min_width: px(0), flex_shrink: 1.0, overflow: Overflow::clip_x() }
                         )]), // 地图信息位于视图摘要左侧；长名称只裁切，最右保留详情入口。
-                    (text(StatusTextRole::Context, "")),
+                    (Node { max_width: percent(25), min_width: px(0), overflow: Overflow::clip_x() }
+                        Children [(text(StatusTextRole::Context, ""))]),
                 ]),
             (super::super::map_loading::map_loading_panel()),
             // 切图仅替换左侧内容，不卸载或挤走最右的详情入口。
@@ -93,7 +99,7 @@ fn log_button() -> impl Scene {
             padding: UiRect::horizontal(px(4)), border_radius: BorderRadius::all(px(3)) }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         Children [(
-            Text("日志")
+            Text("日志") feathrise_editor_ui::localization::label_scene("日志")
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap()
             template_value(FocusPolicy::Pass)
@@ -119,7 +125,7 @@ pub(in crate::ui) fn popup() -> impl Scene {
                 BackgroundColor(feathrise_editor_ui::colors::DIALOG_HEADER_BG)
                 BorderColor::all(feathrise_editor_ui::colors::DIALOG_BORDER)
                 Children [
-                    (StatusText(StatusTextRole::Title) Text("状态详情")
+                    (StatusText(StatusTextRole::Title) Text("状态详情") feathrise_editor_ui::localization::label_scene("状态详情")
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_BODY) }
                         TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap()
                         template_value(FocusPolicy::Pass)
@@ -133,7 +139,7 @@ pub(in crate::ui) fn popup() -> impl Scene {
                     StatusText(StatusTextRole::Detail) Text("")
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                     template_value(LineHeight::Px(16.0))
-                    TextColor(colors::TEXT_PRIMARY) TextLayout::linebreak(LineBreak::AnyCharacter)
+                    TextColor(colors::TEXT_PRIMARY) TextLayout::linebreak(LineBreak::WordOrCharacter)
                     template_value(FocusPolicy::Pass)
                     Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                 )]),
@@ -169,7 +175,7 @@ fn popup_button(action: StatusAction, label: &'static str, close: bool) -> impl 
         Button StatusButton(action) template_value(style.node) feathrise_editor_ui::dialog_button_colors_scene(false)
         template_value(BackgroundColor(style.colors.normal)) BorderColor::all(feathrise_editor_ui::colors::DIALOG_BORDER)
         Children [(
-            Text(label) TextLayout::no_wrap()
+            Text(label) feathrise_editor_ui::localization::label_scene(label) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY) template_value(FocusPolicy::Pass)
         )]

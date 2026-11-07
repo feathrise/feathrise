@@ -67,3 +67,12 @@ pub(crate) fn snapshot(world: &World) -> Option<Value> {
         "can_undo": doc.history.can_undo(), "can_redo": doc.history.can_redo()
     }))
 }
+
+#[cfg(feature = "validation")]
+pub(crate) fn redo(world: &mut World) -> Result<(), String> {
+    let mut state = world.resource_mut::<DocumentState>();
+    let document = state.documents.iter_mut().find(|doc| doc.path == PATH)
+        .ok_or("语言验收的文档草稿已消失")?;
+    document.travel(true).ok_or("切换语言后无法重做普通文本编辑")?;
+    Ok(())
+}

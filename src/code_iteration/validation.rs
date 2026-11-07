@@ -18,7 +18,7 @@ const PURPOSE: &str = "code-iteration-first-stage";
 
 /// 已核验自有专项只延迟最后退出，不写后台完成或恢复状态；普通编辑器没有此资源。
 pub(super) fn close_drain_held(world: &World) -> bool {
-    close_cancel::held(world)
+    close_cancel::held(world) || crate::locale_validation::close_drain_held(world)
 }
 
 pub(super) fn install(app: &mut App, project: &crate::project::Project, target: &Path) {

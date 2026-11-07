@@ -323,6 +323,7 @@ pub(super) fn input(
 }
 
 pub(super) fn present(
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     mut commands: Commands,
     model: Res<WorkspaceModel>,
     state: Res<Presentation>,
@@ -399,13 +400,14 @@ pub(super) fn present(
             Display::None
         };
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let target = if state.name.trim().is_empty() {
-        "请填写工程名称".into()
+        locale.text("workspace.enter_project_name").into()
     } else {
         let destination = crate::project::display_path(
             &std::path::Path::new(state.parent.trim()).join(state.name.trim()),
         );
-        format!("{}\n{destination}", state.game_view.label())
+        format!("{}\n{destination}", locale.editor_label(state.game_view.label()))
     };
     for mut text in &mut targets {
         if text.as_str() != target {
@@ -417,9 +419,10 @@ pub(super) fn present(
     } else {
         &state.error
     };
+    let status = locale.editor_notice(status);
     for mut text in &mut statuses {
-        if text.as_str() != status {
-            **text = status.clone();
+        if text.as_str() != status.as_ref() {
+            **text = status.as_ref().to_owned();
         }
     }
     for (entity, action, disabled) in &buttons {

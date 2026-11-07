@@ -80,6 +80,7 @@ pub(crate) fn handle_buttons(
 
 pub(crate) fn sync_buttons(
     settings: Res<EditorSettings>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     mut labels: Query<(&SnapLabel, &mut Text)>,
     mut buttons: Query<(
         &SnapButton,
@@ -89,17 +90,18 @@ pub(crate) fn sync_buttons(
     )>,
 ) {
     let snap = settings.editor_snapping.sanitized();
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (label, mut text) in &mut labels {
         let wanted = match label.0 {
-            SnapAction::Grid => "网格".into(),
+            SnapAction::Grid => locale.text("label.grid").into(),
             SnapAction::Enabled => if snap.enabled {
-                "吸附开"
+                locale.text("viewport.snap.on")
             } else {
-                "吸附关"
+                locale.text("viewport.snap.off")
             }
             .into(),
-            SnapAction::Mode => snap.mode.label().into(),
-            SnapAction::Step => format!("{}米", snap.translation_meters),
+            SnapAction::Mode => locale.editor_label(snap.mode.label()).into(),
+            SnapAction::Step => locale.format("viewport.snap.step", &[("meters", snap.translation_meters.to_string())]),
         };
         if text.as_str() != wanted {
             **text = wanted;

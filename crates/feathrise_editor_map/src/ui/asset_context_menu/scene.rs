@@ -90,7 +90,7 @@ pub(super) fn setup_menu(
                                         BorderColor::all(colors::COPPER_BORDER_WEAK), // 默认弱化内层边框。
                                     ))
                                     .with_child((
-                                        Text::new(kind.label()),
+                                        feathrise_editor_ui::localization::editor_label(kind.label()),
                                         TextFont {
                                             font: font.clone().into(), // 使用已验证的中文字体句柄。
                                             font_size: ui_metrics::FONT_CONTROL.into(),    // 与F12紧凑密度保持一致。
@@ -106,7 +106,7 @@ pub(super) fn setup_menu(
                                     border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)), ..default() },
                                 BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
                                 BorderColor::all(colors::COPPER_BORDER_WEAK), FocusPolicy::Block,
-                            )).with_child((Text::new("收藏"),
+                            )).with_child((feathrise_editor_ui::localization::editor_label("收藏"),
                                 TextFont { font: font.clone().into(), font_size: ui_metrics::FONT_CONTROL.into(), ..default() },
                                 TextLayout::no_wrap(), TextColor(colors::TEXT_PRIMARY), FocusPolicy::Pass));
                             popup.spawn((Button, AssetMenuReferencesButton,
@@ -115,7 +115,7 @@ pub(super) fn setup_menu(
                                     border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)), ..default() },
                                 BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
                                 BorderColor::all(colors::COPPER_BORDER_WEAK), FocusPolicy::Block,
-                            )).with_child((Text::new("查看引用"),
+                            )).with_child((feathrise_editor_ui::localization::editor_label("查看引用"),
                                 TextFont { font: font.clone().into(), font_size: ui_metrics::FONT_CONTROL.into(), ..default() },
                                 TextLayout::no_wrap(), TextColor(colors::TEXT_PRIMARY), FocusPolicy::Pass));
                             for (label, action) in EXTERNAL_MENU_ITEMS {
@@ -125,7 +125,7 @@ pub(super) fn setup_menu(
                                         border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)), ..default() },
                                     BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
                                     BorderColor::all(colors::COPPER_BORDER_WEAK), FocusPolicy::Block,
-                                )).with_child((Text::new(label),
+                                )).with_child((feathrise_editor_ui::localization::editor_label(label),
                                     TextFont { font: font.clone().into(), font_size: ui_metrics::FONT_CONTROL.into(), ..default() },
                                     TextLayout::no_wrap(), TextColor(colors::TEXT_PRIMARY), FocusPolicy::Pass));
                             }
@@ -145,7 +145,10 @@ pub(super) fn sync_menu(
     layout: Option<Res<crate::resources::MapEditorLayoutState>>,
     roots: Query<Ref<ComputedNode>, With<MapEditorRoot>>, // 使用实际UI物理尺寸及最终倍率。
     available: Res<ExternalEditors>, // 只读后台完成的三份安装身份，菜单内不执行文件IO。
-    shortcuts: Option<Res<crate::ui::asset_shortcuts::AssetShortcuts>>,
+    presentation: (
+        Option<Res<crate::ui::asset_shortcuts::AssetShortcuts>>,
+        Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
+    ),
     favorites: Query<&Children, With<AssetMenuFavoriteButton>>,
     mut favorite_nodes: Query<&mut Node, (With<AssetMenuFavoriteButton>, Without<AssetMenuBackdrop>, Without<AssetMenuPopup>, Without<AssetMenuExternalButton>, Without<AssetMenuReferencesButton>)>,
     mut nodes: Query<
@@ -161,6 +164,8 @@ pub(super) fn sync_menu(
     mut reference_nodes: Query<&mut Node, (With<AssetMenuReferencesButton>, Without<AssetMenuBackdrop>, Without<AssetMenuPopup>, Without<AssetMenuFavoriteButton>)>,
     mut labels: Query<&mut Text>, // 同一固定节点按文件/目录切文案，不重建菜单。
 ) {
+    let (shortcuts, locale) = presentation;
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let project_scroll = project.scrolls.iter().find(|(view, _)| view.0 == ProjectBrowserView::ProjectFiles)
         .map(|(_, scroll)| scroll);
     if menu.target.as_ref().is_some_and(|target| {
@@ -189,7 +194,7 @@ pub(super) fn sync_menu(
         if node.display != display { node.display = display; }
     }
     for children in &favorites {
-        let value = if favorite { "取消收藏" } else { "收藏" };
+        let value = locale.text(if favorite { "asset.menu.remove_favorite" } else { "asset.menu.add_favorite" });
         for child in children {
             if let Ok(mut text) = labels.get_mut(*child) && text.0 != value { text.0 = value.into(); }
         }
@@ -212,6 +217,7 @@ pub(super) fn sync_menu(
             }
         }; // 目录不声称定位文件；切回文件时恢复原文案。
         if let (Some(label), Some(children)) = (label, children) {
+            let label = locale.editor_label(label);
             for child in children {
                 if let Ok(mut text) = labels.get_mut(*child) && text.0 != label { text.0 = label.into(); }
             }

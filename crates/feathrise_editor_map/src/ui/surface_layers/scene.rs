@@ -29,7 +29,7 @@ fn action_button(label: &str, action: SurfaceLayerAction) -> impl Scene {
         BackgroundColor(colors::SLOT_BG) // 默认使用暗墨槽位背景。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 静态弱铜边。
         Children [( // 每个按钮只有一个短文本子节点。
-            Text(label) // BSN模板直接接收标签，与既有编辑器按钮保持一致。
+            Text(label) feathrise_editor_ui::localization::label_scene(label) // BSN模板直接接收标签，与既有编辑器按钮保持一致。
             TextFont { // 使用已加载的中文字体模板。
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 与全局预设栏同源。
                 font_size: px(ui_metrics::FONT_CONTROL), // 三列紧凑按钮完整显示。
@@ -51,7 +51,7 @@ pub(crate) fn surface_authoring_panel() -> impl Scene {
         Children [ // 固定三块，不额外创建一套滚动视口。
             ( // 真实数量与页码摘要。
                 SurfaceLayerListTitle // 由专用系统更新文字。
-                Text("地表作者层 · 等待地图") // 未加载时不伪造地表条目。
+                Text("地表作者层 · 等待地图") feathrise_editor_ui::localization::label_scene("地表作者层 · 等待地图") // 未加载时不伪造地表条目。
                 TextFont { // 标题密度与植被作者层一致。
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 项目中文字体。
                     font_size: px(ui_metrics::FONT_CONTROL), // 与相邻地表状态一致。

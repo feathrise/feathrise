@@ -46,7 +46,7 @@ fn spawn_editor_map_monitor_panel_with_font(commands: &mut Commands, font: Handl
         ))
         .with_children(|panel| {
             panel.spawn((
-                Text::new("动态地图监控 [F4] · 0.5s刷新 · 选择分页查看"),
+                feathrise_editor_ui::localization::editor_label("动态地图监控 [F4] · 0.5s刷新 · 选择分页查看"),
                 TextFont {
                     font: font.clone().into(),
                     font_size: 14.0.into(),

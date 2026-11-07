@@ -7,7 +7,7 @@ use feathrise_editor_ui::{
     ActiveNumericInput, ActiveNumericInputScrub, NumericInputCommitOutcome, NumericInputCommitted,
     NumericInputDisabled, NumericInputScrubConfig, NumericInputSetValue, NumericInputSpec,
     NumericInputValue, NumericScrubFieldOptions, NumericScrubFieldStyle, NumericValue,
-    spawn_numeric_scrub_field,
+    spawn_localized_numeric_scrub_field,
 };
 use feathrise_editor_core::EditorSettings;
 use feathrise_editor_core::EditorSnapSettings;
@@ -80,7 +80,7 @@ pub(crate) fn setup_snap_inputs(
         let font = feathrise_editor_core::editor_font(&assets, super::FONT_PATH);
         let mut input = None;
         commands.entity(entity).with_children(|parent| {
-            input = Some(spawn_numeric_scrub_field(parent, field, font, options));
+            input = Some(spawn_localized_numeric_scrub_field(parent, field, font, options));
         });
         if let Some(input) = input {
             commands

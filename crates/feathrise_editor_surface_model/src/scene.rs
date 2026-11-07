@@ -26,7 +26,7 @@ fn button(label: &str, action: SurfacePresetAction) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(9.2) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -44,12 +44,12 @@ pub fn surface_preset_panel() -> impl Scene {
         }
         Children [
             (
-                Text("全局预设库")
+                Text("全局预设库") feathrise_editor_ui::localization::label_scene("全局预设库")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(10.5) }
                 TextColor(colors::TEXT_ACCENT)
             ),
             (
-                Text("跨地图共用的 PBR 材质；选中后在下方新建地图层。")
+                Text("跨地图共用的 PBR 材质；选中后在下方新建地图层。") feathrise_editor_ui::localization::label_scene("跨地图共用的 PBR 材质；选中后在下方新建地图层。")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(9.5) }
                 TextColor(colors::TEXT_MUTED)
                 TextLayout { linebreak: LineBreak::AnyCharacter }
@@ -65,7 +65,7 @@ pub fn surface_preset_panel() -> impl Scene {
             ),
             (
                 SurfacePresetSummaryText
-                Text("当前预设：尚未选择")
+                Text("当前预设：尚未选择") feathrise_editor_ui::localization::label_scene("当前预设：尚未选择")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(9.0) }
                 TextColor(colors::TEXT_VALUE)
                 TextLayout { linebreak: LineBreak::AnyCharacter }
@@ -73,7 +73,7 @@ pub fn surface_preset_panel() -> impl Scene {
             ),
             (
                 SurfacePresetListTitle
-                Text("地表预设 · 等待目录")
+                Text("地表预设 · 等待目录") feathrise_editor_ui::localization::label_scene("地表预设 · 等待目录")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(9.2) }
                 TextColor(colors::TEXT_VALUE)
             ),
@@ -95,7 +95,7 @@ pub fn surface_preset_panel() -> impl Scene {
 pub fn surface_preset_feedback() -> impl Scene {
     bsn! {
         SurfacePresetStatusText
-        Text("选择预设后显式新建地图层；新建或编辑预设在中央标签完成")
+        Text("选择预设后显式新建地图层；新建或编辑预设在中央标签完成") feathrise_editor_ui::localization::label_scene("选择预设后显式新建地图层；新建或编辑预设在中央标签完成")
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(9) }
         TextColor(colors::TEXT_MUTED)
         TextLayout { linebreak: LineBreak::AnyCharacter }

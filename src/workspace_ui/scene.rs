@@ -12,6 +12,7 @@ use feathrise_editor_map::workbench::{
     WorkbenchSettingsBody,
 };
 use feathrise_editor_ui::colors as c;
+use feathrise_editor_ui::localization::{LocalizedText, editor_label};
 
 fn column() -> Node {
     Node {
@@ -24,7 +25,11 @@ fn column() -> Node {
 }
 
 fn caption(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, text: &str, size: f32) {
-    parent.spawn((
+    parent.spawn((caption_bundle(font, text, size), LocalizedText::label(text)));
+}
+
+fn caption_bundle(font: &Handle<Font>, text: &str, size: f32) -> impl Bundle {
+    (
         Text::new(text),
         TextFont {
             font: font.clone().into(),
@@ -36,7 +41,7 @@ fn caption(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, text: &str, s
             min_width: px(0),
             ..default()
         },
-    ));
+    )
 }
 
 pub(super) fn button(
@@ -68,7 +73,7 @@ pub(super) fn button(
             BorderColor::all(c::COPPER_BORDER_WEAK),
         ))
         .with_child((
-            Text::new(label),
+            editor_label(label),
             TextFont {
                 font: font.clone().into(),
                 font_size: 13.0.into(),
@@ -538,9 +543,10 @@ pub(super) fn recent_rows(
                             BackgroundColor(c::PANEL_BG_STRONG),
                         ))
                         .with_children(|item| {
-                            caption(item, &font, &recent.name, 14.);
-                            caption(item, &font, &crate::project::display_path(&recent.path), 12.);
-                            caption(item, &font, &recent.last_opened, 11.);
+                            // 工程名和路径即使恰好与词条相同，也以作者原文显示。
+                            item.spawn(caption_bundle(&font, &recent.name, 14.));
+                            item.spawn(caption_bundle(&font, &crate::project::display_path(&recent.path), 12.));
+                            item.spawn(caption_bundle(&font, &recent.last_opened, 11.));
                         });
                         row.spawn((
                             Button,

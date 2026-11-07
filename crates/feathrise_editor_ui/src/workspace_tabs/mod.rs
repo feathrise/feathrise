@@ -58,7 +58,7 @@ pub fn map_tab_node() -> Node {
 fn spawn_tab_button<B: Bundle>(
     parent: &mut ChildSpawnerCommands, // 两个命中区挂在同一个非按钮标签框内。
     font: &Handle<Font>,               // 使用当前工作区已经加载的项目字体。
-    label: &str,                       // 完整标题、未保存星号或关闭确认文字。
+    label: impl Bundle,                // 普通标题或支持原位语言切换的关闭确认文字。
     action: B,                         // 保留植被、地表或水体自己的动作类型。
     node: Node,                        // 仅改变视觉尺寸，不改动作分派。
     background: Color,                 // 标题和关闭键继承同一标签基色，悬停按压仍由共享按钮系统反馈。
@@ -75,7 +75,7 @@ fn spawn_tab_button<B: Bundle>(
             FocusPolicy::Block, // 命中只交给本按钮，不误触同标签的另一动作。
         ))
         .with_child((
-            Text::new(label), // 不截断标题，不按字符个数猜测宽度。
+            label, // 不截断标题，不按字符个数猜测宽度。
             TextFont {
                 font: font.clone().into(),       // 只克隆句柄，不复制字体资源。
                 font_size: TAB_FONT_SIZE.into(), // 使用统一紧凑字号。
@@ -110,7 +110,7 @@ pub fn spawn_preset_tab<B: Bundle>(
             spawn_tab_button(
                 row,      // 标题和关闭键是同级节点，点击不会父子联动。
                 font,     // 与关闭键共用字体。
-                label,    // 原样显示完整名称。
+                Text::new(label), // 原样显示完整名称。
                 activate, // 只触发当前标签激活。
                 Node {
                     width: Val::Auto,                                    // 由文字本身决定标题宽度。
@@ -127,7 +127,7 @@ pub fn spawn_preset_tab<B: Bundle>(
             spawn_tab_button(
                 row,                                            // 关闭键位于所属标签框内右侧。
                 font,                                           // 保证关闭字形可以正常显示。
-                if close_confirmation { "确认×" } else { "×" }, // 保留未保存草稿的明确二次确认提示。
+                crate::localization::editor_label(if close_confirmation { "确认×" } else { "×" }),
                 close,                                          // 不改现有关闭事务语义。
                 Node {
                     width: Val::Auto,               // 确认文案可按文字增宽，普通×不会占据34px。

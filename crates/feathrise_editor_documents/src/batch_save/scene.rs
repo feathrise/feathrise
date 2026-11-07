@@ -17,7 +17,7 @@ pub(crate) fn button() -> impl Scene {
             align_items: AlignItems::Center, justify_content: JustifyContent::Center, border: px(1) }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text("保存全部草稿") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+            Text("保存全部草稿") feathrise_editor_ui::localization::label_scene("保存全部草稿") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_PRIMARY)
         )]
     }
@@ -41,7 +41,7 @@ pub(crate) fn report() -> impl Scene {
                     align_items: AlignItems::Center, border: px(1) }
                 BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
                 Children [(
-                    Text("收起结果") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+                    Text("收起结果") feathrise_editor_ui::localization::label_scene("收起结果") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_PRIMARY)
                 )]
             )]

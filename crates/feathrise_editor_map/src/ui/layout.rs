@@ -185,6 +185,7 @@ pub(crate) fn handle_editor_layout_input(
 
 /// 常量规模的节点原位回显；窗口收缩不改首选宽度，也不构造或编译任何预设。
 pub(crate) fn sync_editor_layout(
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     ui_scale: Res<UiScale>,
     windows: Query<&Window, With<PrimaryWindow>>,
     workspace: Res<VegetationPresetEditorState>,
@@ -337,6 +338,7 @@ pub(crate) fn sync_editor_layout(
             *border = color;
         }
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (mut text, layout_button, sidebar_tab, parent) in &mut labels {
         let label = match layout_button.map(|button| button.0) {
             Some(EditorLayoutAction::Content) => Some("导航"),
@@ -358,6 +360,11 @@ pub(crate) fn sync_editor_layout(
             _ => None,
         };
         if let Some(label) = label {
+            let label = if label == "属性" {
+                locale.text("sidebar.inspector")
+            } else {
+                locale.editor_label(label)
+            };
             if text.as_str() != label {
                 **text = label.to_owned();
             }

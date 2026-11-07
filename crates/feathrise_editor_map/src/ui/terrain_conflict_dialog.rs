@@ -40,7 +40,7 @@ pub(super) fn terrain_conflict_dialog() -> impl Scene {
                     Children [
                         (modal::caption("冲突目标 · 外部版本已变化")),
                         (
-                            TerrainConflictDialogText Text("等待外部地形版本")
+                            TerrainConflictDialogText Text("等待外部地形版本") feathrise_editor_ui::localization::label_scene("等待外部地形版本")
                             TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_PRIMARY)
@@ -58,7 +58,7 @@ pub(super) fn terrain_conflict_dialog() -> impl Scene {
                     template_value(modal::feedback_node())
                     BackgroundColor(colors::PANEL_BG_SECTION)
                     Children [(
-                        TerrainConflictFeedbackText Text("地形草稿尚未保存，请选择保留哪一版。")
+                        TerrainConflictFeedbackText Text("地形草稿尚未保存，请选择保留哪一版。") feathrise_editor_ui::localization::label_scene("地形草稿尚未保存，请选择保留哪一版。")
                         TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_PRIMARY)

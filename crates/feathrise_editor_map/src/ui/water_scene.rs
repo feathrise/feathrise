@@ -34,7 +34,7 @@ fn tab(page: WaterSidebarPage) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -43,7 +43,7 @@ fn tab(page: WaterSidebarPage) -> impl Scene {
 
 fn heading(label: &str) -> impl Scene {
     bsn! {
-        Text(label)
+        Text(label) feathrise_editor_ui::localization::label_scene(label)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
         TextColor(colors::TEXT_ACCENT)
         Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
@@ -53,7 +53,7 @@ fn heading(label: &str) -> impl Scene {
 fn feedback_text(kind: WaterSidebarFeedbackKind, label: &str) -> impl Scene {
     let node = bsn! {
         WaterSidebarFeedbackText(kind)
-        Text(label)
+        Text(label) feathrise_editor_ui::localization::label_scene(label)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
         TextColor(colors::TEXT_MUTED)
         TextLayout { linebreak: LineBreak::AnyCharacter }
@@ -156,7 +156,7 @@ fn water_authoring_body() -> impl Scene {
             (crate::ui::context_help::section_header("当前地图水域", "选择模式只读；工具页只准备类别，进入视口编辑模式后绘制。静水用笔刷绘制R8覆盖，Shift擦除；水位不自动修改河床。\n河流/瀑布：顶视或透视左键空白逐点，拖点只改XZ并保留Y；连接端点高度由系统决定。瀑布正式保存需要不同且有效的源/目标，终点低于起点。\n专业数值框支持左拖实际值、右拖灵敏度、中键精确输入。")),
             (
                 MapEditorWaterFeatureListTitle
-                Text("水域对象 · 等待地图作者数据")
+                Text("水域对象 · 等待地图作者数据") feathrise_editor_ui::localization::label_scene("水域对象 · 等待地图作者数据")
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_CONTROL),
@@ -302,7 +302,7 @@ pub(crate) fn water_properties_panel() -> impl Scene {
                     (two_button_row("循环源连接", EditorAction::WaterSourceNext, "循环目标连接", EditorAction::WaterTargetNext)),
                     (
                         MapEditorWaterNetworkText
-                        Text("水域：等待地图作者数据")
+                        Text("水域：等待地图作者数据") feathrise_editor_ui::localization::label_scene("水域：等待地图作者数据")
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_VALUE)
                         TextLayout { linebreak: LineBreak::AnyCharacter }

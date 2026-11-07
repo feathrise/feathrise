@@ -10,9 +10,9 @@ use bevy::{prelude::*, ui::RelativeCursorPosition};
 pub(crate) fn panel() -> impl Scene {
     bsn! { PaintPanel Node {width:percent(100),min_width:px(0),flex_direction:FlexDirection::Column,row_gap:px(3),flex_shrink:0.0} }
 }
-fn text(label: impl Into<String>, font: &Handle<Font>) -> impl Bundle {
+fn text(label: &str, font: &Handle<Font>) -> impl Bundle {
     (
-        Text::new(label),
+        feathrise_editor_ui::localization::editor_label(label),
         TextFont {
             font: font.clone().into(),
             font_size: px(ui_metrics::FONT_CONTROL).into(),

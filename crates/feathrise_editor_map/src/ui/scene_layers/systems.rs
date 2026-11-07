@@ -1,7 +1,7 @@
 //! 固定四十行的呈现与左键选择；右键仍由共用菜单冻结当前可见行身份。
 
 use feathrise_editor_ui::EditorButtonClick;
-use super::{components::*, resources::*, rows};
+use super::{components::*, resources::*, rows, types::LayerList};
 use crate::{
     authoring::EditorAuthoringSession,
     resources::{MapEditorNumericScrubMouseGuard, MapEditorState},
@@ -69,6 +69,7 @@ fn selected(
 pub(super) fn sync(
     editor: Res<MapEditorState>,
     session: Res<EditorAuthoringSession>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     candidates: Option<Res<LayerCandidateState>>,
     domain: Option<Res<crate::game_authoring::map_interaction::MapInteractionState>>,
     mut sections: Query<(&Section, &mut Node), (Without<List>, Without<Content>, Without<Row>)>,
@@ -108,10 +109,17 @@ pub(super) fn sync(
             node.display = display;
         }
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (mut text, title) in &mut texts {
         if let Some(title) = title {
             let count = draft.map_or(0, |draft| title.0.count(draft, domain.as_deref()));
-            text.set_if_neq(Text::new(format!("{}（{count}）", title.0.label(domain.as_deref()))));
+            let label = title.0.label(domain.as_deref());
+            let label = match title.0 {
+                LayerList::Water | LayerList::Vegetation => locale.editor_label(label),
+                _ => label, // 插件定义的场景类别按原文使用。
+            };
+            text.set_if_neq(Text::new(locale.format("scene.layers.count",
+                &[("label", label.into()), ("count", count.to_string())])));
         }
     }
     let mut starts = [0; 4];

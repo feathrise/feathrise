@@ -106,6 +106,8 @@ pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) ->
     .add_systems(Update, sync_window_title)
     .add_systems(Last, advance);
     let preferences_completion = author_preferences::install_host(&mut app, author_settings);
+    #[cfg(feature = "validation")]
+    crate::locale_validation::install(&mut app, None)?;
     crate::native_plugins::management::install_host(&mut app);
     #[cfg(unix)]
     crate::portable_author::host::install(&mut app);

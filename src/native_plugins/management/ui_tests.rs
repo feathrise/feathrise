@@ -28,15 +28,15 @@ fn entry() -> PackageEntry {
 fn unavailable_and_staged_packages_do_not_claim_the_user_disabled_them() {
     let mut package = entry();
     let mut state = PluginManagerState::new("unused-ui-fixture".into());
-    assert_eq!(state_line(&package, &state), "不可加载 · 包检查失败");
+    assert_eq!(state_line(&package, &state, EditorLocale::Chinese), "不可加载 · 包检查失败");
     package.error = None;
-    assert_eq!(state_line(&package, &state), "已停用");
+    assert_eq!(state_line(&package, &state, EditorLocale::Chinese), "已停用");
     package.pending = Some(PendingChange {
         kind: PendingKind::Install,
         version: Some("1.0.0".into()),
     });
     assert_eq!(
-        state_line(&package, &state),
+        state_line(&package, &state, EditorLocale::Chinese),
         "尚未安装 · 待安装（重开工程后生效）"
     );
     // 已加载旧会话的真实回执优先于当前磁盘目录的安全检查投影。
@@ -45,7 +45,7 @@ fn unavailable_and_staged_packages_do_not_claim_the_user_disabled_them() {
     state
         .load_states
         .insert(package.id.clone(), "已加载".into());
-    assert_eq!(state_line(&package, &state), "已加载 · 包检查失败");
+    assert_eq!(state_line(&package, &state, EditorLocale::Chinese), "已加载 · 包检查失败");
 }
 
 #[test]
@@ -55,12 +55,12 @@ fn no_project_reports_committed_settings_but_never_hides_unfinished_installation
     package.error = None;
     package.enabled = true;
     let state = PluginManagerState::with_roots(None, std::env::temp_dir().join("unused-global-ui-fixture"));
-    assert_eq!(state_line(&package, &state), "已生效");
+    assert_eq!(state_line(&package, &state, EditorLocale::Chinese), "已生效");
     package.enabled = false;
-    assert_eq!(state_line(&package, &state), "已停用");
+    assert_eq!(state_line(&package, &state, EditorLocale::Chinese), "已停用");
     package.pending = Some(PendingChange { kind: PendingKind::Install, version: Some("1.0.0".into()) });
-    assert_eq!(state_line(&package, &state), "尚未安装 · 待安装（尚未完成）");
-    assert!(!detail_text(Some(&package), DetailKind::Pending, &state).contains("重开"));
+    assert_eq!(state_line(&package, &state, EditorLocale::Chinese), "尚未安装 · 待安装（尚未完成）");
+    assert!(!detail_text(Some(&package), DetailKind::Pending, &state, EditorLocale::Chinese).contains("重开"));
 }
 
 fn feedback_app(package: PackageEntry) -> (App, Vec<(Entity, Entity)>) {

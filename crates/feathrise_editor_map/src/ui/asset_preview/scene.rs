@@ -27,7 +27,7 @@ fn preview_button(label: &str, action: AssetPreviewAction, width: f32) -> impl S
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // 默认暗墨底。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 低对比边框。
         Children [(
-            Text(label) // 使用中文重置说明或普通ASCII缩放符号。
+            Text(label) feathrise_editor_ui::localization::label_scene(label) // 使用中文重置说明或普通ASCII缩放符号。
             template_value(FocusPolicy::Pass) // 枚举组件显式取值，文字不能挡住父按钮。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 项目统一中文字体。
@@ -57,7 +57,7 @@ fn scene_row() -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // 默认暗墨底。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 非活动时弱铜边。
         Children [(
-            Text("完整场景 · Scene0") // 明确默认项不是文件内全部Scene。
+            Text("完整场景 · Scene0") feathrise_editor_ui::localization::label_scene("完整场景 · Scene0") // 明确默认项不是文件内全部Scene。
             template_value(FocusPolicy::Pass) // 字形点击仍交给父按钮。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 项目统一中文字体。
@@ -124,7 +124,7 @@ fn reference_copy_button(label: &str, action: AssetPreviewAction) -> impl Scene 
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // 暗墨底。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 默认弱铜边。
         Children [(
-            Text(label) // 分别显示复制引用或复制材质。
+            Text(label) feathrise_editor_ui::localization::label_scene(label) // 分别显示复制引用或复制材质。
             template_value(FocusPolicy::Pass) // 字形不截获父按钮。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 统一中文字体。
@@ -152,7 +152,7 @@ fn subasset_page_button(label: &str, action: AssetPreviewAction) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // 暗墨底。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 普通边界色。
         Children [(
-            Text(label) // 上一组或下一组。
+            Text(label) feathrise_editor_ui::localization::label_scene(label) // 上一组或下一组。
             template_value(FocusPolicy::Pass) // 点击字形归父按钮。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 项目中文字体。
@@ -187,7 +187,7 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                     padding: UiRect::right(px(22)) } // 给绝对定位?保留横向命中区，不增加正文行。
                 Children [
                     (
-                        AssetPreviewTitleText Text("资产预览")
+                        AssetPreviewTitleText Text("资产预览") feathrise_editor_ui::localization::label_scene("资产预览")
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_ACCENT)
                         TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }

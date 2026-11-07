@@ -9,7 +9,7 @@ use std::{
 };
 
 /// 只在调用方已创建并确认归属的绝对夹具目录内生成源码、日志和两个独立动态库。
-pub(super) fn build_versions(output: &Path) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn build_versions(output: &Path) -> Result<Vec<PathBuf>, String> {
     if !output.is_absolute() || !output.is_dir() {
         return Err("协议探针输出必须是已存在的owner夹具绝对目录".into());
     }

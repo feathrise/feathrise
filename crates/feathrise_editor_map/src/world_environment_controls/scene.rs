@@ -6,9 +6,10 @@ use feathrise_atmosphere::WorldClock;
 use feathrise_editor_core::EditorSettings;
 use crate::ui::theme as colors;
 use feathrise_editor_ui::{
-    SliderTick, SliderVisual, TextButtonStyle, menu_button_style, spawn_custom_text_button,
+    SliderTick, SliderVisual, TextButtonStyle, menu_button_style, spawn_custom_text_button_with_text_marker,
     spawn_slider_with_visual,
 };
+use feathrise_editor_ui::localization::{LocalizedText, editor_label};
 
 use super::components::*;
 use super::helpers::{
@@ -207,7 +208,7 @@ fn spawn_value_row<M: Component>(
         })
         .with_children(|row| {
             row.spawn((
-                Text::new(title),
+                editor_label(title),
                 TextFont {
                     font: font.clone().into(),
                     font_size: feathrise_editor_ui::metrics::FONT_CONTROL.into(),
@@ -229,7 +230,7 @@ fn spawn_value_row<M: Component>(
                 },
                 TextColor(colors::TEXT_VALUE),
                 TextLayout {
-                    linebreak: bevy::text::LineBreak::AnyCharacter,
+                    linebreak: bevy::text::LineBreak::WordOrCharacter,
                     ..default()
                 },
                 Node {
@@ -293,9 +294,10 @@ pub(crate) fn setup_world_environment_controls(
             } else {
                 "时间暂停：关"
             };
-            spawn_custom_text_button(
+            spawn_custom_text_button_with_text_marker(
                 parent,
                 WorldTimePauseToggle,
+                WorldTimePauseLabel,
                 font.clone(),
                 pause_label,
                 world_button_style(true),
@@ -367,16 +369,18 @@ pub(crate) fn setup_world_environment_controls(
                     ..default()
                 })
                 .with_children(|row| {
-                    spawn_custom_text_button(
+                    spawn_custom_text_button_with_text_marker(
                         row,
                         WeatherApplyImmediateButton,
+                        LocalizedText::label("立即应用"),
                         font.clone(),
                         "立即应用",
                         world_button_style(false),
                     );
-                    spawn_custom_text_button(
+                    spawn_custom_text_button_with_text_marker(
                         row,
                         WeatherRerollButton,
+                        LocalizedText::label("重新随机天气"),
                         font.clone(), // 天气按钮之后仍需使用同一字体生成草地风摆滑块。
                         "重新随机天气",
                         world_button_style(false),
@@ -395,7 +399,7 @@ pub(crate) fn setup_world_environment_controls(
                 &GRASS_WIND_TICKS, // 零至三十五厘米的原安全刻度。
             ); // 此控件只影响植被晴天基准摆幅，不改天气输出。
             parent.spawn((
-                Text::new("晴天基准值 · 实际摆幅随天气变化"), // 区分持久调试标尺与当前天气派生值。
+                feathrise_editor_ui::localization::editor_label("晴天基准值 · 实际摆幅随天气变化"), // 区分持久调试标尺与当前天气派生值。
                 TextFont {
                     font: font.into(),     // 保留环境页中文字体。
                     font_size: feathrise_editor_ui::metrics::FONT_CONTROL.into(), // 小号说明不抢天气状态主信息。
@@ -430,12 +434,14 @@ type WorldSliderTrackFilter = Or<(
 pub(crate) fn setup_world_environment_slider_layout(
     mut commands: Commands,
     tracks: Query<
-        (Entity, &Node, &Children),
+        (Entity, &Node, &Children, Has<WeatherModeSlider>),
         (Added<RelativeCursorPosition>, WorldSliderTrackFilter),
     >,
     nodes: Query<&Node>,
+    tick_children: Query<&Children>,
+    tick_texts: Query<&Text>,
 ) {
-    for (entity, node, children) in &tracks {
+    for (entity, node, children, weather) in &tracks {
         let mut fitted = node.clone();
         fitted.width = percent(100);
         fitted.min_width = px(0);
@@ -448,7 +454,20 @@ pub(crate) fn setup_world_environment_slider_layout(
             if let Val::Px(left) = fitted.left {
                 fitted.left = percent(left / WORLD_SLIDER_TRACK_WIDTH * 100.0);
             }
-            if let Val::Px(width) = fitted.width {
+            if weather && let Ok(texts) = tick_children.get(child) {
+                // 天气刻度要容纳英文词组，保持原滑块轨道、手柄和指针映射。
+                let tick_width = 36.0;
+                if let Val::Percent(left) = fitted.left {
+                    let centered = left * WORLD_SLIDER_TRACK_WIDTH / 100.0 + 10.0 - tick_width / 2.0;
+                    fitted.left = percent(centered.clamp(0.0, WORLD_SLIDER_TRACK_WIDTH - tick_width) / WORLD_SLIDER_TRACK_WIDTH * 100.0);
+                }
+                fitted.width = percent(tick_width / WORLD_SLIDER_TRACK_WIDTH * 100.0);
+                for text_entity in texts.iter() {
+                    if let Ok(text) = tick_texts.get(text_entity) {
+                        commands.entity(text_entity).insert((LocalizedText::label(text.as_str()), TextLayout::no_wrap()));
+                    }
+                }
+            } else if let Val::Px(width) = fitted.width {
                 fitted.width = percent(width / WORLD_SLIDER_TRACK_WIDTH * 100.0);
             }
             commands.entity(child).insert(fitted);

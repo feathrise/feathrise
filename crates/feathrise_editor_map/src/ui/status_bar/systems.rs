@@ -26,6 +26,7 @@ pub(super) fn hide_panel_status_texts(mut texts: Query<&mut Node, With<PanelStat
 
 pub(super) fn observe_status(
     inputs: StatusInputs,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     mut state: ResMut<EditorStatusBarState>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     panels: Query<(Entity, Ref<PanelStatusText>, Ref<Text>, Has<feathrise_editor_ui::feedback::GlobalPanelStatus>)>,
@@ -135,16 +136,22 @@ pub(super) fn observe_status(
             .max_by_key(|notice| (notice.kind == EditorStatusKind::Error, notice.sequence))
             .map(|notice| (notice.kind, notice.detail.clone()))
     });
-    let mut task = inputs.task(&entries);
+    let locale_changed = locale.as_ref().is_some_and(|locale| locale.is_changed());
+    let locale = locale.as_deref().copied().unwrap_or_default();
+    let editor_task = inputs.task(&entries);
+    let mut task = locale.editor_notice(&editor_task).into_owned();
     use feathrise_editor_ui::feedback::PanelStatusPhase;
     let external_failure = external.iter().find(|status| !status.summary.is_empty() && status.phase == PanelStatusPhase::Failed);
     let working = !task.is_empty() || external.iter().any(|status| !status.summary.is_empty() && status.phase == PanelStatusPhase::Working);
     // 宿主阶段是持续只读投影，不重写 editor.status，也不把“已连接”的信息项误算为在途任务。
     for status in external.iter().filter(|status| !status.summary.is_empty()) {
-        if !task.is_empty() { task.push_str("；"); }
-        task.push_str(status.summary);
+        // 每个任务在拼接之前翻译。多项并行时完整字符串无法匹配单项文案键。
+        if !task.is_empty() {
+            task.push_str(if locale == feathrise_editor_ui::localization::EditorLocale::English { " · " } else { "；" });
+        }
+        task.push_str(&locale.editor_notice(status.summary));
     }
-    let context = tool_context(editor);
+    let context = tool_context(editor, locale);
     let preset_failures = inputs.preset_failures();
     let phase = if inputs.loading_failed() {
         StatusPhase::Error // 正式失败仍需重试或取消，清除阅读提示不能把加载失败显示为正常处理中。
@@ -214,24 +221,25 @@ pub(super) fn observe_status(
     }
 
     // 完整诊断只在显式展开后组装，关闭的底栏不逐帧复制长路径和运行时明细。
-    if state.popup_open && (state.detail_dirty || state.detail.is_empty()) {
+    if state.popup_open && (state.detail_dirty || locale_changed || state.detail.is_empty()) {
         let mut detail = String::new();
+        let current_message = locale.editor_notice(&editor.status);
         // 切图时先呈现当前正式阶段及完整失败原因，窄窗不必翻过旧地图的工具信息。
         if editor.map_transition_in_progress
             && let Some((label, value)) = state.panel_status.values().find(|(label, _)| *label == "地图加载")
         {
-            detail.push_str(label);
+            detail.push_str(locale.editor_label(label));
             detail.push('\n');
             detail.push_str(value);
             detail.push_str("\n\n");
         }
         if let Some((_, retained)) = &state.retained_runtime {
-            detail.push_str("保留的运行时诊断（清除仅确认阅读，不改变实际任务）\n");
+            detail.push_str(locale.text("status.detail.retained_runtime"));
             detail.push_str(retained);
             detail.push_str("\n\n");
         }
         for notice in state.notices.iter().flatten() {
-            detail.push_str("保留的操作诊断（清除仅确认阅读，不改变实际任务）\n");
+            detail.push_str(locale.text("status.detail.retained_operation"));
             detail.push_str(&notice.detail);
             detail.push_str("\n\n");
         }
@@ -242,7 +250,7 @@ pub(super) fn observe_status(
                 .flatten()
                 .any(|notice| notice.sequence == result.sequence)
         {
-            detail.push_str("最近一次明确回执\n");
+            detail.push_str(locale.text("status.detail.receipt"));
             detail.push_str(&result.detail);
             detail.push_str("\n\n");
         }
@@ -260,31 +268,33 @@ pub(super) fn observe_status(
                 .as_ref()
                 .is_some_and(|result| result.status_text.as_ref() == editor.status);
         if !current_is_receipt {
-            detail.push_str("当前提示\n");
-            detail.push_str(&editor.status);
+            detail.push_str(locale.text("status.detail.current"));
+            detail.push_str(&current_message);
         }
-        detail.push_str("\n\n当前任务：");
-        detail.push_str(if state.task.is_empty() {
-            "无"
+        let task = if state.task.is_empty() {
+            locale.text("status.detail.no_task").into()
         } else {
-            &state.task
-        });
-        detail.push_str(if editor.dirty {
-            "\n作者草稿：有未保存修改"
+            state.task.clone()
+        };
+        detail.push_str(&locale.format("status.detail.task", &[("task", task)]));
+        detail.push_str(locale.text(if editor.dirty {
+            "status.detail.drafts_dirty"
         } else {
-            "\n作者草稿：当前无未保存修改"
-        });
-        detail.push_str("\n工具与视图：");
-        detail.push_str(&state.context);
-        detail.push_str(&runtime_detail(&entries));
+            "status.detail.drafts_clean"
+        }));
+        detail.push_str(&locale.format("status.detail.view", &[("view", state.context.clone())]));
+        detail.push_str(&runtime_detail(&entries, locale));
         if !state.panel_status.is_empty() {
-            detail.push_str("\n\n工具与资源反馈");
+            detail.push_str(locale.text("status.detail.panels"));
             let mut panels: Vec<_> = state.panel_status.values().collect();
             panels.sort_by_key(|(label, _)| *label);
             for (label, value) in panels {
                 if editor.map_transition_in_progress && *label == "地图加载" { continue; }
-                if value.as_ref() == editor.status { continue; }
-                detail.push_str("\n\n"); detail.push_str(label); detail.push('\n'); detail.push_str(value);
+                let value = locale.editor_notice(value);
+                if value == current_message { continue; }
+                // 只匹配编辑器已知回执模板，模板中的路径和外部诊断参数保留原文。
+                detail.push_str("\n\n"); detail.push_str(locale.editor_label(label)); detail.push('\n');
+                detail.push_str(&value);
             }
         }
         for (operation, target, error) in preset_failures.into_iter().flatten() {
@@ -299,13 +309,12 @@ pub(super) fn observe_status(
             {
                 continue;
             }
-            detail.push_str(&format!(
-                "\n\n仍在等待的目录故障：{}“{}” [{}]\n{}",
-                operation.label(),
-                target.label,
-                target.id,
-                error
-            ));
+            detail.push_str(&locale.format("status.detail.catalog_failure", &[
+                ("operation", locale.editor_label(operation.label()).into()),
+                ("target", target.label.to_string()),
+                ("id", target.id.to_string()),
+                ("error", error.into()),
+            ]));
         }
         if state.detail != detail {
             state.detail = detail;
@@ -434,6 +443,7 @@ pub(super) fn control_details(
 }
 
 pub(super) fn sync_presentation(
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     inputs: StatusInputs,
     state: Res<EditorStatusBarState>,
     roots: Query<&ComputedNode, With<MapEditorRoot>>,
@@ -469,6 +479,7 @@ pub(super) fn sync_presentation(
         .single()
         .map_or(0.0, |node| node.size().x * node.inverse_scale_factor());
     let full_context = width >= 700.0;
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (role, mut text, mut color, mut node) in &mut texts {
         let (value, tint, show) = match role.0 {
             StatusTextRole::Phase => (state.phase.label(), phase_color(state.phase), true),
@@ -495,8 +506,13 @@ pub(super) fn sync_presentation(
                 !state.copy_result.is_empty(),
             ),
         };
-        if text.as_str() != value {
-            **text = value.to_owned();
+        let value = if matches!(role.0, StatusTextRole::Detail | StatusTextRole::Context | StatusTextRole::Task) {
+            std::borrow::Cow::Borrowed(value) // 已按当前语言组装；保持正文中的原始错误载荷。
+        } else {
+            locale.editor_notice(value)
+        };
+        if text.as_str() != value.as_ref() {
+            **text = value.into_owned();
         }
         if color.0 != tint {
             color.0 = tint;
@@ -504,10 +520,6 @@ pub(super) fn sync_presentation(
         let display = if show { Display::Flex } else { Display::None };
         if node.display != display {
             node.display = display;
-        }
-        if role.0 == StatusTextRole::Context {
-            node.flex_shrink = 1.0;
-            node.max_width = percent(42); // 工具信息有独立上限，不能把左侧操作摘要挤到零宽。
         }
     }
 }

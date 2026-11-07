@@ -39,7 +39,7 @@ pub(super) fn button(world: &mut World, action: ChromeButton, glyph: Glyph, name
     );
     let label = world
         .spawn((
-            Text::new(name),
+            feathrise_editor_ui::localization::editor_label(name),
             TextFont {
                 font: font.into(),
                 font_size: 12.0.into(),

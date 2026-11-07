@@ -24,7 +24,7 @@ fn button(label: &str, action: WaterPresetAction) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(9.2) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -54,7 +54,7 @@ pub(crate) fn water_preset_panel() -> impl Scene {
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
             (
-                Text("全局静水预设库")
+                Text("全局静水预设库") feathrise_editor_ui::localization::label_scene("全局静水预设库")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_ACCENT)
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
@@ -70,7 +70,7 @@ pub(crate) fn water_preset_panel() -> impl Scene {
             (button("应用到当前静水体", WaterPresetAction::ApplyToSelectedStillWater)),
             (
                 WaterPresetSummaryText
-                Text("当前预设：尚未选择")
+                Text("当前预设：尚未选择") feathrise_editor_ui::localization::label_scene("当前预设：尚未选择")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(9.0) }
                 TextColor(colors::TEXT_VALUE)
                 TextLayout { linebreak: LineBreak::AnyCharacter }
@@ -78,7 +78,7 @@ pub(crate) fn water_preset_panel() -> impl Scene {
             ),
             (
                 WaterPresetListTitle
-                Text("水体预设 · 等待目录")
+                Text("水体预设 · 等待目录") feathrise_editor_ui::localization::label_scene("水体预设 · 等待目录")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(9.2) }
                 TextColor(colors::TEXT_VALUE)
                 TextLayout { linebreak: LineBreak::AnyCharacter }

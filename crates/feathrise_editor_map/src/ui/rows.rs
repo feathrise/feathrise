@@ -34,6 +34,7 @@ fn map_tree_content_height(row_count: usize) -> f32 {
 pub(crate) fn sync_dynamic_list_layouts(
     map_index: Res<MapBrowserIndexState>, // 完整树总量和当前展开投影。
     editor: Res<MapEditorState>,          // 关闭F12时不刷新静态侧栏。
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     mut asset_catalog: ResMut<EditorAssetCatalog>, // 目录刷新后资产页码需安全钳制。
     mut pools: ParamSet<(
         Query<&mut Node, With<MapEditorMapList>>, // 地图树完整滚动内容容器。
@@ -71,7 +72,7 @@ pub(crate) fn sync_dynamic_list_layouts(
         0,
         map_index.rebuilding,
     );
-    if previous.as_ref() == Some(&signature) {
+    if previous.as_ref() == Some(&signature) && !locale.as_ref().is_some_and(|locale| locale.is_changed()) {
         return; // 稳定帧不重写固定行池Node或摘要Text，避免无意义UI布局重算。
     }
     *previous = Some(signature); // 首个打开帧和任何目录/页码变化都完整刷新两类列表。
@@ -81,18 +82,16 @@ pub(crate) fn sync_dynamic_list_layouts(
     for mut node in &mut pools.p3() {
         node.display = Display::None; // 兼容旧夹具marker，正式浏览器不创建翻页控件。
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (mut text, map_title, asset_title) in &mut summaries {
         if map_title.is_some() {
-            **text = format!(
-                "地图 · 显示{map_visible}项 / 共{map_total}项{}",
-                if map_index.rebuilding {
-                    " · 整理中"
-                } else {
-                    ""
-                },
-            );
+            **text = locale.format("map.directory.count", &[
+                ("visible", map_visible.to_string()),
+                ("total", map_total.to_string()),
+                ("progress", if map_index.rebuilding { locale.text("map.directory.rebuilding") } else { "" }.into()),
+            ]);
         } else if asset_title.is_some() {
-            **text = format!("工程 · {asset_total}项");
+            **text = locale.format("project.files.count", &[("count", asset_total.to_string())]);
         }
     }
 }
@@ -230,6 +229,7 @@ pub(crate) fn sync_map_rows(
     browser: Res<MapBrowserState>,    // 根、文件夹或地图稳定高亮目标与展开集合。
     drag: Res<MapBrowserDragState>,   // 有效文件夹落点需要额外边框反馈。
     editor: Res<MapEditorState>,      // 当前已真正进入的地图身份。
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     scrolls: Query<(Ref<ScrollPosition>, Option<&ComputedNode>), With<MapEditorMapTreeScroll>>, // 滚动和实际栏宽共同约束固定行池。
     mut previous_width: Local<Option<f32>>,
     mut rows: Query<(
@@ -257,6 +257,7 @@ pub(crate) fn sync_map_rows(
     let scroll_changed = scroll.is_changed(); // 滚动期间只重绑固定二十八槽，不重建实体。
     if !editor.open
         || !(editor.is_changed()
+            || locale.as_ref().is_some_and(|locale| locale.is_changed())
             || index.is_changed()
             || browser.is_changed()
             || drag.is_changed()
@@ -268,6 +269,7 @@ pub(crate) fn sync_map_rows(
     {
         return; // 稳定帧不重写任何虚拟行实体。
     }
+    let active_label = locale.as_deref().copied().unwrap_or_default().text("map.row.active");
     let first_visible = (scroll.y.max(0.0) / MAP_BROWSER_ROW_PITCH).floor() as usize; // 逻辑像素偏移映射到完整树下标。
     let start = first_visible.saturating_sub(1); // 额外保留一行上方缓冲，避免亚像素滚动露白。
     let scope = (browser.document_revision, index.applied_projection.clone());
@@ -327,7 +329,7 @@ pub(crate) fn sync_map_rows(
         border.set_if_neq(border_color); // 与根行共用落点、选中和悬停优先级，只写差异。
         for child in children.iter() {
             if let Ok(mut text) = current_labels.get_mut(child) {
-                let value = if active { "当前" } else { "" };
+                let value = if active { active_label } else { "" };
                 if text.as_str() != value { **text = value.to_owned(); }
             }
             if let Some(icons) = icons.as_ref()

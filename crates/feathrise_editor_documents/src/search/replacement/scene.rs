@@ -17,7 +17,7 @@ fn button(label: &str, action: ReplaceAction) -> impl Scene {
             align_items: AlignItems::Center, justify_content: JustifyContent::Center }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label) template_value(ReplaceLabel::Button(action)) template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+            Text(label) feathrise_editor_ui::localization::label_scene(label) template_value(ReplaceLabel::Button(action)) template_value(FocusPolicy::Pass) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_PRIMARY)
         )]
     }
@@ -29,7 +29,7 @@ pub(crate) fn sidebar() -> impl Scene {
         Children [(
             Node { width: percent(100), column_gap: px(3), align_items: AlignItems::Center }
             Children [(
-            Text("替换为") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+            Text("替换为") feathrise_editor_ui::localization::label_scene("替换为") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_MUTED)
         ), (
             ReplaceField feathrise_editor_core::EditorTextInput
@@ -60,7 +60,7 @@ pub(crate) fn panel() -> impl Scene {
             (
                 Node { width: percent(100), min_height: px(24), flex_shrink: 0.0, padding: UiRect::right(px(22)) }
                 Children [(
-                    template_value(ReplaceLabel::Summary) Text("跨文件替换预览") template_value(FocusPolicy::Pass)
+                    template_value(ReplaceLabel::Summary) Text("跨文件替换预览") feathrise_editor_ui::localization::label_scene("跨文件替换预览") template_value(FocusPolicy::Pass)
                     Node { min_width: px(0), flex_grow: 1.0 }
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_BODY) } TextColor(colors::TEXT_ACCENT)
                 ), (feathrise_editor_ui::context_help::help_button("跨文件替换", "搜索完成后输入替换文字，打开中央预览；空文字表示删除。先更新并核对差异，再替换当前匹配、当前文件或勾选文件。操作只改草稿，写盘使用保存本批或保存全部草稿。达到搜索上限时只处理已列出的匹配，未列出内容保持。", FONT_PATH))]
@@ -98,16 +98,16 @@ pub(crate) fn panel() -> impl Scene {
                 ), (
                     Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), min_height: px(0), flex_direction: FlexDirection::Column, row_gap: px(4) }
                     Children [(
-                        template_value(ReplaceLabel::Path) Text("选择左侧文件") template_value(FocusPolicy::Pass)
+                        template_value(ReplaceLabel::Path) Text("选择左侧文件") feathrise_editor_ui::localization::label_scene("选择左侧文件") template_value(FocusPolicy::Pass)
                         Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 } TextLayout::no_wrap()
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_ACCENT)
                     ), (
                         Node { width: percent(100), flex_shrink: 0.0 }
                         Children [(
-                            Text("修改前（原行:列）") template_value(FocusPolicy::Pass)
+                            Text("修改前（原行:列）") feathrise_editor_ui::localization::label_scene("修改前（原行:列）") template_value(FocusPolicy::Pass)
                             Node { width: percent(50) } TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_MUTED)
                         ), (
-                            Text("修改后") template_value(FocusPolicy::Pass)
+                            Text("修改后") feathrise_editor_ui::localization::label_scene("修改后") template_value(FocusPolicy::Pass)
                             Node { width: percent(50) } TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_PRIMARY)
                         )]
                     ), (

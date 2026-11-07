@@ -1,6 +1,6 @@
 //! 紧凑可折叠收藏/最近访问区；固定84行池，内容少时按真实行数收缩。
 
-use feathrise_editor_ui::metrics as ui_metrics;
+use feathrise_editor_ui::{localization::EditorLocale, metrics as ui_metrics};
 use super::{components::*, constants::*, resources::AssetShortcuts, types::*};
 use crate::ui::{scene::FONT_PATH, theme as colors};
 use bevy::{
@@ -15,7 +15,7 @@ fn button(label: &str, action: ShortcutAction) -> impl Scene {
         Node { height: px(24), padding: UiRect::horizontal(px(5)), align_items: AlignItems::Center, flex_shrink: 0.0 }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         Children [(
-            Text(label) template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+            Text(label) feathrise_editor_ui::localization::label_scene(label) template_value(FocusPolicy::Pass) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -30,13 +30,15 @@ fn section(section: Section, initial: &str, action: ShortcutAction, label: &str)
     bsn! {
         Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, flex_shrink: 0.0, row_gap: px(2) }
         Children [(
-            Node { width: percent(100), height: px(24), column_gap: px(3), flex_shrink: 0.0 }
+            Node { width: percent(100), min_height: px(24), column_gap: px(3), flex_shrink: 0.0 }
             Children [(
                 Button template_value(ShortcutAction::Collapse(section))
                 Node { flex_grow: 1.0, min_width: px(0), padding: UiRect::horizontal(px(5)), align_items: AlignItems::Center }
                 BackgroundColor(colors::SLOT_BG)
                 Children [(
-                    template_value(ShortcutHeader(section)) Text(initial) template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+                    // 极窄侧栏允许计数换行，展开命中区仍覆盖完整标题。
+                    template_value(ShortcutHeader(section)) Text(initial) template_value(FocusPolicy::Pass)
+                    Node { width: percent(100), min_width: px(0) }
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_PRIMARY)
                 )]
             ), (button(label, action)), (
@@ -170,6 +172,7 @@ pub(super) fn list_height(count: usize) -> f32 {
 
 pub(super) fn sync(
     state: Res<AssetShortcuts>,
+    locale: Option<Res<EditorLocale>>,
     new_rows: Query<(), Added<ShortcutRow>>,
     mut lists: Query<
         (&ShortcutList, &mut Node, &mut ScrollPosition),
@@ -222,9 +225,11 @@ pub(super) fn sync(
             _ => colors::BUTTON_DEV_SMALL_NORMAL,
         };
     }
-    if !state.is_changed() && new_rows.is_empty() {
+    if !state.is_changed() && new_rows.is_empty()
+        && !locale.as_ref().is_some_and(|locale| locale.is_changed()) {
         return;
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (list, mut node, mut scroll) in &mut lists {
         let count = state.entries(list.0).len();
         node.display = if state.expanded(list.0) && count > 0 {
@@ -260,12 +265,13 @@ pub(super) fn sync(
                 }
                 let value = entry.map_or(String::new(), |entry| {
                     format!(
-                        "{}{} {}",
-                        if entry.available { "" } else { "[失效] " },
+                        "{}{}{} {}",
+                        if entry.available { "" } else { locale.text("asset.shortcuts.invalid") },
+                        if entry.available { "" } else { " " },
                         if entry.target.is_directory {
-                            "[目录]"
+                            locale.text("asset.shortcuts.folder")
                         } else {
-                            "[文件]"
+                            locale.text("asset.shortcuts.file")
                         },
                         entry
                             .target
@@ -293,20 +299,14 @@ pub(super) fn sync(
         }
     }
     for (entity, header) in &headers {
-        let value = format!(
-            "{}{} · {}",
-            if state.expanded(header.0) {
-                "收起"
-            } else {
-                "展开"
-            }, // 使用项目CJK字体具备的文字，避免折叠三角显示缺字方框。
-            if header.0 == Section::Favorites {
-                "收藏"
-            } else {
-                "最近访问"
-            },
-            state.entries(header.0).len()
-        );
+        // 状态决定整句文案，避免分别翻译动词和类别导致英文词序或截断问题。
+        let key = match (header.0, state.expanded(header.0)) {
+            (Section::Favorites, true) => "asset.shortcuts.favorites.hide",
+            (Section::Favorites, false) => "asset.shortcuts.favorites.show",
+            (Section::Recent, true) => "asset.shortcuts.recent.hide",
+            (Section::Recent, false) => "asset.shortcuts.recent.show",
+        };
+        let value = locale.format(key, &[("count", state.entries(header.0).len().to_string())]);
         if let Ok(mut label) = text.get_mut(entity)
             && label.0 != value
         {
@@ -320,9 +320,9 @@ pub(super) fn sync(
             Display::None
         };
         let value = if section.0 == Section::Favorites {
-            "暂无收藏"
+            locale.text("asset.shortcuts.favorites.empty")
         } else {
-            "暂无最近访问"
+            locale.text("asset.shortcuts.recent.empty")
         };
         if let Ok(mut label) = text.get_mut(entity)
             && label.0 != value
@@ -332,20 +332,21 @@ pub(super) fn sync(
     }
     for (entity, mut node) in &mut feedback {
         // 操作说明放标题问号；原唯一反馈源承接加载或故障，由底栏统一收集。
-        let value = if state.feedback.is_empty() && !state.loaded {
+        let source = if state.feedback.is_empty() && !state.loaded {
             "正在载入导航记录…"
         } else {
             state.feedback.as_str()
         };
+        let value = locale.editor_notice(source);
         node.display = if value.is_empty() {
             Display::None
         } else {
             Display::Flex
         };
         if let Ok(mut label) = text.get_mut(entity)
-            && label.0 != value
+            && label.as_str() != value.as_ref()
         {
-            label.0 = value.to_owned();
+            label.0 = value.into_owned();
         }
     }
 }

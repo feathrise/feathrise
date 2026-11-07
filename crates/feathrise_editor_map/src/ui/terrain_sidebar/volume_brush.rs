@@ -37,7 +37,7 @@ pub(crate) fn spawn_types(parent: &mut ChildSpawnerCommands, font: &Handle<Font>
         ))
         .with_children(|row| {
             row.spawn((
-                Text::new("笔刷类型"),
+                feathrise_editor_ui::localization::editor_label("笔刷类型"),
                 TextFont {
                     font: font.clone().into(),
                     font_size: 12.0.into(),
@@ -110,7 +110,7 @@ pub(super) fn panel() -> impl Scene {
                 BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
                 Children [(
-                    Text("锁定本笔高度")
+                    Text("锁定本笔高度") feathrise_editor_ui::localization::label_scene("锁定本笔高度")
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                     TextColor(colors::TEXT_PRIMARY)
                 )]

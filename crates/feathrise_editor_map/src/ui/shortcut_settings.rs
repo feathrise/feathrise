@@ -11,6 +11,7 @@ use feathrise_editor_core::EditorSettings;
 use feathrise_editor_core::EditorKeyBinding;
 use feathrise_editor_core::EditorShortcutConflict;
 use feathrise_editor_core::EditorKeyBindings;
+use feathrise_editor_ui::localization::EditorLocale;
 
 use super::editor_settings::components::{
     ShortcutNoticeCard, ShortcutScrollbarThumb,
@@ -121,6 +122,7 @@ pub(crate) fn sync_shortcut_settings_panel(
     mut commands: Commands,
     state: Res<MapEditorSettingsState>,
     settings: Res<EditorSettings>,
+    locale: Option<Res<EditorLocale>>,
     bodies: Query<Entity, With<MapEditorShortcutSettingsBody>>,
     tracks: Query<Entity, (With<ShortcutScrollbarTrack>, Without<Scrollbar>)>,
     mut thumbs: Query<&mut ScrollbarDragState, With<ShortcutScrollbarThumb>>,
@@ -159,17 +161,19 @@ pub(crate) fn sync_shortcut_settings_panel(
             }
         }
     }
-    if !state.is_changed() && !settings.is_changed() {
+    if !state.is_changed() && !settings.is_changed()
+        && !locale.as_ref().is_some_and(|locale| locale.is_changed()) {
         return;
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (action, mut text, color) in &mut labels {
         let label = if state.listening == Some(action.0) {
-            "按新组合键…".into()
+            locale.text("shortcut.binding.listening").into()
         } else {
             settings
                 .editor_keybindings
                 .get(action.0)
-                .map_or_else(|| "未绑定".into(), EditorKeyBinding::display)
+                .map_or_else(|| locale.text("label.unassigned").into(), |binding| binding_label(locale, &binding.display()))
         };
         if text.as_str() != label {
             **text = label;
@@ -186,13 +190,19 @@ pub(crate) fn sync_shortcut_settings_panel(
         }
     }
     for (mut text, color) in &mut notices {
-        let label = if state.shortcut_notice.is_empty() {
+        let source = if state.shortcut_notice.is_empty() {
             "点击键位录入组合键；Esc取消。修改自动保存。"
         } else {
             state.shortcut_notice.as_str()
         };
-        if text.as_str() != label {
-            **text = label.into();
+        let label = ["shortcut.notice.listen", "shortcut.notice.cleared", "shortcut.notice.bound", "shortcut.notice.conflict"]
+            .into_iter()
+            .find_map(|key| locale.editor_notice_with(key, source, |name, value| {
+                if name == "binding" { binding_label(locale, value) } else { locale.editor_label(value).into() }
+            }))
+            .map_or_else(|| locale.editor_notice(source), std::borrow::Cow::Owned);
+        if text.as_str() != label.as_ref() {
+            **text = label.into_owned();
         }
         if let Some(mut color) = color {
             color.set_if_neq(TextColor(match state.shortcut_notice_kind {
@@ -222,6 +232,13 @@ pub(crate) fn sync_shortcut_settings_panel(
         background.set_if_neq(BackgroundColor(fill));
         border.set_if_neq(BorderColor::all(edge));
     }
+}
+
+fn binding_label(locale: EditorLocale, binding: &str) -> String {
+    // Ctrl/Shift/Alt 和物理键身份沿用原键位，只有最后一个键的显示名参与翻译。
+    let (modifiers, key) = binding.rsplit_once('+').unwrap_or(("", binding));
+    let key = locale.editor_label(key);
+    if modifiers.is_empty() { key.to_owned() } else { format!("{modifiers}+{key}") }
 }
 
 pub(crate) fn scroll_shortcut_settings(

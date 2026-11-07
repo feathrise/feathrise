@@ -121,7 +121,7 @@ fn celestial_section_header(scope: CelestialNumericScope) -> impl Scene {
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
             CelestialSectionToggleLabel(scope)
-            Text(title)
+            Text(title) feathrise_editor_ui::localization::label_scene(title)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                 font_size: px(ui_metrics::FONT_CONTROL),
@@ -133,7 +133,7 @@ fn celestial_section_header(scope: CelestialNumericScope) -> impl Scene {
 
 fn celestial_property_title(label: &str) -> impl Scene {
     bsn! {
-        Text(label)
+        Text(label) feathrise_editor_ui::localization::label_scene(label)
         TextFont {
             font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
             font_size: px(ui_metrics::FONT_HINT),
@@ -160,7 +160,7 @@ fn celestial_color_title(label: &str, scope: CelestialNumericScope, day: bool) -
         }
         Children [
             (
-                Text(label)
+                Text(label) feathrise_editor_ui::localization::label_scene(label)
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_HINT),
@@ -197,7 +197,7 @@ fn celestial_override_title(property: CelestialOverrideProperty) -> impl Scene {
         }
         Children [
             (
-                Text(label)
+                Text(label) feathrise_editor_ui::localization::label_scene(label)
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_HINT),
@@ -220,7 +220,7 @@ fn celestial_override_title(property: CelestialOverrideProperty) -> impl Scene {
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
                 Children [(
                     CelestialOverrideToggleLabel(property)
-                    Text("跟随全局")
+                    Text("跟随全局") feathrise_editor_ui::localization::label_scene("跟随全局")
                     TextFont {
                         font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                         font_size: px(ui_metrics::FONT_CONTROL),
@@ -246,7 +246,7 @@ fn celestial_override_color_title(property: CelestialOverrideProperty, day: bool
         }
         Children [
             (
-                Text(label)
+                Text(label) feathrise_editor_ui::localization::label_scene(label)
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_HINT),
@@ -285,7 +285,7 @@ fn celestial_override_color_title(property: CelestialOverrideProperty, day: bool
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
                 Children [(
                     CelestialOverrideToggleLabel(property)
-                    Text("跟随全局")
+                    Text("跟随全局") feathrise_editor_ui::localization::label_scene("跟随全局")
                     TextFont {
                         font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                         font_size: px(ui_metrics::FONT_CONTROL),
@@ -374,7 +374,7 @@ pub(in crate::ui) fn environment_page() -> impl Scene {
             (
                 MapEditorEnvironmentText
                 EnvironmentSidebarText(EnvironmentTextField::MapContext)
-                Text("未进入地图")
+                Text("未进入地图") feathrise_editor_ui::localization::label_scene("未进入地图")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_VALUE)
                 TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }

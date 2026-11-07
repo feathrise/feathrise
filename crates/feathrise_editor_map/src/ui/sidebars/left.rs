@@ -187,7 +187,7 @@ pub(crate) fn scene_tree_page() -> impl Scene {
         ), (
             MapEditorSceneContext MapEditorSceneContextHint
             Node { display: Display::None, width: percent(100), min_width: px(0), padding: UiRect::all(px(4)) }
-            Children [(Text("当前正在编辑预设，切回地图标签查看场景树。")
+            Children [(Text("当前正在编辑预设，切回地图标签查看场景树。") feathrise_editor_ui::localization::label_scene("当前正在编辑预设，切回地图标签查看场景树。")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED) TextLayout { linebreak: LineBreak::AnyCharacter })]
         )]
@@ -200,7 +200,7 @@ pub(crate) fn tool_module_bar() -> impl Scene {
         Node { width: percent(100), height: px(32), flex_shrink: 0.0, align_items: AlignItems::Center, column_gap: px(6), padding: UiRect::horizontal(px(8)), border: UiRect::bottom(px(1)) }
         BackgroundColor(colors::PANEL_BG_STRONG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            (Text("工具") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_MUTED)),
+            (Text("工具") feathrise_editor_ui::localization::label_scene("工具") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_MUTED)),
             (Node { width: px(7.0 * super::TOOL_MODULE_TAB_WIDTH + 6.0 * super::TOOL_MODULE_TAB_GAP), min_width: px(0), max_width: percent(85), height: px(26), column_gap: px(super::TOOL_MODULE_TAB_GAP) }
                 Children [
                     (sidebar_tab_button("网格", EditorSidebarTab::Left(EditorLeftSidebarTab::Meshes))),

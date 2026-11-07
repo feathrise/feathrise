@@ -68,6 +68,8 @@ impl FixtureLogProbe {
 }
 
 use bevy::prelude::*;
+use feathrise_editor_core::EditorSettings;
+use feathrise_editor_ui::localization::{EditorLocale, EditorSystemLocale};
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ProjectLogInput;
@@ -86,8 +88,11 @@ impl ProjectLogPlugin {
 impl Plugin for ProjectLogPlugin {
     fn build(&self, app: &mut App) {
         let (channel, inbox) = ProjectLogChannel::new(&self.project_id);
+        let world = app.world();
+        channel.set_locale(log_locale(world.get_resource::<EditorSettings>(), world.get_resource::<EditorSystemLocale>()));
         let state = ProjectLogState::new(&channel, &self.project_name);
         app.insert_resource(channel).insert_resource(state).insert_non_send(inbox)
+            .add_systems(PreUpdate, sync_log_locale)
             .add_systems(Update, scene::mount.before(systems::present))
             .add_systems(Update, reading::readonly.before(bevy::text::apply_text_edits).before(systems::collect))
             .add_systems(PostUpdate, reading::readonly.before(bevy::text::apply_text_edits))
@@ -107,4 +112,21 @@ impl Plugin for ProjectLogPlugin {
                 .before(bevy::text::apply_text_edits))
             .add_systems(PostUpdate, systems::measure_width.after(bevy::ui::UiSystems::PostLayout));
     }
+}
+
+fn sync_log_locale(
+    settings: Option<Res<EditorSettings>>,
+    system: Option<Res<EditorSystemLocale>>,
+    channel: Res<ProjectLogChannel>,
+) {
+    if channel.is_added() || settings.as_ref().is_some_and(|settings| settings.is_changed())
+        || system.as_ref().is_some_and(|system| system.is_changed())
+    {
+        channel.set_locale(log_locale(settings.as_deref(), system.as_deref()));
+    }
+}
+
+fn log_locale(settings: Option<&EditorSettings>, system: Option<&EditorSystemLocale>) -> EditorLocale {
+    let system = system.copied().unwrap_or_default().0;
+    settings.map_or_else(EditorLocale::default, |settings| EditorLocale::resolve(settings.ui_locale, system))
 }

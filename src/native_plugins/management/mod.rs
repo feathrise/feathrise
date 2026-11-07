@@ -14,8 +14,8 @@ pub(crate) mod types;
 mod ui;
 #[cfg(all(test, feature = "validation"))]
 pub(crate) mod validation;
-#[cfg(all(test, feature = "validation"))]
-mod validation_binary;
+#[cfg(feature = "validation")]
+pub(crate) mod validation_binary;
 
 use bevy::prelude::*;
 pub(crate) use resources::PluginManagerState;

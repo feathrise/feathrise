@@ -72,7 +72,7 @@ pub(crate) fn footer_node() -> Node {
 
 pub(crate) fn heading(label: &str) -> impl Scene {
     bsn! {
-        Text(label)
+        Text(label) feathrise_editor_ui::localization::label_scene(label)
         TextLayout::linebreak(LineBreak::AnyCharacter)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_BODY) }
         TextColor(colors::TEXT_ACCENT)
@@ -82,7 +82,7 @@ pub(crate) fn heading(label: &str) -> impl Scene {
 
 pub(crate) fn caption(label: &str) -> impl Scene {
     bsn! {
-        Text(label)
+        Text(label) feathrise_editor_ui::localization::label_scene(label)
         TextLayout::linebreak(LineBreak::AnyCharacter)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
         TextColor(colors::TEXT_MUTED)
@@ -105,7 +105,7 @@ pub(crate) fn button(label: &str, action: EditorAction) -> impl Scene {
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
             ManagementButtonText
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
@@ -127,7 +127,7 @@ pub(crate) fn folder_confirm_button() -> impl Scene {
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
             FolderConfirmText ManagementButtonText
-            Text("确认") TextLayout::no_wrap()
+            Text("确认") feathrise_editor_ui::localization::label_scene("确认") TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]

@@ -9,6 +9,7 @@ use bevy::{
 
 pub(super) fn sync(
     state: Res<DocumentState>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     replacement: Option<Res<super::search::AssetReplaceState>>,
     preview_state: Option<Res<super::super::types::AssetPreviewState>>,
     mut nodes: Query<
@@ -58,6 +59,7 @@ pub(super) fn sync(
     changed_buttons: Query<(), (With<DocumentAction>, Changed<Interaction>, Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>)>,
 ) {
     if !state.is_changed()
+        && !locale.as_ref().is_some_and(|locale| locale.is_changed())
         && replacement.as_ref().is_none_or(|state| !state.is_changed())
         && changed_buttons.is_empty()
         && preview_state
@@ -96,28 +98,29 @@ pub(super) fn sync(
         .iter()
         .filter(|item| item.dirty() && state.active.as_deref() != Some(&item.path))
         .count();
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let status = match doc {
         Some(doc) => format!(
             "{} · {}{}{}{}",
-            doc.format.label(),
-            if doc.dirty() { "未保存 · " } else { "" },
-            doc.status,
+            locale.editor_label(doc.format.label()),
+            if doc.dirty() { format!("{} · ", locale.text("document.unsaved")) } else { String::new() },
+            locale.editor_notice(&doc.status),
             if editing {
-                "\nCtrl+Z撤销 · Ctrl+Y重做 · Ctrl+S保存 · Ctrl+Shift+S保存全部草稿"
+                locale.text("document.shortcut_summary")
             } else {
                 ""
             },
             if !editing && doc.preview_clipped {
-                "\n预览内容较多，已达显示上限；源码和保存仍保留完整文档"
+                locale.text("document.preview_limit")
             } else {
                 ""
             }
         ),
-        None if !state.error.is_empty() => state.error.clone(),
-        None => "正在后台读取文本文件…".into(),
+        None if !state.error.is_empty() => locale.editor_notice(&state.error).into_owned(),
+        None => locale.text("document.loading").into(),
     };
     let status = if other_drafts > 0 {
-        format!("{status}\n另有{other_drafts}份草稿，返回对应文档可继续编辑")
+        format!("{status}{}", locale.format("document.other_drafts", &[("count", other_drafts.to_string())]))
     } else {
         status
     };
@@ -130,13 +133,13 @@ pub(super) fn sync(
         let value = if is_status {
             status.as_str()
         } else if is_reload {
-            reload
+            locale.editor_label(reload)
         } else if is_expand {
-            if state.central_active {
+            locale.editor_label(if state.central_active {
                 "返回侧栏"
             } else {
                 "放大"
-            }
+            })
         } else {
             super::source::display_path(state.active.as_deref().unwrap_or_default())
         };

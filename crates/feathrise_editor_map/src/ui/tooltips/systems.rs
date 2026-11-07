@@ -102,6 +102,7 @@ impl TooltipContext<'_> {
 
 pub(super) fn sync_tooltip(
     time: Res<Time<Real>>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     context: TooltipContext,
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -175,16 +176,19 @@ pub(super) fn sync_tooltip(
             copy.fixed_key = None;
             copy.description = match **interruption {
                 feathrise_editor_core::ProjectLaunchInterruption::CanStopCompilation =>
-                    "停止本次工程3D编译；确认后台任务退出后返回编辑器3D，保留未保存草稿和历史。",
-                _ => "正在确认本次编译及后台任务退出，完成后返回编辑器3D。",
+                    "停止本次工程3D编译，保留当前视口模式、未保存草稿和历史。",
+                _ => "正在等待本次编译及后台任务退出，未保存草稿和历史保留。",
             };
         }
     }
     let reason = unavailable_reason(target.0, &context.availability());
-    let title = (first_show || context.settings.is_changed() || context.mesh_edit.as_ref().is_some_and(|state| state.is_changed())
+    let language_changed = locale.as_ref().is_some_and(|locale| locale.is_changed());
+    let locale = locale.as_deref().copied().unwrap_or_default();
+    let description = locale.editor_label(copy.description);
+    let title = (first_show || language_changed || context.settings.is_changed() || context.mesh_edit.as_ref().is_some_and(|state| state.is_changed())
         || context.launch.as_ref().is_some_and(|launch| launch.is_changed())
         || context.interruption.as_ref().is_some_and(|phase|phase.is_changed()))
-        .then(|| tooltip_title(&copy, &context.settings));
+        .then(|| tooltip_title(&copy, &context.settings, locale));
     for (kind, mut text, mut node) in &mut texts {
         match kind {
             TooltipText::Title => {
@@ -195,8 +199,8 @@ pub(super) fn sync_tooltip(
                 }
             }
             TooltipText::Description => {
-                if text.as_str() != copy.description {
-                    **text = copy.description.to_owned();
+                if text.as_str() != description {
+                    **text = description.to_owned();
                 }
             }
             TooltipText::Reason => {
@@ -208,9 +212,10 @@ pub(super) fn sync_tooltip(
                 if node.display != display {
                     node.display = display;
                 }
-                if first_show || state.reason != reason {
+                if first_show || language_changed || state.reason != reason {
                     let label =
-                        reason.map_or_else(String::new, |reason| format!("当前不可用：{reason}"));
+                        reason.map_or_else(String::new, |reason| locale.format("tooltip.unavailable",
+                            &[("reason", locale.editor_label(reason).into())]));
                     if text.as_str() != label {
                         **text = label;
                     }

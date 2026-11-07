@@ -110,7 +110,8 @@ impl Default for Presentation {
             open_open: false,
             menu: false,
             menu_releasing: false,
-            name: "新工程".into(),
+            // 默认名同时用作目录名，所有界面语言使用相同的 ASCII 值。
+            name: "NewProject".into(),
             game_view: Default::default(),
             parent: String::new(),
             open_path: String::new(),

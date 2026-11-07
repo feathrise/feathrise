@@ -73,6 +73,8 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
         .insert_resource(display)
         .insert_resource(policy)
         .insert_resource(editor_settings)
+        // 自动编译在插件装配时即开始记录，第一条日志也要读取真实系统语言。
+        .insert_resource(feathrise_editor_ui::localization::EditorSystemLocale(self::preferences::system_locale()))
         .add_plugins(feathrise_editor_core::EditorSettingsPlugin);
 
     #[cfg(feature = "rtx_rendering")]
@@ -159,6 +161,8 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
     let build_cancel_validation = crate::embedded_viewport::validation::build_cancel::install(&mut app, &project.root)?;
     #[cfg(all(feature = "validation", windows))]
     let export_validation = crate::project_export::validation::install(&mut app, &project, &target)?;
+    #[cfg(feature = "validation")]
+    crate::locale_validation::install(&mut app, Some(&project.root))?;
     #[cfg(feature = "validation")]
     smoke::install(&mut app, project.root, asset_root)?;
     let preferences_completion = self::preferences::install(&mut app, author_preferences);

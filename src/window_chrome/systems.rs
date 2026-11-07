@@ -239,16 +239,17 @@ pub(super) fn present(world: &mut World) {
         }
     }
     if let Some(project) = p.project {
+        let locale = world.get_resource::<feathrise_editor_ui::localization::EditorLocale>()
+            .copied().unwrap_or_default();
         let name = world
             .get_resource::<crate::workspace_ui::WorkspaceModel>()
             .and_then(|m| m.project.as_ref())
-            .map(|p| p.name.clone())
-            .unwrap_or_else(|| "工程".into());
+            .map_or_else(|| locale.text("label.project.2"), |p| p.name.as_str());
+        let value = format!("{name} ▼");
         for child in scene::descendants(world, project, 1) {
             if let Some(mut text) = world.get_mut::<Text>(child) {
-                let value = format!("{name} ▼");
                 if text.as_str() != value {
-                    **text = value;
+                    text.0.clone_from(&value);
                 }
             }
         }

@@ -52,7 +52,7 @@ pub(crate) fn map_switch_dialog() -> impl Scene {
                     } // 长目标名或错误原因只滚动正文，不把确认和取消按钮推出窗口。
                     Children [(
                         MapSwitchDialogText
-                        Text("当前地图有未保存修改")
+                        Text("当前地图有未保存修改") feathrise_editor_ui::localization::label_scene("当前地图有未保存修改")
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_PRIMARY)
                         Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }

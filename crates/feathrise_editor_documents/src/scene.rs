@@ -18,7 +18,7 @@ fn button(label: &str, action: DocumentAction) -> impl Scene {
             border: px(1), border_radius: BorderRadius::all(px(3)) }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label) template_value(FocusPolicy::Pass)
+            Text(label) feathrise_editor_ui::localization::label_scene(label) template_value(FocusPolicy::Pass)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -56,7 +56,7 @@ pub(crate) fn panel() -> impl Scene {
                             border: px(1), border_radius: BorderRadius::all(px(3)) }
                         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
                         Children [(
-                            DocumentExpandLabel Text("放大") template_value(FocusPolicy::Pass)
+                            DocumentExpandLabel Text("放大") feathrise_editor_ui::localization::label_scene("放大") template_value(FocusPolicy::Pass)
                             TextLayout::no_wrap()
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_PRIMARY)
@@ -79,7 +79,7 @@ pub(crate) fn panel() -> impl Scene {
                             border: px(1), border_radius: BorderRadius::all(px(3)) }
                         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
                         Children [(
-                            DocumentReloadLabel Text("重新载入") template_value(FocusPolicy::Pass)
+                            DocumentReloadLabel Text("重新载入") feathrise_editor_ui::localization::label_scene("重新载入") template_value(FocusPolicy::Pass)
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_PRIMARY)
                         )]
@@ -98,7 +98,7 @@ pub(crate) fn panel() -> impl Scene {
                     column_gap: px(3), align_items: AlignItems::Center, overflow: Overflow::clip() }
                 Children [
                     (
-                        Text("磁盘已变化") TextLayout::no_wrap()
+                        Text("磁盘已变化") feathrise_editor_ui::localization::label_scene("磁盘已变化") TextLayout::no_wrap()
                         Node { flex_grow: 1.0, min_width: px(0), overflow: Overflow::clip_x() }
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_ACCENT)
@@ -109,7 +109,7 @@ pub(crate) fn panel() -> impl Scene {
                             align_items: AlignItems::Center, justify_content: JustifyContent::Center }
                         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
                         Children [(
-                            Text("保留草稿") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+                            Text("保留草稿") feathrise_editor_ui::localization::label_scene("保留草稿") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_PRIMARY)
                         )]
@@ -120,7 +120,7 @@ pub(crate) fn panel() -> impl Scene {
                             align_items: AlignItems::Center, justify_content: JustifyContent::Center }
                         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
                         Children [(
-                            DocumentReloadLabel Text("重新载入") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+                            DocumentReloadLabel Text("重新载入") feathrise_editor_ui::localization::label_scene("重新载入") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_PRIMARY)
                         )]
@@ -195,7 +195,7 @@ pub(crate) fn sidebar_launch() -> impl Scene {
                     border: px(1), border_radius: BorderRadius::all(px(3)) }
                 BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
                 Children [(
-                    Text("在中央打开所选文档") template_value(FocusPolicy::Pass)
+                    Text("在中央打开所选文档") feathrise_editor_ui::localization::label_scene("在中央打开所选文档") template_value(FocusPolicy::Pass)
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                     TextColor(colors::TEXT_PRIMARY)
                 )]

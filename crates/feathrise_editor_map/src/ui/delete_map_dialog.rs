@@ -40,7 +40,7 @@ pub(super) fn delete_map_dialog() -> impl Scene {
                     Children [
                         (modal::caption("删除目标 · 请核对身份")),
                         (
-                            MapDeletionDialogText Text("等待删除目标")
+                            MapDeletionDialogText Text("等待删除目标") feathrise_editor_ui::localization::label_scene("等待删除目标")
                             TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_PRIMARY)

@@ -17,7 +17,7 @@ fn field(label: &str, field: MapPropertiesField) -> impl Scene {
             grid_template_columns: vec![RepeatedGridTrack::px(1, 46.0), RepeatedGridTrack::flex(1, 1.0)],
             column_gap: px(4), align_items: AlignItems::Start }
         Children [
-            (Text(label) template_value(FocusPolicy::Pass)
+            (Text(label) feathrise_editor_ui::localization::label_scene(label) template_value(FocusPolicy::Pass)
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(metrics::FONT_BODY) }
                 TextColor(colors::TEXT_MUTED)
                 Node { width: px(46), min_height: px(18), flex_shrink: 0.0 }),
@@ -42,13 +42,13 @@ pub(crate) fn map_properties_page() -> impl Scene {
                 border: UiRect::bottom(px(1)), margin: UiRect::bottom(px(2)) }
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
                 Children [
-                    (Text("地图") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(metrics::FONT_BODY) }
+                    (Text("地图") feathrise_editor_ui::localization::label_scene("地图") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(metrics::FONT_BODY) }
                         TextColor(colors::TEXT_PRIMARY)),
                     (Button MapEditorActionButton(EditorAction::MapFolderRename) MapPropertiesEditBinding::default()
                         Node { width: px(46), height: px(24), align_items: AlignItems::Center,
                             justify_content: JustifyContent::Center, border_radius: BorderRadius::all(px(2)) }
                         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
-                        Children [(Text("编辑") template_value(FocusPolicy::Pass)
+                        Children [(Text("编辑") feathrise_editor_ui::localization::label_scene("编辑") template_value(FocusPolicy::Pass)
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_PRIMARY))]),
                 ]),

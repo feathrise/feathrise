@@ -6,6 +6,8 @@ use bevy::prelude::*;
 pub(crate) struct WorldEnvironmentControlsSlot;
 #[derive(Component, Default)]
 pub(crate) struct WorldTimePauseToggle;
+#[derive(Component)]
+pub(crate) struct WorldTimePauseLabel;
 #[derive(Component, Default)]
 pub(crate) struct WorldTimeSlider;
 #[derive(Component, Default)]

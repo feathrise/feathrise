@@ -13,7 +13,7 @@ use crate::ui::theme as colors;
 use bevy::prelude::*;
 use bevy::text::{FontSourceTemplate, LineBreak};
 use bevy::ui::{FocusPolicy, RelativeCursorPosition};
-use feathrise_editor_core::EditorColorTheme;
+use feathrise_editor_core::{EditorColorTheme, EditorLocalePreference};
 
 fn fixed_backdrop_colors() -> impl Scene {
     // ButtonColors没有Default/Template，沿共享按钮配色的原构造方式插入完整组件。
@@ -78,7 +78,7 @@ pub(super) fn settings_panel() -> impl Scene {
                     ..feathrise_editor_ui::dialog_body_node()
                 })
                 Children [
-                    (viewport_group()), (super::mesh_lod::panel()), (scale_group()), (theme_group()), (snapping_group()), (layout_group()),
+                    (locale_group()), (viewport_group()), (super::mesh_lod::panel()), (scale_group()), (theme_group()), (snapping_group()), (layout_group()),
                 ]
             ), (
                 super::shortcuts_scene::shortcut_page()
@@ -116,6 +116,24 @@ pub(super) fn group_node() -> Node {
         border: UiRect::all(px(1)),
         border_radius: BorderRadius::all(px(4)),
         ..default()
+    }
+}
+
+fn locale_group() -> impl Scene {
+    bsn! {
+        SettingsGroup template_value(group_node())
+        BackgroundColor(colors::PANEL_BG_SECTION) BorderColor::all(colors::COPPER_BORDER_WEAK)
+        Children [
+            (help_header("界面语言", "立即切换编辑器界面语言，重启后恢复此选择。")),
+            (
+                Node { width: percent(100), min_width: px(0), flex_wrap: FlexWrap::Wrap, column_gap: px(6), row_gap: px(6) }
+                Children [
+                    (settings_button("跟随系统", EditorSettingsAction::SetLocale(EditorLocalePreference::System), 112.0)),
+                    (settings_button("简体中文", EditorSettingsAction::SetLocale(EditorLocalePreference::Chinese), 84.0)),
+                    (settings_button("English", EditorSettingsAction::SetLocale(EditorLocalePreference::English), 84.0)),
+                ]
+            )
+        ]
     }
 }
 
@@ -162,7 +180,7 @@ fn viewport_group() -> impl Scene {
         BackgroundColor(colors::PANEL_BG_SECTION) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
             (help_header("视口显示", "开启时按钮高亮；父地图与子地图生效，退出编辑后仍保留。")),
-            (settings_button("显示地形背面", EditorSettingsAction::ToggleTerrainBackfaces, 132.0)),
+            (settings_button("显示地形背面", EditorSettingsAction::ToggleTerrainBackfaces, 148.0)),
         ]
     }
 }
@@ -174,7 +192,7 @@ fn theme_group() -> impl Scene {
         Children [
             (help_header("主题配色", "只影响编辑器工具界面；运行界面、地图和模型颜色保持原样。")),
             (
-                SettingsThemeText Text("当前：中性深灰")
+                SettingsThemeText Text("当前：中性深灰") feathrise_editor_ui::localization::label_scene("当前：中性深灰")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_PRIMARY) TextLayout::linebreak(LineBreak::AnyCharacter)
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
@@ -225,7 +243,7 @@ fn page_button(label: &str, action: EditorSettingsAction, width: f32) -> impl Sc
         feathrise_editor_ui::dialog_button_colors_scene(false)
         template_value(BackgroundColor(style.colors.normal)) BorderColor::all(feathrise_editor_ui::colors::DIALOG_BORDER)
         Children [(
-            Text(label) TextLayout::no_wrap()
+            Text(label) feathrise_editor_ui::localization::label_scene(label) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -240,7 +258,7 @@ pub(super) fn utility_button(label: &str, action: EditorSettingsAction, width: f
         feathrise_editor_ui::dialog_button_colors_scene(false)
         template_value(BackgroundColor(style.colors.normal)) BorderColor::all(feathrise_editor_ui::colors::DIALOG_BORDER)
         Children [(
-            Text(label) TextLayout::no_wrap()
+            Text(label) feathrise_editor_ui::localization::label_scene(label) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]

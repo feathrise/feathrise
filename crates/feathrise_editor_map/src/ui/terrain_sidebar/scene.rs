@@ -35,7 +35,7 @@ fn tab(page: TerrainSidebarPage) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -60,7 +60,7 @@ fn tool(label: &str, action: EditorAction, tool: EditorTool) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -82,7 +82,7 @@ pub(crate) fn terrain_tools_panel() -> impl Scene {
             (
                 // 塑形工具只操作明确所选网格；对象列表与变换属性留在场景/网格页。
                 TerrainSidebarMeshContext
-                Text("当前网格：尚未选择 · 从左侧场景树选择")
+                Text("当前网格：尚未选择 · 从左侧场景树选择") feathrise_editor_ui::localization::label_scene("当前网格：尚未选择 · 从左侧场景树选择")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED)
                 TextLayout::linebreak(LineBreak::AnyCharacter)
@@ -100,7 +100,7 @@ pub(crate) fn terrain_tools_panel() -> impl Scene {
             (
                 // 模式状态紧邻常驻导航，避免藏在三维工具之后而把预备高亮误当成允许落笔。
                 TerrainSidebarModeText
-                Text("当前：选择 · 预备 抬高")
+                Text("当前：选择 · 预备 抬高") feathrise_editor_ui::localization::label_scene("当前：选择 · 预备 抬高")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_VALUE)
                 TextLayout::no_wrap()
@@ -172,7 +172,7 @@ pub(crate) fn terrain_tools_panel() -> impl Scene {
                                     (surface_authoring_panel()),
                                     (
                                         MapEditorSurfaceText
-                                        Text("等待地图作者数据")
+                                        Text("等待地图作者数据") feathrise_editor_ui::localization::label_scene("等待地图作者数据")
                                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                                         TextColor(colors::TEXT_VALUE)
                                         TextLayout { linebreak: LineBreak::AnyCharacter }
@@ -189,7 +189,7 @@ pub(crate) fn terrain_tools_panel() -> impl Scene {
                             (help_header("独立积水潜力", "绘制地面的保水倾向，不是设置静水水位，不占地表或植被图层。左键绘制，Shift擦除；屋内、桥下保持零值。选择工具不创建画布，首次有效笔划才创建。切换工具可查看随天气变化的实际水洼。")),
                             (
                                 TerrainSidebarPuddleTargetText
-                                Text("等待地图作者数据")
+                                Text("等待地图作者数据") feathrise_editor_ui::localization::label_scene("等待地图作者数据")
                                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                                 TextColor(colors::TEXT_VALUE)
                                 TextLayout { linebreak: LineBreak::AnyCharacter }
@@ -204,7 +204,7 @@ pub(crate) fn terrain_tools_panel() -> impl Scene {
                             (
                                 TerrainSidebarAvailabilityText
                                 template_value(PanelStatusText("塑形工具"))
-                                Text("等待当前地图作者数据")
+                                Text("等待当前地图作者数据") feathrise_editor_ui::localization::label_scene("等待当前地图作者数据")
                                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                                 TextColor(colors::TEXT_VALUE)
                                 TextLayout { linebreak: LineBreak::AnyCharacter }

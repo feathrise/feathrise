@@ -82,7 +82,7 @@ pub(super) fn button(
             FocusPolicy::Block,
         ))
         .with_child((
-            Text::new(label),
+            feathrise_editor_ui::localization::editor_label(label),
             text_font(font, 11.0),
             TextColor(colors::TEXT_VALUE),
             TextLayout::new(Justify::Left, LineBreak::AnyCharacter),
@@ -136,7 +136,7 @@ pub(super) fn group(
                 BackgroundColor(colors::COPPER_BORDER_WEAK),
             ));
             heading.spawn((
-                Text::new(title),
+                feathrise_editor_ui::localization::editor_label(title),
                 text_font(font, 13.0),
                 TextColor(colors::TEXT_PRIMARY),
                 Node { max_width: Val::Percent(100.0), padding: UiRect::right(Val::Px(22.0)), ..default() },
@@ -208,7 +208,7 @@ pub(super) fn field(
             ..default()
         })
         .with_children(|column| {
-            column.spawn((Text::new(label), text_font(font, ui_metrics::FONT_CONTROL),
+            column.spawn((feathrise_editor_ui::localization::editor_label(label), text_font(font, ui_metrics::FONT_CONTROL),
                 TextColor(colors::TEXT_MUTED), TextLayout::new(Justify::Left, LineBreak::AnyCharacter),
                 Node { width: Val::Px(96.0), height: Val::Px(ui_metrics::label_height(label, 96.0)), min_width: Val::Px(0.0), flex_shrink: 0.0, ..default() }));
             let mut control = column.spawn((

@@ -89,7 +89,7 @@ pub(super) fn spawn_button(
             FocusPolicy::Block,
         ))
         .with_child((
-            Text::new(label),
+            feathrise_editor_ui::localization::editor_label(label),
             text_font(font, 11.0),
             TextColor(colors::TEXT_PRIMARY),
             TextLayout::new(Justify::Left, LineBreak::AnyCharacter),
@@ -209,7 +209,7 @@ pub(super) fn spawn_field(
             column.spawn(Node { width: Val::Percent(100.0), min_width: Val::Px(0.0),
                 align_items: AlignItems::Center, column_gap: Val::Px(ui_metrics::GAP), ..default() })
             .with_children(|line| {
-                line.spawn((Text::new(label), text_font(font, ui_metrics::FONT_CONTROL), TextColor(colors::TEXT_MUTED),
+                line.spawn((feathrise_editor_ui::localization::editor_label(label), text_font(font, ui_metrics::FONT_CONTROL), TextColor(colors::TEXT_MUTED),
                     TextLayout::new(Justify::Left, LineBreak::AnyCharacter),
                     Node { width: Val::Px(96.0), height: Val::Px(ui_metrics::label_height(label, 96.0)), min_width: Val::Px(0.0), flex_shrink: 0.0, ..default() }));
                 line.spawn(Node { min_width: Val::Px(0.0), flex_grow: 1.0, flex_basis: Val::Px(0.0),
@@ -296,7 +296,7 @@ pub(super) fn spawn_group_title(
         ))
         .with_children(|group| {
             group.spawn((
-                Text::new(title),
+                feathrise_editor_ui::localization::editor_label(title),
                 text_font(font, 13.0),
                 TextColor(colors::TEXT_PRIMARY),
                 TextLayout::new(Justify::Left, LineBreak::AnyCharacter),

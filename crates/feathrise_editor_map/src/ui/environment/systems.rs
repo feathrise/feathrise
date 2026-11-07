@@ -59,6 +59,7 @@ fn displayed_values(values: CurrentIblValues) -> CurrentIblValues {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn sync_editor_environment_text(
     editor: Res<MapEditorState>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     session: Res<EditorAuthoringSession>,
     global: Res<GlobalEnvironmentAuthoringState>,
     global_save: Res<GlobalEnvironmentSaveTask>,
@@ -101,8 +102,10 @@ pub(crate) fn sync_editor_environment_text(
     let ibl_status = ibl.single().ok().flatten();
     let dirty = dynamic.is_some_and(|draft| draft.environment_dirty);
     let global_saving = global_save.task.is_some() || (session.saving && global.dirty);
-    let first = previous.is_none() || !added.is_empty();
+    let locale = locale.as_deref().copied().unwrap_or_default();
+    let first = previous.as_ref().is_none_or(|old| old.locale != locale) || !added.is_empty();
     let old = previous.get_or_insert_with(EnvironmentObservation::default);
+    old.locale = locale;
     let map_changed = first
         || old.map_id.as_ref() != editor.selected_map_id.as_ref()
         || old.draft_map_id.as_ref() != draft_map_id
@@ -139,23 +142,23 @@ pub(crate) fn sync_editor_environment_text(
     let map_text = map_changed.then(|| {
         if editor.map_transition_in_progress {
             return (
-                "地图加载中".into(),
+                locale.editor_label("地图加载中").into(),
                 String::new(),
-                "等待当前地图与作者草稿就绪，不显示旧地图参数。".into(),
+                locale.text("environment.map.switching_hint").into(),
             );
         }
         let Some(draft) = draft else {
             return if editor.selected_map_id.is_some() {
                 (
-                    "等待地图草稿".into(),
+                    locale.text("environment.map.loading").into(),
                     String::new(),
-                    "当前地图草稿尚未就绪；世界调试与全局默认仍可使用。".into(),
+                    locale.text("environment.map.loading_hint").into(),
                 )
             } else {
                 (
-                    "未进入地图".into(),
+                    locale.text("environment.map.none").into(),
                     String::new(),
-                    "进入地图后编辑持久参数；空世界仍可调整世界调试与全局默认。".into(),
+                    locale.text("environment.map.none_hint").into(),
                 )
             };
         };
@@ -239,15 +242,15 @@ pub(crate) fn sync_editor_environment_text(
         } else {
             "全局默认无未保存修改"
         };
-        let source = global
-            .load_error
-            .as_deref()
-            .unwrap_or(if global.initialized {
-                "全局来源已同步"
-            } else {
-                "等待全局来源同步，暂用安全默认值"
-            });
-        format!("来源  assets/config/world_environment.world_environment.json\n{save}\n{source}")
+        let source = global.load_error.as_deref().unwrap_or_else(|| {
+            locale.text(if global.initialized { "environment.global.synced" } else { "environment.global.pending" })
+        });
+        // 文件名和具体加载错误是数据载荷，只翻译外层状态与说明。
+        locale.format("environment.global.source", &[
+            ("path", "assets/config/world_environment.world_environment.json".into()),
+            ("save", locale.editor_label(save).to_owned()),
+            ("source", source.to_owned()),
+        ])
     });
 
     for (marker, mut text, mut node, mut color) in &mut texts {

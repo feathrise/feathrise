@@ -41,7 +41,7 @@ fn copy_button() -> impl Scene {
             border: px(1), border_radius: BorderRadius::all(px(3)) }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text("复制路径") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+            Text("复制路径") feathrise_editor_ui::localization::label_scene("复制路径") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -82,11 +82,12 @@ fn assets_view(scenes: &feathrise_editor_documents_model::DocumentScenes) -> imp
                         Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                     ),
                     (
+                        // 窄栏容不下两组时整组换行，翻译后的标签不挤占另一组。
                         Node { width: percent(100), min_width: px(0), flex_shrink: 0.0,
-                            height: px(26), column_gap: px(4) }
+                            flex_wrap: FlexWrap::Wrap, row_gap: px(4), column_gap: px(4) }
                         Children [
                             (
-                                Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), column_gap: px(4) }
+                                Node { flex_grow: 1.0, flex_basis: px(114), min_width: px(114), column_gap: px(4) }
                                 Children [
                                     (flex_editor_button("上级", EditorAction::AssetFolderUp)),
                                     (flex_editor_button("刷新", EditorAction::RefreshAssets)),
@@ -101,7 +102,7 @@ fn assets_view(scenes: &feathrise_editor_documents_model::DocumentScenes) -> imp
             (crate::ui::asset_shortcuts::panel()),
             (section_title("目录内容")),
             (
-                MapEditorAssetListTitle Text("工程 · 等待目录") template_value(FocusPolicy::Pass)
+                MapEditorAssetListTitle Text("工程 · 等待目录") feathrise_editor_ui::localization::label_scene("工程 · 等待目录") template_value(FocusPolicy::Pass)
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextLayout { linebreak: LineBreak::AnyCharacter } TextColor(colors::TEXT_MUTED)
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }

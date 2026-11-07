@@ -5,6 +5,7 @@ use crate::user_preferences::{Preferences, migrate_file_if_missing, publish_chec
 use async_channel::{Receiver, TryRecvError};
 use bevy::{prelude::*, tasks::IoTaskPool};
 use feathrise_editor_core::{EditorSettings, EditorSettingsData};
+use feathrise_editor_ui::localization::{EditorLocale, EditorSystemLocale};
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
@@ -260,6 +261,7 @@ pub(crate) fn install_host(app: &mut App, store: Store) -> Completion {
 }
 
 fn install_runtime(app: &mut App, store: Store) -> Completion {
+    app.insert_resource(EditorSystemLocale(system_locale()));
     // 先按运行时规范化值建立基线；仅启动读取不会把旧原文或缺省配置自动覆盖一遍。
     let baseline = EditorSettingsData::from(app.world().resource::<EditorSettings>());
     let shared = Rc::new(RefCell::new(State {
@@ -275,6 +277,25 @@ fn install_runtime(app: &mut App, store: Store) -> Completion {
     }));
     app.insert_non_send(Runtime(Rc::clone(&shared)));
     Completion(shared)
+}
+
+#[cfg(windows)]
+pub(super) fn system_locale() -> EditorLocale {
+    // Windows 用户的显示语言与数字／日期区域设置可以不同；LANGID 的低十位是主语言。
+    let ui_language = unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() };
+    if ui_language & 0x03ff == 0x0004 {
+        EditorLocale::Chinese
+    } else {
+        EditorLocale::English
+    }
+}
+
+#[cfg(not(windows))]
+pub(super) fn system_locale() -> EditorLocale {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .into_iter()
+        .find_map(|key| std::env::var(key).ok().filter(|value| !value.is_empty()))
+        .map_or(EditorLocale::English, |name| EditorLocale::from_system_name(&name))
 }
 
 fn capture_and_poll(settings: Res<EditorSettings>, runtime: NonSend<Runtime>) {

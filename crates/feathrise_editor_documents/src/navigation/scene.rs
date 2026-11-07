@@ -13,7 +13,7 @@ fn button(label: &str, action: NavigationAction) -> impl Scene {
             align_items: AlignItems::Center, justify_content: JustifyContent::Center }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label) template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+            Text(label) feathrise_editor_ui::localization::label_scene(label) template_value(FocusPolicy::Pass) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -77,7 +77,7 @@ pub(crate) fn tools() -> impl Scene {
                         Node { display: Display::None, width: percent(100), column_gap: px(4), align_items: AlignItems::Center }
                         Children [
                             (
-                                Text("替换为") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+                                Text("替换为") feathrise_editor_ui::localization::label_scene("替换为") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
                                 Node { flex_shrink: 0.0 }
                                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                                 TextColor(colors::TEXT_MUTED)

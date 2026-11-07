@@ -76,6 +76,7 @@ pub(super) fn setup(
 pub(super) fn sync(
     state: Res<AssetSearchState>,
     catalog: Res<EditorAssetCatalog>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     available: Res<crate::ui::external_files::ExternalEditors>,
     scrolls: Query<&ScrollPosition, With<SearchResults>>,
     mut nodes: Query<
@@ -120,6 +121,7 @@ pub(super) fn sync(
     let key = (state.ticket, start, state.open, catalog.requested_revision);
     if !state.is_changed()
         && !catalog.is_changed()
+        && !locale.as_ref().is_some_and(|locale| locale.is_changed())
         && !available.is_changed()
         && previous.as_ref() == Some(&key)
         && changed.is_empty()
@@ -127,6 +129,7 @@ pub(super) fn sync(
         return;
     }
     *previous = Some(key);
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let result = state.current();
     let references = state.path_query();
     let ide = state.selected_editor(&available); // 两种打开方式共享所选IDE；切工具不改变按钮宽度或结果布局。
@@ -173,7 +176,7 @@ pub(super) fn sync(
     }
     for (kind, mut text, mut color) in &mut labels {
         let value = match kind {
-            SearchLabel::Toggle => if state.missing_assets && state.open {
+            SearchLabel::Toggle => locale.editor_label(if state.missing_assets && state.open {
                 "收起资产缺失检查"
             } else if state.missing_assets {
                 "资产缺失检查"
@@ -185,22 +188,21 @@ pub(super) fn sync(
                 "收起内容搜索 Ctrl+Shift+F"
             } else {
                 "内容搜索 Ctrl+Shift+F"
-            }
-            .into(),
-            SearchLabel::Status => state.hint.clone(),
-            SearchLabel::ReferenceTarget => if state.missing_assets { "资产缺失检查 · 地图和配置".into() }
-                else { format!("引用目标：assets/{}", state.reference_target.as_deref().unwrap_or("")) },
-            SearchLabel::PathSubmit => if state.missing_assets { "重新检查" } else { "重新查找" }.into(),
-            SearchLabel::External(in_project) => if *in_project { "打开工程" } else { "打开文件" }.into(),
-            SearchLabel::Scope if state.missing_assets => "范围：config、maps · 草稿优先".into(),
-            SearchLabel::Scope if references => "范围：config/maps JSON、工程 Rust 源码 · 草稿优先".into(),
-            SearchLabel::Scope => format!(
-                "范围：assets/{}（递归） · 草稿优先",
-                if state.current_folder {
+            }).into(),
+            SearchLabel::Status => locale.editor_notice(&state.hint).into_owned(),
+            SearchLabel::ReferenceTarget => if state.missing_assets { locale.text("asset.search.missing_scope").into() }
+                else { locale.format("asset.search.reference_target", &[("path", state.reference_target.as_deref().unwrap_or("").into())]) },
+            SearchLabel::PathSubmit => locale.editor_label(if state.missing_assets { "重新检查" } else { "重新查找" }).into(),
+            SearchLabel::External(in_project) => locale.editor_label(if *in_project { "打开工程" } else { "打开文件" }).into(),
+            SearchLabel::Scope if state.missing_assets => locale.text("asset.search.scope.missing").into(),
+            SearchLabel::Scope if references => locale.text("asset.search.scope.references").into(),
+            SearchLabel::Scope => locale.format(
+                "asset.search.scope.recursive",
+                &[("folder", if state.current_folder {
                     catalog.current_folder.as_str()
                 } else {
                     ""
-                },
+                }.into())],
             ),
             SearchLabel::Row(slot) => match result
                 .and_then(|result| result.rows.get(start + *slot).map(|row| (result, row)))
@@ -208,13 +210,14 @@ pub(super) fn sync(
                 Some((result, ResultRow::File(file))) => {
                     let file = &result.files[*file];
                     color.0 = colors::TEXT_ACCENT;
-                    format!(
-                        "{}{}{} · {}处",
-                        if matches!(file.identity, ContentIdentity::ProjectSource(_)) { "源码 · " } else { "" },
-                        file.path,
-                        if file.dirty { " *" } else { "" },
-                        file.hits.len()
-                    )
+                    locale.format("asset.search.result.file", &[
+                        ("source", if matches!(file.identity, ContentIdentity::ProjectSource(_)) {
+                            format!("{} · ", locale.text("asset.search.result.source"))
+                        } else { String::new() }),
+                        ("file", file.path.to_string()),
+                        ("dirty", if file.dirty { " *" } else { "" }.into()),
+                        ("count", file.hits.len().to_string()),
+                    ])
                 }
                 Some((result, ResultRow::Hit(file, hit))) => {
                     color.0 = colors::TEXT_PRIMARY;

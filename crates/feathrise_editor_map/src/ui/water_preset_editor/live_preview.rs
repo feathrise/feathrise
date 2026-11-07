@@ -137,7 +137,7 @@ pub(crate) fn water_live_preview_host() -> impl Scene {
             ),
             (
                 WaterPresetLivePreviewStatus crate::ui::status_bar::PanelStatusText("水体实时预览") feathrise_editor_ui::feedback::GlobalPanelStatus
-                Text("等待水体预设编辑标签")
+                Text("等待水体预设编辑标签") feathrise_editor_ui::localization::label_scene("等待水体预设编辑标签")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(8.8) }
                 TextColor(colors::TEXT_VALUE)
             ),

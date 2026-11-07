@@ -171,7 +171,7 @@ fn scrollbar(parent: &mut ChildSpawnerCommands, target: Entity, orientation: Con
 }
 
 fn caption(font: &Handle<Font>, text: &str, size: f32, color: Color) -> impl Bundle {
-    (Text::new(text), TextFont { font: font.clone().into(), font_size: size.into(), ..default() },
+    (feathrise_editor_ui::localization::editor_label(text), TextFont { font: font.clone().into(), font_size: size.into(), ..default() },
         TextColor(color), TextLayout::no_wrap(), Pickable::IGNORE)
 }
 

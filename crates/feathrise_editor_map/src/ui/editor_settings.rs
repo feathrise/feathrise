@@ -64,6 +64,7 @@ fn settings_button_with_height(
         BorderColor::all(feathrise_editor_ui::colors::DIALOG_BORDER)
         Children [(
             Text(label)
+            template_value(feathrise_editor_ui::localization::LocalizedText::label(label))
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextLayout::no_wrap()
             TextColor(colors::TEXT_PRIMARY)
@@ -301,6 +302,12 @@ pub(crate) fn handle_settings_input(
                         settings.editor_snapping = defaults;
                     }
                 }
+                EditorSettingsAction::SetLocale(locale) => {
+                    // 刷新文案由 UI 系统完成；保存仍使用当前实例持有的个人偏好写入槽。
+                    if !state.shortcuts && settings.ui_locale != locale {
+                        settings.ui_locale = locale;
+                    }
+                }
                 EditorSettingsAction::SetAutoScale => {
                     if state.shortcuts {
                         continue;
@@ -381,6 +388,7 @@ pub(crate) fn handle_settings_input(
 pub(crate) fn sync_settings_panel(
     state: Res<MapEditorSettingsState>,
     settings: Res<EditorSettings>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     windows: Query<Ref<Window>>,
     mut panels: Query<(&mut Node, Option<&mut FocusPolicy>), With<MapEditorSettingsPanel>>,
     mut pages: Query<
@@ -453,24 +461,24 @@ pub(crate) fn sync_settings_panel(
     }
     if settings.is_changed()
         || state.is_changed()
+        || locale.as_ref().is_some_and(|locale| locale.is_changed())
         || (settings.editor_ui_scale_auto && window_changed)
     {
+        let locale = locale.as_deref().copied().unwrap_or_default();
         for (mut label, scale_marker, theme_marker) in &mut labels {
             let text = if scale_marker.is_some() {
                 if settings.editor_ui_scale_auto {
-                    format!("自动 {:.0}%", scale * 100.0)
+                    locale.format("settings.scale.auto_value", &[("percent", format!("{:.0}", scale * 100.0))])
                 } else {
                     format!("{:.0}%", scale * 100.0)
                 }
             } else if theme_marker.is_some() {
-                format!(
-                    "当前：{}",
-                    match settings.editor_color_theme {
-                        EditorColorTheme::NeutralGray => "中性深灰",
-                        EditorColorTheme::GraphiteBlue => "石墨灰＋雾蓝",
-                        EditorColorTheme::WarmCopper => "暖墨铜金",
-                    }
-                )
+                let theme = match settings.editor_color_theme {
+                    EditorColorTheme::NeutralGray => "中性深灰",
+                    EditorColorTheme::GraphiteBlue => "石墨灰＋雾蓝",
+                    EditorColorTheme::WarmCopper => "暖墨铜金",
+                };
+                locale.format("settings.theme.current", &[("theme", locale.editor_label(theme).into())])
             } else {
                 String::new()
             };
@@ -495,6 +503,7 @@ pub(crate) fn sync_settings_panel(
                     !settings.editor_ui_scale_auto && (scale * 100.0 - percent as f32).abs() < 0.1
                 }
                 EditorSettingsAction::SetAutoScale => settings.editor_ui_scale_auto,
+                EditorSettingsAction::SetLocale(locale) => settings.ui_locale == locale,
                 EditorSettingsAction::SetColorTheme(theme) => settings.editor_color_theme == theme,
                 EditorSettingsAction::ToggleTerrainBackfaces => {
                     settings.editor_show_terrain_backfaces

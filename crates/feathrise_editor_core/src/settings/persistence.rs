@@ -21,6 +21,9 @@ pub struct EditorSettingsData {
     /// 稳定动作名对应组合键；缺项继承默认，null表示作者主动解绑。
     #[serde(default)]
     pub shortcuts: std::collections::BTreeMap<String, Option<String>>,
+    /// 缺少语言字段的旧作者偏好与全新安装共用系统档默认值。
+    #[serde(default = "default_ui_locale")]
+    pub ui_locale: String,
     #[serde(default = "default_editor_ui_scale")]
     pub ui_scale: f32,
     /// 旧配置缺项保持手动档；自动档仍保存原手动倍率供下次手动调整。
@@ -104,6 +107,10 @@ fn default_show_terrain_backfaces() -> bool {
     true
 }
 
+fn default_ui_locale() -> String {
+    EditorLocalePreference::default().as_str().into()
+}
+
 impl Default for EditorSettingsData {
     fn default() -> Self {
         Self {
@@ -111,6 +118,7 @@ impl Default for EditorSettingsData {
             scene: Default::default(),
             environment: Default::default(),
             scrub: Default::default(),
+            ui_locale: default_ui_locale(),
             ui_scale: default_editor_ui_scale(),
             ui_scale_auto: false,
             ui_scale_auto_offset: 0.0,
@@ -135,6 +143,7 @@ impl From<&EditorSettings> for EditorSettingsData {
             scrub: map_editor_scrub_sensitivities_for_save(
                 &settings.map_editor_scrub_sensitivities,
             ),
+            ui_locale: settings.ui_locale.as_str().into(),
             ui_scale: sanitize_editor_ui_scale(settings.editor_ui_scale),
             ui_scale_auto: settings.editor_ui_scale_auto,
             ui_scale_auto_offset: sanitize_editor_ui_scale_auto_offset(
@@ -180,6 +189,7 @@ impl EditorSettingsData {
         settings.environment = data.environment;
         settings.map_editor_scrub_sensitivities =
             map_editor_scrub_sensitivities_from_data(&data.scrub);
+        settings.ui_locale = EditorLocalePreference::from_saved(&data.ui_locale);
         settings.editor_ui_scale = sanitize_editor_ui_scale(data.ui_scale);
         settings.editor_ui_scale_auto = data.ui_scale_auto;
         settings.editor_ui_scale_auto_offset =

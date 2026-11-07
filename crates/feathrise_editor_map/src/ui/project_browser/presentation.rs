@@ -3,17 +3,20 @@
 use super::{components::*, resources::{ProjectBrowserState, ProjectFileViewport}, types::*, window};
 use crate::{asset_catalog::project_files::EditorProjectFileCatalog, ui::theme as colors};
 use bevy::{prelude::*, text::EditableText, ui::FocusPolicy};
-use feathrise_editor_ui::EditorButtonClick;
+use feathrise_editor_ui::{EditorButtonClick, localization::EditorLocale};
 
 /// 完整作者和轻量工作台共用工程路径回显；目录来源相同，不因借用资产行池退回旧根标签。
 pub(super) fn asset_folder(
     catalog: Res<crate::asset_catalog::EditorAssetCatalog>,
     browser: Res<ProjectBrowserState>,
+    locale: Option<Res<EditorLocale>>,
     mut labels: Query<(Ref<crate::components::MapEditorAssetFolderText>, &mut Text)>,
 ) {
     if !browser.assets_visible() { return; }
-    if !catalog.is_changed() && !browser.is_changed() && labels.iter().all(|(label, _)| !label.is_added()) { return; }
-    let value = browser.asset_folder_label(&catalog.current_folder);
+    if !catalog.is_changed() && !browser.is_changed()
+        && !locale.as_ref().is_some_and(|locale| locale.is_changed())
+        && labels.iter().all(|(label, _)| !label.is_added()) { return; }
+    let value = browser.asset_folder_label(&catalog.current_folder, locale.as_deref().copied().unwrap_or_default());
     for (_, mut text) in &mut labels {
         if text.0 != value { text.0 = value.clone(); }
     }
@@ -67,6 +70,7 @@ pub(super) fn views(
 pub(super) fn files(
     catalog: Res<EditorProjectFileCatalog>,
     state: Res<ProjectBrowserState>,
+    locale: Option<Res<EditorLocale>>,
     window: Res<ProjectFileViewport>,
     asset_server: Res<AssetServer>,
     mut rows: Query<(&mut ProjectFileRow, &mut Node, &Children, &Interaction, &mut BackgroundColor, &mut BorderColor, Option<&mut EditorButtonClick>)>,
@@ -112,18 +116,20 @@ pub(super) fn files(
             }
         }
     }
-    let folder = if catalog.current_folder.is_empty() { "工程/".into() } else { format!("工程/{}", catalog.current_folder) };
-    let summary = format!("工程 · {}项", catalog.entries.len());
+    let locale = locale.as_deref().copied().unwrap_or_default();
+    // 只翻译目录标头；真实相对路径和文件名保持目录中的原字节。
+    let folder = format!("{}{}", locale.text("label.project"), catalog.current_folder);
+    let summary = locale.format("project.files.count", &[("count", catalog.entries.len().to_string())]);
     let error = catalog.feedback.as_ref().and_then(|feedback| feedback.result.as_ref().err());
-    let status = if catalog.project_root().is_none() { "请先打开工程后浏览目录" }
-        else if catalog.is_loading() { "正在读取工程目录…" }
+    let status = if catalog.project_root().is_none() { locale.text("project.files.requires_project") }
+        else if catalog.is_loading() { locale.text("project.files.loading") }
         else if let Some(error) = error { error.as_str() }
-        else if catalog.entries.is_empty() { "当前目录没有匹配文件" } else { "" };
+        else if catalog.entries.is_empty() { locale.text("project.files.empty") } else { "" };
     let selected = catalog.selected_file.as_ref().map(|selected| selected.relative_path.as_str());
     for (mut text, mut color, directory, count, feedback, selection) in &mut fields {
         let value = if directory.is_some() { folder.as_str() } else if count.is_some() { summary.as_str() }
             else if feedback.is_some() { status }
-            else if selection.is_some() { selected.unwrap_or("双击文本文件打开；右键显示文件操作") } else { continue; };
+            else if selection.is_some() { selected.unwrap_or_else(|| locale.text("label.double-click-a-text-file-to-open")) } else { continue; };
         if text.0 != value { text.0 = value.to_owned(); }
         if feedback.is_some() { color.set_if_neq(TextColor(if error.is_some() { colors::TEXT_ACCENT } else { colors::TEXT_MUTED })); }
     }

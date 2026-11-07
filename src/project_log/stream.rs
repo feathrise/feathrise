@@ -55,10 +55,18 @@ impl ProjectLogSink {
 
     pub(crate) fn task_label(&self) -> String { format!("{} #{}", self.task.kind.label(), self.task.number) }
 
+    pub(crate) fn locale(&self) -> feathrise_editor_ui::localization::EditorLocale {
+        self.channel.locale()
+    }
+
     /// 归属只在短分隔行显示，原诊断及其复制正文不逐行插入前缀。
     pub(crate) fn task_message(&self, message: &str) {
         if self.task.kind == LogTaskKind::General { return; }
-        let mut text = format!("── {} · {} ──", self.task_label(), message.lines().next().unwrap_or_default());
+        // 只翻译编辑器写入的分隔行。外部标准流与已记录的正文、选区和字节坐标保持原样。
+        let locale = self.locale();
+        let title = locale.editor_label(self.task.kind.label());
+        let message = locale.editor_notice(message.lines().next().unwrap_or_default());
+        let mut text = format!("── {title} #{} · {message} ──", self.task.number);
         if text.len() > LINE_BYTES {
             let mut end = LINE_BYTES;
             while !text.is_char_boundary(end) { end -= 1; }

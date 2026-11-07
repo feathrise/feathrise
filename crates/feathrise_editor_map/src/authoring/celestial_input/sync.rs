@@ -46,7 +46,7 @@ pub(crate) fn sync_celestial_controls(
     active: Res<ActiveNumericInput>,
     active_scrub: Res<ActiveNumericInputScrub>,
     mut input_state: ResMut<CelestialNumericInputState>,
-    sections: Res<CelestialSectionState>,
+    (sections, locale): (Res<CelestialSectionState>, Option<Res<feathrise_editor_ui::localization::EditorLocale>>),
     mut inputs: Query<(
         Entity,
         &CelestialNumericInput,
@@ -153,6 +153,7 @@ pub(crate) fn sync_celestial_controls(
             *border = desired_border;
         }
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (marker, mut text) in &mut text_queries.p0() {
         let overridden = environment
             .is_some_and(|environment| marker.0.is_overridden(&environment.celestial_overrides));
@@ -161,6 +162,7 @@ pub(crate) fn sync_celestial_controls(
         } else {
             "跟随全局"
         };
+        let desired = locale.editor_label(desired);
         if text.as_str() != desired {
             **text = desired.to_owned();
         }
@@ -171,7 +173,7 @@ pub(crate) fn sync_celestial_controls(
             CelestialNumericScope::Global => "太阳与月光 · 全局默认",
             CelestialNumericScope::Map => "太阳与月光 · 地图覆盖",
         };
-        let desired = format!("{} {title}", if expanded { "▼" } else { "▶" });
+        let desired = format!("{} {}", if expanded { "▼" } else { "▶" }, locale.editor_label(title));
         if text.as_str() != desired {
             **text = desired;
         }

@@ -147,7 +147,7 @@ pub(super) fn mount(
 
 fn caption(font: &Handle<Font>, label: &str, size: f32) -> impl Bundle {
     (
-        Text::new(label),
+        feathrise_editor_ui::localization::editor_label(label),
         TextFont {
             font: font.clone().into(),
             font_size: size.into(),

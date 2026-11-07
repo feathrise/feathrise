@@ -44,7 +44,7 @@ pub(super) fn setup(
         commands.entity(slot).with_children(|parent| {
             parent.spawn((
                 WallTitle,
-                Text::new("空气墙"),
+                feathrise_editor_ui::localization::editor_label("空气墙"),
                 TextFont {
                     font: font.clone().into(), // 显式中文字体，不依赖继承。
                     font_size: px(10).into(),  // 标题稍高于正文。
@@ -160,7 +160,7 @@ pub(super) fn setup(
             }
             parent.spawn((
                 WallControls::Selection,
-                Text::new("所选空气墙名称"),
+                feathrise_editor_ui::localization::editor_label("所选空气墙名称"),
                 TextFont {
                     font: font.clone().into(),
                     font_size: px(9.5).into(),
@@ -208,7 +208,7 @@ pub(super) fn setup(
                 ))
                 .with_children(|button| {
                     button.spawn((
-                        Text::new("应用名称"),
+                        feathrise_editor_ui::localization::editor_label("应用名称"),
                         TextFont {
                             font: font.clone().into(), // 显式中文字体，不依赖继承。
                             font_size: px(11).into(),

@@ -7,7 +7,7 @@ use crate::compiler_diagnostics::{CompilerDiagnostic, DiagnosticLevel};
 use bevy::{input::mouse::{MouseScrollUnit, MouseWheel}, input_focus::InputFocus, prelude::*,
     ui::{InteractionDisabled, RelativeCursorPosition}, window::PrimaryWindow};
 use feathrise_editor_map::{standalone::OpenProjectSourceLocation, workbench::WorkbenchModel};
-use feathrise_editor_ui::{EditorButtonClick, colors as c};
+use feathrise_editor_ui::{EditorButtonClick, colors as c, localization::EditorLocale};
 
 pub(super) fn current(row: &DiagnosticRow, state: &CodeIterationState, view: &DiagnosticsOverlayState, scroll: Vec2) -> bool {
     row.revision == state.diagnostic_revision && row.window_revision == view.window_revision
@@ -70,6 +70,8 @@ pub(super) fn control(
 
 pub(super) fn present(
     mut commands: Commands, state: Res<CodeIterationState>, mut view: ResMut<DiagnosticsOverlayState>,
+    locale: Option<Res<EditorLocale>>,
+    mut presented_locale: Local<Option<EditorLocale>>,
     mut overlays: Query<&mut Node, With<DiagnosticsOverlay>>,
     mut panes: Query<(&ComputedNode, &mut ScrollPosition), With<DiagnosticsPane>>,
     mut contents: Query<&mut Node, (With<DiagnosticsContent>, Without<DiagnosticsOverlay>, Without<DiagnosticRow>, Without<DiagnosticsEmpty>)>,
@@ -85,6 +87,9 @@ pub(super) fn present(
         if overlay.display != display { overlay.display = display; }
     }
     if !state.diagnostics_open { return; }
+    let locale = locale.as_deref().copied().unwrap_or_default();
+    let locale_changed = *presented_locale != Some(locale);
+    *presented_locale = Some(locale);
     let reset = view.revision != Some(state.diagnostic_revision);
     let mut scroll = Vec2::ZERO;
     for (node, mut position) in &mut panes {
@@ -107,22 +112,27 @@ pub(super) fn present(
     for (entity, mut binding, mut node, mut click, mut interaction, disabled) in &mut rows {
         let index = first.saturating_add(binding.slot);
         let next = (index < state.diagnostics.len()).then_some(index);
-        if binding.index == next && binding.revision == state.diagnostic_revision && binding.window_revision == view.window_revision { continue; }
-        binding.index = next;
-        binding.revision = state.diagnostic_revision;
-        binding.window_revision = view.window_revision;
-        click.invalidate();
-        *interaction = Interaction::None;
-        node.display = if next.is_some() { Display::Flex } else { Display::None };
-        node.top = px(index as f32 * ROW_HEIGHT);
-        let can_open = next.is_some_and(|index| state.diagnostics[index].location.is_some());
-        if can_open == disabled {
-            if can_open { commands.entity(entity).remove::<InteractionDisabled>(); }
-            else { commands.entity(entity).insert(InteractionDisabled); }
+        let rebind = binding.index != next || binding.revision != state.diagnostic_revision
+            || binding.window_revision != view.window_revision;
+        if !rebind && !locale_changed { continue; }
+        // 单独刷新语言时保留诊断行的点击身份和滚动位置。
+        if rebind {
+            binding.index = next;
+            binding.revision = state.diagnostic_revision;
+            binding.window_revision = view.window_revision;
+            click.invalidate();
+            *interaction = Interaction::None;
+            node.display = if next.is_some() { Display::Flex } else { Display::None };
+            node.top = px(index as f32 * ROW_HEIGHT);
+            let can_open = next.is_some_and(|index| state.diagnostics[index].location.is_some());
+            if can_open == disabled {
+                if can_open { commands.entity(entity).remove::<InteractionDisabled>(); }
+                else { commands.entity(entity).insert(InteractionDisabled); }
+            }
         }
         for (label, mut text, mut color) in &mut labels {
             if label.slot != binding.slot { continue; }
-            let value = next.map_or_else(String::new, |index| row_text(&state.diagnostics[index], label.message));
+            let value = next.map_or_else(String::new, |index| row_text(&state.diagnostics[index], label.message, locale));
             if text.as_str() != value { **text = value; }
             color.0 = if label.message { c::TEXT_PRIMARY } else {
                 match next.map(|index| state.diagnostics[index].level) {
@@ -145,8 +155,9 @@ pub(super) fn present(
         CodeIterationPhase::Applied => "新代码版本已应用",
         CodeIterationPhase::Stopping => "正在收口代码构建任务",
     };
+    let status = locale.editor_label(status);
     for mut text in &mut statuses { if text.as_str() != status { **text = status.into(); } }
-    let footer = format!("{} 条诊断 · 点击位置在中央源码定位；完整输出可在日志中选择复制。", state.diagnostics.len());
+    let footer = locale.format("diagnostics.footer", &[("count", state.diagnostics.len().to_string())]);
     for mut text in &mut footers { if text.as_str() != footer { **text = footer.clone(); } }
     for mut node in &mut empties {
         let display = if state.diagnostics.is_empty() { Display::Flex } else { Display::None };
@@ -154,7 +165,7 @@ pub(super) fn present(
     }
 }
 
-pub(super) fn row_text(diagnostic: &CompilerDiagnostic, message: bool) -> String {
+pub(super) fn row_text(diagnostic: &CompilerDiagnostic, message: bool, locale: EditorLocale) -> String {
     if message {
         // 诊断保留完整有界文本供数据验证；固定行只准备首段和有限字形，完整上下文仍由原终端呈现。
         let first = diagnostic.message.lines().next().unwrap_or_default();
@@ -163,7 +174,7 @@ pub(super) fn row_text(diagnostic: &CompilerDiagnostic, message: bool) -> String
         return if end == first.len() { first.to_owned() } else { format!("{}…", &first[..end]) };
     }
     let code = diagnostic.code.as_deref().map_or(String::new(), |code| format!(" {code}"));
-    let position = diagnostic.location.as_ref().map_or_else(|| "无当前工程源码位置".into(),
+    let position = diagnostic.location.as_ref().map_or_else(|| locale.text("diagnostics.no_location").into(),
         |location| format!("{}:{}:{}", location.path.display(), location.line, location.column));
-    format!("{}{code} · {position}", diagnostic.level.label())
+    format!("{}{code} · {position}", locale.editor_label(diagnostic.level.label()))
 }

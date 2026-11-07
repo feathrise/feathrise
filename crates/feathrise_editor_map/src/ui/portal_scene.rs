@@ -16,7 +16,7 @@ use super::scene::{FONT_PATH, flex_editor_button}; // 名称与删除按钮保�
 
 fn step(label: &str) -> impl Scene {
     bsn! {
-        Text(label)
+        Text(label) feathrise_editor_ui::localization::label_scene(label)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
         TextColor(colors::TEXT_ACCENT)
         TextLayout { linebreak: LineBreak::AnyCharacter }
@@ -41,7 +41,7 @@ pub(super) fn portal_authoring_panel() -> impl Scene {
             (step("1 · 当前源点（已有）")),
             (
                 MapEditorCurrentPortalListTitle
-                Text("当前地图传送点 · 等待作者数据")
+                Text("当前地图传送点 · 等待作者数据") feathrise_editor_ui::localization::label_scene("当前地图传送点 · 等待作者数据")
                 TextLayout { linebreak: LineBreak::AnyCharacter }
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                 TextFont {
@@ -73,7 +73,7 @@ pub(super) fn portal_authoring_panel() -> impl Scene {
                 }
                 Children [
                     (
-                        Text("所选源点名称") // 只编辑已有源点名称，不改写目标落点。
+                        Text("所选源点名称") feathrise_editor_ui::localization::label_scene("所选源点名称") // 只编辑已有源点名称，不改写目标落点。
                         TextFont {
                             font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 中文说明使用项目字体。
                             font_size: px(ui_metrics::FONT_HINT), // 辅助说明弱于列表主信息。
@@ -124,7 +124,7 @@ pub(super) fn portal_authoring_panel() -> impl Scene {
             (step("2 · 新点的目标地图与落点")),
             (
                 MapEditorTargetPortalListTitle
-                Text("目标地图落点 · 尚未选择地图")
+                Text("目标地图落点 · 尚未选择地图") feathrise_editor_ui::localization::label_scene("目标地图落点 · 尚未选择地图")
                 TextLayout { linebreak: LineBreak::AnyCharacter }
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                 TextFont {
@@ -148,7 +148,7 @@ pub(super) fn portal_authoring_panel() -> impl Scene {
             (step("3 · 新点连接预备")),
             (
                 MapEditorPortalTargetText
-                Text("请先在地图页高亮目标地图，再选择到达点")
+                Text("请先在地图页高亮目标地图，再选择到达点") feathrise_editor_ui::localization::label_scene("请先在地图页高亮目标地图，再选择到达点")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_VALUE)
                 TextLayout { linebreak: LineBreak::AnyCharacter }

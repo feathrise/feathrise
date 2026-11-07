@@ -27,6 +27,8 @@ mod native_project_lease;
 mod native_project_menu;
 #[cfg(feature = "validation")]
 mod native_validation;
+#[cfg(feature = "validation")]
+mod locale_validation;
 mod project;
 mod project_template;
 #[cfg(test)]

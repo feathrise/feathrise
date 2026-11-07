@@ -40,6 +40,7 @@ pub(crate) struct PresetListSyncState {
 #[allow(clippy::too_many_arguments)] // 每个Query拥有明确互斥组件，合并后反而会扩大逐项访问。
 pub(crate) fn sync_vegetation_preset_list(
     mut commands: Commands, // 结构变化只通过Deferred Commands在主世界采用。
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     asset_server: Res<AssetServer>, // 新按钮只克隆统一字体句柄，不等待字体IO。
     registry: Option<Res<VegetationPresetRegistry>>, // 缺目录资源时显示等待态并清空旧按钮。
     mut containers: Query<(Entity, &mut Node), With<MapEditorVegetationPresetList>>, // 唯一连续列表容器。
@@ -89,7 +90,9 @@ pub(crate) fn sync_vegetation_preset_list(
     }
     let structure_complete = state.rows.len() == total; // 按钮根数量必须与目录逐项相等。
     let binding_complete = state.rebind_cursor >= state.rebind_target; // 旧按钮标签必须全部切到当前修订。
-    if !signature_changed && structure_complete && binding_complete {
+    if !signature_changed && structure_complete && binding_complete
+        && !locale.as_ref().is_some_and(|locale| locale.is_changed())
+    {
         return; // 稳定帧不扫描目录、实体向量、Children或文字。
     }
 
@@ -129,9 +132,11 @@ pub(crate) fn sync_vegetation_preset_list(
         state.rebind_target, // 计算当前阶段总工作量。
         complete,            // 完成后切换为稳定简短摘要。
     );
+    let locale = locale.as_deref().copied().unwrap_or_default();
+    let summary = locale.editor_notice(&summary);
     for mut title in &mut titles {
-        if **title != summary {
-            **title = summary.clone(); // 短暂双界面实例也取得同一目录状态。
+        if title.as_str() != summary.as_ref() {
+            **title = summary.to_string(); // 短暂双界面实例也取得同一目录状态。
         }
     }
 }

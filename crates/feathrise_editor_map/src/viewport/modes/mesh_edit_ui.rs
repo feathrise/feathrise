@@ -108,7 +108,7 @@ fn button(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, label: &str,
     if moving_only { button.insert(MeshMoveOnly); }
     button.with_children(|parent| {
         let mut caption = parent.spawn((
-            Text::new(label), TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
+            feathrise_editor_ui::localization::editor_label(label), TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
             TextColor(colors::TEXT_PRIMARY), TextLayout::no_wrap(), FocusPolicy::Pass, Pickable::IGNORE,
         ));
         if matches!(action, MeshEditAction::Toggle) { caption.insert(MeshEditToggleCaption); }
@@ -176,6 +176,7 @@ pub(super) fn input(
 pub(super) fn style(
     state: Option<Res<MeshEditState>>,
     menu: Option<Res<MeshAdvancedMenuState>>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     viewports: Query<&ComputedNode, With<crate::components::MapEditorViewport>>,
     mut roots: Query<&mut Node, (With<MeshEditToolbarRoot>, Without<MeshEditButton>, Without<MeshSelectionCaption>)>,
     mut buttons: Query<(&MeshEditButton, &Interaction, &mut Node, &mut BackgroundColor, Has<MeshEditOnly>, Has<MeshMoveOnly>), (Without<MeshEditToolbarRoot>, Without<MeshSelectionCaption>)>,
@@ -184,6 +185,7 @@ pub(super) fn style(
     mut advanced: Query<(&mut Node, Option<&MeshAdvancedToggle>, Option<&Interaction>, Option<&mut BackgroundColor>),
         (Or<(With<MeshAdvancedMenuRoot>, With<MeshAdvancedToggle>)>, Without<MeshEditToolbarRoot>, Without<MeshEditButton>, Without<MeshSelectionCaption>)>,
 ) {
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let active = state.as_ref().is_some_and(|state| state.active());
     let moving = state.as_ref().is_some_and(|state| state.moving());
     let busy = moving || state.as_ref().is_some_and(|state| state.boxing());
@@ -215,14 +217,16 @@ pub(super) fn style(
         if root.max_width != width { root.max_width = width; }
     }
     for mut caption in &mut captions {
-        let text = if active { "返回对象 Tab" } else { "网格编辑 Tab" };
+        let text = locale.editor_label(if active { "返回对象 Tab" } else { "网格编辑 Tab" });
         if caption.as_str() != text { **caption = text.into(); }
     }
     for (mut text, mut node) in &mut selection {
         let display = if active { Display::Flex } else { Display::None };
         if node.display != display { node.display = display; }
         if let Some(state) = state.as_ref() {
-            let caption = format!("已选 {} {}", state.selected_count(), state.kind.label());
+            let caption = locale.format("mesh.edit.selection", &[
+                ("count", state.selected_count().to_string()), ("kind", locale.editor_label(state.kind.label()).into()),
+            ]);
             if text.as_str() != caption { **text = caption; }
         }
     }

@@ -128,7 +128,7 @@ fn browser_page_button(label: &str, direction: GltfBrowserPageDirection) -> impl
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // 首帧同步前使用安全常态。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 首帧同步前使用弱铜边。
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // BSN通过AssetServer加载统一中文字体。
                 font_size: px(ui_metrics::FONT_CONTROL), // 紧凑分页文字。
@@ -222,7 +222,7 @@ pub(super) fn gltf_browser_panel() -> impl Scene {
             (
                 MapEditorGltfBrowserStatusText
                 template_value(crate::ui::status_bar::PanelStatusText("场景资产")) feathrise_editor_ui::feedback::GlobalPanelStatus
-                Text("场景对象：等待地图草稿\n第 1/1 页")
+                Text("场景对象：等待地图草稿\n第 1/1 页") feathrise_editor_ui::localization::label_scene("场景对象：等待地图草稿\n第 1/1 页")
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 与动态行共享字体资产。
                     font_size: px(ui_metrics::FONT_HINT), // 状态保持可读字号，不靠缩字容纳长路径。

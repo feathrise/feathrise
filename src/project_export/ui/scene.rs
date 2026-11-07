@@ -4,6 +4,7 @@ use super::super::{components::*, resources::ExportState};
 use bevy::{input_focus::tab_navigation::TabIndex, prelude::*, text::{EditableTextFilter, TextCursorStyle}, ui::{FocusPolicy, RelativeCursorPosition}};
 use feathrise_editor_map::workbench::WorkbenchHeader;
 use feathrise_editor_ui::colors as c;
+use feathrise_editor_ui::localization::LocalizedText;
 
 pub(in crate::project_export) fn mount(
     mut commands: Commands,
@@ -64,7 +65,8 @@ pub(in crate::project_export) fn mount(
                             Node { width: percent(100), min_width: px(0), flex_shrink: 0., ..default() }));
                         body.spawn((wrapped_label(&font,
                             "默认导出到工程文件夹的 output。导出使用已保存的场景、资产和源码；未保存草稿请先通过原保存入口保存。",
-                            12., c::TEXT_MUTED), Node { flex_shrink: 0., min_width: px(0), ..default() }));
+                            12., c::TEXT_MUTED), LocalizedText::new("project.export.path_help"),
+                            Node { flex_shrink: 0., min_width: px(0), ..default() }));
                         // 状态投影本身有界，正文滚动承担长错误；不能再次裁掉错误尾部。
                         body.spawn((ExportStatus, wrapped_label(&font, "准备导出。", 12., c::TEXT_PRIMARY),
                             Node { min_width: px(0), flex_shrink: 0., ..default() }));
@@ -84,18 +86,20 @@ pub(in crate::project_export) fn mount(
 }
 
 fn label(font: &Handle<Font>, text: &str, size: f32, color: Color) -> impl Bundle {
-    (Text::new(text), TextFont { font: font.clone().into(), font_size: size.into(), ..default() },
+    (feathrise_editor_ui::localization::editor_label(text), TextFont { font: font.clone().into(), font_size: size.into(), ..default() },
         TextColor(color), TextLayout::no_wrap(), Pickable::IGNORE)
 }
 
 fn wrapped_label(font: &Handle<Font>, text: &str, size: f32, color: Color) -> impl Bundle {
     (Text::new(text), TextFont { font: font.clone().into(), font_size: size.into(), ..default() },
-        TextColor(color), TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter, ..default() }, Pickable::IGNORE)
+        TextColor(color), TextLayout { linebreak: bevy::text::LineBreak::WordOrCharacter, ..default() }, Pickable::IGNORE)
 }
 
 fn button(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, action: ExportAction, text: &str, primary: bool) {
     let style = feathrise_editor_ui::dialog_button_style(primary);
     parent.spawn((Button, action, style.node, style.colors, BackgroundColor(style.colors.normal),
         BorderColor::all(c::DIALOG_BORDER),
-    )).with_child((ExportActionLabel(action), label(font, text, style.font_size, c::TEXT_PRIMARY)));
+    )).with_child((ExportActionLabel(action), Text::new(text),
+        TextFont { font: font.clone().into(), font_size: style.font_size.into(), ..default() },
+        TextColor(c::TEXT_PRIMARY), TextLayout::no_wrap(), Pickable::IGNORE));
 }

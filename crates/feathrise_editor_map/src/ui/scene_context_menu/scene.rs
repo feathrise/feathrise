@@ -8,7 +8,7 @@ use bevy::{prelude::*, ui::FocusPolicy};
 
 fn label(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, text: &str) {
     parent.spawn((
-        Text::new(text),
+        feathrise_editor_ui::localization::editor_label(text),
         TextFont {
             font: font.clone().into(),
             font_size: 11.0.into(),

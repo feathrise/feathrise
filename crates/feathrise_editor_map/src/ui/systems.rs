@@ -384,6 +384,7 @@ pub(crate) fn sync_map_editor_custom_cursor(
 #[allow(clippy::too_many_arguments, clippy::type_complexity)] // Bevy查询显式列出互斥文本marker，避免按名称查找或多组可变Text查询冲突。
 pub(crate) fn sync_editor_shell(
     editor: Res<MapEditorState>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     catalog: Res<EditorAssetCatalog>,
     browser: Option<Res<crate::ui::project_browser::ProjectBrowserState>>,
     registry: Option<Res<MapContentRegistry>>,
@@ -402,6 +403,7 @@ pub(crate) fn sync_editor_shell(
 ) {
     if !(editor.is_changed()
         || catalog.is_changed()
+        || locale.as_ref().is_some_and(|locale| locale.is_changed())
         || browser.as_ref().is_some_and(|browser| browser.is_changed())
         || registry.as_ref().is_some_and(|value| value.is_changed()))
     {
@@ -438,15 +440,16 @@ pub(crate) fn sync_editor_shell(
     }
     // 壳体回显不能写入窗口 IME：F12 关闭时该系统仍会因目录变化运行，曾在主菜单姓名框聚焦后写回 false。
     // 编辑中的开关交给 sync_map_editor_ime；F12 关闭和切图由已有 close/map_transition 入口释放。
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let folder = if let Some(browser) = browser.as_ref() {
-        browser.asset_folder_label(&catalog.current_folder) // 同一工程树显示真实登记根，不把嵌套资产目录硬写成assets/。
+        browser.asset_folder_label(&catalog.current_folder, locale) // 同一工程树显示真实登记根，不把嵌套资产目录硬写成assets/。
     } else if catalog.current_folder.is_empty() {
         "assets/".to_owned()
     } else {
         format!("assets/{}/", catalog.current_folder)
     };
     let title = editor.selected_map_id.as_ref().map_or_else(
-        || "当前地图：未进入地图".to_owned(),
+        || locale.text("map.current.none").to_owned(),
         |map_id| {
             let display_name = registry
                 .as_deref()
@@ -460,8 +463,8 @@ pub(crate) fn sync_editor_shell(
                         .and_then(|catalog| catalog.maps.iter().find(|entry| &entry.id == map_id))
                         .map(|entry| entry.display_name.as_str())
                 })
-                .unwrap_or("加载中");
-            format!("当前地图：{display_name} [{map_id}]")
+                .unwrap_or_else(|| locale.text("status.loading"));
+            locale.format("map.current.named", &[("name", display_name.into()), ("id", map_id.to_string())])
         },
     );
     // 所有动态文本使用一个可变查询，既避免运行时Query冲突，也不会逐帧重建UI实体。

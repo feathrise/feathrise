@@ -158,6 +158,7 @@ pub(super) fn handle(
 }
 
 pub(super) fn present(
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     mut commands: Commands,
     state: Res<NativeProjectCloseState>,
     mut overlays: Query<&mut Node, With<CloseOverlay>>,
@@ -189,8 +190,9 @@ pub(super) fn present(
             node.width = width;
         }
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (mut text, action, parent) in &mut labels {
-        let label = action.map_or_else(|| state.target().title(), |action| state.target().action_label(action.0));
+        let label = locale.editor_label(action.map_or_else(|| state.target().title(), |action| state.target().action_label(action.0)));
         if text.as_str() != label {
             // 同一按钮改为另一退出目标时作废原按下代次，旧按钮松开不能确认新的含义。
             if action.is_some()
@@ -201,9 +203,10 @@ pub(super) fn present(
             text.0 = label.into();
         }
     }
+    let status = locale.editor_notice(&state.status);
     for mut text in &mut statuses {
-        if text.0 != state.status {
-            text.0.clone_from(&state.status);
+        if text.as_str() != status.as_ref() {
+            text.0 = status.as_ref().to_owned();
         }
     }
     let rows = state

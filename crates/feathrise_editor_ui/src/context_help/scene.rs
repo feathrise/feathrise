@@ -2,6 +2,7 @@
 
 use super::components::*;
 use crate::{colors, metrics};
+use crate::localization::{editor_label, label_scene};
 use bevy::{
     prelude::*,
     text::{FontSourceTemplate, LineBreak},
@@ -20,9 +21,9 @@ pub fn help_button(title: &str, copy: &str, font_path: &'static str) -> impl Sce
         Children [
             (Text("?") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(font_path)), font_size: px(metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_HINT) template_value(FocusPolicy::Pass)),
-            (ContextHelpBody Text(copy)
+            (ContextHelpBody Text(copy) label_scene(copy)
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(font_path)), font_size: px(metrics::FONT_CONTROL) }
-                TextColor(colors::TEXT_PRIMARY) TextLayout::linebreak(LineBreak::AnyCharacter)
+                TextColor(colors::TEXT_PRIMARY) TextLayout::linebreak(LineBreak::WordOrCharacter)
                 template_value(FocusPolicy::Pass)
                 Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }),
         ]
@@ -35,7 +36,7 @@ pub fn section_header(title: &str, copy: &str, font_path: &'static str) -> impl 
         Node { width: percent(100), min_width: px(0), height: px(24), flex_shrink: 0.0,
             align_items: AlignItems::Center, padding: UiRect::right(px(24)) }
         Children [
-            (Text(title) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(font_path)), font_size: px(metrics::FONT_BODY) }
+            (Text(title) label_scene(title) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(font_path)), font_size: px(metrics::FONT_BODY) }
                 TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap()
                 Node { min_width: px(0), overflow: Overflow::clip_x() } template_value(FocusPolicy::Pass)),
             (help_button(title, copy, font_path)),
@@ -81,14 +82,14 @@ pub fn spawn_help_button(
             ));
             button.spawn((
                 ContextHelpBody,
-                Text::new(copy),
+                editor_label(copy),
                 TextFont {
                     font: font.clone().into(),
                     font_size: metrics::FONT_CONTROL.into(),
                     ..default()
                 },
                 TextColor(colors::TEXT_PRIMARY),
-                TextLayout::linebreak(LineBreak::AnyCharacter),
+                TextLayout::linebreak(LineBreak::WordOrCharacter),
                 FocusPolicy::Pass,
                 Node {
                     display: Display::None,

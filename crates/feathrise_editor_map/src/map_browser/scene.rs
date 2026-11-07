@@ -32,7 +32,7 @@ pub(crate) fn map_folder_dialog() -> impl Scene {
             BorderColor::all(colors::COPPER_BORDER_WEAK)
             Children [
                 (
-                    MapFolderDialogTitle Text("虚拟地图文件夹")
+                    MapFolderDialogTitle Text("虚拟地图文件夹") feathrise_editor_ui::localization::label_scene("虚拟地图文件夹")
                     TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(13) }
                     TextColor(colors::TEXT_ACCENT)
@@ -44,7 +44,7 @@ pub(crate) fn map_folder_dialog() -> impl Scene {
                     template_value(modal::body_node())
                     Children [
                         (
-                            FolderTargetText Text("等待冻结目标")
+                            FolderTargetText Text("等待冻结目标") feathrise_editor_ui::localization::label_scene("等待冻结目标")
                             TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(11) }
                             TextColor(colors::TEXT_PRIMARY)
@@ -98,7 +98,7 @@ pub(crate) fn map_folder_dialog() -> impl Scene {
                     template_value(modal::feedback_node())
                     BackgroundColor(colors::PANEL_BG_SECTION)
                     Children [(
-                        MapFolderDialogStatusText Text("等待操作")
+                        MapFolderDialogStatusText Text("等待操作") feathrise_editor_ui::localization::label_scene("等待操作")
                         TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(10.5) }
                         TextColor(colors::TEXT_PRIMARY)
@@ -139,7 +139,7 @@ pub(crate) fn map_browser_drag_preview() -> impl Scene {
         Children [(
             MapBrowserDragPreviewText // 显示冻结名称及无效落点原因。
             Pickable::IGNORE template_value(FocusPolicy::Pass)
-            Text("拖动目录项") // 隐藏首帧占位。
+            Text("拖动目录项") feathrise_editor_ui::localization::label_scene("拖动目录项") // 隐藏首帧占位。
             TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
             Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 } // 正文使用明确宽度度量，长名称与拒绝原因自动换行。
             TextFont {

@@ -1,7 +1,7 @@
 //! 全局LOD设置只写偏好；数值收口、隐藏取消和同帧鼠标所有权沿用正式模态协议。
 
 use feathrise_editor_ui::metrics as ui_metrics;
-use feathrise_editor_ui::EditorButtonClick;
+use feathrise_editor_ui::{EditorButtonClick, localization::EditorLocale};
 use super::components::*;
 use bevy::prelude::*;
 use crate::resources::{MapEditorSettingsState, MapEditorState};
@@ -11,7 +11,7 @@ use feathrise_editor_ui::{
     ActiveNumericInput, ActiveNumericInputScrub, NumericInputCommitOutcome, NumericInputCommitted,
     NumericInputDisabled, NumericInputScrubConfig, NumericInputSetValue, NumericInputSpec,
     NumericInputValue, NumericScrubFieldOptions, NumericScrubFieldStyle, NumericValue,
-    spawn_numeric_scrub_field,
+    spawn_localized_numeric_scrub_field,
 };
 use crate::ui::theme as colors;
 
@@ -30,7 +30,7 @@ pub(crate) fn setup_mesh_lod_inputs(
             .with_style(NumericScrubFieldStyle { width: 300.0, height: 26.0,
                 label_font_size: ui_metrics::FONT_HINT, value_font_size: 12.0, unit_font_size: 10.0, ..default() });
         commands.entity(entity).with_children(|parent| {
-            let root = spawn_numeric_scrub_field(parent, field, feathrise_editor_core::editor_font(&server, crate::ui::scene::FONT_PATH), options);
+            let root = spawn_localized_numeric_scrub_field(parent, field, feathrise_editor_core::editor_font(&server, crate::ui::scene::FONT_PATH), options);
             parent.commands().entity(root).entry::<Node>().and_modify(|mut node| node.width = percent(100));
         });
     }
@@ -80,6 +80,7 @@ pub(crate) fn sync_mesh_lod_inputs(
     mut labels: Query<(&ActionLabel, &mut Text)>,
     mut buttons: Query<(&ActionButton, &Interaction, &mut BackgroundColor, &mut BorderColor)>,
     access: Option<Res<crate::workbench::WorkbenchSettingsAccess>>,
+    locale: Option<Res<EditorLocale>>,
 ) {
     let visible = editor.open && modal.open && !modal.shortcuts && !editor.map_transition_in_progress
         && access.as_ref().is_none_or(|access| access.editable);
@@ -96,12 +97,16 @@ pub(crate) fn sync_mesh_lod_inputs(
             values.write(NumericInputSetValue { entity, value: NumericValue::F32(value), cancel_edit: true });
         } // 隐藏或换页取消精确输入，迟到99不能成为关闭模态的最后一次偏好修改。
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (label, mut text) in &mut labels {
-        let value = match label.0 {
-            Action::Display => if policy.display_enabled { "显示 LOD：开启" } else { "显示 LOD：原始" },
-            Action::Collision => if policy.collision_enabled { "碰撞 LOD：开启" } else { "碰撞 LOD：原始" },
-            Action::Reset => continue,
+        let key = match label.0 {
+            Action::Display if policy.display_enabled => "label.display-lod-on",
+            Action::Display => "label.display-lod-original",
+            Action::Collision if policy.collision_enabled => "label.collision-lod-on",
+            Action::Collision => "label.collision-lod-original",
+            Action::Reset => "label.reset-mesh-lod",
         };
+        let value = locale.text(key);
         if text.0 != value { text.0 = value.into(); }
     }
     for (button, interaction, mut background, mut border) in &mut buttons {

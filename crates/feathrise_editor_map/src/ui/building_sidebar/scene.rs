@@ -29,7 +29,7 @@ fn tab(page: BuildingSidebarPage) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -81,7 +81,7 @@ pub(crate) fn building_tools_panel() -> impl Scene {
                         Children [
                             (
                                 BuildingPlacementControlText
-                                Text("当前：选择 · 朝向 0°")
+                                Text("当前：选择 · 朝向 0°") feathrise_editor_ui::localization::label_scene("当前：选择 · 朝向 0°")
                                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                                 TextColor(colors::TEXT_VALUE)
                                 Node { width: percent(100), min_width: px(0) }
@@ -103,7 +103,7 @@ pub(crate) fn building_tools_panel() -> impl Scene {
                         Children [
                             (
                                 CourtyardModeText
-                                Text("当前：普通选择 · 印章 0°")
+                                Text("当前：普通选择 · 印章 0°") feathrise_editor_ui::localization::label_scene("当前：普通选择 · 印章 0°")
                                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                                 TextColor(colors::TEXT_VALUE)
                                 Node { width: percent(100), min_width: px(0) }

@@ -95,10 +95,10 @@ fn shortcut_row(action: EditorShortcutAction) -> impl Scene {
             // 三列始终属于同一行；长组合键仅在自己的单元格内换行，不能把按键拆到下一行。
             align_items: AlignItems::Center, column_gap: px(4) }
         Children [(
-            // 原十二项动作名保留完整单行，最小列宽覆盖真实字体；余宽交给可换行的组合键。
+            // 长英文动作在动作列内换行，保留同一行的改键和清除按钮。
             Node { width: percent(36), min_width: px(72), flex_shrink: 0.0 }
             Children [(
-                Text(label) TextLayout::no_wrap()
+                Text(label) feathrise_editor_ui::localization::label_scene(label) TextLayout::linebreak(LineBreak::WordBoundary)
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_PRIMARY)
                 Node { width: percent(100), min_width: px(0) }
@@ -112,7 +112,7 @@ fn shortcut_row(action: EditorShortcutAction) -> impl Scene {
                 border: px(1), border_radius: BorderRadius::all(px(3)) }
             BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
             Children [(
-                MapEditorShortcutBindingText(action) Text("未绑定")
+                MapEditorShortcutBindingText(action) Text("未绑定") feathrise_editor_ui::localization::label_scene("未绑定")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED) TextShadow { offset: Vec2::splat(1.0) }
                 TextLayout::new(Justify::Center, LineBreak::AnyCharacter)

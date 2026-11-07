@@ -63,7 +63,7 @@ pub(crate) fn global_mode_toolbar() -> impl Scene {
             Node { height: px(26), padding: UiRect::horizontal(px(6)), align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center, flex_shrink: 0.0, border_radius: BorderRadius::all(px(2)) }
             BackgroundColor(colors::PANEL_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
-            Children [(Text("筛选与操作") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(12) }
+            Children [(Text("筛选与操作") feathrise_editor_ui::localization::label_scene("筛选与操作") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(12) }
                 TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap() Pickable::IGNORE)])] }
 }
 
@@ -208,7 +208,7 @@ fn button(
         ));
     if let ModeButton::Batch(action) = action { root.insert(crate::authoring::placement_batch::PlacementBatchButton(action)); }
     root.with_child((
-            Text::new(label), // 完整中文名称，不只用图标猜测模式。
+            feathrise_editor_ui::localization::editor_label(label), // 完整中文名称，不只用图标猜测模式。
             TextFont {
                 font: font.clone().into(), // 所有按钮共用已加载的中文字体。
                 font_size: 12.0.into(),    // 缩放后仍可读。

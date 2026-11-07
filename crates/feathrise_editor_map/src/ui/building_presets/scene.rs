@@ -30,7 +30,7 @@ fn button(label: &str, action: BuildingPresetAction) -> impl Scene {
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
             BuildingPlacementOptionText(action)
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -39,7 +39,7 @@ fn button(label: &str, action: BuildingPresetAction) -> impl Scene {
 
 fn section(label: &str) -> impl Scene {
     bsn! {
-        Text(label)
+        Text(label) feathrise_editor_ui::localization::label_scene(label)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
         TextColor(colors::TEXT_ACCENT)
         Node {
@@ -65,7 +65,7 @@ pub(crate) fn building_preset_panel() -> impl Scene {
             (section("预设库")),
             (
                 BuildingPresetSummaryText
-                Text("已选建筑：尚未选择")
+                Text("已选建筑：尚未选择") feathrise_editor_ui::localization::label_scene("已选建筑：尚未选择")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_VALUE)
                 TextLayout { linebreak: LineBreak::AnyCharacter }
@@ -81,7 +81,7 @@ pub(crate) fn building_preset_panel() -> impl Scene {
             ),
             (
                 BuildingPresetListTitle
-                Text("建筑预设 · 等待目录")
+                Text("建筑预设 · 等待目录") feathrise_editor_ui::localization::label_scene("建筑预设 · 等待目录")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED)
                 Node { width: percent(100), min_width: px(0) }

@@ -124,6 +124,7 @@ pub(crate) fn freeze_sidebar_tab_for_new_map_dialog(
 /// 页签、页面和折叠帮助的视觉与Display回显；全部实体始终保留。
 pub(crate) fn sync_editor_sidebar_presentation(
     state: Res<MapEditorSidebarState>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     domain: Option<Res<crate::game_authoring::map_interaction::MapInteractionState>>,
     tool_labels: Option<Res<crate::game_authoring::DomainToolLabels>>,
     mut controls: Query<
@@ -158,6 +159,7 @@ pub(crate) fn sync_editor_sidebar_presentation(
         Query<&mut Node, With<crate::game_authoring::DomainToolsHost>>,
     )>, // 页面与帮助正文都写Node，ParamSet避免静态marker误组合时产生别名。
 ) {
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for mut node in &mut layouts.p2() {
         let active = matches!(state.left, EditorLeftSidebarTab::Domain(_));
         let display = if active { Display::Flex } else { Display::None };
@@ -218,7 +220,11 @@ pub(crate) fn sync_editor_sidebar_presentation(
                     let label = if let EditorLeftSidebarTab::Domain(id) = state.left {
                         tool_labels.as_ref().and_then(|labels| labels.0.get(id)).map(String::as_str)
                             .unwrap_or_else(|| domain.as_ref().filter(|domain| domain.domain() == id).map_or("扩展", |domain| domain.label()))
-                    } else { state.left.label() };
+                    } else if state.left == EditorLeftSidebarTab::Meshes {
+                        locale.text("sidebar.mesh")
+                    } else {
+                        locale.editor_label(state.left.label())
+                    };
                     if text.as_str() != label {
                         **text = label.to_owned(); // 动态栏目名称只跟随创建与工具模块，不跟随地图选中对象。
                     }

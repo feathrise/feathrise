@@ -341,6 +341,7 @@ impl TerrainSidebarFeedback<'_> {
 
 pub(super) fn sync_feedback(
     editor: Res<MapEditorState>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     sidebar: Res<MapEditorSidebarState>,
     mode: Res<ViewportModeState>,
     state: Res<TerrainSidebarState>,
@@ -370,6 +371,7 @@ pub(super) fn sync_feedback(
     if !editor.open || !sidebar.tool_page_visible(EditorLeftSidebarTab::Terrain) {
         return;
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let label = match state.requested_tool() {
         EditorTool::Raise => "抬高",
         EditorTool::VolumeDig => "三维挖掘",
@@ -382,11 +384,12 @@ pub(super) fn sync_feedback(
         EditorTool::Surface => "地表绘制",
         _ => "积水潜力",
     };
-    let mode_value = if mode.mode == ViewportMode::Select || editor.tool == EditorTool::Inspect {
-        format!("当前：选择 · 预备 {label}")
+    let mode_key = if mode.mode == ViewportMode::Select || editor.tool == EditorTool::Inspect {
+        "terrain.mode.select"
     } else {
-        format!("当前：编辑 · {label}")
+        "terrain.mode.edit"
     };
+    let mode_value = locale.format(mode_key, &[("tool", locale.editor_label(label).to_owned())]);
     let hint = match state.page {
         TerrainSidebarPage::Sculpt => {
             "先选网格和工具，再点视口左侧“编辑”后左键雕刻；平滑降低局部高差，压平以起笔高度为目标，两者按雕刻速度接近目标并停止。半径、强度和雕刻速度在视口工具条调整。"
@@ -415,7 +418,10 @@ pub(super) fn sync_feedback(
                             MapTerrainKind::Voxel => "三维雕刻",
                             MapTerrainKind::Empty => "作者源未就绪",
                         };
-                        format!("当前网格：{} · {capability}", object.display_name)
+                        locale.format("terrain.mesh.selected", &[
+                            ("name", object.display_name.clone()),
+                            ("capability", locale.editor_label(capability).to_owned()),
+                        ])
                     })
             } else { "当前网格：兼容主网格 · 工具沿用原作者源".to_owned() }
         },
@@ -442,7 +448,7 @@ pub(super) fn sync_feedback(
     let message = if editor.status.is_empty() {
         String::new()
     } else {
-        format!("最近操作：{}", editor.status)
+        locale.format("terrain.recent", &[("action", locale.editor_notice(&editor.status).into_owned())])
     };
     for (mut text, mut color, is_mode, is_hint, is_availability, is_message, is_puddle, is_mesh) in
         &mut texts
@@ -462,8 +468,9 @@ pub(super) fn sync_feedback(
         } else {
             continue;
         };
-        if text.as_str() != value {
-            **text = value.to_owned();
+        let value = locale.editor_notice(value);
+        if text.as_str() != value.as_ref() {
+            **text = value.into_owned();
         }
         if color.0 != tint {
             color.0 = tint;

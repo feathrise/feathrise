@@ -32,7 +32,7 @@ pub(super) fn map_loading_panel() -> impl Scene {
             template_value(FocusPolicy::Pass)
             Children [(
                 MapEditorMapLoadingTitle
-                Text("正在切换地图")
+                Text("正在切换地图") feathrise_editor_ui::localization::label_scene("正在切换地图")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_PRIMARY)
                 TextLayout::no_wrap()
@@ -52,7 +52,7 @@ pub(super) fn map_loading_panel() -> impl Scene {
             )]
         ), (
             MapEditorMapLoadingPercent
-            Text("0% · 0秒")
+            Text("0% · 0秒") feathrise_editor_ui::localization::label_scene("0% · 0秒")
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_VALUE)
             TextLayout::no_wrap()

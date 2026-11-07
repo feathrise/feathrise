@@ -17,7 +17,7 @@ fn button(label: &str, action: SearchAction) -> impl Scene {
             align_items: AlignItems::Center, justify_content: JustifyContent::Center }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label) template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+            Text(label) feathrise_editor_ui::localization::label_scene(label) template_value(FocusPolicy::Pass) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_PRIMARY)
         )]
     }
@@ -43,7 +43,7 @@ fn path_submit() -> impl Scene {
             align_items: AlignItems::Center, justify_content: JustifyContent::Center }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            template_value(SearchLabel::PathSubmit) Text("重新查找") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+            template_value(SearchLabel::PathSubmit) Text("重新查找") feathrise_editor_ui::localization::label_scene("重新查找") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_PRIMARY)
         )]
     }
@@ -57,7 +57,7 @@ fn editor_choice(editor: feathrise_editor_core::ExternalEditor) -> impl Scene {
             align_items: AlignItems::Center, justify_content: JustifyContent::Center }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label) template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+            Text(label) feathrise_editor_ui::localization::label_scene(label) template_value(FocusPolicy::Pass) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_PRIMARY)
         )]
     }
@@ -68,14 +68,16 @@ pub(crate) fn panel() -> impl Scene {
         Node { width: percent(100), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
         Children [
             (
-                Node { width: percent(100), column_gap: px(3), padding: UiRect::right(px(22)) }
+                // 窄侧栏按字宽将缺失检查折到下一行，保留右侧问号的命中空间。
+                Node { width: percent(100), column_gap: px(3), row_gap: px(3),
+                    flex_wrap: FlexWrap::Wrap, padding: UiRect::right(px(22)) }
                 Children [(
                     Button template_value(SearchAction::Toggle)
-                    Node { height: px(24), min_width: px(0), flex_grow: 1.0, flex_basis: px(0),
+                    Node { min_height: px(24), max_width: percent(100), flex_grow: 1.0,
                         padding: UiRect::horizontal(px(5)), align_items: AlignItems::Center }
                     BackgroundColor(colors::SLOT_BG)
                     Children [(
-                        template_value(SearchLabel::Toggle) Text("内容搜索 Ctrl+Shift+F") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+                        template_value(SearchLabel::Toggle) Text("内容搜索 Ctrl+Shift+F") feathrise_editor_ui::localization::label_scene("内容搜索 Ctrl+Shift+F") template_value(FocusPolicy::Pass)
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_ACCENT)
                     )]
                 ), (button("缺失检查", SearchAction::MissingAssets)),
@@ -109,14 +111,14 @@ pub(crate) fn panel() -> impl Scene {
                             (button("大小写", SearchAction::CaseSensitive)), (button("全词", SearchAction::WholeWord))]
                     ),
                     (
-                        template_value(SearchLabel::Scope) Text("范围：assets/（递归）") template_value(FocusPolicy::Pass)
+                        template_value(SearchLabel::Scope) Text("范围：assets/（递归）") feathrise_editor_ui::localization::label_scene("范围：assets/（递归）") template_value(FocusPolicy::Pass)
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_MUTED)
                     ),
                     (
                         SearchTextControls
                         Node { width: percent(100), column_gap: px(4), align_items: AlignItems::Center }
                         Children [(
-                            Text("文件类型") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+                            Text("文件类型") feathrise_editor_ui::localization::label_scene("文件类型") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_MUTED)
                         ), (field(SearchField::Filter, FILTER_CHARS))]
                     ),
@@ -135,7 +137,7 @@ pub(crate) fn panel() -> impl Scene {
                         Node { display: Display::None, width: percent(100), column_gap: px(3), row_gap: px(3),
                             flex_wrap: FlexWrap::Wrap, align_items: AlignItems::Center }
                         Children [(
-                            Text("外部编辑器") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+                            Text("外部编辑器") feathrise_editor_ui::localization::label_scene("外部编辑器") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_MUTED)
                         ), (editor_choice(feathrise_editor_core::ExternalEditor::VsCode)),
                             (editor_choice(feathrise_editor_core::ExternalEditor::Zed)),

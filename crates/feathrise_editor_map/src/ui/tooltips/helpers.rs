@@ -148,20 +148,22 @@ pub(super) fn tooltip_copy(action: TooltipAction, mesh_edit: bool) -> TooltipCop
     }
 }
 
-pub(super) fn tooltip_title(copy: &TooltipCopy, settings: &EditorSettings) -> String {
+pub(super) fn tooltip_title(
+    copy: &TooltipCopy,
+    settings: &EditorSettings,
+    locale: feathrise_editor_ui::localization::EditorLocale,
+) -> String {
     let key = copy
         .shortcut
         .map(|action| {
             settings
                 .editor_keybindings
                 .get(action)
-                .map_or_else(|| "未绑定".to_owned(), |binding| binding.display())
+                .map_or_else(|| locale.editor_label("未绑定").to_owned(), |binding| binding.display())
         })
         .or_else(|| copy.fixed_key.map(str::to_owned));
-    key.map_or_else(
-        || copy.title.to_owned(),
-        |key| format!("{} · {key}", copy.title),
-    )
+    let title = locale.editor_label(copy.title);
+    key.map_or_else(|| title.to_owned(), |key| format!("{title} · {key}"))
 }
 
 pub(super) fn unavailable_reason(

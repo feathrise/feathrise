@@ -347,6 +347,7 @@ pub(super) fn handle_input(
 /// 原家节点只记一次；正文借出时隐藏原位占用，关闭后归位，不复制动态字段或中文内容。
 pub(super) fn sync_popup(
     mut commands: Commands,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     editor: Res<MapEditorState>,
     mut sidebar: ResMut<MapEditorSidebarState>,
     workspace: Option<Res<VegetationPresetEditorState>>,
@@ -504,6 +505,8 @@ pub(super) fn sync_popup(
             .map_or("操作说明", |(button, _, _)| button.0.as_str()),
         None => "操作说明",
     };
+    let locale = locale.as_deref().copied().unwrap_or_default();
+    let title = locale.editor_label(title);
     for mut text in &mut titles {
         if text.as_str() != title {
             **text = title.to_owned();

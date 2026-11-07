@@ -140,7 +140,7 @@ pub(super) fn control(
 
 pub(super) fn present(
     mut commands: Commands,
-    mut state: ResMut<ProjectLogState>,
+    (mut state, locale): (ResMut<ProjectLogState>, Option<Res<feathrise_editor_ui::localization::EditorLocale>>),
     mut overlays: Query<&mut Node, With<LogOverlay>>,
     mut bodies: Query<(&mut LogBody, &mut EditableText, &mut Node, &mut TextLayout), (Without<LogOverlay>, Without<LogContent>, Without<LogDisplay>)>,
     mut contents: Query<&mut Node, (With<LogContent>, Without<LogOverlay>, Without<LogBody>, Without<LogDisplay>)>,
@@ -156,7 +156,8 @@ pub(super) fn present(
     mut horizontal_bars: Query<&mut Node, (With<LogHorizontalScrollbar>, Without<LogOverlay>, Without<LogBody>, Without<LogContent>, Without<LogDisplay>, Without<LogScroll>)>,
     mut panes: Query<&mut Node, (With<LogScroll>, Without<LogOverlay>, Without<LogBody>, Without<LogContent>, Without<LogDisplay>)>,
 ) {
-    if !state.dirty { return; }
+    if !state.dirty && !locale.as_ref().is_some_and(|locale| locale.is_changed()) { return; }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for mut node in &mut overlays {
         node.display = if state.open { Display::Flex } else { Display::None };
     }
@@ -198,18 +199,25 @@ pub(super) fn present(
             super::display::sync(&mut commands, entity, &mut marker, children, &mut spans, font, &body, &styles);
         }
         }
-        let mut status = format!("{} 行", state.row_count());
-        if state.trimmed > 0 { status.push_str(&format!(" · 已淘汰 {} 行", state.trimmed)); }
-        if state.dropped > 0 { status.push_str(&format!(" · 日志溢出：{} 行未显示", state.dropped)); }
-        if !state.notice.is_empty() { status.push_str("  "); status.push_str(&state.notice); }
+        let mut status = locale.format("log.lines", &[("count", state.row_count().to_string())]);
+        if state.trimmed > 0 {
+            status.push_str(&locale.format("log.trimmed", &[("count", state.trimmed.to_string())]));
+        }
+        if state.dropped > 0 {
+            status.push_str(&locale.format("log.dropped", &[("count", state.dropped.to_string())]));
+        }
+        if !state.notice.is_empty() {
+            status.push_str("  ");
+            status.push_str(&locale.editor_notice(&state.notice));
+        }
         for mut text in &mut statuses { if text.0 != status { text.0.clone_from(&status); } }
-        for mut text in &mut follows { text.0 = if state.follow { "跟随：开" } else { "跟随：关" }.into(); }
+        for mut text in &mut follows { text.0 = locale.text(if state.follow { "log.follow.on" } else { "log.follow.off" }).into(); }
         for (interaction, mut colors, mut background) in &mut follow_buttons {
             *colors = super::scene::tool_button_colors(state.follow);
             background.0 = match interaction { Interaction::Hovered => colors.hovered,
                 Interaction::Pressed => colors.pressed, Interaction::None => colors.normal };
         }
-        for mut text in &mut wraps { text.0 = if state.wrap { "自动换行：开" } else { "自动换行：关" }.into(); }
+        for mut text in &mut wraps { text.0 = locale.text(if state.wrap { "log.wrap.on" } else { "log.wrap.off" }).into(); }
         for (interaction, mut colors, mut background) in &mut wrap_buttons {
             *colors = super::scene::tool_button_colors(state.wrap);
             background.0 = match interaction { Interaction::Hovered => colors.hovered,

@@ -24,7 +24,7 @@ use super::vegetation_sidebar::{
 /// 分区只使用弱分隔线和标题，不给每个参数组叠加卡片背景。
 fn section_heading(label: &str) -> impl Scene {
     bsn! {
-        Text(label)
+        Text(label) feathrise_editor_ui::localization::label_scene(label)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
         TextColor(colors::TEXT_ACCENT)
         Node {
@@ -49,7 +49,7 @@ fn feedback_text(kind: VegetationSidebarFeedbackKind, initial: &str) -> impl Sce
         Text(initial)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
         TextColor(colors::TEXT_MUTED)
-        TextLayout { linebreak: LineBreak::AnyCharacter }
+        TextLayout { linebreak: LineBreak::WordOrCharacter }
         Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
     };
     // 原反馈身份与完整文字保留，底栏统一采集；当前新建目标仍属于可见上下文。
@@ -95,13 +95,13 @@ pub(super) fn vegetation_authoring_panel() -> impl Scene {
             (vegetation_preset_editor_panel()),
             (
                 MapEditorVegetationPresetListTitle
-                Text("预设库 · 加载中") // 标题只表达当前目录状态。
+                Text("预设库 · 加载中") feathrise_editor_ui::localization::label_scene("预设库 · 加载中") // 标题只表达当前目录状态。
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_CONTROL), // 提升目录标题可读性。
                 }
                 TextColor(colors::TEXT_VALUE)
-                TextLayout { linebreak: LineBreak::AnyCharacter }
+                TextLayout { linebreak: LineBreak::WordOrCharacter }
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
             ),
             (
@@ -122,13 +122,13 @@ pub(super) fn vegetation_authoring_panel() -> impl Scene {
             (flex_editor_button("用此预设新建空白层", EditorAction::VegetationAddLayer)), // 显式地图事务，不创建或修改全局预设。
             (
                 MapEditorVegetationLayerListTitle
-                Text("作者图层 · 加载中") // 与下面的新建图层操作统一称呼。
+                Text("作者图层 · 加载中") feathrise_editor_ui::localization::label_scene("作者图层 · 加载中") // 与下面的新建图层操作统一称呼。
                 Node {
                     width: percent(100), // 分区线与列表同宽。
                     min_width: px(0),
                     flex_shrink: 0.0, // 多行空态提示自然撑高。
                 }
-                TextLayout { linebreak: LineBreak::AnyCharacter }
+                TextLayout { linebreak: LineBreak::WordOrCharacter }
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_CONTROL), // 与预设库标题建立一致层级。
@@ -184,13 +184,13 @@ pub(crate) fn vegetation_properties_panel() -> impl Scene {
                     (section_heading("所选层属性")),
                     (
                         MapEditorVegetationStatusText
-                        Text("所选层 · 等待选择") // 状态先于操作，明确按钮作用对象。
+                        Text("所选层 · 等待选择") feathrise_editor_ui::localization::label_scene("所选层 · 等待选择") // 状态先于操作，明确按钮作用对象。
                         TextFont {
                             font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                             font_size: px(ui_metrics::FONT_CONTROL),
                         }
                         TextColor(colors::TEXT_VALUE)
-                        TextLayout { linebreak: LineBreak::AnyCharacter }
+                        TextLayout { linebreak: LineBreak::WordOrCharacter }
                         Node {
                             width: percent(100),
                             min_width: px(0),

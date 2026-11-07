@@ -64,7 +64,7 @@ pub(super) fn setup(
                                         padding: UiRect::horizontal(px(8)), align_items: AlignItems::Center,
                                         border_radius: BorderRadius::all(px(2)), ..default() },
                                     BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL), FocusPolicy::Block,
-                                )).with_child((Text::new(kind.label()),
+                                )).with_child((feathrise_editor_ui::localization::editor_label(kind.label()),
                                     TextFont { font: font.clone().into(), font_size: ui_metrics::FONT_CONTROL.into(), ..default() },
                                     TextLayout::no_wrap(), TextColor(colors::TEXT_PRIMARY), FocusPolicy::Pass));
                             }
@@ -74,7 +74,7 @@ pub(super) fn setup(
                                         padding: UiRect::horizontal(px(8)), align_items: AlignItems::Center,
                                         border_radius: BorderRadius::all(px(2)), ..default() },
                                     BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL), FocusPolicy::Block,
-                                )).with_child((Text::new(label),
+                                )).with_child((feathrise_editor_ui::localization::editor_label(label),
                                     TextFont { font: font.clone().into(), font_size: ui_metrics::FONT_CONTROL.into(), ..default() },
                                     TextLayout::no_wrap(), TextColor(colors::TEXT_PRIMARY), FocusPolicy::Pass));
                             }
@@ -90,7 +90,7 @@ pub(super) fn setup(
                                     BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL), FocusPolicy::Block,
                                 ))
                                 .with_child((
-                                    Text::new("保存全部草稿"),
+                                    feathrise_editor_ui::localization::editor_label("保存全部草稿"),
                                     TextFont { font: font.clone().into(), font_size: ui_metrics::FONT_CONTROL.into(), ..default() },
                                     TextColor(colors::TEXT_PRIMARY), FocusPolicy::Pass,
                                 ));
@@ -111,7 +111,7 @@ pub(super) fn setup(
                                     FocusPolicy::Block,
                                 ))
                                 .with_child((
-                                    Text::new("关闭全部"),
+                                    feathrise_editor_ui::localization::editor_label("关闭全部"),
                                     TextFont {
                                         font: font.clone().into(),
                                         font_size: ui_metrics::FONT_CONTROL.into(),
@@ -137,7 +137,7 @@ pub(super) fn setup(
                                     FocusPolicy::Block,
                                 ))
                                 .with_child((
-                                    Text::new("关闭未修改"),
+                                    feathrise_editor_ui::localization::editor_label("关闭未修改"),
                                     TextFont {
                                         font: font.clone().into(),
                                         font_size: ui_metrics::FONT_CONTROL.into(),

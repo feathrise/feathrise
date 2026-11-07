@@ -83,6 +83,8 @@ pub(super) fn present(world: &mut World) {
     world.resource_mut::<ProjectLaunchInterruption>().set_if_neq(interruption);
     let caption = interruption.action_label();
     let label = caption.unwrap_or_else(||world.resource::<feathrise_editor_core::ProjectLaunchSettings>().action_label());
+    let label = world.get_resource::<feathrise_editor_ui::localization::EditorLocale>()
+        .copied().unwrap_or_default().editor_label(label);
     for mut text in world.query_filtered::<&mut Text, With<ProjectLaunchLabel>>().iter_mut(world) {
         if text.as_str() != label { **text = label.into(); }
     }

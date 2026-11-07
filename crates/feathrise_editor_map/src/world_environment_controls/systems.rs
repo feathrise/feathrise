@@ -5,6 +5,7 @@ use bevy::ui::RelativeCursorPosition;
 use feathrise_atmosphere::{WeatherCommand, WeatherDebugOverride, WeatherState, WorldClock};
 use feathrise_editor_core::EditorSettings;
 use feathrise_editor_ui::EditorButtonClick;
+use feathrise_editor_ui::localization::EditorLocale;
 
 use super::components::*;
 use super::helpers::{
@@ -35,8 +36,7 @@ type RerollButtonFilter = (
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_world_environment_controls(
     editor: Res<MapEditorState>,
-    pause_buttons: Query<(&EditorButtonClick, &Children), PauseButtonFilter>,
-    mut button_texts: Query<&mut Text>,
+    pause_buttons: Query<&EditorButtonClick, PauseButtonFilter>,
     time_tracks: Query<(&Interaction, &RelativeCursorPosition), With<WorldTimeSlider>>,
     month_tracks: Query<(&Interaction, &RelativeCursorPosition), With<WorldMonthSlider>>,
     mode_tracks: Query<(&Interaction, &RelativeCursorPosition), With<WeatherModeSlider>>,
@@ -52,20 +52,9 @@ pub(crate) fn handle_world_environment_controls(
     if !editor.open || editor.close_requested {
         return;
     }
-    for (interaction, children) in &pause_buttons {
-        if !interaction.is_clicked() {
-            continue;
-        }
-        settings.environment.world_time_paused = !settings.environment.world_time_paused;
-        let label = if settings.environment.world_time_paused {
-            "时间暂停：开"
-        } else {
-            "时间暂停：关"
-        };
-        for child in children.iter() {
-            if let Ok(mut text) = button_texts.get_mut(child) {
-                **text = label.to_owned();
-            }
+    for interaction in &pause_buttons {
+        if interaction.is_clicked() {
+            settings.environment.world_time_paused = !settings.environment.world_time_paused;
         }
     }
     for (interaction, cursor) in &time_tracks {
@@ -147,6 +136,7 @@ type WorldEnvironmentNodeFilter = Or<(
     With<GrassWindSliderThumb>, // 草尖摆幅与天气滑块同帧回显。
 )>;
 type WorldEnvironmentTextFilter = Or<(
+    With<WorldTimePauseLabel>,
     With<WorldTimeSliderLabel>,
     With<WorldMonthSliderLabel>,
     With<WeatherModeSliderLabel>,
@@ -158,6 +148,7 @@ type WorldEnvironmentTextFilter = Or<(
 /// 世界光照和天气效果已经应用后，把最终运行时状态统一回写 F12 控件。
 pub(crate) fn sync_world_environment_controls(
     editor: Res<MapEditorState>,
+    locale: Option<Res<EditorLocale>>,
     clock: Res<WorldClock>,
     weather_override: Res<WeatherDebugOverride>,
     weather_state: Res<WeatherState>,
@@ -177,6 +168,7 @@ pub(crate) fn sync_world_environment_controls(
     mut texts: Query<
         (
             &mut Text,
+            Has<WorldTimePauseLabel>,
             Has<WorldTimeSliderLabel>,
             Has<WorldMonthSliderLabel>,
             Has<WeatherModeSliderLabel>,
@@ -190,6 +182,7 @@ pub(crate) fn sync_world_environment_controls(
     if !editor.open {
         return;
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let automatic_progress = if weather_state.is_transitioning() {
         weather_state.transition_progress()
     } else {
@@ -212,11 +205,12 @@ pub(crate) fn sync_world_environment_controls(
         .unwrap_or_else(|| weather_state.target());
     let mode_text = weather_override
         .forced()
-        .map_or_else(|| "自动".to_owned(), |kind| kind.display_name().to_owned());
+        .map_or_else(|| locale.text("label.auto"), |kind| locale.editor_label(kind.display_name()));
+    let current_weather = locale.editor_label(weather_state.current().display_name());
     let status_text = format!(
         "{} → {} · {:.0}% · {}",
-        weather_state.current().display_name(),
-        target.display_name(),
+        current_weather,
+        locale.editor_label(target.display_name()),
         progress * 100.0,
         format_game_seconds(remaining),
     );
@@ -252,22 +246,31 @@ pub(crate) fn sync_world_environment_controls(
             }
         }
     }
-    for (mut text, time, month, mode, preview, region, grass) in &mut texts {
-        let desired = if time {
+    for (mut text, pause, time, month, mode, preview, region, grass) in &mut texts {
+        let desired = if pause {
+            locale.text(if settings.environment.world_time_paused { "world.pause.on" } else { "world.pause.off" }).to_owned()
+        } else if time {
             format_hour(clock.hour_for_display())
         } else if month {
-            format!(
-                "{}月{}日 · {}",
-                clock.month(),
-                clock.day(),
-                clock.season_name()
-            )
+            let month = clock.month();
+            let month_name = if locale == EditorLocale::English {
+                // 世界时钟的月份只用于呈现，不受操作系统地区格式影响。
+                ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                    .get(month.saturating_sub(1) as usize).copied().unwrap_or("—").to_owned()
+            } else {
+                month.to_string()
+            };
+            locale.format("world.calendar.date", &[
+                ("month", month_name),
+                ("day", clock.day().to_string()),
+                ("season", locale.editor_label(clock.season_name()).to_owned()),
+            ])
         } else if mode {
-            mode_text.clone()
+            mode_text.to_owned()
         } else if preview {
             status_text.clone()
         } else if region {
-            format!("当前天气 · {}", weather_state.current().display_name())
+            locale.format("world.weather.current", &[("weather", current_weather.to_owned())])
         } else if grass {
             format_grass_wind_strength(settings.environment.grass_wind_tip_strength) // 保留原F1的厘米标签而不改变天气风速。
         } else {

@@ -14,7 +14,7 @@ use bevy::{
     window::PrimaryWindow,
 };
 use feathrise_editor_map::workbench::WorkbenchHeader;
-use feathrise_editor_ui::{EditorButtonClick, colors as c};
+use feathrise_editor_ui::{EditorButtonClick, colors as c, localization::EditorLocale};
 
 pub(super) const ROW_HEIGHT: f32 = 64.;
 const ROW_POOL: usize = 24;
@@ -158,7 +158,7 @@ pub(super) fn mount(
 
 fn label(font: &Handle<Font>, text: &str, size: f32, color: Color, wrap: bool) -> impl Bundle {
     (
-        Text::new(text),
+        feathrise_editor_ui::localization::editor_label(text),
         TextFont {
             font: font.clone().into(),
             font_size: size.into(),
@@ -167,7 +167,7 @@ fn label(font: &Handle<Font>, text: &str, size: f32, color: Color, wrap: bool) -
         TextColor(color),
         TextLayout {
             linebreak: if wrap {
-                bevy::text::LineBreak::AnyCharacter
+                bevy::text::LineBreak::WordOrCharacter
             } else {
                 bevy::text::LineBreak::NoWrap
             },
@@ -215,7 +215,7 @@ fn button(
             }
             if directory {
                 text.insert((ManagerText::Directory, TextLayout {
-                    linebreak: bevy::text::LineBreak::AnyCharacter, ..default()
+                    linebreak: bevy::text::LineBreak::WordOrCharacter, ..default()
                 }));
             }
         })
@@ -315,6 +315,7 @@ pub(super) fn scrollbar_feedback(
 pub(super) fn present(
     mut commands: Commands,
     state: Res<PluginManagerState>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut layouts: Query<(&ManagerLayout, &mut Node), Without<ManagerRow>>,
     mut panes: Query<(&ComputedNode, &mut ScrollPosition), With<ManagerPane>>,
@@ -455,9 +456,14 @@ pub(super) fn present(
         }
         background.0 = button_background(&palette, *interaction, cursor, false);
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (kind, mut text, mut color) in &mut texts {
         let next = match *kind {
-            ManagerText::Count => format!("{} 个", state.rows.len()),
+            ManagerText::Count => {
+                let count = state.rows.len();
+                let key = if count == 1 { "plugin.count.one" } else { "plugin.count" };
+                locale.format(key, &[("count", count.to_string())])
+            }
             ManagerText::ScopeInfo => match state.scope {
                 PluginScope::Global if !state.has_project() => "全局插件供当前用户的所有工程使用；安装和设置完成后即生效。".into(),
                 PluginScope::Global => "全局插件供当前用户的所有工程使用；当前工程在重开后采用变更。".into(),
@@ -486,13 +492,13 @@ pub(super) fn present(
                         0 => format!(
                             "{}  {}",
                             entry.tool,
-                            entry.version.as_deref().unwrap_or("版本未声明")
+                            entry.version.as_deref().unwrap_or_else(|| locale.text("plugin.version.unknown"))
                         ),
-                        1 => format!("{} · {}", entry.id, source_label(entry)),
-                        _ => state_line(entry, &state),
+                        1 => format!("{} · {}", entry.id, locale.editor_label(source_label(entry))),
+                        _ => state_line(entry, &state, locale),
                     })
             }
-            ManagerText::Detail(kind) => detail_text(selected, kind, &state),
+            ManagerText::Detail(kind) => detail_text(selected, kind, &state, locale),
             ManagerText::Toggle => {
                 if selected.is_some_and(|entry| entry.enabled) {
                     "停用".into()
@@ -511,11 +517,21 @@ pub(super) fn present(
                 } else if fallback {
                     "重开工程后将采用同名全局版本，其启停和可用状态由全局设置决定。"
                 } else { "重开工程后移除本工程的作者插件。" };
-                format!("确认移除“{}”？{impact}已保存的作者数据会保留。", state.confirm_remove.as_deref().unwrap_or_default())
+                locale.format("plugin.remove.confirm", &[
+                    ("id", state.confirm_remove.clone().unwrap_or_default()),
+                    ("impact", locale.editor_label(impact).to_owned()),
+                ])
             },
         };
-        if text.as_str() != next {
-            **text = next;
+        // 插件名称、ID和版本属于插件方；内置管理状态使用编辑器词表。
+        let next = if matches!(*kind, ManagerText::Row { line: 0 | 1, .. })
+            || selected.is_some() && matches!(*kind, ManagerText::Detail(DetailKind::Name)) {
+            std::borrow::Cow::Borrowed(next.as_str())
+        } else {
+            locale.editor_notice(&next)
+        };
+        if text.as_str() != next.as_ref() {
+            **text = next.into_owned();
         }
         let failed = match *kind {
             ManagerText::Row { slot, line: 2 } => state
@@ -649,7 +665,7 @@ fn pending_label(kind: &PendingKind) -> &'static str {
     }
 }
 
-fn state_line(entry: &PackageEntry, state: &PluginManagerState) -> String {
+fn state_line(entry: &PackageEntry, state: &PluginManagerState, locale: EditorLocale) -> String {
     // 安全拒载会令catalog.enabled=false，但不代表作者主动停用，不能据此伪造停用状态。
     let fallback = if entry
         .pending
@@ -664,21 +680,25 @@ fn state_line(entry: &PackageEntry, state: &PluginManagerState) -> String {
     } else {
         "已停用"
     };
-    let actual = state
+    let actual = locale.editor_notice(state
         .load_states
         .get(&entry.id)
         .map(String::as_str)
-        .unwrap_or(fallback);
+        .unwrap_or(fallback));
     if entry.overridden_by_project {
-        return format!("{actual} · 当前工程采用工程副本");
+        return locale.format("plugin.state.project_override", &[("state", actual.into_owned())]);
     }
     if let Some(change) = &entry.pending {
         let condition = if state.has_project() { "重开工程后生效" } else { "尚未完成" };
-        format!("{actual} · {}（{condition}）", pending_label(&change.kind))
+        locale.format("plugin.state.pending", &[
+            ("state", actual.into_owned()),
+            ("pending", locale.editor_label(pending_label(&change.kind)).to_owned()),
+            ("condition", locale.editor_label(condition).to_owned()),
+        ])
     } else if entry.error.is_some() {
-        format!("{actual} · 包检查失败")
+        locale.format("plugin.state.check_failed", &[("state", actual.into_owned())])
     } else {
-        actual.into()
+        actual.into_owned()
     }
 }
 
@@ -692,6 +712,7 @@ fn detail_text(
     entry: Option<&PackageEntry>,
     kind: DetailKind,
     state: &PluginManagerState,
+    locale: EditorLocale,
 ) -> String {
     let Some(entry) = entry else {
         return if matches!(kind, DetailKind::Name) {
@@ -704,59 +725,54 @@ fn detail_text(
         DetailKind::Name => format!(
             "{}  {}",
             entry.tool,
-            entry.version.as_deref().unwrap_or("版本未声明")
+            entry.version.as_deref().unwrap_or_else(|| locale.text("plugin.version.unknown"))
         ),
         DetailKind::Identity => format!("标识  {}", entry.id),
         DetailKind::Source => {
-            let extra = if entry.inherited {
-                "；启停仅影响本工程，更新或移除请切换到全局"
+            let key = if entry.inherited {
+                "plugin.source.inherited"
             } else if entry.overridden_by_project {
-                "；当前工程已有同名副本，优先使用工程副本"
+                "plugin.source.overridden"
             } else if entry.scope == PluginScope::Global {
-                "；供当前用户全部工程继承"
-            } else { "；优先于同名全局插件，停用或损坏时也不会自动回退" };
-            format!("来源  {}{extra}", source_label(entry))
+                "plugin.source.global"
+            } else { "plugin.source.project" };
+            locale.format(key, &[("scope", locale.editor_label(source_label(entry)).to_owned())])
         },
         DetailKind::Path => format!(
             "安装路径  {}",
             crate::project::display_path(&entry.path)
         ),
-        DetailKind::State => format!("当前状态  {}", state_line(entry, state)),
+        DetailKind::State => locale.format("plugin.detail.state", &[("state", state_line(entry, state, locale))]),
         DetailKind::Error => entry
             .error
             .as_ref()
             .map_or_else(String::new, |error| format!("错误原因  {error}")),
         DetailKind::Pending => entry.pending.as_ref().map_or_else(String::new, |change| {
-            format!(
-                "计划  {}{}；{}。",
-                pending_label(&change.kind),
-                change
+            let condition = if state.has_project() { "重开工程后生效" } else { "尚未完成，请查看操作错误或刷新" };
+            locale.format("plugin.detail.pending", &[
+                ("pending", locale.editor_label(pending_label(&change.kind)).to_owned()),
+                ("version", change
                     .version
                     .as_ref()
-                    .map_or_else(String::new, |version| format!(" {version}")),
-                if state.has_project() { "重开工程后生效" } else { "尚未完成，请查看操作错误或刷新" }
-            )
+                    .map_or_else(String::new, |version| format!(" {version}"))),
+                ("condition", locale.editor_label(condition).to_owned()),
+            ])
         }),
         DetailKind::Runtime => {
+            let separator = if locale == EditorLocale::English { ", " } else { "、" };
             if !state.has_project() {
                 return if entry.runtime_dependencies.is_empty() {
-                    "运行依赖  打开工程后检查；安装作者工具不代表已接入运行能力。".into()
+                    locale.text("plugin.runtime.check_on_open").into()
                 } else {
-                    format!("已声明的运行依赖  {}；打开工程后检查接入情况。", entry.runtime_dependencies.join("、"))
+                    locale.format("plugin.runtime.declared_closed", &[("packages", entry.runtime_dependencies.join(separator))])
                 };
             }
             if !entry.runtime_missing.is_empty() {
-                format!(
-                    "工程运行依赖缺失  {}。请接入后重新构建工程。",
-                    entry.runtime_missing.join("、")
-                )
+                locale.format("plugin.runtime.missing", &[("packages", entry.runtime_missing.join(separator))])
             } else if !entry.runtime_dependencies.is_empty() {
-                format!(
-                    "已声明的运行依赖  {}",
-                    entry.runtime_dependencies.join("、")
-                )
+                locale.format("plugin.runtime.declared", &[("packages", entry.runtime_dependencies.join(separator))])
             } else {
-                "运行依赖  此包未声明；安装作者工具不代表已获得工程运行能力。".into()
+                locale.text("plugin.runtime.none").into()
             }
         }
     }

@@ -139,6 +139,7 @@ pub(super) fn present(
     state: Res<BuildProfileMenuState>,
     launch: Res<ProjectLaunchSettings>,
     backend: Res<ProjectBuildBackend>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     mut panels: Query<&mut Node, Or<(With<ProfileMenu>, With<ProfileBackdrop>)>>,
     toggles: Query<(Entity, Has<GlobalZIndex>), With<ProfileToggle>>,
     mut labels: Query<(&ProfileLabel, &mut Text)>,
@@ -146,7 +147,9 @@ pub(super) fn present(
     mut backend_labels: Query<(&BackendLabel, &mut Text), Without<ProfileLabel>>,
     mut backend_options: Query<(&BackendOption, &mut BorderColor), Without<ProfileOption>>,
 ) {
-    if !state.is_changed() && !launch.is_changed() && !backend.is_changed() { return; }
+    if !state.is_changed() && !launch.is_changed() && !backend.is_changed()
+        && !locale.as_ref().is_some_and(|locale| locale.is_changed()) { return; }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for mut node in &mut panels {
         node.display = if state.open { Display::Flex } else { Display::None };
     }
@@ -157,7 +160,7 @@ pub(super) fn present(
     }
     for (label, mut text) in &mut labels {
         let caption = match label.0 {
-            None => format!("{} · {} ▼", launch.profile.label(), backend.label()),
+            None => format!("{} · {} ▼", launch.profile.label(), locale.editor_label(backend.label())),
             Some(profile) => format!("{} {}", if profile == launch.profile { "✓" } else { "  " }, profile.label()),
         };
         if text.as_str() != caption { **text = caption; }
@@ -166,7 +169,7 @@ pub(super) fn present(
         *border = BorderColor::all(if option.0 == launch.profile { c::COPPER_BORDER } else { c::COPPER_BORDER_WEAK });
     }
     for (label, mut text) in &mut backend_labels {
-        let caption = format!("{} {}", if label.0 == *backend { "✓" } else { "  " }, label.0.label());
+        let caption = format!("{} {}", if label.0 == *backend { "✓" } else { "  " }, locale.editor_label(label.0.label()));
         if text.as_str() != caption { **text = caption; }
     }
     for (option, mut border) in &mut backend_options {

@@ -13,7 +13,7 @@ fn button(label: &'static str, action: ObjectAction) -> impl Scene {
         Node { min_height: px(25), padding: UiRect::axes(px(5), px(3)), border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(3)), flex_shrink: 0.0 }
         BackgroundColor(colors::SLOT_BG)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(Text(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_PRIMARY))]
+        Children [(Text(label) feathrise_editor_ui::localization::label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_PRIMARY))]
     }
 }
 
@@ -27,7 +27,7 @@ fn field(label: &'static str, kind: ObjectField) -> impl Scene {
         Node { width: percent(100), min_width: px(0), flex_direction: direction,
             column_gap: px(4), row_gap: px(2), align_items: alignment, flex_shrink: 0.0 }
         Children [
-            (Text(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_HINT)
+            (Text(label) feathrise_editor_ui::localization::label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_HINT)
                 Node { width: px(if search { 28.0 } else { 36.0 }), min_width: px(0), flex_shrink: 0.0 }),
             (
                 Button
@@ -83,7 +83,7 @@ pub(crate) fn properties_panel() -> impl Scene {
             ),
             (
                 ObjectSummary
-                Text("选择对象或目录后进行管理")
+                Text("选择对象或目录后进行管理") feathrise_editor_ui::localization::label_scene("选择对象或目录后进行管理")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_HINT)
                 TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }

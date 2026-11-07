@@ -31,7 +31,7 @@ fn locate_button() -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text("定位")
+            Text("定位") feathrise_editor_ui::localization::label_scene("定位")
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -108,7 +108,7 @@ fn action_button(
         BackgroundColor(background)
         BorderColor::all(border)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 统一中文字体避免按钮乱码。
                 font_size: px(ui_metrics::FONT_CONTROL), // 与同页网格属性按钮一致。
@@ -153,7 +153,7 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
             (crate::ui::context_help::section_header("高度与落点", "吸附地面会等待中央视口单击，并按首次摆放规则命中真实地形。跟随地形会归零离地偏移；固定高度保留模式并采用命中Y。")),
             (
                 MapEditorPlacementTransformSummary
-                Text("请选择场景树中的资产实例")
+                Text("请选择场景树中的资产实例") feathrise_editor_ui::localization::label_scene("请选择场景树中的资产实例")
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 摘要支持中文资产路径。
                     font_size: px(ui_metrics::FONT_CONTROL), // 低于正式数值一层。

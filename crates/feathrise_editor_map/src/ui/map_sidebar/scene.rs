@@ -50,7 +50,7 @@ pub(super) fn action(label: &str, action: EditorAction) -> impl Scene {
             align_items: AlignItems::Center, justify_content: JustifyContent::FlexStart }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            template_value(MapSidebarActionLabel(action)) Text(label)
+            template_value(MapSidebarActionLabel(action)) Text(label) feathrise_editor_ui::localization::label_scene(label)
             template_value(FocusPolicy::Pass) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
@@ -72,7 +72,7 @@ fn root_directory_row() -> impl Scene {
         BackgroundColor(colors::PANEL_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
             (template_value(MapEditorMapRowGlyph::Root) ImageNode::default() Node { width: px(18), height: px(18), flex_shrink: 0.0 } Pickable::IGNORE),
-            (Text("根目录") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
+            (Text("根目录") feathrise_editor_ui::localization::label_scene("根目录") template_value(FocusPolicy::Pass) TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_BODY) }
             TextColor(colors::TEXT_VALUE) Node { min_width: px(0), overflow: Overflow::clip_x() }
             Pickable::IGNORE),
@@ -111,7 +111,7 @@ pub(crate) fn map_page() -> impl Scene {
                     flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
                 Children [
                     (field(SidebarField::CurrentSummary, "尚未进入地图")),
-                    (MapEditorMapListTitle Text("地图 · 等待目录") template_value(FocusPolicy::Pass)
+                    (MapEditorMapListTitle Text("地图 · 等待目录") feathrise_editor_ui::localization::label_scene("地图 · 等待目录") template_value(FocusPolicy::Pass)
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                         TextLayout { linebreak: LineBreak::AnyCharacter } TextColor(colors::TEXT_MUTED)
                         Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }),

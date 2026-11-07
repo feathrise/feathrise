@@ -36,7 +36,7 @@ pub(in crate::ui) fn popup() -> impl Scene {
                 BackgroundColor(feathrise_editor_ui::colors::DIALOG_HEADER_BG)
                 BorderColor::all(feathrise_editor_ui::colors::DIALOG_BORDER)
                 Children [
-                    (ContextHelpTitle Text("操作说明")
+                    (ContextHelpTitle Text("操作说明") feathrise_editor_ui::localization::label_scene("操作说明")
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_BODY) }
                         TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap()
                         Node { min_width: px(0), flex_grow: 1.0, overflow: Overflow::clip_x() }

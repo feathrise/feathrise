@@ -27,6 +27,7 @@ pub(super) fn section_for(target: Option<&LayerTarget>) -> Option<InspectorSecti
 
 pub(crate) fn sync_scene_inspector(
     editor: Res<MapEditorState>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     session: Res<EditorAuthoringSession>,
     browser: Res<EditorGltfBrowserState>,
     shading: Res<TerrainShadingSession>,
@@ -86,7 +87,7 @@ pub(crate) fn sync_scene_inspector(
             && old.terrain_map_id.as_ref() == shading.map_id.as_ref()
             && old.relocation_armed == relocation_armed
     });
-    if unchanged && added.is_empty() {
+    if unchanged && added.is_empty() && !locale.as_ref().is_some_and(|locale| locale.is_changed()) {
         return;
     } // 只借用比较一份有界选择，不因浏览进度或光标Changed克隆路径。
     let changed_selection = previous.as_ref().is_none_or(|old| {
@@ -270,14 +271,21 @@ pub(crate) fn sync_scene_inspector(
     let (name, hint) = if section == Some(InspectorSection::Terrain) {
         (String::new(), String::new()) // 网格自身已给出真实名称、来源与常用属性，避免重复“所选网格”和固定教程。
     } else { (name, hint) };
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (marker, mut text, mut node) in &mut texts {
         let value = match marker.0 {
             SceneInspectorField::Name => &name,
             SceneInspectorField::Details => &details,
             SceneInspectorField::Hint => &hint,
         };
-        if text.as_str() != value {
-            **text = value.clone();
+        // 只本地化编辑器反馈。已选对象及插件分类的名称来源于作者数据。
+        let value = if !matches!(marker.0, SceneInspectorField::Name) || draft.is_none() {
+            locale.editor_notice(value)
+        } else {
+            std::borrow::Cow::Borrowed(value.as_str())
+        };
+        if text.as_str() != value.as_ref() {
+            **text = value.as_ref().to_owned();
         }
         let display = if value.is_empty() {
             Display::None

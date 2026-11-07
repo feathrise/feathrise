@@ -98,7 +98,7 @@ pub(super) fn action_button(
             }),
         ))
         .with_child((
-            Text::new(label),
+            feathrise_editor_ui::localization::editor_label(label),
             text_font(face, 11.0),
             TextColor(colors::TEXT_PRIMARY),
             TextLayout::no_wrap(),
@@ -167,7 +167,7 @@ pub(super) fn field(
             ..default()
         })
         .with_children(|column| {
-            column.spawn((Text::new(label), text_font(face, ui_metrics::FONT_CONTROL), TextColor(colors::TEXT_MUTED),
+            column.spawn((feathrise_editor_ui::localization::editor_label(label), text_font(face, ui_metrics::FONT_CONTROL), TextColor(colors::TEXT_MUTED),
                 TextLayout::new(Justify::Left, LineBreak::AnyCharacter),
                 Node { width: Val::Px(96.0), height: Val::Px(ui_metrics::label_height(label, 96.0)), min_width: Val::Px(0.0), flex_shrink: 0.0, ..default() }));
             let mut input = column.spawn((

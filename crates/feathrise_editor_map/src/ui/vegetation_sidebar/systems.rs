@@ -174,6 +174,7 @@ impl VegetationSidebarFeedback<'_> {
 
 pub(super) fn sync_feedback(
     editor: Res<MapEditorState>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     sidebar: Res<MapEditorSidebarState>,
     mode: Res<ViewportModeState>,
     feedback: VegetationSidebarFeedback,
@@ -193,6 +194,7 @@ pub(super) fn sync_feedback(
     let catalog_message = catalog.map_or_else(String::new, |error| {
         format!("全局库更新失败：{error}；保留上一完整目录。")
     });
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (marker, mut text, mut color) in &mut texts {
         let (value, tint) = match marker.0 {
             VegetationSidebarFeedbackKind::CreationTarget => {
@@ -208,8 +210,9 @@ pub(super) fn sync_feedback(
             }
             VegetationSidebarFeedbackKind::Message => (editor.status.as_str(), colors::TEXT_MUTED),
         };
-        if text.as_str() != value {
-            **text = value.to_owned();
+        let value = locale.editor_notice(value);
+        if text.as_str() != value.as_ref() {
+            **text = value.into_owned();
         }
         if color.0 != tint {
             color.0 = tint;

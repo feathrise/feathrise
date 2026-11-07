@@ -5,6 +5,7 @@ use bevy::{ecs::system::SystemParam, prelude::*};
 use feathrise_editor_ui::{
     ActiveNumericInput, ActiveNumericInputScrub, NumericInputDisabled, NumericInputSetValue,
     NumericInputValue, NumericValue,
+    localization::EditorLocale,
 };
 use feathrise_map_content::{MapTerrainKind, MapTerrainObject, MeshLodMode};
 
@@ -268,6 +269,7 @@ fn lod_row_description(
 pub(super) fn sync(
     mut commands: Commands,
     mut editor: ResMut<MapEditorState>,
+    locale: Option<Res<EditorLocale>>,
     session: Res<EditorAuthoringSession>,
     mut state: ResMut<TerrainObjectsEditorState>,
     active: Res<ActiveNumericInput>,
@@ -281,6 +283,7 @@ pub(super) fn sync(
     mut lod_identity: Local<[Option<(Option<feathrise_map_content::MapId>, Option<feathrise_map_content::TerrainId>, usize, usize, bool)>; 2]>,
     mut lod_focus: Local<Option<bool>>,
 ) {
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let map = session.draft.as_ref().map(|draft| draft.map_id.clone());
     if state.map != map {
         state.map = map.clone();
@@ -472,7 +475,7 @@ pub(super) fn sync(
     {
         let value = if summary.is_some() {
             object.map_or_else(
-                || "在左侧场景树或视口选择网格，右侧查看属性。".to_owned(),
+                || locale.text("mesh.selection.hint").to_owned(),
                 |object| {
                     format!(
                         "{} · {}{}{}{}{}",
@@ -511,9 +514,9 @@ pub(super) fn sync(
         } else if source.is_some() {
             object.map_or_else(String::new, source_description)
         } else if representation.is_some() {
-            object.map_or("", kind_label).to_owned()
+            locale.editor_label(object.map_or("", kind_label)).to_owned()
         } else if lod.is_some() {
-            object.map_or("", lod_description).to_owned()
+            locale.editor_label(object.map_or("", lod_description)).to_owned()
         } else if let Some(native) = native {
             let count = counts[usize::from(native.0)];
             if count == 0 {
@@ -528,7 +531,7 @@ pub(super) fn sync(
                 lod_row_description(object, row.2, index, list.selected, row.1)
             })
         } else if let Some(row) = row_kind {
-            objects.get(state.list_start + row.0).map_or("", kind_label).to_owned()
+            locale.editor_label(objects.get(state.list_start + row.0).map_or("", kind_label)).to_owned()
         } else if let Some(row) = row {
             objects
                 .get(state.list_start + row.0)
@@ -554,7 +557,12 @@ pub(super) fn sync(
                     )
                 })
         } else if let Some(label) = label {
-            match label.0 {
+            // 按钮由作者状态逐帧回显，必须在这里取译文，否则会覆盖场景初始译文。
+            let section_label = |section, label| {
+                let marker = if state.section_open(section) { "▼" } else { "▶" };
+                format!("{marker} {}", locale.editor_label(label))
+            };
+            let value = match label.0 {
                 Action::ToggleCreation => if state.creation_open {
                     "添加网格 ▼"
                 } else {
@@ -583,43 +591,45 @@ pub(super) fn sync(
                     "未锁定"
                 }
                 .to_owned(),
-                Action::DisplayPolicy => format!(
-                    "显示简化：{}",
-                    policy_mode(
+                Action::DisplayPolicy => locale.format(
+                    "mesh.lod.display_policy",
+                    &[("mode", locale.editor_label(policy_mode(
                         object
                             .and_then(|object| object.mesh_lod)
                             .unwrap_or_default()
                             .display
-                    )
+                    )).into())],
                 ),
-                Action::CollisionPolicy => format!(
-                    "碰撞简化：{}",
-                    policy_mode(
+                Action::CollisionPolicy => locale.format(
+                    "mesh.lod.collision_policy",
+                    &[("mode", locale.editor_label(policy_mode(
                         object
                             .and_then(|object| object.mesh_lod)
                             .unwrap_or_default()
                             .collision
-                    )
+                    )).into())],
                 ),
-                Action::BasicProperties => format!("{} 变换", if state.section_open(MeshPropertySection::Basic) { "▼" } else { "▶" }),
-                Action::TypeProperties => format!("{} 几何", if state.section_open(MeshPropertySection::Type) { "▼" } else { "▶" }),
-                Action::SourceProperties => format!("{} 来源与高级", if state.section_open(MeshPropertySection::Source) { "▼" } else { "▶" }),
-                Action::StitchProperties => format!("{} 拼接", if state.section_open(MeshPropertySection::Stitch) { "▼" } else { "▶" }),
-                Action::DisplayLods => format!("{} 显示 LOD", if state.section_open(MeshPropertySection::DisplayLods) { "▼" } else { "▶" }),
-                Action::CollisionLods => format!("{} 碰撞 LOD", if state.section_open(MeshPropertySection::CollisionLods) { "▼" } else { "▶" }),
+                Action::BasicProperties => section_label(MeshPropertySection::Basic, "变换"),
+                Action::TypeProperties => section_label(MeshPropertySection::Type, "几何"),
+                Action::SourceProperties => section_label(MeshPropertySection::Source, "来源与高级"),
+                Action::StitchProperties => section_label(MeshPropertySection::Stitch, "拼接"),
+                Action::DisplayLods => section_label(MeshPropertySection::DisplayLods, "显示 LOD"),
+                Action::CollisionLods => section_label(MeshPropertySection::CollisionLods, "碰撞 LOD"),
                 Action::RemoveLod(display) => {
                     let count = counts[usize::from(display)];
                     let selected = state.lod(display).selected;
                     if count == 1 {
                         "至少保留一层".to_owned()
                     } else if selected < count {
-                        format!("删除 LOD{selected}")
+                        locale.format("mesh.lod.remove", &[("level", selected.to_string())])
                     } else {
                         "删除所选层".to_owned()
                     }
                 }
                 _ => continue,
-            }
+            };
+            let localized = locale.editor_label(&value);
+            if localized == value { value } else { localized.to_owned() }
         } else {
             continue;
         };

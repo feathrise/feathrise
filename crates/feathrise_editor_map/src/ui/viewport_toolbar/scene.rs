@@ -30,7 +30,7 @@ fn view_button(label: &str, action: EditorAction) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                 font_size: px(ui_metrics::FONT_CONTROL),
@@ -71,7 +71,7 @@ pub(in crate::ui) fn viewport_toolbar() -> impl Scene {
                 } // 保留按钮自然宽度，溢出只由整条工具栏横滚，不能出现嵌套滚动。
                 Children [
                     (
-                        Text("视图")
+                        Text("视图") feathrise_editor_ui::localization::label_scene("视图")
                         TextFont {
                             font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                             font_size: px(ui_metrics::FONT_HINT),

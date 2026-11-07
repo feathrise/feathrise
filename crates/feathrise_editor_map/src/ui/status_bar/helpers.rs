@@ -1,4 +1,4 @@
-//! 底栏中文摘要、上下文与诊断组装；完成/失败只取结构化证据，不搜索中文关键词。
+//! 底栏摘要、上下文与诊断组装；完成/失败只取结构化证据，不搜索文案关键词。
 
 use bevy::prelude::*;
 
@@ -67,27 +67,25 @@ fn tool_label(tool: EditorTool) -> &'static str {
     }
 }
 
-pub(super) fn tool_context(editor: &MapEditorState) -> String {
+pub(super) fn tool_context(editor: &MapEditorState, locale: feathrise_editor_ui::localization::EditorLocale) -> String {
     let view = match editor.view {
         EditorView::Perspective => "自由",
         EditorView::Top => "顶视",
         EditorView::Front => "前视",
         EditorView::Side => "侧视",
     };
-    let mut text = format!(
-        "{} · {} · {}",
-        if editor.placement_transform_enabled {
+    let tool = locale.editor_label(if editor.placement_transform_enabled {
             "变换"
         } else {
             tool_label(editor.tool)
-        },
-        view,
-        if editor.orthographic {
+        });
+    let view = locale.editor_label(view);
+    let projection = locale.editor_label(if editor.orthographic {
             "正交"
         } else {
             "透视"
-        }
-    );
+        });
+    let mut text = format!("{tool} · {view} · {projection}");
     if matches!(
         editor.tool,
         EditorTool::Raise
@@ -104,11 +102,11 @@ pub(super) fn tool_context(editor: &MapEditorState) -> String {
             | EditorTool::Vegetation
     ) || (matches!(editor.tool, EditorTool::Domain(_)) && editor.domain_brush_active)
     {
-        text.push_str(&format!(" · 半径 {:.1}m", editor.brush_radius));
+        text.push_str(&locale.format("status.tool.radius", &[("value", format!("{:.1}", editor.brush_radius))]));
         if matches!(editor.tool, EditorTool::Domain(_)) {
-            text.push_str(&format!(" · 间距 {:.1}m", editor.brush_spacing));
+            text.push_str(&locale.format("status.tool.spacing", &[("value", format!("{:.1}", editor.brush_spacing))]));
         } else {
-            text.push_str(&format!(" · 强度 {:.2}", editor.brush_strength));
+            text.push_str(&locale.format("status.tool.strength", &[("value", format!("{:.2}", editor.brush_strength))]));
         }
         if matches!(editor.tool, EditorTool::Raise | EditorTool::Lower | EditorTool::Smooth | EditorTool::Flatten) {
             text.push_str(&format!(" · {:.1}m/s", editor.terrain_sculpt_speed));
@@ -117,7 +115,7 @@ pub(super) fn tool_context(editor: &MapEditorState) -> String {
     text
 }
 
-pub(super) fn runtime_detail(entries: &[RuntimeEntry<'_>; 5]) -> String {
+pub(super) fn runtime_detail(entries: &[RuntimeEntry<'_>; 5], locale: feathrise_editor_ui::localization::EditorLocale) -> String {
     let mut result = String::new();
     for entry in entries {
         let Some(phase) = entry.phase else { continue };
@@ -127,7 +125,10 @@ pub(super) fn runtime_detail(entries: &[RuntimeEntry<'_>; 5]) -> String {
             RuntimePhase::Disabled => "未启用",
             RuntimePhase::Failed => "失败（未采用本次结果）",
         };
-        result.push_str(&format!("\n{}：{}", entry.label, phase));
+        result.push_str(&locale.format("status.detail.runtime_stage", &[
+            ("task", locale.editor_label(entry.label).into()),
+            ("stage", locale.editor_label(phase).into()),
+        ]));
         if !entry.detail.is_empty() {
             result.push_str("\n");
             result.push_str(entry.detail);

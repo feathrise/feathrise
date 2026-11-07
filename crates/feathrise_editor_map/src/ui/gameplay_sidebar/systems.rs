@@ -193,6 +193,7 @@ pub(super) fn sync_pages(
 
 pub(super) fn sync_feedback(
     editor: Res<MapEditorState>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     sidebar: Res<MapEditorSidebarState>,
     state: Res<GameplaySidebarState>,
     session: Res<EditorAuthoringSession>,
@@ -204,16 +205,17 @@ pub(super) fn sync_feedback(
         return;
     }
     let editing = mode.mode == ViewportMode::Edit && editor.tool == state.page.tool();
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let mode_text = format!(
         "{} · {}",
-        state.page.label(),
-        if editing {
-            "编辑模式"
+        locale.editor_label(state.page.label()),
+        locale.text(if editing {
+            "interaction.state.editing"
         } else if mode.mode == ViewportMode::Select {
-            "选择模式 · 视口不落笔"
+            "interaction.state.selecting"
         } else {
-            "工具暂不可用"
-        }
+            "interaction.state.unavailable"
+        }),
     );
     let (availability, tint) = if editor.map_transition_in_progress {
         (
@@ -256,8 +258,9 @@ pub(super) fn sync_feedback(
             GameplaySidebarFeedbackKind::Message => (editor.status.as_str(), colors::TEXT_MUTED),
             GameplaySidebarFeedbackKind::Asset => (asset.as_str(), colors::TEXT_VALUE),
         };
-        if text.as_str() != value {
-            **text = value.to_owned();
+        let value = locale.editor_notice(value);
+        if text.as_str() != value.as_ref() {
+            **text = value.into_owned();
         }
         if color.0 != tint {
             color.0 = tint;

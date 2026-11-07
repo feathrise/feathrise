@@ -49,6 +49,7 @@ pub(super) fn validate_selected(state: &TerrainObjectsEditorState) -> Result<(),
 /// 正文保留一条当前来源的可用性和资产反馈；完整后端说明仍放在问号帮助中。
 pub(super) fn sync_feedback(state: bevy::prelude::Res<TerrainObjectsEditorState>,
     editor: bevy::prelude::Res<crate::resources::MapEditorState>,
+    locale: Option<bevy::prelude::Res<feathrise_editor_ui::localization::EditorLocale>>,
     mut texts: bevy::prelude::Query<&mut bevy::prelude::Text, bevy::prelude::With<super::components::CreationFeedback>>) {
     let label = match state.creation_source {
         CreationSource::Cuboid => "立方体", CreationSource::ImportedGlb => "原始 GLB",
@@ -60,9 +61,18 @@ pub(super) fn sync_feedback(state: bevy::prelude::Res<TerrainObjectsEditorState>
             Err("请先选择GLB资产".into())
         } else { Ok(()) }
     });
-    let mut value = match result { Ok(()) => format!("{label}：可创建"), Err(error) => format!("{label}：{error}") };
+    let locale = locale.as_deref().copied().unwrap_or_default();
+    let mut value = locale.format("mesh.creation.result", &[
+        ("kind", locale.editor_label(label).into()),
+        ("result", match result {
+            Ok(()) => locale.text("mesh.creation.available").into(),
+            Err(error) => locale.editor_notice(&error).into_owned(),
+        }),
+    ]);
     if state.creation_source == CreationSource::ImportedGlb {
-        if let Some(path) = editor.selected_asset.as_ref() { value.push_str(&format!("\n资产：{path}")); }
+        if let Some(path) = editor.selected_asset.as_ref() {
+            value.push_str(&locale.format("mesh.creation.asset", &[("path", path.clone())]));
+        }
     }
     for mut text in &mut texts { if text.0 != value { text.0 = value.clone(); } }
 }

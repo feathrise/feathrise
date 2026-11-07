@@ -81,6 +81,6 @@ pub(super) fn mount(mut commands: Commands, headers: Query<Entity, Added<Workben
 }
 
 fn label(font: &Handle<Font>, text: &str, size: f32, color: Color) -> impl Bundle {
-    (Text::new(text), TextFont { font: font.clone().into(), font_size: size.into(), ..default() }, TextColor(color),
+    (feathrise_editor_ui::localization::editor_label(text), TextFont { font: font.clone().into(), font_size: size.into(), ..default() }, TextColor(color),
         TextLayout::no_wrap(), Pickable::IGNORE)
 }

@@ -24,6 +24,8 @@ fn step_page(page: Option<usize>, step: isize) -> Option<usize> {
     page?.checked_add_signed(step).filter(|&index| index < LICENSE_PAGE_COUNT)
 }
 
+use feathrise_editor_ui::localization::{EditorLocale, LocalizedText};
+
 fn caption(font: &Handle<Font>, text: &str, size: f32) -> impl Bundle {
     (Text::new(text), TextFont { font: font.clone().into(), font_size: size.into(), ..default() },
         TextColor(c::TEXT_PRIMARY), Node { min_width: px(0), ..default() }, Pickable::IGNORE)
@@ -65,15 +67,20 @@ pub(super) fn mount(
                             body.spawn((ImageNode::new(brand.mark.clone()), Pickable::IGNORE,
                                 Node { width: px(52), height: px(52), flex_shrink: 0., ..default() }));
                         }
-                        body.spawn(caption(&font, "Feathrise（羽立）", 22.));
+                        body.spawn((caption(&font, "Feathrise（羽立）", 22.), LocalizedText::label("Feathrise（羽立）")));
                         // 编译期读取宿主的实际版本，升级包版本后关于内容自动同步。
-                        body.spawn(caption(&font, concat!("版本 ", env!("CARGO_PKG_VERSION")), 13.));
+                        body.spawn((caption(&font, concat!("版本 ", env!("CARGO_PKG_VERSION")), 13.),
+                            LocalizedText::with_args("about.version", vec![("version", env!("CARGO_PKG_VERSION").into())])));
                         // 显示完整仓库地址，点击时交给系统默认浏览器，离线查看关于仍可读到来源。
                         feathrise_editor_ui::spawn_custom_text_button(body, AboutRepository,
                             font.clone(), REPOSITORY_URL, feathrise_editor_ui::dialog_button_style(false));
-                        body.spawn(caption(&font, "基于 Bevy 的通用 3D 编辑器。", 13.));
-                        body.spawn(caption(&font, "在统一工作台中创建工程、编辑场景，并预览与运行。", 13.));
-                        body.spawn(caption(&font, "羽翼升起，让想法成形。", 13.));
+                        for copy in [
+                            "基于 Bevy 的通用 3D 编辑器。",
+                            "在统一工作台中创建工程、编辑场景，并预览与运行。",
+                            "羽翼升起，让想法成形。",
+                        ] {
+                            body.spawn((caption(&font, copy, 13.), LocalizedText::label(copy)));
+                        }
                     });
                     if LICENSE_PAGE_COUNT > 0 {
                         panel.spawn((AboutLicenseRegion, Node { display: Display::None,
@@ -105,14 +112,15 @@ pub(super) fn mount(
                             for (step, label) in [(-1, "上一页"), (1, "下一页")] {
                                 let mut style = feathrise_editor_ui::dialog_button_style(false);
                                 style.node.display = Display::None;
-                                feathrise_editor_ui::spawn_custom_text_button(footer, Action::StepLicensePage(step),
+                                feathrise_editor_ui::spawn_custom_text_button_with_text_marker(
+                                    footer, Action::StepLicensePage(step), LocalizedText::label(label),
                                     font.clone(), label, style);
                             }
                             feathrise_editor_ui::spawn_custom_text_button_with_text_marker(footer, Action::OpenLicenses,
                                 AboutLicenseToggleLabel, font.clone(), "许可与署名", feathrise_editor_ui::dialog_button_style(false));
                         }
-                        feathrise_editor_ui::spawn_custom_text_button(footer, Action::CloseAbout,
-                            font.clone(), "关闭 (Esc)", feathrise_editor_ui::dialog_button_style(true));
+                        feathrise_editor_ui::spawn_custom_text_button_with_text_marker(footer, Action::CloseAbout,
+                            LocalizedText::label("关闭 (Esc)"), font.clone(), "关闭 (Esc)", feathrise_editor_ui::dialog_button_style(true));
                     });
                 });
             });
@@ -196,6 +204,7 @@ pub(super) fn input(
 
 pub(super) fn present(
     state: Res<AboutState>,
+    locale: Option<Res<EditorLocale>>,
     mut nodes: Query<(&mut Node, Has<AboutOverlay>, Has<AboutPanel>, Has<AboutHeader>, Option<&AboutBody>,
         Has<AboutLicenseRegion>, Has<AboutFooter>), (Without<Action>, Without<AboutRepository>,
         Or<(With<AboutOverlay>, With<AboutPanel>, With<AboutHeader>, With<AboutBody>, With<AboutLicenseRegion>, With<AboutFooter>)>)>,
@@ -260,13 +269,15 @@ pub(super) fn present(
         node.padding = style.node.padding;
     }
     let page_changed = *previous_page != state.license_page;
+    let language_changed = locale.as_ref().is_some_and(|locale| locale.is_changed());
+    let language = locale.as_deref().copied().unwrap_or_default();
     for (mut text, title, toggle) in &mut text {
-        if !page_changed && !text.is_added() { continue; }
+        if !page_changed && !text.is_added() && !(language_changed && (title || toggle)) { continue; }
         text.0 = if title {
-            state.license_page.map_or_else(|| "关于 Feathrise".into(),
-                |page| format!("许可与署名  {}/{LICENSE_PAGE_COUNT}", page + 1))
+            state.license_page.map_or_else(|| language.editor_label("关于 Feathrise").into(),
+                |page| language.format("about.licenses.page", &[("page", (page + 1).to_string()), ("total", LICENSE_PAGE_COUNT.to_string())]))
         } else if toggle {
-            if state.license_page.is_some() { "返回关于".into() } else { "许可与署名".into() }
+            language.text(if state.license_page.is_some() { "about.return" } else { "about.licenses" }).into()
         } else {
             state.license_page.map_or("", license_page).to_owned()
         };

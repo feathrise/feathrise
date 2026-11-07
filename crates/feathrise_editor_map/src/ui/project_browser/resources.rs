@@ -2,6 +2,7 @@
 
 use super::types::ProjectBrowserView;
 use bevy::prelude::{Resource, Vec2};
+use feathrise_editor_ui::localization::EditorLocale;
 
 /// 可见窗口身份与完整目录分离；滚动/尺寸改变使旧按钮捕获失效，不复制文件表。
 #[derive(Resource, Default)]
@@ -29,8 +30,11 @@ impl ProjectBrowserState {
         self.view == ProjectBrowserView::Assets
     }
 
-    pub(crate) fn asset_folder_label(&self, folder: &str) -> String {
-        let root = self.asset_prefix.as_deref().map_or_else(|| "assets".to_owned(), |prefix| format!("工程/{prefix}"));
+    pub(crate) fn asset_folder_label(&self, folder: &str, locale: EditorLocale) -> String {
+        let root = self.asset_prefix.as_deref().map_or_else(
+            || "assets".to_owned(),
+            |prefix| format!("{}{prefix}", locale.text("label.project")),
+        );
         if folder.is_empty() { format!("{root}/") } else { format!("{root}/{folder}/") }
     }
 }

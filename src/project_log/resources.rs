@@ -3,9 +3,10 @@
 use super::{stream::ProjectLogSink, types::*};
 use super::wrapping::LogWrapLayout;
 use bevy::prelude::*;
+use feathrise_editor_ui::localization::EditorLocale;
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex, atomic::{AtomicU64, Ordering}, mpsc},
+    sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}, mpsc},
 };
 
 pub(super) const CHANNEL_LINES: usize = 128;
@@ -36,6 +37,7 @@ pub(super) struct LogSelection {
 
 #[derive(Resource, Clone)]
 pub(crate) struct ProjectLogChannel {
+    english: Arc<AtomicBool>,
     pub(super) owner: LogOwner,
     pub(super) sender: mpsc::SyncSender<LogEvent>,
     pub(super) generation: Arc<AtomicU64>,
@@ -52,6 +54,7 @@ impl ProjectLogChannel {
         let (sender, receiver) = mpsc::sync_channel(CHANNEL_LINES);
         let pending_tails = Arc::new(std::array::from_fn(|_| Mutex::new(None)));
         (Self {
+            english: Arc::default(),
             owner: LogOwner {
                 project_id: Arc::from(project_id),
                 instance: bevy::asset::uuid::Uuid::new_v4().as_u128(),
@@ -80,6 +83,14 @@ impl ProjectLogChannel {
         let sink = ProjectLogSink { channel: self.clone(), generation, task: LogTask { kind, number } };
         sink.task_message("开始准备工程");
         sink
+    }
+
+    pub(super) fn set_locale(&self, locale: EditorLocale) {
+        self.english.store(locale == EditorLocale::English, Ordering::Relaxed);
+    }
+
+    pub(super) fn locale(&self) -> EditorLocale {
+        if self.english.load(Ordering::Relaxed) { EditorLocale::English } else { EditorLocale::Chinese }
     }
 }
 

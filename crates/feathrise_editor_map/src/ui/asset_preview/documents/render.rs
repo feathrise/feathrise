@@ -204,7 +204,7 @@ pub(super) fn sync(
         {
             commands.entity(build.root).with_children(|root| {
                 root.spawn((
-                    Text::new("空文档，点击“编辑”开始编写"),
+                    feathrise_editor_ui::localization::editor_label("空文档，点击“编辑”开始编写"),
                     TextFont::from_font_size(12.0).with_font(font),
                     TextColor(colors::TEXT_HINT),
                 ));

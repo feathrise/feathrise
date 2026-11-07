@@ -60,10 +60,10 @@ fn clicking_real_diagnostic_location_closes_dialog_and_keeps_release_frame_captu
 fn diagnostic_summary_bounds_visible_glyphs_but_keeps_source_position_separate() {
     let mut diagnostic = state().diagnostics[0].clone();
     diagnostic.message = "中文".repeat(1024);
-    let summary = systems::row_text(&diagnostic, true);
+    let summary = systems::row_text(&diagnostic, true, feathrise_editor_ui::localization::EditorLocale::Chinese);
     assert!(summary.len() <= 1027);
     assert!(summary.ends_with('…'));
-    let position = systems::row_text(&diagnostic, false);
+    let position = systems::row_text(&diagnostic, false, feathrise_editor_ui::localization::EditorLocale::Chinese);
     assert!(position.contains("E0425"));
     assert!(position.contains("main.rs:12:8"));
     assert_eq!(diagnostic.message.len(), 6144);

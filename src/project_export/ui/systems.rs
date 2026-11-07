@@ -185,13 +185,14 @@ fn sync_destination(world: &mut World, value: &str) {
 }
 
 pub(in crate::project_export) fn present(world: &mut World) {
+    let locale = world.get_resource::<feathrise_editor_ui::localization::EditorLocale>().copied().unwrap_or_default();
     let state = world.resource::<ExportState>();
     let (open, busy, destination, failed, receipt) = (state.open, state.busy(), state.destination.clone(), state.failed.clone(), state.receipt.clone());
     let mut status = failed.as_deref().unwrap_or(&state.status).to_owned();
     if let Some(warning) = receipt.as_ref().and_then(|receipt| receipt.warning.as_deref()) {
         if !status.contains(warning) { status.push('\n'); status.push_str(warning); }
     }
-    let status = visible_status(&status);
+    let status = visible_status(&locale.editor_notice(&status));
     let picking = picker_active(world);
     for mut node in world.query_filtered::<&mut Node, With<ExportOverlay>>().iter_mut(world) {
         let display = if open { Display::Flex } else { Display::None };
@@ -201,11 +202,17 @@ pub(in crate::project_export) fn present(world: &mut World) {
     if world.resource::<ExportOverlayState>().last_destination != destination { sync_destination(world, &destination); }
     let profile = world.get_resource::<feathrise_editor_core::ProjectLaunchSettings>()
         .map_or(feathrise_editor_core::ProjectBuildProfile::Debug, |launch| launch.profile);
-    let profile = format!("构建配置：{}（沿用顶栏选择）", profile.label());
+    let profile = locale.format("project.export.profile", &[("profile", profile.label().into())]);
     for (mut text, status_node, profile_node, label) in world.query::<(&mut Text, Has<ExportStatus>, Has<ExportProfile>, Option<&ExportActionLabel>)>().iter_mut(world) {
         let next = if status_node { Some(status.as_str()) } else if profile_node { Some(profile.as_str()) }
-            else if label.is_some_and(|label| label.0 == ExportAction::Cancel) { Some(if busy || picking { "取消导出" } else { "关闭 (Esc)" }) }
-            else { None };
+            else { label.map(|label| locale.editor_label(match label.0 {
+                ExportAction::Browse => "选择目录…",
+                ExportAction::OpenDirectory => "打开输出目录",
+                ExportAction::Start => "开始导出",
+                ExportAction::Close => "×",
+                ExportAction::Cancel if busy || picking => "取消导出",
+                ExportAction::Cancel => "关闭 (Esc)",
+            })) };
         if let Some(next) = next && text.as_str() != next { text.0 = next.to_owned(); }
     }
     for mut color in world.query_filtered::<&mut TextColor, With<ExportStatus>>().iter_mut(world) {

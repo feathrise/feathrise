@@ -78,7 +78,7 @@ fn button(label: &str, action: CourtyardAction) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -87,7 +87,7 @@ fn button(label: &str, action: CourtyardAction) -> impl Scene {
 
 fn section(label: &str) -> impl Scene {
     bsn! {
-        Text(label)
+        Text(label) feathrise_editor_ui::localization::label_scene(label)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
         TextColor(colors::TEXT_ACCENT)
         Node {
@@ -113,7 +113,7 @@ pub(crate) fn courtyard_panel() -> impl Scene {
             (crate::ui::context_help::section_header("院落预设", "框选地图中的房屋与装饰，再保存为可重复盖印的院落；也可选择已有院落预设进行盖印。")),
             (
                 CourtyardPresetText
-                Text("组合预设：等待目录")
+                Text("组合预设：等待目录") feathrise_editor_ui::localization::label_scene("组合预设：等待目录")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_VALUE)
                 TextLayout { linebreak: LineBreak::AnyCharacter }
@@ -130,7 +130,7 @@ pub(crate) fn courtyard_panel() -> impl Scene {
             (section("地图选集")),
             (
                 CourtyardSelectionText
-                Text("当前框选：0 项")
+                Text("当前框选：0 项") feathrise_editor_ui::localization::label_scene("当前框选：0 项")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_VALUE)
                 Node { width: percent(100), min_width: px(0) }
@@ -143,7 +143,7 @@ pub(crate) fn courtyard_panel() -> impl Scene {
                 ]
             ),
             (
-                Text("组合名称")
+                Text("组合名称") feathrise_editor_ui::localization::label_scene("组合名称")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED)
             ),

@@ -61,6 +61,7 @@ pub(super) fn input(
 
 pub(super) fn present(
     state: Res<CodeIterationState>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     runtime: NonSend<CodeIterationRuntime>,
     mode: Res<crate::viewport_mode::ViewportModeState>,
     mut buttons: Query<(&CodeIterationAction, &mut ApplyVersion, &mut Node, Option<&mut EditorButtonClick>)>,
@@ -78,21 +79,28 @@ pub(super) fn present(
         let display = if candidate.is_some() { Display::Flex } else { Display::None };
         if node.display != display { node.display = display; }
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (label, mut text, mut color) in &mut labels {
         let value = match label.0 {
-            CodeIterationAction::Diagnostics => if state.diagnostics.is_empty() { "代码".into() } else { format!("代码 · {}", state.diagnostics.len()) },
+            CodeIterationAction::Diagnostics if !state.diagnostics.is_empty() =>
+                locale.format("code.diagnostics.count", &[("count", state.diagnostics.len().to_string())]),
+            CodeIterationAction::Diagnostics => locale.editor_label("代码").into(),
             CodeIterationAction::Apply => if state.pending.as_ref().is_some_and(|version| matches!(version.artifact, super::PreparedArtifact::Patch(_))) {
-                "应用热更新".into()
+                locale.text("code.apply.hot").into()
             } else if mode.selected == crate::viewport_mode::ViewportMode::SavedWorld {
-                "应用并重新启动".into()
-            } else { "应用并重启预览".into() },
+                locale.text("code.apply.restart").into()
+            } else { locale.text("code.apply.restart_preview").into() },
         };
         if text.0 != value { text.0 = value; }
         color.set_if_neq(TextColor(if matches!(label.0, CodeIterationAction::Diagnostics) && state.phase == Phase::Failed { c::TEXT_ACCENT } else { c::TEXT_PRIMARY }));
     }
 }
 
-pub(super) fn status(state: Res<CodeIterationState>, mut labels: Query<(&mut feathrise_editor_ui::feedback::PanelStatusState, &mut Text), With<CodeIterationStatus>>) {
+pub(super) fn status(
+    state: Res<CodeIterationState>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
+    mut labels: Query<(&mut feathrise_editor_ui::feedback::PanelStatusState, &mut Text), With<CodeIterationStatus>>,
+) {
     use feathrise_editor_ui::feedback::PanelStatusPhase;
     let phase = match state.phase {
         Phase::Waiting | Phase::Building | Phase::Applying | Phase::Stopping => PanelStatusPhase::Working,
@@ -104,11 +112,19 @@ pub(super) fn status(state: Res<CodeIterationState>, mut labels: Query<(&mut fea
         Phase::Failed => "代码构建或应用失败", Phase::Ready => "新代码可应用", Phase::Applying => "正在应用新代码",
         Phase::Applied => "新代码版本已应用", Phase::Stopping => "代码构建收口中",
     };
+    let locale_changed = locale.as_ref().is_some_and(|locale| locale.is_changed());
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (mut label, mut text) in &mut labels {
         if label.phase != phase || label.summary != summary {
             label.phase = phase;
             label.summary = summary;
         }
-        if text.0 != state.status { text.0.clone_from(&state.status); } // 完整原因留在原详情正文，底栏摘要保持固定短文案。
+        if state.is_changed() || locale_changed || text.is_added() {
+            // 构建工具名来自编辑器自己的选择。构建失败的原始诊断仍作为完整参数呈现。
+            let detail = locale.editor_notice_with("code.status.watching_config", &state.status, |name, value| {
+                if name == "backend" { locale.editor_label(value).into() } else { value.into() }
+            }).map_or_else(|| locale.editor_notice(&state.status), std::borrow::Cow::Owned);
+            if text.as_str() != detail.as_ref() { text.0 = detail.into_owned(); }
+        }
     }
 }

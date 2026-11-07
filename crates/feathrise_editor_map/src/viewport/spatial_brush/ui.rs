@@ -36,7 +36,7 @@ fn button(row: &mut ChildSpawnerCommands, font: &Handle<Font>, label: &str, acti
         BorderColor::all(colors::COPPER_BORDER_WEAK),
     ))
     .with_child((
-        Text::new(label),
+        feathrise_editor_ui::localization::editor_label(label),
         TextFont {
             font: font.clone().into(),
             font_size: 12.0.into(),
@@ -68,7 +68,7 @@ fn row(
     node.with_children(|row| {
         if !label.is_empty() {
             row.spawn((
-                Text::new(label),
+                feathrise_editor_ui::localization::editor_label(label),
                 TextFont {
                     font: font.clone().into(),
                     font_size: 12.0.into(),

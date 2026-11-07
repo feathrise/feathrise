@@ -25,6 +25,7 @@ pub(super) struct CurrentIblValues {
 
 #[derive(Default)]
 pub(crate) struct EnvironmentObservation {
+    pub(super) locale: feathrise_editor_ui::localization::EditorLocale,
     pub(super) map_id: Option<MapId>,
     pub(super) draft_map_id: Option<MapId>,
     pub(super) map_name: Option<String>,

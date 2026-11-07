@@ -49,7 +49,7 @@ pub(crate) fn editor_button(label: &str, action: EditorAction, width: f32) -> im
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                 font_size: px(ui_metrics::FONT_CONTROL),
@@ -78,7 +78,7 @@ pub(crate) fn flex_editor_button(label: &str, action: EditorAction) -> impl Scen
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                 font_size: px(ui_metrics::FONT_CONTROL),
@@ -91,7 +91,7 @@ pub(crate) fn flex_editor_button(label: &str, action: EditorAction) -> impl Scen
 /// 构造弹框或页面内部仍有信息价值的分组标题。
 pub(crate) fn section_title(label: &str) -> impl Scene {
     bsn! {
-        Text(label)
+        Text(label) feathrise_editor_ui::localization::label_scene(label)
         TextFont {
             font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
             font_size: px(ui_metrics::FONT_CONTROL),
@@ -106,7 +106,7 @@ pub(crate) fn section_title(label: &str) -> impl Scene {
 /// 检查器二级分组使用弱分隔线，不再给每段属性叠加卡片边框。
 pub(crate) fn inspector_section_title(label: &str) -> impl Scene {
     bsn! {
-        Text(label)
+        Text(label) feathrise_editor_ui::localization::label_scene(label)
         TextFont {
             font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
             font_size: px(ui_metrics::FONT_CONTROL),
@@ -142,7 +142,7 @@ fn launch_button() -> impl Scene {
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_GREEN)
         ), (
-            Text("启动") Pickable::IGNORE feathrise_editor_core::ProjectLaunchLabel
+            Text("启动") feathrise_editor_ui::localization::label_scene("启动") Pickable::IGNORE feathrise_editor_core::ProjectLaunchLabel
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -171,7 +171,7 @@ pub(super) fn header() -> impl Scene {
         BackgroundColor(colors::PANEL_BG_STRONG)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            (Text("编辑器") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+            (Text("编辑器") feathrise_editor_ui::localization::label_scene("编辑器") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_PRIMARY) Node { flex_shrink: 0.0, margin: UiRect::right(px(4)) }),
             // 快捷键仍由原悬停提示说明；短标签为1280px/150%保留模式和右端操作的完整命中区。
             (header_slot(Item::Save, editor_button("保存", EditorAction::Save, 46.0))),
@@ -201,7 +201,7 @@ fn layout_button(label: &str, action: EditorLayoutAction, width: f32) -> impl Sc
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
             MapEditorLayoutButtonText(action)
-            Text(label)
+            Text(label) feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -241,7 +241,7 @@ pub(super) fn viewport_panel(scenes: &feathrise_editor_documents_model::Document
                     justify_content: JustifyContent::Center,
                 }
                 Children [(
-                    Text("尚未进入地图\n从地图目录进入地图，或从顶部工具打开预设库")
+                    Text("尚未进入地图\n从地图目录进入地图，或从顶部工具打开预设库") feathrise_editor_ui::localization::label_scene("尚未进入地图\n从地图目录进入地图，或从顶部工具打开预设库")
                     TextFont {
                         font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                         font_size: px(14),

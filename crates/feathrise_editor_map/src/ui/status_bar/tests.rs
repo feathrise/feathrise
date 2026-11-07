@@ -647,22 +647,23 @@ fn layout_and_numeric_owners_close_details_without_canceling_their_original_inpu
 #[test]
 fn tool_parameters_are_only_visible_for_the_applicable_tool() {
     let mut editor = MapEditorState::default();
-    assert!(!tool_context(&editor).contains("半径"));
+    assert!(!tool_context(&editor, Default::default()).contains("半径"));
     editor.terrain_sculpt_speed = 6.5;
     for tool in [EditorTool::Raise, EditorTool::Lower, EditorTool::Smooth, EditorTool::Flatten] {
         editor.tool = tool;
-        let context = tool_context(&editor);
+        let context = tool_context(&editor, Default::default());
         assert!(context.contains("半径") && context.contains("6.5m/s"));
     }
     for tool in [EditorTool::VolumeDig, EditorTool::VolumeFill, EditorTool::VolumeSmooth,
         EditorTool::VolumeFlatten, EditorTool::Surface, EditorTool::Puddles,
         EditorTool::Vegetation, EditorTool::Water] {
         editor.tool = tool;
-        assert!(!tool_context(&editor).contains("m/s"), "非高度工具不能显示未消费的雕刻速度");
+        assert!(!tool_context(&editor, Default::default()).contains("m/s"), "非高度工具不能显示未消费的雕刻速度");
     }
     editor.tool = EditorTool::Portal;
-    assert!(!tool_context(&editor).contains("半径"));
+    assert!(!tool_context(&editor, Default::default()).contains("半径"));
     editor.tool = EditorTool::Domain("fixture.domain");
     editor.domain_brush_active = true;
-    assert!(tool_context(&editor).contains("间距") && !tool_context(&editor).contains("m/s"));
+    let context = tool_context(&editor, Default::default());
+    assert!(context.contains("间距") && !context.contains("m/s"));
 }

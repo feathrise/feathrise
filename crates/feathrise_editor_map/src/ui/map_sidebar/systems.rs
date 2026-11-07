@@ -130,6 +130,7 @@ fn operation_message<'a>(source: &'a SidebarSources, phase: OperationPhase) -> &
 #[allow(clippy::type_complexity)]
 pub(super) fn sync_sidebar(
     mut commands: Commands,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     source: SidebarSources,
     mut lookup: Local<SelectionLookup>,
     mut previous: Local<SidebarObservation>,
@@ -303,7 +304,7 @@ pub(super) fn sync_sidebar(
         .draft
         .as_ref()
         .filter(|draft| Some(&draft.map_id) == current);
-    let current_name = draft
+    let authored_name = draft
         .map(|draft| draft.manifest.display_name.as_str())
         .or_else(|| {
             let id = current?;
@@ -314,12 +315,12 @@ pub(super) fn sync_sidebar(
                 .get(&handles.manifest)
                 .filter(|manifest| &manifest.id == id)
                 .map(|manifest| manifest.display_name.as_str())
-        })
-        .unwrap_or(if current.is_some() {
-            "地图名称加载中"
-        } else {
-            "尚未进入地图"
         });
+    let locale_changed = locale.as_ref().is_some_and(|locale| locale.is_changed());
+    let locale = locale.as_deref().copied().unwrap_or_default();
+    let current_name = authored_name.unwrap_or_else(|| locale.text(
+        if current.is_some() { "maps.name.loading" } else { "status.no_map" },
+    ));
     let dirty = current.is_some() && source.editor.dirty;
     let saving = draft.is_some() && source.session.saving;
     let catalog_revision = source
@@ -333,7 +334,7 @@ pub(super) fn sync_sidebar(
     let projection_pending = source.index.applied_projection.is_none()
         || source.index.applied_projection != source.index.desired_projection;
     let message = operation_message(&source, phase);
-    if previous.initialized
+    if !locale_changed && previous.initialized
         && previous.current_map.as_ref() == current
         && previous.current_name == current_name
         && previous.dirty == dirty
@@ -358,19 +359,17 @@ pub(super) fn sync_sidebar(
         return; // 光标、笔刷及其他工具底栏不会改写目录摘要和所选名称。
     }
     let (directory, failed) = directory_feedback(&source);
+    let current_phase = locale.editor_label(if phase == OperationPhase::Switching {
+        "正在切换"
+    } else if saving {
+        "保存中"
+    } else if dirty {
+        "未保存修改"
+    } else {
+        "已进入"
+    });
     let state = current.map_or_else(String::new, |id| {
-        format!(
-            "{} · {id}",
-            if phase == OperationPhase::Switching {
-                "正在切换"
-            } else if saving {
-                "保存中"
-            } else if dirty {
-                "未保存修改"
-            } else {
-                "已进入"
-            }
-        )
+        format!("{current_phase} · {id}")
     });
     let selected_kind = if multiple {
         "批量选择"
@@ -383,45 +382,45 @@ pub(super) fn sync_sidebar(
             None => "尚未选择",
         }
     };
-    let summary = format!(
-        "{} 张地图、{} 个文件夹",
-        source.browser.selection.maps, source.browser.selection.folders
-    );
+    let selected_kind = locale.editor_label(selected_kind);
+    let summary = locale.format("maps.selected.count", &[
+        ("maps", source.browser.selection.maps.to_string()),
+        ("folders", source.browser.selection.folders.to_string()),
+    ]);
     let selected_name = if multiple {
         summary.as_str()
     } else {
         match selected {
-            Some(MapBrowserItem::Root) => "根目录",
-            None => "请在目录中选择地图或文件夹",
+            Some(MapBrowserItem::Root) => locale.text("label.root"),
+            None => locale.text("maps.selected.prompt"),
             _ => lookup
                 .record
                 .as_ref()
                 .map(|entry| entry.display_name.as_str())
-                .unwrap_or(if lookup.complete {
-                    "所选对象已不在目录中"
-                } else {
-                    "正在同步所选名称"
-                }),
+                .unwrap_or_else(|| locale.text(
+                    if lookup.complete { "maps.selected.missing" } else { "maps.selected.loading" },
+                )),
         }
     };
     let identity = if let Some(MapBrowserItem::Map(id)) = selected.filter(|_| !multiple) {
-        format!("地图ID：{id}")
+        locale.format("maps.selected.id", &[("id", id.to_string())])
     } else {
         String::new()
     };
     let current_summary = if current.is_some() {
-        format!("{current_name} · {}", if phase == OperationPhase::Switching {
-            "正在切换"
-        } else if saving { "保存中" } else if dirty { "未保存修改" } else { "已进入" })
+        format!("{current_name} · {current_phase}")
     } else {
         current_name.to_owned()
     };
     let selected_summary = if source.browser.selection_pending {
-        format!("所选：{selected_name} · 正在连选…") // 连选进度属于真实状态，不能只留在折叠说明内。
+        locale.format("maps.selected.summary_pending", &[("name", selected_name.to_owned())])
     } else if selected.is_none() {
-        "所选：尚未选择".to_owned()
+        locale.text("maps.selected.summary_empty").to_owned()
     } else {
-        format!("所选：{selected_name} · {selected_kind}")
+        locale.format("maps.selected.summary", &[
+            ("name", selected_name.to_owned()),
+            ("kind", selected_kind.to_owned()),
+        ])
     };
     let hint = if source.browser.selection_pending {
         "正在按可见目录顺序连选…"
@@ -441,16 +440,19 @@ pub(super) fn sync_sidebar(
             _ => "新地图和文件夹建在根目录；目录选择不改变当前地图",
         }
     };
+    let directory = locale.editor_notice(directory);
+    let operation = locale.editor_notice(message);
+    let hint = locale.editor_label(hint);
     for (field, mut text, mut color, mut node) in &mut texts {
         let value = match field.0 {
             SidebarField::CurrentName => current_name,
             SidebarField::CurrentState => &state,
-            SidebarField::DirectoryFeedback => directory,
+            SidebarField::DirectoryFeedback => directory.as_ref(),
             SidebarField::SelectedKind => selected_kind,
             SidebarField::SelectedName => selected_name,
             SidebarField::SelectedIdentity => &identity,
             SidebarField::SelectionHint => hint,
-            SidebarField::OperationFeedback => message,
+            SidebarField::OperationFeedback => operation.as_ref(),
             SidebarField::CurrentSummary => &current_summary,
             SidebarField::SelectedSummary => &selected_summary,
         };

@@ -54,6 +54,20 @@ pub fn close_document_snapshot(world: &World) -> Option<serde_json::Value> {
     crate::ui::asset_preview::documents::validation::snapshot(world)
 }
 
+/// 语言专项已在宿主确认独占工程，仅开启普通文档探针，不启动地图验收驱动。
+#[cfg(feature = "validation")]
+pub fn install_locale_document_probe(app: &mut App) {
+    app.insert_resource(FixtureInstalled);
+}
+
+#[cfg(feature = "validation")]
+pub fn redo_locale_document(world: &mut World) -> Result<(), String> {
+    if !world.contains_resource::<FixtureInstalled>() {
+        return Err("普通文档验收未安装".into());
+    }
+    crate::ui::asset_preview::documents::validation::redo(world)
+}
+
 /// 只有正式作者事务的回执才能完成；宿主可写入自己的验收报告，不持有私有作者资源。
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct SavedEditProof {

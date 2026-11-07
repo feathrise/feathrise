@@ -55,7 +55,7 @@ pub(super) fn spawn_notes(
                 ..default()
             }).with_children(|header| {
                 header.spawn((
-                    Text::new("备注（可选）"),
+                    feathrise_editor_ui::localization::editor_label("备注（可选）"),
                     text_font(font, 11.0),
                     LineHeight::Px(NOTES_LINE_HEIGHT),
                     TextColor(colors::TEXT_MUTED),
