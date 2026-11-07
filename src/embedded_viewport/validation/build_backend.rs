@@ -1,4 +1,4 @@
-//! 自有夹具中的DX→原生→DX实窗回归；驱动原菜单，核对实际进程/基线/GPU与未保存作者草稿。
+//! 自有夹具中的构建方式实窗回归；驱动原菜单，核对实际进程/基线/GPU与未保存作者草稿。
 //! 不测冷构建速度，不清缓存；原按钮的内部输入不能代表实体键鼠或系统焦点已验收。
 
 use bevy::{prelude::*, render::view::screenshot::{Screenshot, ScreenshotCaptured}, tasks::IoTaskPool};
@@ -24,11 +24,20 @@ struct Plan {
     guest: Option<async_channel::Receiver<Result<Option<Value>, String>>>,
     screenshot: Option<async_channel::Receiver<Result<Value, String>>>,
     completion: Option<async_channel::Receiver<Result<(), String>>>,
+    build_command: Option<String>,
 }
 
 impl Plan {
     fn advance(&mut self, phase: Phase) { self.phase = phase; self.changed = Instant::now(); }
     fn backend(&self) -> Backend { if self.index == 1 { Backend::Native } else { Backend::Dx } }
+}
+
+pub(super) fn active() -> bool {
+    matches!(std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref(), Ok("build-backend" | "bundled-dx" | "dx-full"))
+}
+
+pub(super) fn full_build() -> bool {
+    std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("dx-full")
 }
 
 pub(super) fn install(app: &mut App, directory: PathBuf) -> Result<(), String> {
@@ -37,7 +46,7 @@ pub(super) fn install(app: &mut App, directory: PathBuf) -> Result<(), String> {
     author::install(app);
     app.insert_resource(Plan { directory, phase: Phase::Open, changed: Instant::now(), index: 0,
         frames: 0, pulse: None, author: None, steps: Vec::new(), error: None,
-        guest: None, screenshot: None, completion: None })
+        guest: None, screenshot: None, completion: None, build_command: None })
         .add_systems(Update, super::input_ownership.before(feathrise_editor_core::MapEditorSystemSet::Input))
         .add_systems(Last, drive);
     Ok(())
@@ -93,13 +102,20 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
         Phase::Await => {
             let status = world.resource::<super::EmbeddedStatus>();
             if let Some(error) = &status.error { return Err(error.clone()); }
+            if full_build() && plan.build_command.is_none() {
+                plan.build_command = world.resource::<crate::project_log::ProjectLogState>()
+                    .validation_build_command(crate::project_log::LogTaskKind::Project3d).map(str::to_owned);
+            }
             if crate::embedded_viewport::connection_state(world) != crate::embedded_viewport::ConnectionState::Connected
                 || status.frames < 12 { return Ok(()); }
             let runtime = world.non_send::<super::super::resources::Runtime>();
             let expected = plan.backend();
             if Backend::selected(world) != expected || runtime.attempted_backend != Some(expected)
-                || runtime.hotpatch.baseline.is_some() != (expected == Backend::Dx) {
+                || runtime.hotpatch.baseline.is_some() != (expected == Backend::Dx && !full_build()) {
                 return Err("实际工程构建方式/热更新基线与菜单选择不符".into());
+            }
+            if full_build() && !plan.build_command.as_deref().is_some_and(is_full_dx_command) {
+                return Err(format!("普通 Debug 工程未通过 DX 完整构建：{:?}", plan.build_command));
             }
             if plan.steps.iter().any(|step|step["pid"] == status.pid) { return Err("更换构建方式没有替换旧工程进程".into()); }
             preserve_author(world, plan)?;
@@ -199,9 +215,11 @@ fn capture_guest(world: &World, plan: &mut Plan) -> Result<bool, String> {
                         return Err("GPU证据返回时工程实例已变化".into());
                     }
                     let baseline = world.non_send::<super::super::resources::Runtime>().hotpatch.baseline.is_some();
-                    plan.steps.push(json!({"backend":plan.backend().key(),"pid":status.pid,
+                    let mut step = json!({"backend":plan.backend().key(),"pid":status.pid,
                         "hotpatch_baseline":baseline,"starts":status.starts,"completed":status.completed,
-                        "game":proof,"author":author::probe(world)?}));
+                        "game":proof,"author":author::probe(world)?});
+                    if let Some(command) = &plan.build_command { step["build_command"] = json!(command); }
+                    plan.steps.push(step);
                     println!("BUILD_BACKEND_VALIDATION_READY {}", plan.backend().key());
                     return Ok(true);
                 }
@@ -263,8 +281,11 @@ pub(super) fn verify(output: &Path, report: &Value) -> Result<Vec<Value>, String
     let mut evidence = Vec::new();
     for (index, step) in steps.iter().enumerate() {
         if step["backend"] != if index == 1 { "native" } else { "dx" }
-            || step["hotpatch_baseline"] != (index != 1) || step["starts"] != index + 1 || step["completed"] != index {
+            || step["hotpatch_baseline"] != (index != 1 && !full_build()) || step["starts"] != index + 1 || step["completed"] != index {
             return Err("DX/原生顺序、fat基线或旧Job回收次数错误".into());
+        }
+        if full_build() && !step["build_command"].as_str().is_some_and(is_full_dx_command) {
+            return Err("普通 Debug 夹具缺少实际 DX 完整构建命令".into());
         }
         let png = std::fs::read(output.join(format!("{index}-game.png"))).map_err(|error|error.to_string())?;
         let pixels = crate::window_chrome::preview_validation::snapshot_pixel_identity(&png, &step["game"]["game"])?
@@ -277,7 +298,12 @@ pub(super) fn verify(output: &Path, report: &Value) -> Result<Vec<Value>, String
     Ok(evidence)
 }
 
-/// 内嵌工具专项只需一次真实 DX 基线；既有三轮构建方式切换继续走原完整场景。
+fn is_full_dx_command(command: &str) -> bool {
+    command.to_ascii_lowercase().contains("dx.exe") && command.contains(" build --windows ")
+        && command.contains("--profile render-dev") && !command.contains("--fat-binary")
+}
+
+/// 内嵌工具和无热更新专项各验证一次真实 DX 启动；原构建方式切换仍验证三次。
 fn run_count() -> usize {
-    if std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("bundled-dx") { 1 } else { 3 }
+    if matches!(std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref(), Ok("bundled-dx" | "dx-full")) { 1 } else { 3 }
 }

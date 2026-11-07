@@ -166,6 +166,15 @@ impl ProjectLogState {
 
     pub(crate) fn captures_input(&self) -> bool { self.open || self.captured }
 
+    /// 只读本轮任务已经进入工程日志的命令，避免用菜单选择代替真实构建证据。
+    #[cfg(all(windows, feature = "validation"))]
+    pub(crate) fn validation_build_command(&self, kind: LogTaskKind) -> Option<&str> {
+        let task = self.current_tasks[kind.index()];
+        self.lines.iter().rev().find(|line| line.task == (LogTask { kind, number: task })
+            && line.source == LogSource::Build && line.text.starts_with("& "))
+            .map(|line| line.text.as_str())
+    }
+
     /// 显式验收失败时摘取当前工程的真实输出；不改变终端阅读状态，也不复制整个缓存。
     #[cfg(feature = "validation")]
     pub(crate) fn validation_tail(&self) -> serde_json::Value {

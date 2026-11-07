@@ -2254,6 +2254,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cargo-config2"
+version = "0.1.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25ada53f7339c78084fb37d7e17f34e76537541c4fbb02fa3a2baa14b8faad37"
+dependencies = [
+ "serde",
+ "serde_derive",
+ "toml",
+]
+
+[[package]]
 name = "cargo-emit"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3440,6 +3451,7 @@ dependencies = [
  "bevy_embedded_assets",
  "bevy_framepace",
  "bevy_hanabi",
+ "cargo-config2",
  "feathrise_author_tools",
  "feathrise_editor_assets",
  "feathrise_editor_core",

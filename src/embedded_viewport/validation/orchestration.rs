@@ -104,7 +104,7 @@ pub(crate) fn run_owned_project(
     fs::create_dir(output).map_err(|error| error.to_string())?;
     let preview_chrome = std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("preview-chrome");
     let native_preview = std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("native-preview");
-    let build_backend = matches!(std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref(), Ok("build-backend" | "bundled-dx"));
+    let build_backend = super::build_backend::active();
     // 私有RPG装配仅属于这一显式自有夹具；准备完全部源码/字体后才建立运行期资产字节基线。
     if native_preview { prepare_native_preview(&project.root, output)?; }
     let before = asset_hashes(&project.root)?;
@@ -210,6 +210,18 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
             &BuildControl::default(),
         )?;
         crate::native_validation::prepare_workspace_fixture(&root, "常驻工程对比")?;
+        if super::build_backend::full_build() {
+            // 只移除自有夹具的热更新声明，保留普通模板的 rust-lld 和锁文件供真实 DX 构建。
+            let project = owner(&root)?;
+            let mut manifest: toml::Value = toml::from_str(&fs::read_to_string(&project.manifest).map_err(|error| error.to_string())?)
+                .map_err(|error| error.to_string())?;
+            let metadata = manifest.get_mut("package").and_then(|value| value.get_mut("metadata"))
+                .and_then(|value| value.get_mut("feathrise")).and_then(toml::Value::as_table_mut)
+                .ok_or("DX 完整构建夹具缺少工程元数据")?;
+            metadata.remove("hotpatch").ok_or("DX 完整构建夹具缺少待移除的热更新声明")?;
+            fs::write(&project.manifest, toml::to_string(&manifest).map_err(|error| error.to_string())?)
+                .map_err(|error| error.to_string())?;
+        }
         // 仅此显式validation入口、刚刚独占创建的夹具可切空图；普通产品不消费此开关。
         if std::env::var("FEATHRISE_EMBEDDED_EMPTY_FIXTURE").as_deref() == Ok("1") {
             super::empty_fixture::prepare(&root)?;
@@ -222,6 +234,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     let scope=match std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() {
         Ok("build-backend") => "project_build_backend_owned_window_validation",
         Ok("bundled-dx") => "bundled_dx_owned_window_validation",
+        Ok("dx-full") => "dx_full_owned_window_validation",
         Ok("native-preview") => "native_preview_owned_window_validation",
         Ok("preview-chrome") => "preview_chrome_owned_three_level_window_validation",
         _ => "resident_dual_mode_owned_window_validation",

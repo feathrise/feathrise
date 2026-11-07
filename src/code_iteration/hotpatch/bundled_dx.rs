@@ -6,19 +6,25 @@ use std::{fs, io::{Read, Write}, path::{Path, PathBuf}};
 struct Payload { name: &'static str, bytes: usize, sha256: &'static str, compressed: &'static [u8] }
 include!(concat!(env!("OUT_DIR"), "/embedded_dx.rs"));
 
-pub(super) fn resolve(target: &Path, legacy: &Path, control: &BuildControl) -> Result<PathBuf, String> {
+pub(super) fn resolve(target: &Path, legacy: &Path, control: &BuildControl) -> Result<Option<PathBuf>, String> {
     select(std::env::var_os("FEATHRISE_DX_PATH").map(PathBuf::from), target, legacy, control)
 }
 
-fn select(explicit: Option<PathBuf>, target: &Path, legacy: &Path, control: &BuildControl) -> Result<PathBuf, String> {
+fn select(explicit: Option<PathBuf>, target: &Path, legacy: &Path, control: &BuildControl) -> Result<Option<PathBuf>, String> {
+    control.check()?;
     if let Some(path) = explicit {
-        return path.canonicalize().map_err(|error| format!("显式 DX 路径不可用：{error}"));
+        return path.canonicalize().map(Some).map_err(|error| format!("显式 DX 路径不可用：{error}"));
     }
     if PAYLOAD.is_empty() {
-        return legacy.canonicalize().map_err(|error| format!("此源码构建未内嵌 DX，开发工具不可用：{error}"));
+        // 源码版缺少默认开发工具时允许回退。显式路径或内嵌工具损坏时报告错误。
+        return match legacy.canonicalize() {
+            Ok(path) => Ok(Some(path)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(format!("DX 开发工具不可用：{error}")),
+        };
     }
     std::hint::black_box(MARKER);
-    materialize(target, IDENTITY, PAYLOAD, control)
+    materialize(target, IDENTITY, PAYLOAD, control).map(Some)
 }
 
 fn verify(directory: &Path, payload: &[Payload], control: &BuildControl) -> Result<bool, String> {
@@ -93,16 +99,16 @@ mod tests {
         fs::create_dir(&directory).unwrap();
         let target = directory.canonicalize().unwrap();
         let control = BuildControl::default();
-        let path = select(None, &target, Path::new("missing-development-tool"), &control).unwrap();
+        let path = select(None, &target, Path::new("missing-development-tool"), &control).unwrap().unwrap();
         let output = std::process::Command::new(&path).arg("--version").output().unwrap();
         assert!(output.status.success());
         assert!(String::from_utf8_lossy(&output.stdout).split_whitespace().any(|part| part == "0.7.9"));
         assert!(path.with_file_name("vcruntime140.dll").is_file());
-        assert_eq!(select(None, &target, Path::new("missing"), &control).unwrap(), path);
+        assert_eq!(select(None, &target, Path::new("missing"), &control).unwrap(), Some(path.clone()));
         fs::write(path.with_file_name("vcruntime140.dll"), b"corrupt").unwrap();
-        let recovered = select(None, &target, Path::new("missing"), &control).unwrap();
+        let recovered = select(None, &target, Path::new("missing"), &control).unwrap().unwrap();
         assert_ne!(recovered, path);
-        assert_eq!(select(None, &target, Path::new("missing"), &control).unwrap(), recovered);
+        assert_eq!(select(None, &target, Path::new("missing"), &control).unwrap(), Some(recovered));
         let cancelled = BuildControl::default();
         cancelled.cancel();
         assert!(select(None, &target, Path::new("missing"), &cancelled).is_err());

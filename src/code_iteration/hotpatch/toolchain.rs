@@ -1,7 +1,8 @@
-//! 显式dx完整基线与薄补丁的后台调用；冻结链接上下文，工具不自行启动工程或自动采用跳表。
+//! DX 完整构建、fat 基线与薄补丁的后台调用，冻结链接上下文并由宿主采用产物。
 
 use super::compiler_output::{self, FatBuildOutput, HotpatchOutput, MAX_COMPILER_OUTPUT_BYTES};
 use crate::{build_process::{self, BuildControl}, compiler_diagnostics::CompilerDiagnostic, project::{self, Project}};
+use feathrise_editor_core::ProjectBuildProfile;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -26,6 +27,7 @@ mod output_log;
 mod tool_cache;
 #[path = "bundled_dx.rs"]
 mod bundled_dx;
+pub(crate) use output_log::OutputLog as DxOutputLog;
 #[cfg(test)]
 use output_log::{cargo_verbose_process_line, compiler_diagnostic};
 
@@ -34,6 +36,7 @@ const CONTEXT_ENV: &str = "FEATHRISE_FUNCTION_HOTPATCH_CONTEXT";
 const CONTEXT_HASH_ENV: &str = "FEATHRISE_FUNCTION_HOTPATCH_CONTEXT_SHA256";
 const CONTEXT_LIMIT: usize = 256 * 1024;
 const LINK_CONTEXT_ENV: &str = "FEATHRISE_HOTPATCH_LINK_CONTEXT";
+const MSVC_TARGET: &str = "x86_64-pc-windows-msvc";
 const ENV_INPUTS: &[&str] = &["RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC", "RUSTC_WRAPPER",
     "RUSTC_WORKSPACE_WRAPPER", "CARGO_BUILD_TARGET", "CARGO_BUILD_RUSTFLAGS", "RUSTUP_TOOLCHAIN",
     "RUSTUP_HOME", "CARGO_HOME", "CARGO_INCREMENTAL"];
@@ -76,11 +79,65 @@ impl From<&Project> for ProjectIdentity {
     }
 }
 
+/// 两条 DX 路径共用同一次入口和工具确认，避免旧的外部路径探测跳过内嵌工具。
+pub(crate) fn project_tool(project: &Project, target: &Path, control: &BuildControl) -> Result<Option<(PathBuf, String)>, String> {
+    let bin = match select_bin(project) {
+        Ok(bin) => bin,
+        Err(reason) => {
+            if let Some(log) = control.log_sink() { log.task_message(&format!("已选择 DX，当前工程入口使用原生 Cargo：{reason}")); }
+            return Ok(None);
+        }
+    };
+    let resources = crate::project_template_root();
+    let repository = resources.parent().ok_or("编辑器资源目录没有工具仓库父目录")?;
+    let Some(dx) = bundled_dx::resolve(target, &repository.join(".local/hotpatch/tools/dx-0.7.9/dx.exe"), control)? else {
+        if let Some(log) = control.log_sink() { log.task_message("已选择 DX，但未找到 DX 0.7.9，回退到原生 Cargo"); }
+        return Ok(None);
+    };
+    let mut version = Command::new(&dx);
+    version.arg("--version").current_dir(&project.root);
+    if !small_output(&version, control)?.split_whitespace().any(|part| part == "0.7.9") {
+        return Err("工程构建仅支持已验证的 DX 0.7.9".into());
+    }
+    Ok(Some((dx, bin)))
+}
+
+/// 普通工程也从 DX 构建，返回同次 Cargo 产物回执供宿主发布运行副本。
+pub(crate) fn full_build_command(project: &Project, target: &Path, profile: ProjectBuildProfile,
+    dx: &Path, bin: &str, control: &BuildControl) -> Result<Command, String> {
+    let directory = project.manifest.parent().ok_or("工程 Cargo 入口没有父目录")?;
+    let cargo = rustup_which("cargo", project, control)?;
+    let tools = target.join("hotpatch-tools");
+    tool_cache::create_directory(&tools)?;
+    let dx_home = tools.join("dx-build-home");
+    tool_cache::create_directory(&dx_home)?;
+    let mut command = Command::new(dx);
+    command.current_dir(directory)
+        .args(["build", "--windows", "--windows-subsystem", "CONSOLE", "--skip-assets", "--locked",
+            "--package", &project.package, "--bin", bin, "--profile", profile.cargo_profile(),
+            "--raw-json-diagnostics", "--json-output"])
+        .env("CARGO", &cargo).env("PATH", toolchain_path(&cargo)?)
+        .env("CARGO_TARGET_DIR", target).env("DX_HOME", dx_home);
+    let config = cargo_config2::Config::load_with_cwd(directory).map_err(|error| error.to_string())?;
+    let linker = config.linker(MSVC_TARGET).map_err(|error| error.to_string())?;
+    if linker.as_deref().is_some_and(|path| path == Path::new("rust-lld") || path == Path::new("rust-lld.exe")) {
+        // DX 直接调用配置的 linker，而 Cargo 的 build.rs 仍可能传入 -flavor link。
+        // 复用原始 LLD 的 lld-link 缓存别名，让驱动同时接受两种调用，并提供 MSVC 库路径。
+        let rustc = rustup_which("rustc", project, control)?;
+        let sysroot = rustc_sysroot(&rustc, project, control)?;
+        let raw = sysroot.join("lib/rustlib").join(MSVC_TARGET).join("bin/rust-lld.exe");
+        let linker = tool_cache::raw(&tools, &raw, &hash_file(&raw, control)?, control)?;
+        command.env("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER", linker)
+            .env("LIB", discover_lib(project, control)?);
+    }
+    Ok(command)
+}
+
 /// 返回的client包含本次实际完整链接记录及只属于该基线的上下文；EXE/PDB发布由原运行版本层负责。
-pub(crate) fn fat(project: &Project, target: &Path, control: &BuildControl, features: &str, diagnostics: Diagnostics) -> Result<FatBuildOutput, String> {
+pub(crate) fn fat(project: &Project, target: &Path, dx: &Path, control: &BuildControl, features: &str, diagnostics: Diagnostics) -> Result<FatBuildOutput, String> {
     validate_project(project, control)?;
     let target = existing_target(target)?;
-    let mut context = prepare_context(project, &target, features, control)?;
+    let mut context = prepare_context(project, &target, dx, features, control)?;
     let path = context.link_manifest.parent().unwrap().join("context.json");
     let mut command = context.command(project)?;
     command.args(["build", "--fat-binary"]);
@@ -226,21 +283,13 @@ impl Context {
     }
 }
 
-fn prepare_context(project: &Project, target: &Path, features: &str, control: &BuildControl) -> Result<Context, String> {
-    // 工具准备已在唯一后台构建槽内；安装版自动使用内嵌 DX，开发者仍可显式覆盖。
+fn prepare_context(project: &Project, target: &Path, dx: &Path, features: &str, control: &BuildControl) -> Result<Context, String> {
     let resources = crate::project_template_root();
-    let repository = resources.parent().ok_or("编辑器资源目录没有工具仓库父目录")?;
-    let dx = bundled_dx::resolve(target, &repository.join(".local/hotpatch/tools/dx-0.7.9/dx.exe"), control)?;
-    let mut version = Command::new(&dx); version.arg("--version").current_dir(&project.root);
-    if !small_output(&version, control)?.split_whitespace().any(|part| part == "0.7.9") {
-        return Err("函数热更新仅支持已验证的dx 0.7.9".into());
-    }
     let rustc = rustup_which("rustc", project, control)?;
     let cargo = rustup_which("cargo", project, control)?;
     let mut command = Command::new(&rustc); command.arg("-Vv").current_dir(&project.root);
     let rustc_version = small_output(&command, control)?.trim().to_owned();
-    let mut command = Command::new(&rustc); command.args(["--print", "sysroot"]).current_dir(&project.root);
-    let sysroot = PathBuf::from(small_output(&command, control)?.trim()).canonicalize().map_err(|error| error.to_string())?;
+    let sysroot = rustc_sysroot(&rustc, project, control)?;
     let sysroot_lib = sysroot.join("lib/rustlib/x86_64-pc-windows-msvc/lib").canonicalize().map_err(|error| error.to_string())?;
     let raw = sysroot.join("lib/rustlib/x86_64-pc-windows-msvc/bin/rust-lld.exe");
     let raw_sha256 = hash_file(&raw, control)?;
@@ -272,10 +321,8 @@ fn prepare_context(project: &Project, target: &Path, features: &str, control: &B
     for (name, value) in std::env::vars().filter(|(name, _)| name.starts_with("CARGO_PROFILE_")) {
         environment.insert(name, Some(value));
     }
-    let mut paths = vec![rustc.parent().unwrap().to_path_buf()];
-    paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
     for (name, value) in [
-        ("PATH", std::env::join_paths(paths).map_err(|error| error.to_string())?.into_string().map_err(|_| "PATH不是UTF-8")?),
+        ("PATH", toolchain_path(&rustc)?.into_string().map_err(|_| "PATH不是UTF-8")?),
         ("CARGO", path_text(&cargo)?), ("LIB", lib), ("CARGO_TARGET_DIR", path_text(target)?),
         ("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER", path_text(&proxy)?),
         ("HOTPATCH_PROBE_REAL_LINKER", path_text(&raw_linker)?), ("DX_HOME", path_text(&dx_home)?),
@@ -287,7 +334,7 @@ fn prepare_context(project: &Project, target: &Path, features: &str, control: &B
     environment.insert("CARGO_MAKEFLAGS".into(), None);
     environment.insert("MAKEFLAGS".into(), None);
     let mut context = Context { format: 1, project: project.into(), target: target.to_owned(), features: normalized_features(features)?,
-        bin, dx_sha256: hash_file(&dx, control)?, dx, rustc_sha256: hash_file(&rustc, control)?, rustc, rustc_version,
+        bin, dx_sha256: hash_file(dx, control)?, dx: dx.to_owned(), rustc_sha256: hash_file(&rustc, control)?, rustc, rustc_version,
         cargo_sha256: hash_file(&cargo, control)?, cargo,
         proxy_sha256: hash_file(&proxy, control)?, proxy, raw_linker, raw_sha256, sysroot_lib,
         session_cache, link_manifest: directory.join("link-context.txt"), imports_file: directory.join("imports.txt"),
@@ -501,6 +548,19 @@ fn existing_target(target: &Path) -> Result<PathBuf, String> {
 fn rustup_which(name: &str, project: &Project, control: &BuildControl) -> Result<PathBuf, String> {
     let mut command = Command::new("rustup"); command.args(["which", name]).current_dir(&project.root);
     PathBuf::from(small_output(&command, control)?.trim()).canonicalize().map_err(|error| error.to_string())
+}
+
+fn rustc_sysroot(rustc: &Path, project: &Project, control: &BuildControl) -> Result<PathBuf, String> {
+    let mut command = Command::new(rustc);
+    command.args(["--print", "sysroot"]).current_dir(&project.root);
+    PathBuf::from(small_output(&command, control)?.trim()).canonicalize().map_err(|error| error.to_string())
+}
+
+fn toolchain_path(tool: &Path) -> Result<std::ffi::OsString, String> {
+    let directory = tool.parent().ok_or("Rust 工具缺少所在目录")?;
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    std::env::join_paths(std::iter::once(directory.to_owned()).chain(std::env::split_paths(&inherited)))
+        .map_err(|error| error.to_string())
 }
 
 fn small_output(command: &Command, control: &BuildControl) -> Result<String, String> {

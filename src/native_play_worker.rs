@@ -1,4 +1,4 @@
-//! 阻塞型普通游戏构建/启动只在唯一后台槽执行；Cargo日志与游戏日志持续有界排空。
+//! 阻塞型普通游戏构建/启动只在唯一后台槽执行；构建日志与游戏日志持续有界排空。
 
 #[path = "native_play_dependency.rs"]
 mod dependency;
@@ -7,6 +7,9 @@ mod features;
 #[path = "native_play_hotpatch.rs"]
 #[cfg(windows)]
 mod hotpatch;
+#[cfg(windows)]
+use crate::code_iteration::hotpatch::toolchain as dx_tools;
+use super::ProjectBuildBackend;
 use feathrise_runtime_manifest::streamline as streamline_files;
 #[cfg(test)]
 #[path = "native_play_worker_map_tests.rs"]
@@ -215,47 +218,67 @@ fn prepare_build(
     }
     fs::create_dir_all(&target).map_err(|error| crate::environment_diagnostics::cache_failure(&target, "准备构建缓存", &error))?;
     let target = target.canonicalize().map_err(|error| crate::environment_diagnostics::cache_failure(&target, "确认构建缓存目录", &error))?;
-    // 独立交付只运行已保存工程，无需加载 F12 的 fat 热补丁基线或其动态 CRT。
+    // DX 工具入口与函数热更新资格分开：普通 Debug 工程用 DX 完整构建，合格工程才准备 fat 基线。
+    // 独立交付、Release 和未经验证的厂商组合继续使用原生发布链。
+    let use_dx = !no_vc_redist && build_backend == ProjectBuildBackend::Dx
+        && cfg!(all(windows, target_arch = "x86_64", target_env = "msvc")) && profile == ProjectBuildProfile::Debug
+        && !cfg!(any(feature = "rtx_rendering", feature = "dlss_frame_generation", feature = "fsr3_frame_generation"));
     #[cfg(windows)]
-    if !no_vc_redist && build_backend == super::ProjectBuildBackend::Dx
-        && let Some(prepared) = hotpatch::prepare(project, &target, profile, control, diagnostics.clone())? {
-        if let Some(log) = control.log_sink() {
-            log.task_message(&format!("DX 工程构建与产物准备完成，用时 {:.2} 秒", started.elapsed().as_secs_f64()));
+    let dx_command = if use_dx && let Some((dx, bin)) = dx_tools::project_tool(project, &target, control)? {
+        if let Some(prepared) = hotpatch::prepare(project, &target, profile, &dx, control, diagnostics.clone())? {
+            if let Some(log) = control.log_sink() {
+                log.task_message(&format!("DX 工程构建与产物准备完成，用时 {:.2} 秒", started.elapsed().as_secs_f64()));
+            }
+            return Ok(prepared);
         }
-        return Ok(prepared);
-    }
-    if let Some(log) = control.log_sink() {
-        log.task_message(&format!("构建方式：原生 Cargo；配置：{}；缓存：{}{}", profile.cargo_profile(), target.display(),
-            if build_backend == super::ProjectBuildBackend::Dx { "；当前组合使用完整编译路径" } else { "；不启用DX函数热更新" }));
-    }
-    let cargo = std::env::var_os("EDITOR_HOST_CARGO")
-        .or_else(|| std::env::var_os("CARGO"))
-        .unwrap_or_else(|| "cargo".into());
-    let mut command = Command::new(&cargo);
-    // 启动普通game而非DLL或作者宿主；Cargo自动判断新源码，未改源码时直接复用缓存。
-    command.arg("build");
-    configure_project_cargo(&mut command, project, &target, profile);
-    if no_vc_redist {
-        configure_export_crt(&mut command);
-    }
-    command.args(["--bins", "--message-format=json"]);
+        Some(dx_tools::full_build_command(project, &target, profile, &dx, &bin, control)?)
+    } else { None };
+    #[cfg(not(windows))]
+    let dx_command = None;
+    let (actual_backend, mut command) = match dx_command {
+        Some(command) => (ProjectBuildBackend::Dx, command),
+        None => {
+            let cargo = std::env::var_os("EDITOR_HOST_CARGO")
+                .or_else(|| std::env::var_os("CARGO"))
+                .unwrap_or_else(|| "cargo".into());
+            let mut command = Command::new(cargo);
+            command.arg("build");
+            configure_project_cargo(&mut command, project, &target, profile);
+            if no_vc_redist {
+                configure_export_crt(&mut command);
+            }
+            command.args(["--bins", "--message-format=json"]);
+            (ProjectBuildBackend::Native, command)
+        }
+    };
     // 只依据该工程自己的依赖决定是否允许取源，不把编辑器的新建配置套到旧工程上。
     crate::project_template::apply_project_network_policy(&project.manifest, &mut command)?;
     features::apply(&mut command);
+    let is_dx = actual_backend == ProjectBuildBackend::Dx;
     let manifest = project.manifest.clone();
     let project_root = project.root.clone();
     let log = control.log_sink();
-    if log.is_some() {
+    if let Some(log) = &log {
+        if build_backend == ProjectBuildBackend::Dx && !no_vc_redist && !use_dx {
+            log.task_message("已选择 DX，当前平台或构建配置使用原生 Cargo");
+        }
+        log.task_message(&format!("构建方式：{}；配置：{}；缓存：{}；完整编译",
+            actual_backend.label(), profile.cargo_profile(), target.display()));
         // 日志旁路重定向后Cargo默认隐藏进度和颜色；只为本次可见构建恢复终端输出。
-        command.env("CARGO_TERM_PROGRESS_WHEN", "always").env("CARGO_TERM_PROGRESS_WIDTH", "100")
-            .env("CARGO_TERM_COLOR", "always");
+        if !is_dx {
+            command.env("CARGO_TERM_PROGRESS_WHEN", "always").env("CARGO_TERM_PROGRESS_WIDTH", "100")
+                .env("CARGO_TERM_COLOR", "always");
+        }
     }
     build_process::log_build_command(&command, control);
-    let build = build_process::run_cargo(&command, control, None, move |output| {
-        read_artifacts_with_diagnostics(output, &manifest, &project_root, log, diagnostics)
-    })?;
+    let read = move |output| read_artifacts_with_diagnostics(output, &manifest, &project_root, log, diagnostics, is_dx);
+    let build = if is_dx { build_process::run(&command, control, None, read) }
+        else { build_process::run_cargo(&command, control, None, read) }?;
     if build.exit_code != 0 {
         if let Some(log) = control.log_sink() { log.task_message(&format!("构建失败，退出码{}", build.exit_code)); }
+        if is_dx {
+            return Err(format!("DX 构建失败，退出码{}：{}\n{}", build.exit_code, build.stderr, build.stdout.diagnostics));
+        }
         return Err(crate::environment_diagnostics::cargo_exit_failure(
             crate::environment_diagnostics::CargoStage::Build,
             &command, build.exit_code, &build.stdout.diagnostics, &build.stderr,
@@ -277,7 +300,7 @@ fn prepare_build(
         project_id: project.id.clone(), project_root: project.root.clone(), profile, build_backend, bundle: None, hotpatch: None,
     }.snapshot(project, control, no_vc_redist)?;
     if let Some(log) = control.log_sink() {
-        log.task_message(&format!("原生 Cargo 工程构建与产物准备完成，用时 {:.2} 秒", started.elapsed().as_secs_f64()));
+        log.task_message(&format!("{} 工程构建与产物准备完成，用时 {:.2} 秒", actual_backend.label(), started.elapsed().as_secs_f64()));
     }
     Ok(prepared)
 }
@@ -519,12 +542,17 @@ fn validate_game_contract(bytes: &[u8]) -> Result<(), String> {
 
 #[cfg(test)]
 fn read_artifacts(output: impl Read, manifest: &Path, log: Option<crate::project_log::ProjectLogSink>) -> Result<CargoArtifacts, String> {
-    read_artifacts_with_diagnostics(output, manifest, manifest.parent().unwrap_or(Path::new(".")), log, None)
+    read_artifacts_with_diagnostics(output, manifest, manifest.parent().unwrap_or(Path::new(".")), log, None, false)
 }
 
-fn read_artifacts_with_diagnostics(output: impl Read, manifest: &Path, project_root: &Path, log: Option<crate::project_log::ProjectLogSink>, diagnostics: Option<DiagnosticCallback>) -> Result<CargoArtifacts, String> {
+fn read_artifacts_with_diagnostics(output: impl Read, manifest: &Path, project_root: &Path,
+    log: Option<crate::project_log::ProjectLogSink>, diagnostics: Option<DiagnosticCallback>, is_dx: bool) -> Result<CargoArtifacts, String> {
     let mut reader = BufReader::new(output);
-    let mut log = crate::project_log::LogDecoder::new(log, crate::project_log::LogSource::Build);
+    // DX 的原始 Cargo 回执走同一产物校验，进度和诊断仍交给 DX 日志适配器去重。
+    #[cfg(windows)]
+    let mut dx_log = is_dx.then(|| dx_tools::DxOutputLog::new(project_root, log.clone(), diagnostics.clone()));
+    let mut log = crate::project_log::LogDecoder::new(if is_dx { None } else { log }, crate::project_log::LogSource::Build);
+    let line_limit = if is_dx { 8 * LINE_LIMIT } else { LINE_LIMIT };
     let mut artifacts = CargoArtifacts::default();
     let mut line = Vec::new();
     loop {
@@ -541,8 +569,8 @@ fn read_artifacts_with_diagnostics(output: impl Read, manifest: &Path, project_r
                 .iter()
                 .position(|byte| *byte == b'\n')
                 .map_or(available.len(), |at| at + 1);
-            if line.len() + count > LINE_LIMIT {
-                return Err("Cargo单条输出超过1MiB，本次构建已取消".into());
+            if line.len() + count > line_limit {
+                return Err(format!("构建单条输出超过{}MiB，本次构建已取消", line_limit / LINE_LIMIT));
             }
             line.extend_from_slice(&available[..count]);
             end = available[count - 1] == b'\n';
@@ -551,12 +579,14 @@ fn read_artifacts_with_diagnostics(output: impl Read, manifest: &Path, project_r
         if line.is_empty() {
             break;
         }
+        #[cfg(windows)]
+        if let Some(dx_log) = &mut dx_log { dx_log.emit_line(&line); }
         let Ok(value) = serde_json::from_slice::<serde_json::Value>(&line) else {
             append_tail(&mut artifacts.diagnostics, &String::from_utf8_lossy(&line));
             log.write(&line);
             continue;
         };
-        if let Some(callback) = &diagnostics {
+        if !is_dx && let Some(callback) = &diagnostics {
             if let Some(diagnostic) = crate::compiler_diagnostics::from_cargo(&value, project_root) { callback(diagnostic); }
         }
         if value["reason"] == "compiler-artifact" {
@@ -612,6 +642,8 @@ fn read_artifacts_with_diagnostics(output: impl Read, manifest: &Path, project_r
             }
         }
     }
+    #[cfg(windows)]
+    if let Some(dx_log) = &mut dx_log { dx_log.finish(); }
     log.finish();
     Ok(artifacts)
 }

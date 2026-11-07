@@ -5,7 +5,7 @@ use crate::{compiler_diagnostics::{CompilerDiagnostic, DIAGNOSTIC_LIMIT}, projec
 use serde_json::Value;
 use std::{borrow::Cow, path::Path};
 
-pub(super) struct OutputLog<'a> {
+pub(crate) struct OutputLog<'a> {
     root: &'a Path,
     decoder: LogDecoder,
     callback: Diagnostics,
@@ -16,11 +16,11 @@ pub(super) struct OutputLog<'a> {
 }
 
 impl<'a> OutputLog<'a> {
-    pub(super) fn new(root: &'a Path, sink: Option<ProjectLogSink>, callback: Diagnostics) -> Self {
+    pub(crate) fn new(root: &'a Path, sink: Option<ProjectLogSink>, callback: Diagnostics) -> Self {
         Self { root, decoder: LogDecoder::new(sink, LogSource::Build), callback, seen: Vec::new(), compiled_progress: false }
     }
 
-    pub(super) fn emit_line(&mut self, line: &[u8]) {
+    pub(crate) fn emit_line(&mut self, line: &[u8]) {
         // read_output已跨读取块拼完LF行；CR覆盖可把过程与真正错误放在同一物理行，须逐段分流。
         for part in line.split_inclusive(|byte| matches!(*byte, b'\r' | b'\n')) { self.emit_part(part); }
     }
@@ -130,7 +130,7 @@ impl<'a> OutputLog<'a> {
         }
     }
 
-    pub(super) fn finish(&mut self) {
+    pub(crate) fn finish(&mut self) {
         self.clear_compiled_progress();
         self.decoder.finish();
     }

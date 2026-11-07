@@ -5,12 +5,8 @@ use crate::{build_artifacts, build_process::BuildControl, code_iteration::{captu
 use feathrise_editor_core::ProjectBuildProfile;
 use std::{fs, path::Path, sync::Arc};
 
-pub(super) fn prepare(project: &Project, target: &Path, profile: ProjectBuildProfile,
+pub(super) fn prepare(project: &Project, target: &Path, profile: ProjectBuildProfile, dx: &Path,
     control: &BuildControl, diagnostics: Option<DiagnosticCallback>) -> Result<Option<PreparedGame>, String> {
-    // 首轮只验收已验证的原生渲染组合；厂商运行库继续由原Cargo回执链发布。
-    if profile != ProjectBuildProfile::Debug || cfg!(any(feature = "rtx_rendering", feature = "dlss_frame_generation", feature = "fsr3_frame_generation")) {
-        return Ok(None);
-    }
     let manifest = fs::read_to_string(&project.manifest).map_err(|error| error.to_string())?;
     let manifest: toml::Value = toml::from_str(&manifest).map_err(|error| error.to_string())?;
     // dx首轮只替换入口bin；Cargo隐式lib属于所选叶包，不能按外层工程根漏掉嵌套lib后将其误判为bin补丁。
@@ -22,19 +18,13 @@ pub(super) fn prepare(project: &Project, target: &Path, profile: ProjectBuildPro
     }
     let source = capture_source(project, target, control)?;
     if source.hotpatch_shape.is_none() { return Ok(None); }
-    let dx = std::env::var_os("FEATHRISE_DX_PATH").map(std::path::PathBuf::from)
-        .unwrap_or_else(|| crate::project_template_root().parent().unwrap_or(Path::new(".")).join(".local/hotpatch/tools/dx-0.7.9/dx.exe"));
-    if !dx.is_file() {
-        if let Some(log) = control.log_sink() { log.task_message("未安装函数热更新工具，本次使用完整编译与重启路径"); }
-        return Ok(None);
-    }
     let mut features = features::identity();
     if !features.is_empty() { features.push(','); }
     features.push_str("function_hotpatch");
     if let Some(log) = control.log_sink() {
         log.task_message(&format!("构建方式：DX；配置：render-dev；缓存：{}；启用函数热更新", target.display()));
     }
-    let fat = hotpatch::toolchain::fat(project, target, control, &features, diagnostics)?;
+    let fat = hotpatch::toolchain::fat(project, target, dx, control, &features, diagnostics)?;
     if source != capture_source(project, target, control)? { return Err("完整热更新基线构建期间源码变化，请等待最新编译".into()); }
     let dlls = hotpatch::toolchain::runtime_dlls(&fat, target, control)?;
     let profile_dir = fat.artifacts.executable.parent().ok_or("fat产物缺少父目录")?;
@@ -88,7 +78,7 @@ mod tests {
         // 先撤销构建租约：正确的lib门须在任何源码扫描/工具准备前返回None，错过此门只能报取消，绝不执行dx。
         let control = BuildControl::default();
         control.cancel();
-        assert!(prepare(&project, &fixture.0.join("unused-target"), ProjectBuildProfile::Debug, &control, None)
+        assert!(prepare(&project, &fixture.0.join("unused-target"), ProjectBuildProfile::Debug, Path::new("unused-dx"), &control, None)
             .is_ok_and(|prepared| prepared.is_none()));
         assert!(!fixture.0.join("unused-target").exists());
     }
