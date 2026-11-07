@@ -366,6 +366,7 @@ impl MapBrowserDragState {
 #[derive(Resource, Debug, Default)]
 pub struct MapEditorNumericScrubMouseGuard {
     blocked: bool, // `true`表示本帧除已持有数值/预览拖动者外的作者鼠标入口都必须丢弃输入。
+    pub(crate) floating_panel_hovered: bool, // 悬停挡住滚轮；只有在浮窗内按下才保留拖动所有权。
 }
 
 impl MapEditorNumericScrubMouseGuard {
@@ -388,7 +389,7 @@ impl MapEditorNumericScrubMouseGuard {
 
     /// 当前帧是否必须丢弃全部非数值地图编辑器鼠标输入。
     pub fn blocked(&self) -> bool {
-        self.blocked // 只公开只读判定，避免各业务系统自行实现不同的释放策略。
+        self.blocked || self.floating_panel_hovered // 鼠标离开浮窗时，单纯悬停不会扣住下一次外部点击。
     }
 }
 

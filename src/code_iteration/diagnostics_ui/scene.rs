@@ -3,20 +3,21 @@
 use super::{components::*, resources::{ROW_HEIGHT, ROW_POOL}};
 use bevy::{picking::hover::Hovered, prelude::*, ui::{FocusPolicy, RelativeCursorPosition},
     ui_widgets::{ControlOrientation, Scrollbar, ScrollbarThumb}};
-use feathrise_editor_map::workbench::WorkbenchHeader;
+use feathrise_editor_map::workbench::{WorkbenchFloatingPanel, WorkbenchHeader};
 use feathrise_editor_ui::colors as c;
 
-pub(super) fn mount(mut commands: Commands, headers: Query<Entity, Added<WorkbenchHeader>>, assets: Res<AssetServer>) {
+pub(super) fn mount(mut commands: Commands, headers: Query<(Entity, Option<&ChildOf>), Added<WorkbenchHeader>>, assets: Res<AssetServer>) {
     if headers.is_empty() { return; }
     let font = feathrise_editor_core::editor_font(&assets, feathrise_editor_core::FONT_PATH);
-    for header in &headers {
-        commands.entity(header).with_children(|header| {
-            header.spawn((DiagnosticsOverlay, GlobalZIndex(4350), FocusPolicy::Block, Interaction::None,
-                Node { display: Display::None, position_type: PositionType::Absolute, left: px(0), top: px(0),
-                    width: Val::Vw(100.), height: Val::Vh(100.), align_items: AlignItems::Center,
-                    justify_content: JustifyContent::Center, ..default() }, BackgroundColor(c::DIALOG_BACKDROP),
+    for (header, parent) in &headers {
+        let root = parent.map_or(header, ChildOf::parent);
+        commands.entity(root).with_children(|root| {
+            // 代码与日志可同时打开；重叠处由上层诊断面板独自接收鼠标。
+            root.spawn((DiagnosticsOverlay, WorkbenchFloatingPanel, GlobalZIndex(424), FocusPolicy::Block, Interaction::None,
+                Node { display: Display::None, position_type: PositionType::Absolute, right: px(8), bottom: px(32),
+                    width: percent(76.), max_width: px(1200), height: percent(50.), max_height: px(700), ..default() },
             )).with_children(|overlay| {
-                overlay.spawn((Node { width: Val::Vw(92.), max_width: px(1200), height: Val::Vh(72.), max_height: px(700),
+                overlay.spawn((Node { width: percent(100), height: percent(100),
                     min_width: px(0), min_height: px(0), flex_direction: FlexDirection::Column, overflow: Overflow::clip(),
                     ..feathrise_editor_ui::dialog_panel_node() },
                     BackgroundColor(c::DIALOG_BG), BorderColor::all(c::DIALOG_BORDER), FocusPolicy::Block,

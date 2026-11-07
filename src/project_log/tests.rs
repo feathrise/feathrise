@@ -103,27 +103,43 @@ fn clear_drops_already_queued_output_without_stopping_or_restarting_the_log_sess
 }
 
 #[test]
-fn closing_the_log_with_escape_keeps_one_release_frame_and_does_not_emit_a_process_intent() {
+fn escape_only_closes_the_log_when_it_owns_keyboard_input() {
     let (channel, _) = ProjectLogChannel::new("只读浮窗");
     let mut app = App::new();
     app.insert_resource(ProjectLogState::new(&channel, "只读浮窗"))
         .init_resource::<InputFocus>()
         .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
         .add_message::<bevy::input::mouse::MouseWheel>()
         .add_message::<feathrise_editor_map::standalone::RunSavedProject>()
         .add_message::<AppExit>()
         .add_systems(Update, super::systems::control);
     app.world_mut().resource_mut::<ProjectLogState>().open = true;
+    app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Escape);
     app.update();
+    assert!(app.world().resource::<ProjectLogState>().open);
+    assert!(app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Escape));
+
+    let body = app.world_mut().spawn(super::components::LogBody::default()).id();
+    app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+    app.world_mut().resource_mut::<InputFocus>().set(body, bevy::input_focus::FocusCause::Pressed);
+    app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Right);
+    app.update();
+    assert_eq!(app.world().resource::<InputFocus>().get(), None, "视口右键也会释放日志正文焦点");
+    assert!(app.world().resource::<ProjectLogState>().open);
+
+    app.world_mut().resource_mut::<ButtonInput<MouseButton>>().reset_all();
+    app.world_mut().resource_mut::<InputFocus>().set(body, bevy::input_focus::FocusCause::Pressed);
     app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Escape);
     app.update();
     assert!(!app.world().resource::<ProjectLogState>().open);
-    assert!(app.world().resource::<ProjectLogState>().captures_input());
+    assert_eq!(app.world().resource::<InputFocus>().get(), None);
+    assert!(!app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Escape));
     assert!(app.world().resource::<Messages<AppExit>>().is_empty());
     assert!(app.world().resource::<Messages<feathrise_editor_map::standalone::RunSavedProject>>().is_empty());
     app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear();
     app.update();
-    assert!(!app.world().resource::<ProjectLogState>().captures_input());
+    assert!(!app.world().resource::<ProjectLogState>().owns_keyboard());
     assert_eq!(channel.generation.load(Ordering::Acquire), 0, "窗口开关不能创建构建或运行日志会话");
 }
 

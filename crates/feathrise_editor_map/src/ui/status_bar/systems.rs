@@ -335,6 +335,7 @@ pub(super) fn track_pointer(
         With<StatusPopup>,
     >,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    panels: crate::workbench::WorkbenchFloatingPanels,
 ) {
     if state.captured_this_frame {
         state.captured_this_frame = false;
@@ -342,6 +343,8 @@ pub(super) fn track_pointer(
     let hovered = state.popup_open
         && !inputs.suppressed()
         && !windows.single().is_ok_and(|window| !window.focused)
+        // 详情仍可留在原位，只有实际处于最上层的面板接收重叠处滚轮。
+        && panels.hovered().is_none_or(|entity| popups.contains(entity))
         && popups.iter().any(|(cursor, node, visible)| {
             visible.get() && node.size().min_element() > 0.0 && cursor.cursor_over()
         });

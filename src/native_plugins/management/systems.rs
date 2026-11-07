@@ -11,13 +11,7 @@ pub(super) fn control(world: &mut World) {
         .get_resource::<crate::native_project_close::NativeProjectCloseState>()
         .is_some_and(|state| state.captures_input())
         || world
-            .get_resource::<crate::project_log::ProjectLogState>()
-            .is_some_and(|state| state.captures_input())
-        || world
             .get_resource::<crate::workspace_ui::AboutState>()
-            .is_some_and(|state| state.captures_input())
-        || world
-            .get_resource::<crate::code_iteration::diagnostics_ui::DiagnosticsOverlayState>()
             .is_some_and(|state| state.captures_input())
         || world
             .get_resource::<feathrise_editor_map::workbench::WorkbenchHostPageState>()

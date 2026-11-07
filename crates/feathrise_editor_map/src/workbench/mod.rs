@@ -18,7 +18,10 @@ mod tests;
 mod types;
 
 pub use crate::types::EditorAction;
-pub use components::{WorkbenchHeader, WorkbenchHeaderItem, WorkbenchProjectLogButton};
+pub use components::{
+    WorkbenchFloatingPanel, WorkbenchHeader, WorkbenchHeaderItem, WorkbenchProjectLogButton,
+};
+pub use presentation::WorkbenchFloatingPanels;
 pub use host_pages::{
     WorkbenchCentralPageHost, WorkbenchDocumentTabs, WorkbenchHostPageState,
     WorkbenchHostPagesPlugin, WorkbenchHostTabs, WorkbenchSettingsBody, WorkbenchHostPageInput,

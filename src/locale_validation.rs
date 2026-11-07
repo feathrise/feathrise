@@ -44,6 +44,7 @@ struct Run {
     root: PathBuf,
     panels: bool,
     details: bool,
+    floating_panels: bool,
     quit_build: bool,
     author_prefs_existed: bool,
     stage: Stage,
@@ -80,10 +81,11 @@ pub(crate) fn install(app: &mut App, project: Option<&Path>) -> Result<(), Strin
         return Err("语言验收的工程及普通文本必须属于本轮夹具".into());
     }
     let reopen = std::env::var_os("FEATHRISE_LOCALE_VALIDATION_REOPEN").is_some();
-    let panels = std::env::var("FEATHRISE_LOCALE_VALIDATION_PANELS").is_ok_and(|value| value == "1");
-    let details = std::env::var("FEATHRISE_LOCALE_VALIDATION_DETAILS").is_ok_and(|value| value == "1");
+    let floating_panels = std::env::var("FEATHRISE_LOCALE_VALIDATION_FLOATING_PANELS").is_ok_and(|value| value == "1");
+    let panels = floating_panels || std::env::var("FEATHRISE_LOCALE_VALIDATION_PANELS").is_ok_and(|value| value == "1");
+    let details = !floating_panels && std::env::var("FEATHRISE_LOCALE_VALIDATION_DETAILS").is_ok_and(|value| value == "1");
     let quit_build = std::env::var("FEATHRISE_LOCALE_VALIDATION_QUIT_BUILD").is_ok_and(|value| value == "1");
-    if quit_build && (!cfg!(windows) || !panels || details || reopen) {
+    if quit_build && (!cfg!(windows) || !panels || details || reopen || floating_panels) {
         return Err("退出构建语言验收要求 Windows 上独立开启面板专项".into());
     }
     let stage = if let Some(project) = project {
@@ -114,7 +116,7 @@ pub(crate) fn install(app: &mut App, project: Option<&Path>) -> Result<(), Strin
     let now = Instant::now();
     let author_prefs_existed = root.join("prefs.author.json").is_file();
     app.insert_resource(Run {
-        root, panels, details, quit_build, author_prefs_existed, stage, started: now, mouse: None, draft: None,
+        root, panels, details, floating_panels, quit_build, author_prefs_existed, stage, started: now, mouse: None, draft: None,
         capture: None, capture_attempts: 0, next_capture: now,
     })
         .add_systems(First, drive);
@@ -172,7 +174,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
             let effective = if locale == EditorLocale::Chinese { "zh-CN" } else { "en-US" };
             report(run, "startup", json!({"passed":true,"author_preferences_existed":run.author_prefs_existed,
                 "preference":preference.as_str(),"effective":effective}))?;
-            run.stage = match (run.panels, locale) {
+            run.stage = match (run.panels && !run.floating_panels, locale) {
                 (true, EditorLocale::Chinese) => Stage::HomeNewChinese,
                 (true, EditorLocale::English) => Stage::HomeChineseSettings,
                 (false, _) => Stage::HomeSettings,
@@ -219,7 +221,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
                 // 宿主只有收到真实个人偏好写入回执，才会启动读取它的候选作者。
                 if run.details {
                     run.stage = Stage::Details(DetailStage::PluginMenu);
-                } else if run.panels {
+                } else if run.panels && !run.floating_panels {
                     run.stage = Stage::HomeNewEnglish;
                 } else {
                     world.write_message(WorkspaceCommand::Open(run.root.join("project")));
@@ -270,7 +272,10 @@ fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
         }
         Stage::AuthorCapture => {
             if capture(world, run, "author-en")? {
-                run.stage = if run.details {
+                run.stage = if run.floating_panels {
+                    // 专项只操作浮窗、原工具页签与构建入口，避免依赖无关页面的交互时序。
+                    Stage::Details(DetailStage::Diagnostics)
+                } else if run.details {
                     Stage::Details(DetailStage::OpenSettings)
                 } else if run.panels {
                     Stage::BuildMenu
@@ -378,7 +383,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
                 move_to(world, window, entity);
                 if visible_containing(world, "Stop the current Project 3D build.")
                     && capture(world, run, "stop-build-en")? {
-                    run.stage = Stage::OpenBuildDetails;
+                    run.stage = if run.floating_panels { Stage::Details(DetailStage::OpenLog) } else { Stage::OpenBuildDetails };
                 }
             }
         }
@@ -387,10 +392,8 @@ fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
         }
         Stage::BuildDetails if visible_text(world, "Status Details")
             && visible_containing(world, "Building the project. The first build may take a while.")
-            && visible_containing(world, "Project 3D: Starting")
-            && visible_containing(world, "Saving code starts a build")
-            && (visible_containing(world, "Code builds automatically when you save source files.")
-                || visible_containing(world, "Code: Debug / Native Cargo. Saving source files starts a build.")) => {
+            && visible_containing(world, "Project 3D: Starting") => {
+            // 切换构建方式可同时触发源码编译；这里按实际工程 3D 构建状态验收。
             if capture(world, run, "build-status-en")? { run.stage = Stage::CloseBuildDetails; }
         }
         Stage::CloseBuildDetails => {
@@ -404,7 +407,8 @@ fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
         Stage::RestoreEditor3d if visible_text(world, "Preview")
             && world.resource::<crate::viewport_mode::ViewportModeState>().selected == crate::viewport_mode::ViewportMode::EmbeddedWorld => {
             if click(world, run, window, "Editor 3D") {
-                run.stage = if run.details { Stage::Details(DetailStage::Editor3d) } else { Stage::MeshTab };
+                run.stage = if run.floating_panels { Stage::OpenDocument }
+                    else if run.details { Stage::Details(DetailStage::Editor3d) } else { Stage::MeshTab };
             }
         }
         Stage::OpenDocument => {
@@ -435,8 +439,9 @@ fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
             if capture(world, run, "author-zh")? {
                 documents::redo_locale_document(world)?;
                 let edited = documents::close_document_snapshot(world).ok_or("重做后文档消失")?;
-                report(run, "author", json!({"passed":true,"inherited":"en-US","switched":"zh-CN","panels_exercised":run.panels,
-                    "details_exercised":run.details,"draft":run.draft,"after_redo":edited}))?;
+                report(run, "author", json!({"passed":true,"inherited":"en-US","switched":"zh-CN",
+                    "panels_exercised":run.panels && !run.floating_panels,"details_exercised":run.details,
+                    "floating_panels_exercised":run.floating_panels,"draft":run.draft,"after_redo":edited}))?;
                 run.stage = Stage::DiscardDraft;
             }
         }

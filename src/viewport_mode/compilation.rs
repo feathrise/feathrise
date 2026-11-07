@@ -39,7 +39,6 @@ pub(super) fn input(world: &mut World) {
         .iter(world).filter_map(|(entity, click)| click.is_clicked().then_some(entity)).collect();
     let blocked = world.get_resource::<feathrise_editor_core::EditorHostOverlay>().is_some_and(|overlay|overlay.active)
         || world.get_resource::<crate::native_project_close::NativeProjectCloseState>().is_some_and(|close|close.captures_input())
-        || world.get_resource::<crate::project_log::ProjectLogState>().is_some_and(|logs|logs.captures_input())
         || world.get_resource::<crate::project_export::ui::ExportOverlayState>().is_some_and(|export|export.captures_input())
         || world.get_resource::<crate::native_plugins::management::PluginManagerState>().is_some_and(|plugins|plugins.captures_input())
         || world.get_resource::<crate::workspace_ui::AboutState>().is_some_and(|about|about.captures_input())

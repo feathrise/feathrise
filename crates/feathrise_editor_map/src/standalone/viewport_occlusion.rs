@@ -21,6 +21,7 @@ pub(super) type UiRoots = Or<(
     With<crate::ui::tooltips::TooltipPopup>,
     With<crate::ui::status_bar::StatusPopup>,
     With<crate::ui::context_help::ContextHelpPopup>,
+    With<crate::workbench::WorkbenchFloatingPanel>,
 )>;
 pub(super) type SelectionBorders = Or<(
     With<MultiSelectionRectangle>,

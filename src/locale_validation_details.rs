@@ -12,7 +12,9 @@ pub(super) enum DetailStage {
     ExportMenu, ExportOpen, ExportDetails, ExportClose,
     MapHelp, MapHelpDetails, Sculpt, Puddles, PuddleDetails,
     Vegetation, VegetationDetails, World, WorldStatus, WorldStatusDetails,
-    Diagnostics, DiagnosticsDetails, OpenLog, Log, LogHeader, CloseLog, Editor3d, Editor3dDetails, CloseEditor3dDetails,
+    Diagnostics, DiagnosticsDetails, DiagnosticsOutside, CloseDiagnostics, DiagnosticsClosed,
+    OpenLog, Log, LogHeader, LogWithCode, CaptureLogWithCode, CloseLog, CloseLogCode, LogCodeClosed,
+    Editor3d, Editor3dDetails, CloseEditor3dDetails,
 }
 
 /// 插件包来自本轮夹具，真实安装和活动索引仍由原包事务生成。
@@ -149,11 +151,33 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity, detail: 
             DiagnosticsDetails
         }
         DiagnosticsDetails if visible_text(world, "Code Diagnostics")
+            && visible_text(world, "Saving code starts a build")
             && visible_containing(world, "No build diagnostics.")
             && visible_containing(world, "Diagnostics: 0") => {
             if !capture(world, run, "code-diagnostics-en")? { return Ok(()); }
-            escape(world, window);
-            run.stage = if run.panels { Stage::BuildMenu } else { Stage::OpenDocument };
+            DiagnosticsOutside
+        }
+        DiagnosticsDetails if !visible_text(world, "Code Diagnostics") => {
+            click(world, run, window, "Code");
+            return Ok(());
+        }
+        DiagnosticsOutside if visible_text(world, "Code Diagnostics")
+            && click(world, run, window, "Sculpt") => CloseDiagnostics,
+        CloseDiagnostics if visible_text(world, "Code Diagnostics") => {
+            // 以工具页切换和浮窗实际显隐为准。冷启动中被输入门丢弃的点击只能重新从原按钮发起。
+            if !visible_text(world, "Puddles") {
+                click(world, run, window, "Sculpt");
+                return Ok(());
+            }
+            if !click(world, run, window, "Code") { return Ok(()); }
+            DiagnosticsClosed
+        }
+        DiagnosticsClosed => {
+            if visible_text(world, "Code Diagnostics") {
+                click(world, run, window, "Code");
+            } else {
+                run.stage = if run.panels { Stage::BuildMenu } else { Stage::OpenDocument };
+            }
             return Ok(());
         }
         OpenLog if !visible_text(world, "Status Details")
@@ -161,23 +185,57 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity, detail: 
         Log if visible_text(world, "Project Log") => {
             let evidence = world.resource::<crate::project_log::ProjectLogState>().validation_tail();
             let text = evidence.to_string();
-            if !text.contains("Code Build #") || !text.contains("Preparing the project") || !text.contains("Working directory: ")
-                || !text.contains("Build command") || !text.contains("Project 3D #")
-                || !text.contains("Build tool: Native Cargo")
-            {
-                return Ok(());
-            }
+            let command_visible = text.contains("Working directory: ") && text.contains("Build command");
+            let code_task = text.contains("Code Build #");
+            let viewport_task = text.contains("Project 3D #");
+            // 构建槽可能先执行代码编译。浮窗专项只要求实际命令已进入日志，完整双语验收仍核对两类任务。
+            let log_ready = if run.floating_panels {
+                command_visible && (code_task || viewport_task)
+            } else {
+                command_visible && code_task && viewport_task && text.contains("Preparing the project")
+                    && text.contains("Build tool: Native Cargo")
+            };
+            if !log_ready { return Ok(()); }
+            if !click(world, run, window, "Follow: On") { return Ok(()); }
             report(run, "project-log-lines", evidence)?;
-            press_key(world, window, KeyCode::Home, Key::Home);
             LogHeader
+        }
+        Log => {
+            click(world, run, window, "Log");
+            return Ok(());
         }
         LogHeader if visible_text(world, "Follow: Off") => {
             if !capture(world, run, "project-log-en")? { return Ok(()); }
-            escape(world, window);
+            LogWithCode
+        }
+        LogHeader => {
+            click(world, run, window, "Follow: On");
+            return Ok(());
+        }
+        LogWithCode if click(world, run, window, "Code") => CaptureLogWithCode,
+        CaptureLogWithCode if visible_text(world, "Code Diagnostics") && visible_text(world, "Project Log") => {
+            if !capture(world, run, "project-log-with-code-en")? { return Ok(()); }
             CloseLog
         }
-        CloseLog if !visible_text(world, "Project Log") => {
-            run.stage = Stage::StopBuild;
+        CaptureLogWithCode if visible_text(world, "Project Log") => {
+            click(world, run, window, "Code");
+            return Ok(());
+        }
+        CloseLog if click(world, run, window, "Log") => CloseLogCode,
+        CloseLogCode if visible_text(world, "Code Diagnostics") => {
+            if visible_text(world, "Project Log") {
+                click(world, run, window, "Log");
+                return Ok(());
+            }
+            if !click(world, run, window, "Code") { return Ok(()); }
+            LogCodeClosed
+        }
+        LogCodeClosed if !visible_text(world, "Project Log") => {
+            if visible_text(world, "Code Diagnostics") {
+                click(world, run, window, "Code");
+            } else {
+                run.stage = Stage::StopBuild;
+            }
             return Ok(());
         }
         Editor3d if visible_containing(world, "Switched to Editor 3D. Click Run to launch the saved project.")

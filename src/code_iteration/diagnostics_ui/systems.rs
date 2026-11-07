@@ -4,9 +4,9 @@ use super::{components::*, resources::*};
 use super::super::resources::CodeIterationState;
 use super::super::types::CodeIterationPhase;
 use crate::compiler_diagnostics::{CompilerDiagnostic, DiagnosticLevel};
-use bevy::{input::mouse::{MouseScrollUnit, MouseWheel}, input_focus::InputFocus, prelude::*,
-    ui::{InteractionDisabled, RelativeCursorPosition}, window::PrimaryWindow};
-use feathrise_editor_map::{standalone::OpenProjectSourceLocation, workbench::WorkbenchModel};
+use bevy::{input::mouse::{MouseScrollUnit, MouseWheel}, input_focus::InputFocus, prelude::*, ui::{InteractionDisabled, RelativeCursorPosition}};
+use feathrise_editor_map::{standalone::OpenProjectSourceLocation,
+    workbench::{WorkbenchFloatingPanels, WorkbenchHostPageState, WorkbenchModel}};
 use feathrise_editor_ui::{EditorButtonClick, colors as c, localization::EditorLocale};
 
 pub(super) fn current(row: &DiagnosticRow, state: &CodeIterationState, view: &DiagnosticsOverlayState, scroll: Vec2) -> bool {
@@ -15,28 +15,36 @@ pub(super) fn current(row: &DiagnosticRow, state: &CodeIterationState, view: &Di
 }
 
 pub(super) fn control(
-    mut state: ResMut<CodeIterationState>, mut view: ResMut<DiagnosticsOverlayState>,
-    close: Option<Res<crate::native_project_close::NativeProjectCloseState>>,
-    plugins: Option<Res<crate::native_plugins::management::PluginManagerState>>,
-    logs: Option<Res<crate::project_log::ProjectLogState>>, model: Option<Res<WorkbenchModel>>,
-    export: Option<Res<crate::project_export::ui::ExportOverlayState>>,
-    keys: Res<ButtonInput<KeyCode>>, windows: Query<&Window, With<PrimaryWindow>>,
-    mut focus: ResMut<InputFocus>, mut wheels: MessageReader<MouseWheel>,
+    mut state: ResMut<CodeIterationState>, view: Res<DiagnosticsOverlayState>,
+    model: Option<Res<WorkbenchModel>>,
+    blockers: (
+        Option<Res<crate::native_project_close::NativeProjectCloseState>>,
+        Option<Res<crate::native_plugins::management::PluginManagerState>>,
+        Option<Res<crate::project_export::ui::ExportOverlayState>>,
+        Option<Res<crate::workspace_ui::AboutState>>,
+        Option<Res<WorkbenchHostPageState>>,
+        Option<Res<feathrise_editor_core::EditorHostOverlay>>,
+    ),
+    focus: Option<Res<InputFocus>>,
+    mut keys: ResMut<ButtonInput<KeyCode>>, mut wheels: MessageReader<MouseWheel>,
+    panels: WorkbenchFloatingPanels, overlays: Query<(), With<DiagnosticsOverlay>>,
     closes: Query<&EditorButtonClick, With<DiagnosticsClose>>,
     rows: Query<(&DiagnosticRow, &EditorButtonClick)>,
     mut panes: Query<(&RelativeCursorPosition, &ComputedNode, &mut ScrollPosition), With<DiagnosticsPane>>,
     mut open: MessageWriter<OpenProjectSourceLocation>,
 ) {
-    let was_open = view.was_open;
-    if close.is_some_and(|close| close.captures_input()) || logs.is_some_and(|logs| logs.captures_input())
+    let (close, plugins, export, about, host_page, host_overlay) = blockers;
+    if close.is_some_and(|close| close.captures_input())
         || export.is_some_and(|export| export.captures_input())
-        || plugins.is_some_and(|plugins| plugins.captures_input()) {
+        || plugins.is_some_and(|plugins| plugins.captures_input())
+        || about.is_some_and(|about| about.captures_input())
+        || host_page.is_some_and(|page| page.settings_open) {
         state.diagnostics_open = false;
     }
-    if state.diagnostics_open && !was_open { focus.clear(); }
-    let focused = windows.iter().all(|window| window.focused);
+    let hovered = panels.hovered().is_some_and(|entity| overlays.contains(entity))
+        && !host_overlay.is_some_and(|overlay| overlay.active);
     for wheel in wheels.read() {
-        if !state.diagnostics_open || !focused { continue; }
+        if !state.diagnostics_open || !hovered { continue; }
         for (cursor, node, mut scroll) in &mut panes {
             if cursor.cursor_over() && !node.is_empty() {
                 let unit = if wheel.unit == MouseScrollUnit::Line { ROW_HEIGHT * 3. } else { 1. };
@@ -47,7 +55,9 @@ pub(super) fn control(
         }
     }
     if state.diagnostics_open {
-        if keys.just_pressed(KeyCode::Escape) || closes.iter().any(EditorButtonClick::is_clicked) {
+        let escape = hovered && focus.is_none_or(|focus| focus.get().is_none())
+            && keys.clear_just_pressed(KeyCode::Escape);
+        if escape || closes.iter().any(EditorButtonClick::is_clicked) {
             state.diagnostics_open = false;
         } else {
             let scroll = panes.single().ok().map(|(_, _, scroll)| scroll.0).unwrap_or_default();
@@ -63,9 +73,6 @@ pub(super) fn control(
             }
         }
     }
-    // 保留原宿主的整窗模态与释放帧合同；真正的文档定位在门释放后继续完成。
-    view.captured = was_open || state.diagnostics_open;
-    view.was_open = state.diagnostics_open;
 }
 
 pub(super) fn present(

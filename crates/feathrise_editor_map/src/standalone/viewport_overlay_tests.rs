@@ -3,6 +3,28 @@
 use super::*;
 
 #[test]
+fn host_floating_panels_only_reserve_visible_intersections_with_the_child() {
+    use crate::workbench::WorkbenchFloatingPanel;
+
+    let mut app = App::new();
+    app.insert_resource(MapEditorState { open: true, ..default() });
+    install(&mut app);
+    app.world_mut().spawn((MapEditorViewport, Node::default(),
+        ComputedNode { size: Vec2::new(800., 600.), ..default() },
+        UiGlobalTransform::from_xy(500., 350.), InheritedVisibility::VISIBLE));
+    for (display, center) in [(Display::Flex, 850.), (Display::None, 450.)] {
+        app.world_mut().spawn((WorkbenchFloatingPanel, Node { display, ..default() },
+            ComputedNode { size: Vec2::new(400., 260.), ..default() },
+            UiGlobalTransform::from_xy(center, 530.), InheritedVisibility::VISIBLE));
+    }
+    app.update();
+    let projection = app.world().resource::<ViewportHostProjection>();
+    assert!(!projection.obscured && projection.error.is_none());
+    assert_eq!(projection.layout, Some((Vec2::new(800., 600.), Vec2::new(500., 350.))));
+    assert_eq!(projection.excluded_rects, vec![Rect::new(650., 400., 900., 650.)]);
+}
+
+#[test]
 fn tooltip_only_reserves_its_own_pixels_without_hiding_the_child_surface() {
     let mut app = App::new();
     app.insert_resource(MapEditorState { open: true, ..default() });

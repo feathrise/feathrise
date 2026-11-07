@@ -14,7 +14,7 @@ use bevy::{
     ui::{CalculatedClip, InteractionDisabled, RelativeCursorPosition},
     window::{FileDragAndDrop, Ime, PrimaryWindow, RawHandleWrapper},
 };
-use feathrise_editor_map::workbench::{WorkbenchCentralPageHost, WorkbenchHostPageState};
+use feathrise_editor_map::workbench::{WorkbenchCentralPageHost, WorkbenchFloatingPanels, WorkbenchHostPageState};
 use feathrise_editor_ui::colors as c;
 
 pub(super) fn show(state: &mut Presentation, page: Page) {
@@ -503,7 +503,6 @@ pub(super) struct PageOverlays<'w> {
     model: Option<Res<'w, feathrise_editor_map::workbench::WorkbenchModel>>,
     overlay: Option<Res<'w, feathrise_editor_core::EditorHostOverlay>>,
     close: Option<Res<'w, crate::native_project_close::NativeProjectCloseState>>,
-    log: Option<Res<'w, crate::project_log::ProjectLogState>>,
     export: Option<Res<'w, crate::project_export::ui::ExportOverlayState>>,
     plugins: Option<Res<'w, crate::native_plugins::management::PluginManagerState>>,
     about: Option<Res<'w, AboutState>>,
@@ -516,7 +515,6 @@ impl PageOverlays<'_> {
             || self.model.as_ref().is_some_and(|model| model.modal)
             || self.overlay.as_ref().is_some_and(|overlay| overlay.active)
             || self.close.as_ref().is_some_and(|close| close.captures_input())
-            || self.log.as_ref().is_some_and(|log| log.captures_input())
             || self.export.as_ref().is_some_and(|export| export.captures_input())
             || self.plugins.as_ref().is_some_and(|plugins| plugins.captures_input())
             || self.about.as_ref().is_some_and(|about| about.captures_input())
@@ -587,6 +585,7 @@ pub(super) fn scroll(
     mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
     state: Res<Presentation>,
     overlays: PageOverlays,
+    panels: WorkbenchFloatingPanels,
     mut pages: Query<(
         &PageNode,
         &RelativeCursorPosition,
@@ -602,8 +601,8 @@ pub(super) fn scroll(
             MouseScrollUnit::Pixel => (lines, pixels + event.y),
         },
     );
-    // 只推进正文自己的读取游标；浮层及其关闭释放帧拥有滚轮，日志仍由原读取器独立滚动。
-    if overlays.captures_input() {
+    // 消费本帧滚轮后才判定归属；鼠标在实际浮层内时只滚动上层正文。
+    if overlays.captures_input() || panels.hovered().is_some() {
         return;
     }
     for (page, cursor, node, mut offset) in &mut pages {
@@ -871,10 +870,10 @@ mod tests {
     }
 
     #[test]
-    fn production_log_scroll_and_escape_release_do_not_scroll_the_workspace_below() {
-        use crate::project_log::{LogDecoder, LogSource, ProjectLogChannel, ProjectLogPlugin, ProjectLogState};
+    fn production_log_only_captures_scroll_inside_the_floating_panel() {
+        use crate::project_log::{LogDecoder, LogSource, ProjectLogChannel, ProjectLogPlugin};
         use bevy::ui_widgets::{ControlOrientation, Scrollbar};
-        use feathrise_editor_map::workbench::{WorkbenchHeader, WorkbenchProjectLogButton};
+        use feathrise_editor_map::workbench::{WorkbenchFloatingPanel, WorkbenchHeader, WorkbenchProjectLogButton};
 
         let (mut app, body) = scroll_app(Page::Start);
         app.add_plugins((MinimalPlugins, AssetPlugin {
@@ -882,7 +881,8 @@ mod tests {
             watch_for_changes_override: Some(false), ..default()
         }, bevy::text::TextPlugin))
             .init_resource::<InputFocus>()
-            .init_resource::<ButtonInput<KeyCode>>();
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>();
         let root = std::env::temp_dir().join("workspace-log-scroll-no-project-created");
         let project = crate::project::Project {
             id: "workspace-log-scroll".into(), name: "工作区日志滚轮回归".into(),
@@ -919,21 +919,28 @@ mod tests {
             feathrise_editor_ui::EditorButtonClick::triggered())).id();
         world.run_schedule(Update);
         world.despawn(toggle);
-        assert!(world.resource::<ProjectLogState>().captures_input());
+        let panel = world.query_filtered::<Entity, With<WorkbenchFloatingPanel>>().single(world).unwrap();
+        assert_eq!(world.get::<Node>(panel).unwrap().display, Display::Flex);
+        world.entity_mut(panel).insert((ComputedNode { size: Vec2::splat(120.), ..default() }, InheritedVisibility::VISIBLE));
+
         let before = world.get::<ScrollPosition>(pane).unwrap().y;
+        scroll_frame(&mut app, -1., MouseScrollUnit::Line);
+        assert_eq!(app.world().get::<ScrollPosition>(body).unwrap().y, 72., "浮窗外可继续滚动工作区");
+        assert_eq!(app.world().get::<ScrollPosition>(pane).unwrap().y, before);
+        app.world_mut().get_mut::<RelativeCursorPosition>(panel).unwrap().cursor_over = true;
         scroll_frame(&mut app, 1., MouseScrollUnit::Line);
         assert!(app.world().get::<ScrollPosition>(pane).unwrap().y < before, "日志自己的生产滚轮仍应有效");
-        assert_eq!(app.world().get::<ScrollPosition>(body).unwrap().y, 48.);
+        assert_eq!(app.world().get::<ScrollPosition>(body).unwrap().y, 72.);
         app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Escape);
         scroll_frame(&mut app, -1., MouseScrollUnit::Line);
-        assert!(app.world().resource::<ProjectLogState>().captures_input(), "关闭当帧仍归日志");
-        assert_eq!(app.world().get::<ScrollPosition>(body).unwrap().y, 48.);
+        assert_eq!(app.world().get::<Node>(panel).unwrap().display, Display::None);
+        assert_eq!(app.world().get::<ScrollPosition>(body).unwrap().y, 72., "关闭当帧仍归已绘制的浮窗");
+        app.world_mut().get_mut::<ComputedNode>(panel).unwrap().size = Vec2::ZERO;
         app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear();
         app.world_mut().run_schedule(Update);
-        assert!(!app.world().resource::<ProjectLogState>().captures_input());
-        assert_eq!(app.world().get::<ScrollPosition>(body).unwrap().y, 48., "释放后不能重放日志旧滚轮");
+        assert_eq!(app.world().get::<ScrollPosition>(body).unwrap().y, 72., "释放后不能重放日志旧滚轮");
         scroll_frame(&mut app, -1., MouseScrollUnit::Line);
-        assert_eq!(app.world().get::<ScrollPosition>(body).unwrap().y, 72.);
+        assert_eq!(app.world().get::<ScrollPosition>(body).unwrap().y, 96.);
     }
 
     #[test]

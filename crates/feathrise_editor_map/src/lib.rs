@@ -192,6 +192,10 @@ impl Plugin for MapEditorPlugin {
             .init_resource::<MapEditorLayoutState>() // 首选宽度和显隐持久化，拖动与专注模式留在本进程。
             .init_resource::<BrushNumericInputState>() // 三个笔刷字段冻结raw起点并隔离模态/外部换代后的迟到Changed。
             .init_resource::<MapEditorNumericScrubMouseGuard>() // 拖动结束后延迟到三键全松后的静默帧再归还鼠标。
+            .add_systems(
+                PreUpdate,
+                ui::numeric_scrub_mouse_guard::track_floating_panel_pointer.after(bevy::ui::ui_focus_system),
+            )
             .init_resource::<EditorAssetCatalog>()
             .init_resource::<MapCreationTask>()
             .init_resource::<MapDeletionTask>() // 删除确认、切图等待与目录移动保持单一事务。

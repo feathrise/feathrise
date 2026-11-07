@@ -15,7 +15,7 @@ pub(crate) mod validation;
 #[path = "diagnostics_ui/tests.rs"]
 mod tests;
 
-pub(crate) use resources::DiagnosticsOverlayState;
+use resources::DiagnosticsOverlayState;
 use bevy::prelude::*;
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]

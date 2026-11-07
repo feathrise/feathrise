@@ -17,7 +17,6 @@ pub(super) fn open(world: &mut World, mut requests: Local<MessageCursor<OpenExpo
 pub(in crate::project_export) fn modal_blocked(world: &World) -> bool {
     world.get_resource::<crate::native_project_close::NativeProjectCloseState>().is_some_and(|close| close.captures_input())
         || world.get_resource::<crate::native_plugins::management::PluginManagerState>().is_some_and(|plugins|plugins.captures_input())
-        || world.get_resource::<crate::project_log::ProjectLogState>().is_some_and(|logs|logs.captures_input())
         || world.get_resource::<crate::workspace_ui::AboutState>().is_some_and(|about|about.captures_input())
 }
 

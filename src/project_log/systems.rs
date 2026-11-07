@@ -6,7 +6,7 @@ use bevy::{
     ui::RelativeCursorPosition, window::PrimaryWindow,
     text::{EditableText, FontCx, LayoutCx, LineBreak, TextLayoutInfo},
 };
-use feathrise_editor_map::workbench::WorkbenchProjectLogButton;
+use feathrise_editor_map::workbench::{WorkbenchFloatingPanels, WorkbenchHostPageState, WorkbenchProjectLogButton};
 use feathrise_editor_ui::EditorButtonClick;
 use std::sync::atomic::Ordering;
 
@@ -30,28 +30,40 @@ pub(super) fn control(
     channel: Option<Res<ProjectLogChannel>>,
     toggles: Query<&EditorButtonClick, With<WorkbenchProjectLogButton>>,
     buttons: Query<(&LogAction, &EditorButtonClick)>,
-    keys: Res<ButtonInput<KeyCode>>,
+    input: (ResMut<ButtonInput<KeyCode>>, Res<ButtonInput<MouseButton>>),
     close: Option<Res<crate::native_project_close::NativeProjectCloseState>>,
     export: Option<Res<crate::project_export::ui::ExportOverlayState>>,
-    plugins: Option<Res<crate::native_plugins::management::PluginManagerState>>,
+    blockers: (
+        Option<Res<crate::native_plugins::management::PluginManagerState>>,
+        Option<Res<crate::workspace_ui::AboutState>>,
+        Option<Res<WorkbenchHostPageState>>,
+        Option<Res<feathrise_editor_core::EditorHostOverlay>>,
+    ),
     mut focus: ResMut<InputFocus>,
     mut wheels: MessageReader<MouseWheel>,
     mut panes: Query<(&RelativeCursorPosition, &ComputedNode, &mut ScrollPosition), With<LogScroll>>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    mut was_open: Local<bool>,
-    bodies: Query<Entity, With<LogBody>>,
+    panels: WorkbenchFloatingPanels,
+    overlays: Query<(), With<LogOverlay>>,
+    bodies: Query<(), With<LogBody>>,
     mut thumbs: Query<&mut bevy::ui_widgets::ScrollbarDragState, With<LogScrollThumb>>,
 ) {
+    let (mut keys, mouse) = input;
     let previous = (state.open, state.follow, state.wrap, state.scroll_back, state.visible_rows);
     let close_active = close.is_some_and(|close| close.captures_input())
         || export.is_some_and(|export| export.captures_input())
-        || plugins.is_some_and(|plugins| plugins.captures_input());
+        || blockers.0.is_some_and(|plugins| plugins.captures_input())
+        || blockers.1.is_some_and(|about| about.captures_input())
+        || blockers.2.is_some_and(|page| page.settings_open);
+    let focused = !windows.single().is_ok_and(|window| !window.focused);
+    let hovered = panels.hovered().is_some_and(|entity| overlays.contains(entity))
+        && !blockers.3.is_some_and(|overlay| overlay.active);
+    let body_focused = focus.get().is_some_and(|entity| bodies.contains(entity));
     if close_active {
         state.open = false; // 原工程关闭确认优先，日志不能挡住保存/放弃/取消。
     } else {
         if toggles.iter().any(EditorButtonClick::is_clicked) {
             state.open = !state.open;
-            if state.open { focus.clear(); }
         }
         if state.open {
             for (action, click) in &buttons {
@@ -78,17 +90,20 @@ pub(super) fn control(
                     LogAction::CopyAll => state.copy_all = true,
                 }
             }
-            if keys.just_pressed(KeyCode::Escape) { state.open = false; }
+            if focused && (body_focused || (hovered && focus.get().is_none()))
+                && keys.clear_just_pressed(KeyCode::Escape) {
+                state.open = false;
+            }
         }
     }
-    // 关闭和释放帧继续经过原宿主输入门，Esc、点击和滚轮不能落到地图工具。
-    state.captured = state.open || *was_open;
-    *was_open = state.open;
-    let focused = !windows.single().is_ok_and(|window| !window.focused);
     if !state.open || !focused {
         for mut thumb in &mut thumbs { thumb.dragging = false; }
-        if !state.open && focus.get().is_some_and(|entity| bodies.contains(entity)) { focus.clear(); }
     }
+    // 正文只在实际获焦时持有快捷键。浮窗外的新点击及时归还键盘给工作台。
+    if body_focused && (!state.open || !focused || (!hovered && mouse.get_just_pressed().next().is_some())) {
+        focus.clear();
+    }
+    state.keyboard_owned = state.open && focused && focus.get().is_some_and(|entity| bodies.contains(entity));
     // 滚动条直接修改原ScrollPosition；将真实位移采用到虚拟窗口，而不是另造一套拖动命中。
     if state.open {
         for (_, node, scroll) in &panes {
@@ -104,7 +119,7 @@ pub(super) fn control(
         }
     }
     for wheel in wheels.read() {
-        if !state.open || !focused { continue; }
+        if !state.open || !hovered { continue; }
         for (cursor, node, mut scroll) in &mut panes {
             if !cursor.cursor_over() || node.is_empty() { continue; }
             let multiplier = if wheel.unit == MouseScrollUnit::Line { 3. } else { 1. / LINE_HEIGHT };
@@ -114,16 +129,15 @@ pub(super) fn control(
             scroll.x = if state.wrap { 0. } else { (scroll.x - wheel.x * multiplier * LINE_HEIGHT).max(0.) };
         }
     }
-    if state.open {
-        if focused {
-            if keys.just_pressed(KeyCode::PageUp) { state.scroll_back = state.scroll_back.saturating_add(state.visible_rows); state.follow = false; }
-            if keys.just_pressed(KeyCode::PageDown) { state.scroll_back = state.scroll_back.saturating_sub(state.visible_rows); state.follow = state.scroll_back == 0; }
-            if keys.just_pressed(KeyCode::Home) { state.scroll_back = state.display_row_count(); state.follow = false; }
-            if keys.just_pressed(KeyCode::End) { state.scroll_back = 0; state.follow = true; }
-            if (keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight)) && keys.just_pressed(KeyCode::KeyC) {
-                state.copy_selection = true;
-            }
-        }
+    if state.keyboard_owned || (state.open && hovered && focus.get().is_none()) {
+        if keys.clear_just_pressed(KeyCode::PageUp) { state.scroll_back = state.scroll_back.saturating_add(state.visible_rows); state.follow = false; }
+        if keys.clear_just_pressed(KeyCode::PageDown) { state.scroll_back = state.scroll_back.saturating_sub(state.visible_rows); state.follow = state.scroll_back == 0; }
+        if keys.clear_just_pressed(KeyCode::Home) { state.scroll_back = state.display_row_count(); state.follow = false; }
+        if keys.clear_just_pressed(KeyCode::End) { state.scroll_back = 0; state.follow = true; }
+    }
+    if state.keyboard_owned && (keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight))
+        && keys.just_pressed(KeyCode::KeyC) {
+        state.copy_selection = true;
     }
     state.clamp_scroll();
     if state.open {

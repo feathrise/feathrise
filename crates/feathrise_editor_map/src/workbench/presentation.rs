@@ -1,12 +1,38 @@
 //! 原工作台的宿主快照采用及真实视口测量；只更新小型状态和固定实体，不复制作者算法。
-use super::{WorkbenchModel, WorkbenchProbe};
+use super::{WorkbenchFloatingPanel, WorkbenchModel, WorkbenchProbe};
 use crate::ui::vegetation_preset_editor::{PresetWorkspaceEditorPage, PresetWorkspaceMapPage};
 use crate::{
     components::*,
     resources::{MapBrowserState, MapEditorState},
     types::MapBrowserItem,
 };
-use bevy::{prelude::*, ui::InteractionDisabled};
+use bevy::{
+    ecs::system::SystemParam,
+    prelude::*,
+    ui::{InteractionDisabled, RelativeCursorPosition},
+    window::PrimaryWindow,
+};
+
+/// 只检查宿主登记的固定面板根，重叠时以实际绘制层级决定滚轮归属。
+#[derive(SystemParam)]
+pub struct WorkbenchFloatingPanels<'w, 's> {
+    panels: Query<'w, 's,
+        (Entity, &'static RelativeCursorPosition, &'static ComputedNode, &'static InheritedVisibility, &'static GlobalZIndex),
+        Or<(With<WorkbenchFloatingPanel>, With<crate::ui::status_bar::StatusPopup>, With<crate::ui::context_help::ContextHelpPopup>)>,
+    >,
+    windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
+}
+
+impl WorkbenchFloatingPanels<'_, '_> {
+    pub fn hovered(&self) -> Option<Entity> {
+        if self.windows.single().is_ok_and(|window| !window.focused) { return None; }
+        // 以已完成布局的画面为准，关闭指令发出后，同帧滚轮仍留给原面板。
+        self.panels.iter()
+            .filter(|(_, cursor, node, visible, _)| visible.get() && !node.is_empty() && cursor.cursor_over())
+            .max_by_key(|(_, _, _, _, layer)| layer.0)
+            .map(|(entity, _, _, _, _)| entity)
+    }
+}
 
 pub(super) fn adopt_model(
     model: Res<WorkbenchModel>,

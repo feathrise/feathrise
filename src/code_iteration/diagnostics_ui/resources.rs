@@ -1,4 +1,4 @@
-//! 浮窗输入捕获与可见窗口状态独立于后台编译；关闭释放帧继续通过宿主原输入门。
+//! 可见诊断行的窗口绑定独立于后台编译修订。
 
 use bevy::prelude::*;
 
@@ -8,14 +8,8 @@ pub(super) const ROW_POOL: usize = 24;
 
 #[derive(Resource, Default)]
 pub(crate) struct DiagnosticsOverlayState {
-    pub(super) was_open: bool,
-    pub(super) captured: bool,
     pub(super) revision: Option<u64>,
     pub(super) first: usize,
     pub(super) scroll: Vec2,
     pub(super) window_revision: u64,
-}
-
-impl DiagnosticsOverlayState {
-    pub(crate) fn captures_input(&self) -> bool { self.captured }
 }

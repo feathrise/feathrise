@@ -1,4 +1,4 @@
-//! 诊断行使用真实源位置和释放脉冲；验证滚动换绑拒收以及关闭帧仍占有原输入门。
+//! 诊断行使用真实源位置和释放脉冲；验证滚动换绑拒收、窗口外键盘归属和布局。
 
 use super::{components::DiagnosticRow, resources::DiagnosticsOverlayState, systems};
 use super::super::{resources::CodeIterationState, types::CodeIterationPhase};
@@ -22,7 +22,7 @@ fn state() -> CodeIterationState {
 
 fn row() -> DiagnosticRow { DiagnosticRow { slot: 0, index: Some(0), revision: 7, window_revision: 3 } }
 fn view() -> DiagnosticsOverlayState {
-    DiagnosticsOverlayState { was_open: true, captured: false, revision: Some(7), first: 0,
+    DiagnosticsOverlayState { revision: Some(7), first: 0,
         scroll: Vec2::ZERO, window_revision: 3 }
 }
 
@@ -37,15 +37,19 @@ fn diagnostic_rows_reject_old_result_revision_or_any_unadopted_scroll() {
 }
 
 #[test]
-fn clicking_real_diagnostic_location_closes_dialog_and_keeps_release_frame_captured() {
+fn clicking_real_diagnostic_location_closes_panel_and_dispatches_once() {
     let mut app = App::new();
     app.insert_resource(state()).insert_resource(view()).init_resource::<InputFocus>()
         .init_resource::<ButtonInput<KeyCode>>().add_message::<MouseWheel>()
         .add_message::<OpenProjectSourceLocation>().add_systems(Update, systems::control);
+    app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Escape);
+    app.update();
+    assert!(app.world().resource::<CodeIterationState>().diagnostics_open, "浮窗外的 Esc 仍归工作台");
+    assert!(app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Escape));
+
     app.world_mut().spawn((row(), feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert!(!app.world().resource::<CodeIterationState>().diagnostics_open);
-    assert!(app.world().resource::<DiagnosticsOverlayState>().captures_input());
     let messages = app.world().resource::<Messages<OpenProjectSourceLocation>>();
     let mut cursor = bevy::ecs::message::MessageCursor::default();
     let requests: Vec<_> = cursor.read(messages).collect();
@@ -53,7 +57,7 @@ fn clicking_real_diagnostic_location_closes_dialog_and_keeps_release_frame_captu
     assert_eq!(requests[0].path, std::path::PathBuf::from("src/main.rs"));
     assert_eq!((requests[0].line, requests[0].column, requests[0].context), (12, 8, 0));
     app.update();
-    assert!(!app.world().resource::<DiagnosticsOverlayState>().captures_input());
+    assert_eq!(cursor.read(app.world().resource::<Messages<OpenProjectSourceLocation>>()).count(), 0);
 }
 
 #[test]

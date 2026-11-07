@@ -262,6 +262,9 @@ fn drag_scrollbar(
 }
 
 fn key(app: &mut App, window: Entity, code: KeyCode, logical: Key) {
+    // 先让日志获得正文焦点，再走原生键盘消息；工作台在浮窗外也可接收同一按键。
+    let body = entity::<LogBody>(app);
+    app.world_mut().resource_mut::<InputFocus>().set(body, bevy::input_focus::FocusCause::Pressed);
     // 经原生键盘消息更新ButtonInput，不能在InputPlugin清理前手工设置just_pressed。
     for state in [ButtonState::Pressed, ButtonState::Released] {
         app.world_mut().write_message(KeyboardInput {
@@ -425,7 +428,7 @@ fn native_pointer_selects_real_chinese_glyphs_and_close_releases_focus_and_drag(
     key(&mut app, window, KeyCode::Escape, Key::Escape);
     settle(&mut app);
     assert!(!app.world().resource::<ProjectLogState>().open);
-    assert!(!app.world().resource::<ProjectLogState>().captures_input());
+    assert!(!app.world().resource::<ProjectLogState>().owns_keyboard());
     assert_ne!(app.world().resource::<InputFocus>().get(), Some(body));
     assert!(
         !app.world()

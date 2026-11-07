@@ -92,7 +92,6 @@ pub(super) fn input(
     blockers: (
         Option<Res<crate::native_project_close::NativeProjectCloseState>>,
         Option<Res<crate::native_project_menu::NativeProjectMenuState>>,
-        Option<Res<crate::project_log::ProjectLogState>>,
         Option<Res<crate::project_export::ui::ExportOverlayState>>,
         Option<Res<crate::native_plugins::management::PluginManagerState>>,
     ),
@@ -105,9 +104,8 @@ pub(super) fn input(
     let blocked = windows.iter().any(|window| !window.focused)
         || blockers.0.is_some_and(|close| close.captures_input())
         || blockers.1.is_some_and(|menu| menu.is_open())
-        || blockers.2.is_some_and(|logs| logs.captures_input())
-        || blockers.3.is_some_and(|export| export.captures_input())
-        || blockers.4.is_some_and(|plugins| plugins.captures_input());
+        || blockers.2.is_some_and(|export| export.captures_input())
+        || blockers.3.is_some_and(|plugins| plugins.captures_input());
     if blocked {
         state.open = false;
     } else {

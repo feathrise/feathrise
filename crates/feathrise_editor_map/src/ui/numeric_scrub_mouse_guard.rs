@@ -7,6 +7,20 @@ use super::asset_context_menu::AssetContextMenuState; // 菜单活动和关闭�
 use super::asset_preview::AssetPreviewNavigation;
 use super::water_preset_editor::WaterPresetLivePreviewNavigation; // 水体样品拖出画布后仍独占当前手势。
 use crate::resources::{MapBrowserDragState, MapEditorLayoutState, MapEditorNumericScrubMouseGuard, MapEditorState}; // 所有作者鼠标手势共享静默帧释放门。
+use crate::workbench::{WorkbenchFloatingPanel, WorkbenchFloatingPanels};
+
+/// 与详情一致，原始鼠标和滚轮读者运行前先认领上一帧实际呈现的浮层区域。
+pub(crate) fn track_floating_panel_pointer(
+    panels: WorkbenchFloatingPanels,
+    host_panels: Query<(), With<WorkbenchFloatingPanel>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut guard: ResMut<MapEditorNumericScrubMouseGuard>,
+) {
+    guard.floating_panel_hovered = panels.hovered().is_some_and(|entity| host_panels.contains(entity));
+    if guard.floating_panel_hovered && mouse.get_just_pressed().next().is_some() {
+        guard.advance(true, false, false); // 只为从面板开始的手势延续到松键和静默帧。
+    }
+}
 
 /// 在其余地图编辑器输入系统之前推进公共数值拖动鼠标门。
 pub(crate) fn update_map_editor_numeric_scrub_mouse_guard(
@@ -117,6 +131,47 @@ mod tests {
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
         app.update();
         assert!(!app.world().resource::<MapEditorNumericScrubMouseGuard>().blocked());
+    }
+
+    #[test]
+    fn floating_panel_only_owns_hover_and_the_captured_mouse_release() {
+        use crate::workbench::WorkbenchFloatingPanel;
+        use bevy::ui::RelativeCursorPosition;
+
+        let mut app = App::new();
+        app.init_resource::<ActiveNumericInputScrub>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<MapEditorNumericScrubMouseGuard>()
+            .add_systems(PreUpdate, track_floating_panel_pointer)
+            .add_systems(Update, update_map_editor_numeric_scrub_mouse_guard);
+        let panel = app.world_mut().spawn((WorkbenchFloatingPanel, GlobalZIndex(426),
+            ComputedNode { size: Vec2::splat(120.), ..default() }, InheritedVisibility::VISIBLE)).id();
+        let blocked = |app: &App| app.world().resource::<MapEditorNumericScrubMouseGuard>().blocked();
+
+        app.update();
+        assert!(!blocked(&app));
+        app.world_mut().get_mut::<RelativeCursorPosition>(panel).unwrap().cursor_over = true;
+        app.update();
+        assert!(blocked(&app), "浮窗内滚轮不得落到地图");
+
+        app.world_mut().get_mut::<RelativeCursorPosition>(panel).unwrap().cursor_over = false;
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        app.update();
+        assert!(!blocked(&app), "离开浮窗同帧开始的外部点击应正常受理");
+
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().reset_all();
+        app.world_mut().get_mut::<RelativeCursorPosition>(panel).unwrap().cursor_over = true;
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        app.update();
+        app.world_mut().get_mut::<RelativeCursorPosition>(panel).unwrap().cursor_over = false;
+        app.update();
+        assert!(blocked(&app), "拖选越出面板仍保持鼠标所有权");
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+        app.update();
+        assert!(blocked(&app), "释放帧不得落到地图");
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
+        app.update();
+        assert!(!blocked(&app), "静默帧后恢复浮窗外的地图输入");
     }
 
     #[test]

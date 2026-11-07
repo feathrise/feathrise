@@ -150,7 +150,7 @@ pub(super) fn apply(
         || world.get_resource::<feathrise_editor_core::EditorHostOverlay>().is_some_and(|overlay| overlay.active)
         || closing_now;
     let state = world.resource::<super::CodeIterationState>();
-    if blocked || state.diagnostics_open || state.applying.is_some() { return; }
+    if blocked || state.applying.is_some() { return; }
     let Some(version) = state.pending.as_ref().filter(|version| version.identity.generation == request.generation).cloned() else { return; };
     let current = world.non_send::<CodeIterationRuntime>().backend.as_ref().is_some_and(|backend| backend.is_current(&version.identity));
     let profile = world.resource::<ProjectLaunchSettings>().profile;

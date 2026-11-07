@@ -126,7 +126,7 @@ pub(crate) struct ProjectLogState {
     pub(super) trimmed: u64,
     pub(super) dropped: u64,
     pub(super) open: bool,
-    pub(super) captured: bool,
+    pub(super) keyboard_owned: bool,
     pub(super) follow: bool,
     /// 默认按视口软换行；复制与选区身份始终使用未折行的原始UTF-8正文。
     pub(super) wrap: bool,
@@ -155,7 +155,7 @@ impl ProjectLogState {
             tasks: channel.tasks.clone(),
             current_tasks: std::array::from_fn(|index| channel.tasks[index].load(Ordering::Acquire)),
             lines: VecDeque::new(), bytes: 0, trimmed: 0, dropped: 0, open: false,
-            captured: false, follow: true, wrap: true, wrap_layout: LogWrapLayout::default(),
+            keyboard_owned: false, follow: true, wrap: true, wrap_layout: LogWrapLayout::default(),
             content_revision: 0, clear_revision: 0, scroll_back: 0, visible_rows: 20, dirty: true,
             tails: std::array::from_fn(|_| None), last_line_sequences: [0; TAIL_SLOTS],
             next_offset: 0, selection: None, select_all: false,
@@ -164,7 +164,7 @@ impl ProjectLogState {
         }
     }
 
-    pub(crate) fn captures_input(&self) -> bool { self.open || self.captured }
+    pub(crate) fn owns_keyboard(&self) -> bool { self.keyboard_owned }
 
     /// 只读本轮任务已经进入工程日志的命令，避免用菜单选择代替真实构建证据。
     #[cfg(all(windows, feature = "validation"))]

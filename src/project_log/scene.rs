@@ -3,7 +3,7 @@
 use super::{components::*, resources::LINE_HEIGHT};
 use bevy::{picking::hover::Hovered, prelude::*, text::{EditableText, FontHinting, LineBreak, LineHeight, TextCursorStyle},
     ui::{FocusPolicy, RelativeCursorPosition}, ui_widgets::{ControlOrientation, Scrollbar, ScrollbarThumb}};
-use feathrise_editor_map::workbench::{WorkbenchHeader, WorkbenchProjectLogButton};
+use feathrise_editor_map::workbench::{WorkbenchFloatingPanel, WorkbenchHeader, WorkbenchProjectLogButton};
 use feathrise_editor_ui::colors as c;
 
 pub(super) const TERMINAL_BG: Color = Color::srgb(0.118, 0.118, 0.118);
@@ -16,7 +16,7 @@ pub(super) fn tool_button_colors(selected: bool) -> feathrise_editor_ui::ButtonC
 
 pub(super) fn mount(
     mut commands: Commands,
-    headers: Query<Entity, Added<WorkbenchHeader>>,
+    headers: Query<(Entity, Option<&ChildOf>), Added<WorkbenchHeader>>,
     mut buttons: Query<&mut Node, With<WorkbenchProjectLogButton>>,
     assets: Res<AssetServer>,
     mut fonts: ResMut<Assets<Font>>,
@@ -32,27 +32,26 @@ pub(super) fn mount(
     let terminal_font = terminal_font.get_or_insert_with(|| fonts.add(
         Font::from_bytes(bevy::text::DEFAULT_FONT_DATA.to_vec()),
     )).clone();
-    for header in &headers {
-        commands.entity(header).with_children(|header| {
-            header.spawn((
-                LogOverlay,
-                GlobalZIndex(4300),
+    for (header, parent) in &headers {
+        let root = parent.map_or(header, ChildOf::parent);
+        commands.entity(root).with_children(|root| {
+            root.spawn((
+                LogOverlay, WorkbenchFloatingPanel,
+                GlobalZIndex(423), // 位于工作区之上，详情、右键菜单与管理模态仍可显示在前。
                 FocusPolicy::Block,
                 Interaction::None,
                 Node {
                     display: Display::None, position_type: PositionType::Absolute,
-                    left: px(0), top: px(0), width: Val::Vw(100.), height: Val::Vh(100.),
-                    align_items: AlignItems::Center, justify_content: JustifyContent::Center,
+                    // 以工作台根布局，留出底栏和部分视口，整块范围恰好等于日志面板。
+                    right: px(8), bottom: px(32), width: percent(86.), max_width: px(1400), height: percent(60.),
                     ..default()
                 },
-                BackgroundColor(c::DIALOG_BACKDROP),
             )).with_children(|overlay| {
                 overlay.spawn((
                     LogPanel, FocusPolicy::Block,
                     // 外壳、标题和底栏复用编辑器UI库，终端字形只是正文的一种内容。
                     Node {
-                        width: Val::Vw(92.), max_width: px(1400), height: Val::Vh(76.),
-                        max_height: Val::Vh(90.), min_width: px(0), min_height: px(0),
+                        width: percent(100), height: percent(100), min_width: px(0), min_height: px(0),
                         flex_direction: FlexDirection::Column, overflow: Overflow::clip(),
                         ..feathrise_editor_ui::dialog_panel_node()
                     },

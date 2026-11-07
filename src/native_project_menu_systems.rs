@@ -32,16 +32,16 @@ pub(super) fn handle(
     mut close: ResMut<Messages<WindowCloseRequested>>,
     mut close_cursor: Local<MessageCursor<WindowCloseRequested>>,
     project_close: Res<crate::native_project_close::NativeProjectCloseState>,
-    mut overlays: (
+    overlays: (
         Option<Res<crate::project_log::ProjectLogState>>,
         Option<Res<crate::viewport_mode::BuildProfileMenuState>>,
         Option<Res<crate::window_chrome::ChromeState>>,
-        Option<Res<crate::code_iteration::diagnostics_ui::DiagnosticsOverlayState>>,
         Option<ResMut<crate::native_plugins::management::PluginManagerState>>,
         Option<Res<crate::project_export::ui::ExportOverlayState>>,
         Option<Res<crate::workspace_ui::AboutState>>,
     ),
 ) {
+    let (logs, profiles, chrome, mut plugins, export, about) = overlays;
     let was_open = state.open;
     if state.pending_close
         && (mouse.get_just_pressed().next().is_some() || keys.get_just_pressed().next().is_some())
@@ -52,17 +52,17 @@ pub(super) fn handle(
         .iter()
         .find_map(|(action, click)| click.is_clicked().then_some(*action))
         .filter(|_| !project_close.captures_input()
-            && !overlays.4.as_ref().is_some_and(|plugins| plugins.captures_input())
-            && !overlays.5.as_ref().is_some_and(|export| export.captures_input())
-            && !overlays.6.as_ref().is_some_and(|about| about.captures_input()));
+            && !plugins.as_ref().is_some_and(|plugins| plugins.captures_input())
+            && !export.as_ref().is_some_and(|export| export.captures_input())
+            && !about.as_ref().is_some_and(|about| about.captures_input()));
     let mut captured = was_open || project_close.captures_input();
     if project_close.captures_input() {
         state.open = false;
         state.pending_close = false;
     }
-    if overlays.4.as_ref().is_some_and(|plugins| plugins.captures_input())
-        || overlays.5.as_ref().is_some_and(|export| export.captures_input())
-        || overlays.6.as_ref().is_some_and(|about| about.captures_input()) { state.open = false; }
+    if plugins.as_ref().is_some_and(|plugins| plugins.captures_input())
+        || export.as_ref().is_some_and(|export| export.captures_input())
+        || about.as_ref().is_some_and(|about| about.captures_input()) { state.open = false; }
     if take_menu_close(
         was_open && !project_close.captures_input(),
         windows.single().ok(),
@@ -103,9 +103,9 @@ pub(super) fn handle(
                 state.open = false;
                 feedback.1.write(crate::project_export::messages::OpenExportDialog);
             }
-            Some(ProjectAction::Plugins) if state.open && !state.saving() && overlays.4.is_some() => {
+            Some(ProjectAction::Plugins) if state.open && !state.saving() && plugins.is_some() => {
                 state.open = false;
-                let plugins = overlays.4.as_mut().expect("分支已检查管理器存在");
+                let plugins = plugins.as_mut().expect("分支已检查管理器存在");
                 plugins.open = true;
                 plugins.captured = true; // 菜单释放帧直接转交同一输入门，背景作者不能先收到点击。
                 focus.clear();
@@ -120,17 +120,16 @@ pub(super) fn handle(
     {
         state.open = false;
     }
-    captured |= state.open || overlays.0.is_some_and(|logs| logs.captures_input())
-        || overlays.1.is_some_and(|profiles| profiles.captures_input())
-        || overlays.2.is_some_and(|chrome| chrome.captures_input())
-        || overlays.3.is_some_and(|diagnostics| diagnostics.captures_input());
-    captured |= overlays.4.as_ref().is_some_and(|plugins| plugins.captures_input());
-    captured |= overlays.5.as_ref().is_some_and(|export| export.captures_input());
-    captured |= overlays.6.as_ref().is_some_and(|about| about.captures_input());
+    captured |= state.open || profiles.is_some_and(|profiles| profiles.captures_input())
+        || chrome.is_some_and(|chrome| chrome.captures_input())
+        || plugins.as_ref().is_some_and(|plugins| plugins.captures_input())
+        || export.is_some_and(|export| export.captures_input())
+        || about.is_some_and(|about| about.captures_input());
     if overlay.active != captured {
         overlay.active = captured;
     }
-    if captured {
+    // 日志正文获焦时只认领键盘，工程子视口与浮窗外的鼠标仍保持可用。
+    if captured || logs.is_some_and(|logs| logs.owns_keyboard()) {
         claim_keyboard(&mut keys, &mut text_guard);
     }
 }
