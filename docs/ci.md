@@ -8,9 +8,9 @@
 
 | 可覆盖变量 | 默认值 |
 | --- | --- |
-| `FEATHRISE_SDK_REPOSITORY` | `hwyrq/feathrise_runtime` |
+| `FEATHRISE_SDK_REPOSITORY` | `feathrise/feathrise_runtime` |
 | `FEATHRISE_SDK_REV` | `a476d2374cdc0383efe25129e0003c8fd2733f01` |
-| `FEATHRISE_PATCH_REPOSITORY` | `hwyrq/feathrise_patches` |
+| `FEATHRISE_PATCH_REPOSITORY` | `feathrise/feathrise_patches` |
 | `FEATHRISE_PATCH_REV` | `3c251d3530980b66e49b4748769db36ae9c6bd5a` |
 
 需要验证其他配套修订时，可在 GitHub 仓库的 **Settings → Secrets and variables → Actions → Variables** 设置对应变量；仓库值使用 `owner/repository`，修订必须为完整 40 位提交 ID。仓库和修订应配套调整，未设置或空值继续使用表中的公开默认值。

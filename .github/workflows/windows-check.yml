@@ -23,9 +23,9 @@ jobs:
         source: [source, registry]
         variant: [default, validation]
     env:
-      FEATHRISE_SDK_REPOSITORY: ${{ vars.FEATHRISE_SDK_REPOSITORY || 'hwyrq/feathrise_runtime' }}
+      FEATHRISE_SDK_REPOSITORY: ${{ vars.FEATHRISE_SDK_REPOSITORY || 'feathrise/feathrise_runtime' }}
       FEATHRISE_SDK_REV: ${{ vars.FEATHRISE_SDK_REV || 'a476d2374cdc0383efe25129e0003c8fd2733f01' }}
-      FEATHRISE_PATCH_REPOSITORY: ${{ vars.FEATHRISE_PATCH_REPOSITORY || 'hwyrq/feathrise_patches' }}
+      FEATHRISE_PATCH_REPOSITORY: ${{ vars.FEATHRISE_PATCH_REPOSITORY || 'feathrise/feathrise_patches' }}
       FEATHRISE_PATCH_REV: ${{ vars.FEATHRISE_PATCH_REV || '3c251d3530980b66e49b4748769db36ae9c6bd5a' }}
     steps:
       - name: Require the public patch repository and full revision

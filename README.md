@@ -24,7 +24,7 @@ SDK 由 crates.io 提供，八项渲染补丁由 Cargo 从固定 Git 提交取�
 [source]
 kind = "registry"
 version = "0.1.0"
-git = "https://github.com/hwyrq/feathrise_patches.git"
+git = "https://github.com/feathrise/feathrise_patches.git"
 rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a"
 ```
 
@@ -35,9 +35,9 @@ rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a"
 需要同时修改 SDK 时，将本仓库检出到 `feathrise/`，在其父目录执行：
 
 ```powershell
-git clone https://github.com/hwyrq/feathrise_runtime.git
+git clone https://github.com/feathrise/feathrise_runtime.git
 git -C feathrise_runtime checkout --detach 3dd0b6494a33da9f6851e0595dd1a36104f3beab
-git clone https://github.com/hwyrq/feathrise_patches.git
+git clone https://github.com/feathrise/feathrise_patches.git
 git -C feathrise_patches checkout --detach 3c251d3530980b66e49b4748769db36ae9c6bd5a
 ```
 

@@ -28,9 +28,9 @@ Feathrise 自有源码采用根目录 [MIT](LICENSE-MIT) 或 [Apache-2.0](LICENS
 
 ## 第三方组件
 
-- 默认中文字体通过 [feathrise_runtime](https://github.com/hwyrq/feathrise_runtime) 的 [feathrise_font](https://crates.io/crates/feathrise_font) 提供。字体为未修改的 Noto Sans CJK SC 可变字体，遵循 OFL-1.1；字体包的原 OFL 保留 Adobe 版权及 Reserved Font Name 声明。发行含该字体的编辑器时仍须附带这份许可。
+- 默认中文字体通过 [feathrise_runtime](https://github.com/feathrise/feathrise_runtime) 的 [feathrise_font](https://crates.io/crates/feathrise_font) 提供。字体为未修改的 Noto Sans CJK SC 可变字体，遵循 OFL-1.1；字体包的原 OFL 保留 Adobe 版权及 Reserved Font Name 声明。发行含该字体的编辑器时仍须附带这份许可。
 - 编辑器使用 Bevy、公共 SDK 及 Cargo 声明的其他依赖。Cargo 获取的依赖遵循各自原许可；源码使用与程序发行应按实际提供的组件保留对应声明和原文。
-- 修改版 Rust 依赖和 FidelityFX 原生补丁材料位于独立 [feathrise_patches](https://github.com/hwyrq/feathrise_patches/tree/3c251d3530980b66e49b4748769db36ae9c6bd5a) 仓，保留各组件原许可与修改说明。SDK 的 [第三方说明](https://github.com/hwyrq/feathrise_runtime/blob/a476d2374cdc0383efe25129e0003c8fd2733f01/THIRD_PARTY_NOTICES.md) 和 FSR 原生包锁定清单说明对应身份；使用原生包时，须保留其随包许可和修改说明。
+- 修改版 Rust 依赖和 FidelityFX 原生补丁材料位于独立 [feathrise_patches](https://github.com/feathrise/feathrise_patches/tree/3c251d3530980b66e49b4748769db36ae9c6bd5a) 仓，保留各组件原许可与修改说明。SDK 的 [第三方说明](https://github.com/feathrise/feathrise_runtime/blob/a476d2374cdc0383efe25129e0003c8fd2733f01/THIRD_PARTY_NOTICES.md) 和 FSR 原生包锁定清单说明对应身份；使用原生包时，须保留其随包许可和修改说明。
 - NVIDIA、Microsoft 等外部运行库按实际分发版本处理，Rust 封装的许可不覆盖这些厂商二进制。
 
 本仓不保存开发仓库的全特性依赖审计快照。发行维护流程会提供适用的许可原文及逐包归属表；源码授权和来源说明不代替最终二进制分发范围的核对。
