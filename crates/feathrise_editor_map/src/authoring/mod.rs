@@ -114,6 +114,8 @@ pub(crate) use edit::{
 }; // 传送目标改由UI双列表显式选择，名称修改可刷新未保存预览。
 #[cfg(test)]
 pub(crate) use edit::drive_undo_redo_to_completion;
+#[cfg(any(test, feature = "validation"))]
+pub(crate) use environment::commit_environment_change;
 pub(crate) use environment::{
     apply_environment_action, sync_editor_skybox_requests, sync_editor_weather_preview,
 }; // 同步天空请求和不持久化的F12天气画面覆盖，不修改地图气候身份。

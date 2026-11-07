@@ -47,7 +47,7 @@ const fn authored_sky_mode(mode: MapSkyMode) -> AuthoredSkyMode {
 }
 
 /// 消费右栏环境动作，把动态地图清单修改纳入统一撤销、脏状态和作者修订。
-pub(super) fn commit_environment_change(
+pub(crate) fn commit_environment_change(
     session: &mut EditorAuthoringSession, // 当前地图作者会话。
     editor: &mut MapEditorState,          // 统一脏状态和可见诊断。
     before: MapEnvironmentDescriptor,     // 操作开始前完整环境快照。

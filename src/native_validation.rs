@@ -22,6 +22,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub(crate) const CLOSE_MAP_MANIFEST_PATH: &str = "maps/M1-SAMPLE/map.map_manifest.json";
+pub(crate) const MAP_BEFORE_CLOSE_FILENAME: &str = "map-before-close.json";
+
 /// 同窗口验收复用相同中性资产，父级独占标记和新空骨架仍由夹具内部严格核验。
 pub(crate) fn prepare_workspace_fixture(root: &Path, label: &str) -> Result<(), String> {
     fixture::prepare(root, label)
@@ -204,6 +207,15 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                         return Err(format!("工程关闭流程缺少真实回执：{field}，{close}"));
                     }
                 }
+                let manifest = project.context.asset_roots[0].join(CLOSE_MAP_MANIFEST_PATH);
+                let saved: feathrise_map_content::MapManifestAsset = serde_json::from_slice(
+                    &fs::read(&manifest).map_err(|error| error.to_string())?,
+                ).map_err(|error| error.to_string())?;
+                if saved.environment.skybox_yaw_degrees != feathrise_editor_map::standalone::validation_fixture::CLOSE_MAP_SKYBOX_YAW
+                    || close["map_save_sequence_after"].as_u64().zip(close["map_save_sequence_before"].as_u64())
+                        .is_none_or(|(after, before)| after != before.wrapping_add(1)) {
+                    return Err("退出保存未完整写入界面标记已清零的地图环境草稿".into());
+                }
                 steps.push(json!({"stage":"project_close_cancel_failure_retry_and_save","passed":true,"report":close}));
                 saved_presets = Some(presets.clone());
                 let proof = &observed["author_save"];
@@ -218,7 +230,11 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                 {
                     return Err(format!("原作者真实编辑保存缺少完整成功回执：{proof}"));
                 }
-                let game = verify_game(root, &work.join("game-f12"))?;
+                let game = verify_game_with_prior_manifest(
+                    root,
+                    &work.join("game-f12"),
+                    Some(&output.join(MAP_BEFORE_CLOSE_FILENAME)),
+                )?;
                 if game["return_input"] != "official KeyboardInput F12 through exit_saved_play" {
                     return Err("工程运行未通过原F12返回处理器完成回程".into());
                 }
@@ -231,6 +247,10 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                     json!({"stage":"saved_game_in_separate_world","passed":true,"report":game}),
                 );
             } else if index == 2 {
+                if observed["current_author_document"]["skybox_yaw_degrees"]
+                    != json!(feathrise_editor_map::standalone::validation_fixture::CLOSE_MAP_SKYBOX_YAW) {
+                    return Err("重开原地图没有采用退出时保存的环境参数".into());
+                }
                 author_tools::verify_reopen(
                     &observed["current_author_document"],
                     &saved_edit.as_ref().ok_or("缺少A保存证据")?["author_tools"],
@@ -537,6 +557,14 @@ fn tail(mut file: File) -> Result<String, String> {
 
 /// 不以退出码代替内容证据；核对真实生产门、GPU回读和游戏读到的当前工程文件字节。
 fn verify_game(root: &Path, output: &Path) -> Result<Value, String> {
+    verify_game_with_prior_manifest(root, output, None)
+}
+
+fn verify_game_with_prior_manifest(
+    root: &Path,
+    output: &Path,
+    manifest_before_close: Option<&Path>,
+) -> Result<Value, String> {
     let report: Value = serde_json::from_slice(
         &fs::read(output.join("game.json")).map_err(|e| format!("运行就绪报告缺失：{e}"))?,
     )
@@ -564,6 +592,11 @@ fn verify_game(root: &Path, output: &Path) -> Result<Value, String> {
     if files.is_empty() || files.len() > 64 {
         return Err("工程源文件指纹集合为空或超出验收上限".into());
     }
+    if manifest_before_close.is_some()
+        && !files.iter().any(|file| file["path"] == CLOSE_MAP_MANIFEST_PATH)
+    {
+        return Err("退出前的工程运行缺少样例地图清单指纹".into());
+    }
     for file in files {
         let relative = Path::new(file["path"].as_str().ok_or("工程源文件路径缺失")?);
         if relative
@@ -572,8 +605,12 @@ fn verify_game(root: &Path, output: &Path) -> Result<Value, String> {
         {
             return Err("运行报告源文件路径无效".into());
         }
-        let bytes =
-            fs::read(project.context.asset_roots[0].join(relative)).map_err(|e| e.to_string())?;
+        // F12 已经返回，关闭验收随后又保存了一次地图。样例清单用关闭前的真实磁盘字节核对。
+        let source = match manifest_before_close {
+            Some(before) if relative == Path::new(CLOSE_MAP_MANIFEST_PATH) => before.to_path_buf(),
+            _ => project.context.asset_roots[0].join(relative),
+        };
+        let bytes = fs::read(source).map_err(|e| e.to_string())?;
         let hash: String = Sha256::digest(&bytes)
             .iter()
             .map(|byte| format!("{byte:02x}"))

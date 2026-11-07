@@ -472,7 +472,8 @@ pub(crate) fn start_draft_save(
             }
         }
     }
-    if !editor.dirty {
+    // 关闭队列按真实草稿责任排队。界面脏标记清除后，地图或全局待写数据仍须取得原保存回执。
+    if !editor.dirty && !session.has_map_data_changes() && !global_environment.dirty {
         editor.save_requested = false;
         editor.status = "当前地图没有未保存变更".to_owned();
         return; // 已通过实时采用预检的干净文档没有IO批次，不再捕获水文件交接表。

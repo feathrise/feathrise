@@ -34,6 +34,44 @@ struct FixtureInstalled;
 /// 固定文本只属于本轮自有验收工程，不参与游戏加载的地图/预设源。
 pub const CLOSE_DOCUMENT_PATH: &str = crate::ui::asset_preview::documents::validation::PATH;
 
+/// 实窗关闭回归先用原环境作者入口建立真实草稿，再模拟界面脏标记提前清零。
+pub const CLOSE_MAP_SKYBOX_YAW: f32 = 37.0;
+
+pub fn edit_close_map_with_stale_dirty_marker(world: &mut World) -> Result<u64, String> {
+    if !world.contains_resource::<FixtureInstalled>() {
+        return Err("地图保存验收未安装".into());
+    }
+    world.resource_scope(|world, mut session: Mut<EditorAuthoringSession>| {
+        let mut editor = world.resource_mut::<MapEditorState>();
+        let draft = session.draft.as_ref().filter(|draft| {
+            draft.map_id.as_str() == "M1-SAMPLE" && editor.selected_map_id.as_ref() == Some(&draft.map_id)
+        }).ok_or("地图关闭验收必须持有本轮样例草稿")?;
+        if editor.dirty || editor.save_requested || session.saving || session.has_map_data_changes() {
+            return Err("地图关闭验收要求先完成原地图保存".into());
+        }
+        let before = draft.manifest.environment.clone();
+        let mut after = before.clone();
+        after.skybox_yaw_degrees = CLOSE_MAP_SKYBOX_YAW;
+        after.validate()?;
+        crate::authoring::commit_environment_change(&mut session, &mut editor, before, after, "关闭验收环境草稿");
+        if !editor.dirty || !session.has_map_data_changes() {
+            return Err("原环境编辑没有生成待保存地图数据".into());
+        }
+        editor.dirty = false; // 仅注入截图中的脏标记分歧，仍由原保存系统写盘与产生成功回执。
+        Ok(session.successful_save_sequence)
+    })
+}
+
+pub fn close_map_save_sequence(world: &World, pending_data: bool) -> Option<u64> {
+    let editor = world.get_resource::<MapEditorState>()?;
+    let session = world.get_resource::<EditorAuthoringSession>()?;
+    let draft = session.draft.as_ref()?;
+    (draft.map_id.as_str() == "M1-SAMPLE" && editor.selected_map_id.as_ref() == Some(&draft.map_id)
+        && draft.manifest.environment.skybox_yaw_degrees == CLOSE_MAP_SKYBOX_YAW
+        && !editor.dirty && !editor.save_requested && !session.saving && session.has_map_data_changes() == pending_data)
+        .then_some(session.successful_save_sequence)
+}
+
 pub fn request_close_document(world: &mut World) -> Result<(), String> {
     if !world.contains_resource::<FixtureInstalled>() { return Err("普通文档验收未安装".into()); }
     crate::ui::asset_preview::documents::validation::open(world)
@@ -230,6 +268,7 @@ pub fn current_author_snapshot(world: &World) -> Option<serde_json::Value> {
     }
     Some(
         serde_json::json!({"map_id":draft.map_id.as_str(),"terrains":draft.manifest.terrains,
+        "skybox_yaw_degrees":draft.manifest.environment.skybox_yaw_degrees,
         "placements":draft.placements.placements,"surface":draft.surface,"vegetation":draft.vegetation,
         "water":draft.water,"focused_terrain":draft.terrain_documents.active.as_ref().map(|active|active.definition.id.as_str())}),
     )
