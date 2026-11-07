@@ -4,7 +4,7 @@
 
 Feathrise（羽立）把场景制作、工程预览和 Rust 开发放进同一个开源工作台，面向用 Bevy 构建 3D 工程的开发者和内容作者。
 
-[**下载 Windows 预览版**](https://github.com/feathrise/feathrise/releases) · [快速开始](#快速开始) · [使用说明](docs/使用说明.md)
+[**下载 Windows 预览版**](https://github.com/feathrise/feathrise/releases) · [快速开始](#快速开始) · [Bevy 版本](#bevy-版本对应表) · [使用说明](docs/使用说明.md)
 
 ![Feathrise 工作台中的河谷营地，中央视口显示山坡、河湾、松林与木桥](docs/media/editor-overview.webp)
 
@@ -44,6 +44,14 @@ Windows 单文件预览版编入 `raytracing`。DLSS 与 FSR 通过 Cargo 特性
 3. 保存场景，在「编辑器 3D」点击「启动」，用模板提供的自由相机查看场景。
 
 新建工程从空内容开始。首次获取工程依赖需要联网，编译工程需要 Rust/Cargo、MSVC 构建工具与 Windows SDK。
+
+## Bevy 版本对应表
+
+| Bevy 版本 | Feathrise 编辑器版本 | `feathrise_runtime` SDK |
+| --- | --- | --- |
+| `0.19.1` | [0.1.0-preview.2](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.2)、[0.1.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.1) | `0.1.0` |
+
+新建工程默认锁定表中的 Bevy 和 SDK 版本，并使用配套的 Git 补丁。已有工程的依赖版本以该工程的 `Cargo.toml` 和 `Cargo.lock` 为准。
 
 ## 从源码启动
 
