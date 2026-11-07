@@ -33,7 +33,8 @@ fn app() -> (App, [Entity; 3]) {
                     SnapField::Scale,
                 ] {
                     let (label, unit, min, max, step) = field.config();
-                    spawn_numeric_scrub_field(
+                    // 复用设置页的双语控件，覆盖实际吸附字段的数值输入协议。
+                    spawn_localized_numeric_scrub_field(
                         parent,
                         field,
                         default(),

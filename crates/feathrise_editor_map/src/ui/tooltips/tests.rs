@@ -14,6 +14,7 @@ use bevy::window::PrimaryWindow;
 use feathrise_editor_core::EditorSettings;
 use feathrise_editor_core::EditorKeyBinding;
 use feathrise_editor_core::EditorShortcutAction;
+use feathrise_editor_ui::localization::EditorLocale;
 use std::time::Duration;
 
 fn app() -> (App, Entity, Entity) {
@@ -25,6 +26,8 @@ fn app() -> (App, Entity, Entity) {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<MapEditorNumericScrubMouseGuard>()
         .init_resource::<MapEditorSettingsState>()
+        // 中文文案断言使用明确的语言，与系统语言无关。
+        .insert_resource(EditorLocale::Chinese)
         .insert_resource(State::new(feathrise_scene_core::state::ScenePhase::Active))
         .insert_resource(feathrise_map_content::ActiveDynamicMap { map_id: Some(draft.map_id.clone()) })
         .insert_resource(MapEditorState {
@@ -100,8 +103,9 @@ fn text(app: &mut App, kind: TooltipText) -> String {
 #[test]
 fn tooltip_keys_follow_custom_binding_and_unbound_without_falling_back_to_defaults() {
     let mut settings = EditorSettings::default();
+    let locale = EditorLocale::Chinese;
     let copy = tooltip_copy(TooltipAction::Editor(EditorAction::FocusSelected), false);
-    assert_eq!(tooltip_title(&copy, &settings), "聚焦所选 · F");
+    assert_eq!(tooltip_title(&copy, &settings, locale), "聚焦所选 · F");
     let mut input = ButtonInput::default();
     input.press(KeyCode::ControlLeft);
     input.press(KeyCode::ShiftLeft);
@@ -112,16 +116,24 @@ fn tooltip_keys_follow_custom_binding_and_unbound_without_falling_back_to_defaul
             Some(EditorKeyBinding::from_input(KeyCode::KeyG, &input)),
         )
         .unwrap();
-    assert_eq!(tooltip_title(&copy, &settings), "聚焦所选 · Ctrl+Shift+G");
+    assert_eq!(
+        tooltip_title(&copy, &settings, locale),
+        "聚焦所选 · Ctrl+Shift+G"
+    );
     settings
         .editor_keybindings
         .assign(EditorShortcutAction::FocusSelected, None)
         .unwrap();
-    assert_eq!(tooltip_title(&copy, &settings), "聚焦所选 · 未绑定");
+    assert_eq!(tooltip_title(&copy, &settings, locale), "聚焦所选 · 未绑定");
+    assert_eq!(
+        tooltip_title(&copy, &settings, EditorLocale::English),
+        "Frame Selected · Unassigned"
+    );
     assert_eq!(
         tooltip_title(
             &tooltip_copy(TooltipAction::Editor(EditorAction::Close), false),
-            &settings
+            &settings,
+            locale,
         ),
         "启动"
     );
@@ -131,22 +143,32 @@ fn tooltip_keys_follow_custom_binding_and_unbound_without_falling_back_to_defaul
 fn viewport_mode_tooltips_use_real_bindings_and_never_invent_select_or_edit_shortcuts() {
     use crate::viewport::modes::ViewportMode;
     let mut settings = EditorSettings::default();
+    let locale = EditorLocale::Chinese;
     for (mode, action, label, default_key) in [
         (ViewportMode::Move, EditorShortcutAction::MoveSelected, "移动", "W"),
         (ViewportMode::Rotate, EditorShortcutAction::RotateSelected, "旋转", "E"),
         (ViewportMode::Scale, EditorShortcutAction::ScaleSelected, "缩放", "R"),
     ] {
         let copy = tooltip_copy(TooltipAction::ViewportMode(mode), false);
-        assert_eq!(tooltip_title(&copy, &settings), format!("{label} · {default_key}"));
+        assert_eq!(
+            tooltip_title(&copy, &settings, locale),
+            format!("{label} · {default_key}")
+        );
         let mut modifiers = ButtonInput::default();
         modifiers.press(KeyCode::ControlLeft);
         modifiers.press(KeyCode::ShiftLeft);
         settings.editor_keybindings.assign(
             action, Some(EditorKeyBinding::from_input(KeyCode::KeyG, &modifiers)),
         ).unwrap();
-        assert_eq!(tooltip_title(&copy, &settings), format!("{label} · Ctrl+Shift+G"));
+        assert_eq!(
+            tooltip_title(&copy, &settings, locale),
+            format!("{label} · Ctrl+Shift+G")
+        );
         settings.editor_keybindings.assign(action, None).unwrap();
-        assert_eq!(tooltip_title(&copy, &settings), format!("{label} · 未绑定"));
+        assert_eq!(
+            tooltip_title(&copy, &settings, locale),
+            format!("{label} · 未绑定")
+        );
         assert!(!copy.description.is_empty());
     } // 同一设置项被重新绑定或禁用后，图标说明必须立即采用实际按键。
     for (action, title) in [
@@ -155,7 +177,7 @@ fn viewport_mode_tooltips_use_real_bindings_and_never_invent_select_or_edit_shor
         (TooltipAction::ViewportOptions, "筛选与操作"),
     ] {
         let copy = tooltip_copy(action, false);
-        assert_eq!(tooltip_title(&copy, &settings), title);
+        assert_eq!(tooltip_title(&copy, &settings, locale), title);
         assert!(copy.shortcut.is_none() && copy.fixed_key.is_none());
         assert!(!copy.description.is_empty());
     }
@@ -165,6 +187,7 @@ fn viewport_mode_tooltips_use_real_bindings_and_never_invent_select_or_edit_shor
 fn mesh_edit_tooltips_describe_element_tools_and_their_own_shortcuts() {
     use crate::viewport::modes::ViewportMode;
     let settings = EditorSettings::default();
+    let locale = EditorLocale::Chinese;
     for (mode, title) in [
         (ViewportMode::Select, "选择元素"),
         (ViewportMode::Move, "移动所选元素 · G"),
@@ -172,7 +195,7 @@ fn mesh_edit_tooltips_describe_element_tools_and_their_own_shortcuts() {
         (ViewportMode::Scale, "缩放所选元素 · S"),
     ] {
         let copy = tooltip_copy(TooltipAction::ViewportMode(mode), true);
-        assert_eq!(tooltip_title(&copy, &settings), title);
+        assert_eq!(tooltip_title(&copy, &settings, locale), title);
         assert!(copy.shortcut.is_none(), "元素工具不能回显对象变换的 W/E/R 配置");
         assert!(!copy.description.contains("所选对象"));
         if matches!(mode, ViewportMode::Rotate | ViewportMode::Scale) {
