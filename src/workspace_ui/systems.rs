@@ -7,11 +7,12 @@ use super::{
     *,
 };
 use bevy::{
+    ecs::system::SystemParam,
     input_focus::InputFocus,
     prelude::*,
     text::EditableText,
-    ui::{InteractionDisabled, RelativeCursorPosition},
-    window::Ime,
+    ui::{CalculatedClip, InteractionDisabled, RelativeCursorPosition},
+    window::{FileDragAndDrop, Ime, PrimaryWindow, RawHandleWrapper},
 };
 use feathrise_editor_map::workbench::{WorkbenchCentralPageHost, WorkbenchHostPageState};
 use feathrise_editor_ui::colors as c;
@@ -496,17 +497,96 @@ pub(super) fn cancel_visibility(
     }
 }
 
+#[derive(SystemParam)]
+pub(super) struct PageOverlays<'w> {
+    host: Res<'w, WorkbenchHostPageState>,
+    model: Option<Res<'w, feathrise_editor_map::workbench::WorkbenchModel>>,
+    overlay: Option<Res<'w, feathrise_editor_core::EditorHostOverlay>>,
+    close: Option<Res<'w, crate::native_project_close::NativeProjectCloseState>>,
+    log: Option<Res<'w, crate::project_log::ProjectLogState>>,
+    export: Option<Res<'w, crate::project_export::ui::ExportOverlayState>>,
+    plugins: Option<Res<'w, crate::native_plugins::management::PluginManagerState>>,
+    about: Option<Res<'w, AboutState>>,
+}
+
+impl PageOverlays<'_> {
+    fn captures_input(&self) -> bool {
+        self.host.settings_open
+            || self.host.menu_open
+            || self.model.as_ref().is_some_and(|model| model.modal)
+            || self.overlay.as_ref().is_some_and(|overlay| overlay.active)
+            || self.close.as_ref().is_some_and(|close| close.captures_input())
+            || self.log.as_ref().is_some_and(|log| log.captures_input())
+            || self.export.as_ref().is_some_and(|export| export.captures_input())
+            || self.plugins.as_ref().is_some_and(|plugins| plugins.captures_input())
+            || self.about.as_ref().is_some_and(|about| about.captures_input())
+    }
+}
+
+pub(super) fn open_dropped_project(
+    mut drops: MessageReader<FileDragAndDrop>,
+    windows: Query<(Entity, &Window, Option<&RawHandleWrapper>), With<PrimaryWindow>>,
+    pages: Query<(&PageNode, &ComputedNode, &UiGlobalTransform, &InheritedVisibility, Option<&CalculatedClip>)>,
+    model: Res<WorkspaceModel>,
+    mut state: ResMut<Presentation>,
+    overlays: PageOverlays,
+    mut out: MessageWriter<WorkspaceCommand>,
+) {
+    if drops.is_empty() {
+        return;
+    }
+    // 被遮挡、忙碌或切走的页面丢弃本帧拖放，恢复后不能重放旧输入。
+    if state.page != Page::Start || model.busy || overlays.captures_input() {
+        drops.clear();
+        return;
+    }
+    let Ok((entity, window, raw)) = windows.single() else {
+        drops.clear();
+        return;
+    };
+    let mut paths = drops.read().filter_map(|event| match event {
+        FileDragAndDrop::DroppedFile { window, path_buf } if *window == entity => Some(path_buf),
+        _ => None,
+    });
+    // 系统按路径发送拖放事件，单次只接受一个工程，避免替作者从多选结果中挑选。
+    let path = match (paths.next(), paths.next()) {
+        (Some(path), None) => Some(path.clone()),
+        _ => None,
+    };
+    drops.clear();
+    let Some(path) = path else { return };
+    let Some(position) = drop_cursor_position(window, raw) else { return };
+    if pages.iter().any(|(page, node, transform, visible, clip)| {
+        page.0 == Page::Start && visible.get() && !node.is_empty()
+            && node.contains_point(*transform, position)
+            && clip.is_none_or(|clip| clip.clip.contains(position))
+    }) {
+        // 保留原始路径，目录与清单检查沿用宿主的后台打开流程。
+        state.error.clear();
+        out.write(WorkspaceCommand::Open(path));
+    }
+}
+
+fn drop_cursor_position(window: &Window, _raw: Option<&RawHandleWrapper>) -> Option<Vec2> {
+    #[cfg(windows)]
+    if let Some(raw) = _raw {
+        use windows_sys::Win32::{
+            Foundation::{HWND, POINT}, Graphics::Gdi::ScreenToClient,
+            UI::WindowsAndMessaging::GetCursorPos,
+        };
+        let hwnd = crate::workspace_window::primary_hwnd(raw)? as HWND;
+        let mut cursor = POINT::default();
+        // Windows 的系统拖放期间可能没有普通鼠标移动事件，按接收窗口的物理像素重新取样。
+        let valid = unsafe { GetCursorPos(&mut cursor) != 0 && ScreenToClient(hwnd, &mut cursor) != 0 };
+        return valid.then(|| Vec2::new(cursor.x as f32, cursor.y as f32));
+    }
+    window.physical_cursor_position()
+}
+
 pub(super) fn scroll(
     mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
     state: Res<Presentation>,
-    host: Res<WorkbenchHostPageState>,
-    model: Option<Res<feathrise_editor_map::workbench::WorkbenchModel>>,
-    overlay: Option<Res<feathrise_editor_core::EditorHostOverlay>>,
-    close: Option<Res<crate::native_project_close::NativeProjectCloseState>>,
-    log: Option<Res<crate::project_log::ProjectLogState>>,
-    export: Option<Res<crate::project_export::ui::ExportOverlayState>>,
-    plugins: Option<Res<crate::native_plugins::management::PluginManagerState>>,
-    about: Option<Res<AboutState>>,
+    overlays: PageOverlays,
     mut pages: Query<(
         &PageNode,
         &RelativeCursorPosition,
@@ -523,16 +603,7 @@ pub(super) fn scroll(
         },
     );
     // 只推进正文自己的读取游标；浮层及其关闭释放帧拥有滚轮，日志仍由原读取器独立滚动。
-    if host.settings_open
-        || host.menu_open
-        || model.is_some_and(|model| model.modal)
-        || overlay.is_some_and(|overlay| overlay.active)
-        || close.is_some_and(|close| close.captures_input())
-        || log.is_some_and(|log| log.captures_input())
-        || export.is_some_and(|export| export.captures_input())
-        || plugins.is_some_and(|plugins| plugins.captures_input())
-        || about.is_some_and(|about| about.captures_input())
-    {
+    if overlays.captures_input() {
         return;
     }
     for (page, cursor, node, mut offset) in &mut pages {
@@ -653,6 +724,79 @@ mod tests {
             ScrollPosition(Vec2::new(0., 48.)),
         )).id();
         (app, body)
+    }
+
+    fn drop_app() -> (App, Entity, Entity) {
+        let mut app = App::new();
+        app.add_message::<FileDragAndDrop>()
+            .add_message::<WorkspaceCommand>()
+            .init_resource::<Presentation>()
+            .init_resource::<WorkspaceModel>()
+            .init_resource::<WorkbenchHostPageState>()
+            .add_systems(Update, open_dropped_project);
+        let mut window = Window::default();
+        window.set_physical_cursor_position(Some(Vec2::new(320., 240.).as_dvec2()));
+        let window = app.world_mut().spawn((PrimaryWindow, window)).id();
+        let body = app.world_mut().spawn((
+            PageNode(Page::Start),
+            ComputedNode { size: Vec2::new(300., 200.), ..default() },
+            UiGlobalTransform::from_xy(320., 240.),
+            InheritedVisibility::VISIBLE,
+        )).id();
+        (app, window, body)
+    }
+
+    fn drop_frame(app: &mut App, targets: &[Entity]) -> Vec<WorkspaceCommand> {
+        let world = app.world_mut();
+        let mut commands = world.resource::<Messages<WorkspaceCommand>>().get_cursor_current();
+        for &window in targets {
+            world.write_message(FileDragAndDrop::DroppedFile {
+                window,
+                path_buf: "D:/验收/中文 工程".into(),
+            });
+        }
+        world.run_schedule(Update);
+        commands.read(world.resource::<Messages<WorkspaceCommand>>()).cloned().collect()
+    }
+
+    #[test]
+    fn project_drop_requires_the_visible_start_body_of_the_primary_window() {
+        let (mut app, window, body) = drop_app();
+        assert!(matches!(
+            drop_frame(&mut app, &[window]).as_slice(),
+            [WorkspaceCommand::Open(path)] if path == std::path::Path::new("D:/验收/中文 工程")
+        ));
+        assert!(drop_frame(&mut app, &[Entity::PLACEHOLDER]).is_empty());
+
+        app.world_mut().resource_mut::<Presentation>().page = Page::Open;
+        assert!(drop_frame(&mut app, &[window]).is_empty());
+        app.world_mut().resource_mut::<Presentation>().page = Page::Start;
+
+        *app.world_mut().get_mut::<InheritedVisibility>(body).unwrap() = InheritedVisibility::HIDDEN;
+        assert!(drop_frame(&mut app, &[window]).is_empty());
+        *app.world_mut().get_mut::<InheritedVisibility>(body).unwrap() = InheritedVisibility::VISIBLE;
+
+        app.world_mut().get_mut::<Window>(window).unwrap()
+            .set_physical_cursor_position(Some(Vec2::new(320., 80.).as_dvec2()));
+        assert!(drop_frame(&mut app, &[window]).is_empty());
+    }
+
+    #[test]
+    fn project_drop_discards_multi_selection_and_blocked_input_without_replay() {
+        let (mut app, window, _) = drop_app();
+        assert!(drop_frame(&mut app, &[window, window, window]).is_empty());
+        assert!(drop_frame(&mut app, &[]).is_empty());
+
+        app.world_mut().resource_mut::<WorkspaceModel>().busy = true;
+        assert!(drop_frame(&mut app, &[window]).is_empty());
+        app.world_mut().resource_mut::<WorkspaceModel>().busy = false;
+        assert!(drop_frame(&mut app, &[]).is_empty());
+
+        app.insert_resource(AboutState { captured: true, ..default() });
+        assert!(drop_frame(&mut app, &[window]).is_empty());
+        app.world_mut().resource_mut::<AboutState>().captured = false;
+        assert!(drop_frame(&mut app, &[]).is_empty());
+        assert!(matches!(drop_frame(&mut app, &[window]).as_slice(), [WorkspaceCommand::Open(_)]));
     }
 
     fn scroll_frame(app: &mut App, amount: f32, unit: MouseScrollUnit) {

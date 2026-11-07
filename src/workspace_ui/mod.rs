@@ -84,6 +84,7 @@ impl Plugin for WorkspaceUiPlugin {
                     systems::present,
                     systems::disable_busy_inputs,
                     systems::cancel_visibility,
+                    systems::open_dropped_project.after(crate::project_log::ProjectLogInput),
                     systems::scroll
                         .after(crate::project_log::ProjectLogInput)
                         .after(crate::native_project_close::ProjectCloseInput),

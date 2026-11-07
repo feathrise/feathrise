@@ -425,6 +425,7 @@ pub(super) fn mount(
                                     caption(start, &font, "开始", 17.);
                                     button(start, &font, "新建工程…", Action::Show(Page::New));
                                     button(start, &font, "打开工程…", Action::Show(Page::Open));
+                                    caption(start, &font, "拖入工程文件夹即可打开", 12.);
                                 });
                             columns
                                 .spawn(Node {
