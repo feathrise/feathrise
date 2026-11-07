@@ -64,6 +64,7 @@ feathrise_project = { path = "crates/feathrise_project" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
 sha2 = "=0.11.0"
+flate2 = "=1.1.10" # 内嵌 DX 在后台按流解压，复用依赖图中已有的压缩实现。
 notify = "=8.2.0" # 复用已锁定的原生文件事件；源码监听不在作者帧遍历工程。
 syn = { version = "=2.0.119", features = ["full"] } # 热补丁只比较真实Rust语法树，不用文本正则猜测ABI兼容。
 quote = "=1.0.47"
@@ -84,6 +85,7 @@ bevy = { version = "=0.19.1", features = ["free_camera"] } # 直接驱动新工�
 feathrise_project = { path = "crates/feathrise_project", features = ["validation"] }
 
 [build-dependencies]
+flate2 = "=1.1.10"
 sha2 = "=0.11.0"
 serde_json = "=1.0.154"
 # 品牌资源只属于作者宿主，不进入工程模板或 SDK 运行库。

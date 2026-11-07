@@ -110,7 +110,7 @@ fn verified_legacy(binary: &Path, expected: Option<&str>, control: &BuildControl
     Ok(result.ok())
 }
 
-fn checked_binary(binary: &Path, digest: &str, control: &BuildControl) -> Result<PathBuf, String> {
+pub(super) fn checked_binary(binary: &Path, digest: &str, control: &BuildControl) -> Result<PathBuf, String> {
     let metadata = fs::symlink_metadata(binary).map_err(|error| error.to_string())?;
     if !metadata.is_file() || metadata.len() == 0 || metadata.file_attributes() & 0x400 != 0
         || binary.canonicalize().map_err(|error| error.to_string())? != binary || hash_file(binary, control)? != digest {
@@ -119,7 +119,7 @@ fn checked_binary(binary: &Path, digest: &str, control: &BuildControl) -> Result
     Ok(binary.to_owned())
 }
 
-fn ordinary_directory(path: &Path) -> Result<(), String> {
+pub(super) fn ordinary_directory(path: &Path) -> Result<(), String> {
     let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
     if !metadata.is_dir() || metadata.file_attributes() & 0x400 != 0 || path.canonicalize().map_err(|error| error.to_string())? != path {
         return Err("工具缓存目录不是当前target的实际目录".into());
@@ -127,7 +127,7 @@ fn ordinary_directory(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn create_directory(path: &Path) -> Result<(), String> {
+pub(super) fn create_directory(path: &Path) -> Result<(), String> {
     match fs::create_dir(path) {
         Ok(()) => (),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
@@ -139,7 +139,7 @@ fn create_directory(path: &Path) -> Result<(), String> {
 fn valid_hash(value: &str) -> bool { value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')) }
 
 // MoveFileW不带REPLACE_EXISTING：目录发布是同卷原子rename，旧文件、空目录和活目录都不能替换。
-fn publish_new(source: &Path, destination: &Path) -> std::io::Result<()> {
+pub(super) fn publish_new(source: &Path, destination: &Path) -> std::io::Result<()> {
     #[link(name = "kernel32")]
     unsafe extern "system" { fn MoveFileW(source: *const u16, destination: *const u16) -> i32; }
     let source: Vec<_> = source.as_os_str().encode_wide().chain(Some(0)).collect();

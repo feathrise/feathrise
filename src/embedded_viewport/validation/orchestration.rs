@@ -104,7 +104,7 @@ pub(crate) fn run_owned_project(
     fs::create_dir(output).map_err(|error| error.to_string())?;
     let preview_chrome = std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("preview-chrome");
     let native_preview = std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("native-preview");
-    let build_backend = std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("build-backend");
+    let build_backend = matches!(std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref(), Ok("build-backend" | "bundled-dx"));
     // 私有RPG装配仅属于这一显式自有夹具；准备完全部源码/字体后才建立运行期资产字节基线。
     if native_preview { prepare_native_preview(&project.root, output)?; }
     let before = asset_hashes(&project.root)?;
@@ -221,6 +221,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     })();
     let scope=match std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() {
         Ok("build-backend") => "project_build_backend_owned_window_validation",
+        Ok("bundled-dx") => "bundled_dx_owned_window_validation",
         Ok("native-preview") => "native_preview_owned_window_validation",
         Ok("preview-chrome") => "preview_chrome_owned_three_level_window_validation",
         _ => "resident_dual_mode_owned_window_validation",

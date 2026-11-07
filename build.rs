@@ -1,10 +1,14 @@
 //! 按显式输入嵌入可选品牌资源，写入Windows产品信息并保留MSVC主线程栈保护。
 
+#[path = "build/dx.rs"]
+mod dx;
+
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     validation_extension();
     resource_identity();
     embed_licenses();
+    dx::embed();
     let branding = branding_resources();
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();

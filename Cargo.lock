@@ -3461,6 +3461,7 @@ dependencies = [
  "feathrise_scene",
  "feathrise_scene_core",
  "feathrise_settings",
+ "flate2",
  "libc",
  "libloading",
  "notify",

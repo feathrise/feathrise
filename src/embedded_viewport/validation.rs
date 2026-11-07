@@ -135,7 +135,7 @@ pub(crate) fn install(app: &mut App, project_root: &Path) -> Result<(), String> 
     if std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("native-preview") {
         return native_preview_validation::install(app, &project.root, directory);
     }
-    if std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("build-backend") {
+    if matches!(std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref(), Ok("build-backend" | "bundled-dx")) {
         return build_backend::install(app, directory);
     }
     if std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("preview-chrome") {

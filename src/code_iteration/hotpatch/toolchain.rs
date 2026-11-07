@@ -24,6 +24,8 @@ mod empty_archive;
 mod output_log;
 #[path = "tool_cache.rs"]
 mod tool_cache;
+#[path = "bundled_dx.rs"]
+mod bundled_dx;
 #[cfg(test)]
 use output_log::{cargo_verbose_process_line, compiler_diagnostic};
 
@@ -225,12 +227,10 @@ impl Context {
 }
 
 fn prepare_context(project: &Project, target: &Path, features: &str, control: &BuildControl) -> Result<Context, String> {
-    // dx 保留既有可覆盖的外部工具位置；链接代理源码必须随编辑器资源提供，不能读取父仓库源码。
+    // 工具准备已在唯一后台构建槽内；安装版自动使用内嵌 DX，开发者仍可显式覆盖。
     let resources = crate::project_template_root();
     let repository = resources.parent().ok_or("编辑器资源目录没有工具仓库父目录")?;
-    let dx = std::env::var_os("FEATHRISE_DX_PATH").map(PathBuf::from)
-        .unwrap_or_else(|| repository.join(".local/hotpatch/tools/dx-0.7.9/dx.exe"))
-        .canonicalize().map_err(|error| format!("未找到dx 0.7.9：{error}"))?;
+    let dx = bundled_dx::resolve(target, &repository.join(".local/hotpatch/tools/dx-0.7.9/dx.exe"), control)?;
     let mut version = Command::new(&dx); version.arg("--version").current_dir(&project.root);
     if !small_output(&version, control)?.split_whitespace().any(|part| part == "0.7.9") {
         return Err("函数热更新仅支持已验证的dx 0.7.9".into());

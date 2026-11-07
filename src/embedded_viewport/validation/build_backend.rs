@@ -110,7 +110,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
         Phase::Menu if plan.changed.elapsed() > Duration::from_millis(200) => {
             let Some(proof) = screenshot(world, plan)? else { return Ok(()); };
             plan.steps.last_mut().ok_or("菜单截图缺少运行证据")?["menu"] = proof;
-            if plan.index < 2 {
+            if plan.index + 1 < run_count() {
                 let target = if plan.index == 0 { Backend::Native } else { Backend::Dx };
                 if !press(world, plan, target.label())? { return Err("原菜单缺少可见的构建方式按钮".into()); }
                 plan.index += 1;
@@ -259,7 +259,7 @@ fn screenshot(world: &mut World, plan: &mut Plan) -> Result<Option<Value>, Strin
 }
 
 pub(super) fn verify(output: &Path, report: &Value) -> Result<Vec<Value>, String> {
-    let steps = report["steps"].as_array().filter(|steps|steps.len() == 3).ok_or("缺少三次实际构建方式回执")?;
+    let steps = report["steps"].as_array().filter(|steps|steps.len() == run_count()).ok_or("缺少实际构建方式回执")?;
     let mut evidence = Vec::new();
     for (index, step) in steps.iter().enumerate() {
         if step["backend"] != if index == 1 { "native" } else { "dx" }
@@ -275,4 +275,9 @@ pub(super) fn verify(output: &Path, report: &Value) -> Result<Vec<Value>, String
         evidence.push(json!({"backend":step["backend"],"pid":step["pid"],"pixels":pixels}));
     }
     Ok(evidence)
+}
+
+/// 内嵌工具专项只需一次真实 DX 基线；既有三轮构建方式切换继续走原完整场景。
+fn run_count() -> usize {
+    if std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("bundled-dx") { 1 } else { 3 }
 }
