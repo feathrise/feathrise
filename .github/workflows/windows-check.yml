@@ -22,10 +22,11 @@ jobs:
       matrix:
         variant: [default, validation]
     env:
+      # 默认采用已验证的 Bevy 0.20.1 配套源码。仓库变量可覆盖为另一组完整提交。
       FEATHRISE_SDK_REPOSITORY: ${{ vars.FEATHRISE_SDK_REPOSITORY || 'feathrise/feathrise_runtime' }}
-      FEATHRISE_SDK_REV: ${{ vars.FEATHRISE_SDK_REV }}
+      FEATHRISE_SDK_REV: ${{ vars.FEATHRISE_SDK_REV || 'd00b60fa6d4c35303b6d9ec9fb96e2e621c0d96a' }}
       FEATHRISE_PATCH_REPOSITORY: ${{ vars.FEATHRISE_PATCH_REPOSITORY || 'feathrise/feathrise_patches' }}
-      FEATHRISE_PATCH_REV: ${{ vars.FEATHRISE_PATCH_REV }}
+      FEATHRISE_PATCH_REV: ${{ vars.FEATHRISE_PATCH_REV || '019fd1fe13ed9107d17b360b8f5a3df61bfc139a' }}
     steps:
       - name: Require the public patch repository and full revision
         shell: pwsh

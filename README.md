@@ -81,7 +81,7 @@ cargo fetch --locked
 cargo run --locked
 ```
 
-`.cargo/local-sdk.toml` 负责编辑器本身的编译依赖。随仓 `sdk-source.toml` 已选择同级 SDK 与补丁，新建工程会记录这两个检出的绝对路径。[Windows CI](docs/ci.md)使用显式配置的配套修订检查默认和 validation 组合。[使用说明](docs/使用说明.md#sdk-来源)记录旧公开工程配方和其他来源选项。
+`.cargo/local-sdk.toml` 负责编辑器本身的编译依赖。随仓 `sdk-source.toml` 已选择同级 SDK 与补丁，新建工程会记录这两个检出的绝对路径。[Windows CI](docs/ci.md)默认使用固定的配套修订检查默认和 validation 组合，支持通过仓库变量覆盖。[使用说明](docs/使用说明.md#sdk-来源)记录旧公开工程配方和其他来源选项。
 
 开发产物为 `target/debug/feathrise.exe`，内部 Cargo 包名为 `feathrise_host`。普通用户可使用编译好的编辑器；创建和运行工程仍需要工程所用的 Rust/Cargo 环境。
 

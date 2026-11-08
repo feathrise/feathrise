@@ -4,16 +4,16 @@
 
 ## 源码联调
 
-在 GitHub 仓库的 **Settings → Secrets and variables → Actions → Variables** 配置同一轮 0.20.1 迁移的 SDK 和补丁提交。
+工作流默认使用其中固定的 Bevy 0.20.1 SDK 和补丁提交。需要检查另一组配套源码时，可以在 GitHub 仓库的 **Settings → Secrets and variables → Actions → Variables** 覆盖。
 
 | 变量 | 值 |
 | --- | --- |
 | `FEATHRISE_SDK_REPOSITORY` | `feathrise/feathrise_runtime` |
-| `FEATHRISE_SDK_REV` | 配套 SDK 的完整 40 位提交 ID，必填 |
+| `FEATHRISE_SDK_REV` | 可选，配套 SDK 的完整 40 位提交 ID |
 | `FEATHRISE_PATCH_REPOSITORY` | `feathrise/feathrise_patches` |
-| `FEATHRISE_PATCH_REV` | 配套补丁的完整 40 位提交 ID，必填 |
+| `FEATHRISE_PATCH_REV` | 可选，配套补丁的完整 40 位提交 ID |
 
-两个仓库名可以用 `owner/repository` 格式覆盖。缺少完整提交 ID 时，工作流会在检出前提示配置。
+覆盖来源时使用 `owner/repository` 格式和对应的完整提交 ID。工作流在检出前检查格式，检出后核对实际提交。
 
 工作流将编辑器、指定修订的 SDK 和补丁仓检出到同级目录，核对提交身份，用 SDK 清单生成临时路径覆盖，再运行 `cargo check --locked --tests`。本地复现见 [README](../README.md#从源码启动)与[开发和验收说明](开发与验收.md#本地源码覆盖)。真实窗口另按自动验收入口运行。
 
