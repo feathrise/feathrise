@@ -1,11 +1,10 @@
-# 历史 Bevy 0.19.1 编辑器的 crates.io SDK 与配套补丁配方。
-# 当前 0.20.1 源码构建请使用同级 SDK 和补丁仓覆盖。
+# Bevy 0.20.1 发行构建从 crates.io 获取 SDK 0.2.0，渲染和物理补丁固定到同一公开提交。
 [patch.crates-io]
-avian3d = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-bevy_anti_alias = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-bevy_render = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-bevy_core_pipeline = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-wgpu-hal = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-parley = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-dlss_wgpu = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-wgpu-ffx = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+avian3d = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "019fd1fe13ed9107d17b360b8f5a3df61bfc139a" }
+bevy_anti_alias = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "019fd1fe13ed9107d17b360b8f5a3df61bfc139a" }
+bevy_render = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "019fd1fe13ed9107d17b360b8f5a3df61bfc139a" }
+bevy_core_pipeline = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "019fd1fe13ed9107d17b360b8f5a3df61bfc139a" }
+bevy_extract = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "019fd1fe13ed9107d17b360b8f5a3df61bfc139a" }
+wgpu-hal = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "019fd1fe13ed9107d17b360b8f5a3df61bfc139a" }
+dlss_wgpu = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "019fd1fe13ed9107d17b360b8f5a3df61bfc139a" }
+wgpu-ffx = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "019fd1fe13ed9107d17b360b8f5a3df61bfc139a" }

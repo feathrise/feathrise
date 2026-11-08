@@ -3620,7 +3620,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_host"
-version = "0.1.0-preview.2"
+version = "0.1.0-preview.3"
 dependencies = [
  "async-channel",
  "avian3d",

@@ -17,9 +17,9 @@
 
 工作流将编辑器、指定修订的 SDK 和补丁仓检出到同级目录，核对提交身份，用 SDK 清单生成临时路径覆盖，再运行 `cargo check --locked --tests`。本地复现见 [README](../README.md#从源码启动)与[开发和验收说明](开发与验收.md#本地源码覆盖)。真实窗口另按自动验收入口运行。
 
-## 历史 crates.io 配方
+## crates.io 配方
 
-[.cargo/registry-sdk.toml](../.cargo/registry-sdk.toml) 记录 Bevy 0.19.1 和 SDK 0.1.0 的已发布配方，适用于对应历史版本。0.20.1 的 registry 检查依赖新的公开 SDK、补丁提交和配套锁文件。远端验证状态以对应提交的 Actions 记录为准。
+[.cargo/registry-sdk.toml](../.cargo/registry-sdk.toml) 固定 Bevy 0.20.1 和 SDK 0.2.0 的公开补丁。单文件构建在独立源码副本中解析公开依赖，后续检查和 Release 编译使用同一份锁文件。Windows CI 的 registry 组合只检出编辑器，解析公开依赖后分别检查默认与 validation 特性。历史发行版的配方随各自 Git 标签保存。
 
 ## 跨运行缓存
 

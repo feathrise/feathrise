@@ -53,10 +53,10 @@ Windows 单文件预览版编入 `raytracing`。DLSS 与 FSR 通过 Cargo 特性
 
 | Bevy 版本 | Feathrise 编辑器版本 | `feathrise_runtime` SDK |
 | --- | --- | --- |
-| `0.20.1` | 当前源码 | 配套 SDK 与补丁仓的本地源码 |
+| `0.20.1` | `0.1.0-preview.3` | `0.2.0` |
 | `0.19.1` | [0.1.0-preview.2](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.2)、[0.1.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.1) | `0.1.0` |
 
-新建工程根据 `sdk-source.toml` 锁定同一组 Bevy、SDK 与补丁版本。源码工作区默认选择配套的 0.20.1 检出。单文件安装缺少外置配置时，使用已发布的 0.19.1 工程配方。已有工程的依赖版本以各自的 `Cargo.toml` 和 `Cargo.lock` 为准。
+新建工程根据 `sdk-source.toml` 锁定同一组 Bevy、SDK 与补丁版本。源码工作区默认选择配套的 0.20.1 检出。单文件安装缺少外置配置时，使用 Bevy 0.20.1 和已发布的 SDK 0.2.0。已有工程的依赖版本以各自的 `Cargo.toml` 和 `Cargo.lock` 为准。
 
 ## 从源码启动
 

@@ -59,11 +59,13 @@ fn generated(source: &SdkSource) -> Value {
 fn template_engine_and_patch_recipe_follow_selected_sdk() {
     let fixture = Fixture::new();
     let template = include_str!("../assets/templates/empty/Cargo.toml");
-    let published = SdkSource::load(&fixture.editor).unwrap();
-    let legacy: Value = toml::from_str(&published.apply_template(template).unwrap()).unwrap();
+    // 旧工程和显式旧版配方仍使用 0.19 的种子与补丁集合。
+    fixture.config("kind='registry'\nversion='0.1.0'\ngit='https://example.invalid/patches.git'\nrev='3c251d3530980b66e49b4748769db36ae9c6bd5a'");
+    let legacy_source = SdkSource::load(&fixture.editor).unwrap();
+    let legacy: Value = toml::from_str(&legacy_source.apply_template(template).unwrap()).unwrap();
     assert_eq!(legacy["dependencies"]["bevy"]["version"].as_str(), Some("=0.19.1"));
     assert!(legacy["patch"]["crates-io"].get("parley").is_some());
-    assert_eq!(published.lock_seed(), "assets/templates/empty/Cargo-bevy-0.19.lock");
+    assert_eq!(legacy_source.lock_seed(), "assets/templates/empty/Cargo-bevy-0.19.lock");
 
     let sdk_manifest = fixture.sdk.join("Cargo.toml");
     let mut contents = fs::read_to_string(&sdk_manifest).unwrap();
@@ -85,6 +87,7 @@ fn template_engine_and_patch_recipe_follow_selected_sdk() {
 fn default_and_missing_configuration_use_published_sdk_without_neighbor_checkouts() {
     let fixture = Fixture::new();
     let expected: Value = toml::from_str(include_str!("../.cargo/registry-sdk.toml")).unwrap();
+    let template = include_str!("../assets/templates/empty/Cargo.toml");
     // 即使同级有可用的本地 SDK，默认也必须保持公开来源；移走它后应得到同一个依赖图。
     for sibling_exists in [true, false] {
         if !sibling_exists { fs::rename(&fixture.sdk, fixture.root.join("unused-sdk")).unwrap(); }
@@ -95,9 +98,11 @@ fn default_and_missing_configuration_use_published_sdk_without_neighbor_checkout
                 fs::remove_file(fixture.editor.join(CONFIG_NAME)).unwrap();
             }
             let source = SdkSource::load(&fixture.editor).unwrap();
-            let value = generated(&source);
+            let value: Value = toml::from_str(&source.apply_template(template).unwrap()).unwrap();
             let sdk = &value["dependencies"]["feathrise_runtime"];
-            assert_eq!(sdk["version"].as_str(), Some("=0.1.0"));
+            assert_eq!(sdk["version"].as_str(), Some("=0.2.0"));
+            assert_eq!(value["dependencies"]["bevy"]["version"].as_str(), Some("=0.20.1"));
+            assert_eq!(source.lock_seed(), "Cargo.lock");
             assert_eq!(sdk["default-features"].as_bool(), Some(false));
             assert!(sdk.get("path").is_none());
             assert!(sdk.get("git").is_none());
