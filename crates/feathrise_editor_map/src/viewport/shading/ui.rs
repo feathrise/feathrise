@@ -1,4 +1,5 @@
 //! 四球着色按钮与按当前模式显示的紧凑选项；沿用正式松开点击及统一鼠标门。
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::ShadingState, types::*};
 use crate::{
     components::MapEditorViewport,
@@ -44,7 +45,7 @@ pub(super) fn setup(
                 .with_children(|row| {
                     for mode in ShadingMode::ALL {
                         row.spawn((
-                            Button,
+                            InteractionButton,
                             Name::new(mode.label()),
                             ShadingButton(ShadingAction::Mode(mode)),
                             crate::ui::tooltips::EditorTooltipTarget(
@@ -126,7 +127,7 @@ pub(super) fn setup(
                         });
                     }
                     row.spawn((
-                        Button,
+                        InteractionButton,
                         ShadingButton(ShadingAction::Menu),
                         Name::new("视口着色选项"),
                         FocusPolicy::Block,
@@ -180,7 +181,7 @@ pub(super) fn setup(
                             ShadingAction::Background,
                         ] {
                             menu.spawn((
-                                Button,
+                                InteractionButton,
                                 ShadingButton(action),
                                 FocusPolicy::Block,
                                 Node {

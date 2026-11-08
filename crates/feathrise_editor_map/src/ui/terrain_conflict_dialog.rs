@@ -28,37 +28,37 @@ pub(super) fn terrain_conflict_dialog() -> impl Scene {
         BackgroundColor(colors::OVERLAY_BG)
         Children [(
             ManagementPanel(DialogKind::TerrainConflict)
-            template_value(modal::panel_node())
+            ~{modal::panel_node()}
             BackgroundColor(colors::PANEL_BG_STRONG)
             BorderColor::all(colors::COPPER_BORDER_WEAK)
             Children [
-                (modal::heading("地形文件发生冲突")),
+                (@modal::heading("地形文件发生冲突")),
                 (
                     ManagementScroll(DialogKind::TerrainConflict)
                     ScrollPosition::default() RelativeCursorPosition::default()
-                    template_value(modal::body_node())
+                    ~{modal::body_node()}
                     Children [
-                        (modal::caption("冲突目标 · 外部版本已变化")),
+                        (@modal::caption("冲突目标 · 外部版本已变化")),
                         (
-                            TerrainConflictDialogText Text("等待外部地形版本") feathrise_editor_ui::localization::label_scene("等待外部地形版本")
+                            TerrainConflictDialogText Text("等待外部地形版本") @feathrise_editor_ui::localization::label_scene("等待外部地形版本")
                             TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_PRIMARY)
                             Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                         ),
-                        (modal::caption("采用 Blender")),
-                        (modal::caption("放弃地形草稿，重新加载并验证外部地形。")),
-                        (modal::caption("使用草稿覆盖")),
-                        (modal::caption("保留当前顶点并覆盖本次检测到的外部版本。外部文件再次变化时必须重新处理冲突，不能沿用旧授权。")),
+                        (@modal::caption("采用 Blender")),
+                        (@modal::caption("放弃地形草稿，重新加载并验证外部地形。")),
+                        (@modal::caption("使用草稿覆盖")),
+                        (@modal::caption("保留当前顶点并覆盖本次检测到的外部版本。外部文件再次变化时必须重新处理冲突，不能沿用旧授权。")),
                     ]
                 ),
                 (
                     ManagementScroll(DialogKind::TerrainConflict) ManagementFeedback(DialogKind::TerrainConflict)
                     ScrollPosition::default() RelativeCursorPosition::default()
-                    template_value(modal::feedback_node())
+                    ~{modal::feedback_node()}
                     BackgroundColor(colors::PANEL_BG_SECTION)
                     Children [(
-                        TerrainConflictFeedbackText Text("地形草稿尚未保存，请选择保留哪一版。") feathrise_editor_ui::localization::label_scene("地形草稿尚未保存，请选择保留哪一版。")
+                        TerrainConflictFeedbackText Text("地形草稿尚未保存，请选择保留哪一版。") @feathrise_editor_ui::localization::label_scene("地形草稿尚未保存，请选择保留哪一版。")
                         TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_PRIMARY)
@@ -67,11 +67,11 @@ pub(super) fn terrain_conflict_dialog() -> impl Scene {
                 ),
                 (
                     ManagementFooter(DialogKind::TerrainConflict)
-                    template_value(modal::footer_node())
+                    ~{modal::footer_node()}
                     // 原协议必须显式二选一；不虚构“取消”来解除真实冲突保护。
                     Children [
-                        (modal::button("采用 Blender", EditorAction::AdoptBlenderTerrain)),
-                        (modal::button("使用草稿覆盖", EditorAction::OverwriteBlenderTerrain)),
+                        (@modal::button("采用 Blender", EditorAction::AdoptBlenderTerrain)),
+                        (@modal::button("使用草稿覆盖", EditorAction::OverwriteBlenderTerrain)),
                     ]
                 ),
             ]

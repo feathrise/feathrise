@@ -565,7 +565,7 @@ fn shortcut_compact_page_keeps_two_complete_rows_visible_in_60_window_scale_dpi_
 #[test]
 fn shortcut_native_scrollbar_pages_drags_clamps_and_cancels_on_page_switch() {
     use bevy::picking::backend::HitData;
-    use bevy::picking::events::{Drag, DragEnd, DragStart, Pointer, Press};
+    use bevy::picking::events::{PointerDrag, PointerDragEnd, PointerDragStart, Pointer, PointerPress};
     use bevy::picking::pointer::{Location, PointerButton, PointerId};
     use bevy::ui_widgets::ScrollbarDragState;
     let (mut app, camera) = layout_app();
@@ -608,30 +608,24 @@ fn shortcut_native_scrollbar_pages_drags_clamps_and_cancels_on_page_switch() {
             ) / dpi,
         };
         let hit = HitData::new(camera, 0.0, None, None);
-        app.world_mut().trigger(Pointer::new(
-            PointerId::Mouse,
-            location.clone(),
-            Press {
-                button: PointerButton::Primary,
+        app.world_mut().trigger(PointerPress {
+            entity: track,
+            pointer: Pointer::new(PointerId::Mouse, location.clone()),
+            button: PointerButton::Primary,
                 hit: hit.clone(),
                 count: 1,
-            },
-            track,
-        ));
+        });
         assert!(
             (app.world().get::<ScrollPosition>(body).unwrap().y - viewport.min(maximum)).abs()
                 < 1.1
         );
         app.world_mut().get_mut::<ScrollPosition>(body).unwrap().y = 0.0;
-        app.world_mut().trigger(Pointer::new(
-            PointerId::Mouse,
-            location.clone(),
-            DragStart {
-                button: PointerButton::Primary,
+        app.world_mut().trigger(PointerDragStart {
+            entity: thumb,
+            pointer: Pointer::new(PointerId::Mouse, location.clone()),
+            button: PointerButton::Primary,
                 hit,
-            },
-            thumb,
-        ));
+        });
         assert!(
             app.world()
                 .get::<ScrollbarDragState>(thumb)
@@ -639,42 +633,33 @@ fn shortcut_native_scrollbar_pages_drags_clamps_and_cancels_on_page_switch() {
                 .dragging
         );
         let distance = Vec2::new(0.0, 10.0 * scale);
-        app.world_mut().trigger(Pointer::new(
-            PointerId::Mouse,
-            location.clone(),
-            Drag {
-                button: PointerButton::Primary,
+        app.world_mut().trigger(PointerDrag {
+            entity: thumb,
+            pointer: Pointer::new(PointerId::Mouse, location.clone()),
+            button: PointerButton::Primary,
                 distance,
                 delta: distance,
-            },
-            thumb,
-        ));
+        });
         assert!(
             (app.world().get::<ScrollPosition>(body).unwrap().y
                 - (10.0 * content / viewport).min(maximum))
             .abs()
                 < 1.1
         );
-        app.world_mut().trigger(Pointer::new(
-            PointerId::Mouse,
-            location.clone(),
-            Drag {
-                button: PointerButton::Primary,
+        app.world_mut().trigger(PointerDrag {
+            entity: thumb,
+            pointer: Pointer::new(PointerId::Mouse, location.clone()),
+            button: PointerButton::Primary,
                 distance: Vec2::splat(100_000.0),
                 delta: Vec2::splat(100_000.0),
-            },
-            thumb,
-        ));
+        });
         assert!((app.world().get::<ScrollPosition>(body).unwrap().y - maximum).abs() < 1.1);
-        app.world_mut().trigger(Pointer::new(
-            PointerId::Mouse,
-            location,
-            DragEnd {
-                button: PointerButton::Primary,
+        app.world_mut().trigger(PointerDragEnd {
+            entity: thumb,
+            pointer: Pointer::new(PointerId::Mouse, location),
+            button: PointerButton::Primary,
                 distance,
-            },
-            thumb,
-        ));
+        });
         assert!(
             !app.world()
                 .get::<ScrollbarDragState>(thumb)

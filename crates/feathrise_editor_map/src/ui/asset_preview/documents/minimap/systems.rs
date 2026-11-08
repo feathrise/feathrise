@@ -5,8 +5,7 @@ use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
     tasks::{AsyncComputeTaskPool, futures::check_ready},
-    text::TextLayoutInfo,
-    ui::widget::TextScroll,
+    text::{EditableText, TextLayoutInfo},
 };
 
 use super::super::{components::*, constants::*, resources::*, types::*};
@@ -180,7 +179,7 @@ pub(super) fn update_outline(
 pub(super) fn sync_viewport(
     documents: Res<DocumentState>,
     state: Res<DocumentMinimapState>,
-    sources: Query<(Entity, &ComputedNode, &TextLayoutInfo, &TextScroll), With<DocumentSource>>,
+    sources: Query<(Entity, &ComputedNode, &TextLayoutInfo, &EditableText), With<DocumentSource>>,
     rails: Query<&ComputedNode, With<DocumentMinimapRail>>,
     mut pictures: Query<
         (&mut ImageNode, &mut Node),
@@ -195,7 +194,7 @@ pub(super) fn sync_viewport(
                 layout.size,
                 node.content_box().size(),
                 rail.size(),
-                scroll.0.y,
+                scroll.viewport.offset.y,
                 node.inverse_scale_factor().recip(),
             )?;
             Some((entity, node, layout, metrics))

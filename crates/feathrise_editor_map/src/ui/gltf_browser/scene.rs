@@ -1,5 +1,6 @@
 //! 已摆放GLB与地图显示预览在右栏上半区的静态布局；空容器不伪造基础网格行。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*; // BSN Scene与UI布局组件。
 use bevy::text::FontSourceTemplate; // 静态按钮和状态使用项目中文字体。
@@ -111,7 +112,7 @@ pub(crate) fn sync_map_base_gltf_row(
 /// 构造一个不进入全局动作枚举的场景树分页按钮。
 fn browser_page_button(label: &str, direction: GltfBrowserPageDirection) -> impl Scene {
     bsn! {
-        Button
+        InteractionButton
         MapEditorGltfBrowserPageButton(direction)
         Node {
             height: px(26), // 分页与作者工具统一命中高度，不改变树行池的20px步长。
@@ -128,7 +129,7 @@ fn browser_page_button(label: &str, direction: GltfBrowserPageDirection) -> impl
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // 首帧同步前使用安全常态。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 首帧同步前使用弱铜边。
         Children [(
-            Text(label) feathrise_editor_ui::localization::label_scene(label)
+            Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // BSN通过AssetServer加载统一中文字体。
                 font_size: px(ui_metrics::FONT_CONTROL), // 紧凑分页文字。
@@ -143,7 +144,7 @@ pub(crate) fn map_display_panel() -> impl Scene {
     bsn! { Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column,
         row_gap: px(3), flex_shrink: 0.0 } Children [
             (
-                Button
+                InteractionButton
                 MapBaseGltfRow // 基础地形固定在已摆放实例上方，点击展开设置。
                 Node {
                     display: Display::None, // 未加载地图前隐藏。
@@ -167,7 +168,7 @@ pub(crate) fn map_display_panel() -> impl Scene {
                     Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                 )]
             ),
-            (terrain_shading_controls()), // 基础地形被选中后展开网格设置，不占中央视口。
+            (@terrain_shading_controls()), // 基础地形被选中后展开网格设置，不占中央视口。
     ] }
 }
 
@@ -183,9 +184,9 @@ pub(super) fn gltf_browser_panel() -> impl Scene {
             overflow: Overflow::clip(), // 超长路径和极低窗口不越出右栏。
         }
         Children [
-            (crate::ui::scene_layers::panel()), // 独立作者内容与摆放共用同一场景树。
-            (crate::ui::scene_objects::panel()),
-            (crate::ui::sub_maps::panel()), // 子地图引用属于正式场景树，加载期间也保留可选来源行。
+            (@crate::ui::scene_layers::panel()), // 独立作者内容与摆放共用同一场景树。
+            (@crate::ui::scene_objects::panel()),
+            (@crate::ui::sub_maps::panel()), // 子地图引用属于正式场景树，加载期间也保留可选来源行。
             (
                 MapEditorGltfBrowserList
                 Node {
@@ -211,18 +212,18 @@ pub(super) fn gltf_browser_panel() -> impl Scene {
                     column_gap: px(5), // 保持清晰点击间隔。
                 }
                 Children [
-                    (browser_page_button("上一页", GltfBrowserPageDirection::Previous)),
+                    (@browser_page_button("上一页", GltfBrowserPageDirection::Previous)),
                     (GltfBrowserPageLabel Text("1/1")
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                         TextColor(colors::TEXT_MUTED)
-                        Node { align_self: AlignSelf::Center } template_value(bevy::ui::FocusPolicy::Pass)),
-                    (browser_page_button("下一页", GltfBrowserPageDirection::Next)),
+                        Node { align_self: AlignSelf::Center } ~{bevy::ui::FocusPolicy::Pass}),
+                    (@browser_page_button("下一页", GltfBrowserPageDirection::Next)),
                 ]
             ),
             (
                 MapEditorGltfBrowserStatusText
-                template_value(crate::ui::status_bar::PanelStatusText("场景资产")) feathrise_editor_ui::feedback::GlobalPanelStatus
-                Text("场景对象：等待地图草稿\n第 1/1 页") feathrise_editor_ui::localization::label_scene("场景对象：等待地图草稿\n第 1/1 页")
+                ~{crate::ui::status_bar::PanelStatusText("场景资产")} feathrise_editor_ui::feedback::GlobalPanelStatus
+                Text("场景对象：等待地图草稿\n第 1/1 页") @feathrise_editor_ui::localization::label_scene("场景对象：等待地图草稿\n第 1/1 页")
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 与动态行共享字体资产。
                     font_size: px(ui_metrics::FONT_HINT), // 状态保持可读字号，不靠缩字容纳长路径。

@@ -1,5 +1,6 @@
 //! F4 动态地图监控的输入、两级分页、显隐与低频缓存报告刷新。
 
+use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 use feathrise_editor_ui::EditorButtonClick;
 use feathrise_atmosphere::{WeatherDebugOverride, WeatherState}; // 环境页复用现成天气状态，不创建第二套监控缓存。
@@ -20,7 +21,7 @@ type GroupButtonData = (
     &'static mut BackgroundColor,
     &'static mut BorderColor,
 );
-type GroupButtonFilter = (With<Button>, Without<MapEditorMonitorTabButton>);
+type GroupButtonFilter = (With<InteractionButton>, Without<MapEditorMonitorTabButton>);
 type TabButtonData = (
     &'static MapEditorMonitorTabButton,
     &'static Interaction,
@@ -28,7 +29,7 @@ type TabButtonData = (
     &'static mut BorderColor,
     &'static mut Node,
 );
-type TabButtonFilter = (With<Button>, Without<MapEditorMonitorGroupButton>);
+type TabButtonFilter = (With<InteractionButton>, Without<MapEditorMonitorGroupButton>);
 type SubTabRowFilter = (
     With<MapEditorMonitorSubTabRow>,
     Without<MapEditorMonitorTabButton>,
@@ -236,7 +237,7 @@ mod tests {
         bindings.bind(LodControlContent::Wheat, "project_meadow");
         world.insert_resource(bindings);
         for page in EditorMapMonitorPage::SUBTABS {
-            world.spawn((MapEditorMonitorTabButton { page }, Button, Interaction::None,
+            world.spawn((MapEditorMonitorTabButton { page }, InteractionButton, Interaction::None,
                 BackgroundColor::default(), BorderColor::default(), Node::default()));
             world.spawn((super::super::ui::MonitorTabLabel(page), Text::new("旧标签")));
         }

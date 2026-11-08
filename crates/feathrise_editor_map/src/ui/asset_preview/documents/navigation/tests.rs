@@ -458,29 +458,29 @@ pub(in super::super) fn gpu_assert_navigation(
     frames(app, 4);
     let first_offset = app
         .world()
-        .get::<bevy::ui::widget::TextScroll>(source)
+        .get::<EditableText>(source)
         .unwrap()
-        .0;
+        .viewport.offset;
     assert!(first_offset.y > 0.0);
     app.world_mut()
-        .get_mut::<bevy::ui::widget::TextScroll>(source)
+        .get_mut::<EditableText>(source)
         .unwrap()
-        .0 = Vec2::ZERO;
+        .viewport.offset = Vec2::ZERO;
     frames(app, 3);
     assert_eq!(
         app.world()
-            .get::<bevy::ui::widget::TextScroll>(source)
+            .get::<EditableText>(source)
             .unwrap()
-            .0,
+            .viewport.offset,
         Vec2::ZERO
     );
     chord(app, window, KeyCode::Enter, Key::Enter, false, false);
     frames(app, 3);
     assert_eq!(
         app.world()
-            .get::<bevy::ui::widget::TextScroll>(source)
+            .get::<EditableText>(source)
             .unwrap()
-            .0,
+            .viewport.offset,
         first_offset
     );
     assert_visible_selection(app, source);
@@ -556,9 +556,9 @@ pub(in super::super) fn gpu_assert_navigation(
     );
     assert_eq!(
         app.world()
-            .get::<bevy::ui::widget::TextScroll>(source)
+            .get::<EditableText>(source)
             .unwrap()
-            .0
+            .viewport.offset
             .y,
         0.0
     );
@@ -587,9 +587,9 @@ fn assert_visible_selection(app: &App, source: Entity) {
         .unwrap();
     let scroll = app
         .world()
-        .get::<bevy::ui::widget::TextScroll>(source)
+        .get::<EditableText>(source)
         .unwrap()
-        .0;
+        .viewport.offset;
     let height = app
         .world()
         .get::<ComputedNode>(source)

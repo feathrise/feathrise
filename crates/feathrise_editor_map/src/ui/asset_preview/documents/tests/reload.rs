@@ -8,7 +8,7 @@ use crate::ui::{
     vegetation_preset_editor::VegetationPresetEditorState,
 };
 use bevy::{ecs::system::RunSystemOnce, input_focus::InputFocus,
-    text::{FontCx, LayoutCx, TextEdit}, ui::widget::TextScroll};
+    text::{FontCx, LayoutCx, TextEdit}};
 
 /// 只暂缓主线程轮询真实IO，稳定制造“任务已启动但回执未采用”的交互窗口。
 fn native_app(fixture: &Fixture, document: Document) -> (App, Entity) {
@@ -38,7 +38,7 @@ fn native_app(fixture: &Fixture, document: Document) -> (App, Entity) {
         })
         .add_systems(Update, (bevy::text::apply_text_edits, session::capture_edits, super::super::native::bind).chain());
     let source = app.world_mut().spawn((DocumentSource::default(), EditableText::default(),
-        TextScroll::default(), ComputedNode::default())).id();
+ComputedNode::default())).id();
     app.update();
     app.update(); // 原生绑定排队的TextStart先由官方输入系统采用。
     (app, source)

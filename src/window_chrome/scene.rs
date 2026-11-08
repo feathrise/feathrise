@@ -1,4 +1,5 @@
 //! 原位重排工作台顶栏；布局图标与窄窗更多菜单都复用原按钮，不能复制动作或触发脉冲。
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, glyphs, resources::*, types::*};
 use bevy::{
     prelude::*,
@@ -11,7 +12,7 @@ pub(super) fn button(world: &mut World, action: ChromeButton, glyph: Glyph, name
     let caption = matches!(action, ChromeButton::Window(_));
     let entity = world
         .spawn((
-            Button,
+            InteractionButton,
             action,
             Name::new(name.to_owned()),
             RelativeCursorPosition::default(),
@@ -101,7 +102,7 @@ pub(super) fn flatten_button(world: &mut World, root: Entity, glyph: Option<Glyp
     let Some(button) = entities
         .iter()
         .copied()
-        .find(|e| world.get::<Button>(*e).is_some())
+        .find(|e| world.get::<InteractionButton>(*e).is_some())
     else {
         return;
     };
@@ -135,7 +136,7 @@ pub(super) fn menu_style(world: &mut World, root: Entity, in_menu: bool) {
     let entities = descendants(world, root, 3);
     for entity in entities {
         let text = world.get::<Text>(entity).is_some();
-        let button = world.get::<Button>(entity).is_some();
+        let button = world.get::<InteractionButton>(entity).is_some();
         if let Some(mut node) = world.get_mut::<Node>(entity) {
             if text {
                 node.display = if in_menu {

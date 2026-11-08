@@ -1,5 +1,6 @@
 //! 建筑预设三列连续列表的固定预算创建、热更重绑和交互样式。
 
+use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*; // Commands、Local、Query 与 UI 样式。
 use feathrise_map_content::BuildingPresetRegistry; // 当前原子目录快照。
 use crate::ui::theme as colors; // 选中、悬停和普通配色。
@@ -63,7 +64,7 @@ pub(super) fn sync_building_preset_list(
                 let preset = &registry.presets()[index]; // 同一系统调用内目录快照稳定。
                 let entity = parent
                     .spawn((
-                        Button,                                                          // 行直接拥有交互。
+                        InteractionButton,                                                          // 行直接拥有交互。
                         BuildingPresetButton(BuildingPresetAction::SelectPreset(index)), // 绝对索引只在完整同步后公开。
                         BuildingPresetRow { index }, // Presentation 与测试共享稳定身份。
                         row_node(),                  // 三列固定宽按钮。

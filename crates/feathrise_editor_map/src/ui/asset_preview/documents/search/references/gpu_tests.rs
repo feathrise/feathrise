@@ -122,9 +122,9 @@ fn assert_reference_text_visible(app: &mut App) {
         .translation;
     if let Some(clip) = world.get::<bevy::ui::CalculatedClip>(entity) {
         assert!(
-            clip.clip.contains(position),
+            clip.contains_point(position),
             "引用文字位于裁剪区外：{position:?} · {:?}",
-            clip.clip
+            clip
         );
     }
     assert!(

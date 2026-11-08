@@ -23,9 +23,9 @@ fn test_scene() -> impl Scene {
         Children [
             (Node { height: px(28), flex_shrink: 0.0 }),
             (TestViewport Node { width: percent(100), flex_grow: 1.0, min_height: px(0) }),
-            (footer()),
-            (crate::ui::map_loading::map_loading_input_blocker()),
-            (popup()),
+            (@footer()),
+            (@crate::ui::map_loading::map_loading_input_blocker()),
+            (@popup()),
         ]
     }
 }

@@ -1,5 +1,6 @@
 //! 水域对象固定行池的ECS生成、同步、分页和点击系统。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*; // UI实体、Changed交互、文本和作者资源。
@@ -130,7 +131,7 @@ pub(crate) fn spawn_water_feature_rows(
             for slot in 0..WATER_FEATURE_ROW_COUNT {
                 parent
                     .spawn((
-                        Button, // 行本身提供鼠标Interaction，不使用实体名称分派。
+                        InteractionButton, // 行本身提供鼠标Interaction，不使用实体名称分派。
                         MapEditorWaterFeatureRow {
                             slot,                                        // 固定槽位决定当前页的扁平位置。
                             kind: WaterAuthoringFeatureKind::StillWater, // 空槽使用安全默认类别，feature_id仍为None。

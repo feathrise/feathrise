@@ -1,5 +1,6 @@
 //! 无工程退出的真实工作台GPU回归；只驱动原宿主入口和共享确认层，不创建作者或用户工程。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{Host, finish_app_exit, handle, poll_empty_exit, publish, request_app_exit};
 use crate::{
     native_project_close::{CloseTarget, NativeProjectClosePlugin, NativeProjectCloseState},
@@ -120,7 +121,7 @@ fn visible_button(app: &mut App, value: &str, root: Option<Entity>) -> Entity {
     let candidates = texts(app, value);
     let found = candidates.into_iter().filter_map(|entity| {
         let parent = app.world().get::<ChildOf>(entity)?.parent();
-        (app.world().get::<Button>(parent).is_some()
+        (app.world().get::<InteractionButton>(parent).is_some()
             && root.is_none_or(|root| belongs_to(app.world(), parent, root)))
             .then_some(parent)
     }).collect::<Vec<_>>();
@@ -174,7 +175,7 @@ fn window_close(app: &mut App) {
 }
 
 fn assert_no_exit(app: &App, page: Page) {
-    let host = app.world().non_send_resource::<Host>();
+    let host = app.world().non_send::<Host>();
     assert!(!host.exit_app);
     assert!(host.current.is_none() && host.candidate.is_none() && host.retiring.is_none());
     assert!(host.job.is_none() && host.preferences_job.is_none() && host.picker.is_none());
@@ -247,7 +248,7 @@ fn capture_dialog(app: &mut App, image: &Handle<Image>, output: &Path, width: us
     assert_eq!(app.world().resource::<bevy::input_focus::InputFocus>().get(), Some(cancel));
     let visible = {
         let world = app.world_mut();
-        world.query_filtered::<(Entity, &ComputedNode, &InheritedVisibility), With<Button>>().iter(world)
+        world.query_filtered::<(Entity, &ComputedNode, &InheritedVisibility), With<InteractionButton>>().iter(world)
             .filter_map(|(entity, node, visible)| (!node.is_empty() && visible.get()).then_some(entity)).collect::<Vec<_>>()
     };
     assert_eq!(visible.iter().filter(|entity| belongs_to(app.world(), **entity, footer)).count(), 2,
@@ -437,7 +438,7 @@ fn empty_workspace_exit_requires_a_real_choice_and_preserves_the_original_form()
     let audit = app.world().resource::<LifecycleAudit>();
     assert_eq!(audit.exit_messages, 1, "未选择、取消和重复请求都不能充当退出授权");
     assert_eq!(audit.successful_exits, 1);
-    assert!(app.world().non_send_resource::<Host>().exit_app);
+    assert!(app.world().non_send::<Host>().exit_app);
     assert!(!configuration.exists(), "配置始终位于自有夹具，退出确认不得触发偏好写入");
     let report = serde_json::json!({"passed":true,"owner":owner,"wide":wide,"narrow":narrow,
         "workbench_camera_binding":workbench_target,

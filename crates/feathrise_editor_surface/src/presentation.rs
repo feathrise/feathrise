@@ -1,5 +1,6 @@
 //! PBR 地表左栏连续列表、摘要与局部按钮视觉同步。
 
+use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 use feathrise_editor_ui::colors;
 use feathrise_map_content::SurfacePresetRegistry;
@@ -50,7 +51,7 @@ pub(crate) fn sync_panel(selected: Option<&str>, params: PanelParams) {
                     .with_children(|list| {
                         for (index, preset) in registry.presets().iter().enumerate() {
                             list.spawn((
-                                Button,
+                                InteractionButton,
                                 SurfacePresetButton(SurfacePresetAction::SelectPreset(index)),
                                 Node {
                                     height: Val::Px(26.0),
@@ -311,7 +312,7 @@ mod workspace_tab_style_tests {
             .iter(app.world()).map(|(entity, fill, border)| (entity, *fill, *border)).collect();
         assert_eq!(expected.len(), 6);
         let sentinel = BackgroundColor(Color::srgb(1.0, 0.0, 1.0));
-        let ordinary = app.world_mut().spawn((Button, Node::default(),
+        let ordinary = app.world_mut().spawn((InteractionButton, Node::default(),
             SurfacePresetButton(SurfacePresetAction::Save), sentinel,
             BorderColor::all(Color::NONE))).id();
         // 先触发真实全量同步，再走 Changed<Interaction> 快路；普通保存按钮证明系统确实执行。

@@ -339,9 +339,10 @@ fn scrolling_uses_logical_distance_accelerates_and_clamps_without_moving_outer_p
 fn clipped_visible_edges_scroll_and_content_motion_restarts_hover() {
     let (mut app, window, tree, row, _) = fixture(1.0);
     tick(&mut app, 0.4);
-    app.world_mut().entity_mut(tree).insert(CalculatedClip {
-        clip: Rect::new(20.0, 100.0, 240.0, 250.0),
-    });
+    app.world_mut().entity_mut(tree).insert(CalculatedClip::default().with_rect(
+        Rect::new(20.0, 100.0, 240.0, 250.0),
+        &UiGlobalTransform::default(),
+    ));
     cursor(&mut app, window, Vec2::new(130.0, 260.0));
     tick(&mut app, 0.2);
     assert_eq!(app.world().get::<ScrollPosition>(tree).unwrap().y, 250.0);

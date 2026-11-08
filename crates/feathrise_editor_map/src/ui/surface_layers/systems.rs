@@ -1,5 +1,6 @@
 //! 地表作者层固定行池的增量回显与鼠标反馈，稳定帧不扫描地图层表。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*; // 原生UI节点、资源与变更检测。
 use feathrise_map_content::SurfacePresetRegistry; // 预设热更后显示当前目录名称。
@@ -29,7 +30,7 @@ pub(super) fn spawn_rows(
                 parent
                     .spawn((
                         // 每个固定槽只创建一套按钮和文本。
-                        Button, // 原生Interaction承担点击和悬停。
+                        InteractionButton, // 原生Interaction承担点击和悬停。
                         SurfaceLayerRow { slot, target: None }, // 数据就绪前没有可操作身份。
                         Node {
                             // 固定行采用真实20像素高度。

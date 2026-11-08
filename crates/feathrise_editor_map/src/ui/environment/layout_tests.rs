@@ -1,5 +1,6 @@
 //! 原生中文字体下验证环境页缩放、窄栏、调试轨道及原输入缓冲；不替代实机视觉验收。
 
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 
 #[test]
@@ -132,7 +133,7 @@ fn environment_reflow_preserves_twenty_four_numeric_roots_and_active_buffer() {
                         assert!(matches!(child_node.width, Val::Percent(_)));
                     }
                 }
-                for node in world.query_filtered::<&Node, With<Button>>().iter(world) {
+                for node in world.query_filtered::<&Node, With<InteractionButton>>().iter(world) {
                     if node.height == px(26) {
                         assert_eq!(node.align_items, AlignItems::Center);
                     }

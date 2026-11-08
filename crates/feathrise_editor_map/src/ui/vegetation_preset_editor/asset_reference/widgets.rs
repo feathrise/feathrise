@@ -1,5 +1,6 @@
 //! 路径小动作与非模态子资产选择；复用工作台弹性布局和独立编辑器主题。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::super::types::{
     AssetReferenceAction, PresetEditorAction, PresetEditorButton, PresetField, ReferencePhase,
@@ -219,7 +220,7 @@ fn button(
 ) {
     parent
         .spawn((
-            Button,                                                         // 由Bevy产生真实Interaction。
+            InteractionButton,                                                         // 由Bevy产生真实Interaction。
             PresetEditorButton(PresetEditorAction::AssetReference(action)), // 原有按钮样式系统继续生效。
             Node {
                 width: if full_width {

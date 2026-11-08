@@ -1,5 +1,6 @@
 //! 真实GPU回读、原按钮布局及精确Cargo子进程句柄取证；磁盘和图片工作均在单飞后台槽。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{resources::Plan, types::BuildWitness, fixture};
 use bevy::{asset::RenderAssetUsages, image::{CompressedImageFormats, ImageSampler, ImageType}, prelude::*,
     render::view::screenshot::{Screenshot, ScreenshotCaptured}, tasks::IoTaskPool};
@@ -16,7 +17,7 @@ pub(super) fn original_button(world: &mut World, label: &str) -> Result<Option<(
     for text in labels {
         let mut current = text;
         for _ in 0..24 {
-            if world.get::<Button>(current).is_some() {
+            if world.get::<InteractionButton>(current).is_some() {
                 if world.get::<bevy::ui::InteractionDisabled>(current).is_none()
                     && visible_ancestry(world, text)
                     && world.get::<ComputedNode>(current).is_some_and(|node|node.size().min_element() > 0.) {
@@ -182,7 +183,7 @@ mod tests {
         let mut world = World::new();
         // 无渲染World不运行可见性传播，显式给出当前可见基线，再验证隐藏祖先会拒绝旧布局。
         let parent = world.spawn((Node::default(), InheritedVisibility::VISIBLE)).id();
-        let button = world.spawn((Button, Node::default(), InheritedVisibility::VISIBLE,
+        let button = world.spawn((InteractionButton, Node::default(), InheritedVisibility::VISIBLE,
             ComputedNode { size:Vec2::new(64.,26.), ..default() }, ChildOf(parent))).id();
         let label = world.spawn((Text::new("停止编译"), Node::default(), InheritedVisibility::VISIBLE, ChildOf(button))).id();
         assert_eq!(original_button(&mut world, "停止编译").unwrap().unwrap().0, button);

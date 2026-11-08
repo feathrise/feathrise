@@ -8,7 +8,41 @@ use bevy::{
 };
 
 pub(super) fn begin(nodes: Res<ExtractedUiNodes>, mut state: ResMut<SyntaxExtraction>) {
-    state.text_start = nodes.uinodes.len();
+    // 同一实体内，阴影先提取，正文批次随后按原字形索引追加。
+    state.text_start = state.source.as_ref().and_then(|identity| {
+        let main = bevy::render::sync_world::MainEntity::from(identity.key.source);
+        nodes.uinodes.get(&main).map(|(_, draws)| draws.len())
+    }).unwrap_or(0);
+}
+
+pub(super) fn invalidate(
+    mut commands: Commands,
+    mut nodes: ResMut<ExtractedUiNodes>,
+    paint: Extract<Res<SyntaxPaint>>,
+    palette: Extract<Res<feathrise_editor_ui::EditorPalette>>,
+    mut state: ResMut<SyntaxExtraction>,
+) {
+    let next = paint.visible.as_ref().map(|visible| PaintIdentity {
+        key: visible.key.clone(),
+        selection: paint.selection.clone(),
+        selected_color: paint.selected_color,
+        palette: palette.name(),
+    });
+    if state.source == next {
+        return;
+    }
+    // 异步分词发布、选区变化和切换文档都会使已有正文失效，从原生颜色重新开始。
+    for identity in state.source.iter().chain(next.iter()) {
+        let main = identity.key.source.into();
+        if nodes.changed.insert(main)
+            && let Some((_, mut draws)) = nodes.uinodes.remove(&main)
+        {
+            for (render_entity, _) in draws.drain(..) {
+                commands.entity(render_entity).despawn();
+            }
+        }
+    }
+    state.source = next;
 }
 
 pub(super) fn color(
@@ -32,47 +66,36 @@ pub(super) fn apply(
 fn apply_palette(nodes: &mut ExtractedUiNodes, paint: &SyntaxPaint, state: &mut SyntaxExtraction,
     palette: [Color; 6]) {
     let Some(visible) = &paint.visible else {
-        state.cached = None;
-        state.cursor = 0;
         return;
     };
-    let start = state.text_start;
-    let text = &nodes.uinodes[start..];
-    let first = |i: usize| {
-        text.get(i).is_some_and(|node| {
-            node.main_entity.id() == visible.key.source
-                && matches!(node.item, ExtractedUiItem::Glyphs { .. })
-                && (i == 0 || text[i - 1].main_entity != node.main_entity)
-        })
-    };
-    let cached = state.cached.filter(|i| first(*i));
-    let found = cached.or_else(|| {
-        let begin = state.cursor.min(text.len());
-        let end = (begin + EXTRACT_NODES).min(text.len());
-        let found = (begin..end).find(|i| first(*i));
-        state.cursor = if end == text.len() { 0 } else { end };
-        found
-    });
-    state.cached = found;
-    let Some(found) = found else {
+    let main = bevy::render::sync_world::MainEntity::from(visible.key.source);
+    if !nodes.changed.contains(&main) {
+        return;
+    }
+    let Some((_, draws)) = nodes.uinodes.get_mut(&main) else {
         return;
     };
-    let ExtractedUiItem::Glyphs { range } = &text[found].item else {
-        return;
-    };
-    let base = range.start;
-    // extract_text_sections按单实体连续提取全部字形，图集换批只切节点，不改变字形索引。
-    // 首批定位采用4096节点/帧和稳定序号缓存；不增加一次全UI或完整字形扫描。
     let palette = palette.map(|color| color.to_linear());
-    for color in &visible.colors {
-        if paint.selected_color
-            && (color.start as usize) < paint.selection.end
-            && (color.end as usize) > paint.selection.start
-        {
+    let mut base = 0;
+    let mut colors = visible.colors.iter().peekable();
+    for (_, draw) in draws.iter_mut().skip(state.text_start).take(EXTRACT_NODES) {
+        if colors.peek().is_none() {
+            break;
+        }
+        let ExtractedUiItem::Glyphs { glyphs } = &mut draw.item else {
             continue;
+        };
+        let end = base + glyphs.len();
+        // 图集换批只拆分绘制项，字形仍按原排版顺序。仅处理可见映射中的索引。
+        while colors.peek().is_some_and(|color| (color.glyph as usize) < end) {
+            let color = colors.next().unwrap();
+            if !paint.selected_color
+                || (color.start as usize) >= paint.selection.end
+                || (color.end as usize) <= paint.selection.start
+            {
+                glyphs[color.glyph as usize - base].color = palette[color.kind as usize];
+            }
         }
-        if let Some(glyph) = nodes.glyphs.get_mut(base + color.glyph as usize) {
-            glyph.color = palette[color.kind as usize];
-        }
+        base = end;
     }
 }

@@ -1,5 +1,6 @@
 //! 列表/缩略图工具条、固定槽位子节点和自适应网格；不重建资产行。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::{localization::{EditorLocale, label_scene}, metrics as ui_metrics};
 use super::{components::*, constants::*, resources::ThumbnailState, types::ThumbnailResult};
 use crate::components::{MapEditorAssetList, MapEditorAssetRow, MapEditorAssetRowText};
@@ -15,13 +16,13 @@ use feathrise_editor_core::AssetBrowserViewMode;
 fn mode_button(label: &str, mode: AssetBrowserViewMode) -> impl Scene {
     let minimum = if mode == AssetBrowserViewMode::Thumbnails { px(86) } else { px(38) };
     bsn! {
-        Button ViewModeButton(mode)
+        InteractionButton ViewModeButton(mode)
         Node { height: px(26), flex_grow: 1.0, flex_basis: px(0), min_width: minimum,
             border: px(1), border_radius: BorderRadius::all(px(3)),
             align_items: AlignItems::Center, justify_content: JustifyContent::Center }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label) label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+            Text(label) @label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
     }
@@ -31,8 +32,8 @@ pub(crate) fn view_mode_controls() -> impl Scene {
     bsn! {
         Node { height: px(26), flex_grow: 1.0, flex_basis: px(128), min_width: px(128), column_gap: px(4), flex_shrink: 0.0 }
         Children [
-            (mode_button("列表", AssetBrowserViewMode::List)),
-            (mode_button("缩略图", AssetBrowserViewMode::Thumbnails)),
+            (@mode_button("列表", AssetBrowserViewMode::List)),
+            (@mode_button("缩略图", AssetBrowserViewMode::Thumbnails)),
         ]
     }
 }

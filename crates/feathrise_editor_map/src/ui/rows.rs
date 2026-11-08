@@ -1,5 +1,6 @@
 //! 地图与资产列表固定行池及增量文本同步。
 
+use feathrise_editor_ui::InteractionButton;
 use crate::ui::theme as colors;
 use bevy::prelude::*; // UI实体生成、Interaction和文本查询。
 use feathrise_map_content::{MapAssetKind, MapCatalogAsset}; // 地图进入测试仍使用公共目录，资产行读取公共类型。 // 动态行使用静态BSN相同水墨配色。
@@ -127,7 +128,7 @@ pub(crate) fn spawn_dynamic_rows(
             for slot in 0..MAP_BROWSER_ROW_POOL_COUNT {
                 parent
                     .spawn((
-                        Button,
+                        InteractionButton,
                         MapEditorMapRow { slot, item: None },
                         bevy::ui::RelativeCursorPosition::default(), // 区分真实悬停和移出后仍保留的Pressed，文件夹拖动才能正确识别落点。
                         Node {
@@ -180,7 +181,7 @@ pub(crate) fn spawn_dynamic_rows(
             for slot in existing..capacity {
                 parent
                     .spawn((
-                        Button,
+                        InteractionButton,
                         MapEditorAssetRow {
                             slot,
                             entry_index: None,

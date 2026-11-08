@@ -7,6 +7,7 @@ mod io;
 #[path = "native_preview_validation/resources.rs"]
 mod resources;
 
+use feathrise_editor_ui::InteractionButton;
 use crate::{
     embedded_viewport::{EmbeddedStatus, validation as evidence},
     viewport_mode::{RequestViewportMode, ViewportMode},
@@ -277,7 +278,7 @@ fn editor_image(world: &mut World, plan: &mut Plan) -> Result<bool, String> {
 }
 
 fn button_value(world: &World, entity: Entity, id: &str) -> Option<Value> {
-    world.get::<Button>(entity)?;
+    world.get::<InteractionButton>(entity)?;
     let bounds = rect(world, entity)?;
     Some(
         json!({"id":id,"entity":entity.to_bits(),"physical_rect":[bounds.min.x,bounds.min.y,bounds.width(),bounds.height()],

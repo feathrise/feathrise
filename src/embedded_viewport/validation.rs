@@ -182,15 +182,12 @@ pub(crate) fn install(app: &mut App, project_root: &Path) -> Result<(), String> 
         region_evidence: None,
         evidence_retry: Instant::now(),
     })
-    .add_systems(
-        Update,
-        input_ownership.before(feathrise_editor_core::MapEditorSystemSet::Input),
-    )
+    // 保留真实窗口焦点。改写 Window.focused 会让 Winit 激活作者窗，打断独立试玩的原生输入。
     .add_systems(Last, drive);
     Ok(())
 }
 
-/// 注入原ECS输入链前只投影本夹具焦点；不操作外部桌面键鼠，物理手感另列未验。
+/// 构建方式验收仍需要向作者输入链投影焦点。常驻实窗验收直接采用 Winit 的真实状态。
 fn input_ownership(mut windows: Query<&mut Window, With<PrimaryWindow>>) {
     if let Ok(mut window) = windows.single_mut() {
         window.focused = true;
@@ -776,8 +773,7 @@ fn guest_capture(
         return Ok(false);
     }
     let geometry = world.resource::<crate::viewport_mode::ViewportGeometry>();
-    // 真实后台窗口按生产规则禁用游戏输入；先等本轮窗口取得前台，不能把逻辑focused注入当作原生许可。
-    if playing && !geometry.focused { return Ok(false); }
+    // 作者几何在切换后保留编辑租约，Playing 截图以实际游戏 HWND 的实时焦点为准。
     if geometry.excluded_rects.len() > feathrise_editor_protocol::MAX_VIEWPORT_EXCLUDED_RECTS {
         return Err("作者几何超出32个留孔预算，拒绝复制验收快照".into());
     }
@@ -824,7 +820,11 @@ fn guest_capture(
                     .and_then(|value| match value {
                         Some(capture) => {
                             placement_evidence::verify(&capture, &author)?;
-                            window_evidence::query_live(&capture, &geometry)
+                            Ok(window_evidence::query_live(&capture, &geometry)?.map(|mut proof| {
+                                // 汇总从同一补丁代次和帧读取不可变的截图，不再读会覆盖的最新回执。
+                                proof["capture_patch_epoch"] = capture["patch_epoch"].clone();
+                                proof
+                            }))
                         }
                         None => Ok(None),
                     });

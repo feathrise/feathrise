@@ -3,6 +3,24 @@ use crate::colors::*;
 use bevy::prelude::*;
 pub use feathrise_ui_widgets::helpers::*;
 
+/// 用实际变换后的祖先裁切计算可见边界，供滚动和只排版可见行的工具使用。
+pub fn clipped_ui_bounds(clip: &bevy::ui::CalculatedClip, bounds: Rect) -> Option<Rect> {
+    let corners = [
+        (bounds.min, ()),
+        (Vec2::new(bounds.max.x, bounds.min.y), ()),
+        (bounds.max, ()),
+        (Vec2::new(bounds.min.x, bounds.max.y), ()),
+    ];
+    // 与 Bevy 绘制路径共用裁切，保留旋转祖先、单轴裁切及完全不可见的语义。
+    let vertices = bevy::ui_render::clipping::clip_polygon(Some(clip), &corners, |(), (), _| ());
+    let mut points = vertices.into_iter().map(|(position, ())| position);
+    let first = points.next()?;
+    Some(points.fold(Rect::from_corners(first, first), |bounds, point| Rect {
+        min: bounds.min.min(point),
+        max: bounds.max.max(point),
+    }))
+}
+
 /// 原浮层入口继续兼容，但外壳由同一对话框配方决定，避免无框和亮框各自演变。
 pub fn floating_panel_node() -> Node {
     dialog_panel_node()

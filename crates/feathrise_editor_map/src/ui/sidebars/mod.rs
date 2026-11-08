@@ -1,5 +1,6 @@
 //! F12地图编辑器左右侧栏的页签化静态布局、会话状态与增量交互系统。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use feathrise_editor_ui::localization::LocalizedText;
 use crate::ui::theme as colors;
@@ -85,14 +86,14 @@ pub fn sidebar_tab_button(label: &str, tab: EditorSidebarTab) -> impl Scene {
         _ => LocalizedText::label(label),
     };
     bsn! {
-        Button
+        InteractionButton
         MapEditorSidebarTabButton(tab)
-        template_value(sidebar_tab_node())
+        ~{sidebar_tab_node()}
         BackgroundColor(colors::PANEL_BG_STRONG) // 一级分类默认使用比页内按钮更深的墨色。
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
             MapEditorSidebarTabText
-            Text(label) template_value(copy)
+            Text(label) ~{copy}
             TextLayout::no_wrap()
             Node { max_width: percent(100), min_width: px(0), overflow: Overflow::clip_x() }
             TextFont {
@@ -119,7 +120,7 @@ pub fn sidebar_context_title(label: &str) -> impl Scene {
         BackgroundColor(colors::PANEL_BG_SECTION) // 轻墨底承接上方深墨导航分区。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 分隔线弱于活动一级页签底线。
         Children [(
-            Text(label) feathrise_editor_ui::localization::label_scene(label) // 标签由各页面提供，避免运行时拼接和额外状态。
+            Text(label) @feathrise_editor_ui::localization::label_scene(label) // 标签由各页面提供，避免运行时拼接和额外状态。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 页面上下文支持完整中文标签。
                 font_size: px(ui_metrics::FONT_CONTROL), // 介于一级页签与普通提示文字之间。
@@ -143,7 +144,7 @@ pub fn sidebar_subsection_title(label: &str) -> impl Scene {
         }
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 二级分区弱于一级活动铜边。
         Children [(
-            Text(label) feathrise_editor_ui::localization::label_scene(label) // 角色页传入“全局预设”或“当前地图”。
+            Text(label) @feathrise_editor_ui::localization::label_scene(label) // 角色页传入“全局预设”或“当前地图”。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 二级标题沿用正式中文字体。
                 font_size: px(ui_metrics::FONT_HINT), // 小字号表明它不是可点击页签。
@@ -156,7 +157,7 @@ pub fn sidebar_subsection_title(label: &str) -> impl Scene {
 /// 构造分组右上角问号；入口绝对定位，不再单独占一行说明开关。
 pub(super) fn sidebar_help_button(help: EditorSidebarHelp) -> impl Scene {
     bsn! {
-        Button
+        InteractionButton
         MapEditorSidebarHelpButton(help)
         Node {
             position_type: PositionType::Absolute, right: px(0), top: px(0),
@@ -185,7 +186,7 @@ pub(super) fn sidebar_help_button(help: EditorSidebarHelp) -> impl Scene {
 pub(super) fn sidebar_help_body(help: EditorSidebarHelp, copy: &str) -> impl Scene {
     bsn! {
         MapEditorSidebarHelpBody(help)
-        Text(copy) feathrise_editor_ui::localization::label_scene(copy)
+        Text(copy) @feathrise_editor_ui::localization::label_scene(copy)
         TextFont {
             font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
             font_size: px(ui_metrics::FONT_HINT),

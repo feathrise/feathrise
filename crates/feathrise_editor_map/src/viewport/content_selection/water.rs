@@ -1,7 +1,7 @@
 //! 统一水面轻量完成范围命中到水域作者对象的稳定选择发布。
 
 use bevy::camera::primitives::Aabb; // 水面GPU上传后仍保留后台完成的轻量局部范围。
-use bevy::math::bounding::Aabb3d; // Bevy正式射线/Aabb函数使用中心和半尺寸描述局部范围。
+use bevy::shape::Aabb3d; // Bevy正式射线/Aabb函数使用中心和半尺寸描述局部范围。
 use bevy::picking::mesh_picking::ray_cast::ray_aabb_intersection_3d; // 不读取已从MainWorld释放的水面顶点。
 use bevy::prelude::{Entity, GlobalTransform, Mat4, Query, Ray3d, Vec2, Vec3, Visibility}; // 点击边沿遍历有限水面根并发布最近命中。
 use feathrise_map_content::{MapId, MapWaterAsset}; // 当前地图和三类作者数组共同复验世界marker。

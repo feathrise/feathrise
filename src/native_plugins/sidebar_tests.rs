@@ -1,4 +1,5 @@
 //! 真实宿主输入及回执路由回归：插件互切、隐藏点击、迟到响应与中央文档隔离。
+use feathrise_editor_ui::InteractionButton;
 use super::resources::Event;
 use super::{components::*, resources::*, systems};
 use bevy::prelude::*;
@@ -414,7 +415,7 @@ fn document_workbench_uses_central_tabs_and_late_create_cannot_steal_navigation(
 fn button_focus_allows_document_history_but_text_focus_owns_undo() {
     let (mut app, _, jobs) = fixture();
     click(&mut app, 0, UiAction::OpenTool);
-    let entity = app.world_mut().spawn(Button).id();
+    let entity = app.world_mut().spawn(InteractionButton).id();
     app.world_mut()
         .resource_mut::<bevy::input_focus::InputFocus>()
         .set(entity, bevy::input_focus::FocusCause::Pressed);

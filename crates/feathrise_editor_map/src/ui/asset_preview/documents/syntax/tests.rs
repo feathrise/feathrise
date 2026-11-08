@@ -346,32 +346,43 @@ fn invalidated_background_job_keeps_its_slot_then_adopts_only_latest_draft() {
 fn extract_colors_original_glyph_indices_and_preserves_native_selection() {
     use super::{extract::apply, resources::*};
     use bevy::{
+        ecs::entity::EntityIndexMap,
         prelude::*,
+        render::sync_world::MainEntity,
         ui_render::{ExtractedGlyph, ExtractedUiItem, ExtractedUiNode, ExtractedUiNodes},
     };
     let source = Entity::from_raw_u32(7).unwrap();
     let other = Entity::from_raw_u32(8).unwrap();
     let plain = crate::ui::theme::TEXT_PRIMARY.to_linear();
     let selected = LinearRgba::WHITE;
-    let mut nodes = ExtractedUiNodes {
-        uinodes: vec![ExtractedUiNode {
-            z_order: 1.0,
-            image: default(),
-            clip: None,
-            extracted_camera_entity: other,
-            item: ExtractedUiItem::Glyphs { range: 2..4 },
-            main_entity: source.into(),
-            render_entity: other,
-            transform: default(),
-        }],
-        glyphs: (0..5)
-            .map(|i| ExtractedGlyph {
-                color: if i == 3 { selected } else { plain },
+    let main = MainEntity::from(source);
+    let other_main = MainEntity::from(other);
+    let draw = |color| ExtractedUiNode {
+        z_order: 1.0,
+        image: default(),
+        clip: None,
+        item: ExtractedUiItem::Glyphs {
+            glyphs: vec![ExtractedGlyph {
+                color,
                 translation: Vec2::ZERO,
                 rect: Rect::default(),
-            })
-            .collect(),
+            }],
+        },
+        transform: default(),
     };
+    let shadow = Entity::from_raw_u32(9).unwrap();
+    let first = Entity::from_raw_u32(10).unwrap();
+    let second = Entity::from_raw_u32(11).unwrap();
+    let mut draws = EntityIndexMap::default();
+    draws.insert(shadow, draw(plain));
+    draws.insert(first, draw(plain));
+    draws.insert(second, draw(selected));
+    let mut untouched = EntityIndexMap::default();
+    untouched.insert(first, draw(plain));
+    let mut nodes = ExtractedUiNodes::default();
+    nodes.uinodes.insert(main, (other, draws));
+    nodes.uinodes.insert(other_main, (other, untouched));
+    nodes.changed.insert(main);
     let paint = SyntaxPaint {
         visible: Some(VisibleColors {
             key: GlyphKey {
@@ -403,16 +414,21 @@ fn extract_colors_original_glyph_indices_and_preserves_native_selection() {
         selection: 4..5,
         selected_color: true,
     };
-    let mut extraction = SyntaxExtraction::default();
+    let mut extraction = SyntaxExtraction { text_start: 1, ..default() };
     apply(&mut nodes, &paint, &mut extraction);
+    let color = |main: MainEntity, render: Entity| {
+        let ExtractedUiItem::Glyphs { glyphs } = &nodes.uinodes[&main].1[&render].item else {
+            panic!("预期字形绘制项");
+        };
+        glyphs[0].color
+    };
     assert_eq!(
-        nodes.glyphs[2].color,
+        color(main, first),
         crate::ui::theme::SYNTAX_KEYWORD.to_linear()
     );
-    assert_eq!(nodes.glyphs[3].color, selected);
-    assert_eq!(nodes.glyphs[0].color, plain);
-    assert_eq!(nodes.glyphs[4].color, plain);
-    assert_eq!(extraction.cached, Some(0));
+    assert_eq!(color(main, second), selected);
+    assert_eq!(color(main, shadow), plain);
+    assert_eq!(color(other_main, first), plain);
 }
 
 /// 正式离屏预览/编辑共用断言；只检查字形映射和不变性，不通过另一份Text覆盖输入。
@@ -686,9 +702,9 @@ pub(in super::super) fn gpu_assert_input(
         .text_range();
     let scroll = app
         .world()
-        .get::<bevy::ui::widget::TextScroll>(source)
+        .get::<EditableText>(source)
         .unwrap()
-        .0;
+        .viewport.offset;
     let mut times = Vec::new();
     use bevy::ecs::system::RunSystemOnce;
     for _ in 0..16 {
@@ -720,9 +736,9 @@ pub(in super::super) fn gpu_assert_input(
     );
     assert_eq!(
         app.world()
-            .get::<bevy::ui::widget::TextScroll>(source)
+            .get::<EditableText>(source)
             .unwrap()
-            .0,
+            .viewport.offset,
         scroll
     );
 

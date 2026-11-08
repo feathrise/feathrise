@@ -1,5 +1,6 @@
 //! 地形页内地表作者层摘要、六槽列表与当前地图删除入口。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*; // 原生BSN场景沿用编辑器现有布局。
 use bevy::text::FontSourceTemplate; // 静态文字使用项目中文字体。
@@ -15,7 +16,7 @@ use super::types::SurfaceLayerAction; // 局部按钮只发送当前地图的局
 /// 独立动作按钮保留编辑器24像素高度与等宽布局。
 fn action_button(label: &str, action: SurfaceLayerAction) -> impl Scene {
     bsn! { // BSN构造固定UI，不随条目数量增加。
-        Button // 原生Interaction消费鼠标。
+        InteractionButton // 原生Interaction消费鼠标。
         SurfaceLayerButton(action) // 分页与地图层删除的明确动作。
         Node { // 紧凑按钮占据操作行的等宽空间。
             height: px(24), // 沿用正式编辑器按钮高度。
@@ -29,7 +30,7 @@ fn action_button(label: &str, action: SurfaceLayerAction) -> impl Scene {
         BackgroundColor(colors::SLOT_BG) // 默认使用暗墨槽位背景。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 静态弱铜边。
         Children [( // 每个按钮只有一个短文本子节点。
-            Text(label) feathrise_editor_ui::localization::label_scene(label) // BSN模板直接接收标签，与既有编辑器按钮保持一致。
+            Text(label) @feathrise_editor_ui::localization::label_scene(label) // BSN模板直接接收标签，与既有编辑器按钮保持一致。
             TextFont { // 使用已加载的中文字体模板。
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 与全局预设栏同源。
                 font_size: px(ui_metrics::FONT_CONTROL), // 三列紧凑按钮完整显示。
@@ -51,7 +52,7 @@ pub(crate) fn surface_authoring_panel() -> impl Scene {
         Children [ // 固定三块，不额外创建一套滚动视口。
             ( // 真实数量与页码摘要。
                 SurfaceLayerListTitle // 由专用系统更新文字。
-                Text("地表作者层 · 等待地图") feathrise_editor_ui::localization::label_scene("地表作者层 · 等待地图") // 未加载时不伪造地表条目。
+                Text("地表作者层 · 等待地图") @feathrise_editor_ui::localization::label_scene("地表作者层 · 等待地图") // 未加载时不伪造地表条目。
                 TextFont { // 标题密度与植被作者层一致。
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 项目中文字体。
                     font_size: px(ui_metrics::FONT_CONTROL), // 与相邻地表状态一致。
@@ -78,10 +79,10 @@ pub(crate) fn surface_authoring_panel() -> impl Scene {
                     flex_shrink: 0.0, // 保持固定按钮高度。
                 } // 按钮显示由专用回显系统控制。
                 Children [ // 全部按钮只影响当前地图。
-                    (action_button("新建层", SurfaceLayerAction::Create)), // 使用已选预设创建独立空白层。
-                    (action_button("前页首项", SurfaceLayerAction::PreviousPage)), // 显式选择前页第一层。
-                    (action_button("后页首项", SurfaceLayerAction::NextPage)), // 显式选择后页第一层。
-                    (action_button("删除所选", SurfaceLayerAction::DeleteSelected)), // 通过后台事务删除完整材质层。
+                    (@action_button("新建层", SurfaceLayerAction::Create)), // 使用已选预设创建独立空白层。
+                    (@action_button("前页首项", SurfaceLayerAction::PreviousPage)), // 显式选择前页第一层。
+                    (@action_button("后页首项", SurfaceLayerAction::NextPage)), // 显式选择后页第一层。
+                    (@action_button("删除所选", SurfaceLayerAction::DeleteSelected)), // 通过后台事务删除完整材质层。
                 ] // 不在此处删除全局PBR预设。
             ), // 操作行结束。
         ] // 页面沿用既有左右栏布局。

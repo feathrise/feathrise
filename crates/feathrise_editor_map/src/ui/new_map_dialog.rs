@@ -39,7 +39,7 @@ pub(super) fn new_map_dialog() -> impl Scene {
         }
         GlobalZIndex(430)
         BackgroundColor(colors::SCENE_OVERLAY_BG)
-        Children [(scene::panel())]
+        Children [(@scene::panel())]
     }
 }
 

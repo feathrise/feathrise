@@ -1,5 +1,6 @@
 //! 使用生产地图标签构造验证只读finder；无窗口布局事实仅用于条件回归，不作为真实GPU验收。
 
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use super::super::super::types::DiskIdentity;
 use crate::{asset_catalog::document_format, resources::MapEditorState,
@@ -61,7 +62,7 @@ fn map_finder_returns_the_real_current_map_title_and_keeps_the_document_untouche
     let found = source_location_action_entity(app.world_mut(), NOTE, SourceLocationAction::Map);
     assert_eq!(found, Some(current));
     assert_ne!(found, Some(other)); assert_ne!(found, Some(close));
-    assert!(app.world().get::<Button>(current).is_some());
+    assert!(app.world().get::<InteractionButton>(current).is_some());
     assert_eq!(before, source_location_probe(app.world_mut()).unwrap());
     assert!(app.world().resource::<DocumentState>().central_active, "查找实体本身不能替代实际点击切页");
 }
@@ -85,7 +86,7 @@ fn map_finder_requires_the_actual_visible_enabled_button_and_nonempty_layout() {
             "visibility" => { app.world_mut().entity_mut(current).insert(InheritedVisibility::HIDDEN); }
             "layout" => { app.world_mut().entity_mut(current).insert(ComputedNode::default()); }
             "disabled" => { app.world_mut().entity_mut(current).insert(bevy::ui::InteractionDisabled); }
-            "button" => { app.world_mut().entity_mut(current).remove::<Button>(); }
+            "button" => { app.world_mut().entity_mut(current).remove::<InteractionButton>(); }
             _ => unreachable!(),
         }
         assert!(source_location_action_entity(app.world_mut(), NOTE, SourceLocationAction::Map).is_none(), "必须保留{gate}门");

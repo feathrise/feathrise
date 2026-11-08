@@ -44,7 +44,7 @@ pub fn app(width: u32, height: u32) -> (App, Entity, Handle<Font>) {
         bevy::transform::TransformPlugin,
         bevy::text::TextPlugin,
         bevy::ui::UiPlugin,
-        bevy::ui_widgets::EditableTextInputPlugin,
+        bevy::ui_widgets::TextInputPlugin,
         bevy::ui_render::UiRenderPlugin,
         feathrise_editor_ui::EditorUiPlugin,
     ));

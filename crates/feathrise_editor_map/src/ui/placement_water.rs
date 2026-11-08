@@ -3,6 +3,7 @@
 //! 【功能设计】Blender拥有拓扑、对象层级与UV；F12只给完整对象网格赋予水体语义和少量参数，
 //! 不提供面级涂抹，也不生成第二套水Shader或河流几何。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*; // BSN、UI交互、Commands与作者资源。
@@ -76,7 +77,7 @@ pub(crate) struct MapEditorPlacementWaterText;
 /// 构造与F12通用按钮一致的整网格水体属性按钮。
 fn property_button(label: &str, action: PlacementWaterAction) -> impl Scene {
     bsn! {
-        Button
+        InteractionButton
         MapEditorPlacementWaterActionButton(action)
         Node {
             height: px(26),
@@ -93,7 +94,7 @@ fn property_button(label: &str, action: PlacementWaterAction) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label) feathrise_editor_ui::localization::label_scene(label)
+            Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                 font_size: px(ui_metrics::FONT_CONTROL),
@@ -117,10 +118,10 @@ pub(super) fn placement_water_properties_panel() -> impl Scene {
             padding: UiRect::vertical(px(3)),
         }
         Children [
-            (crate::ui::context_help::section_header("网格水体", "数值框支持左拖实际值、右拖本字段灵敏度、中键精确输入，左右键单击无动作。UV0要求U沿下游按米递增、V横向0..1；局部水面请回Blender拆分为独立对象。资产浏览器只选择源文件和摆放；网格属性从场景树选择已摆放对象。失效绑定可用取消水体清除；名称不稳定时请在Blender显式命名对象与网格后重新导出。")),
+            (@crate::ui::context_help::section_header("网格水体", "数值框支持左拖实际值、右拖本字段灵敏度、中键精确输入，左右键单击无动作。UV0要求U沿下游按米递增、V横向0..1；局部水面请回Blender拆分为独立对象。资产浏览器只选择源文件和摆放；网格属性从场景树选择已摆放对象。失效绑定可用取消水体清除；名称不稳定时请在Blender显式命名对象与网格后重新导出。")),
             (
                 MapEditorPlacementWaterText
-                Text("请选择场景树中的Blender网格") feathrise_editor_ui::localization::label_scene("请选择场景树中的Blender网格")
+                Text("请选择场景树中的Blender网格") @feathrise_editor_ui::localization::label_scene("请选择场景树中的Blender网格")
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_CONTROL),
@@ -144,13 +145,13 @@ pub(super) fn placement_water_properties_panel() -> impl Scene {
                     column_gap: px(3),
                 }
                 Children [
-                    (property_button("水平水", PlacementWaterAction::SetHorizontal)),
-                    (property_button("斜坡水", PlacementWaterAction::SetSloped)),
-                    (property_button("瀑布", PlacementWaterAction::SetWaterfall)),
-                    (property_button("取消水体", PlacementWaterAction::Clear)),
+                    (@property_button("水平水", PlacementWaterAction::SetHorizontal)),
+                    (@property_button("斜坡水", PlacementWaterAction::SetSloped)),
+                    (@property_button("瀑布", PlacementWaterAction::SetWaterfall)),
+                    (@property_button("取消水体", PlacementWaterAction::Clear)),
                 ]
             ),
-            (placement_water_numeric_input_slots()), // 两个字段分别绑定自己的值、拖动事务和持久灵敏度。
+            (@placement_water_numeric_input_slots()), // 两个字段分别绑定自己的值、拖动事务和持久灵敏度。
         ]
     }
 }

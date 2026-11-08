@@ -1,5 +1,6 @@
 //! 16个候选文件与32个并列差异行按视区复用；稳定帧不扫描正文、不按匹配数创建实体。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::super::resources::AssetSearchState;
 use super::{components::*, constants::*, resources::AssetReplaceState};
@@ -47,7 +48,7 @@ pub(super) fn setup(
                     .with_children(|row| {
                         for checked in [true, false] {
                             row.spawn((
-                                Button,
+                                InteractionButton,
                                 ReplaceAction::Inactive,
                                 if checked {
                                     ReplaceButtonSlot::Check(slot)
@@ -95,7 +96,7 @@ pub(super) fn setup(
             for slot in 0..DIFF_SLOTS {
                 parent
                     .spawn((
-                        Button,
+                        InteractionButton,
                         ReplaceDiffRow(slot),
                         ReplaceButtonSlot::Hit(slot),
                         ReplaceAction::Inactive,

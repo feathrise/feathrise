@@ -1,5 +1,6 @@
 //! 十八像素问号与根直属弱灰帮助窗口；静态说明只创建一次，默认完全退出正文布局。
 
+use feathrise_editor_ui::InteractionButton;
 use super::components::*;
 use crate::ui::{scene::FONT_PATH, theme as colors};
 use bevy::{
@@ -23,36 +24,36 @@ pub(in crate::ui) fn popup() -> impl Scene {
     let close = feathrise_editor_ui::dialog_close_button_style();
     bsn! {
         ContextHelpPopup RelativeCursorPosition::default() Interaction::default()
-        template_value(FocusPolicy::Block)
+        ~{FocusPolicy::Block}
         // 帮助与设置、详情及日志使用同一外壳；来源锚点和65%阅读高度仍由原定位流程维护。
-        template_value(Node { display: Display::None, position_type: PositionType::Absolute,
+        ~{Node { display: Display::None, position_type: PositionType::Absolute,
             left: px(0), top: px(0), width: px(420), max_height: percent(65),
-            ..feathrise_editor_ui::dialog_panel_node() })
+            ..feathrise_editor_ui::dialog_panel_node() }}
         GlobalZIndex(950) // 高于设置900、低于切图等更高模态；普通帮助在设置打开时先收起。
         BackgroundColor(feathrise_editor_ui::colors::DIALOG_BG)
         BorderColor::all(feathrise_editor_ui::colors::DIALOG_BORDER)
         Children [
-            (template_value(feathrise_editor_ui::dialog_header_node())
+            (~{feathrise_editor_ui::dialog_header_node()}
                 BackgroundColor(feathrise_editor_ui::colors::DIALOG_HEADER_BG)
                 BorderColor::all(feathrise_editor_ui::colors::DIALOG_BORDER)
                 Children [
-                    (ContextHelpTitle Text("操作说明") feathrise_editor_ui::localization::label_scene("操作说明")
+                    (ContextHelpTitle Text("操作说明") @feathrise_editor_ui::localization::label_scene("操作说明")
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_BODY) }
                         TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap()
                         Node { min_width: px(0), flex_grow: 1.0, overflow: Overflow::clip_x() }
-                        template_value(FocusPolicy::Pass)),
-                    (Button ContextHelpClose
-                        template_value(close.node) feathrise_editor_ui::dialog_button_colors_scene(false)
-                        template_value(BackgroundColor(close.colors.normal))
+                        ~{FocusPolicy::Pass}),
+                    (InteractionButton ContextHelpClose
+                        ~{close.node} @feathrise_editor_ui::dialog_button_colors_scene(false)
+                        ~{BackgroundColor(close.colors.normal)}
                         BorderColor::all(feathrise_editor_ui::colors::DIALOG_BORDER)
                         Children [(Text("×")
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-                            TextColor(colors::TEXT_PRIMARY) template_value(FocusPolicy::Pass))]),
+                            TextColor(colors::TEXT_PRIMARY) ~{FocusPolicy::Pass})]),
                 ]),
             (ContextHelpScroll RelativeCursorPosition::default() ScrollPosition::default()
-                template_value(FocusPolicy::Block)
-                template_value(Node { flex_shrink: 1.0, overflow: Overflow::scroll_y(),
-                    ..feathrise_editor_ui::dialog_body_node() })),
+                ~{FocusPolicy::Block}
+                ~{Node { flex_shrink: 1.0, overflow: Overflow::scroll_y(),
+                    ..feathrise_editor_ui::dialog_body_node() }}),
         ]
     }
 }

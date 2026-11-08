@@ -141,7 +141,11 @@ pub(crate) fn navigate_map_browser_drag(
     };
     let mut bounds = Rect::from_center_size(transform.translation, computed.size());
     if let Some(clip) = clip {
-        bounds = bounds.intersect(clip.clip); // 低高度外栏裁切后，按实际可见的列表边缘滚动。
+        let Some(clipped) = feathrise_editor_ui::clipped_ui_bounds(clip, bounds) else {
+            *hover = None;
+            return;
+        };
+        bounds = clipped; // 低高度外栏裁切后，按实际可见的列表边缘滚动。
     }
     bounds = bounds.intersect(Rect::from_corners(
         Vec2::ZERO,

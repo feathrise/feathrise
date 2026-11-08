@@ -17,7 +17,6 @@ use bevy::{
     input_focus::{FocusCause, InputFocus},
     prelude::*,
     text::{EditableText, FontCx, LayoutCx, TextLayoutInfo},
-    ui::widget::TextScroll,
 };
 
 pub(super) fn identity_matches(identity: &ContentIdentity, doc: &Document) -> bool {
@@ -138,10 +137,9 @@ pub(super) fn reveal(
     mut sources: Query<(
         Entity,
         &DocumentSource,
-        &EditableText,
+        &mut EditableText,
         &ComputedNode,
         &TextLayoutInfo,
-        &mut TextScroll,
         &mut DocumentScrollState,
     )>,
 ) {
@@ -154,16 +152,16 @@ pub(super) fn reveal(
     }) else {
         return;
     };
-    let Ok((entity, binding, text, node, layout, mut scroll, mut preservation)) =
+    let Ok((entity, binding, mut text, node, layout, mut preservation)) =
         sources.single_mut()
     else {
         return;
     };
     if entity == target.source
         && binding.key.as_ref() == Some(&doc.source_key())
-        && !busy(text)
+        && !busy(&text)
         && text.editor.raw_selection().text_range() == target.range
     {
-        navigation::reveal_selection(node, layout, &mut scroll, &mut preservation);
+        navigation::reveal_selection(node, layout, &mut text.viewport, &mut preservation);
     }
 }

@@ -74,7 +74,7 @@ impl PlacementInstanceIndex {
 
 /// 新正式候选、活动批次或作者预览根落地时O(1)登记其稳定ID。
 pub(crate) fn register_placement_instance_root(
-    add: On<Add, MapPlacementInstance>,
+    add: On<Add<MapPlacementInstance>>,
     mut commands: Commands,
     roots: Query<&MapPlacementInstance>,
     mut index: ResMut<PlacementInstanceIndex>,
@@ -104,7 +104,7 @@ pub(crate) fn register_placement_instance_root(
 
 /// 根组件移除或实体销毁时从所属ID小集合交换删除。
 pub(crate) fn unregister_placement_instance_root(
-    remove: On<Remove, MapPlacementInstance>,
+    remove: On<Remove<MapPlacementInstance>>,
     mut index: ResMut<PlacementInstanceIndex>,
 ) {
     let Some((map_id, placement_id)) = index.identity_by_root.remove(&remove.entity) else {
@@ -151,7 +151,7 @@ pub(crate) fn unregister_placement_instance_root(
 
 /// Pending/Ready/Failed首次插入或替换后，只推进所属地图与placement的状态票据。
 pub(crate) fn observe_placement_water_status_inserted(
-    insert: On<Insert, DynamicWaterMeshOverrideStatus>,
+    insert: On<Insert<DynamicWaterMeshOverrideStatus>>,
     roots: Query<&MapPlacementInstance>,
     mut index: ResMut<PlacementInstanceIndex>,
 ) {
@@ -167,7 +167,7 @@ pub(crate) fn observe_placement_water_status_inserted(
 
 /// 状态显式移除或根销毁时撤销当前选择的旧Ready/Failed显示信用。
 pub(crate) fn observe_placement_water_status_removed(
-    remove: On<Remove, DynamicWaterMeshOverrideStatus>,
+    remove: On<Remove<DynamicWaterMeshOverrideStatus>>,
     mut index: ResMut<PlacementInstanceIndex>,
 ) {
     let identity = index.identity_by_root.get(&remove.entity).cloned(); // 显式移除状态时根索引仍存在；despawn若已先移除根身份，则成员修订已经完成全部撤销。

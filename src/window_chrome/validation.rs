@@ -1,4 +1,5 @@
 //! 显式validation下的真实主窗口验收；仅接受本轮独占目录及隔离偏好，不打开或修改用户工程。
+use feathrise_editor_ui::InteractionButton;
 use super::{components::{ChromeButton, Icon}, resources::ChromeParts, types::*};
 use bevy::{
     prelude::*,
@@ -121,7 +122,7 @@ fn screenshot(world: &mut World, directory: &std::path::Path, name: &str) {
 fn layout_button(world: &World, index: usize) -> Option<Entity> {
     let control = *world.resource::<ChromeParts>().0.as_ref()?.layout_controls.get(index)?;
     super::scene::descendants(world, control, 2).into_iter().find(|entity| {
-        world.get::<Button>(*entity).is_some()
+        world.get::<InteractionButton>(*entity).is_some()
             && world.get::<InheritedVisibility>(*entity).is_some_and(|visible| visible.get())
     })
 }
@@ -233,7 +234,7 @@ fn layout_proof(world: &World) -> Result<Value, String> {
             return Err(format!("原布局入口未按顺序显示在运行配置与窗口键之间：{item:?} {control_rect:?}"));
         }
         let descendants = super::scene::descendants(world, control, 3);
-        let button = descendants.iter().copied().find(|entity| world.get::<Button>(*entity).is_some())
+        let button = descendants.iter().copied().find(|entity| world.get::<InteractionButton>(*entity).is_some())
             .ok_or_else(|| format!("原布局入口缺少按钮：{item:?}"))?;
         let button_rect = rect(button)?;
         if button_rect.left < control_rect.left - 1 || button_rect.right > control_rect.right + 1

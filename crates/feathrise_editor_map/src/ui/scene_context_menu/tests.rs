@@ -1,5 +1,6 @@
 //! 正式右键边沿、中文名称、目标换代和鼠标释放门回归，不访问系统剪贴板或地图文件。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::SceneContextMenuState, systems, types::*};
 use crate::{
     authoring::{EditorAuthoringSession, test_heightfield_draft},
@@ -110,7 +111,7 @@ fn fixture() -> Fixture {
         let child = app.world_mut().spawn(Text::new("")).id();
         app.world_mut()
             .spawn((
-                Button,
+                InteractionButton,
                 MenuButton(action),
                 Interaction::None,
                 Node::default(),
@@ -129,7 +130,7 @@ fn fixture() -> Fixture {
             .add_child(child);
     }
     app.world_mut().spawn((
-        Button,
+        InteractionButton,
         RenameConfirm,
         Interaction::None,
         ComputedNode {
@@ -145,7 +146,7 @@ fn fixture() -> Fixture {
         BorderColor::default(),
     ));
     app.world_mut().spawn((
-        Button,
+        InteractionButton,
         RenameCancel,
         Interaction::None,
         ComputedNode {
@@ -180,7 +181,7 @@ fn step(app: &mut App) {
     if app.world().resource::<ButtonInput<MouseButton>>().just_released(MouseButton::Left) {
         let world = app.world_mut();
         for (mut interaction, cursor) in world
-            .query_filtered::<(&mut Interaction, &RelativeCursorPosition), With<Button>>()
+            .query_filtered::<(&mut Interaction, &RelativeCursorPosition), With<InteractionButton>>()
             .iter_mut(world)
         {
             if *interaction == Interaction::Pressed {

@@ -1,5 +1,6 @@
 //! 验收驱动必须走原 PointerInputPlugin，并且不能自行写入数值或冒充公共捕获。
 
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use bevy::{
     input::InputPlugin,
@@ -380,7 +381,7 @@ fn raw_numeric_driver_half_pixel_center_at_150_percent_survives_integer_window_e
         ))
         .id();
     app.world_mut().entity_mut(root).insert((
-        Button,
+        InteractionButton,
         NumericInputRoot,
         NumericInputFieldButton { root },
         NumericInputConfig(NumericInputSpec::f32(3)),

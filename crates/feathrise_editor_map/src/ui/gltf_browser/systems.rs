@@ -1,5 +1,6 @@
 //! GLB浏览器固定行池、点击分页与样式同步系统。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use bevy::prelude::*; // ECS系统参数、UI组件和字体。
 use bevy::time::Real; // Scene0网格双击定位使用F12暂停期间仍推进的真实时间。
@@ -44,7 +45,7 @@ pub(crate) fn spawn_gltf_browser_rows(
             for slot in 0..GLTF_BROWSER_ROW_COUNT {
                 parent
                     .spawn((
-                        Button, // 原生Interaction负责左键点击和hover。
+                        InteractionButton, // 原生Interaction负责左键点击和hover。
                         MapEditorGltfBrowserRow {
                             slot,              // 固定物理槽位永不改变。
                             entry_index: None, // Presentation按当前页绑定扁平索引。

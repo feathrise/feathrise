@@ -6,6 +6,7 @@ mod systems;
 #[cfg(test)]
 mod tests;
 
+use crate::InteractionButton;
 pub use components::EditorButtonClick;
 pub use systems::{EditorButtonInput, update_editor_button_clicks};
 
@@ -22,8 +23,8 @@ impl Plugin for EditorButtonInputPlugin {
 
 pub(super) fn register(app: &mut App) {
     // 只增加旁路点击状态，不接管游戏按钮；编辑器动作显式读取本协议才改变触发时机。
-    app.register_required_components::<Button, EditorButtonClick>()
-        .register_required_components::<Button, bevy::ui::RelativeCursorPosition>() // 官方Pressed可能在移出后保留；视觉以真实落点区分按压与移出。
+    app.register_required_components::<InteractionButton, EditorButtonClick>()
+        .register_required_components::<InteractionButton, bevy::ui::RelativeCursorPosition>() // 官方Pressed可能在移出后保留；视觉以真实落点区分按压与移出。
         .init_resource::<resources::ButtonCapture>()
         .add_systems(
             PreUpdate,

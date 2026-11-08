@@ -1,5 +1,6 @@
 //! 使用真实BSN、原领域输入与中文字体验证工具页；不启动GPU、保存文件或执行建筑作者事务。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::BuildingSidebarPage, scene::building_tools_panel};
 use crate::MapEditorSystemSet;
 use crate::authoring::EditorAuthoringSession;
@@ -194,7 +195,7 @@ fn page() -> (App, Entity) {
 fn button(app: &mut App, prefix: &str) -> Entity {
     let world = app.world_mut();
     world
-        .query_filtered::<(Entity, &Children), With<Button>>()
+        .query_filtered::<(Entity, &Children), With<InteractionButton>>()
         .iter(world)
         .find(|(entity, children)| {
             world
@@ -564,7 +565,7 @@ fn chinese_buttons_fit_narrow_sidebar_at_multiple_scales_and_dpi() {
                     let center = world.get::<UiGlobalTransform>(host).unwrap().translation.x;
                     let mut visible = 0;
                     for (node, transform) in world
-                        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<Button>>()
+                        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<InteractionButton>>()
                         .iter(world)
                     {
                         if node.size().x == 0.0 {

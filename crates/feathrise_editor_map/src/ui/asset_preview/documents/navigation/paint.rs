@@ -13,7 +13,7 @@ use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
     text::{EditableText, TextLayoutInfo},
-    ui::{FocusPolicy, widget::TextScroll},
+    ui::FocusPolicy,
 };
 
 fn image(width: usize, height: usize) -> Image {
@@ -84,7 +84,6 @@ pub(super) fn sync(
         &EditableText,
         &ComputedNode,
         &TextLayoutInfo,
-        &TextScroll,
         &TextFont,
     )>,
     hosts: Query<
@@ -119,7 +118,7 @@ pub(super) fn sync(
             && source.3.content_box().size().min_element() > 0.0)
             .then_some((source, index))
     });
-    let Some(((entity, _, native, node, info, scroll, font), index)) = current else {
+    let Some(((entity, _, native, node, info, font), index)) = current else {
         for (_, mut node, _) in &mut numbers {
             if node.display != Display::None {
                 node.display = Display::None;
@@ -166,7 +165,7 @@ pub(super) fn sync(
         state.overview_ready = false;
         state.overview_pixels = vec![0; 4 * OVERVIEW_HEIGHT * 4];
     }
-    let top = scroll.0.y;
+    let top = native.viewport.offset.y;
     let bottom = top + node.content_box().size().y;
     let first = lower_line(layout.len(), |i| {
         layout.get(i).unwrap().metrics().block_max_coord <= top

@@ -1,5 +1,6 @@
 //! 建筑工作台的弹性按钮、分组、只读来源和真实官方单行输入；保留原字段身份与解析。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::super::{components::BuildingButtonKind, fields::field_value, types::*};
 use crate::ui::{text_input::EditorTextInput, theme as colors};
@@ -46,7 +47,7 @@ pub(super) fn button(
     let emphasized = active || kind == BuildingButtonKind::Primary;
     parent
         .spawn((
-            Button,
+            InteractionButton,
             BuildingPresetButton(action),
             kind,
             Node {
@@ -212,7 +213,7 @@ pub(super) fn field(
                 TextColor(colors::TEXT_MUTED), TextLayout::new(Justify::Left, LineBreak::AnyCharacter),
                 Node { width: Val::Px(96.0), height: Val::Px(ui_metrics::label_height(label, 96.0)), min_width: Val::Px(0.0), flex_shrink: 0.0, ..default() }));
             let mut control = column.spawn((
-                Button,
+                InteractionButton,
                 BuildingPresetButton(BuildingPresetAction::Focus(field)),
                 BuildingButtonKind::Field,
                 control_node(field.accepts_text()),

@@ -1,6 +1,7 @@
 //! 自有夹具中的构建方式实窗回归；驱动原菜单，核对实际进程/基线/GPU与未保存作者草稿。
 //! 不测冷构建速度，不清缓存；原按钮的内部输入不能代表实体键鼠或系统焦点已验收。
 
+use feathrise_editor_ui::InteractionButton;
 use bevy::{prelude::*, render::view::screenshot::{Screenshot, ScreenshotCaptured}, tasks::IoTaskPool};
 use crate::{native_play::ProjectBuildBackend as Backend, viewport_mode::{ViewportMode, ViewportModeState}};
 use feathrise_editor_map::standalone::{self, embedded_validation as author};
@@ -188,7 +189,7 @@ fn press(world: &mut World, plan: &mut Plan, label: &str) -> Result<bool, String
             let Some(entity) = current else { break; };
             visible &= world.get::<Node>(entity).is_none_or(|node|node.display != Display::None)
                 && world.get::<InheritedVisibility>(entity).is_none_or(|value|value.get());
-            if world.get::<Button>(entity).is_some() { button = Some(entity); }
+            if world.get::<InteractionButton>(entity).is_some() { button = Some(entity); }
             current = world.get::<ChildOf>(entity).map(ChildOf::parent);
         }
         if visible && let Some(button) = button

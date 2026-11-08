@@ -9,7 +9,7 @@ use super::{
 use crate::colors as c;
 use bevy::{
     prelude::*,
-    ui_render::{ExtractedGlyph, ExtractedUiItem, ExtractedUiNodes, NodeType},
+    ui_render::{ExtractedUiItem, NodeType},
 };
 use feathrise_ui_widgets::{ButtonColors, lighten_color};
 
@@ -53,10 +53,7 @@ fn feedback_survives_business_background_rewrites_in_every_theme() {
         ] {
             let render = |interaction| {
                 let target = entity(2);
-                let mut nodes = ExtractedUiNodes {
-                    uinodes: vec![node(target, background(base))],
-                    glyphs: vec![],
-                };
+                let mut nodes = extracted([(target, node(background(base)))]);
                 extract::apply(
                     &mut nodes,
                     &palette,
@@ -67,7 +64,7 @@ fn feedback_survives_business_background_rewrites_in_every_theme() {
                     |_| false,
                     |_| Some(feedback(base, interaction)),
                 );
-                color(&nodes.uinodes[0])
+                color(draw(&nodes, target, 0))
             };
             let normal = render(Interaction::None);
             let hovered = render(Interaction::Hovered);
@@ -131,31 +128,26 @@ fn feedback_only_touches_editor_button_background_draws() {
     let editor = entity(1);
     let game = entity(2);
     let base = c::BUTTON_DEV_SMALL_NORMAL;
-    let mut border = node(editor, background(base));
+    let mut border = node(background(base));
     if let ExtractedUiItem::Node { node_type, .. } = &mut border.item {
         *node_type = NodeType::Border(0);
     }
-    let mut image = node(editor, background(base));
+    let mut image = node(background(base));
     image.z_order = 0.04;
-    let mut outer = node(editor, background(base));
+    let mut outer = node(background(base));
     if let ExtractedUiItem::Node { node_type, .. } = &mut outer.item {
         *node_type = NodeType::Inverted;
     }
-    let mut nodes = ExtractedUiNodes {
-        uinodes: vec![
-            node(editor, background(base)),
-            border,
-            image,
-            outer,
-            node(game, background(base)),
-            node(editor, ExtractedUiItem::Glyphs { range: 0..1 }),
-        ],
-        glyphs: vec![ExtractedGlyph {
-            color: c::TEXT_PRIMARY.to_linear(),
-            translation: Vec2::ZERO,
-            rect: default(),
-        }],
-    };
+    let mut nodes = extracted([
+        (editor, node(background(base))),
+        (editor, border),
+        (editor, image),
+        (editor, outer),
+        (game, node(background(base))),
+        (editor, node(ExtractedUiItem::Glyphs {
+            glyphs: vec![glyph(c::TEXT_PRIMARY.to_linear(), Vec2::ZERO)],
+        })),
+    ]);
     let palette = EditorPalette::neutral_gray();
     extract::apply(
         &mut nodes,
@@ -168,15 +160,15 @@ fn feedback_only_touches_editor_button_background_draws() {
         |_| Some(feedback(base, Interaction::Pressed)),
     );
     assert_eq!(
-        color(&nodes.uinodes[0]),
+        color(draw(&nodes, editor, 0)),
         feedback(base, Interaction::Pressed).resolve(&palette)
     );
-    for draw in &nodes.uinodes[1..4] {
-        assert_eq!(color(draw), palette.resolve(base).to_linear());
+    for index in 1..4 {
+        assert_eq!(color(draw(&nodes, editor, index)), palette.resolve(base).to_linear());
     }
-    assert_eq!(color(&nodes.uinodes[4]), base.to_linear());
+    assert_eq!(color(draw(&nodes, game, 0)), base.to_linear());
     assert_eq!(
-        nodes.glyphs[0].color,
+        glyphs(draw(&nodes, editor, 4))[0].color,
         palette.resolve(c::TEXT_PRIMARY).to_linear()
     );
 }

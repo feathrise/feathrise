@@ -1,5 +1,6 @@
 //! 水域侧栏真实字体布局、统一对象选择、输入所有权和原创建事务回归；不写地图或设置。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::*, types::WaterSidebarFeedbackKind};
 use crate::MapEditorSystemSet;
 use crate::authoring::{
@@ -275,7 +276,7 @@ fn page(shell: bool) -> (App, Entity) {
 fn button(app: &mut App, label: &str) -> Entity {
     let world = app.world_mut();
     world
-        .query_filtered::<(Entity, &Children), With<Button>>()
+        .query_filtered::<(Entity, &Children), With<InteractionButton>>()
         .iter(world)
         .find_map(|(entity, children)| {
             children
@@ -641,7 +642,7 @@ fn all_pages_fit_real_cjk_font_sidebar_widths_scales_and_dpi_with_fixed_navigati
                     let host_width = world.get::<ComputedNode>(host).unwrap().size().x;
                     let center = world.get::<UiGlobalTransform>(host).unwrap().translation.x;
                     for (node, transform) in world
-                        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<Button>>()
+                        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<InteractionButton>>()
                         .iter(world)
                     {
                         if node.size().x == 0.0 {

@@ -7,7 +7,6 @@ use bevy::{
     text::{
         ComputedTextBlock, EditableText, EditableTextGeneration, TextCursorStyle, TextLayoutInfo,
     },
-    ui::widget::TextScroll,
 };
 
 fn lower_line(count: usize, mut before: impl FnMut(usize) -> bool) -> usize {
@@ -49,7 +48,6 @@ pub(super) fn sync(
                 &DocumentSource,
                 &EditableText,
                 &EditableTextGeneration,
-                &TextScroll,
             )>,
             Option<&SyntaxPreview>,
         ),
@@ -68,7 +66,7 @@ pub(super) fn sync(
                 source.2.get()
                     && !source.1.is_empty()
                     && match doc.mode {
-                        ViewMode::Edit => source.9.is_some_and(|(key, input, _, _)| {
+                        ViewMode::Edit => source.9.is_some_and(|(key, input, _)| {
                             key.key.as_ref() == Some(&index.key.document) && !input.is_composing()
                         }),
                         ViewMode::Preview => source.10.is_some_and(|key| key.0 == index.key),
@@ -82,7 +80,7 @@ pub(super) fn sync(
         paint.visible = None;
         return;
     };
-    let layout = if let Some((_, input, _, _)) = native {
+    let layout = if let Some((_, input, _)) = native {
         let Some(layout) = input.editor.try_layout() else {
             paint.visible = None;
             return;
@@ -95,18 +93,21 @@ pub(super) fn sync(
         paint.selected_color = false;
         computed.buffer()
     };
-    let (top, bottom) = if let Some((_, _, _, scroll)) = native {
-        (scroll.0.y, scroll.0.y + node.content_box().height())
+    let (top, bottom) = if let Some((_, input, _)) = native {
+        (input.viewport.offset.y, input.viewport.offset.y + node.content_box().height())
     } else {
         // 预览长Text随ScrollPosition平移；用真实祖先裁剪反推其局部可见范围。
         let origin = transform.affine().transform_point2(node.content_box().min);
-        let Some(clip) = clip else {
+        let Some(bounds) = clip.and_then(|clip| feathrise_editor_ui::clipped_ui_bounds(
+            clip,
+            Rect::from_corners(origin, origin + info.size),
+        )) else {
             paint.visible = None;
             return;
         };
         (
-            (clip.clip.min.y - origin.y).max(0.0),
-            (clip.clip.max.y - origin.y).min(info.size.y),
+            (bounds.min.y - origin.y).max(0.0),
+            (bounds.max.y - origin.y).min(info.size.y),
         )
     };
     let first = lower_line(layout.len(), |i| {
@@ -118,7 +119,7 @@ pub(super) fn sync(
     let key = GlyphKey {
         source: entity,
         syntax: index.key.clone(),
-        generation: native.map(|(_, _, generation, _)| *generation),
+        generation: native.map(|(_, _, generation)| *generation),
         preview_tick: if native.is_none() {
             info.last_changed().get()
         } else {
@@ -148,10 +149,10 @@ pub(super) fn sync(
         let line = layout.get(line_index).unwrap();
         let mut glyph_index = info
             .glyphs
-            .partition_point(|glyph| glyph.line_index < line_index);
+            .partition_point(|glyph| glyph.line_index < line_index as u32);
         let stop = info
             .glyphs
-            .partition_point(|glyph| glyph.line_index <= line_index);
+            .partition_point(|glyph| glyph.line_index <= line_index as u32);
         let mut pen = line.metrics().offset + line.metrics().inline_min_coord;
         for run in line.runs() {
             if budget == 0 {

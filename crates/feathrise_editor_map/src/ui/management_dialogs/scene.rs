@@ -1,5 +1,6 @@
 //! 水墨铜木管理弹窗的共用尺寸、阅读层级和原业务动作按钮。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::components::*;
 use crate::components::{MapEditorActionButton, MapEditorCustomActionStyle};
@@ -72,7 +73,7 @@ pub(crate) fn footer_node() -> Node {
 
 pub(crate) fn heading(label: &str) -> impl Scene {
     bsn! {
-        Text(label) feathrise_editor_ui::localization::label_scene(label)
+        Text(label) @feathrise_editor_ui::localization::label_scene(label)
         TextLayout::linebreak(LineBreak::AnyCharacter)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_BODY) }
         TextColor(colors::TEXT_ACCENT)
@@ -82,7 +83,7 @@ pub(crate) fn heading(label: &str) -> impl Scene {
 
 pub(crate) fn caption(label: &str) -> impl Scene {
     bsn! {
-        Text(label) feathrise_editor_ui::localization::label_scene(label)
+        Text(label) @feathrise_editor_ui::localization::label_scene(label)
         TextLayout::linebreak(LineBreak::AnyCharacter)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
         TextColor(colors::TEXT_MUTED)
@@ -92,7 +93,7 @@ pub(crate) fn caption(label: &str) -> impl Scene {
 
 pub(crate) fn button(label: &str, action: EditorAction) -> impl Scene {
     bsn! {
-        Button ManagementButton MapEditorActionButton(action)
+        InteractionButton ManagementButton MapEditorActionButton(action)
         // 专属样式标记避开通用按钮回显，危险色不会被每帧改回普通铜色。
         MapEditorCustomActionStyle
         Node {
@@ -105,7 +106,7 @@ pub(crate) fn button(label: &str, action: EditorAction) -> impl Scene {
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
             ManagementButtonText
-            Text(label) feathrise_editor_ui::localization::label_scene(label)
+            Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
@@ -115,7 +116,7 @@ pub(crate) fn button(label: &str, action: EditorAction) -> impl Scene {
 
 pub(crate) fn folder_confirm_button() -> impl Scene {
     bsn! {
-        Button ManagementButton MapEditorCustomActionStyle
+        InteractionButton ManagementButton MapEditorCustomActionStyle
         MapEditorActionButton(EditorAction::ConfirmMapFolderDialog)
         Node {
             height: px(26), min_width: px(0), max_width: percent(100), flex_shrink: 0.0,
@@ -127,7 +128,7 @@ pub(crate) fn folder_confirm_button() -> impl Scene {
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
             FolderConfirmText ManagementButtonText
-            Text("确认") feathrise_editor_ui::localization::label_scene("确认") TextLayout::no_wrap()
+            Text("确认") @feathrise_editor_ui::localization::label_scene("确认") TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]

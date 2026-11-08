@@ -4,8 +4,8 @@ use bevy::{
     ecs::system::SystemParam,
     input::mouse::{MouseScrollUnit, MouseWheel},
     prelude::*,
-    text::TextLayoutInfo,
-    ui::{RelativeCursorPosition, widget::TextScroll},
+    text::{EditableText, TextLayoutInfo},
+    ui::RelativeCursorPosition,
     window::PrimaryWindow,
 };
 
@@ -43,7 +43,7 @@ pub(in super::super) fn handle_input(
         &DocumentSource,
         &ComputedNode,
         &TextLayoutInfo,
-        &mut TextScroll,
+        &mut EditableText,
     )>,
     rails: Query<(&ComputedNode, &RelativeCursorPosition, &Interaction), With<DocumentMinimapRail>>,
 ) {
@@ -118,7 +118,7 @@ pub(in super::super) fn handle_input(
         layout.size,
         node.content_box().size(),
         rail.size(),
-        scroll.0.y,
+        scroll.viewport.offset.y,
         scale,
     ) else {
         state.mouse_owned = state.drag.take().is_some();
@@ -144,7 +144,7 @@ pub(in super::super) fn handle_input(
         state.mouse_owned = true;
         if mouse.pressed(MouseButton::Left) {
             if let Some(y) = pointer {
-                scroll.0.y = metrics.scroll_for_top(y - grab_ratio * metrics.thumb_height);
+                scroll.viewport.offset.y = metrics.scroll_for_top(y - grab_ratio * metrics.thumb_height);
             }
         } else {
             state.drag = None;
@@ -157,7 +157,7 @@ pub(in super::super) fn handle_input(
         return;
     }
     if delta.is_finite() && delta != 0.0 {
-        scroll.0.y = (scroll.0.y + delta * scale).clamp(0.0, metrics.maximum);
+        scroll.viewport.offset.y = (scroll.viewport.offset.y + delta * scale).clamp(0.0, metrics.maximum);
         state.wheel_owned = true; // 到首尾也消费，不能继续滚动资产外栏。
     }
     if !mouse.just_pressed(MouseButton::Left)
@@ -174,7 +174,7 @@ pub(in super::super) fn handle_input(
     {
         ((y - metrics.thumb_top) / metrics.thumb_height).clamp(0.0, 1.0)
     } else {
-        scroll.0.y = metrics.scroll_for_top(y - metrics.thumb_height * 0.5);
+        scroll.viewport.offset.y = metrics.scroll_for_top(y - metrics.thumb_height * 0.5);
         0.5
     };
     state.drag = Some(MinimapDrag {

@@ -1,5 +1,6 @@
 //! 真实BSN、原工具/地表输入与中文字体验证；不启动GPU，也不保存或修改正式作者文件。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::*, scene::terrain_tools_panel};
 use crate::MapEditorSystemSet;
 use crate::authoring::{
@@ -256,7 +257,7 @@ fn page_with_shell(shell: bool) -> (App, Entity) {
 fn button(app: &mut App, label: &str) -> Entity {
     let world = app.world_mut();
     world
-        .query_filtered::<(Entity, &Children), With<Button>>()
+        .query_filtered::<(Entity, &Children), With<InteractionButton>>()
         .iter(world)
         .find(|(entity, children)| {
             world
@@ -785,7 +786,7 @@ fn three_pages_fit_narrow_sidebar_scales_dpi_and_keep_tabs_out_of_scroll() {
                     let width = host_node.size().x;
                     let center = world.get::<UiGlobalTransform>(host).unwrap().translation.x;
                     for (node, transform) in world
-                        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<Button>>()
+                        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<InteractionButton>>()
                         .iter(world)
                     {
                         if node.size().x == 0.0 {
@@ -889,7 +890,7 @@ fn full_sidebar_keeps_navigation_fixed_while_long_diagnostics_wrap_in_body() {
     let host_width = world.get::<ComputedNode>(host).unwrap().size().x;
     let center = world.get::<UiGlobalTransform>(host).unwrap().translation.x;
     for (node, transform) in world
-        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<Button>>()
+        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<InteractionButton>>()
         .iter(world)
     {
         if node.size().x == 0.0 {

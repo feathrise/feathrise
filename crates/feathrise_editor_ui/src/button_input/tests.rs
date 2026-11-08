@@ -1,5 +1,6 @@
 //! 共享按钮协议回归：按住、合法释放、移出/换代/失焦取消和同帧快点。
 
+use crate::InteractionButton;
 use super::*;
 use bevy::{prelude::*, ui::InteractionDisabled, window::PrimaryWindow};
 
@@ -19,7 +20,7 @@ fn fixture() -> Fixture {
     let spawn = |world: &mut World| {
         world
             .spawn((
-                Button,
+                InteractionButton,
                 Interaction::None,
                 InheritedVisibility::VISIBLE,
                 bevy::ui::RelativeCursorPosition {

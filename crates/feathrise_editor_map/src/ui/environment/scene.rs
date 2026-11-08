@@ -1,5 +1,6 @@
 //! 地图参数、世界调试与全局默认的静态环境页；原天体字段与折叠身份保持不变。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*;
 use bevy::text::FontSourceTemplate;
@@ -34,8 +35,8 @@ fn two_button_row(
             flex_shrink: 0.0,
         }
         Children [
-            (flex_editor_button(first_label, first_action)),
-            (flex_editor_button(second_label, second_action)),
+            (@flex_editor_button(first_label, first_action)),
+            (@flex_editor_button(second_label, second_action)),
         ]
     }
 }
@@ -57,7 +58,7 @@ fn field_text(field: EnvironmentTextField) -> impl Scene {
         _ => None,
     };
     // 实时计算值仍属属性；加载/保存/约束诊断保留原Text，由底栏集中采集和隐藏。
-    (node, source.map(|source| bsn! { template_value(crate::ui::status_bar::PanelStatusText(source)) }))
+    (node, source.map(|source| bsn! { ~{crate::ui::status_bar::PanelStatusText(source)} }))
 }
 
 /// 一个环境专业数值框的整行挂载槽。
@@ -105,7 +106,7 @@ fn celestial_section_header(scope: CelestialNumericScope) -> impl Scene {
         CelestialNumericScope::Map => "▼ 太阳与月光 · 地图覆盖",
     };
     bsn! {
-        Button
+        InteractionButton
         CelestialSectionToggle(scope)
         Node {
             width: percent(100),
@@ -121,7 +122,7 @@ fn celestial_section_header(scope: CelestialNumericScope) -> impl Scene {
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
             CelestialSectionToggleLabel(scope)
-            Text(title) feathrise_editor_ui::localization::label_scene(title)
+            Text(title) @feathrise_editor_ui::localization::label_scene(title)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                 font_size: px(ui_metrics::FONT_CONTROL),
@@ -133,7 +134,7 @@ fn celestial_section_header(scope: CelestialNumericScope) -> impl Scene {
 
 fn celestial_property_title(label: &str) -> impl Scene {
     bsn! {
-        Text(label) feathrise_editor_ui::localization::label_scene(label)
+        Text(label) @feathrise_editor_ui::localization::label_scene(label)
         TextFont {
             font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
             font_size: px(ui_metrics::FONT_HINT),
@@ -160,7 +161,7 @@ fn celestial_color_title(label: &str, scope: CelestialNumericScope, day: bool) -
         }
         Children [
             (
-                Text(label) feathrise_editor_ui::localization::label_scene(label)
+                Text(label) @feathrise_editor_ui::localization::label_scene(label)
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_HINT),
@@ -197,7 +198,7 @@ fn celestial_override_title(property: CelestialOverrideProperty) -> impl Scene {
         }
         Children [
             (
-                Text(label) feathrise_editor_ui::localization::label_scene(label)
+                Text(label) @feathrise_editor_ui::localization::label_scene(label)
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_HINT),
@@ -205,7 +206,7 @@ fn celestial_override_title(property: CelestialOverrideProperty) -> impl Scene {
                 TextColor(colors::TEXT_MUTED)
             ),
             (
-                Button
+                InteractionButton
                 CelestialOverrideToggle(property)
                 Node {
                     width: px(78),
@@ -220,7 +221,7 @@ fn celestial_override_title(property: CelestialOverrideProperty) -> impl Scene {
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
                 Children [(
                     CelestialOverrideToggleLabel(property)
-                    Text("跟随全局") feathrise_editor_ui::localization::label_scene("跟随全局")
+                    Text("跟随全局") @feathrise_editor_ui::localization::label_scene("跟随全局")
                     TextFont {
                         font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                         font_size: px(ui_metrics::FONT_CONTROL),
@@ -246,7 +247,7 @@ fn celestial_override_color_title(property: CelestialOverrideProperty, day: bool
         }
         Children [
             (
-                Text(label) feathrise_editor_ui::localization::label_scene(label)
+                Text(label) @feathrise_editor_ui::localization::label_scene(label)
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_HINT),
@@ -270,7 +271,7 @@ fn celestial_override_color_title(property: CelestialOverrideProperty, day: bool
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
             ),
             (
-                Button
+                InteractionButton
                 CelestialOverrideToggle(property)
                 Node {
                     width: px(78),
@@ -285,7 +286,7 @@ fn celestial_override_color_title(property: CelestialOverrideProperty, day: bool
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
                 Children [(
                     CelestialOverrideToggleLabel(property)
-                    Text("跟随全局") feathrise_editor_ui::localization::label_scene("跟随全局")
+                    Text("跟随全局") @feathrise_editor_ui::localization::label_scene("跟随全局")
                     TextFont {
                         font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                         font_size: px(ui_metrics::FONT_CONTROL),
@@ -310,18 +311,18 @@ fn global_celestial_body() -> impl Scene {
             flex_shrink: 0.0,
         }
         Children [
-            (celestial_property_title("日间基准照度")),
-            (celestial_numeric_slot(CelestialNumericScope::Global, CelestialValueField::DayIlluminance)),
-            (celestial_color_title("日间基准颜色 · sRGB 0–1", CelestialNumericScope::Global, true)),
-            (celestial_color_slots(CelestialNumericScope::Global, true)),
-            (celestial_property_title("月亮午夜峰值照度")),
-            (celestial_numeric_slot(CelestialNumericScope::Global, CelestialValueField::NightIlluminance)),
-            (celestial_color_title("夜间基准颜色 · sRGB 0–1", CelestialNumericScope::Global, false)),
-            (celestial_color_slots(CelestialNumericScope::Global, false)),
-            (celestial_property_title("天体方位角偏移")),
-            (celestial_numeric_slot(CelestialNumericScope::Global, CelestialValueField::Azimuth)),
-            (celestial_property_title("光源角直径")),
-            (celestial_numeric_slot(CelestialNumericScope::Global, CelestialValueField::AngularDiameter)),
+            (@celestial_property_title("日间基准照度")),
+            (@celestial_numeric_slot(CelestialNumericScope::Global, CelestialValueField::DayIlluminance)),
+            (@celestial_color_title("日间基准颜色 · sRGB 0–1", CelestialNumericScope::Global, true)),
+            (@celestial_color_slots(CelestialNumericScope::Global, true)),
+            (@celestial_property_title("月亮午夜峰值照度")),
+            (@celestial_numeric_slot(CelestialNumericScope::Global, CelestialValueField::NightIlluminance)),
+            (@celestial_color_title("夜间基准颜色 · sRGB 0–1", CelestialNumericScope::Global, false)),
+            (@celestial_color_slots(CelestialNumericScope::Global, false)),
+            (@celestial_property_title("天体方位角偏移")),
+            (@celestial_numeric_slot(CelestialNumericScope::Global, CelestialValueField::Azimuth)),
+            (@celestial_property_title("光源角直径")),
+            (@celestial_numeric_slot(CelestialNumericScope::Global, CelestialValueField::AngularDiameter)),
         ]
     }
 }
@@ -339,18 +340,18 @@ fn map_celestial_body() -> impl Scene {
             flex_shrink: 0.0,
         }
         Children [
-            (celestial_override_title(CelestialOverrideProperty::DayIlluminance)),
-            (celestial_numeric_slot(CelestialNumericScope::Map, CelestialValueField::DayIlluminance)),
-            (celestial_override_color_title(CelestialOverrideProperty::DayColor, true)),
-            (celestial_color_slots(CelestialNumericScope::Map, true)),
-            (celestial_override_title(CelestialOverrideProperty::NightIlluminance)),
-            (celestial_numeric_slot(CelestialNumericScope::Map, CelestialValueField::NightIlluminance)),
-            (celestial_override_color_title(CelestialOverrideProperty::NightColor, false)),
-            (celestial_color_slots(CelestialNumericScope::Map, false)),
-            (celestial_override_title(CelestialOverrideProperty::Azimuth)),
-            (celestial_numeric_slot(CelestialNumericScope::Map, CelestialValueField::Azimuth)),
-            (celestial_override_title(CelestialOverrideProperty::AngularDiameter)),
-            (celestial_numeric_slot(CelestialNumericScope::Map, CelestialValueField::AngularDiameter)),
+            (@celestial_override_title(CelestialOverrideProperty::DayIlluminance)),
+            (@celestial_numeric_slot(CelestialNumericScope::Map, CelestialValueField::DayIlluminance)),
+            (@celestial_override_color_title(CelestialOverrideProperty::DayColor, true)),
+            (@celestial_color_slots(CelestialNumericScope::Map, true)),
+            (@celestial_override_title(CelestialOverrideProperty::NightIlluminance)),
+            (@celestial_numeric_slot(CelestialNumericScope::Map, CelestialValueField::NightIlluminance)),
+            (@celestial_override_color_title(CelestialOverrideProperty::NightColor, false)),
+            (@celestial_color_slots(CelestialNumericScope::Map, false)),
+            (@celestial_override_title(CelestialOverrideProperty::Azimuth)),
+            (@celestial_numeric_slot(CelestialNumericScope::Map, CelestialValueField::Azimuth)),
+            (@celestial_override_title(CelestialOverrideProperty::AngularDiameter)),
+            (@celestial_numeric_slot(CelestialNumericScope::Map, CelestialValueField::AngularDiameter)),
         ]
     }
 }
@@ -370,18 +371,18 @@ pub(in crate::ui) fn environment_page() -> impl Scene {
             padding: UiRect::top(px(3)), overflow: Overflow::scroll_y(),
         }
         Children [
-            (crate::ui::context_help::section_header("当前地图 · 持久参数", "此区写入当前动态地图。太阳、月光未启用覆盖的属性跟随全局默认；固定场景没有动态地图环境草稿。来源和实际计算值仍在相应字段中显示。")),
+            (@crate::ui::context_help::section_header("当前地图 · 持久参数", "此区写入当前动态地图。太阳、月光未启用覆盖的属性跟随全局默认；固定场景没有动态地图环境草稿。来源和实际计算值仍在相应字段中显示。")),
             (
                 MapEditorEnvironmentText
                 EnvironmentSidebarText(EnvironmentTextField::MapContext)
-                Text("未进入地图") feathrise_editor_ui::localization::label_scene("未进入地图")
+                Text("未进入地图") @feathrise_editor_ui::localization::label_scene("未进入地图")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_VALUE)
                 TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
             ),
-            (field_text(EnvironmentTextField::MapSource)),
-            (field_text(EnvironmentTextField::MapHint)),
+            (@field_text(EnvironmentTextField::MapSource)),
+            (@field_text(EnvironmentTextField::MapHint)),
             (
                 EnvironmentMapControls
                 Node {
@@ -389,20 +390,20 @@ pub(in crate::ui) fn environment_page() -> impl Scene {
                     flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0,
                 }
                 Children [
-                    (inspector_section_title("天空与环境光")),
-                    (two_button_row("动态天空", EditorAction::SkyModeDynamic, "天空盒", EditorAction::SkyModeSkybox)),
-                    (two_button_row("使用所选资源", EditorAction::SetSelectedSkybox, "清除资源", EditorAction::ClearSkybox)),
-                    (environment_numeric_slot(EnvironmentNumericKind::SkyboxBrightness)),
-                    (environment_numeric_slot(EnvironmentNumericKind::EnvironmentDiffuseIntensity)),
-                    (environment_numeric_slot(EnvironmentNumericKind::EnvironmentSpecularIntensity)),
-                    (environment_numeric_slot(EnvironmentNumericKind::SkyboxYaw)),
-                    (field_text(EnvironmentTextField::CurrentValues)),
-                    (celestial_section_header(CelestialNumericScope::Map)),
-                    (map_celestial_body()),
+                    (@inspector_section_title("天空与环境光")),
+                    (@two_button_row("动态天空", EditorAction::SkyModeDynamic, "天空盒", EditorAction::SkyModeSkybox)),
+                    (@two_button_row("使用所选资源", EditorAction::SetSelectedSkybox, "清除资源", EditorAction::ClearSkybox)),
+                    (@environment_numeric_slot(EnvironmentNumericKind::SkyboxBrightness)),
+                    (@environment_numeric_slot(EnvironmentNumericKind::EnvironmentDiffuseIntensity)),
+                    (@environment_numeric_slot(EnvironmentNumericKind::EnvironmentSpecularIntensity)),
+                    (@environment_numeric_slot(EnvironmentNumericKind::SkyboxYaw)),
+                    (@field_text(EnvironmentTextField::CurrentValues)),
+                    (@celestial_section_header(CelestialNumericScope::Map)),
+                    (@map_celestial_body()),
                 ]
             ),
-            (field_text(EnvironmentTextField::MapFeedback)),
-            (crate::ui::context_help::section_header("世界调试 · 当前运行", "时刻、月份与天气覆盖只调整当前运行。时间暂停及晴天草尖基准摆幅沿用全局设置保存，不写入当前地图环境参数。")),
+            (@field_text(EnvironmentTextField::MapFeedback)),
+            (@crate::ui::context_help::section_header("世界调试 · 当前运行", "时刻、月份与天气覆盖只调整当前运行。时间暂停及晴天草尖基准摆幅沿用全局设置保存，不写入当前地图环境参数。")),
             (
                 WorldEnvironmentControlsSlot
                 Node {
@@ -411,10 +412,10 @@ pub(in crate::ui) fn environment_page() -> impl Scene {
                     flex_shrink: 0.0,
                 }
             ),
-            (crate::ui::context_help::section_header("全局默认 · 所有动态地图", "地图未启用覆盖的属性跟随此处。全局草稿与地图草稿由顶部保存统一提交。")),
-            (field_text(EnvironmentTextField::GlobalFeedback)),
-            (celestial_section_header(CelestialNumericScope::Global)),
-            (global_celestial_body()),
+            (@crate::ui::context_help::section_header("全局默认 · 所有动态地图", "地图未启用覆盖的属性跟随此处。全局草稿与地图草稿由顶部保存统一提交。")),
+            (@field_text(EnvironmentTextField::GlobalFeedback)),
+            (@celestial_section_header(CelestialNumericScope::Global)),
+            (@global_celestial_body()),
         ]
     }
 }

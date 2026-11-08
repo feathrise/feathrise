@@ -1,5 +1,6 @@
 //! 完整摆放实例的右栏属性面板与七个公共专业数值框槽。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use crate::ui::theme as colors;
 use bevy::prelude::*; // BSN静态场景、Commands和字体资产。
@@ -19,7 +20,7 @@ use crate::ui::scene::FONT_PATH; // 紧凑分组与原定位动作共享编辑�
 /// 使用原全局导航动作并保留专属marker，禁用门只影响此属性入口，不改变视口工具条。
 fn locate_button() -> impl Scene {
     bsn! {
-        Button
+        InteractionButton
         MapEditorPlacementTransformLocate
         crate::components::MapEditorActionButton(EditorAction::FocusSelected)
         Node {
@@ -31,7 +32,7 @@ fn locate_button() -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text("定位") feathrise_editor_ui::localization::label_scene("定位")
+            Text("定位") @feathrise_editor_ui::localization::label_scene("定位")
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -58,12 +59,12 @@ fn numeric_input_slot(field: PlacementTransformField) -> impl Scene {
 /// XYZ共用一行组标题，三个原数字根各占剩余空间的三分之一；不合并作者字段或精确输入事务。
 fn axis_row(label: &str, fields: [PlacementTransformField; 3]) -> impl Scene {
     let cells = fields.into_iter().map(|field| bsn! {
-        template_value(PlacementTransformInputSlot(field))
+        ~{PlacementTransformInputSlot(field)}
         Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), height: px(NUMERIC_FIELD_HEIGHT), flex_shrink: 0.0 }
     }).collect::<Vec<_>>();
     bsn! { Node { width: percent(100), min_width: px(0), column_gap: px(3), align_items: AlignItems::Center, flex_shrink: 0.0 }
         Children [
-            (template_value(Text(label.to_owned())) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
+            (Text(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED) Node { width: px(22), flex_shrink: 0.0 }),
             {cells},
         ] }
@@ -91,7 +92,7 @@ fn action_button(
         colors::TEXT_PRIMARY // 普通动作使用主要文字色。
     };
     bsn! {
-        Button
+        InteractionButton
         MapEditorPlacementTransformActionButton(action)
         Node {
             height: px(26), // 与其他作者动作按钮同高。
@@ -108,7 +109,7 @@ fn action_button(
         BackgroundColor(background)
         BorderColor::all(border)
         Children [(
-            Text(label) feathrise_editor_ui::localization::label_scene(label)
+            Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 统一中文字体避免按钮乱码。
                 font_size: px(ui_metrics::FONT_CONTROL), // 与同页网格属性按钮一致。
@@ -133,10 +134,10 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
         }
         Children [
             (
-                template_value(PlacementPropertiesSection::Transform)
+                ~{PlacementPropertiesSection::Transform}
                 Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
                 Children [
-            (crate::ui::context_help::section_header("变换", "数值框支持左拖实际值、右拖本字段灵敏度、中键精确输入。普通资产使用世界变换，三维地形使用关联Clipmap的源局部变换；位置使用米，缩放为无量纲倍率。")),
+            (@crate::ui::context_help::section_header("变换", "数值框支持左拖实际值、右拖本字段灵敏度、中键精确输入。普通资产使用世界变换，三维地形使用关联Clipmap的源局部变换；位置使用米，缩放为无量纲倍率。")),
             (
                 Node {
                     width: percent(100),
@@ -145,15 +146,15 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
                     flex_shrink: 0.0,
                 }
                 Children [
-                    (locate_button()), // 只登记原相机聚焦请求，不与地面吸附混淆。
-                    (action_button("复制", PlacementTransformAction::Duplicate, false)),
-                    (action_button("删除", PlacementTransformAction::Delete, true)),
+                    (@locate_button()), // 只登记原相机聚焦请求，不与地面吸附混淆。
+                    (@action_button("复制", PlacementTransformAction::Duplicate, false)),
+                    (@action_button("删除", PlacementTransformAction::Delete, true)),
                 ]
             ),
-            (crate::ui::context_help::section_header("高度与落点", "吸附地面会等待中央视口单击，并按首次摆放规则命中真实地形。跟随地形会归零离地偏移；固定高度保留模式并采用命中Y。")),
+            (@crate::ui::context_help::section_header("高度与落点", "吸附地面会等待中央视口单击，并按首次摆放规则命中真实地形。跟随地形会归零离地偏移；固定高度保留模式并采用命中Y。")),
             (
                 MapEditorPlacementTransformSummary
-                Text("请选择场景树中的资产实例") feathrise_editor_ui::localization::label_scene("请选择场景树中的资产实例")
+                Text("请选择场景树中的资产实例") @feathrise_editor_ui::localization::label_scene("请选择场景树中的资产实例")
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 摘要支持中文资产路径。
                     font_size: px(ui_metrics::FONT_CONTROL), // 低于正式数值一层。
@@ -176,53 +177,53 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
                     flex_shrink: 0.0, // 固定按钮高度不能被右栏滚动布局压扁。
                 }
                 Children [
-                    (action_button("跟随地形", PlacementTransformAction::FollowTerrain, false)), // 持续保持当前离地偏移。
-                    (action_button("固定高度", PlacementTransformAction::FixedHeight, false)), // 持续保持当前世界Y。
-                    (action_button("吸附地面", PlacementTransformAction::Relocate, false)), // 复用首次摆放的真实三角命中选择新落点。
+                    (@action_button("跟随地形", PlacementTransformAction::FollowTerrain, false)), // 持续保持当前离地偏移。
+                    (@action_button("固定高度", PlacementTransformAction::FixedHeight, false)), // 持续保持当前世界Y。
+                    (@action_button("吸附地面", PlacementTransformAction::Relocate, false)), // 复用首次摆放的真实三角命中选择新落点。
                 ]
             ),
-            (axis_row("位置", [PlacementTransformField::TranslationX, PlacementTransformField::TranslationY, PlacementTransformField::TranslationZ])),
-            (numeric_input_slot(PlacementTransformField::Yaw)),
-            (action_button("建筑旋转 90°", PlacementTransformAction::RotateQuarterTurn, false)), // 建筑必须先后台重检占地、门口和五点地基。
-            (axis_row("缩放", [PlacementTransformField::ScaleX, PlacementTransformField::ScaleY, PlacementTransformField::ScaleZ])),
+            (@axis_row("位置", [PlacementTransformField::TranslationX, PlacementTransformField::TranslationY, PlacementTransformField::TranslationZ])),
+            (@numeric_input_slot(PlacementTransformField::Yaw)),
+            (@action_button("建筑旋转 90°", PlacementTransformAction::RotateQuarterTurn, false)), // 建筑必须先后台重检占地、门口和五点地基。
+            (@axis_row("缩放", [PlacementTransformField::ScaleX, PlacementTransformField::ScaleY, PlacementTransformField::ScaleZ])),
                 ]
             ),
             (
-                template_value(PlacementPropertiesSection::Geometry)
+                ~{PlacementPropertiesSection::Geometry}
                 Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
                 Children [
-                    (crate::ui::context_help::section_header("几何", "立方体尺寸按局部 X/Y/Z 轴使用米，最小 1 毫米，与三轴缩放独立。外部模型的三维地形与洞口使用其原作者源，按当前对象能力显示。")),
+                    (@crate::ui::context_help::section_header("几何", "立方体尺寸按局部 X/Y/Z 轴使用米，最小 1 毫米，与三轴缩放独立。外部模型的三维地形与洞口使用其原作者源，按当前对象能力显示。")),
                     (MapEditorCuboidGeometryRow
                         Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-                        Children [(axis_row("尺寸", [PlacementTransformField::CuboidSizeX, PlacementTransformField::CuboidSizeY, PlacementTransformField::CuboidSizeZ]))]),
+                        Children [(@axis_row("尺寸", [PlacementTransformField::CuboidSizeX, PlacementTransformField::CuboidSizeY, PlacementTransformField::CuboidSizeZ]))]),
                     (
                         Node { width:percent(100),flex_direction:FlexDirection::Row,column_gap:px(3),flex_shrink:0.0 }
                         Children [
-                            (action_button("三维地形",PlacementTransformAction::ToggleTerrainPatch,false)),
-                            (action_button("洞口开关",PlacementTransformAction::ToggleTerrainCutout,false)),
+                            (@action_button("三维地形",PlacementTransformAction::ToggleTerrainPatch,false)),
+                            (@action_button("洞口开关",PlacementTransformAction::ToggleTerrainCutout,false)),
                         ]
                     ),
-                    (numeric_input_slot(PlacementTransformField::CutoutMinX)),
-                    (numeric_input_slot(PlacementTransformField::CutoutMaxX)),
-                    (numeric_input_slot(PlacementTransformField::CutoutMinZ)),
-                    (numeric_input_slot(PlacementTransformField::CutoutMaxZ)),
+                    (@numeric_input_slot(PlacementTransformField::CutoutMinX)),
+                    (@numeric_input_slot(PlacementTransformField::CutoutMaxX)),
+                    (@numeric_input_slot(PlacementTransformField::CutoutMinZ)),
+                    (@numeric_input_slot(PlacementTransformField::CutoutMaxZ)),
                 ]
             ),
             (
-                template_value(PlacementPropertiesSection::Material)
+                ~{PlacementPropertiesSection::Material}
                 Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
                 Children [
-                    (crate::ui::context_help::section_header("材质", "颜色使用 sRGB 的 0–255，粗糙度使用 0–1；属性随地图保存，单次编辑可统一撤销。")),
-                    (axis_row("颜色", [PlacementTransformField::CuboidColorR, PlacementTransformField::CuboidColorG, PlacementTransformField::CuboidColorB])),
-                    (numeric_input_slot(PlacementTransformField::CuboidRoughness)),
+                    (@crate::ui::context_help::section_header("材质", "颜色使用 sRGB 的 0–255，粗糙度使用 0–1；属性随地图保存，单次编辑可统一撤销。")),
+                    (@axis_row("颜色", [PlacementTransformField::CuboidColorR, PlacementTransformField::CuboidColorG, PlacementTransformField::CuboidColorB])),
+                    (@numeric_input_slot(PlacementTransformField::CuboidRoughness)),
                 ]
             ),
             (
-                template_value(PlacementPropertiesSection::Collision)
+                ~{PlacementPropertiesSection::Collision}
                 Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
                 Children [
-                    (crate::ui::context_help::section_header("碰撞", "参数立方体使用盒碰撞；点边面编辑后的网格使用实际三角碰撞。按钮选中表示开启；隐藏或删除对象时暂停，恢复后按原开启状态生效。")),
-                    (action_button("碰撞", PlacementTransformAction::ToggleCuboidCollision, false)),
+                    (@crate::ui::context_help::section_header("碰撞", "参数立方体使用盒碰撞；点边面编辑后的网格使用实际三角碰撞。按钮选中表示开启；隐藏或删除对象时暂停，恢复后按原开启状态生效。")),
+                    (@action_button("碰撞", PlacementTransformAction::ToggleCuboidCollision, false)),
                 ]
             ),
         ]

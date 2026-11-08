@@ -141,9 +141,13 @@ pub(crate) fn install(app: &mut App) {
         )
         .add_systems(
             PostUpdate,
-            model::advance_asset_preview_bounds
-                .after(VisibilitySystems::CalculateBounds)
-                .before(VisibilitySystems::VisibilityPropagate),
+            (
+                // 取景读取已发布包围盒，下一帧再在可见性传播前公开完整模型。
+                model::advance_asset_preview_bounds
+                    .after(VisibilitySystems::CalculateBounds)
+                    .after(VisibilitySystems::VisibilityPropagate),
+                model::reveal_asset_preview.before(VisibilitySystems::VisibilityPropagate),
+            ),
         )
         .add_systems(Last, model::reclaim_external_preview_roots)
         .add_observer(model::observe_asset_preview_world_ready);

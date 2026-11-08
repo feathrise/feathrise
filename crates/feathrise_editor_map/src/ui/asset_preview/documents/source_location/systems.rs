@@ -11,7 +11,7 @@ use crate::{
 };
 use bevy::{input_focus::{FocusCause, InputFocus}, prelude::*,
     tasks::{AsyncComputeTaskPool, futures::check_ready},
-    text::{EditableText, FontCx, LayoutCx, TextLayoutInfo}, ui::widget::TextScroll};
+    text::{EditableText, FontCx, LayoutCx, TextLayoutInfo}};
 use std::{ops::Range, path::{Component, Path}, sync::Arc};
 
 fn blocked(editor: &MapEditorState, model: Option<&WorkbenchModel>, settings: Option<&MapEditorSettingsState>) -> bool {
@@ -172,15 +172,15 @@ pub(super) fn select(
 
 pub(super) fn reveal(
     documents: Res<DocumentState>, mut state: ResMut<SourceLocationState>,
-    mut sources: Query<(Entity, &DocumentSource, &EditableText, &ComputedNode, &TextLayoutInfo, &mut TextScroll, &mut DocumentScrollState)>,
+    mut sources: Query<(Entity, &DocumentSource, &mut EditableText, &ComputedNode, &TextLayoutInfo, &mut DocumentScrollState)>,
 ) {
     let Some(target) = state.reveal.take() else { return; };
     let Some(doc) = documents.current().filter(|doc| documents.visible && doc.source_key() == target.document
         && doc.revision == target.revision) else { return; };
-    let Ok((entity, binding, text, node, layout, mut scroll, mut preservation)) = sources.single_mut() else { return; };
+    let Ok((entity, binding, mut text, node, layout, mut preservation)) = sources.single_mut() else { return; };
     if entity == target.source && binding.key.as_ref() == Some(&doc.source_key())
         && !text.is_composing() && text.pending_edits.is_empty()
         && text.editor.raw_selection().text_range() == target.selection {
-        super::super::navigation::reveal_selection(node, layout, &mut scroll, &mut preservation);
+        super::super::navigation::reveal_selection(node, layout, &mut text.viewport, &mut preservation);
     }
 }

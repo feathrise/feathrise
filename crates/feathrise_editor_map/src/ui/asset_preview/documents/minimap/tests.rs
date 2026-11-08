@@ -9,7 +9,7 @@ use super::{
 use bevy::{
     prelude::*,
     text::{EditableText, TextLayoutInfo},
-    ui::{RelativeCursorPosition, widget::TextScroll},
+    ui::RelativeCursorPosition,
     window::PrimaryWindow,
 };
 use std::{path::PathBuf, sync::Arc};
@@ -96,7 +96,6 @@ fn fixture() -> (App, Entity, Entity, Entity) {
                 size: Vec2::new(500.0, 6_000.0),
                 ..default()
             },
-            TextScroll(Vec2::ZERO),
             EditableText::default(),
         ))
         .id();
@@ -286,7 +285,7 @@ fn minimap_real_pointer_click_and_drag_use_centered_coordinates_at_all_scales() 
         assert_eq!(*app.world().get::<Interaction>(rail).unwrap(), Interaction::Pressed);
         assert_eq!(app.world().get::<RelativeCursorPosition>(rail).unwrap().normalized, Some(Vec2::ZERO));
         app.update();
-        assert!((app.world().get::<TextScroll>(source).unwrap().0.y - 2_850.0 * scale).abs() < 1.0,
+        assert!((app.world().get::<EditableText>(source).unwrap().viewport.offset.y - 2_850.0 * scale).abs() < 1.0,
             "真实轨道中心点击应导航到全文中间，UI倍率={scale}");
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
         // 持续按住左键，从中心往上拖到四分之一位置，再越界到全文首尾。
@@ -295,7 +294,7 @@ fn minimap_real_pointer_click_and_drag_use_centered_coordinates_at_all_scales() 
                 .set_cursor_position(Some(center + Vec2::new(0.0, relative_y * scale)));
             app.world_mut().run_system_once(ui_focus_system).unwrap();
             app.update();
-            assert!((app.world().get::<TextScroll>(source).unwrap().0.y - expected * scale).abs() < 1.0,
+            assert!((app.world().get::<EditableText>(source).unwrap().viewport.offset.y - expected * scale).abs() < 1.0,
                 "真实拖动位置必须与全文视区一致，位置={relative_y}，UI倍率={scale}");
         }
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
@@ -325,7 +324,7 @@ fn minimap_click_drag_outside_and_release_preserve_caret_and_draft() {
         .raw_selection()
         .text_range();
     app.update();
-    assert!((app.world().get::<TextScroll>(source).unwrap().0.y - 2_850.0).abs() < 1.0);
+    assert!((app.world().get::<EditableText>(source).unwrap().viewport.offset.y - 2_850.0).abs() < 1.0);
     assert!(app.world().resource::<DocumentMinimapState>().owns_mouse());
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
@@ -339,7 +338,7 @@ fn minimap_click_drag_outside_and_release_preserve_caret_and_draft() {
         .unwrap()
         .cursor_over = false;
     app.update();
-    assert_eq!(app.world().get::<TextScroll>(source).unwrap().0.y, 5_700.0);
+    assert_eq!(app.world().get::<EditableText>(source).unwrap().viewport.offset.y, 5_700.0);
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .release(MouseButton::Left);
@@ -441,7 +440,7 @@ fn minimap_middle_chord_and_existing_owner_cannot_start_navigation() {
                 .drag
                 .is_none()
         );
-        assert_eq!(app.world().get::<TextScroll>(source).unwrap().0.y, 0.0);
+        assert_eq!(app.world().get::<EditableText>(source).unwrap().viewport.offset.y, 0.0);
     }
 }
 
@@ -526,7 +525,7 @@ fn minimap_wheel_consumes_once_including_document_end() {
     };
     let (mut app, source, _, window) = fixture();
     app.add_systems(Update, control::handle_input);
-    app.world_mut().get_mut::<TextScroll>(source).unwrap().0.y = 5_700.0;
+    app.world_mut().get_mut::<EditableText>(source).unwrap().viewport.offset.y = 5_700.0;
     app.world_mut().write_message(MouseWheel {
         window,
         unit: MouseScrollUnit::Pixel,
@@ -536,7 +535,7 @@ fn minimap_wheel_consumes_once_including_document_end() {
     });
     app.update();
     assert!(app.world().resource::<DocumentMinimapState>().owns_wheel());
-    app.world_mut().get_mut::<TextScroll>(source).unwrap().0.y = 3_000.0;
+    app.world_mut().get_mut::<EditableText>(source).unwrap().viewport.offset.y = 3_000.0;
     app.world_mut().entity_mut(source).insert((
         crate::ui::vegetation_preset_editor::PresetNotesScroll,
         RelativeCursorPosition {
@@ -548,7 +547,7 @@ fn minimap_wheel_consumes_once_including_document_end() {
         .run_system_once(crate::ui::systems::scroll_editor_side_panels)
         .unwrap();
     assert_eq!(
-        app.world().get::<TextScroll>(source).unwrap().0.y,
+        app.world().get::<EditableText>(source).unwrap().viewport.offset.y,
         3_000.0,
         "外层不能重复消费小地图滚轮"
     );

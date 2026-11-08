@@ -1,5 +1,6 @@
 //! 同一套墨底铜边固定菜单和中文名称浮层，按F12根的实际倍率钳制位置。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{
     components::*, resources::SceneContextMenuState, systems::MenuContext, types::SceneMenuAction,
 };
@@ -83,7 +84,7 @@ pub(super) fn setup(
                             for action in SceneMenuAction::ALL {
                                 popup
                                     .spawn((
-                                        Button,
+                                        InteractionButton,
                                         MenuButton(action),
                                         button_node(),
                                         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
@@ -108,7 +109,7 @@ pub(super) fn setup(
                                     label(rename, &font, "重命名对象");
                                     rename
                                         .spawn((
-                                            Button,
+                                            InteractionButton,
                                             RenameField,
                                             Node {
                                                 height: px(30),
@@ -146,7 +147,7 @@ pub(super) fn setup(
                                         ));
                                     rename
                                         .spawn((
-                                            Button,
+                                            InteractionButton,
                                             RenameConfirm,
                                             button_node(),
                                             BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
@@ -155,7 +156,7 @@ pub(super) fn setup(
                                         .with_children(|parent| label(parent, &font, "确认"));
                                     rename
                                         .spawn((
-                                            Button,
+                                            InteractionButton,
                                             RenameCancel,
                                             button_node(),
                                             BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),

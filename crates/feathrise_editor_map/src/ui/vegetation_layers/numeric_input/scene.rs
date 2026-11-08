@@ -30,11 +30,11 @@ pub(crate) fn vegetation_numeric_slots() -> impl Scene {
             flex_shrink: 0.0, // 外层负责滚动访问全部字段。
         }
         Children [
-            (numeric_slot(VegetationNumericKind::Priority)), // 正式有符号整数，不使用浮点冒充。
-            (numeric_slot(VegetationNumericKind::Weight)), // 大跨度正数使用指数拖动。
-            (numeric_slot(VegetationNumericKind::OpacityPercent)), // UI百分比、作者值零至一。
-            (numeric_slot(VegetationNumericKind::GroupCapacityPercent)), // 只在共享容量规则下启用。
-            (numeric_slot(VegetationNumericKind::ClaimThresholdPercent)), // 只在高优先级覆盖规则下启用。
+            (@numeric_slot(VegetationNumericKind::Priority)), // 正式有符号整数，不使用浮点冒充。
+            (@numeric_slot(VegetationNumericKind::Weight)), // 大跨度正数使用指数拖动。
+            (@numeric_slot(VegetationNumericKind::OpacityPercent)), // UI百分比、作者值零至一。
+            (@numeric_slot(VegetationNumericKind::GroupCapacityPercent)), // 只在共享容量规则下启用。
+            (@numeric_slot(VegetationNumericKind::ClaimThresholdPercent)), // 只在高优先级覆盖规则下启用。
         ]
     }
 }

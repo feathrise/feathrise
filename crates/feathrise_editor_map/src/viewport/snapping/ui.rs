@@ -1,4 +1,5 @@
 //! 地图同排工具条的吸附偏好；复用输入所有权、主题和现有设置自动保存链。
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use super::components::{SnapAction, SnapButton, SnapLabel};
 use crate::{
@@ -12,7 +13,7 @@ use feathrise_editor_core::EditorSnapMode;
 
 fn button(label: &str, action: SnapAction) -> impl Scene {
     bsn! {
-        Button SnapButton(action)
+        InteractionButton SnapButton(action)
         Node { height: px(26), padding: UiRect::horizontal(px(8)), flex_shrink: 0.0, align_items: AlignItems::Center, justify_content: JustifyContent::Center, border: UiRect::bottom(px(2)) }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
@@ -26,7 +27,7 @@ fn button(label: &str, action: SnapAction) -> impl Scene {
 pub(crate) fn toolbar() -> impl Scene {
     bsn! {
         Node { height: px(26), column_gap: px(2), align_items: AlignItems::Center, flex_shrink: 0.0 }
-        Children [(button("网格", SnapAction::Grid)), (button("吸附", SnapAction::Enabled)), (button("网格点", SnapAction::Mode)), (button("1米", SnapAction::Step))]
+        Children [(@button("网格", SnapAction::Grid)), (@button("吸附", SnapAction::Enabled)), (@button("网格点", SnapAction::Mode)), (@button("1米", SnapAction::Step))]
     }
 }
 

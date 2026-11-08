@@ -35,6 +35,7 @@ pub(super) struct RenderReceipt {
 
 /// 每个网格与任务持有同一票据，旧RenderApp帧无法确认下一张快照。
 #[derive(Component, Clone, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub(super) struct ThumbnailProbe {
     pub camera: Entity,
     pub target: Handle<Image>,

@@ -52,7 +52,7 @@ pub(crate) fn install(app: &mut App) {
             PostUpdate,
             jobs::advance_scene
                 .after(TransformSystems::Propagate)
-                .after(VisibilitySystems::CalculateBounds)
+                // 包围盒未发布时任务会等后续帧，保留本帧隐藏与退役早于可见性传播。
                 .before(VisibilitySystems::VisibilityPropagate),
         )
         .add_observer(jobs::world_ready);

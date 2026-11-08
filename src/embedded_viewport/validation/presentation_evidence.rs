@@ -177,7 +177,8 @@ pub(super) fn verify_records(steps: &[Value], empty_fixture: bool) -> Result<(),
     }
     let mut transitions = vec![
         (
-            if steps.iter().any(|step|step["stage"]=="continuous_previews_completed") { "continuous_previews_completed" } else { "original_redo_applied" },
+            // 工具阶段也会推进作者修订，使用点击预览前最后一个实测作者阶段。
+            if steps.iter().any(|step|step["stage"]=="continuous_previews_completed") { "continuous_previews_completed" } else { "semantic_tools_rendered_and_cleared" },
             "f12_play_same_world",
             "f12_edit_same_world_and_paused_ticks",
         ),

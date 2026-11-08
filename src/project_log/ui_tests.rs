@@ -16,13 +16,13 @@ use bevy::{
     input_focus::{InputDispatchPlugin, InputFocus, InputFocusPlugin},
     picking::{
         backend::HitData,
-        events::{Drag, DragEnd, DragStart, Pointer, Press},
+        events::{PointerDrag, PointerDragEnd, PointerDragStart, Pointer, PointerPress},
         pointer::{Location, PointerButton, PointerId},
     },
     prelude::*,
     text::{EditableText, TextEdit, TextLayoutInfo},
     ui_widgets::{
-        ControlOrientation, EditableTextInputPlugin, Scrollbar, ScrollbarDragState,
+        ControlOrientation, TextInputPlugin, Scrollbar, ScrollbarDragState,
         ScrollbarPlugin, ScrollbarThumb,
     },
     window::PrimaryWindow,
@@ -52,7 +52,7 @@ fn layout_app(payload: &str) -> (App, Entity, Entity) {
         bevy::text::TextPlugin,
         feathrise_runtime::DefaultFontPlugin,
         bevy::ui::UiPlugin,
-        EditableTextInputPlugin,
+        TextInputPlugin,
         ScrollbarPlugin,
     ))
     .init_asset::<Image>()
@@ -199,41 +199,32 @@ fn location(window: Entity, position: Vec2) -> Location {
 }
 
 fn press(app: &mut App, window: Entity, camera: Entity, target: Entity, position: Vec2) {
-    app.world_mut().trigger(Pointer::new(
-        PointerId::Mouse,
-        location(window, position),
-        Press {
-            button: PointerButton::Primary,
+    app.world_mut().trigger(PointerPress {
+        entity: target,
+        pointer: Pointer::new(PointerId::Mouse, location(window, position)),
+        button: PointerButton::Primary,
             hit: HitData::new(camera, 0.0, None, None),
             count: 1,
-        },
-        target,
-    ));
+    });
 }
 
 fn drag_start(app: &mut App, window: Entity, camera: Entity, target: Entity, position: Vec2) {
-    app.world_mut().trigger(Pointer::new(
-        PointerId::Mouse,
-        location(window, position),
-        DragStart {
-            button: PointerButton::Primary,
+    app.world_mut().trigger(PointerDragStart {
+        entity: target,
+        pointer: Pointer::new(PointerId::Mouse, location(window, position)),
+        button: PointerButton::Primary,
             hit: HitData::new(camera, 0.0, None, None),
-        },
-        target,
-    ));
+    });
 }
 
 fn drag(app: &mut App, window: Entity, target: Entity, start: Vec2, distance: Vec2) {
-    app.world_mut().trigger(Pointer::new(
-        PointerId::Mouse,
-        location(window, start + distance),
-        Drag {
-            button: PointerButton::Primary,
+    app.world_mut().trigger(PointerDrag {
+        entity: target,
+        pointer: Pointer::new(PointerId::Mouse, location(window, start + distance)),
+        button: PointerButton::Primary,
             distance,
             delta: distance,
-        },
-        target,
-    ));
+    });
 }
 
 fn drag_scrollbar(
@@ -249,15 +240,12 @@ fn drag_scrollbar(
     drag_start(app, window, camera, thumb, start);
     drag(app, window, thumb, start, distance);
     app.update();
-    app.world_mut().trigger(Pointer::new(
-        PointerId::Mouse,
-        location(window, start + distance),
-        DragEnd {
-            button: PointerButton::Primary,
+    app.world_mut().trigger(PointerDragEnd {
+        entity: thumb,
+        pointer: Pointer::new(PointerId::Mouse, location(window, start + distance)),
+        button: PointerButton::Primary,
             distance,
-        },
-        thumb,
-    ));
+    });
     settle(app);
 }
 

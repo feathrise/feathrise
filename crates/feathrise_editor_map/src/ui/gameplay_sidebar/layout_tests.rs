@@ -1,5 +1,6 @@
 //! 真实中文字体、低高度固定导航和公共空气墙字段布局回归，不等同于原生窗口视觉验收。
 
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use bevy::text::LineHeight;
 
@@ -42,7 +43,7 @@ fn wall_objects_use_centered_small_buttons_and_fixed_single_line_name_field() {
             *world.get::<BorderColor>(entity).unwrap(),
             BorderColor::all(colors::COPPER_BORDER_WEAK)
         );
-        assert!(world.get::<Button>(entity).is_some()); // 普通墙体动作必须接入共享释放点击，布局仍由原面板负责。
+        assert!(world.get::<InteractionButton>(entity).is_some()); // 普通墙体动作必须接入共享释放点击，布局仍由原面板负责。
     }
     let name = world
         .query_filtered::<Entity, (
@@ -52,7 +53,7 @@ fn wall_objects_use_centered_small_buttons_and_fixed_single_line_name_field() {
         )>()
         .single(world)
         .unwrap();
-    assert!(world.get::<Button>(name).is_none()); // 名称框继续使用官方文本焦点，不成为普通动作按钮。
+    assert!(world.get::<InteractionButton>(name).is_none()); // 名称框继续使用官方文本焦点，不成为普通动作按钮。
     click(&mut app, name);
     assert_eq!(app.world().resource::<InputFocus>().get(), Some(name));
     assert_eq!(

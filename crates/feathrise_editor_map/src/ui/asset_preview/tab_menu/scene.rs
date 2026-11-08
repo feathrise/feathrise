@@ -1,4 +1,5 @@
 //! 文件标签菜单沿用资产路径菜单的暗墨铜边、紧凑尺寸与根内定位。
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::{components::*, resources::AssetTabMenuState};
 use crate::ui::asset_context_menu::helpers::sized_menu_rect;
@@ -59,7 +60,7 @@ pub(super) fn setup(
                         ))
                         .with_children(|popup| {
                             for kind in AssetPathCopyKind::ALL {
-                                popup.spawn((Button, CopyFilePathButton(kind),
+                                popup.spawn((InteractionButton, CopyFilePathButton(kind),
                                     Node { display: Display::None, width: percent(100), height: px(24), flex_shrink: 0.0,
                                         padding: UiRect::horizontal(px(8)), align_items: AlignItems::Center,
                                         border_radius: BorderRadius::all(px(2)), ..default() },
@@ -69,7 +70,7 @@ pub(super) fn setup(
                                     TextLayout::no_wrap(), TextColor(colors::TEXT_PRIMARY), FocusPolicy::Pass));
                             }
                             for (label, action) in EXTERNAL_MENU_ITEMS {
-                                popup.spawn((Button, ExternalFileButton(action),
+                                popup.spawn((InteractionButton, ExternalFileButton(action),
                                     Node { display: if action.editor().is_some() { Display::None } else { Display::Flex }, width: percent(100), height: px(24), flex_shrink: 0.0,
                                         padding: UiRect::horizontal(px(8)), align_items: AlignItems::Center,
                                         border_radius: BorderRadius::all(px(2)), ..default() },
@@ -80,7 +81,7 @@ pub(super) fn setup(
                             }
                             popup
                                 .spawn((
-                                    Button,
+                                    InteractionButton,
                                     SaveAllDraftsButton,
                                     Node {
                                         width: percent(100), height: px(24), flex_shrink: 0.0,
@@ -96,7 +97,7 @@ pub(super) fn setup(
                                 ));
                             popup
                                 .spawn((
-                                    Button,
+                                    InteractionButton,
                                     CloseAllTabsButton,
                                     Node {
                                         width: percent(100),
@@ -122,7 +123,7 @@ pub(super) fn setup(
                                 ));
                             popup
                                 .spawn((
-                                    Button,
+                                    InteractionButton,
                                     CloseUnmodifiedTabsButton,
                                     Node {
                                         width: percent(100),

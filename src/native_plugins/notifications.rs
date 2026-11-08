@@ -1,4 +1,5 @@
 //! 插件加载错误右下角通知：有界摘要、同内容去重，关闭不丢失管理器中的真实错误。
+use feathrise_editor_ui::InteractionButton;
 use super::{management, resources::NativeTools};
 use bevy::{prelude::*, ui::FocusPolicy};
 use feathrise_editor_map::workbench::WorkbenchHeader;
@@ -116,7 +117,7 @@ fn action(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, value: Notific
     } else {
         feathrise_editor_ui::dialog_button_style(false)
     };
-    parent.spawn((Button, value, style.node, style.colors, BackgroundColor(style.colors.normal),
+    parent.spawn((InteractionButton, value, style.node, style.colors, BackgroundColor(style.colors.normal),
         BorderColor::all(c::DIALOG_BORDER)))
         .with_child(text(font, title, style.font_size, style.text_color));
 }

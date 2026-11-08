@@ -1,5 +1,6 @@
 //! XYZ 几何回归：物理缩放、斜线变换、空心圆及固定预算都通过正式轮廓提取实现。
 
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use bevy::math::Affine2;
 
@@ -53,7 +54,7 @@ fn xyz_capture_reads_only_visible_direct_children_and_is_stable_when_order_chang
         circle.border.max_inset = Vec2::splat(2.);
         let child = app.world_mut().spawn((ChildOf(root), Node::default(), circle,
             UiGlobalTransform::from_xy(x, 100.), InheritedVisibility::VISIBLE,
-            MapEditorOrientationAxisEndpoint { world_axis: axis, positive: false }, Button)).id();
+            MapEditorOrientationAxisEndpoint { world_axis: axis, positive: false }, InteractionButton)).id();
         endpoints.push(child);
     }
     app.update();
@@ -86,7 +87,7 @@ fn xyz_capture_rejects_duplicate_roots_or_more_than_ten_fixed_nodes_without_trun
             InheritedVisibility::VISIBLE)).id();
         app.world_mut().spawn((ChildOf(root), Node::default(),
             ComputedNode { size: Vec2::splat(10.), ..default() },
-            UiGlobalTransform::from_xy(100., 100.), InheritedVisibility::VISIBLE, Button));
+            UiGlobalTransform::from_xy(100., 100.), InheritedVisibility::VISIBLE, InteractionButton));
     }
     app.update();
     assert!(app.world().resource::<Captured>().0.as_ref().unwrap().is_err());

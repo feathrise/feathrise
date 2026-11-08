@@ -136,7 +136,7 @@ fn visible_center(world: &World, root: Entity) -> Result<Vec2, String> {
             return Ok(center);
         };
         entity = parent.parent();
-        // 有界复用 clip_check_recursive 的矩形/逆变换判据，不能把滚出属性页的根当作可点击。
+        // 用各祖先的局部裁切矩形复核实际字段中心，确认字段还在可点击区域。
         if clipped
             && let (Some(node), Some(computed), Some(transform)) = (
                 world.get::<Node>(entity),

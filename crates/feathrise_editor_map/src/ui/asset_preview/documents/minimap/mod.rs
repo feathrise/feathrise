@@ -1,4 +1,4 @@
-//! 中央文本编辑的代码轮廓与拖动导航；复用原生排版和TextScroll，不创建第二个编辑器。
+//! 中央文本编辑的代码轮廓与拖动导航；复用原生排版和EditableText.viewport，不创建第二个编辑器。
 
 use bevy::prelude::*;
 

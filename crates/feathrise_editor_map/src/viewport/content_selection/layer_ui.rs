@@ -1,5 +1,6 @@
 //! 场景树下的作者层候选卡片：多层直接显示，单层隐藏，保留悬停预高亮。
 
+use feathrise_editor_ui::InteractionButton;
 use super::layers::LayerCandidateState;
 
 use crate::viewport::modes::{ViewportMode, ViewportModeState}; // 编辑模式隐藏候选交互。
@@ -30,7 +31,7 @@ fn button(
     // 统一尺寸与可见中文字布局。
     parent
         .spawn((
-            Button, // 候选行保留独立高亮，同时接入普通按钮的合法释放协议。
+            InteractionButton, // 候选行保留独立高亮，同时接入普通按钮的合法释放协议。
             feathrise_editor_ui::EditorButtonClick::default(), // 独立无窗口夹具也具有相同的动作契约。
             action,
             Node {

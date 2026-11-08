@@ -4,6 +4,7 @@ mod types;
 // 复用首页已验证的有界读写与ScreenshotCaptured原图保存，避免复制另一套截图成功协议。
 #[path = "../workspace_ui/scale_validation/io.rs"]
 mod io;
+use feathrise_editor_ui::InteractionButton;
 use resources::*;
 use types::*;
 use bevy::{prelude::*,input::{ButtonState,mouse::MouseButtonInput},render::view::screenshot::{Screenshot,ScreenshotCaptured},
@@ -65,12 +66,12 @@ fn find_button(world:&mut World,label:&str)->Option<Entity>{
         let parts=world.resource::<super::resources::ChromeParts>().0.as_ref()?;
         let slot=if label=="设置"{parts.settings}else{parts.project?};
         // ChromeParts保存原挂载槽，真正接收按下松开的是槽内Button；工程菜单不依赖变化的工程名。
-        return super::scene::descendants(world,slot,3).into_iter().find(|entity|world.get::<Button>(*entity).is_some()&&world.get::<InheritedVisibility>(*entity).is_some_and(|v|v.get())&&world.get::<InteractionDisabled>(*entity).is_none()&&rect(world,*entity).is_some());
+        return super::scene::descendants(world,slot,3).into_iter().find(|entity|world.get::<InteractionButton>(*entity).is_some()&&world.get::<InheritedVisibility>(*entity).is_some_and(|v|v.get())&&world.get::<InteractionDisabled>(*entity).is_none()&&rect(world,*entity).is_some());
     }
     let frame=world.query_filtered::<Entity,With<WorkbenchSettingsBody>>().iter(world).next().and_then(|body|world.get::<ChildOf>(body).map(|p|p.parent()));
     let texts:Vec<_>=world.query::<(Entity,&Text)>().iter(world).filter_map(|(entity,text)|(text.0==label).then_some(entity)).collect();
     texts.into_iter().find_map(|mut entity|{for _ in 0..24{
-        if world.get::<Button>(entity).is_some(){return (world.get::<InheritedVisibility>(entity).is_some_and(|v|v.get())&&world.get::<InteractionDisabled>(entity).is_none()&&rect(world,entity).is_some()&&(label!="完成"||frame.is_some_and(|frame|below(world,entity,frame)))).then_some(entity);}
+        if world.get::<InteractionButton>(entity).is_some(){return (world.get::<InheritedVisibility>(entity).is_some_and(|v|v.get())&&world.get::<InteractionDisabled>(entity).is_none()&&rect(world,entity).is_some()&&(label!="完成"||frame.is_some_and(|frame|below(world,entity,frame)))).then_some(entity);}
         entity=world.get::<ChildOf>(entity)?.parent();
     }None})
 }
@@ -186,7 +187,7 @@ fn drive(world:&mut World){let Some(mut plan)=world.remove_resource::<Plan>()els
     }
     if (plan.stage>=5||plan.failure.is_some())&&plan.final_write.is_none()&&!plan.final_done{
         let report=json!({"schema":1,"passed":plan.failure.is_none(),"error":plan.failure,"role":plan.role.name(),"pid":std::process::id(),"project":plan.project,"proofs":plan.proofs,"gpu_captures":plan.captures,
-            "input_diagnostics":{"stage":plan.stage,"mouse_phase":plan.mouse_phase,"target":plan.target.map(|entity|format!("{entity:?}")),"target_is_button":plan.target.is_some_and(|entity|world.get::<Button>(entity).is_some()),"interaction":plan.target.and_then(|entity|world.get::<Interaction>(entity)).map(|value|format!("{value:?}"))},
+            "input_diagnostics":{"stage":plan.stage,"mouse_phase":plan.mouse_phase,"target":plan.target.map(|entity|format!("{entity:?}")),"target_is_button":plan.target.is_some_and(|entity|world.get::<InteractionButton>(entity).is_some()),"interaction":plan.target.and_then(|entity|world.get::<Interaction>(entity)).map(|value|format!("{value:?}"))},
             "scope":"neutral theme/settings only; original button input and real desktop observer acknowledgement","physical_os_button_input_verified":false,"process_exit_observed_externally":true});
         plan.final_write=Some(io::report(plan.directory.join(format!("{}-evidence.json",plan.role.name())),report));
     }

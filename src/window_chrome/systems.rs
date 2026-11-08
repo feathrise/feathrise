@@ -1,4 +1,5 @@
 //! 顶栏输入、窄窗原位收纳与布局完成后的物理命中投影；每帧只访问固定控件集合。
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, glyphs, resources::*, scene, types::*};
 use bevy::{prelude::*, ui::RelativeCursorPosition, window::PrimaryWindow};
 use feathrise_editor_ui::{ButtonColors, EditorButtonClick, colors as c};
@@ -158,7 +159,7 @@ pub(super) fn present(world: &mut World) {
         for &control in &p.layout_controls {
             move_to(world, control, p.header);
             for button in scene::descendants(world, control, 1) {
-                if world.get::<Button>(button).is_some()
+                if world.get::<InteractionButton>(button).is_some()
                     && let Some(mut node) = world.get_mut::<Node>(button)
                 {
                     node.width = px(if compact { 24. } else { 28. });

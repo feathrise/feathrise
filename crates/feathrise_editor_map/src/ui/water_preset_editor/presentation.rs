@@ -1,5 +1,6 @@
 //! 水体预设左栏连续列表、摘要、状态和局部按钮视觉同步。
 
+use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 use feathrise_map_content::WaterPresetRegistry;
 use crate::ui::theme as colors;
@@ -60,7 +61,7 @@ pub(super) fn sync_panel(
                     .with_children(|list| {
                         for (index, preset) in registry.presets().iter().enumerate() {
                             list.spawn((
-                                Button,
+                                InteractionButton,
                                 WaterPresetButton(WaterPresetAction::SelectPreset(index)),
                                 Node {
                                     height: Val::Px(26.0),

@@ -1,5 +1,6 @@
 //! 三维视口左侧的竖向模式图标和独立筛选菜单；原位更新样式，避免悬停重建导致闪烁。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use crate::authoring::mesh_edit::{MeshEditAction, MeshEditState, MeshEditTool};
 use super::{SelectionFilter, ViewportMode, ViewportModeState};
@@ -57,13 +58,13 @@ pub(crate) fn global_mode_toolbar() -> impl Scene {
     use bevy::text::FontSourceTemplate;
     let action = ModeButton::Options;
     let tooltip = crate::ui::tooltips::EditorTooltipTarget(crate::ui::tooltips::TooltipAction::ViewportOptions);
-    bsn! { GlobalModeToolbar crate::components::MapEditorSceneContext RelativeCursorPosition::default() Interaction::default() template_value(FocusPolicy::Block)
+    bsn! { GlobalModeToolbar crate::components::MapEditorSceneContext RelativeCursorPosition::default() Interaction::default() ~{FocusPolicy::Block}
         Node { column_gap: px(2), height: px(26), flex_shrink: 0.0, align_items: AlignItems::Center }
-        Children [(Button template_value(action) template_value(tooltip)
+        Children [(InteractionButton ~{action} ~{tooltip}
             Node { height: px(26), padding: UiRect::horizontal(px(6)), align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center, flex_shrink: 0.0, border_radius: BorderRadius::all(px(2)) }
             BackgroundColor(colors::PANEL_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
-            Children [(Text("筛选与操作") feathrise_editor_ui::localization::label_scene("筛选与操作") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(12) }
+            Children [(Text("筛选与操作") @feathrise_editor_ui::localization::label_scene("筛选与操作") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(12) }
                 TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap() Pickable::IGNORE)])] }
 }
 
@@ -83,7 +84,7 @@ fn spawn_mode_tools(parent: &mut ChildSpawnerCommands, assets: &AssetServer) {
             (ViewportMode::Edit, "编辑", "tool_edit"),
         ] {
             rail.spawn((
-                Button, ModeButton::Mode(mode), Name::new(label), FocusPolicy::Block,
+                InteractionButton, ModeButton::Mode(mode), Name::new(label), FocusPolicy::Block,
                 crate::ui::tooltips::EditorTooltipTarget(crate::ui::tooltips::TooltipAction::ViewportMode(mode)),
                 Node {
                     width: px(MODE_BUTTON_SIZE), height: px(MODE_BUTTON_SIZE), flex_shrink: 0.0,
@@ -192,7 +193,7 @@ fn button(
 ) {
     let mut root = parent
         .spawn((
-            Button,             // 标准按钮生成稳定交互组件。
+            InteractionButton,             // 标准按钮生成稳定交互组件。
             action,             // 独立身份不进入全局侧栏工具样式查询。
             FocusPolicy::Block, // 点击不得传给背后地图。
             Node {

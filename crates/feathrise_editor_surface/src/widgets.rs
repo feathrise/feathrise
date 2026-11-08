@@ -1,5 +1,6 @@
 //! 地表文档的紧凑控件与弹性表单；保留原名称输入及数值提交协议。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*;
 use bevy::text::{EditableText, EditableTextFilter};
@@ -63,7 +64,7 @@ pub(super) fn action_button(
     let emphasized = primary || selected;
     parent
         .spawn((
-            Button,
+            InteractionButton,
             SurfacePresetButton(action),
             kind,
             FocusPolicy::Block,
@@ -171,7 +172,7 @@ pub(super) fn field(
                 TextLayout::new(Justify::Left, LineBreak::AnyCharacter),
                 Node { width: Val::Px(96.0), height: Val::Px(ui_metrics::label_height(label, 96.0)), min_width: Val::Px(0.0), flex_shrink: 0.0, ..default() }));
             let mut input = column.spawn((
-                Button,
+                InteractionButton,
                 SurfacePresetButton(SurfacePresetAction::Focus(field)),
                 Node {
                     width: Val::Px(0.0),

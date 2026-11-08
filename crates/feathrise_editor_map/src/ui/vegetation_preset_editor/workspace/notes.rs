@@ -1,5 +1,6 @@
 //! 植被工作台的可选多行备注：标签在上、六行视区、独立滚动；不改变输入事务。
 
+use feathrise_editor_ui::InteractionButton;
 use crate::ui::theme as colors;
 use bevy::prelude::*;
 use bevy::text::LineHeight;
@@ -28,7 +29,7 @@ fn notes_control_node() -> Node {
         padding: UiRect::horizontal(Val::Px(7.0)),
         overflow: Overflow::scroll_y(),
         ..default()
-    } // 固定六行和独立滚动仍由正式TextScroll处理，长备注不撑宽或推高输入框。
+    } // 固定六行和独立滚动仍由正式EditableText.viewport处理，长备注不撑宽或推高输入框。
 }
 
 pub(super) fn spawn_notes(
@@ -67,7 +68,7 @@ pub(super) fn spawn_notes(
             });
             column
                 .spawn((
-                    Button,
+                    InteractionButton,
                     PresetEditorButton(PresetEditorAction::Focus(PresetField::Notes)),
                     PresetEditorFieldButton(PresetField::Notes),
                     ScrollPosition::default(),

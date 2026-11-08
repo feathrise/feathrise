@@ -1,5 +1,6 @@
 //! 当前地图与目标地图两套传送点完整列表的行实体维护。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use std::ops::Range; // 行数增长时只追加缺少的连续扁平索引。
 
@@ -255,7 +256,7 @@ fn spawn_current_row_range(
         for slot in slots {
             parent
                 .spawn((
-                    Button, // Interaction直接挂在真实源点行，不依赖实体名称分派。
+                    InteractionButton, // Interaction直接挂在真实源点行，不依赖实体名称分派。
                     MapEditorCurrentPortalRow {
                         slot,            // 扁平索引覆盖完整作者数组。
                         portal_id: None, // Presentation刷新前不得持有虚假源点身份。
@@ -287,7 +288,7 @@ fn spawn_target_row_range(
         for slot in slots {
             parent
                 .spawn((
-                    Button, // 目标落点按下时显式发布完整MapPortalTarget。
+                    InteractionButton, // 目标落点按下时显式发布完整MapPortalTarget。
                     MapEditorTargetPortalRow {
                         slot,         // 零槽为默认出生点，其后完整对应具体端点。
                         target: None, // 资产回显前不继承旧地图目标。

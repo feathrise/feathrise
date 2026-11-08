@@ -41,8 +41,8 @@ pub(in crate::ui::placement_water) fn placement_water_numeric_input_slots() -> i
             flex_shrink: 0.0, // 低高度窗口由右栏滚动访问完整数值组。
         }
         Children [
-            (numeric_input_slot(PlacementWaterNumericKind::FlowSpeed)), // 第一行编辑沿UV0.U输运的米每秒流速。
-            (numeric_input_slot(PlacementWaterNumericKind::HeightOffset)), // 第二行编辑世界Y米制偏移。
+            (@numeric_input_slot(PlacementWaterNumericKind::FlowSpeed)), // 第一行编辑沿UV0.U输运的米每秒流速。
+            (@numeric_input_slot(PlacementWaterNumericKind::HeightOffset)), // 第二行编辑世界Y米制偏移。
         ]
     }
 }

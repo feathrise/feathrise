@@ -1,5 +1,6 @@
 //! 编辑器布局的专注与单侧显隐、窄窗恢复、真实 ECS 查询和鼠标所有权回归，不启动渲染。
 
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use crate::ui::numeric_scrub_mouse_guard::update_map_editor_numeric_scrub_mouse_guard;
 use feathrise_editor_ui::ActiveNumericInputScrub;
@@ -654,7 +655,7 @@ fn merged_header_keeps_title_commands_modes_and_launch_on_one_line_at_real_scale
                     assert!(rect.min.x >= header_bounds.min.x - 1.1 && rect.max.x <= header_bounds.max.x + 1.1,
                         "顶栏文字不得挤出窗口：{} / {width}/{scale}/{dpi}", text.as_str());
                     let parent = world.get::<ChildOf>(entity).unwrap().parent();
-                    if world.get::<Button>(parent).is_some() {
+                    if world.get::<InteractionButton>(parent).is_some() {
                         let button = bounds(world, parent);
                         assert!(rect.min.x >= button.min.x - 1.1 && rect.max.x <= button.max.x + 1.1,
                             "短标签仍需完整显示：{} / {width}/{scale}/{dpi}", text.as_str());

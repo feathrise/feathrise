@@ -32,6 +32,7 @@ pub(super) struct Ticket {
 }
 
 #[derive(Resource, Clone, Default, ExtractResource)]
+#[extract_app(RenderApp)]
 pub(super) struct CaptureRequest(pub Option<Ticket>);
 
 struct Prepared {

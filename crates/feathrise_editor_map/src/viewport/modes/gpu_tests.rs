@@ -1,5 +1,6 @@
 //! 真实GPU离屏检查竖向工具栏的图标、鼠标命中和旁侧菜单；不启动窗口或保存作者设置。
 
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::input::{ButtonState, mouse::MouseButtonInput};
@@ -519,7 +520,7 @@ fn viewport_mode_rail_gpu_actual_clicks_and_context_snapshot() {
             .single(world)
             .unwrap();
         let shading = world
-            .query::<(Entity, &Name, &Button)>()
+            .query::<(Entity, &Name, &InteractionButton)>()
             .iter(world)
             .filter(|(_, name, _)| matches!(name.as_str(), "线框" | "实体" | "材质预览" | "渲染"))
             .map(|(entity, _, _)| entity)
@@ -552,7 +553,7 @@ fn viewport_mode_rail_gpu_actual_clicks_and_context_snapshot() {
             .single(world)
             .unwrap();
         world
-            .query_filtered::<Entity, With<Button>>()
+            .query_filtered::<Entity, With<InteractionButton>>()
             .iter(world)
             .filter(|entity| {
                 let mut current = *entity;

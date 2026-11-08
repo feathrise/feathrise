@@ -24,6 +24,7 @@ pub(crate) use preferences::{Completion, ready_to_exit};
 pub(crate) use resources::{BuildProfileMenuState, ViewportGeometry, ViewportModeAvailability, ViewportModeState};
 pub(crate) use types::ViewportMode;
 
+use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 
 /// 生命周期系统应在 Input 之后消费模式，几何在 PostUpdate 布局后发布供下一帧合并发送。
@@ -104,7 +105,7 @@ pub(crate) fn compilation_input_test_schedule(world: &mut World) -> (Schedule, E
     world.init_resource::<Messages<feathrise_editor_map::standalone::SavedPlayFeedback>>();
     world.init_resource::<feathrise_editor_core::ProjectLaunchSettings>();
     let mode_button = world.spawn((
-        Button, components::ModeButton(ViewportMode::SavedWorld),
+        InteractionButton, components::ModeButton(ViewportMode::SavedWorld),
         feathrise_editor_ui::EditorButtonClick::default(), InheritedVisibility::VISIBLE,
     )).id();
     let mut schedule = Schedule::default();

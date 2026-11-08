@@ -1,5 +1,6 @@
 //! 工程日志的终端式视图：紧凑工具栏、原生阅读区和单行状态栏；不引入第二套输入或滚动逻辑。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::LINE_HEIGHT};
 use bevy::{picking::hover::Hovered, prelude::*, text::{EditableText, FontHinting, LineBreak, LineHeight, TextCursorStyle},
     ui::{FocusPolicy, RelativeCursorPosition}, ui_widgets::{ControlOrientation, Scrollbar, ScrollbarThumb}};
@@ -105,6 +106,7 @@ pub(super) fn mount(
                                 })).with_children(|content| {
                                 content.spawn((
                                     LogBody::default(), Name::new("工程日志正文"),
+                                    bevy::ui_widgets::TextInput,
                                     EditableText { visible_lines: None, allow_newlines: true, ..default() },
                                     TextFont { font: terminal_font.clone().into(), font_size: 13.0.into(), ..default() },
                                     FontHinting::Enabled,
@@ -112,7 +114,7 @@ pub(super) fn mount(
                                     TextCursorStyle {
                                         color: TERMINAL_TEXT, selection_color: Color::srgb(0.15, 0.31, 0.47),
                                         unfocused_selection_color: Color::srgb(0.23, 0.24, 0.25),
-                                        selected_text_color: None,
+                                        selection_radius: 0.0, selected_text_color: None,
                                     },
                                     Interaction::None, FocusPolicy::Block,
                                     Node { position_type: PositionType::Absolute, left: px(0), top: px(0),
@@ -186,7 +188,7 @@ fn button(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, action: LogAct
         node.right = px(12); node.top = px(4);
     }
     let mut entity = parent.spawn((
-        Button, LogToolButton, action, RelativeCursorPosition::default(), node, colors,
+        InteractionButton, LogToolButton, action, RelativeCursorPosition::default(), node, colors,
         BackgroundColor(colors.normal), BorderColor::all(c::DIALOG_BORDER),
     ));
     if follow { entity.insert(LogFollowButton); }

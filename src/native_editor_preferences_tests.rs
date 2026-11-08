@@ -195,9 +195,9 @@ fn late_home_reload_cannot_adopt_an_old_author_generation() {
     let (mut app, completion) = fixture.host_app();
     assert!(yield_to_author(app.world_mut()).unwrap());
     poll_host(app.world_mut(), false); // 第一笔实际后台读取尚未由主帧采用。
-    let generation = app.world().non_send_resource::<Runtime>().0.borrow().generation;
+    let generation = app.world().non_send::<Runtime>().0.borrow().generation;
     poll_host(app.world_mut(), true); // 新作者重新持权，旧读回即使完成也不得恢复首页写权限。
-    assert!(app.world().non_send_resource::<Runtime>().0.borrow().generation != generation);
+    assert!(app.world().non_send::<Runtime>().0.borrow().generation != generation);
     assert!(!home_ready(app.world()));
     let mut author = fixture.store();
     author.editor.ui_scale = 1.75;
@@ -231,7 +231,7 @@ fn bad_returned_preferences_remain_read_only_and_external_changes_block_handoff_
         std::thread::yield_now();
     }
     for _ in 0..6 { poll_host(app.world_mut(), false); }
-    assert!(app.world().non_send_resource::<Runtime>().0.borrow().job.is_none());
+    assert!(app.world().non_send::<Runtime>().0.borrow().job.is_none());
     assert_eq!(fs::read(fixture.file()).unwrap(), b"{broken after author exit}");
     assert!(completion.finish().is_err());
 
@@ -472,7 +472,7 @@ fn corrupt_or_external_author_configuration_is_never_overwritten_and_failure_doe
     for _ in 0..5 {
         app.update();
     }
-    let runtime = app.world().non_send_resource::<Runtime>();
+    let runtime = app.world().non_send::<Runtime>();
     assert!(runtime.0.borrow().job.is_none());
     assert!(runtime.0.borrow().error().is_some());
     assert_eq!(fs::read(fixture.file()).unwrap(), b"{externally replaced");

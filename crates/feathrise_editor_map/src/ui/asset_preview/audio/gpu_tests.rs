@@ -1,5 +1,6 @@
 //! 真实GPU和鼠标命中验证音频侧栏/中央迁移；临时静音PCM避免验证时干扰作者，输出设备缺失必须明确失败。
 
+use feathrise_editor_ui::InteractionButton;
 use super::super::{components::*, resources::*, types::*, workspace};
 use super::{components::*, resources::AudioPreviewState, source::PreviewAudio, types::*};
 use crate::{
@@ -485,7 +486,7 @@ impl Fixture {
         for (slot, path) in [FIRST, SECOND].into_iter().enumerate() {
             app.world_mut()
                 .spawn((
-                    Button,
+                    InteractionButton,
                     MapEditorAssetRow {
                         slot,
                         entry_index: Some(slot),

@@ -1,5 +1,6 @@
 //! 连续预设按钮的有界结构同步、目录重绑与回归测试。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use std::ops::Range; // 追加按钮使用不分配中间集合的连续索引范围。
 
@@ -240,7 +241,7 @@ fn spawn_preset_button_range(
             };
             let entity = parent
                 .spawn((
-                    Button, // 真实预设行直接接收Interaction。
+                    InteractionButton, // 真实预设行直接接收Interaction。
                     PresetEditorButton(PresetEditorAction::SelectCatalogPreset(index)), // 动作携带当前完整目录的绝对索引，并进入专用预设输入链。
                     MapEditorVegetationPresetRow { index }, // 结构测试与标签重绑共享稳定索引。
                     preset_button_node(), // 每个按钮固定三分之一宽和统一点击高度。

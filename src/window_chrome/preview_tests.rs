@@ -1,4 +1,5 @@
 //! 原生预览往返保持作者原三键与命中几何，隐藏后不能继续发布旧按钮坐标。
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use crate::window_chrome::resources::HeaderParts;
 
@@ -22,7 +23,7 @@ fn fixture() -> (World, Entity, Entity, [Entity; 3]) {
         .into_iter().enumerate().map(|(index, action)| {
             let left = 602 + index as i32 * 66;
             let entity = measured_node(&mut world, PixelRect { left, top: 0, right: left + 66, bottom: 54 });
-            world.entity_mut(entity).insert((Button, ChromeButton::Window(action)));
+            world.entity_mut(entity).insert((InteractionButton, ChromeButton::Window(action)));
             entity
         }).collect::<Vec<_>>().try_into().unwrap();
     world.entity_mut(header).add_children(&[spacer, captions]);

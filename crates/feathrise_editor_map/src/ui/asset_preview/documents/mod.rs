@@ -100,15 +100,10 @@ pub(super) fn install(app: &mut App) {
         )
         .add_systems(
             PostUpdate,
-            presentation::capture_source_scroll
+            (presentation::capture_source_scroll, presentation::restore_source_scroll)
+                .chain()
+                // 滚动采用位于官方文字排版之后、候选框定位之前，两端均按实际系统排序。
                 .after(bevy::ui::widget::update_editable_text_layout)
-                .before(bevy::ui::widget::scroll_editable_text)
-                .in_set(bevy::ui::UiSystems::PostLayout),
-        )
-        .add_systems(
-            PostUpdate,
-            presentation::restore_source_scroll
-                .after(bevy::ui::widget::scroll_editable_text)
                 .before(bevy::ui_widgets::ImeSystems::UpdatePosition)
                 .before(bevy::input_focus::InputFocusSystems::FocusChangeEvents)
                 .in_set(bevy::ui::UiSystems::PostLayout),

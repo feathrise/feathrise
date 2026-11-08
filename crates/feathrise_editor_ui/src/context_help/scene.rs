@@ -1,5 +1,6 @@
 //! 不占正文高度的问号与有效分组标题；构造器只生成静态UI，不注册另一套浮层或输入系统。
 
+use crate::InteractionButton;
 use super::components::*;
 use crate::{colors, metrics};
 use crate::localization::{editor_label, label_scene};
@@ -12,7 +13,7 @@ use bevy::{
 /// 插入已有分组Node即可；正文是问号原子树的一部分，默认完全退出布局。
 pub fn help_button(title: &str, copy: &str, font_path: &'static str) -> impl Scene {
     bsn! {
-        Button template_value(ContextHelpButton(title.to_owned()))
+        InteractionButton @template_value(ContextHelpButton(title.to_owned()))
         Node { position_type: PositionType::Absolute, right: px(0), top: px(0),
             width: px(18), height: px(18), flex_shrink: 0.0,
             align_items: AlignItems::Center, justify_content: JustifyContent::Center,
@@ -20,11 +21,11 @@ pub fn help_button(title: &str, copy: &str, font_path: &'static str) -> impl Sce
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         Children [
             (Text("?") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(font_path)), font_size: px(metrics::FONT_CONTROL) }
-                TextColor(colors::TEXT_HINT) template_value(FocusPolicy::Pass)),
-            (ContextHelpBody Text(copy) label_scene(copy)
+                TextColor(colors::TEXT_HINT) ~{FocusPolicy::Pass}),
+            (ContextHelpBody @template_value(Text::new(copy)) @label_scene(copy)
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(font_path)), font_size: px(metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_PRIMARY) TextLayout::linebreak(LineBreak::WordOrCharacter)
-                template_value(FocusPolicy::Pass)
+                ~{FocusPolicy::Pass}
                 Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }),
         ]
     }
@@ -36,10 +37,10 @@ pub fn section_header(title: &str, copy: &str, font_path: &'static str) -> impl 
         Node { width: percent(100), min_width: px(0), height: px(24), flex_shrink: 0.0,
             align_items: AlignItems::Center, padding: UiRect::right(px(24)) }
         Children [
-            (Text(title) label_scene(title) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(font_path)), font_size: px(metrics::FONT_BODY) }
+            (@template_value(Text::new(title)) @label_scene(title) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(font_path)), font_size: px(metrics::FONT_BODY) }
                 TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap()
-                Node { min_width: px(0), overflow: Overflow::clip_x() } template_value(FocusPolicy::Pass)),
-            (help_button(title, copy, font_path)),
+                Node { min_width: px(0), overflow: Overflow::clip_x() } ~{FocusPolicy::Pass}),
+            (@help_button(title, copy, font_path)),
         ]
     }
 }
@@ -53,7 +54,7 @@ pub fn spawn_help_button(
 ) {
     parent
         .spawn((
-            Button,
+            InteractionButton,
             ContextHelpButton(title.to_owned()),
             Node {
                 position_type: PositionType::Absolute,

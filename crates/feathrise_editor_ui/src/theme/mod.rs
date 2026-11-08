@@ -4,6 +4,7 @@ mod button_feedback;
 mod components;
 mod constants;
 mod extract;
+mod invalidate;
 #[cfg(test)]
 mod feedback_tests;
 mod resources;
@@ -37,10 +38,13 @@ impl Plugin for EditorThemePlugin {
                 .init_resource::<resources::ThemeExtraction>()
                 .add_systems(
                     ExtractSchedule,
-                    extract::colors
-                        .after(RenderUiSystems::ExtractCursor)
-                        .after(RenderUiSystems::ExtractImages)
-                        .after(RenderUiSystems::ExtractBorders),
+                    invalidate::theme_changes
+                        .after(RenderUiSystems::ExtractChanges)
+                        .before(RenderUiSystems::ExtractCameraViews),
+                )
+                .add_systems(
+                    ExtractSchedule,
+                    extract::colors.after(RenderUiSystems::ExtractInlineImages),
                 )
                 .add_systems(
                     ExtractSchedule,

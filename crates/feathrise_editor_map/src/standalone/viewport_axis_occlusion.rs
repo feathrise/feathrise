@@ -1,5 +1,6 @@
 //! 读取 XYZ 固定子控件的真实布局轮廓，保留透明根和负轴圆环内部的工程画面。
 
+use feathrise_editor_ui::InteractionButton;
 use super::ViewportControlShape;
 use crate::components::{MapEditorOrientationAxisEndpoint, MapEditorOrientationAxisLine,
     MapEditorOrientationAxisRoot};
@@ -14,7 +15,7 @@ pub(super) struct AxisOcclusion<'w, 's> {
         With<MapEditorOrientationAxisRoot>>,
     nodes: Query<'w, 's, (&'static Node, &'static ComputedNode, &'static UiGlobalTransform,
         &'static InheritedVisibility, Option<&'static MapEditorOrientationAxisLine>,
-        Option<&'static MapEditorOrientationAxisEndpoint>, Has<Button>)>,
+        Option<&'static MapEditorOrientationAxisEndpoint>, Has<InteractionButton>)>,
 }
 
 impl AxisOcclusion<'_, '_> {

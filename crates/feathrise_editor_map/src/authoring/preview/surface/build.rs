@@ -148,7 +148,11 @@ mod tests {
         assert_eq!(&preview.weights.data.unwrap()[..16], weights.as_slice()); // 未落笔区域仍为空地表。
         assert_eq!(preview.world_min, Vec2::splat(-50.0)); // 世界UV不使用图片分辨率替代。
         assert_eq!(preview.layer_count, 2); // 两个作者层没有隐式合并。
-        assert_eq!(preview.layer_table.data.unwrap().len(), 96); // 正式48字节PBR层记录包含三个vec4。
+        let bevy::render::storage::ShaderBufferData::Initialized { data, buffer_size } = preview.layer_table.data else {
+            panic!("预览图层表必须带 CPU 上传数据");
+        };
+        assert_eq!(data.len(), 96); // 正式48字节PBR层记录包含三个vec4。
+        assert_eq!(buffer_size, 96);
     } // 完成实际落笔的数值资产回归。
 
     #[test] // 空表和单次局部涂绘都保留正式索引、权重及全Mip。

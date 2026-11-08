@@ -77,7 +77,7 @@ pub(crate) fn scroll_editor_side_panels(
             &RelativeCursorPosition,
             &ComputedNode,
             &bevy::text::TextLayoutInfo,
-            &mut bevy::ui::widget::TextScroll,
+            &mut bevy::text::EditableText,
         ), // 滚动官方文字视区，而非已固定高度的父容器。
         With<PresetNotesScroll>, // 所有其他滚动查询均明确排除此标记，防止B0001。
     >, // 不让长备注撑高整个表单，也不把一次滚轮同时交给两个视区。
@@ -160,11 +160,11 @@ pub(crate) fn scroll_editor_side_panels(
         if !cursor.cursor_over() {
             continue; // 鼠标在备注之外仍保持原有正文及侧栏滚动。
         }
-        let maximum = (layout.size.y - computed.content_box().size().y).max(0.0); // 官方排版和TextScroll均使用物理像素。
+        let maximum = (layout.size.y - computed.content_box().size().y).max(0.0); // 官方排版和EditableText.viewport均使用物理像素。
         let physical_delta = delta / computed.inverse_scale_factor().max(f32::EPSILON); // 逻辑滚轮只转换一次UI缩放。
-        let next = (scroll.0.y + physical_delta).clamp(0.0, maximum); // 全文仍保留在官方文本编辑器中。
-        if next != scroll.0.y {
-            scroll.0.y = next; // 用户滚动保持在TextScroll，不改变真实光标和选区。
+        let next = (scroll.viewport.offset.y + physical_delta).clamp(0.0, maximum); // 全文仍保留在官方文本编辑器中。
+        if next != scroll.viewport.offset.y {
+            scroll.viewport.offset.y = next; // 用户滚动保持在EditableText.viewport，不改变真实光标和选区。
             return; // 一次滚轮不同时移动备注与中央工作区。
         }
         break; // 已到首尾时继续允许用户滚动外层页面。

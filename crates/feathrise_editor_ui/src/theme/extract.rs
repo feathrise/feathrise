@@ -4,11 +4,13 @@ use super::{
     components::*,
     resources::*,
 };
+use crate::InteractionButton;
 use bevy::{
+    math::Affine2,
     prelude::*,
     render::Extract,
     ui::{InteractionDisabled, RelativeCursorPosition},
-    ui_render::{ExtractedUiItem, ExtractedUiNodes, NodeType},
+    ui_render::{ExtractedGlyph, ExtractedUiItem, ExtractedUiNodes, NodeType},
 };
 use feathrise_ui_widgets::{
     ButtonColors, NumericInputDisabled, NumericInputFieldButton, NumericInputStepButton,
@@ -17,16 +19,16 @@ use feathrise_ui_widgets::{
 const CACHE_ENTITIES: usize = 16_384; // 最多约512 KiB；旧UI销毁后不无限保留身份。
 const MAX_DEPTH: usize = 128;
 
-pub(super) fn parent_inserted(_: On<Insert, ChildOf>, mut epoch: ResMut<ThemeTopology>) {
+pub(super) fn parent_inserted(_: On<Insert<ChildOf>>, mut epoch: ResMut<ThemeTopology>) {
     epoch.0 = epoch.0.wrapping_add(1); // 非Node包装祖先也可能改变所属根，事件时只递增一个小修订。
 }
-pub(super) fn parent_removed(_: On<Remove, ChildOf>, mut epoch: ResMut<ThemeTopology>) {
+pub(super) fn parent_removed(_: On<Remove<ChildOf>>, mut epoch: ResMut<ThemeTopology>) {
     epoch.0 = epoch.0.wrapping_add(1);
 }
-pub(super) fn root_inserted(_: On<Insert, EditorThemeRoot>, mut epoch: ResMut<ThemeTopology>) {
+pub(super) fn root_inserted(_: On<Insert<EditorThemeRoot>>, mut epoch: ResMut<ThemeTopology>) {
     epoch.0 = epoch.0.wrapping_add(1);
 }
-pub(super) fn root_removed(_: On<Remove, EditorThemeRoot>, mut epoch: ResMut<ThemeTopology>) {
+pub(super) fn root_removed(_: On<Remove<EditorThemeRoot>>, mut epoch: ResMut<ThemeTopology>) {
     epoch.0 = epoch.0.wrapping_add(1);
 }
 
@@ -70,15 +72,16 @@ pub(super) fn owned(
 
 /// 官方文本批次保持排版行顺序；以保守边距定位可见行，不遍历长文档的隐藏字形。
 pub(super) fn visible_glyphs(
-    nodes: &ExtractedUiNodes,
-    index: usize,
-    range: std::ops::Range<usize>,
+    transform: Affine2,
+    clip: Option<&CalculatedClip>,
+    glyphs: &[ExtractedGlyph],
 ) -> std::ops::Range<usize> {
-    let node = &nodes.uinodes[index];
-    let Some(clip) = node.clip else {
-        return range;
+    let Some(clip) = clip else {
+        return 0..glyphs.len();
     };
-    let inverse = node.transform.inverse();
+    let Some(clips) = clip.rects() else {
+        return 0..0;
+    };
     // 单轴overflow的另一轴是±∞；直接变换四角会因0×∞得到NaN，漏掉整条标题。
     // 分别变换轴区间，零系数直接贡献0；旋转遇到无界轴时保守纳入整个字形批次。
     let bounds = |scale: f32, min: f32, max: f32| {
@@ -90,23 +93,31 @@ pub(super) fn visible_glyphs(
             (scale * max, scale * min)
         }
     };
-    let x = bounds(inverse.matrix2.x_axis.y, clip.min.x, clip.max.x);
-    let y = bounds(inverse.matrix2.y_axis.y, clip.min.y, clip.max.y);
-    let min = inverse.translation.y + x.0 + y.0 - 512.0;
-    let max = inverse.translation.y + x.1 + y.1 + 512.0;
-    let glyphs = &nodes.glyphs[range.clone()];
+    let mut min = f32::NEG_INFINITY;
+    let mut max = f32::INFINITY;
+    for clip in clips {
+        // 各裁切祖先的矩形可能位于不同坐标系，变换到字形局部空间后再取保守交集。
+        let to_glyph = (clip.world_to_clip_local * transform).inverse();
+        let x = bounds(to_glyph.matrix2.x_axis.y, clip.rect.min.x, clip.rect.max.x);
+        let y = bounds(to_glyph.matrix2.y_axis.y, clip.rect.min.y, clip.rect.max.y);
+        let low = to_glyph.translation.y + x.0 + y.0;
+        let high = to_glyph.translation.y + x.1 + y.1;
+        if !low.is_nan() && !high.is_nan() {
+            min = min.max(low - 512.0);
+            max = max.min(high + 512.0);
+        }
+    }
     let start = glyphs.partition_point(|glyph| glyph.translation.y < min);
     let end = glyphs
         .partition_point(|glyph| glyph.translation.y <= max)
         .max(start);
-    range.start + start..range.start + end
+    start..end
 }
 
 #[allow(clippy::type_complexity)]
 pub(super) fn colors(
     mut nodes: ResMut<ExtractedUiNodes>,
     palette: Extract<Res<EditorPalette>>,
-    topology: Extract<Res<ThemeTopology>>,
     parents: Extract<Query<&ChildOf>>,
     roots: Extract<Query<(), With<EditorThemeRoot>>>,
     code: Extract<Query<(), With<EditorCodeSurface>>>,
@@ -123,16 +134,12 @@ pub(super) fn colors(
                 Option<&RelativeCursorPosition>,
             ),
             // 标准遮罩即使是关闭Button，也只映射主题色，不参与普通按钮的悬停/按压增亮。
-            (With<Button>, Without<crate::EditorDialogBackdrop>),
+            (With<InteractionButton>, Without<crate::EditorDialogBackdrop>),
         >,
     >,
     disabled_numeric: Extract<Query<(), With<NumericInputDisabled>>>,
     mut state: ResMut<ThemeExtraction>,
 ) {
-    if state.topology != topology.0 {
-        state.scopes.clear();
-        state.topology = topology.0; // UI重新挂载必须先撤销旧所有权缓存。
-    }
     apply(
         &mut nodes,
         &palette,
@@ -171,21 +178,24 @@ pub(super) fn apply(
 ) {
     // 原始色板恒等映射，但保留共同的按钮反馈；不用微调颜色绕过语义身份。
     let original = EditorPalette::warm_copper();
-    for i in 0..nodes.uinodes.len() {
-        let entity = nodes.uinodes[i].main_entity.id();
+    for main in &nodes.changed {
+        let entity = main.entity();
+        let Some((_, draws)) = nodes.uinodes.get_mut(main) else {
+            state.themed_entities.remove(&entity);
+            continue;
+        };
         if !owned(entity, state, &parent, &root) {
+            state.themed_entities.remove(&entity);
             continue;
         }
+        state.themed_entities.insert(entity);
         let palette = if literal(entity) { &original } else { palette };
-        match &nodes.uinodes[i].item {
-            ExtractedUiItem::Node { .. } => {
-                // 背景绘制使用整数层级和默认白图；排除同实体的边框、图片、外部填充及文字装饰。
-                let is_background = nodes.uinodes[i].z_order.fract() == 0.0
-                    && nodes.uinodes[i].image == AssetId::<Image>::default();
-                if let ExtractedUiItem::Node {
-                    color, node_type, ..
-                } = &mut nodes.uinodes[i].item
-                {
+        for (_, draw) in draws.iter_mut() {
+            match &mut draw.item {
+                ExtractedUiItem::Node { color, node_type, .. } => {
+                    // 整数层级和默认白图对应背景，边框、图片、外部填充和文字装饰仍独立映射。
+                    let is_background = draw.z_order.fract() == 0.0
+                        && draw.image == AssetId::<Image>::default();
                     *color = if is_background
                         && *node_type == NodeType::Rect
                         && let Some(feedback) = button(entity)
@@ -201,11 +211,11 @@ pub(super) fn apply(
                         palette.resolve_linear(*color)
                     };
                 }
-            }
-            ExtractedUiItem::Glyphs { range } => {
-                let range = visible_glyphs(&nodes, i, range.clone());
-                for glyph in &mut nodes.glyphs[range] {
-                    glyph.color = palette.resolve_linear(glyph.color);
+                ExtractedUiItem::Glyphs { glyphs } => {
+                    let range = visible_glyphs(draw.transform, draw.clip.as_ref(), glyphs);
+                    for glyph in &mut glyphs[range] {
+                        glyph.color = palette.resolve_linear(glyph.color);
+                    }
                 }
             }
         }

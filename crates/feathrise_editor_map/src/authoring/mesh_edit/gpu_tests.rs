@@ -1,5 +1,6 @@
 //! 使用正式PBR网格、元素Gizmo和中文视口工具栏验收点边面编辑，不启动原生窗口或读写作者地图。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{geometry::world_vertices, render::draw_elements, resources::MeshEditState, types::*};
 use crate::{
     components::{MapEditorRoot, MapEditorViewport},
@@ -88,7 +89,7 @@ fn assert_toolbar(app: &mut App, kind: MeshElementKind) {
         );
         assert!(rect.min.x >= root_rect.min.x - 1.0 && rect.max.x <= root_rect.max.x + 1.0);
         assert!(rect.min.y >= root_rect.min.y - 1.0 && rect.max.y <= root_rect.max.y + 1.0);
-        if world.get::<Button>(button).is_none() {
+        if world.get::<InteractionButton>(button).is_none() {
             // 正式只读计数与按钮并列；需要检查其字形和真实回显，不能假设它也有按钮子树。
             let text = world.get::<Text>(button).unwrap();
             assert_eq!(text.as_str(), format!("已选 1 {}", kind.label()));

@@ -1,4 +1,5 @@
 //! 无工程布局偏好保护：初次装配与作者交接先恢复新来源，再允许原布局输入和记忆写回。
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use crate::{
     components::MapEditorLayoutButton,
@@ -29,7 +30,7 @@ fn app(preferences: EditorLayoutPreferences) -> (App, Entity) {
     let button = app
         .world_mut()
         .spawn((
-            Button,
+            InteractionButton,
             MapEditorLayoutButton(EditorLayoutAction::Content),
             EditorButtonClick::default(),
             BackgroundColor::default(),

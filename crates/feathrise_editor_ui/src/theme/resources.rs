@@ -93,5 +93,6 @@ pub(super) struct ThemeTopology(pub u64);
 pub(super) struct ThemeExtraction {
     pub topology: u64,
     pub scopes: HashMap<Entity, bool>,
-    pub transparent_buttons: HashSet<Entity>, // 仅保留当前有交互的透明按钮，销毁和移出后即回收。
+    pub themed_entities: HashSet<Entity>, // 对仍有绘制项的实体记录是否已映射，便于重挂载时恢复原色。
+    pub pressed_outside: HashSet<Entity>, // 按压期间只有进出按钮边界才使绘制失效。
 }

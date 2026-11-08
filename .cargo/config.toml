@@ -1,4 +1,4 @@
-# 本机联调配置由编辑器自己读取；独立发布的源码检出可使用自己的公开补丁配置。
+# 当前源码使用同级 Bevy 0.20.1 SDK 和补丁，编辑器从本地覆盖读取对应路径。
 include = [{ path = "local-sdk.toml", optional = true }]
 
 # 在feathrise/直接cargo run启动Feathrise，使用本工作区默认的target/输出目录。

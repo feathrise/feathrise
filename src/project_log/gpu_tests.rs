@@ -12,7 +12,7 @@ use bevy::{
     ecs::system::RunSystemOnce,
     picking::{
         backend::HitData,
-        events::{Drag, Pointer, Press},
+        events::{PointerDrag, Pointer, PointerPress},
         hover::{HoverMap, update_is_hovered},
         pointer::{Location, PointerButton, PointerId},
     },
@@ -22,7 +22,7 @@ use bevy::{
         render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
     },
     text::{EditableText, TextLayoutInfo},
-    ui_widgets::{ControlOrientation, EditableTextInputPlugin, Scrollbar, ScrollbarPlugin, ScrollbarThumb},
+    ui_widgets::{ControlOrientation, TextInputPlugin, Scrollbar, ScrollbarPlugin, ScrollbarThumb},
 };
 use feathrise_editor_map::workbench::WorkbenchHeader;
 use std::{
@@ -299,7 +299,7 @@ fn production_log_gpu_bottom_and_native_selection_screenshots() {
         bevy::text::TextPlugin,
         feathrise_runtime::DefaultFontPlugin,
         bevy::ui::UiPlugin,
-        EditableTextInputPlugin,
+        TextInputPlugin,
         ScrollbarPlugin,
         bevy::ui_render::UiRenderPlugin,
         feathrise_editor_ui::EditorUiPlugin,
@@ -458,33 +458,27 @@ fn production_log_gpu_bottom_and_native_selection_screenshots() {
     let render_target = bevy::camera::RenderTarget::from(target.clone())
         .normalize(None)
         .unwrap();
-    app.world_mut().trigger(Pointer::new(
-        PointerId::Mouse,
-        Location {
+    app.world_mut().trigger(PointerPress {
+        entity: body,
+        pointer: Pointer::new(PointerId::Mouse, Location {
             target: render_target.clone(),
             position: start,
-        },
-        Press {
-            button: PointerButton::Primary,
+        }),
+        button: PointerButton::Primary,
             hit: HitData::new(camera, 0.0, None, None),
             count: 1,
-        },
-        body,
-    ));
+    });
     frame(&mut app);
-    app.world_mut().trigger(Pointer::new(
-        PointerId::Mouse,
-        Location {
+    app.world_mut().trigger(PointerDrag {
+        entity: body,
+        pointer: Pointer::new(PointerId::Mouse, Location {
             target: render_target,
             position: end,
-        },
-        Drag {
-            button: PointerButton::Primary,
+        }),
+        button: PointerButton::Primary,
             distance: end - start,
             delta: end - start,
-        },
-        body,
-    ));
+    });
     for _ in 0..12 {
         frame(&mut app);
     }

@@ -1,4 +1,5 @@
 //! 原生插件工具行与公共右侧预览；声明文档工作台的插件复用中央作者区。
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::NativeTools};
 use bevy::prelude::*;
 use feathrise_editor_map::game_authoring::{
@@ -628,7 +629,7 @@ pub(super) fn button(
     if matches!(action, UiAction::OpenTool) {
         // 工具入口复用原生页签外壳和定宽，保留插件原动作；正文表单继续使用原按钮。
         parent.spawn((
-            Button,
+            InteractionButton,
             ToolButton { index, action },
             Node {
                 width: px(TOOL_MODULE_TAB_WIDTH), flex_grow: 0., flex_basis: Val::Auto,
@@ -655,7 +656,7 @@ pub(super) fn button(
     let emphasized = selected || primary;
     parent
         .spawn((
-            Button,
+            InteractionButton,
             ToolButton { index, action },
             Node {
                 min_height: px(if navigation { 24 } else { 26 }),

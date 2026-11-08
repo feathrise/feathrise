@@ -1,5 +1,6 @@
 //! 对象与点/边/面编辑的原生视口工具栏；按钮只发布编辑意图，几何事务由网格编辑域统一处理。
 
+use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 use bevy::ui::{FocusPolicy, RelativeCursorPosition};
 use feathrise_editor_ui::EditorButtonClick;
@@ -63,7 +64,7 @@ pub(super) fn spawn(parent: &mut ChildSpawnerCommands, font: &Handle<Font>) {
                 matches!(action, MeshEditAction::Confirm | MeshEditAction::Cancel));
         }
         row.spawn((
-            Button, MeshAdvancedToggle, FocusPolicy::Block,
+            InteractionButton, MeshAdvancedToggle, FocusPolicy::Block,
             Node { width: px(60), height: px(26), display: Display::None, flex_shrink: 0.0,
                 border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)),
                 align_items: AlignItems::Center, justify_content: JustifyContent::Center, ..default() },
@@ -95,7 +96,7 @@ pub(super) fn spawn(parent: &mut ChildSpawnerCommands, font: &Handle<Font>) {
 fn button(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, label: &str,
     action: MeshEditAction, width: f32, editing_only: bool, moving_only: bool) {
     let mut button = parent.spawn((
-        Button, MeshEditButton(action), FocusPolicy::Block,
+        InteractionButton, MeshEditButton(action), FocusPolicy::Block,
         Node {
             width: px(width), height: px(26), flex_shrink: 0.0,
             display: if editing_only { Display::None } else { Display::Flex },

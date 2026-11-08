@@ -1,5 +1,6 @@
 //! 底部原日志旁的代码入口；只占原状态栏，候选版本成功后才提供明确采用按钮。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::CodeIterationRuntime, types::CodeIterationPhase as Phase, CodeIterationState, RequestApplyCode};
 use bevy::prelude::*;
 use feathrise_editor_map::workbench::WorkbenchProjectLogButton;
@@ -19,7 +20,7 @@ pub(super) fn mount(
             .with_children(|row| {
                 for (action, label) in [(CodeIterationAction::Diagnostics, "代码"), (CodeIterationAction::Apply, "应用并重启预览")] {
                     let style = feathrise_editor_ui::dialog_button_style(false);
-                    row.spawn((Button, action, ApplyVersion::default(), style.colors,
+                    row.spawn((InteractionButton, action, ApplyVersion::default(), style.colors,
                         Node { display: if matches!(action, CodeIterationAction::Apply) { Display::None } else { Display::Flex },
                             height: px(20), min_width: px(42), flex_shrink: 0., align_items: AlignItems::Center,
                             justify_content: JustifyContent::Center, padding: UiRect::horizontal(px(6)),

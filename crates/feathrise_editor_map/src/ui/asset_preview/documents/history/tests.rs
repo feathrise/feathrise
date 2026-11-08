@@ -12,7 +12,6 @@ use bevy::{
     input_focus::{FocusCause, InputFocus},
     prelude::*,
     text::{EditableText, FontCx, LayoutCx, TextEdit},
-    ui::widget::TextScroll,
 };
 use std::{
     path::PathBuf,
@@ -282,7 +281,6 @@ fn app(source: &str) -> (App, Entity) {
         .spawn((
             DocumentSource { key: Some(key) },
             text,
-            TextScroll::default(),
             ComputedNode::default(),
         ))
         .id();

@@ -19,7 +19,7 @@ pub(super) const PLACEMENT_WATER_ASSET_EVENT_BUDGET_PER_FRAME: usize = 64;
 
 /// O(1)把新证据根追加到连续登记表，异常爆量明确失败关闭而不截断证明。
 pub(crate) fn register_placement_water_evidence_root(
-    add: On<Add, MapPlacementWaterEvidence>, // marker落地当下取得精确实体代次。
+    add: On<Add<MapPlacementWaterEvidence>>, // marker落地当下取得精确实体代次。
     statuses: Query<(), With<DynamicWaterMeshOverrideStatus>>, // 同一Bundle若已带状态则补一份当前根专属序号基线。
     mut registry: ResMut<PlacementWaterEvidenceRegistry>, // 唯一生命周期写侧维护连续表和反向索引。
 ) {
@@ -42,7 +42,7 @@ pub(crate) fn register_placement_water_evidence_root(
 
 /// O(1)移除marker已删除或实体已despawn的证据根。
 pub(crate) fn unregister_placement_water_evidence_root(
-    remove: On<Remove, MapPlacementWaterEvidence>, // Remove在实体组件不可再查询时仍保留原Entity身份。
+    remove: On<Remove<MapPlacementWaterEvidence>>, // Remove在实体组件不可再查询时仍保留原Entity身份。
     mut registry: ResMut<PlacementWaterEvidenceRegistry>, // 成员代次确保在途保存不会把失效根继续算Ready。
 ) {
     registry.total_count = registry.total_count.saturating_sub(1); // 每个真实Remove与一次Add配对。
@@ -84,7 +84,7 @@ fn record_placement_water_status_event(
 
 /// 首次安装Pending/Ready/Failed时唤醒对应保存候选。
 pub(crate) fn observe_added_placement_water_status(
-    add: On<Add, DynamicWaterMeshOverrideStatus>, // 首个运行时回执也属于真实状态变化。
+    add: On<Add<DynamicWaterMeshOverrideStatus>>, // 首个运行时回执也属于真实状态变化。
     mut registry: ResMut<PlacementWaterEvidenceRegistry>, // 只写固定容量事件环。
 ) {
     record_placement_water_status_event(&mut registry, add.entity); // 不读取或克隆失败字符串。
@@ -92,7 +92,7 @@ pub(crate) fn observe_added_placement_water_status(
 
 /// `commands.insert`替换现有状态时唤醒对应保存候选。
 pub(crate) fn observe_replaced_placement_water_status(
-    replace: On<Discard, DynamicWaterMeshOverrideStatus>, // Bevy 0.19在整组件替换前发布Discard（旧名Replace）。
+    replace: On<Discard<DynamicWaterMeshOverrideStatus>>, // Bevy在整组件替换前发布Discard（旧名Replace）。
     mut registry: ResMut<PlacementWaterEvidenceRegistry>, // 稳定帧没有Query扫描。
 ) {
     record_placement_water_status_event(&mut registry, replace.entity); // 新值落地后保存系统按Entity读取。
@@ -100,7 +100,7 @@ pub(crate) fn observe_replaced_placement_water_status(
 
 /// 状态被显式移除或实体销毁时撤销旧Ready/Pending聚合。
 pub(crate) fn observe_removed_placement_water_status(
-    remove: On<Remove, DynamicWaterMeshOverrideStatus>, // Remove与marker Remove顺序无关，重复唤醒仍幂等。
+    remove: On<Remove<DynamicWaterMeshOverrideStatus>>, // Remove与marker Remove顺序无关，重复唤醒仍幂等。
     mut registry: ResMut<PlacementWaterEvidenceRegistry>, // 事件环按固定容量吸收同帧生命周期通知。
 ) {
     record_placement_water_status_event(&mut registry, remove.entity); // marker成员变化另由membership_revision负责。

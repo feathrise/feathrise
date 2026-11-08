@@ -197,7 +197,7 @@ pub(super) fn actions(
                     .is_some_and(|doc| doc.mode == ViewMode::Edit)
                 && let Ok((entity, _)) = source.single()
             {
-                focus.set(entity, FocusCause::Navigated); // 原实体移位不重绑整篇输入，继续保留光标、撤销与TextScroll。
+                focus.set(entity, FocusCause::Navigated); // 原实体移位不重绑整篇输入，继续保留光标、撤销与EditableText.viewport。
             }
             continue;
         }
@@ -261,7 +261,7 @@ pub(super) fn actions(
     }
 }
 
-/// 预览正文滚轮先于资产外栏；源码文字仍由既有TextScroll入口接管。
+/// 预览正文滚轮先于资产外栏；源码文字仍由既有EditableText.viewport入口接管。
 pub(super) fn scroll(
     mut wheels: MessageReader<MouseWheel>,
     mut state: ResMut<DocumentState>,

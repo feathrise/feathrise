@@ -1,4 +1,5 @@
 //! 只读原设置文字、按钮祖先及布局；不把共享crate私有控件扩大为公开API。
+use feathrise_editor_ui::InteractionButton;
 use super::types::*;
 use bevy::{prelude::*, text::TextLayoutInfo, ui::InteractionDisabled, window::PrimaryWindow};
 use feathrise_editor_core::{EditorSettings, effective_editor_ui_scale};
@@ -16,7 +17,7 @@ fn below(world: &World, mut entity: Entity, root: Entity) -> bool {
 
 fn button_ancestor(world: &World, mut entity: Entity) -> Option<Entity> {
     for _ in 0..24 {
-        if world.get::<Button>(entity).is_some() { return Some(entity); }
+        if world.get::<InteractionButton>(entity).is_some() { return Some(entity); }
         entity = world.get::<ChildOf>(entity)?.parent();
     }
     None

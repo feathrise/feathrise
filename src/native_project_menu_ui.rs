@@ -1,5 +1,6 @@
 //! 工程下拉只附加在原28px顶栏，不改原三栏、标签、工具条或作者控件。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::ProjectMenuSettings};
 use bevy::{
     prelude::*,
@@ -21,7 +22,7 @@ pub(super) fn mount(
     for header in &headers {
         let toggle = commands
             .spawn((
-                Button,
+                InteractionButton,
                 ProjectAction::Toggle,
                 crate::window_chrome::ChromeSlot::Project,
                 button_node(58.),
@@ -190,7 +191,7 @@ fn button(
     node.width = percent(100);
     panel
         .spawn((
-            Button,
+            InteractionButton,
             action,
             node,
             button_colors(),

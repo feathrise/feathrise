@@ -107,7 +107,7 @@ pub(crate) fn install(app: &mut App) {
             )
                 .chain()
                 .in_set(MapEditorSystemSet::Presentation),
-        ); // 备注真实光标滚动由官方TextScroll负责。
+        ); // 备注真实光标滚动由官方EditableText.viewport负责。
 }
 
 // 共享会话保持唯一嵌入状态；只在真实修改后标记Changed，避免稳定帧整树回显。

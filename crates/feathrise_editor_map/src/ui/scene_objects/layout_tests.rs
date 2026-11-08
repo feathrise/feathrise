@@ -63,7 +63,7 @@ fn controls_fit_real_chinese_font_in_narrow_scaled_sidebars() {
         let logical_width = width / (scale * dpi);
         app.add_systems(Startup, bevy::prelude::SpawnSystem::spawn(move || bsn! {
             Node { width: px(logical_width), min_width: px(0), flex_direction: FlexDirection::Column }
-            Children [(super::scene::panel()), (super::scene::properties_panel())]
+            Children [(@super::scene::panel()), (@super::scene::properties_panel())]
         }));
         app.world_mut().spawn((
             Camera2d,

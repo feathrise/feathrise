@@ -10,7 +10,6 @@ use bevy::{
     prelude::*,
     tasks::AsyncComputeTaskPool,
     text::{EditableText, FontCx, LayoutCx, TextEdit},
-    ui::widget::TextScroll,
 };
 use std::{
     path::PathBuf,
@@ -305,7 +304,6 @@ fn native_app(fixture: &Fixture, doc: Document) -> (App, Entity) {
         .spawn((
             DocumentSource { key: Some(key) },
             text,
-            TextScroll::default(),
             ComputedNode::default(),
             DocumentScrollState::default(),
         ))

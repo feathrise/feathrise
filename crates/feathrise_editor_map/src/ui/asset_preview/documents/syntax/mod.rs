@@ -40,6 +40,12 @@ pub(super) fn install(app: &mut App) {
             .init_resource::<resources::SyntaxExtraction>()
             .add_systems(
                 ExtractSchedule,
+                extract::invalidate
+                    .after(RenderUiSystems::ExtractChanges)
+                    .before(RenderUiSystems::ExtractCameraViews),
+            )
+            .add_systems(
+                ExtractSchedule,
                 extract::begin
                     .after(RenderUiSystems::ExtractTextShadows)
                     .before(RenderUiSystems::ExtractText),

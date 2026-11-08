@@ -1,5 +1,6 @@
 //! 编辑器切图的真实进度、失败反馈与鼠标/键盘门回归；不加载或写入地图资产。
 
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use feathrise_scene_core::state::PendingSceneTransition;
 
@@ -317,7 +318,7 @@ fn loading_input_gate_blocks_real_ui_focus_without_being_a_button() {
         ..default()
     })).id();
     let behind = app.world_mut().spawn((
-        Button, Node::default(), FocusPolicy::Block, UiTargetCamera(camera),
+        InteractionButton, Node::default(), FocusPolicy::Block, UiTargetCamera(camera),
         ComputedNode { size: Vec2::new(640.0, 332.0), ..default() },
         UiGlobalTransform::from_xy(320.0, 194.0), InheritedVisibility::VISIBLE,
     )).id();
@@ -329,7 +330,7 @@ fn loading_input_gate_blocks_real_ui_focus_without_being_a_button() {
     // 使用正式命中系统和真实上下遮挡顺序，不能靠手工把底层Interaction清空证明安全。
     app.insert_resource(UiStack { partition: vec![0..2], uinodes: vec![behind, blocker] });
     app.update();
-    assert!(app.world().get::<Button>(blocker).is_none(), "纯输入门不能参与按钮悬停上色");
+    assert!(app.world().get::<InteractionButton>(blocker).is_none(), "纯输入门不能参与按钮悬停上色");
     assert_eq!(app.world().get::<BackgroundColor>(blocker).unwrap().0, Color::NONE);
     assert_eq!(app.world().get::<Node>(blocker).unwrap().top, px(28));
     app.world_mut().run_system_once(ui_focus_system).unwrap();

@@ -1,5 +1,6 @@
 //! 诊断浮窗复用共同弱边界、标题、正文、底栏和原生滚动条；无第二个源码编辑器。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::{ROW_HEIGHT, ROW_POOL}};
 use bevy::{picking::hover::Hovered, prelude::*, ui::{FocusPolicy, RelativeCursorPosition},
     ui_widgets::{ControlOrientation, Scrollbar, ScrollbarThumb}};
@@ -27,7 +28,7 @@ pub(super) fn mount(mut commands: Commands, headers: Query<(Entity, Option<&Chil
                     )).with_children(|header| {
                         header.spawn(label(&font, "代码诊断", 13., c::TEXT_PRIMARY));
                         let style = feathrise_editor_ui::dialog_close_button_style();
-                        header.spawn((Button, DiagnosticsClose, Node { margin: UiRect::left(Val::Auto), ..style.node },
+                        header.spawn((InteractionButton, DiagnosticsClose, Node { margin: UiRect::left(Val::Auto), ..style.node },
                             style.colors, BackgroundColor(style.colors.normal), BorderColor::all(c::DIALOG_BORDER),
                         )).with_child(label(&font, "×", style.font_size, c::TEXT_PRIMARY));
                     });
@@ -50,7 +51,7 @@ pub(super) fn mount(mut commands: Commands, headers: Query<(Entity, Option<&Chil
                                     pane.spawn((DiagnosticsContent, Node { min_width: percent(100), height: px(0), flex_shrink: 0., ..default() }))
                                         .with_children(|content| {
                                             for slot in 0..ROW_POOL {
-                                                content.spawn((Button, DiagnosticRow { slot, index: None, revision: 0, window_revision: 0 },
+                                                content.spawn((InteractionButton, DiagnosticRow { slot, index: None, revision: 0, window_revision: 0 },
                                                     Node { display: Display::None, position_type: PositionType::Absolute,
                                                         left: px(0), top: px(0), width: percent(100), height: px(ROW_HEIGHT),
                                                         padding: UiRect::axes(px(6), px(3)), flex_direction: FlexDirection::Column,

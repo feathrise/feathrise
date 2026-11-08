@@ -1,5 +1,6 @@
 //! 在官方命中之后冻结按下来源，只有原按钮内释放才产生一次普通动作。
 
+use crate::InteractionButton;
 use super::{components::EditorButtonClick, resources::*};
 use bevy::{ecs::system::SystemParam, prelude::*, ui::ComputedStackIndex, window::PrimaryWindow};
 
@@ -22,7 +23,7 @@ pub struct EditorButtonInput<'w, 's> {
             Has<bevy::ui::InteractionDisabled>,
             Option<&'static bevy::ui::RelativeCursorPosition>,
         ),
-        With<Button>,
+        With<InteractionButton>,
     >,
     nodes: Query<
         'w,

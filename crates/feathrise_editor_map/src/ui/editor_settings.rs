@@ -4,6 +4,7 @@ pub(super) mod components;
 mod scene;
 mod shortcuts_scene;
 
+use feathrise_editor_ui::InteractionButton;
 use self::components::{
     SettingsBody, SettingsGeneralOnly, SettingsPageButton, SettingsShortcutsOnly,
     SettingsThemeText, SettingsUtilityButton,
@@ -54,17 +55,17 @@ fn settings_button_with_height(
 ) -> impl Scene {
     let style = feathrise_editor_ui::dialog_button_style(false);
     bsn! {
-        Button
+        InteractionButton
         MapEditorSettingsButton(action)
-        template_value(Node {
+        ~{Node {
             width: px(width), min_width: px(0), height: px(height), ..style.node
-        })
-        feathrise_editor_ui::dialog_button_colors_scene(false)
-        template_value(BackgroundColor(style.colors.normal))
+        }}
+        @feathrise_editor_ui::dialog_button_colors_scene(false)
+        ~{BackgroundColor(style.colors.normal)}
         BorderColor::all(feathrise_editor_ui::colors::DIALOG_BORDER)
         Children [(
             Text(label)
-            template_value(feathrise_editor_ui::localization::LocalizedText::label(label))
+            @feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextLayout::no_wrap()
             TextColor(colors::TEXT_PRIMARY)

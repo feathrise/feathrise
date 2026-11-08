@@ -11,7 +11,6 @@ use bevy::{
     input_focus::{FocusCause, InputFocus},
     prelude::*,
     text::{EditableText, TextEdit},
-    ui::widget::TextScroll,
 };
 use std::{path::Path, time::Duration};
 
@@ -120,7 +119,7 @@ pub(in super::super) fn gpu_assert_tools(
         .get::<bevy::text::TextLayoutInfo>(source)
         .unwrap();
     let node = app.world().get::<ComputedNode>(source).unwrap();
-    let scroll = app.world().get::<TextScroll>(source).unwrap().0.y;
+    let scroll = app.world().get::<EditableText>(source).unwrap().viewport.offset.y;
     let bounds = layout
         .selection_rects
         .iter()

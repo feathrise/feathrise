@@ -1,4 +1,5 @@
 //! 首页真实窗口的可选安装证明：仅接受本轮夹具内的DLL，后台核对真实索引、日志和回执。
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use crate::native_plugins::management::{packages, types::ManagementCommand};
 use bevy::tasks::{Task, futures::check_ready};
@@ -176,7 +177,7 @@ pub(super) fn directory_proof(world: &mut World, panel: Entity) -> Result<Value,
         .ok_or("目录文字必须属于可点击控件")?
         .parent();
     ensure(
-        world.get::<Button>(button).is_some() && world.get::<InteractionDisabled>(button).is_none(),
+        world.get::<InteractionButton>(button).is_some() && world.get::<InteractionDisabled>(button).is_none(),
         "目录路径必须可点击，不能只是一段说明文字",
     )?;
     Ok(

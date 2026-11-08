@@ -31,6 +31,7 @@ use std::sync::{
 }; // 每个候选独有无锁回执，旧渲染帧不能确认新候选。 // 关闭后立即释放预热实体。
 
 #[derive(Component, Clone, ExtractComponent)] // 不进入正式地图的全局地表计数器。
+#[extract_app(bevy::render::RenderApp)]
 struct SurfacePreviewProbe {
     material: Handle<TerrainSurfaceMaterial>, // 只允许这一个候选材质被确认。
     images: Vec<Handle<Image>>,               // 固定六个绑定浅克隆，不复制像素。

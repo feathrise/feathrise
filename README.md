@@ -49,48 +49,18 @@ Windows 单文件预览版编入 `raytracing`。DLSS 与 FSR 通过 Cargo 特性
 
 | Bevy 版本 | Feathrise 编辑器版本 | `feathrise_runtime` SDK |
 | --- | --- | --- |
+| `0.20.1` | 当前源码 | 配套 SDK 与补丁仓的本地源码 |
 | `0.19.1` | [0.1.0-preview.2](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.2)、[0.1.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.1) | `0.1.0` |
 
-新建工程默认锁定表中的 Bevy 和 SDK 版本，并使用配套的 Git 补丁。已有工程的依赖版本以该工程的 `Cargo.toml` 和 `Cargo.lock` 为准。
+新建工程根据 `sdk-source.toml` 锁定同一组 Bevy、SDK 与补丁版本。源码工作区默认选择配套的 0.20.1 检出。单文件安装缺少外置配置时，使用已发布的 0.19.1 工程配方。已有工程的依赖版本以各自的 `Cargo.toml` 和 `Cargo.lock` 为准。
 
 ## 从源码启动
 
-需要 Rust/Cargo；Windows 还需要 MSVC x64/x86 工具与 Windows SDK。链接器使用现有 Rust 工具链中的 `rust-lld`。
-
-SDK 0.1.0 已发布。独立检出本编辑器后，在 `feathrise/` 使用随仓提供的[公开依赖配置](.cargo/registry-sdk.toml)：
-
-```powershell
-# 首次从源码覆盖切换到 registry 时，生成与公开来源对应的锁文件。
-cargo --config .cargo/registry-sdk.toml fetch
-cargo --config .cargo/registry-sdk.toml run --locked
-```
-
-SDK 由 crates.io 提供，八项渲染补丁由 Cargo 从固定 Git 提交取得。此入口用于没有 `.cargo/local-sdk.toml` 的独立检出；本机联调配置与公开配置分别使用，避免混合两种补丁来源。
-
-新建工程默认使用 crates.io SDK `=0.1.0` 与固定公开补丁，不依赖编辑器旁边的源码目录。源码根或 EXE 旁的 `sdk-source.toml` 默认已经配置为：
-
-```toml
-[source]
-kind = "registry"
-version = "0.1.0"
-git = "https://github.com/feathrise/feathrise_patches.git"
-rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a"
-```
-
-文件顶层保留 `format = 1`。外置配置缺失时使用程序内嵌的默认配方；配置存在但不可读或格式错误时明确报错。此设置只影响之后新建的工程；已有工程继续使用各自的清单和锁文件。
+需要 Rust/Cargo 1.97.1 或更高版本，Windows 还需要 MSVC x64/x86 工具与 Windows SDK。链接器使用 Rust 工具链中的 `rust-lld`。
 
 ### 本地源码联调
 
-需要同时修改 SDK 时，将本仓库检出到 `feathrise/`，在其父目录执行：
-
-```powershell
-git clone https://github.com/feathrise/feathrise_runtime.git
-git -C feathrise_runtime checkout --detach 3dd0b6494a33da9f6851e0595dd1a36104f3beab
-git clone https://github.com/feathrise/feathrise_patches.git
-git -C feathrise_patches checkout --detach 3c251d3530980b66e49b4748769db36ae9c6bd5a
-```
-
-三个目录保持同级：
+将当前编辑器和配套的 Bevy 0.20.1 SDK、补丁工作树放在同一父目录。
 
 ```text
 feathrise/
@@ -107,7 +77,7 @@ cargo fetch --locked
 cargo run --locked
 ```
 
-`.cargo/local-sdk.toml` 负责编辑器本身的编译依赖；新建工程仍默认使用公开 SDK。需要让之后新建的工程也参与本地联调时，显式将 `sdk-source.toml` 的 `[source]` 改为 `kind = "path"`、`path = "../feathrise_runtime"`、`patch_path = "../feathrise_patches"`。这会在生成工程中记录本机绝对路径。[Windows CI](docs/ci.md)分别检查固定修订的源码联调与已发布 SDK 的 registry 消费，两种来源均覆盖默认与 validation 组合。
+`.cargo/local-sdk.toml` 负责编辑器本身的编译依赖。随仓 `sdk-source.toml` 已选择同级 SDK 与补丁，新建工程会记录这两个检出的绝对路径。[Windows CI](docs/ci.md)使用显式配置的配套修订检查默认和 validation 组合。[使用说明](docs/使用说明.md#sdk-来源)记录旧公开工程配方和其他来源选项。
 
 开发产物为 `target/debug/feathrise.exe`，内部 Cargo 包名为 `feathrise_host`。普通用户可使用编译好的编辑器；创建和运行工程仍需要工程所用的 Rust/Cargo 环境。
 

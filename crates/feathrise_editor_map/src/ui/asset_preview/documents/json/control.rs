@@ -14,7 +14,6 @@ use bevy::{
     input_focus::{FocusCause, InputFocus},
     prelude::*,
     text::{EditableText, FontCx, LayoutCx, TextLayoutInfo},
-    ui::widget::TextScroll,
 };
 
 fn blocked(
@@ -215,10 +214,9 @@ pub(super) fn reveal(
     mut sources: Query<(
         Entity,
         &DocumentSource,
-        &EditableText,
+        &mut EditableText,
         &ComputedNode,
         &TextLayoutInfo,
-        &mut TextScroll,
         &mut DocumentScrollState,
     )>,
 ) {
@@ -231,16 +229,16 @@ pub(super) fn reveal(
     }) {
         return;
     }
-    let Ok((entity, binding, text, node, layout, mut scroll, mut preservation)) =
+    let Ok((entity, binding, mut text, node, layout, mut preservation)) =
         sources.single_mut()
     else {
         return;
     };
     if entity == target.source
         && binding.key.as_ref() == Some(&target.key.document)
-        && !busy(text)
+        && !busy(&text)
         && text.editor.raw_selection().text_range() == target.selection
     {
-        super::super::navigation::reveal_selection(node, layout, &mut scroll, &mut preservation);
+        super::super::navigation::reveal_selection(node, layout, &mut text.viewport, &mut preservation);
     }
 }

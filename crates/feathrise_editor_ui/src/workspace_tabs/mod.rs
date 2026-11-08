@@ -3,6 +3,7 @@
 //! 【功能设计】宽度交给Bevy真实字体测量，不按字符数估算，也不平分可用空间；
 //! 标题和关闭键是互不嵌套的两个命中区，保留未保存草稿的二次关闭确认。
 
+use crate::InteractionButton;
 use crate::colors;
 use bevy::prelude::*; // 标签布局、文字和结构化按钮组件。
 use bevy::ui::FocusPolicy; // 标题文字穿透，两个按钮各自独占鼠标命中。 // 沿用F12的暗墨底、铜边与米白文字。
@@ -66,7 +67,7 @@ fn spawn_tab_button<B: Bundle>(
 ) {
     parent
         .spawn((
-            Button, // 为原有按钮系统提供Interaction。
+            InteractionButton, // 为原有按钮系统提供Interaction。
             WorkspaceTabButton, // 视觉属于整个共享标签；保留业务action但排除正文样式覆写。
             action, // 调用方的原始结构化动作。
             node,   // 无独立边框的标题或小关闭键布局。

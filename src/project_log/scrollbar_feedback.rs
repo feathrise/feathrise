@@ -27,7 +27,7 @@ mod tests {
         ecs::system::RunSystemOnce,
         picking::{
             backend::HitData,
-            events::{Cancel, DragStart, Pointer},
+            events::{PointerCancel, PointerDragStart, Pointer},
             hover::{HoverMap, update_is_hovered},
             pointer::{Location, PointerButton, PointerId},
         },
@@ -85,15 +85,17 @@ mod tests {
     fn official_drag_capture_stays_bright_outside_track_until_cancelled() {
         let (mut app, _, thumb) = fixture();
         // 触发原生拖动观察器，不自行写ScrollbarDragState或伪造捕获完成位。
-        app.world_mut().trigger(Pointer::new(PointerId::Mouse, location(), DragStart {
+        app.world_mut().trigger(PointerDragStart {
+            entity: thumb,
+            pointer: Pointer::new(PointerId::Mouse, location()),
             button: PointerButton::Primary,
             hit: HitData::new(Entity::PLACEHOLDER, 0., None, None),
-        }, thumb));
+        });
         app.world_mut().run_system_once(sync).unwrap();
         assert!(app.world().get::<ScrollbarDragState>(thumb).unwrap().dragging);
         assert_eq!(color(&app, thumb), DRAGGING);
 
-        app.world_mut().trigger(Pointer::new(PointerId::Mouse, location(), Cancel { hit: HitData::new(Entity::PLACEHOLDER, 0., None, None) }, thumb));
+        app.world_mut().trigger(PointerCancel { entity: thumb, pointer: Pointer::new(PointerId::Mouse, location()), hit: HitData::new(Entity::PLACEHOLDER, 0., None, None) });
         app.world_mut().run_system_once(sync).unwrap();
         assert!(!app.world().get::<ScrollbarDragState>(thumb).unwrap().dragging);
         assert_eq!(color(&app, thumb), NORMAL);

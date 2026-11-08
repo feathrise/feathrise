@@ -1,5 +1,6 @@
 //! 地图工具条固定一排：视图与参数同排横滚，切换工具不改变地图视口矩形。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*;
 use bevy::text::FontSourceTemplate;
@@ -14,7 +15,7 @@ use crate::ui::{brush_controls::brush_controls_panel, scene::FONT_PATH, theme as
 fn view_button(label: &str, action: EditorAction) -> impl Scene {
     let tooltip = crate::ui::tooltips::TooltipAction::Editor(action);
     bsn! {
-        Button
+        InteractionButton
         MapEditorActionButton(action)
         crate::ui::tooltips::EditorTooltipTarget(tooltip)
         Node {
@@ -30,7 +31,7 @@ fn view_button(label: &str, action: EditorAction) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label) feathrise_editor_ui::localization::label_scene(label)
+            Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                 font_size: px(ui_metrics::FONT_CONTROL),
@@ -71,7 +72,7 @@ pub(in crate::ui) fn viewport_toolbar() -> impl Scene {
                 } // 保留按钮自然宽度，溢出只由整条工具栏横滚，不能出现嵌套滚动。
                 Children [
                     (
-                        Text("视图") feathrise_editor_ui::localization::label_scene("视图")
+                        Text("视图") @feathrise_editor_ui::localization::label_scene("视图")
                         TextFont {
                             font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                             font_size: px(ui_metrics::FONT_HINT),
@@ -80,18 +81,18 @@ pub(in crate::ui) fn viewport_toolbar() -> impl Scene {
                         TextLayout::no_wrap()
                         Node { margin: UiRect::right(px(6)), flex_shrink: 0.0 }
                     ),
-                    (view_button("自由", EditorAction::ViewPerspective)),
-                    (view_button("顶视", EditorAction::ViewTop)),
-                    (view_button("前视", EditorAction::ViewFront)),
-                    (view_button("侧视", EditorAction::ViewSide)),
+                    (@view_button("自由", EditorAction::ViewPerspective)),
+                    (@view_button("顶视", EditorAction::ViewTop)),
+                    (@view_button("前视", EditorAction::ViewFront)),
+                    (@view_button("侧视", EditorAction::ViewSide)),
                     // 正交只切换投影，与观察方向同排；窄视口继续由整条工具栏横滚。
-                    (view_button("正交", EditorAction::ToggleOrthographic)),
-                    (view_button("聚焦所选", EditorAction::FocusSelected)),
-                    (view_button("查看全图", EditorAction::FrameMap)),
+                    (@view_button("正交", EditorAction::ToggleOrthographic)),
+                    (@view_button("聚焦所选", EditorAction::FocusSelected)),
+                    (@view_button("查看全图", EditorAction::FrameMap)),
                 ]
             ),
-            (crate::viewport::snapping::toolbar()),
-            (brush_controls_panel()), // 保持原四个稳定槽位；无适用参数时仅收起该组，整条工具栏仍保持32px。
+            (@crate::viewport::snapping::toolbar()),
+            (@brush_controls_panel()), // 保持原四个稳定槽位；无适用参数时仅收起该组，整条工具栏仍保持32px。
         ]
     }
 }

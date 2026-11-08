@@ -1,5 +1,6 @@
 //! 语言专项的漏译回归。原按钮、滚轮和真实窗口截图共同验证显示链路。
 
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use bevy::input::{mouse::{MouseScrollUnit, MouseWheel}, touch::TouchPhase};
 use bevy::ui::RelativeCursorPosition;
@@ -332,7 +333,7 @@ fn click_help(world: &mut World, run: &mut Run, window: Entity, heading: &str) -
         .filter_map(|(entity, text)| (text.as_str() == "?").then_some(entity)).collect();
     let candidate = questions.into_iter().filter_map(|mut entity| {
         for _ in 0..5 {
-            if world.get::<Button>(entity).is_some() {
+            if world.get::<InteractionButton>(entity).is_some() {
                 let rect = bounds(world, entity)?;
                 let score = headings.iter().filter(|heading| {
                     (heading.center().y - rect.center().y).abs() <= rect.height() * 0.6

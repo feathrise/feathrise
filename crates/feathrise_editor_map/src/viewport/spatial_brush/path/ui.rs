@@ -1,4 +1,5 @@
 //! 路径节点与截面控件使用原F12主题；仅选中节点拥有坐标手柄，新增刷心独立于旧节点。
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use super::{systems::build_request, types::*};
 use crate::{
@@ -83,7 +84,7 @@ pub(in crate::viewport::spatial_brush) fn setup(
                     .with_children(|row| {
                         for (label, action) in actions {
                             row.spawn((
-                                Button,
+                                InteractionButton,
                                 PathButton(action),
                                 FocusPolicy::Block,
                                 Node {

@@ -102,19 +102,9 @@ pub(super) fn observe_asset_preview_world_ready(
     state.status = "模型Scene0已加载，正在分帧隔离节点并计算自动取景".to_owned(); // 不声称包含其他Scene。
 }
 
-/// Scene0完成后每帧只访问固定数量后代；全部专层命令落地一帧后才解除根隐藏。
-pub(super) fn advance_asset_preview_bounds(
-    mut commands: Commands,
+/// 上一帧范围和专层已完整采用，传播可见性前公开当前 Scene0 或单体。
+pub(super) fn reveal_asset_preview(
     mut state: ResMut<AssetPreviewState>,
-    navigation: Res<AssetPreviewNavigation>, // 初次扫描与热更完成后保留当前倍率和观察方向。
-    children: Query<&Children>,
-    mesh_bounds: Query<(&GlobalTransform, &Aabb, &Mesh3d)>, // 联合世界范围时顺带缓存每个primitive的局部范围。
-    mut embedded_cameras: Query<&mut Camera, Without<AssetPreviewCamera>>,
-    mut preview_cameras: Query<
-        (&mut Transform, &mut Projection),
-        (With<AssetPreviewCamera>, Without<AssetPreviewModelRoot>),
-    >,
-    canvases: Query<&ComputedNode, With<AssetPreviewCanvas>>,
     mut model_roots: Query<
         &mut Visibility,
         Or<(With<AssetPreviewModelRoot>, With<AssetPreviewPrimitiveRoot>)>,
@@ -141,9 +131,23 @@ pub(super) fn advance_asset_preview_bounds(
         if let AssetPreviewContent::Model { phase, .. } = &mut state.content {
             *phase = AssetPreviewPhase::Ready;
         }
-        return;
     }
+}
 
+/// Scene0完成后每帧只访问固定数量后代；全部专层命令落地一帧后才解除根隐藏。
+pub(super) fn advance_asset_preview_bounds(
+    mut commands: Commands,
+    mut state: ResMut<AssetPreviewState>,
+    navigation: Res<AssetPreviewNavigation>, // 初次扫描与热更完成后保留当前倍率和观察方向。
+    children: Query<&Children>,
+    mesh_bounds: Query<(&GlobalTransform, &Aabb, &Mesh3d)>, // 联合世界范围时顺带缓存每个primitive的局部范围。
+    mut embedded_cameras: Query<&mut Camera, Without<AssetPreviewCamera>>,
+    mut preview_cameras: Query<
+        (&mut Transform, &mut Projection),
+        (With<AssetPreviewCamera>, Without<AssetPreviewModelRoot>),
+    >,
+    canvases: Query<&ComputedNode, With<AssetPreviewCanvas>>,
+) {
     if state.bounds_scan.is_none() {
         return; // 稳定预览帧不扫描层级或Aabb。
     }

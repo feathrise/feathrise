@@ -23,7 +23,7 @@ pub fn document_format(path: &str) -> Option<DocumentFormat> {
         | "env" | "xml" | "mtl" | "yarnproject" => DocumentFormat::Config,
         "rs" | "py" | "lua" | "js" | "ts" | "jsx" | "tsx" | "mjs" | "cjs" | "c" | "cpp" | "cc"
         | "cxx" | "h" | "hpp" | "cs" | "java" | "go" | "sh" | "ps1" | "bat" | "cmd" | "html"
-        | "htm" | "css" | "scss" | "wgsl" | "glsl" | "hlsl" | "vert" | "frag" | "geom" | "comp"
+        | "htm" | "css" | "scss" | "wgsl" | "wesl" | "glsl" | "hlsl" | "vert" | "frag" | "geom" | "comp"
         | "tesc" | "tese" | "metal" | "yarn" => DocumentFormat::Code,
         _ => return None,
     })

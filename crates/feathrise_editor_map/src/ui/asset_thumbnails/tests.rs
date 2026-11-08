@@ -1,5 +1,6 @@
 //! 缩略图身份、网格、后台检查与有界退役的行为回归。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{
     components::*, constants::*, demand::*, jobs::*, presentation::*, resources::*, types::*,
 };
@@ -294,7 +295,7 @@ fn fixed_row_switches_grid_and_back_without_replacing_identity_or_selection() {
     let row = app
         .world_mut()
         .spawn((
-            Button, // 与真实行池一致，由按钮提供悬停和按下反馈。
+            InteractionButton, // 与真实行池一致，由按钮提供悬停和按下反馈。
             MapEditorAssetRow {
                 slot: 0,
                 entry_index: Some(0),
@@ -974,7 +975,6 @@ fn gpu_thumbnail_snapshots_render_texture_and_deferred_model_and_freeze_previous
         PostUpdate,
         advance_scene
             .after(TransformSystems::Propagate)
-            .after(bevy::camera::visibility::VisibilitySystems::CalculateBounds)
             .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
     )
     .add_observer(world_ready);

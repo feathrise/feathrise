@@ -25,7 +25,7 @@ fn dialog() -> (App, Entity) {
         bevy::transform::TransformPlugin,
         bevy::text::TextPlugin,
         bevy::ui::UiPlugin,
-        bevy::ui_widgets::EditableTextInputPlugin,
+        bevy::ui_widgets::TextInputPlugin,
     ))
     .init_asset::<Image>()
     .init_asset::<bevy::image::TextureAtlasLayout>()

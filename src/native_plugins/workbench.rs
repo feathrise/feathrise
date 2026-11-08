@@ -1,4 +1,5 @@
 //! 插件声明的原生工作台：复用中央标签、分组帮助、连续虚拟网格及原控件。
+use feathrise_editor_ui::InteractionButton;
 use super::{
     components::*,
     resources::NativeTools,
@@ -512,7 +513,7 @@ fn catalog(
                 let position = list.offset as usize + i;
                 let column = position % columns;
                 root.spawn((
-                    Button,
+                    InteractionButton,
                     ToolButton {
                         index,
                         action: UiAction::Request(Request::Action {

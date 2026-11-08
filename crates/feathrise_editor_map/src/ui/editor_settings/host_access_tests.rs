@@ -1,4 +1,5 @@
 //! 无工程偏好交接输入门回归：旧点击/数值提交不重放，关闭保留，原逻辑禁用保持。
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use crate::workbench::{WorkbenchHostPagesPlugin, WorkbenchSettingsAccess};
 use bevy::{input_focus::InputFocus, ui::InteractionDisabled, window::PrimaryWindow};
@@ -36,7 +37,7 @@ fn app() -> (App, Entity, Entity, Entity) {
     let preset = app
         .world_mut()
         .spawn((
-            Button,
+            InteractionButton,
             MapEditorSettingsButton(EditorSettingsAction::SetScale(150)),
             EditorButtonClick::default(),
             BackgroundColor::default(),
@@ -47,7 +48,7 @@ fn app() -> (App, Entity, Entity, Entity) {
     let original_disabled = app
         .world_mut()
         .spawn((
-            Button,
+            InteractionButton,
             MapEditorSettingsButton(EditorSettingsAction::SetScale(125)),
             EditorButtonClick::default(),
             InteractionDisabled,
@@ -56,7 +57,7 @@ fn app() -> (App, Entity, Entity, Entity) {
     let close = app
         .world_mut()
         .spawn((
-            Button,
+            InteractionButton,
             MapEditorSettingsButton(EditorSettingsAction::Close),
             EditorButtonClick::default(),
         ))

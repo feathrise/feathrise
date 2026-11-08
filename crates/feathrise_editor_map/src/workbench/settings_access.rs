@@ -1,4 +1,5 @@
 //! 无工程设置的临时访问门：取消旧按钮手势并灰显，恢复时只撤销本门拥有的禁用。
+use feathrise_editor_ui::InteractionButton;
 use super::{WorkbenchSettingsAccess, components::SettingsAccessDisabled};
 use crate::{
     components::{
@@ -40,7 +41,7 @@ pub(super) fn prepare(
             Option<&mut BackgroundColor>,
             Option<&mut BorderColor>,
         ),
-        Or<(With<Button>, With<MapEditorPaneSplitter>)>,
+        Or<(With<InteractionButton>, With<MapEditorPaneSplitter>)>,
     >,
 ) {
     // 首次可编辑与交接恢复必须先还原最新偏好；否则默认/旧LayoutState会被remember反写并保存。

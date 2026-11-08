@@ -43,7 +43,7 @@ pub(super) fn install(app: &mut App) -> Result<(), String> {
     let directory = directory
         .canonicalize()
         .map_err(|error| error.to_string())?;
-    let host = app.world().non_send_resource::<Host>();
+    let host = app.world().non_send::<Host>();
     if host.initial.is_some() || host.current.is_some() || host.candidate.is_some() {
         return Err("同窗口验收必须从无工程工作台开始，不能使用现有作者工程".into());
     }
@@ -102,7 +102,7 @@ pub(super) fn install(app: &mut App) -> Result<(), String> {
 
 pub(super) fn completion(world: &World) -> Option<Completion> {
     world
-        .get_non_send_resource::<Plan>()
+        .get_non_send::<Plan>()
         .map(|plan| plan.completion.clone())
 }
 
@@ -124,7 +124,7 @@ fn drive(world: &mut World) {
             error!("同窗口有限验收失败：{error}");
             if matches!(plan.stage, Stage::Writing | Stage::Quit) {
                 complete(&plan, Err(error.clone()));
-                world.non_send_resource_mut::<Host>().notice(error);
+                world.non_send_mut::<Host>().notice(error);
                 plan.stage(Stage::Stopped);
             } else if plan.failed.is_none() {
                 plan.failed = Some(error);
@@ -140,7 +140,7 @@ fn drive(world: &mut World) {
 
 fn tick(plan: &mut Plan, world: &mut World) -> Result<(), String> {
     if plan.stage == Stage::Quit {
-        if world.non_send_resource::<Host>().current.is_none()
+        if world.non_send::<Host>().current.is_none()
             && world.resource::<crate::native_project_close::NativeProjectCloseState>().active()
         {
             // 报告已发布且当前仍为本轮无工程工作台；新退出确认也必须提供明确输入，不能等任务结束自动退出。
@@ -148,7 +148,7 @@ fn tick(plan: &mut Plan, world: &mut World) -> Result<(), String> {
             world.run_system_once(crate::native_project_close::confirm_workspace_validation_close)
                 .map_err(|error| format!("无法确认本轮无工程验收退出：{error}"))?;
         }
-        let host = world.non_send_resource::<Host>();
+        let host = world.non_send::<Host>();
         if host.exit_app && host.current.is_none() && !host.busy() {
             complete(plan, plan.failed.clone().map_or(Ok(()), Err));
             plan.stage(Stage::Stopped);
@@ -159,7 +159,7 @@ fn tick(plan: &mut Plan, world: &mut World) -> Result<(), String> {
                 .clone()
                 .unwrap_or_else(|| "报告已发布，但正式关闭仍未完成；保留当前作者等待处理".into());
             complete(plan, Err(error.clone()));
-            world.non_send_resource_mut::<Host>().notice(error);
+            world.non_send_mut::<Host>().notice(error);
             plan.stage(Stage::Stopped);
         }
         return Ok(());
@@ -175,7 +175,7 @@ fn tick(plan: &mut Plan, world: &mut World) -> Result<(), String> {
         }
         let _ = plan.poll();
         if plan.job.is_none()
-            && (!world.non_send_resource::<Host>().busy()
+            && (!world.non_send::<Host>().busy()
                 || plan.stage_started.elapsed() > Duration::from_secs(30))
         {
             publish(plan, world)?;
@@ -230,7 +230,7 @@ fn tick(plan: &mut Plan, world: &mut World) -> Result<(), String> {
     observe_identities(plan, world, parent)?;
 
     // 直接读取持久主HWND的系统标题，不能仅凭Bevy字段或作者子窗口标题证明任务栏已更新。
-    let expected_title = world.non_send_resource::<Host>().current.as_ref().map_or_else(
+    let expected_title = world.non_send::<Host>().current.as_ref().map_or_else(
         || "Feathrise（羽立）".to_owned(),
         |current| format!("{} · Feathrise（羽立）", current.project.name),
     );
@@ -281,7 +281,7 @@ fn tick(plan: &mut Plan, world: &mut World) -> Result<(), String> {
             }
         }
         Stage::BadOpen if idle(world) && plan.frames >= plan.issued + 3 => {
-            let host = world.non_send_resource::<Host>();
+            let host = world.non_send::<Host>();
             let identity = host.current.as_ref().map(identity);
             if identity.as_ref() != plan.a.as_ref() || host.candidate.is_some() {
                 return Err("错误打开请求替换了原A作者实例或产生了候选".into());
@@ -343,7 +343,7 @@ fn tick(plan: &mut Plan, world: &mut World) -> Result<(), String> {
                 plan.stage(Stage::Close);
             }
         }
-        Stage::Close if idle(world) && world.non_send_resource::<Host>().current.is_none() => {
+        Stage::Close if idle(world) && world.non_send::<Host>().current.is_none() => {
             let probe = world.resource::<WorkspaceProbe>();
             if probe.page != Page::Start || probe.project.is_some() {
                 return Ok(());
@@ -363,7 +363,7 @@ fn tick(plan: &mut Plan, world: &mut World) -> Result<(), String> {
             let expected = &plan.paths.as_ref().unwrap().default;
             if !same_path(
                 &world
-                    .non_send_resource::<Host>()
+                    .non_send::<Host>()
                     .preferences
                     .default_project_directory,
                 expected,
@@ -408,12 +408,12 @@ fn tick(plan: &mut Plan, world: &mut World) -> Result<(), String> {
 }
 
 fn idle(world: &World) -> bool {
-    !world.non_send_resource::<Host>().busy()
+    !world.non_send::<Host>().busy()
 }
 
 fn current_is_owned(plan: &Plan, world: &World) -> bool {
     world
-        .non_send_resource::<Host>()
+        .non_send::<Host>()
         .current
         .as_ref()
         .is_none_or(|current| {
@@ -437,7 +437,7 @@ fn observe_identities(plan: &mut Plan, world: &World, parent: usize) -> Result<(
     let Some(paths) = &plan.paths else {
         return Ok(());
     };
-    let host = world.non_send_resource::<Host>();
+    let host = world.non_send::<Host>();
     for instance in [host.current.as_ref(), host.candidate.as_ref()]
         .into_iter()
         .flatten()
@@ -495,7 +495,7 @@ fn author_stage(
     if !idle(world) {
         return Ok(None);
     }
-    let host = world.non_send_resource::<Host>();
+    let host = world.non_send::<Host>();
     let matches = host
         .current
         .as_ref()
@@ -584,12 +584,12 @@ fn visible_rect(rect: [f32; 4]) -> bool {
 }
 
 fn record(plan: &mut Plan, world: &World, label: &str) {
-    let host = world.non_send_resource::<Host>();
+    let host = world.non_send::<Host>();
     plan.proofs.push(json!({"stage":format!("{:?}",plan.stage),"description":label,"parent_hwnd":plan.parent,"native_window_title":plan.native_title,"current":host.current.as_ref().map(identity),"elapsed_ms":plan.started.elapsed().as_secs_f64()*1000.,"ui_page":world.resource::<WorkspaceProbe>().page,"host_idle":!host.busy()}));
 }
 
 fn publish(plan: &mut Plan, world: &World) -> Result<(), String> {
-    let host = world.non_send_resource::<Host>();
+    let host = world.non_send::<Host>();
     let report = json!({
         "schema":1,"scope":"single_main_window_workspace_commands_with_original_author_gpu_reports",
         "passed":plan.failed.is_none(),"error":plan.failed,"parent_hwnd":plan.parent,

@@ -1,5 +1,6 @@
 //! 用真实窗口、中文字体、UI布局和GPU截图验证外壳倍率及关闭后的菜单承载，不读取地图草稿。
 
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::ui::{ComputedUiRenderTargetInfo, ComputedUiTargetCamera};
@@ -211,7 +212,7 @@ fn gpu_editor_ui_keeps_chinese_button_geometry_through_map_camera_handoff_and_re
     let button = app
         .world_mut()
         .spawn((
-            Button,
+            InteractionButton,
             Node {
                 position_type: PositionType::Absolute,
                 left: px(20),

@@ -1,5 +1,6 @@
 //! 左侧场景树的地图显示预览；折叠状态与场景网格选择独立，不修改作者源或保存配置。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*; // BSN按钮、交互与会话资源。
@@ -22,7 +23,7 @@ use super::sidebars::MapEditorSidebarState; // 地图显示开关跟随左侧场
 /// 构造只控制当前地形预览的互斥模式按钮。
 fn shading_button(label: &str, flat: bool) -> impl Scene {
     bsn! {
-        Button
+        InteractionButton
         TerrainShadingButton(flat) // 仅切换材质的受光法线，不进入地图撤销栈。
         Node {
             width: px(58), // 两档总宽度在最窄中央工作区内仍可完整显示。
@@ -35,7 +36,7 @@ fn shading_button(label: &str, flat: bool) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // Presentation按实际模式回显选中态。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 不把调试开关伪装成地形作者属性。
         Children [(
-            Text(label) feathrise_editor_ui::localization::label_scene(label)
+            Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 与中央工具条共享中文字体。
                 font_size: px(ui_metrics::FONT_CONTROL), // 两字按钮在窄工作区仍清晰。
@@ -48,7 +49,7 @@ fn shading_button(label: &str, flat: bool) -> impl Scene {
 /// 构造可与任一着色模式同时选中的真实三角网格按钮。
 fn grid_button() -> impl Scene {
     bsn! {
-        Button
+        InteractionButton
         TerrainGridButton // 独立切换TerrainGridPreview，不进入平滑/平直互斥组。
         Node {
             flex_grow: 1.0, flex_basis: px(0), min_width: px(0), // 与碰撞按钮平分窄栏，不挤出属性区。
@@ -61,7 +62,7 @@ fn grid_button() -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // Presentation按独立开关回显选中态。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 不把可视调试开关伪装成作者数据。
         Children [(
-            Text("显示三角线") feathrise_editor_ui::localization::label_scene("显示三角线") // 真实拓扑预览与视口参考网格线分开，避免误认几何创建入口。
+            Text("显示三角线") @feathrise_editor_ui::localization::label_scene("显示三角线") // 真实拓扑预览与视口参考网格线分开，避免误认几何创建入口。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 与上方模式按钮共享中文字体。
                 font_size: px(ui_metrics::FONT_CONTROL), // 四字标签在窄右栏保持清晰。
@@ -72,11 +73,11 @@ fn grid_button() -> impl Scene {
 }
 
 fn collision_button() -> impl Scene {
-    bsn! { Button TerrainCollisionButton
+    bsn! { InteractionButton TerrainCollisionButton
         Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), height: px(22), border: px(1),
             border_radius: BorderRadius::all(px(3)), align_items: AlignItems::Center, justify_content: JustifyContent::Center }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(Text("显示碰撞") feathrise_editor_ui::localization::label_scene("显示碰撞") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+        Children [(Text("显示碰撞") @feathrise_editor_ui::localization::label_scene("显示碰撞") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY))] }
 }
 
@@ -142,7 +143,7 @@ pub(crate) fn terrain_shading_controls() -> impl Scene {
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 调试属性不冒充作者网格操作。
         Children [
             (
-                Text("地图显示预览") feathrise_editor_ui::localization::label_scene("地图显示预览") // 地图级显示辅助不属于选中网格的持久属性。
+                Text("地图显示预览") @feathrise_editor_ui::localization::label_scene("地图显示预览") // 地图级显示辅助不属于选中网格的持久属性。
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 沿用编辑器字体。
                     font_size: px(ui_metrics::FONT_HINT), // 属性标题弱于可操作按钮。
@@ -155,8 +156,8 @@ pub(crate) fn terrain_shading_controls() -> impl Scene {
                     column_gap: px(4), // 模式之间保留明确点击间距。
                 }
                 Children [
-                    (shading_button("平滑", false)), // 默认恢复作者平滑法线。
-                    (shading_button("平直", true)), // GPU片元逐三角面法线，仅作调试。
+                    (@shading_button("平滑", false)), // 默认恢复作者平滑法线。
+                    (@shading_button("平直", true)), // GPU片元逐三角面法线，仅作调试。
                 ]
             ),
             (
@@ -164,12 +165,12 @@ pub(crate) fn terrain_shading_controls() -> impl Scene {
                     width: percent(100), column_gap: px(4), // 三角线与碰撞各自切换，与着色模式互不覆盖。
                 }
                 Children [
-                    (grid_button()), // 可与平滑或平直同时保持选中。
-                    (collision_button()),
+                    (@grid_button()), // 可与平滑或平直同时保持选中。
+                    (@collision_button()),
                 ]
             ),
             (
-                Text("着色/三角线：可塑形网格；碰撞：实际物理线条") feathrise_editor_ui::localization::label_scene("着色/三角线：可塑形网格；碰撞：实际物理线条") // 明确地图着色范围与全局物理辅助显示的区别。
+                Text("着色/三角线：可塑形网格；碰撞：实际物理线条") @feathrise_editor_ui::localization::label_scene("着色/三角线：可塑形网格；碰撞：实际物理线条") // 明确地图着色范围与全局物理辅助显示的区别。
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 与属性标题使用同一字体。
                     font_size: px(ui_metrics::FONT_HINT), // 提示弱于模式按钮。

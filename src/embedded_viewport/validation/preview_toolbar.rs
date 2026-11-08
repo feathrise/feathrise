@@ -50,8 +50,7 @@ pub(super) fn exercise(world: &mut World, plan: &mut Plan) -> Result<Option<Valu
         // 上一个按下沿必须先被原游戏UI采样并松开，不能把多次点击压成同一次输入。
         if plan.game_mouse_release.is_some() { return Ok(None); }
         let geometry = world.resource::<crate::viewport_mode::ViewportGeometry>();
-        // 本轮操作仍须真实前台许可；失焦只等待，不点击被生产规则禁用的子窗口。
-        if !geometry.focused { return Ok(None); }
+        // Playing 以实际游戏 HWND 的焦点为准，读取截图与发送鼠标前分别复核。
         if geometry.excluded_rects.len() > feathrise_editor_protocol::MAX_VIEWPORT_EXCLUDED_RECTS
             || geometry.excluded_shapes.len() > feathrise_editor_protocol::MAX_VIEWPORT_EXCLUDED_SHAPES {
             return Err("预览工具条窗口几何超过正式协议预算".into());

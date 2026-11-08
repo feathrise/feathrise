@@ -617,7 +617,7 @@ pub(crate) fn sync_batch_selection(
 
 /// 显隐容器不累积空实体，也不把源标签关闭后的剪贴板数据与模型生命周期绑在一起。
 pub(crate) fn retire_empty_paste_group(
-    remove: On<Remove, Children>,
+    remove: On<Remove<Children>>,
     groups: Query<&PastePreviewGroup>,
     mut session: ResMut<EditorAuthoringSession>,
     mut commands: Commands,

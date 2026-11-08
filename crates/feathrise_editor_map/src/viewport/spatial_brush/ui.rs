@@ -1,4 +1,5 @@
 //! 模式栏下方的定位、应用与坐标控件；所有编辑仅修改空间笔刷会话。
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use super::{components::*, request::build_request, resources::SpatialBrushState, types::*};
 use crate::{
@@ -20,7 +21,7 @@ use feathrise_editor_ui::{
 
 fn button(row: &mut ChildSpawnerCommands, font: &Handle<Font>, label: &str, action: Action) {
     row.spawn((
-        Button,
+        InteractionButton,
         ActionButton(action),
         FocusPolicy::Block,
         Node {

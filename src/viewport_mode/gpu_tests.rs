@@ -1,5 +1,6 @@
 //! 真实GPU检查模式按钮的固定布局及沿边忙碌动画；复用既有离屏读回，不打开用户工程。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, ui, ViewportMode, ViewportModeState};
 use crate::project_log::gpu_tests::{frame, screenshot};
 use bevy::{prelude::*, render::render_resource::{TextureFormat, TextureUsages}};
@@ -64,7 +65,7 @@ fn busy_border_preserves_button_and_text_layout() {
         bevy::ui::UiTargetCamera(camera), Node { width: percent(100), height: percent(100),
             align_items: AlignItems::Center, padding: UiRect::all(px(8)), ..default() },
         BackgroundColor(feathrise_editor_ui::colors::PANEL_BG))).id();
-    app.world_mut().spawn((Button, ProjectLaunchButton, Node { width: px(64), height: px(26), column_gap: px(4), align_items: AlignItems::Center,
+    app.world_mut().spawn((InteractionButton, ProjectLaunchButton, Node { width: px(64), height: px(26), column_gap: px(4), align_items: AlignItems::Center,
         justify_content: JustifyContent::Center, padding: UiRect::horizontal(px(5)), border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(3)), ..default() },
         BackgroundColor(feathrise_editor_ui::colors::BUTTON_DEV_SMALL_NORMAL), BorderColor::all(feathrise_editor_ui::colors::COPPER_BORDER_WEAK), ChildOf(header)))
         .with_children(|button| {

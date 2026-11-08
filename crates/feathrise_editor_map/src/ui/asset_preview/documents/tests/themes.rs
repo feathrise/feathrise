@@ -3,7 +3,7 @@ use super::*;
 use crate::{components::*, resources::MapEditorSettingsState, types::EditorSettingsAction};
 use bevy::{
     ecs::system::RunSystemOnce,
-    render::{Render, RenderApp},
+    render::{Render, RenderApp, sync_world::MainEntity},
     ui_render::{ExtractedUiItem, ExtractedUiNodes},
 };
 use feathrise_editor_core::EditorSettings;
@@ -38,32 +38,27 @@ fn capture(nodes: Res<ExtractedUiNodes>, probe: Res<ThemeProbe>, text: Res<Theme
     let Some(source) = probe.0 else {
         return;
     };
-    probe.1 = nodes.uinodes.iter().find_map(|node| {
-        if node.main_entity.id() != source {
-            return None;
-        }
-        match node.item {
+    let draws = |entity| nodes.uinodes.get(&MainEntity::from(entity)).map(|(_, draws)| draws);
+    probe.1 = draws(source).and_then(|draws| draws.values().find_map(|draw| {
+        match draw.item {
             ExtractedUiItem::Node { color, .. } if color.alpha > 0.7 => Some(color),
             _ => None,
         }
-    });
+    }));
     for sample in text.0.lock().unwrap().iter_mut() {
-        let glyphs = nodes.uinodes.iter().find_map(|node| {
-            if node.main_entity.id() != sample.entity {
-                return None;
-            }
-            let ExtractedUiItem::Glyphs { range } = &node.item else {
+        let glyphs = draws(sample.entity).and_then(|draws| draws.values().find_map(|draw| {
+            let ExtractedUiItem::Glyphs { glyphs } = &draw.item else {
                 return None;
             };
-            let glyph = nodes.glyphs.get(range.start)?;
+            let glyph = glyphs.first()?;
             Some((
                 glyph.color,
                 format!(
-                    "clip={:?}, y={}, range={range:?}, transform={:?}",
-                    node.clip, glyph.translation.y, node.transform
+                    "clip={:?}, y={}, glyphs={}, transform={:?}",
+                    draw.clip, glyph.translation.y, glyphs.len(), draw.transform
                 ),
             ))
-        });
+        }));
         if let Some((color, geometry)) = glyphs {
             sample.actual = Some(color);
             sample.geometry = geometry;
@@ -125,9 +120,9 @@ pub(super) fn verify(
         .text_range();
     let scroll = app
         .world()
-        .get::<bevy::ui::widget::TextScroll>(source)
+        .get::<EditableText>(source)
         .unwrap()
-        .0;
+        .viewport.offset;
     for _ in 0..200 {
         if app
             .world()
@@ -245,9 +240,9 @@ pub(super) fn verify(
         );
         assert_eq!(
             app.world()
-                .get::<bevy::ui::widget::TextScroll>(source)
+                .get::<EditableText>(source)
                 .unwrap()
-                .0,
+                .viewport.offset,
             scroll
         );
         assert_eq!(
@@ -289,7 +284,7 @@ pub(super) fn verify(
     let doc = app.world().resource::<DocumentState>().current().unwrap();
     assert_eq!((&doc.source, doc.revision, doc.saved_revision), (&identity.0, identity.1, identity.2));
     assert_eq!(app.world().get::<EditableText>(source).unwrap().editor.raw_selection().text_range(), selection);
-    assert_eq!(app.world().get::<bevy::ui::widget::TextScroll>(source).unwrap().0, scroll);
+    assert_eq!(app.world().get::<EditableText>(source).unwrap().viewport.offset, scroll);
     snapshot(app, target, "editor-layout-default-settings.png", width);
 }
 

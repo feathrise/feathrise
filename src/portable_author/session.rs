@@ -280,9 +280,11 @@ impl AuthorSession {
             while let Ok(frame) = receiver.recv() {
                 let sequence = frame.sequence;
                 let slice = frame.buffer.slice(..);
-                let pixels = slice.get_mapped_range();
-                let result = ring.publish_mapped(frame.geometry, sequence, &pixels);
-                drop(pixels);
+                // 映射视图离开闭包后再 unmap；读回失败也归还 single-flight 槽并报告实际错误。
+                let result = slice
+                    .get_mapped_range()
+                    .map_err(|error| format!("无法读取作者视口 GPU 缓冲：{error}"))
+                    .and_then(|pixels| ring.publish_mapped(frame.geometry, sequence, &pixels));
                 frame.buffer.unmap();
                 match result {
                     Ok(()) => complete.store(sequence, Ordering::Release),

@@ -1,23 +1,8 @@
-# 新建工程默认使用已发布 SDK 与固定公开补丁，不绑定编辑器开发机的源码路径。
-# 缺少外置配置时，程序采用编译时内嵌的这份默认配方；显式错误配置仍会报错。
+# 源码工作区默认用同级 SDK 与补丁仓创建工程。相对路径以本文件所在目录为准。
+# 模板从 SDK 清单取得对应 Bevy 版本，生成工程记录实际本地绝对路径。
 format = 1
 
 [source]
-kind = "registry"
-version = "0.1.0" # 必须是完整发布版本，生成工程时固定到 =0.1.0。
-git = "https://github.com/feathrise/feathrise_patches.git"
-rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a"
-
-# 显式本地联调时，用下面同一组字段替换上面的 source 表内容：
-# kind = "path"
-# path = "../feathrise_runtime"
-# patch_path = "../feathrise_patches"
-# 相对路径以本文件所在目录为基准；生成工程会记录真实本地绝对路径。
-
-# 使用固定公开 Git 来源时，用下面同一组字段替换上面的 source 表内容：
-# kind = "git"
-# git = "https://github.com/feathrise/feathrise_runtime.git"
-# rev = "a476d2374cdc0383efe25129e0003c8fd2733f01"
-# patch_git = "https://github.com/feathrise/feathrise_patches.git"
-# patch_rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a"
-# 不接受分支、标签或短 rev。改配置只影响之后创建的工程，不改写已有工程。
+kind = "path"
+path = "../feathrise_runtime"
+patch_path = "../feathrise_patches"

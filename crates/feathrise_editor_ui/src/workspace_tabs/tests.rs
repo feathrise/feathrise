@@ -2,6 +2,7 @@
 //!
 //! 字体测量结果由固定内在尺寸提供，隔离字库IO；生产仍使用TextLayout的真实字体测量。
 
+use crate::InteractionButton;
 use super::*; // 直接调用生产标签构造函数，不复制标题与关闭键布局。
 use bevy::app::{HierarchyPropagatePlugin, PropagateSet, TaskPoolPlugin}; // 与Bevy布局测试相同的最小调度。
 use bevy::camera::{ComputedCameraValues, RenderTargetInfo, Viewport}; // 提供不同窗口尺寸的虚拟渲染目标。
@@ -113,7 +114,7 @@ fn fixture(width: u32, scale: f32, tabs: &[(&str, f32, bool)]) -> Fixture {
             ..default()                 // 不增加额外根缩放。
         })
         .with_children(|bar| {
-            bar.spawn((Button, Action::Map, map_tab_node(), FocusPolicy::Block)) // 使用生产地图标签布局。
+            bar.spawn((InteractionButton, Action::Map, map_tab_node(), FocusPolicy::Block)) // 使用生产地图标签布局。
                 .with_child((
                     Text::new("地图视口"),
                     TextLayout::no_wrap(),
@@ -240,7 +241,7 @@ fn compact_tabs_follow_text_width_at_window_and_fullscreen_scales() {
             let world = test.app.world(); // 以下只读布局结果。
             let frame = world.get::<ChildOf>(title).unwrap().parent(); // 非按钮共用边框。
             assert_eq!(world.get::<ChildOf>(close).unwrap().parent(), frame); // 关闭键不能嵌套在标题Button内。
-            assert!(world.get::<Button>(frame).is_none()); // 点击不会再触发外层第三个动作。
+            assert!(world.get::<InteractionButton>(frame).is_none()); // 点击不会再触发外层第三个动作。
             assert_eq!(
                 world.get::<Node>(frame).unwrap().border,
                 UiRect::default()

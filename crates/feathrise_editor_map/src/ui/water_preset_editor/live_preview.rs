@@ -117,12 +117,12 @@ pub(crate) fn water_live_preview_host() -> impl Scene {
         BackgroundColor(colors::PANEL_BG_SECTION)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            (crate::ui::context_help::section_header("水体实时预览 · 10m × 50m", "右键旋转 · 中键平移 · 滚轮缩放；复用当前天空与光照，世界内容仅河面和河床。")),
+            (@crate::ui::context_help::section_header("水体实时预览 · 10m × 50m", "右键旋转 · 中键平移 · 滚轮缩放；复用当前天空与光照，世界内容仅河面和河床。")),
             (
                 WaterPresetLivePreviewViewport
                 RelativeCursorPosition::default() // 尊重祖先裁剪，读取画布内真实鼠标位置。
                 Interaction::default() // 被弹框或其他前景UI遮挡时不得抢导航输入。
-                template_value(FocusPolicy::Block) // 画布只读且不得把点击穿透给场景树。
+                ~{FocusPolicy::Block} // 画布只读且不得把点击穿透给场景树。
                 Node {
                     width: percent(100),
                     height: px(190),
@@ -137,7 +137,7 @@ pub(crate) fn water_live_preview_host() -> impl Scene {
             ),
             (
                 WaterPresetLivePreviewStatus crate::ui::status_bar::PanelStatusText("水体实时预览") feathrise_editor_ui::feedback::GlobalPanelStatus
-                Text("等待水体预设编辑标签") feathrise_editor_ui::localization::label_scene("等待水体预设编辑标签")
+                Text("等待水体预设编辑标签") @feathrise_editor_ui::localization::label_scene("等待水体预设编辑标签")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(8.8) }
                 TextColor(colors::TEXT_VALUE)
             ),

@@ -1,4 +1,5 @@
 //! 真实常驻网格页、公共数值输入及场景选择回归；字体布局不代替原生窗口验收。
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::*, *};
 use crate::{
     authoring::EditorAuthoringSession,
@@ -41,9 +42,9 @@ struct ListHost;
 fn shell() -> impl Scene {
     bsn! { feathrise_editor_ui::EditorThemeRoot Node { width: px(600), height: px(700), column_gap: px(8) } Children [
         (PageHost Node { width: px(280), height: px(700), min_width: px(0), flex_direction: FlexDirection::Column,
-            overflow: Overflow::scroll_y(), flex_shrink: 0.0 } Children [(scene::panel())]),
+            overflow: Overflow::scroll_y(), flex_shrink: 0.0 } Children [(@scene::panel())]),
         (ListHost Node { width: px(280), height: px(700), min_width: px(0), flex_direction: FlexDirection::Column,
-            flex_shrink: 0.0 } Children [(crate::ui::gltf_browser::map_display_panel()), (scene::scene_list_panel()), (scene::properties_panel())]),
+            flex_shrink: 0.0 } Children [(@crate::ui::gltf_browser::map_display_panel()), (@scene::scene_list_panel()), (@scene::properties_panel())]),
     ] }
 }
 
@@ -95,7 +96,7 @@ fn page_with_render(render: bool) -> (App, Entity) {
         bevy::transform::TransformPlugin,
         bevy::text::TextPlugin,
         bevy::ui::UiPlugin,
-        bevy::ui_widgets::EditableTextInputPlugin,
+        bevy::ui_widgets::TextInputPlugin,
     ));
     if render { app.add_plugins(bevy::ui_render::UiRenderPlugin); }
     app.add_plugins(feathrise_editor_ui::EditorUiPlugin);
@@ -1742,7 +1743,7 @@ fn chinese_mesh_pages_stay_inside_narrow_and_wide_hosts_at_scaled_dpi() {
                         .unwrap()
                         .affine()
                         .translation;
-                    for (entity, node, transform, children) in world.query_filtered::<(Entity, &ComputedNode, &UiGlobalTransform, Option<&Children>), With<Button>>().iter(world) {
+                    for (entity, node, transform, children) in world.query_filtered::<(Entity, &ComputedNode, &UiGlobalTransform, Option<&Children>), With<InteractionButton>>().iter(world) {
                     let mut ancestor = entity;
                     while let Some(parent) = world.get::<ChildOf>(ancestor) { ancestor = parent.parent(); if ancestor == host { break; } }
                     if ancestor != host || node.size().min_element() <= 0.0 { continue; }

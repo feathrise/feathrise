@@ -214,9 +214,9 @@ pub(in super::super) fn gpu_assert_search(
         );
         let scroll = app
             .world()
-            .get::<bevy::ui::widget::TextScroll>(source_entity)
+            .get::<bevy::text::EditableText>(source_entity)
             .unwrap()
-            .0;
+            .viewport.offset;
         let height = app
             .world()
             .get::<ComputedNode>(source_entity)
@@ -438,8 +438,12 @@ pub(super) fn assert_external_buttons(app: &mut App) {
         .filter(|(_, node, computed, _, _)| node.display == Display::Flex && computed.size().y > 0.0)
         .map(|(slot, _, node, transform, parent)| (slot.0, slot.1, Rect::from_center_size(transform.affine().translation, node.size()), parent.parent()))
         .collect();
-    let clips: Vec<_> = world.query::<(&SearchLabel, &bevy::ui::CalculatedClip)>().iter(world)
-        .filter_map(|(label, clip)| if let SearchLabel::Row(slot) = label { Some((*slot, clip.clip.max.x)) } else { None })
+    let clips: Vec<_> = world.query::<(&SearchLabel, &bevy::ui::CalculatedClip, &ComputedNode, &UiGlobalTransform)>().iter(world)
+        .filter_map(|(label, clip, node, transform)| {
+            let SearchLabel::Row(slot) = label else { return None; };
+            let bounds = Rect::from_center_size(transform.affine().translation, node.size());
+            feathrise_editor_ui::clipped_ui_bounds(clip, bounds).map(|bounds| (*slot, bounds.max.x))
+        })
         .collect();
     assert!(!buttons.is_empty());
     for (slot, in_project, bounds, parent) in &buttons {

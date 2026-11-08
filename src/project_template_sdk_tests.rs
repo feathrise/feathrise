@@ -56,6 +56,32 @@ fn generated(source: &SdkSource) -> Value {
 }
 
 #[test]
+fn template_engine_and_patch_recipe_follow_selected_sdk() {
+    let fixture = Fixture::new();
+    let template = include_str!("../assets/templates/empty/Cargo.toml");
+    let published = SdkSource::load(&fixture.editor).unwrap();
+    let legacy: Value = toml::from_str(&published.apply_template(template).unwrap()).unwrap();
+    assert_eq!(legacy["dependencies"]["bevy"]["version"].as_str(), Some("=0.19.1"));
+    assert!(legacy["patch"]["crates-io"].get("parley").is_some());
+    assert_eq!(published.lock_seed(), "assets/templates/empty/Cargo-bevy-0.19.lock");
+
+    let sdk_manifest = fixture.sdk.join("Cargo.toml");
+    let mut contents = fs::read_to_string(&sdk_manifest).unwrap();
+    contents.push_str("bevy = '=0.20.1'\n");
+    fs::write(&sdk_manifest, contents).unwrap();
+    let patch = fixture.sdk.join("third_party/bevy_extract");
+    fs::create_dir_all(&patch).unwrap();
+    fs::write(patch.join("Cargo.toml"), "[package]\nname='bevy_extract'\nversion='0.20.1'\n").unwrap();
+    fixture.config("kind='path'\npath='../feathrise_runtime'");
+    let candidate = SdkSource::load(&fixture.editor).unwrap();
+    let current: Value = toml::from_str(&candidate.apply_template(template).unwrap()).unwrap();
+    assert_eq!(current["dependencies"]["bevy"]["version"].as_str(), Some("=0.20.1"));
+    assert!(current["patch"]["crates-io"].get("parley").is_none());
+    assert!(current["patch"]["crates-io"].get("bevy_extract").is_some());
+    assert_eq!(candidate.lock_seed(), "Cargo.lock");
+}
+
+#[test]
 fn default_and_missing_configuration_use_published_sdk_without_neighbor_checkouts() {
     let fixture = Fixture::new();
     let expected: Value = toml::from_str(include_str!("../.cargo/registry-sdk.toml")).unwrap();

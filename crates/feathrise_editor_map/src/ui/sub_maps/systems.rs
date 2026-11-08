@@ -1,5 +1,6 @@
 //! 连续虚拟列表回显、引用增删、后台循环校验与源地图文档入口；不复制任何内部资产。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use bevy::{prelude::*, tasks::{IoTaskPool, futures_lite::future}};
 use feathrise_map_content::{MapCatalogAsset, MapInstanceAuthorPreview, MapInstanceId, MapInstancePlacement,
@@ -51,7 +52,7 @@ pub(super) fn input(mut editor: ResMut<MapEditorState>, mut session: ResMut<Edit
     sidebars: Option<Res<crate::ui::sidebars::MapEditorSidebarState>>,
     layout: Option<Res<crate::resources::MapEditorLayoutState>>,
     rows: Query<(&EditorButtonClick, &Row), Changed<EditorButtonClick>>,
-    buttons: Query<(&EditorButtonClick, &ActionButton), (With<Button>, Changed<EditorButtonClick>)>) {
+    buttons: Query<(&EditorButtonClick, &ActionButton), (With<InteractionButton>, Changed<EditorButtonClick>)>) {
     if !enabled(&editor, &session, &state) || state.scrub.is_some() || !context.p0().map_commands_available(&editor) { return; }
     let (mut candidates, mut browser) = context.p1();
     let tree_visible = sidebars.as_ref().is_none_or(|state| state.scene_tree_visible())

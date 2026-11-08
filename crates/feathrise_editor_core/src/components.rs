@@ -23,6 +23,7 @@ pub struct MapEditorPresetTabScroll;
 
 /// 标记真实可见的官方文本输入框；关闭F12只释放这些字段的焦点。
 #[derive(Component, Clone, Default)] // BSN静态控件需要可克隆默认标记。
+#[require(bevy::ui_widgets::TextInput)]
 pub struct EditorTextInput; // 主菜单姓名框不使用此编辑器专用身份。
 
 /// 备注拥有独立有限滚动视区；鼠标在其中时先滚备注，再滚中央大表单。

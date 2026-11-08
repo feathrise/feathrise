@@ -307,7 +307,7 @@ fn advance_primitive_bounds(
 ) -> Result<Option<(Vec3, Vec3)>, String> {
     if mesh.final_aabb.is_some() {
         let aabb = mesh
-            .compute_aabb() // RenderWorld已提取顶点时复用预计算结果，为常数成本。
+            .get_aabb() // RenderWorld已提取顶点时复用预计算结果，为常数成本。
             .ok_or_else(|| "primitive预计算边界不可用".to_owned())?;
         return Ok(Some(aabb_extents(&aabb))); // 不再访问顶点数组。
     }

@@ -49,8 +49,8 @@ fn meshes_page() -> impl Scene {
             overflow: Overflow::scroll_y(),
         }
         Children [
-            (sidebar_context_title("当前模块 · 网格")),
-            (terrain_objects::panel()), // 新增网格的唯一规格表单。
+            (@sidebar_context_title("当前模块 · 网格")),
+            (@terrain_objects::panel()), // 新增网格的唯一规格表单。
         ]
     }
 }
@@ -69,8 +69,8 @@ fn terrain_page() -> impl Scene {
             padding: UiRect::top(px(3)),
         }
         Children [
-            (sidebar_context_title("当前模块 · 塑形工具")), // 网格创建在网格页，属性在右侧；此页只负责有能力的作者工具。
-            (terrain_tools_panel()),
+            (@sidebar_context_title("当前模块 · 塑形工具")), // 网格创建在网格页，属性在右侧；此页只负责有能力的作者工具。
+            (@terrain_tools_panel()),
         ]
     }
 }
@@ -93,8 +93,8 @@ fn vegetation_page() -> impl Scene {
             overflow: Overflow::scroll_y(),
         }
         Children [
-            (sidebar_context_title("当前模块 · 植被工具")), // 植被作者控件属于当前页的二级工具。
-            (vegetation_authoring_panel()), // 继续复用现有植被作者面板与滚动状态。
+            (@sidebar_context_title("当前模块 · 植被工具")), // 植被作者控件属于当前页的二级工具。
+            (@vegetation_authoring_panel()), // 继续复用现有植被作者面板与滚动状态。
         ]
     }
 }
@@ -113,8 +113,8 @@ fn water_page() -> impl Scene {
             padding: UiRect::top(px(3)),
         }
         Children [
-            (sidebar_context_title("当前模块 · 水域工具")), // 水域对象与属性明确归入当前模块。
-            (water_authoring_panel()), // 继续复用现有统一水对象作者面板。
+            (@sidebar_context_title("当前模块 · 水域工具")), // 水域对象与属性明确归入当前模块。
+            (@water_authoring_panel()), // 继续复用现有统一水对象作者面板。
         ]
     }
 }
@@ -133,9 +133,9 @@ fn gameplay_page() -> impl Scene {
             padding: UiRect::top(px(3)),
         }
         Children [
-            (sidebar_context_title("当前模块 · 交互工具")), // 摆放、传送和边界均是交互页内工具。
-            (crate::ui::sub_maps::creation_button()),
-            (gameplay_tools_panel()),
+            (@sidebar_context_title("当前模块 · 交互工具")), // 摆放、传送和边界均是交互页内工具。
+            (@crate::ui::sub_maps::creation_button()),
+            (@gameplay_tools_panel()),
         ]
     }
 }
@@ -158,8 +158,8 @@ fn building_page() -> impl Scene {
             overflow: Overflow::scroll_y(), // 任意数量预设连续显示且不分页。
         }
         Children [
-            (sidebar_context_title("当前模块 · 建筑预设与摆放")), // 明确本页不属于普通资产点放。
-            (building_tools_panel()), // 工具页保留原目录、名称和参数实体，只收起非当前分区。
+            (@sidebar_context_title("当前模块 · 建筑预设与摆放")), // 明确本页不属于普通资产点放。
+            (@building_tools_panel()), // 工具页保留原目录、名称和参数实体，只收起非当前分区。
         ]
     }
 }
@@ -177,9 +177,9 @@ pub(crate) fn scene_tree_page() -> impl Scene {
                 MapEditorLeftPanelScroll RelativeCursorPosition::default() ScrollPosition::default()
                 Node { width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_basis: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), overflow: Overflow::scroll_y() }
                 Children [
-                    (crate::ui::gltf_browser::map_display_panel()),
-                    (crate::ui::terrain_objects::scene_list_panel()),
-                    (crate::ui::gltf_browser::gltf_browser_panel()),
+                    (@crate::ui::gltf_browser::map_display_panel()),
+                    (@crate::ui::terrain_objects::scene_list_panel()),
+                    (@crate::ui::gltf_browser::gltf_browser_panel()),
                     (crate::viewport::content_selection::LayerCandidateSlot
                         Node { display: Display::None, width: percent(100), flex_shrink: 0.0, flex_direction: FlexDirection::Column }),
                 ]
@@ -187,7 +187,7 @@ pub(crate) fn scene_tree_page() -> impl Scene {
         ), (
             MapEditorSceneContext MapEditorSceneContextHint
             Node { display: Display::None, width: percent(100), min_width: px(0), padding: UiRect::all(px(4)) }
-            Children [(Text("当前正在编辑预设，切回地图标签查看场景树。") feathrise_editor_ui::localization::label_scene("当前正在编辑预设，切回地图标签查看场景树。")
+            Children [(Text("当前正在编辑预设，切回地图标签查看场景树。") @feathrise_editor_ui::localization::label_scene("当前正在编辑预设，切回地图标签查看场景树。")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED) TextLayout { linebreak: LineBreak::AnyCharacter })]
         )]
@@ -200,17 +200,17 @@ pub(crate) fn tool_module_bar() -> impl Scene {
         Node { width: percent(100), height: px(32), flex_shrink: 0.0, align_items: AlignItems::Center, column_gap: px(6), padding: UiRect::horizontal(px(8)), border: UiRect::bottom(px(1)) }
         BackgroundColor(colors::PANEL_BG_STRONG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            (Text("工具") feathrise_editor_ui::localization::label_scene("工具") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_MUTED)),
+            (Text("工具") @feathrise_editor_ui::localization::label_scene("工具") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_MUTED)),
             (Node { width: px(7.0 * super::TOOL_MODULE_TAB_WIDTH + 6.0 * super::TOOL_MODULE_TAB_GAP), min_width: px(0), max_width: percent(85), height: px(26), column_gap: px(super::TOOL_MODULE_TAB_GAP) }
                 Children [
-                    (sidebar_tab_button("网格", EditorSidebarTab::Left(EditorLeftSidebarTab::Meshes))),
-                    (sidebar_tab_button("塑形", EditorSidebarTab::Left(EditorLeftSidebarTab::Terrain))),
-                    (sidebar_tab_button("植被", EditorSidebarTab::Left(EditorLeftSidebarTab::Vegetation))),
-                    (sidebar_tab_button("水域", EditorSidebarTab::Left(EditorLeftSidebarTab::Water))),
-                    (sidebar_tab_button("建筑", EditorSidebarTab::Left(EditorLeftSidebarTab::Building))),
-                    (sidebar_tab_button("交互", EditorSidebarTab::Left(EditorLeftSidebarTab::Gameplay))),
+                    (@sidebar_tab_button("网格", EditorSidebarTab::Left(EditorLeftSidebarTab::Meshes))),
+                    (@sidebar_tab_button("塑形", EditorSidebarTab::Left(EditorLeftSidebarTab::Terrain))),
+                    (@sidebar_tab_button("植被", EditorSidebarTab::Left(EditorLeftSidebarTab::Vegetation))),
+                    (@sidebar_tab_button("水域", EditorSidebarTab::Left(EditorLeftSidebarTab::Water))),
+                    (@sidebar_tab_button("建筑", EditorSidebarTab::Left(EditorLeftSidebarTab::Building))),
+                    (@sidebar_tab_button("交互", EditorSidebarTab::Left(EditorLeftSidebarTab::Gameplay))),
                     // 环境入口归入顶部工具条，沿用原页面身份与唯一参数树，保留缓冲和滚动位置。
-                    (sidebar_tab_button("环境", EditorSidebarTab::Left(EditorLeftSidebarTab::Environment))),
+                    (@sidebar_tab_button("环境", EditorSidebarTab::Left(EditorLeftSidebarTab::Environment))),
                 ]),
             // 插件共用这一行剩余空间；入口较多时横滚，不能撑出编辑器边界。
             (crate::game_authoring::DomainModuleHost
@@ -227,8 +227,8 @@ pub(super) fn tools_page() -> impl Scene {
         MapEditorSidebarPage(EditorSidebarTab::Right(EditorRightSidebarTab::Tools))
         Node { display: Display::None, width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_direction: FlexDirection::Column, overflow: Overflow::clip() }
         Children [
-            (meshes_page()), (terrain_page()), (vegetation_page()), (water_page()),
-            (crate::game_authoring::DomainToolsHost Node { width:percent(100),min_width:px(0),min_height:px(0),flex_direction:FlexDirection::Column }), (building_page()), (gameplay_page()),
+            (@meshes_page()), (@terrain_page()), (@vegetation_page()), (@water_page()),
+            (crate::game_authoring::DomainToolsHost Node { width:percent(100),min_width:px(0),min_height:px(0),flex_direction:FlexDirection::Column }), (@building_page()), (@gameplay_page()),
         ]
     }
 }
@@ -269,16 +269,16 @@ pub(crate) fn left_sidebar(scenes: &feathrise_editor_documents_model::DocumentSc
                             column_gap: px(2), // 两个导航页之间保留细缝。
                         }
                         Children [
-                            (sidebar_tab_button("地图目录", EditorSidebarTab::Navigator(EditorNavigatorTab::Maps))),
-                            (sidebar_tab_button("场景树", EditorSidebarTab::Navigator(EditorNavigatorTab::Scene))),
-                            (sidebar_tab_button("工程", EditorSidebarTab::Navigator(EditorNavigatorTab::Assets))),
+                            (@sidebar_tab_button("地图目录", EditorSidebarTab::Navigator(EditorNavigatorTab::Maps))),
+                            (@sidebar_tab_button("场景树", EditorSidebarTab::Navigator(EditorNavigatorTab::Scene))),
+                            (@sidebar_tab_button("工程", EditorSidebarTab::Navigator(EditorNavigatorTab::Assets))),
                         ]
                     ),
                 ]
             ),
-            (map_page()),
-            (scene_tree_page()),
-            (crate::ui::asset_preview::assets_page(scenes)),
+            (@map_page()),
+            (@scene_tree_page()),
+            (@crate::ui::asset_preview::assets_page(scenes)),
         ]
     }
 }

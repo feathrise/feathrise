@@ -1,5 +1,6 @@
 //! F12 世界时间与天气调试输入及最终状态回显。
 
+use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
 use feathrise_atmosphere::{WeatherCommand, WeatherDebugOverride, WeatherState, WorldClock};
@@ -18,17 +19,17 @@ use crate::resources::MapEditorState;
 
 type PauseButtonFilter = (
     Changed<EditorButtonClick>,
-    With<Button>,
+    With<InteractionButton>,
     With<WorldTimePauseToggle>,
 );
 type ImmediateButtonFilter = (
     Changed<EditorButtonClick>,
-    With<Button>,
+    With<InteractionButton>,
     With<WeatherApplyImmediateButton>,
 );
 type RerollButtonFilter = (
     Changed<EditorButtonClick>,
-    With<Button>,
+    With<InteractionButton>,
     With<WeatherRerollButton>,
 );
 

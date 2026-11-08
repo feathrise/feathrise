@@ -200,7 +200,7 @@ fn collecting_never_waits_for_a_busy_tail_slot_and_keeps_the_frame_event_budget(
     let mut state = ProjectLogState::new(&channel, "非阻塞尾行采用");
     state.generation = sink.generation;
     let mut app = App::new();
-    app.insert_resource(channel.clone()).insert_resource(state).insert_non_send_resource(inbox)
+    app.insert_resource(channel.clone()).insert_resource(state).insert_non_send(inbox)
         .add_systems(Update, super::systems::collect);
     let held = channel.pending_tails[tail_index(sink.task, LogSource::Build)].lock().unwrap();
     app.update(); // try_lock必须直接跳过；若主线程改成lock，此处会发生同线程死锁。

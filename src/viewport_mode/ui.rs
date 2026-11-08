@@ -1,5 +1,6 @@
 //! 模式按钮挂在现有顶栏，在独立作者入口与同窗口工作台中使用相同交互。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{RequestViewportMode, ViewportMode, ViewportModeState, components::*};
 use bevy::prelude::*;
 use feathrise_editor_core::{ProjectLaunchButton, ProjectLaunchLabel, ProjectLaunchSettings};
@@ -26,7 +27,7 @@ pub(super) fn mount(
                 .with_children(|row| {
                     for &mode in ViewportMode::available() {
                         row.spawn((
-                            Button,
+                            InteractionButton,
                             ModeButton(mode),
                             feathrise_editor_ui::ButtonColors::new(
                                 c::BUTTON_DEV_SMALL_NORMAL,

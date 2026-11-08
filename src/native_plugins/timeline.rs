@@ -1,4 +1,5 @@
 //! 通用原生时间轴：插件拥有条块语义，宿主把选择、拖动和缩放作为有界事务回传。
+use feathrise_editor_ui::InteractionButton;
 use super::{
     components::{ToolButton, ToolNumber, UiAction},
     resources::NativeTools,
@@ -298,7 +299,7 @@ pub(super) fn render(
                                 border_radius: BorderRadius::all(px(2)), overflow: Overflow::clip(), ..default()
                             }, BorderColor::all(c::TEXT_PRIMARY), BackgroundColor(fill)));
                         if !block.presentation.read_only {
-                            entity.insert((Button, bevy::ui::RelativeCursorPosition::default(),
+                            entity.insert((InteractionButton, bevy::ui::RelativeCursorPosition::default(),
                                 widget.clone(), palette(fill), FocusPolicy::Block));
                         } else { entity.insert((FocusPolicy::Pass, Pickable::IGNORE)); }
                         entity.with_children(|bar| {
@@ -340,7 +341,7 @@ fn palette(color: Color) -> ButtonColors {
 fn lane_button(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, label: &str,
     index: usize, action: UiAction, selected: bool, grow: bool) {
     let fill = if selected { c::SELECT_BG } else { Color::NONE };
-    parent.spawn((Button, ToolButton { index, action }, Node {
+    parent.spawn((InteractionButton, ToolButton { index, action }, Node {
         min_width: px(0), height: px(30), flex_grow: if grow { 1. } else { 0. },
         padding: UiRect::horizontal(px(4)), align_items: AlignItems::Center,
         border: UiRect::bottom(px(if selected { 2 } else { 0 })), overflow: Overflow::clip(),
@@ -353,7 +354,7 @@ fn spawn_handle(parent: &mut ChildSpawnerCommands, widget: &Block, left: bool) {
     let mut widget = widget.clone();
     widget.edge = if left { -1 } else { 1 };
     let fill = c::TEXT_ACCENT.with_alpha(0.72);
-    parent.spawn((Button, widget, EditorLiteralColor, bevy::ui::RelativeCursorPosition::default(), Node {
+    parent.spawn((InteractionButton, widget, EditorLiteralColor, bevy::ui::RelativeCursorPosition::default(), Node {
         position_type: PositionType::Absolute, left: if left { px(0) } else { Val::Auto },
         right: if left { Val::Auto } else { px(0) }, width: px(6), height: percent(100), ..default()
     }, BackgroundColor(fill), palette(fill), FocusPolicy::Block));

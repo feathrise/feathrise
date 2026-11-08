@@ -1,5 +1,6 @@
 //! 工程文件按实际可见窗口复用固定行；文件名筛选、排序与完整目录释放均不在UI帧执行。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::{ProjectBrowserState, ProjectFileViewport}, types::*, window};
 use crate::{asset_catalog::project_files::EditorProjectFileCatalog, ui::theme as colors};
 use bevy::{prelude::*, text::EditableText, ui::FocusPolicy};
@@ -37,7 +38,7 @@ pub(super) fn mount_rows(
         pool.spawned_rows = needed; // 只随真实可视高度扩池，目录数量和滚动不能创建更多实体。
         commands.entity(list).with_children(|parent| {
             for slot in start..needed {
-                parent.spawn((Button, ProjectFileRow { slot, ..default() },
+                parent.spawn((InteractionButton, ProjectFileRow { slot, ..default() },
                     Node { display: Display::None, width: percent(100), height: px(feathrise_editor_ui::metrics::ROW_HEIGHT),
                         position_type: PositionType::Absolute, left: px(0), top: px(0),
                         min_width: px(0), flex_shrink: 0.0, align_items: AlignItems::Center,

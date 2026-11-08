@@ -1,5 +1,6 @@
 //! 提示浮层的真实中文字体、正式鼠标命中与离屏像素回归，不修改正式配置。
 
+use feathrise_editor_ui::InteractionButton;
 use super::components::*;
 use super::types::TooltipAction;
 use super::*;
@@ -41,11 +42,11 @@ fn test_scene() -> impl Scene {
             height: percent(100), flex_direction: FlexDirection::Column }
         BackgroundColor(colors::PANEL_BG)
         Children [
-            (crate::ui::scene::header()),
-            (crate::ui::viewport_toolbar::viewport_toolbar()),
+            (@crate::ui::scene::header()),
+            (@crate::ui::viewport_toolbar::viewport_toolbar()),
             (TestViewport Node { width: percent(100), min_height: px(0), flex_grow: 1.0 }
                 BackgroundColor(colors::MODEL_PREVIEW_BG)),
-            (tooltip_popup()),
+            (@tooltip_popup()),
         ]
     }
 }
@@ -558,7 +559,7 @@ fn tooltip_gpu_actual_hover_clipping_three_themes_and_scaled_roots() {
     let anchor = app
         .world_mut()
         .spawn((
-            Button,
+            InteractionButton,
             EditorTooltipTarget(TooltipAction::Editor(EditorAction::FocusSelected)),
             Node {
                 position_type: PositionType::Absolute,

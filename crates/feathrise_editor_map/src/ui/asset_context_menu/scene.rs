@@ -1,5 +1,6 @@
 //! 工程与资产右键菜单共用固定节点及边界适配；沿用F12主题，不改变列表或预览布局。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*; // 原生节点、交互及变更检测。
@@ -75,7 +76,7 @@ pub(super) fn setup_menu(
                             for kind in AssetPathCopyKind::ALL {
                                 popup
                                     .spawn((
-                                        Button,              // 沿用Bevy左键交互语义。
+                                        InteractionButton,              // 沿用Bevy左键交互语义。
                                         AssetMenuCopyButton(kind), // 两种形式均复制右键冻结的文件或目录。
                                         Node {
                                             width: percent(100),                     // 菜单项填满小面板的可用宽度。
@@ -100,7 +101,7 @@ pub(super) fn setup_menu(
                                         FocusPolicy::Pass,               // 点击文字交给父复制按钮处理。
                                     )); // 固定文字节点不随菜单打开而重建。
                             }
-                            popup.spawn((Button, AssetMenuFavoriteButton,
+                            popup.spawn((InteractionButton, AssetMenuFavoriteButton,
                                 Node { width: percent(100), height: px(24), flex_shrink: 0.0,
                                     padding: UiRect::horizontal(px(8)), align_items: AlignItems::Center,
                                     border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)), ..default() },
@@ -109,7 +110,7 @@ pub(super) fn setup_menu(
                             )).with_child((feathrise_editor_ui::localization::editor_label("收藏"),
                                 TextFont { font: font.clone().into(), font_size: ui_metrics::FONT_CONTROL.into(), ..default() },
                                 TextLayout::no_wrap(), TextColor(colors::TEXT_PRIMARY), FocusPolicy::Pass));
-                            popup.spawn((Button, AssetMenuReferencesButton,
+                            popup.spawn((InteractionButton, AssetMenuReferencesButton,
                                 Node { display: Display::None, width: percent(100), height: px(24), flex_shrink: 0.0,
                                     padding: UiRect::horizontal(px(8)), align_items: AlignItems::Center,
                                     border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)), ..default() },
@@ -119,7 +120,7 @@ pub(super) fn setup_menu(
                                 TextFont { font: font.clone().into(), font_size: ui_metrics::FONT_CONTROL.into(), ..default() },
                                 TextLayout::no_wrap(), TextColor(colors::TEXT_PRIMARY), FocusPolicy::Pass));
                             for (label, action) in EXTERNAL_MENU_ITEMS {
-                                popup.spawn((Button, AssetMenuExternalButton(action),
+                                popup.spawn((InteractionButton, AssetMenuExternalButton(action),
                                     Node { display: if action.editor().is_some() { Display::None } else { Display::Flex }, width: percent(100), height: px(24), flex_shrink: 0.0,
                                         padding: UiRect::horizontal(px(8)), align_items: AlignItems::Center,
                                         border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)), ..default() },

@@ -1,5 +1,6 @@
 //! 完整文档的原生输入绑定与工具条回显；连续正文构造由独立有界系统负责。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::DocumentState, types::*};
 use crate::ui::theme as colors;
 use bevy::{
@@ -186,13 +187,13 @@ pub(super) fn sync(
     }
 }
 
-/// 排版后、原生跟随前冻结静止编辑器的视区，允许滚轮浏览光标之外的代码。
+/// 原生排版和光标跟随完成后读取视区，静止时保留手动浏览位置。
 pub(super) fn capture_source_scroll(
     focus: Option<Res<InputFocus>>,
     mut sources: Query<(
         Entity,
         &bevy::text::EditableTextGeneration,
-        &bevy::ui::widget::TextScroll,
+        &bevy::text::EditableText,
         &mut DocumentScrollState,
     ), With<DocumentSource>>,
 ) {
@@ -201,7 +202,7 @@ pub(super) fn capture_source_scroll(
         // Bevy排版每帧借用EditableText为可变组件，Changed不足以证明输入发生了变化。
         // Parley真实代次覆盖内容、光标、选区与布局变更；获得焦点交给原生跟随，失焦保留视区。
         state.preserved = state.restore.take().or_else(||
-            (state.generation == Some(*generation) && (state.focused == focused || !focused)).then_some(scroll.0));
+            (state.generation == Some(*generation) && (state.focused == focused || !focused)).then_some(scroll.viewport.offset));
         state.generation = Some(*generation);
         state.focused = focused;
     }
@@ -213,7 +214,7 @@ pub(super) fn restore_source_scroll(
         &mut DocumentScrollState,
         &ComputedNode,
         &bevy::text::TextLayoutInfo,
-        &mut bevy::ui::widget::TextScroll,
+        &mut bevy::text::EditableText,
     ), With<DocumentSource>>,
 ) {
     for (mut state, node, layout, mut scroll) in &mut sources {
@@ -225,13 +226,14 @@ pub(super) fn restore_source_scroll(
         {
             // 原生跟随按行框滚动，中文光标可能超出行框几像素；仅真实输入/重排帧补齐光标边缘。
             let minimum = (cursor.max - view).max(Vec2::ZERO);
-            let offset = scroll.0.max(minimum).min(cursor.min.max(Vec2::ZERO));
+            let offset = scroll.viewport.offset.max(minimum).min(cursor.min.max(Vec2::ZERO));
             (offset, layout.size.max(cursor.max))
         } else {
             continue;
         };
         let maximum = (extent - view).max(Vec2::ZERO);
-        scroll.set_if_neq(bevy::ui::widget::TextScroll(offset.clamp(Vec2::ZERO, maximum)));
+        let offset = offset.clamp(Vec2::ZERO, maximum);
+        if scroll.viewport.offset != offset { scroll.viewport.offset = offset; }
     }
 }
 
@@ -258,7 +260,7 @@ mod workspace_tab_style_tests {
             .iter(app.world()).map(|(entity, fill, border)| (entity, *fill, *border)).collect();
         assert_eq!(expected.len(), 6);
         let sentinel = BackgroundColor(Color::srgb(1.0, 0.0, 1.0));
-        let ordinary = app.world_mut().spawn((Button, Node::default(), DocumentAction::Save,
+        let ordinary = app.world_mut().spawn((InteractionButton, Node::default(), DocumentAction::Save,
             sentinel, BorderColor::all(Color::NONE))).id();
         // 文档真实同步曾把普通关闭键改成SLOT_BG；状态换代和交互快路都必须保持共享底色。
         for (index, interaction) in [Interaction::None, Interaction::Hovered, Interaction::Pressed, Interaction::None].into_iter().enumerate() {

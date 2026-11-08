@@ -1,5 +1,6 @@
 //! 使用Bevy Scene Notation声明地图编辑器静态外壳、顶栏、视口和底栏。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use crate::ui::theme as colors;
 use bevy::prelude::*; // BSN Scene、UI组件和布局值。
@@ -28,14 +29,14 @@ const EDITOR_BUTTON_HEIGHT: f32 = 26.0; // 保持工具密度，但不再依赖�
 
 /// 场景树、资产和作者层统一使用独立轮廓图标，图形不截获原行的点击或右键。
 pub(crate) fn tree_icon(path: &'static str) -> impl Scene {
-    bsn! { template_value(MapEditorTreeGlyph(path)) ImageNode::default()
+    bsn! { ~{MapEditorTreeGlyph(path)} ImageNode::default()
         Node { width: px(16), height: px(16), flex_shrink: 0.0 } Pickable::IGNORE }
 }
 
 /// 构造保留显式业务宽度的统一铜边小按钮。
 pub(crate) fn editor_button(label: &str, action: EditorAction, width: f32) -> impl Scene {
     bsn! {
-        Button
+        InteractionButton
         MapEditorActionButton(action)
         Node {
             width: px(width * EDITOR_BUTTON_WIDTH_SCALE), // 旧工具条与模态继续使用既有视觉基准。
@@ -49,7 +50,7 @@ pub(crate) fn editor_button(label: &str, action: EditorAction, width: f32) -> im
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label) feathrise_editor_ui::localization::label_scene(label)
+            Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                 font_size: px(ui_metrics::FONT_CONTROL),
@@ -62,7 +63,7 @@ pub(crate) fn editor_button(label: &str, action: EditorAction, width: f32) -> im
 /// 构造显式等宽行中的弹性按钮，中文长度不再决定相邻列宽。
 pub(crate) fn flex_editor_button(label: &str, action: EditorAction) -> impl Scene {
     bsn! {
-        Button
+        InteractionButton
         MapEditorActionButton(action)
         Node {
             height: px(EDITOR_BUTTON_HEIGHT),
@@ -78,7 +79,7 @@ pub(crate) fn flex_editor_button(label: &str, action: EditorAction) -> impl Scen
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label) feathrise_editor_ui::localization::label_scene(label)
+            Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                 font_size: px(ui_metrics::FONT_CONTROL),
@@ -91,7 +92,7 @@ pub(crate) fn flex_editor_button(label: &str, action: EditorAction) -> impl Scen
 /// 构造弹框或页面内部仍有信息价值的分组标题。
 pub(crate) fn section_title(label: &str) -> impl Scene {
     bsn! {
-        Text(label) feathrise_editor_ui::localization::label_scene(label)
+        Text(label) @feathrise_editor_ui::localization::label_scene(label)
         TextFont {
             font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
             font_size: px(ui_metrics::FONT_CONTROL),
@@ -106,7 +107,7 @@ pub(crate) fn section_title(label: &str) -> impl Scene {
 /// 检查器二级分组使用弱分隔线，不再给每段属性叠加卡片边框。
 pub(crate) fn inspector_section_title(label: &str) -> impl Scene {
     bsn! {
-        Text(label) feathrise_editor_ui::localization::label_scene(label)
+        Text(label) @feathrise_editor_ui::localization::label_scene(label)
         TextFont {
             font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
             font_size: px(ui_metrics::FONT_CONTROL),
@@ -128,7 +129,7 @@ pub(crate) fn inspector_section_title(label: &str) -> impl Scene {
 /// 启动入口沿用原关闭F12事务，图标与文字分开着色，不改当前场景或草稿责任。
 fn launch_button() -> impl Scene {
     bsn! {
-        Button MapEditorActionButton(EditorAction::Close) feathrise_editor_core::ProjectLaunchButton
+        InteractionButton MapEditorActionButton(EditorAction::Close) feathrise_editor_core::ProjectLaunchButton
         Node {
             width: px(64), height: px(EDITOR_BUTTON_HEIGHT), flex_shrink: 0.0,
             align_items: AlignItems::Center, justify_content: JustifyContent::Center,
@@ -142,7 +143,7 @@ fn launch_button() -> impl Scene {
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_GREEN)
         ), (
-            Text("启动") feathrise_editor_ui::localization::label_scene("启动") Pickable::IGNORE feathrise_editor_core::ProjectLaunchLabel
+            Text("启动") @feathrise_editor_ui::localization::label_scene("启动") Pickable::IGNORE feathrise_editor_core::ProjectLaunchLabel
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -151,7 +152,7 @@ fn launch_button() -> impl Scene {
 
 /// 标题、保存/历史、筛选菜单与布局控制同用28px顶行；五种模式沿用视口左侧的唯一图标栏。
 fn header_slot(item: crate::workbench::WorkbenchHeaderItem, content: impl Scene) -> impl Scene {
-    bsn! { template_value(item) Node { flex_shrink: 0.0 } Children [(content)] }
+    bsn! { ~{item} Node { flex_shrink: 0.0 } Children [@content] }
 }
 
 pub(super) fn header() -> impl Scene {
@@ -171,26 +172,26 @@ pub(super) fn header() -> impl Scene {
         BackgroundColor(colors::PANEL_BG_STRONG)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            (Text("编辑器") feathrise_editor_ui::localization::label_scene("编辑器") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+            (Text("编辑器") @feathrise_editor_ui::localization::label_scene("编辑器") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_PRIMARY) Node { flex_shrink: 0.0, margin: UiRect::right(px(4)) }),
             // 快捷键仍由原悬停提示说明；短标签为1280px/150%保留模式和右端操作的完整命中区。
-            (header_slot(Item::Save, editor_button("保存", EditorAction::Save, 46.0))),
-            (header_slot(Item::Undo, editor_button("撤销", EditorAction::Undo, 46.0))),
-            (header_slot(Item::Redo, editor_button("重做", EditorAction::Redo, 46.0))),
-            (header_slot(Item::Selection, crate::viewport::modes::global_mode_toolbar())),
-            (template_value(Item::Spacer) Node { flex_grow: 1.0, min_width: px(0) }), // 窄窗优先收缩空隙，保留右端设置和启动。
-            (header_slot(Item::Navigation, layout_button("导航", EditorLayoutAction::Content, 42.0))),
-            (header_slot(Item::Inspector, layout_button("工作区", EditorLayoutAction::Inspector, 52.0))),
-            (header_slot(Item::Focus, layout_button("专注编辑", EditorLayoutAction::Focus, 60.0))),
-            (header_slot(Item::Settings, super::editor_settings::settings_entry())),
-            (launch_button()),
+            (@header_slot(Item::Save, editor_button("保存", EditorAction::Save, 46.0))),
+            (@header_slot(Item::Undo, editor_button("撤销", EditorAction::Undo, 46.0))),
+            (@header_slot(Item::Redo, editor_button("重做", EditorAction::Redo, 46.0))),
+            (@header_slot(Item::Selection, crate::viewport::modes::global_mode_toolbar())),
+            (~{Item::Spacer} Node { flex_grow: 1.0, min_width: px(0) }), // 窄窗优先收缩空隙，保留右端设置和启动。
+            (@header_slot(Item::Navigation, layout_button("导航", EditorLayoutAction::Content, 42.0))),
+            (@header_slot(Item::Inspector, layout_button("工作区", EditorLayoutAction::Inspector, 52.0))),
+            (@header_slot(Item::Focus, layout_button("专注编辑", EditorLayoutAction::Focus, 60.0))),
+            (@header_slot(Item::Settings, super::editor_settings::settings_entry())),
+            (@launch_button()),
         ]
     }
 }
 
 fn layout_button(label: &str, action: EditorLayoutAction, width: f32) -> impl Scene {
     bsn! {
-        Button
+        InteractionButton
         MapEditorLayoutButton(action)
         Node {
             width: px(width), height: px(26), flex_shrink: 0.0,
@@ -201,7 +202,7 @@ fn layout_button(label: &str, action: EditorLayoutAction, width: f32) -> impl Sc
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
             MapEditorLayoutButtonText(action)
-            Text(label) feathrise_editor_ui::localization::label_scene(label)
+            Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         )]
@@ -210,7 +211,7 @@ fn layout_button(label: &str, action: EditorLayoutAction, width: f32) -> impl Sc
 
 fn pane_splitter(pane: EditorPane) -> impl Scene {
     bsn! {
-        Button
+        InteractionButton
         MapEditorPaneSplitter(pane)
         Node { width: px(EDITOR_SPLITTER_WIDTH), height: percent(100), flex_shrink: 0.0 }
         BackgroundColor(colors::PANEL_BG_STRONG)
@@ -229,7 +230,7 @@ pub(super) fn viewport_panel(scenes: &feathrise_editor_documents_model::Document
         }
         BackgroundColor(colors::MODEL_PREVIEW_BG)
         Children [
-            (vegetation_workspace_tab_bar()), // 地图、文件和预设共用顶部常驻28px行，位于视图工具栏上方。
+            (@vegetation_workspace_tab_bar()), // 地图、文件和预设共用顶部常驻28px行，位于视图工具栏上方。
             (
                 MapEditorEmptyWorkspace
                 Node {
@@ -241,7 +242,7 @@ pub(super) fn viewport_panel(scenes: &feathrise_editor_documents_model::Document
                     justify_content: JustifyContent::Center,
                 }
                 Children [(
-                    Text("尚未进入地图\n从地图目录进入地图，或从顶部工具打开预设库") feathrise_editor_ui::localization::label_scene("尚未进入地图\n从地图目录进入地图，或从顶部工具打开预设库")
+                    Text("尚未进入地图\n从地图目录进入地图，或从顶部工具打开预设库") @feathrise_editor_ui::localization::label_scene("尚未进入地图\n从地图目录进入地图，或从顶部工具打开预设库")
                     TextFont {
                         font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                         font_size: px(14),
@@ -259,7 +260,7 @@ pub(super) fn viewport_panel(scenes: &feathrise_editor_documents_model::Document
                     row_gap: px(0),
                 }
                 Children [
-                    (viewport_toolbar()),
+                    (@viewport_toolbar()),
                     (
                         MapEditorViewport
                         EditorViewportPointerCapture::default()
@@ -273,13 +274,13 @@ pub(super) fn viewport_panel(scenes: &feathrise_editor_documents_model::Document
                         }
                         BackgroundColor(colors::MODEL_PREVIEW_BG)
                         BorderColor::all(colors::COPPER_BORDER)
-                        Children [(selection_region())] // 纯视觉选框不改变正式视口相机与 RTT。
+                        Children [(@selection_region())] // 纯视觉选框不改变正式视口相机与 RTT。
                     ),
                 ]
             ),
-            (vegetation_workspace_editor_page()),
-            (super::asset_preview::document_center_host(scenes)), // 放大文档与地图/预设正文互斥，共用已有原生输入子树。
-            (super::asset_preview::asset_preview_center_host()), // 图片/模型放大复用原预览子树，无地图也可查看。
+            (@vegetation_workspace_editor_page()),
+            (@super::asset_preview::document_center_host(scenes)), // 放大文档与地图/预设正文互斥，共用已有原生输入子树。
+            (@super::asset_preview::asset_preview_center_host()), // 图片/模型放大复用原预览子树，无地图也可查看。
             (
                 crate::workbench::WorkbenchCentralPageHost
                 // 工程开始与表单覆盖原中央正文，标签与两侧栏始终使用原工作台。
@@ -329,21 +330,21 @@ pub(crate) fn map_editor_scene(scenes: &feathrise_editor_documents_model::Docume
         GlobalZIndex(420)
         BackgroundColor(colors::OVERLAY_BG)
         Children [
-            (header()),
-            (super::sidebars::tool_module_bar()),
-            (body(scenes)),
-            (super::status_bar::footer()),
-            (new_map_dialog()),
-            (delete_map_dialog()),
-            (terrain_conflict_dialog()),
-            (map_folder_dialog()),
-            (map_browser_drag_preview()),
-            (super::editor_settings::settings_panel()),
-            (super::map_loading::map_loading_input_blocker()),
-            (super::map_switch_dialog::map_switch_dialog()),
-            (super::tooltips::tooltip_popup()),
-            (super::status_bar::popup()),
-            (super::context_help::popup()),
+            (@header()),
+            (@super::sidebars::tool_module_bar()),
+            (@body(scenes)),
+            (@super::status_bar::footer()),
+            (@new_map_dialog()),
+            (@delete_map_dialog()),
+            (@terrain_conflict_dialog()),
+            (@map_folder_dialog()),
+            (@map_browser_drag_preview()),
+            (@super::editor_settings::settings_panel()),
+            (@super::map_loading::map_loading_input_blocker()),
+            (@super::map_switch_dialog::map_switch_dialog()),
+            (@super::tooltips::tooltip_popup()),
+            (@super::status_bar::popup()),
+            (@super::context_help::popup()),
         ]
     }
 }

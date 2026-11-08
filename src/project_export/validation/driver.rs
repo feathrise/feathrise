@@ -1,5 +1,6 @@
 //! 通过真实可见菜单和导出按钮执行一次后台构建/组包；不直接设置导出回执或成功状态。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{Plan, Phase, evidence, resources::Scenario};
 use super::super::{components::{ExportAction, ExportProfile}, resources::ExportState};
 use bevy::{prelude::*, tasks::{IoTaskPool, futures::check_ready}, window::WindowCloseRequested};
@@ -234,7 +235,7 @@ pub(super) fn observe_lifecycle(
 
 fn ancestor_button(world: &World, mut entity: Entity) -> Option<Entity> {
     for _ in 0..16 {
-        if world.get::<Button>(entity).is_some() { return Some(entity); }
+        if world.get::<InteractionButton>(entity).is_some() { return Some(entity); }
         entity = world.get::<ChildOf>(entity)?.parent();
     }
     None
@@ -243,7 +244,7 @@ fn ancestor_button(world: &World, mut entity: Entity) -> Option<Entity> {
 pub(super) fn pulse_project_toggle(world: &mut World) -> Result<Option<Entity>, String> {
     let candidates: Vec<_> = world.query::<(Entity, &crate::window_chrome::ChromeSlot)>().iter(world)
         .filter_map(|(entity, slot)| (*slot == crate::window_chrome::ChromeSlot::Project
-            && world.get::<Button>(entity).is_some() && visible_button(world, entity)).then_some(entity)).collect();
+            && world.get::<InteractionButton>(entity).is_some() && visible_button(world, entity)).then_some(entity)).collect();
     if candidates.len() > 1 { return Err("同一作者窗口出现多个可见原工程菜单，拒绝按文字猜测目标".into()); }
     Ok(candidates.first().copied().map(|button|pulse(world, button)))
 }

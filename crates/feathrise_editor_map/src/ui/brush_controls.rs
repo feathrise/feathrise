@@ -148,10 +148,10 @@ pub(super) fn brush_controls_panel() -> impl Scene {
             column_gap: px(6),
         }
         Children [
-            (brush_slider_field(MapEditorBrushSliderKind::Radius)), // builder随后生成“笔刷大小”完整控件。
-            (brush_slider_field(MapEditorBrushSliderKind::Spacing)), // 扩展散布间距复用公共输入桥。
-            (brush_slider_field(MapEditorBrushSliderKind::Strength)), // 百分比显示与业务零至一转换保持不变。
-            (brush_slider_field(MapEditorBrushSliderKind::TerrainSpeed)), // 雕刻速度继续使用指数左拖映射。
+            (@brush_slider_field(MapEditorBrushSliderKind::Radius)), // builder随后生成“笔刷大小”完整控件。
+            (@brush_slider_field(MapEditorBrushSliderKind::Spacing)), // 扩展散布间距复用公共输入桥。
+            (@brush_slider_field(MapEditorBrushSliderKind::Strength)), // 百分比显示与业务零至一转换保持不变。
+            (@brush_slider_field(MapEditorBrushSliderKind::TerrainSpeed)), // 雕刻速度继续使用指数左拖映射。
         ]
     }
 }

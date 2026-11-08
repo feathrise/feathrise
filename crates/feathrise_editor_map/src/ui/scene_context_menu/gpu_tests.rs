@@ -1,5 +1,6 @@
 //! 正式中文字体与主题的真实GPU画面回归；离屏渲染不启动窗口或保存用户设置。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::SceneContextMenuState, types::*};
 use crate::{
     authoring::{EditorAuthoringSession, test_heightfield_draft},
@@ -115,8 +116,8 @@ fn scene_context_menu_gpu_snapshot() {
     if !app.is_plugin_added::<bevy::input_focus::InputDispatchPlugin>() {
         app.add_plugins(bevy::input_focus::InputDispatchPlugin);
     }
-    if !app.is_plugin_added::<bevy::ui_widgets::EditableTextInputPlugin>() {
-        app.add_plugins(bevy::ui_widgets::EditableTextInputPlugin);
+    if !app.is_plugin_added::<bevy::ui_widgets::TextInputPlugin>() {
+        app.add_plugins(bevy::ui_widgets::TextInputPlugin);
     }
     app.finish();
     app.cleanup();
@@ -142,7 +143,7 @@ fn scene_context_menu_gpu_snapshot() {
     let row = app
         .world_mut()
         .spawn((
-            Button,
+            InteractionButton,
             SceneObjectRow(Some(object.clone())),
             Node {
                 width: percent(100),

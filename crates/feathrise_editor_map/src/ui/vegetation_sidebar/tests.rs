@@ -1,5 +1,6 @@
 //! 植被侧栏真实中文布局、任务身份、原六行池与作者事务回归；不写地图、目录或设置。
 
+use feathrise_editor_ui::InteractionButton;
 use std::sync::Arc;
 
 use bevy::app::{HierarchyPropagatePlugin, PropagateSet};
@@ -767,7 +768,7 @@ fn real_cjk_layout_fits_narrow_sidebar_scales_dpi_and_long_values() {
                 let host_width = world.get::<ComputedNode>(host).unwrap().size().x;
                 let center = world.get::<UiGlobalTransform>(host).unwrap().translation.x;
                 for (node, transform) in world
-                    .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<Button>>()
+                    .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<InteractionButton>>()
                     .iter(world)
                 {
                     if node.size().x == 0.0 {

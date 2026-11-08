@@ -1,4 +1,5 @@
 //! 视口笔刷类型与侧栏半高、整平反馈共用会话参数；作者任务仍由雕刻域拥有。
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::{components::*, systems::TerrainSidebarInputGate};
@@ -59,7 +60,7 @@ pub(crate) fn spawn_types(parent: &mut ChildSpawnerCommands, font: &Handle<Font>
                 ("圆柱", VolumeBrushShape::Cylinder),
             ] {
                 row.spawn((
-                    Button,
+                    InteractionButton,
                     VolumeBrushShapeButton(shape),
                     FocusPolicy::Block,
                     Node {
@@ -104,13 +105,13 @@ pub(super) fn panel() -> impl Scene {
                 )]
             ),
             (
-                Button
+                InteractionButton
                 VolumeBrushHeightLockButton
                 Node { height: px(26), width: percent(100), align_items: AlignItems::Center, justify_content: JustifyContent::Center, border: UiRect::all(px(1)) }
                 BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
                 Children [(
-                    Text("锁定本笔高度") feathrise_editor_ui::localization::label_scene("锁定本笔高度")
+                    Text("锁定本笔高度") @feathrise_editor_ui::localization::label_scene("锁定本笔高度")
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                     TextColor(colors::TEXT_PRIMARY)
                 )]

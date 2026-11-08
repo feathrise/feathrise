@@ -1,5 +1,6 @@
 //! 建筑工作台的真实中文字体布局、单连接点控件预算与输入/关闭保护回归；不写作者文件或启动GPU。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, interaction, list, presentation, types::*, workspace};
 use crate::authoring::EditorAuthoringSession;
 use crate::resources::MapEditorState;
@@ -419,7 +420,7 @@ fn official_single_line_controls_center_text_without_shrinking_the_click_area() 
                     assert!(
                         matches!(button.0, BuildingPresetAction::Focus(field) if field.accepts_text())
                     );
-                    assert!(world.get::<Button>(entity).is_some());
+                    assert!(world.get::<InteractionButton>(entity).is_some());
                     assert_eq!(*line_height, LineHeight::Px(14.0));
                     assert_eq!(node.height, Val::Px(26.0));
                     assert_eq!(node.padding.top, Val::Px(5.0));

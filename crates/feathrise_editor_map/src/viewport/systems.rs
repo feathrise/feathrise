@@ -3,7 +3,7 @@
 use bevy::camera::visibility::RenderLayers; // 离屏相机额外接收专用笔刷Gizmo层。
 use bevy::camera::{Hdr, Projection, RenderTarget}; // 两种投影共享稳定HDR颜色路径和同一个RTT目标。
 use bevy::input::mouse::{MouseMotion, MouseWheel}; // CAD式轨道、平移和缩放。
-use bevy::math::primitives::InfinitePlane3d; // 把视口光标射线投到地形基准平面。
+use bevy::shape::InfinitePlane3d; // 把视口光标射线投到地形基准平面。
 use bevy::prelude::*; // ECS、图像、相机与数学类型。
 use bevy::render::render_resource::{
     Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,

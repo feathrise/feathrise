@@ -1,7 +1,7 @@
 //! 日志软换行的视觉行索引：增量复用真实字体排版，只向原生阅读层提供原文字节边界。
 
 use super::{components::{LogBody, LogScroll}, resources::{LINE_HEIGHT, ProjectLogState}};
-use bevy::{prelude::*, text::{FontCx, LayoutCx, TextBrush, resolve_font_source}};
+use bevy::{prelude::*, text::{FontCx, LayoutCx, TextBrush}};
 use parley::{Layout, StyleProperty, WordBreak};
 use std::{collections::{HashMap, HashSet}, ops::Range};
 
@@ -63,7 +63,7 @@ pub(super) fn sync(
         let Some(asset) = fonts.get(handle.id()) else { return; };
         if asset.alias.is_empty() || font_cx.collection.family_id(&asset.alias).is_none() { return; }
     }
-    let Ok(family) = resolve_font_source(&font, &fonts) else { return; };
+    let Ok(family) = font.font.resolve_font_family(&fonts) else { return; };
     // 字体须已由官方字体登记阶段发布；中文回退变化也会标记TextFont需要重排。
     let family = family.into_owned();
     let changed = cache.font.as_ref() != Some(&*font)

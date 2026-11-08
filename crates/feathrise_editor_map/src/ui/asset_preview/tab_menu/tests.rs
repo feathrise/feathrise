@@ -1,4 +1,5 @@
 //! 文件菜单真实ECS开关、混合关闭、模态/输入保护和鼠标静默释放回归。
+use feathrise_editor_ui::InteractionButton;
 use super::super::{
     AssetPreviewWorkspace, DocumentState, documents::DocumentTabRoot, types::ExpandedAssetPreview,
 };
@@ -168,7 +169,7 @@ fn tab_menu_close_waits_for_inside_release_and_outside_release_keeps_tabs() {
         let mut test = fixture();
         test.app.add_plugins(feathrise_editor_ui::EditorButtonInputPlugin);
         test.app.world_mut().entity_mut(test.button).insert((
-            Button, Node::default(),
+            InteractionButton, Node::default(),
             InheritedVisibility::VISIBLE, // 无窗口夹具显式提供可见性传播结果。
             RelativeCursorPosition { cursor_over: true, ..default() },
             ComputedNode { size: Vec2::new(100.0, 24.0), ..default() },

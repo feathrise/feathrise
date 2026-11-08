@@ -331,6 +331,17 @@ pub(crate) fn read_guest_capture(
 ) -> Result<Option<Value>, String> {
     let mode = if playing { "playing" } else { "editing" };
     let stem = format!("{pid}-{revision}-{mode}");
+    read_guest_capture_stem(directory, pid, revision, mode, min_frame, &stem)
+}
+
+fn read_guest_capture_stem(
+    directory: &Path,
+    pid: u32,
+    revision: u64,
+    mode: &str,
+    min_frame: u64,
+    stem: &str,
+) -> Result<Option<Value>, String> {
     let path = directory.join(format!("{stem}.json"));
     let mut file = match fs::File::open(&path) {
         Ok(file) => file,
@@ -360,7 +371,7 @@ pub(crate) fn read_guest_capture(
         return Ok(None);
     }
     // 作者参数可能比同修订首张截图稍后到达；SDK按显示身份重拍后才能作为该阶段证据。
-    if super::view_controls::verify_mode(&value, playing).is_err() {
+    if super::view_controls::verify_mode(&value, mode == "playing").is_err() {
         return Ok(None);
     }
     if value["capture"]["source"] != "Bevy ScreenshotCaptured"
@@ -427,9 +438,20 @@ fn verify_guest_evidence(output: &Path, report: &Value) -> Result<Vec<Value>, St
         let revision = step["applied_revision"]
             .as_u64()
             .ok_or("阶段缺少实际修订")?;
-        let playing = step["mode"] == "playing";
-        let capture = read_guest_capture(&output.join("game"), pid, revision, playing, 0)?
+        let mode = if step["mode"] == "playing" { "playing" } else { "editing" };
+        let proof = &step["host_window_region"];
+        let frame = proof["capture_frame"].as_u64().filter(|frame| *frame != 0)
+            .ok_or("阶段缺少实测截图帧")?;
+        let epoch = proof["capture_patch_epoch"].as_u64().ok_or("阶段缺少实测截图补丁代次")?;
+        // 工具、失焦和返回编辑可在同修订生成新图。只读宿主当时实际核验的帧文件。
+        let stem = format!("{pid}-{revision}-{mode}-patch-{epoch}-frame-{frame}");
+        let capture = read_guest_capture_stem(&output.join("game"), pid, revision, mode, frame, &stem)?
             .ok_or_else(|| format!("阶段{stage}缺少对应真实运行实例GPU截图"))?;
+        if capture["frame"] != frame || capture["patch_epoch"] != epoch
+            || capture["screenshot"] != format!("{stem}.png")
+        {
+            return Err(format!("{stage}截图与宿主核验的实际帧身份不符"));
+        }
         if capture["world_id"] != step["world_id"] {
             return Err(format!("{stage}截图来自另一World"));
         }

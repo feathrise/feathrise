@@ -2,6 +2,7 @@
 //!
 //! 方向轴复用现有轨道相机与正式释放点击：六个端点精确对轴，中心切换投影。
 
+use feathrise_editor_ui::InteractionButton;
 use bevy::picking::Pickable; // 装饰线与文字穿透，按钮和控件空隙拥有指针。
 use bevy::prelude::*; // UI节点、文本、颜色、相机姿态与ECS查询。
 use bevy::ui::{FocusPolicy, RelativeCursorPosition};
@@ -85,7 +86,7 @@ pub(crate) fn setup_editor_orientation_axis(
             .with_children(|widget| {
                 widget.spawn((
                     Name::new("方向球中心：切换正交与透视"),
-                    Button,
+                    InteractionButton,
                     OrientationProjectionToggle,
                     crate::ui::tooltips::EditorTooltipTarget(
                         crate::ui::tooltips::TooltipAction::OrientationProjection,
@@ -127,7 +128,7 @@ pub(crate) fn setup_editor_orientation_axis(
                     widget
                         .spawn((
                             Name::new(format!("{label}正方向端点")),
-                            Button,
+                            InteractionButton,
                             crate::ui::tooltips::EditorTooltipTarget(
                                 crate::ui::tooltips::TooltipAction::OrientationAxis,
                             ),
@@ -163,7 +164,7 @@ pub(crate) fn setup_editor_orientation_axis(
                         ));
                     widget.spawn((
                         Name::new(format!("{label}负方向端点")),
-                        Button,
+                        InteractionButton,
                         crate::ui::tooltips::EditorTooltipTarget(
                             crate::ui::tooltips::TooltipAction::OrientationAxis,
                         ),

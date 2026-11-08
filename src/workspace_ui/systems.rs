@@ -557,7 +557,7 @@ pub(super) fn open_dropped_project(
     if pages.iter().any(|(page, node, transform, visible, clip)| {
         page.0 == Page::Start && visible.get() && !node.is_empty()
             && node.contains_point(*transform, position)
-            && clip.is_none_or(|clip| clip.clip.contains(position))
+            && clip.is_none_or(|clip| clip.contains_point(position))
     }) {
         // 保留原始路径，目录与清单检查沿用宿主的后台打开流程。
         state.error.clear();

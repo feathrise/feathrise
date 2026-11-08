@@ -1,5 +1,6 @@
 //! 正式资产行与中央打开系统的双击回归；不加载项目资产或写入作者文件。
 
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use crate::{components::MapEditorAssetRow, resources::EditorAssetCatalog, types::EditorAssetEntry};
 use std::time::Duration;
@@ -119,7 +120,7 @@ fn asset_row_press_and_hold_wait_for_inside_release_and_outside_release_cancels(
         .init_resource::<ButtonInput<KeyCode>>()
         .add_plugins(feathrise_editor_ui::EditorButtonInputPlugin);
     app.world_mut().entity_mut(row).insert((
-        Button, Node::default(),
+        InteractionButton, Node::default(),
         InheritedVisibility::VISIBLE, // 裸ECS夹具没有可见性传播插件，显式提供已完成布局的可见状态。
         bevy::ui::RelativeCursorPosition { cursor_over: true, ..default() },
         ComputedNode { size: Vec2::new(120.0, 24.0), ..default() },

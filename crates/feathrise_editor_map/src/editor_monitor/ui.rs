@@ -1,6 +1,7 @@
 //! F4 动态地图监控面板实体创建。
 //! 【功能设计】尺寸、位置、两级页签、六类植被LOD控件及正文层级复刻F3，数据域覆盖完整动态地图草稿。
 
+use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 use bevy::text::LineHeight;
 use bevy::ui::FocusPolicy;
@@ -67,7 +68,7 @@ fn spawn_editor_map_monitor_panel_with_font(commands: &mut Commands, font: Handl
                     for group in EditorMapMonitorGroup::ALL {
                         let selected = group == EditorMapMonitorGroup::Overview; // 首次打开先给出全图资产摘要。
                         tabs.spawn((
-                            Button,
+                            InteractionButton,
                             MapEditorMonitorGroupButton { group },
                             resource_monitor_tab_node(),
                             BackgroundColor(if selected {
@@ -109,7 +110,7 @@ fn spawn_editor_map_monitor_panel_with_font(commands: &mut Commands, font: Handl
                             page.group() == EditorMapMonitorGroup::Overview;
                         let selected = page == EditorMapMonitorPage::Overview;
                         tabs.spawn((
-                            Button,
+                            InteractionButton,
                             MapEditorMonitorTabButton { page },
                             resource_monitor_subtab_node(belongs_to_default_group),
                             BackgroundColor(if selected {

@@ -55,7 +55,7 @@ pub(super) fn write_with_sdk_configuration(
     fs::write(root.join("Cargo.toml"), manifest).map_err(|e| e.to_string())?;
     fs::write(root.join("editor-project.json"), serde_json::to_vec_pretty(&json!({"format":2,"id":id,"name":name,"cargo_manifest":"Cargo.toml","package":"feathrise_game_template","game_entry":{"kind":"saved-world","version":1},"game_view":view,"asset_roots":["assets"],"editor_data":".editor"})).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     fs::write(root.join(".cargo/config.toml"), "# 不记录开发机SDK或缓存绝对路径。\n[target.x86_64-pc-windows-msvc]\nlinker = \"rust-lld\"\n").map_err(|e| e.to_string())?;
-    fs::copy(editor.join("Cargo.lock"), root.join("Cargo.lock")).map_err(|e| e.to_string())?;
+    fs::copy(editor.join(sdk.lock_seed()), root.join("Cargo.lock")).map_err(|e| e.to_string())?;
     // 各种来源都用 fetch 补齐来源变化的锁条目，保留仍兼容的种子锁版本。
     // generate-lockfile 会忽略种子重求版本，使后来被 yanked 的已锁依赖也无法新建。
     // 本地联调保留离线缓存；Git／registry 首次获取受同一个可取消 Job 和发布守卫约束。

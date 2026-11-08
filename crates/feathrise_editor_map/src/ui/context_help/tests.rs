@@ -1,5 +1,6 @@
 //! 唯一浮层、原动态字段归还与真实鼠标门回归，不读取地图或启动文件任务。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::EditorContextHelpState, systems};
 use crate::{resources::*, ui::sidebars::*};
 use bevy::{
@@ -56,7 +57,7 @@ fn fixture() -> Fixture {
     let button = app
         .world_mut()
         .spawn((
-            Button,
+            InteractionButton,
             InheritedVisibility::VISIBLE, // MinimalPlugins不运行可见性传播，显式模拟已呈现的真实问号。
             ContextHelpButton("动态对象说明".into()),
             BackgroundColor::default(),

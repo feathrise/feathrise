@@ -1,5 +1,6 @@
 //! 编辑器专属切图提示：底栏显示真实进度，完整诊断进入详情，正式就绪前隔离作者输入。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*;
 use bevy::scene::template_value;
@@ -29,38 +30,38 @@ pub(super) fn map_loading_panel() -> impl Scene {
         Children [(
             // 裁切宿主与自然宽度文字分开，字形不能跨过百分比或恢复按钮。
             Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }
-            template_value(FocusPolicy::Pass)
+            ~{FocusPolicy::Pass}
             Children [(
                 MapEditorMapLoadingTitle
-                Text("正在切换地图") feathrise_editor_ui::localization::label_scene("正在切换地图")
+                Text("正在切换地图") @feathrise_editor_ui::localization::label_scene("正在切换地图")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_PRIMARY)
                 TextLayout::no_wrap()
-                template_value(FocusPolicy::Pass)
+                ~{FocusPolicy::Pass}
                 Node { flex_shrink: 0.0 }
             )]
         ), (
             // 极窄窗口优先给真实百分比、恢复和详情；进度轨道允许收缩至零。
             Node { width: px(80), min_width: px(0), height: px(3), overflow: Overflow::clip() }
             BackgroundColor(colors::TRACK_BG)
-            template_value(FocusPolicy::Pass)
+            ~{FocusPolicy::Pass}
             Children [(
                 MapEditorMapLoadingFill
                 Node { width: percent(0), height: percent(100) }
                 BackgroundColor(colors::TEXT_ACCENT)
-                template_value(FocusPolicy::Pass)
+                ~{FocusPolicy::Pass}
             )]
         ), (
             MapEditorMapLoadingPercent
-            Text("0% · 0秒") feathrise_editor_ui::localization::label_scene("0% · 0秒")
+            Text("0% · 0秒") @feathrise_editor_ui::localization::label_scene("0% · 0秒")
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_VALUE)
             TextLayout::no_wrap()
-            template_value(FocusPolicy::Pass)
+            ~{FocusPolicy::Pass}
             Node { flex_shrink: 0.0 }
         ),
-            (recovery_button("重试", MapLoadingRecoveryButton::Retry)),
-            (recovery_button("取消", MapLoadingRecoveryButton::Cancel)),
+            (@recovery_button("重试", MapLoadingRecoveryButton::Retry)),
+            (@recovery_button("取消", MapLoadingRecoveryButton::Cancel)),
         (
             MapEditorMapLoadingDetail
             PanelStatusText("地图加载")
@@ -74,7 +75,7 @@ pub(super) fn map_loading_panel() -> impl Scene {
 
 fn recovery_button(label: &'static str, action: MapLoadingRecoveryButton) -> impl Scene {
     bsn! {
-        Button
+        InteractionButton
         MapLoadingRecoveryButton::from(action)
         Node {
             height: px(22), min_height: px(22), flex_shrink: 0.0,
@@ -89,7 +90,7 @@ fn recovery_button(label: &'static str, action: MapLoadingRecoveryButton) -> imp
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
             TextLayout::no_wrap()
-            template_value(FocusPolicy::Pass)
+            ~{FocusPolicy::Pass}
         )]
     }
 }

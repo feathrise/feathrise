@@ -8,8 +8,7 @@ use super::super::{
 use super::{index, resources::DocumentNavigation};
 use bevy::{
     prelude::*,
-    text::{EditableText, TextLayoutInfo},
-    ui::widget::TextScroll,
+    text::{EditableText, TextLayoutInfo, TextViewport},
 };
 
 pub(super) fn sync(
@@ -18,10 +17,9 @@ pub(super) fn sync(
     mut sources: Query<(
         Entity,
         &DocumentSource,
-        &EditableText,
+        &mut EditableText,
         &ComputedNode,
         &TextLayoutInfo,
-        &mut TextScroll,
         &mut DocumentScrollState,
     )>,
 ) {
@@ -37,7 +35,7 @@ pub(super) fn sync(
     if !index::current(&target.key, doc, &navigation) {
         return;
     }
-    let Ok((entity, binding, native, node, layout, mut scroll, mut preservation)) =
+    let Ok((entity, binding, mut native, node, layout, mut preservation)) =
         sources.single_mut()
     else {
         return;
@@ -49,12 +47,12 @@ pub(super) fn sync(
     {
         return; // 新文字、候选或手工选区已接管时不能用迟到定位覆盖当前视区。
     }
-    reveal_selection(node, layout, &mut scroll, &mut preservation);
+    reveal_selection(node, layout, &mut native.viewport, &mut preservation);
 }
 
 /// 查找、跳行与JSON错误定位共用真实选区边界，保持手动滚动及4逻辑像素边距口径。
 pub(in super::super) fn reveal_selection(
-    node: &ComputedNode, layout: &TextLayoutInfo, scroll: &mut TextScroll,
+    node: &ComputedNode, layout: &TextLayoutInfo, viewport: &mut TextViewport,
     preservation: &mut DocumentScrollState,
 ) {
     let mut bounds = layout
@@ -77,7 +75,7 @@ pub(in super::super) fn reveal_selection(
     let margin = 4.0 / node.inverse_scale_factor();
     bounds.min -= Vec2::splat(margin);
     bounds.max += Vec2::splat(margin);
-    let mut offset = scroll.0;
+    let mut offset = viewport.offset;
     for axis in 0..2 {
         if bounds.min[axis] < offset[axis] {
             offset[axis] = bounds.min[axis];
@@ -87,6 +85,6 @@ pub(in super::super) fn reveal_selection(
     }
     let maximum = (layout.size - view).max(Vec2::ZERO);
     let offset = offset.clamp(Vec2::ZERO, maximum);
-    if scroll.0 != offset { scroll.0 = offset; }
+    if viewport.offset != offset { viewport.offset = offset; }
     preservation.preserved = None; // 后续稳定帧继续保存这里的滚动，不改变光标、选区或文字。
 }

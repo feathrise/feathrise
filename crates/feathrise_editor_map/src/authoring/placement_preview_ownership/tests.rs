@@ -142,7 +142,7 @@ fn ownership_replacement_rejects_old_release_and_old_queued_claim() {
 #[derive(Resource)]
 struct ReleaseObservation { formal: Entity, owner: Entity, owner_visual: Entity, observed: bool }
 
-fn observe_formal_release(event: On<Remove, PlacementPreviewSuppression>,
+fn observe_formal_release(event: On<Remove<PlacementPreviewSuppression>>,
     disabled_authors: Query<&RigidBodyDisabled>,
     disabled_colliders: Query<&ColliderDisabled>,
     mut observation: ResMut<ReleaseObservation>) {

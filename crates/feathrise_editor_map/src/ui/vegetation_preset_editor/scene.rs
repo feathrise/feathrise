@@ -1,5 +1,6 @@
 //! 植被全局预设库、独立诊断及中央浏览器式工作区静态挂载点。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use crate::ui::theme as colors;
 use bevy::prelude::*; // BSN Scene、布局与 UI 组件。
@@ -16,7 +17,7 @@ use crate::ui::scene::FONT_PATH; // 复用已验证中文字体路径。
 /// 构造预设管理与标签条共用的紧凑铜边按钮。
 fn preset_button(label: &str, action: PresetEditorAction) -> impl Scene {
     bsn! {
-        Button
+        InteractionButton
         PresetEditorButton(action)
         Node {
             height: px(24),
@@ -32,7 +33,7 @@ fn preset_button(label: &str, action: PresetEditorAction) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [(
-            Text(label) feathrise_editor_ui::localization::label_scene(label)
+            Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                 font_size: px(ui_metrics::FONT_CONTROL),
@@ -56,8 +57,8 @@ fn two_button_row(
             flex_shrink: 0.0,
         }
         Children [
-            (preset_button(first_label, first_action)),
-            (preset_button(second_label, second_action)),
+            (@preset_button(first_label, first_action)),
+            (@preset_button(second_label, second_action)),
         ]
     }
 }
@@ -74,7 +75,7 @@ pub(crate) fn vegetation_preset_editor_panel() -> impl Scene {
         }
         Children [
             (
-                Text("全局预设库") feathrise_editor_ui::localization::label_scene("全局预设库")
+                Text("全局预设库") @feathrise_editor_ui::localization::label_scene("全局预设库")
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_CONTROL),
@@ -83,17 +84,17 @@ pub(crate) fn vegetation_preset_editor_panel() -> impl Scene {
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
             ),
             (
-                Text("所有地图共用；编辑或删除预设不等于删除当前地图图层。") feathrise_editor_ui::localization::label_scene("所有地图共用；编辑或删除预设不等于删除当前地图图层。")
+                Text("所有地图共用；编辑或删除预设不等于删除当前地图图层。") @feathrise_editor_ui::localization::label_scene("所有地图共用；编辑或删除预设不等于删除当前地图图层。")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED)
                 TextLayout { linebreak: LineBreak::AnyCharacter }
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
             ),
-            (two_button_row("新建草本预设", PresetEditorAction::CreateBlade, "新建模型预设", PresetEditorAction::CreateMesh)),
-            (two_button_row("编辑所选预设", PresetEditorAction::EditSelected, "删除所选预设", PresetEditorAction::DeleteSelected)), // 统一所选对象用语。
+            (@two_button_row("新建草本预设", PresetEditorAction::CreateBlade, "新建模型预设", PresetEditorAction::CreateMesh)),
+            (@two_button_row("编辑所选预设", PresetEditorAction::EditSelected, "删除所选预设", PresetEditorAction::DeleteSelected)), // 统一所选对象用语。
             (
                 PresetEditorSummaryText
-                Text("当前预设：尚未选择") feathrise_editor_ui::localization::label_scene("当前预设：尚未选择")
+                Text("当前预设：尚未选择") @feathrise_editor_ui::localization::label_scene("当前预设：尚未选择")
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_CONTROL), // 主要选择摘要不再使用过小字号。
@@ -114,7 +115,7 @@ pub(crate) fn vegetation_preset_editor_panel() -> impl Scene {
 pub(crate) fn vegetation_preset_feedback() -> impl Scene {
     bsn! {
         PresetEditorStatusText
-        template_value(crate::ui::status_bar::PanelStatusText("植被预设")) feathrise_editor_ui::feedback::GlobalPanelStatus
+        ~{crate::ui::status_bar::PanelStatusText("植被预设")} feathrise_editor_ui::feedback::GlobalPanelStatus
         Text("") // 操作教程位于作者工具的?帮助，反馈节点只承载原领域产生的真实诊断。
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
         TextColor(colors::TEXT_MUTED)

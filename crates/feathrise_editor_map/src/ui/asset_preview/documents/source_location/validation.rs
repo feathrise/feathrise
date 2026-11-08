@@ -1,7 +1,8 @@
 //! 仅显式 validation 的原文档只读探针；调用方先核验本轮自有夹具，不向文档写入成功标记。
 
+use feathrise_editor_ui::InteractionButton;
 use super::super::{components::{DocumentAction, DocumentSource}, history, resources::DocumentState, types::{Document, ViewMode}};
-use bevy::{input_focus::InputFocus, prelude::*, text::EditableText, ui::widget::TextScroll};
+use bevy::{input_focus::InputFocus, prelude::*, text::EditableText};
 use feathrise_editor_documents_model::history::components::HistoryAction;
 use serde_json::{Value, json};
 
@@ -49,7 +50,7 @@ fn document_snapshot(doc: &Document, documents: &DocumentState, source_limit: us
 
 /// 只读取生产 DocumentState、唯一原生输入、实际焦点/选区/滚动，不读盘或修改作者状态。
 pub fn source_location_probe(world: &mut World) -> Option<Value> {
-    let mut inputs = world.query::<(Entity, &DocumentSource, &EditableText, Option<&TextScroll>)>();
+    let mut inputs = world.query::<(Entity, &DocumentSource, &EditableText)>();
     let documents = world.get_resource::<DocumentState>()?;
     let doc = documents.current()?;
     let mut result = document_snapshot(doc, documents, 64 * 1024);
@@ -64,7 +65,7 @@ pub fn source_location_probe(world: &mut World) -> Option<Value> {
         result[field] = Value::Null;
     }
     let key = doc.source_key();
-    if let Some((entity, _, input, scroll)) = inputs.iter(world).find(|(_, binding, _, _)| binding.key.as_ref() == Some(&key)) {
+    if let Some((entity, _, input)) = inputs.iter(world).find(|(_, binding, _)| binding.key.as_ref() == Some(&key)) {
         let selection = input.editor.raw_selection().text_range();
         let start = selection.start.min(doc.source.len());
         let prefix = doc.source.get(..start)?;
@@ -80,7 +81,7 @@ pub fn source_location_probe(world: &mut World) -> Option<Value> {
         result["native_text"] = json!((doc.source.len() <= 64 * 1024).then(|| input.value().to_string()));
         result["pending_edits"] = json!(input.pending_edits.len());
         result["composing"] = json!(input.is_composing());
-        result["scroll"] = json!(scroll.map(|scroll| [scroll.0.x, scroll.0.y]));
+        result["scroll"] = json!([input.viewport.offset.x, input.viewport.offset.y]);
     }
     Some(result)
 }
@@ -103,7 +104,7 @@ pub fn source_location_input_entity(world: &mut World, expected_path: &str) -> O
 pub fn source_location_action_entity(world: &mut World, expected_path: &str, action: SourceLocationAction) -> Option<Entity> {
     use crate::ui::map_documents::{MapDocumentButton, MapDocuments};
     let mut buttons = world.query_filtered::<(Entity, Option<&DocumentAction>, Option<&HistoryAction>, Option<&MapDocumentButton>,
-        &Node, &ComputedNode, &InheritedVisibility, Has<bevy::ui::InteractionDisabled>), With<Button>>();
+        &Node, &ComputedNode, &InheritedVisibility, Has<bevy::ui::InteractionDisabled>), With<InteractionButton>>();
     let documents = world.get_resource::<DocumentState>()?;
     let doc = documents.current()?;
     if !documents.visible || document_path(doc, documents) != expected_path

@@ -144,6 +144,7 @@ pub(crate) fn style_fields(
             color: colors::TEXT_ACCENT, // 铜金光标保持现有姓名框视觉。
             selection_color: colors::SELECT_BG_HOVER, // 聚焦选区沿用原界面选择色。
             unfocused_selection_color: colors::SELECT_BG, // 失焦选区使用弱选择底色。
+            selection_radius: 0.0,
             selected_text_color: Some(colors::TEXT_PRIMARY), // 选中文字仍使用米白主文字色。
         }); // 不改字体、文字内容或业务状态。
     } // 每个实体只在首次加入时设置一次。

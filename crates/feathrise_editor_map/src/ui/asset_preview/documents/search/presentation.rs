@@ -1,5 +1,6 @@
 //! 按变化更新固定搜索表单与16行虚拟池；稳定帧不扫描资产、重建节点或复制全文。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::{components::*, constants::*, resources::AssetSearchState, types::{ContentIdentity, ResultRow}};
 use crate::{
@@ -19,7 +20,7 @@ pub(super) fn setup(
             for slot in 0..ROW_SLOTS {
                 parent
                     .spawn((
-                        Button,
+                        InteractionButton,
                         SearchRow(slot),
                         SearchAction::Inactive,
                         Node {
@@ -56,7 +57,7 @@ pub(super) fn setup(
                         ));
                         // 单文件与项目定位同时可见；紧凑双按钮复用固定行池，不因IDE数量增建结果行。
                         for in_project in [false, true] {
-                            row.spawn((Button, SearchExternalRow(slot, in_project), SearchAction::Inactive,
+                            row.spawn((InteractionButton, SearchExternalRow(slot, in_project), SearchAction::Inactive,
                                 Node { display: Display::None, width: px(48), height: px(20), flex_shrink: 0.0,
                                     margin: UiRect::left(px(3)),
                                     align_items: AlignItems::Center, justify_content: JustifyContent::Center,

@@ -1,5 +1,6 @@
 //! 复用正式菜单、资产点击和鼠标门系统的交互回归，不伪装已进行游戏截图验收。
 
+use feathrise_editor_ui::InteractionButton;
 use super::*; // 共享无窗口、无剪贴板副作用的夹具。
 
 #[test]
@@ -8,7 +9,7 @@ fn menu_copy_waits_for_release_preserves_target_and_cancels_outside_or_stale_pre
         let mut test = fixture("gltf/冻结的右键目标.glb");
         test.app.add_plugins(feathrise_editor_ui::EditorButtonInputPlugin);
         test.app.world_mut().entity_mut(test.copy).insert((
-            Button, Node::default(),
+            InteractionButton, Node::default(),
             InheritedVisibility::VISIBLE, // 裸ECS夹具显式提供正式可见按钮的传播结果。
             bevy::ui::RelativeCursorPosition { cursor_over: true, ..default() },
             ComputedNode { size: Vec2::new(100.0, 24.0), ..default() },
@@ -46,7 +47,7 @@ fn menu_outside_press_closes_before_later_release_over_an_item() {
     let mut test = fixture("gltf/不能补执行.glb");
     test.app.add_plugins(feathrise_editor_ui::EditorButtonInputPlugin);
     test.app.world_mut().entity_mut(test.copy).insert((
-        Button, Node::default(),
+        InteractionButton, Node::default(),
         InheritedVisibility::VISIBLE, // 真实命中资格不能依赖未安装的可见性传播插件。
         bevy::ui::RelativeCursorPosition { cursor_over: true, ..default() },
         ComputedNode { size: Vec2::new(100.0, 24.0), ..default() },

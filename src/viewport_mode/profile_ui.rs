@@ -1,5 +1,6 @@
 //! 启动配置下拉复用原配置请求；菜单只拥有展示和输入，不接管构建或游戏生命周期。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::BuildProfileMenuState};
 use crate::native_play::ProjectBuildBackend;
 use bevy::{input_focus::InputFocus, prelude::*, ui::{FocusPolicy, RelativeCursorPosition}, window::PrimaryWindow};
@@ -11,7 +12,7 @@ pub(super) fn mount(header: &mut ChildSpawnerCommands, font: &Handle<Font>) {
     header.spawn((crate::window_chrome::ChromeSlot::Profile, Node { height: px(26), flex_shrink: 0., ..default() }))
         .with_children(|selector| {
             selector.spawn((
-                Button, ProfileToggle, Name::new("启动配置"),
+                InteractionButton, ProfileToggle, Name::new("启动配置"),
                 feathrise_editor_ui::ButtonColors::new(c::BUTTON_DEV_SMALL_NORMAL, c::BUTTON_DEV_SMALL_HOVERED, c::BUTTON_DEV_SMALL_PRESSED),
                 Node {
                     height: px(26), padding: UiRect::horizontal(px(7)), flex_shrink: 0.,
@@ -37,7 +38,7 @@ pub(super) fn mount(header: &mut ChildSpawnerCommands, font: &Handle<Font>) {
             )).with_children(|menu| {
                 for profile in [ProjectBuildProfile::Debug, ProjectBuildProfile::Release] {
                     menu.spawn((
-                        Button, ProfileOption(profile),
+                        InteractionButton, ProfileOption(profile),
                         feathrise_editor_ui::ButtonColors::new(c::BUTTON_DEV_SMALL_NORMAL, c::BUTTON_DEV_SMALL_HOVERED, c::BUTTON_DEV_SMALL_PRESSED),
                         Node {
                             width: percent(100), height: px(26), padding: UiRect::horizontal(px(5)),
@@ -58,7 +59,7 @@ pub(super) fn mount(header: &mut ChildSpawnerCommands, font: &Handle<Font>) {
                         options.spawn((Node { height: px(1), margin: UiRect::vertical(px(3)), ..default() },
                             BackgroundColor(c::COPPER_BORDER_WEAK), Pickable::IGNORE));
                         for backend in [ProjectBuildBackend::Dx, ProjectBuildBackend::Native] {
-                            options.spawn((Button, BackendOption(backend), Name::new(backend.label()),
+                            options.spawn((InteractionButton, BackendOption(backend), Name::new(backend.label()),
                                 feathrise_editor_ui::ButtonColors::new(c::BUTTON_DEV_SMALL_NORMAL, c::BUTTON_DEV_SMALL_HOVERED, c::BUTTON_DEV_SMALL_PRESSED),
                                 Node { width: percent(100), height: px(26), padding: UiRect::horizontal(px(5)),
                                     align_items: AlignItems::Center, border: UiRect::all(px(1)),

@@ -1,5 +1,6 @@
 //! 正式底栏的离屏中文画面与真实鼠标回归；不创建原生窗口或写入用户配置。
 
+use feathrise_editor_ui::InteractionButton;
 use super::components::*;
 use super::resources::EditorStatusBarState;
 use super::types::StatusAction;
@@ -90,13 +91,13 @@ fn test_scene() -> impl Scene {
             (TestViewport Node { width: percent(100), flex_grow: 1.0, min_height: px(0) }
                 BackgroundColor(colors::MODEL_PREVIEW_BG)
                 Children [(
-                    TestWorkbenchAction Button
+                    TestWorkbenchAction InteractionButton
                     Node { width: px(80), height: px(20), margin: UiRect::all(px(8)) }
                     BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
                 )]),
-            (footer()),
-            (map_loading::map_loading_input_blocker()),
-            (popup()),
+            (@footer()),
+            (@map_loading::map_loading_input_blocker()),
+            (@popup()),
         ]
     }
 }
@@ -480,7 +481,7 @@ fn status_bar_gpu_loading_progress_failure_and_recovery_remain_accessible() {
     frames(&mut app, 5);
     assert_eq!(app.world().get::<Node>(content).unwrap().display, Display::None);
     assert_eq!(app.world().get::<Node>(panel).unwrap().display, Display::Flex);
-    assert!(app.world().get::<Button>(blocker).is_none(), "纯输入门不得触发普通按钮的整片背景反馈");
+    assert!(app.world().get::<InteractionButton>(blocker).is_none(), "纯输入门不得触发普通按钮的整片背景反馈");
     let fill = entity::<MapEditorMapLoadingFill>(&mut app);
     let percent = entity::<MapEditorMapLoadingPercent>(&mut app);
     assert_eq!(app.world().get::<Node>(fill).unwrap().width, bevy::ui::Val::Percent(58.0));

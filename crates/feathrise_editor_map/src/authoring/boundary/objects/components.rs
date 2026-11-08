@@ -1,9 +1,10 @@
 //! 空气墙面板标记；普通动作与对象行接入共享按钮释放协议，名称框保留官方文本焦点。
+use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*; // ECS组件。
 #[derive(Component, Clone, Default)]
 pub(crate) struct WallPanelSlot; // 固定挂载槽。
 #[derive(Component)]
-#[require(Button)] // 固定行也必须注册共享捕获，独立选择底色继续由对象面板回显。
+#[require(InteractionButton)] // 固定行也必须注册共享捕获，独立选择底色继续由对象面板回显。
 pub(super) struct WallRow(pub usize); // 页内固定行号。
 #[derive(Component)]
 pub(super) struct WallLabel(pub Entity); // 文本关联交互行。
@@ -18,7 +19,7 @@ pub(super) enum WallControls {
     Selection,
 }
 #[derive(Component, Clone, Copy)]
-#[require(Button)] // 所有普通操作统一在原按钮内松开确认，不把名称输入框改成按钮。
+#[require(InteractionButton)] // 所有普通操作统一在原按钮内松开确认，不把名称输入框改成按钮。
 pub(super) enum Action {
     // 操作只针对当前稳定对象。
     CreateInternal,

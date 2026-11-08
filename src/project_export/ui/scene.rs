@@ -1,5 +1,6 @@
 //! 工程导出面板复用编辑器公共标题、正文和底栏配方；输入框始终只有一个原生EditableText。
 
+use feathrise_editor_ui::InteractionButton;
 use super::super::{components::*, resources::ExportState};
 use bevy::{input_focus::tab_navigation::TabIndex, prelude::*, text::{EditableTextFilter, TextCursorStyle}, ui::{FocusPolicy, RelativeCursorPosition}};
 use feathrise_editor_map::workbench::WorkbenchHeader;
@@ -31,7 +32,7 @@ pub(in crate::project_export) fn mount(
                     )).with_children(|header| {
                         header.spawn(label(&font, "导出工程", 13., c::TEXT_PRIMARY));
                         let style = feathrise_editor_ui::dialog_close_button_style();
-                        header.spawn((Button, ExportAction::Close, Node { margin: UiRect::left(Val::Auto), ..style.node },
+                        header.spawn((InteractionButton, ExportAction::Close, Node { margin: UiRect::left(Val::Auto), ..style.node },
                             style.colors, BackgroundColor(style.colors.normal), BorderColor::all(c::DIALOG_BORDER),
                         )).with_child(label(&font, "×", style.font_size, c::TEXT_PRIMARY));
                     });
@@ -52,7 +53,7 @@ pub(in crate::project_export) fn mount(
                             TextFont { font: font.clone().into(), font_size: 13.0.into(), ..default() },
                             TextColor(c::TEXT_PRIMARY), TextLayout::no_wrap(),
                             TextCursorStyle { color: c::TEXT_PRIMARY, selection_color: c::SELECT_BG_HOVER,
-                                unfocused_selection_color: c::SELECT_BG, selected_text_color: Some(c::TEXT_PRIMARY) },
+                                unfocused_selection_color: c::SELECT_BG, selection_radius: 0.0, selected_text_color: Some(c::TEXT_PRIMARY) },
                             BackgroundColor(c::INPUT_BG), BorderColor::all(c::COPPER_BORDER_WEAK), TabIndex(0),
                         ));
                         body.spawn(Node { column_gap: px(8), row_gap: px(5), flex_wrap: FlexWrap::Wrap,
@@ -97,7 +98,7 @@ fn wrapped_label(font: &Handle<Font>, text: &str, size: f32, color: Color) -> im
 
 fn button(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, action: ExportAction, text: &str, primary: bool) {
     let style = feathrise_editor_ui::dialog_button_style(primary);
-    parent.spawn((Button, action, style.node, style.colors, BackgroundColor(style.colors.normal),
+    parent.spawn((InteractionButton, action, style.node, style.colors, BackgroundColor(style.colors.normal),
         BorderColor::all(c::DIALOG_BORDER),
     )).with_child((ExportActionLabel(action), Text::new(text),
         TextFont { font: font.clone().into(), font_size: style.font_size.into(), ..default() },

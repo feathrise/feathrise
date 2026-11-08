@@ -1,5 +1,6 @@
 //! 工程插件使用共同弹窗外壳、原生滚动条和固定行池；呈现不执行文件IO或装卸动态库。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{
     components::*,
     resources::PluginManagerState,
@@ -46,7 +47,7 @@ pub(super) fn mount(
                         header.spawn(label(&font, "插件管理", 13., c::TEXT_PRIMARY, false));
                         header.spawn((ManagerText::Count, label(&font, "", 11., c::TEXT_MUTED, false)));
                         let style = feathrise_editor_ui::dialog_close_button_style();
-                        header.spawn((Button, ManagerAction::Close,
+                        header.spawn((InteractionButton, ManagerAction::Close,
                             Node { margin: UiRect::left(Val::Auto), ..style.node }, style.colors,
                             BackgroundColor(style.colors.normal), BorderColor::all(c::DIALOG_BORDER),
                         )).with_child(label(&font, "×", style.font_size, c::TEXT_PRIMARY, false));
@@ -84,7 +85,7 @@ pub(super) fn mount(
                                     )).with_children(|content| {
                                         // 列表总高度保留完整目录，实体数只由可见范围预算决定。
                                         for slot in 0..ROW_POOL {
-                                            content.spawn((Button, ManagerRow { slot, index: None, id: None, revision: u64::MAX },
+                                            content.spawn((InteractionButton, ManagerRow { slot, index: None, id: None, revision: u64::MAX },
                                                 ManagerBinding::default(), ManagerAction::Select(String::new()),
                                                 Node { display: Display::None, position_type: PositionType::Absolute,
                                                     left: px(0), top: px(0), width: percent(100), height: px(ROW_HEIGHT),
@@ -198,7 +199,7 @@ fn button(
     }
     parent
         .spawn((
-            Button,
+            InteractionButton,
             action,
             marker,
             ManagerBinding(u64::MAX),

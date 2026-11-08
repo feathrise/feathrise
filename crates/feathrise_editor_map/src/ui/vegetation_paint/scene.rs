@@ -1,4 +1,5 @@
 //! 绘制范围面板的固定控件及两套连续滚动行池；对象数量不会扩大UI实体批次。
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::components::*;
 use crate::ui::{
@@ -34,7 +35,7 @@ fn button(
 ) {
     parent
         .spawn((
-            Button,
+            InteractionButton,
             action,
             Node {
                 width: percent(100),
@@ -119,7 +120,7 @@ pub(super) fn setup(
                                 };
                                 content
                                     .spawn((
-                                        Button,
+                                        InteractionButton,
                                         PaintRow { kind, slot },
                                         action,
                                         Node {

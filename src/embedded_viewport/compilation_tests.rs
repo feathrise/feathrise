@@ -1,5 +1,6 @@
 //! 编译停止回归驱动真实协调系统；有界通道模拟迟到回执和未退出线程，不启动Cargo或实窗。
 
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use crate::embedded_viewport::{can_stop_compilation, connection_state, stop_compilation, ConnectionState};
 use feathrise_editor_protocol::Envelope;
@@ -152,7 +153,7 @@ fn original_launch_stop_button_cancels_owned_worker_without_publishing_preview()
     let mut fixture = fixture(Ok(()));
     with_original_inputs(&mut fixture);
     let button = fixture.world.spawn((
-        Button, feathrise_editor_core::ProjectLaunchButton, EditorButtonClick::triggered(),
+        InteractionButton, feathrise_editor_core::ProjectLaunchButton, EditorButtonClick::triggered(),
         InheritedVisibility::VISIBLE,
     )).id();
     fixture.frame();
@@ -196,7 +197,7 @@ fn original_editor_3d_button_can_request_return_while_the_stop_button_is_drainin
     use feathrise_editor_ui::EditorButtonClick;
     let mut fixture = fixture(Ok(()));
     let mode_button = with_original_inputs(&mut fixture);
-    fixture.world.spawn((Button, feathrise_editor_core::ProjectLaunchButton,
+    fixture.world.spawn((InteractionButton, feathrise_editor_core::ProjectLaunchButton,
         EditorButtonClick::triggered(), InheritedVisibility::VISIBLE));
     fixture.frame();
     assert_waiting_for_original_worker(&fixture);

@@ -1,0 +1,9 @@
+# 单文件安装在缺少外置 sdk-source.toml 时使用的公开配方。
+format = 1
+
+[source]
+kind = "registry"
+version = "0.1.0"
+bevy_version = "0.19.1"
+git = "https://github.com/feathrise/feathrise_patches.git"
+rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a"

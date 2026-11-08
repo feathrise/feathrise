@@ -18,7 +18,7 @@ impl Language {
             Some(Self::Json)
         } else if ext.eq_ignore_ascii_case("rs") {
             Some(Self::Rust)
-        } else if ext.eq_ignore_ascii_case("wgsl") {
+        } else if ext.eq_ignore_ascii_case("wgsl") || ext.eq_ignore_ascii_case("wesl") {
             Some(Self::Wgsl)
         } else {
             None

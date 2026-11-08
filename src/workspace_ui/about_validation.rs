@@ -1,8 +1,9 @@
 //! 关于功能的真实窗口专项：用原按钮按下／松开协议取证，只允许独占目录和隔离偏好的无工程工作台。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::{AboutState, AboutValidation, Presentation}, *};
 use bevy::{camera::RenderTarget, input::mouse::{MouseScrollUnit, MouseWheel},
-    picking::{backend::HitData, events::{Drag, DragEnd, DragStart, Pointer}, pointer::{Location, PointerButton, PointerId}},
+    picking::{backend::HitData, events::{PointerDrag, PointerDragEnd, PointerDragStart, Pointer}, pointer::{Location, PointerButton, PointerId}},
     prelude::*, render::view::screenshot::{Screenshot, save_to_disk}, ui::RelativeCursorPosition,
     ui_widgets::{Scrollbar, ScrollbarDragState, ScrollbarThumb}, window::{PrimaryWindow, WindowRef}};
 use serde_json::json;
@@ -113,7 +114,7 @@ fn capture(world: &mut World, plan: &mut AboutValidation, name: &str) {
             let button = parent.parent();
             assert!(rect.contains(bounds.min) && rect.contains(bounds.max), "GitHub 地址必须完整排版在关于面板内");
             assert!(world.get::<about::AboutRepository>(button).is_some()
-                && world.get::<Button>(button).is_some() && world.get::<feathrise_editor_ui::EditorButtonClick>(button).is_some(),
+                && world.get::<InteractionButton>(button).is_some() && world.get::<feathrise_editor_ui::EditorButtonClick>(button).is_some(),
                 "GitHub 完整地址必须由实际可点击按钮承载");
         }
         words.push(json!({"text":text.0,"bounds":[bounds.min.x,bounds.min.y,bounds.max.x,bounds.max.y]}));
@@ -176,14 +177,12 @@ fn drag_license_scrollbar(world: &mut World, plan: &mut AboutValidation, down: b
     let mut moved = location.clone();
     moved.position += distance;
     // 触发 Bevy 原生拖动观察器，正文位置只由实际滚动条更新。
-    world.trigger(Pointer::new(PointerId::Mouse, location, DragStart {
-        button, hit: HitData::new(Entity::PLACEHOLDER, 0., None, None),
-    }, thumb));
-    world.trigger(Pointer::new(PointerId::Mouse, moved.clone(), Drag { button, distance, delta: distance }, thumb));
+    world.trigger(PointerDragStart { entity: thumb, pointer: Pointer::new(PointerId::Mouse, location), button, hit: HitData::new(Entity::PLACEHOLDER, 0., None, None), });
+    world.trigger(PointerDrag { entity: thumb, pointer: Pointer::new(PointerId::Mouse, moved.clone()), button, distance, delta: distance });
     let after = world.get::<ScrollPosition>(body).unwrap().y;
     let expected = if down { maximum } else { 0. };
     assert!((after - expected).abs() < 1., "原生滑块拖动应到达正文边界");
-    world.trigger(Pointer::new(PointerId::Mouse, moved, DragEnd { button, distance }, thumb));
+    world.trigger(PointerDragEnd { entity: thumb, pointer: Pointer::new(PointerId::Mouse, moved), button, distance });
     assert!(!world.get::<ScrollbarDragState>(thumb).unwrap().dragging);
     plan.proofs.push(json!({"license_scrollbar": if down { "drag_down" } else { "drag_up" }, "from": before, "to": after}));
     true

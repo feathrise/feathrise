@@ -1,5 +1,6 @@
 //! 资产预览固定UI结构。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*; // BSN Scene、Node和ImageNode。
 use bevy::text::FontSourceTemplate; // 使用项目中文字体。
@@ -12,9 +13,9 @@ use crate::ui::scene::FONT_PATH; // 与资产列表共享同一字体。
 /// 预览按钮复用紧凑铜边风格，不携带地图作者动作。
 fn preview_button(label: &str, action: AssetPreviewAction, width: f32) -> impl Scene {
     bsn! {
-        Button // 使用Bevy标准点击状态。
+        InteractionButton // 使用Bevy标准点击状态。
         AssetPreviewNavigationButton // 只让导航表现系统维护这三个按钮。
-        template_value(action) // BSN动态组件值显式走Template，不把动作误认成Scene。
+        ~{action} // BSN动态组件值显式走Template，不把动作误认成Scene。
         Node {
             width: px(width), // 固定短按钮不挤压画布宽度。
             height: px(26), // 与资产浏览器普通动作统一，画布导航仍独立绑定。
@@ -27,8 +28,8 @@ fn preview_button(label: &str, action: AssetPreviewAction, width: f32) -> impl S
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // 默认暗墨底。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 低对比边框。
         Children [(
-            Text(label) feathrise_editor_ui::localization::label_scene(label) // 使用中文重置说明或普通ASCII缩放符号。
-            template_value(FocusPolicy::Pass) // 枚举组件显式取值，文字不能挡住父按钮。
+            Text(label) @feathrise_editor_ui::localization::label_scene(label) // 使用中文重置说明或普通ASCII缩放符号。
+            ~{FocusPolicy::Pass} // 枚举组件显式取值，文字不能挡住父按钮。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 项目统一中文字体。
                 font_size: px(ui_metrics::FONT_CONTROL), // 小画布工具条保持可读且紧凑。
@@ -41,9 +42,9 @@ fn preview_button(label: &str, action: AssetPreviewAction, width: f32) -> impl S
 /// “完整场景”是固定首项，不占用primitive五槽行池。
 fn scene_row() -> impl Scene {
     bsn! {
-        Button // 使用真实Interaction边沿切回Scene0。
+        InteractionButton // 使用真实Interaction边沿切回Scene0。
         AssetPreviewSceneRow // 表现系统按当前目标维持选中底色。
-        template_value(AssetPreviewAction::ShowScene0) // 只修改临时预览目标。
+        ~{AssetPreviewAction::ShowScene0} // 只修改临时预览目标。
         Node {
             width: percent(100), // 完整填满300px右栏可用宽度。
             height: px(20), // 与资产列表紧凑行高一致。
@@ -57,8 +58,8 @@ fn scene_row() -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // 默认暗墨底。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 非活动时弱铜边。
         Children [(
-            Text("完整场景 · Scene0") feathrise_editor_ui::localization::label_scene("完整场景 · Scene0") // 明确默认项不是文件内全部Scene。
-            template_value(FocusPolicy::Pass) // 字形点击仍交给父按钮。
+            Text("完整场景 · Scene0") @feathrise_editor_ui::localization::label_scene("完整场景 · Scene0") // 明确默认项不是文件内全部Scene。
+            ~{FocusPolicy::Pass} // 字形点击仍交给父按钮。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 项目统一中文字体。
                 font_size: px(ui_metrics::FONT_CONTROL), // 与资产行正文一致。
@@ -72,9 +73,9 @@ fn scene_row() -> impl Scene {
 /// 一个固定primitive槽；翻页只改文字和真实下标绑定，不增删实体。
 fn primitive_row(slot: usize) -> impl Scene {
     bsn! {
-        Button // 每槽始终使用同一个Bevy实体。
-        template_value(AssetPreviewPrimitiveRow(slot)) // 当前页相对槽位。
-        template_value(AssetPreviewAction::ShowPrimitive(slot)) // 输入系统再映射完整候选下标。
+        InteractionButton // 每槽始终使用同一个Bevy实体。
+        ~{AssetPreviewPrimitiveRow(slot)} // 当前页相对槽位。
+        ~{AssetPreviewAction::ShowPrimitive(slot)} // 输入系统再映射完整候选下标。
         Node {
             display: Display::None, // 候选完整Ready且该槽有真实项时才进入布局。
             width: percent(100), // 五槽共用同一行宽。
@@ -90,9 +91,9 @@ fn primitive_row(slot: usize) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // 未选中暗墨底。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 未选中弱铜边。
         Children [(
-            template_value(AssetPreviewPrimitiveRowText(slot)) // 不依赖Children顺序更新标签。
+            ~{AssetPreviewPrimitiveRowText(slot)} // 不依赖Children顺序更新标签。
             Text("Mesh?/Primitive?") // 首帧占位永远保持隐藏。
-            template_value(FocusPolicy::Pass) // 鼠标命中归父按钮。
+            ~{FocusPolicy::Pass} // 鼠标命中归父按钮。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 支持Blender中文网格名。
                 font_size: px(8.8), // 五槽文字在窄栏保持清晰。
@@ -110,8 +111,8 @@ fn primitive_row(slot: usize) -> impl Scene {
 /// 当前引用文字和复制按钮共用紧凑横行；具体marker由调用位置声明。
 fn reference_copy_button(label: &str, action: AssetPreviewAction) -> impl Scene {
     bsn! {
-        Button // 只有显式Pressed才访问系统剪贴板。
-        template_value(action) // 主引用与材质引用使用不同动作。
+        InteractionButton // 只有显式Pressed才访问系统剪贴板。
+        ~{action} // 主引用与材质引用使用不同动作。
         Node {
             width: px(62), // 固定短按钮把主要宽度留给完整引用。
             height: px(26), // 引用动作统一普通按钮高度，五槽候选仍保持20px。
@@ -124,8 +125,8 @@ fn reference_copy_button(label: &str, action: AssetPreviewAction) -> impl Scene 
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // 暗墨底。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 默认弱铜边。
         Children [(
-            Text(label) feathrise_editor_ui::localization::label_scene(label) // 分别显示复制引用或复制材质。
-            template_value(FocusPolicy::Pass) // 字形不截获父按钮。
+            Text(label) @feathrise_editor_ui::localization::label_scene(label) // 分别显示复制引用或复制材质。
+            ~{FocusPolicy::Pass} // 字形不截获父按钮。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 统一中文字体。
                 font_size: px(8.6), // 紧凑动作字号。
@@ -138,8 +139,8 @@ fn reference_copy_button(label: &str, action: AssetPreviewAction) -> impl Scene 
 /// 子资产分页按钮不属于模型缩放工具，使用动作枚举直接维护悬停与边界态。
 fn subasset_page_button(label: &str, action: AssetPreviewAction) -> impl Scene {
     bsn! {
-        Button // 真实Interaction只在当前固定分页行内产生。
-        template_value(action) // Previous与Next由输入系统安全钳制页码。
+        InteractionButton // 真实Interaction只在当前固定分页行内产生。
+        ~{action} // Previous与Next由输入系统安全钳制页码。
         Node {
             width: px(62), // 两侧按钮为中间页码保留空间。
             height: px(26), // 分页动作与复制按钮一致，不改变primitive行池高度。
@@ -152,8 +153,8 @@ fn subasset_page_button(label: &str, action: AssetPreviewAction) -> impl Scene {
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // 暗墨底。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 普通边界色。
         Children [(
-            Text(label) feathrise_editor_ui::localization::label_scene(label) // 上一组或下一组。
-            template_value(FocusPolicy::Pass) // 点击字形归父按钮。
+            Text(label) @feathrise_editor_ui::localization::label_scene(label) // 上一组或下一组。
+            ~{FocusPolicy::Pass} // 点击字形归父按钮。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 项目中文字体。
                 font_size: px(8.6), // 紧凑分页字号。
@@ -187,14 +188,14 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                     padding: UiRect::right(px(22)) } // 给绝对定位?保留横向命中区，不增加正文行。
                 Children [
                     (
-                        AssetPreviewTitleText Text("资产预览") feathrise_editor_ui::localization::label_scene("资产预览")
+                        AssetPreviewTitleText Text("资产预览") @feathrise_editor_ui::localization::label_scene("资产预览")
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_ACCENT)
                         TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }
                         Node { flex_grow: 1.0, min_width: px(0) }
                     ),
-                    (super::workspace::expand_button()),
-                    (crate::ui::context_help::help_button("资源预览", "图片：滚轮缩放，左、中、右键拖动平移。模型：滚轮缩放，右键旋转，中键平移。单击文件在右侧查看，双击在中央标签打开；复制引用只复制当前完整身份。")),
+                    (@super::workspace::expand_button()),
+                    (@crate::ui::context_help::help_button("资源预览", "图片：滚轮缩放，左、中、右键拖动平移。模型：滚轮缩放，右键旋转，中键平移。单击文件在右侧查看，双击在中央标签打开；复制引用只复制当前完整身份。")),
                 ]
             ),
             (
@@ -214,9 +215,9 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                     column_gap: px(3), // 延续现有工具间距。
                 }
                 Children [
-                    (preview_button("-", AssetPreviewAction::ZoomOut, 28.0)), // 无滚轮设备也能缩小。
-                    (preview_button("重置视图", AssetPreviewAction::Reset, 70.0)), // 一键回到完整取景。
-                    (preview_button("+", AssetPreviewAction::ZoomIn, 28.0)), // 无滚轮设备也能放大。
+                    (@preview_button("-", AssetPreviewAction::ZoomOut, 28.0)), // 无滚轮设备也能缩小。
+                    (@preview_button("重置视图", AssetPreviewAction::Reset, 70.0)), // 一键回到完整取景。
+                    (@preview_button("+", AssetPreviewAction::ZoomIn, 28.0)), // 无滚轮设备也能放大。
                     (
                         AssetPreviewZoomText // 导航变化时原位刷新倍率。
                         Text("100%") // 表示相对完整取景的倍率，不冒充源图一比一像素。
@@ -267,12 +268,12 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                         Text("") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                         TextColor(colors::TEXT_MUTED) Node { display: Display::None }
                     ),
-                    (scene_row()), // 固定默认Scene0入口。
-                    (primitive_row(0)), // 第一槽。
-                    (primitive_row(1)), // 第二槽。
-                    (primitive_row(2)), // 第三槽。
-                    (primitive_row(3)), // 第四槽。
-                    (primitive_row(4)), // 第五槽。
+                    (@scene_row()), // 固定默认Scene0入口。
+                    (@primitive_row(0)), // 第一槽。
+                    (@primitive_row(1)), // 第二槽。
+                    (@primitive_row(2)), // 第三槽。
+                    (@primitive_row(3)), // 第四槽。
+                    (@primitive_row(4)), // 第五槽。
                     (
                         AssetPreviewSubAssetPagination // 多于五个primitive时显示固定分页行。
                         Node {
@@ -284,7 +285,7 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                             column_gap: px(3), // 紧凑间距。
                         }
                         Children [
-                            (subasset_page_button("上一组", AssetPreviewAction::PreviousPrimitivePage)), // 首组点击保持零页。
+                            (@subasset_page_button("上一组", AssetPreviewAction::PreviousPrimitivePage)), // 首组点击保持零页。
                             (
                                 AssetPreviewPageText // 当前页码原位更新。
                                 Text("1/1") // 仅分页显示时进入布局。
@@ -299,7 +300,7 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                                 }
                                 TextLayout::justify(Justify::Center) // 页码水平居中。
                             ),
-                            (subasset_page_button("下一组", AssetPreviewAction::NextPrimitivePage)), // 末组点击保持末页。
+                            (@subasset_page_button("下一组", AssetPreviewAction::NextPrimitivePage)), // 末组点击保持末页。
                         ]
                     ),
                     (
@@ -325,7 +326,7 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                                     min_width: px(0), // 允许路径换行。
                                 }
                             ),
-                            (reference_copy_button("复制引用", AssetPreviewAction::CopyPrimaryReference)), // 复制完整带#标签引用。
+                            (@reference_copy_button("复制引用", AssetPreviewAction::CopyPrimaryReference)), // 复制完整带#标签引用。
                         ]
                     ),
                     (
@@ -353,7 +354,7 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                                     min_width: px(0), // 长路径自然换行。
                                 }
                             ),
-                            (reference_copy_button("复制材质", AssetPreviewAction::CopyMaterialReference)), // 精确复制/std引用。
+                            (@reference_copy_button("复制材质", AssetPreviewAction::CopyMaterialReference)), // 精确复制/std引用。
                         ]
                     ),
                 ]
@@ -362,7 +363,7 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                 AssetPreviewCanvas
                 RelativeCursorPosition::default() // 尊重祖先裁剪，读取当前画布内真实光标位置。
                 Interaction::default() // 额外验证前方模态遮挡，不能仅按矩形抢输入。
-                template_value(FocusPolicy::Block) // 画布接管导航，不把点击传给底下节点。
+                ~{FocusPolicy::Block} // 画布接管导航，不把点击传给底下节点。
                 Node {
                     position_type: PositionType::Relative,
                     width: percent(100),
@@ -379,7 +380,7 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                 Children [
                     (
                         AssetPreviewImage
-                        template_value(FocusPolicy::Pass) // 图片本身不阻挡父画布捕获。
+                        ~{FocusPolicy::Pass} // 图片本身不阻挡父画布捕获。
                         UiTransform::default() // 缩放与平移只改变视觉矩阵，不撑大布局或滚动范围。
                         ImageNode::default()
                         Node {
@@ -389,9 +390,9 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                             flex_shrink: 1.0,
                         }
                     ),
-                    (super::documents::panel(scenes)), // 同一画布按内容互斥，文本文档不创建额外三维View。
-                    (super::audio::scene::panel()), // 同一音频播放器原位迁移到中央，图片/模型/正文互斥。
-                    (super::documents::sidebar_launch(scenes)), // 放大后侧栏仍可打开另一个文档。
+                    (@super::documents::panel(scenes)), // 同一画布按内容互斥，文本文档不创建额外三维View。
+                    (@super::audio::scene::panel()), // 同一音频播放器原位迁移到中央，图片/模型/正文互斥。
+                    (@super::documents::sidebar_launch(scenes)), // 放大后侧栏仍可打开另一个文档。
                     (
                         AssetPreviewModelViewport
                         Visibility::Hidden // 加载期参与布局并预分配正确RTT尺寸，但绝不显示旧画面。
@@ -407,7 +408,7 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                     (
                         AssetPreviewPlaceholder
                         crate::ui::status_bar::PanelStatusText("资源预览") feathrise_editor_ui::feedback::GlobalPanelStatus
-                        template_value(FocusPolicy::Pass) // 占位说明不成为额外鼠标所有者。
+                        ~{FocusPolicy::Pass} // 占位说明不成为额外鼠标所有者。
                         Text("")
                         TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }
                         TextFont {
@@ -417,11 +418,11 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                         TextColor(colors::TEXT_HINT)
                         Node { display: Display::None }
                     ),
-                    (super::animation::scene::pose_toolbar()), // 动画移动/旋转入口留在画布旁，原位迁移到中央后仍可直接使用。
+                    (@super::animation::scene::pose_toolbar()), // 动画移动/旋转入口留在画布旁，原位迁移到中央后仍可直接使用。
                 ]
             ),
             (
-                super::animation::scene::panel()
+                @super::animation::scene::panel()
             ),
             (
                 AssetPreviewNavigationHint // 图片与模型分别显示准确的手势说明。
@@ -436,7 +437,7 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
             ),
             (
                 AssetPreviewPhaseText crate::ui::status_bar::PanelStatusText("预览阶段") feathrise_editor_ui::feedback::GlobalPanelStatus
-                Text("") template_value(FocusPolicy::Pass)
+                Text("") ~{FocusPolicy::Pass}
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED) Node { display: Display::None }
             ),

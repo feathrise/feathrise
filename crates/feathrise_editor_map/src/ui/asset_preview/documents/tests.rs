@@ -784,7 +784,7 @@ fn markdown_reload_requires_discard_confirmation_and_ime_blocks_save() {
 #[test]
 fn markdown_reload_keeps_old_native_input_unbound_until_real_read_is_adopted() {
     use bevy::{ecs::system::RunSystemOnce, input_focus::InputFocus,
-        text::{FontCx, LayoutCx}, ui::widget::TextScroll};
+        text::{FontCx, LayoutCx}};
     use crate::resources::{EditorTextInputGuard, MapEditorNumericScrubMouseGuard, MapEditorState};
     use crate::ui::sidebars::{EditorRightSidebarTab, MapEditorSidebarState};
 
@@ -816,7 +816,7 @@ fn markdown_reload_keeps_old_native_input_unbound_until_real_read_is_adopted() {
         })
         .add_systems(Update, (bevy::text::apply_text_edits, session::capture_edits, super::native::bind).chain());
     let source = app.world_mut().spawn((DocumentSource::default(), EditableText::default(),
-        TextScroll::default(), ComputedNode::default())).id();
+ComputedNode::default())).id();
     app.update();
     app.update(); // 官方队列采用原生绑定的TextStart，后续原文件动作不被初始化队列拦截。
     assert_eq!(app.world().get::<DocumentSource>(source).unwrap().key.as_ref(), Some(&original_key));
@@ -1150,8 +1150,8 @@ fn gpu_document_sidebar(
         Update,
         bevy::text::apply_text_edits.before(crate::MapEditorSystemSet::Input),
     );
-    if !app.is_plugin_added::<bevy::ui_widgets::EditableTextInputPlugin>() {
-        app.add_plugins(bevy::ui_widgets::EditableTextInputPlugin);
+    if !app.is_plugin_added::<bevy::ui_widgets::TextInputPlugin>() {
+        app.add_plugins(bevy::ui_widgets::TextInputPlugin);
     }
     app.add_plugins((feathrise_editor_ui::EditorButtonInputPlugin, feathrise_editor_documents::DocumentsEditorPlugin));
     super::install(&mut app);
@@ -1487,10 +1487,10 @@ fn gpu_document_sidebar(
                 phase: bevy::input::touch::TouchPhase::Moved,
             });
             app.world_mut().run_system_once(crate::ui::systems::scroll_editor_side_panels).unwrap();
-            let expected = app.world().get::<bevy::ui::widget::TextScroll>(source).unwrap().0.y;
+            let expected = app.world().get::<EditableText>(source).unwrap().viewport.offset.y;
             assert!(expected > 0.0, "滚轮必须真的改变原生文字视区");
             frames(&mut app, 6);
-            let actual = app.world().get::<bevy::ui::widget::TextScroll>(source).unwrap().0.y;
+            let actual = app.world().get::<EditableText>(source).unwrap().viewport.offset.y;
             assert!((actual - expected).abs() < 1.0,
                 "点击后的静止光标不能阻止滚轮：期望{expected}，实际{actual}");
             assert_eq!(app.world().get::<EditableText>(source).unwrap()
@@ -1501,7 +1501,7 @@ fn gpu_document_sidebar(
         app.world_mut().get_mut::<EditableText>(source).unwrap()
             .queue_edit(bevy::text::TextEdit::Down(false));
         frames(&mut app, 3);
-        let scroll = app.world().get::<bevy::ui::widget::TextScroll>(source).unwrap().0.y;
+        let scroll = app.world().get::<EditableText>(source).unwrap().viewport.offset.y;
         let cursor = app.world().get::<bevy::text::TextLayoutInfo>(source).unwrap().cursor.unwrap().1;
         let view = app.world().get::<ComputedNode>(source).unwrap().content_box().height();
         assert!(cursor.min.y >= scroll && cursor.max.y <= scroll + view,
@@ -1552,16 +1552,16 @@ fn gpu_document_sidebar(
             move_pointer(&mut app, Vec2::new(0.0, 0.25));
             assert_eq!(*app.world().get::<Interaction>(rail).unwrap(), Interaction::Pressed);
             app.world_mut().run_system_once(super::minimap::handle_input).unwrap();
-            let expected = app.world().get::<bevy::ui::widget::TextScroll>(source).unwrap().0.y;
+            let expected = app.world().get::<EditableText>(source).unwrap().viewport.offset.y;
             assert!(expected > 10_000.0, "小地图点击必须跳到长文件深处");
             // 释放再运行正式帧，验证旧光标不会把小地图导航拉回。
             app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
             app.world_mut().run_system_once(super::minimap::handle_input).unwrap();
             frames(&mut app, 5);
-            assert!((app.world().get::<bevy::ui::widget::TextScroll>(source).unwrap().0.y - expected).abs() < 1.0);
+            assert!((app.world().get::<EditableText>(source).unwrap().viewport.offset.y - expected).abs() < 1.0);
             assert_eq!(app.world().get::<EditableText>(source).unwrap().editor.raw_selection().text_range(), selection);
             assert_eq!(app.world().resource::<DocumentState>().current().unwrap().revision, revision);
-            // 真实轨道拖出到下方仍滚到末尾，滚轮悬停只改同一TextScroll。
+            // 真实轨道拖出到下方仍滚到末尾，滚轮悬停只改同一EditableText.viewport。
             app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
             move_pointer(&mut app, Vec2::new(0.0, 0.25));
             assert_eq!(*app.world().get::<Interaction>(rail).unwrap(), Interaction::Pressed);
@@ -1571,7 +1571,7 @@ fn gpu_document_sidebar(
             app.world_mut().run_system_once(super::minimap::handle_input).unwrap();
             let max = app.world().get::<bevy::text::TextLayoutInfo>(source).unwrap().size.y
                 - app.world().get::<ComputedNode>(source).unwrap().content_box().height();
-            assert!((app.world().get::<bevy::ui::widget::TextScroll>(source).unwrap().0.y - max).abs() < 1.0);
+            assert!((app.world().get::<EditableText>(source).unwrap().viewport.offset.y - max).abs() < 1.0);
             app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
             app.world_mut().run_system_once(super::minimap::handle_input).unwrap();
             frames(&mut app, 3);
@@ -1580,7 +1580,7 @@ fn gpu_document_sidebar(
                 unit: bevy::input::mouse::MouseScrollUnit::Pixel, x: 0.0, y: 250.0,
                 phase: bevy::input::touch::TouchPhase::Moved });
             app.world_mut().run_system_once(super::minimap::handle_input).unwrap();
-            assert!((app.world().get::<bevy::ui::widget::TextScroll>(source).unwrap().0.y - (max - 250.0)).abs() < 1.0);
+            assert!((app.world().get::<EditableText>(source).unwrap().viewport.offset.y - (max - 250.0)).abs() < 1.0);
             frames(&mut app, 3);
             snapshot(&mut app, target.clone(), "asset-browser-minimap-navigation.png", width);
         }
@@ -1605,9 +1605,9 @@ fn gpu_document_sidebar(
     }
     if tall_document {
         let layout = app.world().get::<bevy::text::TextLayoutInfo>(source).unwrap();
-        let scroll = app.world().get::<bevy::ui::widget::TextScroll>(source).unwrap();
+        let scroll = app.world().get::<EditableText>(source).unwrap();
         assert!(
-            layout.size.y > 10_000.0 && scroll.0.y > 10_000.0,
+            layout.size.y > 10_000.0 && scroll.viewport.offset.y > 10_000.0,
             "光标必须能滚到长文件末尾"
         );
         assert_eq!(
@@ -1634,10 +1634,10 @@ fn gpu_document_sidebar(
     );
     if screenshot_type == "multi-document" {
         let first = app.world().resource::<DocumentState>().active_tab_id().unwrap();
-        app.world_mut().get_mut::<bevy::ui::widget::TextScroll>(source).unwrap().0.y = 240.0;
+        app.world_mut().get_mut::<EditableText>(source).unwrap().viewport.offset.y = 240.0;
         frames(&mut app, 4);
         let selection = app.world().get::<EditableText>(source).unwrap().editor.raw_selection().text_range();
-        let offset = app.world().get::<bevy::ui::widget::TextScroll>(source).unwrap().0;
+        let offset = app.world().get::<EditableText>(source).unwrap().viewport.offset;
         assert!(offset.y > 200.0);
         double_click_asset(&mut app, window, camera, 1);
         frames(&mut app, 40);
@@ -1653,9 +1653,9 @@ fn gpu_document_sidebar(
         frames(&mut app, 5);
         assert_eq!(app.world().get::<EditableText>(source).unwrap().value(), format!("{original}{addition}").as_str());
         assert_eq!(app.world().get::<EditableText>(source).unwrap().editor.raw_selection().text_range(), selection);
-        assert!((app.world().get::<bevy::ui::widget::TextScroll>(source).unwrap().0 - offset).length() < 1.0,
+        assert!((app.world().get::<EditableText>(source).unwrap().viewport.offset - offset).length() < 1.0,
             "返回文件必须保留其手动视区，不被末尾光标拉回：期望{offset:?}，实际{:?}",
-            app.world().get::<bevy::ui::widget::TextScroll>(source).unwrap().0);
+            app.world().get::<EditableText>(source).unwrap().viewport.offset);
         assert_eq!(app.world_mut().query_filtered::<Entity, With<DocumentSource>>().single(app.world()).unwrap(), source);
         snapshot(&mut app, target.clone(), "asset-browser-multiple-document-tabs.png", width);
         double_click_asset(&mut app, window, camera, 0);

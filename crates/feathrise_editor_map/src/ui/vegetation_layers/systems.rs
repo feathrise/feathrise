@@ -1,5 +1,6 @@
 //! 植被作者图层固定行池与按钮ECS系统。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*; // UI实体、交互查询、文本和资源。
@@ -78,7 +79,7 @@ pub(crate) fn spawn_vegetation_layer_rows(
             for slot in 0..VEGETATION_LAYER_ROW_COUNT {
                 parent
                     .spawn((
-                        Button,
+                        InteractionButton,
                         MapEditorVegetationLayerRow {
                             slot,
                             layer_index: None,

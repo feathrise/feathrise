@@ -1,4 +1,4 @@
-//! 单一后台分词槽、可见映射与渲染阶段的有限定位游标；不保留第二份全文或字形布局。
+//! 单一后台分词槽、可见映射与渲染提取身份；不保留第二份全文或字形布局。
 
 use super::types::*;
 use bevy::{prelude::*, tasks::Task};
@@ -19,7 +19,14 @@ pub(super) struct SyntaxPaint {
 
 #[derive(Resource, Default)]
 pub(super) struct SyntaxExtraction {
+    pub source: Option<PaintIdentity>,
     pub text_start: usize,
-    pub cached: Option<usize>,
-    pub cursor: usize,
+}
+
+#[derive(PartialEq)]
+pub(super) struct PaintIdentity {
+    pub key: GlyphKey,
+    pub selection: Range<usize>,
+    pub selected_color: bool,
+    pub palette: &'static str,
 }

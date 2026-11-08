@@ -40,7 +40,7 @@ pub(crate) fn map_switch_dialog() -> impl Scene {
             BackgroundColor(colors::PANEL_BG_STRONG)
             BorderColor::all(colors::COPPER_BORDER_WEAK)
             Children [
-                (section_title("处理未保存修改")),
+                (@section_title("处理未保存修改")),
                 (
                     MapSwitchDialogBody
                     RelativeCursorPosition::default()
@@ -52,7 +52,7 @@ pub(crate) fn map_switch_dialog() -> impl Scene {
                     } // 长目标名或错误原因只滚动正文，不把确认和取消按钮推出窗口。
                     Children [(
                         MapSwitchDialogText
-                        Text("当前地图有未保存修改") feathrise_editor_ui::localization::label_scene("当前地图有未保存修改")
+                        Text("当前地图有未保存修改") @feathrise_editor_ui::localization::label_scene("当前地图有未保存修改")
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_PRIMARY)
                         Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
@@ -66,9 +66,9 @@ pub(crate) fn map_switch_dialog() -> impl Scene {
                         flex_shrink: 0.0,
                     } // 窄窗口自动换行，不压缩长中文操作名称。
                     Children [
-                        (editor_button("保存并切换", EditorAction::SaveAndSwitchMap, 114.0)),
-                        (editor_button("放弃修改并切换", EditorAction::DiscardAndSwitchMap, 140.0)),
-                        (editor_button("取消切图", EditorAction::CancelMapSwitch, 84.0)),
+                        (@editor_button("保存并切换", EditorAction::SaveAndSwitchMap, 114.0)),
+                        (@editor_button("放弃修改并切换", EditorAction::DiscardAndSwitchMap, 140.0)),
+                        (@editor_button("取消切图", EditorAction::CancelMapSwitch, 84.0)),
                     ]
                 ),
             ]

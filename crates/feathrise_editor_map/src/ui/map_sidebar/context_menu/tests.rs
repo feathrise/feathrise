@@ -1,5 +1,6 @@
 //! 目录菜单运行真实右键、原文件夹事务入口与鼠标门；不访问地图文件或启动原生窗口。
 
+use feathrise_editor_ui::InteractionButton;
 use super::super::components::{MapSidebarActionBinding, MapSidebarActionLabel};
 use super::super::tests::{entry, initialize, map_item, published_index};
 use super::{MapDirectoryMenuState, components::*, systems};
@@ -114,7 +115,7 @@ fn fixture(item: Option<MapBrowserItem>) -> Fixture {
         EditorAction::DeleteMap,
     ] {
         app.world_mut().spawn((
-            Button,
+            InteractionButton,
             InheritedVisibility::VISIBLE,
             ComputedNode { size: Vec2::new(120.0, 24.0), ..default() },
             RelativeCursorPosition { cursor_over: true, ..default() },

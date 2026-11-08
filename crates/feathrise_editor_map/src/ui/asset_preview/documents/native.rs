@@ -1,7 +1,7 @@
 //! 切文件时交换原生编辑状态，保留各自的光标、选区和滚动；仍只有一个ECS正文输入。
 
 use super::{components::*, constants::MAX_EDIT_CHARS, resources::*, types::*};
-use bevy::{input_focus::InputFocus, prelude::*, text::{EditableText, EditableTextGeneration, LineHeight}, ui::widget::TextScroll};
+use bevy::{input_focus::InputFocus, prelude::*, text::{EditableText, EditableTextGeneration, LineHeight}};
 
 pub(super) fn bind(
     state: Res<DocumentState>,
@@ -9,11 +9,11 @@ pub(super) fn bind(
     mut focus: ResMut<InputFocus>,
     mut sources: Query<(
         Entity, &mut DocumentSource, &mut EditableText, &mut EditableTextGeneration,
-        &mut TextScroll, &mut DocumentScrollState,
+        &mut DocumentScrollState,
         (&mut TextFont, &mut LineHeight, &mut TextLayout, &mut ComputedNode),
     )>,
 ) {
-    let Ok((entity, mut source, mut input, mut layout_generation, mut scroll, mut preservation,
+    let Ok((entity, mut source, mut input, mut layout_generation, mut preservation,
         (mut font, mut line_height, mut layout, mut node))) = sources.single_mut() else { return; };
     if !state.is_changed() && !source.is_added() {
         return;
@@ -31,7 +31,7 @@ pub(super) fn bind(
             && !previous.is_composing() && previous.pending_paste.is_none() && previous.pending_edits.is_empty()
             && previous.value() == previous_doc.source_text() // 被重载门拒绝的残余输入不能在失败后从原生缓存回灌。
         {
-            inputs.sessions.push(NativeDocumentInput { key: previous_key, revision: previous_doc.revision, input: previous, scroll: scroll.0 });
+            inputs.sessions.push(NativeDocumentInput { key: previous_key, revision: previous_doc.revision, scroll: previous.viewport.offset, input: previous });
         }
         source.key = None;
         *preservation = DocumentScrollState::default();
@@ -46,7 +46,7 @@ pub(super) fn bind(
         *preservation = DocumentScrollState::default();
         if let Some(restored) = restored.filter(|entry| entry.revision == doc.revision) {
             *input = restored.input;
-            scroll.0 = restored.scroll;
+            input.viewport.offset = restored.scroll;
             preservation.restore = Some(restored.scroll); // 首帧不能被旧caret跟随覆盖手动浏览位置。
         } else {
             input.editor.set_text(doc.source_text());
@@ -54,7 +54,7 @@ pub(super) fn bind(
             input.allow_newlines = true;
             input.visible_lines = None;
             input.queue_edit(bevy::text::TextEdit::TextStart(false));
-            scroll.0 = Vec2::ZERO;
+            input.viewport.offset = Vec2::ZERO;
         }
         // 不同文件的原生编辑器可能恰好同代；清除ECS排版代号，保证换回缓存后更新正文。
         *layout_generation = EditableTextGeneration::default();

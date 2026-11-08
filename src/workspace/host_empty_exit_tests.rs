@@ -1,5 +1,6 @@
 //! 无工程退出门的原事务回归：确认前不退出、不取消准备，明确同意后仍等待拥有槽收口。
 
+use feathrise_editor_ui::InteractionButton;
 use super::*;
 use bevy::{asset::AssetApp, input::mouse::MouseWheel, input_focus::InputFocus};
 use crate::{build_process::BuildControl, user_preferences::Preferences};
@@ -15,7 +16,7 @@ fn fixture() -> (App, Host) {
         .init_asset::<Font>()
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<InputFocus>()
-        .register_required_components::<Button, feathrise_editor_ui::EditorButtonClick>()
+        .register_required_components::<InteractionButton, feathrise_editor_ui::EditorButtonClick>()
         .add_message::<MouseWheel>()
         .add_message::<AppExit>()
         .add_plugins(NativeProjectClosePlugin);
@@ -34,7 +35,7 @@ fn fixture() -> (App, Host) {
 
 fn choose(app: &mut App, label: &str) {
     let world = app.world_mut();
-    let button = world.query_filtered::<(Entity, &Children), With<Button>>().iter(world)
+    let button = world.query_filtered::<(Entity, &Children), With<InteractionButton>>().iter(world)
         .find_map(|(entity, children)| children.iter().any(|child|
             world.get::<Text>(child).is_some_and(|text| text.as_str() == label)).then_some(entity))
         .expect("原确认按钮必须存在");

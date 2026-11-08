@@ -9,17 +9,40 @@ use bevy::{
 pub(super) fn entity(index: u32) -> Entity {
     Entity::from_raw_u32(index).unwrap()
 }
-pub(super) fn node(main: Entity, item: ExtractedUiItem) -> ExtractedUiNode {
+pub(super) fn node(item: ExtractedUiItem) -> ExtractedUiNode {
     ExtractedUiNode {
         z_order: 0.0,
         image: default(),
         clip: None,
-        extracted_camera_entity: entity(99),
         item,
-        main_entity: main.into(),
-        render_entity: entity(99),
         transform: default(),
     }
+}
+pub(super) fn extracted(draws: impl IntoIterator<Item = (Entity, ExtractedUiNode)>) -> ExtractedUiNodes {
+    let mut nodes = ExtractedUiNodes::default();
+    for (index, (main, draw)) in draws.into_iter().enumerate() {
+        nodes.changed.insert(main.into());
+        nodes.uinodes.entry(main.into())
+            .or_insert_with(|| (entity(99), default())).1
+            .insert(entity(100 + index as u32), draw);
+    }
+    nodes
+}
+pub(super) fn draw(nodes: &ExtractedUiNodes, main: Entity, index: usize) -> &ExtractedUiNode {
+    let key = bevy::render::sync_world::MainEntity::from(main);
+    nodes.uinodes[&key].1.get_index(index).unwrap().1
+}
+pub(super) fn glyphs(draw: &ExtractedUiNode) -> &[ExtractedGlyph] {
+    let ExtractedUiItem::Glyphs { glyphs } = &draw.item else {
+        panic!("预期字形绘制项")
+    };
+    glyphs
+}
+pub(super) fn glyph(color: LinearRgba, translation: Vec2) -> ExtractedGlyph {
+    ExtractedGlyph { color, translation, rect: default() }
+}
+fn clip(rect: Rect) -> CalculatedClip {
+    CalculatedClip::default().with_rect(rect, &UiGlobalTransform::default())
 }
 pub(super) fn background(color: Color) -> ExtractedUiItem {
     ExtractedUiItem::Node {
@@ -93,17 +116,15 @@ fn literal_data_colors_keep_original_gold_and_button_feedback_inside_editor_them
     let literal = entity(71);
     let ordinary = entity(72);
     let source = c::TEXT_ACCENT;
-    let mut nodes = ExtractedUiNodes {
-        uinodes: vec![
-            node(literal, background(source)),
-            node(literal, ExtractedUiItem::Glyphs { range: 0..1 }),
-            node(ordinary, background(source)),
-            node(ordinary, ExtractedUiItem::Glyphs { range: 1..2 }),
-        ],
-        glyphs: (0..2).map(|_| ExtractedGlyph {
-            color: source.to_linear(), translation: Vec2::ZERO, rect: default(),
-        }).collect(),
-    };
+    let text_draw = || node(ExtractedUiItem::Glyphs {
+        glyphs: vec![glyph(source.to_linear(), Vec2::ZERO)],
+    });
+    let mut nodes = extracted([
+        (literal, node(background(source))),
+        (literal, text_draw()),
+        (ordinary, node(background(source))),
+        (ordinary, text_draw()),
+    ]);
     let palette = EditorPalette::graphite_blue();
     extract::apply(&mut nodes, &palette, &mut ThemeExtraction::default(),
         |_| None, |_| true, |_| false, |e| e == literal, |e| {
@@ -112,11 +133,11 @@ fn literal_data_colors_keep_original_gold_and_button_feedback_inside_editor_them
                 background: source.to_linear(), colors: None,
             })
         });
-    assert_eq!(nodes.glyphs[0].color, source.to_linear(), "时间轴游标/ANSI字形不能被换成主题色");
-    assert!(color(&nodes.uinodes[0]).red > source.to_linear().red,
+    assert_eq!(glyphs(draw(&nodes, literal, 1))[0].color, source.to_linear(), "时间轴游标/ANSI字形不能被换成主题色");
+    assert!(color(draw(&nodes, literal, 0)).red > source.to_linear().red,
         "原色按钮仍需有实际悬停反馈");
-    assert_eq!(color(&nodes.uinodes[2]), palette.resolve(source).to_linear());
-    assert_eq!(nodes.glyphs[1].color, palette.resolve(source).to_linear());
+    assert_eq!(color(draw(&nodes, ordinary, 0)), palette.resolve(source).to_linear());
+    assert_eq!(glyphs(draw(&nodes, ordinary, 1))[0].color, palette.resolve(source).to_linear());
 }
 
 #[test]
@@ -125,26 +146,14 @@ fn theme_only_changes_editor_descendants_and_code_surface_layer() {
     let input = entity(2);
     let code = entity(3);
     let hud = entity(4);
-    let mut nodes = ExtractedUiNodes {
-        uinodes: vec![
-            node(input, background(c::INPUT_BG)),
-            node(code, background(c::INPUT_BG)),
-            node(hud, background(c::INPUT_BG)),
-            node(code, ExtractedUiItem::Glyphs { range: 0..2 }),
-            node(hud, ExtractedUiItem::Glyphs { range: 2..3 }),
-        ],
-        glyphs: (0..3)
-            .map(|i| ExtractedGlyph {
-                color: if i == 1 {
-                    LinearRgba::WHITE
-                } else {
-                    c::TEXT_ACCENT.to_linear()
-                },
-                translation: Vec2::ZERO,
-                rect: default(),
-            })
-            .collect(),
-    };
+    let accent = || glyph(c::TEXT_ACCENT.to_linear(), Vec2::ZERO);
+    let mut nodes = extracted([
+        (input, node(background(c::INPUT_BG))),
+        (code, node(background(c::INPUT_BG))),
+        (hud, node(background(c::INPUT_BG))),
+        (code, node(ExtractedUiItem::Glyphs { glyphs: vec![accent(), glyph(LinearRgba::WHITE, Vec2::ZERO)] })),
+        (hud, node(ExtractedUiItem::Glyphs { glyphs: vec![accent()] })),
+    ]);
     let palette = EditorPalette::graphite_blue();
     extract::apply(
         &mut nodes,
@@ -157,25 +166,25 @@ fn theme_only_changes_editor_descendants_and_code_surface_layer() {
         |_| None,
     );
     assert_eq!(
-        color(&nodes.uinodes[0]),
+        color(draw(&nodes, input, 0)),
         palette.resolve(c::INPUT_BG).to_linear()
     );
     assert_eq!(
-        color(&nodes.uinodes[1]),
+        color(draw(&nodes, code, 0)),
         palette.resolve(c::OVERLAY_BG).to_linear()
     );
-    assert_eq!(color(&nodes.uinodes[2]), c::INPUT_BG.to_linear());
+    assert_eq!(color(draw(&nodes, hud, 0)), c::INPUT_BG.to_linear());
     assert_eq!(
-        nodes.glyphs[0].color,
+        glyphs(draw(&nodes, code, 1))[0].color,
         palette.resolve(c::TEXT_ACCENT).to_linear()
     );
     assert_eq!(
-        nodes.glyphs[1].color,
+        glyphs(draw(&nodes, code, 1))[1].color,
         LinearRgba::WHITE,
         "原生选区和Emoji白色不被改写"
     );
     assert_eq!(
-        nodes.glyphs[2].color,
+        glyphs(draw(&nodes, hud, 1))[0].color,
         c::TEXT_ACCENT.to_linear(),
         "同色游戏字形必须保留"
     );
@@ -216,11 +225,8 @@ fn theme_topology_observes_non_node_reparent_and_root_lifecycle() {
 
 #[test]
 fn theme_long_clipped_document_only_maps_visible_glyph_rows() {
-    let mut nodes = ExtractedUiNodes {
-        uinodes: vec![node(
-            entity(1),
-            ExtractedUiItem::Glyphs { range: 0..100_000 },
-        )],
+    let main = entity(1);
+    let mut text = node(ExtractedUiItem::Glyphs {
         glyphs: (0..100_000)
             .map(|i| ExtractedGlyph {
                 color: c::TEXT_PRIMARY.to_linear(),
@@ -228,15 +234,16 @@ fn theme_long_clipped_document_only_maps_visible_glyph_rows() {
                 rect: Rect::new(0.0, 0.0, 10.0, 20.0),
             })
             .collect(),
-    };
-    nodes.uinodes[0].clip = Some(Rect::new(0.0, 400_000.0, 500.0, 400_600.0));
-    let range = extract::visible_glyphs(&nodes, 0, 0..100_000);
+    });
+    text.clip = Some(clip(Rect::new(0.0, 400_000.0, 500.0, 400_600.0)));
+    let range = extract::visible_glyphs(text.transform, text.clip.as_ref(), glyphs(&text));
     assert!(range.contains(&20_000) && range.contains(&20_030));
     assert!(
         range.len() < 100,
         "长文档不能逐帧映射全部隐藏字形: {}",
         range.len()
     );
+    let mut nodes = extracted([(main, text)]);
     extract::apply(
         &mut nodes,
         &EditorPalette::neutral_gray(),
@@ -247,15 +254,16 @@ fn theme_long_clipped_document_only_maps_visible_glyph_rows() {
         |_| false,
         |_| None,
     );
-    assert_eq!(nodes.glyphs[0].color, c::TEXT_PRIMARY.to_linear());
+    let text = draw(&nodes, main, 0);
+    assert_eq!(glyphs(text)[0].color, c::TEXT_PRIMARY.to_linear());
     assert_eq!(
-        nodes.glyphs[20_001].color,
+        glyphs(text)[20_001].color,
         EditorPalette::neutral_gray()
             .resolve(c::TEXT_PRIMARY)
             .to_linear()
     );
-    nodes.uinodes[0].clip = Some(Rect::new(0.0, 3_000_000.0, 500.0, 3_001_000.0));
-    assert!(extract::visible_glyphs(&nodes, 0, 0..100_000).is_empty());
+    let remote_clip = clip(Rect::new(0.0, 3_000_000.0, 500.0, 3_001_000.0));
+    assert!(extract::visible_glyphs(text.transform, Some(&remote_clip), glyphs(text)).is_empty());
 }
 
 #[test]
@@ -275,8 +283,8 @@ fn theme_cache_is_bounded_and_cycles_fail_closed() {
 
 #[test]
 fn theme_single_axis_clips_preserve_title_and_input_glyph_mapping() {
-    let mut nodes = ExtractedUiNodes {
-        uinodes: vec![node(entity(1), ExtractedUiItem::Glyphs { range: 0..2 })],
+    let main = entity(1);
+    let mut text = node(ExtractedUiItem::Glyphs {
         glyphs: (0..2)
             .map(|i| ExtractedGlyph {
                 color: c::TEXT_ACCENT.to_linear(),
@@ -284,15 +292,16 @@ fn theme_single_axis_clips_preserve_title_and_input_glyph_mapping() {
                 rect: default(),
             })
             .collect(),
-    };
-    for clip in [
+    });
+    for rect in [
         Rect::new(f32::NEG_INFINITY, 70.0, f32::INFINITY, 1074.0),
         Rect::new(100.0, f32::NEG_INFINITY, 300.0, f32::INFINITY),
     ] {
-        nodes.uinodes[0].clip = Some(clip);
-        nodes.uinodes[0].transform = bevy::math::Affine2::from_translation(Vec2::new(100.0, 199.0));
-        assert_eq!(extract::visible_glyphs(&nodes, 0, 0..2), 0..2);
+        text.clip = Some(clip(rect));
+        text.transform = bevy::math::Affine2::from_translation(Vec2::new(100.0, 199.0));
+        assert_eq!(extract::visible_glyphs(text.transform, text.clip.as_ref(), glyphs(&text)), 0..2);
     }
+    let mut nodes = extracted([(main, text)]);
     let palette = EditorPalette::graphite_blue();
     extract::apply(
         &mut nodes,
@@ -305,8 +314,7 @@ fn theme_single_axis_clips_preserve_title_and_input_glyph_mapping() {
         |_| None,
     );
     assert!(
-        nodes
-            .glyphs
+        glyphs(draw(&nodes, main, 0))
             .iter()
             .all(|glyph| glyph.color == palette.resolve(c::TEXT_ACCENT).to_linear())
     );

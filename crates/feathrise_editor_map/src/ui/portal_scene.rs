@@ -1,5 +1,6 @@
 //! 玩法页传送点双列表的BSN静态外壳；真实条目行由`portal_list`功能域维护。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*; // BSN Scene与紧凑纵向布局组件。
 use bevy::text::FontSourceTemplate; // 当前/目标地图摘要使用项目中文字体。
@@ -16,7 +17,7 @@ use super::scene::{FONT_PATH, flex_editor_button}; // 名称与删除按钮保�
 
 fn step(label: &str) -> impl Scene {
     bsn! {
-        Text(label) feathrise_editor_ui::localization::label_scene(label)
+        Text(label) @feathrise_editor_ui::localization::label_scene(label)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
         TextColor(colors::TEXT_ACCENT)
         TextLayout { linebreak: LineBreak::AnyCharacter }
@@ -28,7 +29,7 @@ fn step(label: &str) -> impl Scene {
 pub(super) fn portal_authoring_panel() -> impl Scene {
     bsn! {
         MapEditorPortalSelectionPanel
-        template_value(crate::ui::scene_inspector::SelectedToolProperties::new(crate::ui::scene_inspector::SelectedToolPropertiesKind::Portal))
+        ~{crate::ui::scene_inspector::SelectedToolProperties::new(crate::ui::scene_inspector::SelectedToolPropertiesKind::Portal)}
         Node {
             display: Display::None, // 页面显隐由原传送Presentation唯一负责，Select中的Inspect不收起属性。
             width: percent(100), // 双列表完整使用玩法页正文宽度。
@@ -38,10 +39,10 @@ pub(super) fn portal_authoring_panel() -> impl Scene {
             flex_shrink: 0.0, // 低高度窗口由玩法页外层滚动访问完整内容。
         }
         Children [
-            (step("1 · 当前源点（已有）")),
+            (@step("1 · 当前源点（已有）")),
             (
                 MapEditorCurrentPortalListTitle
-                Text("当前地图传送点 · 等待作者数据") feathrise_editor_ui::localization::label_scene("当前地图传送点 · 等待作者数据")
+                Text("当前地图传送点 · 等待作者数据") @feathrise_editor_ui::localization::label_scene("当前地图传送点 · 等待作者数据")
                 TextLayout { linebreak: LineBreak::AnyCharacter }
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                 TextFont {
@@ -73,7 +74,7 @@ pub(super) fn portal_authoring_panel() -> impl Scene {
                 }
                 Children [
                     (
-                        Text("所选源点名称") feathrise_editor_ui::localization::label_scene("所选源点名称") // 只编辑已有源点名称，不改写目标落点。
+                        Text("所选源点名称") @feathrise_editor_ui::localization::label_scene("所选源点名称") // 只编辑已有源点名称，不改写目标落点。
                         TextFont {
                             font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 中文说明使用项目字体。
                             font_size: px(ui_metrics::FONT_HINT), // 辅助说明弱于列表主信息。
@@ -81,7 +82,7 @@ pub(super) fn portal_authoring_panel() -> impl Scene {
                         TextColor(colors::TEXT_HINT) // 使用提示色避免抢占列表层级。
                     ),
                     (
-                        Button // 点击后启用键盘与中文IME输入。
+                        InteractionButton // 点击后启用键盘与中文IME输入。
                         MapEditorPortalNameInput // 稳定marker供Presentation更新聚焦边框。
                         crate::components::MapEditorActionButton(EditorAction::PortalNameFocus) // 结构化聚焦动作。
                         Node {
@@ -115,16 +116,16 @@ pub(super) fn portal_authoring_panel() -> impl Scene {
                             column_gap: px(3), // 应用和删除保留明确边界。
                         }
                         Children [
-                            (flex_editor_button("应用名称", EditorAction::PortalNameApply)),
-                            (flex_editor_button("删除源点", EditorAction::PortalDeleteSelected)),
+                            (@flex_editor_button("应用名称", EditorAction::PortalNameApply)),
+                            (@flex_editor_button("删除源点", EditorAction::PortalDeleteSelected)),
                         ]
                     ),
                 ]
             ),
-            (step("2 · 新点的目标地图与落点")),
+            (@step("2 · 新点的目标地图与落点")),
             (
                 MapEditorTargetPortalListTitle
-                Text("目标地图落点 · 尚未选择地图") feathrise_editor_ui::localization::label_scene("目标地图落点 · 尚未选择地图")
+                Text("目标地图落点 · 尚未选择地图") @feathrise_editor_ui::localization::label_scene("目标地图落点 · 尚未选择地图")
                 TextLayout { linebreak: LineBreak::AnyCharacter }
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                 TextFont {
@@ -145,10 +146,10 @@ pub(super) fn portal_authoring_panel() -> impl Scene {
                     flex_shrink: 0.0, // 列表行不随窗口高度压缩。
                 }
             ),
-            (step("3 · 新点连接预备")),
+            (@step("3 · 新点连接预备")),
             (
                 MapEditorPortalTargetText
-                Text("请先在地图页高亮目标地图，再选择到达点") feathrise_editor_ui::localization::label_scene("请先在地图页高亮目标地图，再选择到达点")
+                Text("请先在地图页高亮目标地图，再选择到达点") @feathrise_editor_ui::localization::label_scene("请先在地图页高亮目标地图，再选择到达点")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_VALUE)
                 TextLayout { linebreak: LineBreak::AnyCharacter }

@@ -4,6 +4,7 @@
 #[allow(dead_code)]
 mod render;
 
+use feathrise_editor_ui::InteractionButton;
 use bevy::{
     prelude::*,
     render::{
@@ -155,7 +156,7 @@ fn editor_button_feedback_is_visible_after_business_rewrites_and_preserves_seman
         buttons.push(
             app.world_mut()
                 .spawn((
-                    Button,
+                    InteractionButton,
                     BusinessBackground(base),
                     BackgroundColor(base),
                     ChildOf(root),
@@ -185,7 +186,7 @@ fn editor_button_feedback_is_visible_after_business_rewrites_and_preserves_seman
     let game = app
         .world_mut()
         .spawn((
-            Button,
+            InteractionButton,
             BusinessBackground(c::BUTTON_DEV_SMALL_NORMAL),
             BackgroundColor(c::BUTTON_DEV_SMALL_NORMAL),
             bevy::ui::UiTargetCamera(camera),

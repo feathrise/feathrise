@@ -1,5 +1,6 @@
 //! 植被工作台的弹性字段、顶部导航和轻量分组；输入仍由原官方文本会话管理。
 
+use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use crate::ui::theme as colors;
 use bevy::prelude::*;
@@ -53,7 +54,7 @@ pub(super) fn spawn_button(
     let emphasized = kind == PresetButtonKind::Primary || active;
     parent
         .spawn((
-            Button,
+            InteractionButton,
             PresetEditorButton(action),
             kind,
             Node {
@@ -215,7 +216,7 @@ pub(super) fn spawn_field(
                 line.spawn(Node { min_width: Val::Px(0.0), flex_grow: 1.0, flex_basis: Val::Px(0.0),
                     flex_wrap: FlexWrap::Wrap, column_gap: Val::Px(ui_metrics::GAP), row_gap: Val::Px(ui_metrics::GAP), ..default() }).with_children(|row| {
                 row.spawn((
-                    Button,
+                    InteractionButton,
                     PresetEditorButton(PresetEditorAction::Focus(field)),
                     PresetEditorFieldButton(field),
                     field_control_node(),

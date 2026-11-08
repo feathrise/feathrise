@@ -176,10 +176,10 @@ fn global_lod_card_fits_real_chinese_font_and_keeps_low_windows_scrollable() {
         };
         app.add_systems(Startup, SpawnSystem::spawn(move || bsn! {
             crate::ui::editor_settings::components::SettingsBody
-            bevy::ui::RelativeCursorPosition template_value(scroll_cursor)
+            bevy::ui::RelativeCursorPosition ~{scroll_cursor}
             Node { width: px(logical_width), height: px(logical_height), min_width: px(0), min_height: px(0),
                 flex_direction: FlexDirection::Column, overflow: Overflow::scroll_y() } ScrollPosition::default()
-            Children [(super::scene::panel())]
+            Children [(@super::scene::panel())]
         }));
         app.world_mut().spawn((Camera2d, Camera { computed: ComputedCameraValues {
             target_info: Some(RenderTargetInfo { physical_size: UVec2::new(width as u32, height as u32), scale_factor: dpi }), ..default() },

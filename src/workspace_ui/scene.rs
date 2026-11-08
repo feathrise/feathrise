@@ -1,5 +1,6 @@
 //! 新增工程页面挂在原工作台静态槽位；只构造新增字段，不复制三栏和作者工具。
 
+use feathrise_editor_ui::InteractionButton;
 use super::{Page, WorkspaceField, components::*, resources::Presentation};
 use bevy::{
     input_focus::tab_navigation::TabIndex,
@@ -52,7 +53,7 @@ pub(super) fn button(
 ) -> Entity {
     parent
         .spawn((
-            Button,
+            InteractionButton,
             action,
             feathrise_editor_ui::ButtonColors::new(
                 c::BUTTON_DEV_SMALL_NORMAL,
@@ -117,7 +118,7 @@ fn input(
             color: c::TEXT_PRIMARY,
             selection_color: c::SELECT_BG_HOVER,
             unfocused_selection_color: c::SELECT_BG,
-            selected_text_color: Some(c::TEXT_PRIMARY),
+            selection_radius: 0.0, selected_text_color: Some(c::TEXT_PRIMARY),
         },
         BackgroundColor(c::INPUT_BG),
         BorderColor::all(c::COPPER_BORDER_WEAK),
@@ -523,7 +524,7 @@ pub(super) fn recent_rows(
                     })
                     .with_children(|row| {
                         row.spawn((
-                            Button,
+                            InteractionButton,
                             RecentAction {
                                 path: recent.path.clone(),
                                 remove: false,
@@ -550,7 +551,7 @@ pub(super) fn recent_rows(
                             item.spawn(caption_bundle(&font, &recent.last_opened, 11.));
                         });
                         row.spawn((
-                            Button,
+                            InteractionButton,
                             RecentAction {
                                 path: recent.path.clone(),
                                 remove: true,

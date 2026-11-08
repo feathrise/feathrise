@@ -3,6 +3,7 @@
   "required_files": [
     "Cargo.lock",
     "assets/templates/empty/Cargo.toml",
+    "assets/templates/empty/Cargo-bevy-0.19.lock",
     "assets/templates/empty/build.rs",
     "assets/templates/empty/README.md",
     "assets/templates/empty/src/main.rs",

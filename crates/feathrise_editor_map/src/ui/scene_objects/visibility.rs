@@ -85,7 +85,7 @@ impl ObjectVisibilityState {
 }
 
 pub(super) fn register_root(
-    event: On<Insert, MapPlacementInstance>,
+    event: On<Insert<MapPlacementInstance>>,
     mut state: ResMut<ObjectVisibilityState>,
 ) {
     state.roots.insert(event.entity);
@@ -94,7 +94,7 @@ pub(super) fn register_root(
 }
 
 pub(super) fn remove_root(
-    event: On<Remove, MapPlacementInstance>,
+    event: On<Remove<MapPlacementInstance>>,
     mut state: ResMut<ObjectVisibilityState>,
 ) {
     state.roots.remove(&event.entity);
@@ -104,7 +104,7 @@ pub(super) fn remove_root(
 }
 
 pub(super) fn register_deletion_suppression(
-    event: On<Add, PlacementDeletionSuppression>,
+    event: On<Add<PlacementDeletionSuppression>>,
     mut state: ResMut<ObjectVisibilityState>,
 ) {
     state.deletion_roots.insert(event.entity);
@@ -112,7 +112,7 @@ pub(super) fn register_deletion_suppression(
 }
 
 pub(super) fn remove_deletion_suppression(
-    event: On<Remove, PlacementDeletionSuppression>,
+    event: On<Remove<PlacementDeletionSuppression>>,
     mut state: ResMut<ObjectVisibilityState>,
 ) {
     state.deletion_roots.remove(&event.entity);
@@ -126,7 +126,7 @@ fn release_expired_deletion(commands: &mut Commands, root: Entity) {
 }
 
 pub(super) fn remember_external_visibility(
-    event: On<Insert, Visibility>,
+    event: On<Insert<Visibility>>,
     mut commands: Commands,
     mut roots: Query<
         (&MapPlacementInstance, &mut Visibility, Option<&mut EditorObjectVisibility>,

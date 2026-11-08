@@ -24,7 +24,7 @@ use super::vegetation_sidebar::{
 /// 分区只使用弱分隔线和标题，不给每个参数组叠加卡片背景。
 fn section_heading(label: &str) -> impl Scene {
     bsn! {
-        Text(label) feathrise_editor_ui::localization::label_scene(label)
+        Text(label) @feathrise_editor_ui::localization::label_scene(label)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
         TextColor(colors::TEXT_ACCENT)
         Node {
@@ -53,7 +53,7 @@ fn feedback_text(kind: VegetationSidebarFeedbackKind, initial: &str) -> impl Sce
         Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
     };
     // 原反馈身份与完整文字保留，底栏统一采集；当前新建目标仍属于可见上下文。
-    (node, source.map(|source| bsn! { template_value(crate::ui::status_bar::PanelStatusText(source)) }))
+    (node, source.map(|source| bsn! { ~{crate::ui::status_bar::PanelStatusText(source)} }))
 }
 
 /// 构造严格等宽三列按钮行。
@@ -72,9 +72,9 @@ fn three_button_row(
             flex_shrink: 0.0,
         }
         Children [
-            (flex_editor_button(first_label, first_action)),
-            (flex_editor_button(second_label, second_action)),
-            (flex_editor_button(third_label, third_action)),
+            (@flex_editor_button(first_label, first_action)),
+            (@flex_editor_button(second_label, second_action)),
+            (@flex_editor_button(third_label, third_action)),
         ]
     }
 }
@@ -91,11 +91,11 @@ pub(super) fn vegetation_authoring_panel() -> impl Scene {
             flex_shrink: 0.0, // 内容交给外层滚动，不压缩按钮和提示。
         }
         Children [
-            (crate::ui::context_help::help_button("植被预设库", "使用已有预设：在全局库选择。新建预设：先在左侧资产选择GLB，再点击新建。预设库与当前地图图层是不同的编辑对象。")),
-            (vegetation_preset_editor_panel()),
+            (@crate::ui::context_help::help_button("植被预设库", "使用已有预设：在全局库选择。新建预设：先在左侧资产选择GLB，再点击新建。预设库与当前地图图层是不同的编辑对象。")),
+            (@vegetation_preset_editor_panel()),
             (
                 MapEditorVegetationPresetListTitle
-                Text("预设库 · 加载中") feathrise_editor_ui::localization::label_scene("预设库 · 加载中") // 标题只表达当前目录状态。
+                Text("预设库 · 加载中") @feathrise_editor_ui::localization::label_scene("预设库 · 加载中") // 标题只表达当前目录状态。
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                     font_size: px(ui_metrics::FONT_CONTROL), // 提升目录标题可读性。
@@ -116,13 +116,13 @@ pub(super) fn vegetation_authoring_panel() -> impl Scene {
                     flex_shrink: 0.0,
                 }
             ),
-            (crate::ui::context_help::section_header("当前地图图层", "绘制：在全局库选预设 → 用此预设新建空白层 → 切到视口编辑后涂绘；新建不会自动填满，Shift+左键擦除。\n选层：选择模式左键选择整层；植被工具用Ctrl+左键吸取图层，重复点击或Alt+点击轮换重叠层。复制、删除仅影响当前地图作者层；全局预设删除仍检查所有地图引用。\n分组：组内可共存、共享容量或高优先级覆盖；跨组可取最大、相加封顶或非零替换。组容量与覆盖阈值仅在对应规则下可编辑。\n数值：左拖实时回显，松开形成一次撤销；中键精确输入，右拖只调本字段灵敏度。\n预览：作者源、最终结果与组内冲突使用原覆盖图；编译和密度发布完成不代表GPU与模型已经显示。半径和强度仍在视图同排工具条。")),
-            (super::vegetation_paint::panel()),
-            (feedback_text(VegetationSidebarFeedbackKind::CreationTarget, "新建层预设：尚未选择")),
-            (flex_editor_button("用此预设新建空白层", EditorAction::VegetationAddLayer)), // 显式地图事务，不创建或修改全局预设。
+            (@crate::ui::context_help::section_header("当前地图图层", "绘制：在全局库选预设 → 用此预设新建空白层 → 切到视口编辑后涂绘；新建不会自动填满，Shift+左键擦除。\n选层：选择模式左键选择整层；植被工具用Ctrl+左键吸取图层，重复点击或Alt+点击轮换重叠层。复制、删除仅影响当前地图作者层；全局预设删除仍检查所有地图引用。\n分组：组内可共存、共享容量或高优先级覆盖；跨组可取最大、相加封顶或非零替换。组容量与覆盖阈值仅在对应规则下可编辑。\n数值：左拖实时回显，松开形成一次撤销；中键精确输入，右拖只调本字段灵敏度。\n预览：作者源、最终结果与组内冲突使用原覆盖图；编译和密度发布完成不代表GPU与模型已经显示。半径和强度仍在视图同排工具条。")),
+            (@super::vegetation_paint::panel()),
+            (@feedback_text(VegetationSidebarFeedbackKind::CreationTarget, "新建层预设：尚未选择")),
+            (@flex_editor_button("用此预设新建空白层", EditorAction::VegetationAddLayer)), // 显式地图事务，不创建或修改全局预设。
             (
                 MapEditorVegetationLayerListTitle
-                Text("作者图层 · 加载中") feathrise_editor_ui::localization::label_scene("作者图层 · 加载中") // 与下面的新建图层操作统一称呼。
+                Text("作者图层 · 加载中") @feathrise_editor_ui::localization::label_scene("作者图层 · 加载中") // 与下面的新建图层操作统一称呼。
                 Node {
                     width: percent(100), // 分区线与列表同宽。
                     min_width: px(0),
@@ -156,19 +156,19 @@ pub(super) fn vegetation_authoring_panel() -> impl Scene {
                     flex_shrink: 0.0,
                 }
                 Children [
-                    (flex_editor_button("前页首项", EditorAction::VegetationListPreviousPage)),
-                    (flex_editor_button("后页首项", EditorAction::VegetationListNextPage)),
-                    (flex_editor_button("删除图层", EditorAction::VegetationDeleteSelected)), // 与全局“删除所选预设”区分。
+                    (@flex_editor_button("前页首项", EditorAction::VegetationListPreviousPage)),
+                    (@flex_editor_button("后页首项", EditorAction::VegetationListNextPage)),
+                    (@flex_editor_button("删除图层", EditorAction::VegetationDeleteSelected)), // 与全局“删除所选预设”区分。
                 ]
             ),
-            (vegetation_preset_feedback()), // 保留唯一原诊断，底栏集中回显并提供完整详情。
+            (@vegetation_preset_feedback()), // 保留唯一原诊断，底栏集中回显并提供完整详情。
         ]
     }
 }
 
 /// 所选属性只挂载在右侧；复用原控件与作者事务。
 pub(crate) fn vegetation_properties_panel() -> impl Scene {
-    bsn! { template_value(crate::ui::scene_inspector::InspectorSection::Vegetation) Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(4), flex_shrink: 0.0 }
+    bsn! { ~{crate::ui::scene_inspector::InspectorSection::Vegetation} Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(4), flex_shrink: 0.0 }
         Children [
             (
                 MapEditorVegetationSelectionProperties
@@ -181,10 +181,10 @@ pub(crate) fn vegetation_properties_panel() -> impl Scene {
                     flex_shrink: 0.0,
                 }
                 Children [
-                    (section_heading("所选层属性")),
+                    (@section_heading("所选层属性")),
                     (
                         MapEditorVegetationStatusText
-                        Text("所选层 · 等待选择") feathrise_editor_ui::localization::label_scene("所选层 · 等待选择") // 状态先于操作，明确按钮作用对象。
+                        Text("所选层 · 等待选择") @feathrise_editor_ui::localization::label_scene("所选层 · 等待选择") // 状态先于操作，明确按钮作用对象。
                         TextFont {
                             font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                             font_size: px(ui_metrics::FONT_CONTROL),
@@ -197,18 +197,18 @@ pub(crate) fn vegetation_properties_panel() -> impl Scene {
                             flex_shrink: 0.0, // 长名称换行后不得被父容器压缩。
                         }
                     ),
-                    (three_button_row("复制图层", EditorAction::VegetationDuplicateLayer, "上移图层", EditorAction::VegetationMoveUp, "下移图层", EditorAction::VegetationMoveDown)), // 结构操作保持同一行。
-                    (three_button_row("显示/隐藏", EditorAction::VegetationToggleEnabled, "锁定/解锁", EditorAction::VegetationToggleLocked, "切换预览", EditorAction::VegetationPreviewNext)), // 常用显示操作同组，当前预览见上方状态。
-                    (three_button_row("新建分组", EditorAction::VegetationNewGroup, "移入下组", EditorAction::VegetationNextGroup, "组内规则", EditorAction::VegetationCycleGroupMode)), // 将分组操作集中，减少上下寻找。
-                    (flex_editor_button("切换跨组合并规则", EditorAction::VegetationCycleMergeMode)), // 明确这是循环切换，不是打开规则编辑器。
-                    (vegetation_numeric_slots()), // 参数紧随规则，避免状态打断表单。
+                    (@three_button_row("复制图层", EditorAction::VegetationDuplicateLayer, "上移图层", EditorAction::VegetationMoveUp, "下移图层", EditorAction::VegetationMoveDown)), // 结构操作保持同一行。
+                    (@three_button_row("显示/隐藏", EditorAction::VegetationToggleEnabled, "锁定/解锁", EditorAction::VegetationToggleLocked, "切换预览", EditorAction::VegetationPreviewNext)), // 常用显示操作同组，当前预览见上方状态。
+                    (@three_button_row("新建分组", EditorAction::VegetationNewGroup, "移入下组", EditorAction::VegetationNextGroup, "组内规则", EditorAction::VegetationCycleGroupMode)), // 将分组操作集中，减少上下寻找。
+                    (@flex_editor_button("切换跨组合并规则", EditorAction::VegetationCycleMergeMode)), // 明确这是循环切换，不是打开规则编辑器。
+                    (@vegetation_numeric_slots()), // 参数紧随规则，避免状态打断表单。
                 ]
             ),
-            (feedback_text(VegetationSidebarFeedbackKind::Availability, "等待当前地图作者数据")),
-            (feedback_text(VegetationSidebarFeedbackKind::Compile, "编译：等待作者数据")),
-            (feedback_text(VegetationSidebarFeedbackKind::Preview, "预览：等待完整密度快照")),
-            (feedback_text(VegetationSidebarFeedbackKind::Catalog, "")),
-            (feedback_text(VegetationSidebarFeedbackKind::Message, "")),
+            (@feedback_text(VegetationSidebarFeedbackKind::Availability, "等待当前地图作者数据")),
+            (@feedback_text(VegetationSidebarFeedbackKind::Compile, "编译：等待作者数据")),
+            (@feedback_text(VegetationSidebarFeedbackKind::Preview, "预览：等待完整密度快照")),
+            (@feedback_text(VegetationSidebarFeedbackKind::Catalog, "")),
+            (@feedback_text(VegetationSidebarFeedbackKind::Message, "")),
         ]
     }
 }

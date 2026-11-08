@@ -28,43 +28,43 @@ pub(super) fn delete_map_dialog() -> impl Scene {
         BackgroundColor(colors::OVERLAY_BG)
         Children [(
             ManagementPanel(DialogKind::MapDeletion)
-            template_value(modal::panel_node())
+            ~{modal::panel_node()}
             BackgroundColor(colors::PANEL_BG_STRONG)
             BorderColor::all(colors::COPPER_BORDER_WEAK)
             Children [
-                (modal::heading("删除地图")),
+                (@modal::heading("删除地图")),
                 (
                     ManagementScroll(DialogKind::MapDeletion)
                     ScrollPosition::default() RelativeCursorPosition::default()
-                    template_value(modal::body_node())
+                    ~{modal::body_node()}
                     Children [
-                        (modal::caption("删除目标 · 请核对身份")),
+                        (@modal::caption("删除目标 · 请核对身份")),
                         (
-                            MapDeletionDialogText Text("等待删除目标") feathrise_editor_ui::localization::label_scene("等待删除目标")
+                            MapDeletionDialogText Text("等待删除目标") @feathrise_editor_ui::localization::label_scene("等待删除目标")
                             TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_PRIMARY)
                             Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                         ),
-                        (modal::caption("删除后果与保护")),
-                        (modal::caption("直接删除：永久删除地图文件，不可恢复。放入回收站：将文件移到工程的 assets/maps/.trash/，可人工恢复。")),
-                        (modal::caption("两种方式都会移除地图目录入口；文件夹已不存在时只清理记录。其他地图仍引用它时拒绝删除，必须先关闭该地图标签并等待场景卸载。")),
+                        (@modal::caption("删除后果与保护")),
+                        (@modal::caption("直接删除：永久删除地图文件，不可恢复。放入回收站：将文件移到工程的 assets/maps/.trash/，可人工恢复。")),
+                        (@modal::caption("两种方式都会移除地图目录入口；文件夹已不存在时只清理记录。其他地图仍引用它时拒绝删除，必须先关闭该地图标签并等待场景卸载。")),
                     ]
                 ),
                 (
                     ManagementScroll(DialogKind::MapDeletion) ManagementFeedback(DialogKind::MapDeletion)
                     ScrollPosition::default() RelativeCursorPosition::default()
-                    template_value(modal::feedback_node())
+                    ~{modal::feedback_node()}
                     BackgroundColor(colors::PANEL_BG_SECTION)
-                    Children [(modal::caption("待确认 · 尚未启动删除；确认后仍须通过引用与文件校验。"))]
+                    Children [(@modal::caption("待确认 · 尚未启动删除；确认后仍须通过引用与文件校验。"))]
                 ),
                 (
                     ManagementFooter(DialogKind::MapDeletion)
-                    template_value(modal::footer_node())
+                    ~{modal::footer_node()}
                     Children [
-                        (modal::button("取消", EditorAction::CancelDeleteMap)),
-                        (modal::button("直接删除", EditorAction::ConfirmDeleteMapPermanently)),
-                        (modal::button("放入回收站", EditorAction::ConfirmDeleteMap)),
+                        (@modal::button("取消", EditorAction::CancelDeleteMap)),
+                        (@modal::button("直接删除", EditorAction::ConfirmDeleteMapPermanently)),
+                        (@modal::button("放入回收站", EditorAction::ConfirmDeleteMap)),
                     ]
                 ),
             ]

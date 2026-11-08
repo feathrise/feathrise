@@ -1,5 +1,6 @@
 //! 真实窗口双语专项，验证首页、作者进程、文档草稿和重开。只操作本轮独占夹具。
 
+use feathrise_editor_ui::InteractionButton;
 use crate::workspace_ui::{WorkspaceCommand, WorkspaceModel};
 use bevy::{
     input::{ButtonState, keyboard::{Key, KeyboardInput}, mouse::MouseButtonInput},
@@ -491,7 +492,7 @@ fn button(world: &mut World, label: &str) -> Option<Entity> {
     let mut right_mesh: Option<(Entity, f32)> = None;
     for mut entity in texts {
         for _ in 0..24 {
-            if world.get::<Button>(entity).is_some()
+            if world.get::<InteractionButton>(entity).is_some()
                 && world.get::<InheritedVisibility>(entity).is_some_and(|visible| visible.get())
                 && world.get::<ComputedNode>(entity).is_some_and(|node| !node.is_empty())
                 && world.get::<InteractionDisabled>(entity).is_none()
