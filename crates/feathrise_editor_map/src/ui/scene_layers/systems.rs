@@ -1,5 +1,6 @@
 //! 固定四十行的呈现与左键选择；右键仍由共用菜单冻结当前可见行身份。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use super::{components::*, resources::*, rows, types::LayerList};
 use crate::{
@@ -81,7 +82,7 @@ pub(super) fn sync(
     mut rows: Query<
         (
             &Row,
-            &Interaction,
+            &UiInteraction,
             &mut SceneObjectRow,
             Option<&mut EditorButtonClick>,
             &mut Node,

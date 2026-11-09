@@ -1,5 +1,6 @@
 //! 真实模式按钮与同步门回归：五态互斥、工具恢复、重复点击及鼠标释放隔离。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::types::EditorTool;
 use crate::ui::courtyard::CourtyardUiState;
@@ -84,18 +85,18 @@ fn vertical_mode_tools_own_the_only_modes_and_header_reveals_context_controls_ex
     let (root, node) = world.query_filtered::<(Entity, &Node), With<ContextControls>>().single(world).unwrap();
     assert_eq!(node.display, Display::None);
     let options = world.query::<(Entity, &ModeButton)>().iter(world).find(|(_, button)| matches!(button, ModeButton::Options)).unwrap().0;
-    world.entity_mut(options).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    world.entity_mut(options).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert_eq!(app.world().get::<Node>(root).unwrap().display, Display::Flex);
-    *app.world_mut().get_mut::<Interaction>(options).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(options).unwrap() = UiInteraction::None;
     for filter in [SelectionFilter::All, SelectionFilter::Surface, SelectionFilter::Vegetation,
         SelectionFilter::Domain, SelectionFilter::Water, SelectionFilter::Placements, SelectionFilter::Gameplay] {
         let world = app.world_mut();
         let target = world.query::<(Entity, &ModeButton)>().iter(world)
             .find(|(_, button)| matches!(button, ModeButton::Filter(value) if *value == filter)).unwrap().0;
-        world.entity_mut(target).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        world.entity_mut(target).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         app.update();
-        *app.world_mut().get_mut::<Interaction>(target).unwrap() = Interaction::None;
+        *app.world_mut().get_mut::<UiInteraction>(target).unwrap() = UiInteraction::None;
         app.update();
         let world = app.world_mut();
         assert_eq!(world.resource::<ViewportModeState>().filter, filter);
@@ -137,19 +138,19 @@ fn press(app: &mut App, value: ViewportMode) {
     let target = mode_button(app, value);
     let world = app.world_mut();
     for mut interaction in world
-        .query_filtered::<&mut Interaction, With<ModeButton>>()
+        .query_filtered::<&mut UiInteraction, With<ModeButton>>()
         .iter_mut(world)
     {
-        *interaction = Interaction::None;
+        *interaction = UiInteraction::None;
     }
-    world.entity_mut(target).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    world.entity_mut(target).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
 }
 
 fn assert_mode(app: &mut App, value: ViewportMode) {
     let world = app.world_mut();
     let modes = world
-        .query::<(&ModeButton, &Interaction, &BackgroundColor, &BorderColor)>()
+        .query::<(&ModeButton, &UiInteraction, &BackgroundColor, &BorderColor)>()
         .iter(world)
         .filter_map(|(button, interaction, background, border)| match button {
             ModeButton::Mode(mode) => Some((*mode, *interaction, background.0, *border)),
@@ -159,10 +160,10 @@ fn assert_mode(app: &mut App, value: ViewportMode) {
     assert_eq!(modes.len(), 5);
     for (mode, interaction, background, border) in modes {
         let fill = match (interaction, mode == value) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-            (Interaction::None, true) => colors::SELECT_BG,
-            (Interaction::None, false) => colors::SLOT_BG,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::None, true) => colors::SELECT_BG,
+            (UiInteraction::None, false) => colors::SLOT_BG,
         };
         assert_eq!(background, fill, "模式选中与交互填色：{mode:?}");
         assert_eq!(border, BorderColor::all(colors::COPPER_BORDER_WEAK));
@@ -338,8 +339,8 @@ fn mesh_edit_reuses_the_rail_without_activating_object_transforms() {
             state.tool = tool;
         }
         let world = app.world_mut();
-        for mut interaction in world.query_filtered::<&mut Interaction, With<ModeButton>>().iter_mut(world) {
-            *interaction = Interaction::None;
+        for mut interaction in world.query_filtered::<&mut UiInteraction, With<ModeButton>>().iter_mut(world) {
+            *interaction = UiInteraction::None;
         }
         app.update();
         let world = app.world_mut();

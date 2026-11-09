@@ -1,5 +1,6 @@
 //! 文档真实文件事务、连续全文、格式分流、输入隔离和迟到结果回归；不写正式资产。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, constants::*, io, parser, resources::DocumentState, session, types::*};
 use crate::asset_catalog::{DocumentFormat, document_format};
 use bevy::{
@@ -724,7 +725,7 @@ fn markdown_reload_requires_discard_confirmation_and_ime_blocks_save() {
         .add_systems(Update, super::interaction::actions);
     let button = app
         .world_mut()
-        .spawn((feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed, DocumentAction::Reload))
+        .spawn((feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed, DocumentAction::Reload))
         .id();
     app.update();
     assert!(
@@ -740,9 +741,9 @@ fn markdown_reload_requires_discard_confirmation_and_ime_blocks_save() {
             .pending_load
             .is_none()
     );
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::None;
     app.update();
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
     app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     app.update();
     assert!(
@@ -821,7 +822,7 @@ ComputedNode::default())).id();
     app.update(); // 官方队列采用原生绑定的TextStart，后续原文件动作不被初始化队列拦截。
     assert_eq!(app.world().get::<DocumentSource>(source).unwrap().key.as_ref(), Some(&original_key));
     let button = app.world_mut().spawn((DocumentAction::Reload,
-        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)).id();
+        feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)).id();
     app.world_mut().run_system_once(super::interaction::actions).unwrap();
     assert!(app.world().resource::<DocumentState>().current().unwrap().confirm_reload);
     assert!(app.world().resource::<DocumentState>().pending_load.is_none());
@@ -1441,7 +1442,7 @@ fn gpu_document_sidebar(
             .0
     };
     // 走真实按钮系统，设置实体交互并单次Update避免PreUpdate的鼠标系统覆盖测试边沿。
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
     app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     app.world_mut()
         .run_system_once(super::interaction::actions)
@@ -1550,7 +1551,7 @@ fn gpu_document_sidebar(
             let revision = app.world().resource::<DocumentState>().current().unwrap().revision;
             app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
             move_pointer(&mut app, Vec2::new(0.0, 0.25));
-            assert_eq!(*app.world().get::<Interaction>(rail).unwrap(), Interaction::Pressed);
+            assert_eq!(*app.world().get::<UiInteraction>(rail).unwrap(), UiInteraction::Pressed);
             app.world_mut().run_system_once(super::minimap::handle_input).unwrap();
             let expected = app.world().get::<EditableText>(source).unwrap().viewport.offset.y;
             assert!(expected > 10_000.0, "小地图点击必须跳到长文件深处");
@@ -1564,7 +1565,7 @@ fn gpu_document_sidebar(
             // 真实轨道拖出到下方仍滚到末尾，滚轮悬停只改同一EditableText.viewport。
             app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
             move_pointer(&mut app, Vec2::new(0.0, 0.25));
-            assert_eq!(*app.world().get::<Interaction>(rail).unwrap(), Interaction::Pressed);
+            assert_eq!(*app.world().get::<UiInteraction>(rail).unwrap(), UiInteraction::Pressed);
             app.world_mut().run_system_once(super::minimap::handle_input).unwrap();
             move_pointer(&mut app, Vec2::new(0.75, 0.5));
             assert!(!app.world().get::<bevy::ui::RelativeCursorPosition>(rail).unwrap().cursor_over());
@@ -1915,7 +1916,7 @@ fn gpu_document_sidebar(
             .find(|(_, candidate)| **candidate == action)
             .unwrap_or_else(|| panic!("未生成正式文档按钮：{action:?}"))
             .0;
-        *world.get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+        *world.get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
         world.entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
         world.run_system_once(super::interaction::actions).unwrap();
         world.get_mut::<feathrise_editor_ui::EditorButtonClick>(button).unwrap().invalidate();
@@ -1936,7 +1937,7 @@ fn gpu_document_sidebar(
             app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
             app.world_mut().run_system_cached(bevy::ui::ui_focus_system).unwrap();
             app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
-            assert_eq!(*app.world().get::<Interaction>(row).unwrap(), Interaction::Pressed, "正式鼠标命中必须到达资产行");
+            assert_eq!(*app.world().get::<UiInteraction>(row).unwrap(), UiInteraction::Pressed, "正式鼠标命中必须到达资产行");
             app.world_mut().run_system_once(crate::asset_catalog::handle_asset_row_clicks).unwrap();
             app.world_mut().run_system_once(super::super::opening::open).unwrap();
             app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();

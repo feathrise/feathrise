@@ -1,5 +1,6 @@
 //! 显式独立编辑器验收夹具：原坐标创建→原保存按钮→原正式交接，不维护另一套保存逻辑。
 
+use feathrise_editor_ui::UiInteraction;
 #[path = "validation_fixture_map_tools.rs"]
 mod map_tools;
 #[cfg(test)]
@@ -366,7 +367,7 @@ pub fn request_map_tab(world: &mut World) -> Result<Entity, String> {
         .spawn((
             PresetEditorButton(PresetEditorAction::ActivateMapTab),
             feathrise_editor_ui::EditorButtonClick::triggered(),
-            Interaction::Pressed,
+            UiInteraction::Pressed,
         ))
         .id())
 }
@@ -384,7 +385,7 @@ fn drive(world: &mut World) {
         if let Some(entity) = fixture.click_pulse.take()
             && let Ok(mut button) = world.get_entity_mut(entity)
         {
-            button.insert((Interaction::None, feathrise_editor_ui::EditorButtonClick::default()));
+            button.insert((UiInteraction::None, feathrise_editor_ui::EditorButtonClick::default()));
         } // 原Input已消费上一帧单次释放脉冲，不能在后续Changed中重复保存。
         if matches!(fixture.phase, Phase::Idle | Phase::Complete | Phase::Failed) { return; }
         let budget = if super::author_workflow_validation::enabled() { 600 } else { 180 };
@@ -461,7 +462,7 @@ fn drive(world: &mut World) {
                 if world.get::<MapEditorActionButton>(entity).is_none() {
                     fail(&mut fixture, "原保存按钮已被重建，未发送陈旧按钮动作"); return;
                 }
-                world.entity_mut(entity).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+                world.entity_mut(entity).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
                 fixture.click_pulse = Some(entity);
                 fixture.phase = Phase::SavePulse;
             }

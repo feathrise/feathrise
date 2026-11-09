@@ -14,9 +14,9 @@ fn button(label: &str, action: Action) -> impl Scene {
             align_items: AlignItems::Center, justify_content: JustifyContent::Center,
             border: px(1), border_radius: BorderRadius::all(px(3)), padding: UiRect::horizontal(px(4)) }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(ActionLabel(action) Text(label) TextLayout::linebreak(LineBreak::AnyCharacter)
+        Children [ActionLabel(action) Text(label) TextLayout::linebreak(LineBreak::AnyCharacter)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-            TextColor(colors::TEXT_PRIMARY))]
+            TextColor(colors::TEXT_PRIMARY)]
     }
 }
 
@@ -29,12 +29,12 @@ pub(crate) fn panel() -> impl Scene {
         SettingsGroup ~{group_node()}
         BackgroundColor(colors::PANEL_BG_SECTION) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            (@crate::ui::context_help::section_header("全局网格 LOD", "当前通用策略用于普通静态GLB、可雕刻网格及建筑外观；Clipmap与体素保留各自的高级分层。显示按屏幕误差选择精度；碰撞独立，按近场区域驻留，32米内保持原始精度。关闭LOD保留原始网格和碰撞，独立对象覆盖也受总开关约束。")),
-            (@button("显示 LOD：开启", Action::Display)),
-            (@slot(MeshLodField::ScreenError)), (@slot(MeshLodField::Hysteresis)),
-            (@button("碰撞 LOD：原始", Action::Collision)),
-            (@slot(MeshLodField::SafeNear)), (@slot(MeshLodField::CollisionError)),
-            (@button("恢复网格 LOD 默认", Action::Reset)),
+            @crate::ui::context_help::section_header("全局网格 LOD", "当前通用策略用于普通静态GLB、可雕刻网格及建筑外观；Clipmap与体素保留各自的高级分层。显示按屏幕误差选择精度；碰撞独立，按近场区域驻留，32米内保持原始精度。关闭LOD保留原始网格和碰撞，独立对象覆盖也受总开关约束。")--
+            @button("显示 LOD：开启", Action::Display)--
+            @slot(MeshLodField::ScreenError)-- @slot(MeshLodField::Hysteresis)--
+            @button("碰撞 LOD：原始", Action::Collision)--
+            @slot(MeshLodField::SafeNear)-- @slot(MeshLodField::CollisionError)--
+            @button("恢复网格 LOD 默认", Action::Reset)
         ]
     }
 }

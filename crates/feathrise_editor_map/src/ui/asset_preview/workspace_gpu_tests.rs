@@ -1,5 +1,6 @@
 //! 用真实PNG/GLTF和GPU验证中央预览；夹具只写临时资产，截图保存在本地验证目录。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::*, types::*, workspace};
 use crate::resources::*;
 use crate::ui::{sidebars::*, vegetation_preset_editor::*};
@@ -292,7 +293,7 @@ fn gpu_asset_center_image_and_model_real_load_expand_restore() {
     // 中央子模型入口沿用原函数和原材质；之后把唯一视图借给另一文件，验证完整恢复链。
     let button = app
         .world_mut()
-        .spawn((feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed, AssetPreviewAction::ShowPrimitive(0)))
+        .spawn((feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed, AssetPreviewAction::ShowPrimitive(0)))
         .id();
     app.world_mut()
         .run_system_once(super::interaction::handle_asset_preview_actions)
@@ -383,7 +384,7 @@ fn gpu_asset_center_image_and_model_real_load_expand_restore() {
 }
 
 fn press(app: &mut App, action: AssetPreviewWorkspaceAction) {
-    let button = app.world_mut().spawn((feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed, action)).id();
+    let button = app.world_mut().spawn((feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed, action)).id();
     app.world_mut().run_system_once(workspace::actions).unwrap();
     app.world_mut().entity_mut(button).despawn();
 }

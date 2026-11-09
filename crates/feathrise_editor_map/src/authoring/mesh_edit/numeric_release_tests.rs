@@ -1,5 +1,6 @@
 //! 正式专业数字拖动与建模输入同帧运行；数字松键后仍需经过公共释放静默门。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use bevy::{ecs::world::CommandQueue, ui::RelativeCursorPosition};
 use crate::resources::MapEditorNumericScrubMouseGuard;
@@ -29,7 +30,7 @@ fn numeric_app() -> (App, Entity, Entity) {
     app.world_mut().entity_mut(field).insert((
         InheritedVisibility::VISIBLE,
         ComputedNode { size: Vec2::new(100.0, 26.0), inverse_scale_factor: 1.0, ..default() },
-        Interaction::Hovered,
+        UiInteraction::Hovered,
         RelativeCursorPosition { cursor_over: true, normalized: Some(Vec2::ZERO) },
     )); // 无窗口夹具只提供正式命中与布局结果；拖动、松键及公共所有权均由生产系统推进。
     app.world_mut().get_mut::<RelativeCursorPosition>(node).unwrap().cursor_over = false;

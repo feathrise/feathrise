@@ -1,5 +1,6 @@
 //! 真实离屏验证搜索键盘/中文候选、虚拟滚动、中央跳转、草稿与外部文件失效。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{components::DocumentSource, resources::DocumentState};
 use super::{components::*, constants::*, control, resources::AssetSearchState, types::ResultRow};
 use bevy::{
@@ -488,8 +489,8 @@ pub(super) fn click(app: &mut App, window: Entity, camera: Entity, action: Searc
         .unwrap();
     app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
     assert_eq!(
-        *app.world().get::<Interaction>(entity).unwrap(),
-        Interaction::Pressed,
+        *app.world().get::<UiInteraction>(entity).unwrap(),
+        UiInteraction::Pressed,
         "真实鼠标未命中搜索行或按钮：{action:?}"
     );
     app.world_mut().run_system_once(control::input).unwrap();

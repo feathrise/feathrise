@@ -1,4 +1,5 @@
 //! 复用真实文档GPU夹具，检查正式设置按钮、绘制色及切换期间的草稿/滚动/选区身份。
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::{components::*, resources::MapEditorSettingsState, types::EditorSettingsAction};
 use bevy::{
@@ -330,8 +331,8 @@ fn click(app: &mut App, window: Entity, camera: Entity, action: EditorSettingsAc
         .unwrap();
     app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
     assert_eq!(
-        *app.world().get::<Interaction>(button).unwrap(),
-        Interaction::Pressed,
+        *app.world().get::<UiInteraction>(button).unwrap(),
+        UiInteraction::Pressed,
         "正式鼠标应命中主题按钮"
     );
     app.world_mut()

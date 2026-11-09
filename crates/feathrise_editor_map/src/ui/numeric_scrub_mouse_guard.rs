@@ -1,5 +1,7 @@
 //! 公共数值拖动、资产预览、资产右键菜单与地图编辑器其他鼠标入口之间的统一所有权仲裁。
 
+#[cfg(test)]
+use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*; // 鼠标按钮、资源和Bevy系统条件。
 use feathrise_editor_ui::ActiveNumericInputScrub; // 共享 UI 控件提供当前专业数字拖动的唯一实体身份。
 
@@ -230,7 +232,7 @@ mod tests {
             .resource_mut::<MapEditorNumericScrubMouseGuard>()
             .advance(true, true, false); // 数值拖动先取得鼠标所有权。
         app.world_mut().spawn((
-            feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed, // 明确的完成点击仍须被数值门消费。
+            feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed, // 明确的完成点击仍须被数值门消费。
             MapEditorAssetRow {
                 slot: 0,              // 固定行池第一个物理槽位。
                 entry_index: Some(0), // 指向唯一合法测试资产。

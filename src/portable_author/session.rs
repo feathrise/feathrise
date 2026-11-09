@@ -160,6 +160,8 @@ impl HostSession {
         })
     }
 
+    // 正式子进程环境只由 Unix 工作台配置；Windows 测试直接连接自有离屏会话。
+    #[cfg(unix)]
     pub(crate) fn configure(&self, command: &mut std::process::Command, parent_window: usize) {
         command.env("FEATHRISE_WORKSPACE_SESSION", &self.directory);
         if parent_window != 0 {
@@ -173,6 +175,7 @@ impl HostSession {
         command.env_remove("FEATHRISE_WORKSPACE_PARENT_HWND");
     }
 
+    #[cfg(unix)]
     pub(crate) fn matches(&self, token: &str) -> bool {
         self.token == token
     }

@@ -1,4 +1,5 @@
 //! 固定网格行的高亮、图标及点击身份；每帧只访问十行和三十个开关。
+use feathrise_editor_ui::UiInteraction;
 use super::{
     components::*, names::NamePanelGate, resources::TerrainObjectsEditorState, systems,
     types::RowTarget,
@@ -20,7 +21,7 @@ pub(super) fn sync(
     server: Res<AssetServer>,
     mut images: Local<Option<[Handle<Image>; 6]>>,
     mut rows: Query<
-        (&Row, &Interaction, &mut BackgroundColor, &mut BorderColor),
+        (&Row, &UiInteraction, &mut BackgroundColor, &mut BorderColor),
         Without<RowAction>,
     >,
     mut buttons: Query<
@@ -29,7 +30,7 @@ pub(super) fn sync(
             &ActionButton,
             &mut RowAction,
             Option<&mut feathrise_editor_ui::EditorButtonClick>,
-            &Interaction,
+            &UiInteraction,
             Has<InteractionDisabled>,
             &mut BackgroundColor,
             &mut BorderColor,
@@ -85,9 +86,9 @@ pub(super) fn sync(
             Action::Lock => state.locked.contains(&object.id),
             _ => false,
         });
-        let fill = if available && *interaction == Interaction::Pressed {
+        let fill = if available && *interaction == UiInteraction::Pressed {
             colors::SELECT_BG_PRESSED
-        } else if available && *interaction == Interaction::Hovered {
+        } else if available && *interaction == UiInteraction::Hovered {
             colors::SELECT_BG_HOVER
         } else if active {
             colors::SELECT_BG

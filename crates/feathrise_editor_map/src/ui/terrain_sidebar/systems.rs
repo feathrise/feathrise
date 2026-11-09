@@ -1,5 +1,6 @@
 //! 工具页请求先经过原视口模式门；反馈只读固定身份和原任务状态，不创建作者任务。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -98,7 +99,7 @@ pub(super) fn sync_pages(
     mut panels: Query<(&TerrainSidebarPanel, &mut Node)>,
     mut controls: Query<
         (
-            &Interaction,
+            &UiInteraction,
             Option<&TerrainSidebarTab>,
             Option<&TerrainSidebarTool>,
             &mut BackgroundColor,
@@ -130,10 +131,10 @@ pub(super) fn sync_pages(
         let selected = tab.is_some_and(|tab| tab.0 == state.page)
             || tool.is_some_and(|tool| tool.0 == state.sculpt_tool);
         let fill = match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-            (Interaction::None, true) => colors::SELECT_BG,
-            (Interaction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::None, true) => colors::SELECT_BG,
+            (UiInteraction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL,
         };
         // 雕刻与三维工具沿用导航选中填色；普通选中不借用输入焦点的亮边。
         let outline = BorderColor::all(colors::COPPER_BORDER_WEAK);

@@ -1,5 +1,6 @@
 //! 地图与整棵文件夹子树的拖拽、落点校验和单次虚拟归属提交。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
 use bevy::window::{PrimaryWindow, Window};
@@ -71,12 +72,12 @@ fn prepare_drop(
 }
 
 pub(super) fn row_is_hovered(
-    interaction: &Interaction,
+    interaction: &UiInteraction,
     cursor: Option<&RelativeCursorPosition>,
 ) -> bool {
-    matches!(interaction, Interaction::Hovered | Interaction::Pressed)
+    matches!(interaction, UiInteraction::Hovered | UiInteraction::Pressed)
         && cursor.map_or(
-            *interaction == Interaction::Hovered,
+            *interaction == UiInteraction::Hovered,
             RelativeCursorPosition::cursor_over,
         )
 } // Bevy会保留移出后的Pressed，必须结合真实光标位置，否则源文件夹会一直遮住其他落点。
@@ -86,9 +87,9 @@ pub(super) fn row_is_hovered(
 pub(crate) fn update_map_browser_drag(
     mouse: Res<ButtonInput<MouseButton>>, // 左键按住、松开和release帧隔离。
     windows: Query<&Window, With<PrimaryWindow>>, // 物理阈值位置与窗口焦点；浮层在布局后独立定位。
-    roots: Query<&Interaction, With<MapEditorMapRootRow>>, // 固定根目录行接受地图与文件夹移回根级。
+    roots: Query<&UiInteraction, With<MapEditorMapRootRow>>, // 固定根目录行接受地图与文件夹移回根级。
     rows: Query<(
-        &Interaction,
+        &UiInteraction,
         &MapEditorMapRow,
         Option<&RelativeCursorPosition>,
     )>, // 当前悬停的任意可见文件夹行。
@@ -182,7 +183,7 @@ pub(crate) fn update_map_browser_drag(
         }
         if target.is_none()
             && roots.iter().any(|interaction| {
-                matches!(interaction, Interaction::Hovered | Interaction::Pressed)
+                matches!(interaction, UiInteraction::Hovered | UiInteraction::Pressed)
             })
         {
             target = Some(MapBrowserDropTarget::Root); // 根目录固定在滚动树上方，长列表也始终能拖回根级。

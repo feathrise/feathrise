@@ -1,5 +1,6 @@
 //! 建筑工作台的真实中文字体布局、单连接点控件预算与输入/关闭保护回归；不写作者文件或启动GPU。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, interaction, list, presentation, types::*, workspace};
 use crate::authoring::EditorAuthoringSession;
@@ -252,17 +253,17 @@ fn button_entity(app: &mut App, action: BuildingPresetAction) -> Entity {
 
 fn press(app: &mut App, action: BuildingPresetAction) {
     let world = app.world_mut();
-    for mut interaction in world.query::<&mut Interaction>().iter_mut(world) {
-        if *interaction == Interaction::Pressed {
-            *interaction = Interaction::None;
+    for mut interaction in world.query::<&mut UiInteraction>().iter_mut(world) {
+        if *interaction == UiInteraction::Pressed {
+            *interaction = UiInteraction::None;
         }
     }
     let entity = button_entity(app, action);
     app.world_mut()
         .entity_mut(entity)
-        .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
-    app.world_mut().entity_mut(entity).insert(Interaction::None);
+    app.world_mut().entity_mut(entity).insert(UiInteraction::None);
     app.update();
 }
 
@@ -270,7 +271,7 @@ fn stale_action(app: &mut App, action: BuildingPresetAction) {
     // 仅为已退役标签/连接点票据构造迟到动作；正常用户路径通过真实渲染按钮测试。
     let entity = app
         .world_mut()
-        .spawn((BuildingPresetButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+        .spawn((BuildingPresetButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
         .id();
     app.update();
     app.world_mut().despawn(entity);
@@ -792,13 +793,13 @@ fn header_badges_diagnostics_and_button_styles_keep_busy_and_dirty_close_protect
     );
     app.world_mut()
         .entity_mut(save)
-        .insert(Interaction::Hovered);
+        .insert(UiInteraction::Hovered);
     app.update();
     assert_eq!(
         app.world().get::<BackgroundColor>(save).unwrap().0,
         crate::ui::theme::BUTTON_DEV_SMALL_HOVERED
     );
-    app.world_mut().entity_mut(save).insert(Interaction::None);
+    app.world_mut().entity_mut(save).insert(UiInteraction::None);
     app.update();
     assert_eq!(
         app.world().get::<BackgroundColor>(save).unwrap().0,

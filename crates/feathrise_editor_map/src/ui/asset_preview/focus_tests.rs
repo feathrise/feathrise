@@ -1,5 +1,6 @@
 //! 应用扩展预览期间的资产浏览：同路径换来源、唯一画布、真实裁剪与关闭恢复。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*; // 预览来源合同。
 use crate::ui::asset_preview::{
     loading::sync_asset_preview_selection, mounting::mount_asset_preview_panel,
@@ -129,7 +130,7 @@ fn click(app: &mut App, path: &str) {
     let index = app.world().resource::<EditorAssetCatalog>().entries.len() - 1; // 明确当前点击的目录项。
     app.world_mut().spawn((
         feathrise_editor_ui::EditorButtonClick::triggered(),
-        Interaction::Pressed,
+        UiInteraction::Pressed,
         MapEditorAssetRow {
             slot: 0,
             entry_index: Some(index),

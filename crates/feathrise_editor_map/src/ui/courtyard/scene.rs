@@ -78,11 +78,11 @@ fn button(label: &str, action: CourtyardAction) -> impl Scene {
         }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
-        )]
+        ]
     }
 }
 
@@ -111,44 +111,44 @@ pub(crate) fn courtyard_panel() -> impl Scene {
             flex_shrink: 0.0,
         }
         Children [
-            (@crate::ui::context_help::section_header("院落预设", "框选地图中的房屋与装饰，再保存为可重复盖印的院落；也可选择已有院落预设进行盖印。")),
-            (
+            @crate::ui::context_help::section_header("院落预设", "框选地图中的房屋与装饰，再保存为可重复盖印的院落；也可选择已有院落预设进行盖印。")--
+
                 CourtyardPresetText
                 Text("组合预设：等待目录") @feathrise_editor_ui::localization::label_scene("组合预设：等待目录")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_VALUE)
                 TextLayout { linebreak: LineBreak::AnyCharacter }
                 Node { width: percent(100), min_width: px(0) }
-            ),
-            (
+            --
+
                 Node { width: percent(100), column_gap: px(4), flex_shrink: 0.0 }
                 Children [
-                    (@button("上一个", CourtyardAction::PreviousPreset)),
-                    (@button("下一个", CourtyardAction::NextPreset)),
+                    @button("上一个", CourtyardAction::PreviousPreset)--
+                    @button("下一个", CourtyardAction::NextPreset)
                 ]
-            ),
-            (@button("盖印所选院落", CourtyardAction::Stamp)),
-            (@section("地图选集")),
-            (
+            --
+            @button("盖印所选院落", CourtyardAction::Stamp)--
+            @section("地图选集")--
+
                 CourtyardSelectionText
                 Text("当前框选：0 项") @feathrise_editor_ui::localization::label_scene("当前框选：0 项")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_VALUE)
                 Node { width: percent(100), min_width: px(0) }
-            ),
-            (
+            --
+
                 Node { width: percent(100), column_gap: px(4), flex_shrink: 0.0 }
                 Children [
-                    (@button("框选对象", CourtyardAction::BoxSelect)),
-                    (@button("清空选集", CourtyardAction::ClearSelection)),
+                    @button("框选对象", CourtyardAction::BoxSelect)--
+                    @button("清空选集", CourtyardAction::ClearSelection)
                 ]
-            ),
-            (
+            --
+
                 Text("组合名称") @feathrise_editor_ui::localization::label_scene("组合名称")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED)
-            ),
-            (
+            --
+
                 InteractionButton
                 CourtyardButton(CourtyardAction::FocusName)
                 Node {
@@ -163,7 +163,7 @@ pub(crate) fn courtyard_panel() -> impl Scene {
                 }
                 BackgroundColor(colors::INPUT_BG)
                 BorderColor::all(colors::INPUT_ACTIVE_BORDER)
-                Children [(
+                Children [
                     // 保留同一正式 EditableText；隐藏与重显不能重置中文光标或已确认名称。
                     CourtyardNameInput
                     crate::ui::text_input::EditorTextInput
@@ -174,25 +174,25 @@ pub(crate) fn courtyard_panel() -> impl Scene {
                     Node { width: percent(100), min_width: px(0), height: px(18), overflow: Overflow::clip_x() }
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                     TextColor(colors::TEXT_PRIMARY)
-                )]
-            ),
-            (@button("保存选集为院落预设", CourtyardAction::SaveSelection)),
-            (@crate::ui::context_help::section_header("选中院落", "盖印时旋转印章，否则旋转选中院落。成员仍可单独调整，不执行整组整平。")),
-            (
+                ]
+            --
+            @button("保存选集为院落预设", CourtyardAction::SaveSelection)--
+            @crate::ui::context_help::section_header("选中院落", "盖印时旋转印章，否则旋转选中院落。成员仍可单独调整，不执行整组整平。")--
+
                 Node { width: percent(100), column_gap: px(4), flex_shrink: 0.0 }
                 Children [
-                    (@button("整体移动", CourtyardAction::MoveGroup)),
-                    (@button("整体复制", CourtyardAction::CopyGroup)),
+                    @button("整体移动", CourtyardAction::MoveGroup)--
+                    @button("整体复制", CourtyardAction::CopyGroup)
                 ]
-            ),
-            (
+            --
+
                 Node { width: percent(100), column_gap: px(4), flex_shrink: 0.0 }
                 Children [
-                    (@button("左转 90°", CourtyardAction::RotateLeft)),
-                    (@button("右转 90°", CourtyardAction::RotateRight)),
+                    @button("左转 90°", CourtyardAction::RotateLeft)--
+                    @button("右转 90°", CourtyardAction::RotateRight)
                 ]
-            ),
-            (@button("取消当前工具", CourtyardAction::CancelMode)),
+            --
+            @button("取消当前工具", CourtyardAction::CancelMode)
         ]
     }
 }

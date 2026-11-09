@@ -104,13 +104,13 @@ pub(crate) fn button(label: &str, action: EditorAction) -> impl Scene {
         }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             ManagementButtonText
             Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
-        )]
+        ]
     }
 }
 
@@ -126,11 +126,11 @@ pub(crate) fn folder_confirm_button() -> impl Scene {
         }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             FolderConfirmText ManagementButtonText
             Text("确认") @feathrise_editor_ui::localization::label_scene("确认") TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
-        )]
+        ]
     }
 }

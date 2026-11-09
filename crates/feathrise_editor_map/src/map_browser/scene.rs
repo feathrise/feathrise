@@ -1,5 +1,6 @@
 //! 虚拟文件夹共用模态框和地图拖拽名称浮层。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*; // BSN Scene、文本和UI布局组件。
 use bevy::text::{FontSourceTemplate, LineHeight}; // 中文字段使用项目字体与真实单行度量。
@@ -17,7 +18,7 @@ use crate::ui::scene::FONT_PATH;
 /// 创建、重命名和删除空文件夹共用同一个阻止点透模态层。
 pub(crate) fn map_folder_dialog() -> impl Scene {
     bsn! {
-        MapFolderDialog Interaction::default() FocusPolicy::default()
+        MapFolderDialog UiInteraction::default() FocusPolicy::default()
         Node {
             display: Display::None, position_type: PositionType::Absolute,
             left: px(0), top: px(0), width: percent(100), height: percent(100),
@@ -26,37 +27,37 @@ pub(crate) fn map_folder_dialog() -> impl Scene {
         }
         GlobalZIndex(445)
         BackgroundColor(colors::OVERLAY_BG)
-        Children [(
+        Children [
             ManagementPanel(DialogKind::Folder)
             ~{modal::panel_node()}
             BackgroundColor(colors::PANEL_BG_STRONG)
             BorderColor::all(colors::COPPER_BORDER_WEAK)
             Children [
-                (
+
                     MapFolderDialogTitle Text("虚拟地图文件夹") @feathrise_editor_ui::localization::label_scene("虚拟地图文件夹")
                     TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(13) }
                     TextColor(colors::TEXT_ACCENT)
                     Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-                ),
-                (
+                --
+
                     ManagementScroll(DialogKind::Folder)
                     ScrollPosition::default() RelativeCursorPosition::default()
                     ~{modal::body_node()}
                     Children [
-                        (
+
                             FolderTargetText Text("等待冻结目标") @feathrise_editor_ui::localization::label_scene("等待冻结目标")
                             TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(11) }
                             TextColor(colors::TEXT_PRIMARY)
                             Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-                        ),
-                        (
+                        --
+
                             MapFolderDialogNameGroup
                             Node { width: percent(100), min_width: px(0), flex_shrink: 0.0, flex_direction: FlexDirection::Column, row_gap: px(4) }
                             Children [
-                                (@modal::caption("显示名称 · 支持中文")),
-                                (
+                                @modal::caption("显示名称 · 支持中文")--
+
                                     InteractionButton
                                     crate::components::MapEditorActionButton(EditorAction::FocusMapFolderName)
                                     crate::components::MapEditorCustomActionStyle
@@ -68,7 +69,7 @@ pub(crate) fn map_folder_dialog() -> impl Scene {
                                     }
                                     BackgroundColor(colors::INPUT_BG)
                                     BorderColor::all(colors::INPUT_ACTIVE_BORDER)
-                                    Children [(
+                                    Children [
                                         // 保留唯一官方名称根、原焦点动作及Unicode/IME协议，只修正实际行高居中。
                                         MapFolderDialogNameText
                                         bevy::text::EditableText { allow_newlines: false }
@@ -79,43 +80,43 @@ pub(crate) fn map_folder_dialog() -> impl Scene {
                                         Node { width: percent(100), min_width: px(0), height: px(16), overflow: Overflow::clip_x() }
                                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(11) }
                                         TextColor(colors::TEXT_PRIMARY)
-                                    )]
-                                ),
+                                    ]
+
                             ]
-                        ),
-                        (@modal::caption("影响范围")),
-                        (
+                        --
+                        @modal::caption("影响范围")--
+
                             FolderConsequencesText Text("")
                             TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(10.5) }
                             TextColor(colors::TEXT_MUTED)
                             Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-                        ),
+
                     ]
-                ),
-                (
+                --
+
                     ManagementScroll(DialogKind::Folder) ManagementFeedback(DialogKind::Folder)
                     ScrollPosition::default() RelativeCursorPosition::default()
                     ~{modal::feedback_node()}
                     BackgroundColor(colors::PANEL_BG_SECTION)
-                    Children [(
+                    Children [
                         MapFolderDialogStatusText Text("等待操作") @feathrise_editor_ui::localization::label_scene("等待操作")
                         TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(10.5) }
                         TextColor(colors::TEXT_PRIMARY)
                         Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-                    )]
-                ),
-                (
+                    ]
+                --
+
                     ManagementFooter(DialogKind::Folder)
                     ~{modal::footer_node()}
                     Children [
-                        (@modal::button("取消", EditorAction::CancelMapFolderDialog)),
-                        (@modal::folder_confirm_button()),
+                        @modal::button("取消", EditorAction::CancelMapFolderDialog)--
+                        @modal::folder_confirm_button()
                     ]
-                ),
+
             ]
-        )]
+        ]
     }
 }
 
@@ -137,7 +138,7 @@ pub(crate) fn map_browser_drag_preview() -> impl Scene {
         GlobalZIndex(450) // 高于所有编辑器模态和主体，但仍不参与命中。
         BackgroundColor(colors::PANEL_BG_STRONG) // 暗墨浮层不遮蔽名称可读性。
         BorderColor::all(colors::COPPER_BORDER) // 铜边明确正在拖动目录对象。
-        Children [(
+        Children [
             MapBrowserDragPreviewText // 显示冻结名称及无效落点原因。
             Pickable::IGNORE ~{FocusPolicy::Pass}
             Text("拖动目录项") @feathrise_editor_ui::localization::label_scene("拖动目录项") // 隐藏首帧占位。
@@ -149,6 +150,6 @@ pub(crate) fn map_browser_drag_preview() -> impl Scene {
             }
             TextColor(colors::TEXT_ACCENT) // 铜金文字突出拖拽身份。
             TextShadow { offset: Vec2::splat(1.0) } // 与公共提示一致，提高中文笔画在地图背景上的可读性。
-        )]
+        ]
     }
 }

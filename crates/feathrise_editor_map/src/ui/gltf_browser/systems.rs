@@ -1,5 +1,6 @@
 //! GLB浏览器固定行池、点击分页与样式同步系统。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use bevy::prelude::*; // ECS系统参数、UI组件和字体。
@@ -278,7 +279,7 @@ pub(crate) fn sync_gltf_browser_rows(
     mut glyphs: Query<&mut ImageNode, With<crate::components::MapEditorGltfBrowserRowGlyph>>,
     mut rows: Query<
         (
-            &Interaction,                 // 当前hover或按压反馈。
+            &UiInteraction,                 // 当前hover或按压反馈。
             Option<&mut EditorButtonClick>,
             &mut MapEditorGltfBrowserRow, // 写回当前页稳定索引。
             &mut Node,                    // 隐藏空槽并调整Blender层级缩进。
@@ -379,12 +380,12 @@ pub(crate) fn sync_gltf_browser_rows(
             } // 子行仍只高亮精确Blender网格，避免整棵树同时变色。
         };
         background.0 = match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下始终给即时强反馈。
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,   // 可点击行明确区别静态文字。
-            (Interaction::None, true) => colors::SELECT_BG,         // 当前网格保持暗金选中底。
-            (Interaction::None, false) => colors::PANEL_BG,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下始终给即时强反馈。
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,   // 可点击行明确区别静态文字。
+            (UiInteraction::None, true) => colors::SELECT_BG,         // 当前网格保持暗金选中底。
+            (UiInteraction::None, false) => colors::PANEL_BG,
         };
-        *border = BorderColor::all(if selected || *interaction != Interaction::None {
+        *border = BorderColor::all(if selected || *interaction != UiInteraction::None {
             colors::COPPER_BORDER // hover与选择强化完整铜边。
         } else {
             colors::COPPER_BORDER_WEAK // 静止普通行保留弱分隔。
@@ -480,7 +481,7 @@ pub(crate) fn sync_gltf_browser_rows(
 pub(crate) fn sync_gltf_browser_page_button_styles(
     state: Res<EditorGltfBrowserState>, // 判断首页和尾页以降低不可用按钮对比度。
     mut buttons: Query<(
-        &Interaction,
+        &UiInteraction,
         &MapEditorGltfBrowserPageButton,
         &mut BackgroundColor,
         &mut BorderColor,
@@ -496,14 +497,14 @@ pub(crate) fn sync_gltf_browser_page_button_styles(
             colors::SLOT_BG_DISABLED // 仍保留Button实体但明确不可前进。
         } else {
             match interaction {
-                Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED, // 鼠标按下反馈。
-                Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED, // 鼠标经过反馈。
-                Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL, // 常态与其他编辑器按钮一致。
+                UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED, // 鼠标按下反馈。
+                UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED, // 鼠标经过反馈。
+                UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL, // 常态与其他编辑器按钮一致。
             }
         };
         *border = BorderColor::all(if disabled {
             colors::COPPER_BORDER_WEAK // 不可用按钮降低边框强度。
-        } else if *interaction == Interaction::None {
+        } else if *interaction == UiInteraction::None {
             colors::COPPER_BORDER_WEAK // 可用常态保持统一弱铜边。
         } else {
             colors::COPPER_BORDER // hover或按压强化边框。

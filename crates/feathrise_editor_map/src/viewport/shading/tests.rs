@@ -158,7 +158,7 @@ fn wire_prepass_lease_can_move_to_solid_and_restores_a_camera_without_original_p
 }
 
 #[test]
-fn wide_overlay_layout_stays_above_the_view_and_returns_after_a_narrow_resize() {
+fn overlay_controls_stay_top_right_after_narrow_resize_and_ui_scaling() {
     use crate::components::{MapEditorOrientationAxisRoot, MapEditorViewport};
     let mut app = App::new();
     app.add_systems(Update, ui::place_overlays);
@@ -185,28 +185,27 @@ fn wide_overlay_layout_stays_above_the_view_and_returns_after_a_narrow_resize() 
         .world_mut()
         .spawn((ViewShadingRoot, ShadingMenu, Node::default()))
         .id();
-    for narrow in [false, true, false] {
+    for (size, inverse_scale) in [
+        (Vec2::new(1100.0, 600.0), 1.0),
+        (Vec2::new(528.0, 360.0), 1.0 / 1.7),
+        (Vec2::new(1100.0, 600.0), 1.0),
+        (Vec2::new(610.0, 400.0), 1.0),
+        (Vec2::new(609.0, 400.0), 1.0),
+    ] {
         {
             let mut node = app.world_mut().get_mut::<ComputedNode>(viewport).unwrap();
-            node.size = if narrow {
-                Vec2::new(528.0, 360.0)
-            } else {
-                Vec2::new(1100.0, 600.0)
-            };
-            node.inverse_scale_factor = if narrow { 1.0 / 1.7 } else { 1.0 };
+            node.size = size;
+            node.inverse_scale_factor = inverse_scale;
         }
         app.update();
         let axis = app.world().get::<Node>(axis).unwrap();
         let shading = app.world().get::<Node>(shading).unwrap();
         let menu = app.world().get::<Node>(menu).unwrap();
-        if narrow {
-            assert_eq!((axis.top, axis.bottom), (Val::Auto, px(38)));
-            assert_eq!((shading.top, shading.bottom), (Val::Auto, px(8)));
-            assert_eq!((menu.top, menu.bottom), (Val::Auto, px(30)));
-        } else {
-            assert_eq!((axis.top, axis.bottom), (px(42), Val::Auto));
-            assert_eq!((shading.top, shading.bottom), (px(8), Val::Auto));
-            assert_eq!((menu.top, menu.bottom), (px(30), Val::Auto));
+        assert_eq!((axis.top, axis.bottom, axis.right), (px(42), Val::Auto, px(8)));
+        assert_eq!((shading.top, shading.bottom, shading.right), (px(8), Val::Auto, px(8)));
+        assert_eq!((menu.top, menu.bottom, menu.right), (px(30), Val::Auto, px(0)));
+        for node in [axis, shading, menu] {
+            assert_eq!(node.position_type, PositionType::Absolute);
         }
     }
 }

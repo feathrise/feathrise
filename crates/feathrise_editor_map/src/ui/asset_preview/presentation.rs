@@ -1,5 +1,6 @@
 //! 固定资产预览UI的增量表现同步。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::image::TRANSPARENT_IMAGE_HANDLE; // 非图片阶段立即释放旧UI强句柄。
 use bevy::prelude::*; // Node、Text、ImageNode与资源查询。
 use crate::ui::theme as colors; // 缩放按钮保持现有F12铜边悬停反馈。
@@ -278,22 +279,22 @@ pub(super) fn sync_asset_preview_controls(
         Or<(With<AssetPreviewZoomText>, With<AssetPreviewNavigationHint>)>,
     >, // 提示和倍率共享单个可变Text查询。
     mut buttons: Query<
-        (&Interaction, &mut BackgroundColor, &mut BorderColor),
+        (&UiInteraction, &mut BackgroundColor, &mut BorderColor),
         (
             With<AssetPreviewAction>,
             With<AssetPreviewNavigationButton>,
-            Changed<Interaction>,
+            Changed<UiInteraction>,
         ),
     >, // 稳定按钮无需刷新颜色。
 ) {
     for (interaction, mut background, mut border) in &mut buttons {
         let color = match interaction {
-            Interaction::Pressed => colors::SELECT_BG_PRESSED, // 按下采用既有铜金选中色。
-            Interaction::Hovered => colors::SELECT_BG_HOVER,   // 悬停明确反馈可操作。
-            Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL, // 离开回到暗墨底。
+            UiInteraction::Pressed => colors::SELECT_BG_PRESSED, // 按下采用既有铜金选中色。
+            UiInteraction::Hovered => colors::SELECT_BG_HOVER,   // 悬停明确反馈可操作。
+            UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL, // 离开回到暗墨底。
         }; // 不创建预览专用的新配色。
         background.set_if_neq(BackgroundColor(color)); // 无差异不标记视觉Changed。
-        border.set_if_neq(BorderColor::all(if *interaction == Interaction::None {
+        border.set_if_neq(BorderColor::all(if *interaction == UiInteraction::None {
             colors::COPPER_BORDER_WEAK
         } else {
             colors::COPPER_BORDER

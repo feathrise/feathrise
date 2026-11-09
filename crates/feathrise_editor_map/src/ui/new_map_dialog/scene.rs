@@ -26,14 +26,14 @@ pub(super) fn panel() -> impl Scene {
         BackgroundColor(Color::srgb(0.035, 0.030, 0.024))
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            (
+
                 NewMapDialogTitle
                 Text("新建地图") @feathrise_editor_ui::localization::label_scene("新建地图")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_BODY) }
                 TextColor(colors::TEXT_ACCENT)
                 Node { flex_shrink: 0.0 }
-            ),
-            (
+            --
+
                 NewMapDialogBodyScroll
                 ScrollPosition::default()
                 RelativeCursorPosition::default()
@@ -43,9 +43,9 @@ pub(super) fn panel() -> impl Scene {
                     padding: UiRect::right(px(3)), overflow: Overflow::scroll_y(),
                 }
                 Children [
-                    (@section_title("基础资料")),
-                    (@caption("地图名称 · 必填")),
-                    (
+                    @section_title("基础资料")--
+                    @caption("地图名称 · 必填")--
+
                         // 唯一官方输入根保留Unicode、选区、光标及IME，外层不加截获点击的Button。
                         NewMapNameText
                         bevy::text::EditableText { allow_newlines: false }
@@ -64,9 +64,9 @@ pub(super) fn panel() -> impl Scene {
                         BorderColor::all(colors::INPUT_ACTIVE_BORDER)
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_PRIMARY)
-                    ),
-                    (@caption("备注 · 可选")),
-                    (
+                    --
+                    @caption("备注 · 可选")--
+
                         ScrollPosition::default()
                         Node {
                             width: percent(100), height: px(64), flex_shrink: 0.0,
@@ -75,7 +75,7 @@ pub(super) fn panel() -> impl Scene {
                         }
                         BackgroundColor(colors::INPUT_BG)
                         BorderColor::all(colors::INPUT_ACTIVE_BORDER)
-                        Children [(
+                        Children [
                             NewMapNotesText
                             bevy::text::EditableText { allow_newlines: true }
                             crate::ui::text_input::EditorTextInput
@@ -85,19 +85,19 @@ pub(super) fn panel() -> impl Scene {
                             Node { width: percent(100), min_height: px(54) }
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_PRIMARY)
-                        )]
-                    ),
-                    (
+                        ]
+                    --
+
                         NewMapDialogHint
                         Text("")
                         TextLayout::linebreak(LineBreak::AnyCharacter)
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                         TextColor(colors::TEXT_HINT)
                         Node { width: percent(100), flex_shrink: 0.0 }
-                    ),
+
                 ]
-            ),
-            (
+            --
+
                 // 完整事务错误独立滚动、最多60px；错误再长也不把确认与取消推出屏幕。
                 DialogFeedbackScroll
                 ScrollPosition::default()
@@ -108,23 +108,23 @@ pub(super) fn panel() -> impl Scene {
                     border_radius: BorderRadius::all(px(3)),
                 }
                 BackgroundColor(colors::PANEL_BG_SECTION)
-                Children [(
+                Children [
                     NewMapStatusText
                     Text("请输入地图名称，可填写备注") @feathrise_editor_ui::localization::label_scene("请输入地图名称，可填写备注")
                     TextLayout::linebreak(LineBreak::AnyCharacter)
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                     TextColor(colors::TEXT_PRIMARY)
                     Node { width: percent(100), flex_shrink: 0.0 }
-                )]
-            ),
-            (
+                ]
+            --
+
                 DialogFooter
                 Node { width: percent(100), flex_shrink: 0.0, justify_content: JustifyContent::FlexEnd, flex_wrap: FlexWrap::Wrap, column_gap: px(6), row_gap: px(4) }
                 Children [
-                    (@crate::ui::scene::editor_button("取消", EditorAction::CancelNewMap, 78.0)),
-                    (@confirm_button()),
+                    @crate::ui::scene::editor_button("取消", EditorAction::CancelNewMap, 78.0)--
+                    @confirm_button()
                 ]
-            ),
+
         ]
     }
 }
@@ -141,11 +141,11 @@ fn confirm_button() -> impl Scene {
         }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             NewMapConfirmText Text("创建空白地图") @feathrise_editor_ui::localization::label_scene("创建空白地图")
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
-        )]
+        ]
     }
 }
 

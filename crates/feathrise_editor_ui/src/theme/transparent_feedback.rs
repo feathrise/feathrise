@@ -1,5 +1,6 @@
 //! 透明按钮只在悬停/按下时补背景绘制，和官方绘制项共用失效生命周期。
 
+use crate::UiInteraction;
 use super::{
     button_feedback::{ButtonFeedback, interaction_for_cursor},
     components::EditorThemeRoot,
@@ -31,7 +32,7 @@ pub(super) fn extract(
                 &InheritedVisibility,
                 Option<&CalculatedClip>,
                 &ComputedUiTargetCamera,
-                &Interaction,
+                &UiInteraction,
                 &BackgroundColor,
                 Has<InteractionDisabled>,
                 Option<&NumericInputFieldButton>,
@@ -67,7 +68,7 @@ pub(super) fn extract(
         else {
             continue;
         };
-        if *interaction == Interaction::None || !background.is_fully_transparent() {
+        if *interaction == UiInteraction::None || !background.is_fully_transparent() {
             continue;
         }
         let numeric_root = field
@@ -77,7 +78,7 @@ pub(super) fn extract(
         if disabled
             || disabled_numeric.contains(entity)
             || numeric_root.is_some_and(|root| disabled_numeric.contains(root))
-            || interaction == Interaction::None
+            || interaction == UiInteraction::None
             || !visible.get()
             || computed.is_empty()
             || !owned(

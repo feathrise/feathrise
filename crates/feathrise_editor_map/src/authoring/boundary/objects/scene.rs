@@ -1,4 +1,5 @@
 //! 一次建立八行空气墙列表和紧凑操作区，字体显式使用项目中文字体。
+use feathrise_editor_ui::UiInteraction;
 use super::components::*;
 use crate::ui::theme as colors;
 use bevy::prelude::*;
@@ -66,7 +67,7 @@ pub(super) fn setup(
                 // 固定行池，不为每面墙创建实体。
                 let mut row = parent.spawn((
                     WallRow(index),
-                    Interaction::None,
+                    UiInteraction::None,
                     list_row(),
                     BackgroundColor(colors::SLOT_BG),
                     BorderColor::all(colors::COPPER_BORDER_WEAK),
@@ -134,7 +135,7 @@ pub(super) fn setup(
                         // 同行等宽。
                         row.spawn((
                             action,
-                            Interaction::None,
+                            UiInteraction::None,
                             Node {
                                 flex_basis: px(0),
                                 flex_grow: 1.0,
@@ -177,7 +178,7 @@ pub(super) fn setup(
             parent.spawn((
                 WallControls::Selection,
                 WallName,
-                Interaction::None,
+                UiInteraction::None,
                 crate::ui::text_input::single_line_input("", 64),
                 crate::ui::text_input::EditorTextInput,
                 TextFont {
@@ -201,7 +202,7 @@ pub(super) fn setup(
                 .spawn((
                     Action::Rename,
                     WallControls::Selection,
-                    Interaction::None,
+                    UiInteraction::None,
                     action_button(),
                     BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
                     BorderColor::all(colors::COPPER_BORDER_WEAK),

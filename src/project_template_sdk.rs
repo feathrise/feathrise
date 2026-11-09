@@ -298,9 +298,10 @@ fn read_manifest(path: &Path) -> Result<Value, String> {
         .map_err(|error| format!("Cargo 清单无效（{}）：{error}", path.display()))
 }
 
-/// F12 只依据工程本身的依赖决定网络策略，绝不套用当前新建配置去升级已有工程。
+/// 工程预览按当前工程清单中的依赖决定取源策略，避免套用新建工程的配置。
 /// 未知/继承的工作区或自定义依赖交给 Cargo；已知纯本地 SDK 保持原离线行为。
-pub(crate) fn apply_project_network_policy(manifest: &Path, command: &mut Command) -> Result<(), String> {
+/// 返回同一次有界解析的清单，供构建入口核对工程默认特性。
+pub(crate) fn apply_project_network_policy(manifest: &Path, command: &mut Command) -> Result<Value, String> {
     let value = read_manifest(manifest)?;
     let known_local = value.get("dependencies").and_then(Value::as_table).is_some_and(|table| {
         table.iter().any(|(alias, dependency)| {
@@ -312,7 +313,7 @@ pub(crate) fn apply_project_network_policy(manifest: &Path, command: &mut Comman
     if known_local && !needs_cargo_source_resolution(&value) {
         command.arg("--offline");
     }
-    Ok(())
+    Ok(value)
 }
 
 fn needs_cargo_source_resolution(value: &Value) -> bool {

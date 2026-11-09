@@ -20,7 +20,7 @@ pub(crate) struct BuildIdentity {
 
 impl BuildIdentity {
     pub(super) fn json(&self) -> serde_json::Value {
-        serde_json::json!({"project_id":self.project_id,"root":self.root,"profile":self.profile.cargo_profile(),
+        serde_json::json!({"project_id":self.project_id,"root":self.root,"profile":self.build_backend.cargo_profile(self.profile),
             "build_backend":self.build_backend.key(),
             "backend_revision":self.backend_revision,
             "generation":self.generation,"source_sha256":self.source_sha256,"context_sha256":self.context_sha256})

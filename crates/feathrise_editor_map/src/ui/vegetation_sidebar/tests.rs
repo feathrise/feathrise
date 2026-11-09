@@ -1,5 +1,6 @@
 //! 植被侧栏真实中文布局、任务身份、原六行池与作者事务回归；不写地图、目录或设置。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use std::sync::Arc;
 
@@ -323,9 +324,9 @@ fn press(app: &mut App, action: EditorAction) {
         .find(|(_, button)| button.0 == action)
         .unwrap()
         .0;
-    world.entity_mut(entity).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    world.entity_mut(entity).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
-    app.world_mut().entity_mut(entity).insert(Interaction::None);
+    app.world_mut().entity_mut(entity).insert(UiInteraction::None);
     app.update();
 }
 

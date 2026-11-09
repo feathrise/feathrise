@@ -1,4 +1,5 @@
 //! 无工程偏好交接输入门回归：旧点击/数值提交不重放，关闭保留，原逻辑禁用保持。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::*;
 use crate::workbench::{WorkbenchHostPagesPlugin, WorkbenchSettingsAccess};
@@ -75,7 +76,7 @@ fn host_settings_access_discards_blocked_and_resume_clicks_and_preserves_other_d
         .editable = false;
     app.world_mut()
         .entity_mut(preset)
-        .insert((EditorButtonClick::triggered(), Interaction::Pressed));
+        .insert((EditorButtonClick::triggered(), UiInteraction::Pressed));
     app.update();
     assert_eq!(
         app.world().resource::<EditorSettings>().editor_ui_scale,
@@ -89,8 +90,8 @@ fn host_settings_access_discards_blocked_and_resume_clicks_and_preserves_other_d
             .is_clicked()
     );
     assert_eq!(
-        app.world().get::<Interaction>(preset),
-        Some(&Interaction::None)
+        app.world().get::<UiInteraction>(preset),
+        Some(&UiInteraction::None)
     );
     assert_eq!(
         app.world().get::<BackgroundColor>(preset).unwrap().0,

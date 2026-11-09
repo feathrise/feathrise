@@ -1,5 +1,6 @@
 //! 工程插件使用共同弹窗外壳、原生滚动条和固定行池；呈现不执行文件IO或装卸动态库。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{
     components::*,
@@ -32,7 +33,7 @@ pub(super) fn mount(
     for header in &headers {
         commands.entity(header).with_children(|root| {
             root.spawn((ManagerOverlay, ManagerLayout::Overlay, GlobalZIndex(4370), FocusPolicy::Block,
-                Interaction::None, Node { display: Display::None, position_type: PositionType::Absolute,
+                UiInteraction::None, Node { display: Display::None, position_type: PositionType::Absolute,
                     left: px(0), top: px(0), width: Val::Vw(100.), height: Val::Vh(100.),
                     align_items: AlignItems::Center, justify_content: JustifyContent::Center, ..default() },
                 BackgroundColor(c::DIALOG_BACKDROP),
@@ -327,7 +328,7 @@ pub(super) fn present(
             &mut ManagerBinding,
             &mut Node,
             &mut EditorButtonClick,
-            &mut Interaction,
+            &mut UiInteraction,
             &mut feathrise_editor_ui::ButtonColors,
             &mut BackgroundColor,
             Option<&RelativeCursorPosition>,
@@ -343,7 +344,7 @@ pub(super) fn present(
             &mut ManagerAction,
             &mut ManagerBinding,
             &mut EditorButtonClick,
-            &mut Interaction,
+            &mut UiInteraction,
             Has<InteractionDisabled>,
             &mut feathrise_editor_ui::ButtonColors,
             &mut BackgroundColor,
@@ -433,7 +434,7 @@ pub(super) fn present(
             binding.0 = state.revision;
             *action = ManagerAction::Select(next.unwrap_or_default());
             click.invalidate();
-            *interaction = Interaction::None;
+            *interaction = UiInteraction::None;
         }
         node.display = if entry.is_some() {
             Display::Flex
@@ -608,7 +609,7 @@ pub(super) fn present(
             *action = next;
             binding.0 = state.revision;
             click.invalidate();
-            *interaction = Interaction::None;
+            *interaction = UiInteraction::None;
         }
         let next_disabled = state.busy || !enabled;
         // 状态来自真实禁用条件与官方Interaction；不把灰显按钮画成可点击，也不保留拖出后的按压色。
@@ -644,14 +645,14 @@ pub(super) fn present(
     }
 }
 
-fn button_background(colors: &feathrise_editor_ui::ButtonColors, interaction: Interaction,
+fn button_background(colors: &feathrise_editor_ui::ButtonColors, interaction: UiInteraction,
     cursor: Option<&RelativeCursorPosition>, disabled: bool) -> Color {
     if disabled {
         return c::DIALOG_BG;
     }
     match interaction {
-        Interaction::Pressed if cursor.is_none_or(RelativeCursorPosition::cursor_over) => colors.pressed,
-        Interaction::Hovered => colors.hovered,
+        UiInteraction::Pressed if cursor.is_none_or(RelativeCursorPosition::cursor_over) => colors.pressed,
+        UiInteraction::Hovered => colors.hovered,
         _ => colors.normal,
     }
 }

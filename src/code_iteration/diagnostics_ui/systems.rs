@@ -1,5 +1,6 @@
 //! 可见诊断行按结果与滚动代次换绑；旧按下/释放不得导航到新文件，静止帧不重排整份诊断。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::*};
 use super::super::resources::CodeIterationState;
 use super::super::types::CodeIterationPhase;
@@ -82,7 +83,7 @@ pub(super) fn present(
     mut overlays: Query<&mut Node, With<DiagnosticsOverlay>>,
     mut panes: Query<(&ComputedNode, &mut ScrollPosition), With<DiagnosticsPane>>,
     mut contents: Query<&mut Node, (With<DiagnosticsContent>, Without<DiagnosticsOverlay>, Without<DiagnosticRow>, Without<DiagnosticsEmpty>)>,
-    mut rows: Query<(Entity, &mut DiagnosticRow, &mut Node, &mut EditorButtonClick, &mut Interaction, Has<InteractionDisabled>),
+    mut rows: Query<(Entity, &mut DiagnosticRow, &mut Node, &mut EditorButtonClick, &mut UiInteraction, Has<InteractionDisabled>),
         (Without<DiagnosticsOverlay>, Without<DiagnosticsContent>, Without<DiagnosticsEmpty>)>,
     mut labels: Query<(&DiagnosticRowLabel, &mut Text, &mut TextColor), (Without<DiagnosticsStatus>, Without<DiagnosticsFooter>)>,
     mut statuses: Query<&mut Text, (With<DiagnosticsStatus>, Without<DiagnosticRowLabel>, Without<DiagnosticsFooter>)>,
@@ -128,7 +129,7 @@ pub(super) fn present(
             binding.revision = state.diagnostic_revision;
             binding.window_revision = view.window_revision;
             click.invalidate();
-            *interaction = Interaction::None;
+            *interaction = UiInteraction::None;
             node.display = if next.is_some() { Display::Flex } else { Display::None };
             node.top = px(index as f32 * ROW_HEIGHT);
             let can_open = next.is_some_and(|index| state.diagnostics[index].location.is_some());

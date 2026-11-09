@@ -1,5 +1,6 @@
 //! 编辑器偏好设置：视口显示、缩放、配色、吸附与操作偏好、默认布局恢复，不接管作者数据。
 
+use feathrise_editor_ui::UiInteraction;
 pub(super) mod components;
 mod scene;
 mod shortcuts_scene;
@@ -63,13 +64,13 @@ fn settings_button_with_height(
         @feathrise_editor_ui::dialog_button_colors_scene(false)
         ~{BackgroundColor(style.colors.normal)}
         BorderColor::all(feathrise_editor_ui::colors::DIALOG_BORDER)
-        Children [(
+        Children [
             Text(label)
             @feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextLayout::no_wrap()
             TextColor(colors::TEXT_PRIMARY)
-        )]
+        ]
     }
 }
 
@@ -413,7 +414,7 @@ pub(crate) fn sync_settings_panel(
     >,
     mut buttons: Query<(
         &MapEditorSettingsButton,
-        &Interaction,
+        &UiInteraction,
         &mut BackgroundColor,
         &mut BorderColor,
         Option<&SettingsUtilityButton>,
@@ -516,9 +517,9 @@ pub(crate) fn sync_settings_panel(
         let palette = style.colors;
         if let Some(mut colors) = button_colors { colors.set_if_neq(palette); }
         let color = match *interaction {
-            Interaction::Pressed => palette.pressed,
-            Interaction::Hovered => palette.hovered,
-            Interaction::None => palette.normal,
+            UiInteraction::Pressed => palette.pressed,
+            UiInteraction::Hovered => palette.hovered,
+            UiInteraction::None => palette.normal,
         };
         if background.0 != color {
             background.0 = color;

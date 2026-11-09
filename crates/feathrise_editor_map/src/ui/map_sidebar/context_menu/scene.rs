@@ -1,5 +1,6 @@
 //! 固定目录菜单挂在编辑器根下，不占左栏高度；边缘按真实UI倍率向工作区内收。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::MapDirectoryMenuState};
 use crate::components::MapEditorRoot;
 use crate::types::EditorAction;
@@ -15,11 +16,11 @@ pub(super) fn setup(mut commands: Commands, roots: Query<Entity, Added<MapEditor
 
 fn menu() -> impl Scene {
     bsn! {
-        DirectoryMenuBackdrop Interaction::default() ~{FocusPolicy::Block}
+        DirectoryMenuBackdrop UiInteraction::default() ~{FocusPolicy::Block}
         GlobalZIndex(427)
         Node { display: Display::None, position_type: PositionType::Absolute,
             left: px(0), top: px(0), width: percent(100), height: percent(100) }
-        Children [(
+        Children [
             DirectoryMenuPopup ~{FocusPolicy::Block}
             Node { position_type: PositionType::Absolute, width: px(160), min_width: px(0),
                 flex_direction: FlexDirection::Column, row_gap: px(1),
@@ -27,13 +28,13 @@ fn menu() -> impl Scene {
                 overflow: Overflow::scroll_y() }
             BackgroundColor(colors::PANEL_BG_STRONG) BorderColor::all(colors::COPPER_BORDER_WEAK)
             Children [
-                (@super::super::scene::action("进入地图", EditorAction::EnterSelectedMap)),
-                (@super::super::scene::action("编辑", EditorAction::MapFolderRename)),
-                (@super::super::scene::action("删除", EditorAction::DeleteMap)),
-                (@super::super::scene::action("新地图", EditorAction::NewMap)),
-                (@super::super::scene::action("新目录", EditorAction::MapFolderCreate)),
+                @super::super::scene::action("进入地图", EditorAction::EnterSelectedMap)--
+                @super::super::scene::action("编辑", EditorAction::MapFolderRename)--
+                @super::super::scene::action("删除", EditorAction::DeleteMap)--
+                @super::super::scene::action("新地图", EditorAction::NewMap)--
+                @super::super::scene::action("新目录", EditorAction::MapFolderCreate)
             ]
-        )]
+        ]
     }
 }
 

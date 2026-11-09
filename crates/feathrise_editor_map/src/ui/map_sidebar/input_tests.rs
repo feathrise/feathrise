@@ -1,5 +1,6 @@
 //! 运行原目录和删除入口，验证显示身份、模态及鼠标归还帧不重放旧按下。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::authoring::DraftSaveTask;
 use bevy::time::Real;
@@ -54,13 +55,13 @@ fn input_app() -> App {
 
 fn press(app: &mut App, action: EditorAction) {
     let entity = button(app, action);
-    app.world_mut().entity_mut(entity).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(entity).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
 }
 
 fn release(app: &mut App, action: EditorAction) {
     let entity = button(app, action);
-    app.world_mut().entity_mut(entity).insert((Interaction::None, feathrise_editor_ui::EditorButtonClick::default()));
+    app.world_mut().entity_mut(entity).insert((UiInteraction::None, feathrise_editor_ui::EditorButtonClick::default()));
     app.update();
 }
 
@@ -71,17 +72,17 @@ fn map_row(app: &mut App, id: &str, slot: usize) -> Entity {
                 slot,
                 item: Some(map_item(id)),
             },
-            Interaction::None,
+            UiInteraction::None,
             feathrise_editor_ui::EditorButtonClick::default(),
         ))
         .id()
 }
 
 fn click_row(app: &mut App, row: Entity) {
-    app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
+    app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
     app.update();
     // 领域夹具不运行官方命中；显式声明本次释放已经通过原按钮身份校验。
-    app.world_mut().entity_mut(row).insert((Interaction::None, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(row).insert((UiInteraction::None, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
 }
 
@@ -131,8 +132,8 @@ fn map_properties_edit_uses_original_transaction_with_hidden_directory_and_rejec
     }
     let map_id = feathrise_map_content::MapId::parse("MAP-2").unwrap();
     let button = app.world_mut().spawn((MapEditorActionButton(EditorAction::MapFolderRename),
-        MapPropertiesEditBinding { map_id: Some(map_id.clone()), enabled: true }, Interaction::None)).id();
-    app.world_mut().entity_mut(button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        MapPropertiesEditBinding { map_id: Some(map_id.clone()), enabled: true }, UiInteraction::None)).id();
+    app.world_mut().entity_mut(button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     let editor = app.world().resource::<MapEditorState>();
     assert!(editor.new_map_dialog_open);
@@ -145,10 +146,10 @@ fn map_properties_edit_uses_original_transaction_with_hidden_directory_and_rejec
         editor.new_map_dialog_open = false;
         editor.new_map_edit_target = None;
     }
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::None;
     app.update();
     app.world_mut().resource_mut::<MapBrowserState>().select_only(Some(map_item("MAP-1")));
-    app.world_mut().entity_mut(button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert!(!app.world().resource::<MapEditorState>().new_map_dialog_open,
         "按下前已改选的旧编辑按钮不能改派到另一张地图");
@@ -178,7 +179,7 @@ fn folder_row(app: &mut App) -> Entity {
                 slot: 2,
                 item: Some(MapBrowserItem::Folder("FOLDER-1".into())),
             },
-            Interaction::None,
+            UiInteraction::None,
             feathrise_editor_ui::EditorButtonClick::default(),
         ))
         .id()
@@ -336,7 +337,7 @@ fn pressing_a_selected_member_keeps_the_group_for_drag_and_plain_release_collaps
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
-    app.world_mut().entity_mut(first).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
+    app.world_mut().entity_mut(first).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
     app.update();
     assert_eq!(
         app.world().resource::<MapBrowserState>().selection_count(),
@@ -345,7 +346,7 @@ fn pressing_a_selected_member_keeps_the_group_for_drag_and_plain_release_collaps
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .release(MouseButton::Left);
-    app.world_mut().entity_mut(first).insert((Interaction::Hovered, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(first).insert((UiInteraction::Hovered, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert_eq!(
         app.world().resource::<MapBrowserState>().selection_count(),
@@ -368,7 +369,7 @@ fn pressing_a_selected_member_keeps_the_group_for_drag_and_plain_release_collaps
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
-    app.world_mut().entity_mut(first).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
+    app.world_mut().entity_mut(first).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
     app.update();
     let window = app
         .world_mut()
@@ -394,7 +395,7 @@ fn pressing_a_selected_member_keeps_the_group_for_drag_and_plain_release_collaps
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .release(MouseButton::Left);
-    *app.world_mut().get_mut::<Interaction>(first).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(first).unwrap() = UiInteraction::None;
     app.update(); // 空白释放只取消拖放，仍保留整组选集。
     assert_eq!(
         app.world().resource::<MapBrowserState>().selection_count(),
@@ -453,7 +454,7 @@ fn double_clicking_a_group_member_collapses_then_opens_the_clicked_map() {
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
-    app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
+    app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
     app.update();
     assert_eq!(
         app.world().resource::<MapBrowserState>().selection_count(),
@@ -462,7 +463,7 @@ fn double_clicking_a_group_member_collapses_then_opens_the_clicked_map() {
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .release(MouseButton::Left);
-    app.world_mut().entity_mut(row).insert((Interaction::Hovered, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(row).insert((UiInteraction::Hovered, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert_eq!(
         app.world().resource::<MapBrowserState>().selection_count(),
@@ -474,12 +475,12 @@ fn double_clicking_a_group_member_collapses_then_opens_the_clicked_map() {
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
-    app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
+    app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
     app.update();
     assert!(app.world().resource::<MapEditorState>().pending_map_transition.is_none(),
         "第二次按住仍不能提前进入地图");
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
-    app.world_mut().entity_mut(row).insert((Interaction::Hovered, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(row).insert((UiInteraction::Hovered, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert_eq!(
         app.world()
@@ -514,14 +515,14 @@ fn folder_click_waits_for_release_and_drag_keeps_the_source_branch_expanded() {
                 slot: 0,
                 item: Some(MapBrowserItem::Folder("FOLDER-1".into())),
             },
-            Interaction::None,
+            UiInteraction::None,
             feathrise_editor_ui::EditorButtonClick::default(),
         ))
         .id();
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
-    app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
+    app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
     app.update();
     assert!(
         !app.world()
@@ -538,7 +539,7 @@ fn folder_click_waits_for_release_and_drag_keeps_the_source_branch_expanded() {
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .release(MouseButton::Left);
-    app.world_mut().entity_mut(row).insert((Interaction::Hovered, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(row).insert((UiInteraction::Hovered, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert!(
         app.world()
@@ -552,7 +553,7 @@ fn folder_click_waits_for_release_and_drag_keeps_the_source_branch_expanded() {
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
-    app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
+    app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
     app.update();
     app.world_mut()
         .get_mut::<Window>(window)
@@ -634,7 +635,7 @@ fn slow_clicks_other_targets_and_directory_generations_do_not_open_maps() {
             "root" => {
                 let root = app
                     .world_mut()
-                    .spawn((MapEditorMapRootRow, Interaction::None))
+                    .spawn((MapEditorMapRootRow, UiInteraction::None))
                     .id();
                 click_row(&mut app, root);
             }
@@ -646,7 +647,7 @@ fn slow_clicks_other_targets_and_directory_generations_do_not_open_maps() {
                             slot: 1,
                             item: Some(MapBrowserItem::Folder("FOLDER-1".into())),
                         },
-                        Interaction::None,
+                        UiInteraction::None,
             feathrise_editor_ui::EditorButtonClick::default(),
                     ))
                     .id();
@@ -820,7 +821,7 @@ fn actual_drag_threshold_cancels_click_sequence_without_opening_or_writing() {
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
-    app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
+    app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
     app.update();
     assert!(
         app.world()
@@ -837,7 +838,7 @@ fn actual_drag_threshold_cancels_click_sequence_without_opening_or_writing() {
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .release(MouseButton::Left);
-    *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
     app.update(); // 无有效文件夹落点，按原拖拽流程取消；release帧仍隔离鼠标。
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()

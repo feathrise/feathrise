@@ -1,4 +1,5 @@
 //! 通用原生时间轴：插件拥有条块语义，宿主把选择、拖动和缩放作为有界事务回传。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{
     components::{ToolButton, ToolNumber, UiAction},
@@ -211,7 +212,7 @@ pub(super) fn render(
                     align_items: AlignItems::Center, padding: UiRect::horizontal(px(8)), ..default()
                 }));
             ruler.spawn((Seek { index, document: s.active, pan: axis.pan, span },
-                Interaction::None, bevy::ui::RelativeCursorPosition::default(),
+                UiInteraction::None, bevy::ui::RelativeCursorPosition::default(),
                 canvas_node(28.), FocusPolicy::Block)).with_children(|ticks| {
                 for tick in 0..=4 {
                     ticks.spawn((tinted_caption(font, &format!("{:.2}s", tick_seconds(axis.pan, span, tick)), 9.5, c::TEXT_MUTED),
@@ -255,7 +256,7 @@ pub(super) fn render(
                     }
                 });
                 let mut canvas = line.spawn((Seek { index, document: s.active, pan: axis.pan, span },
-                    Interaction::None, bevy::ui::RelativeCursorPosition::default(),
+                    UiInteraction::None, bevy::ui::RelativeCursorPosition::default(),
                     TrackLayout { index, document: s.active, lane: lane.id.clone(),
                         row: row_entity, geometry: None },
                     canvas_node(TRACK_HEIGHT - 1.), FocusPolicy::Block));
@@ -567,7 +568,7 @@ pub(super) fn input(
     workspace: Res<VegetationPresetEditorState>,
     guard: Res<feathrise_editor_core::EditorTextInputGuard>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    blocks: Query<(&Block, &Interaction, &bevy::ui::RelativeCursorPosition)>,
+    blocks: Query<(&Block, &UiInteraction, &bevy::ui::RelativeCursorPosition)>,
     tracks: Query<(&Seek, &bevy::ui::RelativeCursorPosition, &ComputedNode)>,
 ) {
     let window = windows.single().ok();
@@ -611,7 +612,7 @@ pub(super) fn input(
     }
     // 明确的6px端点子控件优先，不再把整条两端各15%当作隐形缩放热区。
     let pressed = blocks.iter().filter(|(_, interaction, cursor)|
-        **interaction == Interaction::Pressed && cursor.cursor_over())
+        **interaction == UiInteraction::Pressed && cursor.cursor_over())
         .min_by_key(|(block, _, _)| if block.edge == 0 { 1 } else { 0 });
     if let Some((block, _, _)) = pressed {
         let Ok((_, _, track)) = tracks.get(block.canvas) else { return; };
@@ -643,7 +644,8 @@ pub(super) fn input(
     }
 }
 
-#[cfg(feature = "validation")]
+// 几何与手势观测只供外部验收扩展，扩展自身的测试构建也需要这些接口。
+#[cfg(all(feature = "validation", feathrise_external_validation))]
 #[derive(Clone, serde::Serialize)]
 pub(super) struct ValidationBar {
     pub lane: String,
@@ -656,7 +658,7 @@ pub(super) struct ValidationBar {
     pub canvas_width: f32,
     pub span: f64,
 }
-#[cfg(feature = "validation")]
+#[cfg(all(feature = "validation", feathrise_external_validation))]
 #[derive(Clone, serde::Serialize)]
 pub(super) struct ValidationGeometry {
     pub bounds: [f32; 4],
@@ -668,7 +670,7 @@ pub(super) struct ValidationGeometry {
 }
 
 /// 验收只读真实布局和正式组件；截图与像素核对另在validation模块完成。
-#[cfg(feature = "validation")]
+#[cfg(all(feature = "validation", feathrise_external_validation))]
 pub(super) fn validation_geometry(world: &mut World, index: usize, document: u32)
     -> Result<ValidationGeometry, String> {
     let rect = |node: &ComputedNode, at: &UiGlobalTransform| {
@@ -700,19 +702,19 @@ pub(super) fn validation_geometry(world: &mut World, index: usize, document: u32
 }
 
 /// 只注入内置验收的按下边沿；命中位置须已由真实UI布局计算，原input继续负责事务和DLL请求。
-#[cfg(feature = "validation")]
+#[cfg(all(feature = "validation", feathrise_external_validation))]
 pub(super) fn validation_press_end(world: &mut World, index: usize, document: u32,
     lane: &str, block: &str) -> Result<(),String> {
     let entity=world.query::<(Entity,&Block,&bevy::ui::RelativeCursorPosition)>()
         .iter(world).find(|(_,widget,cursor)|widget.index==index && widget.document==document
             && widget.lane==lane && widget.id==block && widget.edge==1 && cursor.cursor_over())
         .map(|(entity,_,_)|entity).ok_or("真实尾抓手尚未取得布局命中，拒绝伪造命中状态")?;
-    world.entity_mut(entity).insert(Interaction::Pressed);
+    world.entity_mut(entity).insert(UiInteraction::Pressed);
     world.resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
     Ok(())
 }
 
-#[cfg(feature = "validation")]
+#[cfg(all(feature = "validation", feathrise_external_validation))]
 pub(super) fn validation_drag_state(world: &World) -> Option<serde_json::Value> {
     world.get_resource::<Gestures>()?.drag.as_ref().map(|drag|serde_json::json!({
         "index":drag.index,"document":drag.document,"lane":drag.lane,"block":drag.id,

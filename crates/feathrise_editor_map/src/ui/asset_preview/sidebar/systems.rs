@@ -1,5 +1,6 @@
 //! 目录完成反馈与所选文件只读同步；显式复制核验按钮绑定，不启动资源任务。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::clipboard::Clipboard;
 use bevy::prelude::*;
 
@@ -63,7 +64,7 @@ pub(super) fn sync_sidebar(
     mut previous: Local<SidebarObservation>,
     mut buttons: Query<(
         &mut AssetSidebarCopyPath,
-        &Interaction,
+        &UiInteraction,
         &mut BackgroundColor,
         &mut BorderColor,
         Option<&mut feathrise_editor_ui::EditorButtonClick>,
@@ -87,12 +88,12 @@ pub(super) fn sync_sidebar(
         button.feedback.clear(); // 旧文件复制回执不能串入新文件。
     }
     let color = match interaction {
-        Interaction::Pressed => colors::SELECT_BG_PRESSED,
-        Interaction::Hovered => colors::SELECT_BG_HOVER,
-        Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+        UiInteraction::Pressed => colors::SELECT_BG_PRESSED,
+        UiInteraction::Hovered => colors::SELECT_BG_HOVER,
+        UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
     };
     background.set_if_neq(BackgroundColor(color));
-    border.set_if_neq(BorderColor::all(if *interaction == Interaction::None {
+    border.set_if_neq(BorderColor::all(if *interaction == UiInteraction::None {
         colors::COPPER_BORDER_WEAK
     } else {
         colors::COPPER_BORDER

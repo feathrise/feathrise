@@ -1,5 +1,6 @@
 //! 引用字段、真实原文范围、子资源、JSON失败及有限后台扫描回归。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::super::resources::DocumentState;
 use super::super::{
     components::SearchAction,
@@ -350,7 +351,7 @@ fn references_external_location_uses_available_ide_and_exact_position_without_in
                     editor: ide,
                     in_project,
                 },
-                feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+                feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
             ))
             .id();
         app.update();
@@ -371,10 +372,10 @@ fn references_external_location_uses_available_ide_and_exact_position_without_in
                 .selected_asset
                 .is_none()
         );
-        *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::None;
+        *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::None;
         app.update();
         app.insert_resource(ExternalEditors::default());
-        *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+        *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
         app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
         app.update();
         assert!(

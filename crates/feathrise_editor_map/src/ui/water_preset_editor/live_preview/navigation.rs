@@ -3,6 +3,7 @@
 //! 【功能设计】导航只修改独立样品相机的会话状态，不改变地图、预设草稿或撤销栈；
 //! 手势必须从画布内部开始，并通过统一鼠标门阻止拖出画布后误操作地图。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::camera::Projection; // 导航同步透视裁剪与真实画布宽高比。
 use bevy::input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel}; // 读取原始物理像素移动与滚轮。
 use bevy::prelude::*; // Resource、Transform、Query与输入资源。
@@ -168,7 +169,7 @@ pub(in crate::ui::water_preset_editor) fn control_live_preview_camera(
     active_numeric: Res<ActiveNumericInputScrub>, // 同帧刚开始的数值拖动立即优先。
     windows: Query<(Entity, &Window), With<PrimaryWindow>>, // 窗口失焦立即取消捕获。
     canvases: Query<
-        (&ComputedNode, &RelativeCursorPosition, &Interaction),
+        (&ComputedNode, &RelativeCursorPosition, &UiInteraction),
         With<WaterPresetLivePreviewViewport>,
     >, // 同时核对真实布局、祖先裁剪和前方遮挡。
     mut navigation: ResMut<WaterPresetLivePreviewNavigation>, // 只发布真实变化的小型会话状态。
@@ -207,7 +208,7 @@ pub(in crate::ui::water_preset_editor) fn control_live_preview_camera(
         return;
     }
     let (canvas, cursor, interaction) = canvas.expect("已确认有效的水体样品画布必须存在"); // 固定唯一画布。
-    let hovered = cursor.cursor_over() && *interaction != Interaction::None; // 被弹框遮挡时不抢输入。
+    let hovered = cursor.cursor_over() && *interaction != UiInteraction::None; // 被弹框遮挡时不抢输入。
     let previous_drag = next.drag; // 起始按下帧不误用按下前累计位移。
     if next.drag.is_none() && hovered && !numeric.blocked() && active_numeric.entity.is_none() {
         next.drag = begin_drag(&mouse); // 手势只能从画布内部开始。

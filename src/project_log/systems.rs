@@ -1,5 +1,6 @@
 //! 日志邮箱按固定预算非阻塞采用；浮窗输入和回显不拥有任何进程控制牌。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::*};
 use bevy::{
     input::mouse::{MouseScrollUnit, MouseWheel}, input_focus::InputFocus, prelude::*,
@@ -162,11 +163,11 @@ pub(super) fn present(
     mut spans: Query<(&mut TextSpan, &mut TextColor, &mut TextFont), (With<LogRun>, Without<LogDisplay>)>,
     mut statuses: Query<&mut Text, (With<LogStatus>, Without<LogBody>, Without<LogFollowLabel>, Without<LogWrapLabel>)>,
     mut follows: Query<&mut Text, (With<LogFollowLabel>, Without<LogBody>, Without<LogStatus>, Without<LogWrapLabel>)>,
-    mut follow_buttons: Query<(&Interaction, &mut feathrise_editor_ui::ButtonColors, &mut BackgroundColor), (With<LogFollowButton>, Without<LogWrapButton>)>,
+    mut follow_buttons: Query<(&UiInteraction, &mut feathrise_editor_ui::ButtonColors, &mut BackgroundColor), (With<LogFollowButton>, Without<LogWrapButton>)>,
     mut fonts: ResMut<FontCx>,
     mut layouts: ResMut<LayoutCx>,
     mut wraps: Query<&mut Text, (With<LogWrapLabel>, Without<LogStatus>, Without<LogFollowLabel>, Without<LogBody>)>,
-    mut wrap_buttons: Query<(&Interaction, &mut feathrise_editor_ui::ButtonColors, &mut BackgroundColor), (With<LogWrapButton>, Without<LogFollowButton>)>,
+    mut wrap_buttons: Query<(&UiInteraction, &mut feathrise_editor_ui::ButtonColors, &mut BackgroundColor), (With<LogWrapButton>, Without<LogFollowButton>)>,
     mut horizontal_bars: Query<&mut Node, (With<LogHorizontalScrollbar>, Without<LogOverlay>, Without<LogBody>, Without<LogContent>, Without<LogDisplay>, Without<LogScroll>)>,
     mut panes: Query<&mut Node, (With<LogScroll>, Without<LogOverlay>, Without<LogBody>, Without<LogContent>, Without<LogDisplay>)>,
 ) {
@@ -228,14 +229,14 @@ pub(super) fn present(
         for mut text in &mut follows { text.0 = locale.text(if state.follow { "log.follow.on" } else { "log.follow.off" }).into(); }
         for (interaction, mut colors, mut background) in &mut follow_buttons {
             *colors = super::scene::tool_button_colors(state.follow);
-            background.0 = match interaction { Interaction::Hovered => colors.hovered,
-                Interaction::Pressed => colors.pressed, Interaction::None => colors.normal };
+            background.0 = match interaction { UiInteraction::Hovered => colors.hovered,
+                UiInteraction::Pressed => colors.pressed, UiInteraction::None => colors.normal };
         }
         for mut text in &mut wraps { text.0 = locale.text(if state.wrap { "log.wrap.on" } else { "log.wrap.off" }).into(); }
         for (interaction, mut colors, mut background) in &mut wrap_buttons {
             *colors = super::scene::tool_button_colors(state.wrap);
-            background.0 = match interaction { Interaction::Hovered => colors.hovered,
-                Interaction::Pressed => colors.pressed, Interaction::None => colors.normal };
+            background.0 = match interaction { UiInteraction::Hovered => colors.hovered,
+                UiInteraction::Pressed => colors.pressed, UiInteraction::None => colors.normal };
         }
         for mut node in &mut horizontal_bars { node.display = if state.wrap { Display::None } else { Display::Flex }; }
         for mut node in &mut panes { node.overflow.x = if state.wrap { OverflowAxis::Hidden } else { OverflowAxis::Scroll }; }

@@ -1,5 +1,6 @@
 //! 混合选集的整树去重、完整拒绝、受检落盘及取消/迟到回执保护。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::{map_browser::helpers::build_browser_tree, types::MapFolderRecord};
 
@@ -513,14 +514,14 @@ fn mixed_drop_survives_the_real_shared_mouse_release_guard_and_saves_the_whole_b
         });
         if root_target {
             app.world_mut()
-                .spawn((MapEditorMapRootRow, Interaction::Hovered));
+                .spawn((MapEditorMapRootRow, UiInteraction::Hovered));
         } else {
             app.world_mut().spawn((
                 MapEditorMapRow {
                     slot: 0,
                     item: Some(item("FOLDER-B")),
                 },
-                Interaction::Hovered,
+                UiInteraction::Hovered,
             ));
         }
         // 使用正式拖拽→共享仲裁→后台事务顺序；只将作者根替换为本例独立临时目录。

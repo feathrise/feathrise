@@ -1,5 +1,6 @@
 //! 骨架层级和旋转边界回归；曲线插值由作者数据模块的共享测试覆盖。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 
 fn node(parent: Option<usize>) -> Node {
@@ -357,7 +358,7 @@ fn gpu_preview(bound: bool, handles: bool) {
                 ..default()
             },
             bevy::ui::RelativeCursorPosition::default(),
-            Interaction::None,
+            UiInteraction::None,
         ));
     }
     if bound {

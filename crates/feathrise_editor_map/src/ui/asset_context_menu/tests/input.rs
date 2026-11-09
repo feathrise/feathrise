@@ -1,5 +1,6 @@
 //! 复用正式菜单、资产点击和鼠标门系统的交互回归，不伪装已进行游戏截图验收。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::*; // 共享无窗口、无剪贴板副作用的夹具。
 
@@ -16,7 +17,7 @@ fn menu_copy_waits_for_release_preserves_target_and_cancels_outside_or_stale_pre
         ));
         open_menu(&mut test);
         // 真实鼠标电平先武装共享捕获；按住只保留菜单与原文件身份。
-        *test.app.world_mut().get_mut::<Interaction>(test.copy).unwrap() = Interaction::Pressed;
+        *test.app.world_mut().get_mut::<UiInteraction>(test.copy).unwrap() = UiInteraction::Pressed;
         test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         step(&mut test.app);
         step(&mut test.app);
@@ -24,12 +25,12 @@ fn menu_copy_waits_for_release_preserves_target_and_cancels_outside_or_stale_pre
         assert_eq!(test.app.world().resource::<AssetContextMenuState>().target.as_ref().unwrap().path,
             "gltf/冻结的右键目标.glb");
         match cancel {
-            1 => *test.app.world_mut().get_mut::<Interaction>(test.copy).unwrap() = Interaction::None,
+            1 => *test.app.world_mut().get_mut::<UiInteraction>(test.copy).unwrap() = UiInteraction::None,
             2 => test.app.world_mut().resource_mut::<EditorAssetCatalog>().requested_revision += 1,
             3 => test.app.world_mut().get_mut::<Window>(test.window).unwrap().focused = false,
             _ => {
                 test.app.world_mut().resource_mut::<MapEditorState>().selected_asset = Some("其他预览.png".into());
-                *test.app.world_mut().get_mut::<Interaction>(test.copy).unwrap() = Interaction::Hovered;
+                *test.app.world_mut().get_mut::<UiInteraction>(test.copy).unwrap() = UiInteraction::Hovered;
             }
         }
         test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
@@ -56,7 +57,7 @@ fn menu_outside_press_closes_before_later_release_over_an_item() {
     test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
     step(&mut test.app); // 按在外部时立即关闭，不武装菜单项。
     assert!(test.app.world().resource::<AssetContextMenuState>().target.is_none());
-    *test.app.world_mut().get_mut::<Interaction>(test.copy).unwrap() = Interaction::Hovered;
+    *test.app.world_mut().get_mut::<UiInteraction>(test.copy).unwrap() = UiInteraction::Hovered;
     test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
     step(&mut test.app);
     assert!(test.app.world().resource::<CopiedPaths>().0.is_empty());
@@ -70,10 +71,10 @@ fn favorite_menu_freezes_files_and_folders_and_rejects_stale_targets() {
             crate::ui::asset_shortcuts::register(&mut test.app);
             test.app.world_mut().resource_mut::<EditorAssetCatalog>().entries[0].is_directory = is_directory;
             let button = test.app.world_mut().spawn((super::super::components::AssetMenuFavoriteButton,
-                Node::default(), Interaction::None, BackgroundColor::default(), BorderColor::default())).id();
+                Node::default(), UiInteraction::None, BackgroundColor::default(), BorderColor::default())).id();
             open_menu(&mut test);
             if stale { test.app.world_mut().resource_mut::<EditorAssetCatalog>().requested_revision += 1; }
-            *test.app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+            *test.app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
             test.app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
             test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
             step(&mut test.app);
@@ -96,12 +97,12 @@ fn references_menu_freezes_file_and_hides_on_directories_and_stale_targets() {
         for stale in [false, true] {
             let mut test = fixture("gltf/中文 空格.glb");
             test.app.world_mut().resource_mut::<EditorAssetCatalog>().entries[0].is_directory = directory;
-            let button = test.app.world_mut().spawn((AssetMenuReferencesButton, Node::default(), Interaction::None,
+            let button = test.app.world_mut().spawn((AssetMenuReferencesButton, Node::default(), UiInteraction::None,
                 BackgroundColor::default(), BorderColor::default())).id();
             open_menu(&mut test);
             assert_eq!(test.app.world().get::<Node>(button).unwrap().display, if directory { Display::None } else { Display::Flex });
             if stale { test.app.world_mut().resource_mut::<EditorAssetCatalog>().requested_revision += 1; }
-            *test.app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+            *test.app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
             test.app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
             test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
             step(&mut test.app);
@@ -134,14 +135,14 @@ fn right_click_copies_the_clicked_row_once_without_changing_selection() {
     *test
         .app
         .world_mut()
-        .get_mut::<Interaction>(test.copy)
-        .unwrap() = Interaction::Pressed;
+        .get_mut::<UiInteraction>(test.copy)
+        .unwrap() = UiInteraction::Pressed;
     test.app.world_mut().entity_mut(test.copy).insert(feathrise_editor_ui::EditorButtonClick::triggered()); // 模拟复制按钮收到左击。
     *test
         .app
         .world_mut()
-        .get_mut::<Interaction>(test.row)
-        .unwrap() = Interaction::Pressed;
+        .get_mut::<UiInteraction>(test.row)
+        .unwrap() = UiInteraction::Pressed;
     test.app.world_mut().entity_mut(test.row).insert(feathrise_editor_ui::EditorButtonClick::triggered()); // 即使底层有旧按下也不能点透。
     test.app
         .world_mut()
@@ -194,7 +195,7 @@ fn copied_path_menu_actions_freeze_the_clicked_asset_for_both_files_and_director
             test.app.world_mut().resource_mut::<EditorAssetCatalog>().entries[0].is_directory = directory;
             test.app.world_mut().get_mut::<AssetMenuCopyButton>(test.copy).unwrap().0 = kind;
             open_menu(&mut test);
-            *test.app.world_mut().get_mut::<Interaction>(test.copy).unwrap() = Interaction::Pressed;
+            *test.app.world_mut().get_mut::<UiInteraction>(test.copy).unwrap() = UiInteraction::Pressed;
             test.app.world_mut().entity_mut(test.copy).insert(feathrise_editor_ui::EditorButtonClick::triggered());
             test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
             step(&mut test.app);
@@ -233,8 +234,8 @@ fn dismissal_does_not_copy_or_activate_the_underlying_row() {
         *test
             .app
             .world_mut()
-            .get_mut::<Interaction>(test.row)
-            .unwrap() = Interaction::Pressed;
+            .get_mut::<UiInteraction>(test.row)
+            .unwrap() = UiInteraction::Pressed;
         test.app.world_mut().entity_mut(test.row).insert(feathrise_editor_ui::EditorButtonClick::triggered()); // 底层潜在点击必须被公共门消费。
         step(&mut test.app); // 正式取消分支。
         assert!(
@@ -311,8 +312,8 @@ fn catalog_and_session_changes_close_before_a_copy_click() {
         *test
             .app
             .world_mut()
-            .get_mut::<Interaction>(test.copy)
-            .unwrap() = Interaction::Pressed;
+            .get_mut::<UiInteraction>(test.copy)
+            .unwrap() = UiInteraction::Pressed;
         test.app.world_mut().entity_mut(test.copy).insert(feathrise_editor_ui::EditorButtonClick::triggered()); // 即使旧UI仍残留一次点击。
         test.app
             .world_mut()
@@ -346,8 +347,8 @@ fn opening_requires_a_current_visible_hovered_row_and_no_other_owner() {
                 *test
                     .app
                     .world_mut()
-                    .get_mut::<Interaction>(test.row)
-                    .unwrap() = Interaction::None
+                    .get_mut::<UiInteraction>(test.row)
+                    .unwrap() = UiInteraction::None
             } // 空白区域不回退到旧选择。
             2 => {
                 test.app
@@ -411,8 +412,8 @@ fn a_normal_left_click_still_selects_the_asset() {
     *test
         .app
         .world_mut()
-        .get_mut::<Interaction>(test.row)
-        .unwrap() = Interaction::Pressed;
+        .get_mut::<UiInteraction>(test.row)
+        .unwrap() = UiInteraction::Pressed;
     test.app.world_mut().entity_mut(test.row).insert(feathrise_editor_ui::EditorButtonClick::triggered()); // 正常Bevy左键命中。
     test.app
         .world_mut()

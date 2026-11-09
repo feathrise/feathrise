@@ -1,5 +1,6 @@
 //! 场景对象管理的分帧、版本拒收和保护回归。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::*, systems::*, visibility};
 use crate::authoring::{EditorAuthoringSession, EditorCommand, test_heightfield_draft};
 use crate::resources::{MapEditorNumericScrubMouseGuard, MapEditorState};
@@ -91,10 +92,10 @@ fn app(count: usize, group: &str) -> App {
 fn press(app: &mut App, action: ObjectAction) {
     let button = app
         .world_mut()
-        .spawn((feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed, ObjectButton(action)))
+        .spawn((feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed, ObjectButton(action)))
         .id();
     app.update();
-    app.world_mut().entity_mut(button).insert(Interaction::None);
+    app.world_mut().entity_mut(button).insert(UiInteraction::None);
 }
 
 fn finish(app: &mut App) {
@@ -315,7 +316,7 @@ fn f12_and_close_button_cancel_unadopted_management_without_dirty_data() {
                 .press(KeyCode::F12);
         } else {
             app.world_mut().spawn((
-                feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+                feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
                 crate::components::MapEditorActionButton(crate::types::EditorAction::Close),
             ));
         }

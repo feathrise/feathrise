@@ -1,5 +1,6 @@
 //! 实体鼠标与Esc经过共享数值控件后，由原资产数值业务负责草稿、可视根和历史收口。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use bevy::{camera::RenderTarget, ecs::message::MessageUpdateSystems,
     input::{InputPlugin, ButtonState, keyboard::{Key, KeyboardInput}, mouse::MouseButtonInput},
@@ -41,7 +42,7 @@ fn fixture() -> (App, Entity, Entity, Entity) {
     let camera = app.world_mut().spawn((Camera::default(), RenderTarget::Window(WindowRef::Entity(window)))).id();
     app.world_mut().entity_mut(input).insert((InheritedVisibility::VISIBLE,
         ComputedNode { size: Vec2::new(120., 26.), ..default() }, UiGlobalTransform::from_xy(100., 100.),
-        UiTargetCamera(camera), Interaction::None, RelativeCursorPosition::default()));
+        UiTargetCamera(camera), UiInteraction::None, RelativeCursorPosition::default()));
     app.insert_resource(UiStack { partition: vec![0..1], uinodes: vec![input] });
     (app, input, object, window)
 }

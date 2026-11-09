@@ -1,5 +1,6 @@
 //! 整网格水属性文字与类别按钮的只读Presentation回显。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*; // 文本、交互颜色、资源票据与查询系统参数。
 use feathrise_map_content::MapPlacementWaterKind; // 类别按钮按正式水类型保持选中态。
 use feathrise_scene::MapPlacementRuntimeStatus; // 活动批次切换票据唤醒当前选择回显。
@@ -75,7 +76,7 @@ pub(crate) fn sync_placement_water_text(
 pub(crate) fn sync_placement_water_button_styles(
     selection_cache: Res<PlacementWaterSelectionCache>, // 稳定帧O(1)读取，结构/作者变化只由刷新系统定位一次。
     mut buttons: Query<(
-        &Interaction,
+        &UiInteraction,
         &MapEditorPlacementWaterActionButton,
         &mut BackgroundColor,
     )>,
@@ -99,9 +100,9 @@ pub(crate) fn sync_placement_water_button_styles(
             colors::SELECT_BG
         } else {
             match interaction {
-                Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
-                Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
-                Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+                UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
+                UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
+                UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
             }
         };
     }

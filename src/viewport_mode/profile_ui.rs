@@ -1,5 +1,6 @@
 //! 启动配置下拉复用原配置请求；菜单只拥有展示和输入，不接管构建或游戏生命周期。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::BuildProfileMenuState};
 use crate::native_play::ProjectBuildBackend;
@@ -27,7 +28,7 @@ pub(super) fn mount(header: &mut ChildSpawnerCommands, font: &Handle<Font>) {
             ));
             selector.spawn((
                 ProfileMenu, GlobalZIndex(4201), FocusPolicy::Block,
-                Interaction::None, RelativeCursorPosition::default(),
+                UiInteraction::None, RelativeCursorPosition::default(),
                 Node {
                     display: Display::None, position_type: PositionType::Absolute,
                     right: px(0), top: px(28), width: px(148),
@@ -74,7 +75,7 @@ pub(super) fn mount(header: &mut ChildSpawnerCommands, font: &Handle<Font>) {
         });
     // 遮罩按整个作者窗口拦截外部点击；工程原生子窗由同一宿主浮层门临时让出。
     header.spawn((
-        ProfileBackdrop, GlobalZIndex(4200), FocusPolicy::Block, Interaction::None,
+        ProfileBackdrop, GlobalZIndex(4200), FocusPolicy::Block, UiInteraction::None,
         Node {
             display: Display::None, position_type: PositionType::Absolute,
             left: px(0), top: px(0), width: Val::Vw(100.), height: Val::Vh(100.), ..default()

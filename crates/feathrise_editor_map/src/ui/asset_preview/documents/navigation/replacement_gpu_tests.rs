@@ -1,5 +1,6 @@
 //! 正式文档工作区的离屏GPU回归；真实键鼠/IME验证替换、范围、撤销与受检保存。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{components::DocumentSource, resources::DocumentState};
 use super::{components::*, control, index, resources::DocumentNavigation, types::NavigationMode};
 use bevy::{
@@ -400,8 +401,8 @@ fn click(app: &mut App, window: Entity, camera: Entity, action: NavigationAction
         .unwrap();
     app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
     assert_eq!(
-        *app.world().get::<Interaction>(entity).unwrap(),
-        Interaction::Pressed,
+        *app.world().get::<UiInteraction>(entity).unwrap(),
+        UiInteraction::Pressed,
         "真实鼠标必须命中替换工具"
     );
     app.world_mut().run_system_once(control::input).unwrap();

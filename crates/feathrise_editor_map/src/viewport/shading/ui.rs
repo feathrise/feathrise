@@ -1,4 +1,5 @@
 //! 四球着色按钮与按当前模式显示的紧凑选项；沿用正式松开点击及统一鼠标门。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::ShadingState, types::*};
 use crate::{
@@ -24,7 +25,7 @@ pub(super) fn setup(
                 .spawn((
                     ViewShadingRoot,
                     Name::new("视口着色"),
-                    Interaction::default(),
+                    UiInteraction::default(),
                     RelativeCursorPosition::default(),
                     FocusPolicy::Block,
                     ZIndex(28),
@@ -153,7 +154,7 @@ pub(super) fn setup(
                     row.spawn((
                         ShadingMenu,
                         ViewShadingRoot,
-                        Interaction::default(),
+                        UiInteraction::default(),
                         RelativeCursorPosition::default(),
                         FocusPolicy::Block,
                         Node {
@@ -311,7 +312,7 @@ pub(super) fn style(
     mut buttons: Query<
         (
             &ShadingButton,
-            &Interaction,
+            &UiInteraction,
             &mut Node,
             &mut BackgroundColor,
         ),
@@ -344,8 +345,8 @@ pub(super) fn style(
             node.display = display;
         }
         let color = match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
             (_, true) => colors::SELECT_BG,
             _ => colors::SLOT_BG,
         };
@@ -362,7 +363,7 @@ pub(super) fn style(
     }
 }
 
-/// 窄视口把观察控件移到右下方，避免与会折行的网格元素栏互相盖住。
+/// 工具条已固定单排横滚；缩窄或缩放不再把观察控件从右上角移到底部。
 pub(super) fn place_overlays(
     viewports: Query<&ComputedNode, With<MapEditorViewport>>,
     mut shading: Query<
@@ -388,47 +389,50 @@ pub(super) fn place_overlays(
         ),
     >,
 ) {
-    let Ok(viewport) = viewports.single() else {
+    let Ok(_) = viewports.single() else {
         return;
     };
-    let narrow = viewport.size().x * viewport.inverse_scale_factor() < 610.0;
+    // XYZ 与着色栏使用视口自身的绝对锚点，不参与工具条布局，也不侵占底部游戏 HUD。
     for mut node in &mut shading {
-        let (top, bottom) = if narrow {
-            (Val::Auto, px(8))
-        } else {
-            (px(8), Val::Auto)
-        };
-        if node.top != top {
-            node.top = top;
+        if node.position_type != PositionType::Absolute {
+            node.position_type = PositionType::Absolute;
         }
-        if node.bottom != bottom {
-            node.bottom = bottom;
+        if node.right != px(8) {
+            node.right = px(8);
+        }
+        if node.top != px(8) {
+            node.top = px(8);
+        }
+        if node.bottom != Val::Auto {
+            node.bottom = Val::Auto;
         }
     }
     for mut node in &mut axes {
-        let (top, bottom) = if narrow {
-            (Val::Auto, px(38)) // 与四球保留2px间距，同时避开窄栏第二行操作按钮。
-        } else {
-            (px(42), Val::Auto)
-        };
-        if node.top != top {
-            node.top = top;
+        if node.position_type != PositionType::Absolute {
+            node.position_type = PositionType::Absolute;
         }
-        if node.bottom != bottom {
-            node.bottom = bottom;
+        if node.right != px(8) {
+            node.right = px(8);
+        }
+        if node.top != px(42) {
+            node.top = px(42);
+        }
+        if node.bottom != Val::Auto {
+            node.bottom = Val::Auto;
         }
     }
     for mut node in &mut menus {
-        let (top, bottom) = if narrow {
-            (Val::Auto, px(30))
-        } else {
-            (px(30), Val::Auto)
-        };
-        if node.top != top {
-            node.top = top;
+        if node.position_type != PositionType::Absolute {
+            node.position_type = PositionType::Absolute;
         }
-        if node.bottom != bottom {
-            node.bottom = bottom;
+        if node.right != px(0) {
+            node.right = px(0);
+        }
+        if node.top != px(30) {
+            node.top = px(30);
+        }
+        if node.bottom != Val::Auto {
+            node.bottom = Val::Auto;
         }
     }
 }

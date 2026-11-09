@@ -19,6 +19,7 @@ pub mod workspace_tabs; // 预设分库共用原有中央标签布局与互斥�
 use bevy::prelude::*;
 pub use feathrise_ui_widgets::UiWidgetsSystemSet as EditorUiSystemSet;
 pub use feathrise_ui_widgets::InteractionButton;
+pub use feathrise_ui_widgets::{UiInteraction, UiInteractionPlugin, UiInteractionSystems};
 pub use feathrise_ui_widgets::components;
 pub use feathrise_ui_widgets::messages;
 pub use feathrise_ui_widgets::resources;

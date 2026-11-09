@@ -1,5 +1,6 @@
 //! 只按真实试听状态同步固定播放器节点，不随音频采样频率重排UI。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::types::{AssetPreviewContent, AssetPreviewPhase, AssetPreviewState};
 use super::{components::*, resources::AudioPreviewState, types::*};
 use crate::ui::theme as colors;
@@ -25,7 +26,7 @@ pub(super) fn sync(
     mut buttons: Query<(
         Entity,
         &mut AudioButton,
-        &Interaction,
+        &UiInteraction,
         &mut BackgroundColor,
         Has<InteractionDisabled>,
         Option<&mut feathrise_editor_ui::EditorButtonClick>,
@@ -80,9 +81,9 @@ pub(super) fn sync(
             }
         }
         background.set_if_neq(BackgroundColor(
-            if enabled && *interaction == Interaction::Pressed {
+            if enabled && *interaction == UiInteraction::Pressed {
                 colors::SELECT_BG_PRESSED
-            } else if enabled && *interaction == Interaction::Hovered {
+            } else if enabled && *interaction == UiInteraction::Hovered {
                 colors::SELECT_BG_HOVER
             } else {
                 colors::SLOT_BG

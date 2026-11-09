@@ -1,5 +1,6 @@
 //! 地图页语义变化时原位回显；操作仍由原目录、切图和回收入口处理。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, lookup::advance_lookup, resources::SidebarSources, types::*};
 use crate::components::MapEditorActionButton;
 use crate::constants::MAP_BROWSER_ROW_PITCH;
@@ -137,7 +138,7 @@ pub(super) fn sync_sidebar(
     mut buttons: Query<(
         Entity,
         &MapEditorActionButton,
-        &Interaction,
+        &UiInteraction,
         Has<InteractionDisabled>,
         &mut MapSidebarActionBinding,
         &mut Node,
@@ -255,15 +256,15 @@ pub(super) fn sync_sidebar(
             colors::SLOT_BG
         } else {
             match interaction {
-                Interaction::Pressed => colors::SELECT_BG_PRESSED,
-                Interaction::Hovered => colors::SELECT_BG_HOVER,
-                Interaction::None if weak => colors::SLOT_BG,
-                Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+                UiInteraction::Pressed => colors::SELECT_BG_PRESSED,
+                UiInteraction::Hovered => colors::SELECT_BG_HOVER,
+                UiInteraction::None if weak => colors::SLOT_BG,
+                UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
             }
         };
         background.set_if_neq(BackgroundColor(color));
         border.set_if_neq(BorderColor::all(
-            if enabled && *interaction != Interaction::None {
+            if enabled && *interaction != UiInteraction::None {
                 colors::COPPER_BORDER
             } else {
                 colors::COPPER_BORDER_WEAK

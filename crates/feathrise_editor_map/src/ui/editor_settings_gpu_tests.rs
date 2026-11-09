@@ -1,5 +1,6 @@
 //! 设置弹窗独立离屏GPU回归；不借资产页标题作前置断言，不启动窗口或写正式配置。
 
+use feathrise_editor_ui::UiInteraction;
 use super::components::*;
 use super::*;
 use crate::components::{MapEditorShortcutBindingText, MapEditorShortcutSettingsBody};
@@ -119,8 +120,8 @@ fn click(app: &mut App, window: Entity, camera: Entity, action: EditorSettingsAc
         .run_system_cached(bevy::ui::ui_focus_system)
         .unwrap();
     assert_eq!(
-        app.world().get::<Interaction>(button),
-        Some(&Interaction::Pressed),
+        app.world().get::<UiInteraction>(button),
+        Some(&UiInteraction::Pressed),
         "设置选项必须能由正式鼠标命中"
     );
     app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
@@ -208,7 +209,7 @@ fn click_shortcut_help(app: &mut App, window: Entity, camera: Entity, popup: Ent
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
     app.world_mut().run_system_cached(bevy::ui::ui_focus_system).unwrap();
-    assert_eq!(app.world().get::<Interaction>(button), Some(&Interaction::Pressed), "帮助问号必须由正式鼠标命中");
+    assert_eq!(app.world().get::<UiInteraction>(button), Some(&UiInteraction::Pressed), "帮助问号必须由正式鼠标命中");
     app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
     app.world_mut().run_system_once(handle_settings_input).unwrap();
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();

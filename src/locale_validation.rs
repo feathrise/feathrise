@@ -1,5 +1,6 @@
 //! 真实窗口双语专项，验证首页、作者进程、文档草稿和重开。只操作本轮独占夹具。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use crate::workspace_ui::{WorkspaceCommand, WorkspaceModel};
 use bevy::{
@@ -120,7 +121,7 @@ pub(crate) fn install(app: &mut App, project: Option<&Path>) -> Result<(), Strin
         root, panels, details, floating_panels, quit_build, author_prefs_existed, stage, started: now, mouse: None, draft: None,
         capture: None, capture_attempts: 0, next_capture: now,
     })
-        .add_systems(First, drive);
+        .add_systems(First, drive.before(bevy::picking::PickingSystems::Input));
     Ok(())
 }
 
@@ -358,7 +359,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
             if click(world, run, window, "Debug · DX ▼") { run.stage = Stage::BuildBackend; }
         }
         Stage::BuildBackend => {
-            if click(world, run, window, "Native Cargo") { run.stage = Stage::StartBuild; }
+            if click(world, run, window, "Cargo") { run.stage = Stage::StartBuild; }
         }
         Stage::StartBuild => {
             if click(world, run, window, "Project 3D") { run.stage = Stage::StopTooltip; }
@@ -512,6 +513,13 @@ fn button(world: &mut World, label: &str) -> Option<Entity> {
     right_mesh.map(|(entity, _)| entity)
 }
 
+/// 复现真实窗口后端的双通道投递，保证InputPlugin和现代拾取读取同一份输入。
+fn window_input(world: &mut World, input: impl bevy::ecs::message::Message + Clone + Into<bevy::window::WindowEvent>) {
+    let event: bevy::window::WindowEvent = input.clone().into();
+    world.write_message(input);
+    world.write_message(event);
+}
+
 fn click(world: &mut World, run: &mut Run, window: Entity, label: &str) -> bool {
     pointer_click(world, run, window, label, MouseButton::Left)
 }
@@ -526,12 +534,12 @@ fn click_entity(world: &mut World, run: &mut Run, window: Entity, candidate: Opt
     if !move_to(world, window, entity) { return false; }
     match run.mouse {
         None => run.mouse = Some((entity, false)),
-        Some((_, false)) if world.get::<Interaction>(entity) == Some(&Interaction::Hovered) => {
-            world.write_message(MouseButtonInput { button: mouse_button, state: ButtonState::Pressed, window });
+        Some((_, false)) if world.get::<UiInteraction>(entity) == Some(&UiInteraction::Hovered) => {
+            window_input(world, MouseButtonInput { button: mouse_button, state: ButtonState::Pressed, window });
             run.mouse = Some((entity, true));
         }
-        Some((_, true)) if mouse_button == MouseButton::Right || world.get::<Interaction>(entity) == Some(&Interaction::Pressed) => {
-            world.write_message(MouseButtonInput { button: mouse_button, state: ButtonState::Released, window });
+        Some((_, true)) if mouse_button == MouseButton::Right || world.get::<UiInteraction>(entity) == Some(&UiInteraction::Pressed) => {
+            window_input(world, MouseButtonInput { button: mouse_button, state: ButtonState::Released, window });
             run.mouse = None;
             return true;
         }
@@ -544,6 +552,8 @@ fn move_to(world: &mut World, window: Entity, entity: Entity) -> bool {
     let Some(transform) = world.get::<UiGlobalTransform>(entity) else { return false };
     let position = transform.translation.as_dvec2();
     world.get_mut::<Window>(window).unwrap().set_physical_cursor_position(Some(position));
+    let position = position.as_vec2() / world.get::<Window>(window).unwrap().scale_factor();
+    window_input(world, bevy::window::CursorMoved { window, position, delta: None });
     true
 }
 

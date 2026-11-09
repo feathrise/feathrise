@@ -1,5 +1,6 @@
 //! 当前已进入地图全部传送点的增量回显与选择反馈。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*; // UI查询、资源变化检测和动态行组件。
 use feathrise_map_content::{MapContentRegistry, MapId, MapManifestAsset, MapPortalsAsset}; // 当前行从目标清单派生地图名，稳定ID只参与内部查找。
 use crate::ui::theme as colors; // 选中源点使用统一铜金配色。
@@ -167,7 +168,7 @@ pub(crate) fn sync_current_portal_rows(
         row.portal_id = Some(portal.id.clone()); // 点击时再按稳定ID二次解析当前草稿。
         node.display = Display::Flex; // 有真实源点才恢复点击区域。
         let selected = editor.selected_current_portal_id.as_deref() == Some(portal.id.as_str()); // 标签重名不影响选择。
-        background.0 = portal_row_background(Interaction::None, selected); // Presentation恢复稳定背景。
+        background.0 = portal_row_background(UiInteraction::None, selected); // Presentation恢复稳定背景。
         let portal_label = display_context.portal_label(portal); // 源点名称固定派生为“前往{目标地图显示名}”。
         let value = format!("◇ {portal_label}"); // 列表优先名称；完整目标身份与安全坐标继续用于原点击详情。
         for child in children.iter() {
@@ -194,11 +195,11 @@ pub(crate) fn sync_current_portal_row_interactions(
     editor: Res<MapEditorState>,
     mut rows: Query<
         (
-            &Interaction,
+            &UiInteraction,
             &MapEditorCurrentPortalRow,
             &mut BackgroundColor,
         ),
-        Changed<Interaction>,
+        Changed<UiInteraction>,
     >,
 ) {
     for (interaction, row, mut background) in &mut rows {

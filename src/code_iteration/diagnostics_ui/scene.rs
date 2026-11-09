@@ -1,5 +1,6 @@
 //! 诊断浮窗复用共同弱边界、标题、正文、底栏和原生滚动条；无第二个源码编辑器。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::{ROW_HEIGHT, ROW_POOL}};
 use bevy::{picking::hover::Hovered, prelude::*, ui::{FocusPolicy, RelativeCursorPosition},
@@ -14,7 +15,7 @@ pub(super) fn mount(mut commands: Commands, headers: Query<(Entity, Option<&Chil
         let root = parent.map_or(header, ChildOf::parent);
         commands.entity(root).with_children(|root| {
             // 代码与日志可同时打开；重叠处由上层诊断面板独自接收鼠标。
-            root.spawn((DiagnosticsOverlay, WorkbenchFloatingPanel, GlobalZIndex(424), FocusPolicy::Block, Interaction::None,
+            root.spawn((DiagnosticsOverlay, WorkbenchFloatingPanel, GlobalZIndex(424), FocusPolicy::Block, UiInteraction::None,
                 Node { display: Display::None, position_type: PositionType::Absolute, right: px(8), bottom: px(32),
                     width: percent(76.), max_width: px(1200), height: percent(50.), max_height: px(700), ..default() },
             )).with_children(|overlay| {

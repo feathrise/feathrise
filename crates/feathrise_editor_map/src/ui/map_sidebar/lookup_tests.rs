@@ -1,5 +1,6 @@
 //! 离屏查名按64项预算推进，只读完整已采用投影，不采用整理中的私有候选。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::ui::map_sidebar::lookup::{LOOKUP_STEPS, advance_lookup};
 
@@ -115,7 +116,7 @@ fn real_row_and_root_share_hover_select_and_drop_feedback_without_text_rewrites(
                 item: None,
             },
             Node::default(),
-            Interaction::None,
+            UiInteraction::None,
             BackgroundColor::default(),
             BorderColor::default(),
         ))
@@ -125,14 +126,14 @@ fn real_row_and_root_share_hover_select_and_drop_feedback_without_text_rewrites(
         .world_mut()
         .spawn((
             MapEditorMapRootRow,
-            Interaction::None,
+            UiInteraction::None,
             BackgroundColor::default(),
             BorderColor::default(),
         ))
         .id();
     app.update();
-    *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::Hovered;
-    *app.world_mut().get_mut::<Interaction>(root).unwrap() = Interaction::Hovered;
+    *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::Hovered;
+    *app.world_mut().get_mut::<UiInteraction>(root).unwrap() = UiInteraction::Hovered;
     app.update();
     assert_eq!(
         *app.world().get::<BackgroundColor>(row).unwrap(),
@@ -142,7 +143,7 @@ fn real_row_and_root_share_hover_select_and_drop_feedback_without_text_rewrites(
         app.world().get::<BackgroundColor>(row).unwrap().0,
         colors::SELECT_BG_HOVER
     );
-    *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
     select(&mut app, Some(map_item("MAP-1")));
     assert_eq!(
         app.world().get::<BackgroundColor>(row).unwrap().0,

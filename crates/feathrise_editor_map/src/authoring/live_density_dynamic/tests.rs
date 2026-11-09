@@ -1,5 +1,6 @@
 //! 无窗口真实同步系统回归：新建层不读取不存在的磁盘KTX2，关闭后仍完整发布。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*; // 生产快照类型与任务状态。
 use crate::authoring::live_density::{LiveBladeDensityState, sync_live_blade_density}; // 测试实际调度入口。
 use crate::resources::MapEditorState;
@@ -531,7 +532,7 @@ fn clipmap_brush_erase_compile_and_closed_editor_publish_same_density() {
         let toggle = app
             .world_mut()
             .spawn((
-                Interaction::None,
+                UiInteraction::None,
                 crate::components::MapEditorActionButton(
                     crate::types::EditorAction::VegetationToggleEnabled,
                 ),
@@ -623,9 +624,9 @@ fn clipmap_brush_erase_compile_and_closed_editor_publish_same_density() {
             } // 当前再次回到原笔划完成状态。
             if !erase {
                 // 在非空密度上验证显隐与对应历史恢复。
-                app.world_mut().entity_mut(toggle).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 按真实显隐按钮。
+                app.world_mut().entity_mut(toggle).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 按真实显隐按钮。
                 app.update(); // 正式业务事务写enabled并记录完整结构历史。
-                *app.world_mut().get_mut::<Interaction>(toggle).unwrap() = Interaction::None; // 按钮松开。
+                *app.world_mut().get_mut::<UiInteraction>(toggle).unwrap() = UiInteraction::None; // 按钮松开。
                 assert_clipmap_density(&mut app, &map_id, &output_id, preset_id, 0); // 隐藏只归零正式输出，保留作者像素。
                 for undo in [true, false] {
                     // 显隐结构命令同样执行真实撤销重做。
@@ -642,9 +643,9 @@ fn clipmap_brush_erase_compile_and_closed_editor_publish_same_density() {
                         if undo { 255 } else { 0 },
                     ); // 正式密度随显隐历史完整变化。
                 } // 保留隐藏状态供下一次按钮恢复。
-                app.world_mut().entity_mut(toggle).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 第二次显隐按钮恢复显示。
+                app.world_mut().entity_mut(toggle).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 第二次显隐按钮恢复显示。
                 app.update(); // 再次由真实业务层记录结构命令。
-                *app.world_mut().get_mut::<Interaction>(toggle).unwrap() = Interaction::None; // 避免重复按钮消费。
+                *app.world_mut().get_mut::<UiInteraction>(toggle).unwrap() = UiInteraction::None; // 避免重复按钮消费。
                 assert_clipmap_density(&mut app, &map_id, &output_id, preset_id, 255); // 为下一轮擦除恢复非空画布。
             } // 显隐全过程不改变预设和输出ID。
         } // 四类预设都走完全相同的生产链。

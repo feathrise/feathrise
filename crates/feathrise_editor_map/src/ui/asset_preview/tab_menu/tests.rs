@@ -1,4 +1,5 @@
 //! 文件菜单真实ECS开关、混合关闭、模态/输入保护和鼠标静默释放回归。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::super::{
     AssetPreviewWorkspace, DocumentState, documents::DocumentTabRoot, types::ExpandedAssetPreview,
@@ -111,7 +112,7 @@ fn fixture() -> Fixture {
         .world_mut()
         .spawn((
             CloseAllTabsButton,
-            Interaction::None,
+            UiInteraction::None,
             BackgroundColor::default(),
         ))
         .id();
@@ -153,8 +154,8 @@ fn click_close(test: &mut Fixture) {
     *test
         .app
         .world_mut()
-        .get_mut::<Interaction>(test.button)
-        .unwrap() = Interaction::Pressed;
+        .get_mut::<UiInteraction>(test.button)
+        .unwrap() = UiInteraction::Pressed;
     test.app.world_mut().entity_mut(test.button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     test.app
         .world_mut()
@@ -175,15 +176,15 @@ fn tab_menu_close_waits_for_inside_release_and_outside_release_keeps_tabs() {
             ComputedNode { size: Vec2::new(100.0, 24.0), ..default() },
         ));
         open(&mut test);
-        *test.app.world_mut().get_mut::<Interaction>(test.button).unwrap() = Interaction::Pressed;
+        *test.app.world_mut().get_mut::<UiInteraction>(test.button).unwrap() = UiInteraction::Pressed;
         test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         step(&mut test.app);
         step(&mut test.app);
         assert!(test.app.world().resource::<AssetTabMenuState>().open);
         assert!(test.app.world().resource::<DocumentState>().expanded());
         assert!(test.app.world().resource::<AssetPreviewWorkspace>().has_tabs());
-        *test.app.world_mut().get_mut::<Interaction>(test.button).unwrap() =
-            if outside { Interaction::None } else { Interaction::Hovered };
+        *test.app.world_mut().get_mut::<UiInteraction>(test.button).unwrap() =
+            if outside { UiInteraction::None } else { UiInteraction::Hovered };
         test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
         step(&mut test.app);
         step(&mut test.app);
@@ -421,11 +422,11 @@ fn gpu_click(app: &mut App, window: Entity, camera: Entity, position: Vec2, butt
     app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
     if button == MouseButton::Left {
         let world = app.world_mut();
-        let mut buttons = world.query_filtered::<&Interaction, Or<(With<CloseAllTabsButton>, With<CloseUnmodifiedTabsButton>, With<SaveAllDraftsButton>, With<ExternalFileButton>, With<CopyFilePathButton>)>>();
+        let mut buttons = world.query_filtered::<&UiInteraction, Or<(With<CloseAllTabsButton>, With<CloseUnmodifiedTabsButton>, With<SaveAllDraftsButton>, With<ExternalFileButton>, With<CopyFilePathButton>)>>();
         assert_eq!(
             buttons
                 .iter(world)
-                .filter(|interaction| **interaction == Interaction::Pressed)
+                .filter(|interaction| **interaction == UiInteraction::Pressed)
                 .count(),
             1,
             "真实鼠标命中必须到达菜单按钮"
@@ -716,12 +717,12 @@ fn close_unmodified_menu_item_closes_read_only_and_unloaded_file_tabs() {
         .world_mut()
         .spawn((
             CloseUnmodifiedTabsButton,
-            Interaction::None,
+            UiInteraction::None,
             BackgroundColor::default(),
         ))
         .id();
     open(&mut test);
-    *test.app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+    *test.app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
     test.app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     test.app
         .world_mut()
@@ -755,7 +756,7 @@ fn external_background_file_tab_menu_freezes_the_clicked_file_and_preserves_acti
         let active = test.app.world().resource::<VegetationPresetEditorState>().active_tab;
         open(&mut test);
         assert_eq!(test.app.world().resource::<AssetTabMenuState>().path.as_deref(), Some("第一.json"));
-        test.app.world_mut().spawn((ExternalFileButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+        test.app.world_mut().spawn((ExternalFileButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
         test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         step(&mut test.app);
         let requests: Vec<_> = test.app.world_mut().resource_mut::<Messages<OpenExternalFile>>().drain().collect();
@@ -776,10 +777,10 @@ fn copied_file_tab_paths_use_the_clicked_file_and_blank_tab_area_cannot_copy() {
             test.app.insert_resource(crate::ui::external_files::ExternalEditors::default());
             if file { test.app.world_mut().entity_mut(test.tab).insert(crate::ui::external_files::ExternalFileTab("第一.json".into())); }
             let active = test.app.world().resource::<VegetationPresetEditorState>().active_tab;
-            let button = test.app.world_mut().spawn((CopyFilePathButton(kind), Interaction::None, Node::default(), BackgroundColor::default())).id();
+            let button = test.app.world_mut().spawn((CopyFilePathButton(kind), UiInteraction::None, Node::default(), BackgroundColor::default())).id();
             open(&mut test);
             assert_eq!(test.app.world().get::<Node>(button).unwrap().display, if file { Display::Flex } else { Display::None });
-            *test.app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+            *test.app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
             test.app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
             test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
             step(&mut test.app);
@@ -804,7 +805,7 @@ fn external_file_tab_menu_rejects_old_pressed_items_after_an_editor_is_removed()
         test.app.world_mut().entity_mut(test.tab).insert(ExternalFileTab("第一.json".into()));
         open(&mut test);
         test.app.insert_resource(ExternalEditors::default());
-        test.app.world_mut().spawn((ExternalFileButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+        test.app.world_mut().spawn((ExternalFileButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
         test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         step(&mut test.app);
         assert!(test.app.world().resource::<Messages<OpenExternalFile>>().is_empty());
@@ -819,7 +820,7 @@ fn external_file_tab_menu_cancels_when_its_frozen_target_disappears() {
     test.app.world_mut().entity_mut(test.tab).insert(ExternalFileTab("第一.json".into()));
     open(&mut test);
     test.app.world_mut().entity_mut(test.tab).remove::<ExternalFileTab>();
-    test.app.world_mut().spawn((ExternalFileButton(ExternalFileAction::VsCode(None)), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+    test.app.world_mut().spawn((ExternalFileButton(ExternalFileAction::VsCode(None)), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
     test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
     step(&mut test.app);
     assert!(!test.app.world().resource::<AssetTabMenuState>().open);
@@ -840,10 +841,10 @@ fn twelve_item_tab_menu_stays_inside_scaled_root_at_bottom_right() {
 #[test]
 fn file_tab_save_all_dispatches_once_without_closing_or_switching_tabs() {
     let mut test = fixture();
-    let button = test.app.world_mut().spawn((SaveAllDraftsButton, Interaction::None, BackgroundColor::default())).id();
+    let button = test.app.world_mut().spawn((SaveAllDraftsButton, UiInteraction::None, BackgroundColor::default())).id();
     let active = test.app.world().resource::<VegetationPresetEditorState>().active_tab;
     open(&mut test);
-    *test.app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+    *test.app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
     test.app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
     step(&mut test.app);

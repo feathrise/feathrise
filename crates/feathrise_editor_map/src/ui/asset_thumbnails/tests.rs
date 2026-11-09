@@ -1,5 +1,6 @@
 //! 缩略图身份、网格、后台检查与有界退役的行为回归。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{
     components::*, constants::*, demand::*, jobs::*, presentation::*, resources::*, types::*,
@@ -226,7 +227,7 @@ fn view_mode_click_respects_shared_guard_and_preserves_asset_and_author_state() 
         .world_mut()
         .spawn((
             ViewModeButton(AssetBrowserViewMode::Thumbnails),
-            feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+            feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
         ))
         .id();
     app.world_mut()
@@ -243,9 +244,9 @@ fn view_mode_click_respects_shared_guard_and_preserves_asset_and_author_state() 
             .asset_browser_view_mode,
         AssetBrowserViewMode::List
     );
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::None;
     app.update();
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
     app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     app.update();
     assert_eq!(
@@ -336,11 +337,11 @@ fn fixed_row_switches_grid_and_back_without_replacing_identity_or_selection() {
         bevy::text::LineBreak::AnyCharacter
     );
     for (interaction, expected) in [
-        (Interaction::None, crate::ui::theme::SELECT_BG),
-        (Interaction::Hovered, crate::ui::theme::SELECT_BG_HOVER),
-        (Interaction::Pressed, crate::ui::theme::SELECT_BG_PRESSED),
+        (UiInteraction::None, crate::ui::theme::SELECT_BG),
+        (UiInteraction::Hovered, crate::ui::theme::SELECT_BG_HOVER),
+        (UiInteraction::Pressed, crate::ui::theme::SELECT_BG_PRESSED),
     ] {
-        *app.world_mut().get_mut::<Interaction>(row).unwrap() = interaction;
+        *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = interaction;
         app.update();
         assert_eq!(app.world().get::<BackgroundColor>(row).unwrap().0, expected);
         assert_eq!(
@@ -351,7 +352,7 @@ fn fixed_row_switches_grid_and_back_without_replacing_identity_or_selection() {
             Some("texture.png")
         );
     }
-    *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
     app.world_mut()
         .resource_mut::<EditorSettings>()
         .asset_browser_view_mode = AssetBrowserViewMode::List;

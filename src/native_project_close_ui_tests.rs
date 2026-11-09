@@ -1,5 +1,6 @@
 //! 工程关闭与编辑器退出确认层的生产UI离屏验收：真实中文、布局和原取消事务，不操作用户工程。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::*, systems::authorize_exit, ui, NativeProjectClosePlugin};
 use bevy::{
     camera::RenderTarget,
@@ -8,7 +9,7 @@ use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureFormat, TextureUsages},
     text::TextLayoutInfo,
-    window::{PrimaryWindow, WindowRef},
+    window::{CursorLeft, CursorMoved, PrimaryWindow, WindowEvent, WindowRef},
 };
 use crate::project_log::gpu_tests::{assert_dialog_chrome, frame, screenshot};
 use feathrise_editor_map::{standalone::SavedPlayFeedback, workbench::WorkbenchHeader};
@@ -22,11 +23,25 @@ struct CursorFixture {
     position: Option<Vec2>,
 }
 
-/// 官方UI命中只接受Window相机；在真实InputPlugin与Focus之间提供同尺寸Window来源，
-/// 原Focus和共享释放协议只运行一次，随后恢复实际Image目标；不写Interaction或捕获槽。
+/// 官方UI命中只接受Window相机；在First拾取输入前提供同尺寸Window来源和真实窗口消息，
+/// 现代拾取及共享释放协议只运行一次，随后恢复实际Image目标；不写三态或捕获槽。
 fn provide_native_cursor(world: &mut World) {
     let fixture = world.resource::<CursorFixture>().clone();
-    world.get_mut::<Window>(fixture.window).unwrap().set_physical_cursor_position(fixture.position.map(|position| position.as_dvec2()));
+    let scale = {
+        let mut window = world.get_mut::<Window>(fixture.window).unwrap();
+        window.set_physical_cursor_position(fixture.position.map(|position| position.as_dvec2()));
+        window.scale_factor()
+    };
+    // 现代拾取只消费聚合WindowEvent；CursorLeft不清位置，先移到窗口外才能清除旧悬停。
+    let moved = CursorMoved { window: fixture.window,
+        position: fixture.position.map_or(Vec2::splat(-1.), |position| position / scale), delta: None };
+    world.write_message(moved.clone());
+    world.write_message(WindowEvent::CursorMoved(moved));
+    if fixture.position.is_none() {
+        let left = CursorLeft { window: fixture.window };
+        world.write_message(left.clone());
+        world.write_message(WindowEvent::CursorLeft(left));
+    }
     world.entity_mut(fixture.camera).insert(RenderTarget::Window(WindowRef::Entity(fixture.window)));
 }
 
@@ -292,7 +307,10 @@ fn choose_action_through_original_button(app: &mut App, action: CloseAction) {
 }
 
 fn mouse_frame(app: &mut App, window: Entity, state: ButtonState) {
-    app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state, window });
+    let input = MouseButtonInput { button: MouseButton::Left, state, window };
+    // 对齐真实窗口后端：InputPlugin读取独立消息，现代拾取读取同值聚合消息。
+    app.world_mut().write_message(input);
+    app.world_mut().write_message(WindowEvent::MouseButtonInput(input));
     frame(app);
 }
 
@@ -302,15 +320,15 @@ fn choose_action_through_mouse(app: &mut App, window: Entity, action: CloseActio
     let center = bounds(app, button).center();
     app.world_mut().resource_mut::<CursorFixture>().position = Some(center);
     settle(app);
-    assert_eq!(*app.world().get::<Interaction>(button).unwrap(), Interaction::Hovered);
+    assert_eq!(*app.world().get::<UiInteraction>(button).unwrap(), UiInteraction::Hovered);
     mouse_frame(app, window, ButtonState::Pressed);
     assert!(app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Left));
-    assert_eq!(*app.world().get::<Interaction>(button).unwrap(), Interaction::Pressed);
+    assert_eq!(*app.world().get::<UiInteraction>(button).unwrap(), UiInteraction::Pressed);
     assert!(!app.world().get::<feathrise_editor_ui::EditorButtonClick>(button).unwrap().is_clicked());
     assert_eq!(app.world().resource::<NativeProjectCloseState>().choice, None, "按下不能抢先执行动作");
     mouse_frame(app, window, ButtonState::Released);
     assert!(!app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Left));
-    assert_eq!(*app.world().get::<Interaction>(button).unwrap(), Interaction::Hovered);
+    assert_eq!(*app.world().get::<UiInteraction>(button).unwrap(), UiInteraction::Hovered);
     assert!(app.world().get::<feathrise_editor_ui::EditorButtonClick>(button).unwrap().is_clicked());
     assert_eq!(app.world().resource::<NativeProjectCloseState>().choice, Some(action));
     app.world_mut().resource_mut::<CursorFixture>().position = None;
@@ -325,12 +343,12 @@ fn upgrade_while_project_button_is_held(app: &mut App, window: Entity) -> serde_
     app.world_mut().resource_mut::<CursorFixture>().position = Some(center);
     settle(app);
     mouse_frame(app, window, ButtonState::Pressed);
-    assert_eq!(*app.world().get::<Interaction>(button).unwrap(), Interaction::Pressed);
+    assert_eq!(*app.world().get::<UiInteraction>(button).unwrap(), UiInteraction::Pressed);
     assert!(app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Left));
     let old_click = *app.world().get::<feathrise_editor_ui::EditorButtonClick>(button).unwrap();
     for _ in 0..2 {
         frame(app);
-        assert_eq!(*app.world().get::<Interaction>(button).unwrap(), Interaction::Pressed);
+        assert_eq!(*app.world().get::<UiInteraction>(button).unwrap(), UiInteraction::Pressed);
         assert_eq!(app.world().resource::<NativeProjectCloseState>().choice, None);
     }
 
@@ -345,10 +363,10 @@ fn upgrade_while_project_button_is_held(app: &mut App, window: Entity) -> serde_
     let center = bounds(app, button).center();
     app.world_mut().resource_mut::<CursorFixture>().position = Some(center);
     frame(app);
-    assert_eq!(*app.world().get::<Interaction>(button).unwrap(), Interaction::Pressed);
+    assert_eq!(*app.world().get::<UiInteraction>(button).unwrap(), UiInteraction::Pressed);
     mouse_frame(app, window, ButtonState::Released);
     assert!(!app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Left));
-    assert_eq!(*app.world().get::<Interaction>(button).unwrap(), Interaction::Hovered,
+    assert_eq!(*app.world().get::<UiInteraction>(button).unwrap(), UiInteraction::Hovered,
         "松开仍真实命中新目标，不能靠移出或隐藏按钮让负向断言偶然通过");
     assert!(!app.world().get::<feathrise_editor_ui::EditorButtonClick>(button).unwrap().is_clicked());
     let state = app.world().resource::<NativeProjectCloseState>();
@@ -388,8 +406,8 @@ fn production_close_dialog_uses_shared_chrome_and_keeps_original_cancel_flow() {
     app.add_message::<SavedPlayFeedback>()
         .add_plugins(NativeProjectClosePlugin)
         .add_systems(Update, use_builtin_editor_font.after(ui::mount))
-        .add_systems(PreUpdate, provide_native_cursor.after(bevy::input::InputSystems).before(bevy::ui::UiSystems::Focus))
-        .add_systems(PreUpdate, restore_image_target.after(bevy::ui::UiSystems::Focus)
+        .add_systems(First, provide_native_cursor.before(bevy::picking::PickingSystems::Input))
+        .add_systems(PreUpdate, restore_image_target.after(feathrise_editor_ui::UiInteractionSystems::Sync)
             .after(feathrise_editor_ui::update_editor_button_clicks));
     // 原七幅工程关闭截图保留显式Project语义，不能被默认Editor目标悄悄改写。
     app.world_mut().resource_mut::<NativeProjectCloseState>().set_target(CloseTarget::Project);
@@ -421,7 +439,7 @@ fn production_close_dialog_uses_shared_chrome_and_keeps_original_cancel_flow() {
     let close_rect = bounds(&app, close_button);
     app.world_mut().resource_mut::<CursorFixture>().position = Some(close_rect.center());
     settle(&mut app);
-    assert_eq!(*app.world().get::<Interaction>(close_button).unwrap(), Interaction::Hovered, "必须由官方鼠标命中产生悬停");
+    assert_eq!(*app.world().get::<UiInteraction>(close_button).unwrap(), UiInteraction::Hovered, "必须由官方鼠标命中产生悬停");
     let hover = screenshot(&mut app, &target, &output.join("clean-hover.png"));
     let mut brighter = 0;
     for y in (close_rect.min.y + 3.).ceil() as usize..(close_rect.max.y - 3.).floor() as usize {

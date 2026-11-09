@@ -1,4 +1,5 @@
 //! 插件状态和原按钮回归：拒载不能伪装主动停用，坏包仍能进入更新与移除流程。
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::native_plugins::management::types::PendingChange;
 
@@ -79,7 +80,7 @@ fn feedback_app(package: PackageEntry) -> (App, Vec<(Entity, Entity)>) {
     ] {
         let label = app.world_mut().spawn((Text::new("操作"), TextColor(c::TEXT_PRIMARY))).id();
         let button = app.world_mut().spawn((
-            control, action, ManagerBinding(0), EditorButtonClick::default(), Interaction::None,
+            control, action, ManagerBinding(0), EditorButtonClick::default(), UiInteraction::None,
             RelativeCursorPosition::default(), feathrise_editor_ui::dialog_button_style(false).colors,
             BackgroundColor::default(), BorderColor::all(c::DIALOG_BORDER),
         )).add_child(label).id();
@@ -100,10 +101,10 @@ fn operational_buttons_show_hover_press_and_cancel_press_after_cursor_leaves() {
         assert!(app.world().get::<InteractionDisabled>(*button).is_none());
         *app.world_mut().get_mut::<RelativeCursorPosition>(*button).unwrap() =
             RelativeCursorPosition { cursor_over: true, ..default() };
-        *app.world_mut().get_mut::<Interaction>(*button).unwrap() = Interaction::Hovered;
+        *app.world_mut().get_mut::<UiInteraction>(*button).unwrap() = UiInteraction::Hovered;
         app.update();
         assert_eq!(app.world().get::<BackgroundColor>(*button).unwrap().0, colors.hovered);
-        *app.world_mut().get_mut::<Interaction>(*button).unwrap() = Interaction::Pressed;
+        *app.world_mut().get_mut::<UiInteraction>(*button).unwrap() = UiInteraction::Pressed;
         app.update();
         assert_eq!(app.world().get::<BackgroundColor>(*button).unwrap().0, colors.pressed);
         app.world_mut().get_mut::<RelativeCursorPosition>(*button).unwrap().cursor_over = false;
@@ -120,7 +121,7 @@ fn no_pending_cancel_is_visibly_disabled_and_only_a_real_pending_plan_enables_it
     let (button, label) = controls[3];
     assert!(app.world().get::<InteractionDisabled>(button).is_some());
     assert_eq!(app.world().get::<TextColor>(label).unwrap().0, c::TEXT_MUTED.with_alpha(0.45));
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
     app.world_mut().get_mut::<RelativeCursorPosition>(button).unwrap().cursor_over = true;
     app.update();
     assert_eq!(app.world().get::<BackgroundColor>(button).unwrap().0, c::DIALOG_BG);
@@ -164,7 +165,7 @@ fn directory_button_updates_display_and_click_identity_when_switching_scope() {
     let label = app.world_mut().spawn((ManagerText::Directory, Text::default(), TextColor::default())).id();
     let button = app.world_mut().spawn((
         ManagerControl::OpenDirectory, ManagerAction::OpenDirectory, ManagerBinding(0),
-        EditorButtonClick::default(), Interaction::None,
+        EditorButtonClick::default(), UiInteraction::None,
         feathrise_editor_ui::dialog_button_style(false).colors, BackgroundColor::default(),
     )).add_child(label).id();
     app.update();
@@ -212,7 +213,7 @@ fn production_buttons_block_enabling_invalid_package_and_keep_repair_actions_ava
                     action,
                     ManagerBinding(0),
                     EditorButtonClick::default(),
-                    Interaction::None,
+                    UiInteraction::None,
                     feathrise_editor_ui::dialog_button_style(false).colors,
                     BackgroundColor::default(),
                 ))

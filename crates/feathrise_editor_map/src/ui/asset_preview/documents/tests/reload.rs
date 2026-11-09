@@ -1,5 +1,6 @@
 //! 重载只冻结当前真实读取目标；原生输入、保存和外部核对共用原系统，不伪造任务结果。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::resources::{EditorTextInputGuard, MapEditorNumericScrubMouseGuard, MapEditorState};
 use crate::ui::{
@@ -45,7 +46,7 @@ ComputedNode::default())).id();
 }
 
 fn press(app: &mut App, action: DocumentAction) {
-    let button = app.world_mut().spawn((action, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)).id();
+    let button = app.world_mut().spawn((action, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)).id();
     app.world_mut().run_system_once(super::super::interaction::actions).unwrap();
     app.world_mut().despawn(button);
 }

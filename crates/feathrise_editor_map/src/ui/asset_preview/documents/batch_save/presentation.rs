@@ -1,5 +1,6 @@
 //! 报告仅在轻量结果变化时更新最多八行，静止帧不读草稿或磁盘。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::DocumentBatchSaveState, types::FileOutcome};
 use crate::ui::theme as colors;
 use bevy::prelude::*;
@@ -11,8 +12,8 @@ pub(super) fn sync(
         (&mut Text, Has<SaveReportSummary>),
         Or<(With<SaveReportSummary>, With<SaveReportBody>)>,
     >,
-    mut buttons: Query<(&Interaction, &mut BackgroundColor), With<HideSaveReport>>,
-    changed: Query<(), (With<HideSaveReport>, Changed<Interaction>)>,
+    mut buttons: Query<(&UiInteraction, &mut BackgroundColor), With<HideSaveReport>>,
+    changed: Query<(), (With<HideSaveReport>, Changed<UiInteraction>)>,
     added: Query<(), Added<SaveReport>>,
 ) {
     if !state.is_changed() && changed.is_empty() && added.is_empty() {
@@ -67,7 +68,7 @@ pub(super) fn sync(
         }
     }
     for (interaction, mut color) in &mut buttons {
-        color.set_if_neq(BackgroundColor(if *interaction == Interaction::None {
+        color.set_if_neq(BackgroundColor(if *interaction == UiInteraction::None {
             colors::SLOT_BG
         } else {
             colors::SELECT_BG_HOVER

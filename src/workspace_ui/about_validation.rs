@@ -1,5 +1,6 @@
 //! 关于功能的真实窗口专项：用原按钮按下／松开协议取证，只允许独占目录和隔离偏好的无工程工作台。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::{AboutState, AboutValidation, Presentation}, *};
 use bevy::{camera::RenderTarget, input::mouse::{MouseScrollUnit, MouseWheel},
@@ -21,7 +22,7 @@ pub(super) fn install(app: &mut App) {
         .expect("不得重用验收目录");
     app.insert_resource(AboutValidation { directory, started: Instant::now(), step: 0, frames: 0,
         issued: false, pressing: None, fields: Vec::new(), proofs: Vec::new(), commands: default() })
-        .add_systems(PreUpdate, input.after(bevy::ui::UiSystems::Focus)
+        .add_systems(PreUpdate, input.after(feathrise_editor_ui::UiInteractionSystems::Sync)
             .before(feathrise_editor_ui::update_editor_button_clicks))
         .add_systems(Last, drive);
 }
@@ -75,11 +76,11 @@ fn input(world: &mut World) {
                 plan.pressing = Some(entity);
                 plan.issued = true;
                 plan.frames = 0;
-                *world.get_mut::<Interaction>(entity).unwrap() = Interaction::Pressed;
+                *world.get_mut::<UiInteraction>(entity).unwrap() = UiInteraction::Pressed;
             } else if plan.pressing.take().is_some() {
                 world.resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
                 world.get_mut::<bevy::ui::RelativeCursorPosition>(entity).unwrap().cursor_over = true;
-                *world.get_mut::<Interaction>(entity).unwrap() = Interaction::Hovered;
+                *world.get_mut::<UiInteraction>(entity).unwrap() = UiInteraction::Hovered;
             }
         }
     }

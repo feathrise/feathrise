@@ -1,5 +1,6 @@
 //! 16个候选文件与32个并列差异行按视区复用；稳定帧不扫描正文、不按匹配数创建实体。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::super::resources::AssetSearchState;
@@ -176,12 +177,12 @@ pub(super) fn sync(
         Entity,
         &mut ReplaceAction,
         Option<&ReplaceButtonSlot>,
-        &Interaction,
+        &UiInteraction,
         &mut BackgroundColor,
         &mut BorderColor,
         Has<InteractionDisabled>,
     )>,
-    changed: Query<(), (With<ReplaceAction>, Changed<Interaction>)>,
+    changed: Query<(), (With<ReplaceAction>, Changed<UiInteraction>)>,
     mut previous: Local<Option<(usize, usize)>>,
 ) {
     let file_start = (files_scroll
@@ -392,7 +393,7 @@ pub(super) fn sync(
         }
         background.0 = if selected {
             colors::SELECT_BG
-        } else if enabled && *interaction != Interaction::None {
+        } else if enabled && *interaction != UiInteraction::None {
             colors::SELECT_BG_HOVER
         } else {
             colors::SLOT_BG

@@ -1,5 +1,6 @@
 //! 工程文件按实际可见窗口复用固定行；文件名筛选、排序与完整目录释放均不在UI帧执行。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::{ProjectBrowserState, ProjectFileViewport}, types::*, window};
 use crate::{asset_catalog::project_files::EditorProjectFileCatalog, ui::theme as colors};
@@ -74,7 +75,7 @@ pub(super) fn files(
     locale: Option<Res<EditorLocale>>,
     window: Res<ProjectFileViewport>,
     asset_server: Res<AssetServer>,
-    mut rows: Query<(&mut ProjectFileRow, &mut Node, &Children, &Interaction, &mut BackgroundColor, &mut BorderColor, Option<&mut EditorButtonClick>)>,
+    mut rows: Query<(&mut ProjectFileRow, &mut Node, &Children, &UiInteraction, &mut BackgroundColor, &mut BorderColor, Option<&mut EditorButtonClick>)>,
     mut labels: Query<(&mut Text, &mut TextColor), With<ProjectFileRowText>>,
     mut icons: Query<&mut ImageNode, With<ProjectFileRowIcon>>,
     mut fields: Query<(&mut Text, &mut TextColor, Option<&ProjectFileFolderText>, Option<&ProjectFileSummaryText>, Option<&ProjectFileStatusText>, Option<&ProjectFileSelectionText>),
@@ -100,12 +101,12 @@ pub(super) fn files(
         if node.top != top { node.top = top; }
         let selected = !entry.is_directory && catalog.selected_file.as_ref().is_some_and(|selected| selected.relative_path == entry.asset_path);
         background.set_if_neq(BackgroundColor(match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-            (Interaction::None, true) => colors::SELECT_BG,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::None, true) => colors::SELECT_BG,
             _ => colors::PANEL_BG,
         }));
-        border.set_if_neq(BorderColor::all(if selected || *interaction != Interaction::None { colors::COPPER_BORDER } else { colors::COPPER_BORDER_WEAK }));
+        border.set_if_neq(BorderColor::all(if selected || *interaction != UiInteraction::None { colors::COPPER_BORDER } else { colors::COPPER_BORDER_WEAK }));
         for child in children {
             if let Ok((mut text, mut color)) = labels.get_mut(*child) {
                 if text.0 != entry.display_name { text.0 = entry.display_name.clone(); }
@@ -144,7 +145,7 @@ pub(super) fn files(
 
 pub(super) fn action_feedback(
     catalog: Res<EditorProjectFileCatalog>,
-    mut buttons: Query<(&ProjectFileActionButton, &Interaction, &Children, &mut BackgroundColor, &mut BorderColor)>,
+    mut buttons: Query<(&ProjectFileActionButton, &UiInteraction, &Children, &mut BackgroundColor, &mut BorderColor)>,
     mut labels: Query<&mut TextColor>,
 ) {
     for (button, interaction, children, mut background, mut border) in &mut buttons {
@@ -153,11 +154,11 @@ pub(super) fn action_feedback(
             ProjectFileAction::Refresh => catalog.project_root().is_some(),
         };
         background.set_if_neq(BackgroundColor(if !enabled { colors::PANEL_BG } else { match interaction {
-            Interaction::Pressed => colors::SELECT_BG_PRESSED,
-            Interaction::Hovered => colors::SELECT_BG_HOVER,
-            Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+            UiInteraction::Pressed => colors::SELECT_BG_PRESSED,
+            UiInteraction::Hovered => colors::SELECT_BG_HOVER,
+            UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
         } }));
-        border.set_if_neq(BorderColor::all(if enabled && *interaction != Interaction::None { colors::COPPER_BORDER } else { colors::COPPER_BORDER_WEAK }));
+        border.set_if_neq(BorderColor::all(if enabled && *interaction != UiInteraction::None { colors::COPPER_BORDER } else { colors::COPPER_BORDER_WEAK }));
         for child in children { if let Ok(mut color) = labels.get_mut(*child) { color.set_if_neq(TextColor(if enabled { colors::TEXT_PRIMARY } else { colors::TEXT_MUTED })); } }
     }
 }

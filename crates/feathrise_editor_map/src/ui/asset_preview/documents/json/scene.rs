@@ -1,4 +1,5 @@
 //! 原路径只借用根应用提供的场景工厂；业务回显继续留在原调度。
+use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*;
 use bevy::ui::InteractionDisabled;
 use crate::ui::theme as colors;
@@ -10,7 +11,7 @@ pub(super) fn sync(
     mut buttons: Query<(
         Entity,
         &JsonAction,
-        &Interaction,
+        &UiInteraction,
         &mut Node,
         &mut BackgroundColor,
         Has<InteractionDisabled>,
@@ -66,9 +67,9 @@ pub(super) fn sync(
             }
         }
         background.set_if_neq(BackgroundColor(
-            if enabled && *interaction == Interaction::Hovered {
+            if enabled && *interaction == UiInteraction::Hovered {
                 colors::BUTTON_DEV_SMALL_HOVERED
-            } else if enabled && *interaction == Interaction::Pressed {
+            } else if enabled && *interaction == UiInteraction::Pressed {
                 colors::BUTTON_DEV_SMALL_PRESSED
             } else {
                 colors::SLOT_BG

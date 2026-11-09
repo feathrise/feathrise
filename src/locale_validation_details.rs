@@ -194,7 +194,7 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity, detail: 
                 command_visible && (code_task || viewport_task)
             } else {
                 command_visible && code_task && viewport_task && text.contains("Preparing the project")
-                    && text.contains("Build tool: Native Cargo")
+                    && text.contains("Build tool: Cargo")
             };
             if !log_ready { return Ok(()); }
             if !click(world, run, window, "Follow: On") { return Ok(()); }

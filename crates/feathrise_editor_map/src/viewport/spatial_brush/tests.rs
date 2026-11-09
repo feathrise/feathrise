@@ -1,4 +1,5 @@
 //! 空间笔刷的真实输入、冻结请求与取消门验证。
+use feathrise_editor_ui::UiInteraction;
 use super::{
     components::*, request::build_request, resources::SpatialBrushState, systems, types::*, ui,
 };
@@ -354,29 +355,29 @@ fn spatial_coordinate_updates_do_not_start_a_sculpt_and_execute_freezes_entire_l
     assert!(!app.world().resource::<VolumeAuthoringState>().busy());
     let start_button = app
         .world_mut()
-        .spawn((ActionButton(Action::Start), Interaction::None))
+        .spawn((ActionButton(Action::Start), UiInteraction::None))
         .id();
     let end_button = app
         .world_mut()
-        .spawn((ActionButton(Action::End), Interaction::None))
+        .spawn((ActionButton(Action::End), UiInteraction::None))
         .id();
     let execute = app
         .world_mut()
-        .spawn((ActionButton(Action::Execute), Interaction::None))
+        .spawn((ActionButton(Action::Execute), UiInteraction::None))
         .id();
     app.world_mut().resource_mut::<SpatialBrushState>().mode = ApplyMode::Line;
     app.world_mut()
         .entity_mut(start_button)
-        .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     tick(&mut app);
     app.world_mut().resource_mut::<SpatialBrushState>().center = Some(Vec3::new(10., -8., 0.));
     app.world_mut()
         .entity_mut(end_button)
-        .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     tick(&mut app);
     app.world_mut()
         .entity_mut(execute)
-        .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     tick(&mut app);
     {
         let mut state = app.world_mut().resource_mut::<SpatialBrushState>();
@@ -433,7 +434,7 @@ fn spatial_next_start_reuses_fixed_brush_after_execution_without_placing_again()
             app.world_mut()
                 .spawn((
                     ActionButton(action),
-                    Interaction::None,
+                    UiInteraction::None,
                     BackgroundColor::default(),
                     BorderColor::default(),
                 ))
@@ -445,7 +446,7 @@ fn spatial_next_start_reuses_fixed_brush_after_execution_without_placing_again()
         app.world_mut().run_system_once(ui::sync).unwrap();
         app.world_mut()
             .entity_mut(execute)
-            .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+            .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         tick(&mut app);
         app.world_mut()
             .resource_scope(|world, mut state: Mut<SpatialBrushState>| {
@@ -479,7 +480,7 @@ fn spatial_next_start_reuses_fixed_brush_after_execution_without_placing_again()
 
         app.world_mut()
             .entity_mut(start)
-            .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+            .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         tick(&mut app);
         let state = app.world().resource::<SpatialBrushState>();
         assert_eq!(state.mode, ApplyMode::Line);
@@ -502,7 +503,7 @@ fn spatial_next_start_reuses_fixed_brush_after_execution_without_placing_again()
             value: NumericValue::F32(center.x + 4.),
         });
         tick(&mut app);
-        app.world_mut().entity_mut(end).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        app.world_mut().entity_mut(end).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         tick(&mut app);
         app.world_mut().run_system_once(ui::sync).unwrap();
         assert!(
@@ -512,11 +513,11 @@ fn spatial_next_start_reuses_fixed_brush_after_execution_without_placing_again()
         );
         app.world_mut()
             .entity_mut(execute)
-            .insert(Interaction::None);
+            .insert(UiInteraction::None);
         tick(&mut app);
         app.world_mut()
             .entity_mut(execute)
-            .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+            .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         tick(&mut app);
         let request = app
             .world()
@@ -650,7 +651,7 @@ fn spatial_map_close_clears_coordinates_and_does_not_replay_pressed_execute() {
     let (mut app, _) = app();
     let execute = app
         .world_mut()
-        .spawn((ActionButton(Action::Execute), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+        .spawn((ActionButton(Action::Execute), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
         .id();
     app.world_mut().resource_mut::<MapEditorState>().open = false;
     tick(&mut app);
@@ -660,7 +661,7 @@ fn spatial_map_close_clears_coordinates_and_does_not_replay_pressed_execute() {
     assert!(state.pending.is_none());
     app.world_mut().resource_mut::<MapEditorState>().open = true;
     tick(&mut app);
-    assert!(app.world().get::<Interaction>(execute).is_some());
+    assert!(app.world().get::<UiInteraction>(execute).is_some());
     assert!(
         app.world()
             .resource::<SpatialBrushState>()
@@ -676,7 +677,7 @@ fn spatial_modal_press_is_consumed_and_cannot_execute_after_modal_closes() {
         .resource_mut::<MapEditorSettingsState>()
         .open = true;
     app.world_mut()
-        .spawn((ActionButton(Action::Execute), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+        .spawn((ActionButton(Action::Execute), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
     tick(&mut app);
     assert!(
         app.world()

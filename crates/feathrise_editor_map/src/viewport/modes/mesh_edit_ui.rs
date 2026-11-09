@@ -1,5 +1,6 @@
 //! 对象与点/边/面编辑的原生视口工具栏；按钮只发布编辑意图，几何事务由网格编辑域统一处理。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 use bevy::ui::{FocusPolicy, RelativeCursorPosition};
@@ -40,7 +41,7 @@ pub(super) struct MeshAdvancedMenuRoot;
 
 pub(super) fn spawn(parent: &mut ChildSpawnerCommands, font: &Handle<Font>) {
     parent.spawn((
-        MeshEditToolbarRoot, Interaction::default(), RelativeCursorPosition::default(), FocusPolicy::Block,
+        MeshEditToolbarRoot, UiInteraction::default(), RelativeCursorPosition::default(), FocusPolicy::Block,
         Node {
             position_type: PositionType::Absolute, left: px(50), right: px(8), top: px(8),
             max_width: px(112), flex_wrap: FlexWrap::Wrap, column_gap: px(3), row_gap: px(3),
@@ -180,10 +181,10 @@ pub(super) fn style(
     locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     viewports: Query<&ComputedNode, With<crate::components::MapEditorViewport>>,
     mut roots: Query<&mut Node, (With<MeshEditToolbarRoot>, Without<MeshEditButton>, Without<MeshSelectionCaption>)>,
-    mut buttons: Query<(&MeshEditButton, &Interaction, &mut Node, &mut BackgroundColor, Has<MeshEditOnly>, Has<MeshMoveOnly>), (Without<MeshEditToolbarRoot>, Without<MeshSelectionCaption>)>,
+    mut buttons: Query<(&MeshEditButton, &UiInteraction, &mut Node, &mut BackgroundColor, Has<MeshEditOnly>, Has<MeshMoveOnly>), (Without<MeshEditToolbarRoot>, Without<MeshSelectionCaption>)>,
     mut captions: Query<&mut Text, (With<MeshEditToggleCaption>, Without<MeshSelectionCaption>)>,
     mut selection: Query<(&mut Text, &mut Node), (With<MeshSelectionCaption>, Without<MeshEditButton>, Without<MeshEditToolbarRoot>)>,
-    mut advanced: Query<(&mut Node, Option<&MeshAdvancedToggle>, Option<&Interaction>, Option<&mut BackgroundColor>),
+    mut advanced: Query<(&mut Node, Option<&MeshAdvancedToggle>, Option<&UiInteraction>, Option<&mut BackgroundColor>),
         (Or<(With<MeshAdvancedMenuRoot>, With<MeshAdvancedToggle>)>, Without<MeshEditToolbarRoot>, Without<MeshEditButton>, Without<MeshSelectionCaption>)>,
 ) {
     let locale = locale.as_deref().copied().unwrap_or_default();
@@ -203,9 +204,9 @@ pub(super) fn style(
         if node.display != display { node.display = display; }
         if let Some(mut background) = background {
             let color = match (interaction.copied().unwrap_or_default(), menu_open) {
-                (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-                (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-                (Interaction::None, true) => colors::SELECT_BG,
+                (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+                (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+                (UiInteraction::None, true) => colors::SELECT_BG,
                 _ => colors::SLOT_BG,
             };
             if background.0 != color { background.0 = color; }
@@ -242,10 +243,10 @@ pub(super) fn style(
             _ => false,
         });
         let color = match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-            (Interaction::None, true) => colors::SELECT_BG,
-            (Interaction::None, false) => colors::SLOT_BG,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::None, true) => colors::SELECT_BG,
+            (UiInteraction::None, false) => colors::SLOT_BG,
         };
         if background.0 != color { background.0 = color; }
     }
@@ -301,7 +302,7 @@ mod tests {
             .add_systems(Update, input);
         let button = app.world_mut().spawn((
             Node::default(), MeshEditButton(MeshEditAction::Toggle),
-            Interaction::Pressed, EditorButtonClick::default(),
+            UiInteraction::Pressed, EditorButtonClick::default(),
         )).id();
         app.update();
         assert!(app.world().resource::<MeshEditState>().request.is_none(), "按下不能提前切换模式");

@@ -1,5 +1,6 @@
 //! 编辑器布局的专注与单侧显隐、窄窗恢复、真实 ECS 查询和鼠标所有权回归，不启动渲染。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::*;
 use crate::ui::numeric_scrub_mouse_guard::update_map_editor_numeric_scrub_mouse_guard;
@@ -131,7 +132,7 @@ fn editor_layout_focus_side_input_keeps_panes_selected_colors_and_preferences_in
         let buttons = [EditorLayoutAction::Content, EditorLayoutAction::Inspector, EditorLayoutAction::Focus]
             .map(|action| app.world_mut().spawn((
                 MapEditorLayoutButton(action), feathrise_editor_ui::EditorButtonClick::default(),
-                Interaction::None, BackgroundColor::default(), BorderColor::default(),
+                UiInteraction::None, BackgroundColor::default(), BorderColor::default(),
                 feathrise_editor_ui::ButtonColors::new(colors::BUTTON_DEV_SMALL_NORMAL,
                     colors::BUTTON_DEV_SMALL_HOVERED, colors::SELECT_BG_PRESSED),
             )).id());
@@ -225,13 +226,13 @@ fn editor_layout_sync_queries_are_disjoint_and_skill_hides_only_map_context() {
         .spawn((
             Node::default(),
             MapEditorPaneSplitter(EditorPane::Inspector),
-            Interaction::None,
+            UiInteraction::None,
             BackgroundColor::default(),
         ))
         .id();
     app.world_mut().spawn((
         MapEditorLayoutButton(EditorLayoutAction::Inspector),
-        Interaction::None,
+        UiInteraction::None,
         BackgroundColor::default(),
         BorderColor::default(),
     ));
@@ -338,7 +339,7 @@ fn editor_layout_splitter_respects_ui_scale_and_chord_release_gate() {
     for pane in [EditorPane::Content, EditorPane::Inspector] {
         let mut app = layout_app(2400, 2.0);
         app.world_mut()
-            .spawn((MapEditorPaneSplitter(pane), Interaction::Hovered));
+            .spawn((MapEditorPaneSplitter(pane), UiInteraction::Hovered));
         cursor(&mut app, 400.0);
         app.world_mut()
             .resource_mut::<ButtonInput<MouseButton>>()
@@ -424,7 +425,7 @@ fn editor_layout_buttons_acquire_mouse_without_changing_editor_or_workspace() {
         .active_tab = PresetWorkspaceTab::Domain("test.author", 17);
     app.world_mut().spawn((
         MapEditorLayoutButton(EditorLayoutAction::Focus),
-        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+        feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
     ));
     app.update();
     assert!(
@@ -455,7 +456,7 @@ fn editor_layout_does_not_start_splitter_during_a_modal_or_another_mouse_owner()
         cursor(&mut app, 400.0);
         app.world_mut().spawn((
             MapEditorPaneSplitter(EditorPane::Content),
-            Interaction::Pressed,
+            UiInteraction::Pressed,
         ));
         app.world_mut()
             .resource_mut::<ButtonInput<MouseButton>>()
@@ -485,7 +486,7 @@ fn editor_layout_restores_before_the_first_input_and_survives_restart() {
     };
     app.world_mut().resource_mut::<EditorSettings>().editor_layout = saved;
     // 第一帧就点击展开左栏；启动恢复必须先于这次显式输入。
-    app.world_mut().spawn((MapEditorLayoutButton(EditorLayoutAction::Content), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+    app.world_mut().spawn((MapEditorLayoutButton(EditorLayoutAction::Content), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
     app.update();
     let expected = feathrise_editor_core::EditorLayoutPreferences { content_visible: true, ..saved };
     assert_eq!(app.world().resource::<MapEditorLayoutState>().preferences(), expected);
@@ -568,7 +569,7 @@ fn editor_layout_clicking_a_compressed_splitter_does_not_replace_preferred_width
         app.world_mut().resource_mut::<EditorSettings>().editor_layout = preferred;
         app.update();
         let changed = app.world().get_resource_ref::<EditorSettings>().unwrap().last_changed();
-        app.world_mut().spawn((MapEditorPaneSplitter(pane), Interaction::Hovered));
+        app.world_mut().spawn((MapEditorPaneSplitter(pane), UiInteraction::Hovered));
         cursor(&mut app, 400.0);
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         app.update();

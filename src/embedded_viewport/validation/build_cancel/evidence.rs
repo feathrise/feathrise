@@ -1,5 +1,6 @@
 //! 真实GPU回读、原按钮布局及精确Cargo子进程句柄取证；磁盘和图片工作均在单飞后台槽。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{resources::Plan, types::BuildWitness, fixture};
 use bevy::{asset::RenderAssetUsages, image::{CompressedImageFormats, ImageSampler, ImageType}, prelude::*,
@@ -51,7 +52,7 @@ fn visible_ancestry(world: &World, entity: Entity) -> bool {
 }
 
 pub(super) fn pulse(world: &mut World, entity: Entity) {
-    world.entity_mut(entity).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    world.entity_mut(entity).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
 }
 
 pub(super) fn screenshot(world: &mut World, plan: &mut Plan, name: &str) -> Result<Option<Value>, String> {

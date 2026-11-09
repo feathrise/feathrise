@@ -177,12 +177,15 @@ fn assert_text_is_visible(app: &mut App, popup: Entity) {
         "必须生成真实字形，不能只检查空文本节点"
     );
     assert!(node.size().min_element() > 0.0, "文字不能被压缩成零宽");
+    // Bevy 0.20 的 TextLayoutInfo::size 已是物理像素，与 ComputedNode 同单位；不能再次乘布局倍率。
     assert!(
-        (text.size * text.scale_factor)
-            .cmple(node.size() + Vec2::splat(1.1))
-            .all()
+        text.size.cmple(node.size() + Vec2::splat(1.1)).all(),
+        "真实文字必须完整放入节点：text={:?} node={:?} layout_scale={}",
+        text.size, node.size(), text.scale_factor
     );
     assert_eq!(*focus, FocusPolicy::Pass);
+    let pickable = world.get::<Pickable>(entity).expect("拖动预览文字显式声明现代拾取穿透");
+    assert!(!pickable.should_block_lower && !pickable.is_hoverable);
     let text_rect = bounds(app, entity);
     let popup_rect = bounds(app, popup);
     assert!(
@@ -193,6 +196,8 @@ fn assert_text_is_visible(app: &mut App, popup: Entity) {
         *app.world().get::<FocusPolicy>(popup).unwrap(),
         FocusPolicy::Pass
     );
+    let pickable = app.world().get::<Pickable>(popup).expect("拖动浮层根显式声明现代拾取穿透");
+    assert!(!pickable.should_block_lower && !pickable.is_hoverable);
 }
 
 #[test]

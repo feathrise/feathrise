@@ -1,5 +1,6 @@
 //! 建筑预设目录选择、中央草稿输入和专用摆放参数交互。
 
+use feathrise_editor_ui::UiInteraction;
 use std::time::{SystemTime, UNIX_EPOCH}; // 新建预设使用不依赖目录顺序的会话外稳定候选 ID。
 
 use bevy::input::keyboard::{Key, KeyboardInput}; // 数值字段只接受有限 ASCII 语法。
@@ -232,7 +233,7 @@ pub(super) fn sync_sidebar_button_styles(
     controls: Res<BuildingPlacementControls>,
     mut buttons: Query<
         (
-            &Interaction,
+            &UiInteraction,
             &BuildingPresetButton,
             &mut BackgroundColor,
             &mut BorderColor,
@@ -250,10 +251,10 @@ pub(super) fn sync_sidebar_button_styles(
             _ => false,
         };
         let fill = match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-            (Interaction::None, true) => colors::SELECT_BG,
-            (Interaction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::None, true) => colors::SELECT_BG,
+            (UiInteraction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL,
         };
         let outline = BorderColor::all(if selected {
             colors::COPPER_BORDER

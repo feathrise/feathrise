@@ -1,4 +1,5 @@
 //! 无工程工作台复用原设置按钮与原倍率应用系统；同时核对设置值和真正的UiScale，不写任何配置。
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::{
     components::{MapEditorSettingsButton, MapEditorSettingsScaleText},
@@ -69,7 +70,7 @@ pub(super) fn app(preinstalled: bool) -> (App, Entity) {
         app.world_mut().spawn((
             MapEditorSettingsButton(action),
             EditorButtonClick::default(),
-            Interaction::None,
+            UiInteraction::None,
             BackgroundColor::default(),
             BorderColor::default(),
         ));

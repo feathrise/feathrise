@@ -1,5 +1,6 @@
 //! 拖拽期间的悬停展开和树内边缘滚动；只维护一份计时身份并检查固定行池。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*;
 use bevy::time::Real;
 use bevy::ui::{CalculatedClip, RelativeCursorPosition};
@@ -76,7 +77,7 @@ pub(crate) fn navigate_map_browser_drag(
         With<MapEditorMapTreeScroll>,
     >,
     rows: Query<(
-        &Interaction,
+        &UiInteraction,
         &MapEditorMapRow,
         Option<&RelativeCursorPosition>,
     )>,

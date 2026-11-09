@@ -1,5 +1,6 @@
 //! 悬停延迟、真实键位、原状态只读和禁用条件回归；不运行动作或写入作者文件。
 
+use feathrise_editor_ui::UiInteraction;
 use super::components::*;
 use super::helpers::*;
 use super::resources::EditorTooltipState;
@@ -69,7 +70,7 @@ fn app() -> (App, Entity, Entity) {
         .world_mut()
         .spawn((
             EditorTooltipTarget(TooltipAction::Editor(EditorAction::Undo)),
-            Interaction::Hovered,
+            UiInteraction::Hovered,
             Node::default(),
             ComputedNode {
                 size: Vec2::new(80.0, 26.0),
@@ -376,12 +377,12 @@ fn tooltip_restarts_delay_on_target_change_and_updates_binding_while_visible() {
     advance(&mut app, 0);
     assert_eq!(text(&mut app, TooltipText::Title), "撤销 · G");
     app.world_mut()
-        .get_mut::<Interaction>(target)
+        .get_mut::<UiInteraction>(target)
         .unwrap()
-        .set_if_neq(Interaction::None);
+        .set_if_neq(UiInteraction::None);
     app.world_mut().spawn((
         EditorTooltipTarget(TooltipAction::Settings),
-        Interaction::Hovered,
+        UiInteraction::Hovered,
         Node::default(),
         ComputedNode {
             size: Vec2::splat(40.0),

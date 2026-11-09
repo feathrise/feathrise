@@ -17,9 +17,9 @@ pub(in crate::ui) fn tooltip_popup() -> impl Scene {
         // 高于主体但低于右键菜单及模态；没有透明输入遮罩或第二套鼠标所有权。
         GlobalZIndex(425) BackgroundColor(colors::PANEL_BG_STRONG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            (@tooltip_text(TooltipText::Title, colors::TEXT_ACCENT, 11.0)),
-            (@tooltip_text(TooltipText::Description, colors::TEXT_PRIMARY, 10.5)),
-            (@tooltip_text(TooltipText::Reason, colors::DANGER_TEXT, 10.5)),
+            @tooltip_text(TooltipText::Title, colors::TEXT_ACCENT, 11.0)--
+            @tooltip_text(TooltipText::Description, colors::TEXT_PRIMARY, 10.5)--
+            @tooltip_text(TooltipText::Reason, colors::DANGER_TEXT, 10.5)
         ]
     }
 }

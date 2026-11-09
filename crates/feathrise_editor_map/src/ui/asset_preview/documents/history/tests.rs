@@ -1,5 +1,6 @@
 //! 撤销保存点、中文字节选区、分组边界、内存上限与官方输入/多文件缓存回归。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{
     components::DocumentSource,
     io, native,
@@ -738,8 +739,8 @@ pub(in super::super) fn gpu_click_history(
         .unwrap();
     app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
     assert_eq!(
-        *app.world().get::<Interaction>(entity).unwrap(),
-        Interaction::Pressed,
+        *app.world().get::<UiInteraction>(entity).unwrap(),
+        UiInteraction::Pressed,
         "真实鼠标必须命中撤销/重做按钮"
     );
     app.world_mut().run_system_once(control::input).unwrap();

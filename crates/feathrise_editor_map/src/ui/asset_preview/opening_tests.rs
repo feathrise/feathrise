@@ -1,5 +1,6 @@
 //! 正式资产行与中央打开系统的双击回归；不加载项目资产或写入作者文件。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::*;
 use crate::{components::MapEditorAssetRow, resources::EditorAssetCatalog, types::EditorAssetEntry};
@@ -27,17 +28,17 @@ fn fixture() -> (App, Entity) {
     app.world_mut().resource_mut::<EditorAssetCatalog>().entries = ["a.json", "b.json", "a.png", "b.glb", "audio/剑声.OGG", "audio/音乐.WAV"]
         .into_iter().map(|path| EditorAssetEntry { asset_path: path.into(), display_name: path.into(),
             is_directory: false, kind: feathrise_map_content::MapAssetKind::Data }).collect();
-    let row = app.world_mut().spawn((Interaction::None, MapEditorAssetRow { slot: 0, entry_index: Some(0) })).id();
+    let row = app.world_mut().spawn((UiInteraction::None, MapEditorAssetRow { slot: 0, entry_index: Some(0) })).id();
     (app, row)
 }
 
 fn click(app: &mut App, row: Entity, index: usize, seconds: f64) {
     app.world_mut().resource_mut::<Time<Real>>().advance_by(Duration::from_secs_f64(seconds));
     app.world_mut().get_mut::<MapEditorAssetRow>(row).unwrap().entry_index = Some(index);
-    *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::Pressed;
+    *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::Pressed;
     app.world_mut().entity_mut(row).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     app.update();
-    *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::Hovered;
+    *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::Hovered;
     app.update();
 }
 
@@ -130,9 +131,9 @@ fn asset_row_press_and_hold_wait_for_inside_release_and_outside_release_cancels(
     });
     app.add_systems(PostUpdate, crate::ui::rows::sync_asset_rows);
     app.update(); // 先由正式表现系统建立固定槽身份，按下后再检验换绑失效。
-    let frame = |app: &mut App, interaction: Interaction, down: Option<bool>| {
-        *app.world_mut().get_mut::<Interaction>(row).unwrap() = interaction;
-        app.world_mut().get_mut::<bevy::ui::RelativeCursorPosition>(row).unwrap().cursor_over = interaction != Interaction::None;
+    let frame = |app: &mut App, interaction: UiInteraction, down: Option<bool>| {
+        *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = interaction;
+        app.world_mut().get_mut::<bevy::ui::RelativeCursorPosition>(row).unwrap().cursor_over = interaction != UiInteraction::None;
         if let Some(down) = down {
             let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
             if down { mouse.press(MouseButton::Left); } else { mouse.release(MouseButton::Left); }
@@ -140,25 +141,25 @@ fn asset_row_press_and_hold_wait_for_inside_release_and_outside_release_cancels(
         app.update();
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
     };
-    frame(&mut app, Interaction::Pressed, Some(true));
-    frame(&mut app, Interaction::Pressed, None);
+    frame(&mut app, UiInteraction::Pressed, Some(true));
+    frame(&mut app, UiInteraction::Pressed, None);
     assert!(app.world().resource::<MapEditorState>().selected_asset.is_none(), "按住不能提前选择资产");
-    frame(&mut app, Interaction::None, Some(false));
+    frame(&mut app, UiInteraction::None, Some(false));
     assert!(app.world().resource::<MapEditorState>().selected_asset.is_none(), "移出松开应取消选择");
-    frame(&mut app, Interaction::Pressed, Some(true));
-    frame(&mut app, Interaction::Hovered, Some(false));
+    frame(&mut app, UiInteraction::Pressed, Some(true));
+    frame(&mut app, UiInteraction::Hovered, Some(false));
     assert_eq!(app.world().resource::<MapEditorState>().selected_asset.as_deref(), Some("a.json"));
-    frame(&mut app, Interaction::Hovered, None);
+    frame(&mut app, UiInteraction::Hovered, None);
     assert!(!app.world().resource::<DocumentState>().expanded(), "一次释放不能被下一帧重复算作双击");
     // 固定槽换绑时取消原手势，不能把松手交给新文件。
-    frame(&mut app, Interaction::Pressed, Some(true));
+    frame(&mut app, UiInteraction::Pressed, Some(true));
     {
         let mut catalog = app.world_mut().resource_mut::<EditorAssetCatalog>();
         catalog.entries.swap(0, 1);
         catalog.applied_revision += 1;
         catalog.requested_revision = catalog.applied_revision;
     }
-    frame(&mut app, Interaction::Pressed, None); // 真实目录采用点使同一槽位的旧按住失效。
-    frame(&mut app, Interaction::Hovered, Some(false));
+    frame(&mut app, UiInteraction::Pressed, None); // 真实目录采用点使同一槽位的旧按住失效。
+    frame(&mut app, UiInteraction::Hovered, Some(false));
     assert_eq!(app.world().resource::<MapEditorState>().selected_asset.as_deref(), Some("a.json"));
 }

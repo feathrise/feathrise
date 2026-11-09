@@ -740,7 +740,7 @@ plugin.scope.inherited	继承全局	Inherited from Global
 viewport.editor_3d.spaced	编辑器 3D	Editor 3D
 viewport.project_3d.spaced	工程 3D	Project 3D
 toolbar.rebuild	重新编译	Rebuild
-toolbar.cargo	原生 Cargo	Native Cargo
+toolbar.cargo	Cargo	Cargo
 toolbar.launch.building	正在构建工程…	Building project…
 toolbar.project.connected	工程3D：已连接	Project 3D: Connected
 toolbar.project.disconnected	工程3D：未连接	Project 3D: Disconnected
@@ -1341,10 +1341,11 @@ log.command.directory	工作目录：{path}	Working directory: {path}
 log.command.powershell	构建命令（PowerShell）：	Build command (PowerShell):
 log.command.shell	构建命令：	Build command:
 log.build.dx	构建方式：DX；配置：render-dev；缓存：{path}；启用函数热更新	Build tool: DX · Profile: render-dev · Cache: {path} · Hotpatching enabled
-log.build.cargo	构建方式：原生 Cargo；配置：{profile}；缓存：{path}；不启用DX函数热更新	Build tool: Native Cargo · Profile: {profile} · Cache: {path} · DX hotpatching disabled
-log.build.cargo_fallback	构建方式：原生 Cargo；配置：{profile}；缓存：{path}；当前组合使用完整编译路径	Build tool: Native Cargo · Profile: {profile} · Cache: {path} · Full rebuild for this configuration
+log.build.cargo	构建方式：Cargo；配置：{profile}；缓存：{path}；不启用DX函数热更新	Build tool: Cargo · Profile: {profile} · Cache: {path} · DX hotpatching disabled
+log.build.cargo_fallback	构建方式：Cargo；配置：{profile}；缓存：{path}；当前组合使用完整编译路径	Build tool: Cargo · Profile: {profile} · Cache: {path} · Full rebuild for this configuration
+log.build.full	构建方式：{backend}；配置：{profile}；缓存：{path}；完整编译	Build tool: {backend} · Profile: {profile} · Cache: {path} · Full build
 log.build.dx_complete	DX 工程构建与产物准备完成，用时 {seconds} 秒	DX build and artifact preparation finished in {seconds} s
-log.build.cargo_complete	原生 Cargo 工程构建与产物准备完成，用时 {seconds} 秒	Native Cargo build and artifact preparation finished in {seconds} s
+log.build.cargo_complete	Cargo 工程构建与产物准备完成，用时 {seconds} 秒	Cargo build and artifact preparation finished in {seconds} s
 log.build.failed	构建失败，退出码{code}	Build failed with exit code {code}
 log.build.complete	工程构建完成	Project build complete
 log.build.no_hotpatch	未安装函数热更新工具，本次使用完整编译与重启路径	The hotpatch tool is unavailable. This run uses a full rebuild and restart.

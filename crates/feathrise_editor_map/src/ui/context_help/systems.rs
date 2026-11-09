@@ -1,5 +1,6 @@
 //! 问号输入、静默释放和原正文移挂；只遍历固定帮助节点，不扫描地图或资产。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use super::{components::*, resources::EditorContextHelpState, types::*};
 use crate::components::MapEditorSettingsPanel;
@@ -375,7 +376,7 @@ pub(super) fn sync_popup(
     >,
     hosts: Query<Entity, With<ContextHelpScroll>>,
     mut titles: Query<&mut Text, With<ContextHelpTitle>>,
-    mut buttons: Query<(&ContextHelpButton, &Interaction, &mut BackgroundColor)>,
+    mut buttons: Query<(&ContextHelpButton, &UiInteraction, &mut BackgroundColor)>,
     entities: Query<()>,
     modals: HelpModalInputs,
     layout: Option<Res<MapEditorLayoutState>>,
@@ -524,9 +525,9 @@ pub(super) fn sync_popup(
     }
     for (_, interaction, mut background) in &mut buttons {
         let color = match interaction {
-            Interaction::Pressed => colors::SELECT_BG_PRESSED,
-            Interaction::Hovered => colors::SELECT_BG_HOVER,
-            Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+            UiInteraction::Pressed => colors::SELECT_BG_PRESSED,
+            UiInteraction::Hovered => colors::SELECT_BG_HOVER,
+            UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
         };
         if background.0 != color {
             background.0 = color;

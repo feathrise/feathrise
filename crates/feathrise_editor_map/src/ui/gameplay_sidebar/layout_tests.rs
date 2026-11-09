@@ -1,5 +1,6 @@
 //! 真实中文字体、低高度固定导航和公共空气墙字段布局回归，不等同于原生窗口视觉验收。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::*;
 use bevy::text::LineHeight;
@@ -23,7 +24,7 @@ fn wall_objects_use_centered_small_buttons_and_fixed_single_line_name_field() {
     ];
     let world = app.world_mut();
     let buttons = labels.map(|label| {
-        world.query_filtered::<(Entity, &Children), (With<Interaction>, Without<MapEditorActionButton>)>()
+        world.query_filtered::<(Entity, &Children), (With<UiInteraction>, Without<MapEditorActionButton>)>()
             .iter(world).find_map(|(entity, children)| {
                 children.iter().any(|child| world.get::<Text>(child).is_some_and(|text| text.as_str() == label)).then_some(entity)
             }).unwrap_or_else(|| panic!("缺少墙体操作：{label}"))
@@ -153,7 +154,7 @@ fn all_tool_pages_fit_real_cjk_font_widths_scales_and_dpi_without_moving_tabs() 
                     let left = host_center - host_node.size().x * 0.5;
                     let right = host_center + host_node.size().x * 0.5;
                     for (node, transform) in world
-                        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<Interaction>>()
+                        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<UiInteraction>>()
                         .iter(world)
                     {
                         if node.size().x == 0.0 {

@@ -1,5 +1,6 @@
 //! 使用原传送列表、名称绑定和单墙事务验证导航；真实中文字体布局不读写用户地图或设置。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::*, types::*};
 use crate::MapEditorSystemSet;
 use crate::authoring::{BoundaryEditState, EditorAuthoringSession, EditorPreviewAssets};
@@ -265,7 +266,7 @@ fn settle(app: &mut App) {
 fn button(app: &mut App, label: &str) -> Entity {
     let world = app.world_mut();
     world
-        .query::<(Entity, &Children, &Interaction)>()
+        .query::<(Entity, &Children, &UiInteraction)>()
         .iter(world)
         .find_map(|(entity, children, _)| {
             (world
@@ -284,9 +285,9 @@ fn button(app: &mut App, label: &str) -> Entity {
 fn click(app: &mut App, entity: Entity) {
     app.world_mut()
         .entity_mut(entity)
-        .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
-    app.world_mut().entity_mut(entity).insert(Interaction::None);
+    app.world_mut().entity_mut(entity).insert(UiInteraction::None);
     settle(app);
 }
 
@@ -654,7 +655,7 @@ fn blocked_tab_clicks_are_consumed_instead_of_replayed_after_unlock() {
         }
         app.world_mut()
             .entity_mut(boundary)
-            .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+            .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         app.update();
         assert_eq!(
             app.world().resource::<GameplaySidebarState>().page,
@@ -690,7 +691,7 @@ fn blocked_tab_clicks_are_consumed_instead_of_replayed_after_unlock() {
         );
         app.world_mut()
             .entity_mut(boundary)
-            .insert(Interaction::None);
+            .insert(UiInteraction::None);
         app.update();
     }
     press(&mut app, "空气墙");

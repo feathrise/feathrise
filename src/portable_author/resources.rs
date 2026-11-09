@@ -29,6 +29,8 @@ pub(super) struct AuthorSurface {
     pub desired_cursor: bevy::window::CursorOptions,
     pub desired_ime: (bool, Vec2),
     pub focused: bool,
+    // 仅 Unix 正式作者通过 getppid 校验父进程；Windows 离屏夹具不安装该生命周期检查。
+    #[cfg(unix)]
     pub parent_pid: u32,
     pub readback_completed: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }

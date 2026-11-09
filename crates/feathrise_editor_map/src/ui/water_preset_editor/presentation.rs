@@ -1,5 +1,6 @@
 //! 水体预设左栏连续列表、摘要、状态和局部按钮视觉同步。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 use feathrise_map_content::WaterPresetRegistry;
@@ -172,7 +173,7 @@ pub(super) struct WaterStyleCache {
 }
 
 type WaterButtonStyle<'a> = (
-    &'a Interaction,
+    &'a UiInteraction,
     &'a WaterPresetButton,
     Option<&'a WaterButtonKind>,
     &'a mut BackgroundColor,
@@ -186,7 +187,7 @@ pub(super) fn sync_button_styles(
     registry: Option<Res<WaterPresetRegistry>>,
     mut cache: Local<WaterStyleCache>,
     mut buttons: ParamSet<(
-        Query<WaterButtonStyle<'_>, (Changed<Interaction>, Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>)>,
+        Query<WaterButtonStyle<'_>, (Changed<UiInteraction>, Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>)>,
         Query<WaterButtonStyle<'_>, Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>>,
     )>,
 ) {
@@ -230,7 +231,7 @@ pub(super) fn sync_button_styles(
 
 #[allow(clippy::too_many_arguments)]
 fn apply_style(
-    interaction: &Interaction,
+    interaction: &UiInteraction,
     action: WaterPresetAction,
     kind: WaterButtonKind,
     background: &mut BackgroundColor,
@@ -267,7 +268,7 @@ fn apply_style(
         _ => false,
     };
     if kind == WaterButtonKind::Primary {
-        background.0 = if *interaction == Interaction::None {
+        background.0 = if *interaction == UiInteraction::None {
             colors::SELECT_BG
         } else {
             colors::SELECT_BG_HOVER
@@ -277,18 +278,18 @@ fn apply_style(
     }
     if kind == WaterButtonKind::Navigation {
         background.0 = match interaction {
-            Interaction::Pressed | Interaction::Hovered => colors::SELECT_BG_HOVER,
-            Interaction::None if active => colors::SELECT_BG,
-            Interaction::None => Color::NONE,
+            UiInteraction::Pressed | UiInteraction::Hovered => colors::SELECT_BG_HOVER,
+            UiInteraction::None if active => colors::SELECT_BG,
+            UiInteraction::None => Color::NONE,
         };
         *border = BorderColor::all(if active { colors::COPPER_BORDER } else { Color::NONE });
         return; // 分区仅显示底线，不给页签恢复旧的完整铜框。
     }
     background.0 = match interaction {
-        Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
-        Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
-        Interaction::None if active => colors::BUTTON_DEV_SMALL_PRESSED,
-        Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+        UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
+        UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
+        UiInteraction::None if active => colors::BUTTON_DEV_SMALL_PRESSED,
+        UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
     };
     *border = BorderColor::all(if active {
         colors::COPPER_BORDER

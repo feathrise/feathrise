@@ -1,5 +1,6 @@
 //! 编辑器工具按钮、快捷键与选中态回显。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*; // ECS、按钮交互与键盘输入。
 use bevy::ecs::system::SystemParam;
 use bevy::input_focus::InputFocus;
@@ -182,7 +183,7 @@ pub(crate) fn sync_editor_action_button_styles(
     mut buttons: Query<
         (
             Entity,
-            &Interaction,
+            &UiInteraction,
             &MapEditorActionButton,
             Has<InteractionDisabled>,
             &mut BackgroundColor,
@@ -259,9 +260,9 @@ pub(crate) fn sync_editor_action_button_styles(
             colors::INPUT_BG
         } else {
             match interaction {
-                Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
-                Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
-                Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+                UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
+                UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
+                UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
             }
         };
     }

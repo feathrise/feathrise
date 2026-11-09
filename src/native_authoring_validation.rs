@@ -1,5 +1,6 @@
 //! 显式有限验收：通过普通地表动作、官方文本与实际后台保存留下可重开复核的证据。
 
+use feathrise_editor_ui::UiInteraction;
 #[path = "native_authoring_validation_domains.rs"]
 mod domains;
 mod resources;
@@ -73,7 +74,7 @@ pub(crate) fn drive(world: &mut World, start: bool) {
                 let _ = world.despawn(pulse.entity);
             } else if let Ok(mut button) = world.get_entity_mut(pulse.entity) {
                 button.insert((
-                    Interaction::None,
+                    UiInteraction::None,
                     feathrise_editor_ui::EditorButtonClick::default(),
                 ));
             }

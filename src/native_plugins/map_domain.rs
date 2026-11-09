@@ -755,12 +755,13 @@ pub(super) fn install(app: &mut App, project: &crate::project::Project) {
         .add_systems(Update,viewport::scene_menu.after(feathrise_editor_map::game_authoring::map_api::ui::scene_context_menu::SceneMenuDispatch).in_set(MapEditorSystemSet::Input));
 }
 
-#[cfg(feature = "validation")]
+// 观测接口与外部验收扩展一起启用，保留扩展中的测试消费者。
+#[cfg(all(feature = "validation", feathrise_external_validation))]
 pub(super) fn validation_visuals(world: &World) -> Result<Option<serde_json::Value>, String> {
     visuals::validation_snapshot(world)
 }
 
-#[cfg(feature = "validation")]
+#[cfg(all(feature = "validation", feathrise_external_validation))]
 pub(super) fn validation_state(world: &World) -> serde_json::Value {
     let Some(maps) = world.get_resource::<NativeMaps>() else { return serde_json::Value::Null; };
     let current = identity(world, maps);

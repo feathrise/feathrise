@@ -53,7 +53,7 @@ impl Plugin for EmbeddedAuthorPlugin {
     }
 }
 
-pub(super) fn install_session(app: &mut App, session: AuthorSession, parent_pid: u32) {
+pub(super) fn install_session(app: &mut App, session: AuthorSession, _parent_pid: u32) {
     capture::install(app);
     let geometry = Geometry::initial();
     let image = target_image(geometry);
@@ -73,7 +73,8 @@ pub(super) fn install_session(app: &mut App, session: AuthorSession, parent_pid:
         last_feedback: Vec::new(),
         desired_cursor: CursorOptions::default(),
         focused: false,
-        parent_pid,
+        #[cfg(unix)]
+        parent_pid: _parent_pid,
         desired_ime: (false, Vec2::ZERO),
         readback_completed: Arc::new(AtomicU64::new(0)),
     })

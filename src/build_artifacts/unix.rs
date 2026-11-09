@@ -329,6 +329,8 @@ fn macho_image(reader: &mut Reader<'_>) -> Result<Image, String> {
     })
 }
 
+// Windows测试直接覆盖跨平台解析器；平台入口只在Unix构建中需要。
+#[cfg(unix)]
 pub(super) fn runtime_files(
     executable: &Path,
     target: &Path,

@@ -1,4 +1,5 @@
 //! 空气墙对象操作与固定行回显；所有写入按稳定ID进入统一撤销栈。
+use feathrise_editor_ui::UiInteraction;
 use super::super::{helpers::selected_path_index, path_history::commit_path_change};
 use super::{PanelState, components::*}; // 固定面板状态。
 use crate::authoring::{BoundaryEditState, EditorAuthoringSession, next_author_id}; // 单一草稿与拖点状态。
@@ -21,7 +22,7 @@ fn new_wall_id(session: &mut EditorAuthoringSession) -> String {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn actions(
     buttons: Query<(&feathrise_editor_ui::EditorButtonClick, Option<&Action>, Option<&WallRow>), Changed<feathrise_editor_ui::EditorButtonClick>>, // 普通动作及对象行只在按钮内松开执行。
-    mut names: Query<(Entity, &Interaction, &EditableText), With<WallName>>, // 官方文本值。
+    mut names: Query<(Entity, &UiInteraction, &EditableText), With<WallName>>, // 官方文本值。
     mouse: Option<Res<ButtonInput<MouseButton>>>, // 点击字段外释放本面板焦点。
     mut focus: ResMut<InputFocus>,
     mut panel: ResMut<PanelState>, // 页码与输入身份。
@@ -42,14 +43,14 @@ pub(super) fn actions(
         .is_some_and(|mouse| mouse.just_pressed(MouseButton::Left))
         && names
             .iter()
-            .all(|(_, interaction, _)| *interaction != Interaction::Pressed)
+            .all(|(_, interaction, _)| *interaction != UiInteraction::Pressed)
         && focus.get().is_some_and(|entity| names.contains(entity))
     {
         focus.clear();
     } // 地图点击不被残留名称焦点吞掉。
     for (entity, interaction, _) in &mut names {
         // 一个输入框。
-        if *interaction == Interaction::Pressed {
+        if *interaction == UiInteraction::Pressed {
             focus.set(entity, bevy::input_focus::FocusCause::Pressed);
         } // 官方输入系统拥有键盘。
     }
@@ -332,14 +333,14 @@ pub(super) fn sync(
     mut rows: Query<(
         Entity,
         &WallRow,
-        &Interaction,
+        &UiInteraction,
         &mut Node,
         &mut BackgroundColor,
         &mut BorderColor,
     )>, // 固定八行。
     mut labels: Query<(&WallLabel, &mut Text), Without<WallTitle>>, // 与标题查询互斥。
     mut titles: Query<&mut Text, With<WallTitle>>,                  // 数量与页码。
-    mut buttons: Query<(&Interaction, &mut BackgroundColor), (With<Action>, Without<WallRow>)>, // 独立颜色写者。
+    mut buttons: Query<(&UiInteraction, &mut BackgroundColor), (With<Action>, Without<WallRow>)>, // 独立颜色写者。
     mut controls: Query<(&WallControls, &mut Node), Without<WallRow>>,
 ) {
     if !editor.open {
@@ -449,7 +450,7 @@ pub(super) fn sync(
         }); // 稳定ID高亮。
         let color = if selected {
             colors::SELECT_BG
-        } else if *interaction != Interaction::None {
+        } else if *interaction != UiInteraction::None {
             colors::SELECT_BG_HOVER
         } else {
             colors::SLOT_BG
@@ -491,9 +492,9 @@ pub(super) fn sync(
     }
     for (interaction, mut color) in &mut buttons {
         let background = match interaction {
-            Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
-            Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
-            Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
+            UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+            UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
+            UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
         };
         if color.0 != background {
             color.0 = background;

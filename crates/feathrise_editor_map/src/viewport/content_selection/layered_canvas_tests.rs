@@ -1,4 +1,5 @@
 //! 真实单击经过最近网格、完整画布、统一候选卡片和属性应用，覆盖平移旋转后的多网格。
+use feathrise_editor_ui::UiInteraction;
 #[path = "root_water_selection_tests.rs"]
 mod root_water_selection_tests;
 use super::*;
@@ -198,7 +199,7 @@ fn fixture() -> (App, Entity) {
                         physical_size: UVec2::splat(128),
                         scale_factor: 1.0,
                     }),
-                    clip_from_view: Mat4::perspective_infinite_reverse_rh(
+                    clip_from_view: bevy::math::proj::perspective_infinite_reverse(
                         50_f32.to_radians(),
                         1.0,
                         0.1,
@@ -299,7 +300,7 @@ fn choose(app: &mut App, expected: LayerTarget) {
         .find(|(_, action)| matches!(action, CandidateAction::Select(at) if *at == index))
         .unwrap()
         .0;
-    app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert_eq!(
         app.world()
@@ -308,7 +309,7 @@ fn choose(app: &mut App, expected: LayerTarget) {
             .as_ref(),
         Some(&expected)
     );
-    *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
     app.update();
 }
 

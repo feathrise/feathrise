@@ -1,4 +1,5 @@
 //! 绘制范围控件接线；改组只写小型关联元数据，首次有效刷印才申请本地密度。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use super::components::*;
 use crate::{
@@ -30,7 +31,7 @@ pub(super) fn sync(
     session: Res<EditorAuthoringSession>,
     mut settings: ResMut<VegetationPaintSettings>,
     mut controls: Query<
-        (&PaintAction, &Interaction, &mut BackgroundColor, &mut Node),
+        (&PaintAction, &UiInteraction, &mut BackgroundColor, &mut Node),
         (
             Without<PaintRow>,
             Without<PaintList>,
@@ -52,7 +53,7 @@ pub(super) fn sync(
     mut rows: Query<
         (
             Ref<PaintRow>,
-            &Interaction,
+            &UiInteraction,
             &mut PaintAction,
             &mut Node,
             &mut BackgroundColor,
@@ -116,7 +117,7 @@ pub(super) fn sync(
             || matches!(action, PaintAction::Cross) && cross;
         let target = if selected {
             colors::SELECT_BG
-        } else if *interaction == Interaction::Hovered {
+        } else if *interaction == UiInteraction::Hovered {
             colors::SELECT_BG_HOVER
         } else {
             colors::SLOT_BG
@@ -195,7 +196,7 @@ pub(super) fn sync(
         };
         let target = if is_selected {
             colors::SELECT_BG
-        } else if *interaction == Interaction::Hovered {
+        } else if *interaction == UiInteraction::Hovered {
             colors::SELECT_BG_HOVER
         } else {
             colors::SLOT_BG

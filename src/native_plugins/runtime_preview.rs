@@ -147,7 +147,8 @@ pub(super) fn ready_to_exit(world: &mut World) -> Result<bool, String> {
 }
 
 /// 验收只读取真实握手、当前帧和实际画布事实；不写状态，也不能据此代替屏幕截图。
-#[cfg(feature = "validation")]
+// 与读取这些事实的外部扩展同步编译，扩展测试同样可用。
+#[cfg(all(feature = "validation", feathrise_external_validation))]
 pub(crate) fn validation_snapshot(world: &mut World) -> serde_json::Value {
     let (Some(status), Some(runtime)) = (
         world.get_resource::<Status>(),
@@ -177,7 +178,7 @@ pub(crate) fn validation_snapshot(world: &mut World) -> serde_json::Value {
 }
 
 /// 验收读取当前正式画布已经采用的GPU像素；领域特定的颜色判断留给对应场景。
-#[cfg(feature = "validation")]
+#[cfg(all(feature = "validation", feathrise_external_validation))]
 pub(crate) fn validation_pixels(world: &World) -> Option<&[u8]> {
     let runtime = world.get_non_send::<Runtime>()?;
     world

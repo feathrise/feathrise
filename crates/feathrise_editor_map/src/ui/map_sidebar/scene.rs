@@ -50,12 +50,12 @@ pub(super) fn action(label: &str, action: EditorAction) -> impl Scene {
             border_radius: BorderRadius::all(px(2)), padding: UiRect::horizontal(px(8)),
             align_items: AlignItems::Center, justify_content: JustifyContent::FlexStart }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             ~{MapSidebarActionLabel(action)} Text(label) @feathrise_editor_ui::localization::label_scene(label)
             ~{FocusPolicy::Pass} TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
-        )]
+        ]
     };
     // 新建入口迁入目录后保留原悬停提示；附加同一按钮，不生成另一份操作实体。
     let tooltip = (action == EditorAction::NewMap)
@@ -72,11 +72,11 @@ fn root_directory_row() -> impl Scene {
             column_gap: px(5), overflow: Overflow::clip_x() }
         BackgroundColor(colors::PANEL_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            (~{MapEditorMapRowGlyph::Root} ImageNode::default() Node { width: px(18), height: px(18), flex_shrink: 0.0 } Pickable::IGNORE),
-            (Text("根目录") @feathrise_editor_ui::localization::label_scene("根目录") ~{FocusPolicy::Pass} TextLayout::no_wrap()
+            ~{MapEditorMapRowGlyph::Root} ImageNode::default() Node { width: px(18), height: px(18), flex_shrink: 0.0 } Pickable::IGNORE--
+            Text("根目录") @feathrise_editor_ui::localization::label_scene("根目录") ~{FocusPolicy::Pass} TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_BODY) }
             TextColor(colors::TEXT_VALUE) Node { min_width: px(0), overflow: Overflow::clip_x() }
-            Pickable::IGNORE),
+            Pickable::IGNORE
         ]
     }
 }
@@ -89,41 +89,41 @@ pub(crate) fn map_page() -> impl Scene {
             min_height: px(0), flex_direction: FlexDirection::Column, row_gap: px(4),
             padding: UiRect::top(px(3)), overflow: Overflow::scroll_y() }
         Children [
-            (@field(SidebarField::DirectoryFeedback, "正在加载地图目录")),
-            (@root_directory_row()),
-            (
+            @field(SidebarField::DirectoryFeedback, "正在加载地图目录")--
+            @root_directory_row()--
+
                 MapEditorMapTreeScroll RelativeCursorPosition::default() ScrollPosition::default()
                 Node { width: percent(100), min_width: px(0), height: px(360), min_height: px(180),
                     max_height: px(520), flex_grow: 1.0, flex_shrink: 1.0, overflow: Overflow::scroll_y(),
                 }
-                Children [(
+                Children [
                     MapEditorMapList
                     Node { width: percent(100), min_width: px(0), height: px(0),
                         position_type: PositionType::Relative, flex_shrink: 0.0 }
-                )]
-            ),
-            (@field(SidebarField::SelectedSummary, "所选：尚未选择")),
+                ]
+            --
+            @field(SidebarField::SelectedSummary, "所选：尚未选择")--
             // 真实加载/保存/切图反馈保留唯一文字源，统一在底栏详情展示。
-            (@field(SidebarField::OperationFeedback, "")),
-            (@sidebar_help_button(EditorSidebarHelp::MapBrowser)),
-            (
+            @field(SidebarField::OperationFeedback, "")--
+            @sidebar_help_button(EditorSidebarHelp::MapBrowser)--
+
                 MapEditorSidebarHelpBody(EditorSidebarHelp::MapBrowser)
                 Node { display: Display::None, width: percent(100), min_width: px(0),
                     flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
                 Children [
-                    (@field(SidebarField::CurrentSummary, "尚未进入地图")),
-                    (MapEditorMapListTitle Text("地图 · 等待目录") @feathrise_editor_ui::localization::label_scene("地图 · 等待目录") ~{FocusPolicy::Pass}
+                    @field(SidebarField::CurrentSummary, "尚未进入地图")--
+                    MapEditorMapListTitle Text("地图 · 等待目录") @feathrise_editor_ui::localization::label_scene("地图 · 等待目录") ~{FocusPolicy::Pass}
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                         TextLayout { linebreak: LineBreak::AnyCharacter } TextColor(colors::TEXT_MUTED)
-                        Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }),
-                    (@field(SidebarField::CurrentName, "尚未进入地图")),
-                    (@field(SidebarField::CurrentState, "")),
-                    (@field(SidebarField::SelectedKind, "尚未选择")),
-                    (@field(SidebarField::SelectedName, "选择只改变目录高亮，不切换当前地图")),
-                    (@field(SidebarField::SelectedIdentity, "")),
-                    (@field(SidebarField::SelectionHint, "")),
+                        Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }--
+                    @field(SidebarField::CurrentName, "尚未进入地图")--
+                    @field(SidebarField::CurrentState, "")--
+                    @field(SidebarField::SelectedKind, "尚未选择")--
+                    @field(SidebarField::SelectedName, "选择只改变目录高亮，不切换当前地图")--
+                    @field(SidebarField::SelectedIdentity, "")--
+                    @field(SidebarField::SelectionHint, "")
                 ]
-            ),
+
         ]
     }
 }

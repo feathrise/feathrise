@@ -1,5 +1,6 @@
 //! 真实GPU背景像素回归：每帧业务覆写、透明按钮、语义底色、禁用和游戏UI隔离。
 
+use feathrise_editor_ui::UiInteraction;
 #[path = "support/render.rs"]
 #[allow(dead_code)]
 mod render;
@@ -18,7 +19,7 @@ use feathrise_ui_widgets::{NumericInputDisabled, NumericInputFieldButton};
 use std::time::{Duration, Instant};
 
 #[derive(Resource)]
-struct FinalInteraction(Interaction, bool);
+struct FinalInteraction(UiInteraction, bool);
 
 #[derive(Component)]
 struct BusinessBackground(Color);
@@ -28,7 +29,7 @@ fn business_rewrites(
     state: Res<FinalInteraction>,
     mut buttons: Query<(
         &BusinessBackground,
-        &mut Interaction,
+        &mut UiInteraction,
         &mut BackgroundColor,
         Option<&mut RelativeCursorPosition>,
     )>,
@@ -142,7 +143,7 @@ fn editor_button_feedback_is_visible_after_business_rewrites_and_preserves_seman
         layout.flex_direction = FlexDirection::Row;
         layout.column_gap = px(8);
     }
-    app.insert_resource(FinalInteraction(Interaction::None, true));
+    app.insert_resource(FinalInteraction(UiInteraction::None, true));
     app.add_systems(Last, business_rewrites);
     let mut buttons = vec![];
     for base in [
@@ -209,9 +210,9 @@ fn editor_button_feedback_is_visible_after_business_rewrites_and_preserves_seman
         app.insert_resource(palette);
         let mut frames = vec![];
         for (state, label) in [
-            (Interaction::None, "normal"),
-            (Interaction::Hovered, "hovered"),
-            (Interaction::Pressed, "pressed"),
+            (UiInteraction::None, "normal"),
+            (UiInteraction::Hovered, "hovered"),
+            (UiInteraction::Pressed, "pressed"),
         ] {
             app.world_mut().resource_mut::<FinalInteraction>().0 = state;
             frames.push(pixels(&mut app, &format!("{name}-{label}")));
@@ -311,7 +312,7 @@ fn workspace_tabs_use_one_fill_without_active_underline_or_static_close_box() {
     app.world_mut().entity_mut(closes[1]).insert((
         BusinessBackground(c::SELECT_BG), RelativeCursorPosition::default(),
     ));
-    app.insert_resource(FinalInteraction(Interaction::None, true));
+    app.insert_resource(FinalInteraction(UiInteraction::None, true));
     app.add_systems(Last, business_rewrites);
     let pixel = |app: &App, image: &(UVec2, Vec<u8>), entity: Entity, inset: Vec2| {
         let size = app.world().get::<ComputedNode>(entity).unwrap().size();
@@ -323,7 +324,7 @@ fn workspace_tabs_use_one_fill_without_active_underline_or_static_close_box() {
     for palette in [EditorPalette::neutral_gray(), EditorPalette::graphite_blue(), EditorPalette::warm_copper()] {
         let name = palette.name();
         app.insert_resource(palette);
-        app.world_mut().resource_mut::<FinalInteraction>().0 = Interaction::None;
+        app.world_mut().resource_mut::<FinalInteraction>().0 = UiInteraction::None;
         let normal = pixels(&mut app, &format!("tabs-{name}-normal"));
         for index in 0..4 {
             let frame = frames[index];
@@ -346,7 +347,7 @@ fn workspace_tabs_use_one_fill_without_active_underline_or_static_close_box() {
         let danger = pixel(&app, &normal, closes[3], Vec2::splat(3.0));
         assert!(danger[0] > danger[1] + 10, "{name}：未保存关闭确认保持危险语义");
         let mut samples = vec![pixel(&app, &normal, closes[1], Vec2::splat(3.0))];
-        for (interaction, label) in [(Interaction::Hovered, "hover"), (Interaction::Pressed, "press")] {
+        for (interaction, label) in [(UiInteraction::Hovered, "hover"), (UiInteraction::Pressed, "press")] {
             app.world_mut().resource_mut::<FinalInteraction>().0 = interaction;
             let image = pixels(&mut app, &format!("tabs-{name}-{label}"));
             samples.push(pixel(&app, &image, closes[1], Vec2::splat(3.0)));

@@ -1,5 +1,6 @@
 //! 模式按钮挂在现有顶栏，在独立作者入口与同窗口工作台中使用相同交互。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{RequestViewportMode, ViewportMode, ViewportModeState, components::*};
 use bevy::prelude::*;
@@ -147,7 +148,7 @@ pub(super) fn present(
     interruption: Option<Res<feathrise_editor_core::ProjectLaunchInterruption>>,
     mut statuses: Query<&mut Text, (With<ModeStatus>, Without<ProjectLaunchLabel>)>,
     mut launch_labels: Query<&mut Text, (With<ProjectLaunchLabel>, Without<ModeStatus>, Without<ModeLabel>)>,
-    mut buttons: Query<(&ModeButton, &Interaction, &mut BorderColor, &mut BackgroundColor, &mut feathrise_editor_ui::ButtonColors)>,
+    mut buttons: Query<(&ModeButton, &UiInteraction, &mut BorderColor, &mut BackgroundColor, &mut feathrise_editor_ui::ButtonColors)>,
 ) {
     let locale = locale.as_deref().copied().unwrap_or_default();
     let status = locale.editor_notice(&state.status);
@@ -170,9 +171,9 @@ pub(super) fn present(
         };
         if *colors != palette { *colors = palette; }
         let wanted = match interaction {
-            Interaction::Pressed => palette.pressed,
-            Interaction::Hovered => palette.hovered,
-            Interaction::None => palette.normal,
+            UiInteraction::Pressed => palette.pressed,
+            UiInteraction::Hovered => palette.hovered,
+            UiInteraction::None => palette.normal,
         };
         if background.0 != wanted { background.0 = wanted; }
         *border = BorderColor::all(if button.0 == state.selected {

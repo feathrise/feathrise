@@ -3,7 +3,7 @@ use super::{resources::Reply, types::FileStamp};
 use bevy::{prelude::*, tasks::IoTaskPool};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, fs::{self, File, OpenOptions}, io::{Read, Write}, path::{Path, PathBuf}, time::UNIX_EPOCH};
+use std::{collections::HashSet, fs::{self, File, OpenOptions}, io::{Read, Write}, path::{Path, PathBuf}};
 
 pub(super) fn ordinary(path: &Path) -> Result<fs::Metadata, String> {
     let metadata = fs::symlink_metadata(path).map_err(|error| format!("{}：{error}", path.display()))?;
@@ -32,11 +32,6 @@ pub(super) fn read(path: PathBuf) -> Reply<Option<FileStamp>> {
     let (sender, receiver) = async_channel::bounded(1);
     IoTaskPool::get().spawn(async move { let _ = sender.try_send(read_now(&path)); }).detach();
     receiver
-}
-
-pub(super) fn stamp(value: &Option<FileStamp>) -> Value {
-    value.as_ref().map_or(json!({"exists":false}), |value| json!({"exists":true,"bytes":value.bytes.len(),
-        "sha256":value.sha256,"modified_ns":value.modified.duration_since(UNIX_EPOCH).map(|duration| duration.as_nanos().min(u64::MAX as u128) as u64).ok()}))
 }
 
 fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {

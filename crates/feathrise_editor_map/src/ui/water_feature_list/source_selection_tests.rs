@@ -1,4 +1,5 @@
 //! 根水与同ID私有水的真实选择回归；点击只恢复对应作者槽，不能串用像素或撤销来源。
+use feathrise_editor_ui::UiInteraction;
 use super::helpers::*;
 use crate::authoring::{EditorAuthoringSession, EditorCommand,
     terrain_documents::{TerrainCanvas, TerrainDocumentIdentity, TerrainDocumentTask, root_water}};
@@ -167,7 +168,7 @@ fn same_id_list_rows_highlight_their_source_and_cross_source_clicks_do_not_form_
         let text = app.world_mut().spawn((MapEditorWaterFeatureRowText, Text::new(""), TextColor::default())).id();
         app.world_mut().spawn((MapEditorWaterFeatureRow { slot,
             kind: WaterAuthoringFeatureKind::StillWater, feature_id: None, terrain: None },
-            Node::default(), BackgroundColor::default(), Interaction::None, EditorButtonClick::default())).add_child(text).id()
+            Node::default(), BackgroundColor::default(), UiInteraction::None, EditorButtonClick::default())).add_child(text).id()
     });
     app.world_mut().run_system_once(super::sync_water_feature_rows).unwrap();
     app.world_mut().run_system_once(super::sync_water_feature_row_interactions).unwrap();

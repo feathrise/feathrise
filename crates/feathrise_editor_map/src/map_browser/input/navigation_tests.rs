@@ -1,5 +1,6 @@
 //! 拖拽导航的真实状态机、真实时钟与缩放后布局回归；只模拟布局输出，不写作者目录。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::ui::sidebars::EditorNavigatorTab;
 use crate::components::MapEditorLeftPanelScroll;
@@ -111,7 +112,7 @@ fn fixture(scale: f32) -> (App, Entity, Entity, Entity, Entity) {
                 slot: 0,
                 item: Some(MapBrowserItem::Folder("FOLDER-A".into())),
             },
-            Interaction::Hovered,
+            UiInteraction::Hovered,
             RelativeCursorPosition {
                 cursor_over: true,
                 ..default()
@@ -383,7 +384,7 @@ fn release_focus_hidden_modal_revision_and_pending_projection_stop_navigation() 
         cursor(&mut app, window, Vec2::new(130.0, 290.0));
         match blocker {
             "release" => {
-                *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None;
+                *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
                 app.world_mut()
                     .resource_mut::<ButtonInput<MouseButton>>()
                     .release(MouseButton::Left);

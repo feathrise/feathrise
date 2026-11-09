@@ -247,11 +247,17 @@ mod tests {
         assert_eq!(events.len(), 1, "889次进度不得消耗889个完成行FIFO槽");
         assert_eq!(events[0].kind, "tail");
         assert_eq!(events[0].text, "Compiled [889/889]: fixture_889");
+        // 进度替换与 EOF 撤回必须仍归属同一真实任务，并以新序号防止旧尾行重放。
+        assert_eq!((events[0].target, events[0].task), (crate::project_log::LogTaskKind::General, 1));
+        let sequence = events[0].sequence;
+        assert!(sequence > 0);
         assert_eq!(probe.dropped(), 0);
         output.finish();
         let events = probe.drain();
         assert_eq!(events.len(), 1);
         assert_eq!((events[0].kind, events[0].text.as_str()), ("tail", ""));
+        assert_eq!((events[0].target, events[0].task), (crate::project_log::LogTaskKind::General, 1));
+        assert!(events[0].sequence > sequence);
         output.finish();
         assert!(probe.drain().is_empty());
     }

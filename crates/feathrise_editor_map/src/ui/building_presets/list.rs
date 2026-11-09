@@ -1,5 +1,6 @@
 //! 建筑预设三列连续列表的固定预算创建、热更重绑和交互样式。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*; // Commands、Local、Query 与 UI 样式。
 use feathrise_map_content::BuildingPresetRegistry; // 当前原子目录快照。
@@ -148,21 +149,21 @@ pub(super) fn sync_building_preset_button_styles(
     mut buttons: ParamSet<(
         Query<
             (
-                &Interaction,
+                &UiInteraction,
                 &BuildingPresetButton,
                 Option<&BuildingPresetRow>,
                 &mut BackgroundColor,
                 &mut BorderColor,
             ),
             (
-                Or<(Changed<Interaction>, Changed<BuildingPresetButton>)>,
+                Or<(Changed<UiInteraction>, Changed<BuildingPresetButton>)>,
                 Without<super::components::BuildingButtonKind>,
                 Without<super::components::BuildingSidebarActionButton>,
             ), // 中央工作台采用独立主动作、导航与字段样式，不受左栏列表覆盖。
         >,
         Query<
             (
-                &Interaction,
+                &UiInteraction,
                 &BuildingPresetButton,
                 Option<&BuildingPresetRow>,
                 &mut BackgroundColor,
@@ -216,7 +217,7 @@ pub(super) fn sync_building_preset_button_styles(
 /// 计算并写回一个建筑按钮的最终交互与选中样式。
 #[allow(clippy::too_many_arguments)] // 显式值让两个有界查询分支复用完全相同的颜色规则。
 fn sync_button_style(
-    interaction: &Interaction,
+    interaction: &UiInteraction,
     button: &BuildingPresetButton,
     row: Option<&BuildingPresetRow>,
     background: &mut BackgroundColor,
@@ -236,10 +237,10 @@ fn sync_button_style(
         _ => false,                                         // 管理、字段和参数动作不保持选中态。
     };
     let color = match (*interaction, selected) {
-        (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下优先。
-        (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,   // 悬停提供即时反馈。
-        (Interaction::None, true) => colors::SELECT_BG,         // 当前建筑或工具保持亮底。
-        (Interaction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL, // 普通暗墨底。
+        (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下优先。
+        (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,   // 悬停提供即时反馈。
+        (UiInteraction::None, true) => colors::SELECT_BG,         // 当前建筑或工具保持亮底。
+        (UiInteraction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL, // 普通暗墨底。
     };
     if background.0 != color {
         background.0 = color; // 只有真实变化才触发外观更新。

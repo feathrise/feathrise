@@ -106,7 +106,7 @@ fn check_production_composition(workspace: bool) {
             .add_plugins(crate::native_project_close::NativeProjectClosePlugin)
             .add_plugins(crate::native_project_menu::NativeProjectMenuPlugin::new(project.clone()))
             .add_plugins(crate::native_play::NativePlayPlugin::new(project.clone(), target.clone()));
-        completion = Some(crate::viewport_mode::install(&mut app, &preferences));
+        completion = Some(crate::viewport_mode::install(&mut app, &preferences, None));
         app.add_plugins(crate::embedded_viewport::EmbeddedViewportPlugin::new(project.clone(), target.clone()));
         app.add_plugins(crate::code_iteration::CodeIterationPlugin::new(project.clone(), target.clone()));
         app.add_plugins(crate::project_export::ProjectExportPlugin::new(project.clone(), target));

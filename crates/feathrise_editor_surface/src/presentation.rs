@@ -1,5 +1,6 @@
 //! PBR 地表左栏连续列表、摘要与局部按钮视觉同步。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 use feathrise_editor_ui::colors;
@@ -203,7 +204,7 @@ pub(crate) fn sync_button_styles(
 
 #[allow(clippy::too_many_arguments)]
 fn apply_style(
-    interaction: &Interaction,
+    interaction: &UiInteraction,
     action: SurfacePresetAction,
     kind: SurfaceButtonKind,
     background: &mut BackgroundColor,
@@ -248,7 +249,7 @@ fn apply_style(
         _ => false,
     };
     if kind == SurfaceButtonKind::Primary {
-        background.0 = if *interaction == Interaction::None {
+        background.0 = if *interaction == UiInteraction::None {
             colors::SELECT_BG
         } else {
             colors::SELECT_BG_HOVER
@@ -258,9 +259,9 @@ fn apply_style(
     }
     if kind == SurfaceButtonKind::Navigation {
         background.0 = match interaction {
-            Interaction::Pressed | Interaction::Hovered => colors::SELECT_BG_HOVER,
-            Interaction::None if active => colors::SELECT_BG,
-            Interaction::None => Color::NONE,
+            UiInteraction::Pressed | UiInteraction::Hovered => colors::SELECT_BG_HOVER,
+            UiInteraction::None if active => colors::SELECT_BG,
+            UiInteraction::None => Color::NONE,
         };
         *border = BorderColor::all(if active {
             colors::COPPER_BORDER
@@ -270,10 +271,10 @@ fn apply_style(
         return; // 仅保留节点原有底部边线，不给每个分区套完整铜框。
     }
     background.0 = match interaction {
-        Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
-        Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
-        Interaction::None if active => colors::BUTTON_DEV_SMALL_PRESSED,
-        Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+        UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
+        UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
+        UiInteraction::None if active => colors::BUTTON_DEV_SMALL_PRESSED,
+        UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
     };
     *border = BorderColor::all(if active {
         colors::COPPER_BORDER
@@ -316,7 +317,7 @@ mod workspace_tab_style_tests {
             SurfacePresetButton(SurfacePresetAction::Save), sentinel,
             BorderColor::all(Color::NONE))).id();
         // 先触发真实全量同步，再走 Changed<Interaction> 快路；普通保存按钮证明系统确实执行。
-        for (index, interaction) in [Interaction::None, Interaction::Hovered, Interaction::Pressed, Interaction::None].into_iter().enumerate() {
+        for (index, interaction) in [UiInteraction::None, UiInteraction::Hovered, UiInteraction::Pressed, UiInteraction::None].into_iter().enumerate() {
             if index == 0 || index == 3 {
                 app.world_mut().resource_mut::<PresetWorkspaceState>().touch_ui();
             }

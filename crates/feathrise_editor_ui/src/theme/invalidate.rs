@@ -1,5 +1,6 @@
 //! 主题与按钮反馈接入 Bevy 持久提取的失效阶段，避免稳定帧重复映射字形。
 
+use crate::UiInteraction;
 use super::{
     components::{EditorCodeSurface, EditorLiteralColor, EditorThemeRoot},
     extract::owned,
@@ -28,10 +29,10 @@ pub(super) fn theme_changes(
     mut state: ResMut<ThemeExtraction>,
     interaction_changes: Extract<
         Query<
-            (Entity, Ref<Interaction>, Option<&RelativeCursorPosition>),
+            (Entity, Ref<UiInteraction>, Option<&RelativeCursorPosition>),
             (
                 With<InteractionButton>,
-                Or<(Changed<Interaction>, Changed<RelativeCursorPosition>)>,
+                Or<(Changed<UiInteraction>, Changed<RelativeCursorPosition>)>,
             ),
         >,
     >,
@@ -91,7 +92,7 @@ pub(super) fn theme_changes(
         }
     }
     for (entity, interaction, cursor) in &interaction_changes {
-        let outside = *interaction == Interaction::Pressed
+        let outside = *interaction == UiInteraction::Pressed
             && cursor.is_some_and(|cursor| !cursor.cursor_over());
         let boundary_changed = if outside {
             state.pressed_outside.insert(entity)

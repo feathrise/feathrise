@@ -1,5 +1,6 @@
 //! 正式文档工作区的真实GPU交互验证；鼠标命中诊断/格式化，原生快捷键保存和撤销。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{components::*, history, resources::DocumentState, types::ViewMode};
 use super::{components::JsonAction, control, validation};
 use bevy::{
@@ -275,13 +276,13 @@ fn press_document(app: &mut App, action: DocumentAction) {
         .find(|(_, candidate)| **candidate == action)
         .unwrap()
         .0;
-    *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::Pressed;
+    *app.world_mut().get_mut::<UiInteraction>(entity).unwrap() = UiInteraction::Pressed;
     app.world_mut().entity_mut(entity).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     app.world_mut()
         .run_system_once(super::super::interaction::actions)
         .unwrap();
     app.world_mut().get_mut::<feathrise_editor_ui::EditorButtonClick>(entity).unwrap().invalidate();
-    *app.world_mut().get_mut::<Interaction>(entity).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(entity).unwrap() = UiInteraction::None;
 }
 
 fn click(app: &mut App, window: Entity, camera: Entity, action: JsonAction) {
@@ -314,8 +315,8 @@ fn click(app: &mut App, window: Entity, camera: Entity, action: JsonAction) {
         .unwrap();
     app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
     assert_eq!(
-        *app.world().get::<Interaction>(entity).unwrap(),
-        Interaction::Pressed,
+        *app.world().get::<UiInteraction>(entity).unwrap(),
+        UiInteraction::Pressed,
         "真实鼠标必须命中JSON按钮"
     );
     app.world_mut().run_system_once(control::input).unwrap();

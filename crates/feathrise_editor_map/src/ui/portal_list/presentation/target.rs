@@ -1,5 +1,6 @@
 //! 地图树高亮目标地图的默认出生点与具体传送点列表回显。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*; // 资产集合、UI查询和动态行变化检测。
 use feathrise_map_content::{
     MapContentRegistry, MapId, MapManifestAsset, MapPortalTarget, MapPortalsAsset,
@@ -221,7 +222,7 @@ pub(crate) fn sync_target_portal_rows(
         let selected = editor.portal_target.as_ref() == Some(&target); // 地图ID与可选端点共同决定选择。
         row.target = Some(target); // 输入阶段会按当前资产再次验证该引用。
         node.display = Display::Flex; // 完整Ready端点才允许点击。
-        background.0 = portal_row_background(Interaction::None, selected); // 恢复稳定背景。
+        background.0 = portal_row_background(UiInteraction::None, selected); // 恢复稳定背景。
         for child in children.iter() {
             if let Ok((mut text, mut color)) = row_texts.get_mut(child) {
                 **text = text_value.clone(); // 每行只有一个文字子节点。
@@ -247,11 +248,11 @@ pub(crate) fn sync_target_portal_row_interactions(
     editor: Res<MapEditorState>,
     mut rows: Query<
         (
-            &Interaction,
+            &UiInteraction,
             &MapEditorTargetPortalRow,
             &mut BackgroundColor,
         ),
-        Changed<Interaction>,
+        Changed<UiInteraction>,
     >,
 ) {
     for (interaction, row, mut background) in &mut rows {

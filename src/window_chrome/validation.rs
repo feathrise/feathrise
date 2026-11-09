@@ -1,4 +1,5 @@
 //! 显式validation下的真实主窗口验收；仅接受本轮独占目录及隔离偏好，不打开或修改用户工程。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::{ChromeButton, Icon}, resources::ChromeParts, types::*};
 use bevy::{
@@ -101,7 +102,7 @@ pub(super) fn install(app: &mut App) {
     .add_systems(
         PreUpdate,
         original_button_input
-            .after(bevy::ui::UiSystems::Focus)
+            .after(feathrise_editor_ui::UiInteractionSystems::Sync)
             .before(feathrise_editor_ui::update_editor_button_clicks),
     )
     .add_systems(Last, (drive, confirm_owned_exit).chain());
@@ -250,9 +251,9 @@ fn layout_proof(world: &World) -> Result<Value, String> {
             .ok_or_else(|| format!("原布局按钮缺少共享配色：{item:?}"))?;
         let background = world.get::<BackgroundColor>(button)
             .ok_or_else(|| format!("原布局按钮缺少实际底色：{item:?}"))?;
-        let interaction = world.get::<Interaction>(button)
+        let interaction = world.get::<UiInteraction>(button)
             .ok_or_else(|| format!("原布局按钮缺少原交互状态：{item:?}"))?;
-        if *interaction == Interaction::None && palette.normal != background.0 {
+        if *interaction == UiInteraction::None && palette.normal != background.0 {
             return Err(format!("原布局选中底色与共享普通态配色不一致：{item:?}"));
         }
         let icons: Vec<_> = descendants.iter().filter_map(|entity| world.get::<Icon>(*entity).map(|icon| icon.0)).collect();
@@ -334,11 +335,11 @@ fn original_button_input(world: &mut World) {
         if let Some(mut cursor) = world.get_mut::<bevy::ui::RelativeCursorPosition>(entity) {
             cursor.cursor_over = true;
         }
-        if let Some(mut interaction) = world.get_mut::<Interaction>(entity) {
+        if let Some(mut interaction) = world.get_mut::<UiInteraction>(entity) {
             *interaction = if release {
-                Interaction::Hovered
+                UiInteraction::Hovered
             } else {
-                Interaction::Pressed
+                UiInteraction::Pressed
             };
         }
         if release {

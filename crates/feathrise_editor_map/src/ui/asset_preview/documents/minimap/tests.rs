@@ -1,5 +1,6 @@
 //! 真实滚动资源、手势所有权与后台换代回归；GPU完整排版由父层长JSON用例覆盖。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{components::*, constants::*, resources::*, types::*};
 use super::{
     control,
@@ -112,7 +113,7 @@ fn fixture() -> (App, Entity, Entity, Entity) {
                 cursor_over: true,
                 normalized: Some(Vec2::ZERO),
             },
-            Interaction::Hovered,
+            UiInteraction::Hovered,
         ))
         .id();
     (app, source, rail, window)
@@ -282,7 +283,7 @@ fn minimap_real_pointer_click_and_drag_use_centered_coordinates_at_all_scales() 
         app.world_mut().get_mut::<Window>(window).unwrap().set_cursor_position(Some(center));
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         app.world_mut().run_system_once(ui_focus_system).unwrap();
-        assert_eq!(*app.world().get::<Interaction>(rail).unwrap(), Interaction::Pressed);
+        assert_eq!(*app.world().get::<UiInteraction>(rail).unwrap(), UiInteraction::Pressed);
         assert_eq!(app.world().get::<RelativeCursorPosition>(rail).unwrap().normalized, Some(Vec2::ZERO));
         app.update();
         assert!((app.world().get::<EditableText>(source).unwrap().viewport.offset.y - 2_850.0 * scale).abs() < 1.0,

@@ -1,5 +1,6 @@
 //! 第二批回执的同帧隔离、全局对象、重试与地图结果适配回归；不调用正式文件事务。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy::tasks::{IoTaskPool, Task};
@@ -67,7 +68,7 @@ pub(crate) fn acknowledge(app: &mut App) {
         .popup_open = true;
     app.world_mut().spawn((
         super::components::StatusButton(super::types::StatusAction::Dismiss),
-        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+        feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
     ));
     app.world_mut()
         .run_system_once(super::systems::control_details)

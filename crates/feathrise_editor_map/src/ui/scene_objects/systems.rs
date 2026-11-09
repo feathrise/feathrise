@@ -1,5 +1,6 @@
 //! 管理字段、对象/目录动作和轻量Arc差分；完整预检后共同进入一次历史。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use super::{components::*, resources::*};
 use crate::authoring::SceneObjectChange;
@@ -179,7 +180,7 @@ pub(super) fn style_buttons(
     mut buttons: Query<(
         Entity,
         &ObjectButton,
-        &Interaction,
+        &UiInteraction,
         &mut BackgroundColor,
         &mut BorderColor,
         Has<bevy::ui::InteractionDisabled>,
@@ -227,15 +228,15 @@ pub(super) fn style_buttons(
             colors::INPUT_BG
         } else {
             match interaction {
-                Interaction::Pressed => colors::SELECT_BG_PRESSED,
-                Interaction::Hovered => colors::SELECT_BG_HOVER,
-                Interaction::None => colors::SLOT_BG,
+                UiInteraction::Pressed => colors::SELECT_BG_PRESSED,
+                UiInteraction::Hovered => colors::SELECT_BG_HOVER,
+                UiInteraction::None => colors::SLOT_BG,
             }
         };
         if background.0 != color {
             background.0 = color;
         }
-        let color = if enabled && *interaction != Interaction::None {
+        let color = if enabled && *interaction != UiInteraction::None {
             colors::COPPER_BORDER
         } else {
             colors::COPPER_BORDER_WEAK

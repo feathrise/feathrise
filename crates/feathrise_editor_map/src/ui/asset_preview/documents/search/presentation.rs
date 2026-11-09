@@ -1,5 +1,6 @@
 //! 按变化更新固定搜索表单与16行虚拟池；稳定帧不扫描资产、重建节点或复制全文。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::{components::*, constants::*, resources::AssetSearchState, types::{ContentIdentity, ResultRow}};
@@ -110,11 +111,11 @@ pub(super) fn sync(
         &mut SearchAction,
         Option<&SearchRow>,
         Option<&SearchExternalRow>,
-        &Interaction,
+        &UiInteraction,
         &mut BackgroundColor,
         &mut BorderColor,
     )>,
-    changed: Query<(), (With<SearchAction>, Changed<Interaction>)>,
+    changed: Query<(), (With<SearchAction>, Changed<UiInteraction>)>,
     mut previous: Local<Option<(u64, usize, bool, u64)>>,
 ) {
     let scroll = scrolls.single().map_or(0.0, |scroll| scroll.y);
@@ -256,7 +257,7 @@ pub(super) fn sync(
         };
         background.0 = if selected {
             colors::SELECT_BG
-        } else if *interaction != Interaction::None && *action != SearchAction::Inactive {
+        } else if *interaction != UiInteraction::None && *action != SearchAction::Inactive {
             colors::SELECT_BG_HOVER
         } else {
             colors::SLOT_BG

@@ -1,5 +1,6 @@
 //! 用生产资格、按钮样式和两种输入验证禁用及恢复，不启动作者IO或改写配置。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{EditorActionAvailability, EditorActionInputs};
 use crate::authoring::{
     DraftLoadTask, EditorAuthoringSession, EditorCommand, HeightChange, TerrainPreviewState,
@@ -108,7 +109,7 @@ fn button(app: &mut App, action: EditorAction) -> Entity {
         .world_mut()
         .spawn((
             MapEditorActionButton(action),
-            Interaction::None,
+            UiInteraction::None,
             BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
             Node {
                 width: Val::Px(80.0),
@@ -141,7 +142,7 @@ fn click(app: &mut App, button: Entity) {
     app.world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
         .reset_all();
-    app.world_mut().entity_mut(button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
 }
 
@@ -216,7 +217,7 @@ fn menu_with_catalog_identity_and_draft_is_not_a_ready_map() {
         .world_mut()
         .spawn((
             MapEditorSettingsButton(EditorSettingsAction::Open),
-            Interaction::None,
+            UiInteraction::None,
         ))
         .id();
     app.update();

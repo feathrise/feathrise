@@ -30,28 +30,28 @@ pub(crate) fn scene_page() -> impl Scene {
             overflow: Overflow::clip(),
         }
         Children [
-            (
+
                 MapEditorSceneContext
                 Node { width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_basis: px(0), flex_direction: FlexDirection::Column }
                 Children [
-                    (crate::ui::scene_inspector::InspectorBody
+                    crate::ui::scene_inspector::InspectorBody
                         MapEditorRightPanelScroll RelativeCursorPosition::default() ScrollPosition::default()
                         Node { width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_basis: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), overflow: Overflow::scroll_y() }
                         Children [
-                    (@crate::ui::scene_inspector::scene_inspector_overview()),
-                    (@crate::ui::terrain_objects::properties_panel()),
-                    (crate::game_authoring::DomainInspectorHost Node { width:percent(100),min_width:px(0),flex_direction:FlexDirection::Column }),
-                    (@crate::ui::water_scene::water_properties_panel()),
-                    (@crate::ui::vegetation_scene::vegetation_properties_panel()),
-                    (@crate::ui::sub_maps::properties_panel()),
-                    (@crate::ui::scene_objects::properties_panel()),
-                    (@crate::ui::scene_inspector::scene_inspector_properties()), // 原变换与网格水树保持实体，只在当前稳定对象下展开。
-                    (@crate::ui::scene_inspector::scene_inspector_feedback()),
-                        ]),
+                    @crate::ui::scene_inspector::scene_inspector_overview()--
+                    @crate::ui::terrain_objects::properties_panel()--
+                    crate::game_authoring::DomainInspectorHost Node { width:percent(100),min_width:px(0),flex_direction:FlexDirection::Column }--
+                    @crate::ui::water_scene::water_properties_panel()--
+                    @crate::ui::vegetation_scene::vegetation_properties_panel()--
+                    @crate::ui::sub_maps::properties_panel()--
+                    @crate::ui::scene_objects::properties_panel()--
+                    @crate::ui::scene_inspector::scene_inspector_properties()-- // 原变换与网格水树保持实体，只在当前稳定对象下展开。
+                    @crate::ui::scene_inspector::scene_inspector_feedback()
+                        ]
                 ]
-            ),
-            (crate::game_authoring::DomainPreviewHost Node { width:percent(100),min_width:px(0),flex_direction:FlexDirection::Column }),
-            (@crate::ui::water_preset_editor::water_live_preview_host()), // 水体编辑使用场景页最下方独立10m×50m样品河面。
+            --
+            crate::game_authoring::DomainPreviewHost Node { width:percent(100),min_width:px(0),flex_direction:FlexDirection::Column }--
+            @crate::ui::water_preset_editor::water_live_preview_host() // 水体编辑使用场景页最下方独立10m×50m样品河面。
         ]
     }
 }
@@ -71,7 +71,7 @@ pub(crate) fn right_sidebar(scenes: &feathrise_editor_documents_model::DocumentS
         BackgroundColor(colors::PANEL_BG)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            (
+
                 Node {
                     width: percent(100), // 一级导航分区占满右栏正文宽度。
                     flex_shrink: 0.0, // 三个工作页签固定在滚动正文之外。
@@ -84,7 +84,7 @@ pub(crate) fn right_sidebar(scenes: &feathrise_editor_documents_model::DocumentS
                 BackgroundColor(colors::PANEL_BG_STRONG) // 一级页签与页内资产工具形成墨色差异。
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
                 Children [
-                    (
+
                         Node {
                             width: percent(100), // 属性、资产和当前工具严格等宽占满右栏。
                             height: px(24), // 与左侧导航、顶部模块统一紧凑高度。
@@ -92,17 +92,17 @@ pub(crate) fn right_sidebar(scenes: &feathrise_editor_documents_model::DocumentS
                             column_gap: px(2), // 页签之间使用统一细缝。
                         }
                         Children [
-                            (@sidebar_tab_button("属性", EditorSidebarTab::Right(EditorRightSidebarTab::Scene))),
-                            (@sidebar_tab_button("网格", EditorSidebarTab::Right(EditorRightSidebarTab::Tools))),
+                            @sidebar_tab_button("属性", EditorSidebarTab::Right(EditorRightSidebarTab::Scene))--
+                            @sidebar_tab_button("网格", EditorSidebarTab::Right(EditorRightSidebarTab::Tools))
                         ]
-                    ),
+
                 ]
-            ),
-            (@scene_page()),
-            (@super::left::tools_page()),
-            (@asset_properties_page(scenes)),
-            (@crate::ui::map_sidebar::map_properties_page()),
-            (@super::super::environment::environment_page()), // 三种环境作用域在唯一滚动页内独立显示。
+            --
+            @scene_page()--
+            @super::left::tools_page()--
+            @asset_properties_page(scenes)--
+            @crate::ui::map_sidebar::map_properties_page()--
+            @super::super::environment::environment_page() // 三种环境作用域在唯一滚动页内独立显示。
         ]
     }
 }

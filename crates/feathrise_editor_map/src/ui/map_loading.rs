@@ -1,9 +1,9 @@
 //! 编辑器专属切图提示：底栏显示真实进度，完整诊断进入详情，正式就绪前隔离作者输入。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*;
-use bevy::scene::template_value;
 use bevy::text::FontSourceTemplate;
 use bevy::ui::FocusPolicy;
 use feathrise_editor_ui::feedback::PanelStatusText;
@@ -27,11 +27,11 @@ pub(super) fn map_loading_panel() -> impl Scene {
             flex_grow: 1.0, min_width: px(0), align_items: AlignItems::Center,
             column_gap: px(4), overflow: Overflow::clip_x(),
         }
-        Children [(
+        Children [
             // 裁切宿主与自然宽度文字分开，字形不能跨过百分比或恢复按钮。
             Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }
             ~{FocusPolicy::Pass}
-            Children [(
+            Children [
                 MapEditorMapLoadingTitle
                 Text("正在切换地图") @feathrise_editor_ui::localization::label_scene("正在切换地图")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
@@ -39,19 +39,19 @@ pub(super) fn map_loading_panel() -> impl Scene {
                 TextLayout::no_wrap()
                 ~{FocusPolicy::Pass}
                 Node { flex_shrink: 0.0 }
-            )]
-        ), (
+            ]
+        --
             // 极窄窗口优先给真实百分比、恢复和详情；进度轨道允许收缩至零。
             Node { width: px(80), min_width: px(0), height: px(3), overflow: Overflow::clip() }
             BackgroundColor(colors::TRACK_BG)
             ~{FocusPolicy::Pass}
-            Children [(
+            Children [
                 MapEditorMapLoadingFill
                 Node { width: percent(0), height: percent(100) }
                 BackgroundColor(colors::TEXT_ACCENT)
                 ~{FocusPolicy::Pass}
-            )]
-        ), (
+            ]
+        --
             MapEditorMapLoadingPercent
             Text("0% · 0秒") @feathrise_editor_ui::localization::label_scene("0% · 0秒")
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
@@ -59,17 +59,17 @@ pub(super) fn map_loading_panel() -> impl Scene {
             TextLayout::no_wrap()
             ~{FocusPolicy::Pass}
             Node { flex_shrink: 0.0 }
-        ),
-            (@recovery_button("重试", MapLoadingRecoveryButton::Retry)),
-            (@recovery_button("取消", MapLoadingRecoveryButton::Cancel)),
-        (
+        --
+            @recovery_button("重试", MapLoadingRecoveryButton::Retry)--
+            @recovery_button("取消", MapLoadingRecoveryButton::Cancel)--
+
             MapEditorMapLoadingDetail
             PanelStatusText("地图加载")
             Text("")
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_MUTED)
             Node { display: Display::None } // 仅作为统一详情的数据源，不在底栏重复铺开说明和长路径。
-        )]
+        ]
     }
 }
 
@@ -85,20 +85,20 @@ fn recovery_button(label: &'static str, action: MapLoadingRecoveryButton) -> imp
         }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             Text(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
             TextLayout::no_wrap()
             ~{FocusPolicy::Pass}
-        )]
+        ]
     }
 }
 
 /// 透明鼠标门保留外壳可见；顶栏退出入口仍可用，避免失败时困在加载工作区。
 pub(super) fn map_loading_input_blocker() -> impl Scene {
     bsn! {
-        Interaction::default() // 纯遮挡节点仍参与官方ui_focus；不套用普通按钮的悬停背景。
+        UiInteraction::default() // 纯遮挡节点仍参与官方ui_focus；不套用普通按钮的悬停背景。
         MapEditorMapLoadingInputBlocker
         FocusPolicy::default() // BSN枚举沿用组件默认构造，首个同步帧按显隐设置Pass或Block。
         GlobalZIndex(1900)
@@ -140,7 +140,7 @@ pub(crate) fn sync_map_loading(
             Has<MapEditorMapLoadingPanel>,
             Has<MapEditorMapLoadingInputBlocker>,
             Has<MapEditorMapLoadingFill>,
-            Option<&mut Interaction>,
+            Option<&mut UiInteraction>,
             Option<&mut FocusPolicy>,
         ),
         Or<(
@@ -199,9 +199,9 @@ pub(crate) fn sync_map_loading(
             }
             if !visible
                 && let Some(mut interaction) = interaction
-                && *interaction != Interaction::None
+                && *interaction != UiInteraction::None
             {
-                *interaction = Interaction::None; // 隐藏同帧释放鼠标，不把旧按下留给下一次切图。
+                *interaction = UiInteraction::None; // 隐藏同帧释放鼠标，不把旧按下留给下一次切图。
             }
         }
     }

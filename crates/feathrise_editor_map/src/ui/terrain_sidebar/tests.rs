@@ -1,5 +1,6 @@
 //! 真实BSN、原工具/地表输入与中文字体验证；不启动GPU，也不保存或修改正式作者文件。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::*, scene::terrain_tools_panel};
 use crate::MapEditorSystemSet;
@@ -277,9 +278,9 @@ fn press(app: &mut App, label: &str) -> Entity {
     let entity = button(app, label);
     app.world_mut()
         .entity_mut(entity)
-        .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
-    app.world_mut().entity_mut(entity).insert(Interaction::None);
+    app.world_mut().entity_mut(entity).insert(UiInteraction::None);
     app.update();
     entity
 }
@@ -650,7 +651,7 @@ fn blocked_tab_clicks_are_consumed_without_delayed_replay() {
                     .register_save_conflict(map_id, [1; 32]);
             }
         }
-        app.world_mut().entity_mut(tab).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        app.world_mut().entity_mut(tab).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         app.update();
         assert_eq!(
             app.world().resource::<TerrainSidebarState>().page,
@@ -679,7 +680,7 @@ fn blocked_tab_clicks_are_consumed_without_delayed_replay() {
             app.world().resource::<TerrainSidebarState>().page,
             TerrainSidebarPage::Sculpt
         );
-        app.world_mut().entity_mut(tab).insert(Interaction::None);
+        app.world_mut().entity_mut(tab).insert(UiInteraction::None);
         app.update();
         press(&mut app, "地表");
         assert_eq!(

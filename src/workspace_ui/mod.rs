@@ -145,7 +145,7 @@ mod text_boundary_tests {
                 dependent_document_system.after(bevy::text::apply_text_edits),
             );
             app.world_mut()
-                .schedule_scope(Update, |world, mut schedule| {
+                .schedule_scope(Update, |world, schedule| {
                     // 只初始化真实调度图，不执行依赖窗口、字库和剪贴板的文本系统。
                     schedule
                         .initialize(world)

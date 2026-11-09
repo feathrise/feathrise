@@ -2,6 +2,7 @@
 //! 调用方先创建独占root、root/.home-scale-fixture-owner（指定固定字节）、隔离editor.json及
 //! 带原owner的global目录；FEATHRISE_HOME_SCALE_VALIDATION_DIR指向root/exercise或root/reopen。
 //! 两个mode共用同一份自有配置，各自报告目录必须为空；先等exercise正常退出，再启动reopen。
+use feathrise_editor_ui::UiInteraction;
 mod io;
 mod probe;
 mod resources;
@@ -21,6 +22,12 @@ const CAPTURE_RETRY_INTERVAL: Duration = Duration::from_millis(250);
 const CAPTURE_BUDGET: Duration = Duration::from_secs(8);
 
 fn ensure(condition: bool, message: &str) -> Result<(), String> { condition.then_some(()).ok_or_else(|| message.to_owned()) }
+
+/// 首页报告专用的文件身份投影留在本模块，共享 IO 被窗口验收复用时只编译通用读写。
+fn stamp(value: &Option<FileStamp>) -> Value {
+    value.as_ref().map_or(json!({"exists":false}), |value| json!({"exists":true,"bytes":value.bytes.len(),
+        "sha256":value.sha256,"modified_ns":value.modified.duration_since(std::time::UNIX_EPOCH).map(|duration| duration.as_nanos().min(u64::MAX as u128) as u64).ok()}))
+}
 
 pub(super) fn install(app: &mut App) {
     let Some(directory) = std::env::var_os("FEATHRISE_HOME_SCALE_VALIDATION_DIR").map(PathBuf::from) else { return; };
@@ -79,10 +86,17 @@ fn setup(app: &mut App, directory: PathBuf) -> Result<(), String> {
         capture_attempts: 0, capture_started: None, next_capture: now,
         wheel_cooldown: 0, wheel_events: 0, failure_started: None, failure_capture: None, failure_diagnostics: None,
         proofs: Vec::new(), captures: Vec::new(), failure: None, report: None, report_written: false, exit_phase: 0, commands: default() })
-        // 与已验证的首页插件专项一致：First设置原窗口鼠标来源，Focus/按钮系统自行产生Interaction和Click。
-        .add_systems(First, input)
+        // 在现代拾取读取窗口消息前提供输入，三态及点击仍由生产系统生成。
+        .add_systems(First, input.before(bevy::picking::PickingSystems::Input))
         .add_systems(Last, drive);
     Ok(())
+}
+
+/// 复现真实窗口后端的双通道投递，保证InputPlugin和现代拾取读取同一份输入。
+fn window_input(world: &mut World, input: impl bevy::ecs::message::Message + Clone + Into<bevy::window::WindowEvent>) {
+    let event: bevy::window::WindowEvent = input.clone().into();
+    world.write_message(input);
+    world.write_message(event);
 }
 
 fn input(world: &mut World) {
@@ -106,15 +120,17 @@ fn issue_input(world: &mut World, plan: &mut Plan) -> Result<(), String> {
     let Some(entity) = plan.target else { return Ok(()); };
     let Some(rect) = probe::bounds(world, entity) else { return Ok(()); };
     world.get_mut::<Window>(window).ok_or("原主窗口消失")?.set_physical_cursor_position(Some(rect.center().as_dvec2()));
+    let position = rect.center() / world.get::<Window>(window).unwrap().scale_factor();
+    window_input(world, bevy::window::CursorMoved { window, position, delta: None });
     match plan.mouse_phase {
         0 => plan.mouse_phase = 1,
-        1 if world.get::<Interaction>(entity) == Some(&Interaction::Hovered) => {
-            world.write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Pressed, window });
+        1 if world.get::<UiInteraction>(entity) == Some(&UiInteraction::Hovered) => {
+            window_input(world, MouseButtonInput { button: MouseButton::Left, state: ButtonState::Pressed, window });
             plan.mouse_phase = 2;
         }
         2 => {
-            ensure(world.get::<Interaction>(entity) == Some(&Interaction::Pressed), "官方鼠标没有进入原按钮按下态")?;
-            world.write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Released, window });
+            ensure(world.get::<UiInteraction>(entity) == Some(&UiInteraction::Pressed), "官方鼠标没有进入原按钮按下态")?;
+            window_input(world, MouseButtonInput { button: MouseButton::Left, state: ButtonState::Released, window });
             plan.mouse_phase = 3;
         }
         _ => {}
@@ -125,10 +141,12 @@ fn issue_input(world: &mut World, plan: &mut Plan) -> Result<(), String> {
 fn issue_scroll(world: &mut World, plan: &mut Plan, window: Entity) -> Result<bool, String> {
     let Some((body, pointer, delta)) = probe::scroll_request(world)? else { return Ok(false); };
     world.get_mut::<Window>(window).ok_or("原主窗口消失")?.set_physical_cursor_position(Some(pointer.as_dvec2()));
+    let position = pointer / world.get::<Window>(window).unwrap().scale_factor();
+    window_input(world, bevy::window::CursorMoved { window, position, delta: None });
     if plan.wheel_cooldown > 0 { plan.wheel_cooldown -= 1; return Ok(true); }
     if !world.get::<bevy::ui::RelativeCursorPosition>(body).is_some_and(|cursor|cursor.cursor_over()) { return Ok(true); }
     ensure(plan.wheel_events < 32, "原正文滚轮32步内未能把缩放组滚入视口")?;
-    world.write_message(MouseWheel { unit: MouseScrollUnit::Pixel, x: 0., y: delta, window,
+    window_input(world, MouseWheel { unit: MouseScrollUnit::Pixel, x: 0., y: delta, window,
         phase: bevy::input::touch::TouchPhase::Moved });
     plan.wheel_events += 1;
     plan.wheel_cooldown = 2;
@@ -268,7 +286,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
     // 不留未完成的观察槽进入下一阶段，避免旧读回执被误认为下一次输入已保存。
     if plan.read.is_some() { return Ok(()); }
     plan.proofs.push(json!({"stage":step.name,"completed":true,"expected":step.values,"view":plan.view,
-        "author_file":io::stamp(&plan.last_stamp),"no_extra_write_observed":step.no_write,
+        "author_file":stamp(&plan.last_stamp),"no_extra_write_observed":step.no_write,
         "first_input_not_issued":plan.mode == Mode::Reopen && plan.stage == 0}));
     eprintln!("首页缩放专项 {} / {} 完成", plan.mode.name(), step.name);
     next(plan);
@@ -342,7 +360,7 @@ fn drive(world: &mut World) {
     if (plan.failure.is_some() || step(plan.mode, plan.stage).is_none()) && plan.report.is_none() && !plan.report_written {
         // 若输入中途失败，仍先归还本轮按键；不伪造原Interaction或业务成功状态。
         if plan.mouse_phase == 2 && let Ok(window) = world.query_filtered::<Entity, With<PrimaryWindow>>().single(world) {
-            world.write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Released, window });
+            window_input(world, MouseButtonInput { button: MouseButton::Left, state: ButtonState::Released, window });
             plan.mouse_phase = 3;
         }
         if plan.failure.is_none() || failure_evidence(world, &mut plan) { publish(&mut plan); }

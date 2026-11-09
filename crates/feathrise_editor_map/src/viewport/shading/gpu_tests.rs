@@ -1,4 +1,5 @@
 //! 真GPU验证四球、方向球正式鼠标松开输入，以及实体/线框只改变作者视口像素。
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::{
     components::{MapEditorCamera, MapEditorOrientationAxisEndpoint, MapEditorViewport},
@@ -54,8 +55,8 @@ fn click(app: &mut App, entity: Entity, offset: Vec2) {
     });
     app.update();
     assert_eq!(
-        app.world().get::<Interaction>(entity),
-        Some(&Interaction::Pressed)
+        app.world().get::<UiInteraction>(entity),
+        Some(&UiInteraction::Pressed)
     );
     app.world_mut().write_message(MouseButtonInput {
         button: MouseButton::Left,

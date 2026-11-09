@@ -1,5 +1,6 @@
 //! 无设备的真实后台音频会话回归：验证完整采用、单槽换代、可见性、控件身份和作者数据隔离。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::AudioPreviewState, source::*, types::*, *};
 use crate::{
     resources::*,
@@ -144,7 +145,7 @@ fn ready(app: &App) -> bool {
 fn press(app: &mut App, action: AudioAction, key: Option<AudioKey>) {
     let button = app
         .world_mut()
-        .spawn((AudioButton { action, key }, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+        .spawn((AudioButton { action, key }, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
         .id();
     app.update();
     app.world_mut().entity_mut(button).despawn();
@@ -617,7 +618,7 @@ fn audio_session_same_path_under_new_asset_root_cannot_inherit_old_tab_position(
                 action: AudioAction::Toggle,
                 key: old_key,
             },
-            feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+            feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
         ))
         .id();
     // 先独立运行输入门，排除drive换代后的playing=false掩盖旧根按钮误接受。
@@ -692,7 +693,7 @@ fn audio_session_slider_volume_is_session_only_and_input_guard_discards_press() 
                 cursor_over: true,
                 normalized: Some(Vec2::new(-0.3, 0.0)),
             },
-            Interaction::Hovered,
+            UiInteraction::Hovered,
         ))
         .id();
     app.world_mut()

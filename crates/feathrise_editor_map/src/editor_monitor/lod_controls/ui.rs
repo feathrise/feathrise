@@ -1,6 +1,7 @@
 //! F4 六个植被页的四档 LOD 控件；布局、字号、颜色和交互逐项复刻 F3。
 //! 【功能设计】同一组固定按钮按当前页面绑定共享状态，叶片与Mesh显示各自真实档位名称。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use bevy::prelude::*;
@@ -194,7 +195,7 @@ pub(in crate::editor_monitor) fn update_vegetation_lod_control_ui(
     mut buttons: Query<
         (
             &EditorVegetationLodButton,
-            &Interaction,
+            &UiInteraction,
             &mut BackgroundColor,
             &mut BorderColor,
         ),
@@ -228,7 +229,7 @@ pub(in crate::editor_monitor) fn update_vegetation_lod_control_ui(
         };
         *background = BackgroundColor(if selected {
             Color::srgba(0.38, 0.24, 0.10, 0.94)
-        } else if *interaction == Interaction::Hovered {
+        } else if *interaction == UiInteraction::Hovered {
             Color::srgba(0.22, 0.16, 0.09, 0.90)
         } else {
             Color::srgba(0.055, 0.044, 0.035, 0.90)

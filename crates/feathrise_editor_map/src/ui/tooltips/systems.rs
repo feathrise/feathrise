@@ -1,5 +1,6 @@
 //! 真实悬停延迟、只读阻塞条件和布局后避让；不注册动作、焦点或鼠标捕获。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -109,7 +110,7 @@ pub(super) fn sync_tooltip(
     targets: Query<(
         Entity,
         &EditorTooltipTarget,
-        &Interaction,
+        &UiInteraction,
         &ComputedNode,
         &InheritedVisibility,
     )>,
@@ -136,7 +137,7 @@ pub(super) fn sync_tooltip(
     let hovered = (!suppressed)
         .then(|| {
             targets.iter().find(|(_, _, interaction, node, visible)| {
-                **interaction == Interaction::Hovered
+                **interaction == UiInteraction::Hovered
                     && visible.get()
                     && node.size().min_element() > 0.0
             })

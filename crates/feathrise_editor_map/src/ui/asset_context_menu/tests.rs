@@ -1,5 +1,6 @@
 //! 菜单纯计算与真实ECS输入回归；从不读取或改写测试机器的系统剪贴板。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::math::DVec2; // Window物理光标测试使用双精度平台坐标。
 use bevy::prelude::*; // 最小应用复用生产资源和系统。
 use bevy::window::PrimaryWindow; // 仅创建窗口数据，不启动Winit。
@@ -42,7 +43,7 @@ fn external_asset_menu_uses_right_clicked_path_without_switching_selection_or_co
         let frozen = test.app.world().resource::<AssetContextMenuState>().target.as_ref().unwrap().path.clone();
         test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Right);
         step(&mut test.app);
-        test.app.world_mut().spawn((super::components::AssetMenuExternalButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+        test.app.world_mut().spawn((super::components::AssetMenuExternalButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
         test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         step(&mut test.app);
         let requests: Vec<_> = test.app.world_mut().resource_mut::<Messages<OpenExternalFile>>().drain().collect();
@@ -66,7 +67,7 @@ fn external_asset_menu_rejects_old_pressed_items_after_an_editor_is_removed() {
         step(&mut test.app);
         // 检测换代与旧节点Pressed可能同帧到达，输入端也必须复核安装身份。
         test.app.insert_resource(ExternalEditors::default());
-        test.app.world_mut().spawn((super::components::AssetMenuExternalButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+        test.app.world_mut().spawn((super::components::AssetMenuExternalButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
         test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         step(&mut test.app);
         assert!(test.app.world().resource::<Messages<OpenExternalFile>>().is_empty());
@@ -87,7 +88,7 @@ fn external_project_menu_accepts_directories_and_only_files_offer_file_location_
             let text = test.app.world_mut().spawn(Text::new(label)).id();
             let button = test.app.world_mut().spawn((
                 super::components::AssetMenuExternalButton(action),
-                Node::default(), Interaction::None, BackgroundColor::default(), BorderColor::default(),
+                Node::default(), UiInteraction::None, BackgroundColor::default(), BorderColor::default(),
             )).add_child(text).id();
             open_menu(&mut test);
             assert_eq!(test.app.world().get::<Node>(button).unwrap().display, Display::Flex);
@@ -95,7 +96,7 @@ fn external_project_menu_accepts_directories_and_only_files_offer_file_location_
                 if directory { format!("用 {} 打开工程", action.editor().unwrap().name()) } else { label.into() });
             let popup = test.app.world().get::<Node>(test.popup).unwrap();
             assert_eq!((popup.width, popup.height), (px(240), px(if directory { 268 } else { 294 })));
-            *test.app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+            *test.app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
             test.app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
             test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
             step(&mut test.app);
@@ -201,7 +202,7 @@ fn fixture(path: &str) -> Fixture {
                 entry_index: Some(0),
             }, // 当前窗口第零槽，身份使用全目录绝对索引。
             AssetRowBinding { revision: 7, viewport_revision: 0, index: Some(0) },
-            Interaction::Hovered, // 命中由输入单测显式提供，非截图验证。
+            UiInteraction::Hovered, // 命中由输入单测显式提供，非截图验证。
             Node::default(),      // 非隐藏真实行。
         ))
         .id();
@@ -209,7 +210,7 @@ fn fixture(path: &str) -> Fixture {
         .world_mut()
         .spawn((
             AssetMenuCopyButton(AssetPathCopyKind::Relative),
-            Interaction::None,
+            UiInteraction::None,
             BackgroundColor::default(),
             BorderColor::default(),
         ))

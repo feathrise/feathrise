@@ -1,5 +1,6 @@
 //! 通过原创建/撤销、原文档输入/保存、真实诊断行与应用按钮驱动本轮专项，不写成功状态。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{close_cancel, evidence, resources::{Phase, Plan}};
 use crate::{code_iteration::{CodeIterationState, components::{ApplyVersion, CodeIterationAction}, types::CodeIterationPhase},
     embedded_viewport::EmbeddedStatus, viewport_mode::{RequestViewportMode, ViewportMode, ViewportModeState}};
@@ -274,7 +275,7 @@ fn apply_button_probe(world: &World, button: Entity) -> Value {
     json!({"entity":format!("{button:?}"),"generation":world.get::<ApplyVersion>(button).and_then(|bound|bound.0),
         "clicked":world.get::<feathrise_editor_ui::EditorButtonClick>(button).map(|click|click.is_clicked()),
         "click_state":world.get::<feathrise_editor_ui::EditorButtonClick>(button).map(|click|format!("{click:?}")),
-        "interaction":world.get::<Interaction>(button).map(|interaction|format!("{interaction:?}")),
+        "interaction":world.get::<UiInteraction>(button).map(|interaction|format!("{interaction:?}")),
         "disabled":world.get::<bevy::ui::InteractionDisabled>(button).is_some()})
 }
 
@@ -312,7 +313,7 @@ pub(super) fn open_source(world: &mut World, plan: &Plan, path: &str) {
 }
 
 pub(super) fn pulse(world: &mut World, plan: &mut Plan, button: Entity) {
-    world.entity_mut(button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    world.entity_mut(button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     plan.pulse = Some(button);
 }
 

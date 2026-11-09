@@ -1,5 +1,6 @@
 //! 真实文件的跨文件保真替换、原子拒收、容量与历史；同步等待只在测试线程中使用。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::super::{
     constants::MAX_FILE_BYTES,
     history::Selection,
@@ -127,8 +128,8 @@ fn references_read_only_guard_rejects_replace_worker_and_stale_ui_actions() {
         let mut state = app.world_mut().resource_mut::<AssetReplaceState>();
         state.tab_open = true; state.active = true;
     }
-    app.world_mut().spawn((ReplaceAction::Open, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
-    app.world_mut().spawn((ReplaceAction::ApplyChecked, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+    app.world_mut().spawn((ReplaceAction::Open, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
+    app.world_mut().spawn((ReplaceAction::ApplyChecked, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
     let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
     keys.press(KeyCode::ControlLeft); keys.press(KeyCode::ShiftLeft); keys.press(KeyCode::KeyH);
     app.world_mut().run_system_once(control::input).unwrap();
@@ -156,8 +157,8 @@ fn missing_assets_read_only_guard_rejects_replace_worker_shortcut_and_stale_butt
         let mut state = app.world_mut().resource_mut::<AssetReplaceState>();
         state.tab_open = true; state.active = true;
     }
-    app.world_mut().spawn((ReplaceAction::Open, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
-    app.world_mut().spawn((ReplaceAction::ApplyChecked, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+    app.world_mut().spawn((ReplaceAction::Open, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
+    app.world_mut().spawn((ReplaceAction::ApplyChecked, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
     let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
     keys.press(KeyCode::ControlLeft); keys.press(KeyCode::ShiftLeft); keys.press(KeyCode::KeyH);
     app.world_mut().run_system_once(control::input).unwrap();
@@ -516,7 +517,7 @@ fn cross_replacement_ctrl_shift_h_and_enter_only_preview_and_pending_ime_input_c
         .unwrap()
         .queue_edit(TextEdit::Insert("候选未采用".into()));
     app.world_mut()
-        .spawn((ReplaceAction::ApplyChecked, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+        .spawn((ReplaceAction::ApplyChecked, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
     app.world_mut().run_system_once(control::input).unwrap();
     assert!(matches!(
         &app.world()
@@ -655,7 +656,7 @@ fn cross_replacement_more_than_eight_files_requires_explicit_subset_and_never_tr
     }
     let button = app
         .world_mut()
-        .spawn((ReplaceAction::Open, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+        .spawn((ReplaceAction::Open, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
         .id();
     app.world_mut().run_system_once(control::input).unwrap();
     assert!(

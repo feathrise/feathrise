@@ -1,6 +1,7 @@
 //! 真实贴地采用淘汰旧异步点击与轮选候选，同时保留已确认精确网格。
 //! 命中从生产append入口交付，后续使用真实请求、worker和采用；不模拟窗口射线或GLB加载。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
 use crate::authoring::{PlacementTerrainFollowState, TerrainBrushStroke, WaterBrushStroke};
@@ -269,7 +270,7 @@ fn derived_click_stable_confirmation_keeps_precise_mesh_and_invalidates_old_cycl
 fn derived_click_old_candidate_button_cannot_bypass_poll_adoption_guard() {
     let (mut app, roots, precise, confirmations, author_index) = fixture();
     apply_real_follow(&mut app, &roots);
-    let row = app.world_mut().spawn((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered(),
+    let row = app.world_mut().spawn((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered(),
         CandidateAction::Select(1), BackgroundColor::default())).id();
     // 故意先消费真实按钮和采用出口，验证其自身权限门；不能靠poll先清掉全部候选才安全。
     app.world_mut().run_system_once(layer_candidate_interactions).unwrap();

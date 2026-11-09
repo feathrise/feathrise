@@ -1,5 +1,6 @@
 //! 新增工程页面挂在原工作台静态槽位；只构造新增字段，不复制三栏和作者工具。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{Page, WorkspaceField, components::*, resources::Presentation};
 use bevy::{
@@ -294,7 +295,7 @@ pub(super) fn mount(
             p.spawn((
                 MenuNode,
                 RelativeCursorPosition::default(),
-                Interaction::None,
+                UiInteraction::None,
                 bevy::ui::FocusPolicy::Block,
                 GlobalZIndex(4300),
                 Node {

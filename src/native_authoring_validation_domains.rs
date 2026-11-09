@@ -1,5 +1,6 @@
 //! 普通地表作者的有限验收适配；投递真实动作、操作官方文本控件，不维护另一套草稿或保存逻辑。
 
+use feathrise_editor_ui::UiInteraction;
 pub(super) use super::types::{CatalogFact, TabFact};
 use super::{Domain, Pulse};
 use bevy::{
@@ -127,7 +128,7 @@ fn actual_button(world: &mut World, action: SurfacePresetAction) -> Option<Pulse
             (button.0 == action && !disabled).then_some(entity)
         })?;
     world.entity_mut(entity).insert((
-        Interaction::Pressed,
+        UiInteraction::Pressed,
         feathrise_editor_ui::EditorButtonClick::triggered(),
     ));
     Some(Pulse {

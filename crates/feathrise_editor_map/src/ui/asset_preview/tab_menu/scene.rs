@@ -1,4 +1,5 @@
 //! 文件标签菜单沿用资产路径菜单的暗墨铜边、紧凑尺寸与根内定位。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::{components::*, resources::AssetTabMenuState};
@@ -36,7 +37,7 @@ pub(super) fn setup(
                         ..default()
                     },
                     GlobalZIndex(426),
-                    Interaction::default(),
+                    UiInteraction::default(),
                     FocusPolicy::Block,
                 ))
                 .with_children(|overlay| {
@@ -162,10 +163,10 @@ pub(super) fn sync(
         Or<(With<TabMenuBackdrop>, With<TabMenuPopup>)>,
     >,
     mut buttons: Query<
-        (&Interaction, &mut BackgroundColor),
+        (&UiInteraction, &mut BackgroundColor),
         (
             Or<(With<CloseAllTabsButton>, With<CloseUnmodifiedTabsButton>, With<SaveAllDraftsButton>, With<ExternalFileButton>, With<CopyFilePathButton>)>,
-            Changed<Interaction>,
+            Changed<UiInteraction>,
         ),
     >,
     mut external_buttons: Query<(&ExternalFileButton, &mut Node), (Without<TabMenuPopup>, Without<TabMenuBackdrop>, Without<CopyFilePathButton>)>,
@@ -204,9 +205,9 @@ pub(super) fn sync(
     }
     for (interaction, mut background) in &mut buttons {
         background.0 = match interaction {
-            Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
-            Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
-            Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+            UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
+            UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
+            UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
         };
     }
 }

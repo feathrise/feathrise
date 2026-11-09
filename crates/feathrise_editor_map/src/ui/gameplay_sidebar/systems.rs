@@ -1,5 +1,6 @@
 //! 玩法工具准备先经过全局模式门；页面只观察稳定选择和原作者状态，不制造额外事务。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use super::{components::*, resources::*, types::*};
 use crate::authoring::{BoundaryEditState, EditorAuthoringSession, TerrainExternalChangeState};
@@ -109,13 +110,13 @@ pub(super) fn sync_pages(
     mut observed_selection: Local<Option<(Option<MapId>, Option<LayerTarget>, u64)>>,
     mut panels: Query<(&GameplaySidebarPanel, &mut Node)>,
     mut tabs: Query<(
-        &Interaction,
+        &UiInteraction,
         &GameplaySidebarTab,
         &mut BackgroundColor,
         &mut BorderColor,
     )>,
     mut browse: Query<
-        (&Interaction, &mut BackgroundColor),
+        (&UiInteraction, &mut BackgroundColor),
         (
             With<GameplaySidebarBrowseButton>,
             Without<GameplaySidebarTab>,
@@ -162,10 +163,10 @@ pub(super) fn sync_pages(
     for (interaction, tab, mut background, mut border) in &mut tabs {
         let selected = GameplaySidebarPage::for_action(tab.0) == Some(state.page);
         let fill = match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-            (Interaction::None, true) => colors::SELECT_BG,
-            (Interaction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::None, true) => colors::SELECT_BG,
+            (UiInteraction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL,
         };
         let outline = BorderColor::all(if selected {
             colors::COPPER_BORDER
@@ -181,9 +182,9 @@ pub(super) fn sync_pages(
     }
     for (interaction, mut background) in &mut browse {
         let fill = match interaction {
-            Interaction::Pressed => colors::SELECT_BG_PRESSED,
-            Interaction::Hovered => colors::SELECT_BG_HOVER,
-            Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+            UiInteraction::Pressed => colors::SELECT_BG_PRESSED,
+            UiInteraction::Hovered => colors::SELECT_BG_HOVER,
+            UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
         };
         if background.0 != fill {
             background.0 = fill;

@@ -1,6 +1,7 @@
 //! 双3D模式的真实窗口回归：原作者请求、未保存历史、协议回执、同World往返及故障恢复。
 //! 仅显式 validation 构建和本轮自建夹具安装；所有成功条件来自原业务或真实GPU观测。
 
+use feathrise_editor_ui::UiInteraction;
 mod empty_fixture;
 mod build_backend;
 mod close_evidence;
@@ -684,7 +685,7 @@ fn press_preview(world: &mut World, plan: &mut Plan) -> Result<(), String> {
     if world.get::<bevy::ui::InteractionDisabled>(button).is_some() {
         return Err("预览按钮尚未可用".into());
     }
-    world.entity_mut(button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    world.entity_mut(button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     plan.pulse = Some(button);
     Ok(())
 }

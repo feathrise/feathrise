@@ -1,5 +1,6 @@
 //! 小地图只写原生滚动偏移；不移动光标、选区或文档草稿。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::{
     ecs::system::SystemParam,
     input::mouse::{MouseScrollUnit, MouseWheel},
@@ -45,7 +46,7 @@ pub(in super::super) fn handle_input(
         &TextLayoutInfo,
         &mut EditableText,
     )>,
-    rails: Query<(&ComputedNode, &RelativeCursorPosition, &Interaction), With<DocumentMinimapRail>>,
+    rails: Query<(&ComputedNode, &RelativeCursorPosition, &UiInteraction), With<DocumentMinimapRail>>,
 ) {
     state.mouse_owned = false;
     state.wheel_owned = false;
@@ -153,7 +154,7 @@ pub(in super::super) fn handle_input(
         state.wheel_owned = delta != 0.0;
         return;
     }
-    if !cursor.cursor_over() || *interaction == Interaction::None {
+    if !cursor.cursor_over() || *interaction == UiInteraction::None {
         return;
     }
     if delta.is_finite() && delta != 0.0 {

@@ -1,4 +1,5 @@
 //! 网格页和场景列表的常驻表现同步；只访问固定控件、当前选择、十个虚拟网格行与有界LOD可见行。
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, numeric, resources::*, systems};
 use crate::{authoring::EditorAuthoringSession, resources::MapEditorState, ui::theme as colors};
 use bevy::{ecs::system::SystemParam, prelude::*};
@@ -60,8 +61,8 @@ pub(super) struct PanelPresentation<'w, 's> {
     list_content: Query<'w, 's, &'static mut Node, (With<ListContent>, Without<ListViewport>, Without<LodList>)>,
     lod_list: Query<'w, 's, (&'static LodList, &'static mut Node, &'static ComputedNode, &'static UiGlobalTransform), (Without<ListViewport>, Without<ListContent>)>,
     inspector: Query<'w, 's, (&'static ComputedNode, &'static UiGlobalTransform, &'static mut ScrollPosition), (With<crate::ui::scene_inspector::InspectorBody>, Without<ListViewport>)>,
-    lod_bindings: Query<'w, 's, (&'static LodRow, &'static mut LodRowBinding, &'static mut Interaction, Option<&'static mut feathrise_editor_ui::EditorButtonClick>)>,
-    lod_actions: Query<'w, 's, (&'static ActionButton, &'static mut LodActionBinding, &'static mut Interaction, Option<&'static mut feathrise_editor_ui::EditorButtonClick>), Without<LodRow>>,
+    lod_bindings: Query<'w, 's, (&'static LodRow, &'static mut LodRowBinding, &'static mut UiInteraction, Option<&'static mut feathrise_editor_ui::EditorButtonClick>)>,
+    lod_actions: Query<'w, 's, (&'static ActionButton, &'static mut LodActionBinding, &'static mut UiInteraction, Option<&'static mut feathrise_editor_ui::EditorButtonClick>), Without<LodRow>>,
     fields: Query<
         'w,
         's,
@@ -411,7 +412,7 @@ pub(super) fn sync(
             binding.0 = source.map(|(object, draft)| super::types::LodRowTarget {
                 map: draft.map_id.clone(), revision: session.revision, terrain: object.id.clone(), index, display: row.1,
             });
-            if *interaction != Interaction::None { *interaction = Interaction::None; }
+            if *interaction != UiInteraction::None { *interaction = UiInteraction::None; }
             if let Some(mut click) = click { click.invalidate(); }
         }
     }
@@ -648,7 +649,7 @@ pub(super) fn sync(
         } else { None };
         if binding.0 != target {
             binding.0 = target;
-            if *interaction != Interaction::None { *interaction = Interaction::None; }
+            if *interaction != UiInteraction::None { *interaction = UiInteraction::None; }
             if let Some(mut click) = click { click.invalidate(); }
         }
     }

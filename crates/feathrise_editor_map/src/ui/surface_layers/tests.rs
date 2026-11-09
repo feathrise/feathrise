@@ -1,5 +1,6 @@
 //! 地表列表真实ECS交互回归：分页、过期目标与未引用预设不得误删。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*; // 直接运行正式输入与回显系统以验证查询互斥。
 use feathrise_map_content::{MAP_SURFACE_SCHEMA_VERSION, MapSurfaceAsset, MapSurfaceLayer};
 use std::sync::Arc; // 检查显式新建只修改层定义，不复制或填充整图像素。 // 使用正式地图地表协议。
@@ -66,7 +67,7 @@ fn fixture() -> App {
         app.world_mut().spawn((
             SurfaceLayerButton(action),
             Node::default(),
-            Interaction::None,
+            UiInteraction::None,
             feathrise_editor_ui::EditorButtonClick::default(),
             BackgroundColor(Color::BLACK),
         )); // 四个静态操作按钮。
@@ -80,7 +81,7 @@ fn fixture() -> App {
             .spawn((
                 SurfaceLayerRow { slot, target: None },
                 Node::default(),
-                Interaction::None,
+                UiInteraction::None,
                 feathrise_editor_ui::EditorButtonClick::default(),
                 BackgroundColor(Color::BLACK),
             ))
@@ -93,14 +94,14 @@ fn fixture() -> App {
 /// 无窗口领域夹具显式传入已确认释放的动作，不以按下替代点击协议。
 fn press_button(app: &mut App, action: SurfaceLayerAction) {
     let world = app.world_mut(); // 只改测试世界。
-    let mut query = world.query::<(&SurfaceLayerButton, &mut Interaction, &mut feathrise_editor_ui::EditorButtonClick)>(); // 固定三按钮集合。
+    let mut query = world.query::<(&SurfaceLayerButton, &mut UiInteraction, &mut feathrise_editor_ui::EditorButtonClick)>(); // 固定三按钮集合。
     for (button, mut interaction, mut click) in query.iter_mut(world) {
         *click = if button.0 == action { feathrise_editor_ui::EditorButtonClick::triggered() }
             else { feathrise_editor_ui::EditorButtonClick::default() };
         *interaction = if button.0 == action {
-            Interaction::Pressed
+            UiInteraction::Pressed
         } else {
-            Interaction::None
+            UiInteraction::None
         }; // 模拟单个按钮真实按下。
     } // 其他按钮恢复未按下。
     app.update(); // 由正式输入系统消费动作。
@@ -176,10 +177,10 @@ fn stale_surface_row_is_rejected_after_structure_revision() {
         session.surface_revision += 1; // 正式结构变化推进地表身份。
     } // UI仍显示上一帧目标。
     let world = app.world_mut(); // 在下一帧Presentation之前模拟旧行点击。
-    let mut rows = world.query::<(&SurfaceLayerRow, &mut Interaction, &mut feathrise_editor_ui::EditorButtonClick)>(); // 固定行不会因结构改变自动换身份。
+    let mut rows = world.query::<(&SurfaceLayerRow, &mut UiInteraction, &mut feathrise_editor_ui::EditorButtonClick)>(); // 固定行不会因结构改变自动换身份。
     for (row, mut interaction, mut click) in rows.iter_mut(world) {
         if row.slot == 1 {
-            *interaction = Interaction::Pressed;
+            *interaction = UiInteraction::Pressed;
             *click = feathrise_editor_ui::EditorButtonClick::triggered();
         } // 旧第二行当前下标已经代表另一层。
     } // 原选择仍为第0层。

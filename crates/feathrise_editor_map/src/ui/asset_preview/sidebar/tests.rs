@@ -1,5 +1,6 @@
 //! 所选文件、目录反馈与显式复制的纯ECS回归；不读写用户文件或系统剪贴板。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, systems::*, types::*};
 use crate::asset_catalog::AssetCatalogFeedback;
 use crate::resources::{EditorAssetCatalog, MapEditorNumericScrubMouseGuard, MapEditorState};
@@ -27,7 +28,7 @@ fn sidebar_app() -> (App, Entity) {
         .world_mut()
         .spawn((
             AssetSidebarCopyPath::default(),
-            Interaction::None,
+            UiInteraction::None,
             BackgroundColor::default(),
             BorderColor::default(),
         ))
@@ -129,7 +130,7 @@ fn stale_path_press_cannot_copy_rebound_file_or_replay_after_selection() {
     app.world_mut()
         .resource_mut::<MapEditorState>()
         .selected_asset = Some("textures/另一个文件.png".into());
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
     app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     app.update();
     assert!(
@@ -147,9 +148,9 @@ fn stale_path_press_cannot_copy_rebound_file_or_replay_after_selection() {
             .feedback
             .is_empty()
     );
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::None;
     app.update();
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
     app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     app.update();
     assert!(field_text(&mut app, SidebarField::CopyFeedback).contains("剪贴板尚未就绪"));
@@ -162,7 +163,7 @@ fn blocked_press_is_consumed_and_copy_feedback_is_bound_to_selection() {
     app.world_mut()
         .resource_mut::<MapEditorNumericScrubMouseGuard>()
         .advance(true, true, false);
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
     app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     app.update();
     app.world_mut()
@@ -170,9 +171,9 @@ fn blocked_press_is_consumed_and_copy_feedback_is_bound_to_selection() {
         .advance(false, false, false);
     app.update();
     assert!(field_text(&mut app, SidebarField::CopyFeedback).is_empty());
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::None;
     app.update();
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
     app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     app.update();
     assert!(field_text(&mut app, SidebarField::CopyFeedback).contains("失败"));
@@ -193,7 +194,7 @@ fn modal_and_ime_copy_press_is_not_replayed_after_unblocking() {
     app.insert_resource(crate::resources::EditorTextInputGuard {
         block_shortcuts: true,
     });
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
     app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     app.update();
     app.world_mut()
@@ -201,12 +202,12 @@ fn modal_and_ime_copy_press_is_not_replayed_after_unblocking() {
         .block_shortcuts = false;
     app.update();
     assert!(field_text(&mut app, SidebarField::CopyFeedback).is_empty());
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::None;
     app.update();
     app.world_mut()
         .resource_mut::<MapEditorState>()
         .new_map_dialog_open = true;
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
     app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     app.update();
     app.world_mut()

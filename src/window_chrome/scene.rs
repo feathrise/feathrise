@@ -1,4 +1,5 @@
 //! 原位重排工作台顶栏；布局图标与窄窗更多菜单都复用原按钮，不能复制动作或触发脉冲。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, glyphs, resources::*, types::*};
 use bevy::{
@@ -62,7 +63,7 @@ fn popup(world: &mut World, menu: Menu) -> Entity {
         .spawn((
             Popup(menu),
             RelativeCursorPosition::default(),
-            Interaction::None,
+            UiInteraction::None,
             FocusPolicy::Block,
             GlobalZIndex(4101),
             Node {
@@ -229,7 +230,7 @@ pub(super) fn mount(world: &mut World) {
             .spawn((
                 Backdrop,
                 GlobalZIndex(4100),
-                Interaction::None,
+                UiInteraction::None,
                 FocusPolicy::Block,
                 Node {
                     display: Display::None,

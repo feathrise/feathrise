@@ -1,5 +1,6 @@
 //! 反向定位的纯数据和最小 ECS 回归：跨页、子资产、失败托底与用户意图优先。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*; // 最小 ECS 只验证真实资产行点击，不启动窗口或渲染。
 use feathrise_map_content::{MapAssetKind, MapId}; // 测试使用正式文件类型与地图身份。
 
@@ -375,7 +376,7 @@ fn file_click_reveals_asset_properties_and_folder_navigation_keeps_tools() {
         app.insert_resource(catalog).insert_resource(editor).insert_resource(sidebar)
             .init_resource::<MapEditorNumericScrubMouseGuard>()
             .add_systems(Update, handle_asset_row_clicks);
-        app.world_mut().spawn((feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed, MapEditorAssetRow { slot: 0, entry_index: Some(0) }));
+        app.world_mut().spawn((feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed, MapEditorAssetRow { slot: 0, entry_index: Some(0) }));
         app.update();
         let sidebar = app.world().resource::<MapEditorSidebarState>();
         assert_eq!(sidebar.navigator, EditorNavigatorTab::Assets);
@@ -398,16 +399,16 @@ fn hidden_left_browser_discards_stale_file_press_instead_of_replaying_it() {
         let mut app = App::new();
         app.insert_resource(catalog).insert_resource(editor).insert_resource(sidebar).insert_resource(layout)
             .init_resource::<MapEditorNumericScrubMouseGuard>().add_systems(Update, handle_asset_row_clicks);
-        let row = app.world_mut().spawn((feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed, MapEditorAssetRow { slot: 0, entry_index: Some(0) })).id();
+        let row = app.world_mut().spawn((feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed, MapEditorAssetRow { slot: 0, entry_index: Some(0) })).id();
         app.update();
         assert!(app.world().resource::<MapEditorState>().selected_asset.is_none());
         app.world_mut().resource_mut::<MapEditorSidebarState>().navigator = EditorNavigatorTab::Assets;
         app.world_mut().resource_mut::<crate::resources::MapEditorLayoutState>().content_visible = true;
         app.update();
         assert!(app.world().resource::<MapEditorState>().selected_asset.is_none());
-        *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None;
+        *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
         app.update();
-        *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::Pressed; app.world_mut().entity_mut(row).insert(feathrise_editor_ui::EditorButtonClick::triggered());
+        *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::Pressed; app.world_mut().entity_mut(row).insert(feathrise_editor_ui::EditorButtonClick::triggered());
         app.update();
         assert_eq!(app.world().resource::<MapEditorState>().selected_asset.as_deref(), Some("old/previous.glb"));
     }
@@ -438,7 +439,7 @@ fn real_asset_row_click_cancels_pending_reveal_even_when_reselecting_the_same_fi
         .init_resource::<MapEditorNumericScrubMouseGuard>() // 鼠标当前由普通资产列表拥有。
         .add_systems(Update, handle_asset_row_clicks); // 执行正式点击逻辑。
     app.world_mut().spawn((
-        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed, // 用户明确重新单击旧文件。
+        feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed, // 用户明确重新单击旧文件。
         MapEditorAssetRow {
             slot: 0,              // 原列表首行。
             entry_index: Some(0), // 指向已选中的原资产。

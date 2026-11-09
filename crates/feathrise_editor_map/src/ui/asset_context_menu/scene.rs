@@ -1,5 +1,6 @@
 //! 工程与资产右键菜单共用固定节点及边界适配；沿用F12主题，不改变列表或预览布局。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::ecs::system::SystemParam;
@@ -50,7 +51,7 @@ pub(super) fn setup_menu(
                         ..default()           // 其余保持普通透明节点默认值。
                     },
                     GlobalZIndex(426), // 高于F4与编辑器主体，低于正式新建/删除/冲突模态。
-                    Interaction::default(), // 空白处点击可关闭且不会落入底层控件。
+                    UiInteraction::default(), // 空白处点击可关闭且不会落入底层控件。
                     FocusPolicy::Block, // 即使背景完全透明也阻止旧数字框获得按下。
                 ))
                 .with_children(|overlay| {
@@ -157,8 +158,8 @@ pub(super) fn sync_menu(
         (Or<(With<AssetMenuBackdrop>, With<AssetMenuPopup>)>, Without<AssetMenuReferencesButton>, Without<AssetMenuFavoriteButton>),
     >, // 一个查询修改两类Node，避免B0001重叠借用。
     mut buttons: Query<
-        (&Interaction, &mut BackgroundColor, &mut BorderColor),
-        (Or<(With<AssetMenuCopyButton>, With<AssetMenuExternalButton>, With<AssetMenuReferencesButton>, With<AssetMenuFavoriteButton>)>, Changed<Interaction>),
+        (&UiInteraction, &mut BackgroundColor, &mut BorderColor),
+        (Or<(With<AssetMenuCopyButton>, With<AssetMenuExternalButton>, With<AssetMenuReferencesButton>, With<AssetMenuFavoriteButton>)>, Changed<UiInteraction>),
     >, // 固定菜单项仅按交互边沿回显。
     mut external_nodes: Query<(&AssetMenuExternalButton, &mut Node, Option<&Children>),
         (Without<AssetMenuBackdrop>, Without<AssetMenuPopup>, Without<AssetMenuReferencesButton>, Without<AssetMenuFavoriteButton>)>, // 与面板Node查询互斥，避免B0001。
@@ -247,11 +248,11 @@ pub(super) fn sync_menu(
     }
     for (interaction, mut background, mut border) in &mut buttons {
         background.0 = match interaction {
-            Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED, // 按下反馈只影响菜单项。
-            Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED, // 悬停明确显示可复制。
-            Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,     // 离开恢复原样。
+            UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED, // 按下反馈只影响菜单项。
+            UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED, // 悬停明确显示可复制。
+            UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,     // 离开恢复原样。
         };
-        *border = BorderColor::all(if *interaction == Interaction::None {
+        *border = BorderColor::all(if *interaction == UiInteraction::None {
             colors::COPPER_BORDER_WEAK
         } else {
             colors::COPPER_BORDER

@@ -1,5 +1,6 @@
 //! 原状态与固定实体的地图侧栏回归；不启动地图加载、目录写入或真实回收。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::*, systems::sync_sidebar, types::*};
 use crate::authoring::{EditorAuthoringSession, GlobalEnvironmentAuthoringState};
 use crate::components::*;
@@ -122,7 +123,7 @@ fn sidebar_app() -> App {
         app.world_mut().spawn((
             MapEditorActionButton(action),
             MapSidebarActionBinding::default(),
-            Interaction::None,
+            UiInteraction::None,
             Node::default(),
             BackgroundColor::default(),
             BorderColor::default(),

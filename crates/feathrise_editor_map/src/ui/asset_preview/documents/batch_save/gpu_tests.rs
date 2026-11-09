@@ -1,5 +1,6 @@
 //! 正式GPU布局、中文候选、保存快捷键/工具条/右键菜单与实际磁盘结果；复用唯一原生正文。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{
     components::{DocumentAction, DocumentSource, DocumentTabRoot},
     io,
@@ -392,8 +393,8 @@ fn click(app: &mut App, window: Entity, camera: Entity, action: DocumentAction) 
         .unwrap();
     app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
     assert_eq!(
-        *app.world().get::<Interaction>(entity).unwrap(),
-        Interaction::Pressed,
+        *app.world().get::<UiInteraction>(entity).unwrap(),
+        UiInteraction::Pressed,
         "实际鼠标命中：{action:?}"
     );
     app.world_mut()

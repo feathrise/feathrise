@@ -1,5 +1,6 @@
 //! 水体工作台的真实字体布局、分区会话与输入/资源事务回归；不写正式目录或启动GPU。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, interaction, presentation, types::*, workspace};
 use crate::resources::MapEditorState;
 use crate::ui::text_input::EditorTextInputGuard;
@@ -195,7 +196,7 @@ pub(super) fn interaction_app(state: WaterPresetEditorState) -> App {
 pub(super) fn press(app: &mut App, action: WaterPresetAction) {
     let button = app
         .world_mut()
-        .spawn((WaterPresetButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+        .spawn((WaterPresetButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
         .id();
     app.update();
     app.world_mut().despawn(button);
@@ -565,8 +566,8 @@ fn header_diagnostics_primary_style_and_busy_badge_remain_in_sync() {
         .unwrap()
         .0;
     for (interaction, expected) in [
-        (Interaction::Hovered, crate::ui::theme::SELECT_BG_HOVER),
-        (Interaction::None, crate::ui::theme::SELECT_BG),
+        (UiInteraction::Hovered, crate::ui::theme::SELECT_BG_HOVER),
+        (UiInteraction::None, crate::ui::theme::SELECT_BG),
     ] {
         app.world_mut().entity_mut(save).insert(interaction);
         app.update();

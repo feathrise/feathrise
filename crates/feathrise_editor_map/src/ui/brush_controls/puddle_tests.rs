@@ -1,4 +1,5 @@
 //! 积水真实UI系统接线回归，覆盖控件显隐、公共数值消息和按钮反馈。
+use feathrise_editor_ui::UiInteraction;
 use super::*; // 直接运行生产笔刷控件系统。
 use crate::authoring::EditorAuthoringSession; // 工具样式读取当前作者草稿。
 use crate::components::MapEditorActionButton; // 与BSN按钮相同的动作标记。
@@ -57,7 +58,7 @@ fn puddles_ui_exposes_numeric_controls_and_updates_real_brush_values() {
         .world_mut()
         .spawn((
             MapEditorActionButton(EditorAction::ToolPuddles),
-            Interaction::None,
+            UiInteraction::None,
             BackgroundColor::default(),
         ))
         .id(); // 鼠标移开后仍应保持选中反馈。

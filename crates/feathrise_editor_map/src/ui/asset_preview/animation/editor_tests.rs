@@ -1,5 +1,6 @@
 //! 作者命令及真实系统回归：精确撤销三次切线、保存点、迟到任务与只读输入门。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{
     AssetPreviewWorkspace, DocumentState,
     types::{AssetPreviewContent, AssetPreviewModelSession, AssetPreviewPhase, AssetPreviewState},
@@ -773,7 +774,7 @@ fn ordinary_text_focus_blocks_timeline_shortcuts_without_an_ime_guard() {
                     cursor_over: true,
                     normalized: Some(Vec2::ZERO),
                 },
-                Interaction::Hovered,
+                UiInteraction::Hovered,
             ));
             let field = if native {
                 app.world_mut().spawn(bevy::text::EditableText::new("Search")).id()

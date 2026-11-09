@@ -1,4 +1,5 @@
 //! 地表实现的固定 ECS 借用合同；消息游标、Local 与 Commands 仍属于原调度系统。
+use feathrise_editor_ui::UiInteraction;
 use super::{
     components::*,
     resources::*,
@@ -44,7 +45,7 @@ pub struct PersistenceParams<'w> {
     pub asset_server: Res<'w, AssetServer>,
 }
 pub type SurfaceButtonStyle = (
-    &'static Interaction,
+    &'static UiInteraction,
     &'static SurfacePresetButton,
     Option<&'static SurfaceButtonKind>,
     &'static mut BackgroundColor,
@@ -85,7 +86,7 @@ pub struct StylesParams<'w, 's> {
         'w,
         's,
         (
-            Query<'w, 's, SurfaceButtonStyle, (Changed<Interaction>, Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>)>,
+            Query<'w, 's, SurfaceButtonStyle, (Changed<UiInteraction>, Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>)>,
             Query<'w, 's, SurfaceButtonStyle, Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>>,
         ),
     >,

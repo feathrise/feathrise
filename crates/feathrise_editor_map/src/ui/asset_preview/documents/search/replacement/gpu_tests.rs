@@ -1,5 +1,6 @@
 //! 正式中央替换预览、中文输入与真实鼠标回归；共享已有离屏文档夹具。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::super::resources::DocumentState;
 use super::super::{
     components::{SearchAction, SearchField},
@@ -511,8 +512,8 @@ fn click(app: &mut App, window: Entity, camera: Entity, action: ReplaceAction) {
         .unwrap();
     app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
     assert_eq!(
-        *app.world().get::<Interaction>(entity).unwrap(),
-        Interaction::Pressed,
+        *app.world().get::<UiInteraction>(entity).unwrap(),
+        UiInteraction::Pressed,
         "真实鼠标未命中：{action:?}"
     );
     app.world_mut().run_system_once(control::input).unwrap();

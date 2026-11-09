@@ -1,5 +1,6 @@
 //! 原地图页BSN、中文字体及固定二十八槽的布局回归；不是原生窗口视觉验收。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::constants::{MAP_BROWSER_ROW_HEIGHT, MAP_BROWSER_ROW_PITCH, MAP_BROWSER_ROW_POOL_COUNT};
 use bevy::app::{HierarchyPropagatePlugin, PropagateSet};
@@ -602,7 +603,7 @@ fn multi_selection_highlights_every_member_across_pool_rebinding() {
             let selected = matches!(item, MapBrowserItem::Map(id) if ["MAP-1", "MAP-2"].contains(&id.as_str()));
             assert_eq!(
                 background.0,
-                crate::ui::map_sidebar::tree_row_colors(selected, false, Interaction::None).0
+                crate::ui::map_sidebar::tree_row_colors(selected, false, UiInteraction::None).0
             );
         }
     }
@@ -620,7 +621,7 @@ fn multi_selection_highlights_every_member_across_pool_rebinding() {
         .unwrap();
     assert_eq!(
         background.0,
-        crate::ui::map_sidebar::tree_row_colors(true, false, Interaction::None).0
+        crate::ui::map_sidebar::tree_row_colors(true, false, UiInteraction::None).0
     );
     assert!(
         rows.iter()

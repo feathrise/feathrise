@@ -1,5 +1,6 @@
 //! 固定动作表只投影有界快照；更新身份时取消旧点击和数字缓冲，防止跨动作误写。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::types::AssetPreviewSubAssetPanel;
 use super::{components::*, resources::AnimationEditorState, types::AnimationView};
 use crate::ui::theme as colors;
@@ -122,12 +123,12 @@ fn set_disabled(commands: &mut Commands, entity: Entity, enabled: bool, disabled
     }
 }
 
-fn background(interaction: &Interaction, enabled: bool, selected: bool) -> BackgroundColor {
+fn background(interaction: &UiInteraction, enabled: bool, selected: bool) -> BackgroundColor {
     BackgroundColor(if !enabled {
         colors::SLOT_BG_DISABLED
-    } else if *interaction == Interaction::Pressed {
+    } else if *interaction == UiInteraction::Pressed {
         colors::SELECT_BG_PRESSED
-    } else if *interaction == Interaction::Hovered {
+    } else if *interaction == UiInteraction::Hovered {
         colors::SELECT_BG_HOVER
     } else if selected {
         colors::SELECT_BG
@@ -163,7 +164,7 @@ pub(super) fn sync(
             Entity,
             &mut AnimationKeyButton,
             &mut Node,
-            &Interaction,
+            &UiInteraction,
             &mut BackgroundColor,
             Has<InteractionDisabled>,
             Option<&mut EditorButtonClick>,
@@ -173,7 +174,7 @@ pub(super) fn sync(
         (
             Entity,
             &mut AnimationButton,
-            &Interaction,
+            &UiInteraction,
             &mut BackgroundColor,
             Has<InteractionDisabled>,
             Option<&mut EditorButtonClick>,
@@ -184,7 +185,7 @@ pub(super) fn sync(
         (
             Entity,
             &mut AnimationChannelButton,
-            &Interaction,
+            &UiInteraction,
             &mut BackgroundColor,
             Has<InteractionDisabled>,
             Option<&mut EditorButtonClick>,
@@ -316,7 +317,7 @@ pub(super) fn sync(
         set_disabled(&mut commands, entity, enabled, disabled);
         let selected = key.is_some_and(|key| key.selected);
         color.set_if_neq(
-            if enabled && !selected && *interaction == Interaction::None {
+            if enabled && !selected && *interaction == UiInteraction::None {
                 BackgroundColor(Color::NONE) // 普通键只有菱形，避免通用按钮底色把密集动作画成一排方框。
             } else {
                 background(interaction, enabled, selected)

@@ -1,5 +1,6 @@
 //! 正式字体/GPU/鼠标命中验证外部联动，不打开用户的 VS Code 或资源管理器。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use bevy::{ecs::system::RunSystemOnce, input_focus::{FocusCause, InputFocus}, text::TextEdit};
 use crate::ui::external_files::{ExternalFileAction, ExternalFileTab, ExternalRequestProbe};
@@ -132,7 +133,7 @@ fn click_action(app: &mut App, window: Entity, camera: Entity, action: DocumentA
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
     app.world_mut().run_system_cached(bevy::ui::ui_focus_system).unwrap();
     app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
-    assert_eq!(*app.world().get::<Interaction>(button).unwrap(), Interaction::Pressed);
+    assert_eq!(*app.world().get::<UiInteraction>(button).unwrap(), UiInteraction::Pressed);
     app.world_mut().run_system_once(super::super::interaction::actions).unwrap();
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);

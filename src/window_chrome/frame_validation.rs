@@ -1,4 +1,5 @@
 //! 显式自有工程完整边缘专项。原输入前arm桌面观察器，GPU整图对照外围文字/线条与连续过渡。
+use feathrise_editor_ui::UiInteraction;
 mod resources;
 mod types;
 // 复用首页已验证的有界读写与ScreenshotCaptured原图保存，避免复制另一套截图成功协议。
@@ -56,7 +57,7 @@ fn setup(app:&mut App,directory:PathBuf)->Result<(),String>{
     let now=Instant::now();
     app.insert_resource(Plan{directory,project,token,role,stage:0,started:now,stage_started:now,mouse_phase:0,target:None,clicked:false,stable:0,saw_project:false,
         image:None,image_done:false,attempts:0,next_image:now,writing:None,ready_written:false,reading:None,next_read:now,arm_written:false,input_armed:false,input_rect:None,proofs:Vec::new(),captures:Vec::new(),failure:None,
-        final_write:None,final_done:false,exit_issued:false}).add_systems(First,input).add_systems(Last,drive);
+        final_write:None,final_done:false,exit_issued:false}).add_systems(First,input.before(bevy::picking::PickingSystems::Input)).add_systems(Last,drive);
     Ok(())
 }
 fn below(world:&World,mut entity:Entity,root:Entity)->bool{for _ in 0..24{if entity==root{return true;}let Some(parent)=world.get::<ChildOf>(entity)else{return false;};entity=parent.parent();}false}
@@ -75,6 +76,13 @@ fn find_button(world:&mut World,label:&str)->Option<Entity>{
         entity=world.get::<ChildOf>(entity)?.parent();
     }None})
 }
+/// 复现真实窗口后端的双通道投递，保证InputPlugin和现代拾取读取同一份输入。
+fn window_input(world: &mut World, input: impl bevy::ecs::message::Message + Clone + Into<bevy::window::WindowEvent>) {
+    let event: bevy::window::WindowEvent = input.clone().into();
+    world.write_message(input);
+    world.write_message(event);
+}
+
 fn input(world:&mut World){let Some(mut plan)=world.remove_resource::<Plan>()else{return;};
     if plan.failure.is_none()&&!plan.final_done&&plan.final_write.is_none(){if let Err(error)=issue(world,&mut plan){plan.failure=Some(error);}}
     world.insert_resource(plan);
@@ -87,8 +95,10 @@ fn issue(world:&mut World,plan:&mut Plan)->Result<(),String>{
     let Some(entity)=plan.target else{return Ok(());};let Some(bounds)=rect(world,entity)else{return Ok(());};
     plan.input_rect=Some([bounds.min.x,bounds.min.y,bounds.max.x,bounds.max.y]);
     world.get_mut::<Window>(window).unwrap().set_physical_cursor_position(Some(bounds.center().as_dvec2()));
-    match plan.mouse_phase{0=>plan.mouse_phase=1,1 if world.get::<Interaction>(entity)==Some(&Interaction::Hovered)=>{world.write_message(MouseButtonInput{button:MouseButton::Left,state:ButtonState::Pressed,window});plan.mouse_phase=2;},2=>{
-        ensure(world.get::<Interaction>(entity)==Some(&Interaction::Pressed),"原按钮未接收官方按下")?;world.write_message(MouseButtonInput{button:MouseButton::Left,state:ButtonState::Released,window});plan.mouse_phase=3;},_=>{}}
+    let position = bounds.center() / world.get::<Window>(window).unwrap().scale_factor();
+    window_input(world, bevy::window::CursorMoved { window, position, delta: None });
+    match plan.mouse_phase{0=>plan.mouse_phase=1,1 if world.get::<UiInteraction>(entity)==Some(&UiInteraction::Hovered)=>{window_input(world, MouseButtonInput{button:MouseButton::Left,state:ButtonState::Pressed,window});plan.mouse_phase=2;},2=>{
+        ensure(world.get::<UiInteraction>(entity)==Some(&UiInteraction::Pressed),"原按钮未接收官方按下")?;window_input(world, MouseButtonInput{button:MouseButton::Left,state:ButtonState::Released,window});plan.mouse_phase=3;},_=>{}}
     Ok(())
 }
 fn next(plan:&mut Plan){plan.stage+=1;plan.stage_started=Instant::now();plan.mouse_phase=0;plan.target=None;plan.clicked=false;plan.stable=0;plan.image_done=false;plan.attempts=0;plan.next_image=Instant::now();plan.writing=None;plan.ready_written=false;plan.reading=None;plan.next_read=Instant::now();plan.arm_written=false;plan.input_armed=false;plan.input_rect=None;}
@@ -121,7 +131,7 @@ fn view(world:&mut World,plan:&Plan,opened:bool)->Result<Option<Value>,String>{
     if (plan.role==Role::Author)!=model.project.is_some(){return Ok(None);}
     let palette=world.resource::<EditorPalette>();ensure(palette.name()==EditorPalette::neutral_gray().name(),"专项只覆盖中性主题")?;
     let (base,camera)=match world.query_filtered::<(&BackgroundColor,&ComputedUiTargetCamera),With<WorkbenchHeader>>().single(world){Ok((color,camera))=>(color.0,camera.get()),Err(_)=>return Ok(None)};
-    let mut layers:Vec<_>=world.query_filtered::<(&BackgroundColor,&ComputedNode,&InheritedVisibility,&ComputedUiTargetCamera,&ComputedStackIndex,Option<&Interaction>),With<EditorDialogBackdrop>>().iter(world)
+    let mut layers:Vec<_>=world.query_filtered::<(&BackgroundColor,&ComputedNode,&InheritedVisibility,&ComputedUiTargetCamera,&ComputedStackIndex,Option<&UiInteraction>),With<EditorDialogBackdrop>>().iter(world)
         .filter(|(_,node,visible,target,_,_)|visible.get()&&!node.is_empty()&&camera.is_some()&&target.get()==camera).map(|(color,_,_,_,order,interaction)|(order.0,color.0,interaction.copied())).collect();
     layers.sort_unstable_by_key(|(order,_,_)|*order);if layers.len()!=usize::from(opened){return Ok(None);}
     let glyphs=world.query::<(&Text,&bevy::text::TextLayoutInfo,&InheritedVisibility)>().iter(world).filter(|(_,layout,visible)|visible.get()&&!layout.glyphs.is_empty()).count();
@@ -203,11 +213,11 @@ fn advance(world:&mut World,plan:&mut Plan)->Result<(),String>{
 fn drive(world:&mut World){let Some(mut plan)=world.remove_resource::<Plan>()else{return;};
     if plan.failure.is_none()&&plan.stage<5&&plan.final_write.is_none()&&!plan.final_done{if let Err(error)=advance(world,&mut plan){plan.failure=Some(error);}}
     if plan.failure.is_some()&&plan.mouse_phase==2&&let Ok(window)=world.query_filtered::<Entity,With<PrimaryWindow>>().single(world){
-        world.write_message(MouseButtonInput{button:MouseButton::Left,state:ButtonState::Released,window});plan.mouse_phase=3;
+        window_input(world, MouseButtonInput{button:MouseButton::Left,state:ButtonState::Released,window});plan.mouse_phase=3;
     }
     if (plan.stage>=5||plan.failure.is_some())&&plan.final_write.is_none()&&!plan.final_done{
         let report=json!({"schema":1,"passed":plan.failure.is_none(),"error":plan.failure,"role":plan.role.name(),"pid":std::process::id(),"project":plan.project,"proofs":plan.proofs,"gpu_captures":plan.captures,
-            "input_diagnostics":{"stage":plan.stage,"mouse_phase":plan.mouse_phase,"target":plan.target.map(|entity|format!("{entity:?}")),"target_is_button":plan.target.is_some_and(|entity|world.get::<InteractionButton>(entity).is_some()),"interaction":plan.target.and_then(|entity|world.get::<Interaction>(entity)).map(|value|format!("{value:?}"))},
+            "input_diagnostics":{"stage":plan.stage,"mouse_phase":plan.mouse_phase,"target":plan.target.map(|entity|format!("{entity:?}")),"target_is_button":plan.target.is_some_and(|entity|world.get::<InteractionButton>(entity).is_some()),"interaction":plan.target.and_then(|entity|world.get::<UiInteraction>(entity)).map(|value|format!("{value:?}"))},
             "scope":"neutral theme/settings only; original button input and real desktop observer acknowledgement","physical_os_button_input_verified":false,"process_exit_observed_externally":true});
         plan.final_write=Some(io::report(plan.directory.join(format!("{}-evidence.json",plan.role.name())),report));
     }

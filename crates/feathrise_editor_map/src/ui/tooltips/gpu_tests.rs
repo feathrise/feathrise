@@ -1,5 +1,6 @@
 //! 提示浮层的真实中文字体、正式鼠标命中与离屏像素回归，不修改正式配置。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::components::*;
 use super::types::TooltipAction;
@@ -42,11 +43,11 @@ fn test_scene() -> impl Scene {
             height: percent(100), flex_direction: FlexDirection::Column }
         BackgroundColor(colors::PANEL_BG)
         Children [
-            (@crate::ui::scene::header()),
-            (@crate::ui::viewport_toolbar::viewport_toolbar()),
-            (TestViewport Node { width: percent(100), min_height: px(0), flex_grow: 1.0 }
-                BackgroundColor(colors::MODEL_PREVIEW_BG)),
-            (@tooltip_popup()),
+            @crate::ui::scene::header()--
+            @crate::ui::viewport_toolbar::viewport_toolbar()--
+            TestViewport Node { width: percent(100), min_height: px(0), flex_grow: 1.0 }
+                BackgroundColor(colors::MODEL_PREVIEW_BG)--
+            @tooltip_popup()
         ]
     }
 }
@@ -121,8 +122,8 @@ fn hover(app: &mut App, target: Entity) {
         .set_physical_cursor_position(Some(point.as_dvec2()));
     frames(app, 6);
     assert_eq!(
-        app.world().get::<Interaction>(target),
-        Some(&Interaction::Hovered)
+        app.world().get::<UiInteraction>(target),
+        Some(&UiInteraction::Hovered)
     );
     let popup = entity::<TooltipPopup>(app);
     assert_eq!(
@@ -506,8 +507,8 @@ fn tooltip_gpu_actual_hover_clipping_three_themes_and_scaled_roots() {
     });
     frames(&mut app, 1);
     assert_eq!(
-        app.world().get::<Interaction>(focus),
-        Some(&Interaction::Pressed),
+        app.world().get::<UiInteraction>(focus),
+        Some(&UiInteraction::Pressed),
         "提示不能拦截后方按钮点击"
     );
     app.world_mut().write_message(MouseButtonInput {

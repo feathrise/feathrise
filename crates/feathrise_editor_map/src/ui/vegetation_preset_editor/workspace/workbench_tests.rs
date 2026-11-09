@@ -1,5 +1,6 @@
 //! 植被工作台的真实中文字体布局、当前LOD/部件预算与输入保护回归；不写作者文件或启动GPU。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{components::*, interaction, presentation, types::*};
 use super::spawn_editor;
 use crate::resources::MapEditorState;
@@ -679,7 +680,7 @@ fn primary_save_and_top_navigation_keep_their_style_on_hover_and_idle_frames() {
         world.get::<Node>(selected).unwrap().border,
         UiRect::bottom(Val::Px(2.0))
     );
-    world.entity_mut(save).insert(Interaction::Hovered);
+    world.entity_mut(save).insert(UiInteraction::Hovered);
     app.update();
     assert_eq!(
         app.world().get::<BackgroundColor>(save).unwrap().0,
@@ -700,7 +701,7 @@ fn primary_save_and_top_navigation_keep_their_style_on_hover_and_idle_frames() {
 fn press(app: &mut App, action: PresetEditorAction) {
     let entity = app
         .world_mut()
-        .spawn((PresetEditorButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+        .spawn((PresetEditorButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
         .id();
     app.update();
     app.world_mut().despawn(entity);

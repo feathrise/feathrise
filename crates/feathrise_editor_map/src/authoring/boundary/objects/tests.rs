@@ -1,4 +1,5 @@
 //! 对象面板回归：列表与视口同一ID、独立开关、单墙历史及ECS查询互斥。
+use feathrise_editor_ui::UiInteraction;
 use super::*; // 实际面板系统。
 use crate::authoring::test_heightfield_draft; // 小型动态地图夹具。
 use feathrise_editor_ui::EditorButtonClick; // 纯ECS作者测试显式注入已确认的释放动作。
@@ -147,7 +148,7 @@ fn empty_stale_and_single_page_selections_do_not_show_inapplicable_controls() {
         .spawn((
             WallName,
             WallControls::Selection,
-            Interaction::None,
+            UiInteraction::None,
             crate::ui::text_input::single_line_input("", 64),
             Node::default(),
             BorderColor::all(colors::INPUT_BORDER),
@@ -291,14 +292,14 @@ fn wall_action_feedback_uses_editor_small_button_colors_without_rewriting_idle_n
         .world_mut()
         .spawn((
             Action::Previous,
-            Interaction::None,
+            UiInteraction::None,
             BackgroundColor(colors::SLOT_BG),
         ))
         .id();
     for (interaction, expected) in [
-        (Interaction::None, colors::BUTTON_DEV_SMALL_NORMAL),
-        (Interaction::Hovered, colors::BUTTON_DEV_SMALL_HOVERED),
-        (Interaction::Pressed, colors::BUTTON_DEV_SMALL_PRESSED),
+        (UiInteraction::None, colors::BUTTON_DEV_SMALL_NORMAL),
+        (UiInteraction::Hovered, colors::BUTTON_DEV_SMALL_HOVERED),
+        (UiInteraction::Pressed, colors::BUTTON_DEV_SMALL_PRESSED),
     ] {
         app.world_mut().entity_mut(button).insert(interaction);
         app.update();

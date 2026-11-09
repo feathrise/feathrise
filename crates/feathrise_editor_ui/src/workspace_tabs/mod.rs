@@ -84,6 +84,7 @@ fn spawn_tab_button<B: Bundle>(
             },
             TextLayout::no_wrap(), // 真实字体按单行测量，长名称通过标签条横滚访问。
             TextColor(text_color), // 标题与关闭符号共享活动项文字层级。
+            Pickable::IGNORE,     // FocusPolicy只服务旧输入仲裁；现代拾取须明确穿透到所属按钮。
             FocusPolicy::Pass,     // 点击字形区域也能命中所属按钮。
         ));
 }
@@ -105,6 +106,7 @@ pub fn spawn_preset_tab<B: Bundle>(
             tab_frame_node(), // 用内容自然测量替代原168px固定宽度。
             BackgroundColor(background), // 外框、标题与关闭键基色一致，关闭键普通态不再显出独立方块。
             BorderColor::all(colors::COPPER_BORDER_WEAK), // 保留组件合同但不画活动底线或亮边。
+            Pickable::IGNORE, // 外框自身不参与现代拾取，两个子按钮仍各自命中。
             FocusPolicy::Pass, // 外框不是第三个按钮，不参与激活或关闭分派。
         ))
         .with_children(|row| {

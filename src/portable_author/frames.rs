@@ -246,7 +246,8 @@ struct Mapping {
     pointer: NonNull<u8>,
     _file: File,
     #[cfg(windows)]
-    object: std::os::windows::io::OwnedHandle,
+    // 映射对象只负责保活；Drop 先撤销视图，再由字段析构关闭此句柄，不能提前丢弃。
+    _object: std::os::windows::io::OwnedHandle,
 }
 
 impl Mapping {
@@ -304,7 +305,7 @@ impl Mapping {
             Ok(Self {
                 pointer: NonNull::new(view.Value.cast()).ok_or("共享帧视图为空")?,
                 _file: file,
-                object,
+                _object: object,
             })
         }
     }

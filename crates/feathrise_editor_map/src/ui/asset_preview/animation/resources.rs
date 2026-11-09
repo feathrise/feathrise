@@ -1,5 +1,7 @@
 //! 动画草稿、轻量关键帧历史和单任务背压；完整文档的复制与修改均在后台完成。
 
+#[cfg(test)]
+use feathrise_editor_ui::UiInteraction;
 use super::{
     components::{CHANNEL_SLOTS, KEY_SLOTS},
     data::*,
@@ -486,7 +488,7 @@ impl AnimationEditorState {
             super::components::AnimationTrack { binding, row: None },
             ComputedNode { size: Vec2::new(200.0, 20.0), ..default() },
             bevy::ui::RelativeCursorPosition { cursor_over: true, normalized: Some(Vec2::ZERO) },
-            Interaction::Hovered,
+            UiInteraction::Hovered,
         )).id()
     }
 }

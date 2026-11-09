@@ -14,8 +14,8 @@ fn button(label: &str, action: Action) -> impl Scene {
             border_radius: BorderRadius::all(px(3)), align_items: AlignItems::Center,
             justify_content: JustifyContent::Center, padding: UiRect::horizontal(px(3)) }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(Text(label) @feathrise_editor_ui::localization::label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-            TextColor(colors::TEXT_PRIMARY))]
+        Children [Text(label) @feathrise_editor_ui::localization::label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+            TextColor(colors::TEXT_PRIMARY)]
     }
 }
 fn row(index: usize) -> impl Scene {
@@ -23,10 +23,10 @@ fn row(index: usize) -> impl Scene {
         Node { display: Display::None, position_type: PositionType::Absolute, width: percent(100), height: px(24), flex_shrink: 0.0,
             align_items: AlignItems::Center, padding: UiRect::horizontal(px(4)), column_gap: px(5), border_radius: BorderRadius::all(px(2)) }
         BackgroundColor(colors::PANEL_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(@crate::ui::scene::tree_icon("icons/editor/tree_map.png")),
-            (RowText(index) Text("") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+        Children [@crate::ui::scene::tree_icon("icons/editor/tree_map.png")--
+            RowText(index) Text("") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_VALUE) TextLayout::no_wrap()
-            Node { flex_grow: 1.0, min_width: px(0), overflow: Overflow::clip_x() })]
+            Node { flex_grow: 1.0, min_width: px(0), overflow: Overflow::clip_x() }]
     }
 }
 fn slot(index: usize) -> impl Scene {
@@ -36,21 +36,21 @@ pub(crate) fn panel() -> impl Scene {
     bsn! { SceneBranch Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column,
             flex_shrink: 0.0, row_gap: px(3), padding: UiRect::top(px(4)) }
         Children [
-            (@crate::ui::context_help::section_header("子地图", "在父地图调整子地图引用的整体位置与朝向；内部内容请打开源地图编辑。复制或移除只操作当前引用，不修改源地图内容。")),
-            (Summary Text("子地图") @feathrise_editor_ui::localization::label_scene("子地图")
+            @crate::ui::context_help::section_header("子地图", "在父地图调整子地图引用的整体位置与朝向；内部内容请打开源地图编辑。复制或移除只操作当前引用，不修改源地图内容。")--
+            Summary Text("子地图") @feathrise_editor_ui::localization::label_scene("子地图")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
-                TextColor(colors::TEXT_MUTED)),
-            (ListViewport crate::ui::list_layout::SceneObjectListScroll bevy::ui::RelativeCursorPosition::default() ScrollPosition::default()
+                TextColor(colors::TEXT_MUTED)--
+            ListViewport crate::ui::list_layout::SceneObjectListScroll bevy::ui::RelativeCursorPosition::default() ScrollPosition::default()
                 Node { width: percent(100), min_width: px(0), height: px(0), flex_shrink: 0.0, overflow: Overflow::scroll_y() }
-                Children [(ListContent Node { width: percent(100), min_width: px(0), height: px(0), flex_shrink: 0.0 }
-                    Children [(@row(0)), (@row(1)), (@row(2)), (@row(3)), (@row(4)), (@row(5)), (@row(6)), (@row(7)), (@row(8)), (@row(9))])]),
+                Children [ListContent Node { width: percent(100), min_width: px(0), height: px(0), flex_shrink: 0.0 }
+                    Children [@row(0)-- @row(1)-- @row(2)-- @row(3)-- @row(4)-- @row(5)-- @row(6)-- @row(7)-- @row(8)-- @row(9)]]
         ]
     }
 }
 /// 创建入口归入顶部“玩法”，左侧场景树只显示真实存在的引用。
 pub(crate) fn creation_button() -> impl Scene {
     bsn! { crate::components::MapEditorSceneContext Node { width: percent(100), flex_shrink: 0.0 }
-        Children [(@button("将目录所选地图添加为子地图", Action::Add))] }
+        Children [@button("将目录所选地图添加为子地图", Action::Add)] }
 }
 pub(super) fn setup(mut commands: Commands, slots: Query<(Entity, &Slot), Added<Slot>>, server: Res<AssetServer>) {
     for (entity, slot) in &slots {
@@ -76,10 +76,10 @@ pub(super) fn setup(mut commands: Commands, slots: Query<(Entity, &Slot), Added<
 pub(crate) fn properties_panel() -> impl Scene {
     bsn! { ~{crate::ui::scene_inspector::InspectorSection::SubMap} Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(4), flex_shrink: 0.0 }
         Children [
-            (@slot(0)), (@slot(1)), (@slot(2)), (@slot(3)),
-            (Node { width: percent(100), column_gap: px(4) }
-                Children [(@button("复制引用", Action::Duplicate)), (@button("移除引用", Action::Remove))]),
-            (@button("打开源地图编辑", Action::OpenSource)),
+            @slot(0)-- @slot(1)-- @slot(2)-- @slot(3)--
+            Node { width: percent(100), column_gap: px(4) }
+                Children [@button("复制引用", Action::Duplicate)-- @button("移除引用", Action::Remove)]--
+            @button("打开源地图编辑", Action::OpenSource)
         ]
     }
 }

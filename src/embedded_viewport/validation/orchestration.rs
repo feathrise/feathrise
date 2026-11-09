@@ -97,6 +97,19 @@ pub(crate) fn run_owned_project(
     target: &Path,
     output: &Path,
 ) -> Result<Value, String> {
+    if super::build_backend::cargo_settings() {
+        return run_cargo_settings(root, target, output);
+    }
+    run_owned_project_stage(root, target, output, None)
+}
+
+/// 两次完整作者生命周期顺序运行；阶段参数只写入子进程Command，不修改多线程宿主的全局环境。
+fn run_owned_project_stage(
+    root: &Path,
+    target: &Path,
+    output: &Path,
+    settings_stage: Option<&str>,
+) -> Result<Value, String> {
     let project = owner(root)?;
     if !output.is_absolute() || output.exists() {
         return Err("常驻验收输出必须为本轮未存在的绝对路径".into());
@@ -129,6 +142,11 @@ pub(crate) fn run_owned_project(
         .env_remove("NEW_EDITOR_NATIVE_SMOKE_DIR")
         .env_remove("NEW_EDITOR_GAME_SMOKE_DIR")
         .env_remove("FEATHRISE_WORKSPACE_SMOKE_DIR");
+    if let Some(stage) = settings_stage {
+        command.env("FEATHRISE_CARGO_SETTINGS_STAGE", stage);
+    } else {
+        command.env_remove("FEATHRISE_CARGO_SETTINGS_STAGE");
+    }
     crate::native_validation::isolate_author_command(&mut command, output)?;
     let run = build_process::run(
         &command,
@@ -175,6 +193,62 @@ pub(crate) fn run_owned_project(
         return Err(format!("常驻双模式验收未通过：{report}"));
     }
     Ok(report)
+}
+
+/// 只复用本轮新工程和既有Cargo缓存；两轮使用独立个人偏好与输出，恢复来源只能是工程配置。
+fn run_cargo_settings(root: &Path, target: &Path, output: &Path) -> Result<Value, String> {
+    let project = owner(root)?;
+    if !output.is_absolute() || output.exists() {
+        return Err("工程配置验收输出必须为本轮未存在的绝对路径".into());
+    }
+    let launch = project.context.checked_data_directory()?.join("launch.json");
+    if launch.exists() { return Err("工程配置验收要求尚无启动配置的新夹具，拒绝改写旧现场".into()); }
+    fs::create_dir(output).map_err(|error|error.to_string())?;
+    let before = asset_hashes(&project.root)?;
+    println!("FEATHRISE_EMBEDDED_CARGO_SETTINGS_START select");
+    let selected = run_owned_project_stage(&project.root, target, &output.join("select"), Some("select"))?;
+    // run返回意味着第一个真实作者及其Job已经退出，再读取实际生产写者的落盘结果。
+    let saved = capture_launch_settings(&project, output, "select")?;
+    println!("FEATHRISE_EMBEDDED_CARGO_SETTINGS_START reopen");
+    let reopened = run_owned_project_stage(&project.root, target, &output.join("reopen"), Some("reopen"))?;
+    let restored = capture_launch_settings(&project, output, "reopen")?;
+    let after = asset_hashes(&project.root)?;
+    if selected["host_pid"] == reopened["host_pid"] || selected["steps"][0]["pid"] == reopened["steps"][0]["pid"] {
+        return Err("工程配置重开未取得新的真实作者与工程PID".into());
+    }
+    if selected["settings_stage"] != "select" || reopened["settings_stage"] != "reopen"
+        || selected["backend_selection_clicks"] != 1 || reopened["backend_selection_clicks"] != 0
+        || reopened["default_backend"] != "cargo" || reopened["default_profile"] != "debug" {
+        return Err("工程配置重开没有证明无需再次点选即恢复 Cargo Debug".into());
+    }
+    if before != after || saved["sha256"] != restored["sha256"] {
+        return Err("工程配置验收改变了作者资产原字节或重开后末次启动配置".into());
+    }
+    let report = json!({"schema":1,"scope":"cargo-settings-two-author-processes","passed":true,
+        "owner_checked":true,"project_id":project.id,"project_root":project.root,
+        "launch_after_select":saved,"launch_after_reopen":restored,"selection":selected,"reopen":reopened,
+        "all_author_asset_bytes_preserved":before == after,"asset_files_checked":before.len(),
+        "reopen_uses_fresh_personal_preferences":true,"os_input_verified":false});
+    fs::write(output.join("cargo-settings.json"), serde_json::to_vec_pretty(&report).map_err(|error|error.to_string())?)
+        .map_err(|error|error.to_string())?;
+    Ok(report)
+}
+
+fn capture_launch_settings(project: &project::Project, output: &Path, stage: &str) -> Result<Value, String> {
+    let path = project.context.checked_data_directory()?.join("launch.json");
+    if fs::metadata(&path).map_err(|error|format!("真实作者退出后缺少工程启动配置：{error}"))?.len() > 16 * 1024 {
+        return Err("本轮有限工程启动配置超过验收读取预算".into());
+    }
+    let bytes = fs::read(&path).map_err(|error|error.to_string())?;
+    let stored: Value = serde_json::from_slice(&bytes).map_err(|error|error.to_string())?;
+    if stored["format"] != 1 || stored["backend"] != "cargo" || stored["profile"] != "debug"
+        || stored["mode"] != json!(crate::viewport_mode::ViewportMode::SavedWorld) {
+        return Err(format!("真实作者退出后工程配置未保存 Cargo Debug 和最终编辑器视口：{stored}"));
+    }
+    let snapshot = format!("launch-after-{stage}.json");
+    fs::write(output.join(&snapshot), &bytes).map_err(|error|error.to_string())?;
+    let hash: String = Sha256::digest(bytes).iter().map(|byte|format!("{byte:02x}")).collect();
+    Ok(json!({"path":path,"snapshot":snapshot,"sha256":hash,"stored":stored,"read_after_author_exit":true}))
 }
 
 /// 专用 CLI 每次独占新工作根，复用与原 --native-report 完全相同的中性夹具入口。
@@ -235,6 +309,8 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         Ok("build-backend") => "project_build_backend_owned_window_validation",
         Ok("bundled-dx") => "bundled_dx_owned_window_validation",
         Ok("dx-full") => "dx_full_owned_window_validation",
+        Ok("native-cargo") => "native_cargo_owned_window_validation",
+        Ok("cargo-settings") => "cargo_settings_owned_window_validation",
         Ok("native-preview") => "native_preview_owned_window_validation",
         Ok("preview-chrome") => "preview_chrome_owned_three_level_window_validation",
         _ => "resident_dual_mode_owned_window_validation",

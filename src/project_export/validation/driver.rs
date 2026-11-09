@@ -1,5 +1,6 @@
 //! 通过真实可见菜单和导出按钮执行一次后台构建/组包；不直接设置导出回执或成功状态。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{Plan, Phase, evidence, resources::Scenario};
 use super::super::{components::{ExportAction, ExportProfile}, resources::ExportState};
@@ -266,6 +267,6 @@ fn diagnostic(world: &mut World) -> Value {
 }
 
 fn pulse(world: &mut World, entity: Entity) -> Entity {
-    world.entity_mut(entity).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    world.entity_mut(entity).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     entity
 }

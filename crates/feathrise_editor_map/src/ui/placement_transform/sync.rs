@@ -1,5 +1,6 @@
 //! 完整实例属性面板的显隐、摘要、数值模型和动作按钮视觉同步。
 
+use feathrise_editor_ui::UiInteraction;
 use crate::ui::theme as colors;
 use bevy::prelude::*; // Commands、Node、文本、颜色、查询和资源。
 use feathrise_editor_ui::{
@@ -55,7 +56,7 @@ pub(crate) fn sync_placement_transform_panel(
     mut set_values: MessageWriter<NumericInputSetValue>, // 外部作者值通过公共桥同步并取消旧缓冲。
     mut buttons: Query<
         (
-            &Interaction,
+            &UiInteraction,
             &MapEditorPlacementTransformActionButton,
             &mut Node,
             &mut BackgroundColor,
@@ -277,20 +278,20 @@ pub(crate) fn sync_placement_transform_panel(
         });
         let selected = armed || mode_selected || terrain_selected; // 分类与洞口开关同时显示当前持久设置。
         let color = match (*interaction, danger, selected) {
-            (Interaction::Pressed, true, _) => colors::DANGER_BG, // 删除按压保持红色而非普通铜色。
-            (Interaction::Hovered, true, _) => colors::DANGER_BG, // 删除悬停强化危险底色。
-            (Interaction::None, true, _) => colors::DANGER_BG,    // 删除常态仍可一眼辨认。
-            (Interaction::Pressed, false, _) => colors::BUTTON_DEV_SMALL_PRESSED, // 普通动作按压反馈。
-            (Interaction::Hovered, false, _) => colors::BUTTON_DEV_SMALL_HOVERED, // 普通动作悬停反馈。
-            (Interaction::None, false, true) => colors::SELECT_BG, // 高度模式或等待落点持续显示选中铜底。
-            (Interaction::None, false, false) => colors::BUTTON_DEV_SMALL_NORMAL, // 普通静止底色。
+            (UiInteraction::Pressed, true, _) => colors::DANGER_BG, // 删除按压保持红色而非普通铜色。
+            (UiInteraction::Hovered, true, _) => colors::DANGER_BG, // 删除悬停强化危险底色。
+            (UiInteraction::None, true, _) => colors::DANGER_BG,    // 删除常态仍可一眼辨认。
+            (UiInteraction::Pressed, false, _) => colors::BUTTON_DEV_SMALL_PRESSED, // 普通动作按压反馈。
+            (UiInteraction::Hovered, false, _) => colors::BUTTON_DEV_SMALL_HOVERED, // 普通动作悬停反馈。
+            (UiInteraction::None, false, true) => colors::SELECT_BG, // 高度模式或等待落点持续显示选中铜底。
+            (UiInteraction::None, false, false) => colors::BUTTON_DEV_SMALL_NORMAL, // 普通静止底色。
         };
         if background.0 != color {
             background.0 = color;
         }
         let border_color = BorderColor::all(if danger {
             colors::DANGER_BORDER // 删除使用红铜危险边。
-        } else if selected || *interaction != Interaction::None {
+        } else if selected || *interaction != UiInteraction::None {
             colors::COPPER_BORDER // 活动、hover和按压强化铜边。
         } else {
             colors::COPPER_BORDER_WEAK // 普通静止动作使用弱边。

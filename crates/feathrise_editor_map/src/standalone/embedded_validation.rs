@@ -1,5 +1,6 @@
 //! 常驻视口的显式有限作者验收端口：只驱动原创建请求和原撤销按钮，不替代业务实现。
 
+use feathrise_editor_ui::UiInteraction;
 use crate::{
     authoring::{
         EditorAuthoringSession, EditorCommand,
@@ -118,7 +119,7 @@ pub fn pulse_history(world: &mut World, redo: bool) -> Result<Option<Entity>, St
         return Ok(None);
     }
     world.entity_mut(entity).insert((
-        Interaction::Pressed,
+        UiInteraction::Pressed,
         feathrise_editor_ui::EditorButtonClick::triggered(),
     ));
     Ok(Some(entity))
@@ -127,7 +128,7 @@ pub fn pulse_history(world: &mut World, redo: bool) -> Result<Option<Entity>, St
 pub fn release_pulse(world: &mut World, entity: Entity) {
     if let Ok(mut entity) = world.get_entity_mut(entity) {
         entity.insert((
-            Interaction::None,
+            UiInteraction::None,
             feathrise_editor_ui::EditorButtonClick::default(),
         ));
     }

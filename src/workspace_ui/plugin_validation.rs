@@ -1,4 +1,5 @@
 //! 无工程真实主窗口专项：经官方鼠标/键盘来源打开原插件管理器，异步保存GPU与证据后退出。
+use feathrise_editor_ui::UiInteraction;
 use super::{
     components::{Action, Input},
     resources::{PluginHostValidation, Presentation},
@@ -114,8 +115,8 @@ pub(super) fn install(app: &mut App) {
         open_commands: 0,
         commands: default(),
     })
-    // First早于InputSystems与UiSystems::Focus；由生产Focus生成Interaction，不手写悬停/点击。
-    .add_systems(First, input)
+    // 在现代拾取读取窗口消息前提供输入，由生产拾取及按钮系统生成三态与点击。
+    .add_systems(First, input.before(bevy::picking::PickingSystems::Input))
     .add_systems(Last, drive);
 }
 
@@ -142,6 +143,13 @@ fn action(step: u8) -> Option<Action> {
         15 => Some(Action::Show(Page::Start)),
         _ => None,
     }
+}
+
+/// 复现真实窗口后端的双通道投递，保证InputPlugin和现代拾取读取同一份输入。
+fn window_input(world: &mut World, input: impl bevy::ecs::message::Message + Clone + Into<bevy::window::WindowEvent>) {
+    let event: bevy::window::WindowEvent = input.clone().into();
+    world.write_message(input);
+    world.write_message(event);
 }
 
 fn input(world: &mut World) {
@@ -225,10 +233,12 @@ fn issue_input(world: &mut World, plan: &mut PluginHostValidation) -> Result<(),
         .get_mut::<Window>(window)
         .unwrap()
         .set_physical_cursor_position(Some(rect.center().as_dvec2()));
+    let position = rect.center() / world.get::<Window>(window).unwrap().scale_factor();
+    window_input(world, bevy::window::CursorMoved { window, position, delta: None });
     match plan.mouse_phase {
         0 => plan.mouse_phase = 1,
-        1 if world.get::<Interaction>(target) == Some(&Interaction::Hovered) => {
-            world.write_message(MouseButtonInput {
+        1 if world.get::<UiInteraction>(target) == Some(&UiInteraction::Hovered) => {
+            window_input(world, MouseButtonInput {
                 button: MouseButton::Left,
                 state: ButtonState::Pressed,
                 window,
@@ -237,10 +247,10 @@ fn issue_input(world: &mut World, plan: &mut PluginHostValidation) -> Result<(),
         }
         2 => {
             ensure(
-                world.get::<Interaction>(target) == Some(&Interaction::Pressed),
-                "官方鼠标按下没有进入生产Focus按下态",
+                world.get::<UiInteraction>(target) == Some(&UiInteraction::Pressed),
+                "官方鼠标按下没有进入生产拾取按下态",
             )?;
-            world.write_message(MouseButtonInput {
+            window_input(world, MouseButtonInput {
                 button: MouseButton::Left,
                 state: ButtonState::Released,
                 window,

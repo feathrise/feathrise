@@ -1,5 +1,6 @@
 //! 在本轮自建工程真实App中验证关闭取消、保存失败及重试；原App真正返回后才落退出证据。
 
+use feathrise_editor_ui::UiInteraction;
 #[path = "native_project_close_validation_resources.rs"]
 mod resources;
 use super::{
@@ -137,7 +138,7 @@ fn choose(world: &mut World, action: CloseAction) -> Result<Entity, String> {
         .find_map(|(entity, value, disabled)| (*value == action && !disabled).then_some(entity))
         .ok_or("原工程关闭确认按钮尚未可用")?;
     world.entity_mut(button).insert((
-        Interaction::Pressed,
+        UiInteraction::Pressed,
         feathrise_editor_ui::EditorButtonClick::triggered(),
     ));
     Ok(button)
@@ -220,7 +221,7 @@ pub(crate) fn drive(world: &mut World) {
     let result = world.resource_scope(|world, mut fixture: Mut<Fixture>| -> Result<(), String> {
         if let Some(button) = fixture.pulse.take() {
             if let Ok(mut entity) = world.get_entity_mut(button) {
-                entity.insert((Interaction::None, feathrise_editor_ui::EditorButtonClick::default()));
+                entity.insert((UiInteraction::None, feathrise_editor_ui::EditorButtonClick::default()));
             }
         }
         if matches!(fixture.phase, Phase::Idle | Phase::Complete) { return Ok(()); }

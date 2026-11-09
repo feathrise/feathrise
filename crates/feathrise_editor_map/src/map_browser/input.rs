@@ -1,5 +1,6 @@
 //! 虚拟目录树和地图浏览器输入互斥入口。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use bevy::prelude::*; // ECS资源、Interaction和鼠标按钮。
 use bevy::time::Real; // F12暂停玩法时间后，地图双击仍按真实时间识别。
@@ -126,8 +127,8 @@ fn toggle_folder_expansion(
 #[allow(clippy::too_many_arguments)] // 单系统必须在同一Interaction边沿冻结行、任务门、catalog和物理光标身份。
 pub(crate) fn handle_map_browser_input(
     roots: Query<&EditorButtonClick, (With<MapEditorMapRootRow>, Changed<EditorButtonClick>)>, // 固定根目录行选择事件。
-    rows: Query<(Ref<Interaction>, &MapEditorMapRow, Ref<EditorButtonClick>),
-        Or<(Changed<Interaction>, Changed<EditorButtonClick>)>>, // 按下只捕获拖动候选，普通行操作等待合法松开。
+    rows: Query<(Ref<UiInteraction>, &MapEditorMapRow, Ref<EditorButtonClick>),
+        Or<(Changed<UiInteraction>, Changed<EditorButtonClick>)>>, // 按下只捕获拖动候选，普通行操作等待合法松开。
     buttons: Query<
         (
             &EditorButtonClick,
@@ -314,7 +315,7 @@ pub(crate) fn handle_map_browser_input(
         let shift = keys
             .as_ref()
             .is_some_and(|keys| keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]));
-        if interaction.is_changed() && *interaction == Interaction::Pressed {
+        if interaction.is_changed() && *interaction == UiInteraction::Pressed {
             // 拖放必须在按下时冻结来源，但此时不改选择、属性页或展开状态。
             drag.press = None;
             drag.selection = None;

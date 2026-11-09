@@ -1,5 +1,6 @@
 //! 紧凑可折叠收藏/最近访问区；固定84行池，内容少时按真实行数收缩。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::{localization::EditorLocale, metrics as ui_metrics};
 use super::{components::*, constants::*, resources::AssetShortcuts, types::*};
@@ -15,11 +16,11 @@ fn button(label: &str, action: ShortcutAction) -> impl Scene {
         InteractionButton ~{action}
         Node { height: px(24), padding: UiRect::horizontal(px(5)), align_items: AlignItems::Center, flex_shrink: 0.0 }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
-        Children [(
+        Children [
             Text(label) @feathrise_editor_ui::localization::label_scene(label) ~{FocusPolicy::Pass} TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
-        )]
+        ]
     }
 }
 
@@ -30,31 +31,31 @@ fn section(section: Section, initial: &str, action: ShortcutAction, label: &str)
     };
     bsn! {
         Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, flex_shrink: 0.0, row_gap: px(2) }
-        Children [(
+        Children [
             Node { width: percent(100), min_height: px(24), column_gap: px(3), flex_shrink: 0.0 }
-            Children [(
+            Children [
                 InteractionButton ~{ShortcutAction::Collapse(section)}
                 Node { flex_grow: 1.0, min_width: px(0), padding: UiRect::horizontal(px(5)), align_items: AlignItems::Center }
                 BackgroundColor(colors::SLOT_BG)
-                Children [(
+                Children [
                     // 极窄侧栏允许计数换行，展开命中区仍覆盖完整标题。
                     ~{ShortcutHeader(section)} Text(initial) ~{FocusPolicy::Pass}
                     Node { width: percent(100), min_width: px(0) }
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_PRIMARY)
-                )]
-            ), (@button(label, action)), (
+                ]
+            -- @button(label, action)--
                 Node { width: px(18), height: px(24), flex_shrink: 0.0 }
-                Children [(@crate::ui::context_help::help_button(help_title, help_copy))]
-            )]
-        ), (
+                Children [@crate::ui::context_help::help_button(help_title, help_copy)]
+            ]
+        --
             ~{ShortcutEmpty(section)} Text("") ~{FocusPolicy::Pass} TextLayout::no_wrap()
             Node { display: Display::None, width: percent(100), height: px(20), flex_shrink: 0.0, overflow: Overflow::clip() }
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_MUTED)
-        ), (
+        --
             ~{ShortcutList(section)} RelativeCursorPosition::default() ScrollPosition::default()
             Node { display: Display::None, width: percent(100), min_width: px(0), height: px(0), flex_shrink: 0.0,
                 flex_direction: FlexDirection::Column, row_gap: px(2), overflow: Overflow::scroll_y() }
-        )]
+        ]
     }
 }
 
@@ -62,14 +63,14 @@ pub(crate) fn panel() -> impl Scene {
     bsn! {
         Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, flex_shrink: 0.0, row_gap: px(3) }
         Children [
-            (@section(Section::Favorites, "收起收藏 · 0", ShortcutAction::Refresh, "检查路径")),
-            (@section(Section::Recent, "展开最近访问 · 0", ShortcutAction::ClearRecent, "清空")),
-            (
+            @section(Section::Favorites, "收起收藏 · 0", ShortcutAction::Refresh, "检查路径")--
+            @section(Section::Recent, "展开最近访问 · 0", ShortcutAction::ClearRecent, "清空")--
+
                 ShortcutFeedback Text("") ~{FocusPolicy::Pass}
                 ~{crate::ui::status_bar::PanelStatusText("资产导航记录")} feathrise_editor_ui::feedback::GlobalPanelStatus
                 Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_MUTED)
-            ),
+
         ]
     }
 }
@@ -214,15 +215,15 @@ pub(super) fn sync(
     labels: Query<(), With<ShortcutLabel>>,
     mut colors_query: Query<&mut TextColor, With<ShortcutLabel>>,
     mut buttons: Query<
-        (&Interaction, &mut BackgroundColor),
-        (With<ShortcutAction>, Changed<Interaction>),
+        (&UiInteraction, &mut BackgroundColor),
+        (With<ShortcutAction>, Changed<UiInteraction>),
     >,
 ) {
     // 交互回显不依赖记录变更；稳定帧不重写文字或整个行池。
     for (interaction, mut color) in &mut buttons {
         color.0 = match interaction {
-            Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
-            Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
+            UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
+            UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
             _ => colors::BUTTON_DEV_SMALL_NORMAL,
         };
     }

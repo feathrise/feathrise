@@ -1,4 +1,5 @@
 //! 插件加载错误右下角通知：有界摘要、同内容去重，关闭不丢失管理器中的真实错误。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{management, resources::NativeTools};
 use bevy::{prelude::*, ui::FocusPolicy};
@@ -132,7 +133,7 @@ fn mount(mut commands: Commands, headers: Query<Entity, Added<WorkbenchHeader>>,
                     width: Val::Vw(100.), height: Val::Vh(100.), padding: UiRect::all(px(12)),
                     justify_content: JustifyContent::End, align_items: AlignItems::End, ..default() },
             )).with_children(|layer| {
-                layer.spawn((PluginErrorNotification, FocusPolicy::Block, Interaction::None,
+                layer.spawn((PluginErrorNotification, FocusPolicy::Block, UiInteraction::None,
                     Node { width: px(380), max_width: percent(100), min_width: px(0),
                         flex_direction: FlexDirection::Column, row_gap: px(8), padding: UiRect::all(px(12)),
                         ..feathrise_editor_ui::dialog_panel_node() },
@@ -216,10 +217,10 @@ fn sync(world: &mut World) {
     });
     if !invalidate { return; }
     // 换代立即隐藏旧卡片并撤销旧手势；只有完整集合仍属于当前身份时才原子展示。
-    for (mut click, mut interaction) in world.query_filtered::<(&mut EditorButtonClick, &mut Interaction),
+    for (mut click, mut interaction) in world.query_filtered::<(&mut EditorButtonClick, &mut UiInteraction),
         With<NotificationAction>>().iter_mut(world) {
         click.invalidate();
-        *interaction = Interaction::None;
+        *interaction = UiInteraction::None;
     }
 }
 

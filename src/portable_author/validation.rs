@@ -184,6 +184,11 @@ fn original_editor_ui_shared_frames_input_and_resize() {
         AuthorSession::open(&target).unwrap(),
         target.pid,
     );
+    // 实际离屏会话已接管作者，但不会伪造原生子窗口句柄或提前报告 GPU 就绪。
+    let status = source.world().resource::<EmbeddedAuthorStatus>();
+    assert!(status.attached);
+    assert_eq!(status.hwnd, None);
+    assert!(!status.ready);
     let mut parent = app(false);
     host::install(&mut parent);
     let mut image = Image::new_target_texture(640, 360, TextureFormat::Rgba8UnormSrgb, None);

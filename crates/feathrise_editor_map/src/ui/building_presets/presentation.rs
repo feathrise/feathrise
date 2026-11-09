@@ -1,5 +1,6 @@
 //! 建筑文档状态与主保存/顶部导航/字段选中样式；稳定帧只处理真实变化。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, types::*, workspace::draft_badge};
 use crate::ui::{theme as colors, vegetation_preset_editor::VegetationPresetEditorState};
 use bevy::prelude::*;
@@ -47,16 +48,16 @@ pub(super) fn sync_button_styles(
     mut buttons: ParamSet<(
         Query<
             (
-                &Interaction,
+                &UiInteraction,
                 &BuildingPresetButton,
                 &BuildingButtonKind,
                 &mut BackgroundColor,
                 &mut BorderColor,
             ),
-            Or<(Changed<Interaction>, Added<BuildingButtonKind>)>,
+            Or<(Changed<UiInteraction>, Added<BuildingButtonKind>)>,
         >,
         Query<(
-            &Interaction,
+            &UiInteraction,
             &BuildingPresetButton,
             &BuildingButtonKind,
             &mut BackgroundColor,
@@ -106,7 +107,7 @@ pub(super) fn sync_button_styles(
 }
 
 fn style(
-    interaction: Interaction,
+    interaction: UiInteraction,
     action: BuildingPresetAction,
     kind: BuildingButtonKind,
     draft: &BuildingDraft,
@@ -127,14 +128,14 @@ fn style(
     };
     let next_background = match (kind, interaction) {
         (BuildingButtonKind::Field, _) => colors::SLOT_BG,
-        (BuildingButtonKind::Navigation, Interaction::None) if !active => Color::NONE,
-        (BuildingButtonKind::Navigation | BuildingButtonKind::Primary, Interaction::None) => {
+        (BuildingButtonKind::Navigation, UiInteraction::None) if !active => Color::NONE,
+        (BuildingButtonKind::Navigation | BuildingButtonKind::Primary, UiInteraction::None) => {
             colors::SELECT_BG
         }
-        (_, Interaction::Pressed) => colors::BUTTON_DEV_SMALL_PRESSED,
-        (_, Interaction::Hovered) => colors::BUTTON_DEV_SMALL_HOVERED,
-        (_, Interaction::None) if active => colors::SELECT_BG,
-        (_, Interaction::None) => colors::BUTTON_DEV_SMALL_NORMAL,
+        (_, UiInteraction::Pressed) => colors::BUTTON_DEV_SMALL_PRESSED,
+        (_, UiInteraction::Hovered) => colors::BUTTON_DEV_SMALL_HOVERED,
+        (_, UiInteraction::None) if active => colors::SELECT_BG,
+        (_, UiInteraction::None) => colors::BUTTON_DEV_SMALL_NORMAL,
     };
     let next_border = BorderColor::all(if active || kind == BuildingButtonKind::Primary {
         colors::COPPER_BORDER

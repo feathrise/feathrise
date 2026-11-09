@@ -1,4 +1,5 @@
 //! 对象事务真实单飞采用、保存请求收口和元数据历史回归，不创建项目资产。
+use feathrise_editor_ui::UiInteraction;
 #[path="stitch_tests.rs"]
 mod stitch_tests;
 use super::*;
@@ -715,7 +716,7 @@ fn editor_visibility_changes_only_session_state_and_keeps_persistent_participati
         .add_systems(Update, systems::input);
     let id = TerrainId::parse("terrain-a").unwrap();
     app.world_mut().spawn((
-        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+        feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
         components::ActionButton(components::Action::Visible),
     ));
     app.update();
@@ -852,7 +853,7 @@ fn locked_numeric_fields_are_disabled_and_name_binding_cannot_commit_to_another_
         bevy::text::EditableText::new("不得串写"),
     ));
     app.world_mut().spawn((
-        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+        feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
         components::ActionButton(components::Action::Rename),
     ));
     app.update();

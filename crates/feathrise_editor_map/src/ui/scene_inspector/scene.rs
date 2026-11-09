@@ -41,9 +41,9 @@ pub(in crate::ui) fn scene_inspector_overview() -> impl Scene {
             row_gap: px(4),
         }
         Children [
-            (@inspector_text(SceneInspectorField::Name, 11.5, colors::TEXT_PRIMARY)),
-            (super::components::SelectedToolPropertiesHost
-                Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, flex_shrink: 0.0, row_gap: px(4) }),
+            @inspector_text(SceneInspectorField::Name, 11.5, colors::TEXT_PRIMARY)--
+            super::components::SelectedToolPropertiesHost
+                Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, flex_shrink: 0.0, row_gap: px(4) }
         ]
     }
 }
@@ -60,15 +60,15 @@ pub(in crate::ui) fn scene_inspector_feedback() -> impl Scene {
         }
         Children [
             // 这里只保留本对象诊断；全局操作结果统一由底部状态栏显示，避免重复占用属性高度。
-            (@inspector_text(SceneInspectorField::Hint, 9.5, colors::TEXT_HINT)),
-            (super::components::SceneInspectorMetadata
+            @inspector_text(SceneInspectorField::Hint, 9.5, colors::TEXT_HINT)--
+            super::components::SceneInspectorMetadata
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0, flex_direction: FlexDirection::Column }
                 Children [
-                    (@sidebar_help_button(EditorSidebarHelp::Inspector)),
-                    (MapEditorSidebarHelpBody(EditorSidebarHelp::Inspector)
+                    @sidebar_help_button(EditorSidebarHelp::Inspector)--
+                    MapEditorSidebarHelpBody(EditorSidebarHelp::Inspector)
                         Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-                        Children [(@inspector_text(SceneInspectorField::Details, 9.5, colors::TEXT_HINT))]),
-                ]),
+                        Children [@inspector_text(SceneInspectorField::Details, 9.5, colors::TEXT_HINT)]
+                ]
         ]
     }
 }
@@ -86,8 +86,8 @@ pub(in crate::ui) fn scene_inspector_properties() -> impl Scene {
             row_gap: px(4),
         }
         Children [
-            (@crate::ui::placement_transform::placement_transform_panel()),
-            (@crate::ui::placement_water::placement_water_properties_panel()),
+            @crate::ui::placement_transform::placement_transform_panel()--
+            @crate::ui::placement_water::placement_water_properties_panel()
         ]
     }
 }

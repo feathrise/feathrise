@@ -1,5 +1,6 @@
 //! 正式底栏的离屏中文画面与真实鼠标回归；不创建原生窗口或写入用户配置。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::components::*;
 use super::resources::EditorStatusBarState;
@@ -82,22 +83,22 @@ fn test_scene() -> impl Scene {
         Node { width: percent(100), height: percent(100), flex_direction: FlexDirection::Column }
         BackgroundColor(colors::PANEL_BG)
         Children [
-            (Node { height: px(28), flex_shrink: 0.0, padding: UiRect::horizontal(px(12)), align_items: AlignItems::Center }
-                BackgroundColor(colors::PANEL_BG_STRONG) Children [(
+            Node { height: px(28), flex_shrink: 0.0, padding: UiRect::horizontal(px(12)), align_items: AlignItems::Center }
+                BackgroundColor(colors::PANEL_BG_STRONG) Children [
                     Text("地图编辑器 · 状态栏验证")
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(12) }
                     TextColor(colors::TEXT_PRIMARY)
-                )]),
-            (TestViewport Node { width: percent(100), flex_grow: 1.0, min_height: px(0) }
+                ]--
+            TestViewport Node { width: percent(100), flex_grow: 1.0, min_height: px(0) }
                 BackgroundColor(colors::MODEL_PREVIEW_BG)
-                Children [(
+                Children [
                     TestWorkbenchAction InteractionButton
                     Node { width: px(80), height: px(20), margin: UiRect::all(px(8)) }
                     BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
-                )]),
-            (@footer()),
-            (@map_loading::map_loading_input_blocker()),
-            (@popup()),
+                ]--
+            @footer()--
+            @map_loading::map_loading_input_blocker()--
+            @popup()
         ]
     }
 }
@@ -170,7 +171,7 @@ fn click(app: &mut App, target: Entity) {
         window,
     });
     frames(app, 1);
-    assert_eq!(app.world().get::<Interaction>(target), Some(&Interaction::Pressed), "正式鼠标必须命中底栏按钮");
+    assert_eq!(app.world().get::<UiInteraction>(target), Some(&UiInteraction::Pressed), "正式鼠标必须命中底栏按钮");
     app.world_mut().write_message(MouseButtonInput {
         button: MouseButton::Left,
         state: ButtonState::Released,
@@ -492,13 +493,13 @@ fn status_bar_gpu_loading_progress_failure_and_recovery_remain_accessible() {
     assert_eq!(app.world().get::<Node>(retry).unwrap().display, Display::None);
     let author_position = bounds(&app, author_button).center();
     pointer(&mut app, author_position);
-    assert_eq!(app.world().get::<Interaction>(author_button), Some(&Interaction::None));
+    assert_eq!(app.world().get::<UiInteraction>(author_button), Some(&UiInteraction::None));
     app.world_mut().write_message(MouseButtonInput {
         button: MouseButton::Left, state: ButtonState::Pressed, window,
     });
     frames(&mut app, 1);
-    assert_eq!(app.world().get::<Interaction>(blocker), Some(&Interaction::Pressed));
-    assert_eq!(app.world().get::<Interaction>(author_button), Some(&Interaction::None));
+    assert_eq!(app.world().get::<UiInteraction>(blocker), Some(&UiInteraction::Pressed));
+    assert_eq!(app.world().get::<UiInteraction>(author_button), Some(&UiInteraction::None));
     for theme in [EditorColorTheme::NeutralGray, EditorColorTheme::GraphiteBlue, EditorColorTheme::WarmCopper] {
         app.world_mut().resource_mut::<EditorSettings>().editor_color_theme = theme;
         frames(&mut app, 5);

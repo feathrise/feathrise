@@ -1,5 +1,6 @@
 //! F12显隐、静态按钮、中文名称输入和BSN回显系统。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::input::keyboard::{Key, KeyboardInput}; // 读取Unicode文本、Enter和退格。
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel}; // 低高度窗口左右生产栏按悬停分别使用同一滚轮入口。
 use bevy::prelude::*; // ECS、UI、键盘与状态。
@@ -392,7 +393,7 @@ pub(crate) fn sync_editor_shell(
     manifests: Res<Assets<MapManifestAsset>>,
     mut roots: Query<(&mut Node, &mut Visibility), With<MapEditorRoot>>,
     mut dialogs: Query<
-        (&mut Node, &mut Interaction, &mut bevy::ui::FocusPolicy),
+        (&mut Node, &mut UiInteraction, &mut bevy::ui::FocusPolicy),
         (With<NewMapDialog>, Without<MapEditorRoot>),
     >,
     mut texts: Query<(
@@ -435,7 +436,7 @@ pub(crate) fn sync_editor_shell(
             FocusPolicy::Pass
         };
         if !visible {
-            *interaction = Interaction::None;
+            *interaction = UiInteraction::None;
         }
     }
     // 壳体回显不能写入窗口 IME：F12 关闭时该系统仍会因目录变化运行，曾在主菜单姓名框聚焦后写回 false。

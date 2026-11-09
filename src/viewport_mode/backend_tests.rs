@@ -54,7 +54,7 @@ fn editor_3d_menu_defaults_to_dx_and_changes_only_the_next_launch_backend() {
     assert!(app.world().resource::<ViewportModeState>().status.contains("下次启动"));
     let world = app.world_mut();
     let title = world.query::<(&ProfileLabel, &Text)>().iter(world).find(|(label,_)|label.0.is_none()).unwrap().1;
-    assert_eq!(title.as_str(), "Debug · 原生 Cargo ▼");
+    assert_eq!(title.as_str(), "Debug · Cargo ▼");
     select(&mut app, ProjectBuildBackend::Native);
     assert_eq!(app.world().resource::<ViewportModeState>().revision, 1, "重复选择不重启或换代");
     select(&mut app, ProjectBuildBackend::Dx);

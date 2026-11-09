@@ -1,5 +1,6 @@
 //! 复用原生UI命中与真正GPU绘制，文件只写隔离的临时项目。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, constants::*, resources::AssetShortcuts, types::Section};
 use crate::{
     components::MapEditorAssetRow,
@@ -65,11 +66,11 @@ fn click(
         .unwrap();
     app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
     assert_eq!(
-        *app.world().get::<Interaction>(entity).unwrap(),
+        *app.world().get::<UiInteraction>(entity).unwrap(),
         if button == MouseButton::Right {
-            Interaction::Hovered
+            UiInteraction::Hovered
         } else {
-            Interaction::Pressed
+            UiInteraction::Pressed
         },
         "真实鼠标未命中导航控件"
     );

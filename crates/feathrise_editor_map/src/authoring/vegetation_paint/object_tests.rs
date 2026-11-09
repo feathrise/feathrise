@@ -145,7 +145,7 @@ pub(crate) fn fixture() -> App {
                         physical_size: size,
                         scale_factor: 1.0,
                     }),
-                    clip_from_view: Mat4::perspective_infinite_reverse_rh(
+                    clip_from_view: bevy::math::proj::perspective_infinite_reverse(
                         50_f32.to_radians(),
                         1.0,
                         0.1,

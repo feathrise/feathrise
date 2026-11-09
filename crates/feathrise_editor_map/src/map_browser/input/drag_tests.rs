@@ -1,5 +1,6 @@
 //! 文件夹整树移动、目标拒绝和真实鼠标状态机回归；不启动项目目录写入任务。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::types::MapFolderRecord;
 use crate::ui::sidebars::{EditorNavigatorTab, MapEditorSidebarState};
@@ -170,7 +171,7 @@ fn drag_app() -> (App, Entity, Entity) {
                 slot: 0,
                 item: Some(MapBrowserItem::Folder("FOLDER-A".into())),
             },
-            Interaction::Hovered,
+            UiInteraction::Hovered,
         ))
         .id();
     app.world_mut()
@@ -295,9 +296,9 @@ fn valid_folder_and_root_hover_are_highlighted_without_changing_the_document() {
         app.world().resource::<MapBrowserDragState>().drop_target,
         Some(MapBrowserDropTarget::Folder("FOLDER-D".into()))
     );
-    *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
     app.world_mut()
-        .spawn((MapEditorMapRootRow, Interaction::Hovered));
+        .spawn((MapEditorMapRootRow, UiInteraction::Hovered));
     app.update();
     assert_eq!(
         app.world().resource::<MapBrowserDragState>().drop_target,
@@ -310,7 +311,7 @@ fn valid_folder_and_root_hover_are_highlighted_without_changing_the_document() {
 #[test]
 fn pressed_origin_does_not_mask_the_hovered_destination_or_root() {
     let (mut app, _, origin) = drag_app();
-    *app.world_mut().get_mut::<Interaction>(origin).unwrap() = Interaction::Pressed;
+    *app.world_mut().get_mut::<UiInteraction>(origin).unwrap() = UiInteraction::Pressed;
     app.world_mut()
         .entity_mut(origin)
         .insert(RelativeCursorPosition::default()); // 光标已离开，源行仍保持原生Pressed。
@@ -321,7 +322,7 @@ fn pressed_origin_does_not_mask_the_hovered_destination_or_root() {
                 slot: 1,
                 item: Some(MapBrowserItem::Folder("FOLDER-D".into())),
             },
-            Interaction::Hovered,
+            UiInteraction::Hovered,
             RelativeCursorPosition {
                 cursor_over: true,
                 ..default()
@@ -333,9 +334,9 @@ fn pressed_origin_does_not_mask_the_hovered_destination_or_root() {
         app.world().resource::<MapBrowserDragState>().drop_target,
         Some(MapBrowserDropTarget::Folder("FOLDER-D".into()))
     );
-    *app.world_mut().get_mut::<Interaction>(target).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(target).unwrap() = UiInteraction::None;
     app.world_mut()
-        .spawn((MapEditorMapRootRow, Interaction::Hovered));
+        .spawn((MapEditorMapRootRow, UiInteraction::Hovered));
     app.update();
     assert_eq!(
         app.world().resource::<MapBrowserDragState>().drop_target,

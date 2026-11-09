@@ -430,7 +430,7 @@ pub(super) fn ready_to_exit(world: &World) -> bool {
 }
 
 /// 只在显式验收中冻结实际实体事实；发布了描述或创建了截图请求均不能充当模型就绪。
-#[cfg(feature = "validation")]
+#[cfg(all(feature = "validation", feathrise_external_validation))]
 pub(super) fn validation_snapshot(world: &World) -> Result<Option<serde_json::Value>, String> {
     let Some(state) = world.get_resource::<Visuals>() else {
         return Ok(None);
@@ -499,7 +499,7 @@ pub(super) fn validation_snapshot(world: &World) -> Result<Option<serde_json::Va
     ))
 }
 
-#[cfg(feature = "validation")]
+#[cfg(all(feature = "validation", feathrise_external_validation))]
 fn visible(world: &World, entity: Entity) -> bool {
     world.get::<Visibility>(entity).is_some_and(|visibility|*visibility != Visibility::Hidden)
         && world.get::<InheritedVisibility>(entity).is_some_and(|value| value.get())

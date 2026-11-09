@@ -1,5 +1,6 @@
 //! F12地图编辑器左右侧栏的页签化静态布局、会话状态与增量交互系统。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use feathrise_editor_ui::localization::LocalizedText;
@@ -61,12 +62,12 @@ pub fn sidebar_tab_node() -> Node {
     }
 }
 
-pub fn sidebar_tab_background(interaction: Interaction, selected: bool) -> Color {
+pub fn sidebar_tab_background(interaction: UiInteraction, selected: bool) -> Color {
     match (interaction, selected) {
-        (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-        (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-        (Interaction::None, true) => colors::SELECT_BG,
-        (Interaction::None, false) => colors::PANEL_BG_STRONG,
+        (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+        (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+        (UiInteraction::None, true) => colors::SELECT_BG,
+        (UiInteraction::None, false) => colors::PANEL_BG_STRONG,
     }
 }
 
@@ -91,7 +92,7 @@ pub fn sidebar_tab_button(label: &str, tab: EditorSidebarTab) -> impl Scene {
         ~{sidebar_tab_node()}
         BackgroundColor(colors::PANEL_BG_STRONG) // 一级分类默认使用比页内按钮更深的墨色。
         BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             MapEditorSidebarTabText
             Text(label) ~{copy}
             TextLayout::no_wrap()
@@ -101,7 +102,7 @@ pub fn sidebar_tab_button(label: &str, tab: EditorSidebarTab) -> impl Scene {
                 font_size: px(ui_metrics::FONT_CONTROL), // 与参考图的可读字号和紧凑行高统一。
             }
             TextColor(colors::TEXT_TAB_INACTIVE) // 非活动一级页签默认退为次要文字色。
-        )]
+        ]
     }
 }
 
@@ -119,14 +120,14 @@ pub fn sidebar_context_title(label: &str) -> impl Scene {
         }
         BackgroundColor(colors::PANEL_BG_SECTION) // 轻墨底承接上方深墨导航分区。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 分隔线弱于活动一级页签底线。
-        Children [(
+        Children [
             Text(label) @feathrise_editor_ui::localization::label_scene(label) // 标签由各页面提供，避免运行时拼接和额外状态。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 页面上下文支持完整中文标签。
                 font_size: px(ui_metrics::FONT_CONTROL), // 介于一级页签与普通提示文字之间。
             }
             TextColor(colors::TEXT_ACCENT) // 铜金强调当前模块身份。
-        )]
+        ]
     }
 }
 
@@ -143,14 +144,14 @@ pub fn sidebar_subsection_title(label: &str) -> impl Scene {
             border: UiRect::left(px(2)), // 细铜竖线标记页内二级分区。
         }
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 二级分区弱于一级活动铜边。
-        Children [(
+        Children [
             Text(label) @feathrise_editor_ui::localization::label_scene(label) // 角色页传入“全局预设”或“当前地图”。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 二级标题沿用正式中文字体。
                 font_size: px(ui_metrics::FONT_HINT), // 小字号表明它不是可点击页签。
             }
             TextColor(colors::TEXT_HINT) // 提示色与可点击入口形成明确差异。
-        )]
+        ]
     }
 }
 
@@ -170,7 +171,7 @@ pub(super) fn sidebar_help_button(help: EditorSidebarHelp) -> impl Scene {
         }
         BackgroundColor(colors::PANEL_BG_SECTION)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             MapEditorSidebarHelpButtonText
             Text("?")
             TextFont {
@@ -178,7 +179,7 @@ pub(super) fn sidebar_help_button(help: EditorSidebarHelp) -> impl Scene {
                 font_size: px(ui_metrics::FONT_HINT),
             }
             TextColor(colors::TEXT_HINT)
-        )]
+        ]
     }
 }
 

@@ -1,5 +1,6 @@
 //! 左侧场景树的地图显示预览；折叠状态与场景网格选择独立，不修改作者源或保存配置。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use feathrise_editor_ui::metrics as ui_metrics;
@@ -35,14 +36,14 @@ fn shading_button(label: &str, flat: bool) -> impl Scene {
         }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // Presentation按实际模式回显选中态。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 不把调试开关伪装成地形作者属性。
-        Children [(
+        Children [
             Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 与中央工具条共享中文字体。
                 font_size: px(ui_metrics::FONT_CONTROL), // 两字按钮在窄工作区仍清晰。
             }
             TextColor(colors::TEXT_PRIMARY) // 保持和其他工具按钮相同的文字颜色。
-        )]
+        ]
     }
 }
 
@@ -61,14 +62,14 @@ fn grid_button() -> impl Scene {
         }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // Presentation按独立开关回显选中态。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 不把可视调试开关伪装成作者数据。
-        Children [(
+        Children [
             Text("显示三角线") @feathrise_editor_ui::localization::label_scene("显示三角线") // 真实拓扑预览与视口参考网格线分开，避免误认几何创建入口。
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 与上方模式按钮共享中文字体。
                 font_size: px(ui_metrics::FONT_CONTROL), // 四字标签在窄右栏保持清晰。
             }
             TextColor(colors::TEXT_PRIMARY) // 复用同卡片主要按钮文字色。
-        )]
+        ]
     }
 }
 
@@ -77,8 +78,8 @@ fn collision_button() -> impl Scene {
         Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), height: px(22), border: px(1),
             border_radius: BorderRadius::all(px(3)), align_items: AlignItems::Center, justify_content: JustifyContent::Center }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(Text("显示碰撞") @feathrise_editor_ui::localization::label_scene("显示碰撞") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-            TextColor(colors::TEXT_PRIMARY))] }
+        Children [Text("显示碰撞") @feathrise_editor_ui::localization::label_scene("显示碰撞") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+            TextColor(colors::TEXT_PRIMARY)] }
 }
 
 /// 与F1使用同一偏好和Avian绘制组；固定配置同步不扫描碰撞体，也不修改物理模拟。
@@ -108,7 +109,7 @@ fn handle_collision_button(
 fn sync_collision_preview(
     settings: Res<feathrise_editor_core::EditorSettings>,
     store: Option<ResMut<bevy::gizmos::config::GizmoConfigStore>>,
-    mut buttons: Query<(&Interaction, &mut BackgroundColor), With<TerrainCollisionButton>>,
+    mut buttons: Query<(&UiInteraction, &mut BackgroundColor), With<TerrainCollisionButton>>,
 ) {
     if let Some(mut store) = store {
         if store.get_config::<avian3d::debug_render::PhysicsGizmos>()
@@ -118,9 +119,9 @@ fn sync_collision_preview(
     }
     for (interaction, mut background) in &mut buttons {
         let color = if settings.scene.show_physics_debug { colors::SELECT_BG } else { match interaction {
-            Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
-            Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
-            Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+            UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
+            UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
+            UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
         }};
         background.set_if_neq(BackgroundColor(color));
     }
@@ -142,41 +143,41 @@ pub(crate) fn terrain_shading_controls() -> impl Scene {
         BackgroundColor(colors::SLOT_BG) // 沿用场景树底色。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 调试属性不冒充作者网格操作。
         Children [
-            (
+
                 Text("地图显示预览") @feathrise_editor_ui::localization::label_scene("地图显示预览") // 地图级显示辅助不属于选中网格的持久属性。
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 沿用编辑器字体。
                     font_size: px(ui_metrics::FONT_HINT), // 属性标题弱于可操作按钮。
                 }
                 TextColor(colors::TEXT_HINT) // 预览设置不与正式作者工具争视觉重心。
-            ),
-            (
+            --
+
                 Node {
                     width: percent(100), // 两档着色模式保持同一属性行。
                     column_gap: px(4), // 模式之间保留明确点击间距。
                 }
                 Children [
-                    (@shading_button("平滑", false)), // 默认恢复作者平滑法线。
-                    (@shading_button("平直", true)), // GPU片元逐三角面法线，仅作调试。
+                    @shading_button("平滑", false)-- // 默认恢复作者平滑法线。
+                    @shading_button("平直", true) // GPU片元逐三角面法线，仅作调试。
                 ]
-            ),
-            (
+            --
+
                 Node {
                     width: percent(100), column_gap: px(4), // 三角线与碰撞各自切换，与着色模式互不覆盖。
                 }
                 Children [
-                    (@grid_button()), // 可与平滑或平直同时保持选中。
-                    (@collision_button()),
+                    @grid_button()-- // 可与平滑或平直同时保持选中。
+                    @collision_button()
                 ]
-            ),
-            (
+            --
+
                 Text("着色/三角线：可塑形网格；碰撞：实际物理线条") @feathrise_editor_ui::localization::label_scene("着色/三角线：可塑形网格；碰撞：实际物理线条") // 明确地图着色范围与全局物理辅助显示的区别。
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 与属性标题使用同一字体。
                     font_size: px(ui_metrics::FONT_HINT), // 提示弱于模式按钮。
                 }
                 TextColor(colors::TEXT_HINT) // 说明调试设置的生命周期。
-            ),
+
         ]
     }
 }
@@ -322,16 +323,16 @@ pub(crate) fn sync_terrain_shading_session(
 /// 两个按钮随模式原位高亮，不改变同一工具栏的视图/笔刷状态。
 pub(crate) fn sync_terrain_shading_button_styles(
     preview: Res<TerrainShadingPreview>, // 显示真实地表材质所用模式。
-    mut buttons: Query<(&Interaction, &TerrainShadingButton, &mut BackgroundColor)>, // 固定两个按钮，成本不随地图规模增长。
+    mut buttons: Query<(&UiInteraction, &TerrainShadingButton, &mut BackgroundColor)>, // 固定两个按钮，成本不随地图规模增长。
 ) {
     for (interaction, button, mut background) in &mut buttons {
         let color = if preview.flat == button.0 {
             colors::SELECT_BG // 当前模式用既有编辑器选中态。
         } else {
             match interaction {
-                Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
-                Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
-                Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+                UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
+                UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
+                UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
             }
         };
         if background.0 != color {
@@ -343,7 +344,7 @@ pub(crate) fn sync_terrain_shading_button_styles(
 /// 独立网格按钮按开关原位高亮，可与任一着色按钮同时显示铜金选中态。
 pub(crate) fn sync_terrain_grid_button_style(
     preview: Res<TerrainGridPreview>, // 读取正式场景当前实际网格开关。
-    mut buttons: Query<(&Interaction, &mut BackgroundColor), With<TerrainGridButton>>, // 固定一个按钮，成本恒定。
+    mut buttons: Query<(&UiInteraction, &mut BackgroundColor), With<TerrainGridButton>>, // 固定一个按钮，成本恒定。
 ) {
     for (interaction, mut background) in &mut buttons {
         // Presentation只遍历静态单按钮。
@@ -353,9 +354,9 @@ pub(crate) fn sync_terrain_grid_button_style(
         } else {
             // 关闭时显示常规按压与悬停反馈。
             match interaction {
-                Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED, // 按下即时反馈。
-                Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED, // 悬停强化铜边暗底。
-                Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,     // 稳定关闭底色。
+                UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED, // 按下即时反馈。
+                UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED, // 悬停强化铜边暗底。
+                UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,     // 稳定关闭底色。
             } // 完成关闭状态交互配色。
         }; // 完成当前按钮颜色选择。
         if background.0 != color {
@@ -386,7 +387,7 @@ mod tests {
             .init_resource::<feathrise_editor_core::EditorSettings>()
             .init_resource::<EditorAuthoringSession>()
             .add_systems(Update, (handle_collision_button, sync_collision_preview).chain());
-        let button = app.world_mut().spawn((TerrainCollisionButton, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed, BackgroundColor::default())).id();
+        let button = app.world_mut().spawn((TerrainCollisionButton, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed, BackgroundColor::default())).id();
         let collider = app.world_mut().spawn(avian3d::prelude::Collider::cuboid(2.0, 1.0, 3.0)).id();
         app.update();
         assert!(app.world().resource::<feathrise_editor_core::EditorSettings>().scene.show_physics_debug);
@@ -394,11 +395,11 @@ mod tests {
         assert!(app.world().get::<avian3d::prelude::Collider>(collider).is_some());
         assert!(app.world().resource::<EditorAuthoringSession>().undo.is_empty());
         for (expanded, selected_map) in [(false, "MAP-preview"), (true, "MAP-other")] {
-            *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::None;
+            *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::None;
             app.update();
             app.world_mut().resource_mut::<TerrainShadingSession>().preview_expanded = expanded;
             app.world_mut().resource_mut::<MapEditorState>().selected_map_id = Some(MapId::parse(selected_map).unwrap());
-            app.world_mut().entity_mut(button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+            app.world_mut().entity_mut(button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
             app.update();
             assert!(app.world().resource::<feathrise_editor_core::EditorSettings>().scene.show_physics_debug);
         }
@@ -440,12 +441,12 @@ mod tests {
             .map_id = Some(map_id); // 正式地图身份已同步。
         let row = app
             .world_mut()
-            .spawn((MapBaseGltfRow, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+            .spawn((MapBaseGltfRow, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
             .id(); // 点击树内唯一基础地形。
         app.world_mut()
-            .spawn((TerrainShadingButton(true), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)); // 同帧点击模式也只由选择门授权。
+            .spawn((TerrainShadingButton(true), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)); // 同帧点击模式也只由选择门授权。
         app.world_mut()
-            .spawn((TerrainGridButton, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)); // 同帧独立开启真实三角网格。
+            .spawn((TerrainGridButton, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)); // 同帧独立开启真实三角网格。
         app.update();
         assert!(
             app.world()
@@ -454,13 +455,13 @@ mod tests {
         ); // 场景节点确实展开属性。
         assert!(app.world().resource::<TerrainShadingPreview>().flat); // 选择后模式写入当前地形。
         assert!(app.world().resource::<TerrainGridPreview>().visible); // 网格与平直可同时启用。
-        *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None;
+        *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
         app.update();
-        app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 再次点击收起地形属性。
+        app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 再次点击收起地形属性。
         app.world_mut()
-            .spawn((TerrainShadingButton(false), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)); // 隐藏的模式按钮不得生效。
+            .spawn((TerrainShadingButton(false), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)); // 隐藏的模式按钮不得生效。
         app.world_mut()
-            .spawn((TerrainGridButton, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)); // 隐藏的网格按钮同样不得生效。
+            .spawn((TerrainGridButton, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)); // 隐藏的网格按钮同样不得生效。
         app.update();
         assert!(
             !app.world()
@@ -471,9 +472,9 @@ mod tests {
         assert!(app.world().resource::<TerrainGridPreview>().visible); // 隐藏控件不能翻转网格状态。
         app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap()
             .manifest.terrains = Some(Vec::new().into());
-        *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None;
+        *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
         app.update();
-        app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         app.update();
         assert!(!app.world().resource::<TerrainShadingSession>().preview_expanded);
         // 隐藏预览条的迟到Pressed不能把显式空容器当作原基础网格重新展开。
@@ -516,11 +517,11 @@ mod tests {
             .preview_expanded = true; // 模拟点击基础地形行。
         let button = app
             .world_mut()
-            .spawn((TerrainShadingButton(true), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+            .spawn((TerrainShadingButton(true), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
             .id();
         let grid_button = app
             .world_mut()
-            .spawn((TerrainGridButton, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+            .spawn((TerrainGridButton, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
             .id(); // 同一地图独立开启网格。
         app.update();
         assert!(app.world().resource::<TerrainShadingPreview>().flat); // 点击只对当前地图生效。
@@ -546,11 +547,11 @@ mod tests {
         app.world_mut()
             .resource_mut::<TerrainShadingSession>()
             .preview_expanded = true; // 新图需要重新选择地形。
-        *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::None;
-        *app.world_mut().get_mut::<Interaction>(grid_button).unwrap() = Interaction::None; // 两按钮分别经历释放边界。
+        *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::None;
+        *app.world_mut().get_mut::<UiInteraction>(grid_button).unwrap() = UiInteraction::None; // 两按钮分别经历释放边界。
         app.update();
-        app.world_mut().entity_mut(button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
-        app.world_mut().entity_mut(grid_button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 第二张图也独立开启网格。
+        app.world_mut().entity_mut(button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        app.world_mut().entity_mut(grid_button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 第二张图也独立开启网格。
         app.update();
         assert!(app.world().resource::<TerrainShadingPreview>().flat);
         assert!(app.world().resource::<TerrainGridPreview>().visible); // 第二张图记录自己的网格选择。
@@ -569,12 +570,12 @@ mod tests {
             .resource_mut::<TerrainShadingSession>()
             .preview_expanded = true; // 展开首图网格设置。
         app.world_mut()
-            .spawn((TerrainGridButton, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)); // 先只关闭网格，验证不会改写平直着色。
+            .spawn((TerrainGridButton, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)); // 先只关闭网格，验证不会改写平直着色。
         app.update();
         assert!(!app.world().resource::<TerrainGridPreview>().visible); // 首图网格已独立关闭。
         assert!(app.world().resource::<TerrainShadingPreview>().flat); // 平直模式不受网格按钮影响。
         app.world_mut()
-            .spawn((TerrainShadingButton(false), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)); // 明确选择平滑应清除该图缓存。
+            .spawn((TerrainShadingButton(false), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)); // 明确选择平滑应清除该图缓存。
         app.update();
         assert!(!app.world().resource::<TerrainShadingPreview>().flat);
         assert!(!app.world().resource::<TerrainGridPreview>().visible); // 选择平滑不会重新打开网格。

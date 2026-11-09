@@ -1,5 +1,6 @@
 //! 正式右键边沿、中文名称、目标换代和鼠标释放门回归，不访问系统剪贴板或地图文件。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::SceneContextMenuState, systems, types::*};
 use crate::{
@@ -95,7 +96,7 @@ fn fixture() -> Fixture {
         .spawn((
             SceneObjectRow(Some(object)),
             Node::default(),
-            Interaction::Hovered,
+            UiInteraction::Hovered,
         ))
         .id();
     let input = app
@@ -105,7 +106,7 @@ fn fixture() -> Fixture {
             crate::ui::text_input::single_line_input("", 128),
         ))
         .id();
-    app.world_mut().spawn((RenameField, Interaction::None));
+    app.world_mut().spawn((RenameField, UiInteraction::None));
     // 无窗口布局不产生命中几何；显式给出非零尺寸和可见性，让共享捕获执行真实资格检查。
     for action in SceneMenuAction::ALL {
         let child = app.world_mut().spawn(Text::new("")).id();
@@ -113,7 +114,7 @@ fn fixture() -> Fixture {
             .spawn((
                 InteractionButton,
                 MenuButton(action),
-                Interaction::None,
+                UiInteraction::None,
                 Node::default(),
                 ComputedNode {
                     size: Vec2::new(184.0, 28.0),
@@ -132,7 +133,7 @@ fn fixture() -> Fixture {
     app.world_mut().spawn((
         InteractionButton,
         RenameConfirm,
-        Interaction::None,
+        UiInteraction::None,
         ComputedNode {
             size: Vec2::new(80.0, 28.0),
             ..default()
@@ -148,7 +149,7 @@ fn fixture() -> Fixture {
     app.world_mut().spawn((
         InteractionButton,
         RenameCancel,
-        Interaction::None,
+        UiInteraction::None,
         ComputedNode {
             size: Vec2::new(80.0, 28.0),
             ..default()
@@ -181,14 +182,14 @@ fn step(app: &mut App) {
     if app.world().resource::<ButtonInput<MouseButton>>().just_released(MouseButton::Left) {
         let world = app.world_mut();
         for (mut interaction, cursor) in world
-            .query_filtered::<(&mut Interaction, &RelativeCursorPosition), With<InteractionButton>>()
+            .query_filtered::<(&mut UiInteraction, &RelativeCursorPosition), With<InteractionButton>>()
             .iter_mut(world)
         {
-            if *interaction == Interaction::Pressed {
+            if *interaction == UiInteraction::Pressed {
                 *interaction = if cursor.cursor_over() {
-                    Interaction::Hovered
+                    UiInteraction::Hovered
                 } else {
-                    Interaction::None
+                    UiInteraction::None
                 };
             }
         }
@@ -228,13 +229,13 @@ fn open(fixture: &mut Fixture) {
 fn choose(fixture: &mut Fixture, action: SceneMenuAction) {
     let world = fixture.app.world_mut();
     for (button, mut interaction) in world
-        .query::<(&MenuButton, &mut Interaction)>()
+        .query::<(&MenuButton, &mut UiInteraction)>()
         .iter_mut(world)
     {
         *interaction = if button.0 == action {
-            Interaction::Pressed
+            UiInteraction::Pressed
         } else {
-            Interaction::None
+            UiInteraction::None
         };
     }
     world

@@ -1,7 +1,8 @@
 //! 跨地图、预设和文档共享的中央标签身份；不承载具体草稿。
 
-/// 工程预览和独立启动共用的显式构建选择；Debug继续复用既有render-dev缓存。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// 工程预览和独立启动共用的显式构建选择。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ProjectBuildProfile {
     #[default]
     Debug,
@@ -13,7 +14,7 @@ impl ProjectBuildProfile {
         match self { Self::Debug => "Debug", Self::Release => "Release" }
     }
 
-    /// 仅传递既有Cargo配置，不因界面命名调整dev优化参数或创建另一份缓存。
+    /// DX 与导出使用的 Cargo profile。原生 Debug 由编辑器宿主映射到 `dev`。
     pub fn cargo_profile(self) -> &'static str {
         match self { Self::Debug => "render-dev", Self::Release => "release" }
     }

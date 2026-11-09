@@ -1,4 +1,5 @@
 //! Windows自绘非客户区适配；保留系统移动/缩放循环、任务栏与关闭事务，不销毁窗口或接管工程生命周期。
+use feathrise_editor_ui::UiInteraction;
 use super::components::ChromeButton;
 use super::{resources::ChromeState, types::*};
 use bevy::{
@@ -135,7 +136,7 @@ fn sync(
         Entity,
         &ChromeButton,
         &ButtonColors,
-        &mut Interaction,
+        &mut UiInteraction,
         &mut RelativeCursorPosition,
         &mut BackgroundColor,
     )>,
@@ -872,7 +873,7 @@ fn caption_feedback(
     held: bool,
     captured: bool,
     colors: &ButtonColors,
-) -> (Interaction, RelativeCursorPosition, Color) {
+) -> (UiInteraction, RelativeCursorPosition, Color) {
     let over = available && cursor.is_some_and(|(x, y)| rect.contains(x, y));
     let normalized = cursor
         .filter(|_| available && rect.right > rect.left && rect.bottom > rect.top)
@@ -883,16 +884,16 @@ fn caption_feedback(
             ) - Vec2::splat(0.5)
         });
     let interaction = if over && held && captured {
-        Interaction::Pressed
+        UiInteraction::Pressed
     } else if over {
-        Interaction::Hovered
+        UiInteraction::Hovered
     } else {
-        Interaction::None
+        UiInteraction::None
     };
     let color = match interaction {
-        Interaction::Pressed => colors.pressed,
-        Interaction::Hovered => colors.hovered,
-        Interaction::None => colors.normal,
+        UiInteraction::Pressed => colors.pressed,
+        UiInteraction::Hovered => colors.hovered,
+        UiInteraction::None => colors.normal,
     };
     (
         interaction,
@@ -919,11 +920,11 @@ fn diagnostic_action(action: WindowAction) -> &'static str {
 }
 
 #[cfg(feature = "validation")]
-fn diagnostic_interaction(interaction: Interaction) -> &'static str {
+fn diagnostic_interaction(interaction: UiInteraction) -> &'static str {
     match interaction {
-        Interaction::None => "none",
-        Interaction::Hovered => "hovered",
-        Interaction::Pressed => "pressed",
+        UiInteraction::None => "none",
+        UiInteraction::Hovered => "hovered",
+        UiInteraction::Pressed => "pressed",
     }
 }
 

@@ -1,5 +1,6 @@
 //! 工程导出面板复用编辑器公共标题、正文和底栏配方；输入框始终只有一个原生EditableText。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::super::{components::*, resources::ExportState};
 use bevy::{input_focus::tab_navigation::TabIndex, prelude::*, text::{EditableTextFilter, TextCursorStyle}, ui::{FocusPolicy, RelativeCursorPosition}};
@@ -17,7 +18,7 @@ pub(in crate::project_export) fn mount(
     let font = feathrise_editor_core::editor_font(&assets, feathrise_editor_core::FONT_PATH);
     for header in &headers {
         commands.entity(header).with_children(|header| {
-            header.spawn((ExportOverlay, GlobalZIndex(4360), FocusPolicy::Block, Interaction::None,
+            header.spawn((ExportOverlay, GlobalZIndex(4360), FocusPolicy::Block, UiInteraction::None,
                 Node { display: Display::None, position_type: PositionType::Absolute, left: px(0), top: px(0),
                     width: Val::Vw(100.), height: Val::Vh(100.), align_items: AlignItems::Center,
                     justify_content: JustifyContent::Center, ..default() }, BackgroundColor(c::DIALOG_BACKDROP),

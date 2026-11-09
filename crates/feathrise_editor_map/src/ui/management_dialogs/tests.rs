@@ -1,5 +1,6 @@
 //! 管理模态的原实体、冻结目标、真实反馈、滚轮和危险样式回归；不运行文件事务。
 
+use feathrise_editor_ui::UiInteraction;
 use super::DialogKind;
 use super::components::*;
 use crate::authoring::{TerrainConflictResolution, TerrainExternalChangeState};
@@ -294,8 +295,8 @@ fn closing_releases_all_overlays_and_pressed_descendants() {
         );
     }
     let world = app.world_mut();
-    for mut interaction in world.query::<&mut Interaction>().iter_mut(world) {
-        *interaction = Interaction::Pressed;
+    for mut interaction in world.query::<&mut UiInteraction>().iter_mut(world) {
+        *interaction = UiInteraction::Pressed;
     }
     app.world_mut().resource_mut::<MapEditorState>().open = false;
     app.update();
@@ -312,9 +313,9 @@ fn closing_releases_all_overlays_and_pressed_descendants() {
     let world = app.world_mut();
     assert!(
         world
-            .query::<&Interaction>()
+            .query::<&UiInteraction>()
             .iter(world)
-            .all(|interaction| *interaction == Interaction::None)
+            .all(|interaction| *interaction == UiInteraction::None)
     );
     app.world_mut().resource_mut::<MapEditorState>().open = true;
     app.update();
@@ -372,7 +373,7 @@ fn destructive_style_survives_generic_style_and_changes_with_folder_mode() {
         .find(|(_, action)| *action == EditorAction::ConfirmMapFolderDialog)
         .unwrap()
         .0;
-    *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Hovered;
+    *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Hovered;
     app.update();
     assert_eq!(
         *app.world().get::<BorderColor>(button).unwrap(),
@@ -404,7 +405,7 @@ fn destructive_style_restores_the_border_when_a_pressed_pointer_leaves() {
             .0
     };
     app.world_mut().entity_mut(button).insert((
-        Interaction::Pressed,
+        UiInteraction::Pressed,
         RelativeCursorPosition {
             cursor_over: true,
             normalized: Some(Vec2::ZERO),
@@ -422,8 +423,8 @@ fn destructive_style_restores_the_border_when_a_pressed_pointer_leaves() {
         .cursor_over = false;
     app.update();
     assert_eq!(
-        *app.world().get::<Interaction>(button).unwrap(),
-        Interaction::Pressed
+        *app.world().get::<UiInteraction>(button).unwrap(),
+        UiInteraction::Pressed
     );
     assert_eq!(
         *app.world().get::<BorderColor>(button).unwrap(),

@@ -1,5 +1,6 @@
 //! 真实GPU离屏检查竖向工具栏的图标、鼠标命中和旁侧菜单；不启动窗口或保存作者设置。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
@@ -55,8 +56,8 @@ fn click(app: &mut App, target: Entity) {
     });
     app.update();
     assert_eq!(
-        app.world().get::<Interaction>(target),
-        Some(&Interaction::Pressed)
+        app.world().get::<UiInteraction>(target),
+        Some(&UiInteraction::Pressed)
     );
     assert!(
         app.world()

@@ -1,4 +1,5 @@
 //! 原生插件工具行与公共右侧预览；声明文档工作台的插件复用中央作者区。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::NativeTools};
 use bevy::prelude::*;
@@ -636,11 +637,11 @@ pub(super) fn button(
                 flex_shrink: 0., ..sidebar_tab_node()
             },
             BorderColor::all(c::COPPER_BORDER_WEAK),
-            BackgroundColor(sidebar_tab_background(Interaction::None, selected)),
+            BackgroundColor(sidebar_tab_background(UiInteraction::None, selected)),
             ButtonColors::new(
-                sidebar_tab_background(Interaction::None, selected),
-                sidebar_tab_background(Interaction::Hovered, selected),
-                sidebar_tab_background(Interaction::Pressed, selected),
+                sidebar_tab_background(UiInteraction::None, selected),
+                sidebar_tab_background(UiInteraction::Hovered, selected),
+                sidebar_tab_background(UiInteraction::Pressed, selected),
             ),
         )).with_child((
             Text::new(label),
@@ -702,7 +703,7 @@ pub(super) fn sync_buttons(
     sidebar: Res<MapEditorSidebarState>,
     mut buttons: Query<(
         &ToolButton,
-        &Interaction,
+        &UiInteraction,
         &Children,
         &mut BackgroundColor,
         &mut ButtonColors,
@@ -718,18 +719,18 @@ pub(super) fn sync_buttons(
             .get(&button.index)
             .is_some_and(|t| sidebar.left == EditorLeftSidebarTab::Domain(t.domain));
         let palette = ButtonColors::new(
-            sidebar_tab_background(Interaction::None, selected),
-            sidebar_tab_background(Interaction::Hovered, selected),
-            sidebar_tab_background(Interaction::Pressed, selected),
+            sidebar_tab_background(UiInteraction::None, selected),
+            sidebar_tab_background(UiInteraction::Hovered, selected),
+            sidebar_tab_background(UiInteraction::Pressed, selected),
         );
         if *colors != palette {
             *colors = palette;
         }
         // 公共按钮只在鼠标状态变化时着色；工具切换也要立即回显活动底色。
         let wanted = match interaction {
-            Interaction::Pressed => palette.pressed,
-            Interaction::Hovered => palette.hovered,
-            Interaction::None => palette.normal,
+            UiInteraction::Pressed => palette.pressed,
+            UiInteraction::Hovered => palette.hovered,
+            UiInteraction::None => palette.normal,
         };
         if background.0 != wanted {
             background.0 = wanted;

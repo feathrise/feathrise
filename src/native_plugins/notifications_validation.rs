@@ -1,4 +1,5 @@
 //! 使用真实失败发现、官方鼠标及实际GPU截图验证右下角通知，不手写加载成功或错误回执。
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::native_plugins::{
     notifications::{self, NotificationAction, NotificationState, PluginErrorNotification},
@@ -92,17 +93,17 @@ fn click_notification(app: &mut App, wanted: NotificationAction) {
     app.world_mut().resource_mut::<CursorFixture>().position = Some(point);
     settle(app);
     assert_eq!(
-        *app.world().get::<Interaction>(target).unwrap(),
-        Interaction::Hovered
+        *app.world().get::<UiInteraction>(target).unwrap(),
+        UiInteraction::Hovered
     );
     let window = app.world().resource::<CursorFixture>().window;
-    app.world_mut().write_message(MouseButtonInput {
+    window_input(app.world_mut(), MouseButtonInput {
         button: MouseButton::Left,
         state: ButtonState::Pressed,
         window,
     });
     frame(app);
-    app.world_mut().write_message(MouseButtonInput {
+    window_input(app.world_mut(), MouseButtonInput {
         button: MouseButton::Left,
         state: ButtonState::Released,
         window,

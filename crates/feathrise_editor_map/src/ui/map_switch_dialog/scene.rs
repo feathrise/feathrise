@@ -1,5 +1,6 @@
 //! 未保存切图模态的静态结构、冻结目标说明与增量显隐，复用编辑器水墨铜木主题。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
@@ -18,7 +19,7 @@ use crate::ui::theme as colors;
 pub(crate) fn map_switch_dialog() -> impl Scene {
     bsn! {
         MapSwitchDialog
-        Interaction::default()
+        UiInteraction::default()
         FocusPolicy::default()
         Node {
             display: Display::None,
@@ -30,7 +31,7 @@ pub(crate) fn map_switch_dialog() -> impl Scene {
         }
         GlobalZIndex(2000) // 确认属于整个工作台，覆盖离屏视口和浮动工具栏。
         BackgroundColor(colors::OVERLAY_BG)
-        Children [(
+        Children [
             Node {
                 width: percent(90), max_width: px(440), min_width: px(0), max_height: percent(90),
                 flex_direction: FlexDirection::Column,
@@ -40,8 +41,8 @@ pub(crate) fn map_switch_dialog() -> impl Scene {
             BackgroundColor(colors::PANEL_BG_STRONG)
             BorderColor::all(colors::COPPER_BORDER_WEAK)
             Children [
-                (@section_title("处理未保存修改")),
-                (
+                @section_title("处理未保存修改")--
+
                     MapSwitchDialogBody
                     RelativeCursorPosition::default()
                     ScrollPosition::default()
@@ -50,15 +51,15 @@ pub(crate) fn map_switch_dialog() -> impl Scene {
                         flex_direction: FlexDirection::Column,
                         max_height: px(190), overflow: Overflow::scroll_y(),
                     } // 长目标名或错误原因只滚动正文，不把确认和取消按钮推出窗口。
-                    Children [(
+                    Children [
                         MapSwitchDialogText
                         Text("当前地图有未保存修改") @feathrise_editor_ui::localization::label_scene("当前地图有未保存修改")
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_PRIMARY)
                         Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-                    )]
-                ),
-                (
+                    ]
+                --
+
                     Node {
                         width: percent(100), flex_wrap: FlexWrap::Wrap,
                         column_gap: px(6), row_gap: px(6),
@@ -66,13 +67,13 @@ pub(crate) fn map_switch_dialog() -> impl Scene {
                         flex_shrink: 0.0,
                     } // 窄窗口自动换行，不压缩长中文操作名称。
                     Children [
-                        (@editor_button("保存并切换", EditorAction::SaveAndSwitchMap, 114.0)),
-                        (@editor_button("放弃修改并切换", EditorAction::DiscardAndSwitchMap, 140.0)),
-                        (@editor_button("取消切图", EditorAction::CancelMapSwitch, 84.0)),
+                        @editor_button("保存并切换", EditorAction::SaveAndSwitchMap, 114.0)--
+                        @editor_button("放弃修改并切换", EditorAction::DiscardAndSwitchMap, 140.0)--
+                        @editor_button("取消切图", EditorAction::CancelMapSwitch, 84.0)
                     ]
-                ),
+
             ]
-        )]
+        ]
     }
 }
 
@@ -82,11 +83,11 @@ pub(crate) fn sync_map_switch_dialog(
     editor: Res<MapEditorState>,
     global: Res<GlobalEnvironmentAuthoringState>,
     mut roots: Query<
-        (Entity, &mut Node, &mut Interaction, &mut FocusPolicy),
+        (Entity, &mut Node, &mut UiInteraction, &mut FocusPolicy),
         With<MapSwitchDialog>,
     >,
     children: Query<&Children>,
-    mut interactions: Query<&mut Interaction, Without<MapSwitchDialog>>,
+    mut interactions: Query<&mut UiInteraction, Without<MapSwitchDialog>>,
     buttons: Query<(Entity, &MapEditorActionButton, Has<InteractionDisabled>)>,
     mut texts: Query<&mut Text, With<MapSwitchDialogText>>,
     mut bodies: Query<&mut ScrollPosition, With<MapSwitchDialogBody>>,
@@ -124,10 +125,10 @@ pub(crate) fn sync_map_switch_dialog(
             FocusPolicy::Pass
         };
         if request.is_none() {
-            *interaction = Interaction::None;
+            *interaction = UiInteraction::None;
             for descendant in children.iter_descendants(entity) {
                 if let Ok(mut interaction) = interactions.get_mut(descendant) {
-                    *interaction = Interaction::None;
+                    *interaction = UiInteraction::None;
                 }
             }
         }

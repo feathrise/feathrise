@@ -1,5 +1,6 @@
 //! 同一套墨底铜边固定菜单和中文名称浮层，按F12根的实际倍率钳制位置。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{
     components::*, resources::SceneContextMenuState, systems::MenuContext, types::SceneMenuAction,
@@ -176,7 +177,7 @@ pub(super) fn sync(
     editor: Res<MapEditorState>,
     mut menu: ResMut<SceneContextMenuState>,
     rows: Query<
-        (Entity, &SceneObjectRow, &Node, &Interaction),
+        (Entity, &SceneObjectRow, &Node, &UiInteraction),
         (
             Without<Backdrop>,
             Without<Popup>,
@@ -197,7 +198,7 @@ pub(super) fn sync(
         (
             Entity,
             &MenuButton,
-            &Interaction,
+            &UiInteraction,
             &mut Node,
             &mut BackgroundColor,
             &mut BorderColor,
@@ -223,7 +224,7 @@ pub(super) fn sync(
     >,
     mut texts: Query<&mut Text>,
     mut rename_buttons: Query<
-        (&Interaction, &mut BackgroundColor, &mut BorderColor),
+        (&UiInteraction, &mut BackgroundColor, &mut BorderColor),
         (
             Or<(With<RenameConfirm>, With<RenameCancel>)>,
             Without<MenuButton>,
@@ -324,12 +325,12 @@ pub(super) fn sync(
             colors::INPUT_BG
         } else {
             match interaction {
-                Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
-                Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
-                Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+                UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
+                UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
+                UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
             }
         };
-        *border = BorderColor::all(if enabled && *interaction != Interaction::None {
+        *border = BorderColor::all(if enabled && *interaction != UiInteraction::None {
             colors::COPPER_BORDER
         } else {
             colors::COPPER_BORDER_WEAK
@@ -345,9 +346,9 @@ pub(super) fn sync(
     }
     for (interaction, mut background, mut border) in &mut rename_buttons {
         background.0 = match interaction {
-            Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
-            Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
-            Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+            UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
+            UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
+            UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
         };
         *border = BorderColor::all(colors::COPPER_BORDER_WEAK);
     }

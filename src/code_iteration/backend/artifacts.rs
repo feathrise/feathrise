@@ -31,7 +31,7 @@ pub(super) fn context(
     let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
     let mut parts = vec![
         request.source.environment_sha256.clone(),
-        request.profile.cargo_profile().into(),
+        request.build_backend.cargo_profile(request.profile).into(),
         request.build_backend.key().into(),
         crate::native_play::build_feature_identity(),
     ];

@@ -2,23 +2,32 @@
 
 use crate::{build_process::BuildControl, project::Project};
 use bevy::prelude::*;
+use feathrise_editor_core::ProjectBuildProfile;
 use std::{path::PathBuf, sync::{Arc, mpsc::Receiver}, thread::JoinHandle};
 
-/// 两种3D方式共用当前会话的构建选择；默认保持DX，原生模式不准备fat基线或函数补丁。
-/// 只改变工具入口，不改工程清单、优化等级、并行额度或已有缓存。
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// 两种3D方式共用工程已保存的构建选择；新工程默认DX，Cargo不准备fat基线或函数补丁。
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum ProjectBuildBackend {
     #[default]
     Dx,
+    #[serde(rename = "cargo", alias = "native")]
     Native,
 }
 
 impl ProjectBuildBackend {
     pub(crate) fn label(self) -> &'static str {
-        match self { Self::Dx => "DX", Self::Native => "原生 Cargo" }
+        match self { Self::Dx => "DX", Self::Native => "Cargo" }
     }
     pub(crate) fn key(self) -> &'static str {
         match self { Self::Dx => "dx", Self::Native => "native" }
+    }
+    /// 原生 Debug 与工程的 cargo run 共用 dev 缓存；DX 保留原构建和热补丁使用的 profile。
+    pub(crate) fn cargo_profile(self, profile: ProjectBuildProfile) -> &'static str {
+        match (self, profile) {
+            (Self::Native, ProjectBuildProfile::Debug) => "dev",
+            _ => profile.cargo_profile(),
+        }
     }
     pub(crate) fn selected(world: &World) -> Self {
         world.get_resource::<Self>().copied().unwrap_or_default()

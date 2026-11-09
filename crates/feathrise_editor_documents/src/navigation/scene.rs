@@ -13,11 +13,11 @@ fn button(label: &str, action: NavigationAction) -> impl Scene {
         Node { height: px(23), padding: UiRect::horizontal(px(5)), border: px(1), flex_shrink: 0.0,
             align_items: AlignItems::Center, justify_content: JustifyContent::Center }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             Text(label) @feathrise_editor_ui::localization::label_scene(label) ~{FocusPolicy::Pass} TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
-        )]
+        ]
     }
 }
 
@@ -40,78 +40,78 @@ pub(crate) fn tools() -> impl Scene {
     bsn! {
         Node { width: percent(100), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
         Children [
-            (
+
                 NavigationTools
                 Node { width: percent(100), column_gap: px(4), flex_shrink: 0.0 }
-                Children [(@button("查找 Ctrl+F", NavigationAction::Find)), (@button("替换 Ctrl+H", NavigationAction::Replace)), (@button("跳行 Ctrl+G", NavigationAction::Go))]
-            ),
-            (
+                Children [@button("查找 Ctrl+F", NavigationAction::Find)-- @button("替换 Ctrl+H", NavigationAction::Replace)-- @button("跳行 Ctrl+G", NavigationAction::Go)]
+            --
+
                 NavigationFindBar
                 Node { display: Display::None, width: percent(100), flex_direction: FlexDirection::Column, row_gap: px(3) }
                 Children [
-                    (
+
                         Node { width: percent(100), column_gap: px(4) }
-                        Children [(@field(NavigationField::Query, QUERY_CHARS)), (@button("关闭", NavigationAction::Close))]
-                    ),
-                    (
+                        Children [@field(NavigationField::Query, QUERY_CHARS)-- @button("关闭", NavigationAction::Close)]
+                    --
+
                         Node { width: percent(100), column_gap: px(4), align_items: AlignItems::Center }
                         Children [
-                            (
+
                                 NavigationCount Text("") ~{FocusPolicy::Pass}
                                 Node { min_width: px(0), flex_grow: 1.0 } TextLayout::no_wrap()
                                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                                 TextColor(colors::TEXT_ACCENT)
-                            ),
-                            (@button("上一个", NavigationAction::Previous)), (@button("下一个", NavigationAction::Next)),
+                            --
+                            @button("上一个", NavigationAction::Previous)-- @button("下一个", NavigationAction::Next)
                         ]
-                    ),
-                    (
+                    --
+
                         Node { width: percent(100), column_gap: px(4), flex_wrap: FlexWrap::Wrap, row_gap: px(3) }
                         Children [
-                            (@button("区分大小写", NavigationAction::CaseSensitive)),
-                            (@button("全词匹配", NavigationAction::WholeWord)),
-                            (@button("仅选区", NavigationAction::InSelection)),
+                            @button("区分大小写", NavigationAction::CaseSensitive)--
+                            @button("全词匹配", NavigationAction::WholeWord)--
+                            @button("仅选区", NavigationAction::InSelection)
                         ]
-                    ),
-                    (
+                    --
+
                         NavigationReplaceBar
                         Node { display: Display::None, width: percent(100), column_gap: px(4), align_items: AlignItems::Center }
                         Children [
-                            (
+
                                 Text("替换为") @feathrise_editor_ui::localization::label_scene("替换为") ~{FocusPolicy::Pass} TextLayout::no_wrap()
                                 Node { flex_shrink: 0.0 }
                                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                                 TextColor(colors::TEXT_MUTED)
-                            ),
-                            (@field(NavigationField::Replacement, REPLACEMENT_CHARS)),
-                            (@button("替换当前", NavigationAction::ReplaceCurrent)),
-                            (@button("全部替换", NavigationAction::ReplaceAll)),
+                            --
+                            @field(NavigationField::Replacement, REPLACEMENT_CHARS)--
+                            @button("替换当前", NavigationAction::ReplaceCurrent)--
+                            @button("全部替换", NavigationAction::ReplaceAll)
                         ]
-                    ),
-                    (
+                    --
+
                         NavigationSearchHint feathrise_editor_ui::PanelStatusText("文档查找") feathrise_editor_ui::feedback::GlobalPanelStatus Text("") ~{FocusPolicy::Pass}
                         Node { display: Display::None, width: percent(100), min_width: px(0) }
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_ACCENT)
-                    ),
+
                 ]
-            ),
-            (
+            --
+
                 NavigationGoBar
                 Node { display: Display::None, width: percent(100), flex_direction: FlexDirection::Column, row_gap: px(3) }
                 Children [
-                    (
+
                         Node { width: percent(100), column_gap: px(4) }
-                        Children [(@field(NavigationField::Line, 10)), (@button("跳转", NavigationAction::SubmitLine)), (@button("关闭", NavigationAction::Close))]
-                    ),
-                    (
+                        Children [@field(NavigationField::Line, 10)-- @button("跳转", NavigationAction::SubmitLine)-- @button("关闭", NavigationAction::Close)]
+                    --
+
                         NavigationLineHint feathrise_editor_ui::PanelStatusText("文档跳行") feathrise_editor_ui::feedback::GlobalPanelStatus Text("") ~{FocusPolicy::Pass}
                         Node { display: Display::None }
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                         TextColor(colors::TEXT_MUTED)
-                    ),
+
                 ]
-            ),
+
         ]
     }
 }

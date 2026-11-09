@@ -1,5 +1,6 @@
 //! 复用正式F12根、右键菜单及原生输入的离屏GPU验证；外部打开仅记录意图。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::super::resources::DocumentState;
 use super::super::{
     components::*, constants::ROW_SLOTS, gpu_tests as gpu, resources::AssetSearchState,
@@ -38,11 +39,11 @@ fn menu_click(app: &mut App, window: Entity, camera: Entity, entity: Entity, but
         .unwrap();
     app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
     assert_eq!(
-        *app.world().get::<Interaction>(entity).unwrap(),
+        *app.world().get::<UiInteraction>(entity).unwrap(),
         if button == MouseButton::Right {
-            Interaction::Hovered
+            UiInteraction::Hovered
         } else {
-            Interaction::Pressed
+            UiInteraction::Pressed
         }
     );
     asset_context_menu::control_menu_for_tests(app.world_mut());

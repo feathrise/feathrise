@@ -235,6 +235,7 @@ fn prepare_build(
     } else { None };
     #[cfg(not(windows))]
     let dx_command = None;
+    let cargo_profile = build_backend.cargo_profile(profile);
     let (actual_backend, mut command) = match dx_command {
         Some(command) => (ProjectBuildBackend::Dx, command),
         None => {
@@ -243,7 +244,7 @@ fn prepare_build(
                 .unwrap_or_else(|| "cargo".into());
             let mut command = Command::new(cargo);
             command.arg("build");
-            configure_project_cargo(&mut command, project, &target, profile);
+            configure_project_cargo(&mut command, project, &target, cargo_profile);
             if no_vc_redist {
                 configure_export_crt(&mut command);
             }
@@ -252,18 +253,18 @@ fn prepare_build(
         }
     };
     // 只依据该工程自己的依赖决定是否允许取源，不把编辑器的新建配置套到旧工程上。
-    crate::project_template::apply_project_network_policy(&project.manifest, &mut command)?;
-    features::apply(&mut command);
+    let cargo_manifest = crate::project_template::apply_project_network_policy(&project.manifest, &mut command)?;
+    features::apply(&mut command, (cargo_profile == "dev").then_some(&cargo_manifest));
     let is_dx = actual_backend == ProjectBuildBackend::Dx;
     let manifest = project.manifest.clone();
     let project_root = project.root.clone();
     let log = control.log_sink();
     if let Some(log) = &log {
         if build_backend == ProjectBuildBackend::Dx && !no_vc_redist && !use_dx {
-            log.task_message("已选择 DX，当前平台或构建配置使用原生 Cargo");
+            log.task_message("已选择 DX，当前平台或构建配置使用 Cargo");
         }
         log.task_message(&format!("构建方式：{}；配置：{}；缓存：{}；完整编译",
-            actual_backend.label(), profile.cargo_profile(), target.display()));
+            actual_backend.label(), cargo_profile, target.display()));
         // 日志旁路重定向后Cargo默认隐藏进度和颜色；只为本次可见构建恢复终端输出。
         if !is_dx {
             command.env("CARGO_TERM_PROGRESS_WHEN", "always").env("CARGO_TERM_PROGRESS_WIDTH", "100")
@@ -330,7 +331,7 @@ impl PreparedGame {
         let mut files = crate::build_artifacts::runtime_files(&self.executable, &self.target, &self.dlls, &search_paths, no_vc_redist, control)?;
         append_vendor_runtime(&self.build_outputs, &self.target, &mut files)?;
         let bundle = crate::build_artifacts::publish(&self.target, &project.context.storage_key, &self.executable, &files,
-            serde_json::json!({"project_id":project.id,"project_root":project.root,"profile":self.profile.cargo_profile()}), control)?;
+            serde_json::json!({"project_id":project.id,"project_root":project.root,"profile":self.build_backend.cargo_profile(self.profile)}), control)?;
         let mut prepared = self.clone();
         prepared.executable = bundle.executable.clone();
         prepared.linked_paths = vec![bundle.directory.clone()];
@@ -452,11 +453,13 @@ fn append_vendor_runtime(outputs: &[(String, PathBuf)], target: &Path, files: &m
     Ok(())
 }
 
-/// build和随后cargo run使用同一冻结配置与缓存，Release失败由原调用链报告，绝不回退Debug。
-fn configure_project_cargo(command: &mut Command, project: &Project, target: &Path, profile: ProjectBuildProfile) {
+/// Cargo 使用本次冻结的工程缓存和 profile；编辑器随后从发布的运行副本启动。
+fn configure_project_cargo(command: &mut Command, project: &Project, target: &Path, cargo_profile: &str) {
+    // 清单已经核过工程边界。相对路径避免 Windows 的扩展前缀改变 Cargo 源文件身份。
+    let manifest = project.manifest.strip_prefix(&project.root).unwrap_or(&project.manifest);
     command.args(["--locked", "--manifest-path"])
-        .arg(&project.manifest)
-        .args(["-p", &project.package, "--profile", profile.cargo_profile()])
+        .arg(manifest)
+        .args(["-p", &project.package, "--profile", cargo_profile])
         .current_dir(&project.root)
         .env("CARGO_TARGET_DIR", target);
 }

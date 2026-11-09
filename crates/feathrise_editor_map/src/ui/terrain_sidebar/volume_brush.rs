@@ -1,4 +1,5 @@
 //! 视口笔刷类型与侧栏半高、整平反馈共用会话参数；作者任务仍由雕刻域拥有。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use feathrise_editor_ui::metrics as ui_metrics;
@@ -96,33 +97,33 @@ pub(super) fn panel() -> impl Scene {
         VolumeBrushControls
         Node { display: Display::None, width: percent(100), flex_direction: FlexDirection::Column, row_gap: px(5), flex_shrink: 0.0 }
         Children [
-            (
+
                 VolumeBrushHeightRow
                 Node { display: Display::None, width: percent(100), height: px(26), flex_shrink: 0.0 }
-                Children [(
+                Children [
                     VolumeBrushHeightSlot
                     Node { width: percent(100), min_width: px(0) }
-                )]
-            ),
-            (
+                ]
+            --
+
                 InteractionButton
                 VolumeBrushHeightLockButton
                 Node { height: px(26), width: percent(100), align_items: AlignItems::Center, justify_content: JustifyContent::Center, border: UiRect::all(px(1)) }
                 BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
-                Children [(
+                Children [
                     Text("锁定本笔高度") @feathrise_editor_ui::localization::label_scene("锁定本笔高度")
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                     TextColor(colors::TEXT_PRIMARY)
-                )]
-            ),
-            (
+                ]
+            --
+
                 VolumeBrushHintText
                 Text("")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED)
                 TextLayout { linebreak: LineBreak::AnyCharacter }
-            ),
+
         ]
     }
 }
@@ -245,7 +246,7 @@ pub(super) fn sync(
     mut shapes: Query<
         (
             &VolumeBrushShapeButton,
-            &Interaction,
+            &UiInteraction,
             &mut BackgroundColor,
             &mut BorderColor,
         ),
@@ -290,10 +291,10 @@ pub(super) fn sync(
     }
     for (shape, interaction, mut background, mut border) in &mut shapes {
         let color = match (*interaction, shape.0 == editor.volume_brush_shape) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-            (Interaction::None, true) => colors::SELECT_BG,
-            (Interaction::None, false) => colors::SLOT_BG,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::None, true) => colors::SELECT_BG,
+            (UiInteraction::None, false) => colors::SLOT_BG,
         };
         if background.0 != color {
             background.0 = color;

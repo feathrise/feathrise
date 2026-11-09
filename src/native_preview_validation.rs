@@ -1,5 +1,6 @@
 //! 同HWND原生预览的自有工程验收：原作者历史、可靠模式回执与外层真实OS输入分开取证。
 //! 自动操作只在显式validation的native-preview场景安装；不会写业务成功、锁鼠或窗口模式。
+use feathrise_editor_ui::UiInteraction;
 #[path = "native_preview_validation/gpu_evidence.rs"]
 mod gpu_evidence;
 #[path = "native_preview_validation/io.rs"]
@@ -94,7 +95,7 @@ pub(crate) fn install(app: &mut App, root: &Path, directory: PathBuf) -> Result<
         diagnostic_next: Instant::now() + Duration::from_secs(10),
         diagnostic_error: None,
     })
-    .add_systems(First, input)
+    .add_systems(First, input.before(bevy::picking::PickingSystems::Input))
     .add_systems(Last, drive);
     Ok(())
 }
@@ -111,6 +112,13 @@ fn rect(world: &World, entity: Entity) -> Option<Rect> {
 }
 
 /// 只为作者原预览按钮注入官方鼠标协议；原生游戏输入全部由外层SendInput负责。
+/// 复现真实窗口后端的双通道投递，保证InputPlugin和现代拾取读取同一份输入。
+fn window_input(world: &mut World, input: impl bevy::ecs::message::Message + Clone + Into<bevy::window::WindowEvent>) {
+    let event: bevy::window::WindowEvent = input.clone().into();
+    world.write_message(input);
+    world.write_message(event);
+}
+
 fn input(world: &mut World) {
     let Some(mut plan) = world.remove_resource::<Plan>() else {
         return;
@@ -148,10 +156,12 @@ fn input(world: &mut World) {
             .get_mut::<Window>(window)
             .ok_or("作者窗口已消失")?
             .set_physical_cursor_position(Some(bounds.center().as_dvec2()));
+        let position = bounds.center() / world.get::<Window>(window).unwrap().scale_factor();
+        window_input(world, bevy::window::CursorMoved { window, position, delta: None });
         match plan.click_step {
             0 => plan.click_step = 1,
-            1 if world.get::<Interaction>(entity) == Some(&Interaction::Hovered) => {
-                world.write_message(MouseButtonInput {
+            1 if world.get::<UiInteraction>(entity) == Some(&UiInteraction::Hovered) => {
+                window_input(world, MouseButtonInput {
                     button: MouseButton::Left,
                     state: ButtonState::Pressed,
                     window,
@@ -160,10 +170,10 @@ fn input(world: &mut World) {
             }
             2 => {
                 ensure(
-                    world.get::<Interaction>(entity) == Some(&Interaction::Pressed),
+                    world.get::<UiInteraction>(entity) == Some(&UiInteraction::Pressed),
                     "原预览按钮未收到按下",
                 )?;
-                world.write_message(MouseButtonInput {
+                window_input(world, MouseButtonInput {
                     button: MouseButton::Left,
                     state: ButtonState::Released,
                     window,

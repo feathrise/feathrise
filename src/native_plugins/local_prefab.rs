@@ -35,13 +35,14 @@ impl State {
         else if self.scanned { "编辑器3D · 右键旋转 / 滚轮缩放".into() }
         else { "正在本地加载模型、骨架、附件与动画…".into() }
     }
-    #[cfg(feature = "validation")]
+    // 这些观测接口只供外部验收扩展使用，扩展的测试构建也必须保留。
+    #[cfg(all(feature = "validation", feathrise_external_validation))]
     pub(super) fn validation_source(&self) -> Option<(usize, u32, u64, Entity, &AuthorPrefabPreview)> {
         let current = self.current.as_ref()?;
         let (key, source) = self.cached.as_ref().filter(|(key, _)| key == current)?;
         Some((key.index, key.document, key.revision, self.root?, source.as_ref()))
     }
-    #[cfg(feature = "validation")]
+    #[cfg(all(feature = "validation", feathrise_external_validation))]
     pub(super) fn validation_error(&self) -> Option<&str> { self.error.as_deref() }
 }
 pub(super) fn is_local(preview: &feathrise_plugin_api::RuntimePreview) -> bool {

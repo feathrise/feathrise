@@ -30,7 +30,7 @@ fn view_button(label: &str, action: EditorAction) -> impl Scene {
         }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
@@ -38,7 +38,7 @@ fn view_button(label: &str, action: EditorAction) -> impl Scene {
             }
             TextColor(colors::TEXT_PRIMARY)
             TextLayout::no_wrap()
-        )]
+        ]
     }
 }
 
@@ -61,7 +61,7 @@ pub(in crate::ui) fn viewport_toolbar() -> impl Scene {
         } // 不能因字段数或窄窗换行推动RTT视口边界；不叠到地图画面或复制相机。
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            (
+
                 ViewportViewControls
                 Node {
                     min_width: px(0),
@@ -71,7 +71,7 @@ pub(in crate::ui) fn viewport_toolbar() -> impl Scene {
                     flex_shrink: 0.0,
                 } // 保留按钮自然宽度，溢出只由整条工具栏横滚，不能出现嵌套滚动。
                 Children [
-                    (
+
                         Text("视图") @feathrise_editor_ui::localization::label_scene("视图")
                         TextFont {
                             font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
@@ -80,19 +80,19 @@ pub(in crate::ui) fn viewport_toolbar() -> impl Scene {
                         TextColor(colors::TEXT_MUTED)
                         TextLayout::no_wrap()
                         Node { margin: UiRect::right(px(6)), flex_shrink: 0.0 }
-                    ),
-                    (@view_button("自由", EditorAction::ViewPerspective)),
-                    (@view_button("顶视", EditorAction::ViewTop)),
-                    (@view_button("前视", EditorAction::ViewFront)),
-                    (@view_button("侧视", EditorAction::ViewSide)),
+                    --
+                    @view_button("自由", EditorAction::ViewPerspective)--
+                    @view_button("顶视", EditorAction::ViewTop)--
+                    @view_button("前视", EditorAction::ViewFront)--
+                    @view_button("侧视", EditorAction::ViewSide)--
                     // 正交只切换投影，与观察方向同排；窄视口继续由整条工具栏横滚。
-                    (@view_button("正交", EditorAction::ToggleOrthographic)),
-                    (@view_button("聚焦所选", EditorAction::FocusSelected)),
-                    (@view_button("查看全图", EditorAction::FrameMap)),
+                    @view_button("正交", EditorAction::ToggleOrthographic)--
+                    @view_button("聚焦所选", EditorAction::FocusSelected)--
+                    @view_button("查看全图", EditorAction::FrameMap)
                 ]
-            ),
-            (@crate::viewport::snapping::toolbar()),
-            (@brush_controls_panel()), // 保持原四个稳定槽位；无适用参数时仅收起该组，整条工具栏仍保持32px。
+            --
+            @crate::viewport::snapping::toolbar()--
+            @brush_controls_panel() // 保持原四个稳定槽位；无适用参数时仅收起该组，整条工具栏仍保持32px。
         ]
     }
 }

@@ -1,5 +1,6 @@
 //! 工具请求先经过全局选择/编辑门；只读原水域目标与联合预览回执，禁止另建作者状态。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -97,7 +98,7 @@ pub(super) fn sync_pages(
     mut state: ResMut<WaterSidebarState>,
     mut panels: Query<(&WaterSidebarPanel, &mut Node)>,
     mut tabs: Query<(
-        &Interaction,
+        &UiInteraction,
         &WaterSidebarTab,
         &mut BackgroundColor,
         &mut BorderColor,
@@ -123,10 +124,10 @@ pub(super) fn sync_pages(
     for (interaction, tab, mut background, mut border) in &mut tabs {
         let selected = tab.0 == state.page;
         let fill = match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-            (Interaction::None, true) => colors::SELECT_BG,
-            (Interaction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::None, true) => colors::SELECT_BG,
+            (UiInteraction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL,
         };
         let outline = BorderColor::all(if selected {
             colors::COPPER_BORDER

@@ -1,5 +1,6 @@
 //! 已摆放GLB与地图显示预览在右栏上半区的静态布局；空容器不伪造基础网格行。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*; // BSN Scene与UI布局组件。
@@ -44,7 +45,7 @@ pub(crate) fn sync_map_base_gltf_row(
     editor: Res<crate::resources::MapEditorState>,          // 只显示当前已进入地图而非上一张草稿。
     shading: Res<crate::resources::TerrainShadingSession>,  // 场景行高亮与属性展开共用当前选择。
     mut rows: Query<
-        (&Interaction, &mut Node, &mut BackgroundColor), // 只修改基础地形按钮的布局和底色。
+        (&UiInteraction, &mut Node, &mut BackgroundColor), // 只修改基础地形按钮的布局和底色。
         (With<MapBaseGltfRow>, Without<MapBaseTerrainDetails>), // 与下方属性根的可变Node查询静态互斥。
     >,
     mut labels: Query<&mut Text, With<MapBaseTerrainLabel>>, // 路径文字只在换图时更新。
@@ -74,9 +75,9 @@ pub(crate) fn sync_map_base_gltf_row(
             colors::SELECT_BG // 当前地形被选中时与平滑/平直按钮使用同一高亮色。
         } else {
             match interaction {
-                Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
-                Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
-                Interaction::None => colors::SLOT_BG,
+                UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
+                UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
+                UiInteraction::None => colors::SLOT_BG,
             }
         };
         if background.0 != color {
@@ -128,14 +129,14 @@ fn browser_page_button(label: &str, direction: GltfBrowserPageDirection) -> impl
         }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // 首帧同步前使用安全常态。
         BorderColor::all(colors::COPPER_BORDER_WEAK) // 首帧同步前使用弱铜边。
-        Children [(
+        Children [
             Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // BSN通过AssetServer加载统一中文字体。
                 font_size: px(ui_metrics::FONT_CONTROL), // 紧凑分页文字。
             }
             TextColor(colors::TEXT_PRIMARY) // 可用性主要由背景和边框表达。
-        )]
+        ]
     }
 }
 
@@ -143,7 +144,7 @@ fn browser_page_button(label: &str, direction: GltfBrowserPageDirection) -> impl
 pub(crate) fn map_display_panel() -> impl Scene {
     bsn! { Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column,
         row_gap: px(3), flex_shrink: 0.0 } Children [
-            (
+
                 InteractionButton
                 MapBaseGltfRow // 基础地形固定在已摆放实例上方，点击展开设置。
                 Node {
@@ -156,7 +157,7 @@ pub(crate) fn map_display_panel() -> impl Scene {
                 }
                 BackgroundColor(colors::SLOT_BG) // 共用场景树暗底。
                 BorderColor::all(colors::COPPER_BORDER_WEAK) // 区分基础来源与可操作实例。
-                Children [(
+                Children [
                     MapBaseTerrainLabel // 子文字独立同步来源，点击仍由父按钮接收。
                     Text("") // 清单就绪后显示GLB文件或Clipmap高度块。
                     TextFont {
@@ -166,9 +167,9 @@ pub(crate) fn map_display_panel() -> impl Scene {
                     TextColor(colors::TEXT_PRIMARY) // 基础地形作为正式场景内容显示。
                     TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }
                     Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-                )]
-            ),
-            (@terrain_shading_controls()), // 基础地形被选中后展开网格设置，不占中央视口。
+                ]
+            --
+            @terrain_shading_controls() // 基础地形被选中后展开网格设置，不占中央视口。
     ] }
 }
 
@@ -184,10 +185,10 @@ pub(super) fn gltf_browser_panel() -> impl Scene {
             overflow: Overflow::clip(), // 超长路径和极低窗口不越出右栏。
         }
         Children [
-            (@crate::ui::scene_layers::panel()), // 独立作者内容与摆放共用同一场景树。
-            (@crate::ui::scene_objects::panel()),
-            (@crate::ui::sub_maps::panel()), // 子地图引用属于正式场景树，加载期间也保留可选来源行。
-            (
+            @crate::ui::scene_layers::panel()-- // 独立作者内容与摆放共用同一场景树。
+            @crate::ui::scene_objects::panel()--
+            @crate::ui::sub_maps::panel()-- // 子地图引用属于正式场景树，加载期间也保留可选来源行。
+
                 MapEditorGltfBrowserList
                 Node {
                     display: Display::None, // 零条目时固定八行池完全退出布局。
@@ -199,8 +200,8 @@ pub(super) fn gltf_browser_panel() -> impl Scene {
                     row_gap: px(2), // 与现有资产列表一致。
                     overflow: Overflow::clip(), // 固定池之外内容必须通过分页访问。
                 }
-            ),
-            (
+            --
+
                 MapEditorGltfBrowserPagination
                 Node {
                     display: Display::None, // 只有一页时纯分页条完全收起。
@@ -212,15 +213,15 @@ pub(super) fn gltf_browser_panel() -> impl Scene {
                     column_gap: px(5), // 保持清晰点击间隔。
                 }
                 Children [
-                    (@browser_page_button("上一页", GltfBrowserPageDirection::Previous)),
-                    (GltfBrowserPageLabel Text("1/1")
+                    @browser_page_button("上一页", GltfBrowserPageDirection::Previous)--
+                    GltfBrowserPageLabel Text("1/1")
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                         TextColor(colors::TEXT_MUTED)
-                        Node { align_self: AlignSelf::Center } ~{bevy::ui::FocusPolicy::Pass}),
-                    (@browser_page_button("下一页", GltfBrowserPageDirection::Next)),
+                        Node { align_self: AlignSelf::Center } ~{bevy::ui::FocusPolicy::Pass}--
+                    @browser_page_button("下一页", GltfBrowserPageDirection::Next)
                 ]
-            ),
-            (
+            --
+
                 MapEditorGltfBrowserStatusText
                 ~{crate::ui::status_bar::PanelStatusText("场景资产")} feathrise_editor_ui::feedback::GlobalPanelStatus
                 Text("场景对象：等待地图草稿\n第 1/1 页") @feathrise_editor_ui::localization::label_scene("场景对象：等待地图草稿\n第 1/1 页")
@@ -238,7 +239,7 @@ pub(super) fn gltf_browser_panel() -> impl Scene {
                     overflow: Overflow::clip(), // 选择路径过长也不撑开布局。
                     padding: UiRect::all(px(3)), // 摘要高度只由真实文字与内边距决定。
                 }
-            ),
+
         ]
     }
 }
@@ -275,7 +276,7 @@ mod tests {
             .world_mut()
             .spawn((
                 MapBaseGltfRow,
-                Interaction::None,
+                UiInteraction::None,
                 Node::default(),
                 BackgroundColor::default(),
             ))

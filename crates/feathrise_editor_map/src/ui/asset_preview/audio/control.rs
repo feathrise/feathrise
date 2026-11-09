@@ -1,5 +1,6 @@
 //! 试听按钮与两条滑杆只改会话；冻结文件身份并发布统一鼠标所有权。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{
     AssetPreviewWorkspace,
     types::{AssetPreviewContent, AssetPreviewPhase, AssetPreviewState},
@@ -35,7 +36,7 @@ pub(super) fn input(
         &AudioTrack,
         &ComputedNode,
         &RelativeCursorPosition,
-        &Interaction,
+        &UiInteraction,
     )>,
 ) {
     state.mouse_owned = false;
@@ -131,7 +132,7 @@ pub(super) fn input(
             || track.key != state.key
             || node.size().min_element() <= 0.0
             || !cursor.cursor_over()
-            || *interaction == Interaction::None
+            || *interaction == UiInteraction::None
         {
             continue;
         }

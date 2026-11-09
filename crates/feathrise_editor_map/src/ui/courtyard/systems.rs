@@ -3,6 +3,7 @@
 //! 【功能设计】按下与拖动只记录矩形；松键后每帧最多检查 128 条摆放记录，
 //! 地图、作者修订、视角或视口换代即丢弃未完成结果，直到完整扫描才公开选集。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use bevy::input_focus::{FocusCause, InputFocus}; // 官方中文输入唯一焦点。
 use bevy::prelude::*; // ECS 查询、输入边沿、相机与 UI 值。
@@ -553,7 +554,7 @@ pub(super) fn sync_panel_text(
 pub(super) fn sync_button_styles(
     state: Res<CourtyardUiState>, // 当前武装模式决定保持选中态。
     mut buttons: Query<(
-        &Interaction,
+        &UiInteraction,
         &CourtyardButton,
         &mut BackgroundColor,
         &mut BorderColor,
@@ -568,10 +569,10 @@ pub(super) fn sync_button_styles(
                 | (CourtyardAction::CopyGroup, CourtyardViewportMode::CopyGroup)
         ); // 仅当前视口模式保持亮底。
         let fill = match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下优先于模式选中。
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,   // 悬停即时反馈。
-            (Interaction::None, true) => colors::SELECT_BG,         // 已武装工具保持亮底。
-            (Interaction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL, // 普通暗墨按钮。
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下优先于模式选中。
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,   // 悬停即时反馈。
+            (UiInteraction::None, true) => colors::SELECT_BG,         // 已武装工具保持亮底。
+            (UiInteraction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL, // 普通暗墨按钮。
         };
         if background.0 != fill {
             background.0 = fill; // 颜色未变化时不触发渲染更新。

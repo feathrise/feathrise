@@ -1,5 +1,6 @@
 //! 多选通过真实输入状态机、Transform传播和批量历史验证；不以局部父节点位移冒充模型预览。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::viewport::modes::{SelectionFilter, ViewportMode};
 use crate::viewport::multi_select::{
@@ -963,7 +964,7 @@ fn close_button_during_multi_transform_cancels_preview_and_requests_close() {
     group_begin(&mut app, node, MoveAxis::X);
     let cursor = group_point(&app, MoveAxis::X, 1.0);
     step(&mut app, node, cursor);
-    app.world_mut().spawn((crate::components::MapEditorActionButton(crate::types::EditorAction::Close), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+    app.world_mut().spawn((crate::components::MapEditorActionButton(crate::types::EditorAction::Close), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
     app.world_mut().run_system_once(crate::authoring::placement_batch::handle_placement_batch).unwrap();
     assert!(app.world().resource::<MapEditorState>().close_requested);
     step(&mut app, node, cursor);

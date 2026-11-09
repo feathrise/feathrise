@@ -1,5 +1,6 @@
 //! Rust路径、真实Unicode位置、项目范围和外部定位回归；不启动用户IDE、不改生产资产。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::super::resources::DocumentState;
 use super::super::{
     components::SearchAction,
@@ -179,9 +180,9 @@ fn references_source_editor_choice_preserves_results_and_uses_each_installed_edi
         state.reference_target = Some("gltf/蓝衣.glb".into());
         state.result = Some(result.clone());
     }
-    let row = app.world_mut().spawn((SearchAction::Row { ticket: 1, index: 1 }, Interaction::None)).id();
+    let row = app.world_mut().spawn((SearchAction::Row { ticket: 1, index: 1 }, UiInteraction::None)).id();
     for ide in ExternalEditor::ALL {
-        let choice = app.world_mut().spawn((SearchAction::ChooseEditor(ide), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)).id();
+        let choice = app.world_mut().spawn((SearchAction::ChooseEditor(ide), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)).id();
         app.update();
         assert!(app.world().resource::<Messages<OpenExternalFile>>().is_empty());
         let state = app.world().resource::<AssetSearchState>();
@@ -189,18 +190,18 @@ fn references_source_editor_choice_preserves_results_and_uses_each_installed_edi
         assert_eq!(state.ticket, 1);
         assert!(Arc::ptr_eq(state.result.as_ref().unwrap(), &result));
         assert!(state.pending.is_none() && state.task.is_none());
-        *app.world_mut().get_mut::<Interaction>(choice).unwrap() = Interaction::None;
-        *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::Pressed;
+        *app.world_mut().get_mut::<UiInteraction>(choice).unwrap() = UiInteraction::None;
+        *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::Pressed;
         app.world_mut().entity_mut(row).insert(feathrise_editor_ui::EditorButtonClick::triggered());
         app.update();
         let requests: Vec<_> = app.world_mut().resource_mut::<Messages<OpenExternalFile>>().drain().collect();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].action, ExternalFileAction::ProjectSource { editor: ide, line: 28, column: 34, digest: [7; 32], in_project: true });
         assert!(!requests[0].has_draft);
-        *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None;
+        *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
         app.update();
         for in_project in [false, true] {
-            let button = app.world_mut().spawn((SearchAction::External { ticket: 1, index: 1, editor: ide, in_project }, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)).id();
+            let button = app.world_mut().spawn((SearchAction::External { ticket: 1, index: 1, editor: ide, in_project }, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)).id();
             app.update();
             let requests: Vec<_> = app.world_mut().resource_mut::<Messages<OpenExternalFile>>().drain().collect();
             assert_eq!(requests.len(), 1);
@@ -216,7 +217,7 @@ fn references_source_editor_choice_preserves_results_and_uses_each_installed_edi
     assert_eq!(app.world().resource::<AssetSearchState>().preferred_editor, Some(ExternalEditor::RustRover));
     app.insert_resource(ExternalEditors::for_tests(&[ExternalEditor::Zed]));
     assert_eq!(app.world().resource::<AssetSearchState>().selected_editor(app.world().resource::<ExternalEditors>()), Some(ExternalEditor::Zed));
-    app.world_mut().spawn((SearchAction::ChooseEditor(ExternalEditor::VsCode), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+    app.world_mut().spawn((SearchAction::ChooseEditor(ExternalEditor::VsCode), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
     app.update();
     assert_eq!(app.world().resource::<AssetSearchState>().preferred_editor, Some(ExternalEditor::RustRover));
     app.insert_resource(ExternalEditors::default());
@@ -253,7 +254,7 @@ fn references_source_rows_use_available_ide_and_never_create_an_asset_draft() {
                     ticket: 1,
                     index: 1,
                 },
-                feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+                feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
             ))
             .id();
         app.update();
@@ -276,7 +277,7 @@ fn references_source_rows_use_available_ide_and_never_create_an_asset_draft() {
                 }
             );
             assert!(!requests[0].has_draft);
-            *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::None;
+            *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::None;
             app.update();
             app.world_mut().spawn((
                 SearchAction::External {
@@ -285,7 +286,7 @@ fn references_source_rows_use_available_ide_and_never_create_an_asset_draft() {
                     editor: ide,
                     in_project: true,
                 },
-                feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+                feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
             ));
             app.update();
             let request = app

@@ -1,5 +1,6 @@
 //! 空世界编辑器的直接启动、真实进图门、键盘/按钮关闭及无地图 RTT 生命周期回归。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::ui::widget::ViewportNode;
 use feathrise_scene_core::input::{InputGateState, EditorInputState};
@@ -457,7 +458,7 @@ fn button_app() -> App {
 fn editor_world_hidden_button_press_is_not_replayed_after_reopening() {
     let mut app = button_app();
     app.world_mut().resource_mut::<MapEditorState>().open = false;
-    app.world_mut().spawn((feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed, MapEditorActionButton(EditorAction::NewMap)));
+    app.world_mut().spawn((feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed, MapEditorActionButton(EditorAction::NewMap)));
     app.update(); // 已关闭的控件输入边沿必须被消费，不打开隐藏弹框。
     assert!(!app.world().resource::<MapEditorState>().new_map_dialog_open);
     app.world_mut().resource_mut::<MapEditorState>().open = true;
@@ -472,7 +473,7 @@ fn editor_world_close_button_requests_f12_close_without_exiting_in_menu_or_map()
     let button = app
         .world_mut()
         .spawn((
-            feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+            feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
             MapEditorActionButton(EditorAction::Close),
         ))
         .id();
@@ -483,7 +484,7 @@ fn editor_world_close_button_requests_f12_close_without_exiting_in_menu_or_map()
     assert_eq!(app.should_exit(), None); // 关闭工作台不退出应用。
     app.world_mut()
         .insert_resource(State::new(ScenePhase::Active));
-    app.world_mut().entity_mut(button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert!(app.world().resource::<MapEditorState>().close_requested);
     assert_eq!(app.should_exit(), None); // 进入地图后恢复原安全关闭流程，不意外退出游戏。
@@ -501,7 +502,7 @@ fn direction_buttons_align_exactly_without_changing_projection_focus_or_zoom() {
         yaw: 2.0, pitch: -0.5, framed_map_id: Some(map_id), render_size: UVec2::new(800, 600),
     });
     let button = app.world_mut().spawn((
-        Interaction::None, MapEditorActionButton(EditorAction::ViewTop),
+        UiInteraction::None, MapEditorActionButton(EditorAction::ViewTop),
     )).id();
     let revision = app.world().resource::<EditorAuthoringSession>().revision;
     for orthographic in [false, true] {
@@ -513,7 +514,7 @@ fn direction_buttons_align_exactly_without_changing_projection_focus_or_zoom() {
             (EditorAction::ViewPerspective, crate::types::EditorView::Perspective, -0.72, 0.64),
         ] {
             app.world_mut().get_mut::<MapEditorActionButton>(button).unwrap().0 = action;
-            app.world_mut().entity_mut(button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+            app.world_mut().entity_mut(button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
             app.update(); // 走真实按钮分派器，不能只在测试里直接设置方向资源。
             let editor = app.world().resource::<MapEditorState>();
             let viewport = app.world().resource::<MapEditorViewportState>();
@@ -535,17 +536,17 @@ fn orthographic_button_toggles_independently_and_highlights_beside_selected_dire
     app.add_systems(Update, crate::ui::actions::sync_editor_action_button_styles
             .after(crate::ui::actions::handle_editor_action_buttons));
     let top = app.world_mut().spawn((
-        Interaction::None, MapEditorActionButton(EditorAction::ViewTop), BackgroundColor::default(),
+        UiInteraction::None, MapEditorActionButton(EditorAction::ViewTop), BackgroundColor::default(),
     )).id();
     let toggle = app.world_mut().spawn((
-        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed, MapEditorActionButton(EditorAction::ToggleOrthographic), BackgroundColor::default(),
+        feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed, MapEditorActionButton(EditorAction::ToggleOrthographic), BackgroundColor::default(),
     )).id();
     app.update();
     assert!(app.world().resource::<MapEditorState>().orthographic);
     for button in [top, toggle] {
         assert_eq!(app.world().get::<BackgroundColor>(button).unwrap().0, crate::ui::theme::SELECT_BG);
     }
-    app.world_mut().entity_mut(toggle).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(toggle).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     let editor = app.world().resource::<MapEditorState>();
     assert!(!editor.orthographic);

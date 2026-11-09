@@ -1,5 +1,6 @@
 //! 在官方命中之后冻结按下来源，只有原按钮内释放才产生一次普通动作。
 
+use crate::UiInteraction;
 use crate::InteractionButton;
 use super::{components::EditorButtonClick, resources::*};
 use bevy::{ecs::system::SystemParam, prelude::*, ui::ComputedStackIndex, window::PrimaryWindow};
@@ -15,7 +16,7 @@ pub struct EditorButtonInput<'w, 's> {
         's,
         (
             Entity,
-            &'static Interaction,
+            &'static UiInteraction,
             &'static mut EditorButtonClick,
             Option<&'static ChildOf>,
             Option<&'static ComputedUiTargetCamera>,
@@ -94,7 +95,7 @@ pub fn update_editor_button_clicks(mut input: EditorButtonInput) {
             .iter_mut()
             .filter(|(entity, interaction, _, _, _, _, disabled, cursor)| {
                 !*disabled
-                    && **interaction == Interaction::Pressed
+                    && **interaction == UiInteraction::Pressed
                     && cursor.is_none_or(|cursor| cursor.cursor_over)
                     && visible(*entity, &input.nodes)
             })
@@ -131,14 +132,14 @@ pub fn update_editor_button_clicks(mut input: EditorButtonInput) {
         // Bevy同帧快点仍保留Pressed；普通释放必须真实命中原按钮，移出释放与遮挡均取消。
         // 若同帧先松开旧键再按下新键，终态仍按住，必须等新一轮真实释放。
         if cursor.is_none_or(|cursor| cursor.cursor_over)
-            && (*interaction == Interaction::Hovered
-                || (mouse.just_pressed(MouseButton::Left) && *interaction == Interaction::Pressed))
+            && (*interaction == UiInteraction::Hovered
+                || (mouse.just_pressed(MouseButton::Left) && *interaction == UiInteraction::Pressed))
         {
             click.clicked = true;
             input.capture.released = Some(captured.entity);
         }
         input.capture.held = None;
-    } else if !mouse.pressed(MouseButton::Left) || *interaction != Interaction::Pressed {
+    } else if !mouse.pressed(MouseButton::Left) || *interaction != UiInteraction::Pressed {
         // 业务换绑主动重置Interaction后不会重新武装；丢焦或漏掉的释放也不能留下旧捕获。
         input.capture.held = None;
     }

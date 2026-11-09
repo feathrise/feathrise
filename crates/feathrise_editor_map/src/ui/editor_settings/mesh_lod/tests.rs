@@ -1,5 +1,6 @@
 //! 正式全局LOD控件的提交、取消、隐藏拒收与中文布局回归；不加载地图或写settings.json。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, systems::*};
 use bevy::{ecs::system::RunSystemOnce, prelude::*};
 use crate::resources::{MapEditorLayoutState, MapEditorNumericScrubMouseGuard, MapEditorSettingsState, MapEditorState};
@@ -66,11 +67,11 @@ fn global_mesh_lod_controls_update_only_preferences_and_reject_invalid_or_hidden
     commit(&mut app, fields[0], 7.0, NumericInputCommitOutcome::Accepted);
     assert_eq!(app.world().resource::<EditorSettings>().render.mesh_lod, expected);
     app.world_mut().resource_mut::<MapEditorSettingsState>().shortcuts = false;
-    let toggle = app.world_mut().spawn((ActionButton(Action::Collision), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)).id();
+    let toggle = app.world_mut().spawn((ActionButton(Action::Collision), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)).id();
     app.update();
     assert!(app.world().resource::<EditorSettings>().render.mesh_lod.collision_enabled);
-    *app.world_mut().get_mut::<Interaction>(toggle).unwrap() = Interaction::None;
-    app.world_mut().spawn((ActionButton(Action::Reset), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+    *app.world_mut().get_mut::<UiInteraction>(toggle).unwrap() = UiInteraction::None;
+    app.world_mut().spawn((ActionButton(Action::Reset), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
     app.update();
     assert_eq!(app.world().resource::<EditorSettings>().render.mesh_lod, MeshLodSettings::default());
     assert_eq!(app.world().resource::<EditorSettings>().editor_ui_scale, 1.25);
@@ -179,7 +180,7 @@ fn global_lod_card_fits_real_chinese_font_and_keeps_low_windows_scrollable() {
             bevy::ui::RelativeCursorPosition ~{scroll_cursor}
             Node { width: px(logical_width), height: px(logical_height), min_width: px(0), min_height: px(0),
                 flex_direction: FlexDirection::Column, overflow: Overflow::scroll_y() } ScrollPosition::default()
-            Children [(@super::scene::panel())]
+            Children [@super::scene::panel()]
         }));
         app.world_mut().spawn((Camera2d, Camera { computed: ComputedCameraValues {
             target_info: Some(RenderTargetInfo { physical_size: UVec2::new(width as u32, height as u32), scale_factor: dpi }), ..default() },

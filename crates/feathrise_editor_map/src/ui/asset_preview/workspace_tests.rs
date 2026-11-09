@@ -1,5 +1,6 @@
 //! 中央图片/模型标签的真实ECS交互、父关系和切页回归；GPU画面另由离屏用例验证。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use bevy::asset::AssetPlugin;
 use bevy::ecs::system::RunSystemOnce;
@@ -56,7 +57,7 @@ fn press(app: &mut App, action: AssetPreviewWorkspaceAction) {
         .world_mut()
         .spawn((
             feathrise_editor_ui::EditorButtonClick::triggered(),
-            Interaction::Pressed,
+            UiInteraction::Pressed,
             action,
         ))
         .id();

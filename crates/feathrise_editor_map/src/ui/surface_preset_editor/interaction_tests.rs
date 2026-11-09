@@ -1,5 +1,6 @@
 //! 地表预设选择只设置新建目标，不隐式追加作者层的回归。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use bevy::{prelude::*, text::EditableText, input_focus::{InputFocus, FocusCause}, input::keyboard::KeyboardInput};
 use crate::{resources::MapEditorState, authoring::EditorAuthoringSession, ui::{vegetation_preset_editor::VegetationPresetEditorState, text_input::EditorTextInputGuard}};
@@ -18,7 +19,7 @@ fn create_preset(state: &mut SurfacePresetEditorState, workspace: &mut Vegetatio
         .add_systems(Update, handle_buttons);
     let registry = registry.unwrap();
     app.insert_resource(SurfacePresetRegistry { catalog: registry.catalog.clone(), revision: registry.revision, resolved: registry.resolved.clone(), last_error: None });
-    app.world_mut().spawn((SurfacePresetButton(SurfacePresetAction::Create), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+    app.world_mut().spawn((SurfacePresetButton(SurfacePresetAction::Create), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
     app.update();
     *state = app.world_mut().remove_resource::<SurfacePresetEditorState>().unwrap();
     *workspace = app.world_mut().remove_resource::<VegetationPresetEditorState>().unwrap();

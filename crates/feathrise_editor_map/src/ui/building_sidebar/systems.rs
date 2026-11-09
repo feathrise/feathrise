@@ -1,5 +1,6 @@
 //! 顶部工具页的输入收口与固定节点显隐；不触碰地图数据、后台结果或撤销历史。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
@@ -78,7 +79,7 @@ pub(super) fn sync_pages(
     mut panels: Query<(&BuildingSidebarPanel, &mut Node)>,
     mut tabs: Query<(
         &BuildingSidebarTab,
-        &Interaction,
+        &UiInteraction,
         &mut BackgroundColor,
         &mut BorderColor,
     )>,
@@ -111,10 +112,10 @@ pub(super) fn sync_pages(
     for (tab, interaction, mut background, mut border) in &mut tabs {
         let selected = tab.0 == *page;
         let fill = match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-            (Interaction::None, true) => colors::SELECT_BG,
-            (Interaction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::None, true) => colors::SELECT_BG,
+            (UiInteraction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL,
         };
         let outline = BorderColor::all(if selected {
             colors::COPPER_BORDER

@@ -1,5 +1,6 @@
 //! 在业务语义色上统一叠加按钮反馈；只处理绘制背景，不写回逻辑色或交互状态。
 
+use crate::UiInteraction;
 use super::resources::{EditorPalette, key};
 use crate::colors;
 use bevy::prelude::*;
@@ -8,7 +9,7 @@ use feathrise_ui_widgets::ButtonColors;
 
 #[derive(Clone, Copy)]
 pub(super) struct ButtonFeedback {
-    pub interaction: Interaction,
+    pub interaction: UiInteraction,
     pub disabled: bool,
     pub background: LinearRgba,
     pub colors: Option<ButtonColors>,
@@ -16,11 +17,11 @@ pub(super) struct ButtonFeedback {
 
 /// Bevy按压捕获可跨越按钮边界；明确移出后取消按压视觉，输入取消由共享点击契约处理。
 pub(super) fn interaction_for_cursor(
-    interaction: Interaction,
+    interaction: UiInteraction,
     cursor: Option<&RelativeCursorPosition>,
-) -> Interaction {
-    if interaction == Interaction::Pressed && cursor.is_some_and(|cursor| !cursor.cursor_over()) {
-        Interaction::None
+) -> UiInteraction {
+    if interaction == UiInteraction::Pressed && cursor.is_some_and(|cursor| !cursor.cursor_over()) {
+        UiInteraction::None
     } else {
         interaction
     }
@@ -41,9 +42,9 @@ impl ButtonFeedback {
                 colors.normal
             } else {
                 match self.interaction {
-                    Interaction::None => colors.normal,
-                    Interaction::Hovered => colors.hovered,
-                    Interaction::Pressed => colors.pressed,
+                    UiInteraction::None => colors.normal,
+                    UiInteraction::Hovered => colors.hovered,
+                    UiInteraction::Pressed => colors.pressed,
                 }
             };
             return palette.resolve(color).to_linear();
@@ -82,9 +83,9 @@ impl ButtonFeedback {
             return mapped;
         }
         let lift = match self.interaction {
-            Interaction::None => return mapped,
-            Interaction::Hovered => 0.07,
-            Interaction::Pressed => 0.13,
+            UiInteraction::None => return mapped,
+            UiInteraction::Hovered => 0.07,
+            UiInteraction::Pressed => 0.13,
         };
         // 等量提升显示亮度，保留选中蓝灰、危险红及自定义底色之间的色相差异和透明强度。
         let source = Color::LinearRgba(mapped).to_srgba();

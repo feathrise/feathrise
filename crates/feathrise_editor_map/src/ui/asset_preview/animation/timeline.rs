@@ -1,5 +1,6 @@
 //! 连续时间轴的鼠标捕获与快捷键；手势只预览，释放时提交一次后台事务。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{AssetPreviewWorkspace, DocumentState, types::AssetPreviewState};
 use super::{components::*, context::AnimationContext, editing::Command, resources::*, types::*};
 use bevy::{
@@ -46,7 +47,7 @@ pub(super) fn input(
         &AnimationTrack,
         &ComputedNode,
         &RelativeCursorPosition,
-        &Interaction,
+        &UiInteraction,
     )>,
 ) {
     let wheel: f32 = wheels
@@ -184,7 +185,7 @@ pub(super) fn input(
         track.binding == state.revision
             && node.size().min_element() > 0.0
             && cursor.cursor_over()
-            && **interaction != Interaction::None
+            && **interaction != UiInteraction::None
     });
     // 快捷键只在时间轴悬停时处理，不抢资产列表、搜索框或地图撤销。
     let Some((entity, track, node, cursor, _)) = hovered else {
@@ -341,7 +342,7 @@ mod tests {
                     cursor_over: true,
                     normalized: Some(Vec2::new(-0.5, 0.0)),
                 },
-                Interaction::Hovered,
+                UiInteraction::Hovered,
             ))
             .id();
         (app, entity)

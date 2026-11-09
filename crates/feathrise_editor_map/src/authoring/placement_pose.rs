@@ -227,7 +227,7 @@ mod tests {
         let tilted_local = TerrainObjectTransform { pitch_degrees: 1.0, ..Default::default() };
         assert!(source_to_world(tilted_local, TerrainObjectTransform::default()).is_err());
         for world in [Mat4::ZERO, Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0)),
-            Mat4::from_translation(Vec3::new(f32::NAN, 0.0, 0.0)), Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0)]
+            Mat4::from_translation(Vec3::new(f32::NAN, 0.0, 0.0)), bevy::math::proj::perspective(1.0, 1.0, 0.1, 100.0)]
         {
             assert!(world_to_source(world, TerrainObjectTransform::default()).is_err());
         }

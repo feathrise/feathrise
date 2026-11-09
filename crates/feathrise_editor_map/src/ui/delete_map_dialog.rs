@@ -1,5 +1,6 @@
 //! 地图直接删除或放入项目回收站的模态确认框与目标回显。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*; // BSN场景、UI布局、文本和资源查询。
 use bevy::text::FontSourceTemplate; // 确认内容使用项目中文字体。
@@ -17,7 +18,7 @@ use super::scene::FONT_PATH;
 pub(super) fn delete_map_dialog() -> impl Scene {
     bsn! {
         MapDeletionDialog
-        Interaction::default()
+        UiInteraction::default()
         Node {
             display: Display::None, position_type: PositionType::Absolute,
             left: px(0), top: px(0), width: percent(100), height: percent(100),
@@ -26,49 +27,49 @@ pub(super) fn delete_map_dialog() -> impl Scene {
         }
         GlobalZIndex(440)
         BackgroundColor(colors::OVERLAY_BG)
-        Children [(
+        Children [
             ManagementPanel(DialogKind::MapDeletion)
             ~{modal::panel_node()}
             BackgroundColor(colors::PANEL_BG_STRONG)
             BorderColor::all(colors::COPPER_BORDER_WEAK)
             Children [
-                (@modal::heading("删除地图")),
-                (
+                @modal::heading("删除地图")--
+
                     ManagementScroll(DialogKind::MapDeletion)
                     ScrollPosition::default() RelativeCursorPosition::default()
                     ~{modal::body_node()}
                     Children [
-                        (@modal::caption("删除目标 · 请核对身份")),
-                        (
+                        @modal::caption("删除目标 · 请核对身份")--
+
                             MapDeletionDialogText Text("等待删除目标") @feathrise_editor_ui::localization::label_scene("等待删除目标")
                             TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_PRIMARY)
                             Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-                        ),
-                        (@modal::caption("删除后果与保护")),
-                        (@modal::caption("直接删除：永久删除地图文件，不可恢复。放入回收站：将文件移到工程的 assets/maps/.trash/，可人工恢复。")),
-                        (@modal::caption("两种方式都会移除地图目录入口；文件夹已不存在时只清理记录。其他地图仍引用它时拒绝删除，必须先关闭该地图标签并等待场景卸载。")),
+                        --
+                        @modal::caption("删除后果与保护")--
+                        @modal::caption("直接删除：永久删除地图文件，不可恢复。放入回收站：将文件移到工程的 assets/maps/.trash/，可人工恢复。")--
+                        @modal::caption("两种方式都会移除地图目录入口；文件夹已不存在时只清理记录。其他地图仍引用它时拒绝删除，必须先关闭该地图标签并等待场景卸载。")
                     ]
-                ),
-                (
+                --
+
                     ManagementScroll(DialogKind::MapDeletion) ManagementFeedback(DialogKind::MapDeletion)
                     ScrollPosition::default() RelativeCursorPosition::default()
                     ~{modal::feedback_node()}
                     BackgroundColor(colors::PANEL_BG_SECTION)
-                    Children [(@modal::caption("待确认 · 尚未启动删除；确认后仍须通过引用与文件校验。"))]
-                ),
-                (
+                    Children [@modal::caption("待确认 · 尚未启动删除；确认后仍须通过引用与文件校验。")]
+                --
+
                     ManagementFooter(DialogKind::MapDeletion)
                     ~{modal::footer_node()}
                     Children [
-                        (@modal::button("取消", EditorAction::CancelDeleteMap)),
-                        (@modal::button("直接删除", EditorAction::ConfirmDeleteMapPermanently)),
-                        (@modal::button("放入回收站", EditorAction::ConfirmDeleteMap)),
+                        @modal::button("取消", EditorAction::CancelDeleteMap)--
+                        @modal::button("直接删除", EditorAction::ConfirmDeleteMapPermanently)--
+                        @modal::button("放入回收站", EditorAction::ConfirmDeleteMap)
                     ]
-                ),
+
             ]
-        )]
+        ]
     }
 }
 
@@ -86,7 +87,7 @@ pub(crate) fn configure_delete_map_dialog_focus(
 fn apply_delete_dialog_root_state(
     visible: bool,                  // 只有存在冻结删除请求时才允许模态根捕获鼠标。
     node: &mut Node,                // `Display`控制弹框及全部子节点布局。
-    interaction: &mut Interaction,  // 隐藏时清除根节点遗留的按压或悬停状态。
+    interaction: &mut UiInteraction,  // 隐藏时清除根节点遗留的按压或悬停状态。
     focus_policy: &mut FocusPolicy, // `Pass`保证不可见根绝不拦截目录按钮。
 ) {
     node.display = if visible {
@@ -100,7 +101,7 @@ fn apply_delete_dialog_root_state(
         FocusPolicy::Pass // 隐藏当帧立即释放命中，即使ComputedNode尚未完成下一轮布局。
     };
     if !visible {
-        *interaction = Interaction::None; // 下一次打开从干净交互状态开始。
+        *interaction = UiInteraction::None; // 下一次打开从干净交互状态开始。
     }
 }
 
@@ -109,11 +110,11 @@ pub(crate) fn sync_delete_map_dialog(
     editor: Res<MapEditorState>,    // F12隐藏时确认框也必须隐藏。
     deletion: Res<MapDeletionTask>, // confirmation决定是否存在待确认目标。
     mut dialogs: Query<
-        (Entity, &mut Node, &mut Interaction, &mut FocusPolicy), // 根实体同时控制布局、交互与阻止点透策略。
+        (Entity, &mut Node, &mut UiInteraction, &mut FocusPolicy), // 根实体同时控制布局、交互与阻止点透策略。
         With<MapDeletionDialog>,                                 // 只处理唯一删除确认遮罩。
     >,
     children: Query<&Children>, // 隐藏时只遍历确认框固定小层级，清除两个按钮的遗留交互。
-    mut descendant_interactions: Query<&mut Interaction, Without<MapDeletionDialog>>, // 与根查询保持结构性互斥。
+    mut descendant_interactions: Query<&mut UiInteraction, Without<MapDeletionDialog>>, // 与根查询保持结构性互斥。
     mut texts: Query<&mut Text, With<MapDeletionDialogText>>, // 唯一目标文字只改String。
 ) {
     if !(editor.is_changed() || deletion.is_changed()) {
@@ -131,7 +132,7 @@ pub(crate) fn sync_delete_map_dialog(
             for descendant in children.iter_descendants(entity) {
                 if let Ok(mut descendant_interaction) = descendant_interactions.get_mut(descendant)
                 {
-                    *descendant_interaction = Interaction::None; // 取消、确认按钮不会把旧Pressed状态带到下一次弹框。
+                    *descendant_interaction = UiInteraction::None; // 取消、确认按钮不会把旧Pressed状态带到下一次弹框。
                 }
             }
         }
@@ -177,13 +178,13 @@ mod tests {
             .spawn((
                 MapDeletionDialog, // 标记唯一全屏遮罩根。
                 Node::default(),   // 初始布局由同步系统改为Flex。
-                Interaction::None, // 初次打开没有旧按压状态。
+                UiInteraction::None, // 初次打开没有旧按压状态。
                 FocusPolicy::Pass, // 隐藏初始态不阻止底层命中。
             ))
             .id();
         let cancel = app
             .world_mut()
-            .spawn((Interaction::None,)) // 模拟确认框内的取消按钮。
+            .spawn((UiInteraction::None,)) // 模拟确认框内的取消按钮。
             .id();
         app.world_mut().entity_mut(root).add_child(cancel); // 建立真实模态父子关系供隐藏清理遍历。
         app.world_mut().resource_mut::<MapEditorState>().open = true; // 模拟F12已经打开。
@@ -201,10 +202,10 @@ mod tests {
         assert_eq!(root_entity.get::<FocusPolicy>(), Some(&FocusPolicy::Block)); // 可见时必须阻止底层点击。
         app.world_mut()
             .entity_mut(root)
-            .insert(Interaction::Pressed); // 模拟点击取消时根命中状态仍未释放。
+            .insert(UiInteraction::Pressed); // 模拟点击取消时根命中状态仍未释放。
         app.world_mut()
             .entity_mut(cancel)
-            .insert(Interaction::Pressed); // 模拟取消按钮在隐藏前仍处于Pressed。
+            .insert(UiInteraction::Pressed); // 模拟取消按钮在隐藏前仍处于Pressed。
         app.world_mut()
             .resource_mut::<MapDeletionTask>()
             .confirmation = None; // 取消动作清空冻结删除请求。
@@ -217,10 +218,10 @@ mod tests {
             Display::None
         ); // 取消后弹框不参与布局。
         assert_eq!(root_entity.get::<FocusPolicy>(), Some(&FocusPolicy::Pass)); // 隐藏根不得再拦截“进入/删除地图”。
-        assert_eq!(root_entity.get::<Interaction>(), Some(&Interaction::None)); // 根交互已经清空。
+        assert_eq!(root_entity.get::<UiInteraction>(), Some(&UiInteraction::None)); // 根交互已经清空。
         assert_eq!(
-            app.world().entity(cancel).get::<Interaction>(),
-            Some(&Interaction::None),
+            app.world().entity(cancel).get::<UiInteraction>(),
+            Some(&UiInteraction::None),
         ); // 子按钮也不保留会污染下一次打开的Pressed。
         app.world_mut()
             .resource_mut::<MapDeletionTask>()

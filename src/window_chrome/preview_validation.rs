@@ -1,4 +1,5 @@
 //! 自有SDK工程的真实root→author→game预览三键专项；仅显式场景安装，不改生产状态。
+use feathrise_editor_ui::UiInteraction;
 mod resources;
 mod types;
 mod snapshot_evidence;
@@ -68,7 +69,7 @@ pub(crate) fn install(app:&mut App,project:&Path,directory:std::path::PathBuf)->
         native_sync_trace:std::env::var("FEATHRISE_PREVIEW_CHROME_NATIVE_TRACE").as_deref()==Ok("1"),
         native_sync_write:None,native_sync_count:0,
         native_sync_last:None,native_sync_last_gate:None})
-        .add_systems(First,input).add_systems(Last,drive);
+        .add_systems(First,input.before(bevy::picking::PickingSystems::Input)).add_systems(Last,drive);
     Ok(())
 }
 
@@ -88,6 +89,13 @@ fn button(world:&mut World,stage:u8)->Result<Option<Entity>,String>{
 }
 fn valid_root(plan:&Plan)->bool{let mut pid=0;unsafe{IsWindow(plan.root as HWND)!=0&&GetWindowThreadProcessId(plan.root as HWND,&mut pid)!=0&&pid==plan.root_pid}}
 
+/// 复现真实窗口后端的双通道投递，保证InputPlugin和现代拾取读取同一份输入。
+fn window_input(world: &mut World, input: impl bevy::ecs::message::Message + Clone + Into<bevy::window::WindowEvent>) {
+    let event: bevy::window::WindowEvent = input.clone().into();
+    world.write_message(input);
+    world.write_message(event);
+}
+
 fn input(world:&mut World){let Some(mut plan)=world.remove_resource::<Plan>()else{return;};
     if (plan.failure.is_none()||plan.report_written)&&let Err(error)=issue(world,&mut plan){plan.failure=Some(error);}
     world.insert_resource(plan);
@@ -102,11 +110,13 @@ fn issue(world:&mut World,plan:&mut Plan)->Result<(),String>{
     let Some(entity)=plan.target else{return Ok(());};let Some(bounds)=rect(world,entity)else{return Ok(());};
     let Ok(window)=world.query_filtered::<Entity,With<PrimaryWindow>>().single(world)else{return Ok(());};
     world.get_mut::<Window>(window).ok_or("作者主窗已消失")?.set_physical_cursor_position(Some(bounds.center().as_dvec2()));
-    match plan.mouse{0=>plan.mouse=1,1 if world.get::<Interaction>(entity)==Some(&Interaction::Hovered)=>{
-        world.write_message(MouseButtonInput{button:MouseButton::Left,state:ButtonState::Pressed,window});plan.mouse=2;
+    let position = bounds.center() / world.get::<Window>(window).unwrap().scale_factor();
+    window_input(world, bevy::window::CursorMoved { window, position, delta: None });
+    match plan.mouse{0=>plan.mouse=1,1 if world.get::<UiInteraction>(entity)==Some(&UiInteraction::Hovered)=>{
+        window_input(world, MouseButtonInput{button:MouseButton::Left,state:ButtonState::Pressed,window});plan.mouse=2;
     },2=>{
-        ensure(world.get::<Interaction>(entity)==Some(&Interaction::Pressed),"原三键或预览按钮没有接收官方按下")?;
-        world.write_message(MouseButtonInput{button:MouseButton::Left,state:ButtonState::Released,window});plan.mouse=3;
+        ensure(world.get::<UiInteraction>(entity)==Some(&UiInteraction::Pressed),"原三键或预览按钮没有接收官方按下")?;
+        window_input(world, MouseButtonInput{button:MouseButton::Left,state:ButtonState::Released,window});plan.mouse=3;
     },_=>{}}
     Ok(())
 }

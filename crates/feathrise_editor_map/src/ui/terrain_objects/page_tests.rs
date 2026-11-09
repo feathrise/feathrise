@@ -1,4 +1,5 @@
 //! 真实常驻网格页、公共数值输入及场景选择回归；字体布局不代替原生窗口验收。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::*, *};
 use crate::{
@@ -41,10 +42,10 @@ struct PageHost;
 struct ListHost;
 fn shell() -> impl Scene {
     bsn! { feathrise_editor_ui::EditorThemeRoot Node { width: px(600), height: px(700), column_gap: px(8) } Children [
-        (PageHost Node { width: px(280), height: px(700), min_width: px(0), flex_direction: FlexDirection::Column,
-            overflow: Overflow::scroll_y(), flex_shrink: 0.0 } Children [(@scene::panel())]),
-        (ListHost Node { width: px(280), height: px(700), min_width: px(0), flex_direction: FlexDirection::Column,
-            flex_shrink: 0.0 } Children [(@crate::ui::gltf_browser::map_display_panel()), (@scene::scene_list_panel()), (@scene::properties_panel())]),
+        PageHost Node { width: px(280), height: px(700), min_width: px(0), flex_direction: FlexDirection::Column,
+            overflow: Overflow::scroll_y(), flex_shrink: 0.0 } Children [@scene::panel()]--
+        ListHost Node { width: px(280), height: px(700), min_width: px(0), flex_direction: FlexDirection::Column,
+            flex_shrink: 0.0 } Children [@crate::ui::gltf_browser::map_display_panel()-- @scene::scene_list_panel()-- @scene::properties_panel()]
     ] }
 }
 
@@ -1545,7 +1546,7 @@ fn row_icons_target_their_own_mesh_and_keep_locked_mutations_out() {
     let world = app.world_mut();
     let (_, background, border) = world.query::<(&Row, &BackgroundColor, &BorderColor)>().iter(world)
         .find(|(row, ..)| row.0 == 1).unwrap();
-    let (fill, outline) = crate::ui::map_sidebar::tree_row_colors(true, false, Interaction::None);
+    let (fill, outline) = crate::ui::map_sidebar::tree_row_colors(true, false, UiInteraction::None);
     assert_eq!(background.0, fill);
     assert_eq!(*border, outline);
 }
@@ -1912,7 +1913,7 @@ fn mesh_sidebar_gpu_snapshot() {
             app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
             app.world_mut().run_system_cached(bevy::ui::ui_focus_system).unwrap();
             app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
-            assert_eq!(*app.world().get::<Interaction>(toggle).unwrap(), Interaction::Pressed);
+            assert_eq!(*app.world().get::<UiInteraction>(toggle).unwrap(), UiInteraction::Pressed);
             assert!(!app.world().get::<feathrise_editor_ui::EditorButtonClick>(toggle).unwrap().is_clicked());
             app.world_mut().run_system_once(systems::input).unwrap();
             assert!(!app.world().resource::<TerrainObjectsEditorState>().creation_open,
@@ -2077,13 +2078,13 @@ fn editor_workbench_gpu_snapshot() {
     assert_eq!(app.world().get::<ChildOf>(properties_tab).unwrap().parent(), app.world().get::<ChildOf>(tools_tab).unwrap().parent(), "工具需要独立右侧页签");
     // 复用正式按钮和输入系统，验证环境、对象属性及动态工具页签可往返，且模块记忆不丢失。
     for (button, expected) in [(environment_tab, EditorRightSidebarTab::Environment), (properties_tab, EditorRightSidebarTab::Scene), (tools_tab, EditorRightSidebarTab::Environment)] {
-        app.world_mut().entity_mut(button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        app.world_mut().entity_mut(button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         // 离屏夹具没有物理鼠标；先交给正式输入系统消费边沿，避免PreUpdate拾取重置人工按下。
         app.world_mut().run_system_once(crate::ui::sidebars::handle_editor_sidebar_input).unwrap();
         app.update();
         assert_eq!(app.world().resource::<MapEditorSidebarState>().right, expected);
         assert_eq!(app.world().resource::<MapEditorSidebarState>().left, EditorLeftSidebarTab::Environment);
-        *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::None;
+        *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::None;
         app.update();
     }
     // 正式文件行从左侧浏览器选中，右侧仅显示文件属性；返回工具再回属性仍记忆文件来源。
@@ -2094,19 +2095,19 @@ fn editor_workbench_gpu_snapshot() {
         world.query::<(Entity, &crate::components::MapEditorAssetRow)>().iter(world)
             .find_map(|(entity, row)| (row.entry_index == Some(0)).then_some(entity)).unwrap()
     };
-    app.world_mut().entity_mut(file_row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(file_row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.world_mut().run_system_once(crate::asset_catalog::handle_asset_row_clicks).unwrap();
     app.update();
     assert_eq!(app.world().resource::<MapEditorSidebarState>().right, EditorRightSidebarTab::Assets);
     assert!(app.world().resource::<MapEditorSidebarState>().assets_browser_visible());
     assert_eq!(app.world().resource::<MapEditorSidebarState>().left, EditorLeftSidebarTab::Environment);
-    *app.world_mut().get_mut::<Interaction>(file_row).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(file_row).unwrap() = UiInteraction::None;
     for (button, expected) in [(tools_tab, EditorRightSidebarTab::Environment), (properties_tab, EditorRightSidebarTab::Assets)] {
-        app.world_mut().entity_mut(button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        app.world_mut().entity_mut(button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         app.world_mut().run_system_once(crate::ui::sidebars::handle_editor_sidebar_input).unwrap();
         app.update();
         assert_eq!(app.world().resource::<MapEditorSidebarState>().right, expected);
-        *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::None;
+        *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::None;
         app.update();
     }
     let before = app.world().resource::<EditorAuthoringSession>().next_serial;

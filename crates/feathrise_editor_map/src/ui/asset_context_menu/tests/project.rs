@@ -1,5 +1,6 @@
 //! 工程目录右键复用资产菜单的输入所有权；验证来源冻结与无副作用外部动作。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::{asset_catalog::project_files::EditorProjectFileCatalog,
     ui::project_browser::{ProjectBrowserContent, ProjectBrowserState, ProjectBrowserView, ProjectFileRow, ProjectFileViewport}};
@@ -25,7 +26,7 @@ fn project_fixture(path: &str, directory: bool) -> (Fixture, std::path::PathBuf,
         .add_message::<OpenExternalProjectFile>();
     test.app.world_mut().spawn((ProjectBrowserContent(ProjectBrowserView::ProjectFiles), ScrollPosition::default()));
     let row = test.app.world_mut().spawn((ProjectFileRow { slot: 0, entry_index: Some(0),
-        revision: 1, viewport_revision: 7 }, Interaction::Hovered, Node::default())).id();
+        revision: 1, viewport_revision: 7 }, UiInteraction::Hovered, Node::default())).id();
     step(&mut test.app);
     (test, root, row)
 }
@@ -34,7 +35,7 @@ fn project_fixture(path: &str, directory: bool) -> (Fixture, std::path::PathBuf,
 fn project_menu_uses_the_right_clicked_file_and_project_root_without_changing_selection() {
     let (mut test, root, _) = project_fixture("src/中文 文件.rs", false);
     let favorite = test.app.world_mut().spawn((super::super::components::AssetMenuFavoriteButton,
-        Node::default(), Interaction::None, BackgroundColor::default(), BorderColor::default())).id();
+        Node::default(), UiInteraction::None, BackgroundColor::default(), BorderColor::default())).id();
     open_menu(&mut test);
     let target = test.app.world().resource::<AssetContextMenuState>().target.as_ref().unwrap();
     assert_eq!(target.path, "src/中文 文件.rs");
@@ -43,7 +44,7 @@ fn project_menu_uses_the_right_clicked_file_and_project_root_without_changing_se
     assert_eq!((test.app.world().get::<Node>(test.popup).unwrap().width,
         test.app.world().get::<Node>(test.popup).unwrap().height), (px(240), px(138)));
     assert!(test.app.world().resource::<Messages<CopyProjectPath>>().is_empty(), "仅打开菜单不写剪贴板");
-    *test.app.world_mut().get_mut::<Interaction>(test.copy).unwrap() = Interaction::Pressed;
+    *test.app.world_mut().get_mut::<UiInteraction>(test.copy).unwrap() = UiInteraction::Pressed;
     test.app.world_mut().entity_mut(test.copy).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
     step(&mut test.app);
@@ -75,9 +76,9 @@ fn project_menu_external_actions_keep_file_and_directory_targets() {
     ] {
         let (mut test, root, _) = project_fixture(path, directory);
         let button = test.app.world_mut().spawn((AssetMenuExternalButton(action), Node::default(),
-            Interaction::None, BackgroundColor::default(), BorderColor::default())).id();
+            UiInteraction::None, BackgroundColor::default(), BorderColor::default())).id();
         open_menu(&mut test);
-        *test.app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+        *test.app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
         test.app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
         test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         step(&mut test.app);
@@ -103,7 +104,7 @@ fn project_menu_discards_old_rows_after_refresh_scroll_and_source_change() {
             }
             _ => test.app.world_mut().resource_mut::<EditorProjectFileCatalog>().entries[0].asset_path = "src/新文件.rs".into(),
         }
-        *test.app.world_mut().get_mut::<Interaction>(test.copy).unwrap() = Interaction::Pressed;
+        *test.app.world_mut().get_mut::<UiInteraction>(test.copy).unwrap() = UiInteraction::Pressed;
         test.app.world_mut().entity_mut(test.copy).insert(feathrise_editor_ui::EditorButtonClick::triggered());
         test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         step(&mut test.app);

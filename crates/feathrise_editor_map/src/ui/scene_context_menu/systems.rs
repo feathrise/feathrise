@@ -1,5 +1,6 @@
 //! 右键只接受真实可见行；关闭点击通过静默门后将冻结操作发布一帧。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::SceneContextMenuState, types::*};
 use crate::{
     authoring::EditorAuthoringSession,
@@ -96,7 +97,7 @@ pub(super) fn valid_target(
     target: &MenuTarget,
     editor: &MapEditorState,
     session: &EditorAuthoringSession,
-    rows: &Query<(Entity, &SceneObjectRow, &Node, &Interaction)>,
+    rows: &Query<(Entity, &SceneObjectRow, &Node, &UiInteraction)>,
 ) -> bool {
     target.object.current(editor, session)
         && rows.get(target.row).is_ok_and(|(_, row, node, _)| {
@@ -110,13 +111,13 @@ pub(super) fn control_menu(
     mouse: Res<ButtonInput<MouseButton>>,
     mut keyboard: ResMut<ButtonInput<KeyCode>>,
     guard: Res<MapEditorNumericScrubMouseGuard>,
-    rows: Query<(Entity, &SceneObjectRow, &Node, &Interaction)>,
-    actions: Query<(&MenuButton, &Interaction, Ref<EditorButtonClick>)>,
+    rows: Query<(Entity, &SceneObjectRow, &Node, &UiInteraction)>,
+    actions: Query<(&MenuButton, &UiInteraction, Ref<EditorButtonClick>)>,
     rename_buttons: Query<
-        (&Interaction, Ref<EditorButtonClick>, Has<RenameConfirm>, Has<RenameCancel>),
+        (&UiInteraction, Ref<EditorButtonClick>, Has<RenameConfirm>, Has<RenameCancel>),
         Or<(With<RenameConfirm>, With<RenameCancel>)>,
     >,
-    fields: Query<&Interaction, With<RenameField>>,
+    fields: Query<&UiInteraction, With<RenameField>>,
     mut inputs: Query<(Entity, &mut EditableText), With<RenameInput>>,
     mut focus: ResMut<InputFocus>,
     mut menu: ResMut<SceneContextMenuState>,
@@ -161,10 +162,10 @@ pub(super) fn control_menu(
             let cancel = rename_buttons
                 .iter()
                 .any(|(_, click, _, cancel)| click.is_changed() && click.is_clicked() && cancel);
-            let over_button = rename_buttons.iter().any(|(interaction, _, _, _)| *interaction != Interaction::None);
+            let over_button = rename_buttons.iter().any(|(interaction, _, _, _)| *interaction != UiInteraction::None);
             let editing = fields
                 .iter()
-                .any(|interaction| *interaction != Interaction::None);
+                .any(|interaction| *interaction != UiInteraction::None);
             if cancel || mouse.just_pressed(MouseButton::Left) && !over_button && !editing {
                 menu.target = None;
                 menu.renaming = false;
@@ -230,7 +231,7 @@ pub(super) fn control_menu(
                 focus.clear();
             }
         } else if mouse.just_pressed(MouseButton::Left)
-            && actions.iter().all(|(_, interaction, _)| *interaction == Interaction::None)
+            && actions.iter().all(|(_, interaction, _)| *interaction == UiInteraction::None)
         {
             menu.target = None; // 外部按下只关闭；不能提前吞掉菜单项等待松开的手势。
         }
@@ -247,7 +248,7 @@ pub(super) fn control_menu(
         return;
     }
     let Some((entity, object)) = rows.iter().find_map(|(entity, row, node, interaction)| {
-        (node.display != Display::None && *interaction == Interaction::Hovered)
+        (node.display != Display::None && *interaction == UiInteraction::Hovered)
             .then_some(row.0.as_ref())
             .flatten()
             .filter(|target| target.current(&editor, &context.session)) // 隐藏/换绑中的旧槽不能遮住另一条有效悬停行。
@@ -298,7 +299,7 @@ pub(super) fn dispatch(
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     guard: Res<MapEditorNumericScrubMouseGuard>,
-    rows: Query<(Entity, &SceneObjectRow, &Node, &Interaction)>,
+    rows: Query<(Entity, &SceneObjectRow, &Node, &UiInteraction)>,
     mut menu: ResMut<SceneContextMenuState>,
 ) {
     if menu.ready.is_some() {

@@ -32,14 +32,14 @@ fn preset_button(label: &str, action: PresetEditorAction) -> impl Scene {
         }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
                 font_size: px(ui_metrics::FONT_CONTROL),
             }
             TextColor(colors::TEXT_PRIMARY)
-        )]
+        ]
     }
 }
 
@@ -57,8 +57,8 @@ fn two_button_row(
             flex_shrink: 0.0,
         }
         Children [
-            (@preset_button(first_label, first_action)),
-            (@preset_button(second_label, second_action)),
+            @preset_button(first_label, first_action)--
+            @preset_button(second_label, second_action)
         ]
     }
 }
@@ -74,7 +74,7 @@ pub(crate) fn vegetation_preset_editor_panel() -> impl Scene {
             flex_shrink: 0.0,
         }
         Children [
-            (
+
                 Text("全局预设库") @feathrise_editor_ui::localization::label_scene("全局预设库")
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
@@ -82,17 +82,17 @@ pub(crate) fn vegetation_preset_editor_panel() -> impl Scene {
                 }
                 TextColor(colors::TEXT_ACCENT)
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-            ),
-            (
+            --
+
                 Text("所有地图共用；编辑或删除预设不等于删除当前地图图层。") @feathrise_editor_ui::localization::label_scene("所有地图共用；编辑或删除预设不等于删除当前地图图层。")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED)
                 TextLayout { linebreak: LineBreak::AnyCharacter }
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-            ),
-            (@two_button_row("新建草本预设", PresetEditorAction::CreateBlade, "新建模型预设", PresetEditorAction::CreateMesh)),
-            (@two_button_row("编辑所选预设", PresetEditorAction::EditSelected, "删除所选预设", PresetEditorAction::DeleteSelected)), // 统一所选对象用语。
-            (
+            --
+            @two_button_row("新建草本预设", PresetEditorAction::CreateBlade, "新建模型预设", PresetEditorAction::CreateMesh)--
+            @two_button_row("编辑所选预设", PresetEditorAction::EditSelected, "删除所选预设", PresetEditorAction::DeleteSelected)-- // 统一所选对象用语。
+
                 PresetEditorSummaryText
                 Text("当前预设：尚未选择") @feathrise_editor_ui::localization::label_scene("当前预设：尚未选择")
                 TextFont {
@@ -106,7 +106,7 @@ pub(crate) fn vegetation_preset_editor_panel() -> impl Scene {
                     min_width: px(0),
                     flex_shrink: 0.0,
                 }
-            ),
+
         ]
     }
 }
@@ -141,7 +141,7 @@ pub(crate) fn vegetation_workspace_tab_bar() -> impl Scene {
         BackgroundColor(colors::PANEL_BG_STRONG)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            (
+
                 MapEditorPresetTabScroll
                 PresetWorkspaceTabHost
                 RelativeCursorPosition::default()
@@ -154,7 +154,7 @@ pub(crate) fn vegetation_workspace_tab_bar() -> impl Scene {
                     column_gap: px(3),
                     overflow: Overflow::scroll_x(),
                 }
-            ),
+
         ]
     }
 }
@@ -177,7 +177,7 @@ pub(crate) fn vegetation_workspace_editor_page() -> impl Scene {
         }
         BackgroundColor(colors::MODEL_PREVIEW_BG)
         Children [
-            (
+
             PresetWorkspaceEditorHost
             Node {
                 width: percent(100),
@@ -185,6 +185,6 @@ pub(crate) fn vegetation_workspace_editor_page() -> impl Scene {
                 row_gap: px(5),
                 flex_shrink: 0.0,
             }
-        )] // 中央只保留作者表单；各类样品和唯一Asset预览位于右侧场景页。
+        ] // 中央只保留作者表单；各类样品和唯一Asset预览位于右侧场景页。
     }
 }

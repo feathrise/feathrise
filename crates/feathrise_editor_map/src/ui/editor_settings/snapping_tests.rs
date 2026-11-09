@@ -1,5 +1,6 @@
 //! 公共数值协议进入设置模态：提交/拒绝/取消、字段隔离及Esc归属，不写真实settings.json。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::resources::MapEditorNumericScrubMouseGuard;
 use crate::ui::editor_settings::handle_settings_input;
@@ -126,7 +127,7 @@ fn snap_modal_commits_one_field_rejects_bad_events_and_reset_preserves_other_pre
     app.world_mut().spawn((
         MapEditorSettingsButton(EditorSettingsAction::ResetSnapping),
         feathrise_editor_ui::EditorButtonClick::triggered(),
-        Interaction::Pressed,
+        UiInteraction::Pressed,
     ));
     app.update();
     assert_eq!(

@@ -1,5 +1,6 @@
 //! 地表工作台的真实字体布局、分区会话与输入/资源事务回归；不写正式目录或启动GPU。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, interaction, presentation, types::*, workspace};
 use crate::resources::MapEditorState;
 use crate::ui::text_input::EditorTextInputGuard;
@@ -194,7 +195,7 @@ fn interaction_app(state: SurfacePresetEditorState) -> App {
 fn press(app: &mut App, action: SurfacePresetAction) {
     let button = app
         .world_mut()
-        .spawn((SurfacePresetButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+        .spawn((SurfacePresetButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
         .id();
     app.update();
     app.world_mut().despawn(button);
@@ -565,14 +566,14 @@ fn primary_style_and_both_status_locations_survive_hover_and_adoption_edges() {
         .find(|(_, button)| button.0 == SurfacePresetAction::Save)
         .unwrap()
         .0;
-    for interaction in [Interaction::Hovered, Interaction::None] {
-        *app.world_mut().get_mut::<Interaction>(save).unwrap() = interaction;
+    for interaction in [UiInteraction::Hovered, UiInteraction::None] {
+        *app.world_mut().get_mut::<UiInteraction>(save).unwrap() = interaction;
         app.update();
         assert_eq!(
             app.world().get::<BorderColor>(save).unwrap(),
             &BorderColor::all(crate::ui::theme::COPPER_BORDER)
         );
-        let expected = if interaction == Interaction::None {
+        let expected = if interaction == UiInteraction::None {
             crate::ui::theme::SELECT_BG
         } else {
             crate::ui::theme::SELECT_BG_HOVER

@@ -1,5 +1,6 @@
 //! 工程日志的终端式视图：紧凑工具栏、原生阅读区和单行状态栏；不引入第二套输入或滚动逻辑。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::LINE_HEIGHT};
 use bevy::{picking::hover::Hovered, prelude::*, text::{EditableText, FontHinting, LineBreak, LineHeight, TextCursorStyle},
@@ -40,7 +41,7 @@ pub(super) fn mount(
                 LogOverlay, WorkbenchFloatingPanel,
                 GlobalZIndex(423), // 位于工作区之上，详情、右键菜单与管理模态仍可显示在前。
                 FocusPolicy::Block,
-                Interaction::None,
+                UiInteraction::None,
                 Node {
                     display: Display::None, position_type: PositionType::Absolute,
                     // 以工作台根布局，留出底栏和部分视口，整块范围恰好等于日志面板。
@@ -116,7 +117,7 @@ pub(super) fn mount(
                                         unfocused_selection_color: Color::srgb(0.23, 0.24, 0.25),
                                         selection_radius: 0.0, selected_text_color: None,
                                     },
-                                    Interaction::None, FocusPolicy::Block,
+                                    UiInteraction::None, FocusPolicy::Block,
                                     Node { position_type: PositionType::Absolute, left: px(0), top: px(0),
                                         min_width: percent(100), flex_shrink: 0., ..default() },
                                 ));

@@ -1,5 +1,6 @@
 //! 真实设置输入入口的录入/冲突/静默保存/关闭帧回归，不写用户设置文件。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::components::{
     MapEditorSettingsButton, MapEditorSettingsPanel, MapEditorSettingsScaleText,
@@ -67,7 +68,7 @@ fn button(app: &mut App, action: EditorSettingsAction) {
     app.world_mut().spawn((
         MapEditorSettingsButton(action),
         feathrise_editor_ui::EditorButtonClick::default(),
-        Interaction::None,
+        UiInteraction::None,
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
         BorderColor::all(colors::COPPER_BORDER_WEAK),
     ));
@@ -76,14 +77,14 @@ fn button(app: &mut App, action: EditorSettingsAction) {
 fn click(app: &mut App, action: EditorSettingsAction) {
     let world = app.world_mut();
     for (button, mut interaction, mut click) in world
-        .query::<(&MapEditorSettingsButton, &mut Interaction, &mut feathrise_editor_ui::EditorButtonClick)>()
+        .query::<(&MapEditorSettingsButton, &mut UiInteraction, &mut feathrise_editor_ui::EditorButtonClick)>()
         .iter_mut(world)
     {
         *click = if button.0 == action { feathrise_editor_ui::EditorButtonClick::triggered() } else { default() };
         *interaction = if button.0 == action {
-            Interaction::Pressed
+            UiInteraction::Pressed
         } else {
-            Interaction::None
+            UiInteraction::None
         };
     }
     world
@@ -92,9 +93,9 @@ fn click(app: &mut App, action: EditorSettingsAction) {
     app.update();
     let world = app.world_mut();
     world.resource_mut::<ButtonInput<MouseButton>>().reset_all();
-    for (mut interaction, mut click) in world.query::<(&mut Interaction, &mut feathrise_editor_ui::EditorButtonClick)>().iter_mut(world) {
+    for (mut interaction, mut click) in world.query::<(&mut UiInteraction, &mut feathrise_editor_ui::EditorButtonClick)>().iter_mut(world) {
         *click = default();
-        *interaction = Interaction::None;
+        *interaction = UiInteraction::None;
     }
     app.update();
 }
@@ -350,12 +351,12 @@ fn switching_settings_page_cancels_capture_before_same_frame_key_and_keeps_one_m
         .resource_mut::<ButtonInput<KeyCode>>()
         .press(KeyCode::KeyG);
     for (button, mut interaction, mut click) in world
-        .query::<(&MapEditorSettingsButton, &mut Interaction, &mut feathrise_editor_ui::EditorButtonClick)>()
+        .query::<(&MapEditorSettingsButton, &mut UiInteraction, &mut feathrise_editor_ui::EditorButtonClick)>()
         .iter_mut(world)
     {
         if button.0 == EditorSettingsAction::Open {
             *click = feathrise_editor_ui::EditorButtonClick::triggered();
-            *interaction = Interaction::Pressed;
+            *interaction = UiInteraction::Pressed;
         }
     }
     app.update();
@@ -406,12 +407,12 @@ fn switching_settings_page_cancels_capture_before_same_frame_key_and_keeps_one_m
         .resource_mut::<ButtonInput<KeyCode>>()
         .press(KeyCode::Escape);
     for (button, mut interaction, mut click) in world
-        .query::<(&MapEditorSettingsButton, &mut Interaction, &mut feathrise_editor_ui::EditorButtonClick)>()
+        .query::<(&MapEditorSettingsButton, &mut UiInteraction, &mut feathrise_editor_ui::EditorButtonClick)>()
         .iter_mut(world)
     {
         if button.0 == EditorSettingsAction::Close {
             *click = feathrise_editor_ui::EditorButtonClick::triggered();
-            *interaction = Interaction::Pressed;
+            *interaction = UiInteraction::Pressed;
         }
     }
     app.update();

@@ -1,5 +1,6 @@
 //! 按钮最终反馈回归：业务覆盖、旧三态归一、语义底色以及同实体其他绘制层隔离。
 
+use crate::UiInteraction;
 use super::{
     button_feedback::{ButtonFeedback, interaction_for_cursor},
     extract,
@@ -20,16 +21,16 @@ fn feedback_cancels_captured_press_after_cursor_leaves_the_button() {
         normalized: Some(Vec2::splat(1.5)),
     };
     assert_eq!(
-        interaction_for_cursor(Interaction::Pressed, Some(&cursor)),
-        Interaction::None
+        interaction_for_cursor(UiInteraction::Pressed, Some(&cursor)),
+        UiInteraction::None
     );
     assert_eq!(
-        interaction_for_cursor(Interaction::Pressed, None),
-        Interaction::Pressed
+        interaction_for_cursor(UiInteraction::Pressed, None),
+        UiInteraction::Pressed
     );
 }
 
-fn feedback(background: Color, interaction: Interaction) -> ButtonFeedback {
+fn feedback(background: Color, interaction: UiInteraction) -> ButtonFeedback {
     ButtonFeedback {
         background: background.to_linear(),
         interaction,
@@ -66,9 +67,9 @@ fn feedback_survives_business_background_rewrites_in_every_theme() {
                 );
                 color(draw(&nodes, target, 0))
             };
-            let normal = render(Interaction::None);
-            let hovered = render(Interaction::Hovered);
-            let pressed = render(Interaction::Pressed);
+            let normal = render(UiInteraction::None);
+            let hovered = render(UiInteraction::Hovered);
+            let pressed = render(UiInteraction::Pressed);
             assert_eq!(normal, palette.resolve(base).to_linear());
             assert!(hovered.red > normal.red && pressed.red > hovered.red);
             assert_eq!(normal.alpha, hovered.alpha);
@@ -92,9 +93,9 @@ fn feedback_normalizes_generic_and_semantic_state_colors_once() {
         lighten_color(normal, 0.12),
         lighten_color(normal, 0.25),
     );
-    let expected = feedback(normal, Interaction::Pressed).resolve(&palette);
+    let expected = feedback(normal, UiInteraction::Pressed).resolve(&palette);
     for current in [normal, colors.hovered, colors.pressed] {
-        let mut state = feedback(current, Interaction::Pressed);
+        let mut state = feedback(current, UiInteraction::Pressed);
         state.colors = Some(colors);
         assert_eq!(
             state.resolve(&palette),
@@ -104,8 +105,8 @@ fn feedback_normalizes_generic_and_semantic_state_colors_once() {
     }
     for current in [c::SELECT_BG, c::SELECT_BG_HOVER, c::SELECT_BG_PRESSED] {
         assert_eq!(
-            feedback(current, Interaction::Pressed).resolve(&palette),
-            feedback(c::SELECT_BG, Interaction::Pressed).resolve(&palette),
+            feedback(current, UiInteraction::Pressed).resolve(&palette),
+            feedback(c::SELECT_BG, UiInteraction::Pressed).resolve(&palette),
         );
     }
 }
@@ -116,7 +117,7 @@ fn feedback_disabled_buttons_do_not_retain_hover_or_press_brightness() {
     let base = c::SLOT_BG_DISABLED;
     let colors = ButtonColors::new(base, lighten_color(base, 0.12), lighten_color(base, 0.25));
     for current in [base, colors.hovered, colors.pressed] {
-        let mut state = feedback(current, Interaction::Pressed);
+        let mut state = feedback(current, UiInteraction::Pressed);
         state.disabled = true;
         state.colors = Some(colors);
         assert_eq!(state.resolve(&palette), palette.resolve(base).to_linear());
@@ -157,11 +158,11 @@ fn feedback_only_touches_editor_button_background_draws() {
         |e| e == editor,
         |_| false,
         |_| false,
-        |_| Some(feedback(base, Interaction::Pressed)),
+        |_| Some(feedback(base, UiInteraction::Pressed)),
     );
     assert_eq!(
         color(draw(&nodes, editor, 0)),
-        feedback(base, Interaction::Pressed).resolve(&palette)
+        feedback(base, UiInteraction::Pressed).resolve(&palette)
     );
     for index in 1..4 {
         assert_eq!(color(draw(&nodes, editor, index)), palette.resolve(base).to_linear());
@@ -193,9 +194,9 @@ fn transparent_normal_preserves_explicit_caption_state_colors_and_restores_trans
             ),
         ] {
             for (interaction, expected) in [
-                (Interaction::None, colors.normal),
-                (Interaction::Hovered, colors.hovered),
-                (Interaction::Pressed, colors.pressed),
+                (UiInteraction::None, colors.normal),
+                (UiInteraction::Hovered, colors.hovered),
+                (UiInteraction::Pressed, colors.pressed),
             ] {
                 for current in [colors.normal, colors.hovered, colors.pressed] {
                     let mut state = feedback(current, interaction);
@@ -206,17 +207,17 @@ fn transparent_normal_preserves_explicit_caption_state_colors_and_restores_trans
                     );
                 }
             }
-            let mut disabled = feedback(colors.pressed, Interaction::Pressed);
+            let mut disabled = feedback(colors.pressed, UiInteraction::Pressed);
             disabled.colors = Some(colors);
             disabled.disabled = true;
             assert_eq!(disabled.resolve(&palette).alpha, 0.0);
 
             // 透明按钮上的业务选中底色不属于三态色，仍沿用原语义映射和统一增亮。
-            let mut selected = feedback(c::SELECT_BG, Interaction::Pressed);
+            let mut selected = feedback(c::SELECT_BG, UiInteraction::Pressed);
             selected.colors = Some(colors);
             assert_eq!(
                 selected.resolve(&palette),
-                feedback(c::SELECT_BG, Interaction::Pressed).resolve(&palette)
+                feedback(c::SELECT_BG, UiInteraction::Pressed).resolve(&palette)
             );
         }
     }

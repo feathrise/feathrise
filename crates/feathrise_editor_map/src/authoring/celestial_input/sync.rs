@@ -1,5 +1,6 @@
 //! 天体光照数值、继承禁用态、颜色预览、按钮文字与折叠正文同步。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*;
 use feathrise_map_content::{CelestialLightingProfile, resolve};
 use feathrise_editor_core::EditorSettings;
@@ -57,7 +58,7 @@ pub(crate) fn sync_celestial_controls(
     mut override_buttons: Query<
         (
             &CelestialOverrideToggle,
-            &Interaction,
+            &UiInteraction,
             &mut BackgroundColor,
             &mut BorderColor,
         ),
@@ -136,10 +137,10 @@ pub(crate) fn sync_celestial_controls(
         let overridden = environment
             .is_some_and(|environment| toggle.0.is_overridden(&environment.celestial_overrides));
         let desired = match interaction {
-            Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
-            Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
-            Interaction::None if overridden => colors::SLOT_BG_FILLED,
-            Interaction::None => colors::SLOT_BG,
+            UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
+            UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
+            UiInteraction::None if overridden => colors::SLOT_BG_FILLED,
+            UiInteraction::None => colors::SLOT_BG,
         };
         if background.0 != desired {
             background.0 = desired;
@@ -230,7 +231,7 @@ mod tests {
 
         app.world_mut().spawn((
             CelestialOverrideToggle(super::super::CelestialOverrideProperty::DayIlluminance), // 覆盖按钮只带按钮 marker。
-            Interaction::None,          // 无悬停状态走普通样式分支。
+            UiInteraction::None,          // 无悬停状态走普通样式分支。
             BackgroundColor::default(), // 系统会更新按钮背景色。
             BorderColor::default(),     // 系统会更新按钮边框色。
         ));

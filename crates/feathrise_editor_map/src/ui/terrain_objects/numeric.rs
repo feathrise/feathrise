@@ -1,4 +1,5 @@
 //! 网格数字控件冻结一次编辑的完整目标；创建、所选变换、行内LOD与通用策略不会互相串写。
+use feathrise_editor_ui::UiInteraction;
 use super::types::{Mutation, NumericTarget};
 use super::{components::*, resources::*, systems};
 use crate::{authoring::EditorAuthoringSession, resources::MapEditorState};
@@ -189,13 +190,13 @@ pub(super) fn input(
     active: Option<Res<ActiveNumericInput>>,
     scrub: Option<Res<ActiveNumericInputScrub>>,
     navigation: (Option<Res<ButtonInput<MouseButton>>>,
-        Query<(&Interaction, Option<&ActionButton>, Has<Row>, Has<RowAction>), Or<(With<ActionButton>, With<Row>)>>,
+        Query<(&UiInteraction, Option<&ActionButton>, Has<Row>, Has<RowAction>), Or<(With<ActionButton>, With<Row>)>>,
         Local<Option<NumericInputCommitted>>),
 ) {
     let (mouse, navigation_buttons, mut deferred) = navigation;
     let navigation_held = mouse.as_ref().is_some_and(|mouse| mouse.pressed(MouseButton::Left))
         && (deferred.is_some() || navigation_buttons.iter().any(|(interaction, action, row, row_action)| {
-            *interaction == Interaction::Pressed && (row || row_action || action.is_some_and(|button| {
+            *interaction == UiInteraction::Pressed && (row || row_action || action.is_some_and(|button| {
                 button.0.creation_action() || matches!(button.0, Action::BasicProperties | Action::TypeProperties | Action::SourceProperties
                     | Action::StitchProperties | Action::DisplayLods | Action::CollisionLods
                     | Action::SelectLod(..) | Action::AddLod(_) | Action::RemoveLod(_)

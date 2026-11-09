@@ -1,5 +1,6 @@
 //! 中央文档的路径锁定、完整草稿、隐藏输入、显式替换及容量保护回归；文件仅写临时夹具。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::resources::{
     EditorTextInputGuard, MapEditorLayoutState, MapEditorNumericScrubMouseGuard, MapEditorState,
@@ -82,7 +83,7 @@ fn close_all_document_tabs_keeps_the_existing_save_task_and_receipt() {
 }
 
 fn press(app: &mut App, action: DocumentAction) {
-    let entity = app.world_mut().spawn((feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed, action)).id();
+    let entity = app.world_mut().spawn((feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed, action)).id();
     app.world_mut()
         .run_system_once(super::super::interaction::actions)
         .unwrap();

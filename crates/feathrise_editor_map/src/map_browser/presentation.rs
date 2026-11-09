@@ -1,5 +1,6 @@
 //! 虚拟文件夹模态框、拖拽浮层和固定根目录落点的增量回显。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*; // UI节点、文本、交互和资源查询。
 use bevy::ui::FocusPolicy; // 模态显隐同步鼠标点透策略。
 use bevy::window::PrimaryWindow; // 鼠标物理位置与系统DPI只从实际主窗口读取。
@@ -20,11 +21,11 @@ pub(crate) fn sync_map_folder_dialog(
     editor: Res<MapEditorState>,   // F12关闭时模态必须同步隐藏。
     browser: Res<MapBrowserState>, // dialog和last_error是唯一回显来源。
     mut roots: Query<
-        (Entity, &mut Node, &mut Interaction, &mut FocusPolicy),
+        (Entity, &mut Node, &mut UiInteraction, &mut FocusPolicy),
         With<MapFolderDialog>,
     >, // 唯一全屏模态根。
     children: Query<&Children>,    // 隐藏时清理固定小层级的旧按钮Interaction。
-    mut descendant_interactions: Query<&mut Interaction, Without<MapFolderDialog>>, // 与根查询结构互斥。
+    mut descendant_interactions: Query<&mut UiInteraction, Without<MapFolderDialog>>, // 与根查询结构互斥。
     mut name_groups: Query<&mut Node, (With<MapFolderDialogNameGroup>, Without<MapFolderDialog>)>, // 显式与可变模态根查询互斥；删除确认隐藏名称输入组。
     mut texts: Query<
         (
@@ -64,11 +65,11 @@ pub(crate) fn sync_map_folder_dialog(
         };
         focus.set_if_neq(policy);
         if !visible {
-            *interaction = Interaction::None; // 下一次打开从无根按压状态开始。
+            *interaction = UiInteraction::None; // 下一次打开从无根按压状态开始。
             for descendant in children.iter_descendants(entity) {
                 if let Ok(mut descendant_interaction) = descendant_interactions.get_mut(descendant)
                 {
-                    *descendant_interaction = Interaction::None; // 确认、取消和输入按钮不保留旧Pressed。
+                    *descendant_interaction = UiInteraction::None; // 确认、取消和输入按钮不保留旧Pressed。
                 }
             }
         }
@@ -309,7 +310,7 @@ pub(crate) fn sync_map_browser_root_row(
     drag: Res<MapBrowserDragState>, // 根目录落点在拖拽期间强化底色与铜边。
     mut rows: Query<
         (
-            Ref<Interaction>,     // 只在悬停、按下或资源变化时重写视觉。
+            Ref<UiInteraction>,     // 只在悬停、按下或资源变化时重写视觉。
             &mut BackgroundColor, // 点击与有效落点使用现有水墨铜金反馈。
             &mut BorderColor,     // 有效拖拽落点使用强铜边。
         ),

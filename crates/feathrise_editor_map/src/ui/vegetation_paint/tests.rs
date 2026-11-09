@@ -1,4 +1,5 @@
 //! 绘制组UI使用固定行池，创建和目标勾选不分配密度、不重建按钮或改变检查器。
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, scene, systems};
 use crate::{
     authoring::{EditorAuthoringSession, VegetationBrushStroke, vegetation_paint_scope::*},
@@ -51,7 +52,7 @@ fn press(app: &mut App, predicate: impl Fn(&PaintAction) -> bool) {
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
-    app.world_mut().entity_mut(entity).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(entity).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()

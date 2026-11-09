@@ -1,5 +1,6 @@
 //! 工程与资产行右键菜单的开关、来源复验与系统剪贴板写入；不改变左键选择或地图数据。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::ecs::system::SystemParam; // 汇总只读输入资格，避免系统参数与其他作者域混杂。
 use bevy::prelude::*; // 原生Bevy鼠标边沿、UI命中、消息和剪贴板。
 use bevy::window::PrimaryWindow; // 只接受当前聚焦主窗口的鼠标位置。
@@ -51,12 +52,12 @@ pub(super) fn control_menu(
     context: MenuInputContext,            // 本帧完整的输入与目录资格。
     mouse: Res<ButtonInput<MouseButton>>, // 右键按下打开；普通菜单项由按钮内释放的点击执行。
     keyboard: Res<ButtonInput<KeyCode>>,  // Esc只关闭菜单，F12可继续交给编辑器关闭流程。
-    rows: Query<(&Interaction, &MapEditorAssetRow, &Node, Option<&AssetRowBinding>)>, // 老最小夹具允许无旁路绑定；正式行均携带完整窗口身份。
-    project_rows: Query<(&Interaction, &ProjectFileRow, &Node)>, // 工程行只用可见固定池和完整目录索引。
+    rows: Query<(&UiInteraction, &MapEditorAssetRow, &Node, Option<&AssetRowBinding>)>, // 老最小夹具允许无旁路绑定；正式行均携带完整窗口身份。
+    project_rows: Query<(&UiInteraction, &ProjectFileRow, &Node)>, // 工程行只用可见固定池和完整目录索引。
     project_scrolls: Query<(&ProjectBrowserContent, &ScrollPosition)>, // Input早于滚动窗口重绑时也拒绝旧行。
     copy_buttons: Query<(&feathrise_editor_ui::EditorButtonClick, Option<&AssetMenuCopyButton>, Option<&AssetMenuExternalButton>, Has<AssetMenuReferencesButton>, Has<AssetMenuFavoriteButton>),
         (Or<(With<AssetMenuCopyButton>, With<AssetMenuExternalButton>, With<AssetMenuReferencesButton>, With<AssetMenuFavoriteButton>)>, Changed<feathrise_editor_ui::EditorButtonClick>)>,
-    menu_hits: Query<&Interaction,
+    menu_hits: Query<&UiInteraction,
         Or<(With<AssetMenuCopyButton>, With<AssetMenuExternalButton>, With<AssetMenuReferencesButton>, With<AssetMenuFavoriteButton>)>>,
     mut menu: ResMut<AssetContextMenuState>,                // 不写文件、不切换工具、不修改预设。
     mut copies: MessageWriter<CopyAssetPath>,               // 仅明确左击菜单项时产生外部写入意图。
@@ -176,7 +177,7 @@ pub(super) fn control_menu(
                 search.request_references(target.path, documents.asset_root().to_path_buf()); // 冻结目标和根；鼠标释放、确认输入后才启动后台扫描。
             }
         } else if mouse.just_pressed(MouseButton::Left)
-            && !menu_hits.iter().any(|interaction| *interaction == Interaction::Pressed)
+            && !menu_hits.iter().any(|interaction| *interaction == UiInteraction::Pressed)
         {
             menu.target = None; // 外部按下只关闭菜单，不能借后续松开执行菜单动作。
         }
@@ -193,7 +194,7 @@ pub(super) fn control_menu(
     let target = if project_visible {
         let Some((catalog, viewport)) = context.project_catalog.as_ref().zip(context.project_viewport.as_ref()) else { return; };
         let Some((_, row, _)) = project_rows.iter().find(|(interaction, _, node)|
-            **interaction == Interaction::Hovered && node.display != Display::None) else { return; };
+            **interaction == UiInteraction::Hovered && node.display != Display::None) else { return; };
         let Some(index) = row.entry_index.filter(|index|
             row.slot < viewport.capacity && *index == viewport.first.saturating_add(row.slot)
                 && row.revision == catalog.applied_revision && row.viewport_revision == viewport.revision) else { return; };
@@ -204,7 +205,7 @@ pub(super) fn control_menu(
             source: AssetMenuSource::Project { root: root.to_path_buf(), context: context_id } }
     } else {
         let Some((_, row, _, binding)) = rows.iter().find(|(interaction, _, node, _)| {
-            **interaction == Interaction::Hovered && node.display != Display::None
+            **interaction == UiInteraction::Hovered && node.display != Display::None
         }) else {
             return; // 右键空白、裁剪区或前方覆盖控件不产生菜单。
         };

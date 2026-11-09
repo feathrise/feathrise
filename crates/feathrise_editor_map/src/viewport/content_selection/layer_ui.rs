@@ -1,5 +1,6 @@
 //! 场景树下的作者层候选卡片：多层直接显示，单层隐藏，保留悬停预高亮。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::layers::LayerCandidateState;
 
@@ -145,7 +146,7 @@ pub(crate) fn layer_candidate_interactions(
     mut state: ResMut<LayerCandidateState>,
     popups: Query<&RelativeCursorPosition, With<LayerCandidatePopup>>, // 整个菜单范围阻挡视口。
     mut buttons: Query<(
-        &Interaction,
+        &UiInteraction,
         Ref<feathrise_editor_ui::EditorButtonClick>,
         &CandidateAction,
         &mut BackgroundColor,
@@ -165,9 +166,9 @@ pub(crate) fn layer_candidate_interactions(
     let mut over = popups.iter().any(|cursor| cursor.cursor_over()); // padding/行缝同样不穿透。
     for (interaction, change, action, mut background) in &mut buttons {
         // 至多十一行固定成本。
-        over |= *interaction != Interaction::None; // UI标题、翻页也不得穿透。
+        over |= *interaction != UiInteraction::None; // UI标题、翻页也不得穿透。
         let selected = matches!(action, CandidateAction::Select(index) if *index == state.index); // 选中行持续高亮。
-        let next = if *interaction != Interaction::None || selected {
+        let next = if *interaction != UiInteraction::None || selected {
             colors::BUTTON_SETTINGS_HOVERED
         } else {
             colors::SLOT_BG
@@ -175,7 +176,7 @@ pub(crate) fn layer_candidate_interactions(
         if background.0 != next {
             background.0 = next; // 颜色实际变化才写入，稳定悬停不触发多余更新。
         }
-        if *interaction != Interaction::None {
+        if *interaction != UiInteraction::None {
             // hover预高亮不正式选中。
             if let CandidateAction::Select(index) = *action {
                 if let Some(candidate) = state.candidates.get(index).filter(|candidate|

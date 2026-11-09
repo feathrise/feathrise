@@ -1,5 +1,6 @@
 //! 正式工作台“工程”单目录的实际GPU回读；原目录按钮、资产定位和文档IO都走生产入口。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, types::*, ProjectBrowserState};
 use crate::{
     asset_catalog::{EditorAssetCatalog, project_files::EditorProjectFileCatalog},
@@ -40,7 +41,7 @@ fn pointer(
     mut pending: ResMut<NextPointer>,
     mut right: ResMut<NextRightPointer>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
-    mut buttons: Query<(&mut Interaction, &mut bevy::ui::RelativeCursorPosition)>,
+    mut buttons: Query<(&mut UiInteraction, &mut bevy::ui::RelativeCursorPosition)>,
 ) {
     let (entity, down, button) = if let Some((entity, down)) = pending.0.take() {
         (entity, down, MouseButton::Left)
@@ -49,7 +50,7 @@ fn pointer(
     } else { return; };
     let (mut interaction, mut cursor) = buttons.get_mut(entity).unwrap();
     cursor.cursor_over = true;
-    *interaction = if down && button == MouseButton::Left { Interaction::Pressed } else { Interaction::Hovered };
+    *interaction = if down && button == MouseButton::Left { UiInteraction::Pressed } else { UiInteraction::Hovered };
     if down { mouse.press(button); } else { mouse.release(button); }
 }
 
@@ -114,7 +115,7 @@ fn right_click(app: &mut App, entity: Entity) -> Option<Entity> {
         app.world().resource::<super::ProjectFileViewport>().scroll,
         app.world().get::<ProjectFileRow>(entity).unwrap().entry_index,
         app.world().get::<ProjectFileRow>(entity).unwrap().viewport_revision,
-        app.world().get::<Interaction>(entity).unwrap(),
+        app.world().get::<UiInteraction>(entity).unwrap(),
         app.world().resource::<crate::resources::MapEditorNumericScrubMouseGuard>().blocked(),
         app.world().get::<Window>(primary.or(created).unwrap()).unwrap().physical_cursor_position());
     app.world_mut().resource_mut::<NextRightPointer>().0 = Some((entity, false));

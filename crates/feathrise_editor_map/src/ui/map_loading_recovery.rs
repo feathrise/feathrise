@@ -1,5 +1,6 @@
 //! 加载恢复只撤销运行时请求；草稿与历史保留，场景按原驻留预算退役后再冷重试。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use bevy::prelude::*;
 use feathrise_scene_core::state::{ScenePhase, LoadingProgress, LoadingStage, PendingSceneTransition};
@@ -32,7 +33,7 @@ pub(crate) fn sync_recovery_buttons(
     editor: Res<MapEditorState>,
     progress: Option<Res<LoadingProgress>>,
     recovery: Res<MapLoadingRecovery>,
-    mut buttons: Query<(&MapLoadingRecoveryButton, &mut Node, &mut Interaction)>,
+    mut buttons: Query<(&MapLoadingRecoveryButton, &mut Node, &mut UiInteraction)>,
 ) {
     for (action, mut node, mut interaction) in &mut buttons {
         let visible = editor.open && editor.map_transition_in_progress && recovery.request.is_none()
@@ -40,7 +41,7 @@ pub(crate) fn sync_recovery_buttons(
                 || progress.as_ref().is_some_and(|value| value.stage == LoadingStage::Failed));
         let display = if visible { Display::Flex } else { Display::None };
         if node.display != display { node.display = display; }
-        if !visible && *interaction != Interaction::None { *interaction = Interaction::None; }
+        if !visible && *interaction != UiInteraction::None { *interaction = UiInteraction::None; }
     }
 }
 

@@ -1,4 +1,5 @@
 //! 只读原设置文字、按钮祖先及布局；不把共享crate私有控件扩大为公开API。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::types::*;
 use bevy::{prelude::*, text::TextLayoutInfo, ui::InteractionDisabled, window::PrimaryWindow};
@@ -80,7 +81,7 @@ pub(super) fn scroll_request(world: &mut World) -> Result<Option<(Entity, Vec2, 
 fn node_diagnostic(world: &World, entity: Entity) -> Value {
     json!({"entity":format!("{entity:?}"),"rect":bounds(world,entity).map(|rect|[rect.min.x,rect.min.y,rect.max.x,rect.max.y]),
         "visible":world.get::<InheritedVisibility>(entity).map(|value|value.get()),
-        "interaction":world.get::<Interaction>(entity).map(|value|format!("{value:?}")),
+        "interaction":world.get::<UiInteraction>(entity).map(|value|format!("{value:?}")),
         "disabled":world.get::<InteractionDisabled>(entity).is_some(),
         "node":world.get::<Node>(entity).map(|node|format!("width={:?},height={:?},display={:?}",node.width,node.height,node.display)),
         "inverse_scale_factor":world.get::<ComputedNode>(entity).map(|node|node.inverse_scale_factor()),

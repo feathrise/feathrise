@@ -1,5 +1,6 @@
 //! 画布点选骨骼和三轴姿势手柄；复用编辑器投影与环拾取，松开才提交一次动画历史。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{AssetPreviewWorkspace, types::*};
 use super::{context::AnimationContext, preview::PreviewRuntime, resources::*, types::*};
 use crate::{
@@ -80,7 +81,7 @@ pub(super) fn local_at(s: &Session, node: usize) -> Transform {
 
 fn camera(
     canvases: &Query<
-        (&ComputedNode, &RelativeCursorPosition, &Interaction),
+        (&ComputedNode, &RelativeCursorPosition, &UiInteraction),
         With<AssetPreviewCanvas>,
     >,
     cameras: &Query<(&Projection, &GlobalTransform), With<AssetPreviewCamera>>,
@@ -95,7 +96,7 @@ fn camera(
             node.inverse_scale_factor(),
         )?,
         cursor.normalized?,
-        cursor.cursor_over() && *interaction != Interaction::None,
+        cursor.cursor_over() && *interaction != UiInteraction::None,
     ))
 }
 
@@ -110,7 +111,7 @@ pub(super) fn input(
     mut interaction: ResMut<PoseInputState>,
     runtime: Res<PreviewRuntime>,
     canvases: Query<
-        (&ComputedNode, &RelativeCursorPosition, &Interaction),
+        (&ComputedNode, &RelativeCursorPosition, &UiInteraction),
         With<AssetPreviewCanvas>,
     >,
     cameras: Query<(&Projection, &GlobalTransform), With<AssetPreviewCamera>>,
@@ -410,7 +411,7 @@ fn draw(
     interaction: Res<PoseInputState>,
     runtime: Res<PreviewRuntime>,
     canvases: Query<
-        (&ComputedNode, &RelativeCursorPosition, &Interaction),
+        (&ComputedNode, &RelativeCursorPosition, &UiInteraction),
         With<AssetPreviewCanvas>,
     >,
     cameras: Query<(&Projection, &GlobalTransform), With<AssetPreviewCamera>>,
@@ -472,7 +473,7 @@ fn draw(
         .map(|g| g.constraint);
     let hovered = if active.is_none()
         && cursor.cursor_over()
-        && *canvas_interaction != Interaction::None
+        && *canvas_interaction != UiInteraction::None
         && !state.busy()
     {
         cursor.normalized.and_then(|at| {
@@ -591,7 +592,7 @@ mod tests {
                     cursor_over: true,
                     normalized: Some(at),
                 },
-                Interaction::Hovered,
+                UiInteraction::Hovered,
             ))
             .id();
         app.world_mut()

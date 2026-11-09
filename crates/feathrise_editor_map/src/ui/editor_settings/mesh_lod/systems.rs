@@ -1,5 +1,6 @@
 //! 全局LOD设置只写偏好；数值收口、隐藏取消和同帧鼠标所有权沿用正式模态协议。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::metrics as ui_metrics;
 use feathrise_editor_ui::{EditorButtonClick, localization::EditorLocale};
 use super::components::*;
@@ -78,7 +79,7 @@ pub(crate) fn sync_mesh_lod_inputs(
     fields: Query<(Entity, &MeshLodField, &NumericInputValue, Has<NumericInputDisabled>)>,
     mut values: MessageWriter<NumericInputSetValue>,
     mut labels: Query<(&ActionLabel, &mut Text)>,
-    mut buttons: Query<(&ActionButton, &Interaction, &mut BackgroundColor, &mut BorderColor)>,
+    mut buttons: Query<(&ActionButton, &UiInteraction, &mut BackgroundColor, &mut BorderColor)>,
     access: Option<Res<crate::workbench::WorkbenchSettingsAccess>>,
     locale: Option<Res<EditorLocale>>,
 ) {
@@ -112,9 +113,9 @@ pub(crate) fn sync_mesh_lod_inputs(
     for (button, interaction, mut background, mut border) in &mut buttons {
         let selected = match button.0 { Action::Display => policy.display_enabled, Action::Collision => policy.collision_enabled, Action::Reset => false };
         let color = match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::BUTTON_DEV_SMALL_HOVERED,
-            (Interaction::None, true) => colors::SELECT_BG,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::BUTTON_DEV_SMALL_HOVERED,
+            (UiInteraction::None, true) => colors::SELECT_BG,
             _ => colors::BUTTON_DEV_SMALL_NORMAL,
         };
         if background.0 != color { background.0 = color; }

@@ -1,4 +1,5 @@
 //! 无窗口验证候选悬停只改临时覆盖、确认取消旧点击和同图请求换代。
+use feathrise_editor_ui::UiInteraction;
 use crate::game_authoring::map_interaction::MapInteractionState;
 use super::{
     layer_ui::{CandidateAction, layer_candidate_interactions},
@@ -30,31 +31,31 @@ fn transform_modes_lock_selection_and_return_to_select_restores_candidate_input(
             candidates: vec![LayerCandidate { author_index: Some(0), target: a.clone(), label: "资产 A".into(), rank: 0, distance: 1.0 },
                 LayerCandidate { author_index: Some(1), target: b.clone(), label: "资产 B".into(), rank: 0, distance: 2.0 }], ..default() })
         .add_systems(Update, (super::layer_query::poll_layer_candidates, layer_candidate_interactions).chain());
-    let row = app.world_mut().spawn((Interaction::None, feathrise_editor_ui::EditorButtonClick::default(), CandidateAction::Select(1), BackgroundColor::default())).id();
+    let row = app.world_mut().spawn((UiInteraction::None, feathrise_editor_ui::EditorButtonClick::default(), CandidateAction::Select(1), BackgroundColor::default())).id();
     app.update();
     for mode in [ViewportMode::Move, ViewportMode::Rotate, ViewportMode::Scale] {
         app.world_mut().resource_mut::<ViewportModeState>().mode = mode;
-        app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         app.update();
         let state = app.world().resource::<LayerCandidateState>();
         assert_eq!(state.selected.as_ref(), Some(&a));
         assert!(state.apply.is_none() && state.hover.is_none());
         assert_eq!(state.candidates.len(), 2);
-        *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None;
+        *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
         app.update();
     }
     assert_eq!(app.world().resource::<ViewportModeState>().filter, SelectionFilter::Water);
     assert_eq!(app.world().resource::<ViewportModeState>().selection_filter(app.world().resource::<MapEditorState>()), SelectionFilter::Water);
     app.world_mut().resource_mut::<ViewportModeState>().mode = ViewportMode::Select;
-    app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert_eq!(app.world().resource::<LayerCandidateState>().apply.as_ref(), Some(&b));
     // 拖动公共门拥有鼠标时，同一菜单按下不能继续请求换目标。
     app.world_mut().resource_mut::<LayerCandidateState>().apply = None;
-    app.world_mut().entity_mut(row).get_mut::<Interaction>().unwrap().set_if_neq(Interaction::None);
+    app.world_mut().entity_mut(row).get_mut::<UiInteraction>().unwrap().set_if_neq(UiInteraction::None);
     app.world_mut().resource_mut::<MapEditorNumericScrubMouseGuard>().advance(true, true, false);
     app.update();
-    app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert!(app.world().resource::<LayerCandidateState>().apply.is_none());
 }
@@ -122,7 +123,7 @@ fn candidate_hover_preserves_selection_and_confirm_cancels_old_query() {
     let row = app
         .world_mut()
         .spawn((
-            Interaction::Hovered,
+            UiInteraction::Hovered,
             feathrise_editor_ui::EditorButtonClick::default(),
             CandidateAction::Select(0),
             BackgroundColor::default(),
@@ -134,7 +135,7 @@ fn candidate_hover_preserves_selection_and_confirm_cancels_old_query() {
     assert_eq!(state.hover.as_ref(), Some(&target)); // 只增加临时视觉目标。
     assert_eq!(state.vegetation_index("grass-b"), Some(7)); // 覆盖读取后台缓存。
     assert_eq!(state.surface_index("soil-a"), Some(3)); // 旧正式目标仍可恢复。
-    *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None; // 离开候选。
+    *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None; // 离开候选。
     app.update(); // 恢复正式覆盖。
     assert!(
         app.world()
@@ -142,7 +143,7 @@ fn candidate_hover_preserves_selection_and_confirm_cancels_old_query() {
             .hover
             .is_none()
     ); // 不残留hover。
-    app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 明确确认。
+    app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 明确确认。
     app.update(); // 发布正式选择请求。
     let state = app.world().resource::<LayerCandidateState>(); // 系统只排队应用。
     assert_eq!(state.apply.as_ref(), Some(&target)); // 选中对应作者层。
@@ -218,7 +219,7 @@ fn placement_candidate_hover_and_click_use_the_unified_ui() {
         let row = app
             .world_mut()
             .spawn((
-                Interaction::Hovered,
+                UiInteraction::Hovered,
             feathrise_editor_ui::EditorButtonClick::default(),       // 模拟资产候选悬停。
                 CandidateAction::Select(0), // 第一项绑定实例。
                 BackgroundColor::default(), // 生产样式查询必需。
@@ -228,7 +229,7 @@ fn placement_candidate_hover_and_click_use_the_unified_ui() {
         let state = app.world().resource::<LayerCandidateState>(); // 只读取已完成帧。
         assert_eq!(state.selected.as_ref(), Some(&selected)); // 地表仍是正式目标。
         assert_eq!(state.hover.as_ref(), Some(&target)); // 实例只成为预览目标。
-        *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None; // 离开资产行。
+        *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None; // 离开资产行。
         app.update(); // 恢复正式目标视觉。
         assert!(
             app.world()
@@ -236,7 +237,7 @@ fn placement_candidate_hover_and_click_use_the_unified_ui() {
                 .hover
                 .is_none()
         ); // 临时目标被清除。
-        app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 点击确认实例。
+        app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 点击确认实例。
         app.update(); // 统一出口收到确认请求。
         let state = app.world().resource::<LayerCandidateState>(); // 检查候选绑定未丢失。
         assert_eq!(state.apply.as_ref(), Some(&target)); // 下游同步实例与场景树。

@@ -1,5 +1,6 @@
 //! F12 世界时间与天气调试输入及最终状态回显。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
@@ -38,10 +39,10 @@ type RerollButtonFilter = (
 pub(crate) fn handle_world_environment_controls(
     editor: Res<MapEditorState>,
     pause_buttons: Query<&EditorButtonClick, PauseButtonFilter>,
-    time_tracks: Query<(&Interaction, &RelativeCursorPosition), With<WorldTimeSlider>>,
-    month_tracks: Query<(&Interaction, &RelativeCursorPosition), With<WorldMonthSlider>>,
-    mode_tracks: Query<(&Interaction, &RelativeCursorPosition), With<WeatherModeSlider>>,
-    preview_tracks: Query<(&Interaction, &RelativeCursorPosition), With<WeatherPreviewSlider>>,
+    time_tracks: Query<(&UiInteraction, &RelativeCursorPosition), With<WorldTimeSlider>>,
+    month_tracks: Query<(&UiInteraction, &RelativeCursorPosition), With<WorldMonthSlider>>,
+    mode_tracks: Query<(&UiInteraction, &RelativeCursorPosition), With<WeatherModeSlider>>,
+    preview_tracks: Query<(&UiInteraction, &RelativeCursorPosition), With<WeatherPreviewSlider>>,
     immediate_buttons: Query<&EditorButtonClick, ImmediateButtonFilter>,
     reroll_buttons: Query<&EditorButtonClick, RerollButtonFilter>,
     mut clock: ResMut<WorldClock>,
@@ -59,21 +60,21 @@ pub(crate) fn handle_world_environment_controls(
         }
     }
     for (interaction, cursor) in &time_tracks {
-        if *interaction == Interaction::Pressed
+        if *interaction == UiInteraction::Pressed
             && let Some(position) = cursor.normalized
         {
             clock.set_hour(hour_from_ratio(centered_cursor_x_to_ratio(position.x)));
         }
     }
     for (interaction, cursor) in &month_tracks {
-        if *interaction == Interaction::Pressed
+        if *interaction == UiInteraction::Pressed
             && let Some(position) = cursor.normalized
         {
             clock.set_month_midpoint(month_from_ratio(centered_cursor_x_to_ratio(position.x)));
         }
     }
     for (interaction, cursor) in &mode_tracks {
-        if *interaction == Interaction::Pressed
+        if *interaction == UiInteraction::Pressed
             && let Some(position) = cursor.normalized
         {
             weather_override.set_mode_index(weather_mode_from_ratio(centered_cursor_x_to_ratio(
@@ -82,7 +83,7 @@ pub(crate) fn handle_world_environment_controls(
         }
     }
     for (interaction, cursor) in &preview_tracks {
-        if *interaction == Interaction::Pressed
+        if *interaction == UiInteraction::Pressed
             && let Some(position) = cursor.normalized
         {
             weather_override.set_preview(centered_cursor_x_to_ratio(position.x));
@@ -110,14 +111,14 @@ pub(crate) fn handle_world_environment_controls(
 /// 【功能设计】滑块只保存晴天基准摆幅；天气桥在本帧天气解析后唯一写入草和Mesh风场。
 pub(crate) fn handle_grass_wind_slider(
     editor: Res<MapEditorState>, // F12关闭或正在关闭时不可响应隐藏控件。
-    grass_tracks: Query<(&Interaction, &RelativeCursorPosition), With<GrassWindSlider>>, // 只查询迁移后的唯一滑块。
+    grass_tracks: Query<(&UiInteraction, &RelativeCursorPosition), With<GrassWindSlider>>, // 只查询迁移后的唯一滑块。
     mut settings: ResMut<EditorSettings>, // 沿用原settings.json自动保存字段。
 ) {
     if !editor.open || editor.close_requested {
         return; // 隐藏的UI不得继续调整全局风摆。
     }
     for (interaction, cursor) in &grass_tracks {
-        if *interaction == Interaction::Pressed
+        if *interaction == UiInteraction::Pressed
             && let Some(position) = cursor.normalized
         {
             let strength = grass_wind_strength_from_ratio(centered_cursor_x_to_ratio(position.x)); // 保留原F1厘米步进。
@@ -300,7 +301,7 @@ mod tests {
             .world_mut()
             .spawn((
                 GrassWindSlider,      // 天气栏唯一草地风摆轨道。
-                Interaction::Pressed, // 拖动手柄。
+                UiInteraction::Pressed, // 拖动手柄。
                 RelativeCursorPosition {
                     cursor_over: true,                     // 模拟游标处于轨道内。
                     normalized: Some(Vec2::new(0.5, 0.0)), // 指向轨道右端。

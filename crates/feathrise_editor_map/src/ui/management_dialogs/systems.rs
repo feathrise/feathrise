@@ -1,5 +1,6 @@
 //! 管理弹窗的滚轮会话与专属危险色；只处理固定节点，不读盘或改动作者事务。
 
+use feathrise_editor_ui::UiInteraction;
 use super::components::*;
 use super::types::ScrollSessions;
 use crate::authoring::TerrainExternalChangeState;
@@ -122,7 +123,7 @@ pub(super) fn sync_button_styles(
     browser: Res<MapBrowserState>,
     mut buttons: Query<
         (
-            Ref<Interaction>,
+            Ref<UiInteraction>,
             Option<Ref<RelativeCursorPosition>>,
             &MapEditorActionButton,
             &Children,
@@ -138,9 +139,9 @@ pub(super) fn sync_button_styles(
             && cursor.as_ref().is_none_or(|cursor| !cursor.is_changed()) {
             continue;
         }
-        let interaction = if *interaction == Interaction::Pressed
+        let interaction = if *interaction == UiInteraction::Pressed
             && cursor.as_ref().is_some_and(|cursor| !cursor.cursor_over()) {
-            Interaction::None
+            UiInteraction::None
         } else { *interaction };
         let danger = matches!(
             action.0,
@@ -152,15 +153,15 @@ pub(super) fn sync_button_styles(
                 .is_some_and(|dialog| dialog.mode == MapFolderDialogMode::Delete);
         let (fill, edge, ink) = if danger {
             match interaction {
-                Interaction::Pressed => (
+                UiInteraction::Pressed => (
                     colors::DANGER_BG, // 保留危险语义底色，按压亮度由编辑器统一反馈层产生。
                     colors::DANGER_TEXT,
                     colors::DANGER_TEXT,
                 ),
-                Interaction::Hovered => {
+                UiInteraction::Hovered => {
                     (colors::DANGER_BG, colors::DANGER_TEXT, colors::DANGER_TEXT)
                 }
-                Interaction::None => (
+                UiInteraction::None => (
                     colors::DANGER_BG,
                     colors::DANGER_BORDER,
                     colors::DANGER_TEXT,
@@ -168,9 +169,9 @@ pub(super) fn sync_button_styles(
             }
         } else {
             let fill = match interaction {
-                Interaction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
-                Interaction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
-                Interaction::None => colors::BUTTON_DEV_SMALL_NORMAL,
+                UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
+                UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
+                UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
             };
             (fill, colors::COPPER_BORDER_WEAK, colors::TEXT_PRIMARY)
         };

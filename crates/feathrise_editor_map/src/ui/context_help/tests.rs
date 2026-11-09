@@ -1,5 +1,6 @@
 //! 唯一浮层、原动态字段归还与真实鼠标门回归，不读取地图或启动文件任务。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::EditorContextHelpState, systems};
 use crate::{resources::*, ui::sidebars::*};
@@ -121,7 +122,7 @@ fn fixture() -> Fixture {
         .spawn((ContextHelpTitle, Text::default(), ChildOf(popup)));
     let close = app
         .world_mut()
-        .spawn((ContextHelpClose, Interaction::None, ChildOf(popup)))
+        .spawn((ContextHelpClose, UiInteraction::None, ChildOf(popup)))
         .id();
     app.update();
     Fixture {
@@ -135,13 +136,13 @@ fn fixture() -> Fixture {
 }
 
 fn press_help(test: &mut Fixture) {
-    test.app.world_mut().entity_mut(test.button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    test.app.world_mut().entity_mut(test.button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     test.app.update();
     *test
         .app
         .world_mut()
-        .get_mut::<Interaction>(test.button)
-        .unwrap() = Interaction::None;
+        .get_mut::<UiInteraction>(test.button)
+        .unwrap() = UiInteraction::None;
     test.app.update();
 }
 
@@ -392,7 +393,7 @@ fn help_scroll_close_and_outside_click_keep_mouse_until_release_and_quiet_frame(
             .resource::<MapEditorNumericScrubMouseGuard>()
             .blocked()
     );
-    test.app.world_mut().entity_mut(test.close).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    test.app.world_mut().entity_mut(test.close).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     test.app.update();
     assert!(
         test.app
@@ -410,8 +411,8 @@ fn help_scroll_close_and_outside_click_keep_mouse_until_release_and_quiet_frame(
     *test
         .app
         .world_mut()
-        .get_mut::<Interaction>(test.close)
-        .unwrap() = Interaction::None;
+        .get_mut::<UiInteraction>(test.close)
+        .unwrap() = UiInteraction::None;
     test.app
         .world_mut()
         .get_mut::<RelativeCursorPosition>(test.popup)
@@ -506,7 +507,7 @@ fn stale_help_press_cannot_open_from_hidden_ancestor_or_another_navigation_page(
                     EditorNavigatorTab::Assets,
                 )));
         }
-        test.app.world_mut().entity_mut(test.button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        test.app.world_mut().entity_mut(test.button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         test.app.update();
         assert!(
             test.app
@@ -652,7 +653,7 @@ fn management_modals_return_help_and_consume_hidden_old_presses() {
         assert!(test.app.world().resource::<EditorContextHelpState>().active.is_none());
         assert_eq!(test.app.world().get::<ChildOf>(test.body).unwrap().parent(), test.button);
         assert_eq!(test.app.world().get::<Node>(test.popup).unwrap().display, Display::None);
-        test.app.world_mut().entity_mut(test.button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        test.app.world_mut().entity_mut(test.button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         test.app.update();
         assert!(test.app.world().resource::<EditorContextHelpState>().active.is_none());
         set_management_modal(&mut test.app, None);

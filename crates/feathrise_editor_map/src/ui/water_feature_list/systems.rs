@@ -1,5 +1,6 @@
 //! 水域对象固定行池的ECS生成、同步、分页和点击系统。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use feathrise_editor_ui::metrics as ui_metrics;
@@ -317,11 +318,11 @@ pub(crate) fn sync_water_feature_row_interactions(
     selected_water_viewport: Res<SelectedWaterViewportState>, // 悬停结束后恢复查看工具点选行背景。
     mut rows: Query<
         (
-            &Interaction,
+            &UiInteraction,
             &MapEditorWaterFeatureRow,
             &mut BackgroundColor,
         ),
-        Changed<Interaction>,
+        Changed<UiInteraction>,
     >,
 ) {
     let active = session.draft.as_ref().and_then(|draft| listed_active_water_feature(draft, &editor, &selected_water_viewport)); // 交互帧也核对来源，不能把根水套到同ID私有层。
@@ -333,10 +334,10 @@ pub(crate) fn sync_water_feature_row_interactions(
         let selected =
             active.is_some_and(|(terrain, kind, active_id, _)| terrain == row.terrain.as_ref() && kind == row.kind && active_id == feature_id); // 来源、类别和稳定ID共同确定行。
         background.0 = match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下优先于既有选中态。
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,   // 悬停使用较弱铜金反馈。
-            (Interaction::None, true) => colors::SELECT_BG,         // 松开后恢复活动行背景。
-            (Interaction::None, false) => colors::SLOT_BG,          // 普通行回到暗墨槽位底。
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下优先于既有选中态。
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,   // 悬停使用较弱铜金反馈。
+            (UiInteraction::None, true) => colors::SELECT_BG,         // 松开后恢复活动行背景。
+            (UiInteraction::None, false) => colors::SLOT_BG,          // 普通行回到暗墨槽位底。
         };
     }
 }

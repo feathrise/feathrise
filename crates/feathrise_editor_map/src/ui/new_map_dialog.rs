@@ -1,5 +1,6 @@
 //! 地图资料模态仅编辑名称和备注；几何参数与LOD统一由所选网格属性负责。
 
+use feathrise_editor_ui::UiInteraction;
 use crate::components::{
     NewMapConfirmText, NewMapDialog, NewMapDialogBodyScroll, NewMapDialogHint, NewMapDialogTitle,
     NewMapStatusText,
@@ -29,7 +30,7 @@ pub(crate) fn install(app: &mut App) {
 pub(super) fn new_map_dialog() -> impl Scene {
     bsn! {
         NewMapDialog
-        Interaction::default()
+        UiInteraction::default()
         Node {
             display: Display::None,
             position_type: PositionType::Absolute,
@@ -39,7 +40,7 @@ pub(super) fn new_map_dialog() -> impl Scene {
         }
         GlobalZIndex(430)
         BackgroundColor(colors::SCENE_OVERLAY_BG)
-        Children [(@scene::panel())]
+        Children [@scene::panel()]
     }
 }
 

@@ -1,5 +1,6 @@
 //! 传送双列表动态行实体的生成、增量回显和交互样式。
 
+use feathrise_editor_ui::UiInteraction;
 mod current; // 当前地图源点列表及整个面板显隐。
 mod spawn; // 两套列表只在真实条目数量变化时增减行实体。
 mod target; // 地图树目标落点列表、关系摘要与加载态。
@@ -38,14 +39,14 @@ pub(super) fn fit_portal_list(node: &mut Node, rows: usize) {
 }
 
 /// 返回行在按下、悬停、选中和普通状态下的统一背景色。
-pub(super) fn portal_row_background(interaction: Interaction, selected: bool) -> Color {
+pub(super) fn portal_row_background(interaction: UiInteraction, selected: bool) -> Color {
     use crate::ui::theme as colors; // 复用项目统一水墨铜金交互层级。
 
     match (interaction, selected) {
-        (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下反馈优先覆盖稳定选择。
-        (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,   // 悬停明确该行可作为操作对象。
-        (Interaction::None, true) => colors::SELECT_BG,         // 已选端点松开后保留金棕底。
-        (Interaction::None, false) => colors::SLOT_BG,          // 普通行回到低饱和暗墨槽位。
+        (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下反馈优先覆盖稳定选择。
+        (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,   // 悬停明确该行可作为操作对象。
+        (UiInteraction::None, true) => colors::SELECT_BG,         // 已选端点松开后保留金棕底。
+        (UiInteraction::None, false) => colors::SLOT_BG,          // 普通行回到低饱和暗墨槽位。
     }
 }
 

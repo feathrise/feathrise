@@ -1,8 +1,10 @@
-//! 模式偏好使用用户配置旁的独立侧文件，避免作者进程与工作台最近工程记录争写同一原文。
+//! 视口、构建方式和Debug/Release按工程保存在作者数据目录，旧全局侧文件只用于首次继承模式。
 //! 最多一个后台写入和一份最新选择；只有成功回执才能更新磁盘身份，失败保留最后有效文件。
 
 use super::{ViewportMode, ViewportModeState};
 use crate::user_preferences::{Preferences, publish_checked, read_optional};
+use crate::{native_play::ProjectBuildBackend, project::{Project, ProjectContext}};
+use feathrise_editor_core::{ProjectBuildProfile, ProjectLaunchSettings};
 use async_channel::{Receiver, TryRecvError};
 use bevy::{prelude::*, tasks::IoTaskPool};
 use serde::{Deserialize, Serialize};
@@ -14,38 +16,83 @@ struct Stored {
     format: u32,
     #[serde(default)]
     mode: ViewportMode,
+    #[serde(default)]
+    profile: ProjectBuildProfile,
+    #[serde(default)]
+    backend: ProjectBuildBackend,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+struct Selection {
+    mode: ViewportMode,
+    profile: ProjectBuildProfile,
+    backend: ProjectBuildBackend,
 }
 
 struct Store {
     path: PathBuf,
     original: Option<Vec<u8>>,
     mode: ViewportMode,
+    profile: ProjectBuildProfile,
+    backend: ProjectBuildBackend,
+    context: Option<ProjectContext>,
 }
 
 impl Store {
     fn load(path: PathBuf) -> Result<Self, String> {
         let original = read_optional(&path)?;
-        let mode = if let Some(bytes) = original.as_deref() {
+        let selection = if let Some(bytes) = original.as_deref() {
             let stored: Stored = serde_json::from_slice(bytes)
                 .map_err(|error| format!("视口偏好损坏，原文保留：{error}"))?;
             if stored.format != 1 {
                 return Err(format!("不支持视口偏好版本{}，原文保留", stored.format));
             }
-            stored.mode
+            Selection { mode: stored.mode, profile: stored.profile, backend: stored.backend }
         } else {
-            ViewportMode::default()
+            Selection::default()
         };
         Ok(Self {
             path,
             original,
-            mode,
+            mode: selection.mode,
+            profile: selection.profile,
+            backend: selection.backend,
+            context: None,
         })
     }
 
+    fn for_project(project: &Project, legacy: PathBuf) -> Result<Self, String> {
+        let mut store = Self::load(project.context.checked_data_directory()?.join("launch.json"))?;
+        if store.original.is_none() {
+            // 只继承过去已保存的视口模式；旧全局配置不再拥有本工程后续选择的写权。
+            store.mode = Self::load(legacy)?.mode;
+        }
+        store.context = Some(project.context.clone());
+        Ok(store)
+    }
+
+    fn selection(&self) -> Selection {
+        Selection { mode: self.mode, profile: self.profile, backend: self.backend }
+    }
+
+    fn set_selection(&mut self, selection: Selection) {
+        self.mode = selection.mode;
+        self.profile = selection.profile;
+        self.backend = selection.backend;
+    }
+
     fn save(&mut self) -> Result<(), String> {
+        if let Some(context) = &self.context {
+            // 每次后台写入重新核对工程边界，防止打开后替换目录将配置写到其它工程。
+            if context.ensure_data_directory()?.join("launch.json") != self.path {
+                return Err("工程启动配置路径已变化，原文保留".into());
+            }
+        }
         let mut bytes = serde_json::to_vec_pretty(&Stored {
             format: 1,
             mode: self.mode,
+            profile: self.profile,
+            backend: self.backend,
         })
         .map_err(|error| error.to_string())?;
         bytes.push(b'\n');
@@ -63,17 +110,17 @@ struct Written {
 
 struct State {
     store: Option<Store>,
-    current: ViewportMode,
-    committed: ViewportMode,
+    current: Selection,
+    committed: Selection,
     revision: u64,
     job: Option<Receiver<Written>>,
     failure: Option<(u64, String)>,
 }
 
 impl State {
-    fn capture(&mut self, mode: ViewportMode) {
-        if self.current != mode {
-            self.current = mode;
+    fn capture(&mut self, selection: Selection) {
+        if self.current != selection {
+            self.current = selection;
             self.revision = self.revision.wrapping_add(1).max(1);
             self.failure = None;
         }
@@ -93,7 +140,7 @@ impl State {
     fn adopt(&mut self, written: Written) {
         match written.result {
             Ok(()) => {
-                self.committed = written.store.mode;
+                self.committed = written.store.selection();
                 self.failure = None;
             }
             Err(error) => {
@@ -123,7 +170,7 @@ impl State {
             ));
             return;
         };
-        store.mode = self.current;
+        store.set_selection(self.current);
         let revision = self.revision;
         let (sender, receiver) = async_channel::bounded(1);
         self.job = Some(receiver);
@@ -144,44 +191,56 @@ struct Runtime(Rc<RefCell<State>>);
 
 pub(crate) struct Completion(Rc<RefCell<State>>);
 
-pub(super) fn install(app: &mut App, preferences: &Preferences) -> Completion {
-    let path = preferences.file().with_extension("viewport.json");
-    let (store, error) = match Store::load(path.clone()) {
+pub(super) fn install(app: &mut App, preferences: &Preferences, project: Option<&Project>) -> Completion {
+    let legacy = preferences.file().with_extension("viewport.json");
+    let path = project.map_or_else(|| legacy.clone(), |project| project.context.editor_data.join("launch.json"));
+    let loaded = match project {
+        Some(project) => Store::for_project(project, legacy),
+        None => Store::load(path.clone()),
+    };
+    let (store, error) = match loaded {
         Ok(store) => (store, None),
         Err(error) => (
             Store {
                 path,
                 original: None,
                 mode: ViewportMode::default(),
+                profile: ProjectBuildProfile::default(),
+                backend: ProjectBuildBackend::default(),
+                context: project.map(|project| project.context.clone()),
             },
             Some(error),
         ),
     };
-    let mode = store.mode;
+    let selection = store.selection();
     let state = Rc::new(RefCell::new(State {
         store: Some(store),
-        current: mode,
-        committed: mode,
+        current: selection,
+        committed: selection,
         revision: 1,
         job: None,
         failure: None,
     }));
     app.insert_resource(ViewportModeState {
-        selected: mode,
+        selected: selection.mode,
         revision: 1,
         status: error.unwrap_or_default(),
     })
+    .insert_resource(selection.backend)
+    .init_resource::<ProjectLaunchSettings>()
     .insert_non_send(Runtime(Rc::clone(&state)))
     .add_systems(Last, capture_and_poll);
+    // 先于代码监听和首次工程预览恢复，避免按默认DX开始一次无用构建。
+    app.world_mut().resource_mut::<ProjectLaunchSettings>().profile = selection.profile;
     Completion(state)
 }
 
-fn capture_and_poll(mut mode: ResMut<ViewportModeState>, runtime: NonSend<Runtime>) {
+fn capture_and_poll(mut mode: ResMut<ViewportModeState>, launch: Res<ProjectLaunchSettings>, backend: Res<ProjectBuildBackend>, runtime: NonSend<Runtime>) {
     let mut state = runtime.0.borrow_mut();
-    state.capture(mode.selected);
+    state.capture(Selection { mode: mode.selected, profile: launch.profile, backend: *backend });
     state.advance();
     if let Some(error) = state.error() {
-        let message = format!("视口选择尚未保存：{error}");
+        let message = format!("工程启动配置尚未保存：{error}");
         if mode.status != message {
             mode.status = message;
         }
@@ -194,7 +253,11 @@ pub(crate) fn ready_to_exit(world: &mut World, retry: bool) -> Result<bool, Stri
         return Ok(true);
     };
     let mut state = runtime.0.borrow_mut();
-    state.capture(world.resource::<ViewportModeState>().selected);
+    state.capture(Selection {
+        mode: world.resource::<ViewportModeState>().selected,
+        profile: world.resource::<ProjectLaunchSettings>().profile,
+        backend: *world.resource::<ProjectBuildBackend>(),
+    });
     if retry {
         state.failure = None;
     }
@@ -202,7 +265,7 @@ pub(crate) fn ready_to_exit(world: &mut World, retry: bool) -> Result<bool, Stri
     if state.dirty()
         && let Some(error) = state.error()
     {
-        return Err(format!("视口选择未保存：{error}"));
+        return Err(format!("工程启动配置未保存：{error}"));
     }
     Ok(!state.dirty() && state.job.is_none())
 }
@@ -223,11 +286,11 @@ impl Completion {
         if let Some(error) = state.error() {
             return Err(error.to_owned());
         }
-        let mode = state.current;
+        let selection = state.current;
         let store = state.store.as_mut().ok_or("视口偏好写入槽未归还")?;
-        store.mode = mode;
+        store.set_selection(selection);
         store.save()?;
-        state.committed = mode;
+        state.committed = selection;
         Ok(())
     }
 }
@@ -301,5 +364,84 @@ mod tests {
             Store::load(fixture.0.clone()).unwrap().mode,
             ViewportMode::EmbeddedWorld
         );
+    }
+
+    struct ProjectFixture {
+        root: PathBuf,
+        project: Project,
+    }
+
+    impl ProjectFixture {
+        fn new() -> Self {
+            let root = Fixture::new().0.with_extension("project");
+            fs::create_dir(&root).unwrap();
+            fs::create_dir(root.join("assets")).unwrap();
+            fs::write(root.join("Cargo.toml"), "[package]\nname='launch_fixture'\nversion='0.1.0'\n").unwrap();
+            fs::write(root.join("editor-project.json"), br#"{"format":2,"id":"8f6700ee-7cd3-45d0-b89b-e95ed950b806","name":"launch fixture","cargo_manifest":"Cargo.toml","package":"launch_fixture","asset_roots":["assets"],"editor_data":"author-state"}"#).unwrap();
+            let project = crate::project::open(&root).unwrap();
+            Self { root, project }
+        }
+    }
+
+    impl Drop for ProjectFixture {
+        fn drop(&mut self) {
+            // 只清理本测试独占创建、位于系统临时根且不含Cargo缓存的夹具目录。
+            let temporary = std::env::temp_dir().canonicalize().unwrap();
+            if self.root.canonicalize().ok().is_some_and(|root| root.parent() == Some(temporary.as_path()))
+                && self.root.file_name().is_some_and(|name| name.to_string_lossy().starts_with("feathrise-viewport-preferences-")) {
+                let _ = fs::remove_dir_all(&self.root);
+            }
+        }
+    }
+
+    #[test]
+    fn project_choices_survive_reopen_and_remain_separate_from_other_projects_and_legacy() {
+        let legacy = Fixture::new();
+        // 旧文件缺少新增字段时保持Debug/DX，且不在读取时改写原文。
+        fs::write(&legacy.0, br#"{"format":1,"mode":"embedded_world"}"#).unwrap();
+        let original = fs::read(&legacy.0).unwrap();
+        let first = ProjectFixture::new();
+        let second = ProjectFixture::new();
+        let descriptor = fs::read(first.root.join("editor-project.json")).unwrap();
+        let mut store = Store::for_project(&first.project, legacy.0.clone()).unwrap();
+        assert_eq!(store.mode, ViewportMode::EmbeddedWorld);
+        assert_eq!(store.profile, ProjectBuildProfile::Debug);
+        assert_eq!(store.backend, ProjectBuildBackend::Dx);
+        assert!(!store.path.exists());
+        store.backend = ProjectBuildBackend::Native;
+        store.profile = ProjectBuildProfile::Release;
+        store.save().unwrap();
+        assert!(store.path.starts_with(first.root.join("author-state").canonicalize().unwrap()));
+        let reopened = Store::for_project(&first.project, legacy.0.clone()).unwrap();
+        assert_eq!(reopened.backend, ProjectBuildBackend::Native);
+        assert_eq!(reopened.profile, ProjectBuildProfile::Release);
+        assert_eq!(Store::for_project(&second.project, legacy.0.clone()).unwrap().backend, ProjectBuildBackend::Dx);
+        assert_eq!(fs::read(&legacy.0).unwrap(), original);
+        assert_eq!(fs::read(first.root.join("editor-project.json")).unwrap(), descriptor);
+        let stored: serde_json::Value = serde_json::from_slice(&fs::read(store.path).unwrap()).unwrap();
+        assert_eq!(stored["backend"], "cargo");
+        assert_eq!(stored["profile"], "release");
+    }
+
+    #[test]
+    fn last_frame_autosaves_latest_choices_and_restores_before_next_build_setup() {
+        let fixture = ProjectFixture::new();
+        let preferences = Preferences::load_at(&fixture.root.join("user/editor.json"), &fixture.root).unwrap();
+        let mut app = App::new();
+        app.add_plugins(TaskPoolPlugin::default());
+        let completion = install(&mut app, &preferences, Some(&fixture.project));
+        app.insert_resource(ProjectBuildBackend::Native);
+        app.update();
+        // 在第一份写入尚可能在途时再变配置，收口必须落盘末次完整选择。
+        app.world_mut().resource_mut::<ProjectLaunchSettings>().profile = ProjectBuildProfile::Release;
+        app.world_mut().resource_mut::<ViewportModeState>().selected = ViewportMode::EmbeddedWorld;
+        app.update();
+        completion.finish().unwrap();
+        let mut reopened = App::new();
+        let completion = install(&mut reopened, &preferences, Some(&fixture.project));
+        assert_eq!(ProjectBuildBackend::selected(reopened.world()), ProjectBuildBackend::Native);
+        assert_eq!(reopened.world().resource::<ProjectLaunchSettings>().profile, ProjectBuildProfile::Release);
+        assert_eq!(reopened.world().resource::<ViewportModeState>().selected, ViewportMode::EmbeddedWorld);
+        completion.finish().unwrap();
     }
 }

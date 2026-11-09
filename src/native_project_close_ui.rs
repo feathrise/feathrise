@@ -1,5 +1,6 @@
 //! 按宿主实际目标呈现工程关闭或编辑器退出确认；原作者控件始终保留在后方。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::*};
 use bevy::{
     input::mouse::{MouseScrollUnit, MouseWheel},
@@ -23,7 +24,7 @@ pub(super) fn mount(
                     CloseOverlay,
                     GlobalZIndex(6000),
                     FocusPolicy::Block,
-                    Interaction::None,
+                    UiInteraction::None,
                     Node {
                         display: Display::None,
                         position_type: PositionType::Absolute,

@@ -1,5 +1,6 @@
 //! 目录菜单运行真实右键、原文件夹事务入口与鼠标门；不访问地图文件或启动原生窗口。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::super::components::{MapSidebarActionBinding, MapSidebarActionLabel};
 use super::super::tests::{entry, initialize, map_item, published_index};
@@ -66,9 +67,9 @@ fn fixture(item: Option<MapBrowserItem>) -> Fixture {
                 item,
                 Some(MapBrowserItem::Map(_) | MapBrowserItem::Folder(_))
             ) {
-                Interaction::Hovered
+                UiInteraction::Hovered
             } else {
-                Interaction::None
+                UiInteraction::None
             },
         ))
         .id();
@@ -78,9 +79,9 @@ fn fixture(item: Option<MapBrowserItem>) -> Fixture {
             MapEditorMapRootRow,
             Node::default(),
             if item == Some(MapBrowserItem::Root) {
-                Interaction::Hovered
+                UiInteraction::Hovered
             } else {
-                Interaction::None
+                UiInteraction::None
             },
         ))
         .id();
@@ -124,7 +125,7 @@ fn fixture(item: Option<MapBrowserItem>) -> Fixture {
                 menu_owned: true,
                 ..default()
             },
-            Interaction::None,
+            UiInteraction::None,
             Node::default(),
             BackgroundColor::default(),
             BorderColor::default(),
@@ -196,7 +197,7 @@ fn action_entity(test: &mut Fixture, action: EditorAction) -> Entity {
 
 fn click(test: &mut Fixture, action: EditorAction) {
     let button = action_entity(test, action);
-    *test.app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+    *test.app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
     test.app
         .world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
@@ -206,8 +207,8 @@ fn click(test: &mut Fixture, action: EditorAction) {
 
 fn finish_click(test: &mut Fixture) {
     let world = test.app.world_mut();
-    for mut interaction in world.query_filtered::<&mut Interaction, With<MapEditorActionButton>>().iter_mut(world) {
-        if *interaction == Interaction::Pressed { *interaction = Interaction::Hovered; }
+    for mut interaction in world.query_filtered::<&mut UiInteraction, With<MapEditorActionButton>>().iter_mut(world) {
+        if *interaction == UiInteraction::Pressed { *interaction = UiInteraction::Hovered; }
     } // 无窗口夹具模拟官方命中回到原菜单项，再交共享协议确认这次释放。
     test.app
         .world_mut()

@@ -1,5 +1,6 @@
 //! 三维视口左侧的竖向模式图标和独立筛选菜单；原位更新样式，避免悬停重建导致闪烁。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use crate::authoring::mesh_edit::{MeshEditAction, MeshEditState, MeshEditTool};
@@ -58,19 +59,19 @@ pub(crate) fn global_mode_toolbar() -> impl Scene {
     use bevy::text::FontSourceTemplate;
     let action = ModeButton::Options;
     let tooltip = crate::ui::tooltips::EditorTooltipTarget(crate::ui::tooltips::TooltipAction::ViewportOptions);
-    bsn! { GlobalModeToolbar crate::components::MapEditorSceneContext RelativeCursorPosition::default() Interaction::default() ~{FocusPolicy::Block}
+    bsn! { GlobalModeToolbar crate::components::MapEditorSceneContext RelativeCursorPosition::default() UiInteraction::default() ~{FocusPolicy::Block}
         Node { column_gap: px(2), height: px(26), flex_shrink: 0.0, align_items: AlignItems::Center }
-        Children [(InteractionButton ~{action} ~{tooltip}
+        Children [InteractionButton ~{action} ~{tooltip}
             Node { height: px(26), padding: UiRect::horizontal(px(6)), align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center, flex_shrink: 0.0, border_radius: BorderRadius::all(px(2)) }
             BackgroundColor(colors::PANEL_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
-            Children [(Text("筛选与操作") @feathrise_editor_ui::localization::label_scene("筛选与操作") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(12) }
-                TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap() Pickable::IGNORE)])] }
+            Children [Text("筛选与操作") @feathrise_editor_ui::localization::label_scene("筛选与操作") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(12) }
+                TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap() Pickable::IGNORE]] }
 }
 
 fn spawn_mode_tools(parent: &mut ChildSpawnerCommands, assets: &AssetServer) {
     parent.spawn((
-        ModeToolsRoot, Interaction::default(), RelativeCursorPosition::default(), FocusPolicy::Block,
+        ModeToolsRoot, UiInteraction::default(), RelativeCursorPosition::default(), FocusPolicy::Block,
         Node {
             position_type: PositionType::Absolute, left: px(8), top: px(8), width: px(MODE_RAIL_WIDTH),
             flex_direction: FlexDirection::Column, row_gap: px(2), padding: UiRect::all(px(2)),
@@ -124,7 +125,7 @@ pub(super) fn setup(
             super::mesh_edit_ui::spawn(parent, &font);
             let mut controls = parent.spawn((
                     ControlsRoot,                      // 根区域统一占用指针。
-                    Interaction::default(),            // 包括行间空隙的悬停检测。
+                    UiInteraction::default(),            // 包括行间空隙的悬停检测。
                     RelativeCursorPosition::default(), // 面板内部子按钮仍算整个浮层命中。
                     FocusPolicy::Block,                // 空隙不透传给地图。
                     Node {
@@ -318,7 +319,7 @@ pub(super) fn style(
     mut labels: Query<&mut Text>,
     mut buttons: Query<(
         &ModeButton,
-        &Interaction,
+        &UiInteraction,
         &mut BackgroundColor,
         &mut BorderColor,
     )>, // 唯一样式写入者，悬停不重建节点。
@@ -370,10 +371,10 @@ pub(super) fn style(
             ModeButton::Options => mode.context_controls_open,
         };
         let color = match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-            (Interaction::None, true) => colors::SELECT_BG,
-            (Interaction::None, false) => colors::SLOT_BG,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::None, true) => colors::SELECT_BG,
+            (UiInteraction::None, false) => colors::SLOT_BG,
         }; // 模式、筛选与展开入口共用导航填色，不以亮白描边表示普通选中。
         let edge = colors::COPPER_BORDER_WEAK;
         if background.0 != color {

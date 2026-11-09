@@ -24,6 +24,7 @@ pub(crate) use preferences::{Completion, ready_to_exit};
 pub(crate) use resources::{BuildProfileMenuState, ViewportGeometry, ViewportModeAvailability, ViewportModeState};
 pub(crate) use types::ViewportMode;
 
+#[cfg(test)]
 use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 
@@ -34,9 +35,10 @@ pub(crate) struct ViewportModeInput;
 pub(crate) fn install(
     app: &mut App,
     preferences: &crate::user_preferences::Preferences,
+    project: Option<&crate::project::Project>,
 ) -> Completion {
     feathrise_editor_map::standalone::viewport_projection::install(app);
-    let completion = self::preferences::install(app, preferences);
+    let completion = self::preferences::install(app, preferences, project);
     {
         let mut mode = app.world_mut().resource_mut::<ViewportModeState>();
         if !mode.selected.supported() {

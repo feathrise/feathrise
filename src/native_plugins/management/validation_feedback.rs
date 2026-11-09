@@ -50,7 +50,7 @@ fn one_button(
         rect,
     );
     let window = app.world().resource::<CursorFixture>().window;
-    app.world_mut().write_message(MouseButtonInput {
+    window_input(app.world_mut(), MouseButtonInput {
         button: MouseButton::Left,
         state: ButtonState::Pressed,
         window,
@@ -87,7 +87,7 @@ fn one_button(
         );
         assert_eq!(outside, normal, "移出按钮不能保留按压高亮");
     }
-    app.world_mut().write_message(MouseButtonInput {
+    window_input(app.world_mut(), MouseButtonInput {
         button: MouseButton::Left,
         state: ButtonState::Released,
         window,

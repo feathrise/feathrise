@@ -2,6 +2,7 @@
 //!
 //! 字体测量结果由固定内在尺寸提供，隔离字库IO；生产仍使用TextLayout的真实字体测量。
 
+use crate::UiInteraction;
 use crate::InteractionButton;
 use super::*; // 直接调用生产标签构造函数，不复制标题与关闭键布局。
 use bevy::app::{HierarchyPropagatePlugin, PropagateSet, TaskPoolPlugin}; // 与Bevy布局测试相同的最小调度。
@@ -343,10 +344,10 @@ fn close_and_title_receive_separate_mouse_presses() {
         let pressed: Vec<_> = test
             .app
             .world_mut()
-            .query::<(&Action, &Interaction)>()
+            .query::<(&Action, &UiInteraction)>()
             .iter(test.app.world())
             .filter_map(|(action, interaction)| {
-                (*interaction == Interaction::Pressed).then_some(*action)
+                (*interaction == UiInteraction::Pressed).then_some(*action)
             })
             .collect(); // 收集全部真正收到按下的按钮。
         assert_eq!(pressed, vec![action]); // 每次只允许一个精确动作。
@@ -401,7 +402,7 @@ fn actual_tab_hit_testing_only_activates_on_original_button_release() {
     step(&mut test, close, true, false);
     step(&mut test, title, false, false);
     // Bevy拖出会保留Pressed；移回原按钮后合法松开，仍应像传统按钮一样确认。
-    assert_eq!(*test.app.world().get::<Interaction>(close).unwrap(), Interaction::Pressed);
+    assert_eq!(*test.app.world().get::<UiInteraction>(close).unwrap(), UiInteraction::Pressed);
     step(&mut test, close, false, true);
     assert!(clicked(&test, close) && !clicked(&test, title));
 }

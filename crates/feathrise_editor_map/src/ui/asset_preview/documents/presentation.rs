@@ -1,6 +1,6 @@
 //! 完整文档的原生输入绑定与工具条回显；连续正文构造由独立有界系统负责。
 
-use feathrise_editor_ui::InteractionButton;
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::DocumentState, types::*};
 use crate::ui::theme as colors;
 use bevy::{
@@ -52,12 +52,12 @@ pub(super) fn sync(
     >,
     mut buttons: Query<(
         &DocumentAction,
-        &Interaction,
+        &UiInteraction,
         &mut Node,
         &mut BackgroundColor,
         &mut BorderColor,
     ), Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>>,
-    changed_buttons: Query<(), (With<DocumentAction>, Changed<Interaction>, Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>)>,
+    changed_buttons: Query<(), (With<DocumentAction>, Changed<UiInteraction>, Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>)>,
 ) {
     if !state.is_changed()
         && !locale.as_ref().is_some_and(|locale| locale.is_changed())
@@ -171,9 +171,9 @@ pub(super) fn sync(
                 if state.central_active && state.active_tab_id() == Some(*id)));
         let color = if active {
             colors::SELECT_BG
-        } else if *interaction == Interaction::Hovered {
+        } else if *interaction == UiInteraction::Hovered {
             colors::SELECT_BG_HOVER
-        } else if *interaction == Interaction::Pressed {
+        } else if *interaction == UiInteraction::Pressed {
             colors::SELECT_BG_PRESSED
         } else {
             colors::SLOT_BG
@@ -240,6 +240,7 @@ pub(super) fn restore_source_scroll(
 #[cfg(test)]
 mod workspace_tab_style_tests {
     use super::*;
+    use feathrise_editor_ui::InteractionButton;
     use bevy::ecs::world::CommandQueue;
     use feathrise_editor_ui::workspace_tabs::{WorkspaceTabButton, spawn_preset_tab};
 
@@ -263,7 +264,7 @@ mod workspace_tab_style_tests {
         let ordinary = app.world_mut().spawn((InteractionButton, Node::default(), DocumentAction::Save,
             sentinel, BorderColor::all(Color::NONE))).id();
         // 文档真实同步曾把普通关闭键改成SLOT_BG；状态换代和交互快路都必须保持共享底色。
-        for (index, interaction) in [Interaction::None, Interaction::Hovered, Interaction::Pressed, Interaction::None].into_iter().enumerate() {
+        for (index, interaction) in [UiInteraction::None, UiInteraction::Hovered, UiInteraction::Pressed, UiInteraction::None].into_iter().enumerate() {
             if index == 0 || index == 3 {
                 app.world_mut().resource_mut::<DocumentState>().error.push(' ');
             }

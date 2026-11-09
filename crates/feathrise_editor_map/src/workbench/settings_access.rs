@@ -1,4 +1,5 @@
 //! 无工程设置的临时访问门：取消旧按钮手势并灰显，恢复时只撤销本门拥有的禁用。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{WorkbenchSettingsAccess, components::SettingsAccessDisabled};
 use crate::{
@@ -34,7 +35,7 @@ pub(super) fn prepare(
             Has<MapEditorLayoutButton>,
             Has<MapEditorPaneSplitter>,
             Option<&mut EditorButtonClick>,
-            Option<&mut Interaction>,
+            Option<&mut UiInteraction>,
             Has<InteractionDisabled>,
             Option<&SettingsAccessDisabled>,
             Option<&Children>,
@@ -112,8 +113,8 @@ pub(super) fn prepare(
             click.invalidate();
         }
         if let Some(mut interaction) = interaction {
-            if *interaction != Interaction::None {
-                *interaction = Interaction::None;
+            if *interaction != UiInteraction::None {
+                *interaction = UiInteraction::None;
             }
         }
         if saved.is_none() && !disabled {

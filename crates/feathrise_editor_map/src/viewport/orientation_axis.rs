@@ -2,6 +2,7 @@
 //!
 //! 方向轴复用现有轨道相机与正式释放点击：六个端点精确对轴，中心切换投影。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use bevy::picking::Pickable; // 装饰线与文字穿透，按钮和控件空隙拥有指针。
 use bevy::prelude::*; // UI节点、文本、颜色、相机姿态与ECS查询。
@@ -79,7 +80,7 @@ pub(crate) fn setup_editor_orientation_axis(
                     ..default()
                 },
                 ZIndex(30), // 独立观察区覆盖元素栏空白背景；按钮本身另由窄屏布局避让，不用层级掩盖按钮。
-                Interaction::default(),
+                UiInteraction::default(),
                 RelativeCursorPosition::default(),
                 FocusPolicy::Block,
             ))

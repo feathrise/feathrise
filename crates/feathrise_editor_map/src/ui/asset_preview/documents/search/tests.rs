@@ -1,5 +1,6 @@
 //! 跨文件搜索真实临时资产、Unicode位置、草稿优先、取消和中央定位身份回归。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{constants::MAX_FILE_BYTES, io, navigation, resources::DocumentState, types::*};
 use super::{
     components::*, constants::*, control, jump, resources::AssetSearchState, tasks, types::*,
@@ -366,13 +367,13 @@ fn external_search_result_opens_real_line_without_changing_selection_and_rejects
             let mut state = app.world_mut().resource_mut::<AssetSearchState>();
             state.open = true; state.query = "长剑".into(); state.ticket = 1; state.result = Some(result.clone());
         }
-        let choice = app.world_mut().spawn((SearchAction::ChooseEditor(ide), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)).id();
+        let choice = app.world_mut().spawn((SearchAction::ChooseEditor(ide), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)).id();
         app.update();
         assert_eq!(app.world().resource::<AssetSearchState>().preferred_editor, Some(ide));
         assert!(app.world().resource::<Messages<OpenExternalFile>>().is_empty());
-        *app.world_mut().get_mut::<Interaction>(choice).unwrap() = Interaction::None; app.update();
+        *app.world_mut().get_mut::<UiInteraction>(choice).unwrap() = UiInteraction::None; app.update();
         let index = app.world().resource::<AssetSearchState>().current().unwrap().rows.iter().position(|row| matches!(row, ResultRow::Hit(..))).unwrap();
-        let button = app.world_mut().spawn((SearchAction::External { ticket: 1, index, editor: ide, in_project }, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)).id();
+        let button = app.world_mut().spawn((SearchAction::External { ticket: 1, index, editor: ide, in_project }, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)).id();
         app.update();
         let requests: Vec<_> = app.world_mut().resource_mut::<Messages<OpenExternalFile>>().drain().collect();
         assert_eq!(requests.len(), 1);
@@ -382,15 +383,15 @@ fn external_search_result_opens_real_line_without_changing_selection_and_rejects
         assert_eq!(requests[0].action.location(), Some((3, 1)));
         assert!(app.world().resource::<DocumentState>().expanded.is_none());
         assert!(app.world().resource::<MapEditorState>().selected_asset.is_none());
-        *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::None; app.update();
+        *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::None; app.update();
         app.insert_resource(crate::ui::external_files::ExternalEditors::default());
-        *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+        *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
         app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered()); app.update();
         assert!(app.world().resource::<Messages<OpenExternalFile>>().is_empty()); // 隐藏入口的旧按下不能启动未安装工具。
-        *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::None; app.update();
+        *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::None; app.update();
         app.insert_resource(ExternalEditors::for_tests(&ExternalEditor::ALL));
         app.world_mut().resource_mut::<AssetSearchState>().ticket += 1;
-        *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+        *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = UiInteraction::Pressed;
         app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered()); app.update();
         assert!(app.world().resource::<Messages<OpenExternalFile>>().is_empty());
     }

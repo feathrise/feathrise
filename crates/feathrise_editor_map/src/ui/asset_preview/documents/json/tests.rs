@@ -1,5 +1,6 @@
 //! JSON语法、Unicode诊断、词元保真、后台身份、保存事务与原生历史回归。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{
     components::*, history, io, native, resources::DocumentState, session, types::*,
 };
@@ -315,7 +316,7 @@ fn native_app(fixture: &Fixture, doc: Document) -> (App, Entity) {
 }
 
 fn press(app: &mut App, action: JsonAction) {
-    let button = app.world_mut().spawn((action, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)).id();
+    let button = app.world_mut().spawn((action, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)).id();
     app.update();
     app.world_mut().despawn(button);
 }
@@ -489,7 +490,7 @@ fn json_format_shortcut_requires_source_focus_and_ime_or_pending_paste_blocks_ac
     }
     let button = app
         .world_mut()
-        .spawn((JsonAction::Format, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+        .spawn((JsonAction::Format, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
         .id();
     app.world_mut().run_system_once(control::input).unwrap();
     assert!(
@@ -656,7 +657,7 @@ fn json_reload_pending_does_not_reopen_discarded_source_via_error_or_format_tool
     }
     let button = app
         .world_mut()
-        .spawn((JsonAction::Locate, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+        .spawn((JsonAction::Locate, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
         .id();
     app.world_mut().run_system_once(control::input).unwrap();
     assert_eq!(
@@ -677,7 +678,7 @@ fn json_reload_pending_does_not_reopen_discarded_source_via_error_or_format_tool
     app.world_mut().despawn(button);
     let button = app
         .world_mut()
-        .spawn((JsonAction::Format, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+        .spawn((JsonAction::Format, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
         .id();
     app.world_mut().run_system_once(control::input).unwrap();
     assert!(

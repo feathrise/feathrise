@@ -1,5 +1,6 @@
 //! 资产预览鼠标导航与增量视图应用；不创建新View、不扫描模型或复制图片。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::camera::Projection; // 仅修改已存在的资产预览相机。
 use bevy::ecs::system::SystemParam; // 将只读作者输入门组合成一个明确上下文。
 use bevy::input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel}; // 原始输入按当前预览画布独占消费。
@@ -72,7 +73,7 @@ pub(super) fn control_asset_preview(
     state: Res<AssetPreviewState>,           // 只允许完整加载成功的真实资产交互。
     mut navigation: ResMut<AssetPreviewNavigation>, // 本系统只改只读预览的临时状态。
     canvases: Query<
-        (&ComputedNode, &RelativeCursorPosition, &Interaction),
+        (&ComputedNode, &RelativeCursorPosition, &UiInteraction),
         With<AssetPreviewCanvas>,
     >, // 同时尊重祖先裁剪与前方模态遮挡。
     image_nodes: Query<&ComputedNode, With<AssetPreviewImage>>, // 未缩放图像的实际布局尺寸。
@@ -147,7 +148,7 @@ pub(super) fn control_asset_preview(
         return; // 原始事件与Changed查询均已由本次系统tick消费。
     } // 当前持有的预览拖动可越过它自己发布的统一鼠标门。
     let (canvas, cursor, interaction) = canvas.expect("已确认有效的预览画布必须存在"); // 固定唯一画布。
-    let hovered = cursor.cursor_over() && *interaction != Interaction::None; // 几何重叠但被弹框遮挡时不抢滚轮。
+    let hovered = cursor.cursor_over() && *interaction != UiInteraction::None; // 几何重叠但被弹框遮挡时不抢滚轮。
     let image_size = image_nodes
         .single()
         .map(ComputedNode::size)

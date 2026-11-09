@@ -1,5 +1,6 @@
 //! 真实BSN与中文字体布局回归，验证固定一排、视口矩形稳定、横滚与原共享输入桥；不创建地图或GPU视口。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, viewport_toolbar};
 use crate::authoring::EditorAuthoringSession;
 use crate::components::{MapEditorActionButton, MapEditorBrushSlider, MapEditorBrushSliderKind};
@@ -557,7 +558,7 @@ fn external_numeric_updates_use_the_same_shared_text_and_fill_root() {
 
 fn point_at(app: &mut App, entity: Entity, normalized_x: f32) {
     app.world_mut().entity_mut(entity).insert((
-        Interaction::Hovered,
+        UiInteraction::Hovered,
         RelativeCursorPosition {
             cursor_over: true,
             normalized: Some(Vec2::new(normalized_x, 0.5)),

@@ -1,5 +1,6 @@
 //! 通过正式模态输入与保存续接系统验证三个选择，不执行地图文件写入。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::ui::FocusPolicy;
 use feathrise_map_content::MapId;
 use std::sync::Arc;
@@ -51,7 +52,7 @@ fn request_app() -> (App, MapId) {
 
 fn press(app: &mut App, action: EditorAction) -> Entity {
     app.world_mut()
-        .spawn((MapEditorActionButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+        .spawn((MapEditorActionButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
         .id()
 }
 
@@ -351,7 +352,7 @@ fn cancel_releases_hidden_overlay_and_retains_the_click_and_keyboard_gate() {
         .spawn((
             MapSwitchDialog,
             Node::default(),
-            feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+            feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
             FocusPolicy::Block,
         ))
         .id();
@@ -372,8 +373,8 @@ fn cancel_releases_hidden_overlay_and_retains_the_click_and_keyboard_gate() {
         FocusPolicy::Pass
     );
     assert_eq!(
-        *app.world().get::<Interaction>(cancel).unwrap(),
-        Interaction::None
+        *app.world().get::<UiInteraction>(cancel).unwrap(),
+        UiInteraction::None
     );
     assert!(app.world().resource::<MapBrowserDragState>().blocked);
     assert!(

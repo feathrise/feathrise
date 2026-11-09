@@ -1,5 +1,6 @@
 //! 使用真实BSN、原领域输入与中文字体验证工具页；不启动GPU、保存文件或执行建筑作者事务。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::BuildingSidebarPage, scene::building_tools_panel};
 use crate::MapEditorSystemSet;
@@ -215,9 +216,9 @@ fn press(app: &mut App, prefix: &str) -> Entity {
     let entity = button(app, prefix);
     app.world_mut()
         .entity_mut(entity)
-        .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
-    app.world_mut().entity_mut(entity).insert(Interaction::None);
+    app.world_mut().entity_mut(entity).insert(UiInteraction::None);
     app.update();
     entity
 }

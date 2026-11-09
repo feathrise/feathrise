@@ -1,5 +1,6 @@
 //! 地图与资产列表固定行池及增量文本同步。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use crate::ui::theme as colors;
 use bevy::prelude::*; // UI实体生成、Interaction和文本查询。
@@ -239,7 +240,7 @@ pub(crate) fn sync_map_rows(
         &mut BackgroundColor,     // 高亮选择跟随编辑器主题，默认使用参考图的蓝灰色。
         &mut BorderColor,         // 保留原落点样式状态，普通树行不绘制按钮边框。
         &Children,                // 文本子节点保持固定实体。
-        Option<Ref<Interaction>>, // 固定行池的悬停边沿也需刷新；兼容原域无按钮夹具。
+        Option<Ref<UiInteraction>>, // 固定行池的悬停边沿也需刷新；兼容原域无按钮夹具。
         Option<&mut feathrise_editor_ui::EditorButtonClick>, // 行池换绑时取消原按钮手势。
     )>,
     mut presented_scope: Local<Option<(u64, Option<(crate::types::MapBrowserIndexSignature, u64)>)>>,
@@ -324,7 +325,7 @@ pub(crate) fn sync_map_rows(
         let (background_color, border_color) = super::map_sidebar::tree_row_colors(
             selected,
             drop_target,
-            interaction.map_or(Interaction::None, |value| *value),
+            interaction.map_or(UiInteraction::None, |value| *value),
         );
         background.set_if_neq(BackgroundColor(background_color));
         border.set_if_neq(border_color); // 与根行共用落点、选中和悬停优先级，只写差异。

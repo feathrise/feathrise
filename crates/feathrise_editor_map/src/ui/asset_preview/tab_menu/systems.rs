@@ -1,4 +1,5 @@
 //! 右击文件标签打开菜单；显式批量关闭仅释放标签身份，草稿与文件任务继续归原会话所有。
+use feathrise_editor_ui::UiInteraction;
 use super::super::{
     AssetPreviewWorkspace, DocumentState,
     components::AssetPreviewTabRoot,
@@ -76,7 +77,7 @@ pub(super) fn control_menu(
         ),
     >,
     menu_hits: Query<
-        &Interaction,
+        &UiInteraction,
         Or<(
             With<CloseAllTabsButton>,
             With<CloseUnmodifiedTabsButton>,
@@ -224,7 +225,7 @@ pub(super) fn control_menu(
         } else if mouse.just_pressed(MouseButton::Left)
             && !menu_hits
                 .iter()
-                .any(|interaction| *interaction == Interaction::Pressed)
+                .any(|interaction| *interaction == UiInteraction::Pressed)
         {
             menu.open = false; // 外部按下只收起，后续释放不得触发原菜单项。
         }

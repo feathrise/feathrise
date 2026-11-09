@@ -1,5 +1,6 @@
 //! 列表/缩略图工具条、固定槽位子节点和自适应网格；不重建资产行。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::{localization::{EditorLocale, label_scene}, metrics as ui_metrics};
 use super::{components::*, constants::*, resources::ThumbnailState, types::ThumbnailResult};
@@ -21,10 +22,10 @@ fn mode_button(label: &str, mode: AssetBrowserViewMode) -> impl Scene {
             border: px(1), border_radius: BorderRadius::all(px(3)),
             align_items: AlignItems::Center, justify_content: JustifyContent::Center }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             Text(label) @label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
-        )]
+        ]
     }
 }
 
@@ -32,8 +33,8 @@ pub(crate) fn view_mode_controls() -> impl Scene {
     bsn! {
         Node { height: px(26), flex_grow: 1.0, flex_basis: px(128), min_width: px(128), column_gap: px(4), flex_shrink: 0.0 }
         Children [
-            (@mode_button("列表", AssetBrowserViewMode::List)),
-            (@mode_button("缩略图", AssetBrowserViewMode::Thumbnails)),
+            @mode_button("列表", AssetBrowserViewMode::List)--
+            @mode_button("缩略图", AssetBrowserViewMode::Thumbnails)
         ]
     }
 }
@@ -163,7 +164,7 @@ pub(super) fn sync_presentation(
             &mut BorderColor,
             &mut BackgroundColor,
             &Children,
-            &Interaction,
+            &UiInteraction,
         ),
         (Without<MapEditorAssetList>, Without<MapEditorAssetRowText>),
     >,
@@ -212,7 +213,7 @@ pub(super) fn sync_presentation(
     mut buttons: Query<
         (
             &ViewModeButton,
-            &Interaction,
+            &UiInteraction,
             &mut BorderColor,
             &mut BackgroundColor,
         ),
@@ -247,16 +248,16 @@ pub(super) fn sync_presentation(
     }
     for (button, interaction, mut border, mut background) in &mut buttons {
         let selected = button.0 == settings.asset_browser_view_mode;
-        let target_border = BorderColor::all(if selected || *interaction != Interaction::None {
+        let target_border = BorderColor::all(if selected || *interaction != UiInteraction::None {
             colors::COPPER_BORDER
         } else {
             colors::COPPER_BORDER_WEAK
         });
         let target_background = BackgroundColor(match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-            (Interaction::None, true) => colors::SELECT_BG,
-            (Interaction::None, false) => colors::SLOT_BG,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::None, true) => colors::SELECT_BG,
+            (UiInteraction::None, false) => colors::SLOT_BG,
         });
         if *border != target_border {
             *border = target_border;
@@ -302,16 +303,16 @@ pub(super) fn sync_presentation(
             *node = target;
         }
         let selected = editor.selected_asset.as_deref() == Some(&entry.asset_path);
-        let target_border = BorderColor::all(if selected || *interaction != Interaction::None {
+        let target_border = BorderColor::all(if selected || *interaction != UiInteraction::None {
             colors::COPPER_BORDER
         } else {
             colors::COPPER_BORDER_WEAK
         });
         let target_background = BackgroundColor(match (*interaction, selected) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-            (Interaction::None, true) => colors::SELECT_BG,
-            (Interaction::None, false) => colors::PANEL_BG,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::None, true) => colors::SELECT_BG,
+            (UiInteraction::None, false) => colors::PANEL_BG,
         });
         if *border != target_border {
             *border = target_border;

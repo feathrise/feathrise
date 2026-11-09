@@ -1,4 +1,5 @@
 //! 跨源候选失败保留正式目标与行，迟到查询继续占单槽并在真正完成后安全拒收。
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use bevy::{ecs::system::RunSystemOnce, tasks::AsyncComputeTaskPool};
 use crate::viewport::content_selection::layers::{Identity, LayerCandidate, Request};
@@ -9,9 +10,9 @@ fn press_card(app: &mut App, target: &LayerTarget) {
     let world = app.world_mut();
     let row = world.query::<(Entity, &CandidateAction)>().iter(world)
         .find(|(_, action)| matches!(action, CandidateAction::Select(at) if *at == index)).unwrap().0;
-    app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
-    *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
 }
 
 fn selected_root() -> (App, Vec<String>) {

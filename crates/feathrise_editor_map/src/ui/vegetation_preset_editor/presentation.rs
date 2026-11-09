@@ -1,5 +1,6 @@
 //! 预设管理内嵌面板的增量文字、显隐、焦点和按钮反馈。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*; // Query、Text与UI颜色组件。
 use feathrise_editor_ui::localization::EditorLocale;
 use feathrise_map_content::{
@@ -207,7 +208,7 @@ pub(super) struct PresetStyleCache {
 }
 
 type PresetButtonStyle<'a> = (
-    &'a Interaction,
+    &'a UiInteraction,
     &'a PresetEditorButton,
     Option<&'a PresetButtonKind>,
     &'a mut BackgroundColor,
@@ -221,7 +222,7 @@ pub(super) fn sync_button_styles(
     registry: Option<Res<VegetationPresetRegistry>>,
     mut cache: Local<PresetStyleCache>,
     mut buttons: ParamSet<(
-        Query<PresetButtonStyle<'_>, (Changed<Interaction>, Without<PresetEditorFieldButton>, Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>)>,
+        Query<PresetButtonStyle<'_>, (Changed<UiInteraction>, Without<PresetEditorFieldButton>, Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>)>,
         Query<PresetButtonStyle<'_>, (Without<PresetEditorFieldButton>, Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>)>,
     )>,
 ) {
@@ -283,21 +284,21 @@ pub(super) fn sync_button_styles(
 }
 
 fn apply_button_style(
-    interaction: &Interaction,
+    interaction: &UiInteraction,
     kind: PresetButtonKind,
     active: bool,
     background: &mut BackgroundColor,
     border: &mut BorderColor,
 ) {
     let color = match (kind, interaction) {
-        (PresetButtonKind::Primary, Interaction::None) => colors::SELECT_BG,
+        (PresetButtonKind::Primary, UiInteraction::None) => colors::SELECT_BG,
         (PresetButtonKind::Primary, _) => colors::SELECT_BG_HOVER,
-        (PresetButtonKind::Navigation, Interaction::None) if !active => Color::NONE,
+        (PresetButtonKind::Navigation, UiInteraction::None) if !active => Color::NONE,
         (PresetButtonKind::Navigation, _) if active => colors::SELECT_BG,
-        (_, Interaction::Pressed) => colors::BUTTON_DEV_SMALL_PRESSED,
-        (_, Interaction::Hovered) => colors::BUTTON_DEV_SMALL_HOVERED,
-        (_, Interaction::None) if active => colors::BUTTON_DEV_SMALL_PRESSED,
-        (_, Interaction::None) => colors::BUTTON_DEV_SMALL_NORMAL,
+        (_, UiInteraction::Pressed) => colors::BUTTON_DEV_SMALL_PRESSED,
+        (_, UiInteraction::Hovered) => colors::BUTTON_DEV_SMALL_HOVERED,
+        (_, UiInteraction::None) if active => colors::BUTTON_DEV_SMALL_PRESSED,
+        (_, UiInteraction::None) => colors::BUTTON_DEV_SMALL_NORMAL,
     };
     if background.0 != color {
         background.0 = color;

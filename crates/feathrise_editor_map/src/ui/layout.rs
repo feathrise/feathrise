@@ -1,5 +1,6 @@
 //! 编辑器固定两侧区域的拖动、临时专注、窄窗适配及首选布局记忆。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::prelude::*;
 use feathrise_editor_ui::EditorButtonClick;
 use bevy::window::PrimaryWindow;
@@ -99,7 +100,7 @@ pub(crate) fn handle_editor_layout_input(
     mouse: Res<ButtonInput<MouseButton>>,
     ui_scale: Res<UiScale>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    splitters: Query<(&MapEditorPaneSplitter, &Interaction)>,
+    splitters: Query<(&MapEditorPaneSplitter, &UiInteraction)>,
     buttons: Query<(&MapEditorLayoutButton, &EditorButtonClick), Changed<EditorButtonClick>>,
     mut state: ResMut<MapEditorLayoutState>,
     access: Option<Res<crate::workbench::WorkbenchSettingsAccess>>,
@@ -162,7 +163,7 @@ pub(crate) fn handle_editor_layout_input(
     if mouse.just_pressed(MouseButton::Left) {
         let layout = pane_layout(&state, window.width() / scale);
         for (splitter, interaction) in &splitters {
-            if *interaction == Interaction::None {
+            if *interaction == UiInteraction::None {
                 continue;
             }
             let origin_width = match splitter.0 {
@@ -201,7 +202,7 @@ pub(crate) fn sync_editor_layout(
         (
             &MapEditorPaneSplitter,
             &mut Node,
-            &Interaction,
+            &UiInteraction,
             &mut BackgroundColor,
         ),
         (
@@ -221,7 +222,7 @@ pub(crate) fn sync_editor_layout(
     mut buttons: Query<
         (
             &MapEditorLayoutButton,
-            &Interaction,
+            &UiInteraction,
             &mut BackgroundColor,
             &mut BorderColor,
             Option<&mut feathrise_editor_ui::ButtonColors>,
@@ -286,7 +287,7 @@ pub(crate) fn sync_editor_layout(
         if node.display != display {
             node.display = display;
         }
-        let color = if *interaction == Interaction::None {
+        let color = if *interaction == UiInteraction::None {
             colors::PANEL_BG_STRONG
         } else {
             colors::COPPER_BORDER
@@ -321,9 +322,9 @@ pub(crate) fn sync_editor_layout(
             if *palette != next { *palette = next; }
         }
         let color = match (*interaction, active) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::BUTTON_DEV_SMALL_HOVERED,
-            (Interaction::None, true) => colors::SELECT_BG,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::BUTTON_DEV_SMALL_HOVERED,
+            (UiInteraction::None, true) => colors::SELECT_BG,
             _ => colors::BUTTON_DEV_SMALL_NORMAL,
         };
         if background.0 != color {

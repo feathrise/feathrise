@@ -1,5 +1,6 @@
 //! 复用正式网格页和原生UI指针链，检查真实命中、中文输入及确认后的同对象历史。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{SceneContextMenuState, SceneMenuAction, SceneObjectKey, components::*};
 use crate::{authoring::EditorAuthoringSession, resources::MapEditorState};
 use bevy::{
@@ -304,8 +305,8 @@ fn scene_layers_real_pointer_selects_water_vegetation_and_domain_and_opens_exact
         }
         point_at_stable_row(&mut app, window, row); // 左选后的属性重排也完整稳定后再取一次右键位置。
         assert_eq!(
-            app.world().get::<Interaction>(row),
-            Some(&Interaction::Hovered),
+            app.world().get::<UiInteraction>(row),
+            Some(&UiInteraction::Hovered),
             "类别 {kind} 的行应能真实悬停"
         );
         mouse(&mut app, window, ButtonState::Pressed, MouseButton::Right);
@@ -322,12 +323,12 @@ fn scene_layers_real_pointer_selects_water_vegetation_and_domain_and_opens_exact
                     |context: super::systems::MenuContext,
                      editor: Res<MapEditorState>,
                      guard: Res<crate::resources::MapEditorNumericScrubMouseGuard>,
-                     rows: Query<(Entity, &SceneObjectRow, &Interaction)>| {
+                     rows: Query<(Entity, &SceneObjectRow, &UiInteraction)>| {
                         (
                             context.enabled(&editor),
                             guard.blocked(),
                             rows.iter()
-                                .filter(|(_, _, interaction)| **interaction != Interaction::None)
+                                .filter(|(_, _, interaction)| **interaction != UiInteraction::None)
                                 .map(|(entity, row, interaction)| {
                                     (
                                         entity,

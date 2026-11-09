@@ -1,5 +1,6 @@
 //! 原生三键反馈回归：使用原生命中位置修正旧客户区光标，按住、拖出和恢复均有准确绘制态。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 
 #[test]
@@ -30,7 +31,7 @@ fn native_captions_keep_hover_press_and_drag_out_feedback_in_original_three_stat
         };
         let (hover, cursor, background) =
             caption_feedback(rect, true, Some((133, 27)), false, false, &colors);
-        assert_eq!(hover, Interaction::Hovered);
+        assert_eq!(hover, UiInteraction::Hovered);
         assert!(cursor.cursor_over());
         assert_eq!(cursor.normalized, Some(Vec2::ZERO));
         assert_eq!(background, colors.hovered);
@@ -41,7 +42,7 @@ fn native_captions_keep_hover_press_and_drag_out_feedback_in_original_three_stat
         let (pressed, cursor, background) =
             caption_feedback(rect, true, Some((133, 27)), true, true, &colors);
         stale_cursor = cursor;
-        assert_eq!(pressed, Interaction::Pressed);
+        assert_eq!(pressed, UiInteraction::Pressed);
         assert!(stale_cursor.cursor_over());
         assert_eq!(background, colors.pressed);
         assert_ne!(background, colors.hovered);
@@ -49,7 +50,7 @@ fn native_captions_keep_hover_press_and_drag_out_feedback_in_original_three_stat
 
         let (outside, cursor, background) =
             caption_feedback(rect, true, Some((168, 27)), true, true, &colors);
-        assert_eq!(outside, Interaction::None);
+        assert_eq!(outside, UiInteraction::None);
         assert!(!cursor.cursor_over());
         assert!(
             background.is_fully_transparent(),
@@ -57,15 +58,15 @@ fn native_captions_keep_hover_press_and_drag_out_feedback_in_original_three_stat
         );
         let (restored, _, background) =
             caption_feedback(rect, true, Some((133, 27)), true, true, &colors);
-        assert_eq!(restored, Interaction::Pressed);
+        assert_eq!(restored, UiInteraction::Pressed);
         assert_eq!(background, colors.pressed);
         let (released, _, background) =
             caption_feedback(rect, true, Some((133, 27)), false, false, &colors);
-        assert_eq!(released, Interaction::Hovered);
+        assert_eq!(released, UiInteraction::Hovered);
         assert_eq!(background, colors.hovered);
         let (lost, cursor, background) =
             caption_feedback(rect, false, Some((133, 27)), true, true, &colors);
-        assert_eq!(lost, Interaction::None);
+        assert_eq!(lost, UiInteraction::None);
         assert!(!cursor.cursor_over());
         assert!(cursor.normalized.is_none());
         assert!(background.is_fully_transparent());
@@ -87,12 +88,12 @@ fn native_caption_feedback_does_not_press_without_capture_or_an_available_rect()
     };
     assert_eq!(
         caption_feedback(rect, true, Some((133, 27)), true, false, &colors).0,
-        Interaction::Hovered
+        UiInteraction::Hovered
     );
     for (rect, cursor) in [(rect, None), (PixelRect::default(), Some((0, 0)))] {
         let (interaction, position, background) =
             caption_feedback(rect, true, cursor, true, true, &colors);
-        assert_eq!(interaction, Interaction::None);
+        assert_eq!(interaction, UiInteraction::None);
         assert!(!position.cursor_over());
         assert!(position.normalized.is_none());
         assert!(background.is_fully_transparent());

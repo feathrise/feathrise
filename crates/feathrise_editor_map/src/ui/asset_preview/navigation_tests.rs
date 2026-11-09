@@ -1,5 +1,6 @@
 //! 无窗口/GPU的真实ECS导航回归，覆盖输入隔离、缩放、reset与窗口尺寸变化。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*; // 使用真实预览输入和视图系统。
 use crate::authoring::WaterNetworkEditState; // 地图相机原有输入门所需的最小状态。
 use crate::components::{MapEditorRightPanelScroll, MapEditorViewport}; // 构造可观测外层滚动和地图视口。
@@ -68,7 +69,7 @@ fn fixture(image: bool) -> Fixture {
                 cursor_over: true,
                 normalized: Some(Vec2::ZERO),
             }, // 从画布中心开始。
-            Interaction::Hovered, // 没有前方模态遮挡。
+            UiInteraction::Hovered, // 没有前方模态遮挡。
         ))
         .id(); // 后续测试会切换窗口比例与命中。
     let image_node = app
@@ -464,7 +465,7 @@ fn resize_preserves_view_and_reset_restores_complete_framing() {
     test.app.world_mut().spawn((
         AssetPreviewAction::Reset,    // 显式点击重置动作。
         AssetPreviewNavigationButton, // 与生产缩放工具使用同一查询marker。
-        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,         // 本帧真实按下边沿。
+        feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,         // 本帧真实按下边沿。
     ));
     step(&mut test.app); // 同一帧恢复相机。
     assert_eq!(

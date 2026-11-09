@@ -1,5 +1,6 @@
 //! 工程下拉只附加在原28px顶栏，不改原三栏、标签、工具条或作者控件。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::ProjectMenuSettings};
 use bevy::{
@@ -40,7 +41,7 @@ pub(super) fn mount(
                     ProjectMenuOverlay,
                     GlobalZIndex(4200),
                     FocusPolicy::Block,
-                    Interaction::None,
+                    UiInteraction::None,
                     RelativeCursorPosition::default(),
                     Node {
                         display: Display::None,
@@ -58,7 +59,7 @@ pub(super) fn mount(
                             ProjectMenuPanel,
                             GlobalZIndex(4201),
                             FocusPolicy::Block,
-                            Interaction::None,
+                            UiInteraction::None,
                             RelativeCursorPosition::default(),
                             Node {
                                 position_type: PositionType::Absolute,

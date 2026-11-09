@@ -1,5 +1,6 @@
 //! 字面替换的Unicode边界、原字节、冻结选区、一次历史及异步取消回归。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{components::DocumentSource, history::Selection, resources::DocumentState};
 use super::{
     components::*,
@@ -313,7 +314,7 @@ fn wait(app: &mut App, predicate: impl Fn(&App) -> bool) {
 }
 
 fn press(app: &mut App, action: NavigationAction) {
-    let button = app.world_mut().spawn((action, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed)).id();
+    let button = app.world_mut().spawn((action, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)).id();
     app.update();
     app.world_mut().despawn(button);
 }

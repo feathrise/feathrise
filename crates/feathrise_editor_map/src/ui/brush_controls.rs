@@ -3,6 +3,7 @@
 //! 【功能设计】左键水平拖动实时修改实际数值，右键水平拖动只修改当前字段的
 //! 独立灵敏度，中键进入精确字符输入；Esc只在字符编辑期间恢复进入前数值。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*; // BSN静态槽位、动态公共控件挂载和业务资源查询。
 use feathrise_editor_core::EditorSettings;
@@ -148,10 +149,10 @@ pub(super) fn brush_controls_panel() -> impl Scene {
             column_gap: px(6),
         }
         Children [
-            (@brush_slider_field(MapEditorBrushSliderKind::Radius)), // builder随后生成“笔刷大小”完整控件。
-            (@brush_slider_field(MapEditorBrushSliderKind::Spacing)), // 扩展散布间距复用公共输入桥。
-            (@brush_slider_field(MapEditorBrushSliderKind::Strength)), // 百分比显示与业务零至一转换保持不变。
-            (@brush_slider_field(MapEditorBrushSliderKind::TerrainSpeed)), // 雕刻速度继续使用指数左拖映射。
+            @brush_slider_field(MapEditorBrushSliderKind::Radius)-- // builder随后生成“笔刷大小”完整控件。
+            @brush_slider_field(MapEditorBrushSliderKind::Spacing)-- // 扩展散布间距复用公共输入桥。
+            @brush_slider_field(MapEditorBrushSliderKind::Strength)-- // 百分比显示与业务零至一转换保持不变。
+            @brush_slider_field(MapEditorBrushSliderKind::TerrainSpeed) // 雕刻速度继续使用指数左拖映射。
         ]
     }
 }
@@ -727,15 +728,15 @@ pub(crate) fn sync_brush_sliders(
 /// 悬停和按压只强化紧凑数值区，不改变业务值或生成额外实体。
 pub(crate) fn sync_brush_slider_interaction_styles(
     mut sliders: Query<
-        (&Interaction, &mut BackgroundColor, &mut BorderColor),
-        (Changed<Interaction>, With<MapEditorBrushSlider>),
+        (&UiInteraction, &mut BackgroundColor, &mut BorderColor),
+        (Changed<UiInteraction>, With<MapEditorBrushSlider>),
     >,
 ) {
     for (interaction, mut background, mut border) in &mut sliders {
         let (next_background, next_border) = match interaction {
-            Interaction::None => (colors::INPUT_BG, colors::INPUT_BORDER),
-            Interaction::Hovered => (colors::COMPACT_BUTTON_BG, colors::COPPER_BORDER),
-            Interaction::Pressed => (colors::INPUT_ACTIVE_BG, colors::COPPER_BORDER),
+            UiInteraction::None => (colors::INPUT_BG, colors::INPUT_BORDER),
+            UiInteraction::Hovered => (colors::COMPACT_BUTTON_BG, colors::COPPER_BORDER),
+            UiInteraction::Pressed => (colors::INPUT_ACTIVE_BG, colors::COPPER_BORDER),
         };
         if background.0 != next_background {
             background.0 = next_background;

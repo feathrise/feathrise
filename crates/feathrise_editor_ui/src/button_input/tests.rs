@@ -1,5 +1,6 @@
 //! 共享按钮协议回归：按住、合法释放、移出/换代/失焦取消和同帧快点。
 
+use crate::UiInteraction;
 use crate::InteractionButton;
 use super::*;
 use bevy::{prelude::*, ui::InteractionDisabled, window::PrimaryWindow};
@@ -21,7 +22,7 @@ fn fixture() -> Fixture {
         world
             .spawn((
                 InteractionButton,
-                Interaction::None,
+                UiInteraction::None,
                 InheritedVisibility::VISIBLE,
                 bevy::ui::RelativeCursorPosition {
                     cursor_over: true,
@@ -49,11 +50,11 @@ fn fixture() -> Fixture {
 }
 
 impl Fixture {
-    fn frame(&mut self, interaction: Interaction, press: bool, release: bool) {
+    fn frame(&mut self, interaction: UiInteraction, press: bool, release: bool) {
         *self
             .app
             .world_mut()
-            .get_mut::<Interaction>(self.button)
+            .get_mut::<UiInteraction>(self.button)
             .unwrap() = interaction;
         self.app
             .world_mut()
@@ -85,52 +86,52 @@ impl Fixture {
 #[test]
 fn only_original_button_release_emits_one_frame_click() {
     let mut test = fixture();
-    test.frame(Interaction::Pressed, true, false);
+    test.frame(UiInteraction::Pressed, true, false);
     assert!(!test.clicked(test.button));
     for _ in 0..3 {
-        test.frame(Interaction::Pressed, false, false);
+        test.frame(UiInteraction::Pressed, false, false);
         assert!(!test.clicked(test.button));
     }
-    test.frame(Interaction::Hovered, false, true);
+    test.frame(UiInteraction::Hovered, false, true);
     assert!(test.clicked(test.button));
-    test.frame(Interaction::Hovered, false, false);
+    test.frame(UiInteraction::Hovered, false, false);
     assert!(!test.clicked(test.button));
 }
 
 #[test]
 fn outside_release_and_press_elsewhere_do_not_activate_hovered_button() {
     let mut test = fixture();
-    test.frame(Interaction::Pressed, true, false);
+    test.frame(UiInteraction::Pressed, true, false);
     *test
         .app
         .world_mut()
-        .get_mut::<Interaction>(test.other)
-        .unwrap() = Interaction::Hovered;
-    test.frame(Interaction::None, false, true);
+        .get_mut::<UiInteraction>(test.other)
+        .unwrap() = UiInteraction::Hovered;
+    test.frame(UiInteraction::None, false, true);
     assert!(!test.clicked(test.button) && !test.clicked(test.other));
-    test.frame(Interaction::None, true, false);
-    test.frame(Interaction::Hovered, false, true);
+    test.frame(UiInteraction::None, true, false);
+    test.frame(UiInteraction::Hovered, false, true);
     assert!(!test.clicked(test.button));
 }
 
 #[test]
 fn same_frame_quick_click_is_not_lost_or_repeated() {
     let mut test = fixture();
-    test.frame(Interaction::Pressed, true, true);
+    test.frame(UiInteraction::Pressed, true, true);
     assert!(test.clicked(test.button));
-    test.frame(Interaction::None, false, false);
+    test.frame(UiInteraction::None, false, false);
     assert!(!test.clicked(test.button));
 }
 
 #[test]
 fn same_frame_release_then_press_waits_for_the_new_release() {
     let mut test = fixture();
-    test.frame(Interaction::Pressed, true, false);
+    test.frame(UiInteraction::Pressed, true, false);
     *test
         .app
         .world_mut()
-        .get_mut::<Interaction>(test.button)
-        .unwrap() = Interaction::Pressed;
+        .get_mut::<UiInteraction>(test.button)
+        .unwrap() = UiInteraction::Pressed;
     let mut mouse = test
         .app
         .world_mut()
@@ -143,22 +144,22 @@ fn same_frame_release_then_press_waits_for_the_new_release() {
         !test.clicked(test.button),
         "先释放再按下的终态仍按住，不能当作快点"
     );
-    test.frame(Interaction::Hovered, false, true);
+    test.frame(UiInteraction::Hovered, false, true);
     assert!(test.clicked(test.button));
 }
 
 #[test]
 fn cursor_controls_outside_release_even_if_bevy_keeps_pressed() {
     let mut test = fixture();
-    test.frame(Interaction::Pressed, true, false);
+    test.frame(UiInteraction::Pressed, true, false);
     test.app
         .world_mut()
         .get_mut::<bevy::ui::RelativeCursorPosition>(test.button)
         .unwrap()
         .cursor_over = false;
-    test.frame(Interaction::Pressed, false, false);
+    test.frame(UiInteraction::Pressed, false, false);
     assert!(!test.clicked(test.button));
-    test.frame(Interaction::Pressed, false, true);
+    test.frame(UiInteraction::Pressed, false, true);
     assert!(
         !test.clicked(test.button),
         "官方Pressed残留不能让移出松手执行"
@@ -168,19 +169,19 @@ fn cursor_controls_outside_release_even_if_bevy_keeps_pressed() {
         .get_mut::<bevy::ui::RelativeCursorPosition>(test.button)
         .unwrap()
         .cursor_over = true;
-    test.frame(Interaction::Pressed, true, false);
+    test.frame(UiInteraction::Pressed, true, false);
     test.app
         .world_mut()
         .get_mut::<bevy::ui::RelativeCursorPosition>(test.button)
         .unwrap()
         .cursor_over = false;
-    test.frame(Interaction::Pressed, false, false);
+    test.frame(UiInteraction::Pressed, false, false);
     test.app
         .world_mut()
         .get_mut::<bevy::ui::RelativeCursorPosition>(test.button)
         .unwrap()
         .cursor_over = true;
-    test.frame(Interaction::Hovered, false, true);
+    test.frame(UiInteraction::Hovered, false, true);
     assert!(
         test.clicked(test.button),
         "原按钮按下后移回原按钮松开仍是合法点击"
@@ -191,7 +192,7 @@ fn cursor_controls_outside_release_even_if_bevy_keeps_pressed() {
 fn disabled_hidden_rebound_and_reparented_buttons_cancel_old_capture() {
     for reason in 0..4 {
         let mut test = fixture();
-        test.frame(Interaction::Pressed, true, false);
+        test.frame(UiInteraction::Pressed, true, false);
         match reason {
             0 => {
                 test.app
@@ -220,7 +221,7 @@ fn disabled_hidden_rebound_and_reparented_buttons_cancel_old_capture() {
                     .insert(ChildOf(parent));
             }
         }
-        test.frame(Interaction::Hovered, false, true);
+        test.frame(UiInteraction::Hovered, false, true);
         assert!(!test.clicked(test.button), "取消原因{reason}不能补发旧点击");
     }
 }
@@ -229,7 +230,7 @@ fn disabled_hidden_rebound_and_reparented_buttons_cancel_old_capture() {
 fn loss_of_focus_escape_or_business_interaction_reset_cancels_capture() {
     for reason in 0..3 {
         let mut test = fixture();
-        test.frame(Interaction::Pressed, true, false);
+        test.frame(UiInteraction::Pressed, true, false);
         match reason {
             0 => {
                 test.app
@@ -247,9 +248,9 @@ fn loss_of_focus_escape_or_business_interaction_reset_cancels_capture() {
         }
         test.frame(
             if reason == 2 {
-                Interaction::None
+                UiInteraction::None
             } else {
-                Interaction::Pressed
+                UiInteraction::Pressed
             },
             false,
             false,
@@ -263,7 +264,7 @@ fn loss_of_focus_escape_or_business_interaction_reset_cancels_capture() {
             .world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .clear();
-        test.frame(Interaction::Hovered, false, true);
+        test.frame(UiInteraction::Hovered, false, true);
         assert!(
             !test.clicked(test.button),
             "取消原因{reason}不能在恢复后补发"

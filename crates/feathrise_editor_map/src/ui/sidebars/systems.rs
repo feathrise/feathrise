@@ -1,5 +1,6 @@
 //! 侧栏页签输入、工具一次性跟随、页面显隐、帮助折叠与上下文属性同步。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use bevy::prelude::*; // ECS系统参数、UI交互和显示样式。
 use crate::ui::theme as colors; // 活动页签与悬停沿用统一铜金反馈。
@@ -129,7 +130,7 @@ pub(crate) fn sync_editor_sidebar_presentation(
     tool_labels: Option<Res<crate::game_authoring::DomainToolLabels>>,
     mut controls: Query<
         (
-            &Interaction,
+            &UiInteraction,
             Option<&MapEditorSidebarTabButton>,
             Option<&MapEditorSidebarHelpButton>,
             &Children,
@@ -194,10 +195,10 @@ pub(crate) fn sync_editor_sidebar_presentation(
         } else {
             // 页内帮助按钮继续沿用普通按钮底色。
             match (*interaction, selected) {
-                (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-                (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-                (Interaction::None, true) => colors::SELECT_BG,
-                (Interaction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL,
+                (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+                (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+                (UiInteraction::None, true) => colors::SELECT_BG,
+                (UiInteraction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL,
             }
         };
         if background.0 != background_color {
@@ -555,7 +556,7 @@ mod tests {
         let terrain_tab = app
             .world_mut()
             .spawn((
-                Interaction::None,
+                UiInteraction::None,
                 MapEditorSidebarTabButton(EditorSidebarTab::Left(EditorLeftSidebarTab::Terrain)),
                 BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
                 BorderColor::all(colors::COPPER_BORDER_WEAK),
@@ -576,7 +577,7 @@ mod tests {
         let water_help_button = app
             .world_mut()
             .spawn((
-                Interaction::None,
+                UiInteraction::None,
                 MapEditorSidebarHelpButton(EditorSidebarHelp::Water),
                 BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
                 BorderColor::all(colors::COPPER_BORDER_WEAK),
@@ -619,7 +620,7 @@ mod tests {
             colors::TEXT_TAB_INACTIVE,
         ); // 非活动页签文字不得与普通二级工具同亮度。
 
-        *app.world_mut().get_mut::<Interaction>(terrain_tab).unwrap() = Interaction::Hovered;
+        *app.world_mut().get_mut::<UiInteraction>(terrain_tab).unwrap() = UiInteraction::Hovered;
         app.update(); // 悬停只改变一级页签反馈，不提前切换页面。
         assert_eq!(
             app.world().get::<BackgroundColor>(terrain_tab).unwrap().0,
@@ -630,7 +631,7 @@ mod tests {
             EditorLeftSidebarTab::Meshes,
         ); // Hovered不能改变默认地图页。
 
-        app.world_mut().entity_mut(terrain_tab).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        app.world_mut().entity_mut(terrain_tab).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         app.update(); // 模拟用户手动点击地形页签。
         assert_eq!(
             app.world().resource::<MapEditorSidebarState>().left,
@@ -650,7 +651,7 @@ mod tests {
             34.0
         ); // 新活动页恢复自己的旧位置。
 
-        *app.world_mut().get_mut::<Interaction>(terrain_tab).unwrap() = Interaction::None;
+        *app.world_mut().get_mut::<UiInteraction>(terrain_tab).unwrap() = UiInteraction::None;
         app.update(); // 松开后验证稳定活动态，而非瞬时Pressed颜色。
         assert_eq!(
             app.world().get::<BackgroundColor>(terrain_tab).unwrap().0,
@@ -666,7 +667,7 @@ mod tests {
         ); // 活动页签使用强调文字色。
 
         app.world_mut().entity_mut(water_help_button)
-            .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+            .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         app.update(); // 侧栏不再就地展开帮助；独立根浮层服务处理问号，不影响正文高度。
         assert_eq!(
             app.world().get::<Node>(water_help_body).unwrap().display,

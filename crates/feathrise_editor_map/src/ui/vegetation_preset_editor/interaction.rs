@@ -1,5 +1,7 @@
 //! 植被预设多标签工作区按钮、IME 与单字段字符缓冲输入。
 
+#[cfg(test)]
+use feathrise_editor_ui::UiInteraction;
 mod focus;
 mod input; // 官方可见字段和焦点同步。
 pub(super) use focus::{sync_text_focus, text_bundle}; // 本域构造和注册入口。
@@ -507,7 +509,7 @@ mod tests {
             .insert_resource(ordinary_grass_registry()) // 按钮索引解析当前完整目录。
             .add_systems(Update, handle_buttons); // 安装生产专用预设点击系统。
         app.world_mut().spawn((
-            feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed, // 显式发布普通草按钮的已确认点击。
+            feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed, // 显式发布普通草按钮的已确认点击。
             PresetEditorButton(PresetEditorAction::SelectCatalogPreset(0)), // 零索引必须是合法真实动作。
         ));
 

@@ -1,5 +1,6 @@
 //! 输入链回归：使用真实Interaction、祖先归属与AssetServer，不模拟旁路分派。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::interaction::{handle_reference_buttons, selection_action}; // 生产按钮系统和票据检查。
 use super::*; // 正式目录草稿及字段身份夹具。
 use crate::resources::{EditorAssetCatalog, MapEditorNumericScrubMouseGuard, MapEditorState}; // 真实编辑会话资源。
@@ -32,7 +33,7 @@ pub(super) fn press(app: &mut App, owner: u64, action: AssetReferenceAction) {
     let row = app.world_mut().spawn(ChildOf(root)).id(); // 和生产同行控件相同的中间父节点。
     app.world_mut().spawn((
         ChildOf(row),
-        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+        feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
         PresetEditorButton(PresetEditorAction::AssetReference(action)),
     )); // 生产系统消费已确认点击。
     app.update(); // 一帧只分派一次动作。

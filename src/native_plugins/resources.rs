@@ -73,7 +73,7 @@ impl NativeTools {
     }
 
     /// 自动验收注入本轮自有全局库；生产默认路径仍统一来自当前用户主目录。
-    #[cfg(feature = "validation")]
+    #[cfg(all(test, feature = "validation"))]
     pub(crate) fn start_with_roots(project: &crate::project::Project, roots: super::management::types::PluginRoots) -> Self {
         Self::start_inner(project, Ok(roots))
     }

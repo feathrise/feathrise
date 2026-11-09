@@ -1,5 +1,6 @@
 //! 右键冻结目录目标，菜单项释放后经过原静默门，转发同一按钮的一次动作脉冲。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{resources::MapDirectoryMenuState, types::*};
 use crate::components::{
     MapEditorActionButton, MapEditorMapRootRow, MapEditorMapRow, MapEditorMapTreeScroll,
@@ -139,16 +140,16 @@ pub(super) fn control_menu(
     mut editor: ResMut<MapEditorState>,
     mut browser: ResMut<MapBrowserState>,
     index: Res<MapBrowserIndexState>,
-    rows: Query<(&Interaction, &MapEditorMapRow, &Node), Without<MapSidebarActionBinding>>,
+    rows: Query<(&UiInteraction, &MapEditorMapRow, &Node), Without<MapSidebarActionBinding>>,
     roots: Query<
-        (&Interaction, &Node),
+        (&UiInteraction, &Node),
         (With<MapEditorMapRootRow>, Without<MapSidebarActionBinding>),
     >,
     scroll: Query<(&RelativeCursorPosition, &ScrollPosition), With<MapEditorMapTreeScroll>>,
     mut buttons: Query<(
         Entity,
         &MapEditorActionButton,
-        &mut Interaction,
+        &mut UiInteraction,
         &mut EditorButtonClick,
         &Node,
         &mut MapSidebarActionBinding,
@@ -160,7 +161,7 @@ pub(super) fn control_menu(
     if let Some(previous) = menu.dispatched.take()
         && let Ok((_, _, mut interaction, mut click, _, mut binding)) = buttons.get_mut(previous.entity)
     {
-        interaction.set_if_neq(Interaction::None);
+        interaction.set_if_neq(UiInteraction::None);
         click.invalidate();
         binding.dispatched = false;
     }
@@ -235,7 +236,7 @@ pub(super) fn control_menu(
                 && binding.selected == request.target.selected
             {
                 binding.dispatched = true;
-                interaction.set_if_neq(Interaction::None);
+                interaction.set_if_neq(UiInteraction::None);
                 *click = EditorButtonClick::triggered(); // 已确认释放且身份有效的队列转发，不伪造鼠标按下。
                 menu.dispatched = Some(request);
             }
@@ -268,7 +269,7 @@ pub(super) fn control_menu(
         if let Some((entity, action)) = clicked {
             let target = menu.target.take().unwrap();
                 if let Ok((_, _, mut interaction, mut click, _, mut binding)) = buttons.get_mut(entity) {
-                    interaction.set_if_neq(Interaction::None);
+                    interaction.set_if_neq(UiInteraction::None);
                     click.invalidate();
                     binding.dispatched = false;
                 } // 冻结本次释放意图；静默帧产生独立Changed脉冲，不依赖隐藏节点刷新。
@@ -278,7 +279,7 @@ pub(super) fn control_menu(
                     action,
                 });
         } else if mouse.just_pressed(MouseButton::Left)
-            && buttons.iter().all(|(_, _, interaction, _, _, _)| *interaction == Interaction::None)
+            && buttons.iter().all(|(_, _, interaction, _, _, _)| *interaction == UiInteraction::None)
         {
             menu.target = None; // 外部按下只关闭，菜单项按住期间继续等待共享释放确认。
         }
@@ -308,7 +309,7 @@ pub(super) fn control_menu(
             .saturating_sub(1)
     });
     let row_item = rows.iter().find_map(|(interaction, row, node)| {
-        (node.display != Display::None && *interaction == Interaction::Hovered)
+        (node.display != Display::None && *interaction == UiInteraction::Hovered)
             .then_some(row.item.as_ref())
             .flatten()
             .filter(|item| {
@@ -322,7 +323,7 @@ pub(super) fn control_menu(
     let selected = if let Some(item) = row_item {
         Some(item)
     } else if roots.iter().any(|(interaction, node)| {
-        *interaction == Interaction::Hovered && node.display != Display::None
+        *interaction == UiInteraction::Hovered && node.display != Display::None
     }) {
         Some(MapBrowserItem::Root)
     } else if viewport.is_some_and(|(cursor, _)| cursor.cursor_over()) {

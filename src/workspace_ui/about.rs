@@ -1,5 +1,6 @@
 //! 工程菜单中的关于浮层：共用编辑器对话框外壳，版本取自当前宿主包，输入在关闭释放帧继续隔离。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::{AboutState, Presentation}};
 use bevy::{input::mouse::{MouseScrollUnit, MouseWheel}, input_focus::InputFocus, prelude::*,
     tasks::{IoTaskPool, Task, futures::check_ready},
@@ -40,7 +41,7 @@ pub(super) fn mount(
     let font = feathrise_editor_core::editor_font(&assets, feathrise_editor_core::FONT_PATH);
     for header in &headers {
         commands.entity(header).with_children(|header| {
-            header.spawn((AboutOverlay, GlobalZIndex(5000), FocusPolicy::Block, Interaction::None,
+            header.spawn((AboutOverlay, GlobalZIndex(5000), FocusPolicy::Block, UiInteraction::None,
                 Node { display: Display::None, position_type: PositionType::Absolute,
                     left: px(0), top: px(0), width: Val::Vw(100.), height: Val::Vh(100.),
                     align_items: AlignItems::Center, justify_content: JustifyContent::Center, ..default() },

@@ -1,5 +1,6 @@
 //! 动画时间轴与地图同屏时，真实输入、公共鼠标门及地图快捷键分派的所有权回归。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::{
     authoring::{EditorAuthoringSession, EditorCommand, HeightChange, WaterNetworkEditState},
@@ -93,7 +94,7 @@ fn fixture(read_only: bool, history: bool) -> (App, Entity) {
             cursor_over: true,
             normalized: Some(Vec2::ZERO),
         },
-        Interaction::Hovered,
+        UiInteraction::Hovered,
     )).id();
     (app, track)
 }
@@ -110,7 +111,7 @@ fn press(app: &mut App, keys: &[KeyCode]) {
 
 fn leave_timeline(app: &mut App, track: Entity) {
     app.world_mut().get_mut::<RelativeCursorPosition>(track).unwrap().cursor_over = false;
-    *app.world_mut().get_mut::<Interaction>(track).unwrap() = Interaction::None;
+    *app.world_mut().get_mut::<UiInteraction>(track).unwrap() = UiInteraction::None;
 }
 
 #[test]
@@ -259,7 +260,7 @@ fn batch_fixture() -> (App, Entity) {
     }
     assert!(app.world().resource::<MapEditorState>().status.contains("已复制 1 个对象"));
     app.world_mut().get_mut::<RelativeCursorPosition>(track).unwrap().cursor_over = true;
-    *app.world_mut().get_mut::<Interaction>(track).unwrap() = Interaction::Hovered;
+    *app.world_mut().get_mut::<UiInteraction>(track).unwrap() = UiInteraction::Hovered;
     (app, track)
 }
 

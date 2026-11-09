@@ -1,5 +1,6 @@
 //! 编辑器切图的真实进度、失败反馈与鼠标/键盘门回归；不加载或写入地图资产。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::*;
 use feathrise_scene_core::state::PendingSceneTransition;
@@ -183,7 +184,7 @@ fn loading_workbench_shows_progress_and_releases_input_only_when_session_unlocks
         .spawn((
             MapEditorMapLoadingInputBlocker,
             Node::default(),
-            Interaction::Pressed,
+            UiInteraction::Pressed,
             FocusPolicy::Pass,
         ))
         .id();
@@ -283,8 +284,8 @@ fn loading_workbench_shows_progress_and_releases_input_only_when_session_unlocks
         FocusPolicy::Pass
     );
     assert_eq!(
-        *app.world().get::<Interaction>(blocker).unwrap(),
-        Interaction::None
+        *app.world().get::<UiInteraction>(blocker).unwrap(),
+        UiInteraction::None
     );
     assert!(app.world().get::<Text>(detail).unwrap().is_empty(), "加载结束后详情不能残留旧失败原因");
 }
@@ -334,15 +335,15 @@ fn loading_input_gate_blocks_real_ui_focus_without_being_a_button() {
     assert_eq!(app.world().get::<BackgroundColor>(blocker).unwrap().0, Color::NONE);
     assert_eq!(app.world().get::<Node>(blocker).unwrap().top, px(28));
     app.world_mut().run_system_once(ui_focus_system).unwrap();
-    assert_eq!(*app.world().get::<Interaction>(blocker).unwrap(), Interaction::Hovered);
-    assert_eq!(*app.world().get::<Interaction>(behind).unwrap(), Interaction::None);
+    assert_eq!(*app.world().get::<UiInteraction>(blocker).unwrap(), UiInteraction::Hovered);
+    assert_eq!(*app.world().get::<UiInteraction>(behind).unwrap(), UiInteraction::None);
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
     app.world_mut().run_system_once(ui_focus_system).unwrap();
-    assert_eq!(*app.world().get::<Interaction>(blocker).unwrap(), Interaction::Pressed);
-    assert_eq!(*app.world().get::<Interaction>(behind).unwrap(), Interaction::None, "加载中的作者按钮不能被按压");
+    assert_eq!(*app.world().get::<UiInteraction>(blocker).unwrap(), UiInteraction::Pressed);
+    assert_eq!(*app.world().get::<UiInteraction>(behind).unwrap(), UiInteraction::None, "加载中的作者按钮不能被按压");
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
     app.world_mut().run_system_once(ui_focus_system).unwrap();
-    assert_eq!(*app.world().get::<Interaction>(behind).unwrap(), Interaction::None, "原地释放同样不能点透");
+    assert_eq!(*app.world().get::<UiInteraction>(behind).unwrap(), UiInteraction::None, "原地释放同样不能点透");
     assert_eq!(app.world().get::<BackgroundColor>(blocker).unwrap().0, Color::NONE);
 }

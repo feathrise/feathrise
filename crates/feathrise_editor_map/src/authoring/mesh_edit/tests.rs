@@ -1,5 +1,6 @@
 //! 固定几何的遮挡/约束与真实 ECS 输入、草稿隔离、确认和取消回归。
 
+use feathrise_editor_ui::UiInteraction;
 use super::{geometry::*, input::handle_input, resources::MeshEditState, types::*};
 use crate::{
     authoring::{EditorAuthoringSession, EditorCommand},
@@ -294,7 +295,7 @@ fn real_asset_menu_owner_blocks_mesh_shortcuts_without_locking_its_closed_state(
         UiGlobalTransform::from_xy(400.0, 300.0),
     ));
     app.world_mut().spawn((
-        MapEditorAssetRow { slot: 0, entry_index: Some(0) }, Interaction::Hovered, Node::default(),
+        MapEditorAssetRow { slot: 0, entry_index: Some(0) }, UiInteraction::Hovered, Node::default(),
         AssetRowBinding { revision: 7, viewport_revision: 0, index: Some(0) },
     ));
     assert!(!app.world().resource::<AssetContextMenuState>().owns_mouse());

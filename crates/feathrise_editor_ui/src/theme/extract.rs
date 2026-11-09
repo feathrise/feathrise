@@ -1,4 +1,5 @@
 //! 在官方提取和源码着色之后映射所属绘制项；逻辑组件保持原色，避免稳定帧反复写回。
+use crate::UiInteraction;
 use super::{
     button_feedback::{ButtonFeedback, interaction_for_cursor},
     components::*,
@@ -125,7 +126,7 @@ pub(super) fn colors(
     buttons: Extract<
         Query<
             (
-                &Interaction,
+                &UiInteraction,
                 &BackgroundColor,
                 Option<&ButtonColors>,
                 Has<InteractionDisabled>,

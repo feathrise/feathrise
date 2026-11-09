@@ -1,5 +1,6 @@
 //! GLB/GLTF子资产固定行池、分页、当前引用与选中态的增量表现同步。
 
+use feathrise_editor_ui::UiInteraction;
 use bevy::gltf::{Gltf, GltfMesh}; // 当前页最多读取五个网格短名称帮助作者识别。
 use bevy::prelude::*; // Node、Text、Interaction和Assets查询。
 use crate::ui::theme as colors; // 暗墨、铜边、米白与选中态沿用项目色板。
@@ -84,7 +85,7 @@ pub(super) fn sync_asset_preview_subassets(
     >, // 文本marker互斥但共用一个可变Text查询。
     mut buttons: Query<
         (
-            Ref<Interaction>,     // 悬停边沿可单独刷新颜色。
+            Ref<UiInteraction>,     // 悬停边沿可单独刷新颜色。
             &AssetPreviewAction,  // 判断Scene0、槽位、分页或复制动作。
             &mut BackgroundColor, // 当前选中使用稳定铜墨底。
             &mut BorderColor,     // 选中或悬停强化铜边。
@@ -202,13 +203,13 @@ pub(super) fn sync_asset_preview_subassets(
             _ => false, // 分页和复制按钮没有持久选中态。
         };
         let color = match (*interaction, active) {
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下即时强反馈。
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,   // 悬停使用铜金高亮。
-            (Interaction::None, true) => colors::SELECT_BG, // 当前Scene0或primitive保持选中底。
-            (Interaction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL, // 普通暗墨按钮。
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下即时强反馈。
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,   // 悬停使用铜金高亮。
+            (UiInteraction::None, true) => colors::SELECT_BG, // 当前Scene0或primitive保持选中底。
+            (UiInteraction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL, // 普通暗墨按钮。
         };
         background.set_if_neq(BackgroundColor(color)); // 无差异不触发渲染更新。
-        let border_color = if active || *interaction != Interaction::None {
+        let border_color = if active || *interaction != UiInteraction::None {
             colors::COPPER_BORDER // 当前或交互中使用强化铜边。
         } else {
             colors::COPPER_BORDER_WEAK // 普通项保持低对比。

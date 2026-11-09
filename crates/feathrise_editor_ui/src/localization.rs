@@ -158,7 +158,9 @@ pub fn editor_label(source: &str) -> (Text, LocalizedText) {
 
 /// BSN 保留原 Text 节点及其布局组件，只在同一实体上声明编辑器文案来源。
 pub fn label_scene(source: &str) -> impl Scene {
-    template_value(LocalizedText::label(source))
+    // BSN延后构造组件；先取得文案所有权，场景不得捕获调用方临时借用。
+    let label = LocalizedText::label(source);
+    bsn! { ~{label} }
 }
 
 pub(super) fn install(app: &mut App) {

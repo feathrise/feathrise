@@ -1,5 +1,6 @@
 //! 底栏真实回执、错误保留、地图身份、完整复制及鼠标/滚轮隔离回归。
 
+use feathrise_editor_ui::UiInteraction;
 use super::components::*;
 use super::helpers::*;
 use super::resources::EditorStatusBarState;
@@ -36,7 +37,7 @@ fn controls(app: &mut App) -> Entity {
         .add_message::<bevy::input::mouse::MouseWheel>()
         .add_systems(Update, control_details.before(observe_status));
     app.world_mut()
-        .spawn((StatusButton(StatusAction::Toggle), Interaction::None))
+        .spawn((StatusButton(StatusAction::Toggle), UiInteraction::None))
         .id()
 }
 
@@ -377,7 +378,7 @@ fn dismissing_a_result_does_not_replay_it_but_a_new_result_is_retained() {
         .popup_open = true;
     app.world_mut()
         .entity_mut(button)
-        .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert!(
         app.world()
@@ -485,7 +486,7 @@ fn opening_and_closing_details_do_not_change_author_state_and_capture_release() 
     let revision = app.world().resource::<EditorAuthoringSession>().revision;
     app.world_mut()
         .entity_mut(button)
-        .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert!(app.world().resource::<EditorStatusBarState>().popup_open);
     assert!(app.world().resource::<EditorStatusBarState>().owns_mouse());
@@ -504,11 +505,11 @@ fn opening_and_closing_details_do_not_change_author_state_and_capture_release() 
     );
     app.world_mut()
         .entity_mut(button)
-        .insert((StatusButton(StatusAction::Close), Interaction::None));
+        .insert((StatusButton(StatusAction::Close), UiInteraction::None));
     app.update();
     app.world_mut()
         .entity_mut(button)
-        .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert!(!app.world().resource::<EditorStatusBarState>().popup_open);
     assert!(
@@ -528,7 +529,7 @@ fn blocked_button_edges_are_consumed_instead_of_replayed_after_a_modal_closes() 
     });
     app.world_mut()
         .entity_mut(button)
-        .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert!(!app.world().resource::<EditorStatusBarState>().popup_open);
     app.world_mut()
@@ -615,7 +616,7 @@ fn layout_and_numeric_owners_close_details_without_canceling_their_original_inpu
     });
     app.world_mut()
         .entity_mut(button)
-        .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert!(!app.world().resource::<EditorStatusBarState>().popup_open);
     app.world_mut()
@@ -623,11 +624,11 @@ fn layout_and_numeric_owners_close_details_without_canceling_their_original_inpu
         .owns_mouse_this_frame = false;
     app.update();
     assert!(!app.world().resource::<EditorStatusBarState>().popup_open);
-    app.world_mut().entity_mut(button).insert(Interaction::None);
+    app.world_mut().entity_mut(button).insert(UiInteraction::None);
     app.update();
     app.world_mut()
         .entity_mut(button)
-        .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
     assert!(app.world().resource::<EditorStatusBarState>().popup_open);
     let numeric = app.world_mut().spawn_empty().id();

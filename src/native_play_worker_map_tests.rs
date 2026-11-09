@@ -187,18 +187,18 @@ fn cancelled_validation_does_not_poison_the_next_attempt_control() {
     assert!(!next_attempt.cleanup_failed());
 }
 #[test]
-fn both_cargo_actions_use_the_frozen_profile_and_current_project_cache() {
+fn selected_backend_uses_the_frozen_profile_and_current_project_cache() {
     use feathrise_editor_core::ProjectBuildProfile;
+    use super::ProjectBuildBackend;
     let fixture = Fixture::new();
     let target = crate::writable_paths::project_target(&fixture.project.root, None).unwrap();
     assert_eq!(target, fixture.project.root.join("target"));
-    for action in ["build", "run"] {
-        for (profile, expected) in [(ProjectBuildProfile::Debug, "render-dev"), (ProjectBuildProfile::Release, "release")] {
+    for (backend, debug_profile) in [(ProjectBuildBackend::Native, "dev"), (ProjectBuildBackend::Dx, "render-dev")] {
+        for (profile, expected) in [(ProjectBuildProfile::Debug, debug_profile), (ProjectBuildProfile::Release, "release")] {
             let mut command = std::process::Command::new("unused-cargo");
-            command.arg(action);
-            super::configure_project_cargo(&mut command, &fixture.project, &target, profile);
+            command.arg("build");
+            super::configure_project_cargo(&mut command, &fixture.project, &target, backend.cargo_profile(profile));
             let args: Vec<_> = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
-            assert_eq!(args[0], action);
             assert_eq!(args.windows(2).find(|args| args[0] == "--profile").unwrap()[1], expected);
             assert_eq!(args.iter().filter(|arg| arg.as_str() == "--profile").count(), 1);
             assert_eq!(command.get_current_dir(), Some(fixture.project.root.as_path()));
@@ -208,35 +208,48 @@ fn both_cargo_actions_use_the_frozen_profile_and_current_project_cache() {
 }
 
 #[test]
-fn switching_projects_keeps_real_cargo_outputs_in_each_projects_target() {
+fn native_debug_reuses_cargo_run_in_each_projects_target() {
     use feathrise_editor_core::ProjectBuildProfile;
     let first = Fixture::new();
     let second = Fixture::new();
     for fixture in [&first, &second] {
-        // 只在本轮独占的无依赖工程运行真实Cargo检查，避免把参数断言冒充落盘验证。
+        // 夹具只声明与当前宿主匹配的默认特性，并且不声明 render-dev；用真实 cargo run 预热。
+        let identity = super::features::identity();
+        let enabled = identity.split(',').filter(|name| !name.is_empty()).collect::<Vec<_>>();
+        let feature_defs = enabled.iter().map(|name| format!("{name} = []\n")).collect::<String>();
         fs::write(&fixture.project.manifest, format!(
-            "[package]\nname='{}'\nversion='0.1.0'\nedition='2024'\n[profile.render-dev]\ninherits='dev'\n",
-            fixture.project.package,
+            "[package]\nname='{}'\nversion='0.1.0'\nedition='2024'\n[features]\ndefault = {enabled:?}\n{feature_defs}",
+            fixture.project.package
         )).unwrap();
         fs::write(fixture.root.join("Cargo.lock"), format!(
             "version = 4\n[[package]]\nname = '{}'\nversion = '0.1.0'\n", fixture.project.package,
         )).unwrap();
         fs::create_dir(fixture.root.join("src")).unwrap();
         fs::write(fixture.root.join("src/main.rs"), "// 本轮缓存归属夹具，无外部依赖。\nfn main() {}\n").unwrap();
+        let output = std::process::Command::new(env!("CARGO"))
+            .args(["run", "--offline"])
+            .current_dir(&fixture.root)
+            .env("CARGO_TARGET_DIR", fixture.root.join("target"))
+            .output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     }
     let mut targets = Vec::new();
     for fixture in [&first, &second, &first] {
         let target = crate::writable_paths::project_target(&fixture.project.root, None).unwrap();
         let source = fs::read(fixture.root.join("src/main.rs")).unwrap();
         let draft = fs::read(fixture.root.join("author-draft.sentinel")).unwrap();
-        let mut command = std::process::Command::new(env!("CARGO"));
-        command.args(["check", "--offline"]);
-        super::configure_project_cargo(&mut command, &fixture.project, &target, ProjectBuildProfile::Debug);
-        let output = command.output().unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-        assert_eq!(target, fixture.project.root.join("target"));
-        assert!(fs::read_dir(target.join("render-dev/deps")).unwrap().any(|entry|
-            entry.unwrap().path().extension().is_some_and(|extension| extension == "rmeta")));
+        let exe = target.join("debug").join(format!("{}{}", fixture.project.package, std::env::consts::EXE_SUFFIX));
+        let modified = fs::metadata(&exe).unwrap().modified().unwrap();
+        let (sink, logs) = crate::project_log::fixture_log_probe(&fixture.project.id);
+        let prepared = super::prepare_with_backend(&fixture.project, &target, None, ProjectBuildProfile::Debug,
+            super::ProjectBuildBackend::Native, &BuildControl::with_log(sink), None).unwrap();
+        let logs = logs.drain();
+        assert!(logs.iter().any(|event| event.text.contains("--profile dev")));
+        assert!(!logs.iter().any(|event| event.text.contains("Compiling ")),
+            "{}", logs.iter().map(|event| event.text.as_str()).collect::<Vec<_>>().join("\n"));
+        assert_eq!(fs::metadata(&exe).unwrap().modified().unwrap(), modified);
+        assert_eq!(fs::read(prepared.executable).unwrap(), fs::read(exe).unwrap());
+        assert_eq!(prepared.target, fixture.project.root.join("target"));
         assert_eq!(fs::read(fixture.root.join("src/main.rs")).unwrap(), source);
         assert_eq!(fs::read(fixture.root.join("author-draft.sentinel")).unwrap(), draft);
         targets.push(target);

@@ -1,5 +1,6 @@
 //! Blender 与 F12 地形并发修改的全屏模态选择。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*; // BSN场景、按钮、文本和增量显隐。
@@ -17,7 +18,7 @@ use super::scene::FONT_PATH;
 
 pub(super) fn terrain_conflict_dialog() -> impl Scene {
     bsn! {
-        TerrainConflictDialog Interaction::default()
+        TerrainConflictDialog UiInteraction::default()
         Node {
             display: Display::None, position_type: PositionType::Absolute,
             left: px(0), top: px(0), width: percent(100), height: percent(100),
@@ -26,56 +27,56 @@ pub(super) fn terrain_conflict_dialog() -> impl Scene {
         }
         GlobalZIndex(450)
         BackgroundColor(colors::OVERLAY_BG)
-        Children [(
+        Children [
             ManagementPanel(DialogKind::TerrainConflict)
             ~{modal::panel_node()}
             BackgroundColor(colors::PANEL_BG_STRONG)
             BorderColor::all(colors::COPPER_BORDER_WEAK)
             Children [
-                (@modal::heading("地形文件发生冲突")),
-                (
+                @modal::heading("地形文件发生冲突")--
+
                     ManagementScroll(DialogKind::TerrainConflict)
                     ScrollPosition::default() RelativeCursorPosition::default()
                     ~{modal::body_node()}
                     Children [
-                        (@modal::caption("冲突目标 · 外部版本已变化")),
-                        (
+                        @modal::caption("冲突目标 · 外部版本已变化")--
+
                             TerrainConflictDialogText Text("等待外部地形版本") @feathrise_editor_ui::localization::label_scene("等待外部地形版本")
                             TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_PRIMARY)
                             Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-                        ),
-                        (@modal::caption("采用 Blender")),
-                        (@modal::caption("放弃地形草稿，重新加载并验证外部地形。")),
-                        (@modal::caption("使用草稿覆盖")),
-                        (@modal::caption("保留当前顶点并覆盖本次检测到的外部版本。外部文件再次变化时必须重新处理冲突，不能沿用旧授权。")),
+                        --
+                        @modal::caption("采用 Blender")--
+                        @modal::caption("放弃地形草稿，重新加载并验证外部地形。")--
+                        @modal::caption("使用草稿覆盖")--
+                        @modal::caption("保留当前顶点并覆盖本次检测到的外部版本。外部文件再次变化时必须重新处理冲突，不能沿用旧授权。")
                     ]
-                ),
-                (
+                --
+
                     ManagementScroll(DialogKind::TerrainConflict) ManagementFeedback(DialogKind::TerrainConflict)
                     ScrollPosition::default() RelativeCursorPosition::default()
                     ~{modal::feedback_node()}
                     BackgroundColor(colors::PANEL_BG_SECTION)
-                    Children [(
+                    Children [
                         TerrainConflictFeedbackText Text("地形草稿尚未保存，请选择保留哪一版。") @feathrise_editor_ui::localization::label_scene("地形草稿尚未保存，请选择保留哪一版。")
                         TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_PRIMARY)
                         Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-                    )]
-                ),
-                (
+                    ]
+                --
+
                     ManagementFooter(DialogKind::TerrainConflict)
                     ~{modal::footer_node()}
                     // 原协议必须显式二选一；不虚构“取消”来解除真实冲突保护。
                     Children [
-                        (@modal::button("采用 Blender", EditorAction::AdoptBlenderTerrain)),
-                        (@modal::button("使用草稿覆盖", EditorAction::OverwriteBlenderTerrain)),
+                        @modal::button("采用 Blender", EditorAction::AdoptBlenderTerrain)--
+                        @modal::button("使用草稿覆盖", EditorAction::OverwriteBlenderTerrain)
                     ]
-                ),
+
             ]
-        )]
+        ]
     }
 }
 
@@ -92,11 +93,11 @@ pub(crate) fn sync_terrain_conflict_dialog(
     editor: Res<MapEditorState>,
     conflict: Res<TerrainExternalChangeState>,
     mut dialogs: Query<
-        (Entity, &mut Node, &mut Interaction, &mut FocusPolicy),
+        (Entity, &mut Node, &mut UiInteraction, &mut FocusPolicy),
         With<TerrainConflictDialog>,
     >,
     children: Query<&Children>,
-    mut descendant_interactions: Query<&mut Interaction, Without<TerrainConflictDialog>>,
+    mut descendant_interactions: Query<&mut UiInteraction, Without<TerrainConflictDialog>>,
     mut texts: Query<
         (&mut Text, Has<TerrainConflictFeedbackText>),
         Or<(
@@ -121,10 +122,10 @@ pub(crate) fn sync_terrain_conflict_dialog(
             FocusPolicy::Pass
         };
         if !visible {
-            *interaction = Interaction::None;
+            *interaction = UiInteraction::None;
             for descendant in children.iter_descendants(entity) {
                 if let Ok(mut descendant) = descendant_interactions.get_mut(descendant) {
-                    *descendant = Interaction::None;
+                    *descendant = UiInteraction::None;
                 }
             }
         }

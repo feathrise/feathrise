@@ -1,4 +1,5 @@
 //! 色板、所有权、重挂载与长文档可见绘制预算回归；不写设置或重建业务UI。
+use crate::UiInteraction;
 use super::{constants::COLORS, extract, resources::*, *};
 use crate::colors as c;
 use bevy::{
@@ -129,7 +130,7 @@ fn literal_data_colors_keep_original_gold_and_button_feedback_inside_editor_them
     extract::apply(&mut nodes, &palette, &mut ThemeExtraction::default(),
         |_| None, |_| true, |_| false, |e| e == literal, |e| {
             (e == literal).then_some(super::button_feedback::ButtonFeedback {
-                interaction: Interaction::Hovered, disabled: false,
+                interaction: UiInteraction::Hovered, disabled: false,
                 background: source.to_linear(), colors: None,
             })
         });

@@ -1,5 +1,6 @@
 //! 场景树真实输入回归：变换时根行/网格不能换选，分页可浏览，回到选择后重新点击生效。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{EditorGltfBrowserEntry, EditorGltfMeshSelection};
 use super::*;
 use crate::viewport::{LayerCandidateState, LayerTarget};
@@ -62,7 +63,7 @@ fn selection_lock_blocks_scene_root_and_mesh_rows_but_allows_paging_and_later_se
         let row = app
             .world_mut()
             .spawn((
-                feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+                feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
                 MapEditorGltfBrowserRow {
                     slot: 0,
                     entry_index: Some(0),
@@ -80,7 +81,7 @@ fn selection_lock_blocks_scene_root_and_mesh_rows_but_allows_paging_and_later_se
         let page = app
             .world_mut()
             .spawn((
-                feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+                feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
                 MapEditorGltfBrowserPageButton(GltfBrowserPageDirection::Next),
             ))
             .id();
@@ -93,7 +94,7 @@ fn selection_lock_blocks_scene_root_and_mesh_rows_but_allows_paging_and_later_se
                 .as_ref(),
             Some(&old_mesh)
         );
-        *app.world_mut().get_mut::<Interaction>(page).unwrap() = Interaction::None;
+        *app.world_mut().get_mut::<UiInteraction>(page).unwrap() = UiInteraction::None;
         app.world_mut()
             .resource_mut::<MapEditorState>()
             .placement_transform_enabled = false;
@@ -105,9 +106,9 @@ fn selection_lock_blocks_scene_root_and_mesh_rows_but_allows_paging_and_later_se
                 .as_deref(),
             Some("asset-a")
         );
-        *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None;
+        *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
         app.update();
-        app.world_mut().entity_mut(row).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         app.update();
         assert_eq!(
             app.world()

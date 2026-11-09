@@ -84,14 +84,14 @@ pub(crate) fn project_tool(project: &Project, target: &Path, control: &BuildCont
     let bin = match select_bin(project) {
         Ok(bin) => bin,
         Err(reason) => {
-            if let Some(log) = control.log_sink() { log.task_message(&format!("已选择 DX，当前工程入口使用原生 Cargo：{reason}")); }
+            if let Some(log) = control.log_sink() { log.task_message(&format!("已选择 DX，当前工程入口使用 Cargo：{reason}")); }
             return Ok(None);
         }
     };
     let resources = crate::project_template_root();
     let repository = resources.parent().ok_or("编辑器资源目录没有工具仓库父目录")?;
     let Some(dx) = bundled_dx::resolve(target, &repository.join(".local/hotpatch/tools/dx-0.7.9/dx.exe"), control)? else {
-        if let Some(log) = control.log_sink() { log.task_message("已选择 DX，但未找到 DX 0.7.9，回退到原生 Cargo"); }
+        if let Some(log) = control.log_sink() { log.task_message("已选择 DX，但未找到 DX 0.7.9，回退到 Cargo"); }
         return Ok(None);
     };
     let mut version = Command::new(&dx);

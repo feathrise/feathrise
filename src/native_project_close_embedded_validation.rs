@@ -1,4 +1,5 @@
 //! 仅自有常驻验收使用的原关闭入口与只读呈现证据；不直接设置关闭阶段或选择结果。
+use feathrise_editor_ui::UiInteraction;
 use super::{
     components::{CloseAction, CloseOverlay},
     resources::{CloseStage, NativeProjectCloseState},
@@ -57,7 +58,7 @@ pub(crate) fn cancel(world: &mut World) -> Result<Entity, String> {
         })
         .ok_or("原关闭取消按钮不可用")?;
     world.entity_mut(button).insert((
-        Interaction::Pressed,
+        UiInteraction::Pressed,
         feathrise_editor_ui::EditorButtonClick::triggered(),
     ));
     Ok(button)
@@ -89,7 +90,7 @@ pub(crate) fn discard(world: &mut World) -> Result<Option<Entity>, String> {
         .iter(world).find_map(|(entity, action, disabled)| {
             (*action == CloseAction::Discard && !disabled).then_some(entity)
         }).ok_or("本轮夹具原放弃并关闭按钮不可用")?;
-    world.entity_mut(button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    world.entity_mut(button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     Ok(Some(button))
 }
 
@@ -97,7 +98,7 @@ pub(crate) fn discard(world: &mut World) -> Result<Option<Entity>, String> {
 /// 与visible_prompt的“必须有脏文档”取证合同分开，不写choice/intent/stage，也不替生产事务确认收口。
 pub(crate) fn finish_fixture(world: &mut World) -> Result<Option<Entity>, String> {
     let Some(button) = fixture_finish_target(world)? else { return Ok(None); };
-    world.entity_mut(button).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+    world.entity_mut(button).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     Ok(Some(button))
 }
 

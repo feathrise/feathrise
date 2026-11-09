@@ -30,12 +30,12 @@ pub(super) fn expand_button() -> impl Scene {
             flex_shrink: 0.0, align_items: AlignItems::Center, justify_content: JustifyContent::Center,
             border: px(1), border_radius: BorderRadius::all(px(3)) }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             AssetPreviewExpandLabel Text("放大") ~{FocusPolicy::Pass}
             TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
-        )]
+        ]
     }
 }
 
@@ -48,14 +48,14 @@ pub(crate) fn sidebar_launch(
         Node { display: Display::None, width: percent(100), flex_direction: FlexDirection::Column,
             flex_shrink: 0.0, row_gap: px(4), padding: UiRect { left: px(4), right: px(26), top: px(4), bottom: px(4) } }
         Children [
-            (@crate::ui::context_help::help_button("中央媒体预览", "媒体预览已在中央展开。打开所选媒体会追加独立文件标签；返回侧栏会保留当前观察状态。选择文档可另开中央文件页，不替换已有图片或模型。")),
-            (@launch_button("在中央打开所选媒体", AssetPreviewWorkspaceAction::OpenSelected)),
-            (
+            @crate::ui::context_help::help_button("中央媒体预览", "媒体预览已在中央展开。打开所选媒体会追加独立文件标签；返回侧栏会保留当前观察状态。选择文档可另开中央文件页，不替换已有图片或模型。")--
+            @launch_button("在中央打开所选媒体", AssetPreviewWorkspaceAction::OpenSelected)--
+
                 AssetPreviewDocumentLaunch
                 Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-                Children [(@super::documents::open_selected_button(scenes))]
-            ), // 文档另开自己的中央页，不把新正文覆盖到固定图片/模型画布上。
-            (@launch_button("返回侧栏", AssetPreviewWorkspaceAction::RestoreSidebar)),
+                Children [@super::documents::open_selected_button(scenes)]
+            -- // 文档另开自己的中央页，不把新正文覆盖到固定图片/模型画布上。
+            @launch_button("返回侧栏", AssetPreviewWorkspaceAction::RestoreSidebar)
         ]
     }
 }
@@ -67,11 +67,11 @@ fn launch_button(label: &str, action: AssetPreviewWorkspaceAction) -> impl Scene
             align_items: AlignItems::Center, justify_content: JustifyContent::Center,
             border: px(1), border_radius: BorderRadius::all(px(3)) }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             Text(label) @feathrise_editor_ui::localization::label_scene(label) ~{FocusPolicy::Pass}
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
-        )]
+        ]
     }
 }
 

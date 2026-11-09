@@ -1,4 +1,5 @@
 //! 实际键鼠、后台槽、地图换代与一次撤销的集成回归，复用现有无窗口编辑器夹具。
+use feathrise_editor_ui::UiInteraction;
 #[path = "cuboid_paste.rs"]
 mod cuboid_paste;
 #[path = "terrain_patch_interaction.rs"]
@@ -566,7 +567,7 @@ fn toolbar_copy_works_over_controls_and_late_selection_change_rejects_result() {
         .pointer_over_controls = true;
     app.world_mut().spawn((
         super::super::PlacementBatchButton(super::super::PlacementBatchAction::Copy),
-        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+        feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
     ));
     step(&mut app, node, Vec2::ZERO);
     assert!(
@@ -605,7 +606,7 @@ fn close_button_cancels_paste_without_losing_clipboard_or_writing_map() {
     });
     app.world_mut().spawn((
         crate::components::MapEditorActionButton(crate::types::EditorAction::Close),
-        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,
+        feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
     ));
     step(&mut app, node, cursor);
     assert!(app.world().resource::<MapEditorState>().close_requested);

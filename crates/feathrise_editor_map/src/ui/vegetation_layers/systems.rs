@@ -1,5 +1,6 @@
 //! 植被作者图层固定行池与按钮ECS系统。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use feathrise_editor_ui::metrics as ui_metrics;
@@ -264,7 +265,7 @@ pub(crate) fn sync_vegetation_layer_rows(
 pub(crate) fn sync_vegetation_layer_row_interactions(
     editor: Res<MapEditorState>,
     mut rows: Query<(
-        &Interaction,                 // 读取持续交互，不能仅依赖鼠标进入/离开的变更边沿。
+        &UiInteraction,                 // 读取持续交互，不能仅依赖鼠标进入/离开的变更边沿。
         &MapEditorVegetationLayerRow, // 分页重绑或选择变化也应立即更新背景。
         &mut BackgroundColor,         // 本系统独占行背景颜色写入。
     )>, // 固定六槽的常量工作，不扫描地图数据或动态增长的内容。
@@ -273,10 +274,10 @@ pub(crate) fn sync_vegetation_layer_row_interactions(
         let selected = row.layer_index == Some(editor.selected_vegetation_layer);
         let next = match (*interaction, selected) {
             // 悬停/按下优先于选中态，移出后恢复真实选择颜色。
-            (Interaction::Pressed, _) => colors::SELECT_BG_PRESSED,
-            (Interaction::Hovered, _) => colors::SELECT_BG_HOVER,
-            (Interaction::None, true) => colors::SELECT_BG,
-            (Interaction::None, false) => colors::SLOT_BG,
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::None, true) => colors::SELECT_BG,
+            (UiInteraction::None, false) => colors::SLOT_BG,
         };
         if background.0 != next {
             // 稳定帧不产生无意义的组件变更。
@@ -425,7 +426,7 @@ mod tests {
                     slot: 0,
                     layer_index: Some(0),
                 }, // 初始选中第一层。
-                Interaction::Hovered, // 鼠标进入后保持悬停，不再次触发Changed。
+                UiInteraction::Hovered, // 鼠标进入后保持悬停，不再次触发Changed。
                 BackgroundColor(colors::SLOT_BG), // 初始普通色应被悬停覆盖。
             ))
             .id(); // 保留稳定实体验证跨帧更新。
@@ -442,7 +443,7 @@ mod tests {
             app.world().get::<BackgroundColor>(row).unwrap().0,
             colors::SELECT_BG_HOVER
         ); // 不闪回普通色。
-        *app.world_mut().get_mut::<Interaction>(row).unwrap() = Interaction::None; // 鼠标离开未选中行。
+        *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None; // 鼠标离开未选中行。
         app.update(); // 恢复普通背景。
         assert_eq!(
             app.world().get::<BackgroundColor>(row).unwrap().0,

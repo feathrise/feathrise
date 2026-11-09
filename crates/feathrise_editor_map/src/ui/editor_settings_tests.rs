@@ -1,5 +1,6 @@
 //! 设置模态、倍率边界、键盘隔离与关闭帧鼠标保护回归，不写正式配置或地图。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*;
 use crate::ui::numeric_scrub_mouse_guard::update_map_editor_numeric_scrub_mouse_guard;
 use bevy::input_focus::FocusCause;
@@ -64,7 +65,7 @@ fn app() -> App {
         app.world_mut().spawn((
             MapEditorSettingsButton(action),
             feathrise_editor_ui::EditorButtonClick::default(),
-            Interaction::None,
+            UiInteraction::None,
             BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
             BorderColor::all(colors::COPPER_BORDER_WEAK),
         ));
@@ -74,13 +75,13 @@ fn app() -> App {
 
 fn click(app: &mut App, action: EditorSettingsAction) {
     let world = app.world_mut();
-    let mut buttons = world.query::<(&MapEditorSettingsButton, &mut Interaction, &mut feathrise_editor_ui::EditorButtonClick)>();
+    let mut buttons = world.query::<(&MapEditorSettingsButton, &mut UiInteraction, &mut feathrise_editor_ui::EditorButtonClick)>();
     for (button, mut interaction, mut click) in buttons.iter_mut(world) {
         *click = if button.0 == action { feathrise_editor_ui::EditorButtonClick::triggered() } else { default() };
         *interaction = if button.0 == action {
-            Interaction::Pressed
+            UiInteraction::Pressed
         } else {
-            Interaction::None
+            UiInteraction::None
         };
     }
     world
@@ -91,10 +92,10 @@ fn click(app: &mut App, action: EditorSettingsAction) {
         .resource_mut::<ButtonInput<MouseButton>>()
         .reset_all();
     let world = app.world_mut();
-    let mut interactions = world.query::<(&mut Interaction, &mut feathrise_editor_ui::EditorButtonClick)>();
+    let mut interactions = world.query::<(&mut UiInteraction, &mut feathrise_editor_ui::EditorButtonClick)>();
     for (mut interaction, mut click) in interactions.iter_mut(world) {
         *click = default();
-        *interaction = Interaction::None; // 无拾取插件的测试中，显式模拟松键并移出按钮。
+        *interaction = UiInteraction::None; // 无拾取插件的测试中，显式模拟松键并移出按钮。
     }
     app.update();
 }
@@ -682,7 +683,7 @@ fn editor_settings_reset_is_not_a_selected_preset_and_close_keeps_feedback() {
         .spawn((
             SettingsUtilityButton,
             MapEditorSettingsButton(EditorSettingsAction::SetScale(100)),
-            Interaction::None,
+            UiInteraction::None,
             BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
             BorderColor::all(colors::COPPER_BORDER_WEAK),
         ))
@@ -692,7 +693,7 @@ fn editor_settings_reset_is_not_a_selected_preset_and_close_keeps_feedback() {
         .spawn((
             SettingsUtilityButton,
             MapEditorSettingsButton(EditorSettingsAction::Close),
-            Interaction::Hovered,
+            UiInteraction::Hovered,
             BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
             BorderColor::all(colors::COPPER_BORDER_WEAK),
         ))

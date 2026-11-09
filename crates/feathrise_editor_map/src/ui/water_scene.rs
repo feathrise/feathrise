@@ -34,11 +34,11 @@ fn tab(page: WaterSidebarPage) -> impl Scene {
         }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [(
+        Children [
             Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
-        )]
+        ]
     }
 }
 
@@ -72,7 +72,7 @@ fn create(page: WaterSidebarPage, label: &str, action: EditorAction) -> impl Sce
     bsn! {
         WaterSidebarPanel(page)
         Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-        Children [(@flex_editor_button(label, action))]
+        Children [@flex_editor_button(label, action)]
     }
 }
 
@@ -90,8 +90,8 @@ fn two_button_row(
             flex_shrink: 0.0,
         }
         Children [
-            (@flex_editor_button(first_label, first_action)),
-            (@flex_editor_button(second_label, second_action)),
+            @flex_editor_button(first_label, first_action)--
+            @flex_editor_button(second_label, second_action)
         ]
     }
 }
@@ -128,8 +128,8 @@ fn water_network_numeric_pair(
             flex_shrink: 0.0,
         }
         Children [
-            (@water_network_numeric_slot(first_kind)),
-            (@water_network_numeric_slot(second_kind)),
+            @water_network_numeric_slot(first_kind)--
+            @water_network_numeric_slot(second_kind)
         ]
     }
 }
@@ -145,17 +145,17 @@ fn water_authoring_body() -> impl Scene {
             row_gap: px(6),
         }
         Children [
-            (
+
                 // 静水外观目录不适用于样条水；管理入口仍打开原中央文档，不改目录或引用规则。
                 WaterSidebarPanel(WaterSidebarPage::Still)
                 Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, flex_shrink: 0.0 }
                 Children [
-                    (@crate::ui::context_help::help_button("静水预设库", "选择预设后可应用到当前静水体；新建或编辑在中央打开完整波浪标签。全局预设编辑与地图水域对象是不同的编辑对象。")),
-                    (@water_preset_panel()),
+                    @crate::ui::context_help::help_button("静水预设库", "选择预设后可应用到当前静水体；新建或编辑在中央打开完整波浪标签。全局预设编辑与地图水域对象是不同的编辑对象。")--
+                    @water_preset_panel()
                 ]
-            ),
-            (@crate::ui::context_help::section_header("当前地图水域", "选择模式只读；工具页只准备类别，进入视口编辑模式后绘制。静水用笔刷绘制R8覆盖，Shift擦除；水位不自动修改河床。\n河流/瀑布：顶视或透视左键空白逐点，拖点只改XZ并保留Y；连接端点高度由系统决定。瀑布正式保存需要不同且有效的源/目标，终点低于起点。\n专业数值框支持左拖实际值、右拖灵敏度、中键精确输入。")),
-            (
+            --
+            @crate::ui::context_help::section_header("当前地图水域", "选择模式只读；工具页只准备类别，进入视口编辑模式后绘制。静水用笔刷绘制R8覆盖，Shift擦除；水位不自动修改河床。\n河流/瀑布：顶视或透视左键空白逐点，拖点只改XZ并保留Y；连接端点高度由系统决定。瀑布正式保存需要不同且有效的源/目标，终点低于起点。\n专业数值框支持左拖实际值、右拖灵敏度、中键精确输入。")--
+
                 MapEditorWaterFeatureListTitle
                 Text("水域对象 · 等待地图作者数据") @feathrise_editor_ui::localization::label_scene("水域对象 · 等待地图作者数据")
                 TextFont {
@@ -165,8 +165,8 @@ fn water_authoring_body() -> impl Scene {
                 TextColor(colors::TEXT_VALUE)
                 TextLayout { linebreak: LineBreak::AnyCharacter }
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-            ),
-            (
+            --
+
                 MapEditorWaterFeatureList
                 Node {
                     display: Display::None, // 零对象时六行池完全退出布局。
@@ -177,8 +177,8 @@ fn water_authoring_body() -> impl Scene {
                     padding: UiRect::all(px(0)),
                     flex_shrink: 0.0,
                 }
-            ),
-            (
+            --
+
                 MapEditorWaterListActions
                 Node {
                     display: Display::None, // 有对象后才保留分页与统一删除操作。
@@ -187,16 +187,16 @@ fn water_authoring_body() -> impl Scene {
                     flex_shrink: 0.0,
                 }
                 Children [
-                    (@flex_editor_button("前页首项", EditorAction::WaterListPreviousPage)),
-                    (@flex_editor_button("后页首项", EditorAction::WaterListNextPage)),
-                    (@flex_editor_button("删除所选", EditorAction::WaterDeleteSelected)),
+                    @flex_editor_button("前页首项", EditorAction::WaterListPreviousPage)--
+                    @flex_editor_button("后页首项", EditorAction::WaterListNextPage)--
+                    @flex_editor_button("删除所选", EditorAction::WaterDeleteSelected)
                 ]
-            ),
-            (@create(WaterSidebarPage::Still, "新建静水体", EditorAction::WaterAddLayer)),
-            (@create(WaterSidebarPage::River, "新建河流", EditorAction::RiverAdd)),
-            (@create(WaterSidebarPage::Waterfall, "新建瀑布", EditorAction::WaterfallAdd)),
-            (@feedback_text(WaterSidebarFeedbackKind::Target, "当前工具目标：尚未选择或创建")),
-            (
+            --
+            @create(WaterSidebarPage::Still, "新建静水体", EditorAction::WaterAddLayer)--
+            @create(WaterSidebarPage::River, "新建河流", EditorAction::RiverAdd)--
+            @create(WaterSidebarPage::Waterfall, "新建瀑布", EditorAction::WaterfallAdd)--
+            @feedback_text(WaterSidebarFeedbackKind::Target, "当前工具目标：尚未选择或创建")--
+
                 Node {
                     width: percent(100), min_width: px(0), flex_shrink: 0.0,
                     flex_direction: FlexDirection::Column, row_gap: px(4),
@@ -204,16 +204,16 @@ fn water_authoring_body() -> impl Scene {
                 }
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
                 Children [
-                    (@feedback_text(WaterSidebarFeedbackKind::Mode, "选择 · 预备静水")),
-                    (@feedback_text(WaterSidebarFeedbackKind::Availability, "等待当前地图作者数据")),
-                    (
+                    @feedback_text(WaterSidebarFeedbackKind::Mode, "选择 · 预备静水")--
+                    @feedback_text(WaterSidebarFeedbackKind::Availability, "等待当前地图作者数据")--
+
                         WaterSidebarPanel(WaterSidebarPage::Still)
                         Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, flex_shrink: 0.0 }
-                        Children [(@water_preset_feedback())]
-                    ),
-                    (@feedback_text(WaterSidebarFeedbackKind::Message, "")),
+                        Children [@water_preset_feedback()]
+                    --
+                    @feedback_text(WaterSidebarFeedbackKind::Message, "")
                 ]
-            ),
+
         ]
     }
 }
@@ -227,11 +227,11 @@ pub(super) fn water_authoring_panel() -> impl Scene {
             flex_direction: FlexDirection::Column, row_gap: px(4),
         }
         Children [
-            (
+
                 Node { width: percent(100), column_gap: px(4), flex_shrink: 0.0 }
-                Children [(@tab(WaterSidebarPage::Still)), (@tab(WaterSidebarPage::River)), (@tab(WaterSidebarPage::Waterfall))]
-            ),
-            (
+                Children [@tab(WaterSidebarPage::Still)-- @tab(WaterSidebarPage::River)-- @tab(WaterSidebarPage::Waterfall)]
+            --
+
                 WaterSidebarScroll
                 MapEditorRightPanelScroll
                 RelativeCursorPosition::default()
@@ -240,8 +240,8 @@ pub(super) fn water_authoring_panel() -> impl Scene {
                     width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0,
                     flex_direction: FlexDirection::Column, overflow: Overflow::scroll_y(),
                 }
-                Children [(@water_authoring_body())]
-            ),
+                Children [@water_authoring_body()]
+
         ]
     }
 }
@@ -250,7 +250,7 @@ pub(super) fn water_authoring_panel() -> impl Scene {
 pub(crate) fn water_properties_panel() -> impl Scene {
     bsn! { ~{crate::ui::scene_inspector::InspectorSection::Water} Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(4), flex_shrink: 0.0 }
         Children [
-            (
+
                 MapEditorStillWaterProperties
                 Node {
                     display: Display::None, // 只有当前高亮静水体时才显示该上下文。
@@ -260,9 +260,9 @@ pub(crate) fn water_properties_panel() -> impl Scene {
                     flex_shrink: 0.0,
                 }
                 Children [
-                    (@heading("所选静水属性")),
-                    (@flex_editor_button("复制静水体", EditorAction::WaterDuplicateLayer)),
-                    (
+                    @heading("所选静水属性")--
+                    @flex_editor_button("复制静水体", EditorAction::WaterDuplicateLayer)--
+
                         Node {
                             width: percent(100),
                             flex_direction: FlexDirection::Column,
@@ -271,7 +271,7 @@ pub(crate) fn water_properties_panel() -> impl Scene {
                             flex_shrink: 0.0,
                         }
                         Children [
-                            (
+
                                 MapEditorWaterLevelInputSlot
                                 Node {
                                     width: percent(100), // 水位独占整行，取地形水位不再挤占数字空间。
@@ -279,13 +279,13 @@ pub(crate) fn water_properties_panel() -> impl Scene {
                                     height: px(24),
                                     flex_shrink: 0.0,
                                 }
-                            ),
-                            (@flex_editor_button("取地形水位", EditorAction::WaterLevelFromCursor)),
+                            --
+                            @flex_editor_button("取地形水位", EditorAction::WaterLevelFromCursor)
                         ]
-                    ),
+
                 ]
-            ),
-            (
+            --
+
                 MapEditorWaterNetworkProperties
                 Node {
                     display: Display::None, // 只有河流或瀑布选择时显示控制点与连接属性。
@@ -295,22 +295,22 @@ pub(crate) fn water_properties_panel() -> impl Scene {
                     flex_shrink: 0.0,
                 }
                 Children [
-                    (@heading("所选控制点与连接")),
-                    (@two_button_row("上一控制点", EditorAction::WaterPointPrevious, "删除控制点", EditorAction::WaterPointDelete)),
-                    (@water_network_numeric_pair(WaterNetworkNumericKind::Height, WaterNetworkNumericKind::Width)),
-                    (@water_network_numeric_pair(WaterNetworkNumericKind::Depth, WaterNetworkNumericKind::FlowSpeed)),
-                    (@flex_editor_button("普通/急流", EditorAction::WaterSegmentKindToggle)),
-                    (@two_button_row("循环源连接", EditorAction::WaterSourceNext, "循环目标连接", EditorAction::WaterTargetNext)),
-                    (
+                    @heading("所选控制点与连接")--
+                    @two_button_row("上一控制点", EditorAction::WaterPointPrevious, "删除控制点", EditorAction::WaterPointDelete)--
+                    @water_network_numeric_pair(WaterNetworkNumericKind::Height, WaterNetworkNumericKind::Width)--
+                    @water_network_numeric_pair(WaterNetworkNumericKind::Depth, WaterNetworkNumericKind::FlowSpeed)--
+                    @flex_editor_button("普通/急流", EditorAction::WaterSegmentKindToggle)--
+                    @two_button_row("循环源连接", EditorAction::WaterSourceNext, "循环目标连接", EditorAction::WaterTargetNext)--
+
                         MapEditorWaterNetworkText
                         Text("水域：等待地图作者数据") @feathrise_editor_ui::localization::label_scene("水域：等待地图作者数据")
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_VALUE)
                         TextLayout { linebreak: LineBreak::AnyCharacter }
                         Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
-                    ),
+
                 ]
-            ),
+
         ]
     }
 }

@@ -1,4 +1,5 @@
 //! 插件管理器显式 GPU／子进程验收：只操作本轮 owner 夹具，沿用生产按钮、后台事务与真实 DLL 发现。
+use feathrise_editor_ui::UiInteraction;
 use super::{components::*, packages, resources::PluginManagerState, types::*};
 use crate::project_log::gpu_tests::{assert_dialog_chrome, frame, screenshot};
 use bevy::{
@@ -6,7 +7,7 @@ use bevy::{
     input::{ButtonState, mouse::MouseButtonInput},
     prelude::*,
     render::render_resource::{Extent3d, TextureFormat, TextureUsages},
-    window::{PrimaryWindow, WindowRef},
+    window::{CursorLeft, CursorMoved, PrimaryWindow, WindowEvent, WindowRef},
 };
 use feathrise_editor_map::workbench::WorkbenchHeader;
 use serde_json::{Value, json};
@@ -31,12 +32,30 @@ struct CursorFixture {
     position: Option<Vec2>,
 }
 
+/// 反馈与通知子场景同样复现窗口后端双通道，避免只更新ButtonInput却绕过现代拾取。
+fn window_input(world: &mut World, input: impl bevy::ecs::message::Message + Clone + Into<WindowEvent>) {
+    let event: WindowEvent = input.clone().into();
+    world.write_message(input);
+    world.write_message(event);
+}
+
 fn provide_cursor(world: &mut World) {
     let cursor = world.resource::<CursorFixture>().clone();
-    world
-        .get_mut::<Window>(cursor.window)
-        .unwrap()
-        .set_physical_cursor_position(cursor.position.map(|p| p.as_dvec2()));
+    let scale = {
+        let mut window = world.get_mut::<Window>(cursor.window).unwrap();
+        window.set_physical_cursor_position(cursor.position.map(|p| p.as_dvec2()));
+        window.scale_factor()
+    };
+    // First中的现代拾取只读聚合窗口事件；窗口外坐标同时清除CursorLeft留下的旧悬停。
+    let moved = CursorMoved { window: cursor.window,
+        position: cursor.position.map_or(Vec2::splat(-1.), |position| position / scale), delta: None };
+    world.write_message(moved.clone());
+    world.write_message(WindowEvent::CursorMoved(moved));
+    if cursor.position.is_none() {
+        let left = CursorLeft { window: cursor.window };
+        world.write_message(left.clone());
+        world.write_message(WindowEvent::CursorLeft(left));
+    }
     world
         .entity_mut(cursor.camera)
         .insert(RenderTarget::Window(WindowRef::Entity(cursor.window)));
@@ -128,21 +147,26 @@ fn click(app: &mut App, matches: impl Fn(&ManagerAction) -> bool) {
     app.world_mut().resource_mut::<CursorFixture>().position = Some(center);
     settle(app);
     assert_eq!(
-        *app.world().get::<Interaction>(target).unwrap(),
-        Interaction::Hovered
+        *app.world().get::<UiInteraction>(target).unwrap(),
+        UiInteraction::Hovered
     );
     let window = app.world().resource::<CursorFixture>().window;
-    app.world_mut().write_message(MouseButtonInput {
+    let pressed = MouseButtonInput {
         button: MouseButton::Left,
         state: ButtonState::Pressed,
         window,
-    });
+    };
+    // 同真实窗口后端一样向InputPlugin与现代拾取分别投递对应的官方消息。
+    app.world_mut().write_message(pressed);
+    app.world_mut().write_message(WindowEvent::MouseButtonInput(pressed));
     frame(app);
-    app.world_mut().write_message(MouseButtonInput {
+    let released = MouseButtonInput {
         button: MouseButton::Left,
         state: ButtonState::Released,
         window,
-    });
+    };
+    app.world_mut().write_message(released);
+    app.world_mut().write_message(WindowEvent::MouseButtonInput(released));
     frame(app);
     app.world_mut().resource_mut::<CursorFixture>().position = None;
     wait_for_idle(app);
@@ -382,6 +406,7 @@ fn native_load_helper() {
 }
 
 /// 应用提供自己的插件集合与执行依赖，宿主只验证通用旧包迁移、真实加载和作者数据保护。
+#[cfg(feathrise_external_validation)]
 pub(crate) fn legacy_coexistence_at(output: PathBuf, source: PathBuf, ids: &[&str], cargo_manifest: &str) {
     use crate::native_plugins::{resources::NativeTools, systems as native_systems};
     use feathrise_editor_core::{AssetPreviewFocus, WorkspaceDomainState};
@@ -598,15 +623,14 @@ fn production_plugin_manager_gpu_and_reopen_transactions() {
             .after(super::ui::present),
     );
     app.add_systems(
-        PreUpdate,
+        First,
         provide_cursor
-            .after(bevy::input::InputSystems)
-            .before(bevy::ui::UiSystems::Focus),
+            .before(bevy::picking::PickingSystems::Input),
     );
     app.add_systems(
         PreUpdate,
         restore_target
-            .after(bevy::ui::UiSystems::Focus)
+            .after(feathrise_editor_ui::UiInteractionSystems::Sync)
             .after(feathrise_editor_ui::update_editor_button_clicks),
     );
     let mut image = Image::new_target_texture(1280, 720, TextureFormat::Rgba8UnormSrgb, None);

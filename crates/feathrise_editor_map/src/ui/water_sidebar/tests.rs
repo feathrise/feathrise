@@ -1,5 +1,6 @@
 //! 水域侧栏真实字体布局、统一对象选择、输入所有权和原创建事务回归；不写地图或设置。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::*, types::WaterSidebarFeedbackKind};
 use crate::MapEditorSystemSet;
@@ -295,9 +296,9 @@ fn press(app: &mut App, label: &str) {
     let entity = button(app, label);
     app.world_mut()
         .entity_mut(entity)
-        .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
-    app.world_mut().entity_mut(entity).insert(Interaction::None);
+    app.world_mut().entity_mut(entity).insert(UiInteraction::None);
     app.update();
 }
 
@@ -383,11 +384,11 @@ fn one_object_pool_stays_complete_and_real_row_selection_follows_category() {
     for (entity, kind, id) in &rows {
         app.world_mut()
             .entity_mut(*entity)
-            .insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+            .insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         app.update();
         app.world_mut()
             .entity_mut(*entity)
-            .insert(Interaction::None);
+            .insert(UiInteraction::None);
         app.update();
         let expected = match kind {
             WaterAuthoringFeatureKind::StillWater => WaterSidebarPage::Still,
@@ -522,7 +523,7 @@ fn blocked_tab_edges_are_consumed_without_late_replay() {
             }
         }
         let tab = button(&mut app, "河流");
-        app.world_mut().entity_mut(tab).insert((Interaction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        app.world_mut().entity_mut(tab).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
         app.update();
         assert_eq!(
             app.world().resource::<WaterSidebarState>().page,

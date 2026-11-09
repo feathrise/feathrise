@@ -1,5 +1,6 @@
 //! 子资产引用纯会话回归；不读取或修改测试机器剪贴板。
 
+use feathrise_editor_ui::UiInteraction;
 use super::*; // 直接验证UI与复制共用的生产引用生成规则。
 use crate::resources::{MapEditorNumericScrubMouseGuard, MapEditorState}; // 行为测试确认不写地图dirty状态。
 use crate::ui::sidebars::{EditorRightSidebarTab, MapEditorSidebarState}; // 只有真实资产页接受按钮。
@@ -113,7 +114,7 @@ fn primitive_selection_is_preview_only_and_scene0_is_restorable() {
     app.insert_resource(sidebar); // 输入资格完整。
     app.world_mut().spawn((
         AssetPreviewAction::ShowPrimitive(0), // 点击当前页第一固定槽。
-        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,                 // 本帧按下边沿。
+        feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,                 // 本帧按下边沿。
     ));
     app.finish(); // 完成AssetPlugin加载器注册。
     app.cleanup(); // 与正式App插件生命周期一致。
@@ -155,7 +156,7 @@ fn primitive_selection_is_preview_only_and_scene0_is_restorable() {
     }
     app.world_mut().spawn((
         AssetPreviewAction::ShowScene0, // 作者明确切回完整场景。
-        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,           // 新按钮实体提供独立Changed边沿。
+        feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,           // 新按钮实体提供独立Changed边沿。
     ));
     app.update(); // 执行Scene0恢复并回收单体。
     let preview = app.world().resource::<AssetPreviewState>(); // 最终完整场景状态。
@@ -224,7 +225,7 @@ fn skinned_primitive_selection_is_rejected_before_scene0_is_hidden() {
     app.world_mut().spawn((
         // 生成一次真实Pressed边沿。
         AssetPreviewAction::ShowPrimitive(0), // 点击当前页第一行蒙皮primitive。
-        feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed,                 // 本帧触发生产动作处理。
+        feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,                 // 本帧触发生产动作处理。
     )); // UI实体本身不携带任何资产数据。
     app.finish(); // 完成AssetPlugin加载器注册。
     app.cleanup(); // 与正式应用保持相同插件生命周期。

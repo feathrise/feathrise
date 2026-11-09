@@ -1,5 +1,6 @@
 //! 验收驱动必须走原 PointerInputPlugin，并且不能自行写入数值或冒充公共捕获。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::*;
 use bevy::{
@@ -387,7 +388,7 @@ fn raw_numeric_driver_half_pixel_center_at_150_percent_survives_integer_window_e
         NumericInputConfig(NumericInputSpec::f32(3)),
         NumericInputEditState::new(NumericValue::F32(7.), false),
         UiTargetCamera(camera),
-        Interaction::None,
+        UiInteraction::None,
         RelativeCursorPosition::default(),
         UiGlobalTransform::from(Affine2::from_translation(Vec2::new(200.5, 140.5))),
     ));

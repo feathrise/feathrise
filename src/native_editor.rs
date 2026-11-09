@@ -129,7 +129,7 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
         target.clone(),
     ));
     // 两种方式共享原作者文档；工程视口由真实工程App拥有，不把作者World当作游戏。
-    let viewport_preferences = crate::viewport_mode::install(&mut app, &preferences);
+    let viewport_preferences = crate::viewport_mode::install(&mut app, &preferences, Some(&project));
     app.add_plugins(crate::embedded_viewport::EmbeddedViewportPlugin::new(project.clone(), target.clone()));
     app.add_plugins(crate::code_iteration::CodeIterationPlugin::new(project.clone(), target.clone()));
     app.add_plugins(crate::project_export::ProjectExportPlugin::new(project.clone(), target.clone()));

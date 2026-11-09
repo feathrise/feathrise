@@ -1,4 +1,5 @@
 //! 吸附真实地形、异步身份、一次消费和按钮隔离回归，不使用地图文件或GPU。
+use feathrise_editor_ui::UiInteraction;
 use super::{
     components::{SnapAction, SnapButton},
     resources::MeshSnapCursor,
@@ -168,7 +169,7 @@ fn toolbar_switches_preferences_without_dirtying_author_data_and_respects_modals
     ] {
         let button = app
             .world_mut()
-            .spawn((SnapButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed))
+            .spawn((SnapButton(action), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
             .id();
         app.world_mut()
             .resource_mut::<MapEditorState>()
@@ -196,7 +197,7 @@ fn toolbar_switches_preferences_without_dirtying_author_data_and_respects_modals
         .resource_mut::<MapEditorSettingsState>()
         .open = true;
     app.world_mut()
-        .spawn((SnapButton(SnapAction::Enabled), feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+        .spawn((SnapButton(SnapAction::Enabled), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
     app.world_mut()
         .run_system_once(super::handle_buttons)
         .unwrap();

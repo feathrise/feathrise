@@ -1,5 +1,6 @@
 //! 真实GPU和鼠标命中验证音频侧栏/中央迁移；临时静音PCM避免验证时干扰作者，输出设备缺失必须明确失败。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::super::{components::*, resources::*, types::*, workspace};
 use super::{components::*, resources::AudioPreviewState, source::PreviewAudio, types::*};
@@ -829,9 +830,9 @@ fn finish_mouse(test: &mut Fixture) {
     let pressed_audio = {
         let world = test.app.world_mut();
         world
-            .query::<(&AudioButton, &Interaction)>()
+            .query::<(&AudioButton, &UiInteraction)>()
             .iter(world)
-            .find(|(_, interaction)| **interaction == Interaction::Pressed)
+            .find(|(_, interaction)| **interaction == UiInteraction::Pressed)
             .map(|(button, _)| button.action)
     };
     if pressed_audio.is_some() {
@@ -861,9 +862,9 @@ fn finish_mouse(test: &mut Fixture) {
         let world = test.app.world_mut();
         assert!(
             world
-                .query_filtered::<&Interaction, With<AudioButton>>()
+                .query_filtered::<&UiInteraction, With<AudioButton>>()
                 .iter(world)
-                .all(|interaction| *interaction != Interaction::Pressed),
+                .all(|interaction| *interaction != UiInteraction::Pressed),
             "释放边沿后音频按钮仍Pressed"
         );
     }
@@ -900,7 +901,7 @@ fn finish_mouse(test: &mut Fixture) {
 fn click_audio(test: &mut Fixture, entity: Entity) {
     eprintln!(
         "音频点击前 Interaction={:?}，{}",
-        test.app.world().get::<Interaction>(entity).unwrap(),
+        test.app.world().get::<UiInteraction>(entity).unwrap(),
         playback_diagnostic(&test.app)
     );
     test.app
@@ -910,8 +911,8 @@ fn click_audio(test: &mut Fixture, entity: Entity) {
     let position = center(test, entity);
     pointer(test, position);
     assert_eq!(
-        *test.app.world().get::<Interaction>(entity).unwrap(),
-        Interaction::Pressed,
+        *test.app.world().get::<UiInteraction>(entity).unwrap(),
+        UiInteraction::Pressed,
         "鼠标必须真正命中音频按钮"
     );
     test.app
@@ -920,7 +921,7 @@ fn click_audio(test: &mut Fixture, entity: Entity) {
         .unwrap();
     eprintln!(
         "音频按下input后 Interaction={:?}，{}",
-        test.app.world().get::<Interaction>(entity).unwrap(),
+        test.app.world().get::<UiInteraction>(entity).unwrap(),
         playback_diagnostic(&test.app)
     );
     test.app
@@ -929,7 +930,7 @@ fn click_audio(test: &mut Fixture, entity: Entity) {
         .unwrap();
     eprintln!(
         "音频按下drive后 Interaction={:?}，{}",
-        test.app.world().get::<Interaction>(entity).unwrap(),
+        test.app.world().get::<UiInteraction>(entity).unwrap(),
         playback_diagnostic(&test.app)
     );
     finish_mouse(test);
@@ -943,8 +944,8 @@ fn click_workspace(test: &mut Fixture, entity: Entity) {
     let position = center(test, entity);
     pointer(test, position);
     assert_eq!(
-        *test.app.world().get::<Interaction>(entity).unwrap(),
-        Interaction::Pressed
+        *test.app.world().get::<UiInteraction>(entity).unwrap(),
+        UiInteraction::Pressed
     );
     test.app
         .world_mut()
@@ -965,8 +966,8 @@ fn slider_drag(test: &mut Fixture, entity: Entity, fractions: &[f32]) {
         pointer(test, at + Vec2::new((*fraction - 0.5) * size.x, 0.0));
         if index == 0 {
             assert_eq!(
-                *test.app.world().get::<Interaction>(entity).unwrap(),
-                Interaction::Pressed
+                *test.app.world().get::<UiInteraction>(entity).unwrap(),
+                UiInteraction::Pressed
             );
         }
         test.app
@@ -1030,8 +1031,8 @@ fn double_click(test: &mut Fixture, index: usize) {
         let position = center(test, entity);
         pointer(test, position);
         assert_eq!(
-            *test.app.world().get::<Interaction>(entity).unwrap(),
-            Interaction::Pressed
+            *test.app.world().get::<UiInteraction>(entity).unwrap(),
+            UiInteraction::Pressed
         );
         test.app
             .world_mut()

@@ -1,4 +1,5 @@
 //! 模式栏下方的定位、应用与坐标控件；所有编辑仅修改空间笔刷会话。
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::EditorButtonClick;
 use super::{components::*, request::build_request, resources::SpatialBrushState, types::*};
@@ -343,7 +344,7 @@ pub(super) fn sync(
     mut buttons: Query<(
         Entity,
         &ActionButton,
-        &Interaction,
+        &UiInteraction,
         &mut BackgroundColor,
         &mut BorderColor,
         Has<InteractionDisabled>,
@@ -412,7 +413,7 @@ pub(super) fn sync(
             };
         let color = if selected {
             colors::BUTTON_SETTINGS_PRESSED
-        } else if ready && *interaction == Interaction::Hovered {
+        } else if ready && *interaction == UiInteraction::Hovered {
             colors::BUTTON_SETTINGS_HOVERED
         } else {
             colors::SLOT_BG

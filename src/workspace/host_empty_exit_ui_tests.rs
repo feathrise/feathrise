@@ -1,5 +1,6 @@
 //! 无工程退出的真实工作台GPU回归；只驱动原宿主入口和共享确认层，不创建作者或用户工程。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{Host, finish_app_exit, handle, poll_empty_exit, publish, request_app_exit};
 use crate::{
@@ -15,7 +16,7 @@ use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureFormat, TextureUsages},
     text::TextLayoutInfo,
-    window::{PrimaryWindow, WindowCloseRequested, WindowRef},
+    window::{CursorLeft, CursorMoved, PrimaryWindow, WindowCloseRequested, WindowEvent, WindowRef},
 };
 use feathrise_editor_map::workbench::{WorkbenchCentralPageHost, WorkbenchHeader, WorkbenchModel, WorkbenchUiPlugin};
 use feathrise_editor_ui::EditorButtonClick;
@@ -37,11 +38,24 @@ struct LifecycleAudit {
     successful_exits: usize,
 }
 
-/// 离屏目标只临时向官方Focus提供同尺寸ECS Window；共享捕获随后正常执行，再恢复GPU目标。
+/// 离屏目标在First拾取输入前提供同尺寸ECS Window及正式窗口消息，捕获后恢复GPU目标。
 fn provide_pointer(world: &mut World) {
     let fixture = world.resource::<PointerFixture>().clone();
-    world.get_mut::<Window>(fixture.window).unwrap()
-        .set_physical_cursor_position(fixture.position.map(|value| value.as_dvec2()));
+    let scale = {
+        let mut window = world.get_mut::<Window>(fixture.window).unwrap();
+        window.set_physical_cursor_position(fixture.position.map(|value| value.as_dvec2()));
+        window.scale_factor()
+    };
+    // 现代拾取只消费聚合WindowEvent；CursorLeft不清位置，先移到窗口外才能清除旧悬停。
+    let moved = CursorMoved { window: fixture.window,
+        position: fixture.position.map_or(Vec2::splat(-1.), |value| value / scale), delta: None };
+    world.write_message(moved.clone());
+    world.write_message(WindowEvent::CursorMoved(moved));
+    if fixture.position.is_none() {
+        let left = CursorLeft { window: fixture.window };
+        world.write_message(left.clone());
+        world.write_message(WindowEvent::CursorLeft(left));
+    }
     world.entity_mut(fixture.camera).insert(RenderTarget::Window(WindowRef::Entity(fixture.window)));
 }
 
@@ -131,7 +145,10 @@ fn visible_button(app: &mut App, value: &str, root: Option<Entity>) -> Entity {
 
 fn mouse_frame(app: &mut App, state: ButtonState) {
     let window = app.world().resource::<PointerFixture>().window;
-    app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state, window });
+    let input = MouseButtonInput { button: MouseButton::Left, state, window };
+    // 对齐真实窗口后端：InputPlugin读取独立消息，现代拾取读取同值聚合消息。
+    app.world_mut().write_message(input);
+    app.world_mut().write_message(WindowEvent::MouseButtonInput(input));
     frame(app);
 }
 
@@ -139,15 +156,15 @@ fn press_button(app: &mut App, button: Entity) {
     let position = bounds(app, button).center();
     app.world_mut().resource_mut::<PointerFixture>().position = Some(position);
     for _ in 0..3 { frame(app); }
-    assert_eq!(*app.world().get::<Interaction>(button).unwrap(), Interaction::Hovered);
+    assert_eq!(*app.world().get::<UiInteraction>(button).unwrap(), UiInteraction::Hovered);
     mouse_frame(app, ButtonState::Pressed);
-    assert_eq!(*app.world().get::<Interaction>(button).unwrap(), Interaction::Pressed);
+    assert_eq!(*app.world().get::<UiInteraction>(button).unwrap(), UiInteraction::Pressed);
     assert!(!app.world().get::<EditorButtonClick>(button).unwrap().is_clicked());
 }
 
 fn release_button(app: &mut App, button: Entity) {
     mouse_frame(app, ButtonState::Released);
-    assert_eq!(*app.world().get::<Interaction>(button).unwrap(), Interaction::Hovered);
+    assert_eq!(*app.world().get::<UiInteraction>(button).unwrap(), UiInteraction::Hovered);
     assert!(app.world().get::<EditorButtonClick>(button).unwrap().is_clicked());
     app.world_mut().resource_mut::<PointerFixture>().position = None;
 }
@@ -335,8 +352,8 @@ fn empty_workspace_exit_requires_a_real_choice_and_preserves_the_original_form()
         .insert_resource(model).add_plugins((WorkspaceUiPlugin, NativeProjectClosePlugin))
         .init_resource::<LifecycleAudit>()
         .add_systems(Update, use_sdk_font)
-        .add_systems(PreUpdate, provide_pointer.after(bevy::input::InputSystems).before(bevy::ui::UiSystems::Focus))
-        .add_systems(PreUpdate, restore_target.after(bevy::ui::UiSystems::Focus).after(feathrise_editor_ui::update_editor_button_clicks))
+        .add_systems(First, provide_pointer.before(bevy::picking::PickingSystems::Input))
+        .add_systems(PreUpdate, restore_target.after(feathrise_editor_ui::UiInteractionSystems::Sync).after(feathrise_editor_ui::update_editor_button_clicks))
         .add_systems(Last, drive_empty_host)
         .add_systems(Last, observe_exit.after(drive_empty_host));
     assert!(!app.is_plugin_added::<feathrise_editor_map::MapEditorPlugin>());

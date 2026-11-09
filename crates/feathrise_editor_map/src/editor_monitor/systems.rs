@@ -1,5 +1,6 @@
 //! F4 动态地图监控的输入、两级分页、显隐与低频缓存报告刷新。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 use feathrise_editor_ui::EditorButtonClick;
@@ -17,14 +18,14 @@ use crate::resources::MapEditorState;
 
 type GroupButtonData = (
     &'static MapEditorMonitorGroupButton,
-    &'static Interaction,
+    &'static UiInteraction,
     &'static mut BackgroundColor,
     &'static mut BorderColor,
 );
 type GroupButtonFilter = (With<InteractionButton>, Without<MapEditorMonitorTabButton>);
 type TabButtonData = (
     &'static MapEditorMonitorTabButton,
-    &'static Interaction,
+    &'static UiInteraction,
     &'static mut BackgroundColor,
     &'static mut BorderColor,
     &'static mut Node,
@@ -117,7 +118,7 @@ pub(super) fn select_editor_map_monitor_page(
         let selected = button.group == state.group;
         let next_background = BackgroundColor(if selected {
             Color::srgba(0.38, 0.24, 0.10, 0.94)
-        } else if *interaction == Interaction::Hovered {
+        } else if *interaction == UiInteraction::Hovered {
             Color::srgba(0.22, 0.16, 0.09, 0.90)
         } else {
             Color::srgba(0.055, 0.044, 0.035, 0.86)
@@ -144,7 +145,7 @@ pub(super) fn select_editor_map_monitor_page(
         let selected = tab.page == state.page;
         let next_background = BackgroundColor(if selected {
             Color::srgba(0.38, 0.24, 0.10, 0.94)
-        } else if *interaction == Interaction::Hovered {
+        } else if *interaction == UiInteraction::Hovered {
             Color::srgba(0.22, 0.16, 0.09, 0.90)
         } else {
             Color::srgba(0.055, 0.044, 0.035, 0.86)
@@ -237,7 +238,7 @@ mod tests {
         bindings.bind(LodControlContent::Wheat, "project_meadow");
         world.insert_resource(bindings);
         for page in EditorMapMonitorPage::SUBTABS {
-            world.spawn((MapEditorMonitorTabButton { page }, InteractionButton, Interaction::None,
+            world.spawn((MapEditorMonitorTabButton { page }, InteractionButton, UiInteraction::None,
                 BackgroundColor::default(), BorderColor::default(), Node::default()));
             world.spawn((super::super::ui::MonitorTabLabel(page), Text::new("旧标签")));
         }

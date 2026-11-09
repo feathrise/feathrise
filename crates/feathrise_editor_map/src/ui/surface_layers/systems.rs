@@ -1,5 +1,6 @@
 //! 地表作者层固定行池的增量回显与鼠标反馈，稳定帧不扫描地图层表。
 
+use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*; // 原生UI节点、资源与变更检测。
@@ -96,7 +97,7 @@ pub(super) fn sync_rows(
             Option<&mut feathrise_editor_ui::EditorButtonClick>,
             &mut Node,
             &mut BackgroundColor,
-            &Interaction,
+            &UiInteraction,
             &Children,
         ), // 保留当前鼠标反馈。
         (
@@ -215,12 +216,12 @@ pub(super) fn sync_rows(
 } // 不改变地表定义、像素或保存状态。
 
 /// 点击和悬停反馈与植被作者层保持一致。
-fn row_background(interaction: Interaction, selected: bool) -> Color {
+fn row_background(interaction: UiInteraction, selected: bool) -> Color {
     match interaction {
-        Interaction::Pressed => colors::SELECT_BG_PRESSED, // 按下时提供明确反馈。
-        Interaction::Hovered => colors::SELECT_BG_HOVER,   // 悬停时提示可选。
-        Interaction::None if selected => colors::SELECT_BG, // 松手后保留选中背景。
-        Interaction::None => colors::SLOT_BG,              // 普通行恢复默认背景。
+        UiInteraction::Pressed => colors::SELECT_BG_PRESSED, // 按下时提供明确反馈。
+        UiInteraction::Hovered => colors::SELECT_BG_HOVER,   // 悬停时提示可选。
+        UiInteraction::None if selected => colors::SELECT_BG, // 松手后保留选中背景。
+        UiInteraction::None => colors::SLOT_BG,              // 普通行恢复默认背景。
     } // 背景规则由行与按钮共享。
 } // 不创建额外UI实体。
 
@@ -230,9 +231,9 @@ pub(super) fn sync_interactions(
     session: Res<EditorAuthoringSession>,         // 仅用当前层表验证预设选择。
     registry: Option<Res<SurfacePresetRegistry>>, // 规范ID与历史别名保持一致。
     mut controls: Query<
-        (&Interaction, Option<&SurfaceLayerRow>, &mut BackgroundColor),
+        (&UiInteraction, Option<&SurfaceLayerRow>, &mut BackgroundColor),
         (
-            Changed<Interaction>,
+            Changed<UiInteraction>,
             Or<(With<SurfaceLayerRow>, With<SurfaceLayerButton>)>,
         ),
     >, // 至多六行和三个按钮。

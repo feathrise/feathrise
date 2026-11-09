@@ -1,5 +1,6 @@
 //! 真实临时资产检查缺失、路径边界、原文位置、草稿优先与取消身份，不写源资产。
 
+use feathrise_editor_ui::UiInteraction;
 use super::super::{
     components::*,
     constants::MAX_HITS,
@@ -348,7 +349,7 @@ fn missing_assets_header_opens_from_collapsed_and_text_shortcut_restores_prefere
         .resource_mut::<MapEditorSidebarState>()
         .navigator = EditorNavigatorTab::Assets;
     app.world_mut()
-        .spawn((SearchAction::MissingAssets, feathrise_editor_ui::EditorButtonClick::triggered(), Interaction::Pressed));
+        .spawn((SearchAction::MissingAssets, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
     app.update();
     assert!(
         app.world().resource::<AssetSearchState>().open
