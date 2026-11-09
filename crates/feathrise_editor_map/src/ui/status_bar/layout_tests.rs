@@ -6,12 +6,7 @@ use super::types::*;
 use super::*;
 use crate::components::MapEditorRoot;
 use crate::resources::{MapEditorState, MapLoadingRecovery};
-use bevy::app::{HierarchyPropagatePlugin, PropagateSet};
 use bevy::camera::{ComputedCameraValues, RenderTargetInfo, Viewport};
-use bevy::ui::{
-    ComputedUiRenderTargetInfo, ComputedUiTargetCamera, ui_layout_system, ui_surface::UiSurface,
-    update::propagate_ui_target_cameras,
-};
 
 #[derive(Component, Clone, Default)]
 struct TestViewport;
@@ -19,13 +14,14 @@ struct TestViewport;
 fn test_scene() -> impl Scene {
     bsn! {
         MapEditorRoot
+        GlobalZIndex(420) // 使用正式工作台的全局层级，覆盖父背景与底栏分别参与排序的情况。
         Node { width: percent(100), height: percent(100), flex_direction: FlexDirection::Column }
         Children [
-            (Node { height: px(28), flex_shrink: 0.0 }),
-            (TestViewport Node { width: percent(100), flex_grow: 1.0, min_height: px(0) }),
-            (@footer()),
-            (@crate::ui::map_loading::map_loading_input_blocker()),
-            (@popup()),
+            Node { height: px(28), flex_shrink: 0.0 }--
+            TestViewport Node { width: percent(100), flex_grow: 1.0, min_height: px(0) }--
+            @footer()--
+            @crate::ui::map_loading::map_loading_input_blocker()--
+            @popup()
         ]
     }
 }
@@ -39,12 +35,17 @@ fn page(width: f32, height: f32, scale: f32, dpi: f32) -> App {
             ..default()
         },
         bevy::scene::ScenePlugin,
+        bevy::input::InputPlugin,
+        bevy::picking::PickingPlugin,
+        bevy::picking::InteractionPlugin,
         bevy::text::TextPlugin,
+        bevy::ui::UiPlugin,
         bevy::transform::TransformPlugin,
         bevy::mesh::MeshPlugin,
         bevy::camera::visibility::VisibilityPlugin,
     ))
-    .init_resource::<UiSurface>()
+    .init_asset::<Image>()
+    .init_asset::<bevy::image::TextureAtlasLayout>()
     .insert_resource(UiScale(scale))
     .insert_resource(MapEditorState {
         open: true,
@@ -52,34 +53,9 @@ fn page(width: f32, height: f32, scale: f32, dpi: f32) -> App {
         ..default()
     })
     .init_resource::<EditorStatusBarState>()
-    .init_resource::<MapLoadingRecovery>()
-    .add_plugins(HierarchyPropagatePlugin::<ComputedUiTargetCamera>::new(
-        PostUpdate,
-    ))
-    .add_plugins(HierarchyPropagatePlugin::<ComputedUiRenderTargetInfo>::new(
-        PostUpdate,
-    ));
-    app.configure_sets(
-        PostUpdate,
-        PropagateSet::<ComputedUiTargetCamera>::default()
-            .after(propagate_ui_target_cameras)
-            .before(bevy::ui::widget::measure_text_system),
-    );
-    app.configure_sets(
-        PostUpdate,
-        PropagateSet::<ComputedUiRenderTargetInfo>::default()
-            .after(propagate_ui_target_cameras)
-            .before(bevy::ui::widget::measure_text_system),
-    );
-    app.add_systems(
-        PostUpdate,
-        (
-            propagate_ui_target_cameras,
-            bevy::ui::widget::measure_text_system.after(bevy::text::detect_text_needs_rerender),
-            ui_layout_system,
-        )
-            .chain(),
-    )
+    .init_resource::<MapLoadingRecovery>();
+    // 使用正式UiPlugin完成相机传播、布局、裁切与堆叠，避免只验证几何却漏掉整栏被背景覆盖。
+    app
     .add_systems(Startup, test_scene.spawn())
     .add_systems(
         Update,
@@ -148,6 +124,29 @@ fn bounds<Marker: Component>(app: &mut App) -> Rect {
         .single(world)
         .unwrap();
     Rect::from_center_size(transform.translation, node.size())
+}
+
+#[test]
+fn footer_stays_above_workbench_background_after_loading_and_root_reordering() {
+    let mut app = page(1280.0, 720.0, 1.0, 1.0);
+    let original = bounds::<StatusFooter>(&mut app);
+    for loading in [false, true, false] {
+        let world = app.world_mut();
+        world.resource_mut::<MapEditorState>().map_transition_in_progress = loading;
+        let root = world.query_filtered::<Entity, With<MapEditorRoot>>().single(world).unwrap();
+        // 同层全局根在 Bevy 0.20 中按最近变更排序；父背景重新入栈也不能盖住整行底栏。
+        world.entity_mut(root).insert(GlobalZIndex(420));
+        frames(&mut app);
+        let world = app.world_mut();
+        let root_order = world.get::<bevy::ui::ComputedStackIndex>(root).unwrap().0;
+        let footer_order = world.query_filtered::<&bevy::ui::ComputedStackIndex, With<StatusFooter>>()
+            .single(world).unwrap().0;
+        assert!(footer_order > root_order, "底栏必须绘制在工作台背景之上：loading={loading}，root={root_order}，footer={footer_order}");
+        let details_order = world.query::<(&StatusButton, &bevy::ui::ComputedStackIndex)>()
+            .iter(world).find(|(button, _)| button.0 == StatusAction::Toggle).unwrap().1.0;
+        assert!(details_order > footer_order, "详情按钮必须绘制在底栏背景之上");
+        assert_eq!(bounds::<StatusFooter>(&mut app), original);
+    }
 }
 
 #[test]
@@ -376,7 +375,9 @@ fn compact_header_keeps_commands_inside_and_map_before_context_and_details() {
         assert!(context_bounds.width() > 0.0 && map_bounds.max.x <= context_bounds.min.x + 1.1);
         assert!(context_bounds.max.x <= details_bounds.min.x + 1.1);
         assert!((details_bounds.max.x - (footer_bounds.max.x - 8.0 * scale)).abs() < 1.1);
-        assert_eq!(world.get::<ChildOf>(context).unwrap().parent(), content);
+        // 视图摘要通过独立单元格裁切长文字，文字不是正文容器的直接子节点。
+        let context_cell = world.get::<ChildOf>(context).unwrap().parent();
+        assert_eq!(world.get::<ChildOf>(context_cell).unwrap().parent(), content);
         assert_eq!(world.get::<ChildOf>(details).unwrap().parent(), footer);
     }
 }

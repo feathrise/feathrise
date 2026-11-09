@@ -46,7 +46,8 @@ fn button(action: StatusAction, label: &'static str, height: f32) -> impl Scene 
 pub(in crate::ui) fn footer() -> impl Scene {
     bsn! {
         StatusFooter
-        GlobalZIndex(420) // 常态位于工作区上方；加载期间由同步系统提升到输入门之上。
+        // 父工作台为420；Bevy 0.20把全局层级子树独立排序，同值可能让父背景盖住整行。
+        GlobalZIndex(421) // 常态明确高于父背景；加载期间由同步系统提升到输入门之上。
         Node { width: percent(100), height: px(24), min_width: px(0), flex_shrink: 0.0,
             align_items: AlignItems::Center, column_gap: px(6), padding: UiRect::horizontal(px(8)),
             border: UiRect::top(px(1)), overflow: Overflow::clip_x() }

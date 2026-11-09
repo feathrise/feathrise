@@ -459,7 +459,7 @@ pub(super) fn sync_presentation(
     let loading = inputs.editor.open && inputs.editor.map_transition_in_progress;
     // 只把诊断和原恢复按钮提到加载输入门上方，工作台与世界控件仍不可操作。
     for mut layer in &mut footers {
-        let wanted = if loading { 1901 } else { 420 };
+        let wanted = if loading { 1901 } else { 421 }; // 恢复后仍须高于工作台根的420。
         if layer.0 != wanted { layer.0 = wanted; }
     }
     for mut node in &mut contents {

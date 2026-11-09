@@ -138,15 +138,35 @@ fn view(world:&mut World,plan:&Plan,opened:bool)->Result<Option<Value>,String>{
             (visible.get()&&!node.is_empty()&&!layout.glyphs.is_empty()&&target.get()==camera&&bounds.max.x>0.&&bounds.max.y>0.&&bounds.min.x<physical[0] as f32&&bounds.min.y<physical[1] as f32&&
                 (bounds.min.x<64.||bounds.min.y<64.||bounds.max.x>physical[0] as f32-64.||bounds.max.y>physical[1] as f32-64.))
                 .then(||json!({"text":text.0,"glyphs":layout.glyphs.len(),"rect":[bounds.min.x,bounds.min.y,bounds.max.x,bounds.max.y]}))}).collect();
+    let footer_ancestry=footer_ancestry(world);
     let encode=|rect:super::types::PixelRect|[rect.left,rect.top,rect.right,rect.bottom];
     let geometry=world.resource::<super::types::ChromeGeometry>();
     Ok(Some(json!({"root_hwnd":root,"root_pid":pid,"window_hwnd":own,"pid":std::process::id(),"role":plan.role.name(),"physical":physical,
         "settings_open":opened,"visible_backdrops":layers.len(),"base_background_rgba":base_rgb,"expected_hole_rgba":expected,"visible_text_nodes_with_glyphs":glyphs,
-        "legacy_uniform_color_diagnostic_only":true,"peripheral_text":peripheral_text,
+        "legacy_uniform_color_diagnostic_only":true,"peripheral_text":peripheral_text,"footer_ancestry":footer_ancestry,
         "hit_geometry":{"drag":encode(geometry.drag),"minimize":encode(geometry.minimize),"maximize":encode(geometry.maximize),"close":encode(geometry.close),"visible":geometry.visible},
         "edge_pixel_policy":{"band_px":64,"exclude_outer_px":2,"corner_logical_px":12,"max_channel_error":3,"allowed_mismatch_pixels":0,"feature_delta_from_dominant":8},
         "backdrop_samples":layers.iter().map(|(order,color,interaction)|json!({"order":order,"logical_rgba":color.to_srgba().to_u8_array(),"interaction":interaction.map(|value|format!("{value:?}"))})).collect::<Vec<_>>(),
         "ui_scale":world.resource::<UiScale>().0,"neutral_theme":true})))
+}
+/// 布局占位不能证明实际可见；记录原底栏到工作台根的裁切和绘制顺序，配合整帧GPU原图取证。
+fn footer_ancestry(world:&mut World)->Vec<Value>{
+    let Some(mut entity)=world.query_filtered::<Entity,With<feathrise_editor_map::workbench::WorkbenchProjectLogButton>>()
+        .iter(world).next()else{return Vec::new();};
+    let mut result=Vec::new();
+    for _ in 0..12{
+        result.push(json!({"entity":format!("{entity:?}"),"text":world.get::<Text>(entity).map(|text|text.as_str()),
+            "rect":rect(world,entity).map(|bounds|[bounds.min.x,bounds.min.y,bounds.max.x,bounds.max.y]),
+            "display":world.get::<Node>(entity).map(|node|format!("{:?}",node.display)),
+            "visible":world.get::<InheritedVisibility>(entity).map(|visible|visible.get()),
+            "clip":world.get::<bevy::ui::CalculatedClip>(entity).map(|clip|format!("{clip:?}")),
+            "global_z":world.get::<GlobalZIndex>(entity).map(|layer|layer.0),
+            "stack_index":world.get::<ComputedStackIndex>(entity).map(|index|index.0),
+            "target_camera":world.get::<ComputedUiTargetCamera>(entity).and_then(|camera|camera.get()).map(|camera|format!("{camera:?}")),
+            "background":world.get::<BackgroundColor>(entity).map(|color|color.0.to_srgba().to_u8_array())}));
+        let Some(parent)=world.get::<ChildOf>(entity)else{break;};entity=parent.parent();
+    }
+    result
 }
 fn capture(world:&mut World,plan:&mut Plan,name:&str,view:Value)->Result<(),String>{
     ensure(plan.attempts<16,"GPU像素16次内未就绪")?;plan.attempts+=1;
