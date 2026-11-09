@@ -1,10 +1,20 @@
-# 源码联调和发行构建分别核对本地检出与 crates.io SDK。
+# 日常检查配套源码；版本标签保留 crates.io 发行检查，手动运行可显式选择来源。
 name: Windows editor check
 
 on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      sdk_source:
+        description: 'SDK 来源：日常联调选 source；发行前选 registry 或 both。'
+        required: true
+        default: source
+        type: choice
+        options:
+          - source
+          - registry
+          - both
 
 permissions:
   contents: read
@@ -21,12 +31,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        source: [source, registry]
+        # 当前开发源码可以先于 crates.io 包更新；手动选择优先于标签默认值，发行标签仍检查两种真实来源。
+        source: ${{ fromJSON(github.event_name == 'workflow_dispatch' && (inputs.sdk_source == 'both' && '["source","registry"]' || inputs.sdk_source == 'registry' && '["registry"]' || '["source"]') || startsWith(github.ref, 'refs/tags/') && '["source","registry"]' || '["source"]') }}
         variant: [default, validation]
     env:
-      # 默认采用已验证的 Bevy 0.20.1 配套源码。仓库变量可覆盖为另一组完整提交。
+      # 使用包含现代 UI 交互的配套修订，使 SDK 依赖图与编辑器已提交的锁文件一致。仓库变量仍须指定匹配的完整提交。
       FEATHRISE_SDK_REPOSITORY: ${{ vars.FEATHRISE_SDK_REPOSITORY || 'feathrise/feathrise_runtime' }}
-      FEATHRISE_SDK_REV: ${{ vars.FEATHRISE_SDK_REV || '7f6679f1d3b1b35e82cac35583431d20fa132f9e' }}
+      FEATHRISE_SDK_REV: ${{ vars.FEATHRISE_SDK_REV || 'dc13fb3902737bcc6a0cae2a4dd27a0694fbce42' }}
       FEATHRISE_PATCH_REPOSITORY: ${{ vars.FEATHRISE_PATCH_REPOSITORY || 'feathrise/feathrise_patches' }}
       FEATHRISE_PATCH_REV: ${{ vars.FEATHRISE_PATCH_REV || '019fd1fe13ed9107d17b360b8f5a3df61bfc139a' }}
     steps:
