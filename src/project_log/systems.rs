@@ -7,7 +7,7 @@ use bevy::{
     ui::RelativeCursorPosition, window::PrimaryWindow,
     text::{EditableText, FontCx, LayoutCx, LineBreak, TextLayoutInfo},
 };
-use feathrise_editor_map::workbench::{WorkbenchFloatingPanels, WorkbenchHostPageState, WorkbenchProjectLogButton};
+use feathrise_editor_scene::workbench::{WorkbenchFloatingPanels, WorkbenchHostPageState, WorkbenchProjectLogButton};
 use feathrise_editor_ui::EditorButtonClick;
 use std::sync::atomic::Ordering;
 

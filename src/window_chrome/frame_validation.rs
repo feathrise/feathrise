@@ -10,7 +10,7 @@ use resources::*;
 use types::*;
 use bevy::{prelude::*,input::{ButtonState,mouse::MouseButtonInput},render::view::screenshot::{Screenshot,ScreenshotCaptured},
     ui::{ComputedStackIndex,ComputedUiTargetCamera,InteractionDisabled},window::{PrimaryWindow,RawHandleWrapper}};
-use feathrise_editor_map::workbench::{WorkbenchHeader,WorkbenchHostPageState,WorkbenchSettingsBody};
+use feathrise_editor_scene::workbench::{WorkbenchHeader,WorkbenchHostPageState,WorkbenchSettingsBody};
 use feathrise_editor_ui::{EditorDialogBackdrop,EditorPalette};
 use serde_json::{Value,json};
 use std::{fs::OpenOptions,io::Write,path::PathBuf,time::{Duration,Instant}};
@@ -161,7 +161,7 @@ fn view(world:&mut World,plan:&Plan,opened:bool)->Result<Option<Value>,String>{
 }
 /// 布局占位不能证明实际可见；记录原底栏到工作台根的裁切和绘制顺序，配合整帧GPU原图取证。
 fn footer_ancestry(world:&mut World)->Vec<Value>{
-    let Some(mut entity)=world.query_filtered::<Entity,With<feathrise_editor_map::workbench::WorkbenchProjectLogButton>>()
+    let Some(mut entity)=world.query_filtered::<Entity,With<feathrise_editor_scene::workbench::WorkbenchProjectLogButton>>()
         .iter(world).next()else{return Vec::new();};
     let mut result=Vec::new();
     for _ in 0..12{

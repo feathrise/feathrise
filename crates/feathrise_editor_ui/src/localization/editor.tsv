@@ -11,7 +11,7 @@ project.close	关闭工程	Close Project
 project.close.unsaved	有 {count} 项未保存修改，是否保存后关闭？	Save {count} unsaved changes before closing?
 workspace.parent	父目录	Parent Directory
 workspace.open_path	工程目录或 editor-project.json 清单	Project folder or editor-project.json manifest
-workspace.empty_template	创建空工程，不附带地图、模型或预设。	Create an empty project with no maps, models, or presets.
+workspace.empty_template	创建空工程，不附带场景、模型或预设。	Create an empty project with no scenes, models, or presets.
 workspace.create	创建并打开	Create and Open
 workspace.default_dir_help	新建工程的父目录；初始值为 ~/feathrise。已有工程不会移动。	New projects are created here. The default is ~/feathrise.
 workspace.view.perspective	斜向视角 3D	Perspective 3D
@@ -39,10 +39,10 @@ viewport.scene	场景	Scene
 common.on	开启	On
 settings.locale.chinese	简体中文	简体中文
 label.global-preset-library	全局预设库	Global Preset Library
-label.pbr-materials-shared-across-maps-select-one	跨地图共用的 PBR 材质；选中后在下方新建地图层。	PBR materials shared across maps. Select one to create a map layer below.
+label.pbr-materials-shared-across-scenes-select-one	跨场景共用的 PBR 材质；选中后在下方新建场景层。	PBR materials shared across scenes. Select one to create a scene layer below.
 label.current-preset-none-selected	当前预设：尚未选择	Current Preset: None Selected
 label.surface-presets-waiting-for-catalog	地表预设 · 等待目录	Surface Presets · Waiting for catalog
-label.select-a-preset-and-create-a-map	选择预设后显式新建地图层；新建或编辑预设在中央标签完成	Select a preset and create a map layer. Create or edit presets in the center tabs.
+label.select-a-preset-and-create-a-scene	选择预设后显式新建场景层；新建或编辑预设在中央标签完成	Select a preset and create a scene layer. Create or edit presets in the center tabs.
 label.run	启动	Run
 label.clear-weather-baseline-actual-range-varies-with	晴天基准值 · 实际摆幅随天气变化	Clear-weather baseline · Actual range varies with weather
 label.find-again	重新查找	Find Again
@@ -60,7 +60,7 @@ label.reload	重新载入	Reload
 label.changed-on-disk	磁盘已变化	Changed on Disk
 label.keep-draft	保留草稿	Keep Draft
 label.open-selected-document-in-workspace	在中央打开所选文档	Open Selected Document in Workspace
-label.virtual-map-folder	虚拟地图文件夹	Virtual Map Folder
+label.virtual-scene-folder	虚拟场景文件夹	Virtual Scene Folder
 label.waiting-for-target-to-be-locked	等待冻结目标	Waiting for target to be locked
 label.awaiting-action	等待操作	Awaiting action
 label.drag-folder-items	拖动目录项	Drag Folder Items
@@ -71,10 +71,10 @@ label.collapse-results	收起结果	Collapse Results
 label.filters-and-actions	筛选与操作	Filters and Actions
 label.more	更多	More
 label.0-points-selected	已选 0 点	0 Points Selected
-label.dynamic-map-monitor-f4-refreshes-every-0	动态地图监控 [F4] · 0.5s刷新 · 选择分页查看	Dynamic Map Monitor [F4] · Refreshes every 0.5 s · Select a tab
+label.dynamic-scene-monitor-f4-refreshes-every-0	动态场景监控 [F4] · 0.5s刷新 · 选择分页查看	Dynamic Scene Monitor [F4] · Refreshes every 0.5 s · Select a tab
 label.waiting-for-sync	等待同步	Waiting for Sync
-label.water-objects-waiting-for-map-data	水域对象 · 等待地图作者数据	Water Objects · Waiting for map data
-label.water-waiting-for-map-data	水域：等待地图作者数据	Water: Waiting for map data
+label.water-objects-waiting-for-scene-data	水域对象 · 等待场景作者数据	Water Objects · Waiting for scene data
+label.water-waiting-for-scene-data	水域：等待场景作者数据	Water: Waiting for scene data
 label.global-still-water-presets	全局静水预设库	Global Still Water Presets
 label.water-presets-waiting-for-catalog	水体预设 · 等待目录	Water Presets · Waiting for catalog
 label.waiting-for-a-water-preset-tab	等待水体预设编辑标签	Waiting for a Water Preset Tab
@@ -83,21 +83,21 @@ label.selected-invisible-wall-name	所选空气墙名称	Selected Invisible Wall
 label.apply-name	应用名称	Apply Name
 label.view	视图	View
 label.preset-library-loading	预设库 · 加载中	Preset Library · Loading
-label.map-layers-loading	作者图层 · 加载中	Map Layers · Loading
+label.scene-layers-loading	作者图层 · 加载中	Scene Layers · Loading
 label.active-layer-select-a-layer	所选层 · 等待选择	Active Layer · Select a layer
 label.notes-optional	备注（可选）	Notes (optional)
-label.shared-by-all-maps-editing-or-deleting	所有地图共用；编辑或删除预设不等于删除当前地图图层。	Shared by all maps. Editing or deleting presets does not remove layers from this map.
+label.shared-by-all-scenes-editing-or-deleting	所有场景共用；编辑或删除预设不等于删除当前场景图层。	Shared by all scenes. Editing or deleting presets does not remove layers from this scene.
 label.group-presets-waiting-for-catalog	组合预设：等待目录	Group Presets: Waiting for catalog
 label.box-selection-0-items	当前框选：0 项	Box Selection: 0 Items
 label.group-name	组合名称	Group Name
-label.scene-objects-waiting-for-map-draft-page	场景对象：等待地图草稿\n第 1/1 页	Scene Objects: Waiting for map draft\nPage 1/1
+label.scene-objects-waiting-for-scene-draft-page	场景对象：等待场景草稿\n第 1/1 页	Scene Objects: Waiting for scene draft\nPage 1/1
 label.help	操作说明	Help
-label.submaps	子地图	Submaps
-label.region-bounds-waiting-for-map-data	区域边界：等待地图作者数据	Region Bounds: Waiting for map data
+label.subscenes	子场景	Subscenes
+label.region-bounds-waiting-for-scene-data	区域边界：等待场景作者数据	Region Bounds: Waiting for scene data
 label.mode-select-angle-0	当前：选择 · 朝向 0°	Mode: Select · Angle 0°
 label.mode-select-stamp-0	当前：普通选择 · 印章 0°	Mode: Select · Stamp 0°
 label.initializing-editor	编辑器正在初始化	Initializing editor
-label.current-map-waiting-for-catalog	当前地图：等待目录	Current Map: Waiting for catalog
+label.current-scene-waiting-for-catalog	当前场景：等待目录	Current Scene: Waiting for catalog
 label.log	日志	Log
 label.status-details	状态详情	Status Details
 label.locate	定位	Locate
@@ -107,56 +107,56 @@ label.close-unmodified	关闭未修改	Close Unmodified
 label.selected-building-none	已选建筑：尚未选择	Selected Building: None
 label.building-presets-waiting-for-catalog	建筑预设 · 等待目录	Building Presets · Waiting for catalog
 label.use-global-setting	跟随全局	Use Global Setting
-label.no-map-loaded	未进入地图	No Map Loaded
-label.new-map	新建地图	New Map
-label.enter-a-map-name-and-optional-notes	请输入地图名称，可填写备注	Enter a map name and optional notes
-label.create-empty-map	创建空白地图	Create Empty Map
+label.no-scene-loaded	未进入场景	No Scene Loaded
+label.new-scene	新建场景	New Scene
+label.enter-a-scene-name-and-optional-notes	请输入场景名称，可填写备注	Enter a scene name and optional notes
+label.create-empty-scene	创建空白场景	Create Empty Scene
 label.terrain	地形	Terrain
 label.help.2	操作说明 ▸	Help ▸
-label.a-preset-is-open-switch-to-the	当前正在编辑预设，切回地图标签查看场景树。	A preset is open. Switch to the map tab to view the scene tree.
+label.a-preset-is-open-switch-to-the	当前正在编辑预设，切回场景标签查看场景树。	A preset is open. Switch to the scene tab to view the scene tree.
 label.tools	工具	Tools
 label.favorites	收藏	Favorites
 label.view-references	查看引用	View References
 label.empty-document-select-edit-to-start-writing	空文档，点击“编辑”开始编写	Empty document. Select Edit to start writing.
 label.unassigned	未绑定	Unassigned
 label.current-neutral-gray	当前：中性深灰	Current: Neutral Gray
-label.the-current-map-has-unsaved-changes	当前地图有未保存修改	The current map has unsaved changes
+label.the-current-scene-has-unsaved-changes	当前场景有未保存修改	The current scene has unsaved changes
 label.full-scene-scene0	完整场景 · Scene0	Full Scene · Scene0
 label.asset-preview	资产预览	Asset Preview
 label.select-an-item-to-delete	等待删除目标	Select an item to delete
 label.copy-path	复制路径	Copy Path
 label.project-waiting-for-catalog	工程 · 等待目录	Project · Waiting for catalog
-label.switching-maps	正在切换地图	Switching Maps
+label.switching-scenes	正在切换场景	Switching Scenes
 label.0-0-s	0% · 0秒	0% · 0 s
 label.waiting-for-preview	等待预览	Waiting for Preview
 label.root	根目录	Root
-label.map-waiting-for-catalog	地图 · 等待目录	Map · Waiting for catalog
-label.map	地图	Map
+label.scene-waiting-for-catalog	场景 · 等待目录	Scene · Waiting for catalog
+label.scene	场景	Scene
 label.edit	编辑	Edit
 label.confirm	确认	Confirm
 label.editor	编辑器	Editor
-label.no-map-loaded-open-a-map-from	尚未进入地图\n从地图目录进入地图，或从顶部工具打开预设库	No map loaded\nOpen a map from the catalog or open the preset library from the toolbar.
+label.no-scene-loaded-open-a-scene-from	尚未进入场景\n从场景目录进入场景，或从顶部工具打开预设库	No scene loaded\nOpen a scene from the catalog or open the preset library from the toolbar.
 label.select-an-object-or-folder-to-manage	选择对象或目录后进行管理	Select an object or folder to manage it
 label.show-wireframe	显示三角线	Show Wireframe
 label.show-collision	显示碰撞	Show Collision
-label.map-display-preview	地图显示预览	Map Display Preview
+label.scene-display-preview	场景显示预览	Scene Display Preview
 label.shaded-wireframe-editable-mesh-collision-physics-geometry	着色/三角线：可塑形网格；碰撞：实际物理线条	Shaded/Wireframe: editable mesh. Collision: physics geometry.
 label.select-a-blender-mesh-in-the-scene	请选择场景树中的Blender网格	Select a Blender mesh in the scene tree
-label.map-portals-waiting-for-map-data	当前地图传送点 · 等待作者数据	Map Portals · Waiting for map data
+label.scene-portals-waiting-for-scene-data	当前场景传送点 · 等待作者数据	Scene Portals · Waiting for scene data
 label.selected-source-point-name	所选源点名称	Selected Source Point Name
-label.destination-point-select-a-target-map	目标地图落点 · 尚未选择地图	Destination Point · Select a target map
-label.highlight-a-destination-map-in-maps-then	请先在地图页高亮目标地图，再选择到达点	Highlight a destination map in Maps, then choose an arrival point
+label.destination-point-select-a-target-scene	目标场景落点 · 尚未选择场景	Destination Point · Select a target scene
+label.highlight-a-destination-scene-in-scenes-then	请先在场景页高亮目标场景，再选择到达点	Highlight a destination scene in Scenes, then choose an arrival point
 label.brush-type	笔刷类型	Brush Type
 label.lock-height-for-this-stroke	锁定本笔高度	Lock Height for This Stroke
 label.current-mesh-none-select-one-in-the	当前网格：尚未选择 · 从左侧场景树选择	Current Mesh: None · Select one in the scene tree
 label.mode-select-raise-ready	当前：选择 · 预备 抬高	Mode: Select · Raise ready
-label.waiting-for-map-data	等待地图作者数据	Waiting for map data
-label.waiting-for-current-map-data	等待当前地图作者数据	Waiting for current map data
+label.waiting-for-scene-data	等待场景作者数据	Waiting for scene data
+label.waiting-for-current-scene-data	等待当前场景作者数据	Waiting for current scene data
 label.waiting-for-external-terrain-revision	等待外部地形版本	Waiting for external terrain revision
 label.there-are-unsaved-terrain-changes-choose-which	地形草稿尚未保存，请选择保留哪一版。	There are unsaved terrain changes. Choose which version to keep.
 label.rotate	旋转	Rotate
 help.the-height-range-is-separate-from-plane	高度网格高度域不是平面厚度；Clipmap高度不受此项限制；体素高为初始实心盒高。原始 GLB 使用资产几何。	The height range is separate from plane thickness. Clipmap heights have no such limit. Voxel height is the initial solid box height. The original GLB uses the asset geometry.
-label.this-map-has-no-separate-meshes	当前地图暂无独立网格。	This map has no separate meshes.
+label.this-scene-has-no-separate-meshes	当前场景暂无独立网格。	This scene has no separate meshes.
 label.name	名称	Name
 label.type	类型	Type
 label.source-grid-spacing	源格距	Source Grid Spacing
@@ -164,7 +164,7 @@ label.project	工程/	Project/
 label.filter-files-in-this-folder	筛选当前目录文件名	Filter Files in This Folder
 label.no-project-open	尚未打开工程	No Project Open
 label.double-click-a-text-file-to-open	双击文本文件打开；右键显示文件操作	Double-click a text file to open it. Right-click for file actions.
-label.surface-layers-waiting-for-map	地表作者层 · 等待地图	Surface Layers · Waiting for map
+label.surface-layers-waiting-for-scene	地表作者层 · 等待场景	Surface Layers · Waiting for scene
 label.base-vegetation	基础植被	Base Vegetation
 label.browse	浏览…	Browse…
 label.new-project	新建工程	New Project
@@ -177,7 +177,7 @@ label.start-page	开始页	Start Page
 label.new-project.2	新建工程…	New Project…
 label.open-project	打开工程…	Open Project…
 label.drop-project-folder	拖入工程文件夹即可打开	Drop a project folder here
-label.use-current-map-as-startup-map	当前地图设为启动地图	Use Current Map as Startup Map
+label.use-current-scene-as-startup-scene	当前场景设为启动场景	Use Current Scene as Startup Scene
 label.export-project	导出工程…	Export Project…
 label.manage-plugins	插件管理…	Manage Plugins…
 label.about-feathrise	关于 Feathrise…	About Feathrise…
@@ -244,7 +244,7 @@ label.heavy-rain	大雨	Heavy Rain
 label.mist	薄雾	Mist
 label.check-missing-assets	缺失检查	Check Missing Assets
 label.asset-search	资产搜索	Asset Search
-help.type-a-query-and-press-enter-enter	输入文字后按Enter搜索；文件类型可填json、rs或*.wgsl，留空搜索全部受支持文本。点击结果在内置编辑器定位；外部打开使用磁盘版本，“打开工程”会同时打开工程目录。直接引用检查config/maps JSON和当前工程的 Rust 源码中的完整路径，JSON优先使用草稿；不判断运行分支、拼接路径、预设ID或模型内部依赖，0处不代表未使用。缺失检查只核对明确路径的物理文件，子资源检查其来源文件。	Type a query and press Enter. Enter a type such as json, rs, or *.wgsl, or leave it blank to search all supported text. Select a result to jump to it in the editor. External editors open the saved file. Open Project also opens the project directory. The reference check looks for full paths in config/maps JSON and project Rust files, using JSON drafts when available. It does not resolve runtime branches, composed paths, preset IDs, or model dependencies. Zero matches does not prove an asset is unused. The missing asset check looks for explicit paths and checks the source file for sub-assets.
+help.type-a-query-and-press-enter-enter	输入文字后按Enter搜索；文件类型可填json、rs或*.wgsl，留空搜索全部受支持文本。点击结果在内置编辑器定位；外部打开使用磁盘版本，“打开工程”会同时打开工程目录。直接引用检查config/scenes JSON和当前工程的 Rust 源码中的完整路径，JSON优先使用草稿；不判断运行分支、拼接路径、预设ID或模型内部依赖，0处不代表未使用。缺失检查只核对明确路径的物理文件，子资源检查其来源文件。	Type a query and press Enter. Enter a type such as json, rs, or *.wgsl, or leave it blank to search all supported text. Select a result to jump to it in the editor. External editors open the saved file. Open Project also opens the project directory. The reference check looks for full paths in config/scenes JSON and project Rust files, using JSON drafts when available. It does not resolve runtime branches, composed paths, preset IDs, or model dependencies. Zero matches does not prove an asset is unused. The missing asset check looks for explicit paths and checks the source file for sub-assets.
 label.search-contents	内容搜索	Search Contents
 label.all-assets	全部资产	All Assets
 label.current-folder	当前目录	Current Folder
@@ -271,7 +271,7 @@ label.workspace-documents	中央文档	Workspace Documents
 help.this-document-is-open-in-the-workspace	文档已在中央工作区展开。选择其他文档后，可用此按钮追加中央标签；已有文件的草稿和滚动位置继续保留。	This document is open in the workspace. Select another document and use this button to open it in a new tab. Existing drafts and scroll positions are retained.
 label.display-name-supports-chinese	显示名称 · 支持中文	Display Name · Supports Chinese
 label.scope	影响范围	Scope
-label.code-minimap	代码小地图	Code Minimap
+label.code-minimap	代码小场景	Code Minimap
 help.click-or-drag-the-outline-to-navigate	点击或拖动轮廓可定位正文，视区框表示当前可见范围；不会修改源码。轮廓生成和失败信息见底栏详情。	Click or drag the outline to navigate. The box marks the visible range. Source text is unaffected. See status details for outline progress and errors.
 label.find-ctrl-f	查找 Ctrl+F	Find Ctrl+F
 label.replace-ctrl-h	替换 Ctrl+H	Replace Ctrl+H
@@ -285,7 +285,7 @@ label.selection-only	仅选区	Selection Only
 label.replace-current	替换当前	Replace Current
 label.replace-all	全部替换	Replace All
 label.go	跳转	Go
-label.map-authoring	地图作者	Map Authoring
+label.scene-authoring	场景作者	Scene Authoring
 label.source	来源	Source
 label.extension	扩展	Extension
 label.mesh-edit-tab	网格编辑 Tab	Edit Mode · Tab
@@ -314,8 +314,8 @@ label.snapping	吸附	Snapping
 label.grid-point	网格点	Grid Point
 label.1-m	1米	1 m
 label.still-water-presets	静水预设库	Still Water Presets
-help.select-a-preset-to-apply-it-to	选择预设后可应用到当前静水体；新建或编辑在中央打开完整波浪标签。全局预设编辑与地图水域对象是不同的编辑对象。	Select a preset to apply it to the current still water body. Create or edit a preset in the center workspace. Global presets and map water bodies are separate authoring objects.
-label.current-map-water	当前地图水域	Current Map Water
+help.select-a-preset-to-apply-it-to	选择预设后可应用到当前静水体；新建或编辑在中央打开完整波浪标签。全局预设编辑与场景水域对象是不同的编辑对象。	Select a preset to apply it to the current still water body. Create or edit a preset in the center workspace. Global presets and scene water bodies are separate authoring objects.
+label.current-scene-water	当前场景水域	Current Scene Water
 help.select-mode-is-read-only-pick-a	选择模式只读；工具页只准备类别，进入视口编辑模式后绘制。静水用笔刷绘制R8覆盖，Shift擦除；水位不自动修改河床。\n河流/瀑布：顶视或透视左键空白逐点，拖点只改XZ并保留Y；连接端点高度由系统决定。瀑布正式保存需要不同且有效的源/目标，终点低于起点。\n专业数值框支持左拖实际值、右拖灵敏度、中键精确输入。	Select mode is read-only. Pick a category here, then enter viewport Edit mode to draw. Paint R8 coverage for still water and hold Shift to erase. Water level does not reshape the riverbed.\nRivers and waterfalls: click empty space in top or perspective view to add points. Dragging moves X/Z and keeps Y. Connected endpoint heights are resolved automatically. Saving a waterfall requires two distinct valid endpoints, with the destination below the source.\nDrag a numeric field with the left button to adjust its value, right-drag for sensitivity, or middle-click for precise input.
 label.first-item-on-previous-page	前页首项	First Item on Previous Page
 label.first-item-on-next-page	后页首项	First Item on Next Page
@@ -339,11 +339,11 @@ label.front	前视	Front
 label.side	侧视	Side
 label.orthographic	正交	Orthographic
 label.frame-selection	聚焦所选	Frame Selected
-label.frame-map	查看全图	Frame Map
+label.frame-scene	查看全图	Frame Scene
 label.vegetation-presets	植被预设库	Vegetation Presets
-help.choose-an-existing-preset-from-the-global	使用已有预设：在全局库选择。新建预设：先在左侧资产选择GLB，再点击新建。预设库与当前地图图层是不同的编辑对象。	Choose an existing preset from the global library. To create one, choose a GLB in Assets and click New. The preset library and layers on the current map are separate authoring objects.
-label.current-map-layers	当前地图图层	Current Map Layers
-help.painting-select-a-global-preset-create-an	绘制：在全局库选预设 → 用此预设新建空白层 → 切到视口编辑后涂绘；新建不会自动填满，Shift+左键擦除。\n选层：选择模式左键选择整层；植被工具用Ctrl+左键吸取图层，重复点击或Alt+点击轮换重叠层。复制、删除仅影响当前地图作者层；全局预设删除仍检查所有地图引用。\n分组：组内可共存、共享容量或高优先级覆盖；跨组可取最大、相加封顶或非零替换。组容量与覆盖阈值仅在对应规则下可编辑。\n数值：左拖实时回显，松开形成一次撤销；中键精确输入，右拖只调本字段灵敏度。\n预览：作者源、最终结果与组内冲突使用原覆盖图；编译和密度发布完成不代表GPU与模型已经显示。半径和强度仍在视图同排工具条。	Painting: select a global preset, create an empty layer with it, then paint in viewport Edit mode. New layers start empty. Hold Shift and left-click to erase.\nSelecting: click a layer in Select mode, or Ctrl-click with the vegetation tool to sample it. Click again or Alt-click to cycle overlapping layers. Duplicating or deleting affects the selected map layer. Deleting a global preset checks references across maps.\nGroups: layers within a group can coexist, share capacity, or let higher priority take precedence. Across groups, use maximum, capped addition, or nonzero replacement. Capacity and override thresholds are editable only for their corresponding rules.\nValues: left-drag previews the value and creates one undo step on release. Middle-click for precise input and right-drag to adjust the field sensitivity.\nPreview modes use the original coverage map for authoring input, final output, and group conflicts. Published density does not confirm GPU or model visibility. Radius and strength are on the viewport toolbar.
+help.choose-an-existing-preset-from-the-global	使用已有预设：在全局库选择。新建预设：先在左侧资产选择GLB，再点击新建。预设库与当前场景图层是不同的编辑对象。	Choose an existing preset from the global library. To create one, choose a GLB in Assets and click New. The preset library and layers on the current scene are separate authoring objects.
+label.current-scene-layers	当前场景图层	Current Scene Layers
+help.painting-select-a-global-preset-create-an	绘制：在全局库选预设 → 用此预设新建空白层 → 切到视口编辑后涂绘；新建不会自动填满，Shift+左键擦除。\n选层：选择模式左键选择整层；植被工具用Ctrl+左键吸取图层，重复点击或Alt+点击轮换重叠层。复制、删除仅影响当前场景作者层；全局预设删除仍检查所有场景引用。\n分组：组内可共存、共享容量或高优先级覆盖；跨组可取最大、相加封顶或非零替换。组容量与覆盖阈值仅在对应规则下可编辑。\n数值：左拖实时回显，松开形成一次撤销；中键精确输入，右拖只调本字段灵敏度。\n预览：作者源、最终结果与组内冲突使用原覆盖图；编译和密度发布完成不代表GPU与模型已经显示。半径和强度仍在视图同排工具条。	Painting: select a global preset, create an empty layer with it, then paint in viewport Edit mode. New layers start empty. Hold Shift and left-click to erase.\nSelecting: click a layer in Select mode, or Ctrl-click with the vegetation tool to sample it. Click again or Alt-click to cycle overlapping layers. Duplicating or deleting affects the selected scene layer. Deleting a global preset checks references across scenes.\nGroups: layers within a group can coexist, share capacity, or let higher priority take precedence. Across groups, use maximum, capped addition, or nonzero replacement. Capacity and override thresholds are editable only for their corresponding rules.\nValues: left-drag previews the value and creates one undo step on release. Middle-click for precise input and right-drag to adjust the field sensitivity.\nPreview modes use the original coverage scene for authoring input, final output, and group conflicts. Published density does not confirm GPU or model visibility. Radius and strength are on the viewport toolbar.
 label.create-empty-layer-from-preset	用此预设新建空白层	Create Empty Layer From Preset
 label.delete-layer	删除图层	Delete Layer
 label.selected-layer-properties	所选层属性	Selected Layer Properties
@@ -368,7 +368,7 @@ label.new-model-preset	新建模型预设	New Model Preset
 label.edit-selected-preset	编辑所选预设	Edit Selected Preset
 label.delete-selected-preset	删除所选预设	Delete Selected Preset
 label.courtyard-presets	院落预设	Courtyard Presets
-help.box-select-buildings-and-props-on-the	框选地图中的房屋与装饰，再保存为可重复盖印的院落；也可选择已有院落预设进行盖印。	Box-select buildings and props on the map to save a reusable courtyard, or select an existing preset to stamp it.
+help.box-select-buildings-and-props-on-the	框选场景中的房屋与装饰，再保存为可重复盖印的院落；也可选择已有院落预设进行盖印。	Box-select buildings and props on the scene to save a reusable courtyard, or select an existing preset to stamp it.
 label.stamp-selected-courtyard	盖印所选院落	Stamp Selected Courtyard
 label.box-select-objects	框选对象	Box Select Objects
 label.clear-selection	清空选集	Clear Selection
@@ -380,13 +380,13 @@ label.duplicate-group	整体复制	Duplicate Group
 label.rotate-left-90	左转 90°	Rotate Left 90°
 label.rotate-right-90	右转 90°	Rotate Right 90°
 label.cancel-tool	取消当前工具	Cancel Tool
-help.adjust-a-submap-reference-s-position-and	在父地图调整子地图引用的整体位置与朝向；内部内容请打开源地图编辑。复制或移除只操作当前引用，不修改源地图内容。	Adjust a submap reference's position and orientation in its parent map. Open the source map to edit its contents. Duplicating or removing a reference affects only that instance.
-label.add-selected-map-as-submap	将目录所选地图添加为子地图	Add Selected Map as Submap
+help.adjust-a-subscene-reference-s-position-and	在父场景调整子场景引用的整体位置与朝向；内部内容请打开源场景编辑。复制或移除只操作当前引用，不修改源场景内容。	Adjust a subscene reference's position and orientation in its parent scene. Open the source scene to edit its contents. Duplicating or removing a reference affects only that instance.
+label.add-selected-scene-as-subscene	将目录所选场景添加为子场景	Add Selected Scene as Subscene
 label.duplicate-reference	复制引用	Duplicate Reference
 label.remove-reference	移除引用	Remove Reference
-label.edit-source-map	打开源地图编辑	Edit Source Map
+label.edit-source-scene	打开源场景编辑	Edit Source Scene
 label.asset-placement	资产摆放	Asset Placement
-help.select-a-file-in-assets-enter-edit	在左侧资产页选择文件，切到编辑模式后在中央地图点击摆放；落点沿用精确地面查询。摆放参数在视口工具条。选择已有实例后，在右侧属性中调整变换、复制或删除，资产选择独立保留。	Select a file in Assets, enter Edit mode, and click the map to place it. Placement uses precise ground queries. Adjust placement on the viewport toolbar. Select an instance to edit its transform, duplicate it, or remove it in the Inspector. Asset selection is tracked separately.
+help.select-a-file-in-assets-enter-edit	在左侧资产页选择文件，切到编辑模式后在中央场景点击摆放；落点沿用精确地面查询。摆放参数在视口工具条。选择已有实例后，在右侧属性中调整变换、复制或删除，资产选择独立保留。	Select a file in Assets, enter Edit mode, and click the scene to place it. Placement uses precise ground queries. Adjust placement on the viewport toolbar. Select an instance to edit its transform, duplicate it, or remove it in the Inspector. Asset selection is tracked separately.
 label.1-invisible-walls	1 · 空气墙对象	1 · Invisible Walls
 label.2-path-editing	2 · 路径编辑	2 · Path Editing
 help.select-or-create-a-wall-in-edit	先选择或新建空气墙，切到编辑模式后拖控制点，Ctrl点击线段插点。开放墙左键继续加点，Delete删除明确选中的点。外框必须闭合，内部墙可开放或闭合。重画只影响所选墙。	Select or create a wall. In Edit mode, drag its points or Ctrl-click a segment to insert a point. Left-click to extend an open wall, or press Delete to remove selected points. Outer walls must be closed. Interior walls can be open or closed. Redraw applies to the selected wall.
@@ -403,7 +403,7 @@ label.return-to-sidebar	返回侧栏	Return to Sidebar
 label.details	详情	Details
 label.copy	复制	Copy
 label.clear.3	清除	Clear
-label.map-and-collision	地图与碰撞	Map and Collision
+label.scene-and-collision	场景与碰撞	Scene and Collision
 label.vegetation	植被	Vegetation
 label.water	水域	Water
 label.placed-instances	摆放实例	Placed Instances
@@ -425,7 +425,7 @@ help.cube-dimensions-are-local-x-y-z	立方体尺寸按局部 X/Y/Z 轴使用米
 label.3d-terrain	三维地形	3D Terrain
 label.toggle-opening	洞口开关	Toggle Opening
 label.material	材质	Material
-help.colors-use-srgb-0-255-and-roughness	颜色使用 sRGB 的 0–255，粗糙度使用 0–1；属性随地图保存，单次编辑可统一撤销。	Colors use sRGB 0–255 and roughness uses 0–1. Properties are saved with the map. Undo reverses each edit as one operation.
+help.colors-use-srgb-0-255-and-roughness	颜色使用 sRGB 的 0–255，粗糙度使用 0–1；属性随场景保存，单次编辑可统一撤销。	Colors use sRGB 0–255 and roughness uses 0–1. Properties are saved with the scene. Undo reverses each edit as one operation.
 label.collision	碰撞	Collision
 help.parametric-cubes-use-box-collision-vertex-edge	参数立方体使用盒碰撞；点边面编辑后的网格使用实际三角碰撞。按钮选中表示开启；隐藏或删除对象时暂停，恢复后按原开启状态生效。	Parametric cubes use box collision. Vertex, edge, or face edits use mesh collision. The highlighted button means enabled. Hiding or removing the object suspends collision until it is restored.
 label.new-from-selected-model	从所选模型新建	New From Selected Model
@@ -443,19 +443,19 @@ label.peak-moonlight-at-midnight	月亮午夜峰值照度	Peak Moonlight at Midn
 label.night-color-srgb-0-1	夜间基准颜色 · sRGB 0–1	Night Color · sRGB 0–1
 label.celestial-azimuth-offset	天体方位角偏移	Celestial Azimuth Offset
 label.light-angular-diameter	光源角直径	Light Angular Diameter
-label.current-map-saved-parameters	当前地图 · 持久参数	Current Map · Saved Parameters
-help.these-settings-belong-to-the-current-dynamic	此区写入当前动态地图。太阳、月光未启用覆盖的属性跟随全局默认；固定场景没有动态地图环境草稿。来源和实际计算值仍在相应字段中显示。	These settings belong to the current dynamic map. Sun and moon properties inherit global values unless overridden. Static scenes have no dynamic map environment draft. Fields show the source and computed value.
+label.current-scene-saved-parameters	当前场景 · 持久参数	Current Scene · Saved Parameters
+help.these-settings-belong-to-the-current-dynamic	此区写入当前动态场景。太阳、月光未启用覆盖的属性跟随全局默认；固定场景没有动态场景环境草稿。来源和实际计算值仍在相应字段中显示。	These settings belong to the current dynamic scene. Sun and moon properties inherit global values unless overridden. Static scenes have no dynamic scene environment draft. Fields show the source and computed value.
 label.sky-and-ambient-light	天空与环境光	Sky and Ambient Light
 label.dynamic-sky	动态天空	Dynamic Sky
 label.skybox	天空盒	Skybox
 label.use-selected-asset	使用所选资源	Use Selected Asset
 label.clear-asset	清除资源	Clear Asset
 label.world-debug-current-run	世界调试 · 当前运行	World Debug · Current Run
-help.time-month-and-weather-overrides-apply-to	时刻、月份与天气覆盖只调整当前运行。时间暂停及晴天草尖基准摆幅沿用全局设置保存，不写入当前地图环境参数。	Time, month, and weather overrides apply to the current run. Paused time and clear-weather grass tip motion are saved in global settings.
-label.global-defaults-all-dynamic-maps	全局默认 · 所有动态地图	Global Defaults · All Dynamic Maps
-help.map-properties-inherit-these-settings-unless-overridden	地图未启用覆盖的属性跟随此处。全局草稿与地图草稿由顶部保存统一提交。	Map properties inherit these settings unless overridden. The top toolbar Save action commits global and map drafts together.
+help.time-month-and-weather-overrides-apply-to	时刻、月份与天气覆盖只调整当前运行。时间暂停及晴天草尖基准摆幅沿用全局设置保存，不写入当前场景环境参数。	Time, month, and weather overrides apply to the current run. Paused time and clear-weather grass tip motion are saved in global settings.
+label.global-defaults-all-dynamic-scenes	全局默认 · 所有动态场景	Global Defaults · All Dynamic Scenes
+help.scene-properties-inherit-these-settings-unless-overridden	场景未启用覆盖的属性跟随此处。全局草稿与场景草稿由顶部保存统一提交。	Scene properties inherit these settings unless overridden. The top toolbar Save action commits global and scene drafts together.
 label.basic-information	基础资料	Basic Information
-label.map-name-required	地图名称 · 必填	Map Name · Required
+label.scene-name-required	场景名称 · 必填	Scene Name · Required
 label.notes-optional.2	备注 · 可选	Notes · Optional
 label.move-g	移动 G	Move G
 label.rotate-r	旋转 R	Rotate R
@@ -500,7 +500,7 @@ label.active-tool-buildings	当前模块 · 建筑预设与摆放	Active Tool ·
 label.sculpt	塑形	Sculpt
 label.buildings	建筑	Buildings
 label.interaction	交互	Interaction
-label.map-catalog	地图目录	Map Catalog
+label.scene-catalog	场景目录	Scene Catalog
 label.scene-tree	场景树	Scene Tree
 label.file-documents-including-hidden-drafts	文件文档（含隐藏草稿）	File Documents (Including Hidden Drafts)
 help.changes-apply-immediately-and-save-automatically-done	更改即时生效并自动保存；完成只关闭面板。快捷键页面点击对应绑定后录入，冲突和录入进度仍在页面内明确显示。	Changes apply immediately and save automatically. Done closes this panel. Select a shortcut to enter a new binding. Conflicts and recording progress appear on the Shortcuts tab.
@@ -514,10 +514,10 @@ label.limit-fps-during-builds	编译时降低帧率	Reduce Frame Rate During Bui
 help.build-frame-pacing	Cargo 和 DX 编译期间，空闲约 5 FPS，有操作约 15 FPS。编译结束后恢复日常帧率。	During Cargo and DX builds, the editor uses about 5 FPS when idle and 15 FPS during interaction. Your normal frame rate returns when the build ends.
 help.manual-and-auto-scale-range-from-60	手动与自动均为60%–200%，加减每次5%。自动按窗口尺寸调整，加减可微调自动比例。只影响编辑器界面，不影响运行界面或三维渲染比例。	Manual and auto scale range from 60% to 200%, with 5% steps. Auto adapts to the window size. Use + or − to fine-tune it. This changes the editor UI scale only.
 label.viewport-display	视口显示	Viewport Display
-help.the-button-is-highlighted-when-enabled-applies	开启时按钮高亮；父地图与子地图生效，退出编辑后仍保留。	The button is highlighted when enabled. Applies to parent maps and submaps, and persists when leaving the editor.
+help.the-button-is-highlighted-when-enabled-applies	开启时按钮高亮；父场景与子场景生效，退出编辑后仍保留。	The button is highlighted when enabled. Applies to parent scenes and subscenes, and persists when leaving the editor.
 label.show-terrain-backfaces	显示地形背面	Show Terrain Backfaces
 label.color-theme	主题配色	Color Theme
-label.applies-to-editor-tools-runtime-ui-map	只影响编辑器工具界面；运行界面、地图和模型颜色保持原样。	Applies to editor tools. Runtime UI, map, and model colors retain their own settings.
+label.applies-to-editor-tools-runtime-ui-scene	只影响编辑器工具界面；运行界面、场景和模型颜色保持原样。	Applies to editor tools. Runtime UI, scene, and model colors retain their own settings.
 label.neutral-gray	中性深灰	Neutral Gray
 label.graphite-blue	石墨灰＋雾蓝	Graphite Blue
 label.warm-copper	暖墨铜金	Warm Copper
@@ -525,12 +525,12 @@ label.transform-snapping	变换吸附	Transform Snapping
 help.use-the-toolbar-for-grid-snapping-and	工具条切换网格、吸附和移动模式，Y切换常开。Ctrl临时反转；左拖调值，中键精确输入，自动保存。建筑连接与90°规则优先；移动模式只改变位置取整基准。	Use the toolbar for grid, snapping, and movement mode. Y toggles persistent snapping. Hold Ctrl to invert it temporarily. Drag to adjust values or middle-click for precise input. Changes save automatically. Building connections and 90° rotation rules take priority. Movement mode sets the position rounding reference.
 label.reset-snapping	恢复吸附默认值	Reset Snapping
 label.sidebar-layout	侧栏布局	Sidebar Layout
-help.sidebar-widths-and-visibility-are-saved-and	侧栏宽度和显隐自动保存，下次启动恢复。恢复布局只重置两栏偏好，不改变其他设置或地图作者数据。	Sidebar widths and visibility are saved and restored on startup. Reset Layout restores sidebar preferences only.
+help.sidebar-widths-and-visibility-are-saved-and	侧栏宽度和显隐自动保存，下次启动恢复。恢复布局只重置两栏偏好，不改变其他设置或场景作者数据。	Sidebar widths and visibility are saved and restored on startup. Reset Layout restores sidebar preferences only.
 label.reset-layout	恢复默认布局	Reset Layout
 label.unsaved-changes	处理未保存修改	Unsaved Changes
 label.save-and-switch	保存并切换	Save and Switch
 label.discard-and-switch	放弃修改并切换	Discard and Switch
-label.cancel-map-switch	取消切图	Cancel Map Switch
+label.cancel-scene-switch	取消切换场景	Cancel Scene Switch
 label.asset-preview.2	资源预览	Asset Preview
 help.images-scroll-to-zoom-or-drag-with	图片：滚轮缩放，左、中、右键拖动平移。模型：滚轮缩放，右键旋转，中键平移。单击文件在右侧查看，双击在中央标签打开；复制引用只复制当前完整身份。	Images: scroll to zoom or drag with any mouse button to pan. Models: scroll to zoom, right-drag to orbit, middle-drag to pan. Click a file to preview it on the right or double-click to open a workspace tab. Copy Reference copies the current full asset reference.
 label.reset-view	重置视图	Reset View
@@ -542,11 +542,11 @@ help.this-policy-applies-to-static-glb-files	当前通用策略用于普通静�
 label.display-lod-on	显示 LOD：开启	Render LOD: On
 label.collision-lod-original	碰撞 LOD：原始	Collision LOD: Original Mesh
 label.reset-mesh-lod	恢复网格 LOD 默认	Reset Mesh LOD Defaults
-label.delete-map	删除地图	Delete Map
+label.delete-scene	删除场景	Delete Scene
 label.deletion-target-verify-identity	删除目标 · 请核对身份	Deletion Target · Verify Identity
 label.consequences-and-protection	删除后果与保护	Consequences and Protection
-help.delete-permanently-removes-map-files-move-to	直接删除：永久删除地图文件，不可恢复。放入回收站：将文件移到工程的 assets/maps/.trash/，可人工恢复。	Delete Permanently removes map files. Move to Trash moves them to assets/maps/.trash/ in the project for manual recovery.
-help.both-options-remove-the-map-entry-if	两种方式都会移除地图目录入口；文件夹已不存在时只清理记录。其他地图仍引用它时拒绝删除，必须先关闭该地图标签并等待场景卸载。	Both options remove the map entry. If the directory is missing, only the entry is removed. Maps referenced by other maps cannot be deleted. Close its map tab and wait for the scene to unload first.
+help.delete-permanently-removes-scene-files-move-to	直接删除：永久删除场景文件，不可恢复。放入回收站：将文件移到工程的 assets/scenes/.trash/，可人工恢复。	Delete Permanently removes scene files. Move to Trash moves them to assets/scenes/.trash/ in the project for manual recovery.
+help.both-options-remove-the-scene-entry-if	两种方式都会移除场景目录入口；文件夹已不存在时只清理记录。其他场景仍引用它时拒绝删除，必须先关闭该场景标签并等待场景卸载。	Both options remove the scene entry. If the directory is missing, only the entry is removed. Scenes referenced by other scenes cannot be deleted. Close its scene tab and wait for the scene to unload first.
 label.awaiting-confirmation-references-and-files-will-be	待确认 · 尚未启动删除；确认后仍须通过引用与文件校验。	Awaiting confirmation. References and files will be checked before deletion.
 label.delete-permanently	直接删除	Delete Permanently
 label.move-to-trash	放入回收站	Move to Trash
@@ -584,11 +584,11 @@ label.sculpt-tools	雕刻工具	Sculpt Tools
 help.select-a-height-mesh-and-a-sculpt	先选中高度网格和雕刻工具，再点击视口左侧“编辑”图标后左键连续雕刻；选择模式只预备工具。平滑降低局部高差，平坦区域不改变高度；压平以起笔高度为目标。四种工具共用雕刻速度，平滑和压平到达目标后停止，不越过目标。原始GLB保留资产几何。半径、强度和雕刻速度在视口工具条调整。数值左拖实时修改，中键精确输入，右拖只调整本字段灵敏度。	Select a height mesh and a sculpt tool, then enter viewport Edit mode and hold the left mouse button to sculpt. Select mode only prepares the tool. Smooth reduces local height differences. Flatten targets the height at the start of the stroke. All four tools use the same speed. Smooth and Flatten stop at their target. Original GLB meshes keep their geometry. Adjust radius, strength, and speed in the viewport toolbar. Left-drag numeric fields to preview, middle-click for precise input, or right-drag for sensitivity.
 label.3d-sculpting-prototype	三维雕刻（原型）	3D Sculpting (Prototype)
 help.clipmaps-and-voxels-support-3d-sculpting-use	Clipmap与体素支持三维塑形。球形造洞穴；方盒做直墙、平底通道；圆柱开井。整平按首个落点高度削高补低。	Clipmaps and voxels support 3D sculpting. Use a sphere for caves, a box for straight walls and flat tunnels, or a cylinder for shafts. Leveling cuts and fills to the height of the first hit.
-label.current-map	当前地图	Current Map
-help.select-a-preset-create-a-layer-and	选择预设后新建图层，切到编辑模式绘制；Shift擦除。删除地图图层不会删除全局预设。	Select a preset, create a layer, and paint in Edit mode. Hold Shift to erase. Deleting a map layer leaves its global preset available.
+label.current-scene	当前场景	Current Scene
+help.select-a-preset-create-a-layer-and	选择预设后新建图层，切到编辑模式绘制；Shift擦除。删除场景图层不会删除全局预设。	Select a preset, create a layer, and paint in Edit mode. Hold Shift to erase. Deleting a scene layer leaves its global preset available.
 label.puddle-potential	独立积水潜力	Puddle Potential
 help.paint-how-readily-ground-retains-puddles-separate	绘制地面的保水倾向，不是设置静水水位，不占地表或植被图层。左键绘制，Shift擦除；屋内、桥下保持零值。选择工具不创建画布，首次有效笔划才创建。切换工具可查看随天气变化的实际水洼。	Paint how readily ground retains puddles, separate from still-water height and surface or vegetation layers. Paint with the left button and hold Shift to erase. Leave interiors and areas under bridges at zero. The first valid stroke creates the canvas. Switch tools to see weather-driven puddles.
-label.target-map-not-ready	目标地图（未就绪）	Target Map (Not Ready)
+label.target-scene-not-ready	目标场景（未就绪）	Target Scene (Not Ready)
 label.terrain-file-conflict	地形文件发生冲突	Terrain File Conflict
 label.conflict-target-external-revision-changed	冲突目标 · 外部版本已变化	Conflict Target · External Revision Changed
 label.use-blender-version	采用 Blender	Use Blender Version
@@ -673,7 +673,7 @@ project.export.canceled	导出已取消，原输出与作者草稿保留	Export 
 project.export.choose_dir	请选择导出目录	Choose an export directory
 project.export.collecting	构建完成，正在收集运行文件和已保存资产…	Build complete. Collecting runtime files and saved assets…
 project.startup.label	工程启动设置	Project Startup Settings
-project.startup.help	此操作只保存启动设置；地图草稿请使用原保存按钮。	This saves the startup settings. Use the map Save action for map drafts.
+project.startup.help	此操作只保存启动设置；场景草稿请使用原保存按钮。	This saves the startup settings. Use the scene Save action for scene drafts.
 project.startup.back	返回工程管理	Back to Project Manager
 window.more	更多操作	More Actions
 window.minimize	最小化	Minimize
@@ -706,11 +706,11 @@ plugin.scope.global_help	全局插件供当前用户的所有工程使用；安�
 plugin.scope.global_reopen	全局插件供当前用户的所有工程使用；当前工程在重开后采用变更。	Global plugins are available to every project for this user. Reopen the project to apply changes.
 plugin.scope.project_help	工程同名插件优先；可单独停用继承的全局插件。安装、更新与移除在重开工程后生效。	Project plugins take precedence over global plugins with the same ID. Inherited plugins can be disabled for this project. Reopen the project to apply changes.
 tooltip.unavailable	当前不可用：{reason}	Unavailable: {reason}
-tooltip.undo	撤销当前地图的上一次作者修改，不影响其他文档。	Undo the latest edit to the current map.
-tooltip.redo	恢复当前地图刚撤销的作者修改。	Redo the latest undone edit to the current map.
-tooltip.save_map	保存地图	Save Map
-tooltip.save_map_help	保存当前地图草稿；预设与资产文档使用各自的保存入口。	Save the current map draft. Presets and asset documents have their own Save actions.
-tooltip.new_map	填写地图名称和可选备注，在当前目录创建空白地图。	Enter a map name and optional notes to create an empty map in the current folder.
+tooltip.undo	撤销当前场景的上一次作者修改，不影响其他文档。	Undo the latest edit to the current scene.
+tooltip.redo	恢复当前场景刚撤销的作者修改。	Redo the latest undone edit to the current scene.
+tooltip.save_scene	保存场景	Save Scene
+tooltip.save_scene_help	保存当前场景草稿；预设与资产文档使用各自的保存入口。	Save the current scene draft. Presets and asset documents have their own Save actions.
+tooltip.new_scene	填写场景名称和可选备注，在当前目录创建空白场景。	Enter a scene name and optional notes to create an empty scene in the current folder.
 tooltip.close	收起编辑器并返回当前场景，不自动保存或丢弃草稿。	Close the editor and return to the current scene.
 tooltip.free_view	自由视图	Free View
 tooltip.free_view_help	恢复自由观察方向；右键旋转，中键平移，滚轮缩放。	Restore free view. Right-drag to orbit, middle-drag to pan, or scroll to zoom.
@@ -731,7 +731,7 @@ toolbar.stopping_build	正在停止	Stopping…
 toolbar.return_editor	返回编辑器	Return to Editor
 toolbar.return	返回	Return
 settings.title.editor	编辑器设置	Editor Settings
-status.no_map	尚未进入地图	No Map Loaded
+status.no_scene	尚未进入场景	No Scene Loaded
 status.ready	就绪	Ready
 status.loading	加载中	Loading
 status.unknown	未知	Unknown
@@ -754,43 +754,43 @@ toolbar.project.synchronizing	工程3D：同步中	Project 3D: Synchronizing
 toolbar.project.stopping	工程3D：断开中	Project 3D: Disconnecting
 toolbar.project.restarting	工程3D：重启中	Project 3D: Restarting
 toolbar.project.failed	工程3D：连接失败	Project 3D: Connection failed
-map.scene_tree	场景树	Scene Tree
-map.inspector	对象检查器	Object Inspector
-map.choose_object	请先选择对象	Select an object first
-map.no_selection	尚未选择	Nothing Selected
-map.loading	正在加载地图…	Loading map…
-map.empty	地图列表为空	No Maps
-map.open	进入地图	Open Map
-map.context	地图：{name}	Map: {name}
+scene.scene_tree	场景树	Scene Tree
+scene.inspector	对象检查器	Object Inspector
+scene.choose_object	请先选择对象	Select an object first
+scene.no_selection	尚未选择	Nothing Selected
+scene.loading	正在加载场景…	Loading scene…
+scene.empty	场景列表为空	No Scenes
+scene.open	进入场景	Open Scene
+scene.context	场景：{name}	Scene: {name}
 project.log.rows	日志行数：{count}	Log lines: {count}
 project.save.done	保存成功	Saved
 project.save.failed	保存失败	Save Failed
 project.save.pending	正在保存…	Saving…
-tooltip.controls.include	参与地图	Include in Map
+tooltip.controls.include	参与场景	Include in Scene
 tooltip.controls.visibility	编辑器显示	Editor Visibility
 tooltip.controls.lock	锁定 / 解锁	Lock / Unlock
-tooltip.controls.include_help	勾选表示参与地图；点击切换。会写入地图，可撤销；锁定时需先解锁。	Toggle inclusion in the saved map. The change is undoable. Unlock the object first if it is locked.
-tooltip.controls.visibility_help	眼睛表示显示，划线表示隐藏；只影响编辑器显示，保留地图参与状态和碰撞。	Toggle visibility in the editor. Map inclusion and collision are separate.
+tooltip.controls.include_help	勾选表示参与场景；点击切换。会写入场景，可撤销；锁定时需先解锁。	Toggle inclusion in the saved scene. The change is undoable. Unlock the object first if it is locked.
+tooltip.controls.visibility_help	眼睛表示显示，划线表示隐藏；只影响编辑器显示，保留场景参与状态和碰撞。	Toggle visibility in the editor. Scene inclusion and collision are separate.
 tooltip.controls.lock_help	闭锁时禁止修改网格，仍可选中查看；再次点击解锁。	Lock the mesh against editing. Locked meshes can still be selected and inspected.
-tooltip.controls.top	从上方观察当前地图，保留当前位置与投影模式。	View the current map from above, keeping the current position and projection.
-tooltip.controls.front	切换到前方观察方向，不修改地图或所选对象。	Switch to the front view of the current map.
-tooltip.controls.side	切换到侧方观察方向，不修改地图或所选对象。	Switch to the side view of the current map.
+tooltip.controls.top	从上方观察当前场景，保留当前位置与投影模式。	View the current scene from above, keeping the current position and projection.
+tooltip.controls.front	切换到前方观察方向，不修改场景或所选对象。	Switch to the front view of the current scene.
+tooltip.controls.side	切换到侧方观察方向，不修改场景或所选对象。	Switch to the side view of the current scene.
 tooltip.controls.ortho	在正交与透视投影间切换，观察方向保持不变。	Toggle orthographic and perspective projection while keeping the view direction.
 tooltip.controls.selection	对准已确认的资产、水体或传送点；不采用候选悬停选择。	Frame the selected asset, water body, or portal.
-tooltip.controls.frame_map	按当前地图边界取景，保留观察方向与投影模式。	Frame the current map while keeping the view direction and projection.
+tooltip.controls.frame_scene	按当前场景边界取景，保留观察方向与投影模式。	Frame the current scene while keeping the view direction and projection.
 tooltip.mesh.select	选择元素	Select Elements
 tooltip.mesh.select_help	单击选择点、边或面；Shift 增减选择，A 全选。	Click to select vertices, edges, or faces. Hold Shift to change the selection. Press A to select all.
 tooltip.mesh.move	移动所选元素	Move Selected Elements
 tooltip.mesh.rotate	旋转所选元素	Rotate Selected Elements
 tooltip.mesh.scale	缩放所选元素	Scale Selected Elements
-tooltip.tool.select	选择场景中的对象并查看属性，不落笔修改地图。	Select scene objects to inspect their properties.
+tooltip.tool.select	选择场景中的对象并查看属性，不落笔修改场景。	Select scene objects to inspect their properties.
 tooltip.tool.move	拖动世界轴或XZ平面手柄移动当前所选对象。	Drag an axis or XZ plane handle to move the selected object.
 tooltip.tool.rotate	绕世界Y轴旋转所选对象；建筑沿用90°档位。	Rotate the selected object around the world Y axis. Buildings rotate in 90° increments.
 tooltip.tool.scale	等比缩放所选普通资产，保持已有三轴比例。	Scale the selected asset uniformly, preserving its axis proportions.
 tooltip.actions	展开选择类别与复制、粘贴、删除等对象操作。	Show selection categories and object actions such as copy, paste, and delete.
 tooltip.shading.wireframe	显示真实网格三角边；下拉可开启穿透线框。	Show mesh triangle edges. Enable X-ray wireframe from the dropdown.
 tooltip.shading.material	预览原始材质并使用当前相机专属工作室补光。	Preview original materials with studio lighting attached to the current camera.
-tooltip.shading.rendered	显示地图原始材质、灯光和环境。	Show the map's materials, lights, and environment.
+tooltip.shading.rendered	显示场景原始材质、灯光和环境。	Show the scene's materials, lights, and environment.
 tooltip.axis.view	点击轴端点切到对应正交视图；再次点击已对准的端点翻到反方向。	Click an axis endpoint for an orthographic view. Click the aligned endpoint again to flip direction.
 tooltip.axis.projection	在正交与透视间切换，保留当前观察角度和焦点。	Toggle orthographic and perspective projection while keeping the view direction and focus.
 label.project-output	工程输出	Project Output
@@ -810,7 +810,7 @@ label.finishing-code-build	代码构建收口中	Finishing Code Build
 label.source.2	作者源	Source
 label.final-output	最终结果	Final Output
 label.group-conflicts	组内冲突	Group Conflicts
-label.empty-map	空白地图	Empty Map
+label.empty-scene	空白场景	Empty Scene
 label.original-glb-stable	原始 GLB（稳定）	Original GLB (Stable)
 label.geometry-clipmap-experimental	Geometry Clipmap（实验）	Geometry Clipmap (Experimental)
 label.start-point-set-move-the-brush-to	起点已设置；移动笔刷后设置终点。	Start point set. Move the brush to set the end point.
@@ -869,16 +869,16 @@ label.hide	隐藏	Hide
 label.unlock	解锁	Unlock
 label.loading-coordinates	坐标加载中	Loading coordinates
 label.coordinates-are-unavailable	坐标已失效	Coordinates are unavailable
-label.discard-map-changes-and-close	放弃地图修改并关闭	Discard Map Changes and Close
+label.discard-scene-changes-and-close	放弃场景修改并关闭	Discard Scene Changes and Close
 label.cancel-close	取消关闭	Cancel Close
-label.select-map-folder	地图目录选择	Select Map Folder
+label.select-scene-folder	场景目录选择	Select Scene Folder
 label.interaction-tools	交互工具	Interaction Tools
 label.recent-interaction-actions	交互最近操作	Recent Interaction Actions
-label.map-environment	地图环境	Map Environment
+label.scene-environment	场景环境	Scene Environment
 label.global-environment	全局环境	Global Environment
 label.environment-scope	环境作用范围	Environment Scope
 label.sun-and-moon-global-defaults	▼ 太阳与月光 · 全局默认	▼ Sun and Moon · Global Defaults
-label.sun-and-moon-map-overrides	▼ 太阳与月光 · 地图覆盖	▼ Sun and Moon · Map Overrides
+label.sun-and-moon-scene-overrides	▼ 太阳与月光 · 场景覆盖	▼ Sun and Moon · Scene Overrides
 label.screen-error	屏幕误差	Screen-Space Error
 label.switch-hysteresis	切换迟滞	Switch Hysteresis
 label.ratio	比例	Ratio
@@ -899,8 +899,8 @@ label.relative-path	相对路径	Relative Path
 label.absolute-path	绝对路径	Absolute Path
 label.copy-relative-path	复制相对路径	Copy Relative Path
 label.copy-absolute-path	复制绝对路径	Copy Absolute Path
-label.no-edits-to-undo-on-this-map	当前地图没有可撤销操作	No edits to undo on this map
-label.no-edits-to-redo-on-this-map	当前地图没有可重做操作	No edits to redo on this map
+label.no-edits-to-undo-on-this-scene	当前场景没有可撤销操作	No edits to undo on this scene
+label.no-edits-to-redo-on-this-scene	当前场景没有可重做操作	No edits to redo on this scene
 label.terrain-height-normals-and-collision-are-still	地形高度、法线与碰撞仍在后台生成	Terrain height, normals, and collision are still being generated
 label.enable-all	全部开启	Enable All
 label.vertex	点	Vertex
@@ -934,14 +934,15 @@ log.follow.on	跟随：开	Follow: On
 log.follow.off	跟随：关	Follow: Off
 log.wrap.on	自动换行：开	Word Wrap: On
 log.wrap.off	自动换行：关	Word Wrap: Off
-sidebar.maps	地图目录	Maps
-sidebar.scene	场景树	Scene
+sidebar.scenes	场景	Scenes
+sidebar.scene_tree	场景树	Scene Tree
+sidebar.project	工程	Project
 sidebar.mesh	网格	Mesh
 sidebar.interact	交互	Interact
 sidebar.world	环境	World
 sidebar.inspector	属性	Inspector
-map.current.none	当前地图：未进入地图	Current Map: None
-map.current.named	当前地图：{name} [{id}]	Current Map: {name} [{id}]
+scene.current.none	当前场景：未进入场景	Current Scene: None
+scene.current.named	当前场景：{name} [{id}]	Current Scene: {name} [{id}]
 asset.folder.count	资产目录 assets/{folder}：{count}项	assets/{folder} · {count} items
 status.tool.perspective	透视	Persp.
 document.tab	文档 · {file}{dirty}	Document · {file}{dirty}
@@ -954,12 +955,12 @@ document.other_drafts	\n另有{count}份草稿，返回对应文档可继续编�
 status.tool.radius	 · 半径 {value}m	 · Radius {value} m
 status.tool.spacing	 · 间距 {value}m	 · Spacing {value} m
 status.tool.strength	 · 强度 {value}	 · Strength {value}
-inspector.open_map	从左侧地图页选择并进入地图	Open a map from Maps
-inspector.open_map_help	空世界仍可编辑全局预设；预设使用对应的独立预览。	Global presets can be edited in an empty world using their own previews.
-inspector.map_waiting	等待地图草稿	Waiting for map draft
-inspector.map_not_ready	当前地图的作者草稿尚未就绪	The current map draft is still loading
-inspector.map_wait_help	就绪前不显示其他地图的对象来源与属性。	Object sources and properties will appear when the map is ready.
-inspector.map_hint	在场景树或视口选择对象以编辑属性；地图资料可在左侧地图页修改。	Select an object in the scene tree or viewport to edit its properties. Edit map details in Maps.
+inspector.open_scene	从左侧场景页选择并进入场景	Open a scene from Scenes
+inspector.open_scene_help	空世界仍可编辑全局预设；预设使用对应的独立预览。	Global presets can be edited in an empty world using their own previews.
+inspector.scene_waiting	等待场景草稿	Waiting for scene draft
+inspector.scene_not_ready	当前场景的作者草稿尚未就绪	The current scene draft is still loading
+inspector.scene_wait_help	就绪前不显示其他场景的对象来源与属性。	Object sources and properties will appear when the scene is ready.
+inspector.scene_hint	在场景树或视口选择对象以编辑属性；场景资料可在左侧场景页修改。	Select an object in the scene tree or viewport to edit its properties. Edit scene details in Scenes.
 project.files.count	工程 · {count}项	Project · {count} items
 project.files.requires_project	请先打开工程后浏览目录	Open a project to browse its files.
 project.files.loading	正在读取工程目录…	Reading project files…
@@ -1002,13 +1003,13 @@ status.source.sculpting_tools	塑形工具	Sculpting Tools
 status.source.sculpting_actions	塑形最近操作	Recent Sculpting Actions
 status.source.vegetation_presets	植被预设	Vegetation Presets
 status.source.water_presets	静水预设	Still Water Presets
-status.source.map_loading	地图加载	Map Loading
+status.source.scene_loading	场景加载	Scene Loading
 status.source.water_preview	水体实时预览	Live Water Preview
 status.task.saving	保存中	Saving
 status.task.waiting_to_save	等待保存	Waiting to Save
-status.task.preparing_map	准备地图	Preparing Map
+status.task.preparing_scene	准备场景	Preparing Scene
 status.task.confirm_close	确认关闭	Confirm Close
-status.task.recycle_map	回收地图	Move Map to Trash
+status.task.recycle_scene	回收场景	Move Scene to Trash
 workspace.tab.confirm_close	确认×	Confirm ×
 asset.menu.vscode.file	用 VS Code 打开	Open File in VS Code
 asset.menu.vscode.project_at_file	用 VS Code 打开工程并定位文件	Open Project at File in VS Code
@@ -1019,8 +1020,8 @@ asset.menu.rustrover.project_at_file	用 RustRover 打开工程并定位文件	O
 asset.menu.containing_folder	打开所在文件夹	Open Containing Folder
 asset.menu.add_favorite	收藏	Add to Favorites
 asset.menu.remove_favorite	取消收藏	Remove from Favorites
-map.directory.count	地图 · 显示{visible}项 / 共{total}项{progress}	Maps · Showing {visible} of {total}{progress}
-map.directory.rebuilding	 · 整理中	 · Updating…
+scene.directory.count	场景 · 显示{visible}项 / 共{total}项{progress}	Scenes · Showing {visible} of {total}{progress}
+scene.directory.rebuilding	 · 整理中	 · Updating…
 toolbar.stop_build.help	停止本次工程3D编译，保留当前视口模式、未保存草稿和历史。	Stop the current Project 3D build. The viewport mode, unsaved drafts, and history are kept.
 toolbar.stopping_build.help	正在等待本次编译及后台任务退出，未保存草稿和历史保留。	Waiting for the build and its background task to exit. Unsaved drafts and history are kept.
 mesh.add.expanded	添加网格 ▼	Add Mesh ▼
@@ -1040,8 +1041,8 @@ mesh.creation.invalid_coordinates	指定坐标必须有限	Coordinates must be f
 mesh.creation.invalid_dimensions	创建网格的位置和尺寸必须有限，尺寸必须大于零	Mesh position and dimensions must be finite, and dimensions must be positive.
 mesh.creation.invalid_spacing	源格距必须有限且大于零	Source grid spacing must be finite and positive.
 mesh.creation.resolution_range	网格源分辨率超过安全整数范围	Source mesh resolution exceeds the supported integer range.
-mesh.state.included	参与地图：是	Included in Map: Yes
-mesh.state.excluded	参与地图：否	Included in Map: No
+mesh.state.included	参与场景：是	Included in Scene: Yes
+mesh.state.excluded	参与场景：否	Included in Scene: No
 mesh.state.hidden	编辑器：隐藏	Viewport: Hidden
 mesh.state.visible	编辑器：显示	Viewport: Visible
 mesh.state.locked	已锁定	Locked
@@ -1058,7 +1059,7 @@ mesh.lod.remove	删除 LOD{level}	Delete LOD {level}
 mesh.lod.help.generic	显示简化与碰撞简化分别设置。保持原始不会隐藏网格或移除碰撞；全局总开关关闭时独立参数也暂停简化。	Render and collision simplification are configured separately. Keep Original retains the mesh and collision. Turning off global simplification also pauses per-mesh settings.
 mesh.lod.help.native	显示和碰撞分层分别保存。直接在表格内点击输入或拖动修改范围与采样倍率。	Render and collision levels are saved separately. Type or drag values in the table to adjust ranges and sampling multipliers.
 shortcut.group.view	视图导航	Viewport Navigation
-shortcut.group.map	地图编辑	Map Editing
+shortcut.group.scene	场景编辑	Scene Editing
 shortcut.group.brush	笔刷参数	Brush Settings
 shortcut.group.transform	变换工具	Transform Tools
 shortcut.action.add_mesh	添加网格	Add Mesh
@@ -1070,7 +1071,7 @@ shortcut.action.move	移动模式	Move Mode
 shortcut.action.rotate	旋转模式	Rotate Mode
 shortcut.action.scale	缩放模式	Scale Mode
 shortcut.action.snapping	切换吸附	Toggle Snapping
-shortcut.help	添加网格打开顶部网格工具的同一面板，可在中央文档和预览页使用；其他动作仅中央地图工作区生效。文字、数值输入和弹框期间暂停。\n录入主键，可同时按Ctrl、Shift、Alt；冲突不会覆盖已有绑定。Esc先取消录入，再关闭设置；功能键、删除和文本控制键保留。\n移动：轴或XZ方框；旋转：Y轴圆环；缩放：中心方块。Ctrl吸附默认1米、15°、0.1倍率，实际步长取吸附设置；Esc取消变换。\n手柄操作期间暂停取景与工具切换；固定鼠标导航不参与改键。右键旋转、中键平移、滚轮缩放。运行时和文档键位不受本页影响。	Add Mesh opens the Mesh panel from the map, a document, or a preview. Other actions work in the central map workspace. Text and numeric inputs and dialogs suspend these shortcuts.\nPress one key with optional Ctrl, Shift, or Alt. Conflicts preserve the existing binding. Esc cancels capture before closing Settings. Function keys, Delete, and text-editing keys are reserved.\nMove uses axes or the XZ plane handle, Rotate uses the Y-axis ring, and Scale uses the center handle. Hold Ctrl to snap. Default increments are 1 m, 15°, and 0.1×. Esc cancels a transform.\nFraming and tool switching pause while dragging a gizmo. Right-drag orbits, middle-drag pans, and the wheel zooms. Runtime and document shortcuts are configured separately.
+shortcut.help	添加网格打开顶部网格工具的同一面板，可在中央文档和预览页使用；其他动作仅中央场景工作区生效。文字、数值输入和弹框期间暂停。\n录入主键，可同时按Ctrl、Shift、Alt；冲突不会覆盖已有绑定。Esc先取消录入，再关闭设置；功能键、删除和文本控制键保留。\n移动：轴或XZ方框；旋转：Y轴圆环；缩放：中心方块。Ctrl吸附默认1米、15°、0.1倍率，实际步长取吸附设置；Esc取消变换。\n手柄操作期间暂停取景与工具切换；固定鼠标导航不参与改键。右键旋转、中键平移、滚轮缩放。运行时和文档键位不受本页影响。	Add Mesh opens the Mesh panel from the scene, a document, or a preview. Other actions work in the central scene workspace. Text and numeric inputs and dialogs suspend these shortcuts.\nPress one key with optional Ctrl, Shift, or Alt. Conflicts preserve the existing binding. Esc cancels capture before closing Settings. Function keys, Delete, and text-editing keys are reserved.\nMove uses axes or the XZ plane handle, Rotate uses the Y-axis ring, and Scale uses the center handle. Hold Ctrl to snap. Default increments are 1 m, 15°, and 0.1×. Esc cancels a transform.\nFraming and tool switching pause while dragging a gizmo. Right-drag orbits, middle-drag pans, and the wheel zooms. Runtime and document shortcuts are configured separately.
 shortcut.binding.listening	按新组合键…	Press a New Shortcut…
 shortcut.notice.default	点击键位录入组合键；Esc取消。修改自动保存。	Select a binding to record a shortcut. Esc cancels. Changes save automatically.
 shortcut.notice.listen	请为“{action}”按新组合键；Esc取消	Press a new shortcut for “{action}”. Esc cancels.
@@ -1115,10 +1116,10 @@ asset.search.missing.hide	收起资产缺失检查	Hide Missing Asset Check
 asset.search.references	资产引用	Asset References
 asset.search.references.hide	收起资产引用	Hide Asset References
 asset.search.check_again	重新检查	Check Again
-asset.search.missing_scope	资产缺失检查 · 地图和配置	Missing Asset Check · Maps and Config
+asset.search.missing_scope	资产缺失检查 · 场景和配置	Missing Asset Check · Scenes and Config
 asset.search.reference_target	引用目标：assets/{path}	Reference Target: assets/{path}
-asset.search.scope.missing	范围：config、maps · 草稿优先	Scope: config and maps · Prefer Drafts
-asset.search.scope.references	范围：config/maps JSON、工程 Rust 源码 · 草稿优先	Scope: config/maps JSON and Project Rust Source · Prefer Drafts
+asset.search.scope.missing	范围：config、scenes · 草稿优先	Scope: config and scenes · Prefer Drafts
+asset.search.scope.references	范围：config/scenes JSON、工程 Rust 源码 · 草稿优先	Scope: config/scenes JSON and Project Rust Source · Prefer Drafts
 asset.search.scope.recursive	范围：assets/{folder}（递归） · 草稿优先	Scope: assets/{folder} and Subfolders · Prefer Drafts
 asset.search.result.file	{source}{file}{dirty} · {count}处	{source}{file}{dirty} · {count} matches
 asset.search.result.source	源码	Source
@@ -1166,8 +1167,8 @@ mesh.field.length_z	长度 Z	Length Z
 mesh.field.yaw	朝向 Y	Yaw Y
 mesh.field.spacing_factor	格距倍率	Spacing Multiplier
 mesh.field.distance	覆盖距离	Coverage Distance
-map.row.active	当前	Active
-map.frame.completed	已按实际内容查看全图	Framed the map contents
+scene.row.active	当前	Active
+scene.frame.completed	已按实际内容查看全图	Framed the scene contents
 asset.shortcuts.added	已收藏 assets/{path}	Added assets/{path} to Favorites
 asset.shortcuts.removed	已取消收藏 assets/{path}	Removed assets/{path} from Favorites
 status.source.viewport	3D视口	3D Viewport
@@ -1229,7 +1230,7 @@ terrain.tool.volume_flatten	三维整平	Volume Flatten
 terrain.tool.surface	地表绘制	Surface Paint
 terrain.mode.select	当前：选择 · 预备 {tool}	Mode: Select · {tool} (standby)
 terrain.mode.edit	当前：编辑 · {tool}	Mode: Edit · {tool}
-terrain.mesh.waiting	当前网格：等待地图作者数据	Current Mesh: Waiting for map data
+terrain.mesh.waiting	当前网格：等待场景作者数据	Current Mesh: Waiting for scene data
 terrain.mesh.unselected	当前网格：尚未选择 · 从左侧场景树选择，或用顶部“网格”创建	Current Mesh: Select one in the Scene tree or create one from the Mesh tool.
 terrain.mesh.legacy	当前网格：兼容主网格 · 工具沿用原作者源	Current Mesh: Legacy main mesh
 terrain.mesh.selected	当前网格：{name} · {capability}	Current Mesh: {name} · {capability}
@@ -1238,14 +1239,14 @@ terrain.mesh.heightfield	高度雕刻	Heightfield Sculpting
 terrain.mesh.clipmap	高度与三维雕刻	Heightfield and Volume Sculpting
 terrain.mesh.voxel	三维雕刻	Volume Sculpting
 terrain.mesh.not_ready	作者源未就绪	Authoring source unavailable
-terrain.puddles.empty	当前地图：尚未创建积水画布；首次有效笔划创建	The first valid brush stroke creates the puddle canvas for this map.
-terrain.puddles.canvas	当前地图：独立 R8 潜力画布 · {width} × {height}	Current Map: R8 Puddle Potential Canvas · {width} × {height}
+terrain.puddles.empty	当前场景：尚未创建积水画布；首次有效笔划创建	The first valid brush stroke creates the puddle canvas for this scene.
+terrain.puddles.canvas	当前场景：独立 R8 潜力画布 · {width} × {height}	Current Scene: R8 Puddle Potential Canvas · {width} × {height}
 terrain.puddles.brush_selected	积水潜力：左键绘制，Shift擦除；首次落笔创建独立层。屋内、桥下保持零值；切换工具查看实际天气效果	Puddle Potential: Left-click to paint and hold Shift to erase. The first stroke creates a separate layer. Leave interiors and areas under bridges at zero. Switch tools to preview weather effects.
 terrain.recent	最近操作：{action}	Recent Action: {action}
 terrain.hint.sculpt	先选网格和工具，再点视口左侧“编辑”后左键雕刻；平滑降低局部高差，压平以起笔高度为目标，两者按雕刻速度接近目标并停止。半径、强度和雕刻速度在视口工具条调整。	Select a mesh and tool, then switch the viewport to Edit and left-click to sculpt. Smooth reduces height differences. Flatten uses the height at the start of the stroke. Adjust radius, strength, and sculpt speed in the viewport toolbar.
-terrain.hint.surface	选择预设 → 新建层 → 编辑绘制；Shift擦除。删除地图层不删除全局预设。	Select a preset, create a layer, and paint in Edit mode. Hold Shift to erase. The global preset remains available if you delete the map layer.
+terrain.hint.surface	选择预设 → 新建层 → 编辑绘制；Shift擦除。删除场景层不删除全局预设。	Select a preset, create a layer, and paint in Edit mode. Hold Shift to erase. The global preset remains available if you delete the scene layer.
 terrain.hint.puddles	左键绘制，Shift擦除；零值禁止积水。切换工具查看随天气变化的实际水洼。	Left-click to paint and hold Shift to erase. Zero prevents puddles. Switch tools to preview weather-driven puddles.
-terrain.waiting	等待当前地图作者数据；全局预设仍可管理	Waiting for map data. Global presets are available.
+terrain.waiting	等待当前场景作者数据；全局预设仍可管理	Waiting for scene data. Global presets are available.
 vegetation.selection.no_asset	未选择	None selected
 vegetation.selection.empty	所选预设：无\n资产：{asset}	Selected Preset: None\nAsset: {asset}
 vegetation.selection.selected	所选：{name} · {type}\n资产：{asset}	Selected: {name} · {type}\nAsset: {asset}
@@ -1263,34 +1264,34 @@ vegetation.preset.count	预设库 · {count}项	Preset Library · {count} preset
 vegetation.preset.progress	预设库 · 加载中 {ready}/{total}	Preset Library · Loading {ready}/{total}
 vegetation.preset.refreshing	预设库 · 更新中 {ready}/{total}	Preset Library · Updating {ready}/{total}
 vegetation.layer.target_empty	新建层预设：尚未选择；先在上方全局库选择，再新建空白层。	Select a preset from the library above to create an empty layer.
-vegetation.layer.target_selected	新建层预设：{name}\n只在当前地图创建空白作者画布，不修改全局预设。	New Layer Preset: {name}\nThe empty layer is created on the current map. The global preset stays intact.
+vegetation.layer.target_selected	新建层预设：{name}\n只在当前场景创建空白作者画布，不修改全局预设。	New Layer Preset: {name}\nThe empty layer is created on the current scene. The global preset stays intact.
 vegetation.layer.target_unavailable	新建层预设暂不可用：{id}；请重新选择。	Preset unavailable: {id}. Select a different preset.
 vegetation.layer.target_pending	新建层预设：{id}；等待目录加载，已有正式输出仍按原规则复用。	New Layer Preset: {id}. Waiting for the library. Existing output remains available.
 vegetation.layer.target_reuse	新建层预设：沿用“{name}”的正式输出；新建仍为空白画布。	The new empty layer will reuse output from “{name}”.
-vegetation.layers.empty	作者图层 · 暂无\n先选预设，再点“新建空白层”。	Map Layers · None\nSelect a preset, then click Create Empty Layer From Preset.
-vegetation.layers.count	作者图层 · {count}层	Map Layers · {count}
-vegetation.layers.page	作者图层 · {count}层 · {page}/{pages}页	Map Layers · {count} · Page {page}/{pages}
-vegetation.waiting	等待当前地图作者数据；全局植被预设仍可管理。	Waiting for map data. Global vegetation presets are available.
-vegetation.saving	正在保存当前地图；等待完整作者事务完成。	Saving the current map…
+vegetation.layers.empty	作者图层 · 暂无\n先选预设，再点“新建空白层”。	Scene Layers · None\nSelect a preset, then click Create Empty Layer From Preset.
+vegetation.layers.count	作者图层 · {count}层	Scene Layers · {count}
+vegetation.layers.page	作者图层 · {count}层 · {page}/{pages}页	Scene Layers · {count} · Page {page}/{pages}
+vegetation.waiting	等待当前场景作者数据；全局植被预设仍可管理。	Waiting for scene data. Global vegetation presets are available.
+vegetation.saving	正在保存当前场景；等待完整作者事务完成。	Saving the current scene…
 vegetation.allocating	正在后台准备当前预设的空白R8画布；完整采用后才新增图层和撤销记录。	Preparing the preset's empty R8 canvas. The layer and undo entry appear when it is ready.
 vegetation.stroke_active	当前植被笔划正在进行或收尾；松开后再修改图层结构。	Finish the vegetation brush stroke before changing the layer structure.
 vegetation.layers.none_on_mesh	当前网格尚无植被作者层；可用所选预设创建第一张空白画布。	This mesh has no vegetation layers. Create an empty layer with the selected preset.
 vegetation.brush.edit	视口：植被编辑；隐藏、锁定或无有效作者层时，原笔刷继续拒绝落笔。	Viewport: Vegetation editing. Paint on a visible, unlocked layer.
 vegetation.brush.select	视口：未启用植被笔刷；选择模式不落笔，图层按钮及属性仍走原作者事务。	Viewport: Vegetation brush inactive. Layer controls are available in Select mode.
-vegetation.compile.wait_data	编译：等待当前地图植被作者数据。	Compile: Waiting for vegetation data.
+vegetation.compile.wait_data	编译：等待当前场景植被作者数据。	Compile: Waiting for vegetation data.
 vegetation.compile.fail	编译：当前修订失败，保留上一完整正式结果；原因见最近操作。	Compile: Failed. The last complete result is still in use. See Recent Actions for details.
 vegetation.compile.current	编译：作者与正式输出修订{revision}一致；不代表GPU已经显示。	Compile: Revision {revision} is ready. Rendering may still be in progress.
 vegetation.compile.stroke	编译：笔划期间合并最新修订，松开后再编译完整结果。	Compile: The latest changes are compiled when the brush stroke ends.
 vegetation.compile.running	编译：后台任务处理中；新修订可能仍在等待旧任务归还唯一槽。	Compile: Processing in the background. Newer revisions may be queued.
 vegetation.compile.wait_revision	编译：等待当前完整作者修订，继续保留上一完整结果。	Compile: Waiting for the latest revision. The previous result is still in use.
 vegetation.compile.feedback	编译：{message}	Compile: {message}
-vegetation.preview.wait_data	预览：等待当前地图植被数据。	Preview: Waiting for vegetation data.
+vegetation.preview.wait_data	预览：等待当前场景植被数据。	Preview: Waiting for vegetation data.
 vegetation.preview.feedback	预览：{message}	Preview: {message}
 vegetation.preview.current	预览：当前完整密度已发布；草叶GPU、模型及高度仍按原加载链就绪，空白层不显示植被。	Preview: Density is ready. Grass, models, and heights may still be loading. Empty layers have no vegetation.
 vegetation.preview.wait_density	预览：等待当前完整密度发布；上一版画面不代表本次完成，空白层不显示植被。	Preview: Waiting for updated density. The previous result may still be visible. Empty layers have no vegetation.
 vegetation.catalog.error	全局库更新失败：{error}；保留上一完整目录。	Global preset library update failed: {error}. Showing the last complete library.
-interaction.waiting_map	等待当前地图作者数据；请先进入地图	Open a map to load its authoring data.
-interaction.current_map	当前地图 · {name}	Current Map · {name}
+interaction.waiting_scene	等待当前场景作者数据；请先进入场景	Open a scene to load its authoring data.
+interaction.current_scene	当前场景 · {name}	Current Scene · {name}
 interaction.asset_none	待摆放资产 · 尚未选择	Placement Asset · None selected
 interaction.asset	待摆放资产 · {path}	Placement Asset · {path}
 environment.global.source	来源  {path}\n{save}\n{source}	Source  {path}\n{save}\n{source}
@@ -1299,33 +1300,33 @@ environment.global.dirty	全局默认未保存 · 使用顶部保存	Global defa
 environment.global.saved	全局默认无未保存修改	Global defaults have no unsaved changes.
 environment.global.synced	全局来源已同步	Global source is up to date.
 environment.global.pending	等待全局来源同步，暂用安全默认值	Using safe defaults while the global source loads.
-maps.help.title	地图目录 · 详情与操作说明	Map Catalog · Details and Controls
+scenes.help.title	场景目录 · 详情与操作说明	Scene Catalog · Details and Controls
 help.instructions	操作说明	Controls
 help.object_identity	对象来源与完整身份	Object Source and ID
-maps.name.loading	地图名称加载中	Loading map name…
-maps.state.switching	正在切换	Switching
-maps.state.saving	保存中	Saving
-maps.state.dirty	未保存修改	Unsaved changes
-maps.state.entered	已进入	Loaded
-maps.selected.multi	批量选择	Multiple Selection
-maps.selected.current	当前地图	Current Map
-maps.selected.unopened	地图 · 尚未进入	Map · Not Loaded
-maps.selected.folder	虚拟文件夹	Virtual Folder
-maps.selected.none	尚未选择	None selected
-maps.selected.prompt	请在目录中选择地图或文件夹	Select a map or folder in the catalog.
-maps.selected.missing	所选对象已不在目录中	The selected item is no longer in the catalog.
-maps.selected.loading	正在同步所选名称	Loading selection name…
-maps.selected.summary	所选：{name} · {kind}	Selected: {name} · {kind}
-maps.selected.summary_pending	所选：{name} · 正在连选…	Selected: {name} · Selecting range…
-maps.selected.summary_empty	所选：尚未选择	Selected: None
-maps.selected.count	{maps} 张地图、{folders} 个文件夹	Maps: {maps} · Folders: {folders}
-maps.selected.id	地图ID：{id}	Map ID: {id}
-maps.help.range	正在按可见目录顺序连选…	Selecting a range in the visible catalog…
-maps.help.multi	Ctrl点击增减选择，Shift连续选择；拖动任一选中项整批归类，父目录包含子项时自动去重	Ctrl-click to toggle items or Shift-click to select a range. Drag a selected item to move the selection. A selected folder already includes its children.
-maps.help.map_dirty	进入前由原切图确认处理未保存修改；当前不能删除地图	Resolve unsaved changes before switching maps. The current map cannot be deleted yet.
-maps.help.map	双击地图或点击进入打开；Ctrl多选、Shift连选，拖动批量归类；新建项建在该地图所在目录	Double-click a map or use Enter to open it. Ctrl-click or Shift-click to select multiple items, then drag to move them. New items go in the map's folder.
-maps.help.folder	点击目录展开或收起；Ctrl多选、Shift连选，拖动可整体移动；新建项建在该目录，只能删除空文件夹	Click a folder to expand or collapse it. Ctrl-click or Shift-click to select multiple items, then drag to move them. New items go in this folder. Empty folders can be deleted.
-maps.help.root	新地图和文件夹建在根目录；目录选择不改变当前地图	New maps and folders go in the root folder. Selecting a folder keeps the current map open.
+scenes.name.loading	场景名称加载中	Loading scene name…
+scenes.state.switching	正在切换	Switching
+scenes.state.saving	保存中	Saving
+scenes.state.dirty	未保存修改	Unsaved changes
+scenes.state.entered	已进入	Loaded
+scenes.selected.multi	批量选择	Multiple Selection
+scenes.selected.current	当前场景	Current Scene
+scenes.selected.unopened	场景 · 尚未进入	Scene · Not Loaded
+scenes.selected.folder	虚拟文件夹	Virtual Folder
+scenes.selected.none	尚未选择	None selected
+scenes.selected.prompt	请在目录中选择场景或文件夹	Select a scene or folder in the catalog.
+scenes.selected.missing	所选对象已不在目录中	The selected item is no longer in the catalog.
+scenes.selected.loading	正在同步所选名称	Loading selection name…
+scenes.selected.summary	所选：{name} · {kind}	Selected: {name} · {kind}
+scenes.selected.summary_pending	所选：{name} · 正在连选…	Selected: {name} · Selecting range…
+scenes.selected.summary_empty	所选：尚未选择	Selected: None
+scenes.selected.count	{scenes} 个场景、{folders} 个文件夹	Scenes: {scenes} · Folders: {folders}
+scenes.selected.id	场景ID：{id}	Scene ID: {id}
+scenes.help.range	正在按可见目录顺序连选…	Selecting a range in the visible catalog…
+scenes.help.multi	Ctrl点击增减选择，Shift连续选择；拖动任一选中项整批归类，父目录包含子项时自动去重	Ctrl-click to toggle items or Shift-click to select a range. Drag a selected item to move the selection. A selected folder already includes its children.
+scenes.help.scene_dirty	进入前由原切换场景确认处理未保存修改；当前不能删除场景	Resolve unsaved changes before switching scenes. The current scene cannot be deleted yet.
+scenes.help.scene	双击场景或点击进入打开；Ctrl多选、Shift连选，拖动批量归类；新建项建在该场景所在目录	Double-click a scene or use Enter to open it. Ctrl-click or Shift-click to select multiple items, then drag to move them. New items go in the scene's folder.
+scenes.help.folder	点击目录展开或收起；Ctrl多选、Shift连选，拖动可整体移动；新建项建在该目录，只能删除空文件夹	Click a folder to expand or collapse it. Ctrl-click or Shift-click to select multiple items, then drag to move them. New items go in this folder. Empty folders can be deleted.
+scenes.help.root	新场景和文件夹建在根目录；目录选择不改变当前场景	New scenes and folders go in the root folder. Selecting a folder keeps the current scene open.
 diagnostics.phase.waiting	等待代码编译	Waiting for a code build
 diagnostics.phase.building	正在后台编译代码	Building code in the background…
 diagnostics.phase.failed	代码构建或应用失败 · 完整输出见日志	Code build or apply failed · See Project Log
@@ -1373,19 +1374,19 @@ log.task.stopped_error	任务停止：{error}	Task stopped: {error}
 log.task.finished	任务已完整结束	Task finished
 log.task.stopped	任务已停止	Task stopped
 log.task.archive_headers	已校验合法成员并补齐{count}个 dx 空归档格式头，完整性由本次 fat 发布门核对	Restored {count} empty DX archive headers after checking their members. The fat build verifies the output.
-terrain.wait.saving	正在保存当前地图；等待完整作者事务完成	Saving the current map…
-terrain.wait.select_mesh	先在左侧场景树选择网格；空地图可用顶部“网格”创建	Select a mesh in the Scene tree or add one with the Mesh tool.
-terrain.wait.disabled_mesh	所选网格未参与地图、已隐藏或锁定；恢复后才能塑形	To sculpt, select a mesh that is enabled, visible, and unlocked.
+terrain.wait.saving	正在保存当前场景；等待完整作者事务完成	Saving the current scene…
+terrain.wait.select_mesh	先在左侧场景树选择网格；空场景可用顶部“网格”创建	Select a mesh in the Scene tree or add one with the Mesh tool.
+terrain.wait.disabled_mesh	所选网格未参与场景、已隐藏或锁定；恢复后才能塑形	To sculpt, select a mesh that is enabled, visible, and unlocked.
 terrain.wait.preparing_mesh	所选网格作者数据或变换正在准备；保留上一完整结果	Preparing the selected mesh. The last complete result is still visible.
 terrain.wait.gltf	原始 GLB 保留资产几何；当前塑形工具适用于高度网格、Clipmap 和体素	Sculpting is available for heightfield, clipmap, and voxel meshes. GLB assets keep their original geometry.
 terrain.wait.volume_mesh	三维雕刻适用于Clipmap和体素网格	Volume sculpting requires a clipmap or voxel mesh.
 terrain.wait.volume_busy	三维笔划计算/联合碰撞正在进行；松手后可保存或撤销	Processing the volume stroke and collision. Release the mouse to save or undo.
 terrain.wait.surface_error	地表目录加载失败：{error}	Surface preset library failed to load: {error}
 terrain.wait.surface_catalog	等待全局地表预设目录	Waiting for the global surface preset library.
-terrain.wait.surface_deleting	正在删除地图层；保留上一完整地表，完成后可撤销	Deleting the map layer. The previous surface remains visible until completion, when the change can be undone.
+terrain.wait.surface_deleting	正在删除场景层；保留上一完整地表，完成后可撤销	Deleting the scene layer. The previous surface remains visible until completion, when the change can be undone.
 terrain.wait.surface_canvas	正在准备地表作者画布；等待完整结果	Preparing the surface canvas…
 terrain.wait.surface_stroke	地表笔划正在进行或收口；已受理样本按原事务完成	Finishing the surface brush stroke…
-terrain.wait.surface_layer	请先选择预设，并显式新建或选中当前地图层	Select a preset, then create or select a layer on this map.
+terrain.wait.surface_layer	请先选择预设，并显式新建或选中当前场景层	Select a preset, then create or select a layer on this scene.
 terrain.wait.puddles_error	积水预览失败：{error}	Puddle preview failed: {error}
 terrain.wait.puddles_stroke	积水笔划正在进行或收口；等待完整作者结果	Finishing the puddle brush stroke…
 terrain.wait.puddles_preview	积水预览正在准备；保留上一完整画面	Preparing the puddle preview. The previous result is still visible.
@@ -1395,21 +1396,21 @@ terrain.wait.view	前视/侧视不接受新笔划；请切换透视或顶视	Swi
 terrain.wait.query_failed	精确地形查询失败；未写入作者数据	Terrain query failed. No changes were applied.
 terrain.wait.query_miss	未命中可编辑地形；未写入作者数据	The cursor missed editable terrain. No changes were applied.
 terrain.wait.query_pending	等待精确地形落点或作者高度页；不会使用零平面落笔	Waiting for terrain heights to place the brush stroke.
-terrain.wait.ready	地图已加载；仅在有效视口落点上绘制	Map loaded. Paint on a valid surface in the viewport.
+terrain.wait.ready	场景已加载；仅在有效视口落点上绘制	Scene loaded. Paint on a valid surface in the viewport.
 interaction.state.editing	编辑模式	Edit Mode
 interaction.state.selecting	选择模式 · 视口不落笔	Select Mode
 interaction.state.unavailable	工具暂不可用	Tool unavailable
-interaction.status.switching	正在切换地图，作者操作暂不可用	Switching maps…
-interaction.status.saving	正在保存地图，等待原事务完成	Saving the map…
+interaction.status.switching	正在切换场景，作者操作暂不可用	Switching scenes…
+interaction.status.saving	正在保存场景，等待原事务完成	Saving the scene…
 interaction.status.dragging	控制点拖动中；请松开后切换工具	Release the control point before switching tools.
-environment.map.switching_hint	等待当前地图与作者草稿就绪，不显示旧地图参数。	Waiting for the current map and its draft.
-environment.map.loading	等待地图草稿	Waiting for map draft…
-environment.map.loading_hint	当前地图草稿尚未就绪；世界调试与全局默认仍可使用。	Waiting for the map draft. World Debug and Global Defaults are available.
-environment.map.none	未进入地图	No Map Loaded
-environment.map.none_hint	进入地图后编辑持久参数；空世界仍可调整世界调试与全局默认。	Open a map to edit its saved settings. World Debug and Global Defaults are available.
+environment.scene.switching_hint	等待当前场景与作者草稿就绪，不显示旧场景参数。	Waiting for the current scene and its draft.
+environment.scene.loading	等待场景草稿	Waiting for scene draft…
+environment.scene.loading_hint	当前场景草稿尚未就绪；世界调试与全局默认仍可使用。	Waiting for the scene draft. World Debug and Global Defaults are available.
+environment.scene.none	未进入场景	No Scene Loaded
+environment.scene.none_hint	进入场景后编辑持久参数；空世界仍可调整世界调试与全局默认。	Open a scene to edit its saved settings. World Debug and Global Defaults are available.
 environment.celestial.global	太阳与月光 · 全局默认	Sun and Moon · Global Defaults
-environment.celestial.map	太阳与月光 · 地图覆盖	Sun and Moon · Map Overrides
-environment.celestial.override	地图覆盖	Map Override
+environment.celestial.scene	太阳与月光 · 场景覆盖	Sun and Moon · Scene Overrides
+environment.celestial.override	场景覆盖	Scene Override
 environment.celestial.inherit	跟随全局	Inherit Global
 world.calendar.date	{month}月{day}日 · {season}	{month} {day} · {season}
 world.season.spring	春季	Spring

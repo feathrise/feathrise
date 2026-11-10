@@ -21,7 +21,7 @@ impl EditorButtonClick {
         }
     }
 
-    /// 动态行换绑时取消旧手势，不能让同一实体的松手改派给新地图、文件或对象。
+    /// 动态行换绑时取消旧手势，不能让同一实体的松手改派给新场景、文件或对象。
     pub fn invalidate(&mut self) {
         self.clicked = false;
         self.generation = self.generation.wrapping_add(1);

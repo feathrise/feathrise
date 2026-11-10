@@ -5,7 +5,7 @@ use super::{components::*, ui, ViewportMode, ViewportModeState};
 use crate::project_log::gpu_tests::{frame, screenshot};
 use bevy::{prelude::*, render::render_resource::{TextureFormat, TextureUsages}};
 use feathrise_editor_core::{ProjectLaunchButton, ProjectLaunchLabel, ProjectLaunchSettings};
-use feathrise_editor_map::{standalone::{SavedPlayFeedback, embedded_snapshot::EmbeddedSnapshotState}, workbench::WorkbenchHeader};
+use feathrise_editor_scene::{standalone::{SavedPlayFeedback, embedded_snapshot::EmbeddedSnapshotState}, workbench::WorkbenchHeader};
 use std::time::Duration;
 
 #[derive(Resource)]

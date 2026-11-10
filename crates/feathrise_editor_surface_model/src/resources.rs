@@ -31,7 +31,7 @@ impl Default for SurfacePresetEditorState {
             adoption: None,
             save_feedback_target: None,
             save_feedback_error: None,
-            status: "选择预设后显式新建地图层；新建或编辑预设在中央标签完成".to_owned(),
+            status: "选择预设后显式新建场景层；新建或编辑预设在中央标签完成".to_owned(),
         }
     }
 }

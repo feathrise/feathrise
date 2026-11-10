@@ -9,7 +9,7 @@ use bevy::{
     render::render_resource::{Extent3d, TextureFormat, TextureUsages},
     window::{CursorLeft, CursorMoved, PrimaryWindow, WindowEvent, WindowRef},
 };
-use feathrise_editor_map::workbench::WorkbenchHeader;
+use feathrise_editor_scene::workbench::WorkbenchHeader;
 use serde_json::{Value, json};
 use std::{
     fs::{self, OpenOptions},
@@ -303,10 +303,10 @@ fn native_probe(root: &Path, output: &Path, name: &str, version: Option<&str>) -
 fn native_load_helper() {
     use crate::native_plugins::{resources::NativeTools, systems as native_systems};
     use feathrise_editor_core::{AssetPreviewFocus, WorkspaceDomainState};
-    use feathrise_editor_map::game_authoring::map_api::{
-        resources::MapEditorState,
+    use feathrise_editor_scene::game_authoring::scene_api::{
+        resources::SceneEditorState,
         ui::{
-            sidebars::MapEditorSidebarState, vegetation_preset_editor::VegetationPresetEditorState,
+            sidebars::SceneEditorSidebarState, vegetation_preset_editor::VegetationPresetEditorState,
         },
     };
     let root = PathBuf::from(
@@ -326,11 +326,11 @@ fn native_load_helper() {
     app.add_plugins(MinimalPlugins)
         .insert_resource(NativeTools::start_with_roots(&project, fixture_roots(&root)))
         .insert_resource(PluginManagerState::with_roots(Some(root.clone()), fixture_roots(&root).global))
-        .init_resource::<MapEditorState>()
+        .init_resource::<SceneEditorState>()
         .init_resource::<WorkspaceDomainState>()
         .init_resource::<VegetationPresetEditorState>()
         .init_resource::<bevy::clipboard::Clipboard>()
-        .init_resource::<MapEditorSidebarState>()
+        .init_resource::<SceneEditorSidebarState>()
         .init_resource::<AssetPreviewFocus>()
         .add_systems(Update, (native_systems::poll, super::systems::control, super::systems::poll).chain());
     // 与产品一致：打开面板后由control等待启动事务与发现完成再刷新，不能提前扫描全局计划。
@@ -410,9 +410,9 @@ fn native_load_helper() {
 pub(crate) fn legacy_coexistence_at(output: PathBuf, source: PathBuf, ids: &[&str], cargo_manifest: &str) {
     use crate::native_plugins::{resources::NativeTools, systems as native_systems};
     use feathrise_editor_core::{AssetPreviewFocus, WorkspaceDomainState};
-    use feathrise_editor_map::game_authoring::map_api::{
-        resources::MapEditorState,
-        ui::{sidebars::MapEditorSidebarState, vegetation_preset_editor::VegetationPresetEditorState},
+    use feathrise_editor_scene::game_authoring::scene_api::{
+        resources::SceneEditorState,
+        ui::{sidebars::SceneEditorSidebarState, vegetation_preset_editor::VegetationPresetEditorState},
     };
     assert!(output.is_absolute() && source.is_absolute());
     assert!(!ids.is_empty(), "必须提供实际要验证的插件，不能以空集合报告通过");
@@ -457,11 +457,11 @@ pub(crate) fn legacy_coexistence_at(output: PathBuf, source: PathBuf, ids: &[&st
     app.add_plugins(MinimalPlugins)
         .insert_resource(NativeTools::start_with_roots(&project, roots.clone()))
         .insert_resource(PluginManagerState::with_roots(roots.project, roots.global))
-        .init_resource::<MapEditorState>()
+        .init_resource::<SceneEditorState>()
         .init_resource::<WorkspaceDomainState>()
         .init_resource::<VegetationPresetEditorState>()
         .init_resource::<bevy::clipboard::Clipboard>()
-        .init_resource::<MapEditorSidebarState>()
+        .init_resource::<SceneEditorSidebarState>()
         .init_resource::<AssetPreviewFocus>()
         .add_systems(Update, (native_systems::poll, super::systems::control, super::systems::poll).chain());
     crate::native_plugins::adapter::install(&mut app);
@@ -494,7 +494,7 @@ pub(crate) fn legacy_coexistence_at(output: PathBuf, source: PathBuf, ids: &[&st
     }
     assert!(manager.status.contains("迁移提示："));
     assert_eq!(fs::read(root.join("assets/author.txt")).unwrap(), b"author-data-must-survive");
-    let play_blocker = feathrise_editor_map::standalone::saved_play_blocker(app.world());
+    let play_blocker = feathrise_editor_scene::standalone::saved_play_blocker(app.world());
     assert!(play_blocker.is_none(), "正常迁移不得阻断保存后运行：{play_blocker:?}");
     write_new(&output.join("evidence.json"), &serde_json::to_vec_pretty(&json!({
         "passed":true,"actual_loaded":native.load_states,"actual_errors":native.errors,

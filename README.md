@@ -43,8 +43,8 @@ Windows 单文件预览版编入 `raytracing`。DLSS 与 FSR 通过 Cargo 特性
 
 ## 快速开始
 
-1. 从 [GitHub Releases](https://github.com/feathrise/feathrise/releases) 下载 Windows x86_64 单文件 EXE，双击打开。
-2. 新建工程，在地图目录创建一张地图，然后使用「当前地图设为启动地图」。
+1. 按下文启动场景版源码，或在对应版本发布后获取 Windows x86_64 单文件 EXE。 [GitHub Releases](https://github.com/feathrise/feathrise/releases)
+2. 新建工程，在左侧「场景」页创建一个场景，然后使用「当前场景设为启动场景」。
 3. 保存场景，在「编辑器 3D」点击「启动」，用模板提供的自由相机查看场景。
 
 新建工程从空内容开始。首次获取工程依赖需要联网，编译工程需要 Rust/Cargo、MSVC 构建工具与 Windows SDK。
@@ -53,10 +53,11 @@ Windows 单文件预览版编入 `raytracing`。DLSS 与 FSR 通过 Cargo 特性
 
 | Bevy 版本 | Feathrise 编辑器版本 | `feathrise_runtime` SDK |
 | --- | --- | --- |
-| [0.20.1](https://crates.io/crates/bevy/0.20.1) | [0.2.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.2.0-preview.1) | [0.2.0](https://crates.io/crates/feathrise_runtime/0.2.0) · [GitHub Release](https://github.com/feathrise/feathrise_runtime/releases/tag/0.2.0) |
+| [0.20.1](https://crates.io/crates/bevy/0.20.1) | `0.3.0-preview.1` 场景格式源码 | `0.3.0` 配套源码 |
+| `0.20.1` | [0.2.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.2.0-preview.1) | [0.2.0](https://crates.io/crates/feathrise_runtime/0.2.0) · [GitHub Release](https://github.com/feathrise/feathrise_runtime/releases/tag/0.2.0) |
 | `0.19.1` | [0.1.0-preview.2](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.2)、[0.1.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.1) | `0.1.0` |
 
-新建工程根据 `sdk-source.toml` 锁定同一组 Bevy、SDK 与补丁版本。源码工作区默认选择配套的 0.20.1 检出。单文件安装缺少外置配置时，使用 Bevy 0.20.1 和已发布的 SDK 0.2.0。已有工程的依赖版本以各自的 `Cargo.toml` 和 `Cargo.lock` 为准。
+新建场景工程使用 Bevy 0.20.1 和 SDK 0.3.x。源码工作区默认选择同级 SDK 与补丁检出。单文件发行内嵌 SDK 0.3.0 的公开配方，公开消费检查在配套 SDK 包发布后运行。旧版工程使用与自身格式对应的编辑器和 SDK。 [SDK 来源](docs/使用说明.md#sdk-来源)
 
 ## 从源码启动
 
@@ -81,7 +82,7 @@ cargo fetch --locked
 cargo run --locked
 ```
 
-`.cargo/local-sdk.toml` 负责编辑器本身的编译依赖。随仓 `sdk-source.toml` 已选择同级 SDK 与补丁，新建工程会记录这两个检出的绝对路径。[Windows CI](docs/ci.md)默认使用固定的配套修订检查默认和 validation 组合，支持通过仓库变量覆盖。[使用说明](docs/使用说明.md#sdk-来源)记录旧公开工程配方和其他来源选项。
+`.cargo/local-sdk.toml` 负责编辑器本身的编译依赖。随仓 `sdk-source.toml` 已选择同级 SDK 与补丁，新建工程会记录这两个检出的绝对路径。Windows CI 使用固定的配套修订检查默认和 validation 组合，支持通过仓库变量覆盖。 [Windows CI](docs/ci.md) · [SDK 来源](docs/使用说明.md#sdk-来源)
 
 开发产物为 `target/debug/feathrise.exe`，内部 Cargo 包名为 `feathrise_host`。普通用户可使用编译好的编辑器；创建和运行工程仍需要工程所用的 Rust/Cargo 环境。
 

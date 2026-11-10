@@ -1,4 +1,4 @@
-# 文档内容、场景固定组件与工厂契约，不依赖地图实现。
+# 文档内容、场景固定组件与工厂契约，不依赖场景实现。
 [package]
 name = "feathrise_editor_documents_model"
 version = "0.1.0"

@@ -6,8 +6,8 @@ use bevy::prelude::*;
 use feathrise_editor_core::{
     AssetPreviewFocus, EditorTextInputGuard, PresetWorkspaceTab, WorkspaceDomainState,
 };
-use feathrise_editor_map::game_authoring::map_api::{
-    resources::{EditorAssetCatalog, MapEditorState},
+use feathrise_editor_scene::game_authoring::scene_api::{
+    resources::{EditorAssetCatalog, SceneEditorState},
     ui::{sidebars::*, vegetation_preset_editor::VegetationPresetEditorState},
 };
 use feathrise_editor_ui::{
@@ -53,7 +53,7 @@ pub(super) fn fixture() -> (
                     close_confirmation: None,
                     choices: None,
                     latest_activation: 0,
-                    map_pending: false,
+                    scene_pending: false,
                 },
             )
         })
@@ -73,8 +73,8 @@ pub(super) fn fixture() -> (
         input_pending: false,
         save_tickets: default(),
     })
-    .init_resource::<MapEditorSidebarState>()
-    .init_resource::<MapEditorState>()
+    .init_resource::<SceneEditorSidebarState>()
+    .init_resource::<SceneEditorState>()
     .init_resource::<EditorAssetCatalog>()
     .init_resource::<VegetationPresetEditorState>()
     .init_resource::<WorkspaceDomainState>()
@@ -87,7 +87,7 @@ pub(super) fn fixture() -> (
     .init_resource::<bevy::clipboard::Clipboard>()
     .add_message::<NumericInputCommitted>()
     .add_systems(Update, (systems::input, systems::poll).chain());
-    app.world_mut().resource_mut::<MapEditorState>().open = true;
+    app.world_mut().resource_mut::<SceneEditorState>().open = true;
     app.world_mut()
         .resource_mut::<VegetationPresetEditorState>()
         .active_tab = PresetWorkspaceTab::Document;
@@ -147,7 +147,7 @@ fn asset_locate_uses_the_visible_buffer_without_submitting_or_losing_it_next_fra
     assert!(jobs.try_recv().is_err());
     assert!(
         app.world()
-            .resource::<MapEditorState>()
+            .resource::<SceneEditorState>()
             .status
             .contains("new/可见缓冲.glb#Scene0")
     );
@@ -227,7 +227,7 @@ fn stale_document_and_non_asset_field_cannot_route_a_locate_request() {
         assert!(jobs.try_recv().is_err());
         assert!(
             app.world()
-                .resource::<MapEditorState>()
+                .resource::<SceneEditorState>()
                 .status
                 .contains("字段已换代")
         );
@@ -241,7 +241,7 @@ fn native_tools_switch_only_the_shared_sidebar_and_preserve_each_draft() {
         let domain = app.world().resource::<NativeTools>().tools[&index].domain;
         assert!(
             app.world()
-                .resource::<MapEditorSidebarState>()
+                .resource::<SceneEditorSidebarState>()
                 .tool_page_visible(EditorLeftSidebarTab::Domain(domain))
         );
         assert_eq!(
@@ -308,7 +308,7 @@ fn hidden_tool_click_is_rejected_and_late_reply_cannot_reclaim_sidebar() {
     app.update();
     assert!(
         app.world()
-            .resource::<MapEditorSidebarState>()
+            .resource::<SceneEditorSidebarState>()
             .tool_page_visible(EditorLeftSidebarTab::Domain("fixture.skill"))
     );
     assert_eq!(
@@ -351,7 +351,7 @@ fn document_workbench_uses_central_tabs_and_late_create_cannot_steal_navigation(
             .resource::<WorkspaceDomainState>()
             .is_open(PresetWorkspaceTab::Domain("fixture.equipment", 1))
     );
-    // 先消费首次回到目录的请求，再从目录创建；切图后的迟到结果只保留草稿。
+    // 先消费首次回到目录的请求，再从目录创建；切换场景后的迟到结果只保留草稿。
     let job = jobs.try_recv().unwrap();
     let mut s = app.world().resource::<NativeTools>().tools[&0]
         .snapshot
@@ -380,7 +380,7 @@ fn document_workbench_uses_central_tabs_and_late_create_cannot_steal_navigation(
     let job = jobs.try_recv().unwrap();
     app.world_mut()
         .resource_mut::<VegetationPresetEditorState>()
-        .active_tab = PresetWorkspaceTab::Map;
+        .active_tab = PresetWorkspaceTab::Scene;
     let mut s = app.world().resource::<NativeTools>().tools[&0]
         .snapshot
         .clone();
@@ -400,7 +400,7 @@ fn document_workbench_uses_central_tabs_and_late_create_cannot_steal_navigation(
         app.world()
             .resource::<VegetationPresetEditorState>()
             .active_tab,
-        PresetWorkspaceTab::Map
+        PresetWorkspaceTab::Scene
     );
     click(&mut app, 0, UiAction::Tab(1));
     assert_eq!(
@@ -517,7 +517,7 @@ fn save_failure_and_real_receipt_are_published_to_the_shared_status() {
             })
             .unwrap();
         app.update();
-        assert_eq!(app.world().resource::<MapEditorState>().status, expected);
+        assert_eq!(app.world().resource::<SceneEditorState>().status, expected);
     }
     // 仅回复“已保存”但没有新回执时，不允许底栏显示成功。
     click(
@@ -542,7 +542,7 @@ fn save_failure_and_real_receipt_are_published_to_the_shared_status() {
     app.update();
     assert!(
         app.world()
-            .resource::<MapEditorState>()
+            .resource::<SceneEditorState>()
             .status
             .contains("未返回实际保存回执")
     );

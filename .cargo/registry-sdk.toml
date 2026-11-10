@@ -1,4 +1,4 @@
-# Bevy 0.20.1 发行构建从 crates.io 获取 SDK 0.2.0，渲染和物理补丁固定到同一公开提交。
+# Bevy 0.20.1 发行构建从 crates.io 获取 SDK 0.3.0，渲染和物理补丁固定到同一公开提交。
 [patch.crates-io]
 avian3d = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "019fd1fe13ed9107d17b360b8f5a3df61bfc139a" }
 bevy_anti_alias = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "019fd1fe13ed9107d17b360b8f5a3df61bfc139a" }

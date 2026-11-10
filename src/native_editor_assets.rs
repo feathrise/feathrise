@@ -176,9 +176,9 @@ mod tests {
         assert!(is_editor_ui(Path::new("icons/editor/tree_folder.png")));
         assert!(is_editor_ui(Path::new("icons/cursors/a.png")));
         for path in [
-            "maps/a.glb",
+            "scenes/a.glb",
             "textures/icons.png",
-            "icons-map.glb",
+            "icons-scene.glb",
             "skills/a.json",
             "icons/skills/custom.png",
             "icons/items/custom.png",

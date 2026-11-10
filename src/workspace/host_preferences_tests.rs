@@ -6,7 +6,7 @@ use crate::{
     user_preferences::Preferences,
 };
 use feathrise_editor_core::EditorSettings;
-use feathrise_editor_map::workbench::WorkbenchSettingsAccess;
+use feathrise_editor_scene::workbench::WorkbenchSettingsAccess;
 use std::{
     fs,
     time::{SystemTime, UNIX_EPOCH},

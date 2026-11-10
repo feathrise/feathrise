@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use std::{path::PathBuf, sync::{Arc, Mutex}, time::Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Phase { OpenMap, WaitMap, WaitDraft, OpenMenu, OpenExport, CaptureDialog, Start, Exporting, CaptureSuccess, Custom(CustomPhase), CloseDialog, Report, Closing, Finished }
+pub(super) enum Phase { OpenScene, WaitScene, WaitDraft, OpenMenu, OpenExport, CaptureDialog, Start, Exporting, CaptureSuccess, Custom(CustomPhase), CloseDialog, Report, Closing, Finished }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum CustomPhase {
@@ -97,7 +97,7 @@ pub(crate) struct Completion {
 impl Completion {
     pub(super) fn new(project: crate::project::Project, report: PathBuf) -> Self {
         Self { project_id: project.id, project_root: project.root, report,
-            state: Arc::new(Mutex::new(json!({"phase":"OpenMap","stages":[],"events":[]}))) }
+            state: Arc::new(Mutex::new(json!({"phase":"OpenScene","stages":[],"events":[]}))) }
     }
 
     /// 已离开App::run和帧关键路径，才允许同步核对或独占写入中断报告；绝不补写成功。

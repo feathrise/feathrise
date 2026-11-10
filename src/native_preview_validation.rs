@@ -21,7 +21,7 @@ use bevy::{
     window::{PrimaryWindow, RawHandleWrapper},
 };
 use feathrise_editor_protocol::Mode;
-use feathrise_editor_map::standalone::{self, embedded_snapshot, embedded_validation as author};
+use feathrise_editor_scene::standalone::{self, embedded_snapshot, embedded_validation as author};
 use resources::{Phase, Plan};
 use serde_json::{Value, json};
 use std::{
@@ -455,7 +455,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
     match phase {
         Phase::Open if plan.frames >= 30 => {
             world.write_message(RequestViewportMode(ViewportMode::SavedWorld));
-            standalone::request_open_map(world, "M1-SAMPLE")?;
+            standalone::request_open_scene(world, "M1-SAMPLE")?;
             advance_to(plan, Phase::Local);
         }
         Phase::Local if standalone::preview_ready_for(world, "M1-SAMPLE") => {
@@ -518,7 +518,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
                 && embedded_snapshot::ready_is_current(world)
                 // ready_is_current核完整SourceIdentity；此处只与同一捕获域的快照修订对齐，不能混用作者Undo修订。
                 && world.resource::<embedded_snapshot::EmbeddedSnapshotState>().ready.as_ref()
-                    .is_some_and(|snapshot| snapshot.map_id == "M1-SAMPLE"
+                    .is_some_and(|snapshot| snapshot.scene_id == "M1-SAMPLE"
                         && state.applied_revision == snapshot.author_revision)
                 && state.frames > 4
             {

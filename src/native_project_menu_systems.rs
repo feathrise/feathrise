@@ -10,8 +10,8 @@ use bevy::{
     window::{PrimaryWindow, WindowCloseRequested},
 };
 use feathrise_editor_core::{EditorHostOverlay, EditorTextInputGuard};
-use feathrise_editor_map::standalone::SavedPlayFeedback;
-use feathrise_map_content::ActiveDynamicMap;
+use feathrise_editor_scene::standalone::SavedPlayFeedback;
+use feathrise_scene_content::ActiveDynamicScene;
 
 pub(super) fn handle(
     buttons: Query<
@@ -25,7 +25,7 @@ pub(super) fn handle(
     mut overlay: ResMut<EditorHostOverlay>,
     mut focus: ResMut<InputFocus>,
     settings: Res<ProjectMenuSettings>,
-    active: Res<ActiveDynamicMap>,
+    active: Res<ActiveDynamicScene>,
     mut state: ResMut<NativeProjectMenuState>,
     mut feedback: (MessageWriter<SavedPlayFeedback>, MessageWriter<crate::project_export::messages::OpenExportDialog>),
     windows: Query<Entity, With<PrimaryWindow>>,
@@ -82,17 +82,17 @@ pub(super) fn handle(
                 }
             }
             Some(ProjectAction::SetStartup) if state.open && !state.saving() => {
-                if let Some(id) = active.map_id.as_ref() {
+                if let Some(id) = active.scene_id.as_ref() {
                     let project = settings.project.clone();
-                    let id = id.0.clone(); // 冻结稳定ID；后台完成后不读取作者已经切到的另一个地图。
+                    let id = id.0.clone(); // 冻结稳定ID；后台完成后不读取作者已经切到的另一个场景。
                     state.failed = None;
-                    state.status = "正在后台校验当前地图并保存启动设置…".into();
+                    state.status = "正在后台校验当前场景并保存启动设置…".into();
                     state.task = Some(
                         IoTaskPool::get().spawn(async move { super::store::save(&project, &id) }),
                     );
                     feedback.0.write(SavedPlayFeedback(state.status.clone()));
                 } else {
-                    state.status = "请先进入一张地图，再将它设为启动地图".into();
+                    state.status = "请先进入一个场景，再将它设为启动场景".into();
                 }
             }
             Some(ProjectAction::BackToManager) if state.open && !state.saving() => {
@@ -215,11 +215,11 @@ pub(super) fn poll(
     state.task = None;
     state.status = match result {
         Ok(saved) => format!(
-            "{}：{}（{}）。地图草稿仍按原保存流程处理。",
+            "{}：{}（{}）。场景草稿仍按原保存流程处理。",
             if saved.changed {
                 "启动设置已保存"
             } else {
-                "已是当前启动地图"
+                "已是当前启动场景"
             },
             saved.name,
             saved.id
@@ -235,7 +235,7 @@ pub(super) fn poll(
 pub(super) fn present(
     mut commands: Commands,
     state: Res<NativeProjectMenuState>,
-    active: Res<ActiveDynamicMap>,
+    active: Res<ActiveDynamicScene>,
     mut overlays: Query<&mut Node, With<ProjectMenuOverlay>>,
     mut statuses: Query<&mut Text, With<ProjectMenuStatus>>,
     buttons: Query<(Entity, &ProjectAction, Has<InteractionDisabled>)>,
@@ -258,7 +258,7 @@ pub(super) fn present(
     for (entity, action, disabled) in &buttons {
         let next = match action {
             ProjectAction::Toggle => false,
-            ProjectAction::SetStartup => state.saving() || active.map_id.is_none(),
+            ProjectAction::SetStartup => state.saving() || active.scene_id.is_none(),
             ProjectAction::Export => state.saving(),
             ProjectAction::BackToManager => state.saving(),
             ProjectAction::Plugins => state.saving(),
@@ -292,7 +292,7 @@ mod tests {
             }, managed: false,
         }).init_resource::<ButtonInput<MouseButton>>().init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<EditorHostOverlay>().init_resource::<EditorTextInputGuard>()
-            .init_resource::<InputFocus>().init_resource::<ActiveDynamicMap>()
+            .init_resource::<InputFocus>().init_resource::<ActiveDynamicScene>()
             .init_resource::<NativeProjectMenuState>()
             .init_resource::<crate::native_project_close::NativeProjectCloseState>()
             .add_message::<WindowCloseRequested>().add_message::<SavedPlayFeedback>()

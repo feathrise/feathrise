@@ -38,7 +38,7 @@ pub struct EditorButtonInput<'w, 's> {
     >,
 }
 
-/// 固定深度的祖先检查仅用于当前按下目标；不逐帧遍历整棵工作台或地图。
+/// 固定深度的祖先检查仅用于当前按下目标；不逐帧遍历整棵工作台或场景。
 fn visible(
     entity: Entity,
     nodes: &Query<(

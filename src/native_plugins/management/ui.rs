@@ -15,7 +15,7 @@ use bevy::{
     ui_widgets::{ControlOrientation, Scrollbar, ScrollbarDragState, ScrollbarThumb},
     window::PrimaryWindow,
 };
-use feathrise_editor_map::workbench::WorkbenchHeader;
+use feathrise_editor_scene::workbench::WorkbenchHeader;
 use feathrise_editor_ui::{EditorButtonClick, colors as c, localization::EditorLocale};
 
 pub(super) const ROW_HEIGHT: f32 = 64.;

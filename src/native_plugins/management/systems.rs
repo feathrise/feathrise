@@ -14,7 +14,7 @@ pub(super) fn control(world: &mut World) {
             .get_resource::<crate::workspace_ui::AboutState>()
             .is_some_and(|state| state.captures_input())
         || world
-            .get_resource::<feathrise_editor_map::workbench::WorkbenchHostPageState>()
+            .get_resource::<feathrise_editor_scene::workbench::WorkbenchHostPageState>()
             .is_some_and(|state| state.settings_open)
         // 导出已打开或仍在释放输入时，不允许旧管理动作跨过另一浮窗；写入中的后台计划继续收口。
         || crate::project_export::ui::captures_input(world);

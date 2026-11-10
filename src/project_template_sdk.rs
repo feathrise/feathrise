@@ -14,17 +14,9 @@ const MANIFEST_LIMIT: usize = 64 * 1024;
 const CONFIG_NAME: &str = "sdk-source.toml";
 // 随源码的 sdk-source.toml 使用配套检出；单文件安装缺少外置配置时采用已发布配方。
 const DEFAULT_CONFIGURATION: &str = include_str!("../sdk-source-public.toml");
+const SCENE_SDK_SERIES: &str = "0.3";
+const BEVY_PIN: &str = "=0.20.1";
 const PATCHES: [(&str, &str); 8] = [
-    ("avian3d", "avian3d"),
-    ("bevy_anti_alias", "bevy_anti_alias"),
-    ("bevy_render", "bevy_render"),
-    ("bevy_core_pipeline", "bevy_core_pipeline"),
-    ("wgpu-hal", "wgpu-hal"),
-    ("parley", "parley-compat"),
-    ("dlss_wgpu", "dlss_wgpu"),
-    ("wgpu-ffx", "wgpu-ffx"),
-];
-const PATCHES_020: [(&str, &str); 8] = [
     ("avian3d", "avian3d"),
     ("bevy_anti_alias", "bevy_anti_alias"),
     ("bevy_render", "bevy_render"),
@@ -35,35 +27,20 @@ const PATCHES_020: [(&str, &str); 8] = [
     ("wgpu-ffx", "wgpu-ffx"),
 ];
 
-#[derive(Clone, Copy)]
-pub(super) enum BevyVersion {
-    V019,
-    V020,
+fn validate_bevy(requirement: Option<&str>) -> Result<(), String> {
+    match requirement.map(|version| version.trim_start_matches('=')) {
+        None | Some("0.20.1") => Ok(()),
+        Some(version) => Err(format!("场景工程模板需要 Bevy 0.20.1，SDK 指定了 {version}")),
+    }
 }
 
-impl BevyVersion {
-    fn from_requirement(version: Option<&str>) -> Result<Self, String> {
-        // 既有配置没有引擎字段，仍生成其原来对应的 0.19 工程。
-        match version.map(|version| version.trim_start_matches('=')) {
-            None | Some("0.19.1") => Ok(Self::V019),
-            Some("0.20.1") => Ok(Self::V020),
-            Some(version) => Err(format!("空工程模板尚未适配 SDK 指定的 Bevy 版本 {version}")),
-        }
+fn scene_sdk_version(value: &str) -> Result<semver::Version, String> {
+    let version = semver::Version::parse(value)
+        .map_err(|error| format!("场景 SDK 版本必须为完整版本，例如 0.3.0：{error}"))?;
+    if (version.major, version.minor) != (0, 3) {
+        return Err(format!("场景工程需要 SDK {SCENE_SDK_SERIES}.x，实际配置为 {version}"));
     }
-
-    fn pin(self) -> &'static str {
-        match self {
-            Self::V019 => "=0.19.1",
-            Self::V020 => "=0.20.1",
-        }
-    }
-
-    fn patches(self) -> [(&'static str, &'static str); 8] {
-        match self {
-            Self::V019 => PATCHES,
-            Self::V020 => PATCHES_020,
-        }
-    }
+    Ok(version)
 }
 
 #[derive(Deserialize)]
@@ -82,9 +59,9 @@ enum SourceConfiguration {
 }
 
 pub(super) enum SdkSource {
-    Path { root: PathBuf, patches: PathBuf, bevy: BevyVersion },
-    Git { git: String, rev: String, patch_git: String, patch_rev: String, bevy: BevyVersion },
-    Registry { version: String, git: String, rev: String, bevy: BevyVersion },
+    Path { root: PathBuf, patches: PathBuf },
+    Git { git: String, rev: String, patch_git: String, patch_rev: String },
+    Registry { version: String, git: String, rev: String },
 }
 
 impl SdkSource {
@@ -121,21 +98,19 @@ impl SdkSource {
                     .or_else(|| manifest.get("workspace").and_then(|workspace| workspace.get("dependencies"))
                         .and_then(|deps| deps.get("bevy")).and_then(|dependency| dependency.as_str()
                             .or_else(|| dependency.get("version").and_then(Value::as_str))));
-                let bevy = BevyVersion::from_requirement(bevy_requirement)?;
-                let legacy = patch_path.is_none() && root.join("third_party/avian3d/Cargo.toml").is_file();
+                // 场景模板在写入前检查 SDK 版本，避免生成引用旧地图格式的工程。
+                let sdk_version = manifest.get("package").and_then(|package| package.get("version"))
+                    .and_then(Value::as_str).ok_or("SDK 缺少版本")?;
+                scene_sdk_version(sdk_version)?;
+                validate_bevy(bevy_requirement)?;
                 let patches = match patch_path {
                     Some(path) => {
                         validate_text(&path, "补丁仓本地路径", 4096)?;
                         configuration_root.join(path)
                     }
-                    // 兼容仍把补丁随 SDK 检出的旧版本；新布局默认从同级补丁仓取得。
-                    None if legacy => root.join("third_party"),
                     None => root.with_file_name("feathrise_patches"),
                 }.canonicalize().map_err(|error| format!("补丁仓本地目录不可读：{error}"))?;
-                if legacy && !patches.starts_with(&root) {
-                    return Err("旧版 SDK 的内置补丁路径越出 SDK 目录".into());
-                }
-                for (package, directory) in bevy.patches() {
+                for (package, directory) in PATCHES {
                     let patch = patches.join(directory);
                     let actual = patch.canonicalize().map_err(|error| {
                         format!("SDK 补丁 {package} 目录不可读：{error}")
@@ -145,26 +120,25 @@ impl SdkSource {
                     }
                     validate_package(&actual, package)?;
                 }
-                Ok(Self::Path { root, patches, bevy })
+                Ok(Self::Path { root, patches })
             }
             SourceConfiguration::Git { git, rev, patch_git, patch_rev, bevy_version } => {
-                let bevy = BevyVersion::from_requirement(bevy_version.as_deref())?;
+                validate_bevy(bevy_version.as_deref())?;
                 let (git, rev) = checked_git_source(git, rev)?;
                 let (patch_git, patch_rev) = match (patch_git, patch_rev) {
                     (Some(git), Some(rev)) => checked_git_source(git, rev)?,
-                    (None, None) => (git.clone(), rev.clone()), // 旧 Git SDK 提交内含补丁源码。
+                    (None, None) => (git.clone(), rev.clone()), // 同一 Git 修订可同时提供 SDK 和补丁包。
                     _ => return Err("独立补丁仓必须同时提供 patch_git 和 patch_rev".into()),
                 };
-                Ok(Self::Git { git, rev, patch_git, patch_rev, bevy })
+                Ok(Self::Git { git, rev, patch_git, patch_rev })
             }
             SourceConfiguration::Registry { version, git, rev, bevy_version } => {
-                let bevy = BevyVersion::from_requirement(bevy_version.as_deref())?;
+                validate_bevy(bevy_version.as_deref())?;
                 validate_text(&version, "SDK crates.io 版本", 128)?;
-                let version = semver::Version::parse(&version)
-                    .map_err(|error| format!("SDK crates.io 版本必须为完整发布版本，例如 0.1.0：{error}"))?;
+                let version = scene_sdk_version(&version)?;
                 let (git, rev) = checked_git_source(git, rev)?;
                 // registry 提供实际 SDK；补丁不随 crate 传递，仍显式绑定与此版本配套的公开 Git 修订。
-                Ok(Self::Registry { version: version.to_string(), git, rev, bevy })
+                Ok(Self::Registry { version: version.to_string(), git, rev })
             }
         }
     }
@@ -182,11 +156,10 @@ impl SdkSource {
             dependency.remove(key);
         }
         dependency.extend(self.dependency(None)?);
-        let bevy = self.bevy_version();
         if let Some(dependency) = dependencies.get_mut("bevy") {
             // 自由相机组件须与所选 SDK 的 App 来自同一套 Bevy。
             let table = dependency.as_table_mut().ok_or("空工程模板的 Bevy 依赖必须声明能力表")?;
-            table.insert("version".into(), Value::String(bevy.pin().into()));
+            table.insert("version".into(), Value::String(BEVY_PIN.into()));
         }
         let root = manifest.as_table_mut().ok_or("空工程 Cargo 模板必须是表")?;
         if root.contains_key("workspace") || root.contains_key("patch") {
@@ -196,27 +169,13 @@ impl SdkSource {
             ("resolver".into(), Value::String("3".into())),
         ])));
         let mut patches = Map::new();
-        for (package, directory) in bevy.patches() {
+        for (package, directory) in PATCHES {
             patches.insert(package.into(), Value::Table(self.dependency(Some(directory))?));
         }
         root.insert("patch".into(), Value::Table(Map::from_iter([
             ("crates-io".into(), Value::Table(patches)),
         ])));
         toml::to_string_pretty(&manifest).map_err(|error| error.to_string())
-    }
-
-    fn bevy_version(&self) -> BevyVersion {
-        match self {
-            Self::Path { bevy, .. } | Self::Git { bevy, .. } | Self::Registry { bevy, .. } => *bevy,
-        }
-    }
-
-    pub(super) fn lock_seed(&self) -> &'static str {
-        // 用与所选引擎一致的种子保留已锁依赖，包括发布后被撤回的旧版本。
-        match self.bevy_version() {
-            BevyVersion::V019 => "assets/templates/empty/Cargo-bevy-0.19.lock",
-            BevyVersion::V020 => "Cargo.lock",
-        }
     }
 
     fn dependency(&self, patch: Option<&str>) -> Result<Map<String, Value>, String> {
@@ -227,10 +186,15 @@ impl SdkSource {
             }
             Self::Git { git, rev, patch_git, patch_rev, .. } => {
                 let (url, revision) = if patch.is_some() { (patch_git, patch_rev) } else { (git, rev) };
-                Map::from_iter([
+                let mut dependency = Map::from_iter([
                     ("git".into(), Value::String(url.clone())),
                     ("rev".into(), Value::String(revision.clone())),
-                ])
+                ]);
+                // 锁定 Git 提交仍须声明场景 SDK 系列；Cargo 会拒绝同名旧 SDK。
+                if patch.is_none() {
+                    dependency.insert("version".into(), Value::String(SCENE_SDK_SERIES.into()));
+                }
+                dependency
             }
             Self::Registry { version, git, rev, .. } => match patch {
                 Some(_) => Map::from_iter([

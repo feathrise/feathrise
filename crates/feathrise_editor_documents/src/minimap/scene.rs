@@ -1,4 +1,4 @@
-//! 代码小地图固定栏：轮廓、视区框跟随编辑器配色，仅在中央编辑时显示。
+//! 代码小场景固定栏：轮廓、视区框跟随编辑器配色，仅在中央编辑时显示。
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::metrics as ui_metrics;
@@ -21,7 +21,7 @@ pub(crate) fn panel() -> impl Scene {
             row_gap: px(4), padding: px(4), border: px(1), overflow: Overflow::clip() }
         BackgroundColor(colors::INPUT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            @feathrise_editor_ui::context_help::section_header("代码小地图", "点击或拖动轮廓可定位正文，视区框表示当前可见范围；不会修改源码。轮廓生成和失败信息见底栏详情。", FONT_PATH)--
+            @feathrise_editor_ui::context_help::section_header("代码小场景", "点击或拖动轮廓可定位正文，视区框表示当前可见范围；不会修改源码。轮廓生成和失败信息见底栏详情。", FONT_PATH)--
 
                 DocumentMinimapRail RelativeCursorPosition::default() UiInteraction::default()
                 ~{FocusPolicy::Block}
@@ -54,7 +54,7 @@ pub(crate) fn panel() -> impl Scene {
                 ]
             --
 
-                DocumentMinimapLabel feathrise_editor_ui::PanelStatusText("代码小地图") feathrise_editor_ui::feedback::GlobalPanelStatus Text("") ~{FocusPolicy::Pass}
+                DocumentMinimapLabel feathrise_editor_ui::PanelStatusText("代码小场景") feathrise_editor_ui::feedback::GlobalPanelStatus Text("") ~{FocusPolicy::Pass}
                 Node { display: Display::None }
                 TextLayout::no_wrap()
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }

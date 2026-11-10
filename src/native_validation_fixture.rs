@@ -18,7 +18,7 @@ const MAX_EMPTY_ENTRIES: usize = 64;
 const MAX_SMALL_BYTES: u64 = 128 * 1024;
 
 /// 调用方必须先create_dir独占工作根并create_new写入父级owner，再新建空工程；不得用于已有作者工程。
-/// 本函数只在窗口启动前的显式验收流程调用，固定地图/纹理生成不进入Bevy帧关键路径。
+/// 本函数只在窗口启动前的显式验收流程调用，固定场景/纹理生成不进入Bevy帧关键路径。
 pub(super) fn prepare(root: &Path, label: &str) -> Result<(), String> {
     let root = owned_project_root(root)?;
     let project = crate::project::open(&root)?;
@@ -59,7 +59,7 @@ pub(super) fn prepare(root: &Path, label: &str) -> Result<(), String> {
             "schema":1,"purpose":OWNER_PURPOSE,"project_root":root,
             "project_id":project.id,"label":label,
             "scope":"explicit-owned-native-fixture-only",
-            "map_source":"feathrise_project::seed::create",
+            "scene_source":"feathrise_project::seed::create",
             "surface_encoder":"feathrise_editor_assets::ktx2",
             "animation_source":"procedural named triangle with two translation keys",
             "scene_view":"scene-owned Camera3d and PrimarySceneView positioned by template; no player or RPG fixture",
@@ -157,7 +157,7 @@ fn owned_project_root(root: &Path) -> Result<PathBuf, String> {
 }
 
 /// 显式验收只内嵌两份已有小夹具，分发目录不必夹带测试源码或依赖编译机路径。
-/// 普通新建不调用此入口，仍保持零地图、零预设的空工程。
+/// 普通新建不调用此入口，仍保持零场景、零预设的空工程。
 pub(super) fn scene_fixture(name: &str) -> Result<&'static [u8], String> {
     match name {
         "probe.glb" => Ok(include_bytes!("../tests/fixtures/scene/probe.glb")),
@@ -335,7 +335,7 @@ mod tests {
         })).unwrap()).unwrap();
         let assets = project.join("assets");
         feathrise_project::seed::create_empty(&assets).unwrap();
-        fs::write(assets.join("maps/catalog.map_catalog.json"), b"author-owned-modification").unwrap();
+        fs::write(assets.join("scenes/catalog.scene_catalog.json"), b"author-owned-modification").unwrap();
         let before = empty_tree(&assets).unwrap();
         let error = prepare(&project, "fixture").unwrap_err();
         assert!(error.contains("空骨架"), "{error}");

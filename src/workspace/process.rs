@@ -163,7 +163,7 @@ pub(super) fn open_job(
                 _ => return Err("不是工程打开请求".into()),
             };
             let project = crate::project::open(&root)?;
-            feathrise_project::ProjectMaps::load_with_check(
+            feathrise_project::ProjectScenes::load_with_check(
                 &project.context.asset_roots[0],
                 || check.check(),
             )?;

@@ -152,7 +152,7 @@ impl RecoveryFixture {
         app.insert_resource(CodeIterationState::new(&project))
             .init_resource::<feathrise_editor_core::ProjectLaunchSettings>()
             .init_resource::<crate::native_project_close::NativeProjectCloseState>()
-            .add_message::<feathrise_editor_map::standalone::SavedPlayFeedback>()
+            .add_message::<feathrise_editor_scene::standalone::SavedPlayFeedback>()
             .insert_non_send(CodeIterationRuntime { backend: Some(backend), profile: default_profile(),
                 settings: BackendSettings { project, target: root.join("target"), logs: None },
                 lifecycle: BackendLifecycle::Running, last_generation: 1, failure: None });

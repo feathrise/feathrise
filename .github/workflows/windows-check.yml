@@ -35,9 +35,9 @@ jobs:
         source: ${{ fromJSON(github.event_name == 'workflow_dispatch' && (inputs.sdk_source == 'both' && '["source","registry"]' || inputs.sdk_source == 'registry' && '["registry"]' || '["source"]') || startsWith(github.ref, 'refs/tags/') && '["source","registry"]' || '["source"]') }}
         variant: [default, validation]
     env:
-      # 使用包含现代 UI 交互的配套修订，使 SDK 依赖图与编辑器已提交的锁文件一致。仓库变量仍须指定匹配的完整提交。
+      # 场景版 SDK 与编辑器锁文件配套。覆盖变量也须使用对应的完整提交。
       FEATHRISE_SDK_REPOSITORY: ${{ vars.FEATHRISE_SDK_REPOSITORY || 'feathrise/feathrise_runtime' }}
-      FEATHRISE_SDK_REV: ${{ vars.FEATHRISE_SDK_REV || 'dc13fb3902737bcc6a0cae2a4dd27a0694fbce42' }}
+      FEATHRISE_SDK_REV: ${{ vars.FEATHRISE_SDK_REV || '058c94f7a65913bf5cba2684d91f738d9e73c829' }}
       FEATHRISE_PATCH_REPOSITORY: ${{ vars.FEATHRISE_PATCH_REPOSITORY || 'feathrise/feathrise_patches' }}
       FEATHRISE_PATCH_REV: ${{ vars.FEATHRISE_PATCH_REV || '019fd1fe13ed9107d17b360b8f5a3df61bfc139a' }}
     steps:
@@ -57,7 +57,7 @@ jobs:
             throw 'FEATHRISE_SDK_REPOSITORY 必须为 owner/repository；请修正仓库变量，或移除覆盖以使用公开默认值。'
           }
           if ($env:FEATHRISE_SDK_REV -notmatch '^[0-9a-fA-F]{40}$') {
-            throw '请配置 FEATHRISE_SDK_REV 为已发布到 SDK 仓库的 Bevy 0.20.1 完整 40 位提交。'
+            throw '请配置 FEATHRISE_SDK_REV 为 SDK 仓库中场景版 0.3.0 的完整 40 位提交。'
           }
       # actions/checkout v4.2.2；各检出均不持久化凭据。
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -89,6 +89,8 @@ jobs:
         id: cargo-cache
         shell: pwsh
         working-directory: feathrise
+        env:
+          CHECK_SOURCE: ${{ matrix.source }}
         run: |
           $ErrorActionPreference = 'Stop'
           $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE '.cargo' }
@@ -96,7 +98,7 @@ jobs:
           $rustcIdentity = rustc --version --verbose
           if ($LASTEXITCODE -ne 0) { throw '无法读取现有 Rust 工具链的缓存身份。' }
           # 编译缓存绑定两份检出身份与真实工具链。
-          $sourceIdentity = if ('${{ matrix.source }}' -eq 'registry') {
+          $sourceIdentity = if ($env:CHECK_SOURCE -eq 'registry') {
             (Get-FileHash -LiteralPath '.cargo/registry-sdk.toml' -Algorithm SHA256).Hash
           } else {
             @($env:FEATHRISE_SDK_REPOSITORY, $env:FEATHRISE_SDK_REV, $env:FEATHRISE_PATCH_REPOSITORY, $env:FEATHRISE_PATCH_REV)
@@ -156,7 +158,7 @@ jobs:
             # 发行检查使用 Runner 上的公开依赖锁，与单文件构建的解析路径一致。
             $sourceArguments = @('--config', '.cargo/registry-sdk.toml')
             cargo @sourceArguments fetch
-            if ($LASTEXITCODE -ne 0) { throw 'Failed to fetch the released SDK and pinned patches.' }
+            if ($LASTEXITCODE -ne 0) { throw '无法获取公开 SDK 0.3.0 与配套补丁，请核对同版本 SDK 包是否已发布。' }
           } else {
             # SDK 自有包与第三方补丁分别采用已核对修订的检出。
             $localSdkConfig = Join-Path $env:RUNNER_TEMP 'feathrise-local-sdk.toml'
@@ -167,8 +169,15 @@ jobs:
             $patchConfig = Join-Path $patchRoot '.cargo/config.toml'
             $metadata = cargo metadata --manifest-path "$sdkRoot/Cargo.toml" --no-deps --format-version 1
             if ($LASTEXITCODE -ne 0) { throw '无法读取指定修订的 SDK Cargo 图。' }
-            $localPackages = ($metadata | ConvertFrom-Json).packages | Where-Object {
+            $localPackages = @(($metadata | ConvertFrom-Json).packages | Where-Object {
               $null -eq $_.source -and $_.name -ne 'feathrise_sdk_workspace_tests'
+            })
+            # 老修订可能也使用 Bevy 0.20.1。先核对场景版包身份，再生成覆盖。
+            foreach ($name in @('feathrise_runtime', 'feathrise_scene_content', 'feathrise_terrain', 'feathrise_editor_protocol')) {
+              $scenePackages = @($localPackages | Where-Object { $_.name -ceq $name })
+              if ($scenePackages.Count -ne 1 -or $scenePackages[0].version -ne '0.3.0') {
+                throw "SDK 检出缺少场景版 0.3.0 包 $name，请核对 FEATHRISE_SDK_REV。"
+              }
             }
             $patches = foreach ($package in $localPackages) {
               $packageRoot = Split-Path -Parent $package.manifest_path
@@ -180,7 +189,7 @@ jobs:
             @('[patch.crates-io]') + $patches | Set-Content -LiteralPath $localSdkConfig -Encoding utf8
             $sourceArguments = @('--config', $patchConfig, '--config', $localSdkConfig)
           }
-          $cargoArguments = $sourceArguments + @('check', '--locked', '-p', 'feathrise_host', '-p', 'feathrise_game_template', '-p', 'feathrise_editor_map', '--tests')
+          $cargoArguments = $sourceArguments + @('check', '--locked', '-p', 'feathrise_host', '-p', 'feathrise_game_template', '-p', 'feathrise_editor_scene', '--tests')
           if ($env:CHECK_VARIANT -eq 'validation') { $cargoArguments += @('--features', 'feathrise_host/validation') }
           elseif ($env:CHECK_VARIANT -ne 'default') { throw '未知检查组合。' }
           cargo @cargoArguments

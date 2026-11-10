@@ -2,9 +2,9 @@
 use super::*;
 use bevy::prelude::*;
 
-/// F12地图编辑器各个可拖动数值框的独立用户灵敏度倍率。
+/// F12场景编辑器各个可拖动数值框的独立用户灵敏度倍率。
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct MapEditorScrubSensitivities {
+pub struct SceneEditorScrubSensitivities {
     pub brush_spacing: f32,                   // 点位最小间距独立倍率。
     pub brush_radius: f32,                    // 笔刷大小的相对指数拖动倍率。
     pub brush_strength: f32,                  // 笔刷强度的线性拖动倍率。
@@ -24,22 +24,22 @@ pub struct MapEditorScrubSensitivities {
     pub vegetation_opacity: f32,              // 植被层不透明度的百分比拖动倍率。
     pub vegetation_group_capacity: f32,       // 植被组权重容量的百分比拖动倍率。
     pub vegetation_claim_threshold: f32,      // 植被组优先占用阈值的百分比拖动倍率。
-    pub boundary_thickness: f32,              // 地图玩法边界厚度的米制拖动倍率。
-    pub skybox_brightness: f32,               // 地图天空盒可见亮度的拖动倍率。
-    pub environment_diffuse_intensity: f32,   // 地图天空漫反射补光强度的拖动倍率。
-    pub environment_specular_intensity: f32,  // 地图天空镜面反射强度的拖动倍率。
-    pub skybox_yaw: f32,                      // 地图天空盒水平旋转角的拖动倍率。
+    pub boundary_thickness: f32,              // 场景玩法边界厚度的米制拖动倍率。
+    pub skybox_brightness: f32,               // 场景天空盒可见亮度的拖动倍率。
+    pub environment_diffuse_intensity: f32,   // 场景天空漫反射补光强度的拖动倍率。
+    pub environment_specular_intensity: f32,  // 场景天空镜面反射强度的拖动倍率。
+    pub skybox_yaw: f32,                      // 场景天空盒水平旋转角的拖动倍率。
     pub weather_preview_progress: f32,        // 天气转换预览进度的百分比拖动倍率。
-    pub new_map_width: f32,                   // 新地图世界宽度的米制拖动倍率。
-    pub new_map_length: f32,                  // 新地图世界长度的米制拖动倍率。
-    pub new_map_terrain_cell: f32,            // 新地图地形GLB网格间距的米制拖动倍率。
-    pub new_map_player_collision_radius: f32, // 分块碰撞玩家预载米制半径的独立拖动倍率。
-    pub new_map_role_collision_radius: f32,   // 分块碰撞角色粗级预载半径的独立拖动倍率。
+    pub new_scene_width: f32,                   // 新场景世界宽度的米制拖动倍率。
+    pub new_scene_length: f32,                  // 新场景世界长度的米制拖动倍率。
+    pub new_scene_terrain_cell: f32,            // 新场景地形GLB网格间距的米制拖动倍率。
+    pub new_scene_player_collision_radius: f32, // 分块碰撞玩家预载米制半径的独立拖动倍率。
+    pub new_scene_role_collision_radius: f32,   // 分块碰撞角色粗级预载半径的独立拖动倍率。
 }
 
-/// 地图编辑器数值框的稳定强类型键，业务系统不需要自行匹配配置字段。
+/// 场景编辑器数值框的稳定强类型键，业务系统不需要自行匹配配置字段。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)] // ECS系统可以低成本复制并用作缓存键。
-pub enum MapEditorScrubField {
+pub enum SceneEditorScrubField {
     // 每个变体精确对应一个独立持久化灵敏度槽位。
     BrushSpacing,                 // 圆刷最小间距。
     BrushRadius,                  // 笔刷大小。
@@ -60,20 +60,20 @@ pub enum MapEditorScrubField {
     VegetationOpacity,            // 植被层不透明度。
     VegetationGroupCapacity,      // 植被组权重容量。
     VegetationClaimThreshold,     // 植被组优先占用阈值。
-    BoundaryThickness,            // 地图玩法边界厚度。
-    SkyboxBrightness,             // 地图天空盒可见亮度。
-    EnvironmentDiffuseIntensity,  // 地图天空漫反射补光强度。
-    EnvironmentSpecularIntensity, // 地图天空镜面反射强度。
-    SkyboxYaw,                    // 地图天空盒水平旋转角。
+    BoundaryThickness,            // 场景玩法边界厚度。
+    SkyboxBrightness,             // 场景天空盒可见亮度。
+    EnvironmentDiffuseIntensity,  // 场景天空漫反射补光强度。
+    EnvironmentSpecularIntensity, // 场景天空镜面反射强度。
+    SkyboxYaw,                    // 场景天空盒水平旋转角。
     WeatherPreviewProgress,       // 天气转换预览进度。
-    NewMapWidth,                  // 新地图世界宽度。
-    NewMapLength,                 // 新地图世界长度。
-    NewMapTerrainCell,            // 新地图地形GLB网格间距。
-    NewMapPlayerCollisionRadius,  // 分块碰撞玩家预载半径。
-    NewMapRoleCollisionRadius,    // 分块碰撞角色粗级预载半径。
+    NewSceneWidth,                  // 新场景世界宽度。
+    NewSceneLength,                 // 新场景世界长度。
+    NewSceneTerrainCell,            // 新场景地形GLB网格间距。
+    NewScenePlayerCollisionRadius,  // 分块碰撞玩家预载半径。
+    NewSceneRoleCollisionRadius,    // 分块碰撞角色粗级预载半径。
 } // 结束全部三十个可拖动数值字段键。
 
-impl MapEditorScrubField {
+impl SceneEditorScrubField {
     // 集中维护字段全集，方便默认值和往返测试覆盖新增变体。
     pub const ALL: [Self; 30] = [
         // 声明顺序与编辑器功能分组一致。
@@ -102,114 +102,114 @@ impl MapEditorScrubField {
         Self::EnvironmentSpecularIntensity, // 天空镜面反射键。
         Self::SkyboxYaw,                    // 天空方位角键。
         Self::WeatherPreviewProgress,       // 天气预览进度键。
-        Self::NewMapWidth,                  // 新地图宽度键。
-        Self::NewMapLength,                 // 新地图长度键。
-        Self::NewMapTerrainCell,            // 新地图地形GLB网格间距键。
-        Self::NewMapPlayerCollisionRadius,  // 分块碰撞玩家预载半径键。
-        Self::NewMapRoleCollisionRadius,    // 分块碰撞角色粗级预载半径键。
+        Self::NewSceneWidth,                  // 新场景宽度键。
+        Self::NewSceneLength,                 // 新场景长度键。
+        Self::NewSceneTerrainCell,            // 新场景地形GLB网格间距键。
+        Self::NewScenePlayerCollisionRadius,  // 分块碰撞玩家预载半径键。
+        Self::NewSceneRoleCollisionRadius,    // 分块碰撞角色粗级预载半径键。
     ]; // 结束稳定字段全集。
 } // 结束字段键辅助实现。
 
-impl MapEditorScrubSensitivities {
+impl SceneEditorScrubSensitivities {
     // 用统一入口集中管理强类型键与存储字段的映射。
-    pub fn get(&self, field: MapEditorScrubField) -> f32 {
+    pub fn get(&self, field: SceneEditorScrubField) -> f32 {
         // 读取指定数值框的当前灵敏度。
         match field {
             // 所有变体必须显式对应独立槽位，新增字段时由编译器提醒补齐。
-            MapEditorScrubField::BrushSpacing => self.brush_spacing,
-            MapEditorScrubField::BrushRadius => self.brush_radius, // 读取笔刷大小倍率。
-            MapEditorScrubField::BrushStrength => self.brush_strength, // 读取笔刷强度倍率。
-            MapEditorScrubField::TerrainSpeed => self.terrain_speed, // 读取地形速度倍率。
-            MapEditorScrubField::WaterLevel => self.water_level,   // 读取静止水位倍率。
-            MapEditorScrubField::MeshWaterFlowSpeed => self.mesh_water_flow_speed, // 读取整网格水体流速倍率。
-            MapEditorScrubField::MeshWaterHeightOffset => self.mesh_water_height_offset, // 读取整网格水体高度倍率。
-            MapEditorScrubField::PlacementTranslation => self.placement_translation, // 读取显式资产平移倍率。
-            MapEditorScrubField::PlacementRotation => self.placement_rotation, // 读取显式资产旋转倍率。
-            MapEditorScrubField::PlacementScale => self.placement_scale, // 读取显式资产缩放倍率。
-            MapEditorScrubField::WaterControlHeight => self.water_control_height, // 读取水网高度倍率。
-            MapEditorScrubField::WaterControlWidth => self.water_control_width, // 读取水网宽度倍率。
-            MapEditorScrubField::WaterControlDepth => self.water_control_depth, // 读取水网深度倍率。
-            MapEditorScrubField::WaterControlFlowSpeed => self.water_control_flow_speed, // 读取水网流速倍率。
-            MapEditorScrubField::VegetationPriority => self.vegetation_priority, // 读取植被优先级倍率。
-            MapEditorScrubField::VegetationWeight => self.vegetation_weight, // 读取植被权重倍率。
-            MapEditorScrubField::VegetationOpacity => self.vegetation_opacity, // 读取植被不透明度倍率。
-            MapEditorScrubField::VegetationGroupCapacity => self.vegetation_group_capacity, // 读取植被组容量倍率。
-            MapEditorScrubField::VegetationClaimThreshold => self.vegetation_claim_threshold, // 读取植被占用阈值倍率。
-            MapEditorScrubField::BoundaryThickness => self.boundary_thickness, // 读取边界厚度倍率。
-            MapEditorScrubField::SkyboxBrightness => self.skybox_brightness,   // 读取天空亮度倍率。
-            MapEditorScrubField::EnvironmentDiffuseIntensity => self.environment_diffuse_intensity, // 读取天空漫反射补光倍率。
-            MapEditorScrubField::EnvironmentSpecularIntensity => {
+            SceneEditorScrubField::BrushSpacing => self.brush_spacing,
+            SceneEditorScrubField::BrushRadius => self.brush_radius, // 读取笔刷大小倍率。
+            SceneEditorScrubField::BrushStrength => self.brush_strength, // 读取笔刷强度倍率。
+            SceneEditorScrubField::TerrainSpeed => self.terrain_speed, // 读取地形速度倍率。
+            SceneEditorScrubField::WaterLevel => self.water_level,   // 读取静止水位倍率。
+            SceneEditorScrubField::MeshWaterFlowSpeed => self.mesh_water_flow_speed, // 读取整网格水体流速倍率。
+            SceneEditorScrubField::MeshWaterHeightOffset => self.mesh_water_height_offset, // 读取整网格水体高度倍率。
+            SceneEditorScrubField::PlacementTranslation => self.placement_translation, // 读取显式资产平移倍率。
+            SceneEditorScrubField::PlacementRotation => self.placement_rotation, // 读取显式资产旋转倍率。
+            SceneEditorScrubField::PlacementScale => self.placement_scale, // 读取显式资产缩放倍率。
+            SceneEditorScrubField::WaterControlHeight => self.water_control_height, // 读取水网高度倍率。
+            SceneEditorScrubField::WaterControlWidth => self.water_control_width, // 读取水网宽度倍率。
+            SceneEditorScrubField::WaterControlDepth => self.water_control_depth, // 读取水网深度倍率。
+            SceneEditorScrubField::WaterControlFlowSpeed => self.water_control_flow_speed, // 读取水网流速倍率。
+            SceneEditorScrubField::VegetationPriority => self.vegetation_priority, // 读取植被优先级倍率。
+            SceneEditorScrubField::VegetationWeight => self.vegetation_weight, // 读取植被权重倍率。
+            SceneEditorScrubField::VegetationOpacity => self.vegetation_opacity, // 读取植被不透明度倍率。
+            SceneEditorScrubField::VegetationGroupCapacity => self.vegetation_group_capacity, // 读取植被组容量倍率。
+            SceneEditorScrubField::VegetationClaimThreshold => self.vegetation_claim_threshold, // 读取植被占用阈值倍率。
+            SceneEditorScrubField::BoundaryThickness => self.boundary_thickness, // 读取边界厚度倍率。
+            SceneEditorScrubField::SkyboxBrightness => self.skybox_brightness,   // 读取天空亮度倍率。
+            SceneEditorScrubField::EnvironmentDiffuseIntensity => self.environment_diffuse_intensity, // 读取天空漫反射补光倍率。
+            SceneEditorScrubField::EnvironmentSpecularIntensity => {
                 self.environment_specular_intensity
             } // 读取天空镜面反射倍率。
-            MapEditorScrubField::SkyboxYaw => self.skybox_yaw, // 读取天空方位角倍率。
-            MapEditorScrubField::WeatherPreviewProgress => self.weather_preview_progress, // 读取天气预览进度倍率。
-            MapEditorScrubField::NewMapWidth => self.new_map_width, // 读取新地图宽度倍率。
-            MapEditorScrubField::NewMapLength => self.new_map_length, // 读取新地图长度倍率。
-            MapEditorScrubField::NewMapTerrainCell => self.new_map_terrain_cell, // 读取地形GLB网格间距倍率。
-            MapEditorScrubField::NewMapPlayerCollisionRadius => {
-                self.new_map_player_collision_radius
+            SceneEditorScrubField::SkyboxYaw => self.skybox_yaw, // 读取天空方位角倍率。
+            SceneEditorScrubField::WeatherPreviewProgress => self.weather_preview_progress, // 读取天气预览进度倍率。
+            SceneEditorScrubField::NewSceneWidth => self.new_scene_width, // 读取新场景宽度倍率。
+            SceneEditorScrubField::NewSceneLength => self.new_scene_length, // 读取新场景长度倍率。
+            SceneEditorScrubField::NewSceneTerrainCell => self.new_scene_terrain_cell, // 读取地形GLB网格间距倍率。
+            SceneEditorScrubField::NewScenePlayerCollisionRadius => {
+                self.new_scene_player_collision_radius
             } // 读取独立预载半径倍率。
-            MapEditorScrubField::NewMapRoleCollisionRadius => self.new_map_role_collision_radius, // 读取角色粗级预载倍率。
+            SceneEditorScrubField::NewSceneRoleCollisionRadius => self.new_scene_role_collision_radius, // 读取角色粗级预载倍率。
         } // 结束完备字段映射。
     } // 结束强类型读取。
 
-    pub fn set(&mut self, field: MapEditorScrubField, sensitivity: f32) {
+    pub fn set(&mut self, field: SceneEditorScrubField, sensitivity: f32) {
         // 只修改指定数值框的灵敏度槽位。
         match field {
             // 完备匹配保证新字段不会静默共用旧槽位。
-            MapEditorScrubField::BrushSpacing => self.brush_spacing = sensitivity,
-            MapEditorScrubField::BrushRadius => self.brush_radius = sensitivity, // 写入笔刷大小倍率。
-            MapEditorScrubField::BrushStrength => self.brush_strength = sensitivity, // 写入笔刷强度倍率。
-            MapEditorScrubField::TerrainSpeed => self.terrain_speed = sensitivity, // 写入地形速度倍率。
-            MapEditorScrubField::WaterLevel => self.water_level = sensitivity, // 写入静止水位倍率。
-            MapEditorScrubField::MeshWaterFlowSpeed => self.mesh_water_flow_speed = sensitivity, // 写入整网格水体流速倍率。
-            MapEditorScrubField::MeshWaterHeightOffset => {
+            SceneEditorScrubField::BrushSpacing => self.brush_spacing = sensitivity,
+            SceneEditorScrubField::BrushRadius => self.brush_radius = sensitivity, // 写入笔刷大小倍率。
+            SceneEditorScrubField::BrushStrength => self.brush_strength = sensitivity, // 写入笔刷强度倍率。
+            SceneEditorScrubField::TerrainSpeed => self.terrain_speed = sensitivity, // 写入地形速度倍率。
+            SceneEditorScrubField::WaterLevel => self.water_level = sensitivity, // 写入静止水位倍率。
+            SceneEditorScrubField::MeshWaterFlowSpeed => self.mesh_water_flow_speed = sensitivity, // 写入整网格水体流速倍率。
+            SceneEditorScrubField::MeshWaterHeightOffset => {
                 self.mesh_water_height_offset = sensitivity
             } // 写入整网格水体高度倍率。
-            MapEditorScrubField::PlacementTranslation => self.placement_translation = sensitivity, // 写入显式资产平移倍率。
-            MapEditorScrubField::PlacementRotation => self.placement_rotation = sensitivity, // 写入显式资产旋转倍率。
-            MapEditorScrubField::PlacementScale => self.placement_scale = sensitivity, // 写入显式资产缩放倍率。
-            MapEditorScrubField::WaterControlHeight => self.water_control_height = sensitivity, // 写入水网高度倍率。
-            MapEditorScrubField::WaterControlWidth => self.water_control_width = sensitivity, // 写入水网宽度倍率。
-            MapEditorScrubField::WaterControlDepth => self.water_control_depth = sensitivity, // 写入水网深度倍率。
-            MapEditorScrubField::WaterControlFlowSpeed => {
+            SceneEditorScrubField::PlacementTranslation => self.placement_translation = sensitivity, // 写入显式资产平移倍率。
+            SceneEditorScrubField::PlacementRotation => self.placement_rotation = sensitivity, // 写入显式资产旋转倍率。
+            SceneEditorScrubField::PlacementScale => self.placement_scale = sensitivity, // 写入显式资产缩放倍率。
+            SceneEditorScrubField::WaterControlHeight => self.water_control_height = sensitivity, // 写入水网高度倍率。
+            SceneEditorScrubField::WaterControlWidth => self.water_control_width = sensitivity, // 写入水网宽度倍率。
+            SceneEditorScrubField::WaterControlDepth => self.water_control_depth = sensitivity, // 写入水网深度倍率。
+            SceneEditorScrubField::WaterControlFlowSpeed => {
                 self.water_control_flow_speed = sensitivity
             } // 写入水网流速倍率。
-            MapEditorScrubField::VegetationPriority => self.vegetation_priority = sensitivity, // 写入植被优先级倍率。
-            MapEditorScrubField::VegetationWeight => self.vegetation_weight = sensitivity, // 写入植被权重倍率。
-            MapEditorScrubField::VegetationOpacity => self.vegetation_opacity = sensitivity, // 写入植被不透明度倍率。
-            MapEditorScrubField::VegetationGroupCapacity => {
+            SceneEditorScrubField::VegetationPriority => self.vegetation_priority = sensitivity, // 写入植被优先级倍率。
+            SceneEditorScrubField::VegetationWeight => self.vegetation_weight = sensitivity, // 写入植被权重倍率。
+            SceneEditorScrubField::VegetationOpacity => self.vegetation_opacity = sensitivity, // 写入植被不透明度倍率。
+            SceneEditorScrubField::VegetationGroupCapacity => {
                 self.vegetation_group_capacity = sensitivity
             } // 写入植被组容量倍率。
-            MapEditorScrubField::VegetationClaimThreshold => {
+            SceneEditorScrubField::VegetationClaimThreshold => {
                 self.vegetation_claim_threshold = sensitivity
             } // 写入植被占用阈值倍率。
-            MapEditorScrubField::BoundaryThickness => self.boundary_thickness = sensitivity, // 写入边界厚度倍率。
-            MapEditorScrubField::SkyboxBrightness => self.skybox_brightness = sensitivity, // 写入天空亮度倍率。
-            MapEditorScrubField::EnvironmentDiffuseIntensity => {
+            SceneEditorScrubField::BoundaryThickness => self.boundary_thickness = sensitivity, // 写入边界厚度倍率。
+            SceneEditorScrubField::SkyboxBrightness => self.skybox_brightness = sensitivity, // 写入天空亮度倍率。
+            SceneEditorScrubField::EnvironmentDiffuseIntensity => {
                 self.environment_diffuse_intensity = sensitivity
             } // 写入天空漫反射补光倍率。
-            MapEditorScrubField::EnvironmentSpecularIntensity => {
+            SceneEditorScrubField::EnvironmentSpecularIntensity => {
                 self.environment_specular_intensity = sensitivity
             } // 写入天空镜面反射倍率。
-            MapEditorScrubField::SkyboxYaw => self.skybox_yaw = sensitivity, // 写入天空方位角倍率。
-            MapEditorScrubField::WeatherPreviewProgress => {
+            SceneEditorScrubField::SkyboxYaw => self.skybox_yaw = sensitivity, // 写入天空方位角倍率。
+            SceneEditorScrubField::WeatherPreviewProgress => {
                 self.weather_preview_progress = sensitivity
             } // 写入天气预览进度倍率。
-            MapEditorScrubField::NewMapWidth => self.new_map_width = sensitivity, // 写入新地图宽度倍率。
-            MapEditorScrubField::NewMapLength => self.new_map_length = sensitivity, // 写入新地图长度倍率。
-            MapEditorScrubField::NewMapTerrainCell => self.new_map_terrain_cell = sensitivity, // 写入地形GLB网格间距倍率。
-            MapEditorScrubField::NewMapPlayerCollisionRadius => {
-                self.new_map_player_collision_radius = sensitivity
+            SceneEditorScrubField::NewSceneWidth => self.new_scene_width = sensitivity, // 写入新场景宽度倍率。
+            SceneEditorScrubField::NewSceneLength => self.new_scene_length = sensitivity, // 写入新场景长度倍率。
+            SceneEditorScrubField::NewSceneTerrainCell => self.new_scene_terrain_cell = sensitivity, // 写入地形GLB网格间距倍率。
+            SceneEditorScrubField::NewScenePlayerCollisionRadius => {
+                self.new_scene_player_collision_radius = sensitivity
             } // 写入独立预载半径倍率。
-            MapEditorScrubField::NewMapRoleCollisionRadius => {
-                self.new_map_role_collision_radius = sensitivity
+            SceneEditorScrubField::NewSceneRoleCollisionRadius => {
+                self.new_scene_role_collision_radius = sensitivity
             } // 写入角色粗级独立倍率。
         } // 结束完备字段写入。
     } // 结束强类型写入。
 } // 结束数值框灵敏度访问器实现。
 
-impl Default for MapEditorScrubSensitivities {
+impl Default for SceneEditorScrubSensitivities {
     fn default() -> Self {
         Self {
             brush_spacing: 1.0,                   // 默认标准手感。
@@ -231,17 +231,17 @@ impl Default for MapEditorScrubSensitivities {
             vegetation_opacity: 1.0,              // 一倍使用植被不透明度的标准百分比手感。
             vegetation_group_capacity: 1.0,       // 一倍使用植被组容量的标准百分比手感。
             vegetation_claim_threshold: 1.0,      // 一倍使用植被占用阈值的标准百分比手感。
-            boundary_thickness: 1.0,              // 一倍使用地图边界厚度的标准米制手感。
+            boundary_thickness: 1.0,              // 一倍使用场景边界厚度的标准米制手感。
             skybox_brightness: 1.0,               // 一倍使用天空亮度的标准线性手感。
             environment_diffuse_intensity: 1.0,   // 一倍使用天空漫反射补光的标准线性手感。
             environment_specular_intensity: 1.0,  // 一倍使用天空镜面反射的标准线性手感。
             skybox_yaw: 1.0,                      // 一倍使用天空方位角的标准角度手感。
             weather_preview_progress: 1.0,        // 一倍使用天气转换预览的标准百分比手感。
-            new_map_width: 1.0,                   // 一倍使用新地图宽度的标准米制手感。
-            new_map_length: 1.0,                  // 一倍使用新地图长度的标准米制手感。
-            new_map_terrain_cell: 1.0,            // 一倍使用地形GLB网格间距的标准米制手感。
-            new_map_player_collision_radius: 1.0, // 一倍使用玩家预载半径的标准米制手感。
-            new_map_role_collision_radius: 1.0,   // 一倍使用角色粗级预载半径的标准米制手感。
+            new_scene_width: 1.0,                   // 一倍使用新场景宽度的标准米制手感。
+            new_scene_length: 1.0,                  // 一倍使用新场景长度的标准米制手感。
+            new_scene_terrain_cell: 1.0,            // 一倍使用地形GLB网格间距的标准米制手感。
+            new_scene_player_collision_radius: 1.0, // 一倍使用玩家预载半径的标准米制手感。
+            new_scene_role_collision_radius: 1.0,   // 一倍使用角色粗级预载半径的标准米制手感。
         }
     }
 }
@@ -356,7 +356,7 @@ pub struct EditorSettings {
     pub limit_build_fps: bool,
     pub scene: feathrise_settings::SceneDisplaySettings,
     pub environment: feathrise_settings::EnvironmentPreviewSettings,
-    pub map_editor_scrub_sensitivities: MapEditorScrubSensitivities,
+    pub scene_editor_scrub_sensitivities: SceneEditorScrubSensitivities,
     pub ui_locale: EditorLocalePreference,
     pub editor_ui_scale: f32,
     pub editor_ui_scale_auto: bool,
@@ -375,7 +375,7 @@ impl Default for EditorSettings {
             limit_build_fps: DEFAULT_LIMIT_BUILD_FPS,
             scene: Default::default(),
             environment: Default::default(),
-            map_editor_scrub_sensitivities: Default::default(),
+            scene_editor_scrub_sensitivities: Default::default(),
             ui_locale: EditorLocalePreference::default(),
             editor_ui_scale: DEFAULT_EDITOR_UI_SCALE,
             editor_ui_scale_auto: false,

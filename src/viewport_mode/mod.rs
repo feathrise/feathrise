@@ -37,7 +37,7 @@ pub(crate) fn install(
     preferences: &crate::user_preferences::Preferences,
     project: Option<&crate::project::Project>,
 ) -> Completion {
-    feathrise_editor_map::standalone::viewport_projection::install(app);
+    feathrise_editor_scene::standalone::viewport_projection::install(app);
     let completion = self::preferences::install(app, preferences, project);
     {
         let mut mode = app.world_mut().resource_mut::<ViewportModeState>();
@@ -61,7 +61,7 @@ pub(crate) fn install(
         .add_message::<ViewportModeChanged>()
         .add_message::<messages::RequestBuildProfile>()
         .add_message::<messages::RequestBuildBackend>()
-        .add_message::<feathrise_editor_map::standalone::SavedPlayFeedback>()
+        .add_message::<feathrise_editor_scene::standalone::SavedPlayFeedback>()
         .add_systems(Update, ui::mount.before(ViewportModeInput))
         .add_systems(Update, ui::mount_launch.before(ViewportModeInput))
         .add_systems(Update, compilation::input
@@ -70,7 +70,7 @@ pub(crate) fn install(
             .after(crate::project_log::ProjectLogInput)
             .after(crate::native_plugins::management::PluginManagerInput)
             .after(crate::project_export::ExportInput)
-            .before(feathrise_editor_core::MapEditorSystemSet::Input)
+            .before(feathrise_editor_core::SceneEditorSystemSet::Input)
             .before(ViewportModeInput))
         .add_systems(
             Update,
@@ -92,7 +92,7 @@ pub(crate) fn install(
         .add_systems(
             PostUpdate,
             window::measure.after(
-                feathrise_editor_map::standalone::viewport_projection::ViewportProjectionSet,
+                feathrise_editor_scene::standalone::viewport_projection::ViewportProjectionSet,
             ).after(crate::window_chrome::ChromeMeasure),
         );
     completion
@@ -104,7 +104,7 @@ pub(crate) fn compilation_input_test_schedule(world: &mut World) -> (Schedule, E
     world.init_resource::<resources::CompilationReturn>();
     world.init_resource::<Messages<RequestViewportMode>>();
     world.init_resource::<Messages<ViewportModeChanged>>();
-    world.init_resource::<Messages<feathrise_editor_map::standalone::SavedPlayFeedback>>();
+    world.init_resource::<Messages<feathrise_editor_scene::standalone::SavedPlayFeedback>>();
     world.init_resource::<feathrise_editor_core::ProjectLaunchSettings>();
     let mode_button = world.spawn((
         InteractionButton, components::ModeButton(ViewportMode::SavedWorld),

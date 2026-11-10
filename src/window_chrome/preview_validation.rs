@@ -13,7 +13,7 @@ use bevy::{prelude::*,input::{ButtonState,mouse::MouseButtonInput},tasks::IoTask
     render::view::screenshot::{Screenshot,ScreenshotCaptured},window::{PrimaryWindow,RawHandleWrapper},
     ui::InteractionDisabled};
 use crate::{embedded_viewport::{EmbeddedStatus,validation as evidence},viewport_mode::{RequestViewportMode,ViewportMode,ViewportGeometry}};
-use feathrise_editor_map::standalone::{embedded_validation as author,embedded_snapshot};
+use feathrise_editor_scene::standalone::{embedded_validation as author,embedded_snapshot};
 use feathrise_editor_protocol::Mode;
 use serde_json::{Value,json};
 use std::{path::Path,time::{Duration,Instant}};
@@ -59,7 +59,7 @@ pub(crate) fn install(app:&mut App,project:&Path,directory:std::path::PathBuf)->
     }else{None};
     ensure(native_token.is_some(),"预览三键专项必须由真实NC输入观察器启动；官方ECS输入不能替代原生caption_down")?;
     author::install(app);
-    app.insert_resource(Plan{directory,project:owned.root,started:Instant::now(),changed:Instant::now(),stage:0,frames:0,map_requested:false,mouse:0,target:None,clicked:false,
+    app.insert_resource(Plan{directory,project:owned.root,started:Instant::now(),changed:Instant::now(),stage:0,frames:0,scene_requested:false,mouse:0,target:None,clicked:false,
         root:embed.parent,root_pid:embed.pid,author_hwnd:0,pid:0,world_id:0,baseline:None,baseline_chrome:None,min_frame:0,
         game_task:None,game:None,retry:Instant::now(),image:None,image_ready:false,checkpoint_done:false,attempts:0,minimize:None,minimize_proof:None,
         proofs:Vec::new(),captures:Vec::new(),write:None,report_written:false,failure:None,native_token,gate_written:false,gate_write:None,
@@ -315,7 +315,7 @@ fn diagnostic(world:&mut World,plan:&mut Plan){
         "stage_elapsed_ms":plan.changed.elapsed().as_millis() as u64,"min_frame":plan.min_frame,
         "status":{"active":status.active,"ready":status.ready,"pid":pid,"world_id":status.world_id,"playing":status.playing,
             "applied_revision":revision,"frames":status.frames,"ticks":status.ticks,"observed_mode":status.observed_mode,"error":status.error},
-        "snapshot":{"ready_current":embedded_snapshot::ready_is_current(world),"revision":snapshot.revision,"map_id":snapshot.map_id,
+        "snapshot":{"ready_current":embedded_snapshot::ready_is_current(world),"revision":snapshot.revision,"scene_id":snapshot.scene_id,
             "pending":snapshot.pending,"error":snapshot.error,"ready_revision":snapshot.ready.as_ref().map(|ready|ready.author_revision),
             "waiting_reason":embedded_snapshot::waiting_reason(world)},
         "geometry":{"parent_hwnd":geometry.parent_hwnd,"parent_pid":geometry.parent_pid,"rect":geometry.rect,"visible":geometry.visible,
@@ -361,12 +361,12 @@ fn advance(world:&mut World,plan:&mut Plan)->Result<(),String>{
     match plan.stage{
         0=>{
             if plan.frames<30{return Ok(());}
-            if !plan.map_requested{
+            if !plan.scene_requested{
                 world.write_message(RequestViewportMode(ViewportMode::SavedWorld));
-                feathrise_editor_map::standalone::request_open_map(world,"M1-SAMPLE")?;
-                plan.map_requested=true;return Ok(());
+                feathrise_editor_scene::standalone::request_open_scene(world,"M1-SAMPLE")?;
+                plan.scene_requested=true;return Ok(());
             }
-            if !feathrise_editor_map::standalone::preview_ready_for(world,"M1-SAMPLE"){return Ok(());}
+            if !feathrise_editor_scene::standalone::preview_ready_for(world,"M1-SAMPLE"){return Ok(());}
             let Some(chrome)=chrome(world,plan,false)?else{return Ok(());};
             if !crate::native_project_close::embedded_validation::idle(world){return Ok(());}
             let probe=serde_json::to_value(author::probe(world)?).map_err(|error|error.to_string())?;

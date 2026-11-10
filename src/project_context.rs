@@ -48,7 +48,7 @@ impl ProjectContext {
             let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
             format!("legacy-{hex}")
         } else {
-            return Err("工程清单v2的ID必须是小写标准UUID，不能复用地图ID".into());
+            return Err("工程清单v2的ID必须是小写标准UUID，不能复用场景ID".into());
         };
         let roots = match (format, asset_roots) {
             (2, None) => return Err("工程清单v2缺少asset_roots".into()),

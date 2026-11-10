@@ -3,7 +3,7 @@ format = 1
 
 [source]
 kind = "registry"
-version = "0.2.0"
+version = "0.3.0"
 bevy_version = "0.20.1"
 git = "https://github.com/feathrise/feathrise_patches.git"
 rev = "019fd1fe13ed9107d17b360b8f5a3df61bfc139a"

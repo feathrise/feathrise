@@ -1,4 +1,4 @@
-//! 文档格式、输入身份与不可变内容派生契约；不包含地图会话或任务调度。
+//! 文档格式、输入身份与不可变内容派生契约；不包含场景会话或任务调度。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceKey {
     pub path: String,

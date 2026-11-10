@@ -16,7 +16,7 @@ pub(crate) struct RecoveryReport {
     pub descriptor_restored: bool,
     pub same_world_marker: bool,
     pub original_save_proof_preserved: bool,
-    pub map_history_metadata_preserved: bool,
+    pub scene_history_metadata_preserved: bool,
     pub surface_session_preserved: bool,
     pub marker_entity: String,
     pub owner_marker_checked: bool,
@@ -25,8 +25,8 @@ pub(crate) struct RecoveryReport {
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct SurfaceSession {
     pub tab: u64,
-    pub descriptor: feathrise_map_content::SurfacePresetDescriptor,
-    pub baseline: feathrise_map_content::SurfacePresetDescriptor,
+    pub descriptor: feathrise_scene_content::SurfacePresetDescriptor,
+    pub baseline: feathrise_scene_content::SurfacePresetDescriptor,
     pub section: feathrise_editor_surface_model::types::SurfaceSection,
     pub close_confirmation: bool,
 }
@@ -36,7 +36,7 @@ pub(super) struct AuthorSnapshot {
     pub saved: Value,
     pub authoring: Value,
     pub surface: SurfaceSession,
-    pub map: Value,
+    pub scene: Value,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,7 +48,7 @@ pub(super) enum Phase {
     Injecting,
     WaitFailure,
     Restoring,
-    WaitMapPreview,
+    WaitScenePreview,
     Ready,
     Failed,
 }

@@ -1,7 +1,7 @@
-//! 地图工作区的快捷键契约：精确修饰键、冲突校验及与设置文件往返的稳定名称。
+//! 场景工作区的快捷键契约：精确修饰键、冲突校验及与设置文件往返的稳定名称。
 //!
-//! 【功能设计】只配置地图操作；文档编辑、鼠标手势和全局功能键保留各自输入所有权。
-//! 固定动作的检查不随地图规模增长，左右修饰键等价，额外修饰键不会误触发裸键动作。
+//! 【功能设计】只配置场景操作；文档编辑、鼠标手势和全局功能键保留各自输入所有权。
+//! 固定动作的检查不随场景规模增长，左右修饰键等价，额外修饰键不会误触发裸键动作。
 
 use std::collections::BTreeMap;
 
@@ -12,7 +12,7 @@ use bevy::prelude::{ButtonInput, KeyCode};
 pub enum EditorShortcutAction {
     #[default]
     FocusSelected,
-    FrameMap,
+    FrameScene,
     Save,
     Undo,
     Redo,
@@ -30,7 +30,7 @@ pub enum EditorShortcutAction {
 impl EditorShortcutAction {
     pub const ALL: [Self; 14] = [
         Self::FocusSelected,
-        Self::FrameMap,
+        Self::FrameScene,
         Self::Save,
         Self::Undo,
         Self::Redo,
@@ -48,8 +48,8 @@ impl EditorShortcutAction {
     pub fn name(self) -> &'static str {
         match self {
             Self::FocusSelected => "focus_selected",
-            Self::FrameMap => "frame_map",
-            Self::Save => "save_map",
+            Self::FrameScene => "frame_scene",
+            Self::Save => "save_scene",
             Self::Undo => "undo",
             Self::Redo => "redo",
             Self::DecreaseRadius => "decrease_radius",
@@ -67,8 +67,8 @@ impl EditorShortcutAction {
     pub fn label(self) -> &'static str {
         match self {
             Self::FocusSelected => "聚焦所选",
-            Self::FrameMap => "查看全图",
-            Self::Save => "保存地图",
+            Self::FrameScene => "查看全图",
+            Self::Save => "保存场景",
             Self::Undo => "撤销",
             Self::Redo => "重做",
             Self::DecreaseRadius => "缩小笔刷半径",

@@ -1,7 +1,7 @@
 //! 地表三个顶部分区的固定字段编排；不计算材质、不读取纹理或改写作者协议。
 
 use bevy::prelude::*;
-use feathrise_map_content::SurfaceProjection;
+use feathrise_scene_content::SurfaceProjection;
 
 use super::components::SurfaceButtonKind;
 use super::types::{
@@ -23,7 +23,7 @@ pub(super) fn spawn_fields(
                 parent,
                 face,
                 "地表资料",
-                "稳定 ID 不可在普通编辑中修改；地图继续按原引用识别此预设。",
+                "稳定 ID 不可在普通编辑中修改；场景继续按原引用识别此预设。",
                 |body| {
                     readonly(body, face, &format!("稳定 ID：{}", descriptor.id));
                     row(body, |grid| {

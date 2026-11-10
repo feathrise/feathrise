@@ -1,6 +1,6 @@
 # 编辑器 Windows CI
 
-[Windows 工作流](../.github/workflows/windows-check.yml)检查 Bevy 0.20.1 的宿主、空工程模板和地图作者库，要求 Rust 1.97.1 或更新版本。每种选定来源均检查默认和 `validation` 两个组合。
+[Windows 工作流](../.github/workflows/windows-check.yml)检查 Bevy 0.20.1 的宿主、空工程模板和场景作者库，要求 Rust 1.97.1 或更新版本。每种选定来源均检查默认和 `validation` 两个组合。
 
 | 触发方式 | SDK 来源 |
 | --- | --- |
@@ -12,7 +12,7 @@
 
 ## 源码联调
 
-工作流默认使用其中固定的 Bevy 0.20.1 SDK 和补丁提交。当前 SDK 修订为 `dc13fb3902737bcc6a0cae2a4dd27a0694fbce42`，包含编辑器使用的 `UiInteraction` 及对应清单依赖。更新配套源码时须同步核对编辑器锁文件，不以移除 `--locked` 修复版本不匹配。需要检查另一组配套源码时，可以在 GitHub 仓库的 **Settings → Secrets and variables → Actions → Variables** 覆盖。
+工作流使用固定的场景版 SDK 0.3.0 和 Bevy 0.20.1 补丁提交。源码检查先核对提交，再确认 `feathrise_runtime`、`feathrise_scene_content`、`feathrise_terrain` 和 `feathrise_editor_protocol` 的包身份及版本。更新配套源码时须同步核对编辑器锁文件。需要检查另一组配套源码时，可以在 GitHub 仓库的 **Settings → Secrets and variables → Actions → Variables** 覆盖。
 
 | 变量 | 值 |
 | --- | --- |
@@ -27,7 +27,7 @@
 
 ## crates.io 配方
 
-[.cargo/registry-sdk.toml](../.cargo/registry-sdk.toml) 固定 Bevy 0.20.1 和 SDK 0.2.0 的公开补丁。单文件构建在独立源码副本中解析公开依赖，后续检查和 Release 编译使用同一份锁文件。版本标签和手动选择的 registry 组合只检出编辑器，解析公开依赖后分别检查默认与 validation 特性。当前源码新增的共享控件接口尚不在已发布的 0.2.0 中；本轮保持所有包版本不变且不发包，因此源码检查通过不表示已经具备新的公开发行兼容性。历史发行版的配方随各自 Git 标签保存。
+编辑器锁定 SDK 0.3.0，[.cargo/registry-sdk.toml](../.cargo/registry-sdk.toml) 固定配套 Bevy 0.20.1 补丁。单文件构建在独立源码副本中解析公开依赖，后续检查和 Release 编译使用同一份锁文件。版本标签和手动选择的 registry 组合只检出编辑器，在整组 SDK 0.3.0 包发布后检查默认与 validation 特性。历史发行版的配方随各自 Git 标签保存。
 
 ## 跨运行缓存
 

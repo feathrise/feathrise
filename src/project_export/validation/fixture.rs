@@ -55,7 +55,7 @@ fn owned_scenario(target: &Path, work: &Path, root: &Path, selected: Scenario, s
     let mut document = if startup.try_exists().map_err(|error|error.to_string())? {
         crate::startup_document::parse(&fs::read(&startup).map_err(|error|error.to_string())?, &project.id)?
     } else { crate::startup_document::Document::empty(&project.id) };
-    document.select_map("M1-SAMPLE")?;
+    document.select_scene("M1-SAMPLE")?;
     let startup_bytes = crate::startup_document::to_bytes(&document, &project.id)?;
     fs::write(&startup, &startup_bytes).map_err(|error|error.to_string())?;
     let descriptor_bytes = fs::read(root.join("editor-project.json")).map_err(|error|error.to_string())?;
@@ -115,7 +115,7 @@ fn owned_scenario(target: &Path, work: &Path, root: &Path, selected: Scenario, s
     evidence["copied_outside_project_and_all_bytes_verified"] = json!(true);
     println!("FEATHRISE_EXPORT_VALIDATION_COORDINATOR standalone {}", delivered.display());
     let independent = standalone::run(work, &delivered, &marker, &project, saved_author_tools, control)?;
-    // GPU中出现的实例只允许来自已保存地图，不能把窗口中未保存立方体偷偷打进包。
+    // GPU中出现的实例只允许来自已保存场景，不能把窗口中未保存立方体偷偷打进包。
     let unsaved = child["stages"].as_array().and_then(|stages|stages.iter().find(|step|step["stage"] == "unsaved_author_draft_prepared"))
         .ok_or("原窗口缺少未保存草稿证据")?;
     let id = unsaved["author"]["last_added_id"].as_str().ok_or("未保存立方体缺少真实ID")?;

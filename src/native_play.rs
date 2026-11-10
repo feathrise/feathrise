@@ -24,7 +24,7 @@ use bevy::{
 };
 pub(crate) use resources::NativePlayStatus;
 use resources::{NativePlayRuntime, NativePlaySettings};
-use feathrise_editor_map::standalone::{RunSavedProject, SavedPlayFeedback, StandaloneEditorMode};
+use feathrise_editor_scene::standalone::{RunSavedProject, SavedPlayFeedback, StandaloneEditorMode};
 use std::{path::PathBuf, sync::mpsc, thread};
 
 pub(crate) struct NativePlayPlugin {
@@ -53,7 +53,7 @@ impl Plugin for NativePlayPlugin {
             Update,
             (poll_play, code_apply::advance, preflight_play, request_play, request_exit)
                 .chain()
-                .after(feathrise_editor_map::standalone::SavedPlayDispatch),
+                .after(feathrise_editor_scene::standalone::SavedPlayDispatch),
         );
     }
 }
@@ -84,7 +84,7 @@ fn preflight_play(world: &mut World, mut cursor: Local<MessageCursor<RunSavedPro
     {
         Some("工程启动设置正在保存，完成后请重新启动工程".to_owned())
     } else {
-        feathrise_editor_map::standalone::saved_play_blocker(world)
+        feathrise_editor_scene::standalone::saved_play_blocker(world)
     };
     if let Some(reason) = reason {
         world.resource_mut::<Messages<RunSavedProject>>().clear();
@@ -687,7 +687,7 @@ mod tests {
             .add_systems(Update, (preflight_play, request_play).chain());
         app.world_mut().write_message(RunSavedProject {
             profile: default(),
-            map_id: None,
+            scene_id: None,
             has_unsaved_changes: true,
             stop_only: true,
         });

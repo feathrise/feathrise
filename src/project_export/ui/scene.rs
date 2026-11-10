@@ -4,7 +4,7 @@ use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::super::{components::*, resources::ExportState};
 use bevy::{input_focus::tab_navigation::TabIndex, prelude::*, text::{EditableTextFilter, TextCursorStyle}, ui::{FocusPolicy, RelativeCursorPosition}};
-use feathrise_editor_map::workbench::WorkbenchHeader;
+use feathrise_editor_scene::workbench::WorkbenchHeader;
 use feathrise_editor_ui::colors as c;
 use feathrise_editor_ui::localization::LocalizedText;
 

@@ -16,7 +16,7 @@ pub(crate) enum WorkspaceCommand {
     },
     CloseProject,
     QuitApp,
-    SetStartupMap,
+    SetStartupScene,
     ExportProject,
     OpenPlugins,
     Browse {

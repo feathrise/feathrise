@@ -44,7 +44,7 @@ pub(super) fn owner(root: &Path) -> Result<project::Project, String> {
     Ok(project)
 }
 
-/// 对固定小夹具完整计算作者资产身份；不在帧内运行，不把只校验一个地图JSON当全体未落盘。
+/// 对固定小夹具完整计算作者资产身份；不在帧内运行，不把只校验一个场景JSON当全体未落盘。
 pub(super) fn asset_hashes(root: &Path) -> Result<BTreeMap<PathBuf, String>, String> {
     let assets = root
         .join("assets")
@@ -503,7 +503,7 @@ fn verify_guest_evidence(output: &Path, report: &Value) -> Result<Vec<Value>, St
         "recovered_world_returned_to_edit",
     ];
     if report["empty_fixture"] == true {
-        stages.extend(["empty_map_f12_play_same_world", "empty_map_f12_returned"]);
+        stages.extend(["empty_scene_f12_play_same_world", "empty_scene_f12_returned"]);
     }
     for stage in stages {
         let step = steps
@@ -550,8 +550,8 @@ fn verify_guest_evidence(output: &Path, report: &Value) -> Result<Vec<Value>, St
             return Err(format!("{stage}运行实例实际实例与未保存作者/撤销状态不一致"));
         }
         if let (Some(actual), Some(expected)) = (actual, expected) {
-            if actual["position"] != expected["translation"] || actual["map"] != "M1-SAMPLE" {
-                return Err(format!("{stage}运行实例实际实例位置或地图不符"));
+            if actual["position"] != expected["translation"] || actual["scene_id"] != "M1-SAMPLE" {
+                return Err(format!("{stage}运行实例实际实例位置或场景不符"));
             }
         }
         evidence.push(json!({"stage":stage,"passed":true,"capture":capture}));

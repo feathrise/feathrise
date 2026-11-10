@@ -4,7 +4,7 @@ use super::{
     RequestViewportMode, ViewportModeAvailability, ViewportModeChanged, ViewportModeState,
 };
 use bevy::prelude::*;
-use feathrise_editor_map::standalone::SavedPlayFeedback;
+use feathrise_editor_scene::standalone::SavedPlayFeedback;
 
 pub(super) fn apply(
     world: &mut World,
@@ -130,7 +130,7 @@ pub(super) fn blocked_reason(world: &World, requested: super::ViewportMode) -> O
     }
     if requested == super::ViewportMode::EmbeddedWorld
         && let Some(error) = world
-        .get_resource::<feathrise_editor_map::standalone::viewport_projection::ViewportHostProjection>()
+        .get_resource::<feathrise_editor_scene::standalone::viewport_projection::ViewportHostProjection>()
         .and_then(|projection| projection.error.as_ref())
     {
         return Some(error.clone());
@@ -160,7 +160,7 @@ pub(super) fn blocked_reason(world: &World, requested: super::ViewportMode) -> O
         || world
             .get_resource::<crate::workspace_ui::WorkspaceModel>()
             .is_some_and(|workspace| workspace.busy)
-        || feathrise_editor_map::standalone::viewport_projection::switch_pending(world)
+        || feathrise_editor_scene::standalone::viewport_projection::switch_pending(world)
     {
         return Some("工程操作正在进行，请完成后再切换 3D 方式".into());
     }
@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn invalid_child_holes_block_entry_but_preserve_return_to_saved_world() {
-        use feathrise_editor_map::standalone::viewport_projection::ViewportHostProjection;
+        use feathrise_editor_scene::standalone::viewport_projection::ViewportHostProjection;
         let mut app = app();
         app.insert_resource(ViewportHostProjection {
             error: Some("浮动控件超过窗口区域预算".into()),

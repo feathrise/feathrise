@@ -5,7 +5,7 @@ use super::{close_cancel, evidence, resources::{Phase, Plan}};
 use crate::{code_iteration::{CodeIterationState, components::{ApplyVersion, CodeIterationAction}, types::CodeIterationPhase},
     embedded_viewport::EmbeddedStatus, viewport_mode::{RequestViewportMode, ViewportMode, ViewportModeState}};
 use bevy::{input_focus::{FocusCause, InputFocus}, prelude::*, tasks::{IoTaskPool, futures::check_ready}, text::{EditableText, TextEdit}, window::WindowCloseRequested};
-use feathrise_editor_map::standalone::{self, SourceLocationAction, embedded_validation as author};
+use feathrise_editor_scene::standalone::{self, SourceLocationAction, embedded_validation as author};
 use serde_json::{Value, json};
 use std::{io::Write, path::PathBuf, time::Duration};
 
@@ -77,7 +77,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
     match plan.phase {
         Phase::Open if plan.frames >= 30 => {
             world.write_message(RequestViewportMode(ViewportMode::SavedWorld));
-            standalone::request_open_map(world, "M1-SAMPLE")?;
+            standalone::request_open_scene(world, "M1-SAMPLE")?;
             plan.advance(Phase::Local);
         }
         Phase::Local if standalone::preview_ready_for(world, "M1-SAMPLE")
@@ -120,7 +120,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
             let probe = author::probe(world)?;
             if !probe.dirty || probe.redo_len != 1 || probe.undo_len as u64 != plan.initial.as_ref().unwrap()["undo_len"].as_u64().unwrap() + 1 { return Ok(()); }
             author::tool_previews::select(world, plan.first_id.as_deref())?;
-            record(world, plan, "unsaved_map_selection_and_undo_redo_prepared", None)?;
+            record(world, plan, "unsaved_scene_selection_and_undo_redo_prepared", None)?;
             open_source(world, plan, NOTE);
             plan.advance(Phase::NoteOpen);
         }
@@ -210,14 +210,14 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
             let Some(probe) = standalone::source_location_probe(world) else { return Ok(()); };
             if probe["path"] != NOTE || probe["native_matches"] != true { return Ok(()); }
             verify_note(&probe, plan.note_baseline.as_ref().unwrap())?;
-            if pulse_source(world, plan, NOTE, SourceLocationAction::Map)? { plan.advance(Phase::ReturnMap); }
+            if pulse_source(world, plan, NOTE, SourceLocationAction::Scene)? { plan.advance(Phase::ReturnScene); }
         }
-        Phase::ReturnMap => {
+        Phase::ReturnScene => {
             source_wait(world, plan);
             if !standalone::preview_ready_for(world, "M1-SAMPLE") || !evidence::current_snapshot(world) { return Ok(()); }
             let Some(probe) = standalone::source_location_probe(world) else { return Ok(()); };
             if probe["central_active"] == true { return Ok(()); }
-            // 地图重新显示后，布局、投影及下一帧原生几何按原系统逐次发布。
+            // 场景重新显示后，布局、投影及下一帧原生几何按原系统逐次发布。
             // 只冻结连续三帧一致的真实基线；之后的保留断言仍逐字段严格比较。
             let baseline = evidence::author_state(world)?;
             if plan.baseline.as_ref() != Some(&baseline) {
@@ -307,7 +307,7 @@ fn same_old(world: &World, plan: &Plan) -> Result<(), String> {
 }
 
 pub(super) fn open_source(world: &mut World, plan: &Plan, path: &str) {
-    let context = world.get_resource::<feathrise_editor_map::workbench::WorkbenchModel>()
+    let context = world.get_resource::<feathrise_editor_scene::workbench::WorkbenchModel>()
         .map_or(world.resource::<CodeIterationState>().source_context, |model| model.context);
     world.write_message(standalone::OpenProjectSourceLocation { context, project_root: plan.project.root.clone(), path: path.into(), line: 1, column: 1 });
 }
@@ -379,10 +379,10 @@ pub(super) fn source_wait(world: &mut World, plan: &mut Plan) {
     let source = probe.as_ref().map(|probe| json!({"path":probe["path"],"native_matches":probe["native_matches"],
         "input_entity":probe["input_entity"],"visible":probe["visible"],"central_active":probe["central_active"],
         "pending_edits":probe["pending_edits"],"focused":probe["focused"]}));
-    let map_button = standalone::source_location_action_entity(world, NOTE, SourceLocationAction::Map).map(Entity::to_bits);
+    let scene_button = standalone::source_location_action_entity(world, NOTE, SourceLocationAction::Scene).map(Entity::to_bits);
     let navigation = standalone::source_location_navigation_probe(world);
     eprintln!("FEATHRISE_CODE_ITERATION_SOURCE_WAIT {}", json!({"phase":format!("{:?}",plan.phase),"source":source,
-        "map_button":map_button,"preview_ready":standalone::preview_ready_for(world,"M1-SAMPLE"),
+        "scene_button":scene_button,"preview_ready":standalone::preview_ready_for(world,"M1-SAMPLE"),
         "snapshot_current":evidence::current_snapshot(world),"navigation":navigation}));
 }
 

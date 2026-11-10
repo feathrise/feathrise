@@ -29,7 +29,7 @@ fn stop(world: &mut World, return_to_editor: bool) -> bool {
     true
 }
 
-/// 必须先于原地图按钮分派消费边沿，否则同一按钮会把停止误作预览或关闭作者界面。
+/// 必须先于原场景按钮分派消费边沿，否则同一按钮会把停止误作预览或关闭作者界面。
 pub(super) fn input(world: &mut World) {
     let stopping = world.resource::<CompilationReturn>().selection_revision.is_some();
     let stoppable = world.resource::<ViewportModeState>().selected == ViewportMode::EmbeddedWorld
@@ -93,7 +93,7 @@ pub(super) fn present(world: &mut World) {
         if changed && let Some(mut click) = world.get_mut::<EditorButtonClick>(button) { click.invalidate(); }
         let owned = world.get::<CompilationLaunchDisabled>(button).is_some();
         if stopping && world.get::<InteractionDisabled>(button).is_none() {
-            // 原地图表现系统可在Update撤销Close按钮的禁用；每帧布局前重投影，输入仍独立消费。
+            // 原场景表现系统可在Update撤销Close按钮的禁用；每帧布局前重投影，输入仍独立消费。
             world.entity_mut(button).insert((InteractionDisabled, CompilationLaunchDisabled));
         } else if !stopping && owned {
             world.entity_mut(button).remove::<(InteractionDisabled, CompilationLaunchDisabled)>();

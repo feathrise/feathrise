@@ -4,7 +4,7 @@
 use super::{driver, evidence, resources::{Phase, Plan}};
 use crate::{code_iteration::{CodeIterationState, types::CodeIterationPhase}, embedded_viewport::{EmbeddedStatus, validation as embedded}};
 use bevy::{asset::RenderAssetUsages, image::{CompressedImageFormats, ImageSampler, ImageType}, prelude::*, tasks::{IoTaskPool, Task, futures::check_ready}};
-use feathrise_editor_map::standalone::{self, SourceLocationAction, embedded_validation as author};
+use feathrise_editor_scene::standalone::{self, SourceLocationAction, embedded_validation as author};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{fs, io::Read, path::{Path, PathBuf}, time::{Duration, Instant}};
@@ -19,8 +19,8 @@ const BAD: &str = "fn live_step() -> f32 { 1_u32 }";
 const SOURCE: &str = "actual-function-hotpatch-World-Entity-Resource-Local-Time-and-material";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Step { InitialMap, InitialPlaying, ReturnEditing, Controller, InvalidBuffer, SavedInvalid, Diagnostics,
-    Located, FixedBuffer, SavedFixed, Candidate, ReturnNote, ReturnMap, Apply, Applied, Resumed, FinalMap }
+enum Step { InitialScene, InitialPlaying, ReturnEditing, Controller, InvalidBuffer, SavedInvalid, Diagnostics,
+    Located, FixedBuffer, SavedFixed, Candidate, ReturnNote, ReturnScene, Apply, Applied, Resumed, FinalScene }
 
 pub(super) struct Check {
     step: Step,
@@ -54,8 +54,8 @@ impl Check {
 pub(super) fn begin(world: &mut World, plan: &mut Plan) -> Result<(), String> {
     if plan.hotpatch_check.is_some() { return Err("函数体专项不得重复初始化".into()); }
     if world.resource::<EmbeddedStatus>().patch_epoch != 0 { return Err("新建正式预览实例的补丁代次不是零".into()); }
-    if !driver::pulse_source(world, plan, NOTE, SourceLocationAction::Map)? { return Ok(()); }
-    plan.hotpatch_check = Some(Box::new(Check { step: Step::InitialMap, changed: Instant::now(), epoch: 0, next: 2,
+    if !driver::pulse_source(world, plan, NOTE, SourceLocationAction::Scene)? { return Ok(()); }
+    plan.hotpatch_check = Some(Box::new(Check { step: Step::InitialScene, changed: Instant::now(), epoch: 0, next: 2,
         minimum_frame: 0, baseline: None, task: None, retry: Instant::now(), proof: None, captured: None, samples: Vec::new(),
         error_evidence: None, return_sent: false, author: None, accept_recorded: false }));
     plan.advance(Phase::FunctionHotpatch);
@@ -80,7 +80,7 @@ fn advance(world: &mut World, plan: &mut Plan, check: &mut Check) -> Result<(), 
             world.resource::<CodeIterationState>().status));
     }
     match check.step {
-        Step::InitialMap if map_ready(world) => {
+        Step::InitialScene if scene_ready(world) => {
             let Some(proof) = capture(world, plan, check, false, 1., 0)? else { return Ok(()); };
             check.baseline = Some(proof["runtime"].clone());
             push_sample(check, &proof)?;
@@ -105,7 +105,7 @@ fn advance(world: &mut World, plan: &mut Plan, check: &mut Check) -> Result<(), 
                 check.return_sent = embedded::code_iteration_return_to_edit(world, &proof["window"], plan.old_pid)?;
                 return Ok(());
             }
-            if world.resource::<EmbeddedStatus>().playing || !map_ready(world) { return Ok(()); }
+            if world.resource::<EmbeddedStatus>().playing || !scene_ready(world) { return Ok(()); }
             // 原返回按钮只改变模式，不能替换实例或清空玩法状态；等本次返回后的独立GPU帧。
             let minimum_ticks = last_runtime(check)?["tick"].as_u64().unwrap_or(0);
             check.proof = None;
@@ -113,7 +113,7 @@ fn advance(world: &mut World, plan: &mut Plan, check: &mut Check) -> Result<(), 
             continuity(last_runtime(check)?, &proof["runtime"], false)?;
             push_sample(check, &proof)?;
             driver::record(world, plan, "function_hotpatch_original_hud_returned_same_runtime", Some(proof))?;
-            if check.epoch == 2 { check.advance(Step::FinalMap); }
+            if check.epoch == 2 { check.advance(Step::FinalScene); }
             else { driver::open_source(world, plan, CONTROLLER); check.advance(Step::Controller); }
         }
         Step::Controller => {
@@ -178,9 +178,9 @@ fn advance(world: &mut World, plan: &mut Plan, check: &mut Check) -> Result<(), 
             let Some(probe) = standalone::source_location_probe(world) else { return Ok(()); };
             if probe["path"] != NOTE || probe["native_matches"] != true { return Ok(()); }
             driver::verify_note(&probe, plan.note_baseline.as_ref().unwrap())?;
-            if driver::pulse_source(world, plan, NOTE, SourceLocationAction::Map)? { check.advance(Step::ReturnMap); }
+            if driver::pulse_source(world, plan, NOTE, SourceLocationAction::Scene)? { check.advance(Step::ReturnScene); }
         }
-        Step::ReturnMap if map_ready(world) => {
+        Step::ReturnScene if scene_ready(world) => {
             let baseline = evidence::author_state(world)?;
             if check.author.as_ref() != Some(&baseline) {
                 check.author = Some(baseline.clone()); plan.baseline_stable_frames = 0; return Ok(());
@@ -217,7 +217,7 @@ fn advance(world: &mut World, plan: &mut Plan, check: &mut Check) -> Result<(), 
             if status.playing || status.patch_epoch != check.epoch + 1 { return Err("补丁回执未保持Editing模式或真实采用代次未递增一次".into()); }
             check.epoch += 1; check.advance(Step::Applied);
         }
-        Step::Applied if map_ready(world) => {
+        Step::Applied if scene_ready(world) => {
             if check.changed.elapsed() < Duration::from_millis(400) { return Ok(()); }
             evidence::preserved(world, plan.baseline.as_ref().unwrap())?;
             let minimum_ticks = last_runtime(check)?["tick"].as_u64().unwrap_or(0);
@@ -237,7 +237,7 @@ fn advance(world: &mut World, plan: &mut Plan, check: &mut Check) -> Result<(), 
             check.minimum_frame = frame(&proof)?; check.proof = Some(proof); check.return_sent = false;
             check.next += 1; check.step = Step::ReturnEditing; check.captured = None; check.changed = Instant::now();
         }
-        Step::FinalMap if map_ready(world) => {
+        Step::FinalScene if scene_ready(world) => {
             if check.changed.elapsed() < Duration::from_millis(400) { return Ok(()); }
             // 返回后的作者布局按原系统恢复，文本草稿、选择和撤销现场仍逐字段核对。
             evidence::preserved(world, plan.baseline.as_ref().unwrap())?;
@@ -255,7 +255,7 @@ fn advance(world: &mut World, plan: &mut Plan, check: &mut Check) -> Result<(), 
     Ok(())
 }
 
-fn map_ready(world: &mut World) -> bool {
+fn scene_ready(world: &mut World) -> bool {
     !world.resource::<EmbeddedStatus>().playing && standalone::preview_ready_for(world, "M1-SAMPLE")
         && evidence::current_snapshot(world)
         && standalone::source_location_probe(world).is_some_and(|probe| probe["central_active"] != true)
@@ -448,7 +448,7 @@ fn initialize_live_probe(world: &mut World) {
     let material = world.resource_mut::<Assets<StandardMaterial>>().add(StandardMaterial {
         base_color: Color::srgb(1.0, 0.0, 0.0), unlit: true, ..default()
     });
-    // 单个无碰撞、无地图持久化标记的可见探针；不会加入作者摆放或资产保存链。
+    // 单个无碰撞、无场景持久化标记的可见探针；不会加入作者摆放或资产保存链。
     world.spawn((Name::new("function-hotpatch-state-probe"), LiveProbeEntity { position: 0.0 },
         Mesh3d(mesh), MeshMaterial3d(material), Transform::default()));
 }

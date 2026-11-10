@@ -6,7 +6,7 @@ use bevy::{
     window::{CursorMoved, PrimaryWindow, WindowEvent},
     winit::{UpdateMode, WinitSettings},
 };
-use feathrise_editor_map::standalone::embedded_validation::content_splitter_probe;
+use feathrise_editor_scene::standalone::embedded_validation::content_splitter_probe;
 use serde_json::{Value, json};
 
 #[derive(Debug, Default)]

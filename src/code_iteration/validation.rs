@@ -49,7 +49,7 @@ pub(super) fn install(app: &mut App, project: &crate::project::Project, target: 
         app.add_systems(Startup, |mut exit: MessageWriter<AppExit>| { exit.write(AppExit::error()); });
         return;
     }
-    feathrise_editor_map::standalone::embedded_validation::install(app);
+    feathrise_editor_scene::standalone::embedded_validation::install(app);
     if std::env::var_os("FEATHRISE_CODE_ITERATION_CLOSE_CANCEL")
         .is_some_and(|value| value == "1")
     {

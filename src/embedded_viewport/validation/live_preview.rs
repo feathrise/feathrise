@@ -4,7 +4,7 @@ use bevy::{
     prelude::*,
     tasks::{IoTaskPool, Task, futures::check_ready},
 };
-use feathrise_editor_map::standalone::embedded_validation::{self as author, live, tool_previews as tools};
+use feathrise_editor_scene::standalone::embedded_validation::{self as author, live, tool_previews as tools};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -436,7 +436,7 @@ fn read_capture(
         {
             return Err("连续预览截图身份不符".into());
         }
-        if capture["map_generation"] != generation {
+        if capture["scene_generation"] != generation {
             continue;
         }
         if !matches_expected(&capture, expected)? {
@@ -523,7 +523,7 @@ fn matches_expected(capture: &Value, expected: &Expected) -> Result<bool, String
                 || gpu["rendered_instances"].as_u64().unwrap_or(0) == 0
                 || gpu["drawn_draws"].as_u64().unwrap_or(0) == 0
                 || gpu["density_waiting_windows"] != 0
-                || gpu["map_errors"] != 0
+                || gpu["scene_errors"] != 0
             {
                 return Ok(false);
             }
@@ -827,7 +827,7 @@ mod tests {
             previous: None,
             tools: json!({"semantic_sha256":"brush","preview":{"items":[{"kind":"brush","preview":{"clipmap":null}}]}}),
         };
-        let mut capture = json!({"gpu":{"source_revision":3,"sample_sequence":12,"sample_baseline":10,"rendered_instances":9,"drawn_draws":1,"density_waiting_windows":0,"map_errors":0},
+        let mut capture = json!({"gpu":{"source_revision":3,"sample_sequence":12,"sample_baseline":10,"rendered_instances":9,"drawn_draws":1,"density_waiting_windows":0,"scene_errors":0},
             "author_tools":{"source":"actual-project-GizmoAssets-after-GizmoMeshSystems","error":null,
                 "mode":"Editing","pending":false,"visible":true,"brushes":1,"semantic_sha256":"brush","visible_segments":114},
             "content":{"canvases":[{"terrain_id":"starter-ground","source_revision":7,"adopted_source_revision":7,"draft_revision":3,"densities":[{"id":"embedded-live-blade","nonzero":30,"sha256":"new"}]}]}});

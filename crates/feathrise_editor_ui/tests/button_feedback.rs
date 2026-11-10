@@ -278,7 +278,7 @@ fn editor_button_feedback_is_visible_after_business_rewrites_and_preserves_seman
     }
 }
 
-/// 使用共享构造函数画出地图、文件与关闭确认标签，防止只检查Node而漏掉主题最终绘制的亮底线或关闭方块。
+/// 使用共享构造函数画出场景、文件与关闭确认标签，防止只检查Node而漏掉主题最终绘制的亮底线或关闭方块。
 #[test]
 #[ignore = "需要真实GPU，根任务单独运行并检查多文档标签离屏图"]
 fn workspace_tabs_use_one_fill_without_active_underline_or_static_close_box() {
@@ -291,7 +291,7 @@ fn workspace_tabs_use_one_fill_without_active_underline_or_static_close_box() {
         let mut node = feathrise_editor_ui::workspace_tabs::tab_list_node();
         node.height = px(28);
         parent.spawn(node).with_children(|tabs| {
-            for (index, label) in ["1", "clipmap2*", "glb地图", "地表·草地*"].iter().enumerate() {
+            for (index, label) in ["1", "clipmap2*", "glb场景", "地表·草地*"].iter().enumerate() {
                 feathrise_editor_ui::workspace_tabs::spawn_preset_tab(
                     tabs, &font, label, Action::Activate(index), Action::Close(index),
                     index == 1, index == 3,

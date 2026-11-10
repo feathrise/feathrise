@@ -1,7 +1,7 @@
 //! 编辑器UI库：三套可选工具主题和可复用作者控件。
 //! F12 通过本库取得控件；主题独立，底层输入与游戏共用同一运行时。
 pub mod colors;
-pub mod metrics; // 地图与角色、装备、技能等分库共用参考图的排版尺度。
+pub mod metrics; // 场景与角色、装备、技能等分库共用参考图的排版尺度。
 pub mod localization;
 pub mod context_help; // 所有分库共用隐藏帮助正文，由根工作台的唯一浮层显露。
 pub mod button_input; // 普通按钮统一在原按钮内松开时执行，真实Interaction仅用于视觉与拖动。

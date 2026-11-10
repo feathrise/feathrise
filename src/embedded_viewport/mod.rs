@@ -39,16 +39,16 @@ impl Plugin for EmbeddedViewportPlugin {
         })
         .init_resource::<EmbeddedStatus>()
         .init_non_send::<resources::Runtime>()
-        .add_plugins(feathrise_editor_map::standalone::embedded_snapshot::SnapshotCapturePlugin)
+        .add_plugins(feathrise_editor_scene::standalone::embedded_snapshot::SnapshotCapturePlugin)
         .add_systems(
             Update,
             systems::drive
                 .after(crate::viewport_mode::ViewportModeInput)
-                .after(feathrise_editor_map::standalone::SavedPlayDispatch)
-                .before(feathrise_editor_core::MapEditorSystemSet::Presentation)
+                .after(feathrise_editor_scene::standalone::SavedPlayDispatch)
+                .before(feathrise_editor_core::SceneEditorSystemSet::Presentation)
                 .before(crate::native_play::request_exit),
         );
-        feathrise_editor_map::standalone::embedded_overlay::install(app);
+        feathrise_editor_scene::standalone::embedded_overlay::install(app);
         preview_sources::install(app);
     }
 }
@@ -64,7 +64,7 @@ pub(crate) fn owns_play(world: &World) -> bool {
 
 /// 仅投影已有生命周期与快照回执，不依靠底栏提示文字或按钮选中态判断连接成功。
 pub(crate) fn connection_state(world: &World) -> ConnectionState {
-    use feathrise_editor_map::standalone::embedded_snapshot::EmbeddedSnapshotState;
+    use feathrise_editor_scene::standalone::embedded_snapshot::EmbeddedSnapshotState;
     let Some(status) = world.get_resource::<EmbeddedStatus>() else {
         return ConnectionState::Disconnected;
     };
@@ -95,13 +95,13 @@ pub(crate) fn connection_state(world: &World) -> ConnectionState {
     if status.playing && runtime.is_none_or(|runtime| runtime.waiting_mode.is_none()) {
         return ConnectionState::Connected;
     }
-    // Ready只证明握手完成；有地图时还须收到当前完整快照的采用回执，空工程不等待不存在的地图。
+    // Ready只证明握手完成；有场景时还须收到当前完整快照的采用回执，空工程不等待不存在的场景。
     if runtime.is_some_and(|runtime| runtime.snapshot_in_flight.is_some() || runtime.waiting_mode.is_some())
-        || capture.is_some_and(|capture| capture.map_id.is_some() && (
+        || capture.is_some_and(|capture| capture.scene_id.is_some() && (
             capture.pending || status.applied_revision == 0
                 || capture.ready.as_ref().is_none_or(|ready| ready.author_revision != capture.revision
                     || status.applied_revision < ready.author_revision)
-                || runtime.is_some_and(|runtime| runtime.map_id != capture.map_id)
+                || runtime.is_some_and(|runtime| runtime.scene_id != capture.scene_id)
         ))
     {
         return ConnectionState::Synchronizing;
@@ -212,15 +212,15 @@ mod close_tests {
     fn stable_preview_keeps_connected_while_new_author_drafts_wait_for_editing() {
         let mut world = World::new();
         world.insert_resource(EmbeddedStatus { active: true, ready: true, playing: true, ..default() });
-        world.init_resource::<feathrise_editor_map::standalone::embedded_snapshot::EmbeddedSnapshotState>();
-        let mut capture = world.resource_mut::<feathrise_editor_map::standalone::embedded_snapshot::EmbeddedSnapshotState>();
-        capture.map_id = Some("next-author-map".into());
+        world.init_resource::<feathrise_editor_scene::standalone::embedded_snapshot::EmbeddedSnapshotState>();
+        let mut capture = world.resource_mut::<feathrise_editor_scene::standalone::embedded_snapshot::EmbeddedSnapshotState>();
+        capture.scene_id = Some("next-author-map".into());
         capture.pending = true;
         capture.error = Some("尚未完成的新作者草稿".into());
         assert_eq!(connection_state(&world), ConnectionState::Connected);
         world.resource_mut::<EmbeddedStatus>().playing = false;
         assert_eq!(connection_state(&world), ConnectionState::Failed);
-        world.resource_mut::<feathrise_editor_map::standalone::embedded_snapshot::EmbeddedSnapshotState>().error = None;
+        world.resource_mut::<feathrise_editor_scene::standalone::embedded_snapshot::EmbeddedSnapshotState>().error = None;
         assert_eq!(connection_state(&world), ConnectionState::Synchronizing);
     }
 

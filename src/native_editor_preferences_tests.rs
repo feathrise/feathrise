@@ -535,12 +535,12 @@ fn failed_preference_write_keeps_original_close_state_and_cancel_restores_author
         app.update();
         assert!(app.world().resource::<Messages<AppExit>>().is_empty());
         let mut feedback = bevy::ecs::message::MessageCursor::<
-            feathrise_editor_map::standalone::SavedPlayFeedback,
+            feathrise_editor_scene::standalone::SavedPlayFeedback,
         >::default();
         if feedback
             .read(
                 app.world()
-                    .resource::<Messages<feathrise_editor_map::standalone::SavedPlayFeedback>>(),
+                    .resource::<Messages<feathrise_editor_scene::standalone::SavedPlayFeedback>>(),
             )
             .any(|item| item.0.contains("作者个人设置未保存"))
         {

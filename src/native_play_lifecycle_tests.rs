@@ -99,7 +99,7 @@ fn assert_retry(app: &mut App, marker: Entity, proof: &AuthorProof) {
     assert_eq!(app.world().resource::<AuthorProof>(), proof);
     app.world_mut().write_message(RunSavedProject {
         profile: default(),
-        map_id: None,
+        scene_id: None,
         has_unsaved_changes: true,
         stop_only: false,
     });
@@ -158,7 +158,7 @@ fn code_apply_queues_a_saved_launch_without_claiming_it_started() {
     request_code_apply(app.world_mut(), prepared, 17).unwrap();
     let runtime = app.world().non_send::<NativePlayRuntime>();
     assert!(runtime.active.is_none());
-    assert_eq!(runtime.code_apply_pending.as_ref().unwrap().request.map_id, None);
+    assert_eq!(runtime.code_apply_pending.as_ref().unwrap().request.scene_id, None);
     assert_eq!(runtime.code_apply_status.as_ref().unwrap().state, CodeApplyState::Applying);
     assert!(app.world().get::<SameAuthorWorld>(marker).is_some());
     assert_eq!(app.world().resource::<AuthorProof>(), &proof);
@@ -205,14 +205,14 @@ fn changing_backend_while_a_code_apply_is_pending_rejects_it_before_spawning() {
 }
 
 #[test]
-fn code_apply_keeps_the_original_saved_map_until_the_old_worker_really_finishes() {
+fn code_apply_keeps_the_original_saved_scene_until_the_old_worker_really_finishes() {
     let (mut app, marker, proof) = app();
     let (release, wait) = mpsc::sync_channel(1);
     let (_, progress_rx) = mpsc::sync_channel(4);
     let (_, result_rx) = mpsc::sync_channel(1);
     let control = crate::build_process::BuildControl::default();
     let mut runtime = app.world_mut().non_send_mut::<NativePlayRuntime>();
-    runtime.active_request = Some(RunSavedProject { profile: default(), map_id: Some("saved-original".into()),
+    runtime.active_request = Some(RunSavedProject { profile: default(), scene_id: Some("saved-original".into()),
         has_unsaved_changes: true, stop_only: false });
     runtime.active = Some(resources::ActivePlay {
         control: control.clone(), progress_rx, result_rx,
@@ -224,7 +224,7 @@ fn code_apply_keeps_the_original_saved_map_until_the_old_worker_really_finishes(
     assert!(control.is_cancelled());
     assert!(runtime.active.is_some(), "取消意图不是进程或线程收口回执");
     let request = &runtime.code_apply_pending.as_ref().unwrap().request;
-    assert_eq!(request.map_id.as_deref(), Some("saved-original"));
+    assert_eq!(request.scene_id.as_deref(), Some("saved-original"));
     assert!(request.has_unsaved_changes);
     assert!(app.world().get::<SameAuthorWorld>(marker).is_some());
     assert_eq!(app.world().resource::<AuthorProof>(), &proof);
@@ -381,7 +381,7 @@ fn cancelling_preparation_hides_loading_before_the_owned_worker_finishes() {
     });
     app.world_mut().resource_mut::<NativePlayStatus>().preparing = true;
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        app.world_mut().write_message(RunSavedProject { profile: default(), map_id: None, has_unsaved_changes: false, stop_only: true });
+        app.world_mut().write_message(RunSavedProject { profile: default(), scene_id: None, has_unsaved_changes: false, stop_only: true });
         app.update();
         assert!(control.is_cancelled());
         assert!(!app.world().resource::<NativePlayStatus>().preparing);

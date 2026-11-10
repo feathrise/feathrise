@@ -1,5 +1,5 @@
-//! 已保存启动地图的后台读写事务；固定工程根文件、完整原字节身份与同目录原子提交。
-//! 不把无文件状态隐式迁移为startup_scene，也不在普通打开时写入作者工程。
+//! 已保存启动场景的后台读写事务；固定工程根文件、完整原字节身份与同目录原子提交。
+//! 空工程允许尚未选择启动场景；普通打开只验证已存在文件。
 
 use crate::startup_document::{self, Document, FILE_NAME, MAX_BYTES};
 use crate::{
@@ -122,7 +122,7 @@ fn read_scene(project: &Project) -> Result<Option<Vec<u8>>, String> {
     };
     reject_link(&metadata)?;
     if !metadata.is_file() {
-        return Err("scene.layout.json必须是普通文件".into());
+        return Err(format!("{FILE_NAME}必须是普通文件"));
     }
     if metadata.len() > MAX_BYTES as u64 {
         return Err("场景文档超过64KiB上限".into());
@@ -187,7 +187,7 @@ mod tests {
             project::open(&self.0).unwrap()
         }
         fn add(&self, loaded: &mut LoadedScene) {
-            loaded.document.select_map("MAP-SELECTED").unwrap();
+            loaded.document.select_scene("MAP-SELECTED").unwrap();
         }
     }
     impl Drop for Fixture {
@@ -201,7 +201,7 @@ mod tests {
         let fixture = Fixture::new();
         let project = fixture.project();
         let loaded = load(&project).unwrap();
-        assert!(loaded.document.extra.is_empty());
+        assert!(loaded.document.selected().is_none());
         assert!(loaded.identity.scene_sha256.is_none());
         assert!(!fixture.0.join(FILE_NAME).exists());
         assert_eq!(
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn save_reopen_and_atomic_replace_keep_unknown_fields_and_other_files() {
+    fn save_reopen_and_atomic_replace_keep_other_project_files() {
         let fixture = Fixture::new();
         let project = fixture.project();
         let descriptor = fs::read(fixture.0.join("editor-project.json")).unwrap();
@@ -219,14 +219,9 @@ mod tests {
         let mut loaded = load(&project).unwrap();
         fixture.add(&mut loaded);
         let mut document = loaded.document.clone();
-        document.extra.insert("future".into(), json!([1, 2, 3]));
-        document
-            .extra
-            .insert("objects".into(), json!([{ "custom":{"a":true} }]));
         let identity = save(&project, &document, &loaded.identity).unwrap();
         assert_eq!(&load(&project).unwrap().document, &document);
-        document.extra.insert("future".into(), json!([2, 3, 4]));
-        document.revision += 1;
+        assert!(document.select_scene("SCENE-NEXT").unwrap());
         save(&project, &document, &identity).unwrap();
         assert_eq!(&load(&project).unwrap().document, &document);
         assert_eq!(

@@ -8,7 +8,7 @@ use bevy::{
     prelude::*,
     ui::{FocusPolicy, InteractionDisabled, RelativeCursorPosition},
 };
-use feathrise_editor_map::workbench::WorkbenchHeader;
+use feathrise_editor_scene::workbench::WorkbenchHeader;
 use feathrise_editor_ui::colors as c;
 
 pub(super) fn mount(

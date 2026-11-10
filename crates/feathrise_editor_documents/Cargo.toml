@@ -1,4 +1,4 @@
-# 文档内容处理与作者界面，不依赖地图实现。
+# 文档内容处理与作者界面，不依赖场景实现。
 [package]
 name = "feathrise_editor_documents"
 version = "0.1.0"

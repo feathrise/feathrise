@@ -14,7 +14,7 @@ fn app() -> App {
         .init_resource::<ButtonInput<MouseButton>>().init_resource::<ButtonInput<KeyCode>>()
         .add_message::<RequestBuildProfile>().add_message::<RequestBuildBackend>()
         .add_message::<RequestViewportMode>().add_message::<ViewportModeChanged>()
-        .add_message::<feathrise_editor_map::standalone::SavedPlayFeedback>()
+        .add_message::<feathrise_editor_scene::standalone::SavedPlayFeedback>()
         .add_systems(Update, (super::profile_ui::input, super::systems::apply, super::systems::apply_backend, super::profile_ui::present).chain());
     let font = Handle::<Font>::default();
     let mut commands = app.world_mut().commands();

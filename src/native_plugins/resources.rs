@@ -16,7 +16,7 @@ impl Default for DiagnosticIdentity {
     }
 }
 impl DiagnosticIdentity {
-    /// 只有实际写入或替换诊断时调用；地图、表单等普通快照更新不得推进它。
+    /// 只有实际写入或替换诊断时调用；场景、表单等普通快照更新不得推进它。
     pub fn advance(&mut self) { self.revision = self.revision.wrapping_add(1); }
 }
 #[derive(Resource)]
@@ -146,7 +146,7 @@ impl NativeTools {
                                             let snapshot = loaded.call(&job.request);
                                             let fault = snapshot.is_err();
                                             if let Some(reply) = job.reply {
-                                                // 同一个DLL工作线程仍严格串行；地图IO任务直接收回执，主帧不阻塞。
+                                                // 同一个DLL工作线程仍严格串行；场景IO任务直接收回执，主帧不阻塞。
                                                 let _ = reply.send(snapshot);
                                                 if fault { break; }
                                                 continue;

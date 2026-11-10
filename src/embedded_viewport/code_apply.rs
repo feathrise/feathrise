@@ -4,7 +4,7 @@ use super::resources::{CodeApply, CodeApplyStage, EmbeddedStatus, Runtime, Setti
 use crate::{native_play::{CodeApplyState, CodeApplyStatus, PreparedGame}, viewport_mode::ViewportMode};
 use bevy::prelude::*;
 use feathrise_editor_protocol::Mode;
-use feathrise_editor_map::standalone::embedded_snapshot::{self, EmbeddedSnapshotState};
+use feathrise_editor_scene::standalone::embedded_snapshot::{self, EmbeddedSnapshotState};
 use std::{sync::Arc, time::{Duration, Instant}};
 
 pub(crate) fn code_apply_status(world: &World) -> Option<CodeApplyStatus> {
@@ -66,7 +66,7 @@ pub(crate) fn request_code_apply(
         mode_confirmed: false, progress: None,
     });
     runtime.code_apply_status = Some(CodeApplyStatus { token, state: CodeApplyState::Applying, error: None });
-    world.write_message(feathrise_editor_map::standalone::SavedPlayFeedback(
+    world.write_message(feathrise_editor_scene::standalone::SavedPlayFeedback(
         "正在应用新代码；重启运行实例后重新采用当前草稿并恢复原预览模式，作者历史保留".into(),
     ));
     Ok(())
@@ -186,8 +186,8 @@ pub(super) fn after_sync(world: &mut World, runtime: &mut Runtime, status: &mut 
         super::systems::feedback(world, error);
         return;
     }
-    let empty = capture.map_id.is_none() && !capture.pending
-        && runtime.map_id.is_none() && runtime.sent_revision == 0;
+    let empty = capture.scene_id.is_none() && !capture.pending
+        && runtime.scene_id.is_none() && runtime.sent_revision == 0;
     let required = capture.ready.as_ref().map_or(0, |ready| ready.author_revision);
     if !(empty || embedded_snapshot::ready_is_current(world))
         || runtime.snapshot_in_flight.is_some() || status.applied_revision < required

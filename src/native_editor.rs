@@ -1,6 +1,6 @@
 //! 独立编辑实例的原生产App装配：原作者工具和3D场景直接运行在本地World。
 //!
-//! 一个进程终生绑定一个工程。这里仅组合原插件，不复制原界面、作者算法或地图运行时。
+//! 一个进程终生绑定一个工程。这里仅组合原插件，不复制原界面、作者算法或场景运行时。
 
 #[path = "native_editor_assets.rs"]
 mod assets;
@@ -22,6 +22,8 @@ use std::path::PathBuf;
 
 /// 启动工程独占的完整原编辑器；正常入口由持续存在的主窗口呈现，项目数据不写入SDK。
 pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(), String> {
+    #[cfg(all(feature = "validation", windows))]
+    let scene_format_fixture = crate::scene_format_validation::preflight(&project)?;
     // 工程仍按实例冻结路径；正常入口在同一主窗口内呈现，不再打开第二个作者顶层窗口。
     let embedded = crate::workspace_window::EmbedTarget::from_env()?.is_some();
     // 相同工程仅允许一个作者写实例；锁句柄一直存活到真实App退出，残留文件不构成永久锁。
@@ -67,7 +69,7 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
         ..default()
     };
     app.insert_resource(EditorStartup)
-        .insert_resource(feathrise_map_content::RuntimeAssetRoot::new(
+        .insert_resource(feathrise_scene_content::RuntimeAssetRoot::new(
             &asset_root,
         )?)
         .insert_resource(display)
@@ -107,18 +109,18 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
     .add_plugins(HanabiPlugin)
     .add_plugins(FramepacePlugin)
     .add_plugins(SceneRuntimePlugin)
-    // 地图领域插件只提供中性外观描述，由SDK负责本地作者视口的模型与附件生命周期。
+    // 场景领域插件只提供中性外观描述，由SDK负责本地作者视口的模型与附件生命周期。
     .add_plugins(feathrise_runtime::project::author_visuals::AuthorVisualsPlugin)
     .add_plugins(feathrise_fps_display::FpsDisplayPlugin) // 作者保留原FPS/F3诊断，公共场景及空工程不隐式安装。
     .add_plugins(feathrise_runtime::app::scene_loading::ProjectSceneAssetsPlugin)
     .add_plugins(crate::branding::EditorBrandingPlugin)
     // 安装原完整插件，而非共享工作台只读投影；文档、撤销和作者任务均使用原资源。
     .add_plugins((
-        feathrise_editor_map::MapEditorPlugin,
+        feathrise_editor_scene::SceneEditorPlugin,
         feathrise_editor_surface::SurfaceEditorPlugin,
         feathrise_editor_documents::DocumentsEditorPlugin,
     ))
-    .add_plugins(feathrise_editor_map::standalone::StandaloneEditorPlugin)
+    .add_plugins(feathrise_editor_scene::standalone::StandaloneEditorPlugin)
     .add_plugins(crate::project_log::ProjectLogPlugin::new(&project))
     .add_plugins(crate::native_project_close::NativeProjectClosePlugin)
     .add_plugins(crate::native_project_menu::NativeProjectMenuPlugin::new(
@@ -137,8 +139,8 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
     let author_ui_font = feathrise_editor_core::editor_font(app.world().resource::<AssetServer>(), feathrise_editor_core::FONT_PATH);
     app.insert_resource(feathrise_portal::PortalLabelFont(author_ui_font.clone()));
     app.insert_resource(feathrise_fps_display::FpsDisplayFont(author_ui_font));
-    // 地图库只聚合关闭事务；每个专业作者库仍拥有唯一原保存实现，避免反向依赖。
-    app.insert_resource(feathrise_editor_map::standalone::ProjectCloseSaveAdapters {
+    // 场景库只聚合关闭事务；每个专业作者库仍拥有唯一原保存实现，避免反向依赖。
+    app.insert_resource(feathrise_editor_scene::standalone::ProjectCloseSaveAdapters {
         surface: feathrise_editor_surface::request_project_save,
     });
 
@@ -169,6 +171,10 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
     let export_validation = crate::project_export::validation::install(&mut app, &project, &target)?;
     #[cfg(feature = "validation")]
     crate::locale_validation::install(&mut app, Some(&project.root))?;
+    #[cfg(all(feature = "validation", windows))]
+    if let Some(fixture) = scene_format_fixture {
+        fixture.install(&mut app);
+    }
     #[cfg(feature = "validation")]
     smoke::install(&mut app, project.root, asset_root)?;
     let preferences_completion = self::preferences::install(&mut app, author_preferences);

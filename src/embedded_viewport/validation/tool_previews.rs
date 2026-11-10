@@ -6,7 +6,7 @@ use bevy::{
     prelude::*,
     tasks::{IoTaskPool, Task, futures::check_ready},
 };
-use feathrise_editor_map::standalone::embedded_validation::{
+use feathrise_editor_scene::standalone::embedded_validation::{
     self as author, tool_previews as tools,
 };
 use serde_json::{Value, json};

@@ -22,10 +22,10 @@ pub(super) fn prepare(root: &Path) -> Result<(), String> {
     // probe引用同目录贴图；两份均为编辑器自有夹具，不把原游戏植被与图集带回公开边界。
     fs::write(directory.join("albedo.png"), super::fixture::scene_fixture("albedo.png")?)
         .map_err(|error| format!("验收Blade贴图复制失败：{error}"))?;
-    // 普通文本关闭事务与游戏地图/地表源分离，关闭重试不会改写此前F12的内容证据。
+    // 普通文本关闭事务与游戏场景/地表源分离，关闭重试不会改写此前F12的内容证据。
     use std::io::Write;
     fs::OpenOptions::new().write(true).create_new(true)
-        .open(assets.join(feathrise_editor_map::standalone::validation_fixture::CLOSE_DOCUMENT_PATH))
+        .open(assets.join(feathrise_editor_scene::standalone::validation_fixture::CLOSE_DOCUMENT_PATH))
         .and_then(|mut file| file.write_all("自有工程的关闭验收文本\n".as_bytes()))
         .map_err(|error| format!("关闭验收文本不能独占创建：{error}"))?;
     Ok(())
@@ -112,7 +112,7 @@ fn verify_river_building(root: &Path, actual: &Value, proof: &Value) -> Result<(
             .iter()
             .any(|river| river_matches(river, &proof["river"]))
     }) {
-        return Err("原地图Save没有保存同一河流的全部点与水参数".into());
+        return Err("原场景Save没有保存同一河流的全部点与水参数".into());
     }
     if actual["water"]["phase"] != "Ready"
         || actual["water"]["desired_generation"] != actual["water"]["applied_generation"]
@@ -154,7 +154,7 @@ fn verify_animation_assets(
     let animation = &proof["animation"];
     let assets = &proof["asset_hot_reload"];
     if proof["passed"] != true
-        || proof["map_preview_restored"] != true
+        || proof["scene_preview_restored"] != true
         || animation["saved"]["dirty"] != false
         || animation["saved"]["save_receipt"] != serde_json::json!({"Ok":null})
         || animation["edited"]["key"] != animation["redone"]["key"]
@@ -280,14 +280,14 @@ pub(super) fn independent(
         .env("NEW_EDITOR_NATIVE_SMOKE_AUTHOR_TOOLS", "1");
     for name in [
         "EDITOR_SAVED_PLAY",
-        "EDITOR_SAVED_PLAY_MAP",
+        "EDITOR_SAVED_PLAY_SCENE",
         "NEW_EDITOR_NATIVE_SMOKE_DIR",
         "NEW_EDITOR_NATIVE_SMOKE_PLAY",
         "NEW_EDITOR_NATIVE_SMOKE_SAVE",
         "NEW_EDITOR_NATIVE_SMOKE_AUTHORING",
         "NEW_EDITOR_NATIVE_SMOKE_RECOVERY",
         "NEW_EDITOR_NATIVE_SMOKE_CLOSE",
-        "NEW_EDITOR_NATIVE_SMOKE_MAP_TOOLS",
+        "NEW_EDITOR_NATIVE_SMOKE_SCENE_TOOLS",
     ] {
         command.env_remove(name);
     }
@@ -331,8 +331,8 @@ fn near(left: &Value, right: &Value) -> bool {
 /// JSON内存Value会把f32扩展为f64，文件则使用最短往返小数；按正式f32合同逐字段精确比较，不用容差放过真实修改。
 fn river_matches(left: &Value, right: &Value) -> bool {
     match (
-        serde_json::from_value::<feathrise_map_content::MapWaterRiver>(left.clone()),
-        serde_json::from_value::<feathrise_map_content::MapWaterRiver>(right.clone()),
+        serde_json::from_value::<feathrise_scene_content::SceneWaterRiver>(left.clone()),
+        serde_json::from_value::<feathrise_scene_content::SceneWaterRiver>(right.clone()),
     ) {
         (Ok(left), Ok(right)) => left == right,
         _ => false,
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn river_comparison_keeps_exact_f32_identity_across_json_roundtrip() {
-        let river: feathrise_map_content::MapWaterRiver = serde_json::from_value(serde_json::json!({
+        let river: feathrise_scene_content::SceneWaterRiver = serde_json::from_value(serde_json::json!({
             "id":"river", "label":"河流", "points":[{
                 "id":"point", "position":[-16.650642,0.05,5.314064],
                 "width":6.0, "depth":1.5, "flow_speed":2.0, "outgoing":"river"

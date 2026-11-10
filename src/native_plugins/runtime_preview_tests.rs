@@ -7,7 +7,7 @@ fn local_author_prefab_cannot_acquire_engine_identity_or_queue_a_build() {
     let mut status = Status::default();
     let preview = RuntimePreview {
         revision: 1,
-        kind: feathrise_map_content::author_visuals::AUTHOR_PREFAB_PREVIEW_KIND.into(),
+        kind: feathrise_scene_content::author_visuals::AUTHOR_PREFAB_PREVIEW_KIND.into(),
         payload: serde_json::json!({"prefab":{"model":null},"playing":true,"speed":1.0}),
     };
     runtime.select(Some((0, 1, &preview)), &mut status);

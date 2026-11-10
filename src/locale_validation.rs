@@ -13,7 +13,7 @@ use bevy::{
     window::PrimaryWindow,
 };
 use feathrise_editor_core::{EditorLocalePreference, EditorSettings};
-use feathrise_editor_map::standalone::validation_fixture as documents;
+use feathrise_editor_scene::standalone::validation_fixture as documents;
 use feathrise_editor_ui::localization::{EditorLocale, EditorSystemLocale};
 use serde_json::{Value, json};
 use std::{fs, io::Write, path::{Path, PathBuf}, time::{Duration, Instant}};
@@ -31,7 +31,7 @@ enum Stage {
     HomeNewChinese, HomeDefaultChinese, HomeCloseNewChinese,
     HomeSettings, SelectEnglish, HomeCapture, HomeCloseSettings, WaitForAuthor, Returned,
     HomeNewEnglish, HomeDefaultEnglish, HomeCloseNewEnglish,
-    MeshTab, MeshCollapsed, SelectMeshMap, EnterMeshMap, MeshTabAfterMap, MeshExpand, MeshExpanded, ProjectTab, ProjectContext, ProjectContextCapture,
+    MeshTab, MeshCollapsed, SelectMeshScene, EnterMeshScene, MeshTabAfterScene, MeshExpand, MeshExpanded, ProjectTab, ProjectContext, ProjectContextCapture,
     AssetRoot, AssetContext, AssetFavorite, AssetCapture, OpenShortcuts, ShowShortcuts, ShortcutsCapture, CloseShortcuts,
     BuildMenu, BuildBackend, StartBuild, StopTooltip, OpenBuildDetails, BuildDetails, CloseBuildDetails,
     QuitBuildConfirm, QuitBuildCapture,
@@ -105,11 +105,11 @@ pub(crate) fn install(app: &mut App, project: Option<&Path>) -> Result<(), Strin
         if root.join("exercise.json").exists() || root.join("home-en.png").exists() {
             return Err("语言验收目录已有证据".into());
         }
-        // 只向已核验的新夹具写正式地图格式，正常预检与打开都走生产入口。
+        // 只向已核验的新夹具写正式场景格式，正常预检与打开都走生产入口。
         if fs::read_dir(&assets).map_err(|error| error.to_string())?.count() != 1 {
             return Err("语言验收需要新的空资产根和本轮文本夹具".into());
         }
-        feathrise_project::seed::create(&assets, "语言验收地图")?;
+        feathrise_project::seed::create(&assets, "语言验收场景")?;
         if details {
             details::prepare_plugin(&root)?;
         }
@@ -265,7 +265,8 @@ fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
         }
         Stage::AuthorEnglish if locale == EditorLocale::English
             && preference == EditorLocalePreference::English
-            && visible_text(world, "Maps") && visible_text(world, "Scene")
+            && visible_text(world, "Scenes") && visible_text(world, "Scene Tree")
+            && visible_text(world, "Project")
             && visible_text(world, "Inspector") && visible_text(world, "保存 ▼") => {
             if read_saved(run)?["editor"]["ui_locale"] != "en-US" {
                 return Err("作者未从真实落盘偏好继承英文".into());
@@ -291,16 +292,16 @@ fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
             if click(world, run, window, "Mesh") { run.stage = Stage::MeshCollapsed; }
         }
         Stage::MeshCollapsed if visible_text(world, "Add Mesh ▶") => {
-            if capture(world, run, "mesh-collapsed-en")? { run.stage = Stage::SelectMeshMap; }
+            if capture(world, run, "mesh-collapsed-en")? { run.stage = Stage::SelectMeshScene; }
         }
-        Stage::SelectMeshMap => {
-            if click(world, run, window, "空地图") { run.stage = Stage::EnterMeshMap; }
+        Stage::SelectMeshScene => {
+            if click(world, run, window, "空场景") { run.stage = Stage::EnterMeshScene; }
         }
-        Stage::EnterMeshMap => {
-            // 双击会先显示地图属性，进入后再切回原右栏网格页。
-            if click(world, run, window, "空地图") { run.stage = Stage::MeshTabAfterMap; }
+        Stage::EnterMeshScene => {
+            // 双击会先显示场景属性，进入后再切回原右栏网格页。
+            if click(world, run, window, "空场景") { run.stage = Stage::MeshTabAfterScene; }
         }
-        Stage::MeshTabAfterMap if visible_containing(world, "Current Map: 空地图") => {
+        Stage::MeshTabAfterScene if visible_containing(world, "Current Map: 空场景") => {
             if click(world, run, window, "Mesh") { run.stage = Stage::MeshExpand; }
         }
         Stage::MeshExpand => {
@@ -329,13 +330,13 @@ fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
             if click(world, run, window, "assets") { run.stage = Stage::AssetContext; }
         }
         Stage::AssetContext if visible_text(world, "Browse Folders") => {
-            if pointer_click(world, run, window, "maps", MouseButton::Right) { run.stage = Stage::AssetFavorite; }
+            if pointer_click(world, run, window, "scenes", MouseButton::Right) { run.stage = Stage::AssetFavorite; }
         }
         Stage::AssetFavorite => {
             if click(world, run, window, "Add to Favorites") { run.stage = Stage::AssetCapture; }
         }
         Stage::AssetCapture if ["Search Contents", "Check Missing Assets", "Thumbnails", "Check Paths",
-            "▼ Favorites (1)", "[Folder] maps"]
+            "▼ Favorites (1)", "[Folder] scenes"]
             .into_iter().all(|label| visible_text(world, label))
             && visible_containing(world, "▶ Recent · ")
             && has_text(world, |text| text.starts_with("Project · ") && text.ends_with(" items")) => {
@@ -526,21 +527,22 @@ fn click(world: &mut World, run: &mut Run, window: Entity, label: &str) -> bool 
 
 fn pointer_click(world: &mut World, run: &mut Run, window: Entity, label: &str, mouse_button: MouseButton) -> bool {
     let candidate = button(world, label);
-    click_entity(world, run, window, candidate, mouse_button)
+    click_entity(world, &mut run.mouse, window, candidate, mouse_button)
 }
 
-fn click_entity(world: &mut World, run: &mut Run, window: Entity, candidate: Option<Entity>, mouse_button: MouseButton) -> bool {
-    let Some(entity) = run.mouse.map(|(entity, _)| entity).or(candidate) else { return false };
+/// 等待原拾取确认按下和释放。同一验收步骤必须保留其目标，避免滑向刚出现的浮层。
+pub(crate) fn click_entity(world: &mut World, pending: &mut Option<(Entity, bool)>, window: Entity, candidate: Option<Entity>, mouse_button: MouseButton) -> bool {
+    let Some(entity) = pending.map(|(entity, _)| entity).or(candidate) else { return false };
     if !move_to(world, window, entity) { return false; }
-    match run.mouse {
-        None => run.mouse = Some((entity, false)),
+    match *pending {
+        None => *pending = Some((entity, false)),
         Some((_, false)) if world.get::<UiInteraction>(entity) == Some(&UiInteraction::Hovered) => {
             window_input(world, MouseButtonInput { button: mouse_button, state: ButtonState::Pressed, window });
-            run.mouse = Some((entity, true));
+            *pending = Some((entity, true));
         }
         Some((_, true)) if mouse_button == MouseButton::Right || world.get::<UiInteraction>(entity) == Some(&UiInteraction::Pressed) => {
             window_input(world, MouseButtonInput { button: mouse_button, state: ButtonState::Released, window });
-            run.mouse = None;
+            *pending = None;
             return true;
         }
         _ => {}

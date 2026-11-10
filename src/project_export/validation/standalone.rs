@@ -91,7 +91,7 @@ fn verify_game(delivered: &Path, output: &Path, project: &Project) -> Result<Val
         let relative = root.strip_prefix(&project.root).map_err(|error| error.to_string())?;
         delivered.join(relative).canonicalize().map_err(|error| error.to_string())
     }).collect::<Result<Vec<_>, _>>()?;
-    if game["passed"] != true || game["map"] != "M1-SAMPLE" || game["runtime"]["phase"] != "Ready"
+    if game["passed"] != true || game["scene_id"] != "M1-SAMPLE" || game["runtime"]["phase"] != "Ready"
         || game["placements"]["phase"] != "Ready" || game["source"]["project_id"] != project.id
         || game["source"]["project_root"] != json!(delivered) || game["source"]["asset_roots"] != json!(roots)
         || roots.iter().any(|root| !root.starts_with(delivered)) {

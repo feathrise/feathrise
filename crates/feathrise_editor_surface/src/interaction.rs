@@ -1,4 +1,4 @@
-//! 地表预设列表、中央标签、字段输入和地图局部层分配交互。
+//! 地表预设列表、中央标签、字段输入和场景局部层分配交互。
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -7,7 +7,7 @@ use bevy::input_focus::FocusCause; // 使用主菜单已验证的官方焦点。
 use bevy::prelude::*;
 use bevy::text::EditableText; // 业务只读取已确认文本。
 use bevy::window::{PrimaryWindow, Window};
-use feathrise_map_content::{SurfacePresetDescriptor, SurfacePresetRegistry, SurfaceProjection};
+use feathrise_scene_content::{SurfacePresetDescriptor, SurfacePresetRegistry, SurfaceProjection};
 
 use super::persistence::{start_delete, start_upsert};
 use super::types::{
@@ -175,7 +175,7 @@ fn dispatch_action(
         SurfacePresetAction::Save => save_draft(state, workspace, registry),
         SurfacePresetAction::Cancel => {
             let PresetWorkspaceTab::Surface(id) = workspace.active_tab else {
-                return Err("当前是地图或植被预设标签".to_owned());
+                return Err("当前是场景或植被预设标签".to_owned());
             };
             close_tab(state, workspace, id, windows, editor.fallback_tab())
         }
@@ -199,7 +199,7 @@ fn switch_section(
         tab.section = section;
         touch(state, workspace); // 仅换正文；进入此处前仍按原协议验证并提交已确认字段。
     }
-    Ok(()) // 不启动源图处理，不改目录基线或地图作者层。
+    Ok(()) // 不启动源图处理，不改目录基线或场景作者层。
 }
 
 fn select_preset(
@@ -304,7 +304,7 @@ fn delete_selected(
     if state.delete_confirmation_id.as_deref() != Some(preset.id.as_str()) {
         state.delete_confirmation_id = Some(preset.id.clone());
         state.status = format!(
-            "再次点击删除确认移除「{}」；任何地图引用都会自动阻止",
+            "再次点击删除确认移除「{}」；任何场景引用都会自动阻止",
             preset.label
         );
         return Ok(());
@@ -366,7 +366,7 @@ fn close_tab(
             .get(index.saturating_sub(1))
             .map(|tab| PresetWorkspaceTab::Surface(tab.id))
             .or(Some(fallback))
-            .unwrap_or(PresetWorkspaceTab::Map);
+            .unwrap_or(PresetWorkspaceTab::Scene);
     }
     state.status = format!("已关闭“{}”地表预设标签", closed.draft.descriptor.label);
     touch(state, workspace);
@@ -491,7 +491,7 @@ pub(crate) fn handle_text_input(
         } // 焦点交给其他输入框后，本域不得消费它的快捷键。
         composing = editable.is_composing() || guard.block_shortcuts; // 候选帧及确认帧都让位输入法。
     } // 光标、选区与剪贴板均由官方处理。
-    if modal_open // 新建地图模态独占确认与取消键。
+    if modal_open // 新建场景模态独占确认与取消键。
         || numeric.as_ref().is_some_and(|input| input.entity.is_some()) // 专业数值输入不得串写旧字段。
         || (!field.accepts_text() && input_focus.get().is_some_and(|entity| official_inputs.contains(entity)))
     // 旧数值字段不消费新中文焦点的快捷键。

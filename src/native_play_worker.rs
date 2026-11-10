@@ -12,14 +12,14 @@ use crate::code_iteration::hotpatch::toolchain as dx_tools;
 use super::ProjectBuildBackend;
 use feathrise_runtime_manifest::streamline as streamline_files;
 #[cfg(test)]
-#[path = "native_play_worker_map_tests.rs"]
-mod map_tests;
+#[path = "native_play_worker_scene_tests.rs"]
+mod scene_tests;
 
 use crate::{
     build_process::{self, BuildControl},
     project::{self, Project},
 };
-use feathrise_editor_map::standalone::RunSavedProject;
+use feathrise_editor_scene::standalone::RunSavedProject;
 use feathrise_editor_core::ProjectBuildProfile;
 use std::{
     fs::{self, File},
@@ -42,7 +42,7 @@ pub(super) fn run(
     progress: &SyncSender<String>,
     started: Option<SyncSender<()>>,
 ) -> Result<u32, String> {
-    let prepared = prepare_with_backend(&project, &target, request.map_id.as_deref(), request.profile, build_backend, control, None)?;
+    let prepared = prepare_with_backend(&project, &target, request.scene_id.as_deref(), request.profile, build_backend, control, None)?;
     run_prepared(project, Arc::new(prepared), request, build_backend, control, progress, started)
 }
 
@@ -60,7 +60,7 @@ pub(super) fn run_prepared(
         return Err("运行版本不属于当前工程、构建配置或构建方式".into());
     }
     if project::open(&project.root)? != project { return Err("工程清单已变化，拒绝运行旧工程版本".into()); }
-    if let Some(map_id) = request.map_id.as_deref() { validate_requested_map(&project, map_id, control)?; }
+    if let Some(scene_id) = request.scene_id.as_deref() { validate_requested_scene(&project, scene_id, control)?; }
     let warning = if request.has_unsaved_changes {
         "；当前未保存修改仍只在编辑器"
     } else {
@@ -71,10 +71,10 @@ pub(super) fn run_prepared(
     ));
     let mut game = prepared.embedded_command(&project, control)?;
     game.env("EDITOR_SAVED_PLAY", "1");
-    if let Some(map_id) = request.map_id {
-        game.env("EDITOR_SAVED_PLAY_MAP", map_id);
+    if let Some(scene_id) = request.scene_id {
+        game.env("EDITOR_SAVED_PLAY_SCENE", scene_id);
     } else {
-        game.env_remove("EDITOR_SAVED_PLAY_MAP");
+        game.env_remove("EDITOR_SAVED_PLAY_SCENE");
     }
     let log = control.log_sink();
     let result = build_process::run_with_started(&game, control, None, started, move |output| {
@@ -158,11 +158,11 @@ fn acquire_build_slot(control: &BuildControl) -> Result<BuildSlotGuard<'static, 
 pub(crate) fn prepare(
     project: &Project,
     target: &Path,
-    map_id: Option<&str>,
+    scene_id: Option<&str>,
     profile: ProjectBuildProfile,
     control: &BuildControl,
 ) -> Result<PreparedGame, String> {
-    prepare_with_diagnostics(project, target, map_id, profile, control, None)
+    prepare_with_diagnostics(project, target, scene_id, profile, control, None)
 }
 
 pub(crate) fn prepare_export(
@@ -180,26 +180,26 @@ pub(crate) fn prepare_export(
 pub(crate) fn prepare_with_diagnostics(
     project: &Project,
     target: &Path,
-    map_id: Option<&str>,
+    scene_id: Option<&str>,
     profile: ProjectBuildProfile,
     control: &BuildControl,
     diagnostics: Option<DiagnosticCallback>,
 ) -> Result<PreparedGame, String> {
-    prepare_with_backend(project, target, map_id, profile, super::ProjectBuildBackend::Dx, control, diagnostics)
+    prepare_with_backend(project, target, scene_id, profile, super::ProjectBuildBackend::Dx, control, diagnostics)
 }
 
 /// 构建方式随本次请求冻结；计时含工具准备、实际构建与运行副本发布，排除宿主构建槽排队。
 pub(crate) fn prepare_with_backend(
-    project: &Project, target: &Path, map_id: Option<&str>, profile: ProjectBuildProfile,
+    project: &Project, target: &Path, scene_id: Option<&str>, profile: ProjectBuildProfile,
     build_backend: super::ProjectBuildBackend, control: &BuildControl, diagnostics: Option<DiagnosticCallback>,
 ) -> Result<PreparedGame, String> {
-    prepare_build(project, target, map_id, profile, build_backend, control, diagnostics, false)
+    prepare_build(project, target, scene_id, profile, build_backend, control, diagnostics, false)
 }
 
 fn prepare_build(
     project: &Project,
     target: &Path,
-    map_id: Option<&str>,
+    scene_id: Option<&str>,
     profile: ProjectBuildProfile,
     build_backend: super::ProjectBuildBackend,
     control: &BuildControl,
@@ -213,8 +213,8 @@ fn prepare_build(
         return Err("工程清单已变化，请重新打开工程".into());
     }
     verify_game_contract(&project, control)?;
-    if let Some(id) = map_id {
-        validate_requested_map(&project, id, control)?;
+    if let Some(id) = scene_id {
+        validate_requested_scene(&project, id, control)?;
     }
     fs::create_dir_all(&target).map_err(|error| crate::environment_diagnostics::cache_failure(&target, "准备构建缓存", &error))?;
     let target = target.canonicalize().map_err(|error| crate::environment_diagnostics::cache_failure(&target, "确认构建缓存目录", &error))?;
@@ -291,9 +291,9 @@ fn prepare_build(
         return Err("工程清单在构建期间变化，本次工程运行已取消".into());
     }
     verify_game_contract(&project, control)?;
-    if let Some(id) = map_id {
+    if let Some(id) = scene_id {
         // 构建期间作者可能删除或改写目标；只复核当前目标，不让无关坏图挡住本次工程运行。
-        validate_requested_map(&project, id, control)?;
+        validate_requested_scene(&project, id, control)?;
     }
     if let Some(log) = control.log_sink() { log.task_message("工程构建完成"); }
     let prepared = PreparedGame { executable, target, linked_paths: build.stdout.linked_paths,
@@ -379,7 +379,7 @@ impl PreparedGame {
         command.env("DYLD_LIBRARY_PATH", &library_paths);
         command
             .env_remove("EDITOR_SAVED_PLAY")
-            .env_remove("EDITOR_SAVED_PLAY_MAP")
+            .env_remove("EDITOR_SAVED_PLAY_SCENE")
             .env_remove("FEATHRISE_WORKSPACE_PARENT_HWND")
             .env_remove("FEATHRISE_WORKSPACE_PARENT_PID")
             .env_remove("FEATHRISE_WORKSPACE_TOKEN");
@@ -481,9 +481,9 @@ fn configure_export_crt(command: &mut Command) {
     }
 }
 
-fn validate_requested_map(
+fn validate_requested_scene(
     project: &Project,
-    map_id: &str,
+    scene_id: &str,
     control: &BuildControl,
 ) -> Result<(), String> {
     control.check()?;
@@ -493,7 +493,7 @@ fn validate_requested_map(
         name: project.name.clone(),
         asset_roots: project.context.asset_roots.clone(),
     };
-    feathrise_runtime::validate_saved_map_with_check(&context, map_id, || control.check())
+    feathrise_runtime::validate_saved_scene_with_check(&context, scene_id, || control.check())
 }
 
 #[derive(Default)]

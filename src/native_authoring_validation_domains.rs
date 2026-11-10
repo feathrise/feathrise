@@ -8,7 +8,7 @@ use bevy::{
     prelude::*,
     window::PrimaryWindow,
 };
-use feathrise_map_content::{SurfacePresetDescriptor, SurfacePresetRegistry};
+use feathrise_scene_content::{SurfacePresetDescriptor, SurfacePresetRegistry};
 use feathrise_editor_surface_model::{
     SurfacePresetEditorState,
     components::SurfacePresetButton,
@@ -16,7 +16,7 @@ use feathrise_editor_surface_model::{
 };
 use sha2::{Digest, Sha256};
 
-/// 只对自有夹具的一个有限描述符取内容摘要；不扫描目录或克隆贴图/地图像素。
+/// 只对自有夹具的一个有限描述符取内容摘要；不扫描目录或克隆贴图/场景像素。
 pub(super) fn descriptor_hash(descriptor: &SurfacePresetDescriptor) -> String {
     Sha256::digest(serde_json::to_vec(descriptor).expect("地表描述符必须能序列化"))
         .iter()
@@ -89,7 +89,7 @@ fn pulse(world: &mut World, action: SurfacePresetAction) -> Pulse {
     }
 }
 
-/// 选择只定位原作者层，现有生产入口不会隐式新增图层或改地图脏位。
+/// 选择只定位原作者层，现有生产入口不会隐式新增图层或改场景脏位。
 pub(super) fn select(world: &mut World, _: Domain, id: &str) -> Result<Pulse, String> {
     let index = world
         .get_resource::<SurfacePresetRegistry>()
@@ -219,7 +219,7 @@ pub(crate) fn dirty_surface_fixture() -> SurfacePresetEditorState {
         perceptual_roughness: 0.8,
         metallic: 0.0,
         crater_response: 1.0,
-        projection: feathrise_map_content::SurfaceProjection::WorldXz,
+        projection: feathrise_scene_content::SurfaceProjection::WorldXz,
     };
     let mut state = SurfacePresetEditorState::default();
     state.open_draft(SurfaceDraft::new(

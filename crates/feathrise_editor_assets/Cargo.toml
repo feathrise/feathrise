@@ -1,4 +1,4 @@
-# 编辑器资产写入与离线纹理派生；不依赖地图宿主。
+# 编辑器资产写入与离线纹理派生；不依赖场景宿主。
 [package]
 name = "feathrise_editor_assets"
 version = "0.1.0"
@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 feathrise_editor_core = { workspace = true }
-feathrise_map_content = { workspace = true }
+feathrise_scene_content = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

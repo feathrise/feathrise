@@ -109,7 +109,7 @@ fn input(world: &mut World) {
 fn issue_input(world: &mut World, plan: &mut Plan) -> Result<(), String> {
     let Some(step) = step(plan.mode, plan.stage) else { return Ok(()); };
     let Ok(window) = world.query_filtered::<Entity, With<PrimaryWindow>>().single(world) else { return Ok(()); };
-    let settings_open = world.resource::<feathrise_editor_map::workbench::WorkbenchHostPageState>().settings_open;
+    let settings_open = world.resource::<feathrise_editor_scene::workbench::WorkbenchHostPageState>().settings_open;
     let opening_or_closing = matches!(step.target, Some(Target::Open | Target::Close)) && plan.mouse_phase < 3;
     // 打开/完成只负责自己的按下松开；之后让滚轮保有正文padding内的指针，不能每帧移回旧按钮。
     if step.settings_open && settings_open && plan.mouse_phase != 2 && !opening_or_closing

@@ -38,7 +38,7 @@ impl Fixture {
 #[test]
 fn resource_manifest_is_single_bounded_safe_source_for_startup_and_packaging() {
     let files = required_files(RESOURCE_MANIFEST).unwrap();
-    assert_eq!(files.len(), 30);
+    assert_eq!(files.len(), 29);
     assert!(files.iter().any(|path| path == "assets/templates/empty/Cargo.toml"));
     // 可选 Blender 工具只接受运行时显式输入，不能成为启动或分发的必需内嵌资源。
     assert!(files.iter().all(|path| !path.starts_with("assets/blender/")));
@@ -168,9 +168,9 @@ fn legacy_override_accepts_original_repository_or_editor_root() {
 fn required_resource_failures_name_the_exact_file_and_never_load_whole_payload() {
     let fixture = Fixture::new();
     let source = fixture.payload("resources");
-    fs::write(source.join("assets/icons/editor/tree_map.png"), []).unwrap();
+    fs::write(source.join("assets/icons/editor/tree_scene.png"), []).unwrap();
     fs::remove_file(source.join("assets/hotpatch/原生热补丁链接代理.rs")).unwrap();
     let error = validate_root(&source, "测试资源").unwrap_err();
-    assert!(error.contains("tree_map.png：必须是非空普通文件"));
+    assert!(error.contains("tree_scene.png：必须是非空普通文件"));
     assert!(error.contains("assets/hotpatch/原生热补丁链接代理.rs"));
 }

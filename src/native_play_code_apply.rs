@@ -5,7 +5,7 @@ use super::{
     CodeApplyState, CodeApplyStatus, NativePlayStatus, PreparedGame,
 };
 use bevy::prelude::*;
-use feathrise_editor_map::standalone::{SavedPlayFeedback, StandaloneEditorMode};
+use feathrise_editor_scene::standalone::{SavedPlayFeedback, StandaloneEditorMode};
 use std::{sync::{Arc, mpsc}, thread};
 
 pub(crate) fn code_apply_status(world: &World) -> Option<CodeApplyStatus> {
@@ -30,14 +30,14 @@ pub(crate) fn code_apply_blocker(world: &World) -> Option<String> {
     }
     if world.get_resource::<crate::native_project_menu::NativeProjectMenuState>()
         .is_some_and(|menu| menu.saving())
-        || feathrise_editor_map::standalone::viewport_projection::switch_pending(world)
+        || feathrise_editor_scene::standalone::viewport_projection::switch_pending(world)
     {
-        return Some("请先等待保存或地图切换完成，再应用新代码".into());
+        return Some("请先等待保存或场景切换完成，再应用新代码".into());
     }
-    if let Some(reason) = feathrise_editor_map::standalone::saved_play_blocker(world) {
+    if let Some(reason) = feathrise_editor_scene::standalone::saved_play_blocker(world) {
         return Some(reason);
     }
-    let snapshot = feathrise_editor_map::standalone::project_close_snapshot(world);
+    let snapshot = feathrise_editor_scene::standalone::project_close_snapshot(world);
     snapshot.blocked.or(snapshot.pending)
 }
 
@@ -60,7 +60,7 @@ pub(crate) fn request_code_apply(
         return Err("新代码产物与当前工程、构建配置或构建方式不一致，本次未应用".into());
     }
     let request = world.non_send::<NativePlayRuntime>().active_request.clone()
-        .unwrap_or_else(|| feathrise_editor_map::standalone::current_saved_play_request(world, profile));
+        .unwrap_or_else(|| feathrise_editor_scene::standalone::current_saved_play_request(world, profile));
     let mut runtime = world.non_send_mut::<NativePlayRuntime>();
     if runtime.cleanup_failed || runtime.exit_requested {
         return Err("当前工程实例或工具退出尚未确认，暂不能应用新版本".into());
@@ -157,5 +157,5 @@ pub(super) fn advance(world: &mut World) {
     if let Some(mut mode) = world.get_resource_mut::<StandaloneEditorMode>() {
         mode.set_external_play_active(true);
     }
-    world.write_message(SavedPlayFeedback("正在启动已完整构建的新版本；运行实例仍读取已保存地图，作者草稿和历史保留".into()));
+    world.write_message(SavedPlayFeedback("正在启动已完整构建的新版本；运行实例仍读取已保存场景，作者草稿和历史保留".into()));
 }

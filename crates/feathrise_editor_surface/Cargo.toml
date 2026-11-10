@@ -11,7 +11,7 @@ feathrise_editor_surface_model = { workspace = true }
 feathrise_editor_assets = { workspace = true }
 feathrise_editor_core = { workspace = true }
 feathrise_editor_ui = { workspace = true }
-feathrise_map_content = { workspace = true }
+feathrise_scene_content = { workspace = true }
 image = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

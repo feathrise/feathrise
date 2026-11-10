@@ -1,4 +1,4 @@
-//! 在后台创建独立工程和正式地图种子；先完成独占临时目录，再发布成作者工程。
+//! 在后台创建独立工程和正式场景种子；先完成独占临时目录，再发布成作者工程。
 //! SDK 与渲染补丁由同一份来源配置解析，工程打开和工程运行不隐式升级作者依赖。
 
 #[path = "project_template_empty.rs"]
@@ -308,9 +308,9 @@ mod tests {
             let project =
                 feathrise_runtime::ProjectContext::load(&root, "feathrise_game_template").unwrap();
             assert_eq!(feathrise_runtime::GameView::load(&project).unwrap(), view);
-            let maps = feathrise_project::ProjectMaps::load(project.asset_root()).unwrap();
-            assert!(maps.entries.is_empty());
-            assert!(maps.preset_counts.values().all(|count| *count == 0));
+            let scenes = feathrise_project::ProjectScenes::load(project.asset_root()).unwrap();
+            assert!(scenes.entries.is_empty());
+            assert!(scenes.preset_counts.values().all(|count| *count == 0));
             identities.push(project.id);
             for forbidden in [
                 "assets/gltf",
@@ -352,7 +352,7 @@ mod tests {
             assert!(code.contains("use feathrise_runtime::{"));
             // 验证真正创建到磁盘的空目录，而非只检查内存种子或模板字符串。
             assert!(
-                !fs::read_to_string(root.join("assets/maps/catalog.map_catalog.json"))
+                !fs::read_to_string(root.join("assets/scenes/catalog.scene_catalog.json"))
                     .unwrap()
                     .contains("M1-SAMPLE")
             );

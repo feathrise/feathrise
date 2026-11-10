@@ -4,7 +4,7 @@ use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 use feathrise_editor_ui::colors;
-use feathrise_map_content::SurfacePresetRegistry;
+use feathrise_scene_content::SurfacePresetRegistry;
 
 use super::components::SurfaceButtonKind;
 use super::types::{
@@ -244,7 +244,7 @@ fn apply_style(
         SurfacePresetAction::CycleProjection => state
             .active_draft(workspace.active_tab)
             .is_some_and(|draft| {
-                draft.descriptor.projection == feathrise_map_content::SurfaceProjection::Triplanar
+                draft.descriptor.projection == feathrise_scene_content::SurfaceProjection::Triplanar
             }),
         _ => false,
     };

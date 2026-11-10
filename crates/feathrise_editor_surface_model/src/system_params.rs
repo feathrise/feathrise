@@ -10,7 +10,7 @@ use bevy::{
     text::EditableText, window::PrimaryWindow,
 };
 use feathrise_editor_core::EditorTextInputGuard;
-use feathrise_map_content::SurfacePresetRegistry;
+use feathrise_scene_content::SurfacePresetRegistry;
 
 #[derive(SystemParam)]
 pub struct ButtonsParams<'w, 's> {

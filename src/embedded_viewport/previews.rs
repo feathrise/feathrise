@@ -69,12 +69,12 @@ pub(super) fn configure(
 }
 
 pub(super) fn sync(world: &mut World, runtime: &mut Runtime, status: &mut EmbeddedStatus) {
-    // 切图仅由完整快照推进；同一帧先更新身份，不能把上张地图手势带入新代次。
+    // 切换场景仅由完整快照推进；同一帧先更新身份，不能把上个场景手势带入新代次。
     configure(world, runtime, status, ViewportMode::EmbeddedWorld);
     if let Some(error) = super::preview_sources::error(world) {
         let error = format!("实时作者预览未采用：{error}；草稿与历史保留，修正后点击“预览”重新连接");
         if status.error.as_ref() != Some(&error) {
-            world.write_message(feathrise_editor_map::standalone::SavedPlayFeedback(
+            world.write_message(feathrise_editor_scene::standalone::SavedPlayFeedback(
                 error.clone(),
             ));
             world
@@ -92,7 +92,7 @@ pub(super) fn sync(world: &mut World, runtime: &mut Runtime, status: &mut Embedd
         .any(|flight| flight.started.elapsed() > Duration::from_secs(30))
     {
         status.error = Some("运行实例未确认实时作者结果，正在重新收口；原作者草稿和历史保留".into());
-        // 四个有界通道的身份即可定位互等；不序列化地图正文或扫描全场景。
+        // 四个有界通道的身份即可定位互等；不序列化场景正文或扫描全场景。
         eprintln!("实时预览确认超时：snapshot_revision={} flights={:?}",
             runtime.sent_revision,
             runtime.previews.flights.iter().enumerate().map(|(domain, flight)|
@@ -123,7 +123,7 @@ pub(super) fn sync(world: &mut World, runtime: &mut Runtime, status: &mut Embedd
     for ready in offers {
         if runtime.previews.slot(ready.kind).is_some()
             || (ready.session, ready.generation) != (session, generation)
-            || runtime.map_id.as_deref() != Some(ready.map.as_str())
+            || runtime.scene_id.as_deref() != Some(ready.scene_id.as_str())
         {
             continue;
         }
@@ -134,7 +134,7 @@ pub(super) fn sync(world: &mut World, runtime: &mut Runtime, status: &mut Embedd
                 message: Message::Preview {
                     kind: ready.kind,
                     sequence: ready.sequence,
-                    map_id: ready.map,
+                    scene_id: ready.scene_id,
                     format: ready.format.into(),
                 },
                 payload: Some(ready.bytes),
@@ -151,7 +151,7 @@ pub(super) fn sync(world: &mut World, runtime: &mut Runtime, status: &mut Embedd
     }
 }
 
-/// 调用前外层已验证项目、会话和地图代次；域内仍需精确匹配唯一在途序号。
+/// 调用前外层已验证项目、会话和场景代次；域内仍需精确匹配唯一在途序号。
 pub(super) fn acknowledge(
     world: &mut World,
     runtime: &mut Runtime,
@@ -173,7 +173,7 @@ pub(super) fn settled(world: &World, runtime: &Runtime) -> bool {
     runtime.previews.empty() && super::preview_sources::settled(world)
 }
 
-/// 验收只读取固定四个通道的控制状态，不遍历地图或复制预览正文。
+/// 验收只读取固定四个通道的控制状态，不遍历场景或复制预览正文。
 #[cfg(feature = "validation")]
 pub(super) fn diagnostic(world: &World) -> serde_json::Value {
     use serde_json::json;
@@ -198,7 +198,7 @@ pub(super) fn diagnostic(world: &World) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use feathrise_editor_map::standalone::embedded_vegetation::EmbeddedVegetationState;
+    use feathrise_editor_scene::standalone::embedded_vegetation::EmbeddedVegetationState;
 
     #[test]
     fn embedded_preview_ack_cannot_release_another_domain_or_sequence() {

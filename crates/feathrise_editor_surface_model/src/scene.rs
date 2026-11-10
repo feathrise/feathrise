@@ -50,7 +50,7 @@ pub fn surface_preset_panel() -> impl Scene {
                 TextColor(colors::TEXT_ACCENT)
             --
 
-                Text("跨地图共用的 PBR 材质；选中后在下方新建地图层。") @feathrise_editor_ui::localization::label_scene("跨地图共用的 PBR 材质；选中后在下方新建地图层。")
+                Text("跨场景共用的 PBR 材质；选中后在下方新建场景层。") @feathrise_editor_ui::localization::label_scene("跨场景共用的 PBR 材质；选中后在下方新建场景层。")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(9.5) }
                 TextColor(colors::TEXT_MUTED)
                 TextLayout { linebreak: LineBreak::AnyCharacter }
@@ -96,7 +96,7 @@ pub fn surface_preset_panel() -> impl Scene {
 pub fn surface_preset_feedback() -> impl Scene {
     bsn! {
         SurfacePresetStatusText
-        Text("选择预设后显式新建地图层；新建或编辑预设在中央标签完成") @feathrise_editor_ui::localization::label_scene("选择预设后显式新建地图层；新建或编辑预设在中央标签完成")
+        Text("选择预设后显式新建场景层；新建或编辑预设在中央标签完成") @feathrise_editor_ui::localization::label_scene("选择预设后显式新建场景层；新建或编辑预设在中央标签完成")
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(9) }
         TextColor(colors::TEXT_MUTED)
         TextLayout { linebreak: LineBreak::AnyCharacter }

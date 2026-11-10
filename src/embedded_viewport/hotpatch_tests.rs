@@ -46,7 +46,7 @@ fn fixture(sent: bool) -> Fixture {
     runtime.code_apply_status = Some(CodeApplyStatus { token: 5, state: CodeApplyState::Applying, error: None });
     let mut world = World::new();
     world.init_resource::<ViewportModeState>();
-    world.init_resource::<Messages<feathrise_editor_map::standalone::SavedPlayFeedback>>();
+    world.init_resource::<Messages<feathrise_editor_scene::standalone::SavedPlayFeedback>>();
     let camera = world.spawn(Transform::from_xyz(7.0, 8.0, 9.0)).id();
     Fixture { world, runtime, status: EmbeddedStatus { active: true, ready: true, pid: 19, world_id: 23,
         frames: 101, ticks: 89, starts: 1, ..default() }, release, root, camera }

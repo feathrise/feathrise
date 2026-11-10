@@ -1,4 +1,4 @@
-//! 根应用注册私有实现；地图宿主仅链接稳定函数表，常用表单修改不传播回宿主。
+//! 根应用注册私有实现；场景宿主仅链接稳定函数表，常用表单修改不传播回宿主。
 use super::{host::SurfaceEditorHost, resources::SurfacePresetEditorState, system_params::*};
 use bevy::prelude::*;
 use feathrise_editor_core::{PresetWorkspaceState, PresetWorkspaceTab};

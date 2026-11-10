@@ -320,7 +320,7 @@ fn sanitize_surface_source(
             let index = read_surface_index(index_source, texel, slot);
             if index >= layer_count {
                 return Err(format!(
-                    "地表像素{texel}的槽{slot}引用层{index}，但地图只有{layer_count}层"
+                    "地表像素{texel}的槽{slot}引用层{index}，但场景只有{layer_count}层"
                 ));
             }
             let value = u64::from(weight_source[texel * 4 + slot]);

@@ -1,6 +1,6 @@
 //! 空工程格式骨架与显式验收种子。只写调用方新建的私有目录，不复制或改写仓库 RPG 地图。
 
-use feathrise_map_content::*;
+use feathrise_scene_content::*;
 use serde::Serialize;
 use serde_json::json;
 use std::{fs, path::Path};
@@ -11,17 +11,17 @@ mod terrain;
 #[cfg(any(test, feature = "validation"))]
 pub use terrain::{SAMPLE_SURFACE_RESOLUTION, SAMPLE_TERRAIN_FOLDER};
 
-/// 正式空工程只建立格式合法的空目录，不自动创建示例地图、地形、模型或游戏预设。
+/// 正式空工程只建立格式合法的空目录，不自动创建示例场景、地形、模型或游戏预设。
 pub fn create_empty(asset_root: &Path) -> Result<(), String> {
     write(
         asset_root,
-        MAP_CATALOG_ASSET_PATH,
-        &json!({"schema_version":1,"maps":[]}),
+        SCENE_CATALOG_ASSET_PATH,
+        &SceneCatalogAsset { schema_version: SCENE_SCHEMA_VERSION, scenes: Vec::new() },
     )?;
     write(
         asset_root,
-        "maps/editor.map_folders.json",
-        &json!({"schema_version":1,"folders":[],"map_folders":{}}),
+        "scenes/editor.scene_folders.json",
+        &json!({"schema_version":1,"folders":[],"scene_folders":{}}),
     )?;
     // 角色、装备、技能和对话属于工程／插件；空工程不携带原游戏的格式骨架。
     write(
@@ -61,48 +61,48 @@ pub fn create_empty(asset_root: &Path) -> Result<(), String> {
 /// 有真实地形的有限验收夹具；正式新建入口必须使用 `create_empty`。
 #[cfg(any(test, feature = "validation"))]
 pub fn create(asset_root: &Path, label: &str) -> Result<(), String> {
-    let map = "M1-SAMPLE";
+    let sample_id = "M1-SAMPLE";
     write(
         asset_root,
-        MAP_CATALOG_ASSET_PATH,
-        &json!({"schema_version":1,"maps":[
-        {"id":map,"display_name":label,"folder":"maps/M1-SAMPLE","published":true},
-        {"id":"M1-EMPTY","display_name":"空地图","folder":"maps/M1-EMPTY","published":false}]}),
+        SCENE_CATALOG_ASSET_PATH,
+        &json!({"schema_version":SCENE_SCHEMA_VERSION,"scenes":[
+        {"id":sample_id,"display_name":label,"folder":"scenes/M1-SAMPLE","published":true},
+        {"id":"M1-EMPTY","display_name":"空场景","folder":"scenes/M1-EMPTY","published":false}]}),
     )?;
     // 新工程从原编辑器的合法空分类开始；避免首次启动把可选归类文件缺失打印为资产错误。
     write(
         asset_root,
-        "maps/editor.map_folders.json",
-        &json!({"schema_version":1,"folders":[],"map_folders":{}}),
+        "scenes/editor.scene_folders.json",
+        &json!({"schema_version":1,"folders":[],"scene_folders":{}}),
     )?;
-    for (id, name) in [(map, label), ("M1-EMPTY", "空地图")] {
-        let folder = format!("maps/{id}");
-        // 示例模板显式包含一块正式地形；空白地图继续是真正空容器，不隐式补碰撞平面。
-        let terrains = if id == map {
+    for (id, name) in [(sample_id, label), ("M1-EMPTY", "空场景")] {
+        let folder = format!("scenes/{id}");
+        // 示例模板显式包含一块正式地形；空白场景继续是真正空容器，不隐式补碰撞平面。
+        let terrains = if id == sample_id {
             vec![terrain::create(asset_root)?]
         } else {
             vec![]
         };
-        let spawn = if id == map {
+        let spawn = if id == sample_id {
             [0., 2., 6.]
         } else {
             [0., 2., 0.]
         };
         write(
             asset_root,
-            &format!("{folder}/{MAP_MANIFEST_FILE_NAME}"),
-            &json!({"schema_version":1,"id":id,
-            "display_name":name,"runtime_scene":MapRuntimeKind::DataDriven.as_str(),"world_min":[-32.,-32.],"world_max":[32.,32.],
+            &format!("{folder}/{SCENE_MANIFEST_FILE_NAME}"),
+            &json!({"schema_version":SCENE_SCHEMA_VERSION,"id":id,
+            "display_name":name,"runtime_scene":SceneRuntimeKind::DataDriven.as_str(),"world_min":[-32.,-32.],"world_max":[32.,32.],
             "default_spawn":spawn,"terrains":terrains,"asset_roots":["scene"]}),
         )?;
         write(
             asset_root,
-            &format!("{folder}/portals.map_portals.json"),
-            &json!({"schema_version":1,"map_id":id,"portals":[]}),
+            &format!("{folder}/portals.scene_portals.json"),
+            &json!({"schema_version":SCENE_SCHEMA_VERSION,"scene_id":id,"portals":[]}),
         )?;
         // 这是真实placements格式，运行时由feathrise_scene的生产装配器创建WorldAsset和正式实例根。
         // 建筑保存沿用原五点地基规则：平地零高、单位缩放和固定高度，不能继承原型任意缩放。
-        let placements = if id == map {
+        let placements = if id == sample_id {
             vec![json!({"id":"sample-model","asset_path":"scene/probe.glb",
             "translation":[0.,0.,0.],"yaw_degrees":0.,"scale":[1.,1.,1.],
             "height_mode":"fixed_height","building_preset_id":"sample-building"})]
@@ -111,8 +111,8 @@ pub fn create(asset_root: &Path, label: &str) -> Result<(), String> {
         };
         write(
             asset_root,
-            &format!("{folder}/placements.map_placements.json"),
-            &json!({"schema_version":1,"map_id":id,"placements":placements}),
+            &format!("{folder}/placements.scene_placements.json"),
+            &json!({"schema_version":SCENE_SCHEMA_VERSION,"scene_id":id,"placements":placements}),
         )?;
     }
     let preset = BuildingPresetDescriptor::from_asset(

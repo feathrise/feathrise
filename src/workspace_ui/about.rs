@@ -6,7 +6,7 @@ use bevy::{input::mouse::{MouseScrollUnit, MouseWheel}, input_focus::InputFocus,
     tasks::{IoTaskPool, Task, futures::check_ready},
     ui::{FocusPolicy, RelativeCursorPosition}, ui_widgets::{ControlOrientation, Scrollbar, ScrollbarThumb},
     window::PrimaryWindow};
-use feathrise_editor_map::workbench::WorkbenchHeader;
+use feathrise_editor_scene::workbench::WorkbenchHeader;
 use feathrise_editor_ui::{EditorButtonClick, colors as c};
 
 const LICENSE_DOCUMENT: &str = include_str!(concat!(env!("OUT_DIR"), "/distribution-licenses.txt"));

@@ -1,4 +1,4 @@
-//! 纯内容处理回归：语法、Unicode、词元保真与输出预算无需地图宿主。
+//! 纯内容处理回归：语法、Unicode、词元保真与输出预算无需场景宿主。
 
 use super::validation;
 use bevy::prelude::default;
@@ -76,7 +76,7 @@ fn json_format_preserves_order_duplicate_keys_numbers_and_escaped_strings() {
 }
 
 #[test]
-fn json_format_maps_reversed_unicode_selection_without_changing_token_bytes() {
+fn json_format_scenes_reversed_unicode_selection_without_changing_token_bytes() {
     let source = "{\"名字\":\"中文🙂\",\"值\":1}";
     let start = source.find("中文🙂").unwrap();
     let selection = history::Selection {

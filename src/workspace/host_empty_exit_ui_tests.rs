@@ -18,7 +18,7 @@ use bevy::{
     text::TextLayoutInfo,
     window::{CursorLeft, CursorMoved, PrimaryWindow, WindowCloseRequested, WindowEvent, WindowRef},
 };
-use feathrise_editor_map::workbench::{WorkbenchCentralPageHost, WorkbenchHeader, WorkbenchModel, WorkbenchUiPlugin};
+use feathrise_editor_scene::workbench::{WorkbenchCentralPageHost, WorkbenchHeader, WorkbenchModel, WorkbenchUiPlugin};
 use feathrise_editor_ui::EditorButtonClick;
 use std::{collections::BTreeMap, fs::OpenOptions, path::{Path, PathBuf}};
 
@@ -356,7 +356,7 @@ fn empty_workspace_exit_requires_a_real_choice_and_preserves_the_original_form()
         .add_systems(PreUpdate, restore_target.after(feathrise_editor_ui::UiInteractionSystems::Sync).after(feathrise_editor_ui::update_editor_button_clicks))
         .add_systems(Last, drive_empty_host)
         .add_systems(Last, observe_exit.after(drive_empty_host));
-    assert!(!app.is_plugin_added::<feathrise_editor_map::MapEditorPlugin>());
+    assert!(!app.is_plugin_added::<feathrise_editor_scene::SceneEditorPlugin>());
     assert!(!app.is_plugin_added::<crate::native_play::NativePlayPlugin>());
     let mut texture = Image::new_target_texture(1280, 720, TextureFormat::Rgba8UnormSrgb, None);
     texture.texture_descriptor.usage |= TextureUsages::COPY_SRC;

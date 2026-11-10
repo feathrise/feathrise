@@ -28,7 +28,7 @@ fn publish_editor_settings(
     mut environment: ResMut<EnvironmentPreviewSettings>,
 ) {
     // 原游戏的F12作者工具只在打开时拥有这些输入；独立编辑器没有游戏菜单所有权。
-    if gate.is_some_and(|gate| !gate.map_editor_open) {
+    if gate.is_some_and(|gate| !gate.scene_editor_open) {
         return;
     }
     render.set_if_neq(source.render);
@@ -43,7 +43,7 @@ fn apply_author_ui_scale(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut scale: Option<ResMut<UiScale>>,
 ) {
-    if gate.is_some_and(|gate| !gate.map_editor_open) {
+    if gate.is_some_and(|gate| !gate.scene_editor_open) {
         return;
     }
     let Some(scale) = scale.as_deref_mut() else {

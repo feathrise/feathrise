@@ -111,8 +111,8 @@ use bevy::{
     window::PrimaryWindow,
 };
 use feathrise_editor_protocol::Mode;
-use feathrise_editor_map::standalone::embedded_snapshot::{self, EmbeddedSnapshotState};
-use feathrise_editor_map::standalone::{self, embedded_validation as author};
+use feathrise_editor_scene::standalone::embedded_snapshot::{self, EmbeddedSnapshotState};
+use feathrise_editor_scene::standalone::{self, embedded_validation as author};
 use serde_json::json;
 use std::{
     path::{Path, PathBuf},
@@ -321,7 +321,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
     match plan.phase {
         Phase::Open if plan.frames >= 30 => {
             world.write_message(RequestViewportMode(ViewportMode::SavedWorld));
-            standalone::request_open_map(world, "M1-SAMPLE")?;
+            standalone::request_open_scene(world, "M1-SAMPLE")?;
             plan.advance(Phase::Local);
         }
         Phase::Local
@@ -336,7 +336,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
             plan.current_revision = initial.revision;
             plan.initial = Some(initial);
             if plan.empty_fixture && !plan.initial.as_ref().unwrap().placements.is_empty() {
-                return Err("空地图专项在初始作者来源中发现已有实例".into());
+                return Err("空场景专项在初始作者来源中发现已有实例".into());
             }
             record(world, plan, "original_editor_3d_ready")?;
             world.write_message(RequestViewportMode(ViewportMode::EmbeddedWorld));
@@ -362,12 +362,12 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
             if !guest_capture(world, plan, pid, revision, true, 0)? {
                 return Ok(());
             }
-            record(world, plan, "empty_map_f12_play_same_world")?;
+            record(world, plan, "empty_scene_f12_play_same_world")?;
             plan.pause_requested_after_frame = frames;
             plan.game_mouse_release = Some(window_evidence::request_game_return(
                 plan.region_evidence
                     .as_ref()
-                    .ok_or("缺少空地图运行窗口取证")?,
+                    .ok_or("缺少空场景运行窗口取证")?,
                 pid,
             )?);
             plan.advance(Phase::EmptyPaused);
@@ -391,7 +391,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
             )? {
                 return Ok(());
             }
-            record(world, plan, "empty_map_f12_returned")?;
+            record(world, plan, "empty_scene_f12_returned")?;
             author::request_cuboid(world, POSITION)?;
             plan.advance(Phase::Added);
         }
@@ -636,7 +636,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
 }
 
 fn current_snapshot_applied(world: &World, applied_revision: u64) -> bool {
-    use feathrise_editor_map::standalone::embedded_snapshot::{self, EmbeddedSnapshotState};
+    use feathrise_editor_scene::standalone::embedded_snapshot::{self, EmbeddedSnapshotState};
     // 捕获修订覆盖多个作者域，不能与单个 EditorAuthoringSession.revision 混用。
     embedded_snapshot::ready_is_current(world)
         && world

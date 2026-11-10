@@ -2,7 +2,7 @@
 
 use super::{about, components::*, resources::{AboutState, Presentation}, *};
 use bevy::{input_focus::InputFocus, prelude::*, window::Ime};
-use feathrise_editor_map::workbench::WorkbenchHostPageState;
+use feathrise_editor_scene::workbench::WorkbenchHostPageState;
 use feathrise_editor_ui::EditorButtonClick;
 
 fn fixture() -> (App, Entity, Entity) {

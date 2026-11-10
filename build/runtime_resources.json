@@ -3,7 +3,6 @@
   "required_files": [
     "Cargo.lock",
     "assets/templates/empty/Cargo.toml",
-    "assets/templates/empty/Cargo-bevy-0.19.lock",
     "assets/templates/empty/build.rs",
     "assets/templates/empty/README.md",
     "assets/templates/empty/src/main.rs",
@@ -19,7 +18,7 @@
     "assets/icons/editor/tree_root.png",
     "assets/icons/editor/tree_person.png",
     "assets/icons/editor/tree_mesh.png",
-    "assets/icons/editor/tree_map.png",
+    "assets/icons/editor/tree_scene.png",
     "assets/icons/editor/tree_leaf.png",
     "assets/icons/editor/tree_image.png",
     "assets/icons/editor/tree_folder.png",

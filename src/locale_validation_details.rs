@@ -4,14 +4,14 @@ use feathrise_editor_ui::InteractionButton;
 use super::*;
 use bevy::input::{mouse::{MouseScrollUnit, MouseWheel}, touch::TouchPhase};
 use bevy::ui::RelativeCursorPosition;
-use feathrise_editor_map::workbench::WorkbenchSettingsBody;
+use feathrise_editor_scene::workbench::WorkbenchSettingsBody;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DetailStage {
     PluginMenu, PluginOpen, PluginDetails, PluginClose,
     OpenSettings, Lod, LodDisplay, LodToggles, LodReset, Snapping, SettingsHelp, SettingsClose,
     ExportMenu, ExportOpen, ExportDetails, ExportClose,
-    MapHelp, MapHelpDetails, Sculpt, Puddles, PuddleDetails,
+    SceneHelp, SceneHelpDetails, Sculpt, Puddles, PuddleDetails,
     Vegetation, VegetationDetails, World, WorldStatus, WorldStatusDetails,
     Diagnostics, DiagnosticsDetails, DiagnosticsOutside, CloseDiagnostics, DiagnosticsClosed,
     OpenLog, Log, LogHeader, LogWithCode, CaptureLogWithCode, CloseLog, CloseLogCode, LogCodeClosed,
@@ -99,11 +99,11 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity, detail: 
             escape(world, window);
             ExportClose
         }
-        ExportClose if !visible_text(world, "Export Project") => MapHelp,
-        MapHelp if click_help(world, run, window, "Root") => MapHelpDetails,
-        MapHelpDetails if visible_text(world, "Map Catalog · Details and Controls")
+        ExportClose if !visible_text(world, "Export Project") => SceneHelp,
+        SceneHelp if click_help(world, run, window, "Root") => SceneHelpDetails,
+        SceneHelpDetails if visible_text(world, "Map Catalog · Details and Controls")
             && visible_text(world, "No Map Loaded")
-            && visible_containing(world, "New maps and folders go in the root folder.") => {
+            && visible_containing(world, "New scenes and folders go in the root folder.") => {
             if !capture(world, run, "map-catalog-help-en")? { return Ok(()); }
             escape(world, window);
             Sculpt
@@ -138,7 +138,7 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity, detail: 
                 .ok_or("状态详情正文未生成")?;
             report(run, "status-details", json!({"text":detail.as_str()}))?;
             if detail.chars().any(|character| ('\u{4e00}'..='\u{9fff}').contains(&character)) {
-                return Err("空地图英文状态详情仍含内置中文文案".into());
+                return Err("空场景英文状态详情仍含内置中文文案".into());
             }
             escape(world, window);
             Diagnostics
@@ -346,7 +346,7 @@ fn click_help(world: &mut World, run: &mut Run, window: Entity, heading: &str) -
         }
         None
     }).min_by(|(_, first), (_, second)| first.total_cmp(second)).map(|(entity, _)| entity);
-    click_entity(world, run, window, candidate, MouseButton::Left)
+    click_entity(world, &mut run.mouse, window, candidate, MouseButton::Left)
 }
 
 fn bounds(world: &World, entity: Entity) -> Option<Rect> {

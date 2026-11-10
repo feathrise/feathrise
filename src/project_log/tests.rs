@@ -111,7 +111,7 @@ fn escape_only_closes_the_log_when_it_owns_keyboard_input() {
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .add_message::<bevy::input::mouse::MouseWheel>()
-        .add_message::<feathrise_editor_map::standalone::RunSavedProject>()
+        .add_message::<feathrise_editor_scene::standalone::RunSavedProject>()
         .add_message::<AppExit>()
         .add_systems(Update, super::systems::control);
     app.world_mut().resource_mut::<ProjectLogState>().open = true;
@@ -136,7 +136,7 @@ fn escape_only_closes_the_log_when_it_owns_keyboard_input() {
     assert_eq!(app.world().resource::<InputFocus>().get(), None);
     assert!(!app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Escape));
     assert!(app.world().resource::<Messages<AppExit>>().is_empty());
-    assert!(app.world().resource::<Messages<feathrise_editor_map::standalone::RunSavedProject>>().is_empty());
+    assert!(app.world().resource::<Messages<feathrise_editor_scene::standalone::RunSavedProject>>().is_empty());
     app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear();
     app.update();
     assert!(!app.world().resource::<ProjectLogState>().owns_keyboard());

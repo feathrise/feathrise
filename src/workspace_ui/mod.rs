@@ -36,8 +36,8 @@ pub(crate) struct WorkspaceUiPlugin;
 
 impl Plugin for WorkspaceUiPlugin {
     fn build(&self, app: &mut App) {
-        let full_author = app.is_plugin_added::<feathrise_editor_map::MapEditorPlugin>();
-        app.add_plugins(feathrise_editor_map::workbench::WorkbenchHostPagesPlugin)
+        let full_author = app.is_plugin_added::<feathrise_editor_scene::SceneEditorPlugin>();
+        app.add_plugins(feathrise_editor_scene::workbench::WorkbenchHostPagesPlugin)
             .init_resource::<WorkspaceModel>()
             .init_resource::<WorkspaceProbe>()
             .init_resource::<resources::Presentation>()
@@ -50,7 +50,7 @@ impl Plugin for WorkspaceUiPlugin {
             .configure_sets(
                 Update,
                 WorkspaceUiSet::Presentation
-                    .after(feathrise_editor_core::MapEditorSystemSet::Presentation),
+                    .after(feathrise_editor_core::SceneEditorSystemSet::Presentation),
             )
             .add_systems(Update, scene::mount.before(WorkspaceUiSet::Input))
             .add_systems(Update, about::mount.before(AboutInput))
@@ -60,10 +60,10 @@ impl Plugin for WorkspaceUiPlugin {
                 .before(crate::window_chrome::ChromeInput)
                 .before(crate::viewport_mode::ViewportModeInput)
                 .before(crate::project_log::ProjectLogInput)
-                .before(feathrise_editor_map::workbench::WorkbenchHostPageInput)
+                .before(feathrise_editor_scene::workbench::WorkbenchHostPageInput)
                 .before(WorkspaceUiSet::Input)
                 .before(feathrise_editor_ui::EditorUiSystemSet::NumericInput)
-                .before(feathrise_editor_core::MapEditorSystemSet::Input))
+                .before(feathrise_editor_core::SceneEditorSystemSet::Input))
             .add_systems(Update, about::present.after(AboutInput))
             .add_systems(
                 Update,
@@ -73,8 +73,8 @@ impl Plugin for WorkspaceUiPlugin {
                     .after(crate::native_project_close::ProjectCloseInput)
                     .after(crate::native_plugins::management::PluginManagerInput)
                     .after(feathrise_editor_ui::update_editor_button_clicks)
-                    .after(feathrise_editor_map::workbench::WorkbenchHostPageInput)
-                    .before(feathrise_editor_core::MapEditorSystemSet::Input),
+                    .after(feathrise_editor_scene::workbench::WorkbenchHostPageInput)
+                    .before(feathrise_editor_core::SceneEditorSystemSet::Input),
             )
             .add_systems(
                 Update,
@@ -115,7 +115,7 @@ fn install_text_boundary(app: &mut App, full_author: bool) {
             WorkspaceUiSet::Input.after(bevy::text::apply_text_edits),
         );
     } else {
-        // 无工程工作台没有MapEditorPlugin，必须由宿主补齐这一次官方处理。
+        // 无工程工作台没有SceneEditorPlugin，必须由宿主补齐这一次官方处理。
         app.add_systems(
             Update,
             bevy::text::apply_text_edits
@@ -165,6 +165,6 @@ pub(crate) fn fill_path(world: &mut World, field: WorkspaceField, value: String)
 pub(crate) fn show_page(world: &mut World, page: Page) {
     systems::show(&mut world.resource_mut::<resources::Presentation>(), page);
     world
-        .resource_mut::<feathrise_editor_map::workbench::WorkbenchHostPageState>()
+        .resource_mut::<feathrise_editor_scene::workbench::WorkbenchHostPageState>()
         .active = !matches!(page, Page::Editor);
 }

@@ -2,7 +2,7 @@
 
 use bevy::prelude::SystemSet;
 
-/// 宿主等非地图领域显式提供真实阶段，底栏不得从说明文字猜测成功或失败。
+/// 宿主等非场景领域显式提供真实阶段，底栏不得从说明文字猜测成功或失败。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PanelStatusPhase {
     #[default]

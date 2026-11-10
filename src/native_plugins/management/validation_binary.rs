@@ -142,7 +142,7 @@ pub unsafe extern "C" fn feathrise_plugin_metadata_v1(context: *mut c_void, writ
     unsafe { writer(context, METADATA.as_ptr(), METADATA.len()) }
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn feathrise_plugin_api_v1() -> *const Api {
+pub extern "C" fn feathrise_plugin_api_v2() -> *const Api {
     static API: Api = Api { abi_major: @ABI_MAJOR@, abi_minor: @ABI_MINOR@,
         struct_size: std::mem::size_of::<Api>() as u32, reserved: 0, create, invoke, destroy };
     &API

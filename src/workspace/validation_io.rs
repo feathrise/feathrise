@@ -22,7 +22,7 @@ pub(super) fn prepare(directory: PathBuf) -> Result<IoResult, String> {
     // 只采用本轮独占创建的空父目录；不重用用户已有工程或旧失败现场，也不删除任何目录。
     fs::create_dir(&parent).map_err(|error| format!("无法独占创建验收工程父目录：{error}"))?;
     let parent = parent.canonicalize().map_err(|error| error.to_string())?;
-    // 现代空模板不再带示例地图。只为本次新建的Projects授予原生夹具租约，不扩大到普通工程。
+    // 现代空模板不再带示例场景。只为本次新建的Projects授予原生夹具租约，不扩大到普通工程。
     let mut owner = OpenOptions::new().write(true).create_new(true)
         .open(parent.join(".feathrise-native-validation-owner.json"))
         .map_err(|error| format!("无法独占标记同窗口夹具根：{error}"))?;
@@ -166,7 +166,7 @@ fn verify_native(
         let reason = report["author_save"]["error"]
             .as_str()
             .or_else(|| report["author_save_error"].as_str())
-            .or_else(|| report["map_request_error"].as_str())
+            .or_else(|| report["scene_request_error"].as_str())
             .or_else(|| report["saved_play_result"]["Err"].as_str())
             .unwrap_or("原界面、文档或GPU输出未完整就绪");
         return Err(format!("原作者有限验收未通过：{reason}"));
@@ -201,7 +201,7 @@ fn verify_native(
         return Err("A工程没有完整确认原编辑、保存、工程运行及返回回执".into());
     }
     if first_a.is_some_and(|first| scene_layout(first) != scene_layout(report)) {
-        return Err("A工程重开后的已保存地图、网格对象或放置布局不同".into());
+        return Err("A工程重开后的已保存场景、网格对象或放置布局不同".into());
     }
     if let Some(first) = first_a {
         verify_saved_placement(report, first)?;
@@ -241,9 +241,9 @@ fn verify_saved_placement(observed: &Value, first_author: &Value) -> Result<(), 
 
 fn scene_layout(report: &Value) -> Value {
     let document = &report["current_author_document"];
-    // 本轮编辑的是地图放置布局。重开夹具会聚焦首个私有网格，而首轮保存停在地图总览；
+    // 本轮编辑的是场景放置布局。重开夹具会聚焦首个私有网格，而首轮保存停在场景总览；
     // 该焦点及其投影地表/植被并非同一作者文档，不能拿未持久化的视图状态冒充布局差异。
-    json!({"map_id":document["map_id"],"terrains":document["terrains"],"placements":document["placements"]})
+    json!({"scene_id":document["scene_id"],"terrains":document["terrains"],"placements":document["placements"]})
 }
 
 pub(super) fn preferences(file: PathBuf, home: PathBuf, paths: Paths) -> Result<IoResult, String> {
@@ -353,7 +353,7 @@ mod fixture_owner_tests {
             "asset_roots":["assets"],"editor_data":".editor"
         })).unwrap()).unwrap();
         feathrise_project::seed::create_empty(&project.join("assets")).unwrap();
-        let catalog = project.join("assets/maps/catalog.map_catalog.json");
+        let catalog = project.join("assets/scenes/catalog.scene_catalog.json");
         let original = fs::read(&catalog).unwrap();
         assert!(prepare_created(&owned.0, &project, "owned").is_err());
         let marker = owned.0.join(".feathrise-workspace-smoke-owner.json");

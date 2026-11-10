@@ -16,7 +16,7 @@ pub(super) fn install(app: &mut App) {
         .init_non_send::<resources::ExportFolderPicker>();
 }
 
-/// 关闭释放帧也占有输入，不能把Esc、鼠标释放或滚轮交给背后的地图工具。
+/// 关闭释放帧也占有输入，不能把Esc、鼠标释放或滚轮交给背后的场景工具。
 pub(crate) fn captures_input(world: &World) -> bool {
     world.get_resource::<resources::ExportOverlayState>().is_some_and(|state| state.captured)
         || world.get_resource::<super::resources::ExportState>().is_some_and(|state| state.open)

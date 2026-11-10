@@ -5,7 +5,7 @@ use feathrise_editor_ui::InteractionButton;
 use super::{Plan, Phase, evidence, resources::Scenario};
 use super::super::{components::{ExportAction, ExportProfile}, resources::ExportState};
 use bevy::{prelude::*, tasks::{IoTaskPool, futures::check_ready}, window::WindowCloseRequested};
-use feathrise_editor_map::standalone::{self, embedded_validation as author};
+use feathrise_editor_scene::standalone::{self, embedded_validation as author};
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -63,12 +63,12 @@ pub(super) fn drive(world: &mut World) {
 fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
     if let Phase::Custom(phase) = plan.phase { return super::custom::advance(world, plan, phase); }
     match plan.phase {
-        Phase::OpenMap if plan.frames > 25 => {
+        Phase::OpenScene if plan.frames > 25 => {
             world.write_message(crate::viewport_mode::RequestViewportMode(crate::viewport_mode::ViewportMode::SavedWorld));
-            standalone::request_open_map(world, "M1-SAMPLE")?;
-            plan.advance(Phase::WaitMap);
+            standalone::request_open_scene(world, "M1-SAMPLE")?;
+            plan.advance(Phase::WaitScene);
         }
-        Phase::WaitMap if standalone::preview_ready_for(world, "M1-SAMPLE") => {
+        Phase::WaitScene if standalone::preview_ready_for(world, "M1-SAMPLE") => {
             plan.baseline = Some(serde_json::to_value(author::probe(world)?).map_err(|error| error.to_string())?);
             author::request_cuboid(world, [7.0, 1.0, -2.0])?;
             plan.advance(Phase::WaitDraft);

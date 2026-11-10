@@ -42,7 +42,7 @@ pub(super) struct Fixture {
     pub asset_root: PathBuf,
     pub original: Arc<Vec<u8>>,
     pub draft: Option<serde_json::Value>,
-    pub map_save_before: Option<u64>,
+    pub scene_save_before: Option<u64>,
     pub marker: Option<Entity>,
     pub io: Option<Task<Result<(), String>>>,
     pub pulse: Option<Entity>,

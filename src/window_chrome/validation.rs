@@ -137,7 +137,7 @@ fn layout_evidence(world: &mut World) -> Result<LayoutEvidence, String> {
         *active = palette.normal == feathrise_editor_ui::colors::SELECT_BG;
     }
     let center = world.query_filtered::<(&ComputedNode, &UiGlobalTransform, &InheritedVisibility),
-        With<feathrise_editor_map::workbench::WorkbenchCentralPageHost>>()
+        With<feathrise_editor_scene::workbench::WorkbenchCentralPageHost>>()
         .iter(world).find(|(node, _, visible)| visible.get() && node.size().min_element() > 0.)
         .map(|(node, transform, _)| PixelRect::from_node(node, transform))
         .ok_or("缺少实际可见的中央工作区")?;
@@ -217,7 +217,7 @@ fn layout_proof(world: &World) -> Result<Value, String> {
     }
     let encode = |r: PixelRect| [r.left, r.top, r.right, r.bottom];
     // 核对原槽位、真实图标与绘制归属；不能只看到三个新实体就当作原布局入口已展开。
-    use feathrise_editor_map::workbench::WorkbenchHeaderItem as Item;
+    use feathrise_editor_scene::workbench::WorkbenchHeaderItem as Item;
     let expected = [(Item::Navigation, Glyph::Navigation), (Item::Inspector, Glyph::Inspector), (Item::Focus, Glyph::Focus)];
     if parts.layout_controls.len() != expected.len() {
         return Err("顶栏必须保留三个原布局入口".into());

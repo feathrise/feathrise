@@ -1,7 +1,7 @@
 //! 将羽毛标识放入现有工程欢迎页和原作者顶栏，保留原控件与交互顺序。
 use super::resources::BrandImages;
 use bevy::prelude::*;
-use feathrise_editor_map::workbench::WorkbenchHeader;
+use feathrise_editor_scene::workbench::WorkbenchHeader;
 
 pub(super) fn mount_header(
     mut commands: Commands,

@@ -78,7 +78,7 @@ pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) ->
         feathrise_editor_ui::EditorUiPlugin,
         bevy::input_focus::tab_navigation::TabNavigationPlugin,
         feathrise_editor_documents::DocumentsEditorPlugin,
-        feathrise_editor_map::workbench::WorkbenchUiPlugin,
+        feathrise_editor_scene::workbench::WorkbenchUiPlugin,
         NativeProjectClosePlugin,
     ))
     .insert_resource(model)
@@ -303,8 +303,8 @@ fn handle(
     origin: Option<u32>,
     command: WorkspaceCommand,
 ) {
-    // 启动地图与导出由当前作者持有；全局插件入口仍须由无工程主宿主消费。
-    if matches!(command, WorkspaceCommand::SetStartupMap | WorkspaceCommand::ExportProject) {
+    // 启动场景与导出由当前作者持有；全局插件入口仍须由无工程主宿主消费。
+    if matches!(command, WorkspaceCommand::SetStartupScene | WorkspaceCommand::ExportProject) {
         return;
     }
     if matches!(command, WorkspaceCommand::QuitApp) {
@@ -385,7 +385,7 @@ fn handle(
                 host.notice("正在移除最近记录，工程文件保持原样…");
             }
         }
-        WorkspaceCommand::SetStartupMap
+        WorkspaceCommand::SetStartupScene
         | WorkspaceCommand::ExportProject
         | WorkspaceCommand::OpenPlugins
         | WorkspaceCommand::CancelOperation
@@ -563,7 +563,7 @@ fn authors_present(host: &Host) -> bool {
 fn sync_preferences_access(world: &mut World) {
     let editable = author_preferences::home_ready(world);
     if let Some(mut access) = world.get_resource_mut::<
-        feathrise_editor_map::workbench::WorkbenchSettingsAccess>() {
+        feathrise_editor_scene::workbench::WorkbenchSettingsAccess>() {
         if access.editable != editable { access.editable = editable; }
     }
 }

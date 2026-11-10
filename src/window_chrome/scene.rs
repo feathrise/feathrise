@@ -6,7 +6,7 @@ use bevy::{
     prelude::*,
     ui::{FocusPolicy, RelativeCursorPosition},
 };
-use feathrise_editor_map::workbench::{WorkbenchHeader, WorkbenchHeaderItem as Item};
+use feathrise_editor_scene::workbench::{WorkbenchHeader, WorkbenchHeaderItem as Item};
 use feathrise_editor_ui::{ButtonColors, colors as c};
 
 pub(super) fn button(world: &mut World, action: ChromeButton, glyph: Glyph, name: &str) -> Entity {

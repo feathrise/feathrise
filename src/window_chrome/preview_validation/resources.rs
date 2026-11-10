@@ -13,7 +13,7 @@ pub(super) struct Plan {
     pub changed:Instant,
     pub stage:u8,
     pub frames:u32,
-    pub map_requested:bool,
+    pub scene_requested:bool,
     pub mouse:u8,
     pub target:Option<Entity>,
     pub clicked:bool,

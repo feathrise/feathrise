@@ -1,4 +1,4 @@
-//! 全局 PBR 地表目录、内容寻址纹理数组和地图引用保护事务。
+//! 全局 PBR 地表目录、内容寻址纹理数组和场景引用保护事务。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -7,9 +7,9 @@ use bevy::prelude::*;
 use bevy::tasks::IoTaskPool;
 use bevy::tasks::futures::check_ready;
 use image::imageops::FilterType;
-use feathrise_map_content::{
-    MAP_CATALOG_ASSET_PATH, MAP_SCHEMA_VERSION, MAP_SURFACE_SCHEMA_VERSION, MapCatalogAsset,
-    MapSurfaceAsset, ResolvedSurfacePresetCatalog, SURFACE_PRESET_CATALOG_ASSET_PATH,
+use feathrise_scene_content::{
+    SCENE_CATALOG_ASSET_PATH, SCENE_SCHEMA_VERSION, SCENE_SURFACE_SCHEMA_VERSION, SceneCatalogAsset,
+    SceneSurfaceAsset, ResolvedSurfacePresetCatalog, SURFACE_PRESET_CATALOG_ASSET_PATH,
     SURFACE_PRESET_SCHEMA_VERSION, SurfacePresetCatalogAsset, SurfacePresetDescriptor,
     SurfacePresetRegistry,
 };
@@ -74,7 +74,7 @@ pub(super) fn start_delete(
     ensure_writable(state, registry)?;
     let names = preset_reference_names(preset);
     if editor.draft_references(&names) {
-        return Err("当前未保存地图仍引用该地表预设；请先完成该地图层的替换或迁移".to_owned());
+        return Err("当前未保存场景仍引用该地表预设；请先完成该场景层的替换或迁移".to_owned());
     }
     let baseline = baseline_catalog(registry);
     let mutation = SurfaceCatalogMutation::Delete {
@@ -83,7 +83,7 @@ pub(super) fn start_delete(
     mutate_catalog(baseline.clone(), &mutation)?;
     let baseline_revision = registry.revision;
     let root = workspace_asset_root();
-    state.status = "正在后台扫描全部地图引用；无引用后才会重建数组并删除…".to_owned();
+    state.status = "正在后台扫描全部场景引用；无引用后才会重建数组并删除…".to_owned();
     state.save_feedback_target = None; // 删除沿用原提示，不占用本批保存回执。
     state.write_task = Some(IoTaskPool::get().spawn(async move {
         write_catalog_transaction(root, baseline, mutation, baseline_revision, None)
@@ -138,7 +138,7 @@ fn mutate_catalog(
                 .find(|preset| preset.id == *original_id)
                 .ok_or_else(|| format!("待编辑地表预设{original_id}已不存在"))?;
             if descriptor.id != existing.id {
-                return Err("编辑不能修改稳定 ID；地图始终按该身份引用预设".to_owned());
+                return Err("编辑不能修改稳定 ID；场景始终按该身份引用预设".to_owned());
             }
             *existing = descriptor.clone();
         }
@@ -177,7 +177,7 @@ fn write_catalog_transaction(
             .iter()
             .find(|preset| preset.id == *id)
             .ok_or_else(|| format!("待删除地表预设{id}已不存在"))?;
-        let references = scan_map_references(&root, preset)?;
+        let references = scan_scene_references(&root, preset)?;
         if !references.is_empty() {
             return Err(format!(
                 "不能删除地表预设{}：仍被{}引用",
@@ -388,32 +388,32 @@ fn array_digest(base: &[u8], normal: &[u8], arm_height: &[u8]) -> String {
         .collect()
 }
 
-fn scan_map_references(
+fn scan_scene_references(
     root: &Path,
     preset: &SurfacePresetDescriptor,
 ) -> Result<Vec<String>, String> {
-    let catalog_path = safe_asset_path(root, MAP_CATALOG_ASSET_PATH)?;
+    let catalog_path = safe_asset_path(root, SCENE_CATALOG_ASSET_PATH)?;
     let bytes = std::fs::read(&catalog_path)
-        .map_err(|error| format!("读取地图目录{}失败：{error}", catalog_path.display()))?;
-    let catalog: MapCatalogAsset = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("解析地图目录{}失败：{error}", catalog_path.display()))?;
-    if catalog.schema_version != MAP_SCHEMA_VERSION {
-        return Err("地图目录版本不一致，不能安全删除地表预设".to_owned());
+        .map_err(|error| format!("读取场景目录{}失败：{error}", catalog_path.display()))?;
+    let catalog: SceneCatalogAsset = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("解析场景目录{}失败：{error}", catalog_path.display()))?;
+    if catalog.schema_version != SCENE_SCHEMA_VERSION {
+        return Err("场景目录版本不一致，不能安全删除地表预设".to_owned());
     }
     let names = preset_reference_names(preset);
     let mut references = Vec::new();
-    for entry in catalog.maps {
+    for entry in catalog.scenes {
         let Some(relative) = entry.surface_path.as_deref() else {
             continue;
         };
         let path = safe_asset_path(root, relative)?;
         let bytes = std::fs::read(&path)
-            .map_err(|error| format!("读取地图{}地表文件失败：{error}", entry.id))?;
-        let surface: MapSurfaceAsset = serde_json::from_slice(&bytes)
-            .map_err(|error| format!("解析地图{}地表文件失败：{error}", entry.id))?;
-        if surface.schema_version != MAP_SURFACE_SCHEMA_VERSION || surface.map_id != entry.id {
+            .map_err(|error| format!("读取场景{}地表文件失败：{error}", entry.id))?;
+        let surface: SceneSurfaceAsset = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("解析场景{}地表文件失败：{error}", entry.id))?;
+        if surface.schema_version != SCENE_SURFACE_SCHEMA_VERSION || surface.scene_id != entry.id {
             return Err(format!(
-                "地图{}地表版本或身份不一致，不能安全删除预设",
+                "场景{}地表版本或身份不一致，不能安全删除预设",
                 entry.id
             ));
         }
@@ -543,7 +543,7 @@ pub(crate) fn poll_catalog_write(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use feathrise_map_content::SurfaceProjection;
+    use feathrise_scene_content::SurfaceProjection;
 
     fn preset(id: &str) -> SurfacePresetDescriptor {
         SurfacePresetDescriptor {

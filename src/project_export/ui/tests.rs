@@ -77,7 +77,7 @@ fn export_overlay_keeps_one_release_frame_and_picker_ownership() {
     state.capture(true, false);
     assert!(state.captured);
     state.capture(false, false);
-    assert!(state.captured, "关闭帧不能把取消输入穿透给地图");
+    assert!(state.captured, "关闭帧不能把取消输入穿透给场景");
     state.capture(false, false);
     assert!(!state.captured);
     state.capture(false, true);

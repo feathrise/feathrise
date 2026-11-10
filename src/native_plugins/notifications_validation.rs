@@ -7,18 +7,18 @@ use crate::native_plugins::{
     systems as native_systems,
 };
 use feathrise_editor_core::{AssetPreviewFocus, WorkspaceDomainState};
-use feathrise_editor_map::game_authoring::map_api::{
-    resources::MapEditorState,
-    ui::{sidebars::MapEditorSidebarState, vegetation_preset_editor::VegetationPresetEditorState},
+use feathrise_editor_scene::game_authoring::scene_api::{
+    resources::SceneEditorState,
+    ui::{sidebars::SceneEditorSidebarState, vegetation_preset_editor::VegetationPresetEditorState},
 };
 
 pub(super) fn install(app: &mut App) {
     notifications::install(app);
-    app.init_resource::<MapEditorState>()
+    app.init_resource::<SceneEditorState>()
         .init_resource::<WorkspaceDomainState>()
         .init_resource::<VegetationPresetEditorState>()
         .init_resource::<bevy::clipboard::Clipboard>()
-        .init_resource::<MapEditorSidebarState>()
+        .init_resource::<SceneEditorSidebarState>()
         .init_resource::<AssetPreviewFocus>();
 }
 
@@ -277,11 +277,11 @@ pub(super) fn begin_legacy_failure(
     assert_eq!(app.world().resource::<NotificationState>().count, 3);
     let installed_adapter = !app
         .world()
-        .contains_resource::<feathrise_editor_map::standalone::ProjectAuthorAdapters>();
+        .contains_resource::<feathrise_editor_scene::standalone::ProjectAuthorAdapters>();
     if installed_adapter {
         crate::native_plugins::adapter::install(app);
     }
-    let blocker = feathrise_editor_map::standalone::saved_play_blocker(app.world())
+    let blocker = feathrise_editor_scene::standalone::saved_play_blocker(app.world())
         .expect("真实发现失败应进入原F12检查门");
     assert!(
         errors
@@ -332,7 +332,7 @@ pub(super) fn finish_legacy_failure(
         !notice.summary.contains(&before.id)
             && notice.selected_error.as_deref() != Some(before.id.as_str())
     );
-    let blocker = feathrise_editor_map::standalone::saved_play_blocker(app.world())
+    let blocker = feathrise_editor_scene::standalone::saved_play_blocker(app.world())
         .expect("另外两份坏DLL仍应正确阻止F12");
     assert!(
         remaining
@@ -354,7 +354,7 @@ pub(super) fn finish_legacy_failure(
     app.world_mut().remove_resource::<NativeTools>();
     if before.installed_adapter {
         app.world_mut()
-            .remove_resource::<feathrise_editor_map::standalone::ProjectAuthorAdapters>();
+            .remove_resource::<feathrise_editor_scene::standalone::ProjectAuthorAdapters>();
     }
     super::super::open_from_workspace(app.world_mut());
     wait_for_idle(app);

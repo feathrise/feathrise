@@ -46,7 +46,7 @@ fn queues_are_bounded_and_faults_do_not_accept_new_mutations() {
         close_confirmation: None,
         choices: None,
         latest_activation: 0,
-        map_pending: false,
+        scene_pending: false,
     };
     for _ in 0..8 {
         assert!(tool.send(Request::Open, true).is_ok());

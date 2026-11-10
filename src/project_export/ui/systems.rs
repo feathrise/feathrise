@@ -77,7 +77,7 @@ pub(in crate::project_export) fn handle(world: &mut World) {
     let picker = picker_active(world);
     world.resource_mut::<ExportOverlayState>().capture(open, picker);
     if world.resource::<ExportOverlayState>().captured {
-        // 官方文本处理已经执行，再消费边沿以隔离地图快捷键；真实按住状态由原系统处理释放。
+        // 官方文本处理已经执行，再消费边沿以隔离场景快捷键；真实按住状态由原系统处理释放。
         if let Some(mut guard) = world.get_resource_mut::<feathrise_editor_core::EditorTextInputGuard>() {
             guard.block_shortcuts = true;
         }

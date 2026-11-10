@@ -1,6 +1,6 @@
 //! PBR 地表预设的草稿、动作、任务结果与固定回显缓存，不定义 ECS 组件或资源。
 
-use feathrise_map_content::SurfacePresetDescriptor;
+use feathrise_scene_content::SurfacePresetDescriptor;
 
 #[derive(Default)]
 pub struct SurfaceListCache {
@@ -46,7 +46,7 @@ impl SurfaceDraft {
 pub struct SurfaceTab {
     pub id: u64,
     pub draft: SurfaceDraft,
-    pub section: SurfaceSection, // 分区属于文档会话，不参与脏标记、目录或地图保存。
+    pub section: SurfaceSection, // 分区属于文档会话，不参与脏标记、目录或场景保存。
     pub close_confirmation: bool,
 }
 

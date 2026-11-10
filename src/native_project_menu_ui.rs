@@ -7,7 +7,7 @@ use bevy::{
     prelude::*,
     ui::{FocusPolicy, RelativeCursorPosition},
 };
-use feathrise_editor_map::workbench::WorkbenchHeader;
+use feathrise_editor_scene::workbench::WorkbenchHeader;
 use feathrise_editor_ui::colors as c;
 
 pub(super) fn mount(
@@ -96,11 +96,11 @@ pub(super) fn mount(
                                 panel,
                                 &font,
                                 ProjectAction::SetStartup,
-                                "当前地图设为启动地图",
+                                "当前场景设为启动场景",
                             );
                             panel.spawn(caption(
                                 &font,
-                                "此操作只保存启动设置；地图草稿请使用原保存按钮。",
+                                "此操作只保存启动设置；场景草稿请使用原保存按钮。",
                                 12.,
                             ));
                             button(panel, &font, ProjectAction::Export, "导出工程…");
@@ -132,7 +132,7 @@ pub(super) fn mount(
                             );
                         });
                 });
-            // 原底栏的全局详情保留结果；菜单关闭或切地图也不会吃掉设置保存失败。
+            // 原底栏的全局详情保留结果；菜单关闭或切场景也不会吃掉设置保存失败。
             header.spawn((
                 ProjectMenuStatus,
                 feathrise_editor_ui::PanelStatusText("工程启动设置"),

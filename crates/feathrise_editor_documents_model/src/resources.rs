@@ -9,7 +9,7 @@ pub struct DocumentScenes {
     pub search_panel: fn() -> Box<dyn Scene>,
     pub replace_tab: fn() -> Box<dyn Scene>,
 }
-/// 文档内容算法的稳定操作表；地图宿主不依赖文档布局和解析实现的编译产物。
+/// 文档内容算法的稳定操作表；场景宿主不依赖文档布局和解析实现的编译产物。
 /// 只传入共享文本与值类型，不能持有World、路径状态或另建历史/任务队列。
 #[derive(Resource, Clone, Copy)]
 pub struct DocumentContentOperations {

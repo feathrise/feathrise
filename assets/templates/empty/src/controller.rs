@@ -35,7 +35,7 @@ fn spawn_observer(mut commands: Commands, origin: Res<ProjectViewOrigin>) {
 
 fn synchronize_origin(origin: Res<ProjectViewOrigin>,
     mut observers: Query<&mut Transform, With<SceneRuntimeObserver>>) {
-    // 常驻工程先建空 World，再接收作者地图；驻留观察点须随新地图出生点更新。
+    // 常驻工程先建空 World，再接收作者场景；驻留观察点须随新场景出生点更新。
     if !origin.is_changed() { return; }
     for mut transform in &mut observers { transform.translation = origin.0; }
 }
@@ -84,7 +84,7 @@ fn initialize_view(mut commands: Commands, view: Res<View>, origin: Res<ProjectV
     let offset = Vec3::new(
         -horizontal.sin() * vertical.cos(), -vertical.sin(), horizontal.cos() * vertical.cos(),
     ) * distance;
-    // 地图生命周期拥有唯一主相机；只在此相机附加控制器，切图时不能另叠一台窗口视图。
+    // 场景生命周期拥有唯一主相机；只在此相机附加控制器，切换场景时不能另叠一台窗口视图。
     for (entity, mut transform) in &mut cameras {
         *transform = Transform::from_translation(target + offset).looking_at(target, Vec3::Y);
         let mut controls = FreeCameraState::default();

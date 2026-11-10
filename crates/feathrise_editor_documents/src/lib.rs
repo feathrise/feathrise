@@ -1,4 +1,4 @@
-//! 文档格式、内容解析与作者界面；内容算法与布局均不依赖地图宿主。
+//! 文档格式、内容解析与作者界面；内容算法与布局均不依赖场景宿主。
 use bevy::prelude::*;
 use feathrise_editor_documents_model::DocumentScenes;
 mod components {
@@ -35,7 +35,7 @@ pub fn scenes() -> DocumentScenes {
     }
 }
 
-/// 正式宿主与测试都注入同一组纯内容算法，地图调度只复制这个固定大小函数表。
+/// 正式宿主与测试都注入同一组纯内容算法，场景调度只复制这个固定大小函数表。
 pub fn content_operations() -> feathrise_editor_documents_model::DocumentContentOperations {
     feathrise_editor_documents_model::DocumentContentOperations {
         parse_preview,
