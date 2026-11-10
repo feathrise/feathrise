@@ -24,6 +24,8 @@ use std::{
 };
 
 pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) -> Result<(), String> {
+    #[cfg(all(feature = "validation", windows))]
+    let placement_validation = crate::window_chrome::placement_validation::prepare(initial.is_some())?;
     trace("准备主窗口环境");
     feathrise_runtime::prepare_vulkan_environment();
     let (preferences, error) = super::preferences()?;
@@ -31,6 +33,8 @@ pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) ->
     let notices = [error, author_error].into_iter().flatten().collect::<Vec<_>>();
     trace("个人设置已读取，开始装配原工作台");
     let model = super::model(&preferences, None);
+    #[cfg(windows)]
+    let saved_window = preferences.main_window;
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -50,6 +54,8 @@ pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) ->
                 primary_window: Some(Window {
                     title: "Feathrise（羽立）".into(),
                     decorations: !cfg!(target_os = "windows"), // Windows由统一自绘顶栏保留原生窗口操作。
+                    #[cfg(windows)]
+                    visible: saved_window.is_none(),
                     present_mode: if cfg!(windows) && !author_settings.editor.render.graphics.vsync {
                         bevy::window::PresentMode::AutoNoVsync
                     } else { default() },
@@ -109,7 +115,10 @@ pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) ->
     .add_systems(Update, sync_window_title)
     .add_systems(Last, advance);
     #[cfg(windows)]
-    app.add_systems(Last, pace_workspace.after(advance));
+    {
+        crate::window_chrome::placement::install(&mut app, saved_window);
+        app.add_systems(Last, pace_workspace.after(advance));
+    }
     let preferences_completion = author_preferences::install_host(&mut app, author_settings);
     #[cfg(feature = "validation")]
     crate::locale_validation::install(&mut app, None)?;
@@ -119,6 +128,11 @@ pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) ->
     feathrise_runtime::install_vulkan_surface_guard(&mut app);
     #[cfg(all(feature = "validation", windows))]
     super::validation::install(&mut app)?;
+    #[cfg(all(feature = "validation", windows))]
+    if let Some(plan) = placement_validation {
+        app.insert_resource(plan)
+            .add_systems(Last, crate::window_chrome::placement_validation::drive.after(advance));
+    }
     trace("原工作台已装配，启动窗口事件循环");
     #[cfg(all(feature = "validation", windows))]
     let validation = super::validation::completion(app.world());
@@ -448,6 +462,8 @@ pub(super) fn poll_empty_exit(host: &mut Host, world: &mut World) {
         }
     } else if !world.resource::<NativeProjectCloseState>().active() {
         host.exit_app = false;
+        #[cfg(windows)]
+        crate::window_chrome::placement::cancel_exit(world);
         host.want_close = false;
         host.close_sent = false;
         host.notice("已取消退出编辑器，当前工作台和准备任务保留");
@@ -459,7 +475,19 @@ pub(super) fn finish_app_exit(host: &mut Host, world: &mut World) {
     if host.exit_app && host.current.is_none() && !host.busy()
         && crate::native_plugins::management::ready_to_exit(world) {
         match author_preferences::ready_to_exit(world, false) {
-            Ok(true) => { world.write_message(AppExit::Success); }
+            Ok(true) => {
+                #[cfg(windows)]
+                if let Some(placement) = crate::window_chrome::placement::capture_on_exit(world)
+                    && host.preferences.main_window != Some(placement)
+                {
+                    // 复用主宿主的单写者与原文校验。窗口保持存活，下一次轮询收到落盘结果后才退出。
+                    let mut preferences = host.preferences.clone();
+                    preferences.main_window = Some(placement);
+                    host.preferences_job = Some(process::save_preferences(preferences));
+                    return;
+                }
+                world.write_message(AppExit::Success);
+            }
             Ok(false) => (),
             Err(error) => hold_preferences_exit(host, world, error),
         }
@@ -468,6 +496,8 @@ pub(super) fn finish_app_exit(host: &mut Host, world: &mut World) {
 
 fn hold_preferences_exit(host: &mut Host, world: &mut World, error: String) {
     host.exit_app = false;
+    #[cfg(windows)]
+    crate::window_chrome::placement::cancel_exit(world);
     if let Some(mut state) = world.get_resource_mut::<NativeProjectCloseState>() {
         state.hold(error.clone());
     }
@@ -527,7 +557,13 @@ fn poll_jobs(host: &mut Host) {
                 host.preferences = preferences;
                 host.notice("编辑器个人设置已保存");
             }
-            result => host.notice(result.err().unwrap_or_else(|| "设置保存线程异常".into())),
+            result => {
+                let error = result.err().unwrap_or_else(|| "设置保存线程异常".into());
+                if host.exit_app {
+                    warn!("退出前的编辑器个人设置未能保存：{error}");
+                }
+                host.notice(error);
+            }
         }
     }
     if host

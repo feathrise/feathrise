@@ -5,6 +5,10 @@ mod glyphs;
 mod native;
 #[cfg(target_os = "windows")]
 mod input_surface;
+#[cfg(windows)]
+pub(crate) mod placement;
+#[cfg(all(feature = "validation", windows))]
+pub(crate) mod placement_validation;
 mod resources;
 mod scene;
 mod systems;
