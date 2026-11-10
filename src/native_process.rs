@@ -7,5 +7,9 @@ mod unix;
 
 #[cfg(windows)]
 pub use windows::JobProcess;
+#[cfg(windows)]
+pub(crate) use windows::command_executable as resolve_tool;
 #[cfg(unix)]
 pub use unix::JobProcess;
+#[cfg(unix)]
+pub(crate) use unix::executable as resolve_tool;

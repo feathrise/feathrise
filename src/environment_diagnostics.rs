@@ -1,9 +1,11 @@
-//! 对本次后台新建／工程运行的真实失败追加可操作诊断；不预探测工具、不改环境或作者工程。
+//! 工程构建环境诊断。普通构建仍在真实失败后追加建议，主动预检由启动配置菜单单独发起。
 //!
 //! 分类只影响错误文案，不作为运行资格判断。保留退出码和有界原始日志；未知错误交还原诊断。
 
 #[cfg(test)]
 mod tests;
+mod preflight;
+pub(crate) use preflight::{BuildEnvironmentState, RequestBuildEnvironment, install};
 
 use std::{io, path::Path, process::Command};
 

@@ -166,6 +166,33 @@ impl ProjectLogState {
 
     pub(crate) fn owns_keyboard(&self) -> bool { self.keyboard_owned }
 
+    pub(crate) fn show(&mut self) {
+        if !self.open {
+            self.open = true;
+            self.dirty = true;
+        }
+    }
+
+    /// 前台采用完整的小型诊断回执，避免在编译高峰被标准流的有界邮箱整体挤掉。
+    pub(crate) fn append_report(&mut self, channel: &ProjectLogChannel, lines: Vec<String>) {
+        if channel.owner != self.owner { return; }
+        let generation = channel.generation.fetch_max(1, Ordering::AcqRel).max(1);
+        if self.generation != generation {
+            self.generation = generation;
+            self.clear();
+        }
+        for text in lines.into_iter().take(24) {
+            let mut end = text.len().min(LINE_BYTES);
+            while !text.is_char_boundary(end) { end -= 1; }
+            let text = text[..end].chars().map(|ch| if ch.is_control() { ' ' } else { ch }).collect();
+            self.adopt(LogEvent {
+                owner: self.owner.clone(), generation, sequence: channel.sequence.fetch_add(1, Ordering::AcqRel) + 1,
+                task: LogTask::default(), source: LogSource::Build, kind: LogEventKind::Line,
+                text, spans: Vec::new(),
+            });
+        }
+    }
+
     /// 只读本轮任务已经进入工程日志的命令，避免用菜单选择代替真实构建证据。
     #[cfg(all(windows, feature = "validation"))]
     pub(crate) fn validation_build_command(&self, kind: LogTaskKind) -> Option<&str> {

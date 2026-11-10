@@ -7,6 +7,8 @@ mod resources;
 mod scrollbar_feedback;
 mod reading;
 mod scene;
+mod search;
+mod search_paint;
 mod stream;
 mod systems;
 mod types;
@@ -92,6 +94,7 @@ impl Plugin for ProjectLogPlugin {
         channel.set_locale(log_locale(world.get_resource::<EditorSettings>(), world.get_resource::<EditorSystemLocale>()));
         let state = ProjectLogState::new(&channel, &self.project_name);
         app.insert_resource(channel).insert_resource(state).insert_non_send(inbox)
+            .init_resource::<search::LogSearch>()
             .add_systems(PreUpdate, sync_log_locale)
             .add_systems(Update, scene::mount.before(systems::present))
             .add_systems(Update, reading::readonly.before(bevy::text::apply_text_edits).before(systems::collect))
@@ -99,18 +102,22 @@ impl Plugin for ProjectLogPlugin {
             .add_systems(Update, reading::remember_selection.after(bevy::text::apply_text_edits).before(systems::collect))
             .add_systems(Update, systems::collect.before(systems::control))
             .add_systems(Update, wrapping::sync.after(systems::collect).before(systems::control))
+            .add_systems(Update, search::sync.after(systems::collect)
+                .after(bevy::text::apply_text_edits).before(systems::control))
             .add_systems(Update, systems::control.in_set(ProjectLogInput)
                 .after(crate::native_project_close::ProjectCloseInput)
                 .before(feathrise_editor_ui::EditorUiSystemSet::NumericInput)
                 .before(feathrise_editor_core::MapEditorSystemSet::Input))
             .add_systems(Update, reading::copy.after(systems::control).before(systems::present))
             .add_systems(Update, systems::present.after(systems::control))
+            .add_systems(Update, search::present.after(systems::control))
             .add_systems(Update, scrollbar_feedback::sync.after(systems::control))
             .add_systems(PostUpdate, fonts::fallback
                 .after(bevy::text::load_font_assets_into_font_collection)
                 .before(bevy::text::detect_text_needs_rerender)
                 .before(bevy::text::apply_text_edits))
             .add_systems(PostUpdate, systems::measure_width.after(bevy::ui::UiSystems::PostLayout));
+        app.add_systems(PostUpdate, search_paint::paint.after(bevy::ui::UiSystems::PostLayout));
     }
 }
 

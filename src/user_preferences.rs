@@ -15,6 +15,7 @@ use std::{
 };
 
 pub(crate) const MAX_RECENT_PROJECTS: usize = 32;
+const MAX_PINNED_PROJECTS: usize = MAX_RECENT_PROJECTS - 1;
 const MAX_CONFIG_BYTES: usize = 256 * 1024;
 const MAX_NAME_BYTES: usize = 512;
 static NEXT_TEMPORARY: AtomicU64 = AtomicU64::new(0);
@@ -26,6 +27,9 @@ pub(crate) struct RecentProject {
     /// 调用方在工程预检成功后传入真实规范目录；记录不承担目录存在性扫描。
     pub path: PathBuf,
     pub last_opened_unix_seconds: u64,
+    // 旧记录默认未固定，普通记录保存时仍沿用旧字段形状。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -129,6 +133,8 @@ impl Preferences {
         }
         preferences.recent_projects = stored.recent_projects;
         preferences.validate()?;
+        // 稳定归并两组。旧文件缺少固定标记，原来的最近打开顺序保持有效。
+        preferences.recent_projects.sort_by_key(|entry| !entry.pinned);
         preferences.original = Some(original);
         Ok(preferences)
     }
@@ -190,18 +196,64 @@ impl Preferences {
         last_opened_unix_seconds: u64,
     ) -> Result<(), String> {
         validate_recent(name, path)?;
-        self.recent_projects
-            .retain(|project| !same_location(&project.path, path));
-        self.recent_projects.insert(
-            0,
-            RecentProject {
-                name: name.trim().to_owned(),
-                path: path.to_path_buf(),
-                last_opened_unix_seconds,
-            },
-        );
+        let mut entry = RecentProject {
+            name: name.trim().to_owned(),
+            path: path.to_path_buf(),
+            last_opened_unix_seconds,
+            pinned: false,
+        };
+        if let Some(index) = self.recent_index(path) {
+            if self.recent_projects[index].pinned {
+                // 重开可刷新名称和时间，但固定组内的位置由固定操作决定。
+                entry.pinned = true;
+                self.recent_projects[index] = entry;
+                return Ok(());
+            }
+            self.recent_projects
+                .retain(|project| !same_location(&project.path, path));
+        }
+        let first_unpinned = self.pinned_count();
+        self.recent_projects.insert(first_unpinned, entry);
         self.recent_projects.truncate(MAX_RECENT_PROJECTS);
         Ok(())
+    }
+
+    /// 固定命令携带目标值，过期的重复命令不会把刚保存的状态再反转。
+    pub(crate) fn set_recent_pinned(&mut self, path: &Path, pinned: bool) -> Result<bool, String> {
+        let Some(index) = self.recent_index(path) else {
+            return Ok(false);
+        };
+        if self.recent_projects[index].pinned == pinned {
+            return Ok(false);
+        }
+        if pinned && self.pinned_count() >= MAX_PINNED_PROJECTS {
+            return Err(format!("固定工程最多保留 {MAX_PINNED_PROJECTS} 项"));
+        }
+        let mut entry = self.recent_projects.remove(index);
+        entry.pinned = pinned;
+        let index = if pinned {
+            0
+        } else {
+            // 取消固定后恢复到最后打开时间对应的普通记录位置，不制造一次新的打开。
+            self.recent_projects
+                .iter()
+                .position(|other| {
+                    !other.pinned && other.last_opened_unix_seconds < entry.last_opened_unix_seconds
+                })
+                .unwrap_or(self.recent_projects.len())
+        };
+        self.recent_projects.insert(index, entry);
+        Ok(true)
+    }
+
+    fn recent_index(&self, path: &Path) -> Option<usize> {
+        self.recent_projects
+            .iter()
+            .position(|entry| same_location(&entry.path, path))
+    }
+
+    fn pinned_count(&self) -> usize {
+        self.recent_projects.partition_point(|entry| entry.pinned)
     }
 
     /// 只修改内存中的记录；本函数不对工程路径执行任何文件操作。
@@ -235,6 +287,10 @@ impl Preferences {
         validate_absolute(&self.default_project_directory, "默认工程目录")?;
         if self.recent_projects.len() > MAX_RECENT_PROJECTS {
             return Err(format!("最近工程记录不能超过{MAX_RECENT_PROJECTS}项"));
+        }
+        // 留一个普通最近记录槽，列表满时也能显示刚成功打开的新工程。
+        if self.recent_projects.iter().filter(|entry| entry.pinned).count() > MAX_PINNED_PROJECTS {
+            return Err(format!("固定工程最多保留 {MAX_PINNED_PROJECTS} 项"));
         }
         for project in &self.recent_projects {
             validate_recent(&project.name, &project.path)?;
@@ -703,6 +759,68 @@ mod tests {
                 .iter()
                 .all(|recent| recent.path != project)
         );
+    }
+
+    #[test]
+    fn recent_pins_keep_distinct_worktrees_and_survive_reopen_and_mru_churn() {
+        let fixture = Fixture::new();
+        let first = fixture.root.join("worktree-a/project");
+        let second = fixture.root.join("worktree-b/project");
+        fs::create_dir_all(fixture.config.parent().unwrap()).unwrap();
+        let legacy = serde_json::json!({"format": 1, "recent_projects": [
+            {"name": "同名工程", "path": second, "last_opened_unix_seconds": 2},
+            {"name": "同名工程", "path": first, "last_opened_unix_seconds": 1},
+        ]});
+        fs::write(&fixture.config, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let mut preferences = fixture.load();
+        assert!(preferences.recent_projects.iter().all(|entry| !entry.pinned));
+
+        assert!(preferences.set_recent_pinned(&first, true).unwrap());
+        assert!(preferences.set_recent_pinned(&second, true).unwrap());
+        assert!(!preferences.set_recent_pinned(&second, true).unwrap());
+        preferences.record_opened_at("同名工程", &first, 100).unwrap();
+        for number in 0..40 {
+            preferences.record_opened_at(
+                "普通工程", &fixture.root.join(format!("other-{number}")), 3 + number,
+            ).unwrap();
+        }
+        assert_eq!(preferences.recent_projects.len(), MAX_RECENT_PROJECTS);
+        assert_eq!(preferences.recent_projects[0].path, second);
+        assert_eq!(preferences.recent_projects[1].path, first);
+        assert_eq!(preferences.recent_projects[1].last_opened_unix_seconds, 100);
+        assert_eq!(preferences.recent_projects[2].path, fixture.root.join("other-39"));
+        assert!(preferences.recent_projects[..2].iter().all(|entry| entry.pinned));
+        preferences.save().unwrap();
+
+        let mut reloaded = fixture.load();
+        assert_eq!(reloaded.recent_projects, preferences.recent_projects);
+        assert!(reloaded.set_recent_pinned(&second, false).unwrap());
+        assert_eq!(reloaded.recent_projects[0].path, first);
+        let unpinned = reloaded.recent_projects.last().unwrap();
+        assert_eq!(unpinned.path, second);
+        assert_eq!(unpinned.last_opened_unix_seconds, 2);
+        assert!(!unpinned.pinned);
+        reloaded.save().unwrap();
+        assert_eq!(fixture.load().recent_projects, reloaded.recent_projects);
+    }
+
+    #[test]
+    fn recent_pin_limit_preserves_a_slot_for_the_next_successful_open() {
+        let fixture = Fixture::new();
+        let mut preferences = fixture.load();
+        for number in 0..MAX_PINNED_PROJECTS {
+            let path = fixture.root.join(format!("pinned-{number}"));
+            preferences.record_opened_at("固定工程", &path, number as u64).unwrap();
+            assert!(preferences.set_recent_pinned(&path, true).unwrap());
+        }
+        let old = fixture.root.join("old");
+        preferences.record_opened_at("普通工程", &old, 100).unwrap();
+        assert!(preferences.set_recent_pinned(&old, true).is_err());
+        let new = fixture.root.join("new");
+        preferences.record_opened_at("普通工程", &new, 101).unwrap();
+        assert_eq!(preferences.pinned_count(), MAX_PINNED_PROJECTS);
+        assert_eq!(preferences.recent_projects.last().unwrap().path, new);
+        assert!(!preferences.recent_projects.iter().any(|entry| entry.path == old));
     }
 
     #[test]

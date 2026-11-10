@@ -270,11 +270,14 @@ pub(super) fn input(
         if !model.busy {
             for (recent, click, visible) in &recents {
                 if visible.get() && click.is_clicked() {
-                    if recent.remove {
-                        out.write(WorkspaceCommand::RemoveRecent(recent.path.clone()));
-                    } else {
-                        out.write(WorkspaceCommand::Open(recent.path.clone()));
-                    }
+                    let path = recent.path.clone();
+                    out.write(match recent.kind {
+                        RecentActionKind::Open => WorkspaceCommand::Open(path),
+                        RecentActionKind::Remove => WorkspaceCommand::RemoveRecent(path),
+                        RecentActionKind::SetPinned(pinned) => {
+                            WorkspaceCommand::SetRecentPinned { path, pinned }
+                        }
+                    });
                     break;
                 }
             }
@@ -669,10 +672,11 @@ pub(super) fn measure(
             probe.buttons.push(ProbeButton {
                 action: format!(
                     "{}:{}",
-                    if action.remove {
-                        "RemoveRecent"
-                    } else {
-                        "OpenRecent"
+                    match action.kind {
+                        RecentActionKind::Open => "OpenRecent",
+                        RecentActionKind::Remove => "RemoveRecent",
+                        RecentActionKind::SetPinned(true) => "PinRecent",
+                        RecentActionKind::SetPinned(false) => "UnpinRecent",
                     },
                     action.path.display()
                 ),

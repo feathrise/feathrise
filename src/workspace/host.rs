@@ -385,6 +385,18 @@ fn handle(
                 host.notice("正在移除最近记录，工程文件保持原样…");
             }
         }
+        WorkspaceCommand::SetRecentPinned { path, pinned } => {
+            let mut preferences = host.preferences.clone();
+            match preferences.set_recent_pinned(&path, pinned) {
+                Ok(true) => {
+                    // 采用原文受检写入的回执后才发布新顺序。写入失败时仍显示原记录。
+                    host.preferences_job = Some(process::save_preferences(preferences));
+                    host.notice("正在保存固定状态…");
+                }
+                Ok(false) => {}
+                Err(error) => host.notice(error),
+            }
+        }
         WorkspaceCommand::SetStartupMap
         | WorkspaceCommand::ExportProject
         | WorkspaceCommand::OpenPlugins

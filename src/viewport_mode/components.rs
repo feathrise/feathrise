@@ -55,3 +55,9 @@ pub(super) struct BackendOption(pub crate::native_play::ProjectBuildBackend);
 
 #[derive(Component)]
 pub(super) struct BackendLabel(pub crate::native_play::ProjectBuildBackend);
+
+#[derive(Component)]
+pub(super) struct BuildEnvironmentButton;
+
+#[derive(Component)]
+pub(super) struct BuildEnvironmentLabel;

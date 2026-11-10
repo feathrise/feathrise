@@ -1,9 +1,9 @@
 //! 日志邮箱按固定预算非阻塞采用；浮窗输入和回显不拥有任何进程控制牌。
 
 use feathrise_editor_ui::UiInteraction;
-use super::{components::*, resources::*};
+use super::{components::*, resources::*, search::{LogSearch, SearchDirection}};
 use bevy::{
-    input::mouse::{MouseScrollUnit, MouseWheel}, input_focus::InputFocus, prelude::*,
+    input::mouse::{MouseScrollUnit, MouseWheel}, input_focus::{FocusCause, InputFocus}, prelude::*,
     ui::RelativeCursorPosition, window::PrimaryWindow,
     text::{EditableText, FontCx, LayoutCx, LineBreak, TextLayoutInfo},
 };
@@ -27,7 +27,7 @@ pub(super) fn collect(
 }
 
 pub(super) fn control(
-    mut state: ResMut<ProjectLogState>,
+    (mut state, mut search): (ResMut<ProjectLogState>, ResMut<LogSearch>),
     channel: Option<Res<ProjectLogChannel>>,
     toggles: Query<&EditorButtonClick, With<WorkbenchProjectLogButton>>,
     buttons: Query<(&LogAction, &EditorButtonClick)>,
@@ -46,7 +46,7 @@ pub(super) fn control(
     windows: Query<&Window, With<PrimaryWindow>>,
     panels: WorkbenchFloatingPanels,
     overlays: Query<(), With<LogOverlay>>,
-    bodies: Query<(), With<LogBody>>,
+    (bodies, search_fields): (Query<(), With<LogBody>>, Query<(Entity, &EditableText), With<LogSearchInput>>),
     mut thumbs: Query<&mut bevy::ui_widgets::ScrollbarDragState, With<LogScrollThumb>>,
 ) {
     let (mut keys, mouse) = input;
@@ -60,6 +60,10 @@ pub(super) fn control(
     let hovered = panels.hovered().is_some_and(|entity| overlays.contains(entity))
         && !blockers.3.is_some_and(|overlay| overlay.active);
     let body_focused = focus.get().is_some_and(|entity| bodies.contains(entity));
+    let search_field = focus.get().and_then(|entity| search_fields.get(entity).ok());
+    let search_focused = search_field.is_some();
+    let search_composing = search_field.is_some_and(|(_, field)| field.editor.is_composing());
+    let mut direction = None;
     if close_active {
         state.open = false; // 原工程关闭确认优先，日志不能挡住保存/放弃/取消。
     } else {
@@ -89,9 +93,19 @@ pub(super) fn control(
                     }
                     LogAction::CopySelection => state.copy_selection = true,
                     LogAction::CopyAll => state.copy_all = true,
+                    LogAction::Search => {
+                        search.shown = !search.shown;
+                        if search.shown && let Ok((field, _)) = search_fields.single() {
+                            focus.set(field, FocusCause::Navigated);
+                        }
+                    }
+                    LogAction::SearchPrevious => direction = Some(SearchDirection::Previous),
+                    LogAction::SearchNext => direction = Some(SearchDirection::Next),
                 }
             }
-            if focused && (body_focused || (hovered && focus.get().is_none()))
+            // 官方文本输入可能在 Esc 的早期分发中先释放焦点，仍由刚才的日志拥有者收口。
+            if focused && !search_composing && (body_focused || search_focused
+                || ((hovered || state.keyboard_owned) && focus.get().is_none()))
                 && keys.clear_just_pressed(KeyCode::Escape) {
                 state.open = false;
             }
@@ -101,10 +115,15 @@ pub(super) fn control(
         for mut thumb in &mut thumbs { thumb.dragging = false; }
     }
     // 正文只在实际获焦时持有快捷键。浮窗外的新点击及时归还键盘给工作台。
-    if body_focused && (!state.open || !focused || (!hovered && mouse.get_just_pressed().next().is_some())) {
+    if (body_focused || search_focused) && (!state.open || !focused
+        || (search_focused && !search.shown) || (!hovered && mouse.get_just_pressed().next().is_some()))
+        && focus.get().is_some_and(|entity| bodies.contains(entity) || search_fields.contains(entity))
+    {
         focus.clear();
     }
-    state.keyboard_owned = state.open && focused && focus.get().is_some_and(|entity| bodies.contains(entity));
+    let reading = state.open && focused && focus.get().is_some_and(|entity| bodies.contains(entity));
+    state.keyboard_owned = reading || (state.open && focused && search.shown
+        && focus.get().is_some_and(|entity| search_fields.contains(entity)));
     // 滚动条直接修改原ScrollPosition；将真实位移采用到虚拟窗口，而不是另造一套拖动命中。
     if state.open {
         for (_, node, scroll) in &panes {
@@ -130,15 +149,19 @@ pub(super) fn control(
             scroll.x = if state.wrap { 0. } else { (scroll.x - wheel.x * multiplier * LINE_HEIGHT).max(0.) };
         }
     }
-    if state.keyboard_owned || (state.open && hovered && focus.get().is_none()) {
+    if reading || (state.open && hovered && focus.get().is_none()) {
         if keys.clear_just_pressed(KeyCode::PageUp) { state.scroll_back = state.scroll_back.saturating_add(state.visible_rows); state.follow = false; }
         if keys.clear_just_pressed(KeyCode::PageDown) { state.scroll_back = state.scroll_back.saturating_sub(state.visible_rows); state.follow = state.scroll_back == 0; }
         if keys.clear_just_pressed(KeyCode::Home) { state.scroll_back = state.display_row_count(); state.follow = false; }
         if keys.clear_just_pressed(KeyCode::End) { state.scroll_back = 0; state.follow = true; }
     }
-    if state.keyboard_owned && (keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight))
+    if reading && (keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight))
         && keys.just_pressed(KeyCode::KeyC) {
         state.copy_selection = true;
+    }
+    if state.open && search.shown {
+        if let Some(direction) = direction { search.navigate(&state, direction); }
+        if search.pending_jump() { search.jump(&mut state); }
     }
     state.clamp_scroll();
     if state.open {
@@ -207,6 +230,8 @@ pub(super) fn present(
             node.width = px(width);
         }
         for (entity, mut marker, mut node, font, children, mut layout) in &mut displays {
+            marker.origin = origin;
+            marker.revision = state.content_revision;
             node.top = px(state.first_row() as f32 * LINE_HEIGHT);
             node.height = px(row_count as f32 * LINE_HEIGHT);
             node.width = px(width);
@@ -251,8 +276,10 @@ pub(super) fn measure_width(
 ) {
     if !state.open || state.wrap { return; }
     for layout in &bodies {
-        if layout.size.x > state.content_width + 0.5 {
-            state.content_width = layout.size.x.ceil();
+        // 排版返回物理像素，Node 宽度和滚动位置使用逻辑像素。
+        let width = layout.size.x / layout.scale_factor;
+        if width > state.content_width + 0.5 {
+            state.content_width = width.ceil();
             state.dirty = true;
         }
     }

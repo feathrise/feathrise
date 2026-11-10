@@ -107,6 +107,7 @@ fn escape_only_closes_the_log_when_it_owns_keyboard_input() {
     let (channel, _) = ProjectLogChannel::new("只读浮窗");
     let mut app = App::new();
     app.insert_resource(ProjectLogState::new(&channel, "只读浮窗"))
+        .init_resource::<super::search::LogSearch>()
         .init_resource::<InputFocus>()
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()

@@ -2,8 +2,9 @@
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
-use super::{components::*, resources::LINE_HEIGHT};
-use bevy::{picking::hover::Hovered, prelude::*, text::{EditableText, FontHinting, LineBreak, LineHeight, TextCursorStyle},
+use super::{components::*, resources::{LINE_HEIGHT, ProjectLogState}, search::{LogSearch, SEARCH_QUERY_CHARS}, search_paint::LogSearchBrush};
+use bevy::{picking::hover::Hovered, prelude::*, text::{EditableText, EditableTextFilter, FontHinting, LineBreak, LineHeight, TextCursorStyle},
+    input_focus::{FocusCause, InputFocus}, picking::{events::PointerPress, pointer::PointerButton},
     ui::{FocusPolicy, RelativeCursorPosition}, ui_widgets::{ControlOrientation, Scrollbar, ScrollbarThumb}};
 use feathrise_editor_map::workbench::{WorkbenchFloatingPanel, WorkbenchHeader, WorkbenchProjectLogButton};
 use feathrise_editor_ui::colors as c;
@@ -77,10 +78,12 @@ pub(super) fn mount(
                             button(actions, &font, LogAction::CopyAll, "复制全部", false);
                             button(actions, &font, LogAction::Follow, "跟随", false);
                             button(actions, &font, LogAction::Wrap, "自动换行", false);
+                            button(actions, &font, LogAction::Search, "查找", false);
                             button(actions, &font, LogAction::Clear, "清空", false);
                         });
                         button(row, &font, LogAction::Close, "×", true);
                     });
+                    search_bar(panel, &font);
                     panel.spawn(Node {
                         width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.,
                         flex_direction: FlexDirection::Column, ..default()
@@ -120,7 +123,7 @@ pub(super) fn mount(
                                     UiInteraction::None, FocusPolicy::Block,
                                     Node { position_type: PositionType::Absolute, left: px(0), top: px(0),
                                         min_width: percent(100), flex_shrink: 0., ..default() },
-                                ));
+                                )).observe(focus_text_on_press);
                                 // 此层不参与拾取。透明EditableText继续拥有官方字形命中、光标和蓝色选区。
                                 content.spawn((
                                     LogDisplay::default(), feathrise_editor_ui::EditorLiteralColor,
@@ -132,7 +135,7 @@ pub(super) fn mount(
                                     Pickable::IGNORE,
                                     Node { position_type: PositionType::Absolute, left: px(0), top: px(0),
                                         min_width: percent(100), flex_shrink: 0., ..default() },
-                                ));
+                                )).with_children(LogSearchBrush::spawn);
                                 });
                             }).id();
                             scrollbar(row, target, ControlOrientation::Vertical);
@@ -150,6 +153,60 @@ pub(super) fn mount(
                 });
             });
         });
+    }
+}
+
+fn search_bar(panel: &mut ChildSpawnerCommands, font: &Handle<Font>) {
+    panel.spawn((
+        LogSearchBar,
+        Node {
+            display: Display::None, flex_wrap: FlexWrap::Wrap, align_items: AlignItems::Center,
+            column_gap: px(6), row_gap: px(4), padding: UiRect::axes(px(12), px(4)),
+            flex_shrink: 0., min_width: px(0), ..default()
+        },
+        BackgroundColor(c::DIALOG_HEADER_BG),
+    )).with_children(|row| {
+        row.spawn(Node { flex_grow: 1., flex_basis: px(160), min_width: px(100), ..default() })
+            .with_children(|field| {
+                field.spawn((
+                    LogSearchInput, feathrise_editor_core::EditorTextInput,
+                    // 文本、光标和 IME 组合态由官方单行输入拥有。正文仍是独立的只读选区。
+                    feathrise_editor_ui::single_line_input("", SEARCH_QUERY_CHARS),
+                    EditableTextFilter::new(|character| !character.is_control()),
+                    TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
+                    TextLayout::no_wrap(), TextColor(c::TEXT_PRIMARY), FocusPolicy::Block,
+                    Node { width: percent(100), min_width: px(0), height: px(28),
+                        padding: UiRect::axes(px(7), px(4)), border: UiRect::all(px(1)),
+                        overflow: Overflow::clip_x(), ..default() },
+                    BackgroundColor(c::INPUT_BG), BorderColor::all(c::COPPER_BORDER_WEAK),
+                )).observe(focus_text_on_press);
+                field.spawn((
+                    LogSearchHint, caption(font, "搜索工程日志", 12., c::TEXT_MUTED),
+                    Node { position_type: PositionType::Absolute, left: px(8), top: px(5), ..default() },
+                ));
+            });
+        button(row, font, LogAction::SearchPrevious, "上一处", false);
+        button(row, font, LogAction::SearchNext, "下一处", false);
+        row.spawn((
+            LogSearchCount, caption(font, "", 11., c::TEXT_MUTED),
+            Node { min_width: px(0), overflow: Overflow::clip_x(), ..default() },
+        ));
+    });
+}
+
+fn focus_text_on_press(
+    press: On<PointerPress>,
+    state: Res<ProjectLogState>,
+    search: Res<LogSearch>,
+    fields: Query<(&ComputedNode, Has<LogSearchInput>), Or<(With<LogBody>, With<LogSearchInput>)>>,
+    mut focus: ResMut<InputFocus>,
+) {
+    if press.button != PointerButton::Primary || !state.open || focus.get() == Some(press.entity) {
+        return;
+    }
+    if fields.get(press.entity).is_ok_and(|(node, input)| !node.is_empty() && (!input || search.shown)) {
+        // 官方文本控件的按下观察器负责字形命中和选区。浮窗仅为两个文本实体接管同一次按下的焦点。
+        focus.set(press.entity, FocusCause::Pressed);
     }
 }
 

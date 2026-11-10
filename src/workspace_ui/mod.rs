@@ -7,6 +7,8 @@ mod about_tests;
 mod about_validation;
 #[cfg(feature = "validation")]
 mod plugin_validation;
+#[cfg(all(feature = "validation", windows))]
+mod recent_validation;
 #[cfg(feature = "validation")]
 mod scale_validation;
 mod components;
@@ -17,6 +19,8 @@ mod systems;
 mod types;
 
 pub(crate) use messages::WorkspaceCommand;
+#[cfg(all(feature = "validation", windows))]
+pub(crate) use recent_validation::install as install_recent_validation;
 pub(crate) use resources::{AboutState, WorkspaceModel, WorkspaceProbe};
 pub(crate) use types::{Page, RecentEntry, WorkspaceField, WorkspaceProject};
 

@@ -1,6 +1,7 @@
 //! 终端的富色字形层：复用可见页和原生字体，不复制命中、选区或完整日志布局。
 
-use super::{components::{LogDisplay, LogRun}, resources::LINE_HEIGHT, scene::TERMINAL_TEXT, types::{LogSpan, LogStyle}};
+use super::{components::{LogDisplay, LogRun}, resources::LINE_HEIGHT, scene::TERMINAL_TEXT,
+    search_paint::LogSearchBrush, types::{LogSpan, LogStyle}};
 use bevy::prelude::*;
 use bevy::text::LineHeight;
 use std::hash::{Hash, Hasher};
@@ -36,7 +37,8 @@ pub(super) fn sync(
         cursor = span.end;
     }
     if cursor < body.len() { runs.push((&body[cursor..], LogStyle::default())); }
-    let children = children.map_or(&[][..], |children| children.as_ref());
+    // 开头的两个空文字段只为搜索背景提供绘制样式，不属于可重用的 ANSI 文字段。
+    let children = children.and_then(|children| children.get(LogSearchBrush::COUNT..)).unwrap_or_default();
     for (index, (value, style)) in runs.iter().enumerate() {
         let color = terminal_color(*style);
         if let Some(child) = children.get(index) {

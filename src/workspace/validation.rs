@@ -47,6 +47,9 @@ pub(super) fn install(app: &mut App) -> Result<(), String> {
     if host.initial.is_some() || host.current.is_some() || host.candidate.is_some() {
         return Err("同窗口验收必须从无工程工作台开始，不能使用现有作者工程".into());
     }
+    if let Some(mode) = std::env::var_os("FEATHRISE_WORKSPACE_RECENT_MODE") {
+        return crate::workspace_ui::install_recent_validation(app, directory, &mode);
+    }
     if std::env::var_os("FEATHRISE_PREFERENCES_FILE").is_none()
         || !inside(host.preferences.file(), &directory)
     {

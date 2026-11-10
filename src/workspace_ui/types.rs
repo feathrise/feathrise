@@ -14,6 +14,8 @@ pub(crate) struct RecentEntry {
     pub name: String,
     pub path: PathBuf,
     pub last_opened: String,
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

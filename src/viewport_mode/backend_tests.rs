@@ -13,12 +13,13 @@ fn app() -> App {
         .init_resource::<BuildProfileMenuState>().init_resource::<InputFocus>()
         .init_resource::<ButtonInput<MouseButton>>().init_resource::<ButtonInput<KeyCode>>()
         .add_message::<RequestBuildProfile>().add_message::<RequestBuildBackend>()
+        .add_message::<crate::environment_diagnostics::RequestBuildEnvironment>()
         .add_message::<RequestViewportMode>().add_message::<ViewportModeChanged>()
         .add_message::<feathrise_editor_map::standalone::SavedPlayFeedback>()
         .add_systems(Update, (super::profile_ui::input, super::systems::apply, super::systems::apply_backend, super::profile_ui::present).chain());
     let font = Handle::<Font>::default();
     let mut commands = app.world_mut().commands();
-    commands.spawn(Node::default()).with_children(|header| super::profile_ui::mount(header, &font));
+    commands.spawn(Node::default()).with_children(|header| super::profile_ui::mount(header, &font, true));
     app.world_mut().flush();
     app
 }
@@ -97,6 +98,30 @@ fn blocked_backend_click_is_consumed_and_requires_a_fresh_selection() {
     assert_eq!(*app.world().resource::<ProjectBuildBackend>(), ProjectBuildBackend::Dx);
     select(&mut app, ProjectBuildBackend::Native);
     assert_eq!(*app.world().resource::<ProjectBuildBackend>(), ProjectBuildBackend::Native);
+}
+
+#[test]
+fn build_environment_menu_dispatches_one_check_without_changing_launch_choices() {
+    use crate::environment_diagnostics::RequestBuildEnvironment;
+    let mut app = app();
+    app.update();
+    let (toggle, diagnostics) = {
+        let world = app.world_mut();
+        (
+            world.query_filtered::<Entity, With<ProfileToggle>>().single(world).unwrap(),
+            world.query_filtered::<Entity, With<BuildEnvironmentButton>>().single(world).unwrap(),
+        )
+    };
+    let mut reader = bevy::ecs::message::MessageCursor::<RequestBuildEnvironment>::default();
+    click(&mut app, diagnostics);
+    assert_eq!(reader.read(app.world().resource()).count(), 0, "收起的菜单不能触发探针");
+    click(&mut app, toggle);
+    click(&mut app, diagnostics);
+    assert_eq!(reader.read(app.world().resource()).count(), 1, "按钮只发布一次检查意图");
+    assert!(!app.world().resource::<BuildProfileMenuState>().open);
+    assert_eq!(app.world().resource::<ProjectLaunchSettings>().profile, feathrise_editor_core::ProjectBuildProfile::Debug);
+    assert_eq!(*app.world().resource::<ProjectBuildBackend>(), ProjectBuildBackend::Dx);
+    assert_eq!(app.world().resource::<ViewportModeState>().revision, 1);
 }
 
 #[test]

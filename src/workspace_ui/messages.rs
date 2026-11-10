@@ -25,5 +25,6 @@ pub(crate) enum WorkspaceCommand {
     },
     SaveDefaultDirectory(String),
     RemoveRecent(PathBuf),
+    SetRecentPinned { path: PathBuf, pinned: bool },
     CancelOperation,
 }

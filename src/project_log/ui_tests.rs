@@ -2,7 +2,7 @@
 
 use super::{
     LogDecoder, LogSource, ProjectLogPlugin,
-    components::{LogBody, LogContent, LogDisplay, LogOverlay, LogScroll, LogStatus, LogWrapButton},
+    components::{LogAction, LogBody, LogContent, LogDisplay, LogOverlay, LogScroll, LogSearchBar, LogSearchCount, LogSearchInput, LogStatus},
     resources::{LINE_HEIGHT, ProjectLogChannel, ProjectLogState, VIEW_LINES},
     scene, systems,
 };
@@ -126,12 +126,18 @@ fn settle(app: &mut App) {
 }
 
 fn toggle_wrap(app: &mut App) {
-    let button = entity::<LogWrapButton>(app);
+    click_action(app, LogAction::Wrap);
+    settle(app);
+}
+
+pub(super) fn click_action(app: &mut App, action: LogAction) {
+    let world = app.world_mut();
+    let button = world.query::<(Entity, &LogAction)>().iter(world)
+        .find(|(_, candidate)| **candidate == action).unwrap().0;
     // 复用共享控件允许的动作队列脉冲，动作仍必须经过真实按钮携带的LogAction路由。
     app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     app.world_mut().run_system_once(systems::control).unwrap();
     app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::default());
-    settle(app);
 }
 
 fn entity<Marker: Component>(app: &mut App) -> Entity {
@@ -656,4 +662,107 @@ fn task_generation_without_output_withdraws_old_live_tail_and_refreshes_visible_
     assert!(!visible.contains(&old_tail));
     assert!(visible.ends_with(rows.last().unwrap()));
     assert_last_row_fits(&app, pane, body);
+}
+
+#[test]
+fn search_buttons_index_ansi_history_and_live_tail_without_changing_original_text() {
+    let rows = (0..90).map(|index| match index {
+        1 => "中文 \x1b[33mWARNING\x1b[0m warning，首处".into(),
+        79 => format!("{}Warning，末处", "依赖构建路径".repeat(38)),
+        _ => format!("普通构建输出 {index}"),
+    }).collect::<Vec<String>>();
+    let (mut app, window, camera) = layout_app(&(rows.join("\n") + "\n"));
+    let field = entity::<LogSearchInput>(&mut app);
+    let bar = entity::<LogSearchBar>(&mut app);
+    let count = entity::<LogSearchCount>(&mut app);
+    let pane = entity::<LogScroll>(&mut app);
+    let body = entity::<LogBody>(&mut app);
+    let copy = app.world().resource::<ProjectLogState>().copy_text(true);
+    assert_eq!(app.world().get::<Node>(bar).unwrap().display, Display::None);
+    click_action(&mut app, LogAction::Search);
+    settle(&mut app);
+    assert_eq!(app.world().resource::<InputFocus>().get(), Some(field));
+    assert_eq!(app.world().get::<Node>(bar).unwrap().display, Display::Flex);
+
+    // 走已聚焦的原生键盘文本，验证过滤之前的真实输入链和忽略 ASCII 大小写。
+    app.world_mut().write_message(KeyboardInput {
+        key_code: KeyCode::KeyW,
+        logical_key: Key::Character("w".into()),
+        state: ButtonState::Pressed,
+        text: Some("wArNiNg".into()),
+        repeat: false,
+        window,
+    });
+    app.update();
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "正在查找…",
+        "超过 64 行的全量查找不能在首帧发布部分结果");
+    settle(&mut app);
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "1/3 处匹配");
+    assert_eq!(app.world().get::<ScrollPosition>(pane).unwrap().y, 0.);
+    assert!(!app.world().resource::<ProjectLogState>().follow);
+    assert!(app.world().get::<EditableText>(body).unwrap().value().to_string().contains("首处"));
+
+    let body_point = content_bounds(&app, body).min + Vec2::new(2., LINE_HEIGHT / 2.);
+    press(&mut app, window, camera, body, body_point);
+    app.update();
+    assert_eq!(app.world().resource::<InputFocus>().get(), Some(body));
+    let field_point = content_bounds(&app, field).center();
+    press(&mut app, window, camera, field, field_point);
+    app.update();
+    assert_eq!(app.world().resource::<InputFocus>().get(), Some(field));
+
+    click_action(&mut app, LogAction::SearchNext);
+    settle(&mut app);
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "2/3 处匹配");
+    click_action(&mut app, LogAction::SearchNext);
+    settle(&mut app);
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "3/3 处匹配");
+    assert!(app.world().get::<ScrollPosition>(pane).unwrap().y > 1_000.);
+    assert!(app.world().get::<EditableText>(body).unwrap().value().to_string().contains("末处"));
+    click_action(&mut app, LogAction::SearchNext);
+    settle(&mut app);
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "1/3 处匹配");
+    click_action(&mut app, LogAction::SearchPrevious);
+    settle(&mut app);
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "3/3 处匹配");
+    assert_eq!(app.world().resource::<ProjectLogState>().copy_text(true), copy);
+
+    let channel = app.world().resource::<ProjectLogChannel>().clone();
+    let mut tail = LogDecoder::new(Some(channel.begin()), LogSource::Stdout);
+    tail.write("WARNING 临时进度".as_bytes());
+    settle(&mut app);
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "3/4 处匹配");
+    tail.write("\r\x1b[2K实时进度".as_bytes());
+    settle(&mut app);
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "3/3 处匹配");
+    click_action(&mut app, LogAction::Clear);
+    settle(&mut app);
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "0/0 处匹配");
+    assert!(app.world().resource::<ProjectLogState>().follow);
+}
+
+#[test]
+fn unwrapped_search_reveals_match_beyond_the_horizontal_viewport() {
+    let row = format!("{}唯一目标", "a".repeat(290));
+    let (mut app, _, _) = layout_app(&row);
+    let pane = entity::<LogScroll>(&mut app);
+    let display = entity::<LogDisplay>(&mut app);
+    let field = entity::<LogSearchInput>(&mut app);
+    let count = entity::<LogSearchCount>(&mut app);
+    app.world_mut().resource_mut::<bevy::ui::UiScale>().0 = 0.75;
+    toggle_wrap(&mut app);
+    click_action(&mut app, LogAction::Search);
+    // 注入的是官方文本编辑请求，提交查询、定位和字形颜色都经过原生产系统。
+    app.world_mut().get_mut::<EditableText>(field).unwrap()
+        .queue_edit(TextEdit::Insert("唯一目标".into()));
+    settle(&mut app);
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "1/1 处匹配");
+    let left = app.world().get::<ScrollPosition>(pane).unwrap().x
+        / app.world().get::<ComputedNode>(pane).unwrap().inverse_scale_factor();
+    assert!(left > 300., "命中原本在未换行的可视区右侧");
+    let geometry = &app.world().get::<TextLayoutInfo>(display).unwrap().run_geometry;
+    let active = geometry.iter().find(|run| run.section_index == 2).expect("可视区域须含当前匹配背景");
+    assert!(active.bounds.min.x >= left - 1.);
+    assert!(active.bounds.max.x <= left + content_bounds(&app, pane).width() + 1.);
+    assert_eq!(app.world().resource::<ProjectLogState>().copy_text(true), row);
 }

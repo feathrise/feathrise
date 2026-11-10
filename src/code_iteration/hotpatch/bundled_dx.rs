@@ -10,21 +10,44 @@ pub(super) fn resolve(target: &Path, legacy: &Path, control: &BuildControl) -> R
     select(std::env::var_os("FEATHRISE_DX_PATH").map(PathBuf::from), target, legacy, control)
 }
 
+pub(crate) enum DxSource {
+    Explicit(PathBuf),
+    Bundled,
+    Development(PathBuf),
+}
+
+impl DxSource {
+    pub(super) fn configured(explicit: Option<PathBuf>, legacy: &Path) -> Self {
+        match explicit {
+            Some(path) => Self::Explicit(path),
+            None if !PAYLOAD.is_empty() => Self::Bundled,
+            None => Self::Development(legacy.to_owned()),
+        }
+    }
+
+    /// 显式覆盖损坏直接报错；开发版缺省工具缺席允许回退。内嵌来源由构建任务另行解压。
+    pub(crate) fn existing_file(&self) -> Result<Option<PathBuf>, String> {
+        match self {
+            Self::Explicit(path) => path.canonicalize().map(Some).map_err(|error| format!("显式 DX 路径不可用：{error}")),
+            Self::Development(path) => match path.canonicalize() {
+                Ok(path) => Ok(Some(path)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(error) => Err(format!("DX 开发工具不可用：{error}")),
+            },
+            Self::Bundled => Ok(None),
+        }
+    }
+}
+
 fn select(explicit: Option<PathBuf>, target: &Path, legacy: &Path, control: &BuildControl) -> Result<Option<PathBuf>, String> {
     control.check()?;
-    if let Some(path) = explicit {
-        return path.canonicalize().map(Some).map_err(|error| format!("显式 DX 路径不可用：{error}"));
+    match DxSource::configured(explicit, legacy) {
+        DxSource::Bundled => {
+            std::hint::black_box(MARKER);
+            materialize(target, IDENTITY, PAYLOAD, control).map(Some)
+        }
+        source => source.existing_file(),
     }
-    if PAYLOAD.is_empty() {
-        // 源码版缺少默认开发工具时允许回退。显式路径或内嵌工具损坏时报告错误。
-        return match legacy.canonicalize() {
-            Ok(path) => Ok(Some(path)),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(format!("DX 开发工具不可用：{error}")),
-        };
-    }
-    std::hint::black_box(MARKER);
-    materialize(target, IDENTITY, PAYLOAD, control).map(Some)
 }
 
 fn verify(directory: &Path, payload: &[Payload], control: &BuildControl) -> Result<bool, String> {
@@ -91,6 +114,20 @@ fn materialize(target: &Path, identity: &str, payload: &[Payload], control: &Bui
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_source_keeps_priority_in_read_only_preflight() {
+        let explicit = PathBuf::from("selected-dx");
+        let development = Path::new("development-dx");
+        let source = DxSource::configured(Some(explicit.clone()), development);
+        assert!(matches!(source, DxSource::Explicit(path) if path == explicit));
+        let default = DxSource::configured(None, development);
+        if PAYLOAD.is_empty() {
+            assert!(matches!(default, DxSource::Development(path) if path == development));
+        } else {
+            assert!(matches!(default, DxSource::Bundled));
+        }
+    }
 
     #[test]
     fn embedded_tool_works_without_external_path_and_repairs_a_corrupt_cache() {

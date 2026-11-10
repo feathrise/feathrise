@@ -29,7 +29,14 @@ pub(super) enum Action {
 #[derive(Component)]
 pub(super) struct RecentAction {
     pub path: std::path::PathBuf,
-    pub remove: bool,
+    pub kind: RecentActionKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RecentActionKind {
+    Open,
+    Remove,
+    SetPinned(bool),
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]

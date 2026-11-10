@@ -198,7 +198,7 @@ fn absolute_command(exe: &Path, args: &[OsString]) -> Result<Command, String> {
     Ok(command)
 }
 
-fn executable(command: &Command) -> Result<PathBuf, String> {
+pub(crate) fn executable(command: &Command) -> Result<PathBuf, String> {
     let program = Path::new(command.get_program());
     let candidates = if program.is_absolute() {
         vec![program.to_owned()]

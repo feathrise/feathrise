@@ -109,6 +109,17 @@ pub(crate) type DiagnosticCallback = Arc<dyn Fn(crate::compiler_diagnostics::Com
 
 pub(crate) fn build_feature_identity() -> String { features::identity() }
 
+/// 普通构建和预检共用入口覆盖优先级，避免预检误报编辑器没有使用的 Cargo。
+pub(crate) fn cargo_program() -> std::ffi::OsString {
+    std::env::var_os("EDITOR_HOST_CARGO").or_else(|| std::env::var_os("CARGO"))
+        .unwrap_or_else(|| "cargo".into())
+}
+
+pub(crate) fn supports_dx(profile: ProjectBuildProfile) -> bool {
+    cfg!(all(windows, target_arch = "x86_64", target_env = "msvc")) && profile == ProjectBuildProfile::Debug
+        && !cfg!(any(feature = "rtx_rendering", feature = "dlss_frame_generation", feature = "fsr3_frame_generation"))
+}
+
 #[cfg(test)]
 pub(crate) fn prepared_for_test(project: &Project, profile: ProjectBuildProfile) -> PreparedGame {
     PreparedGame { executable: project.root.join("test-version/game.exe"), target: project.root.join("unused-target"),
@@ -220,9 +231,7 @@ fn prepare_build(
     let target = target.canonicalize().map_err(|error| crate::environment_diagnostics::cache_failure(&target, "确认构建缓存目录", &error))?;
     // DX 工具入口与函数热更新资格分开：普通 Debug 工程用 DX 完整构建，合格工程才准备 fat 基线。
     // 独立交付、Release 和未经验证的厂商组合继续使用原生发布链。
-    let use_dx = !no_vc_redist && build_backend == ProjectBuildBackend::Dx
-        && cfg!(all(windows, target_arch = "x86_64", target_env = "msvc")) && profile == ProjectBuildProfile::Debug
-        && !cfg!(any(feature = "rtx_rendering", feature = "dlss_frame_generation", feature = "fsr3_frame_generation"));
+    let use_dx = !no_vc_redist && build_backend == ProjectBuildBackend::Dx && supports_dx(profile);
     #[cfg(windows)]
     let dx_command = if use_dx && let Some((dx, bin)) = dx_tools::project_tool(project, &target, control)? {
         if let Some(prepared) = hotpatch::prepare(project, &target, profile, &dx, control, diagnostics.clone())? {
@@ -239,10 +248,7 @@ fn prepare_build(
     let (actual_backend, mut command) = match dx_command {
         Some(command) => (ProjectBuildBackend::Dx, command),
         None => {
-            let cargo = std::env::var_os("EDITOR_HOST_CARGO")
-                .or_else(|| std::env::var_os("CARGO"))
-                .unwrap_or_else(|| "cargo".into());
-            let mut command = Command::new(cargo);
+            let mut command = Command::new(cargo_program());
             command.arg("build");
             configure_project_cargo(&mut command, project, &target, cargo_profile);
             if no_vc_redist {

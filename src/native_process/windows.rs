@@ -530,7 +530,7 @@ fn command_line(executable: &OsStr, args: &[OsString]) -> Result<Vec<u16>, Strin
 }
 
 /// bare工具名只从本次环境的PATH查找，不让工程工作目录中的同名文件抢占Cargo/rustc。
-fn command_executable(command: &Command) -> Result<PathBuf, String> {
+pub(crate) fn command_executable(command: &Command) -> Result<PathBuf, String> {
     let program = Path::new(command.get_program());
     let mut recovered_directories = Vec::new();
     let candidates = if program.is_absolute() || program.components().count() > 1 {

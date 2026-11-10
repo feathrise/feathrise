@@ -52,6 +52,7 @@ fn model(preferences: &Preferences, project: Option<&crate::project::Project>) -
                 name: entry.name.clone(),
                 path: entry.path.clone(),
                 last_opened: recent_time(entry.last_opened_unix_seconds),
+                pinned: entry.pinned,
             })
             .collect(),
         busy: false,

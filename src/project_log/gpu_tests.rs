@@ -2,14 +2,13 @@
 
 use super::{
     LogDecoder, LogSource, ProjectLogPlugin,
-    components::{LogAction, LogBody, LogDisplay, LogPanel, LogHeader, LogFooter, LogScroll, LogToolButton, LogCloseButton, LogStatus, LogWrapButton},
+    components::{LogAction, LogBody, LogDisplay, LogPanel, LogHeader, LogFooter, LogScroll, LogSearchCount, LogSearchInput, LogToolButton, LogCloseButton, LogStatus},
     resources::{
         CACHE_BYTES, CACHE_LINES, LINE_HEIGHT, ProjectLogChannel, ProjectLogState, VIEW_LINES,
     },
-    scene, systems,
+    scene, systems, ui_tests::click_action,
 };
 use bevy::{
-    ecs::system::RunSystemOnce,
     picking::{
         backend::HitData,
         events::{PointerDrag, Pointer, PointerPress},
@@ -21,7 +20,7 @@ use bevy::{
         gpu_readback::{Readback, ReadbackComplete},
         render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
     },
-    text::{EditableText, TextLayoutInfo},
+    text::{EditableText, TextEdit, TextLayoutInfo},
     ui_widgets::{ControlOrientation, TextInputPlugin, Scrollbar, ScrollbarPlugin, ScrollbarThumb},
 };
 use feathrise_editor_map::workbench::WorkbenchHeader;
@@ -46,10 +45,7 @@ fn provide_hover(input: Res<TestHover>, mut hover: ResMut<HoverMap>) {
 }
 
 fn toggle_wrap(app: &mut App) {
-    let button = entity::<LogWrapButton>(app);
-    app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
-    app.world_mut().run_system_once(systems::control).unwrap();
-    app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::default());
+    click_action(app, LogAction::Wrap);
     for _ in 0..12 { frame(app); }
 }
 
@@ -259,8 +255,9 @@ fn production_log_gpu_bottom_and_native_selection_screenshots() {
     let hover_path = output.join("log-hover.png");
     let unwrapped_path = output.join("log-unwrapped.png");
     let rewrapped_path = output.join("log-rewrapped.png");
+    let search_path = output.join("project-log-search.png");
     assert!(
-        [&bottom_path, &selection_path, &narrow_path, &hover_path, &unwrapped_path, &rewrapped_path].iter().all(|path| !path.exists()),
+        [&bottom_path, &selection_path, &narrow_path, &hover_path, &unwrapped_path, &rewrapped_path, &search_path].iter().all(|path| !path.exists()),
         "禁止覆盖旧验收图片"
     );
 
@@ -537,7 +534,8 @@ fn production_log_gpu_bottom_and_native_selection_screenshots() {
     let panel_bounds = bounds(&app, panel);
     let buttons = {
         let world = app.world_mut();
-        world.query_filtered::<Entity, With<LogToolButton>>().iter(world).collect::<Vec<_>>()
+        world.query_filtered::<(Entity, &ComputedNode), With<LogToolButton>>().iter(world)
+            .filter(|(_, node)| !node.is_empty()).map(|(entity, _)| entity).collect::<Vec<_>>()
     };
     let close = entity::<LogCloseButton>(&mut app);
     for button in buttons {
@@ -552,6 +550,51 @@ fn production_log_gpu_bottom_and_native_selection_screenshots() {
     serde_json::to_writer_pretty(OpenOptions::new().write(true).create_new(true)
         .open(output.join("dialog-chrome.json")).unwrap(),
         &serde_json::json!({"wide":wide_chrome,"narrow":narrow_chrome})).unwrap();
+    // 同一个窄窗走生产查找、文字编辑与两种翻页动作，核对实际滚动和背景 GPU 像素。
+    click_action(&mut app, LogAction::Search);
+    let field = entity::<LogSearchInput>(&mut app);
+    let count = entity::<LogSearchCount>(&mut app);
+    app.world_mut().get_mut::<EditableText>(field).unwrap().queue_edit(TextEdit::Insert("WaRnInG".into()));
+    for _ in 0..12 { frame(&mut app); }
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "1/24 处匹配");
+    let first_y = app.world().get::<ScrollPosition>(pane).unwrap().y;
+    click_action(&mut app, LogAction::SearchNext);
+    for _ in 0..4 { frame(&mut app); }
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "2/24 处匹配");
+    for _ in 0..2 {
+        click_action(&mut app, LogAction::SearchPrevious);
+        for _ in 0..4 { frame(&mut app); }
+    }
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "24/24 处匹配");
+    let last_y = app.world().get::<ScrollPosition>(pane).unwrap().y;
+    assert!(last_y > first_y + 1_000.);
+    assert_eq!(app.world().resource::<ProjectLogState>().copy_text(false), selected);
+    // 页尾可见的普通命中与之前保留的原生选区叠色。继续用下一处环回首屏，
+    // 在原终端背景上分别采样两种查找色，同时保留原选区和上面的复制断言。
+    click_action(&mut app, LogAction::SearchNext);
+    for _ in 0..4 { frame(&mut app); }
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "1/24 处匹配");
+    assert_eq!(app.world().get::<ScrollPosition>(pane).unwrap().y, first_y);
+    let searched = screenshot(&mut app, &target, &search_path);
+    let pane_rect = bounds(&app, pane);
+    let mut active_pixels = 0;
+    let mut match_pixels = 0;
+    for y in pane_rect.min.y.ceil() as usize..pane_rect.max.y.floor() as usize {
+        for x in pane_rect.min.x.ceil() as usize..pane_rect.max.x.floor() as usize {
+            let pixel = &searched[(y * 640 + x) * 4..][..3];
+            let matches = |rgb: [u8; 3]| pixel.iter().zip(rgb).all(|(value, target)| value.abs_diff(target) < 17);
+            if matches([28, 102, 174]) { active_pixels += 1; }
+            if matches([113, 76, 22]) { match_pixels += 1; }
+        }
+    }
+    assert!(active_pixels > 100 && match_pixels > 100,
+        "GPU 回读应同时包含当前匹配和普通匹配的背景：{active_pixels}/{match_pixels}");
+    serde_json::to_writer_pretty(OpenOptions::new().write(true).create_new(true)
+        .open(output.join("project-log-search.json")).unwrap(),
+        &serde_json::json!({"first_scroll_y":first_y, "last_scroll_y":last_y, "matches":24, "screenshot_active_match":1,
+            "active_pixels":active_pixels, "match_pixels":match_pixels,
+            "scope":"offscreen production UI, text edit queue, button routing and GPU pixels"})).unwrap();
+    click_action(&mut app, LogAction::Search);
     #[cfg(windows)]
     {
         // 沿真实DX展示适配器进入原有界邮箱与生产UI，不直接写日志状态冒充进度折叠。

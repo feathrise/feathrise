@@ -185,6 +185,10 @@ label.quit-feathrise	退出 Feathrise	Quit Feathrise
 label.feathrise-bevy-editor	羽立 · Bevy 编辑器	Feathrise · Bevy Editor
 label.start	开始	Start
 label.recent-projects	最近工程	Recent Projects
+workspace.recent.pin	固定工程	Pin project
+workspace.recent.unpin	取消固定工程	Unpin project
+workspace.recent.saving	正在保存固定状态…	Saving the pin…
+workspace.recent.pin_limit	固定工程最多保留 {count} 项	You can pin up to {count} projects
 label.default-project-directory	默认工程目录	Default Project Directory
 label.save-default-directory	保存默认目录	Save Default Directory
 label.restore-feathrise	恢复 ~/feathrise	Restore ~/feathrise
@@ -934,6 +938,44 @@ log.follow.on	跟随：开	Follow: On
 log.follow.off	跟随：关	Follow: Off
 log.wrap.on	自动换行：开	Word Wrap: On
 log.wrap.off	自动换行：关	Word Wrap: Off
+log.search.toggle	查找	Find
+log.search.placeholder	搜索工程日志	Search project log
+log.search.previous	上一处	Previous
+log.search.next	下一处	Next
+log.search.count	{current}/{total} 处匹配	{current}/{total} matches
+log.search.pending	正在查找…	Searching…
+build_environment.action	检查构建环境	Check Build Environment
+build_environment.checking	正在检查构建环境…	Checking build environment…
+build_environment.title	构建环境诊断	Build environment diagnostics
+build_environment.selection	当前构建配置：{profile} · {backend}	Build configuration: {profile} · {backend}
+build_environment.working_directory	工具检查目录：{path}	Tool check directory: {path}
+build_environment.rustup_directory	Rustup 工具链选择目录：{path}	Rustup toolchain selection directory: {path}
+build_environment.available	{tool}：{details}	{tool}: {details}
+build_environment.unavailable	{tool} 不可用：{details}	{tool} unavailable: {details}
+build_environment.unconfirmed	{tool} 未确认：{details}	{tool} unconfirmed: {details}
+build_environment.dx_explicit	显式路径（FEATHRISE_DX_PATH）{path}	Explicit path (FEATHRISE_DX_PATH) {path}
+build_environment.dx_embedded	发行版内嵌 DX 0.7.9（构建时解压）	Bundled DX 0.7.9 (extracted during a build)
+build_environment.dx_development	开发工具路径 {path}	Development tool path {path}
+build_environment.dx_missing	未找到开发工具 {path}	Development tool not found at {path}
+build_environment.dx_inactive	当前构建使用 Cargo，DX 状态仅影响 DX 构建。	The current configuration uses Cargo. DX status only affects DX builds.
+build_environment.dx_fallback	当前配置将回退到 Cargo：{reason}	This configuration will fall back to Cargo: {reason}
+build_environment.dx_platform	此平台的编辑器构建不使用 DX。	Editor builds on this platform use Cargo.
+build_environment.unexpected_version	预期版本为 0.7.9，实际为 {version}	Expected version 0.7.9, found {version}
+build_environment.exit	退出码 {code} · {details}	Exit code {code} · {details}
+build_environment.empty_output	工具未返回预期输出	The tool did not return the expected output
+build_environment.scope	检查仅覆盖工具及配置，依赖与链接结果由实际构建确认。	This check covers tools and configuration. A build confirms dependencies and linking.
+build_environment.lib_missing	未找到 {file}	Could not find {file}
+build_environment.default_linker	系统默认 C 链接器	Default system C linker
+build_environment.implicit_linker	请检查 Visual Studio C++ 工具和 Windows SDK	Check the Visual Studio C++ tools and Windows SDK
+build_environment.target_limit	目标数超过诊断检查上限（{count}）。	The number of targets exceeds the diagnostic limit ({count}).
+build_environment.stale	构建配置已变化，请重新检查当前环境。	The build configuration changed. Check the current environment again.
+build_environment.cleanup_failed	工具进程尚未确认退出，请重启编辑器后重试。	Tool process exit could not be confirmed. Restart the editor to retry.
+build_environment.project_changed	工程清单已变化，请重新打开工程。	The project manifest changed. Reopen the project.
+build_environment.time_budget	已达到本次检查的时间上限。	The check reached its time limit.
+build_environment.config_failed	无法读取生效的 Cargo 配置。	Could not read the effective Cargo configuration.
+build_environment.conditional_linker	工程通过条件指定链接器，请以实际构建为准。	The project configures a conditional linker. Check the actual build for its result.
+build_environment.custom_target	请按工程目标确认所需的链接工具。	Check the linker requirements for this project target.
+build_environment.lib_search	未在检查到的 MSVC／Windows SDK 库目录找到。	Could not find it in the discovered MSVC / Windows SDK library directories.
 sidebar.maps	地图目录	Maps
 sidebar.scene	场景树	Scene
 sidebar.mesh	网格	Mesh

@@ -120,6 +120,34 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn recent_pin_keeps_the_original_view_when_the_checked_write_fails() {
+    let mut fixture = Fixture::new();
+    let project = fixture.project().root;
+    let preferences = &mut fixture.host.preferences;
+    preferences.record_opened_at("固定夹具", &project, 1).unwrap();
+    preferences.save().unwrap();
+    let file = preferences.file().to_path_buf();
+    let mut newer = Preferences::load_at(&file, preferences.home()).unwrap();
+    newer.set_default_project_directory("~/different-directory").unwrap();
+    newer.save().unwrap();
+    let bytes = fs::read(&file).unwrap();
+
+    handle(&mut fixture.host, fixture.app.world_mut(), 0, None,
+        WorkspaceCommand::SetRecentPinned { path: project, pinned: true });
+    assert!(fixture.host.preferences_job.is_some());
+    assert!(!fixture.host.preferences.recent_projects[0].pinned);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while fixture.host.preferences_job.is_some() {
+        poll_jobs(&mut fixture.host);
+        assert!(Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    assert!(fixture.host.notice.contains("拒绝覆盖"));
+    assert!(!fixture.host.preferences.recent_projects[0].pinned);
+    assert_eq!(fs::read(&file).unwrap(), bytes);
+}
+
+#[test]
 fn authorized_home_exit_waits_for_the_actual_preference_write() {
     let mut fixture = Fixture::new();
     fixture

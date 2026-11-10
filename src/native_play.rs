@@ -12,6 +12,9 @@ mod code_apply;
 
 pub(crate) use worker::{build_feature_identity, prepare as prepare_game, prepare_export, PreparedGame};
 pub(crate) use worker::{prepare_function_patch, prepare_with_backend as prepare_game_with_backend};
+pub(crate) use worker::cargo_program;
+#[cfg(windows)]
+pub(crate) use worker::supports_dx;
 #[cfg(test)]
 pub(crate) use worker::prepared_for_test;
 pub(crate) use code_apply::{cancel_pending_code_apply, code_apply_blocker, code_apply_status, request_code_apply};

@@ -27,6 +27,7 @@ mod output_log;
 mod tool_cache;
 #[path = "bundled_dx.rs"]
 mod bundled_dx;
+pub(crate) use bundled_dx::DxSource;
 pub(crate) use output_log::OutputLog as DxOutputLog;
 #[cfg(test)]
 use output_log::{cargo_verbose_process_line, compiler_diagnostic};
@@ -88,18 +89,30 @@ pub(crate) fn project_tool(project: &Project, target: &Path, control: &BuildCont
             return Ok(None);
         }
     };
-    let resources = crate::project_template_root();
-    let repository = resources.parent().ok_or("编辑器资源目录没有工具仓库父目录")?;
-    let Some(dx) = bundled_dx::resolve(target, &repository.join(".local/hotpatch/tools/dx-0.7.9/dx.exe"), control)? else {
+    let Some(dx) = bundled_dx::resolve(target, &development_dx_path()?, control)? else {
         if let Some(log) = control.log_sink() { log.task_message("已选择 DX，但未找到 DX 0.7.9，回退到 Cargo"); }
         return Ok(None);
     };
     let mut version = Command::new(&dx);
     version.arg("--version").current_dir(&project.root);
-    if !small_output(&version, control)?.split_whitespace().any(|part| part == "0.7.9") {
+    if !supported_dx_version(&small_output(&version, control)?) {
         return Err("工程构建仅支持已验证的 DX 0.7.9".into());
     }
     Ok(Some((dx, bin)))
+}
+
+pub(crate) fn dx_source() -> Result<DxSource, String> {
+    Ok(DxSource::configured(std::env::var_os("FEATHRISE_DX_PATH").map(PathBuf::from), &development_dx_path()?))
+}
+
+fn development_dx_path() -> Result<PathBuf, String> {
+    let resources = crate::project_template_root();
+    let repository = resources.parent().ok_or("编辑器资源目录没有工具仓库父目录")?;
+    Ok(repository.join(".local/hotpatch/tools/dx-0.7.9/dx.exe"))
+}
+
+pub(crate) fn supported_dx_version(version: &str) -> bool {
+    version.split_whitespace().any(|part| part == "0.7.9")
 }
 
 /// 普通工程也从 DX 构建，返回同次 Cargo 产物回执供宿主发布运行副本。
@@ -427,7 +440,7 @@ fn read_output(mut output: File, project: &Path, log: Option<crate::project_log:
     Ok(bytes)
 }
 
-fn select_bin(project: &Project) -> Result<String, String> {
+pub(crate) fn select_bin(project: &Project) -> Result<String, String> {
     if project.manifest.file_name().is_none_or(|name| name != "Cargo.toml") { return Err("热更新Cargo入口必须是显式Cargo.toml".into()); }
     let text = String::from_utf8(read_bounded(&project.manifest, CONTEXT_LIMIT)?).map_err(|error| error.to_string())?;
     let manifest: toml::Value = toml::from_str(&text).map_err(|error| error.to_string())?;
@@ -556,7 +569,7 @@ fn rustc_sysroot(rustc: &Path, project: &Project, control: &BuildControl) -> Res
     PathBuf::from(small_output(&command, control)?.trim()).canonicalize().map_err(|error| error.to_string())
 }
 
-fn toolchain_path(tool: &Path) -> Result<std::ffi::OsString, String> {
+pub(crate) fn toolchain_path(tool: &Path) -> Result<std::ffi::OsString, String> {
     let directory = tool.parent().ok_or("Rust 工具缺少所在目录")?;
     let inherited = std::env::var_os("PATH").unwrap_or_default();
     std::env::join_paths(std::iter::once(directory.to_owned()).chain(std::env::split_paths(&inherited)))
@@ -575,11 +588,16 @@ fn small_output(command: &Command, control: &BuildControl) -> Result<String, Str
 }
 
 fn discover_lib(project: &Project, control: &BuildControl) -> Result<String, String> {
+    discover_msvc_libs(project, |command| small_output(command, control))
+}
+
+/// 预检沿用 DX 的 MSVC／SDK 查找路径，但由预检提供自己的短超时和只读探针。
+pub(crate) fn discover_msvc_libs(project: &Project, probe: impl FnOnce(&Command) -> Result<String, String>) -> Result<String, String> {
     if let Some(lib) = std::env::var("LIB").ok().filter(|value| !value.trim().is_empty()) { return Ok(lib); }
     let program_files = PathBuf::from(std::env::var_os("ProgramFiles(x86)").ok_or("缺少ProgramFiles(x86)，无法定位MSVC/SDK")?);
     let mut command = Command::new(program_files.join("Microsoft Visual Studio/Installer/vswhere.exe"));
     command.args(["-latest", "-products", "*", "-property", "installationPath"]).current_dir(&project.root);
-    let installation = PathBuf::from(small_output(&command, control)?.trim());
+    let installation = PathBuf::from(probe(&command)?.trim());
     let version = String::from_utf8(read_bounded(&installation.join("VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt"), 256)?)
         .map_err(|error| error.to_string())?;
     let msvc = installation.join("VC/Tools/MSVC").join(version.trim()).join("lib/x64");

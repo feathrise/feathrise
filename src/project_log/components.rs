@@ -33,6 +33,9 @@ pub(super) struct LogBody {
 #[derive(Component, Default)]
 pub(super) struct LogDisplay {
     pub fingerprint: Option<u64>,
+    /// 字形仍可处于上一折行修订。查找不能把新正文的字节范围套到旧页。
+    pub origin: u64,
+    pub revision: u64,
 }
 #[derive(Component)]
 pub(super) struct LogRun;
@@ -50,6 +53,14 @@ pub(super) struct LogStatus;
 pub(super) struct LogFollowLabel;
 #[derive(Component)]
 pub(super) struct LogWrapLabel;
+#[derive(Component)]
+pub(super) struct LogSearchBar;
+#[derive(Component)]
+pub(super) struct LogSearchInput;
+#[derive(Component)]
+pub(super) struct LogSearchHint;
+#[derive(Component)]
+pub(super) struct LogSearchCount;
 
-#[derive(Component, Clone, Copy)]
-pub(super) enum LogAction { Close, Follow, Wrap, Clear, CopySelection, CopyAll }
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LogAction { Close, Follow, Wrap, Clear, CopySelection, CopyAll, Search, SearchPrevious, SearchNext }

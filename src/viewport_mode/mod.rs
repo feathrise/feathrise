@@ -95,6 +95,7 @@ pub(crate) fn install(
                 feathrise_editor_map::standalone::viewport_projection::ViewportProjectionSet,
             ).after(crate::window_chrome::ChromeMeasure),
         );
+    crate::environment_diagnostics::install(app, project);
     completion
 }
 

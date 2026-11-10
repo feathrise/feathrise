@@ -11,6 +11,9 @@ pub(crate) mod preferences;
 #[cfg(feature = "validation")]
 #[path = "native_editor_smoke.rs"]
 mod smoke;
+#[cfg(all(feature = "validation", windows))]
+#[path = "build_environment_validation.rs"]
+mod build_environment_validation;
 
 use avian3d::{PhysicsPlugins, prelude::ColliderCachePlugin};
 use bevy::{app::AppExit, prelude::*};
@@ -150,6 +153,8 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
         app.insert_resource(bevy_framepace::FramepaceSettings::default().with_limiter(bevy_framepace::Limiter::Off))
             .add_systems(First, crate::editor_frame_pacing::pace_author);
     }
+    #[cfg(all(feature = "validation", windows))]
+    build_environment_validation::install(&mut app, &project)?;
     crate::native_plugins::install(&mut app, &project, &target);
 
     // 与原入口一致，先注册原Avian绘制能力，再默认关闭碰撞线；F1可按设置重新开启。

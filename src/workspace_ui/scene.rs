@@ -2,11 +2,11 @@
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
-use super::{Page, WorkspaceField, components::*, resources::Presentation};
+use super::{Page, RecentEntry, WorkspaceField, components::*, resources::Presentation};
 use bevy::{
     input_focus::tab_navigation::TabIndex,
     prelude::*,
-    text::{EditableTextFilter, TextCursorStyle},
+    text::{EditableTextFilter, LineBreak, TextCursorStyle},
     ui::RelativeCursorPosition,
 };
 use feathrise_editor_map::workbench::{
@@ -50,7 +50,7 @@ pub(super) fn button(
     parent: &mut ChildSpawnerCommands,
     font: &Handle<Font>,
     label: &str,
-    action: Action,
+    action: impl Component,
 ) -> Entity {
     parent
         .spawn((
@@ -516,22 +516,26 @@ pub(super) fn recent_rows(
                     caption(list, &font, "还没有最近工程", 12.);
                 }
                 // 最近记录本身有界；不扫描工程或构建历史列表里的项目。
-                for recent in state.recent.iter().take(64) {
+                for recent in state.recent.iter().take(crate::user_preferences::MAX_RECENT_PROJECTS) {
+                    let action = |kind| RecentAction {
+                        path: recent.path.clone(),
+                        kind,
+                    };
                     list.spawn(Node {
                         width: percent(100),
                         column_gap: px(6),
+                        row_gap: px(4),
                         align_items: AlignItems::FlexStart,
+                        flex_wrap: FlexWrap::Wrap,
                         ..default()
                     })
                     .with_children(|row| {
                         row.spawn((
                             InteractionButton,
-                            RecentAction {
-                                path: recent.path.clone(),
-                                remove: false,
-                            },
+                            action(RecentActionKind::Open),
                             Node {
                                 flex_grow: 1.,
+                                flex_basis: px(110),
                                 min_width: px(0),
                                 flex_direction: FlexDirection::Column,
                                 padding: UiRect::axes(px(5), px(7)),
@@ -547,42 +551,74 @@ pub(super) fn recent_rows(
                         ))
                         .with_children(|item| {
                             // 工程名和路径即使恰好与词条相同，也以作者原文显示。
-                            item.spawn(caption_bundle(&font, &recent.name, 14.));
-                            item.spawn(caption_bundle(&font, &crate::project::display_path(&recent.path), 12.));
+                            let mut name = item.spawn(caption_bundle(&font, &recent.name, 14.));
+                            if recent.pinned {
+                                name.insert(TextColor(c::TEXT_ACCENT));
+                            }
+                            if let Some(directory) = distinguishing_directory(recent, &state.recent) {
+                                item.spawn((
+                                    caption_bundle(&font, &directory, 12.),
+                                    TextLayout::linebreak(LineBreak::AnyCharacter),
+                                )).insert(TextColor(c::TEXT_ACCENT));
+                            }
+                            // 窄窗仍可换行查看完整目录，短路径只用于快速识别同名工作树。
+                            item.spawn((
+                                caption_bundle(&font, &crate::project::display_path(&recent.path), 12.),
+                                TextLayout::linebreak(LineBreak::AnyCharacter),
+                            ));
                             item.spawn(caption_bundle(&font, &recent.last_opened, 11.));
                         });
-                        row.spawn((
-                            InteractionButton,
-                            RecentAction {
-                                path: recent.path.clone(),
-                                remove: true,
-                            },
-                            Node {
-                                width: px(26),
-                                height: px(26),
-                                align_items: AlignItems::Center,
-                                justify_content: JustifyContent::Center,
-                                ..default()
-                            },
-                            feathrise_editor_ui::ButtonColors::new(
-                                c::BUTTON_DEV_SMALL_NORMAL,
-                                c::BUTTON_DEV_SMALL_HOVERED,
-                                c::BUTTON_DEV_SMALL_PRESSED,
-                            ),
-                            BackgroundColor(c::BUTTON_DEV_SMALL_NORMAL),
-                        ))
-                        .with_child((
-                            Text::new("×"),
-                            TextFont {
-                                font: font.clone().into(),
-                                font_size: 13.0.into(),
-                                ..default()
-                            },
-                            TextColor(c::TEXT_MUTED),
-                        ));
+                        row.spawn(Node {
+                            column_gap: px(4),
+                            flex_shrink: 0.,
+                            ..default()
+                        }).with_children(|actions| {
+                            let label = if recent.pinned { "取消固定工程" } else { "固定工程" };
+                            button(actions, &font, label, action(RecentActionKind::SetPinned(!recent.pinned)));
+                            button(actions, &font, "×", action(RecentActionKind::Remove));
+                        });
                     });
                 }
             });
         });
+    }
+}
+
+fn distinguishing_directory(entry: &RecentEntry, recent: &[RecentEntry]) -> Option<String> {
+    // 每对同名记录从末尾比较一次。首个不同目录出现在摘要开头，窄窗也能优先看到它。
+    let common_tail = recent
+        .iter()
+        .filter(|other| other.name == entry.name && other.path != entry.path)
+        .map(|other| {
+            entry.path.components().rev().zip(other.path.components().rev())
+                .take_while(|(left, right)| left == right)
+                .count()
+        })
+        .max()?;
+    let prefix = entry.path.ancestors().nth(common_tail + 1)?;
+    let suffix: std::path::PathBuf = entry.path.strip_prefix(prefix).ok()?.components().collect();
+    Some(format!("…{}{}", std::path::MAIN_SEPARATOR, suffix.display()))
+}
+
+#[cfg(test)]
+mod recent_tests {
+    use super::*;
+
+    #[test]
+    fn same_name_and_leaf_directory_show_distinct_worktree_suffixes() {
+        let root = std::env::temp_dir().join("worktrees");
+        let entries: Vec<_> = ["824b", "8692"].into_iter().map(|worktree| RecentEntry {
+            name: "同名工程".into(),
+            path: root.join(worktree).join("project"),
+            last_opened: "刚刚".into(),
+            pinned: false,
+        }).collect();
+        assert_eq!(distinguishing_directory(&entries[0], &entries).unwrap(), format!(
+            "…{s}824b{s}project", s = std::path::MAIN_SEPARATOR,
+        ));
+        assert_eq!(distinguishing_directory(&entries[1], &entries).unwrap(), format!(
+            "…{s}8692{s}project", s = std::path::MAIN_SEPARATOR,
+        ));
+        assert!(distinguishing_directory(&entries[0], &entries[..1]).is_none());
     }
 }

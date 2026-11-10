@@ -90,6 +90,7 @@ fn validation_editor_requested(mut value: impl FnMut(&str) -> Option<std::ffi::O
         "FEATHRISE_HOME_SCALE_VALIDATION_DIR", "FEATHRISE_ABOUT_VALIDATION_DIR",
         "FEATHRISE_CHROME_VALIDATION_DIR", "FEATHRISE_FRAME_VALIDATION_DIR",
         "FEATHRISE_PLUGIN_HOST_VALIDATION_DIR",
+        "FEATHRISE_BUILD_ENVIRONMENT_VALIDATION_DIR",
     ];
     ENTRIES.iter().any(|name| value(name).is_some())
 }
