@@ -4,6 +4,8 @@
 
 mod branding;
 mod build_process;
+#[cfg(windows)]
+mod editor_frame_pacing;
 mod build_artifacts; // 所有开发启动共用独立版本副本，不占用下一轮Cargo输出。
 mod compiler_diagnostics;
 mod code_iteration;

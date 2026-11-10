@@ -14,6 +14,8 @@ pub(super) struct AuthorProcess {
     pub hwnd: Option<usize>,
     pub started: Instant,
     pub model_revision: u64,
+    #[cfg(windows)]
+    pub frame_pacing: Option<crate::editor_frame_pacing::FramePacingRequest>,
     #[cfg(unix)]
     pub surface: crate::portable_author::HostSession,
     #[cfg(unix)]
@@ -89,6 +91,8 @@ impl AuthorProcess {
                 hwnd: None,
                 started: Instant::now(),
                 model_revision: 0,
+                #[cfg(windows)]
+                frame_pacing: None,
                 #[cfg(unix)]
                 surface,
                 #[cfg(unix)]

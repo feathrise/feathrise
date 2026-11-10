@@ -34,6 +34,7 @@ pub(crate) fn install(app: &mut App, root: &Path) -> Result<Option<Completion>, 
     app.insert_resource(Plan { project, directory, target, nonce:owner["nonce"].as_str().ok_or("缺少本轮随机身份")?.into(),
         phase:Phase::Open, changed:Instant::now(), started:Instant::now(), frames:0, pulse:None, initial:None,
         author:None, presentation:None, history_settlement:None, original_session:None, control:None, witness:None,
+        cargo_drag:(owner["cargo_pacing"] == true).then(super::drag::CargoDrag::default), cargo_drag_proof:None,
         witness_control:crate::build_process::BuildControl::default(), build_io:None,
         io:None, screenshot:None, writer:None, steps:Vec::new(), error:None, completion:completion.clone() })
         .add_systems(Last, drive);
@@ -134,12 +135,29 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
             }
         }
         Phase::CaptureBuild => {
-            ensure_author(world, plan)?;
             ensure_real_build(world, plan)?;
+            if let Some(drag) = plan.cargo_drag.as_mut() {
+                let Some(proof) = drag.advance(world)? else {
+                    if plan.changed.elapsed() > Duration::from_secs(12) {
+                        return Err(format!("Cargo 空闲拖动未完成：{drag:?}"));
+                    }
+                    return Ok(());
+                };
+                let current = serde_json::to_value(author::presentation_probe(world)?).map_err(|error|error.to_string())?;
+                let before = plan.presentation.as_ref().ok_or("缺少拖动前作者呈现")?;
+                if current["selection"] != before["selection"] || current["camera"] != before["camera"] {
+                    return Err("侧栏拖动穿透编辑区并改变了选择或相机".into());
+                }
+                // 主动调整过的侧栏和视口尺寸，成为后续停止及重试必须保留的呈现基线。
+                plan.presentation = Some(current);
+                plan.cargo_drag_proof = Some(proof);
+                plan.cargo_drag = None;
+            }
+            ensure_author(world, plan)?;
             let Some((_,button)) = evidence::original_button(world, "停止编译")? else { return Ok(()); };
             if let Some(capture) = evidence::screenshot(world, plan, "compiling-stop-visible.png")? {
                 record(world, "real_cargo_build_script_running_and_stop_button_gpu", json!({"capture":capture,
-                    "button":button,"build":plan.witness.as_ref().unwrap().proof}), plan);
+                    "button":button,"build":plan.witness.as_ref().unwrap().proof,"cargo_idle_drag":plan.cargo_drag_proof}), plan);
                 plan.advance(Phase::Stop);
             }
         }

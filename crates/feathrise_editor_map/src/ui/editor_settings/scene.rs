@@ -25,7 +25,20 @@ fn fixed_backdrop_colors() -> impl Scene {
     )))
 }
 
-pub(super) fn settings_panel() -> impl Scene {
+pub(super) fn settings_panel(build_optimization: bool) -> impl Scene {
+    let mut groups: Vec<Box<dyn Scene>> = vec![Box::new(locale_group())];
+    // 只有独立编辑器具备编译和窗口调度权。游戏内 F12 继续使用原设置页。
+    if build_optimization {
+        groups.push(Box::new(build_optimization_group()));
+    }
+    groups.extend([
+        Box::new(viewport_group()) as Box<dyn Scene>,
+        Box::new(super::mesh_lod::panel()),
+        Box::new(scale_group()),
+        Box::new(theme_group()),
+        Box::new(snapping_group()),
+        Box::new(layout_group()),
+    ]);
     bsn! {
         MapEditorSettingsPanel
         Node {
@@ -78,9 +91,7 @@ pub(super) fn settings_panel() -> impl Scene {
                     flex_grow: 1.0, overflow: Overflow::scroll_y(),
                     ..feathrise_editor_ui::dialog_body_node()
                 }}
-                Children [
-                    @locale_group()-- @viewport_group()-- @super::mesh_lod::panel()-- @scale_group()-- @theme_group()-- @snapping_group()-- @layout_group()
-                ]
+                Children [{groups}]
             --
                 @super::shortcuts_scene::shortcut_page()
             --
@@ -170,6 +181,30 @@ fn scale_group() -> impl Scene {
                     @settings_button("自动", EditorSettingsAction::SetAutoScale, 58.0)
                 ]
 
+        ]
+    }
+}
+
+fn build_optimization_group() -> impl Scene {
+    bsn! {
+        SettingsGroup ~{group_node()}
+        BackgroundColor(colors::PANEL_BG_SECTION) BorderColor::all(colors::COPPER_BORDER_WEAK)
+        Children [
+            @help_header("编译优化", "Cargo 和 DX 编译期间，空闲约 5 FPS，有操作约 15 FPS。编译结束后恢复日常帧率。")--
+            Text("日常帧率上限") @feathrise_editor_ui::localization::label_scene("日常帧率上限")
+            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+            TextColor(colors::TEXT_PRIMARY)
+        --
+            Node { width: percent(100), min_width: px(0), flex_wrap: FlexWrap::Wrap, column_gap: px(6), row_gap: px(4) }
+            Children [
+                @settings_button("不限", EditorSettingsAction::SetMaxFps(0), 76.0)--
+                @settings_button("30 FPS", EditorSettingsAction::SetMaxFps(30), 72.0)--
+                @settings_button("60 FPS", EditorSettingsAction::SetMaxFps(60), 72.0)--
+                @settings_button("120 FPS", EditorSettingsAction::SetMaxFps(120), 76.0)--
+                @settings_button("144 FPS", EditorSettingsAction::SetMaxFps(144), 76.0)
+            ]
+        --
+            @settings_button("编译时降低帧率", EditorSettingsAction::ToggleBuildFrameLimit, 216.0)
         ]
     }
 }

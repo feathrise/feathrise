@@ -36,10 +36,16 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         write_bytes_new(&root.join(".validation-build-token"), nonce.as_bytes())?;
         let preferences = directory.join("isolated-preferences.json");
         write_new(&preferences.with_extension("viewport.json"), &json!({"format":1,"mode":"embedded_world"}))?;
+        // 限帧专项显式选择原生 Cargo，普通停止编译验收继续覆盖工程的默认构建方式。
+        let cargo_pacing = std::env::var_os("FEATHRISE_BUILD_CANCEL_USE_CARGO").as_deref() == Some(std::ffi::OsStr::new("1"));
+        if cargo_pacing {
+            let launch = project.context.ensure_data_directory()?.join("launch.json");
+            write_new(&launch, &json!({"format":1,"mode":"embedded_world","profile":"debug","backend":"cargo"}))?;
+        }
         write_new(&root.join(OWNER_FILE), &json!({"schema":1,"purpose":PURPOSE,"project_root":project.root,
             "project_id":project.id,"directory":directory,"target":target,"nonce":nonce,
             "build_script_sha256":hash_bytes(source.as_bytes()),"original_build_script_sha256":hash_bytes(&original_script),
-            "preferences":preferences}))?;
+            "preferences":preferences,"cargo_pacing":cargo_pacing}))?;
         owned(&root, &directory)?;
         let before = protected_hashes(&project)?;
         let mut command = Command::new(std::env::current_exe().map_err(|error|error.to_string())?);
@@ -60,7 +66,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         write_bytes_new(&directory.join("process.log"), format!("{}\n{}", process.stdout, process.stderr).as_bytes())?;
         let after = protected_hashes(&project)?;
         let child = read_json(&directory.join(REPORT_FILE))?;
-        let validation = verify(&child, &project, &directory, &target, &nonce);
+        let validation = verify(&child, &project, &directory, &target, &nonce, cargo_pacing);
         let preserved = before == after;
         let evidence = json!({"process_exit":process.exit_code,"protected_file_count":before.len(),
             "all_author_assets_and_sources_preserved":preserved,"protected_before":before,"protected_after":after,
@@ -172,7 +178,7 @@ fn step<'a>(child: &'a Value, stage: &str) -> Result<&'a Value, String> {
     Ok(matches[0])
 }
 
-fn verify(child: &Value, project: &Project, directory: &Path, target: &Path, nonce: &str) -> Result<Value, String> {
+fn verify(child: &Value, project: &Project, directory: &Path, target: &Path, nonce: &str, cargo_pacing: bool) -> Result<Value, String> {
     if child["schema"] != 1 || child["passed"] != true || child["scope"] != PURPOSE || child["project_id"] != project.id
         || child["project_root"] != json!(project.root) || child["directory"] != json!(directory) || child["nonce"] != nonce {
         return Err("停止编译实际作者报告未通过或归属不一致".into());
@@ -186,6 +192,11 @@ fn verify(child: &Value, project: &Project, directory: &Path, target: &Path, non
     let stop = step(child, STAGES[3])?;
     let drain = step(child, STAGES[4])?;
     verify_cancel(started, stop, drain)?;
+    let drag = &started["cargo_idle_drag"];
+    if cargo_pacing && (drag["idle_wait_ms"] != 200 || drag["active_wait_ms"] != 66
+        || drag["width_before"].as_f64().zip(drag["width_after"].as_f64()).is_none_or(|(before, after)| after - before <= 12.)) {
+        return Err("Cargo 空闲后首次拖动缺少实际限帧档位和侧栏宽度变化".into());
+    }
     if started["build"]["marker"] != read_json(&project.root.join(START_FILE))?
         || started["build"]["marker"]["nonce"] != nonce || started["build"]["marker"]["released"] != false
         || started["build"]["marker"]["project_id"] != project.id { return Err("真实Cargo启动标记不属于本轮独占工程".into()); }
@@ -235,7 +246,7 @@ fn verify(child: &Value, project: &Project, directory: &Path, target: &Path, non
     if read_json(&directory.join("retry-game.json"))? != guest["guest"]["game"] { return Err("重新连接的不可变游戏GPU记录与当前作者阶段不一致".into()); }
     Ok(json!({"required_stages":STAGES.len(),"captures":captures,"real_cargo_cancel_and_retry":true,
         "asset_hashes_checked_outside_app":true,"original_stop_button_route":true,"stop_kept_project_3d":true,
-        "code_iteration_watching_at_all_stages":true,
+        "code_iteration_watching_at_all_stages":true,"cargo_idle_drag":drag,
         "project_3d_no_automatic_restart_ms":project_stable["observed_ms"],"no_automatic_restart_ms":stable["observed_ms"]}))
 }
 

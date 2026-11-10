@@ -12,6 +12,9 @@ use scrub_mapping::{
 pub struct EditorSettingsData {
     #[serde(default)]
     pub render: feathrise_settings::RenderSettings,
+    /// 缺少本字段的旧作者偏好也沿用默认编译降帧。
+    #[serde(default = "default_limit_build_fps")]
+    pub limit_build_fps: bool,
     #[serde(default)]
     pub scene: feathrise_settings::SceneDisplaySettings,
     #[serde(default)]
@@ -107,6 +110,10 @@ fn default_show_terrain_backfaces() -> bool {
     true
 }
 
+fn default_limit_build_fps() -> bool {
+    DEFAULT_LIMIT_BUILD_FPS
+}
+
 fn default_ui_locale() -> String {
     EditorLocalePreference::default().as_str().into()
 }
@@ -115,6 +122,7 @@ impl Default for EditorSettingsData {
     fn default() -> Self {
         Self {
             render: Default::default(),
+            limit_build_fps: default_limit_build_fps(),
             scene: Default::default(),
             environment: Default::default(),
             scrub: Default::default(),
@@ -138,6 +146,7 @@ impl From<&EditorSettings> for EditorSettingsData {
         let layout = settings.editor_layout.sanitized();
         Self {
             render: settings.render,
+            limit_build_fps: settings.limit_build_fps,
             scene: settings.scene,
             environment: settings.environment,
             scrub: map_editor_scrub_sensitivities_for_save(
@@ -179,6 +188,7 @@ impl EditorSettingsData {
         let data = &self;
         let mut settings = EditorSettings::default();
         settings.render = data.render;
+        settings.limit_build_fps = data.limit_build_fps;
         settings.render.mesh_lod = data.render.mesh_lod.sanitized();
         settings.render.exposure_compensation =
             feathrise_settings::sanitize_exposure_compensation(

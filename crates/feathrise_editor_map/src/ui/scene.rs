@@ -316,7 +316,7 @@ fn body(scenes: &feathrise_editor_documents_model::DocumentScenes) -> impl Scene
 }
 
 /// 返回由BSN声明的完整编辑器Scene。
-pub(crate) fn map_editor_scene(scenes: &feathrise_editor_documents_model::DocumentScenes) -> impl Scene + use<> {
+pub(crate) fn map_editor_scene(scenes: &feathrise_editor_documents_model::DocumentScenes, build_optimization: bool) -> impl Scene + use<> {
     bsn! {
         MapEditorRoot
         Node {
@@ -340,7 +340,7 @@ pub(crate) fn map_editor_scene(scenes: &feathrise_editor_documents_model::Docume
             @terrain_conflict_dialog()--
             @map_folder_dialog()--
             @map_browser_drag_preview()--
-            @super::editor_settings::settings_panel()--
+            @super::editor_settings::settings_panel(build_optimization)--
             @super::map_loading::map_loading_input_blocker()--
             @super::map_switch_dialog::map_switch_dialog()--
             @super::tooltips::tooltip_popup()--
@@ -353,6 +353,9 @@ pub(crate) fn map_editor_scene(scenes: &feathrise_editor_documents_model::Docume
 /// Bevy 原 spawn() 也是 Startup 独占构造；只在这里读取稳定工厂，不改变生成时机和依赖加载。
 pub(crate) fn spawn_map_editor_scene(world: &mut World) -> bevy::ecs::error::Result {
     let scenes = *world.resource::<feathrise_editor_documents_model::DocumentScenes>();
-    world.spawn_scene(map_editor_scene(&scenes))?;
+    let build_optimization = cfg!(windows)
+        && (world.contains_resource::<crate::standalone::StandaloneEditorMode>()
+            || world.contains_resource::<crate::workbench::WorkbenchModel>());
+    world.spawn_scene(map_editor_scene(&scenes, build_optimization))?;
     Ok(())
 }

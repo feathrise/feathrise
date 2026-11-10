@@ -1,12 +1,14 @@
 //! 验收只读真实作者节点、布局、相机和选择；模式标志不能代替已经收起/还原的界面证据。
 
 use crate::{
-    components::{MapEditorRoot, MapEditorViewport},
+    components::{MapEditorPaneSplitter, MapEditorRoot, MapEditorViewport},
     resources::{MapEditorLayoutState, MapEditorState, MapEditorViewportState},
+    types::EditorPane,
     ui::gltf_browser::EditorGltfBrowserState,
     workbench::WorkbenchHeader,
 };
 use bevy::prelude::*;
+use feathrise_editor_ui::UiInteraction;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct UiPresentationProbe {
@@ -62,6 +64,22 @@ pub struct PresentationProbe {
     pub navigation: Option<NavigationProbe>,
     pub selection: SelectionProbe,
     pub panes: Option<PanePresentationProbe>,
+}
+
+/// 原内容栏分隔线的物理中心、首选宽度、悬停及拖动状态；仅供自有工程实窗取证。
+pub fn content_splitter_probe(world: &mut World) -> Option<(Vec2, f32, bool, bool)> {
+    if !world.contains_resource::<super::Installed>() {
+        return None;
+    }
+    let (center, hovered) = world
+        .query::<(&MapEditorPaneSplitter, &ComputedNode, &UiGlobalTransform, &InheritedVisibility, &UiInteraction)>()
+        .iter(world)
+        .find_map(|(splitter, node, transform, visible, interaction)| {
+            (splitter.0 == EditorPane::Content && visible.get() && !node.is_empty())
+                .then_some((transform.translation, *interaction == UiInteraction::Hovered))
+        })?;
+    let layout = world.get_resource::<MapEditorLayoutState>()?;
+    Some((center, layout.content_width, hovered, layout.drag.is_some_and(|drag| drag.pane == EditorPane::Content)))
 }
 
 /// 可变 World 仅用于建立定向 ECS 查询缓存；不写节点、模式、文档或任何验收成功状态。

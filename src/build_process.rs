@@ -4,6 +4,8 @@
 //! UI只持有可克隆控制牌并轮询工作槽，本模块所有等待都发生在唯一后台工作线程。
 
 use crate::native_process::JobProcess;
+#[cfg(windows)]
+use std::sync::atomic::AtomicUsize;
 #[path = "build_process_input.rs"]
 mod input;
 use std::{
@@ -20,6 +22,33 @@ const POLL: Duration = Duration::from_millis(10);
 const CLEANUP_LIMIT: Duration = Duration::from_secs(5);
 const DIAGNOSTIC_LIMIT: usize = 16 * 1024;
 const INPUT_LIMIT: usize = 8 * 1024 * 1024;
+
+#[cfg(windows)]
+static PROJECT_BUILDS: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(windows)]
+pub(crate) fn project_build_active() -> bool {
+    PROJECT_BUILDS.load(Ordering::Relaxed) != 0
+}
+
+// 只有归属专用 Job 的真实 Cargo / DX 构建持有降帧租约。失败和取消与正常退出共用释放路径。
+#[cfg(windows)]
+struct BuildActivity;
+
+#[cfg(windows)]
+impl BuildActivity {
+    fn enter() -> Self {
+        PROJECT_BUILDS.fetch_add(1, Ordering::Relaxed);
+        Self
+    }
+}
+
+#[cfg(windows)]
+impl Drop for BuildActivity {
+    fn drop(&mut self) {
+        PROJECT_BUILDS.fetch_sub(1, Ordering::Relaxed);
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct BuildControl(Arc<ControlState>);
@@ -149,13 +178,23 @@ pub(crate) fn run_cargo<T: Send + 'static>(
     timeout: Option<Duration>,
     stdout_reader: impl FnOnce(File) -> Result<T, String> + Send + 'static,
 ) -> Result<ProcessOutput<T>, String> {
-    run(command, control, timeout, stdout_reader).map_err(|error| {
+    run_build(command, control, timeout, stdout_reader).map_err(|error| {
         if control.is_cancelled() || control.cleanup_failed() {
             error
         } else {
             crate::environment_diagnostics::cargo_start_failure(command, error)
         }
     })
+}
+
+/// 编译优化只覆盖构建工具运行和收口，探测工具、采用产物和游戏运行沿用原调度。
+pub(crate) fn run_build<T: Send + 'static>(
+    command: &Command,
+    control: &BuildControl,
+    timeout: Option<Duration>,
+    stdout_reader: impl FnOnce(File) -> Result<T, String> + Send + 'static,
+) -> Result<ProcessOutput<T>, String> {
+    run_owned(command, control, timeout, None, None, true, stdout_reader)
 }
 
 /// stdout解析器必须持续排空并限制自身内存；stderr无论保留上限是否已满都继续读取。
@@ -169,7 +208,7 @@ pub(crate) fn run<T: Send + 'static>(
     run_with_started(command, control, timeout, None, stdout_reader)
 }
 
-/// 冻结的有限输入由唯一后台写线程完整发送并关闭stdin；不经shell，也不在作者帧等待管道。
+/// DX 薄补丁的冻结输入由唯一后台写线程完整发送并关闭stdin；不经shell，也不在作者帧等待管道。
 /// 结果必须同时确认写线程、两侧日志及本次Job收口，不能把启动或部分写入当作工具成功。
 pub(crate) fn run_with_input<T: Send + 'static>(
     command: &Command,
@@ -180,7 +219,7 @@ pub(crate) fn run_with_input<T: Send + 'static>(
 ) -> Result<ProcessOutput<T>, String> {
     control.check()?;
     if bytes.len() > INPUT_LIMIT { return Err("构建工具stdin超过8MiB，未启动进程或截断输入".into()); }
-    run_owned(command, control, timeout, None, Some(bytes), stdout_reader)
+    run_owned(command, control, timeout, None, Some(bytes), true, stdout_reader)
 }
 
 /// 仅在工具已创建并归属本次专属 Job 后通知调用方，不能把准备命令冒称运行版本已经生效。
@@ -191,7 +230,7 @@ pub(crate) fn run_with_started<T: Send + 'static>(
     started: Option<mpsc::SyncSender<()>>,
     stdout_reader: impl FnOnce(File) -> Result<T, String> + Send + 'static,
 ) -> Result<ProcessOutput<T>, String> {
-    run_owned(command, control, timeout, started, None, stdout_reader)
+    run_owned(command, control, timeout, started, None, false, stdout_reader)
 }
 
 fn run_owned<T: Send + 'static>(
@@ -200,6 +239,7 @@ fn run_owned<T: Send + 'static>(
     timeout: Option<Duration>,
     started: Option<mpsc::SyncSender<()>>,
     bytes: Option<Vec<u8>>,
+    _build: bool,
     stdout_reader: impl FnOnce(File) -> Result<T, String> + Send + 'static,
 ) -> Result<ProcessOutput<T>, String> {
     control.check()?;
@@ -210,6 +250,8 @@ fn run_owned<T: Send + 'static>(
             return Err(failure.message);
         }
     };
+    #[cfg(windows)]
+    let _activity = _build.then(BuildActivity::enter);
     if let Some(started) = started { let _ = started.try_send(()); }
     let has_input = bytes.is_some();
     let (mut input_thread, input_failure) = match bytes {

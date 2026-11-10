@@ -15,7 +15,7 @@ use feathrise_map_content::{MapId, MapPlacementAssetTarget};
 
 #[path = "embedded_validation_presentation.rs"]
 mod presentation;
-pub use presentation::{presentation_probe, PresentationProbe};
+pub use presentation::{content_splitter_probe, presentation_probe, PresentationProbe};
 #[path = "embedded_validation_live.rs"]
 pub mod live;
 

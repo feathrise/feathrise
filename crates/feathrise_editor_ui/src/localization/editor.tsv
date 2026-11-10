@@ -507,6 +507,11 @@ help.changes-apply-immediately-and-save-automatically-done	更改即时生效并
 label.reset-scale	重置缩放	Reset Scale
 label.restore-defaults	恢复默认	Restore Defaults
 label.ui-scale	界面缩放	UI Scale
+label.build-optimization	编译优化	Build Optimization
+label.editor-fps-limit	日常帧率上限	Normal Frame Rate Limit
+label.editor-fps-unlimited	不限	Unlimited
+label.limit-fps-during-builds	编译时降低帧率	Reduce Frame Rate During Builds
+help.build-frame-pacing	Cargo 和 DX 编译期间，空闲约 5 FPS，有操作约 15 FPS。编译结束后恢复日常帧率。	During Cargo and DX builds, the editor uses about 5 FPS when idle and 15 FPS during interaction. Your normal frame rate returns when the build ends.
 help.manual-and-auto-scale-range-from-60	手动与自动均为60%–200%，加减每次5%。自动按窗口尺寸调整，加减可微调自动比例。只影响编辑器界面，不影响运行界面或三维渲染比例。	Manual and auto scale range from 60% to 200%, with 5% steps. Auto adapts to the window size. Use + or − to fine-tune it. This changes the editor UI scale only.
 label.viewport-display	视口显示	Viewport Display
 help.the-button-is-highlighted-when-enabled-applies	开启时按钮高亮；父地图与子地图生效，退出编辑后仍保留。	The button is highlighted when enabled. Applies to parent maps and submaps, and persists when leaving the editor.

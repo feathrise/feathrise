@@ -78,8 +78,8 @@ pub(super) fn settings_entry() -> impl Scene {
     settings_button_with_height("设置", EditorSettingsAction::Open, 48.0, 26.0)
 }
 
-pub(super) fn settings_panel() -> impl Scene {
-    scene::settings_panel()
+pub(super) fn settings_panel(build_optimization: bool) -> impl Scene {
+    scene::settings_panel(build_optimization)
 }
 
 /// 编辑器与玩法视图共用显示偏好；F12开关不撤销背面显示，避免关闭后画面变化。
@@ -277,6 +277,14 @@ pub(crate) fn handle_settings_input(
                     if settings.editor_color_theme != theme {
                         settings.editor_color_theme = theme; // 重选不触发保存，不接触作者草稿。
                     }
+                }
+                EditorSettingsAction::SetMaxFps(fps) if !state.shortcuts => {
+                    if settings.render.max_fps != fps {
+                        settings.render.max_fps = fps;
+                    }
+                }
+                EditorSettingsAction::ToggleBuildFrameLimit if !state.shortcuts => {
+                    settings.limit_build_fps = !settings.limit_build_fps;
                 }
                 EditorSettingsAction::ToggleTerrainBackfaces => {
                     if state.shortcuts {
@@ -507,6 +515,8 @@ pub(crate) fn sync_settings_panel(
                 EditorSettingsAction::SetAutoScale => settings.editor_ui_scale_auto,
                 EditorSettingsAction::SetLocale(locale) => settings.ui_locale == locale,
                 EditorSettingsAction::SetColorTheme(theme) => settings.editor_color_theme == theme,
+                EditorSettingsAction::SetMaxFps(fps) => settings.render.max_fps == fps,
+                EditorSettingsAction::ToggleBuildFrameLimit => settings.limit_build_fps,
                 EditorSettingsAction::ToggleTerrainBackfaces => {
                     settings.editor_show_terrain_backfaces
                 }

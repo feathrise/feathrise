@@ -352,6 +352,8 @@ impl Default for EditorLayoutPreferences {
 #[derive(Resource, Clone, Debug, PartialEq)]
 pub struct EditorSettings {
     pub render: feathrise_settings::RenderSettings,
+    /// 独立编辑器的临时编译降帧开关。日常上限仍由 render.max_fps 保存。
+    pub limit_build_fps: bool,
     pub scene: feathrise_settings::SceneDisplaySettings,
     pub environment: feathrise_settings::EnvironmentPreviewSettings,
     pub map_editor_scrub_sensitivities: MapEditorScrubSensitivities,
@@ -370,6 +372,7 @@ impl Default for EditorSettings {
     fn default() -> Self {
         Self {
             render: Default::default(),
+            limit_build_fps: DEFAULT_LIMIT_BUILD_FPS,
             scene: Default::default(),
             environment: Default::default(),
             map_editor_scrub_sensitivities: Default::default(),

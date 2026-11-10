@@ -144,6 +144,12 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
 
     feathrise_runtime::install_vulkan_surface_guard(&mut app);
     crate::workspace::install_author(&mut app, &project)?;
+    #[cfg(windows)]
+    {
+        // Windows 编辑器用同一份 Winit 时钟管理日常和编译上限，关闭 Framepace 的刷新率上限。
+        app.insert_resource(bevy_framepace::FramepaceSettings::default().with_limiter(bevy_framepace::Limiter::Off))
+            .add_systems(First, crate::editor_frame_pacing::pace_author);
+    }
     crate::native_plugins::install(&mut app, &project, &target);
 
     // 与原入口一致，先注册原Avian绘制能力，再默认关闭碰撞线；F1可按设置重新开启。

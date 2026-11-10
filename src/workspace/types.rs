@@ -8,6 +8,8 @@ pub(super) enum AuthorEvent {
     Ready { hwnd: usize },
     /// Unix由token和实际共享帧确认呈现，不能用伪HWND混入Win32身份检查。
     ReadySurface { session: String },
+    #[cfg(windows)]
+    FramePacing(crate::editor_frame_pacing::FramePacingRequest),
     Command(WorkspaceCommand),
     CloseCancelled,
     /// 旧单位回执继续解码为工程关闭；新版显式带目标，避免迟到取消撤回另一种关闭意图。

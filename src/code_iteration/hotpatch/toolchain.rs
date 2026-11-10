@@ -387,7 +387,7 @@ fn execute(command: &Command, input: Option<Vec<u8>>, project: &Project, control
     let root = project.root.clone(); let log = control.log_sink();
     let reader = move |output| read_output(output, &root, log, diagnostics);
     let result = if let Some(input) = input { build_process::run_with_input(command, control, None, input, reader) }
-        else { build_process::run(command, control, None, reader) }?;
+        else { build_process::run_build(command, control, None, reader) }?;
     if result.exit_code != 0 { return Err(format!("dx构建失败，退出码{}；{}", result.exit_code, result.stderr)); }
     control.check()?;
     Ok(result.stdout)

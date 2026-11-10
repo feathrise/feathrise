@@ -1,6 +1,6 @@
 //! 停止编译验收的有限阶段、单飞IO槽与离开App后仍可核对的完成状态。
 
-use super::{REPORT_FILE, types::BuildWitness};
+use super::{REPORT_FILE, drag::CargoDrag, types::BuildWitness};
 use bevy::{prelude::*, tasks::Task};
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::{Arc, Mutex}, time::Instant};
@@ -31,6 +31,8 @@ pub(super) struct Plan {
     pub original_session: Option<u64>,
     pub control: Option<crate::build_process::BuildControl>,
     pub witness: Option<BuildWitness>,
+    pub cargo_drag: Option<CargoDrag>,
+    pub cargo_drag_proof: Option<Value>,
     /// 只取消本轮取证等待，不触碰生产构建控制牌；失败与提前退出不遗留长等待任务。
     pub witness_control: crate::build_process::BuildControl,
     pub build_io: Option<Task<Result<BuildWitness, String>>>,

@@ -15,6 +15,8 @@ struct Bridge {
     closing: bool,
     saw_confirmation: bool,
     candidate: bool,
+    #[cfg(windows)]
+    frame_pacing_sent: Option<crate::editor_frame_pacing::FramePacingRequest>,
 }
 
 pub(crate) fn install(app: &mut App, project: &crate::project::Project) -> Result<(), String> {
@@ -40,6 +42,8 @@ pub(crate) fn install(app: &mut App, project: &crate::project::Project) -> Resul
             closing: false,
             saw_confirmation: false,
             candidate: true,
+            #[cfg(windows)]
+            frame_pacing_sent: None,
         })
         .add_systems(Update, receive.before(crate::native_play::request_exit))
         .add_systems(Last, send);
@@ -154,6 +158,10 @@ fn send(world: &mut World, mut cursor: Local<MessageCursor<WorkspaceCommand>>) {
     let close = world.resource::<NativeProjectCloseState>();
     let confirmation = close.active();
     let close_target = close.target();
+    #[cfg(windows)]
+    let frame_pacing = world.get_resource::<feathrise_editor_core::EditorSettings>()
+        .map(|settings| crate::editor_frame_pacing::FramePacingRequest::new(
+            settings, crate::build_process::project_build_active()));
     let mut bridge = world.non_send_mut::<Bridge>();
     bridge.frames = bridge.frames.saturating_add(1);
     if let Some(error) = error {
@@ -184,6 +192,14 @@ fn send(world: &mut World, mut cursor: Local<MessageCursor<WorkspaceCommand>>) {
             }
         }
     }
+    // 开关或日常上限修改也通知父窗口。队列满时只在后续帧重试当前值，不回放旧设置。
+    #[cfg(windows)]
+    if let Some(current) = frame_pacing
+        && bridge.frame_pacing_sent != frame_pacing
+        && bridge.transport.try_send(AuthorEvent::FramePacing(current)).is_ok()
+    {
+        bridge.frame_pacing_sent = frame_pacing;
+    }
 }
 
 #[cfg(test)]
@@ -202,6 +218,8 @@ mod close_target_tests {
         world.insert_non_send(Bridge {
             transport: Transport::new(std::io::empty(), std::io::sink(), "close-target-fixture".into()).unwrap(),
             frames: 0, ready: false, closing: false, saw_confirmation: false, candidate: false,
+            #[cfg(windows)]
+            frame_pacing_sent: None,
         });
 
         request_close(&mut world, CloseTarget::Project);

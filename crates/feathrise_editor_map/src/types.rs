@@ -39,6 +39,8 @@ pub(crate) enum EditorSettingsAction {
     SetScale(u16),
     SetLocale(feathrise_editor_core::EditorLocalePreference),
     SetColorTheme(feathrise_editor_core::EditorColorTheme),
+    SetMaxFps(u32),
+    ToggleBuildFrameLimit,
     ToggleTerrainBackfaces,
     ResetLayout,
 }

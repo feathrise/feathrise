@@ -273,7 +273,7 @@ fn prepare_build(
     }
     build_process::log_build_command(&command, control);
     let read = move |output| read_artifacts_with_diagnostics(output, &manifest, &project_root, log, diagnostics, is_dx);
-    let build = if is_dx { build_process::run(&command, control, None, read) }
+    let build = if is_dx { build_process::run_build(&command, control, None, read) }
         else { build_process::run_cargo(&command, control, None, read) }?;
     if build.exit_code != 0 {
         if let Some(log) = control.log_sink() { log.task_message(&format!("构建失败，退出码{}", build.exit_code)); }

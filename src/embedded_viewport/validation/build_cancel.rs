@@ -1,5 +1,6 @@
 //! 工程3D启动编译的独立实窗验收；仅本轮独占夹具安装，旧双模式流程保持独立。
 
+mod drag;
 mod driver;
 mod evidence;
 mod fixture;

@@ -12,6 +12,8 @@ pub use locale::EditorLocalePreference;
 pub use persistence::*;
 pub use resources::*;
 pub use systems::EditorSettingsPlugin;
+
+const DEFAULT_LIMIT_BUILD_FPS: bool = true;
 pub use types::*;
 
 #[cfg(test)]

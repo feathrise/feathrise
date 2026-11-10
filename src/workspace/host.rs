@@ -50,6 +50,9 @@ pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) ->
                 primary_window: Some(Window {
                     title: "Feathrise（羽立）".into(),
                     decorations: !cfg!(target_os = "windows"), // Windows由统一自绘顶栏保留原生窗口操作。
+                    present_mode: if cfg!(windows) && !author_settings.editor.render.graphics.vsync {
+                        bevy::window::PresentMode::AutoNoVsync
+                    } else { default() },
                     resolution: bevy::window::WindowResolution::new(1270, 800),
                     resize_constraints: bevy::window::WindowResizeConstraints {
                         min_width: 720.,
@@ -82,7 +85,7 @@ pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) ->
     .add_plugins(WorkspaceUiPlugin)
     .insert_resource(ClearColor(Color::srgb_u8(30, 30, 30)))
     .insert_resource(WinitSettings {
-        focused_mode: UpdateMode::reactive(Duration::from_millis(16)),
+        focused_mode: if cfg!(windows) { UpdateMode::Continuous } else { UpdateMode::reactive(Duration::from_millis(16)) },
         unfocused_mode: UpdateMode::reactive_low_power(Duration::from_millis(32)),
     })
     .insert_non_send(Host {
@@ -105,6 +108,8 @@ pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) ->
     .add_systems(Startup, setup)
     .add_systems(Update, sync_window_title)
     .add_systems(Last, advance);
+    #[cfg(windows)]
+    app.add_systems(Last, pace_workspace.after(advance));
     let preferences_completion = author_preferences::install_host(&mut app, author_settings);
     #[cfg(feature = "validation")]
     crate::locale_validation::install(&mut app, None)?;
@@ -139,6 +144,27 @@ fn trace(stage: &str) {
 fn setup(mut commands: Commands) {
     trace("主窗口Startup，建立工作台相机");
     commands.spawn(Camera2d);
+}
+
+#[cfg(windows)]
+fn pace_workspace(
+    host: NonSend<Host>, mut pacing: Local<crate::editor_frame_pacing::EditorFramePacing>,
+    preferences: Res<feathrise_editor_core::EditorSettings>,
+    mut settings: ResMut<WinitSettings>, frame: Res<bevy::diagnostic::FrameCount>,
+    mut input: crate::editor_frame_pacing::PacingInput,
+) {
+    use crate::editor_frame_pacing::FramePacingRequest;
+
+    let author_states = [host.current.as_ref(), host.candidate.as_ref()]
+        .map(|instance| instance.and_then(|author| author.frame_pacing));
+    // 当前作者掌管个人偏好；没有当前作者时使用正在进入的候选或首页的最新偏好。
+    let mut request = author_states.into_iter().flatten().next()
+        .unwrap_or_else(|| FramePacingRequest::new(&preferences, false));
+    request.building = crate::build_process::project_build_active()
+        || author_states.into_iter().flatten().any(|state| state.building);
+    if let Some(next) = pacing.transition(request, input.interacted(request.limiting_build()), &settings, frame.0, "workspace", Instant::now()) {
+        *settings = next;
+    }
 }
 
 pub(super) fn advance(
@@ -185,14 +211,22 @@ pub(super) fn advance(
 
     let mut events = Vec::new();
     for (candidate, instance) in [
-        (false, host.current.as_ref()),
-        (true, host.candidate.as_ref()),
+        (false, host.current.as_mut()),
+        (true, host.candidate.as_mut()),
     ] {
         if let Some(instance) = instance {
             for _ in 0..4 {
                 match instance.transport.try_recv() {
+                    #[cfg(windows)]
+                    Ok(Some(AuthorEvent::FramePacing(state))) => instance.frame_pacing = Some(state),
                     Ok(Some(event)) => events.push((candidate, instance.child.id(), event)),
-                    Ok(None) | Err(_) => break, // 进程退出与超时由下方精确句柄统一判定，不把EOF提前当作完成。
+                    Ok(None) => break,
+                    Err(_) => {
+                        // 通道中断时解除父窗口降帧，进程退出仍由下方精确句柄判定。
+                        #[cfg(windows)]
+                        { instance.frame_pacing = None; }
+                        break;
+                    }
                 }
             }
         }
