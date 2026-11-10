@@ -6,6 +6,7 @@ use bevy::{ecs::system::SystemParam, gltf::Gltf, prelude::*, window::PrimaryWind
 
 use super::{
     super::{AssetPreviewWorkspace, DocumentState, types::*},
+    resources::{RiggingState, Session},
     types::*,
 };
 use crate::{
@@ -15,6 +16,69 @@ use crate::{
         vegetation_preset_editor::VegetationPresetEditorState,
     },
 };
+
+#[derive(SystemParam)]
+struct ReferenceContext<'w> {
+    media: Option<Res<'w, AssetPreviewWorkspace>>,
+    preview: Option<Res<'w, AssetPreviewState>>,
+    documents: Option<Res<'w, DocumentState>>,
+    workspace: Option<Res<'w, VegetationPresetEditorState>>,
+}
+
+impl ReferenceContext<'_> {
+    fn matches(&self, session: &Session) -> bool {
+        let (Some(media), Some(preview), Some(documents), Some(workspace)) = (
+            self.media.as_deref(), self.preview.as_deref(), self.documents.as_deref(), self.workspace.as_deref(),
+        ) else { return false };
+        let source = &session.source;
+        session.reference_mode()
+            && media.active(workspace.active_tab)
+            && media.expanded.as_ref().is_some_and(|tab| tab.path == source.path)
+            && documents.asset_root() == source.root.as_path()
+            && preview.selected_path.as_deref() == Some(source.path.as_str())
+            && matches!(preview.content, AssetPreviewContent::Model { phase: AssetPreviewPhase::Ready, .. })
+            && preview.model.as_ref().is_some_and(|model| {
+                model.generation == source.generation && model.target == AssetPreviewModelTarget::Scene0
+            })
+    }
+}
+
+/// 左侧文件行进入绑骨选引用时，普通资产选择仍指向当前工作对象。
+#[derive(SystemParam)]
+pub(crate) struct RigReferenceInput<'w> {
+    state: Option<ResMut<'w, RiggingState>>,
+    context: ReferenceContext<'w>,
+}
+
+impl RigReferenceInput<'_> {
+    pub(crate) fn select(&mut self, path: &str) -> bool {
+        let Some(state) = self.state.as_deref_mut().filter(|state| state.panel_open) else { return false };
+        let busy = state.work.is_some();
+        let marker_drag = state.owns_mouse();
+        let Some(session) = state.session.as_mut().filter(|session| self.context.matches(session)) else {
+            return false;
+        };
+        // 检测期间只暂存点击。生成期间冻结引用，继续吞掉双击，避免打开文件中断绑定。
+        if !marker_drag && (!busy || matches!(session.notice, Notice::Inspecting)) {
+            session.choose_reference(path);
+        }
+        true
+    }
+}
+
+#[derive(SystemParam)]
+pub(crate) struct RigReferenceRows<'w> {
+    state: Option<Res<'w, RiggingState>>,
+    context: ReferenceContext<'w>,
+}
+
+impl RigReferenceRows<'_> {
+    pub(crate) fn selected<'a>(&'a self, ordinary: Option<&'a str>) -> Option<&'a str> {
+        let session = self.state.as_deref().filter(|state| state.panel_open)
+            .and_then(|state| state.session.as_ref()).filter(|session| self.context.matches(session));
+        session.map_or(ordinary, |session| session.reference_path.as_deref())
+    }
+}
 
 #[derive(Clone, Copy)]
 pub(super) struct Candidate<'a> {
@@ -68,6 +132,33 @@ impl Context<'_, '_> {
         self.media.active(self.workspace.active_tab)
     }
 
+    pub(super) fn active_tab_id(&self) -> Option<u64> {
+        self.media.expanded.as_ref().filter(|_| self.central()).map(|tab| tab.id)
+    }
+
+    pub(super) fn rigging_sidebar_shown(&self) -> bool {
+        self.sidebar.right == EditorRightSidebarTab::Rigging
+            && self.inspector_shown()
+    }
+
+    pub(super) fn owns_properties(&self) -> bool {
+        super::super::gltf_tree::owns_properties(
+            &self.media,
+            self.workspace.active_tab,
+            self.editor.selected_asset.as_deref(),
+        )
+    }
+
+    pub(super) fn motion_properties_shown(&self) -> bool {
+        self.sidebar.right == EditorRightSidebarTab::Assets
+            && self.inspector_shown()
+            && self.owns_properties()
+    }
+
+    pub(super) fn inspector_shown(&self) -> bool {
+        self.layout.as_ref().is_none_or(|layout| layout.inspector_shown())
+    }
+
     pub(super) fn candidate(&self) -> Option<Candidate<'_>> {
         let path = self.preview.selected_path.as_deref()?;
         let root = self.documents.asset_root();
@@ -98,10 +189,7 @@ impl Context<'_, '_> {
                 .is_some_and(|tab| tab.path == path)
         } else {
             self.sidebar.right == EditorRightSidebarTab::Assets
-                && self
-                    .layout
-                    .as_ref()
-                    .is_none_or(|layout| layout.inspector_shown())
+                && self.inspector_shown()
                 && self.editor.selected_asset.as_deref() == Some(path)
         };
         if !visible {

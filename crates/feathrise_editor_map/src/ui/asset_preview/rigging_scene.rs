@@ -1,6 +1,6 @@
 //! 模型画布共用一套固定关节点与资产选择行，动画数量不改变 UI 实体数。
 
-use bevy::{prelude::*, text::FontSourceTemplate, ui::{FocusPolicy, Val2}};
+use bevy::{prelude::*, text::FontSourceTemplate, ui::{FocusPolicy, RelativeCursorPosition, Val2}};
 use feathrise_editor_ui::{
     ButtonColors,
     InteractionButton,
@@ -10,9 +10,10 @@ use feathrise_editor_ui::{
 
 use super::types::*;
 use crate::ui::{scene::FONT_PATH, theme as colors};
+use crate::ui::sidebars::{EditorRightSidebarTab, EditorSidebarTab, MapEditorSidebarPage};
 
 fn button(action: RigAction) -> impl Scene {
-    let colors = if matches!(action, RigAction::Bind | RigAction::Preview) {
+    let colors = if matches!(action, RigAction::Bind | RigAction::Preview | RigAction::ChooseProjectMotion) {
         ButtonColors::new(colors::SELECT_BG, colors::SELECT_BG_HOVER, colors::SELECT_BG_PRESSED)
     } else {
         ButtonColors::new(colors::BUTTON_DEV_SMALL_NORMAL, colors::BUTTON_DEV_SMALL_HOVERED, colors::BUTTON_DEV_SMALL_PRESSED)
@@ -89,7 +90,36 @@ pub(in crate::ui::asset_preview) fn launch() -> impl Scene {
     }
 }
 
-pub(in crate::ui::asset_preview) fn panel() -> impl Scene {
+#[derive(Component, Clone, Copy, Default)]
+pub(super) struct RigToolHost;
+
+#[derive(Component, Clone, Copy, Default)]
+pub(super) struct RigMotionHost;
+
+pub(in crate::ui::asset_preview) fn motion_properties_host() -> impl Scene {
+    bsn! {
+        RigMotionHost
+        Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0,
+            flex_direction: FlexDirection::Column }
+    }
+}
+
+pub(crate) fn sidebar_page() -> impl Scene {
+    bsn! {
+        RigToolHost
+        MapEditorSidebarPage(EditorSidebarTab::Right(EditorRightSidebarTab::Rigging))
+        crate::components::MapEditorRightPanelScroll
+        RelativeCursorPosition::default() ScrollPosition::default()
+        Node {
+            display: Display::None, width: percent(100), min_width: px(0), min_height: px(0),
+            flex_grow: 1.0, flex_basis: px(0), flex_direction: FlexDirection::Column,
+            overflow: Overflow::scroll_y(),
+        }
+        Children [@panel()]
+    }
+}
+
+fn panel() -> impl Scene {
     bsn! {
         RigPanel
         Node {
@@ -108,7 +138,10 @@ pub(in crate::ui::asset_preview) fn panel() -> impl Scene {
             }
             Children [
                 Node { flex_grow: 1.0, min_width: px(0) }
-                Children [@button_text("人形绑骨与动作", "rig.title")]
+                Children [@label(RigText::Title, colors::TEXT_PRIMARY, true)]
+                --
+                @button(RigAction::SwitchBackend)
+                Children [@label(RigText::Backend, colors::TEXT_PRIMARY, true)]
                 --
                 @fixed_button(RigAction::Retry, "重新检查", "rig.retry")--
                 @button(RigAction::Close)
@@ -117,9 +150,13 @@ pub(in crate::ui::asset_preview) fn panel() -> impl Scene {
             --
             @label(RigText::Notice, colors::TEXT_VALUE, false)--
             @label(RigText::Warning, colors::TEXT_HINT, false)--
+            @fixed_button(RigAction::ChooseProjectMotion, "选择工程动作", "rig.motion.choose_project")--
             RigMarkerTools
             Node { display: Display::None, width: percent(100), flex_direction: FlexDirection::Column }
-            Children [@label(RigText::SelectedMarker, colors::TEXT_MUTED, false)]
+            Children [
+                @label(RigText::SelectedMarker, colors::TEXT_MUTED, false)--
+                @label(RigText::Reference, colors::TEXT_VALUE, false)
+            ]
             --
             @choice_button(RigAction::PickFile, RigText::File)--
             @choice_button(RigAction::PickClip, RigText::Clip)--
@@ -144,6 +181,9 @@ pub(in crate::ui::asset_preview) fn panel() -> impl Scene {
             --
             Node { column_gap: px(5), row_gap: px(3), flex_wrap: FlexWrap::Wrap }
             Children [
+                @button(RigAction::ToggleMirror)
+                Children [@label(RigText::Mirror, colors::TEXT_PRIMARY, true)]
+                --
                 @fixed_button(RigAction::ResetMarks, "恢复关节点", "rig.reset_marks")--
                 @fixed_button(RigAction::Bind, "生成已绑骨 GLB", "rig.bind")--
                 @fixed_button(RigAction::Preview, "预览所选动作", "rig.preview")

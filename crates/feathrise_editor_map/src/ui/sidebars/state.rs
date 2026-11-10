@@ -71,6 +71,7 @@ pub enum EditorRightSidebarTab {
     Assets,      // 所选文件属性与唯一预览；界面统一显示在“属性”页签下。
     Map,         // 所选目录地图的只读属性，编辑继续使用原正式事务。
     Environment, // 顶部环境模块的工具正文；天空作者参数与天气调试独立，气候只读。
+    Rigging,     // 当前模型的绑骨与外部动作，占用既有动态工具槽。
 }
 
 /// 一个静态页签按钮或页面容器的完整左右身份。
@@ -134,6 +135,7 @@ pub struct MapEditorSidebarState {
     pub navigator: EditorNavigatorTab, // 左侧导航与工具选择互不抢页。
     pub left: EditorLeftSidebarTab,   // 顶部选中的工具模块，切属性时仍记忆。
     pub right: EditorRightSidebarTab, // 当前唯一可见右栏页。
+    pub(crate) rigging_available: bool, // 中央活动绑骨或已蒙皮模型覆盖动态工具槽。
     pub inspector: EditorInspectorTarget, // 切换工具后返回属性，恢复最后一次显式检查来源。
     pub observed_tool: EditorTool,    // 仅工具真正变化时执行一次自动定位。
     /// 新建/编辑地图弹框打开前的左栏页；关闭弹框时恢复，避免模态期间误切到地形。
@@ -147,6 +149,7 @@ impl Default for MapEditorSidebarState {
             navigator: EditorNavigatorTab::Maps, // 首次打开从地图目录开始。
             left: EditorLeftSidebarTab::Meshes,   // 打开工具页时有明确的创建入口。
             right: EditorRightSidebarTab::Scene, // 首次打开显示所选属性或空选择提示。
+            rigging_available: false,
             inspector: EditorInspectorTarget::Scene,
             observed_tool: EditorTool::Inspect,  // 默认查看工具不把首次左页自动改成地形。
             tab_before_new_map_dialog: None,     // 无弹框时不保留恢复目标。
@@ -161,9 +164,23 @@ impl MapEditorSidebarState {
         match tab {
             EditorSidebarTab::Navigator(navigator) => self.navigator == navigator,
             EditorSidebarTab::Left(left) => self.left == left, // 返回属性或资产后仍记忆上一次工具模块。
-            EditorSidebarTab::Right(EditorRightSidebarTab::Tools) => matches!(self.right, EditorRightSidebarTab::Tools | EditorRightSidebarTab::Environment),
+            EditorSidebarTab::Right(EditorRightSidebarTab::Tools) => {
+                if self.rigging_available {
+                    self.right == EditorRightSidebarTab::Rigging
+                } else {
+                    matches!(self.right, EditorRightSidebarTab::Tools | EditorRightSidebarTab::Environment)
+                }
+            }
             EditorSidebarTab::Right(EditorRightSidebarTab::Scene) => matches!(self.right, EditorRightSidebarTab::Scene | EditorRightSidebarTab::Assets | EditorRightSidebarTab::Map),
             EditorSidebarTab::Right(right) => self.right == right,
+        }
+    }
+
+    pub(crate) fn dynamic_tool_page(&self) -> EditorRightSidebarTab {
+        if self.rigging_available {
+            EditorRightSidebarTab::Rigging
+        } else {
+            self.left.work_page()
         }
     }
 

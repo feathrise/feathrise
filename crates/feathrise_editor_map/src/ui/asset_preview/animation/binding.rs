@@ -205,9 +205,10 @@ fn drive(
     let desired = editor
         .visible()
         .then(|| {
+            let source = editor.source()?;
             let session = editor.current()?;
             session.model_path.as_ref().map(|model| BindingIdentity {
-                    source: editor.active.clone().unwrap(),
+                    source: source.to_owned(),
                     revision: editor.source_revision,
                     request: editor.model_binding_revision,
                     model: model.clone(),

@@ -70,10 +70,7 @@ pub(super) fn input(
         .sum();
     let available = state.visible()
         && context.available(&preview, &media)
-        && preview
-            .selected_path
-            .as_ref()
-            .is_some_and(|p| state.source() == Some(documents.asset_root().join(p).as_path()));
+        && context.source_matches(&state, &preview, &media, documents.asset_root());
     let pressed = |key| keyboard.as_ref().is_some_and(|keys| keys.pressed(key));
     let just = |key| keyboard.as_ref().is_some_and(|keys| keys.just_pressed(key));
     let ctrl = pressed(KeyCode::ControlLeft) || pressed(KeyCode::ControlRight);
@@ -299,7 +296,7 @@ pub(super) fn input(
     state.mouse_owned = true;
     state.gesture = Some(TimelineGesture {
         entity,
-        source: state.active.clone().unwrap(),
+        source: state.source().expect("已核对时间轴来源").to_owned(),
         binding: state.revision,
         cursor: at,
         time,

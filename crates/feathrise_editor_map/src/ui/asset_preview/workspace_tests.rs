@@ -491,10 +491,18 @@ fn asset_multiple_media_tabs_keep_views_and_close_only_the_requested_file() {
     app.world_mut()
         .resource_mut::<AssetPreviewWorkspace>()
         .restore_view = false;
-    app.world_mut()
-        .resource_mut::<AssetPreviewNavigation>()
-        .view
-        .zoom = 2.5;
+    let first_snap = feathrise_editor_core::EditorSnapSettings {
+        enabled: true,
+        show_grid: true,
+        mode: feathrise_editor_core::EditorSnapMode::Relative,
+        translation_meters: 0.025,
+        ..default()
+    };
+    {
+        let mut navigation = app.world_mut().resource_mut::<AssetPreviewNavigation>();
+        navigation.view.zoom = 2.5;
+        navigation.view.snapping = first_snap;
+    }
     app.world_mut()
         .resource_mut::<MapEditorState>()
         .selected_asset = Some("textures/second.png".into());
@@ -506,6 +514,11 @@ fn asset_multiple_media_tabs_keep_views_and_close_only_the_requested_file() {
         .as_ref()
         .unwrap()
         .id;
+    let new_tab_snap = super::super::view_math::AssetPreviewView::default().snapping;
+    assert_eq!(
+        app.world().resource::<AssetPreviewWorkspace>().expanded.as_ref().unwrap().view.snapping,
+        new_tab_snap
+    ); // 新标签不能继承上一文件的吸附和参考网格。
     assert_eq!(
         app.world().resource::<AssetPreviewWorkspace>().parked[0]
             .view
@@ -523,6 +536,10 @@ fn asset_multiple_media_tabs_keep_views_and_close_only_the_requested_file() {
         .view
         .zoom = 4.0;
     app.world_mut()
+        .resource_mut::<AssetPreviewNavigation>()
+        .view
+        .snapping = new_tab_snap;
+    app.world_mut()
         .resource_mut::<VegetationPresetEditorState>()
         .active_tab = PresetWorkspaceTab::Document;
     app.world_mut().run_system_once(sync_activity).unwrap();
@@ -532,17 +549,20 @@ fn asset_multiple_media_tabs_keep_views_and_close_only_the_requested_file() {
         assert_eq!(media.tabs().count(), 2);
         assert_eq!(media.expanded.as_ref().unwrap().id, first);
         assert_eq!(media.expanded.as_ref().unwrap().view.zoom, 2.5);
+        assert_eq!(media.expanded.as_ref().unwrap().view.snapping, first_snap);
         assert_eq!(
             media.expanded.as_ref().unwrap().return_tab,
             PresetWorkspaceTab::Document,
             "从文档页激活旧媒体标签应返回本次来源，不能沿用首次打开时的来源"
         );
         assert_eq!(media.parked[0].view.zoom, 4.0);
+        assert_eq!(media.parked[0].view.snapping, new_tab_snap);
     }
     app.world_mut()
         .resource_mut::<AssetPreviewState>()
         .selected_path = Some("textures/preview.png".into());
     app.world_mut().run_system_once(restore_navigation).unwrap();
+    assert_eq!(app.world().resource::<AssetPreviewNavigation>().snapping(), first_snap);
     assert_eq!(
         app.world().resource::<AssetPreviewNavigation>().view.zoom,
         2.5

@@ -125,6 +125,7 @@ pub(crate) fn handle_asset_row_clicks(
     mut opens: Option<ResMut<Messages<crate::ui::asset_preview::OpenAssetPreview>>>,
     mut visits: Option<ResMut<Messages<crate::ui::asset_shortcuts::AssetVisited>>>,
     hosted: Option<Res<crate::workbench::WorkbenchModel>>,
+    mut reference: crate::ui::asset_preview::rigging::RigReferenceInput,
 ) {
     if numeric_scrub_mouse.blocked() || !editor.open || editor.close_requested
         || hosted.as_ref().is_some_and(|model| !model.visible || model.modal || model.busy || model.asset_root.is_none())
@@ -157,6 +158,13 @@ pub(crate) fn handle_asset_row_clicks(
             catalog.page = 0;
             catalog.requested_revision = catalog.requested_revision.wrapping_add(1);
             editor.status = format!("正在打开 assets/{}", catalog.current_folder);
+            continue;
+        }
+        if editor.pending_map_transition.is_none() && !editor.new_map_dialog_open
+            && reference.select(&entry.asset_path)
+        {
+            // 参考行沿用导航和高亮，保持右栏及中央模型，双击也不派发打开动作。
+            catalog.last_click = None;
             continue;
         }
         editor.selected_asset = Some(entry.asset_path.clone());

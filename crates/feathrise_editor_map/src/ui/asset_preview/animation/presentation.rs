@@ -18,7 +18,7 @@ fn ratio(time: f32, duration: f32) -> f32 {
     }
 }
 
-fn button_label(action: AnimationAction, view: &AnimationView) -> String {
+fn button_label(action: AnimationAction, view: &AnimationView, in_place: bool) -> String {
     match action {
         AnimationAction::FitTimeline => "适配".into(),
         AnimationAction::ZoomIn => "＋".into(),
@@ -42,6 +42,7 @@ fn button_label(action: AnimationAction, view: &AnimationView) -> String {
         .into(),
         AnimationAction::ResetPose => "还原姿势".into(),
         AnimationAction::BindSelectedModel => "绑定所选模型".into(),
+        AnimationAction::UnbindModel if in_place => "结束动作预览".into(),
         AnimationAction::UnbindModel => "仅骨架".into(),
         AnimationAction::CopyKeys => "复制".into(),
         AnimationAction::PasteKeys => "粘贴".into(),
@@ -140,6 +141,7 @@ fn background(interaction: &UiInteraction, enabled: bool, selected: bool) -> Bac
 pub(super) fn sync(
     mut commands: Commands,
     state: Res<AnimationEditorState>,
+    dock: super::docking::Context,
     mut nodes: ParamSet<(
         Query<
             (
@@ -149,7 +151,9 @@ pub(super) fn sync(
                 Option<&AnimationRow>,
                 Option<&AnimationPlayhead>,
                 Option<&AnimationNumericSlot>,
+                Option<&AnimationRulerTick>,
                 Option<&AssetPreviewSubAssetPanel>,
+                Has<AnimationWriteControls>,
             ),
             Or<(
                 With<AnimationPanel>,
@@ -157,7 +161,9 @@ pub(super) fn sync(
                 With<AnimationRow>,
                 With<AnimationPlayhead>,
                 With<AnimationNumericSlot>,
+                With<AnimationRulerTick>,
                 With<AssetPreviewSubAssetPanel>,
+                With<AnimationWriteControls>,
             )>,
         >,
         Query<(
@@ -201,7 +207,9 @@ pub(super) fn sync(
             Without<AnimationRow>,
             Without<AnimationPlayhead>,
             Without<AnimationNumericSlot>,
+            Without<AnimationRulerTick>,
             Without<AssetPreviewSubAssetPanel>,
+            Without<AnimationWriteControls>,
             Without<AnimationKeyButton>,
         ),
     >,
@@ -219,18 +227,28 @@ pub(super) fn sync(
 ) {
     let view = state.view();
     let mut capacities = [KEY_SLOTS; CHANNEL_SLOTS];
+    let mut ruler_width = 0.0;
     for (track, node) in &tracks {
         if let Some(row) = track.row
             && node.size().x > 0.0
         {
             capacities[row] =
                 ((node.size().x * node.inverse_scale_factor() / 14.0) as usize).clamp(1, KEY_SLOTS);
+        } else if track.row.is_none() {
+            ruler_width = node.size().x * node.inverse_scale_factor();
         }
     }
+    let expanded_glb = dock.central_glb().is_some();
+    let in_place = state.in_place_rig_preview();
     let ready = view.visible && !view.busy && view.clip_count > 0;
-    for (mut node, panel, toolbar, row, playhead, numeric, subassets) in &mut nodes.p0() {
-        if panel.is_some() || toolbar.is_some() {
-            let display = if view.visible {
+    for (mut node, panel, toolbar, row, playhead, numeric, tick, subassets, write) in &mut nodes.p0() {
+        if panel.is_some() || toolbar.is_some() || write {
+            let shown = if write {
+                !in_place
+            } else {
+                view.visible && (panel.is_some() || !in_place)
+            };
+            let display = if shown {
                 Display::Flex
             } else {
                 Display::None
@@ -262,8 +280,21 @@ pub(super) fn sync(
             if node.display != display {
                 node.display = display;
             }
-        } else if subassets.is_some() && view.visible && node.display != Display::None {
-            // 动作表已提供完整通道入口；中央保留实际骨架画布，不再重复堆叠静态primitive目录。
+        } else if let Some(tick) = tick {
+            // 末帧文字收在尺内，需要给前一个刻度留出两倍标签宽度。
+            let show = !expanded_glb || ruler_width >= RULER_TICK_WIDTH * 8.0
+                || tick.0 == 0 || tick.0 == 8
+                || (ruler_width >= RULER_TICK_WIDTH * 4.0 && tick.0 == 4);
+            let display = if show { Display::Flex } else { Display::None };
+            if node.display != display {
+                node.display = display;
+            }
+        } else if subassets.is_some()
+            && !expanded_glb
+            && view.visible
+            && node.display != Display::None
+        {
+            // 中央 GLB 的子资产在左树，其他动画预览仍沿用原紧凑布局。
             node.display = Display::None;
         }
     }
@@ -331,7 +362,8 @@ pub(super) fn sync(
             }
             marker.binding = view.binding;
         }
-        let enabled = enabled(marker.action, &view);
+        let enabled = (in_place && marker.action == AnimationAction::UnbindModel)
+            || enabled(marker.action, &view);
         set_disabled(&mut commands, entity, enabled, disabled);
         let selected = (marker.action == AnimationAction::TogglePlayback && view.playing)
             || (marker.action == AnimationAction::ToggleLoop && view.looping)
@@ -442,7 +474,7 @@ pub(super) fn sync(
                 "{:.0}",
                 (view.start + view.span * index as f32 / 8.0) * view.fps as f32
             ),
-            AnimationLabel::Button(action) => button_label(action, &view),
+            AnimationLabel::Button(action) => button_label(action, &view, in_place),
         };
         if text.as_str() != value {
             **text = value;

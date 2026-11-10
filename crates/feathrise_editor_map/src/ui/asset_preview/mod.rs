@@ -25,8 +25,13 @@ pub(crate) mod compatible_texture; // UI与缩略图PBR共用的二维采样契�
 mod messages;
 mod opening; // 列表和缩略图双击都按路径打开/激活多文件标签。
 pub(crate) mod documents; // 文本、源码、配置与Markdown连续排版，共用整篇草稿和显式受检保存。
+pub(crate) mod gltf_tree; // 中央 GLB 标签的左栏结构，数据只读并在后台解析。
 mod model; // 模型专层隔离、固定预算包围盒扫描和自适应取景。
 mod navigation; // 画布内开始的鼠标手势及图片/模型增量视图应用。
+mod orientation; // 地图方向球的资产预览宿主与独立相机输入。
+mod preview_environment; // 中央 GLB 独立天空和网格的相机附件。
+mod preview_shading; // 与地图共用着色控件，独立维护模型相机状态。
+mod view_toolbar; // 中央模型沿用地图视图按钮与网格吸附入口。
 mod presentation; // 仅按预览状态变更原位更新固定UI节点。
 pub(crate) mod resources; // 独立导航状态不触发资产重新加载或扫描。
 mod scene; // 固定标题、画布、占位与状态文本。
@@ -48,6 +53,8 @@ pub(crate) use animation::AnimationEditorState;
 pub(crate) use types::{AssetPreviewFileKind, preview_file_kind};
 pub(crate) use tab_menu::{AssetTabMenuState, AssetTabMenuInputSet};
 pub(crate) use messages::OpenAssetPreview;
+#[cfg(feature = "validation")]
+pub(crate) use gltf_tree::validation_rows as gltf_tree_validation;
 pub(crate) use model::include_transformed_aabb; // 缩略图复用同一世界包围盒计算。
 pub(crate) use view_math::frame_thumbnail_camera; // 静态截图复用完整取景，不暴露交互会话。
 pub(crate) use scene::asset_preview_panel; // 右侧资产页只依赖一个稳定Scene入口。
@@ -85,8 +92,13 @@ pub(crate) fn install(app: &mut App) {
     animation::install(app);
     rigging::install(app);
     documents::install(app);
+    gltf_tree::install(app);
+    preview_environment::install(app);
+    preview_shading::install(app);
+    view_toolbar::install(app);
     tab_menu::install(app);
     sidebar::install(app);
+    sidebar::install_details(app);
     app.init_resource::<types::AssetPreviewState>()
         .init_resource::<crate::game_authoring::ExternalAssetPreviewRequest>()
         .add_message::<OpenAssetPreview>()
@@ -94,6 +106,8 @@ pub(crate) fn install(app: &mut App) {
         .init_resource::<AssetPreviewNavigation>() // 固定一份当前资产的临时导航状态。
         .init_resource::<AssetPreviewWorkspace>()
         .init_resource::<Clipboard>() // 右键菜单未安装的测试/最小应用也具备同一剪贴板资源契约。
+        .add_systems(Update, orientation::setup.in_set(MapEditorSystemSet::Tasks))
+        .add_systems(Update, orientation::sync.in_set(MapEditorSystemSet::Presentation))
         .add_systems(Update, opening::open
             .after(crate::asset_catalog::handle_asset_row_clicks)
             .in_set(MapEditorSystemSet::Input))

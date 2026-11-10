@@ -9,6 +9,7 @@ use crate::{
     ui::{sidebars::*, vegetation_preset_editor::VegetationPresetEditorState},
 };
 use bevy::{ecs::system::SystemParam, prelude::*, window::PrimaryWindow};
+use std::path::Path;
 
 #[derive(SystemParam)]
 pub(super) struct AnimationContext<'w, 's> {
@@ -36,6 +37,21 @@ pub(super) struct AnimationContext<'w, 's> {
 }
 
 impl AnimationContext<'_, '_> {
+    pub(super) fn source_matches(
+        &self,
+        editor: &super::resources::AnimationEditorState,
+        preview: &AssetPreviewState,
+        media: &AssetPreviewWorkspace,
+        asset_root: &Path,
+    ) -> bool {
+        if let Some(request) = &editor.rig_preview {
+            return request.request.matches(preview, media, self.workspace.active_tab, asset_root);
+        }
+        preview.selected_path.as_ref().is_some_and(|path| {
+            editor.source() == Some(asset_root.join(path).as_path())
+        })
+    }
+
     /// 普通文字焦点也独占快捷键；IME保护只表示组合态，不能替代此检查或禁止鼠标切焦。
     pub(super) fn text_input_focused(&self) -> bool {
         self.focus

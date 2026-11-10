@@ -101,7 +101,7 @@ pub(super) fn observe_asset_preview_world_ready(
         let mut replacement = AssetPreviewModelSession::new(generation, gltf); // 重建候选、页码和目标。
         replacement.scene_ready = true; // 当前通知已经证明新Scene0实体完整生成。
         state.model = Some(replacement); // 热更安全回到用户确认的默认Scene0。
-        *navigation = AssetPreviewNavigation::default(); // 新几何重新自动居中。
+        navigation.reset_for_model_target(); // 同一文件的新几何重新居中，参考网格偏好保留。
     } else if let Some(model) = state.model.as_mut() {
         model.scene_ready = true; // 首次成功门只发布当前根可扫描身份。
         model.scene_bounds = None; // 防御旧缓存意外残留。

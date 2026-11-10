@@ -425,15 +425,15 @@ pub(super) fn restore_navigation(
                 ) {
                     state.status = error;
                     entry.target = AssetPreviewModelTarget::Scene0;
-                    entry.view = default();
+                    entry.view.reset_camera();
                 }
             } else if end == model.catalog.choices.len() {
                 entry.target = AssetPreviewModelTarget::Scene0;
-                entry.view = default(); // 源文件删掉旧目标后采用新Scene0，不能把旧单体视角应用到新几何。
+                entry.view.reset_camera(); // 源文件删掉旧目标后重新取景，保留当前标签的参考网格偏好。
             }
         } else if model.catalog.phase == AssetPreviewCatalogPhase::Failed {
             entry.target = AssetPreviewModelTarget::Scene0;
-            entry.view = default();
+            entry.view.reset_camera();
         }
         return;
     }
@@ -457,6 +457,7 @@ pub(super) fn sync_presentation(
     media: Res<AssetPreviewWorkspace>,
     state: Res<AssetPreviewState>,
     editor: Res<MapEditorState>,
+    sidebars: (Option<Res<MapEditorSidebarState>>, Option<Res<MapEditorLayoutState>>),
     server: Res<AssetServer>,
     locale: Option<Res<EditorLocale>>,
     drafts: (
@@ -491,10 +492,13 @@ pub(super) fn sync_presentation(
     >,
     mut painted: Local<Option<Vec<(u64, String, bool, bool)>>>,
 ) {
+    let (sidebar, layout) = sidebars;
     let locale_changed = locale.as_ref().is_some_and(|locale| locale.is_changed());
     if !media.is_changed()
         && !state.is_changed()
         && !editor.is_changed()
+        && !sidebar.as_ref().is_some_and(|state| state.is_changed())
+        && !layout.as_ref().is_some_and(|state| state.is_changed())
         && !locale_changed
         && added.is_empty()
         && !drafts.0.as_ref().is_some_and(|state| state.is_changed())
@@ -503,6 +507,13 @@ pub(super) fn sync_presentation(
     } // 稳定帧不复制路径或遍历入口。
     let file_media =
         state.selected_path.as_deref().is_some_and(media_path) && state.external_preview.is_none();
+    let actions_in_tree = media.central_active
+        && sidebar.as_ref().is_some_and(|state| state.scene_tree_visible())
+        && layout.as_ref().is_none_or(|layout| layout.content_shown())
+        && media.expanded.as_ref().is_some_and(|entry| {
+            super::gltf_tree::is_glb(&entry.path)
+                && editor.selected_asset.as_deref() == Some(entry.path.as_str())
+        });
     for (mut node, launch, _, document) in &mut nodes {
         let shown = if document.is_some() {
             media.expanded.is_some()
@@ -511,7 +522,7 @@ pub(super) fn sync_presentation(
                     .as_deref()
                     .is_some_and(|path| crate::asset_catalog::document_format(path).is_some())
         } else if launch.is_some() {
-            media.expanded.is_some()
+            media.expanded.is_some() && !actions_in_tree // 当前 GLB 的返回入口在左树，其他文件仍能显式打开。
         } else {
             file_media
         };

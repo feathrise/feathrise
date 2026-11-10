@@ -4,7 +4,8 @@ use bevy::{camera::Projection, prelude::*, ui::RelativeCursorPosition};
 use feathrise_editor_ui::UiInteraction;
 
 use super::{
-    super::types::{AssetPreviewCamera, AssetPreviewCanvas},
+    super::{AssetPreviewNavigation, types::{AssetPreviewCamera, AssetPreviewCanvas}},
+    backend::Landmarks,
     context::Context,
     resources::RiggingState,
     types::*,
@@ -21,16 +22,40 @@ fn plane_point(camera: MoveCamera, cursor: Vec2, anchor: Vec3, normal: Dir3) -> 
     position.is_finite().then_some(position)
 }
 
+fn opposite(index: usize) -> Option<usize> {
+    // 两侧七组点按同一顺序登记，头、颈、骨盆没有镜像配对。
+    match index {
+        3..=9 => Some(index + 7),
+        10..=16 => Some(index - 7),
+        _ => None,
+    }
+}
+
+fn edit_markers(points: &mut Landmarks, drag: &LandmarkDrag, wanted: Vec3) {
+    if let Some(point) = points.get_mut(LANDMARKS[drag.index].0) {
+        *point = wanted.to_array();
+    }
+    if let Some(mirror) = &drag.mirror
+        && let Some(point) = points.get_mut(LANDMARKS[mirror.index].0)
+    {
+        // 单击、回到起点和取消都保留原估计，真实位移才按冻结的人体中线镜像。
+        *point = if wanted == drag.before { mirror.before } else { mirror.frame.reflect(wanted) }.to_array();
+    }
+}
+
 pub(super) fn input(
     context: Context,
     mut state: ResMut<RiggingState>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut keys: Option<ResMut<ButtonInput<KeyCode>>>,
+    navigation: Res<AssetPreviewNavigation>,
     canvas: Query<
         (&ComputedNode, &RelativeCursorPosition, &UiInteraction),
         With<AssetPreviewCanvas>,
     >,
     camera: Query<(&Projection, &GlobalTransform), With<AssetPreviewCamera>>,
+    axes: Query<(&Node, &RelativeCursorPosition), With<super::super::orientation::PreviewAxisRoot>>,
+    shading: super::super::preview_shading::Pointer,
 ) {
     if state.mouse_owned {
         state.mouse_owned = false;
@@ -62,19 +87,23 @@ pub(super) fn input(
         else {
             return;
         };
-        let key = LANDMARKS[drag.index].0;
         if escape || !enabled || canvas.is_none_or(|(node, _, _)| node.size() != drag.camera.size) {
-            if let Some(point) = draft.points.get_mut(key) {
-                *point = drag.before.to_array();
-            }
+            edit_markers(&mut draft.points, &drag, drag.before);
             return;
         }
         if let Some((_, cursor, _)) = canvas
             && let Some(cursor) = cursor.normalized
             && let Some(position) = plane_point(drag.camera, cursor, drag.before, drag.normal)
-            && let Some(point) = draft.points.get_mut(key)
         {
-            let mut wanted = drag.before + position - drag.start;
+            let mut wanted = drag.before + (position - drag.start);
+            if let Some((snap, horizontal, vertical)) = drag.snap && wanted != drag.before {
+                // 只吸附冻结视平面的两轴，保持关节深度。镜像在吸附之后一起更新。
+                let u = wanted.dot(horizontal);
+                let v = wanted.dot(vertical);
+                if let (Some(snapped_u), Some(snapped_v)) = (snap.axis(u, 0), snap.axis(v, 1)) {
+                    wanted += horizontal * (snapped_u - u) + vertical * (snapped_v - v);
+                }
+            }
             if let Some(bounds) = context.preview.model_bounds {
                 let padding = ((bounds.maximum - bounds.minimum).max_element() * 0.15).max(0.001);
                 wanted = wanted.clamp(
@@ -82,7 +111,7 @@ pub(super) fn input(
                     bounds.maximum + Vec3::splat(padding),
                 );
             }
-            *point = wanted.to_array();
+            edit_markers(&mut draft.points, &drag, wanted);
         }
         if mouse.pressed(MouseButton::Left) {
             state.drag = Some(drag);
@@ -91,6 +120,8 @@ pub(super) fn input(
     }
 
     if !enabled
+        || axes.single().is_ok_and(|(node, cursor)| node.display != Display::None && cursor.cursor_over())
+        || shading.cursor_over()
         || context
             .mouse_guard
             .as_ref()
@@ -142,6 +173,17 @@ pub(super) fn input(
     let Some(start) = plane_point(camera, cursor, before, center.direction) else {
         return;
     };
+    let mirror = if state.independent_markers {
+        None
+    } else {
+        opposite(index).zip(draft.frame).and_then(|(index, frame)| {
+            Some(MirrorDrag {
+                index,
+                before: Vec3::from_array(*draft.points.get(LANDMARKS[index].0)?),
+                frame,
+            })
+        })
+    };
     if let Some(draft) = state
         .session
         .as_mut()
@@ -151,12 +193,30 @@ pub(super) fn input(
     }
     state.mouse_owned = true;
     if mouse.pressed(MouseButton::Left) {
+        let snap = context.central().then(|| {
+            let (_, rotation, _) = transform.to_scale_rotation_translation();
+            let (horizontal, vertical) = if center.direction.y.abs() > 0.999_999 {
+                (Vec3::X, Vec3::Z) // 顶视和水平世界网格使用同一组轴。
+            } else {
+                (rotation * Vec3::X, rotation * Vec3::Y)
+            };
+            let control = keys.as_ref().is_some_and(|keys| {
+                keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
+            });
+            let snap = navigation.snapping().translation_snap(
+                control,
+                [before.dot(horizontal), before.dot(vertical), 0.0],
+            );
+            snap.active().then_some((snap, horizontal, vertical))
+        }).flatten();
         state.drag = Some(LandmarkDrag {
             index,
             before,
             start,
             normal: center.direction,
             camera,
+            snap,
+            mirror,
         });
     }
 }

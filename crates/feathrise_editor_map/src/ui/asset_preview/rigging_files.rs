@@ -214,7 +214,7 @@ fn open_glb(path: &Path) -> Result<File, String> {
     File::open(path).map_err(|error| format!("打开 GLB {} 失败：{error}", path.display()))
 }
 
-fn glb_json(path: &Path) -> Result<Value, String> {
+pub(super) fn glb_json(path: &Path) -> Result<Value, String> {
     let mut file = open_glb(path)?;
     let length = file.metadata().map_err(|error| error.to_string())?.len();
     let mut header = [0; 20];
@@ -280,22 +280,18 @@ fn joint_set(doc: &Value, skin: &Value) -> Option<HashSet<String>> {
     (names.len() == joints.len()).then_some(names)
 }
 
-fn mixamo_joints(doc: &Value) -> Option<HashSet<String>> {
+pub(super) fn mixamo_skin(doc: &Value) -> Option<(&Value, HashSet<String>)> {
     let mut rigs = list(doc, "skins")
         .iter()
-        .filter_map(|skin| joint_set(doc, skin))
-        .filter(|names| {
+        .filter_map(|skin| Some((skin, joint_set(doc, skin)?)))
+        .filter(|(_, names)| {
             BODY_JOINTS
                 .iter()
                 .all(|bone| names.contains(&format!("mixamorig:{bone}")))
         });
-    let first = rigs.next()?;
+    let (skin, names) = rigs.next()?;
     // 同一骨架可被多个 primitive 引用；同一文件内互不相同的两套骨架不作为自动参照。
-    (embedded(doc) && rigs.all(|other| other == first)).then_some(first)
-}
-
-pub(super) fn reference_joints(path: &Path) -> Result<HashSet<String>, String> {
-    mixamo_joints(&glb_json(path)?).ok_or_else(|| "所选 GLB 缺少可用的 Mixamo 人形参考骨架".into())
+    (embedded(doc) && rigs.all(|(_, other)| other == names)).then_some((skin, names))
 }
 
 pub(super) fn check_output_model(path: &Path, expected: &HashSet<String>) -> Result<(), String> {
@@ -389,7 +385,7 @@ pub(super) fn catalog(root: &Path, cancel: &AtomicBool) -> Result<Vec<AnimationA
                                     )
                             })
                             .collect(),
-                        can_reference: mixamo_joints(&doc).is_some(),
+                        can_reference: mixamo_skin(&doc).is_some(),
                     });
                 }
             }

@@ -30,9 +30,7 @@ pub(super) fn input(
     });
     let available = context.available(&preview, &media)
         && state.visible
-        && preview.selected_path.as_ref().is_some_and(|path| {
-            state.source() == Some(documents.asset_root().join(path).as_path())
-        });
+        && context.source_matches(&state, &preview, &media, documents.asset_root());
     if available
         && context
             .numeric
@@ -114,13 +112,27 @@ pub(super) fn input(
             .as_ref()
             .is_some_and(|s| s.blocks_other_mouse() || s.press.is_some())
         || context.text.as_ref().is_some_and(|s| s.block_shortcuts)
-        || state.busy()
     {
+        return;
+    }
+    if state.in_place_rig_preview() && buttons.iter().any(|(button, click)| {
+        button.action == AnimationAction::UnbindModel
+            && click.is_clicked() && button.binding == state.revision
+    }) {
+        // 结束预览只撤销当前意图，旧读取会在原任务槽结束后退役。
+        state.stop_rig_preview();
+        state.mouse_owned = true;
+        return;
+    }
+    if state.busy() {
         return;
     }
     for (button, click) in &buttons {
         if click.is_clicked() && button.binding == state.revision {
             if button.action == AnimationAction::BindSelectedModel {
+                if state.in_place_rig_preview() {
+                    continue;
+                }
                 if let Some(path) = context
                     .editor
                     .selected_asset
@@ -217,6 +229,12 @@ fn numeric_edit(
 
 pub(super) fn action(state: &mut AnimationEditorState, action: AnimationAction) {
     use AnimationAction::*;
+    if state.in_place_rig_preview() && matches!(
+        action,
+        Reload | MovePose | RotatePose | ToggleAutoKey | ResetPose | CopyKeys | BindSelectedModel
+    ) {
+        return;
+    }
     if matches!(
         action,
         Save | Undo | Redo | InsertKey | DeleteKey | CycleInterpolation | InsertPose | PasteKeys
@@ -343,6 +361,10 @@ pub(super) fn action(state: &mut AnimationEditorState, action: AnimationAction) 
             }
         }
         UnbindModel => {
+            if state.in_place_rig_preview() {
+                state.stop_rig_preview();
+                return;
+            }
             if let Some(s) = state.current_mut() {
                 s.model_path = None;
                 s.retarget_model = false;

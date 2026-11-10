@@ -88,6 +88,7 @@ pub(crate) fn scroll_editor_side_panels(
         (
             Or<(
                 With<MapEditorLeftPanelScroll>, // 左栏地图与作者工具保持既有滚动行为。
+                With<super::asset_preview::gltf_tree::GltfSceneTreeScroll>, // 只读 GLB 结构使用独立位置，地图滚动原样恢复。
                 With<MapEditorRightPanelScroll>, // 右栏场景树、资产与环境使用同一悬停滚轮规则。
                 With<MapEditorPresetWorkspaceScroll>, // 中央预设详细页独立滚动，不把滚轮传给隐藏地图视口。
             )>,

@@ -59,7 +59,7 @@ pub(crate) fn handle_editor_sidebar_input(
             EditorSidebarTab::Navigator(tab) => state.navigator = tab,
             EditorSidebarTab::Left(tab) => {
                 state.left = tab;
-                state.right = tab.work_page(); // 顶部模块打开独立工具栏目，不占用对象属性。
+                state.right = state.dynamic_tool_page(); // 当前作者上下文使用独立工具栏目。
                 if let EditorLeftSidebarTab::Domain(id) = tab {
                     editor.tool = EditorTool::Domain(id);
                     if let Some(workspace) = workspace.as_mut() {
@@ -69,7 +69,7 @@ pub(crate) fn handle_editor_sidebar_input(
                     }
                 }
             }
-            EditorSidebarTab::Right(EditorRightSidebarTab::Tools) => state.right = state.left.work_page(),
+            EditorSidebarTab::Right(EditorRightSidebarTab::Tools) => state.right = state.dynamic_tool_page(),
             EditorSidebarTab::Right(EditorRightSidebarTab::Scene) => state.reveal_properties(),
             EditorSidebarTab::Right(tab) => state.right = tab,
         }
@@ -217,7 +217,9 @@ pub(crate) fn sync_editor_sidebar_presentation(
             };
             if tab_text.is_some() {
                 if tab_button.is_some_and(|button| button.0 == EditorSidebarTab::Right(EditorRightSidebarTab::Tools)) {
-                    let label = if let EditorLeftSidebarTab::Domain(id) = state.left {
+                    let label = if state.rigging_available {
+                        locale.text("rig.tab")
+                    } else if let EditorLeftSidebarTab::Domain(id) = state.left {
                         tool_labels.as_ref().and_then(|labels| labels.0.get(id)).map(String::as_str)
                             .unwrap_or_else(|| domain.as_ref().filter(|domain| domain.domain() == id).map_or("扩展", |domain| domain.label()))
                     } else if state.left == EditorLeftSidebarTab::Meshes {

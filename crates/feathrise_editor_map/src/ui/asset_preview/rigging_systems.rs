@@ -7,15 +7,19 @@ use feathrise_editor_ui::{EditorButtonClick, localization::EditorLocale};
 
 use super::{
     super::{OpenAssetPreview, animation::PreviewRigAnimation},
-    backend,
+    backend::{self, RigBackend},
     context::{Candidate, Context},
     resources::*,
+    scene::{RigMotionHost, RigToolHost},
     types::*,
 };
-use crate::resources::EditorAssetCatalog;
+use crate::{
+    resources::{EditorAssetCatalog, MapEditorLayoutState, MapEditorState},
+    ui::sidebars::{EditorNavigatorTab, EditorRightSidebarTab, MapEditorSidebarState},
+};
 
 pub(super) fn actions(
-    context: Context,
+    mut contexts: ParamSet<(Context, (ResMut<MapEditorSidebarState>, Option<ResMut<MapEditorLayoutState>>, ResMut<MapEditorState>))>,
     mut state: ResMut<RiggingState>,
     buttons: Query<(&RigAction, &EditorButtonClick), Changed<EditorButtonClick>>,
     mut preview: MessageWriter<PreviewRigAnimation>,
@@ -27,6 +31,7 @@ pub(super) fn actions(
     else {
         return;
     };
+    let context = contexts.p0();
     let Some(source) = context.candidate() else {
         return;
     };
@@ -39,50 +44,97 @@ pub(super) fn actions(
     {
         return;
     }
+    let central = context.central();
+    let session = current_session(&state, source);
+    let motion_page = central && has_project_motion(source, session);
     if action == RigAction::Launch && state.work.is_none() {
-        if state
-            .session
-            .as_ref()
-            .is_some_and(|session| session.matches(source))
-        {
-            state.panel_open = !state.panel_open;
+        // 已蒙皮模型直接使用属性里的工程动作，隐藏右栏时才使用左树里的备用入口。
+        if source.entry == Entry::Skinned && motion_page && context.motion_properties_shown() {
+            return;
+        }
+        if state.session.as_ref().is_some_and(|session| session.matches(source)) {
+            state.panel_open = true;
         } else {
             inspect(&mut state, source);
         }
-        if state.panel_open && !context.central() {
+        if !central {
             // 原侧栏可以启动工作流；同一模型移入中央标签后有更大的关节编辑画布。
             open.write(OpenAssetPreview {
                 path: source.path.to_owned(),
             });
         }
+        let picking_reference = state.session.as_ref().is_some_and(Session::reference_mode);
+        let show_motion = central && has_project_motion(source, state.session.as_ref());
+        let target = (picking_reference || show_motion).then(|| source.path.to_owned());
+        let (mut sidebar, layout, mut editor) = contexts.p1();
+        if let Some(target) = target {
+            // 固定当前模型的属性身份。左栏引用高亮读取独立的参考选择。
+            editor.selected_asset = Some(target);
+            if picking_reference {
+                sidebar.navigator = EditorNavigatorTab::Assets;
+            }
+            sidebar.reveal_asset_properties();
+        }
+        if central && !show_motion {
+            sidebar.rigging_available = true;
+            sidebar.right = EditorRightSidebarTab::Rigging;
+        }
+        if let Some(mut layout) = layout {
+            // 绑骨的两个侧栏恢复到原工作布局，预览继续使用同一个画布。
+            if let Some((content, _)) = layout.focus_restore.take() {
+                layout.content_visible = content;
+            }
+            layout.inspector_visible = true;
+            layout.content_visible |= picking_reference;
+        }
         return;
     }
-    if !state.panel_open
-        || state
-            .session
-            .as_ref()
-            .is_none_or(|session| !session.matches(source))
-    {
+    if !(if motion_page {
+        context.motion_properties_shown()
+    } else {
+        context.rigging_sidebar_shown()
+    }) {
         return;
     }
-    if action == RigAction::Close {
+    if action == RigAction::ChooseProjectMotion {
+        // 查看模型属性只改变展示，收到这个明确动作后才启动目录 IO。
+        if motion_page && source.entry == Entry::Skinned && state.work.is_none() && can_choose_project_motion(session) {
+            inspect(&mut state, source);
+        }
+        return;
+    }
+    if action == RigAction::Close && (motion_page || session.is_some()) {
         state.cancel_work();
         state.panel_open = false;
+        let (mut sidebar, _, _) = contexts.p1();
+        sidebar.reveal_properties();
         return;
     }
-    if state.work.is_some() {
+    if session.is_none() || state.work.is_some() {
         return;
     }
     let session = state.session.as_mut().expect("已核对当前绑骨会话");
     match action {
-        RigAction::Retry => inspect(&mut state, source),
+        RigAction::Retry if source.entry == Entry::Unskinned => inspect(&mut state, source),
+        RigAction::SwitchBackend if source.entry == Entry::Unskinned => {
+            state.backend = match state.backend {
+                RigBackend::Native => RigBackend::Blender,
+                RigBackend::Blender => RigBackend::Native,
+            };
+            inspect(&mut state, source);
+        }
         RigAction::ResetMarks => {
             if let Some(draft) = &mut session.draft {
                 draft.points.clone_from(&draft.suggested);
                 draft.selected = None;
             }
         }
-        RigAction::PickFile => session.toggle_picker(Picker::File),
+        RigAction::ToggleMirror if session.draft.is_some() => {
+            state.independent_markers = !state.independent_markers;
+        }
+        RigAction::PickFile if session.model_for_preview().is_some() => {
+            session.toggle_picker(Picker::File)
+        }
         RigAction::PickClip if session.model_for_preview().is_some() => {
             session.toggle_picker(Picker::Clip)
         }
@@ -104,17 +156,26 @@ pub(super) fn actions(
             session.error = None;
             session.notice = Notice::Binding;
             session.picker = None;
-            state.work = Some(Work::start(Some(source.key()), move |cancel| {
-                Completion::Binding(backend::bind(&input, &reference, &landmarks, cancel))
+            state.work = Some(Work::start_async(Some(source.key()), move |cancel| async move {
+                Completion::Binding(backend::bind(&input, &reference, &landmarks, cancel).await)
             }));
         }
         RigAction::Preview => {
-            let (Some(model_path), Some(file)) = (session.model_for_preview(), session.file())
+            let (Some(tab), Some(model_path), Some(file)) = (
+                context.active_tab_id(),
+                session.model_for_preview(),
+                session.file(),
+            )
             else {
                 return;
             };
             if session.clip < file.clips.len() {
                 preview.write(PreviewRigAnimation {
+                    // 预览来源与画布宿主分开。即使同帧切走标签，旧按钮也不能把动作送到新模型。
+                    host_tab: tab,
+                    host_path: source.path.to_owned(),
+                    host_generation: source.generation,
+                    asset_root: source.root.to_path_buf(),
                     model_path: model_path.to_owned(),
                     animation_path: file.path.clone(),
                     clip_index: session.clip,
@@ -125,29 +186,96 @@ pub(super) fn actions(
     }
 }
 
+pub(super) fn sync_sidebar(
+    mut commands: Commands,
+    mut contexts: ParamSet<(Context, ResMut<MapEditorSidebarState>)>,
+    state: Res<RiggingState>,
+    tool_host: Query<Entity, With<RigToolHost>>,
+    mut motion_host: Query<(Entity, &mut Node), With<RigMotionHost>>,
+    panels: Query<(Entity, &ChildOf), With<RigPanel>>,
+) {
+    let (available, motion, owns_properties) = {
+        let context = contexts.p0();
+        let source = context.central().then(|| context.candidate()).flatten();
+        let session = source.and_then(|source| current_session(&state, source));
+        let motion = source.is_some_and(|source| has_project_motion(source, session));
+        (session.is_some() && !motion, motion, context.owns_properties())
+    };
+    if let (Ok((host, mut node)), Ok(tool), Ok((entity, parent))) =
+        (motion_host.single_mut(), tool_host.single(), panels.single())
+    {
+        let display = if motion && owns_properties { Display::Flex } else { Display::None };
+        if node.display != display {
+            node.display = display;
+        }
+        let wanted = if motion { host } else { tool };
+        if parent.parent() != wanted {
+            // 生成成功后同一个项目动作选择器进入属性页，保留当前片段和分页状态。
+            commands.entity(entity).insert(ChildOf(wanted));
+        }
+    }
+    let mut sidebar = contexts.p1();
+    let tool_selected = available && matches!(sidebar.right,
+        EditorRightSidebarTab::Tools | EditorRightSidebarTab::Environment);
+    if sidebar.rigging_available == available && !tool_selected {
+        return; // 作者可切到属性查看，稳定会话不抢回右栏。
+    }
+    let open_session = !sidebar.rigging_available && available;
+    sidebar.rigging_available = available;
+    if open_session || tool_selected {
+        sidebar.right = EditorRightSidebarTab::Rigging;
+    } else if !available && sidebar.right == EditorRightSidebarTab::Rigging {
+        if motion && owns_properties {
+            sidebar.reveal_asset_properties();
+        } else {
+            sidebar.right = sidebar.left.work_page();
+        }
+    }
+}
+
+fn has_project_motion(source: Candidate<'_>, session: Option<&Session>) -> bool {
+    source.entry == Entry::Skinned || session.is_some_and(|session| session.result.is_some())
+}
+
+fn current_session<'a>(state: &'a RiggingState, source: Candidate<'_>) -> Option<&'a Session> {
+    state
+        .session
+        .as_ref()
+        .filter(|session| state.panel_open && session.matches(source))
+}
+
+fn can_choose_project_motion(session: Option<&Session>) -> bool {
+    session.is_none_or(|session| {
+        matches!(session.notice, Notice::Failed | Notice::NoClips | Notice::Cancelled)
+    })
+}
+
 fn inspect(state: &mut RiggingState, source: Candidate<'_>) {
     let key = source.key();
-    let previous = state
-        .session
-        .replace(Session::new(key.clone(), source.entry));
+    let mut next = Session::new(key.clone(), source.entry);
+    if let Some(previous) = state.session.as_ref()
+        && previous.reference_mode() && previous.matches(source)
+    {
+        // 更换后端或重查时重新验证同一显式选择，切模型时从空选择开始。
+        next.reference_path.clone_from(&previous.reference_path);
+    }
+    let previous = state.session.replace(next);
     let entry = source.entry;
+    let backend = state.backend;
     state.panel_open = true;
-    state.work = Some(Work::start(Some(key.clone()), move |cancel| {
+    state.work = Some(Work::start_async(Some(key.clone()), move |cancel| async move {
         // 旧目录可能很大，移动所有权后在原单飞槽释放。
         drop(previous);
         match entry {
             Entry::Unskinned => Completion::Inspection(
-                backend::inspect(&key.root, &key.path, cancel).map(|inspection| {
-                    let references = inspection
-                        .animations
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(index, asset)| asset.can_reference.then_some(index))
-                        .collect();
-                    (inspection, references)
-                }),
+                backend::inspect(&key.root, &key.path, backend, cancel)
+                    .await
+                    .map(|inspection| {
+                        let has_reference = inspection.animations.iter().any(|asset| asset.can_reference);
+                        (inspection, has_reference)
+                    }),
             ),
-            Entry::Skinned => Completion::Catalog(backend::catalog(&key.root, cancel)),
+            Entry::Skinned => Completion::Catalog(backend::catalog(&key.root, &cancel)),
         }
     }));
 }
@@ -192,7 +320,7 @@ pub(super) fn poll(
         return;
     }
     match completion {
-        Completion::Inspection(Ok((inspection, reference_indices))) => {
+        Completion::Inspection(Ok((inspection, has_reference))) => {
             if !LANDMARKS.iter().all(|(key, _)| {
                 inspection
                     .landmarks
@@ -202,18 +330,18 @@ pub(super) fn poll(
                 failure(session, "关节点结果缺失或坐标无效".into());
                 return;
             }
-            session.selected_file = reference_indices.first().copied();
-            session.notice = if session.selected_file.is_some() {
+            session.notice = if has_reference {
                 Notice::Review
             } else {
                 Notice::NoReference
             };
-            session.reference_indices = reference_indices;
             session.animations = inspection.animations;
+            session.resolve_reference();
             session.warnings = inspection.warnings;
             session.draft = Some(MarkerDraft {
                 input: inspection.input,
                 suggested: inspection.landmarks.clone(),
+                frame: RigFrame::from_landmarks(&inspection.landmarks),
                 points: inspection.landmarks,
                 selected: None,
             });
@@ -227,6 +355,9 @@ pub(super) fn poll(
                 Notice::NoClips
             };
             session.animations = animations;
+            if session.selected_file.is_some() {
+                session.toggle_picker(Picker::File);
+            }
         }
         Completion::Binding(Ok(prepared)) => {
             let (joints, vertices) = (prepared.joints, prepared.vertices);
@@ -308,24 +439,29 @@ pub(super) fn present(
 ) {
     let locale = locale.as_deref().copied().unwrap_or_default();
     let candidate = context.candidate();
-    let session = state.session.as_ref().filter(|session| {
-        state.panel_open && candidate.is_some_and(|source| session.matches(source))
-    });
+    let session = candidate.and_then(|source| current_session(&state, source));
+    let motion_page = context.central() && candidate.is_some_and(|source| has_project_motion(source, session));
+    let skinned = candidate.is_some_and(|source| source.entry == Entry::Skinned);
     let busy = state.work.is_some();
     for (mut node, action, panel, choices, marker_tools) in &mut nodes {
         let show = if panel {
-            session.is_some()
+            motion_page || session.is_some()
         } else if choices {
             session.is_some_and(|session| session.picker.is_some()) && !busy
         } else if marker_tools {
             session.is_some_and(|session| session.draft.is_some())
         } else if action == Some(&RigAction::Launch) {
-            candidate.is_some() && !busy
+            candidate.is_some() && !busy && !(skinned && motion_page && context.motion_properties_shown())
+        } else if action == Some(&RigAction::ChooseProjectMotion) {
+            skinned && motion_page && !busy && can_choose_project_motion(session)
+        } else if action == Some(&RigAction::Close) {
+            session.is_some()
         } else {
             session.is_some_and(|session| match action {
-                Some(RigAction::Close) => true,
+                Some(RigAction::SwitchBackend) => !busy && session.entry == Entry::Unskinned,
                 Some(RigAction::Retry) => {
                     !busy
+                        && session.entry == Entry::Unskinned
                         && matches!(
                             session.notice,
                             Notice::Failed
@@ -336,13 +472,12 @@ pub(super) fn present(
                         )
                 }
                 Some(RigAction::ResetMarks) => !busy && session.draft.is_some(),
+                Some(RigAction::ToggleMirror) => !busy && session.draft.is_some(),
                 Some(RigAction::Bind) => {
                     !busy && session.draft.is_some() && session.file().is_some()
                 }
                 Some(RigAction::PickFile) => {
-                    !busy
-                        && !session.animations.is_empty()
-                        && (!session.reference_mode() || !session.reference_indices.is_empty())
+                    !busy && session.model_for_preview().is_some() && !session.animations.is_empty()
                 }
                 Some(RigAction::PickClip) => {
                     !busy
@@ -376,16 +511,37 @@ pub(super) fn present(
             (RigText::Launch, _) => locale
                 .text(
                     if candidate.is_some_and(|source| source.entry == Entry::Skinned) {
-                        "rig.launch.preview"
+                        "rig.motion.choose_project"
                     } else {
                         "rig.launch"
                     },
                 )
                 .to_owned(),
-            (RigText::Close, _) => locale
-                .text(if busy { "rig.cancel" } else { "rig.close" })
+            (RigText::Title, _) => locale
+                .text(if motion_page { "rig.motion.title" } else { "rig.title" })
                 .to_owned(),
+            (RigText::Close, _) => locale
+                .text(if busy {
+                    "rig.cancel"
+                } else if motion_page {
+                    "rig.motion.collapse"
+                } else {
+                    "rig.close"
+                })
+                .to_owned(),
+            (RigText::Backend, _) => locale
+                .text(match state.backend {
+                    RigBackend::Native => "rig.backend.native",
+                    RigBackend::Blender => "rig.backend.blender",
+                })
+                .to_owned(),
+            (RigText::Mirror, _) => locale.text(if state.independent_markers {
+                "rig.mirror.off"
+            } else {
+                "rig.mirror.on"
+            }).to_owned(),
             (RigText::Notice, Some(session)) => notice(locale, session),
+            (RigText::Notice, None) if motion_page => locale.text("rig.motion.idle").to_owned(),
             (RigText::Warning, Some(session)) => {
                 session.warnings.first().map_or(String::new(), |warning| {
                     locale.format(
@@ -416,12 +572,13 @@ pub(super) fn present(
                         )
                     },
                 ),
+            (RigText::Reference, Some(session)) => match (session.file(), &session.reference_path) {
+                (Some(file), _) => locale.format("rig.file.reference", &[("file", file.path.clone())]),
+                (None, Some(path)) => locale.format("rig.file.reference.incompatible", &[("file", path.clone())]),
+                (None, None) => locale.text("rig.file.reference.pick").to_owned(),
+            },
             (RigText::File, Some(session)) => locale.format(
-                if session.reference_mode() {
-                    "rig.file.reference"
-                } else {
-                    "rig.file.animation"
-                },
+                "rig.file.animation",
                 &[(
                     "file",
                     session

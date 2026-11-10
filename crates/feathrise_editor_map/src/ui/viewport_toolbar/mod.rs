@@ -4,7 +4,9 @@ mod components;
 mod scene;
 
 pub(super) use components::{ViewportBrushParameters, ViewportToolbarScroll};
-pub(super) use scene::viewport_toolbar;
+pub(super) use scene::{
+    control_group, control_surface, control_text, toolbar_layout, view_label, viewport_toolbar,
+};
 
 #[cfg(test)]
 mod tests;

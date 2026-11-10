@@ -190,6 +190,7 @@ pub(crate) fn sync_editor_layout(
     ui_scale: Res<UiScale>,
     windows: Query<&Window, With<PrimaryWindow>>,
     workspace: Res<VegetationPresetEditorState>,
+    media: Option<Res<crate::ui::asset_preview::AssetPreviewWorkspace>>,
     mut state: ResMut<MapEditorLayoutState>,
     mut panes: Query<
         (&MapEditorPane, &mut Node),
@@ -212,7 +213,12 @@ pub(crate) fn sync_editor_layout(
         ),
     >,
     mut scene_context: Query<
-        (&mut Node, Has<crate::components::MapEditorSceneContextHint>),
+        (
+            &mut Node,
+            Has<crate::components::MapEditorSceneContextHint>,
+            Has<crate::ui::asset_preview::gltf_tree::MapSceneTreePanel>,
+            Has<crate::ui::asset_preview::gltf_tree::GltfSceneTreePanel>,
+        ),
         (
             With<MapEditorSceneContext>,
             Without<MapEditorPane>,
@@ -255,6 +261,9 @@ pub(crate) fn sync_editor_layout(
     }
     let author_preview = matches!(workspace.active_tab, PresetWorkspaceTab::Domain(_, id) if id != 0)
         || matches!(workspace.active_tab, PresetWorkspaceTab::Water(id) if id != 0);
+    let asset_tree = media.as_ref().is_some_and(|media| {
+        crate::ui::asset_preview::gltf_tree::central_glb(media, workspace.active_tab).is_some()
+    });
     for (pane, mut node) in &mut panes {
         let size = match pane.0 {
             EditorPane::Content => layout.content,
@@ -296,8 +305,14 @@ pub(crate) fn sync_editor_layout(
             background.0 = color;
         }
     }
-    for (mut node, hint) in &mut scene_context {
-        let display = if author_preview == hint {
+    for (mut node, hint, map_tree, gltf_tree) in &mut scene_context {
+        // 只在左侧场景树替换正文。地图面板的实体、滚动和正式对象选择继续原位保留。
+        let visible = if gltf_tree {
+            asset_tree
+        } else {
+            author_preview == hint && !(asset_tree && (hint || map_tree))
+        };
+        let display = if visible {
             Display::Flex
         } else {
             Display::None

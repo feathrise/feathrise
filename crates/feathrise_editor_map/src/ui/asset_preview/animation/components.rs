@@ -4,12 +4,16 @@ use bevy::prelude::*;
 
 pub(super) const CHANNEL_SLOTS: usize = 8;
 pub(super) const KEY_SLOTS: usize = 64;
+pub(super) const RULER_TICK_WIDTH: f32 = 34.0;
 
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct AnimationPanel;
 
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct AnimationPoseToolbar;
+
+#[derive(Component, Clone, Copy, Default)]
+pub(super) struct AnimationWriteControls; // 就地播放只读，复用控件但收起作者写入口。
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum AnimationAction {
@@ -89,6 +93,9 @@ pub(super) struct AnimationRow(pub usize);
 
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct AnimationPlayhead;
+
+#[derive(Component, Clone, Copy, Default)]
+pub(super) struct AnimationRulerTick(pub usize);
 
 #[derive(Component, Clone, Copy, Default)]
 pub(super) enum AnimationLabel {

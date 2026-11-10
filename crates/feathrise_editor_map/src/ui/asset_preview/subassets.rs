@@ -288,7 +288,7 @@ pub(super) fn invalidate_model_hot_reload(
     state.model = Some(replacement); // 原位采用同一路径新会话。
     state.bounds_scan = rescan_root.map(AssetPreviewBoundsScan::new);
     state.model_bounds = None; // 旧几何范围不能用于新代取景。
-    *navigation = AssetPreviewNavigation::default(); // 热更默认回到完整Scene0视角。
+    navigation.reset_for_model_target(); // 热更回到完整Scene0视角，保留当前文件的吸附偏好。
     if let AssetPreviewContent::Model { phase, .. } = &mut state.content {
         *phase = if rescan_root.is_some() {
             AssetPreviewPhase::Scanning // Mesh依赖更新后按固定节点预算重新取景。

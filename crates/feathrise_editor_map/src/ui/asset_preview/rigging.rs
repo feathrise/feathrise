@@ -12,13 +12,13 @@ mod landmarks;
 #[path = "rigging_resources.rs"]
 mod resources;
 #[path = "rigging_scene.rs"]
-pub(super) mod scene;
+pub(crate) mod scene;
 #[path = "rigging_systems.rs"]
 mod systems;
 #[path = "rigging_types.rs"]
 mod types;
 
-pub(crate) use resources::RiggingState;
+pub(crate) use {context::{RigReferenceInput, RigReferenceRows}, resources::RiggingState};
 #[cfg(feature = "validation")]
 pub(crate) use types::{RigAction, RigLandmarkDot};
 
@@ -44,6 +44,13 @@ pub(super) fn install(app: &mut App) {
             systems::poll
                 .after(super::loading::poll_asset_preview_loading)
                 .in_set(MapEditorSystemSet::Tasks),
+        )
+        .add_systems(
+            Update,
+            systems::sync_sidebar
+                .before(crate::ui::sidebars::sync_editor_sidebar_presentation)
+                .before(systems::present)
+                .in_set(MapEditorSystemSet::Presentation),
         )
         .add_systems(
             Update,

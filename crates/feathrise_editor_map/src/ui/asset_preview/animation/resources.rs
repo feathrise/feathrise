@@ -340,6 +340,7 @@ pub(super) enum PendingAction {
 pub(super) enum TaskResult {
     Copied(Result<Arc<super::editing::Clipboard>, String>),
     Load(Result<Session, String>),
+    RigLoad { ticket: u64, result: Result<Session, String> },
     Unchanged,
     Released,
     Edit {
@@ -426,6 +427,8 @@ pub(crate) struct AnimationEditorState {
     pub(super) model_status: String,
     pub(super) model_binding_revision: u64,
     pub(super) rig_preview: Option<super::request::RigPreviewRequest>,
+    /// 独立只读会话按请求票据访问，退出或换源后由原工作槽后台释放。
+    pub(super) rig_session: Option<(u64, Session)>,
 }
 
 impl Default for AnimationEditorState {
@@ -459,6 +462,7 @@ impl Default for AnimationEditorState {
             model_status: String::new(),
             model_binding_revision: 0,
             rig_preview: None,
+            rig_session: None,
         }
     }
 }
@@ -524,9 +528,19 @@ impl AnimationEditorState {
     }
 
     pub(super) fn current(&self) -> Option<&Session> {
+        if let Some(request) = &self.rig_preview {
+            return self.rig_session.as_ref()
+                .filter(|(ticket, _)| *ticket == request.ticket)
+                .map(|(_, session)| session);
+        }
         self.sessions.get(self.active.as_ref()?)
     }
     pub(super) fn current_mut(&mut self) -> Option<&mut Session> {
+        if let Some(request) = &self.rig_preview {
+            return self.rig_session.as_mut()
+                .filter(|(ticket, _)| *ticket == request.ticket)
+                .map(|(_, session)| session);
+        }
         self.sessions.get_mut(self.active.as_ref()?)
     }
     pub(super) fn active_document(&self) -> Option<&AnimationDocument> {
@@ -548,7 +562,7 @@ impl AnimationEditorState {
         self.source_revision
     }
     pub(super) fn source(&self) -> Option<&Path> {
-        self.active.as_deref()
+        self.rig_preview.as_ref().map(|request| request.source.as_path()).or(self.active.as_deref())
     }
     pub(super) fn visible(&self) -> bool {
         self.visible
@@ -557,7 +571,27 @@ impl AnimationEditorState {
                 .is_some_and(|session| !session.document.clips.is_empty())
     }
     pub(super) fn retargeting(&self) -> bool {
-        self.current().is_some_and(|session| session.retarget_model && session.model_path.is_some())
+        self.in_place_rig_preview()
+            || self.current().is_some_and(|session| session.retarget_model && session.model_path.is_some())
+    }
+    pub(super) fn in_place_rig_preview(&self) -> bool {
+        self.rig_preview.is_some()
+    }
+    pub(super) fn reset_rig_playback(&mut self) {
+        self.playing = false;
+        self.drag = None;
+        self.gesture = None;
+        self.pending = None;
+        self.status.clear();
+        self.model_status.clear();
+        self.source_revision = self.source_revision.wrapping_add(1).max(1);
+        self.model_binding_revision = self.model_binding_revision.wrapping_add(1);
+        self.changed();
+    }
+    pub(super) fn stop_rig_preview(&mut self) {
+        if self.rig_preview.take().is_some() {
+            self.reset_rig_playback();
+        }
     }
     pub(super) fn editable(&self) -> bool {
         !self.retargeting() && self.active_document().is_some_and(|doc| !doc.read_only)

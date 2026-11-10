@@ -82,6 +82,9 @@ pub(super) fn control_asset_preview(
         (&feathrise_editor_ui::EditorButtonClick, &AssetPreviewAction),
         (With<AssetPreviewNavigationButton>, Changed<feathrise_editor_ui::EditorButtonClick>),
     >, // 只消费缩放工具，子资产按钮由独立临时会话系统处理。
+    axes: super::orientation::AxisInput,
+    view_toolbar: super::view_toolbar::Input,
+    mut shading: super::preview_shading::Input,
 ) {
     let motion = motions
         .read()
@@ -151,7 +154,10 @@ pub(super) fn control_asset_preview(
         return; // 原始事件与Changed查询均已由本次系统tick消费。
     } // 当前持有的预览拖动可越过它自己发布的统一鼠标门。
     let (canvas, cursor, interaction) = canvas.expect("已确认有效的预览画布必须存在"); // 固定唯一画布。
-    let hovered = cursor.cursor_over() && *interaction != UiInteraction::None; // 几何重叠但被弹框遮挡时不抢滚轮。
+    let hovered = cursor.cursor_over()
+        && *interaction != UiInteraction::None
+        && !axes.cursor_over()
+        && (!central || !shading.pointer.cursor_over());
     let image_size = image_nodes
         .single()
         .map(ComputedNode::size)
@@ -174,12 +180,21 @@ pub(super) fn control_asset_preview(
         0.0
     }; // 捕获中滚轮仍只属于预览。
     if next.drag.is_none() && !context.numeric.blocked() {
+        if axes.apply(&state, &mut next.view) {
+            next.mouse_captured = true; // 方向球释放只调整资产相机，不落入地图拾取。
+        }
+        if central && ready_model && state.render_visible && shading.apply() {
+            next.mouse_captured = true; // 四球点击仅更新资产着色，统一占有松开帧。
+        }
+        if central && view_toolbar.apply(&state, context.rigging.as_deref(), &mut next.view) {
+            next.mouse_captured = true; // 复用同一释放帧门；不把资产视图动作分派到地图。
+        }
         for (interaction, action) in &buttons {
             if !interaction.is_clicked() {
                 continue; // 悬停与按住只影响按钮配色。
             } // 按钮无需移动鼠标即可缩放或恢复取景。
             match action {
-                AssetPreviewAction::Reset => next.view = AssetPreviewView::default(), // 清除模型和图片的所有临时偏移。
+                AssetPreviewAction::Reset => next.view.reset_camera(), // 只还原相机与图片的临时偏移。
                 AssetPreviewAction::ZoomIn => zoom_lines += 1.25_f32.ln() / 0.12, // 一次按钮约放大25%。
                 AssetPreviewAction::ZoomOut => zoom_lines -= 1.25_f32.ln() / 0.12, // 与放大按钮精确互逆。
                 _ => continue, // 查询marker保证正常不会遇到子资产动作，防御测试注入错误组合。
@@ -235,7 +250,8 @@ pub(super) fn control_asset_preview(
 /// 视图或布局真正变化时才更新相机或图片视觉变换；resize保留导航参数。
 pub(super) fn sync_asset_preview_view(
     state: Res<AssetPreviewState>, // 只读取当前图片/模型及缓存范围。
-    navigation: Res<AssetPreviewNavigation>, // 交互倍率和观察方向不受窗口模式改变影响。
+    mut navigation: ResMut<AssetPreviewNavigation>, // 交互倍率和观察方向不受窗口模式改变影响。
+    media: Option<Res<super::AssetPreviewWorkspace>>,
     canvases: Query<Ref<ComputedNode>, With<AssetPreviewCanvas>>, // 不只看Changed过滤，否则鼠标操作帧会漏更新。
     mut images: Query<(Ref<ComputedNode>, &mut UiTransform), With<AssetPreviewImage>>, // 视觉缩放不参与Flex测量，不能撑大右侧资产栏。
     mut cameras: Query<(&mut Transform, &mut Projection), With<AssetPreviewCamera>>, // 专用相机，不查询地图或玩法视图。
@@ -275,12 +291,23 @@ pub(super) fn sync_asset_preview_view(
             let Some(bounds) = state.model_bounds else {
                 return; // 热更扫描完成前不得复用旧模型范围。
             }; // 当前范围已由固定预算扫描完整采用。
+            let mut view = navigation.view;
+            if media.as_ref().is_some_and(|media| media.central_active && media.expanded.as_ref().is_some_and(|tab| {
+                state.selected_path.as_deref() == Some(tab.path.as_str()) && super::gltf_tree::is_glb(&tab.path)
+            })) {
+                // 几何换代与自动取景都可能恢复默认角度。在最终相机同步处统一采用放大视角，
+                // 并同步手势起点，避免第一次右键环绕跳回小预览的俯视角。
+                view.reveal_default_sky();
+                if navigation.view != view {
+                    navigation.view = view;
+                }
+            }
             if let Ok((mut transform, mut projection)) = cameras.single_mut() {
                 apply_model_preview_frame(
                     bounds.minimum,
                     bounds.maximum,
                     canvas_aspect_ratio(Some(&canvas)),
-                    navigation.view,
+                    view,
                     &mut transform,
                     &mut projection,
                 ); // 手势和resize使用同一结果。

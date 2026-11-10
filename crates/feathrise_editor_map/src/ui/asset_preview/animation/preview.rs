@@ -116,11 +116,19 @@ pub(in crate::ui::asset_preview) struct PreviewRuntime {
     cursor: usize,
     published_bounds: Option<AssetPreviewModelBounds>,
     using_retarget_bounds: bool,
+    /// 只恢复本系统确实隐藏过的中央 Scene0，单体预览仍由原目标系统控制。
+    in_place_hidden_scene: Option<Entity>,
     complete: bool,
     retired: RetiredData,
 }
 
 impl PreviewRuntime {
+    pub(super) fn rig_pose_published(&self, editor: &AnimationEditorState) -> bool {
+        self.in_place_hidden_scene.is_some()
+            && self.published_pose.as_ref().is_some_and(|pose|
+                editor.current().is_some_and(|session| pose.matches_session(session)))
+    }
+
     #[cfg(test)]
     pub(super) fn for_input_tests(document: Arc<AnimationDocument>) -> Self {
         Self::for_input_tests_at(document, 0, 0.0, None)
@@ -441,6 +449,46 @@ fn hide_failed_source(runtime: &mut PreviewRuntime, commands: &mut Commands) {
     runtime.applying = runtime.pose.is_some() && runtime.applied.is_some();
 }
 
+fn restore_in_place_scene(
+    runtime: &mut PreviewRuntime,
+    preview: &AssetPreviewState,
+    commands: &mut Commands,
+) {
+    if let Some(root) = runtime.in_place_hidden_scene.take()
+        && preview.scene_root() == Some(root)
+        && preview.model.as_ref().is_some_and(|model| model.target == AssetPreviewModelTarget::Scene0)
+        && matches!(preview.content, AssetPreviewContent::Model { phase: AssetPreviewPhase::Ready, .. })
+    {
+        commands.entity(root).try_insert(Visibility::Inherited);
+    }
+}
+
+fn apply_bound_pose(
+    binding: &super::binding::BindingState,
+    bank: usize,
+    pose: &Pose,
+    cursor: usize,
+    transforms: &mut Query<&mut Transform>,
+) -> usize {
+    let end = (cursor + NODES_PER_FRAME).min(pose.local.len());
+    let retargeting = binding.mapping.as_ref().is_some_and(|mapping| mapping.retarget.is_some());
+    for index in cursor..end {
+        if let Some(entity) = binding.node(bank, index)
+            && let Ok(mut transform) = transforms.get_mut(entity)
+        {
+            let value = if retargeting {
+                pose.model_local.as_ref().and_then(|model| model.get(index).copied().flatten())
+            } else {
+                Some(pose.local[index])
+            };
+            if let Some(value) = value {
+                *transform = value;
+            }
+        }
+    }
+    end
+}
+
 /// 分帧只写不可见容器；可见容器的完整姿态在最后一次定额写入后才被替换。
 fn apply_candidate(
     runtime: &mut PreviewRuntime,
@@ -514,6 +562,22 @@ pub(super) fn drive(
     mut mesh_materials: Query<&mut MeshMaterial3d<StandardMaterial>>,
     mut binding: Option<ResMut<super::binding::BindingState>>,
 ) {
+    let in_place = editor.in_place_rig_preview();
+    let in_place_ready = in_place && preview.render_visible
+        && matches!(preview.content, AssetPreviewContent::Model { phase: AssetPreviewPhase::Ready, .. })
+        && binding.as_ref().is_some_and(|binding| {
+            binding.ready() && binding.mapping.as_ref().and_then(|mapping| mapping.retarget.as_ref())
+                .is_some_and(|rig| rig.supports(editor.active_clip()))
+        });
+    if in_place && let Some(binding) = binding.as_mut().filter(|binding| binding.active)
+        && (!in_place_ready || runtime.published_pose.as_ref().is_none_or(|pose|
+            !editor.current().is_some_and(|session| pose.matches_session(session))))
+    {
+        binding.hide(&mut commands); // 换片段等待新姿态期间只显示原模型，禁止继续显示旧动作。
+    }
+    if !in_place || binding.as_ref().is_none_or(|binding| !binding.active) {
+        restore_in_place_scene(&mut runtime, &preview, &mut commands);
+    }
     let binding_revision = binding.as_ref().map_or(0, |b| b.revision);
     if runtime.binding_revision != binding_revision {
         runtime.binding_revision = binding_revision;
@@ -522,7 +586,7 @@ pub(super) fn drive(
         runtime.cursor = 0;
     }
     advance_retirement(&mut runtime, &mut commands);
-    let eligible = editor.visible()
+    let eligible = (!in_place || in_place_ready) && editor.visible()
         && editor
             .active_document()
             .is_some_and(|document| !document.clips.is_empty());
@@ -648,12 +712,42 @@ pub(super) fn drive(
             binding.hide(&mut commands);
         }
         hide_failed_source(&mut runtime, &mut commands);
+        restore_in_place_scene(&mut runtime, &preview, &mut commands);
         return;
     } // 自建骨架不能把损坏 GLTF、缺失缓冲或纹理依赖伪装成成功模型。
     if !assets.is_loaded_with_dependencies(source) {
         return;
     } // 缓存Gltf存在不代表当前加载成功；只检查真实根，不依赖合法纯动画可能没有的Scene0。
     if runtime.pose.is_none() {
+        return;
+    }
+    if in_place {
+        // 复用绑定角色的双容器和同一姿态预算。没有源骨架网格，也不更新原模型的取景范围。
+        if let Some(binding) = binding.as_mut().filter(|binding| binding.ready())
+            && runtime.applying
+        {
+            let bank = 1 - runtime.front;
+            let runtime = &mut *runtime;
+            let pose = runtime.pose.as_ref().expect("已就绪的候选姿态");
+            if pose.model_local.is_none() {
+                return;
+            }
+            runtime.cursor = apply_bound_pose(binding, bank, pose, runtime.cursor, &mut transforms);
+            if runtime.cursor == pose.local.len() {
+                runtime.front = bank;
+                runtime.applying = false;
+                if let Some(previous) = runtime.published_pose.replace(pose.clone()) {
+                    runtime.retired.poses.push(previous);
+                }
+                binding.publish(&mut commands, bank);
+                if let Some(root) = preview.scene_root()
+                    && runtime.in_place_hidden_scene != Some(root)
+                {
+                    commands.entity(root).try_insert(Visibility::Hidden);
+                    runtime.in_place_hidden_scene = Some(root);
+                }
+            }
+        }
         return;
     }
     if runtime.mesh.is_none() {
@@ -732,22 +826,7 @@ pub(super) fn drive(
         if let Some(binding) = binding.as_ref().filter(|b| b.ready()) {
             let bank = 1 - runtime.front;
             let pose = runtime.pose.as_ref().unwrap();
-            let retargeting = binding.mapping.as_ref().is_some_and(|mapping| mapping.retarget.is_some());
-            for index in
-                runtime.cursor..(runtime.cursor + NODES_PER_FRAME).min(runtime.entities.len())
-            {
-                if let Some(entity) = binding.node(bank, index)
-                    && let Ok(mut transform) = transforms.get_mut(entity)
-                {
-                    if retargeting {
-                        if let Some(value) = pose.model_local.as_ref().and_then(|model| model[index]) {
-                            *transform = value;
-                        }
-                    } else {
-                        *transform = pose.local[index];
-                    }
-                }
-            }
+            apply_bound_pose(binding, bank, pose, runtime.cursor, &mut transforms);
         }
         apply_candidate(
             &mut runtime,
