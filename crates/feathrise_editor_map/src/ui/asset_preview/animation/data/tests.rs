@@ -89,6 +89,11 @@ pub(in crate::ui::asset_preview::animation) fn test_document() -> AnimationDocum
     fixture()
 }
 
+pub(in crate::ui::asset_preview::animation) fn test_scene(json: &Value) -> AnimationDocument {
+    AnimationDocument::from_bytes(Path::new("humanoid.glb"), glb(json, &[]))
+        .expect("人形骨架场景夹具")
+}
+
 /// 两根骨骼都有平移通道，重排后旧数字索引仍可匹配另一骨骼，用于拒绝串骨骼粘贴。
 pub(in crate::ui::asset_preview::animation) fn clipboard_document(reordered: bool) -> AnimationDocument {
     let (mut json, binary) = fixture_parts();

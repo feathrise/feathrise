@@ -118,6 +118,7 @@ pub(super) fn input(
 ) {
     state.pose_mouse_owned = false;
     let available = state.visible()
+        && !state.retargeting()
         && context.available(&preview, &media)
         && preview
             .selected_path

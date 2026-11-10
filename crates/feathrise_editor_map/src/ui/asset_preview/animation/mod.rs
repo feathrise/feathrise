@@ -16,7 +16,9 @@ mod pose;
 mod presentation;
 mod preview;
 pub(crate) mod project_close;
+mod request;
 mod resources;
+mod retarget;
 pub(super) mod scene;
 mod timeline;
 mod types;
@@ -26,7 +28,11 @@ mod types;
 pub(crate) mod workflow_validation;
 
 pub(super) use preview::PreviewRuntime as AnimationPreviewRuntime;
+pub(super) use request::PreviewRigAnimation;
+pub(super) use request::receive as receive_rig_animation;
 pub(crate) use resources::AnimationEditorState;
+#[cfg(feature = "validation")]
+pub(crate) use preview::{rig_animation_diagnostic, rig_animation_probe};
 
 /// 生产与集成回归共用输入注册，避免测试另写顺序掩盖地图批量域先消费按键的问题。
 fn install_input(app: &mut App) {
@@ -41,7 +47,15 @@ fn install_input(app: &mut App) {
 }
 
 pub(super) fn install(app: &mut App) {
-    app.init_resource::<AnimationEditorState>();
+    app.init_resource::<AnimationEditorState>()
+        .add_message::<PreviewRigAnimation>()
+        .add_systems(
+            Update,
+            receive_rig_animation
+                .after(super::workspace::actions)
+                .before(super::navigation::control_asset_preview)
+                .in_set(MapEditorSystemSet::Input),
+        );
     install_input(app);
     app
         .add_systems(Update, drive::drive

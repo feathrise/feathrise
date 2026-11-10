@@ -43,7 +43,7 @@ fn layout_app() -> (App, Entity) {
         ..default()
     })
     .init_resource::<EditorSettings>()
-    .add_systems(Startup, settings_panel.spawn())
+    .add_systems(Startup, (|| settings_panel(false)).spawn())
     .add_systems(
         Update,
         (

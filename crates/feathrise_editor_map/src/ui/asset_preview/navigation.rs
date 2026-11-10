@@ -24,6 +24,7 @@ use crate::ui::sidebars::{EditorRightSidebarTab, MapEditorSidebarState}; // 隐�
 #[derive(SystemParam)] // 保持输入系统参数数量和互斥边界清晰。
 pub(super) struct PreviewInputContext<'w, 's> {
     animation: Option<Res<'w, super::animation::AnimationEditorState>>,
+    rigging: Option<Res<'w, super::rigging::RiggingState>>,
     external: Option<Res<'w, crate::game_authoring::ExternalAssetPreviewRequest>>,
     tool_hosts: Query<'w, 's, &'static crate::game_authoring::DomainToolPreviewHost>,
     editor: Res<'w, MapEditorState>, // F12显隐、所选路径与新地图弹框。
@@ -142,7 +143,9 @@ pub(super) fn control_asset_preview(
         .single()
         .ok()
         .filter(|(node, _, _)| node.size().is_finite() && node.size().min_element() > 0.0); // 首帧布局未就绪时不做除法。
-    if !enabled || canvas.is_none() || context.animation.as_ref().is_some_and(|state| state.owns_mouse()) || (context.numeric.blocked() && next.drag.is_none()) {
+    if !enabled || canvas.is_none() || context.animation.as_ref().is_some_and(|state| state.owns_mouse())
+        || context.rigging.as_ref().is_some_and(|state| state.owns_mouse())
+        || (context.numeric.blocked() && next.drag.is_none()) {
         next.drag = None; // 输入资格失效立即停止导航，不沿用上一选择的手势。
         navigation.set_if_neq(next); // 稳定禁用帧不触发Changed。
         return; // 原始事件与Changed查询均已由本次系统tick消费。

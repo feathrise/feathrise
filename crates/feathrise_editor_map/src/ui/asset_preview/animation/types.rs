@@ -157,10 +157,12 @@ pub(super) struct BindingIdentity {
     pub revision: u64,
     pub request: u64,
     pub model: String,
+    pub retarget: bool,
 }
 
 pub(super) struct SkeletonMapping {
     pub names: HashMap<String, usize>,
+    pub retarget: Option<Arc<super::retarget::RigRetarget>>,
 }
 
 #[derive(Default)]

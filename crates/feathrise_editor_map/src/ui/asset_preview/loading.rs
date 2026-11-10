@@ -11,7 +11,7 @@ use bevy::render::render_resource::{
 }; // RTT创建与二维纹理格式复验。
 use bevy::ui::FocusPolicy; // 图像输出让父画布统一接收鼠标导航。
 use bevy::ui::widget::ViewportNode; // 模型按侧栏或中央所在画布的真实尺寸维护RTT。
-use bevy::world_serialization::{WorldAsset, WorldAssetRoot}; // Scene0按需生成。
+use bevy::world_serialization::WorldAsset; // Scene0按需生成。
 use feathrise_scene_core::view::DeferredRasterAuxiliaryCamera; // 共享Deferred材质仍可在离屏PBR预览中显示。
 use feathrise_editor_core::constants::render_layers::MAP_EDITOR_ASSET_PREVIEW_LAYER; // 全局唯一预览层。 // 离屏清屏色与UI画布一致。
 
@@ -241,11 +241,7 @@ pub(super) fn sync_asset_preview_selection(
                     let root = if let Some(root) = external.root.filter(|_| preview_active) {
                         root // 应用只提交已冻结完整来源的展示根，生命周期、扫描与唯一RTT仍由本预览接管。
                     } else {
-                        commands.spawn((
-                            Name::new(format!("资产预览_{path}")), AssetPreviewModelRoot,
-                            MapEditorOwnedEntity, WorldAssetRoot(handle.clone()), Visibility::Hidden,
-                            RenderLayers::layer(MAP_EDITOR_ASSET_PREVIEW_LAYER),
-                        )).id()
+                        super::model::spawn_scene0(&mut commands, &path, handle.clone())
                     };
                     state.content = AssetPreviewContent::Model {
                         handle,

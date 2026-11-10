@@ -109,6 +109,7 @@ fn candidate_app(count: usize) -> App {
         draft: None,
         time: 0.0,
         local: vec![Transform::default(); count],
+        model_local: None,
         world: vec![Mat4::IDENTITY; count],
         joints: vec![Transform::from_xyz(10.0, 0.0, 0.0); count],
         bones: vec![Transform::from_xyz(20.0, 0.0, 0.0); count],

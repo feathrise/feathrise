@@ -323,6 +323,10 @@ pub(super) fn drive(
             launch(&mut state, PendingAction::Reload);
         }
     }
+    let active_tab = media.active(context.workspace.active_tab)
+        .then(|| media.expanded.as_ref().map(|tab| tab.id))
+        .flatten();
+    super::request::adopt(&mut state, active_tab);
     if state.visible && state.playing && !state.busy() {
         let delta = time.delta_secs().min(0.1) * state.speed;
         let looping = state.looping;

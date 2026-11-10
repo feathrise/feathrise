@@ -3,7 +3,7 @@
 use bevy::camera::{Projection, primitives::Aabb, visibility::RenderLayers}; // 联合模型范围并隔离主画面。
 use bevy::prelude::*; // ECS层级、相机变换与测试数学类型。
 use bevy::ui::ComputedNode; // 读取窄右栏的真实画布宽高比。
-use bevy::world_serialization::WorldInstanceReady; // Scene0全部实体生成后的唯一成功门。
+use bevy::world_serialization::{WorldAsset, WorldAssetRoot, WorldInstanceReady}; // Scene0全部实体生成后的唯一成功门。
 use feathrise_editor_core::constants::render_layers::MAP_EDITOR_ASSET_PREVIEW_LAYER; // 全局唯一预览层。
 
 use super::resources::AssetPreviewNavigation; // 首次完整取景也使用当前独立导航状态。
@@ -11,6 +11,24 @@ use super::types::*; // 扫描、模型阶段和专用marker。
 use super::view_math::apply_model_preview_frame; // 自动取景与鼠标导航只维护一套相机数学。
 
 const MODEL_DESCENDANTS_PER_FRAME: usize = 128; // 大Scene0隔离与Aabb联合保持固定主线程预算。
+
+/// 普通模型的首次加载和根元数据换代共用隐藏 Scene0，等待新实例的完整就绪通知。
+pub(super) fn spawn_scene0(
+    commands: &mut Commands,
+    path: &str,
+    handle: Handle<WorldAsset>,
+) -> Entity {
+    commands
+        .spawn((
+            Name::new(format!("资产预览_{path}")),
+            AssetPreviewModelRoot,
+            crate::components::MapEditorOwnedEntity,
+            WorldAssetRoot(handle),
+            Visibility::Hidden,
+            RenderLayers::layer(MAP_EDITOR_ASSET_PREVIEW_LAYER),
+        ))
+        .id()
+}
 
 /// 共享预览及尚未交付的候选走同一回收点，任何Update/PostUpdate动画装配都先完整落地。
 pub(super) fn reclaim_external_preview_roots(world: &mut World) {

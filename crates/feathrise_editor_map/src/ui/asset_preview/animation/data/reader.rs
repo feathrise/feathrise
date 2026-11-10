@@ -9,6 +9,66 @@ pub(super) const JSON_CHUNK: u32 = 0x4e4f534a;
 pub(super) const BIN_CHUNK: u32 = 0x004e4942;
 
 impl AnimationDocument {
+    pub(in crate::ui::asset_preview::animation) fn source_path(&self) -> &Path {
+        &self.source.path
+    }
+
+    /// 只采纳 Scene0 实际蒙皮网格的关节，防止同名空节点或其他场景的骨架被当作模型。
+    pub(in crate::ui::asset_preview::animation) fn scene_skin(
+        &self,
+    ) -> (Vec<bool>, Vec<(usize, Vec3, Vec3)>) {
+        let json = &self.source.json;
+        let mut joints = vec![false; self.nodes.len()];
+        let mut bounds = Vec::new();
+        let index = |value: &Value| value.as_u64().and_then(|value| usize::try_from(value).ok());
+        let nodes = array(json, "nodes");
+        let scenes = array(json, "scenes");
+        let mut stack: Vec<_> = scenes
+            .first()
+            .into_iter()
+            .flat_map(|scene| array(scene, "nodes").iter().filter_map(index))
+            .collect();
+        let mut seen = vec![false; nodes.len()];
+        while let Some(node_index) = stack.pop() {
+            let Some(node) = nodes.get(node_index) else {
+                continue;
+            };
+            if std::mem::replace(&mut seen[node_index], true) {
+                continue;
+            }
+            stack.extend(array(node, "children").iter().filter_map(index));
+            let (Some(skin), Some(mesh)) = (
+                index(&node["skin"]).and_then(|i| array(json, "skins").get(i)),
+                index(&node["mesh"]).and_then(|i| array(json, "meshes").get(i)),
+            ) else {
+                continue;
+            };
+            for joint in array(skin, "joints").iter().filter_map(index) {
+                if let Some(joint) = joints.get_mut(joint) {
+                    *joint = true;
+                }
+            }
+            for primitive in array(mesh, "primitives") {
+                let Some(position) = index(&primitive["attributes"]["POSITION"])
+                    .and_then(|i| array(json, "accessors").get(i))
+                else {
+                    continue;
+                };
+                let (Some(minimum), Some(maximum)) = (position.get("min"), position.get("max")) else {
+                    continue;
+                };
+                // 取景只读取 accessor 元数据，网格顶点仍交给原 Bevy 资源加载链。
+                if let (Ok(minimum), Ok(maximum)) = (
+                    float_array(Some(minimum), [0.0; 3]),
+                    float_array(Some(maximum), [0.0; 3]),
+                ) {
+                    bounds.push((node_index, Vec3::from_array(minimum), Vec3::from_array(maximum)));
+                }
+            }
+        }
+        (joints, bounds)
+    }
+
     /// 文件 IO 与完整解析随资源规模增长，调用方必须从唯一后台 IO 槽进入。
     pub fn load(path: &Path) -> Result<Self, String> {
         let path = path

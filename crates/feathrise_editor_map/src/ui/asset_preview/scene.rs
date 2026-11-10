@@ -232,7 +232,8 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                             min_width: px(0), // 不因窗口缩小撑开右栏。
                             margin: UiRect::left(px(3)), // 与放大按钮留少量间距。
                         }
-
+                    --
+                    @super::rigging::scene::launch()
                 ]
             --
 
@@ -419,10 +420,12 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                         TextColor(colors::TEXT_HINT)
                         Node { display: Display::None }
                     --
-                    @super::animation::scene::pose_toolbar() // 动画移动/旋转入口留在画布旁，原位迁移到中央后仍可直接使用。
+                    @super::animation::scene::pose_toolbar()-- // 动画移动/旋转入口留在画布旁，原位迁移到中央后仍可直接使用。
+                    @super::rigging::scene::dots()
                 ]
             --
 
+                @super::rigging::scene::panel()--
                 @super::animation::scene::panel()
             --
 

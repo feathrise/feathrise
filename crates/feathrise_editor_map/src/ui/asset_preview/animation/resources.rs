@@ -186,6 +186,7 @@ pub(super) struct Session {
     pub selected: KeySelection,
     pub pose: Option<(usize, Transform)>,
     pub model_path: Option<String>,
+    pub retarget_model: bool,
 }
 
 impl Session {
@@ -226,6 +227,17 @@ impl Session {
             });
         self.key = None;
         self.page = 0;
+    }
+    pub(super) fn select_clip(&mut self, clip: usize) {
+        self.clip = clip;
+        self.channel = (!self.document.clips[clip].channels.is_empty()).then_some(0);
+        self.key = None;
+        self.position = 0.0;
+        self.page = 0;
+        self.selected = KeySelection::default();
+        self.window_start = 0.0;
+        self.window_span = self.metadata.durations[clip].max(1.0 / 30.0);
+        self.selected_node = self.metadata.bones[clip].first().copied();
     }
     pub(super) fn new(document: AnimationDocument) -> Self {
         let channel = document
@@ -275,6 +287,7 @@ impl Session {
             selected: KeySelection::default(),
             pose: None,
             model_path: None,
+            retarget_model: false,
         }
     }
     pub(super) fn dirty(&self) -> bool {
@@ -412,6 +425,7 @@ pub(crate) struct AnimationEditorState {
     pub(super) pose_revision: u64,
     pub(super) model_status: String,
     pub(super) model_binding_revision: u64,
+    pub(super) rig_preview: Option<super::request::RigPreviewRequest>,
 }
 
 impl Default for AnimationEditorState {
@@ -444,6 +458,7 @@ impl Default for AnimationEditorState {
             pose_revision: 0,
             model_status: String::new(),
             model_binding_revision: 0,
+            rig_preview: None,
         }
     }
 }
@@ -541,6 +556,12 @@ impl AnimationEditorState {
                 .current()
                 .is_some_and(|session| !session.document.clips.is_empty())
     }
+    pub(super) fn retargeting(&self) -> bool {
+        self.current().is_some_and(|session| session.retarget_model && session.model_path.is_some())
+    }
+    pub(super) fn editable(&self) -> bool {
+        !self.retargeting() && self.active_document().is_some_and(|doc| !doc.read_only)
+    }
     pub(crate) fn owns_mouse(&self) -> bool {
         self.mouse_owned || self.drag.is_some() || self.gesture.is_some() || self.pose_mouse_owned
     }
@@ -598,7 +619,7 @@ impl AnimationEditorState {
             return view;
         };
         view.visible &= !session.document.clips.is_empty();
-        view.editable = !session.document.read_only;
+        view.editable = self.editable();
         if session.source_changed {
             view.status = "源文件已更新；当前草稿保留，保存或撤销修改后可重新载入".to_owned();
         }

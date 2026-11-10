@@ -60,7 +60,7 @@ fn page(width: f32, height: f32, scale: f32, dpi: f32) -> App {
         )
             .chain(),
     )
-    .add_systems(Startup, settings_panel.spawn())
+    .add_systems(Startup, (|| settings_panel(false)).spawn())
     .add_systems(
         Update,
         (sync_settings_panel, sync_shortcut_settings_panel).chain(),

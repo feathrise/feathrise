@@ -48,6 +48,8 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
     feathrise_runtime::prepare_vulkan_environment();
 
     let mut app = App::new();
+    #[cfg(feature = "validation")]
+    feathrise_editor_map::standalone::install_rigging_validation(&mut app, &project.root, &asset_root)?;
     let (preferences, preferences_error) = crate::workspace::preferences()?;
     if let Some(error) = preferences_error {
         eprintln!("{error}"); // 损坏偏好只读托底，原文件受身份保护，后续保存不能静默覆盖。

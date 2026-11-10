@@ -1267,7 +1267,7 @@ fn gpu_document_sidebar(
     )).id()); // 和正式F12一样先建立根，所有页面和菜单从首次布局即归同一棵树。
     if screenshot_type == "themes" {
         use bevy::ecs::system::RunSystemOnce;
-        app.world_mut().run_system_once::<_, (), _>(crate::ui::editor_settings::settings_panel.spawn()).unwrap();
+        app.world_mut().run_system_once::<_, (), _>((|| crate::ui::editor_settings::settings_panel(false)).spawn()).unwrap();
         let world = app.world_mut();
         let panel = world.query_filtered::<Entity, With<crate::components::MapEditorSettingsPanel>>().single(world).unwrap();
         world.entity_mut(panel).insert(ChildOf(menu_root.unwrap()));

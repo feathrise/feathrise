@@ -623,7 +623,7 @@ fn settings_gpu_three_themes_clicks_and_narrow_high_scale() {
         ))
         .id();
     app.world_mut()
-        .run_system_once::<_, (), _>(settings_panel.spawn())
+        .run_system_once::<_, (), _>((|| settings_panel(false)).spawn())
         .unwrap();
     let panel = {
         let world = app.world_mut();

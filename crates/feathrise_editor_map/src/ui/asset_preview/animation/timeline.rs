@@ -136,7 +136,7 @@ pub(super) fn input(
             return;
         }
         match gesture.kind {
-            TimelineGestureKind::Move { selection, delta } if delta != 0.0 => {
+            TimelineGestureKind::Move { selection, delta } if delta != 0.0 && !state.retargeting() => {
                 let clip = state.active_clip();
                 state.pending = Some(PendingAction::Command(Command::Move {
                     clip,
@@ -257,7 +257,7 @@ pub(super) fn input(
         kind = TimelineGestureKind::Pan {
             start: s.window_start,
         };
-    } else if let Some(row) = track.row {
+    } else if let Some(row) = track.row.filter(|_| !state.retargeting()) {
         let Some(channel) = s.visible_channels().get(row).copied() else {
             return;
         };

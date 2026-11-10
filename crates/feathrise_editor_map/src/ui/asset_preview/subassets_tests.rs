@@ -419,3 +419,63 @@ fn initial_modified_events_are_drained_before_hot_reload_is_armed() {
     assert!(model.scene_ready); // 纯网格换代复用现有World实例。
     assert_eq!(model.catalog.phase, AssetPreviewCatalogPhase::Loading); // 新目录重新验证编号。
 }
+
+#[test]
+fn late_gltf_metadata_event_gets_a_fresh_scene_ready_without_a_world_asset_change() {
+    use bevy::world_serialization::{WorldAssetRoot, WorldSerializationPlugin};
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default(), WorldSerializationPlugin))
+        .add_message::<AssetEvent<Gltf>>()
+        .add_message::<AssetEvent<GltfMesh>>()
+        .init_resource::<AssetPreviewNavigation>()
+        .add_systems(Update, invalidate_model_hot_reload)
+        .add_observer(super::super::model::observe_asset_preview_world_ready);
+    app.finish();
+    app.cleanup();
+
+    let scene = app
+        .world_mut()
+        .resource_mut::<Assets<WorldAsset>>()
+        .add(WorldAsset::new(World::new()));
+    let old_root = app
+        .world_mut()
+        .spawn((
+            AssetPreviewModelRoot,
+            WorldAssetRoot(scene.clone()),
+            Visibility::Hidden,
+        ))
+        .id();
+    let gltf = Handle::<Gltf>::from(Uuid::from_u128(21));
+    let mut model = AssetPreviewModelSession::new(1, gltf.clone());
+    model.catalog.phase = AssetPreviewCatalogPhase::Ready;
+    app.insert_resource(AssetPreviewState {
+        selected_path: Some("models/humanoid.glb".to_owned()),
+        content: AssetPreviewContent::Model {
+            handle: scene.clone(),
+            root: old_root,
+            phase: AssetPreviewPhase::Loading,
+        },
+        model: Some(model),
+        next_model_generation: 2,
+        ..default()
+    });
+    app.update();
+    assert!(app.world().resource::<AssetPreviewState>().model.as_ref().unwrap().scene_ready);
+
+    // 只发布 GLTF 根元数据事件，保留 Scene0 资产原字节和句柄，不伪造第二个 Ready。
+    app.world_mut().write_message(AssetEvent::<Gltf>::Modified { id: gltf.id() });
+    app.update();
+
+    let world = app.world();
+    let state = world.resource::<AssetPreviewState>();
+    let fresh_root = state.scene_root().unwrap();
+    let model = state.model.as_ref().unwrap();
+    assert_ne!(fresh_root, old_root);
+    assert!(world.get_entity(old_root).is_err());
+    assert_eq!(world.get::<WorldAssetRoot>(fresh_root).unwrap().id(), scene.id());
+    assert_eq!(world.get::<Visibility>(fresh_root), Some(&Visibility::Hidden));
+    assert_eq!(model.generation, 2);
+    assert!(model.scene_ready);
+    assert_eq!(state.bounds_scan.as_ref().map(|scan| scan.root), Some(fresh_root));
+}

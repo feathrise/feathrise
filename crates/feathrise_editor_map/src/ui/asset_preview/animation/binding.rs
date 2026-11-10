@@ -8,6 +8,7 @@ use crate::{MapEditorSystemSet, components::MapEditorOwnedEntity};
 use bevy::{
     camera::visibility::{NoFrustumCulling, RenderLayers},
     gltf::GltfAssetLabel,
+    mesh::skinning::SkinnedMesh,
     prelude::*,
     tasks::{IoTaskPool, futures::check_ready},
     world_serialization::{WorldAsset, WorldAssetRoot, WorldInstanceReady},
@@ -103,7 +104,7 @@ fn compatible(
     if names.is_empty() {
         return Err("动画没有可绑定骨骼".into());
     }
-    Ok(SkeletonMapping { names })
+    Ok(SkeletonMapping { names, retarget: None })
 }
 
 fn ready(
@@ -124,12 +125,29 @@ fn ready(
     if bank.ready {
         bank.stack.clear();
         bank.stack.push((event.entity, 0));
-        // 模型热更不得继续使用旧骨架映射；先退出绑定，作者可按按钮重验新文件。
+        // 同一实例可因初次资产晚到或热更再次 Ready。两种情况都先撤下旧映射。
         binding.failed = true;
-        binding.active = false;
-        editor.model_status = "模型已热更新，请重新绑定以检查新骨架".into();
-        if let Some(s) = editor.current_mut() {
-            s.model_path = None;
+        binding.revision = binding.revision.wrapping_add(1);
+        binding.hide(&mut commands);
+        let current = binding.identity.as_ref().is_some_and(|identity| {
+            editor.source() == Some(identity.source.as_path())
+                && editor.source_revision == identity.revision
+                && editor.model_binding_revision == identity.request
+                && editor.current().and_then(|session| session.model_path.as_ref()) == Some(&identity.model)
+        });
+        if current {
+            if binding.identity.as_ref().is_some_and(|identity| identity.retarget) {
+                // 绑骨预览仍持有同一模型与动作意图。换票后另一旧容器的 Ready 不再命中，
+                // 原单飞槽先完整退役，再重新读取磁盘骨架并应用当前动作。
+                editor.model_binding_revision = editor.model_binding_revision.wrapping_add(1);
+                editor.model_status = "角色模型已重新就绪，正在复验动作映射".into();
+            } else {
+                editor.model_status = "模型已热更新，请重新绑定以检查新骨架".into();
+                if let Some(s) = editor.current_mut() {
+                    s.model_path = None;
+                    s.retarget_model = false;
+                }
+            }
         }
         return;
     }
@@ -180,21 +198,20 @@ fn drive(
     children: Query<&Children>,
     names: Query<&Name>,
     meshes: Query<(), With<Mesh3d>>,
+    skinned_meshes: Query<(), With<SkinnedMesh>>,
     mut cameras: Query<&mut Camera, Without<super::super::types::AssetPreviewCamera>>,
     mut binding: ResMut<BindingState>,
 ) {
     let desired = editor
         .visible()
         .then(|| {
-            editor
-                .current()?
-                .model_path
-                .as_ref()
-                .map(|model| BindingIdentity {
+            let session = editor.current()?;
+            session.model_path.as_ref().map(|model| BindingIdentity {
                     source: editor.active.clone().unwrap(),
                     revision: editor.source_revision,
                     request: editor.model_binding_revision,
                     model: model.clone(),
+                    retarget: session.retarget_model,
                 })
         })
         .flatten();
@@ -299,14 +316,31 @@ fn drive(
         let path = desired
             .as_ref()
             .map(|id| documents.asset_root().join(&id.model));
+        let retarget = desired.as_ref().filter(|id| id.retarget)
+            .map(|id| (documents.asset_root().to_owned(), id.source.clone()));
         let retired = std::mem::take(&mut binding.retired);
         binding.task = Some((
             desired.clone(),
             IoTaskPool::get().spawn(async move {
                 drop(retired);
                 if let (Some(source), Some(path)) = (source, path) {
-                    let target = AnimationDocument::load(&path)?;
-                    compatible(&source, &target).map(Some)
+                    let mapping = if let Some((root, source_path)) = retarget {
+                        // 原动画列表来自当前工程；再次复验磁盘实际目标，拒绝替换成工程外的链接。
+                        let root = root.canonicalize().map_err(|error| format!("无法打开工程资产根：{error}"))?;
+                        let path = path.canonicalize().map_err(|error| format!("无法打开预览角色：{error}"))?;
+                        let source_path = source_path.canonicalize().map_err(|error| format!("无法打开动作资产：{error}"))?;
+                        if !path.starts_with(&root) || !source_path.starts_with(&root)
+                            || source_path != source.source_path()
+                        {
+                            return Err("动作或模型已离开当前工程资产目录，或文件目标发生变化".into());
+                        }
+                        let target = AnimationDocument::load(&path)?;
+                        super::retarget::mapping(&source, &target)?
+                    } else {
+                        let target = AnimationDocument::load(&path)?;
+                        compatible(&source, &target)?
+                    };
+                    Ok(Some(mapping))
                 } else {
                     Ok(None)
                 }
@@ -376,7 +410,7 @@ fn drive(
                 if let Ok(mut camera) = cameras.get_mut(*entity) {
                     camera.is_active = false;
                 }
-                if meshes.contains(*entity) {
+                if meshes.contains(*entity) && (!identity.retarget || skinned_meshes.contains(*entity)) {
                     bank.mesh_count += 1;
                 }
                 if let Ok(name) = names.get(*entity)
@@ -405,13 +439,75 @@ fn drive(
         }
     }
     if binding.ready() {
-        editor.model_status = "角色已绑定 · 同骨架蒙皮预览".into();
+        let status = match &mapping.retarget {
+            Some(rig) if rig.supports(editor.active_clip()) => "动作已重定向 · 原地播放 · 预览只读",
+            Some(_) => "该动作片段没有可重定向的骨骼旋转",
+            None => "角色已绑定 · 同骨架蒙皮预览",
+        };
+        if editor.model_status != status {
+            editor.model_status = status.into();
+        }
+        if mapping.retarget.as_ref().is_some_and(|rig| !rig.supports(editor.active_clip())) && binding.active {
+            binding.hide(&mut commands);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::world_serialization::WorldInstanceSpawner;
+
+    #[test]
+    fn repeated_ready_revalidates_retarget_once_and_preserves_strict_unbind() {
+        use super::super::resources::Session;
+
+        for retarget in [true, false] {
+            let source = PathBuf::from("motion.glb");
+            let model = "hero.glb".to_owned();
+            let mut editor = AnimationEditorState {
+                active: Some(source.clone()),
+                model_binding_revision: 7,
+                ..default()
+            };
+            let mut session = Session::new(super::super::data::tests::test_document());
+            session.model_path = Some(model.clone());
+            session.retarget_model = retarget;
+            editor.sessions.insert(source.clone(), session);
+            let identity = BindingIdentity {
+                source,
+                revision: editor.source_revision,
+                request: editor.model_binding_revision,
+                model,
+                retarget,
+            };
+            let mut app = App::new();
+            app.insert_resource(editor).add_observer(ready);
+            let roots = std::array::from_fn(|bank| {
+                app.world_mut().spawn((BoundModel(bank), Visibility::Inherited)).id()
+            });
+            app.insert_resource(BindingState {
+                identity: Some(identity),
+                banks: roots.map(|root| ModelBank { root: Some(root), ready: true, ..default() }),
+                active: true,
+                ..default()
+            });
+            let mut spawner = WorldInstanceSpawner::default();
+            for root in roots {
+                let instance_id = spawner.spawn(Handle::<WorldAsset>::default());
+                app.world_mut().trigger(WorldInstanceReady { entity: root, instance_id });
+            }
+            app.world_mut().flush();
+
+            let editor = app.world().resource::<AnimationEditorState>();
+            assert_eq!(editor.model_binding_revision, if retarget { 8 } else { 7 });
+            assert_eq!(editor.retargeting(), retarget);
+            assert_eq!(editor.current().unwrap().model_path.is_some(), retarget);
+            assert!(!app.world().resource::<BindingState>().active);
+            assert!(roots.iter().all(|&root| app.world().get::<Visibility>(root) == Some(&Visibility::Hidden)));
+        }
+    }
+
     #[test]
     fn mismatched_bone_units_are_rejected() {
         let source = super::super::data::tests::test_document();
