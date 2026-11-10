@@ -43,10 +43,10 @@ pub(super) fn control(
     mut focus: ResMut<InputFocus>,
     mut wheels: MessageReader<MouseWheel>,
     mut panes: Query<(&RelativeCursorPosition, &ComputedNode, &mut ScrollPosition), With<LogScroll>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
+    windows: Query<(Entity, &Window), With<PrimaryWindow>>,
     panels: WorkbenchFloatingPanels,
     overlays: Query<(), With<LogOverlay>>,
-    (bodies, search_fields): (Query<(), With<LogBody>>, Query<(Entity, &EditableText), With<LogSearchInput>>),
+    (bodies, search_fields): (Query<Entity, With<LogBody>>, Query<(Entity, &EditableText), With<LogSearchInput>>),
     mut thumbs: Query<&mut bevy::ui_widgets::ScrollbarDragState, With<LogScrollThumb>>,
 ) {
     let (mut keys, mouse) = input;
@@ -56,9 +56,11 @@ pub(super) fn control(
         || blockers.0.is_some_and(|plugins| plugins.captures_input())
         || blockers.1.is_some_and(|about| about.captures_input())
         || blockers.2.is_some_and(|page| page.settings_open);
-    let focused = !windows.single().is_ok_and(|window| !window.focused);
-    let hovered = panels.hovered().is_some_and(|entity| overlays.contains(entity))
-        && !blockers.3.is_some_and(|overlay| overlay.active);
+    let window = windows.single().ok();
+    let focused = window.is_none_or(|(_, window)| window.focused);
+    let host_overlay = blockers.3.is_some_and(|overlay| overlay.active);
+    let hovered = !host_overlay && panels.hovered().is_some_and(|entity| overlays.contains(entity));
+    let text_pressed = state.text_pressed.take();
     let body_focused = focus.get().is_some_and(|entity| bodies.contains(entity));
     let search_field = focus.get().and_then(|entity| search_fields.get(entity).ok());
     let search_focused = search_field.is_some();
@@ -69,6 +71,12 @@ pub(super) fn control(
     } else {
         if toggles.iter().any(EditorButtonClick::is_clicked) {
             state.open = !state.open;
+            if state.open && focused {
+                // 用户从底栏主动进入日志后，Ctrl+F 可以直接使用。
+                let target = if search.shown { search_fields.single().ok().map(|(field, _)| field) }
+                    else { bodies.single().ok() };
+                if let Some(target) = target { focus.set(target, FocusCause::Navigated); }
+            }
         }
         if state.open {
             for (action, click) in &buttons {
@@ -103,6 +111,19 @@ pub(super) fn control(
                     LogAction::SearchNext => direction = Some(SearchDirection::Next),
                 }
             }
+            // 浮窗拥有焦点或鼠标在日志上且主窗口空闲时接管 Ctrl+F，源码输入仍可使用自己的查找。
+            let window_focus = focus.get().is_none_or(|entity| window.is_some_and(|(primary, _)| primary == entity));
+            if state.open && focused && !host_overlay && !search_composing
+                && (body_focused || search_focused || (hovered && window_focus))
+                && keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
+                && !keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::AltLeft,
+                    KeyCode::AltRight, KeyCode::SuperLeft, KeyCode::SuperRight])
+                && let Ok((field, _)) = search_fields.single()
+                && keys.clear_just_pressed(KeyCode::KeyF)
+            {
+                search.shown = true;
+                focus.set(field, FocusCause::Navigated);
+            }
             // 官方文本输入可能在 Esc 的早期分发中先释放焦点，仍由刚才的日志拥有者收口。
             if focused && !search_composing && (body_focused || search_focused
                 || ((hovered || state.keyboard_owned) && focus.get().is_none()))
@@ -114,11 +135,13 @@ pub(super) fn control(
     if !state.open || !focused {
         for mut thumb in &mut thumbs { thumb.dragging = false; }
     }
-    // 正文只在实际获焦时持有快捷键。浮窗外的新点击及时归还键盘给工作台。
-    if (body_focused || search_focused) && (!state.open || !focused
-        || (search_focused && !search.shown) || (!hovered && mouse.get_just_pressed().next().is_some()))
-        && focus.get().is_some_and(|entity| bodies.contains(entity) || search_fields.contains(entity))
-    {
+    // 搜索框保留窗口切换前的焦点，方便在别的应用复制后返回粘贴。窗口失焦期间停止认领快捷键。
+    if focus.get().is_some_and(|entity| {
+        let body = bodies.contains(entity);
+        let search_input = search_fields.contains(entity);
+        let outside_press = text_pressed != Some(entity) && !hovered && mouse.get_just_pressed().next().is_some();
+        (body || search_input) && (!state.open || (body && !focused) || (search_input && !search.shown) || outside_press)
+    }) {
         focus.clear();
     }
     let reading = state.open && focused && focus.get().is_some_and(|entity| bodies.contains(entity));

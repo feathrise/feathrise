@@ -289,6 +289,7 @@ fn production_log_gpu_bottom_and_native_selection_screenshots() {
         bevy::input::InputPlugin,
         bevy::input_focus::InputFocusPlugin,
         bevy::input_focus::InputDispatchPlugin,
+        bevy::input_focus::pointer_focus::PointerFocusPlugin,
         bevy::picking::input::PointerInputPlugin,
         bevy::picking::PickingPlugin,
         bevy::picking::InteractionPlugin,

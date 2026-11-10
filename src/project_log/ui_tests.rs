@@ -12,8 +12,9 @@ use bevy::{
     input::{
         ButtonState,
         keyboard::{Key, KeyboardInput},
+        mouse::MouseButtonInput,
     },
-    input_focus::{InputDispatchPlugin, InputFocus, InputFocusPlugin},
+    input_focus::{InputDispatchPlugin, InputFocus, InputFocusPlugin, pointer_focus::PointerFocusPlugin},
     picking::{
         backend::HitData,
         events::{PointerDrag, PointerDragEnd, PointerDragStart, Pointer, PointerPress},
@@ -46,6 +47,7 @@ fn layout_app(payload: &str) -> (App, Entity, Entity) {
         bevy::input::InputPlugin,
         InputFocusPlugin,
         InputDispatchPlugin,
+        PointerFocusPlugin,
         bevy::picking::PickingPlugin,
         bevy::picking::InteractionPlugin,
         bevy::transform::TransformPlugin,
@@ -739,6 +741,107 @@ fn search_buttons_index_ansi_history_and_live_tail_without_changing_original_tex
     settle(&mut app);
     assert_eq!(app.world().get::<Text>(count).unwrap().0, "0/0 处匹配");
     assert!(app.world().resource::<ProjectLogState>().follow);
+}
+
+#[test]
+fn clicking_back_into_log_search_restores_widget_focus() {
+    let (mut app, window, camera) = layout_app("warning: fixture\n");
+    let field = entity::<LogSearchInput>(&mut app);
+    click_action(&mut app, LogAction::Search);
+    settle(&mut app);
+    assert_eq!(app.world().resource::<InputFocus>().get(), Some(field));
+
+    // 模拟点击空白工作区。原指针焦点插件将 AcquireFocus 请求冒泡到主窗口并释放焦点。
+    press(&mut app, window, camera, window, Vec2::new(400., 200.));
+    app.update();
+    assert_eq!(app.world().resource::<InputFocus>().get(), None);
+
+    let point = content_bounds(&app, field).center();
+    press(&mut app, window, camera, field, point);
+    app.update();
+    assert_eq!(app.world().resource::<InputFocus>().get(), Some(field));
+    app.world_mut().write_message(KeyboardInput {
+        key_code: KeyCode::KeyW, logical_key: Key::Character("w".into()),
+        state: ButtonState::Pressed, text: Some("w".into()), repeat: false, window,
+    });
+    app.update();
+    assert_eq!(app.world().get::<EditableText>(field).unwrap().value().to_string(), "w");
+}
+
+#[test]
+fn log_find_keeps_real_text_focus_and_routes_clipboard_shortcuts() {
+    let (mut app, window, camera) = layout_app("warning: fixture\n");
+    let body = entity::<LogBody>(&mut app);
+    let field = entity::<LogSearchInput>(&mut app);
+    let bar = entity::<LogSearchBar>(&mut app);
+    let foreign = app.world_mut().spawn(feathrise_editor_core::EditorTextInput).id();
+    app.world_mut().resource_mut::<InputFocus>().set(foreign, bevy::input_focus::FocusCause::Navigated);
+    let key = |app: &mut App, key_code, logical_key, state, text: Option<&str>| {
+        app.world_mut().write_message(KeyboardInput {
+            key_code, logical_key, state, text: text.map(Into::into), repeat: false, window,
+        });
+    };
+    let control = |app: &mut App, state| key(app, KeyCode::ControlLeft, Key::Control, state, None);
+    let find = |app: &mut App, state| key(app, KeyCode::KeyF, Key::Character("f".into()), state, None);
+    control(&mut app, ButtonState::Pressed);
+    find(&mut app, ButtonState::Pressed);
+    app.update();
+    assert_eq!(app.world().resource::<InputFocus>().get(), Some(foreign));
+    assert_eq!(app.world().get::<Node>(bar).unwrap().display, Display::None);
+    assert!(app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::KeyF));
+    find(&mut app, ButtonState::Released);
+    app.update();
+
+    // 指针命中已确认目标，浮窗悬停仍是旧帧时，这次真实按下也要获得并保持焦点。
+    let point = content_bounds(&app, body).center();
+    press(&mut app, window, camera, body, point);
+    app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Pressed, window });
+    app.update();
+    assert_eq!(app.world().resource::<InputFocus>().get(), Some(body));
+    app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Released, window });
+    find(&mut app, ButtonState::Pressed);
+    app.update();
+    assert_eq!(app.world().resource::<InputFocus>().get(), Some(field));
+    assert_eq!(app.world().get::<Node>(bar).unwrap().display, Display::Flex);
+    assert!(!app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::KeyF));
+
+    find(&mut app, ButtonState::Released);
+    control(&mut app, ButtonState::Released);
+    let point = content_bounds(&app, field).center();
+    press(&mut app, window, camera, field, point);
+    app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Pressed, window });
+    app.update();
+    assert_eq!(app.world().resource::<InputFocus>().get(), Some(field));
+    app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Released, window });
+    key(&mut app, KeyCode::KeyW, Key::Character("w".into()), ButtonState::Pressed, Some("w"));
+    app.update();
+    assert_eq!(app.world().get::<EditableText>(field).unwrap().value().to_string(), "w");
+
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+    app.update();
+    assert!(!app.world().resource::<ProjectLogState>().owns_keyboard());
+    assert_eq!(app.world().resource::<InputFocus>().get(), Some(field));
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+    control(&mut app, ButtonState::Pressed);
+    key(&mut app, KeyCode::KeyA, Key::Character("a".into()), ButtonState::Pressed, None);
+    app.update();
+    // 在官方输入分发之后观察复制／粘贴请求，避免专项读写用户的真实剪贴板。
+    for (code, letter, expected) in [(KeyCode::KeyC, "c", TextEdit::Copy), (KeyCode::KeyV, "v", TextEdit::Paste)] {
+        key(&mut app, code, Key::Character(letter.into()), ButtonState::Pressed, None);
+        app.world_mut().run_schedule(PreUpdate);
+        let mut input = app.world_mut().get_mut::<EditableText>(field).unwrap();
+        assert!(std::mem::take(&mut input.pending_edits).iter().any(|edit|
+            std::mem::discriminant(edit) == std::mem::discriminant(&expected)));
+        key(&mut app, code, Key::Character(letter.into()), ButtonState::Released, None);
+    }
+    app.world_mut().get_mut::<EditableText>(field).unwrap().pending_paste =
+        Some(bevy::clipboard::ClipboardRead::Ready(Ok("warning".into())));
+    control(&mut app, ButtonState::Released);
+    settle(&mut app);
+    assert_eq!(app.world().get::<EditableText>(field).unwrap().value().to_string(), "warning");
+    let count = entity::<LogSearchCount>(&mut app);
+    assert_eq!(app.world().get::<Text>(count).unwrap().0, "1/1 处匹配");
+    assert!(app.world().resource::<ProjectLogState>().copy_text(true).contains("warning: fixture"));
 }
 
 #[test]

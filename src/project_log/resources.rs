@@ -127,6 +127,8 @@ pub(crate) struct ProjectLogState {
     pub(super) dropped: u64,
     pub(super) open: bool,
     pub(super) keyboard_owned: bool,
+    // 指针命中先于浮窗控制。只保留本次实际按下的文字实体，避免同帧的旧悬停矩形撤销新焦点。
+    pub(super) text_pressed: Option<Entity>,
     pub(super) follow: bool,
     /// 默认按视口软换行；复制与选区身份始终使用未折行的原始UTF-8正文。
     pub(super) wrap: bool,
@@ -155,7 +157,7 @@ impl ProjectLogState {
             tasks: channel.tasks.clone(),
             current_tasks: std::array::from_fn(|index| channel.tasks[index].load(Ordering::Acquire)),
             lines: VecDeque::new(), bytes: 0, trimmed: 0, dropped: 0, open: false,
-            keyboard_owned: false, follow: true, wrap: true, wrap_layout: LogWrapLayout::default(),
+            keyboard_owned: false, text_pressed: None, follow: true, wrap: true, wrap_layout: LogWrapLayout::default(),
             content_revision: 0, clear_revision: 0, scroll_back: 0, visible_rows: 20, dirty: true,
             tails: std::array::from_fn(|_| None), last_line_sequences: [0; TAIL_SLOTS],
             next_offset: 0, selection: None, select_all: false,

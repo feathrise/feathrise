@@ -4,7 +4,7 @@ use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::{LINE_HEIGHT, ProjectLogState}, search::{LogSearch, SEARCH_QUERY_CHARS}, search_paint::LogSearchBrush};
 use bevy::{picking::hover::Hovered, prelude::*, text::{EditableText, EditableTextFilter, FontHinting, LineBreak, LineHeight, TextCursorStyle},
-    input_focus::{FocusCause, InputFocus}, picking::{events::PointerPress, pointer::PointerButton},
+    input_focus::tab_navigation::TabIndex, picking::{events::PointerPress, pointer::PointerButton},
     ui::{FocusPolicy, RelativeCursorPosition}, ui_widgets::{ControlOrientation, Scrollbar, ScrollbarThumb}};
 use feathrise_editor_map::workbench::{WorkbenchFloatingPanel, WorkbenchHeader, WorkbenchProjectLogButton};
 use feathrise_editor_ui::colors as c;
@@ -111,6 +111,8 @@ pub(super) fn mount(
                                 content.spawn((
                                     LogBody::default(), Name::new("工程日志正文"),
                                     bevy::ui_widgets::TextInput,
+                                    // 允许原生鼠标焦点请求命中只读正文，以便选中后用键盘复制。
+                                    TabIndex(-1),
                                     EditableText { visible_lines: None, allow_newlines: true, ..default() },
                                     TextFont { font: terminal_font.clone().into(), font_size: 13.0.into(), ..default() },
                                     FontHinting::Enabled,
@@ -123,7 +125,7 @@ pub(super) fn mount(
                                     UiInteraction::None, FocusPolicy::Block,
                                     Node { position_type: PositionType::Absolute, left: px(0), top: px(0),
                                         min_width: percent(100), flex_shrink: 0., ..default() },
-                                )).observe(focus_text_on_press);
+                                )).observe(record_text_press);
                                 // 此层不参与拾取。透明EditableText继续拥有官方字形命中、光标和蓝色选区。
                                 content.spawn((
                                     LogDisplay::default(), feathrise_editor_ui::EditorLiteralColor,
@@ -169,17 +171,19 @@ fn search_bar(panel: &mut ChildSpawnerCommands, font: &Handle<Font>) {
         row.spawn(Node { flex_grow: 1., flex_basis: px(160), min_width: px(100), ..default() })
             .with_children(|field| {
                 field.spawn((
-                    LogSearchInput, feathrise_editor_core::EditorTextInput,
+                    LogSearchInput, Name::new("工程日志查找框"), feathrise_editor_core::EditorTextInput,
                     // 文本、光标和 IME 组合态由官方单行输入拥有。正文仍是独立的只读选区。
                     feathrise_editor_ui::single_line_input("", SEARCH_QUERY_CHARS),
+                    // 让 Bevy 在此接收鼠标焦点请求，避免请求冒泡到窗口时清除焦点。负索引保留原 Tab 顺序。
+                    TabIndex(-1),
                     EditableTextFilter::new(|character| !character.is_control()),
                     TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
-                    TextLayout::no_wrap(), TextColor(c::TEXT_PRIMARY), FocusPolicy::Block,
+                    TextLayout::no_wrap(), TextColor(c::TEXT_PRIMARY), UiInteraction::None, FocusPolicy::Block,
                     Node { width: percent(100), min_width: px(0), height: px(28),
                         padding: UiRect::axes(px(7), px(4)), border: UiRect::all(px(1)),
                         overflow: Overflow::clip_x(), ..default() },
                     BackgroundColor(c::INPUT_BG), BorderColor::all(c::COPPER_BORDER_WEAK),
-                )).observe(focus_text_on_press);
+                )).observe(record_text_press);
                 field.spawn((
                     LogSearchHint, caption(font, "搜索工程日志", 12., c::TEXT_MUTED),
                     Node { position_type: PositionType::Absolute, left: px(8), top: px(5), ..default() },
@@ -194,19 +198,18 @@ fn search_bar(panel: &mut ChildSpawnerCommands, font: &Handle<Font>) {
     });
 }
 
-fn focus_text_on_press(
+fn record_text_press(
     press: On<PointerPress>,
-    state: Res<ProjectLogState>,
+    mut state: ResMut<ProjectLogState>,
     search: Res<LogSearch>,
     fields: Query<(&ComputedNode, Has<LogSearchInput>), Or<(With<LogBody>, With<LogSearchInput>)>>,
-    mut focus: ResMut<InputFocus>,
 ) {
-    if press.button != PointerButton::Primary || !state.open || focus.get() == Some(press.entity) {
+    if press.button != PointerButton::Primary || !state.open {
         return;
     }
     if fields.get(press.entity).is_ok_and(|(node, input)| !node.is_empty() && (!input || search.shown)) {
-        // 官方文本控件的按下观察器负责字形命中和选区。浮窗仅为两个文本实体接管同一次按下的焦点。
-        focus.set(press.entity, FocusCause::Pressed);
+        // Bevy 负责取得焦点和定位光标；浮窗只记录实际命中，避免当帧旧的悬停状态清掉新焦点。
+        state.text_pressed = Some(press.entity);
     }
 }
 
