@@ -2,7 +2,6 @@
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
-use bevy::prelude::*; // ECS系统参数、UI交互和显示样式。
 use crate::ui::theme as colors; // 活动页签与悬停沿用统一铜金反馈。
 
 use crate::authoring::EditorAuthoringSession; // 上下文显隐读取当前草稿中真实对象数量。

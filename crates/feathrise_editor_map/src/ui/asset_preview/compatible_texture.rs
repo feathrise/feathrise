@@ -19,7 +19,7 @@ struct PreviewPermit;
 
 impl PreviewPermit {
     fn acquire() -> Option<Self> {
-        IN_FLIGHT.fetch_update(Ordering::AcqRel, Ordering::Acquire,
+        IN_FLIGHT.try_update(Ordering::AcqRel, Ordering::Acquire,
             |active| (active < MAX_IN_FLIGHT).then_some(active + 1)).ok().map(|_| Self)
     }
 }

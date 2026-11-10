@@ -46,7 +46,7 @@ impl Shared {
         self.stopped.load(Ordering::Acquire) || self.control.is_cancelled()
     }
     pub fn advance(&self) -> u64 {
-        match self.generation.fetch_update(Ordering::AcqRel, Ordering::Acquire, |generation| generation.checked_add(1)) {
+        match self.generation.try_update(Ordering::AcqRel, Ordering::Acquire, |generation| generation.checked_add(1)) {
             Ok(previous) => previous + 1,
             Err(generation) => {
                 // 不能回绕复活旧按钮或旧产物；极端代次耗尽同样撤销所有采用权限。
