@@ -35,6 +35,7 @@ const SUBCLASS: usize = 0x46544348;
 // 固定矩形用消息值传递，绝不把跨进程指针交给宿主；只接受真实可见的直接作者子窗口。
 const RECT_MESSAGE: u32 = WM_APP + 0x461;
 const VISIBLE_MESSAGE: u32 = RECT_MESSAGE + 4;
+const REFIT_MESSAGE: u32 = VISIBLE_MESSAGE + 1;
 
 #[derive(Clone, Copy, Default)]
 struct Snapshot {
@@ -50,6 +51,8 @@ struct Snapshot {
     attached: bool,
     caption_down: Option<WindowAction>,
     input_surface: usize,
+    remember_placement: bool,
+    work_area_changed: bool,
 }
 struct Installation {
     hwnd: usize,
@@ -132,6 +135,7 @@ fn sync(
     geometry: Res<ChromeGeometry>,
     mut state: ResMut<ChromeState>,
     windows: Query<(&Window, &RawHandleWrapper), With<PrimaryWindow>>,
+    placement: Option<Res<super::placement::MainWindowPlacement>>,
     mut buttons: Query<(
         Entity,
         &ChromeButton,
@@ -199,6 +203,7 @@ fn sync(
             root,
             root_pid,
             attached: true,
+            remember_placement: placement.is_some(),
             ..default()
         }));
         let pointer = Rc::into_raw(Rc::clone(&state)) as usize;
@@ -697,6 +702,27 @@ unsafe extern "system" fn callback(
         return 0;
     }
     match message {
+        WM_DISPLAYCHANGE | WM_SETTINGCHANGE
+            if window == root && snapshot.remember_placement
+                && (message == WM_DISPLAYCHANGE || wparam == SPI_SETWORKAREA as usize) =>
+        {
+            let result = unsafe { DefSubclassProc(window, message, wparam, lparam) };
+            state.set(Snapshot { work_area_changed: true, ..state.get() });
+            // 等系统先应用新显示配置。最大化、最小化期间只标记，还原时再整理普通窗口。
+            unsafe { PostMessageW(root, REFIT_MESSAGE, 0, 0) };
+            result
+        }
+        REFIT_MESSAGE if window == root && snapshot.work_area_changed => {
+            if !snapshot.fullscreen
+                && unsafe { IsWindowVisible(root) != 0 && IsIconic(root) == 0 && IsZoomed(root) == 0 }
+            {
+                state.set(Snapshot { work_area_changed: false, ..snapshot });
+                if let Err(error) = super::placement::fit_to_work_area(root) {
+                    warn!("显示配置变化后无法调整主窗口：{error}");
+                }
+            }
+            0
+        }
         WM_WINDOWPOSCHANGED | WM_SIZE | WM_DPICHANGED | WM_SHOWWINDOW | WM_ENABLE if window == root => {
             let result = unsafe { DefSubclassProc(window, message, wparam, lparam) };
             if snapshot.input_surface != 0 {
@@ -704,6 +730,11 @@ unsafe extern "system" fn callback(
                 let _ = unsafe {
                     super::input_surface::reposition(root, snapshot.input_surface as HWND)
                 };
+            }
+            if snapshot.work_area_changed
+                && (message == WM_SIZE && wparam == SIZE_RESTORED as usize || message == WM_SHOWWINDOW)
+            {
+                unsafe { PostMessageW(root, REFIT_MESSAGE, 0, 0) };
             }
             result
         }

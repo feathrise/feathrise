@@ -1,4 +1,4 @@
-//! Feathrise用户级工程偏好：默认目录、最近工程及受身份保护的原子保存。
+//! Feathrise用户级偏好：默认目录、最近工程、主窗口位置及受身份保护的原子保存。
 //!
 //! 这里只处理有界数据和文件，不依赖Bevy World；调用方应在启动前读取，或把IO放入后台槽。
 //! 偏好始终归当前用户，不读取或写入工程的settings.json，也不会因记录移除删除工程。
@@ -28,10 +28,36 @@ pub(crate) struct RecentProject {
     pub last_opened_unix_seconds: u64,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct WindowPlacement {
+    /// Win32工作区坐标。最大化时这里仍保存还原后的外框。
+    pub normal_rect: [i32; 4],
+    pub maximized: bool,
+}
+
+impl WindowPlacement {
+    pub(crate) fn is_valid(self) -> bool {
+        let [left, top, right, bottom] = self.normal_rect;
+        right.checked_sub(left).is_some_and(|width| width > 0)
+            && bottom.checked_sub(top).is_some_and(|height| height > 0)
+    }
+}
+
+fn read_window_placement<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<WindowPlacement>, D::Error> {
+    // 单个窗口记录损坏时仍可读取最近工程和默认目录，下一次正常退出可写入有效记录。
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value::<WindowPlacement>(value)
+        .ok()
+        .filter(|placement| placement.is_valid()))
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Preferences {
     pub default_project_directory: PathBuf,
     pub recent_projects: Vec<RecentProject>,
+    pub main_window: Option<WindowPlacement>,
     home: PathBuf,
     file: PathBuf,
     // 仅标准用户位置携带旧来源；显式验收/自定义文件不读取真实用户配置。
@@ -50,6 +76,12 @@ struct StoredPreferences {
     default_project_directory: Option<PathBuf>,
     #[serde(default)]
     recent_projects: Vec<RecentProject>,
+    #[serde(
+        default,
+        deserialize_with = "read_window_placement",
+        skip_serializing_if = "Option::is_none"
+    )]
+    main_window: Option<WindowPlacement>,
 }
 
 const fn current_format() -> u32 {
@@ -128,6 +160,7 @@ impl Preferences {
                 resolve_directory(path_text(&directory)?, &preferences.home)?;
         }
         preferences.recent_projects = stored.recent_projects;
+        preferences.main_window = stored.main_window;
         preferences.validate()?;
         preferences.original = Some(original);
         Ok(preferences)
@@ -141,6 +174,7 @@ impl Preferences {
         Ok(Self {
             default_project_directory: home.join("feathrise"),
             recent_projects: Vec::new(),
+            main_window: None,
             home,
             file,
             legacy_file: None,
@@ -222,6 +256,7 @@ impl Preferences {
             format: current_format(),
             default_project_directory: Some(self.default_project_directory.clone()),
             recent_projects: self.recent_projects.clone(),
+            main_window: self.main_window,
         };
         let mut bytes = serde_json::to_vec_pretty(&stored)
             .map_err(|error| format!("无法编码编辑器个人设置：{error}"))?;
@@ -711,6 +746,7 @@ mod tests {
         fs::create_dir_all(fixture.config.parent().unwrap()).unwrap();
         fs::write(&fixture.config, br#"{"format":1,"recent_projects":[]}"#).unwrap();
         let mut preferences = fixture.load();
+        assert!(preferences.main_window.is_none());
         assert_eq!(
             preferences.default_project_directory,
             fixture.home.join("feathrise")
@@ -720,5 +756,30 @@ mod tests {
             fixture.load().default_project_directory,
             preferences.default_project_directory
         );
+    }
+
+    #[test]
+    fn invalid_window_record_keeps_project_preferences_and_can_be_replaced() {
+        let fixture = Fixture::new();
+        fs::create_dir_all(fixture.config.parent().unwrap()).unwrap();
+        fs::write(
+            &fixture.config,
+            br#"{"format":1,"default_project_directory":"~/projects",
+                "main_window":{"normal_rect":[150,180,149,640],"maximized":true}}"#,
+        )
+        .unwrap();
+        let mut preferences = fixture.load();
+        assert_eq!(
+            preferences.default_project_directory,
+            fixture.home.join("projects")
+        );
+        assert_eq!(preferences.main_window, None);
+        let placement = WindowPlacement {
+            normal_rect: [-1520, 30, -480, 730],
+            maximized: true,
+        };
+        preferences.main_window = Some(placement);
+        preferences.save().unwrap();
+        assert_eq!(fixture.load().main_window, Some(placement));
     }
 }
