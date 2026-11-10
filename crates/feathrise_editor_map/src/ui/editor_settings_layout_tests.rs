@@ -43,7 +43,8 @@ fn layout_app() -> (App, Entity) {
         ..default()
     })
     .init_resource::<EditorSettings>()
-    .add_systems(Startup, settings_panel.spawn())
+    // 夹具按 F12 的设置分组核对原有布局和动作数量。
+    .add_systems(Startup, (|| settings_panel(false)).spawn())
     .add_systems(
         Update,
         (

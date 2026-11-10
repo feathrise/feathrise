@@ -64,7 +64,8 @@ fn page(width: f32, height: f32, scale: f32, dpi: f32) -> App {
         )
             .chain(),
     )
-    .add_systems(Startup, settings_panel.spawn())
+    // 用游戏内 F12 面板核对吸附字段的布局。
+    .add_systems(Startup, (|| settings_panel(false)).spawn())
     .add_systems(
         Update,
         (setup_snap_inputs, sync_settings_panel, sync_snap_inputs).chain(),
