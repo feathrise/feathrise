@@ -148,6 +148,7 @@ pub(super) fn sync_presentation(
     locale: Option<Res<EditorLocale>>,
     catalog: Res<EditorAssetCatalog>,
     editor: Res<MapEditorState>,
+    reference: crate::ui::asset_preview::rigging::RigReferenceRows,
     state: Res<ThumbnailState>,
     mut pools: Query<
         (&mut Node, &ComputedNode),
@@ -266,6 +267,7 @@ pub(super) fn sync_presentation(
             *background = target_background;
         }
     }
+    let selected_path = reference.selected(editor.selected_asset.as_deref());
     for (row, mut node, mut border, mut background, children, interaction) in &mut rows {
         let Some(entry) = row.entry_index.and_then(|index| catalog.entries.get(index)) else {
             continue;
@@ -302,7 +304,7 @@ pub(super) fn sync_presentation(
         if *node != target {
             *node = target;
         }
-        let selected = editor.selected_asset.as_deref() == Some(&entry.asset_path);
+        let selected = selected_path == Some(entry.asset_path.as_str());
         let target_border = BorderColor::all(if selected || *interaction != UiInteraction::None {
             colors::COPPER_BORDER
         } else {

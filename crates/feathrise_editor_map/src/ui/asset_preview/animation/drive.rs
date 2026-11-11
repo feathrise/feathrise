@@ -14,8 +14,15 @@ pub(super) fn drive(
     media: Res<AssetPreviewWorkspace>,
     documents: Res<DocumentState>,
     time: Res<Time<Real>>,
+    runtime: Option<Res<super::preview::PreviewRuntime>>,
     mut state: ResMut<AnimationEditorState>,
 ) {
+    if state.rig_preview.as_ref().is_some_and(|request| {
+        !context.editor.open || context.editor.close_requested
+            || !request.request.matches(&preview, &media, context.workspace.active_tab, documents.asset_root())
+    }) {
+        state.stop_rig_preview(); // 切模型、项目、代次或单体视图后，旧动作不能接管新画布。
+    }
     let desired = preview
         .selected_path
         .as_ref()
@@ -37,7 +44,9 @@ pub(super) fn drive(
         state.changed();
         state.source_revision = state.source_revision.wrapping_add(1).max(1);
         let stamp = state.revision;
-        if let Some(session) = state.current_mut() {
+        if let Some(path) = state.active.clone()
+            && let Some(session) = state.sessions.get_mut(&path)
+        {
             session.last_used = stamp;
             if !session.dirty() {
                 session.source_changed = true;
@@ -62,7 +71,7 @@ pub(super) fn drive(
         }
         state.model_generation = generation;
     }
-    state.visible = state.active.is_some() && context.available(&preview, &media);
+    state.visible = state.source().is_some() && context.available(&preview, &media);
     if !state.visible {
         state.playing = false;
         state.drag = None;
@@ -76,14 +85,15 @@ pub(super) fn drive(
         .and_then(|work| check_ready(&mut work.task));
     if let Some(completed) = completed {
         let work = state.work.take().unwrap();
-        let changes_view = !matches!(&completed, TaskResult::Released);
-        let is_current = state.active.as_ref() == Some(&work.path);
+        let changes_view = !matches!(&completed, TaskResult::Released | TaskResult::RigLoad { .. });
+        let is_author_path = state.active.as_ref() == Some(&work.path);
+        let is_current = is_author_path && !state.in_place_rig_preview();
         let current_generation = state
             .model_generation
             .as_ref()
             .filter(|(path, _)| path == &work.path)
             .map(|(_, generation)| *generation);
-        let stale_source = is_current && current_generation != work.generation;
+        let stale_source = is_author_path && current_generation != work.generation;
         // 同一路径第二次热更新可先于上一轮后台结果到达；保留新标记并沿唯一槽重验最新代。
         // 切到其他文件时仍按原 path 更新其停放会话，不能把正常后台完成误当成串源。
         let completed =
@@ -92,7 +102,9 @@ pub(super) fn drive(
                     session.source_changed = true;
                 }
                 state.failed = None;
-                state.status = "动画来源再次更新，正在读取最新版本".to_owned();
+                if is_current {
+                    state.status = "动画来源再次更新，正在读取最新版本".to_owned();
+                }
                 debug_assert!(state.retired.is_none());
                 state.retired = Some(Retired::Result(completed));
                 None
@@ -106,11 +118,18 @@ pub(super) fn drive(
                         if let Some(old) = state.clipboard.replace(clipboard) {
                             state.retired = Some(Retired::Clipboard(old));
                         }
-                        state.status = "已复制选中关键帧；移动播放头后粘贴".into();
+                        if !state.in_place_rig_preview() {
+                            state.status = "已复制选中关键帧；移动播放头后粘贴".into();
+                        }
                     }
-                    Err(error) => state.status = error,
+                    Err(error) => {
+                        if !state.in_place_rig_preview() {
+                            state.status = error;
+                        }
+                    }
                 },
                 TaskResult::Released => {}
+                TaskResult::RigLoad { ticket, result } => super::request::adopt(&mut state, ticket, result),
                 TaskResult::Unchanged => {
                     if let Some(session) = state.sessions.get_mut(&work.path) {
                         session.source_changed = false;
@@ -256,6 +275,7 @@ pub(super) fn drive(
             state.changed();
         }
     }
+    super::request::retire(&mut state);
     if state.work.is_none() && state.retired.is_some() {
         // 释放占用原作者工作槽，不 detach GC；旧结果完整归还前不再启动下一份大文档工作。
         let retired = state.retired.take().expect("已确认单份待释放所有权");
@@ -274,6 +294,8 @@ pub(super) fn drive(
                 TaskResult::Released
             }),
         });
+    } else if state.work.is_none() && state.in_place_rig_preview() {
+        super::request::launch(&mut state);
     } else if state.work.is_none() {
         if let Some(path) = state.active.clone().filter(|path| {
             !state.sessions.contains_key(path) && state.failed.as_ref() != Some(path)
@@ -323,7 +345,11 @@ pub(super) fn drive(
             launch(&mut state, PendingAction::Reload);
         }
     }
-    if state.visible && state.playing && !state.busy() {
+    // 初次匹配与换片段从真正显示的首帧起步，等待角色容器时不预先消耗动作时间。
+    if state.visible && state.playing && !state.busy()
+        && (!state.in_place_rig_preview() || preview.render_visible
+            && runtime.as_ref().is_some_and(|runtime| runtime.rig_pose_published(&state)))
+    {
         let delta = time.delta_secs().min(0.1) * state.speed;
         let looping = state.looping;
         let mut ended = false;

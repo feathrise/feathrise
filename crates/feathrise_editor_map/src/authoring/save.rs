@@ -26,6 +26,7 @@ use crate::resources::MapEditorState;
 mod batch; // 所有JSON、作者源、派生资产与目录先在内存组成一个完成批次。
 mod terrain_documents; // 多地形画布投影与清单最后发布，共用同一次回滚事务。
 mod blender_sync; // 可选工具可用时，动态GLB与同名Blend stage共同参与原子保存。
+pub(crate) use blender_sync::find_blender_executable;
 mod domain_files; // 外部文档版本核对与流式写项，不解释或复制正文。
 mod global; // 仅全局配置脏时绕过全部地图预检的单文件原子保存。
 mod handoff_helpers; // 地形Scene0身份与文件事件代次基线保持独立小型纯辅助。

@@ -170,7 +170,7 @@ pub(crate) fn scene_tree_page() -> impl Scene {
         MapEditorSidebarPage(EditorSidebarTab::Navigator(EditorNavigatorTab::Scene))
         Node { display: Display::None, width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_direction: FlexDirection::Column, overflow: Overflow::clip() }
         Children [
-            MapEditorSceneContext
+            MapEditorSceneContext crate::ui::asset_preview::gltf_tree::MapSceneTreePanel
             Node { width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_direction: FlexDirection::Column }
             Children [
                 crate::ui::scene_inspector::InspectorTree
@@ -190,6 +190,8 @@ pub(crate) fn scene_tree_page() -> impl Scene {
             Children [Text("当前正在编辑预设，切回地图标签查看场景树。") @feathrise_editor_ui::localization::label_scene("当前正在编辑预设，切回地图标签查看场景树。")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED) TextLayout { linebreak: LineBreak::AnyCharacter }]
+        --
+            @crate::ui::asset_preview::gltf_tree::panel()
         ]
     }
 }

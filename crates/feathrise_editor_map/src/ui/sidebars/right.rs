@@ -100,6 +100,7 @@ pub(crate) fn right_sidebar(scenes: &feathrise_editor_documents_model::DocumentS
             --
             @scene_page()--
             @super::left::tools_page()--
+            @super::super::asset_preview::rigging::scene::sidebar_page()--
             @asset_properties_page(scenes)--
             @crate::ui::map_sidebar::map_properties_page()--
             @super::super::environment::environment_page() // 三种环境作用域在唯一滚动页内独立显示。

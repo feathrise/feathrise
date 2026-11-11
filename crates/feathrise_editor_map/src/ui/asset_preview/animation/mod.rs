@@ -8,6 +8,7 @@ mod components;
 mod context;
 mod control;
 mod data;
+mod docking;
 mod drive;
 mod editing;
 #[cfg(test)]
@@ -16,9 +17,12 @@ mod pose;
 mod presentation;
 mod preview;
 pub(crate) mod project_close;
+mod request;
 mod resources;
+mod retarget;
 pub(super) mod scene;
 mod timeline;
+mod timeline_dock;
 mod types;
 // 仅显式自有工程验收使用的原控件桥；实现留在有限夹具域，不公开作者文档/任务类型。
 #[cfg(any(test, feature = "validation"))]
@@ -26,7 +30,19 @@ mod types;
 pub(crate) mod workflow_validation;
 
 pub(super) use preview::PreviewRuntime as AnimationPreviewRuntime;
+pub(super) use docking::{InlineAnimationHost, binding_properties_host, properties_host};
+pub(super) use timeline_dock::scene as timeline_dock_scene;
+pub(super) use request::PreviewRigAnimation;
+pub(super) use request::receive as receive_rig_animation;
 pub(crate) use resources::AnimationEditorState;
+#[cfg(feature = "validation")]
+pub(crate) use preview::{rig_animation_diagnostic, rig_animation_probe};
+#[cfg(feature = "validation")]
+pub(crate) use request::rig_animation_identity;
+#[cfg(feature = "validation")]
+pub(super) use docking::properties_panel_visible;
+#[cfg(feature = "validation")]
+pub(super) use timeline_dock::timeline_dock_probe;
 
 /// 生产与集成回归共用输入注册，避免测试另写顺序掩盖地图批量域先消费按键的问题。
 fn install_input(app: &mut App) {
@@ -41,14 +57,31 @@ fn install_input(app: &mut App) {
 }
 
 pub(super) fn install(app: &mut App) {
-    app.init_resource::<AnimationEditorState>();
+    app.init_resource::<AnimationEditorState>()
+        .init_resource::<timeline_dock::Layout>()
+        .add_message::<PreviewRigAnimation>()
+        .add_systems(
+            Update,
+            timeline_dock::input
+                .after(super::workspace::actions)
+                .before(control::input)
+                .before(crate::ui::numeric_scrub_mouse_guard::update_map_editor_numeric_scrub_mouse_guard)
+                .in_set(MapEditorSystemSet::Input),
+        )
+        .add_systems(
+            Update,
+            receive_rig_animation
+                .after(super::workspace::actions)
+                .before(super::navigation::control_asset_preview)
+                .in_set(MapEditorSystemSet::Input),
+        );
     install_input(app);
     app
         .add_systems(Update, drive::drive
             .after(super::loading::sync_asset_preview_selection)
             .before(super::loading::poll_asset_preview_loading)
             .in_set(MapEditorSystemSet::Tasks))
-        .add_systems(Update, (scene::setup_numeric_inputs, presentation::sync).chain()
+        .add_systems(Update, (scene::setup_numeric_inputs, docking::sync, timeline_dock::sync, presentation::sync).chain()
             .after(super::presentation::sync_asset_preview_controls)
             .after(super::subasset_presentation::sync_asset_preview_subassets)
             .in_set(MapEditorSystemSet::Presentation));

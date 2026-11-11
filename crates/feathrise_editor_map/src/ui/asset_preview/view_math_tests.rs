@@ -2,6 +2,66 @@
 
 use super::*; // 测试直接复用运行时同一纯数学实现。
 
+#[test]
+fn model_view_presets_use_rig_front_and_keep_projection_independent() {
+    let front_yaw = 1.13;
+    let rig_rotation = Quat::from_rotation_y(front_yaw);
+    let mut view = AssetPreviewView {
+        zoom: 2.0,
+        model_pan: Vec3::new(0.1, -0.2, 0.3),
+        orthographic: true,
+        ..default()
+    };
+    for (preset, direction) in [
+        (EditorView::Front, rig_rotation * Vec3::Z),
+        (EditorView::Side, rig_rotation * Vec3::X),
+        (EditorView::Top, Vec3::Y),
+    ] {
+        view.set_direction(preset, front_yaw);
+        assert_eq!(view.direction(front_yaw), preset);
+        assert!((view.rotation() * Vec3::Z).abs_diff_eq(direction, 0.00001));
+        assert!(view.orthographic);
+        assert_eq!(view.zoom, 2.0);
+        assert_eq!(view.model_pan, Vec3::new(0.1, -0.2, 0.3));
+    }
+    orbit_after_drag(&mut view, Vec2::new(10.0, 0.0));
+    assert_eq!(view.direction(front_yaw), EditorView::Top);
+    orbit_after_drag(&mut view, Vec2::new(0.0, -10.0));
+    assert_eq!(view.direction(front_yaw), EditorView::Perspective);
+    view.set_direction(EditorView::Perspective, front_yaw);
+    assert!(view.orthographic); // 自由视角与正交投影可以同时启用。
+}
+
+#[test]
+fn landmark_and_full_framing_leave_file_snap_preferences_in_place() {
+    let mut view = AssetPreviewView::default();
+    view.snapping.show_grid = true;
+    view.snapping.enabled = true;
+    view.snapping.mode = feathrise_editor_core::EditorSnapMode::Relative;
+    let snapping = view.snapping;
+    view.set_direction(EditorView::Side, 0.5);
+    view.orthographic = true;
+    let direction = view.rotation();
+    let minimum = Vec3::new(-1.0, 0.0, -0.5);
+    let maximum = Vec3::new(2.0, 1.7, 1.0);
+    let selected = Vec3::new(0.7, 1.4, 0.5);
+
+    view.frame_model(minimum, maximum, Some(selected));
+    assert!(model_preview_frame(minimum, maximum, 1.4, view)
+        .center
+        .abs_diff_eq(selected, 0.00001));
+    assert!(view.zoom > 1.0);
+    view.frame_model(minimum, maximum, None);
+    assert_eq!(view.model_pan, Vec3::ZERO);
+    assert_eq!(view.zoom, 1.0);
+    assert_eq!(view.rotation(), direction);
+    assert!(view.orthographic);
+    assert_eq!(view.snapping, snapping);
+    view.reset_camera();
+    assert_eq!(view.rotation(), AssetPreviewView::default().rotation());
+    assert_eq!(view.snapping, snapping);
+}
+
 #[test] // 保留原自动取景回归，增加导航默认参数。
 fn model_frame_centers_an_offset_tall_asset_and_keeps_valid_clips() {
     let frame = model_preview_frame(
@@ -125,6 +185,31 @@ fn resizing_preserves_orbit_zoom_and_panned_target() {
     let b = (fullscreen.camera_position - fullscreen.center).normalize(); // 全屏观察方向。
     assert!((a - b).length() < 1e-6); // 方向不跳回默认值。
     assert_eq!(view.zoom, 2.3); // 相对取景倍率不重置。
+}
+
+#[test]
+fn orthographic_axis_view_keeps_target_scale_and_stable_top_rotation() {
+    let view = AssetPreviewView {
+        zoom: 8.0,
+        yaw: 0.6,
+        pitch: std::f32::consts::FRAC_PI_2,
+        orthographic: true,
+        model_pan: Vec3::new(0.4, 0.1, -0.2),
+        ..default()
+    };
+    let mut transform = Transform::IDENTITY;
+    let mut projection = Projection::Perspective(PerspectiveProjection::default());
+    let frame = apply_model_preview_frame(
+        Vec3::NEG_ONE, Vec3::ONE, 1.4, view, &mut transform, &mut projection,
+    );
+    let Projection::Orthographic(orthographic) = projection else { panic!("对轴后应为正交") };
+    let perspective = model_preview_frame(Vec3::NEG_ONE, Vec3::ONE, 1.4, AssetPreviewView {
+        orthographic: false, ..view
+    });
+    assert_eq!(frame.center, view.model_pan);
+    assert!(transform.back().abs_diff_eq(Vec3::Y, 1e-6));
+    assert!(frame.camera_position.y > 1.0);
+    assert!((orthographic.area.height() - perspective.vertical_span).abs() < 1e-6);
 }
 
 #[test] // 屏幕平移应随当前旋转方向，而不是硬编码世界轴。

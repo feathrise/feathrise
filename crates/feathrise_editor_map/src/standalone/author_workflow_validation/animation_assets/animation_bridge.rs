@@ -24,6 +24,29 @@ fn enabled() -> bool {
         && std::env::var("NEW_EDITOR_NATIVE_SMOKE_SAVE").as_deref() == Ok("1")
 }
 
+#[cfg(feature = "validation")]
+pub(crate) fn timeline_ruler(world: &mut World) -> Option<(Entity, f32)> {
+    let state = world.get_resource::<AnimationEditorState>()?;
+    if !state.visible() || state.busy() {
+        return None;
+    }
+    let session = state.current()?;
+    let fps = state.fps as f32;
+    let midpoint = ((session.window_start + session.window_span * 0.5) * fps).round() / fps;
+    let binding = state.revision;
+    // 返回真实可见帧尺。验收随后仍通过窗口事件定位并读取已发布姿态。
+    world
+        .query::<(Entity, &AnimationTrack, &ComputedNode, &InheritedVisibility)>()
+        .iter(world)
+        .find_map(|(entity, track, node, visibility)| {
+            (track.row.is_none()
+                && track.binding == binding
+                && node.size().min_element() > 1.0
+                && visibility.get())
+                .then_some((entity, midpoint))
+        })
+}
+
 pub(crate) fn animation_probe(
     world: &World,
     source: &Path,

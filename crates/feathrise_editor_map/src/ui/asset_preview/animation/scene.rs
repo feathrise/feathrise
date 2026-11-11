@@ -2,7 +2,9 @@
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
-use super::components::*;
+use super::{components::*, docking::{
+    BindModelButton, BindModelHome, BindModelStatus, InlinePropertyHost, PropertySection,
+}};
 use crate::ui::{scene::FONT_PATH, theme as colors};
 use bevy::{
     prelude::*,
@@ -30,6 +32,14 @@ fn button(text: &str, action: AnimationAction) -> impl Scene {
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [@label(text, AnimationLabel::Button(action))]
     }
+}
+
+fn bind_button() -> impl Scene {
+    bsn! { BindModelButton AnimationWriteControls @button("绑定所选模型", AnimationAction::BindSelectedModel) }
+}
+
+fn bind_status() -> impl Scene {
+    bsn! { BindModelStatus @label("", AnimationLabel::Model) }
 }
 
 /// 姿势工具紧邻骨架画布，避免藏在时间轴按钮中；固定两个入口不占画布布局高度。
@@ -63,7 +73,7 @@ fn tick(index: usize) -> impl Scene {
         right: if last { px(0) } else { Val::Auto },
         top: px(0),
         bottom: px(0),
-        width: px(34),
+        width: px(RULER_TICK_WIDTH),
         border: if last {
             UiRect::right(px(1))
         } else {
@@ -78,7 +88,7 @@ fn tick(index: usize) -> impl Scene {
         overflow: Overflow::clip_x(),
         ..default()
     };
-    bsn! { ~{node}
+    bsn! { ~{node} ~{AnimationRulerTick(index)}
         BorderColor::all(colors::COPPER_BORDER_WEAK) ~{FocusPolicy::Pass}
         Children [@label("0", AnimationLabel::Tick(index))]
     }
@@ -144,6 +154,17 @@ fn numeric_slot(field: AnimationNumericField) -> impl Scene {
     }
 }
 
+fn wrap_row() -> impl Scene {
+    bsn! {
+        Node { min_width: px(0), max_width: percent(100), flex_wrap: FlexWrap::Wrap,
+            align_items: AlignItems::Center, column_gap: px(3), row_gap: px(3) }
+    }
+}
+
+fn property_home(section: PropertySection) -> impl Scene {
+    bsn! { ~{InlinePropertyHost(section)} @wrap_row() }
+}
+
 pub(in super::super) fn panel() -> impl Scene {
     bsn! { AnimationPanel
         Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0,
@@ -154,12 +175,22 @@ pub(in super::super) fn panel() -> impl Scene {
             Node { width: percent(100), min_width: px(0), align_items: AlignItems::Center,
                 column_gap: px(3), row_gap: px(3), flex_wrap: FlexWrap::Wrap,
                 padding: UiRect::right(px(22)) }
-            Children [@label("动作", AnimationLabel::Clip)--
-                @button("前动作", AnimationAction::PreviousClip)-- @button("后动作", AnimationAction::NextClip)--
-                @button("保存", AnimationAction::Save)-- @button("撤销", AnimationAction::Undo)--
-                @button("重做", AnimationAction::Redo)--
-                @button("重载动作", AnimationAction::Reload)--
-                @crate::ui::context_help::help_button("动画编辑", "点选骨节，用移动轴或旋转环摆姿势。自动插帧在松开时记录；关闭后需插入姿势或还原。时间轴滚轮缩放，中键或Shift滚轮平移；空白拖动框选，Ctrl增减选区，拖菱形整组移动。悬停时间轴可用Delete、Ctrl+C/V/Z、空格；Esc取消拖动。旋转数值为XYZ角度，中键精确输入。密集关键帧显示为窄条，放大后可逐键选择。中央动画标签保持打开，在资产列表选择同骨架角色GLB后绑定；模型只用于预览，保存仅写当前动画GLB。外置GLTF只读。")]
+            Children [
+                @property_home(PropertySection::Clips)
+                Children [
+                    ~{PropertySection::Clips} @wrap_row()
+                    Children [@label("动作", AnimationLabel::Clip)--
+                        AnimationWriteControls @button("前动作", AnimationAction::PreviousClip)--
+                        AnimationWriteControls @button("后动作", AnimationAction::NextClip)]
+                ]
+            --
+                AnimationWriteControls @wrap_row()
+                Children [@button("保存", AnimationAction::Save)-- @button("撤销", AnimationAction::Undo)--
+                    @button("重做", AnimationAction::Redo)-- @button("重载动作", AnimationAction::Reload)]
+            --
+                AnimationWriteControls
+                @crate::ui::context_help::help_button("动画编辑", "点选骨节，用移动轴或旋转环摆姿势。自动插帧在松开时记录；关闭后需插入姿势或还原。时间轴滚轮缩放，中键或Shift滚轮平移；空白拖动框选，Ctrl增减选区，拖菱形整组移动。悬停时间轴可用Delete、Ctrl+C/V/Z、空格；Esc取消拖动。旋转数值为XYZ角度，中键精确输入。密集关键帧显示为窄条，放大后可逐键选择。中央动画标签保持打开，在资产列表选择同骨架角色GLB后绑定；模型只用于预览，保存仅写当前动画GLB。外置GLTF只读。")
+            ]
         --
             Node { width: percent(100), min_width: px(0), align_items: AlignItems::Center,
                 column_gap: px(3), row_gap: px(3), flex_wrap: FlexWrap::Wrap }
@@ -170,13 +201,25 @@ pub(in super::super) fn panel() -> impl Scene {
                 @button("1×", AnimationAction::CycleSpeed)-- @label("0 / 0 帧", AnimationLabel::Time)]
         --
             Node { width: percent(100), min_width: px(0), column_gap: px(3), row_gap: px(3), flex_wrap: FlexWrap::Wrap, align_items: AlignItems::Center }
-            Children [@label("", AnimationLabel::Bone)-- @button("上骨骼", AnimationAction::PreviousBone)--
-                @button("下骨骼", AnimationAction::NextBone)-- @button("所选骨骼", AnimationAction::ToggleBoneFilter)--
-                @button("自动插帧", AnimationAction::ToggleAutoKey)-- @button("插入姿势", AnimationAction::InsertPose)--
-                @button("还原姿势", AnimationAction::ResetPose)]
+            Children [
+                @property_home(PropertySection::Pose)
+                Children [
+                    ~{PropertySection::Pose} @wrap_row()
+                    Children [@label("", AnimationLabel::Bone)-- @button("上骨骼", AnimationAction::PreviousBone)--
+                        @button("下骨骼", AnimationAction::NextBone)--
+                        AnimationWriteControls @button("还原姿势", AnimationAction::ResetPose)]
+                ]
+            --
+                @button("所选骨骼", AnimationAction::ToggleBoneFilter)--
+                AnimationWriteControls @button("自动插帧", AnimationAction::ToggleAutoKey)--
+                AnimationWriteControls @button("插入姿势", AnimationAction::InsertPose)
+            ]
         --
-            Node { width: percent(100), min_width: px(0), column_gap: px(3), row_gap: px(3), flex_wrap: FlexWrap::Wrap, align_items: AlignItems::Center }
-            Children [@button("绑定所选模型", AnimationAction::BindSelectedModel)-- @button("仅骨架", AnimationAction::UnbindModel)-- @label("", AnimationLabel::Model)]
+            @property_home(PropertySection::Binding)
+            Children [
+                ~{PropertySection::Binding} BindModelHome @wrap_row()
+                Children [@bind_button()-- @button("仅骨架", AnimationAction::UnbindModel)-- @bind_status()]
+            ]
         --
             Node { width: percent(100), min_width: px(0), height: px(24), flex_shrink: 0.0 }
             Children [
@@ -202,11 +245,16 @@ pub(in super::super) fn panel() -> impl Scene {
             Children [@button("前通道", AnimationAction::PreviousChannelPage)--
                 @button("后通道", AnimationAction::NextChannelPage)--
                 @button("适配", AnimationAction::FitTimeline)-- @button("＋", AnimationAction::ZoomIn)-- @button("－", AnimationAction::ZoomOut)--
-                @button("复制", AnimationAction::CopyKeys)-- @button("粘贴", AnimationAction::PasteKeys)--
+                AnimationWriteControls @button("复制", AnimationAction::CopyKeys)--
+                AnimationWriteControls @button("粘贴", AnimationAction::PasteKeys)--
                 @button("前键", AnimationAction::PreviousKey)-- @button("后键", AnimationAction::NextKey)--
-                @button("插入关键帧", AnimationAction::InsertKey)-- @button("删除关键帧", AnimationAction::DeleteKey)--
-                @button("LINEAR", AnimationAction::CycleInterpolation)]
-        -- @label("", AnimationLabel::Hint)--
+                AnimationWriteControls @button("插入关键帧", AnimationAction::InsertKey)--
+                AnimationWriteControls @button("删除关键帧", AnimationAction::DeleteKey)--
+                AnimationWriteControls @button("LINEAR", AnimationAction::CycleInterpolation)]
+        --
+            AnimationWriteControls @label("", AnimationLabel::Hint)
+        --
+            AnimationWriteControls
             Node { width: percent(100), min_width: px(0), column_gap: px(3), row_gap: px(3), flex_wrap: FlexWrap::Wrap }
             Children [@numeric_slot(AnimationNumericField::Frame)-- @numeric_slot(AnimationNumericField::Value(0))--
                 @numeric_slot(AnimationNumericField::Value(1))-- @numeric_slot(AnimationNumericField::Value(2))]

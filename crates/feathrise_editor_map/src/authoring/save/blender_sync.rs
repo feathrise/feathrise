@@ -112,7 +112,7 @@ fn resolve_tool_scripts(directory: Option<&Path>) -> Option<(PathBuf, PathBuf)> 
 }
 
 /// 找到显式配置、PATH或Windows标准安装目录中的Blender可执行文件。
-fn find_blender_executable() -> Result<PathBuf, String> {
+pub(crate) fn find_blender_executable() -> Result<PathBuf, String> {
     if let Some(configured) = std::env::var_os(BLENDER_PATH_ENVIRONMENT) {
         if configured.is_empty() {
             return Err(format!(

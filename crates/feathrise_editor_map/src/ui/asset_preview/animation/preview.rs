@@ -37,6 +37,7 @@ pub(super) struct Pose {
     draft: Option<(usize, Transform)>,
     pub time: f32,
     pub local: Vec<Transform>,
+    model_local: Option<Vec<Option<Transform>>>,
     pub world: Vec<Mat4>,
     pub joints: Vec<Transform>,
     bones: Vec<Transform>,
@@ -51,7 +52,7 @@ impl Pose {
     }
 
     pub(super) fn can_start_edit(&self, editor: &AnimationEditorState) -> bool {
-        editor.current().is_some_and(|session| {
+        !editor.retargeting() && editor.current().is_some_and(|session| {
             self.matches_session(session)
                 && self.draft == session.pose
                 // 播放中从实际显示帧起手；暂停定位或还原姿势后必须等当前完整结果，不能跳回旧帧。
@@ -60,7 +61,7 @@ impl Pose {
     }
 
     pub(super) fn can_draw_tools(&self, editor: &AnimationEditorState, dragging: bool) -> bool {
-        editor.current().is_some_and(|session| self.matches_session(session))
+        !editor.retargeting() && editor.current().is_some_and(|session| self.matches_session(session))
             && (dragging || self.can_start_edit(editor))
     }
 }
@@ -68,6 +69,7 @@ impl Pose {
 struct PendingPose {
     identity: Option<SourceIdentity>,
     revision: u64,
+    binding_revision: u64,
     clip: usize,
     time: u32,
     task: Task<Option<Arc<Pose>>>,
@@ -113,11 +115,20 @@ pub(in crate::ui::asset_preview) struct PreviewRuntime {
     applying: bool,
     cursor: usize,
     published_bounds: Option<AssetPreviewModelBounds>,
+    using_retarget_bounds: bool,
+    /// 只恢复本系统确实隐藏过的中央 Scene0，单体预览仍由原目标系统控制。
+    in_place_hidden_scene: Option<Entity>,
     complete: bool,
     retired: RetiredData,
 }
 
 impl PreviewRuntime {
+    pub(super) fn rig_pose_published(&self, editor: &AnimationEditorState) -> bool {
+        self.in_place_hidden_scene.is_some()
+            && self.published_pose.as_ref().is_some_and(|pose|
+                editor.current().is_some_and(|session| pose.matches_session(session)))
+    }
+
     #[cfg(test)]
     pub(super) fn for_input_tests(document: Arc<AnimationDocument>) -> Self {
         Self::for_input_tests_at(document, 0, 0.0, None)
@@ -172,6 +183,65 @@ pub(super) fn install(app: &mut App) {
     );
 }
 
+#[cfg(feature = "validation")]
+pub(crate) struct RigAnimationProbe {
+    pub model_path: String,
+    pub source: PathBuf,
+    pub clip_index: usize,
+    pub clip_name: String,
+    pub time: f32,
+    pub root: Entity,
+    pub joints: Vec<(String, Quat)>,
+}
+
+/// 读取真实已发布模型容器的骨骼变换；测试不能用待应用的后台姿态代替实际蒙皮。
+#[cfg(feature = "validation")]
+pub(crate) fn rig_animation_probe(world: &World) -> Option<RigAnimationProbe> {
+    let editor = world.get_resource::<AnimationEditorState>()?;
+    let runtime = world.get_resource::<PreviewRuntime>()?;
+    let binding = world.get_resource::<super::binding::BindingState>()?;
+    let identity = binding.identity.as_ref()?;
+    let session = editor.current()?;
+    let pose = runtime.published_pose.as_ref()?;
+    if !editor.visible() || !binding.active || !binding.ready() || !identity.retarget
+        || !world.get_resource::<AssetPreviewState>()?.render_visible
+        || editor.source() != Some(identity.source.as_path())
+        || editor.source_revision != identity.revision
+        || editor.model_binding_revision != identity.request
+        || session.model_path.as_ref() != Some(&identity.model)
+        || pose.model_local.is_none()
+        || !pose.matches_session(session)
+    {
+        return None;
+    }
+    let bank = &binding.banks[runtime.front];
+    let root = bank.root?;
+    if world.get::<Visibility>(root) != Some(&Visibility::Inherited) {
+        return None;
+    }
+    let mut joints = binding.mapping.as_ref()?.names.iter().map(|(name, source)| {
+        let entity = bank.nodes.get(source)?;
+        let rotation = world.get::<Transform>(*entity)?.rotation;
+        Some((name.clone(), rotation))
+    }).collect::<Option<Vec<_>>>()?;
+    joints.sort_by(|a, b| a.0.cmp(&b.0));
+    Some(RigAnimationProbe {
+        model_path: identity.model.clone(),
+        source: identity.source.clone(),
+        clip_index: session.clip,
+        clip_name: session.document.clips[session.clip].name.clone(),
+        time: pose.time,
+        root,
+        joints,
+    })
+}
+
+#[cfg(feature = "validation")]
+pub(crate) fn rig_animation_diagnostic(world: &World) -> Option<&str> {
+    let editor = world.get_resource::<AnimationEditorState>()?;
+    Some(if editor.model_status.is_empty() { &editor.status } else { &editor.model_status })
+}
+
 fn rotation(value: [f32; 4]) -> Quat {
     let quaternion = Quat::from_array(value);
     if quaternion.is_finite() && quaternion.length_squared() > 1e-12 {
@@ -210,7 +280,7 @@ fn sampled_local(nodes: &[Node], channels: &[Channel], time: f32) -> Vec<Transfo
 }
 
 /// 作者节点无需按父子顺序排列；显式栈避免深骨架递归导致后台线程栈溢出。
-fn world_matrices(nodes: &[Node], local: &[Transform]) -> Vec<Mat4> {
+pub(super) fn world_matrices(nodes: &[Node], local: &[Transform]) -> Vec<Mat4> {
     let mut world = vec![Mat4::IDENTITY; nodes.len()];
     let mut state = vec![0u8; nodes.len()];
     let mut chain = Vec::new();
@@ -312,6 +382,7 @@ fn prepare_pose_draft(
         draft,
         time,
         local,
+        model_local: None,
         world: matrices,
         joints,
         bones,
@@ -378,6 +449,46 @@ fn hide_failed_source(runtime: &mut PreviewRuntime, commands: &mut Commands) {
     runtime.applying = runtime.pose.is_some() && runtime.applied.is_some();
 }
 
+fn restore_in_place_scene(
+    runtime: &mut PreviewRuntime,
+    preview: &AssetPreviewState,
+    commands: &mut Commands,
+) {
+    if let Some(root) = runtime.in_place_hidden_scene.take()
+        && preview.scene_root() == Some(root)
+        && preview.model.as_ref().is_some_and(|model| model.target == AssetPreviewModelTarget::Scene0)
+        && matches!(preview.content, AssetPreviewContent::Model { phase: AssetPreviewPhase::Ready, .. })
+    {
+        commands.entity(root).try_insert(Visibility::Inherited);
+    }
+}
+
+fn apply_bound_pose(
+    binding: &super::binding::BindingState,
+    bank: usize,
+    pose: &Pose,
+    cursor: usize,
+    transforms: &mut Query<&mut Transform>,
+) -> usize {
+    let end = (cursor + NODES_PER_FRAME).min(pose.local.len());
+    let retargeting = binding.mapping.as_ref().is_some_and(|mapping| mapping.retarget.is_some());
+    for index in cursor..end {
+        if let Some(entity) = binding.node(bank, index)
+            && let Ok(mut transform) = transforms.get_mut(entity)
+        {
+            let value = if retargeting {
+                pose.model_local.as_ref().and_then(|model| model.get(index).copied().flatten())
+            } else {
+                Some(pose.local[index])
+            };
+            if let Some(value) = value {
+                *transform = value;
+            }
+        }
+    }
+    end
+}
+
 /// 分帧只写不可见容器；可见容器的完整姿态在最后一次定额写入后才被替换。
 fn apply_candidate(
     runtime: &mut PreviewRuntime,
@@ -420,7 +531,12 @@ fn apply_candidate(
             .try_insert(Visibility::Hidden);
         commands
             .entity(roots[target])
-            .try_insert(Visibility::Inherited);
+            .try_insert(if pose.model_local.is_some() {
+                // 角色和动作的关节位置可能不同，重定向时只显示实际蒙皮结果。
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
+            });
         if let Some(old) = runtime.published_pose.replace(pose.clone()) {
             runtime.retired.poses.push(old);
         }
@@ -446,6 +562,22 @@ pub(super) fn drive(
     mut mesh_materials: Query<&mut MeshMaterial3d<StandardMaterial>>,
     mut binding: Option<ResMut<super::binding::BindingState>>,
 ) {
+    let in_place = editor.in_place_rig_preview();
+    let in_place_ready = in_place && preview.render_visible
+        && matches!(preview.content, AssetPreviewContent::Model { phase: AssetPreviewPhase::Ready, .. })
+        && binding.as_ref().is_some_and(|binding| {
+            binding.ready() && binding.mapping.as_ref().and_then(|mapping| mapping.retarget.as_ref())
+                .is_some_and(|rig| rig.supports(editor.active_clip()))
+        });
+    if in_place && let Some(binding) = binding.as_mut().filter(|binding| binding.active)
+        && (!in_place_ready || runtime.published_pose.as_ref().is_none_or(|pose|
+            !editor.current().is_some_and(|session| pose.matches_session(session))))
+    {
+        binding.hide(&mut commands); // 换片段等待新姿态期间只显示原模型，禁止继续显示旧动作。
+    }
+    if !in_place || binding.as_ref().is_none_or(|binding| !binding.active) {
+        restore_in_place_scene(&mut runtime, &preview, &mut commands);
+    }
     let binding_revision = binding.as_ref().map_or(0, |b| b.revision);
     if runtime.binding_revision != binding_revision {
         runtime.binding_revision = binding_revision;
@@ -454,7 +586,7 @@ pub(super) fn drive(
         runtime.cursor = 0;
     }
     advance_retirement(&mut runtime, &mut commands);
-    let eligible = editor.visible()
+    let eligible = (!in_place || in_place_ready) && editor.visible()
         && editor
             .active_document()
             .is_some_and(|document| !document.clips.is_empty());
@@ -494,6 +626,7 @@ pub(super) fn drive(
         if let Some(pose) = result {
             if wanted == pending.identity
                 && pending.revision == editor.revision()
+                && pending.binding_revision == binding_revision
                 && pending.clip == editor.active_clip()
                 && (editor.playing
                     || editor.current().is_some_and(|s| s.pose.is_some())
@@ -534,15 +667,24 @@ pub(super) fn drive(
             let clip = editor.active_clip();
             let position = editor.position();
             let draft = editor.current().and_then(|s| s.pose);
+            let retarget = binding.as_ref().filter(|binding| binding.ready())
+                .and_then(|binding| binding.mapping.as_ref()?.retarget.as_ref())
+                .filter(|rig| rig.supports(clip))
+                .cloned();
             runtime.pending = Some(PendingPose {
                 identity: wanted.clone(),
                 revision: request.0,
+                binding_revision,
                 clip,
                 time: request.2,
                 task: AsyncComputeTaskPool::get().spawn(async move {
                     drop(retired);
                     snapshot.map(|document| {
-                        Arc::new(prepare_pose_draft(document, clip, position, draft))
+                        let mut pose = prepare_pose_draft(document, clip, position, draft);
+                        if let Some(rig) = retarget {
+                            pose.model_local = Some(rig.sample(&pose.local));
+                        }
+                        Arc::new(pose)
                     })
                 }),
             });
@@ -570,12 +712,42 @@ pub(super) fn drive(
             binding.hide(&mut commands);
         }
         hide_failed_source(&mut runtime, &mut commands);
+        restore_in_place_scene(&mut runtime, &preview, &mut commands);
         return;
     } // 自建骨架不能把损坏 GLTF、缺失缓冲或纹理依赖伪装成成功模型。
     if !assets.is_loaded_with_dependencies(source) {
         return;
     } // 缓存Gltf存在不代表当前加载成功；只检查真实根，不依赖合法纯动画可能没有的Scene0。
     if runtime.pose.is_none() {
+        return;
+    }
+    if in_place {
+        // 复用绑定角色的双容器和同一姿态预算。没有源骨架网格，也不更新原模型的取景范围。
+        if let Some(binding) = binding.as_mut().filter(|binding| binding.ready())
+            && runtime.applying
+        {
+            let bank = 1 - runtime.front;
+            let runtime = &mut *runtime;
+            let pose = runtime.pose.as_ref().expect("已就绪的候选姿态");
+            if pose.model_local.is_none() {
+                return;
+            }
+            runtime.cursor = apply_bound_pose(binding, bank, pose, runtime.cursor, &mut transforms);
+            if runtime.cursor == pose.local.len() {
+                runtime.front = bank;
+                runtime.applying = false;
+                if let Some(previous) = runtime.published_pose.replace(pose.clone()) {
+                    runtime.retired.poses.push(previous);
+                }
+                binding.publish(&mut commands, bank);
+                if let Some(root) = preview.scene_root()
+                    && runtime.in_place_hidden_scene != Some(root)
+                {
+                    commands.entity(root).try_insert(Visibility::Hidden);
+                    runtime.in_place_hidden_scene = Some(root);
+                }
+            }
+        }
         return;
     }
     if runtime.mesh.is_none() {
@@ -654,15 +826,7 @@ pub(super) fn drive(
         if let Some(binding) = binding.as_ref().filter(|b| b.ready()) {
             let bank = 1 - runtime.front;
             let pose = runtime.pose.as_ref().unwrap();
-            for index in
-                runtime.cursor..(runtime.cursor + NODES_PER_FRAME).min(runtime.entities.len())
-            {
-                if let Some(entity) = binding.node(bank, index)
-                    && let Ok(mut transform) = transforms.get_mut(entity)
-                {
-                    *transform = pose.local[index];
-                }
-            }
+            apply_bound_pose(binding, bank, pose, runtime.cursor, &mut transforms);
         }
         apply_candidate(
             &mut runtime,
@@ -673,7 +837,10 @@ pub(super) fn drive(
         if !runtime.applying
             && let Some(binding) = binding.as_mut()
         {
-            binding.publish(&mut commands, runtime.front);
+            let retargeting = binding.mapping.as_ref().is_some_and(|mapping| mapping.retarget.is_some());
+            if !retargeting || runtime.pose.as_ref().is_some_and(|pose| pose.model_local.is_some()) {
+                binding.publish(&mut commands, runtime.front);
+            }
         }
     }
     if !runtime.complete {
@@ -695,8 +862,15 @@ pub(super) fn drive(
     }
     // Scene0继续使用原完整静态预览，不对真实蒙皮分批写入半套姿态；骨架是本版明确的动作显示。
     if preview.bounds_scan.is_none() {
-        if preview.model_bounds.is_none() {
-            preview.model_bounds = Some(bounds);
+        let rig_bounds = binding.as_ref().filter(|binding| binding.active)
+            .and_then(|binding| binding.mapping.as_ref()?.retarget.as_ref())
+            .map(|rig| rig.bounds);
+        let using_retarget_bounds = rig_bounds.is_some();
+        if preview.model_bounds.is_none() || runtime.using_retarget_bounds != using_retarget_bounds {
+            preview.model_bounds = Some(rig_bounds.unwrap_or_else(|| {
+                preview.model.as_ref().and_then(|model| model.scene_bounds).unwrap_or(bounds)
+            }));
+            runtime.using_retarget_bounds = using_retarget_bounds;
         }
         let update_model = preview
             .model
@@ -726,7 +900,9 @@ pub(super) fn drive(
             {
                 *phase = AssetPreviewPhase::Ready;
             }
-            let status = if binding.as_ref().is_some_and(|b| b.active) {
+            let status = if using_retarget_bounds {
+                "已绑骨角色 · 外部 GLB 动作预览".to_owned()
+            } else if binding.as_ref().is_some_and(|b| b.active) {
                 format!("角色动画预览 · {total}个节点 · 点击骨节可编辑姿势")
             } else if real_meshes > 0 {
                 format!("动画骨架预览 · {total}个节点 · 原模型保留静态姿态")

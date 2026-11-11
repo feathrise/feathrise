@@ -147,8 +147,12 @@ pub(crate) fn asset_properties_page(scenes: &feathrise_editor_documents_model::D
                 ]
             --
             @field(SidebarField::CopyFeedback, "")--
+            @super::super::animation::binding_properties_host()--
+            @super::details::panel()--
             @super::super::asset_preview_panel(scenes)--
             @super::super::asset_preview_sidebar_launch(scenes)--
+            @super::super::rigging::scene::motion_properties_host()--
+            @super::super::animation::properties_host()--
             @sidebar_help_button(EditorSidebarHelp::Assets)--
             @sidebar_help_body(EditorSidebarHelp::Assets,
                 "单击文件只选择并预览，双击打开中央文件标签；右键可复制文件或目录路径。模型默认Scene0，可选择静态MeshN/PrimitiveN并复制精确网格和原材质引用；蒙皮网格仅支持完整场景。选择不放置实例、不改预设或地图。Cube KTX2请到环境页查看，同目录需有_diffuse与_specular派生图。")

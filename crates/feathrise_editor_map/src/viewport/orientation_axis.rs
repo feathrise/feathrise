@@ -5,6 +5,7 @@
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use bevy::picking::Pickable; // 装饰线与文字穿透，按钮和控件空隙拥有指针。
+use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*; // UI节点、文本、颜色、相机姿态与ECS查询。
 use bevy::ui::{FocusPolicy, RelativeCursorPosition};
 use feathrise_editor_ui::EditorButtonClick;
@@ -19,7 +20,10 @@ use crate::types::EditorView;
 #[derive(Component)]
 pub(crate) struct OrientationProjectionToggle;
 
-const ORIENTATION_FONT_PATH: &str = "fonts/open_source/noto_sans/cjk/NotoSansCJKsc-VF.otf"; // 与F12其余文字共享同一字体资产。
+#[derive(Component, Clone, Copy)]
+pub(crate) struct PreviewOrientationAxis; // 同款控件的节点由资产预览相机单独驱动。
+
+pub(crate) const ORIENTATION_FONT_PATH: &str = "fonts/open_source/noto_sans/cjk/NotoSansCJKsc-VF.otf"; // 与F12其余文字共享同一字体资产。
 const WIDGET_SIZE: f32 = 82.0; // 紧凑尺寸不遮挡地图，同时容纳正负六个端点。
 const WIDGET_INSET: f32 = 8.0; // 与中央画面铜边保持小幅呼吸空间。
 const WIDGET_CENTER: f32 = WIDGET_SIZE * 0.5; // 全部轴线和端点共用固定逻辑像素中心。
@@ -67,134 +71,153 @@ pub(crate) fn setup_editor_orientation_axis(
     };
     let font: Handle<Font> = feathrise_editor_core::editor_font(&asset_server, ORIENTATION_FONT_PATH); // 三个字母共享一个强类型句柄。
     commands.entity(viewport_entity).with_children(|viewport| {
-        viewport
-            .spawn((
-                Name::new("地图编辑器XYZ方向轴"),
-                MapEditorOrientationAxisRoot,
+        spawn_orientation_axis(viewport, &font, (Name::new("地图编辑器XYZ方向轴"), MapEditorOrientationAxisRoot), (), orientation_axis_layout(42.0), ["X", "Y", "Z"]);
+    });
+}
+
+pub(crate) fn orientation_axis_layout(top: f32) -> Node {
+    Node {
+        position_type: PositionType::Absolute,
+        right: px(WIDGET_INSET),
+        top: px(top),
+        width: px(WIDGET_SIZE),
+        height: px(WIDGET_SIZE),
+        ..default()
+    }
+}
+
+/// 方向球的布局和正式按钮共用。调用者提供宿主标记、位置及端点文字。
+pub(crate) fn spawn_orientation_axis(
+    viewport: &mut ChildSpawnerCommands,
+    font: &Handle<Font>,
+    root: impl Bundle,
+    axis_marker: impl Bundle + Copy,
+    layout: Node,
+    labels: [&'static str; 3],
+) {
+    viewport
+        .spawn((
+            root,
+            layout,
+            ZIndex(30), // 独立观察区覆盖元素栏空白背景；按钮本身另由窄屏布局避让，不用层级掩盖按钮。
+            UiInteraction::default(),
+            RelativeCursorPosition::default(),
+            FocusPolicy::Block,
+        ))
+        .with_children(|widget| {
+            widget.spawn((
+                Name::new("方向球中心：切换正交与透视"),
+                InteractionButton,
+                OrientationProjectionToggle,
+                axis_marker,
+                crate::ui::tooltips::EditorTooltipTarget(
+                    crate::ui::tooltips::TooltipAction::OrientationProjection,
+                ),
                 Node {
-                    position_type: PositionType::Absolute, // 固定在ViewportNode内部，不参与中央画面Flex布局。
-                    right: px(WIDGET_INSET),
-                    top: px(42.0), // 四球着色位于同一右上角首行，方向球从其下方开始。
-                    width: px(WIDGET_SIZE),
-                    height: px(WIDGET_SIZE),
+                    position_type: PositionType::Absolute,
+                    left: px(WIDGET_CENTER - 5.0),
+                    top: px(WIDGET_CENTER - 5.0),
+                    width: px(10.0),
+                    height: px(10.0),
+                    border_radius: BorderRadius::all(percent(50)),
                     ..default()
                 },
-                ZIndex(30), // 独立观察区覆盖元素栏空白背景；按钮本身另由窄屏布局避让，不用层级掩盖按钮。
-                UiInteraction::default(),
-                RelativeCursorPosition::default(),
+                BackgroundColor(Color::srgba(0.78, 0.80, 0.78, 0.9)),
+                ZIndex(40), // 中心点击切投影；正对镜头的轴仍保留周围可点击圆环。
                 FocusPolicy::Block,
-            ))
-            .with_children(|widget| {
+            ));
+            for (world_axis, label) in [Vec3::X, Vec3::Y, Vec3::Z].into_iter().zip(labels) {
+                let color = axis_color(world_axis);
                 widget.spawn((
-                    Name::new("方向球中心：切换正交与透视"),
-                    InteractionButton,
-                    OrientationProjectionToggle,
-                    crate::ui::tooltips::EditorTooltipTarget(
-                        crate::ui::tooltips::TooltipAction::OrientationProjection,
-                    ),
+                    Name::new(format!("{label}方向轴线")),
+                    MapEditorOrientationAxisLine { world_axis },
+                    axis_marker,
                     Node {
                         position_type: PositionType::Absolute,
-                        left: px(WIDGET_CENTER - 5.0),
-                        top: px(WIDGET_CENTER - 5.0),
-                        width: px(10.0),
-                        height: px(10.0),
-                        border_radius: BorderRadius::all(percent(50)),
+                        left: px(WIDGET_CENTER),
+                        top: px(WIDGET_CENTER - LINE_THICKNESS * 0.5),
+                        width: px(1.0),
+                        height: px(LINE_THICKNESS),
+                        border_radius: BorderRadius::all(px(1.0)),
                         ..default()
                     },
-                    BackgroundColor(Color::srgba(0.78, 0.80, 0.78, 0.9)),
-                    ZIndex(40), // 中心点击切投影；正对镜头的轴仍保留周围可点击圆环。
-                    FocusPolicy::Block,
+                    UiTransform::default(),
+                    BackgroundColor(color),
+                    Visibility::Hidden, // 相机姿态同步系统在节点完整出现后首次定位并显示。
+                    ZIndex(2),
+                    FocusPolicy::Pass,
+                    Pickable::IGNORE,
                 ));
-                for (world_axis, label) in [(Vec3::X, "X"), (Vec3::Y, "Y"), (Vec3::Z, "Z")] {
-                    let color = axis_color(world_axis);
-                    widget.spawn((
-                        Name::new(format!("{label}方向轴线")),
-                        MapEditorOrientationAxisLine { world_axis },
-                        Node {
-                            position_type: PositionType::Absolute,
-                            left: px(WIDGET_CENTER),
-                            top: px(WIDGET_CENTER - LINE_THICKNESS * 0.5),
-                            width: px(1.0),
-                            height: px(LINE_THICKNESS),
-                            border_radius: BorderRadius::all(px(1.0)),
-                            ..default()
-                        },
-                        UiTransform::default(),
-                        BackgroundColor(color),
-                        Visibility::Hidden, // 相机姿态同步系统在节点完整出现后首次定位并显示。
-                        ZIndex(2),
-                        FocusPolicy::Pass,
-                        Pickable::IGNORE,
-                    ));
-                    widget
-                        .spawn((
-                            Name::new(format!("{label}正方向端点")),
-                            InteractionButton,
-                            crate::ui::tooltips::EditorTooltipTarget(
-                                crate::ui::tooltips::TooltipAction::OrientationAxis,
-                            ),
-                            MapEditorOrientationAxisEndpoint {
-                                world_axis,
-                                positive: true,
-                            },
-                            Node {
-                                position_type: PositionType::Absolute,
-                                left: px(WIDGET_CENTER - POSITIVE_ENDPOINT_SIZE * 0.5),
-                                top: px(WIDGET_CENTER - POSITIVE_ENDPOINT_SIZE * 0.5),
-                                width: px(POSITIVE_ENDPOINT_SIZE),
-                                height: px(POSITIVE_ENDPOINT_SIZE),
-                                align_items: AlignItems::Center,
-                                justify_content: JustifyContent::Center,
-                                border_radius: BorderRadius::all(percent(50)),
-                                ..default()
-                            },
-                            BackgroundColor(color),
-                            ZIndex(20),
-                            FocusPolicy::Block,
-                        ))
-                        .with_child((
-                            Text::new(label),
-                            TextFont {
-                                font: font.clone().into(),
-                                font_size: 10.5.into(),
-                                ..default()
-                            },
-                            TextColor(Color::srgb(0.04, 0.05, 0.05)),
-                            FocusPolicy::Pass,
-                            Pickable::IGNORE,
-                        ));
-                    widget.spawn((
-                        Name::new(format!("{label}负方向端点")),
+                widget
+                    .spawn((
+                        Name::new(format!("{label}正方向端点")),
                         InteractionButton,
                         crate::ui::tooltips::EditorTooltipTarget(
                             crate::ui::tooltips::TooltipAction::OrientationAxis,
                         ),
                         MapEditorOrientationAxisEndpoint {
                             world_axis,
-                            positive: false,
+                            positive: true,
                         },
+                        axis_marker,
                         Node {
                             position_type: PositionType::Absolute,
-                            left: px(WIDGET_CENTER - NEGATIVE_ENDPOINT_SIZE * 0.5),
-                            top: px(WIDGET_CENTER - NEGATIVE_ENDPOINT_SIZE * 0.5),
-                            width: px(NEGATIVE_ENDPOINT_SIZE),
-                            height: px(NEGATIVE_ENDPOINT_SIZE),
-                            border: UiRect::all(px(2.0)),
+                            left: px(WIDGET_CENTER - POSITIVE_ENDPOINT_SIZE * 0.5),
+                            top: px(WIDGET_CENTER - POSITIVE_ENDPOINT_SIZE * 0.5),
+                            width: px(POSITIVE_ENDPOINT_SIZE),
+                            height: px(POSITIVE_ENDPOINT_SIZE),
+                            align_items: AlignItems::Center,
+                            justify_content: JustifyContent::Center,
                             border_radius: BorderRadius::all(percent(50)),
                             ..default()
                         },
-                        BackgroundColor(Color::NONE),
-                        BorderColor::all(color),
-                        ZIndex(10),
+                        BackgroundColor(color),
+                        ZIndex(20),
                         FocusPolicy::Block,
+                    ))
+                    .with_child((
+                        feathrise_editor_ui::localization::editor_label(label),
+                        TextFont {
+                            font: font.clone().into(),
+                            font_size: 10.5.into(),
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.04, 0.05, 0.05)),
+                        FocusPolicy::Pass,
+                        Pickable::IGNORE,
                     ));
-                }
-            });
-    });
+                widget.spawn((
+                    Name::new(format!("{label}负方向端点")),
+                    InteractionButton,
+                    crate::ui::tooltips::EditorTooltipTarget(
+                        crate::ui::tooltips::TooltipAction::OrientationAxis,
+                    ),
+                    MapEditorOrientationAxisEndpoint {
+                        world_axis,
+                        positive: false,
+                    },
+                    axis_marker,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: px(WIDGET_CENTER - NEGATIVE_ENDPOINT_SIZE * 0.5),
+                        top: px(WIDGET_CENTER - NEGATIVE_ENDPOINT_SIZE * 0.5),
+                        width: px(NEGATIVE_ENDPOINT_SIZE),
+                        height: px(NEGATIVE_ENDPOINT_SIZE),
+                        border: UiRect::all(px(2.0)),
+                        border_radius: BorderRadius::all(percent(50)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::NONE),
+                    BorderColor::all(color),
+                    ZIndex(10),
+                    FocusPolicy::Block,
+                ));
+            }
+        });
 }
 
 /// 六轴观察保持焦点和缩放；固定视图采用正交，随后右键仍可自由环绕。
-fn axis_angles(axis: Vec3, positive: bool) -> (f32, f32) {
+pub(crate) fn axis_angles(axis: Vec3, positive: bool) -> (f32, f32) {
     use std::f32::consts::{FRAC_PI_2, PI};
     let sign = if positive { 1.0 } else { -1.0 };
     if axis == Vec3::X {
@@ -220,12 +243,13 @@ pub(crate) fn orientation_axis_input(
             &EditorButtonClick,
             &Visibility,
         ),
-        Changed<EditorButtonClick>,
+        (Changed<EditorButtonClick>, Without<PreviewOrientationAxis>),
     >,
     toggles: Query<
         (Entity, &EditorButtonClick),
         (
             With<OrientationProjectionToggle>,
+            Without<PreviewOrientationAxis>,
             Changed<EditorButtonClick>,
         ),
     >,
@@ -282,24 +306,8 @@ pub(crate) fn sync_editor_orientation_axis(
     editor: Res<MapEditorState>,
     cameras: Query<&Transform, With<MapEditorCamera>>,
     mut cached_rotation: Local<Option<Quat>>,
-    mut lines: Query<
-        (
-            &MapEditorOrientationAxisLine,
-            &mut Node,
-            &mut UiTransform,
-            &mut Visibility,
-        ),
-        Without<MapEditorOrientationAxisEndpoint>,
-    >, // 轴线与端点都会写Node/Visibility，显式排除端点后向Bevy证明两个可变查询互斥。
-    mut endpoints: Query<
-        (
-            &MapEditorOrientationAxisEndpoint,
-            &mut Node,
-            &mut Visibility,
-            &mut ZIndex,
-        ),
-        Without<MapEditorOrientationAxisLine>, // 端点反向排除轴线；错误地同时挂两种marker的实体也不会进入任一写集合。
-    >,
+    mut lines: OrientationLines<Without<PreviewOrientationAxis>>,
+    mut endpoints: OrientationEndpoints<Without<PreviewOrientationAxis>>,
 ) {
     if !editor.open || lines.is_empty() || endpoints.is_empty() {
         return; // 关闭时父节点已经隐藏；延迟生成期间不能提前缓存相机姿态。
@@ -312,7 +320,40 @@ pub(crate) fn sync_editor_orientation_axis(
         return; // 相机未旋转时端点和线段布局完全不变，平移/缩放无需重复更新。
     }
 
-    for (axis, mut node, mut ui_transform, mut visibility) in &mut lines {
+    sync_orientation_nodes(rotation, &mut lines, &mut endpoints);
+    *cached_rotation = Some(rotation); // 只在完整节点组成功同步后登记缓存。
+}
+
+// 两组都写 Node 和 Visibility，用互斥标记约束共享查询的借用范围。
+pub(crate) type OrientationLines<'w, 's, F> = Query<
+    'w,
+    's,
+    (
+        &'static MapEditorOrientationAxisLine,
+        &'static mut Node,
+        &'static mut UiTransform,
+        &'static mut Visibility,
+    ),
+    (Without<MapEditorOrientationAxisEndpoint>, F),
+>;
+pub(crate) type OrientationEndpoints<'w, 's, F> = Query<
+    'w,
+    's,
+    (
+        &'static MapEditorOrientationAxisEndpoint,
+        &'static mut Node,
+        &'static mut Visibility,
+        &'static mut ZIndex,
+    ),
+    (Without<MapEditorOrientationAxisLine>, F),
+>;
+
+pub(crate) fn sync_orientation_nodes<F: QueryFilter>(
+    rotation: Quat,
+    lines: &mut OrientationLines<F>,
+    endpoints: &mut OrientationEndpoints<F>,
+) {
+    for (axis, mut node, mut ui_transform, mut visibility) in lines {
         let projected = project_world_axis(rotation, axis.world_axis);
         let length = projected.offset.length();
         if length <= 0.25 {
@@ -339,7 +380,7 @@ pub(crate) fn sync_editor_orientation_axis(
         }
     }
 
-    for (endpoint, mut node, mut visibility, mut z_index) in &mut endpoints {
+    for (endpoint, mut node, mut visibility, mut z_index) in endpoints {
         let projected = project_world_axis(rotation, endpoint.world_axis);
         let offset = if endpoint.positive {
             projected.offset
@@ -376,7 +417,6 @@ pub(crate) fn sync_editor_orientation_axis(
             z_index.0 = desired_z; // 靠近观察者的圆覆盖远端圆，保持透视旋转时的空间读向。
         }
     }
-    *cached_rotation = Some(rotation); // 只在完整节点组成功同步后登记缓存。
 }
 
 #[cfg(test)]

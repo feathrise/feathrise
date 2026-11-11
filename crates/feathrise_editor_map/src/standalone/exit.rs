@@ -87,6 +87,9 @@ pub fn exit_blocker(world: &World) -> Option<String> {
     {
         return Some(reason.into());
     }
+    if any::<ui::asset_preview::rigging::RiggingState>(world, |state| state.exit_pending()) {
+        return Some("自动绑骨任务仍在收尾，请等待完成或取消".into());
+    }
     if let Some(reason) = world
         .get_resource::<ui::vegetation_preset_editor::VegetationPresetEditorState>()
         .and_then(|state| state.exit_blocker())

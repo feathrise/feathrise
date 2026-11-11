@@ -35,7 +35,7 @@ impl ShadingMode {
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum ShadingAction {
+pub(crate) enum ShadingAction {
     Mode(ShadingMode),
     Menu,
     Xray,

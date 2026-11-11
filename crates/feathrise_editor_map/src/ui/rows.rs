@@ -440,6 +440,7 @@ pub(crate) fn sync_asset_rows(
     settings: Option<Res<feathrise_editor_core::EditorSettings>>,
     asset_server: Option<Res<AssetServer>>,
     viewport: AssetViewport,
+    reference: super::asset_preview::rigging::RigReferenceRows,
     mut pools: Query<&mut Node, (With<MapEditorAssetList>, Without<MapEditorAssetRow>, Without<MapEditorAssetRowGlyph>)>,
     mut rows: Query<(&mut MapEditorAssetRow, &mut Node, &Children, Option<&mut feathrise_editor_ui::EditorButtonClick>, Option<&mut AssetRowBinding>), (Without<MapEditorAssetRowGlyph>, Without<MapEditorAssetList>)>,
     mut binding: Local<Option<(u64, usize)>>,
@@ -477,6 +478,7 @@ pub(crate) fn sync_asset_rows(
     let identity = (catalog.applied_revision, start);
     let directory_changed = *binding != Some(identity);
     *binding = Some(identity);
+    let selected_path = reference.selected(editor.selected_asset.as_deref());
     for (mut row, mut node, children, click, stamp) in &mut rows {
         let entry_index = start + row.slot;
         let wanted = (row.slot < count).then(|| catalog.entries.get(entry_index).map(|_| entry_index)).flatten();
@@ -520,7 +522,7 @@ pub(crate) fn sync_asset_rows(
                 MapAssetKind::Unsupported => ("tree_file", colors::TEXT_MUTED),
             }
         };
-        let selected = editor.selected_asset.as_deref() == Some(entry.asset_path.as_str());
+        let selected = selected_path == Some(entry.asset_path.as_str());
         for child in children.iter() {
             if let Ok((mut image, mut icon_node)) = glyphs.get_mut(child) {
                 let display = if thumbnails { Display::None } else { Display::Flex };

@@ -15,9 +15,19 @@ use crate::ui::{brush_controls::brush_controls_panel, scene::FONT_PATH, theme as
 fn view_button(label: &str, action: EditorAction) -> impl Scene {
     let tooltip = crate::ui::tooltips::TooltipAction::Editor(action);
     bsn! {
-        InteractionButton
+        @control_surface()
         MapEditorActionButton(action)
         crate::ui::tooltips::EditorTooltipTarget(tooltip)
+        Children [
+            @control_text(label, ui_metrics::FONT_CONTROL) @feathrise_editor_ui::localization::label_scene(label)
+        ]
+    }
+}
+
+/// 地图和中央模型预览共用按钮尺寸和暖墨表面，各自绑定独立业务动作。
+pub(in crate::ui) fn control_surface() -> impl Scene {
+    bsn! {
+        InteractionButton
         Node {
             min_width: px(0),
             max_width: percent(100),
@@ -30,25 +40,28 @@ fn view_button(label: &str, action: EditorAction) -> impl Scene {
         }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [
-            Text(label) @feathrise_editor_ui::localization::label_scene(label)
-            TextFont {
-                font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
-                font_size: px(ui_metrics::FONT_CONTROL),
-            }
-            TextColor(colors::TEXT_PRIMARY)
-            TextLayout::no_wrap()
-        ]
     }
 }
 
-pub(in crate::ui) fn viewport_toolbar() -> impl Scene {
+pub(in crate::ui) fn control_text(label: &str, font_size: f32) -> impl Scene {
     bsn! {
-        ViewportToolbar
+        Text(label)
+        TextFont {
+            font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
+            font_size: px(font_size),
+        }
+        TextColor(colors::TEXT_PRIMARY)
+        TextLayout::no_wrap()
+    }
+}
+
+pub(in crate::ui) fn toolbar_layout(display: Display) -> impl Scene {
+    bsn! {
         ViewportToolbarScroll
         RelativeCursorPosition::default()
         ScrollPosition::default()
         Node {
+            display: display,
             width: percent(100),
             min_width: px(0),
             height: px(32), // 一排26px、底部留白5px和弱分隔线1px，任何工具共用此预算。
@@ -60,27 +73,37 @@ pub(in crate::ui) fn viewport_toolbar() -> impl Scene {
             overflow: Overflow::scroll_x(),
         } // 不能因字段数或窄窗换行推动RTT视口边界；不叠到地图画面或复制相机。
         BorderColor::all(colors::COPPER_BORDER_WEAK)
+    }
+}
+
+pub(in crate::ui) fn control_group() -> impl Scene {
+    bsn! {
+        Node { min_width: px(0), height: px(26), align_items: AlignItems::Center, column_gap: px(2), flex_shrink: 0.0 }
+    } // 保留自然宽度，只由整条工具栏横滚。
+}
+
+pub(in crate::ui) fn view_label() -> impl Scene {
+    bsn! {
+        Text("视图") @feathrise_editor_ui::localization::label_scene("视图")
+        TextFont {
+            font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
+            font_size: px(ui_metrics::FONT_HINT),
+        }
+        TextColor(colors::TEXT_MUTED)
+        TextLayout::no_wrap()
+        Node { margin: UiRect::right(px(6)), flex_shrink: 0.0 }
+    }
+}
+
+pub(in crate::ui) fn viewport_toolbar() -> impl Scene {
+    bsn! {
+        @toolbar_layout(Display::Flex)
+        ViewportToolbar
         Children [
-
                 ViewportViewControls
-                Node {
-                    min_width: px(0),
-                    height: px(26),
-                    align_items: AlignItems::Center,
-                    column_gap: px(2),
-                    flex_shrink: 0.0,
-                } // 保留按钮自然宽度，溢出只由整条工具栏横滚，不能出现嵌套滚动。
+                @control_group()
                 Children [
-
-                        Text("视图") @feathrise_editor_ui::localization::label_scene("视图")
-                        TextFont {
-                            font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
-                            font_size: px(ui_metrics::FONT_HINT),
-                        }
-                        TextColor(colors::TEXT_MUTED)
-                        TextLayout::no_wrap()
-                        Node { margin: UiRect::right(px(6)), flex_shrink: 0.0 }
-                    --
+                    @view_label()--
                     @view_button("自由", EditorAction::ViewPerspective)--
                     @view_button("顶视", EditorAction::ViewTop)--
                     @view_button("前视", EditorAction::ViewFront)--

@@ -70,10 +70,7 @@ pub(super) fn input(
         .sum();
     let available = state.visible()
         && context.available(&preview, &media)
-        && preview
-            .selected_path
-            .as_ref()
-            .is_some_and(|p| state.source() == Some(documents.asset_root().join(p).as_path()));
+        && context.source_matches(&state, &preview, &media, documents.asset_root());
     let pressed = |key| keyboard.as_ref().is_some_and(|keys| keys.pressed(key));
     let just = |key| keyboard.as_ref().is_some_and(|keys| keys.just_pressed(key));
     let ctrl = pressed(KeyCode::ControlLeft) || pressed(KeyCode::ControlRight);
@@ -136,7 +133,7 @@ pub(super) fn input(
             return;
         }
         match gesture.kind {
-            TimelineGestureKind::Move { selection, delta } if delta != 0.0 => {
+            TimelineGestureKind::Move { selection, delta } if delta != 0.0 && !state.retargeting() => {
                 let clip = state.active_clip();
                 state.pending = Some(PendingAction::Command(Command::Move {
                     clip,
@@ -257,7 +254,7 @@ pub(super) fn input(
         kind = TimelineGestureKind::Pan {
             start: s.window_start,
         };
-    } else if let Some(row) = track.row {
+    } else if let Some(row) = track.row.filter(|_| !state.retargeting()) {
         let Some(channel) = s.visible_channels().get(row).copied() else {
             return;
         };
@@ -299,7 +296,7 @@ pub(super) fn input(
     state.mouse_owned = true;
     state.gesture = Some(TimelineGesture {
         entity,
-        source: state.active.clone().unwrap(),
+        source: state.source().expect("已核对时间轴来源").to_owned(),
         binding: state.revision,
         cursor: at,
         time,

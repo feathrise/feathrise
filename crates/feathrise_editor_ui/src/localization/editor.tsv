@@ -344,6 +344,7 @@ label.side	侧视	Side
 label.orthographic	正交	Orthographic
 label.frame-selection	聚焦所选	Frame Selected
 label.frame-map	查看全图	Frame Map
+label.frame-all	查看全部	Frame All
 label.vegetation-presets	植被预设库	Vegetation Presets
 help.choose-an-existing-preset-from-the-global	使用已有预设：在全局库选择。新建预设：先在左侧资产选择GLB，再点击新建。预设库与当前地图图层是不同的编辑对象。	Choose an existing preset from the global library. To create one, choose a GLB in Assets and click New. The preset library and layers on the current map are separate authoring objects.
 label.current-map-layers	当前地图图层	Current Map Layers
@@ -1485,3 +1486,60 @@ status.source.vegetation_actions	植被最近操作	Recent Vegetation Actions
 status.assets.waiting_for_catalog	等待目录同步	Waiting for the asset catalog
 status.vegetation.wait_authoring	编译：等待作者数据	Compile: Waiting for authoring data
 status.vegetation.wait_density	预览：等待完整密度快照	Preview: Waiting for the density snapshot
+rig.launch	人形自动绑骨	Auto-Rig Humanoid
+rig.title	人形绑骨与动作	Humanoid Rig and Motion
+rig.motion.title	工程动作	Project Motion
+rig.motion.choose_project	选择工程动作	Choose Project Motion
+rig.motion.idle	从工程资产选取动作 GLB，在当前模型上播放。	Choose a project animation GLB to play on this model.
+rig.motion.collapse	收起动作	Collapse Motion
+rig.tab	绑骨	Rigging
+rig.backend.native	编辑器原生（切换）	Editor Native (Switch)
+rig.backend.blender	Blender（切换）	Blender (Switch)
+rig.retry	重新检查	Check Again
+rig.close	关闭	Close
+rig.cancel	取消绑骨任务	Cancel Rigging Task
+rig.reset_marks	恢复关节点	Reset Joint Markers
+rig.mirror.on	左右对称 · 开	Mirror Joints · On
+rig.mirror.off	左右对称 · 关	Mirror Joints · Off
+preview.axis.front	前	F
+rig.bind	生成已绑骨 GLB	Create Rigged GLB
+rig.preview	预览所选动作	Preview Selected Motion
+rig.file.reference	参考骨架 GLB · {file}	Reference Rig GLB · {file}
+rig.file.reference.pick	请在左侧「工程」单击一份带兼容 Mixamo 骨架的动作 GLB。	In the Project panel on the left, click an animation GLB with a compatible Mixamo rig.
+rig.file.reference.incompatible	{file} 缺少可用的 Mixamo 人形参考骨架，请从左侧重选。	{file} has no compatible Mixamo humanoid rig. Choose another file on the left.
+rig.file.animation	动作文件 · {file}	Animation File · {file}
+rig.clip	动画片段 · {clip}	Clip · {clip}
+rig.page	{page} / {pages}	{page} / {pages}
+rig.previous	上一组	Previous
+rig.next	下一组	Next
+rig.marker.help	拖动圆点校正关节。点方向球的「前」切换正视，右键旋转查看深度。青色为左侧，橙色为右侧。	Drag the markers to adjust joints. Click F on the orientation widget for a front view, or right-drag to orbit. Cyan is left, orange is right.
+rig.status.inspecting	正在识别人形关节点，可先在左侧「工程」选择参考 GLB。	Detecting humanoid joints. You can choose a reference GLB in the Project panel on the left.
+rig.status.cataloguing	正在读取工程的 GLB 动作…	Reading project GLB animations…
+rig.status.review	从左侧「工程」选择参考骨架，校正关节点后生成绑骨模型。	Choose a reference rig in the Project panel on the left, then adjust the joint markers and create the rigged model.
+rig.status.binding	正在本地计算骨骼和蒙皮权重…	Calculating the skeleton and skin weights locally…
+rig.status.publishing	正在校验并发布新的 GLB…	Validating and publishing the new GLB…
+rig.status.saved	已生成 {file} · {joints} 个关节 · {vertices} 个顶点。可选择动作预览。	Created {file} · {joints} joints · {vertices} vertices. Select a motion to preview.
+rig.status.choose	点动作文件或片段重新选择，再点「预览所选动作」。	Select a motion file or clip, then click Preview Selected Motion.
+rig.status.no_reference	未找到带兼容 Mixamo 人形骨架的 GLB 动作。导入参考动作后可重新检查。	No animation GLB with a compatible Mixamo humanoid rig was found. Import a reference animation and check again.
+rig.status.no_clips	工程资产中没有含动画片段的 GLB。	No project GLB contains animation clips.
+rig.status.cancelled	绑骨任务已取消，可重新检查。	Rigging task cancelled. You can check again.
+rig.status.error	绑骨任务失败 · {message}	Rigging failed · {message}
+rig.status.closing	自动绑骨任务仍在收尾，请等待完成或取消	Auto-rigging is still finishing. Wait for it or cancel it.
+rig.warning	绑骨提示 · {message}	Rigging note · {message}
+rig.point.head	头部	Head
+rig.point.neck	颈部	Neck
+rig.point.hips	骨盆中心	Pelvis
+rig.point.left_shoulder	左肩	Left Shoulder
+rig.point.left_elbow	左肘	Left Elbow
+rig.point.left_wrist	左腕	Left Wrist
+rig.point.left_hip	左髋	Left Hip
+rig.point.left_knee	左膝	Left Knee
+rig.point.left_ankle	左踝	Left Ankle
+rig.point.left_toe	左脚趾根	Left Toe Base
+rig.point.right_shoulder	右肩	Right Shoulder
+rig.point.right_elbow	右肘	Right Elbow
+rig.point.right_wrist	右腕	Right Wrist
+rig.point.right_hip	右髋	Right Hip
+rig.point.right_knee	右膝	Right Knee
+rig.point.right_ankle	右踝	Right Ankle
+rig.point.right_toe	右脚趾根	Right Toe Base

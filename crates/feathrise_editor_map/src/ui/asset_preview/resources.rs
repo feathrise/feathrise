@@ -1,6 +1,7 @@
 //! 资产预览的临时导航状态；不写入地图、预设、设置或撤销记录。
 
 use bevy::prelude::*; // 导航属于当前编辑器会话的单个资源。
+use feathrise_editor_core::EditorSnapSettings;
 
 use super::types::AssetPreviewDrag; // 冻结按下时的手势，不在拖动途中切换用途。
 use super::view_math::AssetPreviewView; // 图片平移与模型轨道共享独立缩放倍率。
@@ -61,6 +62,21 @@ pub(crate) struct AssetPreviewNavigation {
 }
 
 impl AssetPreviewNavigation {
+    pub(crate) fn snapping(&self) -> EditorSnapSettings {
+        self.view.snapping
+    }
+
+    pub(crate) fn grid_visible(&self) -> bool {
+        self.view.snapping.show_grid
+    }
+
+    /// 同一个 GLB 选择其他子网格时恢复取景，文件标签的辅助线与吸附偏好仍有效。
+    pub(super) fn reset_for_model_target(&mut self) {
+        let snapping = self.view.snapping;
+        *self = Self::default();
+        self.view.snapping = snapping;
+    }
+
     /// 共用编辑器鼠标门，使拖动越过画布也不会触发地图相机或笔刷。
     pub(crate) fn dragging(&self) -> bool {
         self.drag.is_some() || self.mouse_captured // release帧之后的和弦隔离交由既有统一门延续。

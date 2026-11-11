@@ -29,7 +29,7 @@ pub(crate) fn update_map_editor_numeric_scrub_mouse_guard(
     active: Res<ActiveNumericInputScrub>, // 共享 UI 控件本帧完成拖动起止判定后的最终身份。
     mouse: Res<ButtonInput<MouseButton>>, // 和弦与release边沿必须覆盖左、右、中三枚作者鼠标键。
     mut guard: ResMut<MapEditorNumericScrubMouseGuard>, // 唯一地图编辑器级鼠标所有权状态。
-    preview: (Option<Res<AssetPreviewNavigation>>, Option<Res<super::asset_preview::AudioPreviewState>>, Option<Res<super::asset_preview::AnimationEditorState>>), // 图片/模型、音频和动画时间轴共用释放门。
+    preview: (Option<Res<AssetPreviewNavigation>>, Option<Res<super::asset_preview::AudioPreviewState>>, Option<Res<super::asset_preview::AnimationEditorState>>, Option<Res<super::asset_preview::rigging::RiggingState>>), // 资产预览、时间轴与绑骨关节点共用释放门。
     minimap: Option<Res<super::asset_preview::DocumentMinimapState>>,
     water_preview: Option<Res<WaterPresetLivePreviewNavigation>>, // 独立测试可不安装水体预览插件。
     asset_menu: (Option<Res<AssetContextMenuState>>, Option<Res<super::scene_context_menu::SceneContextMenuState>>, Option<Res<super::map_sidebar::MapDirectoryMenuState>>), // 目录、场景和资产菜单共用关闭点击及松键帧隔离。
@@ -78,6 +78,7 @@ pub(crate) fn update_map_editor_numeric_scrub_mouse_guard(
             || preview.0.as_ref().is_some_and(|preview| preview.dragging())
             || preview.1.as_ref().is_some_and(|audio| audio.owns_mouse())
             || preview.2.as_ref().is_some_and(|animation| animation.owns_mouse())
+            || preview.3.as_ref().is_some_and(|rigging| rigging.owns_mouse())
             || minimap.as_ref().is_some_and(|minimap| minimap.owns_mouse()) // 小地图拖出代码栏也不能改地图。
             || water_preview
                 .as_ref()

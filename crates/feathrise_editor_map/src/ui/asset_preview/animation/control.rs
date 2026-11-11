@@ -30,9 +30,7 @@ pub(super) fn input(
     });
     let available = context.available(&preview, &media)
         && state.visible
-        && preview.selected_path.as_ref().is_some_and(|path| {
-            state.source() == Some(documents.asset_root().join(path).as_path())
-        });
+        && context.source_matches(&state, &preview, &media, documents.asset_root());
     if available
         && context
             .numeric
@@ -47,7 +45,7 @@ pub(super) fn input(
     for event in commits.read() {
         if !available
             || state.busy()
-            || state.active_document().is_none_or(|doc| doc.read_only)
+            || !state.editable()
             || event.outcome != NumericInputCommitOutcome::Accepted
             || !event.changed
         {
@@ -114,13 +112,27 @@ pub(super) fn input(
             .as_ref()
             .is_some_and(|s| s.blocks_other_mouse() || s.press.is_some())
         || context.text.as_ref().is_some_and(|s| s.block_shortcuts)
-        || state.busy()
     {
+        return;
+    }
+    if state.in_place_rig_preview() && buttons.iter().any(|(button, click)| {
+        button.action == AnimationAction::UnbindModel
+            && click.is_clicked() && button.binding == state.revision
+    }) {
+        // 结束预览只撤销当前意图，旧读取会在原任务槽结束后退役。
+        state.stop_rig_preview();
+        state.mouse_owned = true;
+        return;
+    }
+    if state.busy() {
         return;
     }
     for (button, click) in &buttons {
         if click.is_clicked() && button.binding == state.revision {
             if button.action == AnimationAction::BindSelectedModel {
+                if state.in_place_rig_preview() {
+                    continue;
+                }
                 if let Some(path) = context
                     .editor
                     .selected_asset
@@ -129,6 +141,7 @@ pub(super) fn input(
                 {
                     if let Some(session) = state.current_mut() {
                         session.model_path = Some(path.clone());
+                        session.retarget_model = false;
                     }
                     state.model_status = "正在检查所选模型的骨架兼容性".into();
                     state.model_binding_revision = state.model_binding_revision.wrapping_add(1);
@@ -216,10 +229,16 @@ fn numeric_edit(
 
 pub(super) fn action(state: &mut AnimationEditorState, action: AnimationAction) {
     use AnimationAction::*;
+    if state.in_place_rig_preview() && matches!(
+        action,
+        Reload | MovePose | RotatePose | ToggleAutoKey | ResetPose | CopyKeys | BindSelectedModel
+    ) {
+        return;
+    }
     if matches!(
         action,
         Save | Undo | Redo | InsertKey | DeleteKey | CycleInterpolation | InsertPose | PasteKeys
-    ) && state.active_document().is_none_or(|doc| doc.read_only)
+    ) && !state.editable()
     {
         return;
     }
@@ -342,8 +361,13 @@ pub(super) fn action(state: &mut AnimationEditorState, action: AnimationAction) 
             }
         }
         UnbindModel => {
+            if state.in_place_rig_preview() {
+                state.stop_rig_preview();
+                return;
+            }
             if let Some(s) = state.current_mut() {
                 s.model_path = None;
+                s.retarget_model = false;
             }
             state.model_status.clear();
             state.changed();
@@ -447,20 +471,12 @@ pub(super) fn action(state: &mut AnimationEditorState, action: AnimationAction) 
                 if session.pose.is_some() {
                     return;
                 }
-                session.clip = if action == PreviousClip {
+                let clip = if action == PreviousClip {
                     (session.clip + count - 1) % count
                 } else {
                     (session.clip + 1) % count
                 };
-                session.channel =
-                    (!session.document.clips[session.clip].channels.is_empty()).then_some(0);
-                session.key = None;
-                session.position = 0.0;
-                session.page = 0;
-                session.selected = super::types::KeySelection::default();
-                session.window_start = 0.0;
-                session.window_span = session.metadata.durations[session.clip].max(1.0 / 30.0);
-                session.selected_node = session.metadata.bones[session.clip].first().copied();
+                session.select_clip(clip);
             }
             state.playing = false;
             state.changed();

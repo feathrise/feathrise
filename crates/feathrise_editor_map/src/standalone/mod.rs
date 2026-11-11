@@ -26,6 +26,8 @@ mod tests;
 pub mod validation_fixture;
 #[cfg(any(test, feature = "validation"))]
 pub mod embedded_validation;
+#[cfg(feature = "validation")]
+pub use crate::ui::asset_preview::rigging_validation::install as install_rigging_validation;
 
 pub use exit::exit_blocker;
 pub use embedded_presentation::set_embedded_playing;

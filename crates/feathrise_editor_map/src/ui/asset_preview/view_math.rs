@@ -1,9 +1,13 @@
 //! 资产预览缩放、轨道、平移和安全裁剪的常数成本纯数学。
 
-use bevy::camera::Projection; // 所有相机入口共用同一透视投影。
+use bevy::camera::{CameraProjection, OrthographicProjection, Projection, ScalingMode};
 use bevy::prelude::*; // 向量、旋转与相机变换。
+use feathrise_editor_core::EditorSnapSettings;
+
+use crate::types::EditorView;
 
 pub(super) const MODEL_PREVIEW_FOV_RADIANS: f32 = 42.0_f32.to_radians(); // 延续原有小画布透视。
+const SKY_VIEW_PITCH: f32 = 8.0_f32.to_radians(); // 让地平线上方进入默认放大的视野。
 const MIN_ZOOM: f32 = 0.1; // 允许缩小到完整取景的十分之一。
 const MAX_ZOOM: f32 = 32.0; // 放大检查细节，同时防止指数溢出。
 const PITCH_LIMIT: f32 = std::f32::consts::FRAC_PI_2 - 0.01; // 允许看底面，但不越过上下极点。
@@ -14,8 +18,10 @@ pub(super) struct AssetPreviewView {
     pub(super) zoom: f32,       // 1为完整取景，数值增大表示放大。
     pub(super) yaw: f32,        // 模型绕世界Y轴的观察方位。
     pub(super) pitch: f32,      // 模型俯仰，负数可以查看底面。
+    pub(super) orthographic: bool, // 方向球切换投影时继续沿用原焦点与缩放倍率。
     pub(super) model_pan: Vec3, // 模型观察目标相对原包围盒中心的世界偏移。
     pub(super) image_pan: Vec2, // 图片中心相对画布中心的归一化偏移，resize不依赖旧像素尺寸。
+    pub(super) snapping: EditorSnapSettings, // 与相机同属文件标签快照，和地图编辑器偏好独立。
 }
 
 impl Default for AssetPreviewView {
@@ -24,15 +30,79 @@ impl Default for AssetPreviewView {
             zoom: 1.0,                                       // 首次加载和重置都显示完整资产。
             yaw: std::f32::consts::FRAC_PI_4,                // 与原(1, 0.62, 1)观察方向一致。
             pitch: (0.62 / std::f32::consts::SQRT_2).atan(), // 同时可辨正面、侧面和顶面。
+            orthographic: false,
             model_pan: Vec3::ZERO,                           // 原模型位置不影响居中取景。
             image_pan: Vec2::ZERO,                           // 图片初始居中，不依赖鼠标位置。
+            snapping: EditorSnapSettings {
+                show_grid: false,
+                translation_meters: 0.1, // 人形编辑起始步长比地图更细。
+                ..default()
+            },
         } // 默认值不加载或复制任何资产。
+    }
+}
+
+impl AssetPreviewView {
+    pub(super) fn rotation(self) -> Quat {
+        // 与地图轨道相机同一方位约定，正顶视仍有确定的上方向。
+        Quat::from_rotation_y(self.yaw) * Quat::from_rotation_x(-self.pitch)
+    }
+
+    /// 方向键仅对准观察轴。投影和距离分别由正交开关与取景按钮控制。
+    pub(super) fn set_direction(&mut self, direction: EditorView, front_yaw: f32) {
+        use std::f32::consts::FRAC_PI_2;
+        let initial = Self::default();
+        let (yaw, pitch) = match direction {
+            EditorView::Perspective => (initial.yaw, SKY_VIEW_PITCH),
+            EditorView::Top => (0.0, FRAC_PI_2),
+            EditorView::Front => (0.0, 0.0),
+            EditorView::Side => (FRAC_PI_2, 0.0),
+        };
+        self.yaw = front_yaw + yaw;
+        self.pitch = pitch;
+    }
+
+    pub(super) fn direction(self, front_yaw: f32) -> EditorView {
+        // 高亮从真实相机姿态读取，方向球和右键旋转不产生过期的工具条选中态。
+        let direction = Quat::from_rotation_y(-front_yaw) * (self.rotation() * Vec3::Z);
+        if direction.y > 0.999_999 {
+            EditorView::Top
+        } else if direction.z > 0.999_999 {
+            EditorView::Front
+        } else if direction.x > 0.999_999 {
+            EditorView::Side
+        } else {
+            EditorView::Perspective
+        }
+    }
+
+    /// 复用已准备的资产范围。选中关节时围绕其位置收紧，全部取景还原完整边界。
+    pub(super) fn frame_model(&mut self, minimum: Vec3, maximum: Vec3, selected: Option<Vec3>) {
+        let center = minimum.midpoint(maximum);
+        self.model_pan = selected.map_or(Vec3::ZERO, |point| point - center);
+        self.zoom = if selected.is_some() { 3.0 } else { 1.0 };
+    }
+
+    pub(super) fn reset_camera(&mut self) {
+        *self = Self {
+            snapping: self.snapping,
+            ..default()
+        };
+    }
+
+    pub(super) fn reveal_default_sky(&mut self) {
+        let initial = Self::default();
+        if !self.orthographic && self.pitch == initial.pitch && self.yaw == initial.yaw {
+            // 只调整小预览原始角度，作者已转动的视角和正交模式原样迁移。
+            self.pitch = SKY_VIEW_PITCH;
+        }
     }
 }
 
 /// 自动取景与交互导航共同使用的完整相机结果。
 #[derive(Clone, Copy, Debug, PartialEq)] // 便于直接验证裁剪和距离。
 pub(super) struct ModelPreviewFrame {
+    vertical_span: f32, // 目标平面的可视高度，用于等比例切换投影与平移。
     pub(super) center: Vec3,          // 当前轨道目标，包含只读预览平移。
     pub(super) camera_position: Vec3, // 当前观察位置，不改模型Transform。
     pub(super) near: f32,             // 正近裁剪面，近距离查看不会沿用自动取景的大near。
@@ -59,7 +129,9 @@ pub(super) fn orbit_after_drag(view: &mut AssetPreviewView, delta: Vec2) {
         return; // 坏设备事件不得把相机变成NaN。
     } // 物理像素直接决定角度，不随帧率改变。
     view.yaw = (view.yaw - delta.x * 0.006).rem_euclid(std::f32::consts::TAU); // 水平方位循环。
-    view.pitch = (view.pitch + delta.y * 0.006).clamp(-PITCH_LIMIT, PITCH_LIMIT); // 鼠标Y向下为正，纵向沿用中央视口方向并保留两端极点保护。
+    if delta.y != 0.0 {
+        view.pitch = (view.pitch + delta.y * 0.006).clamp(-PITCH_LIMIT, PITCH_LIMIT); // 精确顶视在没有纵向位移时保持对轴。
+    }
 }
 
 /// 图片始终保持比例；小于画布时居中，大于画布时最多平移到任一边缘。
@@ -88,16 +160,20 @@ pub(super) fn model_preview_frame(
     let vertical_tangent = (MODEL_PREVIEW_FOV_RADIANS * 0.5).tan(); // 垂直半视野。
     let horizontal_tangent = vertical_tangent * aspect_ratio.clamp(0.05, 20.0); // 窄栏也完整容纳模型。
     let fit_distance = radius / vertical_tangent.min(horizontal_tangent) * 1.18; // 沿用原有取景留边。
-    let distance = (fit_distance / view.zoom).max(radius * 0.03); // 缩放只改变观察距离。
-    let direction = Vec3::new(
-        view.yaw.sin() * view.pitch.cos(), // X由方位与俯仰共同决定。
-        view.pitch.sin(),                  // Y可为负，从模型底面观察。
-        view.yaw.cos() * view.pitch.cos(), // Z与X构成单位水平环绕方向。
-    ); // pitch远离极点，所以look_at上方向始终有效。
+    let fit_zoomed = (fit_distance / view.zoom).max(radius * 0.03);
+    let vertical_span = 2.0 * fit_zoomed * vertical_tangent;
+    let distance = if view.orthographic {
+        // 正交放大时仍把镜头放在模型前方，避免近裁面切掉肩膀或脚尖。
+        fit_zoomed.max(radius * 2.0 + view.model_pan.length())
+    } else {
+        fit_zoomed
+    };
+    let direction = view.rotation() * Vec3::Z;
     let center = (minimum + maximum) * 0.5 + view.model_pan; // 模型本身保持原变换。
     let near = (radius * 0.002).max(0.0001).min(distance * 0.1); // 放大后不被旧自动取景near切掉。
     let far = (distance + radius * 3.0 + view.model_pan.length()).max(near + 1.0); // 平移后原模型仍在远裁剪范围内。
     ModelPreviewFrame {
+        vertical_span,
         center,                                         // 轨道与平移共用同一观察目标。
         camera_position: center + direction * distance, // 不修改Scene0的任何作者参数。
         near,                                           // 当前正近裁剪。
@@ -106,7 +182,7 @@ pub(super) fn model_preview_frame(
     } // 所有计算仅涉及固定数量向量。
 }
 
-/// 沿当前屏幕右/上方向移动目标，拖动距离按当前透视覆盖米数换算。
+/// 沿当前屏幕右/上方向移动目标，拖动距离按当前投影覆盖米数换算。
 pub(super) fn pan_model_after_drag(
     view: &mut AssetPreviewView, // 只写临时观察偏移。
     frame: ModelPreviewFrame,    // 当前距离与朝向对应的固定数学结果。
@@ -116,10 +192,8 @@ pub(super) fn pan_model_after_drag(
     if !delta.is_finite() || canvas_height <= 0.0 {
         return; // 无布局或无效事件不移动观察目标。
     } // 采用相机平面而不是硬编码世界XZ。
-    let transform =
-        Transform::from_translation(frame.camera_position).looking_at(frame.center, Vec3::Y); // 当前屏幕基。
-    let distance = frame.camera_position.distance(frame.center); // 放大时相同拖动移动更少世界米数。
-    let meters_per_pixel = 2.0 * distance * (MODEL_PREVIEW_FOV_RADIANS * 0.5).tan() / canvas_height; // 透视屏幕高度换算。
+    let transform = Transform::from_rotation(view.rotation()); // 当前屏幕基，正交和透视共用。
+    let meters_per_pixel = frame.vertical_span / canvas_height;
     let shift = (-transform.right() * delta.x + transform.up() * delta.y) * meters_per_pixel; // 模型视觉跟随鼠标。
     let radius = (frame.size * 0.5).length().max(0.05); // 与自动取景使用同一个尺度。
     view.model_pan = (view.model_pan + shift).clamp_length_max(radius * 20.0); // 防止长拖导致数值无界和精度丢失。
@@ -135,15 +209,26 @@ pub(super) fn apply_model_preview_frame(
     projection: &mut Projection, // 与相机位置成对更新正近/远裁剪。
 ) -> ModelPreviewFrame {
     let frame = model_preview_frame(minimum, maximum, aspect_ratio, view); // 无资产扫描的固定成本。
-    *transform =
-        Transform::from_translation(frame.camera_position).looking_at(frame.center, Vec3::Y); // 观察目标含临时平移。
-    *projection = Projection::Perspective(PerspectiveProjection {
-        fov: MODEL_PREVIEW_FOV_RADIANS, // 只用距离缩放，不随滚轮扭曲透视。
-        aspect_ratio,                   // 当前帧立即采用真实比例，不依赖下一帧相机系统修正。
-        near: frame.near,               // 近距离观察也保持细节可见。
-        far: frame.far,                 // 缩小和平移后仍覆盖原模型。
-        ..default()                     // 其他投影设置沿用Bevy标准值。
-    }); // 相机与投影在同一系统内完整采用。
+    *transform = Transform::from_translation(frame.camera_position).with_rotation(view.rotation());
+    *projection = if view.orthographic {
+        let mut orthographic = OrthographicProjection {
+            near: frame.near,
+            far: frame.far,
+            scaling_mode: ScalingMode::FixedVertical { viewport_height: frame.vertical_span },
+            ..OrthographicProjection::default_3d()
+        };
+        // 点位投影在同帧读取 area，不能等待下一次渲染相机更新。
+        orthographic.update(aspect_ratio, 1.0);
+        Projection::Orthographic(orthographic)
+    } else {
+        Projection::Perspective(PerspectiveProjection {
+            fov: MODEL_PREVIEW_FOV_RADIANS,
+            aspect_ratio,
+            near: frame.near,
+            far: frame.far,
+            ..default()
+        })
+    }; // 相机与投影在同一系统内完整采用。
     frame // 扫描完成时仍可复用原模型尺寸状态。
 }
 

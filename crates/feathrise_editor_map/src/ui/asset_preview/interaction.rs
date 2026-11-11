@@ -68,7 +68,7 @@ fn show_scene0(
     model.primitive_root = None; // 后续Reveal只可能命中Scene0根。
     state.bounds_scan = None; // 未完成单体或旧Scene扫描都不跨目标继续。
     state.model_bounds = scene_bounds; // 有缓存时立即恢复，否则保持None等待扫描。
-    *navigation = AssetPreviewNavigation::default(); // 默认完整取景。
+    navigation.reset_for_model_target(); // 完整取景不清除当前文件的网格与吸附偏好。
     if !scene_ready {
         *visibility = Visibility::Hidden; // WorldReady前不显示半生成场景。
         if let AssetPreviewContent::Model { phase, .. } = &mut state.content {
@@ -176,7 +176,7 @@ pub(super) fn show_primitive(
     model.primitive_root = None; // RevealPending必须等待新实体完整创建。
     state.bounds_scan = None; // Scene0扫描不能在隐藏后继续占帧预算。
     state.model_bounds = None; // 新单体不得暂用Scene0范围。
-    *navigation = AssetPreviewNavigation::default(); // 新对象从自动居中视角开始。
+    navigation.reset_for_model_target(); // 新对象从自动居中视角开始。
     if let AssetPreviewContent::Model { phase, .. } = &mut state.content {
         *phase = AssetPreviewPhase::Loading; // 完整Mesh、材质和范围全部成功后再显示。
     }

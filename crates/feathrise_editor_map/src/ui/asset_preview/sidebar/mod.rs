@@ -1,11 +1,16 @@
 //! 资产浏览器静态分区与只读选择信息；预览仍使用原唯一画布及加载链。
 
 mod components;
+#[path = "../asset_property_details.rs"]
+mod details;
 mod scene;
 mod systems;
 mod types;
 
 pub(crate) use scene::{asset_properties_page, assets_page};
+pub(super) use details::install as install_details;
+#[cfg(feature = "validation")]
+pub(crate) use details::validation_text as validation_details_text;
 
 #[cfg(test)]
 pub(crate) fn install_snapshot_presentation(app: &mut bevy::prelude::App) {

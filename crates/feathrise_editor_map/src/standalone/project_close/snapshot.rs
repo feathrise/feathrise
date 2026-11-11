@@ -17,6 +17,9 @@ pub(super) fn collect(world: &World) -> (ProjectCloseSnapshot, Vec<SaveItem>) {
     // 文件/动画先写原源文件，外部作者按应用登记顺序交接，最后保存地图引用。
     ui::asset_preview::documents::project_close::collect(world, &mut snapshot, &mut items);
     ui::asset_preview::animation::project_close::collect(world, &mut snapshot, &mut items);
+    if any::<ui::asset_preview::rigging::RiggingState>(world, |state| state.exit_pending()) {
+        snapshot.blocked("自动绑骨任务仍在收尾，请等待完成或取消");
+    }
     super::presets::collect(world, &mut snapshot, &mut items);
     ui::vegetation_preset_editor::project_close::collect(world, &mut snapshot, &mut items);
     ui::water_preset_editor::project_close::collect(world, &mut snapshot, &mut items);

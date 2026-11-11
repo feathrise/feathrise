@@ -115,9 +115,11 @@ pub(super) fn input(
         With<AssetPreviewCanvas>,
     >,
     cameras: Query<(&Projection, &GlobalTransform), With<AssetPreviewCamera>>,
+    shading: super::super::preview_shading::Pointer,
 ) {
     state.pose_mouse_owned = false;
     let available = state.visible()
+        && !state.retargeting()
         && context.available(&preview, &media)
         && preview
             .selected_path
@@ -252,6 +254,7 @@ pub(super) fn input(
     let Some((camera, at, hovered)) = camera else {
         return;
     };
+    let hovered = hovered && !shading.cursor_over();
     // 工具快捷键仅在动画画布悬停且没有鼠标手势时生效；文本、模态、只读和隐藏页沿用上面的门禁。
     if hovered
         && !context.text_input_focused()

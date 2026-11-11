@@ -271,22 +271,32 @@ pub(super) fn invalidate_model_hot_reload(
     if let Some(mut root) = scene_root.and_then(|root| scene_roots.get_mut(root).ok()) {
         *root = Visibility::Hidden; // 新Scene0后代重新隔离前绝不解除隐藏。
     }
+    let rebuild_scene = root_overflow || root_changed;
+    if rebuild_scene {
+        let path = state.selected_path.clone().unwrap_or_default();
+        if let AssetPreviewContent::Model { handle, root, .. } = &mut state.content {
+            // Gltf 根的 Modified 也可能只是元数据补载。旧 WorldAsset 实例这时不会再发送
+            // Ready；换成同一强句柄的新隐藏实例，保证后续只接受当前根的完整通知。
+            commands.entity(*root).try_despawn();
+            *root = super::model::spawn_scene0(&mut commands, &path, handle.clone());
+        }
+    }
     let generation = state.allocate_model_generation(); // 所有旧单体扫描立即成为迟到结果。
-    let preserve_scene = scene_was_ready && !root_overflow && !root_changed; // 纯GltfMesh换代不等待不会到来的WorldReady。
+    let rescan_root = scene_root.filter(|_| scene_was_ready && !rebuild_scene); // 纯GltfMesh换代继续复用现有Scene0。
     let mut replacement = AssetPreviewModelSession::new(generation, gltf); // 清空候选、页码、边界和目标。
-    replacement.scene_ready = preserve_scene; // 根换代必须等待通知，网格换代可重扫现有层级。
+    replacement.scene_ready = rescan_root.is_some(); // 根换代必须等待新实例，网格换代可重扫现有层级。
     state.model = Some(replacement); // 原位采用同一路径新会话。
-    state.bounds_scan = preserve_scene.then(|| AssetPreviewBoundsScan::new(scene_root.unwrap())); // 当前根实体存在时重新联合新Aabb。
+    state.bounds_scan = rescan_root.map(AssetPreviewBoundsScan::new);
     state.model_bounds = None; // 旧几何范围不能用于新代取景。
-    *navigation = AssetPreviewNavigation::default(); // 热更默认回到完整Scene0视角。
+    navigation.reset_for_model_target(); // 热更回到完整Scene0视角，保留当前文件的吸附偏好。
     if let AssetPreviewContent::Model { phase, .. } = &mut state.content {
-        *phase = if preserve_scene {
+        *phase = if rescan_root.is_some() {
             AssetPreviewPhase::Scanning // Mesh依赖更新后按固定节点预算重新取景。
         } else {
             AssetPreviewPhase::Loading // 根更新等待新的WorldInstanceReady成功门。
         };
     }
-    state.status = if preserve_scene {
+    state.status = if rescan_root.is_some() {
         "模型网格已热更新，正在重新验证子资产并计算Scene0取景".to_owned() // 不等待不会重建的WorldAsset根。
     } else {
         "模型资源已热更新，正在重新验证子资产并加载Scene0".to_owned() // 根换代保持隐藏直到Ready。

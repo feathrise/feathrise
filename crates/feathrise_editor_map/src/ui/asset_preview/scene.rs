@@ -165,31 +165,26 @@ fn subasset_page_button(label: &str, action: AssetPreviewAction) -> impl Scene {
     }
 }
 
-/// 构造资产列表下方可填满剩余高度的实际内容预览区。
-pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::DocumentScenes) -> impl Scene + use<> {
+/// 标题、导航与真实子资产共用同一组实体。中央 GLB 借给左树，其余模式归还原位。
+fn preview_chrome() -> impl Scene {
     bsn! {
-        AssetPreviewPanel
+        super::gltf_tree::PreviewChrome
         Node {
-            display: Display::None, // 尚未选择文件时不占用资产页高度。
             width: percent(100),
             min_width: px(0),
-            min_height: px(220), // 图片保持原最小高度；模型子列表会按真实行自然增加整体高度。
-            flex_grow: 1.0, // 高窗口把列表下方空白真正交给预览，而非保留无用途背景。
             flex_shrink: 0.0,
             flex_direction: FlexDirection::Column,
             row_gap: px(3),
-            padding: UiRect::all(px(4)),
-            border: UiRect::top(px(1)), // 预览与所选资源以弱分隔线分层，不再外套一整圈铜框。
         }
-        BackgroundColor(colors::PANEL_BG_SECTION)
-        BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
 
                 Node { width: percent(100), flex_shrink: 0.0, column_gap: px(4), align_items: AlignItems::Center,
                     padding: UiRect::right(px(22)) } // 给绝对定位?保留横向命中区，不增加正文行。
                 Children [
 
-                        AssetPreviewTitleText Text("资产预览") @feathrise_editor_ui::localization::label_scene("资产预览")
+                        AssetPreviewTitleText super::gltf_tree::PreviewRoot InteractionButton
+                        ~{Pickable::IGNORE} BackgroundColor(Color::NONE)
+                        Text("资产预览") @feathrise_editor_ui::localization::label_scene("资产预览")
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_ACCENT)
                         TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }
@@ -232,7 +227,8 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                             min_width: px(0), // 不因窗口缩小撑开右栏。
                             margin: UiRect::left(px(3)), // 与放大按钮留少量间距。
                         }
-
+                    --
+                    @super::rigging::scene::launch()
                 ]
             --
 
@@ -359,8 +355,34 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                         ]
 
                 ]
-            --
+        ]
+    }
+}
 
+/// 构造资产列表下方可填满剩余高度的实际内容预览区。
+pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::DocumentScenes) -> impl Scene + use<> {
+    bsn! {
+        AssetPreviewPanel
+        Node {
+            display: Display::None, // 尚未选择文件时不占用资产页高度。
+            width: percent(100),
+            min_width: px(0),
+            min_height: px(220), // 图片保持原最小高度；模型子列表会按真实行自然增加整体高度。
+            flex_grow: 1.0, // 高窗口把列表下方空白真正交给预览，而非保留无用途背景。
+            flex_shrink: 0.0,
+            flex_direction: FlexDirection::Column,
+            row_gap: px(3),
+            padding: UiRect::all(px(4)),
+            border: UiRect::top(px(1)), // 预览与所选资源以弱分隔线分层，不再外套一整圈铜框。
+        }
+        BackgroundColor(colors::PANEL_BG_SECTION)
+        BorderColor::all(colors::COPPER_BORDER_WEAK)
+        Children [
+            super::gltf_tree::InlineChromeHost
+                Node { width: percent(100), min_width: px(0), flex_shrink: 0.0, flex_direction: FlexDirection::Column }
+                Children [@preview_chrome()]
+            --
+            @super::view_toolbar::scene()--
                 AssetPreviewCanvas
                 RelativeCursorPosition::default() // 尊重祖先裁剪，读取当前画布内真实光标位置。
                 UiInteraction::default() // 额外验证前方模态遮挡，不能仅按矩形抢输入。
@@ -419,11 +441,16 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                         TextColor(colors::TEXT_HINT)
                         Node { display: Display::None }
                     --
-                    @super::animation::scene::pose_toolbar() // 动画移动/旋转入口留在画布旁，原位迁移到中央后仍可直接使用。
+                    @super::animation::scene::pose_toolbar()-- // 小预览沿用原入口，中央 GLB 将原控件借给属性区。
+                    @super::rigging::scene::dots()
                 ]
             --
 
-                @super::animation::scene::panel()
+                super::animation::InlineAnimationHost
+                Node { width: percent(100), min_width: px(0), flex_shrink: 0.0, flex_direction: FlexDirection::Column }
+                Children [@super::animation::scene::panel()]
+            --
+                @super::animation::timeline_dock_scene()
             --
 
                 AssetPreviewNavigationHint // 图片与模型分别显示准确的手势说明。
