@@ -33,7 +33,7 @@ feathrise_settings = { workspace = true } # 编辑器的二十一个专业数值
 feathrise_editor_core = { workspace = true } # 原共享状态和 ECS 类型的唯一契约。
 feathrise_editor_ui = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["float_roundtrip"] } # GLB 调权另存要保留未修改的 JSON 浮点值。
 image = { workspace = true }
 gltf = { version = "1.4.1", default-features = false, features = ["utils", "names"] } # 复用Bevy已锁定解析器，仅后台读取旧场景实际地形三角。
 sha2 = { workspace = true } # 保存前后比较terrain.glb精确摘要，阻止覆盖Blender并发导出。

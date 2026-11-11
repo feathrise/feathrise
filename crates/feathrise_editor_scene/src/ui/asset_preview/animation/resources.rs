@@ -593,6 +593,25 @@ impl AnimationEditorState {
             self.reset_rig_playback();
         }
     }
+
+    pub(in crate::ui::asset_preview) fn weight_motion_active(&self) -> bool {
+        self.in_place_rig_preview() || (self.visible && self.playing)
+    }
+
+    pub(in crate::ui::asset_preview) fn weight_rest_pose(&mut self) {
+        self.stop_rig_preview();
+        self.pause_weight_comparison(None);
+    }
+
+    pub(in crate::ui::asset_preview) fn pause_weight_comparison(&mut self, published: Option<f32>) {
+        if let Some(time) = published {
+            self.seek(time);
+        }
+        if self.playing || published.is_some() {
+            self.playing = false;
+            self.changed(); // 失效尚未发布的候选姿态，保留此刻已显示的帧。
+        }
+    }
     pub(super) fn editable(&self) -> bool {
         !self.retargeting() && self.active_document().is_some_and(|doc| !doc.read_only)
     }
@@ -767,7 +786,7 @@ impl AnimationEditorState {
 }
 
 #[derive(Resource, Default)]
-pub(super) struct BindingState {
+pub(in crate::ui::asset_preview) struct BindingState {
     pub(super) identity: Option<BindingIdentity>,
     pub(super) task: Option<(
         Option<BindingIdentity>,
@@ -781,4 +800,14 @@ pub(super) struct BindingState {
     pub(super) failed: bool,
     pub revision: u64,
     pub active: bool,
+}
+
+impl BindingState {
+    pub(in crate::ui::asset_preview) fn weight_roots(&self, path: &str) -> [Option<Entity>; 2] {
+        if self.identity.as_ref().is_some_and(|id| id.model == path) {
+            [self.banks[0].root, self.banks[1].root]
+        } else {
+            [None, None]
+        }
+    }
 }

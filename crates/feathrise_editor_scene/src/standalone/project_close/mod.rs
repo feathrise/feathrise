@@ -69,7 +69,7 @@ fn requires_external_projection(target: &SaveTarget) -> bool {
     match target {
         SaveTarget::Domain(_, _) => true, // 未声明的应用作者不能被通用宿主猜成隔离样品。
         SaveTarget::Scene(_) | SaveTarget::GlobalEnvironment
-        | SaveTarget::Documents | SaveTarget::Animation(_)
+        | SaveTarget::Documents | SaveTarget::Animation(_) | SaveTarget::Weights(_)
         | SaveTarget::Surface(_) | SaveTarget::Vegetation(_)
         | SaveTarget::Water(_) | SaveTarget::Building(_) => false,
         // 停放场景不在当前玩法World；原预设/文本/动画编辑也只作用其表单或独立RTT，保存后才改变正式资产。
@@ -247,6 +247,7 @@ fn start(world: &mut World, item: &SaveItem) -> Result<SaveStage, String> {
         SaveTarget::Animation(path) => {
             ui::asset_preview::animation::project_close::request(world, path)?
         }
+        SaveTarget::Weights(path) => ui::asset_preview::weights::project_close::request(world, path)?,
         SaveTarget::Vegetation(id) => {
             ui::vegetation_preset_editor::project_close::request(world, *id)?
         }
@@ -265,6 +266,7 @@ fn poll(world: &World, target: &SaveTarget, before: Option<u64>) -> Result<bool,
         SaveTarget::Animation(path) => {
             ui::asset_preview::animation::project_close::poll(world, path)
         }
+        SaveTarget::Weights(path) => ui::asset_preview::weights::project_close::poll(world, path),
         SaveTarget::Vegetation(id) => ui::vegetation_preset_editor::project_close::poll(world, *id),
         SaveTarget::Water(id) => ui::water_preset_editor::project_close::poll(world, *id),
         SaveTarget::Building(id) => ui::building_presets::project_close::poll(world, *id),

@@ -221,6 +221,9 @@ pub fn install(app: &mut App, project: &Path, assets: &Path) -> Result<(), Strin
     {
         return Err("绑骨验收的工程、作者偏好或全局插件缺少本轮隔离归属".into());
     }
+    if std::env::var_os("FEATHRISE_RIG_VALIDATION_WEIGHTS").is_some() {
+        return super::weights::install_validation(app, root, assets);
+    }
     let reopen = std::env::var_os("FEATHRISE_RIG_VALIDATION_REOPEN").is_some();
     let report = if reopen {
         "reopen.json"

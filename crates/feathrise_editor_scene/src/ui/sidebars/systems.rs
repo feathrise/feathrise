@@ -217,7 +217,9 @@ pub(crate) fn sync_editor_sidebar_presentation(
             };
             if tab_text.is_some() {
                 if tab_button.is_some_and(|button| button.0 == EditorSidebarTab::Right(EditorRightSidebarTab::Tools)) {
-                    let label = if state.rigging_available {
+                    let label = if state.weight_available {
+                        if locale == feathrise_editor_ui::localization::EditorLocale::English { "Weights" } else { "权重" }
+                    } else if state.rigging_available {
                         locale.text("rig.tab")
                     } else if let EditorLeftSidebarTab::Domain(id) = state.left {
                         tool_labels.as_ref().and_then(|labels| labels.0.get(id)).map(String::as_str)

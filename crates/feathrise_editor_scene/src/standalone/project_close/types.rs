@@ -58,6 +58,7 @@ pub struct ProjectAuthorAdapter {
 pub(crate) enum SaveTarget {
     Documents,
     Animation(PathBuf),
+    Weights(PathBuf),
     Domain(&'static str, u64),
     Surface(u64),
     Vegetation(u64),

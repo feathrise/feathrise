@@ -1,4 +1,4 @@
-//! 中央 GLB 标签的只读左栏结构。沿用场景树页、共享滚轮和连续虚拟列表。
+//! 中央 GLB 标签的左栏结构。调权页可定位图元、蒙皮与关节，复用连续虚拟列表。
 
 use super::{AssetPreviewState, AssetPreviewWorkspace, DocumentState, types::AssetPreviewControls};
 use crate::{
@@ -8,7 +8,7 @@ use crate::{
     ui::{
         continuous_list,
         scene::FONT_PATH,
-        sidebars::{EditorNavigatorTab, SceneEditorSidebarState},
+        sidebars::{EditorNavigatorTab, EditorRightSidebarTab, SceneEditorSidebarState},
         theme as colors,
         vegetation_preset_editor::{PresetWorkspaceTab, VegetationPresetEditorState},
     },
@@ -19,7 +19,7 @@ use bevy::{
     text::FontSourceTemplate,
     ui::RelativeCursorPosition,
 };
-use feathrise_editor_ui::{EditorButtonClick, UiInteraction, localization::EditorLocale, metrics};
+use feathrise_editor_ui::{EditorButtonClick, InteractionButton, UiInteraction, localization::EditorLocale, metrics};
 use std::{
     borrow::Cow,
     path::{Path, PathBuf},
@@ -62,7 +62,7 @@ struct Header;
 struct List;
 
 #[derive(Component)]
-struct Slot {
+pub(super) struct Slot {
     index: usize,
     bound: Option<(u64, usize, EditorLocale)>,
 }
@@ -89,7 +89,7 @@ struct Work {
 }
 
 #[derive(Resource, Default)]
-struct TreeState {
+pub(super) struct TreeState {
     last_central_glb: Option<u64>,
     selected: Option<Source>,
     complete: Option<(Source, Rows)>,
@@ -111,6 +111,10 @@ pub(super) fn install(app: &mut App) {
             select_root_properties
                 .after(super::opening::open)
                 .in_set(SceneEditorSystemSet::Input),
+        )
+        .add_systems(
+            Update,
+            weight_row_input.in_set(SceneEditorSystemSet::Input),
         )
         .add_systems(
             Update,
@@ -183,6 +187,34 @@ fn select_root_properties(
         editor.selected_asset = Some(path.to_owned());
     }
     sidebar.reveal_asset_properties();
+}
+
+fn weight_pick(row: &data::Row) -> Option<super::weights::TreePick> {
+    use super::weights::TreePick;
+    match row.kind {
+        data::Kind::Joint => Some(TreePick::Joint(row.index)),
+        data::Kind::Mesh(_) => Some(TreePick::Mesh(row.index)),
+        data::Kind::Skin(_) => Some(TreePick::Skin(row.index)),
+        _ => None,
+    }
+}
+
+pub(super) fn weight_row_input(
+    state: Res<TreeState>,
+    sidebar: Res<SceneEditorSidebarState>,
+    clicks: Query<(&Slot, &EditorButtonClick), Changed<EditorButtonClick>>,
+    mut picks: MessageWriter<super::weights::TreePick>,
+) {
+    if sidebar.right != EditorRightSidebarTab::Weights || !sidebar.scene_tree_visible() { return; }
+    let Some(Ok(rows)) = state.result() else { return };
+    for (slot, click) in &clicks {
+        if click.is_clicked() && let Some((revision, index, _)) = slot.bound
+            && revision == state.revision && let Some(pick) = rows.get(index).and_then(weight_pick)
+        {
+            picks.write(pick);
+            break;
+        }
+    }
 }
 
 fn update(
@@ -461,6 +493,7 @@ fn bind_slot(
 fn present(
     state: Res<TreeState>,
     sidebar: Res<SceneEditorSidebarState>,
+    weights: Option<Res<super::weights::WeightEditor>>,
     locale: Option<Res<EditorLocale>>,
     assets: Option<Res<AssetServer>>,
     mut commands: Commands,
@@ -480,7 +513,8 @@ fn present(
         ),
         (With<List>, Without<Slot>, Without<Header>),
     >,
-    mut slots: Query<(&mut Slot, &mut Node, &mut Text, &mut TextColor), Without<List>>,
+    mut slots: Query<(&mut Slot, &mut Node, &mut Text, &mut TextColor,
+        &mut Pickable, &mut EditorButtonClick, &mut BackgroundColor), Without<List>>,
 ) {
     if !sidebar.scene_tree_visible() {
         return;
@@ -554,7 +588,10 @@ fn present(
     let capacity = continuous_list::pool_capacity(height, 1, metrics::ROW_HEIGHT)
         .min(MAX_ROW_SLOTS)
         .min(entries.len());
-    for (mut slot, mut node, mut text, mut color) in &mut slots {
+    let selected = weights.as_ref().and_then(|weights| weights.selected_tree(state.last_central_glb));
+    let editable = sidebar.right == EditorRightSidebarTab::Weights;
+    for (mut slot, mut node, mut text, mut color, mut pickable, mut click, mut background) in &mut slots {
+        let prior = slot.bound;
         bind_slot(
             &mut slot,
             &mut node,
@@ -566,6 +603,13 @@ fn present(
             state.revision,
             locale,
         );
+        if prior != slot.bound { click.invalidate(); } // 滚动换绑的行不能接受上一关节的松手。
+        let pick = slot.bound.and_then(|(_, index, _)| entries.get(index)).and_then(weight_pick)
+            .filter(|_| editable);
+        *pickable = if pick.is_some() { Pickable::default() } else { Pickable::IGNORE };
+        background.0 = if pick.is_some_and(|pick| selected.is_some_and(|selected| selected.contains(&pick))) {
+            colors::SELECT_BG
+        } else { Color::NONE };
     }
     let count = children.map_or(0, |children| children.len());
     if count >= capacity {
@@ -605,6 +649,8 @@ fn present(
             color,
             TextLayout::no_wrap(),
             Pickable::IGNORE,
+            InteractionButton,
+            BackgroundColor(Color::NONE),
             ChildOf(list),
             TextFont {
                 font: font.clone().into(),

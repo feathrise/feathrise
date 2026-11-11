@@ -123,6 +123,20 @@ pub(in crate::ui::asset_preview) struct PreviewRuntime {
 }
 
 impl PreviewRuntime {
+    /// 权重对照冻结已显示的姿态。时间轴的请求帧可能还在后台采样或填充另一套容器。
+    pub(in crate::ui::asset_preview) fn published_weight_time(
+        &self,
+        editor: &AnimationEditorState,
+    ) -> Option<f32> {
+        let pose = self.published_pose.as_ref()?;
+        let session = editor.current()?;
+        (editor.visible()
+            && (!editor.in_place_rig_preview() || self.in_place_hidden_scene.is_some())
+            && pose.matches_session(session)
+            && pose.draft == session.pose)
+            .then_some(pose.time)
+    }
+
     pub(super) fn rig_pose_published(&self, editor: &AnimationEditorState) -> bool {
         self.in_place_hidden_scene.is_some()
             && self.published_pose.as_ref().is_some_and(|pose|

@@ -152,6 +152,7 @@ pub(crate) fn asset_properties_page(scenes: &feathrise_editor_documents_model::D
             @super::super::asset_preview_panel(scenes)--
             @super::super::asset_preview_sidebar_launch(scenes)--
             @super::super::rigging::scene::motion_properties_host()--
+            @super::super::weights::panel::entry()--
             @super::super::animation::properties_host()--
             @sidebar_help_button(EditorSidebarHelp::Assets)--
             @sidebar_help_body(EditorSidebarHelp::Assets,

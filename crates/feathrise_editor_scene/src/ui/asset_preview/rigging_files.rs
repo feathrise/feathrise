@@ -43,16 +43,16 @@ const BODY_JOINTS: [&str; 22] = [
 static STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, PartialEq, Eq)]
-pub(super) struct FrozenAsset {
+pub(in crate::ui::asset_preview) struct FrozenAsset {
     pub(super) relative: String,
     path: PathBuf,
     sha256: [u8; 32],
 }
 
-pub(super) struct Stage(PathBuf);
+pub(in crate::ui::asset_preview) struct Stage(PathBuf);
 
 impl Stage {
-    pub(super) fn new(root: &Path) -> Result<Self, String> {
+    pub(in crate::ui::asset_preview) fn new(root: &Path) -> Result<Self, String> {
         let parent = checked_root(root.parent().ok_or("资产根缺少工程父目录")?)?;
         // 暂存留在资产根旁，AssetServer 不会载入临时 GLB，正式发布仍在同一文件系统。
         for _ in 0..32 {
@@ -71,7 +71,7 @@ impl Stage {
         &self.0
     }
 
-    pub(super) fn path(&self, filename: &str) -> PathBuf {
+    pub(in crate::ui::asset_preview) fn path(&self, filename: &str) -> PathBuf {
         self.0.join(filename)
     }
 }
@@ -103,7 +103,7 @@ pub(super) fn ordinary(path: &Path) -> Result<Metadata, String> {
     Ok(metadata)
 }
 
-pub(super) fn checked_root(root: &Path) -> Result<PathBuf, String> {
+pub(in crate::ui::asset_preview) fn checked_root(root: &Path) -> Result<PathBuf, String> {
     let root = root
         .canonicalize()
         .map_err(|error| format!("无法定位工程资产根：{error}"))?;
@@ -138,7 +138,7 @@ fn checked_asset(root: &Path, relative: &str) -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
-pub(super) fn active(cancel: &AtomicBool) -> Result<(), String> {
+pub(in crate::ui::asset_preview) fn active(cancel: &AtomicBool) -> Result<(), String> {
     if cancel.load(Ordering::Acquire) {
         return Err("已取消人形绑骨任务".into());
     }
@@ -165,14 +165,25 @@ pub(super) fn snapshot(
     })
 }
 
-pub(super) fn check_frozen(
+pub(in crate::ui::asset_preview) fn freeze_bytes(
+    root: &Path,
+    relative: &str,
+    cancel: &AtomicBool,
+) -> Result<(FrozenAsset, Vec<u8>), String> {
+    let path = checked_asset(root, relative)?;
+    let mut bytes = Vec::new();
+    let sha256 = hash_and_copy(&path, &mut bytes, cancel)?;
+    Ok((FrozenAsset { relative: relative.to_owned(), path, sha256 }, bytes))
+}
+
+pub(in crate::ui::asset_preview) fn check_frozen(
     root: &Path,
     frozen: &FrozenAsset,
     cancel: &AtomicBool,
 ) -> Result<(), String> {
     let path = checked_asset(root, &frozen.relative)?;
     if path != frozen.path || hash_and_copy(&path, &mut io::sink(), cancel)? != frozen.sha256 {
-        return Err(format!("输入已在外部更新，请重新绑骨：{}", frozen.relative));
+        return Err(format!("输入已在外部更新：{}", frozen.relative));
     }
     Ok(())
 }
@@ -407,6 +418,16 @@ pub(super) fn publish(
     input: &FrozenAsset,
     cancel: &AtomicBool,
 ) -> Result<String, String> {
+    publish_named(staged, root, input, "已绑骨", cancel)
+}
+
+pub(in crate::ui::asset_preview) fn publish_named(
+    staged: &Path,
+    root: &Path,
+    input: &FrozenAsset,
+    suffix: &str,
+    cancel: &AtomicBool,
+) -> Result<String, String> {
     let parent = input.path.parent().ok_or("原模型没有父目录")?;
     let stem: String = input
         .path
@@ -424,9 +445,9 @@ pub(super) fn publish(
     for index in 1..=999 {
         active(cancel)?;
         let name = if index == 1 {
-            format!("{stem}_已绑骨.glb")
+            format!("{stem}_{suffix}.glb")
         } else {
-            format!("{stem}_已绑骨_{index}.glb")
+            format!("{stem}_{suffix}_{index}.glb")
         };
         let destination = parent.join(name);
         let relative = relative_path(root, &destination).ok_or("输出路径越过工程资产根")?;
