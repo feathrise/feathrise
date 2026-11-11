@@ -4,7 +4,7 @@ use super::paths::normalize_asset_reference; // 路径规范化不读取文件�
 use super::resources::EditorAssetCatalog; // 当前目录、唯一 IO 槽和未完成定位意图。
 use super::types::{AssetRevealRequest, AssetScanRequest, AssetScanResult}; // 后台与前台共享完整身份。
 use crate::resources::SceneEditorState; // 只更新选中资产与提示，不触碰场景 dirty 或作者动作。
-use crate::types::EditorAssetEntry; // 旧目录只转移所有权，随后由后台释放。
+use super::filter::DirectorySnapshot; // 旧目录与片段数据随后由后台释放。
 use crate::ui::sidebars::{EditorNavigatorTab, SceneEditorSidebarState}; // 定位只揭示左侧资产浏览器。
 
 /// 显式定位一份引用；现有目录与预览保持不变，直到后台确认完整路径确实存在。
@@ -95,7 +95,9 @@ pub(super) fn expire_asset_reveal(
 
 /// 请求身份必须同时匹配修订、父目录与所属文件；普通扫描也不接受已换目录的结果。
 fn scan_is_current(request: &AssetScanRequest, catalog: &EditorAssetCatalog) -> bool {
-    if request.revision != catalog.requested_revision {
+    if request.revision != catalog.requested_revision || request.context != catalog.source_context()
+        || request.filters.kind != catalog.type_filter
+    {
         return false; // 任何目录刷新或取消后的迟到结果不能发布。
     }
     match (&request.reveal_file, &catalog.reveal) {
@@ -107,7 +109,7 @@ fn scan_is_current(request: &AssetScanRequest, catalog: &EditorAssetCatalog) -> 
                 && reveal.file_path == *file_path // 不能因同目录同名别名而误选。
                 && reveal.folder == request.folder // 防御父目录已被外部重定向。
         }
-        (None, None) => request.folder == catalog.current_folder, // 普通目录结果不能覆盖等待中的反向定位。
+        (None, None) => request.folder == catalog.current_folder && request.filters.filename == catalog.filename_filter,
         _ => false, // 普通扫描与定位扫描不是互相可替代的结果。
     }
 }
@@ -123,7 +125,7 @@ pub(super) fn adopt_asset_scan(
     expire_asset_reveal(catalog, editor, sidebar); // 即使任务恰在换页或关闭帧完成也先失效。
     if !scan_is_current(&completed.request, catalog) {
         if let Ok(contents) = completed.result {
-            retire_entries(catalog, contents.entries); // 迟到大结果也不能在主线程整表析构。
+            retire_entries(catalog, contents.snapshot); // 迟到大结果也不能在主线程整表析构。
         }
         return false; // 不覆盖新状态文字、页码或当前预览。
     }
@@ -134,6 +136,9 @@ pub(super) fn adopt_asset_scan(
             editor.status = if catalog.reveal.take().is_some() {
                 format!("资产定位失败：{error}") // 原选择、目录与预览继续保留。
             } else {
+                if let Some(folder) = &catalog.adopted_folder {
+                    catalog.current_folder = folder.clone(); // 失败后仍以可见快照的目录作为下一次刷新目标。
+                }
                 error // 普通浏览沿用现有具体目录错误提示。
             };
             catalog.feedback = Some(super::types::AssetCatalogFeedback {
@@ -145,7 +150,7 @@ pub(super) fn adopt_asset_scan(
     };
     let reveal_index = if let Some(file_path) = completed.request.reveal_file.as_deref() {
         match contents.reveal_index.filter(|index| {
-            contents.entries.get(*index).is_some_and(|entry| {
+            contents.snapshot.entries.get(*index).is_some_and(|entry| {
                 !entry.is_directory && entry.asset_path == file_path // 用完整路径复核后台索引，绝不回退搜索同名项。
             })
         }) {
@@ -158,7 +163,7 @@ pub(super) fn adopt_asset_scan(
                     revision: completed.request.revision,
                     result: Err(editor.status.clone()),
                 });
-                retire_entries(catalog, contents.entries); // 完整私有候选由后台释放。
+                retire_entries(catalog, contents.snapshot); // 完整私有候选由后台释放。
                 return false; // 损坏候选不触发右栏预览切换。
             }
         }
@@ -169,8 +174,12 @@ pub(super) fn adopt_asset_scan(
         revision: completed.request.revision,
         result: Ok(()),
     }); // 完整结果才发布成功证据；扫描、排序和原子采用链不变。
-    let old_entries = std::mem::replace(&mut catalog.entries, contents.entries); // 所有权交换是常数成本，避免复制或同步析构全目录。
-    retire_entries(catalog, old_entries); // 下一次唯一 IO 任务先释放旧缓存，再扫描最新请求。
+    let old = DirectorySnapshot {
+        entries: std::mem::replace(&mut catalog.entries, contents.snapshot.entries),
+        animations: std::mem::replace(&mut catalog.animations, contents.snapshot.animations),
+    }; // 同帧换代目录和元数据，行池不能拿新路径查询旧片段。
+    retire_entries(catalog, old);
+    catalog.adopted_type_filter = completed.request.filters.kind;
     let folder_changed = catalog.adopted_folder.as_deref() != Some(completed.request.folder.as_str());
     catalog.adopted_folder = Some(completed.request.folder.clone());
     catalog.current_folder = completed.request.folder; // 只有此时定位父目录才真正成为公开目录。
@@ -184,6 +193,7 @@ pub(super) fn adopt_asset_scan(
         if let Some(anchor) = catalog.scroll_anchor.as_mut() { anchor.require_selection = true; }
     } else if folder_changed { catalog.request_scroll_anchor(0); } // 新目录从首项开始，刷新同一目录保留手动位置。
     if let Some(reveal) = catalog.reveal.take() {
+        catalog.filename_filter.clear();
         catalog.revealed_revision = Some(reveal.revision); // 目录也记录真实成功意图，供工程树处理同帧完成。
         catalog.revealed_entry = reveal_index.map(|index| (reveal.revision, index)); // 仅完整成功发布一次性UI滚动目标。
         if reveal.is_directory {
@@ -206,12 +216,12 @@ pub(super) fn adopt_asset_scan(
 }
 
 /// 唯一完成值至多生成一份退役目录；下一任务启动前会移走它，稳定帧不遍历条目。
-fn retire_entries(catalog: &mut EditorAssetCatalog, entries: Vec<EditorAssetEntry>) {
-    if entries.is_empty() {
+fn retire_entries(catalog: &mut EditorAssetCatalog, snapshot: DirectorySnapshot) {
+    if snapshot.is_empty() {
         return; // 空向量无需增加一次后台清理任务。
     }
     debug_assert!(catalog.retired_entries.is_none()); // single-flight 槽和采用点保证不会覆盖尚未释放的大目录。
-    catalog.retired_entries = Some(entries); // 大字符串和 Vec 析构统一留到 IO 线程。
+    catalog.retired_entries = Some(snapshot); // 大字符串和 Vec 析构统一留到 IO 线程。
 }
 
 #[cfg(test)]

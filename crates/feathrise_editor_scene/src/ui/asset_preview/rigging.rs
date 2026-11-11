@@ -1,6 +1,7 @@
 //! 独立 GLB 的人形绑骨工作流，复用资源预览画布、当前工程资产根和动画时间轴。
 
 use crate::SceneEditorSystemSet;
+use super::{PickProjectAnimationClip, ProjectAnimationPickSet};
 use bevy::prelude::*;
 
 #[path = "rigging_backend.rs"]
@@ -19,11 +20,13 @@ mod systems;
 mod types;
 
 pub(crate) use {context::{RigReferenceInput, RigReferenceRows}, resources::RiggingState};
+pub(crate) use backend::glb_directory_json;
 #[cfg(feature = "validation")]
 pub(crate) use types::{RigAction, RigLandmarkDot};
 
 pub(super) fn install(app: &mut App) {
     app.init_resource::<RiggingState>()
+        .add_message::<PickProjectAnimationClip>()
         .add_systems(
             Update,
             (systems::actions, landmarks::input)
@@ -37,6 +40,13 @@ pub(super) fn install(app: &mut App) {
                 .before(crate::authoring::mesh_edit::MeshEditInput)
                 .before(crate::ui::actions::handle_editor_shortcuts)
                 .before(crate::ui::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)
+                .in_set(SceneEditorSystemSet::Input),
+        )
+        .add_systems(
+            Update,
+            systems::pick_project_animation
+                .after(super::opening::open)
+                .in_set(ProjectAnimationPickSet)
                 .in_set(SceneEditorSystemSet::Input),
         )
         .add_systems(

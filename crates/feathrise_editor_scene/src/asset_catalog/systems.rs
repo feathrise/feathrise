@@ -7,6 +7,7 @@ use bevy::tasks::IoTaskPool; // 文件系统遍历使用IO池而非帧主线程�
 use bevy::tasks::futures::check_ready; // Update只探测任务完成状态，不等待IO。
 use feathrise_scene_content::SceneAssetKind; // 点击不同资产用途选择对应工具。
 
+use super::filter::DirectoryFilters;
 use super::reveal::{adopt_asset_scan, cancel_asset_reveal, expire_asset_reveal}; // 定位生命周期与同身份原子采用。
 use super::scan::scan_asset_request; // 纯后台扫描、排序和精确目标定位。
 use super::types::AssetScanRequest; // 后台冻结完整目录身份，不再只返回一个松散修订。
@@ -30,20 +31,32 @@ pub(crate) fn start_asset_scan(
     sidebar: Res<SceneEditorSidebarState>, // 定位仅在仍显示资产页时有效。
     mut catalog: ResMut<EditorAssetCatalog>, // 唯一在途槽同时为扫描与旧目录析构施加背压。
     documents: Option<Res<crate::ui::asset_preview::DocumentState>>, // 浏览、预览和收藏使用同一资产根。
+    browser: Option<Res<crate::ui::project_browser::ProjectBrowserState>>,
 ) {
     expire_asset_reveal(&mut catalog, &editor, &sidebar); // 新用户意图先撤销旧请求，不假定丢 Task 会抢占 IO。
     if catalog.task.is_some() {
         return; // 旧任务真正完成并轮询前，绝不并发第二次目录扫描。
     }
     let source_available = catalog.hosted_source.as_ref().is_none_or(|(_, root)| root.is_some());
+    let visible = sidebar.assets_browser_visible() && browser.as_ref().is_none_or(|browser| browser.assets_visible());
+    if editor.open && !editor.close_requested && source_available && visible
+        && catalog.reveal.is_none() && catalog.worker.take_changed() && !catalog.is_loading()
+    {
+        // 多次原生事件只合并到现有待处理请求，文件读取仍在同一后台槽。
+        catalog.requested_revision = catalog.requested_revision.wrapping_add(1);
+    }
     let should_scan = editor.open
         && !editor.close_requested // 关闭联合门等待时不再增加资产工作。
         && source_available // 无工程时绝不读取编辑器自身的作者资产。
+        // 工程正文已负责筛选时不重复扫描隐藏的资产正文，跨入资产根的显式定位仍优先。
+        && (catalog.type_filter == super::AssetTypeFilter::All || visible || catalog.reveal.is_some())
         && catalog.requested_revision != catalog.applied_revision; // 稳定帧或本轮失败不自动重试。
-    if !should_scan && catalog.retired_entries.is_none() && catalog.retired_source.is_none() {
+    let stop_watching = !source_available && catalog.worker.is_watching();
+    if !should_scan && !stop_watching && catalog.retired_entries.is_none() && catalog.retired_source.is_none() {
         return; // 无请求、无退役结果时完全不启动后台任务。
     }
     let request = should_scan.then(|| AssetScanRequest {
+        context: catalog.source_context(),
         revision: catalog.requested_revision, // 后台完成时必须仍为最新修订。
         folder: catalog.reveal.as_ref().map_or_else(
             || catalog.current_folder.clone(), // 普通浏览沿用当前目录。
@@ -54,6 +67,10 @@ pub(crate) fn start_asset_scan(
             .as_ref()
             .filter(|reveal| !reveal.is_directory)
             .map(|reveal| reveal.file_path.clone()), // 精确文件搜索只在后台执行。
+        filters: DirectoryFilters {
+            kind: catalog.type_filter,
+            filename: if catalog.reveal.is_some() { String::new() } else { catalog.filename_filter.clone() },
+        },
     });
     let retired = catalog.retired_entries.take(); // 旧 Vec O(1) 交给工作线程，主线程不析构全目录。
     let retired_source = catalog.retired_source.take();
@@ -61,10 +78,12 @@ pub(crate) fn start_asset_scan(
         Some((_, root)) => root.clone().unwrap_or_default(),
         None => documents.as_ref().map_or_else(workspace_asset_root, |documents| documents.asset_root().to_path_buf()),
     }; // canonicalize 留在 IO 任务中；宿主空根不会走扫描分支。
+    let worker = catalog.worker.clone();
     catalog.task = Some(IoTaskPool::get().spawn(async move {
         drop(retired); // 任意长旧目录和迟到结果在后台释放，保持单一在途预算。
         drop(retired_source);
-        request.map(|request| scan_asset_request(root, request)) // None 是纯退役完成回执，不触发目录采用。
+        if stop_watching { worker.clear(); }
+        request.map(|request| scan_asset_request(root, request, &worker)) // None 是纯退役完成回执，不触发目录采用。
     }));
 }
 
@@ -155,6 +174,7 @@ pub(crate) fn handle_asset_row_clicks(
         if entry.is_directory {
             catalog.last_click = None;
             catalog.current_folder = entry.asset_path;
+            catalog.filename_filter.clear();
             catalog.page = 0;
             catalog.requested_revision = catalog.requested_revision.wrapping_add(1);
             editor.status = format!("正在打开 assets/{}", catalog.current_folder);

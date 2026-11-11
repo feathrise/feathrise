@@ -17,10 +17,18 @@ use feathrise_editor_ui::{
 };
 
 fn label(text: &str, kind: AnimationLabel) -> impl Scene {
+    let wraps = matches!(kind, AnimationLabel::Clip | AnimationLabel::ClipParameters);
+    let layout = if wraps {
+        TextLayout::linebreak(bevy::text::LineBreak::WordOrCharacter)
+    } else {
+        TextLayout::no_wrap()
+    };
+    let width = if wraps { percent(100) } else { Val::Auto };
+    let max_width = if wraps { percent(100) } else { Val::Auto };
     bsn! { ~{kind} Text(text) ~{FocusPolicy::Pass}
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-        TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap()
-        Node { min_width: px(0), overflow: Overflow::clip_x() }
+        TextColor(colors::TEXT_PRIMARY) ~{layout}
+        Node { width, min_width: px(0), max_width, overflow: Overflow::clip_x() }
     }
 }
 
@@ -176,12 +184,18 @@ pub(in super::super) fn panel() -> impl Scene {
                 column_gap: px(3), row_gap: px(3), flex_wrap: FlexWrap::Wrap,
                 padding: UiRect::right(px(22)) }
             Children [
-                @property_home(PropertySection::Clips)
+                ~{InlinePropertyHost(PropertySection::Clips)} Node { width: percent(100), min_width: px(0) }
                 Children [
-                    ~{PropertySection::Clips} @wrap_row()
-                    Children [@label("动作", AnimationLabel::Clip)--
-                        AnimationWriteControls @button("前动作", AnimationAction::PreviousClip)--
-                        AnimationWriteControls @button("后动作", AnimationAction::NextClip)]
+                    // 标题和参数各用完整栏宽，长名称可换行。前后动作按钮独立排布，避免挤窄标题。
+                    ~{PropertySection::Clips}
+                    Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3) }
+                    Children [
+                        @label("动作", AnimationLabel::Clip)--
+                        @label("", AnimationLabel::ClipParameters)--
+                        AnimationWriteControls @wrap_row()
+                        Children [@button("前动作", AnimationAction::PreviousClip)--
+                            @button("后动作", AnimationAction::NextClip)]
+                    ]
                 ]
             --
                 AnimationWriteControls @wrap_row()

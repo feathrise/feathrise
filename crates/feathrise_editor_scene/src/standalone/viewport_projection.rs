@@ -78,6 +78,7 @@ fn publish(
         Option<Res<crate::ui::scene_context_menu::SceneContextMenuState>>,
         Option<Res<crate::ui::scene_sidebar::SceneDirectoryMenuState>>,
         Option<Res<crate::ui::asset_preview::AssetTabMenuState>>,
+        Option<Res<crate::ui::project_browser::ProjectBrowserPopup>>,
     ),
     settings: Option<Res<SceneEditorSettingsState>>,
     roots: Query<
@@ -127,6 +128,7 @@ fn publish(
         || menus.1.as_ref().is_some_and(|state| state.owns_mouse())
         || menus.2.as_ref().is_some_and(|state| state.owns_mouse())
         || menus.3.as_ref().is_some_and(|state| state.owns_mouse())
+        || menus.4.as_ref().is_some_and(|state| state.owns_mouse())
         || settings
             .as_ref()
             .is_some_and(|state| state.open || state.owns_mouse_this_frame)

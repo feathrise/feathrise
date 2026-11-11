@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 use bevy::{prelude::Resource, tasks::Task};
 
 use super::types::{ProjectFileIdentity, ProjectFileNavigation, ScanResult};
-use crate::{asset_catalog::{scan::hidden_project_entry, types::AssetCatalogFeedback}, types::EditorAssetEntry};
+use crate::{asset_catalog::{
+    filter::{AssetTypeFilter, DirectorySnapshot},
+    scan::hidden_project_entry, types::AssetCatalogFeedback, watch::DirectoryWorker,
+}, types::EditorAssetEntry};
 
 #[derive(Resource, Default)]
 pub(crate) struct EditorProjectFileCatalog {
@@ -15,6 +18,10 @@ pub(crate) struct EditorProjectFileCatalog {
     pub(crate) current_folder: String,
     pub(crate) entries: Vec<EditorAssetEntry>,
     pub(crate) filter: String,
+    pub(super) type_filter: AssetTypeFilter,
+    pub(crate) adopted_type_filter: AssetTypeFilter,
+    pub(super) asset_root: Option<PathBuf>,
+    pub(super) worker: DirectoryWorker,
     pub(crate) selected_file: Option<ProjectFileIdentity>,
     pub(crate) feedback: Option<AssetCatalogFeedback>,
     pub(crate) requested_revision: u64,
@@ -24,8 +31,8 @@ pub(crate) struct EditorProjectFileCatalog {
     pub(super) requested_folder: String,
     pub(super) task: Option<Task<Option<ScanResult>>>,
     /// 完成值或已显示目录各最多一份退役预算，O(1)移交同一IO槽析构。
-    pub(super) retired_entries: Option<Vec<EditorAssetEntry>>,
-    pub(super) retired_source: Option<Vec<EditorAssetEntry>>,
+    pub(super) retired_entries: Option<DirectorySnapshot>,
+    pub(super) retired_source: Option<DirectorySnapshot>,
 }
 
 impl EditorProjectFileCatalog {
@@ -39,11 +46,15 @@ impl EditorProjectFileCatalog {
         self.requested_folder.clear();
         self.current_folder.clear();
         self.filter.clear();
+        self.asset_root = None;
+        self.adopted_type_filter = AssetTypeFilter::All;
         self.selected_file = None;
         self.feedback = None;
         if !self.entries.is_empty() {
             debug_assert!(self.retired_source.is_none());
-            self.retired_source = Some(std::mem::take(&mut self.entries));
+            self.retired_source = Some(DirectorySnapshot {
+                entries: std::mem::take(&mut self.entries), ..Default::default()
+            });
         }
         true
     }
@@ -74,9 +85,26 @@ impl EditorProjectFileCatalog {
         self.requested_revision = self.requested_revision.wrapping_add(1);
     }
 
+    pub(crate) fn set_asset_root(&mut self, root: Option<PathBuf>) {
+        if self.asset_root != root {
+            self.asset_root = root;
+            self.feedback = None;
+            self.requested_revision = self.requested_revision.wrapping_add(1);
+        }
+    }
+
+    pub(crate) fn set_type_filter(&mut self, filter: AssetTypeFilter) {
+        if self.type_filter != filter {
+            self.type_filter = filter;
+            self.feedback = None;
+            self.requested_revision = self.requested_revision.wrapping_add(1);
+        }
+    }
+
     pub(crate) fn navigate(&mut self, action: ProjectFileNavigation) {
         match action {
             ProjectFileNavigation::Refresh => {
+                self.worker.request_refresh();
                 self.requested_revision = self.requested_revision.wrapping_add(1);
                 self.feedback = None;
             }

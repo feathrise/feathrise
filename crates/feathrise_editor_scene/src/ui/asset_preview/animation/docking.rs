@@ -199,6 +199,45 @@ pub(in crate::ui::asset_preview) fn properties_panel_visible(world: &mut World) 
         })
 }
 
+#[cfg(feature = "validation")]
+pub(crate) struct ProjectClipProperties {
+    pub label: String,
+    pub parameters: String,
+    pub title_width: f32,
+    pub section_width: f32,
+    pub title_lines: u32,
+}
+
+#[cfg(feature = "validation")]
+pub(crate) fn project_clip_properties(world: &mut World) -> Option<ProjectClipProperties> {
+    use super::components::AnimationLabel;
+    use bevy::text::TextLayoutInfo;
+    if !properties_panel_visible(world) {
+        return None;
+    }
+    let mut clip = None;
+    let mut parameters = None;
+    for (label, text, node, visible, layout, parent) in world
+        .query::<(&AnimationLabel, &Text, &ComputedNode, &InheritedVisibility, &TextLayoutInfo, &ChildOf)>()
+        .iter(world)
+    {
+        if !visible.get() || node.size().min_element() <= 1.0 {
+            continue;
+        }
+        match label {
+            AnimationLabel::Clip => {
+                let section = world.get::<ComputedNode>(parent.parent())?;
+                let lines = layout.glyphs.iter().map(|glyph| glyph.line_index).max()? + 1;
+                clip = Some((text.as_str().to_owned(), node.size().x, section.size().x, lines));
+            }
+            AnimationLabel::ClipParameters => parameters = Some(text.as_str().to_owned()),
+            _ => (),
+        }
+    }
+    let (label, title_width, section_width, title_lines) = clip?;
+    Some(ProjectClipProperties { label, parameters: parameters?, title_width, section_width, title_lines })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

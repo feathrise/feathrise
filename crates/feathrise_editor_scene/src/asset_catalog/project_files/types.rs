@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::types::EditorAssetEntry;
+use crate::asset_catalog::filter::{DirectoryFilters, DirectorySnapshot};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ProjectFileIdentity {
@@ -18,12 +18,13 @@ pub(crate) enum ProjectFileNavigation { Refresh, Up }
 pub(super) struct ScanRequest {
     pub(super) context: u64,
     pub(super) project_root: PathBuf,
+    pub(super) asset_root: Option<PathBuf>,
     pub(super) revision: u64,
     pub(super) folder: String,
-    pub(super) filter: String,
+    pub(super) filters: DirectoryFilters,
 }
 
 pub(super) struct ScanResult {
     pub(super) request: ScanRequest,
-    pub(super) result: Result<Vec<EditorAssetEntry>, String>,
+    pub(super) result: Result<DirectorySnapshot, String>,
 }

@@ -294,7 +294,7 @@ pub fn install(app: &mut App, project: &Path, assets: &Path) -> Result<(), Strin
     Ok(())
 }
 
-fn fixture_focus(mut window: Query<&mut Window, With<PrimaryWindow>>) {
+pub(super) fn fixture_focus(mut window: Query<&mut Window, With<PrimaryWindow>>) {
     // 独占夹具的内部鼠标输入使用原焦点门。验证不抢占操作系统的实际前台。
     if let Ok(mut window) = window.single_mut() && !window.focused {
         window.focused = true;
@@ -1230,14 +1230,24 @@ fn click_filtered<T: Component, F: QueryFilter>(
 }
 
 fn click_entity(world: &mut World, run: &mut Run, window: Entity, entity: Option<Entity>) -> bool {
+    click_window_entity(world, &mut run.click, window, entity)
+}
+
+/// 实窗专项共用逐帧指针输入，只有官方三态确认命中与按下后才发释放。
+pub(super) fn click_window_entity(
+    world: &mut World,
+    click: &mut Option<(Entity, bool)>,
+    window: Entity,
+    entity: Option<Entity>,
+) -> bool {
     let Some(entity) = entity else { return false };
     let Some(transform) = world.get::<UiGlobalTransform>(entity) else {
         return false;
     };
     let physical = transform.affine().translation.as_dvec2();
     move_cursor(world, window, physical);
-    match run.click {
-        None => run.click = Some((entity, false)),
+    match *click {
+        None => *click = Some((entity, false)),
         Some((_, false)) if world.get::<UiInteraction>(entity) == Some(&UiInteraction::Hovered) => {
             window_event(
                 world,
@@ -1247,7 +1257,7 @@ fn click_entity(world: &mut World, run: &mut Run, window: Entity, entity: Option
                     state: ButtonState::Pressed,
                 },
             );
-            run.click = Some((entity, true));
+            *click = Some((entity, true));
         }
         Some((_, true)) if world.get::<UiInteraction>(entity) == Some(&UiInteraction::Pressed) => {
             window_event(
@@ -1258,7 +1268,7 @@ fn click_entity(world: &mut World, run: &mut Run, window: Entity, entity: Option
                     state: ButtonState::Released,
                 },
             );
-            run.click = None;
+            *click = None;
             return true;
         }
         _ => {}
@@ -1266,7 +1276,7 @@ fn click_entity(world: &mut World, run: &mut Run, window: Entity, entity: Option
     false
 }
 
-fn move_cursor(world: &mut World, window: Entity, physical: DVec2) {
+pub(super) fn move_cursor(world: &mut World, window: Entity, physical: DVec2) {
     let mut target = world.get_mut::<Window>(window).unwrap();
     target.set_physical_cursor_position(Some(physical));
     let position = physical.as_vec2() / target.scale_factor();
@@ -1280,7 +1290,7 @@ fn move_cursor(world: &mut World, window: Entity, physical: DVec2) {
     );
 }
 
-fn window_event(world: &mut World, event: impl Message + Clone + Into<WindowEvent>) {
+pub(super) fn window_event(world: &mut World, event: impl Message + Clone + Into<WindowEvent>) {
     let window_event: WindowEvent = event.clone().into();
     world.write_message(window_event);
     world.write_message(event);

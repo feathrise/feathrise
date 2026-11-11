@@ -11,6 +11,7 @@ use std::{
 mod blender;
 #[path = "rigging_files.rs"]
 mod files;
+pub(crate) use files::glb_directory_json;
 #[path = "rigging_native.rs"]
 mod native;
 #[cfg(test)]

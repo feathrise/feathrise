@@ -264,6 +264,81 @@ fn run_until_idle(app: &mut App) {
 }
 
 #[test]
+fn directory_clip_adopts_latest_source_index_without_losing_drafts_and_expires_on_tab_change() {
+    use super::super::types::ExpandedAssetPreview;
+    use super::data::tests::{TemporaryDirectory, write_directory_clip_fixture};
+    use crate::ui::vegetation_preset_editor::PresetWorkspaceTab;
+
+    let (mut app, _, _) = app_context();
+    let fixture = TemporaryDirectory::new();
+    let root = fixture.0.clone();
+    let alpha = root.join("animation-regression-alpha.glb");
+    write_directory_clip_fixture(&alpha, "待机");
+    let mut document = AnimationDocument::load(&alpha).unwrap();
+    document.clips[1].source_index = 5;
+    let mut draft = Session::new(document);
+    draft.saved_cursor = None;
+    let snapshot = draft.document.clone();
+    let world = app.world_mut();
+    world.resource_mut::<DocumentState>().set_asset_root_for_tests(root.clone());
+    world.resource_mut::<VegetationPresetEditorState>().active_tab = PresetWorkspaceTab::AssetPreview;
+    world.resource_mut::<AssetPreviewWorkspace>().expanded = Some(ExpandedAssetPreview {
+        id: 7,
+        path: "animation-regression-alpha.glb".into(),
+        return_tab: PresetWorkspaceTab::Scene,
+        view: default(),
+        target: default(),
+        audio_position: 0.0,
+        restore_cursor: 0,
+    });
+    {
+        let mut state = world.resource_mut::<AnimationEditorState>();
+        state.sessions.insert(alpha.clone(), draft);
+        state.queue_directory_pick(root.clone(), alpha.clone(), 7, 0);
+        state.queue_directory_pick(root.clone(), alpha.clone(), 7, 5);
+    }
+    app.add_systems(Update, drive::drive);
+    run_until_idle(&mut app);
+    let pose = Transform::from_xyz(2.0, 0.0, 0.0);
+    {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        assert_eq!(state.active_clip(), 1);
+        assert!(state.playing);
+        assert!(Arc::ptr_eq(&snapshot, &state.current().unwrap().document));
+        assert!(state.current().unwrap().dirty());
+        state.playing = false;
+        state.current_mut().unwrap().pose = Some((0, pose));
+        state.queue_directory_pick(root.clone(), alpha.clone(), 7, 0);
+    }
+    app.update();
+    {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        assert_eq!(state.active_clip(), 1);
+        assert!(!state.playing);
+        assert_eq!(state.current().unwrap().pose, Some((0, pose)));
+        assert!(state.status.contains("临时姿势"));
+        state.current_mut().unwrap().pose = None;
+        state.queue_directory_pick(root.clone(), alpha.clone(), 7, 0);
+    }
+    write_directory_clip_fixture(&alpha, "外部替换");
+    run_until_idle(&mut app);
+    {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        assert_eq!(state.active_clip(), 1, "同路径替换不能把新目录索引应用于旧草稿");
+        assert!(Arc::ptr_eq(&snapshot, &state.current().unwrap().document));
+        assert!(!state.playing);
+        assert!(state.status.contains("外部更新"));
+        state.queue_directory_pick(root, alpha, 7, 0);
+    }
+    app.world_mut().resource_mut::<AssetPreviewWorkspace>().expanded.as_mut().unwrap().id = 8;
+    app.update();
+    let state = app.world().resource::<AnimationEditorState>();
+    assert!(state.directory_pick.is_none(), "同一路径的新标签不能接受旧点击");
+    assert_eq!(state.active_clip(), 1);
+    assert!(!state.playing);
+}
+
+#[test]
 fn pose_toolbar_click_switches_tools_without_modifying_animation() {
     let (mut app, _, _) = app_context();
     app.add_systems(Update, control::input);

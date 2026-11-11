@@ -58,6 +58,7 @@ fn setup() -> (App, ReleaseIo) {
             revision: reveal.revision,                   // 旧任务将在新版请求之后过期。
             folder: reveal.folder.clone(),               // 目标只属于 first 目录。
             reveal_file: Some(reveal.file_path.clone()), // 不是纯文件名匹配。
+            ..Default::default()
         },
         Ok(vec![file("first/a.glb")]), // 候选自身合法，丢弃必须是身份门而不是文件错误。
     );

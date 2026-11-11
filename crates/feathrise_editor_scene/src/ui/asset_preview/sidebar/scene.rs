@@ -56,6 +56,7 @@ pub(crate) fn assets_page(scenes: &feathrise_editor_documents_model::DocumentSce
         Node { display: Display::None, width: percent(100), min_width: px(0), min_height: px(0),
             flex_grow: 1.0, flex_direction: FlexDirection::Column, row_gap: px(4), overflow: Overflow::clip() }
         Children [
+            @crate::ui::project_browser::filter_toolbar()--
             @assets_view(scenes)--
             @crate::ui::project_browser::files_panel()
         ]

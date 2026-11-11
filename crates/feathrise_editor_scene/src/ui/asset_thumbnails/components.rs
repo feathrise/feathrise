@@ -9,7 +9,7 @@ use std::sync::{
 };
 
 #[derive(Component, Clone, Default)]
-pub(super) struct ViewModeButton(pub AssetBrowserViewMode);
+pub(in crate::ui) struct ViewModeButton(pub AssetBrowserViewMode);
 #[derive(Component)]
 pub(super) struct ThumbnailImage(pub usize);
 #[derive(Component)]

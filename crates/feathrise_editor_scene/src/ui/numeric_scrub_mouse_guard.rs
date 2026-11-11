@@ -32,7 +32,7 @@ pub(crate) fn update_scene_editor_numeric_scrub_mouse_guard(
     preview: (Option<Res<AssetPreviewNavigation>>, Option<Res<super::asset_preview::AudioPreviewState>>, Option<Res<super::asset_preview::AnimationEditorState>>, Option<Res<super::asset_preview::rigging::RiggingState>>), // 资产预览、时间轴与绑骨关节点共用释放门。
     minimap: Option<Res<super::asset_preview::DocumentMinimapState>>,
     water_preview: Option<Res<WaterPresetLivePreviewNavigation>>, // 独立测试可不安装水体预览插件。
-    asset_menu: (Option<Res<AssetContextMenuState>>, Option<Res<super::scene_context_menu::SceneContextMenuState>>, Option<Res<super::scene_sidebar::SceneDirectoryMenuState>>), // 目录、场景和资产菜单共用关闭点击及松键帧隔离。
+    asset_menu: (Option<Res<AssetContextMenuState>>, Option<Res<super::scene_context_menu::SceneContextMenuState>>, Option<Res<super::scene_sidebar::SceneDirectoryMenuState>>, Option<Res<super::project_browser::ProjectBrowserPopup>>), // 目录、场景和资产菜单共用关闭点击及松键帧隔离。
     tab_menu: Option<Res<super::asset_preview::AssetTabMenuState>>, // 文件标签菜单与关闭帧共用同一释放门。
     layout: Option<Res<SceneEditorLayoutState>>, // 分隔条与布局按钮不能把同次点击穿透到刚移动的场景画布。
     settings: Option<Res<crate::resources::SceneEditorSettingsState>>,
@@ -86,6 +86,7 @@ pub(crate) fn update_scene_editor_numeric_scrub_mouse_guard(
             || asset_menu.0.as_ref().is_some_and(|menu| menu.owns_mouse())
             || asset_menu.1.as_ref().is_some_and(|menu| menu.owns_mouse())
             || asset_menu.2.as_ref().is_some_and(|menu| menu.owns_mouse())
+            || asset_menu.3.as_ref().is_some_and(|menu| menu.owns_mouse())
             || tab_menu.as_ref().is_some_and(|menu| menu.owns_mouse())
             || layout
                 .as_ref()

@@ -3,7 +3,7 @@
 use std::{path::PathBuf, sync::atomic::{AtomicU64, Ordering}, time::{SystemTime, UNIX_EPOCH}};
 
 use super::{*, systems::{adopt, scan_request}, types::ScanRequest};
-use crate::{asset_catalog::scan::{scan_folder, FolderScope}, types::EditorAssetEntry};
+use crate::{asset_catalog::{filter::{DirectoryFilters, DirectorySnapshot}, scan::{scan_folder, FolderScope}}, types::EditorAssetEntry};
 use bevy::prelude::*;
 use feathrise_scene_content::SceneAssetKind;
 
@@ -40,7 +40,8 @@ fn entry(path: &str) -> EditorAssetEntry {
 fn request(catalog: &EditorProjectFileCatalog) -> ScanRequest {
     let (context, Some(project_root)) = catalog.source.as_ref().unwrap() else { panic!("夹具必须绑定工程") };
     ScanRequest { context: *context, project_root: project_root.clone(), revision: catalog.requested_revision,
-        folder: catalog.requested_folder.clone(), filter: catalog.filter.clone() }
+        asset_root: catalog.asset_root.clone(), folder: catalog.requested_folder.clone(),
+        filters: DirectoryFilters { kind: catalog.type_filter, filename: catalog.filter.clone() } }
 }
 
 #[test]
@@ -54,12 +55,12 @@ fn project_root_and_filename_filter_reuse_typed_scan_and_hide_build_git_entries(
     fixture.file("src/controller.rs");
     let mut catalog = EditorProjectFileCatalog::default();
     catalog.bind_project_source(12, Some(fixture.root.clone()));
-    let root = scan_request(request(&catalog)).result.unwrap();
+    let root = scan_request(request(&catalog)).result.unwrap().entries;
     assert_eq!(root.iter().map(|entry| entry.asset_path.as_str()).collect::<Vec<_>>(),
         ["assets", "crates", "src", "Cargo.toml", "README.md"]);
     assert_eq!(root[3].kind, SceneAssetKind::Data);
     catalog.set_filter("CARGO");
-    let filtered = scan_request(request(&catalog)).result.unwrap();
+    let filtered = scan_request(request(&catalog)).result.unwrap().entries;
     assert_eq!(filtered.iter().map(|entry| entry.asset_path.as_str()).collect::<Vec<_>>(),
         ["assets", "crates", "src", "Cargo.toml"], "目录保留可达性，只过滤当前层文件名");
     catalog.request_folder("src").unwrap();
@@ -85,12 +86,12 @@ fn generated_root_output_is_hidden_but_author_src_output_remains_navigable() {
     fixture.file("src/output/controller.rs");
     let mut catalog = EditorProjectFileCatalog::default();
     catalog.bind_project_source(1, Some(fixture.root.clone()));
-    let root = scan_request(request(&catalog)).result.unwrap();
+    let root = scan_request(request(&catalog)).result.unwrap().entries;
     assert_eq!(root.iter().map(|entry| entry.asset_path.as_str()).collect::<Vec<_>>(), ["src"]);
     assert!(scan_folder(fixture.root.clone(), "output".into(), FolderScope::ProjectFiles).is_err(),
         "直接请求也不能进入默认导出包");
     catalog.request_folder("src").unwrap();
-    let source = scan_request(request(&catalog)).result.unwrap();
+    let source = scan_request(request(&catalog)).result.unwrap().entries;
     assert_eq!(source.iter().map(|entry| entry.asset_path.as_str()).collect::<Vec<_>>(), ["src/output"],
         "发布暂存、target、Git和回收目录继续隐藏，作者output目录应保留");
     catalog.request_folder("src/output").unwrap();
@@ -120,7 +121,8 @@ fn failed_or_stale_scan_keeps_adopted_directory_and_source_switch_clears_selecti
     let mut catalog = EditorProjectFileCatalog::default();
     catalog.bind_project_source(1, Some(fixture.root.clone()));
     let initial = request(&catalog);
-    adopt(&mut catalog, super::types::ScanResult { request: initial, result: Ok(vec![entry("Cargo.toml")]) });
+    adopt(&mut catalog, super::types::ScanResult { request: initial,
+        result: Ok(DirectorySnapshot { entries: vec![entry("Cargo.toml")], ..Default::default() }) });
     catalog.retired_entries = None;
     let selected = catalog.select_entry(0).unwrap();
     catalog.request_folder("missing").unwrap();
@@ -133,11 +135,12 @@ fn failed_or_stale_scan_keeps_adopted_directory_and_source_switch_clears_selecti
     catalog.set_filter("toml");
     let stale = request(&catalog);
     catalog.bind_project_source(2, Some(fixture.root.clone())); // 同根也必须按新的工程会话隔离。
-    adopt(&mut catalog, super::types::ScanResult { request: stale, result: Ok(vec![entry("wrong.rs")]) });
+    adopt(&mut catalog, super::types::ScanResult { request: stale,
+        result: Ok(DirectorySnapshot { entries: vec![entry("wrong.rs")], ..Default::default() }) });
     assert!(catalog.entries.is_empty());
     assert!(catalog.selected_file.is_none());
     assert!(catalog.feedback.is_none());
-    assert_eq!(catalog.retired_entries.as_ref().unwrap()[0].asset_path, "wrong.rs");
+    assert_eq!(catalog.retired_entries.as_ref().unwrap().entries[0].asset_path, "wrong.rs");
 }
 
 fn settle_project_files(app: &mut App) {
@@ -251,7 +254,8 @@ fn single_inflight_scan_remains_owned_until_it_finishes_and_only_latest_filter_i
     let (release, wait) = sync_channel(1);
     catalog.task = Some(IoTaskPool::get().spawn(async move {
         wait.recv_timeout(Duration::from_secs(5)).unwrap(); // 等待仅属于测试，生产轮询完全非阻塞。
-        Some(super::types::ScanResult { request: old, result: Ok(vec![entry("old.rs")]) })
+        Some(super::types::ScanResult { request: old,
+            result: Ok(DirectorySnapshot { entries: vec![entry("old.rs")], ..Default::default() }) })
     }));
     catalog.set_filter("latest");
     app.insert_resource(catalog).add_systems(Update, (start_project_file_scan, poll_project_file_scan).chain());

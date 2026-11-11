@@ -6,3 +6,10 @@ use bevy::prelude::*;
 pub(crate) struct OpenAssetPreview {
     pub path: String,
 }
+
+/// 目录只提交已绑定的工程资产相对路径及 GLB JSON 原片段索引。
+#[derive(Message)]
+pub(crate) struct PickProjectAnimationClip {
+    pub asset_path: String,
+    pub clip_index: usize,
+}

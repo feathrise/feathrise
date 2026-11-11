@@ -4,6 +4,7 @@ use bevy::prelude::Resource; // 目录数据仅属于当前 F12 会话。
 use bevy::tasks::Task; // IO 任务直到真正完成才释放槽位。
 
 use super::types::{AssetRevealRequest, AssetScanResult}; // 完整请求和完成值均为可跨线程纯数据。
+use super::{filter::{AnimationClipInfo, AssetTypeFilter, DirectoryAnimations, DirectorySnapshot}, watch::DirectoryWorker};
 use crate::types::EditorAssetEntry; // UI 固定行池读取当前完整目录。
 
 /// 当前一层资产目录和最多一个在途扫描或退役任务。
@@ -18,6 +19,11 @@ pub struct EditorAssetCatalog {
     pub(super) adopted_folder: Option<String>,
     /// 已应用的完整目录条目，不设置目录容量上限。
     pub(crate) entries: Vec<EditorAssetEntry>,
+    pub(crate) filename_filter: String,
+    pub(super) type_filter: AssetTypeFilter,
+    pub(crate) adopted_type_filter: AssetTypeFilter,
+    pub(super) animations: DirectoryAnimations,
+    pub(super) worker: DirectoryWorker,
     /// 当前页，从零开始，定位采用时直接设置为目标所在页。
     pub(crate) page: usize,
     /// 连续滚动窗口只发布可见条目身份；完整目录仍在entries中，不能以窗口长度截断数据。
@@ -42,12 +48,43 @@ pub struct EditorAssetCatalog {
     /// 等待中的定位目标；普通浏览、选择和关闭可以使它失效。
     pub(super) reveal: Option<AssetRevealRequest>,
     /// 上一目录或迟到结果 O(1) 转移到后台释放，避免大目录析构占用 UI 帧。
-    pub(super) retired_entries: Option<Vec<EditorAssetEntry>>,
+    pub(super) retired_entries: Option<DirectorySnapshot>,
     /// 换工程时立即隐藏旧目录；与在途旧扫描结果各占一份退役预算，均由下一IO槽释放。
-    pub(super) retired_source: Option<Vec<EditorAssetEntry>>,
+    pub(super) retired_source: Option<DirectorySnapshot>,
 }
 
 impl EditorAssetCatalog {
+    pub(crate) fn set_type_filter(&mut self, filter: AssetTypeFilter) {
+        if self.type_filter != filter {
+            self.cancel_pending_reveal();
+            self.type_filter = filter;
+            self.feedback = None;
+            self.requested_revision = self.requested_revision.wrapping_add(1);
+        }
+    }
+
+    pub(crate) fn set_filename_filter(&mut self, filter: &str) {
+        if self.filename_filter != filter {
+            self.cancel_pending_reveal();
+            self.filename_filter = filter.to_owned();
+            self.feedback = None;
+            self.requested_revision = self.requested_revision.wrapping_add(1);
+        }
+    }
+
+    pub(crate) fn is_loading(&self) -> bool {
+        self.hosted_source.as_ref().is_none_or(|(_, root)| root.is_some())
+            && self.requested_revision != self.applied_revision
+    }
+
+    pub(crate) fn animation_clips(&self, relative_path: &str) -> &[AnimationClipInfo] {
+        self.animations.get(relative_path).map_or(&[], |clips| clips.as_ref())
+    }
+
+    pub(super) fn source_context(&self) -> u64 {
+        self.hosted_source.as_ref().map_or(0, |source| source.0)
+    }
+
     /// 资源引用发起的定位是一次显式浏览意图，工程浏览器据此切回资产视图。
     pub(crate) fn pending_reveal_revision(&self) -> Option<u64> {
         self.reveal.as_ref().map(|request| request.revision)
@@ -67,7 +104,9 @@ impl EditorAssetCatalog {
         self.requested_revision = self.requested_revision.wrapping_add(1);
         // 即使两个工程包含相同路径，也不能保留行绑定、双击或反向定位意图。
         self.current_folder.clear();
+        self.filename_filter.clear();
         self.adopted_folder = None;
+        self.adopted_type_filter = AssetTypeFilter::All;
         self.page = 0;
         self.visible_start = 0;
         self.visible_count = 0;
@@ -81,7 +120,9 @@ impl EditorAssetCatalog {
         self.feedback = None;
         if !self.entries.is_empty() {
             debug_assert!(self.retired_source.is_none());
-            self.retired_source = Some(std::mem::take(&mut self.entries));
+            self.retired_source = Some(DirectorySnapshot {
+                entries: std::mem::take(&mut self.entries), animations: std::mem::take(&mut self.animations),
+            });
         }
         true
     }

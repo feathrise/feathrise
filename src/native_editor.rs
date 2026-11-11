@@ -27,6 +27,8 @@ use std::path::PathBuf;
 pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(), String> {
     #[cfg(all(feature = "validation", windows))]
     let scene_format_fixture = crate::scene_format_validation::preflight(&project)?;
+    #[cfg(feature = "validation")]
+    let project_browser_fixture = crate::project_browser_validation::preflight(&project)?;
     // 工程仍按实例冻结路径；正常入口在同一主窗口内呈现，不再打开第二个作者顶层窗口。
     let embedded = crate::workspace_window::EmbedTarget::from_env()?.is_some();
     // 相同工程仅允许一个作者写实例；锁句柄一直存活到真实App退出，残留文件不构成永久锁。
@@ -181,6 +183,15 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
     #[cfg(all(feature = "validation", windows))]
     if let Some(fixture) = scene_format_fixture {
         fixture.install(&mut app);
+    }
+    #[cfg(feature = "validation")]
+    if let Some(directory) = project_browser_fixture {
+        app.insert_resource(bevy::winit::WinitSettings::continuous());
+        app.world_mut().resource_mut::<feathrise_editor_core::EditorSettings>()
+            .ui_locale = feathrise_editor_core::EditorLocalePreference::Chinese;
+        feathrise_editor_scene::standalone::install_project_browser_validation(
+            &mut app, directory, asset_root.clone(),
+        )?;
     }
     #[cfg(feature = "validation")]
     smoke::install(&mut app, project.root, asset_root)?;

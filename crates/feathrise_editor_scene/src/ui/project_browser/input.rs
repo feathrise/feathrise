@@ -5,7 +5,7 @@ use crate::{
     asset_catalog::{EditorAssetCatalog, project_files::{EditorProjectFileCatalog, ProjectFileIdentity, ProjectFileNavigation}},
     resources::*, ui::sidebars::SceneEditorSidebarState,
 };
-use bevy::{ecs::system::SystemParam, prelude::*, text::EditableText};
+use bevy::{ecs::system::SystemParam, prelude::*};
 use feathrise_editor_ui::EditorButtonClick;
 
 #[derive(SystemParam)]
@@ -23,8 +23,12 @@ pub(super) struct BrowserInputGate<'w, 's> {
 
 impl BrowserInputGate<'_, '_> {
     pub(super) fn available(&self, editor: &SceneEditorState) -> bool {
+        !self.mouse.blocked() && self.context_available(editor)
+    }
+
+    pub(super) fn context_available(&self, editor: &SceneEditorState) -> bool {
         editor.open && !editor.close_requested && !editor.new_scene_dialog_open
-            && editor.pending_scene_transition.is_none() && !self.mouse.blocked()
+            && editor.pending_scene_transition.is_none() && editor.scene_switch_confirmation.is_none()
             && self.sidebar.assets_browser_visible() && self.layout.content_shown()
             && !self.windows.iter().any(|window| !window.focused)
             && !self.hosted.as_ref().is_some_and(|model| !model.visible || model.modal || model.busy)
@@ -55,7 +59,6 @@ pub(super) fn files(
     mut assets: ResMut<EditorAssetCatalog>,
     viewport: Res<ProjectFileViewport>,
     scrolls: Query<(&ProjectBrowserContent, &ScrollPosition)>,
-    fields: Query<Ref<EditableText>, With<ProjectFileFilter>>,
     buttons: Query<(&EditorButtonClick, &ProjectFileActionButton), Changed<EditorButtonClick>>,
     rows: Query<(&EditorButtonClick, &ProjectFileRow), Changed<EditorButtonClick>>,
     time: Option<Res<Time<Real>>>,
@@ -66,15 +69,6 @@ pub(super) fn files(
     if state.view != ProjectBrowserView::ProjectFiles || !gate.available(&editor) {
         *last_click = None;
         return;
-    }
-    for input in &fields {
-        if input.is_changed() && !input.is_composing() && input.pending_edits.is_empty() && input.pending_paste.is_none() {
-            let value = input.value().to_string();
-            if value != catalog.filter {
-                assets.cancel_pending_reveal(); // 新目录输入优先于尚未完成的旧引用定位。
-                catalog.set_filter(&value); // 只冻结短字符串，完整筛选留在后台目录槽。
-            }
-        }
     }
     for (click, button) in &buttons {
         if !click.is_clicked() { continue; }

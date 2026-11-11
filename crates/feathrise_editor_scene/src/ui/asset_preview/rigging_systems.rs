@@ -6,7 +6,8 @@ use bevy::{prelude::*, tasks::futures::check_ready};
 use feathrise_editor_ui::{EditorButtonClick, localization::EditorLocale};
 
 use super::{
-    super::{OpenAssetPreview, animation::PreviewRigAnimation},
+    super::{AssetPreviewNavigation, AssetPreviewWorkspace, OpenAssetPreview, PickProjectAnimationClip,
+        animation::{AnimationEditorState, PreviewRigAnimation}, workspace},
     backend::{self, RigBackend},
     context::{Candidate, Context},
     resources::*,
@@ -14,9 +15,82 @@ use super::{
     types::*,
 };
 use crate::{
-    resources::{EditorAssetCatalog, SceneEditorLayoutState, SceneEditorState},
-    ui::sidebars::{EditorNavigatorTab, EditorRightSidebarTab, SceneEditorSidebarState},
+    resources::{EditorAssetCatalog, EditorTextInputGuard, SceneEditorLayoutState, SceneEditorState},
+    ui::{sidebars::{EditorNavigatorTab, EditorRightSidebarTab, SceneEditorSidebarState},
+        vegetation_preset_editor::VegetationPresetEditorState},
 };
+
+pub(super) fn pick_project_animation(
+    mut picks: MessageReader<PickProjectAnimationClip>,
+    mut contexts: ParamSet<(Context, (
+        ResMut<SceneEditorSidebarState>,
+        Option<ResMut<SceneEditorLayoutState>>,
+        ResMut<SceneEditorState>,
+        ResMut<AssetPreviewWorkspace>,
+        ResMut<VegetationPresetEditorState>,
+    ))>,
+    state: Res<RiggingState>,
+    text: Res<EditorTextInputGuard>,
+    navigation: Res<AssetPreviewNavigation>,
+    preview: Res<super::super::AssetPreviewState>,
+    mut animation: ResMut<AnimationEditorState>,
+    mut rig_preview: MessageWriter<PreviewRigAnimation>,
+) {
+    let Some(pick) = picks.read().last() else { return; };
+    let context = contexts.p0();
+    if !context.can_pick_project_animation() || state.owns_mouse() || text.block_shortcuts {
+        return;
+    }
+    let root = context.asset_root().to_path_buf();
+    if root.as_os_str().is_empty() {
+        return;
+    }
+    let source = super::super::animation::checked_clip_path(&root, &pick.asset_path);
+    let role = context.active_tab_id().zip(context.candidate()).and_then(|(tab, candidate)| {
+        let session = current_session(&state, candidate);
+        let model = session.and_then(Session::model_for_preview)
+            .or_else(|| (candidate.entry == Entry::Skinned).then_some(candidate.path))?;
+        Some(PreviewRigAnimation {
+            model_path: model.to_owned(),
+            animation_path: pick.asset_path.clone(),
+            clip_index: pick.clip_index,
+            host_path: candidate.path.to_owned(),
+            host_generation: candidate.generation,
+            host_tab: tab,
+            asset_root: root.clone(),
+            // 目录索引可能刚采用同路径的新文件，不能沿用旧的只读动画文档。
+            recheck_source: true,
+        })
+    });
+    let (mut sidebar, layout, mut editor, mut media, mut workspaces) = contexts.p1();
+    let source = match source {
+        Ok(source) => source,
+        Err(error) => {
+            editor.status = error;
+            return;
+        }
+    };
+    let properties_path = if let Some(role) = role {
+        let path = role.host_path.clone();
+        animation.cancel_directory_pick();
+        // 选择动作不改变当前角色标签，原接收系统继续验证角色与工程身份。
+        rig_preview.write(role);
+        path
+    } else {
+        if let Err(error) = workspace::expand(&mut media, &mut workspaces, &pick.asset_path, &preview, &navigation) {
+            editor.status = error;
+            return;
+        }
+        let tab = media.expanded.as_ref().expect("原 GLB 打开已激活媒体标签").id;
+        animation.queue_directory_pick(root, source, tab, pick.clip_index);
+        pick.asset_path.clone()
+    };
+    editor.selected_asset = Some(properties_path);
+    sidebar.reveal_asset_properties();
+    if let Some(mut layout) = layout {
+        layout.inspector_visible = true;
+    }
+}
 
 pub(super) fn actions(
     mut contexts: ParamSet<(Context, (ResMut<SceneEditorSidebarState>, Option<ResMut<SceneEditorLayoutState>>, ResMut<SceneEditorState>))>,
@@ -179,6 +253,7 @@ pub(super) fn actions(
                     model_path: model_path.to_owned(),
                     animation_path: file.path.clone(),
                     clip_index: session.clip,
+                    recheck_source: false,
                 });
             }
         }

@@ -14,13 +14,15 @@ pub(crate) fn bind_project_files_source(
     model: Option<Res<WorkbenchModel>>,
     mut files: ResMut<crate::asset_catalog::project_files::EditorProjectFileCatalog>,
 ) {
-    let (context, root) = if let Some(model) = model {
-        (model.context, model.project_root.clone())
+    let (context, root, asset_root) = if let Some(model) = model {
+        (model.context, model.project_root.clone(), model.asset_root.clone())
     } else {
-        (0, feathrise_editor_core::editor_project_paths()
-            .map(|paths| paths.project_root().to_path_buf()))
+        let paths = feathrise_editor_core::editor_project_paths();
+        (0, paths.as_ref().map(|paths| paths.project_root().to_path_buf()),
+            paths.as_ref().map(|paths| paths.asset_root().to_path_buf()))
     };
     files.bind_project_source(context, root);
+    files.set_asset_root(asset_root);
 }
 
 pub(super) fn bind_source(

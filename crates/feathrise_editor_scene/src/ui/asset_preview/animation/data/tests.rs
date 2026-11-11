@@ -331,10 +331,10 @@ fn invalid_glb_header_truncation_and_cyclic_hierarchy_are_rejected() {
     assert!(AnimationDocument::from_bytes(Path::new("cycle.glb"), glb(&json, &binary)).is_err());
 }
 
-struct TemporaryDirectory(PathBuf);
+pub(in crate::ui::asset_preview::animation) struct TemporaryDirectory(pub PathBuf);
 
 impl TemporaryDirectory {
-    fn new() -> Self {
+    pub fn new() -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
             "rpg-animation-data-{}-{}",
@@ -350,6 +350,12 @@ impl Drop for TemporaryDirectory {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+pub(in crate::ui::asset_preview::animation) fn write_directory_clip_fixture(path: &Path, second_name: &str) {
+    let (mut json, binary) = fixture_parts();
+    json["animations"][1]["name"] = json!(second_name);
+    std::fs::write(path, glb(&json, &binary)).expect("写目录动作夹具");
 }
 
 #[test]

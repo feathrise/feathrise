@@ -8,6 +8,7 @@ use bevy::{prelude::*, ui::InteractionDisabled};
 use feathrise_editor_ui::{
     ActiveNumericInput, ActiveNumericInputScrub, EditorButtonClick, NumericInputDisabled,
     NumericInputSetValue, NumericInputValue, NumericValue, round_to_decimals,
+    localization::EditorLocale,
 };
 
 fn ratio(time: f32, duration: f32) -> f32 {
@@ -214,6 +215,7 @@ pub(super) fn sync(
         ),
     >,
     mut labels: Query<(&AnimationLabel, &mut Text)>,
+    locale: Option<Res<EditorLocale>>,
     active: Res<ActiveNumericInput>,
     mut active_scrub: ResMut<ActiveNumericInputScrub>,
     mut inputs: Query<(
@@ -226,6 +228,7 @@ pub(super) fn sync(
     mut set_values: MessageWriter<NumericInputSetValue>,
 ) {
     let view = state.view();
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let mut capacities = [KEY_SLOTS; CHANNEL_SLOTS];
     let mut ruler_width = 0.0;
     for (track, node) in &tracks {
@@ -415,14 +418,27 @@ pub(super) fn sync(
         let value = match *kind {
             AnimationLabel::Clip => {
                 if view.clip_count > 0 {
-                    format!(
-                        "动作 {}/{} · {}",
-                        view.clip_index + 1,
-                        view.clip_count,
-                        view.clip_name
-                    )
+                    locale.format("animation.clip.current", &[
+                        ("index", (view.clip_source_index + 1).to_string()),
+                        ("count", view.clip_count.to_string()),
+                        ("name", view.clip_name.clone()),
+                    ])
                 } else {
-                    "动作编辑".into()
+                    locale.text("label.animation-editor").into()
+                }
+            }
+            AnimationLabel::ClipParameters => {
+                if view.clip_count == 0 {
+                    String::new()
+                } else {
+                    // 属性只回显当前片段及稳定的播放参数。逐帧播放头仍由原时间轴展示。
+                    let key = if view.looping { "animation.loop.on" } else { "animation.loop.off" };
+                    locale.format("animation.clip.parameters", &[
+                        ("duration", format!("{:.2}", view.duration)),
+                        ("fps", view.fps.to_string()),
+                        ("speed", view.speed.to_string()),
+                        ("loop", locale.text(key).into()),
+                    ])
                 }
             }
             AnimationLabel::Time => format!(

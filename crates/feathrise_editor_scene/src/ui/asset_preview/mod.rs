@@ -14,6 +14,8 @@ use crate::SceneEditorSystemSet; // 加载、表现继续服从编辑器既有�
 mod mounting; // 应用可提交已有宿主，唯一画布仍由普通预览负责迁移与回收。
 #[cfg(feature = "validation")]
 pub(crate) mod rigging_validation;
+#[cfg(feature = "validation")]
+pub(crate) mod project_browser_validation;
 mod audio; // 音频后台受检解码，单输出复用同一侧栏/中央预览宿主。
 pub(crate) mod animation; // 动画GLB关键帧时间轴、骨架预览和独立草稿保存。
 pub(crate) mod rigging; // 静态人形 GLB 的本地绑骨、关节点和独立动作选择。
@@ -52,7 +54,7 @@ pub(crate) use audio::AudioPreviewState;
 pub(crate) use animation::AnimationEditorState;
 pub(crate) use types::{AssetPreviewFileKind, preview_file_kind};
 pub(crate) use tab_menu::{AssetTabMenuState, AssetTabMenuInputSet};
-pub(crate) use messages::OpenAssetPreview;
+pub(crate) use messages::{OpenAssetPreview, PickProjectAnimationClip};
 #[cfg(feature = "validation")]
 pub(crate) use gltf_tree::validation_rows as gltf_tree_validation;
 pub(crate) use model::include_transformed_aabb; // 缩略图复用同一世界包围盒计算。
@@ -72,6 +74,10 @@ pub(crate) use documents::center_host as document_center_host;
 #[cfg(test)]
 pub(crate) use documents::{install_snapshot_document_tabs, set_snapshot_document_tabs_active};
 pub(crate) use workspace::{center_host as asset_preview_center_host, sidebar_launch as asset_preview_sidebar_launch};
+
+/// 目录交互验证当前行之后，预览才解析当前标签的动作目标。
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct ProjectAnimationPickSet;
 
 /// 独立工作台只装配原目录属性和复制路径，不在宿主创建第二个3D/音频运行时。
 pub(crate) fn install_workbench_asset_sidebar(app: &mut App) {

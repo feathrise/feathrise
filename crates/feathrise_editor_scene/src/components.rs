@@ -506,7 +506,7 @@ pub(crate) struct SceneEditorAssetRow {
 }
 
 /// 虚拟资产行的旁路身份；滚动换绑后不能接受旧文件的按下/释放。
-#[derive(Component, Clone, Copy, Default)]
+#[derive(Component, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct AssetRowBinding {
     pub(crate) revision: u64,
     pub(crate) viewport_revision: u64,

@@ -2,7 +2,7 @@
 
 use feathrise_scene_content::SceneId; // 定位结果不得跨场景会话回跳。
 
-use crate::types::EditorAssetEntry; // 一层目录的完整拥有型结果只在后台扫描和排序。
+use super::filter::{DirectoryFilters, DirectorySnapshot};
 
 /// 连续目录的一次性可见锚点；目录定位、列表/缩略图切换与列数变化共用实际布局滚动。
 #[derive(Clone, Copy, Debug)]
@@ -31,16 +31,18 @@ pub(super) struct TimedAssetFileClick {
 pub(crate) use feathrise_editor_documents_model::types::DocumentFormat;
 
 /// 一个后台任务冻结的目录修订与完整目标，不能只靠文件名匹配。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct AssetScanRequest {
+    pub(super) context: u64, // 同一路径也可能重新绑定到不同工程会话。
     pub(super) revision: u64,  // 刷新、换目录和新定位均推进请求身份。
     pub(super) folder: String, // 相对 assets 根的待扫描父目录。
     pub(super) reveal_file: Option<String>, // 定位时精确匹配完整文件路径，普通浏览为 None。
+    pub(super) filters: DirectoryFilters,
 }
 
 /// 后台完成排序和定位后的目录；主线程只读取目标索引，绝不再扫描全表。
 pub(super) struct AssetScanContents {
-    pub(super) entries: Vec<EditorAssetEntry>, // 完整目录，不按产品常量截断。
+    pub(super) snapshot: DirectorySnapshot, // 条目及片段元数据同时发布。
     pub(super) reveal_index: Option<usize>,    // 后台按最终排序计算的绝对行号。
 }
 

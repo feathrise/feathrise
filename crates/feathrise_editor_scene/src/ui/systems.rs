@@ -29,7 +29,7 @@ use super::viewport_toolbar::ViewportToolbarScroll; // 同排工具条复用标�
 
 const EDITOR_SCROLL_LINE_HEIGHT: f32 = 27.0; // 与24px紧凑工具按钮及行距一致。
 
-fn editor_scroll_delta(unit: MouseScrollUnit, wheel_y: f32) -> f32 {
+pub(super) fn editor_scroll_delta(unit: MouseScrollUnit, wheel_y: f32) -> f32 {
     -wheel_y
         * match unit {
             MouseScrollUnit::Line => EDITOR_SCROLL_LINE_HEIGHT,
@@ -41,7 +41,7 @@ fn editor_scroll_delta(unit: MouseScrollUnit, wheel_y: f32) -> f32 {
 pub(crate) fn scroll_editor_side_panels(
     mut wheels: MessageReader<MouseWheel>,
     editor_context: (Res<SceneEditorState>, Option<ResMut<EditorAssetCatalog>>),
-    numeric_scrub_mouse: Res<SceneEditorNumericScrubMouseGuard>, // 数值拖动和弦期间滚轮必须消费但不能滚面板。
+    mouse: (Res<SceneEditorNumericScrubMouseGuard>, Option<Res<super::project_browser::ProjectBrowserPopup>>), // 轻量工作台也让目录菜单独占滚轮。
     scene_wheel: super::management_dialogs::ManagementWheelGuard<'_>, // 原场景拖拽/release门加管理模态所有权；保持16个顶层参数以内。
     asset_preview: (Option<Res<super::asset_preview::AssetPreviewNavigation>>, Option<Res<super::asset_preview::AudioPreviewState>>, Option<Res<super::asset_preview::AnimationEditorState>>), // 音频滑杆、动画时间轴和画布手势不能同时滚外栏。
     documents: Option<Res<super::asset_preview::DocumentState>>, // 文档正文已消费的滚轮不再移动资产外栏。
@@ -107,7 +107,7 @@ pub(crate) fn scroll_editor_side_panels(
         .read()
         .map(|event| editor_scroll_delta(event.unit, event.y))
         .sum::<f32>();
-    if numeric_scrub_mouse.blocked()
+    if mouse.0.blocked() || mouse.1.as_ref().is_some_and(|popup| popup.owns_mouse())
         || documents.as_ref().is_some_and(|state| state.owns_wheel())
         || minimap.as_ref().is_some_and(|state| state.owns_wheel())
         || asset_search.as_ref().is_some_and(|state| state.owns_wheel())

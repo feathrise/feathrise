@@ -21,6 +21,7 @@ pub(in crate::ui::asset_preview) struct PreviewRigAnimation {
     pub host_generation: u64,
     pub host_tab: u64,
     pub asset_root: PathBuf,
+    pub recheck_source: bool,
 }
 
 impl PreviewRigAnimation {
@@ -60,13 +61,13 @@ pub(super) struct RigPreviewRequest {
     failed: bool,
 }
 
-fn glb_path(root: &Path, path: &str) -> Result<PathBuf, String> {
+pub(in crate::ui::asset_preview) fn checked_clip_path(root: &Path, path: &str) -> Result<PathBuf, String> {
     let path = safe_asset_path(root, path)?;
     if !path
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("glb"))
     {
-        return Err("人形动作预览需要工程资产中的 GLB 文件".into());
+        return Err("动作预览需要工程资产中的 GLB 文件".into());
     }
     Ok(path)
 }
@@ -96,8 +97,8 @@ pub(in crate::ui::asset_preview) fn receive(
     {
         return;
     }
-    let source = match glb_path(root, &request.animation_path).and_then(|source| {
-        glb_path(root, &request.model_path)?;
+    let source = match checked_clip_path(root, &request.animation_path).and_then(|source| {
+        checked_clip_path(root, &request.model_path)?;
         Ok(source)
     }) {
         Ok(source) => source,
@@ -111,17 +112,17 @@ pub(in crate::ui::asset_preview) fn receive(
 
 fn select(state: &mut AnimationEditorState, request: PreviewRigAnimation, source: PathBuf) {
     let reuse = state.rig_preview.as_ref().is_some_and(|previous| {
-        !previous.failed && previous.request.same_assets(&request)
+        !request.recheck_source && !previous.failed && previous.request.same_assets(&request)
             && state.current().is_none_or(|session| {
-                session.clip != request.clip_index
-                    && request.clip_index < session.document.clips.len()
+                session.clip_from_source(request.clip_index).is_some_and(|clip| clip != session.clip)
             })
     });
     if reuse {
         // 同一份已校验文档及角色只换片段，读取中则采用最终所选片段。
         state.rig_preview.as_mut().unwrap().request.clip_index = request.clip_index;
         if let Some(session) = state.current_mut() {
-            session.select_clip(request.clip_index);
+            let clip = session.clip_from_source(request.clip_index).expect("复用前已核对动作源索引");
+            session.select_clip(clip);
             state.playing = true;
             state.changed();
         }
@@ -192,13 +193,13 @@ pub(super) fn adopt(state: &mut AnimationEditorState, ticket: u64, result: Resul
             return;
         }
     };
-    if request.request.clip_index >= session.document.clips.len() {
+    let Some(clip) = session.clip_from_source(request.request.clip_index) else {
         request.failed = true;
         state.status = "所选动画片段已不存在，请重新选择动作 GLB".into();
         state.retired = Some(Retired::Session(session));
         return;
-    }
-    session.select_clip(request.request.clip_index);
+    };
+    session.select_clip(clip);
     session.model_path = Some(request.request.model_path.clone());
     session.retarget_model = true;
     debug_assert!(state.rig_session.is_none());
@@ -207,6 +208,109 @@ pub(super) fn adopt(state: &mut AnimationEditorState, ticket: u64, result: Resul
     state.model_status = "正在检查角色与动作骨架，准备重定向".into();
     state.playing = true;
     state.changed();
+}
+
+pub(super) struct DirectoryPick {
+    root: PathBuf,
+    source: PathBuf,
+    tab: u64,
+    clip_index: usize,
+    recheck_source: bool,
+}
+
+impl AnimationEditorState {
+    pub(in crate::ui::asset_preview) fn queue_directory_pick(
+        &mut self, root: PathBuf, source: PathBuf, tab: u64, clip_index: usize,
+    ) {
+        self.stop_rig_preview();
+        let recheck_source = self.sessions.contains_key(&source)
+            || self.work.as_ref().is_some_and(|work| work.path == source);
+        if self.failed.as_ref() == Some(&source) {
+            self.failed = None;
+        }
+        self.directory_pick = Some(DirectoryPick { root, source, tab, clip_index, recheck_source });
+    }
+
+    pub(in crate::ui::asset_preview) fn cancel_directory_pick(&mut self) {
+        self.directory_pick = None;
+    }
+}
+
+pub(super) fn advance_directory_pick(
+    state: &mut AnimationEditorState,
+    context: &super::context::AnimationContext,
+    media: &AssetPreviewWorkspace,
+    root: &Path,
+) {
+    let Some(pick) = state.directory_pick.as_ref() else { return; };
+    if !context.editor.open || context.editor.close_requested
+        || context.editor.pending_scene_transition.is_some()
+        || context.editor.new_scene_dialog_open || context.editor.scene_switch_confirmation.is_some()
+        || pick.root != root || !media.active(context.workspace.active_tab)
+        || media.expanded.as_ref().is_none_or(|tab| tab.id != pick.tab || root.join(&tab.path) != pick.source)
+    {
+        // 原打开的标签或工程已离开。已在途的 GLB 读取可以完成，但不得补播放。
+        state.cancel_directory_pick();
+        return;
+    }
+    if !state.visible || state.busy() || state.active.as_ref() != Some(&pick.source) {
+        return;
+    }
+    if state.failed.as_ref() == Some(&pick.source) {
+        state.cancel_directory_pick();
+        return;
+    }
+    let Some(session) = state.sessions.get_mut(&pick.source) else { return; };
+    if pick.recheck_source && session.pose.is_none() {
+        // 停放的草稿可能没有收到模型热更新。解释目录原索引前核对磁盘基线，
+        // 干净文档可沿原重载分支更新，脏文档只核对字节并保留全部草稿。
+        let path = pick.source.clone();
+        state.directory_pick.as_mut().expect("待选动作仍有效").recheck_source = false;
+        if session.dirty() {
+            let source = path.clone();
+            let generation = state.model_generation.as_ref()
+                .filter(|(current, _)| current == &path)
+                .map(|(_, generation)| *generation);
+            let document = session.document.clone();
+            state.work = Some(Work {
+                path,
+                generation,
+                saving: false,
+                task: IoTaskPool::get().spawn(async move {
+                    match document.disk_unchanged(&source) {
+                        Ok(true) => TaskResult::Unchanged,
+                        Ok(false) => TaskResult::Load(Err("动作文件已在外部更新，请先处理当前动画草稿再选择目录动作".into())),
+                        Err(error) => TaskResult::Load(Err(error)),
+                    }
+                }),
+            });
+        } else {
+            session.source_changed = true;
+        }
+        return;
+    }
+    if session.source_changed && !session.dirty() {
+        return; // 先等热更新的完整新文档采用，再解释目录提供的原片段索引。
+    }
+    let clip = session.clip_from_source(pick.clip_index);
+    let can_select = if session.pose.is_some() {
+        state.status = "请先插入或还原临时姿势".into();
+        false
+    } else if session.source_changed {
+        state.status = "动作源已更新，请先处理当前草稿".into();
+        false
+    } else if let Some(clip) = clip {
+        session.select_clip(clip);
+        state.playing = true;
+        true
+    } else {
+        state.status = "所选动画片段已不存在，请重新选择动作 GLB".into();
+        false
+    };
+    state.cancel_directory_pick();
+    if can_select {
+        state.changed();
+    }
 }
 
 #[cfg(feature = "validation")]
@@ -218,8 +322,18 @@ pub(crate) fn rig_animation_identity(world: &World) -> Option<(u64, &str, &str, 
         request.host_path.as_str(),
         request.model_path.as_str(),
         request.animation_path.as_str(),
-        state.current().map_or(request.clip_index, |session| session.clip),
+        state.current().map_or(request.clip_index, |session| {
+            session.document.clips[session.clip].source_index
+        }),
     ))
+}
+
+#[cfg(feature = "validation")]
+pub(crate) fn active_project_clip(world: &World) -> Option<(&Path, usize, f32, bool)> {
+    let state = world.get_resource::<AnimationEditorState>()?;
+    let session = state.current()?;
+    let clip = session.document.clips.get(session.clip)?;
+    Some((state.source()?, clip.source_index, session.position, state.playing))
 }
 
 #[cfg(test)]
@@ -239,6 +353,7 @@ mod tests {
             host_generation: 8,
             host_tab: 6,
             asset_root: "assets".into(),
+            recheck_source: false,
         }
     }
 
@@ -315,5 +430,28 @@ mod tests {
         assert_eq!(state.source(), Some(author_path.as_path()));
         assert_eq!(state.current().unwrap().pose.unwrap().1.translation, Vec3::new(3.0, 2.0, 1.0));
         assert!(state.editable());
+    }
+
+    #[test]
+    fn directory_rig_pick_uses_source_index_and_invalidates_a_previous_disk_load() {
+        let mut state = AnimationEditorState::default();
+        let source = PathBuf::from("assets/walk.glb");
+        select(&mut state, request("walk.glb", 0), source.clone());
+        let old = state.rig_preview.as_ref().unwrap().ticket;
+        let mut pick = request("walk.glb", 5);
+        pick.recheck_source = true;
+        select(&mut state, pick, source);
+        let new = state.rig_preview.as_ref().unwrap().ticket;
+        assert_ne!(old, new);
+        adopt(&mut state, old, Ok(Session::new(test_document())));
+        assert!(state.current().is_none(), "同路径旧文件的迟到结果不发布");
+        assert!(state.retired.take().is_some());
+        let mut replacement = test_document();
+        replacement.clips[1].source_index = 5;
+        adopt(&mut state, new, Ok(Session::new(replacement)));
+        let session = state.current().unwrap();
+        assert_eq!(session.document.clips[session.clip].name, "待机");
+        assert_eq!(session.document.clips[session.clip].source_index, 5);
+        assert!(state.playing && !state.editable());
     }
 }

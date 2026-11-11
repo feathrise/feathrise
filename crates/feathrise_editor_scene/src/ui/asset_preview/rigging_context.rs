@@ -128,6 +128,20 @@ pub(super) struct Context<'w, 's> {
 }
 
 impl Context<'_, '_> {
+    pub(super) fn asset_root(&self) -> &Path {
+        self.documents.asset_root()
+    }
+
+    pub(super) fn can_pick_project_animation(&self) -> bool {
+        self.editor.open
+            && !self.editor.close_requested
+            && self.editor.pending_scene_transition.is_none()
+            && self.sidebar.assets_browser_visible()
+            && self.layout.as_ref().is_none_or(|layout| layout.content_shown())
+            && self.mouse_guard.as_ref().is_none_or(|guard| !guard.blocked())
+            && self.can_input()
+    }
+
     pub(super) fn central(&self) -> bool {
         self.media.active(self.workspace.active_tab)
     }

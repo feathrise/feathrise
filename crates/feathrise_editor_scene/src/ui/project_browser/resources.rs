@@ -1,6 +1,7 @@
 //! 工程目录的内部呈现来源；进入登记资产目录时借用原资产正文，不提供模式切换入口。
 
 use super::types::ProjectBrowserView;
+use crate::asset_catalog::AssetTypeFilter;
 use bevy::prelude::{Resource, Vec2};
 use feathrise_editor_ui::localization::EditorLocale;
 
@@ -17,6 +18,8 @@ pub(crate) struct ProjectFileViewport {
 #[derive(Resource, Default)]
 pub(crate) struct ProjectBrowserState {
     pub(crate) view: ProjectBrowserView,
+    /// 两种正文共用当前类型；目录导航只切内部来源，不重置类型选择。
+    pub(crate) type_filter: AssetTypeFilter,
     /// 登记资产根相对工程根的真实前缀；绑定来源变化时计算，不改AssetServer资源URI。
     pub(crate) asset_prefix: Option<String>,
 }

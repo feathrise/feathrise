@@ -123,6 +123,7 @@ impl AnimationDocument {
             let name = animation
                 .get("name")
                 .and_then(Value::as_str)
+                .filter(|name| !name.trim().is_empty())
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("动画 {}", clip_index + 1));
             let mut channels = Vec::new();

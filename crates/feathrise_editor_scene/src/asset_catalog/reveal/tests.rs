@@ -9,7 +9,7 @@ use crate::asset_catalog::scan::finish_asset_scan; // 用纯条目模拟后台�
 use crate::asset_catalog::systems::handle_asset_row_clicks; // 文件选择必须实际取消未完成定位。
 use crate::components::SceneEditorAssetRow; // 固定行池与真实点击系统使用相同 marker。
 use crate::resources::SceneEditorNumericScrubMouseGuard; // 与正式输入共享数值拖动互斥门。
-use crate::types::EditorTool; // 定位不应切换场景画笔或放置工具。
+use crate::types::{EditorAssetEntry, EditorTool}; // 定位不应切换场景画笔或放置工具。
 use crate::ui::sidebars::EditorRightSidebarTab;
 
 /// 失败、迟到与完整采用均保持原目录事务，只发布自己的真实反馈。
@@ -18,7 +18,7 @@ fn favorite_folder_is_adopted_atomically_without_replacing_selected_file() {
     let (mut catalog, mut editor, mut sidebar) = context();
     request_asset_folder(&mut catalog, &mut editor, &mut sidebar, "new/常用目录").unwrap();
     assert_eq!(catalog.current_folder, "old");
-    let request = AssetScanRequest { revision: catalog.requested_revision, folder: "new/常用目录".into(), reveal_file: None };
+    let request = AssetScanRequest { revision: catalog.requested_revision, folder: "new/常用目录".into(), ..Default::default() };
     assert!(!adopt_asset_scan(&mut catalog, &mut editor, &sidebar,
         finish_asset_scan(request, Ok(vec![file("new/常用目录/a.glb")]))));
     assert_eq!(catalog.current_folder, "new/常用目录");
@@ -35,7 +35,7 @@ fn empty_directory_reference_opens_asset_root_but_empty_file_reference_stays_inv
     let revision = catalog.requested_revision;
     assert!(request_asset_reveal(&mut catalog, &mut editor, &mut sidebar, "").is_err());
     assert_eq!(catalog.requested_revision, revision, "坏文件请求不能覆盖有效目录意图");
-    let completed = finish_asset_scan(AssetScanRequest { revision, folder: String::new(), reveal_file: None },
+    let completed = finish_asset_scan(AssetScanRequest { revision, ..Default::default() },
         Ok(vec![file("root.glb")]));
     assert!(!adopt_asset_scan(&mut catalog, &mut editor, &sidebar, completed));
     assert!(catalog.current_folder.is_empty());
@@ -49,7 +49,7 @@ fn favorite_folder_failure_and_close_preserve_original_browsing_identity() {
     for close in [false, true] {
         let (mut catalog, mut editor, mut sidebar) = context();
         request_asset_folder(&mut catalog, &mut editor, &mut sidebar, "missing").unwrap();
-        let request = AssetScanRequest { revision: catalog.requested_revision, folder: "missing".into(), reveal_file: None };
+        let request = AssetScanRequest { revision: catalog.requested_revision, folder: "missing".into(), ..Default::default() };
         editor.open = !close;
         assert!(!adopt_asset_scan(&mut catalog, &mut editor, &sidebar, finish_asset_scan(request, Err("目录不存在".into()))));
         assert_eq!(catalog.current_folder, "old");
@@ -72,7 +72,7 @@ fn ordinary_folder_completion_is_recorded_only_in_the_visible_live_session() {
         }
         let mut app = App::new();
         app.add_plugins(bevy::app::TaskPoolPlugin::default());
-        let request = AssetScanRequest { revision: catalog.requested_revision, folder: catalog.current_folder.clone(), reveal_file: None };
+        let request = AssetScanRequest { revision: catalog.requested_revision, folder: catalog.current_folder.clone(), ..Default::default() };
         catalog.task = Some(bevy::tasks::IoTaskPool::get().spawn(async move {
             Some(finish_asset_scan(request, Ok(vec![file("old/current.glb")])))
         }));
@@ -97,7 +97,7 @@ fn directory_feedback_accepts_only_current_failure_and_complete_success() {
     let request = |revision| AssetScanRequest {
         revision,
         folder: "old".into(),
-        reveal_file: None,
+        ..Default::default()
     };
     let failed = finish_asset_scan(request(7), Err("读取目录失败：真实完整原因".into()));
     assert!(!adopt_asset_scan(
@@ -135,7 +135,7 @@ fn invalid_reveal_index_reports_failure_without_publishing_private_directory() {
     let completed = AssetScanResult {
         request: frozen_scan(&catalog),
         result: Ok(crate::asset_catalog::types::AssetScanContents {
-            entries: vec![file("new/target.glb")],
+            snapshot: DirectorySnapshot { entries: vec![file("new/target.glb")], ..Default::default() },
             reveal_index: Some(99),
         }),
     };
@@ -196,6 +196,8 @@ fn frozen_scan(catalog: &EditorAssetCatalog) -> AssetScanRequest {
         revision: reveal.revision,                   // 保留任务实际启动票据。
         folder: reveal.folder.clone(),               // 保留直接父目录。
         reveal_file: Some(reveal.file_path.clone()), // 精确匹配所属文件而不携带 # 标签。
+        context: catalog.source_context(),
+        ..Default::default()
     }
 }
 

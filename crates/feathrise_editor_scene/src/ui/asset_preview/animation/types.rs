@@ -107,6 +107,7 @@ pub(super) struct AnimationView {
     pub editable: bool,
     pub clip_name: String,
     pub clip_index: usize,
+    pub clip_source_index: usize,
     pub clip_count: usize,
     pub playing: bool,
     pub looping: bool,

@@ -276,6 +276,7 @@ pub(super) fn drive(
         }
     }
     super::request::retire(&mut state);
+    super::request::advance_directory_pick(&mut state, &context, &media, documents.asset_root());
     if state.work.is_none() && state.retired.is_some() {
         // 释放占用原作者工作槽，不 detach GC；旧结果完整归还前不再启动下一份大文档工作。
         let retired = state.retired.take().expect("已确认单份待释放所有权");

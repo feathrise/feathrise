@@ -30,6 +30,8 @@ pub mod validation_fixture;
 pub mod embedded_validation;
 #[cfg(feature = "validation")]
 pub use crate::ui::asset_preview::rigging_validation::install as install_rigging_validation;
+#[cfg(feature = "validation")]
+pub use crate::ui::asset_preview::project_browser_validation::install as install_project_browser_validation;
 
 pub use exit::exit_blocker;
 pub use embedded_presentation::set_embedded_playing;

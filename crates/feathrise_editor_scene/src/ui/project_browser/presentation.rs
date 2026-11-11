@@ -4,7 +4,7 @@ use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::{ProjectBrowserState, ProjectFileViewport}, types::*, window};
 use crate::{asset_catalog::project_files::EditorProjectFileCatalog, ui::theme as colors};
-use bevy::{prelude::*, text::EditableText, ui::FocusPolicy};
+use bevy::{prelude::*, ui::FocusPolicy};
 use feathrise_editor_ui::{EditorButtonClick, localization::EditorLocale};
 
 /// 完整作者和轻量工作台共用工程路径回显；目录来源相同，不因借用资产行池退回旧根标签。
@@ -80,7 +80,6 @@ pub(super) fn files(
     mut icons: Query<&mut ImageNode, With<ProjectFileRowIcon>>,
     mut fields: Query<(&mut Text, &mut TextColor, Option<&ProjectFileFolderText>, Option<&ProjectFileSummaryText>, Option<&ProjectFileStatusText>, Option<&ProjectFileSelectionText>),
         (Without<ProjectFileRowText>, Or<(With<ProjectFileFolderText>, With<ProjectFileSummaryText>, With<ProjectFileStatusText>, With<ProjectFileSelectionText>)>)>,
-    mut filter: Query<&mut EditableText, With<ProjectFileFilter>>,
 ) {
     if state.view != ProjectBrowserView::ProjectFiles { return; }
     for (mut row, mut node, children, interaction, mut background, mut border, click) in &mut rows {
@@ -134,12 +133,6 @@ pub(super) fn files(
             else if selection.is_some() { selected.unwrap_or_else(|| locale.text("label.double-click-a-text-file-to-open")) } else { continue; };
         if text.0 != value { text.0 = value.to_owned(); }
         if feedback.is_some() { color.set_if_neq(TextColor(if error.is_some() { colors::TEXT_ACCENT } else { colors::TEXT_MUTED })); }
-    }
-    for mut input in &mut filter {
-        if !input.is_composing() && input.pending_edits.is_empty() && input.pending_paste.is_none()
-            && input.value().to_string() != catalog.filter {
-            *input = feathrise_editor_ui::single_line_input(&catalog.filter, 128);
-        } // 进入目录后才清空旧筛选；真实输入帧先由Input冻结最新短值，不重绑光标。
     }
 }
 

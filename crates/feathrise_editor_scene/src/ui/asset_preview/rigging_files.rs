@@ -182,7 +182,7 @@ fn hash_and_copy(
     target: &mut impl Write,
     cancel: &AtomicBool,
 ) -> Result<[u8; 32], String> {
-    let mut source = open_glb(path)?.take(MAX_GLB + 1);
+    let mut source = open_glb(path, MAX_GLB)?.take(MAX_GLB + 1);
     let mut digest = Sha256::new();
     let mut buffer = [0; 64 * 1024];
     loop {
@@ -203,19 +203,26 @@ fn hash_and_copy(
     }
 }
 
-fn open_glb(path: &Path) -> Result<File, String> {
+fn open_glb(path: &Path, max_bytes: u64) -> Result<File, String> {
     let metadata = ordinary(path)?;
-    if !metadata.is_file() || !(20..=MAX_GLB).contains(&metadata.len()) {
-        return Err(format!(
-            "GLB 必须是 256 MiB 内的有效普通文件：{}",
-            path.display()
-        ));
+    if !metadata.is_file() || !(20..=max_bytes).contains(&metadata.len()) {
+        let limit = if max_bytes == MAX_GLB { "256 MiB 内的" } else { "GLB v2 长度范围内的" };
+        return Err(format!("GLB 必须是{limit}有效普通文件：{}", path.display()));
     }
     File::open(path).map_err(|error| format!("打开 GLB {} 失败：{error}", path.display()))
 }
 
 pub(super) fn glb_json(path: &Path) -> Result<Value, String> {
-    let mut file = open_glb(path)?;
+    read_glb_json(path, MAX_GLB)
+}
+
+pub(crate) fn glb_directory_json(path: &Path) -> Result<Value, String> {
+    // 目录只读头和 JSON，BIN 块的大小不需要沿用绑骨的整文件处理预算。
+    read_glb_json(path, u64::from(u32::MAX))
+}
+
+fn read_glb_json(path: &Path, max_bytes: u64) -> Result<Value, String> {
+    let mut file = open_glb(path, max_bytes)?;
     let length = file.metadata().map_err(|error| error.to_string())?.len();
     let mut header = [0; 20];
     file.read_exact(&mut header)
@@ -225,6 +232,7 @@ pub(super) fn glb_json(path: &Path) -> Result<Value, String> {
     if &header[..4] != b"glTF"
         || field(4) != 2
         || u64::from(field(8)) != length
+        || length > max_bytes
         || &header[16..] != b"JSON"
         || size == 0
         || size > MAX_JSON

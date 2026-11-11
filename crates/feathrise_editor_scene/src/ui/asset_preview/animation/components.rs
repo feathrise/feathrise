@@ -101,6 +101,7 @@ pub(super) struct AnimationRulerTick(pub usize);
 pub(super) enum AnimationLabel {
     #[default]
     Clip,
+    ClipParameters,
     Time,
     Pages,
     Status,

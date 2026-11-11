@@ -32,15 +32,17 @@ pub(crate) mod workflow_validation;
 pub(super) use preview::PreviewRuntime as AnimationPreviewRuntime;
 pub(super) use docking::{InlineAnimationHost, binding_properties_host, properties_host};
 pub(super) use timeline_dock::scene as timeline_dock_scene;
-pub(super) use request::PreviewRigAnimation;
+pub(super) use request::{PreviewRigAnimation, checked_clip_path};
 pub(super) use request::receive as receive_rig_animation;
 pub(crate) use resources::AnimationEditorState;
 #[cfg(feature = "validation")]
 pub(crate) use preview::{rig_animation_diagnostic, rig_animation_probe};
 #[cfg(feature = "validation")]
-pub(crate) use request::rig_animation_identity;
+pub(crate) use request::{active_project_clip, rig_animation_identity};
 #[cfg(feature = "validation")]
 pub(super) use docking::properties_panel_visible;
+#[cfg(feature = "validation")]
+pub(crate) use docking::project_clip_properties;
 #[cfg(feature = "validation")]
 pub(super) use timeline_dock::timeline_dock_probe;
 
@@ -72,13 +74,16 @@ pub(super) fn install(app: &mut App) {
             Update,
             receive_rig_animation
                 .after(super::workspace::actions)
-                .before(super::navigation::control_asset_preview)
+                // 属性按钮和目录共用一个接收者，合并成同一帧最新的角色动作意图。
+                .after(super::ProjectAnimationPickSet)
                 .in_set(SceneEditorSystemSet::Input),
         );
     install_input(app);
     app
         .add_systems(Update, drive::drive
             .after(super::loading::sync_asset_preview_selection)
+            // 同帧 GLB 热更新先换模型代次，旧读取回执不能推进目录的片段选择。
+            .after(super::subassets::invalidate_model_hot_reload)
             .before(super::loading::poll_asset_preview_loading)
             .in_set(SceneEditorSystemSet::Tasks))
         .add_systems(Update, (scene::setup_numeric_inputs, docking::sync, timeline_dock::sync, presentation::sync).chain()

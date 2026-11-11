@@ -17,6 +17,7 @@ pub(crate) fn navigate(
 ) {
     match action {
         EditorAction::RefreshAssets => {
+            catalog.worker.request_refresh();
             catalog.requested_revision = catalog.requested_revision.wrapping_add(1);
             editor.status = format!("正在刷新 assets/{}", catalog.current_folder);
         }
@@ -25,6 +26,7 @@ pub(crate) fn navigate(
                 .current_folder
                 .rsplit_once('/')
                 .map_or_else(String::new, |(parent, _)| parent.to_owned());
+            catalog.filename_filter.clear();
             catalog.page = 0;
             catalog.requested_revision = catalog.requested_revision.wrapping_add(1);
         }

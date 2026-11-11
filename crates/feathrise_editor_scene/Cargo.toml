@@ -38,6 +38,7 @@ image = { workspace = true }
 gltf = { version = "1.4.1", default-features = false, features = ["utils", "names"] } # 复用Bevy已锁定解析器，仅后台读取旧场景实际地形三角。
 sha2 = { workspace = true } # 保存前后比较terrain.glb精确摘要，阻止覆盖Blender并发导出。
 regex = "=1.13.1" # 复用已锁定引擎，仅后台处理转义后的字面查询、Unicode大小写及全词边界。
+notify = "=8.2.0" # 目录变更使用现有原生文件事件版本；只通知原后台扫描，无帧内文件访问。
 proc-macro2 = { version = "=1.0.107", features = ["span-locations"] } # 后台识别Rust路径字面量与原文位置，避免把注释当引用。
 syn = { version = "=2.0.119", default-features = false, features = ["parsing"] } # 只解码字符串字面量，不构建完整源码AST。
 symphonia = { version = "=0.5.5", default-features = false, features = ["ogg", "vorbis", "wav", "pcm", "flac", "mp3"] } # 音频试听先在后台受检解码，不扩展正式Bevy音频feature或在主线程seek。

@@ -3,39 +3,50 @@
 use bevy::{prelude::*, tasks::{IoTaskPool, futures::check_ready}};
 
 use super::{resources::EditorProjectFileCatalog, types::{ScanRequest, ScanResult}};
-use crate::asset_catalog::{scan::{scan_folder, FolderScope}, types::AssetCatalogFeedback};
+use crate::asset_catalog::{
+    filter::{DirectoryFilters, DirectorySnapshot},
+    scan::{scan_directory, DirectoryQuery, FolderScope},
+    types::AssetCatalogFeedback, watch::DirectoryWorker,
+};
 
 pub(crate) fn start_project_file_scan(mut catalog: ResMut<EditorProjectFileCatalog>) {
     if catalog.task.is_some() { return; }
+    if catalog.active && catalog.project_root().is_some() && catalog.worker.take_changed() && !catalog.is_loading() {
+        catalog.requested_revision = catalog.requested_revision.wrapping_add(1);
+    }
     let scan = catalog.active && catalog.is_loading();
-    if !scan && catalog.retired_entries.is_none() && catalog.retired_source.is_none() { return; }
+    let stop_watching = catalog.project_root().is_none() && catalog.worker.is_watching();
+    if !scan && !stop_watching && catalog.retired_entries.is_none() && catalog.retired_source.is_none() { return; }
     let request = scan.then(|| {
         let (context, root) = catalog.source.as_ref().expect("is_loading要求明确工程来源");
         ScanRequest {
             context: *context, project_root: root.clone().expect("is_loading要求工程根"),
+            asset_root: catalog.asset_root.clone(),
             revision: catalog.requested_revision, folder: catalog.requested_folder.clone(),
-            filter: catalog.filter.clone(),
+            filters: DirectoryFilters { filename: catalog.filter.clone(), kind: catalog.type_filter },
         }
     });
     let retired = catalog.retired_entries.take();
     let retired_source = catalog.retired_source.take();
+    let worker = catalog.worker.clone();
     catalog.task = Some(IoTaskPool::get().spawn(async move {
         drop(retired);
         drop(retired_source);
-        request.map(scan_request)
+        if stop_watching { worker.clear(); }
+        request.map(|request| scan_request_with_worker(request, &worker))
     }));
 }
 
+#[cfg(test)]
 pub(super) fn scan_request(request: ScanRequest) -> ScanResult {
-    let result = scan_folder(request.project_root.clone(), request.folder.clone(), FolderScope::ProjectFiles)
-        .map(|mut entries| {
-            // 目录始终保留，筛选后的父层仍能进入src/crates；只遍历当前后台完整结果。
-            let filter = request.filter.to_lowercase();
-            if !filter.is_empty() {
-                entries.retain(|entry| entry.is_directory || entry.display_name.to_lowercase().contains(&filter));
-            }
-            entries
-        });
+    scan_request_with_worker(request, &DirectoryWorker::default())
+}
+
+fn scan_request_with_worker(request: ScanRequest, worker: &DirectoryWorker) -> ScanResult {
+    let result = scan_directory(request.project_root.clone(), request.folder.clone(), DirectoryQuery {
+        context: request.context, scope: FolderScope::ProjectFiles, asset_root: request.asset_root.as_deref(), filters: &request.filters,
+        reveal_file: None,
+    }, worker);
     ScanResult { request, result }
 }
 
@@ -51,7 +62,8 @@ pub(super) fn adopt(catalog: &mut EditorProjectFileCatalog, completed: ScanResul
     let current = catalog.source.as_ref().is_some_and(|(context, root)|
         *context == request.context && root.as_ref() == Some(&request.project_root))
         && catalog.requested_revision == request.revision
-        && catalog.requested_folder == request.folder && catalog.filter == request.filter;
+        && catalog.requested_folder == request.folder && catalog.filter == request.filters.filename
+        && catalog.type_filter == request.filters.kind && catalog.asset_root == request.asset_root;
     if !current {
         if let Ok(entries) = completed.result {
             debug_assert!(catalog.retired_entries.is_none());
@@ -61,9 +73,13 @@ pub(super) fn adopt(catalog: &mut EditorProjectFileCatalog, completed: ScanResul
     }
     catalog.applied_revision = request.revision;
     match completed.result {
-        Ok(entries) => {
+        Ok(snapshot) => {
             debug_assert!(catalog.retired_entries.is_none());
-            catalog.retired_entries = Some(std::mem::replace(&mut catalog.entries, entries));
+            catalog.retired_entries = Some(DirectorySnapshot {
+                entries: std::mem::replace(&mut catalog.entries, snapshot.entries),
+                ..Default::default()
+            });
+            catalog.adopted_type_filter = request.filters.kind;
             catalog.current_folder = request.folder;
             catalog.feedback = Some(AssetCatalogFeedback { revision: request.revision, result: Ok(()) });
         }

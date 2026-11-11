@@ -36,18 +36,6 @@ pub(crate) fn files_panel() -> impl Scene {
                 Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }--
             Node { width: percent(100), height: px(26), min_width: px(0), flex_shrink: 0.0, column_gap: px(4) }
                 Children [@action_button("上级", ProjectFileAction::Up)-- @action_button("刷新", ProjectFileAction::Refresh)]--
-            Text("筛选当前目录文件名") @label_scene("筛选当前目录文件名") ~{FocusPolicy::Pass}
-                TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
-                TextColor(colors::TEXT_MUTED) Node { flex_shrink: 0.0 }--
-            ProjectFileFilter crate::ui::text_input::EditorTextInput
-                ~{feathrise_editor_ui::single_line_input("", 128)}
-                bevy::text::EditableTextFilter::new(|character| !character.is_control())
-                bevy::text::TextCursorStyle::default() TextLayout::no_wrap()
-                Node { width: percent(100), height: px(26), min_width: px(0), flex_shrink: 0.0,
-                    padding: UiRect::horizontal(px(4)), border: px(1), overflow: Overflow::clip() }
-                BackgroundColor(colors::INPUT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
-                TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-                TextColor(colors::TEXT_VALUE)--
             ProjectFileSummaryText Text("") ~{FocusPolicy::Pass}
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
                 TextColor(colors::TEXT_MUTED) Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }--

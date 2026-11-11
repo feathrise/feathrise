@@ -239,6 +239,10 @@ impl Session {
         self.window_span = self.metadata.durations[clip].max(1.0 / 30.0);
         self.selected_node = self.metadata.bones[clip].first().copied();
     }
+    pub(super) fn clip_from_source(&self, index: usize) -> Option<usize> {
+        // 解析器按 GLB 原顺序保留片段。目录传来的是原索引，不能用编辑器数组位置猜测身份。
+        self.document.clips.binary_search_by_key(&index, |clip| clip.source_index).ok()
+    }
     pub(super) fn new(document: AnimationDocument) -> Self {
         let channel = document
             .clips
@@ -429,6 +433,8 @@ pub(crate) struct AnimationEditorState {
     pub(super) rig_preview: Option<super::request::RigPreviewRequest>,
     /// 独立只读会话按请求票据访问，退出或换源后由原工作槽后台释放。
     pub(super) rig_session: Option<(u64, Session)>,
+    /// 普通 GLB 的显式目录动作等待原打开流程发布文件会话，连续点击仅保留末次意图。
+    pub(super) directory_pick: Option<super::request::DirectoryPick>,
 }
 
 impl Default for AnimationEditorState {
@@ -463,6 +469,7 @@ impl Default for AnimationEditorState {
             model_binding_revision: 0,
             rig_preview: None,
             rig_session: None,
+            directory_pick: None,
         }
     }
 }
@@ -696,6 +703,7 @@ impl AnimationEditorState {
             return view;
         };
         view.clip_name = clip.name.clone();
+        view.clip_source_index = clip.source_index;
         view.duration = session.metadata.durations[session.clip];
         let indices = session.visible_channels();
         view.channel_count = if session.bone_filter {

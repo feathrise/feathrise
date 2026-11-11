@@ -19,7 +19,8 @@ pub(in crate::ui::asset_preview::animation) struct AnimationDocument {
 pub(in crate::ui::asset_preview::animation) struct Clip {
     pub name: String,
     pub channels: Vec<Channel>,
-    pub(super) source_index: usize,
+    /// GLB 原片段索引，目录选择和写回都依赖这个身份。
+    pub source_index: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]

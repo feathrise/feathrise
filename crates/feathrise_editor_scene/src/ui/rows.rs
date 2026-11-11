@@ -219,6 +219,7 @@ pub(crate) fn spawn_dynamic_rows(
                             TextColor(colors::TEXT_PRIMARY),
                             TextLayout::no_wrap(), Node { min_width: px(0), flex_grow: 1.0, flex_basis: px(0), ..default() }, Pickable::IGNORE,
                         ));
+                        crate::ui::project_browser::spawn_expander(row, &font);
                     });
             }
         });

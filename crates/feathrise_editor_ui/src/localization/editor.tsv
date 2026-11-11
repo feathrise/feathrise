@@ -471,6 +471,10 @@ label.undo	撤销	Undo
 label.redo	重做	Redo
 label.reload-action	重载动作	Reload Action
 label.animation-editor	动画编辑	Animation Editor
+animation.clip.current	动作 {index}/{count} · {name}	Clip {index}/{count} · {name}
+animation.clip.parameters	时长 {duration} 秒 · {fps} fps · {speed}× · {loop}	Duration {duration} s · {fps} fps · {speed}× · {loop}
+animation.loop.on	循环开	Loop on
+animation.loop.off	循环关	Loop off
 help.select-a-bone-and-pose-it-with	点选骨节，用移动轴或旋转环摆姿势。自动插帧在松开时记录；关闭后需插入姿势或还原。时间轴滚轮缩放，中键或Shift滚轮平移；空白拖动框选，Ctrl增减选区，拖菱形整组移动。悬停时间轴可用Delete、Ctrl+C/V/Z、空格；Esc取消拖动。旋转数值为XYZ角度，中键精确输入。密集关键帧显示为窄条，放大后可逐键选择。中央动画标签保持打开，在资产列表选择同骨架角色GLB后绑定；模型只用于预览，保存仅写当前动画GLB。外置GLTF只读。	Select a bone and pose it with the translation gizmo or rotation rings. Auto Key records on release. When disabled, insert or restore the pose manually. Scroll over the timeline to zoom. Pan with middle drag or Shift+scroll. Drag empty space to box select, use Ctrl to change the selection, and drag a diamond to move the selection. With the pointer over the timeline, use Delete, Ctrl+C/V/Z, or Space. Esc cancels a drag. Rotation uses XYZ degrees. Middle-click for precise input. Dense keys appear as bands. Zoom in to select individual keys. Keep the animation tab open and bind a character GLB with the same skeleton from Assets. The model is for preview. Save writes the current animation GLB. External GLTF files are read-only.
 label.first-frame	首帧	First Frame
 label.previous-frame	前帧	Previous Frame
@@ -1008,6 +1012,16 @@ project.files.count	工程 · {count}项	Project · {count} items
 project.files.requires_project	请先打开工程后浏览目录	Open a project to browse its files.
 project.files.loading	正在读取工程目录…	Reading project files…
 project.files.empty	当前目录没有匹配文件	No matching files in this folder
+project.filter.trigger	筛选	Filter
+project.filter.all	全部	All
+project.filter.assets	资产	Assets
+project.filter.glb	GLB	GLB
+project.filter.models	模型	Models
+project.filter.animations	动画	Animations
+project.filter.skeletons	骨骼	Skeletons
+project.filter.images	图片	Images
+project.filter.audio	音频	Audio
+project.filter.video	视频	Video
 vegetation.scope	绘制范围	Painting Scope
 vegetation.scope.independent	勾选目标 · 与检查器选择独立	Check targets independently of the Inspector selection
 vegetation.scope.help	隐藏/锁定网格跳过；移动旋转时草随网格。一笔统一撤销，Shift擦除。	Hidden or locked meshes are skipped. Grass follows mesh movement and rotation. Undo reverts a whole stroke. Hold Shift to erase.
