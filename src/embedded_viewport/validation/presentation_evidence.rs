@@ -2,7 +2,7 @@
 
 use crate::viewport_mode::ViewportGeometry;
 use bevy::prelude::*;
-use feathrise_editor_map::standalone::embedded_validation as author;
+use feathrise_editor_scene::standalone::embedded_validation as author;
 use serde_json::{Value, json};
 
 const SOURCE: &str = "author Node+Visibility+InheritedVisibility+Camera+selection+history";
@@ -81,7 +81,7 @@ pub(super) fn capture_baseline(world: &mut World) -> Result<Value, String> {
 fn plays(stage: &str) -> bool {
     matches!(
         stage,
-        "empty_map_f12_play_same_world"
+        "empty_scene_f12_play_same_world"
             | "f12_play_same_world"
             | "restart_adopted_same_unsaved_author"
     )
@@ -90,7 +90,7 @@ fn plays(stage: &str) -> bool {
 fn restores(stage: &str) -> bool {
     matches!(
         stage,
-        "empty_map_f12_returned"
+        "empty_scene_f12_returned"
             | "f12_edit_same_world_and_paused_ticks"
             | "recovered_world_returned_to_edit"
             | "back_to_original_editor_3d_with_same_author"
@@ -191,8 +191,8 @@ pub(super) fn verify_records(steps: &[Value], empty_fixture: bool) -> Result<(),
     if empty_fixture {
         transitions.push((
             "resident_game_3d_ready",
-            "empty_map_f12_play_same_world",
-            "empty_map_f12_returned",
+            "empty_scene_f12_play_same_world",
+            "empty_scene_f12_returned",
         ));
     }
     for (before, playing, returned) in transitions {

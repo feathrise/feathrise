@@ -65,21 +65,15 @@ impl Plan {
             }
         }
         plan.add_file(project.root.join("editor-project.json"), "editor-project.json".into(), control)?;
-        let selection = project.root.join("scene.layout.json");
+        // 导出使用独立运行的启动解析，包括未设置时的已发布场景回退与空工程规则。
+        let context = feathrise_runtime::ProjectContext {
+            root: project.root.clone(), id: project.id.clone(), name: project.name.clone(),
+            asset_roots: project.context.asset_roots.clone(),
+        };
+        feathrise_runtime::validate_saved_startup_with_check(&context, || control.check())?;
+        let selection = project.root.join(crate::startup_document::FILE_NAME);
         match fs::symlink_metadata(&selection) {
-            Ok(_) => {
-                let bytes = read_bounded(&selection, crate::startup_document::MAX_BYTES as u64, control)?;
-                let document = crate::startup_document::parse(&bytes, &project.id)?;
-                // 启动选择必须与独立运行入口使用同一校验；空工程允许无选择，已选地图必须可加载。
-                if let Some(id) = feathrise_project::selection(&document.extra)? {
-                    let context = feathrise_runtime::ProjectContext {
-                        root: project.root.clone(), id: project.id.clone(), name: project.name.clone(),
-                        asset_roots: project.context.asset_roots.clone(),
-                    };
-                    feathrise_runtime::validate_saved_map_with_check(&context, id, || control.check())?;
-                }
-                plan.add_file(selection, "scene.layout.json".into(), control)?;
-            },
+            Ok(_) => plan.add_file(selection, crate::startup_document::FILE_NAME.into(), control)?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
             Err(error) => return Err(format!("已保存启动场景不可读：{error}")),
         }

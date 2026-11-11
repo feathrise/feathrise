@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use feathrise_editor_core::PresetWorkspaceTab;
 use feathrise_editor_surface_model::SurfacePresetEditorState;
-use feathrise_map_content::SurfacePresetRegistry;
+use feathrise_scene_content::SurfacePresetRegistry;
 
 pub fn request_project_save(world: &mut World, tab: u64) -> Result<(), String> {
     world.resource_scope(|world, mut state: Mut<SurfacePresetEditorState>| {

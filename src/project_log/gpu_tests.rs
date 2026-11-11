@@ -23,7 +23,7 @@ use bevy::{
     text::{EditableText, TextEdit, TextLayoutInfo},
     ui_widgets::{ControlOrientation, TextInputPlugin, Scrollbar, ScrollbarPlugin, ScrollbarThumb},
 };
-use feathrise_editor_map::workbench::WorkbenchHeader;
+use feathrise_editor_scene::workbench::WorkbenchHeader;
 use std::{
     fs::OpenOptions,
     path::Path,

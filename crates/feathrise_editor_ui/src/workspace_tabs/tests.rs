@@ -19,7 +19,7 @@ use bevy::window::PrimaryWindow; // 虚拟相机的鼠标来源。
 /// 替代领域动作，仅记录点击落在哪一个互斥命中区。
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 enum Action {
-    Map,             // 永久地图标签没有关闭按钮。
+    Scene,             // 永久场景标签没有关闭按钮。
     Activate(usize), // 点击标题只切换所属预设。
     Close(usize),    // 点击小关闭键不同时激活标题或邻居。
 }
@@ -33,7 +33,7 @@ struct Fixture {
 
 /// 构造短标题、长标题及关闭确认组合；宽度参数表示字体系统已经测得的逻辑尺寸。
 fn fixture(width: u32, scale: f32, tabs: &[(&str, f32, bool)]) -> Fixture {
-    let mut app = App::new(); // 测试不需要游戏资源、地图或GPU。
+    let mut app = App::new(); // 测试不需要游戏资源、场景或GPU。
     crate::button_input::register(&mut app); // 与工作台相同的按下捕获/释放派发，保留原命中与布局夹具。
     app.add_plugins(TaskPoolPlugin::default()); // 初始化布局需要的任务池。
     app.add_plugins(HierarchyPropagatePlugin::<ComputedUiTargetCamera>::new(
@@ -45,6 +45,7 @@ fn fixture(width: u32, scale: f32, tabs: &[(&str, f32, bool)]) -> Fixture {
     app.insert_resource(UiScale(scale)) // 覆盖窗口与全屏使用的不同逻辑缩放。
         .init_resource::<UiSurface>() // 真实Taffy布局缓存。
         .init_resource::<bevy::text::TextPipeline>() // 布局系统所需字体管线。
+        .init_resource::<bevy::text::RemSize>() // 手工装配布局时由夹具提供 TextPlugin 通常初始化的根字号。
         .init_resource::<bevy::text::FontCx>() // 固定测量无需加载实际字库。
         .init_resource::<bevy::text::ScaleCx>() // 与Bevy生产布局参数一致。
         .init_resource::<StaticTransformOptimizations>() // 层级变换系统所需资源。
@@ -109,24 +110,24 @@ fn fixture(width: u32, scale: f32, tabs: &[(&str, f32, bool)]) -> Fixture {
             height: Val::Px(34.0),      // 与生产静态壳相同的逻辑高度。
             padding: UiRect::axes(Val::Px(4.0), Val::Px(2.0)), // 保留壳层内边距。
             border: UiRect::bottom(Val::Px(1.0)), // 下边框参与可用高度计算。
-            align_items: AlignItems::Center, // 地图和滚动区在同一水平线。
+            align_items: AlignItems::Center, // 场景和滚动区在同一水平线。
             column_gap: Val::Px(3.0),   // 与生产静态壳保持一致。
             overflow: Overflow::clip_x(), // 仅允许动态内容通过子滚动区访问。
             ..default()                 // 不增加额外根缩放。
         })
         .with_children(|bar| {
-            bar.spawn((InteractionButton, Action::Map, map_tab_node(), FocusPolicy::Block)) // 使用生产地图标签布局。
+            bar.spawn((InteractionButton, Action::Scene, scene_tab_node(), FocusPolicy::Block)) // 使用生产场景标签布局。
                 .with_child((
-                    Text::new("地图视口"),
+                    Text::new("场景视口"),
                     TextLayout::no_wrap(),
                     FocusPolicy::Pass,
-                )); // 提供地图文字测量叶子。
+                )); // 提供场景文字测量叶子。
             host = bar
                 .spawn((
                     ScrollPosition::default(),
                     Node {
                         height: Val::Percent(100.0),     // 与生产滚动挂载点一致。
-                        flex_grow: 1.0,                  // 地图之外的宽度由滚动区接管。
+                        flex_grow: 1.0,                  // 场景之外的宽度由滚动区接管。
                         min_width: Val::Px(0.0),         // 超宽时允许挂载点缩窄。
                         align_items: AlignItems::Center, // 动态标签保持统一垂直中心。
                         overflow: Overflow::scroll_x(),  // 唯一实际横向滚动容器。
@@ -161,7 +162,7 @@ fn fixture(width: u32, scale: f32, tabs: &[(&str, f32, bool)]) -> Fixture {
         .collect(); // 只收集这组有限测试叶子。
     for (entity, text) in text_nodes {
         let measured_width = match text.as_str() {
-            "地图视口" => 38.0, // 测试夹具中的地图文字内在宽度。
+            "场景视口" => 38.0, // 测试夹具中的场景文字内在宽度。
             "×" => 8.0,         // 普通关闭符号。
             "确认×" => 25.0,    // 确认文案必须能扩宽，不挤出外框。
             _ => tabs.iter().find(|tab| tab.0 == text).unwrap().1, // 由用例提供测量结果，不按字符数猜尺寸。
@@ -232,9 +233,9 @@ fn compact_tabs_follow_text_width_at_window_and_fullscreen_scales() {
                 ("桦树夏季长名称预设*", 145.0, false),
             ],
         ); // 保留完整长名及脏标记。
-        let map = button(&mut test.app, Action::Map); // 永久标签也应自然收缩。
-        let map_width = 38.0 + TITLE_PADDING * 2.0; // 固定文字测量加左右留白，不含额外边框。
-        assert!((rect(test.app.world(), map).width() - map_width).abs() <= 1.0);
+        let map = button(&mut test.app, Action::Scene); // 永久标签也应自然收缩。
+        let scene_width = 38.0 + TITLE_PADDING * 2.0; // 固定文字测量加左右留白，不含额外边框。
+        assert!((rect(test.app.world(), map).width() - scene_width).abs() <= 1.0);
         let mut widths = Vec::new(); // 记录两个完整标签的真实逻辑宽度。
         for index in 0..2 {
             let title = button(&mut test.app, Action::Activate(index)); // 单独的标题命中区。
@@ -246,7 +247,7 @@ fn compact_tabs_follow_text_width_at_window_and_fullscreen_scales() {
             assert_eq!(
                 world.get::<Node>(frame).unwrap().border,
                 UiRect::default()
-            ); // 活动地图、文件和预设均不恢复亮色底线。
+            ); // 活动场景、文件和预设均不恢复亮色底线。
             let fill = world.get::<BackgroundColor>(frame).unwrap();
             assert_eq!(world.get::<BackgroundColor>(title).unwrap(), fill);
             assert_eq!(world.get::<BackgroundColor>(close).unwrap(), fill,

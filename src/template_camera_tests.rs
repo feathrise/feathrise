@@ -26,7 +26,7 @@ fn fixture(view: GameView, mode: Option<Mode>) -> (App, Entity, Entity) {
         app.insert_resource(EmbeddedProjectState { mode, world_id: 1, revision: 1, transitioning: false });
     }
     let window = app.world_mut().spawn((PrimaryWindow, Window::default(), CursorOptions::default())).id();
-    // 地图拥有这唯一一台相机；测试不安装渲染器，原生控制器仍使用真实 Camera 查询和输入资源。
+    // 场景拥有这唯一一台相机；测试不安装渲染器，原生控制器仍使用真实 Camera 查询和输入资源。
     let camera = app.world_mut().spawn((PrimarySceneView, Camera::default(), Transform::default())).id();
     app.update();
     app.update();

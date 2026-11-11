@@ -55,10 +55,10 @@ fn fixture(outcome: Result<(), String>) -> Fixture {
     world.init_resource::<EmbeddedAuthorInput>();
     world.init_resource::<EmbeddedSnapshotState>();
     world.resource_mut::<EmbeddedSnapshotState>().revision = 42;
-    world.resource_mut::<EmbeddedSnapshotState>().map_id = Some("author-map".into());
+    world.resource_mut::<EmbeddedSnapshotState>().scene_id = Some("author-map".into());
     world.init_resource::<crate::native_play::NativePlayStatus>();
     world.init_resource::<crate::native_project_close::NativeProjectCloseState>();
-    world.init_resource::<feathrise_editor_map::standalone::embedded_overlay::EmbeddedOverlay>();
+    world.init_resource::<feathrise_editor_scene::standalone::embedded_overlay::EmbeddedOverlay>();
     world.insert_resource(crate::native_authoring_validation::dirty_surface_fixture());
     world.insert_resource(EmbeddedStatus { active: true, starts: 1, ..default() });
     world.insert_non_send(runtime);
@@ -88,7 +88,7 @@ impl Fixture {
         assert_eq!(surface.tabs[0].draft.baseline.label, "未保存地表");
         assert_eq!(self.world.get::<Transform>(self.camera).unwrap().translation, Vec3::new(7.0, 8.0, 9.0));
         assert_eq!(self.world.resource::<EmbeddedSnapshotState>().revision, 42);
-        assert_eq!(self.world.resource::<EmbeddedSnapshotState>().map_id.as_deref(), Some("author-map"));
+        assert_eq!(self.world.resource::<EmbeddedSnapshotState>().scene_id.as_deref(), Some("author-map"));
     }
 }
 
@@ -106,7 +106,7 @@ impl Drop for Fixture {
 
 fn request_preview(world: &mut World) {
     let profile = world.get_resource::<ProjectLaunchSettings>().map_or(default(), |launch| launch.profile);
-    world.write_message(RunSavedProject { profile, map_id: None, has_unsaved_changes: true, stop_only: false });
+    world.write_message(RunSavedProject { profile, scene_id: None, has_unsaved_changes: true, stop_only: false });
 }
 
 /// 输入来自原控件，排空来自真实测试线程；不把控制牌取消或预先收到结果当作已经结束。

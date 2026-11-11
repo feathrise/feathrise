@@ -340,7 +340,7 @@ fn tick(plan: &mut Plan, world: &mut World) -> Result<(), String> {
                 record(
                     plan,
                     world,
-                    "A重开恢复首轮已保存地图与对象布局，B窗口已退役",
+                    "A重开恢复首轮已保存场景与对象布局，B窗口已退役",
                 );
                 world.write_message(WorkspaceCommand::CloseProject);
                 plan.stage(Stage::Close);
@@ -566,7 +566,7 @@ fn initial_ui_ready(world: &mut World) -> bool {
         .single(world)
         .is_ok_and(|window| window.width() > 300. && window.height() > 200.);
     let header = world
-        .query_filtered::<&ComputedNode, With<feathrise_editor_map::workbench::WorkbenchHeader>>()
+        .query_filtered::<&ComputedNode, With<feathrise_editor_scene::workbench::WorkbenchHeader>>()
         .iter(world)
         .any(|node| node.size().x > 100. && node.size().y > 10.);
     let probe = world.resource::<WorkspaceProbe>();

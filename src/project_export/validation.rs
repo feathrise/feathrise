@@ -33,10 +33,10 @@ pub(crate) fn install(app: &mut App, project: &crate::project::Project, _target:
     { return Err("导出验收归属与当前工程或报告不一致，未安装自动操作".into()); }
     // 仅显式自建工程允许内部按钮驱动；保持真实窗口连续更新，不要求OS恰好把焦点交给它。
     app.insert_resource(bevy::winit::WinitSettings::continuous());
-    feathrise_editor_map::standalone::embedded_validation::install(app);
+    feathrise_editor_scene::standalone::embedded_validation::install(app);
     let completion = Completion::new(project.clone(), report.clone());
     app.insert_resource(Plan {
-        project: project.clone(), report, phase: Phase::OpenMap, changed: Instant::now(), frames: 0,
+        project: project.clone(), report, phase: Phase::OpenScene, changed: Instant::now(), frames: 0,
         pulse: None, baseline: None, receipt: None, proofs: Vec::new(), error: None,
         screenshot: None, writer: None, completion: completion.clone(), scenario,
         custom: (scenario == Scenario::CustomCancelRetry).then(|| custom::State::new(&project.root)),

@@ -16,8 +16,8 @@ use bevy::{
     ui::{InteractionDisabled, UiGlobalTransform},
     window::{CursorMoved, PrimaryWindow, WindowEvent},
 };
-use feathrise_editor_map::standalone::embedded_validation::release_pulse;
-use feathrise_editor_map::workbench::WorkbenchProjectLogButton;
+use feathrise_editor_scene::standalone::embedded_validation::release_pulse;
+use feathrise_editor_scene::workbench::WorkbenchProjectLogButton;
 use feathrise_editor_ui::{
     EditorButtonClick, InteractionButton, UiInteraction, localization::EditorLocale,
 };

@@ -48,7 +48,7 @@ impl Plugin for ProjectExportPlugin {
                 .before(crate::workspace_ui::WorkspaceUiSet::Input)
                 .before(crate::viewport_mode::ViewportModeInput)
                 .before(feathrise_editor_ui::EditorUiSystemSet::NumericInput)
-                .before(feathrise_editor_core::MapEditorSystemSet::Input))
+                .before(feathrise_editor_core::SceneEditorSystemSet::Input))
             .add_systems(Update, ui::present.after(ExportInput));
         ui::install(app);
     }

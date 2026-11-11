@@ -1,4 +1,4 @@
-//! 作者操作反馈的稳定值契约；不拥有地图会话或反馈槽。
+//! 作者操作反馈的稳定值契约；不拥有场景会话或反馈槽。
 
 /// 显式操作回执的表现语义；普通预览文字不能推断或覆盖保存结果。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -11,10 +11,10 @@ pub enum EditorStatusKind {
 /// 各类操作使用固定回执槽；不同操作及不同对象的成功不能互相清除失败。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditorStatusOperation {
-    MapSave,
+    SceneSave,
     GlobalEnvironmentSave,
-    MapCreate,
-    MapDelete,
+    SceneCreate,
+    SceneDelete,
     SurfacePresetSave,
     WaterPresetSave,
     VegetationPresetSave,
@@ -31,10 +31,10 @@ impl EditorStatusOperation {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::MapSave => "保存地图",
+            Self::SceneSave => "保存场景",
             Self::GlobalEnvironmentSave => "保存全局环境",
-            Self::MapCreate => "新建地图",
-            Self::MapDelete => "删除地图",
+            Self::SceneCreate => "新建场景",
+            Self::SceneDelete => "删除场景",
             Self::SurfacePresetSave => "保存地表预设",
             Self::WaterPresetSave => "保存水体预设",
             Self::VegetationPresetSave => "保存植被预设",

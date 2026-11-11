@@ -34,7 +34,7 @@ pub(crate) struct EmbeddedStatus {
     pub error: Option<String>,
 }
 
-/// 顶栏只读呈现；握手成功与当前地图已经采用是两个阶段，不改变原进程生命周期。
+/// 顶栏只读呈现；握手成功与当前场景已经采用是两个阶段，不改变原进程生命周期。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ConnectionState {
     Disconnected,
@@ -170,7 +170,7 @@ pub(super) struct Runtime {
     pub geometry_revision: u64,
     pub camera: Option<CameraState>,
     pub author_view: Option<feathrise_editor_protocol::AuthorViewState>,
-    pub map_id: Option<String>,
+    pub scene_id: Option<String>,
     pub overlay_generation: u64,
     pub tools_generation: u64,
     pub mode_started: Option<Instant>,

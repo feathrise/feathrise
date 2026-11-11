@@ -7,7 +7,7 @@ use super::{
     components::CloseAction,
     resources::{CloseStage, NativeProjectCloseState},
 };
-use crate::native_validation::{CLOSE_MAP_MANIFEST_PATH, MAP_BEFORE_CLOSE_FILENAME};
+use crate::native_validation::{CLOSE_SCENE_MANIFEST_PATH, SCENE_BEFORE_CLOSE_FILENAME};
 use bevy::{
     prelude::*,
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
@@ -16,7 +16,7 @@ use bevy::{
 };
 pub(crate) use resources::ValidationReport;
 use resources::*;
-use feathrise_editor_map::standalone::{ProjectSaveProgress, project_save_progress, validation_fixture};
+use feathrise_editor_scene::standalone::{ProjectSaveProgress, project_save_progress, validation_fixture};
 use std::{
     io::Write,
     path::PathBuf,
@@ -63,7 +63,7 @@ pub(crate) fn install(app: &mut App, directory: PathBuf) -> bool {
         asset_root,
         original: Arc::new(original),
         draft: None,
-        map_save_before: None,
+        scene_save_before: None,
         marker: None,
         io: None,
         pulse: None,
@@ -175,16 +175,16 @@ fn change_owned_file(fixture: &mut Fixture, restore: bool) {
     let root = fixture.asset_root.clone();
     let original = fixture.original.clone();
     let manifest_before_close = (!restore)
-        .then(|| fixture.report.directory.join(MAP_BEFORE_CLOSE_FILENAME));
+        .then(|| fixture.report.directory.join(SCENE_BEFORE_CLOSE_FILENAME));
     fixture.io = Some(IoTaskPool::get().spawn(async move {
         use crate::native_play_recovery_validation::{check_owner, read_owned};
         check_owner(&project)?;
         if let Some(output) = manifest_before_close {
             // 保存并退出尚未写盘。保留本工程当时的字节，以便回验上一轮 F12 实例的来源。
-            let bytes = read_owned(&root, CLOSE_MAP_MANIFEST_PATH, 64 * 1024)?;
+            let bytes = read_owned(&root, CLOSE_SCENE_MANIFEST_PATH, 64 * 1024)?;
             std::fs::File::create_new(output)
                 .and_then(|mut file| file.write_all(&bytes))
-                .map_err(|error| format!("关闭前地图清单快照无法写入：{error}"))?;
+                .map_err(|error| format!("关闭前场景清单快照无法写入：{error}"))?;
         }
         let conflict = "关闭验收的外部冲突版本\n".as_bytes();
         let (expected, next) = if restore {
@@ -193,9 +193,9 @@ fn change_owned_file(fixture: &mut Fixture, restore: bool) {
             (original.as_slice(), conflict)
         };
         // 仅改变本轮自有文本，复用生产提交前身份检查；正常作者目录不能进入此夹具。
-        feathrise_map_content::authoring_transaction::commit_prepared_writes_checked(
+        feathrise_scene_content::authoring_transaction::commit_prepared_writes_checked(
             vec![
-                feathrise_map_content::authoring_transaction::PreparedWrite::new(
+                feathrise_scene_content::authoring_transaction::PreparedWrite::new(
                     root.join(validation_fixture::CLOSE_DOCUMENT_PATH),
                     next.to_vec(),
                 ),
@@ -232,7 +232,7 @@ pub(crate) fn drive(world: &mut World) {
         match fixture.phase {
             Phase::LoadingDocument => {
                 if validation_fixture::close_document_ready(world)? {
-                    if !feathrise_editor_map::standalone::project_close_snapshot(world).unsaved.is_empty() {
+                    if !feathrise_editor_scene::standalone::project_close_snapshot(world).unsaved.is_empty() {
                         return Err("清洁工程关闭验收开始前仍有未保存内容".into());
                     }
                     fixture.marker = Some(world.spawn_empty().id());
@@ -266,7 +266,7 @@ pub(crate) fn drive(world: &mut World) {
                 }
                 fixture.clean_cancel_verified = true;
                 fixture.draft = Some(validation_fixture::edit_close_document(world)?);
-                fixture.map_save_before = Some(validation_fixture::edit_close_map_with_stale_dirty_marker(world)?);
+                fixture.scene_save_before = Some(validation_fixture::edit_close_scene_with_stale_dirty_marker(world)?);
                 fixture.phase = Phase::CancelPrompt;
                 request_window_close(world)?;
             }
@@ -275,7 +275,7 @@ pub(crate) fn drive(world: &mut World) {
                     return Err("关闭确认没有列出普通文本未保存草稿及实际历史".into());
                 }
                 if !world.resource::<NativeProjectCloseState>().documents.iter().any(|name| name.contains("[M1-SAMPLE]")) {
-                    return Err("关闭确认漏报界面标记已清零但仍有待写数据的地图".into());
+                    return Err("关闭确认漏报界面标记已清零但仍有待写数据的场景".into());
                 }
                 capture_prompt(world, &fixture, "project-close.png");
                 fixture.phase = Phase::Capturing;
@@ -316,8 +316,8 @@ pub(crate) fn drive(world: &mut World) {
             Phase::RestoringConflict => {
                 if let Some(result) = fixture.io.as_mut().and_then(check_ready) {
                     fixture.io = None; result?;
-                    if validation_fixture::close_map_save_sequence(world, true) != fixture.map_save_before {
-                        return Err("点击保存并退出前，地图的界面标记与待写数据不再分歧".into());
+                    if validation_fixture::close_scene_save_sequence(world, true) != fixture.scene_save_before {
+                        return Err("点击保存并退出前，场景的界面标记与待写数据不再分歧".into());
                     }
                     fixture.pulse = Some(choose(world, CloseAction::Save)?);
                     fixture.phase = Phase::FinalSave;
@@ -330,15 +330,15 @@ pub(crate) fn drive(world: &mut World) {
                             && snapshot["generation"] == before["generation"] && snapshot["can_undo"] == true && snapshot["can_redo"] == true))
                     || !fixture.marker.is_some_and(|marker| world.get_entity(marker).is_ok())
                 { return Err("工程退出先于真实保存成功，或保存重试丢失原World".into()); }
-                let map_save_after = validation_fixture::close_map_save_sequence(world, false)
-                    .filter(|after| fixture.map_save_before.is_some_and(|before| *after == before.wrapping_add(1)))
-                    .ok_or("退出前缺少待写地图的真实保存回执")?;
+                let scene_save_after = validation_fixture::close_scene_save_sequence(world, false)
+                    .filter(|after| fixture.scene_save_before.is_some_and(|before| *after == before.wrapping_add(1)))
+                    .ok_or("退出前缺少待写场景的真实保存回执")?;
                 let proof = serde_json::json!({
                     "passed":true,"cancel_kept_same_world_and_dirty_draft":fixture.cancel_verified,
                     "clean_prompt_waited_without_choice_and_cancel_kept_same_world":fixture.clean_cancel_verified,
                     "injected_save_failure_kept_draft":fixture.failure_verified,
                     "retry_used_original_document_writer":true,"save_completed_before_app_exit":true,
-                    "map_save_sequence_before":fixture.map_save_before,"map_save_sequence_after":map_save_after,
+                    "scene_save_sequence_before":fixture.scene_save_before,"scene_save_sequence_after":scene_save_after,
                     "input":"existing close button action pulses and real WindowCloseRequested",
                     "schema":3,"scope":"ordinary_document_close_cancel_conflict_retry",
                     "dirty_fixture":"owned ordinary text document edit/edit/undo with actual undo and redo; production batch save",
@@ -351,7 +351,7 @@ pub(crate) fn drive(world: &mut World) {
             }
             Phase::FinalSave if stage == CloseStage::Confirm => {
                 if let ProjectSaveProgress::Failed { detail } = project_save_progress(world) {
-                    return Err(format!("地图退出保存重试失败：{detail}"));
+                    return Err(format!("场景退出保存重试失败：{detail}"));
                 }
             }
             _ => {}

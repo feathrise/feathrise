@@ -3,7 +3,7 @@
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::CodeIterationRuntime, types::CodeIterationPhase as Phase, CodeIterationState, RequestApplyCode};
 use bevy::prelude::*;
-use feathrise_editor_map::workbench::WorkbenchProjectLogButton;
+use feathrise_editor_scene::workbench::WorkbenchProjectLogButton;
 use feathrise_editor_ui::{colors as c, EditorButtonClick};
 
 pub(super) fn mount(

@@ -5,7 +5,7 @@ use feathrise_editor_ui::metrics as ui_metrics;
 use bevy::prelude::*;
 use bevy::text::{EditableText, EditableTextFilter};
 use bevy::ui::FocusPolicy;
-use feathrise_map_content::SurfacePresetDescriptor;
+use feathrise_scene_content::SurfacePresetDescriptor;
 
 use super::components::SurfaceButtonKind;
 use super::types::{

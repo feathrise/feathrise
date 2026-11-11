@@ -59,7 +59,7 @@ fn cancelling_authorized_close_restores_export_gate_after_the_owned_worker_drain
     let mut app = App::new();
     app.insert_resource(state()).init_non_send::<ExportRuntime>()
         .init_resource::<NativeProjectCloseState>()
-        .add_message::<feathrise_editor_map::standalone::SavedPlayFeedback>();
+        .add_message::<feathrise_editor_scene::standalone::SavedPlayFeedback>();
     super::ui::install(&mut app);
     let control = crate::build_process::BuildControl::default();
     let worker_control = control.clone();

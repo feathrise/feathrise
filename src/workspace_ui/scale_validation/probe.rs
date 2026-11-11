@@ -4,7 +4,7 @@ use feathrise_editor_ui::InteractionButton;
 use super::types::*;
 use bevy::{prelude::*, text::TextLayoutInfo, ui::InteractionDisabled, window::PrimaryWindow};
 use feathrise_editor_core::{EditorSettings, effective_editor_ui_scale};
-use feathrise_editor_map::workbench::{WorkbenchHostPageState, WorkbenchSettingsBody};
+use feathrise_editor_scene::workbench::{WorkbenchHostPageState, WorkbenchSettingsBody};
 use serde_json::{Value, json};
 
 fn below(world: &World, mut entity: Entity, root: Entity) -> bool {

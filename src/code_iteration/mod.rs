@@ -87,9 +87,9 @@ impl Plugin for CodeIterationPlugin {
                 .after(crate::viewport_mode::ViewportModeInput)
                 .after(crate::native_project_close::ProjectCloseInput)
                 .before(diagnostics_ui::DiagnosticsInput)
-                .before(feathrise_editor_map::standalone::SavedPlayDispatch))
+                .before(feathrise_editor_scene::standalone::SavedPlayDispatch))
             .add_systems(Update, systems::application_result.after(CodeIterationInput)
-                .before(feathrise_editor_core::MapEditorSystemSet::Presentation))
+                .before(feathrise_editor_core::SceneEditorSystemSet::Presentation))
             .add_systems(Update, ui::present.after(systems::application_result))
             .add_systems(PostUpdate, ui::status
                 .in_set(feathrise_editor_ui::feedback::PanelStatusProjection)

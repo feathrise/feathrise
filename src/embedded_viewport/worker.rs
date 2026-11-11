@@ -202,12 +202,23 @@ pub(super) fn run(
     };
     let stdout_log = control.log_sink();
     let stderr_log = control.log_sink();
+    #[cfg(feature = "validation")]
+    let mut handoff_report = crate::scene_format_validation::preview_handoff_report(&project);
+    #[cfg(feature = "validation")]
+    let runtime_pid = process.pid();
     let stdout = thread::spawn(move || drain_log(crate::project_log::LogReader::new(
         output, stdout_log, crate::project_log::LogSource::Stdout,
-    )));
+    ), |_| {}));
     let stderr = thread::spawn(move || drain_log(crate::project_log::LogReader::new(
         errors, stderr_log, crate::project_log::LogSource::Stderr,
-    )));
+    ), move |_tail| {
+        #[cfg(feature = "validation")]
+        if let Some(path) = handoff_report.as_deref()
+            && crate::scene_format_validation::record_preview_handoff(path, _tail, runtime_pid)
+        {
+            handoff_report = None;
+        }
+    }));
     let mut transport = match Transport::spawn(read, write) {
         Ok(value) => value,
         Err(error) => {
@@ -289,7 +300,7 @@ pub(super) fn run(
                             if command.generation != identity.generation.saturating_add(1)
                                 || !matches!(command.message, Message::Snapshot { .. })
                             {
-                                failure = Some("仅完整切图快照可以推进一个会话代次".into());
+                                failure = Some("仅完整切换场景快照可以推进一个会话代次".into());
                                 continue;
                             }
                             if let Err(error) = guard.advance_generation(command.generation) {
@@ -532,7 +543,7 @@ fn hash_file(path: &Path, control: &BuildControl) -> Result<String, String> {
         .collect())
 }
 
-fn drain_log(mut file: impl Read) -> Result<String, String> {
+fn drain_log(mut file: impl Read, mut inspect_tail: impl FnMut(&[u8])) -> Result<String, String> {
     let mut tail = Vec::new();
     let mut buffer = [0u8; 8192];
     loop {
@@ -544,6 +555,7 @@ fn drain_log(mut file: impl Read) -> Result<String, String> {
         if tail.len() > 16 * 1024 {
             tail.drain(..tail.len() - 16 * 1024);
         }
+        inspect_tail(&tail);
     }
     Ok(String::from_utf8_lossy(&tail).into_owned())
 }

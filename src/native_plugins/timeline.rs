@@ -8,7 +8,7 @@ use super::{
 };
 use bevy::{input::mouse::AccumulatedMouseMotion, prelude::*, ui::FocusPolicy};
 use feathrise_editor_core::PresetWorkspaceTab;
-use feathrise_editor_map::game_authoring::map_api::ui::vegetation_preset_editor::VegetationPresetEditorState;
+use feathrise_editor_scene::game_authoring::scene_api::ui::vegetation_preset_editor::VegetationPresetEditorState;
 use feathrise_editor_ui::{ButtonColors, EditorLiteralColor, colors as c};
 use feathrise_plugin_api::{Request, Snapshot, Timeline, TimelineBlock};
 

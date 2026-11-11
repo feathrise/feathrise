@@ -1,7 +1,7 @@
 //! 四个原作者域的窄适配；帧内只读固定状态与Arc，来源自身负责后台准备、边沿和失效。
 use bevy::prelude::*;
 use feathrise_editor_protocol::PreviewKind;
-use feathrise_editor_map::standalone::{
+use feathrise_editor_scene::standalone::{
     embedded_author_preview::{self as author, EmbeddedAuthorPreviewState},
     embedded_placement_preview::{self as placement, EmbeddedPlacementPreview},
     embedded_surface_trail::{self as surface, EmbeddedSurfaceTrailState},
@@ -14,7 +14,7 @@ pub(super) struct Offer {
     pub session: u64,
     pub generation: u64,
     pub sequence: u64,
-    pub map: String,
+    pub scene_id: String,
     pub format: &'static str,
     pub bytes: Arc<Vec<u8>>,
 }
@@ -73,7 +73,7 @@ pub(super) fn offers(world: &World) -> Vec<Offer> {
             session: ready.session,
             generation: ready.generation,
             sequence: ready.sequence,
-            map: ready.map_id.clone(),
+            scene_id: ready.scene_id.clone(),
             format: placement::PLACEMENT_PREVIEW_FORMAT,
             bytes: ready.bytes.clone(),
         });
@@ -90,7 +90,7 @@ pub(super) fn offers(world: &World) -> Vec<Offer> {
                     session: ready.session,
                     generation: ready.generation,
                     sequence: ready.sequence,
-                    map: ready.map_id.clone(),
+                    scene_id: ready.scene_id.clone(),
                     format: $format,
                     bytes: ready.bytes.clone(),
                 });
@@ -100,17 +100,17 @@ pub(super) fn offers(world: &World) -> Vec<Offer> {
     offer!(
         EmbeddedVegetationState,
         Vegetation,
-        feathrise_map_content::embedded_preview::VEGETATION_PREVIEW_FORMAT
+        feathrise_scene_content::embedded_preview::VEGETATION_PREVIEW_FORMAT
     );
     offer!(
         EmbeddedAuthorPreviewState,
         AuthorDomain,
-        feathrise_map_content::embedded_author_preview::AUTHOR_PREVIEW_FORMAT
+        feathrise_scene_content::embedded_author_preview::AUTHOR_PREVIEW_FORMAT
     );
     offer!(
         EmbeddedSurfaceTrailState,
         SurfaceTrail,
-        feathrise_map_content::embedded_surface_trail::SURFACE_TRAIL_FORMAT
+        feathrise_scene_content::embedded_surface_trail::SURFACE_TRAIL_FORMAT
     );
     result
 }
@@ -168,7 +168,7 @@ pub(super) fn diagnostic(world: &World) -> serde_json::Value {
             "enabled":state.enabled,"session":state.session,"generation":state.generation,
             "pending":state.pending,"ack":state.acknowledged_sequence,"error":state.error,
             "ready":state.ready.as_ref().map(|ready|json!({"sequence":ready.sequence,
-                "map":ready.map_id,"bytes":ready.bytes.len()}))
+                "scene_id":ready.scene_id,"bytes":ready.bytes.len()}))
         })) };
     }
     json!({"vegetation":source!(EmbeddedVegetationState),
@@ -191,7 +191,7 @@ mod tests {
             session: 7,
             generation: 1,
             sequence: 2,
-            map_id: "preview-map".into(),
+            scene_id: "preview-map".into(),
             bytes: Arc::new(vec![1]),
         }));
         world.insert_resource(state);
@@ -208,7 +208,7 @@ mod tests {
             session: 7,
             generation: 1,
             sequence: 3,
-            map_id: "preview-map".into(),
+            scene_id: "preview-map".into(),
             source_revision: 8,
             structure_revision: 1,
             bytes: Arc::new(vec![1]),
@@ -231,7 +231,7 @@ mod tests {
             session: ready.session,
             generation: ready.generation,
             sequence: 4,
-            map_id: ready.map_id.clone(),
+            scene_id: ready.scene_id.clone(),
             source_revision: 9,
             structure_revision: 1,
             bytes: ready.bytes.clone(),

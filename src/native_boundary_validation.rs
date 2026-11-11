@@ -43,7 +43,7 @@ pub(super) fn verify(root: &Path, control: &BuildControl) -> Result<Value, Strin
         "feathrise_runtime",
         "feathrise_scene_core",
         "feathrise_scene",
-        "feathrise_map_content",
+        "feathrise_scene_content",
     ] {
         if !names.contains(required) {
             return Err(format!("正式工程实例缺少公共SDK能力{required}"));
@@ -198,7 +198,7 @@ mod tests {
         ]);
         assert!(reject_author_packages(&clean).is_ok());
         for forbidden in [
-            "feathrise_editor_map", "feathrise_editor_documents_model", "feathrise_editor_protocol_extra", "feathrise_host",
+            "feathrise_editor_scene", "feathrise_editor_documents_model", "feathrise_editor_protocol_extra", "feathrise_host",
             "feathrise_project", "rpg_editor_map", "new_editor_host", "new_editor_project",
             "new_editor_runtime", "editor_guest",
         ] {
@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn dependency_walk_follows_build_edges_but_not_sdk_dev_tools_or_unreachable_packages() {
         let value = json!({"packages":[{"id":"game","name":"game"},{"id":"core","name":"feathrise_ui_widgets"},
-            {"id":"dev","name":"feathrise_editor_map"},{"id":"build","name":"build-helper"}],
+            {"id":"dev","name":"feathrise_editor_scene"},{"id":"build","name":"build-helper"}],
             "resolve":{"root":"game","nodes":[
                 {"id":"game","deps":[{"pkg":"core","dep_kinds":[{"kind":null}]}]},
                 {"id":"core","deps":[{"pkg":"dev","dep_kinds":[{"kind":"dev"}]},{"pkg":"build","dep_kinds":[{"kind":"build"}]}]},

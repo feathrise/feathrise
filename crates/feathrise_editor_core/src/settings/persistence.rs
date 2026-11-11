@@ -1,11 +1,11 @@
 //! 编辑器用户偏好的可序列化格式与显式转换；没有项目 settings.json 路径或游戏字段。
 use super::*;
 use serde::{Deserialize, Serialize};
-mod map_editor_scrub;
+mod scene_editor_scrub;
 mod scrub_mapping;
-pub use map_editor_scrub::MapEditorScrubSensitivitySettings;
+pub use scene_editor_scrub::SceneEditorScrubSensitivitySettings;
 use scrub_mapping::{
-    map_editor_scrub_sensitivities_for_save, map_editor_scrub_sensitivities_from_data,
+    scene_editor_scrub_sensitivities_for_save, scene_editor_scrub_sensitivities_from_data,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -20,7 +20,7 @@ pub struct EditorSettingsData {
     #[serde(default)]
     pub environment: feathrise_settings::EnvironmentPreviewSettings,
     #[serde(default)]
-    pub scrub: MapEditorScrubSensitivitySettings,
+    pub scrub: SceneEditorScrubSensitivitySettings,
     /// 稳定动作名对应组合键；缺项继承默认，null表示作者主动解绑。
     #[serde(default)]
     pub shortcuts: std::collections::BTreeMap<String, Option<String>>,
@@ -37,7 +37,7 @@ pub struct EditorSettingsData {
     pub ui_scale_auto_offset: f32,
     #[serde(default = "default_editor_color_theme")]
     pub color_theme: String,
-    /// 缺省开启；入口保留在编辑器设置，关闭F12仍用于玩法显示，不修改地图源材质。
+    /// 缺省开启；入口保留在编辑器设置，关闭F12仍用于玩法显示，不修改场景源材质。
     #[serde(default = "default_show_terrain_backfaces")]
     pub show_terrain_backfaces: bool,
     #[serde(default = "default_asset_browser_view_mode")]
@@ -149,8 +149,8 @@ impl From<&EditorSettings> for EditorSettingsData {
             limit_build_fps: settings.limit_build_fps,
             scene: settings.scene,
             environment: settings.environment,
-            scrub: map_editor_scrub_sensitivities_for_save(
-                &settings.map_editor_scrub_sensitivities,
+            scrub: scene_editor_scrub_sensitivities_for_save(
+                &settings.scene_editor_scrub_sensitivities,
             ),
             ui_locale: settings.ui_locale.as_str().into(),
             ui_scale: sanitize_editor_ui_scale(settings.editor_ui_scale),
@@ -197,8 +197,8 @@ impl EditorSettingsData {
         settings.render.graphics.sanitize_vendor_upscaling_values();
         settings.scene = data.scene;
         settings.environment = data.environment;
-        settings.map_editor_scrub_sensitivities =
-            map_editor_scrub_sensitivities_from_data(&data.scrub);
+        settings.scene_editor_scrub_sensitivities =
+            scene_editor_scrub_sensitivities_from_data(&data.scrub);
         settings.ui_locale = EditorLocalePreference::from_saved(&data.ui_locale);
         settings.editor_ui_scale = sanitize_editor_ui_scale(data.ui_scale);
         settings.editor_ui_scale_auto = data.ui_scale_auto;

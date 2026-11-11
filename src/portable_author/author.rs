@@ -123,7 +123,7 @@ fn receive_and_restore(world: &mut World) {
         world.resource_mut::<EmbeddedAuthorStatus>().error =
             Some("工作台父进程已经退出或身份已变化，停止作者实例".into());
     }
-    // 原作者所有业务系统照常看到原Window RenderTarget，兼容Bevy Interaction与现有地图拾取。
+    // 原作者所有业务系统照常看到原Window RenderTarget，兼容Bevy Interaction与现有场景拾取。
     let mut targets = world.query::<(Entity, &OriginalWindowTarget, &mut RenderTarget)>();
     let mut restored = Vec::new();
     for (entity, original, mut target) in targets.iter_mut(world) {

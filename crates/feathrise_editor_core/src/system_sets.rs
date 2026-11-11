@@ -2,14 +2,14 @@
 
 use bevy::prelude::*;
 
-/// F12地图编辑器系统阶段，保证输入、阻塞、IO和UI回显顺序稳定。
+/// F12场景编辑器系统阶段，保证输入、阻塞、IO和UI回显顺序稳定。
 #[derive(SystemSet, Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub enum MapEditorSystemSet {
+pub enum SceneEditorSystemSet {
     /// 收集F12和按钮请求并同步玩法输入阻塞。
     Input,
     /// 非阻塞轮询后台任务并原子采用完整结果。
     Tasks,
-    /// 在草稿采用、视口尺寸和地图取景完成后计算本帧命中并发布自定义光标。
+    /// 在草稿采用、视口尺寸和场景取景完成后计算本帧命中并发布自定义光标。
     Cursor,
     /// 把最终资源状态回显到静态BSN和固定行池。
     Presentation,

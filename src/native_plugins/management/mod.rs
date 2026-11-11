@@ -45,7 +45,7 @@ fn install_state(app: &mut App, state: resources::PluginManagerState) {
                 .after(crate::native_project_close::ProjectCloseInput)
                 .after(crate::project_log::ProjectLogInput)
                 .before(feathrise_editor_ui::EditorUiSystemSet::NumericInput)
-                .before(feathrise_editor_core::MapEditorSystemSet::Input),
+                .before(feathrise_editor_core::SceneEditorSystemSet::Input),
         )
         .add_systems(
             Update,

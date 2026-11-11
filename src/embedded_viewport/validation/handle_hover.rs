@@ -1,7 +1,7 @@
 //! 地形手柄原悬停输入到工程实际Gizmo与PNG像素的有限证据；只读作者内容，不模拟成功状态。
 
 use bevy::{prelude::*,tasks::{IoTaskPool,Task,futures::check_ready}};
-use feathrise_editor_map::standalone::embedded_validation::{self as author,live::object_pose,tool_previews as tools};
+use feathrise_editor_scene::standalone::embedded_validation::{self as author,live::object_pose,tool_previews as tools};
 use serde_json::{Value,json};
 use std::{path::Path,time::{Duration,Instant}};
 

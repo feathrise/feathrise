@@ -1,21 +1,21 @@
 //! 连续预览专用的有限资产，只在独占夹具启动前准备；窗口运行期间不保存预设或密度。
 
-use feathrise_map_content::{VegetationPresetCatalogAsset, VegetationPresetRuntime, ResolvedVegetationPresetCatalog, VEGETATION_PRESET_CATALOG_ASSET_PATH};
+use feathrise_scene_content::{VegetationPresetCatalogAsset, VegetationPresetRuntime, ResolvedVegetationPresetCatalog, VEGETATION_PRESET_CATALOG_ASSET_PATH};
 use serde_json::{Value, json};
 use std::{fs, path::Path};
 
 pub(super) fn prepare(root: &Path) -> Result<(), String> {
     let project = super::orchestration::owner(root)?;
     if super::empty_fixture::selected(root)? {
-        return Err("连续植被预览夹具需要真实地形，不能与空地图专项同时启用".into());
+        return Err("连续植被预览夹具需要真实地形，不能与空场景专项同时启用".into());
     }
     let assets = project.root.join("assets");
     let directory = assets.join("scene/embedded-live");
     fs::create_dir(&directory).map_err(|error| error.to_string())?;
     // 与作者现成生产回归共用中性GLTF和正式Blade目录规格，不复制游戏资产或创建第二套草后端。
-    fs::write(directory.join("blade.gltf"), include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/crates/feathrise_editor_map/tests/fixtures/gltf/fixture_vegetation.gltf")))
+    fs::write(directory.join("blade.gltf"), include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/crates/feathrise_editor_scene/tests/fixtures/gltf/fixture_vegetation.gltf")))
         .map_err(|error| error.to_string())?;
-    let mut catalog: VegetationPresetCatalogAsset = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/crates/feathrise_editor_map/tests/fixtures/vegetation_presets.vegetation_presets.json")))
+    let mut catalog: VegetationPresetCatalogAsset = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/crates/feathrise_editor_scene/tests/fixtures/vegetation_presets.vegetation_presets.json")))
         .map_err(|error| error.to_string())?;
     let mut preset = catalog.presets.remove(0);
     preset.id = "embedded-live-blade".into();

@@ -22,12 +22,25 @@ impl Fixture {
 
     fn write_sdk(&self) {
         fs::create_dir_all(self.sdk.join("src")).unwrap();
-        let mut manifest = "[package]\nname='feathrise_runtime'\nversion='0.1.0'\nedition='2024'\n[workspace]\nresolver='3'\nmembers=['third_party/*']\n[dependencies]\n".to_owned();
-        for (package, directory) in PATCHES {
-            let root = self.sdk.join("third_party").join(directory);
+        let mut manifest = concat!(
+            "[package]\nname='feathrise_runtime'\nversion='0.2.0'\nedition='2024'\n",
+            "[workspace]\nresolver='3'\nmembers=['third_party/*','crates/*']\n",
+            "[workspace.dependencies]\nfeathrise_terrain={path='crates/feathrise_terrain'}\n",
+            "[dependencies]\nfeathrise_scene_content={path='crates/feathrise_scene_content'}\n",
+        ).to_owned();
+        for package in ["feathrise_scene_content", "feathrise_terrain"] {
+            let root = self.sdk.join("crates").join(package);
             fs::create_dir_all(root.join("src")).unwrap();
-            fs::write(root.join("src/lib.rs"), "// 中性来源测试夹具。\n").unwrap();
-            fs::write(root.join("Cargo.toml"), format!("[package]\nname='{package}'\nversion='0.1.0'\nedition='2024'\n")).unwrap();
+            fs::write(root.join("src/lib.rs"), "// 场景 SDK 包身份夹具。\n").unwrap();
+            fs::write(root.join("Cargo.toml"), format!("[package]\nname='{package}'\nversion='0.2.0'\nedition='2024'\n")).unwrap();
+        }
+        for (package, directory) in PATCHES {
+            for parent in [self.sdk.join("third_party"), self.root.join("feathrise_patches")] {
+                let root = parent.join(directory);
+                fs::create_dir_all(root.join("src")).unwrap();
+                fs::write(root.join("src/lib.rs"), "// 中性来源测试夹具。\n").unwrap();
+                fs::write(root.join("Cargo.toml"), format!("[package]\nname='{package}'\nversion='0.1.0'\nedition='2024'\n")).unwrap();
+            }
             // 全部使用仓内 path，fixture 没有 registry 依赖，也没有测试用 target/profile 改写。
             manifest.push_str(&format!("{package}={{path='third_party/{directory}'}}\n"));
         }
@@ -56,69 +69,66 @@ fn generated(source: &SdkSource) -> Value {
 }
 
 #[test]
-fn template_engine_and_patch_recipe_follow_selected_sdk() {
+fn template_uses_scene_sdk_and_rejects_legacy_source() {
     let fixture = Fixture::new();
     let template = include_str!("../assets/templates/empty/Cargo.toml");
-    // 旧工程和显式旧版配方仍使用 0.19 的种子与补丁集合。
-    fixture.config("kind='registry'\nversion='0.1.0'\ngit='https://example.invalid/patches.git'\nrev='3c251d3530980b66e49b4748769db36ae9c6bd5a'");
-    let legacy_source = SdkSource::load(&fixture.editor).unwrap();
-    let legacy: Value = toml::from_str(&legacy_source.apply_template(template).unwrap()).unwrap();
-    assert_eq!(legacy["dependencies"]["bevy"]["version"].as_str(), Some("=0.19.1"));
-    assert!(legacy["patch"]["crates-io"].get("parley").is_some());
-    assert_eq!(legacy_source.lock_seed(), "assets/templates/empty/Cargo-bevy-0.19.lock");
+    fixture.config("kind='registry'\nversion='0.2.0'\ngit='https://example.invalid/patches.git'\nrev='3c251d3530980b66e49b4748769db36ae9c6bd5a'");
+    assert!(SdkSource::load(&fixture.editor).is_err());
 
-    let sdk_manifest = fixture.sdk.join("Cargo.toml");
-    let mut contents = fs::read_to_string(&sdk_manifest).unwrap();
-    contents.push_str("bevy = '=0.20.1'\n");
-    fs::write(&sdk_manifest, contents).unwrap();
-    let patch = fixture.sdk.join("third_party/bevy_extract");
-    fs::create_dir_all(&patch).unwrap();
-    fs::write(patch.join("Cargo.toml"), "[package]\nname='bevy_extract'\nversion='0.20.1'\n").unwrap();
-    fixture.config("kind='path'\npath='../feathrise_runtime'");
+    fixture.config("kind='path'\npath='../feathrise_runtime'\npatch_path='../feathrise_runtime/third_party'");
     let candidate = SdkSource::load(&fixture.editor).unwrap();
     let current: Value = toml::from_str(&candidate.apply_template(template).unwrap()).unwrap();
     assert_eq!(current["dependencies"]["bevy"]["version"].as_str(), Some("=0.20.1"));
     assert!(current["patch"]["crates-io"].get("parley").is_none());
     assert!(current["patch"]["crates-io"].get("bevy_extract").is_some());
-    assert_eq!(candidate.lock_seed(), "Cargo.lock");
+
+    // 同版本的旧 SDK 即使目录里残留场景 crate，新工程仍按其实际依赖合同校验。
+    let sdk_manifest = fixture.sdk.join("Cargo.toml");
+    let legacy = fs::read_to_string(&sdk_manifest).unwrap()
+        .replace("feathrise_scene_content={", "feathrise_map_content={");
+    fs::write(&sdk_manifest, legacy).unwrap();
+    let error = SdkSource::load(&fixture.editor).err().expect("旧地图版源码必须拒绝");
+    assert!(error.contains("缺少 feathrise_scene_content 本地依赖"));
 }
 
 #[test]
-fn default_and_missing_configuration_use_published_sdk_without_neighbor_checkouts() {
+fn default_and_missing_configuration_use_matching_sibling_source() {
     let fixture = Fixture::new();
-    let expected: Value = toml::from_str(include_str!("../.cargo/registry-sdk.toml")).unwrap();
     let template = include_str!("../assets/templates/empty/Cargo.toml");
-    // 即使同级有可用的本地 SDK，默认也必须保持公开来源；移走它后应得到同一个依赖图。
-    for sibling_exists in [true, false] {
-        if !sibling_exists { fs::rename(&fixture.sdk, fixture.root.join("unused-sdk")).unwrap(); }
-        for configured in [false, true] {
-            if configured {
-                fs::write(fixture.editor.join(CONFIG_NAME), DEFAULT_CONFIGURATION).unwrap();
-            } else if fixture.editor.join(CONFIG_NAME).exists() {
-                fs::remove_file(fixture.editor.join(CONFIG_NAME)).unwrap();
-            }
-            let source = SdkSource::load(&fixture.editor).unwrap();
-            let value: Value = toml::from_str(&source.apply_template(template).unwrap()).unwrap();
-            let sdk = &value["dependencies"]["feathrise_runtime"];
-            assert_eq!(sdk["version"].as_str(), Some("=0.2.0"));
-            assert_eq!(value["dependencies"]["bevy"]["version"].as_str(), Some("=0.20.1"));
-            assert_eq!(source.lock_seed(), "Cargo.lock");
-            assert_eq!(sdk["default-features"].as_bool(), Some(false));
-            assert!(sdk.get("path").is_none());
-            assert!(sdk.get("git").is_none());
-            assert_eq!(value["patch"]["crates-io"], expected["patch"]["crates-io"]);
-            let mut command = Command::new("cargo");
-            source.apply_network_policy(&mut command);
-            assert!(!command.get_args().any(|arg| arg == "--offline"));
-            assert_eq!(fixture.editor.join(CONFIG_NAME).exists(), configured);
+    let configuration = fixture.editor.join(CONFIG_NAME);
+    for configured in [false, true] {
+        if configured {
+            fixture.config("kind='path'\npath='../feathrise_runtime'\npatch_path='../feathrise_patches'");
         }
+        let source = SdkSource::load(&fixture.editor).unwrap();
+        let value: Value = toml::from_str(&source.apply_template(template).unwrap()).unwrap();
+        let sdk = &value["dependencies"]["feathrise_runtime"];
+        let expected_sdk = super::super::toml_path(&fixture.sdk).unwrap();
+        assert_eq!(sdk["path"].as_str(), Some(expected_sdk.as_str()));
+        assert_eq!(value["dependencies"]["bevy"]["version"].as_str(), Some("=0.20.1"));
+        assert_eq!(sdk["default-features"].as_bool(), Some(false));
+        assert!(sdk.get("version").is_none());
+        assert!(sdk.get("git").is_none());
+        for (package, directory) in PATCHES {
+            let expected = super::super::toml_path(&fixture.root.join("feathrise_patches").join(directory)).unwrap();
+            assert_eq!(value["patch"]["crates-io"][package]["path"].as_str(), Some(expected.as_str()));
+        }
+        let mut command = Command::new("cargo");
+        source.apply_network_policy(&mut command);
+        assert!(command.get_args().any(|arg| arg == "--offline"));
+        assert_eq!(configuration.exists(), configured);
     }
+    fs::remove_file(&configuration).unwrap();
+    fs::rename(&fixture.sdk, fixture.root.join("unused-sdk")).unwrap();
+    let error = SdkSource::load(&fixture.editor).err().expect("缺少配套源码应提示配置路径");
+    assert!(error.contains(CONFIG_NAME));
+    assert!(error.contains("SDK 本地目录不存在"));
 }
 
 #[test]
-fn explicit_local_paths_keep_legacy_patch_layout_and_are_not_cwd_relative() {
+fn explicit_local_paths_keep_explicit_patch_layout_and_are_not_cwd_relative() {
     let fixture = Fixture::new();
-    fixture.config("kind='path'\npath='../feathrise_runtime'");
+    fixture.config("kind='path'\npath='../feathrise_runtime'\npatch_path='../feathrise_runtime/third_party'");
     let source = SdkSource::load(&fixture.editor).unwrap();
     {
         let value = generated(&source);
@@ -135,18 +145,18 @@ fn explicit_local_paths_keep_legacy_patch_layout_and_are_not_cwd_relative() {
     assert!(command.get_args().any(|arg| arg == "--offline"));
     let renamed = fixture.root.join("本地 SDK 带空格");
     fs::rename(&fixture.sdk, &renamed).unwrap();
-    fixture.config("kind='path'\npath='../本地 SDK 带空格'");
+    fixture.config("kind='path'\npath='../本地 SDK 带空格'\npatch_path='../本地 SDK 带空格/third_party'");
     assert!(SdkSource::load(&fixture.editor).is_ok());
     // 原路径仍存在与否不控制显式配置，绝对 Unicode 路径也按 TOML 正确编码。
     let path = super::super::toml_path(&renamed).unwrap();
-    fixture.config(&format!("kind='path'\npath={}", Value::String(path)));
+    fixture.config(&format!("kind='path'\npath={}\npatch_path='../本地 SDK 带空格/third_party'", Value::String(path)));
     assert!(SdkSource::load(&fixture.editor).is_ok());
 }
 
 #[test]
 fn cached_templates_keep_relative_sdk_paths_bound_to_external_configuration() {
     let fixture = Fixture::new();
-    fixture.config("kind='path'\npath='../feathrise_runtime'");
+    fixture.config("kind='path'\npath='../feathrise_runtime'\npatch_path='../feathrise_runtime/third_party'");
     let cached = fixture.root.join("缓存/资源身份");
     let template = cached.join("assets/templates/empty");
     fs::create_dir_all(template.join("src")).unwrap();
@@ -222,8 +232,8 @@ fn malformed_or_incomplete_source_never_silently_falls_back() {
     assert!(SdkSource::load(&fixture.editor).err().unwrap().contains("版本"));
     fs::write(fixture.editor.join(CONFIG_NAME), " ".repeat(CONFIG_LIMIT + 1)).unwrap();
     assert!(SdkSource::load(&fixture.editor).err().unwrap().contains("16 KiB"));
-    fixture.config("kind='path'\npath='../feathrise_runtime'");
-    fs::write(fixture.sdk.join("third_party/parley-compat/Cargo.toml"), "[package]\nname='other-package'\n").unwrap();
+    fixture.config("kind='path'\npath='../feathrise_runtime'\npatch_path='../feathrise_runtime/third_party'");
+    fs::write(fixture.sdk.join("third_party/bevy_extract/Cargo.toml"), "[package]\nname='other-package'\n").unwrap();
     assert!(SdkSource::load(&fixture.editor).err().unwrap().contains("包身份"));
 }
 
@@ -280,12 +290,12 @@ fn separate_patch_checkout_is_used_for_path_and_git_sources() {
 fn registry_source_pins_sdk_version_and_git_patches_without_a_sibling_checkout() {
     let fixture = Fixture::new();
     let revision = "ABCDEF0123".repeat(4);
-    fixture.config(&format!("kind='registry'\nversion='0.1.0-beta.1'\ngit='https://example.invalid/sdk.git'\nrev='{revision}'"));
+    fixture.config(&format!("kind='registry'\nversion='0.3.0-beta.1'\ngit='https://example.invalid/sdk.git'\nrev='{revision}'"));
     fs::rename(&fixture.sdk, fixture.root.join("unused-sdk")).unwrap();
     let source = SdkSource::load(&fixture.editor).unwrap();
     let value = generated(&source);
     let sdk = &value["dependencies"]["feathrise_runtime"];
-    assert_eq!(sdk["version"].as_str(), Some("=0.1.0-beta.1"));
+    assert_eq!(sdk["version"].as_str(), Some("=0.3.0-beta.1"));
     assert_eq!(sdk["default-features"].as_bool(), Some(false));
     for key in ["path", "git", "rev", "registry"] {
         assert!(sdk.get(key).is_none(), "crates.io SDK 不携带本机路径或 Git 来源");
@@ -403,8 +413,9 @@ fn local_git_cargo_metadata_resolves_sdk_and_eight_patches_from_the_exact_commit
     let output = checked_output(Command::new(cargo).args(["metadata", "--format-version=1", "--manifest-path"]).arg(project.join("Cargo.toml")).current_dir(&project));
     let metadata: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let packages = metadata["packages"].as_array().unwrap();
-    assert_eq!(packages.len(), 10); // 游戏 + SDK + 八项补丁；没有第二份同名包。
+    assert_eq!(packages.len(), 11); // 游戏、SDK、场景内容和八项补丁共用此提交。
     let sdk = packages.iter().find(|package| package["name"] == "feathrise_runtime").unwrap();
+    assert_eq!(sdk["version"], "0.2.0");
     let source = sdk["source"].as_str().unwrap();
     assert!(source.ends_with(&format!("#{revision}")));
     for (name, _) in PATCHES {

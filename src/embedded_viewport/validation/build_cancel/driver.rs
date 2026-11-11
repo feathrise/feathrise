@@ -4,7 +4,7 @@ use super::{Completion, ENVIRONMENT, REPORT_FILE, PURPOSE, RELEASE_FILE, evidenc
 use super::super::super::{EmbeddedStatus, resources::{Runtime, Settings}};
 use crate::viewport_mode::{ViewportMode, ViewportModeState};
 use bevy::{prelude::*, tasks::{IoTaskPool, futures::check_ready}};
-use feathrise_editor_map::standalone::{self, embedded_snapshot, embedded_validation as author};
+use feathrise_editor_scene::standalone::{self, embedded_snapshot, embedded_validation as author};
 use serde_json::{Value, json};
 use std::{path::{Path, PathBuf}, time::{Duration, Instant}};
 
@@ -103,10 +103,10 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
             if !status.active { return Ok(()); }
             if status.ready || status.starts != 1 || status.completed != 0 { return Err("尚未取得首轮真实编译窗口，不能把旧实例计为本轮启动".into()); }
             record(world, "opened_with_embedded_preference", json!({"initial_mode_input_injected":false}), plan);
-            standalone::request_open_map(world, "M1-SAMPLE")?;
-            plan.advance(Phase::Map);
+            standalone::request_open_scene(world, "M1-SAMPLE")?;
+            plan.advance(Phase::Scene);
         }
-        Phase::Map if standalone::preview_ready_for(world, "M1-SAMPLE") => {
+        Phase::Scene if standalone::preview_ready_for(world, "M1-SAMPLE") => {
             plan.initial = Some(author_value(world)?);
             author::request_cuboid(world, POSITION)?;
             plan.advance(Phase::Draft);
@@ -447,7 +447,7 @@ fn history_presentation(world: &mut World, plan: &Plan) -> Result<Value, String>
     for field in ["roots", "headers", "camera", "navigation", "panes", "layout"] {
         if current[field] != before[field] { return Err(format!("原Undo/Redo意外改变作者{field}现场；预期={}，实际={}", before[field], current[field])); }
     }
-    for field in ["map", "directory_map", "portal", "view", "orthographic"] {
+    for field in ["scene_id", "directory_scene", "portal", "view", "orthographic"] {
         if current["selection"][field] != before["selection"][field] {
             return Err(format!("原Undo/Redo意外改变作者选择的{field}；预期={}，实际={}", before["selection"][field], current["selection"][field]));
         }

@@ -1,8 +1,8 @@
-//! 中央工作区修订、候选输入保护与唯一预览意图；均不写入地图或预设。
+//! 中央工作区修订、候选输入保护与唯一预览意图；均不写入场景或预设。
 
 use crate::PresetWorkspaceTab;
 
-/// 顶栏共享的运行选择；不写入工程/地图，实际启动必须在消息中冻结profile。
+/// 顶栏共享的运行选择；不写入工程/场景，实际启动必须在消息中冻结profile。
 #[derive(bevy::prelude::Resource, Clone, Copy, Debug, Default)]
 pub struct ProjectLaunchSettings {
     pub profile: crate::ProjectBuildProfile,
@@ -46,8 +46,8 @@ impl WorkspaceDomainState {
 }
 use bevy::prelude::*;
 
-/// 应用作者适配显式追加的视图层；默认只使用普通编辑器自己的地图与环境通道。
-/// 相机可见集合与全图取景集合分别声明，避免把特效、离屏样品或隐藏玩法内容算进地图范围。
+/// 应用作者适配显式追加的视图层；默认只使用普通编辑器自己的场景与环境通道。
+/// 相机可见集合与全图取景集合分别声明，避免把特效、离屏样品或隐藏玩法内容算进场景范围。
 #[derive(Resource, Clone, Debug, PartialEq, Eq)]
 pub struct EditorApplicationViewLayers {
     pub camera: bevy::camera::visibility::RenderLayers,
@@ -73,7 +73,7 @@ pub struct PresetWorkspaceState {
 impl Default for PresetWorkspaceState {
     fn default() -> Self {
         Self {
-            active_tab: PresetWorkspaceTab::Map,
+            active_tab: PresetWorkspaceTab::Scene,
             ui_revision: 1,
         }
     }

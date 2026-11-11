@@ -3,7 +3,7 @@ use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{management, resources::NativeTools};
 use bevy::{prelude::*, ui::FocusPolicy};
-use feathrise_editor_map::workbench::WorkbenchHeader;
+use feathrise_editor_scene::workbench::WorkbenchHeader;
 use feathrise_editor_ui::{EditorButtonClick, colors as c};
 use sha2::{Digest, Sha256};
 
@@ -228,7 +228,7 @@ fn blocked(world: &World) -> bool {
     world.get_resource::<management::PluginManagerState>().is_some_and(|state| state.captures_input())
         || world.get_resource::<crate::native_project_close::NativeProjectCloseState>().is_some_and(|state| state.captures_input())
         || world.get_resource::<crate::workspace_ui::AboutState>().is_some_and(|state| state.captures_input())
-        || world.get_resource::<feathrise_editor_map::workbench::WorkbenchHostPageState>().is_some_and(|state| state.settings_open)
+        || world.get_resource::<feathrise_editor_scene::workbench::WorkbenchHostPageState>().is_some_and(|state| state.settings_open)
         || crate::project_export::ui::captures_input(world)
 }
 

@@ -4,7 +4,7 @@ use super::{components::DiagnosticRow, resources::DiagnosticsOverlayState, syste
 use super::super::{resources::CodeIterationState, types::CodeIterationPhase};
 use crate::compiler_diagnostics::{CompilerDiagnostic, DiagnosticLevel, SourceLocation};
 use bevy::{input::mouse::MouseWheel, input_focus::InputFocus, prelude::*};
-use feathrise_editor_map::standalone::OpenProjectSourceLocation;
+use feathrise_editor_scene::standalone::OpenProjectSourceLocation;
 use std::sync::Arc;
 
 fn state() -> CodeIterationState {
@@ -109,7 +109,7 @@ fn layout_app() -> App {
     let camera = app.world_mut().spawn((Camera2d, Camera { computed: ComputedCameraValues {
         target_info: Some(RenderTargetInfo { physical_size: UVec2::new(1280, 720), scale_factor: 1. }), ..default()
     }, ..default() })).id();
-    app.world_mut().spawn((feathrise_editor_map::workbench::WorkbenchHeader, bevy::ui::UiTargetCamera(camera),
+    app.world_mut().spawn((feathrise_editor_scene::workbench::WorkbenchHeader, bevy::ui::UiTargetCamera(camera),
         Node { width: percent(100), height: percent(100), ..default() }));
     app
 }
@@ -172,7 +172,7 @@ fn multiline_ansi_failure_keeps_one_status_line_and_three_actual_visible_diagnos
     assert_eq!(app.world().resource::<CodeIterationState>().status, raw, "呈现摘要不能覆盖完整失败原因");
     let root = {
         let world = app.world_mut();
-        world.query_filtered::<Entity, With<feathrise_editor_map::workbench::WorkbenchHeader>>().single(world).unwrap()
+        world.query_filtered::<Entity, With<feathrise_editor_scene::workbench::WorkbenchHeader>>().single(world).unwrap()
     };
     // 同一个真实层级隐藏/恢复后子行必须跟随，证明上面的可见断言来自传播系统，而非夹具预置值。
     for (visibility, expected) in [(Visibility::Hidden, false), (Visibility::Inherited, true)] {

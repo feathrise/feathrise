@@ -1,6 +1,6 @@
 [package]
 name = "feathrise_host"
-version = "0.2.0-preview.1"
+version = "0.3.0-preview.1"
 edition = "2024"
 rust-version = "1.97.1"
 license = "MIT OR Apache-2.0"
@@ -27,7 +27,7 @@ fsr3_frame_generation = ["dep:feathrise_fsr3_frame_generation", "feathrise_runti
 physics_debug = ["feathrise_runtime/physics_debug"]
 initial_items = ["feathrise_runtime/initial_items"]
 
-validation = ["feathrise_project/validation", "feathrise_editor_map/validation", "feathrise_runtime/validation"]
+validation = ["feathrise_project/validation", "feathrise_editor_scene/validation", "feathrise_runtime/validation"]
 
 [dependencies]
 feathrise_runtime_manifest = { version = "=0.2.0" } # 固定与 SDK 构建/启动一致的交付身份，默认构建无需 DLSS 工具链。
@@ -46,7 +46,7 @@ raw-window-handle = "=0.6.2"
 feathrise_editor_ui = { path = "crates/feathrise_editor_ui" }
 feathrise_editor_core = { path = "crates/feathrise_editor_core" }
 feathrise_editor_assets = { path = "crates/feathrise_editor_assets" }
-feathrise_editor_map = { path = "crates/feathrise_editor_map" }
+feathrise_editor_scene = { path = "crates/feathrise_editor_scene" }
 feathrise_editor_documents = { path = "crates/feathrise_editor_documents" }
 feathrise_editor_surface = { path = "crates/feathrise_editor_surface" }
 feathrise_editor_surface_model = { workspace = true } # 普通地表作者的保存/恢复验收使用独立测试夹具。
@@ -54,7 +54,7 @@ feathrise_runtime = { version = "0.2.0", default-features = false, features = ["
 feathrise_settings = { version = "0.2.0" }
 feathrise_editor_protocol = { version = "0.2.0" }
 feathrise_author_tools = { version = "0.2.0" }
-feathrise_map_content = { version = "0.2.0" }
+feathrise_scene_content = { version = "0.2.0" }
 feathrise_scene = { version = "0.2.0" }
 feathrise_portal = { version = "0.2.0" }
 feathrise_scene_core = { version = "0.2.0" } # 场景基础契约统一按模块消费。
@@ -125,14 +125,14 @@ avian3d = { version = "=0.8.0", features = ["debug-plugin"] }
 
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] } # 地图编辑器回写PNG，并在后台读取常见PBR PNG/JPEG源图派生纹理数组。
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] } # 场景编辑器回写PNG，并在后台读取常见PBR PNG/JPEG源图派生纹理数组。
 
 sha2 = "0.11.0"
 toml = "1.1.4"
 
 feathrise_fps_display = { version = "0.2.0" } # FPS 显示组件
 feathrise_grounding = { version = "0.2.0" } # 统一按 Avian 真实地形高度吸附所有地面实体
-feathrise_scene = { version = "0.2.0" } # 工程数据驱动地图、渲染与资源生命周期。
+feathrise_scene = { version = "0.2.0" } # 工程数据驱动场景、渲染与资源生命周期。
 feathrise_environment = { version = "0.2.0" } # 统一聚合GPU叶片植被、树木及灌木岩石固定景观，消费者通过feature按需启用。
 feathrise_editor_core = { path = "crates/feathrise_editor_core" } # 编辑器跨功能标签、输入和预览契约。
 feathrise_editor_ui = { path = "crates/feathrise_editor_ui" } # 编辑器 UI 库：独立暖墨主题与作者控件。
@@ -141,8 +141,8 @@ feathrise_billboard_text = { version = "0.2.0" } # 通用离屏烘焙文字 Bill
 feathrise_atmosphere = { version = "0.2.0" } # 世界时间、天体光照、天气模拟与环境表现
 feathrise_portal = { version = "0.2.0" } # 传送门系统（场景切换）
 feathrise_settings = { version = "0.2.0" } # 公共渲染请求与质量参数；编辑器偏好归自身作者库。
-feathrise_map_content = { version = "0.2.0" } # 数据驱动地图清单、私有地图文件与传送图公共资产契约。
-feathrise_map_terrain = { version = "0.2.0" } # 动态地图GLB拓扑、内存高度场与白模编码共享纯算法。
+feathrise_scene_content = { version = "0.2.0" } # 数据驱动场景清单、私有场景文件与传送图公共资产契约。
+feathrise_terrain = { version = "0.2.0" } # 动态场景GLB拓扑、内存高度场与白模编码共享纯算法。
 
 # 经常修改的工作区源码保持低优化；外部依赖高优化，也避免 Windows 未优化 Bevy 动态库超出 PE 导出表上限。
 [profile.dev]

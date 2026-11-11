@@ -328,7 +328,7 @@ fn verify_history_settlement(proof: &Value, before: &Value) -> Result<(), String
         let elapsed = change["elapsed_ms"].as_f64().filter(|ms|ms.is_finite() && *ms >= previous)
             .ok_or("原历史选择变化没有单调真实时间")?;
         previous = elapsed;
-        for field in ["map", "directory_map", "portal", "view", "orthographic"] {
+        for field in ["scene_id", "directory_scene", "portal", "view", "orthographic"] {
             if change["selection"][field] != before["selection"][field] {
                 return Err(format!("原历史选择清理误改{field}，不能形成恢复基线"));
             }
@@ -410,7 +410,7 @@ mod tests {
 
     #[test]
     fn history_settlement_requires_stability_and_preserves_all_unrelated_presentation() {
-        let before = json!({"selection":{"map":"M1-SAMPLE","directory_map":"M1-SAMPLE","portal":null,
+        let before = json!({"selection":{"scene_id":"M1-SAMPLE","directory_scene":"M1-SAMPLE","portal":null,
             "view":"Perspective","orthographic":false,"placement":"cube"},"camera":{"position":[1,2,3]},
             "roots":[],"headers":[],"navigation":{"yaw":1},"panes":{"width":232},"layout":[1309,994,100,200]});
         let mut after = before.clone();

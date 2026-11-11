@@ -129,7 +129,7 @@ fn send(world: &mut World, mut cursor: Local<MessageCursor<WorkspaceCommand>>) {
         .cloned()
         .collect();
     for command in commands {
-        if matches!(command, WorkspaceCommand::SetStartupMap) {
+        if matches!(command, WorkspaceCommand::SetStartupScene) {
             crate::native_project_menu::save_startup_from_workspace(world);
             continue;
         }
@@ -213,7 +213,7 @@ mod close_target_tests {
         world.init_resource::<NativeProjectCloseState>();
         world.init_resource::<Messages<WindowCloseRequested>>();
         world.init_resource::<Messages<WorkspaceCommand>>();
-        world.init_resource::<Messages<feathrise_editor_map::standalone::SavedPlayFeedback>>();
+        world.init_resource::<Messages<feathrise_editor_scene::standalone::SavedPlayFeedback>>();
         let window = world.spawn((Window::default(), PrimaryWindow)).id();
         world.insert_non_send(Bridge {
             transport: Transport::new(std::io::empty(), std::io::sink(), "close-target-fixture".into()).unwrap(),

@@ -55,7 +55,7 @@ pub(crate) struct CodeApplyStatus {
 
 pub(super) struct PendingCodeApply {
     pub prepared: Arc<super::PreparedGame>,
-    pub request: feathrise_editor_map::standalone::RunSavedProject,
+    pub request: feathrise_editor_scene::standalone::RunSavedProject,
     pub token: u64,
 }
 
@@ -90,8 +90,8 @@ pub(super) struct NativePlayRuntime {
     pub active: Option<ActivePlay>,
     pub exit_requested: bool,
     pub cleanup_failed: bool,
-    /// 冻结普通工程运行的地图与配置；应用版本只重启这一请求，不回读后来改变的UI选择。
-    pub active_request: Option<feathrise_editor_map::standalone::RunSavedProject>,
+    /// 冻结普通工程运行的场景与配置；应用版本只重启这一请求，不回读后来改变的UI选择。
+    pub active_request: Option<feathrise_editor_scene::standalone::RunSavedProject>,
     /// 普通启动独享创建回执，不与代码采用的 token 回执竞争同一接收端。
     pub launch_started: Option<Receiver<()>>,
     pub code_apply_pending: Option<PendingCodeApply>,

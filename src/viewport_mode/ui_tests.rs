@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy::ecs::system::RunSystemOnce;
 use crate::embedded_viewport::EmbeddedStatus;
 use feathrise_editor_core::ProjectLaunchSettings;
-use feathrise_editor_map::standalone::{SavedPlayFeedback, embedded_snapshot::EmbeddedSnapshotState};
+use feathrise_editor_scene::standalone::{SavedPlayFeedback, embedded_snapshot::EmbeddedSnapshotState};
 use feathrise_editor_ui::feedback::{PanelStatusPhase, PanelStatusState};
 
 fn fixture() -> (World, Entity, Entity) {
@@ -46,7 +46,7 @@ fn busy_border_moves_with_real_time_without_republishing_feedback() {
     world.resource_mut::<EmbeddedStatus>().ready = true;
     {
         let mut capture = world.resource_mut::<EmbeddedSnapshotState>();
-        capture.map_id = Some("MAP-awaiting-current-snapshot".into());
+        capture.scene_id = Some("MAP-awaiting-current-snapshot".into());
         capture.pending = true;
     }
     present_connection(&mut world);
@@ -63,7 +63,7 @@ fn idle_failure_restart_and_saved_mode_use_bottom_projection() {
     {
         let mut runtime = world.resource_mut::<EmbeddedStatus>();
         runtime.active = true;
-        runtime.ready = true; // 从未采用地图的空工程按原生命周期合同连接。
+        runtime.ready = true; // 从未采用场景的空工程按原生命周期合同连接。
     }
     present_connection(&mut world);
     assert_eq!(world.get::<PanelStatusState>(status).unwrap().summary, "工程3D：已连接");
@@ -86,7 +86,7 @@ fn idle_failure_restart_and_saved_mode_use_bottom_projection() {
 
 #[test]
 fn modal_occlusion_preserves_connection_but_never_confirms_a_new_snapshot_revision() {
-    use feathrise_editor_map::standalone::embedded_snapshot::EmbeddedSnapshot;
+    use feathrise_editor_scene::standalone::embedded_snapshot::EmbeddedSnapshot;
     use std::sync::Arc;
     let (mut world, spinner, status) = fixture();
     world.insert_resource(feathrise_editor_core::EditorHostOverlay { active: true });
@@ -100,10 +100,10 @@ fn modal_occlusion_preserves_connection_but_never_confirms_a_new_snapshot_revisi
     {
         let mut capture = world.resource_mut::<EmbeddedSnapshotState>();
         capture.enabled = true;
-        capture.map_id = Some("MAP-modal-connection".into());
+        capture.scene_id = Some("MAP-modal-connection".into());
         capture.revision = 7;
         capture.ready = Some(Arc::new(EmbeddedSnapshot {
-            map_id: "MAP-modal-connection".into(), author_revision: 7,
+            scene_id: "MAP-modal-connection".into(), author_revision: 7,
             bytes: Default::default(), pose_targets: Default::default(),
         }));
     }
@@ -123,7 +123,7 @@ fn modal_occlusion_preserves_connection_but_never_confirms_a_new_snapshot_revisi
     assert_eq!(world.get::<PanelStatusState>(status).unwrap().phase, PanelStatusPhase::Working,
         "取消遮挡和清除pending都不能用旧修订7冒充当前8已采用");
     world.resource_mut::<EmbeddedSnapshotState>().ready = Some(Arc::new(EmbeddedSnapshot {
-        map_id: "MAP-modal-connection".into(), author_revision: 8,
+        scene_id: "MAP-modal-connection".into(), author_revision: 8,
         bytes: Default::default(), pose_targets: Default::default(),
     }));
     present_connection(&mut world);

@@ -1,6 +1,6 @@
 //! 原四球和网格按钮的真实窗口取证；CPU请求、客体相机组件和GPU截图三者必须一致。
 use bevy::{prelude::*, tasks::{IoTaskPool, Task, futures::check_ready}};
-use feathrise_editor_map::standalone::embedded_validation::{self as author, live};
+use feathrise_editor_scene::standalone::embedded_validation::{self as author, live};
 use serde_json::{Value,json};
 use std::{fs, io::Read, path::Path, time::{Duration,Instant}};
 

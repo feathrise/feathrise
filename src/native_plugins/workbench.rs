@@ -7,10 +7,10 @@ use super::{
 };
 use bevy::prelude::*;
 use feathrise_editor_core::{
-    MapEditorPresetWorkspaceScroll, PresetWorkspaceDynamicRoot, PresetWorkspaceTab,
+    SceneEditorPresetWorkspaceScroll, PresetWorkspaceDynamicRoot, PresetWorkspaceTab,
     WorkspaceDomainState,
 };
-use feathrise_editor_map::game_authoring::map_api::ui::vegetation_preset_editor::{
+use feathrise_editor_scene::game_authoring::scene_api::ui::vegetation_preset_editor::{
     PresetWorkspaceEditorHost, PresetWorkspaceTabHost, VegetationPresetEditorState,
 };
 use feathrise_editor_ui::{colors as c, context_help, workspace_tabs};
@@ -550,7 +550,7 @@ fn catalog(
 pub(super) fn scroll(
     mut state: ResMut<NativeTools>,
     lists: Query<(&ToolCatalog, &ComputedNode, &UiGlobalTransform)>,
-    viewport: Query<(&ComputedNode, &UiGlobalTransform), With<MapEditorPresetWorkspaceScroll>>,
+    viewport: Query<(&ComputedNode, &UiGlobalTransform), With<SceneEditorPresetWorkspaceScroll>>,
 ) {
     let Ok((viewport, view)) = viewport.single() else {
         return;

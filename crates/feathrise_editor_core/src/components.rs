@@ -13,13 +13,13 @@ pub struct ProjectLaunchLabel;
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct PresetWorkspaceDynamicRoot;
 
-/// 中央植被预设详细页的独立滚动视口；地图标签活动时该页退出布局。
+/// 中央植被预设详细页的独立滚动视口；场景标签活动时该页退出布局。
 #[derive(Component, Clone, Copy, Default)]
-pub struct MapEditorPresetWorkspaceScroll;
+pub struct SceneEditorPresetWorkspaceScroll;
 
 /// 中央植被预设标签条的横向滚动视口；预设标签不分页且不会因数量增加而失去入口。
 #[derive(Component, Clone, Copy, Default)]
-pub struct MapEditorPresetTabScroll;
+pub struct SceneEditorPresetTabScroll;
 
 /// 标记真实可见的官方文本输入框；关闭F12只释放这些字段的焦点。
 #[derive(Component, Clone, Default)] // BSN静态控件需要可克隆默认标记。

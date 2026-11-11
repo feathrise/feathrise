@@ -15,19 +15,19 @@ pub(crate) use resources::NativeProjectMenuState;
 
 use bevy::prelude::*;
 
-/// 同窗口工程菜单复用原启动地图保存槽，关闭仍等待同一原事务，不另写工程文件。
+/// 同窗口工程菜单复用原启动场景保存槽，关闭仍等待同一原事务，不另写工程文件。
 pub(crate) fn save_startup_from_workspace(world: &mut World) {
     if world.resource::<NativeProjectMenuState>().saving() { return; }
-    let id = world.get_resource::<feathrise_map_content::ActiveDynamicMap>()
-        .and_then(|active| active.map_id.as_ref()).map(|id| id.0.clone());
+    let id = world.get_resource::<feathrise_scene_content::ActiveDynamicScene>()
+        .and_then(|active| active.scene_id.as_ref()).map(|id| id.0.clone());
     let Some(id) = id else {
-        world.write_message(feathrise_editor_map::standalone::SavedPlayFeedback("请先进入地图，再设置启动地图".into()));
+        world.write_message(feathrise_editor_scene::standalone::SavedPlayFeedback("请先进入场景，再设置启动场景".into()));
         return;
     };
     let project = world.resource::<resources::ProjectMenuSettings>().project.clone();
     let mut state = world.resource_mut::<NativeProjectMenuState>();
     state.failed = None;
-    state.status = "正在保存当前启动地图…".into();
+    state.status = "正在保存当前启动场景…".into();
     state.task = Some(bevy::tasks::IoTaskPool::get().spawn(async move { store::save(&project, &id) }));
 }
 
@@ -63,7 +63,7 @@ impl Plugin for NativeProjectMenuPlugin {
                 .after(crate::native_plugins::management::PluginManagerInput)
                 .before(crate::native_play::request_exit)
                 .before(feathrise_editor_ui::EditorUiSystemSet::NumericInput)
-                .before(feathrise_editor_core::MapEditorSystemSet::Input),
+                .before(feathrise_editor_core::SceneEditorSystemSet::Input),
         )
         .add_systems(
             Update,
@@ -73,7 +73,7 @@ impl Plugin for NativeProjectMenuPlugin {
         )
         .add_systems(
             Update,
-            systems::emit_close.after(feathrise_editor_core::MapEditorSystemSet::Input),
+            systems::emit_close.after(feathrise_editor_core::SceneEditorSystemSet::Input),
         );
     }
 }

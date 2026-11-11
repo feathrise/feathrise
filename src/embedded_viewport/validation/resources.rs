@@ -1,7 +1,7 @@
 //! 本轮显式常驻视口验收的阶段与观测，普通运行不安装。
 
 use bevy::prelude::*;
-use feathrise_editor_map::standalone::embedded_validation::AuthorProbe;
+use feathrise_editor_scene::standalone::embedded_validation::AuthorProbe;
 use serde_json::Value;
 use std::{path::PathBuf, time::Instant};
 

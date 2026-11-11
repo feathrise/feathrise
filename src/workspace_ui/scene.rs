@@ -9,7 +9,7 @@ use bevy::{
     text::{EditableTextFilter, LineBreak, TextCursorStyle},
     ui::RelativeCursorPosition,
 };
-use feathrise_editor_map::workbench::{
+use feathrise_editor_scene::workbench::{
     WorkbenchCentralPageHost, WorkbenchDocumentTabs, WorkbenchHeader, WorkbenchHostTabs,
     WorkbenchSettingsBody,
 };
@@ -220,7 +220,7 @@ fn form(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, new: bool, state
                 caption(
                     form,
                     font,
-                    "创建空工程，不附带地图、模型或预设。",
+                    "创建空工程，不附带场景、模型或预设。",
                     12.,
                 );
             }
@@ -318,7 +318,7 @@ pub(super) fn mount(
                 button(menu, &font, "开始页", Action::Show(Page::Start));
                 button(menu, &font, "新建工程…", Action::Show(Page::New));
                 button(menu, &font, "打开工程…", Action::Show(Page::Open));
-                button(menu, &font, "当前地图设为启动地图", Action::SetStartup);
+                button(menu, &font, "当前场景设为启动场景", Action::SetStartup);
                 button(menu, &font, "导出工程…", Action::ExportProject);
                 button(menu, &font, "插件管理…", Action::Plugins);
                 button(menu, &font, "关闭工程", Action::CloseProject);

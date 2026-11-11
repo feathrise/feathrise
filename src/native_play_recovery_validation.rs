@@ -18,7 +18,7 @@ use bevy::{
 use components::WorldMarker;
 use resources::Recovery;
 pub(crate) use resources::RecoverySet;
-use feathrise_editor_map::standalone::{RunSavedProject, validation_fixture};
+use feathrise_editor_scene::standalone::{RunSavedProject, validation_fixture};
 use feathrise_editor_surface_model::{
     SurfacePresetEditorState, components::SurfacePresetButton, types::SurfacePresetAction,
 };
@@ -73,7 +73,7 @@ pub(crate) fn install(app: &mut App, project: &Project) -> Result<(), String> {
         cancel_sent: false,
         report: RecoveryReport {
             schema: 2,
-            scope: "ordinary_surface_session_and_existing_map_history_metadata",
+            scope: "ordinary_surface_session_and_existing_scene_history_metadata",
             complete: false,
             failure_observed: false,
             failed_attempt_started: 0,
@@ -82,7 +82,7 @@ pub(crate) fn install(app: &mut App, project: &Project) -> Result<(), String> {
             descriptor_restored: false,
             same_world_marker: false,
             original_save_proof_preserved: false,
-            map_history_metadata_preserved: false,
+            scene_history_metadata_preserved: false,
             surface_session_preserved: false,
             marker_entity: String::new(),
             owner_marker_checked: true,
@@ -102,7 +102,7 @@ pub(crate) fn owned_project(world: &World) -> Option<Project> {
         .map(|state| state.project.clone())
 }
 
-/// 地图与普通地表保存都完成后开始；实际历史留在原地图，不伪造游戏技能redo哨兵。
+/// 场景与普通地表保存都完成后开始；实际历史留在原场景，不伪造游戏技能redo哨兵。
 pub(crate) fn begin(world: &mut World) -> Result<(), String> {
     let Some(state) = world.get_resource::<Recovery>() else {
         return Err("失败恢复夹具未启用".into());
@@ -112,7 +112,7 @@ pub(crate) fn begin(world: &mut World) -> Result<(), String> {
     }
     let saved = validation_fixture::result(world).ok_or("失败恢复前缺少原保存proof")?;
     if !saved.complete || saved.error.is_some() {
-        return Err("原地图保存尚未完成，不能注入失败".into());
+        return Err("原场景保存尚未完成，不能注入失败".into());
     }
     let authoring = world
         .get_resource::<NativeAuthoringValidation>()
@@ -163,7 +163,7 @@ fn drive(world: &mut World) {
                 Phase::SelectSurface
                     | Phase::OpenSurface
                     | Phase::WaitSurface
-                    | Phase::WaitMapPreview
+                    | Phase::WaitScenePreview
             )
         {
             state.phase = Phase::Failed;
@@ -181,11 +181,11 @@ fn drive(world: &mut World) {
                     {
                         return Ok(());
                     }
-                    if feathrise_editor_map::standalone::saved_play_blocker(world).is_some() {
+                    if feathrise_editor_scene::standalone::saved_play_blocker(world).is_some() {
                         return Ok(());
                     }
                     let registry = world
-                        .get_resource::<feathrise_map_content::SurfacePresetRegistry>()
+                        .get_resource::<feathrise_scene_content::SurfacePresetRegistry>()
                         .ok_or("普通地表目录缺失")?;
                     let id = registry
                         .presets()
@@ -235,9 +235,9 @@ fn drive(world: &mut World) {
                     }
                     let surface = surface_session(tab);
                     let map = validation_fixture::recovery_author_snapshot(world)
-                        .ok_or("缺少有界真实地图历史快照")?;
-                    // 原地图保存成功会清空历史；此处只证明保存后实际元数据不变。
-                    // 非空笔划的Undo/Redo由前置map_tools逐笔验证，不伪造保存后历史。
+                        .ok_or("缺少有界真实场景历史快照")?;
+                    // 原场景保存成功会清空历史；此处只证明保存后实际元数据不变。
+                    // 非空笔划的Undo/Redo由前置scene_tools逐笔验证，不伪造保存后历史。
                     let marker = world.spawn(WorldMarker).id();
                     let saved = serde_json::to_value(
                         validation_fixture::result(world).ok_or("原保存proof丢失")?,
@@ -252,7 +252,7 @@ fn drive(world: &mut World) {
                         saved,
                         authoring,
                         surface,
-                        map,
+                        scene: map,
                     });
                     state.report.marker_entity = format!("{marker:?}");
                     state.baseline_started = world.resource::<NativePlayStatus>().started;
@@ -290,7 +290,7 @@ fn drive(world: &mut World) {
                     verify_snapshot(world, &state)?;
                     world.write_message(RunSavedProject {
                         profile: default(),
-                        map_id: Some("M1-SAMPLE".into()),
+                        scene_id: Some("M1-SAMPLE".into()),
                         has_unsaved_changes: false,
                         stop_only: false,
                     });
@@ -321,7 +321,7 @@ fn drive(world: &mut World) {
                         if status.active && !state.cancel_sent {
                             world.write_message(RunSavedProject {
                                 profile: default(),
-                                map_id: None,
+                                scene_id: None,
                                 has_unsaved_changes: false,
                                 stop_only: true,
                             });
@@ -341,18 +341,18 @@ fn drive(world: &mut World) {
                     verify_snapshot(world, &state)?;
                     state.report.same_world_marker = true;
                     state.report.original_save_proof_preserved = true;
-                    state.report.map_history_metadata_preserved = true;
+                    state.report.scene_history_metadata_preserved = true;
                     state.report.surface_session_preserved = true;
                     if state.error.is_some() {
                         state.phase = Phase::Failed;
                     } else {
-                        // 地表标签与地图历史仍留在同一作者World；原标签动作恢复画布后才继续F12。
-                        state.pulse = Some(validation_fixture::request_map_tab(world)?);
-                        state.phase = Phase::WaitMapPreview;
+                        // 地表标签与场景历史仍留在同一作者World；原标签动作恢复画布后才继续F12。
+                        state.pulse = Some(validation_fixture::request_scene_tab(world)?);
+                        state.phase = Phase::WaitScenePreview;
                     }
                 }
-                Phase::WaitMapPreview => {
-                    if feathrise_editor_map::standalone::preview_ready_for(world, "M1-SAMPLE") {
+                Phase::WaitScenePreview => {
+                    if feathrise_editor_scene::standalone::preview_ready_for(world, "M1-SAMPLE") {
                         verify_snapshot(world, &state)?;
                         state.report.complete = true;
                         state.phase = Phase::Ready;
@@ -418,8 +418,8 @@ fn verify_snapshot(world: &World, state: &Recovery) -> Result<(), String> {
     if surface_session(tab) != snapshot.surface {
         return Err("失败后普通地表草稿/保存基线/分区被改写".into());
     }
-    if validation_fixture::recovery_author_snapshot(world).as_ref() != Some(&snapshot.map) {
-        return Err("失败后原地图内容或真实作者历史被改写".into());
+    if validation_fixture::recovery_author_snapshot(world).as_ref() != Some(&snapshot.scene) {
+        return Err("失败后原场景内容或真实作者历史被改写".into());
     }
     Ok(())
 }
@@ -477,9 +477,9 @@ fn replace_expected(project: &Project, expected: &[u8], next: &[u8]) -> Result<(
         return Ok(());
     }
     let path = project.root.join(DESCRIPTOR);
-    feathrise_map_content::authoring_transaction::commit_prepared_writes_checked(
+    feathrise_scene_content::authoring_transaction::commit_prepared_writes_checked(
         vec![
-            feathrise_map_content::authoring_transaction::PreparedWrite::new(
+            feathrise_scene_content::authoring_transaction::PreparedWrite::new(
                 path,
                 next.to_vec(),
             ),

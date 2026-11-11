@@ -41,8 +41,8 @@ pub(super) fn start(world: &mut World, mut requests: Local<MessageCursor<Request
         .or_else(|| modal_blocked(world).then(|| "请先关闭其他工程浮窗，再导出工程".into()))
         .or_else(|| crate::code_iteration::export_blocker(world))
         .or_else(|| world.get_resource::<crate::native_project_menu::NativeProjectMenuState>()
-            .filter(|menu| menu.saving()).map(|_| "启动地图仍在保存，请完成后再导出".into()))
-        .or_else(|| feathrise_editor_map::standalone::saved_play_blocker(world)
+            .filter(|menu| menu.saving()).map(|_| "启动场景仍在保存，请完成后再导出".into()))
+        .or_else(|| feathrise_editor_scene::standalone::saved_play_blocker(world)
             .map(|_| "作者保存或事务尚未完成，请完成后再导出".into()));
     if let Some(error) = reason { report_failure(world, error); return; }
     if request.destination.as_os_str().is_empty() {

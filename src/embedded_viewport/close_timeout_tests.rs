@@ -42,8 +42,8 @@ fn fixture() -> Fixture {
     world.init_resource::<EmbeddedSnapshotState>();
     world.init_resource::<crate::native_play::NativePlayStatus>();
     world.init_resource::<crate::native_project_close::NativeProjectCloseState>();
-    world.init_resource::<feathrise_editor_map::standalone::embedded_overlay::EmbeddedOverlay>();
-    world.init_resource::<feathrise_editor_map::standalone::embedded_tools::EmbeddedAuthorTools>();
+    world.init_resource::<feathrise_editor_scene::standalone::embedded_overlay::EmbeddedOverlay>();
+    world.init_resource::<feathrise_editor_scene::standalone::embedded_tools::EmbeddedAuthorTools>();
     world.insert_resource(crate::native_authoring_validation::dirty_surface_fixture());
     world.insert_resource(EmbeddedStatus {
         active: true,

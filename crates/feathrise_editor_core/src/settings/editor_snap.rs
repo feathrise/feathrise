@@ -1,4 +1,4 @@
-//! 地图摆放与手柄共用的吸附偏好；网格点对齐世界原点，固定步长保留操作起点偏移。
+//! 场景摆放与手柄共用的吸附偏好；网格点对齐世界原点，固定步长保留操作起点偏移。
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EditorSnapMode {

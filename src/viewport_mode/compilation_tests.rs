@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::{embedded_viewport::EmbeddedStatus, viewport_mode::{ViewportModeAvailability, ViewportModeChanged}};
-use feathrise_editor_map::standalone::SavedPlayFeedback;
+use feathrise_editor_scene::standalone::SavedPlayFeedback;
 
 fn app() -> App {
     let mut app = App::new();

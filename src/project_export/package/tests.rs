@@ -13,6 +13,10 @@ impl Fixture {
         let root = root.canonicalize().unwrap();
         let project_root = root.join("中文 工程");
         fs::create_dir_all(project_root.join("assets/empty")).unwrap();
+        let scene_catalog = project_root.join("assets").join(feathrise_scene_content::SCENE_CATALOG_ASSET_PATH);
+        fs::create_dir_all(scene_catalog.parent().unwrap()).unwrap();
+        let empty_catalog = feathrise_scene_content::SceneCatalogAsset::default();
+        fs::write(&scene_catalog, serde_json::to_vec(&empty_catalog).unwrap()).unwrap();
         fs::create_dir_all(project_root.join("secondary/models")).unwrap();
         fs::create_dir(project_root.join("src")).unwrap();
         fs::write(project_root.join("src/main.rs"), "作者源码，不进入导出").unwrap();
@@ -22,8 +26,8 @@ impl Fixture {
             "cargo_manifest":"Cargo.toml","asset_roots":["assets","secondary"],"editor_data":".editor",
             "game_entry":{"kind":"saved-world","version":1},"custom_field":{"preserved":true}
         })).unwrap()).unwrap();
-        fs::write(project_root.join("scene.layout.json"), serde_json::to_vec(&serde_json::json!({
-            "format":1,"project_id":"045f04e0-1234-4abc-8def-123456789abc","revision":1,"unknown":42
+        fs::write(project_root.join(crate::startup_document::FILE_NAME), serde_json::to_vec(&serde_json::json!({
+            "format":2,"project_id":"045f04e0-1234-4abc-8def-123456789abc","revision":1
         })).unwrap()).unwrap();
         fs::write(project_root.join("assets/config.json"), b"{\"value\":1}").unwrap();
         fs::write(project_root.join("secondary/models/mesh.glb"), b"saved model bytes").unwrap();
@@ -71,7 +75,7 @@ fn default_output_contains_complete_saved_runtime_without_source_or_author_data(
     assert_eq!(receipt.executable, fixture.output().join("fixture_game.exe"));
     assert_eq!(fs::read(receipt.executable).unwrap(), b"runtime-byte-fixture");
     assert_eq!(fs::read(fixture.output().join("fixture-runtime.dll")).unwrap(), b"dll-byte-fixture");
-    for relative in ["editor-project.json", "scene.layout.json", "assets/config.json", "secondary/models/mesh.glb"] {
+    for relative in ["editor-project.json", crate::startup_document::FILE_NAME, "assets/config.json", "secondary/models/mesh.glb"] {
         assert_eq!(fs::read(fixture.output().join(relative)).unwrap(), fs::read(fixture.project.root.join(relative)).unwrap());
     }
     assert!(fixture.output().join("assets/empty").is_dir());
@@ -83,7 +87,7 @@ fn default_output_contains_complete_saved_runtime_without_source_or_author_data(
     assert_eq!(verified.marker.manifest, "export-manifest.json");
     let marker = fs::read_to_string(fixture.output().join(manifest::MARKER)).unwrap();
     assert!(!marker.contains("project_root") && !marker.contains("cache") && marker.len() < 64 * 1024);
-    assert_eq!(receipt.files, 8);
+    assert_eq!(receipt.files, 9);
     assert!(receipt.bytes > 0 && receipt.warning.is_none());
 }
 
@@ -262,8 +266,8 @@ fn saved_file_changes_and_additions_invalidate_source_snapshot() {
     let fixture = Fixture::new();
     let control = BuildControl::default();
     let plan = files::Plan::collect(&fixture.project, &fixture.bundle, &control).unwrap();
-    fs::write(fixture.project.root.join("scene.layout.json"), serde_json::to_vec(&serde_json::json!({
-        "format":1,"project_id":fixture.project.id,"revision":2,"unknown":42,"changed":true
+    fs::write(fixture.project.root.join(crate::startup_document::FILE_NAME), serde_json::to_vec(&serde_json::json!({
+        "format":2,"project_id":fixture.project.id,"revision":2
     })).unwrap()).unwrap();
     assert!(plan.verify_sources(&fixture.project, &fixture.bundle, &fixture.target, &control).is_err());
     let plan = files::Plan::collect(&fixture.project, &fixture.bundle, &control).unwrap();
@@ -293,19 +297,49 @@ fn copying_changed_length_never_writes_beyond_the_frozen_file_budget() {
 }
 
 #[test]
+fn invalid_default_startup_preserves_previous_export() {
+    let fixture = Fixture::new();
+    let control = BuildControl::default();
+    fixture.export(&fixture.output(), &control).unwrap();
+    let marker = fixture.output().join(manifest::MARKER);
+    let original = fs::read(&marker).unwrap();
+    let catalog = fixture.project.root.join("assets").join(feathrise_scene_content::SCENE_CATALOG_ASSET_PATH);
+    let write_entry = |published| {
+        let document = serde_json::json!({
+            "schema_version": feathrise_scene_content::SCENE_SCHEMA_VERSION,
+            "scenes": [{"id":"SCENE-MISSING","display_name":"测试场景","folder":"scenes/SCENE-MISSING","published":published}]
+        });
+        fs::write(&catalog, serde_json::to_vec(&document).unwrap()).unwrap();
+    };
+
+    // 启动文档未选择时，有目录记录但没有已发布场景，独立运行与导出都不能继续。
+    write_entry(false);
+    assert!(fixture.export(&fixture.output(), &control).unwrap_err().contains("没有已保存启动场景"));
+    assert_eq!(fs::read(&marker).unwrap(), original);
+
+    // 无启动文档时也使用正式回退规则，首个已发布场景缺清单必须保留旧包。
+    fs::remove_file(fixture.project.root.join(crate::startup_document::FILE_NAME)).unwrap();
+    fs::create_dir(fixture.project.root.join("assets/scenes/SCENE-MISSING")).unwrap();
+    write_entry(true);
+    let error = fixture.export(&fixture.output(), &control).unwrap_err();
+    assert!(error.contains(feathrise_scene_content::SCENE_MANIFEST_FILE_NAME));
+    assert_eq!(fs::read(marker).unwrap(), original);
+}
+
+#[test]
 fn invalid_saved_startup_identity_or_selection_preserves_previous_export() {
     let fixture = Fixture::new();
     let control = BuildControl::default();
     fixture.export(&fixture.output(), &control).unwrap();
     let original = fs::read(fixture.output().join(manifest::MARKER)).unwrap();
     for value in [
-        serde_json::json!({"format":2,"project_id":fixture.project.id,"revision":1}),
-        serde_json::json!({"format":1,"project_id":"another-project","revision":1}),
-        serde_json::json!({"format":1,"project_id":fixture.project.id,"revision":0}),
-        serde_json::json!({"format":1,"project_id":fixture.project.id,"revision":1,"production_map":null}),
-        serde_json::json!({"format":1,"project_id":fixture.project.id,"revision":1,"production_map":"MAP-MISSING"}),
+        serde_json::json!({"format":1,"project_id":fixture.project.id,"revision":1}),
+        serde_json::json!({"format":2,"project_id":"another-project","revision":1}),
+        serde_json::json!({"format":2,"project_id":fixture.project.id,"revision":0}),
+        serde_json::json!({"format":2,"project_id":fixture.project.id,"revision":1,"startup_scene_id":null}),
+        serde_json::json!({"format":2,"project_id":fixture.project.id,"revision":1,"startup_scene_id":"SCENE-MISSING"}),
     ] {
-        fs::write(fixture.project.root.join("scene.layout.json"), serde_json::to_vec(&value).unwrap()).unwrap();
+        fs::write(fixture.project.root.join(crate::startup_document::FILE_NAME), serde_json::to_vec(&value).unwrap()).unwrap();
         assert!(fixture.export(&fixture.output(), &control).is_err(), "{value}");
         assert_eq!(fs::read(fixture.output().join(manifest::MARKER)).unwrap(), original);
     }
@@ -314,10 +348,10 @@ fn invalid_saved_startup_identity_or_selection_preserves_previous_export() {
 #[test]
 fn empty_saved_world_without_startup_document_can_be_exported() {
     let fixture = Fixture::new();
-    fs::remove_file(fixture.project.root.join("scene.layout.json")).unwrap();
+    fs::remove_file(fixture.project.root.join(crate::startup_document::FILE_NAME)).unwrap();
     let receipt = fixture.export(&fixture.output(), &BuildControl::default()).unwrap();
-    assert_eq!(receipt.files, 7);
-    assert!(!fixture.output().join("scene.layout.json").exists());
+    assert_eq!(receipt.files, 8);
+    assert!(!fixture.output().join(crate::startup_document::FILE_NAME).exists());
     assert!(receipt.executable.is_file());
 }
 

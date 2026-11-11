@@ -60,7 +60,7 @@ impl Plugin for WindowChromePlugin {
                     .after(crate::native_project_close::ProjectCloseInput)
                     .after(crate::native_plugins::management::PluginManagerInput)
                     .before(crate::viewport_mode::ViewportModeInput)
-                    .before(feathrise_editor_core::MapEditorSystemSet::Input),
+                    .before(feathrise_editor_core::SceneEditorSystemSet::Input),
             )
             .add_systems(Update, systems::present.after(ChromeMount))
             .add_systems(

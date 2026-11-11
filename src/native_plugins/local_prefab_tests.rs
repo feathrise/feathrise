@@ -1,6 +1,6 @@
 //! 本地预览真实驱动回归：缓存返回、播放控制、绑定工程与迟到后台结果，不安装构建或游戏进程。
 use super::*;
-use feathrise_map_content::author_visuals::{AuthorPrefab, AuthorPose};
+use feathrise_scene_content::author_visuals::{AuthorPrefab, AuthorPose};
 use feathrise_plugin_api::{Preview, RuntimePreview};
 use std::time::{Duration, Instant};
 
@@ -30,10 +30,10 @@ fn fixture() -> App {
     let root = std::env::temp_dir().join("feathrise-local-preview-no-io-fixture");
     let assets = root.join("assets");
     app.insert_resource(Settings { project: "fixture".into(), root: root.clone(), assets: assets.clone() })
-        .insert_resource(feathrise_map_content::RuntimeAssetRoot::new(assets).unwrap());
+        .insert_resource(feathrise_scene_content::RuntimeAssetRoot::new(assets).unwrap());
     let tab = PresetWorkspaceTab::Domain("fixture.equipment", 1);
-    app.world_mut().resource_mut::<MapEditorSidebarState>().left = EditorLeftSidebarTab::Domain("fixture.equipment");
-    app.world_mut().resource_mut::<MapEditorSidebarState>().right = EditorRightSidebarTab::Tools;
+    app.world_mut().resource_mut::<SceneEditorSidebarState>().left = EditorLeftSidebarTab::Domain("fixture.equipment");
+    app.world_mut().resource_mut::<SceneEditorSidebarState>().right = EditorRightSidebarTab::Tools;
     app.world_mut().resource_mut::<VegetationPresetEditorState>().active_tab = tab;
     select(&mut app, 1, 1);
     app
@@ -82,7 +82,7 @@ fn browsing_and_lost_root_restore_cached_prefab_and_playback_after_payload_is_mo
     assert_ne!(second, third);
     check_playback(&mut app, third);
     let wrong = std::env::temp_dir().join("feathrise-different-project-no-io-fixture");
-    app.insert_resource(feathrise_map_content::RuntimeAssetRoot::new(wrong.join("assets")).unwrap());
+    app.insert_resource(feathrise_scene_content::RuntimeAssetRoot::new(wrong.join("assets")).unwrap());
     drive(app.world_mut());
     assert!(app.world().resource::<State>().root.is_none());
     assert!(app.world().get::<AssetPreviewRetiredRoot>(third).is_some());

@@ -107,7 +107,7 @@ impl Plugin for ProjectLogPlugin {
             .add_systems(Update, systems::control.in_set(ProjectLogInput)
                 .after(crate::native_project_close::ProjectCloseInput)
                 .before(feathrise_editor_ui::EditorUiSystemSet::NumericInput)
-                .before(feathrise_editor_core::MapEditorSystemSet::Input))
+                .before(feathrise_editor_core::SceneEditorSystemSet::Input))
             .add_systems(Update, reading::copy.after(systems::control).before(systems::present))
             .add_systems(Update, systems::present.after(systems::control))
             .add_systems(Update, search::present.after(systems::control))

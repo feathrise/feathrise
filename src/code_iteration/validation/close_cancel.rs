@@ -8,7 +8,7 @@ use crate::{
     viewport_mode::{RequestViewportMode, ViewportMode, ViewportModeState},
 };
 use bevy::prelude::*;
-use feathrise_editor_map::standalone;
+use feathrise_editor_scene::standalone;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
@@ -64,7 +64,7 @@ pub(super) fn begin(world: &mut World, plan: &mut Plan) -> Result<(), String> {
 
 pub(super) fn handles(phase: Phase) -> bool {
     matches!(phase, Phase::CloseConfirm | Phase::CloseDrain | Phase::CloseCancelled
-        | Phase::CloseRecovered | Phase::CloseReconnectLocal | Phase::CloseMapCapture | Phase::CloseReturnNote)
+        | Phase::CloseRecovered | Phase::CloseReconnectLocal | Phase::CloseSceneCapture | Phase::CloseReturnNote)
 }
 
 pub(super) fn exercise(world: &mut World, plan: &mut Plan) -> Result<(), String> {
@@ -136,7 +136,7 @@ pub(super) fn exercise(world: &mut World, plan: &mut Plan) -> Result<(), String>
                 check.resumed_generation = state.generation;
                 let generation = state.generation;
                 let profile = format!("{:?}", runtime.profile);
-                if !driver::pulse_source(world, plan, NOTE, standalone::SourceLocationAction::Map)? { return Ok(()); }
+                if !driver::pulse_source(world, plan, NOTE, standalone::SourceLocationAction::Scene)? { return Ok(()); }
                 let proof = json!({"stage":"latest_saved_source_rebuilt_after_resume",
                     "generation":generation,"retired_generation":check.retired_generation,"profile":profile,
                     "candidate_matches_new_backend":true});
@@ -157,9 +157,9 @@ pub(super) fn exercise(world: &mut World, plan: &mut Plan) -> Result<(), String>
                     "route":"original RequestViewportMode SavedWorld then EmbeddedWorld in separate frames",
                     "automatic_reconnect_claimed":false}));
                 driver::record(world, plan, "close_cancel_original_viewport_reconnect_requested", None)?;
-                plan.advance(Phase::CloseMapCapture);
+                plan.advance(Phase::CloseSceneCapture);
             }
-            Phase::CloseMapCapture => {
+            Phase::CloseSceneCapture => {
                 if world.resource::<ViewportModeState>().selected != ViewportMode::EmbeddedWorld { return Ok(()); }
                 if !standalone::preview_ready_for(world, "M1-SAMPLE") || !evidence::current_snapshot(world) { return Ok(()); }
                 let Some(proof) = evidence::capture(world, plan, 12.)? else { return Ok(()); };

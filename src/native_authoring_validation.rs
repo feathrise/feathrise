@@ -66,7 +66,7 @@ impl NativeAuthoringValidation {
     }
 }
 
-/// 与原地图夹具串行：保存交接后才编辑普通地表，全部IO仍使用生产后台事务。
+/// 与原场景夹具串行：保存交接后才编辑普通地表，全部IO仍使用生产后台事务。
 pub(crate) fn drive(world: &mut World, start: bool) {
     world.resource_scope(|world, mut fixture: Mut<NativeAuthoringValidation>| {
         if let Some(pulse) = fixture.pulse.take() {
@@ -86,7 +86,7 @@ pub(crate) fn drive(world: &mut World, start: bool) {
             if !start {
                 return;
             }
-            // 只有首次进入依赖地图就绪；预设页按原行为暂停地图相机，后续不能以该相机门挂住自己。
+            // 只有首次进入依赖场景就绪；预设页按原行为暂停场景相机，后续不能以该相机门挂住自己。
             fixture.started = Instant::now();
             let mut presets = Vec::with_capacity(Domain::ALL.len());
             for domain in Domain::ALL {

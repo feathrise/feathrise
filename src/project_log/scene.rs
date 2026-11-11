@@ -6,7 +6,7 @@ use super::{components::*, resources::{LINE_HEIGHT, ProjectLogState}, search::{L
 use bevy::{picking::hover::Hovered, prelude::*, text::{EditableText, EditableTextFilter, FontHinting, LineBreak, LineHeight, TextCursorStyle},
     input_focus::tab_navigation::TabIndex, picking::{events::PointerPress, pointer::PointerButton},
     ui::{FocusPolicy, RelativeCursorPosition}, ui_widgets::{ControlOrientation, Scrollbar, ScrollbarThumb}};
-use feathrise_editor_map::workbench::{WorkbenchFloatingPanel, WorkbenchHeader, WorkbenchProjectLogButton};
+use feathrise_editor_scene::workbench::{WorkbenchFloatingPanel, WorkbenchHeader, WorkbenchProjectLogButton};
 use feathrise_editor_ui::colors as c;
 
 pub(super) const TERMINAL_BG: Color = Color::srgb(0.118, 0.118, 0.118);

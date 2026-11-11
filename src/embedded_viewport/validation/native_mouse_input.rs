@@ -156,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    fn physical_pixels_map_to_virtual_desktop_without_accepting_outside_points() {
+    fn physical_pixels_scene_to_virtual_desktop_without_accepting_outside_points() {
         assert_eq!(absolute_point([-1920, 0], [-1920, 0], [3840, 1080]), Some([8, 30]));
         assert_eq!(absolute_point([1919, 1079], [-1920, 0], [3840, 1080]), Some([65527, 65505]));
         assert_eq!(absolute_point([1920, 0], [-1920, 0], [3840, 1080]), None);

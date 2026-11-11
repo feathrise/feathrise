@@ -1,4 +1,4 @@
-//! 编辑器选择的固定值；启动检测和外部进程仍由地图宿主负责。
+//! 编辑器选择的固定值；启动检测和外部进程仍由场景宿主负责。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExternalEditor {
     VsCode,

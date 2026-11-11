@@ -1,7 +1,7 @@
 //! 将异步插件保存回执接入既有保存全部、退出与F12事务；不以“已发送”冒充落盘。
 use super::resources::NativeTools;
 use bevy::prelude::*;
-use feathrise_editor_map::standalone::{
+use feathrise_editor_scene::standalone::{
     ProjectAuthorAdapter, ProjectAuthorAdapters, ProjectAuthorDocument, ProjectAuthorSnapshot,
 };
 use feathrise_plugin_api::Request;
@@ -133,7 +133,7 @@ mod tests {
             close_confirmation: None,
             choices: None,
             latest_activation: 0,
-            map_pending: false,
+            scene_pending: false,
         };
         let mut world = World::new();
         world.insert_resource(NativeTools {

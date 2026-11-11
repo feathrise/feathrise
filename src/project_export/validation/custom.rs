@@ -5,7 +5,7 @@ use super::{Plan, Phase as EditorPhase, driver, evidence, package_evidence as pa
 pub(super) use super::resources::{CustomPhase as Phase, CustomState as State};
 use super::super::{components::{ExportAction, ExportDestination}, resources::{ExportRuntime, ExportState}, types::ExportReceipt};
 use bevy::{input_focus::{FocusCause, InputFocus}, prelude::*, tasks::{IoTaskPool, futures::check_ready}, text::{EditableText, TextEdit}};
-use feathrise_editor_map::standalone::embedded_validation as author;
+use feathrise_editor_scene::standalone::embedded_validation as author;
 use serde_json::json;
 use std::{path::Path, sync::Arc};
 

@@ -1,8 +1,8 @@
-//! 地表预设只借用宿主的固定事实和受检操作，不复制地图草稿或持有 World。
+//! 地表预设只借用宿主的固定事实和受检操作，不复制场景草稿或持有 World。
 use feathrise_editor_core::{
     EditorStatusKind, EditorStatusOperation, EditorStatusTarget, PresetWorkspaceTab,
 };
-use feathrise_map_content::{SurfacePresetDescriptor, SurfacePresetRegistry};
+use feathrise_scene_content::{SurfacePresetDescriptor, SurfacePresetRegistry};
 pub trait SurfaceEditorHost {
     fn is_open(&self) -> bool;
     fn surface_busy(&self) -> bool;

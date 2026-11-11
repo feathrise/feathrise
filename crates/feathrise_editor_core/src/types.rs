@@ -1,4 +1,4 @@
-//! 跨地图、预设和文档共享的中央标签身份；不承载具体草稿。
+//! 跨场景、预设和文档共享的中央标签身份；不承载具体草稿。
 
 /// 工程预览和独立启动共用的显式构建选择。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -23,9 +23,9 @@ impl ProjectBuildProfile {
 /// 中央工作区的顶层标签身份。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PresetWorkspaceTab {
-    /// 永久存在且不可关闭的地图三维视口。
+    /// 永久存在且不可关闭的场景三维视口。
     #[default]
-    Map,
+    Scene,
     /// 文本文档宿主；多个文件标签及当前路径由文档会话持有。
     Document,
     /// 图片/GLTF宿主；多个文件标签复用唯一画布与离屏相机。

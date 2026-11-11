@@ -30,7 +30,7 @@ pub(super) struct Job {
     pub sequence: u64,
     pub request: Request,
     pub activate: bool,
-    /// 地图加载、地形跟随等后台事务直接收取有界C ABI回执，不能等待主线程事件转发。
+    /// 场景加载、地形跟随等后台事务直接收取有界C ABI回执，不能等待主线程事件转发。
     pub reply: Option<std::sync::mpsc::SyncSender<Result<Snapshot, String>>>,
 }
 pub(super) struct Tool {
@@ -46,7 +46,7 @@ pub(super) struct Tool {
     pub close_confirmation: Option<u32>,
     pub choices: Option<String>,
     pub latest_activation: u64,
-    pub map_pending: bool,
+    pub scene_pending: bool,
 }
 impl Tool {
     pub fn cancel_queued(&mut self) {
@@ -54,11 +54,11 @@ impl Tool {
         self.queue.clear();
     }
     pub fn busy(&self) -> bool {
-        self.map_pending || self.inflight.is_some() || !self.queue.is_empty()
+        self.scene_pending || self.inflight.is_some() || !self.queue.is_empty()
     }
     pub fn send(&mut self, request: Request, activate: bool) -> Result<u64, String> {
-        if self.map_pending {
-            return Err("地图作者正在采用完整版本，请稍候再编辑".into());
+        if self.scene_pending {
+            return Err("场景作者正在采用完整版本，请稍候再编辑".into());
         }
         if let Some(error) = &self.fault {
             return Err(error.clone());

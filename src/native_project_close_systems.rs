@@ -2,7 +2,7 @@
 
 use super::{components::CloseAction, resources::*};
 use bevy::prelude::*;
-use feathrise_editor_map::standalone::{
+use feathrise_editor_scene::standalone::{
     ProjectSaveProgress, SavedPlayFeedback, cancel_project_save, project_close_snapshot,
     project_save_progress, request_save_all,
 };

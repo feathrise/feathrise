@@ -28,7 +28,7 @@ use bevy::{
     },
     window::PrimaryWindow,
 };
-use feathrise_editor_map::workbench::WorkbenchHeader;
+use feathrise_editor_scene::workbench::WorkbenchHeader;
 
 #[derive(Resource)]
 struct TestFont(Handle<Font>);
@@ -64,7 +64,7 @@ fn layout_app(payload: &str) -> (App, Entity, Entity) {
         project_id: "日志界面回归夹具".into(),
         project_name: "日志界面回归夹具".into(),
     })
-    // 正式地图输入也在Update提前应用官方队列，测试保留同一只读过滤与选区读取顺序。
+    // 正式场景输入也在Update提前应用官方队列，测试保留同一只读过滤与选区读取顺序。
     .add_systems(Update, bevy::text::apply_text_edits)
     .add_systems(
         Update,

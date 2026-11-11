@@ -2,7 +2,7 @@
 
 use super::{cancel_workspace_close, components::CloseAction, resources::*, systems::authorize_exit};
 use bevy::prelude::*;
-use feathrise_editor_map::standalone::SavedPlayFeedback;
+use feathrise_editor_scene::standalone::SavedPlayFeedback;
 use feathrise_editor_surface_model::SurfacePresetEditorState;
 
 /// 原工程关闭回归显式指定目标，避免默认的编辑器退出目标掩盖两条宿主请求的区别。
@@ -61,7 +61,7 @@ fn clean_close_waits_for_explicit_choice_and_cancel_requires_a_fresh_confirmatio
 
 #[test]
 fn explicit_clean_close_never_starts_a_save_or_writes_an_author_document() {
-    use feathrise_editor_map::standalone::{ProjectSaveProgress, project_save_progress};
+    use feathrise_editor_scene::standalone::{ProjectSaveProgress, project_save_progress};
     let mut app = adoption_app(false);
     // 只准备领域初始基线，不给关闭协调器填成功状态；真实保存队列保持Idle。
     app.world_mut().resource_mut::<AdoptionOwner>().dirty = false;
@@ -109,7 +109,7 @@ fn editor_exit_uses_its_own_clean_and_dirty_confirmation_and_cancel_receipt() {
 
 #[test]
 fn workspace_cancel_during_draining_uses_original_cancel_and_keeps_author_documents() {
-    use feathrise_editor_map::standalone::{ProjectSaveProgress, project_save_progress};
+    use feathrise_editor_scene::standalone::{ProjectSaveProgress, project_save_progress};
     for target in [CloseTarget::Project, CloseTarget::Editor] {
         for dirty in [false, true] {
             let mut app = adoption_app(false);
@@ -219,7 +219,7 @@ fn project_confirmation_and_draining_authorization_cannot_be_promoted_to_editor_
 
 #[test]
 fn changing_to_editor_during_real_save_keeps_the_writer_but_requires_a_new_confirmation() {
-    use feathrise_editor_map::standalone::{ProjectSaveProgress, project_save_progress};
+    use feathrise_editor_scene::standalone::{ProjectSaveProgress, project_save_progress};
     let mut app = adoption_app(true);
     assert!(!authorize_exit(app.world_mut(), true));
     app.world_mut().resource_mut::<NativeProjectCloseState>().choice = Some(CloseAction::Save);
@@ -265,7 +265,7 @@ fn changing_to_editor_during_real_save_keeps_the_writer_but_requires_a_new_confi
 
 #[test]
 fn changing_target_keeps_real_save_failure_and_host_blocker_until_explicit_cancel() {
-    use feathrise_editor_map::standalone::{ProjectSaveProgress, project_save_progress, request_save_all};
+    use feathrise_editor_scene::standalone::{ProjectSaveProgress, project_save_progress, request_save_all};
     let mut app = adoption_app(false);
     request_save_all(app.world_mut()).unwrap();
     for _ in 0..4 { app.update(); }
@@ -315,7 +315,7 @@ fn dirty_arriving_before_or_after_clean_close_authorization_revokes_the_old_choi
 
 #[test]
 fn clean_close_waits_for_the_existing_save_queue_receipt_without_starting_another_save() {
-    use feathrise_editor_map::standalone::{ProjectSaveProgress, project_save_progress, request_save_all};
+    use feathrise_editor_scene::standalone::{ProjectSaveProgress, project_save_progress, request_save_all};
     let mut app = adoption_app(false);
     app.world_mut().resource_mut::<AdoptionOwner>().dirty = false;
     assert!(!authorize_exit(app.world_mut(), true));
@@ -333,7 +333,7 @@ fn clean_close_waits_for_the_existing_save_queue_receipt_without_starting_anothe
 
 #[test]
 fn dirty_and_pending_revoke_waiting_clean_close_even_if_a_later_real_save_becomes_clean() {
-    use feathrise_editor_map::standalone::{ProjectSaveProgress, project_save_progress, request_save_all};
+    use feathrise_editor_scene::standalone::{ProjectSaveProgress, project_save_progress, request_save_all};
     let mut app = adoption_app(true);
     app.world_mut().resource_mut::<AdoptionOwner>().dirty = false;
     assert!(!authorize_exit(app.world_mut(), true));
@@ -377,7 +377,7 @@ fn dirty_and_pending_revoke_waiting_clean_close_even_if_a_later_real_save_become
 
 #[test]
 fn save_failure_with_no_dirty_documents_cannot_be_consumed_as_a_clean_close() {
-    use feathrise_editor_map::standalone::{ProjectSaveProgress, project_save_progress, request_save_all};
+    use feathrise_editor_scene::standalone::{ProjectSaveProgress, project_save_progress, request_save_all};
     let mut app = adoption_app(false);
     request_save_all(app.world_mut()).unwrap();
     for _ in 0..4 { app.update(); }
@@ -407,11 +407,11 @@ fn ordinary_save_finishing_during_confirmation_cannot_authorize_close() {
     app.world_mut().resource_mut::<AdoptionOwner>().adopted = true;
     assert!(!authorize_exit(app.world_mut(), true));
     // 独立的原保存操作可以清除脏位，但没有选择“保存并关闭”，仍须留在确认层。
-    feathrise_editor_map::standalone::request_save_all(app.world_mut()).unwrap();
+    feathrise_editor_scene::standalone::request_save_all(app.world_mut()).unwrap();
     for _ in 0..4 { app.update(); }
     assert!(matches!(
-        feathrise_editor_map::standalone::project_save_progress(app.world()),
-        feathrise_editor_map::standalone::ProjectSaveProgress::Succeeded
+        feathrise_editor_scene::standalone::project_save_progress(app.world()),
+        feathrise_editor_scene::standalone::ProjectSaveProgress::Succeeded
     ));
     for _ in 0..4 { assert!(!authorize_exit(app.world_mut(), false)); }
     let state = app.world().resource::<NativeProjectCloseState>();
@@ -524,14 +524,14 @@ fn retry_after_written_but_unadopted_save_must_run_the_original_coordinator_even
         CloseStage::Saving
     );
     assert!(matches!(
-        feathrise_editor_map::standalone::project_save_progress(&world),
-        feathrise_editor_map::standalone::ProjectSaveProgress::Running { .. }
+        feathrise_editor_scene::standalone::project_save_progress(&world),
+        feathrise_editor_scene::standalone::ProjectSaveProgress::Running { .. }
     ));
 }
 
 #[test]
 fn original_surface_save_failure_keeps_exact_draft_and_cancel_returns_to_same_world() {
-    use feathrise_editor_map::standalone::{
+    use feathrise_editor_scene::standalone::{
         ProjectCloseSaveAdapters, ProjectSavePlugin, ProjectSaveProgress, project_save_progress,
     };
     fn reject(_: &mut World, _: u64) -> Result<(), String> {
@@ -580,7 +580,7 @@ fn original_surface_save_failure_keeps_exact_draft_and_cancel_returns_to_same_wo
     assert!(app.world().get_entity(marker).is_ok());
 }
 
-/// 领域只模拟自己的写入/采用事实；退出仍走生产保存队列，实际文件事务由地图库回归覆盖。
+/// 领域只模拟自己的写入/采用事实；退出仍走生产保存队列，实际文件事务由场景库回归覆盖。
 #[derive(Resource)]
 struct AdoptionOwner {
     dirty: bool,
@@ -591,7 +591,7 @@ struct AdoptionOwner {
 }
 
 fn adoption_app(delay_adoption: bool) -> App {
-    use feathrise_editor_map::standalone::{
+    use feathrise_editor_scene::standalone::{
         ProjectAuthorAdapter, ProjectAuthorAdapters, ProjectAuthorDocument, ProjectAuthorSnapshot,
         ProjectSavePlugin,
     };

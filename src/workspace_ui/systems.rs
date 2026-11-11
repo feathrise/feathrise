@@ -14,7 +14,7 @@ use bevy::{
     ui::{CalculatedClip, InteractionDisabled, RelativeCursorPosition},
     window::{FileDragAndDrop, Ime, PrimaryWindow, RawHandleWrapper},
 };
-use feathrise_editor_map::workbench::{WorkbenchCentralPageHost, WorkbenchFloatingPanels, WorkbenchHostPageState};
+use feathrise_editor_scene::workbench::{WorkbenchCentralPageHost, WorkbenchFloatingPanels, WorkbenchHostPageState};
 use feathrise_editor_ui::colors as c;
 
 pub(super) fn show(state: &mut Presentation, page: Page) {
@@ -232,7 +232,7 @@ pub(super) fn input(
                 }
                 Action::SetStartup if !model.busy && model.project.is_some() => {
                     state.menu = false;
-                    out.write(WorkspaceCommand::SetStartupMap);
+                    out.write(WorkspaceCommand::SetStartupScene);
                 }
                 Action::ExportProject if !model.busy && model.project.is_some() => {
                     state.menu = false;
@@ -503,7 +503,7 @@ pub(super) fn cancel_visibility(
 #[derive(SystemParam)]
 pub(super) struct PageOverlays<'w> {
     host: Res<'w, WorkbenchHostPageState>,
-    model: Option<Res<'w, feathrise_editor_map::workbench::WorkbenchModel>>,
+    model: Option<Res<'w, feathrise_editor_scene::workbench::WorkbenchModel>>,
     overlay: Option<Res<'w, feathrise_editor_core::EditorHostOverlay>>,
     close: Option<Res<'w, crate::native_project_close::NativeProjectCloseState>>,
     export: Option<Res<'w, crate::project_export::ui::ExportOverlayState>>,
@@ -832,7 +832,7 @@ mod tests {
             match gate {
                 0 => app.world_mut().resource_mut::<WorkbenchHostPageState>().settings_open = true,
                 1 => app.world_mut().resource_mut::<WorkbenchHostPageState>().menu_open = true,
-                2 => { app.insert_resource(feathrise_editor_map::workbench::WorkbenchModel {
+                2 => { app.insert_resource(feathrise_editor_scene::workbench::WorkbenchModel {
                     modal: true, ..default()
                 }); }
                 3 => { app.insert_resource(feathrise_editor_core::EditorHostOverlay { active: true }); }
@@ -860,7 +860,7 @@ mod tests {
             assert!(!app.world().resource::<Messages<MouseWheel>>().is_empty(),
                 "不能清空全局滚轮而令浮层自己的读取器失效");
             app.insert_resource(WorkbenchHostPageState::default());
-            app.world_mut().remove_resource::<feathrise_editor_map::workbench::WorkbenchModel>();
+            app.world_mut().remove_resource::<feathrise_editor_scene::workbench::WorkbenchModel>();
             app.world_mut().remove_resource::<feathrise_editor_core::EditorHostOverlay>();
             app.world_mut().remove_resource::<crate::native_project_close::NativeProjectCloseState>();
             app.world_mut().remove_resource::<crate::native_plugins::management::PluginManagerState>();
@@ -877,7 +877,7 @@ mod tests {
     fn production_log_only_captures_scroll_inside_the_floating_panel() {
         use crate::project_log::{LogDecoder, LogSource, ProjectLogChannel, ProjectLogPlugin};
         use bevy::ui_widgets::{ControlOrientation, Scrollbar};
-        use feathrise_editor_map::workbench::{WorkbenchFloatingPanel, WorkbenchHeader, WorkbenchProjectLogButton};
+        use feathrise_editor_scene::workbench::{WorkbenchFloatingPanel, WorkbenchHeader, WorkbenchProjectLogButton};
 
         let (mut app, body) = scroll_app(Page::Start);
         app.add_plugins((MinimalPlugins, AssetPlugin {

@@ -12,7 +12,7 @@ use bevy::{
     window::{CursorLeft, CursorMoved, PrimaryWindow, WindowEvent, WindowRef},
 };
 use crate::project_log::gpu_tests::{assert_dialog_chrome, frame, screenshot};
-use feathrise_editor_map::{standalone::SavedPlayFeedback, workbench::WorkbenchHeader};
+use feathrise_editor_scene::{standalone::SavedPlayFeedback, workbench::WorkbenchHeader};
 use std::{fs::OpenOptions, path::PathBuf};
 
 #[derive(Resource, Clone)]
@@ -476,8 +476,8 @@ fn production_close_dialog_uses_shared_chrome_and_keeps_original_cancel_flow() {
     choose_action_through_mouse(&mut app, window, CloseAction::Close);
     assert!(authorize_exit(app.world_mut(), false));
     assert_eq!(app.world().resource::<NativeProjectCloseState>().intent, Some(CloseAction::Close));
-    assert_eq!(feathrise_editor_map::standalone::project_save_progress(app.world()),
-        feathrise_editor_map::standalone::ProjectSaveProgress::Idle);
+    assert_eq!(feathrise_editor_scene::standalone::project_save_progress(app.world()),
+        feathrise_editor_scene::standalone::ProjectSaveProgress::Idle);
     settle(&mut app);
     screenshot(&mut app, &target, &output.join("clean-close-authorized.png"));
     cancel_through_original_button(&mut app);
@@ -500,8 +500,8 @@ fn production_close_dialog_uses_shared_chrome_and_keeps_original_cancel_flow() {
     assert!(authorize_exit(app.world_mut(), false));
     assert_eq!(app.world().resource::<NativeProjectCloseState>().target(), CloseTarget::Editor);
     assert_eq!(app.world().resource::<NativeProjectCloseState>().stage, CloseStage::Draining);
-    assert_eq!(feathrise_editor_map::standalone::project_save_progress(app.world()),
-        feathrise_editor_map::standalone::ProjectSaveProgress::Idle);
+    assert_eq!(feathrise_editor_scene::standalone::project_save_progress(app.world()),
+        feathrise_editor_scene::standalone::ProjectSaveProgress::Idle);
     cancel_through_original_button(&mut app);
 
     // 原地表作者生成真实基线差异，由正式关闭快照聚合出未保存列表，不手写展示文档。

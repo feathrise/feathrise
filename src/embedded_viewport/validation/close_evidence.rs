@@ -6,7 +6,7 @@ use bevy::{
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
     tasks::IoTaskPool,
 };
-use feathrise_editor_map::standalone::embedded_validation as author;
+use feathrise_editor_scene::standalone::embedded_validation as author;
 use serde_json::{Value, json};
 use std::{
     path::Path,

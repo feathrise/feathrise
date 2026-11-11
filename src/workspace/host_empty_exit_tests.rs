@@ -4,7 +4,7 @@ use feathrise_editor_ui::InteractionButton;
 use super::*;
 use bevy::{asset::AssetApp, input::mouse::MouseWheel, input_focus::InputFocus};
 use crate::{build_process::BuildControl, user_preferences::Preferences};
-use feathrise_editor_map::workbench::WorkbenchHeader;
+use feathrise_editor_scene::workbench::WorkbenchHeader;
 use std::sync::mpsc;
 
 fn fixture() -> (App, Host) {

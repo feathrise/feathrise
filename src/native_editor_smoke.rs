@@ -12,10 +12,10 @@ use bevy::{
     window::PrimaryWindow,
 };
 use resources::SmokePlan;
-use feathrise_editor_map::standalone::RunSavedProject;
+use feathrise_editor_scene::standalone::RunSavedProject;
 use feathrise_runtime::game_plugins::ScenePhase;
 use feathrise_scene_core::input::EditorInputState;
-use feathrise_map_content::MapContentRegistry;
+use feathrise_scene_content::SceneContentRegistry;
 use serde_json::json;
 use std::{
     path::PathBuf,
@@ -34,7 +34,7 @@ pub(super) fn install(
     if !directory.is_absolute() {
         return Err("原生编辑器验收输出目录必须是绝对路径".into());
     }
-    if feathrise_editor_map::standalone::validation_fixture::author_tools_enabled()
+    if feathrise_editor_scene::standalone::validation_fixture::author_tools_enabled()
         && !crate::native_play_recovery_validation::enabled(app.world())
     {
         return Err("专业作者验收必须先核对本轮自有工程标记".into());
@@ -42,15 +42,15 @@ pub(super) fn install(
     std::fs::create_dir_all(&directory)
         .map_err(|error| format!("无法创建验收输出目录：{error}"))?;
     let font = feathrise_editor_core::editor_font(app.world().resource::<AssetServer>(), feathrise_editor_core::FONT_PATH);
-    let save_fixture = feathrise_editor_map::standalone::validation_fixture::install(app);
+    let save_fixture = feathrise_editor_scene::standalone::validation_fixture::install(app);
     native_authoring_validation::install(app, project_root.clone(), asset_root.clone());
     let close_fixture = crate::native_project_close::install_validation(app, directory.clone());
     app.insert_resource(SmokePlan {
         started: Instant::now(),
         frames: 0,
         stable_frames: 0,
-        map_requested: false,
-        map_error: None,
+        scene_requested: false,
+        scene_error: None,
         preview_ready: false,
         author_status: String::new(),
         save_fixture,
@@ -78,7 +78,7 @@ pub(super) fn install(
     .add_systems(
         Last,
         (
-            open_original_map,
+            open_original_scene,
             observe,
             crate::native_project_close::drive_validation,
         )
@@ -90,7 +90,7 @@ pub(super) fn install(
     {
         app.add_systems(
             Update,
-            scripted_input_ownership.before(feathrise_editor_core::MapEditorSystemSet::Input),
+            scripted_input_ownership.before(feathrise_editor_core::SceneEditorSystemSet::Input),
         );
     }
     Ok(())
@@ -110,43 +110,43 @@ fn scripted_input_ownership(
     }
 }
 
-/// 薄入口仍走原地图选择及受检切图事务；只有显式有限验收才驱动，不复制作者加载算法。
-fn open_original_map(world: &mut World) {
+/// 薄入口仍走原场景选择及受检切换场景事务；只有显式有限验收才驱动，不复制作者加载算法。
+fn open_original_scene(world: &mut World) {
     if world.resource::<SmokePlan>().f12_release_pending {
         emit_original_f12(world, bevy::input::ButtonState::Released);
         world.resource_mut::<SmokePlan>().f12_release_pending = false;
     }
     let plan = world.resource::<SmokePlan>();
-    if !plan.map_requested && plan.stable_frames >= 30 {
-        let result = feathrise_editor_map::standalone::request_open_map(world, "M1-SAMPLE");
+    if !plan.scene_requested && plan.stable_frames >= 30 {
+        let result = feathrise_editor_scene::standalone::request_open_scene(world, "M1-SAMPLE");
         let mut plan = world.resource_mut::<SmokePlan>();
-        plan.map_requested = true;
+        plan.scene_requested = true;
         plan.stable_frames = 0;
         if let Err(error) = result {
-            plan.map_error = Some(error);
+            plan.scene_error = Some(error);
         }
     }
-    let mut preview_ready = feathrise_editor_map::standalone::preview_ready_for(world, "M1-SAMPLE");
+    let mut preview_ready = feathrise_editor_scene::standalone::preview_ready_for(world, "M1-SAMPLE");
     if preview_ready && !world.resource::<SmokePlan>().save_fixture {
-        match feathrise_editor_map::standalone::validation_fixture::focus_validation_document(world) {
+        match feathrise_editor_scene::standalone::validation_fixture::focus_validation_document(world) {
             Ok(ready) => preview_ready = ready,
-            Err(error) => world.resource_mut::<SmokePlan>().map_error = Some(error),
+            Err(error) => world.resource_mut::<SmokePlan>().scene_error = Some(error),
         }
     }
-    let author_status = feathrise_editor_map::standalone::author_status(world)
+    let author_status = feathrise_editor_scene::standalone::author_status(world)
         .unwrap_or_default()
         .to_owned();
     let plan = world.resource::<SmokePlan>();
     if preview_ready && plan.save_fixture && !plan.save_requested && plan.stable_frames >= 30 {
         world.resource_mut::<SmokePlan>().save_requested = true;
-        if let Err(error) = feathrise_editor_map::standalone::validation_fixture::request_edit_and_save(
+        if let Err(error) = feathrise_editor_scene::standalone::validation_fixture::request_edit_and_save(
             world,
             "M1-SAMPLE",
         ) {
             world.resource_mut::<SmokePlan>().save_error = Some(error);
         }
     }
-    let save_proof = feathrise_editor_map::standalone::validation_fixture::result(world);
+    let save_proof = feathrise_editor_scene::standalone::validation_fixture::result(world);
     let save_ready = !world.resource::<SmokePlan>().save_fixture
         || save_proof.as_ref().is_some_and(|proof| proof.complete);
     native_authoring_validation::drive(world, preview_ready && save_ready);
@@ -168,7 +168,7 @@ fn open_original_map(world: &mut World) {
             .resource::<SmokePlan>()
             .current_author_document
             .is_none())
-    .then(|| feathrise_editor_map::standalone::validation_fixture::current_author_snapshot(world))
+    .then(|| feathrise_editor_scene::standalone::validation_fixture::current_author_snapshot(world))
     .flatten();
     let mut plan = world.resource_mut::<SmokePlan>();
     plan.preview_ready = preview_ready;
@@ -186,13 +186,13 @@ fn observe(
     mut plan: ResMut<SmokePlan>,
     fonts: Res<Assets<Font>>,
     blocks: Res<EditorInputState>,
-    registry: Option<Res<MapContentRegistry>>,
+    registry: Option<Res<SceneContentRegistry>>,
     scene: Res<State<ScenePhase>>,
-    header: Query<&ComputedNode, With<feathrise_editor_map::workbench::WorkbenchHeader>>,
+    header: Query<&ComputedNode, With<feathrise_editor_scene::workbench::WorkbenchHeader>>,
     window: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &Projection, &GlobalTransform), With<Camera3d>>,
-    placements: Query<(&feathrise_scene::MapPlacementInstance, &GlobalTransform)>,
-    active: Res<feathrise_map_content::ActiveDynamicMap>,
+    placements: Query<(&feathrise_scene::ScenePlacementInstance, &GlobalTransform)>,
+    active: Res<feathrise_scene_content::ActiveDynamicScene>,
     (play_status, code_iteration, project_logs): (
         Res<NativePlayStatus>,
         Option<Res<crate::code_iteration::CodeIterationState>>,
@@ -256,13 +256,13 @@ fn observe(
     let window_ready = window
         .single()
         .is_ok_and(|window| window.width() > 100.0 && window.height() > 100.0);
-    let editor_3d_ready = plan.map_requested && plan.map_error.is_none() && plan.preview_ready;
-    let ready = blocks.map_editor_open
+    let editor_3d_ready = plan.scene_requested && plan.scene_error.is_none() && plan.preview_ready;
+    let ready = blocks.scene_editor_open
         && header_ready
         && font_ready
         && catalog_ready
         && window_ready
-        && (!plan.map_requested || editor_3d_ready);
+        && (!plan.scene_requested || editor_3d_ready);
     if ready {
         plan.stable_frames = plan.stable_frames.saturating_add(1);
     } else {
@@ -313,7 +313,7 @@ fn observe(
         && plan.stable_frames >= 30
         && !plan.play_requested
     {
-        // 给本App官方键盘消息队列投递F12，穿过原toggle_map_editor和保存发布门，不绕到宿主意图。
+        // 给本App官方键盘消息队列投递F12，穿过原toggle_scene_editor和保存发布门，不绕到宿主意图。
         // 此项仍不声称物理键盘/系统焦点验收；正常会话没有夹具资源。
         plan.play_requested = true;
         plan.play_completed_before = play_status.completed;
@@ -338,7 +338,7 @@ fn observe(
                 plan.cancel_requested = true;
                 play.write(RunSavedProject {
                     profile: default(),
-                    map_id: None,
+                    scene_id: None,
                     has_unsaved_changes: false,
                     stop_only: true,
                 });
@@ -346,12 +346,12 @@ fn observe(
             return; // 编译与游戏运行期间继续绘制；只有后台槽已收口才采集报告并结束App。
         }
     }
-    let timed_out = plan.map_error.is_some()
+    let timed_out = plan.scene_error.is_some()
         || save_failed
         || authoring_failed
         || recovery_failed
         || (plan.started.elapsed().as_secs()
-            >= if plan.map_requested {
+            >= if plan.scene_requested {
                 author_budget(360)
             } else {
                 60
@@ -380,7 +380,7 @@ fn observe(
         && code_iteration_error.is_none()
         && (!plan.run_saved_play || plan.play_result.as_ref().is_some_and(Result::is_ok))
         && !plan.cancel_requested;
-    let instances = placements.iter().filter(|(instance, _)| instance.map_id().as_str() == "M1-SAMPLE" && instance.is_active())
+    let instances = placements.iter().filter(|(instance, _)| instance.scene_id().as_str() == "M1-SAMPLE" && instance.is_active())
         .take(128).map(|(instance, transform)| json!({"id":instance.id(),"position":transform.translation().to_array(),"asset_target":instance.asset_target()})).collect::<Vec<_>>();
     let mut report = json!({
         "schema": 2,
@@ -390,15 +390,15 @@ fn observe(
         "asset_root": plan.asset_root,
         "cwd": std::env::current_dir().ok(),
         "sdk_ui_root": feathrise_editor_core::sdk_asset_root(),
-        "source_ui": "feathrise_editor_map::MapEditorPlugin original scene and author systems",
+        "source_ui": "feathrise_editor_scene::SceneEditorPlugin original scene and author systems",
         "excluded_scope": "player initialization and RPG author/runtime capabilities",
-        "plugins": ["SceneRuntimePlugin", "FpsDisplayPlugin", "MapEditorPlugin", "SurfaceEditorPlugin", "DocumentsEditorPlugin", "StandaloneEditorPlugin", "NativePlayPlugin"],
-        "editor_open": blocks.map_editor_open,
+        "plugins": ["SceneRuntimePlugin", "FpsDisplayPlugin", "SceneEditorPlugin", "SurfaceEditorPlugin", "DocumentsEditorPlugin", "StandaloneEditorPlugin", "NativePlayPlugin"],
+        "editor_open": blocks.scene_editor_open,
         "original_header_layout_ready": header_ready,
         "font_loaded": font_ready,
         "project_catalog_ready": catalog_ready,
         "catalog_revision": registry.as_ref().map(|registry| registry.revision),
-        "map_count": registry.as_ref().map(|registry| registry.maps.len()),
+        "scene_count": registry.as_ref().map(|registry| registry.scenes.len()),
         "catalog_error": registry.as_ref().and_then(|registry| registry.last_error.as_deref()),
         "state": format!("{:?}", scene.get()),
         "camera_3d_count": cameras.iter().count(),
@@ -421,7 +421,7 @@ fn observe(
             "projection":format!("{projection:?}"),
         })).collect::<Vec<_>>());
     report["editor_3d_ready"] = json!(editor_3d_ready);
-    report["map_request_error"] = json!(plan.map_error);
+    report["scene_request_error"] = json!(plan.scene_error);
     report["author_status"] = json!(plan.author_status);
     report["author_save_requested"] = json!(plan.save_requested);
     report["author_save_error"] = json!(plan.save_error);
@@ -430,7 +430,7 @@ fn observe(
     report["preset_authoring"] = json!(authoring.report());
     report["saved_play_recovery"] = json!(plan.recovery_report);
     report["placement_instances"] = json!(instances);
-    report["active_map"] = json!(active.map_id.as_ref().map(|id| &id.0));
+    report["active_scene"] = json!(active.scene_id.as_ref().map(|id| &id.0));
     report["saved_play_requested"] = json!(plan.play_requested);
     report["saved_play_result"] = json!(plan.play_result);
     report["saved_play_started"] = json!(play_status.started);
@@ -486,7 +486,7 @@ fn observe(
                         .map_err(|error| error.to_string())?;
                         if report["passed"] != true {
                             // 子域失败应保留原原因，不能被统一的“界面未就绪”掩盖。
-                            let reason = report["map_request_error"]
+                            let reason = report["scene_request_error"]
                                 .as_str()
                                 .or_else(|| report["author_save_error"].as_str())
                                 .or_else(|| report["author_save"]["error"].as_str())
@@ -526,7 +526,7 @@ fn emit_original_f12(world: &mut World, state: bevy::input::ButtonState) {
 
 /// 只有显式六域作者验收扩大有限等待预算；常规启动和后台构建预算保持原合同。
 fn author_budget(ordinary: u64) -> u64 {
-    if feathrise_editor_map::standalone::validation_fixture::author_tools_enabled() {
+    if feathrise_editor_scene::standalone::validation_fixture::author_tools_enabled() {
         720
     } else {
         ordinary

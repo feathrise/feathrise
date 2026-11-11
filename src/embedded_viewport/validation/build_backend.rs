@@ -5,7 +5,7 @@ use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use bevy::{prelude::*, render::view::screenshot::{Screenshot, ScreenshotCaptured}, tasks::IoTaskPool};
 use crate::{native_play::ProjectBuildBackend as Backend, viewport_mode::{ViewportMode, ViewportModeState}};
-use feathrise_editor_map::standalone::{self, embedded_validation as author};
+use feathrise_editor_scene::standalone::{self, embedded_validation as author};
 use feathrise_editor_core::{ProjectBuildProfile, ProjectLaunchSettings};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -80,7 +80,7 @@ pub(super) fn install(app: &mut App, directory: PathBuf) -> Result<(), String> {
         guest: None, screenshot: None, completion: None, build_command: None,
         settings_stage, initial_backend, initial_profile, selection_clicks: 0,
         window_resized: false, layout: None })
-        .add_systems(Update, super::input_ownership.before(feathrise_editor_core::MapEditorSystemSet::Input))
+        .add_systems(Update, super::input_ownership.before(feathrise_editor_core::SceneEditorSystemSet::Input))
         .add_systems(Last, drive);
     Ok(())
 }
@@ -135,7 +135,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
             if plan.settings_stage.is_some() && world.resource::<super::EmbeddedStatus>().starts != 0 {
                 return Err("工程配置专项在原按钮输入前意外启动了工程".into());
             }
-            standalone::request_open_map(world, "M1-SAMPLE")?;
+            standalone::request_open_scene(world, "M1-SAMPLE")?;
             plan.advance(Phase::Local);
         }
         Phase::Local if standalone::preview_ready_for(world, "M1-SAMPLE") => {
@@ -246,7 +246,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
 /// 仅在本轮固定夹具的一次截图阶段读取原节点；Name用于验收定位，不进入产品布局逻辑。
 fn narrow_layout(world: &mut World) -> Result<Value, String> {
     let roots: Vec<_> = world.query::<(Entity, &Name, &ChildOf, &Node, &ComputedNode, &UiGlobalTransform, &InheritedVisibility)>()
-        .iter(world).filter(|(_, name, ..)| matches!(name.as_str(), "地图编辑器XYZ方向轴" | "视口着色"))
+        .iter(world).filter(|(_, name, ..)| matches!(name.as_str(), "场景编辑器XYZ方向轴" | "视口着色"))
         .map(|(entity, name, parent, node, computed, transform, visible)|
             (entity, name.as_str().to_owned(), parent.parent(), node.clone(), computed.size(), transform.translation, visible.get()))
         .collect();
@@ -255,7 +255,7 @@ fn narrow_layout(world: &mut World) -> Result<Value, String> {
         if matches.len() != 1 { return Err(format!("窄窗缺少唯一原节点：{name}")); }
         Ok(matches[0])
     };
-    let axis = find("地图编辑器XYZ方向轴")?;
+    let axis = find("场景编辑器XYZ方向轴")?;
     let shading = find("视口着色")?;
     if axis.2 != shading.2 { return Err("XYZ 与着色栏不属于同一真实中央视口".into()); }
     let viewport = axis.2;

@@ -710,7 +710,7 @@ fn archive_resolves_only_its_unloaded_legacy_diagnostic_and_keeps_other_failures
     assert!(!native.load_states.contains_key("fixture.legacy"));
     assert!(!native.load_origins.contains_key("fixture.legacy"));
     assert_ne!(native.diagnostics, before);
-    let blocker = feathrise_editor_map::standalone::saved_play_blocker(app.world()).unwrap();
+    let blocker = feathrise_editor_scene::standalone::saved_play_blocker(app.world()).unwrap();
     let original_error = remaining.first().expect("两个真实坏包错误必须仍然保留");
     assert!(blocker.starts_with(original_error), "F12仍须展示剩余坏包的原始错误");
     assert_eq!(blocker, format!("{original_error}，完成后请重新启动工程；草稿和历史已保留"));
@@ -762,7 +762,7 @@ fn archive_resolution_rejects_missing_origin_duplicate_diagnostics_and_reused_so
         snapshot: feathrise_plugin_api::Snapshot::default(),
         requests, queue: Default::default(), inflight: None, completed: 0, sequence: 0,
         fault: Some("live-tool-fault".into()), library_open: false, close_confirmation: None,
-        choices: None, latest_activation: 0, map_pending: false,
+        choices: None, latest_activation: 0, scene_pending: false,
     });
     assert!(loaded.clear_archived_legacy(&archived, &result.entries).is_err());
     assert_eq!(loaded.tools[&0].fault.as_deref(), Some("live-tool-fault"));

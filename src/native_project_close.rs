@@ -67,14 +67,14 @@ impl Plugin for NativeProjectClosePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NativeProjectCloseState>()
             // 无工程主工作台也复用此确认层；取消反馈不依赖作者/运行插件代为注册。
-            .add_message::<feathrise_editor_map::standalone::SavedPlayFeedback>()
+            .add_message::<feathrise_editor_scene::standalone::SavedPlayFeedback>()
             .add_systems(Update, ui::mount)
             .add_systems(
                 Update,
                 ui::handle
                     .in_set(ProjectCloseInput)
                     .before(feathrise_editor_ui::EditorUiSystemSet::NumericInput)
-                    .before(feathrise_editor_core::MapEditorSystemSet::Input),
+                    .before(feathrise_editor_core::SceneEditorSystemSet::Input),
             )
             .add_systems(Update, ui::present.after(crate::native_play::request_exit));
     }

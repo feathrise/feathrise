@@ -22,8 +22,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(crate) const CLOSE_MAP_MANIFEST_PATH: &str = "maps/M1-SAMPLE/map.map_manifest.json";
-pub(crate) const MAP_BEFORE_CLOSE_FILENAME: &str = "map-before-close.json";
+pub(crate) const CLOSE_SCENE_MANIFEST_PATH: &str = "scenes/M1-SAMPLE/scene.scene_manifest.json";
+pub(crate) const SCENE_BEFORE_CLOSE_FILENAME: &str = "map-before-close.json";
 
 /// 同窗口验收复用相同中性资产，父级独占标记和新空骨架仍由夹具内部严格核验。
 pub(crate) fn prepare_workspace_fixture(root: &Path, label: &str) -> Result<(), String> {
@@ -82,7 +82,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         }
         steps.push(json!({"stage":"create_empty_projects_and_install_owned_neutral_fixtures","passed":true,"roots":roots,"default_template_contains_sample_content":false}));
         for (index, root) in roots.iter().enumerate() {
-            // A/B来源由真实工程根、资产根、地图和保存后的实例证明，不再制造原RPG开局文件。
+            // A/B来源由真实工程根、资产根、场景和保存后的实例证明，不再制造原RPG开局文件。
             let dependencies = boundary::verify(root, &control)?;
             steps.push(json!({"stage":"production_template_dependency_boundary","index":index,"passed":true,"report":dependencies}));
         }
@@ -122,7 +122,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                     .env("NEW_EDITOR_NATIVE_SMOKE_AUTHORING", "1")
                     .env("NEW_EDITOR_NATIVE_SMOKE_RECOVERY", "1")
                     .env("NEW_EDITOR_NATIVE_SMOKE_CLOSE", "1")
-                    .env("NEW_EDITOR_NATIVE_SMOKE_MAP_TOOLS", "1")
+                    .env("NEW_EDITOR_NATIVE_SMOKE_SCENE_TOOLS", "1")
                     .env("NEW_EDITOR_NATIVE_SMOKE_AUTHOR_TOOLS", "1")
                     .env("NEW_EDITOR_GAME_SMOKE_DIR", work.join("game-f12"));
             } else {
@@ -132,7 +132,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                     .env_remove("NEW_EDITOR_NATIVE_SMOKE_AUTHORING")
                     .env_remove("NEW_EDITOR_NATIVE_SMOKE_RECOVERY")
                     .env_remove("NEW_EDITOR_NATIVE_SMOKE_CLOSE")
-                    .env_remove("NEW_EDITOR_NATIVE_SMOKE_MAP_TOOLS")
+                    .env_remove("NEW_EDITOR_NATIVE_SMOKE_SCENE_TOOLS")
                     .env_remove("NEW_EDITOR_NATIVE_SMOKE_AUTHOR_TOOLS")
                     .env_remove("NEW_EDITOR_GAME_SMOKE_DIR");
             }
@@ -169,7 +169,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                 let presets = &observed["preset_authoring"];
                 verify_preset_edits(presets)?;
                 let recovery = &observed["saved_play_recovery"]["Ok"];
-                if recovery["schema"] != 2 || recovery["scope"] != "ordinary_surface_session_and_existing_map_history_metadata" {
+                if recovery["schema"] != 2 || recovery["scope"] != "ordinary_surface_session_and_existing_scene_history_metadata" {
                     return Err("失败恢复报告不是当前普通作者范围，旧领域报告不能计为通过".into());
                 }
                 for field in [
@@ -178,7 +178,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                     "descriptor_restored",
                     "same_world_marker",
                     "original_save_proof_preserved",
-                    "map_history_metadata_preserved",
+                    "scene_history_metadata_preserved",
                     "surface_session_preserved",
                     "owner_marker_checked",
                 ] {
@@ -207,14 +207,14 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                         return Err(format!("工程关闭流程缺少真实回执：{field}，{close}"));
                     }
                 }
-                let manifest = project.context.asset_roots[0].join(CLOSE_MAP_MANIFEST_PATH);
-                let saved: feathrise_map_content::MapManifestAsset = serde_json::from_slice(
+                let manifest = project.context.asset_roots[0].join(CLOSE_SCENE_MANIFEST_PATH);
+                let saved: feathrise_scene_content::SceneManifestAsset = serde_json::from_slice(
                     &fs::read(&manifest).map_err(|error| error.to_string())?,
                 ).map_err(|error| error.to_string())?;
-                if saved.environment.skybox_yaw_degrees != feathrise_editor_map::standalone::validation_fixture::CLOSE_MAP_SKYBOX_YAW
-                    || close["map_save_sequence_after"].as_u64().zip(close["map_save_sequence_before"].as_u64())
+                if saved.environment.skybox_yaw_degrees != feathrise_editor_scene::standalone::validation_fixture::CLOSE_SCENE_SKYBOX_YAW
+                    || close["scene_save_sequence_after"].as_u64().zip(close["scene_save_sequence_before"].as_u64())
                         .is_none_or(|(after, before)| after != before.wrapping_add(1)) {
-                    return Err("退出保存未完整写入界面标记已清零的地图环境草稿".into());
+                    return Err("退出保存未完整写入界面标记已清零的场景环境草稿".into());
                 }
                 steps.push(json!({"stage":"project_close_cancel_failure_retry_and_save","passed":true,"report":close}));
                 saved_presets = Some(presets.clone());
@@ -233,14 +233,14 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                 let game = verify_game_with_prior_manifest(
                     root,
                     &work.join("game-f12"),
-                    Some(&output.join(MAP_BEFORE_CLOSE_FILENAME)),
+                    Some(&output.join(SCENE_BEFORE_CLOSE_FILENAME)),
                 )?;
                 if game["return_input"] != "official KeyboardInput F12 through exit_saved_play" {
                     return Err("工程运行未通过原F12返回处理器完成回程".into());
                 }
                 verify_placement(&game, proof)?;
                 verify_game_presets(&game, presets)?;
-                verify_map_tools(root, &game, &proof["map_tools"])?;
+                verify_scene_tools(root, &game, &proof["scene_tools"])?;
                 author_tools::verify(root, &game, &proof["author_tools"])?;
                 saved_edit = Some(proof.clone());
                 steps.push(
@@ -248,8 +248,8 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                 );
             } else if index == 2 {
                 if observed["current_author_document"]["skybox_yaw_degrees"]
-                    != json!(feathrise_editor_map::standalone::validation_fixture::CLOSE_MAP_SKYBOX_YAW) {
-                    return Err("重开原地图没有采用退出时保存的环境参数".into());
+                    != json!(feathrise_editor_scene::standalone::validation_fixture::CLOSE_SCENE_SKYBOX_YAW) {
+                    return Err("重开原场景没有采用退出时保存的环境参数".into());
                 }
                 author_tools::verify_reopen(
                     &observed["current_author_document"],
@@ -274,7 +274,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                     false,
                 )?;
             }
-            steps.push(json!({"stage":if index == 2 { "saved_map_reopened_in_original_editor" } else { "original_editor_world" },"index":index,"passed":true,"report":observed}));
+            steps.push(json!({"stage":if index == 2 { "saved_scene_reopened_in_original_editor" } else { "original_editor_world" },"index":index,"passed":true,"report":observed}));
         }
         // 独立cargo run从工程cwd启动相同正式game；不设置EDITOR_SAVED_PLAY，避免仅验证开发专用入口。
         let other = project::open(&roots[1])?;
@@ -290,7 +290,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
             .env("CARGO_TARGET_DIR", &target)
             .env("NEW_EDITOR_GAME_SMOKE_DIR", work.join("game-independent"))
             .env_remove("EDITOR_SAVED_PLAY")
-            .env_remove("EDITOR_SAVED_PLAY_MAP")
+            .env_remove("EDITOR_SAVED_PLAY_SCENE")
             .env_remove("NEW_EDITOR_NATIVE_SMOKE_DIR")
             .env_remove("NEW_EDITOR_NATIVE_SMOKE_PLAY");
         command
@@ -299,7 +299,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         command.env_remove("NEW_EDITOR_NATIVE_SMOKE_SAVE");
         command
             .env_remove("NEW_EDITOR_NATIVE_SMOKE_CLOSE")
-            .env_remove("NEW_EDITOR_NATIVE_SMOKE_MAP_TOOLS")
+            .env_remove("NEW_EDITOR_NATIVE_SMOKE_SCENE_TOOLS")
             .env_remove("NEW_EDITOR_NATIVE_SMOKE_AUTHOR_TOOLS");
         let game = build_process::run(&command, &control, Some(Duration::from_secs(1900)), tail)?;
         fs::write(
@@ -323,7 +323,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         )?;
         let proof = saved_edit.as_ref().ok_or("缺少A原作者保存证据")?;
         verify_placement(&ordinary, proof)?;
-        verify_map_tools(&roots[0], &ordinary, &proof["map_tools"])?;
+        verify_scene_tools(&roots[0], &ordinary, &proof["scene_tools"])?;
         author_tools::verify(&roots[0], &ordinary, &proof["author_tools"])?;
         steps.push(json!({"stage":"edited_author_content_in_ordinary_cargo_run","passed":true,"report":ordinary}));
         // 发布后连续链选择保存后F12与同工程导出；额外常驻/原生交接仍由原无开关专项独立证明。
@@ -331,7 +331,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
             let exported = crate::project_export::validation::run_owned_project(&target, &work, &roots[0], &control)?;
             let game = &exported["independent"]["game"];
             verify_placement(game, proof)?;
-            verify_map_tools(&roots[0], game, &proof["map_tools"])?;
+            verify_scene_tools(&roots[0], game, &proof["scene_tools"])?;
             author_tools::verify(&roots[0], game, &proof["author_tools"])?;
             steps.push(json!({"stage":"saved_reopened_project_exported_and_run_without_source","passed":true,"report":exported}));
         } else {
@@ -439,14 +439,14 @@ fn verify_game_presets(game: &Value, saved: &Value) -> Result<(), String> {
     Ok(())
 }
 
-fn verify_map_tools(root: &Path, game: &Value, proof: &Value) -> Result<(), String> {
+fn verify_scene_tools(root: &Path, game: &Value, proof: &Value) -> Result<(), String> {
     let terrains = game["terrain_objects"]
         .as_array()
         .ok_or("缺少活动地形实例证据")?;
     let matching = terrains
         .iter()
         .filter(|terrain| {
-            terrain["terrain_id"] == proof["terrain_id"] && terrain["source_map_id"] == game["map"]
+            terrain["terrain_id"] == proof["terrain_id"] && terrain["source_scene_id"] == game["scene_id"]
         })
         .collect::<Vec<_>>();
     let terrain = matching
@@ -458,7 +458,7 @@ fn verify_map_tools(root: &Path, game: &Value, proof: &Value) -> Result<(), Stri
     if proof["complete"] != true
         || !proof["error"].is_null()
         || vegetation["phase"] != "Ready"
-        || vegetation["map"] != game["map"]
+        || vegetation["scene_id"] != game["scene_id"]
         || vegetation["layers"].as_u64().unwrap_or(0) == 0
         || vegetation["mesh_instances"].as_u64().unwrap_or(0) == 0
         || vegetation["mesh_batches"].as_u64().unwrap_or(0) == 0
@@ -593,9 +593,9 @@ fn verify_game_with_prior_manifest(
         return Err("工程源文件指纹集合为空或超出验收上限".into());
     }
     if manifest_before_close.is_some()
-        && !files.iter().any(|file| file["path"] == CLOSE_MAP_MANIFEST_PATH)
+        && !files.iter().any(|file| file["path"] == CLOSE_SCENE_MANIFEST_PATH)
     {
-        return Err("退出前的工程运行缺少样例地图清单指纹".into());
+        return Err("退出前的工程运行缺少样例场景清单指纹".into());
     }
     for file in files {
         let relative = Path::new(file["path"].as_str().ok_or("工程源文件路径缺失")?);
@@ -605,9 +605,9 @@ fn verify_game_with_prior_manifest(
         {
             return Err("运行报告源文件路径无效".into());
         }
-        // F12 已经返回，关闭验收随后又保存了一次地图。样例清单用关闭前的真实磁盘字节核对。
+        // F12 已经返回，关闭验收随后又保存了一次场景。样例清单用关闭前的真实磁盘字节核对。
         let source = match manifest_before_close {
-            Some(before) if relative == Path::new(CLOSE_MAP_MANIFEST_PATH) => before.to_path_buf(),
+            Some(before) if relative == Path::new(CLOSE_SCENE_MANIFEST_PATH) => before.to_path_buf(),
             _ => project.context.asset_roots[0].join(relative),
         };
         let bytes = fs::read(source).map_err(|e| e.to_string())?;

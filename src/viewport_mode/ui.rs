@@ -5,7 +5,7 @@ use feathrise_editor_ui::InteractionButton;
 use super::{RequestViewportMode, ViewportMode, ViewportModeState, components::*};
 use bevy::prelude::*;
 use feathrise_editor_core::{ProjectLaunchButton, ProjectLaunchLabel, ProjectLaunchSettings};
-use feathrise_editor_map::workbench::WorkbenchHeader;
+use feathrise_editor_scene::workbench::WorkbenchHeader;
 use feathrise_editor_ui::{EditorButtonClick, colors as c};
 
 pub(super) fn mount(
@@ -111,7 +111,7 @@ pub(super) fn present_launch(
 #[cfg(test)]
 #[test]
 fn launch_caption_follows_both_selected_3d_sources() {
-    use feathrise_editor_map::standalone::SavedPlayFeedback;
+    use feathrise_editor_scene::standalone::SavedPlayFeedback;
     let mut app = App::new();
     app.init_resource::<ViewportModeState>()
         .init_resource::<super::ViewportModeAvailability>()

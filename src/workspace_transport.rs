@@ -15,7 +15,7 @@ use std::{
 
 const PREFIX: &[u8] = b"FEATHRISE_WORKSPACE/1 ";
 const PROTOCOL_FAMILY: &[u8] = b"FEATHRISE_WORKSPACE/";
-// 仅传低频工程操作和最多32条最近记录的模型快照；四槽上限保持，不承载地图文档或逐帧ECS。
+// 仅传低频工程操作和最多32条最近记录的模型快照；四槽上限保持，不承载场景文档或逐帧ECS。
 // 长中文路径与JSON转义可能使模型超过64KiB，512KiB上限仍限制每方向排队帧为最多2MiB。
 pub(crate) const MAX_FRAME_BYTES: usize = 512 * 1024;
 const QUEUE_CAPACITY: usize = 4;

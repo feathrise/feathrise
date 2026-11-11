@@ -12,7 +12,7 @@ mod components;
 pub use components::WorkspaceTabButton; // 共享标签不再被各预设正文的普通按钮配色覆盖。
 
 const TAB_HEIGHT: f32 = 28.0; // 文档标签比普通对象行稍高，给标题与关闭命中区留足空间。
-const TAB_FONT_SIZE: f32 = 11.5; // 地图与所有预设使用同一可读文字度量。
+const TAB_FONT_SIZE: f32 = 11.5; // 场景与所有预设使用同一可读文字度量。
 const TITLE_PADDING: f32 = 6.0; // 标题左右只保留紧凑点击留白。
 const CLOSE_SIZE: f32 = 20.0; // 普通关闭键为标签内部的小方形，而不是独立宽按钮。
 
@@ -46,12 +46,12 @@ fn tab_frame_node() -> Node {
     }
 }
 
-/// 永久地图标签同样按文字适配，但没有关闭槽位。
-pub fn map_tab_node() -> Node {
+/// 永久场景标签同样按文字适配，但没有关闭槽位。
+pub fn scene_tab_node() -> Node {
     Node {
         padding: UiRect::horizontal(Val::Px(TITLE_PADDING)), // 不可关闭的标签只保留文字两侧留白。
         justify_content: JustifyContent::Center,             // 单个标题在紧凑框内居中。
-        ..tab_frame_node() // 地图与预设共用高度、自然宽度及边框规格。
+        ..tab_frame_node() // 场景与预设共用高度、自然宽度及边框规格。
     }
 }
 

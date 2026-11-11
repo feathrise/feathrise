@@ -8,7 +8,7 @@ use bevy::{
 };
 #[cfg(windows)]
 use bevy::window::RawHandleWrapper;
-use feathrise_editor_map::{
+use feathrise_editor_scene::{
     standalone::viewport_projection::{ViewportControlShape, ViewportHostProjection},
     workbench::WorkbenchHostPageState,
 };

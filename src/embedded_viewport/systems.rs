@@ -7,7 +7,7 @@ use crate::viewport_mode::{
 };
 use bevy::{ecs::message::MessageCursor, prelude::*};
 use feathrise_editor_protocol::{CameraState, Message, Mode, SessionIdentity};
-use feathrise_editor_map::standalone::{
+use feathrise_editor_scene::standalone::{
     EmbeddedAuthorInput, RunSavedProject, SavedPlayFeedback, StandaloneEditorMode,
     embedded_snapshot::{self, EmbeddedSnapshotState},
 };
@@ -192,19 +192,19 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
             let capture = world.resource::<EmbeddedSnapshotState>();
             let ready = embedded_snapshot::ready_is_current(world);
             let author_empty =
-                capture.map_id.is_none() && !capture.pending && capture.error.is_none();
-            let empty = author_empty && runtime.map_id.is_none() && runtime.sent_revision == 0;
+                capture.scene_id.is_none() && !capture.pending && capture.error.is_none();
+            let empty = author_empty && runtime.scene_id.is_none() && runtime.sent_revision == 0;
             let required = capture
                 .ready
                 .as_ref()
                 .map_or(0, |snapshot| snapshot.author_revision);
             let error = capture.error.clone();
             if author_empty && !empty {
-                // 关闭作者图并不是清空游戏World的事务，不能把上一地图冒充新空工程预览。
+                // 关闭作者图并不是清空游戏World的事务，不能把上一场景冒充新空工程预览。
                 runtime.pending_play = false;
                 feedback(
                     world,
-                    "当前作者地图已关闭；请打开要预览的地图，或重新连接工程视口后预览空工程",
+                    "当前作者场景已关闭；请打开要预览的场景，或重新连接工程视口后预览空工程",
                 );
             } else if let Some(error) = error {
                 runtime.pending_play = false;
@@ -244,7 +244,7 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
         }
     }
     // 模式事实只更新运行按钮，不改变原工作台的显隐、布局、作者相机和文档焦点。
-    feathrise_editor_map::standalone::set_embedded_playing(world, status.playing);
+    feathrise_editor_scene::standalone::set_embedded_playing(world, status.playing);
     world
         .resource_mut::<ViewportModeAvailability>()
         .blocked_reason = if runtime.cleanup_failure.is_some() {
@@ -368,9 +368,9 @@ fn present_play_wait(
         runtime.play_wait = None;
         return;
     }
-    let empty = capture.map_id.is_none()
+    let empty = capture.scene_id.is_none()
         && !capture.pending
-        && runtime.map_id.is_none()
+        && runtime.scene_id.is_none()
         && runtime.sent_revision == 0;
     let ready_revision = capture
         .ready
@@ -550,7 +550,7 @@ fn start(
     runtime.geometry_revision = 0;
     runtime.camera = None;
     runtime.author_view = None;
-    runtime.map_id = None;
+    runtime.scene_id = None;
     runtime.overlay_generation = 0;
     runtime.tools_generation = 0;
     status.active = true;
@@ -613,7 +613,7 @@ fn poll(world: &mut World, runtime: &mut Runtime, status: &mut EmbeddedStatus) {
                         if runtime.snapshot_in_flight == Some(transaction)
                             && revision == transaction
                         {
-                            feathrise_editor_map::standalone::embedded_author_preview::snapshot_applied(
+                            feathrise_editor_scene::standalone::embedded_author_preview::snapshot_applied(
                                 world, frame.identity.session, frame.identity.generation, revision,
                             );
                             runtime.snapshot_in_flight = None;
@@ -888,7 +888,7 @@ fn sync_view(
         return;
     }
     let display =
-        feathrise_editor_map::standalone::viewport_projection::capture_render(world).map(|view| {
+        feathrise_editor_scene::standalone::viewport_projection::capture_render(world).map(|view| {
             feathrise_editor_protocol::AuthorViewState {
                 shading: view.shading,
                 wire: view.wire,
@@ -954,16 +954,16 @@ fn sync_snapshot(world: &mut World, runtime: &mut Runtime, status: &mut Embedded
     }
     let revision = snapshot.author_revision;
     let pose_targets = snapshot.pose_targets.clone();
-    let pose_map = feathrise_map_content::MapId(snapshot.map_id.clone());
-    let changed_map = runtime
-        .map_id
+    let pose_map = feathrise_scene_content::SceneId(snapshot.scene_id.clone());
+    let changed_scene = runtime
+        .scene_id
         .as_ref()
-        .is_some_and(|id| id != &snapshot.map_id);
+        .is_some_and(|id| id != &snapshot.scene_id);
     let generation = runtime
         .identity
         .as_ref()
         .map_or(1, |identity| identity.generation)
-        .saturating_add(u64::from(changed_map));
+        .saturating_add(u64::from(changed_scene));
     if send(
         runtime,
         Outgoing {
@@ -971,24 +971,24 @@ fn sync_snapshot(world: &mut World, runtime: &mut Runtime, status: &mut Embedded
             message: Message::Snapshot {
                 transaction: revision,
                 revision,
-                map_id: snapshot.map_id.clone(),
-                format: feathrise_map_content::embedded_snapshot::SCENE_SNAPSHOT_FORMAT.into(),
+                scene_id: snapshot.scene_id.clone(),
+                format: feathrise_scene_content::embedded_snapshot::SCENE_SNAPSHOT_FORMAT.into(),
             },
             payload: Some(snapshot.bytes.clone()),
         },
         status,
     ) {
-        // 只有完整快照进入唯一队列才推进代次；旧地图回执无法越过作者切图身份门。
+        // 只有完整快照进入唯一队列才推进代次；旧场景回执无法越过作者切换场景身份门。
         runtime
             .identity
             .as_mut()
             .expect("活动会话身份存在")
             .generation = generation;
-        runtime.map_id = Some(snapshot.map_id.clone());
+        runtime.scene_id = Some(snapshot.scene_id.clone());
         runtime.sent_revision = revision;
         runtime.snapshot_in_flight = Some(revision);
         runtime.snapshot_started = Some(Instant::now());
-        feathrise_editor_map::standalone::embedded_author_preview::snapshot_sent(
+        feathrise_editor_scene::standalone::embedded_author_preview::snapshot_sent(
             world, runtime.identity.as_ref().unwrap().session, generation, revision,
             pose_map, pose_targets,
         );
@@ -1006,7 +1006,7 @@ fn sync_overlay(world: &mut World, runtime: &mut Runtime, status: &mut EmbeddedS
         return;
     }
     let overlay =
-        world.resource::<feathrise_editor_map::standalone::embedded_overlay::EmbeddedOverlay>();
+        world.resource::<feathrise_editor_scene::standalone::embedded_overlay::EmbeddedOverlay>();
     if overlay.generation == runtime.overlay_generation
         || overlay.revision != status.applied_revision
     {
@@ -1052,8 +1052,8 @@ pub(super) fn play_blocker(world: &World) -> Option<String> {
     {
         return Some("请先等待工程启动设置保存完成".into());
     }
-    feathrise_editor_map::standalone::embedded_play_blocker(world)
-        .or_else(|| feathrise_editor_map::standalone::saved_play_blocker(world))
+    feathrise_editor_scene::standalone::embedded_play_blocker(world)
+        .or_else(|| feathrise_editor_scene::standalone::saved_play_blocker(world))
 }
 
 #[cfg(test)]
@@ -1267,7 +1267,7 @@ mod tests {
             capture.enabled = true;
             capture.pending = true;
             capture.revision = 4;
-            capture.map_id = Some("empty-map".into());
+            capture.scene_id = Some("empty-map".into());
         }
         let (sender, _commands) = mpsc::sync_channel(4);
         let (_, receiver) = mpsc::sync_channel(1);
@@ -1406,8 +1406,8 @@ mod tests {
         world.init_resource::<EmbeddedAuthorInput>();
         world.init_resource::<EmbeddedSnapshotState>();
         world
-            .init_resource::<feathrise_editor_map::standalone::embedded_overlay::EmbeddedOverlay>();
-        world.init_resource::<feathrise_editor_map::standalone::embedded_tools::EmbeddedAuthorTools>();
+            .init_resource::<feathrise_editor_scene::standalone::embedded_overlay::EmbeddedOverlay>();
+        world.init_resource::<feathrise_editor_scene::standalone::embedded_tools::EmbeddedAuthorTools>();
         world.insert_resource(EmbeddedStatus {
             active: true,
             ..default()
@@ -1511,7 +1511,7 @@ mod tests {
     #[test]
     fn snapshot_applied_rearms_unchanged_author_tool_generation() {
         use feathrise_editor_protocol::AuthorToolPreview;
-        use feathrise_editor_map::standalone::embedded_tools::EmbeddedAuthorTools;
+        use feathrise_editor_scene::standalone::embedded_tools::EmbeddedAuthorTools;
 
         let (sender, commands) = mpsc::sync_channel(1);
         let (events, receiver) = mpsc::sync_channel(2);
@@ -1519,7 +1519,7 @@ mod tests {
         let (release, wait) = mpsc::sync_channel(1);
         let mut runtime = Runtime::default();
         runtime.identity = Some(identity(2));
-        runtime.map_id = Some("map-a".into());
+        runtime.scene_id = Some("map-a".into());
         runtime.sent_revision = 12;
         runtime.snapshot_in_flight = Some(12);
         runtime.snapshot_started = Some(Instant::now());
@@ -1532,7 +1532,7 @@ mod tests {
         world.init_resource::<ViewportModeState>();
         world.init_resource::<Messages<SavedPlayFeedback>>();
         world.insert_resource(EmbeddedAuthorTools {
-            revision: 99, map_id: Some("map-a".into()), generation: 11,
+            revision: 99, scene_id: Some("map-a".into()), generation: 11,
             preview: AuthorToolPreview::default(), error: None,
         });
         let mut status = EmbeddedStatus {
@@ -1731,7 +1731,7 @@ mod tests {
         world.init_resource::<Messages<SavedPlayFeedback>>();
         world.init_resource::<EmbeddedAuthorInput>();
         world.init_resource::<EmbeddedSnapshotState>();
-        world.init_resource::<feathrise_editor_map::standalone::embedded_overlay::EmbeddedOverlay>();
+        world.init_resource::<feathrise_editor_scene::standalone::embedded_overlay::EmbeddedOverlay>();
         world.resource_mut::<EmbeddedSnapshotState>().revision = 42;
         let profile = if change_backend { ProjectBuildProfile::Debug } else { ProjectBuildProfile::Release };
         let backend = if change_backend { crate::native_play::ProjectBuildBackend::Native } else { crate::native_play::ProjectBuildBackend::Dx };

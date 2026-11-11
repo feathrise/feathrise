@@ -76,7 +76,7 @@ fn parse_target(hwnd: Option<String>, pid: Option<String>) -> Result<Option<Embe
     }
 }
 
-/// Ready只表示窗口已正确嵌入且原字体/最小UI帧已就绪，地图与文档就绪仍由作者运行时确认。
+/// Ready只表示窗口已正确嵌入且原字体/最小UI帧已就绪，场景与文档就绪仍由作者运行时确认。
 #[derive(Resource, Debug, Default)]
 pub(crate) struct EmbeddedAuthorStatus {
     pub hwnd: Option<usize>,

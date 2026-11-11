@@ -6,7 +6,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [features]
-runtime_test_support = [] # 仅根程序开发测试启用独立作者目录，真实保存回归不写用户地图。
+runtime_test_support = [] # 仅根程序开发测试启用独立作者目录，真实保存回归不写用户场景。
 
 [dependencies]
 bevy = { workspace = true }

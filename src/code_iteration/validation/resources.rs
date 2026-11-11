@@ -7,10 +7,10 @@ use std::{path::PathBuf, time::Instant};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Phase {
     Open, Local, Embedded, FirstAdded, SecondAdded, Undo, NoteOpen, NoteEdit,
-    CloseConfirm, CloseDrain, CloseCancelled, CloseRecovered, CloseReconnectLocal, CloseMapCapture, CloseReturnNote,
+    CloseConfirm, CloseDrain, CloseCancelled, CloseRecovered, CloseReconnectLocal, CloseSceneCapture, CloseReturnNote,
     FunctionHotpatch,
     ControllerOpen, InvalidBuffer, SaveInvalid, CompileFailed,
-    Diagnostics, Located, FixedBuffer, SaveFixed, CandidateReady, ReturnNote, ReturnMap,
+    Diagnostics, Located, FixedBuffer, SaveFixed, CandidateReady, ReturnNote, ReturnScene,
     BeforeCapture, Applying, AfterCapture, Report, Closing, Finished,
 }
 

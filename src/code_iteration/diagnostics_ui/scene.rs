@@ -5,7 +5,7 @@ use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::{ROW_HEIGHT, ROW_POOL}};
 use bevy::{picking::hover::Hovered, prelude::*, ui::{FocusPolicy, RelativeCursorPosition},
     ui_widgets::{ControlOrientation, Scrollbar, ScrollbarThumb}};
-use feathrise_editor_map::workbench::{WorkbenchFloatingPanel, WorkbenchHeader};
+use feathrise_editor_scene::workbench::{WorkbenchFloatingPanel, WorkbenchHeader};
 use feathrise_editor_ui::colors as c;
 
 pub(super) fn mount(mut commands: Commands, headers: Query<(Entity, Option<&ChildOf>), Added<WorkbenchHeader>>, assets: Res<AssetServer>) {

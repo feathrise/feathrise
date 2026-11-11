@@ -1,4 +1,4 @@
-//! JSON内容处理与私有界面构造；不依赖地图状态、文件事务或原生输入调度。
+//! JSON内容处理与私有界面构造；不依赖场景状态、文件事务或原生输入调度。
 pub(crate) mod components {
     pub(crate) use feathrise_editor_documents_model::json::components::*;
 }

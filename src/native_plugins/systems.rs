@@ -3,13 +3,13 @@ use super::resources::Event;
 use super::{components::*, resources::*};
 use bevy::{input_focus::InputFocus, prelude::*, text::EditableText};
 use feathrise_editor_core::{AssetPreviewFocus, EditorTextInputGuard, WorkspaceDomainState};
-use feathrise_editor_map::game_authoring::{
+use feathrise_editor_scene::game_authoring::{
     self,
-    map_api::{
-        resources::{EditorAssetCatalog, MapEditorState},
+    scene_api::{
+        resources::{EditorAssetCatalog, SceneEditorState},
         types::EditorTool,
         ui::{
-            sidebars::{EditorLeftSidebarTab, EditorRightSidebarTab, MapEditorSidebarState},
+            sidebars::{EditorLeftSidebarTab, EditorRightSidebarTab, SceneEditorSidebarState},
             vegetation_preset_editor::*,
         },
     },
@@ -21,7 +21,7 @@ use feathrise_plugin_api::Request;
 
 pub(super) fn input(
     mut state: ResMut<NativeTools>,
-    mut sidebar: ResMut<MapEditorSidebarState>,
+    mut sidebar: ResMut<SceneEditorSidebarState>,
     mut workspace: ResMut<VegetationPresetEditorState>,
     buttons: Query<(&ToolButton, &EditorButtonClick)>,
     mut fields: Query<(Entity, &mut ToolText, &mut EditableText)>,
@@ -31,7 +31,7 @@ pub(super) fn input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut focus: ResMut<InputFocus>,
     guard: Res<EditorTextInputGuard>,
-    mut editor: ResMut<MapEditorState>,
+    mut editor: ResMut<SceneEditorState>,
     mut preview_focus: ResMut<AssetPreviewFocus>,
     numeric: Res<feathrise_editor_ui::ActiveNumericInput>,
     scrub: Res<feathrise_editor_ui::ActiveNumericInputScrub>,
@@ -80,7 +80,7 @@ pub(super) fn input(
         if valid && unique && let Some((entity, path)) = row {
             // 按钮可能暂时取得InputFocus；还给本行才能避免下一帧失焦被误当作字段提交。
             focus.set(entity, bevy::input_focus::FocusCause::Pressed);
-            if let Err(error) = game_authoring::map_api::asset_catalog::request_asset_reveal(
+            if let Err(error) = game_authoring::scene_api::asset_catalog::request_asset_reveal(
                 &mut catalog, &mut editor, &mut sidebar, path.trim(),
             ) {
                 editor.status = error;
@@ -195,8 +195,8 @@ pub(super) fn input(
             .tools
             .iter()
             .find(|(_, t)| tool_visible(t, &sidebar, &workspace))?;
-        if tool.snapshot.map_domain.is_some() {
-            // 地图领域由原地图会话唯一保存/撤销；通用预设快捷键不能再发另一套独立保存。
+        if tool.snapshot.scene_domain.is_some() {
+            // 场景领域由原场景会话唯一保存/撤销；通用预设快捷键不能再发另一套独立保存。
             if save { editor.save_requested = true; }
             return None;
         }
@@ -273,7 +273,7 @@ pub(super) fn input(
             if workspace.active_tab
                 == feathrise_editor_core::PresetWorkspaceTab::Domain(tool.domain, 0)
             {
-                workspace.active_tab = feathrise_editor_core::PresetWorkspaceTab::Map;
+                workspace.active_tab = feathrise_editor_core::PresetWorkspaceTab::Scene;
             }
             workspace.touch_ui();
             state.ui_revision += 1;
@@ -356,11 +356,11 @@ pub(super) fn input(
 
 pub(super) fn poll(
     mut state: ResMut<NativeTools>,
-    mut editor: ResMut<MapEditorState>,
+    mut editor: ResMut<SceneEditorState>,
     mut domains: ResMut<WorkspaceDomainState>,
     mut workspace: ResMut<VegetationPresetEditorState>,
     mut clipboard: ResMut<bevy::clipboard::Clipboard>,
-    mut sidebar: ResMut<MapEditorSidebarState>,
+    mut sidebar: ResMut<SceneEditorSidebarState>,
     mut preview_focus: ResMut<AssetPreviewFocus>,
 ) {
     let mut handoffs = Vec::new();
@@ -414,7 +414,7 @@ pub(super) fn poll(
                         close_confirmation: None,
                         choices: None,
                         latest_activation: 0,
-                        map_pending: false,
+                        scene_pending: false,
                     },
                 );
                 state.ui_revision += 1;
@@ -471,8 +471,8 @@ pub(super) fn poll(
                                     );
                                 workspace.touch_ui();
                             }
-                            tool.map_pending = snapshot.map_domain.as_ref().is_some_and(|next|
-                                tool.snapshot.map_domain.as_ref().is_some_and(|before| next.edit_sequence != before.edit_sequence));
+                            tool.scene_pending = snapshot.scene_domain.as_ref().is_some_and(|next|
+                                tool.snapshot.scene_domain.as_ref().is_some_and(|before| next.edit_sequence != before.edit_sequence));
                             tool.snapshot = snapshot;
                         }
                     }
@@ -492,12 +492,12 @@ pub(super) fn poll(
     }
     for (source, handoff) in handoffs {
         let result = (|| -> Result<&'static str,String> {
-            if !editor.open || editor.selected_map_id.is_none() || editor.map_transition_in_progress {
-                return Err("请先打开一张可编辑地图，再将此预设用于地图".into());
+            if !editor.open || editor.selected_scene_id.is_none() || editor.scene_transition_in_progress {
+                return Err("请先打开一张可编辑场景，再将此预设用于场景".into());
             }
-            let tool = state.tools.values_mut().find(|tool|tool.domain == handoff.target && tool.snapshot.map_domain.is_some())
-                .ok_or("当前工程尚未安装目标地图作者插件")?;
-            if tool.snapshot.active == 0 || tool.busy() { return Err("地图作者仍在加载或处理操作，请完成后重试".into()); }
+            let tool = state.tools.values_mut().find(|tool|tool.domain == handoff.target && tool.snapshot.scene_domain.is_some())
+                .ok_or("当前工程尚未安装目标场景作者插件")?;
+            if tool.snapshot.active == 0 || tool.busy() { return Err("场景作者仍在加载或处理操作，请完成后重试".into()); }
             for edit in handoff.edits {
                 tool.send(Request::Edit { document:tool.snapshot.active, field:edit.field, value:edit.value }, false)?;
             }
@@ -506,14 +506,14 @@ pub(super) fn poll(
         })();
         match result {
             Ok(domain) => {
-                workspace.active_tab = feathrise_editor_core::PresetWorkspaceTab::Map;
+                workspace.active_tab = feathrise_editor_core::PresetWorkspaceTab::Scene;
                 workspace.touch_ui();
                 sidebar.left = EditorLeftSidebarTab::Domain(domain);
                 sidebar.right = EditorRightSidebarTab::Tools;
                 editor.tool = EditorTool::Domain(domain);
                 sidebar.observed_tool = editor.tool;
                 preview_focus.show_workspace();
-                editor.status = "已选择已保存预设；在当前地图真实承托面上放置点位。".into();
+                editor.status = "已选择已保存预设；在当前场景真实承托面上放置点位。".into();
             }
             Err(error) => {
                 editor.status = error.clone();
@@ -523,7 +523,7 @@ pub(super) fn poll(
         state.ui_revision = state.ui_revision.wrapping_add(1);
     }
     for tool in state.tools.values_mut() {
-        if tool.inflight.is_none() && tool.fault.is_none() && !tool.map_pending {
+        if tool.inflight.is_none() && tool.fault.is_none() && !tool.scene_pending {
             if let Some(job) = tool.queue.pop_front() {
                 let sequence = job.sequence;
                 match tool.requests.try_send(job) {
@@ -565,7 +565,7 @@ pub(super) fn poll(
 /// 正文反馈实体只供底栏详情收集，不能据此判断保存结果。
 /// 插件错误与保存回执显式进入公共反馈槽，用户无需展开详情才知道失败。
 fn publish_feedback(
-    editor: &mut MapEditorState,
+    editor: &mut SceneEditorState,
     tool: &Tool,
     request: &Request,
     snapshot: &feathrise_plugin_api::Snapshot,
@@ -618,7 +618,7 @@ pub(super) fn preview(
     focus: Res<AssetPreviewFocus>,
     mut external: ResMut<game_authoring::ExternalAssetPreviewRequest>,
     mut hosts: Query<(Entity, &ToolPreviewHost, &mut Node, Option<&ImageNode>, Option<&super::runtime_preview::RuntimeCanvas>)>,
-    sidebar: Res<MapEditorSidebarState>,
+    sidebar: Res<SceneEditorSidebarState>,
     mut runtime: super::runtime_preview::Context,
     local: Res<super::local_prefab::State>,
     assets: Res<AssetServer>,
@@ -743,7 +743,7 @@ pub(super) fn preview(
 /// 文档工作台可在浏览右侧候选资产时继续编辑；旧通用工具仍按工具页显隐。
 fn tool_visible(
     tool: &Tool,
-    sidebar: &MapEditorSidebarState,
+    sidebar: &SceneEditorSidebarState,
     workspace: &VegetationPresetEditorState,
 ) -> bool {
     if tool.snapshot.workbench.is_some() {

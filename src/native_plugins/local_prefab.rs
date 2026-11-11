@@ -2,12 +2,12 @@
 use super::resources::NativeTools;
 use bevy::{camera::visibility::RenderLayers, prelude::*, tasks::{IoTaskPool, Task, futures::check_ready}};
 use feathrise_runtime::project::author_visuals::{self as render, AuthorPrefabError, AuthorPrefabReady};
-use feathrise_map_content::author_visuals::{AuthorPrefabPreview, AUTHOR_PREFAB_PREVIEW_KIND};
+use feathrise_scene_content::author_visuals::{AuthorPrefabPreview, AUTHOR_PREFAB_PREVIEW_KIND};
 use feathrise_editor_core::{AssetPreviewFocus, PresetWorkspaceTab};
-use feathrise_editor_map::game_authoring::map_api::ui::{sidebars::*, vegetation_preset_editor::VegetationPresetEditorState};
-use feathrise_editor_map::game_authoring::map_api::ui::asset_preview::AssetPreviewState;
-use feathrise_editor_map::game_authoring::map_api::ui::asset_preview::types::AssetPreviewRetiredRoot;
-use feathrise_editor_map::game_authoring::map_api::resources::MapEditorState;
+use feathrise_editor_scene::game_authoring::scene_api::ui::{sidebars::*, vegetation_preset_editor::VegetationPresetEditorState};
+use feathrise_editor_scene::game_authoring::scene_api::ui::asset_preview::AssetPreviewState;
+use feathrise_editor_scene::game_authoring::scene_api::ui::asset_preview::types::AssetPreviewRetiredRoot;
+use feathrise_editor_scene::game_authoring::scene_api::resources::SceneEditorState;
 use std::{path::PathBuf, sync::Arc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,15 +59,15 @@ pub(super) fn ready_to_exit(world: &World) -> bool {
 }
 fn wanted(world: &World) -> Option<Key> {
     let settings = world.resource::<Settings>();
-    let editor = world.resource::<MapEditorState>();
+    let editor = world.resource::<SceneEditorState>();
     if !editor.open || editor.close_requested
         || feathrise_editor_core::editor_project_paths().is_some_and(|paths|
         paths.project_root() != settings.root || paths.asset_root() != settings.assets)
-        || world.get_resource::<feathrise_map_content::RuntimeAssetRoot>()
+        || world.get_resource::<feathrise_scene_content::RuntimeAssetRoot>()
             .is_some_and(|root| root.asset_root() != settings.assets)
         || world.get_resource::<crate::native_project_close::NativeProjectCloseState>().is_some_and(|close| close.active())
     { return None; }
-    let sidebar = world.resource::<MapEditorSidebarState>();
+    let sidebar = world.resource::<SceneEditorSidebarState>();
     let workspace = world.resource::<VegetationPresetEditorState>();
     if world.resource::<AssetPreviewFocus>().browsing(workspace.active_tab) { return None; }
     world.resource::<NativeTools>().tools.iter().find_map(|(&index, tool)| {
@@ -90,7 +90,7 @@ fn prepare(assets: PathBuf, payload: serde_json::Value) -> Result<Arc<AuthorPref
         .chain(preview.prefab.attachments.iter().map(|attachment| &attachment.model))
         .chain(preview.prefab.idle.iter().map(|animation| &animation.asset))
     {
-        let source = feathrise_map_content::authoring_io::safe_content_path(&assets, path)?;
+        let source = feathrise_scene_content::authoring_io::safe_content_path(&assets, path)?;
         if !source.is_file() { return Err(format!("作者预览资产不存在：{path}")); }
     }
     Ok(Arc::new(preview))
@@ -130,7 +130,7 @@ fn drive(world: &mut World) {
             if let Some((_, cached)) = state.cached.as_ref().filter(|(identity, _)| *identity == key) {
                 let prefab = Arc::new(cached.prefab.clone());
                 state.root = Some(render::spawn_prefab(world, prefab, RenderLayers::layer(
-                    feathrise_editor_core::constants::render_layers::MAP_EDITOR_ASSET_PREVIEW_LAYER,
+                    feathrise_editor_core::constants::render_layers::SCENE_EDITOR_ASSET_PREVIEW_LAYER,
                 )));
             } else if state.task.is_none() && state.attempted.as_ref() != Some(&key) {
                 state.attempted = Some(key.clone());

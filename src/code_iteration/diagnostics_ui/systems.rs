@@ -6,7 +6,7 @@ use super::super::resources::CodeIterationState;
 use super::super::types::CodeIterationPhase;
 use crate::compiler_diagnostics::{CompilerDiagnostic, DiagnosticLevel};
 use bevy::{input::mouse::{MouseScrollUnit, MouseWheel}, input_focus::InputFocus, prelude::*, ui::{InteractionDisabled, RelativeCursorPosition}};
-use feathrise_editor_map::{standalone::OpenProjectSourceLocation,
+use feathrise_editor_scene::{standalone::OpenProjectSourceLocation,
     workbench::{WorkbenchFloatingPanels, WorkbenchHostPageState, WorkbenchModel}};
 use feathrise_editor_ui::{EditorButtonClick, colors as c, localization::EditorLocale};
 

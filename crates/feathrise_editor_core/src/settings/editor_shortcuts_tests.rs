@@ -23,7 +23,7 @@ fn rotation_and_scale_shortcuts_preserve_old_custom_bindings_and_round_trip() {
     let defaults = EditorKeyBindings::default();
     assert_eq!(defaults.get(EditorShortcutAction::RotateSelected), Some(EditorKeyBinding::plain(KeyCode::KeyE)));
     assert_eq!(defaults.get(EditorShortcutAction::ScaleSelected), Some(EditorKeyBinding::plain(KeyCode::KeyR)));
-    let old = BTreeMap::from([("focus_selected".into(), Some("KeyE".into())), ("frame_map".into(), Some("KeyR".into()))]);
+    let old = BTreeMap::from([("focus_selected".into(), Some("KeyE".into())), ("frame_scene".into(), Some("KeyR".into()))]);
     let mut bindings = EditorKeyBindings::from_saved(&old);
     assert_eq!(bindings.get(EditorShortcutAction::RotateSelected), None);
     assert_eq!(bindings.get(EditorShortcutAction::ScaleSelected), None);
@@ -78,7 +78,7 @@ fn assignment_rejects_conflicts_and_reserved_keys_without_partial_changes() {
             Some(EditorKeyBinding::plain(KeyCode::Home))
         ),
         Err(EditorShortcutConflict::InUse(
-            EditorShortcutAction::FrameMap
+            EditorShortcutAction::FrameScene
         ))
     );
     for key in [
@@ -99,7 +99,7 @@ fn assignment_rejects_conflicts_and_reserved_keys_without_partial_changes() {
     }
     assert_eq!(bindings, before);
     bindings
-        .assign(EditorShortcutAction::FrameMap, None)
+        .assign(EditorShortcutAction::FrameScene, None)
         .unwrap();
     bindings
         .assign(
@@ -136,8 +136,8 @@ fn all_supported_keys_and_modifier_combinations_round_trip() {
 fn partial_or_bad_saved_bindings_preserve_valid_overrides_and_never_duplicate() {
     let data = BTreeMap::from([
         ("focus_selected".into(), Some("Ctrl+Shift+KeyG".into())),
-        ("frame_map".into(), None),
-        ("save_map".into(), Some("F12".into())),
+        ("frame_scene".into(), None),
+        ("save_scene".into(), Some("F12".into())),
         ("undo".into(), Some("Ctrl+Ctrl+KeyZ".into())),
         ("redo".into(), Some("Ctrl+KeyZ".into())),
         ("future_action".into(), Some("KeyH".into())),
@@ -150,7 +150,7 @@ fn partial_or_bad_saved_bindings_preserve_valid_overrides_and_never_duplicate() 
             .display(),
         "Ctrl+Shift+G"
     );
-    assert_eq!(bindings.get(EditorShortcutAction::FrameMap), None);
+    assert_eq!(bindings.get(EditorShortcutAction::FrameScene), None);
     assert_eq!(
         bindings.get(EditorShortcutAction::Save),
         EditorKeyBindings::default().get(EditorShortcutAction::Save)

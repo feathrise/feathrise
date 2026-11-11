@@ -10,7 +10,7 @@ Feathrise 自有源码采用根目录 [MIT](LICENSE-MIT) 或 [Apache-2.0](LICENS
 | --- | --- |
 | [assets/icons/editor/](assets/icons/editor/) | 22 张工具、目录树及网格状态 PNG 图标 |
 | [tests/fixtures/](tests/fixtures/) | 模型与贴图验收资源及说明 |
-| [crates/feathrise_editor_map/tests/fixtures/](crates/feathrise_editor_map/tests/fixtures/) | 动画、蒙皮、资产引用和植被模型，以及建筑、院落、地表、植被、水域和笔刷测试参数 |
+| [crates/feathrise_editor_scene/tests/fixtures/](crates/feathrise_editor_scene/tests/fixtures/) | 动画、蒙皮、资产引用和植被模型，以及建筑、院落、地表、植被、水域和笔刷测试参数 |
 
 本项目使用这些素材进行测试，普通新建工程不会复制它们；这项使用方式不限制使用者按双许可复用素材。
 

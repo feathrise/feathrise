@@ -3,9 +3,9 @@ use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::NativeTools};
 use bevy::prelude::*;
-use feathrise_editor_map::game_authoring::{
+use feathrise_editor_scene::game_authoring::{
     DomainModuleHost, DomainToolLabels, DomainToolPreviewHost, DomainToolsHost,
-    map_api::ui::sidebars::*,
+    scene_api::ui::sidebars::*,
 };
 use feathrise_editor_ui::{colors as c, *};
 use feathrise_plugin_api::{Field, FieldKind, Request};
@@ -62,11 +62,11 @@ pub(super) fn mount(
         commands.entity(host).with_children(|parent| {
             // 常驻页面保留滚动、输入和预览宿主；切工具只改变公共页签身份。
             parent.spawn((ToolPanel { index, revision:0 },
-                MapEditorSidebarPage(EditorSidebarTab::Left(EditorLeftSidebarTab::Domain(tool.domain))),
+                SceneEditorSidebarPage(EditorSidebarTab::Left(EditorLeftSidebarTab::Domain(tool.domain))),
                 Node { display:Display::None, width:percent(100), min_width:px(0), min_height:px(0), flex_grow:1.,
                     flex_basis:px(0), flex_direction:FlexDirection::Column, overflow:Overflow::scroll_y(), row_gap:px(5), ..default() },
                 ScrollPosition::default(), bevy::ui::RelativeCursorPosition::default(),
-                feathrise_editor_map::game_authoring::map_api::components::MapEditorRightPanelScroll,
+                feathrise_editor_scene::game_authoring::scene_api::components::SceneEditorRightPanelScroll,
             )).with_children(|panel| {
                 panel.spawn((ToolBody(index), Node { width:percent(100), min_width:px(0), flex_shrink:0., flex_direction:FlexDirection::Column, row_gap:px(5), ..default() }));
                 // 唯一预览画布独立于可重建表单，回复刷新不能回收画布。
@@ -82,7 +82,7 @@ pub(super) fn append(
     mut commands: Commands,
     assets: Res<AssetServer>,
     state: Res<NativeTools>,
-    sidebar: Res<MapEditorSidebarState>,
+    sidebar: Res<SceneEditorSidebarState>,
     focus: Res<bevy::input_focus::InputFocus>,
     fields: Query<&ToolText>,
     mut panels: Query<&mut ToolPanel>,
@@ -700,7 +700,7 @@ pub(super) fn button(
 /// 工具入口沿用同排选中反馈，切属性只记忆模块，不抢回正文。
 pub(super) fn sync_buttons(
     state: Res<NativeTools>,
-    sidebar: Res<MapEditorSidebarState>,
+    sidebar: Res<SceneEditorSidebarState>,
     mut buttons: Query<(
         &ToolButton,
         &UiInteraction,

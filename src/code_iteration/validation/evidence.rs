@@ -3,7 +3,7 @@
 use super::resources::Plan;
 use crate::embedded_viewport::{EmbeddedStatus, validation as embedded};
 use bevy::{prelude::*, render::view::screenshot::{Screenshot, ScreenshotCaptured}, tasks::{IoTaskPool, futures::check_ready}};
-use feathrise_editor_map::standalone::{self, embedded_validation as author};
+use feathrise_editor_scene::standalone::{self, embedded_validation as author};
 use serde_json::{Value, json};
 use std::{fs, io::Read, time::{Duration, Instant}};
 
