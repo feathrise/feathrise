@@ -54,6 +54,8 @@ enum Phase {
     RigBind,
     RigPublished,
     Enter,
+    HideSkeleton,
+    ShowSkeleton,
     BoxTool,
     Aim,
     Press,
@@ -82,6 +84,7 @@ enum Phase {
     WalkSelect,
     WalkPlay,
     WalkPose,
+    WalkImage,
     OpenCopy,
     Finish,
 }
@@ -167,7 +170,7 @@ pub(in crate::ui::asset_preview) fn install(
         pose: None,
     })
     .add_systems(Update, focus.before(crate::SceneEditorSystemSet::Input))
-    .add_systems(Last, drive);
+    .add_systems(Last, drive.after(bevy::gizmos::GizmoMeshSystems));
     Ok(())
 }
 
@@ -375,13 +378,14 @@ fn drive(world: &mut World) {
             let preview = world.resource::<AssetPreviewState>();
             let sidebar = world.resource::<SceneEditorSidebarState>();
             Err(format!(
-                "权重验收等待 {:?} 超时，{:?} {:?}，草稿 {}，任务 {}，笔画 {}，{}",
+                "权重验收等待 {:?} 超时，{:?} {:?}，草稿 {}，任务 {}，笔画 {}，骨架绘制 {}，{}",
                 run.phase,
                 sidebar.right,
                 preview.selected_path,
                 state.session.is_some(),
                 state.work.is_some(),
                 state.stroke.is_some(),
+                super::skeleton::submitted(world),
                 state.notice
             ))
         } else {
@@ -484,18 +488,39 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             run.generated = Some((path.to_owned(), Sha256::digest(bytes).to_vec()));
             Phase::Enter
         }
-        Phase::Enter if button(world, run, Action::Open) => Phase::BoxTool,
-        Phase::BoxTool => {
+        Phase::Enter if button(world, run, Action::Open) => Phase::HideSkeleton,
+        Phase::HideSkeleton => {
             let expected = run.generated.as_ref().map_or(run.source, |(path, _)| path);
-            if !world
+            let Some(session) = world
                 .resource::<WeightEditor>()
                 .session
                 .as_ref()
-                .is_some_and(|session| session.key.path == expected)
-                || !button(world, run, Action::Mode(Tool::Box))
-            {
+                .filter(|session| session.key.path == expected)
+            else {
+                return Ok(None);
+            };
+            if !session.show_skeleton {
+                return Err("进入权重页时骨架没有默认显示".into());
+            }
+            if !super::skeleton::submitted(world) || !button(world, run, Action::Skeleton) {
                 return Ok(None);
             }
+            Phase::ShowSkeleton
+        }
+        Phase::ShowSkeleton
+            if world.resource::<WeightEditor>().session.as_ref()
+                .is_some_and(|session| !session.show_skeleton)
+                && !super::skeleton::submitted(world)
+                && button(world, run, Action::Skeleton) =>
+        {
+            Phase::BoxTool
+        }
+        Phase::BoxTool
+            if world.resource::<WeightEditor>().session.as_ref()
+                .is_some_and(|session| session.show_skeleton)
+                && super::skeleton::submitted(world)
+                && button(world, run, Action::Mode(Tool::Box)) =>
+        {
             Phase::Aim
         }
         Phase::Aim => {
@@ -766,12 +791,21 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             Phase::WalkPose
         }
         Phase::WalkPose => {
+            if observed(world, run, WALK).is_none()
+                || !sidebar(world, run, EditorRightSidebarTab::Tools)
+            {
+                return Ok(None);
+            }
+            Phase::WalkImage
+        }
+        Phase::WalkImage
+            if world.resource::<SceneEditorSidebarState>().right == EditorRightSidebarTab::Weights
+                && super::skeleton::submitted(world) =>
+        {
+            // 首次提交线条后继续等行走姿态推进，让截图覆盖完成渲染的骨架与模型。
             let Some(walk) = observed(world, run, WALK) else {
                 return Ok(None);
             };
-            if !sidebar(world, run, EditorRightSidebarTab::Tools) {
-                return Ok(None);
-            }
             run.walk = Some(walk);
             let path = run.root.join("weights-walk.png");
             world

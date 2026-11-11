@@ -13,6 +13,7 @@ mod preview;
 mod problem_validation;
 pub(crate) mod project_close;
 mod resources;
+mod skeleton;
 mod spatial;
 mod systems;
 #[cfg(feature = "validation")]
@@ -59,4 +60,5 @@ pub(super) fn install(app: &mut App) {
         .add_systems(PostUpdate, posed::capture.after(preview::update)
             .after(bevy::transform::TransformSystems::Propagate)
             .after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
+    skeleton::install(app);
 }

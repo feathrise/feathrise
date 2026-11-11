@@ -47,6 +47,7 @@ pub(super) enum Action {
     Rest,
     Compare,
     Heat,
+    Skeleton,
     Visible,
     Mirror,
     Mask,
@@ -154,7 +155,8 @@ pub(crate) fn sidebar_page() -> impl Scene {
             @row() Children [@button(Action::Apply)--@button(Action::Remove)--@button(Action::Assign)]--
             @label(Label::Selection)--
             @label(Label::Legend)--
-            @row() Children [@button(Action::Heat)--@button(Action::Compare)--@button(Action::Rest)]--
+            @row() Children [@button(Action::Heat)--@button(Action::Skeleton)]--
+            @row() Children [@button(Action::Compare)--@button(Action::Rest)]--
             @row() Children [@button(Action::Discard)--@button(Action::OpenSaved)]
         ]
     }
@@ -195,6 +197,7 @@ fn caption(action: Action, session: Option<&Session>, locale: EditorLocale) -> &
         }
         Action::Compare => ("查看原始", "Show original"),
         Action::Heat => ("热力图", "Heatmap"),
+        Action::Skeleton => ("骨架", "Skeleton"),
         Action::Visible => ("可见面", "Visible only"),
         Action::Mirror => ("镜像", "Mirror"),
         Action::Mask => ("仅选区", "Selection mask"),
@@ -306,6 +309,7 @@ pub(super) fn present(
             Action::Mode(tool) => session.tool == tool,
             Action::Compare => session.original,
             Action::Heat => session.heat,
+            Action::Skeleton => session.show_skeleton,
             Action::Visible => session.visible_only,
             Action::Mirror => session.mirror,
             Action::Mask => session.mask,

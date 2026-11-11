@@ -111,6 +111,19 @@ impl WeightPreview {
         }
         Some((self.scan_epoch, self.pose_parts.get(&root)?.as_slice()))
     }
+
+    pub(super) fn surface_entities(
+        &self,
+        key: &Key,
+        surface: usize,
+    ) -> impl Iterator<Item = Entity> + '_ {
+        let matches = self.key.as_ref() == Some(key);
+        // 静置和两个动作容器已经按当前模型登记，无需遍历场景层级或刚性附件。
+        self.parts
+            .iter()
+            .filter(move |part| matches && part.surface == surface)
+            .map(|part| part.entity)
+    }
 }
 
 pub(super) fn ready(

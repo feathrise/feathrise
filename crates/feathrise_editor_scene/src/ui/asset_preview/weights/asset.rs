@@ -21,13 +21,15 @@ pub(super) const MAX_VERTICES: usize = 500_000;
 const MAX_TRIANGLES: usize = 1_000_000;
 const MAX_NODES: usize = 8_192;
 const MAX_SURFACES: usize = 128;
-const MAX_JOINTS: usize = 256;
+pub(super) const MAX_JOINTS: usize = 256;
 pub(super) const MAX_FILE: usize = 256 * 1024 * 1024;
 const MAX_JSON: usize = 16 * 1024 * 1024;
 
 pub(super) struct Joint {
     pub node: usize,
     pub name: String,
+    /// 同一套蒙皮内最近的父关节，普通节点只参与中间变换。
+    pub parent: Option<u16>,
     pub opposite: Option<u16>,
     pub rest: Vec3,
 }
@@ -130,25 +132,34 @@ pub(super) fn chunks(bytes: &[u8]) -> Result<(Range<usize>, Range<usize>), Strin
     Ok((20..next, binary_start..binary_start + len))
 }
 
-fn worlds(doc: &gltf::Document) -> Result<Vec<Option<Mat4>>, String> {
-    let scene = doc.scenes().next().ok_or("GLB 缺少 Scene0")?;
-    let mut matrices = vec![None; doc.nodes().len()];
-    if matrices.len() > MAX_NODES {
-        return Err("GLB 节点数超过权重编辑预算".into());
-    }
-    let mut queue: Vec<_> = scene.nodes().map(|node| (node, Mat4::IDENTITY)).collect();
-    while let Some((node, parent)) = queue.pop() {
-        let matrix = parent * Mat4::from_cols_array_2d(&node.transform().matrix());
-        let slot = &mut matrices[node.index()];
-        if slot.replace(matrix).is_some() || !matrix.is_finite() {
-            return Err("Scene0 节点层级或变换无效".into());
-        }
-        queue.extend(node.children().map(|child| (child, matrix)));
-    }
-    Ok(matrices)
+#[derive(Clone, Copy)]
+struct SceneNode {
+    world: Mat4,
+    parent: Option<usize>,
 }
 
-fn make_skin(source: gltf::Skin<'_>, world: &[Option<Mat4>], bin: &[u8]) -> Result<Skin, String> {
+fn scene_nodes(doc: &gltf::Document) -> Result<Vec<Option<SceneNode>>, String> {
+    let scene = doc.scenes().next().ok_or("GLB 缺少 Scene0")?;
+    let mut nodes = vec![None; doc.nodes().len()];
+    if nodes.len() > MAX_NODES {
+        return Err("GLB 节点数超过权重编辑预算".into());
+    }
+    let mut stack: Vec<_> = scene
+        .nodes()
+        .map(|node| (node, Mat4::IDENTITY, None))
+        .collect();
+    while let Some((node, parent_world, parent)) = stack.pop() {
+        let world = parent_world * Mat4::from_cols_array_2d(&node.transform().matrix());
+        let index = node.index();
+        if nodes[index].replace(SceneNode { world, parent }).is_some() || !world.is_finite() {
+            return Err("Scene0 节点层级或变换无效".into());
+        }
+        stack.extend(node.children().map(|child| (child, world, Some(index))));
+    }
+    Ok(nodes)
+}
+
+fn make_skin(source: gltf::Skin<'_>, scene: &[Option<SceneNode>], bin: &[u8]) -> Result<Skin, String> {
     let nodes: Vec<_> = source.joints().collect();
     if nodes.is_empty() || nodes.len() > MAX_JOINTS {
         return Err("单套蒙皮需要 1–256 个关节".into());
@@ -165,6 +176,11 @@ fn make_skin(source: gltf::Skin<'_>, world: &[Option<Mat4>], bin: &[u8]) -> Resu
     if bindings.len() != nodes.len() {
         return Err("逆绑定矩阵与关节数量不一致".into());
     }
+    let mut joint_by_node = vec![None; scene.len()];
+    for (index, node) in nodes.iter().enumerate() {
+        joint_by_node[node.index()] = Some(index as u16);
+    }
+    let parent_of = |node: usize| scene[node].and_then(|entry| entry.parent);
     let mut joints: Vec<_> = nodes
         .iter()
         .map(|node| Joint {
@@ -173,6 +189,8 @@ fn make_skin(source: gltf::Skin<'_>, world: &[Option<Mat4>], bin: &[u8]) -> Resu
                 .name()
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("Joint {}", node.index())),
+            parent: std::iter::successors(parent_of(node.index()), |&parent| parent_of(parent))
+                .find_map(|parent| joint_by_node[parent]),
             opposite: None,
             rest: Vec3::ZERO,
         })
@@ -191,8 +209,8 @@ fn make_skin(source: gltf::Skin<'_>, world: &[Option<Mat4>], bin: &[u8]) -> Resu
     let positions: Vec<_> = nodes
         .iter()
         .map(|node| {
-            world[node.index()]
-                .map(|matrix| matrix.transform_point3(Vec3::ZERO))
+            scene[node.index()]
+                .map(|entry| entry.world.transform_point3(Vec3::ZERO))
                 .ok_or("蒙皮关节不在 Scene0 内")
         })
         .collect::<Result<_, _>>()?;
@@ -202,7 +220,7 @@ fn make_skin(source: gltf::Skin<'_>, world: &[Option<Mat4>], bin: &[u8]) -> Resu
     let matrices: Vec<_> = nodes
         .iter()
         .zip(bindings)
-        .map(|(node, bind)| world[node.index()].expect("已核对 Scene0 关节") * bind)
+        .map(|(node, bind)| scene[node.index()].expect("已核对 Scene0 关节").world * bind)
         .collect();
     if matrices.iter().any(|matrix| !matrix.is_finite()) {
         return Err("蒙皮矩阵包含无效数值".into());
@@ -263,7 +281,7 @@ pub(super) fn decode(
         return Err("权重编辑需要全部几何位于 GLB 的 BIN 块".into());
     }
     let bin = &source[binary.clone()];
-    let world = worlds(doc)?;
+    let scene = scene_nodes(doc)?;
     let mut surfaces = Vec::new();
     let mut rigid = Vec::new();
     let mut rigid_meshes = HashSet::new();
@@ -274,7 +292,7 @@ pub(super) fn decode(
     let mut maximum = -minimum;
     let mut shared = HashSet::new();
     let mut used = HashSet::new();
-    for node in doc.nodes().filter(|node| world[node.index()].is_some()) {
+    for node in doc.nodes().filter(|node| scene[node.index()].is_some()) {
         if let Some(mesh) = node.mesh()
             && !used.insert(mesh.index())
         {
@@ -282,16 +300,17 @@ pub(super) fn decode(
         }
     }
     for node in doc.nodes() {
-        let (Some(matrix), Some(mesh)) = (world[node.index()], node.mesh()) else {
+        let (Some(placement), Some(mesh)) = (scene[node.index()], node.mesh()) else {
             continue;
         };
+        let matrix = placement.world;
         let skin = if let Some(skin) = node.skin() {
             if shared.contains(&mesh.index()) {
                 return Err("同一网格被多个 Scene0 节点复用，请先拆分蒙皮网格".into());
             }
             let index = skin.index();
             if !skins.contains_key(&index) {
-                skins.insert(index, Arc::new(make_skin(skin, &world, bin)?));
+                skins.insert(index, Arc::new(make_skin(skin, &scene, bin)?));
             }
             Some(skins[&index].clone())
         } else {

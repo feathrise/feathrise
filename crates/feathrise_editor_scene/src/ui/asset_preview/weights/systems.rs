@@ -432,6 +432,7 @@ pub(super) fn actions(
             session.original = !session.original;
         }
         Action::Heat => session.heat = !session.heat,
+        Action::Skeleton => session.show_skeleton = !session.show_skeleton,
         Action::Visible => session.visible_only = !session.visible_only,
         Action::Mirror => session.mirror = !session.mirror,
         Action::Mask => session.mask = !session.mask,
