@@ -558,6 +558,11 @@ fn existing_target(target: &Path) -> Result<PathBuf, String> {
     target.canonicalize().map_err(|error| error.to_string())
 }
 
+/// DX 需要 rustup 来选择工程工具链；Rustup 缺失时普通 Cargo 仍可构建。
+pub(crate) fn rustup_available() -> bool {
+    crate::native_process::resolve_tool(&Command::new("rustup")).is_ok()
+}
+
 fn rustup_which(name: &str, project: &Project, control: &BuildControl) -> Result<PathBuf, String> {
     let mut command = Command::new("rustup"); command.args(["which", name]).current_dir(&project.root);
     PathBuf::from(small_output(&command, control)?.trim()).canonicalize().map_err(|error| error.to_string())

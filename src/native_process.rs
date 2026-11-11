@@ -9,6 +9,8 @@ mod unix;
 pub use windows::JobProcess;
 #[cfg(windows)]
 pub(crate) use windows::command_executable as resolve_tool;
+#[cfg(all(windows, feature = "validation"))]
+pub(crate) use windows::isolate_registry_for_validation;
 #[cfg(unix)]
 pub use unix::JobProcess;
 #[cfg(unix)]

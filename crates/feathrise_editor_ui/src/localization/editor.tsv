@@ -969,6 +969,10 @@ build_environment.unexpected_version	预期版本为 0.7.9，实际为 {version}
 build_environment.exit	退出码 {code} · {details}	Exit code {code} · {details}
 build_environment.empty_output	工具未返回预期输出	The tool did not return the expected output
 build_environment.scope	检查仅覆盖工具及配置，依赖与链接结果由实际构建确认。	This check covers tools and configuration. A build confirms dependencies and linking.
+build_environment.dx_rustup_missing	DX 需要 rustup，当前工具环境未找到 rustup。	DX requires rustup, which was not found in the current environment.
+rust_install.title	Feathrise 缺少 Rust 构建工具	Feathrise needs Rust build tools
+rust_install.instructions	找不到所需的 Cargo 或 Rust 编译器。请通过 Rustup 安装 Rust，然后重试当前操作。	Feathrise could not find Cargo or the Rust compiler. Install Rust using rustup, then try again.
+rust_install.open_page	是否打开 Rust 官方安装页？	Open the official Rust installation page?
 build_environment.lib_missing	未找到 {file}	Could not find {file}
 build_environment.default_linker	系统默认 C 链接器	Default system C linker
 build_environment.implicit_linker	请检查 Visual Studio C++ 工具和 Windows SDK	Check the Visual Studio C++ tools and Windows SDK

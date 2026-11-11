@@ -247,6 +247,10 @@ fn run_owned<T: Send + 'static>(
         Ok(spawned) => spawned,
         Err(failure) => {
             if failure.cleanup_unconfirmed { control.mark_cleanup_failed(); }
+            #[cfg(windows)]
+            if failure.rust_tool_missing && control.check().is_ok() {
+                crate::environment_diagnostics::rust_install::request();
+            }
             return Err(failure.message);
         }
     };

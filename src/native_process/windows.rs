@@ -4,6 +4,10 @@
 //! 此模块不按进程名或 PID 扫描、结束其他程序。调用者在后台排空 stdout/stderr，
 //! 停止后轮询 Job 计数归零；关闭句柄只是最后一道回收保障，不能冒充已确认清理。
 
+mod rust_tools;
+#[cfg(feature = "validation")]
+pub(crate) use rust_tools::isolate_registry_for_validation;
+
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
@@ -59,10 +63,13 @@ struct SpawnedProcess {
 pub(crate) struct SpawnFailure {
     pub(crate) message: String,
     pub(crate) cleanup_unconfirmed: bool,
+    pub(crate) rust_tool_missing: bool,
 }
 
 impl From<String> for SpawnFailure {
-    fn from(message: String) -> Self { Self { message, cleanup_unconfirmed: false } }
+    fn from(message: String) -> Self {
+        Self { message, cleanup_unconfirmed: false, rust_tool_missing: false }
+    }
 }
 
 impl From<&str> for SpawnFailure {
@@ -73,7 +80,7 @@ impl JobProcess {
     /// 仅在后台调用。返回的三个 File 依次为父端 stdin、stdout、stderr。
     #[cfg(test)] // 生产入口使用带明确工作目录及环境的 Command；此便捷入口只供进程回归夹具。
     pub fn spawn(exe: &Path, args: &[OsString]) -> Result<(Self, File, File, File), String> {
-        let spawned = Self::spawn_inner(exe, args, false, None).map_err(|failure| failure.message)?;
+        let spawned = Self::spawn_inner(exe, args, false, None, None).map_err(|failure| failure.message)?;
         Ok((
             spawned.process,
             spawned.input,
@@ -85,9 +92,9 @@ impl JobProcess {
     /// 后台构建工具沿用同一挂起创建／Job边界，并显式传递工作目录和环境覆盖。
     /// 只接受原生EXE，不经shell；调用者不得使用Command::env_clear（本入口保留宿主环境）。
     pub(crate) fn spawn_command(command: &Command) -> Result<(Self, File, File, File), SpawnFailure> {
-        let executable = command_executable(command)?;
+        let (executable, recovered) = resolve_command(command)?;
         let args: Vec<_> = command.get_args().map(OsStr::to_owned).collect();
-        let spawned = Self::spawn_inner(&executable, &args, false, Some(command))?;
+        let spawned = Self::spawn_inner(&executable, &args, false, Some(command), recovered.as_ref())?;
         Ok((spawned.process, spawned.input, spawned.output, spawned.errors))
     }
 
@@ -104,7 +111,7 @@ impl JobProcess {
         {
             return Err("专用管道句柄参数只能由宿主启动边界生成".into());
         }
-        let spawned = Self::spawn_inner(exe, args, true, None).map_err(|failure| failure.message)?;
+        let spawned = Self::spawn_inner(exe, args, true, None, None).map_err(|failure| failure.message)?;
         let (control_write, control_read) = spawned
             .control
             .expect("spawn_inner 专用通道请求必须返回两个父端");
@@ -121,12 +128,12 @@ impl JobProcess {
 
     /// 与普通工具共用受控创建边界，并给真实游戏EXE提供明确cwd、DLL环境及独立协议管道。
     pub(crate) fn spawn_runtime_command(command: &Command) -> Result<(Self, File, File, File, File), SpawnFailure> {
-        let executable = command_executable(command)?;
+        let (executable, recovered) = resolve_command(command)?;
         let args: Vec<_> = command.get_args().map(OsStr::to_owned).collect();
         if args.iter().any(|arg| arg == "--ipc-read" || arg == "--ipc-write") {
             return Err("协议管道句柄只能由受控进程边界生成".into());
         }
-        let spawned = Self::spawn_inner(&executable, &args, true, Some(command))?;
+        let spawned = Self::spawn_inner(&executable, &args, true, Some(command), recovered.as_ref())?;
         let (write, read) = spawned.control.expect("专用管道已经请求");
         drop(spawned.input);
         Ok((spawned.process, write, read, spawned.output, spawned.errors))
@@ -137,6 +144,7 @@ impl JobProcess {
         args: &[OsString],
         dedicated_control: bool,
         command_options: Option<&Command>,
+        recovered: Option<&rust_tools::RecoveredEnvironment>,
     ) -> Result<SpawnedProcess, SpawnFailure> {
         if !exe.is_absolute() {
             return Err("子进程启动必须提供可执行文件的绝对路径".into());
@@ -152,7 +160,7 @@ impl JobProcess {
         let working_directory = command_options.and_then(Command::get_current_dir)
             .map(|directory| directory.canonicalize().map_err(|e| format!("工具工作目录无效：{e}")))
             .transpose()?.map(|path| nul_terminated(process_image_path(&path).as_os_str())).transpose()?;
-        let environment = command_options.map(command_environment).transpose()?;
+        let environment = command_options.map(|command| command_environment(command, recovered)).transpose()?;
 
         let job = unsafe { CreateJobObjectW(null(), null()) };
         if job.is_null() {
@@ -451,7 +459,7 @@ fn abort_start(
             error.push_str(&format!("；启动失败Job仍有{}个进程，未确认收口", accounting.ActiveProcesses));
         }
     }
-    SpawnFailure { message: error, cleanup_unconfirmed }
+    SpawnFailure { message: error, cleanup_unconfirmed, rust_tool_missing: false }
 }
 
 fn nul_terminated(value: &OsStr) -> Result<Vec<u16>, String> {
@@ -529,34 +537,56 @@ fn command_line(executable: &OsStr, args: &[OsString]) -> Result<Vec<u16>, Strin
     Ok(result)
 }
 
-/// bare工具名只从本次环境的PATH查找，不让工程工作目录中的同名文件抢占Cargo/rustc。
+/// 预检与实际创建进程共用原生解析，不让工程工作目录中的同名文件抢占 Cargo/rustc。
 pub(crate) fn command_executable(command: &Command) -> Result<PathBuf, String> {
+    resolve_command(command).map(|(executable, _)| executable).map_err(|failure| failure.message)
+}
+
+fn resolve_command(command: &Command) -> Result<(PathBuf, Option<rust_tools::RecoveredEnvironment>), SpawnFailure> {
     let program = Path::new(command.get_program());
-    let mut recovered_directories = Vec::new();
-    let candidates = if program.is_absolute() || program.components().count() > 1 {
-        vec![if program.is_absolute() { program.to_owned() } else {
+    let mut missing = SpawnFailure::from(format!("找不到原生工具EXE：{}", program.display()));
+    if program.is_absolute() || program.components().count() > 1 {
+        let candidate = if program.is_absolute() { program.to_owned() } else {
             command.get_current_dir().map(Path::to_owned)
                 .unwrap_or(std::env::current_dir().map_err(|e| e.to_string())?).join(program)
-        }]
-    } else {
-        let overridden_path = command.get_envs().find(|(name, _)| name.to_string_lossy().eq_ignore_ascii_case("PATH"));
-        let path = match overridden_path {
-            Some((_, value)) => value.map(OsStr::to_owned),
-            None => std::env::var_os("PATH"),
-        }.ok_or("工具环境缺少PATH，必须提供EXE绝对路径")?;
-        recovered_directories = recover_unclosed_path_tail(&path);
-        std::env::split_paths(&path).filter(|directory| directory.is_absolute())
-            .map(|directory| directory.join(program)).collect()
-    };
-    // 标准解析的全部候选优先；仅标准未命中时才尝试坏引号之后的完整PATH项。
-    for mut candidate in candidates.into_iter().chain(recovered_directories.into_iter().map(|directory|directory.join(program))) {
-        if candidate.extension().is_none() { candidate.set_extension("exe"); }
-        if candidate.extension().is_none_or(|extension| !extension.to_string_lossy().eq_ignore_ascii_case("exe")) { continue; }
-        if let Ok(path) = candidate.canonicalize() {
-            if path.is_file() { return Ok(path); }
-        }
+        };
+        return native_executable(candidate).map(|path| (path, None)).ok_or(missing);
     }
-    Err(format!("找不到原生工具EXE：{}", program.display()))
+
+    let overridden = command.get_envs().find(|(name, _)| name.eq_ignore_ascii_case("PATH"));
+    let path = match overridden {
+        Some((_, value)) => value.map(OsStr::to_owned),
+        None => std::env::var_os("PATH"),
+    };
+    if let Some(found) = path.as_deref().and_then(|path| find_on_path(program, path)) {
+        return Ok((found, None));
+    }
+    // 显式的工具路径或子进程 PATH 已选定环境（例如冻结的 DX 构建），不能回退到别的工具链。
+    if overridden.is_none() && let Some(tool) = rust_tools::Tool::from_name(program.as_os_str()) {
+        if let Some((path, recovered)) = tool.recover(command, path.as_deref())? {
+            return Ok((path, Some(recovered)));
+        }
+        missing.rust_tool_missing = tool.requires_rust();
+    } else if path.is_none() {
+        return Err("工具环境缺少PATH，必须提供EXE绝对路径".into());
+    }
+    Err(missing)
+}
+
+fn native_executable(mut candidate: PathBuf) -> Option<PathBuf> {
+    if candidate.extension().is_none() { candidate.set_extension("exe"); }
+    if !candidate.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("exe")) {
+        return None;
+    }
+    candidate.canonicalize().ok().filter(|path| path.is_file())
+}
+
+fn find_on_path(program: &Path, path: &OsStr) -> Option<PathBuf> {
+    // 标准解析的全部候选优先；仅标准未命中时才尝试坏引号之后的完整PATH项。
+    std::env::split_paths(path).filter(|directory| directory.is_absolute())
+        .map(|directory| directory.join(program)).find_map(native_executable)
+        .or_else(|| recover_unclosed_path_tail(path).into_iter()
+            .map(|directory| directory.join(program)).find_map(native_executable))
 }
 
 /// 本机PATH的第三方目录项含有未配对引号，会使std::split_paths吞掉其后所有分号。
@@ -571,7 +601,7 @@ fn recover_unclosed_path_tail(path: &OsStr) -> Vec<PathBuf> {
         .filter(|directory|directory.is_absolute()).collect()
 }
 
-fn command_environment(command: &Command) -> Result<Vec<u16>, String> {
+fn command_environment(command: &Command, recovered: Option<&rust_tools::RecoveredEnvironment>) -> Result<Vec<u16>, String> {
     let mut environment = BTreeMap::new();
     for (name, value) in std::env::vars_os() {
         environment.insert(name.to_string_lossy().to_uppercase(), (name, value));
@@ -580,6 +610,11 @@ fn command_environment(command: &Command) -> Result<Vec<u16>, String> {
         let key = name.to_string_lossy().to_uppercase();
         if let Some(value) = value { environment.insert(key, (name.to_owned(), value.to_owned())); }
         else { environment.remove(&key); }
+    }
+    if let Some(recovered) = recovered {
+        for (name, value) in recovered.entries() {
+            environment.insert(name.into(), (name.into(), value.to_owned()));
+        }
     }
     let mut block = Vec::new();
     for (_, (name, value)) in environment {

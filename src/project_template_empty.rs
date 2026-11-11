@@ -59,10 +59,7 @@ pub(super) fn write_with_sdk_configuration(
     // 各种来源都用 fetch 补齐来源变化的锁条目，保留仍兼容的种子锁版本。
     // generate-lockfile 会忽略种子重求版本，使后来被 yanked 的已锁依赖也无法新建。
     // 本地联调保留离线缓存；Git／registry 首次获取受同一个可取消 Job 和发布守卫约束。
-    let cargo = std::env::var_os("EDITOR_HOST_CARGO")
-        .or_else(|| std::env::var_os("CARGO"))
-        .unwrap_or_else(|| "cargo".into());
-    let mut command = Command::new(cargo);
+    let mut command = Command::new(crate::native_play::cargo_program());
     command
         .args(["fetch", "--manifest-path"])
         .arg(root.join("Cargo.toml"))

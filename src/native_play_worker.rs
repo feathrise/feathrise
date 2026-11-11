@@ -233,7 +233,9 @@ fn prepare_build(
     // 独立交付、Release 和未经验证的厂商组合继续使用原生发布链。
     let use_dx = !no_vc_redist && build_backend == ProjectBuildBackend::Dx && supports_dx(profile);
     #[cfg(windows)]
-    let dx_command = if use_dx && let Some((dx, bin)) = dx_tools::project_tool(project, &target, control)? {
+    let dx_has_rustup = use_dx && dx_tools::rustup_available();
+    #[cfg(windows)]
+    let dx_command = if dx_has_rustup && let Some((dx, bin)) = dx_tools::project_tool(project, &target, control)? {
         if let Some(prepared) = hotpatch::prepare(project, &target, profile, &dx, control, diagnostics.clone())? {
             if let Some(log) = control.log_sink() {
                 log.task_message(&format!("DX 工程构建与产物准备完成，用时 {:.2} 秒", started.elapsed().as_secs_f64()));
@@ -268,6 +270,10 @@ fn prepare_build(
     if let Some(log) = &log {
         if build_backend == ProjectBuildBackend::Dx && !no_vc_redist && !use_dx {
             log.task_message("已选择 DX，当前平台或构建配置使用 Cargo");
+        }
+        #[cfg(windows)]
+        if use_dx && !dx_has_rustup {
+            log.task_message("DX 需要 rustup，当前构建使用 Cargo");
         }
         log.task_message(&format!("构建方式：{}；配置：{}；缓存：{}；完整编译",
             actual_backend.label(), cargo_profile, target.display()));

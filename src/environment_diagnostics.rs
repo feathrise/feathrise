@@ -6,6 +6,8 @@
 mod tests;
 mod preflight;
 pub(crate) use preflight::{BuildEnvironmentState, RequestBuildEnvironment, install};
+#[cfg(windows)]
+pub(crate) mod rust_install;
 
 use std::{io, path::Path, process::Command};
 

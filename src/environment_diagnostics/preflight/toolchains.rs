@@ -216,8 +216,8 @@ fn versioned_tool(
     command: &Command,
     prefix: &str,
 ) -> Result<(PathBuf, String), String> {
-    let path = resolve_tool(command)?;
     let version = probe.output(command)?;
+    let path = resolve_tool(command)?;
     if !first_line(&version).starts_with(prefix) {
         return Err(probe.locale.text("build_environment.empty_output").into());
     }
@@ -234,7 +234,12 @@ fn uses_dx(
 ) -> bool {
     use crate::code_iteration::hotpatch::toolchain::{self, DxSource};
     let eligible = backend == ProjectBuildBackend::Dx && native_play::supports_dx(profile);
-    let entry = eligible.then(|| toolchain::select_bin(project));
+    let entry = eligible.then(|| {
+        if !toolchain::rustup_available() {
+            return Err(probe.locale.text("build_environment.dx_rustup_missing").into());
+        }
+        toolchain::select_bin(project)
+    });
     if let Some(Err(reason)) = &entry {
         report.lines.push(probe.locale.format(
             "build_environment.dx_fallback",

@@ -38,6 +38,8 @@ struct Run {
     started: Instant,
     phase: Phase,
     pressed: Option<Entity>,
+    missing_rust: bool,
+    rust_dialog_seen: bool,
 }
 
 enum Phase {
@@ -100,6 +102,19 @@ pub(super) fn install(app: &mut App, project: &Project) -> Result<(), String> {
         .create_new(true)
         .open(output.join(".started"))
         .map_err(|error| format!("构建环境验收要求新的独占输出目录：{error}"))?;
+    let missing_rust = output.join(".missing-rust").is_file();
+    if missing_rust {
+        let empty = output.join("empty-rust");
+        if ["USERPROFILE", "CARGO_HOME", "RUSTUP_HOME"].into_iter()
+            .any(|key| std::env::var_os(key).map(PathBuf::from) != Some(directory.join("empty-rust")))
+            || ["EDITOR_HOST_CARGO", "CARGO", "RUSTC"].into_iter().any(|key| std::env::var_os(key).is_some())
+            || empty.canonicalize().ok().as_deref() != Some(empty.as_path())
+            || std::fs::read_dir(&empty).map_err(|error| error.to_string())?.next().is_some()
+        {
+            return Err("Rust 缺失验收要求本轮独占的空 Rust 安装目录和默认工具选择".into());
+        }
+        crate::native_process::isolate_registry_for_validation();
+    }
     app.insert_resource(bevy::winit::WinitSettings::continuous())
         .insert_resource(Run {
             output,
@@ -107,6 +122,8 @@ pub(super) fn install(app: &mut App, project: &Project) -> Result<(), String> {
             started: Instant::now(),
             phase: Phase::OpenMenu,
             pressed: None,
+            missing_rust,
+            rust_dialog_seen: false,
         })
         .add_systems(Last, drive);
     Ok(())
@@ -141,7 +158,8 @@ fn drive(world: &mut World) {
 fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
     match &mut run.phase {
         Phase::OpenMenu => {
-            if world.query_filtered::<&Window, With<PrimaryWindow>>().single(world).is_ok_and(|window| window.focused)
+            if world.query_filtered::<&Window, With<PrimaryWindow>>().single(world)
+                .is_ok_and(|window| run.missing_rust || window.focused)
                 && let Some(button) = press(world, "启动配置") {
                 run.pressed = Some(button);
                 run.phase = Phase::CheckEnvironment;
@@ -170,6 +188,23 @@ fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
             if !contains(locale.text("build_environment.scope")) {
                 return Ok(());
             }
+            if run.missing_rust {
+                if !contains("找不到原生工具EXE：cargo") {
+                    return Err("空工具环境仍找到 Cargo，无法验收安装提示".into());
+                }
+                if !run.rust_dialog_seen {
+                    let owner = world.query_filtered::<&bevy::window::RawHandleWrapper, With<PrimaryWindow>>()
+                        .single(world).ok().and_then(crate::workspace_window::primary_hwnd);
+                    if let Some(owner) = owner {
+                        run.rust_dialog_seen = crate::environment_diagnostics::rust_install::dismiss_for_validation(owner, locale)?;
+                    }
+                    return Ok(());
+                }
+                // 确认真正收到关闭回执，再回读缺失工具的工程日志。
+                if !crate::environment_diagnostics::rust_install::dismissed_for_validation() {
+                    return Ok(());
+                }
+            }
             for marker in [
                 locale.text("build_environment.title"),
                 "Cargo",
@@ -197,7 +232,9 @@ fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
             {
                 return Ok(());
             }
-            if let Some(button) = toggle_log(world) {
+            if run.missing_rust {
+                run.phase = Phase::SaveEvidence(capture(world, run, log));
+            } else if let Some(button) = toggle_log(world) {
                 run.pressed = Some(button);
                 run.phase = Phase::ReopenLog(log);
             }
@@ -368,6 +405,7 @@ fn capture(
     let (sender, receiver) = async_channel::bounded(1);
     let directory = run.output.clone();
     let project_root = run.project_root.clone();
+    let rust_install_dialog_dismissed = run.missing_rust;
     let mut log = Some(log);
     world.spawn(Screenshot::primary_window()).observe(move |event: On<ScreenshotCaptured>| {
         let Some(log) = log.take() else {
@@ -383,8 +421,10 @@ fn capture(
                 image.save(directory.join("build-environment.png")).map_err(|error| error.to_string())?;
                 let data = json!({"scope":"real-window-build-environment", "project_root":project_root,
                     "pid":std::process::id(), "project_build_active":false, "log":log,
-                    "log_search":{"shortcut":"Ctrl+F","typed":"rustc","mouse_refocused":true,
-                        "input":"WindowEvent + CursorMoved + MouseButtonInput + KeyboardInput"}});
+                    "rust_install_dialog_dismissed":rust_install_dialog_dismissed,
+                    "log_search":(!rust_install_dialog_dismissed).then(|| json!({
+                        "shortcut":"Ctrl+F","typed":"rustc","mouse_refocused":true,
+                        "input":"WindowEvent + CursorMoved + MouseButtonInput + KeyboardInput"}))});
                 let bytes = serde_json::to_vec_pretty(&data).map_err(|error| error.to_string())?;
                 OpenOptions::new().write(true).create_new(true).open(directory.join("build-environment.json"))
                     .and_then(|mut file| file.write_all(&bytes)).map_err(|error| error.to_string())

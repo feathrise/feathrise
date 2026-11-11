@@ -25,9 +25,7 @@ pub(super) fn context(
     request: &BuildRequest,
     shared: &Shared,
 ) -> Result<String, String> {
-    let cargo = std::env::var_os("EDITOR_HOST_CARGO")
-        .or_else(|| std::env::var_os("CARGO"))
-        .unwrap_or_else(|| "cargo".into());
+    let cargo = crate::native_play::cargo_program();
     let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
     let mut parts = vec![
         request.source.environment_sha256.clone(),

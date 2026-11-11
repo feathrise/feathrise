@@ -116,6 +116,7 @@ pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) ->
     .add_systems(Last, advance);
     #[cfg(windows)]
     {
+        crate::environment_diagnostics::rust_install::install(&mut app);
         crate::window_chrome::placement::install(&mut app, saved_window);
         app.add_systems(Last, pace_workspace.after(advance));
     }
