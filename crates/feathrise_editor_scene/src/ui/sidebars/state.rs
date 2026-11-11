@@ -72,6 +72,7 @@ pub enum EditorRightSidebarTab {
     SceneEntry,         // 所选目录场景的只读属性，编辑继续使用原正式事务。
     Environment, // 顶部环境模块的工具正文；天空作者参数与天气调试独立，气候只读。
     Rigging,     // 当前模型的绑骨与外部动作，占用既有动态工具槽。
+    Weights,     // 当前模型的蒙皮草稿，占用同一动态工具槽。
 }
 
 /// 一个静态页签按钮或页面容器的完整左右身份。
@@ -136,6 +137,7 @@ pub struct SceneEditorSidebarState {
     pub left: EditorLeftSidebarTab,   // 顶部选中的工具模块，切属性时仍记忆。
     pub right: EditorRightSidebarTab, // 当前唯一可见右栏页。
     pub(crate) rigging_available: bool, // 中央活动绑骨或已蒙皮模型覆盖动态工具槽。
+    pub(crate) weight_available: bool, // 调权只跟随具有草稿身份的中央 GLB。
     pub inspector: EditorInspectorTarget, // 切换工具后返回属性，恢复最后一次显式检查来源。
     pub observed_tool: EditorTool,    // 仅工具真正变化时执行一次自动定位。
     /// 新建/编辑场景弹框打开前的左栏页；关闭弹框时恢复，避免模态期间误切到地形。
@@ -150,6 +152,7 @@ impl Default for SceneEditorSidebarState {
             left: EditorLeftSidebarTab::Meshes,   // 打开工具页时有明确的创建入口。
             right: EditorRightSidebarTab::Scene, // 首次打开显示所选属性或空选择提示。
             rigging_available: false,
+            weight_available: false,
             inspector: EditorInspectorTarget::Scene,
             observed_tool: EditorTool::Inspect,  // 默认查看工具不把首次左页自动改成地形。
             tab_before_new_scene_dialog: None,     // 无弹框时不保留恢复目标。
@@ -165,7 +168,9 @@ impl SceneEditorSidebarState {
             EditorSidebarTab::Navigator(navigator) => self.navigator == navigator,
             EditorSidebarTab::Left(left) => self.left == left, // 返回属性或资产后仍记忆上一次工具模块。
             EditorSidebarTab::Right(EditorRightSidebarTab::Tools) => {
-                if self.rigging_available {
+                if self.weight_available {
+                    self.right == EditorRightSidebarTab::Weights
+                } else if self.rigging_available {
                     self.right == EditorRightSidebarTab::Rigging
                 } else {
                     matches!(self.right, EditorRightSidebarTab::Tools | EditorRightSidebarTab::Environment)
@@ -177,7 +182,9 @@ impl SceneEditorSidebarState {
     }
 
     pub(crate) fn dynamic_tool_page(&self) -> EditorRightSidebarTab {
-        if self.rigging_available {
+        if self.weight_available {
+            EditorRightSidebarTab::Weights
+        } else if self.rigging_available {
             EditorRightSidebarTab::Rigging
         } else {
             self.left.work_page()

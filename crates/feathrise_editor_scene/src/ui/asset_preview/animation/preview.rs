@@ -6,7 +6,7 @@
 use super::super::types::*;
 use super::{
     data::{AnimationDocument, Channel, Node},
-    resources::{AnimationEditorState, Session},
+    resources::{AnimationEditorState, BindingState, Session, WeightFrame},
 };
 use crate::{SceneEditorSystemSet, components::SceneEditorOwnedEntity};
 use bevy::asset::{DependencyLoadState, LoadState, RecursiveDependencyLoadState};
@@ -123,6 +123,54 @@ pub(in crate::ui::asset_preview) struct PreviewRuntime {
 }
 
 impl PreviewRuntime {
+    /// 框选从 GPU 已显示的容器起手，冻结该容器并废弃还在准备的下一姿态。
+    pub(in crate::ui::asset_preview) fn freeze_weight_frame(
+        &mut self,
+        editor: &mut AnimationEditorState,
+        binding: &BindingState,
+        path: &str,
+    ) -> Option<(WeightFrame, Entity)> {
+        let time = self.published_weight_time(editor)?;
+        if !editor.playing && editor.position() != time {
+            return None;
+        }
+        let frame = editor.weight_frame(time)?;
+        let root = self.weight_frame_root(binding, path)?;
+        editor.pause_weight_comparison(Some(time));
+        self.applying = false;
+        self.applied = Some((editor.revision(), editor.active_clip(), pose_request_time(editor)));
+        Some((frame, root))
+    }
+
+    pub(in crate::ui::asset_preview) fn weight_frame_root(
+        &self, binding: &BindingState, path: &str,
+    ) -> Option<Entity> {
+        if self.in_place_hidden_scene.is_some()
+            && binding.active
+            && binding.ready()
+            && self.binding_revision == binding.revision
+            && binding.identity.as_ref().is_some_and(|identity| identity.retarget && identity.model == path)
+        {
+            binding.banks[self.front].root
+        } else {
+            None
+        }
+    }
+
+    /// 权重对照冻结已显示的姿态。时间轴的请求帧可能还在后台采样或填充另一套容器。
+    pub(in crate::ui::asset_preview) fn published_weight_time(
+        &self,
+        editor: &AnimationEditorState,
+    ) -> Option<f32> {
+        let pose = self.published_pose.as_ref()?;
+        let session = editor.current()?;
+        (editor.visible()
+            && (!editor.in_place_rig_preview() || self.in_place_hidden_scene.is_some())
+            && pose.matches_session(session)
+            && pose.draft == session.pose)
+            .then_some(pose.time)
+    }
+
     pub(super) fn rig_pose_published(&self, editor: &AnimationEditorState) -> bool {
         self.in_place_hidden_scene.is_some()
             && self.published_pose.as_ref().is_some_and(|pose|
@@ -171,6 +219,10 @@ impl PreviewRuntime {
                         && self.skeleton_ready(source, scene)
                 })
     }
+}
+
+fn pose_request_time(editor: &AnimationEditorState) -> u32 {
+    editor.position().to_bits().wrapping_add(editor.pose_revision as u32)
 }
 
 pub(super) fn install(app: &mut App) {
@@ -463,6 +515,21 @@ fn restore_in_place_scene(
     }
 }
 
+fn publish_in_place_scene(
+    runtime: &mut PreviewRuntime,
+    binding: &mut BindingState,
+    preview: &AssetPreviewState,
+    commands: &mut Commands,
+) {
+    binding.publish(commands, runtime.front);
+    if let Some(root) = preview.scene_root()
+        && runtime.in_place_hidden_scene != Some(root)
+    {
+        commands.entity(root).try_insert(Visibility::Hidden);
+        runtime.in_place_hidden_scene = Some(root);
+    }
+}
+
 fn apply_bound_pose(
     binding: &super::binding::BindingState,
     bank: usize,
@@ -569,6 +636,14 @@ pub(super) fn drive(
             binding.ready() && binding.mapping.as_ref().and_then(|mapping| mapping.retarget.as_ref())
                 .is_some_and(|rig| rig.supports(editor.active_clip()))
         });
+    if in_place_ready && editor.weight_rest_active() {
+        // 权重修正显示原静置网格，双动作容器和已经发布的帧继续留在当前模型标签。
+        if let Some(binding) = binding.as_mut().filter(|binding| binding.active) {
+            binding.hide(&mut commands);
+        }
+        restore_in_place_scene(&mut runtime, &preview, &mut commands);
+        return;
+    }
     if in_place && let Some(binding) = binding.as_mut().filter(|binding| binding.active)
         && (!in_place_ready || runtime.published_pose.as_ref().is_none_or(|pose|
             !editor.current().is_some_and(|session| pose.matches_session(session))))
@@ -630,11 +705,7 @@ pub(super) fn drive(
                 && pending.clip == editor.active_clip()
                 && (editor.playing
                     || editor.current().is_some_and(|s| s.pose.is_some())
-                    || pending.time
-                        == editor
-                            .position()
-                            .to_bits()
-                            .wrapping_add(editor.pose_revision as u32))
+                    || pending.time == pose_request_time(&editor))
             {
                 if let Some(previous) = runtime.pose.replace(pose) {
                     runtime.retired.poses.push(previous);
@@ -650,10 +721,7 @@ pub(super) fn drive(
     let request = (
         editor.revision(),
         editor.active_clip(),
-        editor
-            .position()
-            .to_bits()
-            .wrapping_add(editor.pose_revision as u32),
+        pose_request_time(&editor),
     );
     if runtime.pending.is_none() {
         let snapshot = wanted
@@ -722,6 +790,17 @@ pub(super) fn drive(
         return;
     }
     if in_place {
+        if let Some(binding) = binding.as_mut().filter(|binding| binding.ready() && !binding.active)
+            && !runtime.applying
+            && runtime.applied == Some(request)
+            && runtime.published_pose.as_ref().is_some_and(|pose| {
+                pose.time == editor.position()
+                    && editor.current().is_some_and(|session| pose.matches_session(session))
+            })
+        {
+            // 回到同一帧直接重新显示已发布的容器，避免用零帧或异步候选做对照。
+            publish_in_place_scene(&mut runtime, binding, &preview, &mut commands);
+        }
         // 复用绑定角色的双容器和同一姿态预算。没有源骨架网格，也不更新原模型的取景范围。
         if let Some(binding) = binding.as_mut().filter(|binding| binding.ready())
             && runtime.applying
@@ -739,13 +818,7 @@ pub(super) fn drive(
                 if let Some(previous) = runtime.published_pose.replace(pose.clone()) {
                     runtime.retired.poses.push(previous);
                 }
-                binding.publish(&mut commands, bank);
-                if let Some(root) = preview.scene_root()
-                    && runtime.in_place_hidden_scene != Some(root)
-                {
-                    commands.entity(root).try_insert(Visibility::Hidden);
-                    runtime.in_place_hidden_scene = Some(root);
-                }
+                publish_in_place_scene(runtime, binding, &preview, &mut commands);
             }
         }
         return;

@@ -30,6 +30,7 @@ pub(super) fn input(
     });
     let available = context.available(&preview, &media)
         && state.visible
+        && !state.weight_rest_active()
         && context.source_matches(&state, &preview, &media, documents.asset_root());
     if available
         && context

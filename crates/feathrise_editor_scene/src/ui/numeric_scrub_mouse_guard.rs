@@ -29,7 +29,7 @@ pub(crate) fn update_scene_editor_numeric_scrub_mouse_guard(
     active: Res<ActiveNumericInputScrub>, // 共享 UI 控件本帧完成拖动起止判定后的最终身份。
     mouse: Res<ButtonInput<MouseButton>>, // 和弦与release边沿必须覆盖左、右、中三枚作者鼠标键。
     mut guard: ResMut<SceneEditorNumericScrubMouseGuard>, // 唯一场景编辑器级鼠标所有权状态。
-    preview: (Option<Res<AssetPreviewNavigation>>, Option<Res<super::asset_preview::AudioPreviewState>>, Option<Res<super::asset_preview::AnimationEditorState>>, Option<Res<super::asset_preview::rigging::RiggingState>>), // 资产预览、时间轴与绑骨关节点共用释放门。
+    preview: (Option<Res<AssetPreviewNavigation>>, Option<Res<super::asset_preview::AudioPreviewState>>, Option<Res<super::asset_preview::AnimationEditorState>>, Option<Res<super::asset_preview::rigging::RiggingState>>, Option<Res<super::asset_preview::weights::WeightEditor>>), // 预览、时间轴、关节点与蒙皮笔画共用释放门。
     minimap: Option<Res<super::asset_preview::DocumentMinimapState>>,
     water_preview: Option<Res<WaterPresetLivePreviewNavigation>>, // 独立测试可不安装水体预览插件。
     asset_menu: (Option<Res<AssetContextMenuState>>, Option<Res<super::scene_context_menu::SceneContextMenuState>>, Option<Res<super::scene_sidebar::SceneDirectoryMenuState>>, Option<Res<super::project_browser::ProjectBrowserPopup>>), // 目录、场景和资产菜单共用关闭点击及松键帧隔离。
@@ -79,6 +79,7 @@ pub(crate) fn update_scene_editor_numeric_scrub_mouse_guard(
             || preview.1.as_ref().is_some_and(|audio| audio.owns_mouse())
             || preview.2.as_ref().is_some_and(|animation| animation.owns_mouse())
             || preview.3.as_ref().is_some_and(|rigging| rigging.owns_mouse())
+            || preview.4.as_ref().is_some_and(|weights| weights.owns_mouse())
             || minimap.as_ref().is_some_and(|minimap| minimap.owns_mouse()) // 小地图拖出代码栏也不能改场景。
             || water_preview
                 .as_ref()

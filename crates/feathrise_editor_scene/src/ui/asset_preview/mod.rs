@@ -19,6 +19,7 @@ pub(crate) mod project_browser_validation;
 mod audio; // 音频后台受检解码，单输出复用同一侧栏/中央预览宿主。
 pub(crate) mod animation; // 动画GLB关键帧时间轴、骨架预览和独立草稿保存。
 pub(crate) mod rigging; // 静态人形 GLB 的本地绑骨、关节点和独立动作选择。
+pub(crate) mod weights; // 已蒙皮 GLB 的独立权重草稿与预览。
 pub(crate) mod components; // 图片/模型中央标签与原位挂载入口。
 mod focus; // 浏览文件与预设展示显式切换，同一相机不会被活动草稿持续占用。
 mod interaction; // Scene0/primitive选择、分页和显式完整引用复制。
@@ -97,6 +98,7 @@ pub(crate) fn install(app: &mut App) {
     audio::install(app);
     animation::install(app);
     rigging::install(app);
+    weights::install(app);
     documents::install(app);
     gltf_tree::install(app);
     preview_environment::install(app);

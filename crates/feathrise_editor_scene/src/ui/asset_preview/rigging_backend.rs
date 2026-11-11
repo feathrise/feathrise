@@ -10,7 +10,7 @@ use std::{
 #[path = "rigging_blender.rs"]
 mod blender;
 #[path = "rigging_files.rs"]
-mod files;
+pub(in crate::ui::asset_preview) mod files;
 pub(crate) use files::glb_directory_json;
 #[path = "rigging_native.rs"]
 mod native;

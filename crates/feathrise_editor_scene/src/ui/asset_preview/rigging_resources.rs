@@ -149,6 +149,16 @@ pub(crate) struct RiggingState {
 }
 
 impl RiggingState {
+    pub(in crate::ui::asset_preview) fn generated_weights_target(
+        &self, root: &std::path::Path, preview: &super::super::types::AssetPreviewState,
+    ) -> Option<&str> {
+        let session = self.session.as_ref()?;
+        (session.source.root == root
+            && preview.selected_path.as_deref() == Some(session.source.path.as_str())
+            && preview.model.as_ref().is_some_and(|model| model.generation == session.source.generation))
+            .then(|| session.result.as_deref()).flatten()
+    }
+
     fn active_draft(
         &self,
         root: &std::path::Path,

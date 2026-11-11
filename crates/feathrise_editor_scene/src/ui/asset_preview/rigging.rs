@@ -21,6 +21,7 @@ mod types;
 
 pub(crate) use {context::{RigReferenceInput, RigReferenceRows}, resources::RiggingState};
 pub(crate) use backend::glb_directory_json;
+pub(super) use backend::files;
 #[cfg(feature = "validation")]
 pub(crate) use types::{RigAction, RigLandmarkDot};
 

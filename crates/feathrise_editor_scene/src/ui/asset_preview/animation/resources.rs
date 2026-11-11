@@ -400,6 +400,15 @@ impl Retired {
     }
 }
 
+/// 已发布的人形动作帧。播放请求或动作来源换代后，旧书签不能恢复到新容器。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(in crate::ui::asset_preview) struct WeightFrame {
+    source_revision: u64,
+    binding_request: u64,
+    clip: usize,
+    pub time: f32,
+}
+
 #[derive(Resource)]
 pub(crate) struct AnimationEditorState {
     /// 原保存结果按源路径冻结，工程收尾不能借当前可见状态栏推断隐藏源的成功。
@@ -431,6 +440,7 @@ pub(crate) struct AnimationEditorState {
     pub(super) model_status: String,
     pub(super) model_binding_revision: u64,
     pub(super) rig_preview: Option<super::request::RigPreviewRequest>,
+    pub(super) weight_rest: Option<WeightFrame>,
     /// 独立只读会话按请求票据访问，退出或换源后由原工作槽后台释放。
     pub(super) rig_session: Option<(u64, Session)>,
     /// 普通 GLB 的显式目录动作等待原打开流程发布文件会话，连续点击仅保留末次意图。
@@ -468,6 +478,7 @@ impl Default for AnimationEditorState {
             model_status: String::new(),
             model_binding_revision: 0,
             rig_preview: None,
+            weight_rest: None,
             rig_session: None,
             directory_pick: None,
         }
@@ -586,6 +597,7 @@ impl AnimationEditorState {
     }
     pub(super) fn reset_rig_playback(&mut self) {
         self.playing = false;
+        self.weight_rest = None;
         self.drag = None;
         self.gesture = None;
         self.pending = None;
@@ -598,6 +610,58 @@ impl AnimationEditorState {
     pub(super) fn stop_rig_preview(&mut self) {
         if self.rig_preview.take().is_some() {
             self.reset_rig_playback();
+        }
+    }
+
+    pub(in crate::ui::asset_preview) fn weight_motion_active(&self) -> bool {
+        !self.weight_rest_active() && (self.in_place_rig_preview() || (self.visible && self.playing))
+    }
+
+    pub(super) fn weight_frame(&self, time: f32) -> Option<WeightFrame> {
+        (self.visible && self.in_place_rig_preview() && self.current().is_some()).then(|| WeightFrame {
+            source_revision: self.source_revision,
+            binding_request: self.model_binding_revision,
+            clip: self.active_clip(),
+            time,
+        })
+    }
+
+    pub(in crate::ui::asset_preview) fn matches_weight_frame(&self, frame: WeightFrame) -> bool {
+        !self.playing && self.weight_frame(self.position()) == Some(frame)
+    }
+
+    pub(in crate::ui::asset_preview) fn weight_rest_active(&self) -> bool {
+        self.weight_rest.is_some_and(|frame| self.matches_weight_frame(frame))
+    }
+
+    pub(in crate::ui::asset_preview) fn show_weight_rest(&mut self, frame: WeightFrame) -> bool {
+        if !self.matches_weight_frame(frame) {
+            return false;
+        }
+        self.weight_rest = Some(frame);
+        true
+    }
+
+    pub(in crate::ui::asset_preview) fn resume_weight_frame(&mut self, frame: WeightFrame) -> bool {
+        if self.weight_rest != Some(frame) {
+            return false;
+        }
+        self.weight_rest = None;
+        self.matches_weight_frame(frame)
+    }
+
+    pub(in crate::ui::asset_preview) fn weight_rest_pose(&mut self) {
+        self.stop_rig_preview();
+        self.pause_weight_comparison(None);
+    }
+
+    pub(in crate::ui::asset_preview) fn pause_weight_comparison(&mut self, published: Option<f32>) {
+        if let Some(time) = published {
+            self.seek(time);
+        }
+        if self.playing || published.is_some() {
+            self.playing = false;
+            self.changed(); // 失效尚未发布的候选姿态，保留此刻已显示的帧。
         }
     }
     pub(super) fn editable(&self) -> bool {
@@ -775,7 +839,7 @@ impl AnimationEditorState {
 }
 
 #[derive(Resource, Default)]
-pub(super) struct BindingState {
+pub(in crate::ui::asset_preview) struct BindingState {
     pub(super) identity: Option<BindingIdentity>,
     pub(super) task: Option<(
         Option<BindingIdentity>,
@@ -789,4 +853,14 @@ pub(super) struct BindingState {
     pub(super) failed: bool,
     pub revision: u64,
     pub active: bool,
+}
+
+impl BindingState {
+    pub(in crate::ui::asset_preview) fn weight_roots(&self, path: &str) -> [Option<Entity>; 2] {
+        if self.identity.as_ref().is_some_and(|id| id.model == path) {
+            [self.banks[0].root, self.banks[1].root]
+        } else {
+            [None, None]
+        }
+    }
 }
