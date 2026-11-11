@@ -27,6 +27,7 @@ pub(super) struct PreviewInputContext<'w, 's> {
     rigging: Option<Res<'w, super::rigging::RiggingState>>,
     external: Option<Res<'w, crate::game_authoring::ExternalAssetPreviewRequest>>,
     tool_hosts: Query<'w, 's, &'static crate::game_authoring::DomainToolPreviewHost>,
+    weight_tools: Query<'w, 's, (&'static Node, &'static RelativeCursorPosition), With<super::weights::panel::BoneToolRail>>,
     editor: Res<'w, SceneEditorState>, // F12显隐、所选路径与新场景弹框。
     sidebar: Res<'w, SceneEditorSidebarState>, // 只有当前资产页或作者场景页可操作。
     layout: Option<Res<'w, crate::resources::SceneEditorLayoutState>>, // 收起右栏后旧画布矩形不能继续捕获导航。
@@ -157,6 +158,7 @@ pub(super) fn control_asset_preview(
     let hovered = cursor.cursor_over()
         && *interaction != UiInteraction::None
         && !axes.cursor_over()
+        && !context.weight_tools.iter().any(|(node, cursor)| node.display != Display::None && cursor.cursor_over())
         && (!central || !shading.pointer.cursor_over());
     let image_size = image_nodes
         .single()

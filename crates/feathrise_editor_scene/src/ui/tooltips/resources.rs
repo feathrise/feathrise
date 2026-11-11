@@ -8,5 +8,6 @@ pub(super) struct EditorTooltipState {
     pub(super) target: Option<Entity>,
     pub(super) since: f64,
     pub(super) scene_id: Option<SceneId>,
+    pub(super) title: Option<&'static str>,
     pub(super) reason: Option<&'static str>,
 }

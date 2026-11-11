@@ -91,7 +91,7 @@ fn page(width: f32, scale: f32, dpi: f32, tool: EditorTool, domain_brush: bool) 
         (
             propagate_ui_target_cameras,
             bevy::ui::widget::measure_text_system.after(bevy::text::detect_text_needs_rerender),
-            ui_layout_system,
+            ui_layout_system.in_set(bevy::ui::UiSystems::Layout),
         )
             .chain(),
     );
@@ -147,7 +147,8 @@ fn page(width: f32, scale: f32, dpi: f32, tool: EditorTool, domain_brush: bool) 
             ..default()
         })
         .id();
-    world.entity_mut(toolbar).insert(ChildOf(host));
+    let shell = world.get::<ChildOf>(toolbar).unwrap().parent();
+    world.entity_mut(shell).insert(ChildOf(host));
     world.spawn((
         TestViewport,
         Node {
@@ -210,6 +211,59 @@ fn expected_fields(tool: EditorTool, domain_brush: bool) -> Vec<SceneEditorBrush
         | EditorTool::Water => vec![Radius, Strength],
         _ => Vec::new(),
     }
+}
+
+#[test]
+fn narrow_map_toolbar_wraps_all_visible_controls_and_returns_to_one_row() {
+    use feathrise_editor_ui::EditorButtonClick;
+
+    let mut app = page(450.0, 1.0, 1.0, EditorTool::Raise, false);
+    super::install(&mut app);
+    for _ in 0..3 {
+        tick(&mut app);
+    }
+    let original = viewport_geometry(&mut app);
+    let world = app.world_mut();
+    let row = world.query_filtered::<Entity, With<ViewportToolbar>>().single(world).unwrap();
+    let button = world.query_filtered::<Entity, With<ViewportToolbarExpandButton>>()
+        .single(world).unwrap();
+    assert_eq!(world.get::<Node>(button).unwrap().display, Display::Flex);
+    assert_eq!(world.get::<ScrollPosition>(row).unwrap().x, 0.0);
+    let rect = |world: &World, entity| {
+        let center = world.get::<UiGlobalTransform>(entity).unwrap().affine().translation;
+        Rect::from_center_size(center, world.get::<ComputedNode>(entity).unwrap().size())
+    };
+    let (free, _) = first_view_button(world);
+    assert!((rect(world, free).min.x - rect(world, row).min.x).abs() <= 1.0);
+    assert!(rect(world, button).min.x >= rect(world, row).max.x);
+    let click = |app: &mut App| {
+        *app.world_mut().get_mut::<EditorButtonClick>(button).unwrap() =
+            EditorButtonClick::triggered();
+        for _ in 0..3 {
+            tick(app);
+        }
+    };
+    click(&mut app);
+    let world = app.world();
+    let expanded = rect(world, row);
+    assert_eq!(world.get::<Node>(row).unwrap().flex_wrap, FlexWrap::Wrap);
+    assert!(expanded.height() > 90.0, "窄地图工具栏应按需显示多行");
+    for section in world.get::<Children>(row).unwrap().iter() {
+        for entity in world.get::<Children>(section).unwrap().iter() {
+            let bounds = rect(world, entity);
+            if bounds.width() > 1.0 {
+                assert!(
+                    bounds.min.cmpge(expanded.min - Vec2::ONE).all()
+                        && bounds.max.cmple(expanded.max + Vec2::ONE).all(),
+                    "展开后的工具控件必须完整显示"
+                );
+            }
+        }
+    }
+    click(&mut app);
+    assert_eq!(app.world().get::<Node>(row).unwrap().flex_wrap, FlexWrap::NoWrap);
+    assert_eq!(app.world().get::<ScrollPosition>(row).unwrap().x, 0.0);
+    assert_eq!(viewport_geometry(&mut app), original);
 }
 
 #[test]

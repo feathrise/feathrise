@@ -817,6 +817,7 @@ impl Plugin for SceneEditorPlugin {
         ui::building_sidebar::install(app); // 工具页切换先收口旧输入，状态与参数仍由原领域回显。
         authoring::buildings::install(app); // 建筑placement使用有界索引、后台规则校验与专用Gizmo落点。
         authoring::courtyards::install(app); // 院落选集在公共目录热采用后以整组历史和后台碰撞校验落地。
+        ui::viewport_toolbar::install(app); // 地图与 GLB 的同一工具栏展开规则。
         ui::asset_preview::install(app); // 右侧所选图片与Scene0使用独立、按需启停的预览视图。
         ui::asset_thumbnails::install(app); // 固定行池切换网格，一个相机按可见项串行生成静态快照。
         ui::external_files::install(app); // 路径检查与外部进程启动不占编辑器帧关键路径。

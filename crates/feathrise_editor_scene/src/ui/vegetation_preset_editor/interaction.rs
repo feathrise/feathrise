@@ -264,6 +264,14 @@ fn activate_tab(
     Ok(())
 }
 
+/// 宿主从中央资产返回场景时，使用与场景标签按钮相同的激活和焦点处理。
+pub(crate) fn activate_scene_tab(
+    mut state: ResMut<VegetationPresetEditorState>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+) {
+    let _ = activate_tab(&mut state, PresetWorkspaceTab::Scene, &mut windows);
+}
+
 /// 关闭标签；脏草稿必须对同一标签连续点击两次。
 fn close_tab(
     state: &mut VegetationPresetEditorState,

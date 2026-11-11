@@ -1,13 +1,16 @@
-//! 直接输入或拖动精确权重、画笔强度和像素半径，遵循原数值编辑提交协议。
+//! 在中央视口工具栏拖动或精确输入权重、画笔强度和像素半径。
 
 use super::{
+    super::animation::AnimationEditorState,
+    edit::Tool,
     panel::{Field, tr},
-    resources::WeightEditor,
+    resources::{Session, WeightEditor},
     systems::{Gate, Target},
 };
 use crate::{
     resources::SceneEditorState,
     ui::{
+        brush_controls::brush_field_style,
         scene::FONT_PATH,
         sidebars::{EditorRightSidebarTab, SceneEditorSidebarState},
     },
@@ -15,15 +18,72 @@ use crate::{
 use bevy::prelude::*;
 use feathrise_editor_ui::{
     ActiveNumericInput, ActiveNumericInputScrub, NumericInputCommitOutcome, NumericInputCommitted,
-    NumericInputDisabled, NumericInputScrubConfig, NumericInputSetValue, NumericInputSpec,
-    NumericScrubFieldOptions, NumericScrubFieldStyle, NumericValue, localization::EditorLocale,
-    spawn_numeric_scrub_field,
+    NumericInputConfig, NumericInputDisabled, NumericInputScrubConfig, NumericInputSetValue,
+    NumericInputSpec, NumericInputValue, NumericScrubFieldOptions, NumericValue,
+    localization::EditorLocale, normalize_numeric_value, spawn_numeric_scrub_field,
 };
+
+#[derive(Component, Clone, Copy, Default)]
+pub(super) struct ParameterToolbar;
 
 #[derive(Component, Clone, Copy)]
 pub(super) struct Slot(pub Field);
 
+pub(in crate::ui::asset_preview) fn parameter_toolbar() -> impl Scene {
+    bsn! {
+        ParameterToolbar
+        Node {
+            display: Display::None,
+            min_width: px(0),
+            height: px(26),
+            align_items: AlignItems::Center,
+            column_gap: px(6),
+            flex_grow: 1.0,
+            flex_shrink: 0.0,
+        }
+        Children [@field_slot(Field::Radius)--@field_slot(Field::Strength)--@field_slot(Field::Amount)]
+    }
+}
+
+fn field_slot(field: Field) -> impl Scene {
+    bsn! {
+        ~{Slot(field)}
+        Node {
+            display: Display::None,
+            height: px(26),
+            min_width: px(160), // 给标签和单位留出宽度，窄视口由外层整行横滚。
+            max_width: px(220),
+            flex_basis: px(160),
+            flex_grow: 1.0,
+            flex_shrink: 0.0,
+        }
+    }
+}
+
+fn matches_context(target: &Target, sidebar: &SceneEditorSidebarState, session: &Session) -> bool {
+    sidebar.right == EditorRightSidebarTab::Weights
+        && target.preview.render_visible
+        && target.preview.external_preview.is_none()
+        && target.preview.selected_path.as_deref() == Some(session.key.path.as_str())
+        && target.matches(&session.key)
+        && !session.stale
+}
+
 impl Field {
+    fn applies(self, session: &Session) -> bool {
+        if session.original {
+            return false;
+        }
+        match self {
+            Self::Radius | Self::Strength => session.tool.paint(),
+            Self::Amount => {
+                session.tool == Tool::Set
+                    && !session.drafts[session.surface].selection.is_empty()
+                    && !session.current_locks()[session.joint as usize]
+            }
+        }
+    }
+
     fn range(self) -> (f32, f32, f32, f32, &'static str) {
         match self {
             Self::Radius => (4.0, 256.0, 1.0, 32.0, "px"),
@@ -38,11 +98,11 @@ impl Field {
             Self::Amount => tr(locale, "设定权重", "Target weight"),
         }
     }
-    fn index(self) -> usize {
+    fn displayed_value(self, session: &Session) -> f32 {
         match self {
-            Self::Radius => 0,
-            Self::Strength => 1,
-            Self::Amount => 2,
+            Self::Radius => session.radius,
+            Self::Strength => session.strength * 100.0,
+            Self::Amount => session.amount * 100.0,
         }
     }
 }
@@ -69,17 +129,14 @@ pub(super) fn setup(
             spec,
             NumericInputScrubConfig::linear(step, step, min, max, 1.0),
         )
-        .with_style(NumericScrubFieldStyle {
-            width: 156.0,
-            height: 24.0,
-            ..default()
-        });
+        .with_style(brush_field_style());
         let font = feathrise_editor_core::editor_font(&assets, FONT_PATH);
         commands.entity(slot).with_children(|parent| {
             let root = spawn_numeric_scrub_field(parent, *field, font, options);
             parent
                 .commands()
                 .entity(root)
+                .insert(NumericInputDisabled)
                 .entry::<Node>()
                 .and_modify(|mut node| {
                     node.width = percent(100);
@@ -91,20 +148,24 @@ pub(super) fn setup(
 
 pub(super) fn input(
     mut commits: MessageReader<NumericInputCommitted>,
-    fields: Query<&Field>,
+    fields: Query<&Field, Without<NumericInputDisabled>>,
     gate: Gate,
     editor: Res<SceneEditorState>,
     target: Target,
     sidebar: Res<SceneEditorSidebarState>,
     mut state: ResMut<WeightEditor>,
+    animation: Option<Res<AnimationEditorState>>,
 ) {
+    if animation.as_ref().is_some_and(|animation| animation.weight_motion_active()) {
+        commits.clear();
+        return;
+    }
     for commit in commits.read() {
         let Ok(field) = fields.get(commit.entity) else {
             continue;
         };
         if commit.outcome != NumericInputCommitOutcome::Accepted
             || !gate.open(&editor)
-            || sidebar.right != EditorRightSidebarTab::Weights
             || state.busy()
         {
             continue;
@@ -112,7 +173,7 @@ pub(super) fn input(
         let Some(session) = state
             .session
             .as_mut()
-            .filter(|session| target.matches(&session.key) && !session.stale)
+            .filter(|session| matches_context(&target, &sidebar, session) && field.applies(session))
         else {
             continue;
         };
@@ -132,22 +193,50 @@ pub(super) fn input(
 
 pub(super) fn sync(
     mut commands: Commands,
-    fields: Query<(Entity, &Field, Has<NumericInputDisabled>)>,
+    mut groups: Query<&mut Node, (With<ParameterToolbar>, Without<Slot>)>,
+    mut slots: Query<(&Slot, &mut Node)>,
+    fields: Query<(
+        Entity,
+        &Field,
+        &NumericInputValue,
+        &NumericInputConfig,
+        Has<NumericInputDisabled>,
+    )>,
     state: Res<WeightEditor>,
     target: Target,
     sidebar: Res<SceneEditorSidebarState>,
+    gate: Gate,
+    editor: Res<SceneEditorState>,
+    animation: Option<Res<AnimationEditorState>>,
     active: Option<Res<ActiveNumericInput>>,
     scrub: Option<Res<ActiveNumericInputScrub>>,
-    mut sent: Local<[Option<(Entity, f32)>; 3]>,
     mut values: MessageWriter<NumericInputSetValue>,
 ) {
-    let session = state
-        .session
-        .as_ref()
-        .filter(|session| target.matches(&session.key) && !session.stale);
-    let enabled =
-        session.is_some() && sidebar.right == EditorRightSidebarTab::Weights && !state.busy();
-    for (entity, field, disabled) in &fields {
+    let moving = animation.as_ref().is_some_and(|animation| animation.weight_motion_active());
+    let context = state.session.as_ref().filter(|session| {
+        editor.open && !moving && matches_context(&target, &sidebar, session)
+    });
+    let shows = |field: Field| context.is_some_and(|session| field.applies(session));
+    let display = if shows(Field::Radius) || shows(Field::Amount) {
+        Display::Flex
+    } else {
+        Display::None
+    };
+    let available = gate.open(&editor) && !state.busy();
+    for mut group in &mut groups {
+        if group.display != display {
+            // 同地图笔刷，只控制右端参数组显隐，工具切换不改用户的横滚位置。
+            group.display = display;
+        }
+    }
+    for (Slot(field), mut slot) in &mut slots {
+        let display = if shows(*field) { Display::Flex } else { Display::None };
+        if slot.display != display {
+            slot.display = display;
+        }
+    }
+    for (entity, field, current, config, disabled) in &fields {
+        let enabled = available && shows(*field);
         if enabled == disabled {
             if enabled {
                 commands.entity(entity).remove::<NumericInputDisabled>();
@@ -155,27 +244,26 @@ pub(super) fn sync(
                 commands.entity(entity).insert(NumericInputDisabled);
             }
         }
-        let Some(session) = session else { continue };
-        if active
+        let editing = active
             .as_ref()
-            .is_some_and(|input| input.entity == Some(entity))
+            .is_some_and(|input| input.entity == Some(entity));
+        if (editing && enabled)
             || scrub
                 .as_ref()
                 .is_some_and(|input| input.entity == Some(entity))
         {
             continue;
         }
-        let value = match field {
-            Field::Radius => session.radius,
-            Field::Strength => session.strength * 100.0,
-            Field::Amount => session.amount * 100.0,
-        };
-        let last = &mut sent[field.index()];
-        if *last != Some((entity, value)) {
-            *last = Some((entity, value));
+        // 隐藏时结束精确输入。拖动仍由公共鼠标门持有到松键，失效的提交由业务门拒绝。
+        let value = state
+            .session
+            .as_ref()
+            .map_or_else(|| field.range().3, |session| field.displayed_value(session));
+        let value = normalize_numeric_value(NumericValue::F32(value), config.0);
+        if editing || current.0 != value {
             values.write(NumericInputSetValue {
                 entity,
-                value: NumericValue::F32(value),
+                value,
                 cancel_edit: true,
             });
         }

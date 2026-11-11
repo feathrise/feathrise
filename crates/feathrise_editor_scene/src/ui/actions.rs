@@ -1,6 +1,6 @@
 //! 编辑器工具按钮、快捷键与选中态回显。
 
-use feathrise_editor_ui::UiInteraction;
+use feathrise_editor_ui::{ButtonColors, UiInteraction};
 use bevy::prelude::*; // ECS、按钮交互与键盘输入。
 use bevy::ecs::system::SystemParam;
 use bevy::input_focus::InputFocus;
@@ -19,12 +19,14 @@ use crate::resources::{
     SceneDeletionTask, SceneEditorNumericScrubMouseGuard, SceneEditorState, SceneEditorViewportState,
 }; // 快捷键在删除模态或数值拖动和弦期间停用。
 use crate::types::{EditorAction, EditorTool, EditorView, NewSceneInputField};
+use crate::workbench::WorkbenchHeaderItem;
 
 use super::brush_controls::{
     brush_radius_bounds, BRUSH_STRENGTH_MAX, BRUSH_STRENGTH_MIN,
 }; // 键盘快捷键和中央滑杆必须共享完全相同的正式范围。
 use super::surface_preset_editor::SurfacePresetEditorState;
 use super::action_availability::{EditorActionAvailability, EditorActionInputs};
+use super::asset_preview::weights::RequestWeightCommand;
 use super::vegetation_preset_editor::VegetationPresetEditorState; // 预设名称或数值聚焦时必须独占字符快捷键。 // PBR预设输入与植被表单具有同等键盘所有权。
 use super::water_preset_editor::WaterPresetEditorState; // 水体波浪表单同样拥有当前字符输入。
 mod buttons; // 静态BSN按钮的一帧结构化动作分派。
@@ -172,13 +174,30 @@ pub(crate) fn select_vegetation_preset(
     }
 }
 
-/// 当前工具按钮保持高亮；植被目录选择由专用预设按钮样式系统负责。
+pub(super) const SAVE_PENDING: ButtonColors = ButtonColors::new(
+    Color::srgb(0.50, 0.30, 0.10),
+    Color::srgb(0.59, 0.37, 0.13),
+    Color::srgb(0.45, 0.26, 0.08),
+);
+pub(super) const HISTORY_READY: ButtonColors = ButtonColors::new(
+    Color::srgb(0.17, 0.33, 0.51),
+    Color::srgb(0.22, 0.41, 0.61),
+    Color::srgb(0.14, 0.28, 0.45),
+);
+const HEADER_IDLE: ButtonColors = ButtonColors::new(
+    Color::NONE,
+    colors::BUTTON_DEV_SMALL_HOVERED,
+    colors::BUTTON_DEV_SMALL_PRESSED,
+);
+
+/// 当前工具保持高亮，顶栏另外用琥珀色标记未保存草稿、用蓝色标记可用的历史操作。
 pub(crate) fn sync_editor_action_button_styles(
     mut commands: Commands,               // 按当前地形能力增删Bevy正式禁用标记。
     editor: Res<SceneEditorState>,          // 视图、工具与预览按钮仍读取编辑器交互状态。
     session: Res<EditorAuthoringSession>, // 天空二选一必须直接回显当前场景草稿，而不是一次点击后的临时状态。
     availability: EditorActionInputs,
     viewport: Option<Res<SceneEditorViewportState>>,
+    header_slots: Query<&WorkbenchHeaderItem>,
     mut captions: Query<&mut TextColor>,
     mut buttons: Query<
         (
@@ -187,7 +206,9 @@ pub(crate) fn sync_editor_action_button_styles(
             &SceneEditorActionButton,
             Has<InteractionDisabled>,
             &mut BackgroundColor,
+            Option<&mut ButtonColors>,
             Option<&Children>,
+            Option<&ChildOf>,
         ),
         Without<crate::components::SceneEditorCustomActionStyle>,
     >, // 地形域自行显示预备工具，避免选择模式下两套系统交替改色。
@@ -197,7 +218,7 @@ pub(crate) fn sync_editor_action_button_styles(
         .as_ref()
         .is_some_and(|draft| !draft.manifest.terrain.kind.supports_spline_water());
     let availability = availability.snapshot(&editor, viewport.as_deref());
-    for (entity, interaction, button, disabled, mut background, children) in &mut buttons {
+    for (entity, interaction, button, disabled, mut background, palette, children, parent) in &mut buttons {
         let managed = EditorActionAvailability::supports(button.0);
         let should_disable = availability.reason(button.0).is_some()
             || (spline_unsupported && super::water_actions::spline_edit_action(button.0, editor.tool));
@@ -219,6 +240,32 @@ pub(crate) fn sync_editor_action_button_styles(
                     caption.0 = color; // 禁用仍可命中悬停，但不显示按下/选中态；不改字号、尺寸或层级。
                 }
             }
+        }
+        let header_action = parent
+            .and_then(|parent| header_slots.get(parent.parent()).ok())
+            .is_some_and(|slot| matches!(slot,
+                WorkbenchHeaderItem::Save | WorkbenchHeaderItem::Undo | WorkbenchHeaderItem::Redo));
+        if header_action {
+            let feedback = match button.0 {
+                // 保存工作进行中仍标记脏草稿，成功回执消除提示。
+                EditorAction::Save if availability.needs_save() => SAVE_PENDING,
+                EditorAction::Undo | EditorAction::Redo if !should_disable => HISTORY_READY,
+                _ => HEADER_IDLE,
+            };
+            if let Some(mut palette) = palette {
+                palette.set_if_neq(feedback);
+            }
+            let color = if should_disable && feedback == HEADER_IDLE {
+                colors::SLOT_BG_DISABLED
+            } else {
+                match interaction {
+                    UiInteraction::Pressed if !should_disable => feedback.pressed,
+                    UiInteraction::Hovered if !should_disable => feedback.hovered,
+                    _ => feedback.normal,
+                }
+            };
+            background.set_if_neq(BackgroundColor(color));
+            continue;
         }
         let active = match button.0 {
             EditorAction::ViewPerspective => editor.view == EditorView::Perspective,
@@ -281,12 +328,13 @@ pub(crate) struct EditorShortcutInputContext<'w, 's> {
     mouse: Option<Res<'w, ButtonInput<MouseButton>>>,
     mode: Option<ResMut<'w, crate::viewport::modes::ViewportModeState>>,
     availability: EditorActionInputs<'w>,
+    weight_commands: Option<ResMut<'w, Messages<RequestWeightCommand>>>,
     viewport: Option<Res<'w, SceneEditorViewportState>>,
     shapes: Option<ResMut<'w, crate::authoring::basic_shapes::BasicShapeState>>,
     mesh_edit: Option<Res<'w, crate::authoring::mesh_edit::MeshEditState>>,
 }
 
-/// 编辑状态下提供可配置的场景快捷键；文本和其他中央文档拥有各自的输入。
+/// 编辑状态下提供可配置的场景与权重快捷键；文本和其他中央文档拥有各自的输入。
 pub(crate) fn handle_editor_shortcuts(
     scene_characters: Option<Res<crate::game_authoring::scene_interaction::SceneInteractionState>>, // 场景角色自由文字独占快捷键。
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -338,17 +386,25 @@ pub(crate) fn handle_editor_shortcuts(
             && !matches!(action, EditorShortcutAction::Save | EditorShortcutAction::Undo | EditorShortcutAction::Redo)
         { continue; } // 元素快捷键由网格编辑域消费；已确认几何仍可沿原事务保存或撤销，完整对象工具不得串线。
         if action != EditorShortcutAction::AddObjectMenu
-            && (preset_editor.active_tab != super::vegetation_preset_editor::PresetWorkspaceTab::Scene
-                || documents.as_ref().is_some_and(|state| state.owns_shortcuts())) {
-            continue; // 添加网格是跨中央标签的工具入口，其他快捷键仍归当前文档所有。
+            && documents.as_ref().is_some_and(|state| state.owns_shortcuts()) {
+            continue; // 文档仍优先消费自己的快捷键。
         }
-        if let Some(command) = EditorActionAvailability::shortcut_action(action)
-            && input.availability
-                .snapshot(&editor, input.viewport.as_deref())
-                .reason(command)
-                .is_some()
-        {
-            continue; // 与鼠标入口和悬停说明共用实时资格；不影响文字、拖动等原有输入所有权门。
+        if let Some(command) = EditorActionAvailability::shortcut_action(action) {
+            let availability = input.availability.snapshot(&editor, input.viewport.as_deref());
+            if availability.reason(command).is_some() {
+                continue; // 与鼠标入口和悬停说明共用实时资格。
+            }
+            if availability.uses_weight_context(command) {
+                input.availability.send_weight_command(
+                    command,
+                    input.weight_commands.as_deref_mut(),
+                );
+                continue;
+            }
+        }
+        if action != EditorShortcutAction::AddObjectMenu
+            && preset_editor.active_tab != super::vegetation_preset_editor::PresetWorkspaceTab::Scene {
+            continue; // 添加网格是跨中央标签的工具入口，其他场景快捷键只在场景页使用。
         }
         if matches!(action, EditorShortcutAction::FocusSelected | EditorShortcutAction::FrameScene | EditorShortcutAction::MoveSelected | EditorShortcutAction::RotateSelected | EditorShortcutAction::ScaleSelected | EditorShortcutAction::ToggleSnapping | EditorShortcutAction::AddObjectMenu)
             && input.mouse.as_ref().is_some_and(|mouse| mouse.any_pressed([MouseButton::Left, MouseButton::Right, MouseButton::Middle])) {

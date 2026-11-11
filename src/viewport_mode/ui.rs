@@ -5,7 +5,17 @@ use feathrise_editor_ui::InteractionButton;
 use super::{RequestViewportMode, ViewportMode, ViewportModeState, components::*};
 use bevy::prelude::*;
 use feathrise_editor_core::{ProjectLaunchButton, ProjectLaunchLabel, ProjectLaunchSettings};
-use feathrise_editor_scene::workbench::WorkbenchHeader;
+use feathrise_editor_scene::{
+    game_authoring::scene_api::{
+        resources::SceneEditorState,
+        ui::{
+            asset_preview::AssetPreviewWorkspace,
+            vegetation_preset_editor::VegetationPresetEditorState,
+        },
+    },
+    standalone::viewport_projection,
+    workbench::{WorkbenchHeader, WorkbenchHostPageState},
+};
 use feathrise_editor_ui::{EditorButtonClick, colors as c};
 
 pub(super) fn mount(
@@ -144,6 +154,12 @@ pub(super) fn input(
 
 pub(super) fn present(
     state: Res<ViewportModeState>,
+    central_view: (
+        Option<Res<SceneEditorState>>,
+        Option<Res<VegetationPresetEditorState>>,
+        Option<Res<AssetPreviewWorkspace>>,
+        Option<Res<WorkbenchHostPageState>>,
+    ),
     locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     launch: Res<ProjectLaunchSettings>,
     interruption: Option<Res<feathrise_editor_core::ProjectLaunchInterruption>>,
@@ -163,9 +179,21 @@ pub(super) fn present(
         let caption = locale.editor_label(caption);
         if text.as_str() != caption { **text = caption.into(); }
     }
+    // GLB 只投影实际中央画布来源；运行按钮和地图仍沿用原工程模式。
+    let (editor, workspace, media, host_page) = central_view;
+    let selected = if viewport_projection::central_glb_active(
+        editor.as_deref(),
+        workspace.as_deref(),
+        media.as_deref(),
+        host_page.as_deref(),
+    ) {
+        ViewportMode::SavedWorld
+    } else {
+        state.selected
+    };
     // 文字始终使用挂载时的固定名称；选中态只变底色与边框，不插入会使按钮变宽的圆点。
     for (button, interaction, mut border, mut background, mut colors) in &mut buttons {
-        let palette = if button.0 == state.selected {
+        let palette = if button.0 == selected {
             feathrise_editor_ui::ButtonColors::new(c::SELECT_BG, c::SELECT_BG_HOVER, c::SELECT_BG_PRESSED)
         } else {
             feathrise_editor_ui::ButtonColors::new(c::BUTTON_DEV_SMALL_NORMAL, c::BUTTON_DEV_SMALL_HOVERED, c::BUTTON_DEV_SMALL_PRESSED)
@@ -177,7 +205,7 @@ pub(super) fn present(
             UiInteraction::None => palette.normal,
         };
         if background.0 != wanted { background.0 = wanted; }
-        *border = BorderColor::all(if button.0 == state.selected {
+        *border = BorderColor::all(if button.0 == selected {
             c::COPPER_BORDER
         } else {
             c::COPPER_BORDER_WEAK

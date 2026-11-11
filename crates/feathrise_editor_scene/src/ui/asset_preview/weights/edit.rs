@@ -19,6 +19,8 @@ pub(super) enum Tool {
     #[default]
     Point,
     Box,
+    Bone,
+    Set,
     Add,
     Subtract,
     Smooth,

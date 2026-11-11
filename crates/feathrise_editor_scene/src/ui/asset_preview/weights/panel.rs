@@ -1,4 +1,4 @@
-//! 右侧蒙皮工具页，复用编辑器现有主题、按钮、滚动与数值输入。
+//! 右侧蒙皮工具页和画布左侧选骨入口，复用编辑器现有主题与按钮。
 
 use super::super::{animation::AnimationEditorState, rigging::RiggingState};
 use super::{
@@ -16,9 +16,12 @@ use crate::{
             SceneEditorSidebarState,
         },
         theme as colors,
+        tooltips::{EditorTooltipTarget, TooltipAction},
     },
+    viewport::modes::{MODE_BUTTON_SIZE, MODE_ICON_SIZE, MODE_RAIL_WIDTH, ViewportMode, mode_icon_path},
 };
 use bevy::{
+    asset::HandleTemplate,
     gltf::Gltf,
     prelude::*,
     text::FontSourceTemplate,
@@ -51,17 +54,14 @@ pub(super) enum Action {
     Visible,
     Mirror,
     Mask,
+    Edit,
     Mode(Tool),
     Mesh(i8),
-    Bone(i8),
     Lock,
     Clear,
     Apply,
     Assign,
     Remove,
-    Undo,
-    Redo,
-    Save,
 }
 
 #[derive(Component, Clone, Copy)]
@@ -78,6 +78,12 @@ pub(super) enum Label {
 
 #[derive(Component, Clone, Default)]
 pub(super) struct Entry;
+
+#[derive(Component, Clone, Default)]
+pub(in crate::ui::asset_preview) struct BoneToolRail;
+
+#[derive(Component, Clone, Copy, Default)]
+pub(super) struct EditControls;
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Field {
@@ -131,6 +137,64 @@ pub(in crate::ui::asset_preview) fn entry() -> impl Scene {
     }
 }
 
+pub(in crate::ui::asset_preview) fn viewport_tools() -> impl Scene {
+    bsn! {
+        BoneToolRail RelativeCursorPosition::default() UiInteraction::default()
+        ~{FocusPolicy::Block} ZIndex(25)
+        Node {
+            display: Display::None,
+            position_type: PositionType::Absolute,
+            left: px(8), top: px(8), width: px(MODE_RAIL_WIDTH),
+            flex_direction: FlexDirection::Column, row_gap: px(2),
+            padding: UiRect::all(px(2)), border: UiRect::all(px(1)),
+            border_radius: BorderRadius::all(px(2)),
+        }
+        BackgroundColor(colors::PANEL_BG_STRONG) BorderColor::all(colors::COPPER_BORDER_WEAK)
+        Children [
+            @mode_button(ViewportMode::Select, Action::Mode(Tool::Bone), TooltipAction::WeightSelect)--
+            @mode_button(ViewportMode::Edit, Action::Edit, TooltipAction::WeightEdit)
+        ]
+    }
+}
+
+fn mode_button(mode: ViewportMode, action: Action, tooltip: TooltipAction) -> impl Scene {
+    let icon = HandleTemplate::Path(mode_icon_path(mode).into());
+    bsn! {
+        InteractionButton ~{action} ~{NORMAL} ~{FocusPolicy::Block}
+        EditorTooltipTarget(tooltip)
+        Node {
+            width: px(MODE_BUTTON_SIZE), height: px(MODE_BUTTON_SIZE), flex_shrink: 0.0,
+            justify_content: JustifyContent::Center, align_items: AlignItems::Center,
+            border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)),
+        }
+        BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
+        Children [
+            ImageNode { image: icon, color: colors::TEXT_PRIMARY }
+            Node { width: px(MODE_ICON_SIZE), height: px(MODE_ICON_SIZE), flex_shrink: 0.0 }
+            ~{FocusPolicy::Pass} Pickable::IGNORE
+        ]
+    }
+}
+
+fn edit_controls() -> impl Scene {
+    bsn! {
+        EditControls
+        Node { display: Display::None, flex_direction: FlexDirection::Column, row_gap: px(4), flex_shrink: 0.0 }
+        Children [
+            @row() Children [@button(Action::Mesh(-1))--@button(Action::Mesh(1))]--
+            @row() Children [@button(Action::Lock)]--
+            @row() Children [@button(Action::Mode(Tool::Point))--@button(Action::Mode(Tool::Box))--@button(Action::Clear)]--
+            @row() Children [@button(Action::Mode(Tool::Add))--@button(Action::Mode(Tool::Subtract))--@button(Action::Mode(Tool::Smooth))]--
+            @row() Children [@button(Action::Visible)--@button(Action::Mirror)--@button(Action::Mask)]--
+            @row() Children [@button(Action::Apply)--@button(Action::Remove)--@button(Action::Assign)]--
+            @label(Label::Selection)--
+            @label(Label::Legend)--
+            @row() Children [@button(Action::Compare)--@button(Action::Rest)]--
+            @row() Children [@button(Action::OpenSaved)]
+        ]
+    }
+}
+
 pub(crate) fn sidebar_page() -> impl Scene {
     bsn! {
         SceneEditorSidebarPage(EditorSidebarTab::Right(EditorRightSidebarTab::Weights))
@@ -143,34 +207,13 @@ pub(crate) fn sidebar_page() -> impl Scene {
         Children [
             @label(Label::Target)--
             @label(Label::Notice)--
-            @row() Children [@button(Action::Undo)--@button(Action::Redo)--@button(Action::Save)]--
-            @row() Children [@button(Action::Mesh(-1))--@button(Action::Mesh(1))]--
             @label(Label::Geometry)--
-            @row() Children [@button(Action::Bone(-1))--@button(Action::Bone(1))--@button(Action::Lock)]--
             @label(Label::Joint)--
-            @row() Children [@button(Action::Mode(Tool::Point))--@button(Action::Mode(Tool::Box))--@button(Action::Clear)]--
-            @row() Children [@button(Action::Mode(Tool::Add))--@button(Action::Mode(Tool::Subtract))--@button(Action::Mode(Tool::Smooth))]--
-            @row() Children [@button(Action::Visible)--@button(Action::Mirror)--@button(Action::Mask)]--
-            @fields()--
-            @row() Children [@button(Action::Apply)--@button(Action::Remove)--@button(Action::Assign)]--
-            @label(Label::Selection)--
-            @label(Label::Legend)--
+            @edit_controls()--
             @row() Children [@button(Action::Heat)--@button(Action::Skeleton)]--
-            @row() Children [@button(Action::Compare)--@button(Action::Rest)]--
-            @row() Children [@button(Action::Discard)--@button(Action::OpenSaved)]
+            @row() Children [@button(Action::Discard)]
         ]
     }
-}
-
-fn fields() -> impl Scene {
-    bsn! {
-        Node { width: percent(100), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
-        Children [@field_slot(Field::Radius)--@field_slot(Field::Strength)--@field_slot(Field::Amount)]
-    }
-}
-
-fn field_slot(field: Field) -> impl Scene {
-    bsn! { ~{super::fields::Slot(field)} Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 } }
 }
 
 pub(super) fn tr(
@@ -203,21 +246,27 @@ fn caption(action: Action, session: Option<&Session>, locale: EditorLocale) -> &
         Action::Mask => ("仅选区", "Selection mask"),
         Action::Mesh(-1) => ("上一图元", "Previous primitive"),
         Action::Mesh(_) => ("下一图元", "Next primitive"),
-        Action::Bone(-1) => ("上一骨骼", "Previous bone"),
-        Action::Bone(_) => ("下一骨骼", "Next bone"),
-        Action::Lock => ("锁定", "Lock"),
+        Action::Lock
+            if session.is_some_and(|session| session.current_locks()[session.joint as usize]) =>
+        {
+            ("解锁权重", "Unlock weights")
+        }
+        Action::Lock => ("锁定权重", "Lock weights"),
         Action::Clear => ("清选", "Clear"),
+        Action::Edit => ("编辑权重", "Edit weights"),
+        Action::Mode(Tool::Bone) => ("选骨骼", "Pick bone"),
         Action::Mode(Tool::Point) => ("选点", "Vertex"),
         Action::Mode(Tool::Box) => ("框选", "Box"),
+        Action::Mode(Tool::Set) => ("设定权重", "Set weight"),
         Action::Mode(Tool::Add) => ("增重", "Add"),
         Action::Mode(Tool::Subtract) => ("减重", "Subtract"),
         Action::Mode(Tool::Smooth) => ("平滑", "Smooth"),
-        Action::Apply => ("应用数值", "Set weight"),
+        Action::Apply if session.is_some_and(|session| session.tool == Tool::Set) => {
+            ("应用数值", "Apply value")
+        }
+        Action::Apply => ("设定权重", "Set weight"),
         Action::Assign => ("指定归属", "Assign"),
         Action::Remove => ("移除影响", "Remove"),
-        Action::Undo => ("撤销", "Undo"),
-        Action::Redo => ("重做", "Redo"),
-        Action::Save => ("另存 GLB", "Save GLB copy"),
     };
     tr(locale, zh, en)
 }
@@ -241,7 +290,10 @@ pub(super) fn present(
         &mut BackgroundColor,
         Has<InteractionDisabled>,
     )>,
-    mut entries: Query<&mut Node, With<Entry>>,
+    mut roots: Query<
+        (&mut Node, Has<Entry>, Has<EditControls>),
+        Or<(With<Entry>, With<BoneToolRail>, With<EditControls>)>,
+    >,
     mut labels: Query<(&Label, &mut Text)>,
 ) {
     let locale = locale.as_deref().copied().unwrap_or_default();
@@ -253,6 +305,10 @@ pub(super) fn present(
         .session
         .as_ref()
         .filter(|session| target.matches(&session.key));
+    let rail = sidebar.right == EditorRightSidebarTab::Weights
+        && gate.open(&editor)
+        && target.preview.render_visible
+        && session.is_some_and(|session| !session.stale);
     let working = state.busy();
     let motion = animation
         .as_ref()
@@ -262,8 +318,10 @@ pub(super) fn present(
             .as_ref()
             .is_some_and(|animation| animation.weight_rest_active());
     let editable = session.is_some_and(|session| !session.stale && !session.original) && !motion;
-    for mut node in &mut entries {
-        let display = if entry { Display::Flex } else { Display::None };
+    let editing = session.is_some_and(|session| session.tool != Tool::Bone);
+    for (mut node, is_entry, is_edit) in &mut roots {
+        let visible = if is_entry { entry } else if is_edit { editing } else { rail };
+        let display = if visible { Display::Flex } else { Display::None };
         if node.display != display {
             node.display = display;
         }
@@ -277,14 +335,8 @@ pub(super) fn present(
                     session.is_some_and(|session| session.saved_path.is_some() && !session.dirty())
                 }
                 Action::Rest => session.is_some() && (motion || returning),
+                Action::Mode(Tool::Bone) | Action::Edit => rail,
                 Action::Mode(tool) => session.is_some() && (!motion || tool == Tool::Box),
-                Action::Save => session.is_some_and(|session| session.dirty() && !session.stale),
-                Action::Undo => {
-                    session.is_some_and(|session| !session.stale && !session.undo.is_empty())
-                }
-                Action::Redo => {
-                    session.is_some_and(|session| !session.stale && !session.redo.is_empty())
-                }
                 Action::Apply | Action::Assign | Action::Remove => {
                     editable
                         && session.is_some_and(|session| {
@@ -307,6 +359,8 @@ pub(super) fn present(
         }
         let selected = session.is_some_and(|session| match *action {
             Action::Mode(tool) => session.tool == tool,
+            Action::Edit => editing,
+            Action::Apply => session.tool == Tool::Set,
             Action::Compare => session.original,
             Action::Heat => session.heat,
             Action::Skeleton => session.show_skeleton,
@@ -341,7 +395,7 @@ pub(super) fn present(
             Label::EntryNotice if entry && session.is_none() => state.notice.clone(),
             Label::EntryNotice => String::new(),
             Label::Notice if !state.notice.is_empty() => state.notice.clone(),
-            Label::Notice if motion => tr(
+            Label::Notice if motion && editing => tr(
                 locale,
                 "选择「框选问题帧」后在画布框选，进入静置修权。",
                 "Choose Box on pose, then drag on the model to edit the selection.",

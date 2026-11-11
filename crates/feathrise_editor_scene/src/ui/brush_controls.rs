@@ -23,7 +23,7 @@ use crate::resources::SceneEditorState; // 数值立即更新统一笔刷半径�
 use crate::types::EditorTool; // 控件可见性必须与当前工具实际消费参数一致。
 
 use super::scene::FONT_PATH; // 与完整F12外壳共享同一中文字体资产。
-use super::viewport_toolbar::ViewportBrushParameters; // 原字段适用规则只控制同排参数显隐，不改变工具栏高度。
+use super::viewport_toolbar::ViewportBrushParameters; // 字段适用规则只控制参数显隐，展开状态由工具栏管理。
 
 pub(crate) const BRUSH_RADIUS_MIN_METERS: f32 = 2.0; // 与原快捷键允许的最细世界笔刷一致。
 pub(crate) const BRUSH_RADIUS_MAX_METERS: f32 = 1_000.0; // 保留大场景快速铺陈所需的一公里上限。
@@ -134,14 +134,14 @@ fn brush_slider_field(kind: SceneEditorBrushSliderKind) -> impl Scene {
     }
 }
 
-/// 与方向及投影按钮同排的参数组；没有适用参数时收起该组，但不重建数值根或改变工具栏行高。
+/// 默认排在方向及投影按钮之后。参数组按需显示，数值根保持原身份。
 pub(super) fn brush_controls_panel() -> impl Scene {
     bsn! {
         ViewportBrushParameters
         Node {
             display: Display::None, // 首次业务同步前不短暂暴露失效字段。
             min_width: px(0),
-            height: px(26), // 与视图按钮共享中心线，工具栏始终只占一排。
+            height: px(26), // 单行时与视图按钮共享中心线，展开时由工具栏统一换行。
             flex_grow: 1.0,
             flex_shrink: 0.0,
             align_items: AlignItems::Center,
@@ -177,8 +177,8 @@ fn field_unit(kind: SceneEditorBrushSliderKind) -> &'static str {
     }
 }
 
-/// 参数区统一为26px控件高度，标签/值/单位可读；交互结构仍完全由公共builder拥有。
-fn brush_field_style() -> NumericScrubFieldStyle {
+/// 场景笔刷与模型调权共用26px控件高度，标签、值与单位由公共builder生成。
+pub(in crate::ui) fn brush_field_style() -> NumericScrubFieldStyle {
     NumericScrubFieldStyle {
         width: 160.0,          // 仅作为builder初值，随后将根宽度绑定到弹性槽位。
         height: 26.0,          // 与同组视图切换一致。
@@ -608,7 +608,7 @@ pub(crate) fn sync_brush_sliders(
     mut panels: Query<
         &mut Node,
         (With<ViewportBrushParameters>, Without<BrushNumericInputSlot>),
-    >, // 与槽位查询显式互斥，参数组收起不影响外层固定行高。
+    >, // 与槽位查询显式互斥。
 ) {
     let should_enable = editor.open && !editor.close_requested && !editor.new_scene_dialog_open; // 隐藏或模态上下文不得保留旧鼠标命中。
     let has_parameters = [

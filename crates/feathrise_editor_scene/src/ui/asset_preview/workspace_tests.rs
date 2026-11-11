@@ -138,6 +138,54 @@ fn asset_center_expand_restore_keeps_panel_view_and_file_selection() {
 }
 
 #[test]
+fn central_glb_viewport_returns_to_scene_and_keeps_the_model_tab() {
+    use crate::standalone::viewport_projection::{central_glb_active, return_from_central_glb};
+    use crate::workbench::WorkbenchHostPageState;
+
+    let (mut app, panel, sidebar, center) = fixture();
+    let is_central_glb = |world: &World| {
+        central_glb_active(
+            world.get_resource(),
+            world.get_resource(),
+            world.get_resource(),
+            world.get_resource(),
+        )
+    };
+    press(&mut app, AssetPreviewWorkspaceAction::ToggleExpand);
+    assert!(!is_central_glb(app.world()), "中央图片标签没有 3D 画布");
+
+    app.world_mut()
+        .resource_mut::<SceneEditorState>()
+        .selected_asset = Some("gltf/tree.glb".into());
+    press(&mut app, AssetPreviewWorkspaceAction::OpenSelected);
+    assert!(is_central_glb(app.world()));
+    assert_eq!(app.world().get::<ChildOf>(panel).unwrap().parent(), center);
+    let model_tab = app
+        .world()
+        .resource::<AssetPreviewWorkspace>()
+        .expanded
+        .as_ref()
+        .unwrap()
+        .id;
+
+    app.insert_resource(WorkbenchHostPageState { active: true, ..default() });
+    assert!(!is_central_glb(app.world()), "开始页覆盖中央资产时以宿主页面为准");
+    app.world_mut().resource_mut::<WorkbenchHostPageState>().active = false;
+    return_from_central_glb(app.world_mut());
+    app.update();
+    assert!(!is_central_glb(app.world()));
+    assert_eq!(
+        app.world().resource::<VegetationPresetEditorState>().active_tab,
+        PresetWorkspaceTab::Scene,
+    );
+    assert_eq!(app.world().get::<ChildOf>(panel).unwrap().parent(), sidebar);
+
+    press(&mut app, AssetPreviewWorkspaceAction::ActivateTab(model_tab));
+    assert!(is_central_glb(app.world()), "返回地图后仍可打开同一个模型标签");
+    assert_eq!(app.world().get::<ChildOf>(panel).unwrap().parent(), center);
+}
+
+#[test]
 fn asset_center_closed_return_tab_and_hidden_sidebar_fall_back_safely() {
     let (mut app, panel, sidebar, _) = fixture();
     app.world_mut()

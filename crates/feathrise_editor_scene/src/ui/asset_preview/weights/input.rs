@@ -9,8 +9,10 @@ use super::{
         types::{AssetPreviewCamera, AssetPreviewCanvas},
     },
     edit::{Operation, Selection, Tool},
+    panel::BoneToolRail,
     posed::{Bookmark, Capture, Gesture},
     resources::{Reason, Stroke, WeightEditor},
+    skeleton::BoneTargets,
     systems::{Gate, Target, queue},
 };
 use crate::{
@@ -44,8 +46,11 @@ pub(super) fn input(
         With<AssetPreviewCanvas>,
     >,
     cameras: Query<(&Projection, &GlobalTransform), With<AssetPreviewCamera>>,
-    axes: Query<(&Node, &RelativeCursorPosition), With<PreviewAxisRoot>>,
-    shading: preview_shading::Pointer,
+    overlays: (
+        Query<(&Node, &RelativeCursorPosition), Or<(With<PreviewAxisRoot>, With<BoneToolRail>)>>,
+        preview_shading::Pointer,
+    ),
+    bones: Res<BoneTargets>,
 ) {
     state.mouse = false;
     let canvas = canvas.single().ok();
@@ -57,10 +62,11 @@ pub(super) fn input(
         && state.session.as_ref().is_some_and(|session| {
             target.matches(&session.key)
                 && !session.stale
-                && if moving {
-                    session.tool == Tool::Box
-                } else {
-                    !session.original
+                && match session.tool {
+                    Tool::Bone => session.show_skeleton && target.preview.render_visible,
+                    Tool::Set => false,
+                    tool if moving => tool == Tool::Box,
+                    _ => !session.original,
                 }
         })
         && windows.single().is_ok_and(|window| window.focused);
@@ -140,10 +146,11 @@ pub(super) fn input(
         || !mouse.just_pressed(MouseButton::Left)
         || mouse.pressed(MouseButton::Right)
         || mouse.pressed(MouseButton::Middle)
-        || axes
-            .single()
-            .is_ok_and(|(node, cursor)| node.display != Display::None && cursor.cursor_over())
-        || shading.cursor_over()
+        || overlays
+            .0
+            .iter()
+            .any(|(node, cursor)| node.display != Display::None && cursor.cursor_over())
+        || overlays.1.cursor_over()
     {
         return;
     }
@@ -168,6 +175,16 @@ pub(super) fn input(
     let Some(session) = state.session.as_ref() else {
         return;
     };
+    if session.tool == Tool::Bone {
+        // 骨骼点击只更新当前关节，播放仍使用已发布的动作姿态。
+        let surface = session.surface;
+        let picked = bones.pick(session, &target.preview, view, position);
+        state.mouse = true;
+        if let Some(joint) = picked {
+            state.select_joint(surface, joint);
+        }
+        return;
+    }
     let problem = if moving {
         let (Some(animation), Some(motion), Some(binding)) = (
             animation.as_deref_mut(),

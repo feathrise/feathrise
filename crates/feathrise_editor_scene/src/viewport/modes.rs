@@ -13,6 +13,7 @@ pub(crate) use mesh_edit_ui::MeshEditToolbarRoot;
 pub(crate) use ui::ControlsRoot as ViewportControlsRoot; // 手柄按本帧真实控件矩形阻止初次按下穿透。
 pub(crate) use ui::{GlobalModeToolbar as ViewportModeMenuRoot, ModeToolsRoot as ViewportModeToolsRoot};
 pub(crate) use ui::global_mode_toolbar;
+pub(crate) use ui::{MODE_BUTTON_SIZE, MODE_ICON_SIZE, MODE_RAIL_WIDTH, mode_icon_path};
 pub(crate) use ui::controls_visible;
 #[cfg(any(test, feature = "validation"))]
 pub(crate) fn validation_press_select(world: &mut World) -> Result<Entity, String> {

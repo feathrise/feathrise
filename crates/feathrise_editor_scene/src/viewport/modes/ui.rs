@@ -13,8 +13,20 @@ use crate::ui::theme as colors; // 沿用编辑器当前中性灰主题与弱分
 use crate::ui::scene::FONT_PATH;
 
 const COMPACT_BUTTON_WIDTH: f32 = 40.0; // 两字标签在12px字体下保留边距，统一收紧筛选和批量按钮。
-const MODE_BUTTON_SIZE: f32 = 30.0; // 参考传统编辑器的窄图标栏，不再用五个横排文字按钮占顶行。
-const MODE_RAIL_WIDTH: f32 = MODE_BUTTON_SIZE + 6.0; // 两侧各2px内边距与1px弱边。
+pub(crate) const MODE_BUTTON_SIZE: f32 = 30.0;
+pub(crate) const MODE_ICON_SIZE: f32 = 20.0;
+pub(crate) const MODE_RAIL_WIDTH: f32 = MODE_BUTTON_SIZE + 6.0; // 两侧各2px内边距与1px弱边。
+
+/// 模型和地图视口复用同一组工具图标，各自绑定自己的选择和编辑动作。
+pub(crate) fn mode_icon_path(mode: ViewportMode) -> &'static str {
+    match mode {
+        ViewportMode::Select => "icons/editor/tool_select.png",
+        ViewportMode::Move => "icons/editor/tool_move.png",
+        ViewportMode::Rotate => "icons/editor/tool_rotate.png",
+        ViewportMode::Scale => "icons/editor/tool_scale.png",
+        ViewportMode::Edit => "icons/editor/tool_edit.png",
+    }
+}
 
 fn preferred_controls_width(mode: ViewportMode) -> f32 {
     let content = match mode {
@@ -79,10 +91,10 @@ fn spawn_mode_tools(parent: &mut ChildSpawnerCommands, assets: &AssetServer) {
         },
         BackgroundColor(colors::PANEL_BG_STRONG), BorderColor::all(colors::COPPER_BORDER_WEAK), ZIndex(25),
     )).with_children(|rail| {
-        for (mode, label, icon) in [
-            (ViewportMode::Select, "选择", "tool_select"), (ViewportMode::Move, "移动", "tool_move"),
-            (ViewportMode::Rotate, "旋转", "tool_rotate"), (ViewportMode::Scale, "缩放", "tool_scale"),
-            (ViewportMode::Edit, "编辑", "tool_edit"),
+        for (mode, label) in [
+            (ViewportMode::Select, "选择"), (ViewportMode::Move, "移动"),
+            (ViewportMode::Rotate, "旋转"), (ViewportMode::Scale, "缩放"),
+            (ViewportMode::Edit, "编辑"),
         ] {
             rail.spawn((
                 InteractionButton, ModeButton::Mode(mode), Name::new(label), FocusPolicy::Block,
@@ -94,8 +106,8 @@ fn spawn_mode_tools(parent: &mut ChildSpawnerCommands, assets: &AssetServer) {
                 },
                 BackgroundColor(colors::SLOT_BG), BorderColor::all(colors::COPPER_BORDER_WEAK),
             )).with_child((
-                ImageNode { image: assets.load(format!("icons/editor/{icon}.png")), color: colors::TEXT_PRIMARY, ..default() },
-                Node { width: px(20), height: px(20), flex_shrink: 0.0, ..default() },
+                ImageNode { image: assets.load(mode_icon_path(mode)), color: colors::TEXT_PRIMARY, ..default() },
+                Node { width: px(MODE_ICON_SIZE), height: px(MODE_ICON_SIZE), flex_shrink: 0.0, ..default() },
                 FocusPolicy::Pass, Pickable::IGNORE, // 透明轮廓由现有主题着色，图标本身不截获父按钮动作。
             ));
         }
