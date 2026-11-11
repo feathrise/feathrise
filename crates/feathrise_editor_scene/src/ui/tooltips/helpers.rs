@@ -34,6 +34,12 @@ pub(super) fn tooltip_copy(action: TooltipAction, mesh_edit: bool) -> TooltipCop
             None,
             None,
         ),
+        TooltipAction::Editor(EditorAction::AssetFolderUp) => (
+            "上级目录", "返回当前目录的上一级。", None, None,
+        ),
+        TooltipAction::Editor(EditorAction::RefreshAssets) => (
+            "刷新", "重新读取当前目录。", None, None,
+        ),
         TooltipAction::Editor(EditorAction::Close) => (
             "启动",
             "收起编辑器并返回当前场景，不自动保存或丢弃草稿。",
@@ -130,6 +136,19 @@ pub(super) fn tooltip_copy(action: TooltipAction, mesh_edit: bool) -> TooltipCop
             } // 同一图标随对象/元素模式回显真实操作及键位，不能让 W/E/R 的对象说明误导网格编辑。
         },
         TooltipAction::ViewportOptions => ("筛选与操作", "展开选择类别与复制、粘贴、删除等对象操作。", None, None),
+        TooltipAction::AssetThumbnails => ("缩略图", "在缩略图和列表视图间切换。", None, None),
+        TooltipAction::AssetSearch => (
+            "内容搜索", "查找文件内容，或展开当前的资产引用结果。", None, Some("Ctrl+Shift+F"),
+        ),
+        TooltipAction::AssetMissingCheck => (
+            "缺失检查", "检查场景和配置引用的资产。再次点击收起结果。", None, None,
+        ),
+        TooltipAction::AssetFavorites => (
+            "收藏", "右键文件或文件夹加入收藏。展开后可定位收藏项和检查路径。", None, None,
+        ),
+        TooltipAction::AssetRecent => (
+            "最近访问", "查看最近打开的文件和目录。展开后可定位条目或清空记录。", None, None,
+        ),
         TooltipAction::ViewShading(mode) => (mode.label(), match mode {
             crate::viewport::shading::types::ShadingMode::Wireframe => "显示真实网格三角边；下拉可开启穿透线框。",
             crate::viewport::shading::types::ShadingMode::Solid => "使用真实表面法线显示灰色实体；下拉可增强凹凸轮廓或显示法线颜色。",

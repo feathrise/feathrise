@@ -2,14 +2,13 @@
 
 use bevy::prelude::*;
 use bevy::render::extract_component::ExtractComponent;
-use feathrise_editor_core::AssetBrowserViewMode;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU8},
 };
 
 #[derive(Component, Clone, Default)]
-pub(in crate::ui) struct ViewModeButton(pub AssetBrowserViewMode);
+pub(in crate::ui) struct ViewModeButton;
 #[derive(Component)]
 pub(super) struct ThumbnailImage(pub usize);
 #[derive(Component)]

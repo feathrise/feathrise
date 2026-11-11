@@ -17,12 +17,13 @@ pub(crate) use components::ProjectBrowserContent;
 pub(crate) use components::ProjectFileRow; // 共用路径菜单仅读取可见行绑定身份，不持有整个工程目录。
 pub(crate) use filter::filter_toolbar;
 #[cfg(feature = "validation")]
-pub(crate) use filter::ProjectTypeFilterButton;
+pub(crate) use {components::ProjectFileFilter, filter::ProjectTypeFilterButton};
 pub(crate) use popup::{ProjectBrowserPopup, spawn_expander};
 #[cfg(feature = "validation")]
 pub(crate) use popup::{ProjectAnimationClip, ProjectAnimationExpand, ProjectTypeFilterOption};
 pub(crate) use resources::{ProjectBrowserState, ProjectFileViewport};
-pub(crate) use scene::files_panel;
+pub(crate) use scene::{files_panel, parent_directory_row};
+pub(in crate::ui) use scene::{asset_folder_path, refresh_button, toolbar_button};
 pub(crate) use types::ProjectBrowserView;
 
 use bevy::prelude::*;

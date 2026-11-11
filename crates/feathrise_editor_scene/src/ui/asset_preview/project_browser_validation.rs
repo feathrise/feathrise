@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{
     asset_catalog::{AssetTypeFilter, EditorAssetCatalog, project_files::EditorProjectFileCatalog},
-    components::{SceneEditorActionButton, SceneEditorAssetRow, SceneEditorPane, SceneEditorPaneSplitter},
+    components::{SceneEditorActionButton, SceneEditorAssetFolderText, SceneEditorAssetRow, SceneEditorPane, SceneEditorPaneSplitter},
     constants::EDITOR_CONTENT_MIN_WIDTH,
     resources::{SceneEditorLayoutState, SceneEditorState},
     types::{EditorAction, EditorPane},
@@ -18,23 +18,27 @@ use crate::{
         asset_thumbnails::{ViewModeButton, validation_visible_thumbnail},
         project_browser::{
             ProjectAnimationClip, ProjectAnimationExpand, ProjectBrowserState, ProjectBrowserView,
-            ProjectFileRow, ProjectTypeFilterButton, ProjectTypeFilterOption,
+            ProjectFileFilter, ProjectFileRow, ProjectTypeFilterButton, ProjectTypeFilterOption,
         },
         sidebars::{EditorNavigatorTab, EditorSidebarTab, SceneEditorSidebarState, SceneEditorSidebarTabButton},
+        tooltips::{EditorTooltipTarget, TooltipAction},
         vegetation_preset_editor::VegetationPresetEditorState,
     },
 };
 use bevy::{
     app::AppExit,
-    input::{ButtonState, mouse::MouseButtonInput},
+    input::{ButtonState, keyboard::{Key, KeyboardInput}, mouse::MouseButtonInput},
+    input_focus::InputFocus,
     math::DVec2,
     prelude::*,
     tasks::{IoTaskPool, Task, futures::check_ready},
+    text::EditableText,
     ui::{InteractionDisabled, UiGlobalTransform},
-    window::PrimaryWindow,
+    window::{Ime, PrimaryWindow},
 };
 use feathrise_editor_core::{AssetBrowserViewMode, EditorSettings};
-use feathrise_editor_ui::UiInteraction;
+use feathrise_editor_documents_model::search::components::{SearchAction, SearchBody, SearchReferenceControls, SearchTextControls};
+use feathrise_editor_ui::{UiInteraction, localization::EditorLocale};
 use serde_json::{Map, Value, json};
 use std::{
     fs,
@@ -45,10 +49,15 @@ use std::{
 const HERO: &str = "roles/nested/hero.glb";
 const STATIC: &str = "roles/nested/static.glb";
 const MOTIONS: &str = "motions.glb";
+const PROJECT_NAME_QUERY: &str = "Cargo.toml";
+const ASSET_NAME_QUERY: &str = "动作";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stage {
     OpenDirectory,
+    FocusProjectFilter,
+    TypeProjectFilter,
+    ClearProjectFilter,
     FilterSkeleton,
     OpenAssets,
     OpenRoles,
@@ -59,13 +68,25 @@ enum Stage {
     HeroReady,
     RestoreDirectory,
     FilterAll,
+    FocusAssetFilter,
+    ComposeAssetFilter,
+    CommitAssetFilter,
+    ClearAssetFilter,
     UpToRoles,
     UpToAssets,
     Narrow,
+    OpenContentSearch,
+    OpenMissingCheck,
+    CloseMissingCheck,
+    CollapseFavorites,
+    ExpandRecent,
+    CollapseRecent,
     OpenNarrowMenu,
     NarrowCapture,
     ChooseAnimation,
     UseThumbnails,
+    ThumbnailsEnabled,
+    ThumbnailsDisabled,
     Expand,
     ClipMenuCapture,
     ChooseSecond,
@@ -75,6 +96,8 @@ enum Stage {
     AwaitReplacement,
     ChooseModel,
     ReplacementCapture,
+    ReturnProjectRoot,
+    VerifyProjectRoot,
     Complete,
 }
 
@@ -189,10 +212,35 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             }) {
                 return Ok(None);
             }
+            Stage::FocusProjectFilter
+        }
+        Stage::FocusProjectFilter => {
+            if !project_paths(world).is_some_and(|paths| paths.contains(&"README.md".into()))
+                || !click_filename_filter(world, run, window)
+            {
+                return Ok(None);
+            }
+            Stage::TypeProjectFilter
+        }
+        Stage::TypeProjectFilter => {
+            if !filename_filter_has_focus(world) { return Ok(None); }
+            key(world, window, KeyCode::KeyC, Key::Character(PROJECT_NAME_QUERY.into()), Some(PROJECT_NAME_QUERY));
+            Stage::ClearProjectFilter
+        }
+        Stage::ClearProjectFilter => {
+            if world.resource::<EditorProjectFileCatalog>().filter != PROJECT_NAME_QUERY { return Ok(None); }
+            let Some(paths) = project_paths(world) else { return Ok(None); };
+            if !paths.contains(&PROJECT_NAME_QUERY.into()) || paths.contains(&"README.md".into()) {
+                return Err("工程目录没有采用按文件名筛选的结果".into());
+            }
+            run.steps.insert("project_filename_filter".into(), json!(paths));
+            clear_filename_filter(world, window, PROJECT_NAME_QUERY);
             Stage::FilterSkeleton
         }
         Stage::FilterSkeleton => {
-            if !project_paths(world).is_some_and(|paths| paths.contains(&"src".into()) && paths.contains(&"assets".into()))
+            if !project_paths(world).is_some_and(|paths| {
+                paths.contains(&"src".into()) && paths.contains(&"assets".into()) && paths.contains(&"README.md".into())
+            })
                 && run.click.is_none()
             {
                 return Ok(None);
@@ -260,6 +308,40 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
         }
         Stage::FilterAll => {
             if !choose_filter(world, run, window, AssetTypeFilter::All) { return Ok(None); }
+            Stage::FocusAssetFilter
+        }
+        Stage::FocusAssetFilter => {
+            if !asset_paths(world, "roles/nested").is_some_and(|paths| paths == [HERO, STATIC])
+                || !click_filename_filter(world, run, window)
+            {
+                return Ok(None);
+            }
+            Stage::ComposeAssetFilter
+        }
+        Stage::ComposeAssetFilter => {
+            if !filename_filter_has_focus(world) || !world.get::<Window>(window).is_some_and(|window| window.ime_enabled) {
+                return Ok(None);
+            }
+            window_event(world, Ime::Preedit { window, value: "dongzuo".into(), cursor: Some((7, 7)) });
+            Stage::CommitAssetFilter
+        }
+        Stage::CommitAssetFilter => {
+            let Some(input) = world.resource::<InputFocus>().get().and_then(|entity| world.get::<EditableText>(entity)) else {
+                return Ok(None);
+            };
+            if !input.is_composing() { return Ok(None); }
+            if !world.resource::<EditorAssetCatalog>().filename_filter.is_empty() {
+                return Err("未确认的输入法候选触发了目录筛选".into());
+            }
+            window_event(world, Ime::Commit { window, value: ASSET_NAME_QUERY.into() });
+            Stage::ClearAssetFilter
+        }
+        Stage::ClearAssetFilter => {
+            if world.resource::<EditorAssetCatalog>().filename_filter != ASSET_NAME_QUERY { return Ok(None); }
+            let Some(paths) = asset_paths(world, "roles/nested") else { return Ok(None); };
+            if !paths.is_empty() { return Err("资产目录没有采用中文文件名筛选".into()); }
+            run.steps.insert("asset_filename_ime_filter".into(), json!(ASSET_NAME_QUERY));
+            clear_filename_filter(world, window, ASSET_NAME_QUERY);
             Stage::UpToRoles
         }
         Stage::UpToRoles => {
@@ -289,9 +371,64 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             }) else { return Ok(None); };
             if !narrow(world, run, window) { return Ok(None); }
             run.steps.insert("all_asset_root".into(), json!(paths));
+            Stage::OpenContentSearch
+        }
+        Stage::OpenContentSearch => {
+            let Some(layout) = asset_tools_layout(world)? else { return Ok(None); };
+            if !click(world, run, window, |action: &SearchAction| *action == SearchAction::Toggle) {
+                return Ok(None);
+            }
+            run.steps.insert("asset_tools_one_row".into(), layout);
+            Stage::OpenMissingCheck
+        }
+        Stage::OpenMissingCheck => {
+            if visible(world, |_: &SearchTextControls| true).is_none()
+                || !click(world, run, window, |action: &SearchAction| *action == SearchAction::MissingAssets)
+            {
+                return Ok(None);
+            }
+            Stage::CloseMissingCheck
+        }
+        Stage::CloseMissingCheck => {
+            if visible(world, |_: &SearchReferenceControls| true).is_none()
+                || !click(world, run, window, |action: &SearchAction| *action == SearchAction::MissingAssets)
+            {
+                return Ok(None);
+            }
+            Stage::CollapseFavorites
+        }
+        Stage::CollapseFavorites => {
+            if visible(world, |_: &SearchBody| true).is_some()
+                || !click(world, run, window, |target: &EditorTooltipTarget| target.0 == TooltipAction::AssetFavorites)
+            {
+                return Ok(None);
+            }
+            Stage::ExpandRecent
+        }
+        Stage::ExpandRecent => {
+            let locale = *world.resource::<EditorLocale>();
+            if visible(world, |text: &Text| text.0 == locale.editor_label("检查路径")).is_some()
+                || !click(world, run, window, |target: &EditorTooltipTarget| target.0 == TooltipAction::AssetRecent)
+            {
+                return Ok(None);
+            }
+            Stage::CollapseRecent
+        }
+        Stage::CollapseRecent => {
+            let locale = *world.resource::<EditorLocale>();
+            if visible(world, |text: &Text| text.0 == locale.editor_label("清空")).is_none()
+                || !click(world, run, window, |target: &EditorTooltipTarget| target.0 == TooltipAction::AssetRecent)
+            {
+                return Ok(None);
+            }
+            run.steps.insert("compact_sections_clicked".into(), json!(true));
             Stage::OpenNarrowMenu
         }
         Stage::OpenNarrowMenu => {
+            let locale = *world.resource::<EditorLocale>();
+            if visible(world, |text: &Text| text.0 == locale.editor_label("清空")).is_some() {
+                return Ok(None);
+            }
             if !click(world, run, window, |_: &ProjectTypeFilterButton| true) { return Ok(None); }
             Stage::NarrowCapture
         }
@@ -311,13 +448,35 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             let Some(paths) = asset_paths(world, "").filter(|paths| paths == &[MOTIONS]) else { return Ok(None); };
             let Some(expander) = animation_expander(world) else { return Ok(None); };
             if world.get::<Node>(expander).is_none_or(|node| node.position_type != PositionType::Relative)
-                || !click(world, run, window, |button: &ViewModeButton| button.0 == AssetBrowserViewMode::Thumbnails)
+                || !click(world, run, window, |_: &ViewModeButton| true)
             {
                 return Ok(None);
             }
             let revision = world.resource::<EditorAssetCatalog>().applied_revision;
             run.animation_revision = Some(revision);
             run.steps.insert("animation_list".into(), json!({"entries":paths,"revision":revision}));
+            Stage::ThumbnailsEnabled
+        }
+        Stage::ThumbnailsEnabled => {
+            if world.resource::<EditorSettings>().asset_browser_view_mode != AssetBrowserViewMode::Thumbnails {
+                return Ok(None);
+            }
+            if !run.screenshots.contains_key("compact-browser.png") && !capture(world, run, "compact-browser.png")? {
+                return Ok(None);
+            }
+            if !click(world, run, window, |_: &ViewModeButton| true) { return Ok(None); }
+            Stage::ThumbnailsDisabled
+        }
+        Stage::ThumbnailsDisabled => {
+            if world.resource::<EditorSettings>().asset_browser_view_mode != AssetBrowserViewMode::List {
+                return Ok(None);
+            }
+            let revision = world.resource::<EditorAssetCatalog>().applied_revision;
+            if Some(revision) != run.animation_revision {
+                return Err("同一缩略图按钮恢复列表时改变了已采用的目录".into());
+            }
+            if !click(world, run, window, |_: &ViewModeButton| true) { return Ok(None); }
+            run.steps.insert("thumbnails_toggled_off".into(), json!(true));
             Stage::Expand
         }
         Stage::Expand => {
@@ -402,6 +561,19 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             run.steps.insert("replacement_thumbnail".into(), json!({
                 "asset":MOTIONS,"source_bytes":size,"texture_size":texture.to_array(),
             }));
+            Stage::ReturnProjectRoot
+        }
+        Stage::ReturnProjectRoot => {
+            if !click(world, run, window, |button: &SceneEditorActionButton| button.0 == EditorAction::AssetFolderUp) {
+                return Ok(None);
+            }
+            Stage::VerifyProjectRoot
+        }
+        Stage::VerifyProjectRoot => {
+            if project_paths(world).is_none() || visible(world, |text: &Text| text.0 == "..").is_some() {
+                return Ok(None);
+            }
+            run.steps.insert("asset_parent_returns_project_root".into(), json!(true));
             Stage::Complete
         }
         Stage::Complete => return Ok(None),
@@ -507,6 +679,70 @@ fn click<T: Component>(world: &mut World, run: &mut Run, window: Entity, matches
 fn click_entity(world: &mut World, run: &mut Run, window: Entity, entity: Option<Entity>) -> bool {
     let target = run.click.map(|(entity, _)| entity).or(entity);
     click_window_entity(world, &mut run.click, window, target)
+}
+
+fn asset_tools_layout(world: &mut World) -> Result<Option<Value>, String> {
+    let mut positions = Vec::new();
+    let mut row_bottom = f32::NEG_INFINITY;
+    for action in [
+        TooltipAction::AssetSearch, TooltipAction::AssetMissingCheck,
+        TooltipAction::AssetFavorites, TooltipAction::AssetRecent,
+        TooltipAction::Editor(EditorAction::RefreshAssets), TooltipAction::AssetThumbnails,
+    ] {
+        let Some(entity) = visible(world, |target: &EditorTooltipTarget| target.0 == action) else { return Ok(None); };
+        let center = world.get::<UiGlobalTransform>(entity).unwrap().translation;
+        row_bottom = row_bottom.max(center.y + world.get::<ComputedNode>(entity).unwrap().size().y / 2.0);
+        positions.push(center.to_array());
+    }
+    if !positions.windows(2).all(|pair| pair[0][0] < pair[1][0] && (pair[0][1] - pair[1][1]).abs() <= 1.0) {
+        return Err("六个资产工具没有在窄栏依序排在同一行".into());
+    }
+    let Some(path) = visible(world, |_: &SceneEditorAssetFolderText| true) else { return Ok(None); };
+    let path_top = world.get::<UiGlobalTransform>(path).unwrap().translation.y
+        - world.get::<ComputedNode>(path).unwrap().size().y / 2.0;
+    if path_top + 1.0 < row_bottom {
+        return Err("资产路径没有独占工具栏下方的一行".into());
+    }
+    Ok(Some(json!(positions)))
+}
+
+fn click_filename_filter(world: &mut World, run: &mut Run, window: Entity) -> bool {
+    let Some(input) = visible(world, |_: &ProjectFileFilter| true) else { return false; };
+    let position = world.get::<UiGlobalTransform>(input).unwrap().translation.as_dvec2();
+    move_cursor(world, window, position);
+    // 文件名框使用原生文本焦点，驱动真实指针事件并在后续帧读取焦点。
+    match run.click {
+        None => run.click = Some((input, false)),
+        Some((_, false)) => {
+            mouse(world, window, ButtonState::Pressed);
+            run.click = Some((input, true));
+        }
+        Some((_, true)) => {
+            mouse(world, window, ButtonState::Released);
+            run.click = None;
+            return true;
+        }
+    }
+    false
+}
+
+fn filename_filter_has_focus(world: &World) -> bool {
+    world.resource::<InputFocus>().get().is_some_and(|entity| world.get::<ProjectFileFilter>(entity).is_some())
+}
+
+fn key(world: &mut World, window: Entity, key_code: KeyCode, logical_key: Key, text: Option<&str>) {
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        window_event(world, KeyboardInput {
+            key_code, logical_key: logical_key.clone(), state, window, repeat: false,
+            text: text.filter(|_| state == ButtonState::Pressed).map(Into::into),
+        });
+    }
+}
+
+fn clear_filename_filter(world: &mut World, window: Entity, query: &str) {
+    for _ in query.chars() {
+        key(world, window, KeyCode::Backspace, Key::Backspace, None);
+    }
 }
 
 fn mouse(world: &mut World, window: Entity, state: ButtonState) {

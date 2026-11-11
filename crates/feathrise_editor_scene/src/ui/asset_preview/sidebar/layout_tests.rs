@@ -322,6 +322,14 @@ fn stable_rows_keep_text_generation_when_unrelated_editor_status_changes() {
 fn both_modes_fit_real_cjk_font_at_four_widths_scales_and_dpi_without_rebuilding() {
     let (mut app, host) = page();
     let world = app.world_mut();
+    let refresh = world.query::<(Entity, &SceneEditorActionButton)>().iter(world)
+        .find_map(|(entity, action)| (action.0 == EditorAction::RefreshAssets).then_some(entity)).unwrap();
+    let thumbnails = world.query_filtered::<Entity, With<crate::ui::asset_thumbnails::ViewModeButton>>()
+        .single(world).unwrap();
+    let folder = world.query_filtered::<Entity, With<SceneEditorAssetFolderText>>().single(world).unwrap();
+    let toolbar = world.get::<ChildOf>(refresh).unwrap().parent();
+    assert_eq!(world.get::<ChildOf>(thumbnails).unwrap().parent(), toolbar);
+    assert_eq!(world.get::<ChildOf>(folder).unwrap().parent(), world.get::<ChildOf>(toolbar).unwrap().parent());
     let rows: Vec<_> = world
         .query_filtered::<Entity, With<SceneEditorAssetRow>>()
         .iter(world)
@@ -364,6 +372,12 @@ fn both_modes_fit_real_cjk_font_at_four_widths_scales_and_dpi_without_rebuilding
                     let size = world.get::<ComputedNode>(host).unwrap().size().x;
                     assert!((size - width * scale * dpi).abs() < 1.1);
                     let center = world.get::<UiGlobalTransform>(host).unwrap().translation.x;
+                    let refresh_position = world.get::<UiGlobalTransform>(refresh).unwrap().translation;
+                    let thumbnail_position = world.get::<UiGlobalTransform>(thumbnails).unwrap().translation;
+                    let thumbnail_size = world.get::<ComputedNode>(thumbnails).unwrap().size();
+                    assert!((refresh_position.y - thumbnail_position.y).abs() <= 1.0);
+                    assert!((thumbnail_size.x - 22.0 * scale * dpi).abs() <= 1.1);
+                    assert!(thumbnail_position.x + thumbnail_size.x / 2.0 <= center + size / 2.0 + 1.1);
                     assert!(rows.iter().all(|entity| world.get::<SceneEditorAssetRow>(*entity).is_some()),
                         "窗口与模式变化可以扩池，不能重建原行实体");
                     let current_rows = world.query_filtered::<Entity, With<SceneEditorAssetRow>>().iter(world).collect::<Vec<_>>();
@@ -403,6 +417,7 @@ fn both_modes_fit_real_cjk_font_at_four_widths_scales_and_dpi_without_rebuilding
                     }
                     for (computed, position) in world.query_filtered::<(&ComputedNode, &UiGlobalTransform), With<SceneEditorAssetFolderText>>().iter(world) {
                         assert!(position.translation.x + computed.size().x / 2.0 <= center + size / 2.0 + 1.1);
+                        assert!(position.translation.y - computed.size().y / 2.0 > thumbnail_position.y);
                         assert!(computed.size().y > 20.0 * scale * dpi, "长中文路径应换行");
                     }
                     let copy = world.query_filtered::<(Entity, &ComputedNode, &UiGlobalTransform), With<AssetSidebarCopyPath>>().single(world).unwrap();

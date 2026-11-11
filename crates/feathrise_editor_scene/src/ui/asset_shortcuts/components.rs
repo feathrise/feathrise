@@ -6,7 +6,9 @@ use bevy::prelude::*;
 #[derive(Component, Clone, Default)]
 pub(crate) struct ShortcutList(pub(super) Section);
 #[derive(Component, Clone, Default)]
-pub(super) struct ShortcutHeader(pub(super) Section);
+pub(super) struct ShortcutCount(pub(super) Section);
+#[derive(Component, Clone, Default)]
+pub(super) struct ShortcutPanel(pub(super) Section);
 #[derive(Component, Clone, Default)]
 pub(super) struct ShortcutFeedback;
 #[derive(Component, Clone, Default)]

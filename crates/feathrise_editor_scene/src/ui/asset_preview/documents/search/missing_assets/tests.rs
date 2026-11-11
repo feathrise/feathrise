@@ -348,8 +348,9 @@ fn missing_assets_header_opens_from_collapsed_and_text_shortcut_restores_prefere
     app.world_mut()
         .resource_mut::<SceneEditorSidebarState>()
         .navigator = EditorNavigatorTab::Assets;
-    app.world_mut()
-        .spawn((SearchAction::MissingAssets, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
+    let header = app.world_mut()
+        .spawn((SearchAction::MissingAssets, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
+        .id();
     app.update();
     assert!(
         app.world().resource::<AssetSearchState>().open
@@ -364,6 +365,14 @@ fn missing_assets_header_opens_from_collapsed_and_text_shortcut_restores_prefere
             .hits,
         1
     );
+    app.world_mut().entity_mut(header).insert(feathrise_editor_ui::EditorButtonClick::triggered());
+    app.update();
+    let state = app.world().resource::<AssetSearchState>();
+    assert!(!state.open && state.current().is_none());
+    app.world_mut().entity_mut(header).insert(feathrise_editor_ui::EditorButtonClick::triggered());
+    app.update();
+    settle(&mut app);
+    assert_eq!(app.world().resource::<AssetSearchState>().current().unwrap().hits, 1);
     {
         let mut state = app.world_mut().resource_mut::<AssetSearchState>();
         state.filter = "json".into();

@@ -205,12 +205,18 @@ pub(crate) fn assert_gpu(
     let toggle = action(app, |action, _| {
         matches!(action, ShortcutAction::Collapse(Section::Favorites))
     });
+    let check_paths = action(app, |action, _| matches!(action, ShortcutAction::Refresh));
+    let clear_recent = action(app, |action, _| matches!(action, ShortcutAction::ClearRecent));
+    assert!(!app.world().get::<ComputedNode>(check_paths).unwrap().is_empty());
+    assert!(app.world().get::<ComputedNode>(clear_recent).unwrap().is_empty());
     click(app, window, camera, toggle, MouseButton::Left, false);
     assert_eq!(
         app.world().get::<Node>(list).unwrap().display,
         Display::None
     );
+    assert!(app.world().get::<ComputedNode>(check_paths).unwrap().is_empty());
     click(app, window, camera, toggle, MouseButton::Left, false);
+    assert!(!app.world().get::<ComputedNode>(check_paths).unwrap().is_empty());
     let directory = action(app, |action, binding| {
         matches!(action, ShortcutAction::Locate(Section::Favorites))
             && binding

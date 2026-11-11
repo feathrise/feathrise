@@ -4,48 +4,72 @@ use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::{localization::EditorLocale, metrics as ui_metrics};
 use super::{components::*, constants::*, resources::AssetShortcuts, types::*};
-use crate::ui::{scene::FONT_PATH, theme as colors};
+use crate::ui::{
+    scene::{FONT_PATH, tree_icon},
+    theme as colors,
+    tooltips::{EditorTooltipTarget, TooltipAction},
+};
 use bevy::{
     prelude::*,
     text::FontSourceTemplate,
     ui::{FocusPolicy, RelativeCursorPosition},
 };
 
+fn toggle(section: Section, icon: &'static str, tooltip: TooltipAction) -> impl Scene {
+    bsn! {
+        InteractionButton ~{ShortcutAction::Collapse(section)} ~{EditorTooltipTarget(tooltip)}
+        // 两位数字留出固定空间，访问次数增长时不挪动同行按钮。
+        Node { width: px(34), height: px(24), flex_shrink: 0.0, column_gap: px(2), border: px(1),
+            align_items: AlignItems::Center, justify_content: JustifyContent::Center, border_radius: BorderRadius::all(px(3)) }
+        BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
+        Children [
+            @tree_icon(icon)--
+            ~{ShortcutCount(section)} Text("0") ~{FocusPolicy::Pass} Pickable::IGNORE TextLayout::no_wrap()
+            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
+            TextColor(colors::TEXT_VALUE)
+        ]
+    }
+}
+
+pub(crate) fn toolbar_buttons() -> impl Scene {
+    bsn! {
+        Node { column_gap: px(2), flex_shrink: 0.0 }
+        Children [
+            @toggle(Section::Favorites, "icons/editor/tool_favorite.png", TooltipAction::AssetFavorites)--
+            @toggle(Section::Recent, "icons/editor/tool_recent.png", TooltipAction::AssetRecent)
+        ]
+    }
+}
+
 fn button(label: &str, action: ShortcutAction) -> impl Scene {
     bsn! {
         InteractionButton ~{action}
-        Node { height: px(24), padding: UiRect::horizontal(px(5)), align_items: AlignItems::Center, flex_shrink: 0.0 }
+        Node { padding: UiRect::horizontal(px(5)), align_items: AlignItems::Center,
+            flex_shrink: 0.0, border_radius: BorderRadius::all(px(2)) }
         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
         Children [
-            Text(label) @feathrise_editor_ui::localization::label_scene(label) ~{FocusPolicy::Pass} TextLayout::no_wrap()
+            Text(label) @feathrise_editor_ui::localization::label_scene(label) ~{FocusPolicy::Pass} Pickable::IGNORE TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_PRIMARY)
         ]
     }
 }
 
-fn section(section: Section, initial: &str, action: ShortcutAction, label: &str) -> impl Scene {
-    let (help_title, help_copy) = match section {
-        Section::Favorites => ("资产收藏", "右键文件或文件夹，选择“收藏”。检查路径可更新失效标记；点击 × 仅移除导航记录。"),
-        Section::Recent => ("最近访问", "浏览文件或进入目录后记录在这里。点击条目定位原路径；清空仅移除最近访问记录。"),
-    };
+fn section(section: Section, title: &str, action: ShortcutAction, label: &str) -> impl Scene {
     bsn! {
-        Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, flex_shrink: 0.0, row_gap: px(2) }
+        ~{ShortcutPanel(section)}
+        Node { display: Display::None, width: percent(100), min_width: px(0),
+            flex_direction: FlexDirection::Column, flex_shrink: 0.0, row_gap: px(2) }
         Children [
-            Node { width: percent(100), min_height: px(24), column_gap: px(3), flex_shrink: 0.0 }
+            Node { width: percent(100), min_width: px(0), height: px(22), column_gap: px(3),
+                flex_shrink: 0.0, justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::Stretch }
             Children [
-                InteractionButton ~{ShortcutAction::Collapse(section)}
-                Node { flex_grow: 1.0, min_width: px(0), padding: UiRect::horizontal(px(5)), align_items: AlignItems::Center }
-                BackgroundColor(colors::SLOT_BG)
-                Children [
-                    // 极窄侧栏允许计数换行，展开命中区仍覆盖完整标题。
-                    ~{ShortcutHeader(section)} Text(initial) ~{FocusPolicy::Pass}
-                    Node { width: percent(100), min_width: px(0) }
-                    TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_PRIMARY)
-                ]
-            -- @button(label, action)--
-                Node { width: px(18), height: px(24), flex_shrink: 0.0 }
-                Children [@crate::ui::context_help::help_button(help_title, help_copy)]
+                Text(title) @feathrise_editor_ui::localization::label_scene(title) ~{FocusPolicy::Pass}
+                    Pickable::IGNORE TextLayout::no_wrap()
+                Node { align_self: AlignSelf::Center, min_width: px(0) }
+                TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
+                TextColor(colors::TEXT_MUTED)--
+                @button(label, action)
             ]
         --
             ~{ShortcutEmpty(section)} Text("") ~{FocusPolicy::Pass} TextLayout::no_wrap()
@@ -61,10 +85,10 @@ fn section(section: Section, initial: &str, action: ShortcutAction, label: &str)
 
 pub(crate) fn panel() -> impl Scene {
     bsn! {
-        Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, flex_shrink: 0.0, row_gap: px(3) }
+        Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, flex_shrink: 0.0, row_gap: px(2) }
         Children [
-            @section(Section::Favorites, "收起收藏 · 0", ShortcutAction::Refresh, "检查路径")--
-            @section(Section::Recent, "展开最近访问 · 0", ShortcutAction::ClearRecent, "清空")--
+            @section(Section::Favorites, "收藏", ShortcutAction::Refresh, "检查路径")--
+            @section(Section::Recent, "最近访问", ShortcutAction::ClearRecent, "清空")--
 
                 ShortcutFeedback Text("") ~{FocusPolicy::Pass}
                 ~{crate::ui::status_bar::PanelStatusText("资产导航记录")} feathrise_editor_ui::feedback::GlobalPanelStatus
@@ -194,7 +218,11 @@ pub(super) fn sync(
     >,
     mut bindings: Query<(&mut ShortcutBinding, &Children, Option<&mut feathrise_editor_ui::EditorButtonClick>)>,
     mut text: Query<&mut Text>,
-    headers: Query<(Entity, &ShortcutHeader)>,
+    counts: Query<(Entity, &ShortcutCount)>,
+    mut panels: Query<
+        (&ShortcutPanel, &mut Node),
+        (Without<ShortcutList>, Without<ShortcutRow>, Without<ShortcutEmpty>, Without<ShortcutFeedback>),
+    >,
     mut empty: Query<
         (Entity, &ShortcutEmpty, &mut Node),
         (
@@ -214,9 +242,10 @@ pub(super) fn sync(
     >,
     labels: Query<(), With<ShortcutLabel>>,
     mut colors_query: Query<&mut TextColor, With<ShortcutLabel>>,
+    mut toggles: Query<(&ShortcutAction, &UiInteraction, &mut BackgroundColor, &mut BorderColor), With<EditorTooltipTarget>>,
     mut buttons: Query<
         (&UiInteraction, &mut BackgroundColor),
-        (With<ShortcutAction>, Changed<UiInteraction>),
+        (With<ShortcutAction>, Without<EditorTooltipTarget>, Changed<UiInteraction>),
     >,
 ) {
     // 交互回显不依赖记录变更；稳定帧不重写文字或整个行池。
@@ -227,11 +256,27 @@ pub(super) fn sync(
             _ => colors::BUTTON_DEV_SMALL_NORMAL,
         };
     }
+    for (action, interaction, mut background, mut border) in &mut toggles {
+        let ShortcutAction::Collapse(section) = action else { continue; };
+        let expanded = state.expanded(*section);
+        background.set_if_neq(BackgroundColor(match (*interaction, expanded) {
+            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,
+            (UiInteraction::None, true) => colors::SELECT_BG,
+            _ => colors::BUTTON_DEV_SMALL_NORMAL,
+        }));
+        border.set_if_neq(BorderColor::all(if expanded { colors::INPUT_ACTIVE_BORDER } else { colors::COPPER_BORDER_WEAK }));
+    }
     if !state.is_changed() && new_rows.is_empty()
         && !locale.as_ref().is_some_and(|locale| locale.is_changed()) {
         return;
     }
     let locale = locale.as_deref().copied().unwrap_or_default();
+    for (section, mut node) in &mut panels {
+        // 正文整体随图标展开，折叠后释放标题、管理动作和列表所占的高度。
+        let display = if state.expanded(section.0) { Display::Flex } else { Display::None };
+        if node.display != display { node.display = display; }
+    }
     for (list, mut node, mut scroll) in &mut lists {
         let count = state.entries(list.0).len();
         node.display = if state.expanded(list.0) && count > 0 {
@@ -300,15 +345,8 @@ pub(super) fn sync(
             }
         }
     }
-    for (entity, header) in &headers {
-        // 状态决定整句文案，避免分别翻译动词和类别导致英文词序或截断问题。
-        let key = match (header.0, state.expanded(header.0)) {
-            (Section::Favorites, true) => "asset.shortcuts.favorites.hide",
-            (Section::Favorites, false) => "asset.shortcuts.favorites.show",
-            (Section::Recent, true) => "asset.shortcuts.recent.hide",
-            (Section::Recent, false) => "asset.shortcuts.recent.show",
-        };
-        let value = locale.format(key, &[("count", state.entries(header.0).len().to_string())]);
+    for (entity, count) in &counts {
+        let value = state.entries(count.0).len().to_string();
         if let Ok(mut label) = text.get_mut(entity)
             && label.0 != value
         {

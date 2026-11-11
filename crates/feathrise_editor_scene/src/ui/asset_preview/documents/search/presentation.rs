@@ -252,7 +252,8 @@ pub(super) fn sync(
             SearchAction::CaseSensitive => state.case_sensitive,
             SearchAction::WholeWord => state.whole_word,
             SearchAction::ChooseEditor(editor) => ide == Some(editor),
-            SearchAction::MissingAssets => state.missing_assets,
+            SearchAction::Toggle => state.open && !state.missing_assets,
+            SearchAction::MissingAssets => state.open && state.missing_assets,
             _ => false,
         };
         background.0 = if selected {

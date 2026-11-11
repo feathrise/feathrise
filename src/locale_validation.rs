@@ -329,16 +329,14 @@ fn advance(world: &mut World, run: &mut Run) -> Result<(), String> {
         Stage::AssetRoot if !visible_text(world, "Copy Relative Path") => {
             if click(world, run, window, "assets") { run.stage = Stage::AssetContext; }
         }
-        Stage::AssetContext if visible_text(world, "Browse Folders") => {
+        Stage::AssetContext if visible_text(world, "scenes") => {
             if pointer_click(world, run, window, "scenes", MouseButton::Right) { run.stage = Stage::AssetFavorite; }
         }
         Stage::AssetFavorite => {
             if click(world, run, window, "Add to Favorites") { run.stage = Stage::AssetCapture; }
         }
-        Stage::AssetCapture if ["Search Contents", "Check Missing Assets", "Thumbnails", "Check Paths",
-            "▼ Favorites (1)", "[Folder] scenes"]
+        Stage::AssetCapture if ["Filter by filename", "Favorites", "Check Paths", "[Folder] scenes"]
             .into_iter().all(|label| visible_text(world, label))
-            && visible_containing(world, "▶ Recent · ")
             && has_text(world, |text| text.starts_with("Project · ") && text.ends_with(" items")) => {
             if capture(world, run, "asset-browser-en")? { run.stage = Stage::OpenShortcuts; }
         }

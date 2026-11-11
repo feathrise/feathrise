@@ -138,20 +138,31 @@ pub(super) fn files(
 
 pub(super) fn action_feedback(
     catalog: Res<EditorProjectFileCatalog>,
-    mut buttons: Query<(&ProjectFileActionButton, &UiInteraction, &Children, &mut BackgroundColor, &mut BorderColor)>,
-    mut labels: Query<&mut TextColor>,
+    assets: Res<crate::asset_catalog::EditorAssetCatalog>,
+    browser: Res<ProjectBrowserState>,
+    mut buttons: Query<(&DirectoryActionButton, &UiInteraction, &mut Node, &mut EditorButtonClick, &mut BackgroundColor, &mut BorderColor)>,
 ) {
-    for (button, interaction, children, mut background, mut border) in &mut buttons {
-        let enabled = match button.0 {
-            ProjectFileAction::Up => !catalog.current_folder.is_empty(),
-            ProjectFileAction::Refresh => catalog.project_root().is_some(),
+    for (button, interaction, mut node, mut click, mut background, mut border) in &mut buttons {
+        let up = button.action == ProjectFileAction::Up;
+        let enabled = match (button.view, button.action) {
+            (ProjectBrowserView::ProjectFiles, ProjectFileAction::Up) => !catalog.current_folder.is_empty(),
+            (ProjectBrowserView::Assets, ProjectFileAction::Up) => !assets.current_folder.is_empty() || browser.asset_prefix.is_some(),
+            (ProjectBrowserView::ProjectFiles, ProjectFileAction::Refresh) => catalog.project_root().is_some(),
+            (ProjectBrowserView::Assets, ProjectFileAction::Refresh) => true,
         };
-        background.set_if_neq(BackgroundColor(if !enabled { colors::PANEL_BG } else { match interaction {
-            UiInteraction::Pressed => colors::SELECT_BG_PRESSED,
-            UiInteraction::Hovered => colors::SELECT_BG_HOVER,
-            UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
-        } }));
+        if up {
+            let display = if enabled && browser.view == button.view { Display::Flex } else { Display::None };
+            if node.display != display {
+                node.display = display;
+                click.invalidate(); // 跨目录来源切换时，旧行的按下不能在新正文接收释放。
+            }
+        }
+        background.set_if_neq(BackgroundColor(match (*interaction, enabled) {
+            (UiInteraction::Pressed, true) => colors::SELECT_BG_PRESSED,
+            (UiInteraction::Hovered, true) => colors::SELECT_BG_HOVER,
+            (_, true) if !up => colors::BUTTON_DEV_SMALL_NORMAL,
+            _ => colors::PANEL_BG,
+        }));
         border.set_if_neq(BorderColor::all(if enabled && *interaction != UiInteraction::None { colors::COPPER_BORDER } else { colors::COPPER_BORDER_WEAK }));
-        for child in children { if let Ok(mut color) = labels.get_mut(*child) { color.set_if_neq(TextColor(if enabled { colors::TEXT_PRIMARY } else { colors::TEXT_MUTED })); } }
     }
 }

@@ -226,7 +226,7 @@ fn view_mode_click_respects_shared_guard_and_preserves_asset_and_author_state() 
     let button = app
         .world_mut()
         .spawn((
-            ViewModeButton(AssetBrowserViewMode::Thumbnails),
+            ViewModeButton,
             feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
         ))
         .id();
@@ -254,6 +254,19 @@ fn view_mode_click_respects_shared_guard_and_preserves_asset_and_author_state() 
             .resource::<EditorSettings>()
             .asset_browser_view_mode,
         AssetBrowserViewMode::Thumbnails
+    );
+    app.update();
+    assert_eq!(
+        app.world().resource::<EditorSettings>().asset_browser_view_mode,
+        AssetBrowserViewMode::Thumbnails,
+        "同一次释放只切换一次"
+    );
+    app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
+    app.update();
+    assert_eq!(
+        app.world().resource::<EditorSettings>().asset_browser_view_mode,
+        AssetBrowserViewMode::List,
+        "同一按钮再次点击关闭缩略图"
     );
     let editor = app.world().resource::<SceneEditorState>();
     assert!(editor.dirty);

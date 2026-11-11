@@ -73,7 +73,7 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
     }
     proof["before_sha256"] = json!(original);
     proof["after_sha256"] = json!(final_assets);
-    for name in ["skeleton.png", "narrow-menu.png", "clip-menu.png", "second-clip.png", "replaced.png"] {
+    for name in ["skeleton.png", "narrow-menu.png", "compact-browser.png", "clip-menu.png", "second-clip.png", "replaced.png"] {
         let capture = &proof["window"]["screenshots"][name];
         let bytes = fs::read(work.join(name)).map_err(|error| error.to_string())?;
         let header = bytes.get(..24).ok_or("GPU 截图缺少 PNG 文件头")?;

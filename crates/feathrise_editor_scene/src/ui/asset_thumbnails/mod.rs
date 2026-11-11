@@ -15,9 +15,8 @@ mod render;
 mod resources;
 mod types;
 
-pub(crate) use presentation::{spawn_thumbnail_nodes, view_mode_controls, grid_layout};
+pub(crate) use presentation::{spawn_thumbnail_nodes, grid_layout};
 pub(crate) use constants::{TILE_HEIGHT, TILE_GAP};
-#[cfg(feature = "validation")]
 pub(in crate::ui) use components::ViewModeButton;
 
 /// 读取已完成 GPU 烘焙且实际显示在目标卡片上的新图，避免用旧占位图作为验收证据。

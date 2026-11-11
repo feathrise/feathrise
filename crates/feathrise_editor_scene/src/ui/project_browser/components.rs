@@ -10,6 +10,12 @@ pub(crate) struct ProjectBrowserContent(pub(crate) ProjectBrowserView);
 pub(super) struct ProjectFileActionButton(pub(super) ProjectFileAction);
 
 #[derive(Component, Clone, Copy, Default)]
+pub(super) struct DirectoryActionButton {
+    pub(super) view: ProjectBrowserView,
+    pub(super) action: ProjectFileAction,
+}
+
+#[derive(Component, Clone, Copy, Default)]
 pub(super) struct ProjectFileList {
     pub(super) spawned_rows: usize,
 }
@@ -41,4 +47,7 @@ pub(super) struct ProjectFileStatusText;
 pub(super) struct ProjectFileSelectionText;
 
 #[derive(Component, Clone, Copy, Default)]
-pub(super) struct ProjectFileFilter;
+pub(crate) struct ProjectFileFilter;
+
+#[derive(Component, Clone, Default)]
+pub(super) struct FilenameHint;

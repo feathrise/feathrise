@@ -29,7 +29,7 @@ pub(crate) fn install_for_tests(app: &mut App, root: std::path::PathBuf) {
 pub(crate) use components::ShortcutList;
 pub(crate) use messages::{AssetVisited, SetAssetFavorite};
 pub(crate) use resources::AssetShortcuts;
-pub(crate) use scene::panel;
+pub(crate) use scene::{panel, toolbar_buttons};
 
 pub(crate) fn register(app: &mut App) {
     app.init_resource::<AssetShortcuts>();

@@ -162,6 +162,7 @@ label.type	类型	Type
 label.source-grid-spacing	源格距	Source Grid Spacing
 label.project	工程/	Project/
 label.filter-files-in-this-folder	筛选当前目录文件名	Filter Files in This Folder
+label.filter-by-filename	按文件名筛选	Filter by filename
 label.no-project-open	尚未打开工程	No Project Open
 label.double-click-a-text-file-to-open	双击文本文件打开；右键显示文件操作	Double-click a text file to open it. Right-click for file actions.
 label.surface-layers-waiting-for-scene	地表作者层 · 等待场景	Surface Layers · Waiting for scene
@@ -248,7 +249,7 @@ label.heavy-rain	大雨	Heavy Rain
 label.mist	薄雾	Mist
 label.check-missing-assets	缺失检查	Check Missing Assets
 label.asset-search	资产搜索	Asset Search
-help.type-a-query-and-press-enter-enter	输入文字后按Enter搜索；文件类型可填json、rs或*.wgsl，留空搜索全部受支持文本。点击结果在内置编辑器定位；外部打开使用磁盘版本，“打开工程”会同时打开工程目录。直接引用检查config/scenes JSON和当前工程的 Rust 源码中的完整路径，JSON优先使用草稿；不判断运行分支、拼接路径、预设ID或模型内部依赖，0处不代表未使用。缺失检查只核对明确路径的物理文件，子资源检查其来源文件。	Type a query and press Enter. Enter a type such as json, rs, or *.wgsl, or leave it blank to search all supported text. Select a result to jump to it in the editor. External editors open the saved file. Open Project also opens the project directory. The reference check looks for full paths in config/scenes JSON and project Rust files, using JSON drafts when available. It does not resolve runtime branches, composed paths, preset IDs, or model dependencies. Zero matches does not prove an asset is unused. The missing asset check looks for explicit paths and checks the source file for sub-assets.
+help.type-a-query-and-press-enter-enter	按 Ctrl+Shift+F 打开内容搜索。输入文字后按Enter搜索；文件类型可填json、rs或*.wgsl，留空搜索全部受支持文本。点击结果在内置编辑器定位；外部打开使用磁盘版本，“打开工程”会同时打开工程目录。直接引用检查config/scenes JSON和当前工程的 Rust 源码中的完整路径，JSON优先使用草稿；不判断运行分支、拼接路径、预设ID或模型内部依赖，0处不代表未使用。缺失检查只核对明确路径的物理文件，子资源检查其来源文件。	Press Ctrl+Shift+F to open content search. Type a query and press Enter. Enter a type such as json, rs, or *.wgsl, or leave it blank to search all supported text. Select a result to jump to it in the editor. External editors open the saved file. Open Project also opens the project directory. The reference check looks for full paths in config/scenes JSON and project Rust files, using JSON drafts when available. It does not resolve runtime branches, composed paths, preset IDs, or model dependencies. Zero matches does not prove an asset is unused. The missing asset check looks for explicit paths and checks the source file for sub-assets.
 label.search-contents	内容搜索	Search Contents
 label.all-assets	全部资产	All Assets
 label.current-folder	当前目录	Current Folder
@@ -561,11 +562,19 @@ label.delete-permanently	直接删除	Delete Permanently
 label.move-to-trash	放入回收站	Move to Trash
 label.browse-folders	目录导航	Browse Folders
 label.parent-folder	上级	Up
+label.parent-directory	上级目录	Parent Folder
 label.folder-contents	目录内容	Folder Contents
 label.asset-properties	资产属性	Asset Properties
 label.retry	重试	Retry
 label.list	列表	List
 label.thumbnails	缩略图	Thumbnails
+tooltip.project.parent_folder	返回当前目录的上一级。	Go to the parent folder.
+tooltip.project.refresh_folder	重新读取当前目录。	Reload the current folder.
+tooltip.project.toggle_thumbnails	在缩略图和列表视图间切换。	Switch between thumbnails and list view.
+tooltip.project.asset_search	查找文件内容，或展开当前的资产引用结果。	Search file contents or expand the current asset references.
+tooltip.project.asset_missing	检查场景和配置引用的资产。再次点击收起结果。	Check assets referenced by scenes and configuration files. Click again to collapse the results.
+tooltip.project.asset_favorites	右键文件或文件夹加入收藏。展开后可定位收藏项和检查路径。	Right-click a file or folder to add it to Favorites. Expand to locate favorites or check their paths.
+tooltip.project.asset_recent	查看最近打开的文件和目录。展开后可定位条目或清空记录。	View recently opened files and folders. Expand to locate an item or clear the history.
 label.vegetation-painting-scope	植被绘制范围	Vegetation Painting Scope
 label.current-mesh-current-layer	当前网格 · 当前作者层	Current Mesh · Current Layer
 label.across-meshes-painting-group	跨网格 · 绘制组	Across Meshes · Painting Group
@@ -1163,10 +1172,6 @@ asset.shortcuts.check_paths	检查路径	Check Paths
 asset.shortcuts.invalid	[失效]	[Missing]
 asset.shortcuts.folder	[目录]	[Folder]
 asset.shortcuts.file	[文件]	[File]
-asset.shortcuts.favorites.hide	收起收藏 · {count}	▼ Favorites ({count})
-asset.shortcuts.favorites.show	展开收藏 · {count}	▶ Favorites ({count})
-asset.shortcuts.recent.hide	收起最近访问 · {count}	▼ Recent · {count}
-asset.shortcuts.recent.show	展开最近访问 · {count}	▶ Recent · {count}
 asset.shortcuts.favorites.empty	暂无收藏	No favorites yet
 asset.shortcuts.recent.empty	暂无最近访问	No recent visits
 asset.shortcuts.loading	正在载入导航记录…	Loading navigation history…

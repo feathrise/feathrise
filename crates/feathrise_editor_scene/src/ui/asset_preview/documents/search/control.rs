@@ -197,7 +197,7 @@ pub(super) fn input(
             continue;
         }
         match action {
-            SearchAction::MissingAssets => {
+            SearchAction::MissingAssets if !state.open || !state.missing_assets => {
                 state.request_missing_assets(documents.root.clone());
                 for mut scroll in &mut outer_scrolls { scroll.y = 0.0; }
                 focus.clear(); // 入口可从折叠状态开始，不能让隐藏搜索输入吞掉后续键盘。
@@ -208,8 +208,13 @@ pub(super) fn input(
                     focus.set(entity, FocusCause::Navigated);
                 }
             }
-            SearchAction::Toggle => {
-                state.open = !state.open;
+            SearchAction::Toggle | SearchAction::MissingAssets => {
+                // 两个标题共用结果区。再次点已展开的缺失检查收起，重新执行留在正文。
+                if action == SearchAction::Toggle && state.missing_assets {
+                    state.text_search();
+                } else {
+                    state.open = !state.open;
+                }
                 if state.open && !state.path_query() {
                     if let Some((entity, _, _)) = fields
                         .iter()

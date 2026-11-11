@@ -8,6 +8,7 @@ use crate::resources::{
     SceneEditorState,
 };
 use crate::ui::{
+    project_browser::ProjectBrowserState,
     sidebars::SceneEditorSidebarState,
 };
 use bevy::prelude::*;
@@ -17,18 +18,20 @@ use feathrise_editor_core::EditorSettings;
 use feathrise_editor_core::AssetBrowserViewMode;
 
 pub(super) fn control_view_mode(
-    buttons: Query<(&feathrise_editor_ui::EditorButtonClick, &ViewModeButton), Changed<feathrise_editor_ui::EditorButtonClick>>,
+    buttons: Query<&feathrise_editor_ui::EditorButtonClick, (With<ViewModeButton>, Changed<feathrise_editor_ui::EditorButtonClick>)>,
     editor: Res<SceneEditorState>,
     sidebar: Res<SceneEditorSidebarState>,
     layout: Option<Res<SceneEditorLayoutState>>,
     guard: Res<SceneEditorNumericScrubMouseGuard>,
     browser: Option<Res<SceneBrowserState>>,
+    project_browser: Option<Res<ProjectBrowserState>>,
     mut settings: ResMut<EditorSettings>,
 ) {
     // 每帧运行并消费Changed；模态、数值拖动和菜单关闭帧的点击不会在解锁后重放。
     if !editor.open
         || editor.new_scene_dialog_open
         || !sidebar.assets_browser_visible()
+        || project_browser.as_ref().is_some_and(|browser| !browser.assets_visible())
         || layout.as_ref().is_some_and(|layout| !layout.content_shown())
         || guard.blocked()
         || browser
@@ -37,10 +40,12 @@ pub(super) fn control_view_mode(
     {
         return;
     }
-    for (interaction, button) in &buttons {
-        if interaction.is_clicked() && settings.asset_browser_view_mode != button.0 {
-            settings.asset_browser_view_mode = button.0; // 复用既有设置自动保存，不改场景/预设/撤销。
-        }
+    if buttons.iter().any(|click| click.is_clicked()) {
+        // 同一入口从当前偏好反转；沿用原保存字段以及列表、缩略图共用的目录和选择。
+        settings.asset_browser_view_mode = match settings.asset_browser_view_mode {
+            AssetBrowserViewMode::List => AssetBrowserViewMode::Thumbnails,
+            AssetBrowserViewMode::Thumbnails => AssetBrowserViewMode::List,
+        };
     }
 }
 
