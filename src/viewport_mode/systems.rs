@@ -4,7 +4,7 @@ use super::{
     RequestViewportMode, ViewportModeAvailability, ViewportModeChanged, ViewportModeState,
 };
 use bevy::prelude::*;
-use feathrise_editor_scene::standalone::SavedPlayFeedback;
+use feathrise_editor_scene::standalone::{SavedPlayFeedback, viewport_projection};
 
 pub(super) fn apply(
     world: &mut World,
@@ -17,7 +17,15 @@ pub(super) fn apply(
     else {
         return;
     };
-    if request.0 == world.resource::<ViewportModeState>().selected {
+    let changes_mode = request.0 != world.resource::<ViewportModeState>().selected;
+    let returns_to_scene = request.0 == super::ViewportMode::EmbeddedWorld
+        && viewport_projection::central_glb_active(
+            world.get_resource(),
+            world.get_resource(),
+            world.get_resource(),
+            world.get_resource(),
+        );
+    if !changes_mode && !returns_to_scene {
         return;
     }
     // 首次工程3D编译尚未就绪时，切回也是明确的停止请求；不能要求作者先等编译结束。
@@ -28,6 +36,12 @@ pub(super) fn apply(
         world.resource_mut::<ViewportModeState>().status = reason.clone();
         world.write_message(SavedPlayFeedback(reason));
         return;
+    }
+    if returns_to_scene {
+        viewport_projection::return_from_central_glb(world);
+    }
+    if !changes_mode {
+        return; // 已有工程 3D 会话只恢复画布，保留代次及启动配置。
     }
     let mut state = world.resource_mut::<ViewportModeState>();
     state.selected = request.0;

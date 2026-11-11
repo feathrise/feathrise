@@ -2,11 +2,15 @@
 
 mod components;
 mod scene;
+mod wrapping;
 
 pub(super) use components::{ViewportBrushParameters, ViewportToolbarScroll};
+#[cfg(feature = "validation")]
+pub(super) use components::ViewportToolbarExpandButton;
 pub(super) use scene::{
-    control_group, control_surface, control_text, toolbar_layout, view_label, viewport_toolbar,
+    control_group, control_surface, control_text, toolbar_layout, viewport_toolbar,
 };
+pub(crate) use wrapping::install;
 
 #[cfg(test)]
 mod tests;

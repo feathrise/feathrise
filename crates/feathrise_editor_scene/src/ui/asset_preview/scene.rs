@@ -442,7 +442,8 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                         Node { display: Display::None }
                     --
                     @super::animation::scene::pose_toolbar()-- // 小预览沿用原入口，中央 GLB 将原控件借给属性区。
-                    @super::rigging::scene::dots()
+                    @super::rigging::scene::dots()--
+                    @super::weights::panel::viewport_tools()
                 ]
             --
 

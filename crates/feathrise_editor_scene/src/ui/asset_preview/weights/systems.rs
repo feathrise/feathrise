@@ -9,7 +9,7 @@ use super::{
         rigging::RiggingState,
         types::{AssetPreviewContent, AssetPreviewModelTarget, AssetPreviewPhase},
     },
-    edit::{self, Operation},
+    edit::{self, Operation, Tool},
     file,
     panel::Action,
     resources::*,
@@ -55,13 +55,7 @@ impl Target<'_> {
     }
 
     pub fn matches(&self, key: &Key) -> bool {
-        self.root() == key.root
-            && self.path() == Some(key.path.as_str())
-            && self
-                .media
-                .expanded
-                .as_ref()
-                .is_some_and(|tab| tab.id == key.tab)
+        matches_key(key, &self.media, &self.workspace, &self.documents)
     }
 
     pub fn key(&self) -> Option<Key> {
@@ -109,6 +103,17 @@ impl Target<'_> {
         let gltf = gltfs?.get(&model.catalog.gltf)?;
         (!gltf.skins.is_empty() && !gltf.meshes.is_empty()).then_some(path)
     }
+}
+
+pub(super) fn matches_key(
+    key: &Key,
+    media: &AssetPreviewWorkspace,
+    workspace: &VegetationPresetEditorState,
+    documents: &DocumentState,
+) -> bool {
+    documents.asset_root() == key.root
+        && gltf_tree::central_glb(media, workspace.active_tab) == Some(key.path.as_str())
+        && media.expanded.as_ref().is_some_and(|tab| tab.id == key.tab)
 }
 
 #[derive(SystemParam)]
@@ -366,10 +371,7 @@ pub(super) fn actions(
                 .map(|index| (index, 0)),
         };
         if let Some((surface, joint)) = found {
-            session.surface = surface;
-            session.joint = joint;
-            state.refresh = true;
-            state.bump();
+            state.select_joint(surface, joint);
         }
         return;
     }
@@ -432,10 +434,18 @@ pub(super) fn actions(
             session.original = !session.original;
         }
         Action::Heat => session.heat = !session.heat,
+        Action::Skeleton => session.show_skeleton = !session.show_skeleton,
         Action::Visible => session.visible_only = !session.visible_only,
         Action::Mirror => session.mirror = !session.mirror,
         Action::Mask => session.mask = !session.mask,
-        Action::Mode(mode) => session.tool = mode,
+        Action::Edit => session.set_tool(session.edit_tool),
+        Action::Mode(mode) => {
+            session.set_tool(mode);
+            if mode == Tool::Bone {
+                // 选骨工具始终从可见的骨段和起点接管画布左键。
+                session.show_skeleton = true;
+            }
+        }
         Action::Mesh(delta) => {
             let count = session.doc.surfaces.len() as isize;
             let old_skin = session.doc.surfaces[session.surface].skin.index;
@@ -444,11 +454,6 @@ pub(super) fn actions(
             if session.doc.surfaces[session.surface].skin.index != old_skin {
                 session.joint = 0;
             }
-            state.refresh = true;
-        }
-        Action::Bone(delta) => {
-            let count = session.doc.surfaces[session.surface].skin.joints.len() as isize;
-            session.joint = (session.joint as isize + delta as isize).rem_euclid(count) as u16;
             state.refresh = true;
         }
         Action::Lock => {
@@ -462,10 +467,19 @@ pub(super) fn actions(
         }
         Action::Apply | Action::Assign | Action::Remove => {
             if session.original
+                || session.tool == Tool::Bone
+                || session.drafts[session.surface].selection.is_empty()
+                || session.current_locks()[session.joint as usize]
                 || animation
                     .as_ref()
                     .is_some_and(|animation| animation.weight_motion_active())
             {
+                return;
+            }
+            if action == Action::Apply && session.tool != Tool::Set {
+                // 先显露设定值，由下一次明确点击应用修改已选顶点。
+                session.set_tool(Tool::Set);
+                state.bump();
                 return;
             }
             let amount = match action {
@@ -479,35 +493,6 @@ pub(super) fn actions(
                 locks: session.current_locks().clone(),
             };
             queue(&mut state, operation, Reason::Edit);
-        }
-        Action::Undo | Action::Redo => {
-            if session.stale {
-                return;
-            }
-            let entry = if action == Action::Undo {
-                session.undo.back()
-            } else {
-                session.redo.last()
-            }
-            .cloned();
-            if let Some(entry) = entry {
-                let old_skin = session.doc.surfaces[session.surface].skin.index;
-                session.surface = entry.surface;
-                if session.doc.surfaces[session.surface].skin.index != old_skin {
-                    session.joint = 0;
-                }
-                let (weights, reason) = if action == Action::Undo {
-                    (entry.before.clone(), Reason::Undo(entry))
-                } else {
-                    (entry.after.clone(), Reason::Redo(entry))
-                };
-                queue(&mut state, Operation::History(weights), reason);
-            }
-        }
-        Action::Save => {
-            if let Err(error) = begin_save(&mut state) {
-                state.notice = error;
-            }
         }
     }
     state.bump();

@@ -289,10 +289,21 @@ pub(super) fn present(world: &mut World) {
         .iter(world)
         .collect();
     for entity in strokes {
+        let action_disabled = world
+            .get::<ChildOf>(entity)
+            .and_then(|parent| {
+                let icon = parent.parent();
+                let glyph = world.get::<Icon>(icon)?.0;
+                matches!(glyph, Glyph::Save | Glyph::Undo | Glyph::Redo)
+                    .then(|| world.get::<ChildOf>(icon).map(ChildOf::parent))
+                    .flatten()
+            })
+            .is_some_and(|button| world.get::<bevy::ui::InteractionDisabled>(button).is_some());
+        let stroke_color = if action_disabled { c::TEXT_HINT } else { color };
         if let Some(mut background) = world.get_mut::<BackgroundColor>(entity)
-            && background.0 != color
+            && background.0 != stroke_color
         {
-            background.0 = color;
+            background.0 = stroke_color;
         }
     }
     let close_buttons: Vec<_> = world

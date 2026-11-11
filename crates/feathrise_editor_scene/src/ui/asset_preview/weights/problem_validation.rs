@@ -22,8 +22,9 @@ use super::{
 use crate::{
     SceneEditorSystemSet,
     asset_catalog::{EditorAssetCatalog, request_asset_reveal},
+    components::SceneEditorActionButton,
     resources::SceneEditorState,
-    types::EditorView,
+    types::{EditorAction, EditorView},
     ui::sidebars::{
         EditorRightSidebarTab, EditorSidebarTab, SceneEditorSidebarState,
         SceneEditorSidebarTabButton,
@@ -58,6 +59,7 @@ enum Step {
     Locate,
     Open,
     Enter,
+    Edit,
     Front,
     Ortho,
     Properties,
@@ -239,6 +241,17 @@ fn click<T: Component + PartialEq>(
     entity.is_some_and(|entity| click_entity(world, run, window, entity))
 }
 
+fn click_header(world: &mut World, run: &mut Run, window: Entity, action: EditorAction) -> bool {
+    let entity = run.click.map(|(entity, _)| entity).or_else(|| {
+        world
+            .query::<(Entity, &SceneEditorActionButton, &ComputedNode, Has<InteractionDisabled>)>()
+            .iter(world)
+            .find(|(_, button, node, disabled)| button.0 == action && !node.is_empty() && !disabled)
+            .map(|(entity, ..)| entity)
+    });
+    entity.is_some_and(|entity| click_entity(world, run, window, entity))
+}
+
 fn click_sidebar(
     world: &mut World,
     run: &mut Run,
@@ -414,7 +427,8 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             world.write_message(OpenAssetPreview { path: MODEL.into() });
             Step::Enter
         }
-        Step::Enter if click(world, run, window, Action::Open) => Step::Front,
+        Step::Enter if click(world, run, window, Action::Open) => Step::Edit,
+        Step::Edit if click(world, run, window, Action::Edit) => Step::Front,
         Step::Front if click(world, run, window, ViewAction::Direction(EditorView::Front)) => {
             Step::Ortho
         }
@@ -463,6 +477,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             Step::Down
         }
         Step::Down => {
+            move_cursor(world, window, run.start);
             press(world, window, ButtonState::Pressed);
             Step::Move
         }
@@ -479,6 +494,18 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             Step::Up
         }
         Step::Up => {
+            let stroke = world
+                .resource::<WeightEditor>()
+                .stroke
+                .as_ref()
+                .ok_or("框选松键前丢失了手势")?;
+            let pixels = stroke.view.size * stroke.view.inverse_scale;
+            let reached = ((stroke.latest - run.end) * pixels).length() < 2.0;
+            // 真窗口可能在重放间隙刷新光标，等画布消费了末端位置再发送松键。
+            move_cursor(world, window, run.end);
+            if !reached {
+                return Ok(None);
+            }
             press(world, window, ButtonState::Released);
             run.released("drag");
             Step::CheckRest
@@ -601,7 +628,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             }
             Step::Save
         }
-        Step::Save if click(world, run, window, Action::Save) => Step::CheckSave,
+        Step::Save if click_header(world, run, window, EditorAction::Save) => Step::CheckSave,
         Step::CheckSave => {
             let state = world.resource::<WeightEditor>();
             let Some(session) = state.session.as_ref().filter(|_| !state.busy()) else {

@@ -112,13 +112,10 @@ fn button(label: &str, action: Action, font_size: f32) -> impl Scene {
 }
 
 pub(super) fn scene() -> impl Scene {
-    bsn! {
-        ViewToolbar
-        @viewport_toolbar::toolbar_layout(Display::None)
+    let controls = bsn! {
         Children [
                 @viewport_toolbar::control_group()
                 Children [
-                    @viewport_toolbar::view_label()--
                     @button("自由", Action::Direction(EditorView::Perspective), metrics::FONT_CONTROL)--
                     @button("顶视", Action::Direction(EditorView::Top), metrics::FONT_CONTROL)--
                     @button("前视", Action::Direction(EditorView::Front), metrics::FONT_CONTROL)--
@@ -135,8 +132,11 @@ pub(super) fn scene() -> impl Scene {
                     @button("网格点", Action::SnapMode, 11.0)--
                     @button("0.1米", Action::SnapStep, 11.0)
                 ]
+            --
+            @super::weights::parameter_toolbar() // 与地图笔刷一致，参数放在视图与网格右侧。
         ]
-    }
+    };
+    bsn! { ViewToolbar @viewport_toolbar::toolbar_layout(Display::None, controls) }
 }
 
 #[derive(SystemParam)]

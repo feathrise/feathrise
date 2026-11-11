@@ -17,6 +17,8 @@ pub(crate) enum TooltipAction {
     TerrainVisibility,
     TerrainLock,
     ViewportMode(crate::viewport::modes::ViewportMode),
+    WeightSelect,
+    WeightEdit,
     ViewportOptions,
     AssetThumbnails,
     AssetSearch,

@@ -728,6 +728,20 @@ tooltip.undo	撤销当前场景的上一次作者修改，不影响其他文档�
 tooltip.redo	恢复当前场景刚撤销的作者修改。	Redo the latest undone edit to the current scene.
 tooltip.save_scene	保存场景	Save Scene
 tooltip.save_scene_help	保存当前场景草稿；预设与资产文档使用各自的保存入口。	Save the current scene draft. Presets and asset documents have their own Save actions.
+tooltip.save_weights	保存权重	Save Weights
+tooltip.weight_select	选骨骼	Select Bone
+tooltip.weight_select_help	点击骨段或菱形起点，选中要调权的骨骼。	Click a bone segment or its diamond to select it for weight editing.
+tooltip.weight_edit	编辑权重	Edit Weights
+tooltip.weight_edit_help	打开当前骨骼的选区、画笔和权重编辑工具。	Open vertex selection, brushes, and weight tools for the selected bone.
+tooltip.save_weights_help	将当前权重草稿另存为 GLB 副本。	Save the current weight draft to a new GLB copy.
+tooltip.undo_weights	撤销当前 GLB 的上一次权重修改。	Undo the latest weight edit in the current GLB.
+tooltip.redo_weights	恢复当前 GLB 刚撤销的权重修改。	Redo the latest undone weight edit in the current GLB.
+tooltip.weights_stale	源 GLB 已更新，请重新打开权重	The source GLB has changed. Reopen the weight editor.
+tooltip.weights_busy	当前权重操作尚未完成	The current weight operation is in progress.
+tooltip.weights_not_ready	当前权重预览尚未就绪	The weight preview is still loading.
+tooltip.weights_clean	当前没有待保存的权重修改	There are no unsaved weight edits.
+tooltip.weights_undo_empty	当前没有可撤销的权重修改	There are no weight edits to undo.
+tooltip.weights_redo_empty	当前没有可重做的权重修改	There are no weight edits to redo.
 tooltip.new_scene	填写场景名称和可选备注，在当前目录创建空白场景。	Enter a scene name and optional notes to create an empty scene in the current folder.
 tooltip.close	收起编辑器并返回当前场景，不自动保存或丢弃草稿。	Close the editor and return to the current scene.
 tooltip.free_view	自由视图	Free View

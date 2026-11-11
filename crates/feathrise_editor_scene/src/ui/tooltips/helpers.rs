@@ -121,6 +121,12 @@ pub(super) fn tooltip_copy(action: TooltipAction, mesh_edit: bool) -> TooltipCop
         TooltipAction::TerrainLock => (
             "锁定 / 解锁", "闭锁时禁止修改网格，仍可选中查看；再次点击解锁。", None, None,
         ),
+        TooltipAction::WeightSelect => (
+            "选骨骼", "点击骨段或菱形起点，选中要调权的骨骼。", None, None,
+        ),
+        TooltipAction::WeightEdit => (
+            "编辑权重", "打开当前骨骼的选区、画笔和权重编辑工具。", None, None,
+        ),
         TooltipAction::ViewportMode(mode) => {
             use crate::viewport::modes::ViewportMode;
             match (mesh_edit, mode) {

@@ -18,7 +18,7 @@ use crate::resources::{
     SceneBrowserState, SceneDeletionTask, SceneEditorNumericScrubMouseGuard, SceneEditorSettingsState,
     SceneEditorState, SceneEditorViewportState,
 };
-use crate::types::EditorSettingsAction;
+use crate::types::{EditorAction, EditorSettingsAction};
 use crate::ui::action_availability::EditorActionInputs;
 
 const HOVER_DELAY_SECONDS: f64 = 0.35;
@@ -160,8 +160,23 @@ pub(super) fn sync_tooltip(
         return;
     };
     let first_show = popup.display != Display::Flex;
+    let availability = context.availability();
     let mut copy = tooltip_copy(target.0, context.mesh_edit.as_ref().is_some_and(|state| state.active()));
-    if target.0 == TooltipAction::Editor(crate::types::EditorAction::Close)
+    if let TooltipAction::Editor(action) = target.0
+        && availability.uses_weight_context(action)
+    {
+        // 顶栏位置保持一致，悬停说明随命令实际写入的作者域切换。
+        match action {
+            EditorAction::Undo => copy.description = "撤销当前 GLB 的上一次权重修改。",
+            EditorAction::Redo => copy.description = "恢复当前 GLB 刚撤销的权重修改。",
+            EditorAction::Save => {
+                copy.title = "保存权重";
+                copy.description = "将当前权重草稿另存为 GLB 副本。";
+            }
+            _ => {}
+        }
+    }
+    if target.0 == TooltipAction::Editor(EditorAction::Close)
         && let Some(launch) = context.launch.as_ref()
     {
         copy.title = launch.action_label();
@@ -182,11 +197,12 @@ pub(super) fn sync_tooltip(
             };
         }
     }
-    let reason = unavailable_reason(target.0, &context.availability());
+    let reason = unavailable_reason(target.0, &availability);
     let language_changed = locale.as_ref().is_some_and(|locale| locale.is_changed());
     let locale = locale.as_deref().copied().unwrap_or_default();
     let description = locale.editor_label(copy.description);
-    let title = (first_show || language_changed || context.settings.is_changed() || context.mesh_edit.as_ref().is_some_and(|state| state.is_changed())
+    let title = (first_show || language_changed || state.title != Some(copy.title)
+        || context.settings.is_changed() || context.mesh_edit.as_ref().is_some_and(|state| state.is_changed())
         || context.launch.as_ref().is_some_and(|launch| launch.is_changed())
         || context.interruption.as_ref().is_some_and(|phase|phase.is_changed()))
         .then(|| tooltip_title(&copy, &context.settings, locale));
@@ -226,6 +242,9 @@ pub(super) fn sync_tooltip(
     }
     if state.reason != reason {
         state.reason = reason;
+    }
+    if state.title != Some(copy.title) {
+        state.title = Some(copy.title);
     }
     if popup.display != Display::Flex {
         popup.display = Display::Flex;

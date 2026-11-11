@@ -84,6 +84,7 @@ pub(crate) fn install(
                 .before(crate::native_play::request_exit),
         )
         .add_systems(Update, ui::present.after(ViewportModeInput)
+            .after(feathrise_editor_core::SceneEditorSystemSet::Presentation)
             .after(feathrise_editor_ui::EditorUiSystemSet::NumericInput))
         .add_systems(Update, profile_ui::present.after(ViewportModeInput))
         .add_systems(PostUpdate, (ui::present_connection, ui::present_launch, compilation::present, busy_border::animate).chain()

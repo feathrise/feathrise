@@ -1,10 +1,11 @@
-//! 按真实世界就绪状态显示场景专属控件；空编辑器只保留全局内容工作区。
+//! 按世界就绪状态和中央标签显示工作台控件。
 
 use bevy::prelude::*;
 
 use crate::components::{SceneEditorActionButton, SceneEditorEmptyWorkspace};
 use crate::resources::{SceneEditorState, SceneEditorWorldSession};
 use crate::types::EditorAction;
+use crate::ui::asset_preview::weights::WeightCommands;
 use crate::ui::vegetation_preset_editor::{
     PresetEditorAction, PresetEditorButton, PresetWorkspaceTab, VegetationPresetEditorState,
 };
@@ -13,7 +14,8 @@ pub(crate) fn sync_editor_world_controls(
     world: SceneEditorWorldSession,
     editor: Res<SceneEditorState>,
     workspace: Res<VegetationPresetEditorState>,
-    mut previous_ready: Local<Option<(bool, bool, PresetWorkspaceTab)>>,
+    weights: WeightCommands,
+    mut previous_ready: Local<Option<(bool, bool, PresetWorkspaceTab, bool)>>,
     mut actions: Query<
         (&SceneEditorActionButton, &mut Node),
         Without<SceneEditorEmptyWorkspace>,
@@ -45,12 +47,18 @@ pub(crate) fn sync_editor_world_controls(
             Display::None
         };
     }
-    let signature = (ready, editor.scene_transition_in_progress, workspace.active_tab);
+    let weight_commands = weights.status().is_some();
+    let signature = (
+        ready,
+        editor.scene_transition_in_progress,
+        workspace.active_tab,
+        weight_commands,
+    );
     if *previous_ready == Some(signature) {
-        return; // 场景可用性稳定时不扫描按钮；预设标签切换只更新固定中央提示节点。
+        return; // 中央上下文稳定时不扫描顶栏按钮。
     }
     *previous_ready = Some(signature);
-    let display = if ready && workspace.active_tab == PresetWorkspaceTab::Scene {
+    let display = if weight_commands || (ready && workspace.active_tab == PresetWorkspaceTab::Scene) {
         Display::Flex
     } else {
         Display::None

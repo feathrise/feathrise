@@ -56,10 +56,12 @@ pub(super) struct Session {
     pub heat_mesh: Option<(usize, Handle<Mesh>)>,
     pub original: bool,
     pub heat: bool,
+    pub show_skeleton: bool,
     pub visible_only: bool,
     pub mirror: bool,
     pub mask: bool,
     pub tool: Tool,
+    pub edit_tool: Tool,
     pub radius: f32,
     pub strength: f32,
     pub amount: f32,
@@ -114,10 +116,12 @@ impl Session {
             heat_mesh: None,
             original: false,
             heat: true,
+            show_skeleton: true,
             visible_only: true,
             mirror: false,
             mask: false,
-            tool: Tool::Point,
+            tool: Tool::Bone,
+            edit_tool: Tool::Point,
             radius: 32.0,
             strength: 0.3,
             amount: 0.5,
@@ -126,6 +130,13 @@ impl Session {
             locks,
             undo: VecDeque::new(),
             redo: Vec::new(),
+        }
+    }
+
+    pub fn set_tool(&mut self, tool: Tool) {
+        self.tool = tool;
+        if tool != Tool::Bone {
+            self.edit_tool = tool;
         }
     }
 
@@ -269,6 +280,24 @@ impl WeightEditor {
     pub(super) fn busy(&self) -> bool {
         self.work.is_some() || self.stroke.is_some() || self.capture.is_some()
     }
+
+    /// 画布与场景树共用选中骨骼和热力图刷新路径。
+    pub(super) fn select_joint(&mut self, surface: usize, joint: u16) {
+        if let Some(session) = self.session.as_mut()
+            && (session.surface, session.joint) != (surface, joint)
+            && session
+                .doc
+                .surfaces
+                .get(surface)
+                .is_some_and(|entry| usize::from(joint) < entry.skin.joints.len())
+        {
+            session.surface = surface;
+            session.joint = joint;
+            self.refresh = true;
+            self.bump();
+        }
+    }
+
     pub(crate) fn owns_mouse(&self) -> bool {
         self.mouse
     }

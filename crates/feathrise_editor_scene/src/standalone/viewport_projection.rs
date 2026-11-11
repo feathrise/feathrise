@@ -1,6 +1,11 @@
 //! 只读投影原作者视口的几何与遮挡状态；宿主不获取私有草稿、组件或输入门的写权限。
 
 use crate::{components::SceneEditorViewport, resources::*};
+use crate::ui::{
+    asset_preview::{AssetPreviewWorkspace, gltf_tree},
+    vegetation_preset_editor::{VegetationPresetEditorState, activate_scene_tab},
+};
+use crate::workbench::WorkbenchHostPageState;
 use bevy::prelude::*;
 
 #[path = "embedded_render_controls.rs"]
@@ -33,6 +38,32 @@ pub struct ViewportHostProjection {
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ViewportProjectionSet;
+
+/// 固定的中央 GLB 标签始终使用作者画布，即使地图保留了工程 3D 模式。
+pub fn central_glb_active(
+    editor: Option<&SceneEditorState>,
+    workspace: Option<&VegetationPresetEditorState>,
+    media: Option<&AssetPreviewWorkspace>,
+    host_page: Option<&WorkbenchHostPageState>,
+) -> bool {
+    editor.is_some_and(|editor| editor.open)
+        && !host_page.is_some_and(|page| page.active)
+        && workspace.zip(media).is_some_and(|(workspace, media)| {
+            gltf_tree::central_glb(media, workspace.active_tab).is_some()
+        })
+}
+
+/// 工程 3D 按钮返回现有场景标签，媒体标签和导航按原工作区规则留存。
+pub fn return_from_central_glb(world: &mut World) {
+    if central_glb_active(
+        world.get_resource(),
+        world.get_resource(),
+        world.get_resource(),
+        world.get_resource(),
+    ) {
+        let _ = world.run_system_cached(activate_scene_tab);
+    }
+}
 
 pub fn install(app: &mut App) {
     app.add_systems(

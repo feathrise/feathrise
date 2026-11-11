@@ -1,6 +1,7 @@
 //! 蒙皮权重工作区。绑定原模型资产身份，复用中央视口和动作容器。
 
 mod asset;
+mod commands;
 mod edit;
 mod fields;
 mod file;
@@ -13,11 +14,14 @@ mod preview;
 mod problem_validation;
 pub(crate) mod project_close;
 mod resources;
+mod skeleton;
 mod spatial;
 mod systems;
 #[cfg(feature = "validation")]
 mod validation;
 
+pub(super) use fields::parameter_toolbar;
+pub(in crate::ui) use commands::{RequestWeightCommand, WeightCommandStatus, WeightCommands};
 pub(super) use resources::TreePick;
 pub(crate) use resources::WeightEditor;
 #[cfg(feature = "validation")]
@@ -30,6 +34,7 @@ pub(super) fn install(app: &mut App) {
     app.init_resource::<WeightEditor>()
         .init_resource::<preview::WeightPreview>()
         .add_message::<TreePick>()
+        .add_message::<RequestWeightCommand>()
         .add_message::<AssetEvent<bevy::gltf::Gltf>>()
         .add_observer(preview::ready)
         .add_systems(Update,
@@ -40,6 +45,12 @@ pub(super) fn install(app: &mut App) {
                 .before(super::opening::open)
                 .before(super::navigation::control_asset_preview)
                 .before(crate::ui::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)
+                .in_set(SceneEditorSystemSet::Input))
+        .add_systems(Update,
+            commands::receive
+                .after(crate::ui::actions::handle_editor_action_buttons)
+                .after(crate::ui::actions::handle_editor_shortcuts)
+                .after(input::input)
                 .in_set(SceneEditorSystemSet::Input))
         .add_systems(Update,
             fields::input
@@ -59,4 +70,5 @@ pub(super) fn install(app: &mut App) {
         .add_systems(PostUpdate, posed::capture.after(preview::update)
             .after(bevy::transform::TransformSystems::Propagate)
             .after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
+    skeleton::install(app);
 }

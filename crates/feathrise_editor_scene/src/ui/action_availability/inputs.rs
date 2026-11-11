@@ -12,7 +12,8 @@ use crate::resources::{
     SceneBrowserState, SceneDeletionTask, SceneEditorNumericScrubMouseGuard, SceneEditorSettingsState,
     SceneEditorState, SceneEditorViewportState, SceneEditorWorldSession,
 };
-use crate::types::EditorTool;
+use crate::types::{EditorAction, EditorTool};
+use crate::ui::asset_preview::weights::{RequestWeightCommand, WeightCommands};
 use crate::ui::gltf_browser::EditorGltfBrowserState;
 use crate::ui::vegetation_preset_editor::{PresetWorkspaceTab, VegetationPresetEditorState};
 use crate::viewport::{LayerCandidateState, LayerTarget};
@@ -24,6 +25,7 @@ pub(crate) struct EditorActionInputs<'w> {
     world: SceneEditorWorldSession<'w>,
     terrain: Option<Res<'w, TerrainPreviewState>>,
     workspace: Option<Res<'w, VegetationPresetEditorState>>,
+    weights: WeightCommands<'w>,
     browser: Option<Res<'w, EditorGltfBrowserState>>,
     candidates: Option<Res<'w, LayerCandidateState>>,
     deletion: Option<Res<'w, SceneDeletionTask>>,
@@ -74,8 +76,10 @@ impl EditorActionInputs<'_> {
                 .workspace
                 .as_ref()
                 .is_some_and(|workspace| workspace.active_tab != PresetWorkspaceTab::Scene),
+            weights: self.weights.status(),
             mesh_editing: self.mesh_edit.as_ref().is_some_and(|state| state.active()),
             current_scene: self.world.ready() && draft.is_some(),
+            scene_dirty: self.session.has_scene_data_changes(),
             viewport_ready: viewport.is_some_and(|viewport| {
                 draft.is_some_and(|draft| viewport.framed_scene_id.as_ref() == Some(&draft.scene_id))
             }),
@@ -88,6 +92,19 @@ impl EditorActionInputs<'_> {
                 .is_some_and(|terrain| dynamic_terrain_save_is_pending(&self.session, terrain)),
             deletion_busy: self.deletion.as_ref().is_some_and(|state| state.busy()),
             focus_available: self.focus_available(editor),
+        }
+    }
+
+    /// 只投递当前 GLB 会话的命令，保留中央标签切换后的接收端身份校验。
+    pub(in crate::ui) fn send_weight_command(
+        &self,
+        action: EditorAction,
+        requests: Option<&mut Messages<RequestWeightCommand>>,
+    ) {
+        if let Some(requests) = requests
+            && let Some(request) = self.weights.request(action)
+        {
+            requests.write(request);
         }
     }
 

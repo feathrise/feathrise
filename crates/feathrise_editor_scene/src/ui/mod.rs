@@ -65,7 +65,7 @@ pub(crate) mod vegetation_presets; // 无分页三列预设列表的有界实体
 mod vegetation_scene; // 植被图层面板BSN静态外壳。
 pub(crate) mod vegetation_paint; // 场景级绘制组和目标网格勾选。
 pub(crate) mod vegetation_sidebar; // 全局库、场景建层目标与真实后台阶段的只读反馈。
-mod viewport_toolbar; // 视图切换与上下文参数同排定高，宽度不足时整条横滚。
+pub(crate) mod viewport_toolbar; // 默认单行，右端溢出时可显式展开为多行。
 mod water_actions; // 静水体与连续水网按钮分派，避免通用动作系统继续膨胀。
 pub(crate) mod water_feature_list; // 静水、河流和瀑布统一固定行池、显式分页与稳定ID直选。
 pub(crate) mod water_layers; // 独立水层增删、复制和Arc浅快照撤销。

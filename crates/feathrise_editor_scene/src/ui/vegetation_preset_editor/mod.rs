@@ -55,6 +55,7 @@ pub(crate) use scene::{
 }; // 左栏全局库、唯一诊断与中央静态挂载点由同一功能域提供。
 pub use types::{VegetationPresetEditorState, PresetWorkspaceTabHost, PresetWorkspaceEditorHost};
 pub use feathrise_editor_core::PresetWorkspaceDynamicRoot;
+pub(crate) use interaction::activate_scene_tab;
 pub(crate) use types::{
     PresetEditorAction,
     PresetEditorButton,

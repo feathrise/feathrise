@@ -21,6 +21,7 @@ use crate::types::{
     EditorAction, EditorTool, EditorView, EnvironmentEditAction, NewSceneInputField,
 }; // 按钮只发布结构化编辑器动作。
 use crate::ui::action_availability::{EditorActionAvailability, EditorActionInputs};
+use crate::ui::asset_preview::weights::RequestWeightCommand;
 use crate::ui::water_actions::handle_water_action; // 水域按钮由独立领域分派器优先消费。
 use crate::viewport::set_editor_view; // 快捷方向与投影解耦，共用视口角度采用入口。
 
@@ -35,6 +36,7 @@ pub(crate) struct EditorButtonInputGuard<'w> {
     viewport: Option<ResMut<'w, SceneEditorViewportState>>, // 只对准当前相机；空世界尚无RTT时不创建新视图。
     documents: Option<Res<'w, crate::ui::scene_documents::SceneDocuments>>,
     availability: EditorActionInputs<'w>,
+    weight_commands: Option<ResMut<'w, Messages<RequestWeightCommand>>>,
     sidebar: Option<Res<'w, crate::ui::sidebars::SceneEditorSidebarState>>,
     layout: Option<Res<'w, crate::resources::SceneEditorLayoutState>>,
     mesh_edit: Option<Res<'w, crate::authoring::mesh_edit::MeshEditState>>,
@@ -105,13 +107,20 @@ pub(crate) fn handle_editor_action_buttons(
             continue; // 左侧浏览器隐藏后丢弃目录按钮旧边沿，不影响右侧属性或其他全局命令。
         }
         // 禁用组件是上一轮表现结果；业务必须读取本帧真实状态，防止刚阻塞或刚恢复时错发/漏发。
-        if EditorActionAvailability::supports(button.0)
-            && input_guard.availability
-                .snapshot(&editor, input_guard.viewport.as_deref())
-                .reason(button.0)
-                .is_some()
-        {
-            continue;
+        if EditorActionAvailability::supports(button.0) {
+            let availability = input_guard
+                .availability
+                .snapshot(&editor, input_guard.viewport.as_deref());
+            if availability.reason(button.0).is_some() {
+                continue;
+            }
+            if availability.uses_weight_context(button.0) {
+                input_guard.availability.send_weight_command(
+                    button.0,
+                    input_guard.weight_commands.as_deref_mut(),
+                );
+                continue; // 顶栏优先交给当前权重标签，保持地图的保存和历史请求独立。
+            }
         }
         if editor.scene_transition_in_progress && button.0 != EditorAction::Close {
             continue; // 外壳继续显示，但加载期间不能新建、保存或修改另一份场景草稿。
