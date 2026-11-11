@@ -12,7 +12,7 @@
 
 ## 源码联调
 
-工作流使用固定的场景版 SDK 0.3.0 和 Bevy 0.20.1 补丁提交。源码检查先核对提交，再确认 `feathrise_runtime`、`feathrise_scene_content`、`feathrise_terrain` 和 `feathrise_editor_protocol` 的包身份及版本。更新配套源码时须同步核对编辑器锁文件。需要检查另一组配套源码时，可以在 GitHub 仓库的 **Settings → Secrets and variables → Actions → Variables** 覆盖。
+工作流使用固定的场景 SDK 和 Bevy 0.20.1 补丁提交。源码检查先核对提交，再将 `feathrise_runtime`、`feathrise_scene_content`、`feathrise_terrain` 和 `feathrise_editor_protocol` 的包身份及版本与编辑器锁文件逐一比对。更新配套 SDK 提交时同步更新固定修订，也可在 GitHub 仓库的 **Settings → Secrets and variables → Actions → Variables** 覆盖。
 
 | 变量 | 值 |
 | --- | --- |
@@ -27,7 +27,7 @@
 
 ## crates.io 配方
 
-编辑器锁定 SDK 0.3.0，[.cargo/registry-sdk.toml](../.cargo/registry-sdk.toml) 固定配套 Bevy 0.20.1 补丁。单文件构建在独立源码副本中解析公开依赖，后续检查和 Release 编译使用同一份锁文件。版本标签和手动选择的 registry 组合只检出编辑器，在整组 SDK 0.3.0 包发布后检查默认与 validation 特性。历史发行版的配方随各自 Git 标签保存。
+显式 registry 检查使用与编辑器配套的已发布 SDK 包和固定的 Bevy 0.20.1 补丁。当前场景开发使用配套源码，公开包验收需要已发布的场景接口。历史发行版的配方随各自 Git 标签保存。 [公开补丁配置](../.cargo/registry-sdk.toml)
 
 ## 跨运行缓存
 

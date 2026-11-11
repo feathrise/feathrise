@@ -37,7 +37,7 @@ jobs:
     env:
       # 场景版 SDK 与编辑器锁文件配套。覆盖变量也须使用对应的完整提交。
       FEATHRISE_SDK_REPOSITORY: ${{ vars.FEATHRISE_SDK_REPOSITORY || 'feathrise/feathrise_runtime' }}
-      FEATHRISE_SDK_REV: ${{ vars.FEATHRISE_SDK_REV || '058c94f7a65913bf5cba2684d91f738d9e73c829' }}
+      FEATHRISE_SDK_REV: ${{ vars.FEATHRISE_SDK_REV || '0989b39f4ef5026152a5eb57d094785bd69d2ad7' }}
       FEATHRISE_PATCH_REPOSITORY: ${{ vars.FEATHRISE_PATCH_REPOSITORY || 'feathrise/feathrise_patches' }}
       FEATHRISE_PATCH_REV: ${{ vars.FEATHRISE_PATCH_REV || '019fd1fe13ed9107d17b360b8f5a3df61bfc139a' }}
     steps:
@@ -57,7 +57,7 @@ jobs:
             throw 'FEATHRISE_SDK_REPOSITORY 必须为 owner/repository；请修正仓库变量，或移除覆盖以使用公开默认值。'
           }
           if ($env:FEATHRISE_SDK_REV -notmatch '^[0-9a-fA-F]{40}$') {
-            throw '请配置 FEATHRISE_SDK_REV 为 SDK 仓库中场景版 0.3.0 的完整 40 位提交。'
+            throw '请配置 FEATHRISE_SDK_REV 为与编辑器锁文件配套的场景版 SDK 完整 40 位提交。'
           }
       # actions/checkout v4.2.2；各检出均不持久化凭据。
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -158,7 +158,7 @@ jobs:
             # 发行检查使用 Runner 上的公开依赖锁，与单文件构建的解析路径一致。
             $sourceArguments = @('--config', '.cargo/registry-sdk.toml')
             cargo @sourceArguments fetch
-            if ($LASTEXITCODE -ne 0) { throw '无法获取公开 SDK 0.3.0 与配套补丁，请核对同版本 SDK 包是否已发布。' }
+            if ($LASTEXITCODE -ne 0) { throw '无法获取公开 SDK 与配套补丁，请核对场景版编辑器所需的 SDK 包是否已发布。' }
           } else {
             # SDK 自有包与第三方补丁分别采用已核对修订的检出。
             $localSdkConfig = Join-Path $env:RUNNER_TEMP 'feathrise-local-sdk.toml'
@@ -172,11 +172,13 @@ jobs:
             $localPackages = @(($metadata | ConvertFrom-Json).packages | Where-Object {
               $null -eq $_.source -and $_.name -ne 'feathrise_sdk_workspace_tests'
             })
-            # 老修订可能也使用 Bevy 0.20.1。先核对场景版包身份，再生成覆盖。
+            # SDK 源码可以沿用旧发行包的版本号，核对实际场景包和编辑器锁中的身份。
+            $editorLock = Get-Content -Encoding UTF8 -Raw -LiteralPath 'Cargo.lock'
             foreach ($name in @('feathrise_runtime', 'feathrise_scene_content', 'feathrise_terrain', 'feathrise_editor_protocol')) {
               $scenePackages = @($localPackages | Where-Object { $_.name -ceq $name })
-              if ($scenePackages.Count -ne 1 -or $scenePackages[0].version -ne '0.3.0') {
-                throw "SDK 检出缺少场景版 0.3.0 包 $name，请核对 FEATHRISE_SDK_REV。"
+              $locked = [regex]::Matches($editorLock, '(?m)^name = "' + [regex]::Escape($name) + '"\r?\nversion = "([^"]+)"')
+              if ($scenePackages.Count -ne 1 -or $locked.Count -ne 1 -or $scenePackages[0].version -cne $locked[0].Groups[1].Value) {
+                throw "SDK 检出的场景包 $name 与编辑器锁文件不一致，请核对 FEATHRISE_SDK_REV。"
               }
             }
             $patches = foreach ($package in $localPackages) {

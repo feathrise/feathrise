@@ -10,11 +10,11 @@ publish = false
 validation = ["dep:feathrise_terrain"]
 
 [dependencies]
-feathrise_scene_content = { version = "0.3.0" }
-feathrise_terrain = { version = "0.3.0", optional = true }
+feathrise_scene_content = { version = "0.2.0" }
+feathrise_terrain = { version = "0.2.0", optional = true }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
 sha2 = "=0.11.0"
 
 [dev-dependencies]
-feathrise_terrain = { version = "0.3.0" }
+feathrise_terrain = { version = "0.2.0" }

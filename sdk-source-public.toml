@@ -1,4 +1,4 @@
-# 单文件安装在缺少外置 sdk-source.toml 时使用的公开配方。
+# 用于显式 registry 验收。编辑器新建工程的默认来源采用 sdk-source.toml 中的配套本地源码。
 format = 1
 
 [source]

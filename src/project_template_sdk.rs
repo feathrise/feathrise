@@ -12,9 +12,6 @@ use toml::{Value, map::Map};
 const CONFIG_LIMIT: usize = 16 * 1024;
 const MANIFEST_LIMIT: usize = 64 * 1024;
 const CONFIG_NAME: &str = "sdk-source.toml";
-// 随源码的 sdk-source.toml 使用配套检出；单文件安装缺少外置配置时采用已发布配方。
-const DEFAULT_CONFIGURATION: &str = include_str!("../sdk-source-public.toml");
-const SCENE_SDK_SERIES: &str = "0.3";
 const BEVY_PIN: &str = "=0.20.1";
 const PATCHES: [(&str, &str); 8] = [
     ("avian3d", "avian3d"),
@@ -34,11 +31,11 @@ fn validate_bevy(requirement: Option<&str>) -> Result<(), String> {
     }
 }
 
-fn scene_sdk_version(value: &str) -> Result<semver::Version, String> {
+fn scene_registry_sdk_version(value: &str) -> Result<semver::Version, String> {
     let version = semver::Version::parse(value)
-        .map_err(|error| format!("场景 SDK 版本必须为完整版本，例如 0.3.0：{error}"))?;
+        .map_err(|error| format!("registry SDK 须指定完整版本（{error}）"))?;
     if (version.major, version.minor) != (0, 3) {
-        return Err(format!("场景工程需要 SDK {SCENE_SDK_SERIES}.x，实际配置为 {version}"));
+        return Err(format!("场景工程的 registry 来源需要 SDK 0.3.x，实际配置为 {version}"));
     }
     Ok(version)
 }
@@ -74,18 +71,23 @@ impl SdkSource {
     fn load_checked(configuration_root: &Path) -> Result<Self, String> {
         // 这是 sdk-source.toml 的实际父目录，不一定是解出的模板/字体等静态资源根。
         let file = configuration_root.join(CONFIG_NAME);
-        let text = match File::open(&file) {
-            Ok(stream) => read_bounded(stream, CONFIG_LIMIT, &file)?,
-            // 只有文件确实不存在才采用随程序的默认配方；无权限、格式错误都不能换来源。
-            Err(error) if error.kind() == ErrorKind::NotFound => DEFAULT_CONFIGURATION.to_owned(),
+        let configuration = match File::open(&file) {
+            Ok(stream) => {
+                let text = read_bounded(stream, CONFIG_LIMIT, &file)?;
+                let value: Configuration = toml::from_str(&text)
+                    .map_err(|error| format!("SDK 来源配置无效（{}）：{error}", file.display()))?;
+                if value.format != 1 {
+                    return Err(format!("SDK 来源配置版本不支持：{}", value.format));
+                }
+                value.source
+            }
+            // 仅缺少文件时使用同级检出，外置文件的选择只在运行时生效。
+            Err(error) if error.kind() == ErrorKind::NotFound => SourceConfiguration::Path {
+                path: "../feathrise_runtime".into(),
+                patch_path: Some("../feathrise_patches".into()),
+            },
             Err(error) => return Err(format!("SDK 来源配置不可读（{}）：{error}", file.display())),
         };
-        let value: Configuration = toml::from_str(&text)
-            .map_err(|error| format!("SDK 来源配置无效（{}）：{error}", file.display()))?;
-        if value.format != 1 {
-            return Err(format!("SDK 来源配置版本不支持：{}", value.format));
-        }
-        let configuration = value.source;
         match configuration {
             SourceConfiguration::Path { path, patch_path } => {
                 validate_text(&path, "SDK 本地路径", 4096)?;
@@ -93,15 +95,31 @@ impl SdkSource {
                     format!("SDK 本地目录不存在；请配置 {}：{error}", file.display())
                 })?;
                 let manifest = validate_package(&root, "feathrise_runtime")?;
-                let bevy_requirement = manifest.get("dependencies").and_then(|deps| deps.get("bevy"))
+                let dependencies = manifest.get("dependencies");
+                let workspace_dependencies = manifest.get("workspace").and_then(|workspace| workspace.get("dependencies"));
+                let bevy_requirement = dependencies.and_then(|deps| deps.get("bevy"))
                     .and_then(|dependency| dependency.as_str().or_else(|| dependency.get("version").and_then(Value::as_str)))
-                    .or_else(|| manifest.get("workspace").and_then(|workspace| workspace.get("dependencies"))
-                        .and_then(|deps| deps.get("bevy")).and_then(|dependency| dependency.as_str()
+                    .or_else(|| workspace_dependencies.and_then(|deps| deps.get("bevy"))
+                        .and_then(|dependency| dependency.as_str()
                             .or_else(|| dependency.get("version").and_then(Value::as_str))));
-                // 场景模板在写入前检查 SDK 版本，避免生成引用旧地图格式的工程。
-                let sdk_version = manifest.get("package").and_then(|package| package.get("version"))
-                    .and_then(Value::as_str).ok_or("SDK 缺少版本")?;
-                scene_sdk_version(sdk_version)?;
+                // 开发源码与旧地图包可使用相同版本号，按实际依赖和包身份确认场景合同。
+                let content = dependencies.and_then(|deps| deps.get("feathrise_scene_content"));
+                let content = match content {
+                    Some(dependency) if dependency.get("workspace").and_then(Value::as_bool) == Some(true) =>
+                        workspace_dependencies.and_then(|deps| deps.get("feathrise_scene_content")),
+                    _ => content,
+                };
+                let terrain = workspace_dependencies.and_then(|deps| deps.get("feathrise_terrain"));
+                for (package, dependency) in [("feathrise_scene_content", content), ("feathrise_terrain", terrain)] {
+                    let relative = dependency.and_then(|dep| dep.get("path")).and_then(Value::as_str)
+                        .ok_or_else(|| format!("场景 SDK 缺少 {package} 本地依赖"))?;
+                    let package_root = root.join(relative).canonicalize()
+                        .map_err(|error| format!("场景 SDK 包 {package} 的目录不可读（{error}）"))?;
+                    if !package_root.starts_with(&root) {
+                        return Err(format!("场景 SDK 包 {package} 必须位于配置的 SDK 目录内"));
+                    }
+                    validate_package(&package_root, package)?;
+                }
                 validate_bevy(bevy_requirement)?;
                 let patches = match patch_path {
                     Some(path) => {
@@ -135,7 +153,7 @@ impl SdkSource {
             SourceConfiguration::Registry { version, git, rev, bevy_version } => {
                 validate_bevy(bevy_version.as_deref())?;
                 validate_text(&version, "SDK crates.io 版本", 128)?;
-                let version = scene_sdk_version(&version)?;
+                let version = scene_registry_sdk_version(&version)?;
                 let (git, rev) = checked_git_source(git, rev)?;
                 // registry 提供实际 SDK；补丁不随 crate 传递，仍显式绑定与此版本配套的公开 Git 修订。
                 Ok(Self::Registry { version: version.to_string(), git, rev })
@@ -186,15 +204,11 @@ impl SdkSource {
             }
             Self::Git { git, rev, patch_git, patch_rev, .. } => {
                 let (url, revision) = if patch.is_some() { (patch_git, patch_rev) } else { (git, rev) };
-                let mut dependency = Map::from_iter([
+                // 源码以完整提交锁定，允许选择仍沿用已有包版本号的场景改造。
+                Map::from_iter([
                     ("git".into(), Value::String(url.clone())),
                     ("rev".into(), Value::String(revision.clone())),
-                ]);
-                // 锁定 Git 提交仍须声明场景 SDK 系列；Cargo 会拒绝同名旧 SDK。
-                if patch.is_none() {
-                    dependency.insert("version".into(), Value::String(SCENE_SDK_SERIES.into()));
-                }
-                dependency
+                ])
             }
             Self::Registry { version, git, rev, .. } => match patch {
                 Some(_) => Map::from_iter([
