@@ -2,7 +2,8 @@
 
 use super::{
     super::{
-        AssetPreviewState, AssetPreviewWorkspace, DocumentState, OpenAssetPreview,
+        AssetPreviewNavigation, AssetPreviewState, AssetPreviewWorkspace, DocumentState,
+        OpenAssetPreview,
         animation::{AnimationEditorState, AnimationPreviewRuntime},
         gltf_tree,
         rigging::RiggingState,
@@ -222,7 +223,7 @@ pub(super) fn queue(state: &mut WeightEditor, operation: Operation, reason: Reas
 
 pub(super) fn begin_save(state: &mut WeightEditor) -> Result<(), String> {
     let session = state.session.as_ref().ok_or("没有当前蒙皮草稿")?;
-    if state.work.is_some() || state.stroke.is_some() {
+    if state.busy() {
         return Err("请先结束当前笔画或权重任务".into());
     }
     if !session.dirty() || session.stale {
@@ -263,6 +264,7 @@ pub(super) fn actions(
     mut editor: ResMut<SceneEditorState>,
     mut animation: Option<ResMut<AnimationEditorState>>,
     motion: Option<Res<AnimationPreviewRuntime>>,
+    mut navigation: ResMut<AssetPreviewNavigation>,
     assets: Option<Res<AssetServer>>,
     gltfs: Option<Res<Assets<Gltf>>>,
     rigging: Option<Res<RiggingState>>,
@@ -277,7 +279,7 @@ pub(super) fn actions(
     mut open_asset: MessageWriter<OpenAssetPreview>,
 ) {
     let pick = tree.read().last().copied();
-    if !gate.can_press(&editor) || state.stroke.is_some() || state.work.is_some() {
+    if !gate.can_press(&editor) || state.busy() {
         return;
     }
     let Some(assets) = assets else { return };
@@ -329,6 +331,7 @@ pub(super) fn actions(
     if sidebar.right != EditorRightSidebarTab::Weights {
         return;
     }
+    let problem = state.problem;
     let Some(session) = state
         .session
         .as_mut()
@@ -375,6 +378,11 @@ pub(super) fn actions(
         Action::Open => {}
         Action::Discard => {
             let retired = state.session.take();
+            if let Some(problem) = state.problem.take()
+                && let Some(animation) = animation.as_deref_mut()
+            {
+                animation.resume_weight_frame(problem.frame);
+            }
             AsyncComputeTaskPool::get()
                 .spawn(async move {
                     drop(retired);
@@ -392,7 +400,26 @@ pub(super) fn actions(
         }
         Action::Rest => {
             if let Some(animation) = animation.as_deref_mut() {
-                animation.weight_rest_pose();
+                if let Some(problem) =
+                    problem.filter(|problem| animation.matches_weight_frame(problem.frame))
+                {
+                    if animation.weight_rest_active() {
+                        if animation.resume_weight_frame(problem.frame) {
+                            navigation.view = problem.view;
+                            navigation.drag = None;
+                            session.original = false;
+                            state.notice = format!(
+                                "已回到问题帧 {:.3} 秒，可对照原始与草稿",
+                                problem.frame.time
+                            );
+                        }
+                    } else if animation.show_weight_rest(problem.frame) {
+                        session.original = false;
+                        state.notice = "已返回静置姿势，保留所选顶点和骨骼".into();
+                    }
+                } else {
+                    animation.weight_rest_pose();
+                }
             }
         }
         Action::Compare => {
@@ -492,6 +519,8 @@ pub(super) fn poll(
     mut meshes: Option<ResMut<Assets<Mesh>>>,
     mut gltf_events: MessageReader<AssetEvent<Gltf>>,
     mut catalog: Option<ResMut<EditorAssetCatalog>>,
+    sidebar: Res<SceneEditorSidebarState>,
+    mut animation: Option<ResMut<AnimationEditorState>>,
 ) {
     let mut stale = false;
     for event in gltf_events.read() {
@@ -515,6 +544,20 @@ pub(super) fn poll(
         state.notice = "源 GLB 已热更新。保留现有草稿，请丢弃后重新打开。".into();
         state.bump();
     }
+    if let Some(problem) = state.problem
+        && (state
+            .session
+            .as_ref()
+            .is_none_or(|session| session.stale || !target.matches(&session.key))
+            || animation
+                .as_ref()
+                .is_none_or(|animation| !animation.matches_weight_frame(problem.frame)))
+    {
+        if let Some(animation) = animation.as_deref_mut() {
+            animation.resume_weight_frame(problem.frame);
+        }
+        state.problem = None;
+    }
     let ready = state
         .work
         .as_mut()
@@ -528,6 +571,32 @@ pub(super) fn poll(
                 state.notice.clear();
             }
             Ok(Outcome::Apply { result, reason }) => {
+                if let Reason::Problem(problem) = &reason {
+                    // 迟到选区不能替换其他模型、动作或静置草稿。空框保留先前的选区。
+                    let current = state.session.as_ref().is_some_and(|session| {
+                        !session.stale
+                            && target.matches(&session.key)
+                            && session.key == work.key
+                            && session.surface == result.surface
+                    });
+                    if result.selection.is_empty()
+                        || !current
+                        || sidebar.right != EditorRightSidebarTab::Weights
+                        || meshes.is_none()
+                        || animation
+                            .as_deref_mut()
+                            .is_none_or(|animation| !animation.show_weight_rest(problem.frame))
+                    {
+                        state.notice = if result.selection.is_empty() {
+                            "问题帧框内没有命中顶点".into()
+                        } else {
+                            "问题帧已切换，请重新框选".into()
+                        };
+                        state.bump();
+                        return;
+                    }
+                    state.problem = Some(*problem);
+                }
                 if let (Some(meshes), Some(session)) =
                     (meshes.as_deref_mut(), state.session.as_mut())
                     && session.key == work.key
@@ -548,6 +617,14 @@ pub(super) fn poll(
                     session.heat_mesh = Some((result.surface, meshes.add(result.heat)));
                     let after = draft.weights.clone();
                     match reason {
+                        Reason::Problem(problem) => {
+                            session.original = false;
+                            state.notice = format!(
+                                "已在静置姿势选中 {} 个顶点 · 问题帧 {:.3} 秒",
+                                draft.selection.len(),
+                                problem.frame.time
+                            );
+                        }
                         Reason::Edit => {
                             session.record(History {
                                 surface: result.surface,
@@ -604,7 +681,7 @@ pub(super) fn poll(
         }
         state.bump();
     }
-    if state.work.is_none() && state.refresh && state.stroke.is_none() {
+    if !state.busy() && state.refresh {
         state.refresh = false;
         queue(&mut state, Operation::Refresh, Reason::Display);
     }

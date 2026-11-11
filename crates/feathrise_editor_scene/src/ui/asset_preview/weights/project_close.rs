@@ -13,7 +13,7 @@ pub(crate) fn collect(
     let Some(state) = world.get_resource::<WeightEditor>() else {
         return;
     };
-    if state.work.is_some() || state.stroke.is_some() {
+    if state.busy() {
         snapshot.pending("正在处理蒙皮笔画或另存模型");
     }
     if let Some(session) = state.session.as_ref().filter(|session| session.dirty()) {

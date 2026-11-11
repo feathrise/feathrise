@@ -7,7 +7,10 @@ mod file;
 mod influences;
 mod input;
 pub(crate) mod panel;
+mod posed;
 mod preview;
+#[cfg(feature = "validation")]
+mod problem_validation;
 pub(crate) mod project_close;
 mod resources;
 mod spatial;
@@ -52,5 +55,8 @@ pub(super) fn install(app: &mut App) {
             (panel::present, input::present_overlay,
                 fields::sync.run_if(resource_exists::<Messages<feathrise_editor_ui::NumericInputSetValue>>))
                 .in_set(SceneEditorSystemSet::Presentation))
-        .add_systems(PostUpdate, preview::update);
+        .add_systems(PostUpdate, preview::update)
+        .add_systems(PostUpdate, posed::capture.after(preview::update)
+            .after(bevy::transform::TransformSystems::Propagate)
+            .after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
 }

@@ -2,12 +2,14 @@
 
 use super::{
     super::{
-        animation::AnimationEditorState,
+        AssetPreviewNavigation,
+        animation::{AnimationEditorState, AnimationPreviewRuntime, WeightBinding},
         orientation::PreviewAxisRoot,
         preview_shading,
         types::{AssetPreviewCamera, AssetPreviewCanvas},
     },
-    edit::Operation,
+    edit::{Operation, Selection, Tool},
+    posed::{Bookmark, Capture, Gesture},
     resources::{Reason, Stroke, WeightEditor},
     systems::{Gate, Target, queue},
 };
@@ -30,7 +32,10 @@ pub(super) fn input(
     gate: Gate,
     editor: Res<SceneEditorState>,
     sidebar: Res<SceneEditorSidebarState>,
-    animation: Option<Res<AnimationEditorState>>,
+    mut animation: Option<ResMut<AnimationEditorState>>,
+    mut motion: Option<ResMut<AnimationPreviewRuntime>>,
+    binding: Option<Res<WeightBinding>>,
+    navigation: Res<AssetPreviewNavigation>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut keys: Option<ResMut<ButtonInput<KeyCode>>>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -44,14 +49,20 @@ pub(super) fn input(
 ) {
     state.mouse = false;
     let canvas = canvas.single().ok();
+    let moving = animation
+        .as_ref()
+        .is_some_and(|animation| animation.weight_motion_active());
     let enabled = gate.open(&editor)
         && sidebar.right == EditorRightSidebarTab::Weights
         && state.session.as_ref().is_some_and(|session| {
-            target.matches(&session.key) && !session.original && !session.stale
+            target.matches(&session.key)
+                && !session.stale
+                && if moving {
+                    session.tool == Tool::Box
+                } else {
+                    !session.original
+                }
         })
-        && animation
-            .as_ref()
-            .is_none_or(|animation| !animation.weight_motion_active())
         && windows.single().is_ok_and(|window| window.focused);
     if let Some(stroke) = state.stroke.as_mut() {
         if stroke.released || stroke.cancelled {
@@ -66,6 +77,11 @@ pub(super) fn input(
         let release = mouse.just_released(MouseButton::Left) || !mouse.pressed(MouseButton::Left);
         if escape
             || !enabled
+            || stroke.problem.is_some_and(|gesture| {
+                animation
+                    .as_ref()
+                    .is_none_or(|animation| !animation.matches_weight_frame(gesture.bookmark.frame))
+            })
             || canvas.is_none_or(|(node, _, _)| node.size() != stroke.view.size)
             || mouse.pressed(MouseButton::Right)
             || mouse.pressed(MouseButton::Middle)
@@ -86,31 +102,41 @@ pub(super) fn input(
         if select {
             let stroke = state.stroke.take().expect("当前选区手势");
             if !stroke.cancelled {
-                let point = stroke.brush.tool == super::edit::Tool::Point
-                    || ((stroke.start - stroke.latest)
-                        * stroke.view.size
-                        * stroke.view.inverse_scale)
+                let short =
+                    ((stroke.start - stroke.latest) * stroke.view.size * stroke.view.inverse_scale)
                         .length()
                         < 3.0;
-                queue(
-                    &mut state,
-                    Operation::Select {
-                        view: stroke.view,
-                        start: if point { stroke.latest } else { stroke.start },
-                        end: stroke.latest,
-                        point,
-                        extend: stroke.extend,
-                        visible: stroke.brush.visible_only,
-                    },
-                    Reason::Display,
-                );
+                let point = stroke.brush.tool == Tool::Point || short;
+                let selection = Selection {
+                    view: stroke.view,
+                    start: if point { stroke.latest } else { stroke.start },
+                    end: stroke.latest,
+                    point,
+                    extend: stroke.extend,
+                    visible: stroke.brush.visible_only,
+                };
+                if let Some(gesture) = stroke.problem {
+                    if !short {
+                        state.capture = Some(Capture::new(gesture, selection));
+                        state.notice = "正在计算问题帧选区…".into();
+                    } else {
+                        state.notice = "在画布上拖出一个问题帧选区".into();
+                    }
+                    state.bump();
+                } else {
+                    queue(
+                        &mut state,
+                        Operation::Select(selection, None),
+                        Reason::Display,
+                    );
+                }
             }
         }
         return;
     }
     if !enabled
         || !gate.can_press(&editor)
-        || state.work.is_some()
+        || state.busy()
         || !mouse.just_pressed(MouseButton::Left)
         || mouse.pressed(MouseButton::Right)
         || mouse.pressed(MouseButton::Middle)
@@ -142,6 +168,30 @@ pub(super) fn input(
     let Some(session) = state.session.as_ref() else {
         return;
     };
+    let problem = if moving {
+        let (Some(animation), Some(motion), Some(binding)) = (
+            animation.as_deref_mut(),
+            motion.as_deref_mut(),
+            binding.as_deref(),
+        ) else {
+            return;
+        };
+        let Some((frame, root)) = motion.freeze_weight_frame(animation, binding, &session.key.path)
+        else {
+            state.notice = "请等待工程动作的当前姿态显示后再框选".into();
+            state.bump();
+            return;
+        };
+        Some(Gesture {
+            bookmark: Bookmark {
+                frame,
+                view: navigation.view,
+            },
+            root,
+        })
+    } else {
+        None
+    };
     let brush = session.brush();
     let dabs = if brush.tool.paint() {
         VecDeque::from([position])
@@ -163,6 +213,7 @@ pub(super) fn input(
         extend,
         released: false,
         cancelled: false,
+        problem,
     });
     state.mouse = true;
 }
@@ -201,13 +252,13 @@ pub(super) fn present_overlay(
 ) {
     let box_or_brush = (|| {
         let session = state.session.as_ref()?;
+        let moving = animation
+            .as_ref()
+            .is_some_and(|animation| animation.weight_motion_active());
         if !target.matches(&session.key)
             || sidebar.right != EditorRightSidebarTab::Weights
             || session.stale
-            || session.original
-            || animation
-                .as_ref()
-                .is_some_and(|animation| animation.weight_motion_active())
+            || session.original && !moving
         {
             return None;
         }
@@ -222,7 +273,7 @@ pub(super) fn present_overlay(
             let max = (stroke.start.max(stroke.latest) + 0.5) * size;
             return Some((min, (max - min).max(Vec2::ONE), 0.0));
         }
-        if session.tool.paint() && cursor.cursor_over() {
+        if !moving && session.tool.paint() && cursor.cursor_over() {
             let position = (cursor.normalized? + 0.5) * size;
             let radius = session.radius;
             return Some((position - radius, Vec2::splat(radius * 2.0), radius));

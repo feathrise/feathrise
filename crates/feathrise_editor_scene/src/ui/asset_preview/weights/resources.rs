@@ -4,6 +4,7 @@ use super::{
     asset::Document,
     edit::{Brush, Prepared, Tool},
     influences::VertexWeights,
+    posed::{Bookmark, Capture, Gesture},
 };
 use crate::viewport::placement_move::MoveCamera;
 use bevy::{gltf::Gltf, prelude::*, tasks::Task};
@@ -185,6 +186,7 @@ pub(super) struct Stroke {
     pub extend: bool,
     pub released: bool,
     pub cancelled: bool,
+    pub problem: Option<Gesture>,
 }
 
 impl Stroke {
@@ -220,6 +222,7 @@ impl Stroke {
 
 pub(super) enum Reason {
     Display,
+    Problem(Bookmark),
     Edit,
     Stroke,
     Rollback,
@@ -253,6 +256,8 @@ pub(crate) struct WeightEditor {
     pub(super) opening: Option<(PathBuf, String)>,
     pub(super) work: Option<Work>,
     pub(super) stroke: Option<Stroke>,
+    pub(super) capture: Option<Capture>,
+    pub(super) problem: Option<Bookmark>,
     pub(super) notice: String,
     pub(super) refresh: bool,
     pub(super) revision: u64,
@@ -261,6 +266,9 @@ pub(crate) struct WeightEditor {
 }
 
 impl WeightEditor {
+    pub(super) fn busy(&self) -> bool {
+        self.work.is_some() || self.stroke.is_some() || self.capture.is_some()
+    }
     pub(crate) fn owns_mouse(&self) -> bool {
         self.mouse
     }

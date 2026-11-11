@@ -105,8 +105,7 @@ pub(super) fn input(
         if commit.outcome != NumericInputCommitOutcome::Accepted
             || !gate.open(&editor)
             || sidebar.right != EditorRightSidebarTab::Weights
-            || state.stroke.is_some()
-            || state.work.is_some()
+            || state.busy()
         {
             continue;
         }
@@ -146,10 +145,8 @@ pub(super) fn sync(
         .session
         .as_ref()
         .filter(|session| target.matches(&session.key) && !session.stale);
-    let enabled = session.is_some()
-        && sidebar.right == EditorRightSidebarTab::Weights
-        && state.work.is_none()
-        && state.stroke.is_none();
+    let enabled =
+        session.is_some() && sidebar.right == EditorRightSidebarTab::Weights && !state.busy();
     for (entity, field, disabled) in &fields {
         if enabled == disabled {
             if enabled {

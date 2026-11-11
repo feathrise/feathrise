@@ -1,6 +1,11 @@
 //! 以不可变草稿执行点选、框选和画笔。每批返回完整结果与对应预览网格。
 
-use super::{asset::Document, influences::VertexWeights};
+use super::{
+    asset::Document,
+    influences::VertexWeights,
+    posed::PosedGeometry,
+    spatial::{Occlusion, Points},
+};
 use crate::ui::asset_preview::rigging::files::active;
 use crate::viewport::placement_move::MoveCamera;
 use bevy::prelude::*;
@@ -37,16 +42,19 @@ pub(super) struct Brush {
     pub locks: Arc<[bool]>,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct Selection {
+    pub view: MoveCamera,
+    pub start: Vec2,
+    pub end: Vec2,
+    pub point: bool,
+    pub extend: bool,
+    pub visible: bool,
+}
+
 pub(super) enum Operation {
     Refresh,
-    Select {
-        view: MoveCamera,
-        start: Vec2,
-        end: Vec2,
-        point: bool,
-        extend: bool,
-        visible: bool,
-    },
+    Select(Selection, Option<PosedGeometry>),
     Paint {
         view: MoveCamera,
         dabs: Vec<Vec2>,
@@ -69,22 +77,30 @@ pub(super) struct Prepared {
     pub changed: usize,
 }
 
-fn visible(doc: &Document, view: MoveCamera, screen: Vec2, world: Vec3) -> bool {
-    view.ray(screen).is_some_and(|ray| {
-        doc.occlusion
-            .visible(ray, world, (doc.extent * 0.0002).max(0.00003))
-    })
+fn visible(
+    occlusion: &Occlusion,
+    extent: f32,
+    view: MoveCamera,
+    screen: Vec2,
+    world: Vec3,
+) -> bool {
+    view.ray(screen)
+        .is_some_and(|ray| occlusion.visible(ray, world, (extent * 0.0002).max(0.00003)))
 }
 
 fn select(
-    doc: &Document,
-    surface: usize,
-    view: MoveCamera,
-    start: Vec2,
-    end: Vec2,
-    point: bool,
-    only_visible: bool,
+    points: &Points,
+    occlusion: Option<&Occlusion>,
+    extent: f32,
+    query: Selection,
 ) -> Vec<u32> {
+    let Selection {
+        view,
+        start,
+        end,
+        point,
+        ..
+    } = query;
     let pixels = view.size * view.inverse_scale;
     let margin = if point {
         Vec2::splat(10.0) / pixels
@@ -95,28 +111,26 @@ fn select(
     let max = start.max(end) + margin;
     let mut matches = Vec::new();
     let mut nearest: Option<(u32, f32, f32)> = None;
-    doc.surfaces[surface]
-        .points
-        .projected(view, min, max, |index, screen, world| {
-            if only_visible && !visible(doc, view, screen, world) {
-                return;
-            }
-            if !point {
-                matches.push(index);
-                return;
-            }
-            let distance = ((screen - end) * pixels).length_squared();
-            let depth = view
-                .ray(screen)
-                .map_or(f32::INFINITY, |ray| world.distance_squared(ray.origin));
-            if distance <= 100.0
-                && nearest.is_none_or(|(_, old_distance, old_depth)| {
-                    distance < old_distance || distance == old_distance && depth < old_depth
-                })
-            {
-                nearest = Some((index, distance, depth));
-            }
-        });
+    points.projected(view, min, max, |index, screen, world| {
+        if occlusion.is_some_and(|occlusion| !visible(occlusion, extent, view, screen, world)) {
+            return;
+        }
+        if !point {
+            matches.push(index);
+            return;
+        }
+        let distance = ((screen - end) * pixels).length_squared();
+        let depth = view
+            .ray(screen)
+            .map_or(f32::INFINITY, |ray| world.distance_squared(ray.origin));
+        if distance <= 100.0
+            && nearest.is_none_or(|(_, old_distance, old_depth)| {
+                distance < old_distance || distance == old_distance && depth < old_depth
+            })
+        {
+            nearest = Some((index, distance, depth));
+        }
+    });
     if let Some((index, _, _)) = nearest {
         matches.push(index);
     }
@@ -155,7 +169,8 @@ fn coverage(
                 .min_by(f32::total_cmp)
                 .unwrap_or(f32::INFINITY)
                 .sqrt();
-            if distance >= brush.radius || brush.visible_only && !visible(doc, view, screen, world)
+            if distance >= brush.radius
+                || brush.visible_only && !visible(&doc.occlusion, doc.extent, view, screen, world)
             {
                 return;
             }
@@ -234,16 +249,19 @@ pub(super) fn prepare(
     let mut changed = 0;
     match operation {
         Operation::Refresh => {}
-        Operation::Select {
-            view,
-            start,
-            end,
-            point,
-            extend,
-            visible,
-        } => {
-            let mut selected = select(doc, surface, view, start, end, point, visible);
-            if extend {
+        Operation::Select(query, pose) => {
+            let mut selected = if let Some(pose) = pose {
+                let (points, occlusion) = pose.deform(doc, surface, query.visible, cancel)?;
+                select(&points, occlusion.as_ref(), doc.extent, query)
+            } else {
+                select(
+                    &geometry.points,
+                    query.visible.then_some(&doc.occlusion),
+                    doc.extent,
+                    query,
+                )
+            };
+            if query.extend {
                 selected.extend_from_slice(&selection);
             }
             selected.sort_unstable();

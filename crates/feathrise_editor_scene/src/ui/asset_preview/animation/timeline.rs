@@ -69,6 +69,7 @@ pub(super) fn input(
         .filter(|y| y.is_finite())
         .sum();
     let available = state.visible()
+        && !state.weight_rest_active()
         && context.available(&preview, &media)
         && context.source_matches(&state, &preview, &media, documents.asset_root());
     let pressed = |key| keyboard.as_ref().is_some_and(|keys| keys.pressed(key));

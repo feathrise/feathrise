@@ -110,6 +110,7 @@ pub(in crate::ui::asset_preview) fn receive(
 }
 
 fn select(state: &mut AnimationEditorState, request: PreviewRigAnimation, source: PathBuf) {
+    state.weight_rest = None;
     let reuse = state.rig_preview.as_ref().is_some_and(|previous| {
         !previous.failed && previous.request.same_assets(&request)
             && state.current().is_none_or(|session| {

@@ -31,6 +31,7 @@ pub(crate) mod workflow_validation;
 
 pub(super) use preview::PreviewRuntime as AnimationPreviewRuntime;
 pub(super) use resources::BindingState as WeightBinding;
+pub(super) use resources::WeightFrame;
 pub(super) use docking::{InlineAnimationHost, binding_properties_host, properties_host};
 pub(super) use timeline_dock::scene as timeline_dock_scene;
 pub(super) use request::PreviewRigAnimation;

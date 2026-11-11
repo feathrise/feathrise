@@ -250,10 +250,14 @@ pub(super) fn present(
         .session
         .as_ref()
         .filter(|session| target.matches(&session.key));
-    let working = state.work.is_some() || state.stroke.is_some();
+    let working = state.busy();
     let motion = animation
         .as_ref()
         .is_some_and(|animation| animation.weight_motion_active());
+    let returning = state.problem.is_some()
+        && animation
+            .as_ref()
+            .is_some_and(|animation| animation.weight_rest_active());
     let editable = session.is_some_and(|session| !session.stale && !session.original) && !motion;
     for mut node in &mut entries {
         let display = if entry { Display::Flex } else { Display::None };
@@ -269,7 +273,8 @@ pub(super) fn present(
                 Action::OpenSaved => {
                     session.is_some_and(|session| session.saved_path.is_some() && !session.dirty())
                 }
-                Action::Rest => session.is_some() && motion,
+                Action::Rest => session.is_some() && (motion || returning),
+                Action::Mode(tool) => session.is_some() && (!motion || tool == Tool::Box),
                 Action::Save => session.is_some_and(|session| session.dirty() && !session.stale),
                 Action::Undo => {
                     session.is_some_and(|session| !session.stale && !session.undo.is_empty())
@@ -319,14 +324,23 @@ pub(super) fn present(
     }
     for (&label, mut text) in &mut labels {
         let next = match label {
+            Label::Button(Action::Rest) if returning => {
+                tr(locale, "返回问题帧", "Return to issue").into()
+            }
+            Label::Button(Action::Rest) if motion && state.problem.is_some() => {
+                tr(locale, "继续修权", "Edit selection").into()
+            }
+            Label::Button(Action::Mode(Tool::Box)) if motion => {
+                tr(locale, "框选问题帧", "Box on pose").into()
+            }
             Label::Button(action) => caption(action, session, locale).to_owned(),
             Label::EntryNotice if entry && session.is_none() => state.notice.clone(),
             Label::EntryNotice => String::new(),
             Label::Notice if !state.notice.is_empty() => state.notice.clone(),
             Label::Notice if motion => tr(
                 locale,
-                "可在当前帧对照权重。点「静置编辑」继续涂刷。",
-                "Compare at the current frame. Choose Rest pose to edit.",
+                "选择「框选问题帧」后在画布框选，进入静置修权。",
+                "Choose Box on pose, then drag on the model to edit the selection.",
             )
             .into(),
             Label::Notice => String::new(),

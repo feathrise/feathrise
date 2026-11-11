@@ -117,6 +117,9 @@ pub(in crate::ui::asset_preview) fn install(
     root: PathBuf,
     assets: PathBuf,
 ) -> Result<(), String> {
+    if std::env::var_os("FEATHRISE_RIG_VALIDATION_PROBLEM_FRAME").is_some() {
+        return super::problem_validation::install(app, root, assets);
+    }
     let hashes = |name| {
         fs::read(assets.join(name))
             .map(|bytes| Sha256::digest(bytes).to_vec())
@@ -168,7 +171,7 @@ pub(in crate::ui::asset_preview) fn install(
     Ok(())
 }
 
-fn focus(mut window: Query<&mut Window, With<PrimaryWindow>>) {
+pub(super) fn focus(mut window: Query<&mut Window, With<PrimaryWindow>>) {
     if let Ok(mut window) = window.single_mut()
         && !window.focused
     {
@@ -212,7 +215,7 @@ fn sidebar(world: &mut World, run: &mut Run, tab: EditorRightSidebarTab) -> bool
     })
 }
 
-fn move_cursor(world: &mut World, window: Entity, normalized: Vec2) -> Option<()> {
+pub(super) fn move_cursor(world: &mut World, window: Entity, normalized: Vec2) -> Option<()> {
     let (size, center) = world
         .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<AssetPreviewCanvas>>()
         .iter(world)
@@ -221,7 +224,11 @@ fn move_cursor(world: &mut World, window: Entity, normalized: Vec2) -> Option<()
     move_physical_cursor(world, window, (center + normalized * size).as_dvec2())
 }
 
-fn move_physical_cursor(world: &mut World, window: Entity, physical: DVec2) -> Option<()> {
+pub(super) fn move_physical_cursor(
+    world: &mut World,
+    window: Entity,
+    physical: DVec2,
+) -> Option<()> {
     let logical = {
         let mut window = world.get_mut::<Window>(window)?;
         window.set_physical_cursor_position(Some(physical));
@@ -271,7 +278,7 @@ fn choose_reference(world: &mut World, run: &mut Run, window: Entity) -> Option<
     None
 }
 
-fn press(world: &mut World, window: Entity, state: ButtonState) {
+pub(super) fn press(world: &mut World, window: Entity, state: ButtonState) {
     let event = MouseButtonInput {
         window,
         button: MouseButton::Left,

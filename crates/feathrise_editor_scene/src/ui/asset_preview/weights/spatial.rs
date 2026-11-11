@@ -167,6 +167,16 @@ pub(super) struct Points {
 }
 
 impl Points {
+    /// 动作姿态只做拾取，邻接关系仍由静置图元复用。
+    pub fn for_selection(positions: Vec<Vec3>) -> Self {
+        let tree = Bvh::new(positions.len(), |i| Bounds::point(positions[i as usize]));
+        Self {
+            positions,
+            neighbors: Vec::new(),
+            tree,
+        }
+    }
+
     pub fn new(positions: Vec<Vec3>, indices: &[u32]) -> Self {
         let tree = Bvh::new(positions.len(), |i| Bounds::point(positions[i as usize]));
         let mut neighbors = vec![Vec::new(); positions.len()];

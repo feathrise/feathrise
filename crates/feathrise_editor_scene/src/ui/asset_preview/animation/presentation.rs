@@ -362,8 +362,9 @@ pub(super) fn sync(
             }
             marker.binding = view.binding;
         }
-        let enabled = (in_place && marker.action == AnimationAction::UnbindModel)
-            || enabled(marker.action, &view);
+        let enabled = !state.weight_rest_active()
+            && ((in_place && marker.action == AnimationAction::UnbindModel)
+                || enabled(marker.action, &view));
         set_disabled(&mut commands, entity, enabled, disabled);
         let selected = (marker.action == AnimationAction::TogglePlayback && view.playing)
             || (marker.action == AnimationAction::ToggleLoop && view.looping)

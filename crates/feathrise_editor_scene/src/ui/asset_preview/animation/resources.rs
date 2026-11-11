@@ -396,6 +396,15 @@ impl Retired {
     }
 }
 
+/// 已发布的人形动作帧。播放请求或动作来源换代后，旧书签不能恢复到新容器。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(in crate::ui::asset_preview) struct WeightFrame {
+    source_revision: u64,
+    binding_request: u64,
+    clip: usize,
+    pub time: f32,
+}
+
 #[derive(Resource)]
 pub(crate) struct AnimationEditorState {
     /// 原保存结果按源路径冻结，工程收尾不能借当前可见状态栏推断隐藏源的成功。
@@ -427,6 +436,7 @@ pub(crate) struct AnimationEditorState {
     pub(super) model_status: String,
     pub(super) model_binding_revision: u64,
     pub(super) rig_preview: Option<super::request::RigPreviewRequest>,
+    pub(super) weight_rest: Option<WeightFrame>,
     /// 独立只读会话按请求票据访问，退出或换源后由原工作槽后台释放。
     pub(super) rig_session: Option<(u64, Session)>,
 }
@@ -462,6 +472,7 @@ impl Default for AnimationEditorState {
             model_status: String::new(),
             model_binding_revision: 0,
             rig_preview: None,
+            weight_rest: None,
             rig_session: None,
         }
     }
@@ -579,6 +590,7 @@ impl AnimationEditorState {
     }
     pub(super) fn reset_rig_playback(&mut self) {
         self.playing = false;
+        self.weight_rest = None;
         self.drag = None;
         self.gesture = None;
         self.pending = None;
@@ -595,7 +607,40 @@ impl AnimationEditorState {
     }
 
     pub(in crate::ui::asset_preview) fn weight_motion_active(&self) -> bool {
-        self.in_place_rig_preview() || (self.visible && self.playing)
+        !self.weight_rest_active() && (self.in_place_rig_preview() || (self.visible && self.playing))
+    }
+
+    pub(super) fn weight_frame(&self, time: f32) -> Option<WeightFrame> {
+        (self.visible && self.in_place_rig_preview() && self.current().is_some()).then(|| WeightFrame {
+            source_revision: self.source_revision,
+            binding_request: self.model_binding_revision,
+            clip: self.active_clip(),
+            time,
+        })
+    }
+
+    pub(in crate::ui::asset_preview) fn matches_weight_frame(&self, frame: WeightFrame) -> bool {
+        !self.playing && self.weight_frame(self.position()) == Some(frame)
+    }
+
+    pub(in crate::ui::asset_preview) fn weight_rest_active(&self) -> bool {
+        self.weight_rest.is_some_and(|frame| self.matches_weight_frame(frame))
+    }
+
+    pub(in crate::ui::asset_preview) fn show_weight_rest(&mut self, frame: WeightFrame) -> bool {
+        if !self.matches_weight_frame(frame) {
+            return false;
+        }
+        self.weight_rest = Some(frame);
+        true
+    }
+
+    pub(in crate::ui::asset_preview) fn resume_weight_frame(&mut self, frame: WeightFrame) -> bool {
+        if self.weight_rest != Some(frame) {
+            return false;
+        }
+        self.weight_rest = None;
+        self.matches_weight_frame(frame)
     }
 
     pub(in crate::ui::asset_preview) fn weight_rest_pose(&mut self) {

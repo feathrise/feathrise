@@ -50,6 +50,18 @@ pub(super) struct Surface {
 }
 
 impl Surface {
+    pub fn geometry(&self) -> (&[[f32; 3]], &[u32]) {
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            self.base.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            unreachable!("基础网格保留了原图元顶点次序")
+        };
+        let Some(Indices::U32(indices)) = self.base.indices() else {
+            unreachable!("基础网格保留了三角形索引")
+        };
+        (positions, indices)
+    }
+
     pub fn mesh(&self, weights: &[VertexWeights], colors: Option<Vec<[f32; 4]>>) -> Mesh {
         let mut mesh = self.base.clone();
         mesh.insert_attribute(
@@ -67,12 +79,27 @@ impl Surface {
     }
 }
 
+/// 刚性附件的局部几何与静置遮挡分开保留，动作帧按实际实例变换重建遮挡。
+pub(super) struct RigidSurface {
+    pub mesh: usize,
+    pub primitive: usize,
+    pub positions: Vec<[f32; 3]>,
+    pub indices: Vec<u32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Geometry {
+    Skin(usize),
+    Rigid(usize),
+}
+
 pub(super) struct Document {
     pub identity: FrozenAsset,
     pub source: Vec<u8>,
     pub json: Value,
     pub binary: Range<usize>,
     pub surfaces: Vec<Surface>,
+    pub rigid: Vec<RigidSurface>,
     pub occlusion: Occlusion,
     pub extent: f32,
 }
@@ -238,6 +265,8 @@ pub(super) fn decode(
     let bin = &source[binary.clone()];
     let world = worlds(doc)?;
     let mut surfaces = Vec::new();
+    let mut rigid = Vec::new();
+    let mut rigid_meshes = HashSet::new();
     let mut skins = BTreeMap::new();
     let mut triangles = Vec::new();
     let mut vertices = 0;
@@ -406,8 +435,8 @@ pub(super) fn decode(
                 });
             } else {
                 let points: Vec<_> = positions
-                    .into_iter()
-                    .map(|point| matrix.transform_point3(Vec3::from_array(point)))
+                    .iter()
+                    .map(|&point| matrix.transform_point3(Vec3::from_array(point)))
                     .collect();
                 add_triangles(
                     &mut triangles,
@@ -416,6 +445,14 @@ pub(super) fn decode(
                     &mut minimum,
                     &mut maximum,
                 )?;
+                if rigid_meshes.insert((mesh.index(), primitive.index())) {
+                    rigid.push(RigidSurface {
+                        mesh: mesh.index(),
+                        primitive: primitive.index(),
+                        positions,
+                        indices,
+                    });
+                }
             }
         }
     }
@@ -430,6 +467,7 @@ pub(super) fn decode(
         json,
         binary,
         surfaces,
+        rigid,
         occlusion,
         extent: (maximum - minimum).max_element().max(0.0001),
     }))
