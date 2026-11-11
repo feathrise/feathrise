@@ -37,7 +37,7 @@ jobs:
     env:
       # 场景版 SDK 与编辑器锁文件配套。覆盖变量也须使用对应的完整提交。
       FEATHRISE_SDK_REPOSITORY: ${{ vars.FEATHRISE_SDK_REPOSITORY || 'feathrise/feathrise_runtime' }}
-      FEATHRISE_SDK_REV: ${{ vars.FEATHRISE_SDK_REV || '0989b39f4ef5026152a5eb57d094785bd69d2ad7' }}
+      FEATHRISE_SDK_REV: ${{ vars.FEATHRISE_SDK_REV || '11d6322965cf016130527dbccacaf278f35b1ddd' }}
       FEATHRISE_PATCH_REPOSITORY: ${{ vars.FEATHRISE_PATCH_REPOSITORY || 'feathrise/feathrise_patches' }}
       FEATHRISE_PATCH_REV: ${{ vars.FEATHRISE_PATCH_REV || '019fd1fe13ed9107d17b360b8f5a3df61bfc139a' }}
     steps:
