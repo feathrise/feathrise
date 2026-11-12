@@ -30,8 +30,8 @@ fn main() {
             .expect("无法编译Feathrise程序图标资源");
     }
     if target_os == "windows" && target_env == "msvc" {
-        // 发布版的主窗口初始化也会超过默认 1 MiB。各宿主目标统一预留 8 MiB，栈页仍按需提交。
-        println!("cargo::rustc-link-arg-bins=/STACK:8388608");
+        // 主窗口初始化可能超过默认 1 MiB，宿主程序及其库测试统一保留 8 MiB 栈。
+        println!("cargo::rustc-link-arg=/STACK:8388608");
     }
 }
 

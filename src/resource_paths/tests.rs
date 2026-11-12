@@ -38,7 +38,8 @@ impl Fixture {
 #[test]
 fn resource_manifest_is_single_bounded_safe_source_for_startup_and_packaging() {
     let files = required_files(RESOURCE_MANIFEST).unwrap();
-    assert_eq!(files.len(), 29);
+    // 资产浏览工具栏的五个图标也随编辑器分发。
+    assert_eq!(files.len(), 34);
     assert!(files.iter().any(|path| path == "assets/templates/empty/Cargo.toml"));
     // 可选 Blender 工具只接受运行时显式输入，不能成为启动或分发的必需内嵌资源。
     assert!(files.iter().all(|path| !path.starts_with("assets/blender/")));
