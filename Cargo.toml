@@ -154,6 +154,14 @@ strip = false
 [profile.dev.package."*"]
 opt-level = 3
 
+# 宿主标题栏布局的热缓存对照表明，细化宿主包分片可缩短开发构建总耗时。
+[profile.dev.package.feathrise_host]
+codegen-units = 512
+
+# 蒙皮权重面板的 BSN 改动经热缓存对照验证，细化此作者库分片可缩短增量代码生成耗时。
+[profile.dev.package.feathrise_editor_scene]
+codegen-units = 512
+
 # Windows实测scene缓存静态库存在anon.*缺失定义；沿用已有局部规避，保留原256分片及优化等级。
 [profile.dev.package.feathrise_scene]
 incremental = false
