@@ -132,11 +132,7 @@ pub(super) fn control(
             if !click.is_changed() || !click.is_clicked() { continue; }
             match (&open.kind, filter, clip) {
                 (PopupKind::Filter(_), Some(filter), _) => {
-                    if browser.type_filter != filter.0 {
-                        browser.type_filter = filter.0;
-                        files.set_type_filter(filter.0);
-                        catalog.set_type_filter(filter.0);
-                    }
+                    browser.set_type_filter(filter.0, &mut files, &mut catalog);
                     popup.open = None;
                     return;
                 }

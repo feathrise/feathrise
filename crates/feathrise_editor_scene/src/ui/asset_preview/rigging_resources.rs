@@ -21,63 +21,42 @@ pub(super) struct MarkerDraft {
 
 pub(super) struct Session {
     pub source: SourceKey,
-    pub entry: Entry,
     pub draft: Option<MarkerDraft>,
     pub result: Option<String>,
     pub animations: Vec<AnimationAsset>,
     pub reference_path: Option<String>, // 左侧真实文件行的选择，允许检测完成前先记住一次点击。
     pub selected_file: Option<usize>,
-    pub clip: usize,
-    pub picker: Option<Picker>,
-    pub page: usize,
     pub notice: Notice,
     pub warnings: Vec<String>,
     pub error: Option<String>,
 }
 
 impl Session {
-    pub(super) fn new(source: SourceKey, entry: Entry) -> Self {
-        let notice = match entry {
-            Entry::Unskinned => Notice::Inspecting,
-            Entry::Skinned => Notice::Cataloguing,
-        };
+    pub(super) fn new(source: SourceKey) -> Self {
         Self {
             source,
-            entry,
             draft: None,
             result: None,
             animations: Vec::new(),
             reference_path: None,
             selected_file: None,
-            clip: 0,
-            picker: None,
-            page: 0,
-            notice,
+            notice: Notice::Inspecting,
             warnings: Vec::new(),
             error: None,
         }
     }
 
     pub(super) fn matches(&self, source: Candidate<'_>) -> bool {
-        if !source.same_file(&self.source) || source.entry != self.entry {
+        if !source.same_file(&self.source) || source.entry != Entry::Unskinned {
             return false;
         }
         // 回到模型标签时 Scene0 会重新实例化。已发布的新 GLB 可继续选动作，
         // 但新一代源模型不能继续使用旧的、尚未发布的关节点。
-        source.generation == self.source.generation
-            || self.result.is_some()
-            || self.entry == Entry::Skinned
-                && matches!(self.notice, Notice::ChooseAnimation | Notice::NoClips)
+        source.generation == self.source.generation || self.result.is_some()
     }
 
     pub(super) fn reference_mode(&self) -> bool {
-        self.entry == Entry::Unskinned && self.result.is_none()
-    }
-
-    pub(super) fn model_for_preview(&self) -> Option<&str> {
-        self.result
-            .as_deref()
-            .or_else(|| (self.entry == Entry::Skinned).then_some(self.source.path.as_str()))
+        self.result.is_none()
     }
 
     pub(super) fn file(&self) -> Option<&AnimationAsset> {
@@ -97,44 +76,6 @@ impl Session {
             let index = self.animations.binary_search_by(|file| file.path.as_str().cmp(path)).ok()?;
             self.animations[index].can_reference.then_some(index)
         });
-        self.clip = 0;
-    }
-
-    pub(super) fn choice_count(&self) -> usize {
-        match self.picker {
-            Some(Picker::File) => self.animations.len(),
-            Some(Picker::Clip) => self.file().map_or(0, |asset| asset.clips.len()),
-            None => 0,
-        }
-    }
-
-    pub(super) fn choice(&self, row: usize) -> Option<&str> {
-        let index = self.page * PICKER_ROWS + row;
-        match self.picker? {
-            Picker::File => Some(self.animations.get(index)?.path.as_str()),
-            Picker::Clip => Some(self.file()?.clips.get(index)?.as_str()),
-        }
-    }
-
-    pub(super) fn choose(&mut self, row: usize) {
-        let index = self.page * PICKER_ROWS + row;
-        match self.picker {
-            Some(Picker::File) if index < self.animations.len() => {
-                self.selected_file = Some(index);
-                self.clip = 0;
-            }
-            Some(Picker::Clip) if index < self.choice_count() => self.clip = index,
-            _ => return,
-        }
-        self.picker = None;
-    }
-
-    pub(super) fn toggle_picker(&mut self, picker: Picker) {
-        self.page = 0;
-        self.picker = (self.picker != Some(picker)).then_some(picker);
-        if self.choice_count() == 0 {
-            self.picker = None;
-        }
     }
 }
 
@@ -234,7 +175,6 @@ impl RiggingState {
             animation: session
                 .and_then(Session::file)
                 .map(|asset| asset.path.as_str()),
-            clip: session.map_or(0, |session| session.clip),
             error: session.and_then(|session| session.error.as_deref()),
         }
     }
@@ -266,7 +206,6 @@ pub(crate) struct RigValidationStatus<'a> {
     pub landmarks: usize,
     pub reference: Option<&'a str>,
     pub animation: Option<&'a str>,
-    pub clip: usize,
     pub error: Option<&'a str>,
 }
 
@@ -287,7 +226,7 @@ mod tests {
     #[test]
     fn unbound_landmarks_expire_on_model_reload_and_published_assets_can_preview_again() {
         let first = candidate("project-a/assets", 1);
-        let mut session = Session::new(first.key(), first.entry);
+        let mut session = Session::new(first.key());
         assert!(session.matches(first));
         assert!(!session.matches(candidate("project-a/assets", 2)));
         session.result = Some("models/humanoid_rigged.glb".into());
@@ -296,9 +235,9 @@ mod tests {
     }
 
     #[test]
-    fn explicit_reference_resolves_by_full_path_and_motion_picker_preserves_ordinals() {
+    fn explicit_reference_resolves_by_full_path() {
         let source = candidate("assets", 1);
-        let mut session = Session::new(source.key(), source.entry);
+        let mut session = Session::new(source.key());
         session.choose_reference("b/idle.glb"); // 检测期间已点击文件，目录还在后台。
         assert!(session.file().is_none());
         session.animations = vec![
@@ -317,15 +256,5 @@ mod tests {
         assert_eq!(session.selected_file, Some(1));
         session.choose_reference("a/idle.glb");
         assert!(session.file().is_none());
-        session.choose_reference("b/idle.glb");
-
-        session.result = Some("rigged.glb".into());
-        session.toggle_picker(Picker::File);
-        assert_eq!(session.choice_count(), 2);
-        session.choose(1);
-        session.toggle_picker(Picker::Clip);
-        assert_eq!(session.choice(1), Some("Walk"));
-        session.choose(1);
-        assert_eq!(session.clip, 1);
     }
 }

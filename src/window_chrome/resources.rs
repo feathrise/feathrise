@@ -40,6 +40,7 @@ pub(super) struct HeaderParts {
     pub run: Entity,
     pub layout_controls: Vec<Entity>,
     pub more_toggle: Entity,
+    pub editor_fps: Entity,
     pub more: Entity,
     pub backdrop: Entity,
     pub captions: Entity,

@@ -226,6 +226,28 @@ pub(super) fn mount(world: &mut World) {
             Glyph::More,
             "更多操作",
         );
+        let font = feathrise_editor_core::editor_font(
+            world.resource::<AssetServer>(),
+            feathrise_editor_core::FONT_PATH,
+        );
+        let editor_fps = world.spawn((
+            EditorFpsText,
+            Name::new("编辑器帧率"),
+            Text::new(""),
+            TextLayout::no_wrap(),
+            TextFont { font: font.into(), font_size: 12.0.into(), ..default() },
+            TextColor(c::TEXT_MUTED),
+            // 固定宽度基准让数字变化不移动按钮。空间不足时读数可收缩，保留拖动区和三键。
+            Node {
+                display: Display::None,
+                width: px(64.),
+                min_width: px(0.),
+                flex_shrink: 1.,
+                overflow: Overflow::clip_x(),
+                ..default()
+            },
+            Pickable::IGNORE,
+        )).id();
         let backdrop = world
             .spawn((
                 Backdrop,
@@ -322,7 +344,7 @@ pub(super) fn mount(world: &mut World) {
             left.push(project);
         }
         // 作者设置与对象操作跟随左侧工具；空白拖动区隔开右侧的视口与运行入口。
-        left.extend([save, undo, redo, selection, settings, more_toggle, spacer]);
+        left.extend([save, undo, redo, selection, settings, more_toggle, editor_fps, spacer]);
         left.extend(modes);
         left.push(run);
         left.extend(profile);
@@ -350,6 +372,7 @@ pub(super) fn mount(world: &mut World) {
             run,
             layout_controls,
             more_toggle,
+            editor_fps,
             more,
             backdrop,
             captions,

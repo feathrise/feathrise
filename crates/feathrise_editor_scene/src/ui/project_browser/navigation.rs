@@ -9,11 +9,11 @@ use feathrise_editor_ui::EditorButtonClick;
 
 use super::{input::BrowserInputGate, ProjectBrowserState, ProjectBrowserView};
 use crate::{
-    asset_catalog::{request_asset_folder, EditorAssetCatalog, project_files::EditorProjectFileCatalog},
+    asset_catalog::{request_asset_folder, AssetTypeFilter, EditorAssetCatalog, project_files::EditorProjectFileCatalog},
     components::SceneEditorActionButton,
     resources::{SceneEditorLayoutState, SceneEditorState},
     types::EditorAction,
-    ui::sidebars::SceneEditorSidebarState,
+    ui::sidebars::{EditorNavigatorTab, SceneEditorSidebarState},
     workbench::WorkbenchModel,
 };
 use types::{NavigationState, PendingDirectory, Roots};
@@ -24,6 +24,34 @@ fn roots(model: Option<&WorkbenchModel>) -> Option<Roots> {
     }
     let paths = feathrise_editor_core::editor_project_paths()?;
     Some(Roots { context: 0, project: paths.project_root().to_path_buf(), assets: paths.asset_root().to_path_buf() })
+}
+
+/// 模型属性只切换左栏浏览意图，片段仍由原目录入口发布到当前模型。
+pub(crate) fn choose_animation(
+    state: &mut ProjectBrowserState,
+    files: &mut EditorProjectFileCatalog,
+    assets: &mut EditorAssetCatalog,
+    editor: &mut SceneEditorState,
+    sidebar: &mut SceneEditorSidebarState,
+    layout: &mut SceneEditorLayoutState,
+) {
+    sidebar.navigator = EditorNavigatorTab::Assets;
+    layout.focus_restore = None;
+    layout.content_visible = true;
+    // 工程源码目录没有片段入口。跨回登记资产根时沿用目录定位及其原子采用，
+    // 已在资产目录则保留当前路径，并替换可能迟到的文件定位以保住模型属性。
+    let folder = if !state.assets_visible() {
+        Some(String::new())
+    } else {
+        assets.pending_reveal_revision().map(|_| assets.current_folder.clone())
+    };
+    state.set_type_filter(AssetTypeFilter::Animation, files, assets);
+    assets.set_filename_filter("");
+    if let Some(folder) = folder
+        && let Err(error) = request_asset_folder(assets, editor, sidebar, &folder)
+    {
+        editor.status = error;
+    }
 }
 
 /// 仅比较已核验的显式路径组件，不访问磁盘；Windows的assets大小写不能改变导航来源。

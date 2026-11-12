@@ -189,6 +189,97 @@ fn large_pose_keeps_previous_bank_visible_until_every_node_is_complete() {
 }
 
 #[test]
+fn in_place_pose_budget_counts_mapped_joints_and_publishes_the_complete_model() {
+    use crate::types::{ModelBank, SkeletonMapping};
+    use feathrise_editor_animation_model::retarget::{JointCorrection, RigRetarget};
+
+    fn tick(
+        mut commands: Commands,
+        mut runtime: ResMut<PreviewRuntime>,
+        mut binding: ResMut<BindingState>,
+        preview: Res<AssetPreviewState>,
+        mut transforms: Query<&mut Transform>,
+    ) {
+        if runtime.applying {
+            apply_in_place_candidate(&mut runtime, &mut binding, &preview, &mut commands, &mut transforms);
+        }
+    }
+
+    // 复现 66 个源节点映射到 49 个关节的动作，末关节仍位于第 64 号源节点。
+    let sparse: Vec<_> = (0..15).chain(23..39).chain(47..65).collect();
+    assert_eq!(sparse.len(), 49);
+    for mapped in [sparse, (0..65).collect()] {
+        let mut app = App::new();
+        let scene = app.world_mut().spawn(Visibility::Inherited).id();
+        let banks: [ModelBank; 2] = std::array::from_fn(|_| {
+            let root = app.world_mut().spawn(Visibility::Hidden).id();
+            let nodes = mapped.iter().map(|&index| {
+                let entity = app.world_mut().spawn((Transform::IDENTITY, ChildOf(root))).id();
+                (index, entity)
+            }).collect();
+            ModelBank { root: Some(root), nodes, scanned: true, ..default() }
+        });
+        let target = banks[1].root.unwrap();
+        let last_joint = banks[1].nodes[&64];
+        let mut document = super::super::data::tests::test_document();
+        document.nodes.resize_with(66, || node(None));
+        let mut pose = prepare_pose(Arc::new(document), 0, 0.25);
+        let mut corrections = vec![None; pose.local.len()];
+        for &index in &mapped {
+            corrections[index] = Some(JointCorrection {
+                rest: Transform::from_xyz(1.0, 0.0, 0.0),
+                before: Quat::IDENTITY,
+                after: Quat::IDENTITY,
+            });
+        }
+        let rig = RigRetarget { corrections, clips: vec![true], bounds: pose.bounds };
+        pose.model_local = Some(rig.sample(&pose.local));
+        app.insert_resource(PreviewRuntime { pose: Some(Arc::new(pose)), applying: true, ..default() })
+            .insert_resource(BindingState {
+                mapping: Some(SkeletonMapping {
+                    names: mapped.iter().map(|&index| (format!("关节{index}"), index)).collect(),
+                    retarget: Some(Arc::new(rig)),
+                }),
+                banks,
+                ..default()
+            })
+            .insert_resource(AssetPreviewState {
+                content: AssetPreviewContent::Model {
+                    handle: Handle::default(),
+                    root: scene,
+                    phase: AssetPreviewPhase::Ready,
+                },
+                ..default()
+            })
+            .add_systems(Update, tick);
+
+        app.update();
+        if mapped.len() > NODES_PER_FRAME {
+            let runtime = app.world().resource::<PreviewRuntime>();
+            assert_eq!(runtime.cursor, NODES_PER_FRAME);
+            assert!(runtime.published_pose.is_none());
+            assert_eq!(app.world().get::<Visibility>(scene), Some(&Visibility::Inherited));
+            assert_eq!(app.world().get::<Visibility>(target), Some(&Visibility::Hidden));
+            assert_eq!(app.world().get::<Transform>(last_joint).unwrap().translation, Vec3::ZERO);
+            app.update();
+        }
+
+        let runtime = app.world().resource::<PreviewRuntime>();
+        assert_eq!(runtime.cursor, mapped.len());
+        assert_eq!(runtime.front, 1);
+        assert!(!runtime.applying);
+        assert_eq!(runtime.published_pose.as_ref().unwrap().time, 0.25);
+        assert_eq!(app.world().get::<Visibility>(scene), Some(&Visibility::Hidden));
+        assert_eq!(app.world().get::<Visibility>(target), Some(&Visibility::Inherited));
+        let binding = app.world().resource::<BindingState>();
+        assert!(binding.active);
+        for &entity in binding.banks[1].nodes.values() {
+            assert_eq!(app.world().get::<Transform>(entity).unwrap().translation, Vec3::X);
+        }
+    }
+}
+
+#[test]
 fn cancellation_hides_both_banks_then_releases_entities_with_a_fixed_budget() {
     fn cancel(mut commands: Commands, mut runtime: ResMut<PreviewRuntime>, mut first: Local<bool>) {
         if !*first {

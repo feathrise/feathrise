@@ -8,6 +8,8 @@ pub(super) const MOTIONS: &str = "motions.glb";
 pub(super) const STATIC: &str = "roles/nested/static.glb";
 const HERO: &str = "roles/nested/hero.glb";
 const FILES: &[&str] = &[MOTIONS, STATIC, HERO, "swatch.png", "beep.wav", "sample.avi"];
+const MODEL_JOINTS: usize = 49;
+const MOTION_NODES: usize = 66;
 
 pub(super) fn prepare(assets: &Path) -> Result<BTreeMap<String, String>, String> {
     for folder in ["roles/nested", "roles/empty", "empty/deeper"] {
@@ -52,13 +54,17 @@ const BONES: [(&str, usize, [f32; 3]); 15] = [
     ("RightFoot", 13, [0.0, -0.34, 0.0]),
 ];
 
-fn skeleton() -> Vec<Value> {
-    BONES.iter().enumerate().map(|(index, (name, _, offset))| {
+fn skeleton(node_count: usize) -> Vec<Value> {
+    let mut nodes: Vec<_> = BONES.iter().enumerate().map(|(index, (name, _, offset))| {
         let mut node = json!({"name":format!("mixamorig:{name}"),"translation":offset});
-        let children = (1..BONES.len()).filter(|&child| BONES[child].1 == index).collect::<Vec<_>>();
+        let mut children = (1..BONES.len()).filter(|&child| BONES[child].1 == index).collect::<Vec<_>>();
+        if index == 0 { children.extend(BONES.len()..node_count); }
         if !children.is_empty() { node["children"] = json!(children); }
         node
-    }).collect()
+    }).collect();
+    // 源动作比目标蒙皮多一组关节，重现 66 个源节点与 49 个目标关节的发布预算。
+    nodes.extend((BONES.len()..node_count).map(|index| json!({"name":format!("mixamorig:FixtureJoint{index}")})));
+    nodes
 }
 
 fn model(skinned: bool) -> Vec<u8> {
@@ -84,7 +90,7 @@ fn model(skinned: bool) -> Vec<u8> {
         let weights = glb.floats((0..12).flat_map(|_| [1.0, 0.0, 0.0, 0.0]), 12, "VEC4");
         attributes["JOINTS_0"] = json!(joints);
         attributes["WEIGHTS_0"] = json!(weights);
-        let mut translations = [[0.0; 3]; BONES.len()];
+        let mut translations = [BONES[0].2; MODEL_JOINTS];
         for (index, (_, parent, offset)) in BONES.iter().enumerate() {
             translations[index] = std::array::from_fn(|axis| {
                 offset[axis] + if index == 0 { 0.0 } else { translations[*parent][axis] }
@@ -92,13 +98,13 @@ fn model(skinned: bool) -> Vec<u8> {
         }
         let inverse_bind = glb.floats(translations.into_iter().flat_map(|[x, y, z]| [
             1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -x, -y, -z, 1.0,
-        ]), BONES.len(), "MAT4");
-        let mut nodes = skeleton();
+        ]), MODEL_JOINTS, "MAT4");
+        let mut nodes = skeleton(MODEL_JOINTS);
         nodes.push(json!({"name":"HeroMesh","mesh":0,"skin":0}));
         glb.document["skins"] = json!([{
-            "joints":(0..BONES.len()).collect::<Vec<_>>(),"inverseBindMatrices":inverse_bind,"skeleton":0
+            "joints":(0..MODEL_JOINTS).collect::<Vec<_>>(),"inverseBindMatrices":inverse_bind,"skeleton":0
         }]);
-        (nodes, vec![0, BONES.len()])
+        (nodes, vec![0, MODEL_JOINTS])
     } else {
         (vec![json!({"name":"StaticMesh","mesh":0})], vec![0])
     };
@@ -122,7 +128,7 @@ fn motions() -> Vec<u8> {
         json!({"name":name,"samplers":[{"input":times,"output":rotation,"interpolation":"LINEAR"}],
             "channels":[{"sampler":0,"target":{"node":joint,"path":"rotation"}}]})
     });
-    glb.document["nodes"] = json!(skeleton());
+    glb.document["nodes"] = json!(skeleton(MOTION_NODES));
     glb.document["scenes"] = json!([{"nodes":[0]}]);
     glb.document["animations"] = json!(clips);
     glb.finish()

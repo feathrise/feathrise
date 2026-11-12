@@ -286,6 +286,9 @@ pub(crate) fn handle_settings_input(
                 EditorSettingsAction::ToggleBuildFrameLimit if !state.shortcuts => {
                     settings.limit_build_fps = !settings.limit_build_fps;
                 }
+                EditorSettingsAction::ToggleEditorFpsDisplay if !state.shortcuts => {
+                    settings.show_editor_fps = !settings.show_editor_fps;
+                }
                 EditorSettingsAction::ToggleTerrainBackfaces => {
                     if state.shortcuts {
                         continue;
@@ -517,6 +520,7 @@ pub(crate) fn sync_settings_panel(
                 EditorSettingsAction::SetColorTheme(theme) => settings.editor_color_theme == theme,
                 EditorSettingsAction::SetMaxFps(fps) => settings.render.max_fps == fps,
                 EditorSettingsAction::ToggleBuildFrameLimit => settings.limit_build_fps,
+                EditorSettingsAction::ToggleEditorFpsDisplay => settings.show_editor_fps,
                 EditorSettingsAction::ToggleTerrainBackfaces => {
                     settings.editor_show_terrain_backfaces
                 }

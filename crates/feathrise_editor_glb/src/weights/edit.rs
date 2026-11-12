@@ -182,6 +182,7 @@ pub(super) fn prepare(
         mut selection,
         joint,
         operation,
+        heat_peers,
     } = request;
     active(cancel)?;
     let geometry = doc.surfaces.get(surface).ok_or("选中的图元已失效")?;
@@ -282,12 +283,25 @@ pub(super) fn prepare(
     let shaded = (!Arc::ptr_eq(&before, &weights)
         && !Arc::ptr_eq(&geometry.info.original, &weights))
     .then(|| geometry.mesh(&weights, None));
+    let mut peer_heat = Vec::with_capacity(heat_peers.len());
+    for (index, weights) in heat_peers {
+        active(cancel)?;
+        let peer = doc.surfaces.get(index).ok_or("关联图元已失效")?;
+        if index == surface || peer.info.skin.index != geometry.info.skin.index
+            || weights.len() != peer.info.original.len()
+        {
+            return Err("关联图元的权重草稿与当前蒙皮不匹配".into());
+        }
+        peer_heat.push((index, peer.mesh(&weights, Some(heat_colors(&weights, joint, &[])))));
+    }
     Ok(Prepared {
         surface,
+        joint,
         weights,
         selection,
         shaded,
         heat,
+        peer_heat,
         changed,
     })
 }

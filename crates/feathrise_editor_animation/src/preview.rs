@@ -350,23 +350,55 @@ fn apply_bound_pose(
     cursor: usize,
     transforms: &mut Query<&mut Transform>,
 ) -> usize {
-    let end = (cursor + NODES_PER_FRAME).min(pose.local.len());
-    let retargeting = binding.mapping.as_ref().is_some_and(|mapping| mapping.retarget.is_some());
-    for index in cursor..end {
+    let mut write_joint = |index, value| {
         if let Some(entity) = binding.node(bank, index)
             && let Ok(mut transform) = transforms.get_mut(entity)
+            && *transform != value
         {
-            let value = if retargeting {
-                pose.model_local.as_ref().and_then(|model| model.get(index).copied().flatten())
-            } else {
-                Some(pose.local[index])
-            };
-            if let Some(value) = value {
-                *transform = value;
-            }
+            *transform = value;
+        }
+    };
+    let end = cursor + NODES_PER_FRAME;
+    if let Some(joints) = &pose.model_local {
+        // 源模型的辅助节点及目标缺少的指骨不占写入预算，源节点索引也可超出当前预算。
+        let end = end.min(joints.len());
+        for &(source, value) in joints.iter().take(end).skip(cursor) {
+            write_joint(source, value);
+        }
+        return end;
+    }
+    let end = end.min(pose.local.len());
+    if binding.mapping.as_ref().is_some_and(|mapping| mapping.retarget.is_none()) {
+        for (source, &value) in pose.local.iter().enumerate().take(end).skip(cursor) {
+            write_joint(source, value);
         }
     }
     end
+}
+
+/// 一次提交至多六十四个已匹配关节，候选容器完整后才替换可见模型和已发布时间。
+fn apply_in_place_candidate(
+    runtime: &mut PreviewRuntime,
+    binding: &mut BindingState,
+    preview: &AssetPreviewState,
+    commands: &mut Commands,
+    transforms: &mut Query<&mut Transform>,
+) {
+    let bank = 1 - runtime.front;
+    let pose = runtime.pose.as_ref().expect("已就绪的候选姿态");
+    let Some(joints) = &pose.model_local else {
+        return;
+    };
+    runtime.cursor = apply_bound_pose(binding, bank, pose, runtime.cursor, transforms);
+    if runtime.cursor != joints.len() {
+        return;
+    }
+    runtime.front = bank;
+    runtime.applying = false;
+    if let Some(previous) = runtime.published_pose.replace(pose.clone()) {
+        runtime.retired.poses.push(previous);
+    }
+    publish_in_place_scene(runtime, binding, preview, commands);
 }
 
 /// 分帧只写不可见容器；可见容器的完整姿态在最后一次定额写入后才被替换。
@@ -618,21 +650,7 @@ pub(super) fn drive(
         if let Some(binding) = binding.as_mut().filter(|binding| binding.ready())
             && runtime.applying
         {
-            let bank = 1 - runtime.front;
-            let runtime = &mut *runtime;
-            let pose = runtime.pose.as_ref().expect("已就绪的候选姿态");
-            if pose.model_local.is_none() {
-                return;
-            }
-            runtime.cursor = apply_bound_pose(binding, bank, pose, runtime.cursor, &mut transforms);
-            if runtime.cursor == pose.local.len() {
-                runtime.front = bank;
-                runtime.applying = false;
-                if let Some(previous) = runtime.published_pose.replace(pose.clone()) {
-                    runtime.retired.poses.push(previous);
-                }
-                publish_in_place_scene(runtime, binding, &preview, &mut commands);
-            }
+            apply_in_place_candidate(&mut runtime, binding, &preview, &mut commands, &mut transforms);
         }
         return;
     }

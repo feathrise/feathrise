@@ -520,6 +520,7 @@ label.ui-scale	界面缩放	UI Scale
 label.build-optimization	编译优化	Build Optimization
 label.editor-fps-limit	日常帧率上限	Normal Frame Rate Limit
 label.editor-fps-unlimited	不限	Unlimited
+label.show-editor-fps	显示编辑器帧率	Show Editor Frame Rate
 label.limit-fps-during-builds	编译时降低帧率	Reduce Frame Rate During Builds
 help.build-frame-pacing	Cargo 和 DX 编译期间，空闲约 5 FPS，有操作约 15 FPS。编译结束后恢复日常帧率。	During Cargo and DX builds, the editor uses about 5 FPS when idle and 15 FPS during interaction. Your normal frame rate returns when the build ends.
 help.manual-and-auto-scale-range-from-60	手动与自动均为60%–200%，加减每次5%。自动按窗口尺寸调整，加减可微调自动比例。只影响编辑器界面，不影响运行界面或三维渲染比例。	Manual and auto scale range from 60% to 200%, with 5% steps. Auto adapts to the window size. Use + or − to fine-tune it. This changes the editor UI scale only.
@@ -575,6 +576,8 @@ tooltip.project.asset_search	查找文件内容，或展开当前的资产引用
 tooltip.project.asset_missing	检查场景和配置引用的资产。再次点击收起结果。	Check assets referenced by scenes and configuration files. Click again to collapse the results.
 tooltip.project.asset_favorites	右键文件或文件夹加入收藏。展开后可定位收藏项和检查路径。	Right-click a file or folder to add it to Favorites. Expand to locate favorites or check their paths.
 tooltip.project.asset_recent	查看最近打开的文件和目录。展开后可定位条目或清空记录。	View recently opened files and folders. Expand to locate an item or clear the history.
+label.project-tools	工程工具	Project Tools
+help.project-tools	内容搜索按文字查找文件内容，可按文件类型筛选。按 Ctrl+Shift+F 打开，按 Enter 搜索。\n缺失检查核对场景和配置引用的资产路径。再次点击可收起结果。\n收藏显示已收藏的文件和目录。右键文件或目录可以加入收藏。\n最近访问列出近期访问的文件和目录，点击条目可定位。\n刷新会重新读取当前目录。\n缩略图可在列表和缩略卡片之间切换。\n点击文件行或卡片主体查看属性。点击动画文件上的箭头展开片段。	Content Search finds text in files and can filter by file type. Press Ctrl+Shift+F to open it and Enter to search.\nMissing Asset Check verifies asset paths referenced by scenes and configuration files. Click again to collapse the results.\nFavorites shows bookmarked files and folders. Right-click a file or folder to add it.\nRecent Visits lists recently visited files and folders. Click an entry to locate it.\nRefresh reloads the current folder.\nThumbnails switches between list and thumbnail views.\nClick a file row or card body to view its properties. Click the arrow on an animation file to list its clips.
 label.vegetation-painting-scope	植被绘制范围	Vegetation Painting Scope
 label.current-mesh-current-layer	当前网格 · 当前作者层	Current Mesh · Current Layer
 label.across-meshes-painting-group	跨网格 · 绘制组	Across Meshes · Painting Group
@@ -1527,9 +1530,8 @@ status.vegetation.wait_density	预览：等待完整密度快照	Preview: Waitin
 rig.launch	人形自动绑骨	Auto-Rig Humanoid
 rig.title	人形绑骨与动作	Humanoid Rig and Motion
 rig.motion.title	工程动作	Project Motion
-rig.motion.choose_project	选择工程动作	Choose Project Motion
-rig.motion.idle	从工程资产选取动作 GLB，在当前模型上播放。	Choose a project animation GLB to play on this model.
-rig.motion.collapse	收起动作	Collapse Motion
+rig.motion.choose_project	选择动画	Choose Animation
+rig.motion.help	点击「选择动画」会打开左侧「工程」栏并切到「动画」筛选。点击动画文件行或卡片上的箭头展开片段列表，选中片段后在当前模型上播放。点击文件行或卡片主体查看文件属性。	Choose Animation opens the Project panel on the left and applies the Animation filter. Click the arrow on an animation file row or card to list its clips, then choose a clip to play on the current model. Click the row or card body to view the file properties.
 rig.tab	绑骨	Rigging
 rig.backend.native	编辑器原生（切换）	Editor Native (Switch)
 rig.backend.blender	Blender（切换）	Blender (Switch)
@@ -1541,25 +1543,16 @@ rig.mirror.on	左右对称 · 开	Mirror Joints · On
 rig.mirror.off	左右对称 · 关	Mirror Joints · Off
 preview.axis.front	前	F
 rig.bind	生成已绑骨 GLB	Create Rigged GLB
-rig.preview	预览所选动作	Preview Selected Motion
 rig.file.reference	参考骨架 GLB · {file}	Reference Rig GLB · {file}
 rig.file.reference.pick	请在左侧「工程」单击一份带兼容 Mixamo 骨架的动作 GLB。	In the Project panel on the left, click an animation GLB with a compatible Mixamo rig.
 rig.file.reference.incompatible	{file} 缺少可用的 Mixamo 人形参考骨架，请从左侧重选。	{file} has no compatible Mixamo humanoid rig. Choose another file on the left.
-rig.file.animation	动作文件 · {file}	Animation File · {file}
-rig.clip	动画片段 · {clip}	Clip · {clip}
-rig.page	{page} / {pages}	{page} / {pages}
-rig.previous	上一组	Previous
-rig.next	下一组	Next
 rig.marker.help	拖动圆点校正关节。点方向球的「前」切换正视，右键旋转查看深度。青色为左侧，橙色为右侧。	Drag the markers to adjust joints. Click F on the orientation widget for a front view, or right-drag to orbit. Cyan is left, orange is right.
 rig.status.inspecting	正在识别人形关节点，可先在左侧「工程」选择参考 GLB。	Detecting humanoid joints. You can choose a reference GLB in the Project panel on the left.
-rig.status.cataloguing	正在读取工程的 GLB 动作…	Reading project GLB animations…
 rig.status.review	从左侧「工程」选择参考骨架，校正关节点后生成绑骨模型。	Choose a reference rig in the Project panel on the left, then adjust the joint markers and create the rigged model.
 rig.status.binding	正在本地计算骨骼和蒙皮权重…	Calculating the skeleton and skin weights locally…
 rig.status.publishing	正在校验并发布新的 GLB…	Validating and publishing the new GLB…
 rig.status.saved	已生成 {file} · {joints} 个关节 · {vertices} 个顶点。可选择动作预览。	Created {file} · {joints} joints · {vertices} vertices. Select a motion to preview.
-rig.status.choose	点动作文件或片段重新选择，再点「预览所选动作」。	Select a motion file or clip, then click Preview Selected Motion.
 rig.status.no_reference	未找到带兼容 Mixamo 人形骨架的 GLB 动作。导入参考动作后可重新检查。	No animation GLB with a compatible Mixamo humanoid rig was found. Import a reference animation and check again.
-rig.status.no_clips	工程资产中没有含动画片段的 GLB。	No project GLB contains animation clips.
 rig.status.cancelled	绑骨任务已取消，可重新检查。	Rigging task cancelled. You can check again.
 rig.status.error	绑骨任务失败 · {message}	Rigging failed · {message}
 rig.status.closing	自动绑骨任务仍在收尾，请等待完成或取消	Auto-rigging is still finishing. Wait for it or cancel it.

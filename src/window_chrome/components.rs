@@ -10,6 +10,8 @@ pub(crate) enum ChromeSlot {
 }
 #[derive(Component)]
 pub(super) struct Mounted;
+#[derive(Component)]
+pub(super) struct EditorFpsText;
 #[derive(Component, Clone, Copy)]
 pub(super) enum ChromeButton {
     Window(WindowAction),

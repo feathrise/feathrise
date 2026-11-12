@@ -188,7 +188,7 @@ fn open(
         key,
         saving: false,
         cancel,
-        task,
+        phase: WorkPhase::Compute(task),
     });
     state.opening = None;
     state.notice = "正在读取蒙皮并建立选点索引…".into();
@@ -211,10 +211,23 @@ pub(super) fn queue(state: &mut WeightEditor, operation: Operation, reason: Reas
     let draft = &session.drafts[surface];
     let weights = draft.weights.clone();
     let selection = draft.selection.clone();
+    let skin = doc.surface(surface).skin.index;
+    let peer_weights = |index: usize| (index, session.drafts[index].weights.clone());
+    let heat_peers = if let Some(map) = session.heatmap.as_ref()
+        .filter(|map| map.skin == skin && map.joint == joint)
+    {
+        // 选中另一图元时只需清除旧图元的选区着色。连续笔画不重建其他图元。
+        (map.surface != surface).then(|| peer_weights(map.surface)).into_iter().collect()
+    } else {
+        doc.surfaces().enumerate()
+            .filter(|(index, part)| *index != surface && part.skin.index == skin)
+            .map(|(index, _)| peer_weights(index))
+            .collect()
+    };
     let cancel = Arc::new(AtomicBool::new(false));
     let token = cancel.clone();
     let task = AsyncComputeTaskPool::get().spawn(async move {
-        let request = EditRequest { surface, before: weights, selection, joint, operation };
+        let request = EditRequest { surface, before: weights, selection, joint, operation, heat_peers };
         let result = doc.prepare(request, &token)?;
         Ok(Outcome::Apply { result, reason })
     });
@@ -222,7 +235,7 @@ pub(super) fn queue(state: &mut WeightEditor, operation: Operation, reason: Reas
         key: session.key.clone(),
         saving: false,
         cancel,
-        task,
+        phase: WorkPhase::Compute(task),
     });
     state.bump();
 }
@@ -254,7 +267,7 @@ pub(super) fn begin_save(state: &mut WeightEditor) -> Result<(), String> {
         key,
         saving: true,
         cancel,
-        task,
+        phase: WorkPhase::Compute(task),
     });
     state.save_receipt = None;
     state.notice = "正在另存并校验调权 GLB…".into();
@@ -498,6 +511,46 @@ pub(super) fn actions(
     state.bump();
 }
 
+fn poll_work(
+    slot: &mut Option<Work>,
+    meshes: Option<&mut Assets<Mesh>>,
+) -> Option<(Key, bool, Result<Outcome, String>, Vec<(usize, Handle<Mesh>)>)> {
+    let work = slot.as_mut()?;
+    if let WorkPhase::Compute(task) = &mut work.phase {
+        match check_ready(task)? {
+            Ok(Outcome::Apply { result, reason }) if !result.peer_heat.is_empty() => {
+                work.phase = WorkPhase::RegisterHeat { result, reason, handles: Vec::new() };
+            }
+            outcome => {
+                let work = slot.take().expect("完成的是当前单槽任务");
+                return Some((work.key, work.saving, outcome, Vec::new()));
+            }
+        }
+    }
+    let WorkPhase::RegisterHeat { result, handles, .. } = &mut work.phase else {
+        unreachable!("未完成计算的任务仍留在工作槽");
+    };
+    let meshes = meshes.filter(|_| !work.cancel.load(Ordering::Acquire));
+    let can_register = meshes.is_some();
+    if let Some(meshes) = meshes
+        && let Some((surface, mesh)) = result.peer_heat.pop()
+    {
+        // 同一工作槽每帧最多登记一个额外网格，所有图元就绪后再一次性切换显示。
+        handles.push((surface, meshes.add(mesh)));
+        return None;
+    }
+    let work = slot.take().expect("完成的是当前单槽任务");
+    let WorkPhase::RegisterHeat { result, reason, handles } = work.phase else {
+        unreachable!("当前工作已进入热力图登记阶段");
+    };
+    let outcome = if can_register {
+        Ok(Outcome::Apply { result, reason })
+    } else {
+        Err("热力图登记已取消".into())
+    };
+    Some((work.key, work.saving, outcome, handles))
+}
+
 pub(super) fn poll(
     mut state: ResMut<WeightEditor>,
     target: Target,
@@ -543,12 +596,7 @@ pub(super) fn poll(
         }
         state.problem = None;
     }
-    let ready = state
-        .work
-        .as_mut()
-        .and_then(|work| check_ready(&mut work.task));
-    if let Some(result) = ready {
-        let work = state.work.take().expect("完成的是当前单槽任务");
+    if let Some((key, saving, result, peer_heat)) = poll_work(&mut state.work, meshes.as_deref_mut()) {
         match result {
             Ok(Outcome::Open { key, gltf, doc }) if target.root() == key.root => {
                 state.session = Some(Session::new(key, gltf, doc));
@@ -561,8 +609,8 @@ pub(super) fn poll(
                     let current = state.session.as_ref().is_some_and(|session| {
                         !session.stale
                             && target.matches(&session.key)
-                            && session.key == work.key
-                            && session.surface == result.surface
+                            && session.key == key
+                            && (session.surface, session.joint) == (result.surface, result.joint)
                     });
                     if result.selection.is_empty()
                         || !current
@@ -584,8 +632,8 @@ pub(super) fn poll(
                 }
                 if let (Some(meshes), Some(session)) =
                     (meshes.as_deref_mut(), state.session.as_mut())
-                    && session.key == work.key
-                    && session.surface == result.surface
+                    && session.key == key
+                    && (session.surface, session.joint) == (result.surface, result.joint)
                     && !session.stale
                 {
                     let draft = &mut session.drafts[result.surface];
@@ -599,7 +647,18 @@ pub(super) fn poll(
                     } else if let Some(mesh) = result.shaded {
                         draft.shaded = Some(meshes.add(mesh));
                     }
-                    session.heat_mesh = Some((result.surface, meshes.add(result.heat)));
+                    let skin = session.doc.surface(result.surface).skin.index;
+                    let map = session.heatmap.get_or_insert_with(|| HeatMap {
+                        skin, joint: result.joint, surface: result.surface, meshes: Default::default(),
+                    });
+                    if (map.skin, map.joint) != (skin, result.joint) {
+                        map.meshes.clear();
+                        map.skin = skin;
+                        map.joint = result.joint;
+                    }
+                    map.surface = result.surface;
+                    map.meshes.extend(peer_heat);
+                    map.meshes.insert(result.surface, meshes.add(result.heat));
                     let after = draft.weights.clone();
                     match reason {
                         Reason::Problem(problem) => {
@@ -638,7 +697,7 @@ pub(super) fn poll(
                 if let Some(session) = state
                     .session
                     .as_mut()
-                    .filter(|session| session.key == work.key)
+                    .filter(|session| session.key == key)
                 {
                     for draft in &mut session.drafts {
                         draft.saved = draft.weights.clone();
@@ -652,14 +711,14 @@ pub(super) fn poll(
                     {
                         catalog.requested_revision = catalog.requested_revision.wrapping_add(1);
                     }
-                    state.save_receipt = Some((work.key.root.join(&work.key.path), Ok(path)));
+                    state.save_receipt = Some((key.root.join(&key.path), Ok(path)));
                 }
             }
             Ok(_) => {}
             Err(error) => {
-                if work.saving {
+                if saving {
                     state.save_receipt =
-                        Some((work.key.root.join(&work.key.path), Err(error.clone())));
+                        Some((key.root.join(&key.path), Err(error.clone())));
                 }
                 state.notice = error;
             }

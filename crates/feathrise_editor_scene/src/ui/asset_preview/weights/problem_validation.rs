@@ -7,7 +7,8 @@ use super::{
         animation::{
             AnimationEditorState, rig_animation_probe, workflow_validation::timeline_ruler,
         },
-        rigging::{RigAction, RiggingState},
+        rigging::RigAction,
+        rigging_validation::{animation_clip_button, animation_file_button},
         types::{AssetPreviewCamera, AssetPreviewCanvas},
         view_math::AssetPreviewView,
         view_toolbar::Action as ViewAction,
@@ -441,15 +442,18 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             Step::Picker
         }
         Step::Picker if click(world, run, window, RigAction::ChooseProjectMotion) => Step::Choose,
-        Step::Choose if click(world, run, window, RigAction::Choose(1)) => Step::Play,
-        Step::Play
-            if world
-                .resource::<RiggingState>()
-                .validation_status()
-                .animation
-                == Some(WALK)
-                && click(world, run, window, RigAction::Preview) =>
-        {
+        Step::Choose => {
+            let entity = run.click.map(|(entity, _)| entity).or_else(|| animation_file_button(world, WALK));
+            if !entity.is_some_and(|entity| click_entity(world, run, window, entity)) {
+                return Ok(None);
+            }
+            Step::Play
+        }
+        Step::Play => {
+            let entity = run.click.map(|(entity, _)| entity).or_else(|| animation_clip_button(world, 0));
+            if !entity.is_some_and(|entity| click_entity(world, run, window, entity)) {
+                return Ok(None);
+            }
             Step::Seek
         }
         Step::Seek => {

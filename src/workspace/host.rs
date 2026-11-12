@@ -122,6 +122,8 @@ pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) ->
     {
         crate::environment_diagnostics::rust_install::install(&mut app);
         crate::window_chrome::placement::install(&mut app, saved_window);
+        // 开始页没有作者的 FPS/F3 插件，标题栏仍使用本窗口自己的帧诊断。
+        app.add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default());
         app.add_systems(Last, pace_workspace.after(advance));
     }
     let preferences_completion = author_preferences::install_host(&mut app, author_settings);

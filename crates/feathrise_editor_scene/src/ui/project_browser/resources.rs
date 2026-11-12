@@ -1,7 +1,7 @@
 //! 工程目录的内部呈现来源；进入登记资产目录时借用原资产正文，不提供模式切换入口。
 
 use super::types::ProjectBrowserView;
-use crate::asset_catalog::AssetTypeFilter;
+use crate::asset_catalog::{AssetTypeFilter, EditorAssetCatalog, project_files::EditorProjectFileCatalog};
 use bevy::prelude::{Resource, Vec2};
 use feathrise_editor_ui::localization::EditorLocale;
 
@@ -31,6 +31,16 @@ impl ProjectBrowserState {
 
     pub(crate) fn assets_visible(&self) -> bool {
         self.view == ProjectBrowserView::Assets
+    }
+
+    pub(super) fn set_type_filter(
+        &mut self, filter: AssetTypeFilter, files: &mut EditorProjectFileCatalog, assets: &mut EditorAssetCatalog,
+    ) {
+        if self.type_filter != filter {
+            self.type_filter = filter;
+            files.set_type_filter(filter);
+            assets.set_type_filter(filter);
+        }
     }
 
     pub(crate) fn asset_folder_label(&self, folder: &str, locale: EditorLocale) -> String {

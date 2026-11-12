@@ -276,7 +276,7 @@ mod tests {
             after: Quat::from_rotation_z(0.45) * rest.rotation,
         };
         let rig = RigRetarget {
-            corrections: vec![Some(correction)],
+            corrections: vec![None, Some(correction)],
             clips: vec![true, false],
             bounds: AssetPreviewModelBounds {
                 minimum: Vec3::ZERO,
@@ -286,7 +286,10 @@ mod tests {
         let source = Transform::from_translation(Vec3::X * 3.0)
             .with_rotation(Quat::from_rotation_z(-0.9))
             .with_scale(Vec3::splat(0.01));
-        let pose = rig.sample(&[source])[0].unwrap();
+        let corrected = rig.sample(&[Transform::IDENTITY, source]);
+        assert_eq!(corrected.len(), 1);
+        let (source_index, pose) = corrected[0];
+        assert_eq!(source_index, 1);
         assert_eq!(pose.translation, rest.translation);
         assert_eq!(pose.scale, rest.scale);
         assert!(pose.rotation.abs_diff_eq(source.rotation, 1e-5));
@@ -367,12 +370,12 @@ mod tests {
         sample[4].rotation = lower_arm;
         sample[5].translation = Vec3::X * 90.0;
         let corrected = retarget.sample(&sample);
-        assert_eq!(corrected[1].unwrap().translation, Vec3::Y);
+        assert_eq!(corrected[0].0, 1);
+        assert_eq!(corrected[0].1.translation, Vec3::Y);
         let mut local = RestFrame::new(&target.nodes).local;
-        for (local, corrected) in local.iter_mut().zip(corrected) {
-            if let Some(corrected) = corrected {
-                *local = corrected;
-            }
+        for (index, corrected) in corrected {
+            // 此夹具的两份文档使用同一节点顺序。
+            local[index] = corrected;
         }
         let world = world_matrices(&target.nodes, &local);
         let arm = world[5].w_axis.truncate() - world[4].w_axis.truncate();

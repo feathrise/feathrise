@@ -31,7 +31,7 @@ fn fixture() -> (World, Entity, Entity, [Entity; 3]) {
     world.resource_mut::<ChromeParts>().0 = Some(HeaderParts {
         header, spacer, captions, project: None, history: vec![], selection: spacer,
         settings: spacer, modes: None, profile: None, run: spacer, layout_controls: vec![],
-        more_toggle: spacer, more: spacer, backdrop: spacer,
+        more_toggle: spacer, editor_fps: spacer, more: spacer, backdrop: spacer,
     });
     (world, header, captions, buttons)
 }

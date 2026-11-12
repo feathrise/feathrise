@@ -63,6 +63,8 @@ impl Plugin for WindowChromePlugin {
                     .before(feathrise_editor_core::SceneEditorSystemSet::Input),
             )
             .add_systems(Update, systems::present.after(ChromeMount))
+            .add_systems(Update, systems::sync_editor_fps.after(ChromeMount)
+                .after(feathrise_editor_core::SceneEditorSystemSet::Input))
             .add_systems(
                 PostUpdate,
                 systems::measure.in_set(ChromeMeasure).after(bevy::ui::UiSystems::PostLayout),

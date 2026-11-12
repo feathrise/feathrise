@@ -1,4 +1,4 @@
-//! 人形关节点、选择器及受检后台结果的内部合同。
+//! 人形关节点和受检后台结果的内部合同。
 
 use std::{
     future::Future,
@@ -11,10 +11,9 @@ use bevy::{
     tasks::{IoTaskPool, Task},
 };
 
-use feathrise_editor_glb_model::rigging::{AnimationAsset, Inspection, Landmarks, PreparedRig, PublishedRig};
+use feathrise_editor_glb_model::rigging::{Inspection, Landmarks, PreparedRig, PublishedRig};
 use crate::viewport::placement_move::MoveCamera;
 
-pub(super) const PICKER_ROWS: usize = 5;
 pub(super) const LANDMARKS: [(&str, &str); 17] = [
     ("head", "rig.point.head"),
     ("neck", "rig.point.neck"),
@@ -45,19 +44,10 @@ pub(crate) enum RigAction {
     ToggleMirror,
     ResetMarks,
     Bind,
-    PickFile,
-    PickClip,
-    Choose(usize),
-    Previous,
-    Next,
-    Preview,
 }
 
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct RigPanel;
-
-#[derive(Component, Clone, Copy, Default)]
-pub(super) struct RigChoices;
 
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct RigMarkerTools;
@@ -73,10 +63,6 @@ pub(super) enum RigText {
     Warning,
     SelectedMarker,
     Reference,
-    File,
-    Clip,
-    Choice(usize),
-    Page,
 }
 
 #[derive(Component, Clone, Copy)]
@@ -95,17 +81,10 @@ pub(super) enum Entry {
     Skinned,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Picker {
-    File,
-    Clip,
-}
-
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) enum Notice {
     #[default]
     Inspecting,
-    Cataloguing,
     Review,
     Binding,
     Publishing,
@@ -113,16 +92,13 @@ pub(super) enum Notice {
         joints: usize,
         vertices: usize,
     },
-    ChooseAnimation,
     NoReference,
-    NoClips,
     Cancelled,
     Failed,
 }
 
 pub(super) enum Completion {
     Inspection(Result<(Inspection, bool), String>),
-    Catalog(Result<Vec<AnimationAsset>, String>),
     Binding(Result<PreparedRig, String>),
     Publish {
         result: Result<PublishedRig, String>,

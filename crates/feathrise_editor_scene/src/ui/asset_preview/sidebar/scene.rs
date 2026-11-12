@@ -69,6 +69,15 @@ pub(crate) fn assets_page(scenes: &feathrise_editor_documents_model::DocumentSce
 
 fn asset_tools() -> impl Scene {
     const ICON_WIDTH: f32 = 22.0;
+    const HELP: &str = concat!(
+        "内容搜索按文字查找文件内容，可按文件类型筛选。按 Ctrl+Shift+F 打开，按 Enter 搜索。\n",
+        "缺失检查核对场景和配置引用的资产路径。再次点击可收起结果。\n",
+        "收藏显示已收藏的文件和目录。右键文件或目录可以加入收藏。\n",
+        "最近访问列出近期访问的文件和目录，点击条目可定位。\n",
+        "刷新会重新读取当前目录。\n",
+        "缩略图可在列表和缩略卡片之间切换。\n",
+        "点击文件行或卡片主体查看属性。点击动画文件上的箭头展开片段。",
+    );
     bsn! {
         // 窄栏也为六个操作及帮助预留完整命中区，路径使用下一行的整栏宽度。
         Node { width: percent(100), min_width: px(0), height: px(24), column_gap: px(2),
@@ -82,7 +91,7 @@ fn asset_tools() -> impl Scene {
             @refresh_button(ProjectBrowserView::Assets, ICON_WIDTH)--
             @toolbar_button("icons/editor/tree_image.png", ICON_WIDTH)
                 ViewModeButton ~{EditorTooltipTarget(TooltipAction::AssetThumbnails)}--
-            @crate::ui::context_help::help_button("资产搜索", "按 Ctrl+Shift+F 打开内容搜索。输入文字后按Enter搜索；文件类型可填json、rs或*.wgsl，留空搜索全部受支持文本。点击结果在内置编辑器定位；外部打开使用磁盘版本，“打开工程”会同时打开工程目录。直接引用检查config/scenes JSON和当前工程的 Rust 源码中的完整路径，JSON优先使用草稿；不判断运行分支、拼接路径、预设ID或模型内部依赖，0处不代表未使用。缺失检查只核对明确路径的物理文件，子资源检查其来源文件。")
+            @crate::ui::context_help::help_button("工程工具", HELP)
         ]
     }
 }

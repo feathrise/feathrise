@@ -21,6 +21,7 @@ pub(super) fn capture(
     world: &mut World,
     pending: &mut Option<CaptureTask>,
     path: &Path,
+    help_text: Option<URect>,
 ) -> Result<Option<Value>, String> {
     if let Some(receiver) = pending {
         return match receiver.get_mut().map_err(|error| error.to_string())?.try_recv() {
@@ -45,15 +46,39 @@ pub(super) fn capture(
                 let varied = (0..height).step_by(13).flat_map(|y| (0..width).step_by(13).map(move |x| (x, y)))
                     .filter(|&(x, y)| image.get_pixel(x, y) != clear).take(64).count();
                 if varied < 64 { return Ok(None); } // 若窗口只交付了清屏帧，下一轮重新请求回读。
+                let help_text_pixels = if let Some(region) = help_text {
+                    let max = region.max.min(UVec2::new(width, height));
+                    if region.min.cmpge(max).any() { return Ok(None); }
+                    let mut light = 0;
+                    let mut dark = 0;
+                    // 只在实测正文裁剪区找浅色字形，并确认浮层暗底已画好。标题和场景亮色不算正文。
+                    for y in region.min.y..max.y {
+                        for x in region.min.x..max.x {
+                            let [r, g, b, _] = image.get_pixel(x, y).0;
+                            let brightest = r.max(g).max(b);
+                            let dimmest = r.min(g).min(b);
+                            light += u32::from(dimmest > 100 && brightest - dimmest < 32);
+                            dark += u32::from(brightest < 70);
+                        }
+                    }
+                    if light < 32 || dark * 2 < (max.x - region.min.x) * (max.y - region.min.y) {
+                        return Ok(None); // UI 重挂的首个回读允许尚未绘制正文，下一帧再取。
+                    }
+                    Some(light)
+                } else { None };
                 let mut output = Cursor::new(Vec::new());
                 image::DynamicImage::ImageRgba8(image).write_to(&mut output, image::ImageFormat::Png)
                     .map_err(|error| error.to_string())?;
                 let bytes = output.into_inner();
                 write_new(&path, &bytes)?;
-                Ok(Some(json!({
+                let mut proof = json!({
                     "source":"Bevy ScreenshotCaptured","width":width,"height":height,
                     "sha256":Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
-                })))
+                });
+                if let Some(pixels) = help_text_pixels {
+                    proof["help_text_pixels"] = json!(pixels);
+                }
+                Ok(Some(proof))
             })();
             let _ = sender.send(result);
         }).detach();

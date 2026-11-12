@@ -1,8 +1,87 @@
 //! 顶栏输入、窄窗原位收纳与布局完成后的物理命中投影；每帧只访问固定控件集合。
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, glyphs, resources::*, scene, types::*};
-use bevy::{prelude::*, ui::RelativeCursorPosition, window::PrimaryWindow};
+use bevy::{diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, prelude::*, ui::RelativeCursorPosition, window::PrimaryWindow};
 use feathrise_editor_ui::{ButtonColors, EditorButtonClick, colors as c};
+use std::time::Duration;
+
+pub(super) fn sync_editor_fps(
+    settings: Option<Res<feathrise_editor_core::EditorSettings>>,
+    diagnostics: Option<Res<DiagnosticsStore>>,
+    time: Option<Res<Time<Real>>>,
+    mut next_refresh: Local<Duration>,
+    mut labels: Query<(&mut Node, &mut Text), With<EditorFpsText>>,
+) {
+    let Ok((mut node, mut text)) = labels.single_mut() else { return; };
+    let show = settings.as_ref().is_some_and(|settings| settings.show_editor_fps);
+    let display = if show { Display::Flex } else { Display::None };
+    let toggled = node.display != display;
+    if toggled {
+        node.display = display;
+    }
+    let now = time.as_ref().map_or(Duration::ZERO, |time| time.elapsed());
+    if !show || !toggled && now < *next_refresh {
+        return;
+    }
+    // 只读当前标题栏所在 World 的真实帧诊断。限制文字更新频率以避免频繁重排。
+    *next_refresh = now + Duration::from_millis(500);
+    let value = diagnostics.as_ref()
+        .and_then(|store| store.get(&FrameTimeDiagnosticsPlugin::FPS))
+        .and_then(|diagnostic| diagnostic.smoothed())
+        .filter(|fps| fps.is_finite() && *fps > 0.);
+    let label = value.map_or_else(|| "— FPS".to_owned(), |fps| format!("{fps:.0} FPS"));
+    if text.as_str() != label {
+        text.0 = label;
+    }
+}
+
+#[cfg(test)]
+mod fps_tests {
+    use super::*;
+    use bevy::diagnostic::{Diagnostic, DiagnosticMeasurement};
+    use feathrise_editor_core::EditorSettings;
+
+    fn record_fps(world: &mut World, value: f64) {
+        let mut sample = Diagnostic::new(FrameTimeDiagnosticsPlugin::FPS);
+        sample.add_measurement(DiagnosticMeasurement { time: std::time::Instant::now(), value });
+        world.resource_mut::<DiagnosticsStore>().add(sample);
+    }
+
+    #[test]
+    fn editor_title_fps_uses_local_measurements_and_toggles_without_delay() {
+        let mut app = App::new();
+        app.init_resource::<EditorSettings>()
+            .init_resource::<Time<Real>>()
+            .init_resource::<DiagnosticsStore>()
+            .add_systems(Update, sync_editor_fps);
+        let label = app.world_mut().spawn((
+            EditorFpsText, Text::new(""), Node { display: Display::None, ..default() },
+        )).id();
+        app.world_mut().resource_mut::<EditorSettings>().render.max_fps = 144;
+        app.update();
+        assert_eq!(app.world().get::<Node>(label).unwrap().display, Display::None);
+
+        app.world_mut().resource_mut::<EditorSettings>().show_editor_fps = true;
+        app.update();
+        assert_eq!(app.world().get::<Node>(label).unwrap().display, Display::Flex);
+        assert_eq!(app.world().get::<Text>(label).unwrap().as_str(), "— FPS");
+
+        record_fps(app.world_mut(), 57.4);
+        app.update();
+        assert_eq!(app.world().get::<Text>(label).unwrap().as_str(), "— FPS");
+        app.world_mut().resource_mut::<Time<Real>>().advance_by(Duration::from_millis(500));
+        app.update();
+        assert_eq!(app.world().get::<Text>(label).unwrap().as_str(), "57 FPS");
+
+        app.world_mut().resource_mut::<EditorSettings>().show_editor_fps = false;
+        app.update();
+        assert_eq!(app.world().get::<Node>(label).unwrap().display, Display::None);
+        record_fps(app.world_mut(), 31.8);
+        app.world_mut().resource_mut::<EditorSettings>().show_editor_fps = true;
+        app.update();
+        assert_eq!(app.world().get::<Text>(label).unwrap().as_str(), "32 FPS");
+    }
+}
 
 pub(super) fn input(world: &mut World) {
     let actions: Vec<_> = world
@@ -169,6 +248,9 @@ pub(super) fn present(world: &mut World) {
         if let Some(mut node) = world.get_mut::<Node>(p.spacer) {
             node.min_width = px(if compact { 12. } else { 24. });
         }
+        if let Some(mut node) = world.get_mut::<Node>(p.editor_fps) {
+            node.width = px(if narrow { 56. } else { 64. });
+        }
         let mut order: Vec<_> = world
             .get::<Children>(p.header)
             .map(|c| {
@@ -178,6 +260,7 @@ pub(super) fn present(world: &mut World) {
                             && *e != p.run
                             && *e != p.captions
                             && *e != p.more_toggle
+                            && *e != p.editor_fps
                             && !p.layout_controls.contains(e)
                             && *e != p.settings
                             && !p.history.contains(e)
@@ -198,7 +281,7 @@ pub(super) fn present(world: &mut World) {
                 order.push(item);
             }
         }
-        order.extend([p.settings, p.more_toggle, p.spacer]);
+        order.extend([p.settings, p.more_toggle, p.editor_fps, p.spacer]);
         for item in [
             p.modes,
             Some(p.run),

@@ -204,6 +204,7 @@ fn build_optimization_group() -> impl Scene {
                 @settings_button("144 FPS", EditorSettingsAction::SetMaxFps(144), 76.0)
             ]
         --
+            @settings_button("显示编辑器帧率", EditorSettingsAction::ToggleEditorFpsDisplay, 216.0)--
             @settings_button("编译时降低帧率", EditorSettingsAction::ToggleBuildFrameLimit, 216.0)
         ]
     }

@@ -354,6 +354,8 @@ pub struct EditorSettings {
     pub render: feathrise_settings::RenderSettings,
     /// 独立编辑器的临时编译降帧开关。日常上限仍由 render.max_fps 保存。
     pub limit_build_fps: bool,
+    /// 标题栏显示当前编辑器窗口的实测帧率，独立于游戏 HUD 及日常帧率上限。
+    pub show_editor_fps: bool,
     pub scene: feathrise_settings::SceneDisplaySettings,
     pub environment: feathrise_settings::EnvironmentPreviewSettings,
     pub scene_editor_scrub_sensitivities: SceneEditorScrubSensitivities,
@@ -373,6 +375,7 @@ impl Default for EditorSettings {
         Self {
             render: Default::default(),
             limit_build_fps: DEFAULT_LIMIT_BUILD_FPS,
+            show_editor_fps: false,
             scene: Default::default(),
             environment: Default::default(),
             scene_editor_scrub_sensitivities: Default::default(),

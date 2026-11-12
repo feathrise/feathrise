@@ -32,6 +32,7 @@ pub(super) fn install(app: &mut App) {
                 .after(super::workspace::actions)
                 .after(super::interaction::handle_asset_preview_actions)
                 .after(crate::scene_browser::handle_scene_browser_input)
+                .before(super::opening::open)
                 .before(super::animation::receive_rig_animation)
                 .before(super::navigation::control_asset_preview)
                 .before(crate::authoring::mesh_edit::MeshEditInput)

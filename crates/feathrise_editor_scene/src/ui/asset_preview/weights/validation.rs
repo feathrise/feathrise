@@ -1,10 +1,11 @@
-//! 自有沈照雪夹具的真窗口验收，走原按钮和鼠标手势，核对落盘及两段动作。
+//! 自有沈照雪夹具的真窗口验收，走原按钮和鼠标手势，核对落盘、动作与多图元热力图。
 
 use feathrise_editor_glb_model::weights::{Tool, VertexWeights};
 use super::super::{
     AssetPreviewNavigation, AssetPreviewState, AssetPreviewWorkspace, DocumentState, OpenAssetPreview,
     animation::rig_animation_probe,
     rigging::{RigAction, RiggingState},
+    rigging_validation::{animation_clip_button, animation_file_button},
     types::{AssetPreviewCamera, AssetPreviewCanvas, AssetPreviewContent, AssetPreviewPhase},
     view_toolbar::Action as ViewAction,
 };
@@ -42,13 +43,15 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
 };
 
 const MODEL: &str = "人形_已绑骨.glb";
 const UNBOUND: &str = "人形.glb";
+const MULTI_SURFACE_MODEL: &str = "沈照雪-蓝色衣服-tripo.glb";
+const MULTI_SURFACE_IMAGE: &str = "weights-multi-surface-heat.png";
 const IDLE: &str = "01-待机.glb";
 const WALK: &str = "02-行走.glb";
 const JOINT_COUNT: usize = 65;
@@ -73,6 +76,7 @@ enum Phase {
     BoneDown,
     BoneUp,
     BoneVerify,
+    MultiSurfaceImage,
     SelectImage,
     LockBone,
     LockRender,
@@ -108,6 +112,7 @@ enum Phase {
     Restore,
     RestoreDraft,
     WalkPicker,
+    WalkOpen,
     WalkSelect,
     WalkPlay,
     WalkPose,
@@ -121,7 +126,7 @@ struct Run {
     root: PathBuf,
     assets: PathBuf,
     source: &'static str,
-    inputs: [Vec<u8>; 3],
+    inputs: Vec<(&'static str, String)>,
     generated: Option<(String, Vec<u8>)>,
     phase: Phase,
     started: Instant,
@@ -151,23 +156,25 @@ pub(in crate::ui::asset_preview) fn install(
     if std::env::var_os("FEATHRISE_RIG_VALIDATION_PROBLEM_FRAME").is_some() {
         return super::problem_validation::install(app, root, assets);
     }
-    let hashes = |name| {
-        fs::read(assets.join(name))
-            .map(|bytes| Sha256::digest(bytes).to_vec())
-            .map_err(|error| error.to_string())
-    };
-    let source = if std::env::var_os("FEATHRISE_RIG_VALIDATION_WEIGHTS_FROM_RIG").is_some() {
+    let source = if std::env::var_os("FEATHRISE_RIG_VALIDATION_MULTI_SURFACE_HEAT").is_some() {
+        MULTI_SURFACE_MODEL
+    } else if std::env::var_os("FEATHRISE_RIG_VALIDATION_WEIGHTS_FROM_RIG").is_some() {
         UNBOUND
     } else {
         MODEL
     };
-    let inputs = [hashes(source)?, hashes(IDLE)?, hashes(WALK)?];
+    let input_names = [source, IDLE, WALK];
+    let names = if source == MULTI_SURFACE_MODEL { &input_names[..1] } else { &input_names[..] };
+    let inputs = names.iter()
+        .map(|&name| hash_input(&assets, name).map(|digest| (name, digest)))
+        .collect::<Result<_, _>>()?;
     if [
         "weights.json",
         "weights-failure.json",
         "weights-heat.png",
         "weights-walk.png",
         "weights-lock.png",
+        MULTI_SURFACE_IMAGE,
     ]
     .iter()
     .any(|name| root.join(name).exists())
@@ -201,6 +208,21 @@ pub(in crate::ui::asset_preview) fn install(
     })
     .add_systems(Update, focus.before(crate::SceneEditorSystemSet::Input))
     .add_systems(Last, drive.after(bevy::gizmos::GizmoMeshSystems));
+    Ok(())
+}
+
+fn hash_input(assets: &Path, name: &str) -> Result<String, String> {
+    fs::read(assets.join(name))
+        .map(|bytes| Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect())
+        .map_err(|error| format!("无法读取输入 GLB {name}：{error}"))
+}
+
+fn verify_inputs(run: &Run) -> Result<(), String> {
+    for (name, digest) in &run.inputs {
+        if hash_input(&run.assets, name)? != *digest {
+            return Err(format!("输入 GLB 被改写：{name}"));
+        }
+    }
     Ok(())
 }
 
@@ -379,6 +401,14 @@ fn joint_index(world: &World, name: &str) -> Option<u16> {
 fn rig(world: &mut World, run: &mut Run, action: RigAction) -> bool {
     click(world, run, |button: &RigAction| *button == action)
 }
+
+fn click_animation(
+    world: &mut World, run: &mut Run, window: Entity, button: impl FnOnce(&mut World) -> Option<Entity>,
+) -> bool {
+    let entity = run.window_click.map(|(entity, _)| entity).or_else(|| button(world));
+    entity.and_then(|entity| click_window_entity(world, run, window, entity)).is_some()
+}
+
 fn sidebar(world: &mut World, run: &mut Run, tab: EditorRightSidebarTab) -> bool {
     click(world, run, |button: &SceneEditorSidebarTabButton| {
         button.0 == EditorSidebarTab::Right(tab)
@@ -698,7 +728,9 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             run.generated = Some((path.to_owned(), Sha256::digest(bytes).to_vec()));
             Phase::Enter
         }
-        Phase::Enter if button(world, run, Action::Open) => Phase::HideSkeleton,
+        Phase::Enter if button(world, run, Action::Open) => {
+            if run.source == MULTI_SURFACE_MODEL { Phase::BoneAim } else { Phase::HideSkeleton }
+        }
         Phase::HideSkeleton => {
             let expected = run.generated.as_ref().map_or(run.source, |(path, _)| path);
             let Some(session) = world
@@ -806,7 +838,12 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             Phase::BrushSetup
         }
         Phase::BoneAim => {
-            let point = if run.bone_picks == 0 {
+            let point = if run.source == MULTI_SURFACE_MODEL {
+                if world.resource::<WeightEditor>().busy() {
+                    return Ok(None);
+                }
+                joint_index(world, "Head").and_then(|joint| super::skeleton::joint_point(world, joint))
+            } else if run.bone_picks == 0 {
                 joint_index(world, "LeftLeg").and_then(|joint| super::skeleton::bone_point(world, joint))
             } else {
                 joint_index(world, "Hips").and_then(|joint| super::skeleton::joint_point(world, joint))
@@ -826,7 +863,13 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             Phase::BoneVerify
         }
         Phase::BoneVerify => {
-            let expected = if run.bone_picks == 0 { "LeftUpLeg" } else { "Hips" };
+            let expected = if run.source == MULTI_SURFACE_MODEL {
+                "Head"
+            } else if run.bone_picks == 0 {
+                "LeftUpLeg"
+            } else {
+                "Hips"
+            };
             let state = world.resource::<WeightEditor>();
             let session = state.session.as_ref().unwrap();
             if state.stroke.is_some() || session.dirty() {
@@ -838,7 +881,23 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             {
                 return Ok(None);
             }
-            if run.bone_picks == 0 {
+            if run.source == MULTI_SURFACE_MODEL {
+                // 同一蒙皮的三个真实图元都应发布头部热力材质，再采集 GPU 画面。
+                let skin = &session.doc.surface(session.surface).skin;
+                if session.key.path != run.source
+                    || skin.joints.len() != 49
+                    || session.doc.surface_count() != 3
+                    || session.doc.surfaces().any(|surface| surface.skin.index != skin.index)
+                {
+                    return Err("多图元热力图夹具必须包含三个共用同一套 49 关节蒙皮的图元".into());
+                }
+                if !super::preview::heat_covers_skin(world)
+                    || !capture_heat_image(world, run.root.join(MULTI_SURFACE_IMAGE), Phase::BoneVerify)
+                {
+                    return Ok(None);
+                }
+                Phase::MultiSurfaceImage
+            } else if run.bone_picks == 0 {
                 if !capture_heat_image(world, run.root.join("weights-select.png"), Phase::BoneVerify) {
                     return Ok(None);
                 }
@@ -849,6 +908,18 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
                 }
                 Phase::BoxTool
             }
+        }
+        Phase::MultiSurfaceImage if run.root.join(MULTI_SURFACE_IMAGE).is_file() => {
+            if !super::preview::heat_covers_skin(world) {
+                return Err("实际显示的三个蒙皮图元未同时保留热力材质".into());
+            }
+            verify_inputs(run)?;
+            return Ok(Some(json!({
+                "passed": true, "os_input_verified": false,
+                "source": run.source, "source_sha256": run.inputs[0].1, "source_unchanged": true,
+                "picked_bone": "mixamorig:Head", "joint_count": 49, "heated_primitives": 3,
+                "screenshots": [MULTI_SURFACE_IMAGE]
+            })));
         }
         Phase::SelectImage
             if run.root.join("weights-select.png").is_file() && button(world, run, Action::Edit) =>
@@ -1130,15 +1201,10 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             Phase::IdlePicker
         }
         Phase::IdlePicker if rig(world, run, RigAction::ChooseProjectMotion) => Phase::IdleSelect,
-        Phase::IdleSelect if rig(world, run, RigAction::Choose(0)) => Phase::IdlePlay,
-        Phase::IdlePlay
-            if world
-                .resource::<RiggingState>()
-                .validation_status()
-                .animation
-                == Some(IDLE)
-                && rig(world, run, RigAction::Preview) =>
-        {
+        Phase::IdleSelect if click_animation(world, run, window, |world| animation_file_button(world, IDLE)) => {
+            Phase::IdlePlay
+        }
+        Phase::IdlePlay if click_animation(world, run, window, |world| animation_clip_button(world, 0)) => {
             Phase::IdlePose
         }
         Phase::IdlePose => {
@@ -1196,23 +1262,12 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             }
             Phase::WalkPicker
         }
-        Phase::WalkPicker if sidebar(world, run, EditorRightSidebarTab::Scene) => Phase::WalkSelect,
-        Phase::WalkSelect => {
-            if rig(world, run, RigAction::Choose(1)) {
-                Phase::WalkPlay
-            } else {
-                rig(world, run, RigAction::PickFile);
-                return Ok(None);
-            }
+        Phase::WalkPicker if sidebar(world, run, EditorRightSidebarTab::Scene) => Phase::WalkOpen,
+        Phase::WalkOpen if rig(world, run, RigAction::ChooseProjectMotion) => Phase::WalkSelect,
+        Phase::WalkSelect if click_animation(world, run, window, |world| animation_file_button(world, WALK)) => {
+            Phase::WalkPlay
         }
-        Phase::WalkPlay
-            if world
-                .resource::<RiggingState>()
-                .validation_status()
-                .animation
-                == Some(WALK)
-                && rig(world, run, RigAction::Preview) =>
-        {
+        Phase::WalkPlay if click_animation(world, run, window, |world| animation_clip_button(world, 0)) => {
             Phase::WalkPose
         }
         Phase::WalkPose => {
@@ -1263,13 +1318,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             if super::super::gltf_tree::central_glb(active, workspace.active_tab) != Some(output) {
                 return Ok(None);
             }
-            for (index, name) in [run.source, IDLE, WALK].into_iter().enumerate() {
-                let original =
-                    fs::read(run.assets.join(name)).map_err(|error| error.to_string())?;
-                if Sha256::digest(original).as_slice() != run.inputs[index] {
-                    return Err(format!("输入 GLB 被改写：{name}"));
-                }
-            }
+            verify_inputs(run)?;
             if let Some((path, digest)) = &run.generated {
                 let generated =
                     fs::read(run.assets.join(path)).map_err(|error| error.to_string())?;

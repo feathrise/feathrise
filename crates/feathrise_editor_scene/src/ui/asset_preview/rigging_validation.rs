@@ -1,7 +1,7 @@
 //! 人形绑骨真窗口验收。只在显式 validation 及本轮自有工程启用，走原按钮、后台和发布流程。
 
 use crate::{
-    asset_catalog::{EditorAssetCatalog, request_asset_reveal},
+    asset_catalog::{AssetTypeFilter, EditorAssetCatalog, request_asset_reveal},
     components::{SceneEditorAssetRow, SceneEditorOrientationAxisEndpoint},
     resources::SceneEditorState,
     ui::{
@@ -23,6 +23,7 @@ use crate::{
             types::{AssetPreviewCanvas, AssetPreviewModelViewport},
             view_toolbar,
         },
+        project_browser::{ProjectAnimationClip, ProjectAnimationExpand},
         sidebars::{
             EditorNavigatorTab, EditorRightSidebarTab, EditorSidebarTab, SceneEditorSidebarState,
             SceneEditorSidebarTabButton,
@@ -560,14 +561,16 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
         Phase::OpenMotionPicker => {
             if world.resource::<SceneEditorState>().selected_asset.as_deref() != Some(model)
                 || world.resource::<SceneEditorSidebarState>().right != EditorRightSidebarTab::Assets
-                || !file_counts_visible(world, 1, 0)
+                || (run.reopen && !file_counts_visible(world, 1, 0))
                 || !click(world, run, window, RigAction::ChooseProjectMotion)
             {
                 return Ok(None);
             }
-            run.property_switch_verified = true;
-            run.reopened_motion_picker = true;
-            Phase::Inspect
+            if run.reopen {
+                run.property_switch_verified = true;
+                run.reopened_motion_picker = true;
+            }
+            Phase::PickIdle
         }
         Phase::Launch => {
             if !run.reopen && !world.resource::<SceneEditorSidebarState>().scene_tree_visible() {
@@ -590,9 +593,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             if !status.open || status.busy || status.source != Some(model) {
                 return Ok(None);
             }
-            if run.reopen {
-                Phase::PickIdle
-            } else if matches!(phase, Phase::Inspect) && !status.native {
+            if matches!(phase, Phase::Inspect) && !status.native {
                 return Err("编辑器未默认使用原生绑骨".into());
             } else if matches!(phase, Phase::Inspect) && run.backend == "blender" {
                 Phase::SwitchBackend
@@ -807,16 +808,19 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
         Phase::Published
             if world.resource::<RiggingState>().validation_status().output == Some(OUTPUT) =>
         {
-            Phase::Preview
+            Phase::OpenMotionPicker
         }
-        Phase::PickIdle if click(world, run, window, RigAction::Choose(0)) => Phase::Preview,
-        Phase::Preview => {
-            let status = world.resource::<RiggingState>().validation_status();
-            if status.animation != Some(action) || status.clip != 0 {
+        Phase::PickIdle => {
+            let button = run.click.map(|(entity, _)| entity).or_else(|| animation_file_button(world, IDLE));
+            if !click_entity(world, run, window, button) {
                 return Ok(None);
             }
+            Phase::Preview
+        }
+        Phase::Preview => {
             let Some(tabs) = active_model_tab(world, model) else { return Ok(None) };
-            if !click(world, run, window, RigAction::Preview) {
+            let button = run.click.map(|(entity, _)| entity).or_else(|| animation_clip_button(world, 0));
+            if !click_entity(world, run, window, button) {
                 return Ok(None);
             }
             // 在物理松手事件被原按钮系统处理前取证。下一帧起每帧复核，包含后台过渡期。
@@ -884,8 +888,12 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             }
             Phase::OpenSecondPicker
         }
-        Phase::OpenSecondPicker if click(world, run, window, RigAction::PickFile) => Phase::SwitchMotion,
-        Phase::SwitchMotion if click(world, run, window, RigAction::Choose(1)) => {
+        Phase::OpenSecondPicker if click(world, run, window, RigAction::ChooseProjectMotion) => Phase::SwitchMotion,
+        Phase::SwitchMotion => {
+            let button = run.click.map(|(entity, _)| entity).or_else(|| animation_file_button(world, WALK));
+            if !click_entity(world, run, window, button) {
+                return Ok(None);
+            }
             run.second_motion = true;
             Phase::Preview
         }
@@ -1196,6 +1204,22 @@ fn click_asset_row(world: &mut World, run: &mut Run, window: Entity, path: &str)
     click_matching(world, run, window, |row: &SceneEditorAssetRow| row.entry_index == Some(index))
 }
 
+/// 共用实窗驱动只在目录采用动画筛选后命中完整路径对应的展开按钮。
+pub(super) fn animation_file_button(world: &mut World, path: &str) -> Option<Entity> {
+    let catalog = world.resource::<EditorAssetCatalog>();
+    if catalog.is_loading() || catalog.adopted_type_filter != AssetTypeFilter::Animation {
+        return None;
+    }
+    let index = catalog.entries.iter().position(|entry| entry.asset_path == path)?;
+    visible_button::<ProjectAnimationExpand, ()>(world, |expand| {
+        expand.0.is_some_and(|binding| binding.index == Some(index))
+    })
+}
+
+pub(super) fn animation_clip_button(world: &mut World, index: usize) -> Option<Entity> {
+    visible_button::<ProjectAnimationClip, ()>(world, |clip| clip.clip_index == Some(index))
+}
+
 fn file_counts_visible(world: &mut World, meshes: usize, clips: usize) -> bool {
     validation_details_text(world).is_some_and(|text| {
         text.contains(&format!("网格 {meshes}\n蒙皮 1 · 动画 {clips}"))
@@ -1226,25 +1250,31 @@ fn click_filtered<T: Component, F: QueryFilter>(
 ) -> bool {
     let entity = match run.click {
         Some((entity, _)) => Some(entity),
-        None => world
-            .query_filtered::<(
-                Entity,
-                &T,
-                &Node,
-                &ComputedNode,
-                Option<&InteractionDisabled>,
-                Option<&Visibility>,
-            ), F>()
-            .iter(world)
-            .find(|(_, marker, node, computed, disabled, visibility)| {
-                matches(marker) && node.display != Display::None
-                    && *visibility != Some(&Visibility::Hidden)
-                    && computed.size().min_element() > 1.0 && disabled.is_none()
-            })
-            .map(|(entity, _, _, _, _, _)| entity),
+        None => visible_button::<T, F>(world, matches),
     };
     let Some(entity) = entity else { return false };
     click_entity(world, run, window, Some(entity))
+}
+
+fn visible_button<T: Component, F: QueryFilter>(
+    world: &mut World, matches: impl Fn(&T) -> bool,
+) -> Option<Entity> {
+    world
+        .query_filtered::<(
+            Entity,
+            &T,
+            &Node,
+            &ComputedNode,
+            Option<&InteractionDisabled>,
+            Option<&Visibility>,
+        ), F>()
+        .iter(world)
+        .find(|(_, marker, node, computed, disabled, visibility)| {
+            matches(marker) && node.display != Display::None
+                && *visibility != Some(&Visibility::Hidden)
+                && computed.size().min_element() > 1.0 && disabled.is_none()
+        })
+        .map(|(entity, _, _, _, _, _)| entity)
 }
 
 fn click_entity(world: &mut World, run: &mut Run, window: Entity, entity: Option<Entity>) -> bool {

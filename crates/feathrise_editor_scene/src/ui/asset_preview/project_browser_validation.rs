@@ -5,25 +5,29 @@ mod evidence;
 use super::{
     AssetPreviewState, AssetPreviewWorkspace,
     animation::{active_project_clip, project_clip_properties, rig_animation_identity, rig_animation_probe},
+    rigging::RigAction,
     rigging_validation::{click_window_entity, fixture_focus, move_cursor, window_event},
+    sidebar::validation_details_text,
     types::{AssetPreviewContent, AssetPreviewPhase},
 };
 use crate::{
     asset_catalog::{AssetTypeFilter, EditorAssetCatalog, project_files::EditorProjectFileCatalog},
-    components::{SceneEditorActionButton, SceneEditorAssetFolderText, SceneEditorAssetRow, SceneEditorPane, SceneEditorPaneSplitter},
+    components::{SceneEditorActionButton, SceneEditorAssetFolderText, SceneEditorAssetRow, SceneEditorLayoutButton, SceneEditorPane, SceneEditorPaneSplitter, SceneEditorSettingsButton},
     constants::EDITOR_CONTENT_MIN_WIDTH,
-    resources::{SceneEditorLayoutState, SceneEditorState},
-    types::{EditorAction, EditorPane},
+    resources::{SceneEditorLayoutState, SceneEditorSettingsState, SceneEditorState},
+    types::{EditorAction, EditorLayoutAction, EditorPane, EditorSettingsAction},
     ui::{
         asset_thumbnails::{ViewModeButton, validation_visible_thumbnail},
+        context_help::ContextHelpMounted,
         project_browser::{
             ProjectAnimationClip, ProjectAnimationExpand, ProjectBrowserState, ProjectBrowserView,
             ProjectFileFilter, ProjectFileRow, ProjectTypeFilterButton, ProjectTypeFilterOption,
         },
-        sidebars::{EditorNavigatorTab, EditorSidebarTab, SceneEditorSidebarState, SceneEditorSidebarTabButton},
+        sidebars::{EditorNavigatorTab, EditorRightSidebarTab, EditorSidebarTab, SceneEditorSidebarState, SceneEditorSidebarTabButton},
         tooltips::{EditorTooltipTarget, TooltipAction},
         vegetation_preset_editor::VegetationPresetEditorState,
     },
+    workbench::{WorkbenchHeader, WorkbenchHeaderItem},
 };
 use bevy::{
     app::AppExit,
@@ -32,13 +36,13 @@ use bevy::{
     math::DVec2,
     prelude::*,
     tasks::{IoTaskPool, Task, futures::check_ready},
-    text::EditableText,
+    text::{EditableText, TextLayoutInfo},
     ui::{InteractionDisabled, UiGlobalTransform},
     window::{Ime, PrimaryWindow},
 };
 use feathrise_editor_core::{AssetBrowserViewMode, EditorSettings};
 use feathrise_editor_documents_model::search::components::{SearchAction, SearchBody, SearchReferenceControls, SearchTextControls};
-use feathrise_editor_ui::{UiInteraction, localization::EditorLocale};
+use feathrise_editor_ui::{UiInteraction, context_help::ContextHelpButton, localization::EditorLocale};
 use serde_json::{Map, Value, json};
 use std::{
     fs,
@@ -51,6 +55,8 @@ const STATIC: &str = "roles/nested/static.glb";
 const MOTIONS: &str = "motions.glb";
 const PROJECT_NAME_QUERY: &str = "Cargo.toml";
 const ASSET_NAME_QUERY: &str = "动作";
+const TOOLS_HELP: &str = "工程工具";
+const TOOLS: &[&str] = &["内容搜索", "缺失检查", "收藏", "最近访问", "刷新", "缩略图"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stage {
@@ -75,6 +81,8 @@ enum Stage {
     UpToRoles,
     UpToAssets,
     Narrow,
+    OpenToolsHelp,
+    ReadToolsHelp,
     OpenContentSearch,
     OpenMissingCheck,
     CloseMissingCheck,
@@ -83,6 +91,12 @@ enum Stage {
     CollapseRecent,
     OpenNarrowMenu,
     NarrowCapture,
+    CloseNarrowMenu,
+    LeaveAssetRoot,
+    ShowSceneTree,
+    CollapseDirectory,
+    OpenRigHelp,
+    ReadRigHelp,
     ChooseAnimation,
     UseThumbnails,
     ThumbnailsEnabled,
@@ -92,12 +106,18 @@ enum Stage {
     ChooseSecond,
     ObservePlayback,
     PlaybackCapture,
+    SelectOrdinaryMotion,
+    VerifyOrdinaryMotion,
     Replace,
     AwaitReplacement,
     ChooseModel,
     ReplacementCapture,
     ReturnProjectRoot,
     VerifyProjectRoot,
+    OpenFrameSettings,
+    EnableEditorFps,
+    CloseFrameSettings,
+    VerifyEditorFps,
     Complete,
 }
 
@@ -113,13 +133,26 @@ struct Run {
     click: Option<(Entity, bool)>,
     splitter_x: Option<DVec2>,
     tab: Option<(u64, usize)>,
-    sample: Option<(f32, Quat)>,
+    playback: Option<PlaybackWitness>,
     animation_revision: Option<u64>,
     capture: Option<evidence::CaptureTask>,
+    help_ready: Option<(Entity, URect, u8)>,
     replacement: Option<Task<Result<(), String>>>,
     replacement_revision: Option<u64>,
     steps: Map<String, Value>,
     screenshots: Map<String, Value>,
+}
+
+struct PlaybackWitness {
+    started: Instant,
+    first_seconds: f32,
+    last_pose: (f32, Quat),
+    frames: usize,
+    updated_frames: usize,
+    hold_frames: usize,
+    longest_hold_frames: usize,
+    last_change: Instant,
+    longest_gap: Duration,
 }
 
 pub fn install(app: &mut App, work: PathBuf, assets: PathBuf) -> Result<(), String> {
@@ -132,8 +165,8 @@ pub fn install(app: &mut App, work: PathBuf, assets: PathBuf) -> Result<(), Stri
     let now = Instant::now();
     app.insert_resource(Run {
         work, assets, original_motion, replacement_size, stage: Stage::OpenDirectory, started: now, stage_started: now,
-        click: None, splitter_x: None, tab: None, sample: None, animation_revision: None,
-        capture: None, replacement: None,
+        click: None, splitter_x: None, tab: None, playback: None, animation_revision: None,
+        capture: None, help_ready: None, replacement: None,
         replacement_revision: None, steps: Map::new(), screenshots: Map::new(),
     })
     .add_systems(Update, fixture_focus.before(crate::SceneEditorSystemSet::Input))
@@ -371,9 +404,27 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             }) else { return Ok(None); };
             if !narrow(world, run, window) { return Ok(None); }
             run.steps.insert("all_asset_root".into(), json!(paths));
+            Stage::OpenToolsHelp
+        }
+        Stage::OpenToolsHelp => {
+            if !click(world, run, window, |button: &ContextHelpButton| button.0 == TOOLS_HELP) {
+                return Ok(None);
+            }
+            Stage::ReadToolsHelp
+        }
+        Stage::ReadToolsHelp => {
+            let Some((copy, region, glyphs)) = ready_help(world, run) else { return Ok(None); };
+            if !TOOLS.iter().all(|&tool| copy.contains(tool)) {
+                return Err(format!("工程工具帮助未列出整行操作：{copy}"));
+            }
+            run.steps.insert("asset_tools_help".into(), json!(copy));
+            run.steps.insert("asset_tools_help_glyphs".into(), json!(glyphs));
+            if !capture_with_text(world, run, "asset-tools-help.png", Some(region))? { return Ok(None); }
+            key(world, window, KeyCode::Escape, Key::Escape, None);
             Stage::OpenContentSearch
         }
         Stage::OpenContentSearch => {
+            if mounted_help(world).is_some() { return Ok(None); }
             let Some(layout) = asset_tools_layout(world)? else { return Ok(None); };
             if !click(world, run, window, |action: &SearchAction| *action == SearchAction::Toggle) {
                 return Ok(None);
@@ -436,16 +487,75 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             let Some(layout) = narrow_menu(world, window) else { return Ok(None); };
             if !capture(world, run, "narrow-menu.png")? { return Ok(None); }
             run.steps.insert("narrow_menu".into(), layout);
+            Stage::CloseNarrowMenu
+        }
+        Stage::CloseNarrowMenu => {
+            if !click(world, run, window, |option: &ProjectTypeFilterOption| option.0 == AssetTypeFilter::All) {
+                return Ok(None);
+            }
+            Stage::LeaveAssetRoot
+        }
+        Stage::LeaveAssetRoot => {
+            if !click(world, run, window, |button: &SceneEditorActionButton| button.0 == EditorAction::AssetFolderUp) {
+                return Ok(None);
+            }
+            Stage::ShowSceneTree
+        }
+        Stage::ShowSceneTree => {
+            if project_paths(world).is_none() || !click(world, run, window, |tab: &SceneEditorSidebarTabButton| {
+                tab.0 == EditorSidebarTab::Navigator(EditorNavigatorTab::SceneTree)
+            }) {
+                return Ok(None);
+            }
+            Stage::CollapseDirectory
+        }
+        Stage::CollapseDirectory => {
+            if !world.resource::<SceneEditorSidebarState>().scene_tree_visible()
+                || !click(world, run, window, |button: &SceneEditorLayoutButton| button.0 == EditorLayoutAction::Content)
+            {
+                return Ok(None);
+            }
+            Stage::OpenRigHelp
+        }
+        Stage::OpenRigHelp => {
+            if world.resource::<SceneEditorLayoutState>().content_shown() || !hero_properties_visible(world, run)
+                || !click(world, run, window, |button: &ContextHelpButton| button.0 == "工程动作")
+            {
+                return Ok(None);
+            }
+            Stage::ReadRigHelp
+        }
+        Stage::ReadRigHelp => {
+            let Some((copy, region, glyphs)) = ready_help(world, run) else { return Ok(None); };
+            if !["选择动画", "箭头", "片段", "当前模型"].iter().all(|&term| copy.contains(term)) {
+                return Err(format!("工程动作帮助缺少选择和播放说明：{copy}"));
+            }
+            run.steps.insert("project_motion_help".into(), json!(copy));
+            run.steps.insert("project_motion_help_glyphs".into(), json!(glyphs));
+            if !capture_with_text(world, run, "project-motion-help.png", Some(region))? { return Ok(None); }
+            key(world, window, KeyCode::Escape, Key::Escape, None);
             Stage::ChooseAnimation
         }
         Stage::ChooseAnimation => {
-            if !click(world, run, window, |option: &ProjectTypeFilterOption| option.0 == AssetTypeFilter::Animation) {
+            // 用标题栏和场景树的正常操作收起左栏，从右侧模型属性实际点击入口。
+            if mounted_help(world).is_some()
+                || world.resource::<SceneEditorLayoutState>().content_shown()
+                || active_hero(world) != run.tab
+                || !click(world, run, window, |action: &RigAction| *action == RigAction::ChooseProjectMotion)
+            {
                 return Ok(None);
             }
             Stage::UseThumbnails
         }
         Stage::UseThumbnails => {
             let Some(paths) = asset_paths(world, "").filter(|paths| paths == &[MOTIONS]) else { return Ok(None); };
+            if !world.resource::<SceneEditorSidebarState>().assets_browser_visible()
+                || !world.resource::<SceneEditorLayoutState>().content_shown()
+                || world.resource::<EditorAssetCatalog>().adopted_type_filter != AssetTypeFilter::Animation
+                || !hero_properties_visible(world, run)
+            {
+                return Err("右栏选择动画未恢复左侧动画目录及原角色属性".into());
+            }
             let Some(expander) = animation_expander(world) else { return Ok(None); };
             if world.get::<Node>(expander).is_none_or(|node| node.position_type != PositionType::Relative)
                 || !click(world, run, window, |_: &ViewModeButton| true)
@@ -455,6 +565,9 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             let revision = world.resource::<EditorAssetCatalog>().applied_revision;
             run.animation_revision = Some(revision);
             run.steps.insert("animation_list".into(), json!({"entries":paths,"revision":revision}));
+            run.steps.insert("right_sidebar_animation_picker".into(), json!({
+                "opened_from_hidden_scene_tree":true,"asset_type":"Animation","model_tab":run.tab,
+            }));
             Stage::ThumbnailsEnabled
         }
         Stage::ThumbnailsEnabled => {
@@ -497,12 +610,16 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
         }
         Stage::ClipMenuCapture => {
             // 展开菜单须真正布局两个原片段行，再记录选择前的窗口画面。
+            if !hero_properties_visible(world, run) {
+                return Err("点开片段箭头时跳离了原角色属性或标签".into());
+            }
             if visible(world, |clip: &ProjectAnimationClip| clip.clip_index == Some(0)).is_none()
                 || visible(world, |clip: &ProjectAnimationClip| clip.clip_index == Some(1)).is_none()
                 || !capture(world, run, "clip-menu.png")?
             {
                 return Ok(None);
             }
+            run.steps.insert("clip_arrow_keeps_model_properties".into(), json!(true));
             Stage::ChooseSecond
         }
         Stage::ChooseSecond => {
@@ -518,6 +635,29 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
         }
         Stage::PlaybackCapture => {
             if !capture(world, run, "second-clip.png")? { return Ok(None); }
+            Stage::SelectOrdinaryMotion
+        }
+        Stage::SelectOrdinaryMotion => {
+            // 同一张卡的主体仍用于浏览文件属性，只有原箭头进入片段选择。
+            if !asset_paths(world, "").is_some_and(|paths| paths == [MOTIONS]) { return Ok(None); }
+            let row = asset_row(world, MOTIONS);
+            if !click_entity(world, run, window, row) { return Ok(None); }
+            Stage::VerifyOrdinaryMotion
+        }
+        Stage::VerifyOrdinaryMotion => {
+            if world.resource::<SceneEditorState>().selected_asset.as_deref() != Some(MOTIONS)
+                || world.resource::<SceneEditorSidebarState>().right != EditorRightSidebarTab::Assets
+                || active_hero(world) != run.tab
+                || !validation_details_text(world).is_some_and(|text| text.contains("网格 0") && text.contains("动画 2"))
+            {
+                return Ok(None);
+            }
+            if visible(world, |clip: &ProjectAnimationClip| clip.clip_index.is_some()).is_some() {
+                return Err("普通文件卡点击时打开了片段菜单".into());
+            }
+            run.steps.insert("ordinary_motion_properties".into(), json!({
+                "path":MOTIONS,"model_tab":run.tab,"asset_type":"Animation",
+            }));
             Stage::Replace
         }
         Stage::Replace => {
@@ -574,6 +714,39 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
                 return Ok(None);
             }
             run.steps.insert("asset_parent_returns_project_root".into(), json!(true));
+            if cfg!(windows) { Stage::OpenFrameSettings } else { Stage::Complete }
+        }
+        Stage::OpenFrameSettings => {
+            // 作者进程的独占偏好初次启动，先核对实际标题栏隐藏，再通过原标题栏按钮打开设置。
+            let hidden = world.query::<(&Name, &Node)>().iter(world)
+                .find_map(|(name, node)| (name.as_str() == "编辑器帧率").then_some(node.display == Display::None));
+            let Some(hidden) = hidden else { return Ok(None); };
+            if !hidden || world.resource::<EditorSettings>().show_editor_fps {
+                return Err("新验收工程默认显示了编辑器帧率".into());
+            }
+            if !click(world, run, window, |button: &SceneEditorSettingsButton| button.0 == EditorSettingsAction::Open) {
+                return Ok(None);
+            }
+            Stage::EnableEditorFps
+        }
+        Stage::EnableEditorFps => {
+            if !world.resource::<SceneEditorSettingsState>().open
+                || !click(world, run, window, |button: &SceneEditorSettingsButton| button.0 == EditorSettingsAction::ToggleEditorFpsDisplay)
+            {
+                return Ok(None);
+            }
+            Stage::CloseFrameSettings
+        }
+        Stage::CloseFrameSettings => {
+            if !world.resource::<EditorSettings>().show_editor_fps { return Ok(None); }
+            key(world, window, KeyCode::Escape, Key::Escape, None);
+            Stage::VerifyEditorFps
+        }
+        Stage::VerifyEditorFps => {
+            if world.resource::<SceneEditorSettingsState>().open { return Ok(None); }
+            let Some(proof) = editor_fps_layout(world)? else { return Ok(None); };
+            if !capture(world, run, "title-fps.png")? { return Ok(None); }
+            run.steps.insert("editor_title_fps".into(), proof);
             Stage::Complete
         }
         Stage::Complete => return Ok(None),
@@ -619,27 +792,65 @@ fn active_hero(world: &World) -> Option<(u64, usize)> {
     (media.active(workspace.active_tab) && tab.path == HERO).then(|| (tab.id, media.tabs().count()))
 }
 
+fn hero_properties_visible(world: &World, run: &Run) -> bool {
+    active_hero(world) == run.tab
+        && world.resource::<SceneEditorState>().selected_asset.as_deref() == Some(HERO)
+        && world.resource::<SceneEditorSidebarState>().right == EditorRightSidebarTab::Assets
+}
+
 fn observe_motion(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
+    if !hero_properties_visible(world, run) {
+        return Err("选择片段时跳离了原角色属性或标签".into());
+    }
     let Some((path, index, _, true)) = active_project_clip(world) else { return Ok(None); };
-    if path != run.assets.join(MOTIONS) || index != 1 || active_hero(world) != run.tab {
+    if path != run.assets.join(MOTIONS) || index != 1 {
         return Err("目录第二个片段没有在原角色标签中播放".into());
     }
     let Some((tab, host, model, motion, index)) = rig_animation_identity(world) else { return Ok(None); };
     if Some(tab) != run.tab.map(|(id, _)| id) || host != HERO || model != HERO || motion != MOTIONS || index != 1 {
         return Err("工程动作预览请求采用了错误的源、目标或片段".into());
     }
-    let Some(pose) = rig_animation_probe(world) else { return Ok(None); };
+    let Some(pose) = rig_animation_probe(world) else {
+        return if run.playback.is_some() { Err("播放期间丢失了可见角色姿态".into()) } else { Ok(None) };
+    };
     if pose.model_path != HERO || pose.clip_index != 1 || pose.clip_name != "抬臂" {
         return Err("已显示角色发布的片段不是第二段抬臂".into());
     }
     let Some((_, rotation)) = pose.joints.iter().find(|(name, _)| name == "mixamorig:LeftArm") else {
         return Err("实际蒙皮模型缺少用于比对的左臂关节".into());
     };
-    let Some((time, before)) = run.sample else {
-        run.sample = Some((pose.time, *rotation));
+    let now = Instant::now();
+    let Some(playback) = run.playback.as_mut() else {
+        run.playback = Some(PlaybackWitness {
+            started: now, first_seconds: pose.time, last_pose: (pose.time, *rotation),
+            frames: 0, updated_frames: 0, hold_frames: 0, longest_hold_frames: 0,
+            last_change: now, longest_gap: Duration::ZERO,
+        });
         return Ok(None);
     };
-    if (pose.time - time).abs() < 0.08 || rotation.dot(before).abs() >= 0.9999 { return Ok(None); }
+    // 每帧观察真正可见容器。时间轴可以继续走，只有发布秒数和实际左臂旋转一起变化才算新姿态。
+    playback.frames += 1;
+    playback.longest_gap = playback.longest_gap.max(now.duration_since(playback.last_change));
+    let (previous_time, previous_rotation) = playback.last_pose;
+    if (pose.time - previous_time).abs() > 1e-5
+        && !rotation.abs_diff_eq(previous_rotation, 1e-5)
+        && !rotation.abs_diff_eq(-previous_rotation, 1e-5)
+    {
+        playback.updated_frames += 1;
+        playback.hold_frames = 0;
+        playback.last_change = now;
+    } else {
+        playback.hold_frames += 1;
+        playback.longest_hold_frames = playback.longest_hold_frames.max(playback.hold_frames);
+    }
+    playback.last_pose = (pose.time, *rotation);
+    let elapsed = now.duration_since(playback.started);
+    if elapsed < Duration::from_millis(800) { return Ok(None); }
+    // 允许偶发后台调度延迟，同时捕获稳定的隔帧发布或更稀疏的停顿。
+    if playback.frames < 12 || playback.updated_frames * 4 < playback.frames * 3 {
+        return Err(format!("窗口连续播放 {:.0} 毫秒，仅 {}/{} 帧更新可见左臂，最长连续停留 {} 帧",
+            elapsed.as_secs_f32() * 1000.0, playback.updated_frames, playback.frames, playback.longest_hold_frames));
+    }
     let Some(properties) = project_clip_properties(world) else { return Ok(None); };
     let (label, parameters) = (&properties.label, &properties.parameters);
     if !label.contains("2/2") || !label.contains("抬臂") || !parameters.contains("30 fps")
@@ -655,11 +866,78 @@ fn observe_motion(world: &mut World, run: &mut Run) -> Result<Option<Value>, Str
     }
     Ok(Some(json!({
         "model_tab_id":tab,"host":HERO,"source":MOTIONS,"clip_index":1,"clip_name":pose.clip_name,
-        "first_sample_seconds":time,"second_sample_seconds":pose.time,"left_arm_rotation_changed":true,
+        "first_sample_seconds":playback.first_seconds,"second_sample_seconds":pose.time,"left_arm_rotation_changed":true,
+        "cadence":{
+            "observed_ms":elapsed.as_secs_f32()*1000.0,"window_frames":playback.frames,
+            "updated_pose_frames":playback.updated_frames,"longest_pose_hold_frames":playback.longest_hold_frames,
+            "longest_pose_gap_ms":playback.longest_gap.as_secs_f32()*1000.0,
+        },
         "bound_joints":pose.joints.len(),"visible_model_root":format!("{:?}",pose.root),
         "property_label":label,"property_parameters":parameters,
         "property_title_lines":properties.title_lines,
         "property_title_width_px":properties.title_width,"property_section_width_px":properties.section_width,
+    })))
+}
+
+fn mounted_help(world: &mut World) -> Option<Entity> {
+    visible(world, |_: &ContextHelpMounted| true)
+}
+
+fn ready_help(world: &mut World, run: &mut Run) -> Option<(String, URect, usize)> {
+    let body = mounted_help(world)?;
+    let glyphs = world.get::<TextLayoutInfo>(body)?.glyphs.len();
+    let scroll = world.get::<ChildOf>(body)?.parent();
+    let rect = |entity| {
+        let size = world.get::<ComputedNode>(entity)?.size();
+        let center = world.get::<UiGlobalTransform>(entity)?.translation;
+        Some(Rect::from_center_size(center, size))
+    };
+    let (body_rect, scroll_rect) = (rect(body)?, rect(scroll)?);
+    let min = (body_rect.min.max(scroll_rect.min) + Vec2::splat(2.0)).ceil().max(Vec2::ZERO);
+    let max = (body_rect.max.min(scroll_rect.max) - Vec2::splat(2.0)).floor();
+    if glyphs == 0 || min.cmpge(max).any() {
+        run.help_ready = None;
+        return None;
+    }
+    let region = URect::from_corners(min.as_uvec2(), max.as_uvec2());
+    let stable = run.help_ready.filter(|&(entity, bounds, _)| entity == body && bounds == region)
+        .map_or(1, |(_, _, frames)| (frames + 1).min(3));
+    run.help_ready = Some((body, region, stable));
+    // 等待重挂正文、字形与滚动裁剪连续稳定，GPU 回读仍需确认正文实际画出来。
+    if stable < 3 { return None; }
+    Some((world.get::<Text>(body)?.0.clone(), region, glyphs))
+}
+
+fn editor_fps_layout(world: &mut World) -> Result<Option<Value>, String> {
+    let Some(fps) = visible(world, |name: &Name| name.as_str() == "编辑器帧率") else { return Ok(None); };
+    let Some(text) = world.get::<Text>(fps).map(|text| text.0.clone()) else { return Ok(None); };
+    let Some(value) = text.strip_suffix(" FPS").and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value > 0.0) else { return Ok(None); };
+    let Some(more) = visible(world, |name: &Name| name.as_str() == "更多操作") else { return Ok(None); };
+    let Some(drag) = visible(world, |item: &WorkbenchHeaderItem| *item == WorkbenchHeaderItem::Spacer) else { return Ok(None); };
+    let parent = |entity| world.get::<ChildOf>(entity).map(ChildOf::parent);
+    let header = parent(fps).filter(|header| world.get::<WorkbenchHeader>(*header).is_some())
+        .ok_or("编辑器帧率读数没有进入原工作台顶栏")?;
+    if parent(more) != Some(header) || parent(drag) != Some(header) {
+        return Err("帧率、更多操作与拖动区不在同一标题栏".into());
+    }
+    let rect = |entity| {
+        let size = world.get::<ComputedNode>(entity)?.size();
+        let center = world.get::<UiGlobalTransform>(entity)?.translation;
+        Some(Rect::from_center_size(center, size))
+    };
+    let (Some(fps_rect), Some(more_rect), Some(drag_rect), Some(header_rect)) =
+        (rect(fps), rect(more), rect(drag), rect(header)) else { return Ok(None); };
+    // 使用布局后的物理边界，防止标签误入拖动区或覆盖更多操作命中框。
+    if more_rect.max.x > fps_rect.min.x + 1.0 || fps_rect.max.x > drag_rect.min.x + 1.0
+        || fps_rect.min.y < header_rect.min.y - 1.0 || fps_rect.max.y > header_rect.max.y + 1.0
+    {
+        return Err(format!("标题栏帧率布局越界：{more_rect:?} / {fps_rect:?} / {drag_rect:?}"));
+    }
+    Ok(Some(json!({
+        "hidden_by_default":true,"label":text,"fps":value,
+        "more_right_px":more_rect.max.x,"fps_rect_px":[fps_rect.min.to_array(),fps_rect.max.to_array()],
+        "drag_left_px":drag_rect.min.x,
     })))
 }
 
@@ -696,6 +974,11 @@ fn asset_tools_layout(world: &mut World) -> Result<Option<Value>, String> {
     }
     if !positions.windows(2).all(|pair| pair[0][0] < pair[1][0] && (pair[0][1] - pair[1][1]).abs() <= 1.0) {
         return Err("六个资产工具没有在窄栏依序排在同一行".into());
+    }
+    let Some(help) = visible(world, |button: &ContextHelpButton| button.0 == TOOLS_HELP) else { return Ok(None); };
+    let help_x = world.get::<UiGlobalTransform>(help).unwrap().translation.x;
+    if positions.last().is_some_and(|last| help_x <= last[0]) {
+        return Err("窄栏工程工具问号没有放在整行工具右侧".into());
     }
     let Some(path) = visible(world, |_: &SceneEditorAssetFolderText| true) else { return Ok(None); };
     let path_top = world.get::<UiGlobalTransform>(path).unwrap().translation.y
@@ -806,7 +1089,11 @@ fn narrow_menu(world: &mut World, window: Entity) -> Option<Value> {
 }
 
 fn capture(world: &mut World, run: &mut Run, filename: &str) -> Result<bool, String> {
-    if let Some(proof) = evidence::capture(world, &mut run.capture, &run.work.join(filename))? {
+    capture_with_text(world, run, filename, None)
+}
+
+fn capture_with_text(world: &mut World, run: &mut Run, filename: &str, region: Option<URect>) -> Result<bool, String> {
+    if let Some(proof) = evidence::capture(world, &mut run.capture, &run.work.join(filename), region)? {
         run.screenshots.insert(filename.into(), proof);
         return Ok(true);
     }

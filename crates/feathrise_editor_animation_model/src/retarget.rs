@@ -21,15 +21,18 @@ impl RigRetarget {
         self.clips.get(clip).copied().unwrap_or(false)
     }
 
-    pub fn sample(&self, source: &[Transform]) -> Vec<Option<Transform>> {
+    pub fn sample(&self, source: &[Transform]) -> Vec<(usize, Transform)> {
         self.corrections
             .iter()
             .zip(source)
-            .map(|(joint, source)| {
-                joint.map(|joint| Transform {
+            .enumerate()
+            .filter_map(|(index, (joint, source))| {
+                let joint = joint.as_ref()?;
+                let transform = Transform {
                     rotation: (joint.before * source.rotation * joint.after).normalize(),
                     ..joint.rest // 外部动作只提供转动，位移和缩放保留目标的静止值。
-                })
+                };
+                Some((index, transform))
             })
             .collect()
     }

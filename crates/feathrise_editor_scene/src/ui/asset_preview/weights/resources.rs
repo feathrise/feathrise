@@ -44,6 +44,13 @@ impl History {
     }
 }
 
+pub(super) struct HeatMap {
+    pub skin: usize,
+    pub joint: u16,
+    pub surface: usize,
+    pub meshes: BTreeMap<usize, Handle<Mesh>>,
+}
+
 pub(super) struct Session {
     pub key: Key,
     pub doc: Arc<dyn WeightDocument>,
@@ -51,7 +58,7 @@ pub(super) struct Session {
     pub drafts: Vec<Draft>,
     pub surface: usize,
     pub joint: u16,
-    pub heat_mesh: Option<(usize, Handle<Mesh>)>,
+    pub heatmap: Option<HeatMap>,
     pub original: bool,
     pub heat: bool,
     pub show_skeleton: bool,
@@ -109,7 +116,7 @@ impl Session {
             drafts,
             surface: 0,
             joint,
-            heat_mesh: None,
+            heatmap: None,
             original: false,
             heat: true,
             show_skeleton: true,
@@ -254,7 +261,16 @@ pub(super) struct Work {
     pub key: Key,
     pub saving: bool,
     pub cancel: Arc<AtomicBool>,
-    pub task: Task<Result<Outcome, String>>,
+    pub phase: WorkPhase,
+}
+
+pub(super) enum WorkPhase {
+    Compute(Task<Result<Outcome, String>>),
+    RegisterHeat {
+        result: Prepared,
+        reason: Reason,
+        handles: Vec<(usize, Handle<Mesh>)>,
+    },
 }
 
 #[derive(Resource, Default)]

@@ -11,12 +11,14 @@ use super::{
         animation::{AnimationEditorState, PreviewRigAnimation}, workspace},
     context::{Candidate, Context},
     resources::*,
-    scene::{RigMotionHost, RigToolHost},
+    scene::{RigMotionHelp, RigMotionHost, RigToolHost},
     types::*,
 };
 use crate::{
+    asset_catalog::project_files::EditorProjectFileCatalog,
     resources::{EditorAssetCatalog, EditorTextInputGuard, SceneEditorLayoutState, SceneEditorState},
-    ui::{sidebars::{EditorNavigatorTab, EditorRightSidebarTab, SceneEditorSidebarState},
+    ui::{project_browser::{ProjectBrowserState, navigation::choose_animation},
+        sidebars::{EditorNavigatorTab, EditorRightSidebarTab, SceneEditorSidebarState},
         vegetation_preset_editor::VegetationPresetEditorState},
 };
 
@@ -48,7 +50,7 @@ pub(super) fn pick_project_animation(
     let source = super::super::animation::checked_clip_path(&root, &pick.asset_path);
     let role = context.active_tab_id().zip(context.candidate()).and_then(|(tab, candidate)| {
         let session = current_session(&state, candidate);
-        let model = session.and_then(Session::model_for_preview)
+        let model = session.and_then(|session| session.result.as_deref())
             .or_else(|| (candidate.entry == Entry::Skinned).then_some(candidate.path))?;
         Some(PreviewRigAnimation {
             model_path: model.to_owned(),
@@ -94,10 +96,17 @@ pub(super) fn pick_project_animation(
 
 pub(super) fn actions(
     operations: Res<RiggingOperations>,
-    mut contexts: ParamSet<(Context, (ResMut<SceneEditorSidebarState>, Option<ResMut<SceneEditorLayoutState>>, ResMut<SceneEditorState>))>,
+    mut contexts: ParamSet<(Context, (
+        ResMut<SceneEditorSidebarState>,
+        Option<ResMut<SceneEditorLayoutState>>,
+        ResMut<SceneEditorState>,
+        ResMut<ProjectBrowserState>,
+        ResMut<EditorProjectFileCatalog>,
+        ResMut<EditorAssetCatalog>,
+    ))>,
     mut state: ResMut<RiggingState>,
+    mut tree: ResMut<super::super::gltf_tree::TreeState>,
     buttons: Query<(&RigAction, &EditorButtonClick), Changed<EditorButtonClick>>,
-    mut preview: MessageWriter<PreviewRigAnimation>,
     mut open: MessageWriter<OpenAssetPreview>,
 ) {
     let Some(action) = buttons
@@ -121,12 +130,31 @@ pub(super) fn actions(
     }
     let central = context.central();
     let session = current_session(&state, source);
-    let motion_page = central && has_project_motion(source, session);
-    if action == RigAction::Launch && state.work.is_none() {
-        // 已蒙皮模型直接使用属性里的工程动作，隐藏右栏时才使用左树里的备用入口。
-        if source.entry == Entry::Skinned && motion_page && context.motion_properties_shown() {
-            return;
+    let has_motion = has_project_motion(source, session);
+    let motion_page = central && has_motion;
+    let motion_shown = motion_page && context.motion_properties_shown();
+    if action == RigAction::ChooseProjectMotion || (action == RigAction::Launch && has_motion) {
+        let from_properties = action == RigAction::ChooseProjectMotion;
+        if from_properties != motion_shown {
+            return; // 属性与侧栏备用入口只接受来自实际可见位置的点击。
         }
+        let path = (!from_properties).then(|| source.path.to_owned());
+        let small_preview_root = (!central).then(|| source.root.to_path_buf());
+        let (mut sidebar, Some(mut layout), mut editor, mut browser, mut files, mut catalog) = contexts.p1()
+        else { return; };
+        if let Some(path) = path {
+            if let Some(root) = small_preview_root {
+                tree.keep_animation_browser_on_open(root, path.clone());
+                open.write(OpenAssetPreview { path: path.clone() });
+            }
+            editor.selected_asset = Some(path);
+            sidebar.reveal_asset_properties();
+            layout.inspector_visible = true;
+        }
+        choose_animation(&mut browser, &mut files, &mut catalog, &mut editor, &mut sidebar, &mut layout);
+        return;
+    }
+    if action == RigAction::Launch && state.work.is_none() {
         if state.session.as_ref().is_some_and(|session| session.matches(source)) {
             state.panel_open = true;
         } else {
@@ -139,9 +167,8 @@ pub(super) fn actions(
             });
         }
         let picking_reference = state.session.as_ref().is_some_and(Session::reference_mode);
-        let show_motion = central && has_project_motion(source, state.session.as_ref());
-        let target = (picking_reference || show_motion).then(|| source.path.to_owned());
-        let (mut sidebar, layout, mut editor) = contexts.p1();
+        let target = picking_reference.then(|| source.path.to_owned());
+        let (mut sidebar, layout, mut editor, ..) = contexts.p1();
         if let Some(target) = target {
             // 固定当前模型的属性身份。左栏引用高亮读取独立的参考选择。
             editor.selected_asset = Some(target);
@@ -150,7 +177,7 @@ pub(super) fn actions(
             }
             sidebar.reveal_asset_properties();
         }
-        if central && !show_motion {
+        if central {
             sidebar.rigging_available = true;
             sidebar.right = EditorRightSidebarTab::Rigging;
         }
@@ -164,24 +191,13 @@ pub(super) fn actions(
         }
         return;
     }
-    if !(if motion_page {
-        context.motion_properties_shown()
-    } else {
-        context.rigging_sidebar_shown()
-    }) {
+    if motion_page || !context.rigging_sidebar_shown() {
         return;
     }
-    if action == RigAction::ChooseProjectMotion {
-        // 查看模型属性只改变展示，收到这个明确动作后才启动目录 IO。
-        if motion_page && source.entry == Entry::Skinned && state.work.is_none() && can_choose_project_motion(session) {
-            inspect(&mut state, source, *operations);
-        }
-        return;
-    }
-    if action == RigAction::Close && (motion_page || session.is_some()) {
+    if action == RigAction::Close && session.is_some() {
         state.cancel_work();
         state.panel_open = false;
-        let (mut sidebar, _, _) = contexts.p1();
+        let (mut sidebar, ..) = contexts.p1();
         sidebar.reveal_properties();
         return;
     }
@@ -190,8 +206,8 @@ pub(super) fn actions(
     }
     let session = state.session.as_mut().expect("已核对当前绑骨会话");
     match action {
-        RigAction::Retry if source.entry == Entry::Unskinned => inspect(&mut state, source, *operations),
-        RigAction::SwitchBackend if source.entry == Entry::Unskinned => {
+        RigAction::Retry => inspect(&mut state, source, *operations),
+        RigAction::SwitchBackend => {
             state.backend = match state.backend {
                 RigBackend::Native => RigBackend::Blender,
                 RigBackend::Blender => RigBackend::Native,
@@ -207,17 +223,6 @@ pub(super) fn actions(
         RigAction::ToggleMirror if session.draft.is_some() => {
             state.independent_markers = !state.independent_markers;
         }
-        RigAction::PickFile if session.model_for_preview().is_some() => {
-            session.toggle_picker(Picker::File)
-        }
-        RigAction::PickClip if session.model_for_preview().is_some() => {
-            session.toggle_picker(Picker::Clip)
-        }
-        RigAction::Choose(row) if row < PICKER_ROWS => session.choose(row),
-        RigAction::Previous => session.page = session.page.saturating_sub(1),
-        RigAction::Next if (session.page + 1) * PICKER_ROWS < session.choice_count() => {
-            session.page += 1
-        }
         RigAction::Bind => {
             let Some(file) = session.file().filter(|file| file.can_reference) else {
                 return;
@@ -230,33 +235,9 @@ pub(super) fn actions(
             let landmarks = draft.points.clone();
             session.error = None;
             session.notice = Notice::Binding;
-            session.picker = None;
             state.work = Some(Work::start_async(Some(source.key()), move |cancel| async move {
                 Completion::Binding(input.bind(reference, landmarks, cancel).await)
             }));
-        }
-        RigAction::Preview => {
-            let (Some(tab), Some(model_path), Some(file)) = (
-                context.active_tab_id(),
-                session.model_for_preview(),
-                session.file(),
-            )
-            else {
-                return;
-            };
-            if session.clip < file.clips.len() {
-                preview.write(PreviewRigAnimation {
-                    // 预览来源与画布宿主分开。即使同帧切走标签，旧按钮也不能把动作送到新模型。
-                    host_tab: tab,
-                    host_path: source.path.to_owned(),
-                    host_generation: source.generation,
-                    asset_root: source.root.to_path_buf(),
-                    model_path: model_path.to_owned(),
-                    animation_path: file.path.clone(),
-                    clip_index: session.clip,
-                    recheck_source: false,
-                });
-            }
         }
         _ => {}
     }
@@ -286,7 +267,7 @@ pub(super) fn sync_sidebar(
         }
         let wanted = if motion { host } else { tool };
         if parent.parent() != wanted {
-            // 生成成功后同一个项目动作选择器进入属性页，保留当前片段和分页状态。
+            // 生成成功后将文件回执和动作入口移入当前模型的属性页。
             commands.entity(entity).insert(ChildOf(wanted));
         }
     }
@@ -320,15 +301,9 @@ fn current_session<'a>(state: &'a RiggingState, source: Candidate<'_>) -> Option
         .filter(|session| state.panel_open && session.matches(source))
 }
 
-fn can_choose_project_motion(session: Option<&Session>) -> bool {
-    session.is_none_or(|session| {
-        matches!(session.notice, Notice::Failed | Notice::NoClips | Notice::Cancelled)
-    })
-}
-
 fn inspect(state: &mut RiggingState, source: Candidate<'_>, operations: RiggingOperations) {
     let key = source.key();
-    let mut next = Session::new(key.clone(), source.entry);
+    let mut next = Session::new(key.clone());
     if let Some(previous) = state.session.as_ref()
         && previous.reference_mode() && previous.matches(source)
     {
@@ -336,23 +311,19 @@ fn inspect(state: &mut RiggingState, source: Candidate<'_>, operations: RiggingO
         next.reference_path.clone_from(&previous.reference_path);
     }
     let previous = state.session.replace(next);
-    let entry = source.entry;
     let backend = state.backend;
     state.panel_open = true;
     state.work = Some(Work::start_async(Some(key.clone()), move |cancel| async move {
         // 旧目录可能很大，移动所有权后在原单飞槽释放。
         drop(previous);
-        match entry {
-            Entry::Unskinned => Completion::Inspection(
-                (operations.inspect)(key.root, key.path, backend, crate::authoring::find_blender_executable, cancel)
-                    .await
-                    .map(|inspection| {
-                        let has_reference = inspection.animations.iter().any(|asset| asset.can_reference);
-                        (inspection, has_reference)
-                    }),
-            ),
-            Entry::Skinned => Completion::Catalog((operations.catalog)(&key.root, &cancel)),
-        }
+        Completion::Inspection(
+            (operations.inspect)(key.root, key.path, backend, crate::authoring::find_blender_executable, cancel)
+                .await
+                .map(|inspection| {
+                    let has_reference = inspection.animations.iter().any(|asset| asset.can_reference);
+                    (inspection, has_reference)
+                }),
+        )
     }));
 }
 
@@ -422,19 +393,6 @@ pub(super) fn poll(
                 selected: None,
             });
         }
-        Completion::Catalog(Ok(animations)) => {
-            // 可预览任意目录条目，由预览的骨架验证说明具体不兼容原因。
-            session.selected_file = (!animations.is_empty()).then_some(0);
-            session.notice = if session.selected_file.is_some() {
-                Notice::ChooseAnimation
-            } else {
-                Notice::NoClips
-            };
-            session.animations = animations;
-            if session.selected_file.is_some() {
-                session.toggle_picker(Picker::File);
-            }
-        }
         Completion::Binding(Ok(prepared)) => {
             let (joints, vertices) = (prepared.joints, prepared.vertices);
             session.notice = Notice::Publishing;
@@ -467,10 +425,8 @@ pub(super) fn poll(
             session.warnings = published.warnings;
             session.draft = None;
             session.notice = Notice::Saved { joints, vertices };
-            session.clip = 0;
         }
         Completion::Inspection(Err(error))
-        | Completion::Catalog(Err(error))
         | Completion::Binding(Err(error))
         | Completion::Publish {
             result: Err(error), ..
@@ -501,48 +457,40 @@ pub(super) fn present(
             &mut Node,
             Option<&RigAction>,
             Has<RigPanel>,
-            Has<RigChoices>,
             Has<RigMarkerTools>,
+            Has<RigMotionHelp>,
         ),
-        Or<(
-            With<RigAction>,
-            With<RigPanel>,
-            With<RigChoices>,
-            With<RigMarkerTools>,
-        )>,
+        (Or<(With<RigAction>, With<RigPanel>, With<RigMarkerTools>, With<RigMotionHelp>)>, Without<RigText>),
     >,
-    mut labels: Query<(&RigText, &mut Text)>,
+    mut labels: Query<(&RigText, &mut Text, &mut Node)>,
 ) {
     let locale = locale.as_deref().copied().unwrap_or_default();
     let candidate = context.candidate();
     let session = candidate.and_then(|source| current_session(&state, source));
     let motion_page = context.central() && candidate.is_some_and(|source| has_project_motion(source, session));
-    let skinned = candidate.is_some_and(|source| source.entry == Entry::Skinned);
+    let has_motion = candidate.is_some_and(|source| has_project_motion(source, session));
     let busy = state.work.is_some();
-    for (mut node, action, panel, choices, marker_tools) in &mut nodes {
+    for (mut node, action, panel, marker_tools, motion_help) in &mut nodes {
         let show = if panel {
             motion_page || session.is_some()
-        } else if choices {
-            session.is_some_and(|session| session.picker.is_some()) && !busy
         } else if marker_tools {
             session.is_some_and(|session| session.draft.is_some())
         } else if action == Some(&RigAction::Launch) {
-            candidate.is_some() && !busy && !(skinned && motion_page && context.motion_properties_shown())
-        } else if action == Some(&RigAction::ChooseProjectMotion) {
-            skinned && motion_page && !busy && can_choose_project_motion(session)
+            candidate.is_some() && (has_motion || !busy) && !(motion_page && context.motion_properties_shown())
+        } else if motion_help || action == Some(&RigAction::ChooseProjectMotion) {
+            // 共用面板在绑骨页时只显示绑骨控制，问号随工程动作入口出现。
+            motion_page
         } else if action == Some(&RigAction::Close) {
-            session.is_some()
+            session.is_some() && !motion_page
         } else {
-            session.is_some_and(|session| match action {
-                Some(RigAction::SwitchBackend) => !busy && session.entry == Entry::Unskinned,
+            !motion_page && session.is_some_and(|session| match action {
+                Some(RigAction::SwitchBackend) => !busy,
                 Some(RigAction::Retry) => {
                     !busy
-                        && session.entry == Entry::Unskinned
                         && matches!(
                             session.notice,
                             Notice::Failed
                                 | Notice::NoReference
-                                | Notice::NoClips
                                 | Notice::Cancelled
                                 | Notice::Saved { .. }
                         )
@@ -552,28 +500,6 @@ pub(super) fn present(
                 Some(RigAction::Bind) => {
                     !busy && session.draft.is_some() && session.file().is_some()
                 }
-                Some(RigAction::PickFile) => {
-                    !busy && session.model_for_preview().is_some() && !session.animations.is_empty()
-                }
-                Some(RigAction::PickClip) => {
-                    !busy
-                        && session.model_for_preview().is_some()
-                        && session.file().is_some_and(|file| !file.clips.is_empty())
-                }
-                Some(RigAction::Preview) => {
-                    !busy
-                        && session.model_for_preview().is_some()
-                        && session
-                            .file()
-                            .is_some_and(|file| session.clip < file.clips.len())
-                }
-                Some(RigAction::Choose(row)) => !busy && session.choice(*row).is_some(),
-                Some(RigAction::Previous) => !busy && session.picker.is_some() && session.page > 0,
-                Some(RigAction::Next) => {
-                    !busy
-                        && session.picker.is_some()
-                        && (session.page + 1) * PICKER_ROWS < session.choice_count()
-                }
                 _ => false,
             })
         };
@@ -582,11 +508,11 @@ pub(super) fn present(
             node.display = display;
         }
     }
-    for (kind, mut text) in &mut labels {
+    for (kind, mut text, mut node) in &mut labels {
         let wanted = match (kind, session) {
             (RigText::Launch, _) => locale
                 .text(
-                    if candidate.is_some_and(|source| source.entry == Entry::Skinned) {
+                    if has_motion {
                         "rig.motion.choose_project"
                     } else {
                         "rig.launch"
@@ -599,8 +525,6 @@ pub(super) fn present(
             (RigText::Close, _) => locale
                 .text(if busy {
                     "rig.cancel"
-                } else if motion_page {
-                    "rig.motion.collapse"
                 } else {
                     "rig.close"
                 })
@@ -617,7 +541,6 @@ pub(super) fn present(
                 "rig.mirror.on"
             }).to_owned(),
             (RigText::Notice, Some(session)) => notice(locale, session),
-            (RigText::Notice, None) if motion_page => locale.text("rig.motion.idle").to_owned(),
             (RigText::Warning, Some(session)) => {
                 session.warnings.first().map_or(String::new(), |warning| {
                     locale.format(
@@ -653,43 +576,17 @@ pub(super) fn present(
                 (None, Some(path)) => locale.format("rig.file.reference.incompatible", &[("file", path.clone())]),
                 (None, None) => locale.text("rig.file.reference.pick").to_owned(),
             },
-            (RigText::File, Some(session)) => locale.format(
-                "rig.file.animation",
-                &[(
-                    "file",
-                    session
-                        .file()
-                        .map_or(String::new(), |file| file.path.clone()),
-                )],
-            ),
-            (RigText::Clip, Some(session)) => locale.format(
-                "rig.clip",
-                &[(
-                    "clip",
-                    session
-                        .file()
-                        .and_then(|file| file.clips.get(session.clip))
-                        .cloned()
-                        .unwrap_or_default(),
-                )],
-            ),
-            (RigText::Choice(row), Some(session)) => {
-                session.choice(*row).unwrap_or_default().to_owned()
-            }
-            (RigText::Page, Some(session)) => locale.format(
-                "rig.page",
-                &[
-                    ("page", (session.page + 1).to_string()),
-                    (
-                        "pages",
-                        session.choice_count().div_ceil(PICKER_ROWS).to_string(),
-                    ),
-                ],
-            ),
             _ => String::new(),
         };
         if text.as_str() != wanted {
             **text = wanted;
+        }
+        if matches!(kind, RigText::Notice | RigText::Warning) {
+            // 工程动作只为真实的生成回执和警告留出空间，普通模型的按钮紧跟标题。
+            let display = if motion_page && text.is_empty() { Display::None } else { Display::Flex };
+            if node.display != display {
+                node.display = display;
+            }
         }
     }
 }
@@ -697,13 +594,10 @@ pub(super) fn present(
 fn notice(locale: EditorLocale, session: &Session) -> String {
     let key = match session.notice {
         Notice::Inspecting => "rig.status.inspecting",
-        Notice::Cataloguing => "rig.status.cataloguing",
         Notice::Review => "rig.status.review",
         Notice::Binding => "rig.status.binding",
         Notice::Publishing => "rig.status.publishing",
-        Notice::ChooseAnimation => "rig.status.choose",
         Notice::NoReference => "rig.status.no_reference",
-        Notice::NoClips => "rig.status.no_clips",
         Notice::Cancelled => "rig.status.cancelled",
         Notice::Failed => {
             return locale.format(

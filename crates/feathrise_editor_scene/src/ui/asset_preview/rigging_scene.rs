@@ -1,4 +1,4 @@
-//! 模型画布共用一套固定关节点与资产选择行，动画数量不改变 UI 实体数。
+//! 模型画布共用固定关节点，模型属性通过单个入口打开左侧工程动作目录。
 
 use bevy::{prelude::*, text::FontSourceTemplate, ui::{FocusPolicy, RelativeCursorPosition, Val2}};
 use feathrise_editor_ui::{
@@ -13,7 +13,7 @@ use crate::ui::{scene::FONT_PATH, theme as colors};
 use crate::ui::sidebars::{EditorRightSidebarTab, EditorSidebarTab, SceneEditorSidebarPage};
 
 fn button(action: RigAction) -> impl Scene {
-    let colors = if matches!(action, RigAction::Bind | RigAction::Preview | RigAction::ChooseProjectMotion) {
+    let colors = if matches!(action, RigAction::Bind | RigAction::ChooseProjectMotion) {
         ButtonColors::new(colors::SELECT_BG, colors::SELECT_BG_HOVER, colors::SELECT_BG_PRESSED)
     } else {
         ButtonColors::new(colors::BUTTON_DEV_SMALL_NORMAL, colors::BUTTON_DEV_SMALL_HOVERED, colors::BUTTON_DEV_SMALL_PRESSED)
@@ -75,14 +75,6 @@ fn fixed_button(action: RigAction, caption: &str, key: &'static str) -> impl Sce
     }
 }
 
-fn choice_button(action: RigAction, role: RigText) -> impl Scene {
-    bsn! {
-        @button(action)
-        Node { width: percent(100), justify_content: JustifyContent::Start }
-        Children [@label(role, colors::TEXT_PRIMARY, true)]
-    }
-}
-
 pub(in crate::ui::asset_preview) fn launch() -> impl Scene {
     bsn! {
         @button(RigAction::Launch)
@@ -95,6 +87,9 @@ pub(super) struct RigToolHost;
 
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct RigMotionHost;
+
+#[derive(Component, Clone, Copy, Default)]
+pub(super) struct RigMotionHelp;
 
 pub(in crate::ui::asset_preview) fn motion_properties_host() -> impl Scene {
     bsn! {
@@ -145,12 +140,15 @@ fn panel() -> impl Scene {
                 --
                 @fixed_button(RigAction::Retry, "重新检查", "rig.retry")--
                 @button(RigAction::Close)
-                Children [@label(RigText::Close, colors::TEXT_PRIMARY, true)]
+                Children [@label(RigText::Close, colors::TEXT_PRIMARY, true)]--
+                RigMotionHelp
+                Node { display: Display::None, width: px(18), height: px(18), flex_shrink: 0.0 }
+                Children [@crate::ui::context_help::help_button("工程动作", "点击「选择动画」会打开左侧「工程」栏并切到「动画」筛选。点击动画文件行或卡片上的箭头展开片段列表，选中片段后在当前模型上播放。点击文件行或卡片主体查看文件属性。")]
             ]
             --
             @label(RigText::Notice, colors::TEXT_VALUE, false)--
             @label(RigText::Warning, colors::TEXT_HINT, false)--
-            @fixed_button(RigAction::ChooseProjectMotion, "选择工程动作", "rig.motion.choose_project")--
+            @fixed_button(RigAction::ChooseProjectMotion, "选择动画", "rig.motion.choose_project")--
             RigMarkerTools
             Node { display: Display::None, width: percent(100), flex_direction: FlexDirection::Column }
             Children [
@@ -158,35 +156,14 @@ fn panel() -> impl Scene {
                 @label(RigText::Reference, colors::TEXT_VALUE, false)
             ]
             --
-            @choice_button(RigAction::PickFile, RigText::File)--
-            @choice_button(RigAction::PickClip, RigText::Clip)--
-            RigChoices
-            Node {
-                display: Display::None, width: percent(100), min_width: px(0),
-                flex_direction: FlexDirection::Column, row_gap: px(2),
-            }
-            Children [
-                @choice_button(RigAction::Choose(0), RigText::Choice(0))--
-                @choice_button(RigAction::Choose(1), RigText::Choice(1))--
-                @choice_button(RigAction::Choose(2), RigText::Choice(2))--
-                @choice_button(RigAction::Choose(3), RigText::Choice(3))--
-                @choice_button(RigAction::Choose(4), RigText::Choice(4))--
-                Node { column_gap: px(6), align_items: AlignItems::Center, flex_wrap: FlexWrap::Wrap }
-                Children [
-                    @fixed_button(RigAction::Previous, "上一组", "rig.previous")--
-                    @label(RigText::Page, colors::TEXT_MUTED, true)--
-                    @fixed_button(RigAction::Next, "下一组", "rig.next")
-                ]
-            ]
-            --
+            RigMarkerTools
             Node { column_gap: px(5), row_gap: px(3), flex_wrap: FlexWrap::Wrap }
             Children [
                 @button(RigAction::ToggleMirror)
                 Children [@label(RigText::Mirror, colors::TEXT_PRIMARY, true)]
                 --
                 @fixed_button(RigAction::ResetMarks, "恢复关节点", "rig.reset_marks")--
-                @fixed_button(RigAction::Bind, "生成已绑骨 GLB", "rig.bind")--
-                @fixed_button(RigAction::Preview, "预览所选动作", "rig.preview")
+                @fixed_button(RigAction::Bind, "生成已绑骨 GLB", "rig.bind")
             ]
         ]
     }

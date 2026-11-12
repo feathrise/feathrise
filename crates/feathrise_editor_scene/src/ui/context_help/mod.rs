@@ -43,6 +43,8 @@ pub(crate) fn install(app: &mut App) {
             PostUpdate,
             (systems::sync_popup, systems::position_popup).chain()
                 .before(bevy::ui::UiSystems::Prepare)
+                // 正文移挂后按浮层的层级排序，避免打开时仍用原侧栏层级绘制。
+                .before(bevy::ui::UiSystems::Stack)
                 .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
         );
 }

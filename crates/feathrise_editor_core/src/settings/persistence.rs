@@ -16,6 +16,8 @@ pub struct EditorSettingsData {
     #[serde(default = "default_limit_build_fps")]
     pub limit_build_fps: bool,
     #[serde(default)]
+    pub show_editor_fps: bool,
+    #[serde(default)]
     pub scene: feathrise_settings::SceneDisplaySettings,
     #[serde(default)]
     pub environment: feathrise_settings::EnvironmentPreviewSettings,
@@ -123,6 +125,7 @@ impl Default for EditorSettingsData {
         Self {
             render: Default::default(),
             limit_build_fps: default_limit_build_fps(),
+            show_editor_fps: false,
             scene: Default::default(),
             environment: Default::default(),
             scrub: Default::default(),
@@ -147,6 +150,7 @@ impl From<&EditorSettings> for EditorSettingsData {
         Self {
             render: settings.render,
             limit_build_fps: settings.limit_build_fps,
+            show_editor_fps: settings.show_editor_fps,
             scene: settings.scene,
             environment: settings.environment,
             scrub: scene_editor_scrub_sensitivities_for_save(
@@ -189,6 +193,7 @@ impl EditorSettingsData {
         let mut settings = EditorSettings::default();
         settings.render = data.render;
         settings.limit_build_fps = data.limit_build_fps;
+        settings.show_editor_fps = data.show_editor_fps;
         settings.render.mesh_lod = data.render.mesh_lod.sanitized();
         settings.render.exposure_compensation =
             feathrise_settings::sanitize_exposure_compensation(

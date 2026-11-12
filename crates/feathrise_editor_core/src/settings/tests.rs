@@ -95,6 +95,7 @@ fn author_preferences_round_trip_without_any_game_fields() {
     settings.editor_snapping.mode = EditorSnapMode::Relative;
     settings.asset_browser_view_mode = AssetBrowserViewMode::Thumbnails;
     settings.render.mesh_lod.max_error_pixels = 2.5;
+    settings.show_editor_fps = true;
     settings.environment.world_time_paused = true;
     for (i, field) in SceneEditorScrubField::ALL.into_iter().enumerate() {
         settings
@@ -125,6 +126,7 @@ fn author_preferences_round_trip_without_any_game_fields() {
 #[test]
 fn missing_and_bad_author_values_recover_independently() {
     let data: EditorSettingsData = serde_json::from_str("{}").unwrap();
+    assert!(!data.show_editor_fps);
     assert_eq!(data.into_runtime(), EditorSettings::default());
     let data: EditorSettingsData = serde_json::from_str(r#"{"ui_scale":0.1,"ui_scale_auto":true,"ui_scale_auto_offset":8.0,"color_theme":"future","asset_browser_view_mode":"future","layout":{"content_width":900,"inspector_width":-2},"snapping":{"translation_meters":0,"rotation_degrees":30}}"#).unwrap();
     let restored = data.into_runtime();

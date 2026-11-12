@@ -120,10 +120,12 @@ pub enum Operation {
 
 pub struct Prepared {
     pub surface: usize,
+    pub joint: u16,
     pub weights: Arc<[VertexWeights]>,
     pub selection: Arc<[u32]>,
     pub shaded: Option<Mesh>,
     pub heat: Mesh,
+    pub peer_heat: Vec<(usize, Mesh)>,
     pub changed: usize,
 }
 
@@ -133,6 +135,8 @@ pub struct EditRequest {
     pub selection: Arc<[u32]>,
     pub joint: u16,
     pub operation: Operation,
+    /// 与当前图元共用蒙皮、需要刷新热力图的其他图元。它们仅显示权重，不采用当前选区。
+    pub heat_peers: Vec<(usize, Arc<[VertexWeights]>)>,
 }
 
 /// 冻结文档与空间索引由后台实现持有。场景拥有草稿、历史和唯一任务槽。

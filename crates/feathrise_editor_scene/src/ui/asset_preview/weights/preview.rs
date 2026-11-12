@@ -18,6 +18,38 @@ use std::collections::HashMap;
 const NODES_PER_FRAME: usize = 128;
 
 #[cfg(feature = "validation")]
+pub(super) fn heat_covers_skin(world: &World) -> bool {
+    let draw = world.resource::<WeightPreview>();
+    let state = world.resource::<WeightEditor>();
+    let preview = world.resource::<super::super::AssetPreviewState>();
+    let (Some(session), Some(root), Some(material)) =
+        (state.session.as_ref(), preview.scene_root(), draw.heat_material.as_ref())
+    else {
+        return false;
+    };
+    let skin = session.doc.surface(session.surface).skin.index;
+    let Some(map) = session.heatmap.as_ref().filter(|map| {
+        (map.skin, map.joint, map.surface) == (skin, session.joint, session.surface)
+    }) else {
+        return false;
+    };
+    draw.key.as_ref() == Some(&session.key) && session.doc.surfaces().enumerate()
+        .filter(|(_, surface)| surface.skin.index == skin)
+        .all(|(index, _)| {
+            let Some(expected_mesh) = map.meshes.get(&index) else {
+                return false;
+            };
+            draw.parts.iter().any(|part| {
+                part.surface == index && part.root == root
+                    && world.get::<InheritedVisibility>(part.entity).is_some_and(|v| v.get())
+                    && world.get::<Mesh3d>(part.entity).is_some_and(|mesh| &mesh.0 == expected_mesh)
+                    && world.get::<MeshMaterial3d<StandardMaterial>>(part.entity)
+                        .is_some_and(|actual| &actual.0 == material)
+            })
+        })
+}
+
+#[cfg(feature = "validation")]
 pub(super) fn drawn(world: &World, root: Entity, original: bool) -> bool {
     let draw = world.resource::<WeightPreview>();
     let state = world.resource::<WeightEditor>();
@@ -292,18 +324,16 @@ pub(super) fn update(
         return;
     }
     let heat_material = draw.heat_material.clone();
+    let skin = session.doc.surface(session.surface).skin.index;
+    let heatmap = session.heatmap.as_ref().filter(|map| heat && map.skin == skin);
     for part in &mut draw.parts {
-        let heat_mesh = session
-            .heat_mesh
-            .as_ref()
-            .filter(|(surface, _)| *surface == part.surface && heat && Some(part.root) == model);
+        // 完整场景里共用蒙皮的图元一起着色。两个动作容器继续使用原材质及各自的草稿权重。
+        let heat_mesh = heatmap.filter(|_| Some(part.root) == model)
+            .and_then(|map| map.meshes.get(&part.surface));
         let draft = (!session.original)
             .then(|| session.drafts[part.surface].shaded.as_ref())
             .flatten();
-        let mesh = heat_mesh
-            .map(|(_, mesh)| mesh)
-            .or(draft)
-            .unwrap_or(&part.original_mesh);
+        let mesh = heat_mesh.or(draft).unwrap_or(&part.original_mesh);
         let material = if heat_mesh.is_some() {
             heat_material.as_ref()
         } else {

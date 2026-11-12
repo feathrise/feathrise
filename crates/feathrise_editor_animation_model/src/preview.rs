@@ -19,7 +19,8 @@ pub struct Pose {
     pub draft: Option<(usize, Transform)>,
     pub time: f32,
     pub local: Vec<Transform>,
-    pub model_local: Option<Vec<Option<Transform>>>,
+    /// 只保存已匹配的目标关节变换，以源节点索引定位容器中的实体。
+    pub model_local: Option<Vec<(usize, Transform)>>,
     pub world: Vec<Mat4>,
     pub joints: Vec<Transform>,
     pub bones: Vec<Transform>,
