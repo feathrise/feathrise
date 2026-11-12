@@ -304,6 +304,7 @@ fn production_project_browser_gpu_navigates_project_assets_and_opens_source() {
         .disable::<bevy::audio::AudioPlugin>()
         .disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>()
         .disable::<bevy::log::LogPlugin>())
+        .insert_resource(feathrise_editor_animation::scenes())
         .add_plugins((feathrise_editor_ui::EditorUiPlugin,
             feathrise_editor_documents::DocumentsEditorPlugin,
             feathrise_editor_weights::WeightPanelPlugin, WorkbenchUiPlugin))

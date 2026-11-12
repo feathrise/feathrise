@@ -79,6 +79,8 @@ pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) ->
             }),
     )
     .add_plugins(feathrise_runtime::DefaultFontPlugin)
+    // 轻量工作台在 Startup 复用动画面板布局，播放与预览系统由完整工程编辑器装配。
+    .insert_resource(feathrise_editor_animation::scenes())
     .add_plugins((
         crate::branding::EditorBrandingPlugin,
         feathrise_editor_ui::EditorUiPlugin,

@@ -347,6 +347,7 @@ fn empty_workspace_exit_requires_a_real_choice_and_preserves_the_original_form()
     app.add_plugins(bevy::ui_widgets::UiWidgetsPlugins)
         .init_asset::<bevy::gltf::Gltf>()
         .init_asset::<bevy::gltf::GltfMesh>();
+    app.insert_resource(feathrise_editor_animation::scenes());
     app.add_plugins((crate::branding::EditorBrandingPlugin, feathrise_editor_ui::EditorUiPlugin,
         feathrise_editor_documents::DocumentsEditorPlugin,
         feathrise_editor_weights::WeightPanelPlugin, feathrise_editor_project_browser::ProjectBrowserPlugin, WorkbenchUiPlugin))
