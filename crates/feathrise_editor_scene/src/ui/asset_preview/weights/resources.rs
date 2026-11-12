@@ -1,12 +1,10 @@
 //! 当前 GLB 的蒙皮草稿、有限历史、单个后台任务及画布手势身份。
 
+use feathrise_editor_core::view_projection::ViewProjection;
+use feathrise_editor_glb_model::weights::{Brush, Prepared, Tool, VertexWeights, WeightDocument};
 use super::{
-    asset::Document,
-    edit::{Brush, Prepared, Tool},
-    influences::VertexWeights,
     posed::{Bookmark, Capture, Gesture},
 };
-use crate::viewport::placement_move::MoveCamera;
 use bevy::{gltf::Gltf, prelude::*, tasks::Task};
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -48,7 +46,7 @@ impl History {
 
 pub(super) struct Session {
     pub key: Key,
-    pub doc: Arc<Document>,
+    pub doc: Arc<dyn WeightDocument>,
     pub gltf: Handle<Gltf>,
     pub drafts: Vec<Draft>,
     pub surface: usize,
@@ -73,10 +71,9 @@ pub(super) struct Session {
 }
 
 impl Session {
-    pub fn new(key: Key, gltf: Handle<Gltf>, doc: Arc<Document>) -> Self {
+    pub fn new(key: Key, gltf: Handle<Gltf>, doc: Arc<dyn WeightDocument>) -> Self {
         let drafts = doc
-            .surfaces
-            .iter()
+            .surfaces()
             .map(|surface| Draft {
                 weights: surface.original.clone(),
                 saved: surface.original.clone(),
@@ -85,8 +82,7 @@ impl Session {
             })
             .collect();
         let locks = doc
-            .surfaces
-            .iter()
+            .surfaces()
             .map(|surface| {
                 (
                     surface.skin.index,
@@ -94,7 +90,7 @@ impl Session {
                 )
             })
             .collect();
-        let joint = doc.surfaces[0]
+        let joint = doc.surface(0)
             .skin
             .joints
             .iter()
@@ -147,7 +143,7 @@ impl Session {
     }
 
     pub fn current_locks(&self) -> &Arc<[bool]> {
-        &self.locks[&self.doc.surfaces[self.surface].skin.index]
+        &self.locks[&self.doc.surface(self.surface).skin.index]
     }
 
     pub fn brush(&self) -> Brush {
@@ -189,7 +185,7 @@ pub(super) struct Stroke {
     pub surface: usize,
     pub before: Arc<[VertexWeights]>,
     pub brush: Brush,
-    pub view: MoveCamera,
+    pub view: ViewProjection,
     pub start: Vec2,
     pub latest: Vec2,
     pub last_queued: Vec2,
@@ -245,7 +241,7 @@ pub(super) enum Outcome {
     Open {
         key: Key,
         gltf: Handle<Gltf>,
-        doc: Arc<Document>,
+        doc: Arc<dyn WeightDocument>,
     },
     Apply {
         result: Prepared,
@@ -285,11 +281,8 @@ impl WeightEditor {
     pub(super) fn select_joint(&mut self, surface: usize, joint: u16) {
         if let Some(session) = self.session.as_mut()
             && (session.surface, session.joint) != (surface, joint)
-            && session
-                .doc
-                .surfaces
-                .get(surface)
-                .is_some_and(|entry| usize::from(joint) < entry.skin.joints.len())
+            && surface < session.doc.surface_count()
+            && usize::from(joint) < session.doc.surface(surface).skin.joints.len()
         {
             session.surface = surface;
             session.joint = joint;
@@ -313,7 +306,7 @@ impl WeightEditor {
             .session
             .as_ref()
             .filter(|session| Some(session.key.tab) == tab)?;
-        let surface = &session.doc.surfaces[session.surface];
+        let surface = session.doc.surface(session.surface);
         Some([
             TreePick::Mesh(surface.mesh),
             TreePick::Skin(surface.skin.index),

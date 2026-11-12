@@ -1,17 +1,13 @@
 //! 从已显示的动作容器分批采集关节矩阵，后台按真实变形拾取原图元顶点。
 
+use feathrise_editor_glb_model::weights::{Geometry, Operation, PoseSample, Selection};
 use super::{
     super::{
         animation::{AnimationEditorState, AnimationPreviewRuntime, WeightBinding, WeightFrame},
-        rigging::files::active,
         view_math::AssetPreviewView,
     },
-    asset::{Document, Geometry},
-    edit::{Operation, Selection},
-    influences::VertexWeights,
     preview::WeightPreview,
     resources::{Reason, Session, WeightEditor},
-    spatial::{Occlusion, Points},
     systems::{Target, queue},
 };
 use crate::ui::sidebars::{EditorRightSidebarTab, SceneEditorSidebarState};
@@ -21,7 +17,7 @@ use bevy::{
 };
 use std::{
     collections::HashMap,
-    sync::{Arc, atomic::AtomicBool},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -47,7 +43,7 @@ pub(super) struct Capture {
     next: usize,
     epoch: Option<u64>,
     skins: HashMap<usize, Arc<[Mat4]>>,
-    geometry: PosedGeometry,
+    geometry: Vec<PoseSample>,
 }
 
 impl Capture {
@@ -59,97 +55,9 @@ impl Capture {
             next: 0,
             epoch: None,
             skins: HashMap::new(),
-            geometry: PosedGeometry::default(),
+            geometry: Vec::new(),
         }
     }
-}
-
-enum Sample {
-    Skin {
-        surface: usize,
-        matrices: Arc<[Mat4]>,
-        weights: Arc<[VertexWeights]>,
-    },
-    Rigid(usize, Mat4),
-}
-
-#[derive(Default)]
-pub(super) struct PosedGeometry(Vec<Sample>);
-
-impl PosedGeometry {
-    pub fn deform(
-        self,
-        doc: &Document,
-        selected_surface: usize,
-        visible: bool,
-        cancel: &AtomicBool,
-    ) -> Result<(Points, Option<Occlusion>), String> {
-        let mut selected = None;
-        let mut triangles = Vec::new();
-        for sample in self.0 {
-            active(cancel)?;
-            let (surface, positions, indices) = match &sample {
-                Sample::Skin { surface, .. } => {
-                    let (positions, indices) = doc.surfaces[*surface].geometry();
-                    (Some(*surface), positions, indices)
-                }
-                Sample::Rigid(index, _) => {
-                    let shape = &doc.rigid[*index];
-                    (None, shape.positions.as_slice(), shape.indices.as_slice())
-                }
-            };
-            if surface != Some(selected_surface) && !visible {
-                continue;
-            }
-            let mut points = Vec::with_capacity(positions.len());
-            for (group, block) in positions.chunks(2048).enumerate() {
-                active(cancel)?;
-                for (offset, &position) in block.iter().enumerate() {
-                    let point = Vec3::from_array(position);
-                    points.push(match &sample {
-                        Sample::Skin {
-                            matrices, weights, ..
-                        } => skin_point(point, weights[group * 2048 + offset], matrices),
-                        Sample::Rigid(_, matrix) => matrix.transform_point3(point),
-                    });
-                }
-            }
-            if points.iter().any(|point| !point.is_finite()) {
-                return Err("问题帧的蒙皮坐标无效".into());
-            }
-            if visible {
-                triangles.extend(indices.chunks_exact(3).map(|face| {
-                    [
-                        points[face[0] as usize],
-                        points[face[1] as usize],
-                        points[face[2] as usize],
-                    ]
-                }));
-            }
-            if surface == Some(selected_surface) {
-                if selected.is_some() {
-                    return Err("动作容器复用了当前蒙皮图元".into());
-                }
-                selected = Some(points);
-            }
-        }
-        active(cancel)?;
-        let points = selected.ok_or("动作容器没有当前蒙皮图元")?;
-        Ok((
-            Points::for_selection(points),
-            visible.then(|| Occlusion::new(triangles)),
-        ))
-    }
-}
-
-// 与 Bevy 蒙皮一致，使用关节世界矩阵乘逆绑定矩阵，保持 GLB 顶点下标。
-fn skin_point(point: Vec3, row: VertexWeights, matrices: &[Mat4]) -> Vec3 {
-    row.joints
-        .into_iter()
-        .zip(row.weights)
-        .filter(|(_, weight)| *weight > 0.0)
-        .map(|(joint, weight)| matrices[joint as usize].transform_point3(point) * weight)
-        .sum()
 }
 
 #[derive(bevy::ecs::system::SystemParam)]
@@ -185,7 +93,7 @@ impl Readback<'_, '_> {
                 if visibility.is_none_or(|visibility| visibility.get()) {
                     match geometry {
                         Geometry::Skin(surface) => {
-                            let source = &session.doc.surfaces[surface];
+                            let source = session.doc.surface(surface);
                             let matrices =
                                 if let Some(matrices) = capture.skins.get(&source.skin.index) {
                                     matrices.clone()
@@ -227,7 +135,7 @@ impl Readback<'_, '_> {
                             } else {
                                 session.drafts[surface].weights.clone()
                             };
-                            capture.geometry.0.push(Sample::Skin {
+                            capture.geometry.push(PoseSample::Skin {
                                 surface,
                                 matrices,
                                 weights,
@@ -235,8 +143,7 @@ impl Readback<'_, '_> {
                         }
                         Geometry::Rigid(index) => capture
                             .geometry
-                            .0
-                            .push(Sample::Rigid(index, world.to_matrix())),
+                            .push(PoseSample::Rigid(index, world.to_matrix())),
                     }
                 }
             }

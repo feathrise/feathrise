@@ -1,5 +1,6 @@
 //! 调权入口、目标身份、单槽任务、历史及保存回执。
 
+use feathrise_editor_glb_model::weights::{EditRequest, Operation, Tool, WeightOperations};
 use super::{
     super::{
         AssetPreviewNavigation, AssetPreviewState, AssetPreviewWorkspace, DocumentState,
@@ -9,8 +10,6 @@ use super::{
         rigging::RiggingState,
         types::{AssetPreviewContent, AssetPreviewModelTarget, AssetPreviewPhase},
     },
-    edit::{self, Operation, Tool},
-    file,
     panel::Action,
     resources::*,
 };
@@ -152,6 +151,7 @@ fn open(
     key: Key,
     assets: &AssetServer,
     sidebar: &mut SceneEditorSidebarState,
+    operations: WeightOperations,
 ) {
     if let Some(session) = state.session.as_mut() {
         if session.key.root == key.root && session.key.path == key.path && !session.stale {
@@ -177,7 +177,7 @@ fn open(
     let gltf = assets.load::<Gltf>(key.path.clone());
     let task = AsyncComputeTaskPool::get().spawn(async move {
         drop(retired);
-        let doc = file::load(load.root.clone(), load.path.clone(), token).await?;
+        let doc = (operations.load)(load.root.clone(), load.path.clone(), token).await?;
         Ok(Outcome::Open {
             key: load,
             gltf,
@@ -214,7 +214,8 @@ pub(super) fn queue(state: &mut WeightEditor, operation: Operation, reason: Reas
     let cancel = Arc::new(AtomicBool::new(false));
     let token = cancel.clone();
     let task = AsyncComputeTaskPool::get().spawn(async move {
-        let result = edit::prepare(&doc, surface, weights, selection, joint, operation, &token)?;
+        let request = EditRequest { surface, before: weights, selection, joint, operation };
+        let result = doc.prepare(request, &token)?;
         Ok(Outcome::Apply { result, reason })
     });
     state.work = Some(Work {
@@ -245,7 +246,7 @@ pub(super) fn begin_save(state: &mut WeightEditor) -> Result<(), String> {
     let cancel = Arc::new(AtomicBool::new(false));
     let token = cancel.clone();
     let task = AsyncComputeTaskPool::get().spawn(async move {
-        file::save(root, doc, drafts, token)
+        doc.save(root, drafts, token)
             .await
             .map(Outcome::Save)
     });
@@ -262,6 +263,7 @@ pub(super) fn begin_save(state: &mut WeightEditor) -> Result<(), String> {
 }
 
 pub(super) fn actions(
+    operations: Res<WeightOperations>,
     mut state: ResMut<WeightEditor>,
     target: Target,
     gate: Gate,
@@ -293,7 +295,7 @@ pub(super) fn actions(
             .key()
             .filter(|key| &key.root == root && &key.path == path)
     {
-        open(&mut state, key, &assets, &mut sidebar);
+        open(&mut state, key, &assets, &mut sidebar, *operations);
         return;
     }
     let action = buttons
@@ -329,7 +331,7 @@ pub(super) fn actions(
             return;
         }
         if let Some(key) = target.key() {
-            open(&mut state, key, &assets, &mut sidebar);
+            open(&mut state, key, &assets, &mut sidebar, *operations);
         }
         return;
     }
@@ -348,25 +350,23 @@ pub(super) fn actions(
         let found = match pick {
             TreePick::Joint(node) => {
                 let locate = |surface: usize| {
-                    session.doc.surfaces[surface]
+                    session.doc.surface(surface)
                         .skin
                         .joints
                         .iter()
                         .position(|joint| joint.node == node)
                         .map(|joint| (surface, joint as u16))
                 };
-                locate(session.surface).or_else(|| (0..session.doc.surfaces.len()).find_map(locate))
+                locate(session.surface).or_else(|| (0..session.doc.surface_count()).find_map(locate))
             }
             TreePick::Mesh(mesh) => session
                 .doc
-                .surfaces
-                .iter()
+                .surfaces()
                 .position(|surface| surface.mesh == mesh)
                 .map(|index| (index, 0)),
             TreePick::Skin(skin) => session
                 .doc
-                .surfaces
-                .iter()
+                .surfaces()
                 .position(|surface| surface.skin.index == skin)
                 .map(|index| (index, 0)),
         };
@@ -447,17 +447,17 @@ pub(super) fn actions(
             }
         }
         Action::Mesh(delta) => {
-            let count = session.doc.surfaces.len() as isize;
-            let old_skin = session.doc.surfaces[session.surface].skin.index;
+            let count = session.doc.surface_count() as isize;
+            let old_skin = session.doc.surface(session.surface).skin.index;
             session.surface =
                 (session.surface as isize + delta as isize).rem_euclid(count) as usize;
-            if session.doc.surfaces[session.surface].skin.index != old_skin {
+            if session.doc.surface(session.surface).skin.index != old_skin {
                 session.joint = 0;
             }
             state.refresh = true;
         }
         Action::Lock => {
-            let skin = session.doc.surfaces[session.surface].skin.index;
+            let skin = session.doc.surface(session.surface).skin.index;
             let locks = Arc::make_mut(session.locks.get_mut(&skin).expect("蒙皮已建立锁表"));
             locks[session.joint as usize] = !locks[session.joint as usize];
         }
@@ -593,7 +593,7 @@ pub(super) fn poll(
                     draft.selection = result.selection;
                     if Arc::ptr_eq(
                         &draft.weights,
-                        &session.doc.surfaces[result.surface].original,
+                        &session.doc.surface(result.surface).original,
                     ) {
                         draft.shaded = None;
                     } else if let Some(mesh) = result.shaded {

@@ -235,7 +235,7 @@ fn water_move_is_registered_by_real_editor_plugin_and_runs_in_its_production_ord
     use bevy::ecs::{schedule::{ApplyDeferred, ScheduleCleanupPolicy}, system::IntoSystem};
     let (mut app, node, origin) = app(EditorSnapSettings::default());
     app.edit_schedule(Update, |schedule| *schedule = Schedule::new(Update));
-    app.add_plugins(crate::SceneEditorPlugin); // 注册正式入口，遗漏安装时不能靠测试手动补水位系统。
+    app.add_plugins((crate::SceneEditorPlugin, feathrise_editor_glb::GlbEditorPlugin)); // 用正式入口验证水位系统安装。
     let keep = [
         IntoSystem::into_system(input).system_type(),
         IntoSystem::into_system(continue_selection).system_type(),

@@ -1,8 +1,8 @@
 //! 在中央视口工具栏拖动或精确输入权重、画笔强度和像素半径。
 
+use feathrise_editor_glb_model::weights::Tool;
 use super::{
     super::animation::AnimationEditorState,
-    edit::Tool,
     panel::{Field, tr},
     resources::{Session, WeightEditor},
     systems::{Gate, Target},

@@ -3,9 +3,10 @@
 use bevy::{camera::Projection, prelude::*, ui::RelativeCursorPosition};
 use feathrise_editor_ui::UiInteraction;
 
+use feathrise_editor_glb_model::rigging::Landmarks;
+
 use super::{
     super::{AssetPreviewNavigation, types::{AssetPreviewCamera, AssetPreviewCanvas}},
-    backend::Landmarks,
     context::Context,
     resources::RiggingState,
     types::*,

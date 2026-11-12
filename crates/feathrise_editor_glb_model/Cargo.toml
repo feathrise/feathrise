@@ -1,0 +1,11 @@
+# GLB 绑骨和调权的共享请求与结果。
+[package]
+name = "feathrise_editor_glb_model"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bevy = { workspace = true }
+feathrise_editor_core = { workspace = true }
+feathrise_editor_weights_model = { workspace = true }

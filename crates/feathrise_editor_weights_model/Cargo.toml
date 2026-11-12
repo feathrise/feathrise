@@ -1,0 +1,9 @@
+# 蒙皮权重页布局与场景业务共用的组件、工具和挂载契约。
+[package]
+name = "feathrise_editor_weights_model"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bevy = { workspace = true }

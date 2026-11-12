@@ -84,7 +84,7 @@ fn sculpt_input_app() -> App {
         ui::terrain_objects::TerrainObjectsEditorState,
         viewport::{LayerCandidateState, modes::{ViewportMode, ViewportModeState}}};
     let mut app = App::new();
-    app.add_plugins((MinimalPlugins, AssetPlugin::default(), crate::SceneEditorPlugin))
+    app.add_plugins((MinimalPlugins, AssetPlugin::default(), crate::SceneEditorPlugin, feathrise_editor_glb::GlbEditorPlugin))
         .init_resource::<feathrise_editor_ui::ActiveNumericInput>()
         .init_resource::<feathrise_editor_ui::ActiveNumericInputScrub>()
         .init_resource::<crate::ui::text_input::EditorTextInputGuard>()

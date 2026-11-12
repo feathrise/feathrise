@@ -1,6 +1,6 @@
 //! 使用独占暂存和内存夹具验证原生蒙皮 GLB 的读写、场景变换及文件保真。
 
-use super::super::super::files::Stage;
+use crate::files::Stage;
 use super::*;
 use std::fs;
 

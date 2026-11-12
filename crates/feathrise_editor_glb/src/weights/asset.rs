@@ -1,14 +1,17 @@
 //! 后台读取 Scene0 蒙皮，保留 GLB 原始载荷并准备可独立渲染的草稿网格。
 
 use super::{
-    influences::{VertexWeights, opposite_name},
-    spatial::{MirrorPlane, Occlusion, Points},
+    influences::{checked, opposite_name},
+    spatial::{Occlusion, Points},
 };
-use crate::ui::asset_preview::rigging::files::{FrozenAsset, active};
+use crate::files::{FrozenAsset, active};
 use bevy::{
     asset::RenderAssetUsages,
     mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
     prelude::*,
+};
+use feathrise_editor_glb_model::weights::{
+    Joint, MAX_JOINTS, MirrorPlane, Skin, SurfaceInfo, VertexWeights,
 };
 use serde_json::Value;
 use std::{
@@ -17,37 +20,16 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
-pub(super) const MAX_VERTICES: usize = 500_000;
+const MAX_VERTICES: usize = 500_000;
 const MAX_TRIANGLES: usize = 1_000_000;
 const MAX_NODES: usize = 8_192;
 const MAX_SURFACES: usize = 128;
-pub(super) const MAX_JOINTS: usize = 256;
 pub(super) const MAX_FILE: usize = 256 * 1024 * 1024;
 const MAX_JSON: usize = 16 * 1024 * 1024;
 
-pub(super) struct Joint {
-    pub node: usize,
-    pub name: String,
-    /// 同一套蒙皮内最近的父关节，普通节点只参与中间变换。
-    pub parent: Option<u16>,
-    pub opposite: Option<u16>,
-    pub rest: Vec3,
-}
-
-pub(super) struct Skin {
-    pub index: usize,
-    pub joints: Vec<Joint>,
-    pub mirror: Option<MirrorPlane>,
-    matrices: Vec<Mat4>,
-}
-
 pub(super) struct Surface {
-    pub mesh: usize,
-    pub primitive: usize,
-    pub name: String,
-    pub skin: Arc<Skin>,
+    pub info: SurfaceInfo,
     pub points: Points,
-    pub original: Arc<[VertexWeights]>,
     base: Mesh,
 }
 
@@ -87,12 +69,6 @@ pub(super) struct RigidSurface {
     pub primitive: usize,
     pub positions: Vec<[f32; 3]>,
     pub indices: Vec<u32>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Geometry {
-    Skin(usize),
-    Rigid(usize),
 }
 
 pub(super) struct Document {
@@ -159,7 +135,11 @@ fn scene_nodes(doc: &gltf::Document) -> Result<Vec<Option<SceneNode>>, String> {
     Ok(nodes)
 }
 
-fn make_skin(source: gltf::Skin<'_>, scene: &[Option<SceneNode>], bin: &[u8]) -> Result<Skin, String> {
+fn make_skin(
+    source: gltf::Skin<'_>,
+    scene: &[Option<SceneNode>],
+    bin: &[u8],
+) -> Result<(Arc<Skin>, Vec<Mat4>), String> {
     let nodes: Vec<_> = source.joints().collect();
     if nodes.is_empty() || nodes.len() > MAX_JOINTS {
         return Err("单套蒙皮需要 1–256 个关节".into());
@@ -254,12 +234,14 @@ fn make_skin(source: gltf::Skin<'_>, scene: &[Option<SceneNode>], bin: &[u8]) ->
             axis,
         })
     });
-    Ok(Skin {
-        index: source.index(),
-        joints,
-        mirror,
+    Ok((
+        Arc::new(Skin {
+            index: source.index(),
+            joints,
+            mirror,
+        }),
         matrices,
-    })
+    ))
 }
 
 pub(super) fn decode(
@@ -310,9 +292,9 @@ pub(super) fn decode(
             }
             let index = skin.index();
             if !skins.contains_key(&index) {
-                skins.insert(index, Arc::new(make_skin(skin, &scene, bin)?));
+                skins.insert(index, make_skin(skin, &scene, bin)?);
             }
-            Some(skins[&index].clone())
+            Some(&skins[&index])
         } else {
             None
         };
@@ -363,7 +345,7 @@ pub(super) fn decode(
             {
                 return Err("GLB 图元索引越界".into());
             }
-            if let Some(skin) = &skin {
+            if let Some((skin, matrices)) = skin {
                 if primitive.attributes().any(|(kind, _)| {
                     matches!(
                         kind,
@@ -378,7 +360,7 @@ pub(super) fn decode(
                 let weights: Arc<[VertexWeights]> = joints
                     .zip(weights)
                     .map(|(joints, weights)| {
-                        VertexWeights::checked(joints, weights, skin.joints.len())
+                        checked(joints, weights, skin.joints.len())
                             .ok_or("顶点蒙皮权重或关节索引无效")
                     })
                     .collect::<Result<Vec<_>, _>>()?
@@ -397,7 +379,7 @@ pub(super) fn decode(
                             .zip(row.weights)
                             .filter(|(_, weight)| *weight > 0.0)
                             .map(|(joint, weight)| {
-                                skin.matrices[joint as usize].transform_point3(point) * weight
+                                matrices[joint as usize].transform_point3(point) * weight
                             })
                             .sum::<Vec3>()
                     })
@@ -441,15 +423,17 @@ pub(super) fn decode(
                     );
                 }
                 surfaces.push(Surface {
-                    mesh: mesh.index(),
-                    primitive: primitive.index(),
-                    name: mesh
-                        .name()
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| format!("Mesh {}", mesh.index())),
-                    skin: skin.clone(),
+                    info: SurfaceInfo {
+                        mesh: mesh.index(),
+                        primitive: primitive.index(),
+                        name: mesh
+                            .name()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| format!("Mesh {}", mesh.index())),
+                        skin: skin.clone(),
+                        original: weights,
+                    },
                     points: spatial,
-                    original: weights,
                     base,
                 });
             } else {

@@ -305,7 +305,8 @@ fn production_project_browser_gpu_navigates_project_assets_and_opens_source() {
         .disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>()
         .disable::<bevy::log::LogPlugin>())
         .add_plugins((feathrise_editor_ui::EditorUiPlugin,
-            feathrise_editor_documents::DocumentsEditorPlugin, WorkbenchUiPlugin))
+            feathrise_editor_documents::DocumentsEditorPlugin,
+            feathrise_editor_weights::WeightPanelPlugin, WorkbenchUiPlugin))
         .init_resource::<feathrise_editor_core::EditorSettings>()
         .init_resource::<crate::resources::EditorTextInputGuard>()
         .init_resource::<crate::resources::SceneBrowserDragState>()

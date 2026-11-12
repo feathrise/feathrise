@@ -3406,6 +3406,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "feathrise_editor_glb"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "feathrise_editor_assets",
+ "feathrise_editor_core",
+ "feathrise_editor_glb_model",
+ "gltf",
+ "serde",
+ "serde_json",
+ "sha2",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "feathrise_editor_glb_model"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "feathrise_editor_core",
+ "feathrise_editor_weights_model",
+]
+
+[[package]]
 name = "feathrise_editor_protocol"
 version = "0.2.0"
 dependencies = [
@@ -3428,9 +3452,13 @@ dependencies = [
  "feathrise_editor_core",
  "feathrise_editor_documents",
  "feathrise_editor_documents_model",
+ "feathrise_editor_glb",
+ "feathrise_editor_glb_model",
  "feathrise_editor_surface",
  "feathrise_editor_surface_model",
  "feathrise_editor_ui",
+ "feathrise_editor_weights",
+ "feathrise_editor_weights_model",
  "feathrise_environment",
  "feathrise_fps_display",
  "feathrise_grounding",
@@ -3488,6 +3516,23 @@ dependencies = [
  "feathrise_editor_core",
  "feathrise_runtime",
  "feathrise_ui_widgets",
+]
+
+[[package]]
+name = "feathrise_editor_weights"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "feathrise_editor_core",
+ "feathrise_editor_ui",
+ "feathrise_editor_weights_model",
+]
+
+[[package]]
+name = "feathrise_editor_weights_model"
+version = "0.1.0"
+dependencies = [
+ "bevy",
 ]
 
 [[package]]
@@ -3635,11 +3680,13 @@ dependencies = [
  "feathrise_editor_assets",
  "feathrise_editor_core",
  "feathrise_editor_documents",
+ "feathrise_editor_glb",
  "feathrise_editor_protocol",
  "feathrise_editor_scene",
  "feathrise_editor_surface",
  "feathrise_editor_surface_model",
  "feathrise_editor_ui",
+ "feathrise_editor_weights",
  "feathrise_fps_display",
  "feathrise_frame_generation",
  "feathrise_fsr3_frame_generation",

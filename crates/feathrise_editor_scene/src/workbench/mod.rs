@@ -35,7 +35,7 @@ use crate::ui::sidebars::SceneEditorSidebarState;
 use crate::ui::vegetation_preset_editor::VegetationPresetEditorState;
 use bevy::prelude::*;
 
-/// 与DocumentsEditorPlugin、EditorUiPlugin并列安装；不调用包含玩法系统的完整编辑器插件。
+/// 与文档、权重布局和 EditorUiPlugin 并列安装；轻量工作台复用原静态界面。
 pub struct WorkbenchUiPlugin;
 
 /// 宿主先发布快照，再在此阶段消费原控件；业务回执在阶段结束后交还宿主。

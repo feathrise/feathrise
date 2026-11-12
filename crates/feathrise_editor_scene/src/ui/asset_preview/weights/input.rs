@@ -1,5 +1,6 @@
 //! 画布捕获、按逻辑像素采样笔画和透明笔刷/框选提示。
 
+use feathrise_editor_glb_model::weights::{Operation, Selection, Tool};
 use super::{
     super::{
         AssetPreviewNavigation,
@@ -8,7 +9,6 @@ use super::{
         preview_shading,
         types::{AssetPreviewCamera, AssetPreviewCanvas},
     },
-    edit::{Operation, Selection, Tool},
     panel::BoneToolRail,
     posed::{Bookmark, Capture, Gesture},
     resources::{Reason, Stroke, WeightEditor},
@@ -16,9 +16,9 @@ use super::{
     systems::{Gate, Target, queue},
 };
 use crate::{
+    viewport::placement_move::MoveCamera,
     resources::SceneEditorState,
     ui::sidebars::{EditorRightSidebarTab, SceneEditorSidebarState},
-    viewport::placement_move::MoveCamera,
 };
 use bevy::{
     prelude::*,
@@ -222,7 +222,7 @@ pub(super) fn input(
         surface: session.surface,
         before: session.drafts[session.surface].weights.clone(),
         brush,
-        view,
+        view: view.projection(),
         start: position,
         latest: position,
         last_queued: position,
@@ -282,7 +282,7 @@ pub(super) fn present_overlay(
         let (node, cursor) = canvas.single().ok()?;
         let size = node.size() * node.inverse_scale_factor();
         if let Some(stroke) = &state.stroke
-            && stroke.brush.tool == super::edit::Tool::Box
+            && stroke.brush.tool == Tool::Box
             && !stroke.released
             && !stroke.cancelled
         {

@@ -4,8 +4,6 @@ use crate::SceneEditorSystemSet;
 use super::{PickProjectAnimationClip, ProjectAnimationPickSet};
 use bevy::prelude::*;
 
-#[path = "rigging_backend.rs"]
-mod backend;
 #[path = "rigging_context.rs"]
 mod context;
 #[path = "rigging_landmarks.rs"]
@@ -20,8 +18,6 @@ mod systems;
 mod types;
 
 pub(crate) use {context::{RigReferenceInput, RigReferenceRows}, resources::RiggingState};
-pub(crate) use backend::glb_directory_json;
-pub(super) use backend::files;
 #[cfg(feature = "validation")]
 pub(crate) use types::{RigAction, RigLandmarkDot};
 

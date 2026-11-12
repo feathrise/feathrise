@@ -1,8 +1,8 @@
 //! 私有网格替换仅作用于当前预览根与两个动作容器。A/B 对照复用已发布姿态。
 
+use feathrise_editor_glb_model::weights::Geometry;
 use super::super::animation::{AnimationEditorState, WeightBinding};
 use super::{
-    asset::Geometry,
     resources::{Key, WeightEditor},
     systems::Target,
 };
@@ -201,8 +201,8 @@ pub(super) fn update(
         }
         return; // 等原组件归位，避免将上个版本的私有句柄误当成原始图元。
     }
-    let skinned = session.doc.surfaces.len();
-    let source_count = skinned + session.doc.rigid.len();
+    let skinned = session.doc.surface_count();
+    let source_count = skinned + session.doc.rigid_count();
     if draw.source_cursor < source_count {
         let Some(gltf) = gltfs.as_ref().and_then(|assets| assets.get(&session.gltf)) else {
             return;
@@ -212,12 +212,12 @@ pub(super) fn update(
         while draw.source_cursor < end {
             let index = draw.source_cursor;
             let (mesh, primitive, geometry) = if index < skinned {
-                let part = &session.doc.surfaces[index];
+                let part = session.doc.surface(index);
                 (part.mesh, part.primitive, Geometry::Skin(index))
             } else {
                 let index = index - skinned;
-                let part = &session.doc.rigid[index];
-                (part.mesh, part.primitive, Geometry::Rigid(index))
+                let (mesh, primitive) = session.doc.rigid_primitive(index);
+                (mesh, primitive, Geometry::Rigid(index))
             };
             let Some(mesh) = gltf.meshes.get(mesh).and_then(|handle| assets.get(handle)) else {
                 return;

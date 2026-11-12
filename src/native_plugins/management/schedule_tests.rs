@@ -100,7 +100,7 @@ fn check_production_composition(workspace: bool) {
     let initialized = catch_unwind(AssertUnwindSafe(|| {
         app.add_plugins((MinimalPlugins, AssetPlugin::default()))
             // 工程作者必须安装完整场景插件，官方文字处理器才来自与生产相同的唯一入口。
-            .add_plugins(feathrise_editor_scene::SceneEditorPlugin)
+            .add_plugins((feathrise_editor_scene::SceneEditorPlugin, feathrise_editor_glb::GlbEditorPlugin))
             .add_plugins(feathrise_editor_scene::standalone::StandaloneEditorPlugin)
             .add_plugins(crate::project_log::ProjectLogPlugin::new(&project))
             .add_plugins(crate::native_project_close::NativeProjectClosePlugin)

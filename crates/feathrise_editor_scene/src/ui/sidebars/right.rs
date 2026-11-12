@@ -6,6 +6,7 @@ use bevy::ui::RelativeCursorPosition; // 每页独立判断滚轮悬停。 // �
 
 use crate::components::*; // 资产行池、环境摘要和滚动marker。
 use crate::constants::EDITOR_INSPECTOR_WIDTH;
+use feathrise_editor_weights_model::WeightPanelScenes;
 use crate::types::EditorPane; // 布局标记不改变既有作者动作协议。
 
 use super::super::asset_preview::asset_properties_page; // 目录位于左侧；所选文件与唯一预览留在右侧属性。
@@ -57,7 +58,10 @@ pub(crate) fn scene_page() -> impl Scene {
 }
 
 /// 属性与动态工具页签独立；点击文件或对象明确切换属性来源，工具表单保留滚动与缓冲。
-pub(crate) fn right_sidebar(scenes: &feathrise_editor_documents_model::DocumentScenes) -> impl Scene + use<> {
+pub(crate) fn right_sidebar(
+    scenes: &feathrise_editor_documents_model::DocumentScenes,
+    weight_scenes: &WeightPanelScenes,
+) -> impl Scene + use<> {
     bsn! {
         SceneEditorPane(EditorPane::Inspector)
         Node {
@@ -101,8 +105,8 @@ pub(crate) fn right_sidebar(scenes: &feathrise_editor_documents_model::DocumentS
             @scene_page()--
             @super::left::tools_page()--
             @super::super::asset_preview::rigging::scene::sidebar_page()--
-            @super::super::asset_preview::weights::panel::sidebar_page()--
-            @asset_properties_page(scenes)--
+            @super::super::asset_preview::weights::panel::sidebar_page(weight_scenes)--
+            @asset_properties_page(scenes, weight_scenes)--
             @crate::ui::scene_sidebar::scene_properties_page()--
             @super::super::environment::environment_page() // 三种环境作用域在唯一滚动页内独立显示。
         ]

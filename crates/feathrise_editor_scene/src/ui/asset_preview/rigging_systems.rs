@@ -3,12 +3,12 @@
 use std::sync::atomic::Ordering;
 
 use bevy::{prelude::*, tasks::futures::check_ready};
+use feathrise_editor_glb_model::rigging::{RigBackend, RiggingOperations};
 use feathrise_editor_ui::{EditorButtonClick, localization::EditorLocale};
 
 use super::{
     super::{AssetPreviewNavigation, AssetPreviewWorkspace, OpenAssetPreview, PickProjectAnimationClip,
         animation::{AnimationEditorState, PreviewRigAnimation}, workspace},
-    backend::{self, RigBackend},
     context::{Candidate, Context},
     resources::*,
     scene::{RigMotionHost, RigToolHost},
@@ -93,6 +93,7 @@ pub(super) fn pick_project_animation(
 }
 
 pub(super) fn actions(
+    operations: Res<RiggingOperations>,
     mut contexts: ParamSet<(Context, (ResMut<SceneEditorSidebarState>, Option<ResMut<SceneEditorLayoutState>>, ResMut<SceneEditorState>))>,
     mut state: ResMut<RiggingState>,
     buttons: Query<(&RigAction, &EditorButtonClick), Changed<EditorButtonClick>>,
@@ -129,7 +130,7 @@ pub(super) fn actions(
         if state.session.as_ref().is_some_and(|session| session.matches(source)) {
             state.panel_open = true;
         } else {
-            inspect(&mut state, source);
+            inspect(&mut state, source, *operations);
         }
         if !central {
             // 原侧栏可以启动工作流；同一模型移入中央标签后有更大的关节编辑画布。
@@ -173,7 +174,7 @@ pub(super) fn actions(
     if action == RigAction::ChooseProjectMotion {
         // 查看模型属性只改变展示，收到这个明确动作后才启动目录 IO。
         if motion_page && source.entry == Entry::Skinned && state.work.is_none() && can_choose_project_motion(session) {
-            inspect(&mut state, source);
+            inspect(&mut state, source, *operations);
         }
         return;
     }
@@ -189,13 +190,13 @@ pub(super) fn actions(
     }
     let session = state.session.as_mut().expect("已核对当前绑骨会话");
     match action {
-        RigAction::Retry if source.entry == Entry::Unskinned => inspect(&mut state, source),
+        RigAction::Retry if source.entry == Entry::Unskinned => inspect(&mut state, source, *operations),
         RigAction::SwitchBackend if source.entry == Entry::Unskinned => {
             state.backend = match state.backend {
                 RigBackend::Native => RigBackend::Blender,
                 RigBackend::Blender => RigBackend::Native,
             };
-            inspect(&mut state, source);
+            inspect(&mut state, source, *operations);
         }
         RigAction::ResetMarks => {
             if let Some(draft) = &mut session.draft {
@@ -231,7 +232,7 @@ pub(super) fn actions(
             session.notice = Notice::Binding;
             session.picker = None;
             state.work = Some(Work::start_async(Some(source.key()), move |cancel| async move {
-                Completion::Binding(backend::bind(&input, &reference, &landmarks, cancel).await)
+                Completion::Binding(input.bind(reference, landmarks, cancel).await)
             }));
         }
         RigAction::Preview => {
@@ -325,7 +326,7 @@ fn can_choose_project_motion(session: Option<&Session>) -> bool {
     })
 }
 
-fn inspect(state: &mut RiggingState, source: Candidate<'_>) {
+fn inspect(state: &mut RiggingState, source: Candidate<'_>, operations: RiggingOperations) {
     let key = source.key();
     let mut next = Session::new(key.clone(), source.entry);
     if let Some(previous) = state.session.as_ref()
@@ -343,14 +344,14 @@ fn inspect(state: &mut RiggingState, source: Candidate<'_>) {
         drop(previous);
         match entry {
             Entry::Unskinned => Completion::Inspection(
-                backend::inspect(&key.root, &key.path, backend, cancel)
+                (operations.inspect)(key.root, key.path, backend, crate::authoring::find_blender_executable, cancel)
                     .await
                     .map(|inspection| {
                         let has_reference = inspection.animations.iter().any(|asset| asset.can_reference);
                         (inspection, has_reference)
                     }),
             ),
-            Entry::Skinned => Completion::Catalog(backend::catalog(&key.root, &cancel)),
+            Entry::Skinned => Completion::Catalog((operations.catalog)(&key.root, &cancel)),
         }
     }));
 }
@@ -440,7 +441,7 @@ pub(super) fn poll(
             // 只有仍与当前模型代次一致的完整阶段结果才可请求原子发布。
             state.work = Some(Work::start(work.source, move |cancel| {
                 Completion::Publish {
-                    result: backend::publish(prepared, cancel),
+                    result: prepared.publish(cancel),
                     joints,
                     vertices,
                 }

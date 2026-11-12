@@ -1,5 +1,6 @@
 //! 沈照雪问题帧验收。计时从权重页已载入同一行走帧开始，通过真实窗口输入执行修权。
 
+use feathrise_editor_glb_model::weights::{Geometry, Tool, VertexWeights};
 use super::{
     super::{
         AssetPreviewNavigation, AssetPreviewState, OpenAssetPreview,
@@ -11,9 +12,6 @@ use super::{
         view_math::AssetPreviewView,
         view_toolbar::Action as ViewAction,
     },
-    asset::Geometry,
-    edit::Tool,
-    influences::VertexWeights,
     panel::Action,
     preview::{self, WeightPreview},
     resources::WeightEditor,
@@ -194,9 +192,12 @@ fn click_entity(world: &mut World, run: &mut Run, window: Entity, entity: Entity
         return false;
     };
     let center = transform.affine().translation;
+    if run.click.is_some() || run.ready_for_input() {
+        // 真窗口可能在等待悬停或按下的帧间重报系统光标。
+        move_physical_cursor(world, window, center.as_dvec2());
+    }
     match run.click {
         None if run.ready_for_input() => {
-            move_physical_cursor(world, window, center.as_dvec2());
             run.click = Some((entity, false));
         }
         Some((held, false))
@@ -260,10 +261,13 @@ fn click_sidebar(
 ) -> bool {
     let entity = run.click.map(|(entity, _)| entity).or_else(|| {
         world
-            .query::<(Entity, &SceneEditorSidebarTabButton, &ComputedNode)>()
+            .query::<(Entity, &SceneEditorSidebarTabButton, &ComputedNode, &Node, Has<InteractionDisabled>)>()
             .iter(world)
-            .find(|(_, button, computed)| {
-                button.0 == EditorSidebarTab::Right(tab) && !computed.is_empty()
+            .find(|(_, button, computed, node, disabled)| {
+                button.0 == EditorSidebarTab::Right(tab)
+                    && !computed.is_empty()
+                    && node.display != Display::None
+                    && !disabled
             })
             .map(|(entity, ..)| entity)
     });
@@ -312,7 +316,7 @@ fn prepare_pose(world: &mut World, run: &mut Run) -> Result<bool, String> {
     let skin = world
         .get::<SkinnedMesh>(*entity)
         .ok_or("行走预览缺少实际蒙皮")?;
-    let source = &session.doc.surfaces[session.surface];
+    let source = session.doc.surface(session.surface);
     let joint = session.joint as usize;
     let world_joint = world
         .get::<GlobalTransform>(skin.joints[joint])
@@ -537,7 +541,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             if run.selected.is_empty() {
                 return Err("问题帧没有选中顶点".into());
             }
-            let points = &session.doc.surfaces[session.surface].points.positions;
+            let points = session.doc.rest_positions(session.surface);
             let camera = run.camera.unwrap();
             run.outside_rest_box = run
                 .selected
@@ -640,7 +644,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             let seconds = run.timed.unwrap().elapsed().as_secs_f64();
             let output =
                 gltf::Gltf::open(run.assets.join(&path)).map_err(|error| error.to_string())?;
-            let surface = &session.doc.surfaces[session.surface];
+            let surface = session.doc.surface(session.surface);
             let primitive = output
                 .meshes()
                 .nth(surface.mesh)

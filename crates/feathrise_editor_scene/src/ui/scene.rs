@@ -2,6 +2,7 @@
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
+use feathrise_editor_weights_model::WeightPanelScenes;
 use feathrise_editor_ui::metrics as ui_metrics;
 use crate::ui::theme as colors;
 use bevy::prelude::*; // BSN Scene、UI组件和布局值。
@@ -295,14 +296,17 @@ pub(super) fn viewport_panel(scenes: &feathrise_editor_documents_model::Document
 }
 
 /// 主体组合可调侧栏、固定分隔条与当前文档区，不引入任意停靠树。
-fn body(scenes: &feathrise_editor_documents_model::DocumentScenes) -> impl Scene + use<> {
+fn body(
+    scenes: &feathrise_editor_documents_model::DocumentScenes,
+    weight_scenes: &WeightPanelScenes,
+) -> impl Scene + use<> {
     // 三个大面板只在启动时分段装箱，避免完整工作台的BSN模板在Windows小栈上形成巨型临时值。
     let panes: Vec<Box<dyn Scene>> = vec![
         Box::new(left_sidebar(scenes)),
         Box::new(pane_splitter(EditorPane::Content)),
         Box::new(viewport_panel(scenes)),
         Box::new(pane_splitter(EditorPane::Inspector)),
-        Box::new(right_sidebar(scenes)),
+        Box::new(right_sidebar(scenes, weight_scenes)),
     ];
     bsn! {
         Node {
@@ -316,7 +320,11 @@ fn body(scenes: &feathrise_editor_documents_model::DocumentScenes) -> impl Scene
 }
 
 /// 返回由BSN声明的完整编辑器Scene。
-pub(crate) fn scene_editor_scene(scenes: &feathrise_editor_documents_model::DocumentScenes, build_optimization: bool) -> impl Scene + use<> {
+pub(crate) fn scene_editor_scene(
+    scenes: &feathrise_editor_documents_model::DocumentScenes,
+    weight_scenes: &WeightPanelScenes,
+    build_optimization: bool,
+) -> impl Scene + use<> {
     bsn! {
         SceneEditorRoot
         Node {
@@ -333,7 +341,7 @@ pub(crate) fn scene_editor_scene(scenes: &feathrise_editor_documents_model::Docu
         Children [
             @header()--
             @super::sidebars::tool_module_bar()--
-            @body(scenes)--
+            @body(scenes, weight_scenes)--
             @super::status_bar::footer()--
             @new_scene_dialog()--
             @delete_scene_dialog()--
@@ -353,9 +361,10 @@ pub(crate) fn scene_editor_scene(scenes: &feathrise_editor_documents_model::Docu
 /// Bevy 原 spawn() 也是 Startup 独占构造；只在这里读取稳定工厂，不改变生成时机和依赖加载。
 pub(crate) fn spawn_scene_editor_scene(world: &mut World) -> bevy::ecs::error::Result {
     let scenes = *world.resource::<feathrise_editor_documents_model::DocumentScenes>();
+    let weight_scenes = *world.resource::<WeightPanelScenes>();
     let build_optimization = cfg!(windows)
         && (world.contains_resource::<crate::standalone::StandaloneEditorMode>()
             || world.contains_resource::<crate::workbench::WorkbenchModel>());
-    world.spawn_scene(scene_editor_scene(&scenes, build_optimization))?;
+    world.spawn_scene(scene_editor_scene(&scenes, &weight_scenes, build_optimization))?;
     Ok(())
 }

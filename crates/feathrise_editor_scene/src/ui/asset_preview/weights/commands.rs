@@ -1,5 +1,6 @@
 //! 顶栏保存和历史命令按当前中央 GLB 标签分派，继续使用原权重任务与回执。
 
+use feathrise_editor_glb_model::weights::Operation;
 use super::{
     super::{AssetPreviewState, AssetPreviewWorkspace, DocumentState},
     resources::{Key, Reason, Session, WeightEditor},
@@ -184,9 +185,9 @@ pub(super) fn receive(
             }
             .cloned();
             if let Some(entry) = entry {
-                let old_skin = session.doc.surfaces[session.surface].skin.index;
+                let old_skin = session.doc.surface(session.surface).skin.index;
                 session.surface = entry.surface;
-                if session.doc.surfaces[session.surface].skin.index != old_skin {
+                if session.doc.surface(session.surface).skin.index != old_skin {
                     session.joint = 0;
                 }
                 let (weights, reason) = if undo {
@@ -194,7 +195,7 @@ pub(super) fn receive(
                 } else {
                     (entry.after.clone(), Reason::Redo(entry))
                 };
-                queue(&mut state, super::edit::Operation::History(weights), reason);
+                queue(&mut state, Operation::History(weights), reason);
             }
         }
         _ => return,

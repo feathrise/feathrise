@@ -126,6 +126,8 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
         feathrise_editor_scene::SceneEditorPlugin,
         feathrise_editor_surface::SurfaceEditorPlugin,
         feathrise_editor_documents::DocumentsEditorPlugin,
+        feathrise_editor_weights::WeightPanelPlugin,
+        feathrise_editor_glb::GlbEditorPlugin,
     ))
     .add_plugins(feathrise_editor_scene::standalone::StandaloneEditorPlugin)
     .add_plugins(crate::project_log::ProjectLogPlugin::new(&project))

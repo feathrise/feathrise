@@ -1,11 +1,7 @@
 //! 蒙皮权重工作区。绑定原模型资产身份，复用中央视口和动作容器。
 
-mod asset;
 mod commands;
-mod edit;
 mod fields;
-mod file;
-mod influences;
 mod input;
 pub(crate) mod panel;
 mod posed;
@@ -15,7 +11,6 @@ mod problem_validation;
 pub(crate) mod project_close;
 mod resources;
 mod skeleton;
-mod spatial;
 mod systems;
 #[cfg(feature = "validation")]
 mod validation;

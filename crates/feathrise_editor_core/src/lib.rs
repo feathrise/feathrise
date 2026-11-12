@@ -18,6 +18,7 @@ pub use project_paths::{
 };
 
 mod components;
+pub mod view_projection;
 mod resources;
 mod system_sets;
 mod types;

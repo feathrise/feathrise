@@ -133,6 +133,7 @@ enum Phase {
 #[derive(Clone, Copy)]
 struct DragWitness {
     cursor: DVec2,
+    destination: DVec2,
     left_before: Vec3,
     right_before: Vec3,
 }
@@ -146,7 +147,7 @@ struct TabWitness {
 
 struct DividerWitness {
     entity: Entity,
-    cursor: DVec2,
+    destination: DVec2,
     before: Vec2,
     at_release: Option<Vec2>,
     enlarged: Option<Vec2>,
@@ -292,9 +293,24 @@ pub fn install(app: &mut App, project: &Path, assets: &Path) -> Result<(), Strin
         verify: None,
         launch_snapshot: false,
     })
+    .add_systems(PreUpdate, hold_drag_cursor.before(bevy::ui::UiSystems::Focus))
     .add_systems(Update, fixture_focus.before(crate::SceneEditorSystemSet::Input))
     .add_systems(Last, drive);
     Ok(())
+}
+
+fn hold_drag_cursor(world: &mut World) {
+    let destination = world.get_resource::<Run>().and_then(|run| match run.phase {
+        Phase::ReleaseMarker | Phase::VerifyMarker => run.drag.map(|drag| drag.destination),
+        Phase::ReleaseDivider | Phase::VerifyDivider => run.divider.as_ref().map(|drag| drag.destination),
+        _ => None,
+    });
+    let Some(destination) = destination else { return; };
+    let Some(window) = world.query_filtered::<Entity, With<PrimaryWindow>>().iter(world).next() else {
+        return;
+    };
+    // 真窗口可能在帧间重报系统光标。焦点计算前固定拖动坐标，释放帧也保留同一目标。
+    move_cursor(world, window, destination);
 }
 
 pub(super) fn fixture_focus(mut window: Query<&mut Window, With<PrimaryWindow>>) {
@@ -683,8 +699,11 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             if state.validation_mirror_enabled() != mirror_expected {
                 return Err("关节点镜像开关与本次拖动阶段不符".into());
             }
+            let scale = f64::from(world.get::<Window>(window).unwrap().scale_factor());
+            let delta = if run.mirrored_marker { DVec2::new(-5.0, 3.0) } else { DVec2::new(6.0, -4.0) };
             run.drag = Some(DragWitness {
                 cursor: dot,
+                destination: dot + delta * scale,
                 left_before: read_marker(state, LEFT_WRIST)?,
                 right_before: read_marker(state, RIGHT_WRIST)?,
             });
@@ -692,6 +711,8 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             Phase::PressMarker
         }
         Phase::PressMarker => {
+            let drag = run.drag.ok_or("缺少关节点拖动起点")?;
+            move_cursor(world, window, drag.cursor);
             let hover = world
                 .query_filtered::<&UiInteraction, With<AssetPreviewCanvas>>()
                 .iter(world)
@@ -714,13 +735,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
                 return Ok(None);
             }
             let drag = run.drag.ok_or("缺少关节点拖动起点")?;
-            let scale = f64::from(world.get::<Window>(window).unwrap().scale_factor());
-            let delta = if run.mirrored_marker {
-                DVec2::new(-5.0, 3.0)
-            } else {
-                DVec2::new(6.0, -4.0)
-            };
-            move_cursor(world, window, drag.cursor + delta * scale);
+            move_cursor(world, window, drag.destination);
             Phase::ReleaseMarker
         }
         Phase::ReleaseMarker => {
@@ -880,7 +895,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             let cursor = dock.splitter_center.as_dvec2();
             let witness = run.divider.get_or_insert_with(|| DividerWitness {
                 entity: dock.splitter,
-                cursor,
+                destination: cursor,
                 before: Vec2::new(dock.canvas_height, dock.timeline_height),
                 at_release: None,
                 enlarged: None,
@@ -889,7 +904,9 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             if witness.entity != dock.splitter || dock.dragging {
                 return Err("开始拖动前，时间轴分隔条的身份或鼠标捕获异常".into());
             }
-            witness.cursor = cursor;
+            let scale = f64::from(world.get::<Window>(window).unwrap().scale_factor());
+            let delta = if witness.enlarged.is_some() { 40.0 } else { -64.0 };
+            witness.destination = cursor + DVec2::Y * delta * scale;
             witness.at_release = None;
             move_cursor(world, window, cursor);
             Phase::PressDivider
@@ -904,9 +921,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             let Some(dock) = timeline_dock_probe(world).filter(|dock| dock.dragging) else { return Ok(None) };
             let witness = run.divider.as_ref().ok_or("缺少分隔条拖动起点")?;
             if witness.entity != dock.splitter { return Err("拖动中分隔条换代".into()); }
-            let scale = f64::from(world.get::<Window>(window).unwrap().scale_factor());
-            let delta = if witness.enlarged.is_some() { 40.0 } else { -64.0 };
-            move_cursor(world, window, witness.cursor + DVec2::Y * delta * scale);
+            move_cursor(world, window, witness.destination);
             Phase::ReleaseDivider
         }
         Phase::ReleaseDivider => {

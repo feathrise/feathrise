@@ -107,6 +107,7 @@ use world_environment_controls::*; // 环境页运行时世界控制组。
 pub(crate) use feathrise_editor_core::SceneEditorSystemSet; // 稳定系统阶段由公共契约唯一拥有。
 
 /// 场景作者工具插件；是否随游戏发布由游戏宿主决定，正式独立编辑器默认使用。
+/// 宿主并列装配文档、权重布局与 GLB 后台插件，提供静态场景工厂和后台操作。
 #[derive(Default)]
 pub struct SceneEditorPlugin;
 
@@ -876,7 +877,7 @@ mod tests {
     fn official_editor_input_schedule_initializes_without_conflicts() {
         let mut app = App::new(); // 不启动窗口或渲染，只构造真实插件系统图。
         app.add_plugins((MinimalPlugins, AssetPlugin::default())); // 正式编辑器安装会登记资产类型，夹具需要资产服务和任务池。
-        app.add_plugins(SceneEditorPlugin); // 使用正式安装入口，覆盖所有迁移字段注册。
+        app.add_plugins((SceneEditorPlugin, feathrise_editor_glb::GlbEditorPlugin));
         let mut schedule = app
             .world_mut()
             .resource_mut::<bevy::ecs::schedule::Schedules>()
@@ -899,7 +900,7 @@ mod tests {
         app.init_asset::<Shader>()
             .init_asset::<Image>()
             .init_asset::<Mesh>(); // 场景内置材质注册需要这些宿主资产。
-        app.add_plugins((feathrise_scene::GameScenePlugin, SceneEditorPlugin)); // 真实生产系统及其全部顺序关系。
+        app.add_plugins((feathrise_scene::GameScenePlugin, SceneEditorPlugin, feathrise_editor_glb::GlbEditorPlugin)); // 验证生产系统的顺序关系。
         for label in [First.intern(), Update.intern(), PostUpdate.intern()] {
             // 同时覆盖光标采用和贴地覆盖显示。
             let mut schedule = app

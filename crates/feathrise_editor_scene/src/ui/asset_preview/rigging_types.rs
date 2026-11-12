@@ -11,7 +11,7 @@ use bevy::{
     tasks::{IoTaskPool, Task},
 };
 
-use super::backend::{AnimationAsset, Inspection, Landmarks, PreparedRig, PublishedRig};
+use feathrise_editor_glb_model::rigging::{AnimationAsset, Inspection, Landmarks, PreparedRig, PublishedRig};
 use crate::viewport::placement_move::MoveCamera;
 
 pub(super) const PICKER_ROWS: usize = 5;

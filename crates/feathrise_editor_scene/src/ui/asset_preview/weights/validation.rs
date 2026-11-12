@@ -1,5 +1,6 @@
 //! 自有沈照雪夹具的真窗口验收，走原按钮和鼠标手势，核对落盘及两段动作。
 
+use feathrise_editor_glb_model::weights::{Tool, VertexWeights};
 use super::super::{
     AssetPreviewNavigation, AssetPreviewState, AssetPreviewWorkspace, DocumentState, OpenAssetPreview,
     animation::rig_animation_probe,
@@ -8,7 +9,7 @@ use super::super::{
     view_toolbar::Action as ViewAction,
 };
 use super::{
-    edit::Tool, influences::VertexWeights, panel::{Action, Field}, resources::WeightEditor,
+    panel::{Action, Field}, resources::WeightEditor,
 };
 use crate::{
     asset_catalog::{EditorAssetCatalog, request_asset_reveal},
@@ -367,7 +368,7 @@ fn header_feedback(world: &mut World, save: bool, undo: bool, redo: bool) -> boo
 
 fn joint_index(world: &World, name: &str) -> Option<u16> {
     let session = world.resource::<WeightEditor>().session.as_ref()?;
-    session.doc.surfaces[session.surface]
+    session.doc.surface(session.surface)
         .skin
         .joints
         .iter()
@@ -492,11 +493,8 @@ fn view(world: &mut World) -> Option<MoveCamera> {
 fn visible_point(world: &mut World) -> Option<Vec2> {
     let view = view(world)?;
     let session = world.resource::<WeightEditor>().session.as_ref()?;
-    let surface = &session.doc.surfaces[session.surface];
     let draft = &session.drafts[session.surface];
-    surface
-        .points
-        .positions
+    session.doc.rest_positions(session.surface)
         .iter()
         .enumerate()
         .step_by(17)
@@ -510,8 +508,7 @@ fn visible_point(world: &mut World) -> Option<Vec2> {
             let ray = view.ray(projected)?;
             session
                 .doc
-                .occlusion
-                .visible(ray, point, 0.001)
+                .rest_visible(ray, point, 0.001)
                 .then_some(projected)
         })
         .min_by(|a, b| a.length_squared().total_cmp(&b.length_squared()))
@@ -1290,7 +1287,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
                 .session
                 .as_ref()
                 .ok_or("缺少已保存草稿")?;
-            for (surface, draft) in session.doc.surfaces.iter().zip(&session.drafts) {
+            for (surface, draft) in session.doc.surfaces().zip(&session.drafts) {
                 let primitive = output_doc
                     .meshes()
                     .nth(surface.mesh)

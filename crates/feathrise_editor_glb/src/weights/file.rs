@@ -2,10 +2,11 @@
 
 use super::{
     asset::{Document, MAX_FILE, decode},
-    influences::VertexWeights,
+    influences::checked,
 };
-use crate::ui::asset_preview::rigging::files::{self, Stage, active};
+use crate::files::{self, Stage, active};
 use bevy::tasks::IoTaskPool;
+use feathrise_editor_glb_model::weights::{VertexWeights, WeightDocument};
 use serde_json::{Value, json};
 use std::{
     fs::OpenOptions,
@@ -18,7 +19,7 @@ pub(super) async fn load(
     root: PathBuf,
     relative: String,
     cancel: Arc<AtomicBool>,
-) -> Result<Arc<Document>, String> {
+) -> Result<Arc<dyn WeightDocument>, String> {
     let reader_cancel = cancel.clone();
     let (identity, bytes) = IoTaskPool::get()
         .spawn(async move {
@@ -26,7 +27,7 @@ pub(super) async fn load(
             files::freeze_bytes(&root, &relative, &reader_cancel)
         })
         .await?;
-    decode(identity, bytes, &cancel)
+    Ok(decode(identity, bytes, &cancel)?)
 }
 
 struct Encoded {
@@ -52,11 +53,11 @@ fn encode(
     let mut json = doc.json.clone();
     let mut weights = Vec::new();
     for (surface, draft) in doc.surfaces.iter().zip(draft) {
-        if Arc::ptr_eq(&surface.original, draft) {
+        if Arc::ptr_eq(&surface.info.original, draft) {
             continue;
         }
         active(cancel)?;
-        if draft.len() != surface.original.len() {
+        if draft.len() != surface.info.original.len() {
             return Err("草稿顶点数改变，无法另存权重".into());
         }
         let offset = doc.binary.len() + weights.len();
@@ -84,8 +85,7 @@ fn encode(
             active(cancel)?;
             for row in block {
                 let sum: f32 = row.weights.iter().sum();
-                if VertexWeights::checked(row.joints, row.weights, surface.skin.joints.len())
-                    .is_none()
+                if checked(row.joints, row.weights, surface.info.skin.joints.len()).is_none()
                     || (sum - 1.0).abs() > 1e-4
                 {
                     return Err("草稿含无效关节或非归一化权重".into());
@@ -98,8 +98,8 @@ fn encode(
                 }
             }
         }
-        let attributes =
-            &mut json["meshes"][surface.mesh]["primitives"][surface.primitive]["attributes"];
+        let attributes = &mut json["meshes"][surface.info.mesh]["primitives"]
+            [surface.info.primitive]["attributes"];
         attributes["JOINTS_0"] = json!(joints);
         attributes["WEIGHTS_0"] = json!(influence);
     }

@@ -4,6 +4,7 @@ use super::super::systems::editor_camera_pose;
 use super::types::{MoveAxis, MoveHandle};
 use crate::resources::{SceneEditorState, SceneEditorViewportState};
 use bevy::prelude::*;
+use feathrise_editor_core::view_projection::ViewProjection;
 
 const HANDLE_LOGICAL_PIXELS: f32 = 80.0;
 const PICK_LOGICAL_PIXELS: f32 = 8.0;
@@ -11,23 +12,26 @@ const PLANE_INNER_FRACTION: f32 = feathrise_author_tools::AUTHOR_PLANE_INNER_FRA
 const PLANE_OUTER_FRACTION: f32 = feathrise_author_tools::AUTHOR_PLANE_OUTER_FRACTION; // 约26逻辑像素的方框，靠近原点但避开两根轴。
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct MoveCamera {
-    clip_from_world: Mat4,
-    world_from_clip: Mat4,
-    pub size: Vec2,
-    pub inverse_scale: f32,
+pub(crate) struct MoveCamera(ViewProjection);
+
+impl std::ops::Deref for MoveCamera {
+    type Target = ViewProjection;
+
+    fn deref(&self) -> &ViewProjection {
+        &self.0
+    }
 }
 
 impl MoveCamera {
-    /// 资产预览复用同一投影数学，只传入其既有相机，不新增场景相机状态。
-    pub(crate) fn from_projection(projection: &Projection, transform: &GlobalTransform, size: Vec2, inverse_scale: f32) -> Option<Self> {
-        if !size.is_finite() || size.min_element() <= 0.0 { return None; }
-        let mut projection=projection.clone();
-        projection.update(size.x,size.y);
-        let clip_from_world=projection.get_clip_from_view()*transform.to_matrix().inverse();
-        let world_from_clip=clip_from_world.inverse();
-        (clip_from_world.is_finite() && world_from_clip.is_finite()).then_some(Self { clip_from_world,world_from_clip,size,inverse_scale })
+    pub(crate) fn from_projection(
+        projection: &Projection,
+        transform: &GlobalTransform,
+        size: Vec2,
+        inverse_scale: f32,
+    ) -> Option<Self> {
+        ViewProjection::from_projection(projection, transform, size, inverse_scale).map(Self)
     }
+
     pub(crate) fn new(
         editor: &SceneEditorState,
         viewport: &SceneEditorViewportState,
@@ -41,52 +45,17 @@ impl MoveCamera {
         {
             return None;
         }
-        let (mut projection, transform) = editor_camera_pose(editor.orthographic, viewport);
-        projection.update(size.x, size.y);
-        let clip_from_world = projection.get_clip_from_view() * transform.to_matrix().inverse();
-        let world_from_clip = clip_from_world.inverse();
-        (clip_from_world.is_finite() && world_from_clip.is_finite()).then_some(Self {
-            clip_from_world,
-            world_from_clip,
-            size,
-            inverse_scale,
-        })
+        let (projection, transform) = editor_camera_pose(editor.orthographic, viewport);
+        ViewProjection::from_view(projection, transform.to_matrix(), size, inverse_scale).map(Self)
     }
 
-    pub(crate) fn project(self, world: Vec3) -> Option<Vec2> {
-        let clip = self.clip_from_world * world.extend(1.0);
-        if !clip.is_finite() || clip.w <= 0.0 {
-            return None;
-        }
-        let ndc = clip.truncate() / clip.w;
-        if !(0.0..=1.0).contains(&ndc.z) {
-            return None;
-        } // 不显示近裁剪后方或正交深度外的手柄。
-        Some(Vec2::new(ndc.x, -ndc.y) * 0.5)
-    }
-
-    fn unproject(self, point: Vec3) -> Option<Vec3> {
-        let world = self.world_from_clip * point.extend(1.0);
-        if !world.is_finite() || world.w.abs() < f32::MIN_POSITIVE {
-            return None;
-        }
-        let result = world.truncate() / world.w;
-        result.is_finite().then_some(result)
-    }
-
-    pub(crate) fn ray(self, normalized: Vec2) -> Option<Ray3d> {
-        if !normalized.is_finite() {
-            return None;
-        }
-        let xy = normalized * Vec2::new(2.0, -2.0);
-        let near = self.unproject(xy.extend(1.0))?;
-        let far = self.unproject(xy.extend(f32::EPSILON))?;
-        Some(Ray3d::new(near, Dir3::new(far - near).ok()?)) // 与 Bevy 正式 viewport_to_world 使用同一反向深度端点。
+    pub(crate) fn projection(self) -> ViewProjection {
+        self.0
     }
 
     pub(crate) fn handle_length(self, origin: Vec3) -> Option<f32> {
         let point = self.project(origin)?;
-        let clip = self.clip_from_world * origin.extend(1.0);
+        let clip = self.clip(origin);
         let other = self.unproject(Vec3::new(
             point.x * 2.0 + 2.0 / self.size.x / self.inverse_scale,
             -point.y * 2.0,
@@ -99,7 +68,7 @@ impl MoveCamera {
     /// 在模型根的深度平面构造屏幕朝向方框，缩放手柄不因观察方向或模型倍率变难点击。
     pub(crate) fn screen_square(self, origin: Vec3, half_pixels: f32) -> Option<[Vec3; 4]> {
         let center = self.project(origin)?;
-        let clip = self.clip_from_world * origin.extend(1.0);
+        let clip = self.clip(origin);
         let mut corners = [Vec3::ZERO; 4];
         for (corner, offset) in corners.iter_mut().zip([
             Vec2::new(-1.0, -1.0),

@@ -1,6 +1,7 @@
 //! 受检 Blender 子进程。用独占目录传参、捕获有界诊断，并跟随当前绑骨请求取消。
 
-use super::files::{self, Stage};
+use crate::files::{self, Stage};
+use feathrise_editor_glb_model::rigging::BlenderLocator;
 use serde::{Serialize, de::DeserializeOwned};
 use std::{
     fs::{self, File, OpenOptions},
@@ -35,10 +36,11 @@ pub(super) fn execute<T: DeserializeOwned>(
     request: &impl Serialize,
     report: &Path,
     exporting: bool,
+    locate_blender: BlenderLocator,
     cancel: &AtomicBool,
 ) -> Result<T, String> {
     files::active(cancel)?;
-    let blender = crate::authoring::find_blender_executable()?
+    let blender = locate_blender()?
         .canonicalize()
         .map_err(|error| format!("无法定位 Blender：{error}"))?;
     let script = stage.path("worker.py");

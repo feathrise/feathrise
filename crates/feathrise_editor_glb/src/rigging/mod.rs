@@ -1,24 +1,26 @@
 //! 人形绑骨后台的检查、生成、再验证与发布。调用方只在单个 IO 工作槽运行这些入口。
 
+use crate::files;
+use feathrise_editor_glb_model::{
+    GlbTask,
+    rigging::{
+        AnimationAsset, BlenderLocator, Inspection, Landmarks, PreparedRig, PublishedRig,
+        RigBackend, RigSource, RiggingOperations,
+    },
+};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{Arc, atomic::AtomicBool},
 };
 
 #[path = "rigging_blender.rs"]
 mod blender;
-#[path = "rigging_files.rs"]
-pub(in crate::ui::asset_preview) mod files;
-pub(crate) use files::glb_directory_json;
 #[path = "rigging_native.rs"]
 mod native;
 #[cfg(test)]
 #[path = "rigging_backend_tests.rs"]
 mod tests;
-
-pub(super) type Landmarks = BTreeMap<String, [f32; 3]>;
 
 const LANDMARKS: [&str; 17] = [
     "head",
@@ -40,45 +42,22 @@ const LANDMARKS: [&str; 17] = [
     "right_toe",
 ];
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) enum RigBackend {
-    #[default]
-    Native,
-    Blender,
-}
-
-#[derive(Clone)]
-pub(super) struct RigInput {
+struct RigInput {
     root: PathBuf,
     source: files::FrozenAsset,
     backend: RigBackend,
+    locate_blender: BlenderLocator,
 }
 
-pub(super) struct AnimationAsset {
-    pub path: String,
-    pub clips: Vec<String>, // 顺序与 glTF animations 数组一致，包含未命名动作的真实序号。
-    pub can_reference: bool,
-}
-
-pub(super) struct Inspection {
-    pub input: RigInput,
-    pub landmarks: Landmarks,
-    pub animations: Vec<AnimationAsset>,
-    pub warnings: Vec<String>,
-}
-
-pub(super) struct PreparedRig {
-    input: RigInput,
-    reference: files::FrozenAsset,
-    stage: files::Stage,
-    pub warnings: Vec<String>,
-    pub joints: usize,
-    pub vertices: usize,
-}
-
-pub(super) struct PublishedRig {
-    pub path: String,
-    pub warnings: Vec<String>,
+impl RigSource for RigInput {
+    fn bind(
+        self: Arc<Self>,
+        reference_path: String,
+        landmarks: Landmarks,
+        cancel: Arc<AtomicBool>,
+    ) -> GlbTask<PreparedRig> {
+        Box::pin(async move { bind(self, &reference_path, &landmarks, cancel).await })
+    }
 }
 
 #[derive(Serialize)]
@@ -111,14 +90,24 @@ struct Bound {
     vertices: usize,
 }
 
-pub(super) fn catalog(root: &Path, cancel: &AtomicBool) -> Result<Vec<AnimationAsset>, String> {
+pub(super) fn operations() -> RiggingOperations {
+    RiggingOperations {
+        catalog,
+        inspect: |root, path, backend, locate_blender, cancel| {
+            Box::pin(async move { inspect(&root, &path, backend, locate_blender, cancel).await })
+        },
+    }
+}
+
+fn catalog(root: &Path, cancel: &AtomicBool) -> Result<Vec<AnimationAsset>, String> {
     files::catalog(&files::checked_root(root)?, cancel)
 }
 
-pub(super) async fn inspect(
+async fn inspect(
     asset_root: &Path,
     model_path: &str,
     backend: RigBackend,
+    locate_blender: BlenderLocator,
     cancel: Arc<AtomicBool>,
 ) -> Result<Inspection, String> {
     let root = files::checked_root(asset_root)?;
@@ -138,6 +127,7 @@ pub(super) async fn inspect(
                 },
                 &report,
                 false,
+                locate_blender,
                 &cancel,
             )?
         }
@@ -145,19 +135,20 @@ pub(super) async fn inspect(
     check_landmarks(&detected.landmarks)?;
     let animations = files::catalog(&root, &cancel)?;
     Ok(Inspection {
-        input: RigInput {
+        input: Arc::new(RigInput {
             root,
             source,
             backend,
-        },
+            locate_blender,
+        }),
         landmarks: detected.landmarks,
         animations,
         warnings: detected.warnings,
     })
 }
 
-pub(super) async fn bind(
-    input: &RigInput,
+async fn bind(
+    input: Arc<RigInput>,
     reference_path: &str,
     landmarks: &Landmarks,
     cancel: Arc<AtomicBool>,
@@ -197,6 +188,7 @@ pub(super) async fn bind(
                 },
                 &report,
                 true,
+                input.locate_blender,
                 &cancel,
             )?
         }
@@ -205,27 +197,20 @@ pub(super) async fn bind(
         return Err("蒙皮回执的关节或顶点数量不匹配".into());
     }
     files::check_output_model(&output_glb, &reference_joints)?;
-    Ok(PreparedRig {
-        input: input.clone(),
-        reference,
-        stage,
-        warnings: bound.warnings,
-        joints: bound.joints,
-        vertices: bound.vertices,
-    })
-}
-
-pub(super) fn publish(prepared: PreparedRig, cancel: &AtomicBool) -> Result<PublishedRig, String> {
-    let root = &prepared.input.root;
-    let input = &prepared.input.source;
-    // 完整候选由主线程确认会话后才进入发布工作槽。核对两个输入的完整字节，再无覆盖地落盘。
-    files::check_frozen(root, input, cancel)?;
-    files::check_frozen(root, &prepared.reference, cancel)?;
-    let path = files::publish(&prepared.stage.path("rigged.glb"), root, input, cancel)?;
-    Ok(PublishedRig {
-        path,
-        warnings: prepared.warnings,
-    })
+    let Bound {
+        warnings,
+        joints,
+        vertices,
+    } = bound;
+    Ok(PreparedRig::new(joints, vertices, move |cancel| {
+        let root = &input.root;
+        let source = &input.source;
+        // 采用完整候选后再次核对两个输入的精确字节，再无覆盖地落盘。
+        files::check_frozen(root, source, cancel)?;
+        files::check_frozen(root, &reference, cancel)?;
+        let path = files::publish(&stage.path("rigged.glb"), root, source, cancel)?;
+        Ok(PublishedRig { path, warnings })
+    }))
 }
 
 fn check_landmarks(landmarks: &Landmarks) -> Result<(), String> {

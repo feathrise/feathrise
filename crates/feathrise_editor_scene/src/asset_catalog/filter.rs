@@ -112,7 +112,7 @@ pub(super) struct GlbMetadata {
 
 impl GlbMetadata {
     fn read(path: &Path) -> Self {
-        let Ok(json) = crate::ui::asset_preview::rigging::glb_directory_json(path) else {
+        let Ok(json) = feathrise_editor_assets::glb_metadata::read_directory(path) else {
             return Self::default();
         };
         let array = |key: &str| {

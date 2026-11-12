@@ -1,0 +1,12 @@
+# 蒙皮权重右栏及资产属性入口的静态布局。
+[package]
+name = "feathrise_editor_weights"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bevy = { workspace = true }
+feathrise_editor_core = { workspace = true }
+feathrise_editor_ui = { workspace = true }
+feathrise_editor_weights_model = { workspace = true }

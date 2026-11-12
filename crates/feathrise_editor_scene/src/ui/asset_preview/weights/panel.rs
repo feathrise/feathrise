@@ -1,8 +1,8 @@
-//! 右侧蒙皮工具页和画布左侧选骨入口，复用编辑器现有主题与按钮。
+//! 挂载蒙皮权重右栏，构造画布选骨入口，并用原会话回显工具状态。
 
+use feathrise_editor_glb_model::weights::Tool;
 use super::super::{animation::AnimationEditorState, rigging::RiggingState};
 use super::{
-    edit::Tool,
     resources::{Session, WeightEditor},
     systems::{Gate, Target},
 };
@@ -10,7 +10,6 @@ use crate::{
     components::SceneEditorRightPanelScroll,
     resources::SceneEditorState,
     ui::{
-        scene::FONT_PATH,
         sidebars::{
             EditorRightSidebarTab, EditorSidebarTab, SceneEditorSidebarPage,
             SceneEditorSidebarState,
@@ -24,12 +23,13 @@ use bevy::{
     asset::HandleTemplate,
     gltf::Gltf,
     prelude::*,
-    text::FontSourceTemplate,
     ui::{FocusPolicy, InteractionDisabled, RelativeCursorPosition},
 };
 use feathrise_editor_ui::{
-    ButtonColors, InteractionButton, UiInteraction, localization::EditorLocale, metrics,
+    ButtonColors, InteractionButton, UiInteraction, localization::EditorLocale,
 };
+use feathrise_editor_weights_model::WeightPanelScenes;
+pub(super) use feathrise_editor_weights_model::components::{Action, EditControls, Entry, Label};
 
 const NORMAL: ButtonColors = ButtonColors::new(
     colors::BUTTON_DEV_SMALL_NORMAL,
@@ -42,99 +42,14 @@ const SELECTED: ButtonColors = ButtonColors::new(
     colors::SELECT_BG_PRESSED,
 );
 
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Action {
-    Open,
-    Discard,
-    OpenSaved,
-    Rest,
-    Compare,
-    Heat,
-    Skeleton,
-    Visible,
-    Mirror,
-    Mask,
-    Edit,
-    Mode(Tool),
-    Mesh(i8),
-    Lock,
-    Clear,
-    Apply,
-    Assign,
-    Remove,
-}
-
-#[derive(Component, Clone, Copy)]
-pub(super) enum Label {
-    Notice,
-    EntryNotice,
-    Target,
-    Geometry,
-    Joint,
-    Selection,
-    Legend,
-    Button(Action),
-}
-
-#[derive(Component, Clone, Default)]
-pub(super) struct Entry;
-
 #[derive(Component, Clone, Default)]
 pub(in crate::ui::asset_preview) struct BoneToolRail;
-
-#[derive(Component, Clone, Copy, Default)]
-pub(super) struct EditControls;
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Field {
     Amount,
     Radius,
     Strength,
-}
-
-fn label(role: Label) -> impl Scene {
-    let layout = if matches!(role, Label::Button(_)) {
-        TextLayout::new(Justify::Center, bevy::text::LineBreak::NoWrap)
-    } else {
-        TextLayout::new(Justify::Left, bevy::text::LineBreak::AnyCharacter)
-    };
-    bsn! {
-        ~{role} Text("") ~{FocusPolicy::Pass}
-        TextFont {
-            font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)),
-            font_size: px(metrics::FONT_CONTROL)
-        }
-        TextColor(colors::TEXT_PRIMARY)
-        ~{layout}
-        Node { min_width: px(0), flex_shrink: 0.0, overflow: Overflow::clip_x() }
-    }
-}
-
-fn button(action: Action) -> impl Scene {
-    bsn! {
-        InteractionButton ~{action} ~{NORMAL}
-        Node {
-            min_height: px(24), min_width: px(0), flex_grow: 1.0, flex_basis: px(0),
-            justify_content: JustifyContent::Center, align_items: AlignItems::Center,
-            padding: UiRect::horizontal(px(4)), border: UiRect::all(px(1)),
-            border_radius: BorderRadius::all(px(3)), overflow: Overflow::clip_x()
-        }
-        BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [@label(Label::Button(action))]
-    }
-}
-
-fn row() -> impl Scene {
-    bsn! { Node { width: percent(100), min_width: px(0), flex_shrink: 0.0, column_gap: px(3) } }
-}
-
-pub(in crate::ui::asset_preview) fn entry() -> impl Scene {
-    bsn! {
-        Entry
-        Node { display: Display::None, width: percent(100), flex_direction: FlexDirection::Column,
-            row_gap: px(3), flex_shrink: 0.0 }
-        Children [@button(Action::Open)--@label(Label::EntryNotice)]
-    }
 }
 
 pub(in crate::ui::asset_preview) fn viewport_tools() -> impl Scene {
@@ -176,43 +91,13 @@ fn mode_button(mode: ViewportMode, action: Action, tooltip: TooltipAction) -> im
     }
 }
 
-fn edit_controls() -> impl Scene {
-    bsn! {
-        EditControls
-        Node { display: Display::None, flex_direction: FlexDirection::Column, row_gap: px(4), flex_shrink: 0.0 }
-        Children [
-            @row() Children [@button(Action::Mesh(-1))--@button(Action::Mesh(1))]--
-            @row() Children [@button(Action::Lock)]--
-            @row() Children [@button(Action::Mode(Tool::Point))--@button(Action::Mode(Tool::Box))--@button(Action::Clear)]--
-            @row() Children [@button(Action::Mode(Tool::Add))--@button(Action::Mode(Tool::Subtract))--@button(Action::Mode(Tool::Smooth))]--
-            @row() Children [@button(Action::Visible)--@button(Action::Mirror)--@button(Action::Mask)]--
-            @row() Children [@button(Action::Apply)--@button(Action::Remove)--@button(Action::Assign)]--
-            @label(Label::Selection)--
-            @label(Label::Legend)--
-            @row() Children [@button(Action::Compare)--@button(Action::Rest)]--
-            @row() Children [@button(Action::OpenSaved)]
-        ]
-    }
-}
-
-pub(crate) fn sidebar_page() -> impl Scene {
+/// 在原右栏页根合成布局，页签身份、滚轮命中和布局子树共用同一个实体。
+pub(crate) fn sidebar_page(scenes: &WeightPanelScenes) -> impl Scene + use<> {
+    let panel = (scenes.panel)();
     bsn! {
         SceneEditorSidebarPage(EditorSidebarTab::Right(EditorRightSidebarTab::Weights))
         SceneEditorRightPanelScroll RelativeCursorPosition::default() ScrollPosition::default()
-        Node {
-            display: Display::None, width: percent(100), min_width: px(0), min_height: px(0),
-            flex_grow: 1.0, flex_basis: px(0), flex_direction: FlexDirection::Column,
-            overflow: Overflow::scroll_y(), row_gap: px(4), padding: UiRect::all(px(3))
-        }
-        Children [
-            @label(Label::Target)--
-            @label(Label::Notice)--
-            @label(Label::Geometry)--
-            @label(Label::Joint)--
-            @edit_controls()--
-            @row() Children [@button(Action::Heat)--@button(Action::Skeleton)]--
-            @row() Children [@button(Action::Discard)]
-        ]
+        @panel
     }
 }
 
@@ -345,9 +230,9 @@ pub(super) fn present(
                         })
                 }
                 Action::Mirror => session.is_some_and(|session| {
-                    session.doc.surfaces[session.surface].skin.mirror.is_some()
+                    session.doc.surface(session.surface).skin.mirror.is_some()
                 }),
-                Action::Mesh(_) => session.is_some_and(|session| session.doc.surfaces.len() > 1),
+                Action::Mesh(_) => session.is_some_and(|session| session.doc.surface_count() > 1),
                 _ => session.is_some(),
             };
         if enabled == disabled {
@@ -413,7 +298,7 @@ pub(super) fn present(
 }
 
 fn session_label(label: Label, session: &Session, locale: EditorLocale) -> String {
-    let surface = &session.doc.surfaces[session.surface];
+    let surface = session.doc.surface(session.surface);
     let joint = &surface.skin.joints[session.joint as usize];
     let draft = &session.drafts[session.surface];
     match label {

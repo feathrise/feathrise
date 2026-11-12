@@ -2,87 +2,25 @@
 
 use super::{
     asset::Document,
-    influences::VertexWeights,
-    posed::PosedGeometry,
+    influences::edit,
+    posed::deform,
     spatial::{Occlusion, Points},
 };
-use crate::ui::asset_preview::rigging::files::active;
-use crate::viewport::placement_move::MoveCamera;
+use crate::files::active;
 use bevy::prelude::*;
+use feathrise_editor_core::view_projection::ViewProjection;
+use feathrise_editor_glb_model::weights::{
+    Brush, EditRequest, Operation, Prepared, Selection, Tool, VertexWeights,
+};
 use std::{
     collections::BTreeMap,
     sync::{Arc, atomic::AtomicBool},
 };
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) enum Tool {
-    #[default]
-    Point,
-    Box,
-    Bone,
-    Set,
-    Add,
-    Subtract,
-    Smooth,
-}
-
-impl Tool {
-    pub fn paint(self) -> bool {
-        matches!(self, Self::Add | Self::Subtract | Self::Smooth)
-    }
-}
-
-#[derive(Clone)]
-pub(super) struct Brush {
-    pub tool: Tool,
-    pub joint: u16,
-    pub radius: f32,
-    pub strength: f32,
-    pub visible_only: bool,
-    pub mirror: bool,
-    pub restrict_selection: bool,
-    pub locks: Arc<[bool]>,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct Selection {
-    pub view: MoveCamera,
-    pub start: Vec2,
-    pub end: Vec2,
-    pub point: bool,
-    pub extend: bool,
-    pub visible: bool,
-}
-
-pub(super) enum Operation {
-    Refresh,
-    Select(Selection, Option<PosedGeometry>),
-    Paint {
-        view: MoveCamera,
-        dabs: Vec<Vec2>,
-        brush: Brush,
-    },
-    Set {
-        joint: u16,
-        amount: f32,
-        locks: Arc<[bool]>,
-    },
-    History(Arc<[VertexWeights]>),
-}
-
-pub(super) struct Prepared {
-    pub surface: usize,
-    pub weights: Arc<[VertexWeights]>,
-    pub selection: Arc<[u32]>,
-    pub shaded: Option<Mesh>,
-    pub heat: Mesh,
-    pub changed: usize,
-}
-
 fn visible(
     occlusion: &Occlusion,
     extent: f32,
-    view: MoveCamera,
+    view: ViewProjection,
     screen: Vec2,
     world: Vec3,
 ) -> bool {
@@ -142,7 +80,7 @@ fn select(
 fn coverage(
     doc: &Document,
     surface: usize,
-    view: MoveCamera,
+    view: ViewProjection,
     dabs: &[Vec2],
     brush: &Brush,
     selection: &[u32],
@@ -153,11 +91,11 @@ fn coverage(
     let max = dabs.iter().copied().reduce(Vec2::max).unwrap_or_default() + margin;
     let surface = &doc.surfaces[surface];
     let mut hits = BTreeMap::<(u32, u16), f32>::new();
-    let active_joint = &surface.skin.joints[brush.joint as usize];
+    let active_joint = &surface.info.skin.joints[brush.joint as usize];
     let opposite = active_joint
         .opposite
-        .filter(|&other| surface.skin.joints[other as usize].opposite == Some(brush.joint));
-    let mirror = surface.skin.mirror.filter(|_| brush.mirror);
+        .filter(|&other| surface.info.skin.joints[other as usize].opposite == Some(brush.joint));
+    let mirror = surface.info.skin.mirror.filter(|_| brush.mirror);
     let tolerance = (doc.extent * 0.006).max(0.0001);
     surface
         .points
@@ -235,16 +173,21 @@ fn heat_colors(weights: &[VertexWeights], joint: u16, selection: &[u32]) -> Vec<
 
 pub(super) fn prepare(
     doc: &Document,
-    surface: usize,
-    before: Arc<[VertexWeights]>,
-    mut selection: Arc<[u32]>,
-    joint: u16,
-    operation: Operation,
+    request: EditRequest,
     cancel: &AtomicBool,
 ) -> Result<Prepared, String> {
+    let EditRequest {
+        surface,
+        before,
+        mut selection,
+        joint,
+        operation,
+    } = request;
     active(cancel)?;
     let geometry = doc.surfaces.get(surface).ok_or("选中的图元已失效")?;
-    if joint as usize >= geometry.skin.joints.len() || before.len() != geometry.original.len() {
+    if joint as usize >= geometry.info.skin.joints.len()
+        || before.len() != geometry.info.original.len()
+    {
         return Err("权重草稿与当前蒙皮不匹配".into());
     }
     let mut weights = before.clone();
@@ -253,7 +196,7 @@ pub(super) fn prepare(
         Operation::Refresh => {}
         Operation::Select(query, pose) => {
             let mut selected = if let Some(pose) = pose {
-                let (points, occlusion) = pose.deform(doc, surface, query.visible, cancel)?;
+                let (points, occlusion) = deform(pose, doc, surface, query.visible, cancel)?;
                 select(&points, occlusion.as_ref(), doc.extent, query)
             } else {
                 select(
@@ -280,7 +223,7 @@ pub(super) fn prepare(
                 active(cancel)?;
                 for &index in group {
                     let row = &mut draft[index as usize];
-                    let next = row.edit(joint, amount, &locks);
+                    let next = edit(*row, joint, amount, &locks);
                     changed += usize::from(next != *row);
                     *row = next;
                 }
@@ -316,7 +259,7 @@ pub(super) fn prepare(
                         }
                         _ => continue,
                     };
-                    let next = row.edit(joint, goal, &brush.locks);
+                    let next = edit(*row, joint, goal, &brush.locks);
                     changed += usize::from(next != *row);
                     *row = next;
                 }
@@ -336,8 +279,9 @@ pub(super) fn prepare(
     }
     active(cancel)?;
     let heat = geometry.mesh(&weights, Some(heat_colors(&weights, joint, &selection)));
-    let shaded = (!Arc::ptr_eq(&before, &weights) && !Arc::ptr_eq(&geometry.original, &weights))
-        .then(|| geometry.mesh(&weights, None));
+    let shaded = (!Arc::ptr_eq(&before, &weights)
+        && !Arc::ptr_eq(&geometry.info.original, &weights))
+    .then(|| geometry.mesh(&weights, None));
     Ok(Prepared {
         surface,
         weights,

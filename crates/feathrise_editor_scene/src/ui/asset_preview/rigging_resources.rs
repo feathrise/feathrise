@@ -4,14 +4,15 @@ use std::sync::atomic::Ordering;
 
 use bevy::prelude::*;
 
+use feathrise_editor_glb_model::rigging::{AnimationAsset, Landmarks, RigBackend, RigSource};
+
 use super::{
-    backend::{AnimationAsset, Landmarks, RigBackend, RigInput},
     context::Candidate,
     types::*,
 };
 
 pub(super) struct MarkerDraft {
-    pub input: RigInput,
+    pub input: std::sync::Arc<dyn RigSource>,
     pub suggested: Landmarks,
     pub points: Landmarks,
     pub frame: Option<RigFrame>,

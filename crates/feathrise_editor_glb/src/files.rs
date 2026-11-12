@@ -1,19 +1,21 @@
 //! 人形绑骨的工程资产身份、轻量 GLB 索引、独占暂存和无覆盖发布。
 
-use super::AnimationAsset;
-use feathrise_editor_assets::files::safe_asset_path;
+pub(crate) use feathrise_editor_assets::glb_metadata::ordinary;
+use feathrise_editor_assets::{
+    files::safe_asset_path,
+    glb_metadata::{MAX_MODEL_BYTES as MAX_GLB, open_glb, read_json},
+};
+use feathrise_editor_glb_model::rigging::AnimationAsset;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
-    fs::{self, File, Metadata, OpenOptions},
+    fs::{self, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
-const MAX_GLB: u64 = 256 * 1024 * 1024;
-const MAX_JSON: usize = 16 * 1024 * 1024;
 const MAX_CATALOG_ENTRIES: usize = 100_000;
 const MAX_JOINTS: usize = 128;
 const BODY_JOINTS: [&str; 22] = [
@@ -43,16 +45,16 @@ const BODY_JOINTS: [&str; 22] = [
 static STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, PartialEq, Eq)]
-pub(in crate::ui::asset_preview) struct FrozenAsset {
-    pub(super) relative: String,
+pub(crate) struct FrozenAsset {
+    pub(crate) relative: String,
     path: PathBuf,
     sha256: [u8; 32],
 }
 
-pub(in crate::ui::asset_preview) struct Stage(PathBuf);
+pub(crate) struct Stage(PathBuf);
 
 impl Stage {
-    pub(in crate::ui::asset_preview) fn new(root: &Path) -> Result<Self, String> {
+    pub(crate) fn new(root: &Path) -> Result<Self, String> {
         let parent = checked_root(root.parent().ok_or("资产根缺少工程父目录")?)?;
         // 暂存留在资产根旁，AssetServer 不会载入临时 GLB，正式发布仍在同一文件系统。
         for _ in 0..32 {
@@ -67,11 +69,11 @@ impl Stage {
         Err("无法创建独占绑骨暂存目录".into())
     }
 
-    pub(super) fn root(&self) -> &Path {
+    pub(crate) fn root(&self) -> &Path {
         &self.0
     }
 
-    pub(in crate::ui::asset_preview) fn path(&self, filename: &str) -> PathBuf {
+    pub(crate) fn path(&self, filename: &str) -> PathBuf {
         self.0.join(filename)
     }
 }
@@ -87,23 +89,7 @@ impl Drop for Stage {
     }
 }
 
-pub(super) fn ordinary(path: &Path) -> Result<Metadata, String> {
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|error| format!("读取 {} 失败：{error}", path.display()))?;
-    #[cfg(windows)]
-    let linked = {
-        use std::os::windows::fs::MetadataExt;
-        metadata.file_attributes() & 0x400 != 0
-    };
-    #[cfg(not(windows))]
-    let linked = metadata.file_type().is_symlink();
-    if linked {
-        return Err(format!("绑骨资产路径不能经过链接：{}", path.display()));
-    }
-    Ok(metadata)
-}
-
-pub(in crate::ui::asset_preview) fn checked_root(root: &Path) -> Result<PathBuf, String> {
+pub(crate) fn checked_root(root: &Path) -> Result<PathBuf, String> {
     let root = root
         .canonicalize()
         .map_err(|error| format!("无法定位工程资产根：{error}"))?;
@@ -138,14 +124,14 @@ fn checked_asset(root: &Path, relative: &str) -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
-pub(in crate::ui::asset_preview) fn active(cancel: &AtomicBool) -> Result<(), String> {
+pub(crate) fn active(cancel: &AtomicBool) -> Result<(), String> {
     if cancel.load(Ordering::Acquire) {
         return Err("已取消人形绑骨任务".into());
     }
     Ok(())
 }
 
-pub(super) fn snapshot(
+pub(crate) fn snapshot(
     root: &Path,
     relative: &str,
     destination: &Path,
@@ -165,7 +151,7 @@ pub(super) fn snapshot(
     })
 }
 
-pub(in crate::ui::asset_preview) fn freeze_bytes(
+pub(crate) fn freeze_bytes(
     root: &Path,
     relative: &str,
     cancel: &AtomicBool,
@@ -173,10 +159,17 @@ pub(in crate::ui::asset_preview) fn freeze_bytes(
     let path = checked_asset(root, relative)?;
     let mut bytes = Vec::new();
     let sha256 = hash_and_copy(&path, &mut bytes, cancel)?;
-    Ok((FrozenAsset { relative: relative.to_owned(), path, sha256 }, bytes))
+    Ok((
+        FrozenAsset {
+            relative: relative.to_owned(),
+            path,
+            sha256,
+        },
+        bytes,
+    ))
 }
 
-pub(in crate::ui::asset_preview) fn check_frozen(
+pub(crate) fn check_frozen(
     root: &Path,
     frozen: &FrozenAsset,
     cancel: &AtomicBool,
@@ -214,48 +207,8 @@ fn hash_and_copy(
     }
 }
 
-fn open_glb(path: &Path, max_bytes: u64) -> Result<File, String> {
-    let metadata = ordinary(path)?;
-    if !metadata.is_file() || !(20..=max_bytes).contains(&metadata.len()) {
-        let limit = if max_bytes == MAX_GLB { "256 MiB 内的" } else { "GLB v2 长度范围内的" };
-        return Err(format!("GLB 必须是{limit}有效普通文件：{}", path.display()));
-    }
-    File::open(path).map_err(|error| format!("打开 GLB {} 失败：{error}", path.display()))
-}
-
-pub(super) fn glb_json(path: &Path) -> Result<Value, String> {
-    read_glb_json(path, MAX_GLB)
-}
-
-pub(crate) fn glb_directory_json(path: &Path) -> Result<Value, String> {
-    // 目录只读头和 JSON，BIN 块的大小不需要沿用绑骨的整文件处理预算。
-    read_glb_json(path, u64::from(u32::MAX))
-}
-
-fn read_glb_json(path: &Path, max_bytes: u64) -> Result<Value, String> {
-    let mut file = open_glb(path, max_bytes)?;
-    let length = file.metadata().map_err(|error| error.to_string())?.len();
-    let mut header = [0; 20];
-    file.read_exact(&mut header)
-        .map_err(|error| error.to_string())?;
-    let field = |offset| u32::from_le_bytes(header[offset..offset + 4].try_into().unwrap());
-    let size = field(12) as usize;
-    if &header[..4] != b"glTF"
-        || field(4) != 2
-        || u64::from(field(8)) != length
-        || length > max_bytes
-        || &header[16..] != b"JSON"
-        || size == 0
-        || size > MAX_JSON
-        || 20 + size as u64 > length
-    {
-        return Err(format!("无效或超出元数据预算的 GLB：{}", path.display()));
-    }
-    // 动作目录只读第一个 JSON chunk，网格、权重和纹理二进制不进入 Rust 内存。
-    let mut bytes = vec![0; size];
-    file.read_exact(&mut bytes)
-        .map_err(|error| error.to_string())?;
-    serde_json::from_slice(&bytes).map_err(|error| format!("解析 GLB 目录失败：{error}"))
+pub(crate) fn glb_json(path: &Path) -> Result<Value, String> {
+    read_json(path, MAX_GLB)
 }
 
 fn list<'a>(doc: &'a Value, field: &str) -> &'a [Value] {
@@ -272,7 +225,7 @@ fn embedded(doc: &Value) -> bool {
     })
 }
 
-pub(super) fn check_input_model(path: &Path) -> Result<(), String> {
+pub(crate) fn check_input_model(path: &Path) -> Result<(), String> {
     let doc = glb_json(path)?;
     if list(&doc, "meshes").is_empty() || !list(&doc, "skins").is_empty() {
         return Err("请选择有网格且尚未蒙皮的 GLB 模型".into());
@@ -299,7 +252,7 @@ fn joint_set(doc: &Value, skin: &Value) -> Option<HashSet<String>> {
     (names.len() == joints.len()).then_some(names)
 }
 
-pub(super) fn mixamo_skin(doc: &Value) -> Option<(&Value, HashSet<String>)> {
+pub(crate) fn mixamo_skin(doc: &Value) -> Option<(&Value, HashSet<String>)> {
     let mut rigs = list(doc, "skins")
         .iter()
         .filter_map(|skin| Some((skin, joint_set(doc, skin)?)))
@@ -313,7 +266,7 @@ pub(super) fn mixamo_skin(doc: &Value) -> Option<(&Value, HashSet<String>)> {
     (embedded(doc) && rigs.all(|(_, other)| other == names)).then_some((skin, names))
 }
 
-pub(super) fn check_output_model(path: &Path, expected: &HashSet<String>) -> Result<(), String> {
+pub(crate) fn check_output_model(path: &Path, expected: &HashSet<String>) -> Result<(), String> {
     let doc = glb_json(path)?;
     let meshes = list(&doc, "meshes");
     let skins = list(&doc, "skins");
@@ -362,7 +315,7 @@ pub(super) fn check_output_model(path: &Path, expected: &HashSet<String>) -> Res
     Ok(())
 }
 
-pub(super) fn catalog(root: &Path, cancel: &AtomicBool) -> Result<Vec<AnimationAsset>, String> {
+pub(crate) fn catalog(root: &Path, cancel: &AtomicBool) -> Result<Vec<AnimationAsset>, String> {
     let mut result = Vec::new();
     let mut folders = vec![root.to_path_buf()];
     let mut seen = 0;
@@ -420,7 +373,7 @@ fn relative_path(root: &Path, path: &Path) -> Option<String> {
     Some(relative)
 }
 
-pub(super) fn publish(
+pub(crate) fn publish(
     staged: &Path,
     root: &Path,
     input: &FrozenAsset,
@@ -429,7 +382,7 @@ pub(super) fn publish(
     publish_named(staged, root, input, "已绑骨", cancel)
 }
 
-pub(in crate::ui::asset_preview) fn publish_named(
+pub(crate) fn publish_named(
     staged: &Path,
     root: &Path,
     input: &FrozenAsset,

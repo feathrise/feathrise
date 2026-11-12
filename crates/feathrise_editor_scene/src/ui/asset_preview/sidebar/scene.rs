@@ -119,7 +119,11 @@ fn assets_view(scenes: &feathrise_editor_documents_model::DocumentScenes) -> imp
 }
 
 /// 文件属性与唯一预览留在右侧“属性”正文；不复制目录行池、文档输入或预览相机。
-pub(crate) fn asset_properties_page(scenes: &feathrise_editor_documents_model::DocumentScenes) -> impl Scene + use<> {
+pub(crate) fn asset_properties_page(
+    scenes: &feathrise_editor_documents_model::DocumentScenes,
+    weight_scenes: &feathrise_editor_weights_model::WeightPanelScenes,
+) -> impl Scene + use<> {
+    let weight_entry = (weight_scenes.entry)();
     bsn! {
         SceneEditorSidebarPage(EditorSidebarTab::Right(EditorRightSidebarTab::Assets))
         SceneEditorRightPanelScroll RelativeCursorPosition::default() ScrollPosition::default()
@@ -151,7 +155,7 @@ pub(crate) fn asset_properties_page(scenes: &feathrise_editor_documents_model::D
             @super::super::asset_preview_panel(scenes)--
             @super::super::asset_preview_sidebar_launch(scenes)--
             @super::super::rigging::scene::motion_properties_host()--
-            @super::super::weights::panel::entry()--
+            @weight_entry--
             @super::super::animation::properties_host()--
             @sidebar_help_button(EditorSidebarHelp::Assets)--
             @sidebar_help_body(EditorSidebarHelp::Assets,

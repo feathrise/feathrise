@@ -1,7 +1,8 @@
 //! 静置姿势下的网格空间索引。选择、可见性与镜像命中均在后台复用同一份索引。
 
-use crate::viewport::placement_move::MoveCamera;
 use bevy::prelude::*;
+use feathrise_editor_core::view_projection::ViewProjection;
+use feathrise_editor_glb_model::weights::MirrorPlane;
 use std::{cell::Cell, ops::Range};
 
 #[derive(Clone, Copy)]
@@ -52,7 +53,7 @@ impl Bounds {
         true
     }
 
-    fn projected(self, view: MoveCamera, low: Vec2, high: Vec2) -> bool {
+    fn projected(self, view: ViewProjection, low: Vec2, high: Vec2) -> bool {
         let mut minimum = Vec2::splat(f32::INFINITY);
         let mut maximum = -minimum;
         for x in [self.min.x, self.max.x] {
@@ -148,18 +149,6 @@ impl Bvh {
     }
 }
 
-#[derive(Clone, Copy)]
-pub(super) struct MirrorPlane {
-    pub center: Vec3,
-    pub axis: Vec3,
-}
-
-impl MirrorPlane {
-    pub fn reflect(self, point: Vec3) -> Vec3 {
-        point - self.axis * (2.0 * (point - self.center).dot(self.axis))
-    }
-}
-
 pub(super) struct Points {
     pub positions: Vec<Vec3>,
     neighbors: Vec<Vec<u32>>,
@@ -204,7 +193,7 @@ impl Points {
 
     pub fn projected(
         &self,
-        view: MoveCamera,
+        view: ViewProjection,
         min: Vec2,
         max: Vec2,
         mut hit: impl FnMut(u32, Vec2, Vec3),

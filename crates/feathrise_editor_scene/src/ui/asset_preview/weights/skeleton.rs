@@ -1,9 +1,8 @@
 //! 在权重画布叠加当前蒙皮实例的骨架与所选骨骼。
 
+use feathrise_editor_glb_model::weights::{Joint, MAX_JOINTS, Tool};
 use super::{
     super::types::{AssetPreviewCamera, AssetPreviewCanvas, AssetPreviewState},
-    asset::{Joint, MAX_JOINTS},
-    edit::Tool,
     preview::{self, WeightPreview},
     resources::{Session, WeightEditor},
     systems::{Gate, Target},
@@ -177,7 +176,7 @@ impl BoneTargets {
         if frame.camera != camera || !cursor.is_finite() {
             return None;
         }
-        let joints = &session.doc.surfaces[session.surface].skin.joints;
+        let joints = &session.doc.surface(session.surface).skin.joints;
         let pixels = cursor * camera.size * camera.inverse_scale;
         pick_glyph(&self.glyphs[..joints.len()], joints, frame, pixels)
     }
@@ -315,7 +314,7 @@ fn draw(
     else {
         return;
     };
-    let joints = &session.doc.surfaces[session.surface].skin.joints;
+    let joints = &session.doc.surface(session.surface).skin.joints;
     if skinned.joints.len() != joints.len() {
         return;
     }
@@ -431,7 +430,7 @@ fn validation_targets(world: &World) -> Option<(&BoneTargets, BoneFrame, &Sessio
 #[cfg(feature = "validation")]
 pub(super) fn joint_point(world: &World, joint: u16) -> Option<Vec2> {
     let (targets, frame, session) = validation_targets(world)?;
-    let joints = &session.doc.surfaces[frame.surface].skin.joints;
+    let joints = &session.doc.surface(frame.surface).skin.joints;
     let index = usize::from(joint);
     if index >= joints.len() {
         return None;
@@ -443,7 +442,7 @@ pub(super) fn joint_point(world: &World, joint: u16) -> Option<Vec2> {
 #[cfg(feature = "validation")]
 pub(super) fn bone_point(world: &World, child: u16) -> Option<Vec2> {
     let (targets, frame, session) = validation_targets(world)?;
-    let joints = &session.doc.surfaces[frame.surface].skin.joints;
+    let joints = &session.doc.surface(frame.surface).skin.joints;
     let index = usize::from(child);
     let parent = usize::from(joints.get(index)?.parent?);
     let [a, b, c] = targets.glyphs[parent]?.screen_bone_to(targets.glyphs[index]?)?;

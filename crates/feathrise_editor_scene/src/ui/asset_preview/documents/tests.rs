@@ -1276,7 +1276,12 @@ fn gpu_document_sidebar(
         world.entity_mut(panel).insert(ChildOf(menu_root.unwrap()));
     }
     app.world_mut()
-        .run_system_once::<_, (), _>((|| crate::ui::sidebars::right_sidebar(&feathrise_editor_documents::scenes())).spawn())
+        .run_system_once::<_, (), _>((|| {
+            crate::ui::sidebars::right_sidebar(
+                &feathrise_editor_documents::scenes(),
+                &feathrise_editor_weights::scenes(),
+            )
+        }).spawn())
         .unwrap();
     let navigation_width = if with_asset_navigation { 320 } else { 0 };
     if with_asset_navigation {

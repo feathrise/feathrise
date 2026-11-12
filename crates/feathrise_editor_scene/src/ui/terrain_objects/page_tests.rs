@@ -2046,7 +2046,11 @@ fn editor_workbench_gpu_snapshot() {
         (camera, target.handle.clone())
     };
     crate::ui::vegetation_preset_editor::install_workspace_tab_fixture(&mut app);
-    let root = app.world_mut().spawn_scene(crate::ui::scene::scene_editor_scene(&crate::ui::sidebars::test_document_scenes(), false)).unwrap().id();
+    let root = app.world_mut().spawn_scene(crate::ui::scene::scene_editor_scene(
+        &crate::ui::sidebars::test_document_scenes(),
+        &feathrise_editor_weights::scenes(),
+        false,
+    )).unwrap().id();
     app.world_mut().entity_mut(root).insert((feathrise_editor_ui::EditorThemeRoot, bevy::ui::UiTargetCamera(camera)));
     app.world_mut().get_mut::<Node>(root).unwrap().display = Display::Flex;
     app.world_mut().get_mut::<Camera>(camera).unwrap().viewport = None;
