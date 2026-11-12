@@ -1,0 +1,23 @@
+# 独立装配的动画作者实现，可与场景编辑器并行编译。
+[package]
+name = "feathrise_editor_animation"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[features]
+validation = ["dep:serde", "feathrise_editor_animation_model/validation"]
+runtime_test_support = ["dep:serde", "feathrise_editor_animation_model/runtime_test_support"]
+
+[dependencies]
+bevy = { workspace = true }
+feathrise_editor_animation_model = { workspace = true }
+feathrise_editor_assets = { workspace = true }
+feathrise_editor_core = { workspace = true }
+feathrise_editor_ui = { workspace = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+
+[dev-dependencies]
+image = { workspace = true }
+feathrise_editor_animation_model = { workspace = true, features = ["runtime_test_support"] }

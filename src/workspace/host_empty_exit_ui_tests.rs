@@ -349,7 +349,7 @@ fn empty_workspace_exit_requires_a_real_choice_and_preserves_the_original_form()
         .init_asset::<bevy::gltf::GltfMesh>();
     app.add_plugins((crate::branding::EditorBrandingPlugin, feathrise_editor_ui::EditorUiPlugin,
         feathrise_editor_documents::DocumentsEditorPlugin,
-        feathrise_editor_weights::WeightPanelPlugin, WorkbenchUiPlugin))
+        feathrise_editor_weights::WeightPanelPlugin, feathrise_editor_project_browser::ProjectBrowserPlugin, WorkbenchUiPlugin))
         .insert_resource(model).add_plugins((WorkspaceUiPlugin, NativeProjectClosePlugin))
         .init_resource::<LifecycleAudit>()
         .add_systems(Update, use_sdk_font)

@@ -10,7 +10,6 @@ mod components;
 mod constants;
 mod extract;
 mod index;
-mod lexer;
 mod paint;
 mod resources;
 #[cfg(test)]

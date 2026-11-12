@@ -52,6 +52,8 @@ feathrise_editor_scene = { path = "crates/feathrise_editor_scene" }
 feathrise_editor_documents = { path = "crates/feathrise_editor_documents" }
 feathrise_editor_weights = { workspace = true }
 feathrise_editor_glb = { workspace = true }
+feathrise_editor_animation = { workspace = true }
+feathrise_editor_project_browser = { workspace = true }
 feathrise_editor_surface = { path = "crates/feathrise_editor_surface" }
 feathrise_editor_surface_model = { workspace = true } # 普通地表作者的保存/恢复验收使用独立测试夹具。
 feathrise_runtime = { version = "0.2.0", default-features = false, features = ["test_panel", "default_font"] }
@@ -114,6 +116,10 @@ feathrise_author_tools = { version = "0.2.0" } # 两端共享工具语义，不�
 feathrise_editor_documents_model = { path = "crates/feathrise_editor_documents_model" }
 feathrise_editor_weights_model = { path = "crates/feathrise_editor_weights_model" }
 feathrise_editor_weights = { path = "crates/feathrise_editor_weights" }
+feathrise_editor_animation_model = { path = "crates/feathrise_editor_animation_model" }
+feathrise_editor_animation = { path = "crates/feathrise_editor_animation" }
+feathrise_editor_project_browser_model = { path = "crates/feathrise_editor_project_browser_model" }
+feathrise_editor_project_browser = { path = "crates/feathrise_editor_project_browser" }
 feathrise_editor_glb_model = { path = "crates/feathrise_editor_glb_model" }
 feathrise_editor_glb = { path = "crates/feathrise_editor_glb" }
 feathrise_editor_documents = { path = "crates/feathrise_editor_documents" }

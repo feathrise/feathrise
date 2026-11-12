@@ -19,42 +19,14 @@ impl NavigationMode {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct SearchOptions {
-    pub case_sensitive: bool,
-    pub whole_word: bool,
-}
-
-impl Default for SearchOptions {
-    fn default() -> Self {
-        Self {
-            case_sensitive: true,
-            whole_word: false,
-        } // 保持已有字面查找的默认行为。
-    }
-}
+pub(in super::super) use feathrise_editor_documents_model::navigation::types::{
+    IndexKey, ReplacedContent, SearchOptions, TextIndex,
+};
 
 pub(super) struct SelectionScope {
     pub document: SourceKey,
     pub revision: u64,
     pub range: Range<usize>, // 开启时冻结，查找改变原生选区不会重定检索范围。
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct IndexKey {
-    pub document: SourceKey,
-    pub revision: u64,
-    pub query: String,
-    pub ticket: u64,
-    pub options: SearchOptions,
-    pub scope: Option<Range<usize>>,
-}
-
-pub(super) struct TextIndex {
-    pub key: IndexKey,
-    pub lines: Vec<usize>,
-    pub matches: Vec<Range<usize>>,
-    pub error: Option<String>,
 }
 
 /// 检索与替换共用一个不可抢占的任务槽；索引用Arc转交，不复制全部匹配。
@@ -77,14 +49,6 @@ pub(super) struct ReplacementRequest {
 pub(super) struct ReplacementResult {
     pub request: ReplacementRequest,
     pub content: Result<Option<ReplacedContent>, String>,
-}
-
-pub(in super::super) struct ReplacedContent {
-    pub source: Arc<str>,
-    pub pages: Vec<Arc<str>>,
-    pub selection: Selection,
-    pub scope: Option<Range<usize>>,
-    pub count: usize,
 }
 
 #[derive(Clone, Copy)]

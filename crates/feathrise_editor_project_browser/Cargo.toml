@@ -1,0 +1,16 @@
+# 工程浏览扫描与GLB筛选由独立实现编译，依赖稳定目录契约。
+[package]
+name = "feathrise_editor_project_browser"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bevy = { workspace = true }
+feathrise_editor_animation_model = { workspace = true }
+feathrise_editor_assets = { workspace = true }
+feathrise_editor_documents_model = { workspace = true }
+feathrise_editor_project_browser_model = { workspace = true }
+feathrise_scene_content = { workspace = true }
+serde_json = { workspace = true }
+notify = "=8.2.0" # 目录变更使用现有原生文件事件版本；只通知原后台扫描，无帧内文件访问。

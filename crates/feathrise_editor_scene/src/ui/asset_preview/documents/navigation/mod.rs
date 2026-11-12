@@ -26,7 +26,8 @@ pub(super) use replacement_gpu_tests::gpu_assert_replacement;
 pub(super) use types::NavigationSystemSet;
 pub(super) use reveal::reveal_selection;
 pub(super) use index::literal_regex;
-pub(super) use replace::prepare_ranges; // 跨文件预览与应用共用原字节保真变换，不维护第二套换行算法。
+#[cfg(test)]
+pub(super) use feathrise_editor_documents::prepare_ranges; // 跨文件预览与应用共用原字节保真变换，不维护第二套换行算法。
 pub(super) use types::ReplacedContent;
 
 pub(super) fn install(app: &mut App) {

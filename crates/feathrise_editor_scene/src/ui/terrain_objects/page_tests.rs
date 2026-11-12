@@ -2049,6 +2049,7 @@ fn editor_workbench_gpu_snapshot() {
     let root = app.world_mut().spawn_scene(crate::ui::scene::scene_editor_scene(
         &crate::ui::sidebars::test_document_scenes(),
         &feathrise_editor_weights::scenes(),
+        &feathrise_editor_animation::scenes(),
         false,
     )).unwrap().id();
     app.world_mut().entity_mut(root).insert((feathrise_editor_ui::EditorThemeRoot, bevy::ui::UiTargetCamera(camera)));

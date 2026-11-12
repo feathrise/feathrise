@@ -2,14 +2,14 @@
 
 use bevy::{prelude::*, tasks::{IoTaskPool, futures::check_ready}};
 
+use feathrise_editor_project_browser_model::{DirectoryOperations, DirectoryQuery, DirectoryWorker, FolderScope};
 use super::{resources::EditorProjectFileCatalog, types::{ScanRequest, ScanResult}};
 use crate::asset_catalog::{
     filter::{DirectoryFilters, DirectorySnapshot},
-    scan::{scan_directory, DirectoryQuery, FolderScope},
-    types::AssetCatalogFeedback, watch::DirectoryWorker,
+    types::AssetCatalogFeedback,
 };
 
-pub(crate) fn start_project_file_scan(mut catalog: ResMut<EditorProjectFileCatalog>) {
+pub(crate) fn start_project_file_scan(operations: Res<DirectoryOperations>, mut catalog: ResMut<EditorProjectFileCatalog>) {
     if catalog.task.is_some() { return; }
     if catalog.active && catalog.project_root().is_some() && catalog.worker.take_changed() && !catalog.is_loading() {
         catalog.requested_revision = catalog.requested_revision.wrapping_add(1);
@@ -28,6 +28,7 @@ pub(crate) fn start_project_file_scan(mut catalog: ResMut<EditorProjectFileCatal
     });
     let retired = catalog.retired_entries.take();
     let retired_source = catalog.retired_source.take();
+    if scan { catalog.worker.ensure(*operations); }
     let worker = catalog.worker.clone();
     catalog.task = Some(IoTaskPool::get().spawn(async move {
         drop(retired);
@@ -39,14 +40,14 @@ pub(crate) fn start_project_file_scan(mut catalog: ResMut<EditorProjectFileCatal
 
 #[cfg(test)]
 pub(super) fn scan_request(request: ScanRequest) -> ScanResult {
-    scan_request_with_worker(request, &DirectoryWorker::default())
+    scan_request_with_worker(request, &super::super::scan::test_directory_worker())
 }
 
 fn scan_request_with_worker(request: ScanRequest, worker: &DirectoryWorker) -> ScanResult {
-    let result = scan_directory(request.project_root.clone(), request.folder.clone(), DirectoryQuery {
+    let result = worker.scan(request.project_root.clone(), request.folder.clone(), DirectoryQuery {
         context: request.context, scope: FolderScope::ProjectFiles, asset_root: request.asset_root.as_deref(), filters: &request.filters,
         reveal_file: None,
-    }, worker);
+    });
     ScanResult { request, result }
 }
 

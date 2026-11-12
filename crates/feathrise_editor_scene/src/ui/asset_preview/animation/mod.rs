@@ -1,98 +1,197 @@
-//! Blender式动作时间轴：真实GLB关键帧、骨骼预览、独立历史及受检原子保存。
+//! 原预览宿主向独立动画插件发布工程身份和输入门，原场景资源继续拥有生命周期。
 
-use crate::SceneEditorSystemSet;
-use bevy::prelude::*;
+use super::{AssetPreviewState, AssetPreviewWorkspace, DocumentState, preview_shading};
+use crate::{
+    SceneEditorSystemSet,
+    resources::*,
+    ui::{
+        sidebars::{EditorRightSidebarTab, SceneEditorSidebarState},
+        vegetation_preset_editor::VegetationPresetEditorState,
+    },
+};
+use bevy::{ecs::system::SystemParam, prelude::*};
+use feathrise_editor_animation_model::{
+    assembly::{AnimationOperations, AnimationSystems},
+    host::AnimationHost,
+};
 
-mod binding;
-mod components;
-mod context;
-mod control;
-mod data;
-mod docking;
-mod drive;
-mod editing;
-#[cfg(test)]
-mod editor_tests;
-mod pose;
-mod presentation;
-mod preview;
 pub(crate) mod project_close;
-mod request;
-mod resources;
-mod retarget;
-pub(super) mod scene;
-mod timeline;
-mod timeline_dock;
-mod types;
-// 仅显式自有工程验收使用的原控件桥；实现留在有限夹具域，不公开作者文档/任务类型。
+pub(crate) use feathrise_editor_animation_model::resources::AnimationEditorState;
+pub(super) use feathrise_editor_animation_model::{
+    preview::PreviewRuntime as AnimationPreviewRuntime,
+    request::{PreviewRigAnimation, checked_clip_path},
+    resources::{BindingState as WeightBinding, WeightFrame},
+};
+
+#[cfg(feature = "validation")]
+pub(crate) use feathrise_editor_animation::{
+    active_project_clip, project_clip_properties, properties_panel_visible,
+    rig_animation_diagnostic, rig_animation_identity, rig_animation_probe, timeline_dock_probe,
+};
+
 #[cfg(any(test, feature = "validation"))]
-#[path = "../../../standalone/author_workflow_validation/animation_assets/animation_bridge.rs"]
-pub(crate) mod workflow_validation;
+pub(crate) use feathrise_editor_animation::workflow_validation;
+#[cfg(test)]
+pub(crate) mod tests;
+#[cfg(test)]
+mod timeline_scene_shortcut_tests;
+#[cfg(test)]
+mod ui_tests;
+#[cfg(test)]
+mod workflow_validation_tests;
 
-pub(super) use preview::PreviewRuntime as AnimationPreviewRuntime;
-pub(super) use resources::BindingState as WeightBinding;
-pub(super) use resources::WeightFrame;
-pub(super) use docking::{InlineAnimationHost, binding_properties_host, properties_host};
-pub(super) use timeline_dock::scene as timeline_dock_scene;
-pub(super) use request::{PreviewRigAnimation, checked_clip_path};
-pub(super) use request::receive as receive_rig_animation;
-pub(crate) use resources::AnimationEditorState;
-#[cfg(feature = "validation")]
-pub(crate) use preview::{rig_animation_diagnostic, rig_animation_probe};
-#[cfg(feature = "validation")]
-pub(crate) use request::{active_project_clip, rig_animation_identity};
-#[cfg(feature = "validation")]
-pub(super) use docking::properties_panel_visible;
-#[cfg(feature = "validation")]
-pub(crate) use docking::project_clip_properties;
-#[cfg(feature = "validation")]
-pub(super) use timeline_dock::timeline_dock_probe;
+#[derive(SystemParam)]
+struct HostInputs<'w, 's> {
+    editor: Res<'w, SceneEditorState>,
+    sidebar: Res<'w, SceneEditorSidebarState>,
+    workspace: Res<'w, VegetationPresetEditorState>,
+    documents: Res<'w, DocumentState>,
+    layout: Option<Res<'w, SceneEditorLayoutState>>,
+    settings: Option<Res<'w, SceneEditorSettingsState>>,
+    browser: Option<Res<'w, SceneBrowserState>>,
+    deletion: Option<Res<'w, SceneDeletionTask>>,
+    external: Option<Res<'w, crate::authoring::TerrainExternalChangeState>>,
+    scene_drag: Option<Res<'w, SceneBrowserDragState>>,
+    shading: preview_shading::Pointer<'w, 's>,
+}
 
-/// 生产与集成回归共用输入注册，避免测试另写顺序掩盖场景批量域先消费按键的问题。
-fn install_input(app: &mut App) {
-    app.add_systems(Update, (control::input, timeline::input).chain()
-            .after(super::workspace::actions)
-            .after(super::interaction::handle_asset_preview_actions)
-            .before(super::navigation::control_asset_preview)
-            .before(crate::authoring::mesh_edit::MeshEditInput) // 首次按下即发布时间轴所有权，不能让场景建模先消费同帧快捷键。
-            .before(crate::authoring::placement_batch::handle_placement_batch) // 右侧动画与场景可同屏，复制/粘贴/删除也必须先由悬停时间轴消费。
-            .before(crate::ui::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)
-            .in_set(SceneEditorSystemSet::Input));
+fn publish_host(source: HostInputs, mut host: ResMut<AnimationHost>) {
+    // 各原阶段就地借用宿主权威状态。只在路径改变时更新副本，预览、草稿和任务仍共用原资源。
+    let root = source.documents.asset_root();
+    if host.asset_root != root {
+        host.asset_root = root.to_owned();
+    }
+    if host.selected_asset != source.editor.selected_asset {
+        host.selected_asset
+            .clone_from(&source.editor.selected_asset);
+    }
+    host.tab = source.workspace.active_tab;
+    host.open = source.editor.open;
+    host.closing = source.editor.close_requested;
+    host.switching_scene = source.editor.pending_scene_transition.is_some()
+        || source.editor.new_scene_dialog_open
+        || source.editor.scene_switch_confirmation.is_some();
+    host.modal_open = source.settings.as_ref().is_some_and(|s| s.open)
+        || source.browser.as_ref().is_some_and(|s| s.dialog.is_some())
+        || source
+            .deletion
+            .as_ref()
+            .is_some_and(|s| s.confirmation.is_some())
+        || source.external.as_ref().is_some_and(|s| s.modal_open());
+    host.sidebar_assets_visible = source.sidebar.right == EditorRightSidebarTab::Assets
+        && source
+            .layout
+            .as_ref()
+            .is_none_or(|layout| layout.inspector_shown());
+    host.layout_dragging = source
+        .layout
+        .as_ref()
+        .is_some_and(|state| state.drag.is_some() || state.owns_mouse_this_frame);
+    host.scene_dragging = source
+        .scene_drag
+        .as_ref()
+        .is_some_and(|state| state.blocks_other_mouse() || state.press.is_some());
+    host.shading_hovered = source.shading.cursor_over();
 }
 
 pub(super) fn install(app: &mut App) {
-    app.init_resource::<AnimationEditorState>()
-        .init_resource::<timeline_dock::Layout>()
-        .add_message::<PreviewRigAnimation>()
-        .add_systems(
+    #[cfg(test)]
+    if !app.is_plugin_added::<feathrise_editor_animation::AnimationEditorPlugin>() {
+        app.add_plugins(feathrise_editor_animation::AnimationEditorPlugin);
+    }
+
+    install_input_boundary(app);
+    app.add_message::<PreviewRigAnimation>()
+        .configure_sets(
             Update,
-            timeline_dock::input
-                .after(super::workspace::actions)
-                .before(control::input)
-                .before(crate::ui::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)
-                .in_set(SceneEditorSystemSet::Input),
+            AnimationSystems::Drive.before(super::loading::poll_asset_preview_loading),
+        )
+        .configure_sets(
+            Update,
+            AnimationSystems::Preview
+                .after(super::loading::poll_asset_preview_loading)
+                .before(super::navigation::sync_asset_preview_view),
         )
         .add_systems(
             Update,
             receive_rig_animation
                 .after(super::workspace::actions)
-                // 属性按钮和目录共用一个接收者，合并成同一帧最新的角色动作意图。
                 .after(super::ProjectAnimationPickSet)
                 .in_set(SceneEditorSystemSet::Input),
+        )
+        .add_systems(
+            Update,
+            publish_host
+                .after(super::subassets::invalidate_model_hot_reload)
+                .before(AnimationSystems::Drive)
+                .in_set(SceneEditorSystemSet::Tasks),
+        )
+        .add_systems(
+            Update,
+            publish_host
+                .after(super::subasset_presentation::sync_asset_preview_subassets)
+                .before(AnimationSystems::Presentation)
+                .in_set(SceneEditorSystemSet::Presentation),
         );
-    install_input(app);
-    app
-        .add_systems(Update, drive::drive
-            .after(super::loading::sync_asset_preview_selection)
-            // 同帧 GLB 热更新先换模型代次，旧读取回执不能推进目录的片段选择。
-            .after(super::subassets::invalidate_model_hot_reload)
-            .before(super::loading::poll_asset_preview_loading)
-            .in_set(SceneEditorSystemSet::Tasks))
-        .add_systems(Update, (scene::setup_numeric_inputs, docking::sync, timeline_dock::sync, presentation::sync).chain()
-            .after(super::presentation::sync_asset_preview_controls)
-            .after(super::subasset_presentation::sync_asset_preview_subassets)
-            .in_set(SceneEditorSystemSet::Presentation));
-    preview::install(app);
-    binding::install(app);
-    pose::install(app);
+}
+
+// 独立动画与场景建模同屏时，必须先发布时间轴按键和鼠标所有权。
+fn install_input_boundary(app: &mut App) {
+    app.init_resource::<AnimationHost>()
+        .configure_sets(
+            Update,
+            AnimationSystems::Input
+                .after(super::workspace::actions)
+                .after(super::interaction::handle_asset_preview_actions)
+                .before(super::navigation::control_asset_preview)
+                .before(crate::authoring::mesh_edit::MeshEditInput)
+                .before(crate::authoring::placement_batch::handle_placement_batch)
+                .before(crate::ui::actions::handle_editor_shortcuts)
+                .before(crate::ui::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard),
+        )
+        .add_systems(
+            Update,
+            publish_host.after(super::interaction::handle_asset_preview_actions)
+                .before(AnimationSystems::Input)
+                .in_set(SceneEditorSystemSet::Input),
+        );
+}
+
+pub(super) fn receive_rig_animation(
+    mut requests: MessageReader<PreviewRigAnimation>,
+    mut editor: ResMut<SceneEditorState>,
+    guard: Res<SceneEditorNumericScrubMouseGuard>,
+    documents: Res<DocumentState>,
+    preview: Res<AssetPreviewState>,
+    media: Res<AssetPreviewWorkspace>,
+    workspace: Res<VegetationPresetEditorState>,
+    mut animation: ResMut<AnimationEditorState>,
+    operations: Res<AnimationOperations>,
+) {
+    let Some(request) = requests.read().last() else {
+        return;
+    };
+    let root = documents.asset_root();
+    if !editor.open
+        || editor.close_requested
+        || editor.pending_scene_transition.is_some()
+        || editor.new_scene_dialog_open
+        || editor.scene_switch_confirmation.is_some()
+        || guard.blocked()
+        || root.as_os_str().is_empty()
+        || !request.matches(&preview, &media, workspace.active_tab, root)
+    {
+        return;
+    }
+    let source = match checked_clip_path(root, &request.animation_path).and_then(|source| {
+        checked_clip_path(root, &request.model_path)?;
+        Ok(source)
+    }) {
+        Ok(source) => source,
+        Err(error) => {
+            editor.status = error;
+            return;
+        }
+    };
+    (operations.select)(&mut animation, request.clone(), source);
 }

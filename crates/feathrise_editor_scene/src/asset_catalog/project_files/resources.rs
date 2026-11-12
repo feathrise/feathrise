@@ -3,11 +3,12 @@
 use std::path::{Path, PathBuf};
 
 use bevy::{prelude::Resource, tasks::Task};
+use feathrise_editor_project_browser_model::DirectoryWorker;
 
 use super::types::{ProjectFileIdentity, ProjectFileNavigation, ScanResult};
 use crate::{asset_catalog::{
     filter::{AssetTypeFilter, DirectorySnapshot},
-    scan::hidden_project_entry, types::AssetCatalogFeedback, watch::DirectoryWorker,
+    scan::hidden_project_entry, types::AssetCatalogFeedback,
 }, types::EditorAssetEntry};
 
 #[derive(Resource, Default)]

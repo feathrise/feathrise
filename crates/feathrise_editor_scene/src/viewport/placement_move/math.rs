@@ -4,20 +4,19 @@ use super::super::systems::editor_camera_pose;
 use super::types::{MoveAxis, MoveHandle};
 use crate::resources::{SceneEditorState, SceneEditorViewportState};
 use bevy::prelude::*;
-use feathrise_editor_core::view_projection::ViewProjection;
+use feathrise_editor_animation_model::gizmo::GizmoCamera;
 
-const HANDLE_LOGICAL_PIXELS: f32 = 80.0;
 const PICK_LOGICAL_PIXELS: f32 = 8.0;
 const PLANE_INNER_FRACTION: f32 = feathrise_author_tools::AUTHOR_PLANE_INNER_FRACTION;
 const PLANE_OUTER_FRACTION: f32 = feathrise_author_tools::AUTHOR_PLANE_OUTER_FRACTION; // 约26逻辑像素的方框，靠近原点但避开两根轴。
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct MoveCamera(ViewProjection);
+pub(crate) struct MoveCamera(GizmoCamera);
 
 impl std::ops::Deref for MoveCamera {
-    type Target = ViewProjection;
+    type Target = GizmoCamera;
 
-    fn deref(&self) -> &ViewProjection {
+    fn deref(&self) -> &GizmoCamera {
         &self.0
     }
 }
@@ -29,7 +28,7 @@ impl MoveCamera {
         size: Vec2,
         inverse_scale: f32,
     ) -> Option<Self> {
-        ViewProjection::from_projection(projection, transform, size, inverse_scale).map(Self)
+        GizmoCamera::from_projection(projection, transform, size, inverse_scale).map(Self)
     }
 
     pub(crate) fn new(
@@ -46,52 +45,7 @@ impl MoveCamera {
             return None;
         }
         let (projection, transform) = editor_camera_pose(editor.orthographic, viewport);
-        ViewProjection::from_view(projection, transform.to_matrix(), size, inverse_scale).map(Self)
-    }
-
-    pub(crate) fn projection(self) -> ViewProjection {
-        self.0
-    }
-
-    pub(crate) fn handle_length(self, origin: Vec3) -> Option<f32> {
-        let point = self.project(origin)?;
-        let clip = self.clip(origin);
-        let other = self.unproject(Vec3::new(
-            point.x * 2.0 + 2.0 / self.size.x / self.inverse_scale,
-            -point.y * 2.0,
-            clip.z / clip.w,
-        ))?;
-        let length = other.distance(origin) * HANDLE_LOGICAL_PIXELS;
-        (length.is_finite() && length > 0.0).then_some(length)
-    }
-
-    /// 在模型根的深度平面构造屏幕朝向方框，缩放手柄不因观察方向或模型倍率变难点击。
-    pub(crate) fn screen_square(self, origin: Vec3, half_pixels: f32) -> Option<[Vec3; 4]> {
-        let center = self.project(origin)?;
-        let clip = self.clip(origin);
-        let mut corners = [Vec3::ZERO; 4];
-        for (corner, offset) in corners.iter_mut().zip([
-            Vec2::new(-1.0, -1.0),
-            Vec2::new(1.0, -1.0),
-            Vec2::new(1.0, 1.0),
-            Vec2::new(-1.0, 1.0),
-        ]) {
-            let point = center + offset * half_pixels / self.size / self.inverse_scale;
-            *corner = self.unproject(Vec3::new(point.x * 2.0, -point.y * 2.0, clip.z / clip.w))?;
-        }
-        Some(corners)
-    }
-
-    pub(crate) fn axis_segment(
-        self,
-        origin: Vec3,
-        axis: MoveAxis,
-        length: f32,
-    ) -> Option<(Vec2, Vec2)> {
-        let start = self.project(origin)? * self.size * self.inverse_scale;
-        let end =
-            self.project(origin + axis.direction() * length)? * self.size * self.inverse_scale;
-        ((end - start).length() >= 16.0).then_some((start, end)) // 端视方向投影退化时不显示难以拖动的轴。
+        GizmoCamera::from_view(projection, transform.to_matrix(), size, inverse_scale).map(Self)
     }
 
     /// 绘制和拾取共用同一四角与退化门；侧着看时不能保留难以点击的细线平面。

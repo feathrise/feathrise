@@ -1,9 +1,13 @@
 //! 动作表固定预算、跨页完整可达及数字输入身份的真实ECS回归。
 
-use super::super::{
-    components::*,
+use feathrise_editor_animation::test_support::{
+    AnimationAction, AnimationButton, AnimationChannelButton, AnimationKeyButton,
+    AnimationNumericField, AnimationNumericInput, AnimationPanel, AnimationPoseToolbar,
+    install_ui, panel, pose_toolbar,
+};
+use feathrise_editor_animation_model::{
+    constants::{CHANNEL_SLOTS, KEY_SLOTS},
     data::AnimationDocument,
-    presentation,
     resources::{AnimationEditorState, Session},
 };
 use bevy::{asset::AssetPlugin, ecs::system::RunSystemOnce, prelude::*};
@@ -96,16 +100,13 @@ fn fixture() -> App {
     .init_resource::<AnimationEditorState>()
     .init_resource::<ActiveNumericInput>()
     .init_resource::<ActiveNumericInputScrub>()
-    .add_message::<NumericInputSetValue>()
-    .add_systems(
-        Update,
-        (super::setup_numeric_inputs, presentation::sync).chain(),
-    );
+    .add_message::<NumericInputSetValue>();
+    install_ui(&mut app);
     app.world_mut()
-        .run_system_once::<_, (), _>(super::panel.spawn())
+        .run_system_once::<_, (), _>(panel.spawn())
         .unwrap();
     app.world_mut()
-        .run_system_once::<_, (), _>(super::pose_toolbar.spawn())
+        .run_system_once::<_, (), _>(pose_toolbar.spawn())
         .unwrap();
     app
 }
@@ -356,11 +357,8 @@ fn gpu_animation_editor_wide_and_narrow_formal_bsn_layout() {
         )
         .add_plugins(feathrise_editor_ui::EditorUiPlugin)
         .insert_resource(feathrise_editor_ui::EditorPalette::neutral_gray())
-        .insert_resource(source.state())
-        .add_systems(
-            Update,
-            (super::setup_numeric_inputs, presentation::sync).chain(),
-        );
+        .insert_resource(source.state());
+        install_ui(&mut app);
         app.finish();
         app.cleanup();
         let target = app.world_mut().resource_mut::<Assets<Image>>().add({
@@ -384,8 +382,9 @@ fn gpu_animation_editor_wide_and_narrow_formal_bsn_layout() {
             app.world_mut()
                 .run_system_once::<_, (), _>(
                     (|| {
-                        super::super::super::scene::asset_preview_panel(
+                        super::super::scene::asset_preview_panel(
                             &feathrise_editor_documents::scenes(),
+                            &feathrise_editor_animation::scenes(),
                         )
                     })
                     .spawn(),
@@ -393,7 +392,7 @@ fn gpu_animation_editor_wide_and_narrow_formal_bsn_layout() {
                 .unwrap();
         } else {
             app.world_mut()
-                .run_system_once::<_, (), _>(super::panel.spawn())
+                .run_system_once::<_, (), _>(panel.spawn())
                 .unwrap();
         }
         let panel = app
@@ -403,7 +402,7 @@ fn gpu_animation_editor_wide_and_narrow_formal_bsn_layout() {
             .unwrap();
         let root = if formal_parent {
             app.world_mut()
-                .query_filtered::<Entity, With<super::super::super::types::AssetPreviewPanel>>()
+                .query_filtered::<Entity, With<super::super::types::AssetPreviewPanel>>()
                 .single(app.world())
                 .unwrap()
         } else {
@@ -429,10 +428,10 @@ fn gpu_animation_editor_wide_and_narrow_formal_bsn_layout() {
         }
         if formal_parent {
             let world = app.world_mut();
-            for mut node in world.query_filtered::<&mut Node, With<super::super::super::types::AssetPreviewControls>>().iter_mut(world) {
+            for mut node in world.query_filtered::<&mut Node, With<super::super::types::AssetPreviewControls>>().iter_mut(world) {
                 node.display = Display::Flex;
             }
-            for mut node in world.query_filtered::<&mut Node, With<super::super::super::types::AssetPreviewSubAssetPanel>>().iter_mut(world) {
+            for mut node in world.query_filtered::<&mut Node, With<super::super::types::AssetPreviewSubAssetPanel>>().iter_mut(world) {
                 node.display = Display::Flex; // 模拟原目录已Ready，正式动画表现必须主动收起它。
             }
         }
@@ -456,7 +455,7 @@ fn gpu_animation_editor_wide_and_narrow_formal_bsn_layout() {
         if formal_parent {
             let world = app.world_mut();
             let canvas = world
-                .query_filtered::<Entity, With<super::super::super::types::AssetPreviewCanvas>>()
+                .query_filtered::<Entity, With<super::super::types::AssetPreviewCanvas>>()
                 .single(world)
                 .unwrap();
             assert!(
@@ -483,7 +482,7 @@ fn gpu_animation_editor_wide_and_narrow_formal_bsn_layout() {
                 bottom(panel) <= bottom(root) + 1.0,
                 "正式父布局裁掉了动画表下部"
             );
-            assert!(world.query_filtered::<&Node, With<super::super::super::types::AssetPreviewSubAssetPanel>>().iter(world)
+            assert!(world.query_filtered::<&Node, With<super::super::types::AssetPreviewSubAssetPanel>>().iter(world)
                 .all(|node| node.display == Display::None));
         }
         {

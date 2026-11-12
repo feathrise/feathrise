@@ -2,46 +2,9 @@
 
 use super::super::types::{Document, SourceKey};
 use bevy::{prelude::*, text::EditableTextGeneration};
-use std::{ops::Range, path::Path};
+use std::ops::Range;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Language {
-    Json,
-    Rust,
-    Wgsl,
-}
-
-impl Language {
-    pub(super) fn from_path(path: &str) -> Option<Self> {
-        let ext = Path::new(path).extension()?.to_str()?;
-        if ext.eq_ignore_ascii_case("json") || ext.eq_ignore_ascii_case("jsonl") {
-            Some(Self::Json)
-        } else if ext.eq_ignore_ascii_case("rs") {
-            Some(Self::Rust)
-        } else if ext.eq_ignore_ascii_case("wgsl") || ext.eq_ignore_ascii_case("wesl") {
-            Some(Self::Wgsl)
-        } else {
-            None
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Kind {
-    Key,
-    Keyword,
-    String,
-    Number,
-    Comment,
-    Type,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Token {
-    pub start: u32,
-    pub end: u32,
-    pub kind: Kind,
-}
+pub(super) use feathrise_editor_documents_model::syntax::{Kind, Language, Token};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct SyntaxKey {

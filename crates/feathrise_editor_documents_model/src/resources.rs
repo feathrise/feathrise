@@ -13,7 +13,29 @@ pub struct DocumentScenes {
 /// 只传入共享文本与值类型，不能持有World、路径状态或另建历史/任务队列。
 #[derive(Resource, Clone, Copy)]
 pub struct DocumentContentOperations {
-    pub parse_preview: fn(super::types::DocumentFormat, &[std::sync::Arc<str>]) -> super::types::ParsedPreview,
+    pub tokenize: fn(super::syntax::Language, &str) -> Vec<super::syntax::Token>,
+    pub build_text_index:
+        fn(super::navigation::types::IndexKey, &str) -> super::navigation::types::TextIndex,
+    pub replace_ranges: ReplaceRanges,
+    pub parse_preview:
+        fn(super::types::DocumentFormat, &[std::sync::Arc<str>]) -> super::types::ParsedPreview,
     /// 参数依次为完整LF正文、原CRLF换行标记、原BOM标记和可选格式化选区。
-    pub process_json: fn(&str, bool, bool, Option<super::history::types::Selection>) -> super::json::types::ProcessedJson,
+    pub process_json: fn(
+        &str,
+        bool,
+        bool,
+        Option<super::history::types::Selection>,
+    ) -> super::json::types::ProcessedJson,
 }
+
+type ReplaceRanges = fn(
+    &str,
+    &[std::sync::Arc<str>],
+    bool,
+    bool,
+    &[std::ops::Range<usize>],
+    &str,
+    super::history::types::Selection,
+    Option<&std::ops::Range<usize>>,
+    bool,
+) -> Result<Option<super::navigation::types::ReplacedContent>, String>;

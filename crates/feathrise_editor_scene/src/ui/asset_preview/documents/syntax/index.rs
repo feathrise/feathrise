@@ -1,14 +1,19 @@
 //! 完整分词仅在AsyncCompute单槽执行；隐藏、换文件或编辑后的迟到结果只丢弃。
 
 use super::super::resources::DocumentState;
-use super::{lexer, resources::SyntaxIndex, types::*};
+use super::{resources::SyntaxIndex, types::*};
+use feathrise_editor_documents_model::DocumentContentOperations;
 use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, futures::check_ready},
 };
 use std::sync::Arc;
 
-pub(super) fn drive(documents: Res<DocumentState>, mut state: ResMut<SyntaxIndex>) {
+pub(super) fn drive(
+    documents: Res<DocumentState>,
+    operations: Res<DocumentContentOperations>,
+    mut state: ResMut<SyntaxIndex>,
+) {
     let doc = documents
         .current()
         .filter(|doc| documents.visible && Language::from_path(&doc.path).is_some());
@@ -33,8 +38,9 @@ pub(super) fn drive(documents: Res<DocumentState>, mut state: ResMut<SyntaxIndex
     }
     let key = SyntaxKey::new(doc);
     let source = Arc::clone(&doc.source); // 启动帧只共享不可变草稿；不复制全文，也不取消并重启占槽任务。
+    let tokenize = operations.tokenize;
     state.task = Some(AsyncComputeTaskPool::get().spawn(async move {
-        let tokens = lexer::scan(key.language.unwrap(), &source);
+        let tokens = tokenize(key.language.unwrap(), &source);
         SyntaxResult { key, tokens }
     }));
 }

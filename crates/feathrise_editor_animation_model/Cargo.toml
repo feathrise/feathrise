@@ -1,0 +1,18 @@
+# 场景与动画编译共享同一份文档、预览和调度数据。
+[package]
+name = "feathrise_editor_animation_model"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[features]
+validation = []
+runtime_test_support = []
+
+[dependencies]
+bevy = { workspace = true }
+feathrise_editor_assets = { workspace = true }
+feathrise_editor_core = { workspace = true }
+feathrise_editor_documents_model = { workspace = true }
+feathrise_scene_content = { workspace = true }
+serde_json = { workspace = true, features = ["float_roundtrip"] }

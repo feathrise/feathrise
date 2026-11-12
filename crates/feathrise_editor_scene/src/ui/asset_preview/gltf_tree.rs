@@ -131,21 +131,9 @@ pub(super) fn install(app: &mut App) {
         );
 }
 
-/// 仅固定的中央标签决定树的数据来源。侧栏文件选择和独立资产预览不能抢占它。
-pub(crate) fn central_glb(media: &AssetPreviewWorkspace, tab: PresetWorkspaceTab) -> Option<&str> {
-    if !media.active(tab) {
-        return None;
-    }
-    let path = media.expanded.as_ref()?.path.as_str();
-    is_glb(path).then_some(path)
-}
+pub(crate) use feathrise_editor_animation_model::media::central_glb;
 
-pub(super) fn is_glb(path: &str) -> bool {
-    Path::new(path)
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("glb"))
-}
+pub(super) use feathrise_editor_animation_model::media::is_glb;
 
 /// 右栏文件选择独立于中央标签。只有作者正在查看该模型的属性时才显示它的工程动作。
 pub(crate) fn owns_properties(

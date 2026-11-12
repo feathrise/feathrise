@@ -363,35 +363,7 @@ impl SceneBrowserDragState {
 /// 另一枚鼠标键可能仍处于按下状态。此资源把所有权延长到三枚作者鼠标键全部松开后的下一静默帧，
 /// 避免同一组物理按键补触发按钮、笔刷、控制点或视口导航。
 /// 资产预览复用此门：画布内开始的拖动即使越过场景视口，也只能继续调整预览。
-#[derive(Resource, Debug, Default)]
-pub struct SceneEditorNumericScrubMouseGuard {
-    blocked: bool, // `true`表示本帧除已持有数值/预览拖动者外的作者鼠标入口都必须丢弃输入。
-    pub(crate) floating_panel_hovered: bool, // 悬停挡住滚轮；只有在浮窗内按下才保留拖动所有权。
-}
-
-impl SceneEditorNumericScrubMouseGuard {
-    /// 共享 UI 控件拖动态与本帧鼠标边沿共同推进唯一所有权状态机。
-    pub(crate) fn advance(
-        &mut self,
-        scrub_active: bool,        // 当前是否仍有公共数值框持有左右拖动身份。
-        any_button_pressed: bool,  // 左、右、中任一作者鼠标键是否仍按住。
-        any_button_released: bool, // 本帧是否刚松开左、右、中任一键；release帧仍不得穿透。
-    ) {
-        if scrub_active {
-            self.blocked = true; // 只要拖动实体存在，就立即取得场景编辑器级鼠标所有权。
-            return;
-        }
-        if !self.blocked {
-            return; // 从未开始数值拖动时，普通鼠标按键不能反向激活该门。
-        }
-        self.blocked = any_button_pressed || any_button_released; // 全松后的下一静默帧才归还鼠标。
-    }
-
-    /// 当前帧是否必须丢弃全部非数值场景编辑器鼠标输入。
-    pub fn blocked(&self) -> bool {
-        self.blocked || self.floating_panel_hovered // 鼠标离开浮窗时，单纯悬停不会扣住下一次外部点击。
-    }
-}
+pub use feathrise_editor_animation_model::host::SceneEditorNumericScrubMouseGuard;
 
 /// 当前传送点名称的内联中文输入会话；稳定ID冻结后才允许提交到作者草稿。
 #[derive(Clone, Debug, Default)]

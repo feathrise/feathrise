@@ -1219,6 +1219,7 @@ fn gpu_document_sidebar(
         for index in 0..24 { std::fs::write(root.join(format!("常用目录/文件{index:02}.txt")), "临时资产").unwrap(); }
         app.world_mut().resource_mut::<DocumentState>().root = root.clone();
         crate::ui::asset_shortcuts::install_for_tests(&mut app, root);
+        app.insert_resource(feathrise_editor_project_browser::directory_operations());
         app.add_systems(Update, (crate::asset_catalog::start_asset_scan, crate::asset_catalog::poll_asset_scan).chain().in_set(crate::SceneEditorSystemSet::Tasks));
         app.add_plugins(feathrise_editor_ui::EditorThemePlugin);
         app.insert_resource(feathrise_editor_ui::EditorPalette::neutral_gray());
@@ -1280,6 +1281,7 @@ fn gpu_document_sidebar(
             crate::ui::sidebars::right_sidebar(
                 &feathrise_editor_documents::scenes(),
                 &feathrise_editor_weights::scenes(),
+                &feathrise_editor_animation::scenes(),
             )
         }).spawn())
         .unwrap();

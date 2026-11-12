@@ -560,9 +560,7 @@ pub(crate) struct EditorWaterPreview;
 #[derive(Component, Clone, Copy, Default)]
 pub(crate) struct EditorViewportPointerCapture;
 
-/// 供测试和清理验证编辑器离屏资源身份。
-#[derive(Component, Clone, Copy, Default)]
-pub struct SceneEditorOwnedEntity;
+pub use feathrise_editor_animation_model::media::SceneEditorOwnedEntity;
 /// 无场景且未选中预设标签时的中央提示，不承担任何场景渲染或拾取职责。
 #[derive(Component, Clone, Copy, Default)]
 pub(crate) struct SceneEditorEmptyWorkspace;

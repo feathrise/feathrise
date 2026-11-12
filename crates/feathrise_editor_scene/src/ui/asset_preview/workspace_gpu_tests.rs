@@ -149,7 +149,7 @@ fn gpu_asset_center_image_and_model_real_load_expand_restore() {
         ))
         .id();
     app.world_mut()
-        .run_system_once::<_, (), _>((|| super::scene::asset_preview_panel(&feathrise_editor_documents::scenes())).spawn())
+        .run_system_once::<_, (), _>((|| super::scene::asset_preview_panel(&feathrise_editor_documents::scenes(), &feathrise_editor_animation::scenes())).spawn())
         .unwrap();
     let panel = {
         let world = app.world_mut();

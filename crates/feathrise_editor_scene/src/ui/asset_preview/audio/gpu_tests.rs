@@ -518,7 +518,7 @@ impl Fixture {
                 ));
         }
         app.world_mut()
-            .run_system_once::<_, (), _>((|| super::super::scene::asset_preview_panel(&feathrise_editor_documents::scenes())).spawn())
+            .run_system_once::<_, (), _>((|| super::super::scene::asset_preview_panel(&feathrise_editor_documents::scenes(), &feathrise_editor_animation::scenes())).spawn())
             .unwrap();
         let panel = preview_panel(&mut app);
         app.world_mut().entity_mut(panel).insert(ChildOf(sidebar));

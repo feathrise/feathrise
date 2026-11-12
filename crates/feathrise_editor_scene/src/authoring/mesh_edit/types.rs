@@ -54,26 +54,7 @@ pub(crate) enum MeshEditAction {
     Confirm,
 }
 
-/// 选择元素类型与操作工具彼此独立；切工具不能退出网格编辑或改为变换完整对象。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum MeshEditTool {
-    #[default]
-    Select,
-    Move,
-    Rotate,
-    Scale,
-}
-
-impl MeshEditTool {
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::Select => "选择",
-            Self::Move => "移动",
-            Self::Rotate => "旋转",
-            Self::Scale => "缩放",
-        }
-    }
-}
+pub(crate) use feathrise_editor_animation_model::gizmo::MeshEditTool;
 
 #[derive(Debug, Clone)]
 pub(super) struct EditTarget {
@@ -84,32 +65,7 @@ pub(super) struct EditTarget {
     pub record: ScenePlacementRecord,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MoveConstraint {
-    View,
-    X,
-    Y,
-    Z,
-}
-
-impl MoveConstraint {
-    pub fn axis(self) -> Option<Vec3> {
-        match self {
-            Self::View => None,
-            Self::X => Some(Vec3::X),
-            Self::Y => Some(Vec3::Y),
-            Self::Z => Some(Vec3::Z),
-        }
-    }
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::View => "视图平面",
-            Self::X => "世界 X",
-            Self::Y => "世界 Y",
-            Self::Z => "世界 Z",
-        }
-    }
-}
+pub(crate) use feathrise_editor_animation_model::gizmo::MoveConstraint;
 
 #[derive(Debug)]
 pub(super) struct ElementMove {

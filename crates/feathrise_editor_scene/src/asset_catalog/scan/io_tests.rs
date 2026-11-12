@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering}; // 并行测试也不能复用相�
 use std::time::{SystemTime, UNIX_EPOCH}; // 临时名称包含进程和时间，避免碰触现有文件。
 
 use super::{
-    AssetScanRequest, AssetTypeFilter, DirectoryFilters, DirectoryQuery, DirectorySnapshot, DirectoryWorker,
+    AssetScanRequest, AssetTypeFilter, DirectoryFilters, DirectoryQuery, DirectorySnapshot, test_directory_worker,
     FolderScope, scan_asset_folder, scan_asset_request, scan_directory,
 }; // 直接测试后台正式扫描与完整路径搜索。
 use feathrise_scene_content::SceneAssetKind; // 输出仍使用正式类型识别结果。
@@ -105,7 +105,7 @@ fn model_filter_reads_small_json_even_when_the_glb_bin_exceeds_the_rigging_limit
     let snapshot = scan_directory(fixture.root.clone(), String::new(), DirectoryQuery {
         context: 1, scope: FolderScope::Assets, asset_root: None,
         filters: &DirectoryFilters { kind: AssetTypeFilter::Model, ..Default::default() }, reveal_file: None,
-    }, &DirectoryWorker::default()).unwrap();
+    }, &test_directory_worker()).unwrap();
     assert_eq!(listed_paths(&snapshot), ["large.glb"]);
 }
 
@@ -131,7 +131,7 @@ fn type_filters_keep_registered_asset_paths_and_source_clip_indices() {
         fixture.add_file(file);
     }
 
-    let project_worker = DirectoryWorker::default();
+    let project_worker = test_directory_worker();
     let project = |kind| scan_directory(fixture.root.clone(), String::new(), DirectoryQuery {
         context: 1, scope: FolderScope::ProjectFiles, asset_root: Some(&asset_root),
         filters: &DirectoryFilters { kind, ..Default::default() }, reveal_file: None,
@@ -140,7 +140,7 @@ fn type_filters_keep_registered_asset_paths_and_source_clip_indices() {
     assert_eq!(listed_paths(&project(Skeleton)), ["content"], "构建和回收目录不参与后代匹配");
     assert_eq!(listed_paths(&project(All)), ["assets", "content", "README.md"]);
 
-    let assets_worker = DirectoryWorker::default();
+    let assets_worker = test_directory_worker();
     let assets = |folder: &str, kind, filename: &str| scan_directory(asset_root.clone(), folder.to_owned(), DirectoryQuery {
         context: 1, scope: FolderScope::Assets, asset_root: None,
         filters: &DirectoryFilters { kind, filename: filename.to_owned() }, reveal_file: None,
@@ -169,7 +169,7 @@ fn native_file_events_refresh_added_replaced_and_deleted_glb_matches() {
     use std::time::{Duration, Instant};
 
     let fixture = DirectoryFixture::new();
-    let worker = DirectoryWorker::default();
+    let worker = test_directory_worker();
     let filters = DirectoryFilters { kind: AssetTypeFilter::Animation, ..Default::default() };
     let scan = || scan_directory(fixture.root.clone(), String::new(), DirectoryQuery {
         context: 2, scope: FolderScope::Assets, asset_root: None, filters: &filters, reveal_file: None,
@@ -217,7 +217,7 @@ fn complete_directory_scan_and_reveal_have_no_former_4096_entry_cutoff() {
             reveal_file: Some("item-4096.glb".to_owned()), // 目标位于旧容量门之后。
             ..Default::default()
         },
-        &DirectoryWorker::default(),
+        &test_directory_worker(),
     );
     assert_eq!(completed.request.revision, 31); // 后台没有重新猜测票据。
     let contents = completed.result.expect("合法目录不应被旧 4096 门截断"); // 失败必须让回归明确失败。

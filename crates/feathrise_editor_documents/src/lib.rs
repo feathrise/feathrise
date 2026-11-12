@@ -8,6 +8,10 @@ mod constants {
     pub(crate) use feathrise_editor_documents_model::constants::*;
 }
 mod preview;
+mod lexer;
+mod text_index;
+mod text_replace;
+pub use text_replace::prepare_ranges;
 pub use feathrise_editor_documents_model::document_format;
 pub use preview::parse as parse_preview;
 mod batch_save;
@@ -39,6 +43,9 @@ pub fn scenes() -> DocumentScenes {
 pub fn content_operations() -> feathrise_editor_documents_model::DocumentContentOperations {
     feathrise_editor_documents_model::DocumentContentOperations {
         parse_preview,
+        tokenize: lexer::scan,
+        build_text_index: text_index::build,
+        replace_ranges: prepare_ranges,
         process_json: json::process,
     }
 }

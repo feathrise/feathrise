@@ -30,7 +30,8 @@ impl Drop for ReleaseIo {
 
 /// 构造已有完整目录和选中预览，仅在私有夹具中安装一个可延迟任务。
 fn setup() -> (App, ReleaseIo) {
-    let mut app = App::new(); // 不依赖 GPU 或 AssetServer 的正式系统初始化回归。
+    let mut app = App::new();
+    app.insert_resource(feathrise_editor_project_browser::directory_operations()); // 不依赖 GPU 或 AssetServer 的正式系统初始化回归。
     app.add_plugins(TaskPoolPlugin::default()); // 测试所有后台句柄使用公共任务池。
     let file = |path: &str| EditorAssetEntry {
         asset_path: path.to_owned(), // 完整路径是唯一选择身份。
@@ -186,6 +187,7 @@ fn project_source_change_rejects_delayed_same_name_and_keeps_one_io_slot() {
 #[test]
 fn hosted_without_project_never_falls_back_to_editor_repository_assets() {
     let mut app = App::new();
+    app.insert_resource(feathrise_editor_project_browser::directory_operations());
     app.add_plugins(TaskPoolPlugin::default())
         .init_resource::<EditorAssetCatalog>()
         .init_resource::<SceneEditorState>()

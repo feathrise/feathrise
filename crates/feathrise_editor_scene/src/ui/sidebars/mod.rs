@@ -39,7 +39,7 @@ pub(crate) fn test_document_scenes() -> feathrise_editor_documents_model::Docume
 
 #[cfg(test)]
 pub(crate) fn test_right_sidebar() -> impl Scene {
-    right_sidebar(&test_document_scenes(), &feathrise_editor_weights::scenes())
+    right_sidebar(&test_document_scenes(), &feathrise_editor_weights::scenes(), &feathrise_editor_animation::scenes())
 }
 
 // 顶部内置与插件模块共用占宽和间距；侧栏内的等分页签仍由各自容器分配宽度。

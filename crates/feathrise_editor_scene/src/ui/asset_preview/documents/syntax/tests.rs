@@ -1,6 +1,6 @@
 //! 分词、UTF-8范围和文档身份回归；真实字形与输入行为由资产离屏GPU验收覆盖。
 
-use super::{lexer::scan, paint::token_at, types::*};
+use super::{paint::token_at, types::*};
 
 fn tokens(language: Language, source: &str) -> Vec<(String, Kind)> {
     let result = scan(language, source);
@@ -22,6 +22,10 @@ fn tokens(language: Language, source: &str) -> Vec<(String, Kind)> {
             )
         })
         .collect()
+}
+
+fn scan(language: Language, source: &str) -> Vec<Token> {
+    (feathrise_editor_documents::content_operations().tokenize)(language, source)
 }
 
 #[test]

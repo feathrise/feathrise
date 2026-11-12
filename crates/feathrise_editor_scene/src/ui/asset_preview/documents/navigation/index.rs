@@ -4,7 +4,8 @@ use super::super::{
     resources::DocumentState,
     types::{Document, ViewMode},
 };
-use super::{constants::REGEX_BYTES, replace, resources::DocumentNavigation, types::*};
+use super::{replace, resources::DocumentNavigation, types::*};
+use feathrise_editor_documents_model::DocumentContentOperations;
 use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, futures::check_ready},
@@ -32,77 +33,19 @@ pub(super) fn key_for(doc: &Document, state: &DocumentNavigation) -> IndexKey {
     }
 }
 
-/// 当前文件与跨文件搜索共享转义、Unicode大小写和外侧词界，避免两种入口结果不同。
-pub(in super::super) fn literal_regex(
-    query: &str,
-    case_sensitive: bool,
-    whole_word: bool,
-) -> Result<regex::Regex, regex::Error> {
-    let escaped = regex::escape(query);
-    let pattern = if whole_word {
-        format!(r"\b{{start-half}}{escaped}\b{{end-half}}")
-    } else {
-        escaped
-    };
-    regex::RegexBuilder::new(&pattern)
-        .case_insensitive(!case_sensitive)
-        .size_limit(REGEX_BYTES)
-        .dfa_size_limit(REGEX_BYTES)
-        .build()
-}
+pub(in super::super) use feathrise_editor_documents_model::navigation::query::literal_regex;
 
+#[cfg(test)]
 pub(super) fn build(key: IndexKey, source: &str) -> TextIndex {
-    // 输入已统一为LF。末尾换行额外产生真实空行；字节索引可直接交给原生Parley导航。
-    let mut lines = vec![0];
-    lines.extend(
-        source
-            .bytes()
-            .enumerate()
-            .filter_map(|(i, ch)| (ch == b'\n').then_some(i + 1)),
-    );
-    let (matches, error) = if key.query.is_empty() {
-        (Vec::new(), None)
-    } else {
-        // 用户始终输入字面文字；Unicode大小写和组合字符词界交给已锁定的成熟引擎。
-        // 半词界只检查两侧，不把含引号、点号或斜线的查询强制限定为一个标识符。
-        match literal_regex(
-            &key.query,
-            key.options.case_sensitive,
-            key.options.whole_word,
-        ) {
-            Ok(regex) => {
-                let scope = key.scope.clone().unwrap_or(0..source.len());
-                let mut matches = Vec::new();
-                let mut cursor = scope.start;
-                // 从冻结范围起点开始，不能先让范围外的重叠匹配吃掉范围内候选；
-                // find_at保留整篇上下文，选区边缘也不能伪造一个新的词界。
-                while cursor < scope.end && cursor < source.len() {
-                    let Some(found) = regex.find_at(source, cursor) else {
-                        break;
-                    };
-                    if found.end() > scope.end {
-                        break;
-                    }
-                    matches.push(found.range());
-                    cursor = found.end(); // 非空字面查询始终前进，替换候选互不重叠。
-                }
-                (matches, None)
-            }
-            Err(_) => (
-                Vec::new(),
-                Some("查找条件超过后台预算，请缩短查询后重试".into()),
-            ),
-        }
-    };
-    TextIndex {
-        key,
-        lines,
-        matches,
-        error,
-    }
+    (feathrise_editor_documents::content_operations().build_text_index)(key, source)
 }
 
-pub(super) fn drive(documents: Res<DocumentState>, mut state: ResMut<DocumentNavigation>) {
+pub(super) fn drive(
+    documents: Res<DocumentState>,
+    operations: Res<DocumentContentOperations>,
+    mut state: ResMut<DocumentNavigation>,
+) {
+    let operations = *operations;
     let doc = documents
         .current()
         .filter(|doc| documents.visible && doc.mode == ViewMode::Edit);
@@ -147,7 +90,7 @@ pub(super) fn drive(documents: Res<DocumentState>, mut state: ResMut<DocumentNav
         let crlf = doc.disk.crlf;
         let bom = doc.disk.bom;
         state.task = Some(AsyncComputeTaskPool::get().spawn(async move {
-            let content = replace::prepare(&source, &pages, crlf, bom, &request);
+            let content = replace::prepare_with(operations, &source, &pages, crlf, bom, &request);
             NavigationWork::Replace(ReplacementResult { request, content })
         }));
         return;
@@ -164,7 +107,7 @@ pub(super) fn drive(documents: Res<DocumentState>, mut state: ResMut<DocumentNav
     let source = Arc::clone(&doc.source); // 不在任务启动帧复制全文。
     state.task = Some(
         AsyncComputeTaskPool::get()
-            .spawn(async move { NavigationWork::Index(build(key, &source)) }),
+            .spawn(async move { NavigationWork::Index((operations.build_text_index)(key, &source)) }),
     );
 }
 

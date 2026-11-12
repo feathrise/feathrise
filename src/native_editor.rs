@@ -124,6 +124,8 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
     // 安装原完整插件，而非共享工作台只读投影；文档、撤销和作者任务均使用原资源。
     .add_plugins((
         feathrise_editor_scene::SceneEditorPlugin,
+        feathrise_editor_animation::AnimationEditorPlugin,
+        feathrise_editor_project_browser::ProjectBrowserPlugin,
         feathrise_editor_surface::SurfaceEditorPlugin,
         feathrise_editor_documents::DocumentsEditorPlugin,
         feathrise_editor_weights::WeightPanelPlugin,

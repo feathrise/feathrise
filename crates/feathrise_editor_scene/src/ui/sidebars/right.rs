@@ -61,6 +61,7 @@ pub(crate) fn scene_page() -> impl Scene {
 pub(crate) fn right_sidebar(
     scenes: &feathrise_editor_documents_model::DocumentScenes,
     weight_scenes: &WeightPanelScenes,
+    animation_scenes: &feathrise_editor_animation_model::assembly::AnimationScenes,
 ) -> impl Scene + use<> {
     bsn! {
         SceneEditorPane(EditorPane::Inspector)
@@ -106,7 +107,7 @@ pub(crate) fn right_sidebar(
             @super::left::tools_page()--
             @super::super::asset_preview::rigging::scene::sidebar_page()--
             @super::super::asset_preview::weights::panel::sidebar_page(weight_scenes)--
-            @asset_properties_page(scenes, weight_scenes)--
+            @asset_properties_page(scenes, weight_scenes, animation_scenes)--
             @crate::ui::scene_sidebar::scene_properties_page()--
             @super::super::environment::environment_page() // 三种环境作用域在唯一滚动页内独立显示。
         ]

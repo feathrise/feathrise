@@ -360,7 +360,13 @@ fn preview_chrome() -> impl Scene {
 }
 
 /// 构造资产列表下方可填满剩余高度的实际内容预览区。
-pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::DocumentScenes) -> impl Scene + use<> {
+pub(crate) fn asset_preview_panel(
+    scenes: &feathrise_editor_documents_model::DocumentScenes,
+    animation_scenes: &feathrise_editor_animation_model::assembly::AnimationScenes,
+) -> impl Scene + use<> {
+    let pose_toolbar = (animation_scenes.pose_toolbar)();
+    let animation_panel = (animation_scenes.inline_panel)();
+    let timeline_dock = (animation_scenes.timeline_dock)();
     bsn! {
         AssetPreviewPanel
         Node {
@@ -441,17 +447,15 @@ pub(crate) fn asset_preview_panel(scenes: &feathrise_editor_documents_model::Doc
                         TextColor(colors::TEXT_HINT)
                         Node { display: Display::None }
                     --
-                    @super::animation::scene::pose_toolbar()-- // 小预览沿用原入口，中央 GLB 将原控件借给属性区。
+                    @pose_toolbar-- // 小预览沿用原入口，中央 GLB 将原控件借给属性区。
                     @super::rigging::scene::dots()--
                     @super::weights::panel::viewport_tools()
                 ]
             --
 
-                super::animation::InlineAnimationHost
-                Node { width: percent(100), min_width: px(0), flex_shrink: 0.0, flex_direction: FlexDirection::Column }
-                Children [@super::animation::scene::panel()]
+                @animation_panel
             --
-                @super::animation::timeline_dock_scene()
+                @timeline_dock
             --
 
                 AssetPreviewNavigationHint // 图片与模型分别显示准确的手势说明。

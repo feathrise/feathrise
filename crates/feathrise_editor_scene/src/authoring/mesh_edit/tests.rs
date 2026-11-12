@@ -342,7 +342,7 @@ fn real_animation_timeline_blocks_mesh_shortcuts_on_first_press_and_release() {
         assert!(!app.world().resource::<SceneEditorNumericScrubMouseGuard>().blocked(),
             "空闲网格会话已走完真实静默帧，不应伪造公共门来制造交互路径");
         let before = current(&app).clone();
-        AnimationEditorState::install_timeline_input_for_tests(&mut app);
+        crate::ui::asset_preview::animation::tests::install_timeline_input_for_tests(&mut app);
         assert_eq!(app.world().resource::<VegetationPresetEditorState>().active_tab, PresetWorkspaceTab::Scene,
             "右侧动画属性与中央场景页可同时可见");
         app.world_mut().get_mut::<bevy::ui::RelativeCursorPosition>(node).unwrap().cursor_over = false;

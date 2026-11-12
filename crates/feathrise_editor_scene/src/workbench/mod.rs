@@ -46,6 +46,8 @@ pub enum WorkbenchUiSet {
 
 impl Plugin for WorkbenchUiPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(test)]
+        app.insert_resource(feathrise_editor_project_browser::directory_operations());
         if !app.is_plugin_added::<feathrise_editor_ui::EditorUiPlugin>() {
             app.add_plugins(feathrise_editor_ui::EditorUiPlugin);
         }

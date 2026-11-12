@@ -1,7 +1,11 @@
 //! 动画时间轴与场景同屏时，真实输入、公共鼠标门及场景快捷键分派的所有权回归。
 
 use feathrise_editor_ui::UiInteraction;
-use super::*;
+use bevy::{prelude::*, ui::RelativeCursorPosition};
+use feathrise_editor_animation::test_support::{AnimationTrack, copy, timeline_input_type};
+use feathrise_editor_animation_model::{
+    resources::{AnimationEditorState, Edit, PendingAction}, types::KeySelection,
+};
 use crate::{
     authoring::{EditorAuthoringSession, EditorCommand, HeightChange, WaterNetworkEditState},
     resources::{SceneDeletionTask, SceneEditorState, SceneEditorViewportState},
@@ -24,7 +28,7 @@ use bevy::ecs::{
 };
 
 fn fixture(read_only: bool, history: bool) -> (App, Entity) {
-    let (mut app, _, _) = super::super::editor_tests::app_context();
+    let (mut app, _, _) = super::tests::app_context();
     let draft = crate::authoring::test_heightfield_draft(vec![0; 121].into());
     let scene_id = draft.scene_id.clone();
     let command = EditorCommand::TerrainChanged(vec![HeightChange {
@@ -65,7 +69,7 @@ fn fixture(read_only: bool, history: bool) -> (App, Entity) {
             update_scene_editor_numeric_scrub_mouse_guard,
             handle_editor_shortcuts,
         ).chain());
-    super::super::install_input(&mut app);
+    super::tests::install_controls(&mut app);
     app.world_mut().resource_mut::<SceneEditorState>().selected_scene_id = Some(scene_id);
     let binding = {
         let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
@@ -201,7 +205,7 @@ fn assert_production_batch_order(app: &App) {
         matches[0]
     }
     let graph = app.get_schedule(Update).unwrap().graph();
-    let from = key(graph, input.system_type_id());
+    let from = key(graph, timeline_input_type());
     let to = key(graph, handle_placement_batch.system_type_id());
     // before(fn)实际连接到系统类型集合；展开生产配置的集合，防止夹具固定链掩盖漏注册。
     let mut hierarchy = graph.hierarchy().clone();
@@ -270,7 +274,7 @@ fn timeline_copy_paste_delete_precede_real_batch_input_and_leave_scene_untouched
         let (mut app, track) = batch_fixture();
         if key == KeyCode::KeyV {
             let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
-            state.clipboard = Some(super::super::editing::copy(
+            state.clipboard = Some(copy(
                 &state.current().unwrap().document, 0, &KeySelection::single(0, 0.0), state.active.clone().unwrap(),
             ).unwrap());
         }

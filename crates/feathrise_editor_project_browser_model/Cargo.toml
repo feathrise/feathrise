@@ -1,0 +1,10 @@
+# 工程目录任务与场景宿主共用快照、过滤条件和只读后台契约。
+[package]
+name = "feathrise_editor_project_browser_model"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bevy = { workspace = true }
+feathrise_scene_content = { workspace = true }

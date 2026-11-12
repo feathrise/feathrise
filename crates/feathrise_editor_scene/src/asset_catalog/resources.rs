@@ -4,7 +4,8 @@ use bevy::prelude::Resource; // 目录数据仅属于当前 F12 会话。
 use bevy::tasks::Task; // IO 任务直到真正完成才释放槽位。
 
 use super::types::{AssetRevealRequest, AssetScanResult}; // 完整请求和完成值均为可跨线程纯数据。
-use super::{filter::{AnimationClipInfo, AssetTypeFilter, DirectoryAnimations, DirectorySnapshot}, watch::DirectoryWorker};
+use super::filter::{AnimationClipInfo, AssetTypeFilter, DirectoryAnimations, DirectorySnapshot};
+use feathrise_editor_project_browser_model::DirectoryWorker;
 use crate::types::EditorAssetEntry; // UI 固定行池读取当前完整目录。
 
 /// 当前一层资产目录和最多一个在途扫描或退役任务。

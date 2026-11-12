@@ -16,7 +16,7 @@ mod operation_preview; // 不同建模操作共享冻结记录及预览参数计
 
 pub(crate) use resources::MeshEditState;
 pub(crate) use input::MeshEditExternalOwners; // 视口其他工具复用相同外部输入所有者，避免维护两套菜单门。
-pub(crate) use types::{MoveConstraint, MeshEditAction, MeshEditTool, MeshElementKind};
+pub(crate) use types::{MeshEditAction, MeshEditTool, MeshElementKind};
 
 use bevy::prelude::*;
 

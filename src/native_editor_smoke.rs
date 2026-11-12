@@ -392,7 +392,7 @@ fn observe(
         "sdk_ui_root": feathrise_editor_core::sdk_asset_root(),
         "source_ui": "feathrise_editor_scene::SceneEditorPlugin original scene and author systems",
         "excluded_scope": "player initialization and RPG author/runtime capabilities",
-        "plugins": ["SceneRuntimePlugin", "FpsDisplayPlugin", "SceneEditorPlugin", "SurfaceEditorPlugin", "DocumentsEditorPlugin", "WeightPanelPlugin", "GlbEditorPlugin", "StandaloneEditorPlugin", "NativePlayPlugin"],
+        "plugins": ["SceneRuntimePlugin", "FpsDisplayPlugin", "SceneEditorPlugin", "SurfaceEditorPlugin", "DocumentsEditorPlugin", "WeightPanelPlugin", "AnimationEditorPlugin", "ProjectBrowserPlugin", "GlbEditorPlugin", "StandaloneEditorPlugin", "NativePlayPlugin"],
         "editor_open": blocks.scene_editor_open,
         "original_header_layout_ready": header_ready,
         "font_loaded": font_ready,

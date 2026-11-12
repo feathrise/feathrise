@@ -5,6 +5,7 @@ use std::path::PathBuf; // 后台任务冻结本编辑实例的工程资产根�
 use bevy::prelude::*; // ECS资源、Interaction与日志。
 use bevy::tasks::IoTaskPool; // 文件系统遍历使用IO池而非帧主线程。
 use bevy::tasks::futures::check_ready; // Update只探测任务完成状态，不等待IO。
+use feathrise_editor_project_browser_model::DirectoryOperations;
 use feathrise_scene_content::SceneAssetKind; // 点击不同资产用途选择对应工具。
 
 use super::filter::DirectoryFilters;
@@ -27,6 +28,7 @@ pub(crate) fn request_initial_asset_scan(mut catalog: ResMut<EditorAssetCatalog>
 
 /// 没有在途任务且存在新请求时启动一个IO任务。
 pub(crate) fn start_asset_scan(
+    operations: Res<DirectoryOperations>,
     editor: Res<SceneEditorState>, // 关闭或切换场景时只允许释放旧目录，不启动新扫描。
     sidebar: Res<SceneEditorSidebarState>, // 定位仅在仍显示资产页时有效。
     mut catalog: ResMut<EditorAssetCatalog>, // 唯一在途槽同时为扫描与旧目录析构施加背压。
@@ -78,6 +80,7 @@ pub(crate) fn start_asset_scan(
         Some((_, root)) => root.clone().unwrap_or_default(),
         None => documents.as_ref().map_or_else(workspace_asset_root, |documents| documents.asset_root().to_path_buf()),
     }; // canonicalize 留在 IO 任务中；宿主空根不会走扫描分支。
+    if should_scan { catalog.worker.ensure(*operations); }
     let worker = catalog.worker.clone();
     catalog.task = Some(IoTaskPool::get().spawn(async move {
         drop(retired); // 任意长旧目录和迟到结果在后台释放，保持单一在途预算。

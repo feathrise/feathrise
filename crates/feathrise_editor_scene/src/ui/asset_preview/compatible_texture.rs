@@ -37,12 +37,7 @@ pub(crate) fn retry_capacity(server: &AssetServer, handle: &Handle<CompatiblePre
     true
 }
 
-#[derive(Asset, TypePath, Debug)]
-pub(crate) struct CompatiblePreviewTexture {
-    pub image: Handle<Image>,
-    pub description: String,
-    pub failure: Option<String>, // 转换不支持仍发布真实源元数据；画面保持透明，诊断进入底栏。
-}
+pub(crate) use feathrise_editor_animation_model::media::CompatiblePreviewTexture;
 
 #[derive(Default, TypePath)]
 struct CompatiblePreviewTextureLoader;

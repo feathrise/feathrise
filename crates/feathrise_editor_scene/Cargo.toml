@@ -7,11 +7,14 @@ license = "MIT OR Apache-2.0"
 
 [features]
 # 有限验收工作流不进入普通发行构建；真实作者校验仍属于常规功能。
-validation = []
+validation = ["feathrise_editor_animation_model/validation", "dep:feathrise_editor_animation", "feathrise_editor_animation/validation"]
 # 作者工具测试使用中性场景夹具。
 runtime_test_support = []
 
 [dependencies]
+feathrise_editor_project_browser_model = { workspace = true }
+feathrise_editor_animation = { workspace = true, optional = true } # 仅显式验收读取动画工作流证据。
+feathrise_editor_animation_model = { workspace = true } # 宿主和动画共享唯一预览资源及操作契约。
 feathrise_plugin_api = { workspace = true, features = ["blob-io"] }
 feathrise_author_tools = { workspace = true }
 feathrise_editor_documents_model = { workspace = true }
@@ -40,7 +43,6 @@ image = { workspace = true }
 gltf = { version = "1.4.1", default-features = false, features = ["utils", "names"] } # 复用Bevy已锁定解析器，仅后台读取旧场景实际地形三角。
 sha2 = { workspace = true } # 保存前后比较terrain.glb精确摘要，阻止覆盖Blender并发导出。
 regex = "=1.13.1" # 复用已锁定引擎，仅后台处理转义后的字面查询、Unicode大小写及全词边界。
-notify = "=8.2.0" # 目录变更使用现有原生文件事件版本；只通知原后台扫描，无帧内文件访问。
 proc-macro2 = { version = "=1.0.107", features = ["span-locations"] } # 后台识别Rust路径字面量与原文位置，避免把注释当引用。
 syn = { version = "=2.0.119", default-features = false, features = ["parsing"] } # 只解码字符串字面量，不构建完整源码AST。
 symphonia = { version = "=0.5.5", default-features = false, features = ["ogg", "vorbis", "wav", "pcm", "flac", "mp3"] } # 音频试听先在后台受检解码，不扩展正式Bevy音频feature或在主线程seek。
@@ -49,6 +51,8 @@ symphonia = { version = "=0.5.5", default-features = false, features = ["ogg", "
 windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem", "Win32_System_Registry"] } # 只读安装记录用于后台识别外部IDE。
 
 [dev-dependencies]
+feathrise_editor_project_browser = { workspace = true }
+feathrise_editor_animation = { workspace = true, features = ["runtime_test_support"] }
 feathrise_runtime = { workspace = true }
 feathrise_editor_documents = { workspace = true } # 测试注入真实内容操作与布局工厂，生产只依赖model契约。
 feathrise_editor_weights = { workspace = true } # 布局夹具安装正式权重页面工厂。

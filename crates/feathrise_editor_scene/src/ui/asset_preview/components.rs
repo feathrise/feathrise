@@ -2,8 +2,7 @@
 
 use bevy::prelude::*;
 
-#[derive(Component, Clone, Default)]
-pub(crate) struct AssetPreviewCenterHost;
+pub(crate) use feathrise_editor_animation_model::media::AssetPreviewCenterHost;
 #[derive(Component, Clone, Default)]
 pub(super) struct AssetPreviewTabRoot;
 #[derive(Component, Clone, Default)]

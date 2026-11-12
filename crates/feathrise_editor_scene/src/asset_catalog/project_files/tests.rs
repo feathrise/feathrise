@@ -162,6 +162,7 @@ fn failed_directory_navigation() -> (Fixture, App) {
     catalog.bind_project_source(1, Some(fixture.root.clone()));
     catalog.active = true;
     let mut app = App::new();
+    app.insert_resource(feathrise_editor_project_browser::directory_operations());
     app.add_plugins(bevy::app::TaskPoolPlugin::default()).insert_resource(catalog)
         .add_systems(Update, (start_project_file_scan, poll_project_file_scan).chain());
     settle_project_files(&mut app);
@@ -214,6 +215,7 @@ fn late_failed_scan_cannot_redirect_newer_directory_navigation() {
     catalog.bind_project_source(1, Some(fixture.root.clone()));
     catalog.active = true;
     let mut app = App::new();
+    app.insert_resource(feathrise_editor_project_browser::directory_operations());
     app.add_plugins(TaskPoolPlugin::default()).insert_resource(catalog)
         .add_systems(Update, (start_project_file_scan, poll_project_file_scan).chain());
     settle_project_files(&mut app);
@@ -246,6 +248,7 @@ fn single_inflight_scan_remains_owned_until_it_finishes_and_only_latest_filter_i
     use bevy::{app::TaskPoolPlugin, tasks::IoTaskPool};
     let fixture = Fixture::new();
     let mut app = App::new();
+    app.insert_resource(feathrise_editor_project_browser::directory_operations());
     app.add_plugins(TaskPoolPlugin::default());
     let mut catalog = EditorProjectFileCatalog::default();
     catalog.bind_project_source(1, Some(fixture.root.clone()));

@@ -85,6 +85,7 @@ pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) ->
         bevy::input_focus::tab_navigation::TabNavigationPlugin,
         feathrise_editor_documents::DocumentsEditorPlugin,
         feathrise_editor_weights::WeightPanelPlugin,
+        feathrise_editor_project_browser::ProjectBrowserPlugin,
         feathrise_editor_scene::workbench::WorkbenchUiPlugin,
         NativeProjectClosePlugin,
     ))

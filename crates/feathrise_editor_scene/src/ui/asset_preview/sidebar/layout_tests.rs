@@ -115,6 +115,7 @@ fn page() -> (App, Entity) {
             super::super::scene::asset_properties_page(
                 &feathrise_editor_documents::scenes(),
                 &feathrise_editor_weights::scenes(),
+                &feathrise_editor_animation::scenes(),
             )
         }).spawn(),
     )); // 真实左右两棵子树各建立一次，共同验证相同可用列宽下的字段排版。

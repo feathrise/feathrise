@@ -81,7 +81,7 @@ fn work(fixture: &Fixture, documents: &DocumentState, replacement: &str) -> Requ
     }
 }
 fn run(request: Request) -> Outcome {
-    block_on(IoTaskPool::get().spawn(worker::run(request, None, None, None))).outcome
+    block_on(IoTaskPool::get().spawn(worker::run(feathrise_editor_documents::content_operations(), request, None, None, None))).outcome
 }
 fn preview(request: Request) -> Arc<ReplacePlan> {
     let Outcome::Preview(result) = run(request) else {

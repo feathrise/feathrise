@@ -3,6 +3,7 @@
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_weights_model::WeightPanelScenes;
+use feathrise_editor_animation_model::assembly::AnimationScenes;
 use feathrise_editor_ui::metrics as ui_metrics;
 use crate::ui::theme as colors;
 use bevy::prelude::*; // BSN Scene、UI组件和布局值。
@@ -299,6 +300,7 @@ pub(super) fn viewport_panel(scenes: &feathrise_editor_documents_model::Document
 fn body(
     scenes: &feathrise_editor_documents_model::DocumentScenes,
     weight_scenes: &WeightPanelScenes,
+    animation_scenes: &AnimationScenes,
 ) -> impl Scene + use<> {
     // 三个大面板只在启动时分段装箱，避免完整工作台的BSN模板在Windows小栈上形成巨型临时值。
     let panes: Vec<Box<dyn Scene>> = vec![
@@ -306,7 +308,7 @@ fn body(
         Box::new(pane_splitter(EditorPane::Content)),
         Box::new(viewport_panel(scenes)),
         Box::new(pane_splitter(EditorPane::Inspector)),
-        Box::new(right_sidebar(scenes, weight_scenes)),
+        Box::new(right_sidebar(scenes, weight_scenes, animation_scenes)),
     ];
     bsn! {
         Node {
@@ -323,6 +325,7 @@ fn body(
 pub(crate) fn scene_editor_scene(
     scenes: &feathrise_editor_documents_model::DocumentScenes,
     weight_scenes: &WeightPanelScenes,
+    animation_scenes: &AnimationScenes,
     build_optimization: bool,
 ) -> impl Scene + use<> {
     bsn! {
@@ -341,7 +344,7 @@ pub(crate) fn scene_editor_scene(
         Children [
             @header()--
             @super::sidebars::tool_module_bar()--
-            @body(scenes, weight_scenes)--
+            @body(scenes, weight_scenes, animation_scenes)--
             @super::status_bar::footer()--
             @new_scene_dialog()--
             @delete_scene_dialog()--
@@ -362,9 +365,10 @@ pub(crate) fn scene_editor_scene(
 pub(crate) fn spawn_scene_editor_scene(world: &mut World) -> bevy::ecs::error::Result {
     let scenes = *world.resource::<feathrise_editor_documents_model::DocumentScenes>();
     let weight_scenes = *world.resource::<WeightPanelScenes>();
+    let animation_scenes = *world.resource::<AnimationScenes>();
     let build_optimization = cfg!(windows)
         && (world.contains_resource::<crate::standalone::StandaloneEditorMode>()
             || world.contains_resource::<crate::workbench::WorkbenchModel>());
-    world.spawn_scene(scene_editor_scene(&scenes, &weight_scenes, build_optimization))?;
+    world.spawn_scene(scene_editor_scene(&scenes, &weight_scenes, &animation_scenes, build_optimization))?;
     Ok(())
 }

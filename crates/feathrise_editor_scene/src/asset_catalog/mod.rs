@@ -2,7 +2,6 @@
 
 mod document_format; // 文档、源码与配置共享唯一格式白名单，保留二进制预览边界。
 mod filter; // 类型与 GLB 片段元数据只在后台计算，两个呈现方式共享目录快照。
-mod watch; // 原生目录变化合并为下一次现有扫描请求。
 mod paths; // 资产路径交互输入规范化，不执行文件 IO。
 pub(crate) mod project_files; // 工程文件视图复用单层扫描，拥有独立导航、选择和后台槽。
 pub(crate) mod navigation; // 新旧工作台共用刷新、上级和分页语义。

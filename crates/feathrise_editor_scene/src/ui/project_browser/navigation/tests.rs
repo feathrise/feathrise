@@ -32,6 +32,7 @@ impl Drop for Fixture {
 
 fn app(fixture: &Fixture, folder: &str) -> App {
     let mut app = App::new();
+    app.insert_resource(feathrise_editor_project_browser::directory_operations());
     app.add_plugins(TaskPoolPlugin::default());
     let mut files = EditorProjectFileCatalog::default();
     files.bind_project_source(21, Some(fixture.root.clone()));

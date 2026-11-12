@@ -8,3 +8,4 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 bevy = { workspace = true }
 feathrise_editor_core = { workspace = true }
+regex = "=1.13.1" # 复用已锁定引擎，仅后台处理转义后的字面查询、Unicode大小写及全词边界。

@@ -3,7 +3,7 @@
 use std::collections::BTreeMap; // 虚拟场景归属以稳定键顺序写入JSON，便于版本审阅。
 
 use bevy::prelude::{Asset, TypePath, Vec3}; // 编辑器归类使用私有热更新Asset，观察快照只保留世界坐标。
-use feathrise_scene_content::{SceneAssetKind, SceneId, SceneSkyMode, SceneTerrainKind}; // 编辑器与运行时共享场景ID、天空模式、地形类型和资产用途。
+use feathrise_scene_content::{SceneId, SceneSkyMode, SceneTerrainKind}; // 编辑器与运行时共享场景ID、天空模式和地形类型。
 use serde::{Deserialize, Serialize}; // 虚拟文件夹只写独立编辑器JSON，不改正式场景目录格式。
 
 use crate::constants::SCENE_FOLDER_SCHEMA_VERSION; // 空归类文件始终使用当前编辑器格式版本。
@@ -359,18 +359,7 @@ impl EditorTool {
 }
 
 /// 独立编辑视口的方向快捷键；投影由正交开关独立决定。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum EditorView {
-    /// 自由轨道视角；保留既有公开枚举名，允许透视或正交投影。
-    #[default]
-    Perspective,
-    /// 沿世界负Y观察X/Z平面的顶视方向。
-    Top,
-    /// 沿世界负Z观察X/Y的前视方向。
-    Front,
-    /// 沿世界负X观察Z/Y的侧视方向。
-    Side,
-}
+pub use feathrise_editor_animation_model::view_math::EditorView;
 
 /// 单个场景离开时的观察状态；只记会话视角，不包含世界实体、纹理或作者草稿。
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -676,18 +665,7 @@ pub(crate) enum EnvironmentEditAction {
     ClearSkybox,
 }
 
-/// 资产目录中的一个文件或子目录。
-#[derive(Clone, Debug)]
-pub struct EditorAssetEntry {
-    /// 相对assets根的正斜杠路径。
-    pub asset_path: String,
-    /// UI显示文件名。
-    pub display_name: String,
-    /// 目录单独标记，点击时进入而不是选作画笔。
-    pub is_directory: bool,
-    /// 文件可被场景编辑器消费的用途。
-    pub kind: SceneAssetKind,
-}
+pub use feathrise_editor_project_browser_model::EditorAssetEntry;
 
 /// 新场景后台任务完成值。
 #[derive(Debug)]

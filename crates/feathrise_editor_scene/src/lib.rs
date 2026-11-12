@@ -122,6 +122,8 @@ fn init_placement_save_runtime_contracts(app: &mut App) {
 
 impl Plugin for SceneEditorPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(test)]
+        app.insert_resource(feathrise_editor_project_browser::directory_operations());
         if !app.is_plugin_added::<feathrise_editor_core::EditorSettingsPlugin>() {
             app.add_plugins(feathrise_editor_core::EditorSettingsPlugin);
         }

@@ -11,8 +11,7 @@ mod systems;
 pub(crate) use placement::{is_cuboid_selection, plane_hit, work_plane_is_available};
 pub(crate) use resources::{BasicShapeState, CuboidCreationRequest};
 
-/// 只供编辑期选项使用；与磁盘资产路径分离，保存前必须归一为空路径。
-pub(crate) const CUBOID_SELECTION: &str = "builtin://cuboid";
+pub(crate) use feathrise_editor_animation_model::media::CUBOID_SELECTION;
 
 pub(crate) fn install(app: &mut bevy::prelude::App) {
     use crate::SceneEditorSystemSet;

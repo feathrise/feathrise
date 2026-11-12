@@ -1,6 +1,7 @@
 //! 非活动动画源也由原GLB保存事务收口，未插键姿态必须回到原编辑器显式处理。
 
-use super::resources::AnimationEditorState;
+use super::AnimationEditorState;
+use feathrise_editor_animation_model::assembly::AnimationOperations;
 use crate::standalone::project_close::types::{ProjectCloseSnapshot, SaveItem, SaveTarget};
 use bevy::prelude::*;
 use std::path::Path;
@@ -40,10 +41,11 @@ pub(crate) fn collect(
 }
 
 pub(crate) fn request(world: &mut World, path: &Path) -> Result<(), String> {
+    let save = world.get_resource::<AnimationOperations>().ok_or("动画保存操作尚未初始化")?.save;
     let mut state = world
         .get_resource_mut::<AnimationEditorState>()
         .ok_or("动画会话尚未初始化")?;
-    super::drive::launch_save(&mut state, path)
+    save(&mut state, path)
 }
 
 pub(crate) fn poll(world: &World, path: &Path) -> Result<bool, String> {

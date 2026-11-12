@@ -8,6 +8,7 @@ use super::super::super::{
 use super::super::{constants::MAX_HITS, types::ContentIdentity, worker::match_text};
 use super::{constants::REPLACEMENT_CHARS, types::*};
 use bevy::tasks::AsyncComputeTaskPool;
+use feathrise_editor_documents_model::DocumentContentOperations;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -56,6 +57,7 @@ fn after_snippet(source: &str, range: std::ops::Range<usize>, replacement: &str)
 }
 
 fn prepare_file(
+    operations: DocumentContentOperations,
     index: usize,
     search: &super::super::types::SearchResult,
     loaded: (DiskIdentity, SourceContents),
@@ -104,7 +106,7 @@ fn prepare_file(
         return Err("已列出的匹配集合已变化，请重新搜索；所有草稿保持".into());
     }
     let ranges: Vec<_> = hits.iter().map(|hit| hit.range.clone()).collect();
-    let content = navigation::prepare_ranges(
+    let content = (operations.replace_ranges)(
         &source,
         &pages,
         disk.crlf,
@@ -132,7 +134,7 @@ fn prepare_file(
     })
 }
 
-async fn preview(request: &Request) -> Result<Arc<ReplacePlan>, String> {
+async fn preview(operations: DocumentContentOperations, request: &Request) -> Result<Arc<ReplacePlan>, String> {
     let Work::Preview {
         search,
         query,
@@ -186,7 +188,7 @@ async fn preview(request: &Request) -> Result<Arc<ReplacePlan>, String> {
         files.push(
             AsyncComputeTaskPool::get()
                 .spawn(async move {
-                    prepare_file(index, &search, loaded, draft, &regex, &replacement, &cancel)
+                    prepare_file(operations, index, &search, loaded, draft, &regex, &replacement, &cancel)
                 })
                 .await?,
         );
@@ -213,6 +215,7 @@ fn copy_content(content: &navigation::ReplacedContent) -> navigation::ReplacedCo
 }
 
 async fn apply(
+    operations: DocumentContentOperations,
     request: &Request,
     plan: &Arc<ReplacePlan>,
     target: Target,
@@ -247,7 +250,7 @@ async fn apply(
             );
             AsyncComputeTaskPool::get()
                 .spawn(async move {
-                    navigation::prepare_ranges(
+                    (operations.replace_ranges)(
                         &source,
                         &pages,
                         disk.crlf,
@@ -278,6 +281,7 @@ async fn apply(
 }
 
 pub(super) async fn run(
+    operations: DocumentContentOperations,
     request: Request,
     retired: Option<Outcome>,
     old_plan: Option<Arc<ReplacePlan>>,
@@ -288,10 +292,10 @@ pub(super) async fn run(
     drop(old_plan);
     drop(old_request);
     let outcome = match &request.work {
-        Work::Preview { .. } => Outcome::Preview(preview(&request).await),
+        Work::Preview { .. } => Outcome::Preview(preview(operations, &request).await),
         Work::Apply { plan, target } => Outcome::Apply {
             plan: plan.clone(),
-            content: apply(&request, plan, *target).await,
+            content: apply(operations, &request, plan, *target).await,
         },
     };
     Reply {

@@ -7,44 +7,7 @@ use super::constants::ROTATION_SEGMENTS;
 use super::math::MoveCamera;
 use crate::authoring::buildings::BuildingEditTarget;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MoveAxis {
-    X,
-    Y,
-    Z,
-}
-
-impl MoveAxis {
-    pub(crate) const ALL: [Self; 3] = [Self::X, Self::Y, Self::Z];
-    pub(crate) fn index(self) -> usize {
-        match self {
-            Self::X => 0,
-            Self::Y => 1,
-            Self::Z => 2,
-        }
-    }
-    pub(crate) fn direction(self) -> Vec3 {
-        match self {
-            Self::X => Vec3::X,
-            Self::Y => Vec3::Y,
-            Self::Z => Vec3::Z,
-        }
-    }
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::X => "X",
-            Self::Y => "Y",
-            Self::Z => "Z",
-        }
-    }
-    pub(crate) fn color(self) -> Color {
-        match self {
-            Self::X => Color::srgb(0.91, 0.22, 0.31),
-            Self::Y => Color::srgb(0.46, 0.72, 0.16),
-            Self::Z => Color::srgb(0.20, 0.48, 0.86),
-        } // 与视口方向轴采用同一三色约定，悬停和拖动再以铜色强调。
-    }
-}
+pub(crate) use feathrise_editor_animation_model::gizmo::MoveAxis;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MoveHandle {

@@ -196,6 +196,7 @@ fn drafts_valid(drafts: &[DraftInput], documents: &DocumentState) -> bool {
 }
 
 pub(super) fn drive(
+    operations: Res<feathrise_editor_documents_model::DocumentContentOperations>,
     editor: Res<SceneEditorState>,
     gate: SearchGate,
     search: Res<AssetSearchState>,
@@ -318,6 +319,6 @@ pub(super) fn drive(
         };
         state.running = Some(request.clone());
         state.task =
-            Some(IoTaskPool::get().spawn(worker::run(request, retired, old_plan, old_request)));
+            Some(IoTaskPool::get().spawn(worker::run(*operations, request, retired, old_plan, old_request)));
     }
 }

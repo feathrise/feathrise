@@ -43,11 +43,4 @@ pub(super) fn uniform_scale_step(before: [f32; 3], logical_delta: Vec2, step: f3
 }
 
 /// 整组倍率由按下时汇总的共同上下界约束，拖动帧只做常数计算。
-pub(crate) fn group_scale_factor(logical_delta: Vec2, step: f32, minimum: f32, maximum: f32) -> Option<f32> {
-    if !logical_delta.is_finite() || !minimum.is_finite() || !maximum.is_finite()
-        || minimum <= 0.0 || maximum < minimum { return None; }
-    let exponent = ((logical_delta.x - logical_delta.y) / SCALE_DOUBLE_LOGICAL_PIXELS).clamp(-30.0, 30.0);
-    let mut factor = 2.0_f32.powf(exponent);
-    if step.is_finite() && step > 0.0 { factor = (factor / step).round() * step; }
-    Some(factor.clamp(minimum, maximum))
-}
+pub(crate) use feathrise_editor_animation_model::gizmo::group_scale_factor;

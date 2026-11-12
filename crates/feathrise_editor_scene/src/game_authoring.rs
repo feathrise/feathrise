@@ -7,13 +7,7 @@ pub mod scene_api;
 pub mod native_domain; // 外部领域的不透明草稿沿用场景历史、保存与地形身份。
 pub mod scene_interaction; // 当前游戏扩展的选择、输入与树事实，不持有其草稿或执行类型。
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ExternalPreviewIdentity {
-    pub domain: &'static str,
-    pub tab: u64,
-    pub revision: u64,
-    pub ticket: u64,
-}
+pub use feathrise_editor_animation_model::media::ExternalPreviewIdentity;
 
 /// 应用在公共预览选择之前发布；根所有权交给唯一资产预览生命周期，不再新建第二个RTT。
 #[derive(Resource, Default)]
