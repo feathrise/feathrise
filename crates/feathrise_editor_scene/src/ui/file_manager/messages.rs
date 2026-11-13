@@ -1,11 +1,17 @@
 //! 固定文件栏与浮动窗口使用同一命令入口，剪贴板与后台任务不依赖窗口存活。
 
-use super::types::FileAction;
+use super::types::{FileAction, ProjectMotionTarget};
 use bevy::prelude::*;
 use std::path::PathBuf;
 
 #[derive(Message)]
 pub(crate) struct OpenFileWindow { pub(crate) path: PathBuf }
+#[derive(Message)]
+pub(crate) struct OpenAnimationPicker {
+    pub(crate) context: u64,
+    pub(crate) directory: PathBuf,
+    pub(crate) target: ProjectMotionTarget,
+}
 #[derive(Message)]
 pub(crate) struct OpenManagedFile { pub(crate) path: PathBuf }
 #[derive(Message)]

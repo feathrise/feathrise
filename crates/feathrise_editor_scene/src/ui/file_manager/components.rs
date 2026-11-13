@@ -57,8 +57,8 @@ pub(crate) struct FileList { pub(crate) window: u64 }
 #[derive(Component)]
 pub(super) struct FileContextBackdrop;
 #[derive(Component)]
-pub(super) struct FileContextPanel { pub(super) submenu: bool }
+pub(crate) struct FileContextPanel { pub(crate) submenu: bool }
 #[derive(Component, Clone, Copy)]
 pub(super) struct FileContextEntry { pub(super) submenu: bool, pub(super) action: super::types::FileContextAction }
 #[derive(Component)]
-pub(super) struct FileContextLabel(pub(super) super::types::FileContextAction);
+pub(crate) struct FileContextLabel(pub(super) super::types::FileContextAction);

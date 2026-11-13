@@ -4,7 +4,7 @@ mod evidence;
 mod assets;
 
 use super::file_manager::{
-    FileAction, FileList, FileManagerButton, FileManagerState, FileNameInput, FileResizeHandle, FileRow,
+    FileAction, FileContextLabel, FileContextPanel, FileList, FileManagerButton, FileManagerState, FileNameInput, FileResizeHandle, FileRow,
     FileTaskButton, FileTitleBar,
 };
 use super::sidebars::{EditorNavigatorTab, EditorSidebarTab, SceneEditorSidebarTabButton};
@@ -15,7 +15,7 @@ use bevy::{
     input_focus::InputFocus,
     math::DVec2,
     prelude::*,
-    text::EditableText,
+    text::{EditableText, TextLayoutInfo},
     window::{Ime, PrimaryWindow, WindowEvent},
 };
 use feathrise_editor_project_browser_model::file_operations::{FileOperationKind, FileOperationService};
@@ -132,6 +132,8 @@ fn drive(world: &mut World) {
             "source":"真实Feathrise编辑器+Bevy WindowEvent+原文件业务服务", "os_input_verified":false,
             "fixed_sidebar_entry_verified":run.steps.contains_key("fixed_sidebar_entry"),"steps":run.steps,"screenshots":run.screenshots,
             "context_menu_verified":run.steps.contains_key("fixed_sidebar_context_menu"),
+            "menu_width_verified":(["files-context-menu.png", "files-new-submenu.png"].iter()
+                .all(|name| run.screenshots.get(*name).is_some_and(|shot| shot["measured_width"].is_object()))),
             "new_file_types_verified":run.steps.contains_key("new_files_reread"),
             "mouse_guard_observed":run.blocked_seen,"windows":windows_proof(world)});
         let written = evidence::report(&run.work.join("window.json"), &report);
@@ -524,6 +526,41 @@ fn context_position(world: &mut World, id: Option<u64>, action: FileAction) -> O
     Some((center + Vec2::new(0., (node.size().y * 0.5 - 14.).max(0.))).as_dvec2())
 }
 
+fn menu_width(world: &mut World, submenu: bool) -> Result<Option<Value>, String> {
+    let Some(panel) = visible(world, |panel: &FileContextPanel| panel.submenu == submenu) else { return Ok(None); };
+    let node = world.get::<ComputedNode>(panel).expect("可见菜单已布局");
+    let inverse = node.inverse_scale_factor;
+    let actual = node.size().x * inverse;
+    let viewport = world.query_filtered::<&ComputedNode, With<crate::components::SceneEditorRoot>>().single(world)
+        .map_err(|error| error.to_string())?;
+    let viewport_width = viewport.size().x * viewport.inverse_scale_factor;
+    let mut longest = (0., "");
+    let mut measured_rows = 0;
+    // 标签可能因菜单高度而需要滚动，但隐藏的未安装 IDE 不能参与量宽。
+    for (parent, text, layout) in world.query_filtered::<(&ChildOf, &Text, &TextLayoutInfo), With<FileContextLabel>>().iter(world) {
+        let row = parent.parent();
+        if !world.get::<ChildOf>(row).is_some_and(|parent| parent.parent() == panel)
+            || world.get::<Node>(row).is_none_or(|node| node.display == Display::None)
+        {
+            continue;
+        }
+        if layout.glyphs.is_empty() || layout.size.x <= 0. { return Ok(None); }
+        let width = layout.size.x * inverse;
+        if width > longest.0 { longest = (width, text.as_str()); }
+        measured_rows += 1;
+    }
+    if measured_rows < if submenu { 4 } else { 11 } { return Ok(None); }
+    let (text_width, longest_label) = longest;
+    // 8px 行内边距、4px 面板内边距、1px 边框各两侧。实际布局可有一物理像素舍入。
+    let expected = (text_width + 26.).ceil().min((viewport_width - 8.).max(1.));
+    if (actual - expected).abs() > (1. + inverse) {
+        return Err(format!("{}宽度未按实际文字排布：最长项「{longest_label}」{text_width:.2}px，期望 {expected:.2}px，实际 {actual:.2}px",
+            if submenu { "新建子菜单" } else { "文件右键菜单" }));
+    }
+    Ok(Some(json!({"panel_logical_px":actual,"text_logical_px":text_width,"expected_logical_px":expected,
+        "longest_label":longest_label,"measured_rows":measured_rows,"ui_scale":inverse.recip()})))
+}
+
 fn context_command(world: &mut World, run: &mut Run, window: Entity, id: Option<u64>, action: FileAction) -> Result<bool, String> {
     if run.menu_step == 0 {
         let Some(position) = context_position(world, id, action) else { return Ok(false); };
@@ -556,8 +593,10 @@ fn context_command(world: &mut World, run: &mut Run, window: Entity, id: Option<
             let Some(item) = visible(world, |button: &FileManagerButton| button.window.is_none() && button.action == action) else { return Ok(false); };
             labels.push(descendant_text(world, item));
         }
+        let Some(width) = menu_width(world, creation)? else { return Ok(false); };
         let Some(mut proof) = evidence::capture(world, &mut run.capture, &run.work.join(name))? else { return Ok(false); };
         proof["menu_labels"] = json!(labels);
+        proof["measured_width"] = width;
         proof["input"] = json!("真实右键和菜单左键 WindowEvent");
         run.screenshots.insert(name.into(), proof);
     }

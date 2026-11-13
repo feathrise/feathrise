@@ -11,6 +11,8 @@ use std::sync::{
 #[derive(Resource)]
 pub(crate) struct AssetSearchState {
     pub(super) open: bool,
+    // 表单借给活动文件窗时，固定栏继续按原来的开合及按钮状态显示。
+    sidebar_before_float: Option<(bool, bool)>,
     pub(super) query: String,
     pub(super) filter: String,
     pub(super) current_folder: bool,
@@ -38,6 +40,7 @@ impl Default for AssetSearchState {
     fn default() -> Self {
         Self {
             open: false,
+            sidebar_before_float: None,
             query: String::new(),
             filter: String::new(),
             current_folder: false,
@@ -65,6 +68,22 @@ impl Default for AssetSearchState {
 
 impl AssetSearchState {
     pub(crate) fn is_open(&self) -> bool { self.open }
+    pub(crate) fn is_missing_assets(&self) -> bool { self.missing_assets }
+    pub(crate) fn floating_hosted(&self) -> bool { self.sidebar_before_float.is_some() }
+
+    pub(crate) fn set_floating_host(&mut self, hosted: bool) {
+        if hosted && self.sidebar_before_float.is_none() {
+            self.sidebar_before_float = Some((self.open, self.missing_assets));
+            self.open = false;
+        } else if !hosted && let Some((open, _)) = self.sidebar_before_float.take() {
+            // 归还可见状态，保留唯一查询结果与票据供已打开的中央替换预览继续使用。
+            self.open = open;
+        }
+    }
+
+    pub(super) fn sidebar_display(&self) -> (bool, bool) {
+        self.sidebar_before_float.unwrap_or((self.open, self.missing_assets))
+    }
     #[cfg(feature = "validation")]
     pub(crate) fn validation_result(&self) -> Option<(usize, Vec<String>)> {
         let result = self.current()?;

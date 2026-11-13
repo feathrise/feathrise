@@ -12,4 +12,5 @@ pub(crate) struct OpenAssetPreview {
 pub(crate) struct PickProjectAnimationClip {
     pub asset_path: String,
     pub clip_index: usize,
+    pub target: Option<crate::ui::file_manager::ProjectMotionTarget>,
 }

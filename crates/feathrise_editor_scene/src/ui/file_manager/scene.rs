@@ -1,6 +1,6 @@
 //! 文件窗口复用作者字体、暗色面板和释放点击；每窗固定六十四行，不随目录大小增加实体。
 
-use super::{components::*, resources::FileManagerState, types::FileAction};
+use super::{components::*, resources::FileManagerState, types::{FILE_LIST_PADDING, FILE_ROW_SLOTS, FileAction}};
 use crate::{components::SceneEditorRoot, ui::{scene::FONT_PATH, theme as colors}, workbench::WorkbenchFloatingPanel};
 use bevy::{prelude::*, ui::{FocusPolicy, RelativeCursorPosition}, input_focus::tab_navigation::TabIndex};
 use feathrise_editor_ui::{InteractionButton, UiInteraction, metrics};
@@ -126,8 +126,8 @@ pub(super) fn mount(
                         super::browser::spawn_toolbar(panel, &font, id);
                         panel.spawn((FileList { window: id }, UiInteraction::default(), RelativeCursorPosition::default(),
                             Node { width: percent(100), min_height: px(0), flex_grow: 1., flex_direction: FlexDirection::Column,
-                            padding: UiRect::horizontal(px(8)), overflow: Overflow::clip(), ..default() },)).with_children(|body| {
-                            for slot in 0..64 {
+                            padding: UiRect::horizontal(px(FILE_LIST_PADDING)), overflow: Overflow::clip(), ..default() },)).with_children(|body| {
+                            for slot in 0..FILE_ROW_SLOTS {
                                 body.spawn((FileRow { window: id, slot, index: None, path: None, revision: 0 }, InteractionButton,
                                     Node { display: Display::None, width: percent(100), height: px(26), flex_shrink: 0., align_items: AlignItems::Center,
                                         padding: UiRect::horizontal(px(6)), column_gap: px(6), border_radius: BorderRadius::all(px(2)), ..default() },
@@ -138,8 +138,15 @@ pub(super) fn mount(
                                     });
                             }
                         });
-                        panel.spawn((WindowStatus(id), label("", &font), Node { width: percent(100), height: px(26), flex_shrink: 0.,
-                            padding: UiRect::horizontal(px(8)), overflow: Overflow::clip_x(), ..default() }));
+                        // 选择模式沿用原状态栏高度，确认与取消不会挤压列表的可见行预算。
+                        panel.spawn((Node { width: percent(100), height: px(26), flex_shrink: 0.,
+                            align_items: AlignItems::Center, padding: UiRect::horizontal(px(8)), column_gap: px(6), ..default() },))
+                            .with_children(|footer| {
+                                footer.spawn((WindowStatus(id), label("", &font), Node { flex_grow: 1., min_width: px(0),
+                                    overflow: Overflow::clip_x(), ..default() }));
+                                button(footer, &font, Some(id), FileAction::ChooseClip);
+                                button(footer, &font, Some(id), FileAction::CancelPicker);
+                            });
                         // 独立边角命中条只占 5px；不把正文整块当作缩放手柄。
                         for edges in [1_u8, 2, 4, 8, 5, 6, 9, 10] {
                             let corner = edges.count_ones() == 2;

@@ -114,8 +114,8 @@ pub(super) fn sync(
         &UiInteraction,
         &mut BackgroundColor,
         &mut BorderColor,
-    )>,
-    changed: Query<(), (With<SearchAction>, Changed<UiInteraction>)>,
+    ), Without<crate::ui::file_manager::browser::BrowserButton>>,
+    changed: Query<(), (With<SearchAction>, Without<crate::ui::file_manager::browser::BrowserButton>, Changed<UiInteraction>)>,
     mut previous: Local<Option<(u64, usize, bool, u64)>>,
 ) {
     let scroll = scrolls.single().map_or(0.0, |scroll| scroll.y);
@@ -134,6 +134,7 @@ pub(super) fn sync(
     let locale = locale.as_deref().copied().unwrap_or_default();
     let result = state.current();
     let references = state.path_query();
+    let (sidebar_open, sidebar_missing) = state.sidebar_display();
     let ide = state.selected_editor(&available); // 两种打开方式共享所选IDE；切工具不改变按钮宽度或结果布局。
     let count = result.map_or(0, |result| result.rows.len());
     for (mut node, body, results, content, row, external, text_controls, reference_controls, editor_controls, editor_option) in &mut nodes {
@@ -252,8 +253,8 @@ pub(super) fn sync(
             SearchAction::CaseSensitive => state.case_sensitive,
             SearchAction::WholeWord => state.whole_word,
             SearchAction::ChooseEditor(editor) => ide == Some(editor),
-            SearchAction::Toggle => state.open && !state.missing_assets,
-            SearchAction::MissingAssets => state.open && state.missing_assets,
+            SearchAction::Toggle => sidebar_open && !sidebar_missing,
+            SearchAction::MissingAssets => sidebar_open && sidebar_missing,
             _ => false,
         };
         background.0 = if selected {

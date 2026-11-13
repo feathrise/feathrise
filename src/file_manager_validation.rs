@@ -85,6 +85,7 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
         return Err(format!("文件桌面窗口退出码 {}：{}", child.exit_code, proof["window"]["error"]));
     }
     if proof["window"]["context_menu_verified"] != true || proof["window"]["new_file_types_verified"] != true
+        || proof["window"]["menu_width_verified"] != true
         || proof["window"]["steps"]["fixed_sidebar_toolbar_removed"] != true
         || proof["window"]["steps"]["fixed_blank_cancel_keeps_empty_selection"].is_null()
     {
@@ -137,9 +138,17 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
     }
     proof["asset_fixtures_after_sha256"] = json!(browser_after);
     proof["asset_fixture_bytes_preserved"] = json!(true);
+    if proof["window"]["steps"]["floating_thumbnail_grid"]["verified"] != true {
+        return Err("活动窗缩略图的实窗尺寸、滚轮和目录标签证据缺失".into());
+    }
+    let isolation = &proof["window"]["steps"]["floating_toolbar_sidebar_isolation"];
+    if isolation["fixed_sidebar_hidden"] != true || isolation["returned_search_closed"] != true {
+        return Err("浮窗工具点击与固定栏隔离的实窗证据缺失".into());
+    }
     for name in ["files-context-menu.png", "files-new-submenu.png", "files-desktop.png", "files-restored.png",
-        "files-assets-thumbnails.png", "files-assets-clips.png", "files-assets-services.png"] {
-        if proof["window"]["screenshots"][name].is_null() { return Err(format!("缺少本轮文件菜单截图 {name}")); }
+        "files-assets-thumbnails.png", "files-assets-clips.png", "files-assets-services.png",
+        "files-assets-grid-compact.png", "files-assets-grid-maximized.png"] {
+        if proof["window"]["screenshots"][name].is_null() { return Err(format!("缺少本轮文件桌面截图 {name}")); }
     }
     let captures = proof["window"]["screenshots"].as_object().ok_or("文件窗口截图回执不是对象")?;
     for (name, capture) in captures {

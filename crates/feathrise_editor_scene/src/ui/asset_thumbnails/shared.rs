@@ -11,9 +11,11 @@ pub(crate) struct SharedThumbnailDemand {
 }
 
 impl SharedThumbnailDemand {
+    pub(crate) const CAPACITY: usize = super::constants::CACHE_CAPACITY;
+
     pub(crate) fn replace(&mut self, mut items: Vec<(String, SceneAssetKind)>) {
-        // 最多8窗×12卡片，去重后仍按原64张缓存预算裁入需求；目录本身不截断。
-        items.truncate(super::constants::CACHE_CAPACITY);
+        // 大窗口可以显示更多条目，排入后台的不同缩略图仍受原缓存预算约束。
+        items.truncate(Self::CAPACITY);
         if self.items != items {
             self.items = items;
             self.revision = self.revision.wrapping_add(1);

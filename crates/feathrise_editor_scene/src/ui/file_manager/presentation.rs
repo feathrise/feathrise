@@ -2,7 +2,7 @@
 
 use super::{components::*, resources::*, types::*};
 use crate::{components::SceneEditorRoot, resources::SceneEditorLayoutState, ui::theme as colors};
-use bevy::{prelude::*, input_focus::{InputFocus, FocusCause}, text::EditableText};
+use bevy::{prelude::*, input_focus::{InputFocus, FocusCause}, text::EditableText, ui::InteractionDisabled};
 use feathrise_editor_project_browser_model::file_operations::ConflictPolicy;
 use feathrise_editor_ui::{EditorButtonClick, UiInteraction, localization::EditorLocale};
 
@@ -21,11 +21,22 @@ pub(super) fn sync(world: &mut World) {
         state.movement_bounds = Rect::from_corners(Vec2::new(4., bounds.min.y), Vec2::new((size.x - 4.).max(5.), bounds.max.y));
         let movement_bounds = state.movement_bounds;
         let mut capacities = Vec::with_capacity(state.windows.len());
+        let mut picker_labels = Vec::new();
         for window in &mut state.windows {
             window.rect = if window.maximized { bounds } else { clamp_rect(window.rect, movement_bounds) };
-            let capacity = world.get_resource::<super::browser::BrowserSessions>().map_or_else(|| window.visible_capacity(), |browser| browser.capacity(window));
-            window.first = window.first.min(window.entries.len().saturating_sub(capacity));
-            capacities.push((window.id, capacity));
+            let grid = world.get_resource::<super::browser::BrowserSessions>().and_then(|browser| browser.thumbnail_grid(window));
+            let (first, capacity) = grid.map_or_else(
+                || (window.clamp_list_first(window.first), window.visible_capacity()),
+                |grid| (grid.clamp_first(window.entries.len(), window.first), grid.capacity()),
+            );
+            window.first = first;
+            capacities.push((window.id, capacity, grid.is_some()));
+            if window.is_animation_picker() {
+                let label = world.get_resource::<super::browser::BrowserSessions>()
+                    .and_then(|browser| browser.picker_clip(window))
+                    .map(|(path, clip)| format!("{} · {}", std::path::Path::new(path).file_name().unwrap_or_default().to_string_lossy(), clip.label));
+                picker_labels.push((window.id, label));
+            }
         }
         let prompt_visible = state.prompt.is_some() && !state.suspended;
         let delete_visible = prompt_visible && state.prompt.as_ref().is_some_and(|prompt| prompt.action == FileAction::Delete);
@@ -86,19 +97,22 @@ pub(super) fn sync(world: &mut World) {
         for (entity, mut row, mut node, mut background, mut click, interaction) in rows.iter_mut(world) {
             let Some(window) = state.active(row.window) else { continue; };
             let index = window.first + row.slot;
-            let capacity = capacities.iter().find(|(id, _)| *id == window.id).map_or_else(|| window.visible_capacity(), |(_, capacity)| *capacity);
+            let (capacity, thumbnail) = capacities.iter().find(|(id, ..)| *id == window.id)
+                .map_or_else(|| (window.visible_capacity(), false), |(_, capacity, thumbnail)| (*capacity, *thumbnail));
             let entry = (row.slot < capacity).then(|| window.entries.get(index)).flatten();
             let path = entry.map(|entry| entry.path.clone());
             if row.path != path || row.revision != window.revision { click.invalidate(); row.path = path; row.revision = window.revision; }
             row.index = entry.map(|_| index);
-            node.display = if entry.is_some() { Display::Flex } else { Display::None };
+            let display = if entry.is_some() { Display::Flex } else { Display::None };
+            if node.display != display { node.display = display; }
             let selected = entry.is_some_and(|entry| window.selection.contains(&entry.path));
             background.0 = if selected { colors::SELECT_BG } else if *interaction != UiInteraction::None { colors::SELECT_BG_HOVER } else { colors::PANEL_BG };
             if let Some(entry) = entry {
                 let cut = state.cut && state.clipboard.binary_search(&entry.path).is_ok();
-                let suffix = if entry.directory { if english { "    Folder".into() } else { "    文件夹".into() } }
-                    else { format!("    {}", bytes_label(entry.bytes)) };
-                row_changes.push((entity, format!("{}{suffix}", entry.name), cut, entry.directory));
+                // 文件夹图标已经说明类型；列表中只有文件附带大小，缩略卡名称由这里统一写入。
+                let title = if entry.directory || thumbnail { entry.name.clone() }
+                    else { format!("{}    {}", entry.name, bytes_label(entry.bytes)) };
+                row_changes.push((entity, title, cut, entry.directory));
             }
         }
         let folder_image: Handle<Image> = world.resource::<AssetServer>().load("icons/editor/tree_folder.png");
@@ -115,13 +129,20 @@ pub(super) fn sync(world: &mut World) {
             Or<(With<WindowTitle>, With<WindowStatus>, With<ButtonLabel>, With<NameDialogTitle>, With<OperationStatus>, With<DragLabel>, With<RowLabel>, With<TaskTitle>, With<NameDialogBodyText>, With<FileSearchHint>)>>();
         for (mut text, mut color, title, status, button, dialog_title, operation, drag_label, row_label, parent, task_title, dialog_body, search_hint) in texts.iter_mut(world) {
             let wanted = if let Some(title) = title {
-                state.active(title.0).map(|window| format!("{} — {}", window.path.file_name().unwrap_or_default().to_string_lossy(), if english { "Files" } else { "文件" }))
+                state.active(title.0).map(|window| format!("{} — {}", window.path.file_name().unwrap_or_default().to_string_lossy(),
+                    if window.is_animation_picker() { if english { "Choose Animation" } else { "选择动画" } }
+                    else if english { "Files" } else { "文件" }))
             } else if let Some(task) = task_title {
                 state.active(task.0).map(|window| format!("{}{}", window.path.file_name().unwrap_or_default().to_string_lossy(), if window.minimized { if english { " (min)" } else { "（最小化）" } } else { "" }))
             } else if let Some(status) = status {
                 state.active(status.0).map(|window| {
                     if let Some(error) = &window.error { error.clone() }
                     else if window.loading { if english { "Reading folder…".into() } else { "正在读取目录…".into() } }
+                    else if window.is_animation_picker() {
+                        picker_labels.iter().find(|(id, _)| *id == window.id).and_then(|(_, label)| label.clone())
+                            .unwrap_or_else(|| if english { "Select an animation file, then choose a clip with its arrow".into() }
+                                else { "选择动画文件，点击箭头选择片段".into() })
+                    }
                     else if english { format!("{} items  ·  {} selected  ·  Drag to move, Ctrl to copy", window.entries.len(), window.selection.len()) }
                     else { format!("{} 项 · 已选 {} 项 · 拖动移动，Ctrl 拖动复制", window.entries.len(), window.selection.len()) }
                 })
@@ -163,9 +184,21 @@ pub(super) fn sync(world: &mut World) {
             border.set_if_neq(BorderColor::all(if focused { colors::COPPER_BORDER } else { colors::COPPER_BORDER_WEAK }));
         }
         let task_active = state.snapshot.as_ref().is_some_and(|snapshot| snapshot.active.is_some());
-        let mut buttons = world.query::<(&FileManagerButton, &mut Node)>();
-        for (button, mut node) in buttons.iter_mut(world) {
+        let mut buttons = world.query::<(Entity, &FileManagerButton, &mut Node)>();
+        let mut picker_buttons = Vec::new();
+        for (entity, button, mut node) in buttons.iter_mut(world) {
             if button.action == FileAction::CancelTask { node.display = if task_active { Display::Flex } else { Display::None }; }
+            if matches!(button.action, FileAction::ChooseClip | FileAction::CancelPicker) {
+                let picker = button.window.and_then(|id| picker_labels.iter().find(|(window, _)| *window == id));
+                node.display = if picker.is_some() { Display::Flex } else { Display::None };
+                if button.action == FileAction::ChooseClip {
+                    picker_buttons.push((entity, picker.is_some_and(|(_, label)| label.is_some())));
+                }
+            }
+        }
+        for (entity, enabled) in picker_buttons {
+            if enabled { world.entity_mut(entity).remove::<InteractionDisabled>(); }
+            else { world.entity_mut(entity).insert(InteractionDisabled); }
         }
         let focus_entity = world.get_resource::<InputFocus>().and_then(|focus| focus.get());
         let mut next_focus = None;
@@ -182,7 +215,7 @@ pub(super) fn sync(world: &mut World) {
             if let Some(wanted) = wanted { if input.value().to_string() != wanted { crate::ui::text_input::replace_single_line_value(&mut input, &wanted, 4096); } }
         }
         if let Some(entity) = next_focus { world.resource_mut::<InputFocus>().set(entity, FocusCause::Navigated); }
-        super::context_menu::sync(world, &mut state, size, english);
+        super::context_menu::sync(world, &mut state, english);
     });
 }
 

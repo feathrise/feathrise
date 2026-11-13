@@ -107,16 +107,21 @@ pub(super) fn input(
     >,
     mut external: MessageWriter<crate::ui::external_files::OpenExternalFile>,
 ) {
+    let search_window = gate.floating.as_ref().and_then(|browser| browser.search_window());
+    let hosted = search_window.is_some();
+    if state.floating_hosted() != hosted { state.set_floating_host(hosted); }
     if state.reference_requested && state.reference_root.as_ref().is_some_and(|root| *root != documents.root) {
         state.invalidate("路径查询范围已变化，请重新查询");
     }
-    let search_window = gate.floating.as_ref().and_then(|browser| browser.search_window());
-    let hosted = search_window.is_some();
-    state.host_folder = gate.floating.as_ref().zip(gate.files.as_ref())
+    let host_folder = gate.floating.as_ref().zip(gate.files.as_ref())
         .and_then(|(browser, files)| browser.current_service_folder(files));
+    if state.host_folder != host_folder { state.host_folder = host_folder; }
     let shown = state.open && (hosted || (sidebar.assets_browser_visible()
         && layout.as_ref().is_none_or(|layout| layout.content_shown())));
     let block_input = gate.browser_blocked(&editor);
+    let floating_input = hosted && !block_input
+        && gate.floating.as_ref().is_some_and(|browser| browser.accepts_service_input());
+    let form_input = !block_input && (!hosted || floating_input);
     if gate.followup_blocked(&editor) {
         if (state.reference_requested && (!editor.open || editor.close_requested || editor.pending_scene_transition.is_some()))
             || state.pending.is_some()
@@ -141,7 +146,7 @@ pub(super) fn input(
     if !shown && focus.get().is_some_and(|entity| fields.contains(entity)) {
         focus.clear();
     }
-    if !block_input && shown && !state.path_query() {
+    if form_input && shown && !state.path_query() {
         for (_, field, input) in &fields {
             let value = input.value().to_string();
             let old = match field {
@@ -175,10 +180,12 @@ pub(super) fn input(
             }).collect(),
             cancel: AssetSearchState::cancellation(),
         });
-        for mut scroll in &mut outer_scrolls { scroll.y = 0.0; }
+        if !hosted {
+            for mut scroll in &mut outer_scrolls { scroll.y = 0.0; }
+        }
         focus.clear();
     }
-    if block_input { return; }
+    if !form_input { return; }
     let mut actions: Vec<_> = buttons
         .iter()
         .filter_map(|(interaction, action, toolbar)| {
@@ -188,6 +195,8 @@ pub(super) fn input(
                 // 浮窗工具显式选择同一表单的模式与宿主。移交给另一窗时不能反转已打开的状态。
                 let action = if *action == SearchAction::Toggle { SearchAction::TextSearch } else { *action };
                 Some((action, true))
+            } else if hosted && matches!(action, SearchAction::Toggle | SearchAction::MissingAssets) {
+                None // 固定工具须先显式收回表单，不能改写浮窗的模式。
             } else {
                 Some((*action, false))
             }
@@ -209,9 +218,7 @@ pub(super) fn input(
                 }
                 layout.content_visible = true;
             }
-        }
-        for mut scroll in &mut outer_scrolls {
-            scroll.y = 0.0;
+            for mut scroll in &mut outer_scrolls { scroll.y = 0.0; }
         }
         if let Some((entity, _, _)) = fields
             .iter()
@@ -238,7 +245,9 @@ pub(super) fn input(
         match action {
             SearchAction::MissingAssets if window_tool || !state.open || !state.missing_assets => {
                 state.request_missing_assets(documents.root.clone());
-                for mut scroll in &mut outer_scrolls { scroll.y = 0.0; }
+                if !hosted {
+                    for mut scroll in &mut outer_scrolls { scroll.y = 0.0; }
+                }
                 focus.clear(); // 入口可从折叠状态开始，不能让隐藏搜索输入吞掉后续键盘。
             }
             SearchAction::TextSearch => {
@@ -435,12 +444,13 @@ pub(super) fn scroll(
                 }
         })
         .sum();
+    let hosted = gate.floating.as_ref().is_some_and(|browser| browser.search_window().is_some());
     if !state.open
         || !editor.open
-        || (!gate.floating.as_ref().is_some_and(|browser| browser.service_host_active())
+        || (!hosted
             && (!sidebar.assets_browser_visible() || layout.as_ref().is_some_and(|layout| !layout.content_shown())))
         || gate.browser_blocked(&editor)
-        || (gate.floating.as_ref().is_some_and(|browser| browser.service_host_active())
+        || (hosted
             && !gate.floating.as_ref().is_some_and(|browser| browser.accepts_service_mouse()))
     {
         return;

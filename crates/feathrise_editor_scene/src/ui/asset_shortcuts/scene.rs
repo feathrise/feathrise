@@ -200,6 +200,7 @@ pub(super) fn list_height(count: usize) -> f32 {
 pub(super) fn sync(
     state: Res<AssetShortcuts>,
     locale: Option<Res<EditorLocale>>,
+    (floating, mut previous_floating): (Option<Res<crate::ui::file_manager::browser::BrowserSessions>>, Local<Option<bool>>),
     new_rows: Query<(), Added<ShortcutRow>>,
     mut lists: Query<
         (&ShortcutList, &mut Node, &mut ScrollPosition),
@@ -268,19 +269,24 @@ pub(super) fn sync(
         }));
         border.set_if_neq(BorderColor::all(if expanded { colors::INPUT_ACTIVE_BORDER } else { colors::COPPER_BORDER_WEAK }));
     }
-    if !state.is_changed() && new_rows.is_empty()
+    // 正文挂到活动窗时只展开该窗所选分区，固定栏图标继续读取自己的展开偏好。
+    let recent = floating.as_ref().and_then(|browser| browser.shortcut_recent());
+    let host_changed = *previous_floating != recent;
+    *previous_floating = recent;
+    let expanded = |section: Section| recent.map_or_else(|| state.expanded(section), |recent| recent == (section == Section::Recent));
+    if !host_changed && !state.is_changed() && new_rows.is_empty()
         && !locale.as_ref().is_some_and(|locale| locale.is_changed()) {
         return;
     }
     let locale = locale.as_deref().copied().unwrap_or_default();
     for (section, mut node) in &mut panels {
         // 正文整体随图标展开，折叠后释放标题、管理动作和列表所占的高度。
-        let display = if state.expanded(section.0) { Display::Flex } else { Display::None };
+        let display = if expanded(section.0) { Display::Flex } else { Display::None };
         if node.display != display { node.display = display; }
     }
     for (list, mut node, mut scroll) in &mut lists {
         let count = state.entries(list.0).len();
-        node.display = if state.expanded(list.0) && count > 0 {
+        node.display = if expanded(list.0) && count > 0 {
             Display::Flex
         } else {
             Display::None
@@ -355,7 +361,7 @@ pub(super) fn sync(
         }
     }
     for (entity, section, mut node) in &mut empty {
-        node.display = if state.loaded && state.expanded(section.0) && state.entries(section.0).is_empty() {
+        node.display = if state.loaded && expanded(section.0) && state.entries(section.0).is_empty() {
             Display::Flex
         } else {
             Display::None

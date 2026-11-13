@@ -155,6 +155,16 @@ impl Context<'_, '_> {
         self.media.expanded.as_ref().filter(|_| self.central()).map(|tab| tab.id)
     }
 
+    pub(super) fn motion_target(&self) -> Option<crate::ui::file_manager::ProjectMotionTarget> {
+        let candidate = self.candidate()?;
+        Some(crate::ui::file_manager::ProjectMotionTarget {
+            asset_root: candidate.root.to_path_buf(),
+            path: candidate.path.to_owned(),
+            generation: candidate.generation,
+            tab: self.active_tab_id()?,
+        })
+    }
+
     pub(super) fn rigging_sidebar_shown(&self) -> bool {
         self.sidebar.right == EditorRightSidebarTab::Rigging
             && self.inspector_shown()

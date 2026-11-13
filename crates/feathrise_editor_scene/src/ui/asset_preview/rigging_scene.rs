@@ -143,7 +143,7 @@ fn panel() -> impl Scene {
                 Children [@label(RigText::Close, colors::TEXT_PRIMARY, true)]--
                 RigMotionHelp
                 Node { display: Display::None, width: px(18), height: px(18), flex_shrink: 0.0 }
-                Children [@crate::ui::context_help::help_button("工程动作", "点击「选择动画」会打开左侧「工程」栏并切到「动画」筛选。点击动画文件行或卡片上的箭头展开片段列表，选中片段后在当前模型上播放。点击文件行或卡片主体查看文件属性。")]
+                Children [@crate::ui::context_help::help_button("工程动作", "点击「选择动画」打开活动文件选择窗口。单击文件只在窗口内选中候选，点击文件箭头展开片段列表。选中片段后点击「选择」，在当前模型上播放。点击「取消」或关闭窗口结束选择。")]
             ]
             --
             @label(RigText::Notice, colors::TEXT_VALUE, false)--

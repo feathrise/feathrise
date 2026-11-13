@@ -202,6 +202,6 @@ pub(super) fn publish_clip(
     if let Some((source, clip_index)) = popup.picked.take()
         && let Some(requests) = requests.as_mut()
     {
-        requests.write(PickProjectAnimationClip { asset_path: source.path, clip_index });
+        requests.write(PickProjectAnimationClip { asset_path: source.path, clip_index, target: None });
     }
 }

@@ -42,8 +42,9 @@ pub(super) fn control(
             state.feedback = error;
         }
     }
-    let in_file_window = floating.as_ref().is_some_and(|browser| browser.accepts_service_input());
-    let hosted = floating.as_ref().is_some_and(|browser| browser.service_host_active());
+    let shortcut_window = floating.as_ref().and_then(|browser| browser.shortcut_window());
+    let hosted = shortcut_window.is_some();
+    let in_file_window = hosted && floating.as_ref().is_some_and(|browser| browser.accepts_service_input());
     if (guard.blocked() && !in_file_window)
         || !editor.open
         || editor.close_requested
@@ -93,7 +94,7 @@ pub(super) fn control(
                     editor.status =
                         format!("路径已失效：{}；可检查路径后重试或点击 × 移除", target.path);
                 } else {
-                    if let Some(window) = floating.as_ref().and_then(|browser| browser.service_window()) {
+                    if let Some(window) = shortcut_window {
                         if let (Ok(path), Some(navigation)) = (helpers::asset_path(target), floating_navigation.as_mut()) {
                             navigation.write(crate::ui::file_manager::browser::BrowserNavigate {
                                 window, path: path.to_owned(), directory: target.is_directory });

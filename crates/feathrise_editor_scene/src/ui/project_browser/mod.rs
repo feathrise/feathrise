@@ -51,15 +51,6 @@ pub(crate) fn install(app: &mut App) {
         .init_resource::<ProjectBrowserPopup>()
         .init_resource::<ProjectFileViewport>()
         .init_resource::<project_files::EditorProjectFileCatalog>()
-        .add_message::<crate::ui::file_manager::FileManagerCommand>()
-        .add_systems(Update, (file_manager_bridge::sync_fixed_selection, file_manager_bridge::fixed_shortcuts).chain()
-            .before(crate::ui::file_manager::FileManagerInput)
-            .in_set(SceneEditorSystemSet::Input))
-        .add_systems(Update, file_manager_bridge::refresh_fixed_after_operation
-            .before(ProjectBrowserTaskSet).in_set(SceneEditorSystemSet::Tasks))
-        .add_systems(Update, file_menu::dispatch
-            .after(crate::ui::file_manager::FileManagerInput)
-            .in_set(SceneEditorSystemSet::Input))
         .add_systems(Update, navigation::asset_root_up
             .after(crate::ui::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)
             .before(crate::ui::actions::handle_editor_action_buttons)
@@ -94,4 +85,17 @@ pub(crate) fn install(app: &mut App) {
         .add_systems(Update, presentation::asset_folder
             .after(crate::ui::systems::sync_editor_shell)
             .in_set(SceneEditorSystemSet::Presentation));
+}
+
+/// 文件桌面负责装配这些桥接系统和消息；无工程的轻量工作台仅复用原浏览器。
+pub(super) fn install_file_manager_bridge(app: &mut App) {
+    use crate::{SceneEditorSystemSet, ui::file_manager::FileManagerInput};
+    app.add_systems(Update, (file_manager_bridge::sync_fixed_selection, file_manager_bridge::fixed_shortcuts).chain()
+            .before(FileManagerInput)
+            .in_set(SceneEditorSystemSet::Input))
+        .add_systems(Update, file_manager_bridge::refresh_fixed_after_operation
+            .before(ProjectBrowserTaskSet).in_set(SceneEditorSystemSet::Tasks))
+        .add_systems(Update, file_menu::dispatch
+            .after(crate::ui::file_manager::browser::BrowserInput)
+            .in_set(SceneEditorSystemSet::Input));
 }

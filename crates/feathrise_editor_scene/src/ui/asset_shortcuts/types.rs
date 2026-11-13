@@ -29,7 +29,7 @@ pub(super) struct SavedNavigation {
 }
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-pub(super) enum Section {
+pub(crate) enum Section {
     #[default]
     Favorites,
     Recent,

@@ -1,11 +1,14 @@
 //! 每个文件窗口独立保存浏览语义；目录任务仍共享两个在途槽，不复制资产加载器。
 
-use super::super::types::{FileEntry, FileWindow};
+use super::super::types::{
+    FILE_LIST_CHROME_HEIGHT, FILE_LIST_PADDING, FILE_ROW_SLOTS, FileEntry, FileWindow,
+};
 use super::types::*;
+use crate::ui::asset_thumbnails::{TILE_GAP, TILE_HEIGHT};
 use bevy::{prelude::*, tasks::Task};
 use feathrise_editor_core::AssetBrowserViewMode;
 use feathrise_editor_project_browser_model::{
-    AssetTypeFilter, DirectoryAnimations, DirectoryWorker, EditorAssetEntry,
+    AnimationClipInfo, AssetTypeFilter, DirectoryAnimations, DirectoryWorker, EditorAssetEntry,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -57,45 +60,47 @@ pub(crate) struct BrowserSessions {
 }
 
 impl BrowserSessions {
+    pub(in crate::ui::file_manager) fn picker_clip<'a>(&'a self, window: &FileWindow) -> Option<(&'a str, &'a AnimationClipInfo)> {
+        let picker = window.animation_picker.as_ref()?;
+        let index = window.anchor?;
+        let file = window.entries.get(index)?;
+        if window.loading || window.error.is_some() || file.directory || !window.selection.contains(&file.path) {
+            return None;
+        }
+        let session = self.sessions.get(&window.id).filter(|session| session.applied == window.revision && session.assets)?;
+        let path = &session.entries.get(index)?.asset_path;
+        let clips = session.animations.get(path)?;
+        let slot = picker.clip.or_else(|| (clips.len() == 1).then_some(0))?;
+        Some((path, clips.get(slot)?))
+    }
+
     pub(crate) fn service_open(&self, id: u64) -> bool {
         self.service.as_ref().is_some_and(|host| host.window == id)
             || self.popup.as_ref().is_some_and(|popup| popup.window == id)
             || self.release_window == Some(id)
     }
 
-    pub(crate) fn capacity(&self, window: &FileWindow) -> usize {
-        if self
-            .sessions
+    pub(in crate::ui::file_manager) fn thumbnail_grid(&self, window: &FileWindow) -> Option<ThumbnailGrid> {
+        self.sessions
             .get(&window.id)
-            .is_some_and(|session| session.view == AssetBrowserViewMode::Thumbnails)
-        {
-            let layout =
-                crate::ui::asset_thumbnails::grid_layout((window.rect.width() - 18.).max(96.), 0);
-            let rows = ((window.rect.height() - 142.).max(26.)
-                / (crate::ui::asset_thumbnails::TILE_HEIGHT
-                    + crate::ui::asset_thumbnails::TILE_GAP))
-                .floor()
-                .max(1.) as usize;
-            (layout.columns * rows).clamp(1, 12)
-        } else {
-            window.visible_capacity()
-        }
+            .filter(|session| session.view == AssetBrowserViewMode::Thumbnails)
+            .map(|_| ThumbnailGrid::new(window.rect.size()))
     }
 
-    pub(crate) fn service_host_active(&self) -> bool {
-        self.service.is_some()
-    }
     pub(crate) fn accepts_service_input(&self) -> bool {
         self.service.is_some() && self.service_input
     }
     pub(crate) fn accepts_service_mouse(&self) -> bool {
         self.service.is_some() && self.service_pointer
     }
-    pub(crate) fn service_window(&self) -> Option<u64> {
-        self.service.as_ref().map(|host| host.window)
+    pub(crate) fn shortcut_window(&self) -> Option<u64> {
+        self.service.as_ref().filter(|host| !host.search).map(|host| host.window)
     }
     pub(crate) fn search_window(&self) -> Option<u64> {
         self.service.as_ref().filter(|host| host.search).map(|host| host.window)
+    }
+    pub(crate) fn shortcut_recent(&self) -> Option<bool> {
+        self.service.as_ref().filter(|host| !host.search).map(|host| host.recent)
     }
     pub(crate) fn asset_path(&self, window: u64, index: usize) -> Option<&str> {
         let session = self
@@ -134,6 +139,61 @@ impl BrowserSessions {
     #[cfg(feature = "validation")]
     pub(crate) fn validation_view(&self, window: u64) -> Option<AssetBrowserViewMode> {
         self.sessions.get(&window).map(|session| session.view)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::ui::file_manager) struct ThumbnailGrid {
+    pub width: f32,
+    columns: usize,
+    rows: usize,
+}
+
+impl ThumbnailGrid {
+    const CARD_WIDTH: f32 = 136.;
+    const ROW_PITCH: f32 = TILE_HEIGHT + TILE_GAP;
+
+    fn new(size: Vec2) -> Self {
+        let width = (size.x - 2. * (1. + FILE_LIST_PADDING)).max(1.); // 每侧 1px 窗框及正文内边距。
+        let height = (size.y - FILE_LIST_CHROME_HEIGHT).max(0.);
+        // 放宽窗口增加整列，剩余宽度留在右侧。整行分页也必须容纳在现有行池内。
+        let columns = (((width + TILE_GAP) / (Self::CARD_WIDTH + TILE_GAP)) as usize)
+            .clamp(1, FILE_ROW_SLOTS);
+        let rows = (((height + TILE_GAP) / Self::ROW_PITCH) as usize)
+            .clamp(1, FILE_ROW_SLOTS / columns);
+        Self { width: width.min(Self::CARD_WIDTH), columns, rows }
+    }
+
+    pub fn offset(self, slot: usize) -> Vec2 {
+        Vec2::new(
+            FILE_LIST_PADDING + (slot % self.columns) as f32 * (self.width + TILE_GAP),
+            (slot / self.columns) as f32 * Self::ROW_PITCH,
+        )
+    }
+
+    pub fn capacity(self) -> usize { self.columns * self.rows }
+
+    fn last_row(self, entry_count: usize) -> usize {
+        entry_count.div_ceil(self.columns).saturating_sub(self.rows)
+    }
+
+    pub fn clamp_first(self, entry_count: usize, first: usize) -> usize {
+        // 把收藏定位和缩放后的起点对齐到整行，最后一行可以不足一整列。
+        (first / self.columns).min(self.last_row(entry_count)) * self.columns
+    }
+
+    pub fn scroll(self, window: &mut FileWindow, lines: f32, pixels: f32) {
+        // 滚轮每刻度一行，触控板的小幅像素滚动累计到整行再重排。
+        let delta = window.thumbnail_wheel + lines + pixels / Self::ROW_PITCH;
+        if !delta.is_finite() { return; }
+        let last_row = self.last_row(window.entries.len());
+        let row = (window.first / self.columns).saturating_add_signed(delta as isize).min(last_row);
+        window.first = row * self.columns;
+        window.thumbnail_wheel = if (row == 0 && delta < 0.) || (row == last_row && delta > 0.) {
+            0.
+        } else {
+            delta.fract()
+        };
     }
 }
 

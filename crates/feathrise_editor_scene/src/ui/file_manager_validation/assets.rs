@@ -1,17 +1,20 @@
 //! 归属已核验的文件桌面夹具：真实目录导航、资产筛选、单击/双击、片段和原共享服务的窗口内验收。
 
 use super::{
-    FileAction, FileManagerState, FileResizeHandle, FileRow, Run, browser_rect,
-    button, click, drag, evidence, key, path_ready, raw_click, right_click, select, visible,
+    FileAction, FileList, FileManagerState, FileResizeHandle, FileRow, Run, browser_rect,
+    button, click, drag, evidence, key, move_cursor, path_ready, raw_click, right_click,
+    select, visible, window_event,
 };
 use crate::{
-    resources::SceneEditorState,
+    components::{SceneEditorLayoutButton, SceneEditorPane},
+    resources::{SceneEditorLayoutState, SceneEditorState},
+    types::{EditorLayoutAction, EditorPane},
     ui::{
         asset_preview::{AssetPreviewWorkspace, AssetSearchState},
         asset_shortcuts::{AssetShortcuts, ShortcutRoot},
         file_manager::browser::{
             BrowserAction, BrowserButton, BrowserChoice, BrowserOverlay, BrowserSessions,
-            ClipExpander,
+            ClipExpander, RowHint,
         },
         sidebars::{
             EditorNavigatorTab, EditorRightSidebarTab, EditorSidebarTab, SceneEditorSidebarState,
@@ -20,9 +23,10 @@ use crate::{
     },
 };
 use bevy::{
-    input::keyboard::Key, input_focus::InputFocus, prelude::*, text::EditableText, window::Ime,
+    input::{keyboard::Key, mouse::{MouseScrollUnit, MouseWheel}, touch::TouchPhase},
+    input_focus::InputFocus, prelude::*, text::EditableText, window::Ime,
 };
-use feathrise_editor_core::AssetBrowserViewMode;
+use feathrise_editor_core::{AssetBrowserViewMode, EditorSettings};
 use feathrise_editor_documents_model::search::components::{SearchAction, SearchBody, SearchField};
 use feathrise_editor_documents_model::search::replacement::components::{ReplaceAction, ReplacePanel};
 use feathrise_editor_project_browser_model::AssetTypeFilter;
@@ -43,6 +47,7 @@ const MISSING_JSON: &str = "config/文件管理验收缺失.json";
 enum Step {
     Up,
     Enter,
+    DirectoryList,
     Models,
     Images,
     ImagePick,
@@ -55,12 +60,22 @@ enum Step {
     ClipPick,
     ClipWait,
     All,
+    GridCompact,
+    GridCompactRead,
+    GridScrollDown,
+    GridScrollUp,
+    GridMaximize,
+    GridMaximizeRead,
+    GridRestore,
+    GridRestoreSize,
     NotePick,
     NoteRead,
     FavoriteMenu,
     FavoritePick,
     FavoriteWait,
     SceneTree,
+    HideNavigator,
+    VerifyHidden,
     Compact,
     LeaveFolder,
     ParentFolder,
@@ -72,6 +87,8 @@ enum Step {
     FavoritesLocate,
     FavoritesLocated,
     RestoreSize,
+    ChangeView,
+    VerifyView,
     Search,
     Query,
     Submit,
@@ -81,6 +98,10 @@ enum Step {
     ReplaceWait,
     Missing,
     MissingWait,
+    DismissMissing,
+    ShowNavigator,
+    FixedFiles,
+    VerifyReturnedSearch,
     Done,
 }
 
@@ -91,6 +112,25 @@ struct Assets {
     filter_step: u8,
     typed: u8,
     original_height: Option<f32>,
+    fixed_view: Option<AssetBrowserViewMode>,
+    grid_size: Option<Vec2>,
+    compact_grid: Option<GridMeasure>,
+}
+
+#[derive(Clone, Copy)]
+struct GridMeasure {
+    window_width: f32,
+    card: Vec2,
+    first: Vec2,
+    columns: usize,
+    visible: usize,
+}
+
+impl GridMeasure {
+    fn proof(self) -> serde_json::Value {
+        json!({"window_width":self.window_width,"card":[self.card.x,self.card.y],
+            "first_card_offset":[self.first.x,self.first.y],"first_row_columns":self.columns,"visible_cards":self.visible})
+    }
 }
 
 pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<bool, String> {
@@ -101,6 +141,9 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity) -> Resul
             filter_step: 0,
             typed: 0,
             original_height: None,
+            fixed_view: None,
+            grid_size: None,
+            compact_grid: None,
         });
         run.pointer = None;
     }
@@ -116,8 +159,16 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity) -> Resul
                 else { button(world, run, window, Some(id), FileAction::Up); None }
             }
             Step::Enter => {
-                if path_ready(world, id, &fixture) { Some(Step::Models) }
+                if path_ready(world, id, &fixture) { Some(Step::DirectoryList) }
                 else { click_file(world, run, window, id, &fixture); None }
+            }
+            Step::DirectoryList => {
+                if world.resource::<BrowserSessions>().validation_view(id) != Some(AssetBrowserViewMode::List) {
+                    tool(world, run, window, id, BrowserAction::View);
+                    return Ok(false);
+                }
+                if !directory_labels(world, id, &fixture)? { return Ok(false); }
+                Some(Step::Models)
             }
             Step::Models => {
                 if !filter(world, run, &mut state.filter_step, window, id, AssetTypeFilter::Model) { return Ok(false); }
@@ -197,6 +248,75 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity) -> Resul
             Step::All => {
                 if !filter(world, run, &mut state.filter_step, window, id, AssetTypeFilter::All) { return Ok(false); }
                 if !names(world, id).is_some_and(|names| names.iter().any(|name| name == "notes.md")) { return Ok(false); }
+                Some(Step::GridCompact)
+            }
+            Step::GridCompact => {
+                let Some(rect) = browser_rect(world, id) else { return Ok(false); };
+                let original = *state.grid_size.get_or_insert(rect.size());
+                if !resize_window(world, run, window, id, Vec2::new(480., original.y)) { return Ok(false); }
+                Some(Step::GridCompactRead)
+            }
+            Step::GridCompactRead => {
+                let Some(grid) = measure_grid(world, id)? else { return Ok(false); };
+                if !directory_labels(world, id, &fixture)? { return Ok(false); }
+                if grid.window_width >= state.grid_size.unwrap().x - 20. || grid.visible >= 7 || grid.columns < 2 {
+                    return Err(format!("缩窄后的网格未形成可滚动夹具：{}", grid.proof()));
+                }
+                let name = "files-assets-grid-compact.png";
+                let Some(mut proof) = evidence::capture(world, &mut run.capture, &run.work.join(name))? else { return Ok(false); };
+                proof["grid"] = grid.proof();
+                run.screenshots.insert(name.into(), proof);
+                state.compact_grid = Some(grid);
+                Some(Step::GridScrollDown)
+            }
+            Step::GridScrollDown => {
+                let columns = state.compact_grid.unwrap().columns;
+                if grid_first(world, id) != Some(columns) {
+                    if state.typed == 0 && wheel_grid(world, run, window, id, -1.) { state.typed = 1; }
+                    return Ok(false);
+                }
+                if visible(world, |row: &FileRow| row.window == id && row.slot == 0 && row.index == Some(columns)).is_none() {
+                    return Ok(false);
+                }
+                Some(Step::GridScrollUp)
+            }
+            Step::GridScrollUp => {
+                if grid_first(world, id) != Some(0) {
+                    if state.typed == 0 && wheel_grid(world, run, window, id, 1.) { state.typed = 1; }
+                    return Ok(false);
+                }
+                run.pointer = None;
+                Some(Step::GridMaximize)
+            }
+            Step::GridMaximize => {
+                if !button(world, run, window, Some(id), FileAction::Maximize) { return Ok(false); }
+                Some(Step::GridMaximizeRead)
+            }
+            Step::GridMaximizeRead => {
+                if !world.resource::<FileManagerState>().windows.iter().any(|browser| browser.id == id && browser.maximized) { return Ok(false); }
+                let Some(grid) = measure_grid(world, id)? else { return Ok(false); };
+                if !directory_labels(world, id, &fixture)? { return Ok(false); }
+                let compact = state.compact_grid.unwrap();
+                if grid.columns <= compact.columns || grid.visible <= compact.visible
+                    || grid.card.distance(compact.card) > 1.5 || grid.first.distance(compact.first) > 1.5 {
+                    return Err(format!("最大化必须从同一起点增加列数、保持卡片宽高：缩窄 {}，最大化 {}", compact.proof(), grid.proof()));
+                }
+                let name = "files-assets-grid-maximized.png";
+                let Some(mut proof) = evidence::capture(world, &mut run.capture, &run.work.join(name))? else { return Ok(false); };
+                proof["grid"] = grid.proof();
+                run.screenshots.insert(name.into(), proof);
+                run.steps.insert("floating_thumbnail_grid".into(), json!({"compact":compact.proof(),"maximized":grid.proof(),
+                    "directory_labels":["empty","roles"],"directory_list_and_thumbnail_icons":true,
+                    "one_wheel_step_entries":compact.columns,"verified":true}));
+                Some(Step::GridRestore)
+            }
+            Step::GridRestore => {
+                if !button(world, run, window, Some(id), FileAction::Maximize) { return Ok(false); }
+                Some(Step::GridRestoreSize)
+            }
+            Step::GridRestoreSize => {
+                if world.resource::<FileManagerState>().windows.iter().any(|browser| browser.id == id && browser.maximized) { return Ok(false); }
+                if !resize_window(world, run, window, id, state.grid_size.unwrap()) { return Ok(false); }
                 Some(Step::NotePick)
             }
             Step::NotePick => {
@@ -240,6 +360,17 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity) -> Resul
             Step::SceneTree => {
                 let tab = visible(world, |tab: &SceneEditorSidebarTabButton| tab.0 == EditorSidebarTab::Navigator(EditorNavigatorTab::SceneTree));
                 if !click(world, &mut run.click, window, tab) { return Ok(false); }
+                Some(Step::HideNavigator)
+            }
+            Step::HideNavigator => {
+                let toggle = visible(world, |button: &SceneEditorLayoutButton| button.0 == EditorLayoutAction::Content);
+                if !click(world, &mut run.click, window, toggle) { return Ok(false); }
+                Some(Step::VerifyHidden)
+            }
+            Step::VerifyHidden => {
+                let fixed_view = world.resource::<EditorSettings>().asset_browser_view_mode;
+                verify_fixed_sidebar(world, fixed_view)?;
+                state.fixed_view = Some(fixed_view);
                 Some(Step::Compact)
             }
             Step::Compact => {
@@ -266,6 +397,7 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity) -> Resul
             }
             Step::FavoritesVerify => {
                 if !shortcut_heading(world, id, "收藏") || shortcut_button(world, id, NOTES).is_none() { return Ok(false); }
+                verify_fixed_sidebar(world, state.fixed_view.unwrap())?;
                 Some(Step::Recent)
             }
             Step::Recent => {
@@ -275,6 +407,7 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity) -> Resul
             Step::RecentVerify => {
                 if !shortcut_heading(world, id, "最近访问") || shortcut_heading(world, id, "收藏")
                     || shortcut_button(world, id, NOTES).is_none() || shortcut_button(world, id, ROOT).is_none() { return Ok(false); }
+                verify_fixed_sidebar(world, state.fixed_view.unwrap())?;
                 run.steps.insert("floating_recent_service".into(), json!({"path":NOTES,"folder":ROOT,"left":"SceneTree","shared_records":true,
                     "input":"收藏打开时直接点击最近访问"}));
                 Some(Step::FavoritesAgain)
@@ -305,6 +438,15 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity) -> Resul
             Step::RestoreSize => {
                 let height = state.original_height.ok_or("缺少缩放前的窗口高度")?;
                 if !resize_height(world, run, window, id, height) { return Ok(false); }
+                Some(Step::ChangeView)
+            }
+            Step::ChangeView => {
+                if !tool(world, run, window, id, BrowserAction::View) { return Ok(false); }
+                Some(Step::VerifyView)
+            }
+            Step::VerifyView => {
+                if world.resource::<BrowserSessions>().validation_view(id) != Some(AssetBrowserViewMode::List) { return Ok(false); }
+                verify_fixed_sidebar(world, state.fixed_view.unwrap())?;
                 Some(Step::Search)
             }
             Step::Search => {
@@ -313,6 +455,7 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity) -> Resul
             }
             Step::Query => {
                 if !inside::<SearchBody>(world, id) { return Ok(false); }
+                verify_fixed_sidebar(world, state.fixed_view.unwrap())?;
                 if !input_text(world, run, &mut state.typed, window, TOKEN) { return Ok(false); }
                 Some(Step::Submit)
             }
@@ -354,7 +497,37 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity) -> Resul
                 let Some((hits, paths)) = world.resource::<AssetSearchState>().validation_result() else { return Ok(false); };
                 if hits == 0 || !paths.iter().any(|path| path == MISSING_JSON) { return Ok(false); }
                 if !inside::<SearchBody>(world, id) { return Err("缺失检查结果没有留在活动窗的共享表单".into()); }
+                verify_fixed_sidebar(world, state.fixed_view.unwrap())?;
                 run.steps.insert("floating_missing_assets".into(), json!({"hits":hits,"files":paths,"fixture":MISSING_JSON}));
+                Some(Step::DismissMissing)
+            }
+            Step::DismissMissing => {
+                if !tool(world, run, window, id, BrowserAction::Missing) { return Ok(false); }
+                Some(Step::ShowNavigator)
+            }
+            Step::ShowNavigator => {
+                if inside::<SearchBody>(world, id) || world.resource::<AssetSearchState>().is_open() {
+                    return Err("再次点击浮窗缺失检查后，共享表单仍打开".into());
+                }
+                verify_fixed_sidebar(world, state.fixed_view.unwrap())?;
+                let toggle = visible(world, |button: &SceneEditorLayoutButton| button.0 == EditorLayoutAction::Content);
+                if !click(world, &mut run.click, window, toggle) { return Ok(false); }
+                Some(Step::FixedFiles)
+            }
+            Step::FixedFiles => {
+                let tab = visible(world, |tab: &SceneEditorSidebarTabButton| tab.0 == EditorSidebarTab::Navigator(EditorNavigatorTab::Assets));
+                if !click(world, &mut run.click, window, tab) { return Ok(false); }
+                Some(Step::VerifyReturnedSearch)
+            }
+            Step::VerifyReturnedSearch => {
+                if world.resource::<SceneEditorSidebarState>().navigator != EditorNavigatorTab::Assets { return Ok(false); }
+                if visible(world, |_: &SearchBody| true).is_some() {
+                    return Err("重新打开固定文件栏时显示了已经收起的浮窗搜索表单".into());
+                }
+                run.steps.insert("floating_toolbar_sidebar_isolation".into(), json!({
+                    "tools":["search","missing_assets","favorites","recent","view"],"fixed_sidebar_hidden":true,
+                    "fixed_navigator":"SceneTree","fixed_view":format!("{:?}",state.fixed_view.unwrap()),"returned_search_closed":true
+                }));
                 Some(Step::Done)
             }
             Step::Done => {
@@ -367,6 +540,18 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity) -> Resul
         if let Some(next) = next { state.step = next; state.since = Instant::now(); state.typed = 0; state.filter_step = 0; }
         Ok(false)
     })
+}
+
+fn verify_fixed_sidebar(world: &mut World, view: AssetBrowserViewMode) -> Result<(), String> {
+    let layout = world.resource::<SceneEditorLayoutState>();
+    if layout.content_visible || layout.content_shown()
+        || world.resource::<SceneEditorSidebarState>().navigator != EditorNavigatorTab::SceneTree
+        || world.resource::<EditorSettings>().asset_browser_view_mode != view
+        || visible(world, |pane: &SceneEditorPane| pane.0 == EditorPane::Content).is_some()
+    {
+        return Err("活动文件窗工具改变了固定左栏显隐、页面或列表视图".into());
+    }
+    Ok(())
 }
 
 fn names(world: &World, id: u64) -> Option<Vec<String>> {
@@ -398,14 +583,79 @@ fn click_file(world: &mut World, run: &mut Run, window: Entity, id: u64, path: &
     click(world, &mut run.click, window, row)
 }
 fn resize_height(world: &mut World, run: &mut Run, window: Entity, id: u64, height: f32) -> bool {
+    let Some(rect) = browser_rect(world, id) else { return false; };
+    resize_window(world, run, window, id, Vec2::new(rect.width(), height))
+}
+
+fn resize_window(world: &mut World, run: &mut Run, window: Entity, id: u64, size: Vec2) -> bool {
     let handle = visible(world, |handle: &FileResizeHandle| handle.window == id && handle.edges == 10);
     let Some(handle) = handle else { return false; };
     let Some(rect) = browser_rect(world, id) else { return false; };
     let Some(transform) = world.get::<UiGlobalTransform>(handle) else { return false; };
     let Some(node) = world.get::<ComputedNode>(handle) else { return false; };
-    let offset = (height - rect.height()) / node.inverse_scale_factor;
-    let destination = (transform.translation + Vec2::new(0., offset)).as_dvec2();
+    let offset = (size - rect.size()) / node.inverse_scale_factor;
+    let destination = (transform.translation + offset).as_dvec2();
     drag(world, &mut run.drag, window, Some(handle), destination)
+}
+
+fn directory_labels(world: &mut World, id: u64, fixture: &Path) -> Result<bool, String> {
+    for name in ["empty", "roles"] {
+        let Some(entity) = file_row(world, id, &fixture.join(name)) else { return Ok(false); };
+        let Some(children) = world.get::<Children>(entity) else { return Ok(false); };
+        if !children.iter().any(|child| world.get::<ImageNode>(child)
+            .and_then(|image| image.image.path()).is_some_and(|path| path.path().ends_with("tree_folder.png"))) {
+            return Ok(false);
+        }
+        let Some(hint) = children.iter().find(|child| world.get::<RowHint>(*child).is_some()) else { return Ok(false); };
+        if world.get::<Node>(hint).is_none_or(|node| node.display != Display::None) {
+            return Err(format!("目录卡 {name} 仍显示多余的类型行"));
+        }
+        let labels: Vec<_> = children.iter().filter_map(|child| {
+            world.get::<Text>(child).filter(|_| world.get::<Node>(child).is_some_and(|node| node.display != Display::None))
+                .map(|text| text.as_str())
+        }).collect();
+        if labels.as_slice() != [name] { return Err(format!("目录条目必须只显示名称 {name}，实际 {labels:?}")); }
+    }
+    Ok(true)
+}
+
+fn measure_grid(world: &mut World, id: u64) -> Result<Option<GridMeasure>, String> {
+    let Some(rect) = browser_rect(world, id) else { return Ok(None); };
+    let Some(list) = visible(world, |list: &FileList| list.window == id) else { return Ok(None); };
+    let list_node = world.get::<ComputedNode>(list).unwrap();
+    let scale = list_node.inverse_scale_factor;
+    let list_origin = (world.get::<UiGlobalTransform>(list).unwrap().translation - list_node.size() * 0.5) * scale;
+    let mut cards: Vec<_> = world.query::<(&FileRow, &Node, &ComputedNode, &UiGlobalTransform, &InheritedVisibility)>().iter(world)
+        .filter(|(row, node, computed, _, visibility)| row.window == id && row.index.is_some()
+            && node.display == Display::Flex && computed.size().min_element() > 1. && visibility.get())
+        .map(|(row, _, node, transform, _)| (row.slot, node.size() * scale, (transform.translation - node.size() * 0.5) * scale - list_origin))
+        .collect();
+    cards.sort_by_key(|card| card.0);
+    let Some(&(0, card, first)) = cards.first() else { return Ok(None); };
+    let columns = cards.iter().take_while(|(_, _, offset)| (offset.y - first.y).abs() <= 1.5).count();
+    if cards.iter().enumerate().any(|(slot, &(actual, size, offset))| {
+        let column = (slot % columns) as f32;
+        let row = (slot / columns) as f32;
+        actual != slot || size.distance(card) > 1.5 || offset.x < first.x - 1.5
+            || offset.y < first.y + row * card.y - 1.5 || offset.x < first.x + column * card.x - 1.5
+    }) || first.x < 0. || first.x > 16. || first.y.abs() > 1.5 {
+        return Err(format!("文件卡片应从正文左上按行排列：{cards:?}"));
+    }
+    Ok(Some(GridMeasure { window_width: rect.width(), card, first, columns, visible: cards.len() }))
+}
+
+fn grid_first(world: &World, id: u64) -> Option<usize> {
+    world.resource::<FileManagerState>().windows.iter().find(|browser| browser.id == id).map(|browser| browser.first)
+}
+
+fn wheel_grid(world: &mut World, run: &mut Run, window: Entity, id: u64, y: f32) -> bool {
+    let Some(list) = visible(world, |list: &FileList| list.window == id) else { return false; };
+    let Some(transform) = world.get::<UiGlobalTransform>(list) else { return false; };
+    let position = transform.translation.as_dvec2();
+    run.pointer = Some(position);
+    move_cursor(world, window, position);
+    window_event(world, MouseWheel { unit: MouseScrollUnit::Line, x: 0., y, window, phase: TouchPhase::Moved });
+    true
 }
 fn tool(world: &mut World, run: &mut Run, window: Entity, id: u64, action: BrowserAction) -> bool {
     let target = visible(world, |button: &BrowserButton| {

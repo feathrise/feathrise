@@ -42,9 +42,6 @@ impl Default for AssetShortcuts {
 }
 
 impl AssetShortcuts {
-    /// 文件窗沿用同一个个人记录服务，正文一次只展开作者显式选择的分区。
-    pub(crate) fn show_section(&mut self, recent: bool) { self.expanded = [!recent, recent]; }
-
     pub(crate) fn is_favorite(&self, path: &str, is_directory: bool) -> bool {
         let path = format!("assets/{path}");
         self.snapshot

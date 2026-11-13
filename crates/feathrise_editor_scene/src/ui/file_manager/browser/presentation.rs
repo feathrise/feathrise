@@ -3,6 +3,7 @@
 use super::super::{
     components::{FileRow, FileRowIcon, RowLabel},
     resources::FileManagerState,
+    types::FILE_LIST_PADDING,
 };
 use super::{components::*, resources::BrowserSessions, types::*};
 use crate::ui::{
@@ -17,11 +18,9 @@ use feathrise_scene_content::SceneAssetKind;
 use std::collections::HashMap;
 
 struct RowVisual {
-    thumbnail: bool,
     image: Handle<Image>,
-    ready: bool,
-    title: String,
-    hint: String,
+    image_size: Vec2,
+    hint: Option<&'static str>,
     clips: bool,
 }
 
@@ -52,58 +51,29 @@ pub(super) fn sync_rows(
         let Some(session) = browsers.sessions.get(&row.window) else {
             continue;
         };
-        let thumbnail = session.view == AssetBrowserViewMode::Thumbnails;
-        let grid = asset_thumbnails::grid_layout((window.rect.width() - 18.).max(96.), 0);
-        let capacity = browsers.capacity(window);
-        let entry = row.index.and_then(|index| window.entries.get(index));
-        node.display = if row.slot < capacity && entry.is_some() {
-            Display::Flex
-        } else {
-            Display::None
-        };
-        node.position_type = PositionType::Absolute;
-        node.width = if thumbnail {
-            px(grid.width)
-        } else {
-            percent(100)
-        };
-        node.height = px(if thumbnail {
-            asset_thumbnails::TILE_HEIGHT
-        } else {
-            26.
-        });
-        node.left = px(8.
-            + if thumbnail {
-                (row.slot % grid.columns) as f32 * (grid.width + asset_thumbnails::TILE_GAP)
-            } else {
-                0.
-            });
-        node.top = px(if thumbnail {
-            (row.slot / grid.columns) as f32
-                * (asset_thumbnails::TILE_HEIGHT + asset_thumbnails::TILE_GAP)
-        } else {
-            row.slot as f32 * 26.
-        });
-        node.flex_direction = if thumbnail {
-            FlexDirection::Column
-        } else {
-            FlexDirection::Row
-        };
-        node.align_items = if thumbnail {
-            AlignItems::Center
-        } else {
-            AlignItems::Center
-        };
-        node.justify_content = if thumbnail {
-            JustifyContent::Center
-        } else {
-            JustifyContent::FlexStart
-        };
-        node.padding = UiRect::all(px(if thumbnail { 4. } else { 6. }));
-        node.row_gap = px(if thumbnail { 3. } else { 0. });
-        let Some(entry) = entry else {
+        let Some(entry) = row.index.and_then(|index| window.entries.get(index)) else {
             continue;
         };
+        let grid = browsers.thumbnail_grid(window);
+        let thumbnail = grid.is_some();
+        let offset = grid.map_or_else(
+            || Vec2::new(FILE_LIST_PADDING, row.slot as f32 * 26.),
+            |grid| grid.offset(row.slot),
+        );
+        let layout = Node {
+            position_type: PositionType::Absolute,
+            width: grid.map_or(percent(100), |grid| px(grid.width)),
+            height: px(if thumbnail { asset_thumbnails::TILE_HEIGHT } else { 26. }),
+            left: px(offset.x),
+            top: px(offset.y),
+            flex_direction: if thumbnail { FlexDirection::Column } else { FlexDirection::Row },
+            align_items: AlignItems::Center,
+            justify_content: if thumbnail { JustifyContent::Center } else { JustifyContent::FlexStart },
+            padding: UiRect::all(px(if thumbnail { 4. } else { 6. })),
+            row_gap: px(if thumbnail { 3. } else { 0. }),
+            ..node.clone()
+        };
+        node.set_if_neq(layout);
         let asset = row.index.and_then(|index| session.entries.get(index));
         let path = asset.map(|entry| entry.asset_path.as_str());
         let cached = session
@@ -121,19 +91,10 @@ pub(super) fn sync_rows(
         let kind = asset
             .map(|entry| entry.kind)
             .unwrap_or(SceneAssetKind::Unsupported);
-        let hint = if entry.directory {
-            if english { "Folder" } else { "文件夹" }
-        } else if thumbnail
-            && !ready
-            && matches!(kind, SceneAssetKind::Scene | SceneAssetKind::Texture)
-            && session.assets
-        {
-            if english {
-                "Preparing preview…"
-            } else {
-                "正在生成预览…"
+        let hint = (thumbnail && !entry.directory).then(|| {
+            if !ready && matches!(kind, SceneAssetKind::Scene | SceneAssetKind::Texture) && session.assets {
+                return if english { "Preparing preview…" } else { "正在生成预览…" };
             }
-        } else {
             match kind {
                 SceneAssetKind::Scene => "GLB",
                 SceneAssetKind::Texture => {
@@ -158,15 +119,22 @@ pub(super) fn sync_rows(
                     }
                 }
             }
+        });
+        let image_size = if !thumbnail {
+            Vec2::splat(16.)
+        } else if ready {
+            Vec2::splat(78.)
+        } else if entry.directory {
+            Vec2::splat(34.)
+        } else {
+            Vec2::new(34., 52.)
         };
         visuals.insert(
             entity,
             RowVisual {
-                thumbnail,
                 image,
-                ready,
-                title: entry.name.clone(),
-                hint: hint.into(),
+                image_size,
+                hint,
                 clips: session.kind == AssetTypeFilter::Animation
                     && path.is_some_and(|path| {
                         session
@@ -184,40 +152,42 @@ pub(super) fn sync_rows(
         if image.image != visual.image {
             image.image = visual.image.clone();
         }
-        let size = if visual.thumbnail {
-            if visual.ready { 78. } else { 34. }
-        } else {
-            16.
+        let layout = Node {
+            width: px(visual.image_size.x),
+            height: px(visual.image_size.y),
+            align_self: AlignSelf::Center,
+            ..node.clone()
         };
-        node.width = px(size);
-        node.height = px(if visual.thumbnail && !visual.ready {
-            52.
-        } else {
-            size
-        });
-        node.align_self = AlignSelf::Center;
+        node.set_if_neq(layout);
     }
     for (parent, mut text, mut node, label) in &mut nodes.p2() {
         let Some(visual) = visuals.get(&parent.parent()) else {
             continue;
         };
         if label.is_some() {
-            if visual.thumbnail {
-                text.0.clone_from(&visual.title);
+            if node.max_width != percent(100) {
+                node.max_width = percent(100);
             }
-            node.max_width = percent(100);
-            node.flex_shrink = 1.;
+            if node.flex_shrink != 1. {
+                node.flex_shrink = 1.;
+            }
         } else {
-            node.display = if visual.thumbnail {
+            let display = if visual.hint.is_some() {
                 Display::Flex
             } else {
                 Display::None
             };
-            text.0.clone_from(&visual.hint);
+            if node.display != display {
+                node.display = display;
+            }
+            let hint = visual.hint.unwrap_or_default();
+            if text.0 != hint {
+                text.0 = hint.into();
+            }
         }
     }
     for (expander, mut node) in &mut nodes.p3() {
-        node.display = if visuals
+        let display = if visuals
             .get(&expander.row)
             .is_some_and(|visual| visual.clips)
         {
@@ -225,6 +195,9 @@ pub(super) fn sync_rows(
         } else {
             Display::None
         };
+        if node.display != display {
+            node.display = display;
+        }
     }
 }
 
@@ -235,7 +208,7 @@ pub(super) fn demand(
 ) {
     let mut items = Vec::new();
     if !files.suspended {
-        for window in files
+        'windows: for window in files
             .windows
             .iter()
             .rev()
@@ -250,17 +223,22 @@ pub(super) fn demand(
             }) else {
                 continue;
             };
+            let Some(grid) = browsers.thumbnail_grid(window) else { continue; };
+            let first = grid.clamp_first(session.entries.len(), window.first);
             for entry in session
                 .entries
                 .iter()
-                .skip(window.first)
-                .take(browsers.capacity(window))
+                .skip(first)
+                .take(grid.capacity())
             {
                 if !entry.is_directory
                     && matches!(entry.kind, SceneAssetKind::Scene | SceneAssetKind::Texture)
                     && !items.iter().any(|(path, _)| path == &entry.asset_path)
                 {
                     items.push((entry.asset_path.clone(), entry.kind));
+                    if items.len() == SharedThumbnailDemand::CAPACITY {
+                        break 'windows;
+                    }
                 }
             }
         }
@@ -269,9 +247,11 @@ pub(super) fn demand(
 }
 
 pub(super) fn sync_toolbar(
+    files: Res<FileManagerState>,
     browsers: Res<BrowserSessions>,
     assets: Res<AssetServer>,
     locale: Option<Res<EditorLocale>>,
+    search: Option<Res<crate::ui::asset_preview::AssetSearchState>>,
     buttons: Query<&BrowserButton>,
     mut labels: Query<(&ChildOf, &BrowserButtonLabel, &mut Text)>,
     mut icons: Query<(&BrowserToolIcon, &mut ImageNode)>,
@@ -280,6 +260,7 @@ pub(super) fn sync_toolbar(
         &UiInteraction,
         &mut BackgroundColor,
         &mut BorderColor,
+        &mut Node,
     )>,
 ) {
     let english = locale.as_deref().copied() == Some(EditorLocale::English);
@@ -298,7 +279,10 @@ pub(super) fn sync_toolbar(
     for (icon, mut image) in &mut icons {
         image.image = assets.load(icon.0);
     }
-    for (button, interaction, mut background, mut border) in &mut appearance {
+    for (button, interaction, mut background, mut border, mut node) in &mut appearance {
+        let visible = !files.active(button.window).is_some_and(|window| window.is_animation_picker())
+            || button.action == BrowserAction::View;
+        node.display = if visible { Display::Flex } else { Display::None };
         let selected = match button.action {
             BrowserAction::Filter => browsers
                 .sessions
@@ -308,10 +292,9 @@ pub(super) fn sync_toolbar(
                 .sessions
                 .get(&button.window)
                 .is_some_and(|session| session.view == AssetBrowserViewMode::Thumbnails),
-            BrowserAction::Search | BrowserAction::Missing => browsers
-                .service
-                .as_ref()
-                .is_some_and(|host| host.window == button.window && host.search),
+            BrowserAction::Search | BrowserAction::Missing => browsers.search_window() == Some(button.window)
+                && search.as_ref().is_some_and(|state| state.is_open()
+                    && state.is_missing_assets() == (button.action == BrowserAction::Missing)),
             BrowserAction::Favorites | BrowserAction::Recent => browsers
                 .service
                 .as_ref()

@@ -111,7 +111,8 @@ fn empty_floating_window_selection_cannot_borrow_fixed_sidebar_file() {
     let mut app = App::new();
     app.init_resource::<FileManagerState>().init_resource::<bevy::input_focus::InputFocus>()
         .insert_resource(FixedFileSelection { directory: PathBuf::from("C:/fixture/left"), selected: vec![PathBuf::from("C:/fixture/left/keep.txt")], ..default() })
-        .add_message::<OpenFileWindow>().add_message::<FileManagerCommand>().add_systems(Update, super::operations::control);
+        .add_message::<OpenFileWindow>().add_message::<super::messages::OpenAnimationPicker>()
+        .add_message::<FileManagerCommand>().add_systems(Update, super::operations::control);
     for action in [FileAction::Copy, FileAction::Cut, FileAction::Delete, FileAction::Rename] {
         app.world_mut().resource_mut::<Messages<FileManagerCommand>>().write(FileManagerCommand { action,
             path: Some(PathBuf::from("C:/fixture/right")), sources: vec![] });
@@ -209,7 +210,7 @@ fn closing_context_menu_consumes_press_and_same_frame_file_shortcut() {
         let mut state = app.world_mut().resource_mut::<FileManagerState>();
         state.open(PathBuf::from("C:/fixture"));
         super::context_menu::open(&mut state, FileManagerContextRequest { position: Vec2::new(500., 400.),
-            directory: PathBuf::from("C:/fixture"), sources: vec![], open_directory: PathBuf::from("C:/fixture"), is_directory: Some(true) }, Vec2::new(1280., 800.));
+            directory: PathBuf::from("C:/fixture"), sources: vec![], open_directory: PathBuf::from("C:/fixture"), is_directory: Some(true) });
     }
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
     {
@@ -328,7 +329,8 @@ fn new_file_wrong_extension_keeps_name_prompt_for_correction() {
     use super::{messages::{FileManagerCommand, OpenFileWindow}, resources::FixedFileSelection, types::{FileAction, NamePrompt}};
     let mut app = App::new();
     app.init_resource::<FileManagerState>().init_resource::<FixedFileSelection>().init_resource::<bevy::input_focus::InputFocus>()
-        .add_message::<FileManagerCommand>().add_message::<OpenFileWindow>().add_systems(Update, super::operations::control);
+        .add_message::<FileManagerCommand>().add_message::<OpenFileWindow>()
+        .add_message::<super::messages::OpenAnimationPicker>().add_systems(Update, super::operations::control);
     app.world_mut().resource_mut::<FileManagerState>().prompt = Some(NamePrompt { action: FileAction::NewGlb,
         directory: PathBuf::from("C:/fixture"), sources: vec![], value: "我的场景.txt".into(), initialized: true });
     app.world_mut().resource_mut::<Messages<FileManagerCommand>>().write(FileManagerCommand { action: FileAction::Confirm, path: None, sources: vec![] });
@@ -340,6 +342,47 @@ fn new_file_wrong_extension_keeps_name_prompt_for_correction() {
     assert!(super::operations::creation_extension_matches(FileAction::NewMarkdown, "说明.md"));
     assert!(super::operations::creation_extension_matches(FileAction::NewText, "笔记.txt"));
     assert!(!super::operations::creation_extension_matches(FileAction::NewText, "笔记.md"));
+}
+
+#[test]
+fn animation_picker_confines_navigation_and_clears_stale_candidates() {
+    use super::{messages::OpenAnimationPicker, types::ProjectMotionTarget};
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    let root = PathBuf::from("C:/fixture/assets");
+    let mut state = FileManagerState::default();
+    state.open(PathBuf::from("C:/fixture/source"));
+    let ordinary = state.windows[0].id;
+    let target = ProjectMotionTarget { asset_root: root.clone(), path: "hero.glb".into(), generation: 7, tab: 3 };
+    let mut request = OpenAnimationPicker { context: 1, directory: root.clone(), target: target.clone() };
+    state.open_animation_picker(&request);
+    assert_eq!(state.windows.len(), 1, "退役工程的开窗意图不能进入当前桌面");
+    request.context = state.context;
+    state.open_animation_picker(&request);
+    let id = state.focused.unwrap();
+    let picker = state.active_mut(id).unwrap();
+    picker.entries = vec![FileEntry { path: root.join("motions.glb"), name: "motions.glb".into(), directory: false, bytes: 108 }].into();
+    picker.loading = false;
+    picker.select_picker_entry(0);
+    picker.animation_picker.as_mut().unwrap().clip = Some(1);
+    let revision = picker.revision;
+    picker.navigate(root.join("../source"), true);
+    assert_eq!(picker.revision, revision, "选择窗地址不能越出当前资产根");
+    picker.refresh();
+    assert!(picker.selection.is_empty());
+    assert!(picker.animation_picker.as_ref().unwrap().clip.is_none(), "目录换代后不能确认旧行片段");
+    assert!(state.active(ordinary).unwrap().selection.is_empty());
+    state.active_mut(id).unwrap().minimized = true;
+    state.open_animation_picker(&request);
+    assert_eq!(state.windows.len(), 2, "重复打开同一目标复用选择窗");
+    assert!(!state.active(id).unwrap().minimized);
+    let mut stale = target.clone();
+    stale.generation += 1;
+    state.finish_animation_picker(&stale);
+    assert!(state.active(id).is_some(), "其他模型代次的回执不能关闭本次选择窗");
+    state.close_stale_animation_picker(|current| current == &stale);
+    assert!(state.active(id).is_none());
+    assert!(state.active(ordinary).is_some());
 }
 
 fn drain_scans(app: &mut App) {

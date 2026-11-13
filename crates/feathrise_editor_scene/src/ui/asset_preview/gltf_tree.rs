@@ -91,7 +91,6 @@ struct Work {
 #[derive(Resource, Default)]
 pub(super) struct TreeState {
     last_central_glb: Option<u64>,
-    animation_browser_on_open: Option<(PathBuf, String)>,
     selected: Option<Source>,
     complete: Option<(Source, Rows)>,
     work: Option<Work>,
@@ -99,11 +98,6 @@ pub(super) struct TreeState {
 }
 
 impl TreeState {
-    /// 从小预览选择动画时，仅本次同工程、同模型的新标签继承显式目录意图。
-    pub(super) fn keep_animation_browser_on_open(&mut self, root: PathBuf, path: String) {
-        self.animation_browser_on_open = Some((root, path));
-    }
-
     fn result(&self) -> Option<&Rows> {
         let (source, rows) = self.complete.as_ref()?;
         (Some(source) == self.selected.as_ref()).then_some(rows)
@@ -223,14 +217,11 @@ fn update(
 ) {
     let current = central_glb(&media, workspace.active_tab);
     let root = documents.asset_root();
-    let keep_animation_browser = state.animation_browser_on_open.is_some()
-        && state.animation_browser_on_open.take()
-            .is_some_and(|(source_root, path)| source_root == root && current == Some(path.as_str()));
     if editor.open && !editor.close_requested {
         let tab = current.and_then(|_| media.expanded.as_ref().map(|entry| entry.id));
         if state.last_central_glb != tab {
             state.last_central_glb = tab;
-            if tab.is_some() && !keep_animation_browser && sidebar.navigator != EditorNavigatorTab::SceneTree {
+            if tab.is_some() && sidebar.navigator != EditorNavigatorTab::SceneTree {
                 // 仅新激活的模型标签带到场景树。用户随后进入工程找参考时，稳定标签不抢回左栏。
                 sidebar.navigator = EditorNavigatorTab::SceneTree;
             }

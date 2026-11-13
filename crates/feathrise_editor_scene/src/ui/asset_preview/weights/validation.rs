@@ -5,7 +5,7 @@ use super::super::{
     AssetPreviewNavigation, AssetPreviewState, AssetPreviewWorkspace, DocumentState, OpenAssetPreview,
     animation::rig_animation_probe,
     rigging::{RigAction, RiggingState},
-    rigging_validation::{animation_clip_button, animation_file_button},
+    rigging_validation::{AnimationPickerStep, animation_picker_button},
     types::{AssetPreviewCamera, AssetPreviewCanvas, AssetPreviewContent, AssetPreviewPhase},
     view_toolbar::Action as ViewAction,
 };
@@ -107,6 +107,7 @@ enum Phase {
     IdlePicker,
     IdleSelect,
     IdlePlay,
+    IdleConfirm,
     IdlePose,
     Compare,
     Restore,
@@ -115,6 +116,7 @@ enum Phase {
     WalkOpen,
     WalkSelect,
     WalkPlay,
+    WalkConfirm,
     WalkPose,
     WalkImage,
     OpenCopy,
@@ -402,10 +404,20 @@ fn rig(world: &mut World, run: &mut Run, action: RigAction) -> bool {
     click(world, run, |button: &RigAction| *button == action)
 }
 
-fn click_animation(
-    world: &mut World, run: &mut Run, window: Entity, button: impl FnOnce(&mut World) -> Option<Entity>,
+fn click_animation_picker(
+    world: &mut World, run: &mut Run, window: Entity, path: &str, step: AnimationPickerStep,
 ) -> bool {
-    let entity = run.window_click.map(|(entity, _)| entity).or_else(|| button(world));
+    let entity = run.window_click.map(|(entity, _)| entity)
+        .or_else(|| animation_picker_button(world, &run.assets, path, step));
+    entity.and_then(|entity| click_window_entity(world, run, window, entity)).is_some()
+}
+
+fn open_animation_picker(world: &mut World, run: &mut Run, window: Entity) -> bool {
+    let entity = run.window_click.map(|(entity, _)| entity).or_else(|| world
+        .query::<(Entity, &RigAction, &ComputedNode, Has<InteractionDisabled>)>()
+        .iter(world)
+        .find(|(_, action, node, disabled)| **action == RigAction::ChooseProjectMotion && !node.is_empty() && !disabled)
+        .map(|(entity, ..)| entity));
     entity.and_then(|entity| click_window_entity(world, run, window, entity)).is_some()
 }
 
@@ -1200,11 +1212,14 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             run.output = Some(path);
             Phase::IdlePicker
         }
-        Phase::IdlePicker if rig(world, run, RigAction::ChooseProjectMotion) => Phase::IdleSelect,
-        Phase::IdleSelect if click_animation(world, run, window, |world| animation_file_button(world, IDLE)) => {
+        Phase::IdlePicker if open_animation_picker(world, run, window) => Phase::IdleSelect,
+        Phase::IdleSelect if click_animation_picker(world, run, window, IDLE, AnimationPickerStep::OpenFile) => {
             Phase::IdlePlay
         }
-        Phase::IdlePlay if click_animation(world, run, window, |world| animation_clip_button(world, 0)) => {
+        Phase::IdlePlay if click_animation_picker(world, run, window, IDLE, AnimationPickerStep::SelectClip(0)) => {
+            Phase::IdleConfirm
+        }
+        Phase::IdleConfirm if click_animation_picker(world, run, window, IDLE, AnimationPickerStep::Confirm) => {
             Phase::IdlePose
         }
         Phase::IdlePose => {
@@ -1263,11 +1278,14 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             Phase::WalkPicker
         }
         Phase::WalkPicker if sidebar(world, run, EditorRightSidebarTab::Scene) => Phase::WalkOpen,
-        Phase::WalkOpen if rig(world, run, RigAction::ChooseProjectMotion) => Phase::WalkSelect,
-        Phase::WalkSelect if click_animation(world, run, window, |world| animation_file_button(world, WALK)) => {
+        Phase::WalkOpen if open_animation_picker(world, run, window) => Phase::WalkSelect,
+        Phase::WalkSelect if click_animation_picker(world, run, window, WALK, AnimationPickerStep::OpenFile) => {
             Phase::WalkPlay
         }
-        Phase::WalkPlay if click_animation(world, run, window, |world| animation_clip_button(world, 0)) => {
+        Phase::WalkPlay if click_animation_picker(world, run, window, WALK, AnimationPickerStep::SelectClip(0)) => {
+            Phase::WalkConfirm
+        }
+        Phase::WalkConfirm if click_animation_picker(world, run, window, WALK, AnimationPickerStep::Confirm) => {
             Phase::WalkPose
         }
         Phase::WalkPose => {

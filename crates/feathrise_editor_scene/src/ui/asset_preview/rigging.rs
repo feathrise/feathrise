@@ -33,6 +33,7 @@ pub(super) fn install(app: &mut App) {
                 .after(super::interaction::handle_asset_preview_actions)
                 .after(crate::scene_browser::handle_scene_browser_input)
                 .before(super::opening::open)
+                .before(crate::ui::file_manager::FileManagerInput)
                 .before(super::animation::receive_rig_animation)
                 .before(super::navigation::control_asset_preview)
                 .before(crate::authoring::mesh_edit::MeshEditInput)
@@ -44,8 +45,15 @@ pub(super) fn install(app: &mut App) {
             Update,
             systems::pick_project_animation
                 .after(super::opening::open)
+                .after(crate::ui::file_manager::browser::BrowserInput)
                 .in_set(ProjectAnimationPickSet)
                 .in_set(SceneEditorSystemSet::Input),
+        )
+        .add_systems(
+            Update,
+            systems::retire_animation_picker
+                .after(super::loading::poll_asset_preview_loading)
+                .in_set(SceneEditorSystemSet::Tasks),
         )
         .add_systems(
             Update,

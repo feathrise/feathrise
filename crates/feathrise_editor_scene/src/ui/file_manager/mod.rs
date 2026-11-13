@@ -15,10 +15,10 @@ mod types;
 mod tests;
 
 #[cfg(feature = "validation")]
-pub(crate) use components::{FileList, FileManagerButton, FileNameInput, FileResizeHandle, FileRow, FileTaskButton, FileTitleBar};
-pub(crate) use messages::{ExtraRequest, FileManagerCommand, FileManagerContextRequest, FileManagerExternalDrag, OpenFileWindow, OpenManagedFile};
+pub(crate) use components::{FileContextLabel, FileContextPanel, FileList, FileManagerButton, FileNameInput, FileResizeHandle, FileRow, FileTaskButton, FileTitleBar};
+pub(crate) use messages::{ExtraRequest, FileManagerCommand, FileManagerContextRequest, FileManagerExternalDrag, OpenAnimationPicker, OpenFileWindow, OpenManagedFile};
 pub(crate) use resources::{FileManagerState, FixedFileSelection};
-pub(crate) use types::{ExtraAction, FileAction};
+pub(crate) use types::{ExtraAction, FileAction, ProjectMotionTarget};
 
 use bevy::prelude::*;
 
@@ -28,7 +28,7 @@ pub(crate) struct FileManagerInput;
 pub(crate) fn install(app: &mut App) {
     browser::install(app);
     app.init_resource::<FileManagerState>().init_resource::<FixedFileSelection>()
-        .add_message::<OpenFileWindow>().add_message::<OpenManagedFile>()
+        .add_message::<OpenFileWindow>().add_message::<OpenManagedFile>().add_message::<OpenAnimationPicker>()
         .add_message::<FileManagerCommand>().add_message::<FileManagerExternalDrag>()
         .add_message::<FileManagerContextRequest>()
         .add_message::<ExtraRequest>()
@@ -38,5 +38,8 @@ pub(crate) fn install(app: &mut App) {
             .before(super::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)
             .in_set(FileManagerInput).in_set(crate::SceneEditorSystemSet::Input))
         .add_systems(Update, (scan::poll, operations::poll, scan::start).chain().in_set(crate::SceneEditorSystemSet::Tasks))
-        .add_systems(Update, (scene::mount, presentation::sync).chain().in_set(crate::SceneEditorSystemSet::Presentation));
+        .add_systems(Update, (scene::mount, presentation::sync).chain().in_set(crate::SceneEditorSystemSet::Presentation))
+        .add_systems(PostUpdate, context_menu::place
+            .after(bevy::ui::widget::measure_text_system).before(bevy::ui::UiSystems::Layout));
+    super::project_browser::install_file_manager_bridge(app);
 }

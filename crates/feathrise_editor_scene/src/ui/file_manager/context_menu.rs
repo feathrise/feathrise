@@ -2,20 +2,22 @@
 
 use super::{components::*, messages::FileManagerContextRequest, resources::FileManagerState, types::*};
 use crate::{ui::{external_files::{ExternalEditors, ExternalFileAction, EXTERNAL_MENU_ITEMS}, theme as colors}, workbench::WorkbenchFloatingPanel};
-use bevy::{prelude::*, ui::FocusPolicy};
+use bevy::{prelude::*, text::ComputedTextBlock, ui::{ComputedUiRenderTargetInfo, FocusPolicy}};
 use feathrise_editor_ui::{EditorButtonClick, InteractionButton, UiInteraction};
 
 const ROW_HEIGHT: f32 = 26.;
+const PANEL_PADDING: f32 = 4.;
+const PANEL_BORDER: f32 = 1.;
+const ROW_PADDING: f32 = 8.;
+const PANEL_INSET: f32 = PANEL_PADDING + PANEL_BORDER;
 const MAIN_ACTIONS: [FileAction; 7] = [FileAction::NewWindow, FileAction::Cut, FileAction::Copy,
     FileAction::Paste, FileAction::Rename, FileAction::Delete, FileAction::NewMenu];
 const EXTRA_ACTIONS: [ExtraAction; 4] = [ExtraAction::CopyAbsolute, ExtraAction::CopyRelative,
     ExtraAction::Favorite, ExtraAction::References];
 const NEW_ACTIONS: [FileAction; 4] = [FileAction::NewFolder, FileAction::NewText, FileAction::NewMarkdown, FileAction::NewGlb];
 
-pub(super) fn open(state: &mut FileManagerState, target: FileManagerContextRequest, viewport: Vec2) {
-    let mut menu = FileContextMenu { target, submenu: false, initialized: false, main_rect: Rect::default(), submenu_rect: Rect::default() };
-    layout(&mut menu, viewport, MAIN_ACTIONS.len() + EXTRA_ACTIONS.len() + 1, 0.);
-    state.menu = Some(menu);
+pub(super) fn open(state: &mut FileManagerState, target: FileManagerContextRequest) {
+    state.menu = Some(FileContextMenu { target, submenu: false, initialized: false, main_rect: Rect::default(), submenu_rect: Rect::default() });
     state.gesture = None;
     state.drag = None;
     state.release_guard = true;
@@ -63,19 +65,54 @@ fn visible(action: FileContextAction, target: &FileManagerContextRequest, availa
     }
 }
 
-fn layout(menu: &mut FileContextMenu, viewport: Vec2, rows: usize, scroll: f32) {
+#[derive(Default)]
+struct MenuSize {
+    label_width: f32,
+    rows: usize,
+}
+
+impl MenuSize {
+    fn size(&self, available: Vec2) -> Vec2 {
+        Vec2::new(
+            (self.label_width + 2. * (PANEL_INSET + ROW_PADDING)).ceil(),
+            self.rows as f32 * ROW_HEIGHT + 2. * PANEL_INSET,
+        ).min(available)
+    }
+
+    fn clamp_scroll(&self, position: &mut ScrollPosition, height: f32) {
+        let maximum = (self.rows as f32 * ROW_HEIGHT + 2. * PANEL_INSET - height).max(0.);
+        let y = position.y.clamp(0., maximum);
+        if position.y != y { position.y = y; }
+    }
+}
+
+fn layout(menu: &mut FileContextMenu, viewport: Vec2, sizes: &[MenuSize; 2], scale: f32, main_scroll: &mut ScrollPosition) {
     // 菜单限制在编辑器内容范围内；小窗口用正文滚动保留所有命令，不向屏幕外溢出。
     let lower = Vec2::new(4., 44.);
     let upper = Vec2::new((viewport.x - 4.).max(5.), (viewport.y - 28.).max(45.));
     let available = (upper - lower).max(Vec2::ONE);
-    let main_size = Vec2::new(300., rows as f32 * ROW_HEIGHT + 10.).min(available);
+    let main_size = sizes[0].size(available);
     let origin = menu.target.position.max(lower).min((upper - main_size).max(lower));
     menu.main_rect = Rect::from_corners(origin, origin + main_size);
-    let sub_size = Vec2::new(228., NEW_ACTIONS.len() as f32 * ROW_HEIGHT + 10.).min(available);
-    let right = menu.main_rect.max.x - 1.;
-    let left = menu.main_rect.min.x - sub_size.x + 1.;
-    let x = if right + sub_size.x <= upper.x { right } else { left };
-    let y = menu.main_rect.min.y + 5. + (MAIN_ACTIONS.len() - 1) as f32 * ROW_HEIGHT - scroll;
+    let sub_size = sizes[1].size(available);
+    let right = menu.main_rect.max.x - PANEL_BORDER;
+    let left = menu.main_rect.min.x - sub_size.x + PANEL_BORDER;
+    // 两边都放不下时，使用空隙更大的一侧，以保留更多父菜单的可点击区域。
+    let room_right = upper.x - right;
+    let room_left = menu.main_rect.min.x + PANEL_BORDER - lower.x;
+    let x = if sub_size.x <= room_right || (sub_size.x > room_left && room_right >= room_left) {
+        right
+    } else {
+        left
+    };
+    sizes[0].clamp_scroll(main_scroll, main_size.y);
+    // UI 布局把滚动偏移向下取整到物理像素，子菜单用同一偏移对齐父项。
+    let scroll = (main_scroll.y * scale).floor() / scale;
+    let parent_row_top = menu.main_rect.min.y + PANEL_INSET + (MAIN_ACTIONS.len() - 1) as f32 * ROW_HEIGHT - scroll;
+    if parent_row_top + ROW_HEIGHT <= menu.main_rect.min.y || parent_row_top >= menu.main_rect.max.y {
+        menu.submenu = false;
+    }
+    let y = parent_row_top;
     let origin = Vec2::new(x, y).max(lower).min((upper - sub_size).max(lower));
     menu.submenu_rect = Rect::from_corners(origin, origin + sub_size);
 }
@@ -89,7 +126,7 @@ pub(super) fn mount(parent: &mut ChildSpawnerCommands, font: &Handle<Font>) {
         parent.spawn((FileContextPanel { submenu }, WorkbenchFloatingPanel, GlobalZIndex(426), ZIndex(if submenu { 2 } else { 1 }),
             UiInteraction::default(), FocusPolicy::Block, ScrollPosition::default(),
             Node { display: Display::None, position_type: PositionType::Absolute, flex_direction: FlexDirection::Column,
-                padding: UiRect::all(px(4)), border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(3)),
+                padding: UiRect::all(px(PANEL_PADDING)), border: UiRect::all(px(PANEL_BORDER)), border_radius: BorderRadius::all(px(3)),
                 overflow: Overflow::scroll_y(), ..default() },
             BackgroundColor(colors::PANEL_BG_STRONG), BorderColor::all(colors::COPPER_BORDER_WEAK)))
             .with_children(|panel| {
@@ -107,38 +144,20 @@ pub(super) fn mount(parent: &mut ChildSpawnerCommands, font: &Handle<Font>) {
 fn item(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, action: FileContextAction, submenu: bool) {
     let mut entity = parent.spawn((FileContextEntry { submenu, action }, InteractionButton,
         Node { width: percent(100), height: px(ROW_HEIGHT), flex_shrink: 0., align_items: AlignItems::Center,
-            padding: UiRect::horizontal(px(8)), border_radius: BorderRadius::all(px(2)), overflow: Overflow::clip_x(), ..default() },
+            padding: UiRect::horizontal(px(ROW_PADDING)), border_radius: BorderRadius::all(px(2)), overflow: Overflow::clip_x(), ..default() },
         BackgroundColor(colors::PANEL_BG_STRONG)));
     if let FileContextAction::File(action) = action { entity.insert(FileManagerButton { window: None, action }); }
     entity.with_child((FileContextLabel(action), super::scene::label("", font),
         Node { min_width: px(0), overflow: Overflow::clip_x(), ..default() }));
 }
 
-pub(super) fn sync(world: &mut World, state: &mut FileManagerState, viewport: Vec2, english: bool) {
+pub(super) fn sync(world: &mut World, state: &mut FileManagerState, english: bool) {
     let available = world.get_resource::<ExternalEditors>().cloned().unwrap_or_default();
     let visible_menu = state.menu.is_some() && !state.suspended && state.prompt.is_none();
     let reset = state.menu.as_ref().is_some_and(|menu| !menu.initialized);
-    let mut scroll_query = world.query::<(&FileContextPanel, &mut ScrollPosition)>();
-    let mut scroll = 0.;
-    for (panel, mut position) in scroll_query.iter_mut(world) {
-        if reset { position.y = 0.; }
-        if !panel.submenu { scroll = position.y; }
-    }
-    if let Some(menu) = &mut state.menu {
-        let rows = MAIN_ACTIONS.len() + EXTRA_ACTIONS.len() + EXTERNAL_MENU_ITEMS.iter()
-            .filter(|(_, action)| available.visible(*action, menu.target.is_directory == Some(false))).count();
-        layout(menu, viewport, rows, scroll);
-    }
-    let mut panels = world.query_filtered::<(&mut Node, Option<&FileContextPanel>, Option<&FileContextBackdrop>), Or<(With<FileContextPanel>, With<FileContextBackdrop>)>>();
-    for (mut node, panel, backdrop) in panels.iter_mut(world) {
-        if backdrop.is_some() { node.display = if visible_menu { Display::Flex } else { Display::None }; }
-        if let Some(panel) = panel {
-            node.display = if visible_menu && state.menu.as_ref().is_some_and(|menu| !panel.submenu || menu.submenu) { Display::Flex } else { Display::None };
-            if let Some(menu) = &state.menu {
-                let rect = if panel.submenu { menu.submenu_rect } else { menu.main_rect };
-                node.left = px(rect.min.x); node.top = px(rect.min.y); node.width = px(rect.width()); node.height = px(rect.height());
-            }
-        }
+    let mut backdrop = world.query_filtered::<&mut Node, With<FileContextBackdrop>>();
+    for mut node in backdrop.iter_mut(world) {
+        node.display = if visible_menu { Display::Flex } else { Display::None };
     }
     let mut entries = world.query::<(&FileContextEntry, &UiInteraction, &mut Node, &mut BackgroundColor, &mut EditorButtonClick)>();
     for (entry, interaction, mut node, mut background, mut click) in entries.iter_mut(world) {
@@ -154,11 +173,69 @@ pub(super) fn sync(world: &mut World, state: &mut FileManagerState, viewport: Ve
     }
     let mut labels = world.query::<(&FileContextLabel, &mut Text, &mut TextColor)>();
     for (label, mut text, mut color) in labels.iter_mut(world) {
-        color.0 = if enabled(label.0, state) { colors::TEXT_PRIMARY } else { colors::TEXT_MUTED };
+        let wanted_color = if enabled(label.0, state) { colors::TEXT_PRIMARY } else { colors::TEXT_MUTED };
+        if color.0 != wanted_color { color.0 = wanted_color; }
         let wanted = label_text(label.0, english, state.menu.as_ref().is_some_and(|menu| menu.target.is_directory == Some(true)));
         if text.as_str() != wanted { text.0 = wanted.into(); }
     }
-    if let Some(menu) = &mut state.menu { menu.initialized = true; }
+}
+
+pub(super) fn place(
+    mut state: ResMut<FileManagerState>,
+    roots: Query<&ComputedUiRenderTargetInfo, With<crate::components::SceneEditorRoot>>,
+    entries: Query<(&FileContextEntry, &Node)>,
+    labels: Query<(&ChildOf, &ComputedTextBlock), With<FileContextLabel>>,
+    mut panels: Query<(&FileContextPanel, &mut Node, &mut ScrollPosition), Without<FileContextEntry>>,
+) {
+    let suspended = state.suspended || state.prompt.is_some();
+    let mut sizes = [MenuSize::default(), MenuSize::default()];
+    let mut rects = None;
+    if let Some(menu) = state.menu.as_mut().filter(|_| !suspended)
+        && let Ok(target) = roots.single()
+        && target.physical_size().min_element() > 0
+    {
+        // 原文字管线在本帧已经塑形 NoWrap 标签（包括尚未展开的子菜单），无需另测字体或先显示占位宽度。
+        let mut ready = true;
+        for (parent, text) in &labels {
+            let Ok((entry, node)) = entries.get(parent.parent()) else { continue; };
+            if node.display == Display::None { continue; }
+            let buffer = text.buffer();
+            let width = buffer.full_width();
+            if width <= 0. || text.needs_rerender(false, false) {
+                ready = false;
+                break;
+            }
+            let size = &mut sizes[usize::from(entry.submenu)];
+            size.label_width = size.label_width.max(width.ceil() / buffer.scale());
+            size.rows += 1;
+        }
+        if ready && sizes[0].rows > 0 && sizes[1].rows > 0 {
+            for (panel, _, mut scroll) in &mut panels {
+                if !menu.initialized { scroll.y = 0.; }
+                if !panel.submenu { layout(menu, target.logical_size(), &sizes, target.scale_factor(), &mut scroll); }
+            }
+            rects = Some([Some(menu.main_rect), menu.submenu.then_some(menu.submenu_rect)]);
+            menu.initialized = true;
+        }
+    }
+    for (panel, mut node, mut scroll) in &mut panels {
+        let index = usize::from(panel.submenu);
+        if let Some(rect) = rects.and_then(|rects| rects[index]) {
+            let (left, top, width, height) = (px(rect.min.x), px(rect.min.y), px(rect.width()), px(rect.height()));
+            if (node.display, node.left, node.top, node.width, node.height) != (Display::Flex, left, top, width, height) {
+                node.display = Display::Flex;
+                node.left = left;
+                node.top = top;
+                node.width = width;
+                node.height = height;
+            }
+            if panel.submenu {
+                sizes[index].clamp_scroll(&mut scroll, rect.height());
+            }
+        } else if node.display != Display::None {
+            node.display = Display::None;
+        }
+    }
 }
 
 fn label_text(action: FileContextAction, english: bool, directory: bool) -> &'static str {
@@ -184,5 +261,44 @@ fn label_text(action: FileContextAction, english: bool, directory: bool) -> &'st
                 (_, false, _) => "外部打开", (_, true, _) => "Open externally",
             },
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn submenu_uses_its_own_width_and_follows_the_parent_after_scrolling() {
+        let mut menu = FileContextMenu {
+            target: FileManagerContextRequest {
+                position: Vec2::new(480., 190.),
+                directory: Default::default(),
+                sources: vec![],
+                open_directory: Default::default(),
+                is_directory: None,
+            },
+            submenu: true,
+            initialized: false,
+            main_rect: Rect::default(),
+            submenu_rect: Rect::default(),
+        };
+        let sizes = [MenuSize { label_width: 150.5, rows: 16 }, MenuSize { label_width: 81.5, rows: 4 }];
+        let mut scroll = ScrollPosition(Vec2::new(0., 96.));
+        layout(&mut menu, Vec2::new(500., 300.), &sizes, 1.5, &mut scroll);
+
+        assert_eq!(menu.main_rect.width(), 177.);
+        assert_eq!(menu.submenu_rect.width(), 108.);
+        assert_eq!(menu.main_rect.max.x, 496.);
+        assert_eq!(menu.submenu_rect.max.x, menu.main_rect.min.x + PANEL_BORDER);
+        assert_eq!(menu.submenu_rect.min.y, menu.main_rect.min.y + PANEL_INSET + 6. * ROW_HEIGHT - scroll.y);
+
+        scroll.y = 1000.;
+        layout(&mut menu, Vec2::new(130., 240.), &sizes, 1.5, &mut scroll);
+        assert_eq!(menu.main_rect.min.x, 4.);
+        assert_eq!(menu.main_rect.width(), 122.);
+        assert!(menu.submenu_rect.min.x >= 4. && menu.submenu_rect.max.x <= 126.);
+        assert_eq!(scroll.y, 258.);
+        assert!(!menu.submenu, "父项完全滚出菜单后应收起子菜单");
     }
 }

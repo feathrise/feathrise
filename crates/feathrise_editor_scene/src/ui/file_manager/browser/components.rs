@@ -32,7 +32,7 @@ pub(crate) struct ClipExpander {
     pub(crate) row: Entity,
 }
 #[derive(Component)]
-pub(super) struct RowHint;
+pub(crate) struct RowHint;
 #[derive(Component)]
 pub(super) struct ServiceOrigin(pub Entity);
 

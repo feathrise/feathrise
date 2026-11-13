@@ -1,17 +1,17 @@
 //! 浮窗只提交已核验的浏览意图；选择与原属性、参考骨架和唯一中央预览保持相同合同。
 
 use super::super::{
-    components::{FileRow, FileWindowRoot},
+    components::{FileManagerButton, FileRow, FileWindowRoot},
     messages::ExtraRequest,
     resources::FileManagerState,
-    types::ExtraAction,
+    types::{ExtraAction, FileAction},
 };
 use super::{components::*, resources::*, types::*};
 use crate::{
     resources::{EditorAssetCatalog, SceneEditorLayoutState, SceneEditorState},
     ui::{
-        asset_preview::{AssetPreviewFocus, PickProjectAnimationClip, rigging::RigReferenceInput},
-        asset_shortcuts::{AssetShortcuts, AssetVisited},
+        asset_preview::{AssetPreviewFocus, AssetSearchState, PickProjectAnimationClip, rigging::RigReferenceInput},
+        asset_shortcuts::AssetVisited,
         sidebars::SceneEditorSidebarState,
         vegetation_preset_editor::VegetationPresetEditorState,
     },
@@ -60,6 +60,8 @@ pub(super) struct Controls<'w, 's> {
     floating: crate::workbench::WorkbenchFloatingPanels<'w, 's>,
     parents: Query<'w, 's, &'static ChildOf>,
     ime: Option<Res<'w, crate::resources::EditorTextInputGuard>>,
+    file_buttons: Query<'w, 's, (&'static FileManagerButton, &'static EditorButtonClick), Changed<EditorButtonClick>>,
+    inputs: Query<'w, 's, &'static bevy::text::EditableText>,
 }
 
 pub(super) fn control(
@@ -71,7 +73,7 @@ pub(super) fn control(
     focus: Res<InputFocus>,
     mut wheels: MessageReader<MouseWheel>,
     mut clips: MessageWriter<PickProjectAnimationClip>,
-    mut shortcuts: Option<ResMut<AssetShortcuts>>,
+    search_state: Option<Res<AssetSearchState>>,
     mut navigation: MessageReader<BrowserNavigate>,
     mut extras: MessageReader<ExtraRequest>,
 ) {
@@ -116,7 +118,7 @@ pub(super) fn control(
         browsers.popup = None;
     }
     for request in navigation.read() {
-        let Some(window) = files.active_mut(request.window).filter(|window| !window.minimized) else {
+        let Some(window) = files.active_mut(request.window).filter(|window| !window.minimized && !window.is_animation_picker()) else {
             continue;
         };
         let Some(root) = browsers
@@ -157,6 +159,9 @@ pub(super) fn control(
                 recent: false,
             });
             browsers.service_input = true;
+        } else if browsers.search_window().is_some() {
+            // 固定文件栏的右键引用接回唯一搜索表单，不把结果送给仍开着的另一窗。
+            browsers.service = None;
         }
     }
     let focused = files.focused;
@@ -214,8 +219,33 @@ pub(super) fn control(
         browsers.popup = None;
         return;
     }
+    let confirm_button = controls.file_buttons.iter().find_map(|(button, click)| {
+        (button.action == FileAction::ChooseClip && click.is_clicked()
+            && button.window == top_hovered).then_some(button.window).flatten()
+    });
+    let confirm_key = (keys.just_pressed(KeyCode::Enter)
+        && !controls.ime.as_ref().is_some_and(|guard| guard.block_shortcuts)
+        && !focus.get().is_some_and(|entity| controls.inputs.contains(entity))
+        && browsers.popup.is_none()).then_some(focused).flatten();
+    if let Some(window) = confirm_button.or(confirm_key).and_then(|id| files.active(id))
+        .filter(|window| !window.minimized && window.is_animation_picker() && files.focused == Some(window.id)
+            && (foreground.is_none() || top_hovered == Some(window.id)))
+        && let Some((path, clip)) = browsers.picker_clip(window)
+    {
+        let path = path.to_owned();
+        let index = clip.index;
+        let target = window.animation_picker.as_ref().unwrap().target.clone();
+        browsers.clip_intent = Some((path.clone(), index));
+        clips.write(PickProjectAnimationClip { asset_path: path, clip_index: index, target: Some(target) });
+        return;
+    }
     for (entity, button, click) in &controls.buttons {
         if !click.is_clicked() || top_hovered != Some(button.window) {
+            continue;
+        }
+        if files.active(button.window).is_some_and(|window| window.is_animation_picker())
+            && button.action != BrowserAction::View
+        {
             continue;
         }
         match button.action {
@@ -239,6 +269,7 @@ pub(super) fn control(
                 if let Some(window) = files.active_mut(button.window) {
                     window.first = 0;
                     window.last_click = None;
+                    window.thumbnail_wheel = 0.;
                 }
             }
             BrowserAction::Search
@@ -250,12 +281,15 @@ pub(super) fn control(
                     BrowserAction::Search | BrowserAction::Missing
                 );
                 let recent = button.action == BrowserAction::Recent;
-                let close_shortcuts = !search && browsers
-                    .service
-                    .as_ref()
-                    .is_some_and(|host| host.shows_shortcuts(button.window, recent));
+                let close = if search {
+                    browsers.search_window() == Some(button.window)
+                        && search_state.as_ref().is_some_and(|state| state.is_open()
+                            && state.is_missing_assets() == (button.action == BrowserAction::Missing))
+                } else {
+                    browsers.service.as_ref().is_some_and(|host| host.shows_shortcuts(button.window, recent))
+                };
                 browsers.popup = None;
-                browsers.service = if close_shortcuts {
+                browsers.service = if close {
                     browsers.release_window = Some(button.window);
                     None
                 } else {
@@ -265,11 +299,8 @@ pub(super) fn control(
                         recent,
                     })
                 };
-                browsers.service_input = true; // 明确工具按钮本身拥有本帧；原搜索系统随后消费同一点击。
-                browsers.service_pointer = true;
-                if !search && !close_shortcuts && let Some(shortcuts) = shortcuts.as_mut() {
-                    shortcuts.show_section(recent);
-                }
+                browsers.service_input = !close; // 仅打开与切换交给原搜索系统；关闭帧的点击到此结束。
+                browsers.service_pointer = !close;
             }
             BrowserAction::Dismiss => {
                 browsers.release_window = Some(button.window);
@@ -298,6 +329,7 @@ pub(super) fn control(
         else {
             continue;
         };
+        let Some(index) = row.index else { continue; };
         let Some(entry) = row
             .index
             .and_then(|index| session.entries.get(index))
@@ -312,12 +344,17 @@ pub(super) fn control(
         {
             continue;
         }
+        let revision = window.revision;
+        // 箭头只定位当前文件的片段候选，选择窗仍保留原工作模型和属性。
+        if let Some(window) = files.active_mut(row.window).filter(|window| window.is_animation_picker()) {
+            window.select_picker_entry(index);
+        }
         browsers.popup = Some(BrowserPopup {
             window: row.window,
             anchor,
             kind: PopupKind::Clips {
                 path: entry.asset_path.clone(),
-                revision: window.revision,
+                revision,
             },
             first: 0,
         });
@@ -364,12 +401,17 @@ pub(super) fn control(
                         .map(|clip| clip.index)
                         .filter(|index| Some(*index) == choice.clip);
                     if let Some(index) = index {
-                        let path = path.clone();
-                        browsers.clip_intent = Some((path.clone(), index));
-                        clips.write(PickProjectAnimationClip {
-                            asset_path: path,
-                            clip_index: index,
-                        });
+                        if let Some(window) = files.active_mut(open.window).filter(|window| window.is_animation_picker()) {
+                            window.animation_picker.as_mut().unwrap().clip = Some(open.first + choice.slot);
+                        } else {
+                            let path = path.clone();
+                            browsers.clip_intent = Some((path.clone(), index));
+                            clips.write(PickProjectAnimationClip {
+                                asset_path: path,
+                                clip_index: index,
+                                target: None,
+                            });
+                        }
                     }
                 }
             }
@@ -430,7 +472,7 @@ pub(super) fn select(
         }
         let window = files
             .active(row.window)
-            .filter(|window| !window.loading && window.revision == row.revision)?;
+            .filter(|window| !window.loading && !window.is_animation_picker() && window.revision == row.revision)?;
         let session = browsers
             .sessions
             .get(&row.window)
@@ -447,7 +489,8 @@ pub(super) fn select(
         if files.focused != Some(id) || browsers.service_open(id) {
             return None; // 等待期间切窗或打开另一面板，不能用旧定位抢回属性。
         }
-        let window = files.active(id).filter(|window| !window.minimized && !window.loading && window.revision == revision)?;
+        let window = files.active(id).filter(|window| !window.minimized && !window.loading
+            && !window.is_animation_picker() && window.revision == revision)?;
         if !window.selection.contains(&window.entries.get(index)?.path) {
             return None;
         }

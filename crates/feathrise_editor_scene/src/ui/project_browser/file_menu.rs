@@ -7,7 +7,7 @@ use crate::{
         asset_preview::{AssetSearchState, DocumentState},
         asset_shortcuts::{AssetShortcuts, SetAssetFavorite},
         external_files::{ExternalEditors, OpenExternalFile, OpenExternalProjectFile, platform_path},
-        file_manager::{ExtraAction, ExtraRequest, FileManagerState},
+        file_manager::{ExtraAction, ExtraRequest, FileManagerState, browser::BrowserSessions},
     },
     workbench::WorkbenchModel,
 };
@@ -37,6 +37,7 @@ pub(super) fn dispatch(
     mut external: MessageWriter<OpenExternalFile>,
     mut project_external: MessageWriter<OpenExternalProjectFile>,
     mut favorites: MessageWriter<SetAssetFavorite>,
+    browsers: Option<Res<BrowserSessions>>,
 ) {
     let Some(request) = requests.read().last() else { return; };
     let Some(manager) = manager.as_deref_mut() else { return; };
@@ -92,6 +93,8 @@ pub(super) fn dispatch(
                     && let Some(search) = search.as_deref_mut()
                     && let Some(root) = asset_root
                 {
+                    // 同一右键引用也可来自固定栏；先保存相应宿主的开合状态再发布查询。
+                    search.set_floating_host(browsers.as_ref().is_some_and(|browser| browser.search_window().is_some()));
                     search.request_references(relative, root);
                     "等待输入确认后查看直接引用…".into()
                 } else { "请选择当前工程资产目录中的文件以查看引用".into() }

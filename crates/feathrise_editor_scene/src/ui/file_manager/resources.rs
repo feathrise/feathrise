@@ -1,6 +1,7 @@
 //! 桌面文件会话；浏览窗可关闭，文件任务及进程内剪贴板由独立服务持续持有。
 
 use super::types::*;
+use super::messages::OpenAnimationPicker;
 use bevy::prelude::*;
 use feathrise_editor_project_browser_model::file_operations::{ConflictPolicy, FileOperationSnapshot};
 use std::path::PathBuf;
@@ -66,6 +67,7 @@ impl Default for FileManagerState {
 
 impl FileManagerState {
     pub(crate) fn service_context(&self) -> u64 { self.context }
+    #[cfg(any(test, feature = "validation"))]
     pub(crate) fn context_menu_open(&self) -> bool { self.menu.is_some() }
     pub(crate) fn owns_mouse(&self) -> bool { self.hovered || self.gesture.is_some() || self.drag.as_ref().is_some_and(|drag| drag.dragging) || self.prompt.is_some() || self.menu.is_some() || self.release_guard }
     pub(crate) fn owns_keyboard(&self) -> bool { self.focused.is_some() || self.prompt.is_some() || self.menu.is_some() || self.release_guard }
@@ -79,7 +81,29 @@ impl FileManagerState {
         }
     }
     pub(super) fn open(&mut self, path: PathBuf) {
-        if self.windows.len() >= 8 { self.notice = "最多同时打开 8 个文件窗口，请先关闭一个窗口".into(); return; }
+        if self.windows.iter().filter(|window| !window.is_animation_picker()).count() >= 8 {
+            self.notice = "最多同时打开 8 个文件窗口，请先关闭一个窗口".into();
+            return;
+        }
+        self.open_window(path, None);
+    }
+    pub(super) fn open_animation_picker(&mut self, request: &OpenAnimationPicker) {
+        if request.context != self.context || self.suspended || self.prompt.is_some() || self.menu.is_some() {
+            return;
+        }
+        if let Some(window) = self.windows.iter().find(|window| window.is_animation_picker()) {
+            let id = window.id;
+            if window.animation_picker.as_ref().is_some_and(|picker| picker.target == request.target) {
+                self.active_mut(id).unwrap().minimized = false;
+                self.raise(id);
+                return;
+            }
+            self.close(id);
+        }
+        let picker = AnimationPicker { target: request.target.clone(), clip: None };
+        self.open_window(request.directory.clone(), Some(picker));
+    }
+    fn open_window(&mut self, path: PathBuf, animation_picker: Option<AnimationPicker>) {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1).max(1);
         let size = Vec2::new(690., 460.).min(self.movement_bounds.size());
@@ -87,8 +111,37 @@ impl FileManagerState {
         let rect = clamp_rect(Rect::from_corners(self.bounds.min + Vec2::splat(offset), self.bounds.min + Vec2::splat(offset) + size), self.movement_bounds);
         self.windows.push(FileWindow { id, path: path.clone(), requested_path: path.clone(), rect, restored_rect: rect,
             minimized: false, maximized: false, entries: Default::default(), selection: Default::default(), history: vec![path], history_index: 0,
-            first: 0, loading: true, error: None, filter: String::new(), revision: 1, scanned_revision: 0, anchor: None, last_click: None });
+            first: 0, thumbnail_wheel: 0., loading: true, error: None, filter: String::new(), revision: 1,
+            animation_picker, scanned_revision: 0, anchor: None, last_click: None });
         self.focused = Some(id);
+    }
+    pub(super) fn close(&mut self, id: u64) {
+        if let Some(index) = self.windows.iter().position(|window| window.id == id) {
+            let window = self.windows.remove(index);
+            bevy::tasks::IoTaskPool::get().spawn(async move { drop(window); }).detach();
+        }
+        if self.focused == Some(id) {
+            self.focused = self.windows.iter().rev().find(|window| !window.minimized).map(|window| window.id);
+        }
+        if self.gesture.as_ref().is_some_and(|gesture| gesture.window == id) {
+            self.gesture = None;
+        }
+    }
+    pub(crate) fn finish_animation_picker(&mut self, target: &ProjectMotionTarget) {
+        if let Some(id) = self.animation_picker_id(|current| current == target) {
+            self.close(id);
+            self.release_guard = true;
+        }
+    }
+    pub(crate) fn close_stale_animation_picker(&mut self, valid: impl Fn(&ProjectMotionTarget) -> bool) {
+        if let Some(id) = self.animation_picker_id(|current| !valid(current)) {
+            self.close(id);
+        }
+    }
+    fn animation_picker_id(&self, matches: impl Fn(&ProjectMotionTarget) -> bool) -> Option<u64> {
+        self.windows.iter().find_map(|window| {
+            window.animation_picker.as_ref().filter(|picker| matches(&picker.target)).map(|_| window.id)
+        })
     }
     pub(super) fn allow_directory(&mut self, path: PathBuf) {
         // 只接收扫描已成功的目录。访问父级后收拢已覆盖子根，避免搬走子目录后留下过期授权。

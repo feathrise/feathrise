@@ -77,7 +77,11 @@ pub(super) fn control(
     mut title_click: Local<Option<(u64, f64)>>,
     browser: Option<Res<super::browser::BrowserSessions>>,
 ) {
-    let wheel_delta: f32 = wheels.read().map(|wheel| match wheel.unit { MouseScrollUnit::Line => -wheel.y * 3., MouseScrollUnit::Pixel => -wheel.y / 26. }).sum();
+    let (wheel_lines, wheel_pixels) = wheels.read().fold((0., 0.), |(lines, pixels), wheel| match wheel.unit {
+        MouseScrollUnit::Line => (lines - wheel.y, pixels),
+        MouseScrollUnit::Pixel => (lines, pixels - wheel.y),
+    });
+    let wheel_delta = wheel_lines * 3. + wheel_pixels / 26.;
     if !gate.available() {
         state.suspended = true;
         state.gesture = None; state.drag = None; state.focused = None;
@@ -119,11 +123,10 @@ pub(super) fn control(
         if !ime_blocked && keys.just_pressed(KeyCode::Enter) && !composing { requests.write(FileManagerCommand { action: FileAction::Confirm, path: None, sources: vec![] }); }
         return;
     }
-    let viewport = controls.roots.single().map_or(Vec2::new(1280., 800.), |node| node.size() * inverse);
     let mut opened_menu = false;
     for target in contexts.read() {
         if foreground.is_some() || target.directory.as_os_str().is_empty() { continue; }
-        super::context_menu::open(&mut state, target.clone(), viewport);
+        super::context_menu::open(&mut state, target.clone());
         state.focused = None;
         focus.clear();
         opened_menu = true;
@@ -194,13 +197,13 @@ pub(super) fn control(
         if let (Some(id), Some(position)) = (top, point) {
             let over_list = controls.lists.iter().any(|(list, cursor)| list.window == id && cursor.cursor_over());
             if over_list && !service_open(id) {
-                if let Some(window) = state.active_mut(id).filter(|window| !window.loading) {
+                if let Some(window) = state.active_mut(id).filter(|window| !window.loading && !window.is_animation_picker()) {
                     let index = controls.rows.iter().find_map(|(row, cursor, _, _)| {
                         if row.window != id || !cursor.cursor_over() || row.revision != window.revision { return None; }
                         row.index.filter(|index| window.entries.get(*index).is_some_and(|entry| row.path.as_ref() == Some(&entry.path)))
                     });
                     let target = super::context_menu::target_for_window(window, index, position);
-                    super::context_menu::open(&mut state, target, viewport);
+                    super::context_menu::open(&mut state, target);
                     focus.clear();
                     return;
                 }
@@ -218,7 +221,7 @@ pub(super) fn control(
         if let Some(id) = button.window {
             if top != Some(id) { continue; }
             handle_action(&mut state, id, button.action, &mut requests);
-            if matches!(button.action, FileAction::Minimize | FileAction::Close) { focus.clear(); }
+            if matches!(button.action, FileAction::Minimize | FileAction::Close | FileAction::CancelPicker) { focus.clear(); }
         } else if over_taskbar && !matches!(button.action, FileAction::Confirm | FileAction::Cancel) {
             requests.write(FileManagerCommand { action: button.action, path: Some(fixed.directory.clone()), sources: fixed.selected.clone() });
         }
@@ -242,11 +245,13 @@ pub(super) fn control(
                 }
             }
         }
-        if wheel_delta != 0. && !service_open(id) {
+        if (wheel_lines != 0. || wheel_pixels != 0.) && !service_open(id) {
             if let Some(window) = state.active_mut(id) {
-                let capacity = browser.as_ref().map_or_else(|| window.visible_capacity(), |browser| browser.capacity(window));
-                let maximum = window.entries.len().saturating_sub(capacity);
-                window.first = ((window.first as f32 + wheel_delta).max(0.) as usize).min(maximum);
+                if let Some(grid) = browser.as_ref().and_then(|browser| browser.thumbnail_grid(window)) {
+                    grid.scroll(window, wheel_lines, wheel_pixels);
+                } else {
+                    window.first = window.clamp_list_first((window.first as f32 + wheel_delta).max(0.) as usize);
+                }
                 window.last_click = None;
             }
         }
@@ -274,6 +279,20 @@ pub(super) fn control(
         let Some(window) = state.active_mut(row.window).filter(|window| !window.loading && window.revision == row.revision) else { continue; };
         let Some(index) = row.index else { continue; };
         let Some(entry) = window.entries.get(index).filter(|entry| row.path.as_ref() == Some(&entry.path)).cloned() else { continue; };
+        // 选择窗只维护本地单选，拖动、双击文件和修饰键都不能接管原模型属性或整理文件。
+        if window.is_animation_picker() {
+            if mouse.just_pressed(MouseButton::Left) || click.is_clicked() {
+                window.select_picker_entry(index);
+                focus.clear();
+            }
+            if click.is_clicked() {
+                let double = window.last_click.as_ref().is_some_and(|(old, seconds)|
+                    old == &entry.path && time.elapsed_secs_f64() - seconds <= 0.4);
+                window.last_click = if double { None } else { Some((entry.path.clone(), time.elapsed_secs_f64())) };
+                if double && entry.directory { window.navigate(entry.path, true); }
+            }
+            continue;
+        }
         if mouse.just_pressed(MouseButton::Left) {
             if shift {
                 let anchor = window.anchor.unwrap_or(index);
@@ -308,7 +327,7 @@ pub(super) fn control(
     }
     let destination = top.and_then(|id| {
         if service_open(id) { return None; }
-        let window = state.active(id).filter(|window| !window.loading)?;
+        let window = state.active(id).filter(|window| !window.loading && !window.is_animation_picker())?;
         controls.rows.iter().find_map(|(row, cursor, _, _)| {
             if row.window != id || !cursor.cursor_over() || row.revision != window.revision { return None; }
             window.entries.get(row.index?)
@@ -334,7 +353,15 @@ pub(super) fn control(
             } else { state.notice = "请拖到一个文件窗口或左侧文件目录；未移动任何文件".into(); }
         }
     }
-    if !ime_blocked && keys.just_pressed(KeyCode::Escape) { state.drag = None; state.gesture = None; focus.clear(); }
+    if !ime_blocked && keys.just_pressed(KeyCode::Escape) {
+        if let Some(id) = state.focused.filter(|id| state.active(*id).is_some_and(|window| window.is_animation_picker()))
+            && !service_open(id) && state.gesture.is_none()
+        {
+            state.close(id);
+            state.release_guard = true;
+        }
+        state.drag = None; state.gesture = None; focus.clear();
+    }
     let editing = controls.inputs.iter().any(|(entity, _, _, _)| focus.get() == Some(entity));
     for (entity, path, search, input) in &controls.inputs {
         if input.is_composing() || !input.pending_edits.is_empty() || input.pending_paste.is_some() { continue; }
@@ -374,7 +401,7 @@ pub(super) fn control(
             else { None };
         if let Some(action) = action { handle_action(&mut state, id, action, &mut requests); }
         if control && keys.just_pressed(KeyCode::KeyA) {
-            if let Some(window) = state.active_mut(id).filter(|window| !window.loading) {
+            if let Some(window) = state.active_mut(id).filter(|window| !window.loading && !window.is_animation_picker()) {
                 window.selection = window.entries.iter().take(4096).map(|entry| entry.path.clone()).collect();
                 if window.entries.len() > 4096 { state.notice = "本次已选择前 4096 项；请按文件夹分批整理".into(); }
             }
@@ -384,13 +411,9 @@ pub(super) fn control(
 
 fn handle_action(state: &mut FileManagerState, id: u64, action: FileAction, requests: &mut MessageWriter<FileManagerCommand>) {
     let bounds = state.bounds;
-    if action == FileAction::Close {
-        if let Some(index) = state.windows.iter().position(|window| window.id == id) {
-            let window = state.windows.remove(index);
-            bevy::tasks::IoTaskPool::get().spawn(async move { drop(window); }).detach();
-        }
-        state.focused = state.windows.iter().rev().find(|window| !window.minimized).map(|window| window.id);
-        state.gesture = None; return;
+    if matches!(action, FileAction::Close | FileAction::CancelPicker) {
+        state.close(id);
+        return;
     }
     let Some(window) = state.active_mut(id) else { return; };
     match action {
@@ -404,9 +427,10 @@ fn handle_action(state: &mut FileManagerState, id: u64, action: FileAction, requ
         FileAction::Forward => { if window.history_index + 1 < window.history.len() { window.history_index += 1; window.navigate(window.history[window.history_index].clone(), false); } }
         FileAction::Up => { if let Some(parent) = window.path.parent() { let parent = parent.to_path_buf(); window.navigate(parent, true); } }
         FileAction::Refresh => window.refresh(),
-        _ if !window.loading => {
+        _ if !window.loading && !window.is_animation_picker() => {
             requests.write(FileManagerCommand { action, path: Some(window.path.clone()), sources: window.selection.iter().cloned().collect() });
         }
-        _ => { state.notice = "请等待当前目录加载完成".into(); }
+        _ if window.loading => { state.notice = "请等待当前目录加载完成".into(); }
+        _ => {}
     }
 }

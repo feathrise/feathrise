@@ -10,7 +10,7 @@ mod types;
 
 pub(crate) use components::{BrowserButton, BrowserNavigate};
 #[cfg(feature = "validation")]
-pub(crate) use components::{BrowserChoice, BrowserOverlay, ClipExpander};
+pub(crate) use components::{BrowserChoice, BrowserOverlay, ClipExpander, RowHint};
 #[cfg(feature = "validation")]
 pub(crate) use types::BrowserAction;
 pub(crate) use resources::BrowserSessions;
@@ -23,7 +23,7 @@ pub(crate) struct BrowserInput;
 
 pub(super) fn install(app: &mut App) {
     app.init_resource::<BrowserSessions>().add_message::<BrowserNavigate>()
-        .add_systems(Update, (control::control, control::select, services::scroll).chain()
+        .add_systems(Update, (services::yield_to_sidebar, control::control, control::select, services::scroll).chain()
             .after(super::FileManagerInput)
             .before(crate::ui::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)
             .in_set(BrowserInput).in_set(crate::SceneEditorSystemSet::Input))

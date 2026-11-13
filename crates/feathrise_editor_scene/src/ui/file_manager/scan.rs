@@ -14,7 +14,7 @@ use bevy::{
     tasks::{IoTaskPool, futures::check_ready},
 };
 use feathrise_editor_project_browser_model::{
-    DirectoryFilters, DirectoryOperations, DirectoryQuery, DirectoryWorker, FolderScope,
+    AssetTypeFilter, DirectoryFilters, DirectoryOperations, DirectoryQuery, DirectoryWorker, FolderScope,
 };
 use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
@@ -55,7 +55,11 @@ pub(super) fn start(
         let session = browsers
             .sessions
             .entry(window.id)
-            .or_insert_with(|| BrowserSession::new(view));
+            .or_insert_with(|| {
+                let mut session = BrowserSession::new(view);
+                if window.is_animation_picker() { session.kind = AssetTypeFilter::Animation; }
+                session
+            });
         session.worker.ensure(*operations);
         let revealing = session.reveal.as_ref().is_some_and(|(revision, _)| *revision == window.revision);
         if session.worker.take_changed() && !revealing {
@@ -86,14 +90,17 @@ pub(super) fn start(
             kind: session.kind,
             filename: window.filter.clone(),
         };
+        let assets_only = window.is_animation_picker();
+        let picker_root = window.animation_picker.as_ref().map(|picker| picker.target.asset_root.clone());
         let context = state.context;
         let project = state.project.clone();
-        let asset_root = browsers.asset_root.clone();
+        let asset_root = picker_root
+            .or_else(|| browsers.asset_root.clone());
         browsers.tasks.push((
             id,
             IoTaskPool::get().spawn(async move {
                 let result = directory(
-                    &requested, project, asset_root, worker, context, filters, selection, reveal.as_deref(),
+                    &requested, project, asset_root, worker, context, filters, selection, reveal.as_deref(), assets_only,
                 );
                 BrowserScan {
                     window: id,
@@ -134,6 +141,7 @@ pub(super) fn poll(
         let focused = state.focused == Some(result.window);
         let visible = !state.suspended;
         let window = state.active_mut(result.window).unwrap();
+        let picker = window.is_animation_picker();
         window.loading = false;
         let session = browsers.sessions.get_mut(&result.window);
         match result.result {
@@ -141,7 +149,7 @@ pub(super) fn poll(
                 let Some(session) = session else { continue; };
                 session.reveal = None;
                 // 只记录真正进入并成功采用的资产子目录，目录刷新与单文件定位不会生成重复目录访问。
-                if visible && !window.minimized && (session.applied == 0 || window.path != result.requested)
+                if visible && !picker && !window.minimized && (session.applied == 0 || window.path != result.requested)
                     && snapshot.reveal_index.is_none()
                     && let (Some(path), Some(visits)) = (snapshot.asset_folder, visits.as_mut())
                 {
@@ -167,7 +175,7 @@ pub(super) fn poll(
                         drop((old_files, old_entries, old_animations));
                     })
                     .detach();
-                state.allow_directory(result.requested);
+                if !picker { state.allow_directory(result.requested); }
             }
             Err(error) => {
                 if let Some(session) = session { session.reveal = None; }
@@ -187,6 +195,7 @@ fn directory(
     filters: DirectoryFilters,
     selection: BTreeSet<PathBuf>,
     reveal: Option<&str>,
+    assets_only: bool,
 ) -> Result<BrowserSnapshot, String> {
     if !path.is_absolute() {
         return Err("目录地址必须为绝对路径".into());
@@ -202,6 +211,9 @@ fn directory(
     let assets = asset_root
         .as_ref()
         .is_some_and(|root| requested.starts_with(root));
+    if assets_only && !assets {
+        return Err("请选择当前工程资产目录内的动作文件".into());
+    }
     if reveal.is_some() && !assets {
         return Err("定位目标所在目录不属于当前工程资产根".into());
     }

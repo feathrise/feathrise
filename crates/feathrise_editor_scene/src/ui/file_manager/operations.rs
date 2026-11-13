@@ -16,6 +16,7 @@ pub(super) fn control(
     project: Option<Res<EditorProjectFileCatalog>>,
     service: Option<Res<FileOperationService>>,
     mut open: MessageReader<OpenFileWindow>,
+    mut pickers: MessageReader<OpenAnimationPicker>,
     mut requests: MessageReader<FileManagerCommand>,
     inputs: Query<&EditableText, With<super::components::FileNameInput>>,
     documents: Option<Res<DocumentState>>,
@@ -52,6 +53,7 @@ pub(super) fn control(
         }
     }
     for request in open.read() { state.open(request.path.clone()); }
+    for request in pickers.read() { state.open_animation_picker(request); }
     if let Some(prompt) = &mut state.prompt {
         if prompt.initialized && prompt.action != FileAction::Delete {
             if let Ok(input) = inputs.single() {
