@@ -143,10 +143,12 @@ pub(super) fn input(
     {
         state.active = false;
     }
-    if gate.blocked(&editor) || all_inputs.iter().any(busy) {
+    let central_input = !gate.blocked(&editor);
+    let floating_form = gate.file_window_search_input(&editor);
+    if (!central_input && !floating_form) || all_inputs.iter().any(busy) {
         return;
     }
-    if sidebar.assets_browser_visible() && search.open {
+    if (sidebar.assets_browser_visible() || floating_form) && search.open {
         for (_, field) in &fields {
             if field.value() != state.replacement.as_str() {
                 state.replacement = field.value().to_string();
@@ -157,7 +159,8 @@ pub(super) fn input(
     let mut actions: Vec<_> = buttons
         .iter()
         .filter_map(|(action, interaction)| {
-            (interaction.is_clicked()).then_some(*action)
+            // 搜索表单移进浮窗时仍可打开差异预览。应用、保存及历史操作只在中央预览取得输入时执行。
+            (interaction.is_clicked() && (central_input || *action == ReplaceAction::Open)).then_some(*action)
         })
         .collect();
     let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
@@ -169,14 +172,14 @@ pub(super) fn input(
     if focus.get().is_some_and(|entity| fields.contains(entity))
         && keys.just_pressed(KeyCode::Enter)
     {
-        actions.push(if state.preview_visible() {
+        actions.push(if central_input && state.preview_visible() {
             ReplaceAction::Generate
         } else {
             ReplaceAction::Open
         });
         keys.clear_just_pressed(KeyCode::Enter);
     }
-    if state.preview_visible() && keys.just_pressed(KeyCode::Escape) {
+    if central_input && state.preview_visible() && keys.just_pressed(KeyCode::Escape) {
         actions.push(ReplaceAction::Close);
         keys.clear_just_pressed(KeyCode::Escape);
     }

@@ -2,6 +2,8 @@
 
 mod components;
 mod filter;
+mod file_manager_bridge;
+mod file_menu;
 mod input;
 pub(crate) mod navigation;
 mod popup;
@@ -49,6 +51,15 @@ pub(crate) fn install(app: &mut App) {
         .init_resource::<ProjectBrowserPopup>()
         .init_resource::<ProjectFileViewport>()
         .init_resource::<project_files::EditorProjectFileCatalog>()
+        .add_message::<crate::ui::file_manager::FileManagerCommand>()
+        .add_systems(Update, (file_manager_bridge::sync_fixed_selection, file_manager_bridge::fixed_shortcuts).chain()
+            .before(crate::ui::file_manager::FileManagerInput)
+            .in_set(SceneEditorSystemSet::Input))
+        .add_systems(Update, file_manager_bridge::refresh_fixed_after_operation
+            .before(ProjectBrowserTaskSet).in_set(SceneEditorSystemSet::Tasks))
+        .add_systems(Update, file_menu::dispatch
+            .after(crate::ui::file_manager::FileManagerInput)
+            .in_set(SceneEditorSystemSet::Input))
         .add_systems(Update, navigation::asset_root_up
             .after(crate::ui::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)
             .before(crate::ui::actions::handle_editor_action_buttons)

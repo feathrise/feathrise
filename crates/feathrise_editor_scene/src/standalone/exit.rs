@@ -11,6 +11,10 @@ fn any<T: Resource>(world: &World, check: impl FnOnce(&T) -> bool) -> bool {
 ///
 /// 拒绝退出时由宿主把原因回显到原状态栏；作者继续用原保存及原标签关闭确认收口。
 pub fn exit_blocker(world: &World) -> Option<String> {
+    // 浏览窗可以随时关闭，但进程退出必须等后台复制、移动和回收真实结束。
+    if any::<feathrise_editor_project_browser_model::file_operations::FileOperationService>(world, |service| service.is_busy()) {
+        return Some("文件整理任务仍在处理中，请等待完成或在文件任务栏取消后退出".into());
+    }
     let pending = "作者事务尚未完成，已保留编辑器，请等待完成或先结束当前编辑再关闭窗口";
     if any::<resources::SceneEditorState>(world, |state| {
         state.save_requested || state.scene_transition_in_progress

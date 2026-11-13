@@ -7,6 +7,9 @@ pub(crate) mod asset_context_menu; // 工程与资产行右键复制真实路径
 pub(crate) mod asset_shortcuts; // 项目内资产收藏和最近访问，不保存作者内容。
 pub(crate) mod asset_preview; // 右侧资产行选择后的二维纹理与独立GLB/GLTF离屏预览。
 pub(crate) mod project_browser; // 同一浏览入口的资产与工程文件视图，原资产业务保持独立。
+pub(crate) mod file_manager; // 编辑器桌面的独立文件窗口，共用受检后台整理任务。
+#[cfg(feature = "validation")]
+pub(crate) mod file_manager_validation;
 pub(crate) mod continuous_list; // 单外层滚动的完整高度、可见首行与固定窗口池几何。
 pub(crate) mod asset_thumbnails; // 列表/缩略图切换、当前页静态截图与有界缓存。
 pub(crate) mod brush_controls; // 视口参数区的公共数值控件与原笔刷业务桥。

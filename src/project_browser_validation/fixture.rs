@@ -11,7 +11,7 @@ const FILES: &[&str] = &[MOTIONS, STATIC, HERO, "swatch.png", "beep.wav", "sampl
 const MODEL_JOINTS: usize = 49;
 const MOTION_NODES: usize = 66;
 
-pub(super) fn prepare(assets: &Path) -> Result<BTreeMap<String, String>, String> {
+pub(crate) fn prepare(assets: &Path) -> Result<BTreeMap<String, String>, String> {
     for folder in ["roles/nested", "roles/empty", "empty/deeper"] {
         fs::create_dir_all(assets.join(folder)).map_err(|error| error.to_string())?;
     }
@@ -28,7 +28,7 @@ pub(super) fn prepare(assets: &Path) -> Result<BTreeMap<String, String>, String>
     fingerprints(assets)
 }
 
-pub(super) fn fingerprints(assets: &Path) -> Result<BTreeMap<String, String>, String> {
+pub(crate) fn fingerprints(assets: &Path) -> Result<BTreeMap<String, String>, String> {
     FILES.iter().map(|name| {
         let bytes = fs::read(assets.join(name)).map_err(|error| error.to_string())?;
         Ok(((*name).into(), sha256(&bytes)))

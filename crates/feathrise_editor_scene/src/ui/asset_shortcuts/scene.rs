@@ -85,6 +85,7 @@ fn section(section: Section, title: &str, action: ShortcutAction, label: &str) -
 
 pub(crate) fn panel() -> impl Scene {
     bsn! {
+        ShortcutRoot
         Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, flex_shrink: 0.0, row_gap: px(2) }
         Children [
             @section(Section::Favorites, "收藏", ShortcutAction::Refresh, "检查路径")--

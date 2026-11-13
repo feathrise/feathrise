@@ -13,11 +13,16 @@ mod jobs;
 mod presentation;
 mod render;
 mod resources;
+mod shared;
 mod types;
 
 pub(crate) use presentation::{spawn_thumbnail_nodes, grid_layout};
 pub(crate) use constants::{TILE_HEIGHT, TILE_GAP};
+pub(crate) use shared::{SharedThumbnailDemand, SharedThumbnails};
 pub(in crate::ui) use components::ViewModeButton;
+
+#[derive(SystemSet, Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub(crate) struct SharedDemandSet;
 
 /// 读取已完成 GPU 烘焙且实际显示在目标卡片上的新图，避免用旧占位图作为验收证据。
 #[cfg(feature = "validation")]
@@ -39,9 +44,21 @@ pub(in crate::ui) fn validation_visible_thumbnail(world: &World, row: Entity, pa
     })
 }
 
+/// 共享缓存只在原串行烘焙完成后发布；文件窗验收还会核对同一Handle实际挂到该行。
+#[cfg(feature = "validation")]
+pub(crate) fn validation_cached_thumbnail(world: &World, path: &str) -> Option<(Handle<Image>, u64, UVec2)> {
+    let state = world.get_resource::<resources::ThumbnailState>()?;
+    let cached = state.cache.get(path)?;
+    let source = cached.source.as_ref().ok()?;
+    let types::ThumbnailResult::Ready(handle) = &cached.result else { return None; };
+    let texture = world.get_resource::<Assets<Image>>()?.get(handle)?.texture_descriptor.size;
+    Some((handle.clone(), source.primary.length, UVec2::new(texture.width, texture.height)))
+}
+
 pub(crate) fn install(app: &mut App) {
     super::asset_preview::compatible_texture::install(app); // 独立缩略图夹具与正式编辑器使用相同私有加载器。
     app.init_resource::<resources::ThumbnailState>()
+        .init_resource::<SharedThumbnailDemand>()
         .add_systems(
             Update,
             demand::control_view_mode
@@ -59,6 +76,7 @@ pub(crate) fn install(app: &mut App) {
                 jobs::retire_nodes,
             )
                 .chain()
+                .in_set(SharedDemandSet)
                 .after(crate::asset_catalog::poll_asset_scan)
                 .in_set(SceneEditorSystemSet::Tasks),
         )
@@ -87,6 +105,7 @@ mod tests;
 #[cfg(test)]
 pub(crate) fn install_presentation_test(app: &mut App) {
     app.init_resource::<resources::ThumbnailState>()
+        .init_resource::<SharedThumbnailDemand>()
         .add_systems(
             Update,
             presentation::sync_presentation

@@ -1014,6 +1014,7 @@ build_environment.lib_search	未在检查到的 MSVC／Windows SDK 库目录找�
 sidebar.scenes	场景	Scenes
 sidebar.scene_tree	场景树	Scene Tree
 sidebar.project	工程	Project
+sidebar.files	文件	Files
 sidebar.mesh	网格	Mesh
 sidebar.interact	交互	Interact
 sidebar.world	环境	World

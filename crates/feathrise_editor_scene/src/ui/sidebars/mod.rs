@@ -81,7 +81,7 @@ pub fn sidebar_tab_button(label: &str, tab: EditorSidebarTab) -> impl Scene {
     let copy = match tab {
         EditorSidebarTab::Navigator(EditorNavigatorTab::Scenes) => LocalizedText::new("sidebar.scenes"),
         EditorSidebarTab::Navigator(EditorNavigatorTab::SceneTree) => LocalizedText::new("sidebar.scene_tree"),
-        EditorSidebarTab::Navigator(EditorNavigatorTab::Assets) => LocalizedText::new("sidebar.project"),
+        EditorSidebarTab::Navigator(EditorNavigatorTab::Assets) => LocalizedText::new("sidebar.files"),
         EditorSidebarTab::Left(EditorLeftSidebarTab::Meshes) => LocalizedText::new("sidebar.mesh"),
         EditorSidebarTab::Left(EditorLeftSidebarTab::Gameplay) => LocalizedText::new("sidebar.interact"),
         EditorSidebarTab::Left(EditorLeftSidebarTab::Environment) => LocalizedText::new("sidebar.world"),

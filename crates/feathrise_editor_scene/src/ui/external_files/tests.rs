@@ -32,6 +32,7 @@ fn external_open_rejects_absolute_parent_missing_and_accepts_real_file_and_folde
     let fixture = Fixture::new();
     assert!(launcher::checked_path(&fixture.0, "中文 空格/配置.json").unwrap().is_file());
     assert!(launcher::checked_path(&fixture.0, "中文 空格").unwrap().is_dir());
+    assert_eq!(launcher::checked_path(&fixture.0, ".").unwrap(), fixture.0.canonicalize().unwrap());
     for path in ["", "../outside.json", "missing.json"] {
         assert!(launcher::checked_path(&fixture.0, path).is_err());
     }

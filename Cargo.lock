@@ -3466,8 +3466,12 @@ dependencies = [
  "feathrise_editor_documents_model",
  "feathrise_editor_project_browser_model",
  "feathrise_scene_content",
+ "gltf",
+ "libc",
  "notify",
  "serde_json",
+ "windows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

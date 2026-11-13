@@ -16,11 +16,17 @@ pub(crate) fn track_floating_panel_pointer(
     panels: WorkbenchFloatingPanels,
     host_panels: Query<(), With<WorkbenchFloatingPanel>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    file_input: (Option<Res<super::file_manager::FileManagerState>>, Option<Res<ButtonInput<KeyCode>>>),
     mut guard: ResMut<SceneEditorNumericScrubMouseGuard>,
 ) {
     guard.floating_panel_hovered = panels.hovered().is_some_and(|entity| host_panels.contains(entity));
     if guard.floating_panel_hovered && mouse.get_just_pressed().next().is_some() {
         guard.advance(true, false, false); // 只为从面板开始的手势延续到松键和静默帧。
+    }
+    // 场景目录的Delete早于Update总鼠标门；文件键盘焦点必须在PreUpdate先隔离同一键盘边沿。
+    if file_input.0.as_ref().zip(file_input.1.as_ref()).is_some_and(|(manager, keys)|
+        manager.owns_keyboard() && (keys.get_pressed().next().is_some() || keys.get_just_released().next().is_some())) {
+        guard.advance(true, false, false);
     }
 }
 
@@ -33,7 +39,7 @@ pub(crate) fn update_scene_editor_numeric_scrub_mouse_guard(
     minimap: Option<Res<super::asset_preview::DocumentMinimapState>>,
     water_preview: Option<Res<WaterPresetLivePreviewNavigation>>, // 独立测试可不安装水体预览插件。
     asset_menu: (Option<Res<AssetContextMenuState>>, Option<Res<super::scene_context_menu::SceneContextMenuState>>, Option<Res<super::scene_sidebar::SceneDirectoryMenuState>>, Option<Res<super::project_browser::ProjectBrowserPopup>>), // 目录、场景和资产菜单共用关闭点击及松键帧隔离。
-    tab_menu: Option<Res<super::asset_preview::AssetTabMenuState>>, // 文件标签菜单与关闭帧共用同一释放门。
+    tab_menu: (Option<Res<super::asset_preview::AssetTabMenuState>>, Option<Res<super::file_manager::FileManagerState>>, Option<Res<ButtonInput<KeyCode>>>), // 文件标签菜单、桌面文件手势与键盘焦点共用释放门。
     layout: Option<Res<SceneEditorLayoutState>>, // 分隔条与布局按钮不能把同次点击穿透到刚移动的场景画布。
     settings: Option<Res<crate::resources::SceneEditorSettingsState>>,
     editor: Option<Res<SceneEditorState>>,
@@ -88,7 +94,10 @@ pub(crate) fn update_scene_editor_numeric_scrub_mouse_guard(
             || asset_menu.1.as_ref().is_some_and(|menu| menu.owns_mouse())
             || asset_menu.2.as_ref().is_some_and(|menu| menu.owns_mouse())
             || asset_menu.3.as_ref().is_some_and(|menu| menu.owns_mouse())
-            || tab_menu.as_ref().is_some_and(|menu| menu.owns_mouse())
+            || tab_menu.0.as_ref().is_some_and(|menu| menu.owns_mouse())
+            || tab_menu.1.as_ref().is_some_and(|manager| manager.owns_mouse()
+                || manager.owns_keyboard() && tab_menu.2.as_ref().is_some_and(|keys|
+                    keys.get_pressed().next().is_some() || keys.get_just_released().next().is_some())) // 键盘焦点隔离快捷键，空闲指针离开浮窗后仍可滚动其他区域。
             || layout
                 .as_ref()
                 .is_some_and(|layout| layout.owns_mouse_this_frame || layout.drag.is_some())
@@ -177,6 +186,30 @@ mod tests {
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
         app.update();
         assert!(!blocked(&app), "静默帧后恢复浮窗外的场景输入");
+    }
+
+    #[test]
+    fn file_keyboard_focus_blocks_key_edges_without_holding_external_mouse_idle() {
+        let mut app = App::new();
+        app.init_resource::<ActiveNumericInputScrub>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<SceneEditorNumericScrubMouseGuard>()
+            .init_resource::<crate::ui::file_manager::FileManagerState>()
+            .add_systems(PreUpdate, track_floating_panel_pointer)
+            .add_systems(Update, update_scene_editor_numeric_scrub_mouse_guard);
+        app.world_mut().resource_mut::<crate::ui::file_manager::FileManagerState>().focused = Some(1);
+        app.update();
+        assert!(!app.world().resource::<SceneEditorNumericScrubMouseGuard>().blocked(), "文件焦点空闲时不能阻断窗口外滚轮");
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Delete);
+        app.update();
+        assert!(app.world().resource::<SceneEditorNumericScrubMouseGuard>().blocked(), "文件Delete不能同时删除场景对象");
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().release(KeyCode::Delete);
+        app.update();
+        assert!(app.world().resource::<SceneEditorNumericScrubMouseGuard>().blocked());
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear();
+        app.update();
+        assert!(!app.world().resource::<SceneEditorNumericScrubMouseGuard>().blocked());
     }
 
     #[test]

@@ -24,6 +24,7 @@ use crate::{asset_catalog::project_files::EditorProjectFileCatalog, ui::project_
 /// 所有资格都只读；复制结果单独写入状态栏，避免ECS资源访问冲突。
 #[derive(SystemParam)] // 主输入系统只管理一个菜单资源。
 pub(super) struct MenuInputContext<'w, 's> {
+    managed_files: Option<Res<'w, crate::ui::file_manager::FileManagerState>>,
     editor: Res<'w, SceneEditorState>,      // F12开关、场景身份与新建弹框。
     catalog: Res<'w, EditorAssetCatalog>, // 当前目录的一条O(1)索引。
     viewport: crate::ui::rows::AssetViewport<'w, 's>, // 滚轮已变化但表现尚未换绑时拒绝旧行。
@@ -67,6 +68,12 @@ pub(super) fn control_menu(
     mut search: Option<ResMut<crate::ui::asset_preview::AssetSearchState>>,
     mut favorites: Option<ResMut<Messages<crate::ui::asset_shortcuts::SetAssetFavorite>>>,
 ) {
+    if context.managed_files.is_some() {
+        // 固定栏与活动窗口采用同一文件右键层；路径复制与外部打开仍复用下方原业务消息。
+        menu.target = None;
+        menu.captured_this_frame = false;
+        return;
+    }
     let had_menu = menu.target.is_some(); // 关闭帧也必须独占这一次鼠标操作。
     if menu.captured_this_frame != had_menu {
         menu.captured_this_frame = had_menu; // 稳定帧不触发Changed或UI重排。

@@ -35,6 +35,7 @@ pub(super) fn install(app: &mut App) {
     replacement::install(app);
     app.init_resource::<AssetSearchState>()
         .add_systems(Update, (control::input, control::scroll).chain()
+            .after(crate::ui::file_manager::browser::BrowserInput)
             .after(crate::scene_browser::handle_scene_browser_input)
             .after(super::super::AssetTabMenuInputSet)
             .before(crate::ui::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)

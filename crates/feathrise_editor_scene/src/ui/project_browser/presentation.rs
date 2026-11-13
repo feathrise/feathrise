@@ -72,6 +72,7 @@ pub(super) fn views(
 pub(super) fn files(
     catalog: Res<EditorProjectFileCatalog>,
     state: Res<ProjectBrowserState>,
+    fixed: Option<Res<crate::ui::file_manager::FixedFileSelection>>,
     locale: Option<Res<EditorLocale>>,
     window: Res<ProjectFileViewport>,
     asset_server: Res<AssetServer>,
@@ -98,7 +99,10 @@ pub(super) fn files(
         let Some(entry) = entry else { continue; };
         let top = px(index as f32 * window::ROW_PITCH);
         if node.top != top { node.top = top; }
-        let selected = !entry.is_directory && catalog.selected_file.as_ref().is_some_and(|selected| selected.relative_path == entry.asset_path);
+        let selected = fixed.as_ref().filter(|fixed| !fixed.asset_view && !fixed.directory.as_os_str().is_empty())
+            .zip(catalog.project_root()).filter(|(fixed, root)| fixed.directory == root.join(&catalog.current_folder))
+            .map(|(fixed, root)| fixed.selected.contains(&root.join(&entry.asset_path)))
+            .unwrap_or_else(|| !entry.is_directory && catalog.selected_file.as_ref().is_some_and(|selected| selected.relative_path == entry.asset_path));
         background.set_if_neq(BackgroundColor(match (*interaction, selected) {
             (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
             (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,

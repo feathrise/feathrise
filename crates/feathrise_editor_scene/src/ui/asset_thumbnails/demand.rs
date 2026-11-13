@@ -59,6 +59,7 @@ pub(super) fn sync_demand(
     browser: Option<Res<crate::ui::project_browser::ProjectBrowserState>>,
     time: Res<Time<Real>>,
     mut state: ResMut<ThumbnailState>,
+    shared: Option<Res<super::SharedThumbnailDemand>>,
 ) {
     let enabled = editor.open
         && !editor.close_requested
@@ -69,8 +70,10 @@ pub(super) fn sync_demand(
         && catalog.requested_revision == catalog.applied_revision && viewport.is_current(&catalog);
     let start = catalog.visible_start;
     let count = catalog.visible_count;
-    let identity = enabled.then(|| WindowKey {
-        folder: catalog.current_folder.clone(),
+    let shared_items = shared.as_ref().map(|shared| shared.items.as_slice()).unwrap_or(&[]);
+    let identity = (enabled || !shared_items.is_empty()).then(|| WindowKey {
+        folder: if shared_items.is_empty() { catalog.current_folder.clone() }
+            else { format!("<files:{}>{}", shared.as_ref().unwrap().revision, catalog.current_folder) },
         start, count,
         revision: catalog.applied_revision,
     });
@@ -89,11 +92,15 @@ pub(super) fn sync_demand(
                 .skip(start)
                 .take(count)
                 .filter(|entry| {
-                    !entry.is_directory
+                    enabled && !entry.is_directory
                         && matches!(entry.kind, SceneAssetKind::Scene | SceneAssetKind::Texture)
                 })
                 .map(|entry| entry.asset_path.clone())
                 .collect();
+            for (path, _) in shared_items {
+                if state.paths.len() >= CACHE_CAPACITY { break; }
+                if !state.paths.contains(path) { state.paths.push(path.clone()); }
+            }
             if refresh {
                 let paths = state.paths.clone();
                 for path in paths {
@@ -132,12 +139,12 @@ pub(super) fn sync_demand(
     {
         return;
     }
-    let inputs = catalog
+    let mut inputs: Vec<_> = catalog
         .entries
         .iter()
         .skip(start)
         .take(count)
-        .filter(|entry| state.paths.contains(&entry.asset_path))
+        .filter(|entry| enabled && state.paths.contains(&entry.asset_path))
         .map(|entry| InspectionInput {
             path: entry.asset_path.clone(),
             kind: entry.kind,
@@ -148,6 +155,12 @@ pub(super) fn sync_demand(
                 .cloned(),
         })
         .collect();
+    for (path, kind) in shared_items {
+        if state.paths.contains(path) && !inputs.iter().any(|input| &input.path == path) {
+            inputs.push(InspectionInput { path: path.clone(), kind: *kind,
+                previous: state.cache.get(path).and_then(|entry| entry.source.as_ref().ok()).cloned() });
+        }
+    }
     let root = feathrise_editor_core::workspace_asset_root(); // 缩略图检查与AssetServer加载必须读取同一工程。
     let epoch = state.epoch;
     state.inspection =

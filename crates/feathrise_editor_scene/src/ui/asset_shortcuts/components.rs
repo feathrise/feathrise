@@ -4,6 +4,9 @@ use super::types::{Section, ShortcutTarget};
 use bevy::prelude::*;
 
 #[derive(Component, Clone, Default)]
+pub(crate) struct ShortcutRoot;
+
+#[derive(Component, Clone, Default)]
 pub(crate) struct ShortcutList(pub(super) Section);
 #[derive(Component, Clone, Default)]
 pub(super) struct ShortcutCount(pub(super) Section);

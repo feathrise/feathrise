@@ -37,10 +37,12 @@ pub(super) fn pick_project_animation(
     preview: Res<super::super::AssetPreviewState>,
     mut animation: ResMut<AnimationEditorState>,
     mut rig_preview: MessageWriter<PreviewRigAnimation>,
+    files: Option<Res<crate::ui::file_manager::browser::BrowserSessions>>,
 ) {
     let Some(pick) = picks.read().last() else { return; };
     let context = contexts.p0();
-    if !context.can_pick_project_animation() || state.owns_mouse() || text.block_shortcuts {
+    let file_window = files.as_ref().is_some_and(|files| files.accepts_clip(&pick.asset_path, pick.clip_index));
+    if !context.can_pick_project_animation(file_window) || state.owns_mouse() || text.block_shortcuts {
         return;
     }
     let root = context.asset_root().to_path_buf();

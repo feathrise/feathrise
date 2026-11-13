@@ -14,6 +14,7 @@ pub(crate) struct AssetSearchState {
     pub(super) query: String,
     pub(super) filter: String,
     pub(super) current_folder: bool,
+    pub(super) host_folder: Option<String>, // 浮窗服务使用其目录；左栏和后台搜索仍共享唯一结果槽。
     pub(super) case_sensitive: bool,
     pub(super) whole_word: bool,
     pub(super) preferred_editor: Option<ExternalEditor>, // 本进程保留用户选择；切查询不改变偏好，也不写项目设置。
@@ -40,6 +41,7 @@ impl Default for AssetSearchState {
             query: String::new(),
             filter: String::new(),
             current_folder: false,
+            host_folder: None,
             case_sensitive: true,
             whole_word: false,
             preferred_editor: None,
@@ -62,6 +64,12 @@ impl Default for AssetSearchState {
 }
 
 impl AssetSearchState {
+    pub(crate) fn is_open(&self) -> bool { self.open }
+    #[cfg(feature = "validation")]
+    pub(crate) fn validation_result(&self) -> Option<(usize, Vec<String>)> {
+        let result = self.current()?;
+        Some((result.hits, result.files.iter().map(|file| file.path.clone()).collect()))
+    }
     pub(in super::super) fn selected_editor(&self, available: &ExternalEditors) -> Option<ExternalEditor> {
         // 先用用户选择；入口被卸载时回退到仍可用的IDE，不能让旧缓存绕过安装门。
         self.preferred_editor.filter(|editor| available.installed(*editor))

@@ -273,7 +273,7 @@ pub(crate) fn left_sidebar(scenes: &feathrise_editor_documents_model::DocumentSc
                         Children [
                             @sidebar_tab_button("场景", EditorSidebarTab::Navigator(EditorNavigatorTab::Scenes))--
                             @sidebar_tab_button("场景树", EditorSidebarTab::Navigator(EditorNavigatorTab::SceneTree))--
-                            @sidebar_tab_button("工程", EditorSidebarTab::Navigator(EditorNavigatorTab::Assets))
+                            @sidebar_tab_button("文件", EditorSidebarTab::Navigator(EditorNavigatorTab::Assets))
                         ]
 
                 ]

@@ -1,6 +1,6 @@
 //! 工程目录真实窗口专项入口。父进程独占新工程与证据目录，子进程只在通过归属核验后安装驱动。
 
-mod fixture;
+pub(crate) mod fixture;
 
 use crate::{build_process::{self, BuildControl}, project::Project};
 use serde_json::{Value, json};

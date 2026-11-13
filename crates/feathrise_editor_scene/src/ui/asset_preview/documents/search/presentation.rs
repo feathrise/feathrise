@@ -201,7 +201,7 @@ pub(super) fn sync(
             SearchLabel::Scope => locale.format(
                 "asset.search.scope.recursive",
                 &[("folder", if state.current_folder {
-                    catalog.current_folder.as_str()
+                    state.host_folder.as_deref().unwrap_or(&catalog.current_folder)
                 } else {
                     ""
                 }.into())],

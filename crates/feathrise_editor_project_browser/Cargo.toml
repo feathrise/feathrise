@@ -14,3 +14,13 @@ feathrise_editor_project_browser_model = { workspace = true }
 feathrise_scene_content = { workspace = true }
 serde_json = { workspace = true }
 notify = "=8.2.0" # 目录变更使用现有原生文件事件版本；只通知原后台扫描，无帧内文件访问。
+
+[dev-dependencies]
+gltf = { version = "=1.4.1", default-features = false } # 用已锁定真实解析器校验新建GLB的落盘字节。
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] } # 回收站删除使用系统可恢复事务，不降级为永久删除。
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] } # 同卷发布使用不覆盖目标的MoveFileW。
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.191" # Unix使用内核无覆盖rename，保持与Windows相同的同名竞态保护。

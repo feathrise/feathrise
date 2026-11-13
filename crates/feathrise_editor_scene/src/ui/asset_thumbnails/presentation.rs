@@ -121,6 +121,7 @@ pub(super) fn sync_presentation(
     locale: Option<Res<EditorLocale>>,
     catalog: Res<EditorAssetCatalog>,
     editor: Res<SceneEditorState>,
+    fixed: Option<Res<crate::ui::file_manager::FixedFileSelection>>,
     reference: crate::ui::asset_preview::rigging::RigReferenceRows,
     state: Res<ThumbnailState>,
     mut pools: Query<
@@ -275,7 +276,9 @@ pub(super) fn sync_presentation(
         if *node != target {
             *node = target;
         }
-        let selected = selected_path == Some(entry.asset_path.as_str());
+        let selected = fixed.as_ref().filter(|_| !reference.active())
+            .and_then(|fixed| fixed.asset_row_selected(&entry.asset_path))
+            .unwrap_or(selected_path == Some(entry.asset_path.as_str()));
         let target_border = BorderColor::all(if selected || *interaction != UiInteraction::None {
             colors::COPPER_BORDER
         } else {
