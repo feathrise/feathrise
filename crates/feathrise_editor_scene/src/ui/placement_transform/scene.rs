@@ -225,6 +225,34 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
                     @crate::ui::context_help::section_header("碰撞", "参数立方体使用盒碰撞；点边面编辑后的网格使用实际三角碰撞。按钮选中表示开启；隐藏或删除对象时暂停，恢复后按原开启状态生效。")--
                     @action_button("碰撞", PlacementTransformAction::ToggleCuboidCollision, false)
                 ]
+            --
+                ~{PlacementPropertiesSection::DisplayLod}
+                Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
+                Children [
+                    @crate::ui::context_help::section_header("显示 LOD", "显示按屏幕误差自动近密远疏。继承全局读取设置中的默认策略；保持原始停止简化；自定义只覆盖本对象。全局关闭时对象自定义也暂停。静态网格支持简化，骨骼和形态目标保持原始。")--
+                    Node { width: percent(100), column_gap: px(3), flex_shrink: 0.0 }
+                    Children [
+                        @action_button("继承全局", PlacementTransformAction::DisplayLodInherit, false)--
+                        @action_button("保持原始", PlacementTransformAction::DisplayLodOriginal, false)--
+                        @action_button("自定义", PlacementTransformAction::DisplayLodCustom, false)
+                    ]--
+                    @numeric_input_slot(PlacementTransformField::LodScreenError)--
+                    @numeric_input_slot(PlacementTransformField::LodHysteresis)
+                ]
+            --
+                ~{PlacementPropertiesSection::CollisionLod}
+                Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
+                Children [
+                    @crate::ui::context_help::section_header("碰撞 LOD", "碰撞精度独立于显示和相机，安全近区至少32米。保持原始只停止减面，不关闭碰撞；自定义也受全局碰撞LOD开关约束，默认关闭简化。盒碰撞、建筑专用碰撞等安全形状保持原实现。")--
+                    Node { width: percent(100), column_gap: px(3), flex_shrink: 0.0 }
+                    Children [
+                        @action_button("继承全局", PlacementTransformAction::CollisionLodInherit, false)--
+                        @action_button("保持原始", PlacementTransformAction::CollisionLodOriginal, false)--
+                        @action_button("自定义", PlacementTransformAction::CollisionLodCustom, false)
+                    ]--
+                    @numeric_input_slot(PlacementTransformField::LodSafeNear)--
+                    @numeric_input_slot(PlacementTransformField::LodCollisionError)
+                ]
 
         ]
     }

@@ -524,6 +524,32 @@ fn verify_scene_tools(root: &Path, game: &Value, proof: &Value) -> Result<(), St
 }
 
 fn verify_placement(observed: &Value, proof: &Value) -> Result<(), String> {
+    if !proof["chunk_lod"].is_null() {
+        let chunks = &proof["chunk_lod"];
+        if chunks["complete"] != true || chunks["undo_exact"] != true || chunks["redo_exact"] != true
+            || chunks["lod_properties_ui"] != true || chunks["lod_undo_exact"] != true
+            || chunks["lod_redo_exact"] != true || chunks["lod_original_restored"] != true
+            || chunks["lod_fields_visible"] != true
+            || !chunks["mixed_levels"].as_array().is_some_and(|levels|
+                levels.iter().any(|level| level == 0) && levels.iter().any(|level| level.as_u64().is_some_and(|level| level > 0))) {
+            return Err(format!("分块LOD缺少真实混合显示或原建模历史证据：{chunks}"));
+        }
+        let assets = PathBuf::from(proof["source_asset_root"].as_str().ok_or("分块LOD缺少自有资产根")?)
+            .canonicalize().map_err(|error| error.to_string())?;
+        let relative = chunks["placements_path"].as_str().ok_or("分块LOD没有冻结摆放源")?;
+        let path = assets.join(relative).canonicalize().map_err(|error| error.to_string())?;
+        if !path.starts_with(&assets) { return Err("分块LOD摆放源越出自有工程".into()); }
+        let saved = feathrise_scene_content::read_scene_placements(&fs::read(path).map_err(|error| error.to_string())?, relative)?;
+        let expected: feathrise_scene_content::ScenePlacementRecord = serde_json::from_value(chunks["saved_record"].clone())
+            .map_err(|error| error.to_string())?;
+        if saved.placements.iter().find(|record| record.id == expected.id) != Some(&expected) {
+            return Err("原保存未保留完整细分作者网格或LOD策略".into());
+        }
+        if let Some(records) = observed["current_author_document"]["placements"].as_array()
+            && !records.iter().any(|record| record == &chunks["saved_record"]) {
+            return Err("新进程作者重开未恢复完整细分网格".into());
+        }
+    }
     let id = proof["new_placement_id"]
         .as_str()
         .filter(|id| !id.is_empty())

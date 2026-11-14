@@ -1144,6 +1144,9 @@ mesh.lod.collision	碰撞 LOD	Collision LOD
 mesh.lod.display_policy	显示简化：{mode}	Render Simplification: {mode}
 mesh.lod.collision_policy	碰撞简化：{mode}	Collision Simplification: {mode}
 mesh.lod.original	保持原始	Keep Original
+mesh.lod.custom	自定义	Custom
+mesh.lod.help.placement_display	显示按屏幕误差自动近密远疏。继承全局读取设置中的默认策略；保持原始停止简化；自定义只覆盖本对象。全局关闭时对象自定义也暂停。静态网格支持简化，骨骼和形态目标保持原始。	Render detail follows screen-space error. Inherit uses the global settings; Keep Original stops simplification; Custom overrides this object. The global toggle also gates overrides. Static meshes support simplification; skinned meshes and morph targets keep their original geometry.
+mesh.lod.help.placement_collision	碰撞精度独立于显示和相机，安全近区至少32米。保持原始只停止减面，不关闭碰撞；自定义也受全局碰撞LOD开关约束，默认关闭简化。盒碰撞、建筑专用碰撞等安全形状保持原实现。	Collision detail is independent of rendering and cameras, with a safety radius of at least 32 m. Keep Original stops simplification and retains collision. Custom is also gated by the global collision LOD toggle, which defaults to off. Boxes and dedicated building colliders keep their existing shapes.
 mesh.lod.minimum	至少保留一层	Keep at Least One Level
 mesh.lod.remove	删除 LOD{level}	Delete LOD {level}
 mesh.lod.help.generic	显示简化与碰撞简化分别设置。保持原始不会隐藏网格或移除碰撞；全局总开关关闭时独立参数也暂停简化。	Render and collision simplification are configured separately. Keep Original retains the mesh and collision. Turning off global simplification also pauses per-mesh settings.

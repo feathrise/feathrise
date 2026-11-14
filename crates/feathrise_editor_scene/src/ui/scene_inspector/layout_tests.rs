@@ -122,7 +122,7 @@ fn inspector_reflow_keeps_numeric_entities_specs_values_and_active_buffer() {
     let world = app.world_mut();
     let fields = world.query_filtered::<(Entity, &NumericInputConfig, &NumericInputValue), With<NumericInputRoot>>()
         .iter(world).map(|(entity, config, value)| (entity, *config, *value)).collect::<Vec<_>>();
-    assert_eq!(fields.len(), 20); // 七个变换、四个洞口、七个立方体和两个网格水字段均保持唯一输入树。
+    assert_eq!(fields.len(), 24); // 原20个输入加上独立显示/碰撞LOD四字段，隐藏时也保留实体身份。
     let active = world
         .query::<(Entity, &PlacementTransformField)>()
         .iter(world)
@@ -162,7 +162,7 @@ fn inspector_reflow_keeps_numeric_entities_specs_values_and_active_buffer() {
                     let computed = world.get::<ComputedNode>(*entity).unwrap();
                     if world
                         .get::<PlacementTransformField>(*entity)
-                        .is_some_and(|field| field.is_cutout() || field.is_cuboid())
+                        .is_some_and(|field| field.is_cutout() || field.is_cuboid() || field.is_lod())
                     {
                         assert_eq!(computed.size(), Vec2::ZERO); // 普通GLB的洞口及内置形状字段保留身份，但不占布局。
                     } else {
@@ -211,7 +211,7 @@ fn inspector_reflow_keeps_numeric_entities_specs_values_and_active_buffer() {
                         .query_filtered::<Entity, With<NumericInputRoot>>()
                         .iter(world)
                         .count(),
-                    20
+                    24
                 );
             }
         }

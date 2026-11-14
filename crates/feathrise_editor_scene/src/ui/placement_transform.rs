@@ -5,6 +5,7 @@
 
 mod actions; // 高度模式、复制、删除及运行时根定向同步。
 mod cuboid; // 内置立方体的米制尺寸、材质和盒碰撞，复用完整记录事务。
+mod lod; // 普通摆放网格的显示/碰撞策略及自定义精度，写回同一作者记录。
 mod numeric_input; // 七个专业数字框的精确提交、单次拖动撤销和灵敏度持久化。
 mod relocation; // “吸附地面”的真实三角落点、撤销提交与纯语义回归。
 mod scene; // 右栏紧凑水墨铜边属性面板与固定数值槽。
@@ -59,15 +60,24 @@ pub(crate) enum PlacementTransformField {
     CuboidColorG,
     CuboidColorB,
     CuboidRoughness,
+    LodScreenError,
+    LodHysteresis,
+    LodSafeNear,
+    LodCollisionError,
 }
 
 impl PlacementTransformField {
+    pub(super) const fn is_lod(self) -> bool {
+        matches!(self, Self::LodScreenError | Self::LodHysteresis | Self::LodSafeNear | Self::LodCollisionError)
+    }
     pub(super) const fn is_cuboid(self) -> bool {
         matches!(self, Self::CuboidSizeX | Self::CuboidSizeY | Self::CuboidSizeZ
             | Self::CuboidColorR | Self::CuboidColorG | Self::CuboidColorB | Self::CuboidRoughness)
     }
     pub(super) fn supported_by(self, record: &ScenePlacementRecord) -> bool {
-        if matches!(self, Self::CuboidSizeX | Self::CuboidSizeY | Self::CuboidSizeZ) {
+        if self.is_lod() {
+            lod::field_supported(self, record)
+        } else if matches!(self, Self::CuboidSizeX | Self::CuboidSizeY | Self::CuboidSizeZ) {
             matches!(record.asset_target, feathrise_scene_content::ScenePlacementAssetTarget::Cuboid { .. })
         } else { !self.is_cuboid() || record.asset_target.is_builtin() }
     } // 顶点编辑后的网格仍可改材质，但不能用长宽高输入覆盖已变形的共享顶点。
@@ -108,6 +118,10 @@ impl PlacementTransformField {
             Self::CuboidColorG => "颜色 G",
             Self::CuboidColorB => "颜色 B",
             Self::CuboidRoughness => "粗糙度",
+            Self::LodScreenError => "屏幕误差",
+            Self::LodHysteresis => "切换迟滞",
+            Self::LodSafeNear => "安全近区",
+            Self::LodCollisionError => "碰撞误差",
         }
     }
 
@@ -118,6 +132,8 @@ impl PlacementTransformField {
             Self::ScaleX | Self::ScaleY | Self::ScaleZ => "×", // 缩放是无量纲倍率。
             Self::CuboidColorR | Self::CuboidColorG | Self::CuboidColorB => "",
             Self::CuboidRoughness => "",
+            Self::LodScreenError => "px",
+            Self::LodHysteresis => "比例",
             _ => "m",
         }
     }
@@ -126,6 +142,7 @@ impl PlacementTransformField {
         match self {
             Self::Yaw => 1, // 角度显示十分之一度。
             Self::CuboidColorR | Self::CuboidColorG | Self::CuboidColorB => 0,
+            Self::LodCollisionError => 4, // 必须能编辑共享合同允许的0.0001米，不能被三位小数舍入成零。
             _ => 3,         // 位置和缩放保留三位小数。
         }
     }
@@ -157,6 +174,10 @@ impl PlacementTransformField {
             Self::CuboidSizeX | Self::CuboidSizeY | Self::CuboidSizeZ => (0.001, 10_000.0),
             Self::CuboidColorR | Self::CuboidColorG | Self::CuboidColorB => (0.0, 255.0),
             Self::CuboidRoughness => (0.0, 1.0),
+            Self::LodScreenError => (0.1, 16.0),
+            Self::LodHysteresis => (0.0, 0.5),
+            Self::LodSafeNear => (32.0, 4096.0),
+            Self::LodCollisionError => (0.0001, 0.25),
             _ => (TRANSLATION_Y_MIN, TRANSLATION_Y_MAX),
         }
     }
@@ -170,6 +191,10 @@ impl PlacementTransformField {
                 Self::Yaw => ROTATION_STEP, // 角度吸附到十分之一度。
                 Self::ScaleX | Self::ScaleY | Self::ScaleZ => SCALE_STEP, // 缩放吸附到千分之一。
                 Self::CuboidColorR | Self::CuboidColorG | Self::CuboidColorB => 1.0,
+                Self::LodScreenError => 0.1,
+                Self::LodHysteresis => 0.01,
+                Self::LodSafeNear => 1.0,
+                Self::LodCollisionError => 0.0001,
                 _ => TRANSLATION_STEP,      // 平移吸附到毫米。
             }))
             .with_wrap(self == Self::Yaw) // 360度与0度使用周期语义。
@@ -208,6 +233,10 @@ impl PlacementTransformField {
             Self::CuboidRoughness => {
                 NumericInputScrubConfig::linear(0.005, 0.001, minimum, maximum, sensitivity)
             }
+            Self::LodScreenError => NumericInputScrubConfig::linear(0.05, 0.1, minimum, maximum, sensitivity),
+            Self::LodHysteresis => NumericInputScrubConfig::linear(0.005, 0.01, minimum, maximum, sensitivity),
+            Self::LodSafeNear => NumericInputScrubConfig::linear(1.0, 1.0, minimum, maximum, sensitivity),
+            Self::LodCollisionError => NumericInputScrubConfig::linear(0.0001, 0.0001, minimum, maximum, sensitivity),
             _ => NumericInputScrubConfig::linear(
                 TRANSLATION_UNITS_PER_PIXEL, // 固定米/像素映射。
                 TRANSLATION_STEP,            // 毫米吸附。
@@ -219,6 +248,7 @@ impl PlacementTransformField {
     }
 
     pub(super) fn value(self, record: &ScenePlacementRecord) -> f32 {
+        if self.is_lod() { return lod::field_value(self, record); }
         if self.is_cuboid() {
             return cuboid::field_value(self, record).unwrap_or_default();
         }
@@ -244,6 +274,7 @@ impl PlacementTransformField {
     }
 
     pub(super) fn set_value(self, record: &mut ScenePlacementRecord, value: f32) -> bool {
+        if self.is_lod() { return lod::set_field_value(self, record, value); }
         if self.is_cuboid() {
             return cuboid::set_field_value(self, record, value);
         }
@@ -295,6 +326,8 @@ pub(crate) enum PlacementPropertiesSection {
     Geometry,
     Material,
     Collision,
+    DisplayLod,
+    CollisionLod,
 }
 
 /// 尺寸行连同轴标签一起按生成器能力显隐，外部网格不保留空白尺寸行。
@@ -306,6 +339,7 @@ impl PlacementPropertiesSection {
         match self {
             Self::Transform | Self::Geometry => true,
             Self::Material | Self::Collision => record.asset_target.is_builtin(),
+            Self::DisplayLod | Self::CollisionLod => record.terrain_patch.is_none(),
         } // 外部资产继续使用自己的材质和碰撞来源，不出现无法写回的立方体控件。
     }
 }
@@ -331,6 +365,12 @@ pub(crate) enum PlacementTransformAction {
     ToggleTerrainPatch,  // 普通GLB与静态三维地形之间切换，开启时固定当前世界高度。
     ToggleTerrainCutout, // 一条记录内的可撤销矩形开口，不建立独立孤立洞口实体。
     ToggleCuboidCollision, // 内置立方体的简单盒碰撞与外观参数一起持久化。
+    DisplayLodInherit,
+    DisplayLodOriginal,
+    DisplayLodCustom,
+    CollisionLodInherit,
+    CollisionLodOriginal,
+    CollisionLodCustom,
 }
 
 /// 下一次中央视口落点对应移动现有记录，还是延迟创建建筑副本。

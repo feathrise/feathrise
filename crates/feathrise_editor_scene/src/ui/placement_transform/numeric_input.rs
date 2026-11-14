@@ -154,8 +154,9 @@ fn validate_record(
     record: &ScenePlacementRecord,       // 已修改的候选完整记录。
     target: &PlacementTransformTarget, // 诊断和场景身份。
     session: &EditorAuthoringSession,  // 当前清单世界范围。
+    field: PlacementTransformField, // 建筑仅允许独立LOD参数，不放开占地与地基约束的姿态字段。
 ) -> Result<Rect, String> {
-    if record.building_preset_id.is_some() {
+    if record.building_preset_id.is_some() && !field.is_lod() {
         return Err("建筑变换必须使用“吸附地面”或“建筑旋转90°”并通过后台校验".to_owned()); // 七个普通字段不能绕过占地、门口和五点地基规则。
     }
     let draft = session
@@ -176,11 +177,14 @@ fn set_field_value_with_height_mode(
     sampler: Option<&PlacementTerrainSampler>, // 跟随模式的位置字段必须读取当前地形高度。
 ) -> Result<bool, String> {
     let before = record.clone(); // 小型完整记录保证任一采样失败都能原子恢复。
+    if field.is_lod() && !field.supported_by(record) {
+        return Err("当前LOD策略不是自定义，已拒绝隐藏字段的旧输入".into());
+    }
     if !field.set_value(record, value) {
         return Ok(false); // 同一吸附档不更新偏移或世界根。
     }
-    if field.is_cuboid() {
-        return Ok(true); // 形状和材质不改变原点，不能为尺寸输入重采样高度或改变独立缩放。
+    if field.is_cuboid() || field.is_lod() {
+        return Ok(true); // 形状、材质与LOD不改变原点，不采样高度或改写地形绑定。
     }
     let result = if record.height_mode.follows_terrain() {
         match sampler {
@@ -240,11 +244,11 @@ fn apply_exact_value(
         .filter(|record| record.id == target.placement_id)
         .cloned()
         .ok_or_else(|| "精确输入绑定的资产记录已经失效".to_owned())?; // 边沿克隆唯一完整起点。
-    if before.building_preset_id.is_some() {
+    if before.building_preset_id.is_some() && !field.is_lod() {
         return Err("建筑数值变换已禁用；请使用受检移动或90°旋转按钮".to_owned());
     }
     let mut after = before.clone(); // 候选先在局部值中修改，失败不污染草稿。
-    let sampler = if !field.is_cuboid() && (after.height_mode.follows_terrain() || after.terrain_binding.is_some()) {
+    let sampler = if !field.is_cuboid() && !field.is_lod() && (after.height_mode.follows_terrain() || after.terrain_binding.is_some()) {
         let draft = session
             .draft
             .as_ref()
@@ -261,7 +265,7 @@ fn apply_exact_value(
     if !set_field_value_with_height_mode(field, &mut after, value, sampler.as_ref())? {
         return Ok(None); // 显式重输同值不制造历史或dirty。
     }
-    let bounds = validate_record(&after, target, session)?; // 公共完整变换校验先于任何作者写入。
+    let bounds = validate_record(&after, target, session, field)?; // 公共完整变换校验先于任何作者写入。
     {
         let record = session
             .draft
@@ -333,7 +337,7 @@ fn restore_scrub_value(
             .filter(|record| record.id == transaction.target.placement_id)
             .ok_or("拖动恢复时资产记录已经失效")?;
         let bounds = crate::authoring::placement_record_bounds(draft, current)?;
-        let follows_terrain = !transaction.field.is_cuboid() && draft
+        let follows_terrain = !transaction.field.is_cuboid() && !transaction.field.is_lod() && draft
             .placements
             .placements
             .get(transaction.target.record_index)
@@ -570,11 +574,11 @@ pub(crate) fn handle_placement_transform_numeric_input(
                 .placements
                 .get(target.record_index)
                 .filter(|record| record.id == target.placement_id)
-                .is_some_and(|record| record.building_preset_id.is_some())
+                .is_some_and(|record| record.building_preset_id.is_some()) && !field.is_lod()
             {
                 return Err("建筑数值拖动已禁用；请使用受检移动或90°旋转按钮".to_owned());
             }
-            let follows_terrain = !field.is_cuboid() && draft
+            let follows_terrain = !field.is_cuboid() && !field.is_lod() && draft
                 .placements
                 .placements
                 .get(target.record_index)

@@ -135,7 +135,10 @@ fn sync_placement_record_world_impl(
     if record.building_preset_id.is_some() {
         let mut updated = 0;
         root_index.for_each_active_root(&draft_scene_id, &record.id, roots, |entity| {
-            commands.entity(entity).insert((transform, visibility));
+            // 建筑复用正式碰撞根；只更新LOD元数据，保留原批次的采用/退役门，避免退役后仍冒充活动根。
+            let instance = roots.get(entity).expect("活动根索引已经复核实例").1
+                .with_author_preview_mesh_lod_policy(record.mesh_lod).expect("完整记录已经校验LOD策略");
+            commands.entity(entity).insert((transform, visibility, instance));
             updated += 1;
         });
         if updated > 0 { return Ok(updated); }
@@ -230,6 +233,16 @@ pub(crate) fn handle_placement_transform_actions(
     };
     let is_building = record.building_preset_id.is_some(); // 建筑禁用普通任意变换路径。
     match action {
+        PlacementTransformAction::DisplayLodInherit | PlacementTransformAction::DisplayLodOriginal
+        | PlacementTransformAction::DisplayLodCustom | PlacementTransformAction::CollisionLodInherit
+        | PlacementTransformAction::CollisionLodOriginal | PlacementTransformAction::CollisionLodCustom => {
+            if let Err(error) = super::lod::apply(action, &target, record, &mut commands, &asset_server,
+                &mut session, &root_index, &roots, &mut editor, &terrain_context.0) {
+                editor.status = format!("网格LOD设置失败：{error}");
+            }
+            transform_state.focus = None;
+            transform_state.relocation_target = None;
+        }
         PlacementTransformAction::ToggleCuboidCollision => {
             if let Err(error) = super::cuboid::toggle_collision(
                 &target, record, &mut commands, &asset_server, &mut session,

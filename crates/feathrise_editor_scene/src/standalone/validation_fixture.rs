@@ -7,6 +7,8 @@ mod scene_tools;
 mod geometry_unification;
 #[path = "validation_fixture_model_surfaces/mod.rs"]
 mod model_surfaces;
+#[path = "chunk_lod_validation.rs"]
+mod chunk_lod;
 #[cfg(test)]
 #[path = "validation_fixture_tests.rs"]
 mod tests;
@@ -140,12 +142,14 @@ pub struct SavedEditProof {
     pub model_surfaces: Option<serde_json::Value>,
     pub geometry_unification: Option<GeometryUnificationProof>,
     pub author_tools: Option<AuthorWorkflowProof>,
+    pub chunk_lod: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Idle,
     Creating,
+    ChunkLod,
     ModelSurfaces,
     GeometryUnification,
     SceneTools,
@@ -256,6 +260,7 @@ pub fn request_edit_and_save(world: &mut World, scene_id: &str) -> Result<(), St
         model_surfaces: None,
         geometry_unification: None,
         author_tools: None,
+        chunk_lod: None,
     });
     Ok(())
 }
@@ -440,8 +445,13 @@ fn drive(world: &mut World) {
                     let id = record.id.clone();
                     let revision = session.revision;
                     let proof = fixture.proof.as_mut().unwrap();
-                    proof.new_placement_id = Some(id);
+                    proof.new_placement_id = Some(id.clone());
                     proof.author_revision_after = revision;
+                    match chunk_lod::begin(world, &id) {
+                        Ok(true) => { fixture.phase = Phase::ChunkLod; return; }
+                        Ok(false) => {}
+                        Err(error) => { fail(&mut fixture, error); return; }
+                    }
                     match model_surfaces::begin(world) {
                         Ok(true) => fixture.phase = Phase::ModelSurfaces,
                         Ok(false) => begin_geometry_unification(world, &mut fixture),
@@ -458,6 +468,21 @@ fn drive(world: &mut World) {
                             fixture.proof.as_mut().unwrap().model_surfaces = Some(proof);
                             world.resource_mut::<crate::ui::gltf_browser::EditorGltfBrowserState>().clear_viewport_selection();
                             begin_geometry_unification(world, &mut fixture);
+                        }
+                        Err(error) => fail(&mut fixture, error),
+                    }
+                }
+            }
+            Phase::ChunkLod => {
+                if let Some(result) = chunk_lod::advance(world) {
+                    match result {
+                        Ok(proof) => {
+                            fixture.proof.as_mut().unwrap().chunk_lod = Some(proof);
+                            match model_surfaces::begin(world) {
+                                Ok(true) => fixture.phase = Phase::ModelSurfaces,
+                                Ok(false) => begin_geometry_unification(world, &mut fixture),
+                                Err(error) => fail(&mut fixture, error),
+                            }
                         }
                         Err(error) => fail(&mut fixture, error),
                     }

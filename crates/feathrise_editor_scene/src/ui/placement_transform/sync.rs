@@ -202,12 +202,12 @@ pub(crate) fn sync_placement_transform_panel(
         .and_then(|draft| record.and_then(|record| crate::authoring::placement_record_bounds(draft, record).ok())); // 补丁数值按源局部范围配置，容器不能截断合法源坐标。
     let context_editable = visible
         && !mesh_editing
-        && !is_building
         && !session.saving
         && !editor.new_scene_dialog_open
         && !state.relocation_armed(); // 建筑只能走五点地基受检动作，禁用七个普通任意数值入口。
     for (entity, field, current, disabled, mut config, mut scrub) in &mut inputs {
-        let context_editable = context_editable && (!field.is_cutout() || has_cutout)
+        let context_editable = context_editable && (!is_building || field.is_lod())
+            && (!field.is_cutout() || has_cutout)
             && record.is_some_and(|record| field.supported_by(record));
         if context_editable == disabled {
             if context_editable {
@@ -247,6 +247,7 @@ pub(crate) fn sync_placement_transform_panel(
         let display = if (button.0 == PlacementTransformAction::RotateQuarterTurn && !is_building)
             || (button.0 == PlacementTransformAction::ToggleCuboidCollision && !is_cuboid)
             || (button.0 == PlacementTransformAction::FollowTerrain && record.is_some_and(|record| record.terrain_patch.is_some()))
+            || (super::lod::is_action(button.0) && record.is_some_and(|record| record.terrain_patch.is_some()))
             || (is_cuboid && matches!(button.0, PlacementTransformAction::ToggleTerrainPatch | PlacementTransformAction::ToggleTerrainCutout)) {
             Display::None
         } else {
@@ -276,7 +277,8 @@ pub(crate) fn sync_placement_transform_panel(
             PlacementTransformAction::ToggleCuboidCollision => matches!(record.asset_target, ScenePlacementAssetTarget::Cuboid { collision: true, .. } | ScenePlacementAssetTarget::EditableCuboid { collision: true, .. } | ScenePlacementAssetTarget::EditableMesh { collision: true, .. }),
             _ => false,
         });
-        let selected = armed || mode_selected || terrain_selected; // 分类与洞口开关同时显示当前持久设置。
+        let lod_selected = record.is_some_and(|record| super::lod::selected(button.0, record));
+        let selected = armed || mode_selected || terrain_selected || lod_selected; // 两条LOD通道各自显示唯一当前策略。
         let color = match (*interaction, danger, selected) {
             (UiInteraction::Pressed, true, _) => colors::DANGER_BG, // 删除按压保持红色而非普通铜色。
             (UiInteraction::Hovered, true, _) => colors::DANGER_BG, // 删除悬停强化危险底色。

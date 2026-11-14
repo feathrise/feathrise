@@ -554,7 +554,7 @@ fn inspector_builtin_cuboid_exposes_shape_fields_and_hides_glb_terrain_actions()
 }
 
 #[test]
-fn builtin_mesh_properties_keep_four_continuous_capability_groups_and_reuse_the_existing_inputs() {
+fn builtin_mesh_properties_keep_six_continuous_capability_groups_and_reuse_the_existing_inputs() {
     let (mut app, _) = page(1);
     {
         let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
@@ -572,6 +572,7 @@ fn builtin_mesh_properties_keep_four_continuous_capability_groups_and_reuse_the_
     assert_eq!(groups.iter().map(|(_, section)| *section).collect::<Vec<_>>(), [
         PlacementPropertiesSection::Transform, PlacementPropertiesSection::Geometry,
         PlacementPropertiesSection::Material, PlacementPropertiesSection::Collision,
+        PlacementPropertiesSection::DisplayLod, PlacementPropertiesSection::CollisionLod,
     ]);
     for &(entity, _) in &groups {
         assert_eq!(world.get::<Node>(entity).unwrap().display, Display::Flex);
@@ -584,6 +585,8 @@ fn builtin_mesh_properties_keep_four_continuous_capability_groups_and_reuse_the_
             PlacementTransformField::CuboidSizeX | PlacementTransformField::CuboidSizeY | PlacementTransformField::CuboidSizeZ => PlacementPropertiesSection::Geometry,
             PlacementTransformField::CuboidColorR | PlacementTransformField::CuboidColorG | PlacementTransformField::CuboidColorB | PlacementTransformField::CuboidRoughness => PlacementPropertiesSection::Material,
             field if field.is_cutout() => PlacementPropertiesSection::Geometry,
+            PlacementTransformField::LodScreenError | PlacementTransformField::LodHysteresis => PlacementPropertiesSection::DisplayLod,
+            PlacementTransformField::LodSafeNear | PlacementTransformField::LodCollisionError => PlacementPropertiesSection::CollisionLod,
             _ => PlacementPropertiesSection::Transform,
         };
         let mut ancestor = entity;

@@ -7,6 +7,8 @@ use super::*;
 
 #[path = "numeric_event_tests.rs"]
 mod event_tests;
+#[path = "lod_interaction_tests.rs"]
+mod lod_tests;
 
 fn app(field: PlacementTransformField) -> (App, Entity, Entity) {
     let (mut app, root, _) = crate::viewport::placement_move::interaction_tests::app();

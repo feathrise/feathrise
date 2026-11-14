@@ -45,7 +45,7 @@ impl MeshEditState {
         self.selected.count_ones() as usize
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "validation"))]
     pub(crate) fn select_for_test(&mut self, kind: MeshElementKind, selected: u128) {
         self.kind = kind;
         self.selected = selected;

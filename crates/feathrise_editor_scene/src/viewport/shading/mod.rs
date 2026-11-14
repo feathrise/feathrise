@@ -46,9 +46,7 @@ fn validation_asset_button(
             (*host == ShadingHost::Asset && visible.get() && node.size().min_element() > 0.0
                 && predicate(button.0)).then_some(entity))
 }
-#[cfg(test)]
 pub(crate) use resources::ShadingState;
-#[cfg(test)]
 pub(crate) use types::ShadingMode;
 #[cfg(test)]
 mod gpu_tests;
