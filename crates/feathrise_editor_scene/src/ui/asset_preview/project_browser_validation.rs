@@ -19,6 +19,10 @@ use crate::{
     ui::{
         asset_thumbnails::{ViewModeButton, validation_visible_thumbnail},
         context_help::ContextHelpMounted,
+        file_manager::{
+            FileAction, FileManagerButton, FileManagerState, FileRow,
+            browser::{BrowserAction, BrowserButton, BrowserChoice, BrowserSessions, ClipExpander},
+        },
         project_browser::{
             ProjectAnimationClip, ProjectAnimationExpand, ProjectBrowserState, ProjectBrowserView,
             ProjectFileFilter, ProjectFileRow, ProjectTypeFilterButton, ProjectTypeFilterOption,
@@ -98,14 +102,28 @@ enum Stage {
     OpenRigHelp,
     ReadRigHelp,
     ChooseAnimation,
+    SelectPickerFile,
+    CapturePicker,
+    OpenPickerClips,
+    PickClipToCancel,
+    CancelPicker,
+    VerifyPickerCanceled,
+    ReopenPicker,
+    UsePickerThumbnails,
+    OpenPickerThumbnails,
+    ClipMenuCapture,
+    ChooseSecond,
+    CapturePendingClip,
+    ConfirmClip,
+    ObservePlayback,
+    PlaybackCapture,
+    ReopenDirectory,
+    ReopenFiles,
+    ReenterAssets,
+    FilterOrdinaryAnimation,
     UseThumbnails,
     ThumbnailsEnabled,
     ThumbnailsDisabled,
-    Expand,
-    ClipMenuCapture,
-    ChooseSecond,
-    ObservePlayback,
-    PlaybackCapture,
     SelectOrdinaryMotion,
     VerifyOrdinaryMotion,
     Replace,
@@ -133,6 +151,7 @@ struct Run {
     click: Option<(Entity, bool)>,
     splitter_x: Option<DVec2>,
     tab: Option<(u64, usize)>,
+    picker: Option<u64>,
     playback: Option<PlaybackWitness>,
     animation_revision: Option<u64>,
     capture: Option<evidence::CaptureTask>,
@@ -165,7 +184,7 @@ pub fn install(app: &mut App, work: PathBuf, assets: PathBuf) -> Result<(), Stri
     let now = Instant::now();
     app.insert_resource(Run {
         work, assets, original_motion, replacement_size, stage: Stage::OpenDirectory, started: now, stage_started: now,
-        click: None, splitter_x: None, tab: None, playback: None, animation_revision: None,
+        click: None, splitter_x: None, tab: None, picker: None, playback: None, animation_revision: None,
         capture: None, help_ready: None, replacement: None,
         replacement_revision: None, steps: Map::new(), screenshots: Map::new(),
     })
@@ -527,7 +546,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
         }
         Stage::ReadRigHelp => {
             let Some((copy, region, glyphs)) = ready_help(world, run) else { return Ok(None); };
-            if !["选择动画", "箭头", "片段", "当前模型"].iter().all(|&term| copy.contains(term)) {
+            if !["选择动画", "窗口", "片段", "当前模型"].iter().all(|&term| copy.contains(term)) {
                 return Err(format!("工程动作帮助缺少选择和播放说明：{copy}"));
             }
             run.steps.insert("project_motion_help".into(), json!(copy));
@@ -545,6 +564,162 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             {
                 return Ok(None);
             }
+            Stage::SelectPickerFile
+        }
+        Stage::SelectPickerFile => {
+            let Some(id) = picker_directory(world, run)? else { return Ok(None); };
+            run.picker = Some(id);
+            let row = picker_row(world, id);
+            if !click_entity(world, run, window, row) { return Ok(None); }
+            Stage::CapturePicker
+        }
+        Stage::CapturePicker => {
+            picker_keeps_model(world, run)?;
+            let Some(id) = picker_directory(world, run)? else { return Ok(None); };
+            let Some(state) = world.resource::<FileManagerState>().windows.iter().find(|candidate| candidate.id == id) else { return Ok(None); };
+            if !state.selection.first().is_some_and(|path| path.ends_with(MOTIONS))
+                || !capture(world, run, "animation-picker.png")?
+            {
+                return Ok(None);
+            }
+            run.steps.insert("right_sidebar_animation_picker".into(), json!({
+                "opened_from_hidden_scene_tree":true,"asset_type":"Animation","model_tab":run.tab,
+                "window":id,"selected":MOTIONS,"keeps_model_properties":true,
+            }));
+            Stage::OpenPickerClips
+        }
+        Stage::OpenPickerClips | Stage::OpenPickerThumbnails => {
+            picker_keeps_model(world, run)?;
+            let Some(id) = picker_directory(world, run)? else { return Ok(None); };
+            if run.stage == Stage::OpenPickerThumbnails
+                && world.resource::<BrowserSessions>().validation_view(id) != Some(AssetBrowserViewMode::Thumbnails)
+            {
+                return Ok(None);
+            }
+            let expander = picker_row(world, id)
+                .and_then(|row| visible(world, |expand: &ClipExpander| expand.row == row));
+            if !click_entity(world, run, window, expander) { return Ok(None); }
+            if run.stage == Stage::OpenPickerClips { Stage::PickClipToCancel } else { Stage::ClipMenuCapture }
+        }
+        Stage::PickClipToCancel => {
+            picker_keeps_model(world, run)?;
+            if !click_picker_clip(world, run, window, 0) { return Ok(None); }
+            Stage::CancelPicker
+        }
+        Stage::CancelPicker => {
+            picker_keeps_model(world, run)?;
+            // 确认入口出现，证明选中了候选片段；用原取消按钮关闭，后台不能收到此意图。
+            let id = run.picker;
+            if visible(world, |button: &FileManagerButton| button.window == id && button.action == FileAction::ChooseClip).is_none()
+                || !click(world, run, window, |button: &FileManagerButton| button.window == id && button.action == FileAction::CancelPicker)
+            {
+                return Ok(None);
+            }
+            Stage::VerifyPickerCanceled
+        }
+        Stage::VerifyPickerCanceled => {
+            picker_keeps_model(world, run)?;
+            if picker_window_id(world).is_some() { return Ok(None); }
+            run.steps.insert("animation_picker_cancel_keeps_model".into(), json!(true));
+            Stage::ReopenPicker
+        }
+        Stage::ReopenPicker => {
+            picker_keeps_model(world, run)?;
+            if !click(world, run, window, |action: &RigAction| *action == RigAction::ChooseProjectMotion) {
+                return Ok(None);
+            }
+            Stage::UsePickerThumbnails
+        }
+        Stage::UsePickerThumbnails => {
+            picker_keeps_model(world, run)?;
+            let Some(id) = picker_directory(world, run)? else { return Ok(None); };
+            if Some(id) != run.picker {
+                let state = world.resource::<FileManagerState>();
+                if state.windows.iter().find(|candidate| candidate.id == id).is_some_and(|candidate| !candidate.selection.is_empty()) {
+                    return Err("重开动画选择窗沿用了已取消的文件选择".into());
+                }
+                run.picker = Some(id);
+                run.steps.insert("animation_picker_reopened_clean".into(), json!(true));
+            }
+            if world.resource::<BrowserSessions>().validation_view(id) == Some(AssetBrowserViewMode::Thumbnails) {
+                return Ok(Some(Stage::OpenPickerThumbnails));
+            }
+            if !click(world, run, window, |button: &BrowserButton| button.window == id && button.action == BrowserAction::View) {
+                return Ok(None);
+            }
+            Stage::OpenPickerThumbnails
+        }
+        Stage::ClipMenuCapture => {
+            picker_keeps_model(world, run)?;
+            if [0, 1].into_iter().any(|index| picker_clip(world, run.picker, index).is_none())
+                || !capture(world, run, "clip-menu.png")?
+            {
+                return Ok(None);
+            }
+            run.steps.insert("clip_arrow_keeps_model_properties".into(), json!(true));
+            Stage::ChooseSecond
+        }
+        Stage::ChooseSecond => {
+            picker_keeps_model(world, run)?;
+            if !click_picker_clip(world, run, window, 1) { return Ok(None); }
+            Stage::CapturePendingClip
+        }
+        Stage::CapturePendingClip => {
+            picker_keeps_model(world, run)?;
+            let id = run.picker;
+            if visible(world, |button: &FileManagerButton| button.window == id && button.action == FileAction::ChooseClip).is_none()
+                || !capture(world, run, "animation-picker-confirm.png")?
+            {
+                return Ok(None);
+            }
+            Stage::ConfirmClip
+        }
+        Stage::ConfirmClip => {
+            picker_keeps_model(world, run)?;
+            let id = run.picker;
+            if !click(world, run, window, |button: &FileManagerButton| button.window == id && button.action == FileAction::ChooseClip) {
+                return Ok(None);
+            }
+            run.steps.insert("animation_picker_confirms_clip_explicitly".into(), json!(true));
+            Stage::ObservePlayback
+        }
+        Stage::ObservePlayback => {
+            if picker_window_id(world).is_some() { return Ok(None); }
+            let Some(proof) = observe_motion(world, run)? else { return Ok(None); };
+            run.steps.insert("second_clip".into(), proof);
+            Stage::PlaybackCapture
+        }
+        Stage::PlaybackCapture => {
+            if !capture(world, run, "second-clip.png")? { return Ok(None); }
+            Stage::ReopenDirectory
+        }
+        Stage::ReopenDirectory => {
+            // 正常浏览仍使用原文件页签和目录选择。选择器不能替代此入口或预先切换左栏。
+            if !click(world, run, window, |button: &SceneEditorLayoutButton| button.0 == EditorLayoutAction::Content) {
+                return Ok(None);
+            }
+            Stage::ReopenFiles
+        }
+        Stage::ReopenFiles => {
+            if !world.resource::<SceneEditorLayoutState>().content_shown()
+                || !click(world, run, window, |tab: &SceneEditorSidebarTabButton| {
+                    tab.0 == EditorSidebarTab::Navigator(EditorNavigatorTab::Assets)
+                })
+            {
+                return Ok(None);
+            }
+            Stage::ReenterAssets
+        }
+        Stage::ReenterAssets => {
+            if project_paths(world).is_none() { return Ok(None); }
+            let row = project_row(world, "assets");
+            if !click_entity(world, run, window, row) { return Ok(None); }
+            Stage::FilterOrdinaryAnimation
+        }
+        Stage::FilterOrdinaryAnimation => {
+            if asset_paths(world, "").is_none() || !choose_filter(world, run, window, AssetTypeFilter::Animation) {
+                return Ok(None);
+            }
             Stage::UseThumbnails
         }
         Stage::UseThumbnails => {
@@ -554,7 +729,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
                 || world.resource::<EditorAssetCatalog>().adopted_type_filter != AssetTypeFilter::Animation
                 || !hero_properties_visible(world, run)
             {
-                return Err("右栏选择动画未恢复左侧动画目录及原角色属性".into());
+                return Err("手动打开左侧动画目录时跳离了原角色属性".into());
             }
             let Some(expander) = animation_expander(world) else { return Ok(None); };
             if world.get::<Node>(expander).is_none_or(|node| node.position_type != PositionType::Relative)
@@ -565,9 +740,6 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             let revision = world.resource::<EditorAssetCatalog>().applied_revision;
             run.animation_revision = Some(revision);
             run.steps.insert("animation_list".into(), json!({"entries":paths,"revision":revision}));
-            run.steps.insert("right_sidebar_animation_picker".into(), json!({
-                "opened_from_hidden_scene_tree":true,"asset_type":"Animation","model_tab":run.tab,
-            }));
             Stage::ThumbnailsEnabled
         }
         Stage::ThumbnailsEnabled => {
@@ -590,9 +762,9 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             }
             if !click(world, run, window, |_: &ViewModeButton| true) { return Ok(None); }
             run.steps.insert("thumbnails_toggled_off".into(), json!(true));
-            Stage::Expand
+            Stage::SelectOrdinaryMotion
         }
-        Stage::Expand => {
+        Stage::SelectOrdinaryMotion => {
             let Some(paths) = asset_paths(world, "").filter(|paths| paths == &[MOTIONS]) else { return Ok(None); };
             let Some(expander) = animation_expander(world) else { return Ok(None); };
             if world.resource::<EditorSettings>().asset_browser_view_mode != AssetBrowserViewMode::Thumbnails
@@ -604,44 +776,9 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             if Some(revision) != run.animation_revision {
                 return Err("列表与缩略图切换改变了已采用的动画筛选结果".into());
             }
-            if !click_entity(world, run, window, Some(expander)) { return Ok(None); }
-            run.steps.insert("animation_thumbnails".into(), json!({"entries":paths,"revision":revision}));
-            Stage::ClipMenuCapture
-        }
-        Stage::ClipMenuCapture => {
-            // 展开菜单须真正布局两个原片段行，再记录选择前的窗口画面。
-            if !hero_properties_visible(world, run) {
-                return Err("点开片段箭头时跳离了原角色属性或标签".into());
-            }
-            if visible(world, |clip: &ProjectAnimationClip| clip.clip_index == Some(0)).is_none()
-                || visible(world, |clip: &ProjectAnimationClip| clip.clip_index == Some(1)).is_none()
-                || !capture(world, run, "clip-menu.png")?
-            {
-                return Ok(None);
-            }
-            run.steps.insert("clip_arrow_keeps_model_properties".into(), json!(true));
-            Stage::ChooseSecond
-        }
-        Stage::ChooseSecond => {
-            if !click(world, run, window, |clip: &ProjectAnimationClip| clip.clip_index == Some(1)) {
-                return Ok(None);
-            }
-            Stage::ObservePlayback
-        }
-        Stage::ObservePlayback => {
-            let Some(proof) = observe_motion(world, run)? else { return Ok(None); };
-            run.steps.insert("second_clip".into(), proof);
-            Stage::PlaybackCapture
-        }
-        Stage::PlaybackCapture => {
-            if !capture(world, run, "second-clip.png")? { return Ok(None); }
-            Stage::SelectOrdinaryMotion
-        }
-        Stage::SelectOrdinaryMotion => {
-            // 同一张卡的主体仍用于浏览文件属性，只有原箭头进入片段选择。
-            if !asset_paths(world, "").is_some_and(|paths| paths == [MOTIONS]) { return Ok(None); }
             let row = asset_row(world, MOTIONS);
             if !click_entity(world, run, window, row) { return Ok(None); }
+            run.steps.insert("animation_thumbnails".into(), json!({"entries":paths,"revision":revision}));
             Stage::VerifyOrdinaryMotion
         }
         Stage::VerifyOrdinaryMotion => {
@@ -783,6 +920,63 @@ fn asset_row(world: &mut World, path: &str) -> Option<Entity> {
 fn animation_expander(world: &mut World) -> Option<Entity> {
     let index = world.resource::<EditorAssetCatalog>().entries.iter().position(|entry| entry.asset_path == MOTIONS)?;
     visible(world, |expand: &ProjectAnimationExpand| expand.0.is_some_and(|binding| binding.index == Some(index)))
+}
+
+fn picker_window_id(world: &World) -> Option<u64> {
+    world.get_resource::<FileManagerState>()?.windows.iter()
+        .find(|window| window.is_animation_picker()).map(|window| window.id)
+}
+
+fn picker_directory(world: &World, run: &Run) -> Result<Option<u64>, String> {
+    let Some(state) = world.get_resource::<FileManagerState>() else { return Ok(None); };
+    let mut windows = state.windows.iter().filter(|window| window.is_animation_picker());
+    let Some(picker) = windows.next() else { return Ok(None); };
+    if windows.next().is_some() || picker.minimized {
+        return Err("选择动画应只弹出一个当前可操作的文件窗口".into());
+    }
+    if let Some(error) = &picker.error { return Err(format!("动画选择窗目录读取失败：{error}")); }
+    if picker.loading { return Ok(None); }
+    let platform_path = crate::ui::external_files::platform_path;
+    if platform_path(&picker.path) != platform_path(&run.assets) {
+        return Err(format!("左侧位于工程根时，动画选择窗应从资产根开始，实际为 {}", picker.path.display()));
+    }
+    let entries: Vec<_> = picker.entries.iter().filter(|entry| !entry.directory)
+        .map(|entry| entry.name.as_str()).collect();
+    if entries != [MOTIONS] {
+        return Err(format!("动画选择窗没有筛出实际动作文件：{entries:?}"));
+    }
+    Ok(Some(picker.id))
+}
+
+fn picker_keeps_model(world: &World, run: &Run) -> Result<(), String> {
+    let layout = world.resource::<SceneEditorLayoutState>();
+    if layout.content_shown() || !world.resource::<SceneEditorSidebarState>().scene_tree_visible()
+        || world.resource::<ProjectBrowserState>().view != ProjectBrowserView::ProjectFiles
+    {
+        return Err("动画选择窗改变了原固定栏的显隐、场景树页签或文件目录".into());
+    }
+    if !layout.inspector_shown() || !hero_properties_visible(world, run) {
+        return Err("选择动画候选时跳离了右侧原模型属性或中央标签".into());
+    }
+    if rig_animation_identity(world).is_some() || active_project_clip(world).is_some() {
+        return Err("尚未按下选择确认时，候选片段已被应用到当前模型".into());
+    }
+    Ok(())
+}
+
+fn picker_row(world: &mut World, id: u64) -> Option<Entity> {
+    visible(world, |row: &FileRow| row.window == id
+        && row.path.as_ref().is_some_and(|path| path.ends_with(MOTIONS)))
+}
+
+fn picker_clip(world: &mut World, id: Option<u64>, index: usize) -> Option<Entity> {
+    let id = id?;
+    visible(world, |clip: &BrowserChoice| clip.window == id && clip.clip == Some(index))
+}
+
+fn click_picker_clip(world: &mut World, run: &mut Run, window: Entity, index: usize) -> bool {
+    let target = picker_clip(world, run.picker, index);
+    click_entity(world, run, window, target)
 }
 
 fn active_hero(world: &World) -> Option<(u64, usize)> {

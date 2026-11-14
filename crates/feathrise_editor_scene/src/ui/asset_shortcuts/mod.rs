@@ -26,7 +26,7 @@ pub(crate) fn install_for_tests(app: &mut App, root: std::path::PathBuf) {
     app.world_mut().resource_mut::<AssetShortcuts>().root = root;
 }
 
-pub(crate) use components::ShortcutList;
+pub(crate) use components::{ShortcutAction, ShortcutList, ShortcutRoot};
 pub(crate) use messages::{AssetVisited, SetAssetFavorite};
 pub(crate) use resources::AssetShortcuts;
 pub(crate) use scene::{panel, toolbar_buttons};

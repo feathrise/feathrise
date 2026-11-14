@@ -4,6 +4,10 @@ use super::{messages::OpenExternalFile, types::{DetectedEditors, EditorLauncher,
 use std::{ffi::OsString, path::{Component, Path, PathBuf}, process::{Command, Stdio}};
 
 pub(super) fn checked_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    // 文件菜单的空白目标可明确指向根目录本身；只接受单独的点，不放宽父级或拼接跳转。
+    if relative == "." {
+        return root.canonicalize().map_err(|error| format!("无法打开当前根目录：{error}"));
+    }
     if relative.is_empty() || Path::new(relative).components().any(|part| !matches!(part, Component::Normal(_))) {
         return Err("只能打开 assets 内的资产相对路径".into());
     }

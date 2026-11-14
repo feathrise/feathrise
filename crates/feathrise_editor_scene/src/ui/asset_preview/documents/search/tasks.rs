@@ -57,12 +57,12 @@ pub(super) fn drive(
         .filter(|request| request.ticket == state.ticket)
         .is_some_and(|request| {
             request.root != documents.root
-                || (!request.references && state.current_folder && request.folder != catalog.current_folder)
+                || (!request.references && state.current_folder && request.folder.as_str() != state.host_folder.as_deref().unwrap_or(&catalog.current_folder))
                 || !request_drafts_current(request, &documents)
         })
         || state.current().is_some_and(|result| {
             result.root != documents.root
-                || (!result.references && state.current_folder && result.folder != catalog.current_folder)
+                || (!result.references && state.current_folder && result.folder.as_str() != state.host_folder.as_deref().unwrap_or(&catalog.current_folder))
                 || !drafts_current(&result.drafts, &documents)
         });
     if stale {

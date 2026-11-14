@@ -438,6 +438,7 @@ pub(crate) fn request_selected_scene_entry(
 pub(crate) fn sync_asset_rows(
     mut catalog: ResMut<EditorAssetCatalog>,
     editor: Res<SceneEditorState>,
+    fixed: Option<Res<super::file_manager::FixedFileSelection>>,
     settings: Option<Res<feathrise_editor_core::EditorSettings>>,
     asset_server: Option<Res<AssetServer>>,
     viewport: AssetViewport,
@@ -523,7 +524,9 @@ pub(crate) fn sync_asset_rows(
                 SceneAssetKind::Unsupported => ("tree_file", colors::TEXT_MUTED),
             }
         };
-        let selected = selected_path == Some(entry.asset_path.as_str());
+        let selected = fixed.as_ref().filter(|_| !reference.active())
+            .and_then(|fixed| fixed.asset_row_selected(&entry.asset_path))
+            .unwrap_or(selected_path == Some(entry.asset_path.as_str()));
         for child in children.iter() {
             if let Ok((mut image, mut icon_node)) = glyphs.get_mut(child) {
                 let display = if thumbnails { Display::None } else { Display::Flex };

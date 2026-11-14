@@ -123,7 +123,8 @@ fn init_placement_save_runtime_contracts(app: &mut App) {
 impl Plugin for SceneEditorPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(test)]
-        app.insert_resource(feathrise_editor_project_browser::directory_operations());
+        app.insert_resource(feathrise_editor_project_browser::directory_operations())
+            .insert_resource(feathrise_editor_project_browser::file_operation_service());
         if !app.is_plugin_added::<feathrise_editor_core::EditorSettingsPlugin>() {
             app.add_plugins(feathrise_editor_core::EditorSettingsPlugin);
         }
@@ -813,6 +814,7 @@ impl Plugin for SceneEditorPlugin {
         authoring::courtyards::install(app); // 院落选集在公共目录热采用后以整组历史和后台碰撞校验落地。
         ui::viewport_toolbar::install(app); // 地图与 GLB 的同一工具栏展开规则。
         ui::asset_preview::install(app); // 右侧所选图片与Scene0使用独立、按需启停的预览视图。
+        ui::file_manager::install(app); // 多文件窗口属于同一作者桌面，关闭浏览窗不终止文件任务。
         ui::asset_thumbnails::install(app); // 固定行池切换网格，一个相机按可见项串行生成静态快照。
         ui::external_files::install(app); // 路径检查与外部进程启动不占编辑器帧关键路径。
         ui::asset_context_menu::install(app); // 复制、外部编辑和文件夹入口共用鼠标门。

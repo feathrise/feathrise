@@ -1016,6 +1016,7 @@ build_environment.lib_search	未在检查到的 MSVC／Windows SDK 库目录找�
 sidebar.scenes	场景	Scenes
 sidebar.scene_tree	场景树	Scene Tree
 sidebar.project	工程	Project
+sidebar.files	文件	Files
 sidebar.mesh	网格	Mesh
 sidebar.interact	交互	Interact
 sidebar.world	环境	World
@@ -1533,7 +1534,7 @@ rig.launch	人形自动绑骨	Auto-Rig Humanoid
 rig.title	人形绑骨与动作	Humanoid Rig and Motion
 rig.motion.title	工程动作	Project Motion
 rig.motion.choose_project	选择动画	Choose Animation
-rig.motion.help	点击「选择动画」会打开左侧「工程」栏并切到「动画」筛选。点击动画文件行或卡片上的箭头展开片段列表，选中片段后在当前模型上播放。点击文件行或卡片主体查看文件属性。	Choose Animation opens the Project panel on the left and applies the Animation filter. Click the arrow on an animation file row or card to list its clips, then choose a clip to play on the current model. Click the row or card body to view the file properties.
+rig.motion.help	点击「选择动画」打开活动文件选择窗口。单击文件只在窗口内选中候选，点击文件箭头展开片段列表。选中片段后点击「选择」，在当前模型上播放。点击「取消」或关闭窗口结束选择。	Choose Animation opens a floating file picker. Click a file to select a candidate, then click its arrow to list the clips. Select a clip and click Select to play it on the current model. Click Cancel or close the window to end selection.
 rig.tab	绑骨	Rigging
 rig.backend.native	编辑器原生（切换）	Editor Native (Switch)
 rig.backend.blender	Blender（切换）	Blender (Switch)

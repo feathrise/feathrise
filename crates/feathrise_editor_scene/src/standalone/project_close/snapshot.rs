@@ -90,6 +90,9 @@ fn collect_scenes(world: &World, snapshot: &mut ProjectCloseSnapshot, items: &mu
 }
 
 fn scene_pending(world: &World, snapshot: &mut ProjectCloseSnapshot) {
+    if any::<feathrise_editor_project_browser_model::file_operations::FileOperationService>(world, |service| service.is_busy()) {
+        snapshot.pending("文件整理任务仍在处理中，正在保留工程并等待文件回执");
+    }
     if any::<resources::SceneEditorState>(world, |state| {
         state.save_requested
             || state.scene_transition_in_progress

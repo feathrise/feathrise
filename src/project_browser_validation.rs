@@ -1,6 +1,6 @@
 //! 工程目录真实窗口专项入口。父进程独占新工程与证据目录，子进程只在通过归属核验后安装驱动。
 
-mod fixture;
+pub(crate) mod fixture;
 
 use crate::{build_process::{self, BuildControl}, project::Project};
 use serde_json::{Value, json};
@@ -64,6 +64,16 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
     if child.exit_code != 0 || proof["window"]["passed"] != true {
         return Err(format!("真实编辑器退出码 {}：{}", child.exit_code, proof["window"]["error"]));
     }
+    let steps = &proof["window"]["steps"];
+    if steps["right_sidebar_animation_picker"]["keeps_model_properties"] != true
+        || steps["animation_picker_cancel_keeps_model"] != true
+        || steps["animation_picker_reopened_clean"] != true
+        || steps["animation_picker_confirms_clip_explicitly"] != true
+        || steps["second_clip"]["clip_index"] != 1
+        || steps["ordinary_motion_properties"]["path"] != fixture::MOTIONS
+    {
+        return Err("浮动动作选择窗、取消后重开、片段确认播放或固定栏普通选择没有实际窗口证据".into());
+    }
     let final_assets = fixture::fingerprints(&assets)?;
     for (name, initial) in &original {
         let expected = if name == fixture::MOTIONS { &original[fixture::STATIC] } else { initial };
@@ -75,7 +85,7 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
     proof["after_sha256"] = json!(final_assets);
     for name in [
         "skeleton.png", "narrow-menu.png", "compact-browser.png", "asset-tools-help.png",
-        "project-motion-help.png", "clip-menu.png", "second-clip.png", "replaced.png",
+        "project-motion-help.png", "animation-picker.png", "clip-menu.png", "animation-picker-confirm.png", "second-clip.png", "replaced.png",
         #[cfg(windows)]
         "title-fps.png",
     ] {

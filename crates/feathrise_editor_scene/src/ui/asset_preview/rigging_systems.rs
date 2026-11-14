@@ -15,9 +15,9 @@ use super::{
     types::*,
 };
 use crate::{
-    asset_catalog::project_files::EditorProjectFileCatalog,
     resources::{EditorAssetCatalog, EditorTextInputGuard, SceneEditorLayoutState, SceneEditorState},
-    ui::{project_browser::{ProjectBrowserState, navigation::choose_animation},
+    ui::{file_manager::{FileManagerState, OpenAnimationPicker, ProjectMotionTarget},
+        project_browser::ProjectBrowserState,
         sidebars::{EditorNavigatorTab, EditorRightSidebarTab, SceneEditorSidebarState},
         vegetation_preset_editor::VegetationPresetEditorState},
 };
@@ -37,11 +37,20 @@ pub(super) fn pick_project_animation(
     preview: Res<super::super::AssetPreviewState>,
     mut animation: ResMut<AnimationEditorState>,
     mut rig_preview: MessageWriter<PreviewRigAnimation>,
+    files: Option<Res<crate::ui::file_manager::browser::BrowserSessions>>,
+    mut manager: Option<ResMut<FileManagerState>>,
 ) {
     let Some(pick) = picks.read().last() else { return; };
     let context = contexts.p0();
-    if !context.can_pick_project_animation() || state.owns_mouse() || text.block_shortcuts {
+    let file_window = files.as_ref().is_some_and(|files| files.accepts_clip(&pick.asset_path, pick.clip_index));
+    if !context.can_pick_project_animation(file_window) || state.owns_mouse() || text.block_shortcuts {
         return;
+    }
+    if let Some(target) = &pick.target {
+        // 选择窗只向打开时的模型提交。目标失效不能转入普通文件的后备打开流程。
+        if !file_window || context.motion_target().as_ref() != Some(target) {
+            return;
+        }
     }
     let root = context.asset_root().to_path_buf();
     if root.as_os_str().is_empty() {
@@ -64,6 +73,7 @@ pub(super) fn pick_project_animation(
             recheck_source: true,
         })
     });
+    if pick.target.is_some() && role.is_none() { return; }
     let (mut sidebar, layout, mut editor, mut media, mut workspaces) = contexts.p1();
     let source = match source {
         Ok(source) => source,
@@ -92,6 +102,9 @@ pub(super) fn pick_project_animation(
     if let Some(mut layout) = layout {
         layout.inspector_visible = true;
     }
+    if let (Some(target), Some(manager)) = (&pick.target, manager.as_mut()) {
+        manager.finish_animation_picker(target);
+    }
 }
 
 pub(super) fn actions(
@@ -100,14 +113,18 @@ pub(super) fn actions(
         ResMut<SceneEditorSidebarState>,
         Option<ResMut<SceneEditorLayoutState>>,
         ResMut<SceneEditorState>,
-        ResMut<ProjectBrowserState>,
-        ResMut<EditorProjectFileCatalog>,
-        ResMut<EditorAssetCatalog>,
+        ResMut<AssetPreviewWorkspace>,
+        ResMut<VegetationPresetEditorState>,
     ))>,
     mut state: ResMut<RiggingState>,
-    mut tree: ResMut<super::super::gltf_tree::TreeState>,
     buttons: Query<(&RigAction, &EditorButtonClick), Changed<EditorButtonClick>>,
     mut open: MessageWriter<OpenAssetPreview>,
+    navigation: Res<AssetPreviewNavigation>,
+    catalog: Option<Res<EditorAssetCatalog>>,
+    browser: Option<Res<ProjectBrowserState>>,
+    manager: Option<Res<FileManagerState>>,
+    mut pickers: Option<ResMut<Messages<OpenAnimationPicker>>>,
+    preview: Res<super::super::AssetPreviewState>,
 ) {
     let Some(action) = buttons
         .iter()
@@ -138,20 +155,33 @@ pub(super) fn actions(
         if from_properties != motion_shown {
             return; // 属性与侧栏备用入口只接受来自实际可见位置的点击。
         }
-        let path = (!from_properties).then(|| source.path.to_owned());
-        let small_preview_root = (!central).then(|| source.root.to_path_buf());
-        let (mut sidebar, Some(mut layout), mut editor, mut browser, mut files, mut catalog) = contexts.p1()
-        else { return; };
-        if let Some(path) = path {
-            if let Some(root) = small_preview_root {
-                tree.keep_animation_browser_on_open(root, path.clone());
-                open.write(OpenAssetPreview { path: path.clone() });
+        let (Some(manager), Some(pickers)) = (manager.as_ref(), pickers.as_mut()) else { return; };
+        let root = source.root.to_path_buf();
+        let path = source.path.to_owned();
+        let generation = source.generation;
+        let folder = catalog.as_ref().filter(|_| browser.as_ref().is_some_and(|browser| browser.assets_visible()))
+            .map_or("", |catalog| catalog.current_folder.as_str());
+        let directory = crate::ui::external_files::platform_path(&root.join(folder));
+        let active_tab = context.active_tab_id();
+        // 小预览沿原标签流程打开同一模型后再冻结身份，文件窗的候选点击不更换模型。
+        let tab = if let Some(tab) = active_tab {
+            tab
+        } else {
+            let (mut sidebar, layout, mut editor, mut media, mut workspace) = contexts.p1();
+            if let Err(error) = workspace::expand(&mut media, &mut workspace, &path, &preview, &navigation) {
+                editor.status = error;
+                return;
             }
-            editor.selected_asset = Some(path);
+            editor.selected_asset = Some(path.clone());
             sidebar.reveal_asset_properties();
-            layout.inspector_visible = true;
-        }
-        choose_animation(&mut browser, &mut files, &mut catalog, &mut editor, &mut sidebar, &mut layout);
+            if let Some(mut layout) = layout { layout.inspector_visible = true; }
+            media.expanded.as_ref().expect("已打开当前模型标签").id
+        };
+        pickers.write(OpenAnimationPicker {
+            context: manager.service_context(),
+            directory,
+            target: ProjectMotionTarget { asset_root: root, path, generation, tab },
+        });
         return;
     }
     if action == RigAction::Launch && state.work.is_none() {
@@ -241,6 +271,16 @@ pub(super) fn actions(
         }
         _ => {}
     }
+}
+
+pub(super) fn retire_animation_picker(
+    context: Context,
+    mut manager: Option<ResMut<FileManagerState>>,
+) {
+    let Some(manager) = manager.as_mut() else { return; };
+    if !manager.windows.iter().any(|window| window.is_animation_picker()) { return; }
+    let target = context.motion_target();
+    manager.close_stale_animation_picker(|current| target.as_ref() == Some(current));
 }
 
 pub(super) fn sync_sidebar(

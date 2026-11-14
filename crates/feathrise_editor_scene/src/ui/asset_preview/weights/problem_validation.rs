@@ -8,7 +8,7 @@ use super::{
             AnimationEditorState, rig_animation_probe, workflow_validation::timeline_ruler,
         },
         rigging::RigAction,
-        rigging_validation::{animation_clip_button, animation_file_button},
+        rigging_validation::{AnimationPickerStep, animation_picker_button},
         types::{AssetPreviewCamera, AssetPreviewCanvas},
         view_math::AssetPreviewView,
         view_toolbar::Action as ViewAction,
@@ -65,6 +65,7 @@ enum Step {
     Picker,
     Choose,
     Play,
+    ConfirmMotion,
     Seek,
     Tools,
     Prepare,
@@ -443,14 +444,24 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
         }
         Step::Picker if click(world, run, window, RigAction::ChooseProjectMotion) => Step::Choose,
         Step::Choose => {
-            let entity = run.click.map(|(entity, _)| entity).or_else(|| animation_file_button(world, WALK));
+            let entity = run.click.map(|(entity, _)| entity)
+                .or_else(|| animation_picker_button(world, &run.assets, WALK, AnimationPickerStep::OpenFile));
             if !entity.is_some_and(|entity| click_entity(world, run, window, entity)) {
                 return Ok(None);
             }
             Step::Play
         }
         Step::Play => {
-            let entity = run.click.map(|(entity, _)| entity).or_else(|| animation_clip_button(world, 0));
+            let entity = run.click.map(|(entity, _)| entity)
+                .or_else(|| animation_picker_button(world, &run.assets, WALK, AnimationPickerStep::SelectClip(0)));
+            if !entity.is_some_and(|entity| click_entity(world, run, window, entity)) {
+                return Ok(None);
+            }
+            Step::ConfirmMotion
+        }
+        Step::ConfirmMotion => {
+            let entity = run.click.map(|(entity, _)| entity)
+                .or_else(|| animation_picker_button(world, &run.assets, WALK, AnimationPickerStep::Confirm));
             if !entity.is_some_and(|entity| click_entity(world, run, window, entity)) {
                 return Ok(None);
             }

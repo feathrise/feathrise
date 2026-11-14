@@ -15,6 +15,8 @@ pub(super) fn control(
     mut editor: ResMut<SceneEditorState>,
     mut sidebar: ResMut<SceneEditorSidebarState>,
     layout: Option<Res<SceneEditorLayoutState>>,
+    floating: Option<Res<crate::ui::file_manager::browser::BrowserSessions>>,
+    mut floating_navigation: Option<ResMut<Messages<crate::ui::file_manager::browser::BrowserNavigate>>>,
 ) {
     for request in favorites.read() {
         let result = helpers::target(&request.path, request.is_directory).and_then(|target| {
@@ -40,13 +42,16 @@ pub(super) fn control(
             state.feedback = error;
         }
     }
-    if guard.blocked()
+    let shortcut_window = floating.as_ref().and_then(|browser| browser.shortcut_window());
+    let hosted = shortcut_window.is_some();
+    let in_file_window = hosted && floating.as_ref().is_some_and(|browser| browser.accepts_service_input());
+    if (guard.blocked() && !in_file_window)
         || !editor.open
         || editor.close_requested
         || editor.pending_scene_transition.is_some()
         || editor.new_scene_dialog_open
-        || !sidebar.assets_browser_visible()
-        || layout.as_ref().is_some_and(|layout| !layout.content_shown())
+        || (!hosted && !sidebar.assets_browser_visible())
+        || (!hosted && layout.as_ref().is_some_and(|layout| !layout.content_shown()))
     {
         return;
     }
@@ -89,6 +94,13 @@ pub(super) fn control(
                     editor.status =
                         format!("路径已失效：{}；可检查路径后重试或点击 × 移除", target.path);
                 } else {
+                    if let Some(window) = shortcut_window {
+                        if let (Ok(path), Some(navigation)) = (helpers::asset_path(target), floating_navigation.as_mut()) {
+                            navigation.write(crate::ui::file_manager::browser::BrowserNavigate {
+                                window, path: path.to_owned(), directory: target.is_directory });
+                        }
+                        break; // 同一收藏在当前文件窗口定位，不改变固定左栏目录。
+                    }
                     let result = helpers::asset_path(target).and_then(|path| {
                         if target.is_directory {
                             crate::asset_catalog::request_asset_folder(

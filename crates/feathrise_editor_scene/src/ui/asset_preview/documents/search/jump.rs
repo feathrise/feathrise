@@ -38,7 +38,7 @@ pub(super) fn prepare(
     let Some(jump) = &state.jump else {
         return;
     };
-    if gate.blocked(&editor)
+    if gate.followup_blocked(&editor)
         || documents
             .expanded
             .as_ref()
@@ -82,7 +82,7 @@ pub(super) fn select(
     if state.jump.is_none() {
         return;
     }
-    if gate.blocked(&editor) || inputs.iter().any(busy) || focus.get().is_some() {
+    if gate.followup_blocked(&editor) || inputs.iter().any(busy) || focus.get().is_some() {
         state.jump = None;
         return;
     }

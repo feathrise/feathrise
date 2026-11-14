@@ -1,7 +1,7 @@
 //! 人形绑骨真窗口验收。只在显式 validation 及本轮自有工程启用，走原按钮、后台和发布流程。
 
 use crate::{
-    asset_catalog::{AssetTypeFilter, EditorAssetCatalog, request_asset_reveal},
+    asset_catalog::{EditorAssetCatalog, request_asset_reveal},
     components::{SceneEditorAssetRow, SceneEditorOrientationAxisEndpoint},
     resources::SceneEditorState,
     ui::{
@@ -23,7 +23,10 @@ use crate::{
             types::{AssetPreviewCanvas, AssetPreviewModelViewport},
             view_toolbar,
         },
-        project_browser::{ProjectAnimationClip, ProjectAnimationExpand},
+        file_manager::{
+            FileAction, FileManagerButton, FileManagerState, FileRow,
+            browser::{BrowserChoice, ClipExpander},
+        },
         sidebars::{
             EditorNavigatorTab, EditorRightSidebarTab, EditorSidebarTab, SceneEditorSidebarState,
             SceneEditorSidebarTabButton,
@@ -107,6 +110,7 @@ enum Phase {
     OpenMotionPicker,
     PickIdle,
     Preview,
+    ConfirmMotion,
     Motion,
     PlayingBrowseOtherFile,
     PlayingSelectOtherFile,
@@ -335,7 +339,7 @@ fn drive(world: &mut World) {
                 | Phase::ToggleMirror | Phase::IndependentMarkers
                 | Phase::MarkersImage
                 | Phase::BrowseOtherFile | Phase::VerifyOtherFile | Phase::MotionSceneTree | Phase::SelectModelRoot
-                | Phase::OpenMotionPicker | Phase::PickIdle | Phase::Preview | Phase::Motion
+                | Phase::OpenMotionPicker | Phase::PickIdle | Phase::Preview | Phase::ConfirmMotion | Phase::Motion
                 | Phase::PlayingBrowseOtherFile | Phase::PlayingSelectOtherFile
                 | Phase::PlayingInspectOtherFile | Phase::PlayingRestoreModel | Phase::PlayingModelRestored
                 | Phase::OpenSecondPicker | Phase::SwitchMotion
@@ -811,15 +815,30 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             Phase::OpenMotionPicker
         }
         Phase::PickIdle => {
-            let button = run.click.map(|(entity, _)| entity).or_else(|| animation_file_button(world, IDLE));
+            let button = run.click.map(|(entity, _)| entity)
+                .or_else(|| animation_picker_button(world, &run.assets, IDLE, AnimationPickerStep::OpenFile));
             if !click_entity(world, run, window, button) {
                 return Ok(None);
             }
             Phase::Preview
         }
         Phase::Preview => {
+            let button = run.click.map(|(entity, _)| entity)
+                .or_else(|| animation_picker_button(world, &run.assets, action, AnimationPickerStep::SelectClip(0)));
+            if !click_entity(world, run, window, button) {
+                return Ok(None);
+            }
+            Phase::ConfirmMotion
+        }
+        Phase::ConfirmMotion => {
+            if world.resource::<SceneEditorState>().selected_asset.as_deref() != Some(model)
+                || world.resource::<SceneEditorSidebarState>().right != EditorRightSidebarTab::Assets
+            {
+                return Err("动画选择窗口在确认前改变了模型属性".into());
+            }
             let Some(tabs) = active_model_tab(world, model) else { return Ok(None) };
-            let button = run.click.map(|(entity, _)| entity).or_else(|| animation_clip_button(world, 0));
+            let button = run.click.map(|(entity, _)| entity)
+                .or_else(|| animation_picker_button(world, &run.assets, action, AnimationPickerStep::Confirm));
             if !click_entity(world, run, window, button) {
                 return Ok(None);
             }
@@ -890,7 +909,8 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
         }
         Phase::OpenSecondPicker if click(world, run, window, RigAction::ChooseProjectMotion) => Phase::SwitchMotion,
         Phase::SwitchMotion => {
-            let button = run.click.map(|(entity, _)| entity).or_else(|| animation_file_button(world, WALK));
+            let button = run.click.map(|(entity, _)| entity)
+                .or_else(|| animation_picker_button(world, &run.assets, WALK, AnimationPickerStep::OpenFile));
             if !click_entity(world, run, window, button) {
                 return Ok(None);
             }
@@ -1204,20 +1224,41 @@ fn click_asset_row(world: &mut World, run: &mut Run, window: Entity, path: &str)
     click_matching(world, run, window, |row: &SceneEditorAssetRow| row.entry_index == Some(index))
 }
 
-/// 共用实窗驱动只在目录采用动画筛选后命中完整路径对应的展开按钮。
-pub(super) fn animation_file_button(world: &mut World, path: &str) -> Option<Entity> {
-    let catalog = world.resource::<EditorAssetCatalog>();
-    if catalog.is_loading() || catalog.adopted_type_filter != AssetTypeFilter::Animation {
-        return None;
-    }
-    let index = catalog.entries.iter().position(|entry| entry.asset_path == path)?;
-    visible_button::<ProjectAnimationExpand, ()>(world, |expand| {
-        expand.0.is_some_and(|binding| binding.index == Some(index))
-    })
+#[derive(Clone, Copy)]
+pub(super) enum AnimationPickerStep {
+    OpenFile,
+    SelectClip(usize),
+    Confirm,
 }
 
-pub(super) fn animation_clip_button(world: &mut World, index: usize) -> Option<Entity> {
-    visible_button::<ProjectAnimationClip, ()>(world, |clip| clip.clip_index == Some(index))
+/// 绑骨与权重实窗都命中当前选择窗的真实按钮，不借用左栏目录或直接发布动画消息。
+pub(super) fn animation_picker_button(
+    world: &mut World, assets: &Path, path: &str, step: AnimationPickerStep,
+) -> Option<Entity> {
+    let path = crate::ui::external_files::platform_path(&assets.join(path));
+    let files = world.get_resource::<FileManagerState>()?;
+    let picker = files.windows.iter().rev()
+        .find(|window| window.is_animation_picker() && !window.minimized && !window.loading)?;
+    let id = picker.id;
+    match step {
+        AnimationPickerStep::OpenFile => {
+            let row = visible_button::<FileRow, ()>(world, |row| {
+                row.window == id && row.path.as_ref() == Some(&path)
+            })?;
+            visible_button::<ClipExpander, ()>(world, |expand| expand.row == row)
+        }
+        AnimationPickerStep::SelectClip(index) => visible_button::<BrowserChoice, ()>(world, |clip| {
+            clip.window == id && clip.clip == Some(index)
+        }),
+        AnimationPickerStep::Confirm => {
+            if !picker.selection.contains(&path) {
+                return None;
+            }
+            visible_button::<FileManagerButton, ()>(world, |button| {
+                button.window == Some(id) && button.action == FileAction::ChooseClip
+            })
+        }
+    }
 }
 
 fn file_counts_visible(world: &mut World, meshes: usize, clips: usize) -> bool {

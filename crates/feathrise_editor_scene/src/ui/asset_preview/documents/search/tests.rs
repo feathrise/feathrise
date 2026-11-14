@@ -398,6 +398,28 @@ fn external_search_result_opens_real_line_without_changing_selection_and_rejects
 }
 
 #[test]
+fn floating_search_restores_fixed_visibility_and_keeps_the_current_query_ticket() {
+    let mut state = AssetSearchState::default();
+    assert_eq!(state.sidebar_display(), (false, false));
+    state.set_floating_host(true);
+    state.request_missing_assets(std::path::PathBuf::from("assets"));
+    assert_eq!(state.sidebar_display(), (false, false));
+    assert!(state.is_open() && state.is_missing_assets());
+    let ticket = state.ticket;
+
+    state.set_floating_host(false);
+    assert!(!state.is_open(), "浮窗开启的检查归还后不能展开固定栏");
+    assert_eq!(state.ticket, ticket, "已打开的中央差异视图继续引用原查询");
+
+    state.text_search();
+    state.set_floating_host(true);
+    state.request_missing_assets(std::path::PathBuf::from("assets"));
+    assert_eq!(state.sidebar_display(), (true, false));
+    state.set_floating_host(false);
+    assert!(state.is_open(), "左栏原本展开时归还后恢复正文");
+}
+
+#[test]
 fn cross_file_ctrl_shift_f_focuses_panel_and_ime_never_submits() {
     let fixture = Fixture::new();
     let (mut app, field) = control_app(&fixture);

@@ -167,17 +167,20 @@ pub(super) fn receive_rig_animation(
     workspace: Res<VegetationPresetEditorState>,
     mut animation: ResMut<AnimationEditorState>,
     operations: Res<AnimationOperations>,
+    files: Option<Res<crate::ui::file_manager::browser::BrowserSessions>>,
 ) {
     let Some(request) = requests.read().last() else {
         return;
     };
     let root = documents.asset_root();
+    // 文件窗已核验前景、行修订和本帧片段确认；该手势仍占总鼠标门，不能挡住它自己的业务接收。
+    let file_pick = files.as_ref().is_some_and(|files| files.accepts_clip(&request.animation_path, request.clip_index));
     if !editor.open
         || editor.close_requested
         || editor.pending_scene_transition.is_some()
         || editor.new_scene_dialog_open
         || editor.scene_switch_confirmation.is_some()
-        || guard.blocked()
+        || (guard.blocked() && !file_pick)
         || root.as_os_str().is_empty()
         || !request.matches(&preview, &media, workspace.active_tab, root)
     {

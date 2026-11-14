@@ -163,6 +163,7 @@ pub(super) fn drive_jobs(
     previews: Option<Res<Assets<CompatiblePreviewTexture>>>,
     rows: Query<(&SceneEditorAssetRow, &ComputedNode, &UiGlobalTransform)>,
     pages: Query<(&SceneEditorSidebarPage, &ComputedNode, &UiGlobalTransform)>,
+    shared: Option<Res<super::SharedThumbnailDemand>>,
 ) {
     if state.retiring.is_some() {
         return;
@@ -338,12 +339,11 @@ pub(super) fn drive_jobs(
     let Some(identity) = &state.identity else {
         return;
     };
-    let Some(rect) = page_rect(&pages) else {
-        return;
-    };
+    let rect = page_rect(&pages);
     let selected = rows
         .iter()
         .filter_map(|(row, computed, transform)| {
+            let rect = rect?;
             let row_rect = Rect::from_center_size(transform.translation, computed.size());
             if computed.size().min_element() <= 0.0
                 || row_rect.intersect(rect).size().min_element() <= 0.0
@@ -368,7 +368,12 @@ pub(super) fn drive_jobs(
                 .ok()?;
             Some((row.slot, entry.asset_path.clone(), entry.kind, source.stamp))
         })
-        .min_by_key(|(slot, ..)| *slot);
+        .min_by_key(|(slot, ..)| *slot)
+        .or_else(|| shared.as_ref().and_then(|shared| shared.items.iter().enumerate().find_map(|(slot, (path, kind))| {
+            if !state.paths.contains(path) { return None; }
+            let entry = state.cache.get(path).filter(|entry| matches!(entry.result, ThumbnailResult::Queued))?;
+            Some((slot, path.clone(), *kind, entry.source.as_ref().ok()?.stamp))
+        })));
     let Some((_, path, kind, stamp)) = selected else {
         return;
     }; // 完全滚出资产页的槽位不生成三维View。

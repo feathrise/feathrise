@@ -5,6 +5,7 @@ use super::{components::*, resources::AssetSearchState, types::*, worker};
 use crate::{
     resources::*,
     ui::{
+        file_manager::browser::BrowserButton,
         sidebars::{EditorNavigatorTab, SceneEditorSidebarState},
         vegetation_preset_editor::VegetationPresetEditorState,
     },
@@ -31,16 +32,40 @@ pub(in super::super) struct SearchGate<'w> {
     conflict: Option<Res<'w, crate::authoring::TerrainExternalChangeState>>,
     menu: Option<Res<'w, crate::ui::asset_preview::AssetTabMenuState>>,
     available: Res<'w, crate::ui::external_files::ExternalEditors>,
+    floating: Option<Res<'w, crate::ui::file_manager::browser::BrowserSessions>>,
+    files: Option<Res<'w, crate::ui::file_manager::FileManagerState>>,
 }
 
 impl SearchGate<'_> {
     pub(in super::super) fn blocked(&self, editor: &SceneEditorState) -> bool {
+        self.blocked_with_mouse(editor, self.mouse.blocked())
+    }
+
+    /// 原搜索表单及只读跳转可借用当前文件窗的输入资格；中央编辑和保存动作仍走总门。
+    pub(super) fn browser_blocked(&self, editor: &SceneEditorState) -> bool {
+        self.blocked_with_mouse(editor, self.mouse.blocked()
+            && !self.floating.as_ref().is_some_and(|browser| browser.accepts_service_input()))
+    }
+
+    pub(super) fn file_window_search_input(&self, editor: &SceneEditorState) -> bool {
+        self.floating.as_ref().is_some_and(|browser|
+            browser.search_window().is_some() && browser.accepts_service_input())
+            && !self.browser_blocked(editor)
+    }
+
+    /// 已受理的后台查询与只读定位可继续收口，文件窗上的悬停变化不撤销之前的查询。
+    pub(super) fn followup_blocked(&self, editor: &SceneEditorState) -> bool {
+        let hosted = self.floating.as_ref().is_some_and(|browser| browser.search_window().is_some());
+        self.blocked_with_mouse(editor, self.mouse.blocked() && !hosted)
+    }
+
+    fn blocked_with_mouse(&self, editor: &SceneEditorState, mouse_blocked: bool) -> bool {
         !editor.open
             || editor.close_requested
             || editor.new_scene_dialog_open
             || editor.pending_scene_transition.is_some()
             || self.guard.block_shortcuts
-            || self.mouse.blocked()
+            || mouse_blocked
             || self.settings.as_ref().is_some_and(|state| state.open)
             || self
                 .browser
@@ -75,22 +100,29 @@ pub(super) fn input(
     gate: SearchGate,
     fields: Query<(Entity, &SearchField, &EditableText)>,
     inputs: Query<&EditableText>,
-    buttons: Query<(&feathrise_editor_ui::EditorButtonClick, &SearchAction), Changed<feathrise_editor_ui::EditorButtonClick>>,
+    buttons: Query<(&feathrise_editor_ui::EditorButtonClick, &SearchAction, Option<&BrowserButton>), Changed<feathrise_editor_ui::EditorButtonClick>>,
     mut outer_scrolls: Query<
         &mut ScrollPosition,
         With<crate::components::SceneEditorLeftPanelScroll>,
     >,
     mut external: MessageWriter<crate::ui::external_files::OpenExternalFile>,
 ) {
+    let search_window = gate.floating.as_ref().and_then(|browser| browser.search_window());
+    let hosted = search_window.is_some();
+    if state.floating_hosted() != hosted { state.set_floating_host(hosted); }
     if state.reference_requested && state.reference_root.as_ref().is_some_and(|root| *root != documents.root) {
         state.invalidate("路径查询范围已变化，请重新查询");
     }
-    let shown = state.open
-        && sidebar.assets_browser_visible()
-        && layout
-            .as_ref()
-            .is_none_or(|layout| layout.content_shown());
-    if gate.blocked(&editor) {
+    let host_folder = gate.floating.as_ref().zip(gate.files.as_ref())
+        .and_then(|(browser, files)| browser.current_service_folder(files));
+    if state.host_folder != host_folder { state.host_folder = host_folder; }
+    let shown = state.open && (hosted || (sidebar.assets_browser_visible()
+        && layout.as_ref().is_none_or(|layout| layout.content_shown())));
+    let block_input = gate.browser_blocked(&editor);
+    let floating_input = hosted && !block_input
+        && gate.floating.as_ref().is_some_and(|browser| browser.accepts_service_input());
+    let form_input = !block_input && (!hosted || floating_input);
+    if gate.followup_blocked(&editor) {
         if (state.reference_requested && (!editor.open || editor.close_requested || editor.pending_scene_transition.is_some()))
             || state.pending.is_some()
             || state.jump.is_some()
@@ -114,7 +146,7 @@ pub(super) fn input(
     if !shown && focus.get().is_some_and(|entity| fields.contains(entity)) {
         focus.clear();
     }
-    if shown && !state.path_query() {
+    if form_input && shown && !state.path_query() {
         for (_, field, input) in &fields {
             let value = input.value().to_string();
             let old = match field {
@@ -148,13 +180,26 @@ pub(super) fn input(
             }).collect(),
             cancel: AssetSearchState::cancellation(),
         });
-        for mut scroll in &mut outer_scrolls { scroll.y = 0.0; }
+        if !hosted {
+            for mut scroll in &mut outer_scrolls { scroll.y = 0.0; }
+        }
         focus.clear();
     }
+    if !form_input { return; }
     let mut actions: Vec<_> = buttons
         .iter()
-        .filter_map(|(interaction, action)| {
-            (interaction.is_clicked()).then_some(*action)
+        .filter_map(|(interaction, action, toolbar)| {
+            if !interaction.is_clicked() { return None; }
+            if let Some(toolbar) = toolbar {
+                if search_window != Some(toolbar.window) { return None; }
+                // 浮窗工具显式选择同一表单的模式与宿主。移交给另一窗时不能反转已打开的状态。
+                let action = if *action == SearchAction::Toggle { SearchAction::TextSearch } else { *action };
+                Some((action, true))
+            } else if hosted && matches!(action, SearchAction::Toggle | SearchAction::MissingAssets) {
+                None // 固定工具须先显式收回表单，不能改写浮窗的模式。
+            } else {
+                Some((*action, false))
+            }
         })
         .collect();
     let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
@@ -162,17 +207,18 @@ pub(super) fn input(
     if ctrl && shift && keys.just_pressed(KeyCode::KeyF) {
         if state.path_query() { state.text_search(); }
         if !state.open {
-            actions.push(SearchAction::Toggle);
+            actions.push((SearchAction::Toggle, false));
         }
-        sidebar.navigator = EditorNavigatorTab::Assets; // 搜索只打开左侧资产导航，不覆盖对象/文件属性意图。
-        if let Some(layout) = layout.as_mut() {
-            if let Some((_, inspector)) = layout.focus_restore.take() {
-                layout.inspector_visible = inspector;
+        if !hosted {
+            // 固定栏搜索只打开左侧资产导航，不覆盖对象/文件属性意图。
+            sidebar.navigator = EditorNavigatorTab::Assets;
+            if let Some(layout) = layout.as_mut() {
+                if let Some((_, inspector)) = layout.focus_restore.take() {
+                    layout.inspector_visible = inspector;
+                }
+                layout.content_visible = true;
             }
-            layout.content_visible = true;
-        }
-        for mut scroll in &mut outer_scrolls {
-            scroll.y = 0.0;
+            for mut scroll in &mut outer_scrolls { scroll.y = 0.0; }
         }
         if let Some((entity, _, _)) = fields
             .iter()
@@ -184,22 +230,24 @@ pub(super) fn input(
     }
     if shown && focus.get().is_some_and(|entity| fields.contains(entity)) {
         if keys.just_pressed(KeyCode::Enter) {
-            actions.push(SearchAction::Submit);
+            actions.push((SearchAction::Submit, false));
             keys.clear_just_pressed(KeyCode::Enter);
         }
         if keys.just_pressed(KeyCode::Escape) {
-            actions.push(SearchAction::Toggle);
+            actions.push((SearchAction::Toggle, false));
             keys.clear_just_pressed(KeyCode::Escape);
         }
     }
-    for action in actions {
-        if !matches!(action, SearchAction::Toggle | SearchAction::MissingAssets) && !state.open {
+    for (action, window_tool) in actions {
+        if !matches!(action, SearchAction::Toggle | SearchAction::TextSearch | SearchAction::MissingAssets) && !state.open {
             continue;
         }
         match action {
-            SearchAction::MissingAssets if !state.open || !state.missing_assets => {
+            SearchAction::MissingAssets if window_tool || !state.open || !state.missing_assets => {
                 state.request_missing_assets(documents.root.clone());
-                for mut scroll in &mut outer_scrolls { scroll.y = 0.0; }
+                if !hosted {
+                    for mut scroll in &mut outer_scrolls { scroll.y = 0.0; }
+                }
                 focus.clear(); // 入口可从折叠状态开始，不能让隐藏搜索输入吞掉后续键盘。
             }
             SearchAction::TextSearch => {
@@ -273,7 +321,7 @@ pub(super) fn input(
                     ticket: state.ticket,
                     root: documents.root.clone(),
                     folder: if state.current_folder {
-                        catalog.current_folder.clone()
+                        state.host_folder.clone().unwrap_or_else(|| catalog.current_folder.clone())
                     } else {
                         String::new()
                     },
@@ -396,11 +444,14 @@ pub(super) fn scroll(
                 }
         })
         .sum();
+    let hosted = gate.floating.as_ref().is_some_and(|browser| browser.search_window().is_some());
     if !state.open
         || !editor.open
-        || !sidebar.assets_browser_visible()
-        || layout.as_ref().is_some_and(|layout| !layout.content_shown())
-        || gate.blocked(&editor)
+        || (!hosted
+            && (!sidebar.assets_browser_visible() || layout.as_ref().is_some_and(|layout| !layout.content_shown())))
+        || gate.browser_blocked(&editor)
+        || (hosted
+            && !gate.floating.as_ref().is_some_and(|browser| browser.accepts_service_mouse()))
     {
         return;
     }

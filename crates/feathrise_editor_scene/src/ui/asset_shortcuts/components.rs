@@ -4,6 +4,9 @@ use super::types::{Section, ShortcutTarget};
 use bevy::prelude::*;
 
 #[derive(Component, Clone, Default)]
+pub(crate) struct ShortcutRoot;
+
+#[derive(Component, Clone, Default)]
 pub(crate) struct ShortcutList(pub(super) Section);
 #[derive(Component, Clone, Default)]
 pub(super) struct ShortcutCount(pub(super) Section);
@@ -24,11 +27,17 @@ pub(super) struct ShortcutLabel;
 pub(super) struct ShortcutBinding(pub(super) Option<ShortcutTarget>);
 
 #[derive(Component, Clone, Default)]
-pub(super) enum ShortcutAction {
+pub(crate) enum ShortcutAction {
     #[default]
     Refresh,
     Collapse(Section),
     ClearRecent,
     Locate(Section),
     Remove(Section),
+}
+
+impl ShortcutAction {
+    pub(crate) fn is_toolbar(&self) -> bool {
+        matches!(self, Self::Collapse(_))
+    }
 }

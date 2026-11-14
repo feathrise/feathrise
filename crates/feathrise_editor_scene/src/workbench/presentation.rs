@@ -17,7 +17,7 @@ use bevy::{
 #[derive(SystemParam)]
 pub struct WorkbenchFloatingPanels<'w, 's> {
     panels: Query<'w, 's,
-        (Entity, &'static RelativeCursorPosition, &'static ComputedNode, &'static InheritedVisibility, &'static GlobalZIndex),
+        (Entity, &'static RelativeCursorPosition, &'static ComputedNode, &'static InheritedVisibility, &'static GlobalZIndex, Option<&'static ZIndex>),
         Or<(With<WorkbenchFloatingPanel>, With<crate::ui::status_bar::StatusPopup>, With<crate::ui::context_help::ContextHelpPopup>)>,
     >,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
@@ -28,9 +28,9 @@ impl WorkbenchFloatingPanels<'_, '_> {
         if self.windows.single().is_ok_and(|window| !window.focused) { return None; }
         // 以已完成布局的画面为准，关闭指令发出后，同帧滚轮仍留给原面板。
         self.panels.iter()
-            .filter(|(_, cursor, node, visible, _)| visible.get() && !node.is_empty() && cursor.cursor_over())
-            .max_by_key(|(_, _, _, _, layer)| layer.0)
-            .map(|(entity, _, _, _, _)| entity)
+            .filter(|(_, cursor, node, visible, _, _)| visible.get() && !node.is_empty() && cursor.cursor_over())
+            .max_by_key(|(_, _, _, _, layer, order)| (layer.0, order.map_or(0, |order| order.0)))
+            .map(|(entity, _, _, _, _, _)| entity)
     }
 }
 

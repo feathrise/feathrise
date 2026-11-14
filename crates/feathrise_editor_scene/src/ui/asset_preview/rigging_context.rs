@@ -73,6 +73,11 @@ pub(crate) struct RigReferenceRows<'w> {
 }
 
 impl RigReferenceRows<'_> {
+    pub(crate) fn active(&self) -> bool {
+        self.state.as_deref().filter(|state| state.panel_open)
+            .and_then(|state| state.session.as_ref()).is_some_and(|session| self.context.matches(session))
+    }
+
     pub(crate) fn selected<'a>(&'a self, ordinary: Option<&'a str>) -> Option<&'a str> {
         let session = self.state.as_deref().filter(|state| state.panel_open)
             .and_then(|state| state.session.as_ref()).filter(|session| self.context.matches(session));
@@ -132,13 +137,13 @@ impl Context<'_, '_> {
         self.documents.asset_root()
     }
 
-    pub(super) fn can_pick_project_animation(&self) -> bool {
+    pub(super) fn can_pick_project_animation(&self, file_window: bool) -> bool {
         self.editor.open
             && !self.editor.close_requested
             && self.editor.pending_scene_transition.is_none()
-            && self.sidebar.assets_browser_visible()
-            && self.layout.as_ref().is_none_or(|layout| layout.content_shown())
-            && self.mouse_guard.as_ref().is_none_or(|guard| !guard.blocked())
+            && (file_window || self.sidebar.assets_browser_visible())
+            && (file_window || self.layout.as_ref().is_none_or(|layout| layout.content_shown()))
+            && (file_window || self.mouse_guard.as_ref().is_none_or(|guard| !guard.blocked()))
             && self.can_input()
     }
 
@@ -148,6 +153,16 @@ impl Context<'_, '_> {
 
     pub(super) fn active_tab_id(&self) -> Option<u64> {
         self.media.expanded.as_ref().filter(|_| self.central()).map(|tab| tab.id)
+    }
+
+    pub(super) fn motion_target(&self) -> Option<crate::ui::file_manager::ProjectMotionTarget> {
+        let candidate = self.candidate()?;
+        Some(crate::ui::file_manager::ProjectMotionTarget {
+            asset_root: candidate.root.to_path_buf(),
+            path: candidate.path.to_owned(),
+            generation: candidate.generation,
+            tab: self.active_tab_id()?,
+        })
     }
 
     pub(super) fn rigging_sidebar_shown(&self) -> bool {

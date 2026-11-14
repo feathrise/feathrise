@@ -68,6 +68,14 @@ pub(crate) fn snapshot(world: &World) -> Option<Value> {
     }))
 }
 
+/// 仅回读自有文件桌面夹具已经通过原加载器采用的正文，不直接安装文档或预期成功状态。
+#[cfg(feature = "validation")]
+pub(crate) fn loaded_text(world: &World, path: &str) -> Option<(String, bool)> {
+    let state = world.get_resource::<DocumentState>()?;
+    let doc = state.documents.iter().find(|doc| doc.path == path && doc.source.len() <= 4096)?;
+    Some((doc.source.to_string(), doc.dirty()))
+}
+
 #[cfg(feature = "validation")]
 pub(crate) fn redo(world: &mut World) -> Result<(), String> {
     let mut state = world.resource_mut::<DocumentState>();

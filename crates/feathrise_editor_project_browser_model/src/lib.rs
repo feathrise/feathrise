@@ -1,5 +1,7 @@
 //! 资产和工程目录共用快照与后台扫描入口。每个原目录会话拥有自己的工作器。
 
+pub mod file_operations;
+
 use bevy::prelude::Resource;
 use feathrise_scene_content::SceneAssetKind;
 use std::{
@@ -69,7 +71,7 @@ impl DirectorySnapshot {
 
 /// 回收区只用于人工恢复，不得重新作为可摆放或可选择的正式作者资产出现。
 pub fn hidden_author_directory(name: &str) -> bool {
-    name == ".trash" // 当前只隐藏场景删除事务的唯一受控回收目录。
+    name == ".trash" || name.starts_with(".feathrise-copy-") // 受控回收区与本轮未发布复制内容不进入正式资产列表。
 }
 
 /// 两个浏览视图共用目录IO、路径边界、分类与排序；只由来源决定隐藏项和诊断名称。
@@ -98,6 +100,7 @@ pub fn hidden_project_entry(name: &str) -> bool {
     // 发布暂存前缀全局保留；output只在工程根表示默认导出，不能隐藏src/output等作者目录。
     name.eq_ignore_ascii_case("target")
         || name.starts_with(".feathrise-export-")
+        || name.starts_with(".feathrise-copy-")
         || name.eq_ignore_ascii_case(".git")
         || name.eq_ignore_ascii_case(".trash")
 }
