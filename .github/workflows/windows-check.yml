@@ -35,11 +35,12 @@ jobs:
         source: ${{ fromJSON(github.event_name == 'workflow_dispatch' && (inputs.sdk_source == 'both' && '["source","registry"]' || inputs.sdk_source == 'registry' && '["registry"]' || '["source"]') || startsWith(github.ref, 'refs/tags/') && '["source","registry"]' || '["source"]') }}
         variant: [default, validation]
     env:
-      # 场景版 SDK 与编辑器锁文件配套。覆盖变量也须使用对应的完整提交。
+      # 场景与植被接口升级时同步推进配套源码；相同 Cargo 版本号不能证明接口一致。
+      # 覆盖变量也须使用对应的完整提交，避免旧仓库变量覆盖这组已验证默认值。
       FEATHRISE_SDK_REPOSITORY: ${{ vars.FEATHRISE_SDK_REPOSITORY || 'feathrise/feathrise_runtime' }}
-      FEATHRISE_SDK_REV: ${{ vars.FEATHRISE_SDK_REV || '11d6322965cf016130527dbccacaf278f35b1ddd' }}
+      FEATHRISE_SDK_REV: ${{ vars.FEATHRISE_SDK_REV || '1fbfee31c4513f3f373c1a342a1fca17fd01ccea' }}
       FEATHRISE_PATCH_REPOSITORY: ${{ vars.FEATHRISE_PATCH_REPOSITORY || 'feathrise/feathrise_patches' }}
-      FEATHRISE_PATCH_REV: ${{ vars.FEATHRISE_PATCH_REV || '019fd1fe13ed9107d17b360b8f5a3df61bfc139a' }}
+      FEATHRISE_PATCH_REV: ${{ vars.FEATHRISE_PATCH_REV || '5eaec9241a2c1860f8b2f683a80fbe2b150236e8' }}
     steps:
       - name: Require the public patch repository and full revision
         if: matrix.source == 'source'

@@ -91,7 +91,8 @@ impl ModelVegetationState {
                 .is_some_and(|pending| pending.painting)
     }
 
-    #[cfg(feature = "validation")]
+    /// 默认库测试也编译模型夹具；仅开放同身份命中的只读查询，普通构建不携带验收接口。
+    #[cfg(any(test, feature = "validation"))]
     pub(crate) fn cursor_hit(&self, object_id: &str) -> Option<Vec3> {
         self.source
             .as_ref()

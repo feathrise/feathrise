@@ -182,15 +182,16 @@ impl TerrainGroundSnapshot {
         };
         Some((surface.geometry_revision, frame.source_to_world))
     }
-    #[cfg(feature = "validation")]
+    /// 默认库测试与显式实窗夹具共用只读快照；条件与standalone父模块一致，不改变普通运行查询。
+    #[cfg(any(test, feature = "validation"))]
     pub(crate) fn clipmap_snapshot_for_validation(&self, id: &TerrainId) -> Option<&feathrise_scene::ClipmapGroundSnapshot> {
         match &self.surfaces.get(*self.by_id.get(id)?)?.query {
             TerrainObjectRaySnapshot::Clipmap(snapshot, _) => Some(snapshot),
             TerrainObjectRaySnapshot::Mesh(..) => None,
         }
     }
-    /// 显式实窗诊断在后台比较BVH候选和真实面命中，不改变原拾取或隐藏状态。
-    #[cfg(feature = "validation")]
+    /// 单测与显式实窗诊断在后台比较BVH候选和真实面命中，不改变原拾取或隐藏状态。
+    #[cfg(any(test, feature = "validation"))]
     pub(crate) fn validation_ray_trace(&self, id: &TerrainId, origin: Vec3, direction: Vec3,
         hidden: &std::collections::BTreeSet<TerrainId>) -> serde_json::Value {
         use serde_json::json;

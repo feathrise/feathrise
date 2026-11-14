@@ -17,11 +17,13 @@
 | 变量 | 值 |
 | --- | --- |
 | `FEATHRISE_SDK_REPOSITORY` | `feathrise/feathrise_runtime` |
-| `FEATHRISE_SDK_REV` | 可选，配套 SDK 的完整 40 位提交 ID |
+| `FEATHRISE_SDK_REV` | 可选，默认 `1fbfee31c4513f3f373c1a342a1fca17fd01ccea` |
 | `FEATHRISE_PATCH_REPOSITORY` | `feathrise/feathrise_patches` |
-| `FEATHRISE_PATCH_REV` | 可选，配套补丁的完整 40 位提交 ID |
+| `FEATHRISE_PATCH_REV` | 可选，默认 `5eaec9241a2c1860f8b2f683a80fbe2b150236e8` |
 
 覆盖来源时使用 `owner/repository` 格式和对应的完整提交 ID。工作流在检出前检查格式，检出后核对实际提交。
+
+这组源码包含静态网格碰撞标记、统一表面与模型植被接口及 v2 植被预览协议。SDK 的 Cargo 版本仍为 `0.2.0`，包版本核对不能代替源码接口匹配；编辑器采用新增接口时，必须同步更新工作流固定修订并检查默认和 `validation` 两个组合。仓库 Variables 中已有的修订值优先于工作流默认值，升级配套版本时应同步更新或移除旧覆盖。
 
 工作流将编辑器、指定修订的 SDK 和补丁仓检出到同级目录，核对提交身份，用 SDK 清单生成临时路径覆盖，再运行 `cargo check --locked --tests`。本地复现见 [README](../README.md#从源码启动)与[开发和验收说明](开发与验收.md#本地源码覆盖)。真实窗口另按自动验收入口运行。
 

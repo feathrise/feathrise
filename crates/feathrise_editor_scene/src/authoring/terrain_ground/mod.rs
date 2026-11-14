@@ -14,7 +14,8 @@ pub(crate) use resources::CursorIdentity;
 pub(crate) use resources::CursorGroundSnapshot;
 pub(crate) use systems::capture as capture_objects;
 /// 验收只读取正式单飞查询事实；不投递射线、不轮询Task，也不授予点击权限。
-#[cfg(feature = "validation")]
+/// 默认库测试也会编译standalone夹具，故与父模块共用test/validation边界，普通构建仍不包含此接口。
+#[cfg(any(test, feature = "validation"))]
 pub(crate) fn cursor_validation_snapshot(world: &bevy::prelude::World) -> serde_json::Value {
     use crate::{authoring::EditorAuthoringSession, resources::SceneEditorState};
     let Some(cursor) = world.get_resource::<TerrainGroundCursor>() else { return serde_json::Value::Null; };

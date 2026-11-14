@@ -18,7 +18,8 @@ pub(crate) struct PlacementBatchState {
 }
 impl PlacementBatchState {
     /// 验收仅读取单飞槽与固定大小游标事实，不能代替任务轮询或发布任何作者结果。
-    #[cfg(feature = "validation")]
+    /// standalone夹具也参与默认库测试，两项只读诊断须共享其test/validation边界。
+    #[cfg(any(test, feature = "validation"))]
     pub(crate) fn validation_snapshot(&self) -> String {
         format!("ticket={} capture={} job={:?} paste={:?} garbage={} cleaning={}", self.ticket,
             self.capture.is_some(), self.job.as_ref().map(|job| (job.ticket, job.task.is_finished(), job.selection.as_ref().map(|(revision,_)| *revision))),
@@ -26,7 +27,7 @@ impl PlacementBatchState {
             self.garbage.is_some(),self.cleaning.len())
     }
 
-    #[cfg(feature = "validation")]
+    #[cfg(any(test, feature = "validation"))]
     pub(crate) fn validation_waiting_for_ghost_records(&self) -> bool {
         self.paste.as_ref().is_some_and(|paste| paste.records.is_empty())
     }
