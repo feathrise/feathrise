@@ -8,8 +8,8 @@ use super::{
 use crate::authoring::buildings::BuildingEditRequest;
 use crate::authoring::{
     EditorAuthoringSession, EditorCommand, PlacementTerrainSampler, TerrainExternalChangeState,
-    test_heightfield_draft,
 };
+use crate::authoring::test_support::{refresh_test_clipmap_ground, test_clipmap_draft};
 use crate::components::SceneEditorViewport;
 use crate::resources::*;
 use crate::types::EditorView;
@@ -163,8 +163,16 @@ pub(crate) fn record() -> ScenePlacementRecord {
     }
 }
 
+pub(crate) fn replace_ground_heights(app: &mut App, heights: Option<Arc<Vec<u16>>>) {
+    let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+    let revision = session.terrain_revision;
+    let draft = session.draft.as_mut().unwrap();
+    draft.heights = heights;
+    refresh_test_clipmap_ground(draft, revision);
+}
+
 pub(crate) fn app() -> (App, Entity, Entity) {
-    let mut draft = test_heightfield_draft(Arc::new(vec![2; 121]));
+    let mut draft = test_clipmap_draft(Arc::new(vec![2; 121]), 2);
     let record = record();
     draft.placements.placements.push(record.clone());
     draft.placement_water_surface_count = 1;
@@ -928,12 +936,7 @@ fn missing_height_at_release_restores_before_instead_of_last_valid_preview() {
     let cursor = point_on_axis(&app, MoveAxis::X, 1.0);
     step(&mut app, node, cursor);
     assert!((app.world().get::<Transform>(root).unwrap().translation.x - 6.0).abs() < 0.002);
-    app.world_mut()
-        .resource_mut::<EditorAuthoringSession>()
-        .draft
-        .as_mut()
-        .unwrap()
-        .heights = None;
+    replace_ground_heights(&mut app, None);
     let cursor = point_on_axis(&app, MoveAxis::X, 2.0);
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
@@ -962,12 +965,7 @@ fn same_revision_height_arrival_resumes_preview_and_clears_waiting_notice() {
         record.terrain_offset = 2.0;
     }
     begin(&mut app, node, MoveAxis::X);
-    app.world_mut()
-        .resource_mut::<EditorAuthoringSession>()
-        .draft
-        .as_mut()
-        .unwrap()
-        .heights = None;
+    replace_ground_heights(&mut app, None);
     let cursor = point_on_axis(&app, MoveAxis::X, 2.0);
     step(&mut app, node, cursor);
     assert!(
@@ -984,12 +982,7 @@ fn same_revision_height_arrival_resumes_preview_and_clears_waiting_notice() {
             .unwrap()
             .valid
     );
-    app.world_mut()
-        .resource_mut::<EditorAuthoringSession>()
-        .draft
-        .as_mut()
-        .unwrap()
-        .heights = Some(Arc::new(vec![2; 121]));
+    replace_ground_heights(&mut app, Some(Arc::new(vec![2; 121])));
     step(&mut app, node, cursor);
     assert!(
         app.world()

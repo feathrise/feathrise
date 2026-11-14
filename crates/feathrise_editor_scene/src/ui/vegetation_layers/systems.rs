@@ -20,7 +20,7 @@ use crate::ui::actions::activate_vegetation_layer; // 选择后仍进入正式LO
 use crate::ui::list_layout::FixedRowPoolLayout; // 与场景、场景、资产和水域共享动态固定行池算法。
 
 use super::allocation::{
-    VegetationBlankLayerAllocation, request_vegetation_blank_layer_allocation,
+    VegetationBlankLayerAllocation, request_vegetation_blank_layer_allocation, request_model_layer,
 }; // 新建层先在唯一后台槽完成整张空白R8。
 use super::operations::{apply_vegetation_authoring_action, is_vegetation_authoring_action}; // 其余结构按钮共享一次受检原子采用。
 
@@ -361,6 +361,10 @@ pub(crate) fn handle_vegetation_authoring_buttons(
             editor.status = "当前植被笔划正在收尾；松开鼠标后再修改图层结构".to_owned();
             continue; // 不能先删除笔划绑定的作者层再尝试生成局部撤销差分。
         }
+        if blank_allocation.busy() {
+            editor.status = "植被作者层事务仍在后台完成，请稍候".into();
+            continue;
+        }
         if button.0 == EditorAction::VegetationAddLayer {
             if let Err(error) = request_vegetation_blank_layer_allocation(
                 &mut editor,
@@ -371,6 +375,11 @@ pub(crate) fn handle_vegetation_authoring_buttons(
                 editor.status = error;
             }
             continue; // 描述、正式输出和撤销命令只在后台完整结果采用时一起出现。
+        }
+        match request_model_layer(button.0, &mut editor, &session, &mut blank_allocation) {
+            Ok(true) => continue,
+            Err(error) => { editor.status = error; continue; }
+            Ok(false) => {}
         }
         match apply_vegetation_authoring_action(
             button.0,

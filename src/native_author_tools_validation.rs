@@ -61,7 +61,12 @@ pub(super) fn verify(root: &Path, game: &Value, proof: &Value) -> Result<(), Str
             .ok_or("笔划缺少源指纹")?
         {
             let path = file[0].as_str().ok_or("笔划源路径缺失")?;
-            if !path.contains('#') {
+            if tool == "Raise" {
+                let scene = feathrise_scene_content::SceneId::parse(terrain["scene_id"].as_str().ok_or("作者验收场景身份缺失")?)?;
+                let target = feathrise_scene_content::TerrainId::parse(terrain["terrain_id"].as_str().ok_or("作者验收地形身份缺失")?)?;
+                let actual = feathrise_runtime::project::validation_height_fingerprint(&root.join("assets"), &scene, &target, path)?;
+                if file[1] != actual { return Err(format!("分页高度作者源已变化或未保存：{path}")); }
+            } else if !path.contains('#') {
                 verify_hash(root, path, &file[1])?;
             }
         }
@@ -69,12 +74,13 @@ pub(super) fn verify(root: &Path, game: &Value, proof: &Value) -> Result<(), Str
     let actual = &game["author_tools"]["Ok"];
     let height = &strokes[0]["after"]["files"][0];
     if actual["terrain_id"] != terrain["terrain_id"]
-        || actual["mesh_sha256"] != height[1]
+        || actual["height_source_sha256"] != height[1]
+        || actual["height_source_path"] != height[0]
         || actual["collision_height_at_sculpt_center"]
             .as_f64()
             .is_none_or(|height| height <= 0.)
     {
-        return Err(format!("运行实例实际网格/碰撞没有采用雕刻结果：{actual}"));
+        return Err(format!("运行实例实际分页高度/碰撞没有采用雕刻结果：{actual}"));
     }
     let object = game["terrain_objects"]
         .as_array()
@@ -134,13 +140,26 @@ fn verify_river_building(root: &Path, actual: &Value, proof: &Value) -> Result<(
                 .find(|object| object["id"] == proof["building"]["id"])
         })
         .ok_or("运行实例缺少原建筑稳定ID的可视根")?;
+    let entry = placement_entry(root, &proof["scene_id"])?;
     if building["building"]["matches_saved_record"] != true
-        || building["building"]["record"] != proof["building"]
+        || building["building"]["pose_matches_resolved_record"] != true
+        || !building_matches(&building["building"]["record"], &proof["building"], &entry)
         || !building["meshes"]
             .as_array()
             .is_some_and(|meshes| !meshes.is_empty())
     {
         return Err(format!("运行实例建筑没有采用完整保存记录：{building}"));
+    }
+    let source: feathrise_scene_content::ScenePlacementRecord = serde_json::from_value(building["building"]["record"].clone())
+        .map_err(|error| format!("运行实例保存来源记录无效：{error}"))?;
+    let manifest: feathrise_scene_content::SceneManifestAsset = serde_json::from_value(read_json(root,
+        &entry.manifest_path())?).map_err(|error| error.to_string())?;
+    let mut resolved = source;
+    // 以落盘清单独立重建关联期望；运行端不能借用另一实例的姿态证明当前保存来源。
+    feathrise_scene_content::TerrainBindingIndex::from_manifest(&manifest).resolve_placement(&mut resolved)?;
+    if serde_json::from_value::<feathrise_scene_content::ScenePlacementRecord>(building["building"]["resolved_record"].clone())
+        .ok().as_ref() != Some(&resolved) {
+        return Err("运行实例建筑关联解析与保存清单不一致".into());
     }
     Ok(())
 }
@@ -201,8 +220,8 @@ fn verify_animation_assets(
     Ok(())
 }
 
-/// 重开的原作者World应读取同一文档；B不得串用A的新增河流/建筑/Blade层。
-pub(super) fn verify_reopen(document: &Value, proof: &Value, same: bool) -> Result<(), String> {
+/// 重开后的两个作者World各自回读当前文档与本工程实际分页源。
+pub(super) fn verify_reopen(root: &Path, document: &Value, proof: &Value, same: bool) -> Result<(), String> {
     let terrain = &proof["terrain"];
     let objects = document["terrains"]
         .as_array()
@@ -211,18 +230,32 @@ pub(super) fn verify_reopen(document: &Value, proof: &Value, same: bool) -> Resu
         .iter()
         .find(|object| object["id"] == terrain["terrain_id"])
         .ok_or("重开没有同稳定ID地形")?;
-    let height_path = terrain["strokes"][0]["after"]["files"][0][0]
-        .as_str()
-        .and_then(|path| path.split('#').next())
-        .ok_or("缺少最终地形版本源")?;
+    let height = &terrain["strokes"][0];
+    let expected = &height[if same { "after" } else { "before" }]["files"][0];
+    let height_path = expected[0].as_str().ok_or("缺少地形分页源证据")?;
+    let scene = feathrise_scene_content::SceneId::parse(document["scene_id"].as_str().ok_or("重开缺少场景身份")?)?;
+    let target = feathrise_scene_content::TerrainId::parse(object["id"].as_str().ok_or("重开缺少地形身份")?)?;
+    let source_path = object["terrain"]["height_path"].as_str().ok_or("重开缺少Clipmap作者清单")?;
+    if object["terrain"]["kind"] != "sparse_clipmap" || source_path != height_path {
+        return Err(format!("重开未采用当前地形的分页清单：{source_path}"));
+    }
+    // 两个工程的同模板相对清单路径相同。各自回读实际作者页，确认 A 保存值与 B 原始值。
+    let actual = feathrise_runtime::project::validation_height_fingerprint(&root.join("assets"), &scene, &target, source_path)?;
+    if expected[1] != actual {
+        return Err(format!("重开的工程分页高度与{}证据不符：{source_path}", if same { "保存后" } else { "编辑前" }));
+    }
     let river = &proof["river_building"]["river"];
     let building = &proof["river_building"]["building"];
+    let entry = placement_entry(root, &document["scene_id"])?;
+    let manifest: feathrise_scene_content::SceneManifestAsset = serde_json::from_value(read_json(root,
+        &entry.manifest_path())?).map_err(|error| error.to_string())?;
+    let bindings = feathrise_scene_content::TerrainBindingIndex::from_manifest(&manifest);
     let river_found = document["water"]["rivers"]
         .as_array()
         .is_some_and(|rivers| rivers.iter().any(|item| river_matches(item, river)));
     let building_found = document["placements"]
         .as_array()
-        .is_some_and(|placements| placements.iter().any(|item| item == building));
+        .is_some_and(|placements| placements.iter().any(|item| reopened_building_matches(item, building, &entry, &bindings)));
     let blade_found = document["vegetation"]["layers"]
         .as_array()
         .is_some_and(|layers| {
@@ -231,8 +264,7 @@ pub(super) fn verify_reopen(document: &Value, proof: &Value, same: bool) -> Resu
                 .any(|layer| layer["id"] == terrain["blade_output_id"])
         });
     if same {
-        if object["terrain"]["glb_path"] != height_path
-            || !river_found
+        if !river_found
             || !building_found
             || !blade_found
             || !document["surface"]["layers"]
@@ -247,11 +279,7 @@ pub(super) fn verify_reopen(document: &Value, proof: &Value, same: bool) -> Resu
                 "A重开未恢复地形/地表/Blade/河流/建筑文档：{document}"
             ));
         }
-    } else if river_found
-        || building_found
-        || blade_found
-        || object["terrain"]["glb_path"] == height_path
-    {
+    } else if river_found || building_found || blade_found {
         return Err("B串用了A的作者修改".into());
     }
     Ok(())
@@ -339,9 +367,172 @@ fn river_matches(left: &Value, right: &Value) -> bool {
     }
 }
 
+fn placement_entry(root: &Path, scene: &Value) -> Result<feathrise_scene_content::SceneCatalogEntry, String> {
+    let scene = feathrise_scene_content::SceneId::parse(scene.as_str().ok_or("建筑场景身份缺失")?)?;
+    let catalog: feathrise_scene_content::SceneCatalogAsset = serde_json::from_value(read_json(root,
+        feathrise_scene_content::SCENE_CATALOG_ASSET_PATH)?).map_err(|error| error.to_string())?;
+    catalog.scenes.into_iter().find(|entry| entry.id == scene).ok_or("保存目录缺少建筑所属场景".into())
+}
+
+/// 只按实际目录的保存格式比较：JSON保留原f32；GLB接受同一生产TRS往返的精确结果，不设容差。
+fn building_matches(actual: &Value, author: &Value, entry: &feathrise_scene_content::SceneCatalogEntry) -> bool {
+    let result = (|| -> Result<bool, String> {
+        let actual: feathrise_scene_content::ScenePlacementRecord = serde_json::from_value(actual.clone()).map_err(|error| error.to_string())?;
+        Ok(actual == saved_building_record(author, entry)?)
+    })();
+    result == Ok(true)
+}
+
+fn saved_building_record(author: &Value, entry: &feathrise_scene_content::SceneCatalogEntry) -> Result<feathrise_scene_content::ScenePlacementRecord, String> {
+    let author = serde_json::from_value(author.clone()).map_err(|error| error.to_string())?;
+    if !entry.placements_glb { return Ok(author); }
+    let path = entry.placements_path();
+    let document = feathrise_scene_content::ScenePlacementsAsset { scene_id: entry.id.clone(), placements: vec![author], ..Default::default() };
+    let bytes = feathrise_scene_content::write_scene_placements_glb(&document, &path, None)?;
+    let mut saved = feathrise_scene_content::read_scene_placements(&bytes, &path)?;
+    if saved.placements.len() != 1 { return Err("建筑保存往返未返回唯一原记录".into()); }
+    Ok(saved.placements.pop().unwrap())
+}
+
+/// 重开作者草稿会按当前地形关联覆盖TRS；先走唯一保存格式再正式解析，不能同时接受原始和解析两套值。
+fn reopened_building_matches(actual: &Value, author: &Value, entry: &feathrise_scene_content::SceneCatalogEntry,
+    bindings: &feathrise_scene_content::TerrainBindingIndex) -> bool {
+    let result = (|| -> Result<bool, String> {
+        let actual: feathrise_scene_content::ScenePlacementRecord = serde_json::from_value(actual.clone()).map_err(|error| error.to_string())?;
+        let mut expected = saved_building_record(author, entry)?;
+        bindings.resolve_placement(&mut expected)?;
+        Ok(actual == expected)
+    })();
+    result == Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn building_roundtrip() -> (Value, Value, feathrise_scene_content::SceneCatalogEntry) {
+        let scene = feathrise_scene_content::SceneId::parse("M1-building").unwrap();
+        let record = serde_json::from_value(serde_json::json!({
+            "id":"building", "asset_path":"scene/probe.glb", "building_preset_id":"sample-building",
+            "translation":[-16.,0.,-16.], "yaw_degrees":90., "scale":[1.,1.,1.],
+            "terrain_binding":{"terrain_id":"starter-ground", "local_pose":{
+                "translation":[-16.,0.,-16.], "yaw_degrees":90., "scale":[1.,1.,1.]
+            }}
+        })).unwrap();
+        let document = feathrise_scene_content::ScenePlacementsAsset { scene_id: scene.clone(), placements: vec![record], ..Default::default() };
+        let path = "scenes/M1-building/scene.glb";
+        let bytes = feathrise_scene_content::write_scene_placements_glb(&document, path, None).unwrap();
+        let saved = feathrise_scene_content::read_scene_placements(&bytes, path).unwrap();
+        let entry = serde_json::from_value(serde_json::json!({"id":scene, "display_name":"自有建筑夹具",
+            "folder":"scenes/M1-building", "placements_glb":true})).unwrap();
+        (serde_json::to_value(&saved.placements[0]).unwrap(), serde_json::to_value(&document.placements[0]).unwrap(), entry)
+    }
+
+    fn building_bindings(pose: feathrise_scene_content::TerrainObjectTransform) -> feathrise_scene_content::TerrainBindingIndex {
+        let object = serde_json::from_value(serde_json::json!({
+            "id":"starter-ground", "display_name":"自有承托夹具", "transform":pose,
+            "world_min":[-32.,-32.], "world_max":[32.,32.],
+            "terrain":feathrise_scene_content::SceneTerrainDescriptor::empty()
+        })).unwrap();
+        feathrise_scene_content::TerrainBindingIndex::from_objects(&[object])
+    }
+
+    #[test]
+    fn reopened_building_comparison_resolves_saved_binding_without_accepting_raw_glb_pose() {
+        let (saved, author, entry) = building_roundtrip();
+        for pose in [Default::default(), feathrise_scene_content::TerrainObjectTransform {
+            translation: [10., 2., 6.], scale: [2., 3., 4.], ..Default::default()
+        }] {
+            let bindings = building_bindings(pose);
+            let mut reopened: feathrise_scene_content::ScenePlacementRecord = serde_json::from_value(saved.clone()).unwrap();
+            bindings.resolve_placement(&mut reopened).unwrap();
+            let reopened = serde_json::to_value(reopened).unwrap();
+            assert_ne!(reopened["scale"], saved["scale"], "真实关联解析覆盖GLB原始解码TRS");
+            assert!(reopened_building_matches(&reopened, &author, &entry, &bindings));
+            assert!(!reopened_building_matches(&saved, &author, &entry, &bindings));
+            assert!(building_matches(&saved, &author, &entry), "磁盘来源仍只接受原保存往返");
+            assert!(!building_matches(&reopened, &author, &entry));
+        }
+        assert!(!reopened_building_matches(&author, &author, &entry, &Default::default()), "缺失承托地形不能沿用作者姿态");
+    }
+
+    #[test]
+    fn reopened_building_comparison_rejects_metadata_binding_and_single_f32_changes() {
+        let (saved, author, entry) = building_roundtrip();
+        let bindings = building_bindings(Default::default());
+        let mut reopened: feathrise_scene_content::ScenePlacementRecord = serde_json::from_value(saved).unwrap();
+        bindings.resolve_placement(&mut reopened).unwrap();
+        for variant in 0..8 {
+            let mut changed = reopened.clone();
+            match variant {
+                0 => changed.id.push_str("-other"),
+                1 => changed.asset_path = "scene/other.glb".into(),
+                2 => changed.building_preset_id = Some("other-building".into()),
+                3 => changed.terrain_binding.as_mut().unwrap().terrain_id = feathrise_scene_content::TerrainId::parse("other-ground").unwrap(),
+                4 => changed.translation[0] = f32::from_bits(changed.translation[0].to_bits() + 1),
+                5 => changed.yaw_degrees = f32::from_bits(changed.yaw_degrees.to_bits() + 1),
+                6 => changed.scale[0] = f32::from_bits(changed.scale[0].to_bits() + 1),
+                _ => {
+                    let local = &mut changed.terrain_binding.as_mut().unwrap().local_pose;
+                    local.translation[0] = f32::from_bits(local.translation[0].to_bits() + 1);
+                }
+            }
+            assert!(!reopened_building_matches(&serde_json::to_value(changed).unwrap(), &author, &entry, &bindings), "case {variant}");
+        }
+    }
+
+    #[test]
+    fn reopened_building_comparison_keeps_unbound_glb_and_json_format_contracts() {
+        let (_, mut author, mut entry) = building_roundtrip();
+        author.as_object_mut().unwrap().remove("terrain_binding");
+        let saved = serde_json::to_value(saved_building_record(&author, &entry).unwrap()).unwrap();
+        let bindings = building_bindings(Default::default());
+        assert!(reopened_building_matches(&saved, &author, &entry, &bindings));
+        assert!(!reopened_building_matches(&author, &author, &entry, &bindings), "无关联GLB不能按原作者TRS蒙混通过");
+        entry.placements_glb = false;
+        assert!(reopened_building_matches(&author, &author, &entry, &bindings));
+        assert!(!reopened_building_matches(&saved, &author, &entry, &bindings), "JSON不能接受GLB解码值");
+    }
+
+    #[test]
+    fn building_comparison_uses_exact_production_glb_roundtrip() {
+        let (saved, author, scene) = building_roundtrip();
+        assert_ne!(saved["scale"], author["scale"], "复现90度GLB四元数解码的一个f32位规范化");
+        assert!(building_matches(&saved, &author, &scene));
+        let disk: Value = serde_json::from_str(&serde_json::to_string(&saved).unwrap()).unwrap();
+        assert!(building_matches(&disk, &author, &scene));
+    }
+
+    #[test]
+    fn building_comparison_json_preserves_exact_author_pose_without_glb_normalization() {
+        let (glb, author, mut entry) = building_roundtrip();
+        entry.placements_glb = false;
+        let json: Value = serde_json::from_str(&serde_json::to_string(&author).unwrap()).unwrap();
+        assert!(building_matches(&json, &author, &entry));
+        assert!(!building_matches(&glb, &author, &entry), "JSON目录不能同时接受GLB规范化值");
+        let mut changed: feathrise_scene_content::ScenePlacementRecord = serde_json::from_value(json).unwrap();
+        changed.scale[0] = f32::from_bits(changed.scale[0].to_bits() + 1);
+        assert!(!building_matches(&serde_json::to_value(changed).unwrap(), &author, &entry));
+    }
+
+    #[test]
+    fn building_comparison_rejects_changed_metadata_binding_and_single_float_step() {
+        let (saved, author, scene) = building_roundtrip();
+        let record: feathrise_scene_content::ScenePlacementRecord = serde_json::from_value(saved).unwrap();
+        for variant in 0..7 {
+            let mut changed = record.clone();
+            match variant {
+                0 => changed.id.push_str("-other"),
+                1 => changed.asset_path = "scene/other.glb".into(),
+                2 => changed.building_preset_id = Some("other-building".into()),
+                3 => changed.terrain_binding.as_mut().unwrap().terrain_id = feathrise_scene_content::TerrainId::parse("other-ground").unwrap(),
+                4 => changed.translation[0] = f32::from_bits(changed.translation[0].to_bits() + 1),
+                5 => changed.yaw_degrees = f32::from_bits(changed.yaw_degrees.to_bits() + 1),
+                _ => changed.scale[0] = f32::from_bits(changed.scale[0].to_bits() + 1),
+            }
+            assert!(!building_matches(&serde_json::to_value(changed).unwrap(), &author, &scene), "case {variant}");
+        }
+    }
 
     #[test]
     fn river_comparison_keeps_exact_f32_identity_across_json_roundtrip() {

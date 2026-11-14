@@ -7,6 +7,42 @@ use crate::{authoring::EditorCommand, types::{EditorTool, WaterAuthoringFeatureK
 use bevy::ecs::system::RunSystemOnce;
 use std::sync::Arc;
 
+#[cfg(feature = "validation")]
+#[test]
+fn validation_terrain_focus_dispatch_replaces_a_previous_model_selection() {
+    let mut draft = crate::authoring::test_heightfield_draft(Arc::new(vec![0; 121]));
+    let object = draft.manifest.terrain_objects_for_edit()[0].clone();
+    let id = object.id.clone();
+    draft.manifest.terrains = Some(Arc::from([object.clone()]));
+    let target = super::super::SceneObjectTarget { scene_id: draft.scene_id.clone(), revision: 7,
+        key: SceneObjectKey::Terrain { index: 0, id: id.clone() }, name: object.display_name,
+        hidden: false, locked: false, copyable: true };
+    let mut browser = EditorGltfBrowserState::default();
+    browser.selected_placement_id = Some("previous-model".into());
+    let mut app = App::new();
+    app.insert_resource(SceneEditorState { open: true, selected_scene_id: Some(draft.scene_id.clone()), ..default() })
+        .insert_resource(EditorAuthoringSession { draft: Some(draft), revision: 7, ..default() })
+        .insert_resource(browser).init_resource::<SceneContextMenuState>()
+        .init_resource::<TerrainObjectsEditorState>().init_resource::<LayerCandidateState>()
+        .init_resource::<ButtonInput<MouseButton>>().init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<crate::resources::SceneEditorNumericScrubMouseGuard>();
+    app.world_mut().spawn((Window::default(), bevy::window::PrimaryWindow));
+    app.world_mut().spawn((super::super::SceneObjectRow(Some(target)), Node::default(), feathrise_editor_ui::UiInteraction::None));
+    assert!(super::super::queue_terrain_focus_for_validation(app.world_mut(), &id).unwrap());
+    assert_eq!(app.world().resource::<EditorGltfBrowserState>().selected_placement_id.as_deref(), Some("previous-model"),
+        "排队不能提前清选择或安装作者画布");
+    app.world_mut().run_system_once(super::super::systems::dispatch).unwrap();
+    app.world_mut().run_system_once(super::select_target).unwrap();
+    assert!(app.world().resource::<EditorGltfBrowserState>().selected_placement_id.is_none());
+    assert_eq!(app.world().resource::<TerrainObjectsEditorState>().selected.as_ref(), Some(&id));
+    assert_eq!(
+        app.world().resource::<LayerCandidateState>().selected.as_ref(),
+        Some(&LayerTarget::TerrainObject(id.as_str().to_owned())),
+    );
+    assert!(app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap().terrain_documents.active.is_none(),
+        "正式选择只发布目标，独立画布仍须由原后台载入");
+}
+
 #[test]
 fn rejected_water_source_keeps_confirmed_selection_and_cancels_its_menu_command() {
     for from_menu in [false, true] {

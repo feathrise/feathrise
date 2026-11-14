@@ -45,7 +45,7 @@ fn capture(records: &[ScenePlacementRecord], objects: &[SceneTerrainObject]) -> 
             id: item.id.clone(), index, position: Vec3::from_array(item.translation),
         }
     }).collect();
-    let output = worker::capture(Capture {
+    let output = worker::capture(Capture { model_vegetation: Arc::default(),
         identity: BatchIdentity { scene_id: map(), author: 0, structure: 0, terrain: 0, content: None, placement_derived_pose_revision: 0,
             document: crate::authoring::placement_deletion::PlacementDeletionIntents::default().identity() },
         action: PlacementBatchAction::Copy,
@@ -63,7 +63,7 @@ fn capture(records: &[ScenePlacementRecord], objects: &[SceneTerrainObject]) -> 
 fn paste(clipboard: &Arc<ClipboardData>, target: SceneTerrainObject, legacy: bool,
     delta: Vec3, existing: PatchBudget) -> Result<PreparedPaste, String> {
     let ghosts = worker::ghost_records(clipboard, "patch-semantics-copy")?;
-    match worker::run_paste(PasteWork {
+    match worker::run_paste(PasteWork { model_vegetation: None,
         source: ghosts, delta, records: Vec::new(), validator: None,
         presets: Arc::new(vec![None; clipboard.records.len()]), sampler: None, work_plane: false,
         patch: Some(PatchPasteContext {
@@ -222,7 +222,7 @@ fn static_patch_mixed_with_building_keeps_source_bounds_and_original_order_durin
         app.world().resource::<BuildingAuthoringState>(), None,
     ).unwrap();
     let expected_ids = ghosts.iter().map(|record| record.id.clone()).collect::<Vec<_>>();
-    let BatchOutput::Paste(result) = worker::run_paste(PasteWork {
+    let BatchOutput::Paste(result) = worker::run_paste(PasteWork { model_vegetation: None,
         source: ghosts, delta: Vec3::ZERO, records: Vec::new(), validator: Some(validator),
         presets: Arc::new(vec![None, Some(preset), None]), sampler: Some(sampler), work_plane: false,
         patch: Some(PatchPasteContext {
@@ -283,7 +283,7 @@ fn static_patch_paste_rejects_non_clipmap_destination() {
     let before = static_patch(&source, false);
     let clipboard = capture(&[before], &[source]).unwrap();
     let mut target = object(&target_scene(), "target-type", -32.0, default());
-    target.terrain.kind = SceneTerrainKind::Heightfield;
+    target.terrain.kind = SceneTerrainKind::Gltf;
     target.terrain.glb_path = "gltf/test.glb".into();
     target.terrain.height_path = None;
     assert!(paste(&clipboard, target, false, Vec3::ZERO, default()).is_err());

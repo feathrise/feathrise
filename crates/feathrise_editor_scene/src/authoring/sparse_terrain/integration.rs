@@ -89,6 +89,10 @@ struct SparseTerrainStroke {
     input_authority: Option<u64>,       // 显式网格输入被run_if跳过后，取消票据仍能阻止旧按压复活。
     flatten_target_meters: Option<f32>, // 首个 dab 从真实作者高度冻结，整笔复用。
     changes: BTreeMap<(u64, u64), SparseTerrainHeightChange>, // 同格点首次 before 和最终 after。
+    #[cfg(any(test, feature = "validation"))]
+    pending_world_point: Option<Vec3>, // 只记录这一次后台刷印使用的真实世界点。
+    #[cfg(any(test, feature = "validation"))]
+    applied_world_point: Option<Vec3>, // 非空刷印完整发布后才可用于证明连续按压已经落笔。
 }
 
 /// F12 新图稀疏作者状态；作者会话在后台任务运行期间临时移入单飞槽。
@@ -110,6 +114,11 @@ pub(crate) struct SparseTerrainAuthoringState {
 }
 
 impl SparseTerrainAuthoringState {
+    #[cfg(any(test, feature = "validation"))]
+    pub(crate) fn validation_applied_sculpt_point(&self) -> Option<Vec3> {
+        self.stroke.applied_world_point.filter(|_| self.stroke.active)
+    }
+
     /// 全局地形修订还覆盖姿态与LOD；高度写入只接受当前完整画布实际发布的同源live内容。
     fn current_live_height_revision(
         &self,
@@ -408,6 +417,8 @@ pub(crate) fn poll_sparse_terrain_task(
                 tiles,
             }),
         ) => {
+            #[cfg(any(test, feature = "validation"))]
+            let applied_world_point = state.stroke.pending_world_point.take();
             if state.stroke.flatten_target_meters.is_none() {
                 state.stroke.flatten_target_meters = flatten_target_meters; // 首次真实采样成为整笔固定目标。
             }
@@ -417,6 +428,10 @@ pub(crate) fn poll_sparse_terrain_task(
                 match live.publish_tiles(&output.scene_id, session.terrain_revision, tiles) {
                     Ok(count) => {
                         state.live_publish_failed = false;
+                        #[cfg(any(test, feature = "validation"))]
+                        if let Some(point) = applied_world_point {
+                            state.stroke.applied_world_point = Some(point);
+                        }
                         editor.status = format!(
                             "稀疏地形高度已修改；当前{dirty_tiles}个脏块，已发布{count}个实时 Clipmap 块"
                         );
@@ -649,6 +664,7 @@ pub(crate) fn apply_sparse_terrain_brush(
         || !editor.open
         || !sparse_scene
         || !input_available
+        || !hovered // 离开视口立即收口；回来时仍按住的旧点必须等待下一次真实按下。
         || (objects && state.stroke.active && state.stroke.input_authority != objects_cursor.as_ref().and_then(|cursor| cursor.input_authority()))
         || tool.is_none()
         || (state.stroke.active && state.stroke.tool != Some(editor.tool))
@@ -719,18 +735,18 @@ pub(crate) fn apply_sparse_terrain_brush(
             session.terrain_revision,
         ).filter(|world| editor.brush_cursor_world == Some(*world))
     };
-    let Some(world) = hit.map(|point| draft.terrain_point(point))
-    else {
+    let Some(world_hit) = hit else {
         // 模式浮层和数值输入可在查询完成后撤销视口落点，雕刻必须继续尊重该输入屏障。
         return; // 通用光标即使带有Y=0位置也没有雕刻资格；迟到射线必须重新查询。
     };
+    let local_hit = draft.terrain_point(world_hit);
     let kind = tool.expect("上方已验证稀疏高度工具");
     let scale = draft.terrain_documents.active.as_ref()
         .map_or(Vec3::ONE, |active| Vec3::from_array(active.definition.transform.scale));
     let footprint = [scale.x, scale.z];
     let input = SparseTerrainBrushInput {
         kind,
-        center_xz: [f64::from(world.x), f64::from(world.z)],
+        center_xz: [f64::from(local_hit.x), f64::from(local_hit.z)],
         radius_meters: editor.brush_radius,
         strength: editor.brush_strength,
         speed_meters_per_second: editor.terrain_sculpt_speed / scale.y,
@@ -738,7 +754,7 @@ pub(crate) fn apply_sparse_terrain_brush(
         flatten_target_meters: state
             .stroke
             .flatten_target_meters
-            .or_else(|| (kind == SparseTerrainBrushKind::Flatten).then_some(world.y)),
+            .or_else(|| (kind == SparseTerrainBrushKind::Flatten).then_some(local_hit.y)),
     }; // 压平首笔冻结基础作者三角面的Y，而非零平面或粗显示LOD高度。
     let spec = state
         .author
@@ -758,8 +774,12 @@ pub(crate) fn apply_sparse_terrain_brush(
         }
     }; // 与后台预取、冻结五点采样共用世界半径步长；平滑halo不能仍只检查一格。
     let extent = Vec2::splat(input.radius_meters) / Vec2::from_array(footprint) + padding;
-    match snapshot.request_authoritative_rect(world.xz() - extent, world.xz() + extent) {
-        Ok(true) => start_brush_task(&mut state, input, footprint),
+    match snapshot.request_authoritative_rect(local_hit.xz() - extent, local_hit.xz() + extent) {
+        Ok(true) => {
+            #[cfg(any(test, feature = "validation"))]
+            { state.stroke.pending_world_point = Some(world_hit); }
+            start_brush_task(&mut state, input, footprint);
+        }
         Ok(false) => {
             editor.status = "正在等待完整笔刷范围的基础高度页；地形雕刻暂停".into();
         }
@@ -946,6 +966,10 @@ fn finish_sparse_stroke_if_ready(
 #[cfg(test)]
 #[path = "object_tests.rs"]
 mod object_tests;
+
+#[cfg(test)]
+#[path = "input_tests.rs"]
+mod input_tests; // 真实稀疏作者槽验证连续输入；不再期待退休有限Mesh的逐刷印文件事务。
 
 #[cfg(test)]
 mod tests {

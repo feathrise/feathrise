@@ -59,7 +59,8 @@ fn page(shell: bool) -> (App, Entity, Entity) {
         bevy::text::TextPlugin,
         bevy::transform::TransformPlugin,
     ));
-    app.init_resource::<UiSurface>()
+    app.init_asset::<Image>() // 完整侧栏的图标使用原AssetServer，不能只安装文字资产。
+        .init_resource::<UiSurface>()
         .init_resource::<feathrise_editor_core::EditorSettings>()
         .init_resource::<SceneEditorNumericScrubMouseGuard>()
         .init_resource::<crate::ui::gltf_browser::EditorGltfBrowserState>()
@@ -98,6 +99,7 @@ fn page(shell: bool) -> (App, Entity, Entity) {
         .vegetation_author_densities
         .insert(author.id.clone(), Arc::new(vec![0; 4]));
     draft.vegetation = Some(SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
         scene_id: draft.scene_id.clone(),
         layers: vec![output],
@@ -373,7 +375,7 @@ fn choose_ordinary_grass(app: &mut App) {
 }
 
 #[test]
-fn vegetation_feedback_distinguishes_unselected_loading_and_loaded_empty_canvas() {
+fn vegetation_feedback_distinguishes_unloaded_root_loading_and_loaded_empty_terrain_canvas() {
     let (mut app, _, _) = page(false);
     let id = use_explicit_empty_canvas(&mut app);
     let (identity, vegetation) = {
@@ -386,9 +388,10 @@ fn vegetation_feedback_distinguishes_unselected_loading_and_loaded_empty_canvas(
     app.update();
     for kind in [VegetationSidebarFeedbackKind::Availability, VegetationSidebarFeedbackKind::Compile,
         VegetationSidebarFeedbackKind::Preview] {
-        assert!(feedback(&mut app, kind).contains("先在场景树选择一个网格"));
+        assert!(feedback(&mut app, kind).contains("植被作者数据尚未就绪"));
     }
-    assert!(app.world().resource::<SceneEditorState>().status.contains("先在场景树选择一个网格"));
+    // 根画布同样服务普通模型；没有选择地形时只报告真实未载入状态，不能要求旧网格分类。
+    assert!(app.world().resource::<SceneEditorState>().status.contains("植被作者数据尚未就绪"));
     press(&mut app, EditorAction::VegetationAddLayer);
     assert!(!app.world().resource::<VegetationBlankLayerAllocation>().busy());
     assert!(app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap().vegetation.is_none());

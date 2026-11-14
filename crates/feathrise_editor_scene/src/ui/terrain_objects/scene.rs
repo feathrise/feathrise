@@ -24,7 +24,13 @@ fn button(label: &str, action: Action) -> impl Scene {
         TextColor(colors::TEXT_PRIMARY)] }, lod_binding)
 }
 fn caption(label: &str) -> impl Scene {
-    bsn! { Text(label) @feathrise_editor_ui::localization::label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
+    // “网格”也用于参考线Grid；几何创建分类须显式使用Mesh词条。
+    let localized = if label == "网格" {
+        feathrise_editor_ui::localization::LocalizedText::new("sidebar.mesh")
+    } else {
+        feathrise_editor_ui::localization::LocalizedText::label(label)
+    };
+    bsn! { Text(label) ~{localized} TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
     TextColor(colors::TEXT_MUTED) TextLayout::linebreak(LineBreak::AnyCharacter)
     Node { width: percent(100), min_width: px(0) } }
 }
@@ -156,13 +162,13 @@ pub(crate) fn panel() -> impl Scene {
             padding: UiRect::all(px(4)), border: UiRect::bottom(px(1)) }
             BorderColor::all(colors::COPPER_BORDER_WEAK)
             Children [
-                @caption("基础形状")--
+                // 创建分类用“网格”描述几何；GLB资产及其内容仍沿用模型身份。
+                @caption("网格")--
                 @button("立方体", Action::Cuboid)--
-                @caption("导入模型")--
                 @button("原始 GLB · 使用所选资产", Action::ImportGlb)--
-                @caption("可塑形网格")--
+                @caption("地形")--
                 Node { width: percent(100), column_gap: px(3) } Children [
-                    @button("高度网格", Action::Glb)-- @button("Clipmap", Action::Clipmap)-- @button("体素", Action::Voxel)]--
+                    @button("高度地形", Action::Clipmap)-- @button("体素地形", Action::Voxel)]--
                 @caption("放置方式")--
                 Node { width: percent(100), column_gap: px(3) } Children [
                     @button("视口点放", Action::PlacementViewport)-- @button("指定坐标", Action::PlacementCoordinates)]--
@@ -188,7 +194,7 @@ pub(crate) fn panel() -> impl Scene {
                         Text("?") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_HINT) Pickable::IGNORE--
                         CreationSummary feathrise_editor_ui::context_help::ContextHelpBody
-                            Text("高度网格高度域不是平面厚度；Clipmap高度不受此项限制；体素高为初始实心盒高。原始 GLB 使用资产几何。") @feathrise_editor_ui::localization::label_scene("高度网格高度域不是平面厚度；Clipmap高度不受此项限制；体素高为初始实心盒高。原始 GLB 使用资产几何。")
+                            Text("高度地形高度不受初始规格限制；体素地形高为初始实心盒高。网格使用资产几何。") @feathrise_editor_ui::localization::label_scene("高度地形高度不受初始规格限制；体素地形高为初始实心盒高。网格使用资产几何。")
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_MUTED) TextLayout::linebreak(LineBreak::AnyCharacter)
                             Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }
@@ -233,8 +239,6 @@ pub(super) fn setup(
             }
         } else if let Field::Rotation(axis) = field {
             (["X", "Y", "Z"][axis], "°", -1_000_000.0, 0.01)
-        } else if field == Field::AuthorHeightDomain {
-            ("作者高度域", "m", 0.01, 0.01)
         } else if field == Field::VoxelHeight {
             ("体素高", "m", 0.01, 0.01)
         } else if matches!(field, Field::Policy(_)) {
@@ -419,7 +423,7 @@ pub(crate) fn properties_panel() -> impl Scene {
                             TextColor(colors::TEXT_MUTED) Node { width: px(67), flex_shrink: 0.0 }--
                         @compact_slot(Field::Selected(7))
                     ]--
-                    @slot(Field::AuthorHeightDomain)-- @slot(Field::VoxelHeight)
+                    @slot(Field::VoxelHeight)
                 ]--
                 @accordion("▼ 显示 LOD", Action::DisplayLods)--
                 PanelSection(Section::DisplayLods) Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column,

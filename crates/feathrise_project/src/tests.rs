@@ -183,24 +183,17 @@ fn sample_has_real_standable_terrain_and_private_author_sources_while_empty_stay
     let terrain = &objects[0];
     assert_eq!(sample.world_min, terrain.world_min);
     assert_eq!(sample.world_max, terrain.world_max);
-    let bytes = fs::read(fixture.0.join(&terrain.terrain.glb_path)).unwrap();
-    let mesh = feathrise_terrain::parse_dynamic_terrain_glb(&bytes)
-        .expect("生产GLB必须能由原作者加载器回读");
-    let derived = feathrise_terrain::derive_terrain(
-        mesh,
-        feathrise_terrain::TerrainSampleSpec {
-            resolution: terrain.terrain.resolution,
-            world_min: terrain.world_min,
-            world_max: terrain.world_max,
-            base_height: terrain.terrain.base_height,
-            height_scale: terrain.terrain.height_scale,
-        },
-    )
-    .unwrap();
-    assert_eq!(derived.positions.len(), 33 * 33);
-    assert_eq!(derived.indices.len(), 32 * 32 * 6);
-    assert!(derived.positions.iter().all(|point| point[1] == 0.0));
-    assert!(derived.normals.iter().all(|normal| normal[1] > 0.999));
+    assert_eq!(terrain.terrain.kind, feathrise_scene_content::SceneTerrainKind::SparseClipmap);
+    assert!(terrain.terrain.glb_path.is_empty());
+    let document = feathrise_scene_content::SparseHeightDocument::load_source(
+        &fixture.0, &sample.id, Some(&terrain.id), terrain.terrain.height_path.as_deref().unwrap()).unwrap();
+    assert_eq!(document.manifest().spec.cells, [32, 32]);
+    assert_eq!(document.sample_world_height(-32.0, -32.0).unwrap(), Some(0.0));
+    assert_eq!(document.sample_world_height(32.0, 32.0).unwrap(), Some(0.0));
+    let plan = feathrise_scene_content::compile_display_lod_plan(
+        &document.manifest().spec, terrain.terrain.display_lods.as_ref().unwrap()).unwrap();
+    assert_eq!(plan.bands.len(), 1);
+    assert_eq!(plan.bands[0].outer_half_cells, [32, 32]);
     assert!(
         sample.default_spawn[0] > terrain.world_min[0]
             && sample.default_spawn[0] < terrain.world_max[0]

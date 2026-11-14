@@ -13,7 +13,7 @@ use super::super::resources::{
 pub(super) fn current_source(session: &EditorAuthoringSession) -> Option<WaterPreviewSource> {
     let draft = session.draft.as_ref()?;
     if draft.terrain_documents.loading
-        || !matches!(draft.terrain_manifest().terrain.kind, SceneTerrainKind::Gltf | SceneTerrainKind::Heightfield)
+        || !matches!(draft.terrain_manifest().terrain.kind, SceneTerrainKind::Gltf)
     {
         return None;
     }

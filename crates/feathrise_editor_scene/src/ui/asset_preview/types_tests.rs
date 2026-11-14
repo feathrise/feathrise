@@ -53,6 +53,7 @@ fn selected_primitive_preserves_mesh_primitive_and_material_indices() {
             mesh: 6,
             primitive: 2,
             material: Some(4),
+            collision: false,
         },
     );
 }

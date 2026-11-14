@@ -1449,6 +1449,7 @@ fn placement_click_rejects_changed_asset_target_and_author_revision() {
                     mesh: 0,
                     primitive: 0,
                     material: None,
+                    collision: false,
                 },
             },
             4,

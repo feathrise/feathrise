@@ -88,31 +88,28 @@ pub(super) fn content(
         })
         .map(|snapshot| snapshot.content_revision_words())
 }
-pub(super) fn current(
+/// 固定数量的身份门只返回首个失效原因；取消时可解释真正变化，而不削弱迟到结果的拒收条件。
+fn current_failure(
     identity: &BatchIdentity,
     editor: &SceneEditorState,
     session: &EditorAuthoringSession,
     env: &BatchEnvironment,
-) -> bool {
-    editor.open
-        && !editor.close_requested
-        && !editor.new_scene_dialog_open
-        && !editor.scene_transition_in_progress
-        && editor.pending_scene_transition.is_none()
-        && !session.saving
-        && editor.selected_scene_id.as_ref() == Some(&identity.scene_id)
-        && session
-            .draft
-            .as_ref()
-            .is_some_and(|draft| draft.scene_id == identity.scene_id)
-        && session.revision == identity.author
-        && session.placement_structure_revision == identity.structure
-        && session.terrain_revision == identity.terrain
-        && session.placement_derived_pose_revision == identity.placement_derived_pose_revision
-        && identity.document.matches(&session.placement_deletions)
-        && identity
-            .content
-            .is_none_or(|old| content(env, session) == Some(old))
+) -> Option<&'static str> {
+    [
+        (editor.open && !editor.close_requested, "编辑器已关闭或请求关闭"),
+        (!editor.new_scene_dialog_open, "场景弹框已打开"),
+        (!editor.scene_transition_in_progress && editor.pending_scene_transition.is_none(), "场景正在切换"),
+        (!session.saving, "场景已开始保存"),
+        (!session.model_vegetation_busy, "模型植被作者任务正在处理"),
+        (editor.selected_scene_id.as_ref() == Some(&identity.scene_id)
+            && session.draft.as_ref().is_some_and(|draft| draft.scene_id == identity.scene_id), "作者场景已变化"),
+        (session.revision == identity.author, "作者修订已变化"),
+        (session.placement_structure_revision == identity.structure, "对象结构修订已变化"),
+        (session.terrain_revision == identity.terrain, "地形修订已变化"),
+        (session.placement_derived_pose_revision == identity.placement_derived_pose_revision, "派生贴地姿态已变化"),
+        (identity.document.matches(&session.placement_deletions), "作者文档身份已变化"),
+        (identity.content.is_none_or(|old| content(env, session) == Some(old)), "地形来源快照已变化"),
+    ].into_iter().find_map(|(valid, reason)| (!valid).then_some(reason))
 }
 
 pub(super) fn start_job(
@@ -225,25 +222,25 @@ pub(crate) fn handle_placement_batch(
         };
         env.commands.entity(entity).try_despawn();
     }
-    let invalid = state.capture.as_ref().is_some_and(|capture| {
-        !current(&capture.identity, &editor, &session, &env)
-            || capture.selection_revision != selection.revision
-            || capture.selected_id != context.browser.selected_placement_id
-    }) || state.paste.as_ref().is_some_and(|paste| {
-        !current(&paste.identity, &editor, &session, &env)
-            || paste.building_revision.is_some_and(|revision| {
+    let invalid = state.capture.as_ref().and_then(|capture| {
+        current_failure(&capture.identity, &editor, &session, &env)
+            .or_else(|| (capture.selection_revision != selection.revision).then_some("对象选集已变化"))
+            .or_else(|| (capture.selected_id != context.browser.selected_placement_id).then_some("当前对象选择已变化"))
+    }).or_else(|| state.paste.as_ref().and_then(|paste| {
+        current_failure(&paste.identity, &editor, &session, &env)
+            .or_else(|| paste.building_revision.is_some_and(|revision| {
                 env.registry
                     .as_ref()
                     .map_or(0, |registry| registry.revision)
                     != revision
-            })
-    });
-    if invalid
+            }).then_some("建筑预设已变化"))
+    }));
+    if invalid.is_some()
         || state.busy()
             && (keyboard.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Right))
     {
         cancel(&mut state, &mut env);
-        editor.status = "已取消对象批量操作，场景数据保持原样".into();
+        editor.status = format!("已取消对象批量操作（{}），场景数据保持原样", invalid.unwrap_or("Esc或鼠标右键取消"));
     }
     if let Some(output) = state
         .job
@@ -252,13 +249,15 @@ pub(crate) fn handle_placement_batch(
     {
         let job = state.job.take().unwrap();
         if !matches!(output, BatchOutput::Retired) {
-            if job.ticket != state.ticket
-                || !current(&job.identity, &editor, &session, &env)
-                || job.selection.as_ref().is_some_and(|(revision, id)| {
+            let rejected = (job.ticket != state.ticket).then_some("任务票据已变化")
+                .or_else(|| current_failure(&job.identity, &editor, &session, &env))
+                .or_else(|| job.selection.as_ref().is_some_and(|(revision, id)| {
                     *revision != selection.revision || *id != context.browser.selected_placement_id
-                })
-            {
-                editor.status = "批量操作身份已变化，旧结果未应用".into();
+                }).then_some("对象选集或当前选择已变化"));
+            if let Some(reason) = rejected {
+                // 旧输出失去信用时同时撤销其未确认粘贴；只回收输出会留下永远等不到Ghosts的0/N空壳。
+                cancel(&mut state, &mut env);
+                editor.status = format!("批量操作身份已变化（{reason}），旧结果未应用");
                 retire(&mut state, job.identity, output);
             } else {
                 accept_output(
@@ -354,6 +353,7 @@ pub(crate) fn handle_placement_batch(
         || selection.owns_mouse()
         || guard.blocked()
         || session.saving
+        || session.model_vegetation_busy
         || visuals.operation_pending()
         || visuals.visual_sync_pending()
     {
@@ -365,17 +365,16 @@ pub(crate) fn handle_placement_batch(
         .find(|(_, interaction)| interaction.is_clicked())
         .map(|(button, _)| button.0)
         .or_else(|| {
-            if selection.members.len() < 2 {
-                return None;
-            }
             env.legacy_buttons.iter().find_map(|(button, interaction)| {
                 if !interaction.is_clicked() {
                     return None;
                 }
                 use crate::ui::placement_transform::PlacementTransformAction;
                 match button.0 {
+                    // 【需求设计】属性面板的单对象复制同样冻结模型植被并后台重绑新ID；
+                    // 不能再落到旧PlacementAdded捷径，否则作者看得见的草会在副本上丢失。
                     PlacementTransformAction::Duplicate => Some(PlacementBatchAction::Duplicate),
-                    PlacementTransformAction::Delete => Some(PlacementBatchAction::Delete),
+                    PlacementTransformAction::Delete if selection.members.len() > 1 => Some(PlacementBatchAction::Delete),
                     _ => None,
                 }
             })
@@ -444,6 +443,7 @@ pub(crate) fn handle_placement_batch(
     };
     state.ticket = state.ticket.wrapping_add(1);
     state.capture = Some(Capture {
+        model_vegetation: crate::authoring::model_vegetation::root_targets(draft),
         identity: BatchIdentity::from_session(&session, content(&env, &session)).unwrap(),
         action,
         records: Vec::with_capacity(members.len()),

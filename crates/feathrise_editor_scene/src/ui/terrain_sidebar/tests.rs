@@ -53,7 +53,8 @@ fn page_with_shell(shell: bool) -> (App, Entity) {
         bevy::text::TextPlugin,
         bevy::transform::TransformPlugin,
     ));
-    app.init_resource::<UiSurface>()
+    app.init_asset::<Image>() // 完整工具页会请求正式图标，布局夹具保留同一资产类型登记。
+        .init_resource::<UiSurface>()
         .init_resource::<InputFocus>()
         .init_resource::<EditorTextInputGuard>()
         .init_resource::<SceneEditorNumericScrubMouseGuard>()
@@ -424,7 +425,7 @@ fn stable_frames_do_not_rewrite_fixed_controls_or_feedback() {
 
 #[test]
 fn independent_mesh_context_and_sculpt_controls_follow_the_same_source_capabilities() {
-    for kind in [feathrise_scene_content::SceneTerrainKind::Gltf, feathrise_scene_content::SceneTerrainKind::Heightfield,
+    for kind in [feathrise_scene_content::SceneTerrainKind::Gltf, feathrise_scene_content::SceneTerrainKind::Gltf,
         feathrise_scene_content::SceneTerrainKind::SparseClipmap, feathrise_scene_content::SceneTerrainKind::Voxel] {
         let (mut app, _) = page();
         let (map, id) = {

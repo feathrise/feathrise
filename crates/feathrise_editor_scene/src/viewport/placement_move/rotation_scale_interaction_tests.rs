@@ -285,6 +285,7 @@ fn rotation_scale_do_not_resample_follow_terrain_height() {
             draft.placements.placements[0].height_mode = ScenePlacementHeightMode::FollowTerrain;
             draft.placements.placements[0].terrain_offset = 2.0;
             draft.heights = None; // 只有平移需要重新采样；旋转/缩放不能因未驻留的高度页改变原Y。
+            draft.terrain_ground = None;
         }
         prepare(&mut app, root, mode, EditorView::Top, false);
         let before = draft_record(&app).clone();

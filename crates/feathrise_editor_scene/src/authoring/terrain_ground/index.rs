@@ -5,7 +5,7 @@ use feathrise_scene::{TerrainObjectRaySnapshot, TerrainSurfaceVersion};
 use std::sync::Arc;
 
 pub(super) type SurfaceInput = (Arc<SceneTerrainObject>, TerrainObjectRaySnapshot, TerrainSurfaceVersion);
-struct Surface { id: TerrainId, definition: Option<Arc<SceneTerrainObject>>, query: TerrainObjectRaySnapshot, min: Vec3, max: Vec3 }
+struct Surface { id: TerrainId, definition: Option<Arc<SceneTerrainObject>>, query: TerrainObjectRaySnapshot, geometry_revision: [u8; 32], min: Vec3, max: Vec3 }
 struct Node { min: Vec3, max: Vec3, children: Option<(usize, usize)>, range: std::ops::Range<usize> }
 
 pub struct TerrainGroundSnapshot {
@@ -19,6 +19,25 @@ pub struct TerrainGroundSnapshot {
     by_id: std::collections::BTreeMap<TerrainId, usize>,
 }
 impl TerrainGroundSnapshot {
+    /// 输入回归接入真实查询快照与独立场景代次，不伪造命中或作者页完成状态。
+    #[cfg(test)]
+    pub(crate) fn test_queries(
+        map: SceneId,
+        generation: u64,
+        sources: impl IntoIterator<Item = (TerrainId, feathrise_scene_content::TerrainObjectTransform, TerrainObjectRaySnapshot, [u8; 32])>,
+    ) -> Arc<Self> {
+        let mut result = Self { scene_id: map, revision: 0, generation, versions: Vec::new(),
+            surfaces: Vec::new(), nodes: Vec::new(), bindings: Default::default(), by_id: Default::default() };
+        for (id, pose, query, geometry_revision) in sources {
+            let (min, max) = query.mesh_bounds().expect("自有查询夹具必须具有完整几何范围");
+            result.bindings.insert(id.clone(), pose);
+            result.surfaces.push(Surface { id, definition: None, query, geometry_revision,
+                min: min - Vec3::splat(0.01), max: max + Vec3::splat(0.01) });
+        }
+        if !result.surfaces.is_empty() { result.branch(0..result.surfaces.len()); }
+        result.by_id = result.surfaces.iter().enumerate().map(|(index, surface)| (surface.id.clone(), index)).collect();
+        Arc::new(result)
+    }
     #[cfg(any(test, feature = "runtime_test_support"))]
     pub fn test_meshes(map:SceneId, objects:&[SceneTerrainObject], collider:avian3d::prelude::Collider)->Arc<Self> {
         let mut result=Self {scene_id: map,revision:0,generation:0,versions:Vec::new(),surfaces:Vec::new(),nodes:Vec::new(),bindings:Default::default(),by_id:Default::default()};
@@ -26,7 +45,7 @@ impl TerrainGroundSnapshot {
             let query=TerrainObjectRaySnapshot::Mesh(collider.clone(),feathrise_scene_core::residency::SceneSourceFrame::from_transform(object.transform.as_transform()));
             let (min,max)=query.mesh_bounds().unwrap();
             result.bindings.insert(object.id.clone(),object.transform);
-            result.surfaces.push(Surface {id:object.id.clone(),definition:Some(Arc::new(object.clone())),query,min:min-Vec3::splat(0.01),max:max+Vec3::splat(0.01)});
+            result.surfaces.push(Surface {id:object.id.clone(),definition:Some(Arc::new(object.clone())),query,geometry_revision:[0;32],min:min-Vec3::splat(0.01),max:max+Vec3::splat(0.01)});
         }
         if !result.surfaces.is_empty() {result.branch(0..result.surfaces.len());}
         result.by_id=result.surfaces.iter().enumerate().map(|(i,s)|(s.id.clone(),i)).collect();Arc::new(result)
@@ -40,7 +59,7 @@ impl TerrainGroundSnapshot {
         let query = TerrainObjectRaySnapshot::Mesh(collider, feathrise_scene_core::residency::SceneSourceFrame::from_transform(pose.as_transform()));
         let (min, max) = query.mesh_bounds().unwrap();
         let mut result = Self {scene_id: map, revision:0, generation:0, versions:Vec::new(),
-            surfaces:vec![Surface{id:id.clone(),definition:None,query,min:min-Vec3::splat(0.01),max:max+Vec3::splat(0.01)}],
+            surfaces:vec![Surface{id:id.clone(),definition:None,query,geometry_revision:[0;32],min:min-Vec3::splat(0.01),max:max+Vec3::splat(0.01)}],
             nodes:Vec::new(),bindings:Default::default(),by_id:std::collections::BTreeMap::from([(id.clone(),0)])};
         result.bindings.insert(id,pose);result.branch(0..1);Arc::new(result)
     }
@@ -50,7 +69,7 @@ impl TerrainGroundSnapshot {
         for (definition, query, version) in inputs { indexed.insert(definition.id.clone(), (definition, query, version)); }
         let mut result = Self { scene_id: map, revision, generation: 0, versions, surfaces: Vec::new(), nodes: Vec::new(), bindings: Default::default(), by_id: Default::default() };
         for object in objects.iter().filter(|object| object.enabled) {
-            let (definition, query, _) = indexed.remove(&object.id).ok_or("地形对象尚未完整就绪")?;
+            let (definition, query, version) = indexed.remove(&object.id).ok_or("地形对象尚未完整就绪")?;
             if *definition != *object { return Err("地形对象仍在采用上一作者版本".into()); }
             let matrix = object.transform.as_transform().to_matrix();
             let frame = match &query { TerrainObjectRaySnapshot::Clipmap(_, f) | TerrainObjectRaySnapshot::Mesh(_, f) => f };
@@ -65,7 +84,7 @@ impl TerrainGroundSnapshot {
                 min = min.min(point); max = max.max(point);
             }
             if let Some((actual_min,actual_max))=query.mesh_bounds() { min=min.min(actual_min);max=max.max(actual_max); }
-            result.surfaces.push(Surface { id: object.id.clone(), definition:Some(definition), query, min: min - Vec3::splat(0.01), max: max + Vec3::splat(0.01) });
+            result.surfaces.push(Surface { id: object.id.clone(), definition:Some(definition), query, geometry_revision:version.geometry_revision(), min: min - Vec3::splat(0.01), max: max + Vec3::splat(0.01) });
         }
         if !result.surfaces.is_empty() { result.branch(0..result.surfaces.len()); }
         result.by_id = result.surfaces.iter().enumerate().map(|(index,surface)|(surface.id.clone(),index)).collect();
@@ -154,6 +173,52 @@ impl TerrainGroundSnapshot {
     /// 冻结单对象真实查询供作者后台投射；只克隆Collider/高度页共享句柄。
     pub fn object_query(&self,id:&TerrainId)->Option<TerrainObjectRaySnapshot> {
         self.by_id.get(id).map(|index|self.surfaces[*index].query.clone())
+    }
+    /// 按压意图只冻结所选对象的内容和姿态；全场查询页版本仍由光标完成门单独核对。
+    pub(crate) fn object_paint_identity(&self, id: &TerrainId) -> Option<([u8; 32], Mat4)> {
+        let surface = self.surfaces.get(*self.by_id.get(id)?)?;
+        let frame = match &surface.query {
+            TerrainObjectRaySnapshot::Clipmap(_, frame) | TerrainObjectRaySnapshot::Mesh(_, frame) => frame,
+        };
+        Some((surface.geometry_revision, frame.source_to_world))
+    }
+    #[cfg(feature = "validation")]
+    pub(crate) fn clipmap_snapshot_for_validation(&self, id: &TerrainId) -> Option<&feathrise_scene::ClipmapGroundSnapshot> {
+        match &self.surfaces.get(*self.by_id.get(id)?)?.query {
+            TerrainObjectRaySnapshot::Clipmap(snapshot, _) => Some(snapshot),
+            TerrainObjectRaySnapshot::Mesh(..) => None,
+        }
+    }
+    /// 显式实窗诊断在后台比较BVH候选和真实面命中，不改变原拾取或隐藏状态。
+    #[cfg(feature = "validation")]
+    pub(crate) fn validation_ray_trace(&self, id: &TerrainId, origin: Vec3, direction: Vec3,
+        hidden: &std::collections::BTreeSet<TerrainId>) -> serde_json::Value {
+        use serde_json::json;
+        let mut visited = Vec::new();
+        self.visit(origin, direction, |surface| {
+            if visited.len() < 16 { visited.push(surface.id.as_str().to_owned()); }
+        });
+        let surface = self.by_id.get(id).map(|index| &self.surfaces[*index]);
+        let hit = |value: Option<(TerrainId, Vec3)>| value.map(|(id, point)|json!({"terrain":id.as_str(),"point":point.to_array()}));
+        json!({"scene":self.scene_id.as_str(),"revision":self.revision,"generation":self.generation,
+            "surface_count":self.surfaces.len(),"node_count":self.nodes.len(),"visited":visited,
+            "hidden":hidden.iter().take(16).map(|id|id.as_str()).collect::<Vec<_>>(),"target_hidden":hidden.contains(id),
+            "root_bounds":self.nodes.first().map(|node|json!({"min":node.min.to_array(),"max":node.max.to_array(),
+                "intersects":ray_bounds(origin,direction,node.min,node.max)})),
+            "target_bounds":surface.map(|surface|json!({"min":surface.min.to_array(),"max":surface.max.to_array(),
+                "intersects":ray_bounds(origin,direction,surface.min,surface.max)})),
+            "visible_hit":hit(self.ray_visible(origin,direction,hidden)),
+            "unfiltered_hit":hit(self.ray_visible(origin,direction,&Default::default()))})
+    }
+    /// 根编辑器只捕获本场景的已采用对象；公共查询仍携带完整运行地址供异步结果核对。
+    pub fn object_surface(&self, id: &TerrainId) -> Option<feathrise_scene::paint_surface::PaintSurfaceSnapshot> {
+        let surface = &self.surfaces[*self.by_id.get(id)?];
+        Some(feathrise_scene::paint_surface::PaintSurfaceSnapshot {
+            target: feathrise_scene_content::SurfaceTarget::Terrain { terrain_id: id.clone() },
+            instance_path: feathrise_scene_content::SceneInstancePath::root(self.scene_id.clone()).terrain(id.clone()),
+            geometry_revision: surface.geometry_revision,
+            geometry: feathrise_scene::paint_surface::PaintSurfaceGeometry::Terrain(surface.query.clone()),
+        })
     }
     /// 由完整查询快照缓存的世界包围换回源坐标；固定八角，不在显示帧扫描高度或网格。
     /// 范围可保守外扩，必须包含超过旧编码域的山顶和深坑，变换预览可再应用新姿态。
@@ -250,7 +315,7 @@ fn ray_bounds(origin: Vec3, direction: Vec3, min: Vec3, max: Vec3) -> bool {
     fn plane(id: &str, x: f32, y: f32) -> Surface {
         let collider=avian3d::prelude::Collider::trimesh(vec![Vec3::new(-1.,0.,-1.),Vec3::new(1.,0.,-1.),Vec3::new(1.,0.,1.),Vec3::new(-1.,0.,1.)],vec![[0,2,1],[0,3,2]]);
         let frame=SceneSourceFrame::from_transform(Transform::from_xyz(x,y,0.).with_scale(Vec3::new(2.,3.,2.)));
-        Surface{id:TerrainId::parse(id).unwrap(),definition:None,query:TerrainObjectRaySnapshot::Mesh(collider,frame),min:Vec3::new(x-2.,y-0.1,-2.),max:Vec3::new(x+2.,y+0.1,2.)}
+        Surface{id:TerrainId::parse(id).unwrap(),definition:None,query:TerrainObjectRaySnapshot::Mesh(collider,frame),geometry_revision:[0;32],min:Vec3::new(x-2.,y-0.1,-2.),max:Vec3::new(x+2.,y+0.1,2.)}
     }
     #[test]
     fn actual_islands_leave_empty_gaps_and_selected_lower_layers_keep_their_floor() {

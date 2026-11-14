@@ -199,11 +199,21 @@ pub(super) fn cursor(mut editor: ResMut<SceneEditorState>, session: Res<EditorAu
             && super::paint_cursor::same_context(&anchor.identity, &identity));
         let paint_identity = identity.clone();
         cursor.work = Some(CursorWork { snapshot, ray, identity, click, click_ticket, click_snap, hidden, task: AsyncComputeTaskPool::get().spawn(async move {
-            frozen.ray_visible(ray.origin, ray.direction, &frozen_hidden).map(|(id,point)| {
+            let (visible, paint_visible) = if paint_available && matches!(paint_identity.tool,
+                crate::types::EditorTool::Vegetation | crate::types::EditorTool::Surface) {
+                // 冷页或另一对象换代时重新核对整条射线。候选缺页只允许保留悬停，不能写入可能被挡住的下层。
+                match frozen.ray_visible_checked(ray.origin, ray.direction, &frozen_hidden) {
+                    Ok(visible) => (visible, true),
+                    Err(_) => (frozen.ray_visible(ray.origin, ray.direction, &frozen_hidden), false),
+                }
+            } else {
+                (frozen.ray_visible(ray.origin, ray.direction, &frozen_hidden), paint_available)
+            };
+            visible.map(|(id,point)| {
                 let lower=frozen.support(point.x,point.z,None).is_none_or(|top|(top-point.y).abs()>0.01);
-                let volume_surface=frozen.object_query(&id).and_then(|query|query.ray_surface(ray.origin,ray.direction,1_000_000.))
-                    .is_some_and(|(surface,_)|surface.distance(point)<0.05);
-                let paint_point = paint_available.then(|| super::paint_cursor::author_point(&frozen, &id, point)).flatten();
+                let volume_surface=frozen.object_query(&id).is_some_and(|query|
+                    query.ray_hit_is_three_dimensional(ray.origin,ray.direction,point));
+                let paint_point = paint_visible.then(|| super::paint_cursor::author_point(&frozen, &id, point, volume_surface)).flatten();
                 let paint_from = paint_point.and_then(|point| super::paint_cursor::connected_from(
                     &frozen, &frozen_hidden, paint_anchor.as_ref(), &id, point, &paint_identity));
                 CursorHit {terrain:id,point,lower_layer:lower,volume_surface,paint_point,paint_from}

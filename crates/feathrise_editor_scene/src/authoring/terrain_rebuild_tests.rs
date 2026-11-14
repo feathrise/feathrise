@@ -280,36 +280,39 @@ fn replace_active_object(draft: &mut super::super::super::resources::EditorScene
 }
 
 #[test]
-fn gltf_object_with_stale_heightfield_buffers_does_not_enter_height_derivation() {
-    let mut draft = object_draft();
-    draft.terrain_manifest_mut().terrain.kind = SceneTerrainKind::Gltf;
-    draft.terrain_manifest_mut().terrain.resolution = [0, 0];
-    let heights = draft.heights.clone().unwrap();
-    let mut app = app_with_draft(draft);
-    install_rebuild_systems(&mut app);
-    for _ in 0..24 {
-        app.update();
-        assert!(app.world().resource::<TerrainPreviewState>().task.is_none());
+fn clipmap_and_voxel_with_stale_finite_buffers_do_not_enter_retired_height_derivation() {
+    // 旧有限网格算法只留作通用算法回归；两种现行地形都必须沿各自来源后端运行。
+    for kind in [SceneTerrainKind::SparseClipmap, SceneTerrainKind::Voxel] {
+        let mut draft = object_draft();
+        draft.terrain_manifest_mut().terrain.kind = kind;
+        draft.terrain_manifest_mut().terrain.resolution = [0, 0];
+        let heights = draft.heights.clone().unwrap();
+        let mut app = app_with_draft(draft);
+        install_rebuild_systems(&mut app);
+        for _ in 0..24 {
+            app.update();
+            assert!(app.world().resource::<TerrainPreviewState>().task.is_none());
+        }
+        assert!(
+            app.world()
+                .resource::<TerrainLiveApplyState>()
+                .failed_scene_id
+                .is_none()
+        );
+        assert_eq!(app.world().resource::<Assets<Mesh>>().len(), 0);
+        assert_eq!(app.world().resource::<Assets<Image>>().len(), 0);
+        assert!(Arc::ptr_eq(
+            app.world()
+                .resource::<EditorAuthoringSession>()
+                .draft
+                .as_ref()
+                .unwrap()
+                .heights
+                .as_ref()
+                .unwrap(),
+            &heights
+        ));
     }
-    assert!(
-        app.world()
-            .resource::<TerrainLiveApplyState>()
-            .failed_scene_id
-            .is_none()
-    );
-    assert_eq!(app.world().resource::<Assets<Mesh>>().len(), 0);
-    assert_eq!(app.world().resource::<Assets<Image>>().len(), 0);
-    assert!(Arc::ptr_eq(
-        app.world()
-            .resource::<EditorAuthoringSession>()
-            .draft
-            .as_ref()
-            .unwrap()
-            .heights
-            .as_ref()
-            .unwrap(),
-        &heights
-    ));
 }
 
 #[test]

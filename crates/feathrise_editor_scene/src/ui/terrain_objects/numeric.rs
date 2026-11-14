@@ -17,7 +17,7 @@ pub(super) fn field_visible(field: Field, state: &TerrainObjectsEditorState) -> 
         Field::Rotation(_) => false,
         Field::Selected(index) if index < 7 => state.section_open(MeshPropertySection::Basic),
         Field::Selected(7) => state.section_open(MeshPropertySection::Type),
-        Field::AuthorHeightDomain | Field::VoxelHeight => state.section_open(MeshPropertySection::Type),
+        Field::VoxelHeight => state.section_open(MeshPropertySection::Type),
         Field::Selected(_) => false,
         Field::Lod(display, index) => index >= 8 && state.section_open(TerrainObjectsEditorState::lod_section(display)),
         Field::Policy(index) => state.section_open(if index < 2 { MeshPropertySection::DisplayLods } else { MeshPropertySection::CollisionLods }),
@@ -38,9 +38,6 @@ pub(super) fn field_value(
             2 => Some(object.transform.roll_degrees),
             _ => None,
         }),
-        Field::AuthorHeightDomain => systems::selected(session, state)
-            .filter(|object| object.terrain.kind == feathrise_scene_content::SceneTerrainKind::Heightfield)
-            .map(|object| object.terrain.height_scale),
         Field::VoxelHeight => systems::selected(session, state).and_then(super::height::voxel_height),
         Field::Selected(index) if index < 8 => systems::selected(session, state).and_then(|object| {
             if (3..6).contains(&index) {
@@ -104,16 +101,11 @@ pub(super) fn target(
             if state.locked.contains(&object.id) {
                 return None;
             }
-            if field == Field::AuthorHeightDomain
-                && crate::authoring::terrain_documents::height_domain_mesh(draft, object).is_none()
-            {
-                return None; // 域调整必须冻结当前同对象作者几何，冷画布不能借磁盘旧值获得写权限。
-            }
+
             if matches!(field, Field::Policy(_))
                 && !matches!(
                     object.terrain.kind,
                     feathrise_scene_content::SceneTerrainKind::Gltf
-                        | feathrise_scene_content::SceneTerrainKind::Heightfield
                 )
             {
                 return None;
@@ -268,14 +260,7 @@ pub(super) fn input(
             Field::CuboidCreation(index) => {
                 if let Some(current) = state.cuboid_creation.get_mut(index) { *current = value; }
             }
-            Field::AuthorHeightDomain => {
-                let Some(object) = systems::selected(&session, &state) else { continue; };
-                let Some(mesh) = session.draft.as_ref()
-                    .and_then(|draft| crate::authoring::terrain_documents::height_domain_mesh(draft, object))
-                    .cloned() else { continue; };
-                let id = object.id.clone();
-                systems::start(&mut session, &mut editor, &mut state, Mutation::HeightDomain(id, value, mesh));
-            }
+
             Field::VoxelHeight => {
                 let Some(object) = systems::selected(&session, &state) else { continue; };
                 let Some(old) = super::height::voxel_height(object).filter(|height| *height > 0.0) else { continue; };

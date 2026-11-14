@@ -127,6 +127,7 @@ mod tests {
     fn legacy_migration_only_creates_layers_for_existing_outputs() {
         let layer = existing_layer();
         let mut vegetation = SceneVegetationAsset {
+            model_surfaces: Vec::new().into(),
             schema_version: SCENE_SCHEMA_VERSION,
             scene_id: SceneId::parse("MAP-test").expect("测试场景 ID 合法"),
             layers: vec![layer.clone()],
@@ -155,6 +156,7 @@ mod tests {
     #[test]
     fn existing_empty_authoring_is_never_repopulated() {
         let mut vegetation = SceneVegetationAsset {
+            model_surfaces: Vec::new().into(),
             schema_version: SCENE_SCHEMA_VERSION,
             scene_id: SceneId::parse("MAP-test").expect("测试场景 ID 合法"),
             layers: vec![existing_layer()],

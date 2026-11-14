@@ -280,7 +280,7 @@ impl RetryFixture {
             root_water_changed: false, domain_hash: None, scene_id: self.scene_id.clone(),
             placements_changed: false, surface_definition_changed: false, surface_weights_changed: false,
             active_terrain_surface_changes: None, surface_source_identity: None,
-            terrain_sha256: None, terrain_blend_generated: false, global_environment_saved: false,
+            placement_glb_hash: None, global_environment_saved: false,
         }
     }
 

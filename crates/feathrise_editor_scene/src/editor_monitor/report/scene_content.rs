@@ -134,7 +134,6 @@ pub(super) fn build_terrain_report(
         SceneTerrainKind::Empty => "独立地形对象容器",
         SceneTerrainKind::Voxel => "独立体素密度源",
         SceneTerrainKind::Gltf => "GLB/GLTF作者地形",
-        SceneTerrainKind::Heightfield => "R16高度场",
         SceneTerrainKind::SparseClipmap => "稀疏作者块 / Geometry Clipmap", // 新图不把逻辑格点冒充完整GLB。
     }; // Rust枚举不直接泄漏到中文开发面板。
     lines.push(format!(

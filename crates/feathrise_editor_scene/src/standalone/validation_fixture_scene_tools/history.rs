@@ -75,21 +75,54 @@ fn label(command: &EditorCommand) -> String {
 }
 
 /// 超时记录固定大小元数据，不遍历场景像素或完整历史；后续失败能定位输入、原任务或历史合同。
-pub(super) fn diagnostic(world: &World, undo_before: usize) -> String {
+pub(super) fn diagnostic(world: &World, undo_before: usize) -> serde_json::Value {
     let session = world.resource::<EditorAuthoringSession>();
     let vegetation = world.resource::<VegetationBrushStroke>();
     let water = world.resource::<WaterBrushStroke>();
     let mouse = world.resource::<ButtonInput<MouseButton>>();
+    let editor = world.resource::<crate::resources::SceneEditorState>();
+    let scope = world.get_resource::<crate::authoring::vegetation_paint_scope::VegetationPaintSettings>()
+        .map(|settings| match settings.scope {
+            crate::authoring::vegetation_paint_scope::PaintScope::Current => "current",
+            crate::authoring::vegetation_paint_scope::PaintScope::Cross => "cross",
+        });
+    let author_ground = session.draft.as_ref().and_then(|draft| {
+        let ground = draft.terrain_ground.as_ref()?;
+        let target = editor.terrain_canvas_target.as_ref()?;
+        let query = ground.object_query(target)?;
+        let page_revision = match query {
+            feathrise_scene::TerrainObjectRaySnapshot::Clipmap(snapshot, _) => snapshot.authoritative_page_revision(),
+            feathrise_scene::TerrainObjectRaySnapshot::Mesh(..) => None,
+        };
+        Some(serde_json::json!({"generation":ground.generation,"revision":ground.revision,"author_page_revision":page_revision}))
+    });
     serde_json::json!({
-        "undo_before":undo_before,"undo_now":session.undo.len(),
+        "status":editor.status,"undo_before":undo_before,"undo_now":session.undo.len(),
         "undo_last":session.undo.last().map(label),"revision":session.revision,
-        "mouse_pressed":mouse.pressed(MouseButton::Left),"mouse_released_edge":mouse.just_released(MouseButton::Left),
+        "mouse_pressed":mouse.pressed(MouseButton::Left),"mouse_press_edge":mouse.just_pressed(MouseButton::Left),
+        "mouse_released_edge":mouse.just_released(MouseButton::Left),
         "vegetation_active":vegetation.active,"vegetation_pending_ground":vegetation.pending_ground.is_some(),
         "vegetation_before_bytes":vegetation.before.len(),"vegetation_last_world":vegetation.last_world.map(|point| point.to_array()),
+        "vegetation_scope":scope,
+        "vegetation_revision":session.vegetation_revision,
+        "vegetation_compiled_revision":session.vegetation_compiled_revision,
+        "vegetation_structure_revision":session.vegetation_structure_revision,
+        "vegetation_compiled_structure_revision":session.vegetation_compiled_structure_revision,
         "vegetation_scope_busy":world.get_resource::<crate::authoring::vegetation_paint_scope::VegetationPaintState>().is_some_and(|scope|scope.busy()),
+        // 只读冻结实际分流门；失败报告必须能区分旧光标、当前作者画布和模型选择残留。
+        "canvas_writable":crate::authoring::terrain_documents::canvas_writable(session, editor),
+        "canvas_target":editor.terrain_canvas_target.as_ref().map(|id|id.as_str()),
+        "active_canvas":session.draft.as_ref().and_then(|draft|draft.terrain_documents.active.as_ref()).map(|active|active.definition.id.as_str()),
+        "model_selection":world.get_resource::<crate::ui::gltf_browser::EditorGltfBrowserState>().and_then(|browser|browser.selected_placement_id.as_deref()),
+        "legacy_volume_ray":world.get_resource::<crate::viewport::VegetationGroundCursor>().is_some_and(|cursor|cursor.volume_paint_ray().is_some()),
+        "source_authoring_available":world.get_resource::<crate::viewport::VegetationGroundCursor>()
+            .is_none_or(|cursor|cursor.source_authoring_available()),
+        "author_ground":author_ground,
+        "object_cursor":crate::authoring::terrain_ground::cursor_validation_snapshot(world),
+        "native_volume_active":editor.terrain_volume_field_active,
         "water_active":water.active,"water_pending_sample":water.pending_sample.is_some(),
         "water_queued_sample":water.queued_sample.is_some(),"water_release_requested":water.release_requested,
-    }).to_string()
+    })
 }
 
 #[cfg(test)]

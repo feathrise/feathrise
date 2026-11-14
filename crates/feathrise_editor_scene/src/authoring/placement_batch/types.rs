@@ -46,6 +46,7 @@ impl BatchIdentity {
 }
 
 pub(super) struct ClipboardData {
+    pub model_vegetation: Arc<Vec<Arc<feathrise_scene_content::ModelSurfaceVegetation>>>,
     pub records: Vec<ScenePlacementRecord>,
     // 三维地形记录仍保存源局部姿态；独立冻结父变换，切换场景或关闭源文档后也能恢复完整世界矩阵。
     pub patch_frames: Arc<Vec<Option<TerrainObjectTransform>>>,
@@ -53,6 +54,7 @@ pub(super) struct ClipboardData {
     pub source_scene: SceneId,
 }
 pub(super) struct Capture {
+    pub model_vegetation: Arc<Vec<Arc<feathrise_scene_content::ModelSurfaceVegetation>>>,
     pub identity: BatchIdentity,
     pub action: PlacementBatchAction,
     pub members: Arc<Vec<SelectedMember>>,
@@ -97,6 +99,7 @@ pub(super) struct PasteSession {
 }
 
 pub(super) struct PasteWork {
+    pub model_vegetation: Option<ModelVegetationPaste>,
     pub source: Arc<Vec<ScenePlacementRecord>>,
     pub delta: Vec3,
     pub records: Vec<ScenePlacementRecord>,
@@ -109,6 +112,12 @@ pub(super) struct PasteWork {
     pub bounds: Rect,
     pub scene_id: SceneId,
     pub building_revision: u64,
+}
+
+pub(super) struct ModelVegetationPaste {
+    pub source: Arc<ClipboardData>,
+    pub before: Arc<Vec<Arc<feathrise_scene_content::ModelSurfaceVegetation>>>,
+    pub authoring: Option<feathrise_scene_content::SceneVegetationAuthoring>,
 }
 
 #[derive(Clone)]

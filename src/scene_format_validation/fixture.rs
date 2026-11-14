@@ -9,9 +9,9 @@ use crate::{
     project::Project,
 };
 use feathrise_scene_content::{
-    SCENE_CATALOG_ASSET_PATH, SCENE_MANIFEST_FILE_NAME, SCENE_PLACEMENTS_FILE_NAME,
+    SCENE_CATALOG_ASSET_PATH, SCENE_MANIFEST_FILE_NAME, SCENE_PLACEMENTS_GLB_FILE_NAME,
     SCENE_SCHEMA_VERSION, SCENE_STARTUP_FILE_NAME, SceneCatalogAsset, SceneCatalogEntry, SceneId,
-    SceneManifestAsset, ScenePlacementsAsset, SceneStartup,
+    SceneManifestAsset, SceneStartup,
 };
 use serde_json::{Value, json};
 use std::{
@@ -176,14 +176,19 @@ pub(super) fn verify_saved(project: &Project) -> Result<(ScenePair, Value), Stri
         read_asset(&assets.join(&parent.folder).join(SCENE_MANIFEST_FILE_NAME))?;
     let child_doc: SceneManifestAsset =
         read_asset(&assets.join(&child.folder).join(SCENE_MANIFEST_FILE_NAME))?;
-    let child_objects: ScenePlacementsAsset =
-        read_asset(&assets.join(&child.folder).join(SCENE_PLACEMENTS_FILE_NAME))?;
+    let placements_path = child.placements_path();
+    let child_objects = feathrise_scene_content::read_scene_placements(
+        &fs::read(assets.join(&placements_path)).map_err(|error| error.to_string())?,
+        &placements_path,
+    )?;
     if parent_doc.id != parent.id
         || child_doc.id != child.id
         || child_objects.scene_id != child.id
         || parent_doc.schema_version != SCENE_SCHEMA_VERSION
         || child_doc.schema_version != SCENE_SCHEMA_VERSION
         || child_objects.schema_version != SCENE_SCHEMA_VERSION
+        || !child.placements_glb
+        || !parent.placements_glb
         || child_objects.placements.len() != 1
         || parent_doc.subscenes.len() != 1
         || parent_doc.subscenes[0].source_scene_id != child.id
@@ -271,7 +276,7 @@ fn run_delivery(
     for scene in [&scenes.parent, &scenes.child] {
         let folder = Path::new("assets/scenes").join(scene.as_str());
         files.push(folder.join(SCENE_MANIFEST_FILE_NAME));
-        files.push(folder.join(SCENE_PLACEMENTS_FILE_NAME));
+        files.push(folder.join(SCENE_PLACEMENTS_GLB_FILE_NAME));
     }
     for relative in &files {
         if fs::read(project.root.join(relative)).map_err(|error| error.to_string())?

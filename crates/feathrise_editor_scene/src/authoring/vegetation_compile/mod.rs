@@ -12,7 +12,7 @@ use bevy::tasks::AsyncComputeTaskPool; // 整图多层编译不得阻塞帧主�
 use bevy::tasks::futures::check_ready; // Update只非阻塞探测任务完成值。
 
 pub(crate) use compiler::compile_vegetation_authoring; // 跨网格事务也在唯一后台槽复用同一编译规则。
-pub(crate) use resources::{CompiledDensityImage, CompiledDensityStats, VegetationCompileSource, VegetationCompileState}; // 来源身份供图片准备共用。
+pub(crate) use resources::{CompiledDensityImage, CompiledDensityStats, VegetationCompileSource, VegetationCompileState, density_canvas_is_active}; // 来源身份和载体资格供图片准备、停放和预览共用。
 
 use super::resources::{EditorAuthoringSession, VegetationBrushStroke}; // 当前草稿、笔划和作者/编译修订身份。
 use crate::resources::SceneEditorState; // 失败、完成和等待状态回显。

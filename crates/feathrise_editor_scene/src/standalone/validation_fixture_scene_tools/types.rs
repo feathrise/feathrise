@@ -24,6 +24,8 @@ pub struct SceneToolProof {
     pub terrain_id: String,
     pub vegetation_preset_id: Option<String>,
     pub vegetation_preset_source: String,
+    pub vegetation_press: Option<serde_json::Value>,
+    pub water_creation: Option<serde_json::Value>,
     pub vegetation: Option<PaintSourceProof>,
     pub water: Option<PaintSourceProof>,
     pub water_level: Option<f32>,

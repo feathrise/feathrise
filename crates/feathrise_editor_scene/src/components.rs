@@ -586,6 +586,6 @@ pub(crate) struct SceneEditorSceneLoadingFill;
 
 /// 恢复动作属于加载事务，不经过被加载遮罩隔离的普通作者按钮。
 #[derive(Component, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum SceneLoadingRecoveryButton { Retry, #[default] Cancel }
+pub enum SceneLoadingRecoveryButton { Retry, #[default] Cancel }
 
 pub(crate) use feathrise_editor_core::{EditorTextInput, SceneEditorPresetTabScroll, SceneEditorPresetWorkspaceScroll}; // 保留原组件路径和唯一 ECS 类型身份。

@@ -115,7 +115,6 @@ pub(super) enum Field {
     /// 用途固定在数字根上；8起每两个值对应本组虚拟行槽，真实层由LodRowBinding冻结。
     Lod(bool, usize),
     /// 源高度域以本地米计量，体素实高以世界米计量，均不借用基本页的无量纲缩放槽。
-    AuthorHeightDomain,
     VoxelHeight,
     /// 通用网格策略使用独立字段，不与后端原生LOD行号重叠。
     Policy(usize),
@@ -129,7 +128,7 @@ impl Field {
     pub(super) fn index(self) -> usize {
         match self {
             Self::Creation(index) | Self::CuboidCreation(index) | Self::Selected(index) | Self::Rotation(index) | Self::Policy(index) | Self::Lod(_, index) => index,
-            Self::AuthorHeightDomain | Self::VoxelHeight => 4,
+            Self::VoxelHeight => 4,
         }
     }
     pub(super) fn is_creation(self) -> bool {
@@ -158,7 +157,6 @@ pub(super) enum Action {
     CancelStitch,
     Unstitch,
     #[default]
-    Glb,
     ImportGlb,
     Clipmap,
     Voxel,
@@ -188,7 +186,7 @@ pub(super) enum Action {
 }
 impl Action {
     pub(super) fn creation_action(self) -> bool {
-        matches!(self, Self::ToggleCreation | Self::Glb | Self::Clipmap | Self::Voxel | Self::ImportGlb
+        matches!(self, Self::ToggleCreation | Self::Clipmap | Self::Voxel | Self::ImportGlb
             | Self::Cuboid | Self::PlacementViewport | Self::PlacementCoordinates | Self::StartCreation
             | Self::CancelPlacement | Self::CuboidCollision)
     }

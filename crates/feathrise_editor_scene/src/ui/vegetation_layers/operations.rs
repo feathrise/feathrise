@@ -22,6 +22,12 @@ pub(super) struct VegetationMutationOutcome {
     pub(super) status: String,          // 只有真正采用或明确无操作后才返回。
 }
 
+/// 描述与R8只冻结浅快照；模型样本可在后台补全后由同一采用入口提交。
+pub(super) struct PreparedVegetationMutation {
+    pub(super) change: Option<VegetationAuthoringChange>,
+    pub(super) outcome: VegetationMutationOutcome,
+}
+
 /// 只认已经采用的当前网格画布；空作者列表合法，尚未读取的文件不能用默认值替代。
 pub(crate) fn vegetation_canvas_unavailable(
     editor: &SceneEditorState,
@@ -30,15 +36,12 @@ pub(crate) fn vegetation_canvas_unavailable(
     if draft.terrain_documents.loading {
         return Some("正在载入网格作者画布；完成后可新建植被作者层。");
     }
-    if draft.manifest.terrains.is_some() {
-        let Some(active) = draft.terrain_documents.active.as_ref() else {
-            return Some("请先在场景树选择一个网格，再新建植被作者层。");
-        };
+    if let Some(active) = draft.terrain_documents.active.as_ref() {
         if editor.terrain_canvas_target.as_ref() != Some(&active.definition.id) {
             return Some("请先在场景树选择一个网格，再新建植被作者层。");
         } // 切换选择而旧画布尚未停放时，也不能把新层写到旧网格。
-    } else if draft.manifest.terrain.is_empty() {
-        return Some("请先在场景树选择一个网格，再新建植被作者层。");
+    } else if editor.terrain_canvas_target.is_some() {
+        return Some("正在切换地形作者画布；完成后可新建植被作者层。");
     }
     let Some(vegetation) = draft.vegetation.as_ref() else {
         return Some("当前网格植被作者数据尚未就绪；请查看底栏详情。");
@@ -100,10 +103,26 @@ fn apply_vegetation_authoring_action_inner(
     preset_registry: Option<&VegetationPresetRegistry>,
     blank_pixels: Option<Vec<u8>>,
 ) -> Result<VegetationMutationOutcome, String> {
-    if session.saving || session.vegetation_cross_busy {
+    let prepared = prepare_vegetation_authoring_action(
+        action, editor, session, preset_registry, blank_pixels,
+    )?;
+    if prepared.change.as_ref().is_some_and(|change| change.model_vegetation.is_some()) {
+        return Err("模型植被图层复制和删除必须经过后台完整样本事务".into());
+    }
+    adopt_vegetation_authoring_action(prepared, editor, session)
+}
+
+pub(super) fn prepare_vegetation_authoring_action(
+    action: EditorAction,
+    editor: &SceneEditorState,
+    session: &EditorAuthoringSession,
+    preset_registry: Option<&VegetationPresetRegistry>,
+    blank_pixels: Option<Vec<u8>>,
+) -> Result<PreparedVegetationMutation, String> {
+    if session.saving || session.vegetation_cross_busy || session.model_vegetation_busy {
         return Err("保存期间不能修改植被作者图层".to_owned());
     }
-    let (folder, before_outputs, before, before_densities) = {
+    let (folder, before_outputs, before, before_densities, before_models) = {
         let draft = session
             .draft
             .as_ref()
@@ -124,6 +143,7 @@ fn apply_vegetation_authoring_action_inner(
             vegetation.layers.clone(),                 // 首次使用新预设时与作者结构同次扩展。
             authoring.clone(),                         // 小型JSON描述完整复制便于失败不污染草稿。
             draft.vegetation_author_densities.clone(), // 只复制Arc句柄，不复制R8整图。
+            vegetation.model_surfaces.clone(),
         )
     };
     let mut after_outputs = before_outputs.clone(); // 失败前只修改局部副本，正式输出不会半插入。
@@ -164,13 +184,38 @@ fn apply_vegetation_authoring_action_inner(
         )?
     };
     if !mutation.changed {
-        return Ok(VegetationMutationOutcome {
-            selected: mutation.selected,
-            status: mutation.status,
+        return Ok(PreparedVegetationMutation {
+            change: None,
+            outcome: VegetationMutationOutcome {
+                selected: mutation.selected,
+                status: mutation.status,
+            },
         }); // 边界按钮不制造空撤销命令或无意义后台编译。
     }
     after.validate(&after_outputs)?; // 组引用、正式输出、路径和数值一次完整复核。
     validate_density_table(&after, &after_densities)?; // 描述与像素表必须同次完整存在。
+    let model_vegetation = (!before_models.is_empty() && matches!(action,
+        EditorAction::VegetationDuplicateLayer | EditorAction::VegetationDeleteSelected))
+        .then(|| Box::new(crate::authoring::ModelVegetationTransfer {
+            before: before_models.clone(), after: before_models,
+        })); // 启动帧只冻结Arc；全部锚点遍历与新样本生成必须留给后台槽。
+    Ok(PreparedVegetationMutation {
+        change: Some(VegetationAuthoringChange {
+            model_vegetation,
+            model_heap_bytes: 0,
+            before_outputs, after_outputs, before, after, before_densities, after_densities,
+        }),
+        outcome: VegetationMutationOutcome { selected: mutation.selected, status: mutation.status },
+    })
+}
+
+pub(super) fn adopt_vegetation_authoring_action(
+    prepared: PreparedVegetationMutation,
+    editor: &mut SceneEditorState,
+    session: &mut EditorAuthoringSession,
+) -> Result<VegetationMutationOutcome, String> {
+    let PreparedVegetationMutation { change, outcome } = prepared;
+    let Some(change) = change else { return Ok(outcome); };
     let draft = session
         .draft
         .as_mut()
@@ -179,28 +224,30 @@ fn apply_vegetation_authoring_action_inner(
         .vegetation
         .as_mut()
         .ok_or_else(|| "植被作者数据在图层操作期间失效".to_owned())?;
-    vegetation.layers = after_outputs.clone(); // 正式输出与首张作者画布在同一主线程事务采用。
-    vegetation.authoring = Some(after.clone()); // 再替换完整作者描述，任何观察者都只会见到一致结果。
-    draft.vegetation_author_densities = after_densities.clone();
-    session
-        .undo
-        .push(EditorCommand::VegetationAuthoringChanged(Box::new(
-            VegetationAuthoringChange {
-                before_outputs,   // 撤销首次使用预设时可移除尚未存在的正式输出。
-                after_outputs,    // 重做恢复同一个稳定预设输出，不重新读取热更目录。
-                before,           // 撤销恢复原组顺序、层顺序和全部参数。
-                after,            // 重做恢复已经完整受检的新结构。
-                before_densities, // Arc浅快照不会随任务数量复制像素。
-                after_densities,
-            },
-        )));
+    if vegetation.layers != change.before_outputs || vegetation.authoring.as_ref() != Some(&change.before)
+        || change.model_vegetation.as_ref().is_some_and(|models|
+            !Arc::ptr_eq(&vegetation.model_surfaces, &models.before)) {
+        return Err("植被图层后台事务的描述或模型目标已换代，未采用迟到结果".into());
+    }
+    vegetation.layers = change.after_outputs.clone(); // 正式输出、R8和模型样本只在完整成功后一起采用。
+    vegetation.authoring = Some(change.after.clone());
+    if let Some(models) = &change.model_vegetation {
+        vegetation.model_surfaces = models.after.clone();
+    }
+    draft.vegetation_author_densities = change.after_densities.clone();
+    if draft.terrain_documents.active.is_none() {
+        crate::authoring::terrain_documents::root_vegetation::mark_registration(draft);
+    }
+    let command = EditorCommand::VegetationAuthoringChanged(Box::new(change));
+    if crate::authoring::command_uses_bounded_water_history(&command) {
+        session.push_bounded_water_history(command);
+    } else {
+        session.undo.push(command);
+    }
     session.redo.clear(); // 新分支使旧重做历史失效。
     session.mark_vegetation_authoring_changed(editor); // single-flight后台重新编译全部正式输出。
-    editor.selected_vegetation_layer = mutation.selected.unwrap_or(0);
-    Ok(VegetationMutationOutcome {
-        selected: mutation.selected,
-        status: mutation.status,
-    })
+    editor.selected_vegetation_layer = outcome.selected.unwrap_or(0);
+    Ok(outcome)
 }
 
 /// 纯解析当前新建层目标像素数；调用方据此在后台分配，不在输入帧制造整图工作。

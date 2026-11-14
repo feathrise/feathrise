@@ -44,7 +44,6 @@ fn fail_terrain_file_handoff(
     ));
     error!("{}", editor.status);
 }
-
 /// 把同一后台批次产生的 Mesh 与 Trimesh 安装到正式动态地形实体，并跨帧确认。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn maintain_terrain_live_apply(
@@ -166,9 +165,4 @@ pub(crate) fn maintain_terrain_live_apply(
         editor.status =
             "地形草稿已同步到预览和碰撞".to_owned();
     }
-}
-
-/// 离开动态场景时使旧候选和文件交接身份失效。
-pub(crate) fn clear_terrain_live_apply(mut live: ResMut<TerrainLiveApplyState>) {
-    live.invalidate();
 }

@@ -22,6 +22,11 @@ impl CursorGroundSnapshot {
     pub(crate) fn capture(snapshot: &Arc<TerrainGroundSnapshot>) -> Self {
         Self { snapshot: Arc::downgrade(snapshot), generation: snapshot.generation }
     }
+    /// 显式验收只读分配与内容代次，弱票据不能因为诊断延长查询数据寿命。
+    #[cfg(feature = "validation")]
+    pub(crate) fn validation_identity(&self) -> (usize, u64) {
+        (self.snapshot.as_ptr() as usize, self.generation)
+    }
     fn matches(&self, snapshot: &Arc<TerrainGroundSnapshot>) -> bool {
         self.generation == snapshot.generation && self.snapshot.as_ptr() == Arc::as_ptr(snapshot)
     }

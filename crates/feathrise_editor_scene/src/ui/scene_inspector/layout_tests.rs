@@ -47,7 +47,7 @@ fn inspector_tree_and_properties_have_independent_scroll_hosts() {
         "位置",
         "旋转 Y",
         "缩放",
-        "网格水体",
+        "网格水体（实验）",
     ] {
         assert_eq!(
             world

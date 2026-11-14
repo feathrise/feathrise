@@ -235,6 +235,8 @@ pub(super) fn apply_exact_value(
         .undo
         .push(EditorCommand::VegetationAuthoringChanged(Box::new(
             VegetationAuthoringChange {
+                model_vegetation: None,
+                model_heap_bytes: 0,
                 before_outputs: outputs.clone(), // 纯参数修改不改变正式输出，但命令仍保存完整原子边界。
                 after_outputs: outputs,
                 before,
@@ -328,6 +330,8 @@ pub(super) fn finish_scrub(
         .undo
         .push(EditorCommand::VegetationAuthoringChanged(Box::new(
             VegetationAuthoringChange {
+                model_vegetation: None,
+                model_heap_bytes: 0,
                 before_outputs: outputs.clone(), // 连续拖动只改变作者标量，正式输出集合逐字保持。
                 after_outputs: outputs,
                 before: transaction.before,

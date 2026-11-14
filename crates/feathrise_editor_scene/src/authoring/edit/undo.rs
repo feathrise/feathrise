@@ -103,7 +103,8 @@ pub(crate) fn apply_undo_redo(
             Option<Res<crate::authoring::sparse_terrain::SparseTerrainAuthoringState>>),
         feathrise_scene::TerrainObjectQueries,
         Local<deletion_preparation::HistoryDeletionPreparation>), // 删除准备Local并入领域组，保持Bevy系统顶层参数不超过16项。
-    domain_state: (Option<Res<crate::game_authoring::scene_interaction::SceneInteractionState>>, Option<Res<crate::authoring::domain_documents::SceneDomainAdapter>>), // 外部作者整笔完成前保持原历史顺序。
+    domain_state: (Option<Res<crate::game_authoring::scene_interaction::SceneInteractionState>>, Option<Res<crate::authoring::domain_documents::SceneDomainAdapter>>,
+        Option<Res<crate::ui::vegetation_layers::VegetationBlankLayerAllocation>>), // 外部作者整笔和图层样本事务完成前保持原历史顺序。
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     preview_assets: Res<EditorPreviewAssets>,
@@ -119,7 +120,9 @@ pub(crate) fn apply_undo_redo(
     placement_roots: Query<(Entity, &ScenePlacementInstance)>, // 共享活动门决定唯一可写正式批次，不能依赖分帧清理标记。
     handoff: Res<WaterFileHandoff>, // 保存候选在途时只拒绝网格水PlacementChanged。
 ) {
-    let (external_authoring, domain_adapter) = domain_state;
+    let (external_authoring, domain_adapter, vegetation_layers) = domain_state;
+    if vegetation_layers.as_ref().is_some_and(|state| state.busy()) { return; }
+    if session.model_vegetation_busy { return; } // 模型笔刷先排空并入栈，不能越过尚未形成的最后一笔。
     if session.water_preset_delete_pending {
         editor.undo_requested = false;
         editor.redo_requested = false;
@@ -691,6 +694,10 @@ pub(crate) fn apply_undo_redo(
                     }
                 }
                 EditorCommand::CourtyardBatch(change) => {
+                    if let Some(transfer) = &change.model_vegetation {
+                        crate::authoring::model_vegetation::validate_transfer(draft,
+                            if undoing { &transfer.after } else { &transfer.before })?;
+                    }
                     let bounds = draft
                         .manifest
                         .world_bounds()
@@ -721,6 +728,10 @@ pub(crate) fn apply_undo_redo(
                         draft.manifest.terrains.as_deref(),
                     )?;
                     courtyard_world_updates = Some(updates); // 离开草稿可变借用后按固定预算同步ECS根。
+                    if let Some(transfer) = &change.model_vegetation {
+                        crate::authoring::model_vegetation::transfer(draft,
+                            if undoing { transfer.before.clone() } else { transfer.after.clone() })?;
+                    }
                 }
                 EditorCommand::PortalAdded(record) => {
                     if undoing {
@@ -858,11 +869,25 @@ pub(crate) fn apply_undo_redo(
                 EditorCommand::VegetationPaintChanged(change) => {
                     crate::authoring::vegetation_paint_scope::apply_history(draft,change,undoing)?;
                 }
+                EditorCommand::ModelVegetationChanged { .. } => {
+                    crate::authoring::model_vegetation::apply_history(draft, &command, undoing)?;
+                }
                 EditorCommand::VegetationAuthoringChanged(change) => {
                     let vegetation = draft
                         .vegetation
                         .as_mut()
                         .ok_or_else(|| "当前草稿的植被作者结构已经失效".to_owned())?;
+                    if let Some(models) = &change.model_vegetation {
+                        let (expected, desired) = if undoing {
+                            (&models.after, &models.before)
+                        } else {
+                            (&models.before, &models.after)
+                        };
+                        if !Arc::ptr_eq(&vegetation.model_surfaces, expected) {
+                            return Err("模型植被图层历史的目标表已失效，结构和样本均未修改".into());
+                        }
+                        vegetation.model_surfaces = desired.clone(); // O(1)恢复整表，不在输入帧重建样本。
+                    }
                     vegetation.layers = if undoing {
                         change.before_outputs.clone() // 首次预设输出与作者画布共同撤销。
                     } else {
@@ -1114,6 +1139,10 @@ pub(crate) fn apply_undo_redo(
         EditorCommand::VegetationChanged { layer_id, .. } => Some(layer_id.clone()),
         _ => None,
     };
+    let model_vegetation_changed = matches!(&command, EditorCommand::ModelVegetationChanged { .. });
+    if matches!(&command, EditorCommand::CourtyardBatch(change) if change.model_vegetation.is_some()) {
+        session.vegetation_revision = session.vegetation_revision.wrapping_add(1);
+    }
     let vegetation_authoring_changed =
         matches!(&command, EditorCommand::VegetationAuthoringChanged(_))
             || matches!(&command, EditorCommand::VegetationPaintChanged(change) if !change.canvases.is_empty()); // 仅组元数据不改变植被编译身份。
@@ -1196,6 +1225,8 @@ pub(crate) fn apply_undo_redo(
         session.mark_surface_changed(&mut editor);
     } else if let Some(layer_id) = vegetation_layer {
         session.mark_vegetation_changed(&mut editor, &layer_id);
+    } else if model_vegetation_changed {
+        crate::authoring::model_vegetation::mark_changed(&mut session, &mut editor);
     } else if vegetation_authoring_changed {
         session.mark_vegetation_authoring_changed(&mut editor); // 撤销/重做同样走single-flight编译与保存链路。
         if cross_compiled {

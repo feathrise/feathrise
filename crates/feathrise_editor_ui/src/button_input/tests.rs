@@ -149,7 +149,7 @@ fn same_frame_release_then_press_waits_for_the_new_release() {
 }
 
 #[test]
-fn cursor_controls_outside_release_even_if_bevy_keeps_pressed() {
+fn cursor_controls_outside_release_and_modern_none_can_return_to_the_original_button() {
     let mut test = fixture();
     test.frame(UiInteraction::Pressed, true, false);
     test.app
@@ -157,7 +157,7 @@ fn cursor_controls_outside_release_even_if_bevy_keeps_pressed() {
         .get_mut::<bevy::ui::RelativeCursorPosition>(test.button)
         .unwrap()
         .cursor_over = false;
-    test.frame(UiInteraction::Pressed, false, false);
+    test.frame(UiInteraction::None, false, false); // 现代拾取移出会清掉三态Pressed，原捕获仍须归同一按钮。
     assert!(!test.clicked(test.button));
     test.frame(UiInteraction::Pressed, false, true);
     assert!(
@@ -175,7 +175,7 @@ fn cursor_controls_outside_release_even_if_bevy_keeps_pressed() {
         .get_mut::<bevy::ui::RelativeCursorPosition>(test.button)
         .unwrap()
         .cursor_over = false;
-    test.frame(UiInteraction::Pressed, false, false);
+    test.frame(UiInteraction::None, false, false); // 仍持键移出后再移回，不能丢弃原按钮的手势所有权。
     test.app
         .world_mut()
         .get_mut::<bevy::ui::RelativeCursorPosition>(test.button)

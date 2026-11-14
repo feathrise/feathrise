@@ -1,4 +1,4 @@
-//! 正式射线任务的单飞、迟到完成和取消采用回归；导入失败前置保证测试不生成项目作者资产。
+//! 正式射线任务的单飞、迟到完成和取消采用回归；模型采用只生成未保存摆放记录。
 
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
@@ -35,15 +35,16 @@ fn fixture() -> (App, Entity) {
     let mut mode = ViewportModeState::default();
     mode.mode = ViewportMode::Select;
     let mut app = App::new();
-    app.add_plugins(MinimalPlugins)
+    app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default(), bevy::scene::ScenePlugin))
+        .init_asset::<bevy::world_serialization::WorldAsset>() // 真实命中采用后会创建正式GLB预览句柄。
         .insert_resource(state)
         .insert_resource(sidebar)
         .insert_resource(mode)
         .insert_resource(EditorAuthoringSession { draft: Some(draft), revision: 7, ..default() })
         .insert_resource(SceneEditorState { open: true, orthographic: true,
             selected_scene_id: Some(map.clone()),
-            // 【隔离设计】正式start仍接管创建事务；GLB读前路径校验必败，不能生成源或配套画布。
-            selected_asset: Some("../target/__point_query_read_only_fixture__.glb".into()), ..default() })
+            // 夹具只冻结模型句柄，不保存、创建地形源或写入正式资产。
+            selected_asset: Some("fixtures/__point_query_model__.glb".into()), ..default() })
         .insert_resource(SceneEditorViewportState { _image: Handle::default(), camera: Entity::PLACEHOLDER,
             center: Vec3::new(3.0, 0.0, 5.0), scene_center: Vec3::ZERO, scene_half_extents: Vec3::splat(60.0),
             extent: 50.0, yaw: 0.0, pitch: std::f32::consts::FRAC_PI_2,
@@ -117,7 +118,7 @@ fn unchanged(app: &App, serial: u64) {
 }
 
 #[test]
-fn actual_async_point_hit_enters_the_original_creation_transaction_once_without_publishing_an_object() {
+fn actual_async_point_hit_adds_one_model_record_without_creating_a_terrain() {
     let (mut app, _) = fixture();
     let frozen = app.world().resource::<TerrainObjectsEditorState>().creation;
     let serial = app.world().resource::<EditorAuthoringSession>().next_serial;
@@ -135,16 +136,19 @@ fn actual_async_point_hit_enters_the_original_creation_transaction_once_without_
     assert_eq!(state.creation[3..], frozen[3..], "接受落点只替换冻结规格中的世界坐标");
     assert!(Vec3::from_array(state.creation[..3].try_into().unwrap()).distance(Vec3::new(3.0, 4.0, 5.0)) < 0.002,
         "完整命中应来自真实盒顶Y=4，不能使用旧坐标或Y=0工作平面");
-    assert!(state.pending.is_some(), "point_place必须调用原start准备事务，不能直接发布对象或历史");
+    assert!(state.pending.is_none(), "普通模型不启动地形作者源创建任务");
     let session = app.world().resource::<EditorAuthoringSession>();
     assert_eq!(session.next_serial, serial + 1);
-    assert_eq!(session.revision, 7);
+    assert_eq!(session.revision, 8);
     assert_eq!(session.draft.as_ref().unwrap().manifest.terrain_objects_for_edit().len(), 1);
-    assert!(session.undo.is_empty());
+    assert_eq!(session.undo.len(), 1);
+    let model = session.draft.as_ref().unwrap().placements.placements.last().unwrap();
+    assert_eq!(model.asset_path, "fixtures/__point_query_model__.glb");
+    assert_eq!(model.scale, [1.0; 3]);
+    assert_eq!(model.yaw_degrees, frozen[6]);
+    assert_eq!(model.translation, state.creation[..3]);
+    assert!(matches!(&session.undo[0], crate::authoring::EditorCommand::PlacementAdded(record) if record == model));
     assert_eq!(app.world().resource::<ViewportModeState>().mode, ViewportMode::Select);
-    // 终结该真实创建任务，确认隔离用导入在读前拒绝，而不是留下可能写项目文件的后台任务。
-    let pending = app.world_mut().resource_mut::<TerrainObjectsEditorState>().pending.take().unwrap();
-    assert!(bevy::tasks::block_on(pending.task).is_err());
     app.world_mut().run_system_once(point_place).unwrap();
     assert_eq!(app.world().resource::<EditorAuthoringSession>().next_serial, serial + 1);
 }

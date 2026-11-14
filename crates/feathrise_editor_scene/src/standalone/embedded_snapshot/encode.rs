@@ -30,6 +30,11 @@ pub(super) fn encode(mut capture: Capture) -> Result<Vec<u8>, String> {
     if container && let Some(path) = root_water_path {
         encode_water(&capture.root_water, path, &mut files)?;
     }
+    if let Some((definition, _)) = &capture.root_vegetation {
+        // 容器根的正式层与作者图只描述模型稀疏样本的规则，不产生二维编译密度。
+        // 完整文档保留已载入的样本；地形画布仍由 encode_canvas 严格编码成套 R8/KTX2。
+        json(&mut files, &format!("{}/{}", capture.entry.folder, SCENE_VEGETATION_FILE_NAME), definition)?;
+    }
 
     // 容器定义与每张停放画布在后台合并；选择哪块地形不会决定哪些未保存画布进入游戏。
     if let Some(objects) = &capture.manifest.terrains {
@@ -104,7 +109,7 @@ pub(super) fn encode(mut capture: Capture) -> Result<Vec<u8>, String> {
         portals: capture.portals,
         boundaries: capture.boundaries,
         surface: (!container).then_some(capture.active.surface).flatten(),
-        vegetation: (!container).then_some(capture.active.vegetation).flatten(),
+        vegetation: if container { capture.root_vegetation.map(|(definition, _)| definition) } else { capture.active.vegetation },
         water: capture.root_water.document,
         terrain_id: None,
         vegetation_densities: BTreeMap::new(),
@@ -167,14 +172,31 @@ fn encode_canvas(canvas: &CanvasCapture, files: &mut Files) -> Result<(), String
         insert(files, &surface.index_texture_path, Arc::new(index_texture))?;
     }
     if let Some(vegetation) = &canvas.vegetation {
+        encode_vegetation(vegetation, &canvas.densities, &canvas.folder, files)?;
+    }
+    encode_water(&canvas.water, &canvas.water_path, files)?;
+    if let Some(puddles) = &canvas.manifest.puddles {
+        let mask = canvas
+            .puddles
+            .as_ref()
+            .ok_or("积水描述缺少对应完整R8作者源")?;
+        plane("积水", puddles.resolution, mask.len())?;
+        insert(files, &puddles.source_path, mask.clone())?;
+        check_budget(files, texture_estimate(puddles.resolution, 1)?)?;
+        insert(files, &puddles.texture_path, Arc::new(encode_r8(mask, puddles.resolution)?))?;
+    }
+    Ok(())
+}
+
+/// 地形画布的正式二维密度必须完整；编码和像素扫描只发生于 worker。
+fn encode_vegetation(vegetation: &SceneVegetationAsset, densities: &BTreeMap<String, Arc<Vec<u8>>>, folder: &str, files: &mut Files) -> Result<(), String> {
         json(
             files,
-            &format!("{}/{}", canvas.folder, SCENE_VEGETATION_FILE_NAME),
+            &format!("{folder}/{SCENE_VEGETATION_FILE_NAME}"),
             vegetation,
         )?;
         for layer in &vegetation.layers {
-            let density = canvas
-                .densities
+            let density = densities
                 .get(&layer.id)
                 .ok_or_else(|| format!("植被层 {} 缺少编译后的密度", layer.id))?;
             plane(&layer.id, layer.resolution, density.len())?;
@@ -201,40 +223,6 @@ fn encode_canvas(canvas: &CanvasCapture, files: &mut Files) -> Result<(), String
                 Arc::new(encode_r8(density, layer.resolution)?),
             )?;
         }
-    }
-    encode_water(&canvas.water, &canvas.water_path, files)?;
-    if let Some(puddles) = &canvas.manifest.puddles {
-        let mask = canvas
-            .puddles
-            .as_ref()
-            .ok_or("积水描述缺少对应完整R8作者源")?;
-        plane("积水", puddles.resolution, mask.len())?;
-        insert(files, &puddles.source_path, mask.clone())?;
-        check_budget(files, texture_estimate(puddles.resolution, 1)?)?;
-        insert(
-            files,
-            &puddles.texture_path,
-            Arc::new(encode_r8(mask, puddles.resolution)?),
-        )?;
-    }
-    if canvas.terrain_dirty {
-        let mesh = canvas
-            .mesh
-            .as_ref()
-            .ok_or("未保存地形缺少当前完整网格；当前来源暂不能进入免保存预览")?;
-        if canvas.manifest.terrain.kind != SceneTerrainKind::Heightfield {
-            return Err("当前地形源的未保存网格编码尚未接入，请使用原编辑器 3D 方式".into());
-        }
-        let glb_estimate = mesh
-            .positions
-            .len()
-            .saturating_mul(24)
-            .saturating_add(mesh.indices.len().saturating_mul(4))
-            .saturating_add(16 * 1024);
-        check_budget(files, glb_estimate)?;
-        let glb = feathrise_terrain::build_white_terrain_glb(mesh)?;
-        insert(files, &canvas.manifest.terrain.glb_path, Arc::new(glb))?;
-    }
     Ok(())
 }
 

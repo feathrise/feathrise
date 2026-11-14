@@ -35,7 +35,7 @@ fn directory_scene_properties_show_selected_metadata_without_using_entered_scene
     let (mut app, fields, button) = fixture();
     assert_eq!(value(&app, &fields, ScenePropertiesField::Name), "目录所选场景");
     assert_eq!(value(&app, &fields, ScenePropertiesField::Id), "MAP-2");
-    assert_eq!(value(&app, &fields, ScenePropertiesField::Kind), "高度场场景");
+    assert_eq!(value(&app, &fields, ScenePropertiesField::Kind), "GLB场景"); // 目录夹具使用GLB来源，独立Heightfield作者类型已移除。
     assert_eq!(value(&app, &fields, ScenePropertiesField::Notes), "第二张图的备注");
     assert_eq!(value(&app, &fields, ScenePropertiesField::Source), "scenes/selected/source.glb");
     assert_eq!(value(&app, &fields, ScenePropertiesField::Spawn), "X 21  Y 3  Z 45");

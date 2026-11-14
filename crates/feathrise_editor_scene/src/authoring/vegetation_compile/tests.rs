@@ -19,7 +19,8 @@ fn compiling_while_held_accepts_complete_pixels_but_source_change_or_undo_reject
     let _app = App::new().add_plugins(MinimalPlugins);
     for case in 0..3 {
         let mut draft = test_heightfield_draft(Arc::new(vec![0; 121]));
-        draft.vegetation = Some(SceneVegetationAsset { schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION, scene_id: draft.scene_id.clone(),
+        draft.vegetation = Some(SceneVegetationAsset {
+            model_surfaces: Vec::new().into(), schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION, scene_id: draft.scene_id.clone(),
             layers: vec![output("grass")], authoring: Some(SceneVegetationAuthoring {
                 groups: vec![group("base", SceneVegetationAuthorGroupMode::Additive)],
                 layers: vec![layer("source", "base", "grass", 0)],
@@ -55,6 +56,7 @@ fn compiling_while_held_accepts_complete_pixels_but_source_change_or_undo_reject
 #[test] // 重叠候选必须排除被组覆盖的作者层，并与正式池化结果一致。
 fn picking_respects_priority_cross_group_replace_and_resample() {
     let mut vegetation = SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
         scene_id: SceneId::parse("MAP-test").unwrap(),
         layers: vec![output("grass")],
@@ -143,6 +145,7 @@ fn group(id: &str, mode: SceneVegetationAuthorGroupMode) -> SceneVegetationAutho
 #[test]
 fn deleting_every_author_layer_publishes_zero_for_every_formal_output() {
     let vegetation = SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION, // 删除作者层不会删除固定正式profile。
         scene_id: SceneId::parse("MAP-test").expect("测试场景ID有效"), // 稳定场景身份。
         layers: vec![output("grass"), output("wheat")], // 运行时输出集合保持不变。
@@ -180,6 +183,7 @@ fn deleting_every_author_layer_publishes_zero_for_every_formal_output() {
 #[test]
 fn north_can_override_while_south_shares_one_to_one_without_new_runtime_layers() {
     let vegetation = SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION, // 兼容新增可选作者字段的当前格式。
         scene_id: SceneId::parse("MAP-test").expect("测试场景ID有效"), // 稳定场景身份。
         layers: vec![output("grass"), output("wheat")], // 运行时始终只有两个正式profile。
@@ -239,6 +243,7 @@ fn maximum_resample_preserves_a_single_high_resolution_author_pixel() {
     let mut formal = output("grass"); // 从普通四乘四正式层开始。
     formal.resolution = [2, 2]; // 模拟运行时输出低于作者图分辨率。
     let vegetation = SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,                                         // 当前兼容格式。
         scene_id: SceneId::parse("MAP-test").expect("测试场景ID有效"), // 稳定场景身份。
         layers: vec![formal],                                      // 唯一正式草层。

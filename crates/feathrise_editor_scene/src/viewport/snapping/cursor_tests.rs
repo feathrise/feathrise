@@ -32,6 +32,12 @@ enum Blocker {
 
 fn app() -> App {
     let (mut app, _, _) = crate::viewport::placement_move::interaction_tests::app();
+    let terrain = app.world().resource::<EditorAuthoringSession>()
+        .draft.as_ref().unwrap().manifest.terrain_objects_for_edit()[0].id.clone();
+    // 输入路由夹具也须明确真实命中对象；不能借空容器或当前选择猜测吸附来源。
+    let mut cursor = crate::authoring::terrain_ground::TerrainGroundCursor::default();
+    cursor.terrain = Some(terrain);
+    app.insert_resource(cursor);
     {
         let mut editor = app.world_mut().resource_mut::<SceneEditorState>();
         editor.tool = EditorTool::PlaceAsset;

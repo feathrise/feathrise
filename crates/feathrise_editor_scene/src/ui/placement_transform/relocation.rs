@@ -394,7 +394,7 @@ mod tests {
             let object = &mut std::sync::Arc::make_mut(draft.manifest.terrains.as_mut().unwrap())[1];
             object.transform.scale = if invalid == 0 { [5.0, 3.0, 2.0] } else { target.transform.scale };
             object.enabled = invalid != 1;
-            object.terrain.kind = if invalid == 2 { feathrise_scene_content::SceneTerrainKind::Heightfield } else { feathrise_scene_content::SceneTerrainKind::SparseClipmap };
+            object.terrain.kind = if invalid == 2 { feathrise_scene_content::SceneTerrainKind::Gltf } else { feathrise_scene_content::SceneTerrainKind::SparseClipmap };
             assert!(relocation_candidate(&draft, &before, hit, Some(&target.id), false).is_err());
             assert_eq!(before, snapshot);
         }

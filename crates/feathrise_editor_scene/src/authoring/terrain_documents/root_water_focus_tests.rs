@@ -38,6 +38,7 @@ fn cached_private_without_water() -> (EditorSceneDraft, TerrainId, Arc<TerrainCa
     canvas.surface_weights = Some(Arc::new([255, 0, 0, 0].repeat(16)));
     canvas.surface_indices = Some(Arc::new(vec![0; 16 * 16]));
     let mut vegetation = SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: SCENE_SCHEMA_VERSION,
         scene_id: draft.scene_id.clone(),
         layers: vec![SceneVegetationLayer {

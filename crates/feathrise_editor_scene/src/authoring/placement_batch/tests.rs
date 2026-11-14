@@ -11,6 +11,7 @@ mod cuboid_worker;
 mod terrain_patch_paste;
 mod terrain_patch_semantics;
 mod automatic_volume;
+mod model_vegetation;
 
 fn record(id: &str, x: f32) -> ScenePlacementRecord {
     ScenePlacementRecord {
@@ -53,7 +54,7 @@ fn copies_have_independent_record_and_courtyard_ids_without_changing_source() {
     second.translation[0] = 1.0;
     second.courtyard.as_mut().unwrap().member_id = "member-2".into();
     let records = vec![first, second];
-    let clip = ClipboardData {
+    let clip = ClipboardData { model_vegetation: Arc::default(),
         records: records.clone(),
         patch_frames: Arc::default(),
         origin: Vec3::new(0.0, 3.0, 0.0),
@@ -83,7 +84,7 @@ fn copies_have_independent_record_and_courtyard_ids_without_changing_source() {
 #[test]
 fn paste_prepares_complete_translations_and_one_history_for_target_scene() {
     let source = Arc::new(vec![record("copy-1", -1.0), record("copy-2", 1.0)]);
-    let work = PasteWork {
+    let work = PasteWork { model_vegetation: None,
         source: source.clone(),
         delta: Vec3::new(4.0, -3.0, 5.0),
         records: Vec::new(),
@@ -176,10 +177,10 @@ fn transformed_object_paste_snaps_world_surface_and_rebinds_target_identity() {
             translation: source.translation, yaw_degrees: source.yaw_degrees, scale: source.scale,
             ..Default::default()
         }).unwrap());
-    let clipboard = ClipboardData { records: vec![source.clone()], patch_frames: Arc::default(), origin: Vec3::from_array(source.translation), source_scene: map() };
+    let clipboard = ClipboardData { model_vegetation: Arc::default(), records: vec![source.clone()], patch_frames: Arc::default(), origin: Vec3::from_array(source.translation), source_scene: map() };
     let ghosts = worker::ghost_records(&clipboard, "new-copy").unwrap();
     let sampler = PlacementTerrainSampler::from_sources(&draft, None, 0).unwrap();
-    let BatchOutput::Paste(Ok(prepared)) = worker::run_paste(PasteWork {
+    let BatchOutput::Paste(Ok(prepared)) = worker::run_paste(PasteWork { model_vegetation: None,
         source: ghosts, delta: point - clipboard.origin, records: Vec::new(), validator: None,
         presets: Arc::new(vec![None]), sampler: Some(sampler), work_plane: false, patch: None, query: None,
         bounds: draft.manifest.world_bounds().unwrap(), scene_id: draft.scene_id.clone(), building_revision: 0,
@@ -228,9 +229,9 @@ fn object_paste_recomputes_source_follow_offsets_on_the_target_surface() {
             }).unwrap());
         source
     }).collect();
-    let clipboard = ClipboardData { records: source.clone(), patch_frames: Arc::default(), origin: Vec3::new(5.125, 40.0, 5.0), source_scene: map() };
+    let clipboard = ClipboardData { model_vegetation: Arc::default(), records: source.clone(), patch_frames: Arc::default(), origin: Vec3::new(5.125, 40.0, 5.0), source_scene: map() };
     let ghosts = worker::ghost_records(&clipboard, "new-copy").unwrap();
-    let BatchOutput::Paste(result) = worker::run_paste(PasteWork {
+    let BatchOutput::Paste(result) = worker::run_paste(PasteWork { model_vegetation: None,
         source: ghosts, delta: Vec3::new(0.0, -30.0, 0.0), records: Vec::new(), validator: None,
         presets: Arc::new(vec![None, None]), sampler: Some(PlacementTerrainSampler::from_sources(&draft, None, 0).unwrap()), work_plane: false, patch: None,
         query: None, bounds: draft.manifest.world_bounds().unwrap(), scene_id: draft.scene_id.clone(), building_revision: 0,

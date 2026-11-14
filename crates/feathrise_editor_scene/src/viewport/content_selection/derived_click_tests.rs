@@ -82,19 +82,25 @@ fn fixture_with_canvas(with_canvas: bool) -> (App, Vec<Entity>, EditorGltfMeshSe
         .add_systems(Update, (poll_layer_candidates, apply_layer_candidate).chain());
     if with_canvas {
         app.init_resource::<crate::ui::terrain_objects::TerrainObjectsEditorState>();
+    }
+    {
         let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+        let revision = session.terrain_revision;
         let draft = session.draft.as_mut().unwrap();
         let mut object = draft.manifest.terrain_objects_for_edit()[0].clone();
         object.id = feathrise_scene_content::TerrainId::parse("derived-click-canvas").unwrap();
+        object.terrain.kind = feathrise_scene_content::SceneTerrainKind::SparseClipmap;
         object.transform = default();
         object.world_min = [-10.0; 2]; object.world_max = [10.0; 2];
-        draft.terrain_ground = Some(crate::authoring::terrain_ground::TerrainGroundSnapshot::test_meshes(
+        let mut ground = crate::authoring::terrain_ground::TerrainGroundSnapshot::test_meshes(
             draft.scene_id.clone(), &[object.clone()], avian3d::prelude::Collider::trimesh(
                 vec![Vec3::new(-10.0, 0.0, -10.0), Vec3::new(10.0, 0.0, -10.0),
                     Vec3::new(10.0, 0.0, 10.0), Vec3::new(-10.0, 0.0, 10.0)],
-                vec![[0, 2, 1], [0, 3, 2]])));
+                vec![[0, 2, 1], [0, 3, 2]]));
+        std::sync::Arc::get_mut(&mut ground).unwrap().revision = revision;
+        draft.terrain_ground = Some(ground);
         draft.manifest.terrains = Some(vec![object].into());
-    } // 生产承托核对真实上向特征法线；明确三角绕序，不能用仅可射线命中的凸体冒充地形面。
+    } // 普通精确网格选择回归同样需要真实承托；画布UI资源只在测试续接时安装。
     let mut records = Vec::new();
     for (index, id) in ["asset-a", "asset-b"].into_iter().enumerate() {
         let mut record = crate::viewport::placement_move::interaction_tests::record();

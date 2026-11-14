@@ -90,7 +90,7 @@ impl ViewportContentSelectionQueries<'_, '_> {
             if source.scene_id != draft.scene_id || source.terrain_id.as_ref() != terrain
                 || !preview.ready_for(&draft.scene_id, session.water_revision, session.terrain_revision)
                 || draft.terrain_documents.loading
-                || !matches!(draft.terrain_manifest().terrain.kind, feathrise_scene_content::SceneTerrainKind::Gltf | feathrise_scene_content::SceneTerrainKind::Heightfield) {
+                || !matches!(draft.terrain_manifest().terrain.kind, feathrise_scene_content::SceneTerrainKind::Gltf) {
                 return None;
             }
             return match (&draft.terrain_documents.active, terrain) {

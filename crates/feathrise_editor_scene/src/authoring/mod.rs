@@ -24,8 +24,10 @@ mod environment_input; // 天空亮度、方向与天气过渡复用公共专业
 mod files; // 受限于assets/scenes的原子文件替换工具。
 mod sculpt_paths;
 pub(crate) use sculpt_paths::{SculptPathLibrary, load_sculpt_paths, save_sculpt_path};
-mod geometry; // GLB与实时预览共用的规则高度场几何构建器。
-mod glb; // 不依赖Blender的单primitive白模地形GLB编码器。
+#[cfg(test)]
+mod geometry; // 通用高度场几何算法的有限回归夹具，不进入退休作者路线。
+#[cfg(test)]
+mod glb; // 仅保留几何算法回归使用的最小GLB夹具编码器。
 mod image_io; // 旧场景PNG密度与高度单元在IO边界归一成统一作者草稿。
 pub(crate) use image_io::encode_density_png; // 内存工程快照与正式保存共用唯一PNG编码，不另造数值纹理格式。
 mod ktx2; // Rust直接生成地表、密度和高度单元的未压缩KTX2派生纹理。
@@ -52,23 +54,23 @@ mod portal_direction; // 传送箭头按当前主区域边界最近线段点自�
 mod preview; // 地表综合色与正式多档Mesh植被按职责拆分的有界后台预览。
 pub(crate) use preview::{same_surface_canvas, surface_canvas_mesh}; // 覆盖与材质预热共用当前对象的固定成本来源。
 mod resources; // 草稿、撤销历史、预览资产和任务槽。
-#[cfg(test)]
-pub(crate) use resources::TerrainPreviewIdentity; // 真实对象覆盖回归冻结已采用地形票据，不开放私有资源模块。
 pub(crate) mod volume_sculpt; // 局部体积原型只通过密度后台、联合场景发布和场景原子保存进入作者流程。
-mod save; // JSON、动态terrain.glb和兼容派生资产的后台原子保存。
+mod save; // JSON、场景模型scene.glb和作者资源的后台原子保存。
 pub(crate) mod sparse_terrain; // 新图局部高度笔刷、差分与后台IO可调用的稀疏作者会话。
 mod surface_layer; // 点击预设立即创建作者层，笔刷复用相同去重与撤销事务。
 pub(crate) use surface_layer::create_surface_layer; // UI显式新建独立作者层。
 mod surface_layer_edit; // 地表作者层删除、四槽重映射和独立写侧single-flight事务。
-mod terrain; // 实际GLB拓扑笔刷、撤销差分和后台完整地形预览。
-mod terrain_external; // Blender GLB自动采用、脏草稿冲突与一次性覆盖授权。
-mod terrain_live; // 未保存GLB顶点草稿直接接管正式动态地形画面与Avian Trimesh。
+#[cfg(test)]
+mod terrain; // 有限网格算法的历史回归夹具，不安装旧Heightfield作者路线。 // 实际GLB拓扑笔刷、撤销差分和后台完整地形预览。
+mod terrain_external; // 保留既有宿主/模态资源合同；普通模型热更新由场景加载链负责。
+mod terrain_live; // 只读宿主采用合同与有限Mesh/Trimesh测试夹具。
 mod vegetation_compile; // 多张作者R8按组规则后台编译为原有固定正式运行时层。
 pub(crate) use vegetation_compile::author_layers_at_world; // 统一视口后台候选只复用纯采样接口。
 mod vegetation_defaults; // 新场景和旧草稿迁移共用六个正式密度层定义。
 mod vegetation_layers; // 作者层选择到正式profile、所属组和R8画布的唯一映射入口。
 mod vegetation_load; // 正式输出与独立作者R8在IO任务中按兼容规则完整装载。
 mod vegetation_paint; // 独立作者R8笔刷、写时复制和撤销差分收口。
+pub(crate) mod model_vegetation; // 静态模型稀疏表面笔刷复用根图层及统一历史。
 pub(crate) mod vegetation_paint_scope; // 场景级绘制组与跨网格整笔事务。
 pub(crate) mod water_canvas; // 静水独立源范围、姿态与写保护，不要求地形网格或高度页。
 mod water_defaults; // 新场景和旧动态草稿迁移共用单层河水R8画布。
@@ -100,6 +102,7 @@ pub use commands::{
     HeightChange, VegetationAuthoringChange, WaterLayersChange, command_uses_bounded_water_history,
     placement_structure_differs, placement_water_differs,
 };
+pub(crate) use commands::ModelVegetationTransfer;
 #[cfg(test)]
 pub(crate) use commands::push_bounded_water_history; // 仅纯记录回归保留旧Vec接口；生产统一走会话入口。
 pub(crate) use create::{poll_scene_creation, request_scene_creation};
@@ -180,15 +183,10 @@ pub(crate) mod test_support;
 pub(crate) use test_support::test_heightfield_draft; // UI保存门测试复用同一实际拓扑动态草稿夹具。
 #[cfg(test)]
 mod brush_parity_tests; // 新旧编辑器共同输入的生产笔刷取证，不进入发布或普通运行路径。
-pub(crate) use terrain::{
-    apply_terrain_brush, poll_terrain_preview_rebuild, start_terrain_preview_rebuild,
-    sync_terrain_preview_visibility,
-};
 pub use terrain_external::TerrainExternalChangeState;
 pub(crate) use terrain_external::{
-    TerrainConflictResolution, sync_external_terrain_changes,
+    TerrainConflictResolution,
 };
-pub(crate) use terrain_live::{clear_terrain_live_apply, maintain_terrain_live_apply};
 pub use terrain_live::{TerrainLiveAdoption, TerrainLiveReceipt, TerrainLiveSet};
 #[cfg(any(test, feature = "runtime_test_support"))]
 pub use terrain_live::test_support as terrain_live_test_support;
@@ -197,6 +195,7 @@ pub(crate) use vegetation_compile::{
 };
 #[cfg(test)]
 pub(crate) use vegetation_compile::VegetationCompileSource; // 空图捕获回归核对真实编译来源门，不公开内部编译模块。
+pub(crate) use vegetation_compile::density_canvas_is_active; // 跨模块停放和预览等待共用二维载体资格，不暴露编译器实现。
 pub(crate) use vegetation_layers::selected_vegetation_layer;
 pub(crate) use vegetation_paint::apply_vegetation_brush;
 pub(crate) use water_defaults::{default_water_asset, default_water_layer};

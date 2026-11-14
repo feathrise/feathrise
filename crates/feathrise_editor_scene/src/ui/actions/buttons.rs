@@ -367,33 +367,3 @@ pub(crate) fn handle_editor_action_buttons(
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use super::*;
-    use crate::authoring::TerrainPreviewState;
-    use crate::ui::action_availability::dynamic_terrain_save_is_pending;
-
-    #[test]
-    fn dynamic_terrain_save_waits_for_mesh_and_height_image_of_the_same_revision() {
-        let mut draft = crate::authoring::test_heightfield_draft(Arc::new(vec![0; 121]));
-        draft.terrain_dirty = true;
-        let scene_id = draft.scene_id.clone();
-        let session = EditorAuthoringSession {
-            draft: Some(draft),
-            terrain_revision: 7,
-            ..default()
-        };
-        let mut preview = TerrainPreviewState::default();
-        assert!(dynamic_terrain_save_is_pending(&session, &preview));
-
-        preview.applied_scene_id = Some(scene_id);
-        preview.applied_revision = 7;
-        preview.mesh = Some(Handle::default());
-        assert!(dynamic_terrain_save_is_pending(&session, &preview));
-        preview.height_image = Some(Handle::default());
-        assert!(!dynamic_terrain_save_is_pending(&session, &preview));
-    }
-}

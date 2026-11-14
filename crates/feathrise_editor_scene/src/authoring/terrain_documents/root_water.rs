@@ -137,6 +137,7 @@ pub(crate) fn focus(draft: &mut EditorSceneDraft) -> bool {
     let changed = draft.terrain_documents.active.is_some();
     if changed { super::transitions::park(draft); }
     restore(draft);
+    super::root_vegetation::restore(draft);
     changed
 }
 

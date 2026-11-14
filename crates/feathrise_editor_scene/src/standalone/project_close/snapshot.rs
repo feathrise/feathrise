@@ -148,11 +148,6 @@ fn scene_pending(world: &World, snapshot: &mut ProjectCloseSnapshot) {
                 snapshot.pending("正在等待原水域/摆放正式保存交接");
             }
         }
-        if any::<authoring::TerrainLiveApplyState>(world, |state| {
-            state.file_handoff_pending_for(&draft.scene_id, session.terrain_revision)
-        }) {
-            snapshot.pending("正在等待原地形正式文件、材质与碰撞采用");
-        }
     }
 }
 

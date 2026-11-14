@@ -222,7 +222,7 @@ mod tests {
             terrain: None,
             terrain_revision: 1,
             transform: Mat4::IDENTITY.to_cols_array(),
-            kind: feathrise_scene_content::SceneTerrainKind::Heightfield,
+            kind: feathrise_scene_content::SceneTerrainKind::Gltf,
         };
         let source = Source {
             session: 1,

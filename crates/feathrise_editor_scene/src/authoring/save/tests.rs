@@ -606,6 +606,7 @@ fn saved_authoring_replaces_the_stale_loaded_asset_before_a_scene_switch() {
         .world_mut()
         .resource_mut::<Assets<SceneVegetationAsset>>()
         .add(SceneVegetationAsset {
+            model_surfaces: Vec::new().into(),
             schema_version: SCENE_SCHEMA_VERSION, // 旧缓存仍是同版本合法文件。
             scene_id: scene_id.clone(),             // 旧缓存属于当前场景。
             layers: Vec::new(),                 // 本测试只比较作者结构发布。
@@ -630,6 +631,7 @@ fn saved_authoring_replaces_the_stale_loaded_asset_before_a_scene_switch() {
         last_error: None, // 目录当前有效。
     };
     let saved = SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: SCENE_SCHEMA_VERSION, // 保存快照仍使用当前格式。
         scene_id: scene_id.clone(),             // 保存结果身份与目录目标一致。
         layers: Vec::new(),                 // 本测试只锁定作者结构缓存回归。
@@ -726,10 +728,8 @@ fn completed_placement_save_app(
         .init_asset::<SceneVegetationAsset>()
         .init_asset::<SceneWaterAsset>()
         .init_resource::<GlobalEnvironmentAuthoringState>()
-        .init_resource::<TerrainLiveApplyState>()
         .init_resource::<TerrainExternalChangeState>()
         .init_resource::<DynamicWaterStatus>()
-        .init_resource::<DynamicTerrainHeightStatus>()
         .init_resource::<ScenePlacementRuntimeStatus>()
         .init_resource::<feathrise_scene::ScenePortalRuntimeStatus>()
         .init_resource::<PortalPreviewHandoff>()
@@ -772,7 +772,7 @@ fn completed_placement_save_app(
         root_water_changed: gate_failure, domain_hash: None, scene_id: map.clone(),
         placements_changed, surface_definition_changed: false, surface_weights_changed: false,
         active_terrain_surface_changes: None, surface_source_identity: None,
-        terrain_sha256: None, terrain_blend_generated: false, global_environment_saved: false,
+        placement_glb_hash: None, global_environment_saved: false,
     };
     app.insert_resource(EditorAuthoringSession { draft: Some(draft), revision, saving: true,
         placement_previews: BTreeMap::from([(record.id.clone(), root)]), ..default() })
@@ -916,6 +916,7 @@ fn clipmap_unregistered_vegetation_preserves_formal_r8_and_migrates_authoring() 
         }))
         .unwrap(); // 使用公共格式反序列化。
     let vegetation = SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: SCENE_SCHEMA_VERSION,
         scene_id: draft.scene_id.clone(),
         layers: vec![layer],

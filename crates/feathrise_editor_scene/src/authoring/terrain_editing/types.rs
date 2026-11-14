@@ -21,6 +21,6 @@ pub(crate) struct ObjectBrushInput {
 pub(crate) struct NativeFieldInput {
     pub stroke: u64,
     pub brush: feathrise_terrain::volume::sparse::paged::VolumeFieldBrush,
-    pub query: feathrise_scene::TerrainObjectRaySnapshot,
+    pub query: feathrise_scene::paint_surface::PaintSurfaceSnapshot,
     pub ray: (Vec3, Vec3),
 }

@@ -23,7 +23,7 @@ fn captured() -> Arc<ClipboardData> {
             (index, record)
         })
         .collect::<Vec<_>>();
-    let BatchOutput::Captured(Ok(clipboard), false) = worker::capture(Capture {
+    let BatchOutput::Captured(Ok(clipboard), false) = worker::capture(Capture { model_vegetation: Arc::default(),
         identity: BatchIdentity {
             document: crate::authoring::placement_deletion::PlacementDeletionIntents::default().identity(),
             scene_id: map(),
@@ -53,7 +53,7 @@ fn empty_scene_cuboid_paste_uses_scaled_lowest_bottom_and_clears_follow_semantic
     assert_eq!(clipboard.origin, Vec3::new(0.0, 2.0, 0.0));
     let ghosts = worker::ghost_records(&clipboard, "copy").unwrap();
     let BatchOutput::Paste(Ok(prepared)) = worker::run_paste(
-        PasteWork {
+        PasteWork { model_vegetation: None,
             source: ghosts,
             delta: Vec3::new(5.0, 0.0, 5.0) - clipboard.origin,
             records: Vec::new(),
@@ -87,10 +87,10 @@ fn empty_scene_cuboid_paste_uses_scaled_lowest_bottom_and_clears_follow_semantic
 #[test]
 fn grounded_cuboid_paste_keeps_center_offsets_without_adding_half_height_twice() {
     let clipboard = captured();
-    let draft = crate::authoring::test_heightfield_draft(Arc::new(vec![4; 121]));
+    let draft = crate::authoring::test_support::test_clipmap_draft(Arc::new(vec![4; 121]), 0);
     let sampler = crate::authoring::PlacementTerrainSampler::from_sources(&draft, None, 0).unwrap();
     let BatchOutput::Paste(Ok(prepared)) = worker::run_paste(
-        PasteWork {
+        PasteWork { model_vegetation: None,
             source: worker::ghost_records(&clipboard, "grounded-copy").unwrap(),
             delta: Vec3::new(5.0, 4.0, 5.0) - clipboard.origin,
             records: Vec::new(),
@@ -117,7 +117,7 @@ fn grounded_cuboid_paste_keeps_center_offsets_without_adding_half_height_twice()
 #[test]
 fn work_plane_worker_rejects_external_or_mixed_asset_sources() {
     let BatchOutput::Paste(result) = worker::run_paste(
-        PasteWork {
+        PasteWork { model_vegetation: None,
             source: Arc::new(vec![record("external", 0.0)]),
             delta: Vec3::ZERO,
             records: Vec::new(),

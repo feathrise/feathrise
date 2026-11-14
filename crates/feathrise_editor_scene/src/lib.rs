@@ -506,7 +506,6 @@ impl Plugin for SceneEditorPlugin {
                         sync_global_environment_authoring, // AssetServer 全局配置首次加载或热更后更新未脏作者基线。
                         poll_sparse_terrain_task, // 完成值按场景和票据原子归还唯一作者会话。
                         sync_sparse_terrain_authoring, // 新SparseClipmap草稿只载入清单，不枚举所有块。
-                        sync_external_terrain_changes, // 草稿就绪后按GLB代次后台核对Blender保存与冲突。
                         reconcile_following_placements, // 草稿或外部GLB采用完成后每帧最多更新128条跟随型摆放。
                         refresh_gltf_browser_cache, // 草稿采用后同帧同步强Scene0句柄；关闭F12则释放强引用。
                         ui::scene_documents::restore_scene_document_selection,
@@ -528,7 +527,6 @@ impl Plugin for SceneEditorPlugin {
                         )
                             .chain(),
                         (
-                            poll_terrain_preview_rebuild,
                             poll_surface_preview_rebuild,
                             poll_density_overlay_rebuild,
                             poll_vegetation_preview_rebuild,
@@ -579,9 +577,6 @@ impl Plugin for SceneEditorPlugin {
                             apply_sparse_terrain_brush
                                 .run_if(scene_editor_numeric_scrub_mouse_available)
                                 .run_if(scene_browser_general_input_available),
-                            apply_terrain_brush
-                                .run_if(scene_editor_numeric_scrub_mouse_available)
-                                .run_if(scene_browser_general_input_available),
                             apply_surface_brush
                                 .run_if(scene_editor_numeric_scrub_mouse_available)
                                 .run_if(scene_browser_general_input_available),
@@ -614,8 +609,6 @@ impl Plugin for SceneEditorPlugin {
                                 .run_if(ui::courtyard::mode_idle) // 旧单体吸附目标不能抢同一院落点击。
                                 .run_if(scene_editor_numeric_scrub_mouse_available)
                                 .run_if(scene_browser_general_input_available), // 新资产放置让出后，同一左键只移动所选完整实例。
-                            start_terrain_preview_rebuild,
-                            maintain_terrain_live_apply.in_set(TerrainLiveSet::Adopt),
                             start_surface_preview_rebuild,
                             start_density_overlay_rebuild,
                             start_vegetation_preview_rebuild,
@@ -635,8 +628,6 @@ impl Plugin for SceneEditorPlugin {
                                 sync_editor_weather_preview.run_if(scene_residency::document_active), // 关闭门同帧归还自然天气；打开时选择F12唯一视觉锚点。
                                 sync_dynamic_celestial_preview
                                     .run_if(scene_residency::document_active), // 全局草稿与场景覆盖同帧生成唯一动态场景光照预览。
-                                sync_terrain_preview_visibility
-                                    .run_if(scene_residency::document_active),
                                 sync_editor_skybox_requests.run_if(scene_residency::document_active),
                                 sync_live_boundary_override.run_if(scene_residency::document_active),
                                 sync_boundary_text,
@@ -782,7 +773,6 @@ impl Plugin for SceneEditorPlugin {
             .add_systems(
                 OnExit(ScenePhase::Active),
                 (
-                    clear_terrain_live_apply,
                     clear_vegetation_previews,
                     clear_water_previews,
                 ),
@@ -804,6 +794,7 @@ impl Plugin for SceneEditorPlugin {
         authoring::terrain_editing::install(app);
         authoring::terrain_documents::install(app);
         authoring::vegetation_paint_scope::install(app);
+        authoring::model_vegetation::install(app);
         ui::vegetation_paint::install(app);
         authoring::mesh_lod::install(app);
         viewport::subscenes::install(app);

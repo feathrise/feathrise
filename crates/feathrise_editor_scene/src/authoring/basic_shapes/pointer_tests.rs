@@ -135,7 +135,7 @@ fn closing_or_changing_the_creation_scope_cancels_an_armed_cube_without_author_d
         match case {
             0 => app.world_mut().resource_mut::<SceneEditorState>().close_requested = true,
             1 => app.world_mut().resource_mut::<EditorAuthoringSession>().revision += 1,
-            2 => app.world_mut().resource_mut::<crate::ui::terrain_objects::TerrainObjectsEditorState>().creation_source = crate::ui::terrain_objects::CreationSource::Heightfield,
+            2 => app.world_mut().resource_mut::<crate::ui::terrain_objects::TerrainObjectsEditorState>().creation_source = crate::ui::terrain_objects::CreationSource::Clipmap,
             3 => app.world_mut().resource_mut::<crate::ui::terrain_objects::TerrainObjectsEditorState>().placement_mode = crate::ui::terrain_objects::CreationPlacementMode::Coordinates,
             _ => app.world_mut().resource_mut::<VegetationPresetEditorState>().active_tab = PresetWorkspaceTab::Document,
         }

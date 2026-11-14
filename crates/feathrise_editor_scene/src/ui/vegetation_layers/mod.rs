@@ -2,6 +2,7 @@
 
 mod allocation; // 大画布在后台single-flight清零，身份匹配后才原子加入作者结构。
 mod layer_creation; // 新建、复制与唯一私有作者源身份。
+mod model_layers; // 模型样本随作者层结构一起在后台变换和原子采用。
 mod numeric_input; // 五个连续作者参数共享专业数值框与拖动事务。
 mod operations; // 纯作者值变换、Arc浅快照与统一撤销命令。
 pub(crate) use operations::vegetation_canvas_unavailable; // 预设选择、底栏反馈和建层入口共用当前画布身份门。

@@ -66,7 +66,8 @@ fn page(shell: bool) -> (App, Entity) {
         bevy::text::TextPlugin,
         bevy::transform::TransformPlugin,
     ));
-    app.init_resource::<UiSurface>()
+    app.init_asset::<Image>()
+        .init_resource::<UiSurface>()
         .init_resource::<SceneEditorNumericScrubMouseGuard>()
         .init_resource::<EditorTextInputGuard>()
         .init_resource::<feathrise_editor_ui::ActiveNumericInput>()
@@ -84,6 +85,9 @@ fn page(shell: bool) -> (App, Entity) {
         .init_resource::<feathrise_editor_core::EditorSettings>()
         .insert_resource(UiScale(1.0));
     let mut draft = test_heightfield_draft(vec![0; 121].into());
+    // 水网事务属于高度地形；保留主作者文档而不把中性GLB夹具误作可编辑高度源。
+    draft.manifest.terrain.kind = feathrise_scene_content::SceneTerrainKind::SparseClipmap;
+    draft.manifest.terrain.height_path = Some(format!("{}/terrain/height.sparse.json", draft.folder));
     let mut water = water_asset_with_layer_for_tests(&draft.scene_id, &draft.folder);
     water.layers[0].label = "湖泊名称用于验证窄侧栏的完整目标回显".into();
     water.layers[0].resolution = [11, 11];

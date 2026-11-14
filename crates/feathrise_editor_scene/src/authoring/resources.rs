@@ -22,10 +22,12 @@ mod identity; // 新对象身份独立于可重置的场景修订和显示序号
 
 pub(crate) use previews::{
     PendingWaterPreviewBatch, SurfacePreviewCandidate, SurfacePreviewImage, SurfacePreviewState,
-    TerrainLiveApplyState, TerrainPreviewBuild, TerrainPreviewIdentity, TerrainPreviewState, VegetationMeshLayerPreview,
+    TerrainLiveApplyState, TerrainPreviewState, VegetationMeshLayerPreview,
     VegetationPreviewBuild, VegetationPreviewInstall, VegetationPreviewState, WaterPreviewState,
     WaterPreviewRuntimeTarget, WaterPreviewSource,
 }; // 保持`authoring::resources::*`既有路径和可见性不变。
+#[cfg(test)]
+pub(crate) use previews::{TerrainPreviewBuild, TerrainPreviewIdentity};
 pub(crate) use save_evidence::{
     PlacementWaterCachedReadiness, PlacementWaterCandidateObservation,
     PlacementWaterEvidenceCandidate, PlacementWaterEvidenceRegistry, PlacementWaterRecordEvidence,
@@ -65,6 +67,8 @@ pub struct EditorSceneDraft {
     pub terrain_ground: Option<Arc<super::terrain_ground::TerrainGroundSnapshot>>,
     pub(crate) terrain_documents: super::terrain_documents::TerrainDocumentStore,
     pub placements: ScenePlacementsAsset,
+    /// 存在摘要时，摆放直接写回场景 GLB；摘要来自实际打开的字节。
+    pub(crate) placement_glb_hash: Option<String>,
     /// 当前摆放文档的整网格水绑定总数；加载任务计算，赋水/撤销按单记录差值维护。
     pub placement_water_surface_count: usize,
     pub portals: ScenePortalsAsset,
@@ -130,9 +134,21 @@ pub struct EditorSceneDraft {
     pub boundaries_dirty: bool,
 }
 
+impl EditorSceneDraft {
+    pub(crate) fn placements_path(&self) -> String {
+        let name = if self.placement_glb_hash.is_some() {
+            feathrise_scene_content::SCENE_PLACEMENTS_GLB_FILE_NAME
+        } else {
+            feathrise_scene_content::SCENE_PLACEMENTS_FILE_NAME
+        };
+        format!("{}/{name}", self.folder.trim_end_matches('/'))
+    }
+}
+
 /// 当前场景编辑会话及未保存预览实体。
 #[derive(Resource, Default)]
 pub struct EditorAuthoringSession {
+    pub model_vegetation_busy: bool, // 模型单飞采样与整笔排空期间，保存和来源切换必须等待完整采用。
     pub vegetation_cross_busy: bool, // 冻结笔划及完整发布期间，姿态等作者事务不得插入历史顺序。
     /// 玩法选择记忆只绑定场景和稳定路径ID；不保存、不进入撤销、不随控制点松手清空。
     pub selected_boundary_path: Option<(SceneId, String)>,
@@ -489,6 +505,7 @@ impl EditorAuthoringSession {
         self.vegetation_revision = self.vegetation_revision.wrapping_add(1);
         self.mark_changed(editor);
         if let Some(draft) = self.draft.as_mut() {
+            super::terrain_documents::root_vegetation::mark_registration(draft);
             draft
                 .vegetation_author_dirty_layers
                 .insert(layer_id.to_owned()); // 传入身份始终是作者层，不再冒充正式运行时层。
@@ -503,6 +520,9 @@ impl EditorAuthoringSession {
         self.vegetation_structure_revision = self.vegetation_structure_revision.wrapping_add(1);
         self.vegetation_revision = self.vegetation_revision.wrapping_add(1); // 结构换代仍拒绝旧编译；纯刷印可连续显示完整结果。
         self.mark_changed(editor); // 图层结构属于场景作者JSON，必须进入统一保存门。
+        if let Some(draft) = self.draft.as_mut() {
+            super::terrain_documents::root_vegetation::mark_registration(draft);
+        }
         if let Some(draft) = self.draft.as_mut()
             && let Some(authoring) = draft
                 .vegetation
@@ -735,7 +755,9 @@ pub struct EditorPreviewAssets {
 #[derive(Resource, Default)]
 pub struct TerrainBrushStroke {
     pub active: bool,
+    #[cfg(test)]
     pub before: BTreeMap<usize, f32>, // 顶点下标到笔划首次世界Y。
+    #[cfg(test)]
     pub flatten_target: Option<f32>,  // 压平目标直接使用世界米制高度。
 }
 

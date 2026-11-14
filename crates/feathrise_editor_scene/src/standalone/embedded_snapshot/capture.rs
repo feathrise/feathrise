@@ -6,7 +6,6 @@ use crate::authoring::{
 };
 use bevy::prelude::*;
 use feathrise_scene_content::*;
-use feathrise_terrain::TerrainMeshInput;
 use std::{
     collections::BTreeMap,
     ops::Bound::{Excluded, Unbounded},
@@ -67,6 +66,7 @@ pub(super) struct Capture {
     pub boundaries: Option<SceneBoundariesAsset>,
     pub active: CanvasCapture,
     pub root_water: WaterCapture,
+    pub root_vegetation: Option<(SceneVegetationAsset, BTreeMap<String, Arc<Vec<u8>>>)>,
     pub stored: Vec<Arc<TerrainCanvas>>,
     pub heights: Vec<(Option<TerrainId>, SparseHeightLiveSnapshot)>,
     pub global: Option<WorldEnvironmentAsset>,
@@ -96,14 +96,17 @@ impl Capture {
         }
         let root = crate::authoring::terrain_documents::root_water::source(draft);
         let container = draft.manifest.terrains.is_some();
+        let root_vegetation = crate::authoring::terrain_documents::root_vegetation::source(draft)
+            .filter(|source| !container || source.has_document());
         let entry = SceneCatalogEntry {
             id: draft.scene_id.clone(),
             display_name: draft.manifest.display_name.clone(),
             folder: draft.folder.clone(),
             published: true,
+            placements_glb: false, // 跨进程快照是内存覆盖，正式 GLB 网格继续按原资产路径加载。
             surface_path: (!container && draft.surface.is_some())
                 .then(|| format!("{}/{}", draft.folder, SCENE_SURFACE_FILE_NAME)),
-            vegetation_path: (!container && draft.vegetation.is_some())
+            vegetation_path: root_vegetation.as_ref().is_some_and(|source| source.vegetation.is_some())
                 .then(|| format!("{}/{}", draft.folder, SCENE_VEGETATION_FILE_NAME)),
             water_path: root.water.map(|_| root.asset_path.to_owned()),
             boundary_path: draft
@@ -154,6 +157,8 @@ impl Capture {
             boundaries_done: false,
             active: CanvasCapture::new(draft),
             root_water: WaterCapture::new(root.water),
+            root_vegetation: container.then(|| root_vegetation.and_then(|source|
+                source.vegetation.map(|definition| (definition.clone(), source.densities.clone())))).flatten(),
             stored: Vec::new(),
             stored_cursor: None,
             stored_done: false,
@@ -364,7 +369,6 @@ fn manifest_without_roots(source: &SceneManifestAsset) -> SceneManifestAsset {
 pub(super) struct CanvasCapture {
     pub folder: String,
     pub manifest: SceneManifestAsset,
-    pub mesh: Option<Arc<TerrainMeshInput>>,
     pub surface: Option<SceneSurfaceAsset>,
     pub weights: Option<Arc<Vec<u8>>>,
     pub indices: Option<Arc<Vec<u8>>>,
@@ -373,7 +377,6 @@ pub(super) struct CanvasCapture {
     pub densities: BTreeMap<String, Arc<Vec<u8>>>,
     pub water: WaterCapture,
     pub water_path: String,
-    pub terrain_dirty: bool,
 }
 
 impl CanvasCapture {
@@ -381,7 +384,6 @@ impl CanvasCapture {
         Self {
             folder: draft.terrain_folder().to_owned(),
             manifest: manifest_without_roots(draft.terrain_manifest()),
-            mesh: draft.terrain_mesh.clone(),
             surface: draft.surface.as_ref().map(|surface| SceneSurfaceAsset {
                 schema_version: surface.schema_version,
                 scene_id: surface.scene_id.clone(),
@@ -399,15 +401,15 @@ impl CanvasCapture {
                 .vegetation
                 .as_ref()
                 .map(|vegetation| SceneVegetationAsset {
+                    model_surfaces: vegetation.model_surfaces.clone(),
                     schema_version: vegetation.schema_version,
                     scene_id: vegetation.scene_id.clone(),
                     layers: Vec::new(),
-                    authoring: None,
+                    authoring: if vegetation.model_surfaces.is_empty() { None } else { vegetation.authoring.clone() },
                 }),
             densities: BTreeMap::new(),
             water: WaterCapture::new(draft.water.as_ref()),
             water_path: draft.water_asset_path.clone(),
-            terrain_dirty: draft.terrain_dirty,
         }
     }
 
@@ -442,13 +444,12 @@ impl CanvasCapture {
         Ok(Self {
             folder: identity.folder.clone(),
             manifest: identity.manifest.clone(),
-            mesh: canvas.terrain_mesh.clone(),
             surface: canvas.surface.clone(),
             weights: canvas.surface_weights.clone(),
             indices: canvas.surface_indices.clone(),
             puddles: canvas.puddle_mask.clone(),
             vegetation: canvas.vegetation.clone().map(|mut vegetation| {
-                vegetation.authoring = None;
+                if vegetation.model_surfaces.is_empty() { vegetation.authoring = None; }
                 vegetation
             }),
             densities: canvas.vegetation_densities.clone(),
@@ -457,7 +458,6 @@ impl CanvasCapture {
                 masks: canvas.water_masks.clone(),
             },
             water_path: canvas.water_asset_path.clone(),
-            terrain_dirty: canvas.terrain_dirty,
         })
     }
 }

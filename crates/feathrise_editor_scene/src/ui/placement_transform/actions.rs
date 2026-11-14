@@ -207,6 +207,9 @@ pub(crate) fn handle_placement_transform_actions(
     }) else {
         return; // hover样式由Presentation负责，稳定帧不写资源。
     };
+    if action == PlacementTransformAction::Duplicate && batch.is_some() {
+        return; // 正式工作台统一由批量域执行复制、视口落点及模型植被联合历史；不受系统先后顺序影响。
+    }
     if batch.as_ref().is_some_and(|batch| batch.busy()) {
         return; // 批量域已取得同一按钮的所有权，不能再执行单对象动作或覆盖其状态。
     }

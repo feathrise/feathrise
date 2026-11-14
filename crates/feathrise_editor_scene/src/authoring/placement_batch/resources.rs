@@ -17,6 +17,20 @@ pub(crate) struct PlacementBatchState {
     pub(super) garbage: Option<CancelledBatch>,
 }
 impl PlacementBatchState {
+    /// 验收仅读取单飞槽与固定大小游标事实，不能代替任务轮询或发布任何作者结果。
+    #[cfg(feature = "validation")]
+    pub(crate) fn validation_snapshot(&self) -> String {
+        format!("ticket={} capture={} job={:?} paste={:?} garbage={} cleaning={}", self.ticket,
+            self.capture.is_some(), self.job.as_ref().map(|job| (job.ticket, job.task.is_finished(), job.selection.as_ref().map(|(revision,_)| *revision))),
+            self.paste.as_ref().map(|paste| (paste.source.records.len(),paste.records.len(),paste.cursor,paste.point.is_some(),paste.validating)),
+            self.garbage.is_some(),self.cleaning.len())
+    }
+
+    #[cfg(feature = "validation")]
+    pub(crate) fn validation_waiting_for_ghost_records(&self) -> bool {
+        self.paste.as_ref().is_some_and(|paste| paste.records.is_empty())
+    }
+
     pub(crate) fn grid_reference(&self) -> Option<(Vec3, Vec3, feathrise_editor_core::EditorTranslationSnap)> {
         let paste = self.paste.as_ref()?;
         let (key, point) = paste.point?;

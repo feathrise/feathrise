@@ -20,16 +20,15 @@ use crate::types::{CreatedScene, SceneBrowserItem, SceneCreationRequest, NewScen
 use crate::types::{EditorStatusKind, EditorStatusOperation, EditorStatusTarget};
 use bevy::prelude::*; // ECS资源与日志。
 use bevy::tasks::futures::check_ready; // Update只非阻塞探测任务结果。
-use bevy::tasks::{AsyncComputeTaskPool, IoTaskPool}; // 完整GLB编码走计算池，两条路线的目录事务都走IO池。
+use bevy::tasks::IoTaskPool; // 空容器和分页高度源的目录事务均在IO池完成。
 use feathrise_scene_content::{
     GENERATED_SCENE_ID_PREFIX, SCENE_BOUNDARIES_FILE_NAME, SCENE_CATALOG_ASSET_PATH, SCENE_MANIFEST_FILE_NAME,
-    SCENE_PLACEMENTS_FILE_NAME, SCENE_PORTALS_FILE_NAME, SCENE_SCHEMA_VERSION, SCENE_SURFACE_FILE_NAME,
+    SCENE_PLACEMENTS_GLB_FILE_NAME, SCENE_PORTALS_FILE_NAME, SCENE_SCHEMA_VERSION, SCENE_SURFACE_FILE_NAME,
     SCENE_SURFACE_SCHEMA_VERSION, SCENE_VEGETATION_FILE_NAME, SCENE_WATER_FILE_NAME, SceneBoundariesAsset,
     SceneCatalogEntry, SceneClipmapCollisionMode, SceneEnvironmentDescriptor, SceneId, SceneManifestAsset,
     ScenePlacementsAsset, ScenePortalsAsset, SceneSurfaceAsset, SceneTerrainDescriptor, SceneVegetationAsset,
     SparseHeightDocument, SparseHeightSpec, sparse_height_manifest_asset_path,
 }; // 新建文件严格复用运行时资产契约。 // 后台任务只返回轻量成功身份。
-use feathrise_terrain::{TerrainSampleSpec, build_flat_terrain_glb}; // 原始路线继续复用正式平面GLB编码器。
 
 pub(crate) const DEFAULT_HEIGHT_SCALE: f32 = 160.0; // 显示LOD新建回显与最终后台创建必须使用同一高度规格。
 pub(crate) const DEFAULT_BASE_HEIGHT: f32 = -80.0; // 平地位于量程中点，可同时向上造山和向下开河。
@@ -63,8 +62,6 @@ fn empty_new_scene_surface_sources() -> (Vec<u8>, Vec<u8>) {
 enum PreparedTerrain {
     /// 真正空图没有地形文件或派生产物。
     Empty,
-    /// 原始路线在计算池完整编码后才允许开始发布目录。
-    LegacyGlb(Vec<u8>),
     /// Clipmap 空白图无需预分配任何整图顶点或高度数组。
     SparseClipmap,
 }
@@ -75,6 +72,7 @@ fn default_new_scene_vegetation(
     _folder_relative: &str, // 保留纯构造器接口，实际路径由首次使用的预设生成。
 ) -> SceneVegetationAsset {
     SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: SCENE_SCHEMA_VERSION, // 使用当前数据驱动场景格式。
         scene_id: scene_id.clone(),             // 资产身份必须与私有目录一致。
         layers: Vec::new(), // 未使用的第 1、100 或 1000 个目录预设都不占场景引用与磁盘文件。
@@ -96,20 +94,6 @@ fn next_scene_id(scenes_root: &Path, unix_millis: u128) -> Result<SceneId, Strin
         }
     }
     Err("同一时间生成的场景ID已超过上限".to_owned())
-}
-
-/// 按受检目标格距生成原始路线的零高度完整 GLB。
-fn build_new_scene_terrain_glb(dimensions: SceneDimensions) -> Result<Vec<u8>, String> {
-    build_flat_terrain_glb(
-        TerrainSampleSpec {
-            resolution: dimensions.terrain_mesh_resolution, // 真正写入GLB的X/Z顶点数来自作者格距。
-            world_min: dimensions.world_min,                // 网格严格覆盖场景完整X/Z边界。
-            world_max: dimensions.world_max,                // 矩形场景各轴独立计算单元数。
-            base_height: DEFAULT_BASE_HEIGHT,
-            height_scale: DEFAULT_HEIGHT_SCALE,
-        },
-        0.0, // 新场景全部顶点从世界Y=0平面开始。
-    )
 }
 
 /// 由冻结路线构造唯一地形作者源描述；同一清单不能同时登记两种可写源。
@@ -163,6 +147,7 @@ fn new_scene_catalog_entry(
         display_name: display_name.to_owned(), // 已通过创建请求名称校验。
         folder: format!("scenes/{scene_id}"),      // 唯一私有目录根。
         published: true,                       // 完整创建后公开场景。
+        placements_glb: true,
         surface_path: (terrain_mode != NewSceneTerrainMode::Empty).then(|| format!("scenes/{scene_id}/{SCENE_SURFACE_FILE_NAME}")), // 空图不创建无地形可承载的画布。
         vegetation_path: Some(format!("scenes/{scene_id}/{SCENE_VEGETATION_FILE_NAME}")), // Clipmap使用分页高度Blade后端，不能再按GLB路线过滤入口。
         water_path: Some(format!("scenes/{scene_id}/{SCENE_WATER_FILE_NAME}")), // 两条动态地形路线都登记已经同批写入的空静水作者文件。
@@ -213,9 +198,6 @@ fn create_scene(
         let height_resolution = dimensions.terrain_height_resolution; // 两条路线使用各自经过校验的清单规格。
         match (request.terrain_mode, prepared_terrain) {
             (NewSceneTerrainMode::Empty, PreparedTerrain::Empty) => {},
-            (NewSceneTerrainMode::LegacyHeightfield, PreparedTerrain::LegacyGlb(glb)) => {
-                atomic_write(&terrain_folder.join("terrain.glb"), &glb)?; // 完整编码成功后才把旧路线作者源写入私有目录。
-            }
             (NewSceneTerrainMode::SparseClipmap, PreparedTerrain::SparseClipmap) => {
                 let sparse_spec = SparseHeightSpec::new(
                     dimensions.world_min,
@@ -287,14 +269,16 @@ fn create_scene(
                 portals: Vec::new(),
             },
         )?;
-        atomic_write_json(
-            &folder.join(SCENE_PLACEMENTS_FILE_NAME),
+        let placement_glb = feathrise_scene_content::write_scene_placements_glb(
             &ScenePlacementsAsset {
                 schema_version: SCENE_SCHEMA_VERSION,
                 scene_id: scene_id.clone(),
                 placements: Vec::new(),
             },
+            &format!("scenes/{scene_id}/{SCENE_PLACEMENTS_GLB_FILE_NAME}"),
+            None,
         )?;
+        atomic_write(&folder.join(SCENE_PLACEMENTS_GLB_FILE_NAME), &placement_glb)?;
         if request.terrain_mode != NewSceneTerrainMode::Empty {
         let surface_folder = folder.join("surface");
         let (surface_indices, surface_weights) = empty_new_scene_surface_sources(); // 新场景不自动涂绘，空层全零权重着色为白模。
@@ -402,10 +386,6 @@ fn start_scene_creation(
     task.task = Some(IoTaskPool::get().spawn(async move {
         let prepared = match terrain_mode {
             NewSceneTerrainMode::Empty => Ok(PreparedTerrain::Empty),
-            NewSceneTerrainMode::LegacyHeightfield => AsyncComputeTaskPool::get()
-                .spawn(async move { build_new_scene_terrain_glb(dimensions) })
-                .await
-                .map(PreparedTerrain::LegacyGlb), // 大型完整网格只占计算池，不阻塞主线程或IO worker。
             NewSceneTerrainMode::SparseClipmap => Ok(PreparedTerrain::SparseClipmap),
         };
         (
@@ -415,7 +395,6 @@ fn start_scene_creation(
     })); // 同一任务槽和票据覆盖可选计算、IO及发布阶段，主线程始终只非阻塞轮询。
     let grid_label = match terrain_mode {
         NewSceneTerrainMode::Empty => "无地形格点",
-        NewSceneTerrainMode::LegacyHeightfield => "完整GLB顶点",
         NewSceneTerrainMode::SparseClipmap => "稀疏作者格点",
     };
     editor.status = format!(
@@ -545,7 +524,6 @@ pub(crate) fn poll_scene_creation(
             editor.scene_list_selection_id = Some(created.scene_id.clone()); // 进入与删除按钮目标继续使用同一新场景身份。
             let grid_label = match created.terrain_mode {
                 NewSceneTerrainMode::Empty => "无地形格点",
-                NewSceneTerrainMode::LegacyHeightfield => "完整GLB顶点",
                 NewSceneTerrainMode::SparseClipmap => "稀疏作者格点",
             };
             editor.queue_scene_transition(
@@ -596,7 +574,6 @@ mod tests {
     fn both_new_scene_routes_start_with_unpainted_layerless_surface() {
         let scene_id = SceneId::parse("MAP-empty-surface-test").unwrap(); // 两种路线都复用同一场景地表契约。
         for terrain_mode in [
-            NewSceneTerrainMode::LegacyHeightfield, // 原始GLB路线。
             NewSceneTerrainMode::SparseClipmap,     // 稀疏Clipmap路线。
         ] {
             let request =
@@ -617,7 +594,6 @@ mod tests {
         let scene_id = SceneId::parse("MAP-vegetation-entry").unwrap(); // 固定有效测试身份。
         for mode in [
             NewSceneTerrainMode::SparseClipmap,
-            NewSceneTerrainMode::LegacyHeightfield,
         ] {
             // 两路线必须具有同样Blade作者入口。
             let entry = new_scene_catalog_entry(&scene_id, "空草地", mode); // 与生产发布调用相同。
@@ -662,16 +638,6 @@ mod tests {
             .expect("零对象水域文件必须可保存和加载");
     }
 
-    #[test]
-    fn legacy_route_still_encodes_the_selected_full_glb_topology() {
-        let dimensions =
-            SceneDimensions::for_mode(NewSceneTerrainMode::LegacyHeightfield, 262.0, 243.0, 2.0)
-                .unwrap();
-        let glb = build_new_scene_terrain_glb(dimensions).unwrap();
-        let mesh = feathrise_terrain::parse_dynamic_terrain_glb(&glb).unwrap();
-        assert_eq!(mesh.positions.len(), 132 * 123); // 旧方案仍真实生成作者选择的完整顶点网格。
-        assert_eq!(mesh.indices.len(), 131 * 122 * 6); // 每个单元保持两个三角形，未退化为标签兼容。
-    }
 
     #[test]
     fn dirty_scene_confirmation_queues_save_then_creation_snapshot() {

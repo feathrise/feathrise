@@ -4,23 +4,21 @@
 //! stage；大型KTX2/GLB不会同时驻留，任一编码失败仍发生在正式目标开始提交之前。
 
 use std::collections::BTreeSet; // 摆放实例稳定ID在首次stage前完成确定性去重。
-use std::path::{Path, PathBuf}; // terrain.glb并发检查绑定正式绝对路径。
-use std::sync::{Arc, Mutex}; // 正式替换前的摘要失败从事务回调安全传回保存结果。
+use std::path::Path; // 所有正式目标必须位于受检资产根。
+use std::sync::{Arc, Mutex}; // 保存身份共享不可变句柄，延迟纹理编码在同一事务间传递完整结果。
 
 use bevy::math::Rect; // 保存前使用清单受检XZ范围复用公共摆放变换校验。
 use feathrise_scene_content::{
-    SCENE_BOUNDARIES_FILE_NAME, SCENE_MANIFEST_FILE_NAME, SCENE_PLACEMENTS_FILE_NAME,
+    SCENE_BOUNDARIES_FILE_NAME, SCENE_MANIFEST_FILE_NAME,
     SCENE_PORTALS_FILE_NAME, SCENE_SCHEMA_VERSION, SCENE_SURFACE_FILE_NAME, SCENE_SURFACE_SCHEMA_VERSION,
     SCENE_VEGETATION_FILE_NAME, MAX_SCENE_PLACEMENTS_PER_SCENE, SceneId, ScenePlacementsAsset,
     SceneSurfaceAsset, SurfaceSourceSaveIdentity, WORLD_ENVIRONMENT_ASSET_PATH, WorldEnvironmentAsset,
 }; // 场景协议固定目标与成功结果身份。
 
 use super::super::files::{safe_asset_path, workspace_asset_root}; // 所有自定义输出继续受assets根约束。
-use super::super::glb::build_white_terrain_glb as build_legacy_heightfield_glb; // 静态/专用兼容场景仍可沿用R16派生GLB。
 use super::super::image_io::{encode_density_png, is_png_path}; // PNG作者源逐项编码到stage。
-use super::super::ktx2::{encode_height_cells, encode_r8, encode_surface_maps}; // GPU纹理派生逐项生成并立即释放。
+use super::super::ktx2::{encode_r8, encode_surface_maps}; // GPU纹理派生逐项生成并立即释放。
 use super::super::resources::EditorSceneDraft; // 后台任务冻结的完整作者草稿。
-use super::blender_sync::{BlenderSync, blend_path_for_glb, generate_blend_from_staged_glb, optional_blender_sync}; // 可选Blend写项与GLB仍属于同一原子事务。
 use super::output_paths::collect_reserved_asset_paths; // 全批目标先做跨域碰撞预检。
 use super::preflight::prepare_water_files; // 水网、预算、路径与R8输入先取得纯预检完成值。
 use super::publish::placement_documents_equal; // 无变化摆放不重写文件，避免文件监听制造伪Modified。
@@ -28,11 +26,9 @@ use super::transaction::{
     PreparedWrite, TransactionFailure, commit_prepared_writes, commit_prepared_writes_checked,
 }; // 唯一允许正式落盘的跨文件事务入口。
 use super::write_helpers::{
-    encode_heights, prepare_optional_catalog_bytes, resolve_water_json_output_path,
+    prepare_optional_catalog_bytes, resolve_water_json_output_path,
 }; // R16编码、自定义water JSON与目录新快照。
-use feathrise_scene_content::SceneTerrainKind; // 动态Heightfield改为GLB唯一作者源。
-use feathrise_terrain::build_white_terrain_glb; // F12保存只重算法线并保持GLB顶点/索引顺序。
-use sha2::{Digest, Sha256}; // 保存开始和正式替换前都按精确GLB字节核对并发版本。
+use feathrise_scene_content::SceneTerrainKind; // Clipmap三维补片和地表写入共用地形类型约束。
 
 /// 在任何stage或正式文件替换前完整验证摆放文档与整网格水体引用。
 #[cfg(test)]
@@ -128,17 +124,6 @@ impl DraftSaveError {
         self.terrain_conflict_sha256
     }
 
-    fn terrain_conflict(path: &Path, digest: [u8; 32], stage: &str) -> Self {
-        Self {
-            message: format!(
-                "{stage}检测到Blender或其他程序已修改{}；请选择采用 Blender 版本或使用草稿覆盖",
-                path.display()
-            ),
-            reload_asset_paths: Vec::new(), // 冲突门没有改写正式路径，无需纠正AssetServer缓存。
-            rollback_complete: true,
-            terrain_conflict_sha256: Some(digest),
-        }
-    }
 }
 
 impl From<String> for DraftSaveError {
@@ -169,19 +154,12 @@ pub(crate) struct DraftSaveSuccess {
     pub(crate) domain_hash: Option<String>, // 本批真正写入的外部文档原字节基线。
     pub(crate) scene_id: SceneId,                   // 本次原子事务所属场景。
     pub(crate) placements_changed: bool, // 只有语义内容相对磁盘真实变化时才允许发布正式摆放资产。
+    pub(crate) placement_glb_hash: Option<String>,
     pub(crate) surface_definition_changed: bool, // 地表JSON进入本批时才允许发布正式定义资产。
     pub(crate) surface_weights_changed: bool, // RGBA作者源与KTX2实际进入本批时才允许重载权重纹理。
     pub(crate) active_terrain_surface_changes: Option<(bool, bool)>, // 当前独立画布的定义/像素真实写入回执，不能用空容器的false代替。
     pub(crate) surface_source_identity: Option<Arc<SurfaceSourceSaveIdentity>>, // 本次实际保存画布的内容证据，迟到资产通知不能冒充。
-    pub(crate) terrain_sha256: Option<[u8; 32]>, // 保存后的GLB精确摘要成为下一次并发检查基线。
-    pub(crate) terrain_blend_generated: bool, // true证明同名Blend已与本批GLB共同原子发布。
     pub(crate) global_environment_saved: bool, // true 表示全局配置与场景文件已在同一事务完整发布。
-}
-
-#[derive(Clone)]
-struct TerrainSaveGuard {
-    path: PathBuf,             // 每个脏GLB作者源独立检查精确字节。
-    expected_sha256: [u8; 32], // baseline或用户对当前外部版本的一次性覆盖授权。
 }
 
 /// 完整待写集合与各类内容变化证据必须来自同一次后台预检。
@@ -189,10 +167,10 @@ struct PreparedDraftWrites<'a> {
     domain_hash: Option<String>, // 只有外部脏文档进入事务才有新基线。
     writes: Vec<PreparedWrite<'a>>,  // 仍由唯一跨文件事务统一stage、发布和回滚。
     placements_changed: bool,        // false时批次中完全没有placements目标。
+    placement_glb_hash: Option<String>,
     surface_definition_changed: bool, // false时批次中完全没有地表JSON目标。
     surface_weights_changed: bool,   // false时批次中完全没有RGBA作者源和权重KTX2目标。
     water_changed: bool, // 后台比较小型水JSON；正文排版和其他作者域变化不要求无关水画布重建。
-    terrain_blend_generated: bool, // 只由实际计划的Blend写项产生，缺工具时不能伪报生成成功。
 }
 
 pub(super) async fn save_draft_with_volumes(
@@ -218,23 +196,13 @@ pub(super) async fn save_draft_with_volumes(
         feathrise_scene_content::validate_saved_scene_instances(&root, &catalog, &draft.manifest)?;
     } // 同一作者锁内验证完整来源链，任何失败发生在首个stage创建之前。
     let source_guard = super::domain_files::DraftSourceSaveGuard::prepare(&root, draft)?;
-    let terrain_guard = terrain_save_guard(draft)?; // 第一次核对发生在保存IO任务开始、任何stage创建之前。
-    let mut object_guards = Vec::new();
-    for object in &object_drafts {
-        let guard = terrain_save_guard(object).map_err(|error| DraftSaveError::from(format!(
-            "地形 {} 的作者源冲突，未开始写入：{error}", object.folder)))?;
-        if let Some(guard) = guard { object_guards.push(guard); }
-    }
-    // 工具检查留在同一后台保存任务内；整个批次共用一次选择，不在作者帧扫描文件或安装目录。
-    let blender = if terrain_guard.is_some() || !object_guards.is_empty() { optional_blender_sync() } else { None };
-    let mut prepared = prepare_draft_writes(&root, draft, global_environment, blender.as_ref())?; // 预检与冲突守卫使用同一个冻结根，在首个stage前共同收集全部目标。
+    let mut prepared = prepare_draft_writes(&root, draft, global_environment)?;
     let mut terrain_reload_paths = Vec::new();
     let mut terrain_water_changed = std::collections::BTreeSet::new();
     let mut active_terrain_surface_changes = None;
     let mut surface_source_identity = surface_save_identity(draft, prepared.surface_definition_changed, prepared.surface_weights_changed)?;
     for object in &object_drafts {
-        let object_writes = prepare_draft_writes(&root, object, None, blender.as_ref())?;
-        prepared.terrain_blend_generated |= object_writes.terrain_blend_generated;
+        let object_writes = prepare_draft_writes(&root, object, None)?;
         if object_writes.water_changed && let Some(active) = &object.terrain_documents.active {
             terrain_water_changed.insert(active.definition.id.clone());
         } // 删除但为撤销保留的脏画布仍交接正式文件；冻结的runtime_required阻止等待不存在的实例。
@@ -254,7 +222,7 @@ pub(super) async fn save_draft_with_volumes(
     }
     let generated = super::volume::prepare_verified(&root, draft, volumes, &verified_volumes)?;
     prepared.writes.splice(0..0, generated); // 生成GLB先于引用它的placement JSON提交，回滚仍覆盖同一批。
-    let PreparedDraftWrites { domain_hash, mut writes, placements_changed, surface_definition_changed, surface_weights_changed, water_changed, terrain_blend_generated } = prepared;
+    let PreparedDraftWrites { domain_hash, mut writes, placements_changed, placement_glb_hash, surface_definition_changed, surface_weights_changed, water_changed } = prepared;
     let catalog_path = root.join(feathrise_scene_content::SCENE_CATALOG_ASSET_PATH);
     if let Some(index) = writes.iter().position(|write| write.path == catalog_path) {
         let catalog = writes.remove(index);
@@ -263,67 +231,28 @@ pub(super) async fn save_draft_with_volumes(
     super::output_paths::validate_preserved_document_outputs(&root, draft, &writes, domain_hash.is_some())?;
     // 私有画布和体积生成写项在此已全部合并，不能绕过根文档保留路径的零写入拒绝门。
     let root = workspace_asset_root();
-    let replacement_conflict = Arc::new(Mutex::new(None)); // 事务回调只在保存IO线程同步使用，Mutex仅传递结构化摘要。
-    if terrain_guard.is_some() || !object_guards.is_empty() {
-        let mut guards = object_guards.clone();
-        guards.extend(terrain_guard.iter().cloned());
-        let root_path = terrain_guard.as_ref().map(|guard| guard.path.clone());
-        let replacement_conflict_for_hook = replacement_conflict.clone();
-        commit_prepared_writes_checked(writes, move |_, path| {
-            source_guard.check(path)?; // 外部文档及首次目录登记在每次正式替换前再次比较版本。
-            let Some(guard) = guards.iter().find(|guard| path == guard.path) else {
-                return Ok(()); // 其他JSON/R8目标没有GLB覆盖授权语义。
-            };
-            let actual = sha256_file(path)?; // 正式原子替换前第二次读取当前目标。
-            if actual == guard.expected_sha256 {
-                return Ok(()); // 仍是保存启动时受检的同一版本。
-            }
-            *replacement_conflict_for_hook
-                .lock()
-                .expect("地形保存冲突摘要互斥锁被破坏") = Some((path.to_path_buf(), actual));
-            Err(format!(
-                "正式替换前检测到terrain.glb再次变化：{}",
-                path.display()
-            ))
-        })
-        .map_err(|failure| {
-            let conflict = replacement_conflict
-                .lock()
-                .expect("地形保存冲突摘要互斥锁被破坏").clone();
-            let mut error = DraftSaveError::from_transaction(&root, failure);
-            if let Some((path, digest)) = conflict {
-                error.message = format!("正式替换前地形作者源再次变化：{}；本批已按事务回滚", path.display());
-                // 原主地形仍使用原模态授权；对象冲突不能把A的摘要误授权到当前B。
-                if root_path.as_ref() == Some(&path) { error.terrain_conflict_sha256 = Some(digest); }
-            }
-            error
-        })?;
-    } else {
-        commit_prepared_writes_checked(writes, |_, path| source_guard.check(path))
-            .map_err(|failure| DraftSaveError::from_transaction(&root, failure))?; // 回滚路径随失败交给主线程重载。
-    }
-    let terrain_sha256 = terrain_guard
-        .as_ref()
-        .map(|guard| sha256_file(&guard.path))
-        .transpose()?; // 成功发布值成为当前草稿下一次精确基线。
-    let mut terrain_digests = Vec::new();
-    for object in &object_drafts {
-        if object.terrain_dirty && object.manifest.terrain.kind == SceneTerrainKind::Heightfield {
-            let id = object.terrain_documents.active.as_ref().map(|identity| identity.definition.id.clone());
-            if let Some(id) = id { terrain_digests.push((id, sha256_file(&safe_asset_path(&root, &object.manifest.terrain.glb_path)?)?)); }
+    let placement_path = safe_asset_path(&root, &draft.placements_path())?;
+    let check_source = |path: &Path| {
+        source_guard.check(path)?;
+        if path == placement_path && let Some(expected) = &draft.placement_glb_hash {
+            verify_placement_glb_hash(expected, &feathrise_scene_content::authoring_io::file_hash(path)?)?;
         }
-    }
+        Ok(())
+    };
+    commit_prepared_writes_checked(writes, |_, path| check_source(path))
+        .map_err(|failure| DraftSaveError::from_transaction(&root, failure))?;
+    // 高度作者源由分页文档保存；模型继续使用普通 scene.glb 摘要守卫。
+    let terrain_digests = Vec::new();
     Ok(DraftSaveSuccess {
         domain_hash, // 成功之后才更新主世界外部文档磁盘基线。
         root_water_changed: water_changed,
         scene_id: draft.scene_id.clone(),              // 主线程只接纳同票据同作者修订结果。
         placements_changed, // 发布决策与实际事务目标严格同源。
+        placement_glb_hash,
         surface_definition_changed, // 只发布本批真正替换的地表JSON。
         surface_weights_changed, // 只重载本批真正替换的权重纹理。
         active_terrain_surface_changes,
         surface_source_identity,
-        terrain_sha256,
-        terrain_blend_generated, // 只有实际参与并完成本批提交的Blend写项才能置true。
         global_environment_saved: global_environment.is_some(), // 成功返回即证明全局与场景属于同一次完整提交。
         terrain_manifest, terrain_saved, terrain_reload_paths, terrain_digests, terrain_water_changed,
     })
@@ -343,49 +272,10 @@ fn surface_save_identity(draft: &EditorSceneDraft, definition_changed: bool, pix
     Ok(Some(Arc::new(identity)))
 }
 
-fn terrain_save_guard(draft: &EditorSceneDraft) -> Result<Option<TerrainSaveGuard>, DraftSaveError> {
-    if draft.manifest.terrains.is_some() && !draft.terrain_documents.detached { return Ok(None); }
-    if !draft.terrain_dirty
-        || !draft.manifest.is_data_driven()
-        || draft.manifest.legacy_terrain().kind != SceneTerrainKind::Heightfield
-    {
-        return Ok(None); // 静态/专用兼容场景继续沿用其既有保存协议。
-    }
-    let root = workspace_asset_root();
-    let path = safe_asset_path(&root, &draft.manifest.legacy_terrain().glb_path)?;
-    let baseline = draft
-        .terrain_source_sha256
-        .ok_or_else(|| DraftSaveError::from("动态地形草稿缺少加载时GLB摘要".to_owned()))?;
-    let actual = sha256_file(&path).map_err(DraftSaveError::from)?;
-    let authorized = draft.terrain_overwrite_authorized_sha256 == Some(actual);
-    if actual != baseline && !authorized {
-        return Err(DraftSaveError::terrain_conflict(
-            &path,
-            actual,
-            "保存开始时",
-        ));
-    }
-    Ok(Some(TerrainSaveGuard {
-        path,
-        expected_sha256: actual, // 覆盖授权只对应此刻实际检测到的版本；再次保存会在第二道门失败。
-    }))
-}
-
-fn sha256_file(path: &Path) -> Result<[u8; 32], String> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path)
-        .map_err(|error| format!("读取地形GLB{}进行并发核对失败：{error}", path.display()))?;
-    let mut hash = Sha256::new(); let mut buffer = [0u8; 64 * 1024];
-    loop { let count = file.read(&mut buffer).map_err(|error| error.to_string())?;
-        if count == 0 { break; } hash.update(&buffer[..count]); }
-    Ok(hash.finalize().into())
-}
-
 fn prepare_draft_writes<'a>(
     root: &Path,
     draft: &'a EditorSceneDraft,
     global_environment: Option<&'a WorldEnvironmentAsset>,
-    blender: Option<&BlenderSync>,
 ) -> Result<PreparedDraftWrites<'a>, String> {
     let canvas_only = draft.terrain_documents.detached;
     let container = draft.manifest.terrains.is_some() && !canvas_only;
@@ -448,11 +338,11 @@ fn prepare_draft_writes<'a>(
         folder.join(SCENE_MANIFEST_FILE_NAME),
         &draft.manifest,
     )); }
-    let placements_path = folder.join(SCENE_PLACEMENTS_FILE_NAME); // 语义比较和真正事务目标必须使用同一正式路径。
-    let placements_changed = !canvas_only && !saved_placements_match(&placements_path, &draft.placements); // 对象投影没有独立摆放文档。
-    if placements_changed {
-        writes.push(PreparedWrite::json(placements_path, &draft.placements)); // 真实变化仍与全批其他目标一起原子stage、发布和回滚。
-    }
+    let (placements_changed, placement_glb_hash) = if canvas_only {
+        (false, None) // 对象投影没有独立摆放文档。
+    } else {
+        prepare_placements_write(root, draft, &mut writes)?
+    };
     if !canvas_only { writes.push(PreparedWrite::json(
         folder.join(SCENE_PORTALS_FILE_NAME),
         &draft.portals,
@@ -548,33 +438,13 @@ fn prepare_draft_writes<'a>(
         }
     }
 
-    if !container && let Some(vegetation) = draft.vegetation.as_ref() {
-        if let Some(authoring) = vegetation.authoring.as_ref() {
-            authoring.validate(&vegetation.layers)?;
-            for layer in &authoring.layers {
-                if !draft.vegetation_author_dirty_layers.contains(&layer.id) {
-                    continue;
-                }
-                let density = draft
-                    .vegetation_author_densities
-                    .get(&layer.id)
-                    .cloned()
-                    .ok_or_else(|| format!("植被作者层{}缺少R8画布", layer.id))?;
-                validate_grid_len(
-                    &format!("植被作者层{}的R8", layer.id),
-                    density.len(),
-                    layer.resolution,
-                    1,
-                )?;
-                let source_path = safe_asset_path(&root, &layer.density_source_path)?;
-                writes.push(PreparedWrite::shared(source_path, density)); // raw R8复用冻结Arc，不复制整图。
-            }
-        }
-        writes.push(PreparedWrite::json(
-            folder.join(SCENE_VEGETATION_FILE_NAME),
-            vegetation,
-        ));
-        prepare_vegetation_layer_writes(&root, draft, vegetation, &mut writes)?;
+    let vegetation_source = if container {
+        super::super::terrain_documents::root_vegetation::source(draft)
+    } else {
+        Some(super::super::terrain_documents::root_vegetation::VegetationSource::active(draft))
+    };
+    if let Some(source) = vegetation_source.filter(|source| !container || source.has_document()) {
+        prepare_vegetation_writes(root, &draft.folder, &source, &mut writes)?;
     }
 
     if !container { super::super::puddles::prepare_writes(&root, draft, &mut writes)?; }
@@ -597,8 +467,6 @@ fn prepare_draft_writes<'a>(
         } // 独立画布仅其他作者域变化时不重发相同水JSON；真实水改动仍与R8/KTX2共用唯一事务。
     }
 
-    let terrain_blend_generated = if container { false } else { prepare_terrain_writes(&root, draft, &mut writes, blender)? };
-
     if !canvas_only && let Some((catalog_path, catalog_bytes)) = prepare_optional_catalog_bytes(&root, draft)? {
         writes.push(PreparedWrite::new(catalog_path, catalog_bytes)); // 目录始终是本批最后一个可见目标。
     }
@@ -606,9 +474,9 @@ fn prepare_draft_writes<'a>(
     // 根批次先拒绝领域正文与普通目标的别名，后续清单重编码不能移除真实领域写项后冒用它的权限。
     Ok(PreparedDraftWrites {
         domain_hash,
-        terrain_blend_generated,
         writes,                     // transaction会在创建首个stage前再次拒绝任何目标路径别名。
         placements_changed,         // 主线程据此决定是否建立正式placement交接门。
+        placement_glb_hash,
         surface_definition_changed, // 主线程据此决定是否发布唯一正式地表定义句柄。
         surface_weights_changed,    // 主线程据此决定是否显式重载权重KTX2。
         water_changed,
@@ -628,6 +496,42 @@ pub(super) fn save_global_environment(asset: &WorldEnvironmentAsset) -> Result<(
 }
 
 /// 读取旧正式摆放文档并做语义比较；缺失或损坏文件继续按旧行为由事务完整覆盖。
+fn verify_placement_glb_hash(expected: &str, actual: &str) -> Result<(), String> {
+    if expected != actual {
+        return Err("场景 GLB 已被外部程序修改，请重新打开场景后保存".into());
+    }
+    Ok(())
+}
+
+fn prepare_placements_write<'a>(
+    root: &Path,
+    draft: &'a EditorSceneDraft,
+    writes: &mut Vec<PreparedWrite<'a>>,
+) -> Result<(bool, Option<String>), String> {
+    let relative = draft.placements_path();
+    let path = safe_asset_path(root, &relative)?;
+    let Some(expected) = &draft.placement_glb_hash else {
+        if saved_placements_match(&path, &draft.placements) {
+            return Ok((false, None));
+        }
+        writes.push(PreparedWrite::json(path, &draft.placements));
+        return Ok((true, None));
+    };
+    use feathrise_scene_content::{authoring_io::bytes_hash, read_scene_placements, write_scene_placements_glb};
+    let previous = std::fs::read(&path).map_err(|error| format!("读取场景 GLB {} 失败：{error}", path.display()))?;
+    verify_placement_glb_hash(expected, &bytes_hash(&previous))?;
+    if read_scene_placements(&previous, &relative)?.placements == draft.placements.placements {
+        return Ok((false, None));
+    }
+    let glb = write_scene_placements_glb(&draft.placements, &relative, Some(&previous))?;
+    if glb == previous {
+        return Ok((false, None));
+    }
+    let digest = bytes_hash(&glb);
+    writes.push(PreparedWrite::new(path, glb));
+    Ok((true, Some(digest)))
+}
+
 fn saved_placements_match(path: &std::path::Path, snapshot: &ScenePlacementsAsset) -> bool {
     std::fs::read(path)
         .ok()
@@ -672,18 +576,51 @@ fn surface_write_changes(
     (definition_changed, weights_dirty) // 高度保存不会再借定义JSON或权重KTX2制造伪热更新。
 }
 
+/// 模型样本分块和原有二维R8进入同一保存事务，引用文档最后提交，失败仍完整回滚。
+fn prepare_vegetation_writes<'a>(
+    root: &Path,
+    folder: &str,
+    source: &super::super::terrain_documents::root_vegetation::VegetationSource<'_>,
+    writes: &mut Vec<PreparedWrite<'a>>,
+) -> Result<(), String> {
+    let Some(vegetation) = source.vegetation else { return Ok(()); };
+    if let Some(authoring) = &vegetation.authoring {
+        authoring.validate(&vegetation.layers)?;
+        for layer in &authoring.layers {
+            if !source.author_dirty_layers.contains(&layer.id) { continue; }
+            let density = source.author_densities.get(&layer.id).cloned()
+                .ok_or_else(|| format!("植被作者层{}缺少R8画布", layer.id))?;
+            validate_grid_len(&format!("植被作者层{}的R8", layer.id), density.len(), layer.resolution, 1)?;
+            writes.push(PreparedWrite::shared(safe_asset_path(root, &layer.density_source_path)?, density));
+        }
+    }
+    prepare_vegetation_layer_writes(root, source, vegetation, writes)?;
+    let (metadata, blocks) = feathrise_scene_content::prepare_model_vegetation_blocks(folder, vegetation)?;
+    for (path, bytes) in blocks {
+        writes.push(PreparedWrite::new(super::super::files::safe_scene_private_asset_path(root, folder, &path)?, bytes));
+    }
+    let path = root.join(folder).join(SCENE_VEGETATION_FILE_NAME);
+    let bytes = super::transaction::encode_json_bytes(&path, &metadata)?;
+    writes.push(PreparedWrite::new(path, bytes));
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "model_vegetation_tests.rs"]
+mod model_vegetation_tests;
+
 fn prepare_vegetation_layer_writes<'a>(
     root: &std::path::Path,
-    draft: &EditorSceneDraft,
+    source: &super::super::terrain_documents::root_vegetation::VegetationSource<'_>,
     vegetation: &feathrise_scene_content::SceneVegetationAsset,
     writes: &mut Vec<PreparedWrite<'a>>,
 ) -> Result<(), String> {
     for layer in &vegetation.layers {
-        if !draft.vegetation_dirty_layers.contains(&layer.id) {
+        if !source.dirty_layers.contains(&layer.id) {
             continue;
         }
-        let density = draft
-            .vegetation_densities
+        let density = source
+            .densities
             .get(&layer.id)
             .cloned()
             .ok_or_else(|| format!("植被层{}缺少R8作者源", layer.id))?;
@@ -711,94 +648,6 @@ fn prepare_vegetation_layer_writes<'a>(
         }
     }
     Ok(())
-}
-
-fn prepare_terrain_writes<'a>(
-    root: &std::path::Path,
-    draft: &'a EditorSceneDraft,
-    writes: &mut Vec<PreparedWrite<'a>>,
-    blender: Option<&BlenderSync>,
-) -> Result<bool, String> {
-    if !draft.terrain_dirty {
-        return Ok(false);
-    }
-    let dynamic_glb = draft.manifest.is_data_driven()
-        && draft.manifest.legacy_terrain().kind == SceneTerrainKind::Heightfield;
-    if dynamic_glb {
-        if draft.manifest.legacy_terrain().height_path.is_some()
-            || draft.manifest.legacy_terrain().height_texture_path.is_some()
-        {
-            return Err(format!(
-                "动态场景{}清单仍声明磁盘高度文件；迁移后必须省略height_path和height_texture_path",
-                draft.scene_id
-            ));
-        }
-        let mesh = draft
-            .terrain_mesh
-            .as_ref()
-            .ok_or_else(|| "地形标记为已修改但缺少GLB顶点与索引作者源".to_owned())?;
-        let glb_path = safe_asset_path(root, &draft.manifest.legacy_terrain().glb_path)?;
-        let blend_source_target = glb_path.clone(); // Blend只能读取尚未发布的新GLB stage，不读取旧正式文件。
-        writes.push(PreparedWrite::deferred(glb_path, move || {
-            build_white_terrain_glb(mesh.as_ref())
-        })); // 只更新顶点Y和重算法线；顶点顺序与三角连接关系由共享编码器原样写回。
-        // 未配置完整工具链时仅保存GLB；不把Blend放进事务，也不触碰已有同名文件。
-        let Some(blender) = blender.cloned() else { return Ok(false); };
-        let blend_path = blend_path_for_glb(&blend_source_target)?;
-        writes.push(PreparedWrite::from_staged_file(
-            blend_path,                     // terrain.blend与terrain.glb共同参与backup、发布和回滚。
-            blend_source_target,            // 事务保证依赖项已经完整sync且尚未正式发布。
-            move |source, output| generate_blend_from_staged_glb(&blender, source, output), // 只克隆固定工具路径，不读取大型Blend回Rust内存。
-        )); // 开始转换后若超时、导入或save_post失败，全部正式文件仍保持事务前版本。
-        return Ok(true);
-    }
-    let heights = draft
-        .heights
-        .as_ref()
-        .ok_or_else(|| "地形标记为已修改但缺少高度源".to_owned())?;
-    validate_grid_len(
-        "地形R16高度源",
-        heights.len(),
-        draft.manifest.legacy_terrain().resolution,
-        1,
-    )?;
-    let height_relative = draft
-        .manifest
-        .terrain
-        .height_path
-        .as_deref()
-        .ok_or_else(|| "高度场场景清单缺少height_path".to_owned())?;
-    let height_path = safe_asset_path(root, height_relative)?;
-    let raw_heights = heights.clone();
-    writes.push(PreparedWrite::deferred(height_path, move || {
-        Ok(encode_heights(raw_heights.as_slice()))
-    })); // 最大R16作者源写完stage即释放编码副本。
-    if let Some(height_texture_relative) = draft.manifest.legacy_terrain().height_texture_path.as_deref() {
-        let height_texture_path = safe_asset_path(root, height_texture_relative)?;
-        let texture_heights = heights.clone();
-        let resolution = draft.manifest.legacy_terrain().resolution;
-        writes.push(PreparedWrite::deferred(height_texture_path, move || {
-            encode_height_cells(texture_heights.as_slice(), resolution)
-        }));
-    }
-    let glb_path = safe_asset_path(root, &draft.manifest.legacy_terrain().glb_path)?;
-    let glb_heights = heights.clone();
-    let resolution = draft.manifest.legacy_terrain().resolution;
-    let world_min = draft.manifest.world_min;
-    let world_max = draft.manifest.world_max;
-    let base_height = draft.manifest.legacy_terrain().base_height;
-    let height_scale = draft.manifest.legacy_terrain().height_scale;
-    writes.push(PreparedWrite::deferred(glb_path, move || {
-        build_legacy_heightfield_glb(
-            glb_heights.as_slice(),
-            resolution,
-            world_min,
-            world_max,
-            base_height,
-            height_scale,
-        )
-    })); // GLB是最后一个大型单项派生，不与R16或高度KTX2同时常驻。
-    Ok(false)
 }
 
 fn validate_grid_len(

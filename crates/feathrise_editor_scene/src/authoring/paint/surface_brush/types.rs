@@ -14,6 +14,7 @@ pub(crate) struct ObjectSurfacePress {
     pub(super) input_authority: u64,
     pub(super) input_epoch: u64,
     pub(super) terrain: TerrainId,
+    pub(super) surface: ([u8; 32], bevy::prelude::Mat4),
     pub(super) surface_revision: u64,
     pub(super) layer: Option<(usize, String)>,
     pub(super) preset: Option<String>,

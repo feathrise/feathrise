@@ -83,7 +83,6 @@ pub(super) fn sync_scene_properties(
                 match manifest.terrain.kind {
                     SceneTerrainKind::Empty => "空白场景",
                     SceneTerrainKind::Gltf => "GLB场景",
-                    SceneTerrainKind::Heightfield => "高度场场景",
                     SceneTerrainKind::SparseClipmap => "Clipmap场景",
                     SceneTerrainKind::Voxel => "体素场景",
                 }

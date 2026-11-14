@@ -7,7 +7,7 @@ use super::super::{
 use super::types::*;
 use bevy::{prelude::*, tasks::AsyncComputeTaskPool};
 use feathrise_scene_content::*;
-use feathrise_scene::{ClipmapGroundHit, TerrainObjectRaySnapshot};
+use feathrise_scene::{ClipmapGroundHit, paint_surface::PaintSurfaceSnapshot};
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::Arc,
@@ -91,6 +91,7 @@ pub(super) fn paint(mut transaction: Transaction, dabs: VecDeque<Dab>) -> Result
         let Some(query) = transaction.ground.object_query(id) else {
             continue;
         };
+        let surface = transaction.ground.object_surface(id).ok_or("公共种植表面身份未就绪")?;
         let before = VegetationValues::capture(&canvas);
         let layer_id = match transaction.group.members.get(id) {
             Some(member) => member.clone(),
@@ -174,7 +175,7 @@ pub(super) fn paint(mut transaction: Transaction, dabs: VecDeque<Dab>) -> Result
                         &transaction.ground,
                         &transaction.hidden,
                         id,
-                        &query,
+                        &surface,
                         point,
                         top,
                         bottom,
@@ -265,7 +266,7 @@ fn eligible_surface(
     ground: &super::super::terrain_ground::TerrainGroundSnapshot,
     hidden: &std::collections::BTreeSet<TerrainId>,
     id: &TerrainId,
-    query: &TerrainObjectRaySnapshot,
+    surface: &PaintSurfaceSnapshot,
     point: Vec3,
     top: f32,
     bottom: f32,
@@ -273,8 +274,8 @@ fn eligible_surface(
     dab: &Dab,
 ) -> SurfaceEligibility {
     use SurfaceEligibility::*;
-    let hit = match query
-        .support_below_status(Vec3::new(point.x, top, point.z), (top - bottom).max(1.))
+    let hit = match surface
+        .height_density_surface(Vec3::new(point.x, top, point.z), (top - bottom).max(1.))
     {
         ClipmapGroundHit::Hit(hit) => hit,
         ClipmapGroundHit::WaitingForHeight => return Waiting,
@@ -283,18 +284,6 @@ fn eligible_surface(
     };
     if (hit.y - center.y).abs() > dab.radius {
         return Skip;
-    }
-    if let TerrainObjectRaySnapshot::Clipmap(snapshot, frame) = query {
-        let local = frame.to_local(hit);
-        if snapshot.is_three_dimensional_surface(local) {
-            return Skip;
-        }
-        match snapshot.sample_authoritative_surface(local.xz()) {
-            ClipmapGroundHit::Hit(p) if p.distance(local) < 0.05 => {}
-            ClipmapGroundHit::WaitingForHeight => return Waiting,
-            ClipmapGroundHit::Failed => return Failed,
-            _ => return Skip,
-        }
     }
     let camera = dab.camera.w_axis.truncate();
     let origin = if dab.orthographic {
@@ -321,6 +310,7 @@ fn create_member(
     map: &SceneId,
 ) -> Result<String, String> {
     let vegetation = canvas.vegetation.get_or_insert_with(|| SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: SCENE_SCHEMA_VERSION,
         scene_id: map.clone(),
         layers: Vec::new(),
@@ -421,6 +411,7 @@ pub(super) fn prepare_images(
         .id
         .clone();
     let definition = canvas.vegetation.clone().unwrap_or(SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         scene_id: map,
         schema_version: SCENE_SCHEMA_VERSION,
         ..Default::default()

@@ -475,7 +475,7 @@ mod tests {
                     resolved_stitches:Default::default(),
                     collision_lods: Vec::new(),         // GLB测试不消费稀疏碰撞配置。
                     display_lods: None,                 // GLB测试不消费SparseClipmap显示LOD。
-                    kind: SceneTerrainKind::Heightfield,  // 新建场景使用可编辑高度场。
+                    kind: SceneTerrainKind::Gltf,  // 新建场景使用可编辑高度场。
                     collision_mode: Default::default(), // 旧GLB路线不读取Clipmap碰撞选择。
                     player_collision_preload_radius_meters:
                         feathrise_scene_content::DEFAULT_PLAYER_COLLISION_PRELOAD_RADIUS_METERS, // GLB占位值不参与物理。

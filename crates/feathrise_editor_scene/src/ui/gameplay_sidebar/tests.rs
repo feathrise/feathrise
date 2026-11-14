@@ -43,7 +43,8 @@ fn page(shell: bool) -> (App, Entity) {
         bevy::text::TextPlugin,
         bevy::transform::TransformPlugin,
     ));
-    app.init_resource::<UiSurface>()
+    app.init_asset::<Image>() // 完整侧栏含正式图标，精简布局App同样需要图像句柄分配器。
+        .init_resource::<UiSurface>()
         .init_resource::<InputFocus>()
         .init_resource::<SceneEditorNumericScrubMouseGuard>()
         .init_resource::<EditorTextInputGuard>()

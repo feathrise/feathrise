@@ -10,6 +10,9 @@ pub mod resources {
     };
 }
 pub mod components {
+    // 实窗夹具只识别原恢复按钮身份；不提供直接改写加载事务或结果的入口。
+    #[cfg(any(test, feature = "runtime_test_support"))]
+    pub use crate::components::SceneLoadingRecoveryButton;
     pub use crate::components::{
         SceneEditorOwnedEntity, SceneEditorRightPanelScroll, SceneEditorViewport,
     };

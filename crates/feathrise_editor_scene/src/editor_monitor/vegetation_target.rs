@@ -50,7 +50,7 @@ pub(super) fn custom_session() -> crate::authoring::EditorAuthoringSession {
         })).collect::<Vec<_>>()
     })).unwrap();
     authoring.validate(&layers).unwrap();
-    draft.vegetation = Some(SceneVegetationAsset { schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION, scene_id: draft.scene_id.clone(), layers, authoring: Some(authoring) });
+    draft.vegetation = Some(SceneVegetationAsset { model_surfaces: Vec::new().into(), schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION, scene_id: draft.scene_id.clone(), layers, authoring: Some(authoring) });
     crate::authoring::EditorAuthoringSession { draft: Some(draft), ..Default::default() }
 }
 

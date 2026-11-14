@@ -12,7 +12,7 @@ mod deletion_ownership; // 真实整批删除的失败零发布及视觉预算�
 mod deletion_preparation; // 近满整表、真实CPU取消槽及跨文档捕获拒收。
 use super::super::{PlacementBatchState, handle_placement_batch, sync_batch_selection};
 use crate::{
-    authoring::{EditorAuthoringSession, test_heightfield_draft},
+    authoring::EditorAuthoringSession,
     resources::SceneEditorState,
     viewport::{
         modes::{ViewportMode, ViewportModeState},
@@ -115,11 +115,13 @@ fn until(app: &mut App, node: Entity, cursor: Vec2, done: impl Fn(&PlacementBatc
     );
 }
 fn target(app: &mut App) {
-    let mut draft = test_heightfield_draft(Arc::new(vec![2; 121]));
+    let revision = app.world().resource::<EditorAuthoringSession>().terrain_revision;
+    let mut draft = crate::authoring::test_support::test_clipmap_draft(Arc::new(vec![2; 121]), revision);
     let map = SceneId::parse("MAP-paste-target").unwrap();
     draft.scene_id = map.clone();
     draft.manifest.id = map.clone();
     draft.placements.scene_id = map.clone();
+    crate::authoring::test_support::refresh_test_clipmap_ground(&mut draft, revision);
     {
         let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
         session.draft = Some(draft);
@@ -691,6 +693,25 @@ fn duplicate_keeps_original_group_and_existing_clipboard_independent() {
             .records,
         before
     );
+}
+
+#[test]
+fn rejected_ghost_handoff_retires_the_unconfirmed_paste_instead_of_waiting_forever() {
+    let (mut app, node) = app(1);
+    let before = app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap()
+        .placements.placements.clone();
+    key(&mut app, node, KeyCode::KeyD, Vec2::ZERO);
+    until(&mut app, node, Vec2::ZERO, |state| state.job.is_some()
+        && state.paste.as_ref().is_some_and(|paste| paste.records.is_empty()));
+    // 只废止在途Ghosts票据，保留同一作者文档与地形身份；原接收端必须整体取消空预览。
+    app.world_mut().resource_mut::<PlacementBatchState>().ticket += 1;
+    until(&mut app, node, Vec2::ZERO, |state| !state.busy());
+    let state = app.world().resource::<PlacementBatchState>();
+    assert!(state.paste.is_none() && state.job.is_none() && !state.owns_mouse());
+    let session = app.world().resource::<EditorAuthoringSession>();
+    assert_eq!(session.draft.as_ref().unwrap().placements.placements, before);
+    assert!(session.undo.is_empty() && session.redo.is_empty());
+    assert!(app.world().resource::<SceneEditorState>().status.contains("任务票据已变化"));
 }
 
 #[test]

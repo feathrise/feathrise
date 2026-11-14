@@ -126,7 +126,7 @@ pub(crate) fn terrain_tools_panel() -> impl Scene {
                         TerrainSidebarPanel(TerrainSidebarPage::Sculpt)
                         Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(5), flex_shrink: 0.0 }
                         Children [
-                            @help_header("雕刻工具", "先选中高度网格和雕刻工具，再点击视口左侧“编辑”图标后左键连续雕刻；选择模式只预备工具。平滑降低局部高差，平坦区域不改变高度；压平以起笔高度为目标。四种工具共用雕刻速度，平滑和压平到达目标后停止，不越过目标。原始GLB保留资产几何。半径、强度和雕刻速度在视口工具条调整。数值左拖实时修改，中键精确输入，右拖只调整本字段灵敏度。")--
+                            @help_header("雕刻工具", "先选中高度地形和雕刻工具，再点击视口左侧“编辑”图标后左键连续雕刻；选择模式只预备工具。平滑降低局部高差，平坦区域不改变高度；压平以起笔高度为目标。四种工具共用雕刻速度，平滑和压平到达目标后停止，不越过目标。原始GLB保留资产几何。半径、强度和雕刻速度在视口工具条调整。数值左拖实时修改，中键精确输入，右拖只调整本字段灵敏度。")--
 
                                 Node { width: percent(100), column_gap: px(4), flex_shrink: 0.0 }
                                 Children [

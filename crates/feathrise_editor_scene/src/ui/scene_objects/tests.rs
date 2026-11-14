@@ -542,6 +542,11 @@ fn following_group_app(count: usize, group: &str) -> (App, Vec<Entity>) {
         .add_observer(crate::ui::placement_water::unregister_placement_instance_root);
     let (map, records) = {
         let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+        let terrain = crate::authoring::test_support::test_clipmap_draft(Arc::new(vec![2;121]), session.terrain_revision);
+        let draft = session.draft.as_mut().unwrap();
+        draft.manifest.terrain = terrain.manifest.terrain;
+        draft.manifest.terrains = terrain.manifest.terrains;
+        draft.terrain_ground = terrain.terrain_ground; // 贴地专用夹具使用已采用Clipmap真实三角面，不借GLB内存字段冒充来源。
         for (index, record) in session.draft.as_mut().unwrap().placements.placements.iter_mut().enumerate() {
             record.height_mode = ScenePlacementHeightMode::FollowTerrain;
             record.terrain_offset = 1.0 + index as f32 * 0.001;
@@ -563,9 +568,22 @@ fn following_group_app(count: usize, group: &str) -> (App, Vec<Entity>) {
     (app, roots)
 }
 
+/// 只推进正式后台贴地的一批采用，保留130项测试中128+2的真实边界，不执行对象管理帧。
+fn follow_one_batch(app: &mut App) {
+    use bevy::ecs::system::RunSystemOnce;
+    let expected = app.world().resource::<EditorAuthoringSession>().placement_derived_pose_revision.wrapping_add(1);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        app.world_mut().run_system_once(crate::authoring::reconcile_following_placements).unwrap();
+        let revision = app.world().resource::<EditorAuthoringSession>().placement_derived_pose_revision;
+        if revision == expected { break; }
+        assert!(std::time::Instant::now() < deadline, "真实贴地worker未按批次采用");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
 #[test]
 fn select_group_rejects_cached_world_anchors_after_real_derived_follow_between_capture_frames() {
-    use bevy::ecs::system::RunSystemOnce;
     use crate::viewport::multi_select::SelectedMember;
 
     // 130项迫使真实SelectGroup跨越128项预算；旧选集保持一项，便于证明失败没有发布新组。
@@ -600,8 +618,8 @@ fn select_group_rejects_cached_world_anchors_after_real_derived_follow_between_c
         assert!(pending.selected.iter().all(|member| member.position.y == 4.0));
     }
 
-    // 不手改Y或修订；同一高度场的迟到派生结果由正式入口分两次采用，各次仍不超过128项。
-    app.world_mut().run_system_once(crate::authoring::reconcile_following_placements).unwrap();
+    // 不手改Y或修订；同一高度地形的迟到派生结果由正式后台分两次采用，各次仍不超过128项。
+    follow_one_batch(&mut app);
     {
         let session = app.world().resource::<EditorAuthoringSession>();
         let current = &session.draft.as_ref().unwrap().placements.placements;
@@ -609,7 +627,7 @@ fn select_group_rejects_cached_world_anchors_after_real_derived_follow_between_c
         assert_eq!(session.placement_derived_pose_revision, derived_revision.wrapping_add(1));
         assert_eq!((session.revision, session.placement_structure_revision, session.terrain_revision), revisions);
     }
-    app.world_mut().run_system_once(crate::authoring::reconcile_following_placements).unwrap();
+    follow_one_batch(&mut app);
     let derived = {
         let session = app.world().resource::<EditorAuthoringSession>();
         assert_eq!(session.placement_derived_pose_revision, derived_revision.wrapping_add(2));
@@ -690,8 +708,6 @@ fn select_group_rejects_independent_terrain_revision_between_production_capture_
 
 #[test]
 fn group_metadata_completes_one_reversible_history_after_real_derived_follow_between_capture_frames() {
-    use bevy::ecs::system::RunSystemOnce;
-
     let (mut app, roots) = following_group_app(130, "贴地元数据组");
     let (author_revision, structure_revision, terrain_revision, derived_revision) = {
         let session = app.world().resource::<EditorAuthoringSession>();
@@ -711,8 +727,8 @@ fn group_metadata_completes_one_reversible_history_after_real_derived_follow_bet
         assert_eq!(pending.changes.len(), 128);
     }
     // 同一批真实派生采用会使选组过期，但锁定只捕获元数据Arc，应继续提交且保留新姿态。
-    app.world_mut().run_system_once(crate::authoring::reconcile_following_placements).unwrap();
-    app.world_mut().run_system_once(crate::authoring::reconcile_following_placements).unwrap();
+    follow_one_batch(&mut app);
+    follow_one_batch(&mut app);
     let derived = {
         let session = app.world().resource::<EditorAuthoringSession>();
         assert_eq!(session.placement_derived_pose_revision, derived_revision.wrapping_add(2));

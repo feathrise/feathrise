@@ -39,10 +39,9 @@ fn unified_creation_real_sources_and_modes_show_only_applicable_fields_without_s
     let (mut app, window) = form(Action::Cuboid, Action::PlacementViewport);
     for (source, field, hidden) in [
         (Action::Cuboid, Field::CuboidCreation(0), Field::Creation(3)),
-        (Action::Glb, Field::Creation(4), Field::CuboidCreation(0)),
         (Action::Clipmap, Field::Creation(7), Field::Creation(4)),
         (Action::Voxel, Field::Creation(4), Field::CuboidCreation(0)),
-        (Action::ImportGlb, Field::Creation(3), Field::Creation(7)),
+        (Action::ImportGlb, Field::Creation(6), Field::Creation(7)),
     ] {
         let button = action(&mut app, source);
         click(&mut app, window, button, MouseButton::Left);
@@ -73,7 +72,7 @@ fn clipmap_ignores_hidden_height_memory_for_validation_and_viewport_intent_ident
         app.world_mut().resource_mut::<TerrainObjectsEditorState>().creation[4] = old_height;
         app.update();
         assert!(!displayed(&mut app, Field::Creation(4)));
-        assert!(feedback(&mut app).contains("Clipmap：可创建"));
+        assert!(feedback(&mut app).contains("高度地形：可创建"));
         let state = app.world().resource::<TerrainObjectsEditorState>();
         assert!(creation::validate_selected(state).is_ok());
         assert_eq!(creation::normalized(SceneTerrainKind::SparseClipmap, state.creation)[4], 16.0);
@@ -90,7 +89,7 @@ fn clipmap_ignores_hidden_height_memory_for_validation_and_viewport_intent_ident
 #[test]
 fn creation_numeric_late_commit_cannot_follow_source_or_placement_purpose() {
     for switch in [Action::Voxel, Action::PlacementViewport] {
-        let (mut app, window) = form(Action::Glb, Action::PlacementCoordinates);
+        let (mut app, window) = form(Action::Clipmap, Action::PlacementCoordinates);
         let input = field(&mut app, Field::Creation(0));
         let old = app.world().resource::<TerrainObjectsEditorState>().creation[0];
         click(&mut app, window, input, MouseButton::Middle);
@@ -106,7 +105,7 @@ fn creation_numeric_late_commit_cannot_follow_source_or_placement_purpose() {
 #[test]
 fn real_start_release_arms_terrain_point_placement_while_hovering_controls_then_cancel_keeps_history_empty() {
     for cancel_with_escape in [false, true] {
-        let (mut app, window) = form(Action::Glb, Action::PlacementViewport);
+        let (mut app, window) = form(Action::Clipmap, Action::PlacementViewport);
         app.world_mut().resource_mut::<ViewportModeState>().pointer_over_controls = true;
         let start = action(&mut app, Action::StartCreation);
         point_at(&mut app, window, start);
@@ -135,7 +134,7 @@ fn real_start_release_arms_terrain_point_placement_while_hovering_controls_then_
 #[test]
 fn terrain_point_placement_rejects_changed_author_modal_document_tool_and_window_contexts() {
     for case in 0..6 {
-        let (mut app, window) = form(Action::Glb, Action::PlacementViewport);
+        let (mut app, window) = form(Action::Clipmap, Action::PlacementViewport);
         let start = action(&mut app, Action::StartCreation);
         click(&mut app, window, start, MouseButton::Left);
         assert!(app.world().resource::<TerrainObjectsEditorState>().point_placement.is_some());

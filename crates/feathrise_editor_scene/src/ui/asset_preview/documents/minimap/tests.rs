@@ -250,10 +250,26 @@ fn minimap_real_pointer_click_and_drag_use_centered_coordinates_at_all_scales() 
         input::touch::Touches,
         ui::{FocusPolicy, UiStack, ui_focus_system, update::propagate_ui_target_cameras},
     };
+    fn move_pointer(app: &mut App, window: Entity, point: Vec2) {
+        app.world_mut().get_mut::<Window>(window).unwrap().set_cursor_position(Some(point));
+        app.world_mut().write_message(bevy::window::WindowEvent::CursorMoved(bevy::window::CursorMoved {
+            window, position: point, delta: None,
+        }));
+    }
+    fn pointer_button(app: &mut App, window: Entity, state: bevy::input::ButtonState) {
+        app.world_mut().write_message(bevy::window::WindowEvent::MouseButtonInput(bevy::input::mouse::MouseButtonInput {
+            button: MouseButton::Left, state, window,
+        }));
+    }
     for scale in [1.0, 1.1, 2.0] {
         let (mut app, source, rail, window) = fixture();
         app.insert_resource(UiScale(scale))
             .init_resource::<Touches>()
+            .add_message::<bevy::window::WindowEvent>()
+            .add_message::<bevy::input::touch::TouchInput>()
+            .add_plugins((bevy::picking::input::PointerInputPlugin, bevy::picking::PickingPlugin,
+                bevy::picking::InteractionPlugin, bevy::ui::picking_backend::UiPickingPlugin,
+                feathrise_editor_ui::UiInteractionPlugin))
             .add_plugins(HierarchyPropagatePlugin::<ComputedUiTargetCamera>::new(PostUpdate))
             .add_systems(Update, propagate_ui_target_cameras);
         let camera = app.world_mut().spawn((Camera2d, Camera {
@@ -280,25 +296,27 @@ fn minimap_real_pointer_click_and_drag_use_centered_coordinates_at_all_scales() 
         app.update(); // 先采用正式相机传播，再由真实命中系统计算坐标；不手工注入normalized。
         app.add_systems(Update, control::handle_input);
         let selection = app.world().get::<EditableText>(source).unwrap().editor.raw_selection().text_range();
-        app.world_mut().get_mut::<Window>(window).unwrap().set_cursor_position(Some(center));
+        move_pointer(&mut app, window, center);
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        pointer_button(&mut app, window, bevy::input::ButtonState::Pressed);
         app.world_mut().run_system_once(ui_focus_system).unwrap();
+        // 旧focus只提供真实归一化坐标；三态须由正式现代拾取和共享投影生成。
+        app.update();
         assert_eq!(*app.world().get::<UiInteraction>(rail).unwrap(), UiInteraction::Pressed);
         assert_eq!(app.world().get::<RelativeCursorPosition>(rail).unwrap().normalized, Some(Vec2::ZERO));
-        app.update();
         assert!((app.world().get::<EditableText>(source).unwrap().viewport.offset.y - 2_850.0 * scale).abs() < 1.0,
             "真实轨道中心点击应导航到全文中间，UI倍率={scale}");
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
         // 持续按住左键，从中心往上拖到四分之一位置，再越界到全文首尾。
         for (relative_y, expected) in [(-150.0, 1_350.0), (-320.0, 0.0), (320.0, 5_700.0)] {
-            app.world_mut().get_mut::<Window>(window).unwrap()
-                .set_cursor_position(Some(center + Vec2::new(0.0, relative_y * scale)));
+            move_pointer(&mut app, window, center + Vec2::new(0.0, relative_y * scale));
             app.world_mut().run_system_once(ui_focus_system).unwrap();
             app.update();
             assert!((app.world().get::<EditableText>(source).unwrap().viewport.offset.y - expected * scale).abs() < 1.0,
                 "真实拖动位置必须与全文视区一致，位置={relative_y}，UI倍率={scale}");
         }
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+        pointer_button(&mut app, window, bevy::input::ButtonState::Released);
         app.world_mut().run_system_once(ui_focus_system).unwrap();
         app.update();
         assert!(app.world().resource::<DocumentMinimapState>().drag.is_none());

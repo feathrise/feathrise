@@ -9,7 +9,7 @@ use bevy::tasks::futures::check_ready; // 主线程只非阻塞轮询单任务�
 use feathrise_scene_content::{
     BUILDING_PRESET_CATALOG_ASSET_PATH, BUILDING_PRESET_SCHEMA_VERSION, BuildingPresetCatalogAsset,
     BuildingPresetDescriptor, BuildingPresetRegistry, SCENE_CATALOG_ASSET_PATH, SCENE_SCHEMA_VERSION,
-    SceneCatalogAsset, ScenePlacementsAsset, ResolvedBuildingPresetCatalog,
+    SceneCatalogAsset, ResolvedBuildingPresetCatalog,
 }; // 目录与场景引用统一复用公共严格格式。
 
 use super::types::{
@@ -245,7 +245,7 @@ fn scan_scene_references(
         let path = safe_asset_path(root, &relative)?; // 每条仍拒绝目录逃逸。
         let bytes = std::fs::read(&path)
             .map_err(|error| format!("读取场景{}摆放文件失败：{error}", entry.id))?;
-        let placements: ScenePlacementsAsset = serde_json::from_slice(&bytes)
+        let placements = feathrise_scene_content::read_scene_placements(&bytes, &relative)
             .map_err(|error| format!("解析场景{}摆放文件失败：{error}", entry.id))?;
         if placements.schema_version != SCENE_SCHEMA_VERSION || placements.scene_id != entry.id {
             return Err(format!(

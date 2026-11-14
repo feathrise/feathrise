@@ -56,7 +56,7 @@ pub(crate) fn poll_scene_document_history(
     mut session: ResMut<EditorAuthoringSession>,
     scenes: Option<Res<feathrise_scene::ResidentScenes>>,
 ) {
-    if session.water_preset_delete_pending { return; }
+    if session.water_preset_delete_pending || session.model_vegetation_busy { return; }
     if let Some(task) = documents.cleanup_history.as_mut() && let Some((mut undo, mut redo)) = check_ready(task) {
         documents.cleanup_history = None;
         undo.append(&mut session.undo); redo.append(&mut session.redo);
@@ -145,7 +145,7 @@ pub(crate) fn handle_scene_document_buttons(
     settings: Res<crate::resources::SceneEditorSettingsState>,
     numeric: Res<crate::resources::SceneEditorNumericScrubMouseGuard>,
 ) {
-    if session.water_preset_delete_pending { return; } // 不移动已受检的停放文档；预检取消仍由删除按钮单独处理。
+    if session.water_preset_delete_pending || session.model_vegetation_busy { return; } // 不在整笔后台采用前移动源文档。
     if !editor.open
         || editor.scene_transition_in_progress
         || editor.pending_scene_transition.is_some()
@@ -267,7 +267,7 @@ pub(crate) fn finish_scene_document_close(
     mut workspace: ResMut<VegetationPresetEditorState>,
     mut next_scene: ResMut<NextState<feathrise_scene_core::state::ScenePhase>>,
 ) {
-    if session.water_preset_delete_pending { return; }
+    if session.water_preset_delete_pending || session.model_vegetation_busy { return; }
     let Some(map) = state
         .documents
         .as_ref()

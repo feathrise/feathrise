@@ -4,6 +4,7 @@ use super::{BLADE_SOURCE, capture, pointer, resources::TerrainWorkflow, types::*
 use crate::{
     authoring::{
         EditorAuthoringSession, SurfaceBrushStroke, TerrainBrushStroke, VegetationBrushStroke,
+        sparse_terrain::SparseTerrainAuthoringState,
         terrain_documents::{self, TerrainDocumentTask},
     },
     components::SceneEditorActionButton,
@@ -53,13 +54,15 @@ pub(super) fn advance(world: &mut World, state: &mut TerrainWorkflow) -> Result<
     if state.clock.start.elapsed() > Duration::from_secs(240) {
         let preview_ready = capture::ready(world, state);
         return Err(format!(
-            "原地形工具验收超时：{:?}/{:?}；{}；undo={}/{}；preview={}",
+            "原地形工具验收超时：{:?}/{:?}；{}；undo={}/{}；preview={}；首末刷印={:?}/{:?}",
             state.domain,
             state.phase,
             world.resource::<SceneEditorState>().status,
             world.resource::<EditorAuthoringSession>().undo.len(),
             state.undo_before,
-            preview_ready
+            preview_ready,
+            state.first,
+            state.last,
         ));
     }
     if world
@@ -240,13 +243,19 @@ pub(super) fn advance(world: &mut World, state: &mut TerrainWorkflow) -> Result<
             }
         }
         Phase::Paint => {
+            // 持续按压中提前形成历史说明原笔已被取消；立即保留失败原因，不能空等后再冒充完整拖动。
+            if world.resource::<EditorAuthoringSession>().undo.len() != state.undo_before {
+                return Err(format!(
+                    "{:?}持续按压时原笔提前收口；{}；首末刷印={:?}/{:?}",
+                    state.domain,
+                    world.resource::<SceneEditorState>().status,
+                    state.first,
+                    state.last,
+                ));
+            }
             let point = match state.domain {
-                Domain::Height => {
-                    let session = world.resource::<EditorAuthoringSession>();
-                    (session.undo.len() == state.undo_before + 1)
-                        .then_some(world.resource::<SceneEditorState>().brush_cursor_world)
-                        .flatten()
-                }
+                // 局部页先采用，松手后才形成整笔历史。移到下一点时只认已正式发布的非空刷印。
+                Domain::Height => world.resource::<SparseTerrainAuthoringState>().validation_applied_sculpt_point(),
                 Domain::Surface => {
                     let stroke = world.resource::<SurfaceBrushStroke>();
                     (stroke.active
@@ -271,7 +280,7 @@ pub(super) fn advance(world: &mut World, state: &mut TerrainWorkflow) -> Result<
             if state
                 .first
                 .zip(state.last)
-                .is_some_and(|(a, b)| a.distance(b) > 1.)
+                .is_some_and(|(a, b)| a.xz().distance(b.xz()) > 1.)
                 && state.clock.phase.elapsed() > Duration::from_millis(650)
             {
                 state.advance(Phase::Release);
@@ -281,6 +290,8 @@ pub(super) fn advance(world: &mut World, state: &mut TerrainWorkflow) -> Result<
             if state.mouse_owned
                 || world.resource::<TerrainObjectsEditorState>().busy()
                 || world.resource::<TerrainBrushStroke>().active
+                || (state.domain == Domain::Height
+                    && !world.resource::<SparseTerrainAuthoringState>().document_can_park())
                 || world.resource::<SurfaceBrushStroke>().active
                 || world.resource::<VegetationBrushStroke>().active
                 || world
@@ -448,11 +459,6 @@ fn hash_phase(world: &mut World, state: &mut TerrainWorkflow) -> Result<(), Stri
         Phase::After => {
             if state.before.as_ref().unwrap().sha256 == proof.sha256 || proof.nonzero_samples == 0 {
                 return Err(format!("{:?}原笔划没有非空真实作者修改", state.domain));
-            }
-            if state.domain == Domain::Height {
-                state.changed_samples = proof
-                    .nonzero_samples
-                    .saturating_sub(state.before.as_ref().unwrap().nonzero_samples);
             }
             state.after = Some(proof);
             state.advance(Phase::Undo);

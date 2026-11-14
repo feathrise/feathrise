@@ -13,7 +13,6 @@ pub(crate) enum CreationSource {
     #[default]
     Cuboid,
     ImportedGlb,
-    Heightfield,
     Clipmap,
     Voxel,
 }
@@ -22,7 +21,6 @@ impl CreationSource {
         Some(match self {
             Self::Cuboid => return None,
             Self::ImportedGlb => SceneTerrainKind::Gltf,
-            Self::Heightfield => SceneTerrainKind::Heightfield,
             Self::Clipmap => SceneTerrainKind::SparseClipmap,
             Self::Voxel => SceneTerrainKind::Voxel,
         })
@@ -84,9 +82,6 @@ pub(crate) enum Mutation {
         crate::authoring::terrain_editing::NativeFieldInput,
     ),
     Transform(TerrainId, TerrainObjectTransform),
-    /// 只调整可雕刻高度域；冻结当前作者网格，后台不得以磁盘源覆盖未保存顶点。
-    HeightDomain(TerrainId, f32, Arc<feathrise_terrain::TerrainMeshInput>),
-    ImportGlb(String),
     Add(SceneTerrainKind),
     Remove(TerrainId),
     Value(TerrainId, usize, f32, bool),

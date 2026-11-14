@@ -43,6 +43,7 @@ pub(crate) fn input(
     if !request.target.current(&editor, &session)
         || !request.target.allows(request.action)
         || state.busy()
+        || session.model_vegetation_busy
         || !context.batch_available(&editor)
         || movement.owns_mouse()
         || selection.owns_mouse()
@@ -62,6 +63,7 @@ pub(crate) fn input(
     };
     state.ticket = state.ticket.wrapping_add(1);
     state.capture = Some(Capture {
+        model_vegetation: crate::authoring::model_vegetation::root_targets(draft),
         identity: BatchIdentity::from_session(&session, content(&env, &session)).unwrap(),
         action,
         records: Vec::with_capacity(1),

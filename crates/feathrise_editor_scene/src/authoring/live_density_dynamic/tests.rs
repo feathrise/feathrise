@@ -29,6 +29,7 @@ fn setup() -> (App, SceneId) {
         seed: 1,                        // 固定随机身份。
     };
     draft.vegetation = Some(SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: SCENE_SCHEMA_VERSION, // 当前格式。
         scene_id: scene_id.clone(),             // 与清单一致。
         layers: vec![layer],                // 首个草层。
@@ -236,6 +237,7 @@ fn three_formal_mesh_presets_publish_for_clipmap_without_dense_height() {
             layer.resolution = [2, 2];
             output_id = layer.id.clone();
             draft.vegetation = Some(SceneVegetationAsset {
+                model_surfaces: Vec::new().into(),
                 schema_version: SCENE_SCHEMA_VERSION,
                 scene_id: scene_id.clone(),
                 layers: vec![layer],
@@ -484,6 +486,7 @@ fn clipmap_brush_erase_compile_and_closed_editor_publish_same_density() {
             layer.resolution = [2, 2]; // 只缩小测试画布，不改变稳定ID、渲染类别、预设引用和散布参数。
             output_id = layer.id.clone(); // 冻结真实输出身份。
             draft.vegetation = Some(SceneVegetationAsset {
+                model_surfaces: Vec::new().into(),
                 schema_version: SCENE_SCHEMA_VERSION,
                 scene_id: scene_id.clone(),
                 layers: vec![layer],

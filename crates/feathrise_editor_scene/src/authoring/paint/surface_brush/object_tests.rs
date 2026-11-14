@@ -446,13 +446,16 @@ fn explicit_surface_waiting_press_cancels_after_release_or_any_author_target_cha
             9 => {
                 let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
                 let old = snapshot.as_ref().unwrap();
-                let mut replacement = TerrainGroundSnapshot::test_mesh(
+                let pose = TerrainObjectTransform::default();
+                let replacement = TerrainGroundSnapshot::test_queries(
                     old.scene_id.clone(),
-                    target.clone().unwrap(),
-                    TerrainObjectTransform::default(),
-                    avian3d::prelude::Collider::cuboid(64.0, 1.0, 64.0),
+                    old.generation + 1,
+                    [(target.clone().unwrap(), pose,
+                        feathrise_scene::TerrainObjectRaySnapshot::Mesh(
+                            avian3d::prelude::Collider::cuboid(64.0, 1.0, 64.0),
+                            feathrise_scene_core::residency::SceneSourceFrame::from_transform(pose.as_transform())),
+                        [1; 32])],
                 );
-                Arc::get_mut(&mut replacement).unwrap().generation = old.generation + 1;
                 session.draft.as_mut().unwrap().terrain_ground = Some(replacement);
             }
             _ => app
@@ -690,4 +693,153 @@ fn object_cursor_moving_hover_keeps_a_display_point_without_granting_brush_or_cl
     assert!(app.world().resource::<SceneEditorState>().ground_click_world.is_none());
     assert!(app.world().resource::<TerrainGroundCursor>().paint_hit().is_none());
     assert!(!app.world().resource::<SurfaceBrushStroke>().active);
+}
+
+#[test]
+fn explicit_surface_continuous_drag_survives_unrelated_snapshot_adoption_as_one_history() {
+    use feathrise_scene::TerrainObjectRaySnapshot;
+    use feathrise_scene_core::residency::SceneSourceFrame;
+    let mut app = fixture();
+    dense_surface(&mut app);
+    begin_drag(&mut app);
+    let start = app.world().resource::<SurfaceBrushStroke>().last_world.unwrap();
+    let (map, id, pose, query) = {
+        let draft = app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap();
+        let active = &draft.terrain_documents.active.as_ref().unwrap().definition;
+        (draft.scene_id.clone(), active.id.clone(), active.transform,
+            draft.terrain_ground.as_ref().unwrap().object_query(&active.id).unwrap())
+    };
+    let sibling_pose = TerrainObjectTransform { translation: [70., 10., 40.], ..default() };
+    let adopted = TerrainGroundSnapshot::test_queries(map, 10, [
+        (id, pose, query, [0; 32]),
+        (TerrainId::parse("unrelated-surface").unwrap(), sibling_pose,
+            TerrainObjectRaySnapshot::Mesh(avian3d::prelude::Collider::cuboid(2., 1., 2.),
+                SceneSourceFrame::from_transform(sibling_pose.as_transform())), [8; 32]),
+    ]);
+    app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap().terrain_ground = Some(adopted);
+    move_pointer(&mut app, 0.25);
+    until(&mut app, |app| app.world().resource::<SurfaceBrushStroke>().last_world
+        .is_some_and(|point| point.xz().distance(start.xz()) > 1.));
+    assert!(app.world().resource::<SurfaceBrushStroke>().active);
+    assert!(app.world().resource::<EditorAuthoringSession>().undo.is_empty(),
+        "整场Arc换代不能提前收口原按住笔划");
+    app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+    until(&mut app, |app| !app.world().resource::<SurfaceBrushStroke>().active);
+    assert_eq!(app.world().resource::<EditorAuthoringSession>().undo.len(), 1);
+}
+
+fn surface_slope_fixture() -> (App, feathrise_scene_content::SceneId, TerrainId, Vec3) {
+    let mut app = fixture();
+    let map = app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap().scene_id.clone();
+    let ground = feathrise_scene::runtime_test_support::clipmap_height_query_fixture(map.clone(), 0);
+    let feathrise_scene::ClipmapGroundHit::Hit(center) = ground.sample_authoritative_surface(Vec2::new(22., 12.))
+        else { panic!("自有真实坡面必须有同代作者页"); };
+    assert!(center.y > 5.);
+    let id = {
+        let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+        let draft = session.draft.as_mut().unwrap();
+        let mut object = (*draft.terrain_documents.active.as_ref().unwrap().definition).clone();
+        object.world_min = [0.; 2]; object.world_max = [96., 64.];
+        draft.manifest.terrains = Some(Arc::from([object.clone()]));
+        let manifest = object.source_manifest(&draft.manifest);
+        let active = draft.terrain_documents.active.as_mut().unwrap();
+        active.definition = Arc::new(object.clone()); active.manifest = manifest;
+        draft.surface.as_mut().unwrap().resolution = [97, 65];
+        draft.surface_weights = Some(Arc::new(vec![0; 97 * 65 * 4]));
+        draft.surface_indices = Some(Arc::new(vec![0; 97 * 65 * 16]));
+        object.id
+    };
+    app.world_mut().resource_mut::<SceneEditorViewportState>().center = center;
+    (app, map, id, center)
+}
+
+fn install_surface_slope(app: &mut App, ground: feathrise_scene::ClipmapGroundSnapshot,
+    generation: u64, geometry: u8, blocker: Option<feathrise_scene::TerrainObjectRaySnapshot>) {
+    use feathrise_scene::TerrainObjectRaySnapshot;
+    use feathrise_scene_core::residency::SceneSourceFrame;
+    let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+    let draft = session.draft.as_mut().unwrap();
+    let object = &draft.terrain_documents.active.as_ref().unwrap().definition;
+    let mut sources = vec![(object.id.clone(), object.transform,
+        TerrainObjectRaySnapshot::Clipmap(ground, SceneSourceFrame::from_transform(object.transform.as_transform())), [geometry; 32])];
+    if let Some(query) = blocker {
+        let frame = match &query { TerrainObjectRaySnapshot::Mesh(_, frame) | TerrainObjectRaySnapshot::Clipmap(_, frame) => frame };
+        let pose = TerrainObjectTransform { translation: frame.source_to_world.w_axis.truncate().to_array(), ..default() };
+        sources.push((TerrainId::parse("surface-blocker").unwrap(), pose, query, [9; 32]));
+    }
+    draft.terrain_ground = Some(TerrainGroundSnapshot::test_queries(draft.scene_id.clone(), generation, sources));
+}
+
+fn begin_cold_surface(app: &mut App, map: feathrise_scene_content::SceneId) -> feathrise_scene::ClipmapGroundSnapshot {
+    let (cold, adopt) = feathrise_scene::runtime_test_support::cold_clipmap_height_query_fixture(map, 0);
+    let old_revision = cold.authoritative_page_revision();
+    install_surface_slope(app, cold, 1, 1, None);
+    until(app, |app| app.world().resource::<SceneEditorState>().brush_cursor_world.is_some()
+        && !cursor_running_for_tests(app.world()));
+    app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+    step(app);
+    until(app, |app| !cursor_running_for_tests(app.world()));
+    assert!(!app.world().resource::<SurfaceBrushStroke>().active);
+    assert!(app.world().resource::<TerrainGroundCursor>().paint_hit().is_none());
+    assert!(pixels(app).0.iter().all(|value| *value == 0));
+    let adopted = adopt(); // 页需求必须来自原光标的真实作者精度查询。
+    assert!(adopted.authoritative_page_revision() > old_revision);
+    adopted
+}
+
+#[test]
+fn explicit_surface_cold_press_survives_author_page_adoption_and_continuous_drag() {
+    let (mut app, map, _, center) = surface_slope_fixture();
+    let adopted = begin_cold_surface(&mut app, map);
+    let epoch = app.world().resource::<TerrainGroundCursor>().ray.unwrap().epoch;
+    install_surface_slope(&mut app, adopted, 2, 1, None);
+    until(&mut app, |app| app.world().resource::<SurfaceBrushStroke>().active
+        && !app.world().resource::<SurfaceBrushStroke>().before_weights.is_empty());
+    assert!(app.world().resource::<SurfaceBrushStroke>().last_world
+        .is_some_and(|point| point.distance(center) < 0.01));
+    assert_eq!(app.world().resource::<TerrainGroundCursor>().ray.unwrap().epoch, epoch);
+    move_pointer(&mut app, 0.12);
+    until(&mut app, |app| app.world().resource::<SurfaceBrushStroke>().last_world
+        .is_some_and(|point| point.xz().distance(center.xz()) > 1.));
+    assert!(app.world().resource::<EditorAuthoringSession>().undo.is_empty());
+    app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+    until(&mut app, |app| !app.world().resource::<SurfaceBrushStroke>().active);
+    assert_eq!(app.world().resource::<EditorAuthoringSession>().undo.len(), 1);
+}
+
+#[test]
+fn explicit_surface_cold_press_rejects_changed_target_new_occluder_and_unknown_occluder_pages() {
+    use feathrise_scene::{ClipmapGroundHit, TerrainObjectRaySnapshot};
+    use feathrise_scene_core::residency::SceneSourceFrame;
+    for variant in 0..3 {
+        let (mut app, map, _, _) = surface_slope_fixture();
+        let adopted = begin_cold_surface(&mut app, map.clone());
+        let ray = app.world().resource::<TerrainGroundCursor>().ray.unwrap();
+        let blocker = match variant {
+            0 => None,
+            1 => {
+                let visible = adopted.ray_surface(ray.origin, ray.direction, 1_000_000.).unwrap().0;
+                Some(TerrainObjectRaySnapshot::Mesh(avian3d::prelude::Collider::cuboid(4., 1., 4.),
+                    SceneSourceFrame::from_transform(Transform::from_translation(ray.origin.lerp(visible, 0.5)))))
+            }
+            _ => {
+                let mut unknown = feathrise_scene::runtime_test_support::clipmap_height_query_fixture(map, 0);
+                unknown.ready = false; // 故障夹具保留真实范围但尚无可查询显示页，不能视作没有遮挡。
+                Some(TerrainObjectRaySnapshot::Clipmap(unknown,
+                    SceneSourceFrame::from_transform(Transform::from_xyz(0., 20., 0.))))
+            }
+        };
+        install_surface_slope(&mut app, adopted, 2, if variant == 0 { 2 } else { 1 }, blocker);
+        if variant == 2 {
+            let draft = app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap();
+            assert!(matches!(draft.terrain_ground.as_ref().unwrap()
+                .ray_visible_checked(ray.origin, ray.direction, &Default::default()), Err(ClipmapGroundHit::WaitingForHeight)));
+        }
+        step(&mut app);
+        until(&mut app, |app| !cursor_running_for_tests(app.world()));
+        for _ in 0..4 { step(&mut app); }
+        assert!(!app.world().resource::<SurfaceBrushStroke>().active, "case {variant}");
+        assert!(pixels(&app).0.iter().all(|value| *value == 0), "case {variant}");
+        assert!(app.world().resource::<EditorAuthoringSession>().undo.is_empty(), "case {variant}");
+    }
 }

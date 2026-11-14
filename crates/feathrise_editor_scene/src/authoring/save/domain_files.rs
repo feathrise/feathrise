@@ -20,10 +20,8 @@ impl DraftSourceSaveGuard {
     pub(super) fn prepare(root: &Path, draft: &EditorSceneDraft) -> Result<Self, String> {
         let mut guard = Self::default(); // 各可选内容域共享同一个正式替换前守卫。
         let root_water = crate::authoring::terrain_documents::root_water::source(draft);
-        let root_vegetation_hash = draft
-            .vegetation_registration_source_hash
-            .as_ref()
-            .filter(|_| draft.manifest.terrains.is_none()); // 容器活动槽的植被属于私有网格，不能核验另一份根文件。
+        let root_vegetation_hash = crate::authoring::terrain_documents::root_vegetation::source(draft)
+            .and_then(|source| source.registration_source_hash); // 根槽停放时仍核验真正根文件。
         if let Some(expected) = root_vegetation_hash {
             // 旧Clipmap首次显式保存才增加源冲突检查。
             let path = root

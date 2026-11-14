@@ -122,14 +122,6 @@ pub(super) fn poll(
                 return Ok(false);
             }
         }
-        if world
-            .get_resource::<authoring::TerrainLiveApplyState>()
-            .is_some_and(|state| {
-                state.file_handoff_pending_for(&draft.scene_id, session.terrain_revision)
-            })
-        {
-            return Ok(false);
-        }
     }
     Ok(true)
 }

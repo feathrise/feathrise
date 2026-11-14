@@ -187,7 +187,7 @@ pub(super) fn manifest(id: &str, name: &str) -> SceneManifestAsset {
         puddles: None,
         asset_roots: vec![],
         terrain: SceneTerrainDescriptor {resolved_stitches: Default::default(),
-            kind: SceneTerrainKind::Heightfield,
+            kind: SceneTerrainKind::Gltf,
             glb_path: "scenes/fixture/terrain.glb".into(),
             resolution: [11; 2],
             base_height: 0.0,

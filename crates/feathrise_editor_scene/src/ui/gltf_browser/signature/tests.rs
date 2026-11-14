@@ -122,6 +122,7 @@ fn primitive_target_never_restores_scene_expansion_or_asset_demand() {
         mesh: 6,
         primitive: 0,
         material: Some(2),
+        collision: false,
     };
     let expanded = BTreeSet::from([primitive.id.clone()]); // 模拟该ID上一代曾经还是展开的Scene0。
     let mut build = BrowserSignatureBuild::new(BrowserSessionObservation {
@@ -142,6 +143,7 @@ fn primitive_target_never_restores_scene_expansion_or_asset_demand() {
             mesh: 6,
             primitive: 0,
             material: Some(2),
+            collision: false,
         },
     ); // 子资产仍进入根和作者下标索引，但绝不为同路径加载完整Scene0树。
 }

@@ -16,7 +16,6 @@ pub(in crate::ui) struct EditorActionAvailability {
     pub(in crate::ui) saving: bool,
     pub(in crate::ui) undo_empty: bool,
     pub(in crate::ui) redo_empty: bool,
-    pub(in crate::ui) terrain_pending: bool,
     pub(in crate::ui) deletion_busy: bool,
     pub(in crate::ui) focus_available: bool,
 }
@@ -93,7 +92,6 @@ impl EditorActionAvailability {
             }
             EditorAction::Undo if self.undo_empty => Some("当前场景没有可撤销操作"),
             EditorAction::Redo if self.redo_empty => Some("当前场景没有可重做操作"),
-            EditorAction::Save if self.terrain_pending => Some("地形高度、法线与碰撞仍在后台生成"),
             EditorAction::ViewPerspective
             | EditorAction::ViewTop
             | EditorAction::ViewFront

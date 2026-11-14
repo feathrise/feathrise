@@ -155,7 +155,7 @@ label.waiting-for-current-scene-data	等待当前场景作者数据	Waiting for 
 label.waiting-for-external-terrain-revision	等待外部地形版本	Waiting for external terrain revision
 label.there-are-unsaved-terrain-changes-choose-which	地形草稿尚未保存，请选择保留哪一版。	There are unsaved terrain changes. Choose which version to keep.
 label.rotate	旋转	Rotate
-help.the-height-range-is-separate-from-plane	高度网格高度域不是平面厚度；Clipmap高度不受此项限制；体素高为初始实心盒高。原始 GLB 使用资产几何。	The height range is separate from plane thickness. Clipmap heights have no such limit. Voxel height is the initial solid box height. The original GLB uses the asset geometry.
+help.the-height-range-is-separate-from-plane	高度地形高度不受初始规格限制；体素地形高为初始实心盒高。网格使用资产几何。	Height terrain is not limited by its initial height. Voxel terrain height is the initial solid box height. Meshes use their asset geometry.
 label.this-scene-has-no-separate-meshes	当前场景暂无独立网格。	This scene has no separate meshes.
 label.name	名称	Name
 label.type	类型	Type
@@ -602,7 +602,7 @@ label.sloped-water	斜坡水	Sloped Water
 label.remove-water	取消水体	Remove Water
 label.delete-source-point	删除源点	Delete Source Point
 label.sculpt-tools	雕刻工具	Sculpt Tools
-help.select-a-height-mesh-and-a-sculpt	先选中高度网格和雕刻工具，再点击视口左侧“编辑”图标后左键连续雕刻；选择模式只预备工具。平滑降低局部高差，平坦区域不改变高度；压平以起笔高度为目标。四种工具共用雕刻速度，平滑和压平到达目标后停止，不越过目标。原始GLB保留资产几何。半径、强度和雕刻速度在视口工具条调整。数值左拖实时修改，中键精确输入，右拖只调整本字段灵敏度。	Select a height mesh and a sculpt tool, then enter viewport Edit mode and hold the left mouse button to sculpt. Select mode only prepares the tool. Smooth reduces local height differences. Flatten targets the height at the start of the stroke. All four tools use the same speed. Smooth and Flatten stop at their target. Original GLB meshes keep their geometry. Adjust radius, strength, and speed in the viewport toolbar. Left-drag numeric fields to preview, middle-click for precise input, or right-drag for sensitivity.
+help.select-a-height-mesh-and-a-sculpt	先选中高度地形和雕刻工具，再点击视口左侧“编辑”图标后左键连续雕刻；选择模式只预备工具。平滑降低局部高差，平坦区域不改变高度；压平以起笔高度为目标。四种工具共用雕刻速度，平滑和压平到达目标后停止，不越过目标。原始GLB保留资产几何。半径、强度和雕刻速度在视口工具条调整。数值左拖实时修改，中键精确输入，右拖只调整本字段灵敏度。	Select height terrain and a sculpt tool, then enter viewport Edit mode and hold the left mouse button to sculpt. Select mode only prepares the tool. Smooth reduces local height differences. Flatten targets the height at the start of the stroke. All four tools use the same speed. Smooth and Flatten stop at their target. Original GLB meshes keep their geometry. Adjust radius, strength, and speed in the viewport toolbar. Left-drag numeric fields to preview, middle-click for precise input, or right-drag for sensitivity.
 label.3d-sculpting-prototype	三维雕刻（原型）	3D Sculpting (Prototype)
 help.clipmaps-and-voxels-support-3d-sculpting-use	Clipmap与体素支持三维塑形。球形造洞穴；方盒做直墙、平底通道；圆柱开井。整平按首个落点高度削高补低。	Clipmaps and voxels support 3D sculpting. Use a sphere for caves, a box for straight walls and flat tunnels, or a cylinder for shafts. Leveling cuts and fills to the height of the first hit.
 label.current-scene	当前场景	Current Scene
@@ -624,6 +624,8 @@ label.original-glb-use-selected-asset	原始 GLB · 使用所选资产	Original 
 label.sculptable-mesh	可塑形网格	Sculptable Mesh
 label.height-mesh	高度网格	Height Mesh
 label.voxel	体素	Voxel
+label.height-terrain	高度地形	Height Terrain
+label.voxel-terrain	体素地形	Voxel Terrain
 label.placement-method	放置方式	Placement Method
 label.click-in-viewport	视口点放	Click in Viewport
 label.enter-coordinates	指定坐标	Enter Coordinates
@@ -1461,8 +1463,8 @@ terrain.wait.saving	正在保存当前场景；等待完整作者事务完成	Sa
 terrain.wait.select_mesh	先在左侧场景树选择网格；空场景可用顶部“网格”创建	Select a mesh in the Scene tree or add one with the Mesh tool.
 terrain.wait.disabled_mesh	所选网格未参与场景、已隐藏或锁定；恢复后才能塑形	To sculpt, select a mesh that is enabled, visible, and unlocked.
 terrain.wait.preparing_mesh	所选网格作者数据或变换正在准备；保留上一完整结果	Preparing the selected mesh. The last complete result is still visible.
-terrain.wait.gltf	原始 GLB 保留资产几何；当前塑形工具适用于高度网格、Clipmap 和体素	Sculpting is available for heightfield, clipmap, and voxel meshes. GLB assets keep their original geometry.
-terrain.wait.volume_mesh	三维雕刻适用于Clipmap和体素网格	Volume sculpting requires a clipmap or voxel mesh.
+terrain.wait.gltf	原始 GLB 保留资产几何；当前塑形工具适用于高度地形和体素地形	Sculpting is available for height terrain and voxel terrain. GLB assets keep their original geometry.
+terrain.wait.volume_mesh	三维雕刻适用于高度地形和体素地形	Volume sculpting requires height terrain or voxel terrain.
 terrain.wait.volume_busy	三维笔划计算/联合碰撞正在进行；松手后可保存或撤销	Processing the volume stroke and collision. Release the mouse to save or undo.
 terrain.wait.surface_error	地表目录加载失败：{error}	Surface preset library failed to load: {error}
 terrain.wait.surface_catalog	等待全局地表预设目录	Waiting for the global surface preset library.

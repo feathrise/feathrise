@@ -421,9 +421,7 @@ pub(crate) enum NewSceneTerrainMode {
     /// 新图只创建容器；地形由后续对象操作独立添加。
     #[default]
     Empty,
-    /// 原始完整 GLB 高度场路线，保留成熟的植被、水域和 Blender 工作流。
-    LegacyHeightfield,
-    /// 稀疏高度块由固定拓扑 Clipmap 显示；当前作为默认实验路线。
+    /// 稀疏高度块由固定拓扑 Clipmap 显示；作为唯一高度地形路线。
     SparseClipmap,
 }
 
@@ -432,7 +430,6 @@ impl NewSceneTerrainMode {
     pub(crate) const fn terrain_kind(self) -> SceneTerrainKind {
         match self {
             Self::Empty => SceneTerrainKind::Empty,
-            Self::LegacyHeightfield => SceneTerrainKind::Heightfield,
             Self::SparseClipmap => SceneTerrainKind::SparseClipmap,
         }
     }
@@ -441,7 +438,6 @@ impl NewSceneTerrainMode {
     pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::Empty => "空白场景",
-            Self::LegacyHeightfield => "原始 GLB（稳定）",
             Self::SparseClipmap => "Geometry Clipmap（实验）",
         }
     }

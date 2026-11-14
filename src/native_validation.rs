@@ -5,6 +5,10 @@ mod author_tools;
 mod boundary;
 #[path = "native_validation_fixture.rs"]
 mod fixture;
+#[path = "native_validation_model_surfaces.rs"]
+mod model_surfaces;
+#[path = "native_validation_geometry.rs"]
+mod geometry;
 #[path = "native_validation_environment.rs"]
 mod environment;
 pub(crate) use environment::isolate_author_command;
@@ -227,6 +231,8 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                     || proof["source_project_root"] != json!(project.root)
                     || proof["source_asset_root"] != json!(project.context.asset_roots[0])
                     || proof["successful_save_sequence"] == proof["original_save_sequence"]
+                    || proof["final_save_sequence_before"].as_u64().is_none()
+                    || proof["successful_save_sequence"] == proof["final_save_sequence_before"]
                 {
                     return Err(format!("原作者真实编辑保存缺少完整成功回执：{proof}"));
                 }
@@ -242,6 +248,8 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                 verify_game_presets(&game, presets)?;
                 verify_scene_tools(root, &game, &proof["scene_tools"])?;
                 author_tools::verify(root, &game, &proof["author_tools"])?;
+                model_surfaces::verify_initial(root,&output,&game,&proof["model_surfaces"])?;
+                geometry::verify_saved(root,&output,&game,&proof["geometry_unification"])?;
                 saved_edit = Some(proof.clone());
                 steps.push(
                     json!({"stage":"saved_game_in_separate_world","passed":true,"report":game}),
@@ -252,18 +260,24 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                     return Err("重开原场景没有采用退出时保存的环境参数".into());
                 }
                 author_tools::verify_reopen(
+                    root,
                     &observed["current_author_document"],
                     &saved_edit.as_ref().ok_or("缺少A保存证据")?["author_tools"],
                     true,
                 )?;
                 verify_placement(&observed, saved_edit.as_ref().ok_or("缺少A保存证据")?)?;
+                model_surfaces::verify_reopen(root,&observed["current_author_document"],true)?;
+                geometry::verify_reopen(root,&observed["current_author_document"],&saved_edit.as_ref().ok_or("缺少A保存证据")?["geometry_unification"],true)?;
                 verify_preset_reopen(
                     &observed["preset_authoring"],
                     saved_presets.as_ref().ok_or("缺少A预设保存证据")?,
                     true,
                 )?;
             } else {
+                model_surfaces::verify_reopen(root,&observed["current_author_document"],false)?;
+                geometry::verify_reopen(root,&observed["current_author_document"],&saved_edit.as_ref().ok_or("缺少A保存证据")?["geometry_unification"],false)?;
                 author_tools::verify_reopen(
+                    root,
                     &observed["current_author_document"],
                     &saved_edit.as_ref().ok_or("缺少A保存证据")?["author_tools"],
                     false,
@@ -325,6 +339,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         verify_placement(&ordinary, proof)?;
         verify_scene_tools(&roots[0], &ordinary, &proof["scene_tools"])?;
         author_tools::verify(&roots[0], &ordinary, &proof["author_tools"])?;
+        model_surfaces::verify_initial(&roots[0], &work.join("editor-1"), &ordinary, &proof["model_surfaces"])?;
         steps.push(json!({"stage":"edited_author_content_in_ordinary_cargo_run","passed":true,"report":ordinary}));
         // 发布后连续链选择保存后F12与同工程导出；额外常驻/原生交接仍由原无开关专项独立证明。
         if export_lifecycle {

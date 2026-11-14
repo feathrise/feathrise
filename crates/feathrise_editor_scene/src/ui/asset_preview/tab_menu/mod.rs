@@ -12,7 +12,7 @@ mod systems;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-pub(super) use tests::{gpu_click_close_all, gpu_click_close_unmodified, gpu_click_save_all, gpu_click_external, gpu_click_copy_path, gpu_assert_external_visibility, gpu_open_menu}; // 正式GPU文档夹具复用实际菜单鼠标命中。
+pub(super) use tests::{gpu_click_close_all, gpu_click_close_unmodified, gpu_click_save_all, gpu_click_external, gpu_click_copy_path, gpu_assert_external_visibility, gpu_open_menu, gpu_pointer_input}; // 正式GPU文档夹具复用实际菜单鼠标命中。
 
 pub(crate) use resources::AssetTabMenuState;
 pub(crate) use system_sets::AssetTabMenuInputSet;

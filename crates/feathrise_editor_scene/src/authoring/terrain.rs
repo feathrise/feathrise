@@ -78,7 +78,7 @@ pub(crate) fn apply_terrain_brush(
         .is_ok_and(RelativeCursorPosition::cursor_over); // 只有中央视口消费左键雕刻。
     let terrain_editable = session.draft.as_ref().is_some_and(|draft| {
         draft.manifest.is_data_driven()
-            && draft.manifest.terrain.kind == SceneTerrainKind::Heightfield
+            && draft.manifest.terrain.kind == SceneTerrainKind::Gltf
             && draft.terrain_mesh.is_some()
             && draft.terrain_editing_index.is_some()
     }); // 动态GLB网格和其拓扑索引必须一起存在。
@@ -252,7 +252,7 @@ fn terrain_preview_identity(session: &EditorAuthoringSession) -> Option<TerrainP
         return None; // 作者槽尚未完整交换时，不把上一槽网格与新来源配对。
     }
     let source = draft.terrain_manifest();
-    if !source.is_data_driven() || source.terrain.kind != SceneTerrainKind::Heightfield {
+    if !source.is_data_driven() || source.terrain.kind != SceneTerrainKind::Gltf {
         return None; // 原资产GLB、Clipmap和体素各用自己的运行后端，不强行生成最高高度包络。
     }
     Some(TerrainPreviewIdentity {
@@ -506,7 +506,7 @@ pub(crate) fn sync_terrain_preview_visibility(
         && session.draft.as_ref().is_some_and(|draft| {
             draft.surface_dirty // 干净草稿、查看和摆放必须直接显示游戏内同一套正式PBR材质。
                 && draft.terrain_mesh.is_some()
-                && draft.manifest.terrain.kind == SceneTerrainKind::Heightfield
+                && draft.manifest.terrain.kind == SceneTerrainKind::Gltf
                 && editor.selected_scene_id.as_ref() == Some(&draft.scene_id)
                 && preview.applied_scene_id.as_ref() == Some(&draft.scene_id)
                 && preview.applied_revision == session.terrain_revision

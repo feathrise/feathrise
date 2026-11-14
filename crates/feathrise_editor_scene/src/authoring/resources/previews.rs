@@ -1,7 +1,8 @@
 //! 地形、地表、植被与混合水网的有界预览任务和采用状态。
 
 use std::collections::{BTreeMap, VecDeque}; // 预览资产确定排序，水候选逐帧弹出一张完成Mesh。
-use std::time::Duration; // 文件权威交接使用不受F12虚拟暂停影响的真实时间截止。
+#[cfg(any(test, feature = "runtime_test_support"))]
+use std::time::Duration; // 退休有限网格夹具仍验证文件交接的真实时间截止。
 
 use avian3d::prelude::Collider; // 未保存高度场后台完成值直接携带正式物理形状。
 use bevy::prelude::*; // 预览资源、实体、资产句柄和变换。
@@ -46,9 +47,13 @@ impl PartialEq for TerrainPreviewIdentity {
 
 /// 一个GLB草稿修订在后台一次完成的画面、物理与内存高度派生值。
 pub(crate) struct TerrainPreviewBuild {
+    #[cfg(test)]
     pub(crate) mesh: Mesh,         // 保持原拓扑且带重算法线的正式预览Mesh。
+    #[cfg(test)]
     pub(crate) collider: Collider, // 与上方Mesh同顶点和索引的Avian Trimesh。
+    #[cfg(test)]
     pub(crate) heights: Vec<u16>,  // 水域、植被与边界共享的规则CPU查询网格。
+    #[cfg(test)]
     pub(crate) height_cells_rgba16: Vec<u8>, // GPU Blade使用的NW/NE/SW/SE内存Image字节。
 }
 
@@ -98,17 +103,23 @@ type WaterPreviewTaskResult = (
 pub(crate) struct TerrainPreviewState {
     pub(crate) desired_identity: Option<TerrainPreviewIdentity>,
     pub(crate) applied_identity: Option<TerrainPreviewIdentity>,
+    #[cfg(test)]
     pub(crate) failed_identity: Option<TerrainPreviewIdentity>,
+    #[cfg(test)]
     pub(crate) desired_scene_id: Option<SceneId>,
+    #[cfg(test)]
     pub(crate) desired_revision: u64,
     pub(crate) applied_scene_id: Option<SceneId>,
     pub(crate) applied_revision: u64,
     pub(crate) task: Option<Task<TerrainPreviewTaskResult>>,
+    #[cfg(test)]
     pub(crate) retirement: Option<Task<()>>, // 迟到大结果最多占一个回收槽，结束前不再启动下一次派生。
+    #[cfg(test)]
     pub(crate) entity: Option<Entity>,
     pub(crate) mesh: Option<Handle<Mesh>>,
     pub(crate) height_image: Option<Handle<Image>>, // 当前作者修订的内存RGBA16高度单元强句柄。
     /// 作者白模可见时暂存正式地形原显隐，避免降低后的新网格被旧表面深度遮挡。
+    #[cfg(test)]
     pub(crate) hidden_runtime_entities: Vec<(Entity, Visibility)>,
 }
 
@@ -123,7 +134,8 @@ impl TerrainPreviewState {
     }
 }
 
-/// 已经落盘的地形等待运行时同一 GLB 代次的完整派生结果取得所有权。
+/// 退休有限网格夹具等待运行时同一GLB代次的完整派生结果取得所有权。
+#[cfg(any(test, feature = "runtime_test_support"))]
 #[derive(Clone, Debug)]
 pub(crate) struct TerrainFileHandoff {
     pub(crate) scene_id: SceneId, // 文件结果只能交给本次保存的场景，切换场景后立即失效。
@@ -135,17 +147,22 @@ pub(crate) struct TerrainFileHandoff {
 /// 未保存GLB草稿对正式动态地形画面与物理的联合接管状态。
 #[derive(Resource, Default)]
 pub(crate) struct TerrainLiveApplyState {
+    #[cfg(any(test, feature = "runtime_test_support"))]
     pub(crate) desired_scene_id: Option<SceneId>, // 最新等待应用的场景身份，迟到任务必须匹配。
+    #[cfg(any(test, feature = "runtime_test_support"))]
     pub(crate) desired_revision: u64,         // 最新等待应用的地形专用修订号。
     pub(crate) active_scene_id: Option<SceneId>,  // 当前已经拥有完整Mesh与Collider候选的场景。
     pub(crate) active_revision: u64,          // 当前候选对应的地形修订。
     pub(crate) active_mesh: Option<Handle<Mesh>>, // 与碰撞同修订的编辑器预览Mesh强句柄。
     pub(crate) active_collider: Option<Collider>, // 可在GLB热重载覆盖后重新安装的实际拓扑Trimesh。
     pub(crate) ready: bool, // 正式primitive已同时观察到正确Mesh、Collider和作者标记。
+    #[cfg(any(test, feature = "runtime_test_support"))]
     pub(crate) failed_scene_id: Option<SceneId>, // 最近一次确定失败所属场景，避免稳定帧无限重试。
+    #[cfg(any(test, feature = "runtime_test_support"))]
     pub(crate) failed_revision: Option<u64>, // 最近一次确定失败修订；新笔划会自然解除失败门。
     pub(crate) candidate_epoch: u64, // 同图同修订候选失效重建后，外部消费者仍能识别新的采用生命周期。
     /// 保存成功后保留内存候选强句柄，直到运行时同一新代次全套派生值就绪。
+    #[cfg(any(test, feature = "runtime_test_support"))]
     pub(crate) file_handoff: Option<TerrainFileHandoff>,
 }
 
@@ -165,11 +182,13 @@ impl TerrainLiveApplyState {
     }
 
     /// 当前地形修订已经确定构建失败时，保存请求必须停止等待并归还作者输入。
+    #[cfg(any(test, feature = "runtime_test_support"))]
     pub(crate) fn failed_for(&self, scene_id: &SceneId, revision: u64) -> bool {
         self.failed_scene_id.as_ref() == Some(scene_id) && self.failed_revision == Some(revision)
     }
 
-    /// 开始一次保存后文件权威交接；显式GLB重载完成前不能提前释放内存候选。
+    /// 仅退休有限网格夹具建立GLB交接；正式高度地形已统一采用Clipmap分页源。
+    #[cfg(any(test, feature = "runtime_test_support"))]
     pub(crate) fn begin_file_handoff(
         &mut self,
         scene_id: SceneId,
@@ -190,6 +209,7 @@ impl TerrainLiveApplyState {
     }
 
     /// 当前关闭请求是否仍需等待同一个场景的文件权威交接。
+    #[cfg(any(test, feature = "runtime_test_support"))]
     pub(crate) fn file_handoff_pending_for(&self, scene_id: &SceneId, revision: u64) -> bool {
         self.file_handoff.as_ref().is_some_and(|handoff| {
             &handoff.scene_id == scene_id && handoff.terrain_revision == revision
@@ -197,6 +217,7 @@ impl TerrainLiveApplyState {
     }
 
     /// 释放旧联合候选但保留最新目标与在途任务，供下一笔划single-flight结果继续完成。
+    #[cfg(any(test, feature = "runtime_test_support"))]
     pub(crate) fn discard_candidate(&mut self) {
         self.active_scene_id = None; // 旧候选不得继续覆盖正式地形。
         self.active_mesh = None; // 释放旧预览Mesh强句柄。
@@ -206,6 +227,7 @@ impl TerrainLiveApplyState {
     }
 
     /// 场景生命周期结束时撤销接管身份。
+    #[cfg(any(test, feature = "runtime_test_support"))]
     pub(crate) fn invalidate(&mut self) {
         self.desired_scene_id = None; // 迟到任务完成后因身份不匹配直接丢弃。
         self.discard_candidate(); // 旧场景联合候选不得进入下一张动态场景。

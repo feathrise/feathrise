@@ -118,7 +118,7 @@ pub(super) fn placement_water_properties_panel() -> impl Scene {
             padding: UiRect::vertical(px(3)),
         }
         Children [
-            @crate::ui::context_help::section_header("网格水体", "数值框支持左拖实际值、右拖本字段灵敏度、中键精确输入，左右键单击无动作。UV0要求U沿下游按米递增、V横向0..1；局部水面请回Blender拆分为独立对象。资产浏览器只选择源文件和摆放；网格属性从场景树选择已摆放对象。失效绑定可用取消水体清除；名称不稳定时请在Blender显式命名对象与网格后重新导出。")--
+            @crate::ui::context_help::section_header("网格水体（实验）", "为所选GLB整网格设置水平水、斜坡水或瀑布。数值框支持左拖实际值、右拖本字段灵敏度、中键精确输入，左右键单击无动作。UV0要求U沿下游按米递增、V横向0..1；局部水面请回Blender拆分为独立对象。资产浏览器只选择源文件和摆放；网格属性从场景树选择已摆放对象。失效绑定可用取消水体清除；名称不稳定时请在Blender显式命名对象与网格后重新导出。")--
 
                 SceneEditorPlacementWaterText
                 Text("请选择场景树中的Blender网格") @feathrise_editor_ui::localization::label_scene("请选择场景树中的Blender网格")

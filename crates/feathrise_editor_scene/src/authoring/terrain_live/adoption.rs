@@ -67,13 +67,16 @@ impl TerrainLiveAdoption<'_, '_> {
     pub fn current(&self) -> Option<TerrainLiveReceipt<'_>> {
         let draft = self.session.draft.as_ref()?;
         let scene_id = self.live.active_scene_id.as_ref()?;
+        #[cfg(any(test, feature = "runtime_test_support"))]
+        if self.live.file_handoff.is_some() {
+            return None; // 只有旧有限网格夹具继续验证GLB文件接管门。
+        }
         if *self.scene.as_ref()?.get() != ScenePhase::Active
             || self.active.as_ref()?.scene_id.as_ref() != Some(scene_id)
             || &draft.scene_id != scene_id
             || !draft.terrain_dirty
             || self.session.terrain_revision != self.live.active_revision
             || !self.live.ready_for(scene_id, self.session.terrain_revision)
-            || self.live.file_handoff.is_some()
             || self
                 .activity
                 .as_ref()

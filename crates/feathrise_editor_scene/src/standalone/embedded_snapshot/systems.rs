@@ -158,6 +158,7 @@ pub(super) fn busy_reason(world: &World) -> Option<&'static str> {
             .is_some_and(|state| state.moving())
         || session.saving
         || session.vegetation_cross_busy
+        || session.model_vegetation_busy
         || draft.terrain_documents.loading
         || world
             .get_resource::<crate::resources::SceneEditorState>()
@@ -195,10 +196,10 @@ pub(super) fn busy_reason(world: &World) -> Option<&'static str> {
     {
         return Some("等待当前作者操作完整收口");
     }
-    // 容器未选择独立地形时，根槽不属于植被作者画布，生产编译器也明确不为它启动。
+    // 容器未选择独立地形时，根植被只服务模型稀疏表面，生产二维编译器不为它启动。
     // 与encode的来源范围一致：空图不能等待一个永远不会产生的编译回执；停放画布
     // 由其自身完整快照提供运行源，活动画布仍必须等待真实编译修订追平。
-    if (draft.manifest.terrains.is_none() || draft.terrain_documents.active.is_some())
+    if crate::authoring::density_canvas_is_active(draft)
         && draft
             .vegetation
             .as_ref()

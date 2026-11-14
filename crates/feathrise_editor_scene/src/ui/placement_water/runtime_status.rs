@@ -155,16 +155,16 @@ pub(crate) fn sync_placement_water_runtime_status(
     }
     *observed_revision = runtime_cache.presentation_revision();
     if let RuntimeSelectionSummary::Failed(detail) = &runtime_cache.summary {
-        editor.status = format!("网格水体运行时验证失败：{detail}"); // 缺UV、材质、歧义和预算错误不再只写日志。
+        editor.status = format!("网格水体（实验）运行时验证失败：{detail}"); // 缺UV、材质、歧义和预算错误不再只写日志。
     } else if runtime_cache.summary == RuntimeSelectionSummary::Ready {
         editor.status = format!(
-            "网格水体已验证并应用：{} / {}",
+            "网格水体（实验）已验证并应用：{} / {}",
             selection.node_path.join("/"),
             selection.mesh_name,
         ); // 只有真实Ready组件Changed后才使用成功措辞。
     } else {
         editor.status = format!(
-            "网格水体正在验证/等待接管：{} / {}",
+            "网格水体（实验）正在验证/等待接管：{} / {}",
             selection.node_path.join("/"),
             selection.mesh_name,
         ); // GLB热更使活动根回到Pending时，不能残留上一轮Ready的成功提示。

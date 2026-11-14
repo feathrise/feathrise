@@ -63,24 +63,13 @@ mod tests;
 /// 只浅克隆当前作者几何；Clipmap辅助色必须另用正式高度扩展，不能把此平面当成实际山坡。
 pub(crate) fn surface_canvas_mesh(
     session: &EditorAuthoringSession,
-    terrain: &TerrainPreviewState,
-    pose: Option<&feathrise_scene::TerrainObjectTransformPreview>,
+    _terrain: &TerrainPreviewState,
+    _pose: Option<&feathrise_scene::TerrainObjectTransformPreview>,
     queries: &feathrise_scene::TerrainObjectQueries,
 ) -> Option<SurfaceCanvasMesh> {
     let draft = session.draft.as_ref()?;
     let id = canvas_id(session)?;
     let kind = draft.terrain_manifest().terrain.kind;
-    if kind == SceneTerrainKind::Heightfield
-        && terrain.applied_scene_id.as_ref() == Some(&draft.scene_id)
-        && terrain.applied_revision == session.terrain_revision
-        && same_canvas(id.as_ref(), terrain.applied_identity.as_ref().and_then(|identity| identity.terrain_id.as_ref()))
-        && let Some(mesh) = &terrain.mesh {
-        return Some(SurfaceCanvasMesh {
-            mesh: mesh.clone(),
-            transform: crate::authoring::terrain_documents::canvas_transform(draft, pose),
-            kind,
-        });
-    }
     let (mesh, matrix, actual_kind) = if let Some(id) = id.as_ref() {
         if draft.manifest.terrains.is_none() && id == &TerrainId::legacy() {
             queries.root_render_mesh(&draft.scene_id)? // 认领先于新对象清单时，旧Clipmap仍由原正式根提供。

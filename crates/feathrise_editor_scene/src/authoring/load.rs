@@ -12,11 +12,6 @@ use feathrise_scene_content::{
     SceneCatalogAsset, SceneContentRegistry, SceneId, SceneManifestAsset, ScenePlacementsAsset,
     ScenePortalsAsset, SceneSurfaceAsset, SceneTerrainKind, SceneVegetationAsset, SceneWaterAsset,
 }; // 已加载JSON在主线程完整克隆后交给IO任务。
-use feathrise_terrain::{
-    TerrainSampleSpec, build_terrain_editing_index, derive_terrain, parse_dynamic_terrain_glb,
-}; // F12与运行时共享GLB提取、三维校验、空间桶和最高表面高度派生算法。
-use sha2::{Digest, Sha256}; // 保存冲突基线使用terrain.glb精确内容摘要。
-
 use super::files::{
     safe_asset_path, safe_scene_private_asset_path, workspace_asset_root,
 };
@@ -26,7 +21,6 @@ use super::resources::{
     VegetationPreviewState, WaterBrushStroke, WaterPreviewState,
 };
 use super::vegetation_defaults::ensure_vegetation_authoring; // 旧正式密度只迁移自己已有的输出，不补目录全集。
-use super::water_defaults::default_water_asset;
 use crate::components::{EditorPlacedAsset, EditorPortalPreview, EditorVegetationPreview};
 use crate::resources::SceneEditorState;
 
@@ -94,7 +88,7 @@ pub(crate) fn start_draft_load(
     documents: Option<Res<crate::ui::scene_documents::SceneDocuments>>,
 ) {
     let (folder_persistence, domain_adapter) = auxiliary;
-    if session.water_preset_delete_pending { return; } // 删除事务期间不能发布新的场景引用快照。
+    if session.water_preset_delete_pending || session.model_vegetation_busy { return; } // 作者整笔结束后再改变文档来源。
     for event in boundary_events.read() {
         if boundary_capture.source.is_some_and(|id| matches!(event,
             AssetEvent::Modified { id: changed } | AssetEvent::Removed { id: changed } if *changed == id)) {
@@ -206,7 +200,7 @@ pub(crate) fn start_draft_load(
     // 【功能设计】静水拥有独立R8范围；空场景也载入根水，地形只提供岸线裁切。
     let supports_data_driven_water = manifest.is_data_driven()
         && manifest.terrain.kind.supports_static_water();
-    let mut water_catalog_registration_required = false;
+    let water_catalog_registration_required = false;
     let water_asset_path = entry.water_path.clone().unwrap_or_else(|| {
         format!(
             "{}/{}",
@@ -224,10 +218,6 @@ pub(crate) fn start_draft_load(
                     return;
                 }
                 Some(water.clone())
-            }
-            None if manifest.terrain.kind == SceneTerrainKind::Heightfield => {
-                water_catalog_registration_required = true;
-                Some(default_water_asset(&scene_id)) // 既有Heightfield缺入口兼容行为保持不变。
             }
             None => None, // Clipmap标准私有文件必须在IO线程读取、校验和冻结摘要。
         }
@@ -269,6 +259,7 @@ pub(crate) fn start_draft_load(
         terrain_ground: None,
         terrain_documents: Default::default(),
         placements: placements.clone(),
+        placement_glb_hash: None,
         placement_water_surface_count: 0, // 完整文档计数移到下方IO任务，主线程不额外扫描8192项。
         portals: portals.clone(),
         domain: None,
@@ -304,9 +295,6 @@ pub(crate) fn start_draft_load(
         boundary_catalog_registration_required,
         boundaries_dirty: false,
     };
-    let terrain_glb_path = (draft.manifest.is_data_driven()
-        && draft.manifest.terrain.kind == SceneTerrainKind::Heightfield)
-        .then(|| draft.manifest.terrain.glb_path.clone()); // 动态Heightfield只从唯一terrain.glb建立作者草稿。
     let height_cells_path = match draft.manifest.terrain.kind {
         SceneTerrainKind::Gltf => draft
             .manifest
@@ -314,14 +302,27 @@ pub(crate) fn start_draft_load(
             .height_texture_path
             .clone()
             .filter(|path| path.to_ascii_lowercase().ends_with(".png")),
-        SceneTerrainKind::Heightfield => None,
         SceneTerrainKind::SparseClipmap | SceneTerrainKind::Empty | SceneTerrainKind::Voxel => None, // 新格式不把稀疏清单误读成旧整图PNG或GLB。
     };
     let root = workspace_asset_root();
+    let placement_glb_path = entry.placements_glb.then(|| entry.placements_path());
     let ticket = load.ticket;
     let domain_load = domain_adapter.map(|adapter| adapter.load);
     load.task = Some(IoTaskPool::get().spawn(async move {
         let result: Result<EditorSceneDraft, String> = async {
+            if let Some(relative) = placement_glb_path {
+                let path = safe_asset_path(&root, &relative)?;
+                let bytes = std::fs::read(&path).map_err(|error| format!("读取场景 GLB {} 失败：{error}", path.display()))?;
+                let (placements, digest) = AsyncComputeTaskPool::get().spawn(async move {
+                    let placements = feathrise_scene_content::read_scene_placements(&bytes, &relative)?;
+                    Ok::<_, String>((placements, feathrise_scene_content::authoring_io::bytes_hash(&bytes)))
+                }).await?;
+                if placements.scene_id != draft.scene_id {
+                    return Err("摆放 GLB 属于另一场景".into());
+                }
+                draft.placements = placements;
+                draft.placement_glb_hash = Some(digest); // 快照与保存冲突基线必须来自同一份文件。
+            }
             if let Some(boundaries) = draft.boundaries.take() {
                 let expected = draft.scene_id.clone(); // 校验纯数据身份。
                 let bounds = draft
@@ -342,34 +343,7 @@ pub(crate) fn start_draft_load(
             if draft.water.is_some() {
                 safe_scene_private_asset_path(&root, &draft.folder, &draft.water_asset_path)?; // 自定义catalog入口可以改文件名，但不能在F12会话中指向另一场景。
             }
-            if let Some(relative) = terrain_glb_path {
-                let path = safe_asset_path(&root, &relative)?;
-                let bytes = std::fs::read(&path)
-                    .map_err(|error| format!("读取动态地形GLB{}失败：{error}", path.display()))?; // IO池只负责文件读取。
-                let digest: [u8; 32] = Sha256::digest(&bytes).into(); // 内容摘要与路径时间戳无关。
-                let spec = TerrainSampleSpec {
-                    resolution: draft.manifest.terrain.resolution, // 规则查询网格尺寸仍由清单定义。
-                    world_min: draft.manifest.world_min,           // GLB必须覆盖声明X/Z下界。
-                    world_max: draft.manifest.world_max,           // GLB必须覆盖声明X/Z上界。
-                    base_height: draft.manifest.terrain.base_height, // 世界Y量化下界。
-                    height_scale: draft.manifest.terrain.height_scale, // 完整可编辑世界Y跨度。
-                }; // 完成共享派生规格冻结。
-                let (derived, editing_index) = AsyncComputeTaskPool::get()
-                    .spawn(async move {
-                        let mesh = parse_dynamic_terrain_glb(&bytes)?; // 提取唯一primitive并烘焙节点变换。
-                        let editing_index = build_terrain_editing_index(&mesh)?; // 真实拓扑邻接与X/Z空间桶。
-                        let derived = derive_terrain(mesh, spec)?; // 同时验证三维面积、规则采样覆盖、量程和预算。
-                        Ok::<_, String>((derived, editing_index))
-                    })
-                    .await?; // IO任务只等待后台CPU完成，不占用主线程。
-                draft.terrain_mesh = Some(Arc::new(feathrise_terrain::TerrainMeshInput {
-                    positions: derived.positions, // 保持GLB原顶点顺序和变换后世界位置。
-                    indices: derived.indices,     // 保持GLB原三角顺序与连接关系。
-                }));
-                draft.terrain_editing_index = Some(Arc::new(editing_index)); // 笔刷只访问局部顶点和真实邻居。
-                draft.terrain_source_sha256 = Some(digest); // 保存冲突核对基线。
-                draft.heights = Some(Arc::new(derived.heights)); // 只保留内存派生查询网格。
-            } else if let Some(relative) = height_cells_path {
+            if let Some(relative) = height_cells_path {
                 let path = safe_asset_path(&root, &relative)?;
                 draft.heights = Some(Arc::new(read_height_vertices_png(
                     // 旧PNG高度只进入静态/专用场景的兼容量化高度草稿。
@@ -401,7 +375,7 @@ pub(crate) fn start_draft_load(
                 )); // 失败时整个草稿任务保持原有不采用语义。
             }
             if draft.vegetation.is_none()
-                && draft.manifest.terrain.kind == SceneTerrainKind::SparseClipmap
+                && draft.manifest.is_data_driven()
             {
                 // 旧实验场景未登记入口时，仅在后台读取既有私有文档。
                 migrated_vegetation_authoring =
@@ -454,7 +428,7 @@ pub(crate) fn poll_draft_load(
     mut documents: crate::ui::scene_documents::SceneDocumentLoad,
 ) {
     let (mut authoring_retirement, mut history_cleanup) = cleanup;
-    if session.water_preset_delete_pending { return; } // 保留在途完成值，删除收口后再按原票据采用。
+    if session.water_preset_delete_pending || session.model_vegetation_busy { return; } // 保留在途完成值，整笔收口后再按原票据采用。
     if let Some(task) = history_cleanup.as_mut() && let Some((mut undo, mut redo)) = check_ready(task) {
         *history_cleanup = None;
         undo.append(&mut session.undo); redo.append(&mut session.redo);
@@ -532,7 +506,6 @@ pub(crate) fn poll_draft_load(
                 commands.entity(entity).try_despawn();
             }
             let scene_id = draft.scene_id.clone();
-            let heightfield = draft.manifest.terrain.kind == SceneTerrainKind::Heightfield;
             let migrated_layer_count = draft.vegetation_dirty_layers.len();
             let migrated_author_layer_count = draft.vegetation_author_dirty_layers.len(); // 旧文件的一对一作者源等待显式保存。
             let previous = session.draft.replace(draft);
@@ -694,13 +667,9 @@ pub(crate) fn poll_draft_load(
                 format!(
                     "场景{scene_id}作者数据已就绪；Clipmap地形、地表、植被、水域、摆放、建筑院落、传送点和空气墙可编辑；整网格水在场景树的网格属性中设置"
                 ) // 明确本次能力边界。
-            } else if heightfield {
-                format!(
-                    "场景{scene_id}作者数据已就绪；可雕刻地形、绘制地表/植被/静水与连续水网、放置资产和传送点"
-                )
             } else {
                 format!(
-                    "场景{scene_id}作者数据已就绪；Blender地形只读，可直接绘制现有植被密度并按正式高度贴地"
+                    "场景{scene_id}作者数据已就绪；静态模型可通过表面绘制植被；高度地形使用Clipmap，体素地形使用密度源"
                 )
             };
             crate::ui::scene_documents::restore_document(

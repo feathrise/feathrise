@@ -38,6 +38,21 @@ fn x(snapshot: &EmbeddedSnapshot) -> f32 {
 #[test]
 fn numeric_cancel_invalidates_late_full_snapshot_and_keeps_committed_authority() {
     let (mut app, root, _) = original::app();
+    // 移动夹具同时保留算法规格；完整快照须冻结当前合法的独立Clipmap画布，
+    // 不能把旧主地形字段和对象列表一起冒充可发布的场景文档。
+    {
+        let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+        let draft = session.draft.as_mut().unwrap();
+        let mut object = draft.manifest.terrain_objects_for_edit()[0].clone();
+        object.terrain.height_path = Some(feathrise_scene_content::sparse_height_manifest_asset_path(&draft.scene_id));
+        object.terrain.collision_lods = feathrise_scene_content::default_collision_lods_for_resolution(object.terrain.resolution);
+        draft.manifest.terrains = Some(vec![object.clone()].into());
+        draft.terrain_documents.active = Some(crate::authoring::terrain_documents::TerrainDocumentIdentity {
+            manifest: object.source_manifest(&draft.manifest), definition: Arc::new(object), folder: draft.folder.clone(),
+        });
+        draft.manifest.terrain = feathrise_scene_content::SceneTerrainDescriptor::empty();
+        feathrise_scene_content::validate_terrain_objects(&draft.manifest).unwrap();
+    }
     app.init_resource::<feathrise_editor_core::EditorSettings>()
         .add_message::<NumericInputChanged>().add_message::<NumericInputCommitted>()
         .add_message::<NumericInputScrubSensitivityChanged>().add_message::<NumericInputScrubSensitivityCommitted>()

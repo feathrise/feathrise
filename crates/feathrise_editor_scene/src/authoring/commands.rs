@@ -98,6 +98,15 @@ pub enum EditorCommand {
         layer_id: String,         // 实际被笔刷修改的作者层ID。
         changes: Vec<ByteChange>, // 当前作者R8局部差分。
     },
+    /// 模型一整笔只交换稀疏样本Arc；下标和稳定ID共同防止误写同源的另一份实例。
+    ModelVegetationChanged {
+        index: usize,
+        object_id: String,
+        layer_id: String,
+        before: Arc<Vec<Arc<feathrise_scene_content::ModelSurfaceVegetation>>>,
+        after: Arc<Vec<Arc<feathrise_scene_content::ModelSurfaceVegetation>>>,
+        heap_bytes: usize, // 后台采样预计算前后快照费用，撤销输入帧不遍历样本。
+    },
     VegetationAuthoringChanged(Box<VegetationAuthoringChange>), // 图层增删、分组和参数的浅快照。
     /// 跨网格一笔及绘制组元数据是场景级历史，不能包装成当前TerrainCanvas。
     VegetationPaintChanged(Box<super::vegetation_paint_scope::VegetationPaintChange>),
@@ -195,6 +204,7 @@ pub struct BuildingSparseTerrainChange {
 /// 一次院落作者操作中追加的成员和原位修改的成员。
 #[derive(Clone)]
 pub struct CourtyardBatchChange {
+    pub(crate) model_vegetation: Option<Box<ModelVegetationTransfer>>, // 复制模型与根稀疏密度由同一后台事务及历史共同采用。
     pub added: Vec<ScenePlacementRecord>, // 落印或整组复制始终向placements末尾追加。
     pub changed: Vec<(usize, ScenePlacementRecord, ScenePlacementRecord)>, // 组建和整体移动保留原数组下标、前后完整值。
     pub removed: Vec<(usize, ScenePlacementRecord)>, // 批量删除按原下标降序交换移除；撤销反向交换恢复原排列。
@@ -236,6 +246,7 @@ impl CourtyardBatchChange {
                 .saturating_add(placement_record_heap_bytes(after)); // 前后两份记录都属于同一可撤销事务。
         }
         Ok(Self {
+            model_vegetation: None,
             added,
             changed,
             removed: Vec::new(),
@@ -260,8 +271,19 @@ impl CourtyardBatchChange {
         }
         let heap_bytes = removed.capacity() * std::mem::size_of::<(usize, ScenePlacementRecord)>()
             + removed.iter().map(|(_, record)| placement_record_heap_bytes(record)).sum::<usize>();
-        Ok(Self { added: Vec::new(), changed: Vec::new(), removed, original_len: Some(original_len), heap_bytes })
+        Ok(Self { model_vegetation: None, added: Vec::new(), changed: Vec::new(), removed, original_len: Some(original_len), heap_bytes })
     }
+
+    pub(crate) fn with_model_vegetation(&mut self, change: ModelVegetationTransfer, bytes: usize) {
+        self.heap_bytes = self.heap_bytes.saturating_add(bytes);
+        self.model_vegetation = Some(Box::new(change));
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct ModelVegetationTransfer {
+    pub before: Arc<Vec<Arc<feathrise_scene_content::ModelSurfaceVegetation>>>,
+    pub after: Arc<Vec<Arc<feathrise_scene_content::ModelSurfaceVegetation>>>,
 }
 
 impl EditorCommand {
@@ -331,6 +353,8 @@ pub fn placement_water_differs(
 /// 植被作者图层结构及R8 Arc表的一次可撤销前后值。
 #[derive(Clone)]
 pub struct VegetationAuthoringChange {
+    pub(crate) model_vegetation: Option<Box<ModelVegetationTransfer>>, // 删层与复制层的模型样本和R8结构共同撤销。
+    pub(crate) model_heap_bytes: usize, // 后台预计算样本快照费用，历史裁剪不扫描锚点。
     pub before_outputs: Vec<SceneVegetationLayer>, // 首次使用预设前的场景正式输出集合。
     pub after_outputs: Vec<SceneVegetationLayer>,  // 首次使用预设后或普通操作的不变输出集合。
     pub before: SceneVegetationAuthoring,          // 操作前组、层顺序和参数。
@@ -474,6 +498,7 @@ pub fn placement_record_heap_bytes(record: &ScenePlacementRecord) -> usize {
 /// 命令是否持有需要服从统一水作者内存预算的记录、遮罩或差分快照。
 pub fn command_uses_bounded_water_history(command: &EditorCommand) -> bool {
     match command.unscoped() {
+        EditorCommand::VegetationAuthoringChanged(change) => change.model_vegetation.is_some(),
         EditorCommand::ClipmapStitchesChanged {..}=>true,
         EditorCommand::PlacementAdded(record) | EditorCommand::PlacementRemoved { record, .. } => {
             !record.water_surfaces.is_empty() // 复制或删除带水资产同样持有完整节点路径和网格名。
@@ -489,6 +514,7 @@ pub fn command_uses_bounded_water_history(command: &EditorCommand) -> bool {
         }, // 联合命令的建筑记录仍服从同一整网格水历史预算。
         EditorCommand::CourtyardBatch(_) | EditorCommand::BuildingSparseTerrainChanged(_) | EditorCommand::SceneObjectsChanged(_) => true, // 整组管理也复用统一历史内存预算。
         EditorCommand::VegetationPaintChanged(_) // 多网格完整R8共享同一有界历史预算。
+        | EditorCommand::ModelVegetationChanged { .. } // 稀疏模型样本同样不能无限保留整笔快照。
         | EditorCommand::PuddlesChanged { .. } // 独立积水快照共用历史内存预算，不复用作者数据。
         | EditorCommand::WaterStroke { .. }
         | EditorCommand::WaterStrokeSnapshot(_)
@@ -509,6 +535,12 @@ fn water_history_usage(commands: &[EditorCommand]) -> WaterHistoryUsage {
             usage.commands = usage.commands.saturating_add(1);
         }
         match command {
+            EditorCommand::VegetationAuthoringChanged(change) => {
+                usage.asset_bytes = usage.asset_bytes.saturating_add(change.model_heap_bytes);
+            }
+            EditorCommand::ModelVegetationChanged { heap_bytes, .. } => {
+                usage.asset_bytes = usage.asset_bytes.saturating_add(*heap_bytes);
+            }
             EditorCommand::ClipmapStitchesChanged {heap_bytes,..}=>{usage.asset_bytes=usage.asset_bytes.saturating_add(*heap_bytes);}
             EditorCommand::VegetationPaintChanged(change) => {
                 usage.asset_bytes=usage.asset_bytes.saturating_add((change.before_groups.len()+change.after_groups.len())

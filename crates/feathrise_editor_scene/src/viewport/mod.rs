@@ -27,7 +27,7 @@ pub(crate) mod terrain_objects; // 独立地形的真实表面点选与范围高
 mod terrain_transform; // 单对象实时姿态预览和松手单条历史，复用已有变换数学。
 pub(crate) use terrain_transform::transaction_active as terrain_transform_transaction_active;
 mod systems; // RTT创建、场景取景、投影切换、平移旋转缩放与光标射线。
-#[cfg(test)]
+#[cfg(any(test, feature = "validation"))]
 pub(crate) use systems::editor_camera_pose; // 离屏验收复用正式视口矩阵，避免测试另造相机而遮蔽拾取偏差。
 pub(crate) mod source_fence; // 父图世界编辑避开只读子场景，完整空间索引由单飞后台构建。
 mod view_memory; // 切换场景按已采用视口身份记忆相机，不依赖旧RTT继续存活。

@@ -206,7 +206,7 @@ pub(crate) fn sync_scene_inspector(
             let hint = if session.saving {
                 "场景保存中，暂不能修改所选对象。"
             } else if mesh.is_some_and(|selection| selection.orphaned_water_binding) {
-                "网格水绑定已失效；可在下方“网格水体”中取消绑定，不会删除整个实例。"
+                "网格水绑定已失效；可在下方“网格水体（实验）”中取消绑定，不会删除整个实例。"
             } else if mesh.is_some_and(|selection| !selection.valid) {
                 "网格名称不稳定，不能赋水；请在Blender中显式命名对象与网格。"
             } else if transform.relocation_armed() {

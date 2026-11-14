@@ -368,6 +368,7 @@ mod tests {
             display_name: "待删除场景".to_owned(), // 确认框必须显示该名称。
             folder: format!("scenes/{target}"),       // 满足精确私有目录保护规则。
             published: true,                       // 是否发布不改变场景私有目录的删除语义。
+            placements_glb: false,
             surface_path: None,                    // 测试不加载私有内容。
             vegetation_path: None,                 // 测试不加载私有内容。
             water_path: None,                      // 测试不加载私有内容。
@@ -423,6 +424,7 @@ mod tests {
             schema_version: SCENE_SCHEMA_VERSION,
             scenes: vec![SceneCatalogEntry {
                 id: target.clone(), display_name: "555".into(), folder: format!("scenes/{target}"), published: true,
+                placements_glb: false,
                 surface_path: None, vegetation_path: None, water_path: None, characters_path: None, boundary_path: None,
             }],
         });

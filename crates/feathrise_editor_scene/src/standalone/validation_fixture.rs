@@ -3,15 +3,27 @@
 use feathrise_editor_ui::UiInteraction;
 #[path = "validation_fixture_scene_tools.rs"]
 mod scene_tools;
+#[path = "geometry_unification_validation/mod.rs"]
+mod geometry_unification;
+#[path = "validation_fixture_model_surfaces/mod.rs"]
+mod model_surfaces;
 #[cfg(test)]
 #[path = "validation_fixture_tests.rs"]
 mod tests;
 pub use super::author_workflow_validation::AuthorWorkflowProof;
 pub use scene_tools::{SceneToolProof, PaintSourceProof};
+pub use geometry_unification::GeometryUnificationProof;
+
+/// 自有夹具专项只形成待保存的真实作者修改；完成后宿主继续使用原 Save 与 F12。
+pub fn request_geometry_unification(world: &mut World) -> Result<(), String> { geometry_unification::request(world) }
+pub fn geometry_unification_result(world: &World) -> Option<GeometryUnificationProof> { geometry_unification::result(world) }
+pub fn verify_geometry_unification_saved(asset_root: &std::path::Path, proof: &GeometryUnificationProof) -> Result<(), String> {
+    geometry_unification::verify_saved(asset_root, proof)
+}
 
 use crate::{
     authoring::{
-        DraftSaveTask, EditorAuthoringSession, EditorCommand, TerrainLiveApplyState,
+        DraftSaveTask, EditorAuthoringSession, EditorCommand,
         WaterFileHandoff,
         basic_shapes::{BasicShapeState, CuboidCreationRequest},
     },
@@ -116,6 +128,7 @@ pub struct SavedEditProof {
     pub new_placement_id: Option<String>,
     pub translation: [f32; 3],
     pub original_save_sequence: u64,
+    pub final_save_sequence_before: u64,
     pub successful_save_sequence: u64,
     pub author_revision_before: u64,
     pub author_revision_after: u64,
@@ -124,6 +137,8 @@ pub struct SavedEditProof {
     pub complete: bool,
     pub error: Option<String>,
     pub scene_tools: Option<SceneToolProof>,
+    pub model_surfaces: Option<serde_json::Value>,
+    pub geometry_unification: Option<GeometryUnificationProof>,
     pub author_tools: Option<AuthorWorkflowProof>,
 }
 
@@ -131,6 +146,8 @@ pub struct SavedEditProof {
 enum Phase {
     Idle,
     Creating,
+    ModelSurfaces,
+    GeometryUnification,
     SceneTools,
     AuthorTools,
     SaveButton,
@@ -160,6 +177,8 @@ pub fn install(app: &mut App) -> bool {
     }
     if !app.world().contains_resource::<Fixture>() {
         scene_tools::install(app);
+        geometry_unification::install(app);
+        model_surfaces::install(app);
         super::author_workflow_validation::install(app);
         app.insert_resource(FixtureInstalled).insert_resource(Fixture {
             phase: Phase::Idle,
@@ -225,6 +244,7 @@ pub fn request_edit_and_save(world: &mut World, scene_id: &str) -> Result<(), St
         new_placement_id: None,
         translation: POSITION,
         original_save_sequence: sequence,
+        final_save_sequence_before: sequence,
         successful_save_sequence: sequence,
         author_revision_before: revision,
         author_revision_after: revision,
@@ -233,6 +253,8 @@ pub fn request_edit_and_save(world: &mut World, scene_id: &str) -> Result<(), St
         complete: false,
         error: None,
         scene_tools: None,
+        model_surfaces: None,
+        geometry_unification: None,
         author_tools: None,
     });
     Ok(())
@@ -271,7 +293,9 @@ pub fn current_author_snapshot(world: &World) -> Option<serde_json::Value> {
         serde_json::json!({"scene_id":draft.scene_id.as_str(),"terrains":draft.manifest.terrains,
         "skybox_yaw_degrees":draft.manifest.environment.skybox_yaw_degrees,
         "placements":draft.placements.placements,"surface":draft.surface,"vegetation":draft.vegetation,
-        "water":draft.water,"focused_terrain":draft.terrain_documents.active.as_ref().map(|active|active.definition.id.as_str())}),
+        "water":draft.water,"root_vegetation":crate::authoring::terrain_documents::root_vegetation::source(draft)
+            .and_then(|source|source.vegetation),
+        "focused_terrain":draft.terrain_documents.active.as_ref().map(|active|active.definition.id.as_str())}),
     )
 }
 
@@ -418,13 +442,25 @@ fn drive(world: &mut World) {
                     let proof = fixture.proof.as_mut().unwrap();
                     proof.new_placement_id = Some(id);
                     proof.author_revision_after = revision;
-                    match scene_tools::begin(world) {
-                        Ok(true) => fixture.phase = Phase::SceneTools,
-                        Ok(false) => begin_author_tools(world, &mut fixture),
+                    match model_surfaces::begin(world) {
+                        Ok(true) => fixture.phase = Phase::ModelSurfaces,
+                        Ok(false) => begin_geometry_unification(world, &mut fixture),
                         Err(error) => fail(&mut fixture, error),
                     }
                 } else if world.resource::<BasicShapeState>().creation_request.is_none() {
                     fail(&mut fixture, format!("原坐标创建未受理：{}", editor.status));
+                }
+            }
+            Phase::ModelSurfaces => {
+                if let Some(result) = model_surfaces::advance(world) {
+                    match result {
+                        Ok(proof) => {
+                            fixture.proof.as_mut().unwrap().model_surfaces = Some(proof);
+                            world.resource_mut::<crate::ui::gltf_browser::EditorGltfBrowserState>().clear_viewport_selection();
+                            begin_geometry_unification(world, &mut fixture);
+                        }
+                        Err(error) => fail(&mut fixture, error),
+                    }
                 }
             }
             Phase::SceneTools => {
@@ -438,6 +474,15 @@ fn drive(world: &mut World) {
                         fixture.proof.as_mut().unwrap().author_revision_after = world.resource::<EditorAuthoringSession>().revision;
                         begin_author_tools(world, &mut fixture);
                     }
+                }
+            }
+            Phase::GeometryUnification => {
+                if let Some(proof) = geometry_unification_result(world) {
+                    let error = proof.error.clone();
+                    let complete = proof.complete;
+                    fixture.proof.as_mut().unwrap().geometry_unification = Some(proof);
+                    if let Some(error) = error { fail(&mut fixture, error); }
+                    else if complete { begin_scene_tools(world, &mut fixture); }
                 }
             }
             Phase::AuthorTools => {
@@ -462,6 +507,9 @@ fn drive(world: &mut World) {
                 if world.get::<SceneEditorActionButton>(entity).is_none() {
                     fail(&mut fixture, "原保存按钮已被重建，未发送陈旧按钮动作"); return;
                 }
+                // 专项可为画布切换执行中途保存；最终按钮必须获得自己的新回执，不能借用较早的成功序号。
+                fixture.proof.as_mut().unwrap().final_save_sequence_before =
+                    world.resource::<EditorAuthoringSession>().successful_save_sequence;
                 world.entity_mut(entity).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
                 fixture.click_pulse = Some(entity);
                 fixture.phase = Phase::SavePulse;
@@ -470,7 +518,7 @@ fn drive(world: &mut World) {
                 let sequence = session.successful_save_sequence;
                 let proof = fixture.proof.as_mut().unwrap();
                 proof.successful_save_sequence = sequence;
-                if sequence == proof.original_save_sequence {
+                if sequence == proof.final_save_sequence_before {
                     let pending = editor.save_requested || session.saving
                         || world.get_resource::<DraftSaveTask>().is_some_and(|task| task.task.is_some());
                     if pending { fixture.phase = Phase::Saving; }
@@ -485,9 +533,7 @@ fn drive(world: &mut World) {
                 let clean = !editor.dirty && !editor.save_requested && !session.saving
                     && !session.has_scene_data_changes();
                 let handoff = world.get_resource::<WaterFileHandoff>()
-                    .is_some_and(|handoff| handoff.pending_for(&map, session.water_revision, session.terrain_revision))
-                    || world.get_resource::<TerrainLiveApplyState>()
-                        .is_some_and(|state| state.file_handoff_pending_for(&map, session.terrain_revision));
+                    .is_some_and(|handoff| handoff.pending_for(&map, session.water_revision, session.terrain_revision));
                 proof.draft_clean = clean;
                 proof.handoff_complete = !handoff;
                 if clean && !handoff {
@@ -504,6 +550,25 @@ fn begin_author_tools(world: &mut World, fixture: &mut Fixture) {
     match super::author_workflow_validation::begin(world) {
         Ok(true) => fixture.phase = Phase::AuthorTools,
         Ok(false) => fixture.phase = Phase::SaveButton,
+        Err(error) => fail(fixture, error),
+    }
+}
+
+fn begin_scene_tools(world: &mut World, fixture: &mut Fixture) {
+    match scene_tools::begin(world) {
+        Ok(true) => fixture.phase = Phase::SceneTools,
+        Ok(false) => begin_author_tools(world, fixture),
+        Err(error) => fail(fixture, error),
+    }
+}
+
+fn begin_geometry_unification(world: &mut World, fixture: &mut Fixture) {
+    if std::env::var("FEATHRISE_GEOMETRY_UNIFICATION_VALIDATION").as_deref() != Ok("1") {
+        begin_scene_tools(world, fixture);
+        return;
+    }
+    match request_geometry_unification(world) {
+        Ok(()) => fixture.phase = Phase::GeometryUnification,
         Err(error) => fail(fixture, error),
     }
 }

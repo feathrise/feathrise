@@ -12,6 +12,7 @@ fn grass_background_work_and_terrain_backfaces_never_block_f12_close_or_save_dra
         let mut draft = test_heightfield_draft(std::sync::Arc::new(vec![0; 121])); // 与用户磁盘无关。
         let map = draft.scene_id.clone(); // 所有资源指向同一场景。
         draft.vegetation = Some(SceneVegetationAsset {
+            model_surfaces: Vec::new().into(),
             scene_id: map.clone(), // 关闭目标。
             schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,   // 当前协议。
             layers: vec![],

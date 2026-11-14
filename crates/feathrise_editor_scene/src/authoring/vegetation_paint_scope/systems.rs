@@ -68,10 +68,13 @@ pub(super) fn input(
     mut editor: ResMut<SceneEditorState>,
     mode: Option<Res<crate::viewport::modes::ViewportModeState>>,
     ground: Option<Res<crate::viewport::VegetationGroundCursor>>,
+    model: Option<Res<crate::ui::gltf_browser::EditorGltfBrowserState>>,
 ) {
     let closing = editor.save_requested || editor.close_requested || editor.undo_requested || editor.redo_requested;
     let finishing = closing || !mouse.pressed(MouseButton::Left);
     let author_context = editor.open
+        && model.as_ref().is_none_or(|browser| !super::super::model_vegetation::model_selected(&session, browser))
+        && !session.model_vegetation_busy
         && editor.tool == EditorTool::Vegetation
         && settings.scope == PaintScope::Cross
         && mode

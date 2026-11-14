@@ -14,6 +14,7 @@ pub(super) fn snapshot(
         scene_id: source.scene_id.clone(), // 保留该领域既有快照与共享语义。
         folder: source.folder.clone(), // 保留该领域既有快照与共享语义。
         water_asset_path: source.water_asset_path.clone(), // 保留该领域既有快照与共享语义。
+        placement_glb_hash: source.placement_glb_hash.clone(),
         manifest: source.manifest.clone(), // 保留该领域既有快照与共享语义。
         terrain_ground: source.terrain_ground.clone(),
         terrain_documents: source.terrain_documents.clone(),

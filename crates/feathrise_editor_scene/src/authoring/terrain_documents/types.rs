@@ -21,6 +21,12 @@ pub(crate) struct TerrainDocumentStore {
     pub active: Option<TerrainDocumentIdentity>,
     /// 根静水独立于网格；切换私有画布时仅停放水文档及其像素、路径和保存责任。
     pub root_water: Option<RootWaterCanvas>,
+    /// 模型植被属于场景根；切换地形时只浅共享停放，不能把它移交给TerrainId。
+    pub root_vegetation: Option<Arc<TerrainCanvas>>,
+    /// 空场景打开只冻结磁盘基线；真正编辑后才转为登记责任，避免无操作即产生未保存提示。
+    pub root_vegetation_unregistered_hash: Option<String>,
+    /// 根植被JSON独立记脏；共享active_dirty不能把一次根水修改复制成植被保存责任。
+    pub root_vegetation_dirty: bool,
     pub root_water_revision: u64,
     pub values: BTreeMap<TerrainId, Arc<TerrainCanvas>>,
     pub scoped_through: usize,
@@ -191,6 +197,7 @@ impl EditorSceneDraft {
     pub fn stored_terrain_changes(&self) -> bool {
         !self.terrain_documents.dirty_stored.is_empty() || self.terrain_documents.active_dirty || self.terrain_documents.paint_groups_dirty
             || self.terrain_documents.root_water.as_ref().is_some_and(RootWaterCanvas::dirty)
+            || self.terrain_documents.root_vegetation.as_ref().is_some_and(|canvas| canvas.dirty())
     }
     pub fn terrain_manifest(&self) -> &SceneManifestAsset {
         self.terrain_documents

@@ -1,6 +1,8 @@
 //! 植被作者图层结构操作的纯值回归。
 
 use super::*; // 子模块可直接验证私有局部变换，不启动Bevy App。
+#[path = "model_layer_tests.rs"]
+mod model_layers;
 use feathrise_scene_content::{
     SceneVegetationAuthorGroup, SceneVegetationAuthorGroupMode, SceneVegetationAuthorLayer,
     SceneVegetationKind, SceneVegetationOutputMergeMode,
@@ -183,6 +185,7 @@ fn clipmap_blade_and_mesh_creation_work_without_height_cache() {
     draft.manifest.terrain.kind = feathrise_scene_content::SceneTerrainKind::SparseClipmap; // 稀疏场景不提供整图高度。
     draft.heights = None; // Blade创建不能再依赖派生GLB缓存。
     draft.vegetation = Some(feathrise_scene_content::SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
         scene_id: draft.scene_id.clone(),
         layers: vec![output()],

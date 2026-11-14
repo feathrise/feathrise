@@ -340,42 +340,41 @@ fn live_save_state_overrules_both_stale_enabled_and_stale_disabled_markers() {
 }
 
 #[test]
-fn terrain_save_restores_only_after_exact_scene_and_revision_are_complete() {
+fn clipmap_save_buttons_and_shortcuts_ignore_retired_finite_mesh_preview() {
     let mut app = app(true);
     let save = button(&mut app, EditorAction::Save);
     let scene_id = {
         let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
         session.terrain_revision = 7;
+        session.draft = Some(crate::authoring::test_support::test_clipmap_draft(vec![0; 121].into(), 7));
         let draft = session.draft.as_mut().unwrap();
         draft.terrain_dirty = true;
         draft.scene_id.clone()
     };
-    app.update();
-    assert_style(&mut app, save, Some("地形高度、法线与碰撞仍在后台生成"));
-    for (applied_scene_id, revision) in [(SceneId::parse("MAP-other").unwrap(), 7), (scene_id.clone(), 6)]
+    // Clipmap保存复验自己的分页源；旧整图Mesh/高度纹理的缺失和错代不能再禁用作者入口。
+    for (applied_scene_id, revision, mesh_ready, image_ready) in [
+        (None, 0, false, false),
+        (Some(SceneId::parse("MAP-other").unwrap()), 7, true, true),
+        (Some(scene_id.clone()), 6, true, true),
+        (Some(scene_id.clone()), 7, true, false),
+        (Some(scene_id), 7, false, true),
+    ]
     {
         {
             let mut preview = app.world_mut().resource_mut::<TerrainPreviewState>();
-            preview.applied_scene_id = Some(applied_scene_id);
+            preview.applied_scene_id = applied_scene_id;
             preview.applied_revision = revision;
-            preview.mesh = Some(Handle::default());
-            preview.height_image = Some(Handle::default());
+            preview.mesh = mesh_ready.then(Handle::default);
+            preview.height_image = image_ready.then(Handle::default);
         }
         click(&mut app, save);
+        assert_style(&mut app, save, None);
+        assert!(app.world().resource::<SceneEditorState>().save_requested);
+        clear_requests(&mut app);
         press(&mut app, &[KeyCode::ControlLeft, KeyCode::KeyS]);
-        assert_no_requests(&app);
+        assert!(app.world().resource::<SceneEditorState>().save_requested);
+        clear_requests(&mut app);
     }
-    {
-        let mut preview = app.world_mut().resource_mut::<TerrainPreviewState>();
-        preview.applied_scene_id = Some(scene_id);
-        preview.applied_revision = 7;
-    }
-    click(&mut app, save);
-    assert_style(&mut app, save, None);
-    assert!(app.world().resource::<SceneEditorState>().save_requested);
-    clear_requests(&mut app);
-    press(&mut app, &[KeyCode::ControlLeft, KeyCode::KeyS]);
-    assert!(app.world().resource::<SceneEditorState>().save_requested);
 }
 
 #[test]
@@ -451,6 +450,58 @@ fn focus_requires_confirmed_selection_and_the_current_viewport_identity() {
     press(&mut app, &[KeyCode::KeyG, KeyCode::Home]);
     assert_no_requests(&app);
     assert_style(&mut app, focus, Some("场景视口尚未就绪"));
+}
+
+#[test]
+fn scene_tree_subscene_focus_buttons_and_shortcuts_share_confirmed_identity_and_modal_gates() {
+    use crate::viewport::{LayerCandidateState, LayerTarget, modes::SelectionFilter};
+    use feathrise_scene_content::{SceneInstanceId, SceneInstancePlacement};
+    let mut app = app(true);
+    let focus = button(&mut app, EditorAction::FocusSelected);
+    let id = SceneInstanceId::parse("confirmed-subscene").unwrap();
+    app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap().manifest.subscenes =
+        std::sync::Arc::from([SceneInstancePlacement { id:id.clone(), source_scene_id:SceneId::parse("MAP-source").unwrap(),
+            label:"已确认引用".into(), transform:default() }]);
+    app.world_mut().resource_mut::<LayerCandidateState>().hover = Some(LayerTarget::Subscene(id.to_string()));
+    app.update();
+    assert_style(&mut app, focus, Some("请先选择可聚焦的资产、水体或传送点"));
+    click(&mut app, focus); press(&mut app, &[KeyCode::KeyF]);
+    assert_no_requests(&app); // 只悬停子场景不能绕过原确认选择门。
+
+    app.world_mut().resource_scope(|world, session: Mut<EditorAuthoringSession>| {
+        world.resource_mut::<LayerCandidateState>().restore_subscene(&id, &session, 0, SelectionFilter::All);
+    });
+    let candidates = app.world().resource::<LayerCandidateState>();
+    assert_eq!(candidates.selected, Some(LayerTarget::Subscene(id.to_string())));
+    assert!(!candidates.has_viewport_candidates() && !candidates.has_viewport_selection(),
+        "场景树确认后的候选表为空、confirmed_viewport_selection为false，不能只覆盖视口选择路径");
+    app.update();
+    assert_style(&mut app, focus, None);
+    click(&mut app, focus);
+    assert_eq!(app.world().resource::<SceneEditorState>().viewport_framing_requested, Some(EditorViewportFraming::Selected));
+    clear_requests(&mut app);
+    press(&mut app, &[KeyCode::KeyF]);
+    assert_eq!(app.world().resource::<SceneEditorState>().viewport_framing_requested, Some(EditorViewportFraming::Selected));
+    clear_requests(&mut app);
+
+    app.world_mut().resource_mut::<SceneEditorSettingsState>().open = true;
+    app.update();
+    assert_style(&mut app, focus, Some("请先结束当前弹窗或编辑操作"));
+    click(&mut app, focus); press(&mut app, &[KeyCode::KeyF]);
+    assert_no_requests(&app); // 正式按钮和快捷键仍受同一模态门阻止，解除后不补发旧请求。
+    app.world_mut().resource_mut::<SceneEditorSettingsState>().open = false;
+    app.update();
+    assert_no_requests(&app);
+    assert_style(&mut app, focus, None);
+    press(&mut app, &[KeyCode::KeyF]);
+    assert_eq!(app.world().resource::<SceneEditorState>().viewport_framing_requested, Some(EditorViewportFraming::Selected));
+    clear_requests(&mut app);
+
+    app.world_mut().resource_mut::<SceneEditorViewportState>().framed_scene_id = Some(SceneId::parse("MAP-other").unwrap());
+    app.update();
+    assert_style(&mut app, focus, Some("场景视口尚未就绪"));
+    click(&mut app, focus); press(&mut app, &[KeyCode::KeyF]);
+    assert_no_requests(&app);
 }
 
 #[test]
@@ -564,7 +615,6 @@ fn framing_without_container_bounds_is_independent_of_history_and_save_gates() {
         viewport_ready: true,
         undo_empty: true,
         redo_empty: true,
-        terrain_pending: true,
         ..default()
     };
     assert_eq!(state.reason(EditorAction::FrameScene), None); // 空容器也能恢复默认取景。

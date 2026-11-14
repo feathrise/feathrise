@@ -163,6 +163,7 @@ fn inspect_overlay_uses_author_source_and_restores_after_hover() {
         weight: 1.0,                     // 非编译测试。
     }); // 两份作者密度必须各自解析。
     draft.vegetation = Some(SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         // 独立作者图夹具。
         schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,            // 当前格式。
         scene_id: draft.scene_id.clone(), // 与编辑器身份一致。

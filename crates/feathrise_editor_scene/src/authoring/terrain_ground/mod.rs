@@ -30,9 +30,18 @@ pub(crate) fn cursor_validation_snapshot(world: &bevy::prelude::World) -> serde_
                 && std::sync::Arc::ptr_eq(hidden, &editor.terrain_hidden)
                 && hit.as_ref().is_some_and(|hit| editor.cursor_world == Some(hit.point) && hit.point.is_finite()));
     serde_json::json!({"ready":ready,"input_available":cursor.input_available,"click_ticket":cursor.click_ticket,
+        "ray":cursor.ray.map(|ray|serde_json::json!({"origin":ray.origin.to_array(),"direction":ray.direction.to_array(),"epoch":ray.epoch})),
         "pending_click":cursor.pending_click.is_some(),"running":cursor.work.is_some(),
         "running_click":cursor.work.as_ref().is_some_and(|work|work.click),
         "running_ticket":cursor.work.as_ref().map(|work|work.click_ticket),
+        "running_context_current":cursor.work.as_ref().map(|work| cursor.identity.as_ref()==Some(&work.identity)),
+        "accepted_terrain":cursor.accepted.as_ref().and_then(|(_,_,_,hit)|hit.as_ref().map(|hit|hit.terrain.as_str())),
+        "accepted_point":cursor.accepted.as_ref().and_then(|(_,_,_,hit)|hit.as_ref().map(|hit|hit.point.to_array())),
+        "accepted_paint_point":cursor.accepted.as_ref().and_then(|(_,_,_,hit)|hit.as_ref()?.paint_point.map(|point|point.to_array())),
+        "accepted_volume_surface":cursor.accepted.as_ref().and_then(|(_,_,_,hit)|hit.as_ref().map(|hit|hit.volume_surface)),
+        "paint_point":cursor.paint_hit().map(|hit|hit.point.to_array()),"paint_pending":cursor.paint_pending(),
+        "accepted_ray_current":cursor.accepted.as_ref().map(|(_,ray,_,_)|cursor.ray==Some(*ray)),
+        "accepted_snapshot_current":cursor.accepted.as_ref().map(|(snapshot,_,_,_)|ground.is_some_and(|ground|std::sync::Arc::ptr_eq(ground,snapshot))),
         "ray_epoch":cursor.ray.map(|ray|ray.epoch),"identity_revision":cursor.identity.as_ref().map(|identity|identity.revision),
         "identity_terrain_revision":cursor.identity.as_ref().map(|identity|identity.terrain_revision),
         "click_terrain":cursor.click_terrain.as_ref().map(|terrain| terrain.as_str())})

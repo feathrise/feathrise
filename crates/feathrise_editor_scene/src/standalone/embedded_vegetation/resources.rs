@@ -30,7 +30,8 @@ pub(super) struct Version {
     pub layout: u64,
     pub source: u64,
 }
-pub(super) type Versions = Vec<(Option<TerrainId>, Version)>;
+pub(super) type CanvasKey = (Option<TerrainId>, bool); // bool区分模型根与旧二维根，两者都没有TerrainId。
+pub(super) type Versions = Vec<(CanvasKey, Version)>;
 pub(super) type Completion = (Source, Versions, Result<Arc<EmbeddedVegetationPreview>, String>);
 
 #[derive(Resource, Default)]
@@ -48,7 +49,7 @@ pub struct EmbeddedVegetationState {
     pub(super) source_epoch: u64,
     pub(super) source_floor: u64,
     pub(super) next_sequence: u64,
-    pub(super) acknowledged: BTreeMap<Option<TerrainId>, Version>,
+    pub(super) acknowledged: BTreeMap<CanvasKey, Version>,
     pub(super) offered: Versions,
     pub(super) failed: Versions,
     pub(super) task: Option<Task<Completion>>,

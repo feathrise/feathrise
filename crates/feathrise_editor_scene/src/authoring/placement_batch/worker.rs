@@ -49,6 +49,12 @@ pub(super) fn capture_with_deletions(capture: Capture,
                     + std::mem::size_of::<ScenePlacementRecord>()
             })
             .sum::<usize>();
+        let selected = capture.records.iter().map(|(_, record)| record.id.as_str()).collect::<std::collections::BTreeSet<_>>();
+        let model_vegetation = capture.model_vegetation.iter().filter(|data| !data.samples.is_empty() && {
+            matches!(&data.target, feathrise_scene_content::SurfaceTarget::Model { object_id } if selected.contains(object_id.as_str()))
+        }).cloned().collect::<Vec<_>>();
+        bytes = bytes.saturating_add(model_vegetation.iter().map(|data|
+            crate::authoring::model_vegetation::sample_heap_bytes(data)).sum::<usize>());
         if capture.records.iter().any(|(_, record)| record.terrain_patch.is_some()) {
             bytes += capture.records.len() * std::mem::size_of::<Option<feathrise_scene_content::TerrainObjectTransform>>();
         } // 完整源框架也计入剪贴板上限，不能仅给作者字段计费。
@@ -97,6 +103,7 @@ pub(super) fn capture_with_deletions(capture: Capture,
         let origin = Vec3::new((min.x + max.x) * 0.5, if builtin_only { lowest_bottom } else { min.y }, (min.z + max.z) * 0.5);
         if patch_frames.iter().all(Option::is_none) { patch_frames = Vec::new(); }
         Ok(Arc::new(ClipboardData {
+            model_vegetation: Arc::new(model_vegetation),
             records,
             patch_frames: Arc::new(patch_frames),
             origin,
@@ -259,6 +266,9 @@ pub(super) fn run_paste(mut work: PasteWork, base_len: usize) -> BatchOutput {
         &work.scene_id,
         validation_bounds,
     );
+    if let (Ok(prepared), Some(transfer)) = (&mut prepared, &work.model_vegetation) {
+        if let Err(error) = copy_model_vegetation(prepared, transfer) { return BatchOutput::Paste(Err(error)); }
+    }
     if let (Ok(prepared), Some(context)) = (&mut prepared, &work.patch) {
         for member in &mut prepared.members {
             if prepared.apply[member.index - base_len].terrain_patch.is_some() {
@@ -268,6 +278,33 @@ pub(super) fn run_paste(mut work: PasteWork, base_len: usize) -> BatchOutput {
         } // 选集使用世界锚点；完整作者记录继续保留所属源局部坐标。
     }
     BatchOutput::Paste(prepared)
+}
+
+/// 源样本仅重绑稳定对象ID，锚点与局部格距保持原值；不同场景缺作者层时拒绝整批，避免默默丢种植。
+fn copy_model_vegetation(prepared: &mut PreparedPaste, transfer: &ModelVegetationPaste) -> Result<(), String> {
+    let ids = transfer.source.records.iter().zip(&prepared.apply)
+        .map(|(source, target)| (source.id.as_str(), target.id.as_str())).collect::<BTreeMap<_, _>>();
+    let layers = transfer.authoring.as_ref().map(|authoring| authoring.layers.iter()
+        .map(|layer| layer.id.as_str()).collect::<std::collections::BTreeSet<_>>()).unwrap_or_default();
+    let mut after = transfer.before.as_ref().clone();
+    let mut bytes = after.capacity() * std::mem::size_of::<Arc<feathrise_scene_content::ModelSurfaceVegetation>>();
+    for data in transfer.source.model_vegetation.iter() {
+        let feathrise_scene_content::SurfaceTarget::Model { object_id } = &data.target else { continue; };
+        let id = ids.get(object_id.as_str()).ok_or("复制模型植被缺少对应的新对象身份")?;
+        if data.samples.iter().flat_map(|sample| &sample.layers).any(|(layer, _)| !layers.contains(layer.as_str())) {
+            return Err("目标场景缺少模型种植使用的作者图层；整批未粘贴，请先准备对应图层".into());
+        }
+        let mut copied = data.as_ref().clone(); // 样本深复制与全目标索引构建均位于本后台槽。
+        copied.target = feathrise_scene_content::SurfaceTarget::Model { object_id: (*id).to_owned() };
+        copied.sample_blocks.clear(); // 新目标由下次正式场景保存生成独立私有块。
+        copied.validate()?;
+        bytes = bytes.saturating_add(crate::authoring::model_vegetation::sample_heap_bytes(&copied));
+        after.push(Arc::new(copied));
+    }
+    prepared.history.with_model_vegetation(crate::authoring::ModelVegetationTransfer {
+        before: transfer.before.clone(), after: Arc::new(after),
+    }, bytes);
+    Ok(())
 }
 
 fn record_pose(record: &ScenePlacementRecord) -> feathrise_scene_content::TerrainObjectTransform {

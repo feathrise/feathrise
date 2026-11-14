@@ -47,6 +47,7 @@ impl TerrainCanvas {
         Ok(EditorSceneDraft {
             scene_id: map.clone(),
             folder: identity.folder.clone(),
+            placement_glb_hash: None,
             manifest: identity.manifest.clone(),
             terrain_ground: None,
             terrain_documents: TerrainDocumentStore {

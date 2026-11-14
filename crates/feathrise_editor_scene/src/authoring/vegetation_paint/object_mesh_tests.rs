@@ -34,6 +34,7 @@ fn tree_fixture() -> (App, TreeLayers) {
         // 只缩小作者精度，保留正式树木profile、原型、种子及散布参数。
         grass.resolution = [129; 2]; tree.resolution = [129; 2];
         let mut vegetation = SceneVegetationAsset {
+            model_surfaces: Vec::new().into(),
             schema_version: SCENE_SCHEMA_VERSION, scene_id: draft.scene_id.clone(),
             layers: vec![grass.clone(), tree.clone()], authoring: None,
         };

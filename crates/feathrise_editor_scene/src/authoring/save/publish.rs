@@ -197,7 +197,7 @@ mod tests {
                 resolved_stitches:Default::default(),
                 collision_lods: Vec::new(),         // GLB测试不消费稀疏碰撞配置。
                 display_lods: None,                 // GLB测试不保存SparseClipmap显示LOD。
-                kind: SceneTerrainKind::Heightfield,  // 动态场景使用可编辑高度场。
+                kind: SceneTerrainKind::Gltf,  // 动态场景使用可编辑高度场。
                 collision_mode: Default::default(), // GLB路线不读取稀疏碰撞方案。
                 player_collision_preload_radius_meters:
                     feathrise_scene_content::DEFAULT_PLAYER_COLLISION_PRELOAD_RADIUS_METERS, // GLB路线占位。
@@ -379,6 +379,7 @@ mod tests {
             mesh: 6,
             primitive: 0,
             material: Some(3),
+            collision: false,
         };
 
         assert!(!placement_documents_equal(&scene0, &primitive)); // 同路径同变换也必须发布新的可视目标。

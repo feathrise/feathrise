@@ -47,13 +47,15 @@ pub(super) fn author_point(
     ground: &TerrainGroundSnapshot,
     terrain: &TerrainId,
     point: Vec3,
+    volume_surface: bool,
 ) -> Option<Vec3> {
     match ground.object_query(terrain)? {
         TerrainObjectRaySnapshot::Clipmap(snapshot, frame) => {
-            let local = frame.to_local(point);
-            if snapshot.is_three_dimensional_surface(local) {
+            // 只用这次真实最近面的来源，后方贴得很近的洞面也不能拿走高度面的二维资格。
+            if volume_surface {
                 return None;
             }
+            let local = frame.to_local(point);
             match snapshot.sample_authoritative_surface(local.xz()) {
                 ClipmapGroundHit::Hit(point) => Some(frame.to_world(point)),
                 _ => None,

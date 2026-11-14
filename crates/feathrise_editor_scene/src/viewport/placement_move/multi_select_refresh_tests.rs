@@ -145,7 +145,7 @@ fn derived_follow_app(count: usize) -> (App, Vec<Entity>, Entity, Entity) {
     for index in records.len()..count {
         let mut next = record();
         next.id = format!("derived-follow-{index}");
-        next.translation = [1.0 + (index % 24) as f32 * 0.3, 9.0, 5.0];
+        next.translation = [1.0 + (index % 24) as f32 * 0.3, 9.0 + index as f32 * 0.25, 5.0];
         records.push(next);
     }
     for (index, record) in records.iter_mut().enumerate() {
@@ -196,7 +196,8 @@ fn apply_real_derived_follow(app: &mut App, roots: &[Entity]) -> Vec<ScenePlacem
         (session.revision, session.placement_structure_revision, session.terrain_revision,
             session.placement_derived_pose_revision)
     };
-    app.world_mut().run_system_once(crate::authoring::reconcile_following_placements).unwrap();
+    assert!(matches!(crate::authoring::test_support::drive_test_follow_to_completion(app),
+        crate::authoring::PlacementGroundingReadiness::Ready));
     let session = app.world().resource::<EditorAuthoringSession>();
     assert_eq!((session.revision, session.placement_structure_revision, session.terrain_revision),
         (before.0, before.1, before.2),
@@ -305,23 +306,25 @@ fn derived_follow_noop_and_completed_frames_do_not_advance_pose_revision() {
         if restart {
             app.insert_resource(crate::authoring::PlacementTerrainFollowState::default());
         } // 显式重新走真实采样，区分已完成游标的稳定帧与采样后无变化的批次。
-        app.world_mut().run_system_once(crate::authoring::reconcile_following_placements).unwrap();
+        assert!(matches!(crate::authoring::test_support::drive_test_follow_to_completion(&mut app),
+            crate::authoring::PlacementGroundingReadiness::Ready));
         assert_eq!(app.world().resource::<EditorAuthoringSession>().placement_derived_pose_revision, revision);
     }
 }
 
 #[test]
-fn derived_follow_partial_failure_still_revokes_old_pose_credit() {
+fn derived_follow_failed_object_batch_preserves_all_poses_and_selection_credit() {
     let (mut app, _, _, _) = derived_follow_app(2);
     app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap()
-        .placements.placements[1].terrain_offset = f32::NAN;
-    app.world_mut().run_system_once(crate::authoring::reconcile_following_placements).unwrap();
+        .placements.placements[1].terrain_offset = f32::INFINITY;
+    assert!(matches!(crate::authoring::test_support::drive_test_follow_to_completion(&mut app),
+        crate::authoring::PlacementGroundingReadiness::Failed(_)));
     let session = app.world().resource::<EditorAuthoringSession>();
     let draft = session.draft.as_ref().unwrap();
-    assert_eq!(draft.placements.placements[0].translation[1], 3.0,
-        "后项失败前，真实入口已经采用首项的派生高度");
-    assert_eq!(session.placement_derived_pose_revision, 1);
-    assert!(!app.world().resource::<PlacementSelectionSet>().ready_for(session));
+    assert_eq!(draft.placements.placements[0].translation[1], 4.0,
+        "后台整批失败不能提前采用首项或发布部分姿态");
+    assert_eq!(session.placement_derived_pose_revision, 0);
+    assert!(app.world().resource::<PlacementSelectionSet>().ready_for(session));
     assert!(matches!(app.world().resource::<crate::authoring::PlacementTerrainFollowState>()
         .readiness_for(&draft.scene_id, session.terrain_revision, session.placement_structure_revision, 2),
         crate::authoring::PlacementGroundingReadiness::Failed(_)));
@@ -433,7 +436,12 @@ fn derived_follow_discards_incomplete_box_scan_without_publishing_mixed_anchors(
     app.world_mut().run_system_once(advance_multi_selection).unwrap();
     assert!(app.world().resource::<PlacementSelectionSet>().box_busy(),
         "129条真实候选不能在128条/帧的扫描预算内完成");
-    app.world_mut().run_system_once(crate::authoring::reconcile_following_placements).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while app.world().resource::<EditorAuthoringSession>().placement_derived_pose_revision == 0 {
+        app.world_mut().run_system_once(crate::authoring::reconcile_following_placements).unwrap();
+        assert!(std::time::Instant::now() < deadline, "第一有界贴地批次未采用");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
     assert_eq!(app.world().resource::<EditorAuthoringSession>().placement_derived_pose_revision, 1);
     app.world_mut().run_system_once(advance_multi_selection).unwrap();
     let selection = app.world().resource::<PlacementSelectionSet>();

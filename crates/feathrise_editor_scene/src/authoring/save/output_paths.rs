@@ -9,13 +9,12 @@ use std::path::Path;
 
 use feathrise_scene_content::{
     SCENE_BOUNDARIES_FILE_NAME, SCENE_CATALOG_ASSET_PATH, SCENE_MANIFEST_FILE_NAME,
-    SCENE_PLACEMENTS_FILE_NAME, SCENE_PORTALS_FILE_NAME, SCENE_SURFACE_FILE_NAME,
+    SCENE_PLACEMENTS_FILE_NAME, SCENE_PLACEMENTS_GLB_FILE_NAME, SCENE_PORTALS_FILE_NAME, SCENE_SURFACE_FILE_NAME,
     SCENE_VEGETATION_FILE_NAME, SCENE_WATER_FILE_NAME, SceneTerrainKind,
 };
 
 use super::super::files::{asset_path_collision_key, safe_asset_path};
 use super::super::resources::EditorSceneDraft;
-use super::blender_sync::blend_path_for_glb; // 动态terrain.blend镜像也必须阻止水域输出路径覆盖。
 
 /// 原始外部正文只允许由自己的已校验领域写项替换；普通作者输出不能借用其路径。
 pub(super) fn validate_preserved_document_outputs(
@@ -83,6 +82,7 @@ pub(super) fn collect_reserved_asset_paths(
     for file_name in [
         SCENE_MANIFEST_FILE_NAME,
         SCENE_PLACEMENTS_FILE_NAME,
+        SCENE_PLACEMENTS_GLB_FILE_NAME,
         SCENE_PORTALS_FILE_NAME,
         SCENE_SURFACE_FILE_NAME,
         SCENE_VEGETATION_FILE_NAME,
@@ -102,7 +102,7 @@ pub(super) fn collect_reserved_asset_paths(
             return Err("稀疏 Clipmap 场景不得同时保留可写 terrain.glb 路径".to_owned());
         } // 新图只保留独立稀疏高度清单，空GLB字段不是待保留资产路径。
     } else if !manifest.terrain.glb_path.is_empty() {
-        reserve(&manifest.terrain.glb_path)?; // 旧Gltf/Heightfield场景继续保护其真实GLB权威源。
+        reserve(&manifest.terrain.glb_path)?; // 已有Gltf场景继续保护其真实GLB权威源。
     }
     if let Some(objects) = &manifest.terrains { for object in objects.iter() {
         if !object.terrain.glb_path.is_empty() { reserve(&object.terrain.glb_path)?; }
@@ -110,13 +110,6 @@ pub(super) fn collect_reserved_asset_paths(
             object.vegetation_path.as_deref(), object.water_path.as_deref(), object.voxel.as_ref().map(|v| v.source_path.as_str())]
             .into_iter().flatten() { reserve(path)?; }
     } }
-    let terrain_blend_path = (manifest.is_data_driven()
-        && manifest.terrain.kind == SceneTerrainKind::Heightfield)
-        .then(|| {
-            let glb_path = safe_asset_path(root, &manifest.terrain.glb_path)?; // 与正式GLB使用相同assets边界校验。
-            blend_path_for_glb(&glb_path) // 同名Blend是派生镜像，不需要在清单重复声明路径。
-        })
-        .transpose()?; // 非动态兼容场景继续没有Blend保留路径。
     if let Some(path) = manifest.terrain.height_path.as_deref() {
         reserve(path)?;
     }
@@ -135,7 +128,8 @@ pub(super) fn collect_reserved_asset_paths(
         reserve(&surface.index_source_path)?;
         reserve(&surface.index_texture_path)?;
     }
-    if let Some(vegetation) = draft.vegetation.as_ref() {
+    let root_vegetation = super::super::terrain_documents::root_vegetation::source(draft);
+    for vegetation in draft.vegetation.iter().chain(root_vegetation.as_ref().and_then(|source|source.vegetation)) {
         for layer in &vegetation.layers {
             reserve(&layer.asset_path)?;
             reserve(&layer.density_source_path)?;
@@ -146,6 +140,9 @@ pub(super) fn collect_reserved_asset_paths(
                 reserve(&layer.density_source_path)?;
             }
         }
+        for surface in vegetation.model_surfaces.iter() {
+            for block in &surface.sample_blocks { reserve(block)?; }
+        }
     }
     for placement in &draft.placements.placements {
         if !placement.asset_target.is_builtin() {
@@ -153,9 +150,6 @@ pub(super) fn collect_reserved_asset_paths(
         } // 参数化基础形状全部保存在摆放JSON中，没有应保留或读取的磁盘模型路径。
     }
     drop(reserve); // 下方需要同时检查并更新同一保留集，先结束闭包的可变借用。
-    if let Some(path) = terrain_blend_path {
-        paths.insert(asset_path_collision_key(&path)); // 即使本批没有地形修改，协议保留名也不得被水层复用。
-    }
     if let Some(layer) = draft.manifest.puddles.as_ref() {
         // 积水不能覆盖任何未编辑的既有资产。
         layer.validate()?; // 路径类型与尺寸先通过公共协议。

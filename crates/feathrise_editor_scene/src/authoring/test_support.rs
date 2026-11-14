@@ -32,6 +32,7 @@ pub fn test_heightfield_draft(heights: Arc<Vec<u16>>) -> EditorSceneDraft {
         domain: None,
         preserved_asset_paths: Default::default(),
         folder: "scenes/EDGE-TEST".to_owned(),
+        placement_glb_hash: None,
         water_asset_path: "scenes/EDGE-TEST/water.scene_water.json".to_owned(),
         terrain_ground: None,
         terrain_documents: Default::default(),
@@ -53,7 +54,7 @@ pub fn test_heightfield_draft(heights: Arc<Vec<u16>>) -> EditorSceneDraft {
                 resolved_stitches: Default::default(),
                 collision_lods: Vec::new(), // GLB测试不消费稀疏碰撞配置。
                 display_lods: None,         // GLB测试不消费SparseClipmap显示LOD。
-                kind: SceneTerrainKind::Heightfield,
+                kind: SceneTerrainKind::Gltf,
                 collision_mode: Default::default(), // 高度场测试不启用Clipmap物理。
                 player_collision_preload_radius_meters:
                     feathrise_scene_content::DEFAULT_PLAYER_COLLISION_PRELOAD_RADIUS_METERS, // 旧路线不读取。
@@ -110,6 +111,84 @@ pub fn test_heightfield_draft(heights: Arc<Vec<u16>>) -> EditorSceneDraft {
         vegetation_registration_source_hash: None, // GLB夹具没有旧Clipmap补登记责任。
         boundary_catalog_registration_required: false,
         boundaries_dirty: false,
+    }
+}
+
+/// 当前高度地形的已采用查询夹具；作者后端为Clipmap，承托仍由真实三角面查询。
+/// 只验证通用交互的测试无需写稀疏页，不能把中性GLB夹具当成已就绪地形。
+pub fn test_clipmap_draft(heights: Arc<Vec<u16>>, revision: u64) -> EditorSceneDraft {
+    let mut draft = test_heightfield_draft(heights);
+    draft.manifest.terrain.kind = SceneTerrainKind::SparseClipmap;
+    draft.manifest.terrain.height_path = Some("scenes/EDGE-TEST/terrain/height.sparse.json".into());
+    draft.manifest.terrains = Some(draft.manifest.terrain_objects_for_edit());
+    refresh_test_clipmap_ground(&mut draft, revision);
+    draft
+}
+
+/// 模拟同代来源到达或缺失时同时更换真实查询；仅改旧heights不能撤销已采用快照。
+pub fn refresh_test_clipmap_ground(draft: &mut EditorSceneDraft, revision: u64) {
+    use bevy::prelude::Vec3;
+    let Some(heights) = draft.heights.as_ref() else {
+        draft.terrain_ground = None;
+        return;
+    };
+    let source = draft.terrain_manifest();
+    let [width, height] = source.terrain.resolution;
+    assert_eq!(heights.len(), width as usize * height as usize);
+    let mut mesh = TerrainMeshInput {
+        positions: Vec::with_capacity(heights.len()),
+        indices: Vec::with_capacity(((width - 1) * (height - 1) * 6) as usize),
+    };
+    for z in 0..height {
+        for x in 0..width {
+            let y = source.terrain.base_height
+                + heights[(z * width + x) as usize] as f32 / u16::MAX as f32
+                    * source.terrain.height_scale;
+            mesh.positions.push([
+                source.world_min[0] + (source.world_max[0] - source.world_min[0]) * x as f32 / (width - 1) as f32,
+                y,
+                source.world_min[1] + (source.world_max[1] - source.world_min[1]) * z as f32 / (height - 1) as f32,
+            ]);
+            if x + 1 < width && z + 1 < height {
+                let nw = z * width + x;
+                mesh.indices.extend_from_slice(&[nw, nw + width, nw + 1, nw + 1, nw + width, nw + width + 1]);
+            }
+        }
+    }
+    let collider = avian3d::prelude::Collider::trimesh(
+        mesh.positions.iter().copied().map(Vec3::from_array).collect(),
+        mesh.indices.chunks_exact(3).map(|triangle| [triangle[0], triangle[1], triangle[2]]).collect(),
+    );
+    let objects = draft.manifest.terrain_objects_for_edit();
+    assert_eq!(objects.len(), 1, "规则高度夹具只支持一个独立地形");
+    let mut ground = super::terrain_ground::TerrainGroundSnapshot::test_meshes(
+        draft.scene_id.clone(), &objects, collider,
+    );
+    Arc::get_mut(&mut ground).unwrap().revision = revision;
+    draft.terrain_ground = Some(ground);
+    draft.terrain_editing_index = Some(Arc::new(build_terrain_editing_index(&mesh).unwrap()));
+    draft.terrain_mesh = Some(Arc::new(mesh));
+}
+
+/// 只轮询正式贴地系统；后台批次完整返回前不预先标记完成或执行无关输入系统。
+pub(crate) fn drive_test_follow_to_completion(
+    app: &mut bevy::prelude::App,
+) -> super::PlacementGroundingReadiness {
+    use bevy::ecs::system::RunSystemOnce;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        app.world_mut().run_system_once(super::reconcile_following_placements).unwrap();
+        let session = app.world().resource::<EditorAuthoringSession>();
+        let draft = session.draft.as_ref().unwrap();
+        let readiness = app.world().resource::<super::PlacementTerrainFollowState>().readiness_for(
+            &draft.scene_id, session.terrain_revision, session.placement_structure_revision,
+            draft.placements.placements.len(),
+        );
+        if !matches!(readiness, super::PlacementGroundingReadiness::Waiting { .. }) {
+            return readiness;
+        }
+        assert!(std::time::Instant::now() < deadline, "真实贴地worker未完整归还测试槽");
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 }
 

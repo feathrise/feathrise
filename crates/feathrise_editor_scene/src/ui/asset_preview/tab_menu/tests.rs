@@ -399,6 +399,21 @@ pub(in super::super) fn gpu_assert_external_visibility(app: &mut App, editors: &
     }
 }
 
+/// 离屏GPU夹具只切换命中相机的目标；执行原First/PreUpdate输入链，不伪造三态或点击成功。
+pub(in super::super) fn gpu_pointer_input(app: &mut App, window: Entity, position: Vec2,
+    button: MouseButton, state: bevy::input::ButtonState)
+{
+    app.world_mut().get_mut::<Window>(window).unwrap().set_cursor_position(Some(position));
+    app.world_mut().write_message(bevy::window::WindowEvent::CursorMoved(bevy::window::CursorMoved {
+        window, position, delta: None,
+    }));
+    let message = bevy::input::mouse::MouseButtonInput { window, button, state };
+    app.world_mut().write_message(message);
+    app.world_mut().write_message(bevy::window::WindowEvent::MouseButtonInput(message));
+    app.world_mut().run_schedule(First);
+    app.world_mut().run_schedule(PreUpdate);
+}
+
 fn gpu_click(app: &mut App, window: Entity, camera: Entity, position: Vec2, button: MouseButton) {
     use bevy::ecs::system::RunSystemOnce;
     let target = app
@@ -413,13 +428,7 @@ fn gpu_click(app: &mut App, window: Entity, camera: Entity, position: Vec2, butt
     *app.world_mut()
         .get_mut::<bevy::camera::RenderTarget>(camera)
         .unwrap() = bevy::camera::RenderTarget::Window(bevy::window::WindowRef::Entity(window));
-    app.world_mut()
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .press(button);
-    app.world_mut()
-        .run_system_cached(bevy::ui::ui_focus_system)
-        .unwrap();
-    app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
+    gpu_pointer_input(app,window,position,button,bevy::input::ButtonState::Pressed);
     if button == MouseButton::Left {
         let world = app.world_mut();
         let mut buttons = world.query_filtered::<&UiInteraction, Or<(With<CloseAllTabsButton>, With<CloseUnmodifiedTabsButton>, With<SaveAllDraftsButton>, With<ExternalFileButton>, With<CopyFilePathButton>)>>();
@@ -444,13 +453,7 @@ fn gpu_click(app: &mut App, window: Entity, camera: Entity, position: Vec2, butt
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .clear(); // 松键属于下一输入帧，不能重用右键按下边沿。
-    app.world_mut()
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .release(button);
-    app.world_mut()
-        .run_system_cached(bevy::ui::ui_focus_system)
-        .unwrap();
-    app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
+    gpu_pointer_input(app,window,position,button,bevy::input::ButtonState::Released);
     app.world_mut()
         .run_system_once(systems::control_menu)
         .unwrap();

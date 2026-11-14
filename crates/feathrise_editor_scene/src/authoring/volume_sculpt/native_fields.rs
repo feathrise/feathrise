@@ -117,7 +117,7 @@ pub(super) fn input(
         .terrain_ground
         .as_ref()
         .filter(|snapshot| snapshot.revision == session.terrain_revision)
-        .and_then(|snapshot| snapshot.object_query(&object.id))
+        .and_then(|snapshot| snapshot.object_surface(&object.id))
     else {
         return;
     };

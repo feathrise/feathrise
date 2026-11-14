@@ -3,71 +3,14 @@
 use bevy::math::{Rect, Vec2}; // 摆放公共变换校验需要明确测试场景XZ范围。
 use feathrise_scene_content::{
     MAX_SCENE_PLACEMENT_WATER_SURFACES_PER_SCENE, ScenePlacementRecord, ScenePlacementWaterKind,
-    ScenePlacementWaterSurface, SceneSurfaceLayer,
+    ScenePlacementWaterSurface, SceneSurfaceLayer, SCENE_PLACEMENTS_FILE_NAME,
 }; // 使用正式摆放、水体与地表格式验证保存前失败门和语义写入决定。
+use sha2::{Digest, Sha256}; // 摆放 GLB 并发保存回归核对真实源摘要。
 
 use super::*; // 直接测试不访问文件系统的保存批次纯预检。
 
-#[path = "height_domain_tests.rs"]
-mod height_domain_tests;
 #[path = "root_water_tests.rs"]
 mod root_water_tests;
-
-#[test]
-fn missing_optional_blender_saves_real_terrain_glb_and_preserves_existing_blend() {
-    let temporary = super::super::tests::SaveTransactionTestDirectory::new();
-    let mut draft = crate::authoring::test_heightfield_draft(Arc::new(vec![0; 121]));
-    draft.manifest.schema_version = SCENE_SCHEMA_VERSION;
-    draft.placements.schema_version = SCENE_SCHEMA_VERSION;
-    draft.portals.schema_version = SCENE_SCHEMA_VERSION;
-    draft.terrain_dirty = true;
-    let glb = temporary.path.join(&draft.manifest.terrain.glb_path);
-    let blend = glb.with_extension("blend");
-    std::fs::create_dir_all(glb.parent().unwrap()).unwrap();
-    std::fs::write(&glb, b"old-glb").unwrap();
-    std::fs::write(&blend, b"existing-author-blend").unwrap();
-
-    let prepared = prepare_draft_writes(&temporary.path, &draft, None, None).unwrap();
-    assert!(!prepared.terrain_blend_generated, "无工具时回执不能声称已生成Blend");
-    assert!(prepared.writes.iter().any(|write| write.path == glb));
-    assert!(!prepared.writes.iter().any(|write| write.path == blend));
-    commit_prepared_writes(prepared.writes).unwrap_or_else(|failure| panic!("无Blender也应保存地形：{}", failure.message()));
-    let mesh = feathrise_terrain::parse_dynamic_terrain_glb(&std::fs::read(&glb).unwrap()).unwrap();
-    assert_eq!(mesh.positions.len(), 121, "使用真实地形编码器和事务落盘");
-    assert_eq!(std::fs::read(&blend).unwrap(), b"existing-author-blend");
-}
-
-#[test]
-fn selected_blender_failure_preserves_old_glb_and_blend_in_the_full_write_plan() {
-    let temporary = super::super::tests::SaveTransactionTestDirectory::new();
-    let mut draft = crate::authoring::test_heightfield_draft(Arc::new(vec![0; 121]));
-    draft.manifest.schema_version = SCENE_SCHEMA_VERSION;
-    draft.placements.schema_version = SCENE_SCHEMA_VERSION;
-    draft.portals.schema_version = SCENE_SCHEMA_VERSION;
-    draft.terrain_dirty = true;
-    let glb = temporary.path.join(&draft.manifest.terrain.glb_path);
-    let blend = glb.with_extension("blend");
-    std::fs::create_dir_all(glb.parent().unwrap()).unwrap();
-    std::fs::write(&glb, b"old-glb").unwrap();
-    std::fs::write(&blend, b"old-blend").unwrap();
-    let tools = temporary.path.join("optional-tools");
-    std::fs::create_dir(&tools).unwrap();
-    for name in ["从GLB生成同名Blend.py", "Blender保存时自动导出GLB.py"] {
-        std::fs::write(tools.join(name), b"# tool fixture").unwrap();
-    }
-    let executable = tools.join("blender.exe");
-    std::fs::write(&executable, b"selected executable fixture").unwrap();
-    let selected = super::super::blender_sync::resolve_blender_sync(Some(&tools), || Ok(executable.clone())).unwrap();
-    let prepared = prepare_draft_writes(&temporary.path, &draft, None, Some(&selected)).unwrap();
-    assert!(prepared.terrain_blend_generated, "完整工具配置才计划Blend写项");
-    assert!(prepared.writes.iter().any(|write| write.path == blend));
-    // 模拟工具在后台预检后消失；既已计划转换，执行失败必须保留旧正式文件而不能降级发布。
-    std::fs::remove_file(&executable).unwrap();
-    let failure = commit_prepared_writes(prepared.writes).expect_err("Blender启动失败应拒绝整批提交");
-    assert!(failure.message().contains("Blender"));
-    assert_eq!(std::fs::read(&glb).unwrap(), b"old-glb");
-    assert_eq!(std::fs::read(&blend).unwrap(), b"old-blend");
-}
 
 #[test]
 fn ordinary_non_water_outputs_reject_preserved_document_alias_without_writing_or_staging() {
@@ -100,7 +43,7 @@ fn ordinary_non_water_outputs_reject_preserved_document_alias_without_writing_or
             preserved = preserved.to_ascii_uppercase();
         } // 大小写别名同样不得覆盖原正文。
         draft.preserved_asset_paths = Arc::from([preserved]);
-        let error = prepare_draft_writes(&temporary.path, &draft, None, None)
+        let error = prepare_draft_writes(&temporary.path, &draft, None)
             .err()
             .expect("普通非水目标必须拒绝冒用保留文档路径");
         assert!(error.contains("保留的外部作者文档路径冲突"), "{error}");
@@ -120,9 +63,9 @@ fn cross_mesh_grass_group_and_every_local_canvas_save_and_reopen_together() {
     let (manifest,projections,saved)=bevy::tasks::block_on(super::super::terrain_documents::prepare(&draft)).unwrap();
     assert_eq!(saved.len(),2);assert_eq!(projections.len(),2);
     let manifest=manifest.unwrap();let manifest_path=temporary.path.join(&draft.folder).join(SCENE_MANIFEST_FILE_NAME);
-    let mut prepared=prepare_draft_writes(&temporary.path,&draft,None,None).unwrap();
+    let mut prepared=prepare_draft_writes(&temporary.path,&draft, None).unwrap();
     prepared.writes.retain(|write|write.path!=manifest_path);
-    for projection in &projections {prepared.writes.extend(prepare_draft_writes(&temporary.path,projection,None,None).unwrap().writes);}
+    for projection in &projections {prepared.writes.extend(prepare_draft_writes(&temporary.path,projection, None).unwrap().writes);}
     prepared.writes.push(PreparedWrite::json(manifest_path.clone(),&manifest));
     commit_prepared_writes(prepared.writes).unwrap_or_else(|e|panic!("跨网格联合保存失败：{}",e.message()));
     let owner:feathrise_scene_content::SceneManifestAsset=serde_json::from_slice(&std::fs::read(manifest_path).unwrap()).unwrap();
@@ -150,6 +93,7 @@ fn blank_scene_save_and_reopen_never_writes_a_terrain_or_implicit_canvas() {
     draft.manifest.terrains = Some(Arc::from([]));
     draft.terrain_mesh = None; draft.heights = None; draft.surface = None;
     draft.vegetation = Some(feathrise_scene_content::SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: SCENE_SCHEMA_VERSION,
         scene_id: draft.scene_id.clone(),
         layers: Vec::new(),
@@ -161,7 +105,7 @@ fn blank_scene_save_and_reopen_never_writes_a_terrain_or_implicit_canvas() {
     let vegetation_bytes = serde_json::to_vec(draft.vegetation.as_ref().unwrap()).unwrap();
     std::fs::create_dir_all(vegetation_path.parent().unwrap()).unwrap();
     std::fs::write(&vegetation_path, &vegetation_bytes).unwrap();
-    let prepared = prepare_draft_writes(&temporary.path, &draft, None, None).unwrap();
+    let prepared = prepare_draft_writes(&temporary.path, &draft, None).unwrap();
     commit_prepared_writes(prepared.writes).unwrap_or_else(|e| panic!("空白场景保存失败：{}", e.message()));
     let folder = temporary.path.join(&draft.folder);
     let saved: feathrise_scene_content::SceneManifestAsset = serde_json::from_slice(&std::fs::read(folder.join(SCENE_MANIFEST_FILE_NAME)).unwrap()).unwrap();
@@ -213,7 +157,7 @@ fn object_clipmap_save_reopens_independent_explicit_lods() {
     assert!(projections.is_empty());
     assert!(saved.is_empty());
     draft.manifest = manifest.unwrap();
-    let prepared = prepare_draft_writes(&temporary.path, &draft, None, None).unwrap();
+    let prepared = prepare_draft_writes(&temporary.path, &draft, None).unwrap();
     commit_prepared_writes(prepared.writes)
         .unwrap_or_else(|error| panic!("网格LOD保存失败：{}", error.message()));
     let path = temporary.path.join(&draft.folder).join(SCENE_MANIFEST_FILE_NAME);
@@ -286,7 +230,7 @@ fn added_clean_glb_canvas_saves_object_specs_without_rewriting_the_source_or_roo
     assert!(projections.is_empty(), "载入干净网格不产生改写作者源的投影");
     assert!(saved.is_empty());
     draft.manifest = manifest.unwrap();
-    let prepared = prepare_draft_writes(&temporary.path, &draft, None, None).unwrap();
+    let prepared = prepare_draft_writes(&temporary.path, &draft, None).unwrap();
     assert!(prepared.writes.iter().all(|write| write.path != source_path));
     commit_prepared_writes(prepared.writes)
         .unwrap_or_else(|failure| panic!("新增GLB对象保存失败：{}", failure.message()));
@@ -359,7 +303,7 @@ fn object_water_receipt_skips_unchanged_json_but_tracks_masks_parameters_and_las
     std::fs::create_dir_all(json.parent().unwrap()).unwrap();
     std::fs::write(&json, serde_json::to_vec(&water).unwrap()).unwrap();
     {
-        let prepared = prepare_draft_writes(&temporary.path, &draft, None, None).unwrap();
+        let prepared = prepare_draft_writes(&temporary.path, &draft, None).unwrap();
         assert!(!prepared.water_changed);
         assert!(prepared.writes.iter().all(|write| write.path != json),
             "仅地表/积水脏不能重发语义相同的独立水JSON或建立水交接");
@@ -367,7 +311,7 @@ fn object_water_receipt_skips_unchanged_json_but_tracks_masks_parameters_and_las
     draft.water_masks.insert("lake".into(), Arc::new(vec![127; 16]));
     draft.water_dirty_layers.insert("lake".into());
     {
-        let prepared = prepare_draft_writes(&temporary.path, &draft, None, None).unwrap();
+        let prepared = prepare_draft_writes(&temporary.path, &draft, None).unwrap();
         assert!(prepared.water_changed);
         assert!(prepared.writes.iter().any(|write| write.path == raw));
         assert!(prepared.writes.iter().any(|write| write.path == gpu));
@@ -378,14 +322,14 @@ fn object_water_receipt_skips_unchanged_json_but_tracks_masks_parameters_and_las
     draft.water_dirty_layers.clear();
     draft.water.as_mut().unwrap().layers[0].water_level = 3.0;
     {
-        let prepared = prepare_draft_writes(&temporary.path, &draft, None, None).unwrap();
+        let prepared = prepare_draft_writes(&temporary.path, &draft, None).unwrap();
         assert!(prepared.water_changed, "只有水参数变化也必须交接正式JSON");
         assert!(prepared.writes.iter().any(|write| write.path == json));
         assert!(prepared.writes.iter().all(|write| write.path != raw && write.path != gpu));
     }
     draft.water.as_mut().unwrap().layers.clear();
     {
-        let prepared = prepare_draft_writes(&temporary.path, &draft, None, None).unwrap();
+        let prepared = prepare_draft_writes(&temporary.path, &draft, None).unwrap();
         assert!(prepared.water_changed, "删除最后一层不能被无脏R8误判为水无变化");
         commit_prepared_writes(prepared.writes).unwrap_or_else(|failure| panic!("清空独立水事务失败：{}", failure.message()));
     }
@@ -410,10 +354,10 @@ fn two_dirty_object_canvases_save_and_reopen_with_separate_files() {
     let (manifest, projections, saved) = bevy::tasks::block_on(super::super::terrain_documents::prepare(&draft)).unwrap();
     assert_eq!(saved.len(),2); assert_eq!(projections.len(),2);
     let manifest = manifest.unwrap();
-    let mut prepared = prepare_draft_writes(&temporary.path,&draft,None,None).unwrap();
+    let mut prepared = prepare_draft_writes(&temporary.path,&draft, None).unwrap();
     let manifest_path = temporary.path.join(&draft.folder).join(SCENE_MANIFEST_FILE_NAME);
     prepared.writes.retain(|write| write.path != manifest_path);
-    for projection in &projections { prepared.writes.extend(prepare_draft_writes(&temporary.path,projection,None,None).unwrap().writes); }
+    for projection in &projections { prepared.writes.extend(prepare_draft_writes(&temporary.path,projection, None).unwrap().writes); }
     prepared.writes.push(PreparedWrite::json(manifest_path.clone(),&manifest));
     commit_prepared_writes(prepared.writes).unwrap_or_else(|failure| panic!("多地形画布保存失败：{}", failure.message()));
     let reopened: feathrise_scene_content::SceneManifestAsset = serde_json::from_slice(&std::fs::read(manifest_path).unwrap()).unwrap();
@@ -671,7 +615,7 @@ fn nested_scene_references_save_and_reopen_without_writing_source_files() {
     ]})).unwrap();
     std::fs::write(temporary.path.join(feathrise_scene_content::SCENE_CATALOG_ASSET_PATH), serde_json::to_vec(&catalog).unwrap()).unwrap();
     assert_eq!(validate_saved_scene_instances(&temporary.path, &catalog, &draft.manifest).unwrap().len(), 2);
-    let prepared = prepare_draft_writes(&temporary.path, &draft, None, None).unwrap();
+    let prepared = prepare_draft_writes(&temporary.path, &draft, None).unwrap();
     commit_prepared_writes_checked(prepared.writes, |_, path| {
         assert!(!path.starts_with(&source_folder), "父图事务不可写入源图目录");
         Ok(())
@@ -712,7 +656,7 @@ fn clipmap_mesh_water_saves_and_reopens_without_a_terrain_glb_and_rolls_back_as_
     std::fs::write(&placement_path, original_placements).unwrap();
     std::fs::write(&manifest_path, original_manifest).unwrap();
     for fail in [true, false] {
-        let prepared = prepare_draft_writes(&temporary.path, &draft, None, None).unwrap();
+        let prepared = prepare_draft_writes(&temporary.path, &draft, None).unwrap();
         assert!(prepared.placements_changed);
         let guard =
             super::super::domain_files::DraftSourceSaveGuard::prepare(&temporary.path, &draft)

@@ -146,6 +146,7 @@ fn primitive_placement_is_a_labeled_non_expandable_root() {
                 mesh: 6,
                 primitive: 0,
                 material: Some(2),
+                collision: false,
             },
             water_bindings: Vec::new(),
         }],

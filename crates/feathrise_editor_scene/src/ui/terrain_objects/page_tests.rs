@@ -34,7 +34,6 @@ mod creation_placement_tests;
 mod creation_gpu_tests;
 #[path = "../scene_sidebar/gpu_snapshot_tests.rs"]
 mod scene_directory_snapshot;
-pub(crate) use height_tests::height_domain_edited_draft_for_save;
 
 #[derive(Component, Clone, Copy, Default)]
 struct PageHost;
@@ -59,7 +58,7 @@ pub(crate) fn creation_page() -> (App, Entity) {
     app.world_mut().resource_mut::<SceneEditorSidebarState>().right = EditorRightSidebarTab::Tools;
     {
         let mut state = app.world_mut().resource_mut::<TerrainObjectsEditorState>();
-        state.creation_source = CreationSource::Heightfield;
+        state.creation_source = CreationSource::Clipmap;
         state.placement_mode = CreationPlacementMode::Coordinates;
     } // 既有规格输入夹具显式选择适用来源与坐标用途；正式新会话默认立方体点放。
     app.update();
@@ -718,8 +717,8 @@ fn mesh_creation_in_document_adds_all_backends_to_the_current_scene() {
             base_height: 0.0, height_scale: 16.0 }, 0.0).unwrap()).unwrap();
     feathrise_editor_core::set_runtime_test_asset_root(Some(root.clone()));
     let _reset = AssetRootReset;
-    for (create, kind) in [(Action::Glb, SceneTerrainKind::Heightfield), (Action::Clipmap, SceneTerrainKind::SparseClipmap),
-        (Action::Voxel, SceneTerrainKind::Voxel), (Action::ImportGlb, SceneTerrainKind::Gltf)] {
+    for (create, kind) in [(Action::Clipmap, SceneTerrainKind::SparseClipmap),
+        (Action::Voxel, SceneTerrainKind::Voxel)] {
         let (mut app, window) = creation_page();
         app.init_resource::<VegetationPresetEditorState>();
         app.world_mut().resource_mut::<VegetationPresetEditorState>().active_tab = PresetWorkspaceTab::Document;
@@ -1696,9 +1695,9 @@ fn per_mesh_policy_only_exposes_custom_fields_and_cycles_one_undoable_policy() {
 fn chinese_mesh_pages_stay_inside_narrow_and_wide_hosts_at_scaled_dpi() {
     // 保留原54组宽度/缩放/用途验收，并对两种原生LOD表示重复同一组真实中文字体布局。
     let mut combinations = 0;
-    for kind in [SceneTerrainKind::Heightfield, SceneTerrainKind::SparseClipmap, SceneTerrainKind::Voxel] {
+    for kind in [SceneTerrainKind::Gltf, SceneTerrainKind::SparseClipmap, SceneTerrainKind::Voxel] {
     let (mut app, _) = page();
-    if kind != SceneTerrainKind::Heightfield {
+    if kind != SceneTerrainKind::Gltf {
         configure_native(&mut app, kind, 6);
         app.update();
     }

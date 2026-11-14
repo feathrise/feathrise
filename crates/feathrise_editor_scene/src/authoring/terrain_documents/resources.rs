@@ -46,6 +46,7 @@ pub(crate) struct CanvasIdle<'w> {
     surface: Option<Res<'w, super::super::resources::SurfaceBrushStroke>>,
     vegetation: Option<Res<'w, super::super::resources::VegetationBrushStroke>>,
     vegetation_cross: Option<Res<'w, super::super::vegetation_paint_scope::VegetationPaintState>>,
+    vegetation_layers: Option<Res<'w, crate::ui::vegetation_layers::VegetationBlankLayerAllocation>>,
     water: Option<Res<'w, super::super::resources::WaterBrushStroke>>,
     terrain: Option<Res<'w, super::super::resources::TerrainBrushStroke>>,
     puddles: Option<Res<'w, super::super::PuddleAuthoringState>>,
@@ -55,6 +56,8 @@ pub(crate) struct CanvasIdle<'w> {
 impl CanvasIdle<'_> {
     pub fn busy(&self, session: &super::super::EditorAuthoringSession) -> bool {
         session.water_preset_delete_pending
+            || session.model_vegetation_busy
+            || self.vegetation_layers.as_ref().is_some_and(|state| state.busy())
             || self.surface.as_ref().is_some_and(|stroke| stroke.active)
             || self.vegetation_cross.as_ref().is_some_and(|state| state.busy())
             || self.vegetation.as_ref().is_some_and(|stroke| stroke.active)
@@ -78,7 +81,8 @@ fn vegetation_compile_pending(session: &super::super::EditorAuthoringSession) ->
     // 删除末作者层仍由结构脏标记覆盖，不能因作者脏集合为空而把旧正式密度一起保存。
     session.vegetation_compiled_revision != session.vegetation_revision
         && session.draft.as_ref().is_some_and(|draft| {
-            draft
+            super::super::vegetation_compile::density_canvas_is_active(draft)
+                && draft
                 .vegetation
                 .as_ref()
                 .is_some_and(|vegetation| vegetation.authoring.is_some())

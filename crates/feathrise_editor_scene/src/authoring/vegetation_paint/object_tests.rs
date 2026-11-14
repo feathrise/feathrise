@@ -24,6 +24,10 @@ use std::time::{Duration, Instant};
 
 #[path = "object_mesh_tests.rs"]
 mod object_mesh_tests;
+#[path = "object_height_tests.rs"]
+mod object_height_tests;
+#[path = "object_camera_tests.rs"]
+mod object_camera_tests;
 
 pub(crate) fn fixture() -> App {
     let mut draft = crate::authoring::test_heightfield_draft(Arc::new(vec![0; 121]));
@@ -71,6 +75,7 @@ pub(crate) fn fixture() -> App {
         .create_scene_layer(&folder);
     output.resolution = [3; 2];
     let mut vegetation = SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: SCENE_SCHEMA_VERSION,
         scene_id: draft.scene_id.clone(),
         layers: vec![output],

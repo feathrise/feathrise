@@ -8,7 +8,7 @@ use feathrise_scene::{DynamicBladeDraft, DynamicBladeDraftSnapshot, SubsceneActi
 use feathrise_scene_core::residency::InstanceResourceTable;
 use std::{ops::Bound::{Excluded, Unbounded}, sync::Arc};
 
-type Frozen = (Option<TerrainId>, Version, Arc<DynamicBladeDraftSnapshot>);
+type Frozen = (CanvasKey, Version, Arc<DynamicBladeDraftSnapshot>);
 
 fn source(world: &World, state: &EmbeddedVegetationState) -> Option<Source> {
     if !state.enabled || state.session == 0 || state.generation == 0 { return None; }
@@ -84,12 +84,23 @@ fn freeze(output: &DynamicBladeDraft, map: &SceneId, id: Option<TerrainId>, stat
     let snapshot = output.frozen_for_scene(map)?;
     let version = Version { published: output.revision_for_scene(map)?,
         layout: output.layout_revision_for_scene(map)?, source: snapshot.source_revision };
-    (state.acknowledged.get(&id) != Some(&version)).then_some((id, version, snapshot))
+    let key = (id, false);
+    (state.acknowledged.get(&key) != Some(&version)).then_some((key, version, snapshot))
 }
 
 /// 轮转检查资源表的固定前缀。一次编码/ACK之后继续上次游标，根画布不能饿死兄弟画布。
 fn capture(world: &World, state: &mut EmbeddedVegetationState, map: &SceneId) -> Vec<Frozen> {
     let mut result = Vec::new();
+    // 模型根不随活动地形的Owner切换；只共享完整索引，在唯一编码worker中扫描样本。
+    if let Some((revision, definition)) = world.get_resource::<feathrise_scene::DynamicModelVegetationDraft>()
+        .and_then(|output| output.frozen_for_scene(map)) {
+        let key = (None, true);
+        let version = Version { published: Arc::as_ptr(&definition) as usize as u64, layout: revision, source: revision };
+        if state.acknowledged.get(&key) != Some(&version) {
+            result.push((key, version, Arc::new(DynamicBladeDraftSnapshot { source_revision: revision,
+                definition: (*definition).clone(), sources: default(), densities: default(), nonzero_layers: default() })));
+        }
+    }
     let legacy = world.resource::<EditorAuthoringSession>().draft.as_ref().unwrap().manifest.terrains.is_none();
     let target = world.get_resource::<TerrainObjectAuthoringTarget>();
     let (session, generation) = (state.session, state.generation);
@@ -138,11 +149,11 @@ fn capture(world: &World, state: &mut EmbeddedVegetationState, map: &SceneId) ->
 fn encode(source: &Source, sequence: u64, frozen: Vec<Frozen>) -> Result<Arc<EmbeddedVegetationPreview>, String> {
     let mut canvases = Vec::new();
     let mut revision = 0;
-    for (terrain_id, version, snapshot) in frozen {
+    for ((terrain_id, models_only), version, snapshot) in frozen {
         revision = revision.max(version.source);
         let mut definition = snapshot.definition.clone();
-        definition.authoring = None; // 只传正式输出，作者竞争层/笔划历史仍由原作者World唯一拥有。
-        canvases.push(VegetationPreviewCanvas { terrain_id, source_revision: version.source,
+        if !models_only && definition.model_surfaces.is_empty() { definition.authoring = None; }
+        canvases.push(VegetationPreviewCanvas { terrain_id, models_only, source_revision: version.source,
             layout_revision: version.layout, definition, densities: snapshot.sources.clone(),
             nonzero_layers: snapshot.nonzero_layers.clone() });
     }

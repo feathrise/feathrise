@@ -266,11 +266,7 @@ fn tooltip_reports_known_real_conditions_without_hiding_the_operation_descriptio
     state.focus_available = true;
     assert_eq!(unavailable_reason(focus, &state), None);
     let save = TooltipAction::Editor(EditorAction::Save);
-    state.terrain_pending = true;
-    assert_eq!(
-        unavailable_reason(save, &state),
-        Some("地形高度、法线与碰撞仍在后台生成")
-    );
+    assert_eq!(unavailable_reason(save, &state), None);
     state.deletion_busy = true;
     assert_eq!(
         unavailable_reason(save, &state),

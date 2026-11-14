@@ -46,7 +46,7 @@ fn empty_scene_button_paint_save_and_reopen_keeps_actual_json_path_water_level_b
     let expected = draft.water_masks[&layer.id].clone();
     assert!(expected.iter().any(|pixel| *pixel > 0));
     let guard = crate::authoring::save::domain_files::DraftSourceSaveGuard::prepare(&temporary.path, &draft).unwrap();
-    let prepared = prepare_draft_writes(&temporary.path, &draft, None, None).unwrap();
+    let prepared = prepare_draft_writes(&temporary.path, &draft, None).unwrap();
     assert!(prepared.water_changed);
     commit_prepared_writes_checked(prepared.writes, move |_, path| guard.check(path))
         .unwrap_or_else(|error| panic!("空图静水事务失败：{}", error.message()));
@@ -113,8 +113,8 @@ fn root_and_private_water_share_one_save_transaction_and_reopen_without_source_m
     assert_eq!(saved, [object.id.clone()]);
     draft.manifest = manifest.unwrap();
     {
-        let mut prepared = prepare_draft_writes(&temporary.path, &draft, None, None).unwrap();
-        for projection in &projections { prepared.writes.extend(prepare_draft_writes(&temporary.path, projection, None, None).unwrap().writes); }
+        let mut prepared = prepare_draft_writes(&temporary.path, &draft, None).unwrap();
+        for projection in &projections { prepared.writes.extend(prepare_draft_writes(&temporary.path, projection, None).unwrap().writes); }
         commit_prepared_writes(prepared.writes).unwrap_or_else(|error| panic!("根水和私有水联合事务失败：{}", error.message()));
     } // 事务保存器借用冻结草稿，完整释放后才能实际切回根画布。
     let root = reopen_water(&temporary.path, &draft, draft.manifest.clone(), root_path.clone());
@@ -167,8 +167,8 @@ fn saved_root_water_stays_in_lists_after_selecting_empty_private_clipmap_and_can
     }));
     let (manifest, projections, _) = bevy::tasks::block_on(crate::authoring::save::terrain_documents::prepare(&draft)).unwrap();
     draft.manifest = manifest.unwrap();
-    let mut prepared = prepare_draft_writes(&temporary.path, &draft, None, None).unwrap();
-    for projection in &projections { prepared.writes.extend(prepare_draft_writes(&temporary.path, projection, None, None).unwrap().writes); }
+    let mut prepared = prepare_draft_writes(&temporary.path, &draft, None).unwrap();
+    for projection in &projections { prepared.writes.extend(prepare_draft_writes(&temporary.path, projection, None).unwrap().writes); }
     commit_prepared_writes(prepared.writes).unwrap_or_else(|error| panic!("根水和空私有文档事务失败：{}", error.message())); // 根水与空私有文档真实写入同一正式事务。
     let manifest = serde_json::from_slice(&std::fs::read(temporary.path.join(&draft.folder).join(SCENE_MANIFEST_FILE_NAME)).unwrap()).unwrap();
     let mut reopened = reopen_water(&temporary.path, &draft, manifest, root_path.clone());

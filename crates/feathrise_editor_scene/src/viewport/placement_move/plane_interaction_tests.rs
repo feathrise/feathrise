@@ -171,7 +171,7 @@ fn plane_motion_samples_new_xz_on_a_slope_and_preserves_terrain_offset() {
     let (mut app, root, node) = app();
     set_camera(&mut app, EditorView::Perspective, false);
     let heights = Arc::new((0..121).map(|i| (2 * (i % 11) + i / 11) as u16).collect());
-    let mut draft = test_heightfield_draft(heights);
+    let mut draft = test_clipmap_draft(heights, 2);
     let mut before = record();
     before.height_mode = ScenePlacementHeightMode::FollowTerrain;
     before.terrain_offset = 2.0;
@@ -351,6 +351,7 @@ fn plane_missing_height_cancels_or_resumes_at_both_new_coordinates() {
             .unwrap()
             .heights
             .take();
+        replace_ground_heights(&mut app, None);
         let cursor = point_on_plane(&app, Vec2::new(2.2, -2.2));
         step(&mut app, node, cursor);
         assert!(
@@ -368,12 +369,7 @@ fn plane_missing_height_cancels_or_resumes_at_both_new_coordinates() {
                 .contains("松手将取消")
         );
         if resumes {
-            app.world_mut()
-                .resource_mut::<EditorAuthoringSession>()
-                .draft
-                .as_mut()
-                .unwrap()
-                .heights = heights;
+            replace_ground_heights(&mut app, heights);
             step(&mut app, node, cursor);
             assert!(
                 app.world()

@@ -23,6 +23,7 @@ struct LiveBladeLayerState {
 #[derive(Resource, Default)]
 pub(crate) struct LiveBladeDensityState {
     pub(crate) dynamic: super::live_density_dynamic::DynamicLiveDensityState, // 同图草稿任务在关闭F12后继续完成。
+    model_identity: Option<(SceneId, u64, u64, usize)>, // 索引地址区分同图重开后归零的作者修订。
     scene_id: Option<SceneId>,   // 切换场景时整表失效，旧句柄不得接管新场景。
     prepared_revision: u64,  // 已为哪个编译修订建立正式层句柄集合。
     completed_revision: u64, // 全部Blade输出均写入后的完整修订门。
@@ -100,7 +101,22 @@ pub(crate) fn sync_live_blade_density(
     mut dynamic: ResMut<feathrise_scene::DynamicBladeDraft>, // 正式四级窗口读取完整内存快照。
     volume: Option<Res<super::volume_sculpt::VolumeAuthoringState>>,
     cross: Option<Res<super::vegetation_paint_scope::VegetationPaintState>>,
+    mut models: Option<ResMut<feathrise_scene::DynamicModelVegetationDraft>>,
 ) {
+    if let Some(models) = models.as_deref_mut() {
+        let current = session.draft.as_ref().filter(|draft| Some(&draft.scene_id) == active.scene_id.as_ref());
+        let identity = current.map(|draft| (draft.scene_id.clone(), session.vegetation_revision, session.vegetation_structure_revision,
+            super::terrain_documents::root_vegetation::source(draft).and_then(|source| source.vegetation)
+                .map_or(0, |definition| std::sync::Arc::as_ptr(&definition.model_surfaces) as usize)));
+        if identity != live.model_identity && !session.model_vegetation_busy {
+            if let Some(draft) = current {
+                if let Some(definition) = super::terrain_documents::root_vegetation::source(draft).and_then(|source| source.vegetation) {
+                    models.publish(draft.scene_id.clone(), session.vegetation_revision, std::sync::Arc::new(definition.clone()));
+                } else { models.clear(); }
+            } else { models.clear(); }
+            live.model_identity = identity;
+        }
+    }
     let planar = session.draft.as_ref().is_some_and(|draft| draft.terrain_manifest().terrain.kind != feathrise_scene_content::SceneTerrainKind::Voxel)
         && volume.as_ref().is_none_or(|volume| volume.planar_density_refresh_available(&session));
     if cross.as_ref().is_some_and(|state|state.busy()) {return;} // 跨网格完整批次拥有本笔的预览发布权。

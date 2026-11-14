@@ -16,6 +16,9 @@ const STAGING_ASSETS: &str = ".native-fixture-staging-assets";
 const EMPTY_BACKUP: &str = ".native-fixture-original-empty-assets";
 const MAX_EMPTY_ENTRIES: usize = 64;
 const MAX_SMALL_BYTES: u64 = 128 * 1024;
+pub(super) const MODEL_SURFACE_SOURCE: &str = "scenes/M1-SAMPLE/scene.glb";
+pub(super) const MODEL_SURFACE_ID: &str = "model-surface-fixture";
+const MODEL_VEGETATION_FOLDER: &str = "scene/vegetation-probe";
 
 /// 调用方必须先create_dir独占工作根并create_new写入父级owner，再新建空工程；不得用于已有作者工程。
 /// 本函数只在窗口启动前的显式验收流程调用，固定场景/纹理生成不进入Bevy帧关键路径。
@@ -50,8 +53,12 @@ pub(super) fn prepare(root: &Path, label: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     enable_validation_features(&mut manifest)?;
     fs::write(&manifest_path, toml::to_string_pretty(&manifest).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    let sources = copy_probe(&staging)?;
+    let mut sources = copy_probe(&staging)?;
     write_animation(&staging)?;
+    if std::env::var("FEATHRISE_MODEL_SURFACE_VALIDATION").as_deref() == Ok("1") {
+        sources.extend(copy_model_vegetation_probe(&staging)?);
+        write_model_surface_fixture(&staging)?;
+    }
     encode_surface(&staging)?;
     write_new(
         &root.join(".native-fixture-provenance.json"),
@@ -140,6 +147,114 @@ fn write_animation(assets: &Path) -> Result<(), String> {
     write_new(&assets.join("scene/animation.glb"), &glb)
 }
 
+/// 两层相距15厘米且互不连接。模型直接嵌入场景私有 GLB，保存仍走原摆放事务。
+fn write_model_surface_fixture(assets: &Path) -> Result<(), String> {
+    use feathrise_scene_content::{
+        SCENE_CATALOG_ASSET_PATH, SCENE_PLACEMENTS_FILE_NAME, SCENE_SCHEMA_VERSION,
+        SceneCatalogAsset, ScenePlacementAssetTarget, ScenePlacementsAsset, read_scene_placements,
+        write_scene_placements_glb,
+    };
+    const FOLDER: &str = "scenes/M1-SAMPLE";
+    const RELATIVE: &str = MODEL_SURFACE_SOURCE;
+    const MODEL: &str = MODEL_SURFACE_ID;
+    let positions: [[f32;3];8] = [[-2.,0.,-2.],[2.,0.,-2.],[2.,0.,2.],[-2.,0.,2.],
+        [-2.,0.15,-2.],[2.,0.15,-2.],[2.,0.15,2.],[-2.,0.15,2.]];
+    let indices = [0_u32,2,1,0,3,2,4,6,5,4,7,6];
+    let mut binary = Vec::new();
+    for value in positions.iter().flatten() { binary.extend_from_slice(&value.to_le_bytes()); }
+    for _ in 0..8 { for value in [0_f32,1.,0.] { binary.extend_from_slice(&value.to_le_bytes()); } }
+    for value in indices { binary.extend_from_slice(&value.to_le_bytes()); }
+    let document = json!({
+        "asset":{"version":"2.0","generator":"Feathrise owned model surface validation"},
+        "scene":0,"scenes":[{"nodes":[0,1]}],
+        "nodes":[{"name":"Feathrise","extras":{"feathrise_scene_id":"M1-SAMPLE","feathrise_scene_version":SCENE_SCHEMA_VERSION}},
+            {"name":"双层种植平面","mesh":0,"translation":[12.,1.,12.],
+                "extras":{"feathrise_id":MODEL,"feathrise_collision":false}}],
+        "meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1},"indices":2,"material":0}]}],
+        "materials":[{"doubleSided":true,"pbrMetallicRoughness":{"baseColorFactor":[0.42,0.40,0.30,1.],"metallicFactor":0.,"roughnessFactor":0.9}}],
+        "buffers":[{"byteLength":binary.len()}],
+        "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":96,"target":34962},
+            {"buffer":0,"byteOffset":96,"byteLength":96,"target":34962},
+            {"buffer":0,"byteOffset":192,"byteLength":48,"target":34963}],
+        "accessors":[{"bufferView":0,"componentType":5126,"count":8,"type":"VEC3","min":[-2.,0.,-2.],"max":[2.,0.15,2.]},
+            {"bufferView":1,"componentType":5126,"count":8,"type":"VEC3"},
+            {"bufferView":2,"componentType":5125,"count":12,"type":"SCALAR"}]
+    });
+    let mut json = serde_json::to_vec(&document).map_err(|error| error.to_string())?;
+    while json.len() % 4 != 0 { json.push(b' '); }
+    let mut glb = b"glTF".to_vec();
+    glb.extend_from_slice(&2_u32.to_le_bytes());
+    glb.extend_from_slice(&((28 + json.len() + binary.len()) as u32).to_le_bytes());
+    glb.extend_from_slice(&(json.len() as u32).to_le_bytes());
+    glb.extend_from_slice(b"JSON"); glb.extend_from_slice(&json);
+    glb.extend_from_slice(&(binary.len() as u32).to_le_bytes());
+    glb.extend_from_slice(b"BIN\0"); glb.extend_from_slice(&binary);
+    // 原写入器合并模板摆放，保留共享资产引用以及桥的网格索引和原始 BIN。
+    let mut placements: ScenePlacementsAsset = serde_json::from_slice(
+        &read_small(&assets.join(FOLDER).join(SCENE_PLACEMENTS_FILE_NAME))?,
+    ).map_err(|error| error.to_string())?;
+    let bridge = read_scene_placements(&glb, RELATIVE)?;
+    if placements.scene_id != bridge.scene_id || placements.placements.iter().any(|record| record.id == MODEL)
+        || !matches!(bridge.placements.as_slice(), [record] if record.id == MODEL && record.asset_path == RELATIVE
+            && matches!(record.asset_target, ScenePlacementAssetTarget::Primitive { mesh: 0, primitive: 0, collision: false, .. }))
+    {
+        return Err("模型验收夹具缺少唯一无碰撞私有 GLB 网格".into());
+    }
+    placements.placements.extend(bridge.placements);
+    let scene_glb = write_scene_placements_glb(&placements, RELATIVE, Some(&glb))?;
+    if read_scene_placements(&scene_glb, RELATIVE)?.placements != placements.placements {
+        return Err("模型验收私有 GLB 未完整保留原模板摆放".into());
+    }
+    write_new(&assets.join(RELATIVE), &scene_glb)?;
+
+    // 只有本轮暂存目录的示例图切换为私有 GLB，其他场景和模板原 JSON 保持各自来源。
+    let catalog_path = assets.join(SCENE_CATALOG_ASSET_PATH);
+    let mut catalog: SceneCatalogAsset = serde_json::from_slice(&read_small(&catalog_path)?)
+        .map_err(|error| error.to_string())?;
+    let row = catalog.scenes.iter_mut().find(|row| row.id == placements.scene_id && row.folder == FOLDER)
+        .ok_or("模型验收夹具缺少示例场景目录项")?;
+    row.placements_glb = true;
+    fs::write(catalog_path, serde_json::to_vec_pretty(&catalog).map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())?;
+    // 正常主视图仍由工程控制器创建，只调整本轮自有场景的观察起点。
+    // F12 与独立运行截图必须直接看到桥面的种植结果，不能只拍到原点处的另一块探针模型。
+    let manifest_path = assets.join(FOLDER).join(feathrise_scene_content::SCENE_MANIFEST_FILE_NAME);
+    let mut manifest: Value = serde_json::from_slice(&read_small(&manifest_path)?)
+        .map_err(|error| error.to_string())?;
+    manifest["default_spawn"] = json!([12., 2., 16.]);
+    fs::write(manifest_path, serde_json::to_vec_pretty(&manifest).map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// 验收读回私有 GLB 和原局部网格，确认保存后的模型锚点仍落在桥面。
+pub(super) fn verify_private_model_surface(
+    assets: &Path,
+    density: &feathrise_scene_content::ModelSurfaceVegetation,
+) -> Result<feathrise_scene_content::ScenePlacementRecord, String> {
+    use feathrise_scene_content::{ScenePlacementAssetTarget, SurfaceTarget, read_scene_placements};
+    let placements = read_scene_placements(
+        &read_small(&assets.join(MODEL_SURFACE_SOURCE))?, MODEL_SURFACE_SOURCE,
+    )?;
+    let record = placements.placements.into_iter().find(|record| record.id == MODEL_SURFACE_ID)
+        .ok_or("保存后的私有 GLB 缺少原模型稳定 ID")?;
+    if placements.scene_id.as_str() != "M1-SAMPLE" || record.asset_path != MODEL_SURFACE_SOURCE
+        || !matches!(record.asset_target, ScenePlacementAssetTarget::Primitive {
+            mesh: 0, primitive: 0, collision: false, ..
+        }) || !matches!(&density.target, SurfaceTarget::Model { object_id } if object_id == &record.id)
+    {
+        return Err("保存后的种植目标没有绑定原私有 GLB 网格".into());
+    }
+    let geometry = feathrise_scene::paint_surface::load_model_surface(assets, &record)?;
+    if geometry.topology() != density.topology || density.samples.is_empty()
+        || density.samples.iter().any(|sample| geometry.resolve(sample.anchor, bevy::math::Mat4::IDENTITY)
+            .is_none_or(|hit| (hit.local_position.y - 0.15).abs() > 0.001))
+    {
+        return Err("保存后的私有 GLB 网格与原桥面作者锚点不匹配".into());
+    }
+    Ok(record)
+}
+
 fn owned_project_root(root: &Path) -> Result<PathBuf, String> {
     require_ordinary(root, true)?;
     let root = root.canonicalize().map_err(|error| error.to_string())?;
@@ -174,6 +289,21 @@ fn copy_probe(assets: &Path) -> Result<Vec<Value>, String> {
         write_new(&assets.join("scene").join(name), bytes)?;
         let sha256: String = Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect();
         sources.push(json!({"source":relative,"embedded":true,"destination":format!("scene/{name}"),"bytes":bytes.len(),"sha256":sha256}));
+    }
+    Ok(sources)
+}
+
+/// 模型种植原型与后续GLB/贴图热更新专项分目录，保持原GLB相邻贴图引用且互不污染。
+fn copy_model_vegetation_probe(assets: &Path) -> Result<Vec<Value>, String> {
+    let mut sources = Vec::new();
+    for (source, name) in [("probe.glb", "vegetation-probe.glb"), ("albedo.png", "albedo.png")] {
+        let bytes = scene_fixture(source)?;
+        let destination = format!("{MODEL_VEGETATION_FOLDER}/{name}");
+        write_new(&assets.join(&destination), bytes)?;
+        let sha256: String = Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect();
+        sources.push(json!({"source":format!("tests/fixtures/scene/{source}"),"embedded":true,
+            "destination":destination,"bytes":bytes.len(),"sha256":sha256,
+            "purpose":"isolated-model-surface-vegetation-runtime"}));
     }
     Ok(sources)
 }
@@ -367,5 +497,25 @@ mod tests {
         let float = |offset| f32::from_le_bytes(binary[offset..offset + 4].try_into().unwrap());
         assert_eq!((float(36), float(40)), (0., 1.));
         assert_eq!((float(56), float(60), float(64)), (0., 0.1, 0.));
+    }
+
+    #[test]
+    fn model_vegetation_source_and_adjacent_texture_survive_other_probe_hot_reload() {
+        let directory = OwnedDirectory::new();
+        copy_probe(&directory.0).unwrap();
+        let sources = copy_model_vegetation_probe(&directory.0).unwrap();
+        // 重现另一专项替换同名GLB与贴图；种植预设必须仍看到完整原型和原相邻贴图。
+        fs::write(directory.0.join("scene/probe.glb"), b"other-model-hot-reload").unwrap();
+        fs::write(directory.0.join("scene/albedo.png"), b"other-texture-hot-reload").unwrap();
+        for (index, source, destination) in [
+            (0, "probe.glb", "vegetation-probe.glb"), (1, "albedo.png", "albedo.png"),
+        ] {
+            let relative = format!("{MODEL_VEGETATION_FOLDER}/{destination}");
+            let bytes = fs::read(directory.0.join(&relative)).unwrap();
+            assert_eq!(bytes, scene_fixture(source).unwrap());
+            let digest: String = Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect();
+            assert_eq!(sources[index]["destination"], relative);
+            assert_eq!(sources[index]["sha256"], digest);
+        }
     }
 }

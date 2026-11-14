@@ -130,15 +130,11 @@ fn click_action(app: &mut App, window: Entity, camera: Entity, action: DocumentA
     let target = app.world().get::<bevy::camera::RenderTarget>(camera).unwrap().clone();
     app.world_mut().get_mut::<Window>(window).unwrap().set_physical_cursor_position(Some(position.as_dvec2()));
     *app.world_mut().get_mut::<bevy::camera::RenderTarget>(camera).unwrap() = bevy::camera::RenderTarget::Window(bevy::window::WindowRef::Entity(window));
-    app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
-    app.world_mut().run_system_cached(bevy::ui::ui_focus_system).unwrap();
-    app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
+    super::super::super::tab_menu::gpu_pointer_input(app,window,position,MouseButton::Left,bevy::input::ButtonState::Pressed);
     assert_eq!(*app.world().get::<UiInteraction>(button).unwrap(), UiInteraction::Pressed);
     app.world_mut().run_system_once(super::super::interaction::actions).unwrap();
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
-    app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
-    app.world_mut().run_system_cached(bevy::ui::ui_focus_system).unwrap();
-    app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
+    super::super::super::tab_menu::gpu_pointer_input(app,window,position,MouseButton::Left,bevy::input::ButtonState::Released);
     app.world_mut().run_system_once(super::super::interaction::actions).unwrap();
     *app.world_mut().get_mut::<bevy::camera::RenderTarget>(camera).unwrap() = target;
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();

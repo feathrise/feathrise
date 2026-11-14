@@ -499,6 +499,7 @@ impl AssetPreviewState {
                     mesh,
                     primitive,
                     material,
+                    collision: false,
                 })
             }
             _ => Ok(ScenePlacementAssetTarget::Scene0), // Scene0和任何不完整单体身份都不猜测子资产。

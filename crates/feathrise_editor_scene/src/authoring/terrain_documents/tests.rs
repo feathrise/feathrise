@@ -8,37 +8,33 @@ use std::sync::Arc;
 mod root_water_history_tests;
 
 #[test]
-fn height_domain_cached_canvas_rebind_keeps_parked_unsaved_geometry_and_pixels() {
+fn clipmap_source_rebind_keeps_unsaved_pixels_and_retires_cached_finite_geometry() {
     use bevy::prelude::*;
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
     let mut draft = crate::authoring::test_heightfield_draft(Arc::new(vec![0; 121]));
-    draft.manifest.terrain.base_height = -20.0;
-    draft.manifest.terrain.height_scale = 40.0;
-    draft.manifest.terrain.glb_path = "scenes/EDGE-TEST/missing-domain-baseline.glb".into();
-    Arc::make_mut(draft.terrain_mesh.as_mut().unwrap()).positions[60][1] = 12.5;
-    draft.terrain_dirty = true;
+    draft.manifest.terrain.kind = feathrise_scene_content::SceneTerrainKind::SparseClipmap;
+    draft.manifest.terrain.height_path = Some("scenes/EDGE-TEST/terrain/old.scene_height_manifest.json".into());
     draft.surface_weights = Some(Arc::new(vec![93; 16]));
     draft.surface_dirty = true;
     ensure_primary_canvas(&mut draft);
-    let mesh = draft.terrain_mesh.clone().unwrap();
     let pixels = draft.surface_weights.clone().unwrap();
     let mut parked = TerrainCanvas::default();
     parked.swap(&mut draft);
-    for span in [80.0, 40.0, 80.0] {
+    for version in ["next-a", "next-b", "next-c"] {
         let mut identity = parked.identity.clone().unwrap();
         let mut object = (*identity.definition).clone();
-        object.terrain.base_height = -span * 0.5;
-        object.terrain.height_scale = span;
+        let path = format!("scenes/EDGE-TEST/terrain/{version}.scene_height_manifest.json");
+        object.terrain.height_path = Some(path.clone());
         identity.manifest.terrain = object.terrain.clone();
         identity.definition = Arc::new(object);
         parked = bevy::tasks::block_on(super::load::load(identity, Some(Arc::new(parked)), false, false)).unwrap();
-        assert!(Arc::ptr_eq(parked.terrain_mesh.as_ref().unwrap(), &mesh));
+        // 分页源是唯一几何权威；停放画布只保留未保存像素，不能沿用旧有限GLB的Mesh或重采样高度。
+        assert!(parked.terrain_mesh.is_none() && parked.terrain_editing_index.is_none());
+        assert!(parked.heights.is_none() && parked.terrain_source_sha256.is_none());
         assert!(Arc::ptr_eq(parked.surface_weights.as_ref().unwrap(), &pixels));
-        assert!(parked.terrain_dirty && parked.surface_dirty);
-        assert_eq!(parked.terrain_source_sha256, Some([7; 32]));
-        let sampled = -span * 0.5 + f32::from(parked.heights.as_ref().unwrap()[60]) / 65535.0 * span;
-        assert!((sampled - 12.5).abs() <= span / 65535.0);
+        assert!(parked.surface_dirty);
+        assert_eq!(parked.identity.as_ref().unwrap().definition.terrain.height_path.as_ref(), Some(&path));
     }
 }
 
@@ -65,6 +61,7 @@ fn vegetation_fixture(
     use feathrise_scene_content::*;
     let folder = draft.terrain_folder();
     SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: SCENE_SCHEMA_VERSION,
         scene_id: draft.scene_id.clone(),
         layers: vec![SceneVegetationLayer {
@@ -623,6 +620,65 @@ fn explicit_primary_cached_focus_adopts_complete_vegetation_pixels_instead_of_em
     assert_eq!(draft.vegetation_author_densities["author"].as_slice(), &[173; 16]);
     assert_eq!(draft.vegetation_densities["grass"].as_slice(), &[93; 16]);
     assert_eq!(session.revision, 1);
+}
+
+#[test]
+fn dirty_model_root_focus_does_not_wait_for_2d_compile_and_keeps_its_transaction_and_save_responsibility() {
+    use bevy::{ecs::system::RunSystemOnce, prelude::*};
+    use crate::authoring::vegetation_compile::{VegetationCompileState, start_vegetation_compile, poll_vegetation_compile};
+    let mut app = explicit_primary_focus_fixture(true);
+    let root_pixels = Arc::new(vec![77; 16]);
+    let mut model = feathrise_scene_content::ModelSurfaceVegetation::empty("root-model", [3; 32], 0.25);
+    model.samples.push(feathrise_scene_content::ModelSurfaceVegetationSample {
+        anchor: feathrise_scene_content::ModelSurfaceAnchor { primitive: 0, triangle: 1, barycentric: [0.2, 0.3] },
+        layers: vec![("author".into(), 144)],
+    });
+    let root_model = Arc::new(model);
+    {
+        let mut session = app.world_mut().resource_mut::<crate::authoring::EditorAuthoringSession>();
+        let draft = session.draft.as_mut().unwrap();
+        let mut vegetation = vegetation_fixture(draft);
+        vegetation.model_surfaces = vec![root_model.clone()].into();
+        draft.vegetation = Some(vegetation);
+        draft.vegetation_author_densities.insert("author".into(), root_pixels.clone());
+        draft.vegetation_densities.insert("grass".into(), Arc::new(vec![19; 16]));
+        draft.vegetation_dirty_layers.insert("grass".into());
+        draft.vegetation_author_dirty_layers.insert("author".into());
+        draft.vegetation_registration_source_hash = Some("missing".into());
+        draft.terrain_documents.root_vegetation_dirty = true;
+        draft.terrain_documents.active_dirty = true;
+        session.vegetation_revision = 1;
+        session.model_vegetation_busy = true;
+    }
+    // 根模型只编译稀疏表面，但整笔计算仍必须完整收口后才能停放，不能借载体判断绕过事务门。
+    app.world_mut().run_system_once(super::systems::focus).unwrap();
+    assert!(app.world().resource::<TerrainDocumentTask>().pending.is_none());
+    app.world_mut().resource_mut::<crate::authoring::EditorAuthoringSession>().model_vegetation_busy = false;
+    app.init_resource::<VegetationCompileState>().add_systems(Update,
+        (start_vegetation_compile, poll_vegetation_compile).chain().before(super::systems::focus));
+    app.update();
+    assert!(app.world().resource::<VegetationCompileState>().task.is_none(), "模型根槽不会产生二维编译回执");
+    assert!(app.world().resource::<TerrainDocumentTask>().pending.is_some(), "事务已收口即可受理原画布载入");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        app.update();
+        if app.world().resource::<crate::authoring::EditorAuthoringSession>().draft.as_ref().unwrap()
+            .terrain_documents.active.is_some() { break; }
+        assert!(std::time::Instant::now() < deadline, "首个私有画布不能等待不存在的根二维编译");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    let session = app.world().resource::<crate::authoring::EditorAuthoringSession>();
+    let draft = session.draft.as_ref().unwrap();
+    let root = root_vegetation::source(draft).unwrap();
+    assert!(Arc::ptr_eq(&root.vegetation.unwrap().model_surfaces[0], &root_model));
+    assert!(Arc::ptr_eq(&root.author_densities["author"], &root_pixels));
+    assert_eq!(root.densities["grass"].as_slice(), &[19; 16]);
+    assert!(root.author_dirty_layers.contains("author") && root.dirty_layers.contains("grass"));
+    assert_eq!(root.registration_source_hash.map(String::as_str), Some("missing"));
+    assert!(draft.terrain_documents.root_vegetation.as_ref().unwrap().dirty());
+    assert_eq!(draft.vegetation_author_densities["author"].as_slice(), &[173; 16]);
+    assert_eq!(draft.vegetation.as_ref().unwrap().model_surfaces.len(), 0);
+    assert!(draft.stored_terrain_changes());
 }
 
 /// 新建静水通过真实画布load/采用系统续接；缓存只替代磁盘夹具，不直接伪造完成回执。

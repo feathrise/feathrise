@@ -7,17 +7,17 @@ use bevy::tasks::futures::check_ready; // Update只非阻塞探测结果。
 use feathrise_scene_content::SceneId; // 保存预检与缓存发布单测构造稳定场景身份。
 use feathrise_scene_content::{
     ActiveDynamicScene, SCENE_BOUNDARIES_FILE_NAME, SCENE_CATALOG_ASSET_PATH, SCENE_MANIFEST_FILE_NAME,
-    SCENE_PLACEMENTS_FILE_NAME, SCENE_PORTALS_FILE_NAME, SCENE_VEGETATION_FILE_NAME, SceneContentRegistry,
+    SCENE_PORTALS_FILE_NAME, SCENE_VEGETATION_FILE_NAME, SceneContentRegistry,
     SceneManifestAsset, ScenePlacementsAsset, SceneSurfaceAsset, SceneVegetationAsset, SceneWaterAsset,
     WORLD_ENVIRONMENT_ASSET_PATH, WorldEnvironmentRegistry,
 }; // 保存成功后显式重载稳定正式资产路径。
 use feathrise_scene::{
-    DynamicTerrainHeightStatus, DynamicWaterRebuildRequest, DynamicWaterStatus,
+    DynamicWaterRebuildRequest, DynamicWaterStatus,
     ScenePlacementRebuildRequest, ScenePlacementRuntimeStatus,
 }; // 保存地形、水域与摆放只接受公开正式运行时完成证据。
 
 use super::resources::{
-    DraftSaveTask, EditorAuthoringSession, GlobalEnvironmentAuthoringState, TerrainLiveApplyState,
+    DraftSaveTask, EditorAuthoringSession, GlobalEnvironmentAuthoringState,
 };
 use super::terrain_external::TerrainExternalChangeState; // SHA冲突转为可见“采用/覆盖”模态状态。
 use super::water_handoff::WaterFileHandoff; // 保存完成路径只编排正式交接与分帧预览回收。
@@ -25,11 +25,11 @@ use crate::resources::SceneEditorState;
 
 mod batch; // 所有JSON、作者源、派生资产与目录先在内存组成一个完成批次。
 mod terrain_documents; // 多地形画布投影与清单最后发布，共用同一次回滚事务。
-mod blender_sync; // 可选工具可用时，动态GLB与同名Blend stage共同参与原子保存。
-pub(crate) use blender_sync::find_blender_executable;
+mod blender_executable; // 绑骨仍复用有界工具发现；不再关联已退休的高度地形保存转换。
+pub(crate) use blender_executable::find_blender_executable;
 mod domain_files; // 外部文档版本核对与流式写项，不解释或复制正文。
 mod global; // 仅全局配置脏时绕过全部场景预检的单文件原子保存。
-mod handoff_helpers; // 地形Scene0身份与文件事件代次基线保持独立小型纯辅助。
+mod handoff_helpers; // 水域文件事件代次基线保持独立小型纯辅助。
 mod output_paths; // 水输出与场景全部其他权威/引用资产在首写入前统一检查碰撞。
 mod placement_handoff; // 摆放内容变化检测后的正式发布、严格新修订门和原样失败重建。
 mod portal_handoff; // 传送图立即发布并在正式新Ready修订前保留作者预览。
@@ -65,7 +65,7 @@ pub(crate) use start::{
     observe_replaced_placement_water_status, register_placement_water_evidence_root,
     start_draft_save, unregister_placement_water_evidence_root,
 }; // 保存入口与证据生命周期observer从同一功能域导出，稳定帧不靠全量Query维护缓存。
-use surface_publish::SavedSurfacePublish; // 地表发布输入在清脏前冻结并先于terrain.glb执行。
+use surface_publish::SavedSurfacePublish; // 地表发布输入在清脏前冻结，与Clipmap作者源共用本批保存证据。
 #[cfg(test)]
 use transaction::{PreparedWrite, commit_with_replace_hook}; // 纯文件故障注入验证无缺席原子替换与整批回滚。
 #[cfg(test)]
@@ -95,7 +95,6 @@ pub(crate) fn poll_draft_save(
     mut surfaces: ResMut<Assets<SceneSurfaceAsset>>, // 地表定义真实变化时只替换目录持有的唯一正式句柄。
     mut vegetations: ResMut<Assets<SceneVegetationAsset>>, // 切换场景前同步作者结构并产生唯一Modified事件。
     mut waters: ResMut<Assets<SceneWaterAsset>>, // 静水、河流和瀑布同样立即替换唯一正式缓存。
-    mut terrain_live: ResMut<TerrainLiveApplyState>, // GLB、正式材质与Trimesh完成前保留内存候选。
     mut runtime_water: ParamSet<(
         Res<ActiveDynamicScene>,
         Res<DynamicWaterStatus>,
@@ -103,7 +102,6 @@ pub(crate) fn poll_draft_save(
         Res<ScenePlacementRuntimeStatus>,
         MessageWriter<ScenePlacementRebuildRequest>,
         ResMut<TerrainExternalChangeState>,
-        Res<DynamicTerrainHeightStatus>,
     )>, // 同一参数集冻结两类正式证据，并在全部发布动作之前写对应重建请求。
     mut water_handoff: ResMut<WaterFileHandoff>, // 在发布水JSON前先持有本次脏R8作者源。
     real_time: Res<Time<Real>>,                // 文件交接截止使用F12暂停期间仍推进的真实时间。
@@ -169,8 +167,7 @@ pub(crate) fn poll_draft_save(
             let surface_definition_changed = success.surface_definition_changed; // 只有JSON真正进入事务才发布正式定义。
             let surface_weights_changed = success.surface_weights_changed; // 只有RGBA/KTX2真正进入事务才重载权重纹理。
             let surface_handoff_changes = success.active_terrain_surface_changes.unwrap_or((surface_definition_changed, surface_weights_changed)); // 独立网格按自己写盘的回执建门，不能借空容器的false提前归还文件。
-            let terrain_sha256 = success.terrain_sha256; // 成功写入的GLB摘要成为后续Blender并发检查基线。
-            let terrain_blend_generated = success.terrain_blend_generated; // 同名Blend已经与GLB一起完成原子发布。
+            let placement_glb_hash = success.placement_glb_hash;
             let scene_id = success.scene_id; // 保存身份在下方所有显式reload与交接门中保持一致。
             let mut catalog_registration_changed = false; // 清脏前冻结是否需要显式刷新全局目录。
             let mut water_catalog_registration_required = false; // 当前水交接失败时必须恢复首次water_path登记责任。
@@ -188,16 +185,14 @@ pub(crate) fn poll_draft_save(
             let mut water_snapshot = None; // 保存成功的静水、河流与瀑布完整JSON立即发布到现有句柄。
             let mut dirty_water_layer_ids = Vec::new(); // 交接失败时恢复原脏层，普通重试会再次写入raw R8/KTX2。
             let mut dirty_water_mask_paths = Vec::new(); // 清脏前冻结本次真正改写的权威R8作者源。
-            let mut terrain_glb_path = None; // 地形变化时显式重载唯一GLB作者源，不依赖文件监听时序。
-            let mut height_source_path = None; // 仅静态/专用兼容场景显式重载磁盘高度源。
-            let mut height_texture_path = None; // 仅静态/专用兼容场景显式重载GPU高度纹理。
-            let terrain_revision = session.terrain_revision; // 文件交接冻结本次成功保存的GLB地形修订。
+            let terrain_revision = session.terrain_revision; // 水域交接仍须绑定同次Clipmap高度修订，不能借用旧河床。
             let water_revision = session.water_revision; // 水交接绑定保存成功时的作者修订，后续笔划会作废旧门。
             if let Some(draft) = session.draft.as_mut() {
                 let root_water = super::terrain_documents::root_water::source(draft);
                 catalog_registration_changed = (draft.domain.as_ref().is_some_and(|domain| domain.registration_required())
                     && domain_hash.is_some())
-                    || draft.vegetation_registration_source_hash.is_some() // 首次植被入口成功落盘后主动刷新目录。
+                    || super::terrain_documents::root_vegetation::source(draft)
+                        .is_some_and(|source| source.registration_source_hash.is_some())
                     || root_water.registration_required
                     || draft.boundary_catalog_registration_required; // 两类新入口都通过同一目录原子替换发布。
                 water_catalog_registration_required = root_water.registration_required; // 清脏前冻结真正根水的登记责任。
@@ -214,11 +209,10 @@ pub(crate) fn poll_draft_save(
                     SCENE_MANIFEST_FILE_NAME
                 )); // 保存总会原子写入完整清单，显式重载避免文件监听合并延迟玩法天空交接。
                 manifest_snapshot = Some(draft.manifest.clone()); // 清理环境脏位前冻结本次成功保存的完整正式值。
-                placements_asset_path = Some(format!(
-                    "{}/{}",
-                    draft.folder.trim_end_matches('/'),
-                    SCENE_PLACEMENTS_FILE_NAME
-                )); // 显式摆放文件总会落盘；句柄未就绪时仍必须主动请求最新值。
+                if let Some(hash) = placement_glb_hash {
+                    draft.placement_glb_hash = Some(hash); // 只采用本次事务确认落盘的精确版本。
+                }
+                placements_asset_path = Some(draft.placements_path());
                 placements_snapshot = Some(draft.placements.clone()); // 小型记录和网格水体覆盖与本次磁盘事务完全同源。
                 portals_asset_path = Some(format!(
                     "{}/{}",
@@ -231,7 +225,8 @@ pub(crate) fn poll_draft_save(
                     surface_definition_changed,
                     surface_weights_changed,
                 ); // 定义与权重发布输入只由后台真实写入证据冻结。
-                if draft.manifest.terrains.is_none() && let Some(vegetation) = draft.vegetation.as_ref() {
+                if let Some(vegetation) = super::terrain_documents::root_vegetation::source(draft)
+                    .and_then(|source| source.vegetation) {
                     vegetation_asset_path = Some(format!(
                         "{}/{}",
                         draft.folder.trim_end_matches('/'),
@@ -250,17 +245,6 @@ pub(crate) fn poll_draft_save(
                             dirty_water_layer_ids.push(layer.id.clone()); // 正式schema保证层ID与独占路径一一对应。
                             dirty_water_mask_paths.push(layer.mask_source_path.clone()); // 同一路径只持有并重载一次，严格沿用本批脏层身份。
                         }
-                    }
-                }
-                if draft.terrain_dirty {
-                    terrain_glb_path = Some(draft.manifest.terrain.glb_path.clone()); // 与后台刚写入的派生文件严格同路径。
-                    if !draft.manifest.is_data_driven() {
-                        height_source_path = draft.manifest.terrain.height_path.clone(); // 静态/专用兼容场景继续显式重载磁盘高度源。
-                        height_texture_path = draft.manifest.terrain.height_texture_path.clone(); // 静态/专用GPU高度纹理保持旧路径。
-                    }
-                    if let Some(digest) = terrain_sha256 {
-                        draft.terrain_source_sha256 = Some(digest); // 当前F12保存值成为新的精确外部基线。
-                        draft.terrain_overwrite_authorized_sha256 = None; // 一次性覆盖授权随成功提交立即消费。
                     }
                 }
                 draft.terrain_dirty = false;
@@ -297,6 +281,7 @@ pub(crate) fn poll_draft_save(
                 draft.water_catalog_registration_required = false;
                 draft.water_registration_source_hash = None; // 水JSON与目录同批成功后才解除并发基线责任。
                 super::terrain_documents::root_water::clear_saved(draft);
+                super::terrain_documents::root_vegetation::clear_saved(draft);
                 if let Some(hash) = domain_hash && let Some(domain) = draft.domain.as_mut() {
                     domain.value = (domain.ops.saved)(&*domain.value, &hash);
                     asset_server.reload(domain.asset_path().to_owned());
@@ -374,7 +359,7 @@ pub(crate) fn poll_draft_save(
                 let baseline_generation = water_handoff_generation_baseline(
                     snapshot.baseline_generation,
                     current_water_generation,
-                ); // IO期间manifest/R8/GLB事件可能已推进代次；最终JSON与地形发布后仍须严格再前进一代。
+                ); // IO期间清单、R8或分页高度源可能已推进代次；最终保存批次仍须严格再前进一代。
                 let mut layer_ids = Vec::with_capacity(snapshot.dirty_layers.len());
                 let mut mask_paths = Vec::with_capacity(snapshot.dirty_layers.len());
                 let mut texture_paths = Vec::with_capacity(snapshot.dirty_layers.len());
@@ -497,37 +482,7 @@ pub(crate) fn poll_draft_save(
                     success.surface_source_identity,
                 ); // 先武装再主动reload，早到文件监听不能吞掉本次门。
             }
-            surface_publish.publish(registry.as_deref(), &scene_id, &mut surfaces, &asset_server); // 地表定义与权重全部先于高度源和terrain.glb发布。
-            if let Some(path) = height_source_path {
-                asset_server.reload(path); // 不等待Windows文件监听合并，显式发布兼容场景的新量化高度快照。
-            }
-            if let Some(path) = height_texture_path {
-                asset_server.reload(path); // 高度纹理与正式白模必须来自同一次成功保存。
-            }
-            let terrain_handoff_started = terrain_glb_path.as_deref().is_some_and(|path| {
-                let is_current_scene = runtime_water.p0().scene_id.as_ref() == Some(&scene_id);
-                let generation_baseline = runtime_water.p6().desired_generation;
-                if is_current_scene {
-                    match terrain_live.begin_file_handoff(
-                        scene_id.clone(),
-                        terrain_revision,
-                        generation_baseline,
-                        real_time.elapsed(),
-                    ) {
-                        Ok(()) => {
-                            asset_server.reload(path.to_owned()); // 先冻结旧派生代次，再发布GLB，避免快速事件越过交接门。
-                            true // 当前可见场景必须等新GLB全套派生结果完成。
-                        }
-                        Err(error) => {
-                            scene_handoff_start_error = Some(error); // 下方统一恢复terrain_dirty并取消本次关闭。
-                            false
-                        }
-                    }
-                } else {
-                    asset_server.reload(path.to_owned()); // 非当前场景无需阻止F12，下次进入时自然加载完整文件结果。
-                    false // 非当前场景只需刷新磁盘资产，下次进入自然读取新GLB。
-                }
-            });
+            surface_publish.publish(registry.as_deref(), &scene_id, &mut surfaces, &asset_server); // 高度分页源由独立文档回执重载；地表只发布本批真实写入的定义和权重。
             {
                 let mut placement_rebuild_requests = runtime_water.p4();
                 execute_placement_publish(
@@ -570,9 +525,6 @@ pub(crate) fn poll_draft_save(
                 if let Some(draft) = session.draft.as_mut() {
                     super::terrain_documents::root_water::restore_dirty(draft,
                         dirty_water_layer_ids.iter().cloned(), water_catalog_registration_required);
-                    if terrain_glb_path.is_some() {
-                        draft.terrain_dirty = true; // 同次GLB地形尚未建立可验证身份，重试必须完整重写地形。
-                    }
                 }
                 editor.dirty = true; // 磁盘已写入但正式水域交接身份不完整，保留显式重试入口。
                 if placement_preparation.handoff_required {
@@ -597,38 +549,18 @@ pub(crate) fn poll_draft_save(
                 return;
             }
             session.successful_save_sequence = session.successful_save_sequence.wrapping_add(1); // 文件事务及交接建门成功，切换场景续接才有正式回执。
-            let save_prefix = if terrain_blend_generated {
-                format!("场景{scene_id}已保存并覆盖同名terrain.blend") // 明确告诉作者Blender镜像已经落盘，不再只说GLB完成。
-            } else {
-                format!("场景{scene_id}已保存") // 未计划Blend时不把地形GLB保存伪报成镜像生成成功。
-            };
-            editor.status = match (
-                terrain_handoff_started,
-                water_handoff_started,
-                placement_handoff_started,
-            ) {
-                (true, true, true) => {
-                    format!("{save_prefix}；正在原子热交接正式地形、碰撞、水域与摆放新修订")
-                }
-                (true, false, false) => {
-                    format!("{save_prefix}；正在原子热交接正式地形网格、地表材质和物理碰撞")
-                }
-                (false, true, false) => {
+            let save_prefix = format!("场景{scene_id}已保存");
+            editor.status = match (water_handoff_started, placement_handoff_started) {
+                (true, false) => {
                     format!("{save_prefix}；正在等待正式水域新代次原子采用")
                 }
-                (false, false, true) => {
+                (false, true) => {
                     format!("{save_prefix}；正在等待正式摆放新修订原子采用")
                 }
-                (_, true, true) => {
+                (true, true) => {
                     format!("{save_prefix}；正在等待正式水域与摆放共同完成原子热交接")
                 }
-                (true, _, true) => {
-                    format!("{save_prefix}；正在等待正式地形、碰撞与摆放共同完成原子热交接")
-                }
-                (true, true, false) => {
-                    format!("{save_prefix}；正在等待正式地形、碰撞与水域共同完成原子热交接")
-                }
-                (false, false, false) => format!(
+                (false, false) => format!(
                     "{save_prefix}；环境 IBL、地表、植被、水域与区域边界正在热更新，当前会话继续显示正式预览"
                 ),
             };

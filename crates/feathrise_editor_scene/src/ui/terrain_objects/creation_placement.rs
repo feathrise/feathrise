@@ -14,6 +14,16 @@ use std::{collections::BTreeSet, sync::{Arc, Weak}};
 pub(super) struct PointPlacement {
     scene_id: SceneId, revision: u64, terrain_revision: u64, ticket: u64,
     source: CreationSource, values: [f32; 8], asset: Option<String>,
+    model_target: Option<feathrise_scene_content::ScenePlacementAssetTarget>,
+}
+
+/// 模型创建复用普通摆放记录和原预览；不为导入模型分配地形ID或私有地形画布。
+#[derive(bevy::ecs::system::SystemParam)]
+pub(super) struct ModelCreationContext<'w, 's> {
+    commands: Commands<'w, 's>,
+    assets: Res<'w, AssetServer>,
+    preview: Option<Res<'w, crate::ui::asset_preview::AssetPreviewState>>,
+    browser: Option<ResMut<'w, crate::ui::gltf_browser::EditorGltfBrowserState>>,
 }
 /// 取消只撤销采用权限；仍保留唯一任务槽直到后台真正结清，防止连续取消制造并发。
 /// 主线程只保留Weak分配身份，避免任务结清时在主线程析构过期大快照。
@@ -22,9 +32,9 @@ pub(super) struct PointQuery {
     task: Task<Result<Option<Vec3>, ClipmapGroundHit>>,
 }
 
-fn mutation(source: CreationSource, asset: Option<String>) -> Option<Mutation> {
+fn mutation(source: CreationSource) -> Option<Mutation> {
     match source {
-        CreationSource::ImportedGlb => asset.map(Mutation::ImportGlb),
+        CreationSource::ImportedGlb => None,
         _ => source.kind().map(Mutation::Add),
     }
 }
@@ -49,6 +59,7 @@ pub(super) fn control(
     mut keyboard: ResMut<ButtonInput<KeyCode>>, mut workspace: Option<ResMut<VegetationPresetEditorState>>,
     mut mode: Option<ResMut<ViewportModeState>>,
     mut shapes: Option<ResMut<crate::authoring::basic_shapes::BasicShapeState>>,
+    mut models: ModelCreationContext,
 ) {
     if !mouse.any_pressed([MouseButton::Left, MouseButton::Right, MouseButton::Middle])
         && !mouse.any_just_released([MouseButton::Left, MouseButton::Right, MouseButton::Middle]) {
@@ -97,14 +108,24 @@ pub(super) fn control(
         };
         Some(path.clone())
     } else { None };
+    let model_target = if let Some(path) = asset.as_deref() {
+        match models.preview.as_deref().map(|preview| preview.placement_target_for(path)) {
+            Some(Ok(target)) => Some(target),
+            Some(Err(error)) => { editor.status = error; return; }
+            None => Some(feathrise_scene_content::ScenePlacementAssetTarget::Scene0),
+        }
+    } else { None };
     if state.placement_mode == CreationPlacementMode::Coordinates {
         let source = state.creation_source;
-        if let Some(mutation) = mutation(source, asset) { systems::start(&mut session, &mut editor, &mut state, mutation); }
+        if let (Some(path), Some(target)) = (asset.clone(), model_target) {
+            let point = Vec3::from_array(state.creation[..3].try_into().unwrap());
+            create_model(point, path, target, state.creation[6], &mut editor, &mut session, &mut models);
+        } else if let Some(mutation) = mutation(source) { systems::start(&mut session, &mut editor, &mut state, mutation); }
     } else {
         state.placement_ticket = state.placement_ticket.wrapping_add(1);
         state.point_placement = Some(PointPlacement { scene_id: map, revision: session.revision,
             terrain_revision: session.terrain_revision, ticket: state.placement_ticket,
-            source: state.creation_source, values: state.creation, asset });
+            source: state.creation_source, values: state.creation, asset, model_target });
         if let Some(workspace) = workspace.as_deref_mut() { workspace.active_tab = PresetWorkspaceTab::Scene; }
         if let Some(mode) = mode.as_deref_mut() { mode.mode = ViewportMode::Edit; }
         editor.tool = crate::types::EditorTool::Inspect;
@@ -126,6 +147,7 @@ pub(super) fn point_place(
     gate: super::resources::PanelWorkspaceGate,
     sidebar: Option<Res<crate::ui::sidebars::SceneEditorSidebarState>>,
     numeric: (Option<Res<feathrise_editor_ui::ActiveNumericInput>>, Option<Res<feathrise_editor_ui::ActiveNumericInputScrub>>),
+    mut models: ModelCreationContext,
 ) {
     let context_valid = gate.creation_context_valid()
         && !windows.single().is_ok_and(|window| !window.focused)
@@ -150,7 +172,7 @@ pub(super) fn point_place(
             && Weak::ptr_eq(&Arc::downgrade(&editor.terrain_hidden), &query.hidden);
         if valid {
             match result {
-                Ok(Some(point)) => { accept(point, &mut state, &mut editor, &mut session, mode.as_deref_mut()); }
+                Ok(Some(point)) => { accept(point, &mut state, &mut editor, &mut session, mode.as_deref_mut(), &mut models); }
                 _ => editor.status = "本次点击没有取得完整真实地形命中，请重新选择落点".into(),
             }
         }
@@ -174,7 +196,7 @@ pub(super) fn point_place(
     if crate::authoring::basic_shapes::work_plane_is_available(&session) {
         if let Some(point) = crate::authoring::basic_shapes::plane_hit(ray) {
             let point = snap.and_then(|snap| snap.horizontal(point.to_array())).map_or(point, Vec3::from_array);
-            accept(point, &mut state, &mut editor, &mut session, mode.as_deref_mut());
+            accept(point, &mut state, &mut editor, &mut session, mode.as_deref_mut(), &mut models);
         }
         return;
     }
@@ -199,13 +221,48 @@ pub(super) fn point_place(
 }
 
 fn accept(point: Vec3, state: &mut TerrainObjectsEditorState, editor: &mut SceneEditorState,
-    session: &mut EditorAuthoringSession, mode: Option<&mut ViewportModeState>) {
+    session: &mut EditorAuthoringSession, mode: Option<&mut ViewportModeState>, models: &mut ModelCreationContext) {
     let Some(intent) = state.point_placement.take() else { return; };
     state.creation = intent.values;
     state.creation[..3].copy_from_slice(&point.to_array());
     editor.suppress_world_pick_this_frame = true;
     if let Some(mode) = mode { mode.mode = ViewportMode::Select; }
-    if let Some(mutation) = mutation(intent.source, intent.asset) { systems::start(session, editor, state, mutation); }
+    if let (Some(path), Some(target)) = (intent.asset.clone(), intent.model_target) {
+        create_model(point, path, target, intent.values[6], editor, session, models);
+    } else if let Some(mutation) = mutation(intent.source) { systems::start(session, editor, state, mutation); }
+}
+
+fn create_model(point: Vec3, path: String, target: feathrise_scene_content::ScenePlacementAssetTarget,
+    yaw: f32, editor: &mut SceneEditorState, session: &mut EditorAuthoringSession, models: &mut ModelCreationContext) {
+    use feathrise_scene_content::{ScenePlacementHeightMode, ScenePlacementRecord, MAX_SCENE_PLACEMENTS_PER_SCENE};
+    let Some(draft) = session.draft.as_ref() else { return; };
+    if draft.placements.placements.len() >= MAX_SCENE_PLACEMENTS_PER_SCENE {
+        editor.status = format!("当前场景已达到{MAX_SCENE_PLACEMENTS_PER_SCENE}个显式资产上限"); return;
+    }
+    if !point.is_finite() || !yaw.is_finite() || target.validate().is_err() { return; }
+    if let Err(error) = crate::authoring::safe_asset_path(&crate::authoring::workspace_asset_root(), &path) {
+        editor.status = error; return;
+    }
+    let map = draft.scene_id.clone();
+    let id = crate::authoring::next_author_id(session, "placement");
+    let record = ScenePlacementRecord {
+        id: id.clone(), asset_path: path, asset_target: target, editor: Default::default(), mesh_lod: None,
+        terrain_binding: None, terrain_patch: None, building_preset_id: None, courtyard: None,
+        translation: point.to_array(), height_mode: ScenePlacementHeightMode::FixedHeight, terrain_offset: 0.0,
+        yaw_degrees: yaw.rem_euclid(360.0), scale: [1.0; 3], water_surfaces: Vec::new(),
+    };
+    let entity = crate::authoring::spawn_placement_preview(&mut models.commands, &models.assets, &map, &record);
+    session.draft.as_mut().unwrap().placements.placements.push(record.clone());
+    session.placement_previews.insert(id.clone(), entity);
+    session.undo.push(crate::authoring::EditorCommand::PlacementAdded(record));
+    session.redo.clear();
+    session.mark_placement_structure_changed(editor);
+    if let Some(browser) = models.browser.as_deref_mut() {
+        browser.select_primitive_placement_from_viewport(id);
+    }
+    editor.tool = crate::types::EditorTool::Inspect;
+    editor.placement_transform_enabled = false;
+    editor.status = "已创建模型；使用普通模型属性、撤销和场景GLB保存".into();
 }
 
 #[cfg(test)]

@@ -337,6 +337,7 @@ mod tests {
                     mesh: 0,
                     primitive: 0,
                     material: None,
+                    collision: false,
                 }, // 不具备Scene0稳定节点。
             },
         );
@@ -359,6 +360,7 @@ mod tests {
                 mesh: 6,           // 与截图中的独立Mesh目标一致。
                 primitive: 0,      // 当前GLB每个Mesh只有第零primitive。
                 material: Some(2), // 原材质身份由记录冻结，但选择不冒充水绑定。
+                collision: false,
             },
             building_preset_id: None, // 直接 primitive 选择夹具是普通资产。
             courtyard: None,          // 独立摆放记录不属于任何院落副本。
@@ -421,6 +423,7 @@ mod tests {
                     mesh: 6,
                     primitive: 0,
                     material: Some(2),
+                    collision: false,
                 },
             } if placement_id == "plant-part-1"
         )); // 命中只携带根ID和冻结数字目标，没有伪造node_path或mesh_name。

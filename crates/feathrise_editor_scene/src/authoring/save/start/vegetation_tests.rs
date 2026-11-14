@@ -10,6 +10,7 @@ use feathrise_scene_content::{SceneTerrainDescriptor, SceneVegetationAsset};
 fn draft_with_empty_vegetation() -> EditorSceneDraft {
     let mut draft = crate::authoring::test_heightfield_draft(vec![0; 121].into());
     draft.vegetation = Some(SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
         scene_id: draft.scene_id.clone(),
         layers: Vec::new(),

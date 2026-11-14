@@ -219,13 +219,13 @@ impl TerrainSidebarFeedback<'_> {
                 return waiting("所选网格作者数据或变换正在准备；保留上一完整结果");
             }
             if page == TerrainSidebarPage::Sculpt && object.terrain.kind == SceneTerrainKind::Gltf {
-                return ("原始 GLB 保留资产几何；当前塑形工具适用于高度网格、Clipmap 和体素".into(), colors::TEXT_MUTED);
+                return ("原始 GLB 保留资产几何；当前塑形工具适用于高度地形和体素地形".into(), colors::TEXT_MUTED);
             }
         }
         let kind = selected.map_or(draft.terrain_manifest().terrain.kind, |object| object.terrain.kind);
         if editor.tool.is_volume_sculpt() {
             if !kind.supports_volume_sculpt() {
-                return ("三维雕刻适用于Clipmap和体素网格".into(), colors::DANGER_TEXT);
+                return ("三维雕刻适用于高度地形和体素地形".into(), colors::DANGER_TEXT);
             }
             if self.volume.as_ref().is_some_and(|v| v.busy()) {
                 return waiting("三维笔划计算/联合碰撞正在进行；松手后可保存或撤销");
@@ -414,7 +414,6 @@ pub(super) fn sync_feedback(
                     .map_or_else(|| "当前网格：尚未选择 · 从左侧场景树选择，或用顶部“网格”创建".to_owned(), |object| {
                         let capability = match object.terrain.kind {
                             SceneTerrainKind::Gltf => "资产几何 · 无源塑形",
-                            SceneTerrainKind::Heightfield => "高度雕刻",
                             SceneTerrainKind::SparseClipmap => "高度与三维雕刻",
                             SceneTerrainKind::Voxel => "三维雕刻",
                             SceneTerrainKind::Empty => "作者源未就绪",

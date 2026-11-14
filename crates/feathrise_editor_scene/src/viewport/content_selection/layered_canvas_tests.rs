@@ -53,6 +53,7 @@ fn canvas(
         author("empty", true),
     ];
     let vegetation = SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
         scene_id: draft.scene_id.clone(),
         layers: vec![SceneVegetationLayer {

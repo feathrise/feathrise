@@ -10,6 +10,7 @@ use super::super::files::safe_scene_private_asset_path; // 自定义水JSON仍�
 use super::super::resources::EditorSceneDraft; // 可选目录登记读取保存任务冻结的完整草稿。
 use super::transaction::encode_json_bytes; // 全局目录也必须在首个暂存文件创建前完成序列化。
 
+#[cfg(test)]
 pub(super) fn encode_heights(values: &[u16]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(values.len() * 2);
     for value in values {
@@ -25,8 +26,8 @@ pub(super) fn prepare_optional_catalog_bytes(
 ) -> Result<Option<(PathBuf, Vec<u8>)>, String> {
     let root_water = crate::authoring::terrain_documents::root_water::source(draft);
     // 私有网格的植被入口由terrain对象记录持有，不能借活动槽把它登记成场景根植被。
-    let root_vegetation_registration = draft.manifest.terrains.is_none()
-        && draft.vegetation_registration_source_hash.is_some();
+    let root_vegetation_registration = crate::authoring::terrain_documents::root_vegetation::source(draft)
+        .is_some_and(|source| source.registration_source_hash.is_some());
     if !root_vegetation_registration // 旧Clipmap首次保存纳入相同目录事务。
         && !root_water.registration_required
         && !draft.boundary_catalog_registration_required

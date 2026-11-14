@@ -8,9 +8,10 @@ pub(super) fn field_visible(field: Field, state: &TerrainObjectsEditorState) -> 
         Field::CuboidCreation(_) => state.creation_source == CreationSource::Cuboid,
         Field::Creation(index) => match index {
             0..=2 => state.placement_mode == CreationPlacementMode::Coordinates,
-            3 | 5 | 6 => state.creation_source != CreationSource::Cuboid,
-            4 => matches!(state.creation_source, CreationSource::ImportedGlb | CreationSource::Heightfield | CreationSource::Voxel),
-            7 => matches!(state.creation_source, CreationSource::Heightfield | CreationSource::Clipmap | CreationSource::Voxel),
+            3 | 5 => matches!(state.creation_source, CreationSource::Clipmap | CreationSource::Voxel),
+            4 => state.creation_source == CreationSource::Voxel,
+            6 => state.creation_source != CreationSource::Cuboid,
+            7 => matches!(state.creation_source, CreationSource::Clipmap | CreationSource::Voxel),
             _ => false,
         },
         _ => false,
@@ -40,6 +41,10 @@ pub(super) fn validate_selected(state: &TerrainObjectsEditorState) -> Result<(),
     } else {
         values[..3].fill(0.0); // 点放的坐标来自之后的真实点击，隐藏的旧坐标记忆不参与预检。
     }
+    if state.creation_source == CreationSource::ImportedGlb {
+        // 模型保持资产尺寸；只校验实际使用的摆放坐标和朝向。
+        return if values[6].is_finite() { Ok(()) } else { Err("模型朝向必须有限".into()) };
+    }
     match state.creation_source.kind() {
         Some(kind) => validate_input(kind, &values).map(|_| ()),
         None => cuboid_target(state).map(|_| ()),
@@ -53,7 +58,7 @@ pub(super) fn sync_feedback(state: bevy::prelude::Res<TerrainObjectsEditorState>
     mut texts: bevy::prelude::Query<&mut bevy::prelude::Text, bevy::prelude::With<super::components::CreationFeedback>>) {
     let label = match state.creation_source {
         CreationSource::Cuboid => "立方体", CreationSource::ImportedGlb => "原始 GLB",
-        CreationSource::Heightfield => "高度网格", CreationSource::Clipmap => "Clipmap", CreationSource::Voxel => "体素",
+        CreationSource::Clipmap => "高度地形", CreationSource::Voxel => "体素地形",
     };
     let result = validate_selected(&state).and_then(|_| {
         if state.creation_source == CreationSource::ImportedGlb
@@ -126,9 +131,6 @@ pub(super) fn validate(kind: SceneTerrainKind, values: &[f32; 8]) -> Result<Crea
     }
     let mut resolution = cells.map(|count| count as u32 + 1);
     match kind {
-        SceneTerrainKind::Heightfield => {
-            feathrise_terrain::validate_flat_terrain_glb_resolution(resolution)?;
-        }
         SceneTerrainKind::SparseClipmap => {
             let spec = SparseHeightSpec::new(min, max, values[7], -values[4] * 0.5, values[4])?;
             resolution = spec.cells.map(|count| count as u32 + 1);
@@ -157,7 +159,7 @@ pub(super) fn validate(kind: SceneTerrainKind, values: &[f32; 8]) -> Result<Crea
                 return Err("体素源坐标超出安全整数格点范围".into());
             }
         }
-        _ => return Err("添加操作只接受高度网格、Clipmap或体素".into()),
+        _ => return Err("添加操作只接受高度地形或体素地形".into()),
     }
     Ok(CreationSpec {
         min,
@@ -201,18 +203,13 @@ pub(super) fn summary(values: &[f32; 8], asset: Option<&str>) -> String {
         Err(error) => format!("{name}：不可创建 · {error}"),
     };
     format!(
-        "公共源格距最小0.125m，精度0.001m。\n{}\n{}\n{}\n高度网格：高度项是作者高度域，不是平面厚度；Clipmap米制高度不受此项限制；体素：初始实心盒高。原始 GLB 使用资产几何和目标纵向尺寸，不使用源格距。{}",
-        row(
-            SceneTerrainKind::Heightfield,
-            "高度网格",
-            "格距从0.125m起，按GLB格式容量"
-        ),
+        "公共源格距最小0.125m，精度0.001m。\n{}\n{}\n高度地形的米制高度不受初始规格限制；体素地形的高度为初始实心盒高。网格使用资产几何，不使用源格距。{}",
         row(
             SceneTerrainKind::SparseClipmap,
-            "Clipmap",
-            "格距0.125～64m，边长64～8192m"
+            "高度地形",
+            "格距0.125～64m，边长0.01～8192m"
         ),
-        row(SceneTerrainKind::Voxel, "体素", "本入口格距0.125～0.500m"),
+        row(SceneTerrainKind::Voxel, "体素地形", "本入口格距0.125～0.500m"),
         asset.map_or_else(
             || "请先在左侧资产页选择 GLB。".to_owned(),
             |path| format!("所选资产：{path}")

@@ -13,6 +13,7 @@ pub(crate) fn input(
     mut session: ResMut<EditorAuthoringSession>,
     mut editor: ResMut<SceneEditorState>,
     stroke: Res<VegetationBrushStroke>,
+    mut allocation: Option<ResMut<super::VegetationBlankLayerAllocation>>,
 ) {
     let Some(request) = menu.ready.as_ref().filter(|request| {
         !stroke.active
@@ -37,6 +38,17 @@ pub(crate) fn input(
         _ => return,
     };
     editor.selected_vegetation_layer = *index;
+    if allocation.as_ref().is_some_and(|state| state.busy()) {
+        editor.status = "植被作者层事务仍在后台完成，请稍候".into();
+        return;
+    }
+    if let Some(allocation) = allocation.as_deref_mut() {
+        match super::allocation::request_model_layer(action, &mut editor, &session, allocation) {
+            Ok(true) => return,
+            Err(error) => { editor.status = error; return; }
+            Ok(false) => {}
+        }
+    }
     match super::operations::apply_vegetation_authoring_action(
         action,
         &mut editor,

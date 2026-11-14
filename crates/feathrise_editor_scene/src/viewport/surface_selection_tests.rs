@@ -366,60 +366,37 @@ fn fixture() -> App {
 }
 #[test]
 fn surface_selection_real_system_hides_on_switch_close_and_brush_then_restores() {
-    let mut app = fixture();
+    let mut app = clipmap_fixture();
     app.update();
-    let entity = app
-        .world()
-        .resource::<SurfaceSelectionOverlay>()
-        .entity
-        .unwrap();
-    assert_eq!(
-        *app.world().get::<Visibility>(entity).unwrap(),
-        Visibility::Inherited
-    );
+    let visible = |app: &App| app.world().resource::<feathrise_scene::DynamicClipmapSurfaceOverlay>().selection.is_some();
+    assert!(visible(&app));
+    assert!(app.world().resource::<SurfaceSelectionOverlay>().entity.is_none(),
+        "当前高度地形选中反馈必须使用正式Clipmap扩展");
     app.world_mut().resource_mut::<SurfaceBrushStroke>().active = true;
     app.update();
-    assert_eq!(
-        *app.world().get::<Visibility>(entity).unwrap(),
-        Visibility::Hidden
-    ); // 画笔优先。
+    assert!(!visible(&app)); // 画笔优先。
     app.world_mut().resource_mut::<SurfaceBrushStroke>().active = false;
     app.update();
-    assert_eq!(
-        *app.world().get::<Visibility>(entity).unwrap(),
-        Visibility::Inherited
-    );
+    assert!(visible(&app));
     app.world_mut()
         .resource_mut::<SceneEditorState>()
         .selected_surface_layer = 1;
     app.update();
-    assert_eq!(
-        *app.world().get::<Visibility>(entity).unwrap(),
-        Visibility::Hidden
-    ); // 同预设另一作者层也不能显示旧面。
+    assert!(!visible(&app)); // 同预设另一作者层也不能显示旧面。
     app.world_mut()
         .resource_mut::<SceneEditorState>()
         .selected_surface_layer = 0;
     app.world_mut().resource_mut::<SceneEditorState>().open = false;
     app.update();
-    assert_eq!(
-        *app.world().get::<Visibility>(entity).unwrap(),
-        Visibility::Hidden
-    ); // 游戏相机没有选中色。
+    assert!(!visible(&app)); // 游戏相机没有选中色。
     app.world_mut().resource_mut::<SceneEditorState>().open = true;
     app.update();
-    assert_eq!(
-        *app.world().get::<Visibility>(entity).unwrap(),
-        Visibility::Inherited
-    ); // 暂停恢复复用完整覆盖。
+    assert!(visible(&app)); // 暂停恢复复用完整覆盖。
     app.world_mut()
         .resource_mut::<SceneEditorState>()
         .surface_selected_preset_id = Some("different".into());
     app.update();
-    assert_eq!(
-        *app.world().get::<Visibility>(entity).unwrap(),
-        Visibility::Hidden
-    ); // 无效笔刷目标不能假选旧层。
+    assert!(!visible(&app)); // 无效笔刷目标不能假选旧层。
 }
 
 #[test] // 跨类别悬停不能写回地表正式选层，移开必须恢复。

@@ -655,6 +655,7 @@ mod tests {
             id,                                    // 目录和身份保持一致。
             display_name: display_name.to_owned(), // 确认和结果回显使用中文名称。
             published: true,                       // 删除规则同时覆盖已发布的编辑器图。
+            placements_glb: false,
             surface_path: None,                    // 测试不需要加载私有内容资产。
             vegetation_path: None,                 // 测试不需要加载私有内容资产。
             water_path: None,                      // 测试不需要加载私有内容资产。

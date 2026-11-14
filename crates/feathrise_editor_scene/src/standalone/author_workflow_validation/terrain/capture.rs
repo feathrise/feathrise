@@ -2,17 +2,26 @@
 
 use super::{resources::TerrainWorkflow, types::*};
 use crate::authoring::{
-    EditorAuthoringSession, EditorCommand, SurfacePreviewState, TerrainPreviewState,
+    EditorAuthoringSession, EditorCommand, SurfacePreviewState,
+    sparse_terrain::SparseTerrainAuthoringState,
 };
 use bevy::{
+    ecs::system::RunSystemOnce,
     prelude::*,
     tasks::{IoTaskPool, Task},
 };
+use feathrise_scene_content::{SparseHeightLiveOverride, SparseHeightLiveSnapshot};
 use sha2::{Digest, Sha256};
-use std::sync::Arc;
+use std::{collections::{BTreeMap, BTreeSet}, sync::Arc};
 
 enum Source {
-    Mesh(String, Arc<feathrise_terrain::TerrainMeshInput>),
+    Height {
+        root: std::path::PathBuf,
+        scene: feathrise_scene_content::SceneId,
+        terrain: feathrise_scene_content::TerrainId,
+        path: String,
+        live: SparseHeightLiveSnapshot,
+    },
     Bytes(Vec<(String, Arc<Vec<u8>>)>),
 }
 
@@ -24,10 +33,12 @@ pub(super) fn start(
     let session = world.resource::<EditorAuthoringSession>();
     let draft = session.draft.as_ref().ok_or("地形验收草稿已卸载")?;
     let source = match state.domain {
-        Domain::Height => Source::Mesh(
-            draft.terrain_manifest().terrain.glb_path.clone(),
-            draft.terrain_mesh.clone().ok_or("原GLB作者网格不存在")?,
-        ),
+        Domain::Height => Source::Height {
+            root: feathrise_editor_core::workspace_asset_root(), scene: draft.scene_id.clone(),
+            terrain: state.terrain.clone().ok_or("验收缺少高度地形身份")?,
+            path: draft.terrain_manifest().terrain.height_path.clone().ok_or("Clipmap作者清单缺失")?,
+            live: world.resource::<SparseHeightLiveOverride>().snapshot(),
+        },
         Domain::Surface => {
             let surface = draft.surface.as_ref().ok_or("原地表定义不存在")?;
             Source::Bytes(vec![
@@ -93,23 +104,41 @@ fn fingerprint(source: Source) -> Result<Fingerprint, String> {
     let mut proof = Fingerprint::default();
     let mut combined = Sha256::new();
     match source {
-        Source::Mesh(path, mesh) => {
-            // GLB容器编码可变；这里核对完整世界顶点和三角索引的精确小端作者值。
-            for position in &mesh.positions {
-                for value in position {
-                    combined.update(value.to_le_bytes());
+        Source::Height { root, scene, terrain, path, live } => {
+            let mut document = feathrise_scene_content::SparseHeightDocument::load_source(&root, &scene, Some(&terrain), &path)?;
+            let spec = document.manifest().spec.clone();
+            if live.scene_id() != Some(&scene) || live.tile_count() > 16
+                || document.manifest().tiles.len() > 16 || spec.cells.into_iter().any(|cells| cells > 64)
+            {
+                return Err("高度验收源身份或64格/16页预算不符".into());
+            }
+            let header = serde_json::to_vec(&spec).map_err(|error| error.to_string())?;
+            combined.update(&header);
+            proof.bytes = header.len();
+            // 与几何专项一样，在后台叠加同代实时页。摘要沿用 F12 的已保存格式：有序非空页，而非全图逐点格式。
+            let mut overrides = BTreeMap::new();
+            live.visit_changed_tiles(None, |key, tile| { overrides.insert(key, tile.clone()); });
+            let keys: BTreeSet<_> = document.manifest().tiles.iter().map(|tile| tile.key)
+                .chain(overrides.keys().copied()).collect();
+            for key in keys {
+                let tile = if let Some(tile) = overrides.get(&key) {
+                    if tile.is_flat(&spec) { continue; } // Undo 可留下显式零页，正式保存会把它归为隐式平地。
+                    tile.clone()
+                } else {
+                    document.load_tile(key)?;
+                    let tile = document.tile_snapshot(key)?;
+                    document.unload_clean_tile(key);
+                    tile
+                };
+                combined.update(key.x.to_le_bytes()); combined.update(key.z.to_le_bytes());
+                for code in tile.height_codes(&spec) {
+                    combined.update(code.to_le_bytes());
+                    proof.nonzero_samples += usize::from(f32::from_bits(code) != 0.0);
+                    proof.bytes += 4;
                 }
-                proof.nonzero_samples += usize::from(position[1] != 0.);
             }
-            for index in &mesh.indices {
-                combined.update(index.to_le_bytes());
-            }
-            proof.bytes = mesh.positions.len() * 12 + mesh.indices.len() * 4;
             proof.sha256 = hex(combined.finalize());
-            proof.files.push((
-                format!("{path}#positions-f32le+indices-u32le"),
-                proof.sha256.clone(),
-            ));
+            proof.files.push((path, proof.sha256.clone()));
         }
         Source::Bytes(values) => {
             for (path, pixels) in values {
@@ -148,10 +177,7 @@ pub(super) fn ready(world: &mut World, state: &TerrainWorkflow) -> bool {
     }
     match state.domain {
         Domain::Height => {
-            world
-                .resource::<TerrainPreviewState>()
-                .ready_for(&draft.scene_id, session.terrain_revision)
-                && draft.terrain_ground.as_ref().is_some_and(|ground| {
+            let same_canvas = draft.terrain_ground.as_ref().is_some_and(|ground| {
                     ground.scene_id == draft.scene_id && ground.revision == session.terrain_revision
                 })
                 && draft
@@ -164,7 +190,12 @@ pub(super) fn ready(world: &mut World, state: &TerrainWorkflow) -> bool {
                                 .iter()
                                 .find(|object| object.id == active.definition.id)
                         }) == Some(active.definition.as_ref())
-                    })
+                    });
+            same_canvas && world.run_system_once(|session: Res<EditorAuthoringSession>,
+                sparse: Res<SparseTerrainAuthoringState>, live: Res<SparseHeightLiveOverride>,
+                ground: feathrise_scene::TerrainObjectClipmapGround| {
+                sparse.document_can_park() && sparse.current_height_snapshot(&session, &live, &ground).is_some()
+            }).unwrap_or(false) // 作者光标快照与已采用的源路径、对象和实时页修订须同时就绪。
         }
         Domain::Surface => {
             let preview = world.resource::<SurfacePreviewState>();
@@ -291,6 +322,9 @@ pub(super) fn history(world: &World, state: &TerrainWorkflow) -> Result<(String,
         }
     }
     let result = match (state.domain, command) {
+        (Domain::Height, EditorCommand::SparseTerrainChanged(changes)) => (
+            "SparseTerrainChanged", changes.iter().filter(|change| change.before != change.after).count(),
+        ),
         (Domain::Height, EditorCommand::TerrainChanged(changes)) => (
             "TerrainChanged",
             changes
@@ -308,12 +342,12 @@ pub(super) fn history(world: &World, state: &TerrainWorkflow) -> Result<(String,
                             .iter()
                             .find(|object| Some(&object.id) == state.terrain.as_ref())
                     })
-                    .map(|object| object.terrain.glb_path.clone())
+                    .and_then(|object| object.terrain.height_path.clone())
             };
             let before = find(before).ok_or("原雕刻历史缺少开始网格")?;
             let after = find(after).ok_or("原雕刻历史缺少完成网格")?;
             if before == after {
-                return Err("原雕刻历史未发布新GLB版本".into());
+                return Err("原雕刻历史未发布新分页高度版本".into());
             }
             ("TerrainObjectsChanged", 1)
         }
@@ -373,6 +407,47 @@ pub(super) fn history(world: &World, state: &TerrainWorkflow) -> Result<(String,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_height_fingerprint_matches_undo_redo_and_the_formal_save() {
+        use feathrise_scene_content::{SceneId, SparseHeightDocument, SparseHeightSpec, TerrainId};
+
+        let serial = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("feathrise-author-height-proof-{}-{serial}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        let scene = SceneId::parse("MAP-author-height-proof").unwrap();
+        let terrain = TerrainId::parse("starter-ground").unwrap();
+        let spec = SparseHeightSpec::new([-32.; 2], [32.; 2], 2., -80., 160.).unwrap();
+        let (key, _) = spec.tile_for_grid_point(12, 12).unwrap();
+        let mut author = SparseHeightDocument::create_for_terrain(&root, scene.clone(), Some(terrain.clone()), spec).unwrap();
+        let path = author.manifest().asset_path();
+        author.save_dirty().unwrap();
+        let mut disk = SparseHeightLiveOverride::default();
+        disk.retarget(Some(scene.clone()), 0);
+        let mut live = disk.clone();
+        let read = |source: &SparseHeightLiveOverride| fingerprint(Source::Height {
+            root: root.clone(), scene: scene.clone(), terrain: terrain.clone(), path: path.clone(), live: source.snapshot(),
+        }).unwrap();
+        let before = read(&disk);
+        author.set_grid_height(12, 12, 1.25).unwrap();
+        live.publish_tiles(&scene, 1, [author.tile_snapshot(key).unwrap()]).unwrap();
+        let after = read(&live);
+        assert_eq!(after.nonzero_samples, 1);
+        assert_ne!(after.sha256, before.sha256);
+        assert_eq!(read(&disk).sha256, before.sha256, "作者实时页尚未改变磁盘");
+
+        author.set_grid_height(12, 12, 0.).unwrap();
+        live.publish_tiles(&scene, 2, [author.tile_snapshot(key).unwrap()]).unwrap();
+        assert_eq!(read(&live).sha256, before.sha256, "撤销后的显式零页应等于原隐式平地");
+        author.set_grid_height(12, 12, 1.25).unwrap();
+        live.publish_tiles(&scene, 3, [author.tile_snapshot(key).unwrap()]).unwrap();
+        assert_eq!(read(&live).sha256, after.sha256);
+        author.save_dirty().unwrap();
+        assert_eq!(read(&disk).files, after.files, "原保存重读采用同一源路径及完整高度指纹");
+        drop(author);
+        std::fs::remove_dir_all(root).unwrap(); // 只清理本用例独占创建的临时资产根。
+    }
+
     #[test]
     fn full_author_fingerprint_detects_index_only_change_and_keeps_pair_order() {
         let make = |a, b| {

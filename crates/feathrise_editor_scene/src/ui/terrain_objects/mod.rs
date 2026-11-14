@@ -3,7 +3,6 @@
 mod components;
 mod creation; // 生成器能力预检与共享初始规格保持一致，原始GLB不受生成格距限制。
 mod creation_placement; // 统一创建请求与冻结射线点放，不在帧关键路径同步查询整张地形。
-mod import_glb; // Scene0真实范围与作者变换在后台读取，不改写原模型。
 mod jobs;
 mod height; // 作者高度域只改合法范围，体素米制实高沿用完整姿态缩放。
 mod stitches;
@@ -21,7 +20,6 @@ mod tests;
 #[cfg(test)]
 pub(crate) mod page_tests;
 mod types;
-pub(crate) use import_glb::read as read_glb;
 pub(crate) use resources::TerrainObjectsEditorState;
 pub(super) use resources::PanelWorkspaceGate;
 pub(crate) use scene::{panel, properties_panel, scene_list_panel};
@@ -30,6 +28,18 @@ pub(crate) use systems::selected;
 pub(crate) use systems::start;
 pub(crate) use types::Mutation;
 pub(crate) use types::{CreationSource, CreationPlacementMode};
+
+/// 自有实窗夹具通过原开始按钮的请求槽创建；下一输入帧仍执行统一预检和原后台事务。
+#[cfg(any(test, feature = "validation"))]
+pub(crate) fn validation_request_creation(world: &mut bevy::prelude::World, source: CreationSource, values: [f32; 8]) -> Result<(), String> {
+    let mut state = world.resource_mut::<TerrainObjectsEditorState>();
+    if state.busy() || state.start_requested { return Err("原创建槽尚未空闲".into()); }
+    state.creation_source = source;
+    state.placement_mode = CreationPlacementMode::Coordinates;
+    state.creation = values;
+    state.start_requested = true;
+    Ok(())
+}
 
 /// 与常驻验收调用方保持相同编译边界，普通构建不包含操作入口。
 #[cfg(any(test, feature = "validation"))]

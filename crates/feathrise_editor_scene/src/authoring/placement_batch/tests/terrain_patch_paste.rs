@@ -33,7 +33,7 @@ fn paste_legacy_static_patch(cutout: Option<SceneTerrainCutout>) {
     source.terrain_patch = Some(ScenePlacementTerrainPatch { cutout, ..default() });
     source.validated_transform(&source_draft.scene_id, source_draft.manifest.world_bounds().unwrap()).unwrap();
     source_draft.placements.placements.push(source.clone());
-    let BatchOutput::Captured(Ok(clipboard), false) = worker::capture(Capture {
+    let BatchOutput::Captured(Ok(clipboard), false) = worker::capture(Capture { model_vegetation: Arc::default(),
         identity: BatchIdentity {
             document: crate::authoring::placement_deletion::PlacementDeletionIntents::default().identity(),
             scene_id: source_draft.scene_id.clone(), author: 0, structure: 0, terrain: 0, content: None,
@@ -81,7 +81,7 @@ fn paste_legacy_static_patch(cutout: Option<SceneTerrainCutout>) {
     let sampler = PlacementTerrainSampler::from_sources(&target, None, 0).unwrap();
     assert!(sampler.is_object_surface());
     let ghosts = worker::ghost_records(&clipboard, "static-patch-copy").unwrap();
-    let BatchOutput::Paste(result) = worker::run_paste(PasteWork {
+    let BatchOutput::Paste(result) = worker::run_paste(PasteWork { model_vegetation: None,
         source: ghosts, delta: point - clipboard.origin, records: Vec::new(),
         validator: None, presets: Arc::new(vec![None]), sampler: Some(sampler),
         patch: Some(PatchPasteContext {

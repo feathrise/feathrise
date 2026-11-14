@@ -26,7 +26,7 @@ fn values(spacing: f32) -> [f32; 8] {
 
 #[test]
 fn creation_spacing_retains_backend_ranges_and_real_source_contracts() {
-    use SceneTerrainKind::{Gltf, Heightfield, SparseClipmap, Voxel};
+    use SceneTerrainKind::{Gltf, SparseClipmap, Voxel};
     for (spacing, clipmap, voxel) in [
         (0.01, false, true),
         (0.124, false, true),
@@ -48,23 +48,12 @@ fn creation_spacing_retains_backend_ranges_and_real_source_contracts() {
         );
         assert!(validate(Gltf, &values(spacing)).is_ok());
     }
-    // 既有作者源仍允许厘米精度；公共创建框下限不能改写后端格式校验。
-    let mut fine = values(0.01);
-    fine[3] = 1.0;
-    fine[5] = 1.0;
-    let spec = validate(Heightfield, &fine).unwrap();
-    assert_eq!(spec.resolution, [101, 101]);
-    feathrise_terrain::build_flat_terrain_glb(
-        feathrise_terrain::TerrainSampleSpec {
-            resolution: spec.resolution,
-            world_min: spec.min,
-            world_max: spec.max,
-            base_height: -8.0,
-            height_scale: 16.0,
-        },
-        0.0,
-    )
-    .unwrap();
+    // 小于一格的地形仍保留两个端点，不恢复已经退休的完整GLB高度网格。
+    for extent in [0.01, 1.0, 63.999] {
+        let mut fine = values(0.125); fine[3] = extent; fine[5] = extent;
+        let spec = validate(SparseClipmap, &fine).unwrap();
+        assert_eq!(spec.resolution, [((extent / 0.125).ceil() as u32 + 1); 2]);
+    }
     feathrise_scene_content::SceneVoxelTerrainSource {
         schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
         scene_id: feathrise_scene_content::SceneId::parse("MAP-creation-spacing").unwrap(),
@@ -81,15 +70,15 @@ fn creation_spacing_retains_backend_ranges_and_real_source_contracts() {
         validate(Gltf, &values(f32::NAN)).is_ok(),
         "原始资产导入不使用生成格距"
     );
-    assert!(validate(Heightfield, &values(f32::NAN)).is_err());
+    assert!(validate(SparseClipmap, &values(f32::NAN)).is_err());
     let mut too_large = values(0.01);
     too_large[3] = 1_000_000.0;
     too_large[5] = 1_000_000.0;
     assert!(
-        validate(Heightfield, &too_large).is_err(),
-        "GLB格式容量仍参与预检"
+        validate(SparseClipmap, &too_large).is_err(),
+        "分页源尺寸与格距约束仍参与预检"
     );
-    for extent in [63.999, 8192.001] {
+    for extent in [0.009, 8192.001] {
         let mut invalid = values(0.125);
         invalid[3] = extent;
         assert!(validate(SparseClipmap, &invalid).is_err());
@@ -171,9 +160,9 @@ fn open(app: &mut App, window: Entity) {
     click_action(app, window, Action::ToggleCreation);
     assert!(app.world().resource::<TerrainObjectsEditorState>().creation_open);
     // 来源按钮现在只选择规格；数字框必须通过真实来源和放置方式才取得可编辑身份。
-    click_action(app, window, Action::Glb);
+    click_action(app, window, Action::Clipmap);
     click_action(app, window, Action::PlacementCoordinates);
-    assert_eq!(app.world().resource::<TerrainObjectsEditorState>().creation_source, super::CreationSource::Heightfield);
+    assert_eq!(app.world().resource::<TerrainObjectsEditorState>().creation_source, super::CreationSource::Clipmap);
     assert_eq!(app.world().resource::<TerrainObjectsEditorState>().placement_mode, super::CreationPlacementMode::Coordinates);
     assert!(app.world().resource::<TerrainObjectsEditorState>().pending.is_none());
 }
@@ -231,13 +220,12 @@ fn creation_spacing_buttons_explain_unavailable_backends_without_changing_input(
             .creation[7] = spacing;
         app.update();
         for (target, allowed) in [
-            (Action::Glb, true),
             (Action::Clipmap, clipmap),
             (Action::Voxel, voxel),
             (Action::ImportGlb, true),
         ] {
             let label = match target {
-                Action::Glb => "高度网格", Action::Clipmap => "Clipmap",
+                Action::Clipmap => "高度地形",
                 Action::Voxel => "体素", _ => "原始 GLB",
             };
             let button = action(&mut app, target);
@@ -280,14 +268,14 @@ fn creation_spacing_buttons_explain_unavailable_backends_without_changing_input(
             .unwrap()
             .0;
         assert!(description.contains(if clipmap {
-            "Clipmap：可创建"
+            "高度地形：可创建"
         } else {
-            "Clipmap：不可创建"
+            "高度地形：不可创建"
         }));
         assert!(description.contains(if voxel {
-            "体素：可创建"
+            "体素地形：可创建"
         } else {
-            "体素：不可创建"
+            "体素地形：不可创建"
         }));
         assert!(description.contains("公共源格距最小0.125m"));
         assert!(!description.contains("0.010"), "说明只呈现公共入口的可用范围");

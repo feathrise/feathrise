@@ -5,10 +5,8 @@ use crate::constants::{
     MIN_TERRAIN_CELL_METERS,
 }; // UI确认与后台创建共享同一成本边界。
 use crate::types::{SceneCreationRequest, NewSceneTerrainMode}; // 冻结作者确认时的名称、尺寸和路线，不受保存期间输入影响。
-use feathrise_terrain::validate_flat_terrain_glb_resolution; // 原始路线仍须检验单文件GLB真实容量。
 
 const MAX_SCENE_NAME_CHARS: usize = 48; // 控制UI、目录和JSON诊断长度。
-const LEGACY_TERRAIN_HEIGHT_RESOLUTION: [u32; 2] = [513, 513]; // 原始GLB路线继续使用既有运行时高度采样规格。
 
 /// 一次新场景创建使用的受检世界尺寸和有界高度场规格。
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -58,16 +56,11 @@ impl SceneDimensions {
             terrain_axis_resolution(width_meters, terrain_cell_meters, "X")?, // X轴严格按目标边长计算，不向上取二次幂。
             terrain_axis_resolution(length_meters, terrain_cell_meters, "Z")?, // Z轴独立按目标边长计算，矩形场景仍完整覆盖。
         ];
-        if terrain_mode == NewSceneTerrainMode::LegacyHeightfield {
-            validate_flat_terrain_glb_resolution(terrain_mesh_resolution).map_err(|error| {
-                format!("原始 GLB 方案无法创建当前规格：{error}；可增大格距或改选 Geometry Clipmap")
-            })?; // 只对真实生成完整网格的旧路线应用GLB字节字段容量门。
-        }
+
         let half_width = width_meters * 0.5;
         let half_length = length_meters * 0.5;
         let terrain_height_resolution = match terrain_mode {
             NewSceneTerrainMode::Empty => [0, 0],
-            NewSceneTerrainMode::LegacyHeightfield => LEGACY_TERRAIN_HEIGHT_RESOLUTION, // 原始路线继续从完整GLB派生固定513²运行时高度。
             NewSceneTerrainMode::SparseClipmap => terrain_mesh_resolution, // 稀疏清单记录逻辑规格，但绝不据此分配整图数组。
         };
         Ok(Self {
@@ -137,7 +130,7 @@ fn validate_scene_extent(value: f32, label: &str) -> Result<(), String> {
     }
     if !(MIN_NEW_SCENE_EXTENT_METERS..=MAX_NEW_SCENE_EXTENT_METERS).contains(&value) {
         return Err(format!(
-            "{label}必须在{MIN_NEW_SCENE_EXTENT_METERS:.0}至{MAX_NEW_SCENE_EXTENT_METERS:.0}米之间"
+            "{label}必须在{MIN_NEW_SCENE_EXTENT_METERS}至{MAX_NEW_SCENE_EXTENT_METERS}米之间"
         ));
     }
     Ok(())
@@ -289,7 +282,7 @@ mod tests {
     #[test]
     fn scene_dimensions_allow_maximum_scene_at_eighth_meter_spacing() {
         assert!(SceneDimensions::new(f32::NAN, 1_024.0, 2.0).is_err());
-        assert!(SceneDimensions::new(63.0, 1_024.0, 2.0).is_err());
+        assert!(SceneDimensions::new(0.009, 1_024.0, 2.0).is_err());
         assert!(SceneDimensions::new(1_024.0, 8_193.0, 2.0).is_err());
         assert!(SceneDimensions::new(1_024.0, 1_024.0, f32::INFINITY).is_err()); // 非有限目标间距无法稳定计算网格数量。
         assert!(SceneDimensions::new(1_024.0, 1_024.0, 0.0).is_err()); // 零间距不得导致无限数量请求。
@@ -316,29 +309,56 @@ mod tests {
                 .unwrap()
                 .terrain_height_resolution,
             [33, 33]
-        ); // 最小图也严格采用请求的两米作者格距。
+        ); // 旧64米规格仍严格采用请求的两米作者格距。
     }
 
     #[test]
-    fn legacy_glb_and_sparse_clipmap_apply_different_capacity_rules() {
-        let legacy =
-            SceneDimensions::for_mode(NewSceneTerrainMode::LegacyHeightfield, 1_024.0, 1_024.0, 8.0)
-                .unwrap();
-        assert_eq!(legacy.terrain_mesh_resolution, [129, 129]);
-        assert_eq!(legacy.terrain_height_resolution, [513, 513]); // 稳定路线保持原有派生高度规格。
-
-        let error = SceneDimensions::for_mode(
-            NewSceneTerrainMode::LegacyHeightfield,
-            8_192.0,
-            8_192.0,
-            0.125,
-        )
-        .unwrap_err();
-        assert!(error.contains("原始 GLB"));
-        assert!(error.contains("Geometry Clipmap")); // 同一输入可通过切换方案，而不是被静默改粗。
-        assert!(
-            SceneDimensions::for_mode(NewSceneTerrainMode::SparseClipmap, 8_192.0, 8_192.0, 0.125,)
-                .is_ok()
-        );
+    fn clipmap_scene_creation_accepts_centimeter_extent_and_preserves_source_endpoints() {
+        // 【功能设计】保留的后台场景创建与新地形面板遵守同一下限；逐层核对真实来源，
+        // 不能只放宽文本输入而让清单、显示或碰撞随后拒绝厘米级／不足一格的地形。
+        for [width, length] in [[0.01_f32, 0.01], [0.01, 0.37], [1.0, 63.999]] {
+            let request = validated_creation_request(
+                "厘米地形",
+                &width.to_string(),
+                &length.to_string(),
+                "0.125",
+                NewSceneTerrainMode::SparseClipmap,
+            ).unwrap();
+            let dimensions = SceneDimensions::for_mode(
+                request.terrain_mode, request.width_meters, request.length_meters,
+                request.terrain_cell_meters,
+            ).unwrap();
+            let spec = feathrise_scene_content::SparseHeightSpec::new(
+                dimensions.world_min, dimensions.world_max, request.terrain_cell_meters,
+                super::super::create::DEFAULT_BASE_HEIGHT, super::super::create::DEFAULT_HEIGHT_SCALE,
+            ).unwrap();
+            assert_eq!(dimensions.terrain_height_resolution, spec.cells.map(|cells| cells as u32 + 1));
+            let restored = feathrise_scene_content::SparseHeightSpec::from_resolution(
+                dimensions.world_min, dimensions.world_max, dimensions.terrain_height_resolution,
+                spec.base_height, spec.height_scale,
+            ).unwrap();
+            assert_eq!(restored.cells, spec.cells);
+            let endpoint = restored.grid_point_world(restored.cells[0], restored.cells[1]).unwrap();
+            for axis in 0..2 {
+                assert!((endpoint[axis] - f64::from(dimensions.world_max[axis])).abs() < 1e-9);
+            }
+            let plan = feathrise_scene_content::compile_display_lod_plan(&restored, &[
+                feathrise_scene_content::SceneTerrainDisplayLod {
+                    outer_half_extent_meters: None, spacing_multiplier: 1,
+                },
+            ]).unwrap();
+            assert_eq!(plan.bands.len(), 1);
+            assert_eq!(plan.bands[0].outer_half_cells.map(u64::from), restored.cells);
+            let collision = feathrise_scene_content::default_collision_lods_for_resolution(
+                dimensions.terrain_height_resolution,
+            );
+            feathrise_scene::validate_layered_collision_settings(&restored, &collision).unwrap();
+        }
+        let error = validated_creation_request(
+            "过小地形", "0.009", "1", "0.125", NewSceneTerrainMode::SparseClipmap,
+        ).unwrap_err();
+        assert!(error.contains("0.01至8192"), "{error}");
     }
+
+
 }

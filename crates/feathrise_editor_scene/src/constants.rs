@@ -10,8 +10,8 @@ pub(crate) const EDITOR_INSPECTOR_MAX_WIDTH: f32 = feathrise_editor_core::Editor
 pub(crate) const EDITOR_WORKSPACE_MIN_WIDTH: f32 = 360.0;
 pub(crate) const EDITOR_SPLITTER_WIDTH: f32 = 6.0;
 
-/// 单轴允许的最小世界尺寸；再小会让现有米制笔刷和LOD规格失去意义。
-pub(crate) const MIN_NEW_SCENE_EXTENT_METERS: f32 = 64.0;
+/// 场景Clipmap后台入口与添加地形面板共用厘米下限；不足一格仍保留来源两端。
+pub(crate) const MIN_NEW_SCENE_EXTENT_METERS: f32 = 0.01;
 /// 单轴允许的最大世界尺寸；与受检大场景量级一致，同时限制坐标与派生资源跨度。
 pub(crate) const MAX_NEW_SCENE_EXTENT_METERS: f32 = 8_192.0;
 /// 新建稀疏作者地形的默认目标格距；显示LOD和作者精度分离。

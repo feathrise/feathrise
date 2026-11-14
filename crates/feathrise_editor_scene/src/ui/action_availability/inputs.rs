@@ -2,11 +2,10 @@
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use feathrise_scene_content::SceneTerrainKind;
 
 use super::EditorActionAvailability;
 use crate::authoring::{
-    EditorAuthoringSession, TerrainExternalChangeState, TerrainPreviewState, WaterNetworkEditState,
+    EditorAuthoringSession, TerrainExternalChangeState, WaterNetworkEditState,
 };
 use crate::resources::{
     SceneBrowserState, SceneDeletionTask, SceneEditorNumericScrubMouseGuard, SceneEditorSettingsState,
@@ -23,7 +22,6 @@ use crate::viewport::{LayerCandidateState, LayerTarget};
 pub(crate) struct EditorActionInputs<'w> {
     session: Res<'w, EditorAuthoringSession>,
     world: SceneEditorWorldSession<'w>,
-    terrain: Option<Res<'w, TerrainPreviewState>>,
     workspace: Option<Res<'w, VegetationPresetEditorState>>,
     weights: WeightCommands<'w>,
     browser: Option<Res<'w, EditorGltfBrowserState>>,
@@ -86,10 +84,6 @@ impl EditorActionInputs<'_> {
             saving: self.session.saving,
             undo_empty: self.session.undo.is_empty(),
             redo_empty: self.session.redo.is_empty(),
-            terrain_pending: self
-                .terrain
-                .as_ref()
-                .is_some_and(|terrain| dynamic_terrain_save_is_pending(&self.session, terrain)),
             deletion_busy: self.deletion.as_ref().is_some_and(|state| state.busy()),
             focus_available: self.focus_available(editor),
         }
@@ -112,6 +106,10 @@ impl EditorActionInputs<'_> {
     fn focus_available(&self, editor: &SceneEditorState) -> bool {
         if self.candidates.as_ref().is_some_and(|candidates|matches!(candidates.selected,Some(LayerTarget::TerrainObject(_))))
             && self.terrain_objects.as_ref().is_some_and(|state|crate::ui::terrain_objects::selected(&self.session,state).is_some()) { return true; }
+        // 场景树按稳定ID确认整份引用，没有视口候选列表；与正式取景分派一样先认领该选择，不能借hover启用。
+        if self.candidates.as_ref().is_some_and(|candidates|matches!(candidates.selected,Some(LayerTarget::Subscene(_)))) {
+            return true;
+        }
         if editor.tool == EditorTool::Inspect
             && let Some(candidates) = &self.candidates
             && candidates.has_viewport_selection()
@@ -153,16 +151,4 @@ impl EditorActionInputs<'_> {
             _ => false,
         }
     }
-}
-
-pub(in crate::ui) fn dynamic_terrain_save_is_pending(
-    session: &EditorAuthoringSession,
-    terrain_preview: &TerrainPreviewState,
-) -> bool {
-    session.draft.as_ref().is_some_and(|draft| {
-        draft.terrain_dirty
-            && draft.manifest.is_data_driven()
-            && draft.manifest.terrain.kind == SceneTerrainKind::Heightfield
-            && !terrain_preview.ready_for(&draft.scene_id, session.terrain_revision)
-    }) // 同修订Mesh、Trimesh和内存高度全部完成，人工保存才恢复资格。
 }

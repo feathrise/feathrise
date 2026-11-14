@@ -5,24 +5,7 @@ use feathrise_scene_content::TerrainId;
 use std::sync::Arc;
 
 /// 域控件只能冻结当前同对象、同几何与同量程的作者网格；停放或载入中的旧槽不获得写权限。
-pub(crate) fn height_domain_mesh<'a>(
-    draft: &'a EditorSceneDraft,
-    object: &feathrise_scene_content::SceneTerrainObject,
-) -> Option<&'a Arc<feathrise_terrain::TerrainMeshInput>> {
-    if object.terrain.kind != feathrise_scene_content::SceneTerrainKind::Heightfield || draft.terrain_documents.loading {
-        return None;
-    }
-    let current = if let Some(active) = &draft.terrain_documents.active {
-        active.manifest.id == draft.scene_id
-            && super::load::same_heightfield_source(&active.definition, object)
-            && active.definition.terrain.base_height == object.terrain.base_height
-            && active.definition.terrain.height_scale == object.terrain.height_scale
-    } else {
-        draft.manifest.terrains.is_none() && object.id == TerrainId::legacy()
-            && draft.manifest.terrain == object.terrain
-    };
-    current.then_some(draft.terrain_mesh.as_ref()).flatten()
-}
+
 
 /// 首次迁移先认领原作者槽，再把容器改为空权威；旧未保存数据不能先失去类型与路径。
 pub(crate) fn ensure_primary_canvas(draft: &mut EditorSceneDraft) {
@@ -56,6 +39,7 @@ pub(super) fn park(draft: &mut EditorSceneDraft) {
             .values
             .insert(id, Arc::new(previous));
     } else if draft.manifest.terrains.is_some() {
+        super::root_vegetation::park(draft, &mut previous);
         super::root_water::park(draft, &mut previous);
     }
 }

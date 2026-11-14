@@ -4,8 +4,6 @@ mod inputs;
 mod types;
 
 pub(crate) use inputs::EditorActionInputs;
-#[cfg(test)]
-pub(in crate::ui) use inputs::dynamic_terrain_save_is_pending;
 pub(in crate::ui) use types::EditorActionAvailability;
 
 #[cfg(test)]

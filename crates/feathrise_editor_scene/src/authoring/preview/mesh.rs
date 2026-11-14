@@ -448,6 +448,7 @@ mod tests {
     fn zero_mesh_outputs_still_converge_without_any_selected_author_layer() {
         let scene_id = SceneId::parse("MAP-test").expect("测试场景ID有效");
         let vegetation = SceneVegetationAsset {
+            model_surfaces: Vec::new().into(),
             schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,                                           // 当前作者格式。
             scene_id: scene_id.clone(),                                      // 正式输出属于当前场景。
             layers: vec![mesh_layer("tree", 7), mesh_layer("shrub", 8)], // 作者层删除后仍保留的固定输出。
@@ -511,7 +512,7 @@ mod tests {
         use feathrise_environment::vegetation::VegetationMeshPrototype;
         let scene_id = SceneId::parse("MAP-prototype-revision").unwrap();
         let layer = mesh_layer("project_crystal", 7);
-        let vegetation = SceneVegetationAsset { schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION, scene_id: scene_id.clone(), layers: vec![layer], authoring: None };
+        let vegetation = SceneVegetationAsset { model_surfaces: Vec::new().into(), schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION, scene_id: scene_id.clone(), layers: vec![layer], authoring: None };
         let mut registry = VegetationMeshPrototypeRegistry::default();
         let id = VegetationPrototypeId(107);
         registry.register(VegetationMeshPrototype { id, lods: vec![] });

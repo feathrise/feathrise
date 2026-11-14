@@ -79,24 +79,22 @@ fn surface_trail_strength_mode_and_external_revision_are_preserved() {
 }
 
 fn app() -> App {
-    let session = session(); // 固定作者草稿。
+    let mut session = session(); // 固定作者草稿。
+    session.draft.as_mut().unwrap().manifest.terrain.kind = feathrise_scene_content::SceneTerrainKind::SparseClipmap;
     let scene_id = session.draft.as_ref().unwrap().scene_id.clone(); // 所有预览用同一稳定场景。
     let mut app = App::new(); // 不初始化GPU或窗口。
     app.insert_resource(SceneEditorState {
         open: true,
+        tool: crate::types::EditorTool::Surface,
         selected_scene_id: Some(scene_id.clone()),
         ..default()
     }); // 当前F12可见。
-    app.insert_resource(TerrainPreviewState {
-        applied_scene_id: Some(scene_id),
-        applied_revision: session.terrain_revision,
-        mesh: Some(Handle::default()),
-        ..default()
-    }); // 已准备共享地形。
+    app.init_resource::<TerrainPreviewState>(); // Clipmap反馈不依赖旧高度网格预览。
     app.insert_resource(session); // 当前完整作者会话。
     app.init_resource::<SurfaceBrushStroke>(); // 默认已松笔，等待PBR。
     app.init_resource::<SurfacePreviewState>(); // 当前还没有PBR回执。
     app.init_resource::<SurfaceStrokeTrail>(); // 唯一覆盖资源。
+    app.init_resource::<DynamicClipmapSurfaceOverlay>(); // 当前高度地形直接发布正式覆盖通道。
     app.init_resource::<Assets<Image>>(); // CPU资产存储足以验证RGBA图。
     app.init_resource::<Assets<StandardMaterial>>(); // 不运行真正渲染。
     app.add_systems(Update, draw_surface_stroke_trail); // 使用正式显隐和采用逻辑。
@@ -110,36 +108,6 @@ fn stamp(app: &mut App) {
             let point = Vec3::new(128.0, 0.0, 128.0); // 固定落点。
             trail.record(session, point, point, 10.0, false, 0.1); // 单击先于显示系统受理。
         });
-}
-
-fn applied_canvas_preview(app: &mut App) {
-    let identity = {
-        let session = app.world().resource::<EditorAuthoringSession>();
-        let draft = session.draft.as_ref().unwrap();
-        let source = draft.terrain_manifest();
-        crate::authoring::TerrainPreviewIdentity {
-            scene_id: draft.scene_id.clone(),
-            terrain_id: draft
-                .terrain_documents
-                .active
-                .as_ref()
-                .map(|active| active.definition.id.clone()),
-            revision: session.terrain_revision,
-            spec: feathrise_terrain::TerrainSampleSpec {
-                resolution: source.terrain.resolution,
-                world_min: source.world_min,
-                world_max: source.world_max,
-                base_height: source.terrain.base_height,
-                height_scale: source.terrain.height_scale,
-            },
-            source_path: source.terrain.glb_path.clone(),
-            source_sha256: draft.terrain_source_sha256,
-            mesh_identity: Arc::as_ptr(draft.terrain_mesh.as_ref().unwrap()) as usize,
-        }
-    };
-    app.world_mut()
-        .resource_mut::<TerrainPreviewState>()
-        .applied_identity = Some(identity);
 }
 
 #[test]
@@ -158,10 +126,11 @@ fn transformed_trail_keeps_source_uv_world_radius_and_applies_object_pose_once()
             ..Default::default()
         };
         let result = (object.id.clone(), object.transform);
+        let source = object.source_manifest(&draft.manifest);
         draft.manifest.terrains = Some(Arc::from([object.clone()]));
         draft.terrain_documents.active = Some(TerrainDocumentIdentity {
             definition: Arc::new(object),
-            manifest: draft.manifest.clone(),
+            manifest: source,
             folder: draft.folder.clone(),
         });
         result
@@ -169,11 +138,10 @@ fn transformed_trail_keeps_source_uv_world_radius_and_applies_object_pose_once()
     app.world_mut()
         .resource_mut::<SceneEditorState>()
         .terrain_canvas_target = Some(id.clone());
-    applied_canvas_preview(&mut app); // 独立画布预览也必须携真实对象身份，不能借旧主地形句柄。
     stamp(&mut app);
     app.update();
     let trail = app.world().resource::<SurfaceStrokeTrail>();
-    let entity = trail.entity.unwrap();
+    assert!(trail.entity.is_none(), "Clipmap覆盖必须复用正式高度扩展，不能新增平面");
     assert!(
         trail.pixels[(128 + 18) * DIM + 128][3] > 0,
         "源Z缩小后世界圆刷应覆盖更远的源像素"
@@ -184,8 +152,8 @@ fn transformed_trail_keeps_source_uv_world_radius_and_applies_object_pose_once()
         "源X放大后世界圆刷不能横向变宽"
     );
     assert_eq!(
-        *app.world().get::<Transform>(entity).unwrap(),
-        pose.as_transform()
+        app.world().resource::<DynamicClipmapSurfaceOverlay>().current.as_ref().unwrap().source_to_world,
+        pose.as_transform().to_matrix()
     );
     let next = {
         let session = app.world().resource::<EditorAuthoringSession>();
@@ -460,22 +428,17 @@ fn legacy_clipmap_primary_claim_keeps_root_feedback_but_explicit_primary_rejects
 fn surface_trail_old_receipt_preserves_new_stroke_and_ready_reuses_assets() {
     let mut app = app(); // 当前目标revision4。
     stamp(&mut app); // 第一笔实际记录。
-    app.update(); // 创建一个覆盖实体和一个透明材质。
-    let entity = app.world().resource::<SurfaceStrokeTrail>().entity.unwrap(); // 后续必须一直复用它。
+    app.update(); // 创建一份有界覆盖图，复用正式Clipmap的高度扩展。
+    assert!(app.world().resource::<SurfaceStrokeTrail>().entity.is_none());
     let image = app
         .world()
         .resource::<SurfaceStrokeTrail>()
         .image
         .clone()
         .unwrap(); // 后续不换整图句柄。
-    assert_eq!(
-        *app.world().get::<Visibility>(entity).unwrap(),
-        Visibility::Inherited
-    ); // 已显示连续柔边。
-    assert_eq!(
-        *app.world().get::<RenderLayers>(entity).unwrap(),
-        RenderLayers::layer(super::super::SCENE_EDITOR_BRUSH_RENDER_LAYER)
-    ); // 游戏相机不能看到覆盖。
+    assert_eq!(app.world().resource::<DynamicClipmapSurfaceOverlay>().trail.as_ref().unwrap().image, image);
+    let image_count = app.world().resource::<Assets<Image>>().len();
+    let material_count = app.world().resource::<Assets<StandardMaterial>>().len();
     let scene_id = app
         .world()
         .resource::<EditorAuthoringSession>()
@@ -497,10 +460,7 @@ fn surface_trail_old_receipt_preserves_new_stroke_and_ready_reuses_assets() {
         .applied_revision = 4; // 当前PBR完整到齐。
     app.update(); // 收起辅助覆盖。
     assert!(!app.world().resource::<SurfaceStrokeTrail>().has_segments()); // 最新正式材质接管。
-    assert_eq!(
-        *app.world().get::<Visibility>(entity).unwrap(),
-        Visibility::Hidden
-    ); // 不销毁共享实体。
+    assert!(app.world().resource::<DynamicClipmapSurfaceOverlay>().trail.is_none());
     stamp(&mut app); // 再次记录待呈现输入。
     app.world_mut()
         .resource_mut::<SurfacePreviewState>()
@@ -510,12 +470,12 @@ fn surface_trail_old_receipt_preserves_new_stroke_and_ready_reuses_assets() {
         app.world().resource::<SurfaceStrokeTrail>().image.as_ref(),
         Some(&image)
     ); // 没有每帧新建Image。
+    assert_eq!(app.world().resource::<Assets<Image>>().len(), image_count);
+    assert_eq!(app.world().resource::<Assets<StandardMaterial>>().len(), material_count);
     app.world_mut().resource_mut::<SceneEditorState>().open = false; // 关闭F12。
     app.update(); // 立即撤回作者辅助色。
-    assert_eq!(
-        *app.world().get::<Visibility>(entity).unwrap(),
-        Visibility::Hidden
-    ); // 未保存游戏PBR不会被覆盖。
+    assert!(app.world().resource::<DynamicClipmapSurfaceOverlay>().trail.is_none());
+    assert!(app.world().resource::<DynamicClipmapSurfaceOverlay>().current.is_none());
 }
 
 #[test]

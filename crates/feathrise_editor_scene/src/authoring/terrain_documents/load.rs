@@ -1,21 +1,9 @@
 //! 私有画布与作者源在IO池读取，几何派生在CPU池完成；失败不交换正在编辑的对象。
 use super::super::files::{safe_asset_path, workspace_asset_root};
 use super::{TerrainCanvas, TerrainDocumentIdentity};
-use bevy::{prelude::*, tasks::AsyncComputeTaskPool};
+use bevy::prelude::*;
 use feathrise_scene_content::*;
 use std::{path::Path, sync::Arc};
-
-/// 米制域与实例姿态不是源拓扑；同一几何的域重绑应保留已载入的精确作者顶点。
-pub(super) fn same_heightfield_source(a: &SceneTerrainObject, b: &SceneTerrainObject) -> bool {
-    a.id == b.id && a.terrain.kind == SceneTerrainKind::Heightfield && b.terrain.kind == SceneTerrainKind::Heightfield
-        && a.terrain.glb_path == b.terrain.glb_path && a.terrain.resolution == b.terrain.resolution
-        && a.world_min == b.world_min && a.world_max == b.world_max
-}
-
-pub(super) fn height_domain_rebind(a: &SceneTerrainObject, b: &SceneTerrainObject) -> bool {
-    same_heightfield_source(a, b)
-        && (a.terrain.base_height != b.terrain.base_height || a.terrain.height_scale != b.terrain.height_scale)
-}
 
 fn json<T: serde::de::DeserializeOwned>(
     root: &Path,
@@ -161,41 +149,7 @@ pub(crate) async fn load(
         || canvas.identity.as_ref().is_none_or(|old| {
             old.definition.terrain != object.terrain || old.definition.voxel != object.voxel
         });
-    if changed && object.terrain.kind == SceneTerrainKind::Heightfield {
-        let spec = feathrise_terrain::TerrainSampleSpec {
-            resolution: object.terrain.resolution,
-            world_min: object.world_min,
-            world_max: object.world_max,
-            base_height: object.terrain.base_height,
-            height_scale: object.terrain.height_scale,
-        };
-        let retained = (!saved && !canvas.vegetation_only
-            && canvas.identity.as_ref().is_some_and(|old| height_domain_rebind(&old.definition, &object)))
-            .then(|| canvas.terrain_mesh.clone()).flatten();
-        if let Some(mesh) = retained {
-            // 撤销/重做及域缩放只重新派生采样编码，内存WIP和顶点身份均保留；不重新读旧GLB。
-            let heights = AsyncComputeTaskPool::get().spawn(async move {
-                feathrise_terrain::derive_terrain((*mesh).clone(), spec).map(|derived| derived.heights)
-            }).await?;
-            canvas.heights = Some(Arc::new(heights));
-        } else {
-            let bytes = crate::ui::terrain_objects::read_glb(&object.terrain.glb_path)?;
-            let (mesh, index, heights, digest) = AsyncComputeTaskPool::get()
-                .spawn(async move {
-                    use sha2::{Digest, Sha256};
-                    let digest = Sha256::digest(&bytes).into();
-                    let mesh = feathrise_terrain::parse_dynamic_terrain_glb(&bytes)?;
-                    let index = feathrise_terrain::build_terrain_editing_index(&mesh)?;
-                    let heights = feathrise_terrain::derive_terrain(mesh.clone(), spec)?.heights;
-                    Ok::<_, String>((mesh, index, heights, digest))
-                })
-                .await?;
-            canvas.terrain_mesh = Some(Arc::new(mesh));
-            canvas.terrain_editing_index = Some(Arc::new(index));
-            canvas.heights = Some(Arc::new(heights));
-            canvas.terrain_source_sha256 = Some(digest);
-        }
-    } else if changed {
+    if changed {
         canvas.terrain_mesh = None;
         canvas.terrain_editing_index = None;
         canvas.heights = None;
@@ -248,6 +202,7 @@ pub(crate) fn prepare_sources(
     let (index_texture, weight_texture) =
         super::super::ktx2::encode_surface_maps(&indices, &weights, surface.resolution, 0)?;
     let vegetation = SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: SCENE_SCHEMA_VERSION,
         scene_id: map.clone(),
         layers: Vec::new(),

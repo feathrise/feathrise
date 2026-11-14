@@ -20,7 +20,7 @@ fn embedded_preview_new_terrain_credit_prevents_vegetation_from_blocking_first_s
     publish(app.world_mut(), &map, 7);
     app.world_mut().resource_mut::<InstanceResourceTable<DynamicBladeDraft>>().values.get_mut(&roots[1]).unwrap()
         .publish(feathrise_scene::DynamicBladeDraftSnapshot { source_revision: 8,
-            definition: SceneVegetationAsset { scene_id: map.clone(), ..default() }, sources: default(),
+            definition: SceneVegetationAsset { model_surfaces: Vec::new().into(), scene_id: map.clone(), ..default() }, sources: default(),
             densities: default(), nonzero_layers: default() });
     for _ in 0..8 { app.update(); }
     assert!(app.world().resource::<EmbeddedVegetationState>().ready.is_none());

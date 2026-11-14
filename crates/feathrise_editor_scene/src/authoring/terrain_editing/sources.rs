@@ -1,4 +1,4 @@
-//! GLB/Clipmap源编辑保持原文件不动；不可变版本可随场景清单撤销、重做和原子保存。
+//! 高度地形只编辑Clipmap分页源；体积地形使用自己的密度作者源。
 use bevy::{prelude::*, tasks::{AsyncComputeTaskPool, IoTaskPool}};
 use feathrise_scene_content::*;
 use std::path::Path;
@@ -41,41 +41,7 @@ pub(crate) async fn edit(root: std::path::PathBuf, owner: SceneId, mut object: S
                 object.terrain.height_path = Some(target);
             }
         }
-        SceneTerrainKind::Heightfield => {
-            if input.tool.is_volume_sculpt() { return Err("GLB高度网格请使用高度雕刻；三维挖掘请选择体素对象".into()); }
-            let source = object.terrain.glb_path.clone(); let asset_root = root.clone();
-            let (bytes, digest) = IoTaskPool::get().spawn(async move { read_source(&asset_root, &source, 128 * 1024 * 1024) }).await?;
-            let definition = object.clone();
-            let encoded = AsyncComputeTaskPool::get().spawn(async move {
-                let mut mesh = feathrise_terrain::parse_dynamic_terrain_glb(&bytes)?;
-                // 在旋转前的米制网格平面雕刻：圆半径和速度仍是世界米，位移沿网格本地Y。
-                // 若先改世界Y再逆变换只取Y，倾斜时会丢失位移并把压平面错误地转成世界水平面。
-                let scale = Vec3::from_array(definition.transform.scale);
-                let original = mesh.positions.clone();
-                for point in &mut mesh.positions { *point = (Vec3::from_array(*point) * scale).to_array(); }
-                let index = feathrise_terrain::build_terrain_editing_index(&mesh)?;
-                let kind = match input.tool { EditorTool::Smooth => feathrise_terrain::TerrainHeightBrushKind::Smooth,
-                    EditorTool::Flatten => feathrise_terrain::TerrainHeightBrushKind::Flatten, _ => feathrise_terrain::TerrainHeightBrushKind::RaiseLower };
-                let sign = if input.tool == EditorTool::Lower { -1.0 } else { 1.0 };
-                let min = definition.terrain.base_height * scale.y;
-                let changes = feathrise_terrain::sculpt_height_vertices(&mut mesh, &index, feathrise_terrain::TerrainHeightBrush {
-                    kind, center: center * scale, radius: input.radius, strength: input.strength, delta_seconds: input.delta_seconds,
-                    delta_height: sign * input.speed * input.strength * input.delta_seconds.clamp(0.0, 0.05),
-                    flatten_target: Some(inverse.transform_point3(input.plane_point).y * scale.y),
-                    minimum: min, maximum: min + definition.terrain.height_scale * scale.y, hit_triangle: None })?;
-                if changes.is_empty() { return Ok::<_, String>(None); }
-                // 未命中的作者点逐位保留，不能让一次缩放往返给刷圈外顶点制造ULP差异。
-                mesh.positions = original;
-                for change in changes { mesh.positions[change.index][1] = change.after / scale.y; }
-                feathrise_terrain::build_white_terrain_glb(&mesh).map(Some)
-            }).await?;
-            if let Some(bytes) = encoded {
-                let target = format!("{}/versions/{version}.glb", object.private_folder(&owner));
-                let asset_root = root; let path = target.clone(); let original = object.terrain.glb_path.clone();
-                IoTaskPool::get().spawn(async move { write_version(&asset_root, &original, &digest, &path, bytes) }).await?;
-                object.terrain.glb_path = target;
-            }
-        }
+
         SceneTerrainKind::Voxel => object = super::voxel::edit(root, owner, object, input, version).await?,
         _ => return Err("原始GLB保留完整Scene0和材质；几何修改请编辑原资产或创建可雕刻网格".into()),
     }
@@ -88,14 +54,4 @@ pub(super) fn read_source(root: &Path, relative: &str, limit: usize) -> Result<(
     let mut bytes = Vec::new(); file.take(limit as u64 + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
     if bytes.len() > limit { return Err("作者源超过本次后台读取预算".into()); }
     let digest = authoring_io::bytes_hash(&bytes); Ok((bytes, digest))
-}
-pub(super) fn write_version(root: &Path, original: &str, digest: &str, relative: &str, bytes: Vec<u8>) -> Result<(), String> {
-    let source = crate::authoring::safe_asset_path(root, original)?;
-    let target = crate::authoring::safe_asset_path(root, relative)?;
-    if authoring_io::file_hash(&target)? != "missing" { return Err("新的作者版本路径已被占用".into()); }
-    let expected = digest.to_owned(); let guard = target.clone();
-    authoring_transaction::commit_prepared_writes_checked(vec![authoring_transaction::PreparedWrite::new(target, bytes)], move |_, _| {
-        authoring_io::compare_content_hash(&expected, &authoring_io::file_hash(&source)?)?;
-        authoring_io::compare_content_hash("missing", &authoring_io::file_hash(&guard)?)
-    }).map_err(|e| e.message().to_owned())
 }

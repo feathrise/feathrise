@@ -27,24 +27,11 @@ pub(super) async fn prepare_at(
     creation: [f32; 8],
     serial: u64,
 ) -> Result<Prepared, String> {
-    let initialize_canvas = matches!(&mutation, Mutation::Add(_) | Mutation::ImportGlb(_));
+    let initialize_canvas = matches!(&mutation, Mutation::Add(_));
     let owner_id = owner.id.clone();
     let stitching=matches!(&mutation,Mutation::StitchNearest(..)|Mutation::Unstitch(_));
-    let imported = if let Mutation::ImportGlb(path) = &mutation {
-        let path = path.clone();
-        let bytes = IoTaskPool::get()
-            .spawn(async move { super::import_glb::read(&path) })
-            .await?;
-        Some(
-            AsyncComputeTaskPool::get()
-                .spawn(async move { super::import_glb::bounds(&bytes) })
-                .await?,
-        )
-    } else {
-        None
-    };
     let source_target = match &mutation {
-        Mutation::Brush(id, _) | Mutation::Field(id, _) | Mutation::HeightDomain(id, ..) => Some(id),
+        Mutation::Brush(id, _) | Mutation::Field(id, _) => Some(id),
         _ => None,
     };
     let edited = if let Some(id) = source_target {
@@ -65,13 +52,7 @@ pub(super) async fn prepare_at(
             .as_millis();
         let version = format!("edit-{stamp:x}-{serial:x}");
         Some(match &mutation {
-            Mutation::HeightDomain(_, span, mesh) => {
-                let span = *span;
-                let mesh = mesh.clone();
-                AsyncComputeTaskPool::get().spawn(async move {
-                    super::height::set_domain(object, span, &mesh)
-                }).await?
-            }
+
             Mutation::Brush(_, input) => {
                 crate::authoring::terrain_editing::edit(
                     crate::authoring::workspace_asset_root(),
@@ -136,7 +117,7 @@ pub(super) async fn prepare_at(
                         .enabled = value;
                     Some(id)
                 }
-                Mutation::Brush(id, _) | Mutation::Field(id, _) | Mutation::HeightDomain(id, ..) => {
+                Mutation::Brush(id, _) | Mutation::Field(id, _) => {
                     *records
                         .iter_mut()
                         .find(|object| object.id == id)
@@ -152,23 +133,6 @@ pub(super) async fn prepare_at(
                     object.transform = pose;
                     Some(id)
                 }
-                Mutation::ImportGlb(path) => {
-                    let stamp = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map_err(|e| e.to_string())?
-                        .as_millis();
-                    let id = TerrainId::parse(format!("terrain-{stamp:x}-{serial:x}"))?;
-                    let mut object =
-                        new_object(&owner.id, id.clone(), SceneTerrainKind::Gltf, creation)?;
-                    super::import_glb::configure(
-                        &mut object,
-                        path,
-                        imported.ok_or("GLB真实范围尚未读取")?,
-                        creation,
-                    )?;
-                    records.push(object);
-                    Some(id)
-                }
                 Mutation::Add(kind) => {
                     let stamp = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -178,19 +142,7 @@ pub(super) async fn prepare_at(
                     let mut object = new_object(&owner.id, id.clone(), kind, creation)?;
                     let folder = object.private_folder(&owner.id);
                     source = Some(match kind {
-                        SceneTerrainKind::Heightfield => {
-                            let bytes = feathrise_terrain::build_flat_terrain_glb(
-                                feathrise_terrain::TerrainSampleSpec {
-                                    resolution: object.terrain.resolution,
-                                    world_min: object.world_min,
-                                    world_max: object.world_max,
-                                    base_height: object.terrain.base_height,
-                                    height_scale: object.terrain.height_scale,
-                                },
-                                0.0,
-                            )?;
-                            NewSource::Glb(object.terrain.glb_path.clone(), bytes)
-                        }
+
                         SceneTerrainKind::SparseClipmap => {
                             let spec = SparseHeightSpec::new(
                                 object.world_min,
@@ -225,7 +177,7 @@ pub(super) async fn prepare_at(
                                 serde_json::to_vec_pretty(&data).map_err(|e| e.to_string())?,
                             )
                         }
-                        _ => return Err("添加操作只接受GLB、Clipmap或体素".into()),
+                        _ => return Err("添加操作只接受高度地形或体素地形".into()),
                     });
                     records.push(object);
                     Some(id)
@@ -310,7 +262,7 @@ pub(super) async fn prepare_at(
         IoTaskPool::get()
             .spawn(async move {
                 match source {
-                    NewSource::Glb(path, bytes) | NewSource::Voxel(path, bytes) => {
+                    NewSource::Voxel(path, bytes) => {
                         let target = crate::authoring::safe_asset_path(&root, &path)?;
                         if target.exists() {
                             return Err("新网格作者路径已经存在，未覆盖原文件".into());
@@ -357,7 +309,6 @@ pub(super) async fn prepare_at(
 }
 
 enum NewSource {
-    Glb(String, Vec<u8>),
     Voxel(String, Vec<u8>),
     Clipmap(SceneId, TerrainId, SparseHeightSpec),
 }
@@ -382,9 +333,8 @@ fn new_object(
         id,
         display_name: match kind {
             SceneTerrainKind::Gltf => "GLB网格",
-            SceneTerrainKind::Heightfield => "高度网格",
-            SceneTerrainKind::SparseClipmap => "Clipmap网格",
-            _ => "体素网格",
+            SceneTerrainKind::SparseClipmap => "高度地形",
+            _ => "体素地形",
         }
         .into(),
         enabled: true,
@@ -398,11 +348,7 @@ fn new_object(
         world_max: max,
         terrain: SceneTerrainDescriptor {resolved_stitches: Default::default(),
             kind,
-            glb_path: if kind == SceneTerrainKind::Heightfield {
-                format!("{folder}/terrain.glb")
-            } else {
-                String::new()
-            },
+            glb_path: String::new(),
             height_path: (kind == SceneTerrainKind::SparseClipmap)
                 .then(|| format!("{folder}/height_tiles.scene_height_manifest.json")),
             resolution,

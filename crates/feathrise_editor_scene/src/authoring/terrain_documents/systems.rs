@@ -26,7 +26,11 @@ pub(crate) fn scope_history(session: &mut EditorAuthoringSession) {
     let end = (start + 64).min(session.undo.len());
     for command in &mut session.undo[start..end] {
         if matches!(command, EditorCommand::TerrainCanvas { .. } | EditorCommand::RootWater(_)) { continue; }
-        if id.is_none() && (draft.manifest.terrains.is_some() || draft.manifest.terrain.is_empty()) && command.is_water_canvas() {
+        if id.is_none() && (draft.manifest.terrains.is_some() || draft.manifest.terrain.is_empty())
+            && (command.is_water_canvas() || matches!(command, EditorCommand::VegetationAuthoringChanged(_) | EditorCommand::ModelVegetationChanged { .. })) {
+            if matches!(command, EditorCommand::VegetationAuthoringChanged(_) | EditorCommand::ModelVegetationChanged { .. }) {
+                super::root_vegetation::mark_registration(draft);
+            }
             draft.terrain_documents.active_dirty = true; // 根水参数/结构历史在停放后仍有独立JSON保存责任。
             let old = std::mem::replace(command, EditorCommand::TerrainChanged(Vec::new()));
             *command = EditorCommand::RootWater(Box::new(old));
@@ -139,8 +143,6 @@ pub(super) fn focus(
                         .active
                         .as_ref()
                         .is_some_and(|active| active.definition.id == pending.object.id);
-                    let domain_rebind = same && draft.terrain_documents.active.as_ref()
-                        .is_some_and(|active| super::load::height_domain_rebind(&active.definition, &pending.object));
                     if same {
                         draft.terrain_mesh = canvas.terrain_mesh;
                         draft.terrain_editing_index = canvas.terrain_editing_index;
@@ -165,13 +167,11 @@ pub(super) fn focus(
                     author_target.scene_id = Some(draft.scene_id.clone());
                     author_target.terrain = Some(pending.object.id.clone());
                     session.revision = session.revision.wrapping_add(1);
-                    if !domain_rebind {
-                        // 同源域重绑只改变高度采样编码；三域像素及编译信用保留，避免无关重编译阻挡下一次域撤销。
-                        session.surface_revision = session.surface_revision.wrapping_add(1);
-                        session.vegetation_revision = session.vegetation_revision.wrapping_add(1);
-                        session.vegetation_structure_revision = session.vegetation_structure_revision.wrapping_add(1);
-                        session.water_revision = session.water_revision.wrapping_add(1);
-                    }
+                    // 完整画布切换统一使三个作者域的预览身份失效。
+                    session.surface_revision = session.surface_revision.wrapping_add(1);
+                    session.vegetation_revision = session.vegetation_revision.wrapping_add(1);
+                    session.vegetation_structure_revision = session.vegetation_structure_revision.wrapping_add(1);
+                    session.water_revision = session.water_revision.wrapping_add(1);
                     if let Some(candidates) = candidates.as_deref_mut() {
                         // 载入独立画布会推进作者修订，但已确认网格仍有效；同帧撤销旧点击资格并保留属性目标。
                         candidates.complete_terrain_canvas(&pending.object.id, pending.index, pending.revision, session.revision);
@@ -243,6 +243,7 @@ pub(super) fn focus(
         if draft.terrain_documents.active.is_some() {
             super::transitions::park(draft);
             super::root_water::restore(draft);
+            super::root_vegetation::restore(draft);
             session.revision = session.revision.wrapping_add(1);
             session.surface_revision = session.surface_revision.wrapping_add(1);
             session.vegetation_revision = session.vegetation_revision.wrapping_add(1);
@@ -264,11 +265,7 @@ pub(super) fn focus(
         .terrain_documents
         .active
         .as_ref()
-        .is_some_and(|active| {
-            active.definition.as_ref() == object
-                && (object.terrain.kind != feathrise_scene_content::SceneTerrainKind::Heightfield
-                    || draft.terrain_mesh.is_some())
-        })
+        .is_some_and(|active| active.definition.as_ref() == object)
     {
         if author_target.scene_id.as_ref() != Some(&draft.scene_id) {
             author_target.scene_id = Some(draft.scene_id.clone());
@@ -287,8 +284,6 @@ pub(super) fn focus(
         && active.definition.id == object.id
         && active.definition.terrain == object.terrain
         && active.definition.voxel == object.voxel
-        && (object.terrain.kind != feathrise_scene_content::SceneTerrainKind::Heightfield
-            || draft.terrain_mesh.is_some())
     {
         let mut updated = identity(draft, Arc::new(object));
         updated.manifest.puddles = active.manifest.puddles.clone();
@@ -307,23 +302,8 @@ pub(super) fn focus(
         .active
         .as_ref()
         .is_some_and(|active| active.definition.id == id);
-    let retain_domain = draft.terrain_documents.active.as_ref()
-        .is_some_and(|active| super::load::height_domain_rebind(&active.definition, &object))
-        && draft.terrain_mesh.is_some();
-    let cached = if retain_domain {
-        // 同对象的域事务只冻结固定数量的Arc；其余像素留在原活动槽，不能整图复制或读盘冲掉WIP。
-        Some(Arc::new(super::TerrainCanvas {
-            identity: draft.terrain_documents.active.clone(),
-            terrain_mesh: draft.terrain_mesh.clone(),
-            terrain_editing_index: draft.terrain_editing_index.clone(),
-            terrain_source_sha256: draft.terrain_source_sha256,
-            terrain_overwrite_authorized_sha256: draft.terrain_overwrite_authorized_sha256,
-            heights: draft.heights.clone(),
-            terrain_dirty: draft.terrain_dirty,
-            ..Default::default()
-        }))
-    } else { draft.terrain_documents.values.get(&id).cloned() };
-    let saved = !retain_domain && draft.terrain_documents.saved.contains(&id);
+    let cached = draft.terrain_documents.values.get(&id).cloned();
+    let saved = draft.terrain_documents.saved.contains(&id);
     let source = identity(draft, Arc::new(object));
     let map = draft.scene_id.clone();
     let object = source.definition.clone();

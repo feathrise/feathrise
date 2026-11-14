@@ -1,4 +1,4 @@
-//! 真实只读捕获与后台编码回归；验证旧来源拒收、保存/历史不变及正式GLB/纹理字节。
+//! 真实只读捕获与后台编码回归；验证旧来源拒收、保存/历史不变及高度页/纹理字节。
 
 use super::*;
 use crate::authoring::{EditorAuthoringSession, test_heightfield_draft};
@@ -359,6 +359,17 @@ fn bounded_capture_restarts_on_revision_and_keeps_author_document_unchanged() {
         .unwrap()
         .placements
         .placements = (0..145).map(placement).collect();
+    // 高度来源通过正式分页实时覆盖传递；不再依赖退休的网格到GLB派生分支。
+    let map = app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap().scene_id.clone();
+    let spec = SparseHeightSpec::new([-5.0; 2], [5.0; 2], 1.0, -8.0, 16.0).unwrap();
+    let key = SparseHeightTileKey { x: 0, z: 0 };
+    let mut tile = SparseHeightTile::blank(&spec, key).unwrap();
+    tile.set([1, 1], 3.0_f32.to_bits()).unwrap();
+    let tile_bytes = tile.encode_bytes();
+    let mut live = SparseHeightLiveOverride::default();
+    live.retarget(Some(map.clone()), 0);
+    live.publish_tiles(&map, 1, [Arc::new(tile)]).unwrap();
+    app.insert_resource(live);
     app.world_mut()
         .resource_mut::<EmbeddedSnapshotState>()
         .enabled = true;
@@ -383,8 +394,10 @@ fn bounded_capture_restarts_on_revision_and_keeps_author_document_unchanged() {
     let snapshot: SceneSnapshot = serde_json::from_slice(&ready.bytes).unwrap();
     assert_eq!(snapshot.placements.placements.len(), 145);
     assert_eq!(snapshot.placements.placements[0].translation[0], 7.);
-    let glb = &snapshot.asset_overrides["scenes/EDGE-TEST/terrain/terrain.glb"];
-    assert_eq!(&glb[..4], b"glTF");
+    assert_eq!(snapshot.authoring_height_revision, Some(1));
+    assert!(snapshot.sparse_height_tiles.iter().any(|tile| tile.key == key && tile.bytes.as_slice() == tile_bytes));
+    assert!(!snapshot.asset_overrides.contains_key("scenes/EDGE-TEST/terrain/terrain.glb"),
+        "只读快照不能把通用高度网格重新导出成已退役的Heightfield GLB");
     let source = app.world().resource::<EditorAuthoringSession>();
     assert_eq!(source.revision, 4);
     assert_eq!(source.successful_save_sequence, 0);
@@ -597,8 +610,10 @@ fn root_and_parked_terrain_preserve_independent_masks_and_complete_surface_pairs
         [255, 0, 0, 0].repeat(4)
     );
     assert_eq!(snapshot.asset_overrides[&indices].len(), 64);
-    assert_eq!(&snapshot.asset_overrides[&glb_path][..4], b"glTF");
+    assert!(!snapshot.asset_overrides.contains_key(&glb_path),
+        "私有画布沿用来源GLB，不再从缓存高度网格生成另一份模型");
     let object = &snapshot.manifest.terrains.as_ref().unwrap()[0];
+    assert_eq!(object.terrain.glb_path, glb_path, "模型来源路径须完整保留");
     assert_eq!(object.surface_path.as_deref(), Some(surface_path.as_str()));
     let private_water: SceneWaterAsset =
         serde_json::from_slice(&snapshot.asset_overrides[object.water_path.as_ref().unwrap()])
@@ -615,4 +630,111 @@ fn root_and_parked_terrain_preserve_independent_masks_and_complete_surface_pairs
             .successful_save_sequence,
         0
     );
+}
+
+#[cfg(test)]
+mod model_vegetation_tests {
+    use super::*;
+    use crate::authoring::terrain_documents::{TerrainCanvas, TerrainDocumentIdentity};
+
+    fn document() -> SceneVegetationAsset {
+        serde_json::from_value(serde_json::json!({
+            "schema_version": SCENE_SCHEMA_VERSION, "scene_id": "EDGE-TEST",
+            "layers": [{"id":"grass", "label":"草", "kind":"blade",
+                "asset_path":"models/grass.glb", "density_source_path":"scenes/EDGE-TEST/grass.r8",
+                "density_texture_path":"scenes/EDGE-TEST/grass.ktx2", "resolution":[2,2],
+                "spacing_meters":0.25, "scale_range":[1.0,1.0], "seed":1}],
+            "authoring": {"groups":[{"id":"base", "label":"地被", "mode":"additive", "output_merge":"maximum"}],
+                "layers":[{"id":"author-grass", "label":"作者草", "group_id":"base", "output_layer_id":"grass",
+                    "density_source_path":"scenes/EDGE-TEST/author-grass.r8", "resolution":[2,2]}]},
+            "model_surfaces":[{"target":{"kind":"model", "object_id":"plane"},
+                "topology":[3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],
+                "spacing_meters":0.25, "samples":[{"anchor":{"primitive":0,"triangle":0,"barycentric":[0.2,0.3]},
+                    "layers":[["author-grass",193]]}]}]
+        })).unwrap()
+    }
+
+    #[test]
+    fn model_root_snapshot_preserves_samples_and_author_rules_without_planar_density() {
+        for parked in [false, true] {
+            let mut app = app();
+            let expected = document();
+            {
+                let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+                let draft = session.draft.as_mut().unwrap();
+                let mut private = draft.manifest.terrain_objects_for_edit()[0].clone();
+                private.id = TerrainId::parse("model-preview-private").unwrap();
+                let folder = private.private_folder(&draft.scene_id);
+                private.terrain.glb_path = format!("{folder}/terrain.glb");
+                draft.manifest.terrain = SceneTerrainDescriptor::empty();
+                draft.manifest.terrains = Some(Vec::new().into());
+                if parked {
+                    // 选择私有地形后根模型文档停放，不能借用 active 画布的二维编译资格。
+                    draft.manifest.terrains = Some(vec![private.clone()].into());
+                    draft.terrain_documents.active = Some(TerrainDocumentIdentity {
+                        manifest: private.source_manifest(&draft.manifest),
+                        definition: Arc::new(private), folder,
+                    });
+                    let mut root = TerrainCanvas::default();
+                    root.vegetation = Some(expected.clone());
+                    draft.terrain_documents.root_vegetation = Some(Arc::new(root));
+                } else {
+                    draft.vegetation = Some(expected.clone());
+                }
+                assert!(draft.vegetation_densities.is_empty());
+            }
+            app.world_mut().resource_mut::<EmbeddedSnapshotState>().enabled = true;
+            settle(&mut app);
+            let state = app.world().resource::<EmbeddedSnapshotState>();
+            assert!(state.error.is_none(), "parked={parked}: {:?}", state.error);
+            let snapshot: SceneSnapshot = serde_json::from_slice(&state.ready.as_ref().unwrap().bytes).unwrap();
+            let actual = snapshot.vegetation.as_ref().unwrap();
+            assert_eq!(actual.layers, expected.layers);
+            assert_eq!(actual.authoring, expected.authoring);
+            assert_eq!(actual.model_surfaces, expected.model_surfaces);
+            let encoded: SceneVegetationAsset = serde_json::from_slice(
+                &snapshot.asset_overrides["scenes/EDGE-TEST/vegetation.scene_vegetation.json"]).unwrap();
+            assert_eq!(encoded.model_surfaces, expected.model_surfaces);
+            // 正式运行端使用同一编译器消费解码后的样本，验证作者层仍能解析到正式输出。
+            let compiler = SurfaceVegetationCompiler::new(&encoded).unwrap();
+            assert_eq!(compiler.resolve(&encoded.model_surfaces[0].samples[0].layers, [0.4, 0.6]), vec![(0, 193)]);
+            assert!(!snapshot.asset_overrides.contains_key(&expected.layers[0].density_source_path));
+            assert!(!snapshot.asset_overrides.contains_key(&expected.layers[0].density_texture_path));
+            assert_eq!(app.world().resource::<EditorAuthoringSession>().successful_save_sequence, 0);
+        }
+    }
+
+    #[test]
+    fn planar_snapshot_still_rejects_missing_density_for_active_and_parked_canvases() {
+        for parked in [false, true] {
+            let mut app = app();
+            {
+                let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+                let draft = session.draft.as_mut().unwrap();
+                let mut vegetation = document();
+                vegetation.model_surfaces = Vec::new().into();
+                if parked {
+                    let mut private = draft.manifest.terrain_objects_for_edit()[0].clone();
+                    private.id = TerrainId::parse("planar-preview-private").unwrap();
+                    let folder = private.private_folder(&draft.scene_id);
+                    private.terrain.glb_path = format!("{folder}/terrain.glb");
+                    draft.manifest.terrain = SceneTerrainDescriptor::empty();
+                    draft.manifest.terrains = Some(vec![private.clone()].into());
+                    let mut canvas = TerrainCanvas::default();
+                    canvas.vegetation = Some(vegetation);
+                    canvas.identity = Some(TerrainDocumentIdentity {
+                        manifest: private.source_manifest(&draft.manifest), definition: Arc::new(private.clone()), folder,
+                    });
+                    draft.terrain_documents.values.insert(private.id, Arc::new(canvas));
+                } else {
+                    draft.vegetation = Some(vegetation);
+                }
+            }
+            app.world_mut().resource_mut::<EmbeddedSnapshotState>().enabled = true;
+            settle(&mut app);
+            let state = app.world().resource::<EmbeddedSnapshotState>();
+            assert!(state.error.as_ref().is_some_and(|error| error.contains("密度")), "parked={parked}: {:?}", state.error);
+            assert!(state.ready.is_none());
+        }
+    }
 }

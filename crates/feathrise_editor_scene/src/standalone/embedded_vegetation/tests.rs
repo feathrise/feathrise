@@ -25,7 +25,7 @@ fn setup() -> (App, SceneId) {
 
 fn publish(world: &mut World, map: &SceneId, revision: u64) {
     world.resource_mut::<DynamicBladeDraft>().publish(feathrise_scene::DynamicBladeDraftSnapshot {
-        source_revision: revision, definition: SceneVegetationAsset { scene_id: map.clone(), ..default() },
+        source_revision: revision, definition: SceneVegetationAsset { model_surfaces: Vec::new().into(), scene_id: map.clone(), ..default() },
         sources: BTreeMap::new(), densities: BTreeMap::new(), nonzero_layers: BTreeSet::new(),
     });
 }
@@ -126,7 +126,7 @@ fn embedded_vegetation_uses_real_batch_activity_for_sibling_and_logical_root_own
     publish(app.world_mut(),&map,7);
     let sibling=|world:&mut World,revision|world.resource_mut::<InstanceResourceTable<DynamicBladeDraft>>().values.get_mut(&parents[1]).unwrap()
         .publish(feathrise_scene::DynamicBladeDraftSnapshot{source_revision:revision,
-            definition:SceneVegetationAsset{scene_id:map.clone(),..default()},sources:BTreeMap::new(),densities:BTreeMap::new(),nonzero_layers:BTreeSet::new()});
+            definition:SceneVegetationAsset{ model_surfaces: Vec::new().into(),scene_id:map.clone(),..default()},sources:BTreeMap::new(),densities:BTreeMap::new(),nonzero_layers:BTreeSet::new()});
     sibling(app.world_mut(),8);
     until(&mut app,|world|world.resource::<EmbeddedVegetationState>().ready.is_some());
     let first=app.world().resource::<EmbeddedVegetationState>().ready.clone().unwrap();

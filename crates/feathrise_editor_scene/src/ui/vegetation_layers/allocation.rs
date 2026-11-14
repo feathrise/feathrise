@@ -2,17 +2,27 @@
 
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, futures::check_ready};
-use feathrise_scene_content::{SceneId, VegetationPresetRegistry};
+use feathrise_scene_content::{SceneId, TerrainId, VegetationPresetRegistry};
 use feathrise_scene::DynamicMeshProfileRequests;
 
 use crate::authoring::EditorAuthoringSession;
 use crate::resources::SceneEditorState;
-use crate::types::EditorTool;
+use crate::types::{EditorAction, EditorTool};
 use crate::ui::actions::activate_vegetation_layer;
 
 use super::operations::{
     apply_vegetation_authoring_action_with_blank, vegetation_blank_layer_pixel_count,
+    PreparedVegetationMutation, adopt_vegetation_authoring_action, prepare_vegetation_authoring_action,
 };
+
+struct PendingModelLayer {
+    scene_id: SceneId,
+    document: crate::authoring::placement_deletion::PlacementDeletionIdentity,
+    revision: u64,
+    selected: usize,
+    terrain: Option<TerrainId>,
+    task: Task<Result<PreparedVegetationMutation, String>>,
+}
 
 struct PendingVegetationBlankLayer {
     scene_id: SceneId,                       // 切换场景后迟到完成值不得写入另一个场景。
@@ -27,6 +37,8 @@ struct PendingVegetationBlankLayer {
 #[derive(Resource, Default)]
 pub(crate) struct VegetationBlankLayerAllocation {
     pending: Option<PendingVegetationBlankLayer>,
+    model_layer: Option<PendingModelLayer>, // 与空R8共用同一全局作者层槽，不增加并发任务。
+    retirement: Option<Task<()>>, // 迟到大样本在后台释放，结束前仍占用单飞槽。
 }
 
 impl VegetationBlankLayerAllocation {
@@ -37,7 +49,8 @@ impl VegetationBlankLayerAllocation {
         session: &EditorAuthoringSession,
         registry: Option<&VegetationPresetRegistry>,
     ) -> bool {
-        self.pending.as_ref().is_some_and(|pending| {
+        self.model_layer.as_ref().is_some_and(|pending| model_identity(pending, editor, session))
+        || self.pending.as_ref().is_some_and(|pending| {
             editor.open
                 && session.draft.as_ref().map(|draft| &draft.scene_id) == Some(&pending.scene_id)
                 && editor.selected_scene_id.as_ref() == Some(&pending.scene_id)
@@ -49,12 +62,86 @@ impl VegetationBlankLayerAllocation {
     }
 
     pub(crate) fn busy(&self) -> bool {
-        self.pending.is_some()
+        self.pending.is_some() || self.model_layer.is_some() || self.retirement.is_some()
     }
 }
 
 fn catalog_revision(registry: Option<&VegetationPresetRegistry>) -> u64 {
     registry.map_or(0, |registry| registry.revision)
+}
+
+fn model_identity(pending: &PendingModelLayer, editor: &SceneEditorState, session: &EditorAuthoringSession) -> bool {
+    editor.open && session.revision == pending.revision
+        && pending.document.matches(&session.placement_deletions)
+        && editor.selected_vegetation_layer == pending.selected
+        && session.draft.as_ref().is_some_and(|draft| draft.scene_id == pending.scene_id
+            && draft.terrain_documents.active.as_ref().map(|active| &active.definition.id) == pending.terrain.as_ref())
+}
+
+/// 模型样本存在时，复制/删层先冻结完整结构；样本与描述尚未共同完成前不修改作者数据。
+pub(super) fn request_model_layer(
+    action: EditorAction,
+    editor: &mut SceneEditorState,
+    session: &EditorAuthoringSession,
+    allocation: &mut VegetationBlankLayerAllocation,
+) -> Result<bool, String> {
+    if !matches!(action, EditorAction::VegetationDuplicateLayer | EditorAction::VegetationDeleteSelected)
+        || session.draft.as_ref().and_then(|draft| draft.vegetation.as_ref())
+            .is_none_or(|vegetation| vegetation.model_surfaces.is_empty()) {
+        return Ok(false);
+    }
+    if allocation.busy() { return Err("植被作者层事务仍在后台完成，请稍候".into()); }
+    let prepared = prepare_vegetation_authoring_action(action, editor, session, None, None)?;
+    let source = prepared.change.as_ref().and_then(|change|
+        change.before.layers.get(editor.selected_vegetation_layer.min(change.before.layers.len().saturating_sub(1))))
+        .ok_or("模型作者层操作缺少原图层身份")?.id.clone();
+    let draft = session.draft.as_ref().ok_or("模型作者层草稿已失效")?;
+    let task = AsyncComputeTaskPool::get().spawn(async move {
+        super::model_layers::prepare(prepared, action, &source)
+    });
+    allocation.model_layer = Some(PendingModelLayer {
+        scene_id: draft.scene_id.clone(), document: session.placement_deletions.identity(),
+        revision: session.revision, selected: editor.selected_vegetation_layer,
+        terrain: draft.terrain_documents.active.as_ref().map(|active| active.definition.id.clone()),
+        task,
+    });
+    editor.status = "正在后台准备植被作者层与全部模型表面样本…".into();
+    Ok(true)
+}
+
+fn poll_model_layer(
+    editor: &mut SceneEditorState,
+    session: &mut EditorAuthoringSession,
+    allocation: &mut VegetationBlankLayerAllocation,
+    mesh_profile_requests: Option<&mut DynamicMeshProfileRequests>,
+) {
+    let Some(pending) = allocation.model_layer.as_mut() else { return; };
+    let Some(result) = check_ready(&mut pending.task) else { return; };
+    let pending = allocation.model_layer.take().expect("模型作者层仍占有唯一后台槽");
+    let snapshots_current = match &result {
+        Ok(prepared) => prepared.change.as_ref().is_none_or(|change|
+            session.draft.as_ref().and_then(|draft| draft.vegetation.as_ref()).is_some_and(|vegetation|
+                vegetation.layers == change.before_outputs && vegetation.authoring.as_ref() == Some(&change.before)
+                    && change.model_vegetation.as_ref().is_none_or(|models|
+                        std::sync::Arc::ptr_eq(&vegetation.model_surfaces, &models.before)))),
+        Err(_) => true,
+    };
+    if !model_identity(&pending, editor, session) || session.saving || !snapshots_current {
+        allocation.retirement = Some(AsyncComputeTaskPool::get().spawn(async move { drop(result); }));
+        editor.status = "植被作者层后台结果的场景、画布或作者修订已变化，已丢弃迟到结果".into();
+        return;
+    }
+    match result.and_then(|prepared| adopt_vegetation_authoring_action(prepared, editor, session)) {
+        Ok(outcome) => {
+            editor.tool = EditorTool::Vegetation;
+            if let Some(index) = outcome.selected {
+                editor.vegetation_layer_page = index / super::systems::VEGETATION_LAYER_ROW_COUNT;
+                activate_vegetation_layer(editor, session, index, mesh_profile_requests);
+            } else { editor.vegetation_layer_page = 0; }
+            editor.status = outcome.status;
+        }
+        Err(error) => editor.status = error,
+    }
 }
 
 /// 开始后台分配当前新建动作需要的完整零值 R8；不提前修改正式输出或作者描述。
@@ -64,7 +151,7 @@ pub(super) fn request_vegetation_blank_layer_allocation(
     registry: Option<&VegetationPresetRegistry>,
     allocation: &mut VegetationBlankLayerAllocation,
 ) -> Result<(), String> {
-    if allocation.pending.is_some() {
+    if allocation.busy() {
         return Err("已有一张植被空白画布正在后台创建，请稍候".to_owned());
     }
     let pixel_count = vegetation_blank_layer_pixel_count(editor, session, registry)?;
@@ -102,6 +189,14 @@ pub(crate) fn poll_vegetation_blank_layer_allocation(
     mut allocation: ResMut<VegetationBlankLayerAllocation>,
     mut mesh_profile_requests: Option<ResMut<DynamicMeshProfileRequests>>,
 ) {
+    if let Some(task) = allocation.retirement.as_mut() {
+        if check_ready(task).is_some() { allocation.retirement = None; }
+        return;
+    }
+    if allocation.model_layer.is_some() {
+        poll_model_layer(&mut editor, &mut session, &mut allocation, mesh_profile_requests.as_deref_mut());
+        return;
+    }
     let Some(pending) = allocation.pending.as_mut() else {
         return;
     };
@@ -179,6 +274,8 @@ mod tests {
         };
         let pool = AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
         let mut allocation = VegetationBlankLayerAllocation {
+            model_layer: None,
+            retirement: None,
             pending: Some(PendingVegetationBlankLayer {
                 scene_id: editor.selected_scene_id.clone().unwrap(),
                 session_revision: 12,

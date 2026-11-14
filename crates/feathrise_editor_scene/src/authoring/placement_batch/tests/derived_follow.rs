@@ -22,8 +22,9 @@ fn follow(app: &mut App) -> Vec<feathrise_scene_content::ScenePlacementRecord> {
         let session = app.world().resource::<EditorAuthoringSession>();
         (session.revision, session.placement_structure_revision, session.terrain_revision)
     };
-    // 真实生产入口直接采用同地形修订的高度结果，不以手动修改记录或revision模拟派生。
-    app.world_mut().run_system_once(crate::authoring::reconcile_following_placements).unwrap();
+    // 真实生产入口在后台完成并采用整批，不以手动修改记录或revision模拟派生。
+    assert!(matches!(crate::authoring::test_support::drive_test_follow_to_completion(app),
+        crate::authoring::PlacementGroundingReadiness::Ready));
     let session = app.world().resource::<EditorAuthoringSession>();
     assert_eq!((session.revision, session.placement_structure_revision, session.terrain_revision), before);
     let records = session.draft.as_ref().unwrap().placements.placements.clone();

@@ -72,6 +72,7 @@ fn binding_kind_or_asset_path_changes_browser_structure() {
         mesh: 6,
         primitive: 0,
         material: Some(2),
+        collision: false,
     };
     let mut scene_without_water = before.clone();
     scene_without_water.water_surfaces.clear();

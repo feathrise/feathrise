@@ -81,7 +81,7 @@ fn held_job(app: &mut App, prepare_before_gate: bool) -> (WorkerGate, Arc<Atomic
     let selection = app.world().resource::<PlacementSelectionSet>();
     let draft = session.draft.as_ref().unwrap();
     let identity = BatchIdentity::from_session(session, None).unwrap();
-    let capture = Capture {
+    let capture = Capture { model_vegetation: Arc::default(),
         identity: identity.clone(), action: PlacementBatchAction::Delete,
         records: draft.placements.placements.iter().cloned().enumerate().collect(),
         members: selection.members.clone(), bounds: draft.manifest.world_bounds().unwrap(),

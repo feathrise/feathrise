@@ -18,12 +18,13 @@ use crate::authoring::{
     BoundaryEditState,      // 活动控制点拖动必须先形成一次完整撤销和碰撞修订。
     EditorAuthoringSession, // 当前作者草稿及地形专用修订号。
     TerrainBrushStroke,     // 活动笔划必须先收口为完整撤销命令。
-    TerrainLiveApplyState,  // 同修订Mesh与Collider的跨帧确认状态。
     WaterBrushStroke,       // 复合河水笔划必须先形成完整R8/GLB顶点撤销命令。
     WaterFileHandoff,       // 保存后的正式R8与动态水新代次完成前保持F12关闭门。
     WaterNetworkEditState,  // 连续水网控制点必须松手形成完整前后快照。
     WaterPreviewState,      // 全部水层必须与当前未保存GLB地形属于同一联合修订。
 };
+#[cfg(test)]
+use crate::authoring::TerrainLiveApplyState; // 退休有限网格测试仍可构造原候选；正式关闭不再等待GLB地形交接。
 use crate::resources::{
     SceneBrowserDragState, SceneBrowserState, SceneCreationTask, SceneDeletionTask, SceneEditorState,
     SceneFolderPersistence,
@@ -33,7 +34,6 @@ use super::actions::set_ime_enabled; // 与新建弹框共用唯一IME开关实�
 
 #[derive(bevy::ecs::system::SystemParam)]
 pub(crate) struct AuthoringCloseGate<'w, 's> {
-    terrain_adoption: crate::authoring::TerrainLiveAdoption<'w, 's>, // 与游戏响应共用当前真实采用资格，不能只读上一次ready。
     objects: Option<Res<'w, super::scene_objects::SceneObjectState>>,
     object_visibility: Option<Res<'w, super::scene_objects::ObjectVisibilityState>>,
     commands: Commands<'w, 's>, // 回到真实玩法才归还启动模式；空世界关闭保留无菜单窗口上下文。
@@ -140,7 +140,6 @@ pub(crate) fn finish_scene_editor_close(
     session: Res<EditorAuthoringSession>, // 判断当前草稿是否存在未保存高度变化。
     stroke: Res<TerrainBrushStroke>,    // 活动笔划必须先由作者系统收口为稳定修订。
     water_stroke: Res<WaterBrushStroke>, // 普通河水笔划同时持有R8与GLB顶点局部差分。
-    live: Res<TerrainLiveApplyState>,   // 读取同修订Mesh与Collider跨帧确认结果。
     water_preview: Res<WaterPreviewState>, // 读取同一水域/地形修订的全层完成证据。
     water_handoff: Res<WaterFileHandoff>, // 同场景同水修订的保存后正式交接必须完整完成。
     boundary_edit: Res<BoundaryEditState>, // 未松手控制点不能带着逐帧中间态退出。
@@ -155,6 +154,10 @@ pub(crate) fn finish_scene_editor_close(
 ) {
     if !editor.open || !editor.close_requested {
         return; // 没有关闭请求时稳定帧不读取草稿细节。
+    }
+    if session.model_vegetation_busy {
+        editor.status = "正在收口模型植被笔划；完成后自动关闭编辑器".into();
+        return;
     }
     if close_gate.vegetation_cross.as_ref().is_some_and(|state|state.busy()) {
         editor.status="正在收口跨网格植被笔划并发布完整草地；完成后自动关闭编辑器".into();
@@ -270,13 +273,6 @@ pub(crate) fn finish_scene_editor_close(
         return; // 实时中间态只有松手后才拥有完整撤销记录。
     }
     if let Some(draft) = session.draft.as_ref()
-        && live.file_handoff_pending_for(&draft.scene_id, session.terrain_revision)
-    {
-        editor.status =
-            "正在完成保存后地形网格、RGBA材质和物理碰撞的原子热交接；完成后自动关闭编辑器".to_owned();
-        return; // 文件Scene完成前继续用编辑视口遮住热更新中间态，并保持玩法物理暂停。
-    }
-    if let Some(draft) = session.draft.as_ref()
         && draft.manifest.is_data_driven()
         && draft.boundaries.is_some()
     {
@@ -312,32 +308,9 @@ pub(crate) fn finish_scene_editor_close(
             return; // 不同域关闭门继续按原顺序处理，只有空气墙域改为后台完成证据。
         }
     }
-    let terrain_requirement = session.draft.as_ref().and_then(|draft| {
-        // 只有未保存动态高度场需要关闭门。
-        (draft.terrain_dirty // 地形已经真实修改且尚未持久化。
-            && draft.manifest.is_data_driven() // 正式源支持动态草稿接管。
-            && draft.manifest.terrain.kind == SceneTerrainKind::Heightfield) // 草稿拥有可编辑GLB地形及运行时顶层高度缓存。
-            .then(|| (draft.scene_id.clone(), session.terrain_revision)) // 返回必须完成的稳定身份。
-    });
-    if let Some((scene_id, revision)) = terrain_requirement
-        && !close_gate.terrain_adoption.current().is_some_and(|receipt| {
-            receipt.scene_id == &scene_id && receipt.revision == revision
-        })
-    {
-        let failed = live.failed_scene_id.as_ref() == Some(&scene_id) // 同一场景已经确定构建失败。
-            && live.failed_revision == Some(revision); // 失败必须正是当前高度修订。
-        if failed {
-            editor.cancel_close_request(
-                "未保存地形画面或物理碰撞构建失败，本次关闭已取消；请继续编辑或重试".to_owned(),
-            ); // 已确定失败不会自行变好，必须归还笔刷而不是永久等待。
-        } else {
-            editor.status = "正在后台完成未保存地形碰撞；完成后自动关闭编辑器".to_owned(); // 正常等待不冒充卡死。
-        }
-        return; // 继续保持UI、玩法输入和物理暂停，绝不暴露画面/碰撞半套状态。
-    }
     let water_requirement = session.draft.as_ref().and_then(|draft| {
         (draft.manifest.is_data_driven()
-            && draft.manifest.terrain.kind == SceneTerrainKind::Heightfield
+            && draft.manifest.terrain.kind == SceneTerrainKind::SparseClipmap
             && draft.water.as_ref().is_some_and(|water| {
                 !water.layers.is_empty() || !water.rivers.is_empty() || !water.waterfalls.is_empty()
             })) // 任意静水、河流或瀑布定义都必须等待当前水预览修订。

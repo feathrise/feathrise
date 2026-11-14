@@ -10,7 +10,7 @@ use bevy::{
     tasks::{IoTaskPool, futures::check_ready},
 };
 use feathrise_scene_content::{
-    SceneTerrainCollection, SceneTerrainDescriptor, SceneTerrainKind, SceneTerrainObject,
+    SceneTerrainCollection, SceneTerrainDescriptor, SceneTerrainObject,
 };
 
 pub(super) fn enabled(
@@ -65,7 +65,6 @@ pub(crate) fn start(
     // 创建按钮和外部调用共用预检；不让明确无效的规格占用后台槽，也不静默放粗源格距。
     let creation_kind = match &mutation {
         Mutation::Add(kind) => Some(*kind),
-        Mutation::ImportGlb(_) => Some(SceneTerrainKind::Gltf),
         _ => None,
     };
     if let Some(kind) = creation_kind {
@@ -85,12 +84,11 @@ pub(crate) fn start(
         | Mutation::Brush(id, _)
         | Mutation::Field(id, _)
         | Mutation::Transform(id, _)
-        | Mutation::HeightDomain(id, ..)
         | Mutation::Remove(id)
         | Mutation::Value(id, ..)
         | Mutation::AddLod(id, _)
         | Mutation::RemoveLod(id, ..) => Some(id.clone()),
-        Mutation::Add(_) | Mutation::ImportGlb(_) => None,
+        Mutation::Add(_) => None,
     };
     if target.as_ref().is_some_and(|id| state.locked.contains(id)) {
         editor.status = "所选网格已锁定；解锁后可以修改".into();
@@ -101,14 +99,7 @@ pub(crate) fn start(
     }
     let affects_terrain = !matches!(&mutation, Mutation::Rename(_, _));
     let draft = session.draft.as_ref().unwrap();
-    if let Mutation::HeightDomain(id, _, mesh) = &mutation
-        && selected(session, state).filter(|object| object.id == *id)
-            .and_then(|object| crate::authoring::terrain_documents::height_domain_mesh(draft, object))
-            .is_none_or(|current| !std::sync::Arc::ptr_eq(current, mesh))
-    {
-        editor.status = "作者高度域对应的当前网格已换代，请等待所选画布完整载入".into();
-        return;
-    }
+
     if target.as_ref() == Some(&feathrise_scene_content::TerrainId::legacy())
         && matches!(
             &mutation,
@@ -321,9 +312,8 @@ pub(super) fn input(
                 }
                 None
             }
-            Action::Glb | Action::ImportGlb | Action::Clipmap | Action::Voxel | Action::Cuboid => {
+            Action::ImportGlb | Action::Clipmap | Action::Voxel | Action::Cuboid => {
                 state.creation_source = match button.0 {
-                    Action::Glb => CreationSource::Heightfield,
                     Action::ImportGlb => CreationSource::ImportedGlb,
                     Action::Clipmap => CreationSource::Clipmap,
                     Action::Voxel => CreationSource::Voxel,

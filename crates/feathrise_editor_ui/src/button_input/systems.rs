@@ -139,8 +139,11 @@ pub fn update_editor_button_clicks(mut input: EditorButtonInput) {
             input.capture.released = Some(captured.entity);
         }
         input.capture.held = None;
-    } else if !mouse.pressed(MouseButton::Left) || *interaction != UiInteraction::Pressed {
-        // 业务换绑主动重置Interaction后不会重新武装；丢焦或漏掉的释放也不能留下旧捕获。
+    } else if !mouse.pressed(MouseButton::Left)
+        || (*interaction != UiInteraction::Pressed && cursor.is_none_or(|cursor| cursor.cursor_over))
+    {
+        // 现代拾取在移出时投影None：仍按住且确实位于原按钮外只保留原捕获，移回后可合法松开。
+        // 原按钮内的业务reset仍取消；换绑generation、隐藏、禁用和失焦已由上方身份门拒收。
         input.capture.held = None;
     }
 }

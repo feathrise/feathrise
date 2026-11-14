@@ -98,7 +98,7 @@ pub(super) fn native_lods(object: &SceneTerrainObject) -> bool {
 fn generic_lods(object: &SceneTerrainObject) -> bool {
     matches!(
         object.terrain.kind,
-        SceneTerrainKind::Gltf | SceneTerrainKind::Heightfield
+        SceneTerrainKind::Gltf
     )
 }
 pub(super) fn lod_count(object: Option<&SceneTerrainObject>, display: bool) -> usize {
@@ -126,7 +126,7 @@ pub(super) fn action_available(
     let native = |display| object.is_some_and(native_lods) && state.section_open(TerrainObjectsEditorState::lod_section(display));
     match action {
         Action::ToggleCreation => true,
-        Action::Cuboid | Action::Glb | Action::Clipmap | Action::Voxel | Action::ImportGlb
+        Action::Cuboid | Action::Clipmap | Action::Voxel | Action::ImportGlb
             | Action::PlacementViewport | Action::PlacementCoordinates => state.creation_open,
         Action::CuboidCollision => state.creation_open && state.creation_source == super::types::CreationSource::Cuboid,
         Action::StartCreation => state.creation_open && state.point_query.is_none()
@@ -165,15 +165,14 @@ pub(super) fn action_available(
 fn kind_label(object: &SceneTerrainObject) -> &'static str {
     match object.terrain.kind {
         SceneTerrainKind::Gltf => "原始 GLB",
-        SceneTerrainKind::Heightfield => "高度网格",
-        SceneTerrainKind::SparseClipmap => "Clipmap",
-        SceneTerrainKind::Voxel => "体素",
+        SceneTerrainKind::SparseClipmap => "高度地形",
+        SceneTerrainKind::Voxel => "体素地形",
         SceneTerrainKind::Empty => "空源",
     }
 }
 fn row_source_label(object: &SceneTerrainObject) -> String {
     let kind = kind_label(object);
-    if matches!(object.terrain.kind, SceneTerrainKind::Gltf | SceneTerrainKind::Heightfield) && !object.terrain.glb_path.is_empty() {
+    if matches!(object.terrain.kind, SceneTerrainKind::Gltf) && !object.terrain.glb_path.is_empty() {
         let file = object.terrain.glb_path.rsplit('/').next().unwrap_or(&object.terrain.glb_path);
         format!("{kind} · {file}") // 迁为独立网格后仍直接可辨真实GLB；完整路径保留在表示参数中。
     } else { kind.to_owned() }
@@ -181,7 +180,6 @@ fn row_source_label(object: &SceneTerrainObject) -> String {
 fn source_description(object: &SceneTerrainObject) -> String {
     let header = match object.terrain.kind {
         SceneTerrainKind::Gltf => "原始 GLB · 保留资产几何与材质；当前不提供源塑形。",
-        SceneTerrainKind::Heightfield => "高度网格 · 作者高度域保持原中心调整，必须包含全部已雕刻几何；调整不移动顶点。",
         SceneTerrainKind::SparseClipmap => "Clipmap · 米制高度不受创建高度域限制，支持高度与三维雕刻。",
         SceneTerrainKind::Voxel => "体素 · 体素高是世界米制尺寸，修改会整体纵向缩放；作者盒、雕刻与草表源保持原样。",
         SceneTerrainKind::Empty => "网格源尚未就绪。",
@@ -728,7 +726,6 @@ pub(super) fn sync(
         let selected = match button.0 {
             Action::Cuboid => state.creation_source == super::types::CreationSource::Cuboid,
             Action::ImportGlb => state.creation_source == super::types::CreationSource::ImportedGlb,
-            Action::Glb => state.creation_source == super::types::CreationSource::Heightfield,
             Action::Clipmap => state.creation_source == super::types::CreationSource::Clipmap,
             Action::Voxel => state.creation_source == super::types::CreationSource::Voxel,
             Action::PlacementViewport => state.placement_mode == super::types::CreationPlacementMode::Viewport,

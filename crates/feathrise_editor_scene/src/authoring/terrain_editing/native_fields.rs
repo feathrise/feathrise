@@ -63,13 +63,13 @@ pub(crate) async fn edit_fields(
     let to = Vec3::from_array(brush.to);
     let normal = AsyncComputeTaskPool::get()
         .spawn(async move {
-            let (point, normal) = query
+            let hit = query
                 .ray_surface(ray.0, ray.1, 1_000_000.)
                 .ok_or("三维涂绘射线没有真实表面")?;
-            if point.distance(to) > 0.05 {
+            if hit.position.distance(to) > 0.05 {
                 return Err("三维涂绘光标与冻结表面不一致".to_owned());
             }
-            Ok::<_, String>(normal)
+            Ok::<_, String>(hit.normal)
         })
         .await?;
     brush.from = inverse
@@ -101,14 +101,14 @@ pub(crate) async fn edit_fields(
                 |point, direction, maximum| {
                     let world_direction = matrix.transform_vector3(direction);
                     let scale = world_direction.length();
-                    let (point, normal) = query.ray_surface(
+                    let hit = query.ray_surface(
                         matrix.transform_point3(point),
                         world_direction / scale,
                         maximum * scale,
                     )?;
                     Some((
-                        inverse.transform_point3(point),
-                        matrix.transpose().transform_vector3(normal).normalize(),
+                        inverse.transform_point3(hit.position),
+                        matrix.transpose().transform_vector3(hit.normal).normalize(),
                     ))
                 },
             )

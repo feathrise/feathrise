@@ -481,12 +481,7 @@ fn multi_group_missing_height_rejects_whole_batch_without_using_old_preview() {
     group_begin(&mut app, node, MoveAxis::X);
     let cursor = group_point(&app, MoveAxis::X, 1.0);
     step(&mut app, node, cursor);
-    app.world_mut()
-        .resource_mut::<EditorAuthoringSession>()
-        .draft
-        .as_mut()
-        .unwrap()
-        .heights = None;
+    replace_ground_heights(&mut app, None);
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .release(MouseButton::Left);

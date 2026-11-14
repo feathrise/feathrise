@@ -92,7 +92,7 @@ fn terrain_live_receipt_rejects_incomplete_source_added_after_adoption() {
     }
 
     let (mut app, _) = fixture();
-    app.world_mut().resource_mut::<SceneEditorState>().close_requested = true;
+    // 只读宿主回执必须逐次检查完整来源；旧有限高度网格的F12关闭门已退休。
     app.add_systems(
         Update,
         add_source_after_confirmation
@@ -110,8 +110,6 @@ fn terrain_live_receipt_rejects_incomplete_source_added_after_adoption() {
         .count();
     assert_eq!(source_count, 2); // Commands已经在React前应用，第二源仍缺Collider和作者标记。
     assert!(app.world().resource::<Observed>().0.is_none());
-    let editor = app.world().resource::<SceneEditorState>();
-    assert!(editor.open && editor.close_requested); // 关闭门也必须拒绝陈旧ready，不能在游戏响应跳过贴地后恢复玩法。
 
     let mut incomplete = app.world_mut().query_filtered::<
         Entity,
@@ -121,7 +119,6 @@ fn terrain_live_receipt_rejects_incomplete_source_added_after_adoption() {
     app.world_mut().despawn(duplicate);
     app.update();
     assert!(app.world().resource::<Observed>().0.is_some());
-    assert!(!app.world().resource::<SceneEditorState>().open); // 完整来源恢复后沿用原关闭意图，不永久锁住F12。
 }
 
 #[test]

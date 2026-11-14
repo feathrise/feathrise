@@ -106,6 +106,8 @@ fn legacy_static_patch_ctrl_copy_paste_preserves_world_pose_and_ctrl_history_wit
         draft.manifest.world_min = [-32.0; 2];
         draft.manifest.world_max = [32.0; 2];
         draft.manifest.terrain = legacy_descriptor(&draft.scene_id);
+        // 本回归专测旧主Clipmap；共享夹具的独立对象登记不能抢占此目标身份。
+        draft.manifest.terrains = None;
         draft.heights = None;
         draft.scene_id.clone()
     };

@@ -37,7 +37,7 @@ pub(crate) fn install(app: &mut App) {
                 systems::sync_pages.after(crate::ui::actions::sync_editor_action_button_styles),
                 systems::sync_tools,
                 systems::sync_feedback
-                    .after(crate::authoring::apply_terrain_brush)
+                    .after(crate::authoring::apply_sparse_terrain_brush)
                     .after(crate::authoring::apply_sparse_terrain_brush)
                     .after(crate::authoring::apply_surface_brush)
                     .after(crate::authoring::apply_puddle_brush),

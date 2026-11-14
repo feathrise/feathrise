@@ -22,9 +22,11 @@ use feathrise_scene::{
 use super::super::resources::{
     DraftSaveTask, EditorAuthoringSession, GlobalEnvironmentAuthoringState,
     GlobalEnvironmentSaveTask, PlacementPreviewHandoffSnapshot, PlacementSaveHandoffSnapshot, PlacementWaterEvidenceRegistry,
-    TerrainLiveApplyState, TerrainPreviewState, WaterBrushStroke, WaterPreviewState,
+    WaterBrushStroke, WaterPreviewState,
     WaterSaveHandoffSnapshot,
 }; // 保存single-flight、作者修订、活动水笔划与联合水预览证据。
+#[cfg(test)]
+use super::super::resources::{TerrainLiveApplyState, TerrainPreviewState}; // 退休GLB候选只供旧算法回归夹具构造。
 use super::super::vegetation_compile::VegetationCompileState; // 保存只能克隆与作者修订一致的完整正式输出。
 use super::super::water_handoff::WaterFileHandoff; // 旧水文件交接完成前不能被第二次保存覆盖。
 use super::super::{PlacementGroundingReadiness, PlacementTerrainFollowState}; // 摆放快照必须等待当前地形修订的分帧重贴地完成。
@@ -57,6 +59,7 @@ pub(crate) struct SaveRuntimeReadiness<'w, 's> {
     placement_previews: Query<'w, 's, (Option<&'static ScenePlacementInstance>, Option<&'static Transform>,
         Option<&'static ChildOf>, Option<&'static DynamicWaterMeshOverrides>), With<EditorPlacedAsset>>, // 仅沿session地址直接get，不扫描世界。
     vegetation_cross: Option<Res<'w, crate::authoring::vegetation_paint_scope::VegetationPaintState>>,
+    vegetation_layers: Option<Res<'w, crate::ui::vegetation_layers::VegetationBlankLayerAllocation>>,
     terrain_objects: Option<Res<'w, crate::ui::terrain_objects::TerrainObjectsEditorState>>,
     terrain_content: Option<Res<'w, crate::authoring::content_bindings::ContentTerrainFollowState>>,
     volume: Option<Res<'w, crate::authoring::volume_sculpt::VolumeAuthoringState>>, // 尚未dirty的冻结点击和联合碰撞也必须先收口。
@@ -76,8 +79,6 @@ pub(crate) struct SaveRuntimeReadiness<'w, 's> {
     water_live: Option<Res<'w, super::super::live_water_dynamic::LiveClipmapWaterState>>,
     placements: Res<'w, ScenePlacementRuntimeStatus>,      // 新摆放Ready必须严格越过当前修订。
     water_preview: Res<'w, WaterPreviewState>,           // 完整作者水网必须已由正式构建器预检。
-    terrain_preview: Res<'w, TerrainPreviewState>, // 任意F12动态场景保存都要求当前修订全套派生完成。
-    terrain_live: Res<'w, TerrainLiveApplyState>,  // 高度保存必须持有已原子采用的临时Mesh身份。
     placement_grounding: Res<'w, PlacementTerrainFollowState>, // 跟随型资产完整采用前不得冻结旧世界Y。
     building_registry: Option<Res<'w, BuildingPresetRegistry>>, // 建筑目录尚未Ready时保存请求继续等待。
     building_state: Option<Res<'w, crate::authoring::buildings::BuildingAuthoringState>>, // 当前联合身份BVH与审计是唯一建筑保存信用。
@@ -114,7 +115,8 @@ pub(crate) fn start_draft_save(
     >, // 只按observer登记的Entity直接get；8192个普通placement不进入等待帧查询。
 ) {
     readiness.deletion_capture.poll(&session, editor.save_requested, readiness.authoring_retirement.as_deref_mut());
-    if session.water_preset_delete_pending { return; } // 引用删除收口前保留保存意图，不能与全局目录事务交叉发布。
+    if session.water_preset_delete_pending || session.model_vegetation_busy { return; } // 整笔后台采用前不冻结半份模型植被。
+    if readiness.vegetation_layers.as_ref().is_some_and(|state| state.busy()) { return; } // 作者层结构与模型样本共同采用后再响应保存意图。
     // 最先轮询：请求撤销、切换场景或其他领域仍在等待时，也不能遗弃持有旧源的后台任务。
     if readiness.terrain_objects.as_ref().is_some_and(|state| state.busy()) { return; } // 对象完整采用前不冻结过期集合。
     if readiness.vegetation_cross.as_ref().is_some_and(|state| state.busy()) {return;} // 本笔与全部成员图片收口前保留保存意图。
@@ -343,32 +345,9 @@ pub(crate) fn start_draft_save(
         }
         return;
     }
-    let terrain_preview_requirement = session.draft.as_ref().and_then(|draft| {
-        (draft.terrain_dirty
-            && draft.manifest.is_data_driven()
-            && draft.manifest.legacy_terrain().kind == SceneTerrainKind::Heightfield)
-            .then_some((&draft.scene_id, session.terrain_revision))
-    }); // 当前场景是否正在运行不影响terrain.glb落盘前的完整派生证明。
-    if let Some((scene_id, terrain_revision)) = terrain_preview_requirement {
-        if readiness.terrain_live.failed_for(scene_id, terrain_revision) {
-            editor.save_requested = false; // 确定失败时归还保存按钮，避免旧请求稳定帧循环。
-            editor.cancel_close_with_error(
-                "场景保存已停止：当前GLB地形无法生成完整内存高度、法线或Trimesh；请修正地形后重试",
-            );
-            return;
-        }
-        if !readiness
-            .terrain_preview
-            .ready_for(scene_id, terrain_revision)
-        {
-            editor.status =
-                "当前GLB地形修订仍在后台生成高度、法线和Trimesh，完成后自动继续保存".to_owned();
-            return; // 自动保存/关闭请求可以等待；人工按钮在UI入口已直接禁用。
-        }
-    }
     let water_preview_requirement = session.draft.as_ref().and_then(|draft| {
         (draft.terrain_manifest().is_data_driven()
-            && (matches!(draft.terrain_manifest().terrain.kind, SceneTerrainKind::Heightfield | SceneTerrainKind::SparseClipmap)
+            && (matches!(draft.terrain_manifest().terrain.kind, SceneTerrainKind::SparseClipmap)
                 || draft.terrain_documents.active.is_none() && draft.manifest.terrain.is_empty())
             && draft.water.as_ref().is_some_and(|water| {
                 !water.layers.is_empty() || !water.rivers.is_empty() || !water.waterfalls.is_empty()
@@ -432,27 +411,7 @@ pub(crate) fn start_draft_save(
             }
         }
     }
-    let terrain_live_requirement = session.draft.as_ref().and_then(|draft| {
-        (draft.terrain_dirty
-            && draft.manifest.is_data_driven()
-            && draft.manifest.legacy_terrain().kind == SceneTerrainKind::Heightfield
-            && readiness.active_scene.scene_id.as_ref() == Some(&draft.scene_id))
-        .then_some((&draft.scene_id, session.terrain_revision))
-    }); // 当前玩法高度保存必须从已验证的内存联合候选开始，非当前场景只更新磁盘文件。
-    if let Some((scene_id, terrain_revision)) = terrain_live_requirement {
-        if readiness.terrain_live.failed_for(scene_id, terrain_revision) {
-            editor.save_requested = false; // 确定失败不在稳定帧无限覆盖同一诊断或锁住作者输入。
-            editor.cancel_close_with_error(
-                "场景保存已停止：当前未保存地形的实时Mesh/Trimesh派生失败；请继续修改地形后重试",
-            );
-            return;
-        }
-        if !readiness.terrain_live.ready_for(scene_id, terrain_revision) {
-            editor.status =
-                "正在等待未保存地形画面与Trimesh碰撞原子应用，完成后自动继续保存".to_owned();
-            return; // 保留save_requested；不能在临时Mesh身份尚未稳定时启动无法证明的新文件交接。
-        }
-    }
+
     if let Some(draft) = session.draft.as_ref() {
         let identity = Some((draft.scene_id.clone(), session.revision)); // 同一作者完整版本才能提交。
         if readiness.boundary_capture.identity != identity {
@@ -569,11 +528,11 @@ pub(crate) fn start_draft_save(
             super::batch::save_draft_with_volumes(&draft, global_environment_snapshot.as_ref(), &volume_files).await, // 自动GLB与placements同批发布，失败共同回滚。
         )
     }));
-    // 可选Blender是否可用由后台检查；启动反馈不提前宣称会生成Blend。
+    // 高度作者源由分页事务保存；场景模型继续使用既有scene.glb保存，不派生旧地形GLB/Blend。
     editor.status = if global_environment.dirty {
         "正在后台原子联合保存全局环境、场景清单、JSON和作者资源".to_owned()
     } else {
-        "正在后台原子保存场景清单、JSON、作者资源和地形GLB".to_owned() // 无动态地形变化时不无意义启动Blender。
+        "正在后台原子保存场景清单、JSON、作者资源和场景模型".to_owned()
     };
 }
 

@@ -8,7 +8,7 @@ use std::sync::Arc; // 地形采样器只克隆内存高度场强句柄，不复
 
 use bevy::prelude::*; // Resource、Commands、Query和世界范围类型。
 use feathrise_scene_content::{
-    SceneId, ScenePlacementHeightMode, ScenePlacementRecord, SceneTerrainKind, sample_heightfield_world,
+    SceneId, ScenePlacementHeightMode, ScenePlacementRecord, SceneTerrainKind,
 }; // 作者与运行时共享高度模式、记录格式和正式三角形采样。
 use feathrise_scene::{
     ClipmapGroundHit, ClipmapGroundSnapshot, DynamicClipmapGroundSurface, ScenePlacementInstance,
@@ -31,7 +31,8 @@ enum PlacementTerrainSource {
         ground: ClipmapGroundSnapshot,
         reference: f32,
     },
-    Heightfield {
+    #[cfg(test)]
+    TestHeightfield {
         heights: Arc<Vec<u16>>, // 当前作者修订的完整量化高度，只共享不复制。
         resolution: [u32; 2],   // 与地形Mesh完全相同的顶点分辨率。
         world_min: [f32; 2],    // 规则高度场世界XZ最小角。
@@ -119,22 +120,18 @@ impl PlacementTerrainSampler {
             )
             .is_some_and(|(_, normal)| normal.y < -0.05)
     }
-    /// 从当前动态高度场草稿冻结轻量采样身份；旧GLTF地形不能伪造跟随结果。
+    /// 冻结已完成的真实地形承托面；普通模型通过独立表面查询提供种植能力。
     pub(crate) fn from_draft(draft: &EditorSceneDraft) -> Result<Self, String> {
         if draft.manifest.terrains.is_some() {
             return draft.terrain_ground.as_ref().map(|ground| Self {
                 source: PlacementTerrainSource::Objects { ground: ground.clone(), reference: None }
             }).ok_or_else(|| "多地形真实承托面尚未完整就绪".into());
         }
-        if draft.manifest.terrain.kind != SceneTerrainKind::Heightfield {
-            return Err("当前场景不是可编辑高度场，不能启用跟随地形".to_owned()); // 固定高度仍可用于旧场景地形。
-        }
-        let heights = draft
-            .heights
-            .clone()
-            .ok_or_else(|| "当前场景尚未取得GLB派生内存高度场".to_owned())?; // 不从渲染Mesh或碰撞近似高度。
-        Ok(Self {
-            source: PlacementTerrainSource::Heightfield {
+        // 单元测试以有限内存高度场覆盖通用高度语义；生产作者线不再读取旧高度网格。
+        #[cfg(test)]
+        if let Some(heights) = draft.heights.clone() {
+            return Ok(Self {
+            source: PlacementTerrainSource::TestHeightfield {
                 heights,                                           // O(1)共享当前不可变高度代次。
                 resolution: draft.manifest.terrain.resolution,     // 采样网格必须与派生GLB一致。
                 world_min: draft.manifest.world_min,               // X/Z边界来自同一场景清单。
@@ -142,7 +139,9 @@ impl PlacementTerrainSampler {
                 base_height: draft.manifest.terrain.base_height,   // 解码参数与正式植被贴地一致。
                 height_scale: draft.manifest.terrain.height_scale, // 不建立第二套高度换算。
             },
-        })
+            });
+        }
+        Err("真实地形承托面尚未完整就绪，不能启用跟随地形".into())
     }
 
     /// 普通摆放在Clipmap场景中冻结当前正式地表快照；GLB仍沿用完整内存高度场。
@@ -157,7 +156,6 @@ impl PlacementTerrainSampler {
             return Ok(Self { source: PlacementTerrainSource::Objects { ground: ground.clone(), reference: None } });
         }
         match draft.manifest.terrain.kind {
-            SceneTerrainKind::Heightfield => Self::from_draft(draft), // 旧路线保持原采样与错误文本。
             SceneTerrainKind::SparseClipmap => {
                 let snapshot = clipmap
                     .and_then(|surface| surface.snapshot.as_ref())
@@ -186,7 +184,8 @@ impl PlacementTerrainSampler {
             | PlacementTerrainSource::VolumeLayer {
                 ground: snapshot, ..
             } => Some(snapshot.content_revision_words()),
-            PlacementTerrainSource::Heightfield { .. } => None,
+            #[cfg(test)]
+            PlacementTerrainSource::TestHeightfield { .. } => None,
             PlacementTerrainSource::SampledClipmap { content, .. } => Some(*content),
         }
     }
@@ -251,14 +250,15 @@ impl PlacementTerrainSampler {
                     _ => Err("建筑地基没有命中所选三维承托层".into()),
                 } // 跨体积边缘的五点仍允许同高度外表面承托，洞顶背面继续拒绝。
             }
-            PlacementTerrainSource::Heightfield {
+            #[cfg(test)]
+            PlacementTerrainSource::TestHeightfield {
                 heights,
                 resolution,
                 world_min,
                 world_max,
                 base_height,
                 height_scale,
-            } => sample_heightfield_world(
+            } => feathrise_scene_content::sample_heightfield_world(
                 heights.as_slice(), // 共享当前完整量化高度。
                 *resolution,        // 正式顶点分辨率。
                 [world_x, world_z], // 实例原点的世界XZ。
@@ -656,7 +656,7 @@ mod tests {
 
     fn sampler(heights: [u16; 4]) -> PlacementTerrainSampler {
         PlacementTerrainSampler {
-            source: PlacementTerrainSource::Heightfield {
+            source: PlacementTerrainSource::TestHeightfield {
                 heights: Arc::new(heights.to_vec()), // 2×2测试高度场拥有独立Arc。
                 resolution: [2, 2],                  // 单个正式地形单元。
                 world_min: [0.0, 0.0],               // 西北角世界坐标。

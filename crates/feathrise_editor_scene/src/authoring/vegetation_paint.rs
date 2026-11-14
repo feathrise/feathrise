@@ -39,7 +39,12 @@ pub(crate) fn apply_vegetation_brush(
     mut object_press: Local<Option<ObjectVegetationPress>>, // 异步起笔只保留本次按压的固定身份。
     mut path: Local<VegetationPaintPath>,
     scope: Option<Res<super::vegetation_paint_scope::VegetationPaintSettings>>,
+    model: Option<Res<crate::ui::gltf_browser::EditorGltfBrowserState>>,
 ) {
+    if model.as_ref().is_some_and(|browser| super::model_vegetation::model_selected(&session, browser)) {
+        if stroke.active { finish_vegetation_stroke(&mut editor, &mut session, &mut stroke); }
+        return; // 模型只走稀疏表面样本，绝不能把GLB命中投影到二维R8画布。
+    }
     let closing = editor.save_requested || editor.close_requested || editor.undo_requested || editor.redo_requested;
     let draining = stroke.active && path.pending.is_some() && (closing || !mouse.pressed(MouseButton::Left));
     let selecting_layer =

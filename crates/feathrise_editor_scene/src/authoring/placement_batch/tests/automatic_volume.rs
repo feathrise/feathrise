@@ -15,6 +15,7 @@ use crate::{
     },
 };
 use bevy::{ecs::system::RunSystemOnce, prelude::*, ui::RelativeCursorPosition};
+use std::sync::Arc;
 use feathrise_scene_content::{ScenePlacementRecord, ScenePlacementTerrainPatch, SceneTerrainCutout, SceneTerrainKind};
 use feathrise_scene::{ScenePlacementInstance, StreamedVolumeResident, TerrainVolumeAuthorPreviewRoot};
 
@@ -147,7 +148,7 @@ fn automatic_volume_delete_worker_rejects_a_complete_mixed_capture_atomically() 
         let (app, _, _, _, _, _) = volume_app(streamed);
         let session = app.world().resource::<EditorAuthoringSession>();
         let draft = session.draft.as_ref().unwrap();
-        let capture = Capture {
+        let capture = Capture { model_vegetation: Arc::default(),
             identity: BatchIdentity::from_session(session, None).unwrap(), action: PlacementBatchAction::Delete,
             records: draft.placements.placements.iter().cloned().enumerate().collect(),
             members: std::sync::Arc::new(draft.placements.placements.iter().enumerate().map(|(index, record)|

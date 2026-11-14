@@ -98,6 +98,7 @@ pub(crate) fn load_author_layers_fixture(app: &mut App) {
         }).collect(),
     };
     draft.vegetation = Some(SceneVegetationAsset {
+        model_surfaces: Vec::new().into(),
         schema_version: SCENE_SCHEMA_VERSION, scene_id: map.clone(), layers,
         authoring: Some(authoring),
     });

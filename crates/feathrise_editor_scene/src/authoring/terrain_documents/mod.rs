@@ -6,9 +6,9 @@ mod systems;
 mod transitions;
 mod types;
 pub(crate) mod root_water;
+pub(crate) mod root_vegetation; // 场景模型种植面不借用地形ID，根画布独立停放和保存。
 pub(crate) use transitions::ensure_primary_canvas;
 pub(crate) use transitions::restore_legacy;
-pub(crate) use transitions::height_domain_mesh;
 mod paint_space;
 #[cfg(test)]
 mod tests;

@@ -561,6 +561,7 @@ mod tests {
             display_name: name.to_owned(), // 状态栏显示作者可读名称。
             folder: format!("scenes/{id}"),  // 模拟编辑器私有场景目录。
             published: true,               // 两张图都可进入正式玩法场景。
+            placements_glb: false,
             surface_path: None,            // 本测试不加载内容资产。
             vegetation_path: None,         // 本测试不加载内容资产。
             water_path: None,              // 本测试不加载内容资产。

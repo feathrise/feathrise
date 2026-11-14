@@ -55,9 +55,9 @@ pub(super) fn begin(world: &mut World) -> Result<(), String> {
         .terrains
         .as_ref()
         .and_then(|objects| objects.first())
-        .filter(|object| object.terrain.kind == feathrise_scene_content::SceneTerrainKind::Heightfield)
+        .filter(|object| object.terrain.kind == feathrise_scene_content::SceneTerrainKind::SparseClipmap)
         .map(|object| object.id.clone())
-        .ok_or("有限夹具缺少真实Heightfield示例地形")?;
+        .ok_or("有限夹具缺少真实Clipmap高度地形")?;
     let mut state = world.resource_mut::<TerrainWorkflow>();
     state.view = Some(old);
     state.scene_id = Some(map);

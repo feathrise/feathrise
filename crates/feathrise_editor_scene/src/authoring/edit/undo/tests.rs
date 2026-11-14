@@ -157,7 +157,7 @@ fn terrain_patch_preview_parent_waits_for_the_complete_author_source_frame() {
     // SceneSourceFrame仍与作者完全一致时，旧类型或旧定义也不能凭矩阵相同取得新预览父资格。
     for stale_definition in ["kind", "transform"] {
         let mut stale = object.clone();
-        if stale_definition == "kind" { stale.terrain.kind = SceneTerrainKind::Heightfield; }
+        if stale_definition == "kind" { stale.terrain.kind = SceneTerrainKind::Gltf; }
         else { stale.transform.pitch_degrees += 4.0; }
         app.world_mut().entity_mut(parent).insert(feathrise_scene::TerrainObjectInstance { definition: Arc::new(stale) });
         assert!(app.world_mut().run_system_once(resolve).unwrap().unwrap_err().contains("尚未采用"), "{stale_definition}");
@@ -201,7 +201,7 @@ fn terrain_patch_redo_delete_rejects_invalid_source_without_mutating_author_or_h
         object.id = terrain;
         object.enabled = invalid_source != "disabled";
         object.terrain.kind = if invalid_source == "not-clipmap" {
-            feathrise_scene_content::SceneTerrainKind::Heightfield
+            feathrise_scene_content::SceneTerrainKind::Gltf
         } else {
             feathrise_scene_content::SceneTerrainKind::SparseClipmap
         };
@@ -258,7 +258,7 @@ fn terrain_patch_legacy_bounds_validate_source_without_restricting_regular_recor
     let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
     let draft = session.draft.as_mut().unwrap();
     draft.manifest.terrains = None;
-    draft.manifest.terrain.kind = SceneTerrainKind::Heightfield;
+    draft.manifest.terrain.kind = SceneTerrainKind::Gltf;
     let world_bounds = draft.manifest.world_bounds().unwrap();
     let mut patch = record();
     assert_eq!(super::super::placement_record_bounds(draft, &patch).unwrap(), world_bounds);
@@ -319,7 +319,7 @@ fn terrain_patch_legacy_history_deletions_reject_invalid_source_before_any_mutat
                 let draft = session.draft.as_mut().unwrap();
                 draft.manifest.terrains = None;
                 draft.manifest.terrain.kind = if invalid_source == "not-clipmap" {
-                    SceneTerrainKind::Heightfield
+                    SceneTerrainKind::Gltf
                 } else { SceneTerrainKind::SparseClipmap };
                 draft.placements.placements = expected_records.clone();
                 draft.placement_water_surface_count = water.water_surfaces.len();

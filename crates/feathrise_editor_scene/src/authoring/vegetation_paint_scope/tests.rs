@@ -84,6 +84,7 @@ fn fixture() -> (crate::authoring::EditorSceneDraft, Transaction) {
                 Arc::new(TerrainCanvas {
                     identity: Some(identity),
                     vegetation: Some(SceneVegetationAsset {
+                        model_surfaces: Vec::new().into(),
                         scene_id: draft.scene_id.clone(),
                         schema_version: SCENE_SCHEMA_VERSION,
                         authoring: Some(

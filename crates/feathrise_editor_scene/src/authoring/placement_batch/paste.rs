@@ -464,6 +464,12 @@ fn make_work(
         })
     };
     Ok(PasteWork {
+        model_vegetation: (!paste.source.model_vegetation.is_empty()).then(|| ModelVegetationPaste {
+            source: paste.source.clone(),
+            before: crate::authoring::model_vegetation::root_targets(draft),
+            authoring: crate::authoring::terrain_documents::root_vegetation::source(draft)
+                .and_then(|source| source.vegetation.and_then(|vegetation| vegetation.authoring.clone())),
+        }),
         source: paste.records.clone(),
         delta: point - paste.source.origin,
         records: Vec::new(),
@@ -532,6 +538,13 @@ fn adopt_preview(
         return;
     }
     let prepared = paste.prepared.take().unwrap();
+    if let Some(transfer) = &prepared.history.model_vegetation
+        && let Err(error) = crate::authoring::model_vegetation::validate_transfer(session.draft.as_ref().unwrap(), &transfer.before) {
+        editor.status = error;
+        state.cleaning.push(paste.parent); state.cleaning.append(&mut paste.roots);
+        retire(state, paste.identity.clone(), prepared);
+        return;
+    }
     let draft = session.draft.as_mut().unwrap();
     let invalid = draft.placements.placements.len() + prepared.apply.len()
         > MAX_SCENE_PLACEMENTS_PER_SCENE
@@ -579,7 +592,13 @@ fn adopt_preview(
     let draft = session.draft.as_mut().unwrap();
     draft.placement_water_surface_count += prepared.water_count;
     draft.placements.placements.extend(prepared.apply);
+    let vegetation_changed = prepared.history.model_vegetation.is_some();
+    if let Some(transfer) = &prepared.history.model_vegetation {
+        crate::authoring::model_vegetation::transfer(draft, transfer.after.clone())
+            .expect("后台与采用前已确认同一个完整根植被来源");
+    }
     session.push_bounded_water_history(EditorCommand::CourtyardBatch(Box::new(prepared.history)));
+    if vegetation_changed { session.vegetation_revision = session.vegetation_revision.wrapping_add(1); }
     session.mark_placement_structure_changed(editor);
     selection.publish(prepared.members, session);
     state.selection_request = Some(first_id);

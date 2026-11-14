@@ -338,7 +338,7 @@ mod tests {
     #[test] // 两种场景路线都能显示真实基础地形，不伪造Clipmap GLB。
     fn base_terrain_row_labels_both_author_routes() {
         let glb = base_terrain_label(
-            SceneTerrainKind::Heightfield,
+            SceneTerrainKind::Gltf,
             "scenes/MAP-a/terrain/terrain.glb",
             None,
         ); // 传统GLB作者源。

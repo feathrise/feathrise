@@ -96,8 +96,20 @@ impl ProjectScenes {
             }
             let (manifest, manifest_sha256): (SceneManifestAsset, _) =
                 read(&root, &entry.manifest_path(), &mut check)?;
-            let (placements, _): (ScenePlacementsAsset, _) =
-                read(&root, &entry.placements_path(), &mut check)?;
+            let relative = entry.placements_path();
+            let placements: ScenePlacementsAsset = if entry.placements_glb {
+                let path = feathrise_scene_content::authoring_io::safe_content_path(&root, &relative)?;
+                let mut stream = HashReader {
+                    file: File::open(path).map_err(|error| format!("无法打开{relative}：{error}"))?,
+                    digest: Sha256::new(),
+                    check: &mut check,
+                };
+                let mut bytes = Vec::new();
+                stream.read_to_end(&mut bytes).map_err(|error| format!("读取{relative}失败：{error}"))?;
+                feathrise_scene_content::read_scene_placements(&bytes, &relative)?
+            } else {
+                read(&root, &relative, &mut check)?.0
+            };
             let (portals, _): (ScenePortalsAsset, _) =
                 read(&root, &entry.portals_path(), &mut check)?;
             if manifest.id != entry.id

@@ -36,6 +36,7 @@ pub(super) fn load_unregistered_clipmap_vegetation(
         } // 继续校验真实场景身份。
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => (
             SceneVegetationAsset {
+                model_surfaces: Vec::new().into(),
                 // 只有确切不存在才允许建立空内存草稿。
                 schema_version: SCENE_SCHEMA_VERSION, // 新草稿使用当前版本。
                 scene_id: draft.scene_id.clone(),       // 不借用其他场景的默认身份。
@@ -82,7 +83,11 @@ pub(super) fn load_unregistered_clipmap_vegetation(
         } // 既有Mesh记录仍保留，新增/复制入口另行拒绝该类型。
     } // 后续统一源加载验证像素长度。
     draft.vegetation = Some(vegetation); // 结果仍处于未发布的后台草稿。
-    draft.vegetation_registration_source_hash = Some(source_hash); // 只有显式保存成功才解除登记责任。
+    if draft.manifest.terrains.is_some() && draft.terrain_documents.active.is_none() && !migrated {
+        draft.terrain_documents.root_vegetation_unregistered_hash = Some(source_hash);
+    } else {
+        draft.vegetation_registration_source_hash = Some(source_hash);
+    } // 空场景打开本身不构成修改；首次作者操作再移交已冻结的并发基线。
     Ok(migrated) // 供源加载判断是否从正式R8共享一对一作者基线。
 } // 主线程仍只轮询完整草稿完成值。
 
@@ -92,9 +97,17 @@ pub(super) fn load_vegetation_sources(
     draft: &mut EditorSceneDraft,
     migrated_authoring: bool,
 ) -> Result<(), String> {
+    // 读取与身份校验仍在原有加载worker中完成；只有全部分块完整才发布作者画布。
+    let folder = draft.terrain_folder().to_owned();
+    if let Some(vegetation) = draft.vegetation.as_mut() {
+        feathrise_scene_content::load_model_vegetation_blocks(root, &folder, vegetation)?;
+    }
+    // 模型根仅编译稀疏样本，不会生成二维正式R8；读取必须沿用编译端的同一载体资格。
+    // 作者R8及模型块仍逐项严格读取，真正二维画布也不能用缺文件的零值兜底。
     let formal_layers = draft
         .vegetation
         .as_ref()
+        .filter(|_| super::vegetation_compile::density_canvas_is_active(draft))
         .map(|vegetation| vegetation.layers.clone())
         .unwrap_or_default(); // 描述很小，避免遍历时与草稿像素表可变借用冲突。
     for layer in formal_layers {
@@ -162,4 +175,95 @@ pub(super) fn load_vegetation_sources(
         }
     }
     Ok(()) // 三套像素表全部完整后才由外层任务发布草稿。
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use feathrise_scene_content::{
+        ModelSurfaceAnchor, ModelSurfaceVegetation, ModelSurfaceVegetationSample,
+        SceneVegetationAuthorLayer, SceneVegetationAsset, SceneVegetationKind, SceneVegetationLayer,
+    };
+
+    /// 真正写入模型块、根JSON与作者R8，刻意不生成只供二维地形使用的正式R8。
+    fn saved_model_fixture(model_root: bool) -> (std::path::PathBuf, EditorSceneDraft, SceneVegetationAsset, Vec<u8>) {
+        let parent = std::env::temp_dir();
+        let root = parent.join(format!("feathrise-model-root-load-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir(&root).unwrap();
+        let mut draft = crate::authoring::test_support::test_clipmap_draft(Arc::new(vec![0; 121]), 1);
+        if model_root {
+            draft.manifest.terrains = Some(Arc::default());
+        } else {
+            // 独立Clipmap真正成为活动二维画布，不能借同文件的模型样本绕过正式R8校验。
+            let definition = draft.manifest.terrains.as_ref().unwrap()[0].clone();
+            draft.terrain_documents.active = Some(crate::authoring::terrain_documents::TerrainDocumentIdentity {
+                manifest: definition.source_manifest(&draft.manifest),
+                folder: definition.private_folder(&draft.scene_id), definition: Arc::new(definition),
+            });
+        }
+        let folder = draft.terrain_folder().to_owned();
+        let output = SceneVegetationLayer { id: "grass".into(), label: "草".into(), kind: SceneVegetationKind::Blade,
+            runtime_profile: Some("ordinary".into()), runtime_layer_id: Some(1), prototype_id: None,
+            asset_path: "grass.glb".into(), density_source_path: format!("{folder}/vegetation/grass.r8"),
+            density_texture_path: format!("{folder}/vegetation/grass.ktx2"), resolution: [2, 2], spacing_meters: 0.25,
+            scale_range: [1., 1.], max_instances: 4, seed: 1 };
+        let mut authoring = crate::authoring::vegetation_defaults::empty_vegetation_authoring();
+        let author_path = format!("{folder}/vegetation/author/author-grass.r8");
+        authoring.layers.push(SceneVegetationAuthorLayer { id: "author-grass".into(), label: "草区域".into(),
+            group_id: authoring.groups[0].id.clone(), output_layer_id: "grass".into(), density_source_path: author_path.clone(),
+            resolution: [2, 2], enabled: true, locked: false, opacity: 1., priority: 0, weight: 1. });
+        authoring.validate(std::slice::from_ref(&output)).unwrap();
+        let mut model = ModelSurfaceVegetation::empty("scene-glb-plane", [7; 32], 0.25);
+        model.samples.push(ModelSurfaceVegetationSample { anchor: ModelSurfaceAnchor {
+            primitive: 0, triangle: 2, barycentric: [0.2, 0.3] }, layers: vec![("author-grass".into(), 200)] });
+        let vegetation = SceneVegetationAsset { scene_id: draft.scene_id.clone(), layers: vec![output],
+            authoring: Some(authoring), model_surfaces: vec![Arc::new(model)].into(), ..Default::default() };
+        let (metadata, blocks) = feathrise_scene_content::prepare_model_vegetation_blocks(&folder, &vegetation).unwrap();
+        for (relative, bytes) in blocks {
+            let path = root.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
+        let author_pixels = vec![0, 64, 128, 255];
+        let author_path = root.join(author_path);
+        std::fs::create_dir_all(author_path.parent().unwrap()).unwrap();
+        std::fs::write(author_path, &author_pixels).unwrap();
+        let metadata_path = root.join(&folder).join(feathrise_scene_content::SCENE_VEGETATION_FILE_NAME);
+        std::fs::write(&metadata_path, serde_json::to_vec(&metadata).unwrap()).unwrap();
+        draft.vegetation = Some(serde_json::from_slice(&std::fs::read(metadata_path).unwrap()).unwrap());
+        assert!(!root.join(&vegetation.layers[0].density_source_path).exists());
+        (root, draft, vegetation, author_pixels)
+    }
+
+    fn remove_fixture(root: &Path) {
+        // 只递归清理由本测试create_dir独占创建的临时根，先核对绝对父目录与本轮保留前缀。
+        assert!(root.is_absolute());
+        assert_eq!(root.parent(), Some(std::env::temp_dir().as_path()));
+        assert!(root.file_name().unwrap().to_string_lossy().starts_with("feathrise-model-root-load-"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn model_root_reopens_real_blocks_and_author_r8_without_formal_density() {
+        let (root, mut draft, original, author_pixels) = saved_model_fixture(true);
+        let result = load_vegetation_sources(&root, &mut draft, false);
+        remove_fixture(&root);
+        result.expect("模型根不消费二维正式R8，真实模型块与作者源完整时必须可重开");
+        let loaded = draft.vegetation.as_ref().unwrap();
+        assert_eq!(loaded.model_surfaces, original.model_surfaces);
+        assert_eq!(loaded.layers, original.layers);
+        assert_eq!(loaded.authoring, original.authoring);
+        assert_eq!(draft.vegetation_author_densities["author-grass"].as_slice(), author_pixels);
+        assert!(draft.vegetation_densities.is_empty(), "模型根不凭空制造二维正式密度");
+        assert!(draft.vegetation_dirty_layers.is_empty() && draft.vegetation_author_dirty_layers.is_empty());
+    }
+
+    #[test]
+    fn active_clipmap_still_rejects_missing_formal_r8_even_with_model_blocks() {
+        let (root, mut draft, _, _) = saved_model_fixture(false);
+        let result = load_vegetation_sources(&root, &mut draft, false);
+        remove_fixture(&root);
+        assert!(result.unwrap_err().contains("植被正式密度源"), "真实二维画布缺源仍须失败关闭");
+    }
 }

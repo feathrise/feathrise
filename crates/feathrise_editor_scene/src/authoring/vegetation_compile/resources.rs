@@ -7,6 +7,12 @@ use bevy::prelude::*; // SceneId、Resource和Task。
 use bevy::tasks::Task; // 同一场景最多一个在途完整编译任务。
 use feathrise_scene_content::{SceneId, TerrainId}; // 同场景不同网格仍是不同作者画布。
 
+/// 模型根槽只编译稀疏表面；二维密度编译只能属于旧主画布或已载入的独立地形。
+/// 来源捕获、停放和预览等待共用此口径，避免等待根槽永远不会产生的二维回执。
+pub(crate) fn density_canvas_is_active(draft: &crate::authoring::EditorSceneDraft) -> bool {
+    draft.manifest.terrains.is_none() || draft.terrain_documents.active.is_some()
+}
+
 /// 像素刷印不改变来源；结构或画布换代后，旧完整结果也不能借用新网格的预览槽。
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct VegetationCompileSource {
@@ -18,7 +24,7 @@ impl VegetationCompileSource {
     pub(crate) fn capture(session: &crate::authoring::EditorAuthoringSession) -> Option<Self> {
         let draft = session.draft.as_ref()?;
         if draft.vegetation.is_none() || draft.terrain_documents.loading
-            || (draft.manifest.terrains.is_some() && draft.terrain_documents.active.is_none()) { return None; }
+            || !density_canvas_is_active(draft) { return None; }
         Some(Self { scene_id: draft.scene_id.clone(),
             terrain: draft.terrain_documents.active.as_ref().map(|active| active.definition.id.clone()),
             structure_revision: session.vegetation_structure_revision })
