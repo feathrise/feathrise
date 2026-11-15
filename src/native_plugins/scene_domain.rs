@@ -659,13 +659,58 @@ fn publish(world: &mut World, scenes: &NativeScenes) {
         interaction.close_completed = interaction.close_request.take();
     }
     drop(interaction);
-    let mut editor = world.resource_mut::<SceneEditorState>();
-    editor.domain_brush_active = active && wire.continuous;
-    if let Some(pointer) = &wire.pointer {
+    publish_brush_parameters(
+        &mut world.resource_mut::<SceneEditorState>(),
+        active && wire.continuous,
+        wire.pointer.as_ref(),
+    );
+}
+
+fn publish_brush_parameters(
+    editor: &mut SceneEditorState,
+    owns_brush: bool,
+    pointer: Option<&SceneDomainPointer>,
+) {
+    editor.domain_brush_active = owns_brush;
+    // 插件仍会持续发布快照。只有当前领域工具使用圆刷时才同步其参数，避免后台快照覆盖植被的编辑值。
+    if owns_brush && let Some(pointer) = pointer {
         editor.brush_radius = pointer.radius;
         editor.brush_spacing = pointer.spacing;
     }
 }
+
+#[cfg(test)]
+mod brush_tests {
+    use super::*;
+    use feathrise_editor_scene::game_authoring::scene_api::types::EditorTool;
+
+    #[test]
+    fn inactive_plugin_snapshots_preserve_the_vegetation_brush() {
+        let mut editor = SceneEditorState::default();
+        editor.tool = EditorTool::Domain("test.characters");
+        let pointer = SceneDomainPointer {
+            radius: 5.0,
+            spacing: 2.0,
+            target: String::new(),
+            point: None,
+        };
+        publish_brush_parameters(&mut editor, true, Some(&pointer));
+        assert!(editor.domain_brush_active);
+        assert_eq!((editor.brush_radius, editor.brush_spacing), (5.0, 2.0));
+
+        editor.tool = EditorTool::Vegetation;
+        editor.brush_spacing = 3.5;
+        for radius in [9.5, 3.0] {
+            editor.brush_radius = radius;
+            // 输入结算与任务发布都能重复收到同一插件快照。
+            publish_brush_parameters(&mut editor, false, Some(&pointer));
+            publish_brush_parameters(&mut editor, false, Some(&pointer));
+            assert!(!editor.domain_brush_active);
+            assert_eq!((editor.brush_radius, editor.brush_spacing), (radius, 3.5));
+        }
+    }
+}
+
 fn authoring_tool(
     scenes: &NativeScenes,
 ) -> feathrise_editor_scene::game_authoring::scene_api::types::EditorTool {
