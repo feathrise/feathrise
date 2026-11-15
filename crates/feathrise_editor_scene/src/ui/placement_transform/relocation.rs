@@ -410,7 +410,7 @@ mod tests {
             for index in [0, 1, 4, 5] { vertices_half_mm[index][1] = -4_000; }
         }
         record.asset_target.validate().unwrap();
-        let target = record.asset_target;
+        let target = record.asset_target.clone();
         apply_ground_snap_hit(&mut record, Vec3::new(12.0, -6.25, 18.0));
         assert_eq!(record.translation, [12.0, -0.25, 18.0]);
         assert_eq!(record.terrain_offset, 6.0);

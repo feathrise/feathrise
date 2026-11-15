@@ -1,6 +1,6 @@
 //! 三价凸折边的单段倒角：截短相邻面、修补端面并生成独立倒角面，保持共享边闭壳。
 
-use super::super::types::MeshElementKind;
+use super::super::{selection::MeshSelection, types::MeshElementKind};
 use super::mesh::{EPSILON, MeshWork, chosen, edge, planar_normal, positive_amount};
 use feathrise_scene_content::ScenePlacementRecord;
 use std::collections::BTreeSet;
@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 pub(in super::super) fn bevel_record(
     before: &ScenePlacementRecord,
     kind: MeshElementKind,
-    selected: u128,
+    selected: &MeshSelection,
     width_meters: f32,
 ) -> Result<ScenePlacementRecord, String> {
     let width = positive_amount(width_meters, "倒角宽度")?;

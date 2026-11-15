@@ -1,11 +1,11 @@
 //! 操作共享的世界米制工作网格、半毫米回写及多边形三角化；不接触ECS、磁盘或作者会话。
 
+use super::super::selection::MeshSelection;
 use bevy::math::{DQuat, DVec2, DVec3};
 use feathrise_scene_content::{
     EditableMeshGeometry, MAX_EDITABLE_MESH_FACE_VERTICES, MAX_EDITABLE_MESH_FACES,
     MAX_EDITABLE_MESH_VERTICES, ScenePlacementAssetTarget, ScenePlacementRecord, MeshFace,
 };
-use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) const EPSILON: f64 = 1e-8;
 
@@ -19,13 +19,12 @@ pub(super) fn edge(a: usize, b: usize) -> [usize; 2] {
     if a < b { [a, b] } else { [b, a] }
 }
 
-pub(super) fn chosen(selected: u128, count: usize) -> Result<Vec<usize>, String> {
-    if count < 128 && selected >> count != 0 {
+pub(super) fn chosen(selected: &MeshSelection, count: usize) -> Result<Vec<usize>, String> {
+    let indices: Vec<_> = selected.iter().collect();
+    if indices.last().is_some_and(|&index| index >= count) {
         return Err("元素选择已经超出当前拓扑，请重新选择".into());
     }
-    Ok((0..count)
-        .filter(|index| selected & (1_u128 << index) != 0)
-        .collect())
+    Ok(indices)
 }
 
 pub(super) fn positive_amount(amount: f32, name: &str) -> Result<f64, String> {
@@ -37,6 +36,14 @@ pub(super) fn positive_amount(amount: f32, name: &str) -> Result<f64, String> {
 
 impl MeshWork {
     pub fn from_record(before: &ScenePlacementRecord) -> Result<Self, String> {
+        Self::with_coordinates(before, false)
+    }
+
+    pub(super) fn from_local_record(before: &ScenePlacementRecord) -> Result<Self, String> {
+        Self::with_coordinates(before, true)
+    }
+
+    fn with_coordinates(before: &ScenePlacementRecord, local_half_mm: bool) -> Result<Self, String> {
         before.asset_target.validate()?; // 正式校验先于按面索引取点，坏存档不能令纯操作越界。
         let geometry = before
             .asset_target
@@ -56,69 +63,67 @@ impl MeshWork {
             points: geometry
                 .vertices()
                 .iter()
-                .map(|point| {
-                    origin + rotation * (DVec3::from_array(point.map(f64::from)) * 0.0005 * scale)
-                })
+                .map(|point| DVec3::from_array(point.map(f64::from)))
+                .map(|point| if local_half_mm { point } else { origin + rotation * (point * 0.0005 * scale) })
                 .collect(),
             faces: geometry
                 .faces()
                 .iter()
-                .map(|face| face.indices().iter().map(|&v| usize::from(v)).collect())
+                .map(|face| face.indices().iter().map(|&v| v as usize).collect())
                 .collect(),
-            edges: geometry.edges(),
+            edges: geometry.edges().to_vec(),
         })
     }
 
     pub fn push_point(&mut self, point: DVec3) -> Result<usize, String> {
-        // 每个作者对象有固定容量；不能先制造无限候选，再让末端校验承担内存峰值。
-        if !point.is_finite() || self.points.len() >= MAX_EDITABLE_MESH_VERTICES {
-            return Err("操作超过64顶点容量，或产生了无效坐标".into());
+        // 候选构造沿用作者网格的内存边界，在分配下一点之前拒绝超预算的操作。
+        if !point.is_finite() {
+            return Err("操作产生了无效坐标".into());
+        }
+        if self.points.len() >= MAX_EDITABLE_MESH_VERTICES {
+            return Err("操作结果超过作者网格内存预算，请缩小选择范围".into());
         }
         let index = self.points.len();
         self.points.push(point);
         Ok(index)
     }
 
-    pub fn midpoint(
-        &mut self,
-        a: usize,
-        b: usize,
-        cache: &mut BTreeMap<[usize; 2], usize>,
-    ) -> Result<usize, String> {
-        let key = edge(a, b);
-        if let Some(&index) = cache.get(&key) {
-            return Ok(index);
-        }
-        let index = self.push_point((self.points[a] + self.points[b]) * 0.5)?;
-        cache.insert(key, index);
-        Ok(index)
-    }
-
     pub fn finish(self, before: &ScenePlacementRecord) -> Result<ScenePlacementRecord, String> {
-        if self.faces.len() > MAX_EDITABLE_MESH_FACES {
-            return Err("操作超过64面容量，请减少本次选择或分步操作".into());
-        }
-        let used = self
-            .faces
-            .iter()
-            .flatten()
-            .copied()
-            .collect::<BTreeSet<_>>();
-        if used.iter().any(|&index| index >= self.points.len()) {
-            return Err("操作产生了不存在的顶点引用".into());
-        }
         let scale = DVec3::from_array(before.scale.map(f64::from));
         let origin = DVec3::from_array(before.translation.map(f64::from));
         let inverse = DQuat::from_rotation_y(-f64::from(before.yaw_degrees.to_radians()));
-        let mut remap = BTreeMap::new();
-        let mut vertices = Vec::with_capacity(used.len());
-        for index in used {
-            let local = inverse * (self.points[index] - origin) / scale;
-            let quantized = local * 2_000.0;
+        self.finish_record(before, |point| inverse * (point - origin) / scale * 2_000.0)
+    }
+
+    /// 线性细分直接写本地半毫米坐标，避免合法实例变换改变同一条边的切点舍入。
+    pub(super) fn finish_local(self, before: &ScenePlacementRecord) -> Result<ScenePlacementRecord, String> {
+        self.finish_record(before, |point| point)
+    }
+
+    fn finish_record(
+        self,
+        before: &ScenePlacementRecord,
+        local_half_mm: impl Fn(DVec3) -> DVec3,
+    ) -> Result<ScenePlacementRecord, String> {
+        if self.faces.len() > MAX_EDITABLE_MESH_FACES {
+            return Err("操作结果超过作者网格内存预算，请缩小选择范围".into());
+        }
+        // 点 ID 在候选内连续，按原索引顺序压实可保留稳定选择且避免每个角点查树。
+        let mut used = vec![false; self.points.len()];
+        for &index in self.faces.iter().flatten() {
+            *used.get_mut(index).ok_or("操作产生了不存在的顶点引用")? = true;
+        }
+        let mut remap = vec![0; self.points.len()];
+        let mut vertices = Vec::with_capacity(self.points.len());
+        for (index, point) in self.points.into_iter().enumerate() {
+            if !used[index] {
+                continue;
+            }
+            let quantized = local_half_mm(point);
             if !quantized.is_finite() || quantized.abs().max_element() > 20_000_000.0 {
                 return Err("拓扑结果超过本地各轴±10000米范围".into());
             }
-            remap.insert(index, vertices.len() as u8);
+            remap[index] = u32::try_from(vertices.len()).map_err(|_| "顶点索引超过可保存范围")?;
             vertices.push(quantized.to_array().map(|value| value.round() as i32));
         }
         let mut faces = Vec::with_capacity(self.faces.len());
@@ -127,11 +132,11 @@ impl MeshWork {
                 return Err("单个面超过16个顶点，请先细分邻面".into());
             }
             faces.push(MeshFace::new(
-                &face.iter().map(|index| remap[index]).collect::<Vec<_>>(),
+                &face.iter().map(|&index| remap[index]).collect::<Vec<_>>(),
             )?);
         }
-        // from_parts量化后执行保存/运行时同一完整闭壳校验，失败不返回半成品。
-        let geometry = EditableMeshGeometry::from_parts(&vertices, &faces)?;
+        // 量化结果交给保存与运行时共用的完整校验，采用成功时直接转移所有权。
+        let geometry = EditableMeshGeometry::from_owned_parts(vertices, faces)?;
         let (color_srgb, roughness_milli, collision) = match before.asset_target {
             ScenePlacementAssetTarget::Cuboid {
                 color_srgb,

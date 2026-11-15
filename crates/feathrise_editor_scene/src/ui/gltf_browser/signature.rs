@@ -346,7 +346,7 @@ pub(super) fn advance_signature_build(
                 editor: placement.editor.clone(),
                 placement_id: placement.id.clone(),
                 asset_path: placement.asset_path.clone(),
-                asset_target: placement.asset_target, // 固定大小数字目标不增加深复制预算。
+                asset_target: placement.asset_target.clone(), // 网格拓扑共享，签名不复制顶点与面。
                 water_bindings: Vec::with_capacity(
                     placement
                         .water_surfaces

@@ -8,6 +8,7 @@ use bevy::picking::Pickable; // 覆盖层不得抢占世界或UI选择。
 use bevy::prelude::*; // ECS、Mesh3d、Transform、UI与Gizmo类型。
 use feathrise_scene_core::view::CameraRaycastIgnore; // 相机防穿墙忽略作者覆盖。
 use feathrise_scene::{ScenePlacementRuntimePhase, ScenePlacementRuntimeStatus}; // 正式批次采用状态。
+use feathrise_scene::author_view::{SelectionOutline, supports_selection_outline};
 use crate::ui::theme as colors; // 铜金三维范围框沿用F12正式视觉语言。
 
 use super::super::ui::sync_badge; // UI固定节点由独立模块增量同步。
@@ -19,7 +20,7 @@ use super::super::{
 use crate::authoring::EditorAuthoringSession; // 当前草稿决定选择所属场景。
 use crate::components::{
     SceneEditorOwnedEntity, SceneEditorSelectedPlacementBadge, SceneEditorSelectedPlacementBadgeText,
-    SceneEditorSelectedPlacementHighlight,
+    SceneEditorSelectedPlacementHighlight, SceneEditorCamera,
 }; // 世界覆盖与中央徽标使用互斥marker。
 use crate::resources::{SceneEditorState, SceneEditorViewportState}; // 双击只调整现有编辑相机会话态。
 use crate::types::EditorTool; // 候选悬停仅在选择模式影响辅助表现。
@@ -102,6 +103,12 @@ pub(crate) fn sync_selected_placement_viewport(
     mut selection: ResMut<SelectedPlacementViewportState>,
     viewport: Option<ResMut<SceneEditorViewportState>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    (meshes, shading, cameras, surface_materials): (
+        Res<Assets<Mesh>>,
+        Option<Res<crate::viewport::shading::ShadingState>>,
+        Query<(Entity, Option<&SelectionOutline>), With<SceneEditorCamera>>,
+        Query<&MeshMaterial3d<StandardMaterial>>,
+    ),
     sources: Query<
         (
             Option<&GltfMeshName>, // 独立Primitive没有Scene0名称。
@@ -135,6 +142,8 @@ pub(crate) fn sync_selected_placement_viewport(
     let previewing =
         editor.open && editor.tool == EditorTool::Inspect && candidates.hover.is_some() && !selection.explicit_focus_pending(); // 双击仍在悬停时暂停，F取景使用正式选择。
     let Some(info) = selected_placement_mesh_info(&editor, &browser, &session, &candidates, selection.explicit_focus_pending()) else {
+        sync_selection_outline(&mut commands, &cameras, None);
+        selection.outline_active = false;
         hide_highlights(&selection, &mut highlights); // 立即隐藏世界选择表现但保留可复用实体池。
         sync_badge(false, None, &mut selection, &mut badges, &mut badge_texts); // 中央徽标同步隐藏。
         selection.frame = None; // Gizmo下一帧不绘制旧范围。
@@ -185,7 +194,26 @@ pub(crate) fn sync_selected_placement_viewport(
         selection.frame = frame; // Gizmo和双击相机读取同一完整联合值。
     }
 
-    if source_valid && all_sources_visible {
+    // 复用已解析的可见 primitive。工作底色下的静态不透明对象只描实际投影，双击取景仍保留联合 AABB。
+    let outline = (source_valid && all_sources_visible
+        && !editor.close_requested && !editor.scene_transition_in_progress
+        && shading.is_some_and(|shading| shading.uses_work_background()))
+        .then(|| {
+            let mut visible = Vec::with_capacity(selection.source_entities.len());
+            for &entity in &selection.source_entities {
+                let (_, mesh, _, _, _, _, inherited_visibility) = sources.get(entity).ok()?;
+                if inherited_visibility.is_some_and(|visibility| !visibility.get()) { continue; }
+                let material = materials.get(&surface_materials.get(entity).ok()?.0)?;
+                if !supports_selection_outline(meshes.get(&mesh.0)?, material) { return None; }
+                visible.push(entity);
+            }
+            (!visible.is_empty()).then(|| SelectionOutline::new(visible))
+        })
+        .flatten();
+    selection.outline_active = outline.is_some() && cameras.single().is_ok();
+    sync_selection_outline(&mut commands, &cameras, outline);
+
+    if source_valid && all_sources_visible && !selection.outline_active {
         let material = selection.highlight_material.get_or_insert_with(|| {
             materials.add(StandardMaterial {
                 base_color: Color::srgba(0.30, 0.82, 0.84, 0.24), // 淡青透明填充保留原材质和场景上下文。
@@ -276,7 +304,7 @@ pub(crate) fn sync_selected_placement_viewport(
             }
         }
     } else {
-        hide_highlights(&selection, &mut highlights); // 等待、失败、不可见或残缺结果不显示半套覆盖。
+        hide_highlights(&selection, &mut highlights); // 轮廓接管或旧源不完整时，撤下青色覆盖槽。
     }
 
     let prefix = placement_badge_prefix(&info.identity, previewing); // 明确区分临时预览与正式选择。
@@ -399,14 +427,32 @@ pub(crate) fn sync_selected_placement_viewport(
     }
 }
 
-/// 在精确淡青填充外围绘制当前网格的铜金三维世界包围框。
+fn sync_selection_outline(
+    commands: &mut Commands,
+    cameras: &Query<(Entity, Option<&SelectionOutline>), With<SceneEditorCamera>>,
+    outline: Option<SelectionOutline>,
+) {
+    if let (Some(outline), Ok((camera, current))) = (outline, cameras.single()) {
+        if current != Some(&outline) { commands.entity(camera).insert(outline); }
+        return;
+    }
+    for (camera, current) in cameras {
+        if current.is_some() { commands.entity(camera).remove::<SelectionOutline>(); }
+    }
+}
+
+/// 场景背景使用精确覆盖与范围框；工程视口仍通过现有协议接收选中对象。
 pub(crate) fn draw_selected_placement_highlight_frame(
     editor: Res<SceneEditorState>,
     selection: Res<SelectedPlacementViewportState>,
+    snapshot: Option<Res<crate::standalone::embedded_snapshot::EmbeddedSnapshotState>>,
     mut tools: ResMut<AuthorToolFrame>,
 ) {
     if !editor.open {
         return; // 关闭F12时不提交任何作者辅助线。
+    }
+    if selection.outline_active && !snapshot.is_some_and(|state| state.enabled) {
+        return;
     }
     let Some(PlacementSelectionFrame { center, size }) = selection.frame else {
         return; // 等待、失败、不可见或缺Aabb时不伪造三维范围。

@@ -415,7 +415,7 @@ fn authoring_wire_metadata_keeps_twelve_real_edges_and_hides_quad_diagonals() {
             let surface = if source == "ghost" {
                 // 与编辑手势幽灵使用同一显示生成器和标记；没有第二份边实体或独立的显隐通路。
                 let mesh = app.world_mut().resource_mut::<Assets<Mesh>>()
-                    .add(feathrise_scene::editable_mesh_mesh(geometry));
+                    .add(feathrise_scene::editable_mesh_mesh(geometry.clone()));
                 let material = app.world_mut().resource_mut::<Assets<StandardMaterial>>()
                     .add(StandardMaterial { base_color: Color::srgb(0.95, 0.035, 0.015), ..default() });
                 app.world_mut().spawn((
@@ -425,7 +425,7 @@ fn authoring_wire_metadata_keeps_twelve_real_edges_and_hides_quad_diagonals() {
             } else {
                 let target = if source == "cuboid" { cuboid } else {
                     ScenePlacementAssetTarget::EditableMesh {
-                        geometry, color_srgb: [230, 30, 15], roughness_milli: 700, collision: false,
+                        geometry: geometry.clone(), color_srgb: [230, 30, 15], roughness_milli: 700, collision: false,
                     }
                 };
                 let record: ScenePlacementRecord = serde_json::from_value(serde_json::json!({
@@ -437,7 +437,7 @@ fn authoring_wire_metadata_keeps_twelve_real_edges_and_hides_quad_diagonals() {
                     Transform::IDENTITY, Visibility::Inherited, ChildOf(container),
                 )).id();
                 app.world_mut().run_system_once(move |mut commands: Commands| {
-                    assert!(feathrise_scene::spawn_builtin_placement_visual(&mut commands, root, target));
+                    assert!(feathrise_scene::spawn_builtin_placement_visual(&mut commands, root, target.clone()));
                 }).unwrap();
                 app.world().get::<Children>(root).unwrap().iter()
                     .find(|child| app.world().get::<Mesh3d>(*child).is_some()).unwrap()
@@ -470,7 +470,7 @@ fn authoring_wire_metadata_keeps_twelve_real_edges_and_hides_quad_diagonals() {
             let vertices = geometry.vertices().iter().map(|point| {
                 projected(&app, editor_camera, Vec3::from_array(point.map(|coordinate| coordinate as f32 * 0.0005)))
             }).collect::<Vec<_>>();
-            let edges = geometry.edges().into_iter().map(|[a, b]| [vertices[a], vertices[b]]).collect::<Vec<_>>();
+            let edges = geometry.edges().iter().map(|&[a, b]| [vertices[a], vertices[b]]).collect::<Vec<_>>();
             for (index, [start, end]) in edges.iter().copied().enumerate() {
                 let hits = (1..=9).filter(|step| black_near(&wire, start.lerp(end, *step as f32 / 10.0))).count();
                 assert!(hits >= 6, "{method_name}/{source}真实边{index}没有完整显示：{hits}/9");
@@ -478,7 +478,7 @@ fn authoring_wire_metadata_keeps_twelve_real_edges_and_hides_quad_diagonals() {
             // 所有对角线样本都离十二条真实边至少6.5像素；避免把背面的真实边误报成残留剖分线。
             let diagonal_samples = geometry.faces().iter().flat_map(|face| {
                 let face = face.indices();
-                let [start, end] = [vertices[usize::from(face[0])], vertices[usize::from(face[2])]];
+                let [start, end] = [vertices[face[0] as usize], vertices[face[2] as usize]];
                 (1..20).map(move |step| start.lerp(end, step as f32 / 20.0))
             }).filter(|point| edges.iter().all(|[start, end]| segment_distance(*point, *start, *end) > 6.5))
                 .collect::<Vec<_>>();

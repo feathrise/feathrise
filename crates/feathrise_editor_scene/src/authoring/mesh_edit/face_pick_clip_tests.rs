@@ -115,3 +115,47 @@ fn face_pick_keeps_near_clipping_and_front_surface_occlusion() {
             "完全位于近面之前的几何仍不可选");
     }
 }
+
+#[test]
+fn large_grid_keeps_exact_author_points_edges_and_faces_pickable() {
+    use super::super::{
+        selection::MeshSelection,
+        topology_ops::{SubdivisionOptions, subdivide_record_with_options},
+    };
+    let mut before = record();
+    before.translation = [0.0; 3];
+    let subdivided = subdivide_record_with_options(
+        &before,
+        MeshElementKind::Face,
+        &MeshSelection::all(6),
+        SubdivisionOptions { cuts: 15, ..Default::default() },
+    ).unwrap();
+    let mesh = world_mesh(&subdivided.record).unwrap();
+    let point_index = mesh.vertices.iter().position(|&point| point == Vec3::new(0.0, 0.0, 1.0)).unwrap();
+    let mid = Vec3::new(0.0625, 0.0, 1.0);
+    let edge_index = mesh.edges().iter().enumerate().find(|&(index, _)| {
+        mesh.center(MeshElementKind::Edge, index) == mid
+    }).unwrap().0;
+    let face_center = Vec3::new(0.0625, 0.0625, 1.0);
+    let face_index = (0..mesh.count(MeshElementKind::Face)).find(|&index| {
+        mesh.center(MeshElementKind::Face, index) == face_center
+    }).unwrap();
+    assert!(point_index > 128 && edge_index > 128 && face_index > 128);
+    for orthographic in [false, true] {
+        let camera = front_camera(orthographic, 1.0);
+        for (kind, index, point) in [
+            (MeshElementKind::Vertex, point_index, mesh.vertices[point_index]),
+            (MeshElementKind::Edge, edge_index, mid),
+            (MeshElementKind::Face, face_index, face_center),
+        ] {
+            let cursor = camera.project(point).unwrap();
+            assert_eq!(mesh.pick(kind, camera, cursor), Some(index), "{kind:?}");
+            let representative = mesh.visible_representative(kind, index, camera).unwrap();
+            let cursor = camera.project(representative).unwrap();
+            let half_box = Vec2::splat(0.0005);
+            assert_eq!(mesh.in_box(kind, camera, cursor - half_box, cursor + half_box),
+                MeshSelection::single(index), "{kind:?}");
+        }
+        assert!(!mesh.visible(camera, Vec3::new(0.0, 0.0, -1.0)));
+    }
+}

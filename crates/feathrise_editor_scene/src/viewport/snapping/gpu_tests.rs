@@ -406,6 +406,7 @@ fn assert_wire_axis(app: &App, camera: Entity, pixels: &[u8], point: Vec3, chann
 /// 复用正式网格和着色通道，核验后还原现场，不改变后续地表/阴影验收。
 fn verify_wire_reference(app: &mut App, target: Handle<Image>, camera: Entity, resident: Entity) {
     use crate::viewport::shading::{ShadingMode, ShadingState};
+    use crate::viewport::shading::types::ShadingAction;
     let previous_shading = app.world_mut().remove_resource::<ShadingState>();
     let previous_snap = app.world().resource::<EditorSettings>().editor_snapping;
     let (previous_open, previous_view, previous_cursor) = {
@@ -419,7 +420,9 @@ fn verify_wire_reference(app: &mut App, target: Handle<Image>, camera: Entity, r
     let previous_msaa = *app.world().get::<Msaa>(camera).unwrap();
     let previous_clear = app.world().get::<Camera>(camera).unwrap().clear_color.clone();
     let previous_visibility = *app.world().get::<Visibility>(resident).unwrap();
-    app.insert_resource(ShadingState::default());
+    let mut working_shading = ShadingState::default();
+    working_shading.apply(ShadingAction::Background);
+    app.insert_resource(working_shading);
     {
         let mut editor = app.world_mut().resource_mut::<SceneEditorState>();
         editor.open = true;
@@ -477,7 +480,7 @@ fn verify_wire_reference(app: &mut App, target: Handle<Image>, camera: Entity, r
         assert_eq!(pixels, ordinary,
             "同源灰底下{mode:?}参考网格应逐字节一致，着色切换不能替换网格样式");
         assert_wire_axis(app, camera, &pixels, Vec3::new(2.35, 0.0, 0.0), 0, "X红");
-        assert_wire_axis(app, camera, &pixels, Vec3::new(0.0, 0.0, 2.35), 2, "Z蓝");
+        assert_wire_axis(app, camera, &pixels, Vec3::new(0.0, 0.0, 2.35), 1, "水平Z绿");
     }
     app.world_mut().resource_mut::<ShadingState>().mode = ShadingMode::Rendered;
     for _ in 0..4 { app.update(); }
@@ -499,14 +502,14 @@ fn verify_wire_reference(app: &mut App, target: Handle<Image>, camera: Entity, r
     for _ in 0..4 { app.update(); }
     let front = capture(app, target.clone(), "editor-grid-wireframe-front.png");
     assert_wire_axis(app, camera, &front, Vec3::new(2.35, 0.0, 0.0), 0, "X红");
-    assert_wire_axis(app, camera, &front, Vec3::new(0.0, 2.35, 0.0), 1, "Y绿");
+    assert_wire_axis(app, camera, &front, Vec3::new(0.0, 2.35, 0.0), 2, "竖直Y蓝");
     app.world_mut().resource_mut::<SceneEditorState>().view = crate::types::EditorView::Side;
     *app.world_mut().get_mut::<Transform>(camera).unwrap() =
         Transform::from_xyz(18.0, 0.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y);
     for _ in 0..4 { app.update(); }
     let side = capture(app, target.clone(), "editor-grid-unified-side.png");
-    assert_wire_axis(app, camera, &side, Vec3::new(0.0, 0.0, 2.35), 2, "Z蓝");
-    assert_wire_axis(app, camera, &side, Vec3::new(0.0, 2.35, 0.0), 1, "Y绿");
+    assert_wire_axis(app, camera, &side, Vec3::new(0.0, 0.0, 2.35), 1, "水平Z绿");
+    assert_wire_axis(app, camera, &side, Vec3::new(0.0, 2.35, 0.0), 2, "竖直Y蓝");
 
     app.world_mut().resource_mut::<SceneEditorState>().view = crate::types::EditorView::Top;
     *app.world_mut().get_mut::<Transform>(camera).unwrap() =
@@ -616,7 +619,7 @@ fn verify_wire_reference(app: &mut App, target: Handle<Image>, camera: Entity, r
     assert_eq!(projected_delta(app, camera, Vec3::new(1.5, 0.0, 2.35), &relative_on, &relative_off), 0,
         "资产的非整数原点与高度不能将半格处移动成参考格线");
     assert_wire_axis(app, camera, &relative_on, Vec3::new(2.35, 0.0, 0.0), 0, "世界X红");
-    assert_wire_axis(app, camera, &relative_on, Vec3::new(0.0, 0.0, 2.35), 2, "世界Z蓝");
+    assert_wire_axis(app, camera, &relative_on, Vec3::new(0.0, 0.0, 2.35), 1, "世界Z绿");
     app.world_mut().resource_mut::<PlacementSelectionSet>().clear();
     if let Some(previous) = previous_shading {
         app.insert_resource(previous);

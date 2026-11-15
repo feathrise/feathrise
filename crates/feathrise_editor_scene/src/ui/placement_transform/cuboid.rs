@@ -44,7 +44,7 @@ pub(super) fn set_field_value(
     if !value.is_finite() {
         return false;
     }
-    let before = record.asset_target;
+    let before = record.asset_target.clone();
     // 编辑网格保留公共材质能力，尺寸配方只用于仍为参数化盒体的记录。
     let (color_srgb, roughness_milli) = match &mut record.asset_target {
         ScenePlacementAssetTarget::Cuboid { size_mm, color_srgb, roughness_milli, .. } => {

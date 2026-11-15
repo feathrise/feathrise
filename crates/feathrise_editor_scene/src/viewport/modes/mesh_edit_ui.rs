@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy::ui::{FocusPolicy, RelativeCursorPosition};
 use feathrise_editor_ui::EditorButtonClick;
 
-use crate::authoring::mesh_edit::{MeshEditAction, MeshEditState, MeshElementKind};
+use crate::authoring::mesh_edit::{MeshEditAction, MeshEditState, MeshElementKind, SubdivisionCorner};
 use crate::resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState};
 use crate::ui::theme as colors;
 
@@ -38,6 +38,12 @@ pub(super) struct MeshAdvancedToggle;
 
 #[derive(Component)]
 pub(super) struct MeshAdvancedMenuRoot;
+
+#[derive(Component)]
+pub(super) struct MeshSubdivisionControls;
+
+#[derive(Component)]
+pub(super) struct MeshSubdivisionValue;
 
 pub(super) fn spawn(parent: &mut ChildSpawnerCommands, font: &Handle<Font>) {
     parent.spawn((
@@ -91,6 +97,53 @@ pub(super) fn spawn(parent: &mut ChildSpawnerCommands, font: &Handle<Font>) {
                 ("细分", MeshEditAction::Subdivide),
             ] { button(menu, font, label, action, 68.0, true, false); }
         }); // 高级入口仍在原工具栏背景内折行，避免单行拉长或浮层溢出窄视口。
+        subdivision_controls(row, font);
+    });
+}
+
+fn subdivision_controls(row: &mut ChildSpawnerCommands, font: &Handle<Font>) {
+    let parameter_row = Node {
+        align_items: AlignItems::Center,
+        flex_wrap: FlexWrap::Wrap,
+        column_gap: px(3),
+        row_gap: px(3),
+        ..default()
+    };
+    let parameter_font = TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() };
+    // 参数区只属于细分预览；所有按钮都走原点击入口，和确认、取消共用同一次事务。
+    row.spawn((
+        MeshSubdivisionControls,
+        Node { display: Display::None, width: percent(100), flex_direction: FlexDirection::Column,
+            row_gap: px(3), ..default() },
+    )).with_children(|settings| {
+        settings.spawn(parameter_row.clone()).with_children(|cuts| {
+            cuts.spawn((
+                feathrise_editor_ui::localization::editor_label("切割次数"), parameter_font.clone(),
+                TextColor(colors::TEXT_MUTED), TextLayout::no_wrap(), Pickable::IGNORE,
+            ));
+            button(cuts, font, "−", MeshEditAction::SubdivisionCutsDelta(-1), 26.0, false, false);
+            cuts.spawn((
+                MeshSubdivisionValue, Text::new("1"), parameter_font.clone(),
+                TextColor(colors::TEXT_PRIMARY), TextLayout::justify(Justify::Center),
+                Node { width: px(28), flex_shrink: 0.0, ..default() }, Pickable::IGNORE,
+            ));
+            button(cuts, font, "+", MeshEditAction::SubdivisionCutsDelta(1), 26.0, false, false);
+            button(cuts, font, "创建 N 边面", MeshEditAction::ToggleSubdivisionNgons, 116.0, false, false);
+        });
+        settings.spawn(parameter_row).with_children(|corners| {
+            corners.spawn((
+                feathrise_editor_ui::localization::editor_label("四边面角点"), parameter_font,
+                TextColor(colors::TEXT_MUTED), TextLayout::no_wrap(), Pickable::IGNORE,
+            ));
+            for (label, corner, width) in [
+                ("直切", SubdivisionCorner::StraightCut, 74.0),
+                ("内点", SubdivisionCorner::InnerVertex, 68.0),
+                ("沿路径", SubdivisionCorner::Path, 55.0),
+                ("扇形", SubdivisionCorner::Fan, 52.0),
+            ] {
+                button(corners, font, label, MeshEditAction::SubdivisionCorner(corner), width, false, false);
+            }
+        });
     });
 }
 
@@ -108,6 +161,9 @@ fn button(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, label: &str,
     ));
     if editing_only { button.insert(MeshEditOnly); }
     if moving_only { button.insert(MeshMoveOnly); }
+    if matches!(action, MeshEditAction::Subdivide) {
+        button.insert(crate::ui::tooltips::EditorTooltipTarget(crate::ui::tooltips::TooltipAction::MeshSubdivide));
+    }
     button.with_children(|parent| {
         let mut caption = parent.spawn((
             feathrise_editor_ui::localization::editor_label(label), TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
@@ -123,6 +179,9 @@ fn extrude_available(state: &MeshEditState) -> bool {
 
 fn action_available(state: &MeshEditState, action: MeshEditAction) -> bool {
     if matches!(action, MeshEditAction::Toggle | MeshEditAction::Cancel | MeshEditAction::Confirm) { return true; }
+    if matches!(action, MeshEditAction::SubdivisionCutsDelta(_) | MeshEditAction::SubdivisionCorner(_) | MeshEditAction::ToggleSubdivisionNgons) {
+        return state.subdivision_options().is_some();
+    }
     if !state.active() || state.moving() || state.boxing() { return false; }
     match action {
         MeshEditAction::Extrude | MeshEditAction::Inset => extrude_available(state),
@@ -132,6 +191,22 @@ fn action_available(state: &MeshEditState, action: MeshEditAction) -> bool {
         MeshEditAction::Subdivide => state.selected_count() > 0,
         _ => true,
     }
+}
+
+#[cfg(feature = "validation")]
+pub(crate) fn validation_mesh_button(world: &mut World, action: Option<MeshEditAction>) -> Option<Entity> {
+    let entity = world
+        .query::<(Entity, Option<&MeshEditButton>, Has<MeshAdvancedToggle>, &ComputedNode, &InheritedVisibility)>()
+        .iter(world)
+        .find_map(|(entity, button, more, node, visible)| {
+            let matches = match action {
+                Some(action) => button.is_some_and(|button| button.0 == action),
+                None => more,
+            };
+            (matches && visible.get() && node.size().min_element() > 0.0).then_some(entity)
+        })?;
+    let mut nodes = bevy::ecs::system::SystemState::<Query<(&Node, Option<&ChildOf>)>>::new(world);
+    super::ui::controls_visible(entity, &nodes.get(world).ok()?).then_some(entity)
 }
 
 /// 完成点击与几何输入之间保持显式排序；按下、隐藏旧事件及模态后的迟到请求不会执行。
@@ -182,25 +257,29 @@ pub(super) fn style(
     viewports: Query<&ComputedNode, With<crate::components::SceneEditorViewport>>,
     mut roots: Query<&mut Node, (With<MeshEditToolbarRoot>, Without<MeshEditButton>, Without<MeshSelectionCaption>)>,
     mut buttons: Query<(&MeshEditButton, &UiInteraction, &mut Node, &mut BackgroundColor, Has<MeshEditOnly>, Has<MeshMoveOnly>), (Without<MeshEditToolbarRoot>, Without<MeshSelectionCaption>)>,
-    mut captions: Query<&mut Text, (With<MeshEditToggleCaption>, Without<MeshSelectionCaption>)>,
+    mut captions: Query<(&mut Text, Has<MeshSubdivisionValue>),
+        (Or<(With<MeshEditToggleCaption>, With<MeshSubdivisionValue>)>, Without<MeshSelectionCaption>)>,
     mut selection: Query<(&mut Text, &mut Node), (With<MeshSelectionCaption>, Without<MeshEditButton>, Without<MeshEditToolbarRoot>)>,
-    mut advanced: Query<(&mut Node, Option<&MeshAdvancedToggle>, Option<&UiInteraction>, Option<&mut BackgroundColor>),
-        (Or<(With<MeshAdvancedMenuRoot>, With<MeshAdvancedToggle>)>, Without<MeshEditToolbarRoot>, Without<MeshEditButton>, Without<MeshSelectionCaption>)>,
+    mut advanced: Query<(&mut Node, Has<MeshAdvancedToggle>, Has<MeshSubdivisionControls>, Option<&UiInteraction>, Option<&mut BackgroundColor>),
+        (Or<(With<MeshAdvancedMenuRoot>, With<MeshAdvancedToggle>, With<MeshSubdivisionControls>)>,
+            Without<MeshEditToolbarRoot>, Without<MeshEditButton>, Without<MeshSelectionCaption>)>,
 ) {
     let locale = locale.as_deref().copied().unwrap_or_default();
     let active = state.as_ref().is_some_and(|state| state.active());
     let moving = state.as_ref().is_some_and(|state| state.moving());
     let busy = moving || state.as_ref().is_some_and(|state| state.boxing());
+    let subdivision = state.as_ref().and_then(|state| state.subdivision_options());
     let menu_open = active && !busy && menu.as_ref().is_some_and(|menu| menu.open);
     let viewport_width=viewports.single().ok().map(|node|node.size().x*node.inverse_scale_factor());
-    for (mut node, toggle, interaction, background) in &mut advanced {
-        if toggle.is_none() {
+    for (mut node, toggle, subdivision_controls, interaction, background) in &mut advanced {
+        if !toggle {
             // 窄视口的右下方向球占独立观察区；高级按钮只在左侧折行，不与该区域争夺命中。
             let width=viewport_width.filter(|width|*width<610.0)
                 .map_or(Val::Auto,|width|px((width-150.0).max(68.0)));
             if node.max_width!=width {node.max_width=width;}
         }
-        let display = if active && !busy && (toggle.is_some() || menu_open) { Display::Flex } else { Display::None };
+        let show = if subdivision_controls { subdivision.is_some() } else { active && !busy && (toggle || menu_open) };
+        let display = if show { Display::Flex } else { Display::None };
         if node.display != display { node.display = display; }
         if let Some(mut background) = background {
             let color = match (interaction.copied().unwrap_or_default(), menu_open) {
@@ -218,9 +297,16 @@ pub(super) fn style(
         if root.left != left { root.left = left; }
         if root.max_width != width { root.max_width = width; }
     }
-    for mut caption in &mut captions {
-        let text = locale.editor_label(if active { "返回对象 Tab" } else { "网格编辑 Tab" });
-        if caption.as_str() != text { **caption = text.into(); }
+    for (mut caption, subdivision_value) in &mut captions {
+        if subdivision_value {
+            if let Some(options) = subdivision {
+                let text = options.cuts.to_string();
+                if caption.as_str() != text { **caption = text; }
+            }
+        } else {
+            let text = locale.editor_label(if active { "返回对象 Tab" } else { "网格编辑 Tab" });
+            if caption.as_str() != text { **caption = text.into(); }
+        }
     }
     for (mut text, mut node) in &mut selection {
         let display = if active { Display::Flex } else { Display::None };
@@ -240,6 +326,8 @@ pub(super) fn style(
         let selected = state.as_ref().is_some_and(|state| active && match button.0 {
             MeshEditAction::Toggle => true,
             MeshEditAction::Kind(kind) => state.kind == kind,
+            MeshEditAction::SubdivisionCorner(corner) => subdivision.is_some_and(|options| options.corner == corner),
+            MeshEditAction::ToggleSubdivisionNgons => subdivision.is_some_and(|options| options.create_ngons),
             _ => false,
         });
         let color = match (*interaction, selected) {

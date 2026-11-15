@@ -189,6 +189,7 @@ pub(crate) struct SelectedPlacementViewportState {
     pub(super) highlight_entities: Vec<Entity>, // 覆盖实体池按源primitive槽位复用。
     pub(super) highlight_material: Option<Handle<StandardMaterial>>, // 全部摆放网格共用唯一淡青材质。
     pub(super) frame: Option<PlacementSelectionFrame>, // 铜金框和双击定位读取同一联合范围。
+    pub(super) outline_active: bool, // 橙色投影轮廓接管时，独立编辑器暂停绘制旧包围框。
     pub(super) badge_text: Option<String>,             // 文案不变时不触发Text重排。
 }
 
@@ -262,6 +263,7 @@ impl SelectedPlacementViewportState {
         self.source_entities.clear(); // 覆盖同步系统下一步隐藏旧槽。
         self.resolution = resolution; // 徽标立即显示当前明确阶段。
         self.frame = None; // Gizmo与相机不得继续读取旧范围。
+        self.outline_active = false;
     }
 }
 

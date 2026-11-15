@@ -6,40 +6,17 @@ use feathrise_scene_content::{EditableMeshGeometry, MeshFace};
 
 #[test]
 fn malformed_mesh_never_enters_the_dynamic_selection_or_render_index_path() {
-    let mut before = record();
-    let mut geometry = before.asset_target.editable_geometry().unwrap();
-    geometry.faces[0].vertices[0] = 63;
-    before.asset_target = ScenePlacementAssetTarget::EditableMesh {
+    let geometry = record().asset_target.editable_geometry().unwrap();
+    let mut before = serde_json::to_value(record()).unwrap();
+    before["asset_target"] = serde_json::to_value(ScenePlacementAssetTarget::EditableMesh {
         geometry,
         color_srgb: [31, 41, 59],
         roughness_milli: 700,
         collision: true,
-    };
-    assert!(world_mesh(&before).is_none(), "坏索引不能进入绘制或框选");
-    let (mut app, _, node) = app();
-    app.world_mut()
-        .resource_mut::<EditorAuthoringSession>()
-        .draft
-        .as_mut()
-        .unwrap()
-        .placements
-        .placements[0] = before.clone();
-    press(&mut app, KeyCode::Tab);
-    fixture::step(&mut app, node, Vec2::ZERO);
-    assert!(!app.world().resource::<MeshEditState>().active());
-    assert_eq!(current(&app), &before);
-    assert!(
-        app.world()
-            .resource::<EditorAuthoringSession>()
-            .undo
-            .is_empty()
-    );
-    assert!(
-        app.world()
-            .resource::<SceneEditorState>()
-            .status
-            .contains("无法进入网格编辑")
-    );
+    }).unwrap();
+    before["asset_target"]["geometry"]["faces"][0]["vertices"][0] = 63.into();
+    assert!(serde_json::from_value::<ScenePlacementRecord>(before).is_err(),
+        "加载时拒绝坏索引，不能生成可进入拾取或渲染的类型");
 }
 
 fn ortho_app() -> (App, Entity, Entity) {
@@ -63,7 +40,7 @@ fn mouse(app: &mut App, down: bool) {
 fn box_selection_rejects_layout_resize_even_before_render_camera_changes() {
     let (mut app, _, node) = ortho_app();
     enter(&mut app, node);
-    app.world_mut().resource_mut::<MeshEditState>().selected = 1 << 7;
+    app.world_mut().resource_mut::<MeshEditState>().selected = (1 << 7).into();
     let before = current(&app).clone();
     press(&mut app, KeyCode::KeyB);
     fixture::step(&mut app, node, Vec2::splat(-0.3));
@@ -107,7 +84,7 @@ fn boxing_confirm_uses_last_rectangle_and_without_rectangle_exits_without_change
     for has_rectangle in [false, true] {
         let (mut app, _, node) = ortho_app();
         enter(&mut app, node);
-        app.world_mut().resource_mut::<MeshEditState>().selected = 1 << 7;
+        app.world_mut().resource_mut::<MeshEditState>().selected = (1 << 7).into();
         let before = current(&app).clone();
         press(&mut app, KeyCode::KeyB);
         fixture::step(&mut app, node, Vec2::splat(-0.3));
@@ -188,8 +165,9 @@ fn face_markers_and_small_box_selection_share_real_visible_surface_points() {
     let (app, _, _) = ortho_app();
     let camera = fixture::camera(&app);
     let mut geometries = vec![record().asset_target.editable_geometry().unwrap()];
-    let mut warped = geometries[0];
-    warped.vertices_half_mm[7][1] += 600;
+    let mut warped = geometries[0].vertices().to_vec();
+    warped[7][1] += 600;
+    let warped = geometries[0].with_vertices(warped).unwrap();
     geometries.extend([warped, concave_prism()]);
     for geometry in geometries {
         let mut record = record();
@@ -202,7 +180,7 @@ fn face_markers_and_small_box_selection_share_real_visible_surface_points() {
         record.asset_target.validate().unwrap();
         let mesh = world_mesh(&record).unwrap();
         let mut visible = 0;
-        for face in 0..mesh.faces.len() {
+        for face in 0..mesh.faces().len() {
             let Some(marker) = mesh.visible_representative(MeshElementKind::Face, face, camera)
             else {
                 continue;
@@ -220,7 +198,7 @@ fn face_markers_and_small_box_selection_share_real_visible_surface_points() {
                 screen - Vec2::splat(0.0001),
                 screen + Vec2::splat(0.0001),
             );
-            assert_ne!(chosen & (1 << face), 0, "围住实际标记的小框必须选中同一面");
+            assert!(chosen.contains(face), "围住实际标记的小框必须选中同一面");
         }
         assert!(visible > 0);
     }
@@ -232,7 +210,7 @@ fn topology_preview_draws_candidate_contour_without_reinterpreting_old_edge_indi
     enter(&mut app, node);
     request(&mut app, MeshEditAction::Kind(MeshElementKind::Edge));
     fixture::step(&mut app, node, Vec2::ZERO);
-    app.world_mut().resource_mut::<MeshEditState>().selected = 1;
+    app.world_mut().resource_mut::<MeshEditState>().selected = (1).into();
     request(&mut app, MeshEditAction::LoopCut);
     fixture::step(&mut app, node, Vec2::ZERO);
     fixture::step(&mut app, node, Vec2::ZERO);
@@ -240,14 +218,14 @@ fn topology_preview_draws_candidate_contour_without_reinterpreting_old_edge_indi
     let movement = state.movement.as_ref().unwrap();
     assert!(movement.valid);
     let mesh = world_mesh(&movement.preview).unwrap();
-    assert_eq!(mesh.faces.len(), 10);
+    assert_eq!(mesh.faces().len(), 10);
     assert_eq!(
         super::super::render::display_selection(state, &mesh),
-        (MeshElementKind::Face, (1 << 10) - 1, None)
+        (MeshElementKind::Face, ((1 << 10) - 1).into(), None)
     );
     assert_eq!(
-        (state.kind, state.selected),
-        (MeshElementKind::Edge, 1),
+        (state.kind, state.selected.clone()),
+        (MeshElementKind::Edge, 1.into()),
         "预览绘制不能提前改写作者选择"
     );
     assert!(
@@ -281,7 +259,7 @@ fn toolbar_subdivide_previews_immediately_and_confirms_without_entering_viewport
             .asset_target
             .editable_geometry()
             .unwrap()
-            .face_count,
+            .face_count(),
         24
     );
     assert_eq!(current(&app), &before);
@@ -304,6 +282,61 @@ fn toolbar_subdivide_previews_immediately_and_confirms_without_entering_viewport
     assert!(
         matches!(&session.undo[0], EditorCommand::PlacementChanged {before: old, after: new, ..} if old == &before && new == &candidate)
     );
+}
+
+#[test]
+fn repaired_neighbor_keeps_the_new_edge_point_pickable_and_movable_along_its_edge() {
+    let (mut app, _, node) = ortho_app();
+    enter(&mut app, node);
+    let before = current(&app).clone();
+    let mesh = world_mesh(&before).unwrap();
+    let camera = fixture::camera(&app);
+    let (edge_index, start, end) = mesh.edges().iter().enumerate().find_map(|(index, &[a, b])| {
+        let [start, end] = [mesh.vertices[a], mesh.vertices[b]];
+        let midpoint = start.lerp(end, 0.5);
+        (mesh.visible(camera, midpoint) && camera.project(midpoint).is_some()).then_some((index, start, end))
+    }).expect("斜视夹具需要一条可见外边");
+    let cursor = camera.project(start.lerp(end, 0.5)).unwrap();
+    request(&mut app, MeshEditAction::Kind(MeshElementKind::Edge));
+    fixture::step(&mut app, node, cursor);
+    app.world_mut().resource_mut::<MeshEditState>().selected = (1 << edge_index).into();
+    request(&mut app, MeshEditAction::Subdivide);
+    fixture::step(&mut app, node, cursor);
+    request(&mut app, MeshEditAction::Confirm);
+    fixture::step(&mut app, node, cursor);
+    let cut_mesh = world_mesh(current(&app)).unwrap();
+    let state = app.world().resource::<MeshEditState>();
+    assert_eq!(cut_mesh.faces().len(), 6);
+    assert_eq!(state.kind, MeshElementKind::Edge);
+    assert_eq!(state.selected.len(), 2);
+    assert!(cut_mesh.edges().iter().enumerate().filter(|(index, _)| state.selected.contains(*index))
+        .all(|(_, edge)| edge.contains(&8)), "确认后保留边模式，并选中经过新中点的两段");
+
+    request(&mut app, MeshEditAction::Kind(MeshElementKind::Vertex));
+    fixture::step(&mut app, node, cursor);
+    mouse(&mut app, true);
+    fixture::step(&mut app, node, cursor);
+    assert_eq!(app.world().resource::<MeshEditState>().selected, 1 << 8,
+        "真实视口拾取需要选中新增共享点，而非原来被拆成两段的边");
+    mouse(&mut app, false);
+    fixture::step(&mut app, node, cursor);
+
+    let target = start.lerp(end, 0.625);
+    let target_cursor = camera.project(target).unwrap();
+    let axis = (end - start).abs();
+    let key = if axis.x > 0.0 { KeyCode::KeyX } else if axis.y > 0.0 { KeyCode::KeyY } else { KeyCode::KeyZ };
+    press(&mut app, KeyCode::KeyG);
+    fixture::step(&mut app, node, cursor);
+    press(&mut app, key);
+    fixture::step(&mut app, node, target_cursor);
+    let movement = app.world().resource::<MeshEditState>().movement.as_ref().unwrap();
+    assert!(movement.valid, "沿边移动新增点必须仍得到有效闭壳");
+    request(&mut app, MeshEditAction::Confirm);
+    fixture::step(&mut app, node, target_cursor);
+    let mesh = world_mesh(current(&app)).unwrap();
+    assert_eq!((mesh.vertices.len(), mesh.edges().len(), mesh.faces().len()), (9, 13, 6));
+    assert!(mesh.vertices[8].distance(target) < 0.001);
+    assert_eq!(app.world().resource::<EditorAuthoringSession>().undo.len(), 2);
 }
 
 #[test]
@@ -332,11 +365,11 @@ fn extrusion_new_element_selection_move_and_box_continue_one_authoring_session()
     enter(&mut app, node);
     request(&mut app, MeshEditAction::Kind(MeshElementKind::Face));
     fixture::step(&mut app, node, Vec2::ZERO);
-    app.world_mut().resource_mut::<MeshEditState>().selected = 1 << 1;
+    app.world_mut().resource_mut::<MeshEditState>().selected = (1 << 1).into();
     let camera = fixture::camera(&app);
     let mesh = world_mesh(&before).unwrap();
     let cap_center =
-        selection_center(&mesh.vertices, mesh.element_mask(MeshElementKind::Face, 1)).unwrap();
+        selection_center(&mesh.vertices, &mesh.element_mask(MeshElementKind::Face, 1)).unwrap();
     let start = camera.project(cap_center).unwrap();
     let end = camera.project(cap_center + Vec3::X * 0.4).unwrap();
     press(&mut app, KeyCode::KeyE);
@@ -360,7 +393,7 @@ fn extrusion_new_element_selection_move_and_box_continue_one_authoring_session()
     );
     let mesh = world_mesh(&extruded).unwrap();
     assert_eq!(
-        (mesh.vertices.len(), mesh.edges.len(), mesh.faces.len()),
+        (mesh.vertices.len(), mesh.edges().len(), mesh.faces().len()),
         (12, 20, 10)
     );
 
@@ -371,13 +404,13 @@ fn extrusion_new_element_selection_move_and_box_continue_one_authoring_session()
     assert_eq!(cap_mask, 0b1111 << 8);
     assert_eq!(
         app.world().resource::<MeshEditState>().selected,
-        u128::from(cap_mask)
+        cap_mask
     );
     request(&mut app, MeshEditAction::Kind(MeshElementKind::Edge));
     fixture::step(&mut app, node, end);
-    let edges = app.world().resource::<MeshEditState>().selected;
-    assert_eq!(edges.count_ones(), 4);
-    assert_ne!(edges >> 12, 0, "新增顶帽边必须在动态真实边表中可选");
+    let edges = &app.world().resource::<MeshEditState>().selected;
+    assert_eq!(edges.len(), 4);
+    assert!(edges.iter().any(|index| index >= 12), "新增顶帽边必须在动态真实边表中可选");
     assert_eq!(
         mesh.selected_vertices(MeshElementKind::Edge, edges),
         cap_mask
@@ -388,7 +421,7 @@ fn extrusion_new_element_selection_move_and_box_continue_one_authoring_session()
     request(&mut app, MeshEditAction::Kind(MeshElementKind::Vertex));
     fixture::step(&mut app, node, end);
 
-    let origin = selection_center(&mesh.vertices, cap_mask).unwrap();
+    let origin = selection_center(&mesh.vertices, &cap_mask).unwrap();
     let start = camera.project(origin).unwrap();
     let end = camera.project(origin + Vec3::X * 0.25).unwrap();
     press(&mut app, KeyCode::KeyG);
@@ -411,7 +444,7 @@ fn extrusion_new_element_selection_move_and_box_continue_one_authoring_session()
     let new_points = world_vertices(&moved).unwrap();
     for (index, point) in new_points.iter().enumerate() {
         let expected = mesh.vertices[index]
-            + if cap_mask & (1 << index) != 0 {
+            + if cap_mask.contains(index) {
                 Vec3::X * 0.25
             } else {
                 Vec3::ZERO
@@ -467,7 +500,7 @@ fn extrusion_new_element_selection_move_and_box_continue_one_authoring_session()
             matches!(command, EditorCommand::PlacementChanged { before, after, .. } if before == old && after == new)
         );
         let mut original_metadata = new.clone();
-        original_metadata.asset_target = old.asset_target;
+        original_metadata.asset_target = old.asset_target.clone();
         assert_eq!(&original_metadata, old);
     }
     assert!(matches!(

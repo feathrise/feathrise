@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use feathrise_scene_content::{SceneId, ScenePlacementAssetTarget};
 
 /// 坐标为世界中心；None才进入视口点放，面板本身不改变中央文档。
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct CuboidCreationRequest {
     pub(crate) target: ScenePlacementAssetTarget,
     pub(crate) position: Option<Vec3>,
@@ -31,7 +31,8 @@ impl BasicShapeState {
     pub(crate) fn placement_target(&self, session: &super::super::EditorAuthoringSession) -> Option<ScenePlacementAssetTarget> {
         let draft = session.draft.as_ref()?;
         let (map, revision) = self.placement_identity.as_ref()?;
-        (map == &draft.scene_id && *revision == session.revision).then_some(self.placement_target?).filter(|target| target.is_builtin())
+        (map == &draft.scene_id && *revision == session.revision)
+            .then_some(self.placement_target.as_ref()?).filter(|target| target.is_builtin()).cloned()
     }
 
     /// 该点只为无地形场景中的基础形状放置服务，不写入公共真实地面光标。

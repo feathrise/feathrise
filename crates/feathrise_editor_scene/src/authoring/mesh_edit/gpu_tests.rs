@@ -312,6 +312,15 @@ fn mesh_element_vertex_edge_face_gpu_snapshots() {
         structure_revision: 0,
         record,
     });
+    // 离屏夹具没有独立编辑器的资源绑定；控件展开后使用同一份 SDK 内嵌中文字体。
+    app.update();
+    let world = app.world_mut();
+    let font = world.resource_mut::<Assets<Font>>().add(Font::from_bytes(
+        feathrise_runtime::app::default_font::DEFAULT_FONT_BYTES.to_vec(),
+    ));
+    for mut text in world.query::<&mut TextFont>().iter_mut(world) {
+        text.font = font.clone().into();
+    }
     frames(&mut app, 45);
     let mut snapshots = Vec::new();
     for (kind, element, name, point) in [
@@ -337,7 +346,7 @@ fn mesh_element_vertex_edge_face_gpu_snapshots() {
         {
             let mut state = app.world_mut().resource_mut::<MeshEditState>();
             state.kind = kind;
-            state.selected = 1 << element;
+            state.selected = (1 << element).into();
             state.hover = None;
         }
         frames(&mut app, 5);
@@ -395,7 +404,7 @@ fn mesh_element_vertex_edge_face_gpu_snapshots() {
         {
             let mut state = app.world_mut().resource_mut::<MeshEditState>();
             state.kind = MeshElementKind::Vertex;
-            state.selected = selected;
+            state.selected = (selected).into();
             state.tool = tool;
             state.handle_hover = Some(if matches!(tool,MeshEditTool::Move|MeshEditTool::Scale) {
                 MoveConstraint::X
@@ -411,7 +420,7 @@ fn mesh_element_vertex_edge_face_gpu_snapshots() {
                 1.0,
             )
             .unwrap();
-            let origin = super::geometry::selection_center(&vertices, selected as u64).unwrap();
+            let origin = super::geometry::selection_center(&vertices, &selected.into()).unwrap();
             let point = if tool == MeshEditTool::Move {
                 let arrow = super::transform_math::move_arrows(camera, origin)[0]
                     .take()

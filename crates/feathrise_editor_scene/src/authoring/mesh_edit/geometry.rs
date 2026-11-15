@@ -1,4 +1,4 @@
-//! 有界网格世界位移的半毫米逆算与共享投影工具；保留旧八点测试夹具的固定拓扑辅助函数。
+//! 网格世界位移的半毫米逆算与共享投影工具；保留旧八点测试夹具的固定拓扑辅助函数。
 
 pub(super) use super::mesh_geometry::*;
 pub(super) use super::transform_math::{
@@ -7,26 +7,30 @@ pub(super) use super::transform_math::{
 #[cfg(test)]
 use super::types::MeshElementKind;
 use super::types::MoveConstraint;
+use super::selection::MeshSelection;
 use crate::viewport::placement_move::MoveCamera;
 use bevy::prelude::*;
 use feathrise_scene_content::ScenePlacementRecord;
 #[cfg(test)]
 use feathrise_scene_content::{EDITABLE_CUBOID_EDGES, EDITABLE_CUBOID_FACES};
 
+#[cfg(test)]
 pub(super) fn world_vertices(record: &ScenePlacementRecord) -> Option<Vec<Vec3>> {
     let geometry = record.asset_target.editable_geometry()?;
-    let rotation = Quat::from_rotation_y(record.yaw_degrees.to_radians());
-    let scale = Vec3::from_array(record.scale);
-    let origin = Vec3::from_array(record.translation);
     Some(
         geometry
             .vertices()
             .iter()
-            .map(|point| {
-                origin + rotation * (Vec3::from_array(point.map(|v| v as f32 * 0.0005)) * scale)
-            })
+            .map(|&point| world_vertex(record, point))
             .collect(),
     )
+}
+
+pub(super) fn world_vertex(record: &ScenePlacementRecord, point: [i32; 3]) -> Vec3 {
+    let local = Vec3::from_array(point.map(|value| value as f32 * 0.0005));
+    Vec3::from_array(record.translation)
+        + Quat::from_rotation_y(record.yaw_degrees.to_radians())
+            * (local * Vec3::from_array(record.scale))
 }
 
 #[cfg(test)]
@@ -65,7 +69,8 @@ pub(super) fn selection_for_kind(
 }
 
 /// 双面三角射线取最近实体表面；背面不能穿过前面继续命中隐藏元素。
-pub(super) fn triangle_distance(ray: Ray3d, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
+#[cfg(test)]
+fn triangle_distance(ray: Ray3d, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
     let ab = b - a;
     let ac = c - a;
     let p = ray.direction.cross(ac);
@@ -183,16 +188,14 @@ pub(super) fn pick_element(
     nearest.map(|(index, _)| index)
 }
 
-pub(super) fn selection_center(vertices: &[Vec3], mask: u64) -> Option<Vec3> {
-    let count = mask.count_ones();
-    (count > 0).then(|| {
-        vertices
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| mask & (1 << i) != 0)
-            .fold(Vec3::ZERO, |sum, (_, &point)| sum + point)
-            / count as f32
-    })
+pub(super) fn selection_center(vertices: &[Vec3], selected: &MeshSelection) -> Option<Vec3> {
+    let mut sum = bevy::math::DVec3::ZERO;
+    let mut count = 0;
+    for index in selected.iter() {
+        sum += vertices.get(index)?.as_dvec3();
+        count += 1;
+    }
+    (count > 0).then(|| (sum / f64::from(count)).as_vec3())
 }
 
 pub(super) fn constraint_point(
@@ -252,28 +255,22 @@ pub(super) fn snapped_delta(
 /// 世界位移经根的逆旋转/逆缩放后写局部坐标，选边/面只移动其关联顶点。
 pub(super) fn translated_record(
     before: &ScenePlacementRecord,
-    selected: u64,
+    selected: &MeshSelection,
     world_delta: Vec3,
 ) -> Result<ScenePlacementRecord, String> {
     if !world_delta.is_finite() {
         return Err("移动结果不是有限坐标".into());
     }
     let mut after = before.clone();
-    let mut geometry = before
+    let geometry = before
         .asset_target
         .editable_geometry()
         .ok_or("当前对象不支持点边面编辑")?;
     let local = Quat::from_rotation_y(-before.yaw_degrees.to_radians()) * world_delta
         / Vec3::from_array(before.scale);
-    for (index, vertex) in geometry
-        .vertices_half_mm
-        .iter_mut()
-        .take(geometry.vertex_count as usize)
-        .enumerate()
-    {
-        if selected & (1 << index) == 0 {
-            continue;
-        }
+    let mut vertices = geometry.vertices().to_vec();
+    for index in selected.iter() {
+        let vertex = vertices.get_mut(index).ok_or("顶点选择已经超出当前拓扑")?;
         for axis in 0..3 {
             let value = vertex[axis] as f64 + f64::from(local[axis]) * 2000.0;
             if !value.is_finite() || value < i32::MIN as f64 || value > i32::MAX as f64 {
@@ -282,12 +279,11 @@ pub(super) fn translated_record(
             vertex[axis] = value.round() as i32;
         }
     }
-    let unchanged = Some(geometry) == before.asset_target.editable_geometry();
     // 零位移不把参数化立方体无意义地转换为编辑网格，也不产生撤销或脏标记。
-    if unchanged {
-        return Ok(before.clone());
+    if vertices == geometry.vertices() {
+        return Ok(after);
     }
-    after.asset_target = before.asset_target.with_editable_geometry(geometry)?;
-    after.asset_target.validate()?; // 退化/翻转等无效几何不能进入可视或物理；保留上一有效预览等待修正。
+    // 含越界、翻转或自交的候选由共享几何构造入口拒绝。
+    after.asset_target = before.asset_target.with_editable_geometry(geometry.with_vertices(vertices)?)?;
     Ok(after)
 }

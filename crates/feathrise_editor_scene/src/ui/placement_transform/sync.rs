@@ -179,8 +179,8 @@ pub(crate) fn sync_placement_transform_panel(
                 format!("{height_description} · 盒碰撞{}", if collision { "开启" } else { "关闭" })
             } else if let ScenePlacementAssetTarget::EditableCuboid { collision, .. } = record.asset_target {
                 format!("{height_description} · 8点 / 12边 / 6面 · 网格碰撞{}", if collision { "开启" } else { "关闭" })
-            } else if let ScenePlacementAssetTarget::EditableMesh { geometry, collision, .. } = record.asset_target {
-                format!("{height_description} · {}点 / {}边 / {}面 · 网格碰撞{}", geometry.vertex_count, geometry.edges().len(), geometry.face_count, if collision { "开启" } else { "关闭" })
+            } else if let ScenePlacementAssetTarget::EditableMesh { geometry, collision, .. } = &record.asset_target {
+                format!("{height_description} · {}点 / {}边 / {}面 · 网格碰撞{}", geometry.vertex_count(), geometry.edges().len(), geometry.face_count(), if *collision { "开启" } else { "关闭" })
             } else if record.building_preset_id.is_some() {
                 "建筑高度由五点地基校验；请使用受检落点与旋转。".to_owned()
             } else if record.terrain_patch.is_some() {

@@ -1,6 +1,16 @@
 //! 唯一编辑状态机：元素/框选、G/R/S与拓扑预览，完整身份核对后每笔只提交一次。
 
-use super::{geometry::*, preview::EditWorld, resources::MeshEditState, types::*};
+use super::{
+    geometry::*,
+    jobs::{IMMEDIATE_VERTICES, JobKind, Prepared, prepare_world_mesh},
+    preview::{EditWorld, make_preview_mesh},
+    resources::MeshEditState,
+    selection::MeshSelection,
+    topology_ops::{
+        MAX_SUBDIVISION_CUTS, SubdivisionCorner, SubdivisionOptions, subdivide_record_with_options,
+    },
+    types::*,
+};
 use crate::{
     authoring::EditorAuthoringSession,
     components::SceneEditorViewport,
@@ -12,6 +22,7 @@ use crate::{
     },
 };
 use bevy::{ecs::system::SystemParam, prelude::*, ui::RelativeCursorPosition};
+use std::sync::Arc;
 
 /// 网格移动自己持有公共鼠标门，必须只复核外部所有者，避免既抢占浮层又把自身预览锁死。
 #[derive(SystemParam)]
@@ -152,18 +163,85 @@ fn target_is_current(
 fn exit(state: &mut MeshEditState, world: &mut EditWorld, session: &EditorAuthoringSession) {
     world.restore(state, session);
     state.target = None;
+    state.jobs.cancel();
+    state.world_mesh = None;
+    state.pivot = None;
     state.movement = None;
     state.box_selection = None;
     state.hover = None;
     state.handle_hover = None;
-    state.selected = 0;
+    state.selected = MeshSelection::default();
     state.release_capture = true; // 返回对象模式的这次鼠标释放仍属于元素编辑。
 }
 
 fn cancel_move(state: &mut MeshEditState, world: &mut EditWorld, session: &EditorAuthoringSession) {
     world.restore(state, session);
+    state.jobs.cancel();
     state.movement = None;
     state.release_capture = true;
+}
+
+fn apply_preview(
+    result: Result<Prepared, String>,
+    movement: &mut ElementMove,
+    state: &mut MeshEditState,
+    world: &mut EditWorld,
+    session: &EditorAuthoringSession,
+) -> Result<(), String> {
+    movement.valid = false;
+    let (record, mesh, visual, selected, origin) = match result? {
+        Prepared::Subdivision { record, selected, mesh, visual } => {
+            (record, mesh, visual, Some(selected), None)
+        }
+        Prepared::Motion { record, mesh, visual, origin } => (record, mesh, visual, None, origin),
+        Prepared::Source(_) | Prepared::Selection { .. } => unreachable!("只有网格候选进入预览"),
+    };
+    if !mesh.matches_record(&record) {
+        return Err("候选网格和编辑快照的身份不一致".into());
+    }
+    world.show_prepared(state, session, &record, Some(visual))?;
+    movement.preview = record;
+    movement.visual_mesh = Some(mesh);
+    movement.visual_origin = origin;
+    movement.result_selection = selected;
+    movement.valid = true;
+    Ok(())
+}
+
+fn refresh_subdivision(
+    movement: &mut ElementMove,
+    options: SubdivisionOptions,
+    mesh: &WorldMesh,
+    state: &mut MeshEditState,
+    world: &mut EditWorld,
+    session: &EditorAuthoringSession,
+) -> String {
+    // 冻结源和选择随任务共享；大操作等待结果时保留上一有效画面，旧票据不可采用。
+    movement.valid = false;
+    movement.topology = Some(TopologyOperation::Subdivide(options));
+    let (before, kind, selected) = (movement.before.clone(), state.kind, movement.selected_elements.clone());
+    let work = move || {
+        let result = subdivide_record_with_options(&before, kind, &selected, options)?;
+        let mesh = prepare_world_mesh(&result.record)?;
+        let visual = make_preview_mesh(&result.record)?;
+        Ok(Prepared::Subdivision { record: result.record, selected: result.selected, mesh, visual })
+    };
+    // 保守估计整网的最多新增点；小网格沿用原即时预览，超过旧同步预算走后台。
+    let cuts = usize::from(options.cuts);
+    let estimate = mesh.vertices.len() + mesh.edges().len() * cuts + mesh.faces().len() * cuts * cuts;
+    if estimate > IMMEDIATE_VERTICES {
+        state.jobs.submit(JobKind::Subdivide, work);
+        return format!("正在计算细分 · {} 切，Esc 取消", options.cuts);
+    }
+    state.jobs.cancel();
+    match apply_preview(work(), movement, state, world, session) {
+        Ok(()) => subdivision_status(options),
+        Err(error) => format!("细分预览无效：{error}"),
+    }
+}
+
+fn subdivision_status(options: SubdivisionOptions) -> String {
+    format!("细分预览 · {} 切，Enter 确认，Esc 取消", options.cuts)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -204,7 +282,7 @@ pub(super) fn handle_input(
                     viewport,
                 )
             })
-            .filter(|(_, record)| record.asset_target.editable_geometry().is_some())
+            .filter(|(_, record)| record.asset_target.is_builtin())
             .map(|(index, record)| (index, record.clone()));
         let (save_pressed, save_key, history_pressed) = context.preferences.as_ref().map_or_else(
             || {
@@ -251,6 +329,9 @@ pub(super) fn handle_input(
         )
     };
     let mut state = inputs.p1();
+    if !state.active() {
+        state.jobs.poll();
+    }
     let release_was_captured = state.release_capture;
     if !mouse.any_pressed([MouseButton::Left, MouseButton::Right, MouseButton::Middle])
         && !mouse.any_just_released([MouseButton::Left, MouseButton::Right, MouseButton::Middle])
@@ -349,20 +430,28 @@ pub(super) fn handle_input(
             editor.status = "请先选择一个内置立方体，再进入点边面编辑".into();
             return;
         };
-        if record.asset_target.editable_geometry().is_none()
-            || record.terrain_patch.is_some()
-            || record.building_preset_id.is_some()
-        {
+        let Some(geometry) = record.asset_target.editable_geometry() else {
             editor.status = "点边面编辑目前支持内置立方体；导入模型和可塑形地形沿用各自工具".into();
+            return;
+        };
+        if record.terrain_patch.is_some() || record.building_preset_id.is_some() {
+            editor.status = "该对象使用独立的作者工具".into();
             return;
         }
         if let Err(error) = record.asset_target.validate() {
             editor.status = format!("无法进入网格编辑：{error}");
             return;
         }
-        let Some(mesh) = world_mesh(record) else {
-            editor.status = "无法进入网格编辑：数量、索引或实例变换无效".into();
-            return;
+        let mesh = if geometry.vertices().len() <= IMMEDIATE_VERTICES {
+            match prepare_world_mesh(record) {
+                Ok(mesh) => Some(mesh),
+                Err(error) => {
+                    editor.status = format!("无法进入网格编辑：{error}");
+                    return;
+                }
+            }
+        } else {
+            None
         };
         state.target = Some(EditTarget {
             scene_id: session
@@ -376,7 +465,13 @@ pub(super) fn handle_input(
             structure_revision: session.placement_structure_revision,
             record: record.clone(),
         });
-        state.selected = mesh.all(state.kind);
+        if let Some(mesh) = mesh {
+            state.selected = mesh.all(state.kind);
+            state.world_mesh = Some(mesh);
+        } else {
+            let source = record.clone();
+            state.jobs.submit(JobKind::Enter, move || prepare_world_mesh(&source).map(Prepared::Source));
+        }
         state.release_capture = true;
         editor.tool = EditorTool::Inspect;
         editor.placement_transform_enabled = false;
@@ -385,26 +480,63 @@ pub(super) fn handle_input(
                 mode.mode = ViewportMode::Select;
             }
         }); // MoveInputContext 只读同一模式资源，延迟原子切换避免系统参数读写冲突。
-        editor.status =
-            "编辑模式：1 点 / 2 边 / 3 面；G/R/S 变换，B框选，E挤出，更多建模见工具栏".into();
+        editor.status = if state.world_mesh.is_some() {
+            "编辑模式：1 点 / 2 边 / 3 面；G/R/S 变换，B框选，E挤出，更多建模见工具栏"
+        } else {
+            "正在准备网格选区，Tab 返回对象模式"
+        }.into();
         return;
     }
     if !state.active() {
         return;
     }
-    let Some(mesh) = state
-        .target
-        .as_ref()
-        .and_then(|target| world_mesh(&target.record))
-    else {
+    let ready = state.jobs.poll();
+    if state.world_mesh.is_none() {
+        match ready {
+            Some((JobKind::Enter, Ok(Prepared::Source(mesh)))) => {
+                if !state.target.as_ref().is_some_and(|target| mesh.matches_record(&target.record)) {
+                    exit(&mut state, &mut world, &session);
+                    editor.status = "网格会话的来源已变化".into();
+                    return;
+                }
+                state.selected = mesh.all(state.kind);
+                state.world_mesh = Some(mesh);
+                editor.status = "编辑模式：1 点 / 2 边 / 3 面；G/R/S 变换".into();
+            }
+            Some((JobKind::Enter, Err(error))) => {
+                exit(&mut state, &mut world, &session);
+                editor.status = format!("无法进入网格编辑：{error}");
+            }
+            _ => {}
+        }
         return;
-    };
+    }
+    let mesh = Arc::clone(state.world_mesh.as_ref().expect("网格已准备"));
     let cursor = node.and_then(|(cursor, _)| cursor.normalized);
     let pointer_over_viewport =
         node.is_some_and(|(cursor, _)| cursor.cursor_over()) && !pointer_over_ui;
     let escape = keyboard.just_pressed(KeyCode::Escape)
         || (state.moving() && mouse.just_pressed(MouseButton::Right))
         || request == Some(MeshEditAction::Cancel);
+    if matches!(state.jobs.waiting(), Some(JobKind::BoxSelection))
+        || matches!(ready, Some((JobKind::BoxSelection, _)))
+    {
+        if escape {
+            state.jobs.cancel();
+            keyboard.clear_just_pressed(KeyCode::Escape);
+            editor.status = "已取消框选，保留原选择".into();
+        } else if let Some((_, Ok(Prepared::Selection {
+            selected, camera: frozen_camera, viewport_size,
+        }))) = ready {
+            if camera == frozen_camera && node.is_some_and(|(_, node)| node.size() == viewport_size) {
+                state.selected = selected;
+                editor.status = format!("框选完成，已选 {} {}", state.selected_count(), state.kind.label());
+            } else {
+                editor.status = "视口已变化，已保留原选择".into();
+            }
+        }
+        return;
+    }
     if let Some(mut selection) = state.box_selection.take() {
         if escape
             || camera != selection.camera
@@ -433,19 +565,30 @@ pub(super) fn handle_input(
             if (confirm || pointer_over_viewport)
                 && let (Some(start), Some(end)) = (selection.start, selection.current)
             {
-                let selected = mesh.in_box(state.kind, camera, start, end);
-                state.selected = if selection.subtract {
-                    selection.before & !selected
-                } else if selection.add {
-                    selection.before | selected
-                } else {
-                    selected
+                let source = Arc::clone(&mesh);
+                let kind = state.kind;
+                let viewport_size = selection.viewport_size;
+                let work = move || {
+                    let selected = source.in_box(kind, camera, start, end);
+                    let mut result = selection.before;
+                    if selection.subtract {
+                        result.subtract(&selected);
+                    } else if selection.add {
+                        result.union_with(&selected);
+                    } else {
+                        result = selected;
+                    }
+                    result
                 };
-                editor.status = format!(
-                    "框选完成：已选{}{}",
-                    state.selected_count(),
-                    state.kind.label()
-                );
+                if mesh.vertices.len() > IMMEDIATE_VERTICES {
+                    state.jobs.submit(JobKind::BoxSelection, move || Ok(Prepared::Selection {
+                        selected: work(), camera, viewport_size,
+                    }));
+                    editor.status = "正在计算框选，Esc 取消".into();
+                } else {
+                    state.selected = work();
+                    editor.status = format!("框选完成：已选{}{}", state.selected_count(), state.kind.label());
+                }
             } else {
                 state.selected = selection.before;
                 editor.status = if confirm {
@@ -478,15 +621,17 @@ pub(super) fn handle_input(
             && node.is_some_and(|(_, node)| node.size() == movement.viewport_size);
         if !current_camera || mouse.pressed(MouseButton::Middle) {
             world.restore(&mut state, &session);
+            state.jobs.cancel();
             state.release_capture = true;
             editor.status = "视口或导航状态变化，已取消元素变换".into();
             return;
         }
-        if movement.dragging
+        if movement.dragging && !movement.confirm_pending
             && ((!mouse.pressed(MouseButton::Left) && !mouse.just_released(MouseButton::Left))
                 || (mouse.just_released(MouseButton::Left) && !pointer_over_viewport))
         {
             world.restore(&mut state, &session);
+            state.jobs.cancel();
             state.release_capture = true;
             editor.status = "手柄在视口外释放，已取消元素变换".into();
             return;
@@ -496,7 +641,7 @@ pub(super) fn handle_input(
             (KeyCode::KeyY, MoveConstraint::Y),
             (KeyCode::KeyZ, MoveConstraint::Z),
         ] {
-            if movement.topology.is_none() && keyboard.just_pressed(key) {
+            if !movement.confirm_pending && movement.topology.is_none() && keyboard.just_pressed(key) {
                 movement.constraint = if movement.constraint == constraint {
                     MoveConstraint::View
                 } else {
@@ -505,123 +650,81 @@ pub(super) fn handle_input(
             }
             keyboard.clear_just_pressed(key);
         }
-        // 工具栏、属性和确认按钮具有指针所有权；悬停它们只冻结最后预览，不能顺带移动模型。
-        if pointer_over_viewport && let Some(cursor) = cursor {
-            let start_cursor = *movement.start_cursor.get_or_insert(cursor);
+        let subdividing = matches!(movement.topology, Some(TopologyOperation::Subdivide(_)));
+        if let Some((_, result)) = ready {
+            match apply_preview(result, &mut movement, &mut state, &mut world, &session) {
+                Ok(()) => {
+                    if let Some(TopologyOperation::Subdivide(options)) = movement.topology {
+                        editor.status = subdivision_status(options);
+                    }
+                }
+                Err(error) => editor.status = format!(
+                    "{}预览无效：{error}", super::operation_preview::operation_label(&movement),
+                ),
+            }
+        }
+        if let Some(TopologyOperation::Subdivide(options)) = movement.topology {
+            let mut next = options;
+            match request {
+                Some(MeshEditAction::SubdivisionCutsDelta(delta)) => {
+                    next.cuts = options
+                        .cuts
+                        .saturating_add_signed(delta)
+                        .clamp(1, MAX_SUBDIVISION_CUTS);
+                }
+                Some(MeshEditAction::SubdivisionCorner(corner)) => next.corner = corner,
+                Some(MeshEditAction::ToggleSubdivisionNgons) => {
+                    next.create_ngons = !options.create_ngons;
+                }
+                _ => {}
+            }
+            if !next.create_ngons && next.corner == SubdivisionCorner::StraightCut {
+                next.corner = SubdivisionCorner::InnerVertex;
+            }
+            if next != options {
+                editor.status = refresh_subdivision(&mut movement, next, &mesh, &mut state, &mut world, &session);
+            }
+        } else if !movement.confirm_pending && pointer_over_viewport && let Some(cursor) = cursor {
             let control = keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
-            let preview = if movement.topology.is_some() {
-                super::operation_preview::topology_preview(&movement, state.kind, cursor, control)
-            } else if movement.tool == MeshEditTool::Scale {
-                scale_factor(
-                    camera,
-                    start_cursor,
-                    cursor,
-                    movement.origin,
-                    movement.constraint,
-                    movement.snapping,
-                    control,
-                )
-                .and_then(|factor| {
-                    scaled_record(
-                        &movement.before,
-                        movement.selected_vertices,
-                        movement.origin,
-                        movement.constraint,
-                        factor,
-                    )
-                })
-            } else if movement.tool == MeshEditTool::Rotate {
-                let rotation = rotation_delta(
-                    camera,
-                    start_cursor,
-                    cursor,
-                    movement.origin,
-                    movement.constraint,
-                );
-                let rotation = if !movement.dragging
-                    && rotation.is_err()
-                    && rotation_delta(
-                        camera,
-                        start_cursor,
-                        start_cursor,
-                        movement.origin,
-                        movement.constraint,
-                    )
-                    .is_err()
-                {
-                    // R 可从选区轴心启动；无效起点不能永久冻结，等待首个有效方向后再计算角度。
-                    // 只探测起点自身；已有效的起点不会因当前指针经过轴心而改变，手柄起点也不重绑。
-                    let initial = rotation_delta(
-                        camera,
-                        cursor,
-                        cursor,
-                        movement.origin,
-                        movement.constraint,
-                    );
-                    movement.start_cursor = initial.as_ref().ok().map(|_| cursor);
-                    initial
-                } else {
-                    rotation
+            let start = *movement.start_cursor.get_or_insert(cursor);
+            if !movement.dragging && movement.topology.is_none() && movement.tool == MeshEditTool::Rotate
+                && rotation_delta(camera, start, start, movement.origin, movement.constraint).is_err()
+            {
+                // R 可从轴心启动，等待首个能确定旋转方向的指针。
+                movement.start_cursor = rotation_delta(camera, cursor, cursor, movement.origin, movement.constraint)
+                    .ok().map(|_| cursor);
+                movement.last_input = None;
+            }
+            let input = (cursor, control, movement.constraint);
+            if movement.last_input != Some(input) {
+                movement.last_input = movement.start_cursor.map(|_| input);
+                let mut frozen = movement.clone();
+                // 试算只读源记录，后台不持有上一版预览的密集网格缓存。
+                frozen.preview = frozen.before.clone();
+                frozen.visual_mesh = None;
+                frozen.result_selection = None;
+                let (kind, source) = (state.kind, Arc::clone(&mesh));
+                let work = move || {
+                    let record = super::operation_preview::pointer_preview(&frozen, &source, kind, cursor, control)?;
+                    let mesh = prepare_world_mesh(&record)?;
+                    let visual = make_preview_mesh(&record)?;
+                    let origin = (frozen.tool == MeshEditTool::Move).then(|| {
+                        selection_center(&mesh.vertices, &frozen.selected_vertices)
+                    }).flatten();
+                    Ok(Prepared::Motion { record, mesh, visual, origin })
                 };
-                rotation.and_then(|(axis, mut radians)| {
-                    // 元素没有独立欧拉角；围绕冻结选区中心对相对角度吸附，避免改写整个对象姿态。
-                    if movement.snapping.active(control) {
-                        let step = movement.snapping.rotation_degrees.to_radians();
-                        radians = (radians / step).round() * step;
-                    }
-                    rotated_record(
-                        &movement.before,
-                        movement.selected_vertices,
-                        movement.origin,
-                        axis,
-                        radians,
-                    )
-                })
-            } else {
-                let start =
-                    constraint_point(camera, start_cursor, movement.origin, movement.constraint);
-                let point = constraint_point(camera, cursor, movement.origin, movement.constraint);
-                start
-                    .zip(point)
-                    .ok_or_else(|| "当前视角与约束轴平行，请取消后调整视角".to_owned())
-                    .and_then(|(start, point)| {
-                        translated_record(
-                            &movement.before,
-                            movement.selected_vertices,
-                            snapped_delta(
-                                movement.origin,
-                                point - start,
-                                movement.constraint,
-                                movement.snapping,
-                                control,
-                            ),
-                        )
-                    })
-            };
-            match preview {
-                Ok(record) => match world.show(&mut state, &session, &record) {
-                    Ok(()) => {
-                        movement.preview = record;
-                        movement.valid = true;
-                    }
-                    Err(error) => {
-                        movement.valid = false;
-                        editor.status = format!(
-                            "{}预览无效：{error}",
-                            super::operation_preview::operation_label(&movement)
-                        );
-                    }
-                },
-                Err(error) => {
+                if mesh.vertices.len() > IMMEDIATE_VERTICES
+                    || movement.topology.is_some() && mesh.vertices.len() > IMMEDIATE_VERTICES / 2
+                {
                     movement.valid = false;
-                    editor.status = format!(
-                        "{}预览无效：{error}",
-                        super::operation_preview::operation_label(&movement)
-                    );
+                    state.jobs.submit(JobKind::Motion, work);
+                    editor.status = format!("正在计算{}预览", super::operation_preview::operation_label(&movement));
+                } else if let Err(error) = apply_preview(work(), &mut movement, &mut state, &mut world, &session) {
+                    editor.status = format!("{}预览无效：{error}", super::operation_preview::operation_label(&movement));
                 }
             }
         }
-        let confirm = keyboard.just_pressed(KeyCode::Enter)
+        let confirm = movement.confirm_pending || keyboard.just_pressed(KeyCode::Enter)
             || request == Some(MeshEditAction::Confirm)
             || (pointer_over_viewport
                 && if movement.dragging {
@@ -638,6 +741,14 @@ pub(super) fn handle_input(
             keyboard.clear_just_pressed(key);
         }
         if confirm {
+            if state.jobs.waiting().is_some() {
+                if !subdividing {
+                    // 手柄释放后等待这一次真实输入对应的候选，不采用前一个落点。
+                    movement.confirm_pending = true;
+                }
+                state.movement = Some(movement);
+                return;
+            }
             if !movement.valid {
                 if movement.dragging {
                     world.restore(&mut state, &session);
@@ -645,7 +756,9 @@ pub(super) fn handle_input(
                     editor.status = "释放时几何无效，已恢复变换前的网格".into();
                     return;
                 }
-                editor.status = "当前几何无效，不能确认；请继续移动或 Esc 取消".into();
+                if !subdividing {
+                    editor.status = "当前几何无效，不能确认；请继续移动或 Esc 取消".into();
+                }
                 state.movement = Some(movement);
                 return;
             }
@@ -656,14 +769,20 @@ pub(super) fn handle_input(
                     let target = state.target.as_mut().expect("提交不清理活动目标");
                     target.record = movement.preview.clone();
                     target.author_revision = session.revision;
-                    if movement.topology.is_some() {
+                    if let Some(selected) = movement.result_selection.take() {
+                        state.selected = selected;
+                    } else if movement.topology.is_some() {
                         state.kind = MeshElementKind::Face;
                         state.selected = match movement.topology {
-                            Some(TopologyOperation::Extrude { face, .. }) => 1u128 << face,
-                            Some(TopologyOperation::Inset) => movement.selected_elements,
-                            _ => world_mesh(&movement.preview)
-                                .map_or(0, |mesh| mesh.all(MeshElementKind::Face)),
+                            Some(TopologyOperation::Extrude { face, .. }) => MeshSelection::single(face),
+                            Some(TopologyOperation::Inset) => movement.selected_elements.clone(),
+                            _ => movement.visual_mesh.as_ref()
+                                .map_or_else(MeshSelection::default, |mesh| mesh.all(MeshElementKind::Face)),
                         };
+                    }
+                    if let Some(mesh) = movement.visual_mesh.take() {
+                        state.world_mesh = Some(mesh);
+                        state.pivot = None;
                     }
                     state.release_capture = true;
                     editor.status = if changed {
@@ -682,7 +801,7 @@ pub(super) fn handle_input(
                 }
             }
         } else {
-            if movement.valid {
+            if movement.valid && !subdividing && state.jobs.waiting().is_none() {
                 editor.status = format!(
                     "正在{} · {}；XYZ 约束，{}，Esc/右键取消",
                     super::operation_preview::operation_label(&movement),
@@ -699,7 +818,7 @@ pub(super) fn handle_input(
         return;
     }
     if escape {
-        state.selected = 0;
+        state.selected = MeshSelection::default();
         state.release_capture = true;
         keyboard.clear_just_pressed(KeyCode::Escape);
         editor.status = "已清除元素选择；Tab 返回对象模式".into();
@@ -712,7 +831,7 @@ pub(super) fn handle_input(
         state.box_selection = Some(BoxSelection {
             start: None,
             current: cursor,
-            before: state.selected,
+            before: state.selected.clone(),
             add: false,
             subtract: false,
             camera,
@@ -752,7 +871,7 @@ pub(super) fn handle_input(
             MeshEditAction::Extrude
                 if state.kind == MeshElementKind::Face && state.selected_count() == 1 =>
             {
-                let face = state.selected.trailing_zeros() as usize;
+                let face = state.selected.iter().next().expect("选择了恰好一个面");
                 match feathrise_scene_content::extrusion_normal(before, face) {
                     Ok(normal) => TopologyOperation::Extrude { face, normal },
                     Err(error) => {
@@ -769,18 +888,21 @@ pub(super) fn handle_input(
             MeshEditAction::Bevel => TopologyOperation::Bevel,
             MeshEditAction::LoopCut => TopologyOperation::LoopCut,
             MeshEditAction::Knife => TopologyOperation::Knife,
-            MeshEditAction::Subdivide => TopologyOperation::Subdivide,
+            MeshEditAction::Subdivide => TopologyOperation::Subdivide(SubdivisionOptions::default()),
             _ => unreachable!(),
         };
-        let mask = mesh.selected_vertices(state.kind, state.selected);
-        let origin = selection_center(&mesh.vertices, mask)
-            .unwrap_or_else(|| mesh.vertices.iter().sum::<Vec3>() / mesh.vertices.len() as f32);
+        let mask = if matches!(operation, TopologyOperation::Subdivide(_)) {
+            MeshSelection::default() // 细分不依赖变换手柄的选区中心。
+        } else {
+            mesh.selected_vertices(state.kind, &state.selected)
+        };
+        let origin = selection_center(&mesh.vertices, &mask).unwrap_or(Vec3::from_array(before.translation));
         let before = before.clone();
         let mut movement = ElementMove {
             preview: before.clone(),
             before,
             selected_vertices: mask,
-            selected_elements: state.selected,
+            selected_elements: state.selected.clone(),
             origin,
             start_cursor: if pointer_over_viewport { cursor } else { None },
             camera,
@@ -791,35 +913,26 @@ pub(super) fn handle_input(
             dragging: false,
             valid: false,
             snapping,
+            visual_mesh: None,
+            visual_origin: None,
+            result_selection: None,
+            last_input: None,
+            confirm_pending: false,
         };
-        if matches!(operation, TopologyOperation::Subdivide) {
-            // 细分没有鼠标参数，工具栏启动当帧就显示完整候选；确认按钮无需先移进视口。
-            let candidate = super::topology_ops::subdivide_record(
-                &movement.before,
-                state.kind,
-                movement.selected_elements,
-            );
-            match candidate.and_then(|record| {
-                world.show(&mut state, &session, &record)?;
-                Ok(record)
-            }) {
-                Ok(record) => {
-                    movement.preview = record;
-                    movement.valid = true;
-                }
-                Err(error) => {
-                    state.release_capture = true;
-                    editor.status = format!("细分预览无效：{error}");
-                    return;
-                }
+        if let TopologyOperation::Subdivide(options) = operation {
+            editor.status = refresh_subdivision(&mut movement, options, &mesh, &mut state, &mut world, &session);
+            if !movement.valid && state.jobs.waiting().is_none() {
+                state.release_capture = true;
+                return;
             }
+        } else {
+            editor.status = format!(
+                "{}预览：移动鼠标调整，左键/Enter确认，Esc取消",
+                operation.label()
+            );
         }
         state.movement = Some(movement);
         state.release_capture = true;
-        editor.status = format!(
-            "{}预览：移动鼠标调整，左键/Enter确认，Esc取消",
-            operation.label()
-        );
         return;
     }
     if let Some(MeshEditAction::Tool(tool)) = request {
@@ -839,7 +952,7 @@ pub(super) fn handle_input(
         _ => None,
     };
     if let Some(kind) = requested_kind {
-        state.selected = mesh.convert_selection(state.kind, kind, state.selected);
+        state.selected = mesh.convert_selection(state.kind, kind, &state.selected);
         state.kind = kind;
         editor.status = format!(
             "编辑模式 · {}选择；Shift 多选，G 移动，R 旋转，S 缩放",
@@ -857,11 +970,11 @@ pub(super) fn handle_input(
     }
     let vertices = &mesh.vertices;
     let shift = keyboard.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-    let mask = mesh.selected_vertices(state.kind, state.selected);
     if pointer_over_viewport
         && !shift
+        && state.tool != MeshEditTool::Select
         && !mouse.any_pressed([MouseButton::Right, MouseButton::Middle])
-        && let Some(origin) = selection_center(&vertices, mask)
+        && let Some(origin) = state.selection_origin(&mesh)
     {
         state.handle_hover =
             cursor.and_then(|cursor| pick_transform_handle(state.tool, camera, origin, cursor));
@@ -877,14 +990,17 @@ pub(super) fn handle_input(
         if mouse.just_pressed(MouseButton::Left) && !release_was_captured {
             if let Some(index) = state.hover {
                 if shift {
-                    state.selected ^= 1 << index;
+                    state.selected.toggle(index);
                 } else {
-                    state.selected = 1 << index;
+                    state.selected = MeshSelection::single(index);
                 }
             } else if !shift {
-                state.selected = 0;
+                state.selected = MeshSelection::default();
             }
         }
+    }
+    if state.tool != MeshEditTool::Select {
+        state.selection_origin(&mesh);
     }
     let requested_tool = if drag_constraint.is_some() {
         Some(state.tool)
@@ -907,8 +1023,8 @@ pub(super) fn handle_input(
     keyboard.clear_just_pressed(KeyCode::KeyR);
     keyboard.clear_just_pressed(KeyCode::KeyS);
     if let Some(tool) = requested_tool {
-        let mask = mesh.selected_vertices(state.kind, state.selected);
-        let Some(origin) = selection_center(&vertices, mask) else {
+        let mask = mesh.selected_vertices(state.kind, &state.selected);
+        let Some(origin) = selection_center(&vertices, &mask) else {
             editor.status = "请先选择需要变换的点、边或面".into();
             return;
         };
@@ -918,7 +1034,7 @@ pub(super) fn handle_input(
             preview: before.clone(),
             before,
             selected_vertices: mask,
-            selected_elements: state.selected,
+            selected_elements: state.selected.clone(),
             origin,
             start_cursor,
             camera,
@@ -929,6 +1045,11 @@ pub(super) fn handle_input(
             dragging: drag_constraint.is_some(),
             valid: true,
             snapping,
+            visual_mesh: None,
+            visual_origin: None,
+            result_selection: None,
+            last_input: None,
+            confirm_pending: false,
         });
         state.release_capture = true;
         state.tool = tool;

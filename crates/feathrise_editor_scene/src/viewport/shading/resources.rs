@@ -35,6 +35,10 @@ impl Default for ShadingState {
 pub(crate) struct AssetPreviewShadingState(pub(crate) ShadingState);
 
 impl ShadingState {
+    pub(crate) fn uses_work_background(&self) -> bool {
+        self.view().uses_work_background()
+    }
+
     pub(crate) fn apply(&mut self, action: ShadingAction) {
         match action {
             ShadingAction::Mode(mode) => {

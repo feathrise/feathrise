@@ -46,7 +46,7 @@ impl BuildingGhostAssetKey {
     pub(super) fn from_preset(preset: &BuildingPresetDescriptor) -> Self {
         Self {
             asset_path: preset.asset_path.clone(), // 根拥有稳定路径，不借用热更新目录快照。
-            asset_target: preset.asset_target,     // 目标是固定小型Copy值。
+            asset_target: preset.asset_target.clone(),
         }
     }
 

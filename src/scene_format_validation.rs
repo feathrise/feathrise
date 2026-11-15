@@ -2,6 +2,7 @@
 
 mod driver;
 mod fixture;
+mod cube;
 
 pub(crate) use fixture::run;
 
@@ -14,6 +15,7 @@ use std::{
 };
 
 const ENV: &str = "FEATHRISE_SCENE_FORMAT_VALIDATION";
+const CUBE_ENV: &str = "FEATHRISE_CUBE_SAVE_WIREFRAME_VALIDATION";
 const OWNER: &str = ".scene-format-validation-owner.json";
 const PURPOSE: &str = "owned-new-scene-format";
 const PARENT: &str = "验收父场景";
@@ -24,6 +26,7 @@ const NATIVE_TIMEOUT: &str = "native-handoff-timeout.json";
 pub(crate) struct OwnedFixture {
     directory: PathBuf,
     saved: Option<fixture::ScenePair>,
+    cube_probe: Option<cube::Probe>,
 }
 
 /// 必须早于作者偏好与插件库读取，避免错误环境把验收操作带入个人状态。
@@ -63,13 +66,22 @@ pub(crate) fn preflight(project: &crate::project::Project) -> Result<Option<Owne
             return Err(format!("场景格式验收缺少本轮目录内的隔离状态 {variable}"));
         }
     }
-    let saved = if mode == "reopen" {
-        Some(fixture::verify_saved(project)?.0)
-    } else {
+    if mode == "author" {
         fixture::verify_empty(project)?;
-        None
+    }
+    let (saved, cube_probe) = if cube_only() {
+        let disk = if mode == "reopen" { Some(fixture::verify_saved_cube(project)?) } else { None };
+        (None, Some(cube::Probe::new(disk)))
+    } else if mode == "reopen" {
+        (Some(fixture::verify_saved(project)?.0), None)
+    } else {
+        (None, None)
     };
-    Ok(Some(OwnedFixture { directory, saved }))
+    Ok(Some(OwnedFixture { directory, saved, cube_probe }))
+}
+
+fn cube_only() -> bool {
+    std::env::var(CUBE_ENV).as_deref() == Ok("1")
 }
 
 impl OwnedFixture {
@@ -79,13 +91,13 @@ impl OwnedFixture {
             .resource_mut::<feathrise_editor_core::EditorSettings>()
             .ui_locale = feathrise_editor_core::EditorLocalePreference::Chinese;
         feathrise_editor_scene::standalone::scene_format_validation::install(app);
-        driver::install(app, self.directory, self.saved);
+        driver::install(app, self.directory, self.saved, self.cube_probe);
     }
 }
 
 /// 原作者入口已通过 preflight 归属校验；只为本轮重开过程旁录 SDK 自己的超时回读。
 pub(crate) fn preview_handoff_report(project: &crate::project::Project) -> Option<PathBuf> {
-    if std::env::var(ENV).as_deref() != Ok("reopen") {
+    if std::env::var(ENV).as_deref() != Ok("reopen") || cube_only() {
         return None;
     }
     Some(project.root.parent()?.join("reopen").join(NATIVE_TIMEOUT))

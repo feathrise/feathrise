@@ -13,13 +13,24 @@ pub(crate) use ui::{ShadingClicks, spawn_toolbar};
 /// 单测与显式窗口验收转发原可见四球按钮的点击协议，不直接改ShadingState。
 #[cfg(any(test, feature = "validation"))]
 pub(crate) fn validation_press_mode(world: &mut bevy::prelude::World, index: u8) -> Result<bevy::prelude::Entity, String> {
-    use bevy::prelude::*;
     let mode = *types::ShadingMode::ALL.get(usize::from(index)).ok_or("四球验收模式越界")?;
+    validation_press_map_action(world, |action| matches!(action, types::ShadingAction::Mode(current) if current == mode))
+}
+
+/// 视口样式验收由原四球或菜单项消费点击，保留显隐和捕获门。
+#[cfg(any(test, feature = "validation"))]
+pub(crate) fn validation_press_map_action(
+    world: &mut World,
+    matches: impl Fn(types::ShadingAction) -> bool,
+) -> Result<Entity, String> {
     let entity = world.query::<(Entity, &components::ShadingButton, &InheritedVisibility, Option<&ShadingHost>)>()
         .iter(world).find_map(|(entity, button, visible, host)|
-            (visible.get() && host.copied().unwrap_or_default() == ShadingHost::Map
-                && matches!(button.0, types::ShadingAction::Mode(current) if current == mode)).then_some(entity))
-        .ok_or("没有当前实际可见的原四球按钮")?;
+            (visible.get() && host.copied().unwrap_or_default() == ShadingHost::Map && matches(button.0)).then_some(entity))
+        .ok_or("没有当前实际可见的原着色控件")?;
+    let mut nodes = world.query::<(&Node, Option<&ChildOf>)>();
+    if !crate::viewport::modes::controls_visible(entity, &nodes.query(world)) {
+        return Err("原着色控件尚未展开".into());
+    }
     world.entity_mut(entity).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     Ok(entity)
 }

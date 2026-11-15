@@ -26,12 +26,26 @@ fn current_preview(world: &World, map: &SceneId, id: &str) -> Option<Entity> {
     world.get::<EditorPlacedAsset>(owner)?;
     world.get::<Visibility>(owner)?; // 没有可见性契约的陈旧地址不能遮住仍可用的正式模型。
     let instance = world.get::<ScenePlacementInstance>(owner)?;
+    if matches!(instance.asset_target(), feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { ref geometry, .. }
+        if geometry.triangles().len() > 124)
+        && !feathrise_scene::builtin_placement_visual_ready(world, owner)
+    {
+        return None; // 密集预览准备完成后才遮蔽仍可见的正式模型。
+    }
     if !instance.asset_target().is_builtin() && !instance.is_terrain_patch()
         && world.get::<avian3d::prelude::RigidBody>(owner).is_some() {
         return None; // 带独立刚体的建筑继续走原受检碰撞协议，普通视觉遮蔽不能代替碰撞Ready交接。
     }
     (instance.scene_id() == map && instance.id() == id && instance.is_active()
         && world.get::<feathrise_scene::StreamedVolumeResident>(owner).is_none()).then_some(owner)
+}
+
+pub(crate) fn reconcile_builtin_visual(
+    prepared: On<feathrise_scene::BuiltinVisualPrepared>, mut commands: Commands,
+) {
+    if prepared.result.is_ok() {
+        reconcile_added_root(&mut commands, prepared.entity);
+    }
 }
 
 fn identity_roots(world: &World, map: &SceneId, id: &str) -> Vec<Entity> {

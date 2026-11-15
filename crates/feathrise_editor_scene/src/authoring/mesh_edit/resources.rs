@@ -1,7 +1,8 @@
 //! 编辑模式唯一状态，UI 和快捷键均发布同一种请求。
 
-use super::types::*;
+use super::{jobs::MeshEditJobs, mesh_geometry::WorldMesh, selection::MeshSelection, topology_ops::SubdivisionOptions, types::*};
 use bevy::prelude::*;
+use std::sync::Arc;
 
 #[derive(Resource, Default)]
 pub(crate) struct MeshEditState {
@@ -13,7 +14,10 @@ pub(crate) struct MeshEditState {
     pub(crate) kind: MeshElementKind,
     pub(crate) tool: MeshEditTool,
     pub(super) target: Option<EditTarget>,
-    pub(super) selected: u128,
+    pub(super) selected: MeshSelection,
+    pub(super) world_mesh: Option<Arc<WorldMesh>>,
+    pub(super) jobs: MeshEditJobs,
+    pub(super) pivot: Option<(MeshElementKind, MeshSelection, Option<Vec3>)>,
     pub(super) hover: Option<usize>,
     pub(super) handle_hover: Option<MoveConstraint>,
     pub(super) movement: Option<ElementMove>,
@@ -33,7 +37,7 @@ impl MeshEditState {
         self.active() || self.release_capture
     }
     pub(crate) fn moving(&self) -> bool {
-        self.movement.is_some() || self.boxing()
+        self.movement.is_some() || self.boxing() || self.jobs.waiting().is_some()
     }
     pub(crate) fn boxing(&self) -> bool {
         self.box_selection.is_some()
@@ -42,13 +46,43 @@ impl MeshEditState {
         self.release_capture
     }
     pub(crate) fn selected_count(&self) -> usize {
-        self.selected.count_ones() as usize
+        self.movement.as_ref().and_then(|movement| movement.result_selection.as_ref())
+            .unwrap_or(&self.selected).len()
+    }
+
+    pub(super) fn selection_origin(&mut self, mesh: &WorldMesh) -> Option<Vec3> {
+        if let Some((kind, selection, origin)) = &self.pivot
+            && *kind == self.kind && selection.same_storage(&self.selected)
+        {
+            return *origin;
+        }
+        let origin = super::geometry::selection_center(
+            &mesh.vertices, &mesh.selected_vertices(self.kind, &self.selected),
+        );
+        self.pivot = Some((self.kind, self.selected.clone(), origin));
+        origin
+    }
+
+    pub(crate) fn subdivision_options(&self) -> Option<SubdivisionOptions> {
+        match self.movement.as_ref()?.topology? {
+            TopologyOperation::Subdivide(options) => Some(options),
+            _ => None,
+        }
+    }
+
+    #[cfg(feature = "validation")]
+    pub(crate) fn subdivision_preview_for_validation(
+        &self,
+    ) -> Option<(SubdivisionOptions, &feathrise_scene_content::ScenePlacementRecord, bool)> {
+        let options = self.subdivision_options()?;
+        let movement = self.movement.as_ref()?;
+        Some((options, &movement.preview, movement.valid))
     }
 
     #[cfg(any(test, feature = "validation"))]
     pub(crate) fn select_for_test(&mut self, kind: MeshElementKind, selected: u128) {
         self.kind = kind;
-        self.selected = selected;
+        self.selected = selected.into();
     }
 
     #[cfg(test)]

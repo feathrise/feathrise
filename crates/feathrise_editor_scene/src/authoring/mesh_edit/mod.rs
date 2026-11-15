@@ -1,4 +1,4 @@
-//! 当前单个有界网格的点、边、面编辑；最多64共享点/64面，不扫描场景或生成外部模型。
+//! 单个作者网格的动态点、边、面编辑；密集候选在后台准备，确认时采用完整记录。
 //!
 //! 【需求设计】Tab切对象/编辑模式，1/2/3选择元素；原竖栏承接G/R/S与XYZ约束，B框选及拓扑操作共用会话。
 //! 所有建模手势独立预览，确认后才采用完整记录与一条撤销；旧八点来源仍兼容坐标编辑。
@@ -10,12 +10,15 @@ mod input;
 mod preview;
 mod render;
 mod resources;
+mod selection;
+mod jobs;
 mod types;
 mod topology_ops; // 受检局部拓扑操作，不改变完整实例姿态或原有历史合同。
 mod operation_preview; // 不同建模操作共享冻结记录及预览参数计算。
 
 pub(crate) use resources::MeshEditState;
 pub(crate) use input::MeshEditExternalOwners; // 视口其他工具复用相同外部输入所有者，避免维护两套菜单门。
+pub(crate) use topology_ops::SubdivisionCorner;
 pub(crate) use types::{MeshEditAction, MeshEditTool, MeshElementKind};
 
 use bevy::prelude::*;

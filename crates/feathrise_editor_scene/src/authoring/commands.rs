@@ -461,7 +461,7 @@ fn water_asset_heap_bytes(asset: &SceneWaterAsset) -> usize {
     bytes
 }
 
-/// 估算一个显式摆放记录及其整网格水体稳定引用所持有的堆内存。
+/// 估算摆放记录所持有的几何版本和节点身份。只读容量，不遍历网格的顶点与面。
 pub fn placement_record_heap_bytes(record: &ScenePlacementRecord) -> usize {
     let mut bytes = record.editor.name.capacity() + record.editor.group.capacity() + record
         .id
@@ -492,7 +492,28 @@ pub fn placement_record_heap_bytes(record: &ScenePlacementRecord) -> usize {
             bytes = bytes.saturating_add(segment.capacity());
         }
     }
-    bytes // 小型完整记录也进入统一水作者历史字节门，连续参数操作不能无界增长。
+    bytes.saturating_add(authored_mesh_bytes(record))
+}
+
+fn authored_mesh_bytes(record: &ScenePlacementRecord) -> usize {
+    match &record.asset_target {
+        feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { geometry, .. } =>
+            geometry.allocation_bytes(),
+        _ => 0,
+    }
+}
+
+fn has_owned_placement_snapshot(record: &ScenePlacementRecord) -> bool {
+    !record.water_surfaces.is_empty() || authored_mesh_bytes(record) != 0
+}
+
+fn has_placement_snapshot_change(before: &ScenePlacementRecord, after: &ScenePlacementRecord) -> bool {
+    use feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh;
+    placement_water_differs(before, after) || match (&before.asset_target, &after.asset_target) {
+        (EditableMesh { geometry: a, .. }, EditableMesh { geometry: b, .. }) => !a.same_storage(b),
+        (EditableMesh { .. }, _) | (_, EditableMesh { .. }) => true,
+        _ => false,
+    }
 }
 
 /// 命令是否持有需要服从统一水作者内存预算的记录、遮罩或差分快照。
@@ -501,10 +522,10 @@ pub fn command_uses_bounded_water_history(command: &EditorCommand) -> bool {
         EditorCommand::VegetationAuthoringChanged(change) => change.model_vegetation.is_some(),
         EditorCommand::ClipmapStitchesChanged {..}=>true,
         EditorCommand::PlacementAdded(record) | EditorCommand::PlacementRemoved { record, .. } => {
-            !record.water_surfaces.is_empty() // 复制或删除带水资产同样持有完整节点路径和网格名。
+            has_owned_placement_snapshot(record)
         }
         EditorCommand::PlacementChanged { before, after, .. } => {
-            placement_water_differs(before, after) // 资产纯变换仍是普通小型作者命令。
+            has_placement_snapshot_change(before, after) // 纯摆放变换共享原拓扑。
         }
         EditorCommand::BuildingTerrainChanged(change) => match &change.placement {
             BuildingPlacementChange::Added { record, .. } => !record.water_surfaces.is_empty(),
@@ -586,14 +607,14 @@ fn water_history_usage(commands: &[EditorCommand]) -> WaterHistoryUsage {
             }
             EditorCommand::PlacementAdded(record)
             | EditorCommand::PlacementRemoved { record, .. }
-                if !record.water_surfaces.is_empty() =>
+                if has_owned_placement_snapshot(record) =>
             {
                 usage.asset_bytes = usage
                     .asset_bytes
                     .saturating_add(placement_record_heap_bytes(record)); // 结构操作只持有一份完整含水记录。
             }
             EditorCommand::PlacementChanged { before, after, .. }
-                if placement_water_differs(before, after) =>
+                if has_placement_snapshot_change(before, after) =>
             {
                 usage.asset_bytes = usage
                     .asset_bytes

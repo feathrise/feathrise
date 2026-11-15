@@ -377,7 +377,7 @@ fn rotation_scale_building_rotation_waits_for_real_validation_and_restores_on_fa
             "test-building".into(),
             "旋转测试建筑".into(),
             before.asset_path.clone(),
-            before.asset_target,
+                before.asset_target.clone(),
         );
         if !accepted {
             preset.footprint.half_extents = [0.75, 3.0];

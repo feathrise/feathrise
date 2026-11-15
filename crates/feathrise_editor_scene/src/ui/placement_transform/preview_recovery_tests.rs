@@ -214,7 +214,7 @@ fn terrain_patch_delete_builtin_formal_root_disables_collision_without_rebuildin
         let formal = app.world_mut().spawn((ScenePlacementInstance::new(&map, &record),
             transform, Visibility::Inherited, ChildOf(parent))).id();
         assert!(app.world_mut().run_system_once(move |mut commands: Commands| {
-            feathrise_scene::spawn_builtin_placement_visual(&mut commands, formal, record.asset_target)
+            feathrise_scene::spawn_builtin_placement_visual(&mut commands, formal, record.asset_target.clone())
         }).unwrap());
         let visual = app.world().get::<Children>(formal).unwrap()[0];
         assert!(app.world().get::<Collider>(visual).is_some());

@@ -45,11 +45,27 @@ impl EditWorld<'_, '_> {
         self.visibility.get(entity).copied().ok()
     }
 
+    #[cfg(test)]
     pub fn show(
         &mut self,
         state: &mut MeshEditState,
         session: &EditorAuthoringSession,
         record: &ScenePlacementRecord,
+    ) -> Result<(), String> {
+        let mesh = if self.meshes.is_some() && self.materials.is_some() {
+            Some(make_preview_mesh(record)?)
+        } else {
+            None
+        };
+        self.show_prepared(state, session, record, mesh)
+    }
+
+    pub fn show_prepared(
+        &mut self,
+        state: &mut MeshEditState,
+        session: &EditorAuthoringSession,
+        record: &ScenePlacementRecord,
+        mesh: Option<Mesh>,
     ) -> Result<(), String> {
         let target = state.target.as_ref().ok_or("编辑目标失效")?;
         let bounds = session
@@ -58,9 +74,6 @@ impl EditWorld<'_, '_> {
             .and_then(|draft| draft.manifest.world_bounds())
             .ok_or("场景世界范围无效")?;
         let transform = record.validated_transform(&target.scene_id, bounds)?;
-        let Some(geometry) = record.asset_target.editable_geometry() else {
-            return Err("当前对象不支持点边面预览".into());
-        };
         let mut hidden_roots = Vec::new();
         if state.hidden_roots.is_empty() {
             let preview = session.placement_previews.get(&target.record.id).copied().filter(|&entity|
@@ -87,19 +100,7 @@ impl EditWorld<'_, '_> {
         else {
             return Ok(()); // 纯ECS测试可验证事务；正式渲染器始终提供这两种资产。
         };
-        let mut mesh = feathrise_scene::editable_mesh_mesh(geometry);
-        if let Some(bevy::mesh::VertexAttributeValues::Float32x3(normals)) =
-            mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
-        {
-            let colors = normals
-                .iter()
-                .map(|normal| {
-                    let shade = (0.70 + 0.20 * normal[1] - 0.10 * normal[0].abs()).clamp(0.40, 1.0);
-                    [shade, shade, shade, 1.0]
-                })
-                .collect::<Vec<_>>();
-            mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
-        } // 夜间仍能辨认非平面四边形的正式三角化与体积，不额外构造几何。
+        let mesh = mesh.ok_or("当前候选缺少可显示网格")?;
         if let Some(handle) = &state.ghost_mesh {
             meshes
                 .insert(handle.id(), mesh)
@@ -107,11 +108,11 @@ impl EditWorld<'_, '_> {
         } else {
             state.ghost_mesh = Some(meshes.add(mesh));
         }
-        let color = match record.asset_target {
+        let color = match &record.asset_target {
             feathrise_scene_content::ScenePlacementAssetTarget::Cuboid { color_srgb, .. }
             | feathrise_scene_content::ScenePlacementAssetTarget::EditableCuboid { color_srgb, .. }
             | feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { color_srgb, .. } => {
-                color_srgb
+                *color_srgb
             }
             _ => return Err("当前对象不是内置网格".into()),
         };
@@ -174,7 +175,7 @@ impl EditWorld<'_, '_> {
             state.hidden_roots = hidden_roots;
         }
         let projected = feathrise_scene_content::embedded_author_preview::MeshPreview {
-            placement_id: target.record.id.clone(), target: record.asset_target,
+            placement_id: target.record.id.clone(), target: record.asset_target.clone(),
             local: transform.to_matrix().to_cols_array(),
         };
         if state.embedded_preview.as_ref() != Some(&projected) {
@@ -270,6 +271,22 @@ impl EditWorld<'_, '_> {
         session.mark_changed(editor);
         Ok(true)
     }
+}
+
+/// 密集网格完整编码进后台任务；主世界只登记已计算的网格与固定材质。
+pub(super) fn make_preview_mesh(record: &ScenePlacementRecord) -> Result<Mesh, String> {
+    let geometry = record.asset_target.editable_geometry().ok_or("当前对象不支持点边面预览")?;
+    let mut mesh = feathrise_scene::editable_mesh_mesh(geometry);
+    if let Some(bevy::mesh::VertexAttributeValues::Float32x3(normals)) =
+        mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+    {
+        let colors = normals.iter().map(|normal| {
+            let shade = (0.70 + 0.20 * normal[1] - 0.10 * normal[0].abs()).clamp(0.40, 1.0);
+            [shade, shade, shade, 1.0]
+        }).collect::<Vec<_>>();
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    } // 夜间仍能辨认非平面四边形的正式三角化与体积。
+    Ok(mesh)
 }
 
 /// 未装显隐资源的旧夹具可验证原事务；生产票据缺失、移除或换代一律撤销信用。

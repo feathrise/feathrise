@@ -217,6 +217,7 @@ fn asset_focus_uses_complete_cached_bounds_and_formal_selection_during_hover() {
         let mut app = app();
         let scene_id = map(&app);
         app.init_resource::<Assets<StandardMaterial>>()
+            .init_resource::<Assets<Mesh>>()
             .init_resource::<ScenePlacementRuntimeStatus>()
             .add_systems(
                 Update,

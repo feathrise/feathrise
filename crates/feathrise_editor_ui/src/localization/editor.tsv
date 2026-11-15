@@ -294,6 +294,13 @@ label.scene-authoring	场景作者	Scene Authoring
 label.source	来源	Source
 label.extension	扩展	Extension
 label.mesh-edit-tab	网格编辑 Tab	Edit Mode · Tab
+label.mesh-subdivide-cuts	切割次数	Number of Cuts
+label.mesh-subdivide-quad-corner	四边面角点	Quad Corner
+label.mesh-subdivide-straight	直切	Straight Cut
+label.mesh-subdivide-inner-vertex	内点	Inner Vert
+label.mesh-subdivide-path	沿路径	Path
+label.mesh-subdivide-fan	扇形	Fan
+label.mesh-subdivide-ngons	创建 N 边面	Create N-Gons
 label.previous-page	上一页	Previous Page
 label.next-page	下一页	Next Page
 label.outer-wall	外墙	Outer Wall
@@ -825,7 +832,8 @@ tooltip.tool.move	拖动世界轴或XZ平面手柄移动当前所选对象。	Dr
 tooltip.tool.rotate	绕世界Y轴旋转所选对象；建筑沿用90°档位。	Rotate the selected object around the world Y axis. Buildings rotate in 90° increments.
 tooltip.tool.scale	等比缩放所选普通资产，保持已有三轴比例。	Scale the selected asset uniformly, preserving its axis proportions.
 tooltip.actions	展开选择类别与复制、粘贴、删除等对象操作。	Show selection categories and object actions such as copy, paste, and delete.
-tooltip.shading.wireframe	显示真实网格三角边；下拉可开启穿透线框。	Show mesh triangle edges. Enable X-ray wireframe from the dropdown.
+tooltip.shading.wireframe	显示网格真实边；内置网格隐藏面内三角对角线。下拉可切换穿透线框。	Show mesh edges. Built-in meshes hide triangulation within faces. Toggle X-ray wireframe from the dropdown.
+tooltip.mesh-subdivide	切分选中的边并按面内选边方式连线。预览时可调整切割次数、四边面角点和多边面。	Split selected edges and connect the cuts within faces. Adjust the number of cuts, quad corners, and n-gons in the preview.
 tooltip.shading.material	预览原始材质并使用当前相机专属工作室补光。	Preview original materials with studio lighting attached to the current camera.
 tooltip.shading.rendered	显示场景原始材质、灯光和环境。	Show the scene's materials, lights, and environment.
 tooltip.axis.view	点击轴端点切到对应正交视图；再次点击已对准的端点翻到反方向。	Click an axis endpoint for an orthographic view. Click the aligned endpoint again to flip direction.

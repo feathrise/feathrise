@@ -1,13 +1,13 @@
 //! 单个平面凸面的等宽内插：沿各边真实偏移，创建保留外边界的环带与内面。
 
-use super::super::types::MeshElementKind;
+use super::super::{selection::MeshSelection, types::MeshElementKind};
 use super::mesh::{EPSILON, MeshWork, chosen, planar_normal, positive_amount};
 use feathrise_scene_content::ScenePlacementRecord;
 
 pub(in super::super) fn inset_record(
     before: &ScenePlacementRecord,
     kind: MeshElementKind,
-    selected: u128,
+    selected: &MeshSelection,
     width_meters: f32,
 ) -> Result<ScenePlacementRecord, String> {
     let width = positive_amount(width_meters, "内插宽度")?;

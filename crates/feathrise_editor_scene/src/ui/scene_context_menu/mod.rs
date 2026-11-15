@@ -21,6 +21,12 @@ pub(crate) use types::{SceneObjectKey, SceneObjectTarget};
 #[cfg(any(test, feature = "validation"))]
 pub(crate) fn queue_terrain_focus_for_validation(world: &mut bevy::prelude::World,
     id: &feathrise_scene_content::TerrainId) -> Result<bool, String> {
+    queue_terrain_action_for_validation(world, id, SceneMenuAction::Focus)
+}
+
+#[cfg(any(test, feature = "validation"))]
+pub(crate) fn queue_terrain_action_for_validation(world: &mut bevy::prelude::World,
+    id: &feathrise_scene_content::TerrainId, action: SceneMenuAction) -> Result<bool, String> {
     use bevy::prelude::*;
     let target = world.query::<(Entity, &components::SceneObjectRow, &Node)>().iter(world)
         .find_map(|(entity, row, node)| {
@@ -33,11 +39,11 @@ pub(crate) fn queue_terrain_focus_for_validation(world: &mut bevy::prelude::Worl
     if !crate::viewport::modes::controls_visible(row, &nodes.query(world)) { return Ok(false); }
     if !target.current(world.resource::<crate::resources::SceneEditorState>(),
         world.resource::<crate::authoring::EditorAuthoringSession>()) { return Ok(false); }
-    if !target.allows(SceneMenuAction::Focus) { return Err("当前自有地形树行不允许原聚焦动作".into()); }
+    if !target.allows(action) { return Err("当前自有地形树行不允许此原菜单动作".into()); }
     let mut menu = world.resource_mut::<SceneContextMenuState>();
     if menu.queued.is_some() { return Ok(false); }
     menu.queued = Some((types::MenuTarget { row, object: target.clone() },
-        types::SceneObjectRequest { target, action: SceneMenuAction::Focus, name: String::new() }));
+        types::SceneObjectRequest { target, action, name: String::new() }));
     Ok(true)
 }
 

@@ -190,7 +190,7 @@ fn static_patch_mixed_with_building_keeps_source_bounds_and_original_order_durin
     building.yaw_degrees = 0.0;
     building.scale = [1.0; 3];
     let preset = BuildingPresetDescriptor::from_asset(
-        "patch-neighbor-house".into(), "混合粘贴建筑".into(), building.asset_path.clone(), building.asset_target,
+        "patch-neighbor-house".into(), "混合粘贴建筑".into(), building.asset_path.clone(), building.asset_target.clone(),
     );
     building.building_preset_id = Some(preset.id.clone());
     let records = vec![patch.clone(), building, second_patch.clone()];

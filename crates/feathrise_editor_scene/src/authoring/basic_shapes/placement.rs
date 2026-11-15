@@ -160,7 +160,7 @@ pub(super) fn update_preview(
         }
     })();
     for (mut transform, mut visibility, material) in &mut ghost {
-        let shape = target.and_then(|target| match target {
+        let shape = target.clone().and_then(|target| match target {
             feathrise_scene_content::ScenePlacementAssetTarget::Cuboid { size_mm, color_srgb, roughness_milli, .. } =>
                 Some((Vec3::from_array(size_mm.map(|size| size as f32 * 0.001)), color_srgb, roughness_milli)),
             _ => None,

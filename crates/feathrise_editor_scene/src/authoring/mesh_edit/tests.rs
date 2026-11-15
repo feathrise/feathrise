@@ -107,11 +107,11 @@ fn world_delta_uses_inverse_root_transform_and_zero_delta_keeps_parametric_form(
     before.yaw_degrees = 90.0;
     before.scale = [2.0, 3.0, 4.0];
     assert_eq!(
-        translated_record(&before, 0xff, Vec3::ZERO).unwrap(),
+        translated_record(&before, &0xff.into(), Vec3::ZERO).unwrap(),
         before
     );
     let vertices = world_vertices(&before).unwrap();
-    let after = translated_record(&before, 1 << 7, Vec3::new(0.25, 0.5, -0.75)).unwrap();
+    let after = translated_record(&before, &(1 << 7).into(), Vec3::new(0.25, 0.5, -0.75)).unwrap();
     let moved = world_vertices(&after).unwrap();
     assert!((moved[7] - vertices[7] - Vec3::new(0.25, 0.5, -0.75)).length() < 0.002);
     for i in 0..7 {
@@ -154,7 +154,7 @@ fn true_input_preview_keeps_draft_and_commit_writes_one_complete_history() {
     let before = current(&app).clone();
     request(&mut app, MeshEditAction::Kind(MeshElementKind::Face));
     fixture::step(&mut app, node, Vec2::ZERO);
-    app.world_mut().resource_mut::<MeshEditState>().selected = 1 << 1;
+    app.world_mut().resource_mut::<MeshEditState>().selected = (1 << 1).into();
     press(&mut app, KeyCode::KeyG);
     fixture::step(&mut app, node, Vec2::ZERO);
     assert!(app.world().resource::<MeshEditState>().moving());
@@ -608,11 +608,11 @@ fn inverted_face_cannot_publish_last_valid_preview_as_the_requested_invalid_resu
     let before = current(&app).clone();
     request(&mut app, MeshEditAction::Kind(MeshElementKind::Face));
     fixture::step(&mut app, node, Vec2::ZERO);
-    app.world_mut().resource_mut::<MeshEditState>().selected = 1 << 1;
+    app.world_mut().resource_mut::<MeshEditState>().selected = (1 << 1).into();
     let camera = fixture::camera(&app);
     let origin = selection_center(
         &world_vertices(&before).unwrap(),
-        element_vertices(MeshElementKind::Face, 1),
+        &u128::from(element_vertices(MeshElementKind::Face, 1)).into(),
     )
     .unwrap();
     let start = camera.project(origin).unwrap();

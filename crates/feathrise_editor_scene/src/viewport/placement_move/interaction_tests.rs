@@ -685,7 +685,7 @@ fn building_preview_waits_without_snapback_and_real_validation_accepts_or_restor
                 "test-building".into(),
                 "移动测试建筑".into(),
                 before.asset_path.clone(),
-                before.asset_target,
+                before.asset_target.clone(),
             ),
         );
         let cursor = if handle == MoveHandle::XzPlane {

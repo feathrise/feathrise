@@ -308,9 +308,9 @@ fn formal_builtin_size_numeric_commit_creates_independent_preview_without_mutati
     app.world_mut().entity_mut(formal)
         .remove::<WorldAssetRoot>()
         .insert((ScenePlacementInstance::new(&map, &before), DynamicWaterMeshOverrides::new(Vec::new())));
-    let target = before.asset_target;
+    let target = before.asset_target.clone();
     app.world_mut().run_system_once(move |mut commands: Commands| {
-        assert!(feathrise_scene::spawn_builtin_placement_visual(&mut commands, formal, target));
+        assert!(feathrise_scene::spawn_builtin_placement_visual(&mut commands, formal, target.clone()));
     }).unwrap();
     let formal_visual = app.world().get::<Children>(formal).unwrap().iter()
         .find(|child| app.world().get::<Mesh3d>(*child).is_some()).unwrap();

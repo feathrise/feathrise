@@ -39,7 +39,7 @@ fn source(
         id: record.id.clone(),
         index,
         path: record.asset_path.clone(),
-        target: record.asset_target,
+        target: record.asset_target.clone(),
         epoch,
     })
 }

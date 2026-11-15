@@ -69,9 +69,9 @@ fn formal_builtin(app: &mut App, map: &SceneId, record: &ScenePlacementRecord, p
     let root = app.world_mut().spawn((Transform::IDENTITY, ChildOf(parent))).id();
     if explicit_visibility { app.world_mut().entity_mut(root).insert(Visibility::Inherited); }
     app.world_mut().entity_mut(root).insert(ScenePlacementInstance::new(map, record));
-    let target = record.asset_target;
+    let target = record.asset_target.clone();
     app.world_mut().run_system_once(move |mut commands: Commands| {
-        assert!(feathrise_scene::spawn_builtin_placement_visual(&mut commands, root, target));
+        assert!(feathrise_scene::spawn_builtin_placement_visual(&mut commands, root, target.clone()));
     }).unwrap();
     app.world_mut().flush();
     let visual = app.world().get::<Children>(root).unwrap()[0];

@@ -155,8 +155,11 @@ pub(super) fn tooltip_copy(action: TooltipAction, mesh_edit: bool) -> TooltipCop
         TooltipAction::AssetRecent => (
             "最近访问", "查看最近打开的文件和目录。展开后可定位条目或清空记录。", None, None,
         ),
+        TooltipAction::MeshSubdivide => (
+            "细分", "切分选中的边并按面内选边方式连线。预览时可调整切割次数、四边面角点和多边面。", None, None,
+        ),
         TooltipAction::ViewShading(mode) => (mode.label(), match mode {
-            crate::viewport::shading::types::ShadingMode::Wireframe => "显示真实网格三角边；下拉可开启穿透线框。",
+            crate::viewport::shading::types::ShadingMode::Wireframe => "显示网格真实边；内置网格隐藏面内三角对角线。下拉可切换穿透线框。",
             crate::viewport::shading::types::ShadingMode::Solid => "使用真实表面法线显示灰色实体；下拉可增强凹凸轮廓或显示法线颜色。",
             crate::viewport::shading::types::ShadingMode::MaterialPreview => "预览原始材质并使用当前相机专属工作室补光。",
             crate::viewport::shading::types::ShadingMode::Rendered => "显示场景原始材质、灯光和环境。",

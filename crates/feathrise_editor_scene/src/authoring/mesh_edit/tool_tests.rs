@@ -58,7 +58,7 @@ fn tool_choice_preserves_vertex_mode_selection_and_author_record_without_startin
     enter(&mut app, node);
     let before = current(&app).clone();
     let revision = app.world().resource::<EditorAuthoringSession>().revision;
-    app.world_mut().resource_mut::<MeshEditState>().selected = 0b00001100;
+    app.world_mut().resource_mut::<MeshEditState>().selected = (0b00001100).into();
     for tool in [
         MeshEditTool::Move,
         MeshEditTool::Rotate,
@@ -73,7 +73,7 @@ fn tool_choice_preserves_vertex_mode_selection_and_author_record_without_startin
         assert_eq!(state.selected, 0b00001100);
         assert_eq!(current(&app), &before);
     }
-    app.world_mut().resource_mut::<MeshEditState>().selected = 0;
+    app.world_mut().resource_mut::<MeshEditState>().selected = (0).into();
     request(&mut app, MeshEditAction::Move);
     fixture::step(&mut app, node, Vec2::ZERO);
     assert!(!app.world().resource::<MeshEditState>().moving());
@@ -104,7 +104,7 @@ fn rebound_idle_history_keys_preserve_element_selection_and_global_dispatch_edge
                 .unwrap();
         }
         enter(&mut app, node);
-        app.world_mut().resource_mut::<MeshEditState>().selected = 0b00001100;
+        app.world_mut().resource_mut::<MeshEditState>().selected = (0b00001100).into();
         let before = current(&app).clone();
         let revision = app.world().resource::<EditorAuthoringSession>().revision;
         press(&mut app, key);
@@ -132,7 +132,7 @@ fn rebound_idle_history_keys_preserve_element_selection_and_global_dispatch_edge
 fn move_tool_drags_only_selected_vertex_and_release_commits_one_complete_history() {
     let (mut app, _, node) = orthographic_app();
     enter(&mut app, node);
-    app.world_mut().resource_mut::<MeshEditState>().selected = 1 << 7;
+    app.world_mut().resource_mut::<MeshEditState>().selected = (1 << 7).into();
     choose_tool(&mut app, node, MeshEditTool::Move);
     let before = current(&app).clone();
     let points = world_vertices(&before).unwrap();
@@ -204,10 +204,10 @@ fn modal_r_rotates_four_top_vertices_about_mean_and_cancel_discards_later_previe
     let (mut app, _, node) = orthographic_app();
     enter(&mut app, node);
     let mask = 0b11001100;
-    app.world_mut().resource_mut::<MeshEditState>().selected = mask as u128;
+    app.world_mut().resource_mut::<MeshEditState>().selected = (mask as u128).into();
     let before = current(&app).clone();
     let points = world_vertices(&before).unwrap();
-    let pivot = selection_center(&points, mask).unwrap();
+    let pivot = selection_center(&points, &(mask as u128).into()).unwrap();
     let (start, end) = z_ring_points(&app, pivot);
     press(&mut app, KeyCode::KeyR);
     fixture::step(&mut app, node, start);
@@ -235,7 +235,7 @@ fn modal_r_rotates_four_top_vertices_about_mean_and_cancel_discards_later_previe
         .clone();
     let rotated = world_vertices(&preview).unwrap();
     assert_ne!(preview.asset_target, before.asset_target);
-    assert!((selection_center(&rotated, mask).unwrap() - pivot).length() < 0.001);
+    assert!((selection_center(&rotated, &(mask as u128).into()).unwrap() - pivot).length() < 0.001);
     for index in [0, 1, 4, 5] {
         assert_eq!(rotated[index], points[index]);
     }
@@ -252,7 +252,7 @@ fn modal_r_rotates_four_top_vertices_about_mean_and_cancel_discards_later_previe
         1
     );
 
-    let pivot = selection_center(&world_vertices(current(&app)).unwrap(), mask).unwrap();
+    let pivot = selection_center(&world_vertices(current(&app)).unwrap(), &(mask as u128).into()).unwrap();
     let (start, end) = z_ring_points(&app, pivot);
     app.world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
@@ -285,10 +285,10 @@ fn modal_r_from_selection_center_waits_for_valid_pointer_then_commits_one_rotati
     let (mut app, _, node) = orthographic_app();
     enter(&mut app, node);
     let mask = 0b11001100;
-    app.world_mut().resource_mut::<MeshEditState>().selected = mask as u128;
+    app.world_mut().resource_mut::<MeshEditState>().selected = (mask as u128).into();
     let before = current(&app).clone();
     let points = world_vertices(&before).unwrap();
-    let pivot = selection_center(&points, mask).unwrap();
+    let pivot = selection_center(&points, &(mask as u128).into()).unwrap();
     let center = fixture::camera(&app).project(pivot).unwrap();
     let (start, end) = z_ring_points(&app, pivot);
     press(&mut app, KeyCode::KeyR);
@@ -329,7 +329,7 @@ fn modal_r_from_selection_center_waits_for_valid_pointer_then_commits_one_rotati
         .clone();
     let rotated = world_vertices(&preview).unwrap();
     assert_ne!(preview.asset_target, before.asset_target);
-    assert!((selection_center(&rotated, mask).unwrap() - pivot).length() < 0.001);
+    assert!((selection_center(&rotated, &(mask as u128).into()).unwrap() - pivot).length() < 0.001);
     for index in [0, 1, 4, 5] {
         assert_eq!(rotated[index], points[index]);
     }
@@ -359,7 +359,7 @@ fn modal_r_from_selection_center_waits_for_valid_pointer_then_commits_one_rotati
 fn rotating_one_vertex_about_itself_keeps_parameter_recipe_revision_and_redo() {
     let (mut app, _, node) = orthographic_app();
     enter(&mut app, node);
-    app.world_mut().resource_mut::<MeshEditState>().selected = 1 << 7;
+    app.world_mut().resource_mut::<MeshEditState>().selected = (1 << 7).into();
     let before = current(&app).clone();
     let revision = app.world().resource::<EditorAuthoringSession>().revision;
     app.world_mut()
@@ -412,7 +412,7 @@ fn invalid_or_outside_handle_release_restores_authority_without_partial_history(
     for outside in [false, true] {
         let (mut app, root, node) = orthographic_app();
         enter(&mut app, node);
-        app.world_mut().resource_mut::<MeshEditState>().selected = 1 << 7;
+        app.world_mut().resource_mut::<MeshEditState>().selected = (1 << 7).into();
         choose_tool(&mut app, node, MeshEditTool::Move);
         let before = current(&app).clone();
         let pivot = world_vertices(&before).unwrap()[7];

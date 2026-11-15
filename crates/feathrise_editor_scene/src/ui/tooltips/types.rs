@@ -25,6 +25,7 @@ pub(crate) enum TooltipAction {
     AssetMissingCheck,
     AssetFavorites,
     AssetRecent,
+    MeshSubdivide,
     ViewShading(crate::viewport::shading::types::ShadingMode),
     OrientationAxis,
     OrientationProjection,

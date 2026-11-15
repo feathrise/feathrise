@@ -1,5 +1,8 @@
 //! 新场景格式实窗验收读取原作者状态，并通过新建场景表单提交原创建请求。
 
+#[path = "cube_save_validation.rs"]
+pub mod cube_save;
+
 use bevy::{
     prelude::*,
     text::{EditableText, TextEdit},
@@ -127,6 +130,11 @@ pub fn observe(world: &World) -> Result<Observation, String> {
 
 /// 子场景自有立方体使用原坐标创建入口，使运行截图能验证实际载入的引用内容。
 pub fn request_cuboid(world: &mut World, scene: &SceneId) -> Result<(), String> {
+    request_cuboid_at(world, scene, Vec3::new(0., 1., 0.))
+}
+
+/// 世界中心直接交给正式坐标创建入口，由同一作者事务验证并落印。
+pub fn request_cuboid_at(world: &mut World, scene: &SceneId, center: Vec3) -> Result<(), String> {
     require_owned(world)?;
     if !super::preview_ready_for(world, scene.as_str()) {
         return Err("子场景作者视口尚未就绪".into());
@@ -142,7 +150,7 @@ pub fn request_cuboid(world: &mut World, scene: &SceneId) -> Result<(), String> 
     shapes.creation_identity = Some((scene.clone(), revision));
     shapes.creation_request = Some(CuboidCreationRequest {
         target: feathrise_scene_content::ScenePlacementAssetTarget::DEFAULT_CUBOID,
-        position: Some(Vec3::new(0., 1., 0.)),
+        position: Some(center),
     });
     Ok(())
 }

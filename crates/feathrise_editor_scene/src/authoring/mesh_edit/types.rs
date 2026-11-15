@@ -1,8 +1,10 @@
 //! 编辑元素、操作工具、固定选择位集与单次变换的冻结身份。
 
+use super::{mesh_geometry::WorldMesh, selection::MeshSelection, topology_ops::{SubdivisionCorner, SubdivisionOptions}};
 use crate::viewport::placement_move::MoveCamera;
 use bevy::prelude::*;
 use feathrise_scene_content::{SceneId, ScenePlacementRecord};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum MeshElementKind {
@@ -29,8 +31,8 @@ impl MeshElementKind {
         }
     }
     #[cfg(test)]
-    pub(super) fn all(self) -> u128 {
-        (1 << self.count()) - 1
+    pub(super) fn all(self) -> MeshSelection {
+        MeshSelection::all(self.count())
     }
 }
 
@@ -49,6 +51,9 @@ pub(crate) enum MeshEditAction {
     LoopCut,
     Knife,
     Subdivide,
+    SubdivisionCutsDelta(i8),
+    SubdivisionCorner(SubdivisionCorner),
+    ToggleSubdivisionNgons,
     SelectAll,
     Cancel,
     Confirm,
@@ -67,12 +72,12 @@ pub(super) struct EditTarget {
 
 pub(crate) use feathrise_editor_animation_model::gizmo::MoveConstraint;
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub(super) struct ElementMove {
     pub before: ScenePlacementRecord,
     pub preview: ScenePlacementRecord,
-    pub selected_vertices: u64,
-    pub selected_elements: u128,
+    pub selected_vertices: MeshSelection,
+    pub selected_elements: MeshSelection,
     pub origin: Vec3,
     pub start_cursor: Option<Vec2>, // 从工具栏开始时，首次真实视口指针才绑定起点，防止模型跳到按钮处。
     pub camera: MoveCamera,
@@ -84,6 +89,11 @@ pub(super) struct ElementMove {
     pub dragging: bool,
     pub valid: bool,
     pub snapping: feathrise_editor_core::EditorSnapSettings,
+    pub visual_mesh: Option<Arc<WorldMesh>>,
+    pub visual_origin: Option<Vec3>,
+    pub result_selection: Option<MeshSelection>,
+    pub last_input: Option<(Vec2, bool, MoveConstraint)>,
+    pub confirm_pending: bool,
 }
 
 /// 拓扑操作与原变换共享冻结记录和一次提交；拖动期间绝不把半成品写入作者场景。
@@ -94,7 +104,7 @@ pub(super) enum TopologyOperation {
     Bevel,
     LoopCut,
     Knife,
-    Subdivide,
+    Subdivide(SubdivisionOptions),
 }
 
 impl TopologyOperation {
@@ -105,7 +115,7 @@ impl TopologyOperation {
             Self::Bevel => "倒角",
             Self::LoopCut => "环切",
             Self::Knife => "切割",
-            Self::Subdivide => "细分",
+            Self::Subdivide(_) => "细分",
         }
     }
 }
@@ -115,7 +125,7 @@ impl TopologyOperation {
 pub(super) struct BoxSelection {
     pub start: Option<Vec2>,
     pub current: Option<Vec2>,
-    pub before: u128,
+    pub before: MeshSelection,
     pub add: bool,
     pub subtract: bool,
     pub camera: MoveCamera,

@@ -1,8 +1,8 @@
 //! 在独占工作根创建生产空模板，协调两次作者进程与一次真实交付包启动。
 
 use super::{
-    CHILD, ENV, OWNER, PARENT, PURPOSE, WINDOW_REPORT, create_dir, read_json, write_json_new,
-    write_new,
+    CHILD, CUBE_ENV, ENV, OWNER, PARENT, PURPOSE, WINDOW_REPORT, create_dir, cube, cube_only,
+    read_json, write_json_new, write_new,
 };
 use crate::{
     build_process::{self, BuildControl},
@@ -11,7 +11,7 @@ use crate::{
 use feathrise_scene_content::{
     SCENE_CATALOG_ASSET_PATH, SCENE_MANIFEST_FILE_NAME, SCENE_PLACEMENTS_GLB_FILE_NAME,
     SCENE_SCHEMA_VERSION, SCENE_STARTUP_FILE_NAME, SceneCatalogAsset, SceneCatalogEntry, SceneId,
-    SceneManifestAsset, SceneStartup,
+    SceneManifestAsset, ScenePlacementAssetTarget, ScenePlacementRecord, SceneStartup,
 };
 use serde_json::{Value, json};
 use std::{
@@ -25,6 +25,13 @@ use std::{
 pub(super) struct ScenePair {
     pub parent: SceneId,
     pub child: SceneId,
+}
+
+#[derive(serde::Serialize, PartialEq)]
+pub(super) struct SavedCube {
+    pub scene: SceneId,
+    pub record: ScenePlacementRecord,
+    file: PathBuf,
 }
 
 pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
@@ -56,18 +63,23 @@ fn exercise(work: &Path, target: &Path, proof: &mut Value) -> Result<(), String>
         return Err("新建工程返回路径不属于本轮独占根".into());
     }
     verify_empty(&project)?;
-    enable_runtime_validation(&project)?;
-    // 本轮预览与导出使用同一正式 Debug/Cargo 配置及调用方给出的既有缓存。
-    let launch = project.context.ensure_data_directory()?.join("launch.json");
-    write_json_new(
-        &launch,
-        &json!({"format":1,"mode":"saved_world","profile":"debug","backend":"cargo"}),
-    )?;
+    if !cube_only() {
+        enable_runtime_validation(&project)?;
+        // 完整场景格式验收使用生产预览与导出。立方体问题只经过编辑器3D的保存、热接管和重开。
+        let launch = project.context.ensure_data_directory()?.join("launch.json");
+        write_json_new(
+            &launch,
+            &json!({"format":1,"mode":"saved_world","profile":"debug","backend":"cargo"}),
+        )?;
+    }
     write_json_new(
         &project.root.join(OWNER),
         &json!({"schema":1,"purpose":PURPOSE,"project_id":project.id,"project_root":project.root,"work":work}),
     )?;
     proof["project"] = json!(project.root);
+    if cube_only() {
+        return exercise_cube(work, target, &project, proof);
+    }
     proof["author"] = run_editor(work, target, &project, "author", 600)?;
     let (scenes, saved) = verify_saved(&project)?;
     if proof["author"]["startup_save_completed"] != true
@@ -91,6 +103,43 @@ fn exercise(work: &Path, target: &Path, proof: &mut Value) -> Result<(), String>
         return Err("重开或预览未核对同一份已保存的场景身份".into());
     }
     proof["delivery"] = run_delivery(work, &project, &scenes, &proof["reopen"]["export"])?;
+    Ok(())
+}
+
+fn exercise_cube(work: &Path, target: &Path, project: &Project, proof: &mut Value) -> Result<(), String> {
+    proof["scope"] = json!("editor-3d-plain-cube-save-wireframe");
+    let author = run_editor(work, target, project, "author", 135);
+    let disk = verify_saved_cube(project);
+    // 原始版本失败时依然对照磁盘和作者草稿，让报告区分写盘问题、空接管及实体被隐藏。
+    match &disk {
+        Ok(saved) => proof["disk"] = json!(saved),
+        Err(error) => proof["disk_error"] = json!(error),
+    }
+    proof["author"] = author.or_else(|error| {
+        if let Ok(window) = read_json(&work.join("author").join(WINDOW_REPORT)) {
+            proof["author"] = window;
+        }
+        Err(error)
+    })?;
+    let disk = disk?;
+    if proof["author"]["cuboid"]["after"]["draft_record"] != json!(disk.record)
+        || proof["author"]["cuboid"]["after"]["scene_id"] != json!(disk.scene)
+        || proof["author"]["cuboid"]["save_sequence"].as_u64().unwrap_or(0) == 0
+    {
+        return Err("实际保存回执、热接管和磁盘立方体身份不一致".into());
+    }
+    proof["reopen"] = run_editor(work, target, project, "reopen", 135).or_else(|error| {
+        if let Ok(window) = read_json(&work.join("reopen").join(WINDOW_REPORT)) {
+            proof["reopen"] = window;
+        }
+        Err(error)
+    })?;
+    if proof["author"]["pid"] == proof["reopen"]["pid"]
+        || proof["reopen"]["cuboid"]["reopened"]["draft_record"] != json!(disk.record)
+        || verify_saved_cube(project)? != disk
+    {
+        return Err("同一工程重开后立方体身份或落盘记录发生改变".into());
+    }
     Ok(())
 }
 
@@ -151,6 +200,27 @@ fn find_scene<'a>(
         return Err(format!("正式目录将{name}指向了错误的资产目录"));
     }
     Ok(entry)
+}
+
+pub(super) fn verify_saved_cube(project: &Project) -> Result<SavedCube, String> {
+    let assets = project.context.asset_roots.first().ok_or("验收工程缺少资产根")?;
+    let catalog: SceneCatalogAsset = read_asset(&assets.join(SCENE_CATALOG_ASSET_PATH))?;
+    if catalog.schema_version != SCENE_SCHEMA_VERSION || catalog.scenes.len() != 1 {
+        return Err("立方体保存验收必须只包含由真实表单创建的一个空场景".into());
+    }
+    let entry = find_scene(&catalog, CHILD)?;
+    let file = assets.join(entry.placements_path());
+    let bytes = fs::read(&file).map_err(|error| format!("读取 {} 失败：{error}", file.display()))?;
+    let placements = feathrise_scene_content::read_scene_placements(&bytes, &entry.placements_path())?;
+    let [record] = <[_; 1]>::try_from(placements.placements)
+        .map_err(|_| "落盘场景不是恰好一件立方体")?;
+    if placements.scene_id != entry.id || placements.schema_version != SCENE_SCHEMA_VERSION
+        || record.asset_target != ScenePlacementAssetTarget::DEFAULT_CUBOID || record.editor.hidden
+        || record.translation != [0.0; 3]
+    {
+        return Err("落盘场景没有同身份的可见普通未细分立方体".into());
+    }
+    Ok(SavedCube { scene: entry.id.clone(), record, file })
 }
 
 pub(super) fn verify_saved(project: &Project) -> Result<(ScenePair, Value), String> {
@@ -226,6 +296,9 @@ fn run_editor(
         .arg("--target-dir")
         .arg(target)
         .env(ENV, mode);
+    if cube_only() {
+        command.env(CUBE_ENV, "1");
+    }
     crate::native_validation::isolate_author_command(&mut command, &directory)?;
     println!(
         "FEATHRISE_SCENE_FORMAT_VALIDATION stage={mode} project={}",
@@ -248,7 +321,14 @@ fn run_editor(
             process.exit_code, window["error"]
         ));
     }
-    verify_png(&directory.join("scene-tree.png"), &window["screenshot"])?;
+    if cube_only() {
+        let names: &[_] = if mode == "author" { &[cube::BEFORE, cube::AFTER] } else { &[cube::REOPENED] };
+        for &name in names {
+            verify_png(&directory.join(format!("{name}.png")), &window["cuboid"][name])?;
+        }
+    } else {
+        verify_png(&directory.join("scene-tree.png"), &window["screenshot"])?;
+    }
     Ok(window)
 }
 

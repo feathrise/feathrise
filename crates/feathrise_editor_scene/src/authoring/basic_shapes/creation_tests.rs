@@ -423,7 +423,7 @@ fn custom_cuboid_point_placement_uses_frozen_dimensions_material_and_bottom_offs
     let target = ScenePlacementAssetTarget::Cuboid {
         size_mm: [4000, 6000, 8000], color_srgb: [80, 120, 180], roughness_milli: 250, collision: false,
     };
-    app.world_mut().resource_mut::<BasicShapeState>().placement_target = Some(target);
+    app.world_mut().resource_mut::<BasicShapeState>().placement_target = Some(target.clone());
     app.world_mut().run_system_once(super::placement::setup_preview).unwrap();
     app.update();
     let session = app.world().resource::<EditorAuthoringSession>();

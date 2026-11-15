@@ -236,6 +236,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                 {
                     return Err(format!("原作者真实编辑保存缺少完整成功回执：{proof}"));
                 }
+                verify_subdivision(&output, proof)?;
                 let game = verify_game_with_prior_manifest(
                     root,
                     &work.join("game-f12"),
@@ -519,6 +520,40 @@ fn verify_scene_tools(root: &Path, game: &Value, proof: &Value) -> Result<(), St
                 "{domain}原笔划、唯一撤销与正式源字节不一致：{item}"
             ));
         }
+    }
+    Ok(())
+}
+
+fn verify_subdivision(output: &Path, proof: &Value) -> Result<(), String> {
+    if std::env::var("FEATHRISE_SUBDIVIDE_VALIDATION").as_deref() != Ok("1") {
+        return Ok(());
+    }
+    let subdivision = &proof["chunk_lod"]["subdivision"];
+    for (key, expected) in [
+        ("source", json!([8, 12, 6])),
+        ("one_cut", json!([26, 48, 24])),
+        ("two_cuts", json!([56, 108, 54])),
+        ("three_cuts", json!([98, 192, 96])),
+        ("object_mode_visible", json!(true)),
+        ("preview_history_unchanged", json!(true)),
+        ("recomputed_exact", json!(true)),
+        ("confirmed_one_undo", json!(true)),
+    ] {
+        if subdivision[key] != expected {
+            return Err(format!("细分正式参数控件缺少有效证据：{key}，{subdivision}"));
+        }
+    }
+    let name = "mesh-subdivide-two-cuts.png";
+    if subdivision["screenshot"] != name
+        || !fs::metadata(output.join(name)).is_ok_and(|file| file.is_file() && file.len() > 0)
+    {
+        return Err("细分两刀实时预览缺少本轮独占窗口截图".into());
+    }
+    let name = "mesh-subdivide-object-mode.png";
+    if subdivision["object_screenshot"] != name
+        || !fs::metadata(output.join(name)).is_ok_and(|file| file.is_file() && file.len() > 0)
+    {
+        return Err("细分后的对象模式缺少本轮独占窗口截图".into());
     }
     Ok(())
 }

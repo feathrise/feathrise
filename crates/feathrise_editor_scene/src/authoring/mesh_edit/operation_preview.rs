@@ -12,24 +12,20 @@ pub(super) fn operation_label(movement: &ElementMove) -> &'static str {
 
 pub(super) fn topology_preview(
     movement: &ElementMove,
+    mesh: &WorldMesh,
     kind: MeshElementKind,
     cursor: Vec2,
     control: bool,
 ) -> Result<ScenePlacementRecord, String> {
     let operation = movement.topology.ok_or("当前不是拓扑操作")?;
-    if matches!(operation, TopologyOperation::Subdivide) {
-        // 细分不依赖屏幕距离或手柄可见性；工具栏的即时预览和后续帧使用同一纯运算。
-        return topology_ops::subdivide_record(&movement.before, kind, movement.selected_elements);
-    }
     let start = movement.start_cursor.unwrap_or(cursor);
     let pixels = (cursor - start) * movement.camera.size * movement.camera.inverse_scale;
     let handle = movement
         .camera
         .handle_length(movement.origin)
         .ok_or("操作中心不在有效视口内")?;
-    let mesh = world_mesh(&movement.before).ok_or("当前来源不支持网格操作")?;
     let edge = mesh
-        .edges
+        .edges()
         .iter()
         .map(|&[a, b]| mesh.vertices[a].distance(mesh.vertices[b]))
         .fold(f32::INFINITY, f32::min);
@@ -61,15 +57,15 @@ pub(super) fn topology_preview(
             feathrise_scene_content::extruded_placement_record(&movement.before, face, distance)
         }
         TopologyOperation::Inset => {
-            topology_ops::inset_record(&movement.before, kind, movement.selected_elements, width)
+            topology_ops::inset_record(&movement.before, kind, &movement.selected_elements, width)
         }
         TopologyOperation::Bevel => {
-            topology_ops::bevel_record(&movement.before, kind, movement.selected_elements, width)
+            topology_ops::bevel_record(&movement.before, kind, &movement.selected_elements, width)
         }
         TopologyOperation::LoopCut => topology_ops::loop_cut_record(
             &movement.before,
             kind,
-            movement.selected_elements,
+            &movement.selected_elements,
             (0.5 + pixels.x / 200.0).clamp(0.05, 0.95),
         ),
         TopologyOperation::Knife => {
@@ -97,6 +93,48 @@ pub(super) fn topology_preview(
                 .ok_or("切割线退化")?;
             topology_ops::knife_record(&movement.before, a, normal)
         }
-        TopologyOperation::Subdivide => unreachable!("无参数细分已提前返回"),
+        TopologyOperation::Subdivide(_) => unreachable!("细分由参数面板刷新"),
+    }
+}
+
+pub(super) fn pointer_preview(
+    movement: &ElementMove,
+    mesh: &WorldMesh,
+    kind: MeshElementKind,
+    cursor: Vec2,
+    control: bool,
+) -> Result<ScenePlacementRecord, String> {
+    let start = movement.start_cursor.ok_or("操作起点无效")?;
+    let camera = movement.camera;
+    let origin = movement.origin;
+    let constraint = movement.constraint;
+    let snapping = movement.snapping;
+    let before = &movement.before;
+    let selected = &movement.selected_vertices;
+    if movement.topology.is_some() {
+        return topology_preview(movement, mesh, kind, cursor, control);
+    }
+    match movement.tool {
+        MeshEditTool::Scale => {
+            let factor = scale_factor(camera, start, cursor, origin, constraint, snapping, control)?;
+            scaled_record(before, selected, origin, constraint, factor)
+        }
+        MeshEditTool::Rotate => {
+            let (axis, mut radians) = rotation_delta(camera, start, cursor, origin, constraint)?;
+            // 元素没有独立欧拉角；围绕选区中心对相对角度吸附。
+            if snapping.active(control) {
+                let step = snapping.rotation_degrees.to_radians();
+                radians = (radians / step).round() * step;
+            }
+            rotated_record(before, selected, origin, axis, radians)
+        }
+        _ => {
+            let start = constraint_point(camera, start, origin, constraint);
+            let point = constraint_point(camera, cursor, origin, constraint);
+            let (start, point) = start.zip(point).ok_or("当前视角与约束轴平行，请取消后调整视角")?;
+            translated_record(before, selected, snapped_delta(
+                origin, point - start, constraint, snapping, control,
+            ))
+        }
     }
 }

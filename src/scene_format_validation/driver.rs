@@ -1,6 +1,6 @@
 //! 在真实作者 App 中逐项驱动生产操作。帧内只观察小夹具，截图编码和报告写入由后台任务处理。
 
-use super::{CHILD, NATIVE_TIMEOUT, PARENT, WINDOW_REPORT, fixture::ScenePair, write_json_new};
+use super::{CHILD, NATIVE_TIMEOUT, PARENT, WINDOW_REPORT, cube, fixture::ScenePair, write_json_new};
 use crate::{
     embedded_viewport::{ConnectionState, EmbeddedStatus, connection_state},
     native_project_close::embedded_validation as close,
@@ -42,6 +42,7 @@ enum Step {
     ChildReady,
     ChildObject,
     ChildSaved,
+    Cube,
     CreateParent,
     CreateParentMenu,
     ParentForm,
@@ -70,6 +71,7 @@ struct Plan {
     directory: PathBuf,
     reopen: bool,
     scenes: Option<ScenePair>,
+    cube_probe: Option<cube::Probe>,
     child: Option<SceneId>,
     pressed: Option<Entity>,
     creation_pointer: Option<(Entity, bool)>,
@@ -83,8 +85,9 @@ struct Plan {
     failed: bool,
 }
 
-pub(super) fn install(app: &mut App, directory: PathBuf, scenes: Option<ScenePair>) {
-    let reopen = scenes.is_some();
+pub(super) fn install(app: &mut App, directory: PathBuf, scenes: Option<ScenePair>, cube_probe: Option<cube::Probe>) {
+    let child = cube_probe.as_ref().and_then(|probe| probe.reopen.as_ref()).map(|saved| saved.scene.clone());
+    let reopen = scenes.is_some() || child.is_some();
     app.insert_resource(Plan {
         step: if reopen {
             Step::Reopen
@@ -95,7 +98,8 @@ pub(super) fn install(app: &mut App, directory: PathBuf, scenes: Option<ScenePai
         directory,
         reopen,
         scenes,
-        child: None,
+        cube_probe,
+        child,
         pressed: None,
         creation_pointer: None,
         save_before: 0,
@@ -219,16 +223,29 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
             if let Some(child) =
                 lookup(CHILD).filter(|id| standalone::preview_ready_for(world, id.as_str()))
             {
-                author::request_cuboid(world, &child)?;
+                if plan.cube_probe.is_some() {
+                    author::request_cuboid_at(world, &child, Vec3::ZERO)?;
+                } else {
+                    author::request_cuboid(world, &child)?;
+                }
                 plan.child = Some(child);
                 plan.go(Step::ChildObject);
             }
         }
         Step::ChildObject if observed.placement_count == 1 && observed.dirty => {
-            if standalone::project_close_snapshot(world).pending.is_none() {
+            if plan.cube_probe.is_some() {
+                plan.go(Step::Cube);
+            } else if standalone::project_close_snapshot(world).pending.is_none() {
                 plan.save_before = observed.save_sequence;
                 standalone::request_save_all(world)?;
                 plan.go(Step::ChildSaved);
+            }
+        }
+        Step::Cube => {
+            let scene = plan.child.as_ref().ok_or("没有本轮立方体的场景身份")?;
+            let probe = plan.cube_probe.as_mut().ok_or("立方体线框探针未安装")?;
+            if probe.advance(world, scene, &observed, &mut plan.pressed, &plan.directory, &mut plan.proof["cuboid"])? {
+                plan.finish(None);
             }
         }
         Step::ChildSaved if saved(world, &observed, plan.save_before)? => {
@@ -288,6 +305,13 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
             if !state.saving() {
                 plan.proof["startup_save_completed"] = json!(true);
                 plan.go(Step::ShowTree);
+            }
+        }
+        Step::Reopen if plan.cube_probe.is_some() => {
+            let scene = plan.child.as_ref().ok_or("没有本轮重开的立方体场景")?;
+            if observed.open && lookup(CHILD).as_ref() == Some(scene) {
+                standalone::request_open_scene(world, scene.as_str())?;
+                plan.go(Step::Cube);
             }
         }
         Step::Reopen if observed.open && lookup(PARENT).as_ref() == Some(&plan.scenes().parent) => {

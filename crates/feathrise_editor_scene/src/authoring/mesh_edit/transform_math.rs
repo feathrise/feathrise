@@ -1,6 +1,6 @@
-//! 点边面选择集的移动、旋转、缩放手柄与世界变换逆算；固定预算几何同时服务绘制与拾取。
+//! 点边面选择集的移动、旋转、缩放手柄与世界变换逆算；显示与拾取共用选点坐标。
 
-use super::types::{MeshEditTool, MoveConstraint};
+use super::{selection::MeshSelection, types::{MeshEditTool, MoveConstraint}};
 use crate::viewport::placement_move::MoveCamera;
 use bevy::{
     math::{DQuat, DVec3},
@@ -56,7 +56,7 @@ pub(crate) fn rotation_delta(
 /// 选择点先在世界空间围绕共同枢轴转动，再逆实例yaw与非均匀scale写回本地共享点。
 pub(super) fn rotated_record(
     before: &ScenePlacementRecord,
-    mask: u64,
+    selected: &MeshSelection,
     pivot: Vec3,
     axis: Vec3,
     radians: f32,
@@ -64,75 +64,18 @@ pub(super) fn rotated_record(
     if !pivot.is_finite() || !axis.is_finite() || !radians.is_finite() {
         return Err("旋转参数不是有限数值".into());
     }
-    let Some(axis) = axis.try_normalize() else {
-        return Err("旋转轴无效".into());
-    };
-    let mut geometry = before
-        .asset_target
-        .editable_geometry()
-        .ok_or("当前对象不支持点边面旋转")?;
-    let original = geometry.vertices_half_mm;
-    if mask == 0 || radians.abs() <= 1e-7 {
+    let axis = axis.try_normalize().ok_or("旋转轴无效")?;
+    if selected.is_empty() || radians.abs() <= 1e-7 {
         return Ok(before.clone());
     }
-    if mask.count_ones() == 1 {
-        let local = Vec3::from_array(
-            original[mask.trailing_zeros() as usize].map(|value| value as f32 * 0.0005),
-        );
-        let point = Vec3::from_array(before.translation)
-            + Quat::from_rotation_y(before.yaw_degrees.to_radians())
-                * (local * Vec3::from_array(before.scale));
-        if point.distance_squared(pivot) <= 1e-12 {
-            return Ok(before.clone());
-        }
-    }
-    let scale = Vec3::from_array(before.scale);
-    if !scale.is_finite() || scale.min_element() <= 0.0 || !before.yaw_degrees.is_finite() {
-        return Err("实例旋转或缩放无效".into());
-    }
-    let pivot = pivot.as_dvec3();
     let rotation = DQuat::from_axis_angle(axis.as_dvec3(), f64::from(radians));
-    let root = DQuat::from_rotation_y(f64::from(before.yaw_degrees.to_radians()));
-    let scale = scale.as_dvec3();
-    let origin = Vec3::from_array(before.translation).as_dvec3();
-    if !origin.is_finite() {
-        return Err("实例原点无效".into());
-    }
-    let mut transformed = original;
-    for (index, vertex) in transformed
-        .iter_mut()
-        .take(geometry.vertex_count as usize)
-        .enumerate()
-    {
-        if mask & (1 << index) == 0 {
-            continue;
-        }
-        let local = DVec3::from_array(original[index].map(f64::from)) * 0.0005;
-        let world = origin + root * (local * scale);
-        let rotated = pivot + rotation * (world - pivot);
-        let local = (root.conjugate() * (rotated - origin)) / scale * 2_000.0;
-        for coordinate in 0..3 {
-            let value = local[coordinate].round();
-            if !value.is_finite() || value < i32::MIN as f64 || value > i32::MAX as f64 {
-                return Err("旋转后的顶点超过可保存范围".into());
-            }
-            vertex[coordinate] = value as i32;
-        }
-    }
-    if transformed == original {
-        return Ok(before.clone());
-    }
-    let mut after = before.clone();
-    geometry.vertices_half_mm = transformed;
-    after.asset_target = before.asset_target.with_editable_geometry(geometry)?;
-    after.asset_target.validate()?; // 旋转量化后的完整闭壳仍需通过原非退化、非翻转和自交保护。
-    Ok(after)
+    edit_transformed_vertices(before, selected, pivot, |delta| rotation * delta)
 }
 
-/// 世界坐标围绕选区中心缩放，再逆实例非均匀变换；只改变共享点，不改对象scale。
+/// 世界坐标围绕选区中心缩放，再逆实例非均匀变换；只改变共享点。
 pub(super) fn scaled_record(
     before: &ScenePlacementRecord,
-    mask: u64,
+    selected: &MeshSelection,
     pivot: Vec3,
     constraint: MoveConstraint,
     factor: f32,
@@ -140,14 +83,24 @@ pub(super) fn scaled_record(
     if !factor.is_finite() || factor <= 0.0 || !pivot.is_finite() {
         return Err("缩放倍率必须是有限正数".into());
     }
-    if mask == 0 || (factor - 1.0).abs() < 1e-7 {
+    if selected.is_empty() || (factor - 1.0).abs() < 1e-7 {
         return Ok(before.clone());
     }
-    let mut geometry = before
-        .asset_target
-        .editable_geometry()
-        .ok_or("当前对象不支持元素缩放")?;
-    let original = geometry;
+    let factors = constraint
+        .axis()
+        .map_or(DVec3::splat(f64::from(factor)), |axis| {
+            DVec3::ONE + axis.as_dvec3() * f64::from(factor - 1.0)
+        });
+    edit_transformed_vertices(before, selected, pivot, |delta| delta * factors)
+}
+
+fn edit_transformed_vertices(
+    before: &ScenePlacementRecord,
+    selected: &MeshSelection,
+    pivot: Vec3,
+    transform: impl Fn(DVec3) -> DVec3,
+) -> Result<ScenePlacementRecord, String> {
+    let geometry = before.asset_target.editable_geometry().ok_or("当前对象不支持元素变换")?;
     let scale = Vec3::from_array(before.scale).as_dvec3();
     let root = DQuat::from_rotation_y(f64::from(before.yaw_degrees.to_radians()));
     let origin = Vec3::from_array(before.translation).as_dvec3();
@@ -155,49 +108,35 @@ pub(super) fn scaled_record(
     {
         return Err("实例变换无效".into());
     }
-    if mask.count_ones() == 1 {
-        // 枢轴来自显示/拾取使用的f32世界点；另算f64再转回f32可能差一ULP，
-        // 在小实例倍率下会放大成半毫米几何改动。单点门复用同源点，且保留上方非法变换校验。
-        if super::geometry::world_vertices(before)
-            .and_then(|vertices| vertices.get(mask.trailing_zeros() as usize).copied())
-            .is_some_and(|point| point.distance_squared(pivot) <= 1e-12)
-        {
+    let original = geometry.vertices();
+    if selected.len() == 1 && let Some(index) = selected.iter().next() {
+        // 单点绕屏幕上显示的自身枢轴是空操作，低倍率实例不能将 f32 舍入放大到本地顶点。
+        let local = *original.get(index).ok_or("顶点选择已经超出当前拓扑")?;
+        if super::geometry::world_vertex(before, local).distance_squared(pivot) <= 1e-12 {
             return Ok(before.clone());
         }
     }
-    let factors = constraint
-        .axis()
-        .map_or(DVec3::splat(f64::from(factor)), |axis| {
-            DVec3::ONE + axis.as_dvec3() * f64::from(factor - 1.0)
-        });
     let pivot = pivot.as_dvec3();
-    for (index, point) in geometry
-        .vertices_half_mm
-        .iter_mut()
-        .take(geometry.vertex_count as usize)
-        .enumerate()
-    {
-        if mask & (1u64 << index) == 0 {
-            continue;
-        }
+    let mut vertices = original.to_vec();
+    for index in selected.iter() {
+        let point = vertices.get_mut(index).ok_or("顶点选择已经超出当前拓扑")?;
         let local = DVec3::from_array(point.map(f64::from)) * 0.0005;
         let world = origin + root * (local * scale);
-        let transformed = pivot + (world - pivot) * factors;
-        let local = root.conjugate() * (transformed - origin) / scale * 2000.0;
+        let transformed = pivot + transform(world - pivot);
+        let local = root.conjugate() * (transformed - origin) / scale * 2_000.0;
         for axis in 0..3 {
             let value = local[axis].round();
             if !value.is_finite() || value < i32::MIN as f64 || value > i32::MAX as f64 {
-                return Err("缩放后的顶点超过可保存范围".into());
+                return Err("变换后的顶点超过可保存范围".into());
             }
             point[axis] = value as i32;
         }
     }
-    if geometry == original {
+    if vertices == original {
         return Ok(before.clone());
     }
     let mut after = before.clone();
-    after.asset_target = before.asset_target.with_editable_geometry(geometry)?;
-    after.asset_target.validate()?;
+    after.asset_target = before.asset_target.with_editable_geometry(geometry.with_vertices(vertices)?)?;
     Ok(after)
 }
 
@@ -243,16 +182,16 @@ mod tests {
     #[test]
     fn group_rotation_preserves_unselected_shared_points_and_inverse_root_transform() {
         let before = record();
-        let mask = 0b1100_1100; // 同一上表面的四个共享点，而非各面复制的显示顶点。
+        let mask = MeshSelection::from(0b1100_1100u128); // 同一上表面的四个共享点，而非各面复制的显示顶点。
         let points = world_vertices(&before).unwrap();
-        let pivot = selection_center(&points, mask).unwrap();
+        let pivot = selection_center(&points, &mask).unwrap();
         let angle = 0.12;
-        let after = rotated_record(&before, mask, pivot, Vec3::Y, angle).unwrap();
+        let after = rotated_record(&before, &mask, pivot, Vec3::Y, angle).unwrap();
         let result = world_vertices(&after).unwrap();
         let old_local = before.asset_target.editable_vertices_half_mm().unwrap();
         let new_local = after.asset_target.editable_vertices_half_mm().unwrap();
         for index in 0..8 {
-            if mask & (1 << index) == 0 {
+            if !mask.contains(index) {
                 assert_eq!(old_local[index], new_local[index]);
             } else {
                 let expected = pivot + Quat::from_rotation_y(angle) * (points[index] - pivot);
@@ -268,7 +207,7 @@ mod tests {
         assert_eq!(after.editor, before.editor);
         assert_eq!(after.id, before.id);
         let mut restored_source = after.clone();
-        restored_source.asset_target = before.asset_target;
+        restored_source.asset_target = before.asset_target.clone();
         assert_eq!(
             restored_source, before,
             "点组旋转只能替换几何来源，不能改写实例姿态或其他作者元数据"
@@ -280,14 +219,14 @@ mod tests {
     fn world_axis_scale_preserves_root_and_unselected_points_under_nonuniform_instance() {
         let before = record();
         let points = world_vertices(&before).unwrap();
-        let mask = 0b1100_1100;
-        let pivot = selection_center(&points, mask).unwrap();
-        let after = scaled_record(&before, mask, pivot, MoveConstraint::X, 1.15).unwrap();
+        let mask = MeshSelection::from(0b1100_1100u128);
+        let pivot = selection_center(&points, &mask).unwrap();
+        let after = scaled_record(&before, &mask, pivot, MoveConstraint::X, 1.15).unwrap();
         let result = world_vertices(&after).unwrap();
         let old = before.asset_target.editable_geometry().unwrap();
         let new = after.asset_target.editable_geometry().unwrap();
         for index in 0..points.len() {
-            if mask & (1 << index) == 0 {
+            if !mask.contains(index) {
                 assert_eq!(old.vertices()[index], new.vertices()[index]);
             } else {
                 let expected = pivot + (points[index] - pivot) * Vec3::new(1.15, 1.0, 1.0);
@@ -296,7 +235,7 @@ mod tests {
         }
         // 世界单轴缩放必须逆算到共享点，实例的姿态与作者元数据仍是原记录。
         let mut restored = after.clone();
-        restored.asset_target = before.asset_target;
+        restored.asset_target = before.asset_target.clone();
         assert_eq!(restored, before);
         after.asset_target.validate().unwrap();
     }
@@ -306,15 +245,15 @@ mod tests {
         let before = record();
         let point = world_vertices(&before).unwrap()[7];
         assert_eq!(
-            scaled_record(&before, 1 << 7, point, MoveConstraint::View, 2.0).unwrap(),
+            scaled_record(&before, &MeshSelection::single(7), point, MoveConstraint::View, 2.0).unwrap(),
             before
         );
         assert_eq!(
-            scaled_record(&before, 255, point, MoveConstraint::X, 1.0).unwrap(),
+            scaled_record(&before, &MeshSelection::all(8), point, MoveConstraint::X, 1.0).unwrap(),
             before
         );
         for factor in [0.0, -1.0, f32::NAN, f32::INFINITY] {
-            assert!(scaled_record(&before, 255, point, MoveConstraint::View, factor).is_err());
+            assert!(scaled_record(&before, &MeshSelection::all(8), point, MoveConstraint::View, factor).is_err());
         }
     }
 
@@ -334,13 +273,13 @@ mod tests {
         ).unwrap();
         let points = world_vertices(&before).unwrap();
         for index in 0..points.len() {
-            let mask = 1 << index;
+            let mask = MeshSelection::single(index);
             // 真实会话从显示/拾取共用的f32世界点求枢轴；不能用另一条f64路径把同一点误判成偏心缩放。
-            let pivot = selection_center(&points, mask).unwrap();
+            let pivot = selection_center(&points, &mask).unwrap();
             for constraint in [MoveConstraint::View, MoveConstraint::X, MoveConstraint::Y, MoveConstraint::Z] {
                 for factor in [0.5, 2.0] {
                     assert_eq!(
-                        scaled_record(&before, mask, pivot, constraint, factor).unwrap(),
+                        scaled_record(&before, &mask, pivot, constraint, factor).unwrap(),
                         before,
                         "单点{index}绕自身中心按{constraint:?}缩放{factor}倍必须保留完整参数配方",
                     );
@@ -356,14 +295,14 @@ mod tests {
         for value in [0.0, -1.0, f32::NAN, f32::INFINITY] {
             let mut invalid = before.clone();
             invalid.scale[0] = value;
-            assert!(scaled_record(&invalid, 1 << 7, pivot, MoveConstraint::View, 2.0).is_err());
+            assert!(scaled_record(&invalid, &MeshSelection::single(7), pivot, MoveConstraint::View, 2.0).is_err());
         }
         let mut invalid = before.clone();
         invalid.yaw_degrees = f32::NAN;
-        assert!(scaled_record(&invalid, 1 << 7, pivot, MoveConstraint::View, 2.0).is_err());
+        assert!(scaled_record(&invalid, &MeshSelection::single(7), pivot, MoveConstraint::View, 2.0).is_err());
         let mut invalid = before;
         invalid.translation[0] = f32::INFINITY;
-        assert!(scaled_record(&invalid, 1 << 7, pivot, MoveConstraint::View, 2.0).is_err());
+        assert!(scaled_record(&invalid, &MeshSelection::single(7), pivot, MoveConstraint::View, 2.0).is_err());
     }
 
     #[test]
@@ -411,14 +350,14 @@ mod tests {
         let before = record();
         let point = world_vertices(&before).unwrap()[7];
         assert_eq!(
-            rotated_record(&before, 1 << 7, point, Vec3::Y, 1.2).unwrap(),
+            rotated_record(&before, &MeshSelection::single(7), point, Vec3::Y, 1.2).unwrap(),
             before
         );
         assert_eq!(
-            rotated_record(&before, u64::from(u8::MAX), Vec3::ZERO, Vec3::Z, 0.0).unwrap(),
+            rotated_record(&before, &MeshSelection::all(8), Vec3::ZERO, Vec3::Z, 0.0).unwrap(),
             before
         );
-        assert!(rotated_record(&before, 3, point, Vec3::ZERO, 1.2).is_err());
+        assert!(rotated_record(&before, &MeshSelection::all(2), point, Vec3::ZERO, 1.2).is_err());
     }
 
     #[test]

@@ -266,6 +266,7 @@ impl Plugin for SceneEditorPlugin {
             .add_observer(register_placement_water_evidence_root) // 活动、候选和作者预览根新增时O(1)登记。
             .add_observer(unregister_placement_water_evidence_root) // marker删除或实体despawn立即撤销旧Ready聚合。
             .add_observer(register_placement_instance_root) // 正式、候选和预览根Add时建立作者写入索引。
+            .add_observer(authoring::placement_preview_ownership::reconcile_builtin_visual)
             .add_observer(unregister_placement_instance_root) // Remove或despawn立即撤销旧实体信用。
             .add_observer(authoring::placement_batch::retire_empty_paste_group) // 原子显示的粘贴父级在失去最后一个孩子时回收。
             .add_observer(observe_placement_water_status_inserted) // 状态插入/替换只推进所属placement票据。

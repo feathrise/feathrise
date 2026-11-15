@@ -320,7 +320,7 @@ fn append_placements(
                 terrain_patch: record.terrain_patch.clone(),
                 id: record.id.clone(),
                 asset_path: record.asset_path.clone(),
-                asset_target: record.asset_target,
+                asset_target: record.asset_target.clone(),
                 building_preset_id: record.building_preset_id.clone(),
                 courtyard: record.courtyard.clone(),
                 translation: record.translation,

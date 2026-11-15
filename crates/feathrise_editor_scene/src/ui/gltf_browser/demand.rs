@@ -15,7 +15,7 @@ pub(super) fn placement_structure_signature(record: &ScenePlacementRecord) -> Pl
         editor: record.editor.clone(),
         placement_id: record.id.clone(), // 稳定实例ID决定根行和展开偏好。
         asset_path: record.asset_path.clone(), // 只有来源路径变化才改变Scene0需求。
-        asset_target: record.asset_target, // Scene0与直接primitive必须形成不同浏览结构。
+        asset_target: record.asset_target.clone(), // Scene0与直接primitive必须形成不同浏览结构。
         water_bindings: record
             .water_surfaces
             .iter()

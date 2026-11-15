@@ -244,7 +244,7 @@ pub(crate) fn spawn_placement_preview(
     match record.asset_target {
         ScenePlacementAssetTarget::Cuboid { .. } | ScenePlacementAssetTarget::EditableCuboid { .. } | ScenePlacementAssetTarget::EditableMesh { .. } => {
             root_commands.insert(avian3d::prelude::RigidBody::Static); // 未保存立方体拥有独立静态刚体，删除或隐藏时可单独禁用。
-            feathrise_scene::spawn_builtin_placement_visual(commands, root, record.asset_target);
+            feathrise_scene::spawn_builtin_placement_visual(commands, root, record.asset_target.clone());
         }
         ScenePlacementAssetTarget::Scene0 => {
             root_commands.insert((
@@ -556,7 +556,7 @@ pub(crate) fn place_from_viewport(
                     snapshot,
                     &draft_scene,
                     &asset_path,
-                    asset_target,
+                    asset_target.clone(),
                     session.revision,
                 )
             }); // 无完成值时保持等待；绝不读取悬停旧点或零平面。
@@ -687,6 +687,7 @@ pub(crate) fn place_from_viewport(
             } else {
                 ScenePlacementHeightMode::FixedHeight // 旧GLTF场景没有权威高度源，只能安全保存当前世界Y。
             };
+            let builtin = asset_target.is_builtin();
             let mut record = ScenePlacementRecord {
                 mesh_lod: None,
                 terrain_binding: None,
@@ -704,7 +705,7 @@ pub(crate) fn place_from_viewport(
                 scale: Vec3::ONE.to_array(), // 初始单位三轴缩放。
                 water_surfaces: Vec::new(), // Blender 网格只有经过右栏显式赋水后才接入动态水材质。
             };
-            if let ScenePlacementAssetTarget::Cuboid { size_mm, .. } = asset_target {
+            if let ScenePlacementAssetTarget::Cuboid { size_mm, .. } = record.asset_target {
                 let half_height = size_mm[1] as f32 * 0.0005;
                 record.translation[1] += half_height;
                 record.terrain_offset = if height_mode.follows_terrain() { half_height } else { 0.0 };
@@ -734,7 +735,7 @@ pub(crate) fn place_from_viewport(
             session.undo.push(EditorCommand::PlacementAdded(record));
             session.redo.clear();
             session.mark_placement_structure_changed(&mut editor); // 新实例根必须换代右侧GLB浏览结构。
-            if asset_target.is_builtin() {
+            if builtin {
                 if let Some(browser) = context.browser.as_deref_mut() {
                     browser.select_primitive_placement_from_viewport(id);
                 }

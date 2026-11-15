@@ -1,8 +1,9 @@
 //! 元素线框和可见点标记，沿用编辑器专用 Gizmo 层与正式相机投影。
 
 use super::{
-    geometry::{WorldMesh, selection_center, world_mesh},
+    geometry::{WorldMesh, selection_center},
     resources::MeshEditState,
+    selection::MeshSelection,
     transform_math::{move_arrows, rotation_rings, scale_handles},
     types::{MeshEditTool, MeshElementKind, MoveConstraint},
 };
@@ -16,20 +17,20 @@ use crate::{
 };
 use bevy::prelude::*;
 
-/// 拓扑预览已经改变元素编号，只描出完整候选的真实面轮廓；确认前不把旧选择套到新边上。
+/// 拓扑预览使用候选编号，细分可直接显示按当前点／边／面模式映射后的新选择。
 pub(super) fn display_selection(
     state: &MeshEditState,
     mesh: &WorldMesh,
-) -> (MeshElementKind, u128, Option<usize>) {
-    if state
-        .movement
-        .as_ref()
-        .is_some_and(|movement| movement.topology.is_some())
-    {
-        (MeshElementKind::Face, mesh.all(MeshElementKind::Face), None)
-    } else {
-        (state.kind, state.selected, state.hover)
+) -> (MeshElementKind, MeshSelection, Option<usize>) {
+    if let Some(movement) = &state.movement {
+        if let Some(selected) = &movement.result_selection {
+            return (state.kind, selected.clone(), None);
+        }
+        if movement.topology.is_some() && movement.visual_mesh.is_some() {
+            return (MeshElementKind::Face, mesh.all(MeshElementKind::Face), None);
+        }
     }
+    (state.kind, state.selected.clone(), state.hover)
 }
 
 pub(super) fn draw_elements(
@@ -42,14 +43,22 @@ pub(super) fn draw_elements(
     if !editor.open || editor.close_requested || editor.scene_transition_in_progress {
         return;
     }
-    let Some(target) = &state.target else {
+    if state.target.is_none() {
         return;
-    };
-    let record = state
+    }
+    let mesh = state
         .movement
         .as_ref()
-        .map_or(&target.record, |movement| &movement.preview);
-    let Some(mesh) = world_mesh(record) else {
+        .and_then(|movement| movement.visual_mesh.as_deref())
+        .or(state.world_mesh.as_deref());
+    #[cfg(test)]
+    let fixture_mesh = mesh.is_none().then(|| {
+        let record = state.movement.as_ref().map_or(&state.target.as_ref().unwrap().record, |movement| &movement.preview);
+        super::geometry::world_mesh(record)
+    }).flatten(); // 旧 GPU 夹具直接挂记录，生产走冻结快照。
+    #[cfg(test)]
+    let mesh = mesh.or(fixture_mesh.as_ref());
+    let Some(mesh) = mesh else {
         return;
     };
     let vertices = &mesh.vertices;
@@ -65,28 +74,22 @@ pub(super) fn draw_elements(
     let dim = Color::srgb(0.20, 0.24, 0.29);
     let selected = Color::srgb(1.0, 0.51, 0.12);
     let hovered = Color::srgb(1.0, 0.81, 0.36);
-    let (kind, selected_elements, element_hover) = display_selection(&state, &mesh);
-    for (index, &[a, b]) in mesh.edges.iter().enumerate() {
+    let (kind, selected_elements, element_hover) = display_selection(&state, mesh);
+    // 大网格保留精确拾取，CPU 标记按固定预算绘制，完整网格边仍由线框着色负责。
+    let edge_hover = element_hover.filter(|_| kind == MeshElementKind::Edge);
+    let edges = mesh.edges();
+    for index in overlay_indices(edges.len(), 1024, edge_hover, &selected_elements, kind == MeshElementKind::Edge) {
+        let [a, b] = edges[index];
         if !mesh.visible(camera, (vertices[a] + vertices[b]) * 0.5) {
             continue;
         }
         // 同一条真实边只提交一次；面选择直接决定边色，避免重叠橙线被深度测试丢弃。
-        let face_contains_edge = |face: &Vec<usize>| {
-            (0..face.len()).any(|side| {
-                let x = face[side];
-                let y = face[(side + 1) % face.len()];
-                (x == a && y == b) || (x == b && y == a)
-            })
-        };
-        let chosen = kind == MeshElementKind::Edge && selected_elements & (1 << index) != 0
+        let adjacent = mesh.edge_faces(index);
+        let chosen = kind == MeshElementKind::Edge && selected_elements.contains(index)
             || kind == MeshElementKind::Face
-                && mesh.faces.iter().enumerate().any(|(face, vertices)| {
-                    selected_elements & (1 << face) != 0 && face_contains_edge(vertices)
-                });
-        let hover = kind == MeshElementKind::Edge && element_hover == Some(index)
-            || kind == MeshElementKind::Face
-                && element_hover
-                    .is_some_and(|face| mesh.faces.get(face).is_some_and(face_contains_edge));
+                && adjacent.into_iter().any(|face| selected_elements.contains(face));
+        let hover = edge_hover == Some(index)
+            || (kind == MeshElementKind::Face && element_hover.is_some_and(|face| adjacent.contains(&face)));
         gizmos.line(
             vertices[a],
             vertices[b],
@@ -100,13 +103,14 @@ pub(super) fn draw_elements(
         );
     }
     if kind == MeshElementKind::Vertex {
-        for (index, &point) in vertices.iter().enumerate() {
+        for index in overlay_indices(vertices.len(), 512, element_hover, &selected_elements, true) {
+            let point = vertices[index];
             if !mesh.visible(camera, point) {
                 continue;
             }
             let color = if element_hover == Some(index) {
                 hovered
-            } else if selected_elements & (1 << index) != 0 {
+            } else if selected_elements.contains(index) {
                 selected
             } else {
                 dim
@@ -121,15 +125,15 @@ pub(super) fn draw_elements(
         }
     }
     if kind == MeshElementKind::Face {
-        for index in 0..mesh.faces.len() {
+        for index in overlay_indices(mesh.faces().len(), 512, element_hover, &selected_elements, true) {
+            let hover = element_hover == Some(index);
+            if !hover && !selected_elements.contains(index) {
+                continue;
+            }
             let Some(center) = mesh.visible_representative(MeshElementKind::Face, index, camera)
             else {
                 continue;
             };
-            let hover = element_hover == Some(index);
-            if !hover && selected_elements & (1 << index) == 0 {
-                continue;
-            }
             let color = if hover { hovered } else { selected };
             if let Some(corners) = camera.screen_square(center, 4.0) {
                 for i in 0..4 {
@@ -160,18 +164,23 @@ pub(super) fn draw_elements(
         .movement
         .as_ref()
         .map_or(state.tool, |movement| movement.tool);
+    if tool == MeshEditTool::Select {
+        return;
+    }
     let origin = if let Some(movement) = &state.movement {
-        if movement.tool == MeshEditTool::Move {
-            // 移动箭头跟随当前预览的选中点；旋转环保持本笔冻结的共同枢轴。
-            selection_center(&vertices, movement.selected_vertices).or(Some(movement.origin))
-        } else {
-            Some(movement.origin)
-        }
-    } else {
+        // 移动手柄采用已准备候选的中心，避免密集选区在渲染系统里逐帧求和。
+        movement.visual_origin.or(Some(movement.origin))
+    } else if let Some((kind, selected, origin)) = &state.pivot
+        && *kind == state.kind && selected.same_storage(&state.selected)
+    {
+        *origin
+    } else if vertices.len() <= super::jobs::IMMEDIATE_VERTICES {
         selection_center(
-            &vertices,
-            mesh.selected_vertices(state.kind, state.selected),
+            vertices,
+            &mesh.selected_vertices(state.kind, &state.selected),
         )
+    } else {
+        None
     };
     if tool != MeshEditTool::Select
         && let Some(origin) = origin
@@ -240,4 +249,21 @@ pub(super) fn draw_elements(
             MeshEditTool::Select => {}
         }
     }
+}
+
+/// 抽样时手动选中的小选区与悬停元素仍绘制，确保密集拓扑可逐点、逐边继续编辑。
+fn overlay_indices(
+    count: usize,
+    budget: usize,
+    hover: Option<usize>,
+    selected: &MeshSelection,
+    add_selected: bool,
+) -> impl Iterator<Item = usize> + '_ {
+    let stride = count.div_ceil(budget).max(1);
+    let add_selected = add_selected && stride > 1 && selected.len() <= budget;
+    (0..count).step_by(stride)
+        .chain(selected.iter().take(if add_selected { budget } else { 0 })
+            .filter(move |&index| index < count && index % stride != 0))
+        .chain(hover.filter(move |&index| index < count && index % stride != 0
+            && !(add_selected && selected.contains(index))))
 }

@@ -1,6 +1,6 @@
 //! 四边面环切与贯穿平面切割：共享交点，增加真实子面，始终保留切面两侧的原闭壳表面。
 
-use super::super::types::MeshElementKind;
+use super::super::{selection::MeshSelection, types::MeshElementKind};
 use super::mesh::{EPSILON, MeshWork, chosen, edge, triangulate};
 use bevy::prelude::Vec3;
 use feathrise_scene_content::ScenePlacementRecord;
@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, VecDeque};
 pub(in super::super) fn loop_cut_record(
     before: &ScenePlacementRecord,
     kind: MeshElementKind,
-    selected: u128,
+    selected: &MeshSelection,
     factor: f32,
 ) -> Result<ScenePlacementRecord, String> {
     if !factor.is_finite() || !(0.0..=1.0).contains(&factor) {

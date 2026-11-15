@@ -93,7 +93,7 @@ pub(super) fn preset_from_placements(
                 mesh_lod: record.mesh_lod,
                 id: format!("member-{}", index + 1), // 目录内身份与当前场景摆放ID分离。
                 asset_path: record.asset_path.clone(), // GLB来源可独立于建筑目录加载。
-                asset_target: record.asset_target,   // Scene0和静态primitive保留精确目标。
+                asset_target: record.asset_target.clone(), // Scene0和静态primitive保留精确目标。
                 building_preset_id: record.building_preset_id.clone(), // 建筑规则仍引用规范预设。
                 local_translation: local.to_array(), // 世界原点换成院落局部米制偏移。
                 local_yaw_degrees: (record.yaw_degrees - yaw_degrees).rem_euclid(360.0), // 成员独立朝向不被整体旋转吃掉。
@@ -135,7 +135,7 @@ pub(super) fn instantiate_preset(
                 terrain_patch: None,
                 id: placement_id.clone(), // 每处院落都产生独立实例ID。
                 asset_path: member.asset_path.clone(), // 不依赖目录索引位置猜来源。
-                asset_target: member.asset_target, // 原GLB目标保持完整。
+                asset_target: member.asset_target.clone(), // 原GLB目标保持完整。
                 building_preset_id: member.building_preset_id.clone(), // 建筑规则只作用于建筑成员。
                 courtyard: Some(ScenePlacementCourtyardMembership {
                     instance_id: instance_id.to_owned(), // 全组共享当前副本身份。

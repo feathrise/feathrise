@@ -124,7 +124,7 @@ fn sync_placement_record_world_impl(
             ScenePlacementInstance::new(&draft_scene_id, record),
         ));
         if builtin_changed {
-            feathrise_scene::spawn_builtin_placement_visual(commands, entity, record.asset_target);
+            feathrise_scene::spawn_builtin_placement_visual(commands, entity, record.asset_target.clone());
         }
         if record.asset_target.is_builtin() {
             feathrise_scene::set_builtin_placement_collision_enabled(commands, entity, visible);

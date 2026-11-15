@@ -9,6 +9,11 @@ use crate::ui::placement_transform::{PlacementTransformAction as LodAction, Plac
 use feathrise_scene::{ScenePlacementInstance, StaticMeshChunkLodStatus};
 use std::{path::PathBuf, time::Instant};
 
+#[path = "viewport_style_validation.rs"]
+mod viewport_style;
+#[path = "subdivision_validation.rs"]
+mod subdivision;
+
 #[derive(Resource)]
 pub(super) struct ChunkFixture {
     id: String,
@@ -20,6 +25,8 @@ pub(super) struct ChunkFixture {
     ui_pulse: Option<Entity>,
     ticks: usize,
     original_view: (Vec3, f32, f32, f32, bool),
+    style: Option<viewport_style::StyleFixture>,
+    subdivision: Option<subdivision::SubdivisionFixture>,
     proof: serde_json::Value,
 }
 
@@ -34,7 +41,10 @@ pub(super) fn begin(world: &mut World, id: &str) -> Result<bool, String> {
     let view = world.resource::<SceneEditorViewportState>();
     let original_view = (view.center, view.extent, view.yaw, view.pitch, world.resource::<SceneEditorState>().orthographic);
     world.insert_resource(ChunkFixture { id: id.into(), phase: 0, before: None, after: None,
-        started: Instant::now(), pulse: None, ui_pulse: None, ticks: 0, original_view, proof: serde_json::json!({
+        started: Instant::now(), pulse: None, ui_pulse: None, ticks: 0, original_view,
+        style: (std::env::var("FEATHRISE_VIEWPORT_STYLE_VALIDATION").as_deref() == Ok("1")).then(Default::default),
+        subdivision: (std::env::var("FEATHRISE_SUBDIVIDE_VALIDATION").as_deref() == Ok("1")).then(Default::default),
+        proof: serde_json::json!({
             "placement_id":id,"complete":false,"scope":"original mesh edit input, undo/redo, actual adopted chunk geometry and GPU; physical keyboard not exercised"
         }) });
     Ok(true)
@@ -134,13 +144,36 @@ pub(super) fn advance(world: &mut World) -> Option<Result<serde_json::Value, Str
         if let Some(entity) = state.ui_pulse.take() { world.entity_mut(entity).insert(feathrise_editor_ui::EditorButtonClick::default()); }
         if state.started.elapsed().as_secs() > 90 {
             let history = world.resource::<EditorAuthoringSession>();
-            return Err(format!("分块LOD验收超时，phase={}，{}，lod={}，edit={}，undo={}，redo={}，guard={}", state.phase,
+            return Err(format!("分块LOD验收超时，phase={}，视口样式={}，细分参数={}，{}，lod={}，edit={}，undo={}，redo={}，guard={}", state.phase,
+                state.style.as_ref().map_or_else(|| "无".into(), viewport_style::StyleFixture::stage),
+                state.subdivision.as_ref().map_or_else(|| "无".into(), subdivision::SubdivisionFixture::stage),
                 world.resource::<SceneEditorState>().status, world.resource::<feathrise_scene::MeshLodRuntimeStatus>().detail,
                 world.resource::<MeshEditState>().active(), history.undo.len(), history.redo.len(),
                 world.resource::<crate::resources::SceneEditorNumericScrubMouseGuard>().blocked()));
         }
         let current = record(world, &state.id)?;
         let geometry = current.asset_target.editable_geometry().ok_or("验收对象丢失作者网格")?;
+        let state = &mut *state;
+        if state.phase == 2 && let Some(fixture) = state.subdivision.as_mut() {
+            if let Some(evidence) = fixture.advance(world, &current, &mut state.ui_pulse)? {
+                state.proof["subdivision"] = evidence;
+                state.phase = 4; // 继续已有第二次局部细分、原属性与保存重开，沿用原一刀来源。
+            }
+            return Ok(false);
+        }
+        if let Some(style) = state.style.as_mut() {
+            if state.phase == 0 && !style.before_subdivision(world, &current, &mut state.ui_pulse)? {
+                return Ok(false);
+            }
+            if state.phase == 9 && !world.resource::<MeshEditState>().owns_mouse() {
+                let Some(evidence) = style.after_subdivision(world, &current, &mut state.ui_pulse)? else {
+                    return Ok(false);
+                };
+                state.proof["viewport_style"] = evidence;
+                state.style = None;
+                restore_view(world, state.original_view);
+            }
+        }
         let edit = world.resource::<MeshEditState>();
         match state.phase {
             0 if edit.active() => { action(world, MeshEditAction::Kind(MeshElementKind::Face)); state.phase = 1; }
@@ -156,19 +189,21 @@ pub(super) fn advance(world: &mut World) -> Option<Result<serde_json::Value, Str
             1 => { action(world, MeshEditAction::SelectAll); state.phase = 2; }
             2 => { action(world, MeshEditAction::Subdivide); state.phase = 3; }
             3 if edit.moving() => { action(world, MeshEditAction::Confirm); state.phase = 4; }
-            4 if geometry.vertex_count == 26 && geometry.face_count == 24 => {
+            4 if geometry.vertex_count() == 26 && geometry.face_count() == 24 => {
                 state.before = Some(current);
-                // 只细分同一原始面上的四个子面；邻面会真实补齐边点，仍须遵守64面容量。
+                // 只细分同一原始面上的四个子面，保留可重复对照的局部 LOD 夹具。
                 world.resource_mut::<MeshEditState>().select_for_test(MeshElementKind::Face, 0xf);
                 action(world, MeshEditAction::Subdivide); state.phase = 5;
             }
             5 if world.resource::<SceneEditorState>().status.starts_with("细分预览无效") => {
                 return Err(world.resource::<SceneEditorState>().status.clone());
             }
-            5 if edit.moving() => { action(world, MeshEditAction::Confirm); state.phase = 6; }
-            6 if geometry.vertex_count > 26 && geometry.triangles().len() > 64 => {
+            5 if edit.subdivision_preview_for_validation().is_some_and(|(_, _, valid)| valid) => {
+                action(world, MeshEditAction::Confirm); state.phase = 6;
+            }
+            6 if geometry.vertex_count() > 26 && geometry.triangles().len() > 64 => {
                 geometry.validate()?;
-                state.proof["author_vertices"] = geometry.vertex_count.into();
+                state.proof["author_vertices"] = geometry.vertex_count().into();
                 state.proof["author_triangles"] = geometry.triangles().len().into();
                 state.after = Some(current);
                 state.pulse = Some(world.spawn((SceneEditorActionButton(EditorAction::Undo), feathrise_editor_ui::EditorButtonClick::triggered())).id());
@@ -305,10 +340,7 @@ pub(super) fn advance(world: &mut World) -> Option<Result<serde_json::Value, Str
                 if let Some(mut capture) = world.get_resource_mut::<Capture>()
                     && let Some(result) = check_ready(&mut capture.0) {
                     result?;
-                    let (center, extent, yaw, pitch, orthographic) = state.original_view;
-                    let mut view = world.resource_mut::<SceneEditorViewportState>();
-                    view.center = center; view.extent = extent; view.yaw = yaw; view.pitch = pitch;
-                    world.resource_mut::<SceneEditorState>().orthographic = orthographic;
+                    restore_view(world, state.original_view);
                     state.proof["screenshot"] = "chunk-lod-mixed.png".into(); state.proof["complete"] = true.into();
                     return Ok(true);
                 }
@@ -322,4 +354,11 @@ pub(super) fn advance(world: &mut World) -> Option<Result<serde_json::Value, Str
         Ok(true) => Some(Ok(world.resource::<ChunkFixture>().proof.clone())),
         Err(error) => Some(Err(error)),
     }
+}
+
+fn restore_view(world: &mut World, original: (Vec3, f32, f32, f32, bool)) {
+    let (center, extent, yaw, pitch, orthographic) = original;
+    let mut view = world.resource_mut::<SceneEditorViewportState>();
+    view.center = center; view.extent = extent; view.yaw = yaw; view.pitch = pitch;
+    world.resource_mut::<SceneEditorState>().orthographic = orthographic;
 }
