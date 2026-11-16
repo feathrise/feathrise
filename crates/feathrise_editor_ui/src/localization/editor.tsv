@@ -626,6 +626,7 @@ help.keep-the-current-vertices-and-replace-the	保留当前顶点并覆盖本次
 label.add-mesh	添加网格 ▶	Add Mesh ▶
 label.basic-shapes	基础形状	Basic Shapes
 label.cube	立方体	Cube
+label.plane	平面	Plane
 label.import-model	导入模型	Import Model
 label.original-glb-use-selected-asset	原始 GLB · 使用所选资产	Original GLB · Use Selected Asset
 label.sculptable-mesh	可塑形网格	Sculptable Mesh
@@ -1135,6 +1136,9 @@ mesh.creation.box_collision_off	盒碰撞：关	Box Collision: Off
 mesh.creation.create_at_coordinates	按坐标创建	Create at Coordinates
 mesh.creation.start_placement	开始点放	Start Placement
 mesh.creation.invalid_cuboid	立方体尺寸、颜色或粗糙度无效	Invalid cube size, color, or roughness
+mesh.creation.invalid_mesh	网格尺寸、颜色或粗糙度无效	Invalid mesh size, color, or roughness
+mesh.creation.mesh_collision_on	网格碰撞：开	Mesh Collision: On
+mesh.creation.mesh_collision_off	网格碰撞：关	Mesh Collision: Off
 mesh.creation.invalid_coordinates	指定坐标必须有限	Coordinates must be finite
 mesh.creation.invalid_dimensions	创建网格的位置和尺寸必须有限，尺寸必须大于零	Mesh position and dimensions must be finite, and dimensions must be positive.
 mesh.creation.invalid_spacing	源格距必须有限且大于零	Source grid spacing must be finite and positive.
@@ -1153,6 +1157,10 @@ mesh.lod.display_policy	显示简化：{mode}	Render Simplification: {mode}
 mesh.lod.collision_policy	碰撞简化：{mode}	Collision Simplification: {mode}
 mesh.lod.original	保持原始	Keep Original
 mesh.lod.custom	自定义	Custom
+mesh.lod.preview	预览 LOD	Preview LOD
+mesh.lod.preview_triangles	三角线	Triangles
+mesh.lod.preview_original	对照原始	Compare Original
+mesh.lod.help.preview	按屏幕误差自动选档。预览 LOD 显示实际三角线、档位和面数；关闭三角线，可在同一镜头用“对照原始”比较显示开销。全局开关控制简化。骨骼和形态目标保持原始。	Render detail follows screen-space error. Preview LOD shows active levels, triangle edges and counts. Turn off triangle lines and use Compare Original to compare performance at the same camera position. The global toggle controls simplification. Skinned meshes and morph targets retain their original geometry.
 mesh.lod.help.placement_display	显示按屏幕误差自动近密远疏。继承全局读取设置中的默认策略；保持原始停止简化；自定义只覆盖本对象。全局关闭时对象自定义也暂停。静态网格支持简化，骨骼和形态目标保持原始。	Render detail follows screen-space error. Inherit uses the global settings; Keep Original stops simplification; Custom overrides this object. The global toggle also gates overrides. Static meshes support simplification; skinned meshes and morph targets keep their original geometry.
 mesh.lod.help.placement_collision	碰撞精度独立于显示和相机，安全近区至少32米。保持原始只停止减面，不关闭碰撞；自定义也受全局碰撞LOD开关约束，默认关闭简化。盒碰撞、建筑专用碰撞等安全形状保持原实现。	Collision detail is independent of rendering and cameras, with a safety radius of at least 32 m. Keep Original stops simplification and retains collision. Custom is also gated by the global collision LOD toggle, which defaults to off. Boxes and dedicated building colliders keep their existing shapes.
 mesh.lod.minimum	至少保留一层	Keep at Least One Level

@@ -113,7 +113,7 @@ pub(crate) fn install(app: &mut App) {
         )
         .add_systems(
             Update,
-            (ui::style, ui::place_overlays, camera::sync)
+            (ui::style, ui::place_overlays, crate::ui::placement_transform::sync_lod_preview_request, camera::sync)
                 .chain()
                 .in_set(crate::SceneEditorSystemSet::Presentation),
         );

@@ -6,6 +6,7 @@
 mod actions; // 高度模式、复制、删除及运行时根定向同步。
 mod cuboid; // 内置立方体的米制尺寸、材质和盒碰撞，复用完整记录事务。
 mod lod; // 普通摆放网格的显示/碰撞策略及自定义精度，写回同一作者记录。
+mod lod_preview; // 选中模型的实际档位、三角线和原始对照，只影响作者观察。
 mod numeric_input; // 七个专业数字框的精确提交、单次拖动撤销和灵敏度持久化。
 mod relocation; // “吸附地面”的真实三角落点、撤销提交与纯语义回归。
 mod scene; // 右栏紧凑水墨铜边属性面板与固定数值槽。
@@ -28,6 +29,7 @@ pub(crate) use relocation::apply_selected_placement_relocation; // Tasks在现�
 pub(super) use scene::placement_transform_panel; // 右栏场景页只组合一个完整功能域Scene。
 pub(crate) use scene::setup_placement_transform_numeric_inputs; // Presentation只为新增槽位挂载一次控件。
 pub(crate) use sync::sync_placement_transform_panel; // Presentation统一同步显隐、值和交互视觉。
+pub(crate) use lod_preview::sync_lod_preview_request;
 
 const TRANSLATION_Y_MIN: f32 = -1_000_000.0; // Y轴不受场景XZ边界约束，但仍限制异常精确输入。
 const TRANSLATION_Y_MAX: f32 = 1_000_000.0; // 覆盖现有地形高度同时阻断极端世界包围盒。
@@ -371,6 +373,9 @@ pub(crate) enum PlacementTransformAction {
     CollisionLodInherit,
     CollisionLodOriginal,
     CollisionLodCustom,
+    ToggleLodPreview,
+    ToggleLodTriangles,
+    CompareLodOriginal,
 }
 
 /// 下一次中央视口落点对应移动现有记录，还是延迟创建建筑副本。
@@ -432,6 +437,8 @@ pub(crate) struct PlacementTransformInputState {
     pub(super) rejected_scrub: Option<Entity>, // 取消后的同根Changed持续拒收，直到真实Scrub松手，不能将事务空窗当作新笔。
     pub(super) relocation_target: Option<PlacementTransformTarget>, // 下一次中央视口左键绑定的完整稳定资产。
     pub(super) relocation_intent: PlacementRelocationIntent, // 建筑复制与普通移动共享一个视口点击门。
+    lod_preview: Option<lod_preview::PlacementLodPreview>,
+    lod_preview_available: bool,
 }
 
 impl PlacementTransformInputState {

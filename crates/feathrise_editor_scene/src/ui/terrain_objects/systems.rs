@@ -312,11 +312,12 @@ pub(super) fn input(
                 }
                 None
             }
-            Action::ImportGlb | Action::Clipmap | Action::Voxel | Action::Cuboid => {
+            Action::ImportGlb | Action::Clipmap | Action::Voxel | Action::Cuboid | Action::Plane => {
                 state.creation_source = match button.0 {
                     Action::ImportGlb => CreationSource::ImportedGlb,
                     Action::Clipmap => CreationSource::Clipmap,
                     Action::Voxel => CreationSource::Voxel,
+                    Action::Plane => CreationSource::Plane,
                     _ => CreationSource::Cuboid,
                 };
                 None

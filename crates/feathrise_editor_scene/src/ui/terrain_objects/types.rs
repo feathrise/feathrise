@@ -12,14 +12,19 @@ use std::sync::Arc;
 pub(crate) enum CreationSource {
     #[default]
     Cuboid,
+    Plane,
     ImportedGlb,
     Clipmap,
     Voxel,
 }
 impl CreationSource {
+    pub(crate) fn is_builtin(self) -> bool {
+        matches!(self, Self::Cuboid | Self::Plane)
+    }
+
     pub(super) fn kind(self) -> Option<SceneTerrainKind> {
         Some(match self {
-            Self::Cuboid => return None,
+            Self::Cuboid | Self::Plane => return None,
             Self::ImportedGlb => SceneTerrainKind::Gltf,
             Self::Clipmap => SceneTerrainKind::SparseClipmap,
             Self::Voxel => SceneTerrainKind::Voxel,

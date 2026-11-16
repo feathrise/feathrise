@@ -1,9 +1,9 @@
-//! 固定立方体幽灵与空场景工作平面；真实场景继续消费现有后台光标的完整命中。
+//! 固定基础形状幽灵与空场景工作平面；真实场景继续消费现有后台光标的完整命中。
 
 use bevy::{camera::visibility::RenderLayers, prelude::*, ui::RelativeCursorPosition};
 use feathrise_editor_core::EditorSettings;
 
-use super::{CUBOID_SELECTION, components::CuboidGhost, resources::BasicShapeState};
+use super::{CUBOID_SELECTION, components::{CuboidGhost, PlaneGhost}, resources::BasicShapeState};
 use crate::{
     authoring::EditorAuthoringSession,
     components::SceneEditorViewport,
@@ -59,6 +59,19 @@ pub(super) fn setup_preview(
         bevy::light::NotShadowCaster,
         bevy::light::NotShadowReceiver,
     )); // 全会话只分配24顶点盒网格与一份材质，逐帧只改固定变换和显隐。
+    commands.spawn((
+        Name::new("编辑器平面点放预览"), PlaneGhost,
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(2.0, 2.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgba(0.50, 0.67, 0.79, 0.40),
+            alpha_mode: AlphaMode::Blend, perceptual_roughness: 0.7, unlit: true,
+            double_sided: true, cull_mode: None, // 单层面从下方同样可见，不用零高度盒体代替。
+            ..default()
+        })),
+        Transform::IDENTITY, Visibility::Hidden,
+        RenderLayers::layer(crate::viewport::SCENE_EDITOR_BRUSH_RENDER_LAYER),
+        bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver,
+    ));
 }
 
 pub(crate) fn plane_hit(ray: Ray3d) -> Option<Vec3> {
@@ -88,7 +101,7 @@ pub(super) fn update_preview(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     workspace: Option<Res<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>>,
     transform_input: Option<Res<crate::ui::placement_transform::PlacementTransformInputState>>,
-    mut ghost: Query<(&mut Transform, &mut Visibility, &MeshMaterial3d<StandardMaterial>), With<CuboidGhost>>,
+    mut ghost: Query<(&mut Transform, &mut Visibility, &MeshMaterial3d<StandardMaterial>, Option<&PlaneGhost>), Or<(With<CuboidGhost>, With<PlaneGhost>)>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     state.work_plane = None; // 工作平面必须每帧重新证明当前相机、视口和场景身份。
@@ -159,10 +172,15 @@ pub(super) fn update_preview(
             editor.cursor_world
         }
     })();
-    for (mut transform, mut visibility, material) in &mut ghost {
-        let shape = target.clone().and_then(|target| match target {
+    for (mut transform, mut visibility, material, plane) in &mut ghost {
+        let shape = target.as_ref().and_then(|target| match target {
             feathrise_scene_content::ScenePlacementAssetTarget::Cuboid { size_mm, color_srgb, roughness_milli, .. } =>
-                Some((Vec3::from_array(size_mm.map(|size| size as f32 * 0.001)), color_srgb, roughness_milli)),
+                plane.is_none().then_some((Vec3::from_array(size_mm.map(|size| size as f32 * 0.001)), *color_srgb, *roughness_milli)),
+            feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { geometry, color_srgb, roughness_milli, .. }
+                if plane.is_some() && geometry.is_open() => {
+                let (min, max) = geometry.bounds_half_mm();
+                Some((Vec3::new((max[0] - min[0]) as f32 * 0.0005, 0.0, (max[2] - min[2]) as f32 * 0.0005), *color_srgb, *roughness_milli))
+            }
             _ => None,
         });
         let visible = point.filter(|_| adding).zip(shape).map(|(point, (size, _, _))| point + Vec3::Y * size.y * 0.5);
@@ -180,7 +198,7 @@ pub(super) fn update_preview(
             transform.translation = point;
         }
         if let Some((size, color, roughness)) = shape {
-            let scale = size * 0.5; // 共享2米盒体只改变换，参数更新不逐帧构造Mesh。
+            let scale = (size * 0.5).with_y(if plane.is_some() { 1.0 } else { size.y * 0.5 }); // 固定2米来源只改变换；平面保留非零法向缩放。
             if transform.scale != scale { transform.scale = scale; }
             if let Some(mut material) = materials.get_mut(&material.0) {
                 let next_color = Color::srgba(color[0] as f32 / 255.0, color[1] as f32 / 255.0, color[2] as f32 / 255.0, 0.40);

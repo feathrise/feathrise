@@ -89,7 +89,7 @@ pub(super) fn control(
     let Some(draft) = session.draft.as_ref() else { return; };
     let map = draft.scene_id.clone();
     if editor.selected_scene_id.as_ref() != Some(&map) { return; }
-    if state.creation_source == CreationSource::Cuboid {
+    if state.creation_source.is_builtin() {
         let target = creation::cuboid_target(&state).expect("已通过统一规格预检");
         if let Some(shapes) = shapes.as_deref_mut() {
             shapes.creation_identity = Some((map, session.revision));
@@ -97,7 +97,7 @@ pub(super) fn control(
                 target, position: (state.placement_mode == CreationPlacementMode::Coordinates)
                     .then(|| Vec3::from_array(state.creation[..3].try_into().unwrap())),
             });
-        } else { editor.status = "立方体创建入口尚未就绪".into(); }
+        } else { editor.status = "内置网格创建入口尚未就绪".into(); }
         return;
     }
     state.placement_mouse_capture = true;

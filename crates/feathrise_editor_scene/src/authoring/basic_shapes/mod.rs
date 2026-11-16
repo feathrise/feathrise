@@ -1,7 +1,7 @@
-//! 统一网格创建面板的立方体请求、半透明点放预览与空场景显式工作平面。
+//! 统一网格创建面板的基础形状请求、半透明点放预览与空场景显式工作平面。
 //!
 //! 【需求设计】基础形状复用普通摆放的唯一真实地面与吸附协议；编辑期token只表达
-//! 当前添加意图，持久记录使用Cuboid参数和空asset_path，不能把token交给AssetServer。
+//! 当前添加意图，持久记录使用Cuboid或开口EditableMesh和空asset_path，不能把token交给AssetServer。
 
 mod components;
 mod placement;
@@ -12,6 +12,12 @@ pub(crate) use placement::{is_cuboid_selection, plane_hit, work_plane_is_availab
 pub(crate) use resources::{BasicShapeState, CuboidCreationRequest};
 
 pub(crate) use feathrise_editor_animation_model::media::CUBOID_SELECTION;
+
+pub(crate) fn creation_label(target: &feathrise_scene_content::ScenePlacementAssetTarget) -> &'static str {
+    if matches!(target, feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { geometry, .. } if geometry.is_open()) {
+        "平面"
+    } else { "立方体" }
+}
 
 pub(crate) fn install(app: &mut bevy::prelude::App) {
     use crate::SceneEditorSystemSet;

@@ -371,6 +371,7 @@ pub(super) fn create_cuboid_at(
     let map = draft.scene_id.clone();
     if editor.selected_scene_id.as_ref() != Some(&map) { return None; }
     let id = next_author_id(session, "placement");
+    let label = super::basic_shapes::creation_label(&target);
     let mut record = ScenePlacementRecord {
         mesh_lod: None, terrain_binding: None, editor: Default::default(), terrain_patch: None,
         id: id.clone(), asset_path: String::new(), asset_target: target,
@@ -379,8 +380,8 @@ pub(super) fn create_cuboid_at(
         yaw_degrees: 0.0, scale: [1.0; 3], water_surfaces: Vec::new(),
     };
     let ordinal = session.next_serial.saturating_sub(1);
-    std::sync::Arc::make_mut(&mut record.editor).name = if ordinal == 0 { "立方体".into() }
-        else { format!("立方体.{ordinal:03}") };
+    std::sync::Arc::make_mut(&mut record.editor).name = if ordinal == 0 { label.into() }
+        else { format!("{label}.{ordinal:03}") };
     let entity = spawn_placement_preview(commands, asset_server, &map, &record);
     session.draft.as_mut()?.placements.placements.push(record.clone());
     session.placement_previews.insert(id.clone(), entity);
@@ -390,7 +391,7 @@ pub(super) fn create_cuboid_at(
     editor.tool = EditorTool::Inspect;
     editor.selected_asset = None;
     editor.placement_transform_enabled = false;
-    editor.status = "已按中心坐标创建未保存立方体；可通过撤销取消".into();
+    editor.status = format!("已按中心坐标创建未保存{label}；可通过撤销取消");
     Some(id)
 }
 
@@ -709,11 +710,14 @@ pub(crate) fn place_from_viewport(
                 let half_height = size_mm[1] as f32 * 0.0005;
                 record.translation[1] += half_height;
                 record.terrain_offset = if height_mode.follows_terrain() { half_height } else { 0.0 };
-                // Cuboid局部原点在中心；初次放置底面贴地，后续尺寸与整体变换保持独立。
+                // Cuboid局部原点在中心；初次放置底面贴地，平面没有厚度不补高度。
+            }
+            if builtin {
+                let label = super::basic_shapes::creation_label(&record.asset_target);
                 let ordinal = session.next_serial.saturating_sub(1);
                 std::sync::Arc::make_mut(&mut record.editor).name = if ordinal == 0 {
-                    "立方体".to_owned()
-                } else { format!("立方体.{ordinal:03}") };
+                    label.to_owned()
+                } else { format!("{label}.{ordinal:03}") };
                 // 名称仅供显示，唯一身份使用作者ID；不为递增显示名同步扫描整个场景。
             }
             if object_map && !work_plane {

@@ -1,10 +1,10 @@
-//! 创建后端边界、即时禁用和公共数值框真实输入回归，不写入项目场景资产。
+//! 创建后端边界、平面规格、即时禁用和公共数值框真实输入回归，不写入项目场景资产。
 use super::*;
 use crate::{
     authoring::EditorAuthoringSession,
     resources::SceneEditorState,
     ui::terrain_objects::{
-        components::*, page_tests, resources::TerrainObjectsEditorState, systems, types::Mutation,
+        components::*, creation, presentation, page_tests, resources::TerrainObjectsEditorState, systems, types::Mutation,
     },
 };
 use bevy::{
@@ -22,6 +22,40 @@ use feathrise_editor_ui::{
 
 fn values(spacing: f32) -> [f32; 8] {
     [0.0, 0.0, 0.0, 64.0, 16.0, 64.0, 0.0, spacing]
+}
+
+#[test]
+fn plane_creation_uses_xz_dimensions_and_ignores_hidden_cube_height() {
+    let mut state = TerrainObjectsEditorState::default();
+    state.creation_open = true;
+    state.creation_source = CreationSource::Plane;
+    state.cuboid_creation = [3.0, f32::NAN, 5.0, 100.0, 150.0, 200.0, 0.25];
+    state.cuboid_collision = false;
+    assert!(creation::validate_selected(&state).is_ok());
+    for index in 0..7 {
+        assert_eq!(creation::field_visible(Field::CuboidCreation(index), &state), index != 1);
+    }
+    let target = creation::cuboid_target(&state).unwrap();
+    let feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { geometry, color_srgb, roughness_milli, collision } = target else { panic!("平面应使用开口作者网格"); };
+    assert!(geometry.is_open());
+    assert_eq!(geometry.bounds_half_mm(), ([-3000, 0, -5000], [3000, 0, 5000]));
+    assert_eq!((color_srgb, roughness_milli, collision), ([100, 150, 200], 250, false));
+    state.creation_source = CreationSource::Cuboid;
+    assert!(creation::validate_selected(&state).is_err());
+}
+
+#[test]
+fn real_plane_source_button_selects_a_visible_plane_form() {
+    let (mut app, window) = page_tests::creation_page();
+    click_action(&mut app, window, Action::ToggleCreation);
+    click_action(&mut app, window, Action::Plane);
+    assert_eq!(app.world().resource::<TerrainObjectsEditorState>().creation_source, CreationSource::Plane);
+    let world = app.world_mut();
+    let height = world.query::<(Entity, &Field)>().iter(world)
+        .find_map(|(entity, field)| (*field == Field::CuboidCreation(1)).then_some(entity)).unwrap();
+    assert!(!creation::field_visible(Field::CuboidCreation(1), world.resource::<TerrainObjectsEditorState>()));
+    assert!(world.get::<Node>(height).is_some());
+    assert!(presentation::action_available(Action::CuboidCollision, None, world.resource::<TerrainObjectsEditorState>()));
 }
 
 #[test]

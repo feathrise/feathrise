@@ -237,6 +237,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                     return Err(format!("原作者真实编辑保存缺少完整成功回执：{proof}"));
                 }
                 verify_subdivision(&output, proof)?;
+                verify_model_lod_preview(&output, proof)?;
                 let game = verify_game_with_prior_manifest(
                     root,
                     &work.join("game-f12"),
@@ -558,7 +559,55 @@ fn verify_subdivision(output: &Path, proof: &Value) -> Result<(), String> {
     Ok(())
 }
 
+fn verify_model_lod_preview(output: &Path, proof: &Value) -> Result<(), String> {
+    if std::env::var("FEATHRISE_MODEL_LOD_PREVIEW_VALIDATION").as_deref() != Ok("1") {
+        return Ok(());
+    }
+    let preview = &proof["chunk_lod"]["model_lod_preview"];
+    if preview["complete"] != true || preview["source_triangles"] != 122_412
+        || !preview["lod_triangles"].as_u64().is_some_and(|count| count > 0 && count < 122_412)
+    {
+        return Err(format!("模型LOD预览缺少同一真实密集来源的减面回执：{preview}"));
+    }
+    for phase in ["original", "lod", "original_repeat"] {
+        if preview[phase]["frames"] != 90 || preview[phase]["continuous_no_vsync"] != true
+            || !preview[phase]["median_ms"].as_f64().is_some_and(|value| value > 0.0) {
+            return Err(format!("模型LOD对照缺少有效实际帧样本：{phase}"));
+        }
+    }
+    for name in ["model-lod-simplified.png", "model-lod-original.png"] {
+        if !fs::metadata(output.join(name)).is_ok_and(|file| file.is_file() && file.len() > 0) {
+            return Err(format!("缺少本轮窗口三角线截图：{name}"));
+        }
+    }
+    Ok(())
+}
+
 fn verify_placement(observed: &Value, proof: &Value) -> Result<(), String> {
+    if std::env::var("FEATHRISE_PLANE_VALIDATION").as_deref() == Ok("1") && proof["plane"].is_null() {
+        return Err("平面专项缺少原创建与建模证据".into());
+    }
+    if !proof["plane"].is_null() {
+        let plane = &proof["plane"];
+        if plane["complete"] != true || plane["undo_exact"] != true || plane["redo_exact"] != true {
+            return Err("平面专项未完成真实建模和历史恢复".into());
+        }
+        let assets = PathBuf::from(proof["source_asset_root"].as_str().ok_or("平面缺少自有资产根")?)
+            .canonicalize().map_err(|e| e.to_string())?;
+        let relative = plane["placements_path"].as_str().ok_or("平面没有冻结摆放源")?;
+        let path = assets.join(relative).canonicalize().map_err(|e| e.to_string())?;
+        if !path.starts_with(&assets) { return Err("平面摆放源越出自有工程".into()); }
+        let saved = feathrise_scene_content::read_scene_placements(&fs::read(path).map_err(|e| e.to_string())?, relative)?;
+        let expected: feathrise_scene_content::ScenePlacementRecord = serde_json::from_value(plane["saved_record"].clone()).map_err(|e| e.to_string())?;
+        if !expected.asset_target.editable_geometry().is_some_and(|g| g.is_open() && (g.vertex_count(), g.face_count()) == (9, 4))
+            || saved.placements.iter().find(|record| record.id == expected.id) != Some(&expected) {
+            return Err("原保存未保留完整细分平面".into());
+        }
+        if let Some(records) = observed["current_author_document"]["placements"].as_array()
+            && !records.iter().any(|record| record == &plane["saved_record"]) {
+            return Err("新进程作者重开未恢复细分平面".into());
+        }
+    }
     if !proof["chunk_lod"].is_null() {
         let chunks = &proof["chunk_lod"];
         if chunks["complete"] != true || chunks["undo_exact"] != true || chunks["redo_exact"] != true

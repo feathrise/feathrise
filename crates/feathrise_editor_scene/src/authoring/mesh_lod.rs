@@ -22,6 +22,7 @@ impl MeshLodInputGate<'_> {
 pub(crate) fn install(app: &mut App) {
     app.init_resource::<MeshLodAuthoringState>()
         .init_resource::<MeshChunkLodPreview>()
+        .init_resource::<feathrise_scene::MeshLodInspection>()
         .add_systems(PostUpdate, sync.before(bevy::transform::TransformSystems::Propagate));
 }
 

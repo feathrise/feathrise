@@ -5,12 +5,13 @@ use super::{components::Field, resources::TerrainObjectsEditorState, types::{Cre
 pub(super) fn field_visible(field: Field, state: &TerrainObjectsEditorState) -> bool {
     if !state.creation_open { return false; }
     match field {
-        Field::CuboidCreation(_) => state.creation_source == CreationSource::Cuboid,
+        Field::CuboidCreation(index) => state.creation_source.is_builtin()
+            && (state.creation_source != CreationSource::Plane || index != 1),
         Field::Creation(index) => match index {
             0..=2 => state.placement_mode == CreationPlacementMode::Coordinates,
             3 | 5 => matches!(state.creation_source, CreationSource::Clipmap | CreationSource::Voxel),
             4 => state.creation_source == CreationSource::Voxel,
-            6 => state.creation_source != CreationSource::Cuboid,
+            6 => !state.creation_source.is_builtin(),
             7 => matches!(state.creation_source, CreationSource::Clipmap | CreationSource::Voxel),
             _ => false,
         },
@@ -20,15 +21,28 @@ pub(super) fn field_visible(field: Field, state: &TerrainObjectsEditorState) -> 
 
 pub(super) fn cuboid_target(state: &TerrainObjectsEditorState) -> Result<feathrise_scene_content::ScenePlacementAssetTarget, String> {
     let values = state.cuboid_creation;
-    if values.iter().any(|v| !v.is_finite()) || values[..3].iter().any(|v| !(0.001..=10_000.0).contains(v))
+    let plane = state.creation_source == CreationSource::Plane;
+    // 平面只消费 X/Z 尺寸；隐藏的立方体高度记忆不参与创建规格。
+    let size_indices: &[usize] = if plane { &[0, 2] } else { &[0, 1, 2] };
+    if size_indices.iter().any(|&i| !values[i].is_finite() || !(0.001..=10_000.0).contains(&values[i]))
+        || values[3..].iter().any(|v| !v.is_finite())
         || values[3..6].iter().any(|v| !(0.0..=255.0).contains(v)) || !(0.0..=1.0).contains(&values[6]) {
-        return Err("立方体尺寸、颜色或粗糙度无效".into());
+        return Err("网格尺寸、颜色或粗糙度无效".into());
     }
-    let target = feathrise_scene_content::ScenePlacementAssetTarget::Cuboid {
-        size_mm: [values[0], values[1], values[2]].map(|v| (v * 1000.0).round() as u32),
-        color_srgb: [values[3], values[4], values[5]].map(|v| v.round() as u8),
-        roughness_milli: (values[6] * 1000.0).round() as u16,
-        collision: state.cuboid_collision,
+    let color_srgb = [values[3], values[4], values[5]].map(|v| v.round() as u8);
+    let roughness_milli = (values[6] * 1000.0).round() as u16;
+    let collision = state.cuboid_collision;
+    let target = if plane {
+        feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh {
+            geometry: feathrise_scene_content::EditableMeshGeometry::from_plane_size_mm(
+                [values[0], values[2]].map(|v| (v * 1000.0).round() as u32))?,
+            color_srgb, roughness_milli, collision,
+        }
+    } else {
+        feathrise_scene_content::ScenePlacementAssetTarget::Cuboid {
+            size_mm: [values[0], values[1], values[2]].map(|v| (v * 1000.0).round() as u32),
+            color_srgb, roughness_milli, collision,
+        }
     };
     target.validate()?;
     Ok(target)
@@ -57,7 +71,7 @@ pub(super) fn sync_feedback(state: bevy::prelude::Res<TerrainObjectsEditorState>
     locale: Option<bevy::prelude::Res<feathrise_editor_ui::localization::EditorLocale>>,
     mut texts: bevy::prelude::Query<&mut bevy::prelude::Text, bevy::prelude::With<super::components::CreationFeedback>>) {
     let label = match state.creation_source {
-        CreationSource::Cuboid => "立方体", CreationSource::ImportedGlb => "原始 GLB",
+        CreationSource::Cuboid => "立方体", CreationSource::Plane => "平面", CreationSource::ImportedGlb => "原始 GLB",
         CreationSource::Clipmap => "高度地形", CreationSource::Voxel => "体素地形",
     };
     let result = validate_selected(&state).and_then(|_| {

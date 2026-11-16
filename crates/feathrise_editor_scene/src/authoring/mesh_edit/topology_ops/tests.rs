@@ -1,4 +1,4 @@
-//! 用正式几何校验和闭壳不变量验证五种拓扑结果，额外核对世界米制宽度与作者元数据保留。
+//! 用正式几何校验验证闭壳和开口平面的拓扑结果，核对世界米制宽度与作者元数据保留。
 
 use super::super::{selection::MeshSelection, types::MeshElementKind};
 use super::*;
@@ -18,6 +18,33 @@ fn record() -> ScenePlacementRecord {
 
 fn geometry(record: &ScenePlacementRecord) -> EditableMeshGeometry {
     record.asset_target.editable_geometry().unwrap()
+}
+
+#[test]
+fn plane_subdivision_inset_and_extrusion_preserve_open_surface_and_record_identity() {
+    let mut before = record();
+    before.asset_target = ScenePlacementAssetTarget::EditableMesh {
+        geometry: EditableMeshGeometry::from_plane_size_mm([4000, 6000]).unwrap(),
+        color_srgb: [80, 120, 180], roughness_milli: 250, collision: true,
+    };
+    for (kind, mask) in [(MeshElementKind::Face, 1), (MeshElementKind::Edge, 15), (MeshElementKind::Vertex, 15)] {
+        let after = subdivide_record(&before, kind, &MeshSelection::from(mask)).unwrap();
+        let grid = geometry(&after);
+        assert!(grid.is_open());
+        assert_eq!((grid.vertex_count(), grid.edges().len(), grid.face_count()), (9, 12, 4));
+        assert_record_preserved(&before, &after);
+        let twice = subdivide_record(&after, MeshElementKind::Face, &MeshSelection::from(15)).unwrap();
+        assert!(geometry(&twice).is_open());
+        assert_eq!(geometry(&twice).face_count(), 16);
+    }
+    let inset = inset_record(&before, MeshElementKind::Face, &MeshSelection::from(1), 0.25).unwrap();
+    assert!(geometry(&inset).is_open());
+    assert_eq!(geometry(&inset).face_count(), 5);
+    assert_record_preserved(&before, &inset);
+    let extruded = feathrise_scene_content::extruded_placement_record(&before, 0, 1.0).unwrap();
+    assert!(geometry(&extruded).is_open());
+    assert_eq!(geometry(&extruded).face_count(), 5);
+    assert_record_preserved(&before, &extruded);
 }
 
 fn edge_selection(record: &ScenePlacementRecord, a: usize, b: usize) -> u128 {

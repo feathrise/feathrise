@@ -79,8 +79,8 @@ impl WorldMesh {
     pub fn faces(&self) -> &[MeshFace] {
         self.geometry.faces()
     }
-    pub fn edge_faces(&self, edge: usize) -> [usize; 2] {
-        self.geometry.edge_faces()[edge]
+    pub fn edge_faces(&self, edge: usize) -> impl Iterator<Item = usize> {
+        self.geometry.adjacent_faces(edge)
     }
     pub fn count(&self, kind: MeshElementKind) -> usize {
         match kind {

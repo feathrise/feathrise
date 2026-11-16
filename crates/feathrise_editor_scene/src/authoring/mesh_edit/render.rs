@@ -84,12 +84,11 @@ pub(super) fn draw_elements(
             continue;
         }
         // 同一条真实边只提交一次；面选择直接决定边色，避免重叠橙线被深度测试丢弃。
-        let adjacent = mesh.edge_faces(index);
         let chosen = kind == MeshElementKind::Edge && selected_elements.contains(index)
             || kind == MeshElementKind::Face
-                && adjacent.into_iter().any(|face| selected_elements.contains(face));
+                && mesh.edge_faces(index).any(|face| selected_elements.contains(face));
         let hover = edge_hover == Some(index)
-            || (kind == MeshElementKind::Face && element_hover.is_some_and(|face| adjacent.contains(&face)));
+            || (kind == MeshElementKind::Face && element_hover.is_some_and(|face| mesh.edge_faces(index).any(|neighbor| neighbor == face)));
         gizmos.line(
             vertices[a],
             vertices[b],

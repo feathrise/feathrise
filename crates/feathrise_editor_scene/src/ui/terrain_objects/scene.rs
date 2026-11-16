@@ -164,7 +164,9 @@ pub(crate) fn panel() -> impl Scene {
             Children [
                 // 创建分类用“网格”描述几何；GLB资产及其内容仍沿用模型身份。
                 @caption("网格")--
-                @button("立方体", Action::Cuboid)--
+                Node { width: percent(100), column_gap: px(3) } Children [
+                    @button("立方体", Action::Cuboid)-- @button("平面", Action::Plane)
+                ]--
                 @button("原始 GLB · 使用所选资产", Action::ImportGlb)--
                 @caption("地形")--
                 Node { width: percent(100), column_gap: px(3) } Children [

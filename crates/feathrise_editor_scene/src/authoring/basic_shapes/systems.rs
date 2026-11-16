@@ -56,7 +56,10 @@ pub(super) fn control_menu(
         && !windows.single().is_ok_and(|window| !window.focused)
         && session.draft.as_ref().is_some_and(|draft| editor.selected_scene_id.as_ref() == Some(&draft.scene_id));
     let stale = state.placement_identity.is_some() && (state.placement_target(&session).is_none()
-        || meshes.creation_source != crate::ui::terrain_objects::CreationSource::Cuboid
+        || !meshes.creation_source.is_builtin()
+        || state.placement_target.as_ref().is_some_and(|target|
+            matches!(target, feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { geometry, .. } if geometry.is_open())
+                != (meshes.creation_source == crate::ui::terrain_objects::CreationSource::Plane))
         || meshes.placement_mode != crate::ui::terrain_objects::CreationPlacementMode::Viewport
         || workspace.active_tab != PresetWorkspaceTab::Scene);
     if !available || stale {
@@ -101,6 +104,7 @@ pub(super) fn control_menu(
     }
     let draft = session.draft.as_ref().expect("上方资格已经确认草稿");
     state.placement_identity = Some((draft.scene_id.clone(), session.revision));
+    let label = super::creation_label(&request.target);
     state.placement_target = Some(request.target); // 后续面板调整不得改写已武装点放的规格。
     editor.selected_asset = Some(CUBOID_SELECTION.into());
     editor.tool = EditorTool::PlaceAsset;
@@ -114,13 +118,14 @@ pub(super) fn control_menu(
     workspace.active_tab = PresetWorkspaceTab::Scene;
     workspace.touch_ui();
     editor.status = if super::placement::work_plane_is_available(&session) {
-        "添加立方体：当前为空场景，底面贴Y=0工作平面；左键放置，Esc取消".into()
+        format!("添加{label}：当前为空场景，底面贴Y=0工作平面；左键放置，Esc取消")
     } else {
-        "添加立方体：按当前规格预览，底面贴地；左键放置，Esc取消".into()
+        format!("添加{label}：按当前规格预览，底面贴地；左键放置，Esc取消")
     };
 }
 
 fn cancel(state: &mut BasicShapeState, editor: &mut SceneEditorState, mode: &mut ViewportModeState) {
+    let label = state.placement_target.as_ref().map(super::creation_label).unwrap_or("网格");
     state.placement_target = None;
     state.placement_identity = None;
     state.work_plane = None;
@@ -129,5 +134,5 @@ fn cancel(state: &mut BasicShapeState, editor: &mut SceneEditorState, mode: &mut
     editor.selected_asset = None;
     editor.placement_transform_enabled = false;
     mode.mode = ViewportMode::Select;
-    editor.status = "已取消添加立方体".into();
+    editor.status = format!("已取消添加{label}");
 }

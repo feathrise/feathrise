@@ -126,9 +126,9 @@ pub(super) fn action_available(
     let native = |display| object.is_some_and(native_lods) && state.section_open(TerrainObjectsEditorState::lod_section(display));
     match action {
         Action::ToggleCreation => true,
-        Action::Cuboid | Action::Clipmap | Action::Voxel | Action::ImportGlb
+        Action::Cuboid | Action::Plane | Action::Clipmap | Action::Voxel | Action::ImportGlb
             | Action::PlacementViewport | Action::PlacementCoordinates => state.creation_open,
-        Action::CuboidCollision => state.creation_open && state.creation_source == super::types::CreationSource::Cuboid,
+        Action::CuboidCollision => state.creation_open && state.creation_source.is_builtin(),
         Action::StartCreation => state.creation_open && state.point_query.is_none()
             && super::creation::validate_selected(state).is_ok(),
         Action::CancelPlacement => state.creation_open,
@@ -433,7 +433,7 @@ pub(super) fn sync(
         } else {
             match section.expect("分区、数值槽和列表行构成固定表现池").0 {
                 Section::Creation => state.creation_open,
-                Section::CreationCuboid => state.creation_source == super::types::CreationSource::Cuboid,
+                Section::CreationCuboid => state.creation_source.is_builtin(),
                 Section::Selection => object.is_some(),
                 Section::Basic => state.section_open(MeshPropertySection::Basic),
                 Section::Type => state.section_open(MeshPropertySection::Type),
@@ -568,7 +568,7 @@ pub(super) fn sync(
                     "添加网格 ▶"
                 }
                 .to_owned(),
-                Action::CuboidCollision => format!("盒碰撞：{}", if state.cuboid_collision { "开" } else { "关" }),
+                Action::CuboidCollision => format!("{}：{}", if state.creation_source == super::types::CreationSource::Plane { "网格碰撞" } else { "盒碰撞" }, if state.cuboid_collision { "开" } else { "关" }),
                 Action::StartCreation => if state.placement_mode == super::types::CreationPlacementMode::Coordinates { "按坐标创建" } else { "开始点放" }.to_owned(),
                 Action::Enabled => if object.is_some_and(|object| object.enabled) {
                     "参与场景：是"
@@ -725,6 +725,7 @@ pub(super) fn sync(
         }
         let selected = match button.0 {
             Action::Cuboid => state.creation_source == super::types::CreationSource::Cuboid,
+            Action::Plane => state.creation_source == super::types::CreationSource::Plane,
             Action::ImportGlb => state.creation_source == super::types::CreationSource::ImportedGlb,
             Action::Clipmap => state.creation_source == super::types::CreationSource::Clipmap,
             Action::Voxel => state.creation_source == super::types::CreationSource::Voxel,

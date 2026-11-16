@@ -244,10 +244,16 @@ pub(crate) fn sync_placement_transform_panel(
     }
 
     for (interaction, button, mut node, mut background, mut border) in &mut buttons {
+        let preview = state.lod_preview.as_ref()
+            .filter(|preview| target.as_ref().is_some_and(|target| preview.matches(target)));
         let display = if (button.0 == PlacementTransformAction::RotateQuarterTurn && !is_building)
             || (button.0 == PlacementTransformAction::ToggleCuboidCollision && !is_cuboid)
             || (button.0 == PlacementTransformAction::FollowTerrain && record.is_some_and(|record| record.terrain_patch.is_some()))
             || (super::lod::is_action(button.0) && record.is_some_and(|record| record.terrain_patch.is_some()))
+            || (button.0 == PlacementTransformAction::ToggleLodPreview
+                && !state.lod_preview_available)
+            || (matches!(button.0, PlacementTransformAction::ToggleLodTriangles | PlacementTransformAction::CompareLodOriginal)
+                && preview.is_none())
             || (is_cuboid && matches!(button.0, PlacementTransformAction::ToggleTerrainPatch | PlacementTransformAction::ToggleTerrainCutout)) {
             Display::None
         } else {
@@ -278,7 +284,8 @@ pub(crate) fn sync_placement_transform_panel(
             _ => false,
         });
         let lod_selected = record.is_some_and(|record| super::lod::selected(button.0, record));
-        let selected = armed || mode_selected || terrain_selected || lod_selected; // 两条LOD通道各自显示唯一当前策略。
+        let preview_selected = preview.is_some_and(|preview| preview.selected(button.0));
+        let selected = armed || mode_selected || terrain_selected || lod_selected || preview_selected;
         let color = match (*interaction, danger, selected) {
             (UiInteraction::Pressed, true, _) => colors::DANGER_BG, // 删除按压保持红色而非普通铜色。
             (UiInteraction::Hovered, true, _) => colors::DANGER_BG, // 删除悬停强化危险底色。

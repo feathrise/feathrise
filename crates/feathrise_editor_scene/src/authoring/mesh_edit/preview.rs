@@ -116,10 +116,13 @@ impl EditWorld<'_, '_> {
             }
             _ => return Err("当前对象不是内置网格".into()),
         };
+        let open_surface = matches!(&record.asset_target, feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { geometry, .. } if geometry.is_open());
+        let cull_mode = if open_surface { None } else { Some(bevy::render::render_resource::Face::Back) };
         if state.ghost_material.is_none() {
             state.ghost_material = Some(materials.add(StandardMaterial {
                 base_color: Color::srgb_u8(color[0], color[1], color[2]),
                 unlit: true,
+                double_sided: open_surface, cull_mode,
                 ..default()
             }));
         } else if let Some(mut material) = state
@@ -128,6 +131,8 @@ impl EditWorld<'_, '_> {
             .and_then(|handle| materials.get_mut(handle))
         {
             material.base_color = Color::srgb_u8(color[0], color[1], color[2]);
+            material.double_sided = open_surface;
+            material.cull_mode = cull_mode; // 幽灵跨对象复用时必须同时更新开口来源的双面显示。
         }
         let mesh = state
             .ghost_mesh

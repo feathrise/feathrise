@@ -1,4 +1,4 @@
-//! 直接执行正式视口创建入口，验证参数记录、唯一可视/碰撞预览和单条历史的完整采用。
+//! 直接执行正式视口创建入口，验证立方体和平面的参数、可视/碰撞预览与单条历史。
 
 use super::{resources::BasicShapeState, *};
 use crate::{
@@ -18,6 +18,34 @@ use feathrise_scene_content::{SceneId, SceneManifestAsset, ScenePlacementAssetTa
 
 fn app(empty: bool) -> App {
     fixture(empty, false)
+}
+
+#[test]
+fn plane_point_creation_keeps_surface_height_and_the_plane_ghost() {
+    let mut app = fixture(true, true);
+    let target = ScenePlacementAssetTarget::EditableMesh {
+        geometry: feathrise_scene_content::EditableMeshGeometry::from_plane_size_mm([4000, 8000]).unwrap(),
+        color_srgb: [80, 120, 180], roughness_milli: 250, collision: true,
+    };
+    app.world_mut().resource_mut::<BasicShapeState>().placement_target = Some(target.clone());
+    app.world_mut().run_system_once(super::placement::setup_preview).unwrap();
+    app.update();
+    let session = app.world().resource::<EditorAuthoringSession>();
+    let record = &session.draft.as_ref().unwrap().placements.placements[0];
+    assert_eq!(record.asset_target, target);
+    assert_eq!(record.translation[1], 0.0);
+    assert_eq!(record.terrain_offset, 0.0);
+    assert!(record.editor.name.starts_with("平面"));
+    assert_eq!(session.undo.len(), 1);
+    let world = app.world_mut();
+    let (transform, visible, handle) = world.query_filtered::<(&Transform, &Visibility, &MeshMaterial3d<StandardMaterial>), With<super::components::PlaneGhost>>().single(world).unwrap();
+    assert!(transform.scale.abs_diff_eq(Vec3::new(2.0, 1.0, 4.0), 1e-6));
+    assert_eq!(transform.translation.y, 0.0);
+    assert_eq!(*visible, Visibility::Inherited);
+    let material = world.resource::<Assets<StandardMaterial>>().get(&handle.0).unwrap();
+    assert!(material.double_sided && material.cull_mode.is_none());
+    let cube = world.query_filtered::<&Visibility, With<super::components::CuboidGhost>>().single(world).unwrap();
+    assert_eq!(*cube, Visibility::Hidden);
 }
 
 #[test]

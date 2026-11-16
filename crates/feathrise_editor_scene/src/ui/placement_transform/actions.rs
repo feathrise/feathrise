@@ -233,6 +233,15 @@ pub(crate) fn handle_placement_transform_actions(
     };
     let is_building = record.building_preset_id.is_some(); // 建筑禁用普通任意变换路径。
     match action {
+        PlacementTransformAction::ToggleLodPreview
+        | PlacementTransformAction::ToggleLodTriangles
+        | PlacementTransformAction::CompareLodOriginal => {
+            if editor.tool == EditorTool::Inspect && record.terrain_patch.is_none()
+                && !transform_state.relocation_armed()
+            {
+                super::lod_preview::handle(action, &target, &mut transform_state.lod_preview);
+            }
+        }
         PlacementTransformAction::DisplayLodInherit | PlacementTransformAction::DisplayLodOriginal
         | PlacementTransformAction::DisplayLodCustom | PlacementTransformAction::CollisionLodInherit
         | PlacementTransformAction::CollisionLodOriginal | PlacementTransformAction::CollisionLodCustom => {

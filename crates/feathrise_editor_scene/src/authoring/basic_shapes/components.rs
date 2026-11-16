@@ -4,3 +4,6 @@ use bevy::prelude::*;
 
 #[derive(Component)]
 pub(super) struct CuboidGhost;
+
+#[derive(Component)]
+pub(super) struct PlaneGhost;

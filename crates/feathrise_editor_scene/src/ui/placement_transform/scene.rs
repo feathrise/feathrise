@@ -229,7 +229,7 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
                 ~{PlacementPropertiesSection::DisplayLod}
                 Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
                 Children [
-                    @crate::ui::context_help::section_header("显示 LOD", "显示按屏幕误差自动近密远疏。继承全局读取设置中的默认策略；保持原始停止简化；自定义只覆盖本对象。全局关闭时对象自定义也暂停。静态网格支持简化，骨骼和形态目标保持原始。")--
+                    @crate::ui::context_help::section_header("显示 LOD", "按屏幕误差自动选档。预览 LOD 显示实际三角线、档位和面数；关闭三角线，可在同一镜头用“对照原始”比较显示开销。全局开关控制简化。骨骼和形态目标保持原始。")--
                     Node { width: percent(100), column_gap: px(3), flex_shrink: 0.0 }
                     Children [
                         @action_button("继承全局", PlacementTransformAction::DisplayLodInherit, false)--
@@ -237,7 +237,18 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
                         @action_button("自定义", PlacementTransformAction::DisplayLodCustom, false)
                     ]--
                     @numeric_input_slot(PlacementTransformField::LodScreenError)--
-                    @numeric_input_slot(PlacementTransformField::LodHysteresis)
+                    @numeric_input_slot(PlacementTransformField::LodHysteresis)--
+                    Node { width: percent(100), column_gap: px(3), flex_shrink: 0.0 }
+                    Children [
+                        @action_button("预览 LOD", PlacementTransformAction::ToggleLodPreview, false)--
+                        @action_button("三角线", PlacementTransformAction::ToggleLodTriangles, false)--
+                        @action_button("对照原始", PlacementTransformAction::CompareLodOriginal, false)
+                    ]--
+                    super::lod_preview::LodPreviewSummary Text("")
+                        TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+                        TextColor(colors::TEXT_VALUE)
+                        TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }
+                        Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                 ]
             --
                 ~{PlacementPropertiesSection::CollisionLod}

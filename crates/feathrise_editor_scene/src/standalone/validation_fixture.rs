@@ -9,6 +9,8 @@ mod geometry_unification;
 mod model_surfaces;
 #[path = "chunk_lod_validation.rs"]
 mod chunk_lod;
+#[path = "plane_validation.rs"]
+mod plane;
 #[cfg(test)]
 #[path = "validation_fixture_tests.rs"]
 mod tests;
@@ -143,12 +145,14 @@ pub struct SavedEditProof {
     pub geometry_unification: Option<GeometryUnificationProof>,
     pub author_tools: Option<AuthorWorkflowProof>,
     pub chunk_lod: Option<serde_json::Value>,
+    pub plane: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Idle,
     Creating,
+    Plane,
     ChunkLod,
     ModelSurfaces,
     GeometryUnification,
@@ -224,17 +228,16 @@ pub fn request_edit_and_save(world: &mut World, scene_id: &str) -> Result<(), St
         .iter(world)
         .find_map(|(entity, action)| (action.0 == EditorAction::Save).then_some(entity))
         .ok_or("原保存场景按钮尚未生成")?;
-    let mut shapes = world
-        .get_resource_mut::<BasicShapeState>()
-        .ok_or("原基础网格作者系统未安装")?;
-    if shapes.creation_request.is_some() {
-        return Err("原网格创建槽已经占用".into());
+    if plane::enabled() {
+        crate::ui::terrain_objects::validation_request_plane(world, POSITION)?;
+    } else {
+        let mut shapes = world.get_resource_mut::<BasicShapeState>().ok_or("原基础网格作者系统未安装")?;
+        if shapes.creation_request.is_some() { return Err("原网格创建槽已经占用".into()); }
+        shapes.creation_identity = Some((map.clone(), revision));
+        shapes.creation_request = Some(CuboidCreationRequest {
+            target: ScenePlacementAssetTarget::DEFAULT_CUBOID, position: Some(Vec3::from_array(POSITION)),
+        });
     }
-    shapes.creation_identity = Some((map.clone(), revision));
-    shapes.creation_request = Some(CuboidCreationRequest {
-        target: ScenePlacementAssetTarget::DEFAULT_CUBOID,
-        position: Some(Vec3::from_array(POSITION)),
-    });
     let mut fixture = world.resource_mut::<Fixture>();
     fixture.phase = Phase::Creating;
     fixture.scene_id = Some(map);
@@ -261,6 +264,7 @@ pub fn request_edit_and_save(world: &mut World, scene_id: &str) -> Result<(), St
         geometry_unification: None,
         author_tools: None,
         chunk_lod: None,
+        plane: None,
     });
     Ok(())
 }
@@ -437,16 +441,22 @@ fn drive(world: &mut World) {
                 let accepted = record.filter(|record| {
                     session.draft.as_ref().is_some_and(|draft| draft.placements.placements.len() == fixture.count_before + 1)
                         && session.revision != proof.author_revision_before && editor.dirty
-                        && record.asset_target == ScenePlacementAssetTarget::DEFAULT_CUBOID
+                        && record.asset_target == if plane::enabled() { plane::target() } else { ScenePlacementAssetTarget::DEFAULT_CUBOID }
                         && record.translation == POSITION
                         && matches!(session.undo.last(), Some(EditorCommand::PlacementAdded(added)) if added.id == record.id)
                 });
                 if let Some(record) = accepted {
+                    let record = record.clone();
                     let id = record.id.clone();
                     let revision = session.revision;
                     let proof = fixture.proof.as_mut().unwrap();
                     proof.new_placement_id = Some(id.clone());
                     proof.author_revision_after = revision;
+                    if plane::enabled() {
+                        plane::begin(world, record);
+                        fixture.phase = Phase::Plane;
+                        return;
+                    }
                     match chunk_lod::begin(world, &id) {
                         Ok(true) => { fixture.phase = Phase::ChunkLod; return; }
                         Ok(false) => {}
@@ -457,8 +467,19 @@ fn drive(world: &mut World) {
                         Ok(false) => begin_geometry_unification(world, &mut fixture),
                         Err(error) => fail(&mut fixture, error),
                     }
-                } else if world.resource::<BasicShapeState>().creation_request.is_none() {
+                } else if !plane::enabled() && world.resource::<BasicShapeState>().creation_request.is_none() {
                     fail(&mut fixture, format!("原坐标创建未受理：{}", editor.status));
+                }
+            }
+            Phase::Plane => {
+                if let Some(result) = plane::advance(world) {
+                    match result {
+                        Ok(proof) => {
+                            fixture.proof.as_mut().unwrap().plane = Some(proof);
+                            begin_geometry_unification(world, &mut fixture);
+                        }
+                        Err(error) => fail(&mut fixture, error),
+                    }
                 }
             }
             Phase::ModelSurfaces => {

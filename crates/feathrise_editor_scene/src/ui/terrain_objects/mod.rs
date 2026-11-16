@@ -41,6 +41,27 @@ pub(crate) fn validation_request_creation(world: &mut bevy::prelude::World, sour
     Ok(())
 }
 
+/// 自有平面验收通过正式来源与创建按钮进入，生产构建不包含自动输入。
+#[cfg(any(test, feature = "validation"))]
+pub(crate) fn validation_request_plane(world: &mut bevy::prelude::World, position: [f32; 3]) -> Result<(), String> {
+    use bevy::prelude::*;
+    let mut state = world.resource_mut::<TerrainObjectsEditorState>();
+    if state.busy() || state.start_requested { return Err("原创建槽尚未空闲".into()); }
+    state.creation_open = true;
+    state.placement_mode = CreationPlacementMode::Coordinates;
+    state.creation[..3].copy_from_slice(&position);
+    state.cuboid_creation = [6.0, 2.0, 6.0, 180.0, 120.0, 60.0, 0.7];
+    state.cuboid_collision = true;
+    world.resource_mut::<crate::ui::sidebars::SceneEditorSidebarState>().left = crate::ui::sidebars::EditorLeftSidebarTab::Meshes;
+    world.resource_mut::<crate::ui::sidebars::SceneEditorSidebarState>().right = crate::ui::sidebars::EditorRightSidebarTab::Tools;
+    for target in [components::Action::Plane, components::Action::StartCreation] {
+        let entity = world.query::<(Entity, &components::ActionButton)>().iter(world)
+            .find_map(|(entity, button)| (button.0 == target).then_some(entity)).ok_or("平面创建缺少正式按钮")?;
+        world.entity_mut(entity).insert(feathrise_editor_ui::EditorButtonClick::triggered());
+    }
+    Ok(())
+}
+
 /// 与常驻验收调用方保持相同编译边界，普通构建不包含操作入口。
 #[cfg(any(test, feature = "validation"))]
 pub(crate) fn validation_select_row(world: &mut bevy::prelude::World, id: &feathrise_scene_content::TerrainId)

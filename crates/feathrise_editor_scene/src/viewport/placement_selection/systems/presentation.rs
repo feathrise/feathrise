@@ -7,7 +7,7 @@ use bevy::light::{NotShadowCaster, NotShadowReceiver}; // 作者辅助层不参�
 use bevy::picking::Pickable; // 覆盖层不得抢占世界或UI选择。
 use bevy::prelude::*; // ECS、Mesh3d、Transform、UI与Gizmo类型。
 use feathrise_scene_core::view::CameraRaycastIgnore; // 相机防穿墙忽略作者覆盖。
-use feathrise_scene::{ScenePlacementRuntimePhase, ScenePlacementRuntimeStatus}; // 正式批次采用状态。
+use feathrise_scene::{MeshLodAuxiliary, MeshLodInspection, ScenePlacementRuntimePhase, ScenePlacementRuntimeStatus};
 use feathrise_scene::author_view::{SelectionOutline, supports_selection_outline};
 use crate::ui::theme as colors; // 铜金三维范围框沿用F12正式视觉语言。
 
@@ -103,11 +103,12 @@ pub(crate) fn sync_selected_placement_viewport(
     mut selection: ResMut<SelectedPlacementViewportState>,
     viewport: Option<ResMut<SceneEditorViewportState>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    (meshes, shading, cameras, surface_materials): (
+    (meshes, shading, cameras, surface_materials, lod_inspection): (
         Res<Assets<Mesh>>,
         Option<Res<crate::viewport::shading::ShadingState>>,
         Query<(Entity, Option<&SelectionOutline>), With<SceneEditorCamera>>,
         Query<&MeshMaterial3d<StandardMaterial>>,
+        Option<Res<MeshLodInspection>>,
     ),
     sources: Query<
         (
@@ -194,8 +195,10 @@ pub(crate) fn sync_selected_placement_viewport(
         selection.frame = frame; // Gizmo和双击相机读取同一完整联合值。
     }
 
+    // 模型LOD预览只绘制实际模型和可选三角线。暂停复制网格的选中表现，保留身份与取景框。
+    let inspecting_lod = lod_inspection.is_some_and(|inspection| inspection.request.is_some());
     // 复用已解析的可见 primitive。工作底色下的静态不透明对象只描实际投影，双击取景仍保留联合 AABB。
-    let outline = (source_valid && all_sources_visible
+    let outline = (source_valid && all_sources_visible && !inspecting_lod
         && !editor.close_requested && !editor.scene_transition_in_progress
         && shading.is_some_and(|shading| shading.uses_work_background()))
         .then(|| {
@@ -213,7 +216,7 @@ pub(crate) fn sync_selected_placement_viewport(
     selection.outline_active = outline.is_some() && cameras.single().is_ok();
     sync_selection_outline(&mut commands, &cameras, outline);
 
-    if source_valid && all_sources_visible && !selection.outline_active {
+    if source_valid && all_sources_visible && !selection.outline_active && !inspecting_lod {
         let material = selection.highlight_material.get_or_insert_with(|| {
             materials.add(StandardMaterial {
                 base_color: Color::srgba(0.30, 0.82, 0.84, 0.24), // 淡青透明填充保留原材质和场景上下文。
@@ -275,6 +278,7 @@ pub(crate) fn sync_selected_placement_viewport(
                 .spawn((
                     Name::new("场景编辑器选中Scene0网格精确覆盖"), // 调试层级明确不是正式场景内容。
                     SceneEditorSelectedPlacementHighlight, // 实体池与解析DFS使用稳定辅助marker。
+                    MeshLodAuxiliary,
                     SceneEditorOwnedEntity,                // 编辑器资源审计和关闭清理可识别所有权。
                     source_mesh, // 共享RenderWorld Mesh资产，不新建网格或扫描顶点。
                     MeshMaterial3d(material.clone()), // 全部场景网格覆盖共用唯一淡青材质。

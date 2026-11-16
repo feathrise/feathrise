@@ -3,7 +3,7 @@
 use super::super::selection::MeshSelection;
 use bevy::math::{DQuat, DVec2, DVec3};
 use feathrise_scene_content::{
-    EditableMeshGeometry, MAX_EDITABLE_MESH_FACE_VERTICES, MAX_EDITABLE_MESH_FACES,
+    MAX_EDITABLE_MESH_FACE_VERTICES, MAX_EDITABLE_MESH_FACES,
     MAX_EDITABLE_MESH_VERTICES, ScenePlacementAssetTarget, ScenePlacementRecord, MeshFace,
 };
 
@@ -136,7 +136,8 @@ impl MeshWork {
             )?);
         }
         // 量化结果交给保存与运行时共用的完整校验，采用成功时直接转移所有权。
-        let geometry = EditableMeshGeometry::from_owned_parts(vertices, faces)?;
+        let geometry = before.asset_target.editable_geometry().ok_or("当前来源没有可编辑网格")?
+            .with_parts(vertices, faces)?;
         let (color_srgb, roughness_milli, collision) = match before.asset_target {
             ScenePlacementAssetTarget::Cuboid {
                 color_srgb,

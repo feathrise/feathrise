@@ -13,6 +13,8 @@ use std::{path::PathBuf, time::Instant};
 mod viewport_style;
 #[path = "subdivision_validation.rs"]
 mod subdivision;
+#[path = "model_lod_preview_validation.rs"]
+mod model_preview;
 
 #[derive(Resource)]
 pub(super) struct ChunkFixture {
@@ -27,6 +29,7 @@ pub(super) struct ChunkFixture {
     original_view: (Vec3, f32, f32, f32, bool),
     style: Option<viewport_style::StyleFixture>,
     subdivision: Option<subdivision::SubdivisionFixture>,
+    model_preview: Option<model_preview::PreviewFixture>,
     proof: serde_json::Value,
 }
 
@@ -44,6 +47,7 @@ pub(super) fn begin(world: &mut World, id: &str) -> Result<bool, String> {
         started: Instant::now(), pulse: None, ui_pulse: None, ticks: 0, original_view,
         style: (std::env::var("FEATHRISE_VIEWPORT_STYLE_VALIDATION").as_deref() == Ok("1")).then(Default::default),
         subdivision: (std::env::var("FEATHRISE_SUBDIVIDE_VALIDATION").as_deref() == Ok("1")).then(Default::default),
+        model_preview: (std::env::var("FEATHRISE_MODEL_LOD_PREVIEW_VALIDATION").as_deref() == Ok("1")).then(Default::default),
         proof: serde_json::json!({
             "placement_id":id,"complete":false,"scope":"original mesh edit input, undo/redo, actual adopted chunk geometry and GPU; physical keyboard not exercised"
         }) });
@@ -142,9 +146,12 @@ pub(super) fn advance(world: &mut World) -> Option<Result<serde_json::Value, Str
     let result = world.resource_scope(|world, mut state: Mut<ChunkFixture>| -> Result<bool, String> {
         if let Some(entity) = state.pulse.take() { let _ = world.despawn(entity); }
         if let Some(entity) = state.ui_pulse.take() { world.entity_mut(entity).insert(feathrise_editor_ui::EditorButtonClick::default()); }
-        if state.started.elapsed().as_secs() > 90 {
+        // 模型 A/B 需要等待代码编译退场并取得三段连续整帧样本。
+        let seconds = if !state.proof["model_lod_preview"].is_null() || state.model_preview.is_some() { 240 } else { 90 };
+        if state.started.elapsed().as_secs() > seconds {
             let history = world.resource::<EditorAuthoringSession>();
-            return Err(format!("分块LOD验收超时，phase={}，视口样式={}，细分参数={}，{}，lod={}，edit={}，undo={}，redo={}，guard={}", state.phase,
+            return Err(format!("分块LOD验收超时，phase={}，模型预览={}，视口样式={}，细分参数={}，{}，lod={}，edit={}，undo={}，redo={}，guard={}", state.phase,
+                state.model_preview.as_ref().map_or_else(|| "无".into(), model_preview::PreviewFixture::stage),
                 state.style.as_ref().map_or_else(|| "无".into(), viewport_style::StyleFixture::stage),
                 state.subdivision.as_ref().map_or_else(|| "无".into(), subdivision::SubdivisionFixture::stage),
                 world.resource::<SceneEditorState>().status, world.resource::<feathrise_scene::MeshLodRuntimeStatus>().detail,
@@ -154,6 +161,15 @@ pub(super) fn advance(world: &mut World) -> Option<Result<serde_json::Value, Str
         let current = record(world, &state.id)?;
         let geometry = current.asset_target.editable_geometry().ok_or("验收对象丢失作者网格")?;
         let state = &mut *state;
+        if state.phase == 2 && let Some(fixture) = state.model_preview.as_mut() {
+            if let Some(evidence) = fixture.advance(world, &current, &mut state.ui_pulse)? {
+                state.proof["model_lod_preview"] = evidence;
+                state.model_preview = None;
+                restore_view(world, state.original_view);
+                state.phase = 1; // 恢复初始形状后走原细分、混合档位及落盘链。
+            }
+            return Ok(false);
+        }
         if state.phase == 2 && let Some(fixture) = state.subdivision.as_mut() {
             if let Some(evidence) = fixture.advance(world, &current, &mut state.ui_pulse)? {
                 state.proof["subdivision"] = evidence;

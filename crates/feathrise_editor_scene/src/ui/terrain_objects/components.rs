@@ -161,6 +161,7 @@ pub(super) enum Action {
     Clipmap,
     Voxel,
     Cuboid,
+    Plane,
     PlacementViewport,
     PlacementCoordinates,
     StartCreation,
@@ -187,7 +188,7 @@ pub(super) enum Action {
 impl Action {
     pub(super) fn creation_action(self) -> bool {
         matches!(self, Self::ToggleCreation | Self::Clipmap | Self::Voxel | Self::ImportGlb
-            | Self::Cuboid | Self::PlacementViewport | Self::PlacementCoordinates | Self::StartCreation
+            | Self::Cuboid | Self::Plane | Self::PlacementViewport | Self::PlacementCoordinates | Self::StartCreation
             | Self::CancelPlacement | Self::CuboidCollision)
     }
     /// 行内开关与整网格删除跟随场景列表，不依赖下方当前属性页。
