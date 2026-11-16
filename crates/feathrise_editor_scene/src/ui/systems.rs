@@ -194,7 +194,7 @@ pub(crate) fn scroll_editor_side_panels(
 /// F12切换全屏工作台；空世界关闭后保留空场景，切换场景期间等待完整就绪再关闭。
 pub(crate) fn toggle_scene_editor(
     keyboard: Res<ButtonInput<KeyCode>>,
-    active_numeric_input: Res<feathrise_editor_ui::ActiveNumericInput>, // 中键字符编辑必须先明确提交或取消，不能留下隐藏焦点。
+    active_numeric_input: Res<feathrise_editor_ui::ActiveNumericInput>, // 左键单击字符编辑必须先明确提交或取消，不能留下隐藏焦点。
     numeric_scrub_mouse: Res<SceneEditorNumericScrubMouseGuard>, // 拖动和弦release帧结束前F12仍不得穿透。
     water_edit: Res<WaterNetworkEditState>, // 水网控制点拖动也必须先等左键松开形成唯一撤销。
     scene: Res<State<ScenePhase>>,

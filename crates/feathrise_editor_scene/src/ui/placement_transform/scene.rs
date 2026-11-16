@@ -137,7 +137,7 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
                 ~{PlacementPropertiesSection::Transform}
                 Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
                 Children [
-            @crate::ui::context_help::section_header("变换", "数值框支持左拖实际值、右拖本字段灵敏度、中键精确输入。普通资产使用世界变换，三维地形使用关联Clipmap的源局部变换；位置使用米，缩放为无量纲倍率。")--
+            @crate::ui::context_help::section_header("变换", "数值框支持左拖实际值、右拖本字段灵敏度、左键单击精确输入。普通资产使用世界变换，三维地形使用关联Clipmap的源局部变换；位置使用米，缩放为无量纲倍率。")--
 
                 Node {
                     width: percent(100),
@@ -303,6 +303,7 @@ pub(crate) fn setup_placement_transform_numeric_inputs(
             );
             slot.commands()
                 .entity(root)
+                .remove::<feathrise_editor_ui::NumericInputScrubSettingsKey>() // 三轴继续共用原平移/缩放速度槽。
                 .entry::<Node>()
                 .and_modify(|mut node| {
                     node.width = percent(100);

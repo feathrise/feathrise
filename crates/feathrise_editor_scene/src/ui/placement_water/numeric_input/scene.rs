@@ -1,6 +1,6 @@
 //! 网格水两个字段的固定槽位与公共专业数值控件挂载。
 //!
-//! 【功能设计】左键拖实际数值、右键拖字段独立灵敏度、中键进入精确输入；
+//! 【功能设计】左键拖实际数值、右键拖字段独立灵敏度、左键单击进入精确输入；
 //! Esc只在字符编辑期间恢复进入前数值，流速与高度的作者事务语义保持不变。
 
 use bevy::prelude::*; // BSN静态场景、Commands与字体资产。
@@ -72,7 +72,7 @@ pub(crate) fn setup_placement_water_numeric_inputs(
             kind.label(),                 // 左侧标签明确流速或Y偏移。
             kind.unit(),                  // 流速显示m/s，高度显示m。
             initial,                      // builder建立首帧公共数值模型。
-            spec,                         // 中键精确输入保留字段独立范围与精度。
+            spec,                         // 左键单击精确输入保留字段独立范围与精度。
             kind.scrub_config(&settings), // 左拖真实值与右拖独立倍率保持原映射。
         )
         .with_style(style); // 只覆盖网格水右栏尺寸，交互与视觉子树由公共builder拥有。
@@ -85,6 +85,7 @@ pub(crate) fn setup_placement_water_numeric_inputs(
             );
             slot.commands()
                 .entity(root)
+                .remove::<feathrise_editor_ui::NumericInputScrubSettingsKey>() // 速度由原网格水类型化槽保存和恢复。
                 .entry::<Node>()
                 .and_modify(|mut node| {
                     node.width = percent(100);

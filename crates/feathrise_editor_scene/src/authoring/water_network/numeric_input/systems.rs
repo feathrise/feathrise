@@ -50,7 +50,7 @@ fn reset_input(
     });
 }
 
-/// 中键精确输入获得焦点时冻结场景、特征和点稳定ID；上下文变化立即取消缓冲。
+/// 左键单击精确输入获得焦点时冻结场景、特征和点稳定ID；上下文变化立即取消缓冲。
 fn maintain_focus(
     active: &ActiveNumericInput,
     inputs: &Query<(Entity, &WaterNetworkNumericInput)>,
@@ -80,7 +80,7 @@ fn maintain_focus(
     }
     if state.focus.is_none() {
         state.focus = current.map(|target| WaterNetworkNumericFocus { entity, target }); // 首帧焦点冻结完整稳定身份。
-        editor.status = format!("正在精确输入{}；Enter或点击空白提交", kind.label(),); // 中键已经由公共控件进入字符模式。
+        editor.status = format!("正在精确输入{}；Enter或点击空白提交", kind.label(),); // 左键单击已经由公共控件进入字符模式。
     }
 }
 
@@ -290,10 +290,10 @@ fn finish_scrub(
 #[allow(clippy::too_many_arguments)] // 单系统需要在同一Input阶段按顺序收口焦点、值事务和设置倍率。
 pub(crate) fn handle_water_network_numeric_inputs(
     mut changed: MessageReader<NumericInputChanged>, // 左拖途中规范化实际值。
-    mut committed: MessageReader<NumericInputCommitted>, // 中键精确提交或左拖松手。
+    mut committed: MessageReader<NumericInputCommitted>, // 左键单击精确提交或左拖松手。
     mut sensitivity_changed: MessageReader<NumericInputScrubSensitivityChanged>, // 右拖即时倍率仅回显。
     mut sensitivity_committed: MessageReader<NumericInputScrubSensitivityCommitted>, // 松手才写设置。
-    active: Res<ActiveNumericInput>, // 中键字符焦点用于冻结稳定目标。
+    active: Res<ActiveNumericInput>, // 左键单击字符焦点用于冻结稳定目标。
     inputs: Query<(Entity, &WaterNetworkNumericInput)>, // 根实体到四项字段身份映射。
     mut editor: ResMut<SceneEditorState>, // 状态栏与当前选择。
     mut session: ResMut<EditorAuthoringSession>, // 草稿、修订、撤销和重做。

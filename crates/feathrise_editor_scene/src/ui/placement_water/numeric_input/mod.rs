@@ -62,7 +62,7 @@ impl PlacementWaterNumericKind {
         }
     }
 
-    /// 公共NumericInput的业务规格；中键精确输入不显示任何步进按钮。
+    /// 公共NumericInput的业务规格；左键单击精确输入不显示任何步进按钮。
     pub(super) const fn spec(self) -> NumericInputSpec {
         match self {
             Self::FlowSpeed => NumericInputSpec::f32(FLOW_SPEED_DECIMALS)
@@ -288,7 +288,7 @@ pub(super) struct PlacementWaterNumericScrub {
 /// 两个数值根共享唯一字符绑定与唯一左拖事务，符合共享 UI 控件全局单指针捕获。
 #[derive(Resource, Default)]
 pub(crate) struct PlacementWaterNumericInputState {
-    pub(super) focus: Option<PlacementWaterNumericFocus>, // 当前中键字符输入身份。
+    pub(super) focus: Option<PlacementWaterNumericFocus>, // 当前左键单击字符输入身份。
     pub(super) scrub: Option<PlacementWaterNumericScrub>, // 当前左拖作者事务。
     pub(super) aborted_scrub: Option<(Entity, PlacementWaterNumericKind)>, // 异常回滚后吞掉同一次物理拖动的迟到Changed，直到对应松键。
     pub(super) placement_handoff_frozen: bool, // 交接进入边沿只发布一次明确禁用提示。

@@ -20,7 +20,7 @@ pub(super) fn input_contract(
         .with_step(NumericValue::F32(0.01)) // 厘米级精确输入与拖动吸附。
         .with_step_buttons(false) // 旧墙厚加减按钮已由专业字段取代。
         .with_live_update(false) // 字符输入只在Enter或失焦时提交。
-        .with_replace_on_first_key(true); // 中键输入首字符替换当前值。
+        .with_replace_on_first_key(true); // 左键单击输入首字符替换当前值。
     let stored = settings
         .scene_editor_scrub_sensitivities
         .get(SceneEditorScrubField::BoundaryThickness); // 只读取墙厚自己的设置键。

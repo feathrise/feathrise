@@ -67,11 +67,11 @@ fn maintain_focus(
             kind,   // 冻结字段身份。
             target, // 冻结稳定场景与作者修订。
         });
-        editor.status = format!("正在精确输入{}；Enter或点击空白提交", kind.label()); // 中键字符行为由公共控件拥有。
+        editor.status = format!("正在精确输入{}；Enter或点击空白提交", kind.label()); // 左键单击字符行为由公共控件拥有。
     }
 }
 
-/// 应用一次中键精确提交并生成一条场景环境撤销。
+/// 应用一次左键单击精确提交并生成一条场景环境撤销。
 fn apply_exact(
     entity: Entity,
     kind: EnvironmentNumericKind,
@@ -303,7 +303,7 @@ fn finish_scrub(
 #[allow(clippy::too_many_arguments)] // 单系统需在同一Input阶段顺序收口焦点、值事务和设置倍率。
 pub(crate) fn handle_environment_numeric_inputs(
     mut changed: MessageReader<NumericInputChanged>, // 左拖规范化实际值。
-    mut committed: MessageReader<NumericInputCommitted>, // 中键精确或Scrub松手提交。
+    mut committed: MessageReader<NumericInputCommitted>, // 左键单击精确或Scrub松手提交。
     mut sensitivity_changed: MessageReader<NumericInputScrubSensitivityChanged>, // 右拖即时倍率仅回显。
     mut sensitivity_committed: MessageReader<NumericInputScrubSensitivityCommitted>, // 松手才持久化倍率。
     active: Res<ActiveNumericInput>, // 中键焦点用于冻结稳定环境目标。

@@ -39,6 +39,7 @@ pub(crate) fn setup_celestial_numeric_inputs(
             parent
                 .commands()
                 .entity(root)
+                .remove::<feathrise_editor_ui::NumericInputScrubSettingsKey>() // 天体字段沿用原类型化速度槽。
                 .entry::<Node>()
                 .and_modify(|mut node| {
                     node.width = percent(100);

@@ -21,7 +21,7 @@ pub(crate) fn sync_environment_numeric_inputs(
     editor: Res<SceneEditorState>,                     // F12上下文决定天空作者字段可用性。
     mut session: ResMut<EditorAuthoringSession>,     // 当前草稿；异常隐藏只回滚本天空字段。
     settings: Res<EditorSettings>,                     // 四个字段各自持久倍率。
-    active: Res<ActiveNumericInput>,                 // 中键字符缓冲期间不回写值。
+    active: Res<ActiveNumericInput>,                 // 左键单击字符缓冲期间不回写值。
     active_scrub: Res<ActiveNumericInputScrub>,      // 左右拖动期间不回写值或倍率。
     mut state: ResMut<EnvironmentNumericInputState>, // 隐藏稳定帧释放旧身份。
     mut inputs: Query<(
@@ -58,7 +58,7 @@ pub(crate) fn sync_environment_numeric_inputs(
         let value = kind.displayed_value(environment); // 场景环境原单位显示。
         let should_enable = authored_enabled && value.is_some(); // 固定场景与空草稿禁用天空作者值。
         if should_enable && disabled {
-            commands.entity(entity).remove::<NumericInputDisabled>(); // 恢复中键和左右拖动。
+            commands.entity(entity).remove::<NumericInputDisabled>(); // 恢复左键单击和左右拖动。
         } else if !should_enable && !disabled {
             commands.entity(entity).insert(NumericInputDisabled); // 无有效作者目标拒绝输入。
         }

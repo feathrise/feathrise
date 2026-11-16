@@ -92,7 +92,7 @@ fn creation_numeric_late_commit_cannot_follow_source_or_placement_purpose() {
         let (mut app, window) = form(Action::Clipmap, Action::PlacementCoordinates);
         let input = field(&mut app, Field::Creation(0));
         let old = app.world().resource::<TerrainObjectsEditorState>().creation[0];
-        click(&mut app, window, input, MouseButton::Middle);
+        click(&mut app, window, input, MouseButton::Left);
         assert_eq!(app.world().resource::<ActiveNumericInput>().entity, Some(input));
         let button = action(&mut app, switch);
         click(&mut app, window, button, MouseButton::Left);

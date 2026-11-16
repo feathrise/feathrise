@@ -8,7 +8,7 @@ use feathrise_editor_ui::{
     NumericInputScrubSensitivityChanged, NumericInputScrubSensitivityCommitted,
     NumericInputSetValue, NumericInputValue, NumericScrubFieldOptions, NumericScrubFieldStyle,
     NumericValue, spawn_numeric_scrub_field,
-}; // 开箱即用字段拥有完整视觉、输入模型、左右拖和中键精确输入。
+}; // 开箱即用字段拥有完整视觉、输入模型、左右拖和左键单击精确输入。
 
 use crate::authoring::EditorAuthoringSession; // 当前作者草稿、修订、撤销和编译门。
 use crate::resources::SceneEditorState; // 当前植被选择与用户可见状态。
@@ -49,7 +49,8 @@ pub(crate) fn setup_vegetation_numeric_inputs(
             let root = spawn_numeric_scrub_field(
                 parent, VegetationNumericInput(kind), font.clone(), options,
             );
-            parent.commands().entity(root).entry::<Node>().and_modify(
+            // 图层字段沿用原类型化速度槽，统一保存到当前工程。
+            parent.commands().entity(root).remove::<feathrise_editor_ui::NumericInputScrubSettingsKey>().entry::<Node>().and_modify(
                 |mut node| {
                     node.width = percent(100);
                     node.min_width = px(0);
@@ -60,7 +61,7 @@ pub(crate) fn setup_vegetation_numeric_inputs(
     }
 }
 
-/// 中键字符编辑提交和右键灵敏度提交；左拖Scrub由独立事务系统收口。
+/// 左键单击字符编辑提交和右键灵敏度提交；左拖Scrub由独立事务系统收口。
 #[allow(clippy::too_many_arguments)] // 输入消息、稳定目标、设置和取消桥均是明确业务边界。
 pub(crate) fn handle_vegetation_numeric_input(
     mut committed: MessageReader<NumericInputCommitted>,
@@ -96,7 +97,7 @@ pub(crate) fn handle_vegetation_numeric_input(
                         entity,
                         target: selected.target,
                     }),
-                ); // 中键激活首帧冻结场景、层、组、字段和作者修订。
+                ); // 左键单击激活首帧冻结场景、层、组、字段和作者修订。
                 editor.status = format!(
                     "正在精确输入{}；Enter或点击空白提交，Esc恢复原值",
                     kind.label()
@@ -142,7 +143,7 @@ pub(crate) fn handle_vegetation_numeric_input(
         }
         let target = bound_target.or_else(|| {
             selected_numeric(marker.0, &editor, &session).map(|selected| selected.target)
-        }); // 防御中键激活和提交恰好发生在同一帧。
+        }); // 防御左键单击激活和提交恰好发生在同一帧。
         let Some(target) = target else {
             editor.status = format!("{}提交时没有有效作者目标", marker.0.label());
             continue;
@@ -265,7 +266,7 @@ pub(crate) fn apply_vegetation_numeric_scrub(
             continue;
         };
         if event.source != NumericInputCommitSource::Scrub {
-            continue; // 中键精确输入由前一系统处理。
+            continue; // 左键单击精确输入由前一系统处理。
         }
         if state.release_aborted_scrub(event.entity, marker.0) {
             continue; // 异常事务已owned-field回滚；松键只清拒绝门，不进入finish或编译。

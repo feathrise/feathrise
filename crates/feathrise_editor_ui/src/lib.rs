@@ -9,6 +9,7 @@ pub use button_input::{EditorButtonClick, EditorButtonInput, EditorButtonInputPl
 pub mod feedback; // 跨分库反馈统一交给外壳底栏，不在参数正文中重复占位。
 pub use feedback::PanelStatusText;
 mod dialog;
+mod numeric_scrub_settings; // 所有作者数值框共用速度恢复与松键保存。
 pub use dialog::EditorDialogBackdrop;
 pub mod theme; // 三套可选主题只作用于显式所属的编辑器绘制项。
 pub use theme::{EditorCodeSurface, EditorLiteralColor, EditorPalette, EditorThemePlugin, EditorThemeRoot};
@@ -39,6 +40,7 @@ impl Plugin for EditorUiPlugin {
             app.add_plugins(feathrise_ui_widgets::UiWidgetsPlugin); // 同 App 共享唯一焦点和消息处理。
         }
         localization::install(app);
+        numeric_scrub_settings::install(app);
     }
 }
 

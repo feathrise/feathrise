@@ -44,6 +44,7 @@ pub(crate) fn setup_environment_numeric_inputs(
             parent
                 .commands()
                 .entity(root)
+                .remove::<feathrise_editor_ui::NumericInputScrubSettingsKey>() // 四项环境速度沿用原类型化槽。
                 .entry::<Node>()
                 .and_modify(|mut node| {
                     node.width = percent(100);

@@ -1,6 +1,6 @@
 //! 当前静水层水位与公共专业数值控件的作者请求桥。
 //!
-//! 左键拖实际水位、右键拖独立灵敏度、中键进入精确输入；Esc只在字符编辑期间
+//! 左键拖实际水位、右键拖独立灵敏度、左键单击进入精确输入；Esc只在字符编辑期间
 //! 恢复进入前数值。本模块仅负责冻结作者身份，并把有效提交转为现有可撤销水位操作。
 
 use feathrise_editor_ui::metrics as ui_metrics;
@@ -131,7 +131,7 @@ pub(crate) fn setup_water_level_input(
             "水位",                              // 左侧稳定业务名。
             "m",                                 // 正式世界高度单位为米。
             initial,                             // builder首帧建立公共数值模型。
-            spec,                                // 中键字符编辑保留三位小数。
+            spec,                                // 左键单击字符编辑保留三位小数。
             water_level_scrub_config(&settings), // 左拖水位与右拖独立倍率保持原手感。
         )
         .with_style(style); // 只覆盖水位栏所需外观，交互完全复用公共实现。
@@ -144,6 +144,7 @@ pub(crate) fn setup_water_level_input(
             );
             slot.commands()
                 .entity(root)
+                .remove::<feathrise_editor_ui::NumericInputScrubSettingsKey>() // 水位沿用原类型化速度槽，统一写入工程设置。
                 .entry::<Node>()
                 .and_modify(|mut node| {
                     node.width = percent(100);

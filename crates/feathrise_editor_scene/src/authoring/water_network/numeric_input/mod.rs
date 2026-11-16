@@ -1,7 +1,7 @@
 //! 河流与瀑布控制点高度、宽度、深度和流速的公共专业数值输入领域。
 //!
 //! 【功能设计】左拖只改内存草稿与Gizmo，松手才推进一次水预览修订并压入一条撤销；
-//! 右拖只更新每个逻辑字段自己的持久灵敏度，中键单击进入公共精确输入。
+//! 右拖只更新每个逻辑字段自己的持久灵敏度，左键无拖动松开进入公共精确输入。
 
 mod scene; // 固定BSN槽位首次挂载完整公共控件。
 mod sync; // 选择、撤销、连接约束和设置变化后的字段同步。
@@ -75,7 +75,7 @@ impl WaterNetworkNumericKind {
                 .with_step(NumericValue::F32(0.01)) // 精确到厘米即可稳定表达河面落差。
                 .with_step_buttons(false) // 迁移后不再显示公共加减按钮。
                 .with_live_update(false) // 字符缓冲只在提交时写作者数据。
-                .with_replace_on_first_key(true), // 中键输入首字符替换旧值。
+                .with_replace_on_first_key(true), // 左键单击输入首字符替换旧值。
             Self::Width => NumericInputSpec::f32(2)
                 .with_min(NumericValue::F32(MIN_SCENE_WATER_SPLINE_WIDTH_METERS)) // 复用正式最小非退化宽度。
                 .with_max(NumericValue::F32(MAX_SCENE_WATER_SPLINE_WIDTH_METERS)) // 复用正式场景级最大宽度。
@@ -233,7 +233,7 @@ pub(super) struct WaterNetworkNumericTarget {
     pub(super) authoring_revision: u64, // 精确输入期间任何外部作者变化都使目标失效。
 }
 
-/// 一次中键精确输入冻结根实体和稳定作者目标。
+/// 一次左键单击精确输入冻结根实体和稳定作者目标。
 #[derive(Clone, Debug)]
 pub(super) struct WaterNetworkNumericFocus {
     pub(super) entity: Entity, // 提交消息必须来自同一公共根。
@@ -255,7 +255,7 @@ pub(super) struct WaterNetworkNumericScrub {
 /// 四个水网数字根共享唯一焦点和唯一左拖事务。
 #[derive(Resource, Default)]
 pub(crate) struct WaterNetworkNumericInputState {
-    pub(super) focus: Option<WaterNetworkNumericFocus>, // 当前中键字符输入身份。
+    pub(super) focus: Option<WaterNetworkNumericFocus>, // 当前左键单击字符输入身份。
     pub(super) scrub: Option<WaterNetworkNumericScrub>, // 当前左值拖动身份。
 }
 

@@ -94,6 +94,141 @@ fn wait_host_reload(app: &mut App) {
     }
 }
 
+fn numeric_project(fixture: &Fixture, name: &str) -> crate::project::Project {
+    let root = fixture.root.join(name);
+    fs::create_dir(&root).unwrap();
+    fs::create_dir(root.join("assets")).unwrap();
+    crate::project::Project {
+        id: name.into(), name: name.into(), manifest: root.join("Cargo.toml"),
+        package: "numeric_preferences_fixture".into(), root: root.clone(),
+        context: crate::project::ProjectContext {
+            root: root.clone(), id: name.into(), name: name.into(), format: 1,
+            asset_roots: vec![root.join("assets")], editor_data: root.join("作者设置"),
+            storage_key: name.into(), startup_scene: None,
+        },
+    }
+}
+
+#[test]
+fn numeric_speed_right_drag_saves_only_current_project_and_restores_rebuilt_fields() {
+    use feathrise_editor_ui::*;
+    use bevy::{camera::RenderTarget, ecs::message::MessageUpdateSystems,
+        input::{InputPlugin, ButtonState, mouse::MouseButtonInput},
+        picking::input::mouse_pick_events, ui::UiStack,
+        window::{CursorMoved, PrimaryWindow, WindowEvent, WindowRef}};
+    // 经过官方指针消息转换，不依赖会被三态同步系统覆盖的伪造 Hover。
+    let mouse = |app: &mut App, window, button, state| {
+        let event = MouseButtonInput { window, button, state };
+        app.world_mut().write_message(event);
+        app.world_mut().write_message(WindowEvent::MouseButtonInput(event));
+    };
+    let cursor = |app: &mut App, window, x| {
+        app.world_mut().write_message(WindowEvent::CursorMoved(CursorMoved {
+            window, position: Vec2::new(x, 100.0), delta: None,
+        }));
+    };
+    let fixture = Fixture::new();
+    let first = numeric_project(&fixture, "速度工程甲");
+    let second = numeric_project(&fixture, "速度工程乙");
+    let mut personal = fixture.store();
+    personal.editor.ui_scale = 1.25;
+    personal.save().unwrap();
+    let original = fs::read(fixture.file()).unwrap();
+    let make_app = || {
+        let (store, error) = fixture.store().with_project(&first);
+        assert!(error.is_none());
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, InputPlugin))
+            .add_message::<WindowEvent>()
+            .add_systems(First, mouse_pick_events.after(MessageUpdateSystems))
+            .insert_resource(store.editor.clone().into_runtime())
+            .add_plugins(EditorUiPlugin)
+            .add_systems(Startup, |mut commands: Commands| {
+                commands.spawn((Node::default(), InheritedVisibility::VISIBLE)).with_children(|parent| {
+                    spawn_numeric_scrub_field(parent, Name::new("工程速度字段"), Handle::default(),
+                        NumericScrubFieldOptions::new("参数", "m", NumericValue::F32(1.0),
+                            NumericInputSpec::f32(3),
+                            NumericInputScrubConfig::linear(0.1, 0.001, 0.0, 100.0, 1.0)));
+                });
+            });
+        let completion = install(&mut app, store);
+        app.update();
+        let root = app.world_mut().query_filtered::<Entity, With<NumericInputRoot>>().single(app.world()).unwrap();
+        let window = app.world_mut().spawn((Window::default(), PrimaryWindow)).id();
+        let camera = app.world_mut().spawn((Camera::default(),
+            RenderTarget::Window(WindowRef::Entity(window)))).id();
+        app.world_mut().entity_mut(root).insert((InheritedVisibility::VISIBLE,
+            UiGlobalTransform::from_xy(100.0, 100.0), UiTargetCamera(camera),
+            ComputedNode { size: Vec2::new(120.0, 26.0), ..default() },
+        ));
+        app.insert_resource(UiStack { partition: vec![0..1], uinodes: vec![root] });
+        (app, completion, root, window)
+    };
+    let path = first.context.editor_data.join("numeric-input.json");
+    let (mut app, completion, root, window) = make_app();
+    cursor(&mut app, window, 100.0);
+    mouse(&mut app, window, MouseButton::Right, ButtonState::Pressed);
+    app.update();
+    cursor(&mut app, window, 148.0);
+    app.update();
+    assert_eq!(app.world().get::<NumericInputScrubConfig>(root).unwrap().sensitivity, 2.0);
+    assert!(!path.exists(), "按住右键时尚未持久化");
+    mouse(&mut app, window, MouseButton::Right, ButtonState::Released);
+    app.update();
+    wait_host_save(&mut app);
+    assert_eq!(app.world().get::<NumericInputValue>(root).unwrap().0, NumericValue::F32(1.0));
+    completion.finish().unwrap();
+    drop(app);
+    let data: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(data["project_id"], first.id);
+    assert_eq!(data["fields"].as_object().unwrap().values().next().unwrap(), 2.0);
+    assert_eq!(fs::read(fixture.file()).unwrap(), original, "右拖速度只写工程设置");
+    let (other, error) = fixture.store().with_project(&second);
+    assert!(error.is_none());
+    assert!(other.editor.numeric_scrub_speeds.is_empty());
+    // 已有笔刷/变换等类型化速度槽与通用字段共用同一工程文件，并继续与其他工程隔离。
+    let (mut typed, error) = fixture.store().with_project(&first);
+    assert!(error.is_none());
+    typed.editor.scrub.brush_radius = 3.0;
+    typed.save().unwrap();
+    assert_eq!(fs::read(fixture.file()).unwrap(), original);
+    let (mut app, completion, root, window) = make_app();
+    assert_eq!(app.world().get::<NumericInputScrubConfig>(root).unwrap().sensitivity, 2.0);
+    assert_eq!(app.world().resource::<EditorSettings>().scene_editor_scrub_sensitivities.brush_radius, 3.0);
+    let before = fs::read(path).unwrap();
+    cursor(&mut app, window, 100.0);
+    mouse(&mut app, window, MouseButton::Left, ButtonState::Pressed);
+    app.update();
+    assert!(app.world().resource::<ActiveNumericInput>().entity.is_none());
+    mouse(&mut app, window, MouseButton::Left, ButtonState::Released);
+    app.update();
+    assert_eq!(app.world().resource::<ActiveNumericInput>().entity, Some(root));
+    wait_host_save(&mut app);
+    completion.finish().unwrap();
+    assert_eq!(fs::read(first.context.editor_data.join("numeric-input.json")).unwrap(), before);
+}
+
+#[test]
+fn numeric_speed_project_store_preserves_external_edits_and_broken_source() {
+    let fixture = Fixture::new();
+    let project = numeric_project(&fixture, "速度冲突工程");
+    let (mut store, error) = fixture.store().with_project(&project);
+    assert!(error.is_none());
+    store.editor.numeric_scrub_speeds.insert("测试字段".into(), 2.0);
+    store.save().unwrap();
+    let file = project.context.editor_data.join("numeric-input.json");
+    fs::write(&file, b"{external edit").unwrap();
+    store.editor.numeric_scrub_speeds.insert("测试字段".into(), 4.0);
+    assert!(store.save().is_err());
+    assert_eq!(fs::read(&file).unwrap(), b"{external edit");
+    let (mut reopened, error) = fixture.store().with_project(&project);
+    assert!(error.is_some());
+    reopened.editor.numeric_scrub_speeds.insert("测试字段".into(), 8.0);
+    assert!(reopened.save().is_err());
+    assert_eq!(fs::read(file).unwrap(), b"{external edit");
+    assert!(!fixture.file().exists());
+}
+
 #[test]
 fn home_settings_use_the_author_store_and_reopen_without_rewriting_unchanged_bytes() {
     let fixture = Fixture::new();
@@ -542,7 +677,7 @@ fn failed_preference_write_keeps_original_close_state_and_cancel_restores_author
                 app.world()
                     .resource::<Messages<feathrise_editor_scene::standalone::SavedPlayFeedback>>(),
             )
-            .any(|item| item.0.contains("作者个人设置未保存"))
+            .any(|item| item.0.contains("编辑器设置未保存"))
         {
             break;
         }

@@ -2,7 +2,7 @@
 //!
 //! 【功能设计】左键拖动只更新当前草稿中的轻量参数与面板文字，松开时才压入一条
 //! `VegetationAuthoringChanged`并启动一次single-flight编译；右键只修改本字段灵敏度，
-//! 中键进入精确输入。拖动目标始终冻结场景、图层和组的稳定ID。
+//! 左键单击进入精确输入。拖动目标始终冻结场景、图层和组的稳定ID。
 
 use bevy::prelude::*; // 业务marker、资源和BSN槽位使用Bevy ECS类型。
 use feathrise_scene_content::SceneVegetationAuthorGroupMode; // 组容量和覆盖阈值按正式组规则决定可用性。
@@ -209,7 +209,7 @@ pub(crate) struct VegetationNumericInputSlot(pub(crate) VegetationNumericKind);
 /// 字符焦点与唯一左拖事务共享一个业务资源，稳定帧不分配。
 #[derive(Resource, Default)]
 pub(crate) struct VegetationNumericInputState {
-    focus: Option<transaction::VegetationNumericFocus>, // 中键精确输入冻结的作者身份。
+    focus: Option<transaction::VegetationNumericFocus>, // 左键单击精确输入冻结的作者身份。
     scrub: Option<transaction::VegetationNumericScrub>, // 左拖第一次真实变化后建立的前后快照。
     aborted_scrub: Option<(Entity, VegetationNumericKind)>, // 异常回滚后拒绝同一次物理拖动的后续Changed直到松键。
 }

@@ -15,7 +15,7 @@ use feathrise_editor_core::SceneEditorScrubField; // 四个逻辑字段各自持
 use feathrise_editor_ui::{
     NumericInputBoundaryMode, NumericInputScrubConfig, NumericInputScrubMapping, NumericInputSpec,
     NumericValue,
-}; // 共享 UI 控件统一处理中键字符、左右拖动和循环角度。
+}; // 共享 UI 控件统一处理左键单击字符、左右拖动和循环角度。
 
 use super::environment::SKYBOX_MAX_BRIGHTNESS; // 环境模块集中声明天空亮度硬上限。
 use crate::authoring::resources::EditorAuthoringSession; // 当前环境草稿和作者修订。
@@ -70,7 +70,7 @@ impl EnvironmentNumericKind {
                 .with_step(NumericValue::F32(1.0)) // 背景、补光和反射均使用整数cd/m²显示与吸附。
                 .with_step_buttons(false) // 旧按钮由专业字段取代。
                 .with_live_update(false) // 字符只在提交边沿写场景环境。
-                .with_replace_on_first_key(true), // 中键输入首字符替换旧值。
+                .with_replace_on_first_key(true), // 左键单击输入首字符替换旧值。
             Self::SkyboxYaw => NumericInputSpec::f32(1)
                 .with_min(NumericValue::F32(0.0)) // 循环区间从零度开始。
                 .with_max(NumericValue::F32(360.0)) // 三百六十度与零度等价。
@@ -188,7 +188,7 @@ pub(super) struct EnvironmentNumericTarget {
     pub(super) authoring_revision: u64, // 任何外部作者变化都使旧环境输入失效。
 }
 
-/// 一次中键输入冻结根、字段和可选场景环境目标。
+/// 一次左键单击输入冻结根、字段和可选场景环境目标。
 #[derive(Clone, Debug)]
 pub(super) struct EnvironmentNumericFocus {
     pub(super) entity: Entity,               // 提交必须来自同一公共根。

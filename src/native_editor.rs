@@ -11,6 +11,9 @@ pub(crate) mod preferences;
 #[cfg(feature = "validation")]
 #[path = "native_editor_smoke.rs"]
 mod smoke;
+#[cfg(feature = "validation")]
+#[path = "numeric_input_validation.rs"]
+mod numeric_validation;
 #[cfg(all(feature = "validation", windows))]
 #[path = "build_environment_validation.rs"]
 mod build_environment_validation;
@@ -66,6 +69,10 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
     let (author_preferences, author_preferences_error) = self::preferences::load(&preferences);
     if let Some(error) = author_preferences_error {
         eprintln!("{error}"); // 独立作者配置坏原文保持只读；不以默认设置覆盖，也不牵连工程最近记录。
+    }
+    let (author_preferences, numeric_preferences_error) = author_preferences.with_project(&project);
+    if let Some(error) = numeric_preferences_error {
+        eprintln!("{error}");
     }
     let editor_settings = author_preferences.editor.clone().into_runtime();
     let display = feathrise_settings::StartupDisplayPreferences {
@@ -187,6 +194,8 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
     let export_validation = crate::project_export::validation::install(&mut app, &project, &target)?;
     #[cfg(feature = "validation")]
     crate::locale_validation::install(&mut app, Some(&project.root))?;
+    #[cfg(feature = "validation")]
+    numeric_validation::install(&mut app, &project)?;
     #[cfg(all(feature = "validation", windows))]
     if let Some(fixture) = scene_format_fixture {
         fixture.install(&mut app);

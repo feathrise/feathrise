@@ -352,8 +352,8 @@ fn creation_spacing_precise_input_clamps_below_minimum_and_preserves_millimeters
             .affine()
             .translation;
         point(&mut app, window, position);
-        mouse(&mut app, window, MouseButton::Middle, ButtonState::Pressed);
-        mouse(&mut app, window, MouseButton::Middle, ButtonState::Released);
+        mouse(&mut app, window, MouseButton::Left, ButtonState::Pressed);
+        mouse(&mut app, window, MouseButton::Left, ButtonState::Released);
         assert_eq!(
             app.world().resource::<ActiveNumericInput>().entity,
             Some(root)

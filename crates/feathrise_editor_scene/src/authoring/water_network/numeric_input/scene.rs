@@ -46,6 +46,7 @@ pub(crate) fn setup_water_network_numeric_inputs(
             parent
                 .commands()
                 .entity(root)
+                .remove::<feathrise_editor_ui::NumericInputScrubSettingsKey>() // 控制点速度沿用原类型化槽。
                 .entry::<Node>()
                 .and_modify(|mut node| {
                     node.width = percent(100);
