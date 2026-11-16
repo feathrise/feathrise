@@ -92,14 +92,12 @@ fn template_uses_scene_sdk_and_rejects_legacy_source() {
 }
 
 #[test]
-fn default_and_missing_configuration_use_matching_sibling_source() {
+fn explicit_sibling_configuration_uses_matching_source() {
     let fixture = Fixture::new();
     let template = include_str!("../assets/templates/empty/Cargo.toml");
     let configuration = fixture.editor.join(CONFIG_NAME);
-    for configured in [false, true] {
-        if configured {
-            fixture.config("kind='path'\npath='../feathrise_runtime'\npatch_path='../feathrise_patches'");
-        }
+    fixture.config("kind='path'\npath='../feathrise_runtime'\npatch_path='../feathrise_patches'");
+    {
         let source = SdkSource::load(&fixture.editor).unwrap();
         let value: Value = toml::from_str(&source.apply_template(template).unwrap()).unwrap();
         let sdk = &value["dependencies"]["feathrise_runtime"];
@@ -116,13 +114,50 @@ fn default_and_missing_configuration_use_matching_sibling_source() {
         let mut command = Command::new("cargo");
         source.apply_network_policy(&mut command);
         assert!(command.get_args().any(|arg| arg == "--offline"));
-        assert_eq!(configuration.exists(), configured);
+        assert!(configuration.exists());
     }
-    fs::remove_file(&configuration).unwrap();
-    fs::rename(&fixture.sdk, fixture.root.join("unused-sdk")).unwrap();
+    // 显式本地配置缺少配套源码时继续报错，不偷偷替作者切到公开来源。
+    assert!(fixture.sdk.starts_with(&fixture.root));
+    let unused = fixture.root.join("unused-sdk");
+    assert!(unused.starts_with(&fixture.root));
+    fs::rename(&fixture.sdk, unused).unwrap();
     let error = SdkSource::load(&fixture.editor).err().expect("缺少配套源码应提示配置路径");
     assert!(error.contains(CONFIG_NAME));
     assert!(error.contains("SDK 本地目录不存在"));
+}
+
+#[test]
+fn missing_configuration_uses_identical_public_sources_before_and_after_relocation() {
+    let fixture = Fixture::new();
+    let expected: Value = toml::from_str(DISTRIBUTION_CONFIGURATION).unwrap();
+    // 第一处有同级源码，第二处只有搬移后的安装目录；默认值不能被本机目录布局改变。
+    let relocated = fixture.root.join("接收方安装目录/编辑器");
+    fs::create_dir_all(&relocated).unwrap();
+    assert!(!relocated.parent().unwrap().join("feathrise_runtime").exists());
+    let mut manifests = Vec::new();
+    for directory in [&fixture.editor, &relocated] {
+        assert!(!directory.join(CONFIG_NAME).exists());
+        let source = SdkSource::load(directory).unwrap();
+        let value = generated(&source);
+        let sdk = &value["dependencies"]["feathrise_runtime"];
+        assert_eq!(sdk["git"], expected["source"]["git"]);
+        assert_eq!(sdk["rev"], expected["source"]["rev"]);
+        assert!(sdk["git"].as_str().unwrap().starts_with("https://github.com/feathrise/"));
+        assert_eq!(sdk["rev"].as_str().unwrap().len(), 40);
+        assert!(sdk.get("path").is_none());
+        for (package, _) in PATCHES {
+            let patch = &value["patch"]["crates-io"][package];
+            assert_eq!(patch["git"], expected["source"]["patch_git"]);
+            assert_eq!(patch["rev"], expected["source"]["patch_rev"]);
+            assert!(patch.get("path").is_none());
+        }
+        let mut command = Command::new("cargo");
+        source.apply_network_policy(&mut command);
+        assert!(!command.get_args().any(|arg| arg == "--offline"));
+        assert!(!directory.join(CONFIG_NAME).exists());
+        manifests.push(value);
+    }
+    assert_eq!(manifests[0], manifests[1]);
 }
 
 #[test]
