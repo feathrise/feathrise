@@ -1,4 +1,4 @@
-# 当前源码使用同级 Bevy 0.20.1 SDK 和补丁，编辑器从本地覆盖读取对应路径。
+# 公开检出使用 Cargo.toml 的固定 Git 来源；本地 SDK 联调可以覆盖这些来源。
 include = [{ path = "local-sdk.toml", optional = true }]
 
 # 在feathrise/直接cargo run启动Feathrise，使用本工作区默认的target/输出目录。

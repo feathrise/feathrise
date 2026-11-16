@@ -5,6 +5,8 @@
 mod empty;
 #[path = "project_template_files.rs"]
 mod files;
+#[path = "project_template_manifest.rs"]
+mod manifest;
 #[path = "project_template_sdk.rs"]
 mod sdk;
 pub(crate) use sdk::apply_project_network_policy;

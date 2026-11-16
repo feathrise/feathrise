@@ -1,5 +1,6 @@
 //! 新建工程的 SDK 来源；引擎版本和八项补丁一同绑定到所选 SDK。
 
+use super::manifest::{self, PATCHES, scene_registry_sdk_version};
 use serde::Deserialize;
 use std::{
     fs::File,
@@ -14,32 +15,14 @@ const MANIFEST_LIMIT: usize = 64 * 1024;
 const CONFIG_NAME: &str = "sdk-source.toml";
 // 发行 EXE 不附带源码目录或外置配置；默认配方编译内嵌，并与模板使用同一份来源校验。
 const DISTRIBUTION_CONFIGURATION: &str = include_str!("../sdk-source-distribution.toml");
-const BEVY_PIN: &str = "=0.20.1";
-const PATCHES: [(&str, &str); 8] = [
-    ("avian3d", "avian3d"),
-    ("bevy_anti_alias", "bevy_anti_alias"),
-    ("bevy_render", "bevy_render"),
-    ("bevy_core_pipeline", "bevy_core_pipeline"),
-    ("bevy_extract", "bevy_extract"),
-    ("wgpu-hal", "wgpu-hal"),
-    ("dlss_wgpu", "dlss_wgpu"),
-    ("wgpu-ffx", "wgpu-ffx"),
-];
+// 这是公开空模板自己的锁文件，包含 Git 提交和 registry 校验和，不使用宿主 Cargo.lock。
+const DISTRIBUTION_LOCK: &[u8] = include_bytes!("../sdk-source-distribution.lock");
 
 fn validate_bevy(requirement: Option<&str>) -> Result<(), String> {
     match requirement.map(|version| version.trim_start_matches('=')) {
         None | Some("0.20.1") => Ok(()),
         Some(version) => Err(format!("场景工程模板需要 Bevy 0.20.1，SDK 指定了 {version}")),
     }
-}
-
-fn scene_registry_sdk_version(value: &str) -> Result<semver::Version, String> {
-    let version = semver::Version::parse(value)
-        .map_err(|error| format!("registry SDK 须指定完整版本（{error}）"))?;
-    if (version.major, version.minor) != (0, 3) {
-        return Err(format!("场景工程的 registry 来源需要 SDK 0.3.x，实际配置为 {version}"));
-    }
-    Ok(version)
 }
 
 #[derive(Deserialize)]
@@ -57,6 +40,7 @@ enum SourceConfiguration {
     Registry { version: String, git: String, rev: String, bevy_version: Option<String> },
 }
 
+#[derive(PartialEq, Eq)]
 pub(super) enum SdkSource {
     Path { root: PathBuf, patches: PathBuf },
     Git { git: String, rev: String, patch_git: String, patch_rev: String },
@@ -76,16 +60,31 @@ impl SdkSource {
         let text = match File::open(&file) {
             Ok(stream) => read_bounded(stream, CONFIG_LIMIT, &file)?,
             // 只有配置缺席时采用可独立分发的默认值；坏配置仍明确失败，不能悄悄改换 SDK。
-            Err(error) if error.kind() == ErrorKind::NotFound => DISTRIBUTION_CONFIGURATION.to_owned(),
+            Err(error) if error.kind() == ErrorKind::NotFound => return Self::distribution(),
             Err(error) => return Err(format!("SDK 来源配置不可读（{}）：{error}", file.display())),
         };
-        let configuration: Configuration = toml::from_str(&text)
+        Self::parse_configuration(&text, &file)
+    }
+
+    fn distribution() -> Result<Self, String> {
+        Self::parse_configuration(DISTRIBUTION_CONFIGURATION, Path::new("sdk-source-distribution.toml"))
+    }
+
+    pub(super) fn distribution_lock(&self) -> Option<&'static [u8]> {
+        // 只有所选来源与内嵌配方一致才用配套锁。显式新来源仍自行解析锁文件。
+        let bundled = Self::distribution().ok()?;
+        (self == &bundled).then_some(DISTRIBUTION_LOCK)
+    }
+
+    fn parse_configuration(text: &str, file: &Path) -> Result<Self, String> {
+        let configuration: Configuration = toml::from_str(text)
             .map_err(|error| format!("SDK 来源配置无效（{}）：{error}", file.display()))?;
         if configuration.format != 1 {
             return Err(format!("SDK 来源配置版本不支持：{}", configuration.format));
         }
         match configuration.source {
             SourceConfiguration::Path { path, patch_path } => {
+                let configuration_root = file.parent().ok_or("SDK 配置缺少所在目录")?;
                 validate_text(&path, "SDK 本地路径", 4096)?;
                 let root = configuration_root.join(path).canonicalize().map_err(|error| {
                     format!("SDK 本地目录不存在；请配置 {}：{error}", file.display())
@@ -158,38 +157,11 @@ impl SdkSource {
     }
 
     pub(super) fn apply_template(&self, source: &str) -> Result<String, String> {
-        let mut manifest: Value = toml::from_str(source)
-            .map_err(|error| format!("空工程 Cargo 模板无效：{error}"))?;
-        let dependencies = manifest.get_mut("dependencies").and_then(Value::as_table_mut)
-            .ok_or("空工程模板缺少依赖表")?;
-        let dependency = dependencies.get_mut("feathrise_runtime")
-            .and_then(Value::as_table_mut)
-            .ok_or("空工程模板缺少显式 feathrise_runtime 依赖表")?;
-        // 保留模板的 features/default-features 等能力声明；仅替换依赖来源。
-        for key in ["path", "git", "rev", "branch", "tag", "registry", "version", "workspace"] {
-            dependency.remove(key);
-        }
-        dependency.extend(self.dependency(None)?);
-        if let Some(dependency) = dependencies.get_mut("bevy") {
-            // 自由相机组件须与所选 SDK 的 App 来自同一套 Bevy。
-            let table = dependency.as_table_mut().ok_or("空工程模板的 Bevy 依赖必须声明能力表")?;
-            table.insert("version".into(), Value::String(BEVY_PIN.into()));
-        }
-        let root = manifest.as_table_mut().ok_or("空工程 Cargo 模板必须是表")?;
-        if root.contains_key("workspace") || root.contains_key("patch") {
-            return Err("空工程模板不能另行声明 workspace 或 patch；SDK 配置统一生成".into());
-        }
-        root.insert("workspace".into(), Value::Table(Map::from_iter([
-            ("resolver".into(), Value::String("3".into())),
-        ])));
         let mut patches = Map::new();
         for (package, directory) in PATCHES {
             patches.insert(package.into(), Value::Table(self.dependency(Some(directory))?));
         }
-        root.insert("patch".into(), Value::Table(Map::from_iter([
-            ("crates-io".into(), Value::Table(patches)),
-        ])));
-        toml::to_string_pretty(&manifest).map_err(|error| error.to_string())
+        manifest::apply_template(source, self.dependency(None)?, patches)
     }
 
     fn dependency(&self, patch: Option<&str>) -> Result<Map<String, Value>, String> {

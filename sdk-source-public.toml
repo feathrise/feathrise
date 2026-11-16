@@ -1,4 +1,4 @@
-# 用于显式 registry 验收。编辑器新建工程的默认来源采用 sdk-source.toml 中的配套本地源码。
+# 用于显式 registry 验收。独立源码构建时默认使用内嵌的公开 Git 配方与锁。
 format = 1
 
 [source]

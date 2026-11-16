@@ -461,6 +461,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 [[package]]
 name = "avian3d"
 version = "0.8.0"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "approx",
  "avian_derive",
@@ -619,6 +620,7 @@ dependencies = [
 [[package]]
 name = "bevy_anti_alias"
 version = "0.20.1"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -822,6 +824,7 @@ dependencies = [
 [[package]]
 name = "bevy_core_pipeline"
 version = "0.20.1"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -1022,6 +1025,7 @@ dependencies = [
 [[package]]
 name = "bevy_extract"
 version = "0.20.1"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "bevy_app",
  "bevy_camera",
@@ -1696,6 +1700,7 @@ dependencies = [
 [[package]]
 name = "bevy_render"
 version = "0.20.1"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "async-channel",
  "bevy_app",
@@ -3142,6 +3147,7 @@ dependencies = [
 [[package]]
 name = "dlss_wgpu"
 version = "6.0.0"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "ash",
  "bindgen",
@@ -3336,6 +3342,7 @@ dependencies = [
 [[package]]
 name = "feathrise_atmosphere"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "bevy",
  "bevy_hanabi",
@@ -3350,6 +3357,7 @@ dependencies = [
 [[package]]
 name = "feathrise_author_tools"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "serde",
 ]
@@ -3357,6 +3365,7 @@ dependencies = [
 [[package]]
 name = "feathrise_billboard_text"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "bevy",
 ]
@@ -3485,6 +3494,7 @@ dependencies = [
 [[package]]
 name = "feathrise_editor_protocol"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "feathrise_author_tools",
  "serde",
@@ -3594,6 +3604,7 @@ dependencies = [
 [[package]]
 name = "feathrise_environment"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "bevy",
  "bevy_app",
@@ -3635,6 +3646,7 @@ checksum = "da6f530dae11f90a2819fff9abfa7c79b958b5532b89621c25fbcf24fda9b9f1"
 [[package]]
 name = "feathrise_fps_display"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "avian3d",
  "bevy",
@@ -3652,6 +3664,7 @@ dependencies = [
 [[package]]
 name = "feathrise_frame_generation"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "ash",
  "bevy",
@@ -3669,6 +3682,7 @@ dependencies = [
 [[package]]
 name = "feathrise_frame_generation_ui"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "bevy",
  "feathrise_billboard_text",
@@ -3681,6 +3695,7 @@ dependencies = [
 [[package]]
 name = "feathrise_fsr3"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "bevy",
  "wgpu",
@@ -3690,6 +3705,7 @@ dependencies = [
 [[package]]
 name = "feathrise_fsr3_frame_generation"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "ash",
  "bevy",
@@ -3715,6 +3731,7 @@ dependencies = [
 [[package]]
 name = "feathrise_grounding"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "avian3d",
  "bevy",
@@ -3782,6 +3799,7 @@ dependencies = [
 [[package]]
 name = "feathrise_plugin_api"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "object",
  "serde",
@@ -3792,6 +3810,7 @@ dependencies = [
 [[package]]
 name = "feathrise_portal"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "bevy",
  "feathrise_billboard_text",
@@ -3813,6 +3832,7 @@ dependencies = [
 [[package]]
 name = "feathrise_raytracing"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "bevy",
  "bevy_solari",
@@ -3828,6 +3848,7 @@ dependencies = [
 [[package]]
 name = "feathrise_runtime"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "async-channel",
  "avian3d",
@@ -3863,10 +3884,12 @@ dependencies = [
 [[package]]
 name = "feathrise_runtime_manifest"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 
 [[package]]
 name = "feathrise_scene"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "avian3d",
  "bevy",
@@ -3889,6 +3912,7 @@ dependencies = [
 [[package]]
 name = "feathrise_scene_content"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "bevy",
  "serde",
@@ -3900,6 +3924,7 @@ dependencies = [
 [[package]]
 name = "feathrise_scene_core"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "bevy",
 ]
@@ -3907,6 +3932,7 @@ dependencies = [
 [[package]]
 name = "feathrise_settings"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "bevy",
  "feathrise_fsr3",
@@ -3917,6 +3943,7 @@ dependencies = [
 [[package]]
 name = "feathrise_terrain"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "bevy",
  "bytemuck",
@@ -3929,6 +3956,7 @@ dependencies = [
 [[package]]
 name = "feathrise_ui_widgets"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "bevy",
 ]
@@ -3936,6 +3964,7 @@ dependencies = [
 [[package]]
 name = "feathrise_vegetation"
 version = "0.2.0"
+source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
 dependencies = [
  "bevy",
  "bytemuck",
@@ -8070,6 +8099,7 @@ dependencies = [
 [[package]]
 name = "wgpu-ffx"
 version = "0.1.0"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -8088,6 +8118,7 @@ checksum = "e7188412df1ef6714a00704b21b568c67e317c2fb09fbafe59baf0bd43ec43ff"
 [[package]]
 name = "wgpu-hal"
 version = "30.0.1"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "android_system_properties",
  "arrayvec",

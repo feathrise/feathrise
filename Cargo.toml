@@ -188,3 +188,37 @@ codegen-units = 256
 # 保留工程运行命令和缓存名称，优化规则统一继承 dev。
 [profile.render-dev]
 inherits = "dev"
+
+# 公开检出默认使用配套 Git 提交。需要联调源码时由 Cargo 的本地 patch 配置覆盖。
+[patch.crates-io]
+avian3d = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
+bevy_anti_alias = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
+bevy_core_pipeline = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
+bevy_extract = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
+bevy_render = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
+dlss_wgpu = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
+feathrise_atmosphere = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_author_tools = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_billboard_text = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_editor_protocol = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_environment = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_fps_display = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_frame_generation = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_frame_generation_ui = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_fsr3 = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_fsr3_frame_generation = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_grounding = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_plugin_api = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_portal = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_raytracing = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_runtime = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_runtime_manifest = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_scene = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_scene_content = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_scene_core = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_settings = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_terrain = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_ui_widgets = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+feathrise_vegetation = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "92805cf32f07652eb435206601f3f5237770a018" }
+wgpu-ffx = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
+wgpu-hal = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }

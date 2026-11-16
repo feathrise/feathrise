@@ -206,7 +206,10 @@ impl JobProcess {
                 (control_write.as_raw_handle() as usize).to_string().into(),
             ]);
         }
-        let mut command = command_line(executable.as_os_str(), &child_args)?;
+        // Rustup 的 cargo/rustc 符号链接按 argv[0] 分派工具；镜像仍用核验后的真实路径，
+        // 命令行必须保留调用名，不能把 cargo fetch 变成 rustup fetch。
+        let invoked = command_options.map(Command::get_program).unwrap_or(exe.as_os_str());
+        let mut command = command_line(invoked, &child_args)?;
         let mut attributes = AttributeList::new()?;
         if unsafe {
             UpdateProcThreadAttribute(
@@ -833,6 +836,34 @@ mod tests {
                 .unwrap()
                 .contains("绝对路径")
         );
+    }
+
+    #[test]
+    fn rust_tool_dispatch_preserves_invoked_name_when_image_has_another_name() {
+        // 模拟 cargo.exe 符号链接已解析到 rustup.exe 的边界输入；不要求机器启用创建符号链接权限。
+        // 真正启动的是当前测试镜像，子进程回读实际 argv[0]，不能只比较命令行字符串。
+        let args = helper_args("native_process::windows::tests::invoked_name_child_helper");
+        for invoked in ["cargo", r"C:\工具 别名\rustc.exe"] {
+            let options = Command::new(invoked);
+            let spawned = JobProcess::spawn_inner(&std::env::current_exe().unwrap(), &args, false, Some(&options), None).unwrap();
+            drop(spawned.input);
+            let mut output = spawned.output;
+            let mut errors = spawned.errors;
+            let output = thread::spawn(move || { let mut text = String::new(); output.read_to_string(&mut text).unwrap(); text });
+            let errors = thread::spawn(move || { let mut text = String::new(); errors.read_to_string(&mut text).unwrap(); text });
+            wait_until(|| spawned.process.try_exit().unwrap().is_some());
+            assert_eq!(spawned.process.try_exit().unwrap(), Some(0));
+            assert!(output.join().unwrap().contains(&format!("INVOKED_TOOL:{invoked}")));
+            assert!(errors.join().unwrap().is_empty());
+            wait_until(|| spawned.process.active_processes().unwrap() == 0);
+        }
+    }
+
+    #[test]
+    #[ignore = "仅供本模块通过专属 Job 创建的子测试进程调用"]
+    fn invoked_name_child_helper() {
+        if !is_child() { return; }
+        println!("INVOKED_TOOL:{}", std::env::args().next().unwrap());
     }
 
     #[test]

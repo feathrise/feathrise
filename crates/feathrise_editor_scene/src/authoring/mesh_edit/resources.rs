@@ -70,7 +70,8 @@ impl MeshEditState {
         }
     }
 
-    #[cfg(feature = "validation")]
+    // 库测试和显式验收读取同一个已生成的细分预览。
+    #[cfg(any(test, feature = "validation"))]
     pub(crate) fn subdivision_preview_for_validation(
         &self,
     ) -> Option<(SubdivisionOptions, &feathrise_scene_content::ScenePlacementRecord, bool)> {

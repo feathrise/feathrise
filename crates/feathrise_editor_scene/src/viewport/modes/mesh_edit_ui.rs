@@ -193,7 +193,8 @@ fn action_available(state: &MeshEditState, action: MeshEditAction) -> bool {
     }
 }
 
-#[cfg(feature = "validation")]
+// 库测试与显式验收共用同一组真实视口控件查询。
+#[cfg(any(test, feature = "validation"))]
 pub(crate) fn validation_mesh_button(world: &mut World, action: Option<MeshEditAction>) -> Option<Entity> {
     let entity = world
         .query::<(Entity, Option<&MeshEditButton>, Has<MeshAdvancedToggle>, &ComputedNode, &InheritedVisibility)>()

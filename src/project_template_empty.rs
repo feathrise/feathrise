@@ -1,6 +1,6 @@
 //! 空工程生成：只复制薄入口与原生自由相机视图，公共 SDK 与补丁固定到同一来源。
 use super::*;
-use std::{io::Read, process::Command};
+use std::process::Command;
 use feathrise_runtime::GameView;
 
 pub(super) fn write(
@@ -55,8 +55,13 @@ pub(super) fn write_with_sdk_configuration(
     fs::write(root.join("Cargo.toml"), manifest).map_err(|e| e.to_string())?;
     fs::write(root.join("editor-project.json"), serde_json::to_vec_pretty(&json!({"format":2,"id":id,"name":name,"cargo_manifest":"Cargo.toml","package":"feathrise_game_template","game_entry":{"kind":"saved-world","version":1},"game_view":view,"asset_roots":["assets"],"editor_data":".editor"})).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     fs::write(root.join(".cargo/config.toml"), "# 不记录开发机SDK或缓存绝对路径。\n[target.x86_64-pc-windows-msvc]\nlinker = \"rust-lld\"\n").map_err(|e| e.to_string())?;
+    // 发行版先发布可编辑的空工程。固定配方的锁已在打包前准备好，首次构建再按锁下载依赖。
+    if let Some(lock) = sdk.distribution_lock() {
+        return fs::write(root.join("Cargo.lock"), lock).map_err(|e| format!("无法写入发行模板锁文件：{e}"));
+    }
+
     fs::copy(editor.join("Cargo.lock"), root.join("Cargo.lock")).map_err(|e| e.to_string())?;
-    // 各种来源都用 fetch 补齐来源变化的锁条目，保留仍兼容的种子锁版本。
+    // 显式自定义来源用 fetch 补齐来源变化的锁条目，保留仍兼容的种子锁版本。
     // generate-lockfile 会忽略种子重求版本，使后来被 yanked 的已锁依赖也无法新建。
     // 本地联调保留离线缓存；Git／registry 首次获取受同一个可取消 Job 和发布守卫约束。
     let mut command = Command::new(crate::native_play::cargo_program());
@@ -65,16 +70,14 @@ pub(super) fn write_with_sdk_configuration(
         .arg(root.join("Cargo.toml"))
         .current_dir(root);
     sdk.apply_network_policy(&mut command);
-    let result = crate::build_process::run_cargo(&command, control, None, |mut file| {
-        // 工具 stdout 必须持续排空；创建工程只需要退出码，不随下载规模累积完整日志。
-        let mut bytes = [0_u8; 8192];
-        while file.read(&mut bytes).map_err(|e| e.to_string())? != 0 {}
-        Ok(())
-    })?;
+    // Rustup 等工具也可能把失败原因写到 stdout；两路都持续排空并只保留固定长度尾部。
+    let result = crate::build_process::run_cargo(
+        &command, control, None, crate::build_process::read_diagnostics,
+    )?;
     if result.exit_code != 0 {
         return Err(crate::environment_diagnostics::cargo_exit_failure(
             crate::environment_diagnostics::CargoStage::NewProject,
-            &command, result.exit_code, "", &result.stderr,
+            &command, result.exit_code, &result.stdout, &result.stderr,
         ));
     }
     Ok(())

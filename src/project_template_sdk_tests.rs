@@ -161,6 +161,52 @@ fn missing_configuration_uses_identical_public_sources_before_and_after_relocati
 }
 
 #[test]
+fn public_template_creates_and_reopens_while_cargo_is_unusable() {
+    let fixture = Fixture::new();
+    let installation = fixture.root.join("接收方 安装目录").join("编辑器");
+    let control = crate::build_process::BuildControl::default();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/templates/empty");
+    super::super::copy_tree(
+        &source,
+        &installation.join("assets/templates/empty"),
+        &mut super::super::CopyBudget::default(),
+        &control,
+    ).unwrap();
+    fs::write(installation.join("Cargo.lock"), "version = 4\n").unwrap();
+
+    // Cargo 会读取工程祖先中的配置；故意让夹具中的 Cargo 启动失败，防止热缓存掩盖联网回归。
+    let cargo_config = fixture.root.join(".cargo");
+    fs::create_dir(&cargo_config).unwrap();
+    fs::write(cargo_config.join("config.toml"), "[不可解析").unwrap();
+
+    for (name, view, explicit) in [
+        ("默认 工程", feathrise_runtime::GameView::ThirdPerson, false),
+        ("显式 工程", feathrise_runtime::GameView::FixedTopDown, true),
+    ] {
+        // 目录版显式配方应当和单 EXE 的默认配方一样可以离线创建。
+        if explicit {
+            let text = format!("# 目录分发配置\n{DISTRIBUTION_CONFIGURATION}");
+            fs::write(installation.join(CONFIG_NAME), text).unwrap();
+        }
+        let destination = fixture.root.join(name);
+        let project = super::super::create_empty_with_control(
+            &destination, name, &installation, &control, view,
+        ).unwrap();
+        assert_eq!(project, destination);
+        assert_eq!(fs::read(project.join("Cargo.lock")).unwrap(), DISTRIBUTION_LOCK);
+        let reopened = crate::project::open(&project).unwrap();
+        assert_eq!(reopened.name, name);
+        let assets = project.join("assets");
+        assert!(feathrise_project::ProjectScenes::load(&assets).unwrap().entries.is_empty());
+        let context = feathrise_runtime::ProjectContext::load(&project, "feathrise_game_template").unwrap();
+        assert_eq!(feathrise_runtime::GameView::load(&context).unwrap(), view);
+    }
+    assert!(fs::read_dir(&fixture.root).unwrap().all(|entry| {
+        !entry.unwrap().file_name().to_string_lossy().starts_with(".editor-create-")
+    }));
+}
+
+#[test]
 fn explicit_local_paths_keep_explicit_patch_layout_and_are_not_cwd_relative() {
     let fixture = Fixture::new();
     fixture.config("kind='path'\npath='../feathrise_runtime'\npatch_path='../feathrise_runtime/third_party'");

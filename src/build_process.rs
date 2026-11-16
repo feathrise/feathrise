@@ -368,7 +368,7 @@ fn receive<T>(receiver: &mpsc::Receiver<Result<T, String>>, slot: &mut Option<Re
     }
 }
 
-fn read_diagnostics(mut reader: impl Read) -> Result<String, String> {
+pub(crate) fn read_diagnostics(mut reader: impl Read) -> Result<String, String> {
     let mut tail = Vec::with_capacity(DIAGNOSTIC_LIMIT);
     let mut buffer = [0u8; 8192];
     loop {
@@ -448,6 +448,21 @@ mod tests {
         let output = run(&helper_command("orphan"), &control, None, all_output).unwrap();
         assert_eq!(output.exit_code, 0);
         assert!(!control.cleanup_failed());
+    }
+
+    #[test]
+    fn new_project_failure_preserves_stdout_only_diagnostics_with_bounded_memory() {
+        let command = helper_command("stdout_failure");
+        let result = run_cargo(&command, &BuildControl::default(), Some(Duration::from_secs(5)), read_diagnostics).unwrap();
+        assert_eq!(result.exit_code, 1);
+        assert!(result.stderr.is_empty());
+        assert!(result.stdout.len() <= DIAGNOSTIC_LIMIT + 3);
+        let error = crate::environment_diagnostics::cargo_exit_failure(
+            crate::environment_diagnostics::CargoStage::NewProject,
+            &command, result.exit_code, &result.stdout, &result.stderr,
+        );
+        assert!(error.contains("退出码1"));
+        assert!(error.contains("工具代理分派失败：原始标准输出诊断"));
     }
 
     #[test]
@@ -646,6 +661,11 @@ mod tests {
     fn tool_child_helper() {
         let Ok(mode) = std::env::var(MODE) else { return; };
         match mode.as_str() {
+            "stdout_failure" => {
+                println!("{}", "o".repeat(128 * 1024));
+                println!("工具代理分派失败：原始标准输出诊断");
+                std::process::exit(1);
+            }
             "stdin_echo" => {
                 // 先填满两侧输出，再读输入至EOF；父侧若串行写stdin或不关写端，此夹具会死锁。
                 println!("{}", "o".repeat(128 * 1024));

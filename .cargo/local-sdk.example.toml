@@ -1,0 +1,33 @@
+# 编辑器与两个公开依赖仓同级检出后，复制为编辑器 .cargo/local-sdk.toml。
+[patch.crates-io]
+avian3d = { path = "../feathrise_patches/avian3d" }
+bevy_anti_alias = { path = "../feathrise_patches/bevy_anti_alias" }
+bevy_core_pipeline = { path = "../feathrise_patches/bevy_core_pipeline" }
+bevy_extract = { path = "../feathrise_patches/bevy_extract" }
+bevy_render = { path = "../feathrise_patches/bevy_render" }
+dlss_wgpu = { path = "../feathrise_patches/dlss_wgpu" }
+feathrise_atmosphere = { path = "../feathrise_runtime/crates/feathrise_atmosphere" }
+feathrise_author_tools = { path = "../feathrise_runtime/crates/feathrise_author_tools" }
+feathrise_billboard_text = { path = "../feathrise_runtime/crates/feathrise_billboard_text" }
+feathrise_editor_protocol = { path = "../feathrise_runtime/crates/feathrise_editor_protocol" }
+feathrise_environment = { path = "../feathrise_runtime/crates/feathrise_environment" }
+feathrise_fps_display = { path = "../feathrise_runtime/crates/feathrise_fps_display" }
+feathrise_frame_generation = { path = "../feathrise_runtime/crates/feathrise_frame_generation" }
+feathrise_frame_generation_ui = { path = "../feathrise_runtime/crates/feathrise_frame_generation_ui" }
+feathrise_fsr3 = { path = "../feathrise_runtime/crates/feathrise_fsr3" }
+feathrise_fsr3_frame_generation = { path = "../feathrise_runtime/crates/feathrise_fsr3_frame_generation" }
+feathrise_grounding = { path = "../feathrise_runtime/crates/feathrise_grounding" }
+feathrise_scene_content = { path = "../feathrise_runtime/crates/feathrise_scene_content" }
+feathrise_terrain = { path = "../feathrise_runtime/crates/feathrise_terrain" }
+feathrise_plugin_api = { path = "../feathrise_runtime/crates/feathrise_plugin_api" }
+feathrise_portal = { path = "../feathrise_runtime/crates/feathrise_portal" }
+feathrise_raytracing = { path = "../feathrise_runtime/crates/feathrise_raytracing" }
+feathrise_runtime = { path = "../feathrise_runtime" }
+feathrise_runtime_manifest = { path = "../feathrise_runtime/crates/feathrise_runtime_manifest" }
+feathrise_scene = { path = "../feathrise_runtime/crates/feathrise_scene" }
+feathrise_scene_core = { path = "../feathrise_runtime/crates/feathrise_scene_core" }
+feathrise_settings = { path = "../feathrise_runtime/crates/feathrise_settings" }
+feathrise_ui_widgets = { path = "../feathrise_runtime/crates/feathrise_ui_widgets" }
+feathrise_vegetation = { path = "../feathrise_runtime/crates/feathrise_vegetation" }
+wgpu-ffx = { path = "../feathrise_patches/wgpu-ffx" }
+wgpu-hal = { path = "../feathrise_patches/wgpu-hal" }

@@ -10,7 +10,7 @@ use bevy::prelude::*; // 模式资源与固定UI系统注册。 // 模式在输�
 mod ui; // 固定左上角模式和类别筛选按钮。
 mod mesh_edit_ui; // 网格拓扑编辑与普通作者画笔使用独立模式及意图。
 pub(crate) use mesh_edit_ui::MeshEditToolbarRoot;
-#[cfg(feature = "validation")]
+#[cfg(any(test, feature = "validation"))]
 pub(crate) use mesh_edit_ui::validation_mesh_button;
 pub(crate) use ui::ControlsRoot as ViewportControlsRoot; // 手柄按本帧真实控件矩形阻止初次按下穿透。
 pub(crate) use ui::{GlobalModeToolbar as ViewportModeMenuRoot, ModeToolsRoot as ViewportModeToolsRoot};

@@ -10,26 +10,28 @@
 
 手动选择优先于当前分支或标签。开发代码可以先于公开包增加接口，因此日常源码检查通过只证明这组固定源码可编译；版本标签与显式 registry 检查仍核对实际已发布依赖，缺少接口时应失败。
 
+## 独立源码检查
+
+普通源码检查只检出编辑器，直接运行 `cargo check --locked --tests`。Cargo 从本仓清单与锁取得配套 SDK 和 Bevy 0.20.1 补丁。升级源码时一并提交新的锁，默认与 `validation` 两个组合都会检查。
+
 ## 源码联调
 
-工作流使用固定的场景 SDK 和 Bevy 0.20.1 补丁提交。源码检查先核对提交，再将 `feathrise_runtime`、`feathrise_scene_content`、`feathrise_terrain` 和 `feathrise_editor_protocol` 的包身份及版本与编辑器锁文件逐一比对。更新配套 SDK 提交时同步更新固定修订，也可在 GitHub 仓库的 **Settings → Secrets and variables → Actions → Variables** 覆盖。
+手动运行 `source` 时，可以在 GitHub 仓库的 **Settings → Secrets and variables → Actions → Variables** 指定三仓覆盖。此时工作流按指定提交检出 SDK 与补丁，与编辑器锁核对场景包版本，用临时 Cargo 路径覆盖解析联调锁，再进行锁定编译。
 
 | 变量 | 值 |
 | --- | --- |
 | `FEATHRISE_SDK_REPOSITORY` | `feathrise/feathrise_runtime` |
-| `FEATHRISE_SDK_REV` | 可选，默认 `1fbfee31c4513f3f373c1a342a1fca17fd01ccea` |
+| `FEATHRISE_SDK_REV` | 可选，默认 `92805cf32f07652eb435206601f3f5237770a018` |
 | `FEATHRISE_PATCH_REPOSITORY` | `feathrise/feathrise_patches` |
 | `FEATHRISE_PATCH_REV` | 可选，默认 `5eaec9241a2c1860f8b2f683a80fbe2b150236e8` |
 
 覆盖来源时使用 `owner/repository` 格式和对应的完整提交 ID。工作流在检出前检查格式，检出后核对实际提交。
 
-这组源码包含静态网格碰撞标记、统一表面与模型植被接口及 v2 植被预览协议。SDK 的 Cargo 版本仍为 `0.2.0`，包版本核对不能代替源码接口匹配；编辑器采用新增接口时，必须同步更新工作流固定修订并检查默认和 `validation` 两个组合。仓库 Variables 中已有的修订值优先于工作流默认值，升级配套版本时应同步更新或移除旧覆盖。
-
-工作流将编辑器、指定修订的 SDK 和补丁仓检出到同级目录，核对提交身份，用 SDK 清单生成临时路径覆盖，再运行 `cargo check --locked --tests`。本地复现见 [README](../README.md#从源码启动)与[开发和验收说明](开发与验收.md#本地源码覆盖)。真实窗口另按自动验收入口运行。
+SDK 的源码版本仍为 `0.2.0`，新增接口要通过实际编译验证。联调配置随修订更新。独立构建和本地联调命令见 [README](../README.md#从源码启动)与[开发和验收说明](开发与验收.md#本地源码覆盖)。
 
 ## crates.io 配方
 
-显式 registry 检查使用与编辑器配套的已发布 SDK 包和固定的 Bevy 0.20.1 补丁。当前场景开发使用配套源码，公开包验收需要已发布的场景接口。历史发行版的配方随各自 Git 标签保存。 [公开补丁配置](../.cargo/registry-sdk.toml)
+显式 registry 检查在 Runner 的独占检出中移除 SDK 的 Git 覆盖，重新解析并确认 `feathrise_runtime` 来自 crates.io。编译要求已发布包具备当前场景所需接口。历史发行版的配方随各自 Git 标签保存。[公开补丁配置](../.cargo/registry-sdk.toml)
 
 ## 跨运行缓存
 

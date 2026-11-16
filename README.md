@@ -47,7 +47,7 @@ Windows 单文件预览版编入 `raytracing`。DLSS 与 FSR 通过 Cargo 特性
 2. 新建工程，在左侧「场景」页创建一个场景，然后使用「当前场景设为启动场景」。
 3. 保存场景，在「编辑器 3D」点击「启动」，用模板提供的自由相机查看场景。
 
-新建工程从空内容开始。首次获取工程依赖需要联网，编译工程需要 Rust/Cargo、MSVC 构建工具与 Windows SDK。
+新建工程从空内容开始并直接写入配套锁文件，无需联网。首次构建时 Cargo 获取缺少的依赖。编译工程需要 Rust/Cargo、MSVC 构建工具与 Windows SDK。
 
 ## Bevy 版本对应表
 
@@ -56,11 +56,22 @@ Windows 单文件预览版编入 `raytracing`。DLSS 与 FSR 通过 Cargo 特性
 | [0.20.1](https://crates.io/crates/bevy/0.20.1) | [0.2.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.2.0-preview.1) | [0.2.0](https://crates.io/crates/feathrise_runtime/0.2.0) · [GitHub Release](https://github.com/feathrise/feathrise_runtime/releases/tag/0.2.0) |
 | [0.19.1](https://crates.io/crates/bevy/0.19.1) | [0.1.0-preview.2](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.2)、[0.1.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.1) | [0.1.0](https://crates.io/crates/feathrise_runtime/0.1.0) |
 
-新建场景工程使用 Bevy 0.20.1 和配套场景 SDK 源码。缺少外置来源配置时，编辑器使用内嵌的公开 Git 固定提交配方，在接收方获取 SDK 和补丁，无需在 EXE 旁准备源码。旧版工程使用与自身格式对应的编辑器和 SDK。 [SDK 来源](docs/使用说明.md#sdk-来源)
+新建场景工程使用 Bevy 0.20.1 和配套场景 SDK。源码构建默认使用内嵌的公开 Git 固定提交配方和锁，首次编译时由 Cargo 获取 SDK 和补丁。旧版工程使用与自身格式对应的编辑器和 SDK。[SDK 来源](docs/使用说明.md#sdk-来源)
 
 ## 从源码启动
 
 需要 Rust/Cargo 1.97.1 或更高版本，Windows 还需要 MSVC x64/x86 工具与 Windows SDK。链接器使用 Rust 工具链中的 `rust-lld`。
+
+从 GitHub 检出编辑器仓库即可开发编辑器及随仓模板。第一次需要 Cargo 获取锁定的公开 SDK 和补丁。
+
+```powershell
+git clone https://github.com/feathrise/feathrise.git
+Set-Location feathrise
+cargo check --locked -p feathrise_host -p feathrise_game_template
+cargo run --locked
+```
+
+空工程模板位于 [assets/templates/empty](assets/templates/empty)。默认新建工程写入自身锁文件，首次构建获取缺少的依赖。
 
 ### 本地源码联调
 
@@ -72,18 +83,18 @@ feathrise_runtime/
 feathrise_patches/
 ```
 
-将[完整的 31 项本地覆盖配置](docs/开发与验收.md#本地源码覆盖)保存为编辑器目录下的 `.cargo/local-sdk.toml`。编辑器自己的 Cargo 配置会读取它；此文件已忽略，不需要其他父仓库配置。保持三个目录的相对位置即可整体搬移。
-
-进入 `feathrise/`，首次获取锁定依赖后启动：
+从公开 GitHub 分别克隆 [SDK](https://github.com/feathrise/feathrise_runtime) 和 [补丁](https://github.com/feathrise/feathrise_patches)，可一并修改。进入 `feathrise/`，复制示例并重新解析本地依赖。
 
 ```powershell
-cargo fetch --locked
+Copy-Item .cargo/local-sdk.example.toml .cargo/local-sdk.toml
+Copy-Item sdk-source.local.example.toml sdk-source.toml
+cargo fetch
 cargo run --locked
 ```
 
-`.cargo/local-sdk.toml` 负责编辑器本身的编译依赖。随仓 `sdk-source.toml` 已选择同级 SDK 与补丁，新建工程会记录这两个检出的绝对路径。Windows CI 使用与编辑器锁文件匹配的配套修订检查默认和 validation 组合。 [Windows CI](docs/ci.md) · [SDK 来源](docs/使用说明.md#sdk-来源)
+`.cargo/local-sdk.toml` 负责编辑器自身编译，`sdk-source.toml` 负责新建工程来源。两份本地覆盖均已忽略。提交给公开仓的 `Cargo.lock` 保留公开 Git 来源。 [Windows CI](docs/ci.md) · [SDK 来源](docs/使用说明.md#sdk-来源)
 
-开发产物为 `target/debug/feathrise.exe`，内部 Cargo 包名为 `feathrise_host`。普通用户可使用编译好的编辑器；创建和运行工程仍需要工程所用的 Rust/Cargo 环境。
+开发产物为 `target/debug/feathrise.exe`，内部 Cargo 包名为 `feathrise_host`。普通用户可使用编译好的编辑器，构建工程需要工程所用的 Rust/Cargo 环境。
 
 当前公开源码不提供 Feathrise 正式 Logo，默认构建无需品牌文件。需要使用自己有权使用的品牌素材时，见[可选自有品牌构建](docs/开发与验收.md#可选自有品牌构建)。
 

@@ -1,4 +1,4 @@
-# 单文件编辑器的内嵌默认配方；新建工程在接收方获取公开的配套源码，不探测开发机目录。
+# 单文件编辑器的内嵌默认配方；配套 sdk-source-distribution.lock，首次构建才获取公开源码。
 # 场景 SDK 尚沿用 0.2.0 包号，因此按已采用的完整提交配对，避免误用旧版 registry 包。
 format = 1
 
@@ -6,6 +6,6 @@ format = 1
 kind = "git"
 bevy_version = "0.20.1"
 git = "https://github.com/feathrise/feathrise_runtime.git"
-rev = "5aa80706f42698a92610c3848baf5bb92075097d"
+rev = "92805cf32f07652eb435206601f3f5237770a018"
 patch_git = "https://github.com/feathrise/feathrise_patches.git"
 patch_rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
