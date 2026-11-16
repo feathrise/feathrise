@@ -2,8 +2,10 @@
 mod controller;
 use feathrise_runtime::{GameView, ProjectContext};
 fn run() -> Result<(), String> {
+    // 编辑器与 cargo run 都从工程目录启动；导出包由 SDK 按 EXE 同级标记定位。
+    let directory = std::env::current_dir().map_err(|error| format!("工程启动目录不可读：{error}"))?;
     let project = ProjectContext::load(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+        &directory,
         env!("CARGO_PKG_NAME"),
     )?;
     let view = GameView::load(&project)?;
