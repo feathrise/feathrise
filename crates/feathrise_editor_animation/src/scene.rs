@@ -204,7 +204,7 @@ pub fn panel() -> impl Scene {
                     @button("重做", AnimationAction::Redo)-- @button("重载动作", AnimationAction::Reload)]
             --
                 AnimationWriteControls
-                @feathrise_editor_ui::context_help::help_button("动画编辑", "点选骨节，用移动轴或旋转环摆姿势。自动插帧在松开时记录；关闭后需插入姿势或还原。时间轴滚轮缩放，中键或Shift滚轮平移；空白拖动框选，Ctrl增减选区，拖菱形整组移动。悬停时间轴可用Delete、Ctrl+C/V/Z、空格；Esc取消拖动。旋转数值为XYZ角度，中键精确输入。密集关键帧显示为窄条，放大后可逐键选择。中央动画标签保持打开，在资产列表选择同骨架角色GLB后绑定；模型只用于预览，保存仅写当前动画GLB。外置GLTF只读。", FONT_PATH)
+                @feathrise_editor_ui::context_help::help_button("动画编辑", "点选骨节，用移动轴或旋转环摆姿势。自动插帧在松开时记录；关闭后需插入姿势或还原。时间轴滚轮缩放，中键或Shift滚轮平移；空白拖动框选，Ctrl增减选区，拖菱形整组移动。悬停时间轴可用Delete、Ctrl+C/V/Z、空格；Esc取消拖动。旋转数值为XYZ角度，左键单击精确输入。密集关键帧显示为窄条，放大后可逐键选择。中央动画标签保持打开，在资产列表选择同骨架角色GLB后绑定；模型只用于预览，保存仅写当前动画GLB。外置GLTF只读。", FONT_PATH)
             ]
         --
             Node { width: percent(100), min_width: px(0), align_items: AlignItems::Center,

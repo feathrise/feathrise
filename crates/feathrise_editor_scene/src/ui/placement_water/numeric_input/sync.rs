@@ -128,7 +128,7 @@ pub(crate) fn sync_placement_water_numeric_inputs(
         let should_enable = context_is_editable && selection_is_editable && surface.is_some(); // 必须存在有效水绑定。
         if should_enable == disabled {
             if should_enable {
-                commands.entity(entity).remove::<NumericInputDisabled>(); // 恢复中键精确输入和左右拖动。
+                commands.entity(entity).remove::<NumericInputDisabled>(); // 恢复左键单击精确输入和左右拖动。
             } else {
                 commands.entity(entity).insert(NumericInputDisabled); // 普通或失效绑定拒绝全部数值编辑。
             }

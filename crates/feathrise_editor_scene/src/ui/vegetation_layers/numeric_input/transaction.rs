@@ -23,7 +23,7 @@ pub(super) struct VegetationNumericTarget {
     pub(super) authoring_revision: u64,     // 只接受本次事务期间未被外部作者动作换代的草稿。
 }
 
-/// 中键精确输入聚焦时冻结目标，失焦提交不读取可能已经变化的数组下标。
+/// 左键单击精确输入聚焦时冻结目标，失焦提交不读取可能已经变化的数组下标。
 #[derive(Clone, Debug)]
 pub(super) struct VegetationNumericFocus {
     pub(super) entity: Entity,                  // 公共消息返回的业务根。

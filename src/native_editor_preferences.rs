@@ -1,4 +1,4 @@
-//! 作者偏好始终保存在用户配置旁的独立文件；不读取工程settings.json，也不干扰主窗口最近工程原文身份。
+//! 作者偏好使用独立用户文件；数值拖动速度在打开工程时改由工程作者设置持有。
 //! 帧内只收敛固定设置快照和非阻塞轮询，最多一个IO任务加一份最新待存值；关闭等待原槽排空。
 
 use crate::user_preferences::{Preferences, migrate_file_if_missing, publish_checked, read_optional};
@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 const FORMAT: u32 = 1;
+
+#[path = "project_numeric_preferences.rs"]
+mod project_numeric;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -23,6 +26,7 @@ pub(crate) struct Store {
     original: Option<Vec<u8>>,
     load_failed: bool,
     pub(crate) editor: EditorSettingsData,
+    project_numeric: Option<project_numeric::ProjectStore>,
 }
 
 impl Store {
@@ -47,6 +51,7 @@ impl Store {
             original,
             load_failed: false,
             editor,
+            project_numeric: None,
         })
     }
 
@@ -56,22 +61,43 @@ impl Store {
             original: None,
             load_failed: true,
             editor: EditorSettingsData::default(),
+            project_numeric: None,
         }
     }
 
     fn save(&mut self) -> Result<(), String> {
-        if self.load_failed {
-            return Err("作者个人设置未成功读取，已拒绝覆盖；请修复原文件并重新打开编辑器".into());
+        let mut personal = self.editor.clone();
+        if let Some(project) = &self.project_numeric {
+            // 工程手感仅写入本工程，个人文件保留原来的兼容倍率供其他旧工程首次继承。
+            personal.scrub = project.personal.scrub.clone();
+            personal.numeric_scrub_speeds = project.personal.numeric_scrub_speeds.clone();
         }
-        let mut bytes = serde_json::to_vec_pretty(&Stored {
-            format: FORMAT,
-            editor: self.editor.clone(),
-        })
-        .map_err(|error| format!("无法编码作者个人设置：{error}"))?;
-        bytes.push(b'\n');
-        publish_checked(&self.file, &self.original, &bytes)?;
-        self.original = Some(bytes);
+        if self.project_numeric.as_ref().is_none_or(|project| project.personal != personal) {
+            if self.load_failed {
+                return Err("作者个人设置未成功读取，已拒绝覆盖；请修复原文件并重新打开编辑器".into());
+            }
+            let mut bytes = serde_json::to_vec_pretty(&Stored { format: FORMAT, editor: personal.clone() })
+                .map_err(|error| format!("无法编码作者个人设置：{error}"))?;
+            bytes.push(b'\n');
+            publish_checked(&self.file, &self.original, &bytes)?;
+            self.original = Some(bytes);
+            if let Some(project) = &mut self.project_numeric {
+                project.personal = personal;
+            }
+        }
+        if let Some(project) = &mut self.project_numeric {
+            project.save(&self.editor)?;
+        }
         Ok(())
+    }
+
+    pub(super) fn with_project(mut self, project: &crate::project::Project) -> (Self, Option<String>) {
+        // 工程写者和当前设置共享同一规范化基线，调速度不会顺带重写未修改的个人偏好。
+        self.editor = EditorSettingsData::from(&self.editor.into_runtime());
+        let (store, error) = project_numeric::ProjectStore::load(project, self.editor.clone());
+        store.apply(&mut self.editor);
+        self.project_numeric = Some(store);
+        (self, error)
     }
 }
 
@@ -412,7 +438,7 @@ pub(crate) fn ready_to_exit(world: &mut World, retry: bool) -> Result<bool, Stri
     if state.dirty() {
         if let Some(error) = state.error() {
             return Err(format!(
-                "作者个人设置未保存：{error}；工程原文和作者现场保留，请取消关闭后检查个人配置"
+                "编辑器设置未保存：{error}；请取消关闭后检查设置文件"
             ));
         }
     }

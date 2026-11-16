@@ -1,4 +1,4 @@
-//! 网格水中键字符提交、焦点冻结与右拖灵敏度编排。
+//! 网格水左键单击字符提交、焦点冻结与右拖灵敏度编排。
 
 use bevy::prelude::*; // ECS查询、Commands、消息与资源变更检测。
 use feathrise_editor_core::EditorSettings; // 右拖松开只写字段独立灵敏度槽。
@@ -22,13 +22,13 @@ use crate::ui::placement_water::{
     PlacementInstanceIndex, numeric_input::sensitivity::handle_sensitivity_messages,
 }; // 精确提交定向重施根，右拖写独立设置槽。 // 本系统只拥有字符焦点，不处理左拖事务。
 
-/// 消费中键字符提交与右拖灵敏度消息；左拖Changed由独立事务系统处理。
+/// 消费左键单击字符提交与右拖灵敏度消息；左拖Changed由独立事务系统处理。
 pub(crate) fn handle_placement_water_numeric_input(
     mut commands: Commands, // 精确输入完成后发布未保存实时覆盖。
     mut committed: MessageReader<NumericInputCommitted>, // 只消费两个字段的Text提交。
     mut sensitivity_changed: MessageReader<NumericInputScrubSensitivityChanged>, // 右拖途中只回显倍率。
     mut sensitivity_committed: MessageReader<NumericInputScrubSensitivityCommitted>, // 右拖松开才写设置。
-    active: Res<ActiveNumericInput>, // 中键字符焦点用于冻结稳定作者身份。
+    active: Res<ActiveNumericInput>, // 左键单击字符焦点用于冻结稳定作者身份。
     inputs: Query<(Entity, &PlacementWaterNumericInput)>, // 两个业务根实体到字段映射。
     browser: Res<EditorGltfBrowserState>, // 当前Scene0选择。
     root_index: Res<PlacementInstanceIndex>, // 精确提交按稳定ID定位当前活动根。
@@ -162,7 +162,7 @@ pub(crate) fn handle_placement_water_numeric_input(
     });
     if !focus_is_current {
         state.focus = Some(PlacementWaterNumericFocus {
-            entity: active_entity,  // 冻结本次中键精确输入根。
+            entity: active_entity,  // 冻结本次左键单击精确输入根。
             target: current_target, // 冻结场景、网格和作者修订。
         });
         editor.status = format!(

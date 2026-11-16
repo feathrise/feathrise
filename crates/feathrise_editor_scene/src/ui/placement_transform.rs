@@ -400,7 +400,7 @@ pub(super) struct PlacementTransformTarget {
     pub(super) authoring_revision: u64, // 字符焦点期间外部作者变化令提交失效。
 }
 
-/// 中键字符输入冻结的根与作者目标。
+/// 左键单击字符输入冻结的根与作者目标。
 #[derive(Clone, Debug)]
 pub(super) struct PlacementTransformFocus {
     pub(super) entity: Entity, // 必须与最终Committed消息根一致。
@@ -432,7 +432,7 @@ pub(super) struct PlacementTransformScrub {
 /// 七字段字符焦点、唯一左拖事务和一次视口吸附模式共享一个轻量状态。
 #[derive(Resource, Default)]
 pub(crate) struct PlacementTransformInputState {
-    pub(super) focus: Option<PlacementTransformFocus>, // 当前中键精确输入身份。
+    pub(super) focus: Option<PlacementTransformFocus>, // 当前左键单击精确输入身份。
     pub(super) scrub: Option<PlacementTransformScrub>, // 当前左拖事务。
     pub(super) rejected_scrub: Option<Entity>, // 取消后的同根Changed持续拒收，直到真实Scrub松手，不能将事务空窗当作新笔。
     pub(super) relocation_target: Option<PlacementTransformTarget>, // 下一次中央视口左键绑定的完整稳定资产。

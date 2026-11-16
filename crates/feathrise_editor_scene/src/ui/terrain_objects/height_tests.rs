@@ -31,7 +31,7 @@ fn history(app: &mut App, undoing: bool) {
 
 fn numeric_text(app: &mut App, window: Entity, value: Field, text: &str) {
     let root = field(app, value);
-    click(app, window, root, MouseButton::Middle);
+    click(app, window, root, MouseButton::Left);
     assert_eq!(app.world().resource::<ActiveNumericInput>().entity, Some(root));
     key(app, window, KeyCode::Digit4, Key::Character(text.into()), Some(text));
     key(app, window, KeyCode::Enter, Key::Enter, None);

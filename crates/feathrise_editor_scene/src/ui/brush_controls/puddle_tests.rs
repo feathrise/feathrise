@@ -98,7 +98,7 @@ fn puddles_ui_exposes_numeric_controls_and_updates_real_brush_values() {
             source: NumericInputCommitSource::Text,
             changed: true,
             edited: true,
-        }); // 与中键精确输入的真实消息相同。
+        }); // 与左键单击精确输入的真实消息相同。
     }
     app.update(); // 消息必须实际写入笔刷读取的SceneEditorState。
     assert_eq!(app.world().resource::<SceneEditorState>().brush_radius, 72.0); // 下一笔消费精确半径。

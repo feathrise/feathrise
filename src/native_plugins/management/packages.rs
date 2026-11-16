@@ -96,6 +96,7 @@ fn validation_editor_requested(mut value: impl FnMut(&str) -> Option<std::ffi::O
         "FEATHRISE_RIG_VALIDATION_DIR",
         "FEATHRISE_PROJECT_BROWSER_VALIDATION",
         "FEATHRISE_FILE_MANAGER_VALIDATION",
+        "FEATHRISE_NUMERIC_INPUT_VALIDATION_DIR",
     ];
     ENTRIES.iter().any(|name| value(name).is_some())
 }
@@ -116,7 +117,8 @@ mod validation_environment_tests {
             "FEATHRISE_WINDOW_PLACEMENT_VALIDATION_DIR",
             "FEATHRISE_PLUGIN_HOST_VALIDATION_DIR",
             "FEATHRISE_BUILD_ENVIRONMENT_VALIDATION_DIR",
-            "FEATHRISE_RIG_VALIDATION_DIR", "FEATHRISE_PROJECT_BROWSER_VALIDATION", "FEATHRISE_FILE_MANAGER_VALIDATION"] {
+            "FEATHRISE_RIG_VALIDATION_DIR", "FEATHRISE_PROJECT_BROWSER_VALIDATION", "FEATHRISE_FILE_MANAGER_VALIDATION",
+            "FEATHRISE_NUMERIC_INPUT_VALIDATION_DIR"] {
             assert!(validation_editor_requested(|name| (name == active).then(OsString::new)), "{active}");
         }
     }

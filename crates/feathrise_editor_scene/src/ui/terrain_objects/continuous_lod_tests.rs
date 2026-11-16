@@ -212,7 +212,7 @@ fn continuous_native_lods_scroll_all_128_author_layers_without_pages_and_commit_
                 assert!(app.world().get::<NumericInputDisabled>(distance).is_some());
             }
             reveal(&mut app, body, value);
-            click(&mut app, window, value, MouseButton::Middle);
+            click(&mut app, window, value, MouseButton::Left);
             let input = if display { "64" } else { "16.125" };
             key(
                 &mut app,
@@ -362,7 +362,7 @@ fn continuous_native_lod_structure_adoption_invalidates_late_values_on_layers_be
     // 选择换绑保留旧编辑墓碑；通过可见控件的真实中键边沿重新冻结65层。
     // 单写焦点资源未进入NumericInputEditState，公共控件会先清焦点，业务freeze便仍看到旧下标。
     reveal(&mut app, body, root);
-    click(&mut app, window, root, MouseButton::Middle);
+    click(&mut app, window, root, MouseButton::Left);
     assert_eq!(app.world().resource::<ActiveNumericInput>().entity, Some(root));
     let editing = app
         .world()

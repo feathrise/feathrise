@@ -251,7 +251,7 @@ fn snapping_group() -> impl Scene {
         SettingsGroup ~{group_node()}
         BackgroundColor(colors::PANEL_BG_SECTION) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            @help_header("变换吸附", "工具条切换网格、吸附和移动模式，Y切换常开。Ctrl临时反转；左拖调值，中键精确输入，自动保存。建筑连接与90°规则优先；移动模式只改变位置取整基准。")--
+            @help_header("变换吸附", "工具条切换网格、吸附和移动模式，Y切换常开。Ctrl临时反转；左拖调值，左键单击精确输入，自动保存。建筑连接与90°规则优先；移动模式只改变位置取整基准。")--
             @super::snapping::input_slot(super::snapping::SnapField::Translation)--
             @super::snapping::input_slot(super::snapping::SnapField::Rotation)--
             @super::snapping::input_slot(super::snapping::SnapField::Scale)--

@@ -402,7 +402,7 @@ pub(crate) fn handle_placement_transform_numeric_input(
     mut committed: MessageReader<NumericInputCommitted>, // Text提交和Scrub松手统一入口。
     mut sensitivity_changed: MessageReader<NumericInputScrubSensitivityChanged>, // 右拖途中状态回显。
     mut sensitivity_committed: MessageReader<NumericInputScrubSensitivityCommitted>, // 右拖松手持久化。
-    active: Res<ActiveNumericInput>, // 中键字符焦点用于冻结稳定目标。
+    active: Res<ActiveNumericInput>, // 左键单击字符焦点用于冻结稳定目标。
     inputs: Query<(Entity, &PlacementTransformField)>, // 七个业务根实体到字段映射。
     runtime: PlacementTransformRuntime, // Scene预览与Clipmap地面共享只读参数组。
     browser: Res<EditorGltfBrowserState>, // 当前完整实例选择。
@@ -748,7 +748,7 @@ pub(crate) fn handle_placement_transform_numeric_input(
             .focus
             .as_ref()
             .filter(|focus| focus.entity == event.entity)
-            .map(|focus| focus.target.clone()); // 优先使用中键聚焦时冻结的作者身份。
+            .map(|focus| focus.target.clone()); // 优先使用左键单击聚焦时冻结的作者身份。
         if state
             .focus
             .as_ref()
@@ -843,7 +843,7 @@ pub(crate) fn handle_placement_transform_numeric_input(
     }
     if !focus_is_current {
         state.focus = Some(PlacementTransformFocus {
-            entity: active_entity,  // 冻结本次中键输入根。
+            entity: active_entity,  // 冻结本次左键单击输入根。
             target: current_target, // 冻结场景、结构、记录和作者修订。
         });
         let current = state

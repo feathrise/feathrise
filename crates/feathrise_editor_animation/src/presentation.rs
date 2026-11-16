@@ -456,7 +456,7 @@ pub(super) fn sync(
                     "在资产列表选角色，再绑定预览".into()
                 }
             }
-            AnimationLabel::Hint => "局部XYZ · 旋转单位为度 · 中键精确输入".into(),
+            AnimationLabel::Hint => "局部XYZ · 旋转单位为度 · 左键单击精确输入".into(),
             AnimationLabel::Status => {
                 let state = if view.busy {
                     "正在处理"

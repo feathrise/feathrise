@@ -22,7 +22,7 @@ use crate::ui::placement_water::{
     PlacementInstanceIndex, preview_placement_numeric_patch, preview_placement_overrides,
 }; // 与类别按钮共享根索引、完整异常重施和O(1)拖中补丁桥。
 
-mod exact_input; // 中键字符提交、焦点冻结与右拖灵敏度独立编排，拖动事务留在本文件。
+mod exact_input; // 左键单击字符提交、焦点冻结与右拖灵敏度独立编排，拖动事务留在本文件。
 
 pub(crate) use exact_input::handle_placement_water_numeric_input; // 保持父模块原有系统注册路径和crate内可见性不变。
 

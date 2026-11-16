@@ -852,7 +852,7 @@ fn single_row_scrolls_to_last_controls_and_consumes_wheel_during_numeric_capture
 }
 
 #[test]
-fn shared_left_right_and_middle_gestures_keep_realtime_values_and_independent_sensitivity() {
+fn shared_left_click_and_drag_gestures_keep_realtime_values_and_independent_sensitivity() {
     let mut app = page(760.0, 1.0, 1.0, EditorTool::Raise, false);
     let controls = roots(&mut app);
     let radius = controls
@@ -860,6 +860,8 @@ fn shared_left_right_and_middle_gestures_keep_realtime_values_and_independent_se
         .find(|(kind, _)| *kind == SceneEditorBrushSliderKind::Radius)
         .unwrap()
         .1;
+    assert!(app.world().get::<feathrise_editor_ui::NumericInputScrubSettingsKey>(radius).is_none(),
+        "已有类型化速度槽不能重复登记另一份通用倍率");
     app.world_mut()
         .resource_mut::<SceneEditorState>()
         .brush_radius = 32.0;
@@ -937,7 +939,12 @@ fn shared_left_right_and_middle_gestures_keep_realtime_values_and_independent_se
     point_at(&mut app, radius, 0.5);
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Middle);
+        .press(MouseButton::Left);
+    tick(&mut app);
+    assert!(app.world().resource::<ActiveNumericInput>().entity.is_none());
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .release(MouseButton::Left);
     tick(&mut app);
     assert_eq!(
         app.world().resource::<ActiveNumericInput>().entity,
@@ -949,10 +956,6 @@ fn shared_left_right_and_middle_gestures_keep_realtime_values_and_independent_se
             .unwrap()
             .editing
     );
-    app.world_mut()
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .release(MouseButton::Middle);
-    tick(&mut app);
     for key in [KeyCode::Digit9, KeyCode::Period, KeyCode::Digit5] {
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
@@ -1008,13 +1011,14 @@ fn smooth_and_flatten_share_editable_sculpt_speed_and_preserve_numeric_root() {
     app.world_mut().resource_mut::<SceneEditorState>().tool = EditorTool::Flatten;
     tick(&mut app);
     assert!(app.world().get::<NumericInputDisabled>(speed).is_none());
-    // 压平复用平滑调整后的同一字段，继续通过真实中键字符输入提交，不能另建工具私有速度。
+    // 压平复用平滑调整后的同一字段，继续通过真实左键单击字符输入提交，不能另建工具私有速度。
     point_at(&mut app, speed, 0.5);
-    app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Middle);
+    app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+    tick(&mut app);
+    assert!(app.world().resource::<ActiveNumericInput>().entity.is_none());
+    app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
     tick(&mut app);
     assert_eq!(app.world().resource::<ActiveNumericInput>().entity, Some(speed));
-    app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Middle);
-    tick(&mut app);
     for key in [KeyCode::Digit6, KeyCode::Period, KeyCode::Digit5] {
         app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(key);
         tick(&mut app);
@@ -1096,7 +1100,7 @@ fn hidden_parameter_area_restores_raw_and_keeps_capture_until_release() {
     );
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Middle);
+        .press(MouseButton::Left);
     tick(&mut app);
     assert!(
         app.world()

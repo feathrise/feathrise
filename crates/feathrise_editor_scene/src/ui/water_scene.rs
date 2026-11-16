@@ -154,7 +154,7 @@ fn water_authoring_body() -> impl Scene {
                     @water_preset_panel()
                 ]
             --
-            @crate::ui::context_help::section_header("当前场景水域", "选择模式只读；工具页只准备类别，进入视口编辑模式后绘制。静水用笔刷绘制R8覆盖，Shift擦除；水位不自动修改河床。\n河流/瀑布：顶视或透视左键空白逐点，拖点只改XZ并保留Y；连接端点高度由系统决定。瀑布正式保存需要不同且有效的源/目标，终点低于起点。\n专业数值框支持左拖实际值、右拖灵敏度、中键精确输入。")--
+            @crate::ui::context_help::section_header("当前场景水域", "选择模式只读；工具页只准备类别，进入视口编辑模式后绘制。静水用笔刷绘制R8覆盖，Shift擦除；水位不自动修改河床。\n河流/瀑布：顶视或透视左键空白逐点，拖点只改XZ并保留Y；连接端点高度由系统决定。瀑布正式保存需要不同且有效的源/目标，终点低于起点。\n专业数值框支持左拖实际值、右拖灵敏度、左键单击精确输入。")--
 
                 SceneEditorWaterFeatureListTitle
                 Text("水域对象 · 等待场景作者数据") @feathrise_editor_ui::localization::label_scene("水域对象 · 等待场景作者数据")

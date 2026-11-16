@@ -23,6 +23,8 @@ pub struct EditorSettingsData {
     pub environment: feathrise_settings::EnvironmentPreviewSettings,
     #[serde(default)]
     pub scrub: SceneEditorScrubSensitivitySettings,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub numeric_scrub_speeds: std::collections::BTreeMap<String, f32>,
     /// 稳定动作名对应组合键；缺项继承默认，null表示作者主动解绑。
     #[serde(default)]
     pub shortcuts: std::collections::BTreeMap<String, Option<String>>,
@@ -129,6 +131,7 @@ impl Default for EditorSettingsData {
             scene: Default::default(),
             environment: Default::default(),
             scrub: Default::default(),
+            numeric_scrub_speeds: Default::default(),
             ui_locale: default_ui_locale(),
             ui_scale: default_editor_ui_scale(),
             ui_scale_auto: false,
@@ -156,6 +159,7 @@ impl From<&EditorSettings> for EditorSettingsData {
             scrub: scene_editor_scrub_sensitivities_for_save(
                 &settings.scene_editor_scrub_sensitivities,
             ),
+            numeric_scrub_speeds: settings.numeric_scrub_speeds.clone(),
             ui_locale: settings.ui_locale.as_str().into(),
             ui_scale: sanitize_editor_ui_scale(settings.editor_ui_scale),
             ui_scale_auto: settings.editor_ui_scale_auto,
@@ -204,6 +208,11 @@ impl EditorSettingsData {
         settings.environment = data.environment;
         settings.scene_editor_scrub_sensitivities =
             scene_editor_scrub_sensitivities_from_data(&data.scrub);
+        settings.numeric_scrub_speeds = data.numeric_scrub_speeds.iter()
+            .filter(|(key, value)| key.len() <= 512 && value.is_finite() && **value > 0.0)
+            .take(512)
+            .map(|(key, value)| (key.clone(), value.clamp(0.01, 100.0)))
+            .collect();
         settings.ui_locale = EditorLocalePreference::from_saved(&data.ui_locale);
         settings.editor_ui_scale = sanitize_editor_ui_scale(data.ui_scale);
         settings.editor_ui_scale_auto = data.ui_scale_auto;

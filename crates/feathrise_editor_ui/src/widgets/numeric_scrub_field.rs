@@ -13,7 +13,13 @@ pub fn spawn_numeric_scrub_field<M: Component>(
     options.style.label_font_size = options.style.label_font_size.max(crate::metrics::FONT_HINT);
     options.style.value_font_size = options.style.value_font_size.max(crate::metrics::FONT_CONTROL);
     options.style.unit_font_size = options.style.unit_font_size.max(10.0);
-    feathrise_ui_widgets::spawn_numeric_scrub_field_with_palette(
+    // 键由业务类型与原始规格构成，不依赖实体、语言或选中对象；同类重复行共享操作速度。
+    let settings_key = format!(
+        "{}/{}/{}/{:?}/{:?}/{:?}/{:?}/{}",
+        std::any::type_name::<M>(), options.label, options.unit, options.input.kind,
+        options.input.min, options.input.max, options.scrub.mapping, options.scrub.drag_step,
+    );
+    let root = feathrise_ui_widgets::spawn_numeric_scrub_field_with_palette(
         parent,
         marker,
         font,
@@ -26,7 +32,12 @@ pub fn spawn_numeric_scrub_field<M: Component>(
             unit: colors::TEXT_HINT,
             shadow: text_shadow(),
         },
-    )
+    );
+    // 已有类型化槽的业务可移除此键；输入前统一恢复，避免创建命令与旧倍率同步竞争。
+    parent.commands().entity(root).insert(
+        feathrise_ui_widgets::NumericInputScrubSettingsKey(settings_key),
+    );
+    root
 }
 
 pub fn spawn_localized_numeric_scrub_field<M: Component>(

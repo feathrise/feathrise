@@ -42,7 +42,8 @@ pub(crate) fn setup_boundary_thickness_input(
                         ..default()
                     }),
                 );
-                parent.commands().entity(root).entry::<Node>().and_modify(
+                // 墙体参数沿用原类型化速度槽，禁止另一份键值倍率与业务同步竞争。
+                parent.commands().entity(root).remove::<feathrise_editor_ui::NumericInputScrubSettingsKey>().entry::<Node>().and_modify(
                     |mut node| {
                         node.width = percent(100);
                         node.min_width = px(0);

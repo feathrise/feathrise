@@ -21,7 +21,7 @@ pub(crate) fn sync_water_network_numeric_inputs(
     editor: Res<SceneEditorState>,                      // 当前工具和选择。
     mut session: ResMut<EditorAuthoringSession>, // 当前草稿；异常隐藏时可定点回滚未入历史字段。
     settings: Res<EditorSettings>,                 // 四个字段各自的持久倍率。
-    active: Res<ActiveNumericInput>,             // 中键字符缓冲期间不回写值。
+    active: Res<ActiveNumericInput>,             // 左键单击字符缓冲期间不回写值。
     active_scrub: Res<ActiveNumericInputScrub>,  // 左右拖动捕获期间不回写值或倍率。
     mut state: ResMut<WaterNetworkNumericInputState>, // F12关闭后释放冻结身份。
     mut inputs: Query<(

@@ -1,7 +1,7 @@
 //! F12中央视口四个上下文笔刷字段与公共专业数值控件的业务桥。
 //!
 //! 【功能设计】左键水平拖动实时修改实际数值，右键水平拖动只修改当前字段的
-//! 独立灵敏度，中键进入精确字符输入；Esc只在字符编辑期间恢复进入前数值。
+//! 独立灵敏度，左键单击进入精确字符输入；Esc只在字符编辑期间恢复进入前数值。
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::metrics as ui_metrics;
@@ -371,7 +371,7 @@ pub(crate) fn configure_brush_slider_focus(
             field_label(kind),                                      // builder生成稳定中文标签。
             field_unit(kind),                                       // builder生成业务单位。
             initial,                                                // builder同时建立公共数值模型。
-            spec, // 中键字符输入使用原有精度与范围。
+            spec, // 左键单击字符输入使用原有精度与范围。
             scrub_config_for_tool(kind, scrub_sensitivity(kind, &settings), &editor), // 左拖映射与独立右拖倍率保持不变。
         )
         .with_style(brush_field_style()); // 只改变局部排版，不改变字符编辑、三种手势或数值映射。
@@ -384,6 +384,7 @@ pub(crate) fn configure_brush_slider_focus(
             );
             slot.commands()
                 .entity(root)
+                .remove::<feathrise_editor_ui::NumericInputScrubSettingsKey>() // 速度沿用原类型化槽，避免同字段存在两份倍率。
                 .entry::<Node>()
                 .and_modify(|mut node| {
                     node.width = Val::Percent(100.0);

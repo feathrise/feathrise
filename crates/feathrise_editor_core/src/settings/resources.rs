@@ -359,6 +359,8 @@ pub struct EditorSettings {
     pub scene: feathrise_settings::SceneDisplaySettings,
     pub environment: feathrise_settings::EnvironmentPreviewSettings,
     pub scene_editor_scrub_sensitivities: SceneEditorScrubSensitivities,
+    /// 公共数值框按稳定逻辑键保存速度，界面重建或重开工程后继续恢复。
+    pub numeric_scrub_speeds: std::collections::BTreeMap<String, f32>,
     pub ui_locale: EditorLocalePreference,
     pub editor_ui_scale: f32,
     pub editor_ui_scale_auto: bool,
@@ -379,6 +381,7 @@ impl Default for EditorSettings {
             scene: Default::default(),
             environment: Default::default(),
             scene_editor_scrub_sensitivities: Default::default(),
+            numeric_scrub_speeds: Default::default(),
             ui_locale: EditorLocalePreference::default(),
             editor_ui_scale: DEFAULT_EDITOR_UI_SCALE,
             editor_ui_scale_auto: false,

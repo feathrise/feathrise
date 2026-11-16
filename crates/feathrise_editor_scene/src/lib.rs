@@ -392,7 +392,7 @@ impl Plugin for SceneEditorPlugin {
                             )
                                 .chain(),
                             (
-                                handle_vegetation_numeric_input, // 中键精确输入和右拖倍率按稳定层/组身份收口。
+                                handle_vegetation_numeric_input, // 左键单击精确输入和右拖倍率按稳定层/组身份收口。
                                 apply_vegetation_numeric_scrub, // 左拖只改轻量作者参数，松手一次撤销并启动一次编译。
                                 handle_vegetation_authoring_buttons,
                                 handle_vegetation_layer_row_clicks,
@@ -422,7 +422,7 @@ impl Plugin for SceneEditorPlugin {
                             .chain(), // 分组保持作者域严格顺序，同时避开超长系统元组实现上限。
                         (
                             handle_placement_transform_numeric_input, // 完整资产七字段先收口字符、拖动与灵敏度。
-                            handle_placement_water_numeric_input, // 中键精确输入与右拖灵敏度先按旧Scene0选择收口。
+                            handle_placement_water_numeric_input, // 左键单击精确输入与右拖灵敏度先按旧Scene0选择收口。
                             apply_placement_water_numeric_scrub, // 左拖实时值在松开时只写一条有界PlacementChanged。
                             handle_asset_row_clicks,
                             handle_gltf_browser_input, // 独立行与分页组件不扩大全局EditorAction。

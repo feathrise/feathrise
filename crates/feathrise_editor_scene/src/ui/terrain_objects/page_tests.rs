@@ -467,12 +467,12 @@ fn independent_lod_groups_cancel_only_the_folded_input_and_reject_cross_group_la
     let before = current_object(&app);
     let display = field(&mut app, Field::Lod(true, 8));
     let collision = field(&mut app, Field::Lod(false, 8));
-    click(&mut app, window, display, MouseButton::Middle);
+    click(&mut app, window, display, MouseButton::Left);
     key(&mut app, window, KeyCode::Digit1, Key::Character("18".into()), Some("18"));
     let fold_display = action(&mut app, Action::DisplayLods);
     click(&mut app, window, fold_display, MouseButton::Left);
     assert!(app.world().resource::<TerrainObjectsEditorState>().section_open(MeshPropertySection::CollisionLods));
-    click(&mut app, window, collision, MouseButton::Middle);
+    click(&mut app, window, collision, MouseButton::Left);
     assert_eq!(app.world().resource::<ActiveNumericInput>().entity, Some(collision));
     key(&mut app, window, KeyCode::Digit2, Key::Character("24".into()), Some("24"));
     for value in [18.0, 999.0] { late_commit(&mut app, display, value); }
@@ -659,7 +659,7 @@ fn real_numeric_creation_edit_does_not_change_the_selected_mesh() {
     let toggle = action(&mut app, Action::ToggleCreation);
     click(&mut app, window, toggle, MouseButton::Left);
     let root = field(&mut app, Field::Creation(0));
-    click(&mut app, window, root, MouseButton::Middle);
+    click(&mut app, window, root, MouseButton::Left);
     assert_eq!(
         app.world().resource::<ActiveNumericInput>().entity,
         Some(root)
@@ -774,7 +774,7 @@ fn real_selected_scale_changes_only_pose_and_records_one_complete_undo() {
     .unwrap()
     .clone();
     let root = field(&mut app, Field::Selected(4));
-    click(&mut app, window, root, MouseButton::Middle);
+    click(&mut app, window, root, MouseButton::Left);
     key(
         &mut app,
         window,
@@ -812,7 +812,7 @@ fn real_clipmap_xyz_rotation_preserves_source_and_records_complete_undo_redo() {
     for (axis, text, degrees) in [(0, "17.5", 17.5_f32), (1, "65", 65.0), (2, "-12.25", -12.25)] {
         let root = field(&mut app, Field::Rotation(axis));
         assert!(app.world().get::<NumericInputDisabled>(root).is_none());
-        click(&mut app, window, root, MouseButton::Middle);
+        click(&mut app, window, root, MouseButton::Left);
         key(&mut app, window, KeyCode::Digit1, Key::Character(text.into()), Some(text));
         key(&mut app, window, KeyCode::Enter, Key::Enter, None);
         complete(&mut app);
@@ -857,7 +857,7 @@ fn late_xyz_rotation_commit_cannot_follow_a_new_selection_or_author_revision() {
         let (mut app, window) = native_page(SceneTerrainKind::SparseClipmap, 3);
         let before = app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap().manifest.terrains.clone();
         let root = field(&mut app, Field::Rotation(0));
-        click(&mut app, window, root, MouseButton::Middle);
+        click(&mut app, window, root, MouseButton::Left);
         if revision_changed {
             app.world_mut().resource_mut::<EditorAuthoringSession>().revision += 1;
         } else {
@@ -921,8 +921,8 @@ fn late_selected_numeric_commit_cannot_follow_a_new_scene_selection() {
         29.0
     );
     assert!(session.undo.is_empty());
-    // 墓碑不使控件永久失效；真实中键重新聚焦后，只有新的一笔能编辑B。
-    click(&mut app, window, root, MouseButton::Middle);
+    // 墓碑不使控件永久失效；真实左键单击重新聚焦后，只有新的一笔能编辑B。
+    click(&mut app, window, root, MouseButton::Left);
     late_commit(&mut app, root, 777.0); // 新焦点仍活动时，旧终结消息不能代替新编辑的Enter。
     assert_eq!(app.world().resource::<EditorAuthoringSession>().next_serial, 0);
     key(
@@ -1014,14 +1014,14 @@ fn clipmap_real_properties_edit_display_and_collision_independently() {
     // 两张表同时展开；直接编辑各自常驻输入，不先切换用途或移走另一张表。
     let collision_distance = field(&mut app, Field::Lod(false, 8));
     assert_ne!(collision_distance, distance);
-    click(&mut app, window, collision_distance, MouseButton::Middle);
+    click(&mut app, window, collision_distance, MouseButton::Left);
     key(&mut app, window, KeyCode::Digit2, Key::Character("24".into()), Some("24"));
     key(&mut app, window, KeyCode::Enter, Key::Enter, None);
     complete(&mut app);
     let collision_saved = current_object(&app);
     assert_eq!(collision_saved.terrain.collision_lods[0].max_distance_meters, 24.0);
     assert_eq!(collision_saved.terrain.display_lods, before.terrain.display_lods);
-    click(&mut app, window, distance, MouseButton::Middle);
+    click(&mut app, window, distance, MouseButton::Left);
     key(&mut app, window, KeyCode::Digit2, Key::Character("20".into()), Some("20"));
     key(&mut app, window, KeyCode::Enter, Key::Enter, None);
     complete(&mut app);
@@ -1048,7 +1048,7 @@ fn inline_native_lod_first_click_and_drag_edit_the_hit_cell_for_both_usages() {
             let row = app.world().get::<LodFieldRow>(multiplier).unwrap().0;
             assert_eq!(app.world().get::<LodRowBinding>(row).unwrap().0.as_ref().unwrap().index, 2);
             // 未先选层，第一次中键就进入命中的倍率框；选层只跟随此次真实接管。
-            click(&mut app, window, multiplier, MouseButton::Middle);
+            click(&mut app, window, multiplier, MouseButton::Left);
             assert_eq!(app.world().resource::<ActiveNumericInput>().entity, Some(multiplier));
             assert_eq!(app.world().resource::<TerrainObjectsEditorState>().lod(display).selected, 2);
             key(&mut app, window, KeyCode::Digit8, Key::Character("8".into()), Some("8"));
@@ -1140,7 +1140,7 @@ fn native_lod_real_continuous_rows_keep_inline_inputs_stable_and_edit_their_own_
         assert_eq!(world.query_filtered::<Entity, With<LodFieldRow>>().iter(world).collect::<Vec<_>>(), numeric_roots);
         // 每行数值根不重生；真实中键/键盘提交只更新该单元格冻结的真实下标。
         let before = current_object(&app);
-        click(&mut app, window, multiplier, MouseButton::Middle);
+        click(&mut app, window, multiplier, MouseButton::Left);
         key(&mut app, window, KeyCode::Digit6, Key::Character("64".into()), Some("64"));
         key(&mut app, window, KeyCode::Enter, Key::Enter, None);
         complete(&mut app);
@@ -1278,7 +1278,7 @@ fn source_and_stitch_headers_wait_for_inside_release_and_cancel_outside_release(
 fn cancelled_lod_navigation_releases_the_original_numeric_focus_commit() {
     let (mut app, window) = native_page(SceneTerrainKind::SparseClipmap, 3);
     let root = field(&mut app, Field::Lod(true, 8));
-    click(&mut app, window, root, MouseButton::Middle);
+    click(&mut app, window, root, MouseButton::Left);
     key(&mut app, window, KeyCode::Digit1, Key::Character("18".into()), Some("18"));
     let fold = action(&mut app, Action::DisplayLods);
     point_at(&mut app, window, fold);
@@ -1390,7 +1390,7 @@ fn native_lod_real_focus_cannot_commit_into_a_new_layer_or_folded_group() {
         let (mut app, window) = native_page(SceneTerrainKind::SparseClipmap, 6);
         let before = current_object(&app);
         let root = selected_lod_field(&mut app, true, 0);
-        click(&mut app, window, root, MouseButton::Middle);
+        click(&mut app, window, root, MouseButton::Left);
         assert_eq!(app.world().resource::<ActiveNumericInput>().entity, Some(root));
         key(&mut app, window, KeyCode::Digit1, Key::Character("18".into()), Some("18"));
         let button = action(&mut app, change);
