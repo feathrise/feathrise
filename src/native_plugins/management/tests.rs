@@ -172,7 +172,7 @@ impl Fixture {
     fn journal(&self, scope: PluginScope) -> Journal {
         let path = if scope == PluginScope::Project {
             self.project()
-                .join(".feathrise/plugin-management/pending.json")
+                .join("plugins/.management/pending.json")
         } else {
             self.roots.global.join(".management/pending.json")
         };
@@ -180,7 +180,7 @@ impl Fixture {
     }
     fn manager(&self, scope: PluginScope) -> PathBuf {
         if scope == PluginScope::Project {
-            self.project().join(".feathrise/plugin-management")
+            self.project().join("plugins/.management")
         } else {
             self.roots.global.join(".management")
         }

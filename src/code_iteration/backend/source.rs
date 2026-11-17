@@ -52,16 +52,11 @@ impl Exclusions {
         for root in &project.context.asset_roots {
             excluded.add(root, &project.root, true);
         }
-        let data = &project.context.editor_data;
-        let data_root = if data
-            .file_name()
-            .is_some_and(|name| name == project.context.storage_key.as_str())
-        {
-            data.parent().unwrap_or(data)
-        } else {
-            data.as_path()
-        };
-        excluded.add(data_root, &project.root, false);
+        excluded.add(project.context.author_data_root(), &project.root, false);
+        if project.context.shared_config_directory().is_none() {
+            // 自定义作者目录不改变 .feathrise 下的项目配置和导航个人偏好归属。
+            excluded.add(&project.root.join(crate::project::DEFAULT_EDITOR_DATA), &project.root, false);
+        }
         excluded
     }
 

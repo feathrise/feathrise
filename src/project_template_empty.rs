@@ -64,6 +64,9 @@ pub(super) fn write_with_sdk_configuration(
     fs::write(root.join("editor-project.json"), serde_json::to_vec_pretty(&descriptor).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
     fs::write(root.join(".cargo/config.toml"), "# 不记录开发机SDK或缓存绝对路径。\n[target.x86_64-pc-windows-msvc]\nlinker = \"rust-lld\"\n").map_err(|e| e.to_string())?;
+    // 源码模板和单文件资源共用生成入口。项目默认配置可提交，个人偏好及构建目录忽略。
+    fs::write(root.join(".gitignore"), "/target/\n/.feathrise/.local/\n/plugins/.management/\n")
+        .map_err(|e| format!("无法写入工程忽略规则：{e}"))?;
     fs::write(root.join("Cargo.lock"), lock).map_err(|e| format!("无法写入模板锁文件：{e}"))?;
     let Some(sdk) = resolve else { return Ok(()); };
     // 显式自定义来源用 fetch 补齐来源变化的锁条目，保留仍兼容的种子锁版本。

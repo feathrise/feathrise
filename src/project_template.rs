@@ -334,7 +334,9 @@ mod tests {
             assert_eq!(descriptor["game_view"], serde_json::to_value(view).unwrap());
             assert_eq!(descriptor["package"], "feathrise_game_template");
             let author = crate::project::open(&root).unwrap();
-            assert_eq!(author.context.editor_data, root.join(".feathrise").join(&author.id));
+            assert_eq!(author.context.editor_data, root.join(".feathrise/.local"));
+            let ignore = fs::read_to_string(root.join(".gitignore")).unwrap();
+            assert!(ignore.lines().any(|line| line == "/.feathrise/.local/"));
             assert!(root.join(".feathrise").is_dir());
             let manifest = fs::read_to_string(root.join("Cargo.toml")).unwrap();
             assert!(!manifest.contains("apps/game"));

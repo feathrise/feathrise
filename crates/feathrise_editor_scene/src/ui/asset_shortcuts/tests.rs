@@ -26,7 +26,7 @@ impl Fixture {
         Self { project, root }
     }
     fn file(&self) -> PathBuf {
-        self.project.join(".local").join(STATE_FILE)
+        self.project.join(PREFERENCES_DIRECTORY).join(STATE_FILE)
     }
     fn run(&self, kind: JobKind, snapshot: Snapshot) -> Snapshot {
         worker::run(Job {
@@ -144,13 +144,19 @@ fn real_save_reload_preserves_unicode_files_folders_and_missing_entries() {
     assert!(json.contains("assets/中文 目录/配置.json"));
     assert!(!json.contains(&fixture.project.to_string_lossy().to_string()));
     let moved = Fixture::new();
-    std::fs::create_dir_all(moved.project.join(".local")).unwrap();
-    std::fs::copy(fixture.file(), moved.file()).unwrap();
+    let legacy_directory = moved.project.join(".local");
+    std::fs::create_dir_all(&legacy_directory).unwrap();
+    let legacy = legacy_directory.join(STATE_FILE);
+    std::fs::copy(fixture.file(), &legacy).unwrap();
     assert_eq!(
         moved.run(JobKind::Load, default()),
         loaded,
-        "换工作树后相对记录仍定位本项目"
+        "从旧偏好读取的相对记录仍定位本工作树"
     );
+    assert!(!moved.file().exists(), "读取旧偏好不自动落盘");
+    moved.run(JobKind::Save, Snapshot::default());
+    assert_eq!(moved.run(JobKind::Load, Snapshot::default()), Snapshot::default());
+    assert_eq!(std::fs::read_to_string(legacy).unwrap(), json);
 }
 
 #[test]
@@ -229,7 +235,7 @@ fn invalid_or_incompatible_records_are_preserved_and_never_auto_overwritten() {
         b"broken".as_slice(),
         b"{\"version\":2,\"favorites\":[],\"recent\":[]}".as_slice(),
     ] {
-        std::fs::create_dir_all(fixture.project.join(".local")).unwrap();
+        std::fs::create_dir_all(fixture.file().parent().unwrap()).unwrap();
         std::fs::write(fixture.file(), bytes).unwrap();
         let completed = worker::run(Job {
             root: fixture.root.clone(),

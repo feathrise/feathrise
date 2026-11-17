@@ -19,8 +19,14 @@ const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 /// 由native_editor::run局部持有至App退出；不能Clone或按PID／文件时间推断所有权。
 #[derive(Debug)]
 pub(crate) struct NativeProjectLease {
-    _owner: File,
-    // Unix允许 unlink 活文件，因此还锁定已校验作者目录的 inode；删掉诊断文件不能绕过租约。
+    _owner: LockedAuthorPath,
+    _legacy: Option<LockedAuthorPath>,
+}
+
+#[derive(Debug)]
+struct LockedAuthorPath {
+    file: File,
+    // Unix 可以移除活文件，目录锁同时阻断对旧锁文件的删除绕过。
     #[cfg(unix)]
     _directory: File,
 }
@@ -31,45 +37,21 @@ impl NativeProjectLease {
         if crate::project::open(&project.root)? != *project {
             return Err("工程清单已变化，请重新打开后再进入编辑器".into());
         }
-        let directory = project.context.ensure_data_directory()?;
-        let path = directory.join(LOCK_FILE);
-        // 不用create_new或锁文件是否存在判断进程状态；旧文件只承载可覆盖诊断。
-        // 不共享WRITE和DELETE，另一作者不能同时打开，也不能删除／替换活锁来绕过租约。
-        #[cfg(unix)]
-        let directory_owner = {
-            let owner = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-                .open(&directory).map_err(|error| format!("无法打开工程租约目录：{error}"))?;
-            lock_unix(&owner).map_err(|error| lease_error(project, &path, error))?;
-            owner
+        // 迁移期间兼容已存在的旧租约。只持有旧句柄，不改写诊断，也不创建旧路径。
+        let legacy = if let Some(directory) = project.context.checked_legacy_data_directory()? {
+            let path = directory.join(LOCK_FILE);
+            match std::fs::symlink_metadata(&path) {
+                Ok(_) => Some(lock_author_path(project, &directory, &path, false)?),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => return Err(format!("无法检查旧工程写租约：{error}")),
+            }
+        } else {
+            None
         };
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create(true).truncate(false);
-        #[cfg(windows)]
-        options.share_mode(FILE_SHARE_READ).custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-        #[cfg(unix)]
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-        let mut owner = options.open(&path)
-            .map_err(|error| match error.raw_os_error() {
-                Some(32 | 33) => format!(
-                    "工程“{}”已在其他编辑器实例中打开，请返回原窗口：{}",
-                    project.name,
-                    project.root.display()
-                ),
-                _ => format!("无法取得工程写租约{}：{error}", path.display()),
-            })?;
-        let metadata = owner
-            .metadata()
-            .map_err(|error| format!("无法检查工程写租约：{error}"))?;
-        #[cfg(unix)]
-        lock_unix(&owner).map_err(|error| lease_error(project, &path, error))?;
-        if !metadata.is_file() || is_reparse(&metadata) {
-            return Err("工程写租约必须是作者数据目录中的普通文件".into());
-        }
-        if project.context.checked_data_directory()? != directory
-            || path
-                .canonicalize()
-                .map_err(|error| format!("无法定位工程写租约：{error}"))?
-                != path
+        let directory = project.context.author_lease_directory(true)?;
+        let path = directory.join(LOCK_FILE);
+        let mut owner = lock_author_path(project, &directory, &path, true)?;
+        if project.context.author_lease_directory(false)? != directory
             || crate::project::open(&project.root)? != *project
         {
             return Err("取得写租约期间工程路径或清单已变化，请重新打开工程".into());
@@ -80,15 +62,58 @@ impl NativeProjectLease {
             "project_root": project.root,
         }))
         .map_err(|error| format!("无法生成工程写租约诊断：{error}"))?;
-        owner
+        owner.file
             .set_len(0)
             .map_err(|error| format!("无法更新工程写租约诊断：{error}"))?;
-        owner
+        owner.file
             .write_all(&diagnostic)
-            .and_then(|()| owner.sync_all())
+            .and_then(|()| owner.file.sync_all())
             .map_err(|error| format!("无法写入工程写租约诊断：{error}"))?;
-        Ok(Self { _owner: owner, #[cfg(unix)] _directory: directory_owner })
+        Ok(Self { _owner: owner, _legacy: legacy })
     }
+}
+
+fn lock_author_path(
+    project: &Project,
+    #[cfg_attr(windows, allow(unused_variables))] directory: &std::path::Path,
+    path: &std::path::Path,
+    create: bool,
+) -> Result<LockedAuthorPath, String> {
+    // 文件是否存在仅决定兼容检查范围。活租约由原生锁或不可共享的句柄判定。
+
+    #[cfg(unix)]
+    let directory_owner = {
+        let owner = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(directory).map_err(|error| format!("无法打开工程租约目录：{error}"))?;
+        lock_unix(&owner).map_err(|error| lease_error(project, path, error))?;
+        owner
+    };
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(create).truncate(false);
+    #[cfg(windows)]
+    options.share_mode(FILE_SHARE_READ).custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    #[cfg(unix)]
+    options.mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    let owner = options.open(path)
+        .map_err(|error| match error.raw_os_error() {
+            Some(32 | 33) => format!(
+                "工程“{}”已在其他编辑器实例中打开，请返回原窗口：{}",
+                project.name,
+                project.root.display()
+            ),
+            _ => format!("无法取得工程写租约{}：{error}", path.display()),
+        })?;
+    let metadata = owner
+        .metadata()
+        .map_err(|error| format!("无法检查工程写租约：{error}"))?;
+    #[cfg(unix)]
+    lock_unix(&owner).map_err(|error| lease_error(project, path, error))?;
+    if !metadata.is_file() || is_reparse(&metadata)
+        || path.canonicalize().map_err(|error| format!("无法定位工程写租约：{error}"))? != path
+    {
+        return Err("工程写租约必须位于经过校验的普通文件中".into());
+    }
+    Ok(LockedAuthorPath { file: owner, #[cfg(unix)] _directory: directory_owner })
 }
 
 #[cfg(windows)]
@@ -167,10 +192,17 @@ mod tests {
         fn drop(&mut self) {
             // 只回收夹具精确创建的几个文件和空目录，绝不递归删除作者目录。
             let project = &self.project;
-            let _ = std::fs::remove_file(project.context.editor_data.join(LOCK_FILE));
-            let _ = std::fs::remove_dir(&project.context.editor_data);
-            if let Some(directory) = project.context.editor_data.parent() {
-                let _ = std::fs::remove_dir(directory);
+            if let Ok(directory) = project.context.author_lease_directory(false) {
+                let _ = std::fs::remove_file(directory.join(LOCK_FILE));
+                let _ = std::fs::remove_dir(&directory);
+                if let Some(parent) = directory.parent() {
+                    let _ = std::fs::remove_dir(parent);
+                }
+            }
+            if let Ok(Some(directory)) = project.context.checked_legacy_data_directory() {
+                let _ = std::fs::remove_file(directory.join(LOCK_FILE));
+                let _ = std::fs::remove_dir(&directory);
+                let _ = std::fs::remove_dir(project.root.join(".feathrise"));
             }
             for relative in ["assets/keep.txt", "Cargo.toml", "editor-project.json"] {
                 let _ = std::fs::remove_file(project.root.join(relative));
@@ -200,6 +232,30 @@ mod tests {
             std::fs::read_to_string(fixture.project.root.join("assets/keep.txt")).unwrap(),
             "作者数据保持原样"
         );
+    }
+
+    #[test]
+    fn default_author_lease_uses_target_and_excludes_a_live_legacy_writer() {
+        let fixture = Fixture::with_data("legacy-lease", ".feathrise");
+        let project = &fixture.project;
+        let owner = NativeProjectLease::acquire(project).unwrap();
+        let new = project.root.join("target/feathrise/author-instance.lock");
+        assert!(new.is_file());
+        assert!(!project.root.join(".feathrise").exists(), "租约不创建配置目录");
+        drop(owner);
+
+        let legacy = project.context.checked_legacy_data_directory().unwrap().unwrap();
+        std::fs::create_dir_all(&legacy).unwrap();
+        let path = legacy.join(LOCK_FILE);
+        std::fs::write(&path, b"old process diagnostic").unwrap();
+        let old = lock_author_path(project, &legacy, &path, false).unwrap();
+        assert!(NativeProjectLease::acquire(project).unwrap_err().contains("其他编辑器实例"));
+        drop(old);
+
+        let owner = NativeProjectLease::acquire(project).unwrap();
+        assert!(lock_author_path(project, &legacy, &path, false).unwrap_err().contains("其他编辑器实例"));
+        drop(owner);
+        assert_eq!(std::fs::read(path).unwrap(), b"old process diagnostic");
     }
 
     #[test]

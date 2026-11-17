@@ -150,7 +150,7 @@ fn establish(world: &mut World, scenes: &mut NativeScenes) -> Result<(), String>
     if tool.snapshot.scene_domain.as_ref().is_none_or(|wire| {
         wire.ground_patch_preparation != GROUND_PATCH_PREPARATION_PROTOCOL
     }) {
-        return Err("场景作者插件不支持地形跟随纯准备协议，请重新构建并安装当前场景插件".into());
+        return Err("场景作者插件的缓存路径或地形准备协议版本不匹配，请用配套 SDK 重新构建并安装插件".into());
     }
     let domain = tool.domain;
     let sender = tool.requests.clone();
