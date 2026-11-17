@@ -1,4 +1,8 @@
-# 编辑器与两个公开依赖仓同级检出后，复制为编辑器 .cargo/local-sdk.toml。
+# 编辑器与两个公开依赖仓同级检出后，复制为编辑器 .cargo/local-dev.toml。
+# 路径覆盖和独立锁一起生效；普通 Cargo 命令及 IDE 都继续使用本地 SDK。
+[resolver]
+lockfile-path = ".local/sdk/Cargo.lock"
+
 [patch.crates-io]
 avian3d = { path = "../feathrise_patches/avian3d" }
 bevy_anti_alias = { path = "../feathrise_patches/bevy_anti_alias" }

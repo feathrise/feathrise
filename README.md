@@ -86,13 +86,13 @@ feathrise_patches/
 从公开 GitHub 分别克隆 [SDK](https://github.com/feathrise/feathrise_runtime) 和 [补丁](https://github.com/feathrise/feathrise_patches)，可一并修改。进入 `feathrise/`，复制示例并重新解析本地依赖。
 
 ```powershell
-Copy-Item .cargo/local-sdk.example.toml .cargo/local-sdk.toml
+Copy-Item .cargo/local-sdk.example.toml .cargo/local-dev.toml
 Copy-Item sdk-source.local.example.toml sdk-source.toml
 cargo fetch
 cargo run --locked
 ```
 
-`.cargo/local-sdk.toml` 负责编辑器自身编译，`sdk-source.toml` 负责新建工程来源。两份本地覆盖均已忽略。提交给公开仓的 `Cargo.lock` 保留公开 Git 来源。 [Windows CI](docs/ci.md) · [SDK 来源](docs/使用说明.md#sdk-来源)
+`.cargo/local-dev.toml` 为本地 SDK 启用独立锁 `.local/sdk/Cargo.lock`。普通 Cargo 命令和 IDE 都会读取它，仓库根目录的 `Cargo.lock` 继续锁定公开 Git 来源。`sdk-source.toml` 单独控制新建工程来源。已有联调配置的迁移方式见[开发与验收](docs/开发与验收.md#本地源码覆盖)。 [Windows CI](docs/ci.md) · [SDK 来源](docs/使用说明.md#sdk-来源)
 
 开发产物为 `target/debug/feathrise.exe`，内部 Cargo 包名为 `feathrise_host`。普通用户可使用编译好的编辑器，构建工程需要工程所用的 Rust/Cargo 环境。
 

@@ -2,6 +2,7 @@
 !Cargo.lock
 /target/
 /.cargo/local-sdk.toml
+/.cargo/local-dev.toml
 /sdk-source.toml
 /.local/
 **/__pycache__/

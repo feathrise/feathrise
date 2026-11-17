@@ -1,5 +1,5 @@
-# 公开检出使用 Cargo.toml 的固定 Git 来源；本地 SDK 联调可以覆盖这些来源。
-include = [{ path = "local-sdk.toml", optional = true }]
+# 公开检出使用固定 Git 依赖和根 Cargo.lock；本地覆盖必须同时选择独立锁。
+include = [{ path = "local-dev.toml", optional = true }]
 
 # 在feathrise/直接cargo run启动Feathrise，使用本工作区默认的target/输出目录。
 # editor_prototype/验证原型及其已有缓存保持独立，不再把正式编辑器产物写进validation/。
