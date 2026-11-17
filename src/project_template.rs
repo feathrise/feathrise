@@ -7,6 +7,9 @@ mod empty;
 mod files;
 #[path = "project_template_manifest.rs"]
 mod manifest;
+#[cfg(windows)]
+#[path = "project_template_resources.rs"]
+mod resources;
 #[path = "project_template_sdk.rs"]
 mod sdk;
 pub(crate) use sdk::apply_project_network_policy;
@@ -292,7 +295,6 @@ mod tests {
         fs::create_dir(&scratch).unwrap();
         let scratch = scratch.canonicalize().unwrap();
         let template_root = crate::project_template_root();
-        let sdk = sdk::SdkSource::load(&crate::resource_paths::sdk_configuration_root(&template_root)).unwrap();
         let mut identities = Vec::new();
         for (index, view) in [
             feathrise_runtime::GameView::ThirdPerson,
@@ -331,8 +333,6 @@ mod tests {
                     .unwrap();
             assert_eq!(descriptor["game_view"], serde_json::to_value(view).unwrap());
             assert_eq!(descriptor["package"], "feathrise_game_template");
-            assert_eq!(descriptor.get("editor_data").and_then(serde_json::Value::as_str),
-                sdk.requires_editor_data().then_some(".feathrise"));
             let author = crate::project::open(&root).unwrap();
             assert_eq!(author.context.editor_data, root.join(".feathrise").join(&author.id));
             assert!(root.join(".feathrise").is_dir());
@@ -341,6 +341,10 @@ mod tests {
             assert!(!manifest.contains("rpg_editor_"));
             assert!(!manifest.contains("feathrise_editor_"));
             let manifest: toml::Value = toml::from_str(&manifest).unwrap();
+            assert_eq!(
+                descriptor.get("editor_data").and_then(serde_json::Value::as_str),
+                sdk::requires_editor_data(&manifest).then_some(crate::project::DEFAULT_EDITOR_DATA),
+            );
             assert_eq!(manifest["package"]["name"].as_str(), descriptor["package"].as_str());
             assert_eq!(manifest["profile"]["dev"]["opt-level"].as_integer(), Some(0));
             assert_eq!(manifest["profile"]["dev"]["package"]["*"]["opt-level"].as_integer(), Some(3));
@@ -457,7 +461,7 @@ mod tests {
 
     #[test]
     fn production_template_is_bin_only_and_cannot_accidentally_include_the_prototype_library() {
-        let source = include_str!("../assets/templates/empty/Cargo.toml");
+        let source = include_str!("../templates/empty/Cargo.toml");
         let a = personalize_targets(source, "first").unwrap();
         let b = personalize_targets(source, "second").unwrap();
         assert!(a.contains("default-run = \"project-first\""));

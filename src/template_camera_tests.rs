@@ -1,6 +1,6 @@
 //! 直接加载新建模板并驱动 Bevy 原生自由相机，验证玩法许可、焦点及驻留观察点。
 
-#[path = "../assets/templates/empty/src/controller.rs"]
+#[path = "../templates/empty/src/controller.rs"]
 #[allow(unexpected_cfgs)] // 直接复用模板源码；function_hotpatch属于模板清单，不是宿主能力。
 mod controller;
 

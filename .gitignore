@@ -1,6 +1,7 @@
 # 构建缓存与本地验收产物；锁文件随应用源码提交。
 !Cargo.lock
 /target/
+/templates/empty/target/
 /.cargo/local-sdk.toml
 /.cargo/local-dev.toml
 /sdk-source.toml

@@ -105,7 +105,7 @@ winresource = { version = "=0.1.31", default-features = false }
 
 [workspace]
 resolver = "3"
-members = [".", "assets/templates/empty", "crates/*"]
+members = [".", "crates/*"]
 default-members = ["."]
 
 # 独立编辑器有自己的 Cargo 工作区，默认只启动作者宿主；玩法在打开工程后后台构建。

@@ -13,16 +13,21 @@ use toml::{Value, map::Map};
 const CONFIG_LIMIT: usize = 16 * 1024;
 const MANIFEST_LIMIT: usize = 64 * 1024;
 const CONFIG_NAME: &str = "sdk-source.toml";
-// 发行 EXE 不附带源码目录或外置配置；默认配方编译内嵌，并与模板使用同一份来源校验。
-const DISTRIBUTION_CONFIGURATION: &str = include_str!("../sdk-source-distribution.toml");
-// 这是公开空模板自己的锁文件，包含 Git 提交和 registry 校验和，不使用宿主 Cargo.lock。
-const DISTRIBUTION_LOCK: &[u8] = include_bytes!("../sdk-source-distribution.lock");
 
 fn validate_bevy(requirement: Option<&str>) -> Result<(), String> {
     match requirement.map(|version| version.trim_start_matches('=')) {
         None | Some("0.20.1") => Ok(()),
         Some(version) => Err(format!("场景工程模板需要 Bevy 0.20.1，SDK 指定了 {version}")),
     }
+}
+
+pub(super) fn requires_editor_data(manifest: &Value) -> bool {
+    // 旧公开修订要求显式作者目录。以最终模板清单为准，源码模板和发行模板使用同一判断。
+    manifest.get("dependencies")
+        .and_then(|dependencies| dependencies.get("feathrise_runtime"))
+        .and_then(|runtime| runtime.get("rev"))
+        .and_then(Value::as_str)
+        == Some("92805cf32f07652eb435206601f3f5237770a018")
 }
 
 #[derive(Deserialize)]
@@ -48,37 +53,22 @@ pub(super) enum SdkSource {
 }
 
 impl SdkSource {
-    pub(super) fn load(configuration_root: &Path) -> Result<Self, String> {
+    pub(super) fn load(configuration_root: &Path) -> Result<Option<Self>, String> {
         Self::load_checked(configuration_root).map_err(|error| {
             crate::environment_diagnostics::sdk_configuration_failure(&configuration_root.join(CONFIG_NAME), error)
         })
     }
 
-    fn load_checked(configuration_root: &Path) -> Result<Self, String> {
+    fn load_checked(configuration_root: &Path) -> Result<Option<Self>, String> {
         // 这是 sdk-source.toml 的实际父目录，不一定是解出的模板/字体等静态资源根。
         let file = configuration_root.join(CONFIG_NAME);
         let text = match File::open(&file) {
             Ok(stream) => read_bounded(stream, CONFIG_LIMIT, &file)?,
-            // 只有配置缺席时采用可独立分发的默认值；坏配置仍明确失败，不能悄悄改换 SDK。
-            Err(error) if error.kind() == ErrorKind::NotFound => return Self::distribution(),
+            // 无外置配置时直接使用模板的 Cargo 清单和锁。
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(format!("SDK 来源配置不可读（{}）：{error}", file.display())),
         };
-        Self::parse_configuration(&text, &file)
-    }
-
-    fn distribution() -> Result<Self, String> {
-        Self::parse_configuration(DISTRIBUTION_CONFIGURATION, Path::new("sdk-source-distribution.toml"))
-    }
-
-    pub(super) fn requires_editor_data(&self) -> bool {
-        // 此公开修订的运行入口在字段缺失时拒绝启动，需为它保留显式路径。
-        matches!(self, Self::Git { rev, .. } if rev == "92805cf32f07652eb435206601f3f5237770a018")
-    }
-
-    pub(super) fn distribution_lock(&self) -> Option<&'static [u8]> {
-        // 只有所选来源与内嵌配方一致才用配套锁。显式新来源仍自行解析锁文件。
-        let bundled = Self::distribution().ok()?;
-        (self == &bundled).then_some(DISTRIBUTION_LOCK)
+        Self::parse_configuration(&text, &file).map(Some)
     }
 
     fn parse_configuration(text: &str, file: &Path) -> Result<Self, String> {

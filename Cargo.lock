@@ -508,7 +508,6 @@ version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78a6c6136c38a50f3d20069adb99064636afcb109cbdf27a00a8c1742f5d630c"
 dependencies = [
- "bevy_dylib",
  "bevy_internal",
 ]
 
@@ -3721,14 +3720,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "feathrise_game_template"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "feathrise_runtime",
-]
-
-[[package]]
 name = "feathrise_grounding"
 version = "0.2.0"
 source = "git+https://github.com/feathrise/feathrise_runtime.git?rev=92805cf32f07652eb435206601f3f5237770a018#92805cf32f07652eb435206601f3f5237770a018"
@@ -3875,7 +3866,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "subsecond",
  "wgpu-hal",
  "windows-sys 0.61.2",
  "winit",
