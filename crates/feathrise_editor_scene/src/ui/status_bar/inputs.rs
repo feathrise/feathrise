@@ -10,6 +10,7 @@ use feathrise_scene::{
 
 use super::types::{RuntimeEntry, RuntimePhase};
 use crate::authoring::{EditorAuthoringSession, TerrainExternalChangeState};
+use crate::ui::file_manager::{CancelFileTask, FileManagerState};
 use crate::resources::{
     SceneBrowserDragState, SceneBrowserState, SceneCreationTask, SceneDeletionTask, SceneEditorLayoutState,
     SceneEditorSettingsState, SceneEditorState,
@@ -19,6 +20,7 @@ use crate::resources::{
 pub(super) struct StatusInputs<'w> {
     pub(super) editor: Res<'w, SceneEditorState>,
     pub(super) session: Option<Res<'w, EditorAuthoringSession>>,
+    pub(super) files: Option<Res<'w, FileManagerState>>,
     loading: Option<Res<'w, feathrise_scene_core::state::LoadingProgress>>,
     creation: Option<Res<'w, SceneCreationTask>>,
     deletion: Option<Res<'w, SceneDeletionTask>>,
@@ -42,6 +44,10 @@ pub(super) struct StatusInputs<'w> {
 }
 
 impl StatusInputs<'_> {
+    pub(super) fn cancellable_file_task(&self) -> Option<CancelFileTask> {
+        self.files.as_deref().and_then(FileManagerState::cancellable_task)
+    }
+
     pub(super) fn loading_failed(&self) -> bool {
         self.editor.scene_transition_in_progress
             && self.loading.as_ref().is_some_and(|progress| progress.stage == feathrise_scene_core::state::LoadingStage::Failed)
@@ -79,6 +85,7 @@ impl StatusInputs<'_> {
             || self.editor.new_scene_dialog_open
             // 加载期间底栏只读诊断仍可打开、滚动和复制；作者输入继续由透明加载门隔离。
             || self.editor.scene_switch_confirmation.is_some()
+            || self.files.as_deref().is_some_and(FileManagerState::blocks_status_details)
             || self
                 .settings
                 .as_ref()

@@ -15,6 +15,7 @@ use super::types::{RuntimePhase, StatusAction, StatusPhase, StatusTextRole};
 use crate::components::SceneEditorRoot;
 use crate::resources::SceneEditorNumericScrubMouseGuard;
 use crate::types::{EditorStatusKind, EditorStatusOperation};
+use crate::ui::file_manager::CancelFileTask;
 use crate::ui::theme as colors;
 
 /// 在领域表现完成之后隐藏重复反馈；保留原唯一文字实体，业务阶段与错误内容不被重写。
@@ -139,7 +140,13 @@ pub(super) fn observe_status(
     let locale_changed = locale.as_ref().is_some_and(|locale| locale.is_changed());
     let locale = locale.as_deref().copied().unwrap_or_default();
     let editor_task = inputs.task(&entries);
-    let mut task = locale.editor_notice(&editor_task).into_owned();
+    // 文件进度放在任务文字前面，窄窗裁切时仍先看到当前文件操作。
+    let separator = if locale == feathrise_editor_ui::localization::EditorLocale::English { " · " } else { "；" };
+    let mut task = inputs.files.as_deref().and_then(|files| files.progress_text(locale)).unwrap_or_default();
+    if !editor_task.is_empty() {
+        if !task.is_empty() { task.push_str(separator); }
+        task.push_str(&locale.editor_notice(&editor_task));
+    }
     use feathrise_editor_ui::feedback::PanelStatusPhase;
     let external_failure = external.iter().find(|status| !status.summary.is_empty() && status.phase == PanelStatusPhase::Failed);
     let working = !task.is_empty() || external.iter().any(|status| !status.summary.is_empty() && status.phase == PanelStatusPhase::Working);
@@ -147,7 +154,7 @@ pub(super) fn observe_status(
     for status in external.iter().filter(|status| !status.summary.is_empty()) {
         // 每个任务在拼接之前翻译。多项并行时完整字符串无法匹配单项文案键。
         if !task.is_empty() {
-            task.push_str(if locale == feathrise_editor_ui::localization::EditorLocale::English { " · " } else { "；" });
+            task.push_str(separator);
         }
         task.push_str(&locale.editor_notice(status.summary));
     }
@@ -205,6 +212,11 @@ pub(super) fn observe_status(
     }
     if state.task != task {
         state.task = task;
+        state.detail_dirty = true;
+    }
+    let file_notice = inputs.files.as_deref().map_or("", |files| files.notice.as_str());
+    if state.file_notice != file_notice {
+        state.file_notice = file_notice.to_owned();
         state.detail_dirty = true;
     }
     if state.context != context {
@@ -277,6 +289,12 @@ pub(super) fn observe_status(
             state.task.clone()
         };
         detail.push_str(&locale.format("status.detail.task", &[("task", task)]));
+        if !state.file_notice.is_empty() {
+            detail.push_str("\n\n");
+            detail.push_str(locale.editor_label("文件操作"));
+            detail.push('\n');
+            detail.push_str(&locale.editor_notice(&state.file_notice));
+        }
         detail.push_str(locale.text(if editor.dirty {
             "status.detail.drafts_dirty"
         } else {
@@ -367,6 +385,7 @@ pub(super) fn control_details(
     mut state: ResMut<EditorStatusBarState>,
     mut guard: ResMut<SceneEditorNumericScrubMouseGuard>,
     mut clipboard: ResMut<Clipboard>,
+    mut file_cancellations: Option<ResMut<Messages<CancelFileTask>>>,
     buttons: Query<(&StatusButton, &EditorButtonClick), Changed<EditorButtonClick>>,
     mut wheels: MessageReader<MouseWheel>,
     mut scrolls: Query<
@@ -424,6 +443,11 @@ pub(super) fn control_details(
                     copy_detail(&state.detail, |detail| clipboard.set_text(detail));
                 state.copy_failed = failed;
                 state.copy_result = result; // 只执行本次明确复制，不读取或隐式重试系统剪贴板。
+            }
+            StatusAction::CancelFileTask => {
+                if let (Some(messages), Some(task)) = (file_cancellations.as_mut(), inputs.cancellable_file_task()) {
+                    messages.write(task);
+                }
             }
         }
     }
@@ -483,14 +507,16 @@ pub(super) fn sync_presentation(
         .map_or(0.0, |node| node.size().x * node.inverse_scale_factor());
     let full_context = width >= 700.0;
     let locale = locale.as_deref().copied().unwrap_or_default();
+    let file_notice = locale.editor_notice(&state.file_notice);
+    let task = if state.task.is_empty() { file_notice.as_ref() } else { state.task.as_str() };
     for (role, mut text, mut color, mut node) in &mut texts {
         let (value, tint, show) = match role.0 {
             StatusTextRole::Phase => (state.phase.label(), phase_color(state.phase), true),
             StatusTextRole::Summary => (state.summary.as_str(), colors::TEXT_PRIMARY, true),
             StatusTextRole::Task => (
-                state.task.as_str(),
+                task,
                 colors::TEXT_ACCENT,
-                !state.task.is_empty() && width >= 360.0,
+                !task.is_empty() && (width >= 360.0 || !state.file_notice.is_empty()),
             ),
             StatusTextRole::Context => (state.context.as_str(), colors::TEXT_MUTED, full_context),
             StatusTextRole::Detail => (
@@ -529,11 +555,13 @@ pub(super) fn sync_presentation(
 
 /// 小逻辑视口沿用UI库的共同紧凑档，保持原锚点/60%高度上限及唯一可滚动正文。
 pub(super) fn sync_popup_layout(
+    inputs: StatusInputs,
     roots: Query<&ComputedNode, With<SceneEditorRoot>>,
     mut sections: Query<(&mut Node, Has<StatusPopupHeader>, Has<StatusPopupFooter>),
         (Or<(With<StatusPopupHeader>, With<StatusPopupFooter>, With<StatusDetailScroll>)>, Without<StatusButton>)>,
-    mut buttons: Query<(&StatusButton, &mut Node),
+    mut buttons: Query<(&StatusButton, &mut Node, Option<&mut EditorButtonClick>),
         (Without<StatusPopupHeader>, Without<StatusPopupFooter>, Without<StatusDetailScroll>)>,
+    mut displayed_task: Local<Option<CancelFileTask>>,
 ) {
     let Ok(root) = roots.single() else { return; };
     let size = root.size() * root.inverse_scale_factor();
@@ -549,15 +577,24 @@ pub(super) fn sync_popup_layout(
         } else { super::scene::detail_scroll_node(compact) };
         if *node != next { *node = next; }
     }
-    for (action, mut node) in &mut buttons {
+    let cancellable = inputs.cancellable_file_task();
+    for (action, mut node, click) in &mut buttons {
         // 24px底栏的入口不属于弹窗外壳，不因展开或缩放改变原命中范围。
         if action.0 == StatusAction::Toggle { continue; }
-        let style = match (compact, action.0 == StatusAction::Close) {
+        let mut style = match (compact, action.0 == StatusAction::Close) {
             (true, true) => feathrise_editor_ui::dialog_compact_close_button_style(),
             (true, false) => feathrise_editor_ui::dialog_compact_button_style(false),
             (false, true) => feathrise_editor_ui::dialog_close_button_style(),
             (false, false) => feathrise_editor_ui::dialog_button_style(false),
         };
+        if action.0 == StatusAction::CancelFileTask {
+            // 任务换位时废弃旧按下，释放不能把同一按钮的动作改派给新任务。
+            if *displayed_task != cancellable {
+                if let Some(mut click) = click { click.invalidate(); }
+            }
+            if cancellable.is_none() { style.node.display = Display::None; }
+        }
         if *node != style.node { *node = style.node; }
     }
+    *displayed_task = cancellable;
 }

@@ -56,10 +56,6 @@ pub(crate) struct SceneEditorShortcutBindingText(pub(crate) feathrise_editor_cor
 #[derive(Component, Clone, Default)]
 pub(crate) struct SceneEditorShortcutNoticeText;
 
-/// 编辑器标题栏当前场景文本。
-#[derive(Component, Clone, Copy, Default)]
-pub(crate) struct SceneEditorCurrentSceneText;
-
 /// 编辑器底部状态文本。
 #[derive(Component, Clone, Copy, Default)]
 pub(crate) struct SceneEditorStatusText;

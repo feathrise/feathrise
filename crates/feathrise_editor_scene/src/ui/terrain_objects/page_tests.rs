@@ -2054,12 +2054,9 @@ fn editor_workbench_gpu_snapshot() {
     app.world_mut().entity_mut(root).insert((feathrise_editor_ui::EditorThemeRoot, bevy::ui::UiTargetCamera(camera)));
     app.world_mut().get_mut::<Node>(root).unwrap().display = Display::Flex;
     app.world_mut().get_mut::<Camera>(camera).unwrap().viewport = None;
-    // 离屏夹具没有启动场景目录IO；标题从同一份真实内存草稿取值，中央不伪造场景内容。
+    // 离屏夹具没有启动场景目录IO；底栏呈现夹具当前操作反馈。
     {
         let world = app.world_mut();
-        for mut text in world.query_filtered::<&mut Text, With<crate::components::SceneEditorCurrentSceneText>>().iter_mut(world) {
-            text.0 = "当前场景：测试场景 a".into();
-        }
         for mut text in world.query_filtered::<&mut Text, With<crate::components::SceneEditorStatusText>>().iter_mut(world) {
             text.0 = "内存作者草稿 · UI排版验证（未加载三维场景）".into();
         }

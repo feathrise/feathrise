@@ -25,7 +25,7 @@ pub enum WorkbenchHeaderItem {
 pub struct WorkbenchProjectLogButton;
 
 /// 宿主非模态面板的实际边界，同时用于鼠标命中与原生工程视口留孔。
-#[derive(Component)]
+#[derive(Component, Default)]
 #[require(bevy::ui::RelativeCursorPosition)]
 pub struct WorkbenchFloatingPanel;
 

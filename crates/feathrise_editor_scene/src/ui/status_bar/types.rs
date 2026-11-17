@@ -23,7 +23,7 @@ impl StatusPhase {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) enum StatusTextRole {
+pub(in crate::ui) enum StatusTextRole {
     #[default]
     Phase,
     Summary,
@@ -35,12 +35,13 @@ pub(super) enum StatusTextRole {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) enum StatusAction {
+pub(in crate::ui) enum StatusAction {
     #[default]
     Toggle,
     Copy,
     Dismiss,
     Close,
+    CancelFileTask,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

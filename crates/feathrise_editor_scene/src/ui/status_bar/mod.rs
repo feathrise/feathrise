@@ -11,8 +11,12 @@ mod types;
 pub(crate) use resources::EditorStatusBarState;
 pub(crate) use components::{PanelStatusText, StatusPopup};
 pub(super) use scene::{footer, popup};
+#[cfg(feature = "validation")]
+pub(super) use {components::{StatusButton, StatusText}, types::{StatusAction, StatusTextRole}};
 
 use bevy::prelude::*;
+
+pub(super) const STATUS_BAR_HEIGHT: f32 = 24.0;
 
 pub(crate) fn install(app: &mut App) {
     app.init_resource::<EditorStatusBarState>()

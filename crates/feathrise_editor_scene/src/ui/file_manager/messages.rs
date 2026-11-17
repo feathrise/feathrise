@@ -18,6 +18,9 @@ pub(crate) struct OpenManagedFile { pub(crate) path: PathBuf }
 pub(crate) struct FileManagerExternalDrag { pub(crate) sources: Vec<PathBuf> }
 #[derive(Message)]
 pub(crate) struct FileManagerCommand { pub(crate) action: FileAction, pub(crate) path: Option<PathBuf>, pub(crate) sources: Vec<PathBuf> }
+/// 详情按钮绑定已显示的任务；任务换位后，旧的释放指令不得改派给新任务。
+#[derive(Message, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CancelFileTask { pub(super) context: u64, pub(super) id: u64 }
 /// 右键打开时就冻结目录与选择，菜单释放时不再读取可能已变化的固定行池。
 #[derive(Message, Clone)]
 pub(crate) struct FileManagerContextRequest {

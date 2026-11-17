@@ -1,9 +1,9 @@
 //! 桌面文件会话；浏览窗可关闭，文件任务及进程内剪贴板由独立服务持续持有。
 
 use super::types::*;
-use super::messages::OpenAnimationPicker;
+use super::messages::{CancelFileTask, OpenAnimationPicker};
 use bevy::prelude::*;
-use feathrise_editor_project_browser_model::file_operations::{ConflictPolicy, FileOperationSnapshot};
+use feathrise_editor_project_browser_model::file_operations::{ConflictPolicy, FileOperationProgress, FileOperationSnapshot};
 use std::path::PathBuf;
 
 #[derive(Resource, Default)]
@@ -67,6 +67,14 @@ impl Default for FileManagerState {
 
 impl FileManagerState {
     pub(crate) fn service_context(&self) -> u64 { self.context }
+    pub(super) fn active_task(&self) -> Option<&FileOperationProgress> {
+        self.snapshot.as_ref()?.active.as_ref().filter(|task| task.context == self.context)
+    }
+    pub(crate) fn cancellable_task(&self) -> Option<CancelFileTask> {
+        self.active_task().filter(|task| !task.cancel_requested)
+            .map(|task| CancelFileTask { context: task.context, id: task.id })
+    }
+    pub(crate) fn blocks_status_details(&self) -> bool { self.prompt.is_some() || self.menu.is_some() }
     #[cfg(any(test, feature = "validation"))]
     pub(crate) fn context_menu_open(&self) -> bool { self.menu.is_some() }
     pub(crate) fn owns_mouse(&self) -> bool { self.hovered || self.gesture.is_some() || self.drag.as_ref().is_some_and(|drag| drag.dragging) || self.prompt.is_some() || self.menu.is_some() || self.release_guard }

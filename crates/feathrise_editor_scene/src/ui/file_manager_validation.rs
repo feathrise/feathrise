@@ -4,10 +4,11 @@ mod evidence;
 mod assets;
 
 use super::file_manager::{
-    FileAction, FileContextLabel, FileContextPanel, FileList, FileManagerButton, FileManagerState, FileNameInput, FileResizeHandle, FileRow,
-    FileTaskButton, FileTitleBar,
+    FileAction, FileContextLabel, FileContextPanel, FileList, FileManagerButton, FileManagerCommand, FileManagerState, FileNameInput, FileResizeHandle, FileRow,
+    FileTaskButton, FileTitleBar, FileWindowStrip, OpenFileWindow,
 };
 use super::sidebars::{EditorNavigatorTab, EditorSidebarTab, SceneEditorSidebarTabButton};
+use super::status_bar::{StatusAction, StatusButton, StatusPopup, StatusText, StatusTextRole};
 use crate::resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState};
 use bevy::{
     app::AppExit,
@@ -37,7 +38,9 @@ enum Stage {
     RenameSelect, RenameCommand, NameRename, RenameWait,
     DeleteSelect, DeleteCommand, DeleteConfirm, DeleteWait,
     DragWindow, ResizeWindow, CaptureDesktop, Maximize, VerifyMaximize, RestoreSize,
-    Minimize, VerifyMinimize, RestoreTask, VerifyRestore, CaptureRestored, CloseWindow, VerifyClose, Assets, Complete,
+    Minimize, VerifyMinimize, RestoreTask, VerifyRestore, CaptureRestored, CloseWindow, VerifyClose,
+    SingleMinimize, SingleRestore, SingleRestored, OpenCrowded, SwitchCrowded, CaptureCrowded, CloseCrowded,
+    OpenFileDetails, StartCancelCopy, CancelCopy, CloseFileDetails, Assets, Complete,
 }
 
 #[derive(Resource)]
@@ -238,6 +241,9 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             let Some(browser) = state.windows.iter().find(|browser| same_path(&browser.path, &run.source) && !browser.loading) else { return Ok(None); };
             if browser.entries.len() != 4 { return Ok(None); }
             run.source_window = Some(browser.id);
+            if visible(world, |_: &FileWindowStrip| true).is_some() { return Err("单个可见文件窗仍显示窗口按钮".into()); }
+            let Some(proof) = evidence::capture(world, &mut run.capture, &run.work.join("files-status-single.png"))? else { return Ok(None); };
+            run.screenshots.insert("files-status-single.png".into(), proof);
             Stage::OpenSecond
         }
         Stage::OpenSecond => {
@@ -437,7 +443,79 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             if !state.windows.iter().any(|browser| browser.id == source && same_path(&browser.path, &run.source)) { return Err("关闭目标窗口连带关闭或改写了另一浏览会话".into()); }
             if !run.blocked_seen { return Err("文件窗口交互期间没有观察到原场景鼠标保护门".into()); }
             run.steps.insert("close_independent_window".into(), json!(true));
-            Stage::Assets
+            Stage::SingleMinimize
+        }
+        Stage::SingleMinimize => {
+            if visible(world, |_: &FileWindowStrip| true).is_some() { return Ok(None); }
+            run.rect_before = browser_rect(world, source);
+            if !button(world, run, window, Some(source), FileAction::Minimize) { return Ok(None); }
+            Stage::SingleRestore
+        }
+        Stage::SingleRestore => {
+            let Some(restore) = visible(world, |task: &FileTaskButton| task.window == source) else { return Ok(None); };
+            let label = descendant_text(world, restore);
+            if !label.starts_with("恢复 ") && !label.starts_with("Restore ") { return Err(format!("单窗恢复文案不符：{label}")); }
+            if !click(world, &mut run.click, window, Some(restore)) { return Ok(None); }
+            Stage::SingleRestored
+        }
+        Stage::SingleRestored => {
+            let state = world.resource::<FileManagerState>();
+            if state.focused != Some(source) || state.windows[0].minimized { return Ok(None); }
+            if browser_rect(world, source) != run.rect_before || !same_path(&state.windows[0].path, &run.source) {
+                return Err("单窗口恢复丢失原目录或浮窗位置".into());
+            }
+            if visible(world, |_: &FileWindowStrip| true).is_some() { return Ok(None); }
+            run.steps.insert("single_window_status_restore".into(), json!(true));
+            Stage::OpenCrowded
+        }
+        Stage::OpenCrowded => {
+            // 使用同一建窗消息打开本轮归属目录，后续逐个点击真实状态栏按钮核对置顶。
+            for path in [run.destination.clone(), run.source.join("嵌套"), run.project.clone(), run.project.join("assets"),
+                run.project.join("assets/浏览一致性"), run.project.join("assets/config"), run.project.join("file-cancel-fixture")] {
+                world.write_message(OpenFileWindow { path });
+            }
+            Stage::SwitchCrowded
+        }
+        Stage::SwitchCrowded => {
+            let Some(tabs) = packed_file_buttons(world)? else { return Ok(None); };
+            if let Some((id, _)) = tabs.get(usize::from(run.typed)) {
+                if activate(world, run, window, *id) { run.typed += 1; }
+                return Ok(None);
+            }
+            run.steps.insert("compressed_file_buttons".into(), json!(tabs.iter().map(|(id, rect)|
+                json!({"window":id,"rect":rect_proof(*rect)})).collect::<Vec<_>>()));
+            Stage::CaptureCrowded
+        }
+        Stage::CaptureCrowded => {
+            let Some(proof) = evidence::capture(world, &mut run.capture, &run.work.join("files-status-crowded.png"))? else { return Ok(None); };
+            run.screenshots.insert("files-status-crowded.png".into(), proof);
+            Stage::CloseCrowded
+        }
+        Stage::CloseCrowded => {
+            let extra = world.resource::<FileManagerState>().windows.iter().rev().find(|window| window.id != source).map(|window| window.id);
+            if let Some(id) = extra {
+                if activate(world, run, window, id) { button(world, run, window, Some(id), FileAction::Close); }
+                return Ok(None);
+            }
+            Stage::OpenFileDetails
+        }
+        Stage::OpenFileDetails | Stage::CloseFileDetails => {
+            let toggle = visible(world, |button: &StatusButton| button.0 == StatusAction::Toggle);
+            if !click(world, &mut run.click, window, toggle) { return Ok(None); }
+            if run.stage == Stage::OpenFileDetails { Stage::StartCancelCopy } else { Stage::Assets }
+        }
+        Stage::StartCancelCopy => {
+            if visible(world, |_: &StatusPopup| true).is_none() { return Ok(None); }
+            if visible(world, |button: &StatusButton| button.0 == StatusAction::CancelFileTask).is_some() {
+                return Err("文件任务结束后详情仍显示取消入口".into());
+            }
+            world.write_message(FileManagerCommand { action: FileAction::CopyHere,
+                path: Some(run.project.join("file-cancel-target")), sources: vec![run.project.join("file-cancel-fixture")] });
+            Stage::CancelCopy
+        }
+        Stage::CancelCopy => {
+            if !cancel_file_copy(world, run, window)? { return Ok(None); }
+            Stage::CloseFileDetails
         }
         Stage::Assets => { if !assets::advance(world, run, window)? { return Ok(None); } Stage::Complete }
         Stage::Complete => return Ok(None),
@@ -447,6 +525,52 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
 
 fn browser_rect(world: &World, id: u64) -> Option<Rect> {
     world.get_resource::<FileManagerState>()?.windows.iter().find(|browser| browser.id == id).map(|browser| browser.rect)
+}
+
+fn packed_file_buttons(world: &mut World) -> Result<Option<Vec<(u64, Rect)>>, String> {
+    let Some(strip) = visible(world, |_: &FileWindowStrip| true) else { return Ok(None); };
+    let Some(task) = visible(world, |text: &StatusText| text.0 == StatusTextRole::Task) else { return Ok(None); };
+    let Some(details) = visible(world, |button: &StatusButton| button.0 == StatusAction::Toggle) else { return Ok(None); };
+    let rect = |entity| world.get::<ComputedNode>(entity).zip(world.get::<UiGlobalTransform>(entity))
+        .map(|(node, transform)| Rect::from_center_size(transform.translation, node.size()));
+    let (Some(strip_rect), Some(task_rect), Some(details_rect)) = (rect(strip), rect(task), rect(details)) else { return Ok(None); };
+    let mut tabs: Vec<_> = world.query::<(&FileTaskButton, &ComputedNode, &UiGlobalTransform, &InheritedVisibility)>()
+        .iter(world).filter(|(_, node, _, visible)| !node.is_empty() && visible.get())
+        .map(|(task, node, transform, _)| (task.window, Rect::from_center_size(transform.translation, node.size()))).collect();
+    if tabs.len() != 8 { return Ok(None); }
+    tabs.sort_by(|(_, a), (_, b)| a.min.x.total_cmp(&b.min.x));
+    let scale = world.get::<ComputedNode>(strip).unwrap().inverse_scale_factor();
+    if tabs.windows(2).any(|pair| pair[0].0 >= pair[1].0 || pair[0].1.max.x > pair[1].1.min.x + 1.)
+        || tabs.iter().any(|(_, rect)| rect.width() < 2. || rect.width() * scale >= 131.
+            || (rect.width() - tabs[0].1.width()).abs() > 2.
+            || rect.min.x < strip_rect.min.x - 1. || rect.max.x > strip_rect.max.x + 1.
+            || (rect.center().y - details_rect.center().y).abs() > 1.)
+        || strip_rect.max.x > task_rect.min.x + 1. || task_rect.max.x > details_rect.min.x + 1.
+    { return Err(format!("状态栏八个按钮应等宽缩短、顺序固定且处于任务文字左侧：{tabs:?}")); }
+    Ok(Some(tabs))
+}
+
+fn cancel_file_copy(world: &mut World, run: &mut Run, window: Entity) -> Result<bool, String> {
+    let Some(snapshot) = world.get_resource::<FileOperationService>().and_then(FileOperationService::snapshot) else { return Ok(false); };
+    if let Some(receipt) = snapshot.completed.iter().find(|receipt| receipt.id > run.receipt && receipt.kind == FileOperationKind::Copy) {
+        if !receipt.cancelled || !receipt.completed.is_empty() || receipt.error.is_some()
+            || run.steps["file_status_progress"]["id"] != receipt.id || run.steps["file_details_cancel"] != true {
+            return Err(format!("详情取消未得到同一文件任务的取消回执：{receipt:?}"));
+        }
+        run.steps.insert("file_cancel_receipt".into(), json!({"id":receipt.id,"cancelled":receipt.cancelled}));
+        return Ok(true);
+    }
+    let Some(progress) = snapshot.active.as_ref().filter(|task| task.id > run.receipt && task.bytes > 0) else { return Ok(false); };
+    if !run.steps.contains_key("file_status_progress") {
+        let text = visible(world, |text: &StatusText| text.0 == StatusTextRole::Task)
+            .and_then(|entity| world.get::<Text>(entity)).map(|text| text.as_str());
+        let locale = world.get_resource::<feathrise_editor_ui::localization::EditorLocale>().copied().unwrap_or_default();
+        let Some(text) = text.filter(|text| text.starts_with(locale.editor_label(&progress.label))) else { return Ok(false); };
+        run.steps.insert("file_status_progress".into(), json!({"id":progress.id,"bytes":progress.bytes,"text":text}));
+    }
+    let cancel = visible(world, |button: &StatusButton| button.0 == StatusAction::CancelFileTask);
+    if click(world, &mut run.click, window, cancel) { run.steps.insert("file_details_cancel".into(), json!(true)); }
+    Ok(false)
 }
 
 fn path_ready(world: &World, id: u64, path: &Path) -> bool {
@@ -490,8 +614,9 @@ fn receipt(world: &World, run: &mut Run, kind: FileOperationKind, step: &str) ->
 fn activate(world: &mut World, run: &mut Run, window: Entity, id: u64) -> bool {
     let active = world.resource::<FileManagerState>().focused == Some(id)
         && world.resource::<FileManagerState>().windows.iter().any(|browser| browser.id == id && !browser.minimized);
-    if active && !run.click.is_some_and(|(entity, _)| world.get::<FileTaskButton>(entity).is_some()) { return true; }
-    let task = visible(world, |task: &FileTaskButton| task.window == id);
+    if active && !run.click.is_some_and(|(entity, _)| world.get::<FileTaskButton>(entity).is_some() || world.get::<FileTitleBar>(entity).is_some()) { return true; }
+    let task = visible(world, |task: &FileTaskButton| task.window == id)
+        .or_else(|| visible(world, |title: &FileTitleBar| title.window == id));
     click(world, &mut run.click, window, task);
     false
 }

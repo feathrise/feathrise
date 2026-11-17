@@ -32,7 +32,7 @@ impl InputGate<'_, '_> {
 pub(super) fn track_pointer(
     mut state: ResMut<FileManagerState>,
     floating: WorkbenchFloatingPanels,
-    file_panels: Query<(), Or<(With<FileWindowRoot>, With<DesktopTaskbar>)>>,
+    file_panels: Query<(), Or<(With<FileWindowRoot>, With<FileWindowStrip>)>>,
     mouse: Res<ButtonInput<MouseButton>>,
 ) {
     state.hovered = floating.hovered().is_some_and(|entity| file_panels.contains(entity));
@@ -46,7 +46,7 @@ pub(super) struct Controls<'w, 's> {
     reference: crate::ui::asset_preview::rigging::RigReferenceInput<'w>,
     floating: WorkbenchFloatingPanels<'w, 's>,
     window_roots: Query<'w, 's, &'static FileWindowRoot>,
-    taskbars: Query<'w, 's, (), With<DesktopTaskbar>>,
+    strips: Query<'w, 's, (), With<FileWindowStrip>>,
     buttons: Query<'w, 's, (&'static FileManagerButton, &'static EditorButtonClick, Option<&'static FileContextEntry>), Changed<EditorButtonClick>>,
     rows: Query<'w, 's, (&'static FileRow, &'static RelativeCursorPosition, &'static UiInteraction, &'static EditorButtonClick)>,
     handles: Query<'w, 's, (Option<&'static FileTitleBar>, Option<&'static FileResizeHandle>, &'static RelativeCursorPosition), Or<(With<FileTitleBar>, With<FileResizeHandle>)>>,
@@ -103,7 +103,7 @@ pub(super) fn control(
     let foreground = controls.floating.hovered();
     let top = foreground.and_then(|entity| controls.window_roots.get(entity).ok())
         .and_then(|root| state.active(root.id).filter(|window| !window.minimized).map(|window| window.id));
-    let over_taskbar = foreground.is_some_and(|entity| controls.taskbars.contains(entity));
+    let over_strip = foreground.is_some_and(|entity| controls.strips.contains(entity));
     let service_open = |id| browser.as_ref().is_some_and(|browser| browser.service_open(id));
     if state.prompt.is_some() {
         contexts.clear(); external.clear();
@@ -188,7 +188,7 @@ pub(super) fn control(
     }
     if mouse.get_just_pressed().next().is_some() {
         if let Some(id) = top { state.raise(id); }
-        else if !over_taskbar && state.gesture.is_none() {
+        else if !over_strip && state.gesture.is_none() {
             state.focused = None;
             if controls.inputs.iter().any(|(entity, path, search, _)| focus.get() == Some(entity) && (path.is_some() || search.is_some())) { focus.clear(); }
         }
@@ -211,20 +211,16 @@ pub(super) fn control(
         }
     }
     for (task, click) in &controls.tasks {
-        if !over_taskbar || !click.is_clicked() { continue; }
+        if !over_strip || !click.is_clicked() { continue; }
         if let Some(window) = state.active_mut(task.window) { window.minimized = false; }
         state.raise(task.window);
         state.release_guard = true;
     }
     for (button, click, context) in &controls.buttons {
         if !click.is_clicked() || context.is_some() { continue; }
-        if let Some(id) = button.window {
-            if top != Some(id) { continue; }
-            handle_action(&mut state, id, button.action, &mut requests);
-            if matches!(button.action, FileAction::Minimize | FileAction::Close | FileAction::CancelPicker) { focus.clear(); }
-        } else if over_taskbar && !matches!(button.action, FileAction::Confirm | FileAction::Cancel) {
-            requests.write(FileManagerCommand { action: button.action, path: Some(fixed.directory.clone()), sources: fixed.selected.clone() });
-        }
+        let Some(id) = button.window.filter(|id| top == Some(*id)) else { continue; };
+        handle_action(&mut state, id, button.action, &mut requests);
+        if matches!(button.action, FileAction::Minimize | FileAction::Close | FileAction::CancelPicker) { focus.clear(); }
         state.release_guard = true;
     }
     if let Some(id) = top {

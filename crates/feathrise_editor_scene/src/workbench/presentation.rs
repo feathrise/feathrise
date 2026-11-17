@@ -41,10 +41,6 @@ pub(super) fn adopt_model(
     mut browser: ResMut<SceneBrowserState>,
     mut roots: Query<&mut Node, With<SceneEditorRoot>>,
     mut statuses: Query<&mut Text, With<SceneEditorStatusText>>,
-    mut current_scenes: Query<
-        &mut Text,
-        (With<SceneEditorCurrentSceneText>, Without<SceneEditorStatusText>),
-    >,
     mut workspace: ResMut<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>,
     mut clicks: Query<
         &mut feathrise_editor_ui::EditorButtonClick,
@@ -94,19 +90,6 @@ pub(super) fn adopt_model(
     for mut text in &mut statuses {
         if text.as_str() != model.status {
             **text = model.status.clone();
-        }
-    }
-    let current = model
-        .active_scene_label
-        .as_deref()
-        .or(model.active_scene.as_deref());
-    let label = current.map_or_else(
-        || "当前场景：尚未进入".to_owned(),
-        |name| format!("当前场景：{name}"),
-    );
-    for mut text in &mut current_scenes {
-        if text.as_str() != label {
-            **text = label.clone();
         }
     }
 }

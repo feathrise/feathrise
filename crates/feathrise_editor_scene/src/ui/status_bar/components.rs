@@ -26,7 +26,7 @@ pub(super) struct StatusPopupFooter;
 pub(super) struct StatusDetailScroll;
 
 #[derive(Component, Clone, Default)]
-pub(super) struct StatusText(pub(super) StatusTextRole);
+pub(in crate::ui) struct StatusText(pub(in crate::ui) StatusTextRole);
 
 #[derive(Component, Clone, Default)]
-pub(super) struct StatusButton(pub(super) StatusAction);
+pub(in crate::ui) struct StatusButton(pub(in crate::ui) StatusAction);
