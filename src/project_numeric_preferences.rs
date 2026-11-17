@@ -43,7 +43,15 @@ impl ProjectStore {
         let loaded = (|| {
             let file = store.context.checked_data_directory()?.join(FILE_NAME);
             let original = read_optional(&file)?;
-            if let Some(bytes) = &original {
+            // 兼容旧工程的个人速度。原文身份始终记录新位置，首次保存也不会覆盖外部新文件。
+            let inherited = if original.is_none()
+                && let Some(directory) = store.context.checked_legacy_data_directory()?
+            {
+                read_optional(&directory.join(FILE_NAME))?
+            } else {
+                None
+            };
+            if let Some(bytes) = original.as_ref().or(inherited.as_ref()) {
                 let data: Stored = serde_json::from_slice(bytes)
                     .map_err(|error| format!("工程数值输入设置损坏：{error}"))?;
                 if data.format != 1 || data.project_id != store.context.id {

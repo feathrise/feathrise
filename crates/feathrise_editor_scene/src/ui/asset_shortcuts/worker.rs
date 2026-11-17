@@ -6,31 +6,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-fn state_path(root: &Path, create: bool) -> Result<PathBuf, String> {
-    let project = crate::ui::external_files::checked_project(root)?;
-    let local = project.join(".local");
-    if create {
-        std::fs::create_dir_all(&local)
-            .map_err(|error| format!("创建个人导航目录失败：{error}"))?;
-    }
-    if local.exists()
-        && !local
-            .canonicalize()
-            .map_err(|error| error.to_string())?
-            .starts_with(&project)
-    {
-        return Err("个人导航目录指向当前工程之外".into());
-    }
-    let path = local.join(STATE_FILE);
-    if path.exists()
-        && !path
-            .canonicalize()
-            .map_err(|error| error.to_string())?
-            .starts_with(&project)
-    {
-        return Err("个人导航记录指向当前工程之外".into());
-    }
-    Ok(path)
+fn state_path(project: &Path, directory: &str) -> Result<PathBuf, String> {
+    feathrise_scene_content::authoring_io::safe_content_path(
+        project,
+        &format!("{directory}/{STATE_FILE}"),
+    )
 }
 
 fn decode(bytes: &[u8]) -> Result<Snapshot, String> {
@@ -61,22 +41,25 @@ fn decode(bytes: &[u8]) -> Result<Snapshot, String> {
 }
 
 fn load(root: &Path) -> Result<Snapshot, String> {
-    let path = state_path(root, false)?;
-    let file = match std::fs::File::open(&path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Snapshot::default());
+    let project = crate::ui::external_files::checked_project(root)?;
+    // 新位置缺席时兼容旧工作树根目录的个人记录。正常保存才写入新位置。
+    for directory in [PREFERENCES_DIRECTORY, ".local"] {
+        let path = state_path(&project, directory)?;
+        let file = match std::fs::File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("读取导航记录失败：{error}")),
+        };
+        let mut bytes = Vec::new();
+        file.take(STATE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|error| error.to_string())?;
+        if bytes.len() as u64 > STATE_BYTES {
+            return Err("导航记录超过 128 KiB，已保留原文件".into());
         }
-        Err(error) => return Err(format!("读取导航记录失败：{error}")),
-    };
-    let mut bytes = Vec::new();
-    file.take(STATE_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| error.to_string())?;
-    if bytes.len() as u64 > STATE_BYTES {
-        return Err("导航记录超过 128 KiB，已保留原文件".into());
+        return decode(&bytes);
     }
-    decode(&bytes)
+    Ok(Snapshot::default())
 }
 
 fn check(root: &Path, snapshot: &mut Snapshot) -> Result<(), String> {
@@ -125,7 +108,12 @@ fn save(root: &Path, snapshot: &Snapshot) -> Result<(), String> {
         return Err("导航记录超过保存预算".into());
     }
     bytes.push(b'\n');
-    crate::authoring::atomic_write(&state_path(root, true)?, &bytes) // 同目录原子替换，失败保留已有记录。
+    let project = crate::ui::external_files::checked_project(root)?;
+    let path = state_path(&project, PREFERENCES_DIRECTORY)?;
+    let directory = path.parent().ok_or("个人导航文件缺少父目录")?;
+    std::fs::create_dir_all(directory).map_err(|error| format!("创建个人导航目录失败：{error}"))?;
+    // 创建后再次核对路径。沿用同目录原子替换，失败保留现有记录。
+    crate::authoring::atomic_write(&state_path(&project, PREFERENCES_DIRECTORY)?, &bytes)
 }
 
 pub(super) fn run(job: Job) -> Completion {
