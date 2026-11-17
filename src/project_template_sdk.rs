@@ -13,9 +13,6 @@ use toml::{Value, map::Map};
 const CONFIG_LIMIT: usize = 16 * 1024;
 const MANIFEST_LIMIT: usize = 64 * 1024;
 const CONFIG_NAME: &str = "sdk-source.toml";
-// 两份内嵌文件由构建配置成对选择。锁属于新建工程模板，来源校验与外置配置共用。
-const DISTRIBUTION_CONFIGURATION: &str = include_str!(env!("FEATHRISE_TEMPLATE_RECIPE_PATH"));
-const DISTRIBUTION_LOCK: &[u8] = include_bytes!(env!("FEATHRISE_TEMPLATE_LOCK_PATH"));
 
 fn validate_bevy(requirement: Option<&str>) -> Result<(), String> {
     match requirement.map(|version| version.trim_start_matches('=')) {
@@ -47,32 +44,22 @@ pub(super) enum SdkSource {
 }
 
 impl SdkSource {
-    pub(super) fn load(configuration_root: &Path) -> Result<Self, String> {
+    pub(super) fn load(configuration_root: &Path) -> Result<Option<Self>, String> {
         Self::load_checked(configuration_root).map_err(|error| {
             crate::environment_diagnostics::sdk_configuration_failure(&configuration_root.join(CONFIG_NAME), error)
         })
     }
 
-    fn load_checked(configuration_root: &Path) -> Result<Self, String> {
+    fn load_checked(configuration_root: &Path) -> Result<Option<Self>, String> {
         // 这是 sdk-source.toml 的实际父目录，不一定是解出的模板/字体等静态资源根。
         let file = configuration_root.join(CONFIG_NAME);
         let text = match File::open(&file) {
             Ok(stream) => read_bounded(stream, CONFIG_LIMIT, &file)?,
-            // 只有配置缺席时采用可独立分发的默认值；坏配置仍明确失败，不能悄悄改换 SDK。
-            Err(error) if error.kind() == ErrorKind::NotFound => return Self::distribution(),
+            // 无外置配置时直接使用模板的 Cargo 清单和锁。
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(format!("SDK 来源配置不可读（{}）：{error}", file.display())),
         };
-        Self::parse_configuration(&text, &file)
-    }
-
-    fn distribution() -> Result<Self, String> {
-        Self::parse_configuration(DISTRIBUTION_CONFIGURATION, Path::new("sdk-source-distribution.toml"))
-    }
-
-    pub(super) fn distribution_lock(&self) -> Option<&'static [u8]> {
-        // 只有所选来源与内嵌配方一致才用配套锁。显式新来源仍自行解析锁文件。
-        let bundled = Self::distribution().ok()?;
-        (self == &bundled).then_some(DISTRIBUTION_LOCK)
+        Self::parse_configuration(&text, &file).map(Some)
     }
 
     fn parse_configuration(text: &str, file: &Path) -> Result<Self, String> {

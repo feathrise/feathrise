@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn complete_game_capability_contract_is_declared_by_the_project_template() {
         // 模板漏一个名字就会让显式功能的工程预览构建失败。
-        let manifest = include_str!("../assets/templates/empty/Cargo.toml");
+        let manifest = include_str!("../templates/empty/Cargo.toml");
         let mut command = Command::new("cargo");
         append(&mut command, GAME_FEATURES.map(|(name, _)| (name, true)), None);
         let args = command

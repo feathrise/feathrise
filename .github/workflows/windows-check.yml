@@ -211,10 +211,20 @@ jobs:
             cargo @sourceArguments fetch
             if ($LASTEXITCODE -ne 0) { throw '无法为指定的本地 SDK 和补丁准备联调锁。' }
           }
-          $cargoArguments = $sourceArguments + @('check', '--locked', '-p', 'feathrise_host', '-p', 'feathrise_game_template', '-p', 'feathrise_editor_scene', '--tests')
+          $cargoArguments = $sourceArguments + @('check', '--locked', '-p', 'feathrise_host', '-p', 'feathrise_editor_scene', '--tests')
           if ($env:CHECK_VARIANT -eq 'validation') { $cargoArguments += @('--features', 'feathrise_host/validation') }
           elseif ($env:CHECK_VARIANT -ne 'default') { throw '未知检查组合。' }
           cargo @cargoArguments
           if ($LASTEXITCODE -ne 0) { throw "Cargo 检查失败，退出码 $LASTEXITCODE。" }
           git diff --exit-code -- Cargo.lock
           if ($LASTEXITCODE -ne 0) { throw '编辑器公开锁被改写，请核对联调锁配置。' }
+          if ($sourceArguments.Count -eq 0 -and $env:CHECK_VARIANT -eq 'default') {
+            $template = (Resolve-Path -LiteralPath 'templates/empty/Cargo.toml').Path
+            $target = Join-Path (Get-Location).Path 'target'
+            # 从仓外启动 Cargo，独立检查模板自己的公开锁。
+            Push-Location $env:RUNNER_TEMP
+            try {
+              cargo check --locked --manifest-path $template --target-dir $target
+              if ($LASTEXITCODE -ne 0) { throw '公开空模板 Cargo 检查失败。' }
+            } finally { Pop-Location }
+          }

@@ -1,4 +1,4 @@
-//! 启动时选择并校验编辑器资源根；内嵌图标、模板和热补丁代理不受 cwd 影响。
+//! 启动时选择并校验编辑器资源根；内嵌图标和热补丁代理不受 cwd 影响。
 
 #[cfg(test)]
 mod tests;
@@ -147,7 +147,7 @@ fn resolve(
         }
         // 旧变量既接受原开发仓库，也接受编辑器根；只保留这条已使用的兼容约定。
         let nested = path.join("feathrise");
-        let root = if nested.is_dir() && !path.join("assets/templates").exists() {
+        let root = if nested.is_dir() && !path.join("templates/empty").is_dir() {
             nested
         } else {
             path.to_owned()

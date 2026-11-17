@@ -7,6 +7,9 @@ mod empty;
 mod files;
 #[path = "project_template_manifest.rs"]
 mod manifest;
+#[cfg(windows)]
+#[path = "project_template_resources.rs"]
+mod resources;
 #[path = "project_template_sdk.rs"]
 mod sdk;
 pub(crate) use sdk::apply_project_network_policy;
@@ -450,7 +453,7 @@ mod tests {
 
     #[test]
     fn production_template_is_bin_only_and_cannot_accidentally_include_the_prototype_library() {
-        let source = include_str!("../assets/templates/empty/Cargo.toml");
+        let source = include_str!("../templates/empty/Cargo.toml");
         let a = personalize_targets(source, "first").unwrap();
         let b = personalize_targets(source, "second").unwrap();
         assert!(a.contains("default-run = \"project-first\""));

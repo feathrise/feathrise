@@ -112,14 +112,14 @@ mod tests {
     fn embedded_payload_survives_relocation_and_detects_cache_corruption() {
         let fixture = super::super::tests::Fixture::new();
         let root = materialize_at(&fixture.0).unwrap();
-        assert!(root.join("assets/templates/empty/src/main.rs").is_file());
+        assert!(!root.join("templates").exists());
         // 安装版不带开发仓库；热更新必须取得与当前 EXE 同一内容身份的链接代理源码。
         assert_eq!(fs::read(root.join("assets/hotpatch/原生热补丁链接代理.rs")).unwrap(),
             include_bytes!("../../assets/hotpatch/原生热补丁链接代理.rs"));
         assert!(!root.join("sdk-source.toml").exists());
         assert!(!root.join("assets/fonts").exists());
         assert_eq!(materialize_at(&fixture.0).unwrap(), root);
-        fs::write(root.join("assets/templates/empty/src/main.rs"), b"corrupt").unwrap();
+        fs::write(root.join("assets/hotpatch/原生热补丁链接代理.rs"), b"corrupt").unwrap();
         assert!(materialize_at(&fixture.0).unwrap_err().contains("缓存损坏"));
     }
     #[test]

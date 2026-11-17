@@ -46,14 +46,13 @@ pub(crate) fn apply_template(
         table.insert("version".into(), Value::String(BEVY_PIN.into()));
     }
     let root = manifest.as_table_mut().ok_or("空工程 Cargo 模板必须是表")?;
-    if root.contains_key("workspace") || root.contains_key("patch") {
-        return Err("空工程模板不能另行声明 workspace 或 patch；SDK 配置统一生成".into());
-    }
-    root.insert("workspace".into(), Value::Table(Map::from_iter([
+    root.entry("workspace").or_insert_with(|| Value::Table(Map::from_iter([
         ("resolver".into(), Value::String("3".into())),
     ])));
-    root.insert("patch".into(), Value::Table(Map::from_iter([
-        ("crates-io".into(), Value::Table(patches)),
-    ])));
+    let patch = root.entry("patch").or_insert_with(|| Value::Table(Map::new()))
+        .as_table_mut().ok_or("空工程模板的 patch 必须是表")?;
+    let crates_io = patch.entry("crates-io").or_insert_with(|| Value::Table(Map::new()))
+        .as_table_mut().ok_or("空工程模板的 patch.crates-io 必须是表")?;
+    crates_io.extend(patches);
     toml::to_string_pretty(&manifest).map_err(|error| error.to_string())
 }

@@ -7,7 +7,6 @@ fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     validation_extension();
     resource_identity();
-    template_inputs();
     embed_licenses();
     dx::embed();
     let branding = branding_resources();
@@ -33,27 +32,6 @@ fn main() {
     if target_os == "windows" && target_env == "msvc" {
         // 主窗口初始化可能超过默认 1 MiB，宿主程序及其库测试统一保留 8 MiB 栈。
         println!("cargo::rustc-link-arg=/STACK:8388608");
-    }
-}
-
-/// 默认内嵌随仓的模板数据；自定义构建可成对指定经 Cargo 验证的配方和锁。
-fn template_inputs() {
-    use std::{env, path::PathBuf};
-    const VARIABLE: &str = "FEATHRISE_TEMPLATE_INPUT_DIR";
-    println!("cargo::rerun-if-env-changed={VARIABLE}");
-    let root = env::var_os(VARIABLE).map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Cargo 未提供源码目录"))
-            .join("build/template")
-    });
-    assert!(root.is_absolute(), "{VARIABLE} 必须是绝对目录");
-    for (name, variable) in [
-        ("sdk-source-distribution.toml", "FEATHRISE_TEMPLATE_RECIPE_PATH"),
-        ("sdk-source-distribution.lock", "FEATHRISE_TEMPLATE_LOCK_PATH"),
-    ] {
-        let path = root.join(name);
-        assert!(path.is_file(), "缺少模板构建输入 {}", path.display());
-        println!("cargo::rerun-if-changed={}", path.display());
-        println!("cargo::rustc-env={variable}={}", path.display());
     }
 }
 

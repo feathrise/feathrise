@@ -67,11 +67,17 @@ Windows 单文件预览版编入 `raytracing`。DLSS 与 FSR 通过 Cargo 特性
 ```powershell
 git clone https://github.com/feathrise/feathrise.git
 Set-Location feathrise
-cargo check --locked -p feathrise_host -p feathrise_game_template
+cargo check --locked -p feathrise_host
 cargo run --locked
 ```
 
-空工程模板位于 [assets/templates/empty](assets/templates/empty)。默认新建工程写入自身锁文件，首次构建获取缺少的依赖。
+[空工程模板](templates/empty) 是独立的 Cargo 工程，公开检出可直接检查：
+
+```powershell
+cargo check --locked --manifest-path templates/empty/Cargo.toml --target-dir target
+```
+
+源码版直接读取这份模板。默认新建工程带自己的 Cargo 锁，首次构建获取缺少的依赖。
 
 ### 本地源码联调
 
@@ -112,7 +118,8 @@ cargo run --locked
 ```text
 src/                宿主、工程管理、作者装配与运行进程生命周期
 crates/             作者工具、插件 API 及工程管理库
-assets/             内嵌工具图标、空工程模板与链接代理源码
+assets/             内嵌工具图标与链接代理源码
+templates/empty/    空工程源码、Cargo 清单和锁
 build/              运行资源清单
 tests/fixtures/     中性测试素材
 docs/               使用、开发与 CI 文档

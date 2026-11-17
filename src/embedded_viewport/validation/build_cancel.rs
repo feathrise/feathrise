@@ -19,7 +19,7 @@ const START_FILE: &str = ".validation-build-started.json";
 const RETRY_FILE: &str = ".validation-build-retried.json";
 // 放行是夹具数据；显式.txt避免无扩展名的创建事件被源码监听当作潜在源码目录，误排额外构建。
 const RELEASE_FILE: &str = ".validation-build-release.txt";
-const TEMPLATE_BUILD_SCRIPT: &str = include_str!("../../../assets/templates/empty/build.rs");
+const TEMPLATE_BUILD_SCRIPT: &str = include_str!("../../../templates/empty/build.rs");
 
 /// 此源码只写入本轮独占夹具。真实Cargo执行它后才有启动证据，验收不会直接生成该标记。
 const BUILD_SCRIPT: &str = r#"// 仅显式停止编译验收的自有夹具延迟；原模板构建参数先由同一入口执行。

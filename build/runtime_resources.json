@@ -2,11 +2,6 @@
   "format": 1,
   "required_files": [
     "Cargo.lock",
-    "assets/templates/empty/Cargo.toml",
-    "assets/templates/empty/build.rs",
-    "assets/templates/empty/README.md",
-    "assets/templates/empty/src/main.rs",
-    "assets/templates/empty/src/controller.rs",
     "assets/hotpatch/原生热补丁链接代理.rs",
     "assets/icons/editor/mesh_locked.png",
     "assets/icons/editor/mesh_hidden.png",
