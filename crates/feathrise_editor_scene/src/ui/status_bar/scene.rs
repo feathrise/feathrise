@@ -9,7 +9,8 @@ use bevy::ui::{FocusPolicy, RelativeCursorPosition};
 
 use super::components::*;
 use super::types::{StatusAction, StatusTextRole};
-use crate::components::{SceneEditorCurrentSceneText, SceneEditorStatusText};
+use crate::components::SceneEditorStatusText;
+use crate::ui::file_manager::FileWindowStrip;
 use crate::ui::scene::FONT_PATH;
 use crate::ui::theme as colors;
 
@@ -48,7 +49,7 @@ pub(in crate::ui) fn footer() -> impl Scene {
         StatusFooter
         // 父工作台为420；Bevy 0.20把全局层级子树独立排序，同值可能让父背景盖住整行。
         GlobalZIndex(421) // 常态明确高于父背景；加载期间由同步系统提升到输入门之上。
-        Node { width: percent(100), height: px(24), min_width: px(0), flex_shrink: 0.0,
+        Node { width: percent(100), height: px(super::STATUS_BAR_HEIGHT), min_width: px(0), flex_shrink: 0.0,
             align_items: AlignItems::Center, column_gap: px(6), padding: UiRect::horizontal(px(8)),
             border: UiRect::top(px(1)), overflow: Overflow::clip_x() }
         BackgroundColor(colors::PANEL_BG_STRONG)
@@ -69,18 +70,13 @@ pub(in crate::ui) fn footer() -> impl Scene {
                             ~{FocusPolicy::Pass}
                             Node { min_width: px(0) }
                         ]--
+                    // 排在「保存代码后自动编译」所在任务区左侧，至多使用正文的55%，为进度留空间。
+                    FileWindowStrip
+                        GlobalZIndex(422) ~{FocusPolicy::Block}
+                        Node { display: Display::None, min_width: px(0), max_width: percent(55),
+                            column_gap: px(2), align_items: AlignItems::Center, overflow: Overflow::clip_x() }--
                     Node { max_width: percent(30), min_width: px(0), overflow: Overflow::clip_x() }
                         Children [@text(StatusTextRole::Task, "")]--
-                    Node { width: percent(36), max_width: px(420), min_width: px(0), flex_shrink: 1.0,
-                        justify_content: JustifyContent::FlexEnd, overflow: Overflow::clip_x() }
-                        Children [
-                            SceneEditorCurrentSceneText
-                            Text("当前场景：等待目录") @feathrise_editor_ui::localization::label_scene("当前场景：等待目录")
-                            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-                            TextColor(colors::TEXT_MUTED) TextLayout::no_wrap()
-                            ~{FocusPolicy::Pass}
-                            Node { max_width: percent(100), min_width: px(0), flex_shrink: 1.0, overflow: Overflow::clip_x() }
-                        ]-- // 场景信息位于视图摘要左侧；长名称只裁切，最右保留详情入口。
                     Node { max_width: percent(25), min_width: px(0), overflow: Overflow::clip_x() }
                         Children [@text(StatusTextRole::Context, "")]
                 ]--
@@ -155,6 +151,7 @@ pub(in crate::ui) fn popup() -> impl Scene {
                         TextColor(colors::TEXT_MUTED) TextLayout::no_wrap()
                         ~{FocusPolicy::Pass}
                         Node { display: Display::None, flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }--
+                    @popup_button(StatusAction::CancelFileTask, "取消文件任务", false)--
                     @popup_button(StatusAction::Copy, "复制", false)--
                     @popup_button(StatusAction::Dismiss, "清除", false)
                 ]
@@ -171,8 +168,9 @@ pub(super) fn detail_scroll_node(compact: bool) -> Node {
 }
 
 fn popup_button(action: StatusAction, label: &'static str, close: bool) -> impl Scene {
-    let style = if close { feathrise_editor_ui::dialog_close_button_style() }
+    let mut style = if close { feathrise_editor_ui::dialog_close_button_style() }
         else { feathrise_editor_ui::dialog_button_style(false) };
+    if action == StatusAction::CancelFileTask { style.node.display = Display::None; }
     bsn! {
         InteractionButton StatusButton(action) ~{style.node} @feathrise_editor_ui::dialog_button_colors_scene(false)
         ~{BackgroundColor(style.colors.normal)} BorderColor::all(feathrise_editor_ui::colors::DIALOG_BORDER)

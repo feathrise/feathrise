@@ -109,7 +109,7 @@ pub(super) struct AnimationPicker {
 pub(crate) enum FileAction {
     NewWindow, Copy, Cut, Paste, Delete, NewMenu, NewFolder, NewText, NewMarkdown, NewGlb, Rename,
     Back, Forward, Up, Refresh, Minimize, Maximize, Close,
-    Confirm, Cancel, ChooseClip, CancelPicker, ConflictPolicy, CancelTask, CopyHere, MoveHere,
+    Confirm, Cancel, ChooseClip, CancelPicker, ConflictPolicy, CopyHere, MoveHere,
 }
 
 impl FileAction {
@@ -134,7 +134,6 @@ impl FileAction {
             (Self::ChooseClip, false) => "选择", (Self::ChooseClip, true) => "Select",
             (Self::CancelPicker, false) => "取消", (Self::CancelPicker, true) => "Cancel",
             (Self::ConflictPolicy, false) => "同名：保留两者", (Self::ConflictPolicy, true) => "Conflict: keep both",
-            (Self::CancelTask, false) => "取消任务", (Self::CancelTask, true) => "Cancel task",
             (Self::CopyHere, false) => "复制到这里", (Self::CopyHere, true) => "Copy here",
             (Self::MoveHere, false) => "移动到这里", (Self::MoveHere, true) => "Move here",
         }

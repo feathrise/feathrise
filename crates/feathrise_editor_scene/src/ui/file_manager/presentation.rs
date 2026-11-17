@@ -14,9 +14,11 @@ pub(super) fn sync(world: &mut World) {
         let (left, right) = world.get_resource::<SceneEditorLayoutState>().map_or((0., 0.), |layout| (
             if layout.content_shown() { layout.content_width } else { 0. },
             if layout.inspector_shown() { layout.inspector_width } else { 0. }));
-        let mut bounds = Rect::from_corners(Vec2::new(left + 8., 88.), Vec2::new(size.x - right - 8., size.y - 56.));
+        // 浮窗可用到状态栏上缘，底部只扣除原来的单行状态栏高度。
+        let bottom = size.y - crate::ui::status_bar::STATUS_BAR_HEIGHT;
+        let mut bounds = Rect::from_corners(Vec2::new(left + 8., 88.), Vec2::new(size.x - right - 8., bottom));
         if bounds.width() < 360. { bounds.min.x = 4.; bounds.max.x = (size.x - 4.).max(5.); }
-        if bounds.height() < 240. { bounds.min.y = 44.; bounds.max.y = (size.y - 56.).max(45.); }
+        if bounds.height() < 240. { bounds.min.y = 44.; bounds.max.y = bottom.max(45.); }
         state.bounds = bounds;
         state.movement_bounds = Rect::from_corners(Vec2::new(4., bounds.min.y), Vec2::new((size.x - 4.).max(5.), bounds.max.y));
         let movement_bounds = state.movement_bounds;
@@ -47,11 +49,11 @@ pub(super) fn sync(world: &mut World) {
         let drag_size = drag_nodes.single(world).map(|node| node.size() * node.inverse_scale_factor).unwrap_or(Vec2::ZERO);
         let mut dialogs = world.query_filtered::<&ComputedNode, With<NameDialog>>();
         let dialog_height = dialogs.single(world).map(|node| node.size().y * node.inverse_scale_factor).unwrap_or(170.).max(170.);
-        let task_visible = !state.windows.is_empty() || !state.notice.is_empty() || state.snapshot.as_ref().is_some_and(|snapshot| snapshot.active.is_some() || !snapshot.queued.is_empty());
-        let mut nodes = world.query_filtered::<(Entity, &mut Node, Option<&FileWindowRoot>, Option<&DesktopTaskbar>, Option<&NameDialog>, Option<&FileNameInput>, Option<&DragLabel>, Option<&NameDialogBackdrop>, Option<&NameDialogBody>, Option<&FileSearchHint>),
-            Or<(With<FileWindowRoot>, With<DesktopTaskbar>, With<NameDialog>, With<FileNameInput>, With<DragLabel>, With<NameDialogBackdrop>, With<NameDialogBody>, With<FileSearchHint>)>>();
+        let show_window_buttons = state.windows.len() > 1 || state.windows.first().is_some_and(|window| window.minimized);
+        let mut nodes = world.query_filtered::<(Entity, &mut Node, Option<&FileWindowRoot>, Has<FileWindowStrip>, Option<&NameDialog>, Option<&FileNameInput>, Option<&DragLabel>, Option<&NameDialogBackdrop>, Option<&NameDialogBody>, Option<&FileSearchHint>),
+            Or<(With<FileWindowRoot>, With<FileWindowStrip>, With<NameDialog>, With<FileNameInput>, With<DragLabel>, With<NameDialogBackdrop>, With<NameDialogBody>, With<FileSearchHint>)>>();
         let mut z_updates = Vec::new();
-        for (entity, mut node, root, bar, dialog, name, drag, backdrop, body, search_hint) in nodes.iter_mut(world) {
+        for (entity, mut node, root, strip, dialog, name, drag, backdrop, body, search_hint) in nodes.iter_mut(world) {
             if let Some(root) = root {
                 if let Some((rank, window)) = state.windows.iter().enumerate().find(|(_, window)| window.id == root.id) {
                     node.display = if window.minimized { Display::None } else { Display::Flex };
@@ -60,7 +62,10 @@ pub(super) fn sync(world: &mut World) {
                     z_updates.push((entity, rank as i32));
                 }
             }
-            if bar.is_some() { node.display = if task_visible { Display::Flex } else { Display::None }; }
+            if strip {
+                let display = if show_window_buttons { Display::Flex } else { Display::None };
+                if node.display != display { node.display = display; }
+            }
             if dialog.is_some() {
                 node.display = if prompt_visible { Display::Flex } else { Display::None };
                 let width = (size.x - 24.).clamp(200., 440.);
@@ -125,15 +130,23 @@ pub(super) fn sync(world: &mut World) {
                 image.color = if *cut { colors::TEXT_MUTED } else { colors::TEXT_PRIMARY };
             }
         }
-        let mut texts = world.query_filtered::<(&mut Text, &mut TextColor, Option<&WindowTitle>, Option<&WindowStatus>, Option<&ButtonLabel>, Option<&NameDialogTitle>, Option<&OperationStatus>, Option<&DragLabel>, Option<&RowLabel>, Option<&ChildOf>, Option<&TaskTitle>, Option<&NameDialogBodyText>, Option<&FileSearchHint>),
-            Or<(With<WindowTitle>, With<WindowStatus>, With<ButtonLabel>, With<NameDialogTitle>, With<OperationStatus>, With<DragLabel>, With<RowLabel>, With<TaskTitle>, With<NameDialogBodyText>, With<FileSearchHint>)>>();
-        for (mut text, mut color, title, status, button, dialog_title, operation, drag_label, row_label, parent, task_title, dialog_body, search_hint) in texts.iter_mut(world) {
+        let mut texts = world.query_filtered::<(&mut Text, &mut TextColor, Option<&WindowTitle>, Option<&WindowStatus>, Option<&ButtonLabel>, Option<&NameDialogTitle>, Option<&DragLabel>, Option<&RowLabel>, Option<&ChildOf>, Option<&TaskTitle>, Option<&NameDialogBodyText>, Option<&FileSearchHint>),
+            Or<(With<WindowTitle>, With<WindowStatus>, With<ButtonLabel>, With<NameDialogTitle>, With<DragLabel>, With<RowLabel>, With<TaskTitle>, With<NameDialogBodyText>, With<FileSearchHint>)>>();
+        for (mut text, mut color, title, status, button, dialog_title, drag_label, row_label, parent, task_title, dialog_body, search_hint) in texts.iter_mut(world) {
             let wanted = if let Some(title) = title {
                 state.active(title.0).map(|window| format!("{} — {}", window.path.file_name().unwrap_or_default().to_string_lossy(),
                     if window.is_animation_picker() { if english { "Choose Animation" } else { "选择动画" } }
                     else if english { "Files" } else { "文件" }))
             } else if let Some(task) = task_title {
-                state.active(task.0).map(|window| format!("{}{}", window.path.file_name().unwrap_or_default().to_string_lossy(), if window.minimized { if english { " (min)" } else { "（最小化）" } } else { "" }))
+                state.active(task.0).map(|window| {
+                    let tint = if window.minimized { colors::TEXT_MUTED } else { colors::TEXT_PRIMARY };
+                    if color.0 != tint { color.0 = tint; }
+                    let name = window.path.file_name().unwrap_or(window.path.as_os_str()).to_string_lossy();
+                    if state.windows.len() == 1 && window.minimized {
+                        let restore = if english { "Restore" } else { "恢复" };
+                        format!("{restore} {name}")
+                    } else { name.into_owned() }
+                })
             } else if let Some(status) = status {
                 state.active(status.0).map(|window| {
                     if let Some(error) = &window.error { error.clone() }
@@ -163,9 +176,6 @@ pub(super) fn sync(world: &mut World) {
                 state.prompt.as_ref().filter(|prompt| prompt.action == FileAction::Delete).map(|prompt| delete_prompt_body(prompt, english))
             } else if search_hint.is_some() {
                 Some(if english { "Filter by filename".into() } else { "按文件名筛选".into() })
-            } else if operation.is_some() {
-                Some(state.snapshot.as_ref().and_then(|snapshot| snapshot.active.as_ref()).map_or_else(|| state.notice.clone(),
-                    |active| format!("{} · {} 项 · {}", active.label, active.completed, bytes_label(active.bytes))))
             } else if drag_label.is_some() {
                 state.drag.as_ref().map(|drag| drag.destination.as_ref().map_or_else(
                     || if english { "Cannot drop here".into() } else { "不能放到这里".into() },
@@ -183,11 +193,9 @@ pub(super) fn sync(world: &mut World) {
             background.0 = if focused { colors::SELECT_BG } else { colors::BUTTON_DEV_SMALL_NORMAL };
             border.set_if_neq(BorderColor::all(if focused { colors::COPPER_BORDER } else { colors::COPPER_BORDER_WEAK }));
         }
-        let task_active = state.snapshot.as_ref().is_some_and(|snapshot| snapshot.active.is_some());
         let mut buttons = world.query::<(Entity, &FileManagerButton, &mut Node)>();
         let mut picker_buttons = Vec::new();
         for (entity, button, mut node) in buttons.iter_mut(world) {
-            if button.action == FileAction::CancelTask { node.display = if task_active { Display::Flex } else { Display::None }; }
             if matches!(button.action, FileAction::ChooseClip | FileAction::CancelPicker) {
                 let picker = button.window.and_then(|id| picker_labels.iter().find(|(window, _)| *window == id));
                 node.display = if picker.is_some() { Display::Flex } else { Display::None };
@@ -217,6 +225,24 @@ pub(super) fn sync(world: &mut World) {
         if let Some(entity) = next_focus { world.resource_mut::<InputFocus>().set(entity, FocusCause::Navigated); }
         super::context_menu::sync(world, &mut state, english);
     });
+}
+
+impl FileManagerState {
+    pub(crate) fn progress_text(&self, locale: EditorLocale) -> Option<String> {
+        // 状态栏只读文件服务的快照。已处理字节来自后台，取消等待真实回执。
+        let english = locale == EditorLocale::English;
+        if let Some(task) = self.active_task() {
+            let label = if task.cancel_requested {
+                if english { "Cancelling file task" } else { "正在取消文件任务" }
+            } else { locale.editor_label(&task.label) };
+            let items = if english { "items" } else { "项" };
+            return Some(format!("{label} · {} {items} · {}", task.completed, bytes_label(task.bytes)));
+        }
+        let queued = self.snapshot.as_ref()?.queued.iter().filter(|task| task.context == self.context).count();
+        (queued != 0).then(|| {
+            if english { format!("File tasks queued: {queued}") } else { format!("文件任务排队中 · {queued} 项") }
+        })
+    }
 }
 
 fn delete_prompt_body(prompt: &NamePrompt, english: bool) -> String {

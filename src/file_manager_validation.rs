@@ -17,6 +17,7 @@ const PURPOSE: &str = "owned-file-manager-validation";
 const COPY_BYTES: &[u8] = b"feathrise-file-manager-copy-v1\n";
 const MOVE_BYTES: &[u8] = b"feathrise-file-manager-move-v1\n";
 const NESTED_BYTES: &[u8] = b"feathrise-file-manager-nested-v1\n";
+const CANCEL_FILES: usize = 4096;
 
 pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     if !report.is_absolute() || report.exists() {
@@ -53,6 +54,13 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
         ("嵌套/inside.txt", NESTED_BYTES),
     ] {
         write_new(&source.join(name), bytes)?;
+    }
+    // 同一顶层目录内的真实小文件复制留出点击取消的时间，取消时应丢弃未发布目录。
+    let cancel_source = root.join("file-cancel-fixture");
+    let cancel_target = root.join("file-cancel-target");
+    fs::create_dir(&cancel_source).and_then(|_| fs::create_dir(&cancel_target)).map_err(|error| error.to_string())?;
+    for index in 0..CANCEL_FILES {
+        fs::write(cancel_source.join(format!("{index:04}.txt")), COPY_BYTES).map_err(|error| error.to_string())?;
     }
     let browser_assets = root.join("assets/浏览一致性");
     fs::create_dir(&browser_assets).map_err(|error| error.to_string())?;
@@ -108,6 +116,12 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
     {
         return Err("移动、回收删除或新建目录的最终磁盘结构不符".into());
     }
+    if proof["window"]["steps"]["single_window_status_restore"] != true
+        || proof["window"]["steps"]["compressed_file_buttons"].as_array().is_none_or(|buttons| buttons.len() != 8)
+        || proof["window"]["steps"]["file_cancel_receipt"]["cancelled"] != true
+        || fs::read_dir(&cancel_source).map_err(|error| error.to_string())?.count() != CANCEL_FILES
+        || fs::read_dir(&cancel_target).map_err(|error| error.to_string())?.next().is_some()
+    { return Err("状态栏恢复、压缩按钮或取消后的实际磁盘验证不符".into()); }
     proof["disk_reread_verified"] = json!(true);
     let mut files = serde_json::Map::new();
     for name in ["中文笔记.txt", "中文说明.md", "中文空场景.glb"] {
@@ -146,6 +160,7 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
         return Err("浮窗工具点击与固定栏隔离的实窗证据缺失".into());
     }
     for name in ["files-context-menu.png", "files-new-submenu.png", "files-desktop.png", "files-restored.png",
+        "files-status-single.png", "files-status-crowded.png",
         "files-assets-thumbnails.png", "files-assets-clips.png", "files-assets-services.png",
         "files-assets-grid-compact.png", "files-assets-grid-maximized.png"] {
         if proof["window"]["screenshots"][name].is_null() { return Err(format!("缺少本轮文件桌面截图 {name}")); }

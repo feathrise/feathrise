@@ -40,7 +40,8 @@ pub(super) fn mount(
     roots: Query<Entity, With<SceneEditorRoot>>,
     windows: Query<(Entity, &FileWindowRoot)>,
     tasks: Query<(Entity, &FileTaskButton)>,
-    bars: Query<Entity, With<DesktopTaskbar>>,
+    strips: Query<Entity, With<FileWindowStrip>>,
+    dialogs: Query<(), With<NameDialog>>,
     state: Res<FileManagerState>,
     assets: Res<AssetServer>,
 ) {
@@ -48,18 +49,9 @@ pub(super) fn mount(
     let font = feathrise_editor_core::editor_font(&assets, FONT_PATH);
     let folder_image: Handle<Image> = assets.load("icons/editor/tree_folder.png");
     let file_image: Handle<Image> = assets.load("icons/editor/tree_file.png");
-    if bars.is_empty() {
+    if dialogs.is_empty() {
         commands.entity(root).with_children(|parent| {
             super::context_menu::mount(parent, &font);
-            parent.spawn((DesktopTaskbar, WorkbenchFloatingPanel, GlobalZIndex(422), FocusPolicy::Block,
-                Node { position_type: PositionType::Absolute, left: px(0), right: px(0), bottom: px(24), height: px(32),
-                    align_items: AlignItems::Center, column_gap: px(4), padding: UiRect::horizontal(px(8)), border: UiRect::top(px(1)),
-                    overflow: Overflow::clip(), ..default() }, BackgroundColor(colors::PANEL_BG_STRONG), BorderColor::all(colors::COPPER_BORDER_WEAK)))
-                .with_children(|bar| {
-                    bar.spawn((OperationStatus, label("", &font),
-                        Node { position_type: PositionType::Absolute, right: px(100), max_width: percent(45), min_width: px(0), overflow: Overflow::clip_x(), ..default() }));
-                    bar.spawn((Node { position_type: PositionType::Absolute, right: px(6), ..default() },)).with_children(|row| button(row, &font, None, FileAction::CancelTask));
-                });
             // 确认期间由透明背景接管空白点击；不能仅靠业务鼠标门让官方文本焦点落到背后的文件。
             parent.spawn((NameDialogBackdrop, WorkbenchFloatingPanel, GlobalZIndex(428), FocusPolicy::Block, UiInteraction::default(),
                 Node { display: Display::None, position_type: PositionType::Absolute, left: px(0), top: px(0), width: percent(100), height: percent(100), ..default() }));
@@ -165,15 +157,17 @@ pub(super) fn mount(
             });
         }
         if !tasks.iter().any(|(_, task)| task.window == window.id) {
-            if let Ok(bar) = bars.single() {
-                commands.entity(bar).with_children(|row| {
+            if let Ok(strip) = strips.single() {
+                commands.entity(strip).with_children(|row| {
+                    // 每窗同一基础宽度，拥挤时一起收窄。置顶只改浮窗层级，按钮保持创建时的排列。
                     row.spawn((FileTaskButton { window: window.id }, InteractionButton,
-                        Node { height: px(26), max_width: px(180), min_width: px(70), align_items: AlignItems::Center,
-                            padding: UiRect::horizontal(px(8)), column_gap: px(4), border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(3)), ..default() },
+                        Node { height: px(20), width: px(132), min_width: px(0), flex_shrink: 1., align_items: AlignItems::Center,
+                            padding: UiRect::horizontal(px(2)), column_gap: px(3), border: UiRect::all(px(1)),
+                            border_radius: BorderRadius::all(px(3)), overflow: Overflow::clip(), ..default() },
                         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL), BorderColor::all(colors::COPPER_BORDER_WEAK)))
                         .with_children(|task| {
                             task.spawn(icon(folder_image.clone()));
-                            task.spawn((TaskTitle(window.id), label(&window.path.file_name().unwrap_or_default().to_string_lossy(), &font),
+                            task.spawn((TaskTitle(window.id), label("", &font),
                                 Node { min_width: px(0), overflow: Overflow::clip_x(), ..default() }));
                         });
                 });

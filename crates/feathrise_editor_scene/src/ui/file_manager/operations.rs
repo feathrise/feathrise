@@ -50,6 +50,7 @@ pub(super) fn control(
             state.drag = None;
             state.prompt = None;
             state.menu = None;
+            state.notice.clear(); // 文件回执只属于打开它的工程会话。
         }
     }
     for request in open.read() { state.open(request.path.clone()); }
@@ -152,13 +153,27 @@ pub(super) fn control(
             FileAction::ConflictPolicy => {
                 state.conflict = match state.conflict { ConflictPolicy::KeepBoth => ConflictPolicy::Skip, ConflictPolicy::Skip => ConflictPolicy::Fail, ConflictPolicy::Fail => ConflictPolicy::KeepBoth };
             }
-            FileAction::CancelTask => {
-                if let (Some(service), Some(active)) = (service.as_ref(), state.snapshot.as_ref().and_then(|snapshot| snapshot.active.as_ref())) {
-                    service.cancel(active.id);
-                    state.notice = "已请求取消；已经完成的条目将保留并报告".into();
-                }
-            }
             _ => {}
+        }
+    }
+}
+
+pub(super) fn cancel(
+    mut requests: MessageReader<CancelFileTask>,
+    mut state: ResMut<FileManagerState>,
+    service: Option<Res<FileOperationService>>,
+) {
+    for request in requests.read() {
+        let Some(service) = service.as_ref() else { continue; };
+        // 排队任务可能已接替前一个任务，只接受按钮显示过且仍在途的同一工程、同一任务。
+        if state.cancellable_task() != Some(*request) { continue; }
+        if service.cancel(request.id) {
+            if let Some(active) = state.snapshot.as_mut().and_then(|snapshot| snapshot.active.as_mut()) {
+                active.cancel_requested = true;
+            }
+            state.notice = "已请求取消；已经完成的条目将保留并报告".into();
+        } else {
+            state.notice = "暂时无法取消文件任务，可重试".into();
         }
     }
 }

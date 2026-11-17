@@ -7,7 +7,7 @@ use bevy::prelude::*; // ECS、UI、键盘与状态。
 use bevy::ui::{FocusPolicy, RelativeCursorPosition}; // 左右栏只在鼠标悬停范围内接管滚轮。
 use bevy::window::{PrimaryWindow, Window}; // 中文IME预编辑、提交和候选框定位。
 use feathrise_scene_core::input::{EditorInputState, InputGateState}; // 打开门和统一玩法输入阻塞。
-use feathrise_scene_content::{ActiveDynamicScene, SceneCatalogAsset, SceneContentRegistry, SceneManifestAsset}; // 标题显示当前编辑场景并从当前场景取得默认选择。
+use feathrise_scene_content::ActiveDynamicScene;
 use feathrise_scene_core::state::{EditorStartup, ScenePhase, LoadingProgress}; // 正式进度资源消失后才允许收口编辑器切换场景。
 
 use crate::authoring::{WaterNetworkEditState, request_scene_creation}; // 新建场景事务与水网拖动关闭互斥门。
@@ -382,32 +382,23 @@ pub(crate) fn sync_scene_editor_custom_cursor(
     }
 }
 
-/// 同步根节点、弹框、标题、目录和底部状态，不逐帧生成UI实体。
-#[allow(clippy::too_many_arguments, clippy::type_complexity)] // Bevy查询显式列出互斥文本marker，避免按名称查找或多组可变Text查询冲突。
+/// 同步根节点、弹框与目录标题，不逐帧生成UI实体。
 pub(crate) fn sync_editor_shell(
     editor: Res<SceneEditorState>,
     locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     catalog: Res<EditorAssetCatalog>,
     browser: Option<Res<crate::ui::project_browser::ProjectBrowserState>>,
-    registry: Option<Res<SceneContentRegistry>>,
-    catalogs: Res<Assets<SceneCatalogAsset>>,
-    manifests: Res<Assets<SceneManifestAsset>>,
     mut roots: Query<(&mut Node, &mut Visibility), With<SceneEditorRoot>>,
     mut dialogs: Query<
         (&mut Node, &mut UiInteraction, &mut bevy::ui::FocusPolicy),
         (With<NewSceneDialog>, Without<SceneEditorRoot>),
     >,
-    mut texts: Query<(
-        &mut Text,
-        Option<&SceneEditorCurrentSceneText>,
-        Option<&SceneEditorAssetFolderText>,
-    )>,
+    mut texts: Query<&mut Text, With<SceneEditorAssetFolderText>>,
 ) {
     if !(editor.is_changed()
         || catalog.is_changed()
         || locale.as_ref().is_some_and(|locale| locale.is_changed())
-        || browser.as_ref().is_some_and(|browser| browser.is_changed())
-        || registry.as_ref().is_some_and(|value| value.is_changed()))
+        || browser.as_ref().is_some_and(|browser| browser.is_changed()))
     {
         return;
     }
@@ -450,36 +441,9 @@ pub(crate) fn sync_editor_shell(
     } else {
         format!("assets/{}/", catalog.current_folder)
     };
-    let title = editor.selected_scene_id.as_ref().map_or_else(
-        || locale.text("scene.current.none").to_owned(),
-        |scene_id| {
-            let display_name = registry
-                .as_deref()
-                .and_then(|registry| registry.handles(scene_id))
-                .and_then(|handles| manifests.get(&handles.manifest))
-                .map(|manifest| manifest.display_name.as_str())
-                .or_else(|| {
-                    registry
-                        .as_deref()
-                        .and_then(|registry| catalogs.get(&registry.catalog))
-                        .and_then(|catalog| catalog.scenes.iter().find(|entry| &entry.id == scene_id))
-                        .map(|entry| entry.display_name.as_str())
-                })
-                .unwrap_or_else(|| locale.text("status.loading"));
-            locale.format("scene.current.named", &[("name", display_name.into()), ("id", scene_id.to_string())])
-        },
-    );
-    // 所有动态文本使用一个可变查询，既避免运行时Query冲突，也不会逐帧重建UI实体。
-    for (mut text, current_scene, folder_text) in &mut texts {
-        let value = if current_scene.is_some() {
-            &title
-        } else if folder_text.is_some() {
-            &folder
-        } else {
-            continue;
-        };
-        if text.as_str() != value {
-            **text = value.clone(); // 长目录路径不因其他状态变化重复标记布局Changed。
+    for mut text in &mut texts {
+        if text.as_str() != folder {
+            **text = folder.clone(); // 长目录路径不因其他状态变化重复标记布局Changed。
         }
     }
 }

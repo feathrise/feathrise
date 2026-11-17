@@ -22,8 +22,9 @@ pub(crate) struct PathInput { pub(crate) window: u64 }
 pub(crate) struct FileSearchInput { pub(crate) window: u64 }
 #[derive(Component)]
 pub(crate) struct FileNameInput;
-#[derive(Component)]
-pub(super) struct DesktopTaskbar;
+#[derive(Component, Clone, Default)]
+#[require(crate::workbench::WorkbenchFloatingPanel)]
+pub(crate) struct FileWindowStrip;
 #[derive(Component)]
 pub(super) struct NameDialog;
 #[derive(Component)]
@@ -44,8 +45,6 @@ pub(super) struct WindowTitle(pub(super) u64);
 pub(super) struct TaskTitle(pub(super) u64);
 #[derive(Component)]
 pub(super) struct WindowStatus(pub(super) u64);
-#[derive(Component)]
-pub(super) struct OperationStatus;
 #[derive(Component, Clone, Copy)]
 pub(super) struct ButtonLabel(pub(super) FileAction);
 #[derive(Component)]

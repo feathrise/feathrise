@@ -304,8 +304,8 @@ fn loading_footer_keeps_recovery_and_details_inside_without_moving_workbench() {
 }
 
 #[test]
-fn compact_header_keeps_commands_inside_and_scene_before_context_and_details() {
-    use crate::components::{SceneEditorActionButton, SceneEditorCurrentSceneText, SceneEditorSettingsButton};
+fn compact_header_keeps_commands_inside_and_view_before_details() {
+    use crate::components::{SceneEditorActionButton, SceneEditorSettingsButton};
     use crate::types::{EditorAction, EditorSettingsAction};
     use crate::workbench::WorkbenchHeaderItem;
     for (width, scale) in [(1280.0, 1.0), (1280.0, 1.5), (1920.0, 1.25)] {
@@ -318,8 +318,6 @@ fn compact_header_keeps_commands_inside_and_scene_before_context_and_details() {
         let header = world.spawn_scene(crate::ui::scene::header()).unwrap().id();
         world.entity_mut(root).insert_child(0, header);
         for mut text in world.query::<&mut TextFont>().iter_mut(world) { text.font = font.clone(); }
-        world.query_filtered::<&mut Text, With<SceneEditorCurrentSceneText>>().single_mut(world).unwrap().0 =
-            format!("当前场景：{} [MAP-长身份]", "很长的场景名称".repeat(30));
         frames(&mut app);
         let header_bounds = bounds::<crate::ui::tooltips::TooltipHeader>(&mut app);
         let footer_bounds = bounds::<StatusFooter>(&mut app);
@@ -354,16 +352,10 @@ fn compact_header_keeps_commands_inside_and_scene_before_context_and_details() {
         assert_eq!(world.get::<WorkbenchHeaderItem>(settings_slot), Some(&WorkbenchHeaderItem::Settings));
         assert_eq!(world.get::<ChildOf>(settings_slot).unwrap().parent(), header);
         assert!(world.get::<Children>(settings).unwrap().iter().any(|child| world.get::<Text>(child).is_some_and(|text| text.as_str() == "设置")));
-        let (map, computed, at) = world.query_filtered::<(Entity, &ComputedNode, &UiGlobalTransform), With<SceneEditorCurrentSceneText>>().single(world).unwrap();
-        let scene_bounds = Rect::from_center_size(at.translation, computed.size());
-        assert!(scene_bounds.width() > 0.0 && scene_bounds.min.x >= footer_bounds.min.x - 1.1);
-        assert!(scene_bounds.max.x <= footer_bounds.max.x + 1.1 && scene_bounds.min.y >= footer_bounds.min.y - 1.1 && scene_bounds.max.y <= footer_bounds.max.y + 1.1);
         let footer = world.query_filtered::<Entity, With<StatusFooter>>().single(world).unwrap();
         let content = world.query_filtered::<Entity, With<StatusFooterContent>>().single(world).unwrap();
-        assert_eq!(world.get::<ChildOf>(world.get::<ChildOf>(map).unwrap().parent()).unwrap().parent(), content);
         assert_eq!(world.get::<ChildOf>(content).unwrap().parent(), footer);
-        assert_eq!(world.get::<TextLayout>(map).unwrap().linebreak, bevy::text::LineBreak::NoWrap);
-        // 长场景名及非整数倍率下仍按“场景 → 视图摘要 → 详情”排列，详情固定在底栏最右。
+        // 非整数倍率下视图摘要仍在详情之前，详情固定在底栏最右。
         let (context, context_node, context_at) = world.query::<(Entity, &StatusText, &ComputedNode, &UiGlobalTransform)>()
             .iter(world).find(|(_, role, ..)| role.0 == StatusTextRole::Context)
             .map(|(entity, _, node, at)| (entity, node, at)).unwrap();
@@ -372,7 +364,7 @@ fn compact_header_keeps_commands_inside_and_scene_before_context_and_details() {
             .iter(world).find(|(_, action, ..)| action.0 == StatusAction::Toggle)
             .map(|(entity, _, node, at)| (entity, node, at)).unwrap();
         let details_bounds = Rect::from_center_size(details_at.translation, details_node.size());
-        assert!(context_bounds.width() > 0.0 && scene_bounds.max.x <= context_bounds.min.x + 1.1);
+        assert!(context_bounds.width() > 0.0 && context_bounds.min.x >= footer_bounds.min.x - 1.1);
         assert!(context_bounds.max.x <= details_bounds.min.x + 1.1);
         assert!((details_bounds.max.x - (footer_bounds.max.x - 8.0 * scale)).abs() < 1.1);
         // 视图摘要通过独立单元格裁切长文字，文字不是正文容器的直接子节点。

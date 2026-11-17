@@ -1082,6 +1082,13 @@ status.detail.receipt	最近一次明确回执\n	Latest Confirmed Result\n
 status.detail.current	当前提示\n	Current Message\n
 status.detail.task	\n\n当前任务：{task}	\n\nCurrent Task: {task}
 status.detail.no_task	无	None
+label.file-operation-status	文件操作	File Operations
+label.cancel-file-task	取消文件任务	Cancel File Task
+label.file-operation-copy	复制文件	Copying Files
+label.file-operation-move	移动文件	Moving Files
+label.file-operation-recycle	移到回收站	Moving to Recycle Bin
+label.file-operation-create-folder	新建文件夹	Creating Folder
+label.file-operation-create-file	新建文件	Creating File
 status.detail.drafts_dirty	\n作者草稿：有未保存修改	\nDrafts: Unsaved changes
 status.detail.drafts_clean	\n作者草稿：当前无未保存修改	\nDrafts: All changes saved
 status.detail.view	\n工具与视图：{view}	\nTool and View: {view}

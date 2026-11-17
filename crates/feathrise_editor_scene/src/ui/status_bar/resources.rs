@@ -21,6 +21,7 @@ pub(crate) struct EditorStatusBarState {
     pub(super) phase: StatusPhase,
     pub(super) summary: String,
     pub(super) task: String,
+    pub(super) file_notice: String,
     pub(super) context: String,
     pub(super) detail: String,
     pub(super) scroll_revision: u64,
