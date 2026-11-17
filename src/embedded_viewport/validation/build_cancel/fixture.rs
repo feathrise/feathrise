@@ -115,7 +115,8 @@ fn protected_hashes(project: &Project) -> Result<BTreeMap<PathBuf, String>, Stri
             for entry in fs::read_dir(&path).map_err(|error|error.to_string())? { pending.push(entry.map_err(|error|error.to_string())?.path()); }
         } else { result.insert(path.strip_prefix(&project.root).map_err(|error|error.to_string())?.into(), hash_bytes(&read_bounded(&path, 8 * 1024 * 1024)?)); }
     }
-    for name in ["editor-project.json", "Cargo.toml", "Cargo.lock", "build.rs"] {
+    let descriptor = crate::project::descriptor_name(&project.root)?;
+    for name in [descriptor, "Cargo.toml", "Cargo.lock", "build.rs"] {
         result.insert(name.into(), hash_bytes(&read_bounded(&project.root.join(name), 8 * 1024 * 1024)?));
     }
     Ok(result)

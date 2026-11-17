@@ -64,7 +64,9 @@ impl Plan {
                 return Err("本次运行文件与已验证构建清单不一致".into());
             }
         }
-        plan.add_file(project.root.join("editor-project.json"), "editor-project.json".into(), control)?;
+        // 随包保留实际运行端识别的清单文件名，新旧工程各自沿用原文件。
+        let descriptor = crate::project::descriptor_name(&project.root)?;
+        plan.add_file(project.root.join(descriptor), descriptor.into(), control)?;
         // 导出使用独立运行的启动解析，包括未设置时的已发布场景回退与空工程规则。
         let context = feathrise_runtime::ProjectContext {
             root: project.root.clone(), id: project.id.clone(), name: project.name.clone(),

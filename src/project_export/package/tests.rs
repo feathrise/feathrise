@@ -21,7 +21,7 @@ impl Fixture {
         fs::create_dir(project_root.join("src")).unwrap();
         fs::write(project_root.join("src/main.rs"), "作者源码，不进入导出").unwrap();
         fs::write(project_root.join("Cargo.toml"), "[package]\nname='fixture_game'\nversion='0.1.0'\n").unwrap();
-        fs::write(project_root.join("editor-project.json"), serde_json::to_vec_pretty(&serde_json::json!({
+        fs::write(project_root.join("feathrise.toml"), toml::to_string(&serde_json::json!({
             "format":2,"id":"045f04e0-1234-4abc-8def-123456789abc","name":"中文 工程","package":"fixture_game",
             "cargo_manifest":"Cargo.toml","asset_roots":["assets","secondary"],"editor_data":".editor",
             "game_entry":{"kind":"saved-world","version":1},"custom_field":{"preserved":true}
@@ -75,7 +75,7 @@ fn default_output_contains_complete_saved_runtime_without_source_or_author_data(
     assert_eq!(receipt.executable, fixture.output().join("fixture_game.exe"));
     assert_eq!(fs::read(receipt.executable).unwrap(), b"runtime-byte-fixture");
     assert_eq!(fs::read(fixture.output().join("fixture-runtime.dll")).unwrap(), b"dll-byte-fixture");
-    for relative in ["editor-project.json", crate::startup_document::FILE_NAME, "assets/config.json", "secondary/models/mesh.glb"] {
+    for relative in ["feathrise.toml", crate::startup_document::FILE_NAME, "assets/config.json", "secondary/models/mesh.glb"] {
         assert_eq!(fs::read(fixture.output().join(relative)).unwrap(), fs::read(fixture.project.root.join(relative)).unwrap());
     }
     assert!(fixture.output().join("assets/empty").is_dir());
@@ -225,10 +225,10 @@ fn unicode_case_aliases_cannot_repurpose_an_empty_asset_root_as_export_output() 
     let mut fixture = Fixture::new();
     let assets = fixture.project.root.join("Ässets");
     fs::create_dir(&assets).unwrap();
-    let descriptor = fixture.project.root.join("editor-project.json");
-    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&descriptor).unwrap()).unwrap();
+    let descriptor = fixture.project.root.join("feathrise.toml");
+    let mut value: serde_json::Value = crate::project::parse_descriptor("feathrise.toml", &fs::read(&descriptor).unwrap()).unwrap();
     value["asset_roots"].as_array_mut().unwrap().push("Ässets".into());
-    let saved_descriptor = serde_json::to_vec_pretty(&value).unwrap();
+    let saved_descriptor = toml::to_string(&value).unwrap().into_bytes();
     fs::write(&descriptor, &saved_descriptor).unwrap();
     fixture.project = crate::project::open(&fixture.project.root).unwrap();
     let alias = fixture.project.root.join("ässets");
@@ -407,12 +407,12 @@ fn source_change_after_runtime_build_is_rejected_even_without_live_watcher() {
 #[test]
 fn nested_asset_root_preserves_all_intermediate_and_empty_directories() {
     let mut fixture = Fixture::new();
-    let descriptor = fixture.project.root.join("editor-project.json");
-    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&descriptor).unwrap()).unwrap();
+    let descriptor = fixture.project.root.join("feathrise.toml");
+    let mut value: serde_json::Value = crate::project::parse_descriptor("feathrise.toml", &fs::read(&descriptor).unwrap()).unwrap();
     value["asset_roots"] = serde_json::json!(["assets", "data/nested/assets"]);
     fs::create_dir_all(fixture.project.root.join("data/nested/assets/empty")).unwrap();
     fs::write(fixture.project.root.join("data/nested/assets/file.bin"), b"nested saved bytes").unwrap();
-    fs::write(&descriptor, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+    fs::write(&descriptor, toml::to_string(&value).unwrap()).unwrap();
     fixture.project = crate::project::open(&fixture.project.root).unwrap();
     // bind_metadata要求未交付的独占租约；此处重建字节夹具版本，不修改现有活动包。
     let executable = fixture.root.join("nested_game.exe");

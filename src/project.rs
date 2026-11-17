@@ -1,11 +1,13 @@
 //! 正式工程的只读清单与路径校验；构建和F12运行由native_play唯一后台槽负责。
-use serde::Deserialize;
+use serde::{Deserialize, de::DeserializeOwned};
 use std::{fs::File, io::Read, path::{Path, PathBuf}};
 #[path = "project_context.rs"]
 mod context;
 pub use context::ProjectContext;
 pub(crate) use context::DEFAULT_EDITOR_DATA;
 const MANIFEST_LIMIT: usize = 64 * 1024;
+const TOML_DESCRIPTOR: &str = "feathrise.toml";
+pub(crate) const DESCRIPTOR_NAMES: [&str; 2] = [TOML_DESCRIPTOR, "editor-project.json"];
 // 只兼容旧清单里的固定字段值；它不再作为正式编辑器与游戏的DLL接口版本。
 #[cfg(test)]
 pub(crate) const LEGACY_SDK_ABI: u32 = 3;
@@ -35,14 +37,41 @@ struct ProjectManifest {
     startup_scene: Option<context::SceneSelection>,
 }
 
+/// 同一工程只有一个生效清单。优先使用新名称，仅在其缺失时读取旧名称。
+pub(crate) fn find_descriptor_name(root: &Path) -> Result<Option<&'static str>, String> {
+    for name in DESCRIPTOR_NAMES {
+        match std::fs::symlink_metadata(root.join(name)) {
+            Ok(_) => return Ok(Some(name)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(error) => return Err(format!("工程清单不可读：{error}")),
+        }
+    }
+    Ok(None)
+}
+
+pub(crate) fn descriptor_name(root: &Path) -> Result<&'static str, String> {
+    find_descriptor_name(root)?.ok_or_else(|| "工程根缺少 feathrise.toml 清单".into())
+}
+
+/// TOML 和旧 JSON 使用同一套工程字段，按清单文件名选择解析器。
+pub(crate) fn parse_descriptor<T: DeserializeOwned>(name: &str, bytes: &[u8]) -> Result<T, String> {
+    let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes);
+    if name == TOML_DESCRIPTOR {
+        let source = std::str::from_utf8(bytes).map_err(|error| format!("工程清单不是 UTF-8：{error}"))?;
+        toml::from_str(source).map_err(|error| format!("工程清单 TOML 无效：{error}"))
+    } else {
+        serde_json::from_slice(bytes).map_err(|error| format!("工程清单 JSON 无效：{error}"))
+    }
+}
+
 /// 目录与工程清单共用只读入口；普通打开不升级、改写或创建工程文件。
 pub fn open(root: &Path) -> Result<Project, String> {
     let selected = root
         .canonicalize()
         .map_err(|e| error(format!("工程目录无效：{e}")))?;
     let root = if selected.is_file() {
-        if selected.file_name().is_none_or(|name| name != "editor-project.json") {
-            return Err("请选择工程目录或editor-project.json清单".into());
+        if selected.file_name().is_none_or(|name| !DESCRIPTOR_NAMES.iter().any(|candidate| name == *candidate)) {
+            return Err("请选择工程目录或 feathrise.toml 清单".into());
         }
         selected.parent().ok_or("工程清单缺少所在目录")?.to_owned()
     } else {
@@ -51,7 +80,8 @@ pub fn open(root: &Path) -> Result<Project, String> {
     if !root.is_dir() {
         return Err("工程根必须是目录".into());
     }
-    let descriptor = contained_file(&root.join("editor-project.json"), &root)?;
+    let name = descriptor_name(&root)?;
+    let descriptor = contained_file(&root.join(name), &root)?;
     let mut bytes = Vec::with_capacity(MANIFEST_LIMIT.min(4096));
     File::open(&descriptor)
         .map_err(|e| error(format!("无法打开工程清单：{e}")))?
@@ -61,8 +91,7 @@ pub fn open(root: &Path) -> Result<Project, String> {
     if bytes.len() > MANIFEST_LIMIT {
         return Err("工程清单超过 64 KiB 上限".into());
     }
-    let manifest: ProjectManifest =
-        serde_json::from_slice(&bytes).map_err(|e| error(format!("工程清单 JSON 无效：{e}")))?;
+    let manifest: ProjectManifest = parse_descriptor(name, &bytes)?;
     if !matches!(manifest.format, 1 | 2) {
         return Err(format!("不支持的工程清单版本：{}", manifest.format));
     }
@@ -216,11 +245,18 @@ mod tests {
     #[test]
     fn descriptor_and_directory_open_the_same_project_without_writing() {
         let fixture = Fixture::new();
-        let descriptor = fixture.0.join("editor-project.json");
-        let before = fs::read(&descriptor).unwrap();
+        let legacy = fixture.0.join("editor-project.json");
+        let before = fs::read(&legacy).unwrap();
+        assert_eq!(open(&fixture.0).unwrap(), open(&legacy).unwrap());
+        let descriptor = fixture.0.join(TOML_DESCRIPTOR);
+        let value: serde_json::Value = serde_json::from_slice(&before).unwrap();
+        let toml_bytes = toml::to_string(&value).unwrap().into_bytes();
+        fs::write(&descriptor, &toml_bytes).unwrap();
+        fs::write(&legacy, b"{}").unwrap();
         assert_eq!(open(&fixture.0).unwrap(), open(&descriptor).unwrap());
-        assert_eq!(fs::read(&descriptor).unwrap(), before);
-        assert!(open(&fixture.0.join("Cargo.toml")).unwrap_err().contains("editor-project.json"));
+        assert_eq!(fs::read(&descriptor).unwrap(), toml_bytes);
+        assert_eq!(fs::read(&legacy).unwrap(), b"{}");
+        assert!(open(&fixture.0.join("Cargo.toml")).unwrap_err().contains(TOML_DESCRIPTOR));
     }
 
     #[test]

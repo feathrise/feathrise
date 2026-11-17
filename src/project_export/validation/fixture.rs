@@ -58,7 +58,8 @@ fn owned_scenario(target: &Path, work: &Path, root: &Path, selected: Scenario, s
     document.select_scene("M1-SAMPLE")?;
     let startup_bytes = crate::startup_document::to_bytes(&document, &project.id)?;
     fs::write(&startup, &startup_bytes).map_err(|error|error.to_string())?;
-    let descriptor_bytes = fs::read(root.join("editor-project.json")).map_err(|error|error.to_string())?;
+    let descriptor = crate::project::descriptor_name(root)?;
+    let descriptor_bytes = fs::read(root.join(descriptor)).map_err(|error|error.to_string())?;
     let output = work.join("evidence");
     fs::create_dir(&output).map_err(|error|error.to_string())?;
     let child_report = output.join("editor-report.json");
@@ -102,7 +103,7 @@ fn owned_scenario(target: &Path, work: &Path, root: &Path, selected: Scenario, s
         let (default_inventory, _) = package::verify(&root.join("output"), &project.id, &project.package)?;
         evidence["default_package_still_valid"] = package::summary(&default_inventory);
     }
-    if fs::read(exported.join("editor-project.json")).map_err(|error|error.to_string())? != descriptor_bytes
+    if fs::read(exported.join(descriptor)).map_err(|error|error.to_string())? != descriptor_bytes
         || fs::read(exported.join(crate::startup_document::FILE_NAME)).map_err(|error|error.to_string())? != startup_bytes {
         return Err("导出描述或启动设置没有保留原字节".into());
     }

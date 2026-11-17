@@ -105,7 +105,8 @@ pub(super) fn verify(directory: &Path, project: &Project, control: &BuildControl
         }
         expected_files.insert(file.path.clone());
     }
-    if !expected_files.contains(&marker.executable) || !expected_files.contains(Path::new("editor-project.json")) {
+    let has_descriptor = crate::project::DESCRIPTOR_NAMES.iter().any(|name| expected_files.contains(Path::new(name)));
+    if !expected_files.contains(&marker.executable) || !has_descriptor {
         return Err("导出清单缺少程序入口或工程描述".into());
     }
     for directory in manifest.directories {

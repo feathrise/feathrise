@@ -166,7 +166,7 @@ pub(crate) fn capture(
             .ok_or("工程 Cargo 入口缺少目录")?
             .to_owned(),
     );
-    capture.add_file(&project.root.join("editor-project.json"))?;
+    capture.add_file(&project.root.join(crate::project::descriptor_name(&project.root)?))?;
     capture.watches.insert((project.root.clone(), false));
     while let Some(root) = capture
         .packages
@@ -667,6 +667,7 @@ pub(super) fn source_file_path(path: &Path) -> bool {
         return false;
     };
     path.extension().is_some_and(|extension| extension == "rs")
+        || crate::project::DESCRIPTOR_NAMES.contains(&name)
         || matches!(
             name,
             "Cargo.toml"
@@ -675,7 +676,6 @@ pub(super) fn source_file_path(path: &Path) -> bool {
                 | "rust-toolchain.toml"
                 | "config"
                 | "config.toml"
-                | "editor-project.json"
         )
 }
 

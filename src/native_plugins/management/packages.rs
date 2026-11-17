@@ -1510,9 +1510,10 @@ fn ticket() -> String {
     )
 }
 fn project_dependencies(root: &Path) -> Result<BTreeSet<String>, String> {
-    let descriptor = checked_child(root, Path::new("editor-project.json"), false)?;
-    let relative = if descriptor.exists() {
-        let value: serde_json::Value = read_json(&descriptor, MAX_JSON)?;
+    let relative = if let Some(name) = crate::project::find_descriptor_name(root)? {
+        let descriptor = checked_child(root, Path::new(name), true)?;
+        let bytes = read_limited(&descriptor, MAX_JSON)?;
+        let value: serde_json::Value = crate::project::parse_descriptor(name, &bytes)?;
         value
             .get("cargo_manifest")
             .and_then(|v| v.as_str())

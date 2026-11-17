@@ -217,7 +217,7 @@ pub(super) fn input(
                 Action::SelectGameView(view) if !model.busy => state.game_view = view,
                 Action::Open if !model.busy => {
                     if state.open_path.trim().is_empty() {
-                        state.error = "请选择工程目录或 editor-project.json。".into();
+                        state.error = "请选择工程目录或 feathrise.toml。".into();
                     } else {
                         out.write(WorkspaceCommand::Open(state.open_path.trim().into()));
                     }

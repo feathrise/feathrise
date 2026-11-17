@@ -183,7 +183,7 @@ fn form(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, new: bool, state
                 if new {
                     "父目录"
                 } else {
-                    "工程目录或 editor-project.json 清单"
+                    "工程目录或 feathrise.toml 清单"
                 },
                 13.,
             );

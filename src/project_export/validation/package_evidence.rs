@@ -114,7 +114,7 @@ pub(super) fn verify(root: &Path, project_id: &str, package: &str) -> Result<(In
     let executable = PathBuf::from(marker["executable"].as_str().ok_or("导出标记缺少入口")?);
     relative(&executable)?;
     if executable.components().count() != 1 || !expected.files.contains_key(&executable)
-        || !expected.files.contains_key(Path::new("editor-project.json")) {
+        || !crate::project::DESCRIPTOR_NAMES.iter().any(|name| expected.files.contains_key(Path::new(name))) {
         return Err("完整清单缺少包根程序或工程描述".into());
     }
     for name in ["feathrise-export.json", "export-manifest.json"] { expected.files.insert(name.into(), hash(&root.join(name))?); }

@@ -520,9 +520,10 @@ struct CargoArtifacts {
 /// 普通打开不覆写旧工程源码；只有工程明确声明本版完整游戏/F12返回合同才启动。
 fn verify_game_contract(project: &Project, control: &BuildControl) -> Result<(), String> {
     control.check()?;
+    let name = crate::project::descriptor_name(&project.root)?;
     let descriptor = project
         .root
-        .join("editor-project.json")
+        .join(name)
         .canonicalize()
         .map_err(|error| format!("工程入口清单不可读：{error}"))?;
     if !descriptor.is_file() || !descriptor.starts_with(&project.root) {
@@ -534,16 +535,15 @@ fn verify_game_contract(project: &Project, control: &BuildControl) -> Result<(),
         .take(64 * 1024 + 1)
         .read_to_end(&mut bytes)
         .map_err(|error| error.to_string())?;
-    validate_game_contract(&bytes)?;
+    validate_game_contract(name, &bytes)?;
     dependency::verify(project, control)
 }
 
-fn validate_game_contract(bytes: &[u8]) -> Result<(), String> {
+fn validate_game_contract(name: &str, bytes: &[u8]) -> Result<(), String> {
     if bytes.len() > 64 * 1024 {
         return Err("工程入口清单超过64KiB预算".into());
     }
-    let manifest: serde_json::Value =
-        serde_json::from_slice(bytes).map_err(|error| format!("工程入口清单无效：{error}"))?;
+    let manifest: serde_json::Value = crate::project::parse_descriptor(name, bytes)?;
     if manifest["game_entry"]["kind"] != "saved-world"
         || manifest["game_entry"]["version"].as_u64() != Some(1)
     {
@@ -800,15 +800,16 @@ mod tests {
     #[test]
     fn saved_game_contract_is_explicit_and_old_project_code_is_not_auto_upgraded() {
         assert!(
-            validate_game_contract(br#"{"game_entry":{"kind":"saved-world","version":1}}"#).is_ok()
+            validate_game_contract("editor-project.json", br#"{"game_entry":{"kind":"saved-world","version":1}}"#).is_ok()
         );
+        assert!(validate_game_contract("feathrise.toml", b"[game_entry]\nkind = 'saved-world'\nversion = 1\n").is_ok());
         for old in [
             br#"{}"#.as_slice(),
             br#"{"game_entry":{"kind":"preview","version":1}}"#,
             br#"{"game_entry":{"kind":"saved-world","version":2}}"#,
         ] {
             assert!(
-                validate_game_contract(old)
+                validate_game_contract("editor-project.json", old)
                     .unwrap_err()
                     .contains("不会覆写工程源码")
             );

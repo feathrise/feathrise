@@ -9,7 +9,7 @@ use std::{
 const DESCRIPTOR_LIMIT: usize = 64 * 1024;
 const CARGO_LIMIT: usize = 1024 * 1024;
 const DEPTH_LIMIT: usize = 16;
-/// 除已解析字段外还冻结原字节摘要，未知JSON字段的外部修改同样会使旧扫描/保存失效。
+/// 除已解析字段外还冻结原字节摘要，未知清单字段的外部修改同样会使旧扫描/保存失效。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ProjectIdentity {
     pub project_id: String,
@@ -23,7 +23,8 @@ pub(crate) fn identity(project: &Project) -> Result<ProjectIdentity, String> {
     if project::open(&project.root)? != *project {
         return Err("工程清单已变化，请重新打开工程".into());
     }
-    let descriptor = checked_path(&project.root, Path::new("editor-project.json"), false)?;
+    let descriptor = project::descriptor_name(&project.root)?;
+    let descriptor = checked_path(&project.root, Path::new(descriptor), false)?;
     let cargo_relative = project
         .manifest
         .strip_prefix(&project.root)
