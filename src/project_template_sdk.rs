@@ -13,10 +13,9 @@ use toml::{Value, map::Map};
 const CONFIG_LIMIT: usize = 16 * 1024;
 const MANIFEST_LIMIT: usize = 64 * 1024;
 const CONFIG_NAME: &str = "sdk-source.toml";
-// 发行 EXE 不附带源码目录或外置配置；默认配方编译内嵌，并与模板使用同一份来源校验。
-const DISTRIBUTION_CONFIGURATION: &str = include_str!("../sdk-source-distribution.toml");
-// 这是公开空模板自己的锁文件，包含 Git 提交和 registry 校验和，不使用宿主 Cargo.lock。
-const DISTRIBUTION_LOCK: &[u8] = include_bytes!("../sdk-source-distribution.lock");
+// 两份内嵌文件由构建配置成对选择。锁属于新建工程模板，来源校验与外置配置共用。
+const DISTRIBUTION_CONFIGURATION: &str = include_str!(env!("FEATHRISE_TEMPLATE_RECIPE_PATH"));
+const DISTRIBUTION_LOCK: &[u8] = include_bytes!(env!("FEATHRISE_TEMPLATE_LOCK_PATH"));
 
 fn validate_bevy(requirement: Option<&str>) -> Result<(), String> {
     match requirement.map(|version| version.trim_start_matches('=')) {
