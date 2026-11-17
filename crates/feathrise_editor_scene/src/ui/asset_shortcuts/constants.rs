@@ -8,4 +8,5 @@ pub(super) const PENDING_CHANGES: usize = 256;
 pub(super) const ROW_HEIGHT: f32 = 24.0;
 pub(super) const ROW_GAP: f32 = 2.0;
 pub(super) const LIST_HEIGHT: f32 = 154.0;
+pub(super) const PREFERENCES_DIRECTORY: &str = ".feathrise/.local";
 pub(super) const STATE_FILE: &str = "editor_asset_navigation.json";

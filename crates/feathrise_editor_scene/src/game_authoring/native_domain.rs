@@ -147,7 +147,7 @@ pub fn validate_snapshot(
 ) -> Result<SceneDomainDocument, String> {
     snapshot.validate()?;
     if snapshot.ground_patch_preparation != GROUND_PATCH_PREPARATION_PROTOCOL {
-        return Err("场景作者插件不支持地形跟随纯准备协议，请更新插件".into());
+        return Err("场景作者插件的缓存路径或地形准备协议版本不匹配，请用配套 SDK 重新构建并安装插件".into());
     }
     let identity = snapshot
         .identity

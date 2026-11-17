@@ -134,7 +134,7 @@ mod validation_environment_tests {
 pub(crate) fn roots_for_project(root: &Path) -> Result<PluginRoots, String> {
     #[cfg(test)]
     let global = if std::env::var_os("FEATHRISE_VALIDATION_GLOBAL_PLUGINS").is_none() {
-        root.join(crate::project::DEFAULT_EDITOR_DATA).join("test-global-plugins")
+        root.join("target/feathrise/test-global-plugins")
     } else {
         global_plugins_root()?
     };
@@ -283,7 +283,9 @@ fn scan_project(store: &Store, dependencies: &BTreeSet<String>) -> Result<Catalo
         return Err("工程plugins路径不是普通目录".into());
     }
     let mut paths = Vec::new();
-    for (index, entry) in fs::read_dir(&store.plugins).map_err(error)?.enumerate() {
+    let banks = fs::read_dir(&store.plugins).map_err(error)?
+        .filter(|entry| !entry.as_ref().is_ok_and(|entry| entry.file_name() == ".management"));
+    for (index, entry) in banks.enumerate() {
         if index >= MAX_ENTRIES {
             result
                 .warnings
@@ -907,6 +909,7 @@ fn apply_store(
     if !store.manager.exists() {
         return Ok(());
     }
+    let store = if scope == PluginScope::Project { store_for(roots, scope, true)? } else { store };
     let _lock = transaction_lock(&store.manager)?;
     let read = read_journal(&store)?;
     if read.legacy.is_some() {
@@ -1297,15 +1300,7 @@ fn store_for(roots: &PluginRoots, scope: PluginScope, create: bool) -> Result<St
                 .as_ref()
                 .ok_or("尚未打开工程，不能管理工程插件")?;
             let plugins = checked_child(root, Path::new("plugins"), false)?;
-            let relative = Path::new(crate::project::DEFAULT_EDITOR_DATA).join("plugin-management");
-            let manager = checked_child(root, &relative, false)?;
-            // 旧工程已有的插件启停和待生效计划继续从旧目录读取。
-            let legacy = Path::new(".editor/plugin-management");
-            let manager = if !manager.exists() && root.join(legacy).exists() {
-                checked_child(root, legacy, false)?
-            } else {
-                manager
-            };
+            let manager = project_manager_directory(root, &plugins, create)?;
             (plugins, manager)
         }
         PluginScope::Global => (
@@ -1323,6 +1318,40 @@ fn store_for(roots: &PluginRoots, scope: PluginScope, create: bool) -> Result<St
         manager,
     })
 }
+fn project_manager_directory(root: &Path, plugins: &Path, adopt: bool) -> Result<PathBuf, String> {
+    let manager = checked_child(plugins, Path::new(".management"), false)?;
+    if manager.try_exists().map_err(error)? {
+        return Ok(manager);
+    }
+    for previous in [".feathrise/plugin-management", ".editor/plugin-management"] {
+        let legacy = checked_child(root, Path::new(previous), false)?;
+        if !legacy.try_exists().map_err(error)? {
+            continue;
+        }
+        if !adopt {
+            return Ok(legacy);
+        }
+        if !ordinary(&legacy)?.is_dir() {
+            return Err("旧插件事务路径不是目录".into());
+        }
+        // 作者实例已持工程写租约。若旧事务仍锁定，等待用户重开或重试。
+        // Windows 不允许重命名打开的文件所在目录，校验旧锁后释放句柄再原子搬移。
+        let old_lock = checked_child(&legacy, Path::new("transaction.lock"), false)?;
+        if old_lock.try_exists().map_err(error)? {
+            drop(transaction_lock(&legacy)?);
+        }
+        ensure_directory(plugins)?;
+        if let Err(error) = fs::rename(&legacy, &manager)
+            && (legacy.try_exists().map_err(|e| e.to_string())?
+                || !manager.try_exists().map_err(|e| e.to_string())?)
+        {
+            return Err(format!("迁移旧插件事务目录失败：{error}"));
+        }
+        return checked_child(plugins, Path::new(".management"), true);
+    }
+    Ok(manager)
+}
+
 fn ensure_directory(path: &Path) -> Result<(), String> {
     if path.exists() {
         if !ordinary(path)?.is_dir() {

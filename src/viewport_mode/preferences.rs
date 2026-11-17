@@ -63,11 +63,23 @@ impl Store {
 
     fn for_project(project: &Project, legacy: PathBuf) -> Result<Self, String> {
         let mut store = Self::load(project.context.checked_data_directory()?.join("launch.json"))?;
-        if store.original.is_none() {
-            // 只继承过去已保存的视口模式；旧全局配置不再拥有本工程后续选择的写权。
-            store.mode = Self::load(legacy)?.mode;
-        }
         store.context = Some(project.context.clone());
+        if store.original.is_some() {
+            return Ok(store);
+        }
+        // 个人旧设置优先于团队默认。两个读取来源都不成为保存目标。
+        for directory in [
+            project.context.checked_legacy_data_directory()?,
+            project.context.shared_config_directory().map(std::path::Path::to_path_buf),
+        ].into_iter().flatten() {
+            let inherited = Self::load(directory.join("launch.json"))?;
+            if inherited.original.is_some() {
+                store.set_selection(inherited.selection());
+                return Ok(store);
+            }
+        }
+        // 全局历史文件只继承视口模式。
+        store.mode = Self::load(legacy)?.mode;
         Ok(store)
     }
 
@@ -373,11 +385,24 @@ mod tests {
 
     impl ProjectFixture {
         fn new() -> Self {
+            Self::with_data("author-state")
+        }
+
+        fn with_data(data: &str) -> Self {
             let root = Fixture::new().0.with_extension("project");
             fs::create_dir(&root).unwrap();
             fs::create_dir(root.join("assets")).unwrap();
             fs::write(root.join("Cargo.toml"), "[package]\nname='launch_fixture'\nversion='0.1.0'\n").unwrap();
-            fs::write(root.join("editor-project.json"), br#"{"format":2,"id":"8f6700ee-7cd3-45d0-b89b-e95ed950b806","name":"launch fixture","cargo_manifest":"Cargo.toml","package":"launch_fixture","asset_roots":["assets"],"editor_data":"author-state"}"#).unwrap();
+            let descriptor = serde_json::json!({
+                "format": 2,
+                "id": "8f6700ee-7cd3-45d0-b89b-e95ed950b806",
+                "name": "launch fixture",
+                "cargo_manifest": "Cargo.toml",
+                "package": "launch_fixture",
+                "asset_roots": ["assets"],
+                "editor_data": data
+            });
+            fs::write(root.join("editor-project.json"), serde_json::to_vec(&descriptor).unwrap()).unwrap();
             let project = crate::project::open(&root).unwrap();
             Self { root, project }
         }
@@ -421,6 +446,38 @@ mod tests {
         let stored: serde_json::Value = serde_json::from_slice(&fs::read(store.path).unwrap()).unwrap();
         assert_eq!(stored["backend"], "cargo");
         assert_eq!(stored["profile"], "release");
+    }
+
+    #[test]
+    fn project_launch_overrides_preserve_shared_and_legacy_choices() {
+        let fixture = ProjectFixture::with_data(".feathrise");
+        let global = Fixture::new();
+        fs::write(&global.0, br#"{"format":1,"mode":"saved_world"}"#).unwrap();
+        let shared = fixture.root.join(".feathrise/launch.json");
+        let personal = fixture.root.join(".feathrise/.local/launch.json");
+        fs::create_dir(shared.parent().unwrap()).unwrap();
+        let shared_bytes = br#"{"format":1,"mode":"embedded_world","profile":"release","backend":"dx"}"#;
+        fs::write(&shared, shared_bytes).unwrap();
+        let load = || Store::for_project(&fixture.project, global.0.clone()).unwrap();
+        let defaults = load();
+        assert_eq!(defaults.mode, ViewportMode::EmbeddedWorld);
+        assert_eq!(defaults.profile, ProjectBuildProfile::Release);
+        assert!(!personal.exists());
+
+        let legacy = fixture.root.join(".feathrise").join(&fixture.project.id).join("launch.json");
+        fs::create_dir(legacy.parent().unwrap()).unwrap();
+        let legacy_bytes = br#"{"format":1,"mode":"saved_world","profile":"debug","backend":"cargo"}"#;
+        fs::write(&legacy, legacy_bytes).unwrap();
+        let mut previous = load();
+        assert_eq!(previous.mode, ViewportMode::SavedWorld);
+        assert_eq!(previous.profile, ProjectBuildProfile::Debug);
+        assert_eq!(previous.backend, ProjectBuildBackend::Native);
+        previous.profile = ProjectBuildProfile::Release;
+        previous.save().unwrap();
+        assert!(personal.is_file());
+        assert_eq!(load().profile, ProjectBuildProfile::Release);
+        assert_eq!(fs::read(shared).unwrap(), shared_bytes);
+        assert_eq!(fs::read(legacy).unwrap(), legacy_bytes);
     }
 
     #[test]

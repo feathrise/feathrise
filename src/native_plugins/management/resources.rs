@@ -46,7 +46,7 @@ impl PluginManagerState {
             Err(error) => {
                 let mut state = Self::with_roots(
                     Some(root.clone()),
-                    root.join(crate::project::DEFAULT_EDITOR_DATA).join("unavailable-global-plugins"),
+                    root.join("target/feathrise/unavailable-global-plugins"),
                 );
                 state.initialization_error = Some(error);
                 state

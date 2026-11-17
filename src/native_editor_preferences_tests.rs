@@ -209,6 +209,33 @@ fn numeric_speed_right_drag_saves_only_current_project_and_restores_rebuilt_fiel
 }
 
 #[test]
+fn numeric_speed_legacy_project_file_is_read_and_normal_save_writes_personal_path() {
+    let fixture = Fixture::new();
+    let mut project = numeric_project(&fixture, "旧数值速度工程");
+    project.context.editor_data = project.root.join(".feathrise/.local");
+    let directory = project.context.checked_legacy_data_directory().unwrap().unwrap();
+    let legacy = directory.join("numeric-input.json");
+    let active = project.context.editor_data.join("numeric-input.json");
+    fs::create_dir_all(directory).unwrap();
+    let original = serde_json::to_vec(&serde_json::json!({
+        "format": 1, "project_id": project.id, "fields": {"测试字段": 2.0}
+    })).unwrap();
+    fs::write(&legacy, &original).unwrap();
+
+    let (mut store, error) = fixture.store().with_project(&project);
+    assert!(error.is_none());
+    assert_eq!(store.editor.numeric_scrub_speeds["测试字段"], 2.0);
+    assert!(!active.exists());
+    store.editor.numeric_scrub_speeds.insert("测试字段".into(), 4.0);
+    store.save().unwrap();
+    assert!(active.is_file());
+    assert_eq!(fs::read(legacy).unwrap(), original);
+    let (store, error) = fixture.store().with_project(&project);
+    assert!(error.is_none());
+    assert_eq!(store.editor.numeric_scrub_speeds["测试字段"], 4.0);
+}
+
+#[test]
 fn numeric_speed_project_store_preserves_external_edits_and_broken_source() {
     let fixture = Fixture::new();
     let project = numeric_project(&fixture, "速度冲突工程");

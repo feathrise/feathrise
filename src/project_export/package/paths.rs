@@ -91,13 +91,13 @@ pub(super) fn destination(project: &Project, selected: &Path, target: &Path) -> 
     let parent = checked(selected.parent().ok_or("导出目录缺少父目录")?, true)?;
     let destination = parent.join(name);
     if contains(&destination, &project.root) { return Err("导出目录不能覆盖工程根或其父目录".into()); }
-    let data_root = project.context.editor_data.parent().ok_or("作者数据目录缺少父目录")?;
+    let data_root = project.context.author_data_root();
     if project.context.asset_roots.iter().any(|asset| overlaps(&destination, asset))
         || overlaps(&destination, data_root) || overlaps(&destination, target) {
         return Err("导出目录不能与资产根、作者数据或构建缓存相互包含".into());
     }
     // 源码/清单目录不能成为导出目标，即使调用时恰好为空也不改变其工程职责。
-    for reserved in ["src", "crates", "tests", "examples", "benches", ".git", ".cargo", "target", "plugins", "editor_plugins"] {
+    for reserved in ["src", "crates", "tests", "examples", "benches", ".git", ".cargo", ".feathrise", "target", "plugins", "editor_plugins"] {
         if overlaps(&destination, &project.root.join(reserved)) { return Err("导出目录不能占用工程源码、插件或构建目录".into()); }
     }
     match fs::symlink_metadata(&destination) {

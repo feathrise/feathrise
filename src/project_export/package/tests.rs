@@ -8,6 +8,10 @@ struct Fixture { root: PathBuf, project: Project, target: PathBuf, bundle: Publi
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_data(".editor")
+    }
+
+    fn with_data(data: &str) -> Self {
         let root = std::env::temp_dir().join(format!("feathrise-export-package-tests-{}", bevy::asset::uuid::Uuid::new_v4()));
         fs::create_dir(&root).unwrap();
         let root = root.canonicalize().unwrap();
@@ -23,7 +27,7 @@ impl Fixture {
         fs::write(project_root.join("Cargo.toml"), "[package]\nname='fixture_game'\nversion='0.1.0'\n").unwrap();
         fs::write(project_root.join("feathrise.toml"), toml::to_string(&serde_json::json!({
             "format":2,"id":"045f04e0-1234-4abc-8def-123456789abc","name":"中文 工程","package":"fixture_game",
-            "cargo_manifest":"Cargo.toml","asset_roots":["assets","secondary"],"editor_data":".editor",
+            "cargo_manifest":"Cargo.toml","asset_roots":["assets","secondary"],"editor_data":data,
             "game_entry":{"kind":"saved-world","version":1},"custom_field":{"preserved":true}
         })).unwrap()).unwrap();
         fs::write(project_root.join(crate::startup_document::FILE_NAME), serde_json::to_vec(&serde_json::json!({
@@ -69,7 +73,7 @@ impl Drop for Fixture {
 
 #[test]
 fn default_output_contains_complete_saved_runtime_without_source_or_author_data() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::with_data(".feathrise");
     let receipt = fixture.export(Path::new("output"), &BuildControl::default()).unwrap();
     assert_eq!(receipt.directory, fixture.output());
     assert_eq!(receipt.executable, fixture.output().join("fixture_game.exe"));
@@ -79,7 +83,7 @@ fn default_output_contains_complete_saved_runtime_without_source_or_author_data(
         assert_eq!(fs::read(fixture.output().join(relative)).unwrap(), fs::read(fixture.project.root.join(relative)).unwrap());
     }
     assert!(fixture.output().join("assets/empty").is_dir());
-    for excluded in ["src", "Cargo.toml", ".editor", "target", "runtime-manifest.json", STAGE_NAME] {
+    for excluded in ["src", "Cargo.toml", ".feathrise", "target", "runtime-manifest.json", STAGE_NAME] {
         assert!(!fixture.output().join(excluded).exists(), "{excluded} must not be exported");
     }
     let verified = manifest::verify(&fixture.output(), &fixture.project, &BuildControl::default(), false).unwrap();

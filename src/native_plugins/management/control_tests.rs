@@ -612,10 +612,10 @@ fn confirmed_legacy_remove_archives_every_original_byte_without_a_restart() {
     assert!(state.rows.is_empty());
     assert!(state.status.starts_with("旧格式插件已归档移除"), "{}", state.status);
     assert!(!legacy.exists());
-    let receipt = fs::read_dir(fixture.project.join(".feathrise/plugin-management/receipts")).unwrap().next().unwrap().unwrap().path();
+    let receipt = fs::read_dir(fixture.project.join("plugins/.management/receipts")).unwrap().next().unwrap().unwrap().path();
     let record: serde_json::Value = serde_json::from_slice(&fs::read(receipt).unwrap()).unwrap();
     let archived = PathBuf::from(record["archived"].as_str().unwrap());
-    assert!(archived.starts_with(fixture.project.join(".feathrise/plugin-management/backups")));
+    assert!(archived.starts_with(fixture.project.join("plugins/.management/backups")));
     assert_eq!(fs::read(archived.join("old.dll")).unwrap(), b"preserve-old-dll");
     assert!(archived.join("empty").is_dir());
     assert_eq!(fs::read(fixture.project.join("assets/author-data.txt")).unwrap(), b"author-must-survive");
@@ -681,7 +681,7 @@ fn utf8_bom_legacy_archive_preserves_bytes_and_resolves_its_own_diagnostic() {
     poll_until_idle(app.world_mut());
     assert!(!legacy.exists(), "确认移除须完成真实归档事务");
     assert_eq!(app.world().resource::<NativeTools>().errors, remaining);
-    let receipt = fs::read_dir(fixture.project.join(".feathrise/plugin-management/receipts"))
+    let receipt = fs::read_dir(fixture.project.join("plugins/.management/receipts"))
         .unwrap().next().unwrap().unwrap().path();
     let record: serde_json::Value = serde_json::from_slice(&fs::read(receipt).unwrap()).unwrap();
     let archived = PathBuf::from(record["archived"].as_str().unwrap());

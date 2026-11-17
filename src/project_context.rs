@@ -9,6 +9,8 @@ use std::{
 
 const ROOT_LIMIT: usize = 16;
 pub(crate) const DEFAULT_EDITOR_DATA: &str = ".feathrise";
+const PERSONAL_EDITOR_DATA: &str = ".local";
+const AUTHOR_LEASE_DIRECTORY: &str = "target/feathrise";
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,7 +27,7 @@ pub struct ProjectContext {
     pub name: String,
     pub format: u32,
     pub asset_roots: Vec<PathBuf>,
-    /// 已追加工程身份的作者数据目录；复制工程保留UUID表示同一工程，另建工程必须生成新UUID。
+    /// 默认个人偏好位于 .feathrise/.local。自定义及旧目录仍按工程身份作子目录。
     pub editor_data: PathBuf,
     pub storage_key: String,
     pub startup_scene: Option<SceneSelection>,
@@ -79,7 +81,12 @@ impl ProjectContext {
             }
             resolved.push(path);
         }
-        let editor_data = safe_directory(root, &data.join(&storage_key))?;
+        // .feathrise 保存团队默认值。日常调整只写个人覆盖，避免修改工程的共享配置。
+        let editor_data = if is_shared_config_directory(root, &data_root) {
+            safe_directory(root, &data.join(PERSONAL_EDITOR_DATA))?
+        } else {
+            safe_directory(root, &data.join(&storage_key))?
+        };
         if let Some(selection) = &startup_scene {
             validate_scene(selection, resolved.len())?;
         }
@@ -101,25 +108,7 @@ impl ProjectContext {
             .editor_data
             .strip_prefix(&self.root)
             .map_err(|_| "作者数据路径不属于工程".to_string())?;
-        let checked = safe_directory(&self.root, relative)?;
-        let mut current = self.root.clone();
-        for component in relative.components() {
-            current.push(component);
-            match fs::create_dir(&current) {
-                Ok(()) => (),
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
-                Err(error) => return Err(format!("无法创建作者数据目录：{error}")),
-            }
-            check_existing_directory(&current)?;
-        }
-        if checked
-            .canonicalize()
-            .map_err(|e| format!("作者数据目录无效：{e}"))?
-            != checked
-        {
-            return Err("作者数据目录真实路径已变化".into());
-        }
-        Ok(checked)
+        ensure_directory(&self.root, relative)
     }
 
     pub fn checked_data_directory(&self) -> Result<PathBuf, String> {
@@ -128,6 +117,42 @@ impl ProjectContext {
             .strip_prefix(&self.root)
             .map_err(|_| "作者数据路径不属于工程".to_string())?;
         safe_directory(&self.root, relative)
+    }
+
+    pub(crate) fn shared_config_directory(&self) -> Option<&Path> {
+        let parent = self.editor_data.parent()?;
+        (self.editor_data.file_name()? == PERSONAL_EDITOR_DATA
+            && is_shared_config_directory(&self.root, parent)).then_some(parent)
+    }
+
+    /// 源码监听和导出路径排除整个作者数据根，并涵盖 UUID 子目录里的历史文件。
+    pub(crate) fn author_data_root(&self) -> &Path {
+        if let Some(shared) = self.shared_config_directory() {
+            return shared;
+        }
+        if self.editor_data.file_name().is_some_and(|name| name == self.storage_key.as_str()) {
+            self.editor_data.parent().unwrap_or(&self.editor_data)
+        } else {
+            &self.editor_data
+        }
+    }
+
+    /// 个人覆盖缺席时可读取当前工程的旧目录，禁止沿符号链接或 junction 读取。
+    pub(crate) fn checked_legacy_data_directory(&self) -> Result<Option<PathBuf>, String> {
+        let Some(shared) = self.shared_config_directory() else { return Ok(None) };
+        let relative = shared
+            .strip_prefix(&self.root)
+            .map_err(|_| "作者数据路径不属于工程".to_string())?;
+        safe_directory(&self.root, &relative.join(&self.storage_key)).map(Some)
+    }
+
+    /// 普通工程锁绑定工程根，不随 Cargo 目标位置变化，也不占用个人偏好目录。
+    pub(crate) fn author_lease_directory(&self, create: bool) -> Result<PathBuf, String> {
+        if self.shared_config_directory().is_none() {
+            return if create { self.ensure_data_directory() } else { self.checked_data_directory() };
+        }
+        let relative = Path::new(AUTHOR_LEASE_DIRECTORY);
+        if create { ensure_directory(&self.root, relative) } else { safe_directory(&self.root, relative) }
     }
 }
 
@@ -182,6 +207,11 @@ fn is_uuid(value: &str) -> bool {
         && value.bytes().any(|byte| byte != b'0' && byte != b'-')
 }
 
+fn is_shared_config_directory(root: &Path, directory: &Path) -> bool {
+    directory.parent() == Some(root)
+        && contains_directory(&root.join(DEFAULT_EDITOR_DATA), directory)
+}
+
 fn contains_directory(parent: &Path, child: &Path) -> bool {
     #[cfg(windows)]
     {
@@ -233,6 +263,24 @@ pub(super) fn safe_directory(root: &Path, relative: &Path) -> Result<PathBuf, St
         }
     }
     Ok(path)
+}
+
+fn ensure_directory(root: &Path, relative: &Path) -> Result<PathBuf, String> {
+    let checked = safe_directory(root, relative)?;
+    let mut current = root.to_owned();
+    for component in relative.components() {
+        current.push(component);
+        match fs::create_dir(&current) {
+            Ok(()) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
+            Err(error) => return Err(format!("无法创建作者数据目录：{error}")),
+        }
+        check_existing_directory(&current)?;
+    }
+    if checked.canonicalize().map_err(|error| format!("作者数据目录无效：{error}"))? != checked {
+        return Err("作者数据目录真实路径已变化".into());
+    }
+    Ok(checked)
 }
 
 fn check_existing_directory(path: &Path) -> Result<(), String> {
@@ -352,7 +400,18 @@ mod tests {
         let default = ProjectContext::resolve(
             &root, id, "n", 2, Some(vec!["assets".into()]), None, None,
         ).unwrap();
-        assert_eq!(default.editor_data, root.join(".feathrise").join(id));
+        assert_eq!(default.editor_data, root.join(".feathrise/.local"));
+        assert_eq!(default.author_data_root(), root.join(".feathrise"));
+        assert_eq!(default.author_lease_directory(false).unwrap(), root.join("target/feathrise"));
+        assert_eq!(default.storage_key, id);
+        assert_eq!(
+            default.checked_legacy_data_directory().unwrap(),
+            Some(root.join(".feathrise").join(id))
+        );
+        let explicit = ProjectContext::resolve(
+            &root, id, "n", 2, Some(vec!["assets".into()]), Some(".feathrise".into()), None,
+        ).unwrap();
+        assert_eq!(explicit, default);
         assert!(!root.join(".feathrise").exists());
         fs::remove_dir(root).unwrap();
     }

@@ -888,7 +888,7 @@ fn production_plugin_manager_gpu_and_reopen_transactions() {
     click(&mut app, |action| matches!(action, ManagerAction::RequestRemove(id) if id == "example.legacy"));
     click(&mut app, |action| matches!(action, ManagerAction::ConfirmRemove));
     assert!(!legacy.exists(), "确认后旧目录必须从插件发现根移出");
-    let archive = fs::read_dir(root.join(".feathrise/plugin-management/backups")).unwrap()
+    let archive = fs::read_dir(root.join("plugins/.management/backups")).unwrap()
         .filter_map(Result::ok)
         .map(|entry| entry.path().join("legacy/legacy-removal-fixture"))
         .find(|path| path.is_dir()).expect("旧目录必须仍存在于事务归档中");
@@ -898,7 +898,7 @@ fn production_plugin_manager_gpu_and_reopen_transactions() {
         && archived_manifest == legacy_manifest;
     assert!(legacy_utf8_bom_preserved, "归档后的清单必须保留UTF-8 BOM和完整原字节");
     assert!(!app.world().resource::<PluginManagerState>().rows.iter().any(|row| row.id == "example.legacy"));
-    let receipts: Vec<Value> = fs::read_dir(root.join(".feathrise/plugin-management/receipts")).unwrap()
+    let receipts: Vec<Value> = fs::read_dir(root.join("plugins/.management/receipts")).unwrap()
         .map(|item| serde_json::from_slice(&fs::read(item.unwrap().path()).unwrap()).unwrap())
         .filter(|receipt: &Value| receipt["kind"] == "legacy_archive" && receipt["id"] == "example.legacy")
         .collect();
