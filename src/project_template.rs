@@ -291,6 +291,8 @@ mod tests {
         let scratch = std::env::temp_dir().join(format!("feathrise-empty-{}", new_uuid().unwrap()));
         fs::create_dir(&scratch).unwrap();
         let scratch = scratch.canonicalize().unwrap();
+        let template_root = crate::project_template_root();
+        let sdk = sdk::SdkSource::load(&crate::resource_paths::sdk_configuration_root(&template_root)).unwrap();
         let mut identities = Vec::new();
         for (index, view) in [
             feathrise_runtime::GameView::ThirdPerson,
@@ -302,7 +304,7 @@ mod tests {
             let root = create_empty_with_control(
                 &scratch.join(format!("project-{index}")),
                 "空工程",
-                &crate::project_template_root(),
+                &template_root,
                 &BuildControl::default(),
                 view,
             )
@@ -329,6 +331,11 @@ mod tests {
                     .unwrap();
             assert_eq!(descriptor["game_view"], serde_json::to_value(view).unwrap());
             assert_eq!(descriptor["package"], "feathrise_game_template");
+            assert_eq!(descriptor.get("editor_data").and_then(serde_json::Value::as_str),
+                sdk.requires_editor_data().then_some(".feathrise"));
+            let author = crate::project::open(&root).unwrap();
+            assert_eq!(author.context.editor_data, root.join(".feathrise").join(&author.id));
+            assert!(root.join(".feathrise").is_dir());
             let manifest = fs::read_to_string(root.join("Cargo.toml")).unwrap();
             assert!(!manifest.contains("apps/game"));
             assert!(!manifest.contains("rpg_editor_"));

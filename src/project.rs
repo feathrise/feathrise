@@ -4,6 +4,7 @@ use std::{fs::File, io::Read, path::{Path, PathBuf}};
 #[path = "project_context.rs"]
 mod context;
 pub use context::ProjectContext;
+pub(crate) use context::DEFAULT_EDITOR_DATA;
 const MANIFEST_LIMIT: usize = 64 * 1024;
 // 只兼容旧清单里的固定字段值；它不再作为正式编辑器与游戏的DLL接口版本。
 #[cfg(test)]
@@ -73,7 +74,7 @@ pub fn open(root: &Path) -> Result<Project, String> {
     }
     // canonical 后再检查包含关系，拒绝 ../、符号链接或 junction 逃出工程根。
     let cargo_manifest = contained_file(&root.join(manifest.cargo_manifest), &root)?;
-    // v1继续只读打开；新增路径按工程显式声明解析，不以宿主当前目录补全。
+    // 显式目录和 v2 默认目录均相对工程根解析，打开时只校验路径。
     let context = ProjectContext::resolve(
         &root,
         &manifest.id,

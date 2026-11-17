@@ -44,7 +44,7 @@ pub(super) fn write_with_sdk_configuration(
     for file in ["build.rs", "README.md"] {
         files::copy_file(&template, root, file, &mut budget, control)?;
     }
-    for folder in ["assets", ".editor", ".cargo"] {
+    for folder in ["assets", crate::project::DEFAULT_EDITOR_DATA, ".cargo"] {
         fs::create_dir_all(root.join(folder)).map_err(|e| e.to_string())?;
     }
     feathrise_project::seed::create_empty(&root.join("assets"))?;
@@ -53,7 +53,21 @@ pub(super) fn write_with_sdk_configuration(
     // 新工程自身保持低优化以缩短迭代；非工作区依赖统一高优化，不再逐包维护例外。
     manifest.push_str("\n[profile.dev]\nopt-level = 0\ndebug = \"line-tables-only\"\nstrip = false\n\n[profile.dev.package.\"*\"]\nopt-level = 3\n\n[profile.render-dev]\ninherits = \"dev\"\n");
     fs::write(root.join("Cargo.toml"), manifest).map_err(|e| e.to_string())?;
-    fs::write(root.join("editor-project.json"), serde_json::to_vec_pretty(&json!({"format":2,"id":id,"name":name,"cargo_manifest":"Cargo.toml","package":"feathrise_game_template","game_entry":{"kind":"saved-world","version":1},"game_view":view,"asset_roots":["assets"],"editor_data":".editor"})).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let mut descriptor = json!({
+        "format": 2,
+        "id": id,
+        "name": name,
+        "cargo_manifest": "Cargo.toml",
+        "package": "feathrise_game_template",
+        "game_entry": {"kind": "saved-world", "version": 1},
+        "game_view": view,
+        "asset_roots": ["assets"],
+    });
+    if sdk.requires_editor_data() {
+        descriptor["editor_data"] = json!(crate::project::DEFAULT_EDITOR_DATA);
+    }
+    fs::write(root.join("editor-project.json"), serde_json::to_vec_pretty(&descriptor).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
     fs::write(root.join(".cargo/config.toml"), "# 不记录开发机SDK或缓存绝对路径。\n[target.x86_64-pc-windows-msvc]\nlinker = \"rust-lld\"\n").map_err(|e| e.to_string())?;
     // 发行版先发布可编辑的空工程。固定配方的锁已在打包前准备好，首次构建再按锁下载依赖。
     if let Some(lock) = sdk.distribution_lock() {

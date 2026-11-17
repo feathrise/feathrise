@@ -70,6 +70,11 @@ impl SdkSource {
         Self::parse_configuration(DISTRIBUTION_CONFIGURATION, Path::new("sdk-source-distribution.toml"))
     }
 
+    pub(super) fn requires_editor_data(&self) -> bool {
+        // 此公开修订的运行入口在字段缺失时拒绝启动，需为它保留显式路径。
+        matches!(self, Self::Git { rev, .. } if rev == "92805cf32f07652eb435206601f3f5237770a018")
+    }
+
     pub(super) fn distribution_lock(&self) -> Option<&'static [u8]> {
         // 只有所选来源与内嵌配方一致才用配套锁。显式新来源仍自行解析锁文件。
         let bundled = Self::distribution().ok()?;

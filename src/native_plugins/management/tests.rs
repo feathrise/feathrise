@@ -172,7 +172,7 @@ impl Fixture {
     fn journal(&self, scope: PluginScope) -> Journal {
         let path = if scope == PluginScope::Project {
             self.project()
-                .join(".editor/plugin-management/pending.json")
+                .join(".feathrise/plugin-management/pending.json")
         } else {
             self.roots.global.join(".management/pending.json")
         };
@@ -180,7 +180,7 @@ impl Fixture {
     }
     fn manager(&self, scope: PluginScope) -> PathBuf {
         if scope == PluginScope::Project {
-            self.project().join(".editor/plugin-management")
+            self.project().join(".feathrise/plugin-management")
         } else {
             self.roots.global.join(".management")
         }
@@ -769,7 +769,7 @@ fn no_project_can_manage_global_files_but_cannot_write_project_scope() {
     assert!(
         packages::stage_at(&roots, PluginScope::Project, enable("fixture.tool", false)).is_err()
     );
-    assert!(!f.project().join(".editor").exists());
+    assert!(!f.project().join(".feathrise").exists());
 }
 
 #[test]

@@ -134,7 +134,7 @@ mod validation_environment_tests {
 pub(crate) fn roots_for_project(root: &Path) -> Result<PluginRoots, String> {
     #[cfg(test)]
     let global = if std::env::var_os("FEATHRISE_VALIDATION_GLOBAL_PLUGINS").is_none() {
-        root.join(".editor/test-global-plugins")
+        root.join(crate::project::DEFAULT_EDITOR_DATA).join("test-global-plugins")
     } else {
         global_plugins_root()?
     };
@@ -1296,10 +1296,17 @@ fn store_for(roots: &PluginRoots, scope: PluginScope, create: bool) -> Result<St
                 .project
                 .as_ref()
                 .ok_or("尚未打开工程，不能管理工程插件")?;
-            (
-                checked_child(root, Path::new("plugins"), false)?,
-                checked_child(root, Path::new(".editor/plugin-management"), false)?,
-            )
+            let plugins = checked_child(root, Path::new("plugins"), false)?;
+            let relative = Path::new(crate::project::DEFAULT_EDITOR_DATA).join("plugin-management");
+            let manager = checked_child(root, &relative, false)?;
+            // 旧工程已有的插件启停和待生效计划继续从旧目录读取。
+            let legacy = Path::new(".editor/plugin-management");
+            let manager = if !manager.exists() && root.join(legacy).exists() {
+                checked_child(root, legacy, false)?
+            } else {
+                manager
+            };
+            (plugins, manager)
         }
         PluginScope::Global => (
             roots.global.clone(),

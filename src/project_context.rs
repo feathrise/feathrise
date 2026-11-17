@@ -8,6 +8,7 @@ use std::{
 };
 
 const ROOT_LIMIT: usize = 16;
+pub(crate) const DEFAULT_EDITOR_DATA: &str = ".feathrise";
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -59,9 +60,10 @@ impl ProjectContext {
             return Err("资产根必须为1至16个工程内目录".into());
         }
         let data = match (format, editor_data) {
-            (2, None) => return Err("工程清单v2缺少editor_data".into()),
             (_, Some(path)) => path,
-            _ => PathBuf::from(".editor"),
+            // v1 省略字段时已有固定旧路径，继续从那里读取作者数据。
+            (1, None) => PathBuf::from(".editor"),
+            _ => PathBuf::from(DEFAULT_EDITOR_DATA),
         };
         let data_root = safe_directory(root, &data)?;
         let mut resolved: Vec<PathBuf> = Vec::with_capacity(roots.len());
@@ -279,7 +281,7 @@ mod tests {
             ProjectContext::resolve(&root, "../旧工程", "旧工程", 1, None, None, None).unwrap();
         assert!(context.storage_key.starts_with("legacy-"));
         assert!(!context.editor_data.exists());
-        assert!(context.editor_data.starts_with(&root));
+        assert_eq!(context.editor_data, root.join(".editor").join(context.storage_key));
         fs::remove_dir(root).unwrap();
     }
 
@@ -317,8 +319,8 @@ mod tests {
                 id,
                 "n",
                 2,
-                Some(vec![".editor/assets".into()]),
-                Some(".editor".into()),
+                Some(vec![".feathrise/assets".into()]),
+                None,
                 None
             )
             .is_err()
@@ -330,8 +332,8 @@ mod tests {
                 id,
                 "n",
                 2,
-                Some(vec![".EDITOR/assets".into()]),
-                Some(".editor".into()),
+                Some(vec![".FEATHRISE/assets".into()]),
+                None,
                 None
             )
             .is_err()
@@ -346,7 +348,12 @@ mod tests {
             None,
         )
         .unwrap();
-        assert!(context.editor_data.ends_with(id));
+        assert_eq!(context.editor_data, root.join(".editor").join(id));
+        let default = ProjectContext::resolve(
+            &root, id, "n", 2, Some(vec!["assets".into()]), None, None,
+        ).unwrap();
+        assert_eq!(default.editor_data, root.join(".feathrise").join(id));
+        assert!(!root.join(".feathrise").exists());
         fs::remove_dir(root).unwrap();
     }
 
