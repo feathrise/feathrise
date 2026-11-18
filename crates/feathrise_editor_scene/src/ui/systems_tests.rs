@@ -9,8 +9,6 @@ fn editor_shell_refresh_preserves_another_text_fields_ime() {
     let mut app = App::new(); // 直接执行真实壳体系统，覆盖菜单与 F12 同时安装的场景。
     app.init_resource::<SceneEditorState>(); // F12 默认关闭，但壳体仍需响应后台目录变化。
     app.init_resource::<EditorAssetCatalog>(); // 模拟启动目录就绪触发壳体回显。
-    app.init_resource::<Assets<SceneCatalogAsset>>(); // 标题查询所需的空资源，无需启动 AssetServer。
-    app.init_resource::<Assets<SceneManifestAsset>>(); // 旧场景兼容查询的空资源。
     app.insert_resource(State::new(ScenePhase::Idle)); // 用户在新游戏姓名页，尚未进入场景。
     let window = app
         .world_mut()
