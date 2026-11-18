@@ -150,10 +150,9 @@ fn public_template_creates_and_reopens_while_cargo_is_unusable() {
     let patch = &expected["patch"]["crates-io"]["bevy_render"];
     let lock = fs::read(source.join("Cargo.lock")).unwrap();
     fs::create_dir_all(&installation).unwrap();
-    #[cfg(windows)]
-    let embedded = super::super::resources::read(0).unwrap().is_some();
-    #[cfg(not(windows))]
-    let embedded = false;
+    let embedded = bevy_embedded_assets::EmbeddedAssetReader::preloaded()
+        .load_path_sync(&Path::new(super::super::resources::DIRECTORY).join("Cargo.toml"))
+        .is_ok();
     if !embedded {
         super::super::copy_tree(
             &source,
@@ -187,6 +186,9 @@ fn public_template_creates_and_reopens_while_cargo_is_unusable() {
         ).unwrap();
         assert_eq!(project, destination);
         assert_eq!(fs::read(project.join("Cargo.lock")).unwrap(), lock);
+        for file in ["build.rs", "README.md", "src/main.rs", "src/controller.rs"] {
+            assert_eq!(fs::read(project.join(file)).unwrap(), fs::read(source.join(file)).unwrap(), "{file}");
+        }
         let actual: Value = toml::from_str(&fs::read_to_string(project.join("Cargo.toml")).unwrap()).unwrap();
         assert_eq!(actual["dependencies"], expected["dependencies"]);
         assert_eq!(actual["patch"], expected["patch"]);

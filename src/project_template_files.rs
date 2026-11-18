@@ -1,5 +1,5 @@
 //! 正式空工程模板的有界文件复制；取消时仅丢弃本轮未发布的临时工程。
-use super::{CopyBudget, MAX_TEMPLATE_BYTES, MAX_TEMPLATE_FILES, reject_reparse};
+use super::{CopyBudget, reject_reparse};
 use crate::build_process::BuildControl;
 use std::{
     fs,
@@ -28,11 +28,7 @@ pub(super) fn copy_file(
     if !metadata.is_file() {
         return Err(format!("模板文件{relative}必须是普通文件"));
     }
-    budget.files += 1;
-    budget.bytes = budget.bytes.saturating_add(metadata.len());
-    if budget.files > MAX_TEMPLATE_FILES || budget.bytes > MAX_TEMPLATE_BYTES {
-        return Err("模板文件超出512文件或512MiB模板预算".into());
-    }
+    budget.add_file(metadata.len())?;
     let target = target_root.join(relative);
     fs::create_dir_all(target.parent().ok_or("模板文件目标缺少父目录")?)
         .map_err(|e| e.to_string())?;

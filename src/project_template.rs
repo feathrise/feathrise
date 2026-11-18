@@ -7,7 +7,6 @@ mod empty;
 mod files;
 #[path = "project_template_manifest.rs"]
 mod manifest;
-#[cfg(windows)]
 #[path = "project_template_resources.rs"]
 mod resources;
 #[path = "project_template_sdk.rs"]
@@ -188,6 +187,17 @@ struct CopyBudget {
     bytes: u64,
 }
 
+impl CopyBudget {
+    fn add_file(&mut self, bytes: u64) -> Result<(), String> {
+        self.files += 1;
+        self.bytes = self.bytes.saturating_add(bytes);
+        if self.files > MAX_TEMPLATE_FILES || self.bytes > MAX_TEMPLATE_BYTES {
+            return Err("模板超过 512 文件或 512 MiB 固定复制预算".into());
+        }
+        Ok(())
+    }
+}
+
 fn copy_tree(
     source: &Path,
     destination: &Path,
@@ -206,11 +216,7 @@ fn copy_tree(
         if metadata.is_dir() {
             copy_tree(&entry.path(), &target, budget, control)?;
         } else if metadata.is_file() {
-            budget.files += 1;
-            budget.bytes = budget.bytes.saturating_add(metadata.len());
-            if budget.files > MAX_TEMPLATE_FILES || budget.bytes > MAX_TEMPLATE_BYTES {
-                return Err("模板超过 512 文件或 512 MiB 固定复制预算".into());
-            }
+            budget.add_file(metadata.len())?;
             fs::copy(entry.path(), target).map_err(|e| e.to_string())?;
         } else {
             return Err("模板只允许普通目录和文件".into());

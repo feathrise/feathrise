@@ -12,7 +12,7 @@ pub(super) fn write(
     view: GameView,
 ) -> Result<(), String> {
     let nested = repository.join("feathrise");
-    let editor = if nested.join("templates/empty").is_dir() { nested } else { repository.to_owned() };
+    let editor = if nested.join(resources::DIRECTORY).is_dir() { nested } else { repository.to_owned() };
     // 发行模板来自程序资源，外置 SDK 仍按配置文件所在目录解析。
     let configuration = crate::resource_paths::sdk_configuration_root(&editor);
     write_with_sdk_configuration(root, name, id, &editor, &configuration, control, view)
@@ -98,22 +98,11 @@ fn copy_template(
     root: &Path,
     control: &BuildControl,
 ) -> Result<(String, Vec<u8>), String> {
-    #[cfg(windows)]
-    if let Some(mut source) = super::resources::read(0)
-        .map_err(|error| format!("无法读取发行模板：{error}"))?
-    {
-        let manifest = source.remove("Cargo.toml").ok_or("发行模板缺少 Cargo.toml")?;
-        let lock = source.remove("Cargo.lock").ok_or("发行模板缺少 Cargo.lock")?;
-        for (relative, bytes) in source {
-            control.check()?;
-            let target = root.join(relative);
-            fs::create_dir_all(target.parent().ok_or("模板文件缺少父目录")?).map_err(|e| e.to_string())?;
-            fs::write(target, bytes).map_err(|e| e.to_string())?;
-        }
-        return Ok((String::from_utf8(manifest).map_err(|e| e.to_string())?, lock));
+    if let Some(template) = resources::copy(root, control)? {
+        return Ok(template);
     }
 
-    let relative = "templates/empty";
+    let relative = resources::DIRECTORY;
     let mut template = editor.join(relative);
     // 目录包把模板放在 EXE 旁，图标等内嵌资源仍从各自的缓存读取。
     if editor != configuration && !template.try_exists().map_err(|error| error.to_string())? {
