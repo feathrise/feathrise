@@ -1,6 +1,6 @@
 //! 独占暂存与目录发布；只替换同工程的完整旧包，失败时恢复旧包或保留明确备份。
 
-use super::{files, manifest::{self, Verified}, paths};
+use super::{files, manifest::{self, Verified}, paths, player_data};
 use crate::{build_process::BuildControl, project::Project};
 use std::{fs, path::{Path, PathBuf}};
 
@@ -57,18 +57,18 @@ impl Stage {
         let result = (|| {
             control.check()?;
             if previous.is_some() { fs::rename(destination, &backup).map_err(|error| format!("旧导出仍被占用，已保留：{error}"))?; }
-            if let Err(error) = control.check() {
-                let restore = if previous.is_some() { fs::rename(&backup, destination) } else { Ok(()) };
-                return Err(match restore {
-                    Ok(()) => error,
-                    Err(restore) => format!("{error}；旧导出保留在 {}，取消恢复失败：{restore}", backup.display()),
-                });
-            }
-            if let Err(error) = fs::rename(&self.path, destination) {
-                let restore = if previous.is_some() { fs::rename(&backup, destination) } else { Ok(()) };
-                return Err(match restore {
-                    Ok(()) => format!("新导出未发布，旧导出已恢复：{error}"),
-                    Err(restore) => format!("新导出未发布：{error}；旧导出保留在 {}，恢复失败：{restore}", backup.display()),
+            let publish = (|| {
+                if let Some(Previous::Package(package)) = previous {
+                    player_data::preserve(&backup, &project.id, &package.legacy_files, control)?;
+                }
+                control.check()?;
+                fs::rename(&self.path, destination).map_err(|error| format!("新导出未发布：{error}"))
+            })();
+            if let Err(error) = publish {
+                if previous.is_none() { return Err(error); }
+                return Err(match fs::rename(&backup, destination) {
+                    Ok(()) => format!("{error}；旧导出已恢复"),
+                    Err(restore) => format!("{error}；旧导出保留在 {}，恢复失败：{restore}", backup.display()),
                 });
             }
             self.active = false;
@@ -85,6 +85,23 @@ impl Stage {
             }
         }
         Ok(None)
+    }
+
+    /// 完整玩家数据副本就绪后才发布。原数据仍在旧包中，失败可走原目录回滚。
+    pub(super) fn publish_player_data(mut self, destination: &Path) -> Result<(), String> {
+        self.check_owner()?;
+        match fs::symlink_metadata(destination) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(error) => return Err(format!("玩家数据目录不可访问：{error}")),
+            Ok(_) => return Err("玩家数据目录已被创建，保留现有数据".into()),
+        }
+        fs::remove_file(self.path.join(STAGE_OWNER)).map_err(|error| error.to_string())?;
+        if let Err(error) = fs::rename(&self.path, destination) {
+            let _ = files::write_new(&self.path.join(STAGE_OWNER), self.token.as_bytes());
+            return Err(format!("玩家数据未发布：{error}"));
+        }
+        self.active = false;
+        Ok(())
     }
 
     fn check_owner(&self) -> Result<(), String> {
