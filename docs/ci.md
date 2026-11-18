@@ -21,7 +21,7 @@
 | 变量 | 值 |
 | --- | --- |
 | `FEATHRISE_SDK_REPOSITORY` | `feathrise/feathrise_runtime` |
-| `FEATHRISE_SDK_REV` | 可选，默认 `92805cf32f07652eb435206601f3f5237770a018` |
+| `FEATHRISE_SDK_REV` | 可选，默认 `fca6d82a81396b758a59acdd753ee3d89c8e81e6` |
 | `FEATHRISE_PATCH_REPOSITORY` | `feathrise/feathrise_patches` |
 | `FEATHRISE_PATCH_REV` | 可选，默认 `5eaec9241a2c1860f8b2f683a80fbe2b150236e8` |
 
