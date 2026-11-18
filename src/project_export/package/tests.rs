@@ -12,6 +12,10 @@ impl Fixture {
     }
 
     fn with_data(data: &str) -> Self {
+        Self::with_content(data, false)
+    }
+
+    fn with_content(data: &str, rpg: bool) -> Self {
         let root = std::env::temp_dir().join(format!("feathrise-export-package-tests-{}", bevy::asset::uuid::Uuid::new_v4()));
         fs::create_dir(&root).unwrap();
         let root = root.canonicalize().unwrap();
@@ -25,11 +29,13 @@ impl Fixture {
         fs::create_dir(project_root.join("src")).unwrap();
         fs::write(project_root.join("src/main.rs"), "作者源码，不进入导出").unwrap();
         fs::write(project_root.join("Cargo.toml"), "[package]\nname='fixture_game'\nversion='0.1.0'\n").unwrap();
-        fs::write(project_root.join("feathrise.toml"), toml::to_string(&serde_json::json!({
+        let mut descriptor = serde_json::json!({
             "format":2,"id":"045f04e0-1234-4abc-8def-123456789abc","name":"中文 工程","package":"fixture_game",
             "cargo_manifest":"Cargo.toml","asset_roots":["assets","secondary"],"editor_data":data,
             "game_entry":{"kind":"saved-world","version":1},"custom_field":{"preserved":true}
-        })).unwrap()).unwrap();
+        });
+        if rpg { descriptor["rpg_content"] = "sword-and-wanderer".into(); }
+        fs::write(project_root.join("feathrise.toml"), toml::to_string(&descriptor).unwrap()).unwrap();
         fs::write(project_root.join(crate::startup_document::FILE_NAME), serde_json::to_vec(&serde_json::json!({
             "format":2,"project_id":"045f04e0-1234-4abc-8def-123456789abc","revision":1
         })).unwrap()).unwrap();
@@ -57,6 +63,11 @@ impl Fixture {
     }
 
     fn output(&self) -> PathBuf { self.project.root.join("output") }
+
+    fn player_data(&self) -> PathBuf {
+        let key = feathrise_scene_content::authoring_io::bytes_hash(self.project.id.as_bytes());
+        self.project.root.join(format!(".feathrise-export-data-{key}"))
+    }
 }
 
 impl Drop for Fixture {
@@ -133,6 +144,72 @@ fn repeated_export_replaces_only_verified_previous_package() {
     assert_ne!(first, fs::read(fixture.output().join(manifest::MARKER)).unwrap());
     assert_eq!(fs::read(fixture.output().join("assets/config.json")).unwrap(), b"{\"value\":2}");
     assert!(!fs::read_dir(&fixture.project.root).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().starts_with(".feathrise-export-")));
+}
+
+const RPG_SETTINGS: &[u8] = br#"{"graphics":{"vsync":true},"control":{},"skill_keybindings":[],"general_keybindings":{"pickup":"KeyH"}}"#;
+
+#[test]
+fn repeated_rpg_export_preserves_settings_and_saves_outside_the_bundle() {
+    for (author_data, old_saves) in [
+        (".feathrise", "saves/feathrise-play"),
+        (".feathrise", ".feathrise/game-saves"),
+        ("author/data", "author/data/game-saves"),
+        (".feathrise", "bevy_learn5_3d/saves"),
+    ] {
+        let fixture = Fixture::with_content(author_data, true);
+        let control = BuildControl::default();
+        let output = fixture.output();
+        fixture.export(&output, &control).unwrap();
+        let old_saves = output.join(old_saves);
+        fs::create_dir_all(&old_saves).unwrap();
+        fs::write(output.join("settings.json"), RPG_SETTINGS).unwrap();
+        fs::write(old_saves.join("index.json"), b"previous index bytes").unwrap();
+        fs::write(old_saves.join("save_1.json"), b"previous slot bytes").unwrap();
+
+        let data = fixture.player_data();
+        assert!(fixture.export(&output, &control).unwrap().warning.is_none());
+        assert_eq!(fs::read(data.join("settings.json")).unwrap(), RPG_SETTINGS);
+        assert_eq!(fs::read(data.join("saves/index.json")).unwrap(), b"previous index bytes");
+        assert_eq!(fs::read(data.join("saves/save_1.json")).unwrap(), b"previous slot bytes");
+        assert!(!output.join("settings.json").exists() && !old_saves.exists());
+
+        fs::write(data.join("settings.json"), b"updated settings").unwrap();
+        fs::write(data.join("saves/save_1.json"), b"updated progress").unwrap();
+        assert!(fixture.export(&output, &control).unwrap().warning.is_none());
+        assert_eq!(fs::read(data.join("settings.json")).unwrap(), b"updated settings");
+        assert_eq!(fs::read(data.join("saves/save_1.json")).unwrap(), b"updated progress");
+    }
+}
+
+#[test]
+fn legacy_rpg_data_never_bypasses_foreign_content_or_overwrites_existing_player_data() {
+    let fixture = Fixture::with_content(".feathrise", true);
+    let control = BuildControl::default();
+    let output = fixture.output();
+    fixture.export(&output, &control).unwrap();
+    let marker = fs::read(output.join(manifest::MARKER)).unwrap();
+    let settings = output.join("settings.json");
+    fs::write(&settings, b"unrelated settings").unwrap();
+    assert!(fixture.export(&output, &control).is_err());
+    assert_eq!(fs::read(&settings).unwrap(), b"unrelated settings");
+
+    fs::write(&settings, RPG_SETTINGS).unwrap();
+    let foreign = output.join("foreign.txt");
+    fs::write(&foreign, b"foreign data").unwrap();
+    assert!(fixture.export(&output, &control).is_err());
+    assert_eq!(fs::read(&foreign).unwrap(), b"foreign data");
+    assert!(!fixture.player_data().exists());
+    fs::remove_file(foreign).unwrap();
+
+    let data = fixture.player_data();
+    fs::create_dir(&data).unwrap();
+    fs::write(data.join("settings.json"), b"existing preferences").unwrap();
+    let error = fixture.export(&output, &control).unwrap_err();
+    assert!(error.contains("无法与现有目录自动合并"), "{error}");
+    assert_eq!(fs::read(output.join(manifest::MARKER)).unwrap(), marker);
+    assert_eq!(fs::read(&settings).unwrap(), RPG_SETTINGS);
+    assert_eq!(fs::read(data.join("settings.json")).unwrap(), b"existing preferences");
+    assert!(fixture.export(&data, &control).unwrap_err().contains("不能占用玩家数据目录"));
 }
 
 #[test]
@@ -434,9 +511,11 @@ fn nested_asset_root_preserves_all_intermediate_and_empty_directories() {
 #[test]
 fn locked_stage_directory_rolls_back_previous_package_after_rename_failure() {
     use std::os::windows::fs::OpenOptionsExt;
-    let fixture = Fixture::new();
+    let fixture = Fixture::with_content(".feathrise", true);
     let control = BuildControl::default();
     fixture.export(&fixture.output(), &control).unwrap();
+    let settings = fixture.output().join("settings.json");
+    fs::write(&settings, RPG_SETTINGS).unwrap();
     let original = fs::read(fixture.output().join(manifest::MARKER)).unwrap();
     let previous = transaction::existing(&fixture.output(), &fixture.project, &control).unwrap();
     let plan = files::Plan::collect(&fixture.project, &fixture.bundle, &control).unwrap();
@@ -451,9 +530,13 @@ fn locked_stage_directory_rolls_back_previous_package_after_rename_failure() {
     let error = stage.publish(&fixture.output(), previous.as_ref(), &fixture.project, &control).unwrap_err();
     assert!(error.contains("旧导出已恢复"), "{error}");
     assert_eq!(fs::read(fixture.output().join(manifest::MARKER)).unwrap(), original);
+    assert_eq!(fs::read(&settings).unwrap(), RPG_SETTINGS);
     let stage_path = stage.path.clone();
     drop(lock);
     drop(stage);
     assert!(!stage_path.exists());
     assert!(!fs::read_dir(&fixture.project.root).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().starts_with(".feathrise-export-backup-")));
+    assert!(fixture.export(&fixture.output(), &control).unwrap().warning.is_none());
+    assert!(!settings.exists());
+    assert_eq!(fs::read(fixture.player_data().join("settings.json")).unwrap(), RPG_SETTINGS);
 }

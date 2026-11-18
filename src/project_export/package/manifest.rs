@@ -1,6 +1,6 @@
 //! 可移动导出包的身份标记与完整摘要清单；小标记不携带原源码和缓存的绝对路径。
 
-use super::{files::{self, Plan}, paths};
+use super::{files::{self, Plan}, paths, player_data::{self, LegacyFile}};
 use crate::{build_artifacts::{self, PublishedBundle}, build_process::BuildControl, project::Project};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -45,6 +45,7 @@ struct ExportManifest {
 pub(super) struct Verified {
     pub marker: Marker,
     pub marker_sha256: String,
+    pub legacy_files: Vec<LegacyFile>,
 }
 
 fn digest(bytes: &[u8]) -> String { Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect() }
@@ -105,10 +106,10 @@ pub(super) fn verify(directory: &Path, project: &Project, control: &BuildControl
         }
         expected_files.insert(file.path.clone());
     }
-    let has_descriptor = crate::project::DESCRIPTOR_NAMES.iter().any(|name| expected_files.contains(Path::new(name)));
-    if !expected_files.contains(&marker.executable) || !has_descriptor {
+    let descriptor = crate::project::DESCRIPTOR_NAMES.into_iter().find(|name| expected_files.contains(Path::new(name)));
+    let Some(descriptor) = descriptor.filter(|_| expected_files.contains(&marker.executable)) else {
         return Err("导出清单缺少程序入口或工程描述".into());
-    }
+    };
     for directory in manifest.directories {
         paths::relative(&directory)?;
         if !names.insert(directory.to_string_lossy().to_ascii_lowercase()) { return Err("导出清单包含重复或冲突目录".into()); }
@@ -118,8 +119,12 @@ pub(super) fn verify(directory: &Path, project: &Project, control: &BuildControl
     expected_files.insert(MANIFEST.into());
     if staging { expected_files.insert(super::transaction::STAGE_OWNER.into()); }
     let actual = files::tree(directory, control)?;
-    if actual.files != expected_files || actual.directories != expected_directories {
-        return Err("导出目录含清单之外的文件或目录，拒绝覆盖并保留原内容".into());
-    }
-    Ok(Verified { marker, marker_sha256: digest(&marker_bytes) })
+    let legacy_files = if actual.files == expected_files && actual.directories == expected_directories {
+        Vec::new()
+    } else if staging || !expected_files.is_subset(&actual.files) || !expected_directories.is_subset(&actual.directories) {
+        return Err(player_data::EXTRA_CONTENT.into());
+    } else {
+        player_data::legacy_files(directory, descriptor, &actual, &expected_files, &expected_directories, control)?
+    };
+    Ok(Verified { marker, marker_sha256: digest(&marker_bytes), legacy_files })
 }

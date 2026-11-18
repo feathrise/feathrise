@@ -90,6 +90,10 @@ pub(super) fn destination(project: &Project, selected: &Path, target: &Path) -> 
     relative(Path::new(name))?;
     let parent = checked(selected.parent().ok_or("导出目录缺少父目录")?, true)?;
     let destination = parent.join(name);
+    if destination.components().any(|part| part.as_os_str().to_string_lossy()
+        .to_ascii_lowercase().starts_with(super::player_data::DIRECTORY_PREFIX)) {
+        return Err("导出目标不能占用玩家数据目录".into());
+    }
     if contains(&destination, &project.root) { return Err("导出目录不能覆盖工程根或其父目录".into()); }
     let data_root = project.context.author_data_root();
     if project.context.asset_roots.iter().any(|asset| overlaps(&destination, asset))

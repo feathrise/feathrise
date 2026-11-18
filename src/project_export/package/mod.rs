@@ -3,6 +3,7 @@
 mod files;
 mod manifest;
 mod paths;
+mod player_data;
 mod transaction;
 #[cfg(test)]
 mod tests;
