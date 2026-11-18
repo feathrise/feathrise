@@ -154,6 +154,7 @@ impl Plugin for SceneEditorPlugin {
         authoring::volume_sculpt::install(app); // 新原型复用既有F12阶段，默认不进入发布构建。
         authoring::basic_shapes::install(app); // 统一网格创建意图和立方体预览遵守原输入、地面查询及释放点击阶段。
         authoring::mesh_edit::install(app); // 点边面编辑独占局部几何输入，退出后恢复完整对象工作流。
+        authoring::blender_mesh::install(app);
         init_placement_save_runtime_contracts(app); // 必须早于安装start/poll save系统，独立插件首帧也不能缺SystemParam。
         app.init_gizmo_group::<SceneEditorBrushGizmos>()
             .init_gizmo_group::<viewport::snapping::EditorGridGizmos>()

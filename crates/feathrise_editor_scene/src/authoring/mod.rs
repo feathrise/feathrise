@@ -3,6 +3,7 @@
 pub(crate) mod boundary; // 区域空气墙重画、控制点编辑、可视预览和未保存物理覆盖。
 pub(crate) mod basic_shapes; // 内置基础几何体添加、点放预览与显式空场景工作平面。
 pub(crate) mod mesh_edit; // 独立网格编辑模式：共享顶点、边面选择、局部移动和完整记录历史。
+pub(crate) mod blender_mesh; // 外部建模会话回到同一个作者网格和保存入口。
 pub(crate) mod buildings; // 建筑实例分帧空间索引、后台落点校验和专用Gizmo预览。
 mod celestial; // 全局天体作者基线与动态场景未保存实时预览。
 mod celestial_input; // 全局基础值、场景逐属性覆盖与继承切换的专业数值输入。
@@ -19,6 +20,7 @@ pub(crate) mod creation_input; // 名称、米制范围与有界高度场规格�
 mod delete; // 受保护场景校验、传送引用检查与可恢复后台删除事务。
 mod density_overlay; // 当前植被层以局部即时、全层后台方式覆盖到地形网格。
 mod edit; // 显式模型与传送点放置、目标选择和撤销重做。
+mod placement_collision;
 mod environment; // 场景天空作者修改和F12正式天气预览同步，场景气候只读。
 mod environment_input; // 天空亮度、方向与天气过渡复用公共专业数值框。
 mod files; // 受限于assets/scenes的原子文件替换工具。
@@ -148,6 +150,7 @@ pub(crate) use preview::{
     start_vegetation_preview_rebuild,
     suppress_new_runtime_mesh_roots,
 };
+pub(crate) use placement_collision::{asset_target_with_mesh_collision, mesh_collision_enabled};
 pub use resources::{EditorAuthoringSession, EditorSceneDraft};
 pub(crate) use resources::{
     BoundaryEditState, BoundaryLiveOverrideState, DraftLoadTask, DraftSaveTask,

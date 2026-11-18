@@ -64,7 +64,7 @@ fn lod_click(world: &mut World, action: LodAction) -> Result<Entity, String> {
     Ok(entity)
 }
 
-fn ui_visible(world: &World, entity: Entity) -> bool {
+pub(in crate::standalone) fn ui_visible(world: &World, entity: Entity) -> bool {
     let Some(node) = world.get::<ComputedNode>(entity) else { return false; };
     let Some(transform) = world.get::<UiGlobalTransform>(entity) else { return false; };
     if node.is_empty() { return false; }
@@ -96,7 +96,11 @@ fn lod_value(world: &mut World, field: LodField, value: f32) -> Result<(), Strin
 fn reveal_lod(world: &mut World) -> Result<(), String> {
     let button = world.query::<(Entity, &SceneEditorPlacementTransformActionButton)>().iter(world)
         .find_map(|(entity, button)| (button.0 == LodAction::DisplayLodCustom).then_some(entity)).ok_or("没有LOD按钮")?;
-    let top = world.get::<UiGlobalTransform>(button).ok_or("LOD尚未布局")?.translation.y;
+    reveal_property_control(world, button)
+}
+
+pub(in crate::standalone) fn reveal_property_control(world: &mut World, button: Entity) -> Result<(), String> {
+    let top = world.get::<UiGlobalTransform>(button).ok_or("属性控件尚未布局")?.translation.y;
     let mut cursor = button;
     for _ in 0..24 {
         if world.get::<crate::components::SceneEditorRightPanelScroll>(cursor).is_some() {
@@ -106,9 +110,9 @@ fn reveal_lod(world: &mut World) -> Result<(), String> {
             world.get_mut::<ScrollPosition>(cursor).ok_or("属性区缺少原滚动位置")?.y += delta;
             return Ok(());
         }
-        cursor = world.get::<ChildOf>(cursor).ok_or("LOD未挂在右侧属性树")?.parent();
+        cursor = world.get::<ChildOf>(cursor).ok_or("控件未挂在右侧属性树")?.parent();
     }
-    Err("LOD属性层级超出验收边界".into())
+    Err("右侧属性树层级超出验收边界".into())
 }
 
 fn observe(world: &mut World, center: Vec3, distance: f32) {

@@ -16,6 +16,7 @@ const STAGING_ASSETS: &str = ".native-fixture-staging-assets";
 const EMPTY_BACKUP: &str = ".native-fixture-original-empty-assets";
 const MAX_EMPTY_ENTRIES: usize = 64;
 const MAX_SMALL_BYTES: u64 = 128 * 1024;
+const SAMPLE_FOLDER: &str = "scenes/M1-SAMPLE";
 pub(super) const MODEL_SURFACE_SOURCE: &str = "scenes/M1-SAMPLE/scene.glb";
 pub(super) const MODEL_SURFACE_ID: &str = "model-surface-fixture";
 const MODEL_VEGETATION_FOLDER: &str = "scene/vegetation-probe";
@@ -58,6 +59,9 @@ pub(super) fn prepare(root: &Path, label: &str) -> Result<(), String> {
     if std::env::var("FEATHRISE_MODEL_SURFACE_VALIDATION").as_deref() == Ok("1") {
         sources.extend(copy_model_vegetation_probe(&staging)?);
         write_model_surface_fixture(&staging)?;
+    } else if label == "独立工程 A" && std::env::var("FEATHRISE_BLENDER_MESH_VALIDATION").as_deref() == Ok("1") {
+        // 专项要验证原场景 GLB 写盘，先将本轮新建的中性摆放切至同一正式表示。
+        write_sample_scene_glb(&staging, &read_sample_placements(&staging)?, None)?;
     }
     encode_surface(&staging)?;
     write_new(
@@ -150,11 +154,8 @@ fn write_animation(assets: &Path) -> Result<(), String> {
 /// 两层相距15厘米且互不连接。模型直接嵌入场景私有 GLB，保存仍走原摆放事务。
 fn write_model_surface_fixture(assets: &Path) -> Result<(), String> {
     use feathrise_scene_content::{
-        SCENE_CATALOG_ASSET_PATH, SCENE_PLACEMENTS_FILE_NAME, SCENE_SCHEMA_VERSION,
-        SceneCatalogAsset, ScenePlacementAssetTarget, ScenePlacementsAsset, read_scene_placements,
-        write_scene_placements_glb,
+        SCENE_SCHEMA_VERSION, ScenePlacementAssetTarget, read_scene_placements,
     };
-    const FOLDER: &str = "scenes/M1-SAMPLE";
     const RELATIVE: &str = MODEL_SURFACE_SOURCE;
     const MODEL: &str = MODEL_SURFACE_ID;
     let positions: [[f32;3];8] = [[-2.,0.,-2.],[2.,0.,-2.],[2.,0.,2.],[-2.,0.,2.],
@@ -190,9 +191,7 @@ fn write_model_surface_fixture(assets: &Path) -> Result<(), String> {
     glb.extend_from_slice(&(binary.len() as u32).to_le_bytes());
     glb.extend_from_slice(b"BIN\0"); glb.extend_from_slice(&binary);
     // 原写入器合并模板摆放，保留共享资产引用以及桥的网格索引和原始 BIN。
-    let mut placements: ScenePlacementsAsset = serde_json::from_slice(
-        &read_small(&assets.join(FOLDER).join(SCENE_PLACEMENTS_FILE_NAME))?,
-    ).map_err(|error| error.to_string())?;
+    let mut placements = read_sample_placements(assets)?;
     let bridge = read_scene_placements(&glb, RELATIVE)?;
     if placements.scene_id != bridge.scene_id || placements.placements.iter().any(|record| record.id == MODEL)
         || !matches!(bridge.placements.as_slice(), [record] if record.id == MODEL && record.asset_path == RELATIVE
@@ -201,30 +200,41 @@ fn write_model_surface_fixture(assets: &Path) -> Result<(), String> {
         return Err("模型验收夹具缺少唯一无碰撞私有 GLB 网格".into());
     }
     placements.placements.extend(bridge.placements);
-    let scene_glb = write_scene_placements_glb(&placements, RELATIVE, Some(&glb))?;
-    if read_scene_placements(&scene_glb, RELATIVE)?.placements != placements.placements {
-        return Err("模型验收私有 GLB 未完整保留原模板摆放".into());
-    }
-    write_new(&assets.join(RELATIVE), &scene_glb)?;
-
-    // 只有本轮暂存目录的示例图切换为私有 GLB，其他场景和模板原 JSON 保持各自来源。
-    let catalog_path = assets.join(SCENE_CATALOG_ASSET_PATH);
-    let mut catalog: SceneCatalogAsset = serde_json::from_slice(&read_small(&catalog_path)?)
-        .map_err(|error| error.to_string())?;
-    let row = catalog.scenes.iter_mut().find(|row| row.id == placements.scene_id && row.folder == FOLDER)
-        .ok_or("模型验收夹具缺少示例场景目录项")?;
-    row.placements_glb = true;
-    fs::write(catalog_path, serde_json::to_vec_pretty(&catalog).map_err(|error| error.to_string())?)
-        .map_err(|error| error.to_string())?;
+    write_sample_scene_glb(assets, &placements, Some(&glb))?;
     // 正常主视图仍由工程控制器创建，只调整本轮自有场景的观察起点。
     // F12 与独立运行截图必须直接看到桥面的种植结果，不能只拍到原点处的另一块探针模型。
-    let manifest_path = assets.join(FOLDER).join(feathrise_scene_content::SCENE_MANIFEST_FILE_NAME);
+    let manifest_path = assets.join(SAMPLE_FOLDER).join(feathrise_scene_content::SCENE_MANIFEST_FILE_NAME);
     let mut manifest: Value = serde_json::from_slice(&read_small(&manifest_path)?)
         .map_err(|error| error.to_string())?;
     manifest["default_spawn"] = json!([12., 2., 16.]);
     fs::write(manifest_path, serde_json::to_vec_pretty(&manifest).map_err(|error| error.to_string())?)
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn read_sample_placements(assets: &Path) -> Result<feathrise_scene_content::ScenePlacementsAsset, String> {
+    let file = assets.join(SAMPLE_FOLDER).join(feathrise_scene_content::SCENE_PLACEMENTS_FILE_NAME);
+    serde_json::from_slice(&read_small(&file)?).map_err(|error| error.to_string())
+}
+
+/// 两项实窗验收共用真实写入器。只切换本轮暂存目录的示例图，保持其他模板场景的各自来源。
+fn write_sample_scene_glb(assets: &Path, placements: &feathrise_scene_content::ScenePlacementsAsset, source: Option<&[u8]>) -> Result<(), String> {
+    use feathrise_scene_content::{SCENE_CATALOG_ASSET_PATH, SceneCatalogAsset, read_scene_placements, write_scene_placements_glb};
+
+    let path = MODEL_SURFACE_SOURCE;
+    let bytes = write_scene_placements_glb(placements, path, source)?;
+    if read_scene_placements(&bytes, path)?.placements != placements.placements {
+        return Err("夹具私有 GLB 未完整保留原模板摆放".into());
+    }
+    write_new(&assets.join(path), &bytes)?;
+    let catalog_path = assets.join(SCENE_CATALOG_ASSET_PATH);
+    let mut catalog: SceneCatalogAsset = serde_json::from_slice(&read_small(&catalog_path)?)
+        .map_err(|error| error.to_string())?;
+    let row = catalog.scenes.iter_mut().find(|row| row.id == placements.scene_id && row.folder == SAMPLE_FOLDER)
+        .ok_or("GLB 验收夹具缺少示例场景目录项")?;
+    row.placements_glb = true;
+    fs::write(catalog_path, serde_json::to_vec_pretty(&catalog).map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())
 }
 
 /// 验收读回私有 GLB 和原局部网格，确认保存后的模型锚点仍落在桥面。

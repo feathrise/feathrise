@@ -908,6 +908,11 @@ label.action-required	需处理	Action Required
 label.failed	失败	Failed
 label.vegetation-layers	植被图层	Vegetation Layers
 label.frame-object	聚焦到对象	Frame Object
+label.edit-in-blender	在 Blender 编辑	Edit in Blender
+blender-mesh.opening	正在打开 Blender	Opening Blender
+blender-mesh.opened	Blender 启动后，保存即可更新模型	Save in Blender to update the model.
+blender-mesh.applied	已更新 Blender 模型，请保存场景	Blender model updated. Save the scene to keep it.
+blender-mesh.occupied	请先关闭当前 Blender 窗口	Close the current Blender window first.
 label.rename	重命名	Rename
 label.duplicate	复制副本	Duplicate
 label.show	显示	Show

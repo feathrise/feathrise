@@ -19,7 +19,7 @@ use feathrise_scene_content::{SceneId, ScenePlacementRecord};
 use feathrise_scene::ScenePlacementInstance;
 
 #[derive(SystemParam)]
-pub(super) struct EditWorld<'w, 's> {
+pub(in crate::authoring) struct EditWorld<'w, 's> {
     pub commands: Commands<'w, 's>,
     assets: Res<'w, AssetServer>,
     index: Res<'w, PlacementInstanceIndex>,
@@ -224,7 +224,7 @@ impl EditWorld<'_, '_> {
         }
     }
 
-    pub fn commit(
+    pub(super) fn commit(
         &mut self,
         target: &EditTarget,
         after: &ScenePlacementRecord,
@@ -250,7 +250,22 @@ impl EditWorld<'_, '_> {
         {
             return Err("作者修订已经变化".into());
         }
-        let bounds = draft.manifest.world_bounds().ok_or("场景世界范围无效")?;
+        self.commit_record(target.index, &target.record, after, session, editor)?;
+        Ok(true)
+    }
+
+    /// Blender 与内置工具都提交单条完整记录，复用作者预览和撤销。
+    /// 调用方已核对场景、对象和确实发生的几何改变。
+    pub(in crate::authoring) fn commit_record(
+        &mut self,
+        index: usize,
+        before: &ScenePlacementRecord,
+        after: &ScenePlacementRecord,
+        session: &mut EditorAuthoringSession,
+        editor: &mut SceneEditorState,
+    ) -> Result<(), String> {
+        let bounds = session.draft.as_ref().and_then(|draft| draft.manifest.world_bounds())
+            .ok_or("场景世界范围无效")?;
         sync_placement_record_world(
             &mut self.commands,
             &self.assets,
@@ -267,14 +282,18 @@ impl EditWorld<'_, '_> {
             .as_mut()
             .expect("已核对场景")
             .placements
-            .placements[target.index] = after.clone();
+            .placements[index] = after.clone();
         session.push_bounded_water_history(EditorCommand::PlacementChanged {
-            record_index: target.index,
-            before: target.record.clone(),
+            record_index: index,
+            before: before.clone(),
             after: after.clone(),
         });
-        session.mark_changed(editor);
-        Ok(true)
+        if before.asset_path == after.asset_path {
+            session.mark_changed(editor);
+        } else {
+            session.mark_placement_structure_changed(editor);
+        }
+        Ok(())
     }
 }
 

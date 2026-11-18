@@ -27,23 +27,53 @@ pub(crate) fn queue_terrain_focus_for_validation(world: &mut bevy::prelude::Worl
 #[cfg(any(test, feature = "validation"))]
 pub(crate) fn queue_terrain_action_for_validation(world: &mut bevy::prelude::World,
     id: &feathrise_scene_content::TerrainId, action: SceneMenuAction) -> Result<bool, String> {
-    use bevy::prelude::*;
-    let target = world.query::<(Entity, &components::SceneObjectRow, &Node)>().iter(world)
-        .find_map(|(entity, row, node)| {
-            let target = row.0.as_ref()?;
-            (node.display != Display::None && matches!(&target.key,
-                SceneObjectKey::Terrain { id: row_id, .. } if row_id == id)).then(|| (entity, target.clone()))
-        });
-    let Some((row, target)) = target else { return Ok(false); };
+    queue_visible_scene_action(world, action, |key| {
+        matches!(key, SceneObjectKey::Terrain { id: row_id, .. } if row_id == id)
+    })
+}
+
+#[cfg(any(test, feature = "validation"))]
+pub(crate) fn queue_blender_action_for_validation(world: &mut World, id: &str) -> Result<bool, String> {
+    queue_visible_scene_action(world, SceneMenuAction::EditInBlender, |key| {
+        matches!(key, SceneObjectKey::Placement { id: row_id, mesh: None, .. } if row_id == id)
+    })
+}
+
+/// 验收从本帧真实可见的场景树行发出菜单命令，沿用冻结、静默门和业务分派。
+#[cfg(any(test, feature = "validation"))]
+fn queue_visible_scene_action(
+    world: &mut World,
+    action: SceneMenuAction,
+    matches_key: impl Fn(&SceneObjectKey) -> bool,
+) -> Result<bool, String> {
+    use crate::authoring::EditorAuthoringSession;
+
+    let mut rows = world.query::<(Entity, &SceneObjectRow, &Node)>();
+    let Some((row, target)) = rows.iter(world).find_map(|(entity, row, node)| {
+        let target = row.0.as_ref()?;
+        (node.display != Display::None && matches_key(&target.key))
+            .then(|| (entity, target.clone()))
+    }) else {
+        return Ok(false);
+    };
     let mut nodes = world.query::<(&Node, Option<&ChildOf>)>();
-    if !crate::viewport::modes::controls_visible(row, &nodes.query(world)) { return Ok(false); }
-    if !target.current(world.resource::<crate::resources::SceneEditorState>(),
-        world.resource::<crate::authoring::EditorAuthoringSession>()) { return Ok(false); }
-    if !target.allows(action) { return Err("当前自有地形树行不允许此原菜单动作".into()); }
+    let session = world.resource::<EditorAuthoringSession>();
+    if !crate::viewport::modes::controls_visible(row, &nodes.query(world))
+        || !target.current(world.resource::<crate::resources::SceneEditorState>(), session)
+    {
+        return Ok(false);
+    }
+    if !target.allows(action) || !target.menu_has(action, session) {
+        return Err("当前场景树行不允许此菜单动作".into());
+    }
     let mut menu = world.resource_mut::<SceneContextMenuState>();
-    if menu.queued.is_some() { return Ok(false); }
-    menu.queued = Some((types::MenuTarget { row, object: target.clone() },
-        types::SceneObjectRequest { target, action, name: String::new() }));
+    if menu.queued.is_some() {
+        return Ok(false);
+    }
+    menu.queued = Some((
+        types::MenuTarget { row, object: target.clone() },
+        types::SceneObjectRequest { target, action, name: String::new() },
+    ));
     Ok(true)
 }
 
@@ -143,6 +173,13 @@ fn install_controls(app: &mut App) {
 pub(crate) fn install(app: &mut App) {
     install_controls(app);
     app.add_systems(
+        Update,
+        systems::send_blender_action
+            .after(focus::select_target)
+            .in_set(SceneMenuDispatch)
+            .in_set(crate::SceneEditorSystemSet::Input),
+    )
+    .add_systems(
         Update,
         crate::authoring::placement_batch::handle_scene_menu
             .after(SceneMenuDispatch)

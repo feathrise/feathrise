@@ -168,7 +168,7 @@ fn open_original_scene(world: &mut World) {
             .resource::<SmokePlan>()
             .current_author_document
             .is_none())
-    .then(|| feathrise_editor_scene::standalone::validation_fixture::current_author_snapshot(world))
+    .then(|| feathrise_editor_scene::standalone::validation_fixture::current_author_runtime_snapshot(world))
     .flatten();
     let mut plan = world.resource_mut::<SmokePlan>();
     plan.preview_ready = preview_ready;

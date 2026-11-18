@@ -104,6 +104,7 @@ pub(crate) fn sync_placement_transform_panel(
     let visible = editor.open && record.is_some(); // 重复ID、在途签名和无选择都完整收起。
     let is_building = record.is_some_and(|record| record.building_preset_id.is_some());
     let is_cuboid = record.is_some_and(|record| record.asset_target.is_builtin());
+    let collision_state = record.and_then(super::cuboid::collision_state);
     let has_size_recipe = record.is_some_and(|record| matches!(record.asset_target, ScenePlacementAssetTarget::Cuboid { .. }));
     let locate_enabled = visible
         && !editor.close_requested
@@ -247,7 +248,7 @@ pub(crate) fn sync_placement_transform_panel(
         let preview = state.lod_preview.as_ref()
             .filter(|preview| target.as_ref().is_some_and(|target| preview.matches(target)));
         let display = if (button.0 == PlacementTransformAction::RotateQuarterTurn && !is_building)
-            || (button.0 == PlacementTransformAction::ToggleCuboidCollision && !is_cuboid)
+            || (button.0 == PlacementTransformAction::ToggleCuboidCollision && collision_state.is_none())
             || (button.0 == PlacementTransformAction::FollowTerrain && record.is_some_and(|record| record.terrain_patch.is_some()))
             || (super::lod::is_action(button.0) && record.is_some_and(|record| record.terrain_patch.is_some()))
             || (button.0 == PlacementTransformAction::ToggleLodPreview
@@ -280,7 +281,7 @@ pub(crate) fn sync_placement_transform_panel(
         let terrain_selected = record.is_some_and(|record| match button.0 {
             PlacementTransformAction::ToggleTerrainPatch => record.terrain_patch.is_some(),
             PlacementTransformAction::ToggleTerrainCutout => has_cutout,
-            PlacementTransformAction::ToggleCuboidCollision => matches!(record.asset_target, ScenePlacementAssetTarget::Cuboid { collision: true, .. } | ScenePlacementAssetTarget::EditableCuboid { collision: true, .. } | ScenePlacementAssetTarget::EditableMesh { collision: true, .. }),
+            PlacementTransformAction::ToggleCuboidCollision => collision_state == Some(true),
             _ => false,
         });
         let lod_selected = record.is_some_and(|record| super::lod::selected(button.0, record));

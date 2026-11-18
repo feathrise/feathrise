@@ -260,12 +260,7 @@ pub(crate) fn resolve_selected_placement_mesh(
         };
     // 完整GLB必须等World票据Ready；直接Primitive仅依赖已验证的活动根。
     let instance_id = world_instances.get(root).ok().map(|instance| **instance);
-    let scene_instance = roots.get(root).is_ok_and(|(_, instance)| {
-        matches!(
-            instance.asset_target(),
-            feathrise_scene_content::ScenePlacementAssetTarget::Scene0
-        )
-    }); // 作者记录决定Ready门，不能因WorldAssetRoot尚未安装误判直接Primitive。
+    let scene_instance = roots.get(root).is_ok_and(|(_, instance)| instance.asset_target().is_scene0());
     if scene_instance && instance_id.is_none_or(|id| !instance_spawner.instance_is_ready(id)) {
         reset_if_changed(
             &mut state,

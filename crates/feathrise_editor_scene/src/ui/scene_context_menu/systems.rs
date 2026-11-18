@@ -3,7 +3,10 @@
 use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::SceneContextMenuState, types::*};
 use crate::{
-    authoring::EditorAuthoringSession,
+    authoring::{
+        EditorAuthoringSession,
+        blender_mesh::BlenderMeshAction,
+    },
     components::SceneEditorRoot,
     resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState},
 };
@@ -209,7 +212,9 @@ pub(super) fn control_menu(
         if let Some(action) = action {
             // 菜单项按住只显示反馈，完整动作在同一项内松开并复核冻结目标后登记。
             let target = menu.target.as_ref().unwrap();
-            if !target.object.allows(action) {
+            if !target.object.allows(action)
+                || !target.object.menu_has(action, &context.session)
+            {
                 return;
             }
             if action == SceneMenuAction::Rename {
@@ -326,4 +331,30 @@ pub(super) fn dispatch(
         return;
     }
     menu.ready = menu.queued.take().map(|(_, request)| request);
+}
+
+pub(super) fn send_blender_action(
+    menu: Res<SceneContextMenuState>,
+    editor: Res<SceneEditorState>,
+    session: Res<EditorAuthoringSession>,
+    mut actions: MessageWriter<BlenderMeshAction>,
+) {
+    let Some(request) = menu.ready.as_ref().filter(|request| request.action.is_blender()) else {
+        return;
+    };
+    let target = &request.target;
+    // 菜单按已呈现的行冻结场景和对象，此处不会跟随后来被选中的另一条记录。
+    if !target.current(&editor, &session)
+        || !target.allows(request.action)
+        || !target.menu_has(request.action, &session)
+    {
+        return;
+    }
+    let SceneObjectKey::Placement { id, .. } = &target.key else {
+        return;
+    };
+    actions.write(BlenderMeshAction {
+        scene_id: target.scene_id.clone(),
+        placement_id: id.clone(),
+    });
 }

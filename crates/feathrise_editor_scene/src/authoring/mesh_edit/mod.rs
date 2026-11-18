@@ -17,6 +17,7 @@ mod topology_ops; // 受检局部拓扑操作，不改变完整实例姿态或�
 mod operation_preview; // 不同建模操作共享冻结记录及预览参数计算。
 
 pub(crate) use resources::MeshEditState;
+pub(in crate::authoring) use preview::EditWorld;
 pub(crate) use input::MeshEditExternalOwners; // 视口其他工具复用相同外部输入所有者，避免维护两套菜单门。
 pub(crate) use topology_ops::SubdivisionCorner;
 pub(crate) use types::{MeshEditAction, MeshEditTool, MeshElementKind};

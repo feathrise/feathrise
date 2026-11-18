@@ -1,4 +1,4 @@
-//! 内置立方体属性只改变几何配方；三轴变换保持独立，历史沿用完整摆放记录。
+//! 内置几何配方与模型碰撞属性沿用完整摆放记录和同一历史。
 
 use bevy::prelude::*;
 use feathrise_scene_content::{ScenePlacementAssetTarget, ScenePlacementRecord};
@@ -7,7 +7,10 @@ use super::{
     PlacementTransformField, PlacementTransformTarget, actions::sync_placement_record_world,
 };
 use crate::{
-    authoring::{EditorAuthoringSession, EditorCommand},
+    authoring::{
+        EditorAuthoringSession, EditorCommand, asset_target_with_mesh_collision,
+        mesh_collision_enabled,
+    },
     resources::SceneEditorState,
     ui::placement_water::PlacementInstanceIndex,
 };
@@ -82,6 +85,22 @@ pub(super) fn set_field_value(
     before != record.asset_target
 }
 
+/// 地形、建筑和水面保留各自的正式碰撞语义。
+pub(super) fn collision_state(record: &ScenePlacementRecord) -> Option<bool> {
+    if !record.asset_target.is_builtin()
+        && (!record.asset_target.is_scene0()
+            || record.terrain_patch.is_some()
+            || record.building_preset_id.is_some()
+            || !record.water_surfaces.is_empty()
+            || !std::path::Path::new(&record.asset_path)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("glb")))
+    {
+        return None;
+    }
+    mesh_collision_enabled(&record.asset_target)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn toggle_collision(
     target: &PlacementTransformTarget,
@@ -93,13 +112,13 @@ pub(super) fn toggle_collision(
     roots: &Query<(Entity, &feathrise_scene::ScenePlacementInstance)>,
     editor: &mut SceneEditorState,
 ) -> Result<(), String> {
-    let mut after = before.clone();
-    let collision = match &mut after.asset_target {
-        ScenePlacementAssetTarget::Cuboid { collision, .. } | ScenePlacementAssetTarget::EditableCuboid { collision, .. } | ScenePlacementAssetTarget::EditableMesh { collision, .. } => collision,
-        _ => return Err("碰撞开关仅用于内置网格".into()),
+    let enabled = !collision_state(&before).ok_or("当前对象不支持碰撞设置")?;
+    let after = ScenePlacementRecord {
+        asset_target: asset_target_with_mesh_collision(&before.asset_target, enabled)
+            .ok_or("当前对象不支持碰撞设置")?,
+        ..before.clone()
     };
-    *collision = !*collision;
-    let enabled = *collision;
+    let builtin = after.asset_target.is_builtin();
     let draft = session.draft.as_ref().ok_or("场景作者草稿尚未就绪")?;
     let bounds = draft.manifest.world_bounds().ok_or("场景范围无效")?;
     after.validated_transform(&draft.scene_id, bounds)?;
@@ -108,11 +127,14 @@ pub(super) fn toggle_collision(
         .as_mut()
         .and_then(|draft| draft.placements.placements.get_mut(target.record_index))
         .filter(|record| record.id == target.placement_id)
-        .ok_or("立方体选择已经失效")?;
+        .ok_or("模型选择已经失效")?;
     *record = after.clone();
-    if let Err(error) = sync_placement_record_world(
-        commands, server, session, index, roots, &after, bounds, true, true,
-    ) {
+    // 内置碰撞保留即时预览，普通 GLB 的碰撞随场景保存走后台正式采用。
+    if builtin
+        && let Err(error) = sync_placement_record_world(
+            commands, server, session, index, roots, &after, bounds, true, true,
+        )
+    {
         if let Some(record) = session
             .draft
             .as_mut()
@@ -129,10 +151,12 @@ pub(super) fn toggle_collision(
         after,
     });
     session.mark_changed(editor);
-    editor.status = format!(
-        "内置网格碰撞已{}；可撤销并随场景保存",
-        if enabled { "开启" } else { "关闭" }
-    );
+    let state = if enabled { "开启" } else { "关闭" };
+    editor.status = if builtin {
+        format!("内置网格碰撞已{state}，可撤销并随场景保存")
+    } else {
+        format!("网格碰撞已设为{state}，保存场景后生效")
+    };
     Ok(())
 }
 

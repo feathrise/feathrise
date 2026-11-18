@@ -1,6 +1,7 @@
 //! 自有工程专业作者验收的串行编排；只调用各域原动作，不另写工具或保存算法。
 
 mod animation_assets;
+pub(super) mod blender_mesh;
 mod resources;
 mod river_building;
 mod terrain;

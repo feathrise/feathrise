@@ -607,8 +607,15 @@ fn builtin_mesh_properties_keep_six_continuous_capability_groups_and_reuse_the_e
     }
     select(&mut app, false);
     let world = app.world_mut();
+    let supports_scene_collision = crate::authoring::mesh_collision_enabled(
+        &feathrise_scene_content::ScenePlacementAssetTarget::Scene0,
+    ).is_some();
     for (entity, section) in groups {
-        let expected = if matches!(section, PlacementPropertiesSection::Material | PlacementPropertiesSection::Collision) { Display::None } else { Display::Flex };
+        let expected = match section {
+            PlacementPropertiesSection::Material => Display::None,
+            PlacementPropertiesSection::Collision if !supports_scene_collision => Display::None,
+            _ => Display::Flex,
+        };
         assert_eq!(world.get::<Node>(entity).unwrap().display, expected);
     }
     for (entity, field) in fields {

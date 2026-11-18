@@ -223,6 +223,7 @@ pub(super) fn sync(
         ),
     >,
     mut texts: Query<&mut Text>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     mut rename_buttons: Query<
         (&UiInteraction, &mut BackgroundColor, &mut BorderColor),
         (
@@ -248,10 +249,11 @@ pub(super) fn sync(
         }
     }
     let target = menu.target.as_ref().map(|target| &target.object);
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let count = target.map_or(0, |target| {
         SceneMenuAction::ALL
             .into_iter()
-            .filter(|action| target.supports(*action))
+            .filter(|action| target.menu_has(*action, &context.session))
             .count()
     });
     let desired = if menu.renaming {
@@ -301,7 +303,9 @@ pub(super) fn sync(
     for (entity, action, interaction, mut node, mut background, mut border, children, disabled) in
         &mut items
     {
-        let visible = !menu.renaming && target.is_some_and(|target| target.supports(action.0));
+        let visible = !menu.renaming && target.is_some_and(|target| {
+            target.menu_has(action.0, &context.session)
+        });
         let enabled = visible && target.is_some_and(|target| target.allows(action.0));
         let display = if visible {
             Display::Flex
@@ -337,7 +341,7 @@ pub(super) fn sync(
         });
         for child in children {
             if let Ok(mut text) = texts.get_mut(*child) {
-                let label = target.map_or("", |target| action.0.label(target));
+                let label = target.map_or("", |target| locale.editor_label(action.0.label(target)));
                 if text.0 != label {
                     text.0 = label.into();
                 }
@@ -357,6 +361,7 @@ pub(super) fn sync(
 /// 极矮窗口只滚动菜单正文；输入被同一遮罩拥有，背景列表不能跟随滚轮移动。
 pub(super) fn scroll(
     menu: Res<SceneContextMenuState>,
+    session: Res<crate::authoring::EditorAuthoringSession>,
     mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
     mut popups: Query<
         (
@@ -388,7 +393,7 @@ pub(super) fn scroll(
     } else {
         8.0 + SceneMenuAction::ALL
             .into_iter()
-            .filter(|action| target.object.supports(*action))
+            .filter(|action| target.object.menu_has(*action, &session))
             .count() as f32
             * 28.0
     };

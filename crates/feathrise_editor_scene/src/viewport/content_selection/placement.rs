@@ -96,9 +96,10 @@ pub(super) fn is_placement_mesh_candidate(
     let Ok(instance) = roots.get(root) else {
         return false; // 根在同一帧失效时失败关闭本次候选。
     };
-    match instance.asset_target() {
-        ScenePlacementAssetTarget::Scene0 => scene_primitives.get(entity).is_ok(), // Scene0仍要求真实GltfMeshName。
-        ScenePlacementAssetTarget::Primitive { .. } | ScenePlacementAssetTarget::Cuboid { .. } | ScenePlacementAssetTarget::EditableCuboid { .. } | ScenePlacementAssetTarget::EditableMesh { .. } => direct_primitives.contains(entity), // 内置形状与直接子资产共用完整实例选择，不伪造GLTF节点。
+    if instance.asset_target().is_scene0() {
+        scene_primitives.get(entity).is_ok() // 完整模型要求真实 GltfMeshName。
+    } else {
+        direct_primitives.contains(entity) // 内置和直接子网格走完整实例选择。
     }
 }
 
@@ -191,8 +192,9 @@ pub(super) fn placement_hit_from_entity(
 ) -> Option<PlacementViewportHit> {
     let root = active_placement_root(entity, scene_id, parents, roots)?; // 点击后再次复核当前活动根身份。
     let instance = roots.get(root).ok()?; // 同一帧根失效时不发布过期记录ID。
-    match instance.asset_target() {
-        ScenePlacementAssetTarget::Scene0 => scene_mesh_selection_from_hit(
+    let target = instance.asset_target();
+    if target.is_scene0() {
+        scene_mesh_selection_from_hit(
             entity,
             root,
             asset_server,
@@ -200,16 +202,12 @@ pub(super) fn placement_hit_from_entity(
             roots,
             scene_primitives,
         )
-        .map(PlacementViewportHit::SceneMesh), // Scene0保留完整节点/网格稳定引用。
-        target @ (ScenePlacementAssetTarget::Primitive { .. } | ScenePlacementAssetTarget::Cuboid { .. } | ScenePlacementAssetTarget::EditableCuboid { .. } | ScenePlacementAssetTarget::EditableMesh { .. })
-            if direct_primitives.contains(entity) =>
-        {
-            Some(PlacementViewportHit::Primitive {
-                placement_id: instance.id().to_owned(), // 只复制受作者记录硬门约束的稳定ID。
-                target, // 数字目标为Copy小值，仅用于明确回显和分支证明。
-            })
-        }
-        ScenePlacementAssetTarget::Primitive { .. } | ScenePlacementAssetTarget::Cuboid { .. } | ScenePlacementAssetTarget::EditableCuboid { .. } | ScenePlacementAssetTarget::EditableMesh { .. } => None, // 标记与根目标不一致时拒绝伪造命中。
+        .map(PlacementViewportHit::SceneMesh) // 完整模型保留原节点和网格引用。
+    } else {
+        direct_primitives.contains(entity).then(|| PlacementViewportHit::Primitive {
+            placement_id: instance.id().to_owned(),
+            target,
+        })
     }
 }
 

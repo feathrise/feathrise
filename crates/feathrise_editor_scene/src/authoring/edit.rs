@@ -238,25 +238,13 @@ pub(crate) fn spawn_placement_preview(
     if let Some(collision) = feathrise_scene::building_placement_collision(record) {
         root_commands.insert(collision); // 未保存建筑立即使用与正式候选相同的真实网格静态碰撞。
     }
-    // 普通静态三维地形的未保存预览只显示模型；真实碰撞、洞口及拾取由保存后的联合候选采用。
+    // 普通 GLB 和静态三维地形的未保存预览只显示模型，碰撞由保存后的正式候选采用。
     // 自动雕刻预览具有独立的完整烘焙/授信协议，不经过这个普通摆放构造入口。
     let root = root_commands.id();
     match record.asset_target {
         ScenePlacementAssetTarget::Cuboid { .. } | ScenePlacementAssetTarget::EditableCuboid { .. } | ScenePlacementAssetTarget::EditableMesh { .. } => {
             root_commands.insert(avian3d::prelude::RigidBody::Static); // 未保存立方体拥有独立静态刚体，删除或隐藏时可单独禁用。
             feathrise_scene::spawn_builtin_placement_visual(commands, root, record.asset_target.clone());
-        }
-        ScenePlacementAssetTarget::Scene0 => {
-            root_commands.insert((
-                DynamicWaterMeshOverrides::new(record.water_surfaces.clone()), // WorldReady按当前草稿节点引用安装唯一动态水材质。
-                WorldAssetRoot(
-                    asset_server
-                        .load(GltfAssetLabel::Scene(0).from_asset(record.asset_path.clone())),
-                ),
-            ));
-            if has_water_surfaces {
-                root_commands.insert(ScenePlacementWaterEvidence); // 保存等待Query只枚举全图最多256项非空水体预览。
-            }
         }
         ScenePlacementAssetTarget::Primitive {
             mesh, primitive, ..
@@ -277,6 +265,18 @@ pub(crate) fn spawn_placement_preview(
                 Transform::IDENTITY, // 与右侧单体预览一致，子资产使用自己的局部网格坐标。
                 Visibility::Inherited, // 跟随placement根和保存交接容器统一显隐。
             ));
+        }
+        _ => {
+            root_commands.insert((
+                DynamicWaterMeshOverrides::new(record.water_surfaces.clone()), // WorldReady按当前草稿节点引用安装唯一动态水材质。
+                WorldAssetRoot(
+                    asset_server
+                        .load(GltfAssetLabel::Scene(0).from_asset(record.asset_path.clone())),
+                ),
+            ));
+            if has_water_surfaces {
+                root_commands.insert(ScenePlacementWaterEvidence); // 保存等待Query只枚举全图最多256项非空水体预览。
+            }
         }
     }
     root

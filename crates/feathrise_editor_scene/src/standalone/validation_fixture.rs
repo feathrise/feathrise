@@ -15,7 +15,10 @@ mod plane;
 #[path = "validation_fixture_tests.rs"]
 mod tests;
 pub use super::author_workflow_validation::AuthorWorkflowProof;
+use super::author_workflow_validation::blender_mesh;
 pub use scene_tools::{SceneToolProof, PaintSourceProof};
+pub(super) use scene_tools::open_scene_tree;
+pub(super) use chunk_lod::{reveal_property_control, ui_visible};
 pub use geometry_unification::GeometryUnificationProof;
 
 /// 自有夹具专项只形成待保存的真实作者修改；完成后宿主继续使用原 Save 与 F12。
@@ -146,6 +149,7 @@ pub struct SavedEditProof {
     pub author_tools: Option<AuthorWorkflowProof>,
     pub chunk_lod: Option<serde_json::Value>,
     pub plane: Option<serde_json::Value>,
+    pub blender_mesh: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -153,6 +157,7 @@ enum Phase {
     Idle,
     Creating,
     Plane,
+    BlenderMesh,
     ChunkLod,
     ModelSurfaces,
     GeometryUnification,
@@ -265,6 +270,7 @@ pub fn request_edit_and_save(world: &mut World, scene_id: &str) -> Result<(), St
         author_tools: None,
         chunk_lod: None,
         plane: None,
+        blender_mesh: None,
     });
     Ok(())
 }
@@ -306,6 +312,15 @@ pub fn current_author_snapshot(world: &World) -> Option<serde_json::Value> {
             .and_then(|source|source.vegetation),
         "focused_terrain":draft.terrain_documents.active.as_ref().map(|active|active.definition.id.as_str())}),
     )
+}
+
+/// 重开记录只在同一摆放的正式碰撞已经能回答物理查询时采样。
+pub fn current_author_runtime_snapshot(world: &mut World) -> Option<serde_json::Value> {
+    let mut snapshot = current_author_snapshot(world)?;
+    if let Some(record) = blender_mesh::saved_model(world) {
+        snapshot["blender_mesh_collision"] = blender_mesh::saved_collision(world, &record)?;
+    }
+    Some(snapshot)
 }
 
 /// 同一有限验收World的内容与真实历史元数据；不复制命令正文、整条历史或像素来证明恢复。
@@ -457,6 +472,13 @@ fn drive(world: &mut World) {
                         fixture.phase = Phase::Plane;
                         return;
                     }
+                    if blender_mesh::enabled() {
+                        match blender_mesh::begin(world, record) {
+                            Ok(()) => fixture.phase = Phase::BlenderMesh,
+                            Err(error) => fail(&mut fixture, error),
+                        }
+                        return;
+                    }
                     match chunk_lod::begin(world, &id) {
                         Ok(true) => { fixture.phase = Phase::ChunkLod; return; }
                         Ok(false) => {}
@@ -476,6 +498,17 @@ fn drive(world: &mut World) {
                     match result {
                         Ok(proof) => {
                             fixture.proof.as_mut().unwrap().plane = Some(proof);
+                            begin_geometry_unification(world, &mut fixture);
+                        }
+                        Err(error) => fail(&mut fixture, error),
+                    }
+                }
+            }
+            Phase::BlenderMesh => {
+                if let Some(result) = blender_mesh::advance(world) {
+                    match result {
+                        Ok(proof) => {
+                            fixture.proof.as_mut().unwrap().blender_mesh = Some(proof);
                             begin_geometry_unification(world, &mut fixture);
                         }
                         Err(error) => fail(&mut fixture, error),
@@ -583,6 +616,15 @@ fn drive(world: &mut World) {
                 proof.draft_clean = clean;
                 proof.handoff_complete = !handoff;
                 if clean && !handoff {
+                    if let Some(blender) = proof.blender_mesh.as_mut() {
+                        let Some(record) = blender_mesh::saved_model(world) else {
+                            fail(&mut fixture, "场景保存后失去 Blender 模型记录"); return;
+                        };
+                        let Some(collision) = blender_mesh::saved_collision(world, &record) else {
+                            fixture.phase = Phase::Saving; return;
+                        };
+                        blender["saved_collision"] = collision;
+                    }
                     proof.complete = true;
                     fixture.phase = Phase::Complete;
                 } else { fixture.phase = Phase::Saving; }

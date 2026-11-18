@@ -69,6 +69,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     let before = protected_files(&repository)?;
     let started = Instant::now();
     let export_lifecycle = std::env::var_os("FEATHRISE_NATIVE_EXPORT").as_deref() == Some(std::ffi::OsStr::new("1"));
+    let blender_mesh = std::env::var("FEATHRISE_BLENDER_MESH_VALIDATION").as_deref() == Ok("1");
     let mut steps = Vec::new();
     let result = (|| -> Result<(), String> {
         // 旧分离管理器已随原型归档。本轮只验证当前作者实例和保存后普通游戏，
@@ -292,6 +293,8 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
             }
             steps.push(json!({"stage":if index == 2 { "saved_scene_reopened_in_original_editor" } else { "original_editor_world" },"index":index,"passed":true,"report":observed}));
         }
+        // 往返专项已核对原场景保存、F12 和新进程重开。常驻视口及额外发行分支由原整套验收负责。
+        if blender_mesh { return Ok(()); }
         // 独立cargo run从工程cwd启动相同正式game；不设置EDITOR_SAVED_PLAY，避免仅验证开发专用入口。
         let other = project::open(&roots[1])?;
         let mut command = Command::new(
@@ -362,10 +365,14 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     let after = protected_files(&repository)?;
     let unchanged = before == after;
     let passed = result.is_ok() && unchanged && !control.cleanup_failed();
+    let scope = if blender_mesh { "blender_mesh_roundtrip_saved_play_and_reopened_editor" }
+        else if export_lifecycle { "saved_project_lifecycle_with_same_project_export" }
+        else { "dual_world_modes_neutral_scene_and_ordinary_authoring" };
     fs::write(&report, serde_json::to_vec_pretty(&json!({
-        "schema":4,"scope":if export_lifecycle { "saved_project_lifecycle_with_same_project_export" } else { "dual_world_modes_neutral_scene_and_ordinary_authoring" }, "passed":passed,
-        "resident_mode_comparison_included":!export_lifecycle,
-        "excluded_scope":"player initialization, movement, inventory, skills and combat",
+        "schema":4,"scope":scope,"passed":passed,
+        "resident_mode_comparison_included":!blender_mesh && !export_lifecycle,
+        "excluded_scope":if blender_mesh { "independent cargo runs, resident viewport comparison, export and gameplay" }
+            else { "player initialization, movement, inventory, skills and combat" },
         "elapsed_seconds":started.elapsed().as_secs_f64(),"work_directory":work,
         // 移动程序验收必须记录实际绑定的资源根，不能只凭窗口成功推定使用了安装资源。
         "editor_resource_root":repository,"executable":std::env::current_exe().ok(),"build_target":target,
@@ -381,7 +388,8 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     if control.cleanup_failed() {
         return Err("验收进程收口未确认".into());
     }
-    println!("双模式窗口验收完成：{}", report.display());
+    let label = if blender_mesh { "Blender 网格往返窗口验收完成" } else { "双模式窗口验收完成" };
+    println!("{label}：{}", report.display());
     Ok(())
 }
 
@@ -584,6 +592,9 @@ fn verify_model_lod_preview(output: &Path, proof: &Value) -> Result<(), String> 
 }
 
 fn verify_placement(observed: &Value, proof: &Value) -> Result<(), String> {
+    if std::env::var("FEATHRISE_BLENDER_MESH_VALIDATION").as_deref() == Ok("1") {
+        verify_blender_mesh(observed, proof)?;
+    }
     if std::env::var("FEATHRISE_PLANE_VALIDATION").as_deref() == Ok("1") && proof["plane"].is_null() {
         return Err("平面专项缺少原创建与建模证据".into());
     }
@@ -659,6 +670,78 @@ fn verify_placement(observed: &Value, proof: &Value) -> Result<(), String> {
         });
     if !present {
         return Err(format!("新保存对象{id}未在真实World按相同位置还原"));
+    }
+    Ok(())
+}
+
+fn verify_blender_mesh(observed: &Value, proof: &Value) -> Result<(), String> {
+    let roundtrip = &proof["blender_mesh"];
+    if roundtrip["complete"] != true || roundtrip["undo_exact"] != true || roundtrip["redo_exact"] != true
+        || roundtrip["peer_unchanged"] != true || roundtrip["preview_step_shown"] != true
+        || roundtrip["repeat_save_exact"] != true || roundtrip["blender"]["second"]["step_restored"] != true
+        || roundtrip["collision_inherited"] != true || roundtrip["collision_toggled_via_properties"] != true
+    {
+        return Err(format!("缺少真实 Blender 导出、原作者往返或历史回执：{roundtrip}"));
+    }
+    let assets = PathBuf::from(proof["source_asset_root"].as_str().ok_or("缺少 Blender 自有资产根")?)
+        .canonicalize().map_err(|error| error.to_string())?;
+    let relative = roundtrip["placements_path"].as_str().ok_or("缺少 Blender 正式摆放路径")?;
+    let path = assets.join(relative).canonicalize().map_err(|error| error.to_string())?;
+    if !path.starts_with(&assets) || path.file_name().and_then(|name| name.to_str()) != Some("scene.glb") {
+        return Err("Blender 验收只读自有场景 GLB".into());
+    }
+    let saved = feathrise_scene_content::read_scene_placements(&fs::read(path).map_err(|error| error.to_string())?, relative)?;
+    for key in ["saved_record", "peer_record"] {
+        let expected: feathrise_scene_content::ScenePlacementRecord = serde_json::from_value(roundtrip[key].clone())
+            .map_err(|error| error.to_string())?;
+        if saved.placements.iter().find(|record| record.id == expected.id) != Some(&expected) {
+            return Err(format!("正式 GLB 未保存完整对象记录 {key}"));
+        }
+        if observed["entry"] != "production-SceneRuntimePlugin"
+            && !observed["current_author_document"]["placements"].as_array()
+                .is_some_and(|records| records.iter().any(|record| record == &roundtrip[key]))
+        {
+            return Err(format!("新进程重开后的作者草稿未恢复对象记录 {key}"));
+        }
+        if !observed["placement_instances"].as_array().is_some_and(|instances| {
+            instances.iter().any(|instance| instance["id"] == expected.id
+                && instance["asset_target"] == json!(expected.asset_target)
+                && instance["position"].as_array().is_some_and(|position| position.len() == 3
+                    && position.iter().zip(expected.translation).all(|(actual, expected)|
+                        actual.as_f64().is_some_and(|actual| (actual - f64::from(expected)).abs() < 0.001))))
+        }) {
+            return Err(format!("相同场景的正式运行实例未加载对象 {key}"));
+        }
+        if key == "saved_record" {
+            let collision_matches = |proof: &Value| proof["placement_id"] == expected.id
+                && proof["lower_step_distances"].as_array().is_some_and(|values| values.len() == 2
+                    && values.iter().zip([0.125, 0.09375]).all(|(value, expected)|
+                        value.as_f64().is_some_and(|actual| (actual - expected).abs() < 0.001)));
+            if roundtrip[key]["asset_target"]["collision"] != true || !collision_matches(&roundtrip["saved_collision"])
+                || (observed["entry"] != "production-SceneRuntimePlugin"
+                    && !collision_matches(&observed["current_author_document"]["blender_mesh_collision"]))
+            {
+                return Err("保存或重开时没有采用 Blender 模型的真实台阶碰撞".into());
+            }
+            // 场景 GLB 持久化外链。核对模型字节仍与 Blender 实际出件相同，且位于场景自有资产目录。
+            let model = assets.join(&expected.asset_path).canonicalize().map_err(|error| error.to_string())?;
+            let models = assets.join(relative).parent().ok_or("缺少场景自有目录")?.join("models");
+            if !expected.asset_target.is_scene0() || model.parent() != Some(models.as_path()) {
+                return Err("保存的 Blender GLB 不在场景自有 models 目录".into());
+            }
+            let bytes = fs::read(model).map_err(|error| error.to_string())?;
+            if !bytes.starts_with(b"glTF") || roundtrip["blender"]["first"]["glb_sha256"]
+                != feathrise_scene_content::authoring_io::bytes_hash(&bytes)
+            {
+                return Err("保存后正式 GLB 与 Blender 出件摘要不一致".into());
+            }
+        }
+    }
+    for phase in ["first", "second"] {
+        let session = roundtrip["blender"][phase]["session"].as_str().ok_or("缺少 Blender 会话身份")?;
+        if Path::new(session).exists() {
+            return Err(format!("正式保存且 Blender 退出后，会话缓存仍存在：{session}"));
+        }
     }
     Ok(())
 }

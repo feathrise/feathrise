@@ -222,7 +222,7 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
                 ~{PlacementPropertiesSection::Collision}
                 Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
                 Children [
-                    @crate::ui::context_help::section_header("碰撞", "参数立方体使用盒碰撞；点边面编辑后的网格使用实际三角碰撞。按钮选中表示开启；隐藏或删除对象时暂停，恢复后按原开启状态生效。")--
+                    @crate::ui::context_help::section_header("碰撞", "参数立方体使用盒碰撞。编辑网格和普通 GLB 使用模型的三角网格。按钮选中表示开启。内置对象隐藏或删除时暂停碰撞，恢复后按原状态生效。普通 GLB 的碰撞设置在保存场景后生效。")--
                     @action_button("碰撞", PlacementTransformAction::ToggleCuboidCollision, false)
                 ]
             --

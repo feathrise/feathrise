@@ -4,7 +4,10 @@ use bevy::prelude::*;
 use feathrise_scene_content::{SceneId, SceneInstanceId, TerrainId};
 
 use crate::ui::gltf_browser::EditorGltfMeshSelection;
-use crate::{authoring::EditorAuthoringSession, resources::SceneEditorState};
+use crate::{
+    authoring::{EditorAuthoringSession, blender_mesh},
+    resources::SceneEditorState,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SceneObjectKey {
@@ -63,17 +66,23 @@ pub enum SceneMenuAction {
     Delete,
     Visibility,
     Lock,
+    EditInBlender,
 }
 
 impl SceneMenuAction {
-    pub(super) const ALL: [Self; 6] = [
+    pub(super) const ALL: [Self; 7] = [
         Self::Focus,
+        Self::EditInBlender,
         Self::Rename,
         Self::Copy,
         Self::Delete,
         Self::Visibility,
         Self::Lock,
     ];
+
+    pub(super) fn is_blender(self) -> bool {
+        self == Self::EditInBlender
+    }
 
     pub(super) fn label(self, target: &SceneObjectTarget) -> &'static str {
         match self {
@@ -86,6 +95,7 @@ impl SceneMenuAction {
             Self::Visibility => "隐藏",
             Self::Lock if target.locked => "解锁",
             Self::Lock => "锁定",
+            Self::EditInBlender => "在 Blender 编辑",
         }
     }
 }
@@ -171,7 +181,29 @@ impl SceneObjectTarget {
         }
     }
 
-    pub(super) fn supports(&self, action: SceneMenuAction) -> bool {
+    pub(super) fn menu_has(
+        &self,
+        action: SceneMenuAction,
+        session: &EditorAuthoringSession,
+    ) -> bool {
+        if !action.is_blender() {
+            return self.supports(action);
+        }
+        let (Some(draft), SceneObjectKey::Placement { index, id, mesh: None }) =
+            (session.draft.as_ref(), &self.key)
+        else {
+            return false;
+        };
+        // 会话对应完整摆放，避免右键子网格时替换它所属的整个 GLB。
+        draft.scene_id == self.scene_id && draft.placements.placements.get(*index)
+            .is_some_and(|record| &record.id == id && blender_mesh::supports(record))
+    }
+
+    fn supports(&self, action: SceneMenuAction) -> bool {
+        // 游戏领域仍使用原六个菜单动作的位掩码，编辑器专属命令不进入该协议。
+        if action.is_blender() {
+            return matches!(self.key, SceneObjectKey::Placement { mesh: None, .. });
+        }
         match (&self.key, action) {
             (SceneObjectKey::Water { kind, .. }, action) => {
                 matches!(action, SceneMenuAction::Focus | SceneMenuAction::Delete)
@@ -199,6 +231,9 @@ impl SceneObjectTarget {
                     true
                 }
                 SceneMenuAction::Rename => !self.locked,
+                SceneMenuAction::EditInBlender => {
+                    !self.locked && !self.hidden && self.copyable
+                }
                 SceneMenuAction::Copy
                     if matches!(self.key, SceneObjectKey::Domain { copy_locked: true, .. }) =>
                 {

@@ -97,13 +97,6 @@ fn spawn_ghost_root(
             commands.entity(root).try_despawn();
             (root, BuildingGhostPhase::Loading, None)
         }
-        ScenePlacementAssetTarget::Scene0 => {
-            let scene = asset_server.load(
-                GltfAssetLabel::Scene(0).from_asset(preset.asset_path.clone()), // 与正式placement完全相同的Scene0来源。
-            );
-            commands.entity(root).insert(WorldAssetRoot(scene)); // World实例完成事件启动后代扫描。
-            (root, BuildingGhostPhase::Loading, None) // 根保持隐藏直到完整层级隔离完成。
-        }
         ScenePlacementAssetTarget::Primitive {
             mesh, primitive, ..
         } => {
@@ -118,6 +111,13 @@ fn spawn_ghost_root(
                 reported_failure: None,                          // 首次错误应报告给作者。
             };
             (root, BuildingGhostPhase::PrimitiveLoading, Some(load)) // 真实Mesh安全后才生成渲染子实体。
+        }
+        _ => {
+            let scene = asset_server.load(
+                GltfAssetLabel::Scene(0).from_asset(preset.asset_path.clone()), // 与正式placement完全相同的Scene0来源。
+            );
+            commands.entity(root).insert(WorldAssetRoot(scene)); // World实例完成事件启动后代扫描。
+            (root, BuildingGhostPhase::Loading, None) // 根保持隐藏直到完整层级隔离完成。
         }
     }
 }

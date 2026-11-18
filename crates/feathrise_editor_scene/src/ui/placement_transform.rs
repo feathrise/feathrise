@@ -340,9 +340,10 @@ impl PlacementPropertiesSection {
     pub(super) fn supported_by(self, record: &ScenePlacementRecord) -> bool {
         match self {
             Self::Transform | Self::Geometry => true,
-            Self::Material | Self::Collision => record.asset_target.is_builtin(),
+            Self::Material => record.asset_target.is_builtin(),
+            Self::Collision => cuboid::collision_state(record).is_some(),
             Self::DisplayLod | Self::CollisionLod => record.terrain_patch.is_none(),
-        } // 外部资产继续使用自己的材质和碰撞来源，不出现无法写回的立方体控件。
+        } // 材质配方只用于内置网格，碰撞按摆放资产能力开放。
     }
 }
 
@@ -366,7 +367,7 @@ pub(crate) enum PlacementTransformAction {
     Delete,              // 删除当前完整记录，保留统一撤销能力。
     ToggleTerrainPatch,  // 普通GLB与静态三维地形之间切换，开启时固定当前世界高度。
     ToggleTerrainCutout, // 一条记录内的可撤销矩形开口，不建立独立孤立洞口实体。
-    ToggleCuboidCollision, // 内置立方体的简单盒碰撞与外观参数一起持久化。
+    ToggleCuboidCollision, // 内置网格和普通 GLB 的碰撞设置随场景保存。
     DisplayLodInherit,
     DisplayLodOriginal,
     DisplayLodCustom,

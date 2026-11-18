@@ -245,6 +245,56 @@ fn choose(fixture: &mut Fixture, action: SceneMenuAction) {
 }
 
 #[test]
+fn blender_menu_opens_builtin_and_whole_glb_placements() {
+    use crate::authoring::blender_mesh::BlenderMeshAction;
+    use feathrise_editor_ui::localization::EditorLocale;
+    use feathrise_scene_content::ScenePlacementAssetTarget;
+
+    for (asset_path, asset_target, allowed) in [
+        ("", ScenePlacementAssetTarget::DEFAULT_CUBOID, true),
+        ("gltf/model.glb", ScenePlacementAssetTarget::Scene0, true),
+        ("gltf/model.gltf", ScenePlacementAssetTarget::Scene0, false),
+    ] {
+        let mut test = fixture();
+        test.app
+            .add_message::<BlenderMeshAction>()
+            .add_systems(Update, systems::send_blender_action.after(super::focus::select_target))
+            .insert_resource(EditorLocale::English);
+        {
+            let mut session = test.app.world_mut().resource_mut::<EditorAuthoringSession>();
+            let record = &mut session.draft.as_mut().unwrap().placements.placements[0];
+            record.asset_path = asset_path.into();
+            record.asset_target = asset_target;
+        }
+        open(&mut test);
+        let world = test.app.world_mut();
+        let (_, node, children) = world.query::<(&MenuButton, &Node, &Children)>()
+            .iter(world)
+            .find(|(button, _, _)| button.0 == SceneMenuAction::EditInBlender)
+            .unwrap();
+        assert_eq!(node.display == Display::Flex, allowed);
+        if allowed {
+            assert_eq!(world.get::<Text>(children[0]).unwrap().as_str(), "Edit in Blender");
+        }
+        choose(&mut test, SceneMenuAction::EditInBlender);
+        test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+        step(&mut test.app);
+        step(&mut test.app);
+        let world = test.app.world();
+        let messages = world.resource::<Messages<BlenderMeshAction>>();
+        let mut reader = messages.get_cursor();
+        let command = reader.read(messages).next();
+        if allowed {
+            let draft = world.resource::<EditorAuthoringSession>().draft.as_ref().unwrap();
+            assert!(matches!(command, Some(BlenderMeshAction { scene_id, placement_id })
+                if *scene_id == draft.scene_id && *placement_id == draft.placements.placements[0].id));
+        } else {
+            assert!(command.is_none());
+        }
+    }
+}
+
+#[test]
 fn scene_menu_freezes_right_clicked_object_and_waits_for_the_whole_mouse_release() {
     let mut test = fixture();
     open(&mut test);

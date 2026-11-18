@@ -113,6 +113,56 @@ fn deletion_fixture(terrain_patch: bool) -> (App, Entity, ScenePlacementRecord, 
     (app, root, record, map)
 }
 
+#[test]
+fn author_preview_replaces_visual_source_and_keeps_formal_suppression() {
+    use bevy::{gltf::GltfAssetLabel, world_serialization::{WorldAsset, WorldAssetRoot}};
+    use feathrise_scene_content::ScenePlacementAssetTarget;
+    use crate::authoring::placement_preview_ownership::components::PlacementPreviewSuppression;
+
+    let (mut app, mut owner, mut builtin, map) = deletion_fixture(false);
+    app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<WorldAsset>();
+    builtin.asset_path.clear();
+    builtin.asset_target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
+    app.world_mut().entity_mut(owner).insert((
+        crate::components::EditorPlacedAsset,
+        ScenePlacementInstance::new(&map, &builtin),
+    ));
+    let formal = app.world_mut().spawn((
+        ScenePlacementInstance::new(&map, &builtin),
+        Visibility::Visible,
+    )).id();
+    assert_eq!(app.world().get::<PlacementPreviewSuppression>(formal).unwrap().owner, owner);
+
+    // 两次GLB换源和恢复原内置记录必须替换可视根，并保持正式根的原始显隐归属。
+    for path in ["gltf/blender-a.glb", "gltf/blender-b.glb", ""] {
+        let mut record = builtin.clone();
+        if !path.is_empty() {
+            record.asset_path = path.into();
+            record.asset_target = ScenePlacementAssetTarget::Scene0;
+        }
+        assert_eq!(app.world_mut().run_system_once(move |mut commands: Commands, assets: Res<AssetServer>,
+            mut session: ResMut<EditorAuthoringSession>, index: Res<PlacementInstanceIndex>,
+            roots: Query<(Entity, &ScenePlacementInstance)>| {
+            let bounds = session.draft.as_ref().unwrap().manifest.world_bounds().unwrap();
+            sync_placement_record_world(&mut commands, &assets, &mut session, &index, &roots, &record, bounds, true, true)
+        }).unwrap().unwrap(), 1);
+        let world = app.world();
+        assert!(world.get_entity(owner).is_err(), "旧作者预览必须退役");
+        owner = world.resource::<EditorAuthoringSession>().placement_previews[&builtin.id];
+        if path.is_empty() {
+            assert!(world.get::<WorldAssetRoot>(owner).is_none());
+            assert!(feathrise_scene::builtin_placement_visual_ready(world, owner));
+        } else {
+            let expected = world.resource::<AssetServer>().load::<WorldAsset>(GltfAssetLabel::Scene(0).from_asset(path));
+            assert_eq!(world.get::<WorldAssetRoot>(owner).unwrap().0, expected);
+        }
+        assert_eq!(world.get::<Visibility>(formal), Some(&Visibility::Hidden));
+        let suppression = world.get::<PlacementPreviewSuppression>(formal).unwrap();
+        assert_eq!(suppression.owner, owner);
+        assert_eq!(suppression.original_visibility, Visibility::Visible);
+    }
+}
+
 fn click_delete(app: &mut App) {
     let button = app.world_mut().spawn((feathrise_editor_ui::EditorButtonClick::triggered(),
         SceneEditorPlacementTransformActionButton(PlacementTransformAction::Delete))).id();

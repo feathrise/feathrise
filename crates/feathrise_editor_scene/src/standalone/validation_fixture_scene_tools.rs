@@ -211,7 +211,7 @@ fn pulse_preset(world: &mut World, action: PresetEditorAction) -> Entity {
         .id()
 }
 
-fn open_scene_tree(world: &mut World) -> Result<bool, String> {
+pub(in crate::standalone) fn open_scene_tree(world: &mut World) -> Result<bool, String> {
     if world.resource::<SceneEditorSidebarState>().navigator == EditorNavigatorTab::SceneTree {
         return Ok(true);
     }

@@ -316,12 +316,12 @@ pub(super) fn scene_menu(world: &mut World) {
             return;
         };
         let action = match request.action {
-            SceneMenuAction::Focus => return,
             SceneMenuAction::Rename => DomainSceneAction::Rename,
             SceneMenuAction::Copy => DomainSceneAction::Copy,
             SceneMenuAction::Delete => DomainSceneAction::Delete,
             SceneMenuAction::Visibility => DomainSceneAction::Visibility,
             SceneMenuAction::Lock => DomainSceneAction::Lock,
+            _ => return, // 聚焦和内置网格的 Blender 命令均由编辑器处理。
         };
         scenes.scene = Some(SceneDomainScene {
             kind: if request.kind == DomainItemKind::Layer {

@@ -102,20 +102,26 @@ fn sync_placement_record_world_impl(
         session.placement_previews.remove(&record.id);
     }
     if let Some(entity) = author_preview {
-        let builtin_changed = record.asset_target.is_builtin()
-            && roots.get(entity).is_ok_and(|(_, instance)| instance.asset_target() != record.asset_target);
-        if roots.get(entity).is_ok_and(|(_, instance)| {
-            instance.is_terrain_patch() != record.terrain_patch.is_some()
-        }) && visible
+        let (_, instance) = roots.get(entity).expect("已核对作者预览归属");
+        let previous_target = instance.asset_target();
+        let target_changed = previous_target != record.asset_target;
+        let builtin_changed = target_changed && previous_target.is_builtin() && record.asset_target.is_builtin();
+        // 【需求设计】GLB换源和跨来源撤销必须重建实际网格或WorldAsset根，并接过同ID的正式根遮蔽。
+        let same_scene_model = previous_target.is_scene0() && record.asset_target.is_scene0();
+        if instance.asset_path() != record.asset_path.as_str()
+            || (target_changed && !builtin_changed && !same_scene_model)
+            || (visible && instance.is_terrain_patch() != record.terrain_patch.is_some())
         {
             commands.entity(entity).try_despawn();
             let replacement =
                 spawn_placement_preview(commands, asset_server, &draft_scene_id, record);
+            commands.entity(replacement).insert((transform, visibility));
             attach_preview(commands, replacement);
             session
                 .placement_previews
                 .insert(record.id.clone(), replacement);
-            return Ok(1); // 分类切换仅替换作者模型，正式碰撞仍等待完整保存候选采用。
+            crate::authoring::placement_preview_ownership::claim_preview(commands, &draft_scene_id, &record.id, replacement);
+            return Ok(1);
         }
         attach_preview(commands, entity);
         commands.entity(entity).insert((
@@ -257,7 +263,7 @@ pub(crate) fn handle_placement_transform_actions(
                 &target, record, &mut commands, &asset_server, &mut session,
                 &root_index, &roots, &mut editor,
             ) {
-                editor.status = format!("立方体碰撞设置失败：{error}");
+                editor.status = format!("碰撞设置失败：{error}");
             }
             transform_state.focus = None;
             transform_state.relocation_target = None;
