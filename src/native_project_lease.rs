@@ -37,8 +37,18 @@ impl NativeProjectLease {
         if crate::project::open(&project.root)? != *project {
             return Err("工程清单已变化，请重新打开后再进入编辑器".into());
         }
-        // 迁移期间兼容已存在的旧租约。只持有旧句柄，不改写诊断，也不创建旧路径。
-        let legacy = if let Some(directory) = project.context.checked_legacy_data_directory()? {
+        let directory = project.context.author_lease_directory(true)?;
+        let path = directory.join(LOCK_FILE);
+        let mut owner = lock_author_path(project, &directory, &path, true)?;
+
+        // 旧版曾把锁放在当前清单解析出的作者目录，默认布局曾使用 UUID 子目录。
+        // 已存在的旧锁只持有句柄，避免原位启动旧版时产生第二个写入者。
+        let legacy_directory = match project.context.checked_legacy_data_directory()? {
+            Some(directory) => directory,
+            None => project.context.checked_data_directory()?,
+        };
+        let legacy = if legacy_directory != directory {
+            let directory = legacy_directory;
             let path = directory.join(LOCK_FILE);
             match std::fs::symlink_metadata(&path) {
                 Ok(_) => Some(lock_author_path(project, &directory, &path, false)?),
@@ -48,9 +58,6 @@ impl NativeProjectLease {
         } else {
             None
         };
-        let directory = project.context.author_lease_directory(true)?;
-        let path = directory.join(LOCK_FILE);
-        let mut owner = lock_author_path(project, &directory, &path, true)?;
         if project.context.author_lease_directory(false)? != directory
             || crate::project::open(&project.root)? != *project
         {
@@ -167,24 +174,23 @@ mod tests {
                 "[package]\nname=\"writer_fixture\"\nversion=\"0.1.0\"\n",
             )
             .unwrap();
-            std::fs::write(
-                root.join("editor-project.json"),
-                serde_json::to_vec(&serde_json::json!({
-                    "format": 2,
-                    "sdk_abi": crate::project::LEGACY_SDK_ABI,
-                    "id": "1d4aefae-890c-45d2-9dcb-11ad2a1a3b40",
-                    "name": "写租约回归",
-                    "cargo_manifest": "Cargo.toml",
-                    "package": "writer_fixture",
-                    "asset_roots": ["assets"],
-                    "editor_data": data
-                }))
-                .unwrap(),
-            )
-            .unwrap();
-            Self {
-                project: crate::project::open(&root).unwrap(),
-            }
+            Self { project: Self::write_manifest(&root, data) }
+        }
+
+        fn write_manifest(root: &std::path::Path, data: &str) -> Project {
+            let manifest = serde_json::json!({
+                "format": 2,
+                "sdk_abi": crate::project::LEGACY_SDK_ABI,
+                "id": "1d4aefae-890c-45d2-9dcb-11ad2a1a3b40",
+                "name": "写租约回归",
+                "cargo_manifest": "Cargo.toml",
+                "package": "writer_fixture",
+                "asset_roots": ["assets"],
+                "editor_data": data
+            });
+            std::fs::write(root.join("editor-project.json"), serde_json::to_vec(&manifest).unwrap())
+                .unwrap();
+            crate::project::open(root).unwrap()
         }
     }
 
@@ -199,10 +205,15 @@ mod tests {
                     let _ = std::fs::remove_dir(parent);
                 }
             }
-            if let Ok(Some(directory)) = project.context.checked_legacy_data_directory() {
+            let legacy = match project.context.checked_legacy_data_directory() {
+                Ok(Some(directory)) => Some(directory),
+                Ok(None) => project.context.checked_data_directory().ok(),
+                Err(_) => None,
+            };
+            if let Some(directory) = legacy {
                 let _ = std::fs::remove_file(directory.join(LOCK_FILE));
                 let _ = std::fs::remove_dir(&directory);
-                let _ = std::fs::remove_dir(project.root.join(".feathrise"));
+                let _ = std::fs::remove_dir(project.context.author_data_root());
             }
             for relative in ["assets/keep.txt", "Cargo.toml", "editor-project.json"] {
                 let _ = std::fs::remove_file(project.root.join(relative));
@@ -216,7 +227,7 @@ mod tests {
     fn second_author_is_rejected_and_release_allows_reopening() {
         let fixture = Fixture::new("exclusive");
         let first = NativeProjectLease::acquire(&fixture.project).unwrap();
-        let path = fixture.project.context.editor_data.join(LOCK_FILE);
+        let path = fixture.project.root.join("target/feathrise").join(LOCK_FILE);
         assert!(
             NativeProjectLease::acquire(&fixture.project)
                 .unwrap_err()
@@ -259,17 +270,42 @@ mod tests {
     }
 
     #[test]
+    fn changing_editor_data_cannot_open_a_second_writer() {
+        let fixture = Fixture::with_data("changed-preferences", ".feathrise");
+        let root = &fixture.project.root;
+        let first = NativeProjectLease::acquire(&fixture.project).unwrap();
+        let custom = Fixture::write_manifest(root, "private-author");
+        assert_ne!(fixture.project.context.editor_data, custom.context.editor_data);
+        assert!(NativeProjectLease::acquire(&custom).unwrap_err().contains("其他编辑器实例"));
+        assert!(!root.join("private-author").exists());
+
+        drop(first);
+        let next = NativeProjectLease::acquire(&custom).unwrap();
+        let default = Fixture::write_manifest(root, ".feathrise");
+        assert!(NativeProjectLease::acquire(&default).unwrap_err().contains("其他编辑器实例"));
+        drop(next);
+        let _reopened = NativeProjectLease::acquire(&default).unwrap();
+    }
+
+    #[test]
     fn stale_file_is_reused_and_a_copied_project_has_its_own_lease() {
-        let a = Fixture::with_data("stale", "private-author"); // 尊重清单editor_data，不能写到硬编码.editor。
+        let a = Fixture::with_data("stale", "private-author");
         let b = Fixture::new("copy"); // 相同UUID但不同真实工程目录不能互相抢占。
-        let directory = a.project.context.ensure_data_directory().unwrap();
-        std::fs::write(directory.join(LOCK_FILE), b"old process diagnostic").unwrap();
+        let legacy = a.project.context.ensure_data_directory().unwrap();
+        let legacy_file = legacy.join(LOCK_FILE);
+        std::fs::write(&legacy_file, b"old process diagnostic").unwrap();
+        let old = lock_author_path(&a.project, &legacy, &legacy_file, false).unwrap();
+        assert!(NativeProjectLease::acquire(&a.project).unwrap_err().contains("其他编辑器实例"));
+        drop(old);
+        let path = a.project.context.author_lease_directory(true).unwrap().join(LOCK_FILE);
+        std::fs::write(&path, b"previous owner").unwrap();
         let _first = NativeProjectLease::acquire(&a.project).unwrap();
         let _other = NativeProjectLease::acquire(&b.project).unwrap();
         assert!(!a.project.root.join(".editor").exists());
         assert_ne!(a.project.context.editor_data, b.project.context.editor_data);
+        assert_eq!(std::fs::read(legacy_file).unwrap(), b"old process diagnostic");
         let diagnostic: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(a.project.context.editor_data.join(LOCK_FILE)).unwrap(),
+            &std::fs::read(path).unwrap(),
         )
         .unwrap();
         assert_eq!(diagnostic["process_id"], std::process::id());

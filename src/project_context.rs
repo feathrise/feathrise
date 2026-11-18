@@ -146,11 +146,8 @@ impl ProjectContext {
         safe_directory(&self.root, &relative.join(&self.storage_key)).map(Some)
     }
 
-    /// 普通工程锁绑定工程根，不随 Cargo 目标位置变化，也不占用个人偏好目录。
+    /// 所有作者会话锁都绑定规范化后的工程根，切换偏好目录或 Cargo 目标目录不会取得另一把锁。
     pub(crate) fn author_lease_directory(&self, create: bool) -> Result<PathBuf, String> {
-        if self.shared_config_directory().is_none() {
-            return if create { self.ensure_data_directory() } else { self.checked_data_directory() };
-        }
         let relative = Path::new(AUTHOR_LEASE_DIRECTORY);
         if create { ensure_directory(&self.root, relative) } else { safe_directory(&self.root, relative) }
     }
