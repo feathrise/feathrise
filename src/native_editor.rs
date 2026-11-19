@@ -24,7 +24,7 @@ use feathrise_runtime::game_plugins::{EditorStartup, SceneRuntimePlugin, Startup
 use bevy_framepace::FramepacePlugin;
 use bevy_hanabi::HanabiPlugin;
 use feathrise_editor_core::{EditorProjectPaths, bind_editor_project_paths};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// 启动工程独占的完整原编辑器；正常入口由持续存在的主窗口呈现，项目数据不写入SDK。
 pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(), String> {
@@ -60,12 +60,6 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
     feathrise_runtime::prepare_vulkan_environment();
 
     let mut app = App::new();
-    // 导出器只从程序编译资产取，工程的 AssetReader 仅用于工程资源。
-    if let Ok(exporter) = bevy_embedded_assets::EmbeddedAssetReader::preloaded()
-        .load_path_sync(Path::new("blender/Blender保存时自动导出GLB.py"))
-    {
-        app.insert_resource(feathrise_editor_scene::BundledBlenderExporter(exporter.0));
-    }
     #[cfg(feature = "validation")]
     feathrise_editor_scene::standalone::install_rigging_validation(&mut app, &project.root, &asset_root)?;
     let (preferences, preferences_error) = crate::workspace::preferences()?;

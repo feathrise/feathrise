@@ -1,6 +1,6 @@
 //! 在后台读取 Blender 的 GLB，按原对象身份提交已加载的模型。
 
-use super::{BundledBlenderExporter, files::BlenderProcess};
+use super::files::BlenderProcess;
 use crate::{
     authoring::{
         EditorAuthoringSession, EditorSceneDraft, asset_target_with_mesh_collision, mesh_collision_enabled,
@@ -138,7 +138,6 @@ pub(super) fn update(
     mut messages: MessageReader<BlenderMeshAction>,
     mut author: Author<'_, '_>,
     settings: Res<EditorSettings>,
-    bundled_exporter: Option<Res<BundledBlenderExporter>>,
 ) {
     if let Some(finished) = state.task.as_mut().and_then(check_ready) {
         state.task = None;
@@ -171,9 +170,8 @@ pub(super) fn update(
             let folder = author.session.draft.as_ref().unwrap().folder.clone();
             let root = feathrise_editor_core::workspace_asset_root();
             let executable = settings.blender_executable.clone();
-            let exporter = bundled_exporter.as_deref().map(|exporter| exporter.0);
             state.task = Some(IoTaskPool::get().spawn(async move {
-                let process = BlenderProcess::start(root, folder, &basis, executable.as_deref(), exporter);
+                let process = BlenderProcess::start(root, folder, &basis, executable.as_deref());
                 Finished::Opened(process.map(|process| Session {
                     target, basis, process, next_poll: Instant::now(), pending: None,
                     ended: false, preserve_files: false,

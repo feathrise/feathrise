@@ -9,10 +9,6 @@ pub(crate) use systems::BlenderMeshSession;
 
 use bevy::prelude::*;
 
-/// 发行宿主注入的导出器原件，只在 Blender 会话目录中使用。
-#[derive(Resource)]
-pub struct BundledBlenderExporter(pub &'static [u8]);
-
 pub(crate) fn install(app: &mut App) {
     app.init_resource::<systems::BlenderMeshSession>()
         .add_message::<BlenderMeshAction>()

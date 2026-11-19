@@ -1,6 +1,9 @@
 //! Blender 进程的收件与发布。标准 GLB 是唯一模型数据，所有文件操作都在 IO 任务中执行。
 
-use feathrise_editor_assets::glb_metadata::{open_glb, ordinary};
+use feathrise_editor_assets::{
+    blender_export::{self, EXPORTER_FILENAME},
+    glb_metadata::{open_glb, ordinary},
+};
 use feathrise_scene_content::{
     ScenePlacementRecord, ScenePlacementsAsset,
     authoring_io::{bytes_hash, file_hash, safe_content_path},
@@ -15,7 +18,6 @@ use std::{
 };
 
 const BRIDGE: &str = include_str!("网格编辑会话.py");
-const EXPORTER: &str = "Blender保存时自动导出GLB.py";
 const VERSION: &str = "save.version";
 const RESULT: &str = "model.glb";
 const GLB_FORMAT_MAX_BYTES: u64 = u32::MAX as u64; // GLB 文件头以 32 位无符号整数记录文件总长度。
@@ -35,20 +37,11 @@ impl BlenderProcess {
         folder: String,
         record: &ScenePlacementRecord,
         saved_executable: Option<&Path>,
-        bundled_exporter: Option<&[u8]>,
     ) -> Result<Self, String> {
         let executable = super::super::find_blender_executable(saved_executable)?
             .canonicalize().map_err(|error| error.to_string())?;
         let root = root.canonicalize().map_err(|error| error.to_string())?;
         safe_content_path(&root, &folder)?;
-        let exporter = std::env::var_os("FEATHRISE_BLENDER_TOOLS_DIR").map(|tools| {
-            let path = PathBuf::from(tools).join(EXPORTER);
-            if path.is_absolute() && ordinary(&path).is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0) {
-                Ok(path)
-            } else {
-                Err("FEATHRISE_BLENDER_TOOLS_DIR 需要指向含保存导出插件的绝对目录".to_owned())
-            }
-        }).transpose()?;
 
         // 旧点面往返会话另属 v1。新进程只创建、清理自己独占的目录。
         let cache = std::env::temp_dir().join("feathrise/blender-glb-v2");
@@ -58,31 +51,20 @@ impl BlenderProcess {
         fs::create_dir(&directory).map_err(|error| error.to_string())?;
 
         let launch = (|| -> Result<Child, String> {
+            let exporter = blender_export::prepare(&directory, std::env::var_os("FEATHRISE_BLENDER_TOOLS_DIR"))?;
             let input = input_glb(&root, &directory, record)?;
             let script = directory.join("bridge.py");
             fs::write(&script, BRIDGE).map_err(|error| error.to_string())?;
-            // 显式开发覆盖优先；无覆盖时把随包脚本释放到本次会话，供桥接校验并加载。
-            let exporter = match (exporter, bundled_exporter) {
-                (None, Some(bytes)) => {
-                    let path = directory.join(EXPORTER);
-                    fs::write(&path, bytes).map_err(|error| format!("无法写入随包 Blender 导出器（{error}）"))?;
-                    Some(path)
-                }
-                (exporter, _) => exporter,
-            };
             let mut command = Command::new(executable);
             // 正常 Blender 启动读取用户偏好，脚本只替换本进程里的场景。
             command.args(["--disable-autoexec", "--python-exit-code", "1", "--python"])
-                .arg(script).arg("--").arg(&directory).arg(input)
+                .arg(script).arg("--").arg(&directory).arg(input).arg(exporter)
                 .current_dir(&directory)
                 .env("PYTHONDONTWRITEBYTECODE", "1")
                 .env("PYTHONIOENCODING", "utf-8")
                 .stdin(Stdio::null())
                 .stdout(File::create(directory.join("stdout.log")).map_err(|error| error.to_string())?)
                 .stderr(File::create(directory.join("stderr.log")).map_err(|error| error.to_string())?);
-            if let Some(exporter) = exporter {
-                command.arg(exporter);
-            }
             command.spawn().map_err(|error| format!("无法启动 Blender（{error}）"))
         })();
         match launch {
@@ -260,7 +242,7 @@ fn cleanup_directory(directory: &Path) {
         let exporter_stage = name.strip_prefix(".model.").and_then(|value| value.strip_suffix(".exporting.glb"))
             .is_some_and(|pid| !pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit()));
         if backup || exporter_stage || matches!(name.as_ref(), "model.blend" | RESULT | "input.glb"
-            | "bridge.py" | EXPORTER | VERSION | ".save.version.tmp" | "stdout.log" | "stderr.log" | "quit.blend")
+            | "bridge.py" | EXPORTER_FILENAME | VERSION | ".save.version.tmp" | "stdout.log" | "stderr.log" | "quit.blend")
         {
             let _ = fs::remove_file(entry.path());
         }

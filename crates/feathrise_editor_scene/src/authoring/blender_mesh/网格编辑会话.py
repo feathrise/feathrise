@@ -1,6 +1,6 @@
 # Feathrise 单对象 Blender 会话。模型只交换标准 GLB，保存使用项目原自动导出插件。
-# 用法：blender --disable-autoexec --python-exit-code 1 --python bridge.py -- <会话目录> <输入GLB> [原插件路径]
-# 依赖：Blender 4.0+ 内置 glTF 与支持同目录导出的项目插件。
+# 用法：blender --disable-autoexec --python-exit-code 1 --python bridge.py -- <会话目录> <输入GLB> <导出脚本路径>
+# 依赖：Blender 4.0+ 内置 glTF 和由编辑器准备的导出脚本。
 
 import hashlib
 import os
@@ -9,24 +9,12 @@ import struct
 import sys
 from pathlib import Path
 
-import addon_utils
 import bmesh
 import bpy
 
 
-def load_exporter(configured_path):
-    if configured_path is None:
-        matches = [
-            Path(module.__file__)
-            for module in addon_utils.modules()
-            if module.bl_info.get("name") == "Bevy 保存时自动导出 GLB"
-            and module.bl_info.get("author") == "bevy_learn5_3d"
-        ]
-        if len(matches) != 1:
-            raise RuntimeError("请安装项目的 Blender 保存自动导出插件，或设置 FEATHRISE_BLENDER_TOOLS_DIR。")
-        configured_path = matches[0]
-
-    plugin = runpy.run_path(str(configured_path))
+def load_exporter(path):
+    plugin = runpy.run_path(str(path))
     export = plugin.get("_export_glb_after_save")
     saved_path = plugin.get("_saved_blend_path")
     owns_handler = plugin.get("_is_project_export_handler")
@@ -171,8 +159,7 @@ def start_session(directory, source, plugin_path):
 
 if __name__ == "__main__":
     arguments = sys.argv[sys.argv.index("--") + 1 :]
-    directory, source = (Path(value).resolve(strict=True) for value in arguments[:2])
-    plugin_path = Path(arguments[2]).resolve(strict=True) if len(arguments) == 3 else None
+    directory, source, plugin_path = (Path(value).resolve(strict=True) for value in arguments)
     # 先读取出厂空场景，正常启动加载的用户偏好仍留在进程内。
     if "FINISHED" not in bpy.ops.wm.read_homefile(use_factory_startup=True, use_empty=True, app_template=""):
         raise RuntimeError("Blender 未能准备空白建模场景。")

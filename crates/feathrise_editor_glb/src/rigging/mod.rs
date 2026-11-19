@@ -173,7 +173,7 @@ async fn bind(
             native::bind(&model_path, reference_doc, landmarks, &output_glb, cancel).await?
         }
         RigBackend::Blender => {
-            let export_plugin = blender::export_plugin()?;
+            let export_plugin = blender::export_plugin(&stage)?;
             let report = stage.path("report.json");
             let output_blend = stage.path("rigged.blend");
             blender::execute(

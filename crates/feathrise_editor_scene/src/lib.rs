@@ -21,8 +21,6 @@ pub mod workbench; // 原工作台的独立装配入口；新旧宿主共用实�
 pub mod standalone; // 首版独立编辑模式只请求运行已保存工程，作者World与历史继续驻留本地。
 pub mod game_authoring; // 应用自有作者域只通过来源、状态及挂载合同接入，不反向依赖原游戏实现。
 
-pub use authoring::blender_mesh::BundledBlenderExporter;
-
 use bevy::prelude::*; // App、Plugin、Startup与Update。
 use feathrise_atmosphere::{
     WeatherAuthoringPreview, WeatherCommand, WeatherDebugOverride, WeatherState, WeatherSystemSet,

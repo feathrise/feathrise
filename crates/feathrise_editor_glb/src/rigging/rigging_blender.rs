@@ -1,6 +1,7 @@
 //! 受检 Blender 子进程。用独占目录传参、捕获有界诊断，并跟随当前绑骨请求取消。
 
 use crate::files::{self, Stage};
+use feathrise_editor_assets::blender_export;
 use feathrise_editor_glb_model::rigging::BlenderLocator;
 use serde::{Serialize, de::DeserializeOwned};
 use std::{
@@ -13,22 +14,14 @@ use std::{
 };
 
 const WORKER: &str = include_str!("自动绑骨.py");
-const PLUGIN: &str = "Blender保存时自动导出GLB.py";
 const TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_REPORT: u64 = 64 * 1024;
 const LOG_TAIL: u64 = 4096;
 
-pub(super) fn export_plugin() -> Result<PathBuf, String> {
-    let root = std::env::var_os("FEATHRISE_RIG_BLENDER_TOOLS_DIR")
-        .or_else(|| std::env::var_os("FEATHRISE_BLENDER_TOOLS_DIR"))
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .ok_or("请将 FEATHRISE_BLENDER_TOOLS_DIR 设为包含 Blender 保存导出插件的绝对目录")?;
-    let path = root.join(PLUGIN);
-    if !files::ordinary(&path).is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0) {
-        return Err(format!("指定的工具目录缺少 {PLUGIN}"));
-    }
-    Ok(path)
+pub(super) fn export_plugin(stage: &Stage) -> Result<PathBuf, String> {
+    let override_directory = std::env::var_os("FEATHRISE_RIG_BLENDER_TOOLS_DIR")
+        .or_else(|| std::env::var_os("FEATHRISE_BLENDER_TOOLS_DIR"));
+    blender_export::prepare(stage.root(), override_directory)
 }
 
 pub(super) fn execute<T: DeserializeOwned>(
