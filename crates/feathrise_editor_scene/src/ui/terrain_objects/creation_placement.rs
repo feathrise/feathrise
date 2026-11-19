@@ -234,11 +234,8 @@ fn accept(point: Vec3, state: &mut TerrainObjectsEditorState, editor: &mut Scene
 
 fn create_model(point: Vec3, path: String, target: feathrise_scene_content::ScenePlacementAssetTarget,
     yaw: f32, editor: &mut SceneEditorState, session: &mut EditorAuthoringSession, models: &mut ModelCreationContext) {
-    use feathrise_scene_content::{ScenePlacementHeightMode, ScenePlacementRecord, MAX_SCENE_PLACEMENTS_PER_SCENE};
+    use feathrise_scene_content::{ScenePlacementHeightMode, ScenePlacementRecord};
     let Some(draft) = session.draft.as_ref() else { return; };
-    if draft.placements.placements.len() >= MAX_SCENE_PLACEMENTS_PER_SCENE {
-        editor.status = format!("当前场景已达到{MAX_SCENE_PLACEMENTS_PER_SCENE}个显式资产上限"); return;
-    }
     if !point.is_finite() || !yaw.is_finite() || target.validate().is_err() { return; }
     if let Err(error) = crate::authoring::safe_asset_path(&crate::authoring::workspace_asset_root(), &path) {
         editor.status = error; return;

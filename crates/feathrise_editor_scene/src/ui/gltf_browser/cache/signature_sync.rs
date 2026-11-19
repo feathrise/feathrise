@@ -2,11 +2,9 @@
 
 use super::super::demand::{observe_browser_session, session_change_requires_signature_refresh}; // 非结构数值修改只做O(1)观察。
 use super::super::entries::request_visible_entries_rebuild; // 完整新签名采用后才请求行树换代。
-use super::super::retirement::BrowserRetiredGeneration; // 结构换代不直接析构8192项旧签名/索引。
+use super::super::retirement::BrowserRetiredGeneration; // 结构换代分帧释放旧签名与索引。
 use super::super::signature::{BrowserSignatureBuild, advance_signature_build}; // 每帧固定记录预算。
-use super::super::{
-    BrowserAssetDemandTransition, EditorGltfBrowserState, MAX_GLTF_BROWSER_PLACEMENTS,
-}; // 活动签名与需求过渡仍由浏览器唯一资源拥有。
+use super::super::{BrowserAssetDemandTransition, EditorGltfBrowserState};
 use crate::authoring::EditorAuthoringSession; // 草稿摆放表只在分帧签名任务中读取。
 
 /// 建立、推进并原子采用确定性摆放结构签名；单帧最多读取固定数量记录。
@@ -60,10 +58,7 @@ pub(super) fn synchronize_signature_build(
         state.status = format!(
             "场景树：正在读取实例结构 {}/{}",
             build.next_placement,
-            build
-                .observation
-                .source_placement_count
-                .min(MAX_GLTF_BROWSER_PLACEMENTS),
+            build.observation.source_placement_count,
         );
         state.signature_build = Some(build); // 保存精确游标供下一Update继续。
         return;
@@ -76,12 +71,12 @@ pub(super) fn synchronize_signature_build(
 
     if !state.retirement.can_enqueue_normal() {
         state.status = "场景树：新实例结构已完成，等待上一代签名分帧释放".to_owned();
-        state.signature_build = Some(build); // 完整新代及其8192项seen_ids保持唯一所有权，不重复构建。
+        state.signature_build = Some(build); // 持有完整新代及其索引，下帧继续等待。
         return;
     }
 
     let mut retired = BrowserRetiredGeneration::default();
-    retired.signatures(std::mem::take(&mut state.signature)); // 活动8192项签名逐记录/水绑定释放。
+    retired.signatures(std::mem::take(&mut state.signature)); // 活动签名逐记录、逐水绑定释放。
     retired.string_set(std::mem::take(&mut state.duplicate_placement_ids));
     retired.string_string_map(std::mem::take(&mut state.placement_asset_paths));
     retired.string_usize_map(std::mem::take(&mut state.placement_record_indices));
@@ -117,7 +112,7 @@ pub(super) fn synchronize_signature_build(
         retired.string(state.selected_placement_id.take()); // 删除或重复ID换代后同帧撤销悬空作者目标。
         retired.selection(state.selection.take()); // 所属网格选择也不能继续写入另一条记录。
     }
-    retired.signature_build(Some(build)); // seen_ids等仅用于构建的8192项辅助数据逐项释放。
+    retired.signature_build(Some(build)); // seen_ids 等构建辅助数据逐项释放。
     state.retirement.enqueue_normal_reserved(retired); // 旧活动代和完成草稿辅助索引共享唯一退役代。
     request_visible_entries_rebuild(state); // 完整签名与全部辅助索引已经原子采用。
 }

@@ -9,7 +9,7 @@ use feathrise_scene_content::{
 use feathrise_scene::ScenePlacementInstance; // 当前活动摆放根的稳定场景与记录身份。
 
 use super::super::{
-    LOOKUP_OPERATIONS_PER_FRAME, MAX_LOOKUP_DESCENDANTS, MAX_LOOKUP_PATH_DEPTH,
+    LOOKUP_OPERATIONS_PER_FRAME, MAX_LOOKUP_PATH_DEPTH,
     MAX_SELECTED_PRIMITIVES, PendingPlacementCandidatePath, PlacementHierarchyFrame,
     PlacementMeshLookup, PlacementMeshResolution, SelectedPlacementMeshIdentity,
     SelectedPlacementViewportState, selected_placement_mesh_info,
@@ -156,15 +156,11 @@ fn advance_lookup(
         if editor_highlights.contains(entity) {
             continue; // 精确覆盖属于编辑器辅助子节点，不计入资产层级或递归解析。
         }
-        if lookup.descendants_seen >= MAX_LOOKUP_DESCENDANTS {
-            return Err(format!(
-                "当前实例后代超过{}个的场景选择上限",
-                MAX_LOOKUP_DESCENDANTS
-            ));
-        }
-        lookup.descendants_seen += 1;
         if world_roots.contains(entity) {
             continue; // 嵌套World拥有独立身份边界，不能穿透或冒充当前placement内容。
+        }
+        if !lookup.visited.insert(entity) {
+            continue; // 同一实体只访问一次，合法后代数由实际层级决定。
         }
         lookup.frames.push(PlacementHierarchyFrame {
             parent: entity, // 下一操作才读取其Children，保持固定预算。

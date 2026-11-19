@@ -123,6 +123,9 @@ pub(crate) fn poll_draft_save(
     let global_environment_snapshot = save.global_environment_snapshot.take(); // 联合成功、失败或过期结果都只消费一次冻结快照。
     save.task = None;
     if ticket != save.ticket {
+        if let Some(retirement) = authoring_retirement.as_deref_mut() {
+            retirement.push((result, placement_handoff_snapshot));
+        }
         session.saving = false; // 过期任务不再拥有当前保存事务。
         editor
             .cancel_close_request("场景保存结果已经过期，本次关闭已取消；请确认当前场景后重新保存"); // 过期结果不能作为安全关闭的成功证据。
@@ -175,7 +178,7 @@ pub(crate) fn poll_draft_save(
             let mut manifest_asset_path = None; // 环境草稿归还玩法相机前显式刷新正式清单。
             let mut manifest_snapshot = None; // 与落盘事务同源的完整清单立即发布到唯一正式句柄。
             let mut placements_asset_path = None; // 没有可写现有句柄时使用保存后的摆放文件兜底重载。
-            let mut placements_snapshot = None; // 保存成功的实例与整网格水体覆盖立即发布到正式句柄。
+            let mut placements_snapshot = Some(success.placements_snapshot); // 移交真正已落盘的记录，而非再次复制活跃草稿。
             let mut portals_asset_path = None; // 正式句柄尚未Ready时显式重载刚落盘的传送图。
             let mut portals_snapshot = None; // 保存快照必须在回收作者预览前进入正式唯一句柄。
             let mut surface_publish = SavedSurfacePublish::default(); // 空值表示高度等无关保存严格不发布地表资产。
@@ -213,7 +216,6 @@ pub(crate) fn poll_draft_save(
                     draft.placement_glb_hash = Some(hash); // 只采用本次事务确认落盘的精确版本。
                 }
                 placements_asset_path = Some(draft.placements_path());
-                placements_snapshot = Some(draft.placements.clone()); // 小型记录和网格水体覆盖与本次磁盘事务完全同源。
                 portals_asset_path = Some(format!(
                     "{}/{}",
                     draft.folder.trim_end_matches('/'), // 复用目录登记的场景私有资产根。
@@ -418,7 +420,7 @@ pub(crate) fn poll_draft_save(
                     current_placement_revision,          // 旧Ready不能冒充保存后正式采用。
                     current_placement_attempt_revision,  // 旧Failed同样不能冒充新发布结果。
                     current_placement_progress_revision, // IO期间旧进度不能给新门续命。
-                    real_time.elapsed(),                 // 摆放独立三十秒真实截止起点。
+                    real_time.elapsed(),                 // 正式交接记录此次发布起点。
                 ) {
                     Ok(started) => started,
                     Err(error) => {
@@ -483,20 +485,25 @@ pub(crate) fn poll_draft_save(
                 ); // 先武装再主动reload，早到文件监听不能吞掉本次门。
             }
             surface_publish.publish(registry.as_deref(), &scene_id, &mut surfaces, &asset_server); // 高度分页源由独立文档回执重载；地表只发布本批真实写入的定义和权重。
-            {
+            let previous_placements = {
                 let mut placement_rebuild_requests = runtime_water.p4();
                 execute_placement_publish(
                     &placement_preparation,           // 保存完成帧冻结的唯一发布动作。
                     placement_handoff_started,        // 当前场景必须先有可证明的新修订门。
                     active_scene_id.as_ref(),           // 非当前场景只更新正式缓存。
                     &scene_id,                          // 防止保存结果串入另一个场景。
-                    placements_snapshot.as_ref(),     // 与磁盘JSON完全相同的完成值。
+                    &mut placements_snapshot,        // 直接移交正式摆放快照。
                     placements_asset_path.as_deref(), // 正式句柄失效时的显式reload兜底。
                     registry.as_deref(),              // 使用目录持有的唯一正式摆放句柄。
                     &mut placements,                  // 只有真实内容差异才取得AssetMut。
                     &asset_server,                    // reload同样只能发生在交接门已建立之后。
                     &mut placement_rebuild_requests,  // 原样失败重试不伪造Modified。
-                );
+                )
+            };
+            if let Some(retirement) = authoring_retirement.as_deref_mut()
+                && let Some(obsolete) = previous_placements.or(placements_snapshot)
+            {
+                retirement.push(obsolete);
             }
             if let Some(snapshot) = vegetation_snapshot.as_ref()
                 && !publish_saved_vegetation_asset(
@@ -569,6 +576,9 @@ pub(crate) fn poll_draft_save(
         }
         Ok(success) => {
             let scene_id = success.scene_id; // 旧作者修订已经落盘，但不得发布成当前会话正式完成证据。
+            if let Some(retirement) = authoring_retirement.as_deref_mut() {
+                retirement.push(success.placements_snapshot);
+            }
             session.saving = false; // 旧修订已落盘但当前草稿仍标脏，可继续下一次保存。
             editor.cancel_close_request(format!(
                 "场景{scene_id}旧修订已保存，但仍有更新修改待保存；本次关闭已取消"
@@ -649,6 +659,11 @@ pub(crate) fn poll_draft_save(
             )); // dirty始终保留；有回滚门或未解决态时后续F12也不能绕过正式缓存一致性。
             error!("{}", editor.status);
         }
+    }
+    if let Some(retirement) = authoring_retirement.as_deref_mut()
+        && let Some(snapshot) = placement_handoff_snapshot
+    {
+        retirement.push(snapshot); // 失败或无门成功留下的弱票、预览证据也不在完成帧整批析构。
     }
 }
 

@@ -11,7 +11,7 @@ use bevy::math::Rect; // 保存前使用清单受检XZ范围复用公共摆放�
 use feathrise_scene_content::{
     SCENE_BOUNDARIES_FILE_NAME, SCENE_MANIFEST_FILE_NAME,
     SCENE_PORTALS_FILE_NAME, SCENE_SCHEMA_VERSION, SCENE_SURFACE_FILE_NAME, SCENE_SURFACE_SCHEMA_VERSION,
-    SCENE_VEGETATION_FILE_NAME, MAX_SCENE_PLACEMENTS_PER_SCENE, SceneId, ScenePlacementsAsset,
+    SCENE_VEGETATION_FILE_NAME, SceneId, ScenePlacementsAsset,
     SceneSurfaceAsset, SurfaceSourceSaveIdentity, WORLD_ENVIRONMENT_ASSET_PATH, WorldEnvironmentAsset,
 }; // 场景协议固定目标与成功结果身份。
 
@@ -50,12 +50,6 @@ fn validate_placements_by_source(document: &ScenePlacementsAsset, scene_id: &Sce
     document
         .validate_courtyards()
         .map_err(|error| format!("场景{scene_id}的院落成员文档无效：{error}"))?; // 同一副本的预设、锚点与成员身份必须在任何保存stage前一致。
-    if document.placements.len() > MAX_SCENE_PLACEMENTS_PER_SCENE {
-        return Err(format!(
-            "场景{scene_id}包含{}个显式摆放，超过上限{MAX_SCENE_PLACEMENTS_PER_SCENE}",
-            document.placements.len(),
-        )); // 复制操作和手改JSON都必须在任何stage之前命中同一数量硬门。
-    }
     let mut placement_ids = BTreeSet::new(); // 水体覆盖内嵌于实例，先保证实例身份本身唯一。
     let mut terrain_patches = 0;
     let mut terrain_holes = 0;
@@ -154,6 +148,7 @@ pub(crate) struct DraftSaveSuccess {
     pub(crate) domain_hash: Option<String>, // 本批真正写入的外部文档原字节基线。
     pub(crate) scene_id: SceneId,                   // 本次原子事务所属场景。
     pub(crate) placements_changed: bool, // 只有语义内容相对磁盘真实变化时才允许发布正式摆放资产。
+    pub(crate) placements_snapshot: ScenePlacementsAsset, // 与本批落盘同源，主线程接收所有权。
     pub(crate) placement_glb_hash: Option<String>,
     pub(crate) surface_definition_changed: bool, // 地表JSON进入本批时才允许发布正式定义资产。
     pub(crate) surface_weights_changed: bool, // RGBA作者源与KTX2实际进入本批时才允许重载权重纹理。
@@ -174,12 +169,12 @@ struct PreparedDraftWrites<'a> {
 }
 
 pub(super) async fn save_draft_with_volumes(
-    draft: &EditorSceneDraft,
+    draft: EditorSceneDraft,
     global_environment: Option<&WorldEnvironmentAsset>,
     volumes: &[crate::authoring::volume_sculpt::VolumeSaveFile],
 ) -> Result<DraftSaveSuccess, DraftSaveError> {
     let verified_volumes = super::volume::verify_async(volumes).await?; // CPU等值面校验完成前不持有作者IO锁，不创建stage。
-    let (terrain_manifest, object_drafts, terrain_saved) = super::terrain_documents::prepare(draft).await?;
+    let (terrain_manifest, object_drafts, terrain_saved) = super::terrain_documents::prepare(&draft).await?;
     let manifest_bytes = if let Some(manifest) = &terrain_manifest {
         let snapshot = manifest.clone();
         let target = workspace_asset_root().join(&draft.folder).join(SCENE_MANIFEST_FILE_NAME);
@@ -195,12 +190,12 @@ pub(super) async fn save_draft_with_volumes(
         let catalog = super::super::files::decode_scene_catalog(&catalog_path, &bytes)?;
         feathrise_scene_content::validate_saved_scene_instances(&root, &catalog, &draft.manifest)?;
     } // 同一作者锁内验证完整来源链，任何失败发生在首个stage创建之前。
-    let source_guard = super::domain_files::DraftSourceSaveGuard::prepare(&root, draft)?;
-    let mut prepared = prepare_draft_writes(&root, draft, global_environment)?;
+    let source_guard = super::domain_files::DraftSourceSaveGuard::prepare(&root, &draft)?;
+    let mut prepared = prepare_draft_writes(&root, &draft, global_environment)?;
     let mut terrain_reload_paths = Vec::new();
     let mut terrain_water_changed = std::collections::BTreeSet::new();
     let mut active_terrain_surface_changes = None;
-    let mut surface_source_identity = surface_save_identity(draft, prepared.surface_definition_changed, prepared.surface_weights_changed)?;
+    let mut surface_source_identity = surface_save_identity(&draft, prepared.surface_definition_changed, prepared.surface_weights_changed)?;
     for object in &object_drafts {
         let object_writes = prepare_draft_writes(&root, object, None)?;
         if object_writes.water_changed && let Some(active) = &object.terrain_documents.active {
@@ -220,15 +215,15 @@ pub(super) async fn save_draft_with_volumes(
         prepared.writes.retain(|write| write.path != path);
         prepared.writes.push(PreparedWrite::new(path, bytes)); // CPU编码后的独占清单最后发布，不把借用延伸到成功结果。
     }
-    let generated = super::volume::prepare_verified(&root, draft, volumes, &verified_volumes)?;
+    let generated = super::volume::prepare_verified(&root, &draft, volumes, &verified_volumes)?;
     prepared.writes.splice(0..0, generated); // 生成GLB先于引用它的placement JSON提交，回滚仍覆盖同一批。
-    let PreparedDraftWrites { domain_hash, mut writes, placements_changed, placement_glb_hash, surface_definition_changed, surface_weights_changed, water_changed } = prepared;
+    let mut writes = std::mem::take(&mut prepared.writes);
     let catalog_path = root.join(feathrise_scene_content::SCENE_CATALOG_ASSET_PATH);
     if let Some(index) = writes.iter().position(|write| write.path == catalog_path) {
         let catalog = writes.remove(index);
         writes.push(catalog); // 根水首次登记要在所有根/私有源、派生和容器清单完整发布之后。
     }
-    super::output_paths::validate_preserved_document_outputs(&root, draft, &writes, domain_hash.is_some())?;
+    super::output_paths::validate_preserved_document_outputs(&root, &draft, &writes, prepared.domain_hash.is_some())?;
     // 私有画布和体积生成写项在此已全部合并，不能绕过根文档保留路径的零写入拒绝门。
     let root = workspace_asset_root();
     let placement_path = safe_asset_path(&root, &draft.placements_path())?;
@@ -241,6 +236,13 @@ pub(super) async fn save_draft_with_volumes(
     };
     commit_prepared_writes_checked(writes, |_, path| check_source(path))
         .map_err(|failure| DraftSaveError::from_transaction(&root, failure))?;
+    let domain_hash = prepared.domain_hash.take();
+    let placement_glb_hash = prepared.placement_glb_hash.take();
+    let (placements_changed, surface_definition_changed, surface_weights_changed, water_changed) = (
+        prepared.placements_changed, prepared.surface_definition_changed,
+        prepared.surface_weights_changed, prepared.water_changed,
+    );
+    drop(prepared); // 释放借用草稿的写入准备，成功回执再接管原摆放数组。
     // 高度作者源由分页文档保存；模型继续使用普通 scene.glb 摘要守卫。
     let terrain_digests = Vec::new();
     Ok(DraftSaveSuccess {
@@ -248,6 +250,7 @@ pub(super) async fn save_draft_with_volumes(
         root_water_changed: water_changed,
         scene_id: draft.scene_id.clone(),              // 主线程只接纳同票据同作者修订结果。
         placements_changed, // 发布决策与实际事务目标严格同源。
+        placements_snapshot: draft.placements,
         placement_glb_hash,
         surface_definition_changed, // 只发布本批真正替换的地表JSON。
         surface_weights_changed, // 只重载本批真正替换的权重纹理。

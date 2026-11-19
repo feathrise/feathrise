@@ -251,11 +251,6 @@ pub(crate) fn apply_undo_redo(
             editor.status = "正在后台准备整组删除票据，完成后继续撤销/重做".into();
             return;
         }
-        deletion_preparation::Preparation::Failed(error) => {
-            editor.undo_requested = false; editor.redo_requested = false;
-            editor.status = format!("{}未执行：{error}；历史记录已保留", if undoing { "撤销" } else { "重做" });
-            return;
-        }
     };
     if matches!(candidate, EditorCommand::DomainChanged { .. }) {
         editor.undo_requested = false;
@@ -370,22 +365,9 @@ pub(crate) fn apply_undo_redo(
         apply_global_celestial_history(&command, undoing, &mut global_environment)
     } else {
         (|| -> Result<(), String> {
-            // 容量预检只计本方向实际移除的ID；失败沿统一Err门原样回栈，不先改作者数据。
             if prepared_deletions.as_ref().is_some_and(|prepared| !prepared.matches(&session.placement_deletions)) {
                 return Err("整组删除票据来源已变化".into());
             }
-            let deletion_id = match &command {
-                EditorCommand::PlacementAdded(record) if undoing => Some(record.id.as_str()),
-                EditorCommand::PlacementRemoved { record, .. } if !undoing => Some(record.id.as_str()),
-                EditorCommand::BuildingTerrainChanged(change) if undoing => match &change.placement {
-                    BuildingPlacementChange::Added { record, .. } => Some(record.id.as_str()),
-                    _ => None,
-                },
-                _ => None, // 整组容量由worker完整目标表证明，主线程不再分配/遍历全量ID集合。
-            };
-            if let Some(deletion_id) = deletion_id {
-                crate::authoring::placement_deletion::validate_deletions(&session, std::iter::once(deletion_id))?;
-            } // 纯变换、水历史和已准备整表不写原表，共享源不能误拒这些独立命令。
             let draft = session
                 .draft
                 .as_mut()
@@ -419,7 +401,7 @@ pub(crate) fn apply_undo_redo(
                             .ok_or_else(|| {
                                 "新增摆放已不在数组末尾，拒绝撤销到错误实例".to_owned()
                             })?;
-                        draft.placements.placements.pop(); // 新增命令始终追加；LIFO撤销据此保持O(1)，不扫描8192条记录。
+                        draft.placements.placements.pop(); // 新增命令始终追加，LIFO撤销据此保持O(1)。
                         draft.placement_water_surface_count = draft
                             .placement_water_surface_count
                             .saturating_sub(removed_surface_count); // 结构撤销按被删记录差值维护O(1)全图水绑定预算缓存。

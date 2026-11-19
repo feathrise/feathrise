@@ -1,4 +1,4 @@
-//! 整批删除准备沿真实输入/采用系统验证，完整表容量和取消均不能发布半笔历史。
+//! 验证整批删除采用、撤销重做和后台任务取消。
 
 use super::*;
 use super::super::super::{systems::start_job, types::*, worker};
@@ -34,12 +34,12 @@ fn wait_until(mut ready: impl FnMut() -> bool) {
     }
 }
 
-/// 夹具也在真实worker构造近满表，避免测试掩盖生产路径意外主线程整表复制。
+/// 夹具在后台构造大型删除表，沿用生产路径的所有权交接。
 fn seed_pending(app: &mut App, count: usize) {
     let source = app.world().resource::<EditorAuthoringSession>().placement_deletions.source();
     let mut task = AsyncComputeTaskPool::get().spawn(async move {
         let ids: Vec<_> = (0..count).map(|index| format!("pending-earlier-{index:04}")).collect();
-        source.prepare(ids.iter().map(String::as_str), std::iter::empty()).unwrap()
+        source.prepare(ids.iter().map(String::as_str), std::iter::empty())
     });
     let mut prepared = None;
     wait_until(|| { prepared = check_ready(&mut task); prepared.is_some() });
@@ -111,9 +111,10 @@ fn held_job(app: &mut App, prepare_before_gate: bool) -> (WorkerGate, Arc<Atomic
 }
 
 #[test]
-fn near_full_table_deletes_256_members_then_undo_redo_restores_one_atomic_history() {
+fn deletion_history_remains_atomic_past_the_old_placement_limit() {
     let (mut app, node) = prepared_app(256);
-    seed_pending(&mut app, 7936);
+    let pending = 8193 - 256;
+    seed_pending(&mut app, pending);
     let session = app.world().resource::<EditorAuthoringSession>();
     let records = session.draft.as_ref().unwrap().placements.placements.clone();
     let author = session.revision;
@@ -121,7 +122,7 @@ fn near_full_table_deletes_256_members_then_undo_redo_restores_one_atomic_histor
     until(&mut app, node, Vec2::splat(0.5), |state| !state.busy());
     let session = app.world().resource::<EditorAuthoringSession>();
     assert!(session.draft.as_ref().unwrap().placements.placements.is_empty());
-    assert_eq!(session.placement_deletions.len(), 8192);
+    assert_eq!(session.placement_deletions.len(), 8193);
     assert!(!session.placement_deletions.write_shared());
     assert_eq!(session.revision, author + 1);
     assert_eq!((session.undo.len(), session.redo.len()), (1, 0));
@@ -130,32 +131,15 @@ fn near_full_table_deletes_256_members_then_undo_redo_restores_one_atomic_histor
     crate::authoring::drive_undo_redo_to_completion(&mut app);
     let session = app.world().resource::<EditorAuthoringSession>();
     assert_eq!(session.draft.as_ref().unwrap().placements.placements, records);
-    assert_eq!(session.placement_deletions.len(), 7936);
+    assert_eq!(session.placement_deletions.len(), pending);
     assert_eq!((session.undo.len(), session.redo.len()), (0, 1));
     flush_visuals(&mut app);
     app.world_mut().resource_mut::<SceneEditorState>().redo_requested = true;
     crate::authoring::drive_undo_redo_to_completion(&mut app);
     let session = app.world().resource::<EditorAuthoringSession>();
     assert!(session.draft.as_ref().unwrap().placements.placements.is_empty());
-    assert_eq!(session.placement_deletions.len(), 8192);
+    assert_eq!(session.placement_deletions.len(), 8193);
     assert_eq!((session.undo.len(), session.redo.len()), (1, 0));
-}
-
-#[test]
-fn over_capacity_delete_preserves_records_revisions_and_both_history_stacks() {
-    let (mut app, node) = prepared_app(256);
-    seed_pending(&mut app, 7937);
-    let session = app.world().resource::<EditorAuthoringSession>();
-    let records = session.draft.as_ref().unwrap().placements.placements.clone();
-    let revisions = (session.revision, session.placement_structure_revision, session.placement_deletions.revision());
-    key(&mut app, node, KeyCode::Delete, Vec2::splat(0.5));
-    until(&mut app, node, Vec2::splat(0.5), |state| !state.busy());
-    let session = app.world().resource::<EditorAuthoringSession>();
-    assert_eq!(session.draft.as_ref().unwrap().placements.placements, records);
-    assert_eq!((session.revision, session.placement_structure_revision, session.placement_deletions.revision()), revisions);
-    assert_eq!(session.placement_deletions.len(), 7937);
-    assert!(session.undo.is_empty() && session.redo.is_empty());
-    assert!(app.world().resource::<SceneEditorState>().status.contains("8192"));
 }
 
 #[test]

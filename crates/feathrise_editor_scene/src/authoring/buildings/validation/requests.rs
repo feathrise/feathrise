@@ -128,14 +128,6 @@ pub(in crate::authoring::buildings) fn request_from_viewport(
         );
         return;
     }
-    if draft.placements.placements.len() >= MAX_SCENE_PLACEMENTS_PER_SCENE {
-        report(
-            &mut editor,
-            &mut building_ui,
-            &format!("当前场景已达到{MAX_SCENE_PLACEMENTS_PER_SCENE}个显式摆放上限"),
-        );
-        return;
-    }
     if state.validation_task.is_some() || state.validation_waiting.is_some() {
         report(
             &mut editor,
@@ -381,14 +373,6 @@ pub(in crate::authoring::buildings) fn request_existing_edit(
         report(&mut editor, &mut building_ui, "场景作者草稿尚未就绪");
         return;
     };
-    if duplicate && draft.placements.placements.len() >= MAX_SCENE_PLACEMENTS_PER_SCENE {
-        report(
-            &mut editor,
-            &mut building_ui,
-            &format!("当前场景已达到{MAX_SCENE_PLACEMENTS_PER_SCENE}个显式摆放上限"),
-        );
-        return;
-    }
     let Some(source) = draft
         .placements
         .placements

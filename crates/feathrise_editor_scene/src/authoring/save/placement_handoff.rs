@@ -41,7 +41,7 @@ pub(super) fn prepare_placement_publish(
                 scene_id,               // 禁止比较到另一场景缓存。
                 snapshot,             // 本次已落盘完成值。
                 placements,           // `get`不触发Modified。
-                rebuild_unchanged, // 新增后删除可能使文件同值；仍须Rebuild确认旧候选失效，避免删除表满后永远无法通过保存释放。
+                rebuild_unchanged, // 新增后删除可能使文件同值，仍须确认旧候选已退役。
             )
         })
     } else {
@@ -117,25 +117,25 @@ pub(super) fn execute_placement_publish(
     handoff_started: bool,
     active_scene_id: Option<&SceneId>,
     scene_id: &SceneId,
-    snapshot: Option<&ScenePlacementsAsset>,
+    snapshot: &mut Option<ScenePlacementsAsset>,
     asset_path: Option<&str>,
     registry: Option<&SceneContentRegistry>,
     placements: &mut Assets<ScenePlacementsAsset>,
     asset_server: &AssetServer,
     rebuild_requests: &mut MessageWriter<ScenePlacementRebuildRequest>,
-) {
+) -> Option<ScenePlacementsAsset> {
     let publish_allowed =
         !preparation.handoff_required || active_scene_id != Some(scene_id) || handoff_started; // 当前场景必须先建门，非当前场景只更新正式缓存供下次进入。
     if !publish_allowed {
-        return; // 建门失败时不主动制造一个无法证明完成的正式事件。
+        return None; // 建门失败时不主动制造一个无法证明完成的正式事件。
     }
     match preparation.action {
         SavedPlacementsPublishAction::None => {} // 内容未变或监听已开始本次尝试，禁止制造第二个Modified。
         SavedPlacementsPublishAction::Replace => {
-            if let Some(snapshot) = snapshot
-                && !publish_saved_placements_asset(registry, scene_id, snapshot, placements)
-                && let Some(path) = asset_path
-            {
+            if let Some(previous) = publish_saved_placements_asset(registry, scene_id, snapshot, placements) {
+                return Some(previous); // 正式资产的完整旧版本交后台释放。
+            }
+            if let Some(path) = asset_path {
                 asset_server.reload(path.to_owned()); // 句柄意外失效时仍沿已建立交接门兜底。
             }
         }
@@ -152,6 +152,7 @@ pub(super) fn execute_placement_publish(
             }
         }
     }
+    None
 }
 
 #[cfg(test)]

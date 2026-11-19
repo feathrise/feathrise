@@ -60,8 +60,23 @@ pub(super) fn prepare(root: &Path, label: &str) -> Result<(), String> {
         sources.extend(copy_model_vegetation_probe(&staging)?);
         write_model_surface_fixture(&staging)?;
     } else if label == "独立工程 A" && std::env::var("FEATHRISE_BLENDER_MESH_VALIDATION").as_deref() == Ok("1") {
-        // 专项要验证原场景 GLB 写盘，先将本轮新建的中性摆放切至同一正式表示。
-        write_sample_scene_glb(&staging, &read_sample_placements(&staging)?, None)?;
+        let mut placements = read_sample_placements(&staging)?;
+        // 复用实际带索引的 GLB。额外碰撞面分开放置，让验收能逐个用物理射线核验。
+        for index in 0..8_193 {
+            let collision = index < 130;
+            let translation = if collision {
+                [30.0 + (index % 13) as f32 * 6.0, 2.0, 30.0 + (index / 13) as f32 * 6.0]
+            } else {
+                [30.0 + (index % 128) as f32 * 5.0, 2.0, -30.0 - (index / 128) as f32 * 5.0]
+            };
+            placements.placements.push(serde_json::from_value(json!({
+                "id":format!("blender-count-probe-{index:04}"),
+                "asset_path":"scene/probe.glb",
+                "asset_target":{"kind":"scene0","collision":collision},
+                "translation":translation, "yaw_degrees":0.0, "scale":[1.0,1.0,1.0]
+            })).map_err(|e| e.to_string())?);
+        }
+        write_sample_scene_glb(&staging, &placements, None)?;
     }
     encode_surface(&staging)?;
     write_new(

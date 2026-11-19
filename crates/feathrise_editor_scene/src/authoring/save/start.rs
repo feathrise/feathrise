@@ -2,6 +2,7 @@
 
 mod boundary_snapshot;
 mod deletion_snapshot; // 删除ID与弱票数组由单飞CPU任务完整捕获，启动帧只共享O(1)源。
+mod placement_snapshot; // 正式摆放与预览交接身份共用分帧预算。
 mod placement_water; // 整网格水记录分帧索引、根所有权筛选与完整Scene0证明保持独立纯职责。 // 空气墙点数组分帧捕获，避免保存启动帧全图复制。
 mod water_snapshot; // 多个水画布的路径身份按8画布/64层预算冻结，不把整图元数据遍历放进启动帧。
 
@@ -21,7 +22,7 @@ use feathrise_scene::{
 
 use super::super::resources::{
     DraftSaveTask, EditorAuthoringSession, GlobalEnvironmentAuthoringState,
-    GlobalEnvironmentSaveTask, PlacementPreviewHandoffSnapshot, PlacementSaveHandoffSnapshot, PlacementWaterEvidenceRegistry,
+    GlobalEnvironmentSaveTask, PlacementSaveHandoffSnapshot, PlacementWaterEvidenceRegistry,
     WaterBrushStroke, WaterPreviewState,
     WaterSaveHandoffSnapshot,
 }; // 保存single-flight、作者修订、活动水笔划与联合水预览证据。
@@ -51,13 +52,10 @@ pub(crate) use placement_water::{
     unregister_placement_water_evidence_root,
 }; // 插件注册生命周期observer，稳定帧不执行全量Changed或marker Query。 // 保存系统只编排两级有界游标与缓存完成值。 // 删除互斥、保存请求与关闭状态。 // 子模块回归直接验证固定预算。
 
-const MAX_PLACEMENT_HANDOFF_PREVIEWS: usize = 8_192; // 与正式显式摆放全图硬预算相同，保存快照绝不无界增长。
-
 /// 保存启动时读取的当前玩法场景及正式完成证据。
 #[derive(SystemParam)]
 pub(crate) struct SaveRuntimeReadiness<'w, 's> {
-    placement_previews: Query<'w, 's, (Option<&'static ScenePlacementInstance>, Option<&'static Transform>,
-        Option<&'static ChildOf>, Option<&'static DynamicWaterMeshOverrides>), With<EditorPlacedAsset>>, // 仅沿session地址直接get，不扫描世界。
+    placement_previews: placement_snapshot::PlacementPreviewRoots<'w, 's>,
     vegetation_cross: Option<Res<'w, crate::authoring::vegetation_paint_scope::VegetationPaintState>>,
     vegetation_layers: Option<Res<'w, crate::ui::vegetation_layers::VegetationBlankLayerAllocation>>,
     terrain_objects: Option<Res<'w, crate::ui::terrain_objects::TerrainObjectsEditorState>>,
@@ -67,6 +65,7 @@ pub(crate) struct SaveRuntimeReadiness<'w, 's> {
     boundary_capture: Local<'s, boundary_snapshot::BoundarySaveCapture>, // 复用系统参数组，不突破系统参数数量。
     water_capture: Local<'s, water_snapshot::WaterSaveCapture>,
     deletion_capture: Local<'s, deletion_snapshot::DeletionSaveCapture>,
+    placement_capture: Local<'s, placement_snapshot::PlacementSaveCapture>,
     authoring_retirement: Option<ResMut<'w, crate::authoring::AuthoringRetirement>>, // 独立保存工具缺省时由捕获槽承担有界后台退役。
     boundary_edit: Option<Res<'w, crate::authoring::BoundaryEditState>>, // 实时拖点未收口时不冻结半笔。
     boundary_numeric: Option<Res<'w, crate::authoring::boundary::BoundaryThicknessInputState>>, // 三个墙体数值字段共享收口门。
@@ -112,20 +111,23 @@ pub(crate) fn start_draft_save(
             Option<&EditorPlacedAsset>, // 精确区分作者预览与正式/候选根。
         ),
         With<ScenePlacementWaterEvidence>,
-    >, // 只按observer登记的Entity直接get；8192个普通placement不进入等待帧查询。
+    >, // 只按observer登记的水根Entity直接get。
 ) {
     readiness.deletion_capture.poll(&session, editor.save_requested, readiness.authoring_retirement.as_deref_mut());
+    readiness.placement_capture.poll(&session, editor.save_requested, readiness.authoring_retirement.as_deref_mut());
     if session.water_preset_delete_pending || session.model_vegetation_busy { return; } // 整笔后台采用前不冻结半份模型植被。
     if readiness.vegetation_layers.as_ref().is_some_and(|state| state.busy()) { return; } // 作者层结构与模型样本共同采用后再响应保存意图。
     // 最先轮询：请求撤销、切换场景或其他领域仍在等待时，也不能遗弃持有旧源的后台任务。
     if readiness.terrain_objects.as_ref().is_some_and(|state| state.busy()) { return; } // 对象完整采用前不冻结过期集合。
     if readiness.vegetation_cross.as_ref().is_some_and(|state| state.busy()) {return;} // 本笔与全部成员图片收口前保留保存意图。
+    let requires_water_evidence = session.draft.as_ref()
+        .is_some_and(|draft| draft.placement_water_surface_count != 0);
     let scene_event_progress = consume_relevant_world_asset_events(
         &scene_events,
         &mut scene_event_cursor,
         &mut save.placement_water_preflight,
         placement_water_registry.status_revision, // 之后同根状态序号必须严格越过此资产事件基线才能恢复Ready信用。
-        editor.save_requested,
+        editor.save_requested && requires_water_evidence,
     ); // 即使没有保存请求也推进独立消息游标，未来请求不会重放历史GLB事件。
     if readiness
         .folder_persistence
@@ -184,9 +186,10 @@ pub(crate) fn start_draft_save(
         editor.status = "当前地表作者操作正在后台完成；收口后会自动继续保存".to_owned(); // 当前完整地表继续可见，保存请求稍后自动继续。
         return; // 不消费save_requested，也不冻结旧草稿或启动IO。
     } // 地表后台作者事务保存门结束。
-    let scene_events_caught_up = match scene_event_progress {
-        Ok(caught_up) => caught_up, // 没有消息淘汰时继续使用固定预算追平结果。
-        Err(missed) => {
+    let scene_events_caught_up = match (requires_water_evidence, scene_event_progress) {
+        (false, _) => true, // 普通模型的保存不依赖网格水状态事件。
+        (true, Ok(caught_up)) => caught_up, // 没有消息淘汰时继续使用固定预算追平结果。
+        (true, Err(missed)) => {
             editor.save_requested = false; // 事件身份已经不可恢复，本次保存必须零IO失败关闭。
             editor.cancel_close_with_error(format!(
                 "场景保存已停止：Scene0资产事件读者因积压丢失{missed}条消息，无法证明整网格水属于最新GLB；请重新保存"
@@ -445,17 +448,14 @@ pub(crate) fn start_draft_save(
         editor.status = "正在后台准备摆放删除的保存确认快照…".into();
         return; // 完整删除scope与独立修订匹配前保留请求，ack换代也不能借session.revision旧值通过。
     }
-    editor.save_requested = false; // 所有派生输入和空气墙、水画布、删除身份快照完整后消费请求。
+    if !readiness.placement_capture.step(&session, &readiness.placement_previews) {
+        editor.status = "正在分帧准备摆放和预览交接…".into();
+        return;
+    }
+    editor.save_requested = false; // 只在完整派生输入及交接快照就绪后消费请求。
     if save.task.is_some() || global_save.task.is_some() || session.saving {
         editor.status = "场景保存任务正在执行".to_owned();
         return;
-    }
-    if session.placement_previews.len() > MAX_PLACEMENT_HANDOFF_PREVIEWS {
-        editor.cancel_close_with_error(format!(
-            "场景保存已停止：草稿Scene0预览超过{}项的交接硬预算",
-            MAX_PLACEMENT_HANDOFF_PREVIEWS
-        ));
-        return; // 不启动IO，也不截断实体快照；异常文档必须先由作者修正。
     }
     let Some(source) = session.draft.as_ref() else {
         editor
@@ -473,7 +473,8 @@ pub(crate) fn start_draft_save(
     }; // 没有文档时不采用上一请求残留值。
     let deleted = readiness.deletion_capture.take(&session)
         .expect("保存请求消费前已确认完整删除快照，当前系统内作者删除表不会被其他系统修改");
-    let draft = boundary_snapshot::snapshot(source, boundaries); // 其他领域维持既有共享快照，不临时修改源草稿。
+    let (placements, editor_previews) = readiness.placement_capture.take(&source.placements);
+    let draft = boundary_snapshot::snapshot(source, boundaries, placements);
     let global_environment_snapshot = global_environment
         .dirty
         .then(|| global_environment.draft.clone()); // 只有未保存全局草稿才加入场景批次，场景单独保存不制造无关全局写入。
@@ -507,12 +508,7 @@ pub(crate) fn start_draft_save(
         baseline_attempt_revision: readiness.placements.attempt_revision, // 保存前旧Failed不能冒充本次发布失败。
         retry_failed_runtime: readiness.active_scene.scene_id.as_ref() == Some(&draft.scene_id)
             && water_handoff.placement_retry_required_for(&draft.scene_id), // 只有当前玩法场景允许原样重建正式候选。
-        editor_previews: session
-            .placement_previews
-            .iter()
-            .filter_map(|(id, entity)| readiness.placement_previews.get(*entity).ok().and_then(|(instance, transform, parent, water)|
-                PlacementPreviewHandoffSnapshot::from_components(&draft.scene_id, id, *entity, instance, transform, parent, water)))
-            .collect(), // 沿既有8192地址上限冻结O(1)版本/姿态证据，同Entity上的后来作者值也不属于本批。
+        editor_previews,
         deleted, // 移动后台完成且scope/独立删除修订仍匹配的弱票；完成帧不得直接清空当前删除表。
     }); // 即使没有水域文件，整网格水和普通摆放仍共享精确预览生命周期。
     let revision = session.revision;
@@ -525,7 +521,7 @@ pub(crate) fn start_draft_save(
         (
             ticket,
             revision,
-            super::batch::save_draft_with_volumes(&draft, global_environment_snapshot.as_ref(), &volume_files).await, // 自动GLB与placements同批发布，失败共同回滚。
+            super::batch::save_draft_with_volumes(draft, global_environment_snapshot.as_ref(), &volume_files).await, // 自动GLB与placements同批发布，失败共同回滚。
         )
     }));
     // 高度作者源由分页事务保存；场景模型继续使用既有scene.glb保存，不派生旧地形GLB/Blend。

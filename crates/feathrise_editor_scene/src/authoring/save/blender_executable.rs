@@ -1,11 +1,8 @@
-//! 仅负责有界发现本机 Blender，可供绑骨等显式工具任务复用。
+//! 发现本机 Blender，供网格往返、绑骨等显式工具任务复用。
 
 use std::path::{Path, PathBuf};
 
 const BLENDER_PATH_ENVIRONMENT: &str = "BEVY_LEARN5_BLENDER_PATH";
-const MAX_PATH_DIRECTORIES: usize = 256; // 环境变量内容不应把工具任务变成无限目录扫描。
-#[cfg(windows)]
-const MAX_BLENDER_INSTALLATIONS: usize = 64;
 
 /// 找到显式配置、PATH 或 Windows 标准安装目录中的 Blender 可执行文件。
 pub(crate) fn find_blender_executable() -> Result<PathBuf, String> {
@@ -21,7 +18,7 @@ pub(crate) fn find_blender_executable() -> Result<PathBuf, String> {
     }
     let executable_name = if cfg!(windows) { "blender.exe" } else { "blender" };
     if let Some(path_value) = std::env::var_os("PATH") {
-        for directory in std::env::split_paths(&path_value).take(MAX_PATH_DIRECTORIES) {
+        for directory in std::env::split_paths(&path_value) {
             let candidate = directory.join(executable_name);
             if is_nonempty_regular_file(&candidate) {
                 return Ok(candidate); // PATH 顺序保留作者选择的版本优先级。
@@ -52,7 +49,7 @@ fn newest_windows_blender_installation() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     for root in roots {
         let Ok(entries) = std::fs::read_dir(root) else { continue; };
-        for entry in entries.take(MAX_BLENDER_INSTALLATIONS).flatten() {
+        for entry in entries.flatten() {
             let candidate = entry.path().join("blender.exe");
             if is_nonempty_regular_file(&candidate) {
                 candidates.push(candidate);

@@ -58,19 +58,16 @@ impl FrozenDeletionIdentity {
 }
 
 impl PlacementDeletionSource {
-    /// 仅在worker调用；恢复项最后执行，上限按整笔最终结果校验。
+    /// 在后台准备完整删除表，整笔操作的恢复项最后应用。
     pub(crate) fn prepare<'a, 'b>(self, deleted: impl Iterator<Item = &'a str>,
-        restored: impl Iterator<Item = &'b str>) -> Result<PreparedPlacementDeletions, String> {
+        restored: impl Iterator<Item = &'b str>) -> PreparedPlacementDeletions {
         let Self { identity, ids } = self;
         let mut candidate = (*ids).clone();
         for id in deleted { candidate.insert(id.to_owned(), Arc::new(())); }
         for id in restored { candidate.remove(id); }
         // 完成值不能继续持有源表strong；即使结果尚未采用，作者写门也能重新打开。
         drop(ids);
-        if candidate.len() > feathrise_scene_content::MAX_SCENE_PLACEMENTS_PER_SCENE {
-            return Err("未确认的摆放删除已达8192项，请先保存并等待正式采用后再删除；本次操作未执行".to_owned());
-        }
-        Ok(PreparedPlacementDeletions { identity, ids: Arc::new(candidate) })
+        PreparedPlacementDeletions { identity, ids: Arc::new(candidate) }
     }
 
     /// 仅在worker遍历；返回数组仅保留弱票据，保存不会让撤销票据续命。

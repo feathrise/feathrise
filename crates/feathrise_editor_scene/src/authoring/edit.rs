@@ -4,7 +4,7 @@ use bevy::color::LinearRgba; // 传送点作者预览使用高可见度自发光
 use bevy::prelude::*; // ECS、GLTF、PBR预览和输入。
 use bevy::ui::RelativeCursorPosition; // 左键只在编辑视口内生效。
 use feathrise_scene_content::{
-    MAX_SCENE_PLACEMENTS_PER_SCENE, SceneContentRegistry, SceneId, SceneManifestAsset,
+    SceneContentRegistry, SceneId, SceneManifestAsset,
     ScenePlacementAssetTarget, ScenePlacementHeightMode, ScenePlacementRecord, ScenePortalRecord,
 }; // 新传送点名称从目标正式清单派生，编辑结果仍直接写作者结构。
 use feathrise_portal::{
@@ -364,10 +364,6 @@ pub(super) fn create_cuboid_at(
         return None;
     }
     let draft = session.draft.as_ref()?;
-    if draft.placements.placements.len() >= MAX_SCENE_PLACEMENTS_PER_SCENE {
-        editor.status = format!("当前场景已达到{MAX_SCENE_PLACEMENTS_PER_SCENE}个显式资产上限");
-        return None;
-    }
     let map = draft.scene_id.clone();
     if editor.selected_scene_id.as_ref() != Some(&map) { return None; }
     let id = next_author_id(session, "placement");
@@ -663,14 +659,6 @@ pub(crate) fn place_from_viewport(
                     }
                 }
             };
-            if session.draft.as_ref().is_some_and(|draft| {
-                draft.placements.placements.len() >= MAX_SCENE_PLACEMENTS_PER_SCENE
-            }) {
-                editor.status = format!(
-                    "当前场景已达到{MAX_SCENE_PLACEMENTS_PER_SCENE}个显式资产上限，请改用植被系统处理海量重复内容"
-                );
-                return; // 新放置与复制共用正式运行时数量硬门。
-            }
             let id = next_author_id(&mut session, "placement");
             // 三维命中保留完整Y；不能把洞内地板或壁面重新解释为上方的高度面。
             let mesh_ground=terrain_kind==feathrise_scene_content::SceneTerrainKind::SparseClipmap

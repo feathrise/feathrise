@@ -203,19 +203,6 @@ pub(in crate::authoring::buildings) fn poll_validation(
         &result.request.operation,
         BuildingPlacementOperation::Create | BuildingPlacementOperation::DuplicateExisting { .. }
     );
-    if adds_record
-        && session
-            .draft
-            .as_ref()
-            .is_some_and(|draft| draft.placements.placements.len() >= MAX_SCENE_PLACEMENTS_PER_SCENE)
-    {
-        report(
-            &mut editor,
-            &mut building_ui,
-            &format!("当前场景已达到{MAX_SCENE_PLACEMENTS_PER_SCENE}个显式摆放上限"),
-        );
-        return; // 后台期间其他入口可能刚好填满容量。
-    }
     if matches!(
         &result.sparse_leveling,
         Some(SparseBuildingLevelingState::Prepared(_))
@@ -496,11 +483,6 @@ fn apply_duplicated_building(
         .draft
         .as_ref()
         .ok_or_else(|| "场景作者草稿已经失效".to_owned())?;
-    if draft.placements.placements.len() >= MAX_SCENE_PLACEMENTS_PER_SCENE {
-        return Err(format!(
-            "当前场景已达到{MAX_SCENE_PLACEMENTS_PER_SCENE}个显式摆放上限"
-        ));
-    }
     let next_surface_count = draft
         .placement_water_surface_count
         .checked_add(source.water_surfaces.len())

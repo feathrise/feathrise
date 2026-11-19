@@ -381,7 +381,13 @@ fn observe(
         && (!plan.run_saved_play || plan.play_result.as_ref().is_some_and(Result::is_ok))
         && !plan.cancel_requested;
     let instances = placements.iter().filter(|(instance, _)| instance.scene_id().as_str() == "M1-SAMPLE" && instance.is_active())
-        .take(128).map(|(instance, transform)| json!({"id":instance.id(),"position":transform.translation().to_array(),"asset_target":instance.asset_target()})).collect::<Vec<_>>();
+        .map(|(instance, transform)| json!({"id":instance.id(),"position":transform.translation().to_array(),"asset_target":instance.asset_target()}));
+    // Blender 专项需要证明全场景采用，普通启动报告仍取样。
+    let instances: Vec<_> = if std::env::var("FEATHRISE_BLENDER_MESH_VALIDATION").as_deref() == Ok("1") {
+        instances.collect()
+    } else {
+        instances.take(128).collect()
+    };
     let mut report = json!({
         "schema": 2,
         "scope": if plan.run_saved_play { "native_full_editor_saved_game_launcher_roundtrip" } else { "native_full_original_editor_startup_only" },

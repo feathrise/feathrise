@@ -45,7 +45,7 @@ fn deletion_source_shares_only_until_prepare_or_snapshot_finishes() {
     let intents = PlacementDeletionIntents::default();
     let source = intents.source();
     assert!(intents.write_shared());
-    let prepared = source.prepare(["deleted"].into_iter(), std::iter::empty()).unwrap();
+    let prepared = source.prepare(["deleted"].into_iter(), std::iter::empty());
     assert!(!intents.write_shared(), "完成值不能继续强共享源表");
     assert!(prepared.matches(&intents));
     let source = intents.source();
@@ -67,7 +67,7 @@ fn deletion_ack_waits_for_shared_source_then_invalidates_prepared_revision() {
     let saved = session.placement_deletions.snapshots().remove(0);
     assert!(!acknowledge_saved_deletion(app.world_mut(), &map, &saved));
     assert_eq!(app.world().resource::<EditorAuthoringSession>().placement_deletions.revision(), deletion_revision);
-    let prepared = source.prepare(std::iter::empty(), std::iter::empty()).unwrap();
+    let prepared = source.prepare(std::iter::empty(), std::iter::empty());
     assert!(acknowledge_saved_deletion(app.world_mut(), &map, &saved));
     let session = app.world().resource::<EditorAuthoringSession>();
     assert_eq!(session.revision, author_revision, "保存确认不能伪造作者修改");
@@ -85,7 +85,7 @@ fn deletion_candidate_kept_old_ticket_cannot_claim_an_undone_queued_mark() {
     let root = formal(&mut app, &map);
     app.world_mut().run_system_once(move |mut commands: Commands, mut session: ResMut<EditorAuthoringSession>| {
         mark_deleted(&mut commands, &mut session, &map, "deleted");
-        let prepared = session.placement_deletions.source().prepare(std::iter::empty(), std::iter::empty()).unwrap();
+        let prepared = session.placement_deletions.source().prepare(std::iter::empty(), std::iter::empty());
         commands.queue(move |world: &mut World| {
             // 在后续restore世界命令执行前检查，避免“先错遮、再释放”掩盖旧命令冒认。
             assert_eq!(world.get::<Visibility>(root), Some(&Visibility::Visible));
@@ -103,7 +103,7 @@ fn deletion_retired_empty_table_cannot_authorize_an_obsolete_queued_restore() {
     mark(&mut app, &map, "deleted");
     app.world_mut().run_system_once(move |mut commands: Commands, mut session: ResMut<EditorAuthoringSession>| {
         restore_deleted(&mut commands, &mut session, &map, "deleted");
-        let prepared = session.placement_deletions.source().prepare(["deleted"].into_iter(), std::iter::empty()).unwrap();
+        let prepared = session.placement_deletions.source().prepare(["deleted"].into_iter(), std::iter::empty());
         commands.queue(move |world: &mut World| {
             assert_eq!(world.get::<Visibility>(root), Some(&Visibility::Hidden),
                 "当前活动表已重新删除时，旧空表不得授权恢复；不能靠后续视觉队列掩盖错误释放");
@@ -122,7 +122,7 @@ fn deletion_queued_old_index_cannot_misclassify_add_between_prepared_publication
             else { mark_deleted(&mut commands, &mut session, &map, "deleted"); }
             let (deleted_ids, restored_ids) = if deleted { (Some("deleted"), None) } else { (None, Some("deleted")) };
             let prepared = session.placement_deletions.source()
-                .prepare(deleted_ids.into_iter(), restored_ids.into_iter()).unwrap();
+                .prepare(deleted_ids.into_iter(), restored_ids.into_iter());
             let add_scene = map.clone();
             commands.queue(move |world: &mut World| {
                 // 这条真实MPI Add位于旧发布之后、新表发布之前；旧表此时仍由退休命令强持。
@@ -148,7 +148,7 @@ fn deletion_prepared_adoption_replaces_atomically_and_rejects_other_scope() {
     let (mut app, map) = fixture();
     mark(&mut app, &map, "old");
     let prepared = app.world().resource::<EditorAuthoringSession>().placement_deletions.source()
-        .prepare(["new"].into_iter(), ["old"].into_iter()).unwrap();
+        .prepare(["new"].into_iter(), ["old"].into_iter());
     assert!(!prepared.matches(&PlacementDeletionIntents::default()));
     let before = app.world().resource::<EditorAuthoringSession>().placement_deletions.revision();
     let mut prepared = Some(prepared);
@@ -163,23 +163,13 @@ fn deletion_prepared_adoption_replaces_atomically_and_rejects_other_scope() {
 }
 
 #[test]
-fn deletion_worker_limit_failure_leaves_source_unchanged_and_writable() {
-    let intents = PlacementDeletionIntents::default();
-    let ids: Vec<String> = (0..=feathrise_scene_content::MAX_SCENE_PLACEMENTS_PER_SCENE).map(|n| format!("{n}")).collect();
-    assert!(intents.source().prepare(ids.iter().map(String::as_str), std::iter::empty()).is_err());
-    assert!(intents.is_empty());
-    assert_eq!(intents.revision(), 0);
-    assert!(!intents.write_shared());
-}
-
-#[test]
 fn deletion_withdrawal_revokes_ready_results_without_retaining_document_scope() {
     let (mut app, map) = fixture();
     mark(&mut app, &map, "deleted");
     let intents = &app.world().resource::<EditorAuthoringSession>().placement_deletions;
     let identity = intents.identity();
     let mut snapshot = intents.source().snapshot();
-    let prepared = intents.source().prepare(std::iter::empty(), std::iter::empty()).unwrap();
+    let prepared = intents.source().prepare(std::iter::empty(), std::iter::empty());
     let saved = snapshot.take().remove(0);
     let before = intents.revision();
     assert_eq!(identity.scope.strong_count(), 1, "后台结果和身份均不得强持文档scope");

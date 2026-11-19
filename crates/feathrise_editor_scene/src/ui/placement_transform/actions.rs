@@ -2,10 +2,7 @@
 
 use feathrise_editor_ui::EditorButtonClick;
 use bevy::prelude::*; // Commands、输入、Transform、Visibility与资源系统参数。
-use feathrise_scene_content::{
-    MAX_SCENE_PLACEMENTS_PER_SCENE, ScenePlacementHeightMode,
-    ScenePlacementRecord,
-}; // 复制数量、水绑定硬门与正式记录格式。
+use feathrise_scene_content::{ScenePlacementHeightMode, ScenePlacementRecord};
 use feathrise_scene::{DynamicClipmapGroundSurface, ScenePlacementInstance}; // Clipmap高度模式读取已采用曲面；活动正式根和作者预览共享稳定身份。
 
 use super::{
@@ -440,12 +437,6 @@ pub(crate) fn handle_placement_transform_actions(
                 editor.status = "场景作者草稿尚未就绪".to_owned();
                 return;
             };
-            if draft.placements.placements.len() >= MAX_SCENE_PLACEMENTS_PER_SCENE {
-                editor.status = format!(
-                    "当前场景已达到{MAX_SCENE_PLACEMENTS_PER_SCENE}个显式资产上限，不能继续复制"
-                );
-                return; // 海量重复内容应改用植被系统而不是突破运行时预算。
-            }
             if is_building {
                 transform_state.relocation_target = Some(target);
                 transform_state.relocation_intent = PlacementRelocationIntent::DuplicateBuilding;
@@ -505,7 +496,7 @@ pub(crate) fn handle_placement_transform_actions(
                 record_index: duplicate_index,      // 刚追加的精确数组槽。
                 structure_revision: session.placement_structure_revision, // 使用结构动作完成后的新修订。
                 authoring_revision: session.revision, // 落点前任何其他作者动作都会使旧意图失效。
-            }); // 复制后立即进入可用落点模式，不依赖最多8192条签名的分帧重建。
+            }); // 复制后立即进入可用落点模式，不等待场景树签名重建。
             transform_state.relocation_intent = PlacementRelocationIntent::Move;
             transform_state.focus = None; // 旧实例字符焦点失效。
             editor.tool = EditorTool::Inspect; // 落点点击不会再触发原PlaceAsset工具。
@@ -544,11 +535,9 @@ pub(crate) fn handle_placement_transform_actions(
                 editor.status = "选中资产下标已经变化，删除已取消".to_owned();
                 return; // O(1)下标失效时不扫描猜测另一条记录。
             }
-            if let Err(error) = crate::authoring::placement_deletion::validate_deletions(
-                &session, std::iter::once(record.id.as_str()),
-            ) {
+            if let Err(error) = crate::authoring::placement_deletion::validate_deletion_write(&session) {
                 editor.status = format!("删除资产失败：{error}");
-                return; // 容量不足不能先回收预览、删除记录或更换已有删除票据。
+                return; // 后台共享的删除表必须在记录和预览被移除前归还写权。
             }
             // 全部失败门之后回收自有预览；正式根由成功采用后的删除票据遮蔽。
             session.placement_previews.remove(&record.id);

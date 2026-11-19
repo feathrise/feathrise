@@ -19,7 +19,7 @@ use crate::{
     },
 };
 use bevy::prelude::*;
-use feathrise_scene_content::{MAX_SCENE_PLACEMENT_WATER_SURFACES_PER_SCENE, MAX_SCENE_PLACEMENTS_PER_SCENE};
+use feathrise_scene_content::MAX_SCENE_PLACEMENT_WATER_SURFACES_PER_SCENE;
 use feathrise_scene::{ClipmapGroundHit, ScenePlacementInstance, ScenePlacementWaterEvidence};
 use std::sync::Arc;
 
@@ -34,10 +34,6 @@ pub(super) fn begin(
         return;
     };
     let draft = session.draft.as_ref().unwrap();
-    if draft.placements.placements.len() + source.records.len() > MAX_SCENE_PLACEMENTS_PER_SCENE {
-        editor.status = "目标场景摆放数量不足，粘贴未开始".into();
-        return;
-    }
     if draft.placement_water_surface_count
         + source
             .records
@@ -146,7 +142,7 @@ pub(super) fn advance(
     }
     if !paste.source.patch_frames.is_empty() {
         let records = &session.draft.as_ref().unwrap().placements.placements;
-        // 这里只累计小型元数据，固定256项/帧；8192项的最坏扫描为32帧，与模型准备并行，不能整图克隆。
+        // 小型元数据按原帧预算累计，与模型准备并行，不能整图克隆。
         let end = (paste.budget_cursor + 256).min(records.len());
         for record in &records[paste.budget_cursor..end] {
             if let Some(patch) = &record.terrain_patch {
@@ -546,12 +542,10 @@ fn adopt_preview(
         return;
     }
     let draft = session.draft.as_mut().unwrap();
-    let invalid = draft.placements.placements.len() + prepared.apply.len()
-        > MAX_SCENE_PLACEMENTS_PER_SCENE
-        || draft.placement_water_surface_count + prepared.water_count
-            > MAX_SCENE_PLACEMENT_WATER_SURFACES_PER_SCENE;
+    let invalid = draft.placement_water_surface_count + prepared.water_count
+        > MAX_SCENE_PLACEMENT_WATER_SURFACES_PER_SCENE;
     if invalid {
-        editor.status = "目标场景容量已变化，整批粘贴未应用".into();
+        editor.status = "目标场景的网格水绑定容量不足，整批粘贴未应用".into();
         state.cleaning.push(paste.parent);
         state.cleaning.append(&mut paste.roots);
         state.cleaning.extend(paste.frames.iter().flatten().copied());

@@ -9,7 +9,7 @@ use bevy::tasks::futures::check_ready; // 后台单任务只非阻塞轮询。
 use bevy::ui::RelativeCursorPosition; // 仅中央编辑视口真实点击触发落印。
 use feathrise_scene_content::{
     BuildingPresetDescriptor, BuildingPresetRegistry, CourtyardPresetRegistry,
-    MAX_COURTYARD_MEMBERS_PER_PRESET, MAX_SCENE_PLACEMENTS_PER_SCENE, ScenePlacementRecord,
+    MAX_COURTYARD_MEMBERS_PER_PRESET, ScenePlacementRecord,
 }; // 已解析规范预设、成员预算和正式记录复用场景公共协议。
 
 use super::geometry::{instantiate_preset, transform_existing_member}; // 当前副本局部修改保留在整组变换中。
@@ -424,18 +424,6 @@ fn submit_operation(
     if candidates.is_empty() || candidates.len() > MAX_COURTYARD_MEMBERS_PER_PRESET {
         return Err("院落成员数量超出单次印章上限".to_owned());
     }
-    if creates_new
-        && draft
-            .placements
-            .placements
-            .len()
-            .saturating_add(candidates.len())
-            > MAX_SCENE_PLACEMENTS_PER_SCENE
-    {
-        return Err(format!(
-            "院落落印将超过场景 {MAX_SCENE_PLACEMENTS_PER_SCENE} 个摆放上限"
-        ));
-    }
     let mut validator =
         courtyard_validator_snapshot(session, building_registry, building_state, clipmap)?;
     if let Some(origin) = candidates
@@ -689,16 +677,6 @@ fn apply_complete_batch(
         .manifest
         .world_bounds()
         .ok_or_else(|| "场景范围无效".to_owned())?;
-    if creates_new
-        && draft
-            .placements
-            .placements
-            .len()
-            .saturating_add(records.len())
-            > MAX_SCENE_PLACEMENTS_PER_SCENE
-    {
-        return Err("在后台校验期间场景摆放数量已满".to_owned());
-    }
     if !creates_new && source.len() != records.len() {
         return Err("整组原成员与结果数量不一致".to_owned());
     }

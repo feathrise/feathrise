@@ -10,7 +10,7 @@ mod retirement; // 旧活动树、签名、Scene草稿与资产缓存按固定�
 mod scene; // 右栏上半区的BSN静态外壳。
 pub(crate) use scene::{SceneBaseGltfRow, SceneBaseTerrainDetails, sync_scene_base_gltf_row, scene_display_panel}; // GLB与Clipmap地形节点独立于摆放实例。
 mod scene_build; // Scene0根发现、DFS与路径物化均按固定预算分帧并原子采用。
-mod signature; // 最多8192条摆放结构签名按固定记录预算渐进生成。
+mod signature; // 全部摆放结构签名按每帧记录预算渐进生成。
 mod systems; // 固定行池、分页、展开点击与样式同步系统。
 mod scene_menu; // 已呈现行的稳定对象身份供右键菜单使用。
 pub(crate) use scene_menu::bind_scene_menu_rows;
@@ -39,17 +39,6 @@ pub(crate) use systems::{
     sync_gltf_browser_rows,
 }; // lib.rs按Input与Presentation阶段显式注册。
 
-/// 浏览器最多接纳的摆放实例数；海量重复内容应继续使用植被系统。
-pub(super) const MAX_GLTF_BROWSER_PLACEMENTS: usize = 8_192;
-/// 单个GLB最多缓存的可选网格数，防止异常资产让一次热更无限占用主线程。
-pub(super) const MAX_GLTF_MESHES_PER_ASSET: usize = 2_048;
-/// 所有已展开实例合计最多发布的网格或失效绑定子行数；根行不占本预算。
-pub(super) const MAX_GLTF_BROWSER_CHILD_ENTRIES: usize = 4_096;
-/// 完整公开树必须容纳全部合法placement根，再叠加有界展开子行。
-pub(super) const MAX_GLTF_BROWSER_ENTRIES: usize =
-    MAX_GLTF_BROWSER_PLACEMENTS * 2 + MAX_GLTF_BROWSER_CHILD_ENTRIES; // 每个根最多对应一个独立逻辑目录标题。
-/// Scene0根发现和层级遍历两个阶段各自的实体硬上限；超过后仍保留已得到的稳定网格。
-pub(super) const MAX_GLTF_WORLD_ENTITIES: usize = 8_192;
 /// 右栏固定行池大小；翻页只替换文本和稳定索引，不逐帧生成实体。
 pub(crate) const GLTF_BROWSER_ROW_COUNT: usize = 8;
 /// 每帧最多逐条检查的WorldAsset事件；超出时保守失效全部当前需求并O(1)清空其余reader。
@@ -58,7 +47,7 @@ pub(super) const MAX_GLTF_ASSET_EVENTS_PER_FRAME: usize = 256;
 pub(super) const MAX_GLTF_ASSET_DEMAND_PATHS_PER_FRAME: usize = 32;
 /// 每帧最多轮询的展开Scene0句柄数；队列轮转保证大量展开项不会饿死。
 pub(super) const MAX_GLTF_ASSET_POLLS_PER_FRAME: usize = 8;
-/// Scene0根发现每帧最多检查的实体槽位，禁止一次`iter_entities`扫描8192项。
+/// Scene0根发现每帧最多检查的实体槽位。
 pub(super) const MAX_GLTF_SCENE_ROOT_DISCOVERY_PER_FRAME: usize = 256;
 /// Scene0层级遍历每帧最多读取的节点或子关系步骤。
 pub(super) const MAX_GLTF_SCENE_TRAVERSAL_OPERATIONS_PER_FRAME: usize = 256;
@@ -66,7 +55,7 @@ pub(super) const MAX_GLTF_SCENE_TRAVERSAL_OPERATIONS_PER_FRAME: usize = 256;
 pub(super) const MAX_GLTF_SCENE_MESH_ROWS_PER_FRAME: usize = 64;
 /// Scene0分帧遍历每帧最多复制的有界节点路径段；深层路径不会藏在单次网格输出里。
 pub(super) const MAX_GLTF_SCENE_PATH_SEGMENT_COPIES_PER_FRAME: usize = 512;
-/// 每帧最多复制的摆放结构记录数；无深绑定的8192条短记录至少分32帧完成。
+/// 每帧最多复制的摆放结构记录数；剩余记录留给下一帧。
 pub(super) const MAX_GLTF_SIGNATURE_PLACEMENTS_PER_FRAME: usize = 256;
 /// 每帧最多复制的作者水绑定数；记录预算不能隐藏单条记录内最多64项深路径。
 pub(super) const MAX_GLTF_SIGNATURE_WATER_BINDINGS_PER_FRAME: usize = 64;
@@ -242,7 +231,7 @@ pub(super) struct CachedGltfAsset {
     pub(super) active_ready: bool,
     /// 稳定帧据此直接跳过World遍历。
     pub(super) phase: CachedGltfAssetPhase,
-    /// Scene0是否因实体硬上限而只得到前缀结果。
+    /// Scene0 是否遇到不可表示的实体索引或网格引用路径。
     pub(super) truncated: bool,
     /// 每次相关资产事件递增；分帧构建完成时必须仍匹配才能采用。
     pub(super) content_revision: u64,

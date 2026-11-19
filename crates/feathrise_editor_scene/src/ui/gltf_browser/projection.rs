@@ -199,7 +199,7 @@ impl RootProjection {
         false
     }
 
-    /// 旧投影含最多8192条小型索引，取消后随原行草稿逐项释放。
+    /// 投影索引随原行草稿逐项释放。
     pub(super) fn retire_one(&mut self) -> bool {
         if self.roots.pop().is_some() {
             return false;

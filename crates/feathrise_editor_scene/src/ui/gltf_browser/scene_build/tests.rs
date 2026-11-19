@@ -28,11 +28,16 @@ fn scene_mesh_index_keeps_original_glb_identity_after_display_lod_swap() {
 }
 
 #[test]
-fn worst_case_world_requires_many_bounded_updates() {
+fn scene_world_discovers_mesh_after_the_old_entity_limit() {
     let mut world = World::new();
-    for _ in 0..MAX_GLTF_WORLD_ENTITIES {
-        world.spawn_empty(); // 8192个根同时覆盖根发现和逐根DFS最坏路径。
+    for _ in 0..8_192 {
+        world.spawn_empty();
     }
+    let root = world.spawn_empty().id();
+    let node = world.spawn(Name::new("最后一个GLB对象")).id();
+    let mesh = world.spawn((Mesh3d(Handle::default()), GltfMeshName("网格".into()))).id();
+    world.entity_mut(root).add_child(node);
+    world.entity_mut(node).add_child(mesh);
     let mut build = BrowserSceneBuild::new(
         "gltf/worst.glb".to_owned(),
         Handle::<WorldAsset>::default().id(),
@@ -53,8 +58,10 @@ fn worst_case_world_requires_many_bounded_updates() {
     }
     updates += 1;
 
-    assert!(updates > 32); // 根发现32帧后，逐根DFS仍继续按操作预算推进。
-    assert!(build.meshes.is_empty());
+    assert!(updates > 32);
+    assert!(!build.truncated);
+    assert_eq!(build.meshes.len(), 1);
+    assert_eq!(build.meshes[0].node_path, ["最后一个GLB对象"]);
 }
 
 #[test]
@@ -75,10 +82,10 @@ fn wide_root_does_not_copy_all_children_in_one_update() {
     while !build.roots_discovered {
         advance_scene_build(&mut build, &world, |_| None);
     }
-    let visited_before = build.visited_entities;
+    let visited_before = build.visited_entities.len();
     assert!(!advance_scene_build(&mut build, &world, |_| None));
     assert!(
-        build.visited_entities.saturating_sub(visited_before)
+        build.visited_entities.len().saturating_sub(visited_before)
             <= MAX_GLTF_SCENE_TRAVERSAL_OPERATIONS_PER_FRAME,
     ); // 单个Children列表也只能逐项推进，不能整批clone到栈。
 }

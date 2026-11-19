@@ -4,6 +4,8 @@
 //! 单击只显示当前活动World实例中全部匹配primitive的F12专属覆盖，双击才调整现有相机。
 //! 层级解析按固定操作预算跨帧推进，稳定帧只验证缓存根和有限primitive，不扫描全世界或Mesh顶点。
 
+use std::collections::HashSet;
+
 use bevy::camera::primitives::Aabb; // glTF加载器已经为每个primitive提供局部包围盒。
 use bevy::prelude::*; // Resource、Handle、GlobalTransform与三维数学类型。
 use bevy::world_serialization::InstanceId; // World热重载通过不可伪造实例票据精确失效旧解析。
@@ -29,7 +31,6 @@ const DOUBLE_CLICK_MAX_SECONDS: f64 = 0.36; // 与静水列表保持同一常见
 const FOCUS_PADDING_SCALE: f32 = 1.25; // 三维物体定位后四周保留空间关系。
 const FOCUS_PADDING_METERS: f32 = 2.0; // 小道具也至少保留两米观察边距。
 pub(super) const LOOKUP_OPERATIONS_PER_FRAME: usize = 256; // DFS节点或父链路径段都占一次固定操作。
-pub(super) const MAX_LOOKUP_DESCENDANTS: usize = 8_192; // 与GLB浏览器单Scene0实体硬上限一致。
 pub(super) const MAX_SELECTED_PRIMITIVES: usize = 64; // 单次精确覆盖限制材质primitive数量，超额不发布半套高亮。
 pub(super) const MAX_LOOKUP_PATH_DEPTH: usize = 64; // 与可持久网格水节点路径深度硬门一致。
 
@@ -108,11 +109,11 @@ pub(super) struct PlacementMeshLookup {
     pub(super) root: Entity,                            // 当前活动placement根。
     pub(super) instance_id: Option<InstanceId>,         // 热重载换票立即拒收旧游标。
     pub(super) author_preview: bool,                    // 徽标区分未保存精确预览和正式实例。
-    pub(super) frames: Vec<PlacementHierarchyFrame>,    // DFS深度最多受实体硬门限制。
+    pub(super) frames: Vec<PlacementHierarchyFrame>,    // 保留尚未遍历完成的父链。
     pub(super) pending_path: Option<PendingPlacementCandidatePath>, // 同名primitive父链逐段恢复。
     pub(super) matches: Vec<Entity>,                    // 完成前只写私有草稿，不发布半套覆盖。
     pub(super) matched_object_node: Option<Entity>,     // 同路径不同对象视为运行时歧义。
-    pub(super) descendants_seen: usize,                 // 超过Scene0硬预算时明确失败。
+    pub(super) visited: HashSet<Entity>,                // 记实际访问过的实体，防止异常关系重复绕行。
 }
 
 impl PlacementMeshLookup {
@@ -135,7 +136,7 @@ impl PlacementMeshLookup {
             pending_path: None,        // 尚未遇到同名primitive。
             matches: Vec::new(),       // 全部完成前不发布源实体。
             matched_object_node: None, // 第一项完整匹配后再冻结对象身份。
-            descendants_seen: 0,       // World根本身不计后代额度。
+            visited: HashSet::from([root]), // 发现重新指向根的关系也会跳过。
         }
     }
 }

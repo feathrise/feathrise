@@ -283,7 +283,7 @@ pub fn author_tools_enabled() -> bool {
     super::author_workflow_validation::enabled()
 }
 
-/// 只读当前小验收图真正打开的作者文档，用于退出后A→B→A核对；不从磁盘伪造World内容。
+/// 只读验收图真正打开的作者文档，用于退出后重开核对。
 pub fn current_author_snapshot(world: &World) -> Option<serde_json::Value> {
     if std::env::var_os("NEW_EDITOR_NATIVE_SMOKE_DIR").is_none() {
         return None;
@@ -291,7 +291,7 @@ pub fn current_author_snapshot(world: &World) -> Option<serde_json::Value> {
     let session = world.get_resource::<EditorAuthoringSession>()?;
     let draft = session.draft.as_ref()?;
     if draft.scene_id.as_str() != "M1-SAMPLE"
-        || draft.placements.placements.len() > 16
+        || (!blender_mesh::enabled() && draft.placements.placements.len() > 16)
         || draft
             .manifest
             .terrains

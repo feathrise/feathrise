@@ -9,7 +9,6 @@ use super::retirement::{BrowserRetiredGeneration, BrowserRetirementBudget, Brows
 use super::{
     CachedGltfAssetPhase, EditorGltfBrowserEntry, EditorGltfBrowserEntryKind,
     EditorGltfBrowserState, EditorGltfMeshSelection, GLTF_BROWSER_ROW_COUNT,
-    MAX_GLTF_BROWSER_CHILD_ENTRIES, MAX_GLTF_BROWSER_ENTRIES, MAX_GLTF_BROWSER_PLACEMENTS,
     MAX_GLTF_ENTRY_OPERATIONS_PER_FRAME, MAX_GLTF_ENTRY_PATH_SEGMENTS_PER_FRAME,
     MAX_GLTF_ENTRY_ROWS_PER_FRAME, MAX_GLTF_ENTRY_STRING_BYTES_PER_FRAME,
 }; // 所有硬预算和公开行类型集中在模块入口。
@@ -42,10 +41,6 @@ pub(super) struct BrowserEntriesBuild {
     stage: BrowserEntryBuildStage,
     /// 完成前不暴露给固定UI行池的拥有型结果。
     entries: Vec<EditorGltfBrowserEntry>,
-    /// 已发布的网格与失效绑定子行数；全部placement根始终保留分页入口。
-    child_entries: usize,
-    /// 本次构建是否触及实例、资产或全局行硬上限。
-    truncated: bool,
     /// 当前实例尚未被真实网格命中的水绑定；真实网格阶段只做O(log 64)查找。
     unmatched_water_bindings:
         BTreeMap<(Vec<String>, String), (u32, feathrise_scene_content::ScenePlacementWaterKind)>,
@@ -60,9 +55,7 @@ impl BrowserEntriesBuild {
             signature_revision: state.observation.placement_structure_revision, // 锁定当前活动签名身份。
             placement_index: 0,                       // 下一次从第一个实例根开始。
             stage: BrowserEntryBuildStage::Placement, // 每个实例必须先发布根。
-            entries: Vec::with_capacity(MAX_GLTF_BROWSER_ENTRIES), // 最多8192根加4096条展开子行，固定上限不随异常资产增长。
-            child_entries: 0, // 根行不消耗展开预算，合法场景尾部实例始终可见。
-            truncated: state.source_placement_count > MAX_GLTF_BROWSER_PLACEMENTS, // 原始实例超限立即记诊断。
+            entries: Vec::with_capacity(state.signature.len()),
             unmatched_water_bindings: BTreeMap::new(), // 每个实例重新渐进填入最多64项绑定。
         }
     }
@@ -164,19 +157,20 @@ fn path_string_bytes(path: &[String]) -> usize {
 /// 将完成且身份仍匹配的行草稿一次替换为公开活动树。
 fn publish_completed_entries(
     state: &mut EditorGltfBrowserState, // 当前活动签名、缓存、选择与分页。
-    build: BrowserEntriesBuild,         // 已完成且修订匹配的拥有型草稿。
+    mut build: BrowserEntriesBuild,     // 已完成且修订匹配的拥有型草稿。
 ) -> Result<(), BrowserEntriesBuild> {
-    if !state.entries.is_empty() && !state.retirement.can_enqueue_normal() {
+    let has_projection = !build.projection.roots.is_empty();
+    if (!state.entries.is_empty() || has_projection) && !state.retirement.can_enqueue_normal() {
         return Err(build); // 旧活动树尚无退役槽时保留完整新草稿，最新修订继续合并。
     }
-    let BrowserEntriesBuild {
-        entries, truncated, ..
-    } = build; // 身份已经由调用方复核，其余游标均为固定小标量。
-    let old_entries = std::mem::replace(&mut state.entries, entries); // 新树仍一次原子换指针。
+    let old_entries = std::mem::replace(&mut state.entries, std::mem::take(&mut build.entries));
     let mut retired = BrowserRetiredGeneration::default(); // 旧根行与展开子行只移动所有权。
     retired.entries(old_entries); // 后续Update按元素/路径/字节预算逐条释放。
+    if has_projection {
+        retired.entries_build(Some(build)); // 搜索和分组索引也随旧行分帧释放。
+    }
     state.retirement.enqueue_normal_reserved(retired); // release构建同样无条件转移旧树。
-    state.truncated = truncated || state.truncated_asset_count > 0; // O(1)汇总单资产World截断。
+    state.truncated = state.truncated_asset_count > 0; // O(1)汇总无法表示完整引用路径的资产。
     let old_selection = state.selection.take(); // 避免同时借用状态和选择字段。
     state.selection = old_selection.and_then(|selection| {
         revalidate_selection(state, selection, &state.duplicate_placement_ids) // 热更、释放和绑定结构换代后重新确认。
@@ -218,7 +212,7 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
     if !build.projection.advance(state) { state.entries_build = Some(build); return false; }
     let mut rows = 0usize; // 实际字符串/路径复制另受更紧的行预算。
     let mut copy_budget = EntryBuildFrameBudget::default(); // 深路径和字符串不能藏在单行额度内。
-    let mut completed = false; // 只有全部签名或全局行上限结束才可发布。
+    let mut completed = false; // 完整根及其展开行读取完毕后发布。
     while operations < MAX_GLTF_ENTRY_OPERATIONS_PER_FRAME && rows < MAX_GLTF_ENTRY_ROWS_PER_FRAME {
         let linear_token = super::projection::RootToken::Placement { index: build.placement_index, depth: 0 };
         let token = if build.projection.linear {
@@ -307,19 +301,11 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                 });
                 if !expandable || collapsed || !cache.is_some_and(|cache| cache.active_ready) {
                     advance_to_next_placement(&mut build); // 折叠、加载和失败根没有当前子行。
-                } else if build.child_entries >= MAX_GLTF_BROWSER_CHILD_ENTRIES {
-                    build.truncated = true; // 子行预算耗尽只折叠后续内容，绝不截掉合法尾部根。
-                    advance_to_next_placement(&mut build);
                 } else {
                     build.stage = BrowserEntryBuildStage::WaterBindingIndex(0); // 先按预算建立最多64项绑定索引。
                 }
             }
             BrowserEntryBuildStage::WaterBindingIndex(binding_index) => {
-                if build.child_entries >= MAX_GLTF_BROWSER_CHILD_ENTRIES {
-                    build.truncated = true;
-                    build.stage = BrowserEntryBuildStage::MissingWaterBinding; // 已复制的深绑定仍按预算逐项释放。
-                    continue; // 剩余未复制绑定和真实网格无需再读取。
-                }
                 operations += 1; // 索引检查即使到达末尾也占一个固定操作。
                 let Some(binding) = placement.water_bindings.get(binding_index) else {
                     build.stage = BrowserEntryBuildStage::Mesh(0); // 完整小索引建立后才读取网格。
@@ -339,11 +325,6 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                 );
             }
             BrowserEntryBuildStage::Mesh(mesh_index) => {
-                if build.child_entries >= MAX_GLTF_BROWSER_CHILD_ENTRIES {
-                    build.truncated = true;
-                    build.stage = BrowserEntryBuildStage::MissingWaterBinding; // 跳过剩余网格，已建绑定索引继续有界排空。
-                    continue;
-                }
                 operations += 1; // 即使缓存阶段已变化也计入一步。
                 let Some(cache) = state
                     .assets
@@ -411,7 +392,6 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                     depth: group_depth + mesh.node_path.len().clamp(1, 5), // 组内网格保留逻辑目录缩进。
                     selection: Some(selection),              // 无效网格也能选中查看诊断。
                 });
-                build.child_entries += 1; // 只有网格/失效绑定消耗全树4096条展开预算。
                 build.stage = BrowserEntryBuildStage::Mesh(mesh_index.saturating_add(1)); // 下一帧预算继续同一实例。
             }
             BrowserEntryBuildStage::MissingWaterBinding => {
@@ -423,7 +403,6 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                     continue;
                 };
                 let path_bytes = path_string_bytes(node_path); // 正式作者绑定总长受4096字符硬门。
-                let output_row = build.child_entries < MAX_GLTF_BROWSER_CHILD_ENTRIES; // 额度耗尽后仍逐项释放已建索引，但不截掉后续根。
                 let row_segments = node_path.len().saturating_mul(3); // 旧键释放、选择clone与join各遍历一份。
                 let row_bytes = path_bytes
                     .saturating_mul(4) // 旧键、选择、join及display的保守总量。
@@ -438,10 +417,6 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                     .unmatched_water_bindings
                     .pop_first()
                     .expect("上方已确认首个失效绑定存在"); // 移出后本实例索引单调收敛。
-                if !output_row {
-                    build.truncated = true;
-                    continue; // 当前深身份已经服从路径/字节预算释放，下一项继续渐进排空。
-                }
                 let path = if node_path.is_empty() {
                     "[缺少节点路径]".to_owned() // 非法旧数据仍能定位并清除。
                 } else {
@@ -464,7 +439,6 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                         orphaned_water_binding: true, // 属性区只开放取消水体。
                     }),
                 });
-                build.child_entries += 1; // 失效绑定与真实网格共享同一展开子行硬门。
             }
         }
     }

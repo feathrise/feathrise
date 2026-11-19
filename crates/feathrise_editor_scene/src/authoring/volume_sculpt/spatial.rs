@@ -227,9 +227,6 @@ fn begin(
             return Err("三维地形已达到32个区域预算".into());
         }
         let index = draft.placements.placements.len();
-        if index >= feathrise_scene_content::MAX_SCENE_PLACEMENTS_PER_SCENE {
-            return Err("场景摆放记录已经达到预算".into());
-        }
         let (origin, step, hole) = jobs::brush_region(ground, brush, bounds)?;
         let id = super::super::next_author_id(session, "volume");
         let local_min = Vec2::from_array(hole.min) - origin.xz();

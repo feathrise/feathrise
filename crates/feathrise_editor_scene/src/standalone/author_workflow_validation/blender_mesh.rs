@@ -11,6 +11,7 @@ use crate::{
     standalone::validation_fixture::{open_scene_tree, reveal_property_control, ui_visible},
     types::EditorAction,
     ui::{
+        gltf_browser::EditorGltfBrowserState,
         placement_transform::{PlacementTransformAction, SceneEditorPlacementTransformActionButton},
         scene_context_menu::queue_blender_action_for_validation,
     },
@@ -151,7 +152,14 @@ fn drive(world: &mut World, fixture: &mut Fixture) -> Result<Option<Value>, Stri
             fixture.stage = Step::OpenBlender;
         }
         Step::OpenBlender => {
-            if open_scene_tree(world)? && queue_blender_action_for_validation(world, &current.id)? {
+            if !open_scene_tree(world)? { return Ok(None); }
+            // 使用场景树现有搜索投影露出本批末尾的对象，然后从真实可见行发菜单动作。
+            let mut browser = world.resource_mut::<EditorGltfBrowserState>();
+            if browser.object_search != current.id {
+                browser.object_search.clone_from(&current.id);
+                browser.page = 0;
+            }
+            if queue_blender_action_for_validation(world, &current.id)? {
                 fixture.stage = Step::WaitForGeometry;
             }
         }
@@ -243,13 +251,15 @@ fn drive(world: &mut World, fixture: &mut Fixture) -> Result<Option<Value>, Stri
                 fixture.evidence = Some(IoTaskPool::get().spawn(async move { read_blender_evidence(output, digest) }));
             }
             if let Some(proof) = fixture.evidence.as_mut().and_then(check_ready) {
-                return Ok(Some(json!({
+                let proof = json!({
                     "complete": true, "undo_exact": true, "redo_exact": true, "peer_unchanged": true,
                     "repeat_save_exact": true, "preview_step_shown": true,
                     "collision_inherited": true, "collision_toggled_via_properties": true,
                     "saved_record": current, "peer_record": fixture.peer, "placements_path": draft.placements_path(),
                     "blender": proof?, "screenshot": "blender-roundtrip-feathrise.png", "os_input_verified": false
-                })));
+                });
+                world.resource_mut::<EditorGltfBrowserState>().object_search.clear();
+                return Ok(Some(proof));
             }
         }
         _ => {}
@@ -309,21 +319,34 @@ pub(in crate::standalone) fn saved_model(world: &World) -> Option<ScenePlacement
 }
 
 pub(in crate::standalone) fn saved_collision(world: &mut World, record: &ScenePlacementRecord) -> Option<Value> {
-    let scene = world.resource::<EditorAuthoringSession>().draft.as_ref()?.scene_id.clone();
+    let draft = world.resource::<EditorAuthoringSession>().draft.as_ref()?;
+    let scene = draft.scene_id.clone();
+    let additional_colliders: Vec<_> = draft.placements.placements.iter()
+        .filter(|entry| entry.id.starts_with("blender-count-probe-") && mesh_collision_enabled(&entry.asset_target) == Some(true))
+        .map(|entry| Vec3::from_array(entry.translation)).collect();
+    let expected_hits = additional_colliders.len();
     let mut instances = world.query_filtered::<(&ScenePlacementInstance, &GlobalTransform), Without<EditorPlacedAsset>>();
     let pose = instances.iter(world).find_map(|(instance, pose)| {
         (instance.is_active() && instance.matches_record(&scene, record, &[])).then_some(*pose)
     })?;
     // 从薄台阶的两端下方探测镜像后的两个不同底面。射程不可能接触地面，也能排除包围盒和旧立方体。
-    let distances = world.run_system_once(move |physics: SpatialQuery, ground: feathrise_grounding::GroundSurfaceFilter| {
-        [-1.5, 1.5].map(|x| physics.cast_ray_predicate(
+    let (distances, hits) = world.run_system_once(move |physics: SpatialQuery, ground: feathrise_grounding::GroundSurfaceFilter| {
+        let distances = [-1.5, 1.5].map(|x| physics.cast_ray_predicate(
             pose.transform_point(Vec3::new(x, -0.125, 0.5)), Dir3::Y, 0.25, true,
             &SpatialQueryFilter::default(), &|entity| ground.is_active(entity),
-        ).map(|hit| hit.distance))
+        ).map(|hit| hit.distance));
+        let hits = additional_colliders.iter().copied().filter(|center| {
+            physics.cast_ray_predicate(
+                *center + Vec3::new(0.4, 0.2, 1.0), Dir3::NEG_Z, 2.0, true,
+                &SpatialQueryFilter::default(), &|entity| ground.is_active(entity),
+            ).is_some_and(|hit| (hit.distance - 1.0).abs() < 0.001)
+        }).count();
+        (distances, hits)
     }).ok()?;
     let [Some(left), Some(right)] = distances else { return None; };
-    ((left - 0.125).abs() < 0.001 && (right - 0.09375).abs() < 0.001)
-        .then(|| json!({"placement_id": record.id, "lower_step_distances": [left, right]}))
+    (hits == expected_hits && (left - 0.125).abs() < 0.001 && (right - 0.09375).abs() < 0.001)
+        .then(|| json!({"placement_id": record.id, "lower_step_distances": [left, right],
+            "additional_collision_hits": hits}))
 }
 
 fn builtin_shown(world: &World, session: &EditorAuthoringSession, record: &ScenePlacementRecord) -> bool {

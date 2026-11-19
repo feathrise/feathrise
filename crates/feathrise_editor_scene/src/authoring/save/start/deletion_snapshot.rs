@@ -96,7 +96,7 @@ impl DeletionSaveCapture {
 
     fn retire(&mut self, obsolete: CapturedDeletionSnapshot, retirement: Option<&mut AuthoringRetirement>) {
         if let Some(retirement) = retirement {
-            retirement.push(obsolete); // 共享唯一后台回收器，入队不遍历8192项弱票或ID。
+            retirement.push(obsolete); // 移交原后台回收器，入队时不遍历弱票和ID。
         } else {
             debug_assert!(self.task.is_none());
             self.task = Some(CaptureTask::Retire(AsyncComputeTaskPool::get().spawn(async move {

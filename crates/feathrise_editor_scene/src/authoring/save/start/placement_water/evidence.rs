@@ -391,7 +391,7 @@ fn ensure_evidence_generation(
     let _ = observe_runtime_identity_change(cache, runtime); // 在首根扫描前冻结gate/修订，识别跨帧扫描中的原子采用。
     if cache.water_records.is_empty() {
         cache.evidence_complete = true; // 没有整网格水绑定时不枚举任何根。
-        cache.cached_readiness = PlacementWaterCachedReadiness::Ready; // 普通8192 placement保存保持O(1)。
+        cache.cached_readiness = PlacementWaterCachedReadiness::Ready; // 无整网格水时复用空就绪结果。
         cache.status_event_cursor = registry.status_revision; // 忽略与本保存无关的历史状态事件。
         return true;
     }
@@ -467,7 +467,7 @@ pub(crate) fn advance_placement_water_evidence_cache(
                 continue; // 同帧迟到移除由下一帧membership_revision重建聚合。
             };
             let Some(&record_index) = cache.water_record_indices.get(instance.id()) else {
-                continue; // 8192个普通或其他水记录根不进入本保存候选数组。
+                continue; // 普通根和其他水记录根不进入本次保存候选。
             };
             let Some((observation, asset_id)) = inspect_candidate_root(
                 entity,

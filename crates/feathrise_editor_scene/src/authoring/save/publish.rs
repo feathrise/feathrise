@@ -88,20 +88,15 @@ pub(super) fn plan_saved_placements_publish(
 pub(super) fn publish_saved_placements_asset(
     registry: Option<&SceneContentRegistry>, // 目录提供当前场景唯一正式摆放句柄。
     scene_id: &SceneId,                        // 只允许更新本次保存成功的场景。
-    snapshot: &ScenePlacementsAsset,         // 与磁盘原子写入完全相同的实例和整网格水体覆盖。
+    snapshot: &mut Option<ScenePlacementsAsset>, // 正式句柄可用时才接管磁盘版本。
     placements: &mut Assets<ScenePlacementsAsset>, // 主世界资产只在IO任务完成后由主线程替换。
-) -> bool {
-    let Some(handle) = registry
+) -> Option<ScenePlacementsAsset> {
+    let handle = registry
         .and_then(|registry| registry.handles(scene_id))
-        .map(|handles| &handles.placements)
-    else {
-        return false; // 目录尚未建立当前场景句柄时由调用方显式请求文件重载。
-    };
-    let Some(mut loaded) = placements.get_mut(handle) else {
-        return false; // 句柄仍在异步加载时交给AssetServer路径重载兜底。
-    };
-    *loaded = snapshot.clone(); // AssetMut发布Modified，运行时据此建立带网格水体语义的新隐藏候选根。
-    true // 调用方无需再等待文件监听偶然观察到原子替换。
+        .map(|handles| &handles.placements)?;
+    snapshot.as_ref()?; // 缺少磁盘版本时也不取得AssetMut。
+    let mut loaded = placements.get_mut(handle)?; // 句柄未就绪时交给AssetServer重载。
+    Some(std::mem::replace(&mut *loaded, snapshot.take().unwrap())) // 只换所有权，旧版交后台回收。
 }
 
 /// 把真实变化且已完整落盘的地表定义发布到目录唯一句柄，避免另建资产身份或等待文件监听。
@@ -299,9 +294,9 @@ mod tests {
         assert!(publish_saved_placements_asset(
             Some(&registry),
             &scene_id,
-            &snapshot,
+            &mut Some(snapshot),
             &mut assets,
-        )); // 现有句柄已加载时不需要AssetServer reload兜底。
+        ).is_some()); // 现有句柄已加载时不需要AssetServer reload兜底。
         assert_eq!(
             assets
                 .get(&handle)

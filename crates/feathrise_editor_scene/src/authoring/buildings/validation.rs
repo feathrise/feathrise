@@ -4,10 +4,7 @@ use bevy::prelude::*; // ECS 系统参数、鼠标、AssetServer 与数学类型
 use bevy::tasks::AsyncComputeTaskPool; // 五点采样与空间查询进入纯 CPU 池。
 use bevy::tasks::futures::check_ready; // 主线程只非阻塞轮询点击任务。
 use bevy::ui::RelativeCursorPosition; // 左键必须真实位于中央编辑视口。
-use feathrise_scene_content::{
-    BuildingPresetRegistry, MAX_SCENE_PLACEMENTS_PER_SCENE,
-    ScenePlacementHeightMode, ScenePlacementRecord,
-}; // 新记录复用普通摆放协议并附加规范建筑预设 ID。
+use feathrise_scene_content::{BuildingPresetRegistry, ScenePlacementHeightMode, ScenePlacementRecord}; // 新记录复用普通摆放协议并附加规范建筑预设 ID。
 use feathrise_scene::{DynamicClipmapGroundSurface, ScenePlacementInstance}; // 已有建筑采用后定向更新正式根或作者预览。
 
 use super::index::current_identity; // 点击和采用核对同一联合身份。

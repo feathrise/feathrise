@@ -1,6 +1,6 @@
 //! 摆放删除意图的文档所有权；迟到正式根不能因作者预览已经销毁而复活。
 
-use std::{collections::HashSet, sync::{Arc, Weak, atomic::{AtomicBool, Ordering}}};
+use std::sync::{Arc, Weak, atomic::{AtomicBool, Ordering}};
 
 use bevy::prelude::*;
 use feathrise_scene_content::SceneId;
@@ -88,17 +88,10 @@ fn roots_for(world: &World, map: &SceneId, id: &str) -> Vec<Entity> {
     world.get_resource::<PlacementInstanceIndex>().map_or_else(Vec::new, |index| index.roots_for(map, id).to_vec())
 }
 
-/// 删除责任与摆放使用相同的8192项预算；到限时整笔拒绝，不能遗失仍可能迟到的旧对象。
-pub(crate) fn validate_deletions<'a>(session: &EditorAuthoringSession, ids: impl IntoIterator<Item = &'a str>) -> Result<(), String> {
+/// 后台仍共享删除票据时暂缓写入，避免当前帧深复制整份删除表。
+pub(crate) fn validate_deletion_write(session: &EditorAuthoringSession) -> Result<(), String> {
     if session.placement_deletions.write_shared() {
         return Err("摆放删除表正在后台准备，本次删除未执行，请稍后重试".to_owned());
-    }
-    let mut additional = HashSet::new();
-    for id in ids {
-        if !session.placement_deletions.ids.contains_key(id) { additional.insert(id); }
-        if session.placement_deletions.ids.len() + additional.len() > feathrise_scene_content::MAX_SCENE_PLACEMENTS_PER_SCENE {
-            return Err("未确认的摆放删除已达8192项，请先保存并等待正式采用后再删除；本次操作未执行".to_owned());
-        }
     }
     Ok(())
 }

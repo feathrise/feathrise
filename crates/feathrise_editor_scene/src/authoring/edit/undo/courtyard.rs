@@ -6,9 +6,7 @@
 use std::collections::HashSet; // 固定最多256个成员的下标和稳定ID必须在写入前唯一。
 
 use bevy::prelude::Rect; // 每个历史快照沿用正式场景世界范围校验。
-use feathrise_scene_content::{
-    MAX_SCENE_PLACEMENTS_PER_SCENE, SceneId, ScenePlacementRecord,
-}; // 历史方向都服从正式摆放数量、网格水预算和变换硬门。
+use feathrise_scene_content::{SceneId, ScenePlacementRecord};
 
 use crate::authoring::commands::CourtyardBatchChange; // 同一命令保存全部新增和原位修改的成员。
 
@@ -53,9 +51,6 @@ pub(super) fn apply_courtyard_batch_records_by_source(
     } else {
         records.len() // 重做前新增成员尚未进入数组。
     };
-    if base_len.saturating_add(change.added.len()) > MAX_SCENE_PLACEMENTS_PER_SCENE {
-        return Err("院落整批历史超过单图显式摆放上限".to_owned()); // 历史重做不能绕过正式8192项硬门。
-    }
     let mut added_ids = HashSet::with_capacity(change.added.len()); // 一次落印内成员各有独立placement ID。
     for (offset, added) in change.added.iter().enumerate() {
         if added.id.is_empty() || !added_ids.insert(added.id.as_str()) {
@@ -127,7 +122,7 @@ pub(super) fn apply_courtyard_batch_records_by_source(
     Ok(world_changes) // ECS更新发生在上层同一命令采用后，不影响数据原子性。
 }
 
-/// 全量身份和容量检查先于写入；正向删除与反向恢复均只访问选中的有限槽位。
+/// 身份、槽位与网格水计数检查先于写入；正向删除与反向恢复均只访问选中的记录。
 fn apply_removed_records(
     records: &mut Vec<ScenePlacementRecord>, water_count: &mut usize,
     change: &CourtyardBatchChange, undoing: bool, map: &SceneId, bounds: Rect,
@@ -151,9 +146,6 @@ fn apply_removed_records(
         }
         count = if undoing { count.checked_add(record.water_surfaces.len()) } else { count.checked_sub(record.water_surfaces.len()) }
             .ok_or("批量删除的网格水计数无效")?;
-    }
-    if original_len > MAX_SCENE_PLACEMENTS_PER_SCENE {
-        return Err("恢复整组将超过场景容量".into());
     }
     if undoing {
         let mut length = records.len();

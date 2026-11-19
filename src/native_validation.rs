@@ -691,6 +691,13 @@ fn verify_blender_mesh(observed: &Value, proof: &Value) -> Result<(), String> {
         return Err("Blender 验收只读自有场景 GLB".into());
     }
     let saved = feathrise_scene_content::read_scene_placements(&fs::read(path).map_err(|error| error.to_string())?, relative)?;
+    if saved.placements.len() <= 8_192 || roundtrip["saved_collision"]["additional_collision_hits"] != 130
+        || (observed["entry"] != "production-SceneRuntimePlugin"
+            && (observed["placement_instances"].as_array().map(Vec::len) != Some(saved.placements.len())
+                || observed["current_author_document"]["blender_mesh_collision"]["additional_collision_hits"] != 130))
+    {
+        return Err("真实保存或重开未完整覆盖大场景摆放和碰撞".into());
+    }
     for key in ["saved_record", "peer_record"] {
         let expected: feathrise_scene_content::ScenePlacementRecord = serde_json::from_value(roundtrip[key].clone())
             .map_err(|error| error.to_string())?;
@@ -713,6 +720,9 @@ fn verify_blender_mesh(observed: &Value, proof: &Value) -> Result<(), String> {
             return Err(format!("相同场景的正式运行实例未加载对象 {key}"));
         }
         if key == "saved_record" {
+            if saved.placements.iter().position(|record| record.id == expected.id).is_none_or(|index| index < 8_192) {
+                return Err("Blender 目标未覆盖旧场景树索引上限以后的摆放".into());
+            }
             let collision_matches = |proof: &Value| proof["placement_id"] == expected.id
                 && proof["lower_step_distances"].as_array().is_some_and(|values| values.len() == 2
                     && values.iter().zip([0.125, 0.09375]).all(|(value, expected)|

@@ -9,7 +9,7 @@ use feathrise_scene_content::{
 
 use super::retirement::{BrowserRetirementBudget, BrowserRetirementStep}; // 取消草稿也必须逐项退役。
 use super::{
-    BrowserSessionObservation, MAX_GLTF_BROWSER_PLACEMENTS,
+    BrowserSessionObservation,
     MAX_GLTF_SIGNATURE_PATH_SEGMENTS_PER_FRAME, MAX_GLTF_SIGNATURE_PLACEMENTS_PER_FRAME,
     MAX_GLTF_SIGNATURE_STRING_BYTES_PER_FRAME, MAX_GLTF_SIGNATURE_WATER_BINDINGS_PER_FRAME,
     PlacementSignature, PlacementWaterBindingSignature,
@@ -155,18 +155,16 @@ pub(super) struct BrowserSignatureBuild {
 }
 
 impl BrowserSignatureBuild {
-    /// 为一个确定性结构观察建立空草稿；预留容量本身受8192固定硬上限约束。
+    /// 预留完整签名空间，逐帧读取记录并建立场景树和编辑共用的索引。
     pub(super) fn new(observation: BrowserSessionObservation) -> Self {
-        let capacity = observation
-            .source_placement_count
-            .min(MAX_GLTF_BROWSER_PLACEMENTS); // 异常作者数据也不按原始总数无限预留。
+        let capacity = observation.source_placement_count;
         Self {
             has_object_groups: false,
             observation,                              // 冻结构身份供每帧继续前复核。
             next_placement: 0,                        // 从第一条摆放开始。
             pending_signature: None,                  // 第一帧再复制首条记录壳。
             next_water_binding: 0,                    // 当前尚无记录内绑定前缀。
-            signature: Vec::with_capacity(capacity),  // 最终拥有型签名至多8192项。
+            signature: Vec::with_capacity(capacity),
             seen_ids: BTreeSet::new(),                // 尚未观察任何实例ID。
             duplicate_ids: BTreeSet::new(),           // 尚无重复诊断。
             placement_asset_paths: HashMap::new(),    // 尚无O(1)点击索引。
@@ -326,7 +324,7 @@ pub(super) fn advance_signature_build(
     placements: &[ScenePlacementRecord], // 当前结构代次的权威Vec切片。
     expanded_placements: &BTreeSet<String>, // 上一活动代次要保留的稳定展开偏好。
 ) -> bool {
-    let total = placements.len().min(MAX_GLTF_BROWSER_PLACEMENTS); // 只浏览固定上限前缀，原始总数另行显示。
+    let total = placements.len();
     let mut completed_placements = 0usize; // 只有完整进入辅助索引的记录才消耗记录额度。
     let mut frame_budget = SignatureBuildFrameBudget::default(); // 深字段不会藏在256条记录门内。
     while build.next_placement < total
@@ -400,4 +398,4 @@ pub(super) fn advance_signature_build(
 
 #[cfg(test)]
 #[path = "signature/tests.rs"]
-mod tests; // 8192条短记录、单记录深绑定预算和取消退役分别锁定。
+mod tests;

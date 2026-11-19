@@ -77,7 +77,7 @@ pub(super) fn advance_placement_water_record_cache(
     }
     if cache.complete {
         return Ok(PlacementWaterRecordScanProgress {
-            processed: 0,               // Pending等待帧复用已完成索引，不再读取8192条普通记录。
+            processed: 0,               // Pending等待帧复用已完成索引。
             scanned: cache.next_record, // 完整缓存游标应等于当前总数。
             total: cache.total_records, // 继续返回稳定诊断总量。
             complete: true,             // 调用方可立即进入最多256项根证明。

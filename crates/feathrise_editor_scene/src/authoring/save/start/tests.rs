@@ -50,6 +50,43 @@ fn placement_document() -> ScenePlacementsAsset {
     }
 }
 
+#[test]
+fn placement_save_captures_more_than_the_old_limit_with_one_frame_budget() {
+    use bevy::ecs::system::SystemState;
+
+    let mut world = World::new();
+    let mut session = EditorAuthoringSession {
+        draft: Some(crate::authoring::test_heightfield_draft(std::sync::Arc::new(vec![0; 121]))),
+        ..Default::default()
+    };
+    let total = 8193_usize;
+    let source = &mut session.draft.as_mut().unwrap().placements;
+    source.placements.clear();
+    for index in 0..total {
+        let id = format!("placement-{index:04}");
+        let mut record = placement_record(id.clone());
+        record.water_surfaces.clear();
+        source.placements.push(record);
+        let root = world.spawn((EditorPlacedAsset, Transform::from_xyz(index as f32, 0.0, 0.0))).id();
+        session.placement_previews.insert(id, root);
+    }
+    let mut state = SystemState::<placement_snapshot::PlacementPreviewRoots<'_, '_>>::new(&mut world);
+    let roots = state.get(&world).expect("验收查询包含真实预览根");
+    let mut capture = placement_snapshot::PlacementSaveCapture::default();
+    let frames = (2 * total).div_ceil(PLACEMENT_WATER_RECORD_SCAN_BUDGET_PER_FRAME);
+    for frame in 1..=frames {
+        assert_eq!(capture.step(&session, &roots), frame == frames);
+    }
+    let source = &session.draft.as_ref().unwrap().placements;
+    let (saved, previews) = capture.take(source);
+    assert_eq!(saved.placements, source.placements);
+    assert_eq!(previews.len(), total);
+    let (last_id, last_root) = session.placement_previews.last_key_value().unwrap();
+    let captured_last = previews.last().unwrap();
+    assert_eq!((&captured_last.id, captured_last.root), (last_id, *last_root));
+    assert!(captured_last.matches_world(&world, &source.scene_id));
+}
+
 fn readiness_for<'a>(
     document: &ScenePlacementsAsset,
     roots: impl Iterator<
@@ -231,7 +268,7 @@ fn placement_water_record_cache_scans_large_plain_scene_once_with_fixed_budget()
     let document = ScenePlacementsAsset {
         schema_version: SCENE_SCHEMA_VERSION, // 使用当前公共格式版本。
         scene_id,                             // 缓存身份绑定此稳定场景。
-        placements: records,                // 合法最大8192项作者记录。
+        placements: records,                // 足以跨帧的大型作者文档。
     };
     let mut cache = PlacementWaterSavePreflightCache::default(); // 初始没有任何扫描信用。
 
@@ -240,7 +277,7 @@ fn placement_water_record_cache_scans_large_plain_scene_once_with_fixed_budget()
     assert_eq!(
         first.processed,
         PLACEMENT_WATER_RECORD_SCAN_BUDGET_PER_FRAME,
-    ); // 首帧只读取固定256项而不是同步扫描8192项。
+    ); // 首帧只读取固定256项。
     assert!(!first.complete); // 水记录位于末项，首帧不能发布不完整索引。
     assert!(cache.water_records.is_empty()); // 已检查前缀全部是普通placement。
 
@@ -254,7 +291,7 @@ fn placement_water_record_cache_scans_large_plain_scene_once_with_fixed_budget()
 
     let reused = advance_placement_water_record_cache(&mut cache, 41, 7, &document)
         .expect("同作者修订复用完成缓存");
-    assert_eq!(reused.processed, 0); // 水根Pending导致的后续等待帧不再重扫8192条普通记录。
+    assert_eq!(reused.processed, 0); // 水根Pending导致的后续等待帧不再重扫普通记录。
     assert!(reused.complete); // 完成缓存可以直接进入最多256项根状态证明。
 }
 

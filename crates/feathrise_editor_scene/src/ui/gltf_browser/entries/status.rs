@@ -14,7 +14,7 @@ pub(super) fn idle_status(state: &EditorGltfBrowserState) -> String {
     let failed = state.failed_asset_count; // 失败数直接提示作者检查GLB。
     if state.assets.is_empty() {
         return format!("场景对象{}{}", state.source_placement_count,
-            if state.truncated { " · 已达浏览上限" } else { "" });
+            if state.truncated { " · 部分网格路径不可引用" } else { "" });
     } // 内置网格没有外部文件加载门，不显示虚假的GLB 0/0状态；仅使用已维护的O(1)计数。
     let ready = state
         .assets
@@ -37,7 +37,7 @@ pub(super) fn idle_status(state: &EditorGltfBrowserState) -> String {
             String::new()
         },
         if state.truncated {
-            " · 已达浏览上限"
+            " · 部分网格路径不可引用"
         } else {
             ""
         },

@@ -96,7 +96,7 @@ struct PendingVisualRecord {
 /// 一个场景的分帧世界同步队列。
 struct PendingVisualSync {
     scene_id: SceneId,                        // 切换场景后整队丢弃，绝不污染另一场景。
-    items: VecDeque<PendingVisualRecord>, // 单批受摆放上限约束，多个历史动作按发生顺序追加。
+    items: VecDeque<PendingVisualRecord>, // 多个历史动作按发生顺序追加，世界同步按帧推进。
 }
 
 /// 所有院落工作保持最多一个 CPU 校验、一个目录 IO 事务和一条视觉队列。

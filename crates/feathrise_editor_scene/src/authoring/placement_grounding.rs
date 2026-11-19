@@ -508,7 +508,7 @@ pub(crate) fn reconcile_following_placements(
     let scene_id = draft.scene_id.clone(); // 结束只读借用后允许更新记录和预览所有权。
     let terrain_revision = session.terrain_revision; // 本轮只接受唯一地形高度修订。
     let structure_revision = session.placement_structure_revision; // 数组增删使旧游标失效。
-    let total = draft.placements.placements.len(); // 最多8192，仅读取常数时间长度。
+    let total = draft.placements.placements.len(); // 仅读取常数时间长度，实际跟随更新分帧推进。
     let sampler =
         PlacementTerrainSampler::from_sources(draft, clipmap.as_deref(), terrain_revision); // 两条路线均只O(1)冻结不可变高度输入，并严格等待当前作者高度正式采用。
     let clipmap_content_revision = sampler

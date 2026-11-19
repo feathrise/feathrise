@@ -34,9 +34,9 @@ fn mesh_entry(index: usize) -> EditorGltfBrowserEntry {
 fn replacing_4096_deep_rows_retires_old_tree_over_multiple_frames() {
     let mut state = EditorGltfBrowserState {
         initialized: true, // 模拟已经发布旧活动树。
-        entries: (0..MAX_GLTF_BROWSER_CHILD_ENTRIES)
+        entries: (0..4_096)
             .map(mesh_entry)
-            .collect(), // 一整份展开子行预算足以验证深树不会同步Drop。
+            .collect(), // 大量深子行用于验证旧树分帧释放。
         observation: super::super::BrowserSessionObservation {
             scene_objects_revision: Default::default(),
             draft_available: true,                            // 完整草稿已存在。
@@ -83,7 +83,8 @@ fn replacing_4096_deep_rows_retires_old_tree_over_multiple_frames() {
 }
 
 #[test]
-fn worst_case_collapsed_roots_are_built_over_multiple_updates() {
+fn collapsed_roots_beyond_the_old_limit_are_built_over_multiple_updates() {
+    let count = 8_193;
     let mut state = EditorGltfBrowserState {
         initialized: true,
         draft_available: true,
@@ -91,13 +92,13 @@ fn worst_case_collapsed_roots_are_built_over_multiple_updates() {
             scene_objects_revision: Default::default(),
             draft_available: true,
             draft_scene_id: Some("MAP-roots".to_owned()),
-            source_placement_count: MAX_GLTF_BROWSER_PLACEMENTS,
+            source_placement_count: count,
             placement_structure_revision: 4,
         },
-        signature: (0..MAX_GLTF_BROWSER_PLACEMENTS)
+        signature: (0..count)
             .map(placement_signature)
             .collect(),
-        source_placement_count: MAX_GLTF_BROWSER_PLACEMENTS,
+        source_placement_count: count,
         ..Default::default()
     };
 
@@ -112,17 +113,17 @@ fn worst_case_collapsed_roots_are_built_over_multiple_updates() {
     while state.entries_build.is_some() {
         advance_visible_entries_build(&mut state);
         frames += 1;
-        assert!(frames <= 33, "8192个合法根应在固定预算内全部物化");
+        assert!(frames <= 33, "分帧完成全部根行");
     }
 
-    assert_eq!(frames, 33); // 三十二帧各输出256根，最后一帧只确认游标已到末尾并原子发布。
-    assert_eq!(state.entries.len(), MAX_GLTF_BROWSER_PLACEMENTS);
-    assert!(!state.truncated); // 根行不占展开子行预算，合法尾部实例不能被截断。
+    assert_eq!(frames, 33); // 最后一帧发布第8193条根行及完整树。
+    assert_eq!(state.entries.len(), count);
+    assert!(!state.truncated);
     assert!(matches!(
-        &state.entries[MAX_GLTF_BROWSER_PLACEMENTS - 1].kind,
+        &state.entries[count - 1].kind,
         EditorGltfBrowserEntryKind::Placement { placement_id, .. }
-            if placement_id == "instance-8191"
-    )); // 第8192个placement必须真实进入可分页树。
+            if placement_id == "instance-8192"
+    ));
 }
 
 #[test]
@@ -219,7 +220,8 @@ fn builtin_cuboid_is_a_mesh_row_with_the_original_object_identity_and_no_glb_loa
 }
 
 #[test]
-fn last_legal_placement_can_expand_and_publish_a_selectable_mesh() {
+fn placement_beyond_the_old_limit_can_expand_and_publish_a_selectable_mesh() {
+    let count = 8_193;
     let mut state = EditorGltfBrowserState {
         initialized: true,
         draft_available: true,
@@ -227,17 +229,17 @@ fn last_legal_placement_can_expand_and_publish_a_selectable_mesh() {
             scene_objects_revision: Default::default(),
             draft_available: true,
             draft_scene_id: Some("MAP-last-root".to_owned()),
-            source_placement_count: MAX_GLTF_BROWSER_PLACEMENTS,
+            source_placement_count: count,
             placement_structure_revision: 5,
         },
-        signature: (0..MAX_GLTF_BROWSER_PLACEMENTS)
+        signature: (0..count)
             .map(placement_signature)
             .collect(),
-        source_placement_count: MAX_GLTF_BROWSER_PLACEMENTS,
+        source_placement_count: count,
         ..Default::default()
     };
-    let placement_id = "instance-8191".to_owned();
-    let asset_path = "gltf/8191.glb".to_owned();
+    let placement_id = "instance-8192".to_owned();
+    let asset_path = "gltf/8192.glb".to_owned();
     state.expanded_placements.insert(placement_id.clone());
     state.assets.insert(
         asset_path,
@@ -270,7 +272,7 @@ fn last_legal_placement_can_expand_and_publish_a_selectable_mesh() {
         .iter()
         .filter_map(|entry| entry.selection.as_ref())
         .find(|selection| selection.placement_id == placement_id)
-        .expect("第8192个placement的网格必须可选");
+        .expect("第8193个摆放的网格必须可选");
     assert_eq!(selection.node_path, ["RiverObject"]);
     assert_eq!(selection.mesh_name, "RiverMesh");
     assert!(!state.truncated);
@@ -278,6 +280,7 @@ fn last_legal_placement_can_expand_and_publish_a_selectable_mesh() {
 
 #[test]
 fn one_large_ready_asset_obeys_the_per_update_row_budget() {
+    let mesh_count = 4_097;
     let asset_path = "gltf/large.glb".to_owned();
     let mut state = EditorGltfBrowserState {
         initialized: true,
@@ -306,7 +309,7 @@ fn one_large_ready_asset_obeys_the_per_update_row_budget() {
         asset_path,
         CachedGltfAsset {
             handle: Handle::default(),
-            meshes: (0..super::super::MAX_GLTF_MESHES_PER_ASSET)
+            meshes: (0..mesh_count)
                 .map(|index| CachedGltfMesh {
                     node_path: vec![format!("node-{index}")],
                     mesh_name: format!("mesh-{index}"),
@@ -335,16 +338,13 @@ fn one_large_ready_asset_obeys_the_per_update_row_budget() {
             previous_rows = build.entries.len();
         }
         assert!(
-            frames <= 18,
-            "2048网格应按行与路径段双预算在有限Update内完成"
+            frames <= 34,
+            "超过旧子行预算的网格仍按每帧行及路径预算完整物化"
         );
     }
 
     assert!(frames > 1); // 展开一个大GLB也不允许同步重组全部网格行。
-    assert_eq!(
-        state.entries.len(),
-        1 + super::super::MAX_GLTF_MESHES_PER_ASSET
-    );
+    assert_eq!(state.entries.len(), 1 + mesh_count);
 }
 
 fn ready_state_with_mesh_paths(paths: Vec<Vec<String>>) -> EditorGltfBrowserState {

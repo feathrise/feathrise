@@ -158,42 +158,34 @@ fn undo_delete_then_delete_again_masks_a_new_late_formal_generation() {
 }
 
 #[test]
-fn deletion_capacity_rejects_the_real_delete_before_mutating_draft_history_or_owned_preview() {
+fn delete_after_the_old_limit_hides_the_target_and_keeps_prior_tickets() {
     let (mut app, preview, record, map) = deletion_fixture(false);
     let fill_map = map.clone();
     app.world_mut().run_system_once(move |mut commands: Commands,
         mut session: ResMut<EditorAuthoringSession>| {
-        // 一次性填满有限元数据预算；不构造8192份可视或资产，避免把容量回归变成场景压力测试。
-        for index in 0..feathrise_scene_content::MAX_SCENE_PLACEMENTS_PER_SCENE {
+        // 覆盖连续删除的票据上限，使用轻量元数据而非大量渲染实例。
+        for index in 0..8_192 {
             crate::authoring::placement_deletion::mark_deleted(
                 &mut commands, &mut session, &fill_map, &format!("capacity-deleted-{index}"),
             );
         }
     }).unwrap();
-    let (before_ids, saved, revisions) = {
+    let saved = {
         let session = app.world().resource::<EditorAuthoringSession>();
-        let snapshots = session.placement_deletions.snapshots();
-        (snapshots.iter().map(|snapshot| snapshot.id.clone()).collect::<Vec<_>>(),
-            snapshots[0].clone(), (session.revision, session.placement_structure_revision))
+        session.placement_deletions.snapshots()[0].clone()
     };
-    let preview_pose = *app.world().get::<Transform>(preview).unwrap();
     click_delete(&mut app);
     let session = app.world().resource::<EditorAuthoringSession>();
-    assert_eq!(session.draft.as_ref().unwrap().placements.placements, vec![record.clone()]);
-    assert!(session.undo.is_empty() && session.redo.is_empty());
-    assert_eq!((session.revision, session.placement_structure_revision), revisions);
-    assert_eq!(session.placement_previews.get(&record.id), Some(&preview));
-    assert_eq!(session.placement_deletions.snapshots().iter()
-        .map(|snapshot| snapshot.id.clone()).collect::<Vec<_>>(), before_ids);
-    assert_eq!(app.world().get::<Visibility>(preview), Some(&Visibility::Inherited));
-    assert_eq!(app.world().get::<Transform>(preview), Some(&preview_pose));
-    assert!(app.world().resource::<SceneEditorState>().status.contains("先保存"));
-    let (late, _, _) = late_formal(&mut app, &map, &record);
-    assert_eq!(app.world().get::<Visibility>(late), Some(&Visibility::Inherited),
-        "容量拒绝的目标也不能取得删除票据");
+    assert!(session.draft.as_ref().unwrap().placements.placements.is_empty());
+    assert_eq!(session.undo.len(), 1);
+    assert_eq!(session.placement_deletions.snapshots().len(), 8_193);
+    assert!(app.world().get_entity(preview).is_err());
+    let (late, parent, transform) = late_formal(&mut app, &map, &record);
+    assert_hidden_without_rewriting_formal(&app, late, parent, transform);
 
-    // 失败前冻结的保存票据仍可精确认领，证明既有ID没有被这次失败偷偷换票。
+    // 先前保存冻结的票据独立认领，新删除仍待正式采用。
     crate::authoring::placement_deletion::acknowledge_saved_deletion(app.world_mut(), &map, &saved);
-    assert_eq!(app.world().resource::<EditorAuthoringSession>().placement_deletions.snapshots().len(),
-        feathrise_scene_content::MAX_SCENE_PLACEMENTS_PER_SCENE - 1);
+    let remaining = app.world().resource::<EditorAuthoringSession>().placement_deletions.snapshots();
+    assert_eq!(remaining.len(), 8_192);
+    assert!(remaining.iter().any(|snapshot| snapshot.id == record.id));
 }

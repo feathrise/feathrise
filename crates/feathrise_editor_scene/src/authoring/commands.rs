@@ -150,7 +150,6 @@ pub struct SceneObjectBatchChange {
 
 impl SceneObjectBatchChange {
     pub fn apply(&self, placements: &mut feathrise_scene_content::ScenePlacementsAsset, undoing: bool) -> Result<(), String> {
-        if self.changes.len() > feathrise_scene_content::MAX_SCENE_PLACEMENTS_PER_SCENE { return Err("对象管理历史数量无效".into()); }
         for change in &self.changes {
             let record = placements.placements.get(change.index).filter(|record| record.id == change.id)
                 .ok_or("场景对象历史目标已经变化")?;

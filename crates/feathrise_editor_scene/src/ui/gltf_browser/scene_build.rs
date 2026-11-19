@@ -1,6 +1,6 @@
 //! Scene0根发现、层级遍历和稳定路径物化的可取消分帧事务。
 
-use std::collections::BTreeMap; // 稳定身份映射到首行，重复路径可把全部同名目标失败关闭。
+use std::collections::{BTreeMap, HashSet}; // 按实体避免重复遍历，按路径识别稳定身份歧义。
 use std::sync::Arc; // 遍历帧共享持久路径链，展开宽节点不复制整条祖先路径。
 
 use bevy::asset::AssetId; // 构建身份同时冻结强句柄子资产ID。
@@ -15,9 +15,9 @@ use feathrise_scene_content::{
 use super::helpers::stable_mesh_reference; // 完整路径物化后复用唯一稳定引用规则。
 use super::retirement::{BrowserRetirementBudget, BrowserRetirementStep}; // 取消DFS按路径和元素预算释放。
 use super::{
-    CachedGltfMesh, MAX_GLTF_MESHES_PER_ASSET, MAX_GLTF_SCENE_MESH_ROWS_PER_FRAME,
+    CachedGltfMesh, MAX_GLTF_SCENE_MESH_ROWS_PER_FRAME,
     MAX_GLTF_SCENE_PATH_SEGMENT_COPIES_PER_FRAME, MAX_GLTF_SCENE_ROOT_DISCOVERY_PER_FRAME,
-    MAX_GLTF_SCENE_TRAVERSAL_OPERATIONS_PER_FRAME, MAX_GLTF_WORLD_ENTITIES,
+    MAX_GLTF_SCENE_TRAVERSAL_OPERATIONS_PER_FRAME,
 }; // 每个推进维度都有独立固定预算。
 
 /// 一段持久Blender节点路径；宽层级的每个子帧只克隆Arc，不复制全部祖先名称。
@@ -34,7 +34,7 @@ struct SceneTraversalFrame {
     resolved_path: Option<Arc<ScenePathNode>>, // 进入普通节点后包含自身的路径。
     path_names_valid: bool, // 缺名、超长或超深后代都不能形成作者引用。
     entered: bool,  // false先解析当前节点，true后每步只读取一个Child。
-    next_child: usize, // 一个拥有8192子项的节点也严格跨帧推进。
+    next_child: usize, // 宽节点按子项游标跨帧推进。
     scene_root: bool, // Scene0根Name与根自身Mesh沿用既有规则，不进入Blender路径。
 }
 
@@ -88,7 +88,7 @@ pub(super) struct BrowserSceneBuild {
     pub(super) content_revision: u64,
     /// 下一个待读实体槽位，不借用跨帧World迭代器。
     entity_slot_cursor: u32,
-    /// 本修订允许检查的槽位前缀，超过8192明确截断。
+    /// 本次 World 资产实际分配的槽位范围。
     entity_slot_limit: u32,
     /// 根发现阶段渐进收集的实体身份。
     roots: Vec<Entity>,
@@ -102,13 +102,13 @@ pub(super) struct BrowserSceneBuild {
     meshes: Vec<CachedGltfMesh>,
     /// 稳定路径与网格名映射到首个输出行；第二次命中会把该身份标记为歧义。
     dedupe: BTreeMap<(Vec<String>, String), usize>,
-    /// DFS实际进入的节点数；循环或异常关系也不能突破8192项。
-    visited_entities: usize,
-    /// 槽位、DFS、层级或网格任一硬门触发。
+    /// 标记已进入的实体，避免损坏的关系造成重复遍历或形成循环。
+    visited_entities: HashSet<Entity>,
+    /// 作者引用路径缺失部分层级。
     truncated: bool,
     /// 根发现完成后才允许读取Children层级。
     roots_discovered: bool,
-    /// 完整或触及硬门后停止继续读取World。
+    /// 完整遍历已发现的根。
     completed: bool,
 }
 
@@ -120,22 +120,20 @@ impl BrowserSceneBuild {
         content_revision: u64,
         world: &World,
     ) -> Self {
-        let slot_count = world.entities().len();
-        let slot_limit = slot_count.min(MAX_GLTF_WORLD_ENTITIES as u32);
         Self {
             asset_path,
             asset_id,
             content_revision,
             entity_slot_cursor: 0,
-            entity_slot_limit: slot_limit,
+            entity_slot_limit: world.entities().len(),
             roots: Vec::new(),
             next_root: 0,
             stack: Vec::new(),
             pending_mesh: None,
-            meshes: Vec::with_capacity(MAX_GLTF_MESHES_PER_ASSET),
+            meshes: Vec::new(),
             dedupe: BTreeMap::new(),
-            visited_entities: 0,
-            truncated: slot_count > slot_limit,
+            visited_entities: HashSet::new(),
+            truncated: false,
             roots_discovered: false,
             completed: false,
         }
@@ -244,7 +242,7 @@ fn bounded_name(value: &str, missing: &str) -> (String, bool) {
     }
 }
 
-/// 每帧按实体槽位检查固定前缀；不使用会重复扫描旧前缀的`Iterator::skip`。
+/// 每帧从当前实体槽位游标推进固定步数。
 fn advance_root_discovery(build: &mut BrowserSceneBuild, world: &World) {
     for _ in 0..MAX_GLTF_SCENE_ROOT_DISCOVERY_PER_FRAME {
         if build.entity_slot_cursor >= build.entity_slot_limit {
@@ -331,10 +329,6 @@ fn advance_pending_mesh(
             ambiguous: false, // 首次命中先视为唯一，后续同身份会回写首行歧义标记。
         });
         *mesh_rows += 1;
-        if build.meshes.len() >= MAX_GLTF_MESHES_PER_ASSET {
-            build.truncated = true;
-            build.completed = true; // 达到单资产行硬门后不再读取剩余层级。
-        }
     }
     true
 }
@@ -354,9 +348,6 @@ fn advance_traversal(
         {
             break; // 当前Update的路径或行额度已耗尽。
         }
-        if build.completed {
-            break;
-        }
         if build.stack.is_empty() {
             let Some(root) = build.roots.get(build.next_root).copied() else {
                 build.completed = true; // 所有发现根均完整遍历。
@@ -371,13 +362,10 @@ fn advance_traversal(
                 build.stack.push(frame);
                 break; // 非根节点至少复制一个有界名称，预算不足时不能先重复计入visited。
             }
-            if build.visited_entities >= MAX_GLTF_WORLD_ENTITIES {
-                build.truncated = true;
-                build.completed = true;
-                break;
-            }
             operations += 1;
-            build.visited_entities += 1;
+            if !build.visited_entities.insert(frame.entity) {
+                continue;
+            }
             let Ok(entity_ref) = world.get_entity(frame.entity) else {
                 continue; // 只读World不会变；断链节点按已消费操作跳过。
             };
@@ -469,4 +457,4 @@ pub(super) fn advance_scene_build(
 
 #[cfg(test)]
 #[path = "scene_build/tests.rs"]
-mod tests; // 8192实体多帧、过期结果拒收和关闭取消由浏览器级回归共同锁定。
+mod tests;

@@ -37,10 +37,7 @@ impl BuildingGroundQuery {
     ) -> Self {
         Self {
             content: sampler.clipmap_content_revision(),
-            points: points
-                .into_iter()
-                .take(5 * feathrise_scene_content::MAX_SCENE_PLACEMENTS_PER_SCENE + 1)
-                .collect(),
+            points: points.into_iter().collect(),
             ..default()
         }
     }
@@ -82,9 +79,6 @@ impl BuildingGroundQuery {
         sampler: &PlacementTerrainSampler,
     ) -> Result<Option<PlacementTerrainSampler>, String> {
         if sampler.is_volume_layer() || sampler.is_object_surface(){return Ok(Some(sampler.clone()));} // 有界五点BVH查询由校验worker执行。
-        if self.points.len() > 5 * feathrise_scene_content::MAX_SCENE_PLACEMENTS_PER_SCENE {
-            return Err("建筑精确高度点集超过单图摆放预算".into());
-        }
         if self.content.is_none() {
             return Ok(Some(sampler.clone()));
         } // GLB保留完整高度场协议。

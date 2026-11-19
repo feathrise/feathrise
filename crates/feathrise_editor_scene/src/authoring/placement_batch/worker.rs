@@ -13,7 +13,7 @@ pub(super) fn capture(capture: Capture) -> BatchOutput {
     capture_with_deletions(capture, source)
 }
 
-/// 删除元数据和完整历史在同一CPU槽准备，主线程不遍历八千项票据表。
+/// 删除元数据和完整历史在同一个后台任务准备。
 pub(super) fn capture_with_deletions(capture: Capture,
     deletion_source: Option<crate::authoring::placement_deletion::PlacementDeletionSource>) -> BatchOutput {
     if capture.records.iter().any(|(_, record)| terrain_patch_pose::is_automatic_volume(record)) {
@@ -30,7 +30,7 @@ pub(super) fn capture_with_deletions(capture: Capture,
                 let prepared = deletion_source.ok_or("批量删除缺少逻辑票据来源")?.prepare(
                     history.removed.iter().map(|(_, record)| record.id.as_str()),
                     std::iter::empty::<&str>(),
-                )?;
+                );
                 let updates = history
                     .removed
                     .iter()

@@ -616,9 +616,6 @@ fn start_segment(
         return Err("新的三维区域会与既有地形重叠；请在已有三维表面继续雕刻".into());
     }
     let index = draft.placements.placements.len();
-    if index >= feathrise_scene_content::MAX_SCENE_PLACEMENTS_PER_SCENE {
-        return Err("场景摆放记录已经达到预算".into());
-    }
     let id = super::super::next_author_id(session, "volume");
     let local_min = Vec2::from_array(hole.min) - origin.xz();
     let local_max = Vec2::from_array(hole.max) - origin.xz();

@@ -1,6 +1,6 @@
 //! 保存前分帧捕获空气墙，其他领域保留现有Arc共享快照，绝不先克隆整图墙点。
 use crate::authoring::resources::EditorSceneDraft;
-use feathrise_scene_content::{SceneBoundariesAsset, SceneBoundaryCapture, SceneId};
+use feathrise_scene_content::{SceneBoundariesAsset, SceneBoundaryCapture, SceneId, ScenePlacementsAsset};
 #[derive(Default)]
 pub(crate) struct BoundarySaveCapture {
     pub(super) identity: Option<(SceneId, u64)>, // 全部作者修订变化会重新开始。
@@ -9,6 +9,7 @@ pub(crate) struct BoundarySaveCapture {
 pub(super) fn snapshot(
     source: &EditorSceneDraft,
     boundaries: Option<SceneBoundariesAsset>,
+    placements: ScenePlacementsAsset,
 ) -> EditorSceneDraft {
     EditorSceneDraft {
         scene_id: source.scene_id.clone(), // 保留该领域既有快照与共享语义。
@@ -18,7 +19,7 @@ pub(super) fn snapshot(
         manifest: source.manifest.clone(), // 保留该领域既有快照与共享语义。
         terrain_ground: source.terrain_ground.clone(),
         terrain_documents: source.terrain_documents.clone(),
-        placements: source.placements.clone(), // 保留该领域既有快照与共享语义。
+        placements, // 转移分帧复制的摆放，启动IO时不克隆场景记录。
         placement_water_surface_count: source.placement_water_surface_count.clone(), // 保留该领域既有快照与共享语义。
         portals: source.portals.clone(), // 保留该领域既有快照与共享语义。
         domain: source.domain.clone(), // 外部不可变版本浅共享。
@@ -71,7 +72,7 @@ mod tests {
         source.boundaries = Some(walls.clone());
         let mut capture = SceneBoundaryCapture::default();
         assert!(capture.step(source.boundaries.as_ref().unwrap(), 4096, 64));
-        let saved = snapshot(&source, capture.take());
+        let saved = snapshot(&source, capture.take(), source.placements.clone());
         assert_eq!(saved.boundaries.as_ref(), Some(&walls));
         assert_eq!(source.boundaries.as_ref(), Some(&walls)); // 不临时take或覆盖当前作者文档。
         assert!(std::sync::Arc::ptr_eq(

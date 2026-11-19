@@ -106,9 +106,10 @@ fn corrupt_pages_and_nonfinite_heights_are_failures_instead_of_zero_ground() {
 }
 
 #[test]
-fn exact_duplicates_are_sampled_once_and_batch_is_hard_bounded() {
+fn exact_duplicates_over_the_old_point_limit_are_sampled_once() {
     let sampler = PlacementTerrainSampler::from_clipmap_samples([7; 7], BTreeMap::new());
-    let mut query = BuildingGroundQuery::new(&sampler, [Vec2::ONE; 5]);
+    let count = 5 * 8_192 + 1;
+    let mut query = BuildingGroundQuery::new(&sampler, std::iter::repeat_n(Vec2::ONE, count));
     let mut calls = 0;
     query
         .advance(Some([7; 7]), page(1), |_| {
@@ -117,12 +118,8 @@ fn exact_duplicates_are_sampled_once_and_batch_is_hard_bounded() {
         })
         .unwrap();
     assert_eq!(calls, 1);
-    let mut oversized = BuildingGroundQuery::new(&sampler, std::iter::repeat(Vec2::ONE));
-    assert_eq!(
-        oversized.points.len(),
-        5 * feathrise_scene_content::MAX_SCENE_PLACEMENTS_PER_SCENE + 1
-    );
-    assert!(oversized.prepare(&sampler).is_err());
+    assert_eq!(query.cursor, count);
+    assert!(query.prepare(&sampler).unwrap().is_some());
 }
 
 #[test]

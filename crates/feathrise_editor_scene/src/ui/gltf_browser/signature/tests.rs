@@ -44,8 +44,8 @@ fn water_surface(
 }
 
 #[test]
-fn maximum_short_signature_uses_32_record_budget_frames() {
-    let placements = (0..MAX_GLTF_BROWSER_PLACEMENTS)
+fn large_short_signature_indexes_the_tail_under_the_frame_budget() {
+    let placements = (0..8_193)
         .map(|index| placement(format!("instance-{index}"), "gltf/shared.glb"))
         .collect::<Vec<_>>();
     let expanded = placements
@@ -77,16 +77,16 @@ fn maximum_short_signature_uses_32_record_budget_frames() {
     }
     frames += 1; // 最后一次返回true的推进同样占一个Update预算。
 
-    assert_eq!(frames, 32); // 8192 / 256严格分成32帧。
-    assert_eq!(build.signature.len(), MAX_GLTF_BROWSER_PLACEMENTS);
+    assert_eq!(frames, placements.len().div_ceil(MAX_GLTF_SIGNATURE_PLACEMENTS_PER_FRAME));
+    assert_eq!(build.signature.len(), placements.len());
     assert_eq!(
         build.asset_demand_counts["gltf/shared.glb"],
         placements.len()
     ); // 共享路径只保留一个强句柄需求键。
     assert_eq!(build.wanted_asset_paths.len(), 1);
     assert_eq!(
-        build.placement_record_indices["instance-8191"],
-        MAX_GLTF_BROWSER_PLACEMENTS - 1,
+        build.placement_record_indices["instance-8192"],
+        placements.len() - 1,
     ); // 最后一项也由分帧构建直接记录下标，后续数值拖动无需线性查找。
 }
 
@@ -149,10 +149,11 @@ fn primitive_target_never_restores_scene_expansion_or_asset_demand() {
 }
 
 #[test]
-fn records_after_browser_limit_are_not_read_into_signature() {
-    let placements = (0..=MAX_GLTF_BROWSER_PLACEMENTS)
+fn records_after_the_old_limit_also_invalidate_duplicate_ids() {
+    let mut placements = (0..8_192)
         .map(|index| placement(format!("instance-{index}"), format!("gltf/{index}.glb")))
         .collect::<Vec<_>>();
+    placements.push(placement("instance-0", "gltf/duplicate.glb"));
     let mut build = BrowserSignatureBuild::new(BrowserSessionObservation {
         scene_objects_revision: Default::default(),
         draft_available: true,
@@ -164,12 +165,9 @@ fn records_after_browser_limit_are_not_read_into_signature() {
 
     while !advance_signature_build(&mut build, &placements, &expanded) {}
 
-    assert_eq!(build.next_placement, MAX_GLTF_BROWSER_PLACEMENTS);
-    assert_eq!(build.signature.len(), MAX_GLTF_BROWSER_PLACEMENTS);
-    assert_eq!(
-        build.signature.last().unwrap().placement_id,
-        "instance-8191"
-    );
+    assert_eq!(build.signature.len(), placements.len());
+    assert!(build.duplicate_ids.contains("instance-0"));
+    assert!(!build.placement_record_indices.contains_key("instance-0"));
 }
 
 #[test]
@@ -290,7 +288,7 @@ fn cancelled_partial_water_signature_retires_over_multiple_frames() {
 #[test]
 fn completed_signature_auxiliary_index_retires_across_frames() {
     let mut build = BrowserSignatureBuild::new(BrowserSessionObservation::default());
-    build.seen_ids = (0..MAX_GLTF_BROWSER_PLACEMENTS)
+    build.seen_ids = (0..8_193)
         .map(|index| format!("completed-instance-{index}"))
         .collect(); // 最终签名发布后仍留在草稿内的唯一辅助索引。
     let mut generation = BrowserRetiredGeneration::default();
@@ -299,7 +297,7 @@ fn completed_signature_auxiliary_index_retires_across_frames() {
     retirement.enqueue_normal_reserved(generation);
 
     retirement.advance_frame();
-    assert!(!retirement.is_empty()); // 8192个seen_ids不能随成功发布在一个Update内全Drop。
+    assert!(!retirement.is_empty()); // 大量 seen_ids 的释放分摊到后续帧。
     let mut frames = 1usize;
     while !retirement.is_empty() {
         retirement.advance_frame();

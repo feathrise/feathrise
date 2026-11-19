@@ -69,7 +69,7 @@ struct IdCapture {
     restored: Vec<String>,
 }
 
-enum JobOutput { Prepared(Result<PreparedPlacementDeletions, String>), Retired }
+enum JobOutput { Prepared(PreparedPlacementDeletions), Retired }
 struct PreparationJob {
     identity: Option<HistoryIdentity>, // None是同槽后台析构，完成前仍施加single-flight背压。
     cancelled: bool,
@@ -80,10 +80,10 @@ struct PreparationJob {
 pub(crate) struct HistoryDeletionPreparation {
     capture: Option<IdCapture>,
     job: Option<PreparationJob>,
-    ready: Option<(HistoryIdentity, Result<PreparedPlacementDeletions, String>)>,
+    ready: Option<(HistoryIdentity, PreparedPlacementDeletions)>,
 }
 
-pub(super) enum Preparation { Unneeded, Waiting, Ready(PreparedPlacementDeletions), Failed(String) }
+pub(super) enum Preparation { Unneeded, Waiting, Ready(PreparedPlacementDeletions) }
 
 impl HistoryDeletionPreparation {
     fn cancel_request(identity: &HistoryIdentity, editor: &mut SceneEditorState) {
@@ -134,16 +134,12 @@ impl HistoryDeletionPreparation {
         undoing: bool, command: &EditorCommand) -> Preparation {
         let Some(identity) = HistoryIdentity::new(session, undoing, command) else { return Preparation::Unneeded; };
         if !identity.matches(session, editor) || self.job.is_some() { return Preparation::Waiting; }
-        if let Some((ready_identity, result)) = self.ready.take() {
-            if !ready_identity.matches(session, editor) {
-                self.retire(result);
-                return Preparation::Waiting;
+        if let Some((ready_identity, prepared)) = self.ready.take() {
+            if ready_identity.matches(session, editor) && prepared.matches(&session.placement_deletions) {
+                return Preparation::Ready(prepared);
             }
-            return match result {
-                Ok(prepared) if prepared.matches(&session.placement_deletions) => Preparation::Ready(prepared),
-                Ok(prepared) => { self.retire(prepared); Preparation::Waiting }
-                Err(error) => Preparation::Failed(error),
-            };
+            self.retire(prepared);
+            return Preparation::Waiting;
         }
         let EditorCommand::CourtyardBatch(change) = command.unscoped() else { unreachable!(); };
         let capture = self.capture.get_or_insert_with(|| IdCapture {
@@ -171,7 +167,7 @@ impl HistoryDeletionPreparation {
                     drop((capture.deleted, capture.restored));
                     JobOutput::Prepared(prepared)
                 }),
-            }); // 全部重建和容量预检都在worker；source强共享在完成值发布前释放。
+            }); // 整份删除表在后台构建，强共享源在完成值发布前释放。
         }
         Preparation::Waiting
     }

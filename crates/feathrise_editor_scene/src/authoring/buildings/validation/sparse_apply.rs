@@ -184,10 +184,8 @@ pub(in crate::authoring) fn apply_transaction(
                 }
                 (*record_index, None, Some(record.clone()), true)
             } else {
-                if *record_index != draft.placements.placements.len()
-                    || *record_index >= MAX_SCENE_PLACEMENTS_PER_SCENE
-                {
-                    return Err("联合建筑新增尾槽或数量预算已失效".into());
+                if *record_index != draft.placements.placements.len() {
+                    return Err("联合建筑新增尾槽已失效".into());
                 }
                 (*record_index, Some(record.clone()), None, true)
             }
@@ -210,8 +208,7 @@ pub(in crate::authoring) fn apply_transaction(
         }
     };
     if structure_changed && desired.is_none() {
-        crate::authoring::placement_deletion::validate_deletions(session,
-            previous.as_ref().map(|record| record.id.as_str()))?;
+        crate::authoring::placement_deletion::validate_deletion_write(session)?;
     }
     if let Some(desired) = &desired {
         desired.validated_transform(&scene_id, bounds)?;

@@ -5,7 +5,7 @@ use bevy::world_serialization::WorldAsset; // 关闭缓存的Scene0资产类型�
 
 use super::*; // 测试直接观察私有代次计数和固定预算推进。
 use crate::ui::gltf_browser::{
-    CachedGltfAssetPhase, EditorGltfBrowserState, MAX_GLTF_BROWSER_PLACEMENTS,
+    CachedGltfAssetPhase, EditorGltfBrowserState,
 }; // 活动资源和浏览硬门定义在退役模块父级。
 
 fn signature(index: usize) -> PlacementSignature {
@@ -19,13 +19,13 @@ fn signature(index: usize) -> PlacementSignature {
 }
 
 #[test]
-fn closing_8192_signatures_and_caches_retires_over_multiple_frames() {
+fn closing_large_signatures_and_caches_retires_over_multiple_frames() {
     let mut state = EditorGltfBrowserState {
         initialized: true, // 模拟F12已经建立完整活动会话。
-        signature: (0..MAX_GLTF_BROWSER_PLACEMENTS).map(signature).collect(), // 最大合法浏览签名。
+        signature: (0..8_193).map(signature).collect(),
         ..Default::default()
     };
-    for index in 0..MAX_GLTF_BROWSER_PLACEMENTS {
+    for index in 0..8_193 {
         state.placement_asset_paths.insert(
             format!("placement-{index}"),
             format!("gltf/model-{index}.glb"),
