@@ -1,5 +1,7 @@
 # Feathrise（羽立）
 
+**简体中文** · [English](README.en.md)
+
 **面向大场景与快速迭代的高性能 Bevy 3D 编辑器。**
 
 Feathrise（羽立）把场景制作、工程预览和 Rust 开发放进同一个开源工作台，面向用 Bevy 构建 3D 工程的开发者和内容作者。
@@ -51,12 +53,14 @@ Windows 单文件预览版编入 `raytracing`。DLSS 与 FSR 通过 Cargo 特性
 
 ## Bevy 版本对应表
 
+当前编辑器源码和默认新建的场景工程使用 Bevy 0.20.1 与配套场景 SDK。下表列出已发布版本的兼容关系。
+
 | Bevy 版本 | Feathrise 编辑器版本 | `feathrise_runtime` SDK |
 | --- | --- | --- |
 | [0.20.1](https://crates.io/crates/bevy/0.20.1) | [0.2.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.2.0-preview.1) | [0.2.0](https://crates.io/crates/feathrise_runtime/0.2.0) · [GitHub Release](https://github.com/feathrise/feathrise_runtime/releases/tag/0.2.0) |
 | [0.19.1](https://crates.io/crates/bevy/0.19.1) | [0.1.0-preview.2](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.2)、[0.1.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.1) | [0.1.0](https://crates.io/crates/feathrise_runtime/0.1.0) |
 
-新建场景工程使用 Bevy 0.20.1 和配套场景 SDK。源码构建默认使用内嵌的公开 Git 固定提交配方和锁，首次编译时由 Cargo 获取 SDK 和补丁。旧版工程使用与自身格式对应的编辑器和 SDK。[SDK 来源](docs/使用说明.md#sdk-来源)
+源码构建默认使用内嵌的公开 Git 固定提交配方和锁，首次编译时由 Cargo 获取 SDK 和补丁。旧版工程使用与自身格式对应的编辑器和 SDK。[SDK 来源](docs/使用说明.md#sdk-来源)
 
 ## 从源码启动
 
