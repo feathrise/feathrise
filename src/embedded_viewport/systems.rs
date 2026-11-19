@@ -24,6 +24,7 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
         .map_or(default(), |settings| settings.profile);
     let build_backend = crate::native_play::ProjectBuildBackend::selected(world);
     let geometry = world.resource::<ViewportGeometry>().clone();
+    let viewport_visible = geometry.visible;
     let request = requests
         .read(world.resource::<Messages<RunSavedProject>>())
         .last()
@@ -225,6 +226,8 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
             }
         }
     }
+    let tree_active = selected == ViewportMode::EmbeddedWorld && runtime.active.is_some() && !stopping && !runtime.exit_requested;
+    super::scene_tree::sync(world, &mut runtime, &mut status, tree_active, viewport_visible);
     super::previews::configure(world, &mut runtime, &status, selected);
     // 仅模式交接期间冻结作者输入。稳定Playing与独立启动一样允许操作作者工作台；
     // sync_snapshot/实时预览仍拒绝Playing写入，后续草稿在返回Editing后再完整采用。
@@ -585,6 +588,7 @@ fn poll(world: &mut World, runtime: &mut Runtime, status: &mut EmbeddedStatus) {
         match event {
             Event::Progress(message) => feedback(world, &message),
             Event::HotpatchBaseline(baseline) => super::hotpatch::baseline(runtime, baseline),
+            Event::SceneTree(response) => super::scene_tree::receive(world, runtime, status, response),
             Event::Protocol(frame) => {
                 if runtime
                     .identity
@@ -594,7 +598,8 @@ fn poll(world: &mut World, runtime: &mut Runtime, status: &mut EmbeddedStatus) {
                     continue;
                 }
                 match frame.message {
-                    Message::Ready { pid, world_id, .. } => {
+                    Message::Ready { pid, world_id, capabilities, .. } => {
+                        runtime.tree.supported = capabilities.iter().any(|cap| cap == super::scene_tree::CAPABILITY);
                         status.ready = true;
                         status.pid = pid;
                         status.world_id = world_id;

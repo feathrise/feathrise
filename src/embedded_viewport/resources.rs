@@ -64,6 +64,7 @@ pub(super) enum Event {
     Progress(String),
     HotpatchBaseline(Arc<crate::code_iteration::hotpatch::FatBaseline>),
     Protocol(Envelope),
+    SceneTree(super::scene_tree::Response),
 }
 
 pub(super) struct Active {
@@ -177,6 +178,7 @@ pub(super) struct Runtime {
     pub snapshot_started: Option<Instant>,
     pub capture_error: Option<String>,
     pub previews: super::previews::PreviewFlights,
+    pub tree: super::scene_tree::SceneTreeHost,
 }
 impl Drop for Runtime {
     fn drop(&mut self) {

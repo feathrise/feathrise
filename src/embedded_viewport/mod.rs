@@ -4,6 +4,7 @@
 mod preview_sources;
 mod previews;
 mod resources;
+mod scene_tree;
 mod systems;
 mod transport;
 mod tools;
@@ -49,6 +50,7 @@ impl Plugin for EmbeddedViewportPlugin {
                 .before(crate::native_play::request_exit),
         );
         feathrise_editor_scene::standalone::embedded_overlay::install(app);
+        feathrise_editor_scene::standalone::embedded_scene_tree::install(app);
         preview_sources::install(app);
     }
 }

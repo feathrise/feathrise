@@ -411,6 +411,8 @@ pub(super) fn run(
                     | Message::PreviewApplied { .. }
                     | Message::Failure { .. }
                     | Message::RequestMode { .. } => (),
+                    Message::Preview { kind: feathrise_editor_protocol::PreviewKind::AuthorDomain, ref format, .. }
+                        if format == super::scene_tree::RESPONSE => (),
                     Message::HotPatchReady { .. } | Message::CodePatchResult { .. } => (),
                     _ => {
                         failure = Some("工程执行端发送了宿主专属命令，拒绝越过通信方向边界".into());
@@ -418,7 +420,7 @@ pub(super) fn run(
                     }
                 }
             }
-            outgoing_events.push_back(Event::Protocol(message));
+            outgoing_events.push_back(super::scene_tree::decode(message));
         }
         while let Some(event) = outgoing_events.pop_front() {
             match events.try_send(event) {
