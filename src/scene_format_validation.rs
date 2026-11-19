@@ -5,6 +5,7 @@ mod fixture;
 mod cube;
 
 pub(crate) use fixture::run;
+pub(crate) use driver::click_text;
 
 use bevy::prelude::*;
 use serde_json::{Value, json};

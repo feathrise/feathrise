@@ -7,6 +7,7 @@ mod embedded_input; // 仅模式交接短暂隔离输入，稳定原生预览仍
 mod embedded_presentation; // 只发布真实预览模式，原工作台保持可见，返回不重开作者会话。
 pub mod embedded_placement_preview; // 原对象手柄与数值手势的有界实时投影，独立于整图保存/快照。
 pub mod embedded_snapshot; // 可选常驻工程视口只读捕获，默认不开启，不改变保存后试玩合同。
+pub mod embedded_scene_tree; // 工程 World 提供的只读对象行沿用现有作者导航。
 pub mod embedded_vegetation; // 原连续笔刷已发布的正式草密度独立投影，不等待松手或整场景捕获。
 pub mod embedded_author_preview; // 原网格/高度/水工具已采用的局部结果，不重建第二套编辑业务。
 pub mod embedded_surface_trail; // 原地表即时辅助图的有界行块投影，PBR仍在原松笔流程采用。

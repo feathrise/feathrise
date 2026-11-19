@@ -176,6 +176,7 @@ pub(super) fn style_buttons(
     session: Res<EditorAuthoringSession>,
     browser: Res<EditorGltfBrowserState>,
     selection: Res<PlacementSelectionSet>,
+    project_tree: Option<Res<crate::standalone::embedded_scene_tree::ProjectSceneTree>>,
     mut searches: Query<&mut Node, With<SceneAssetSearch>>,
     mut buttons: Query<(
         Entity,
@@ -187,8 +188,10 @@ pub(super) fn style_buttons(
     )>,
 ) {
     use crate::ui::theme as colors;
-    // 没有摆放资产时不保留空搜索块；有搜索词时继续显示，避免过滤到零条后无法清除。
-    let search_visible = !browser.object_search.is_empty() || session.draft.as_ref().is_some_and(|draft| !draft.placements.placements.is_empty());
+    // 两类行共用搜索；过滤到零条后仍可清除关键字。
+    let search_visible = !browser.object_search.is_empty()
+        || session.draft.as_ref().is_some_and(|draft| !draft.placements.placements.is_empty())
+        || project_tree.as_ref().is_some_and(|tree| tree.has_objects());
     for mut node in &mut searches {
         let display = if search_visible { Display::Flex } else { Display::None };
         if node.display != display { node.display = display; }

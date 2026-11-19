@@ -590,7 +590,7 @@ fn saved(world: &World, observed: &author::Observation, before: u64) -> Result<b
     }
 }
 
-fn click_text(world: &mut World, label: &str) -> Option<Entity> {
+pub(crate) fn click_text(world: &mut World, label: &str) -> Option<Entity> {
     let entity = world
         .query::<(Entity, &Text)>()
         .iter(world)

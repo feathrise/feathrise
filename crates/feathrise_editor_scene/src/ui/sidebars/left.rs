@@ -180,6 +180,7 @@ pub(crate) fn scene_tree_page() -> impl Scene {
                     @crate::ui::gltf_browser::scene_display_panel()--
                     @crate::ui::terrain_objects::scene_list_panel()--
                     @crate::ui::gltf_browser::gltf_browser_panel()--
+                    @crate::standalone::embedded_scene_tree::panel()--
                     crate::viewport::content_selection::LayerCandidateSlot
                         Node { display: Display::None, width: percent(100), flex_shrink: 0.0, flex_direction: FlexDirection::Column }
                 ]

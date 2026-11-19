@@ -6,6 +6,7 @@ mod empty_fixture;
 mod build_backend;
 mod close_evidence;
 mod live_fixture;
+mod scene_tree;
 mod live_preview;
 mod tool_previews;
 mod handle_hover;
@@ -141,6 +142,9 @@ pub(crate) fn install(app: &mut App, project_root: &Path) -> Result<(), String> 
     }
     if std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("preview-chrome") {
         return crate::window_chrome::preview_validation::install(app, &project.root, directory);
+    }
+    if scene_tree::active() {
+        return scene_tree::install(app, directory);
     }
     author::install(app);
     let empty_fixture = orchestration::is_empty_fixture(&project.root)?;

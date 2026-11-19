@@ -118,8 +118,10 @@ fn run_owned_project_stage(
     let preview_chrome = std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("preview-chrome");
     let native_preview = std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("native-preview");
     let build_backend = super::build_backend::active();
+    let scene_tree = super::scene_tree::active();
     // 私有RPG装配仅属于这一显式自有夹具；准备完全部源码/字体后才建立运行期资产字节基线。
     if native_preview { prepare_native_preview(&project.root, output)?; }
+    if scene_tree { super::scene_tree::prepare(&project.root)?; }
     let before = asset_hashes(&project.root)?;
     if preview_chrome && std::env::var("FEATHRISE_PREVIEW_CHROME_NATIVE_INPUT").as_deref()!=Ok("1") {
         return Err("预览三键专项必须由真实NC输入观察器启动（FEATHRISE_PREVIEW_CHROME_NATIVE_INPUT=1）".into());
@@ -160,7 +162,7 @@ fn run_owned_project_stage(
     )
     .map_err(|error| error.to_string())?;
     let after = asset_hashes(&project.root)?;
-    let report_path = output.join(if build_backend { "build-backend.json" } else if native_preview { "native-preview.json" } else if preview_chrome { "preview-chrome.json" } else { "embedded-editor.json" });
+    let report_path = output.join(if build_backend { "build-backend.json" } else if native_preview { "native-preview.json" } else if preview_chrome { "preview-chrome.json" } else if scene_tree { super::scene_tree::REPORT } else { "embedded-editor.json" });
     let mut report: Value = serde_json::from_slice(&fs::read(&report_path).map_err(|error| {
         format!(
             "常驻验收未生成回执：{error}；退出{}；{}",
@@ -176,7 +178,9 @@ fn run_owned_project_stage(
     }
     let gpu = if build_backend { super::build_backend::verify(output, &report) }
         else if native_preview { super::native_preview_validation::verify(output, &report) }
-        else if preview_chrome { verify_preview_chrome(output, &report) } else { verify_guest_evidence(output, &report) };
+        else if preview_chrome { verify_preview_chrome(output, &report) }
+        else if scene_tree { super::scene_tree::verify(output, &report) }
+        else { verify_guest_evidence(output, &report) };
     match &gpu {
         Ok(evidence) => report["game_gpu_evidence"] = json!(evidence),
         Err(error) => {
@@ -313,6 +317,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         Ok("cargo-settings") => "cargo_settings_owned_window_validation",
         Ok("native-preview") => "native_preview_owned_window_validation",
         Ok("preview-chrome") => "preview_chrome_owned_three_level_window_validation",
+        Ok("scene-tree") => "resident_project_scene_tree_owned_window_validation",
         _ => "resident_dual_mode_owned_window_validation",
     };
     let summary = json!({"schema":1,"scope":scope,"passed":result.is_ok(),
