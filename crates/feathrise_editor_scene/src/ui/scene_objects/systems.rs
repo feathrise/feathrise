@@ -9,9 +9,11 @@ use crate::resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState};
 use crate::ui::gltf_browser::EditorGltfBrowserState;
 use crate::viewport::content_selection::LayerCandidateState;
 use crate::viewport::multi_select::{PlacementSelectionSet, SelectedMember};
-use bevy::input_focus::{FocusCause, InputFocus};
+use bevy::input_focus::{InputFocus, tab_navigation::TabIndex};
 use bevy::prelude::*;
 use bevy::text::EditableText;
+use bevy::ui::InteractionDisabled;
+use feathrise_scene_content::MAX_PLACEMENT_EDITOR_NAME_CHARS;
 use std::sync::Arc;
 
 /// 捕获只复制短ID及元数据Arc；大模型和完整水体记录不进入管理历史。
@@ -177,15 +179,13 @@ pub(super) fn style_buttons(
     browser: Res<EditorGltfBrowserState>,
     selection: Res<PlacementSelectionSet>,
     project_tree: Option<Res<crate::standalone::embedded_scene_tree::ProjectSceneTree>>,
+    focus: Res<InputFocus>,
     mut searches: Query<&mut Node, With<SceneAssetSearch>>,
-    mut buttons: Query<(
-        Entity,
-        &ObjectButton,
-        &UiInteraction,
-        &mut BackgroundColor,
-        &mut BorderColor,
-        Has<bevy::ui::InteractionDisabled>,
-    )>,
+    mut controls: Query<
+        (Entity, Option<&ObjectButton>, Option<&ObjectInput>, &UiInteraction,
+            &mut BackgroundColor, &mut BorderColor, Has<InteractionDisabled>),
+        Or<(With<ObjectButton>, With<ObjectInput>)>,
+    >,
 ) {
     use crate::ui::theme as colors;
     // 两类行共用搜索；过滤到零条后仍可清除关键字。
@@ -198,6 +198,8 @@ pub(super) fn style_buttons(
     }
     let ready = editor.open
         && !editor.close_requested
+        && !editor.new_scene_dialog_open
+        && editor.scene_switch_confirmation.is_none()
         && !editor.scene_transition_in_progress
         && !session.saving
         && !state.busy();
@@ -207,24 +209,25 @@ pub(super) fn style_buttons(
     let single = browser.selected_placement_id.is_some()
         && browser.selected_group.is_none()
         && selection.members.len() <= 1;
-    for (entity, button, interaction, mut background, mut border, disabled) in &mut buttons {
+    for (entity, button, field, interaction, mut background, mut border, disabled) in &mut controls {
         let enabled = ready
-            && match button.0 {
-                ObjectAction::Focus(ObjectField::Search) => true,
-                ObjectAction::Rename | ObjectAction::Focus(ObjectField::Name) => {
+            && match (button, field) {
+                (_, Some(ObjectInput(ObjectField::Search))) => true,
+                (Some(ObjectButton(ObjectAction::Rename)), _) | (_, Some(ObjectInput(ObjectField::Name))) => {
                     single && state.retirement.is_none()
                 }
                 _ => target && state.retirement.is_none(),
             };
         if disabled == enabled {
+            let mut control = commands.entity(entity);
             if enabled {
-                commands
-                    .entity(entity)
-                    .remove::<bevy::ui::InteractionDisabled>();
+                control.remove::<InteractionDisabled>();
+                if field.is_some() {
+                    control.insert(TabIndex(0));
+                }
             } else {
-                commands
-                    .entity(entity)
-                    .insert(bevy::ui::InteractionDisabled);
+                // 原生焦点按 TabIndex 命中，禁用字段时也撤掉它的焦点资格。
+                control.insert(InteractionDisabled).remove::<TabIndex>();
             }
         }
         let color = if !enabled {
@@ -239,7 +242,9 @@ pub(super) fn style_buttons(
         if background.0 != color {
             background.0 = color;
         }
-        let color = if enabled && *interaction != UiInteraction::None {
+        let color = if enabled && field.is_some() && focus.get() == Some(entity) {
+            colors::INPUT_ACTIVE_BORDER
+        } else if enabled && *interaction != UiInteraction::None {
             colors::COPPER_BORDER
         } else {
             colors::COPPER_BORDER_WEAK
@@ -250,7 +255,6 @@ pub(super) fn style_buttons(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn handle_objects(
-    mut commands: Commands,
     buttons: (
         Query<(&EditorButtonClick, &ObjectButton), Changed<EditorButtonClick>>,
         Query<
@@ -277,7 +281,6 @@ pub(super) fn handle_objects(
         Res<crate::authoring::placement_batch::PlacementBatchState>,
     ),
     mut keyboard: ResMut<ButtonInput<KeyCode>>,
-    mut initialized: Local<std::collections::BTreeSet<Entity>>,
 ) {
     let (mouse, moving, batch) = guards;
     if let Some(task) = state.retirement.as_mut()
@@ -402,12 +405,7 @@ pub(super) fn handle_objects(
             ObjectField::Name => &state.name,
             ObjectField::Group => &state.group,
         };
-        if initialized.insert(entity) {
-            *input = crate::ui::text_input::single_line_input(desired, 128);
-            commands
-                .entity(entity)
-                .insert(bevy::text::LineHeight::Px(18.0));
-        } else if editor.open && focus.get() == Some(entity) {
+        if editor.open && focus.get() == Some(entity) {
             let value = input.value().to_string();
             match kind {
                 ObjectField::Search if value != browser.object_search => {
@@ -419,7 +417,8 @@ pub(super) fn handle_objects(
                 _ => {}
             }
         } else if input.value().to_string() != *desired {
-            *input = crate::ui::text_input::single_line_input(desired, 128);
+            // 切换对象时保留 Bevy 已同步的字体与布局，只替换文本值。
+            crate::ui::text_input::replace_single_line_value(&mut input, desired, MAX_PLACEMENT_EDITOR_NAME_CHARS);
         }
     }
     let context = if let Some(group) = &browser.selected_group {
@@ -470,12 +469,6 @@ pub(super) fn handle_objects(
     }) else {
         return;
     };
-    if let ObjectAction::Focus(kind) = action {
-        if let Some((entity, _, _)) = fields.iter().find(|(_, field, _)| field.0 == kind) {
-            focus.set(entity, FocusCause::Navigated);
-        }
-        return;
-    }
     if state.retirement.is_some() {
         editor.status = "上一批对象管理缓存正在后台释放，请稍候重试".into();
         return;

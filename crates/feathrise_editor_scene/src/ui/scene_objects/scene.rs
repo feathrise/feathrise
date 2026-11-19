@@ -4,8 +4,10 @@ use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::components::*;
 use crate::ui::{scene::FONT_PATH, theme as colors};
+use bevy::input_focus::tab_navigation::TabIndex;
 use bevy::prelude::*;
-use bevy::text::FontSourceTemplate;
+use bevy::text::{FontSourceTemplate, LineHeight};
+use feathrise_scene_content::MAX_PLACEMENT_EDITOR_NAME_CHARS;
 
 fn button(label: &'static str, action: ObjectAction) -> impl Scene {
     bsn! {
@@ -20,34 +22,23 @@ fn button(label: &'static str, action: ObjectAction) -> impl Scene {
 
 fn field(label: &'static str, kind: ObjectField) -> impl Scene {
     let search = kind == ObjectField::Search;
-    let direction = FlexDirection::Row;
-    let alignment = AlignItems::Center;
-    let input_width = Val::Auto;
-    let input_grow = 1.0_f32;
     bsn! {
-        Node { width: percent(100), min_width: px(0), flex_direction: direction,
-            column_gap: px(4), row_gap: px(2), align_items: alignment, flex_shrink: 0.0 }
+        Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Row,
+            column_gap: px(4), align_items: AlignItems::Center, flex_shrink: 0.0 }
         Children [
             Text(label) @feathrise_editor_ui::localization::label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_HINT)
                 Node { width: px(if search { 28.0 } else { 36.0 }), min_width: px(0), flex_shrink: 0.0 }--
 
-                InteractionButton
-                ObjectButton(ObjectAction::Focus(kind))
-                Node { width: input_width, flex_grow: input_grow, min_width: px(0), height: px(26), align_items: AlignItems::Center, padding: UiRect::horizontal(px(5)), border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)), overflow: Overflow::clip_x() }
+                // 命中、键盘焦点和文字绘制共用实体，点击文字或边缘都能聚焦。
+                InteractionButton ObjectInput(kind) crate::ui::text_input::EditorTextInput ~{TabIndex(0)}
+                ~{crate::ui::text_input::single_line_input("", MAX_PLACEMENT_EDITOR_NAME_CHARS)}
+                bevy::text::EditableTextFilter::new(|character| !character.is_control())
+                bevy::text::TextCursorStyle::default() TextLayout::no_wrap() ~{LineHeight::Px(18.0)}
+                TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+                TextColor(colors::TEXT_PRIMARY)
+                Node { flex_grow: 1.0, min_width: px(0), height: px(26), padding: UiRect::axes(px(5), px(3)), border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)), overflow: Overflow::clip_x() }
                 BackgroundColor(colors::INPUT_BG)
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
-                Children [
-                    ObjectInput(kind)
-                    crate::ui::text_input::EditorTextInput
-                    bevy::text::EditableText { allow_newlines: false }
-                    bevy::text::EditableTextFilter::new(|character| !character.is_control())
-                    bevy::text::TextCursorStyle::default()
-                    TextLayout::no_wrap()
-                    TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-                    TextColor(colors::TEXT_PRIMARY)
-                    Node { width: percent(100), min_width: px(0), height: px(18), overflow: Overflow::clip_x() }
-                ]
-
         ]
     }
 }

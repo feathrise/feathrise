@@ -15,7 +15,6 @@ pub(super) struct ObjectInput(pub(super) ObjectField);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum ObjectAction {
-    Focus(ObjectField),
     #[default]
     Rename,
     AssignGroup,

@@ -539,6 +539,10 @@ fn semantically_unchanged_placement_bytes_are_omitted_from_the_save_batch() {
     let mut changed = snapshot.clone(); // 只改变一项真实作者内容。
     changed.placements[0].translation[0] = 3.0; // 世界位置变化必须形成新修订。
     assert!(!saved_placement_bytes_match(&compact, &changed)); // 真实实例内容变化必须继续写盘并发布。
+
+    let mut renamed = snapshot.clone();
+    Arc::make_mut(&mut renamed.placements[0].editor).name = "铜灯".into();
+    assert!(!saved_placement_bytes_match(&compact, &renamed)); // 旧版 JSON 场景只改名称也必须进入保存批次。
 }
 
 #[test]

@@ -35,27 +35,14 @@ pub(super) enum SavedPlacementsPublishAction {
     Rebuild, // 上次正式采用失败但内容未变，请求运行时沿同一正式链路重试。
 }
 
-/// 比较摆放作者内容而不是JSON排版，兼容旧文件省略默认空`water_surfaces`字段。
+/// 比较反序列化后的完整摆放记录。名称等作者元数据变化也必须落盘并同步到已加载资产。
 pub(super) fn placement_documents_equal(
     left: &ScenePlacementsAsset,
     right: &ScenePlacementsAsset,
 ) -> bool {
     left.schema_version == right.schema_version
         && left.scene_id == right.scene_id
-        && left.placements.len() == right.placements.len()
-        && left
-            .placements
-            .iter()
-            .zip(&right.placements)
-            .all(|(left, right)| {
-                left.id == right.id
-                    && left.asset_path == right.asset_path
-                    && left.asset_target == right.asset_target
-                    && left.translation == right.translation
-                    && left.yaw_degrees == right.yaw_degrees
-                    && left.scale == right.scale
-                    && left.water_surfaces == right.water_surfaces
-            }) // 顺序属于当前作者文档的确定性内容，不能把重排误判成相同快照。
+        && left.placements == right.placements
 }
 
 /// 只读决定是否需要发布；`None`路径不会取得`AssetMut`，因此不会产生伪`Modified`。

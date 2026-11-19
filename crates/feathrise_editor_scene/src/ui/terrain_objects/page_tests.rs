@@ -308,13 +308,13 @@ fn mouse(app: &mut App, window: Entity, button: MouseButton, state: ButtonState)
         .write_message(bevy::window::WindowEvent::MouseButtonInput(message));
     app.update();
 }
-fn click(app: &mut App, window: Entity, entity: Entity, button: MouseButton) {
+pub(crate) fn click(app: &mut App, window: Entity, entity: Entity, button: MouseButton) {
     point_at(app, window, entity);
     mouse(app, window, button, ButtonState::Pressed);
     mouse(app, window, button, ButtonState::Released);
     app.update();
 }
-fn key(app: &mut App, window: Entity, code: KeyCode, logical: Key, text: Option<&str>) {
+pub(crate) fn key(app: &mut App, window: Entity, code: KeyCode, logical: Key, text: Option<&str>) {
     app.world_mut().write_message(KeyboardInput {
         key_code: code,
         logical_key: logical.clone(),

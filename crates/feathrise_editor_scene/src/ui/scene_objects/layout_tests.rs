@@ -1,6 +1,6 @@
 //! 真实中文字体的对象管理排版；窄侧栏、缩放和DPI下按钮折行、字段裁剪。
 
-use super::components::{ObjectButton, ObjectInput};
+use super::components::{ObjectAction, ObjectButton, ObjectField, ObjectInput};
 use bevy::app::{HierarchyPropagatePlugin, PropagateSet};
 use bevy::asset::AssetPlugin;
 use bevy::camera::{ComputedCameraValues, RenderTargetInfo, Viewport};
@@ -107,8 +107,11 @@ fn controls_fit_real_chinese_font_in_narrow_scaled_sidebars() {
         }
         let world = app.world_mut();
         let mut count = 0;
-        for (_, node, transform, children) in world
-            .query::<(&ObjectButton, &ComputedNode, &UiGlobalTransform, &Children)>()
+        for (node, transform, children) in world
+            .query_filtered::<
+                (&ComputedNode, &UiGlobalTransform, Option<&Children>),
+                Or<(With<ObjectButton>, With<ObjectInput>)>,
+            >()
             .iter(world)
         {
             let left = transform.translation.x - node.size().x * 0.5;
@@ -118,10 +121,7 @@ fn controls_fit_real_chinese_font_in_narrow_scaled_sidebars() {
                 "管理控件越出侧栏：{left}..{right}, {width}"
             );
             assert!(node.size().y > 0.0);
-            for child in children.iter() {
-                if world.get::<ObjectInput>(child).is_some() {
-                    continue;
-                } // 长字段由双方Clip_x裁剪，不能强制缩小文字。
+            for child in children.into_iter().flat_map(|children| children.iter()) {
                 if let Some(text) = world.get::<bevy::text::TextLayoutInfo>(child) {
                     assert!(text.size.x <= node.size().x + 1.0);
                 }
@@ -130,4 +130,73 @@ fn controls_fit_real_chinese_font_in_narrow_scaled_sidebars() {
         }
         assert_eq!(count, 9);
     }
+}
+
+#[test]
+fn placement_name_responds_to_pointer_and_renders_keyboard_and_ime_text() {
+    use crate::authoring::EditorAuthoringSession;
+    use crate::ui::{gltf_browser::EditorGltfBrowserState, terrain_objects::page_tests::{click, key, page}};
+    use crate::viewport::{LayerCandidateState, multi_select::PlacementSelectionSet};
+    use bevy::input::keyboard::Key;
+    use bevy::input_focus::{InputFocus, pointer_focus::PointerFocusPlugin};
+    use bevy::text::{EditableText, TextLayoutInfo};
+    use bevy::window::{Ime, WindowEvent};
+
+    let (mut app, window) = page();
+    app.add_plugins(PointerFocusPlugin)
+        .init_resource::<PlacementSelectionSet>()
+        .init_resource::<crate::viewport::placement_move::PlacementMoveState>()
+        .init_resource::<crate::authoring::placement_batch::PlacementBatchState>()
+        .add_systems(Update, bevy::text::apply_text_edits.before(crate::SceneEditorSystemSet::Input));
+    super::install(&mut app);
+    let world = app.world_mut();
+    world.spawn_scene(bsn! {
+        Node { position_type: PositionType::Absolute, left: px(640), width: px(320) }
+        Children [@super::scene::properties_panel()]
+    }).unwrap();
+    let font = world.resource_mut::<Assets<Font>>().add(Font::from_bytes(
+        feathrise_runtime::app::default_font::DEFAULT_FONT_BYTES.to_vec(),
+    ));
+    for mut text_font in world.query_filtered::<&mut TextFont, With<ObjectInput>>().iter_mut(world) {
+        text_font.font = font.clone().into();
+    }
+    app.update();
+
+    let world = app.world_mut();
+    let mut record = crate::viewport::placement_move::interaction_tests::record();
+    record.asset_path = "scenes/test/models/blender-roundtrip.glb".into();
+    let id = record.id.clone();
+    // 控件先完成初始化，再绑定带自定义名称的 GLB，覆盖回填丢失字体样式的路径。
+    std::sync::Arc::make_mut(&mut record.editor).name = "铜灯".into();
+    let mut session = world.resource_mut::<EditorAuthoringSession>();
+    let revision = session.placement_structure_revision;
+    session.draft.as_mut().unwrap().placements.placements.push(record);
+    world.resource_mut::<EditorGltfBrowserState>().select_indexed_test_placement(&id, 0, revision);
+    world.resource_mut::<LayerCandidateState>().clear_for_scene_tree();
+    app.update();
+
+    let world = app.world_mut();
+    let input = world.query::<(Entity, &ObjectInput)>().iter(world)
+        .find_map(|(entity, field)| (field.0 == ObjectField::Name).then_some(entity)).unwrap();
+    let confirm = world.query::<(Entity, &ObjectButton)>().iter(world)
+        .find_map(|(entity, button)| (button.0 == ObjectAction::Rename).then_some(entity)).unwrap();
+    let layout = world.get::<TextLayoutInfo>(input).unwrap();
+    assert_eq!(layout.glyphs.len(), 2);
+    assert_eq!(layout.size.y, 18.0);
+
+    click(&mut app, window, input, MouseButton::Left);
+    assert_eq!(app.world().resource::<InputFocus>().get(), Some(input));
+    key(&mut app, window, KeyCode::End, Key::End, None);
+    key(&mut app, window, KeyCode::Digit2, Key::Character("2".into()), Some("2"));
+    let ime = Ime::Commit { window, value: "号".into() };
+    app.world_mut().write_message(ime.clone());
+    app.world_mut().write_message(WindowEvent::Ime(ime));
+    app.update();
+    assert_eq!(app.world().get::<EditableText>(input).unwrap().value().to_string(), "铜灯2号");
+    assert_eq!(app.world().get::<TextLayoutInfo>(input).unwrap().glyphs.len(), 4);
+
+    click(&mut app, window, confirm, MouseButton::Left);
+    let session = app.world().resource::<EditorAuthoringSession>();
+    assert_eq!(session.draft.as_ref().unwrap().placements.placements[0].editor.name, "铜灯2号");
+    assert_eq!(session.undo.len(), 1);
 }
