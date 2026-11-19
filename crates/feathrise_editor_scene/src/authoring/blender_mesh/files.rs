@@ -30,8 +30,14 @@ pub(super) struct BlenderProcess {
 }
 
 impl BlenderProcess {
-    pub fn start(root: PathBuf, folder: String, record: &ScenePlacementRecord) -> Result<Self, String> {
-        let executable = super::super::find_blender_executable()?
+    pub fn start(
+        root: PathBuf,
+        folder: String,
+        record: &ScenePlacementRecord,
+        saved_executable: Option<&Path>,
+        bundled_exporter: Option<&[u8]>,
+    ) -> Result<Self, String> {
+        let executable = super::super::find_blender_executable(saved_executable)?
             .canonicalize().map_err(|error| error.to_string())?;
         let root = root.canonicalize().map_err(|error| error.to_string())?;
         safe_content_path(&root, &folder)?;
@@ -55,6 +61,15 @@ impl BlenderProcess {
             let input = input_glb(&root, &directory, record)?;
             let script = directory.join("bridge.py");
             fs::write(&script, BRIDGE).map_err(|error| error.to_string())?;
+            // 显式开发覆盖优先；无覆盖时把随包脚本释放到本次会话，供桥接校验并加载。
+            let exporter = match (exporter, bundled_exporter) {
+                (None, Some(bytes)) => {
+                    let path = directory.join(EXPORTER);
+                    fs::write(&path, bytes).map_err(|error| format!("无法写入随包 Blender 导出器（{error}）"))?;
+                    Some(path)
+                }
+                (exporter, _) => exporter,
+            };
             let mut command = Command::new(executable);
             // 正常 Blender 启动读取用户偏好，脚本只替换本进程里的场景。
             command.args(["--disable-autoexec", "--python-exit-code", "1", "--python"])
@@ -245,7 +260,7 @@ fn cleanup_directory(directory: &Path) {
         let exporter_stage = name.strip_prefix(".model.").and_then(|value| value.strip_suffix(".exporting.glb"))
             .is_some_and(|pid| !pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit()));
         if backup || exporter_stage || matches!(name.as_ref(), "model.blend" | RESULT | "input.glb"
-            | "bridge.py" | VERSION | ".save.version.tmp" | "stdout.log" | "stderr.log" | "quit.blend")
+            | "bridge.py" | EXPORTER | VERSION | ".save.version.tmp" | "stdout.log" | "stderr.log" | "quit.blend")
         {
             let _ = fs::remove_file(entry.path());
         }

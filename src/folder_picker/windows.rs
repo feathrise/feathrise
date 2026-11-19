@@ -30,17 +30,25 @@ impl FolderPicker {
     pub fn start(owner: usize, initial: PathBuf, new: bool) -> Result<Self, String> {
         Self::start_named(owner, initial,
             if new { "选择新工程的父目录" } else { "选择已有工程目录" },
-            if new { "选择父目录" } else { "选择工程目录" }, false)
+            if new { "选择父目录" } else { "选择工程目录" }, None)
     }
     /// 导出只选择目录；沿用同一受控STA、所属窗口取消和取消优先的完成轮询。
     pub(crate) fn start_export(owner: usize, initial: PathBuf) -> Result<Self, String> {
-        Self::start_named(owner, initial, "选择工程导出目录", "选择输出目录", false)
+        Self::start_named(owner, initial, "选择工程导出目录", "选择输出目录", None)
     }
     /// 单文件插件仍复用同一STA和归属取消；平台／架构另由静态读取器校验。
     pub fn start_plugin(owner: usize, initial: PathBuf) -> Result<Self, String> {
-        Self::start_named(owner, initial, "选择插件文件", "选择插件", true)
+        Self::start_named(owner, initial, "选择插件文件", "选择插件", Some(("Feathrise 插件 (*.dll)", "*.dll")))
     }
-    fn start_named(owner: usize, initial: PathBuf, title: &'static str, label: &'static str, plugin: bool) -> Result<Self, String> {
+    pub(crate) fn start_blender(owner: usize, initial: PathBuf) -> Result<Self, String> {
+        // 内嵌作者窗的系统对话框归顶层窗口，取消器也使用同一原生所有者。
+        let owner = unsafe { GetAncestor(owner as NativeHwnd, GA_ROOT) };
+        if owner.is_null() {
+            return Err("当前窗口尚未准备好，请重新选择 Blender 程序。".into());
+        }
+        Self::start_named(owner as usize, initial, "选择 Blender 程序", "选择程序", Some(("可执行文件 (*.exe)", "*.exe")))
+    }
+    fn start_named(owner: usize, initial: PathBuf, title: &'static str, label: &'static str, filter: Option<(&'static str, &'static str)>) -> Result<Self, String> {
         let (sender, receiver) = mpsc::sync_channel(1);
         let thread_id = Arc::new(AtomicU32::new(0));
         let cancel = Arc::new(AtomicBool::new(false));
@@ -50,11 +58,11 @@ impl FolderPicker {
             .name("new-editor-folder".into())
             .spawn(move || {
                 tid.store(unsafe { GetCurrentThreadId() }, Ordering::Release);
-                let result = std::panic::catch_unwind(|| choose(owner, &initial, title, label, plugin, &cancelled))
-                    .unwrap_or_else(|_| Err("目录选择器异常，请重试或直接粘贴完整目录。".into()));
+                let result = std::panic::catch_unwind(|| choose(owner, &initial, title, label, filter, &cancelled))
+                    .unwrap_or_else(|_| Err("系统选择器异常，请重试。".into()));
                 let _ = sender.send(result);
             })
-            .map_err(|e| format!("无法启动目录选择器：{e}"))?;
+            .map_err(|e| format!("无法启动系统选择器：{e}"))?;
         Ok(Self {
             receiver,
             worker: Some(worker),
@@ -70,7 +78,7 @@ impl FolderPicker {
         let _ = self.worker.take()?.join();
         let result = self.receiver
                 .try_recv()
-                .unwrap_or_else(|_| Err("目录选择器已退出，未返回选择。".into()));
+                .unwrap_or_else(|_| Err("系统选择器已退出，未返回选择。".into()));
         // 退出确认可能晚于结果入队；取消必须优先，不能在收口时登记一次迟到安装。
         Some(if self.cancel.load(Ordering::Acquire) { Ok(None) } else { result })
     }
@@ -103,13 +111,13 @@ fn choose(
     initial: &std::path::Path,
     title: &str,
     label: &str,
-    plugin: bool,
+    filter: Option<(&str, &str)>,
     cancel: &AtomicBool,
 ) -> Result<Option<String>, String> {
     unsafe {
         CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE)
             .ok()
-            .map_err(|e| format!("目录选择器初始化失败：{e}"))?;
+            .map_err(|e| format!("系统选择器初始化失败：{e}"))?;
         struct Apartment;
         impl Drop for Apartment {
             fn drop(&mut self) {
@@ -124,15 +132,15 @@ fn choose(
                 CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?;
             dialog.SetOptions(
                 dialog.GetOptions()?
-                    | if plugin { FOS_FILEMUSTEXIST } else { FOS_PICKFOLDERS }
+                    | if filter.is_some() { FOS_FILEMUSTEXIST } else { FOS_PICKFOLDERS }
                     | FOS_FORCEFILESYSTEM
                     | FOS_PATHMUSTEXIST
                     | FOS_NOCHANGEDIR
                     | FOS_DONTADDTORECENT,
             )?;
-            let filter_name = wide("Feathrise 插件 (*.dll)");
-            let filter_pattern = wide("*.dll");
-            if plugin {
+            if let Some((filter_name, filter_pattern)) = filter {
+                let filter_name = wide(filter_name);
+                let filter_pattern = wide(filter_pattern);
                 dialog.SetFileTypes(&[Common::COMDLG_FILTERSPEC {
                     pszName: PCWSTR(filter_name.as_ptr()),
                     pszSpec: PCWSTR(filter_pattern.as_ptr()),
@@ -170,7 +178,7 @@ fn choose(
                 windows::core::Error::from_hresult(windows::core::HRESULT(0x80070057u32 as i32))
             })?))
         };
-        operation().map_err(|e| format!("无法选择目录：{e}；可直接粘贴完整目录。"))
+        operation().map_err(|e| format!("系统选择器失败：{e}"))
     }
 }
 

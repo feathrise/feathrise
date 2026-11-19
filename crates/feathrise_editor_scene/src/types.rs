@@ -38,6 +38,8 @@ pub(crate) enum EditorSettingsAction {
     SetAutoScale,
     SetScale(u16),
     SetLocale(feathrise_editor_core::EditorLocalePreference),
+    ChooseBlenderPath,
+    UseAutomaticBlenderPath,
     SetColorTheme(feathrise_editor_core::EditorColorTheme),
     SetMaxFps(u32),
     ToggleBuildFrameLimit,

@@ -26,7 +26,7 @@ fn fixed_backdrop_colors() -> impl Scene {
 }
 
 pub(super) fn settings_panel(build_optimization: bool) -> impl Scene {
-    let mut groups: Vec<Box<dyn Scene>> = vec![Box::new(locale_group())];
+    let mut groups: Vec<Box<dyn Scene>> = vec![Box::new(locale_group()), Box::new(blender_path_group())];
     // 只有独立编辑器具备编译和窗口调度权。游戏内 F12 继续使用原设置页。
     if build_optimization {
         groups.push(Box::new(build_optimization_group()));
@@ -145,6 +145,28 @@ fn locale_group() -> impl Scene {
                     @settings_button("English", EditorSettingsAction::SetLocale(EditorLocalePreference::English), 84.0)
                 ]
 
+        ]
+    }
+}
+
+fn blender_path_group() -> impl Scene {
+    bsn! {
+        SettingsGroup SettingsGeneralOnly BlenderPathGroup ~{Node { display: Display::None, ..group_node() }}
+        BackgroundColor(colors::PANEL_BG_SECTION) BorderColor::all(colors::COPPER_BORDER_WEAK)
+        Children [
+            @help_header("Blender 程序", "选择本机 Blender 的可执行文件，供场景建模和人形绑定使用。")--
+            Node { width: percent(100), min_width: px(0), flex_wrap: FlexWrap::Wrap, column_gap: px(6), row_gap: px(4) }
+            Children [
+                ~{Name::new("blender-path-choose")}
+                @settings_button("选择 Blender…", EditorSettingsAction::ChooseBlenderPath, 128.0)--
+                ~{Name::new("blender-path-auto")}
+                @settings_button("自动查找", EditorSettingsAction::UseAutomaticBlenderPath, 104.0)
+            ]--
+            // 文件路径可包含不带空格的中文与目录名，按字符排版以显示完整内容。
+            BlenderPathValue ~{Name::new("blender-path-value")} Text("")
+            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+            TextColor(colors::TEXT_PRIMARY) TextLayout::linebreak(LineBreak::AnyCharacter)
+            Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
         ]
     }
 }

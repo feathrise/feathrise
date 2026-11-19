@@ -1,5 +1,6 @@
 //! 独立编辑器的启动与工程工作台；Cargo可在场景库的元数据就绪后编译本库。
 
+mod blender_path_picker;
 mod branding;
 mod build_process;
 #[cfg(windows)]

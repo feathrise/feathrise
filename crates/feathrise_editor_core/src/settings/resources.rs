@@ -1,6 +1,7 @@
 //! 编辑器用户偏好、数值拖动手感及界面倍率；与游戏配置文件分离。
 use super::*;
 use bevy::prelude::*;
+use std::path::PathBuf;
 
 /// F12场景编辑器各个可拖动数值框的独立用户灵敏度倍率。
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -361,6 +362,8 @@ pub struct EditorSettings {
     pub scene_editor_scrub_sensitivities: SceneEditorScrubSensitivities,
     /// 公共数值框按稳定逻辑键保存速度，界面重建或重开工程后继续恢复。
     pub numeric_scrub_speeds: std::collections::BTreeMap<String, f32>,
+    /// 作者手动选择的 Blender 程序，供所有工程的本机 Blender 操作使用。
+    pub blender_executable: Option<PathBuf>,
     pub ui_locale: EditorLocalePreference,
     pub editor_ui_scale: f32,
     pub editor_ui_scale_auto: bool,
@@ -382,6 +385,7 @@ impl Default for EditorSettings {
             environment: Default::default(),
             scene_editor_scrub_sensitivities: Default::default(),
             numeric_scrub_speeds: Default::default(),
+            blender_executable: None,
             ui_locale: EditorLocalePreference::default(),
             editor_ui_scale: DEFAULT_EDITOR_UI_SCALE,
             editor_ui_scale_auto: false,

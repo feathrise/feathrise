@@ -27,7 +27,8 @@ pub use host_pages::{
     WorkbenchHostPagesPlugin, WorkbenchHostTabs, WorkbenchSettingsBody, WorkbenchHostPageInput,
 };
 pub use messages::WorkbenchIntent;
-pub use resources::{WorkbenchModel, WorkbenchProbe, WorkbenchSettingsAccess};
+pub use resources::{BlenderPathPicker, WorkbenchModel, WorkbenchProbe, WorkbenchSettingsAccess};
+pub(crate) use resources::BlenderAutoPath;
 pub use types::{AssetBrowserProbe, WorkbenchScene};
 
 use crate::resources::*;

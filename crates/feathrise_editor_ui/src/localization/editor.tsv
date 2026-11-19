@@ -2,6 +2,13 @@
 settings.locale.title	界面语言	Language
 settings.locale.help	立即切换编辑器界面语言，重启后恢复此选择。	Change the editor language immediately. Your choice is restored on restart.
 settings.locale.system	跟随系统	System Default
+settings.blender.title	Blender 程序	Blender Executable
+settings.blender.help	选择本机 Blender 的可执行文件，供场景建模和人形绑定使用。	Choose the Blender executable for scene modeling and character rigging.
+settings.blender.choose	选择 Blender…	Choose Blender…
+settings.blender.auto	自动查找	Auto-detect
+settings.blender.searching	正在查找 Blender…	Detecting Blender…
+settings.blender.not-found	未找到 Blender，请选择程序。	Blender not found. Choose the executable.
+settings.blender.choosing	正在选择 Blender…	Choosing Blender…
 settings.title	设置	Settings
 settings.general	常规	General
 settings.shortcuts	快捷键	Shortcuts

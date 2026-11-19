@@ -127,6 +127,7 @@ pub(crate) fn run(initial: Option<PathBuf>, target_override: Option<PathBuf>) ->
         app.add_systems(Last, pace_workspace.after(advance));
     }
     let preferences_completion = author_preferences::install_host(&mut app, author_settings);
+    crate::blender_path_picker::install(&mut app);
     #[cfg(feature = "validation")]
     crate::locale_validation::install(&mut app, None)?;
     crate::native_plugins::management::install_host(&mut app);

@@ -49,6 +49,8 @@ fn app() -> App {
     for action in [
         EditorSettingsAction::Open,
         EditorSettingsAction::Close,
+        EditorSettingsAction::ChooseBlenderPath,
+        EditorSettingsAction::UseAutomaticBlenderPath,
         EditorSettingsAction::ResetLayout,
         EditorSettingsAction::ToggleTerrainBackfaces,
         EditorSettingsAction::DecreaseScale,
@@ -98,6 +100,66 @@ fn click(app: &mut App, action: EditorSettingsAction) {
         *interaction = UiInteraction::None; // 无拾取插件的测试中，显式模拟松键并移出按钮。
     }
     app.update();
+}
+
+#[test]
+fn editor_settings_blender_path_uses_shared_input_and_keeps_path_on_cancel() {
+    let mut app = app();
+    let path = std::path::PathBuf::from(r"C:\程序工具\建模\blender.exe");
+    app.world_mut().resource_mut::<EditorSettings>().blender_executable = Some(path.clone());
+    let group = app.world_mut().spawn((BlenderPathGroup, SettingsGeneralOnly, Node::default())).id();
+    let label = app.world_mut().spawn((BlenderPathValue, Text::default())).id();
+    let configured = |app: &App| app.world().resource::<EditorSettings>().blender_executable.as_ref() == Some(&path);
+
+    click(&mut app, EditorSettingsAction::Open);
+    click(&mut app, EditorSettingsAction::UseAutomaticBlenderPath);
+    assert_eq!(app.world().get::<Node>(group).unwrap().display, Display::None);
+    assert!(configured(&app));
+
+    app.init_resource::<BlenderPathPicker>();
+    click(&mut app, EditorSettingsAction::ChooseBlenderPath);
+    assert_eq!(app.world().get::<Node>(group).unwrap().display, Display::Flex);
+    assert!(app.world().resource::<BlenderPathPicker>().requested);
+    assert!(app.world().get::<Text>(label).unwrap().as_str().starts_with(path.to_str().unwrap()));
+    assert!(configured(&app));
+    // 宿主轮询原生对话框期间不接受同节第二个请求，取消回执也不替换偏好。
+    *app.world_mut().resource_mut::<BlenderPathPicker>() = BlenderPathPicker { busy: true, ..default() };
+    click(&mut app, EditorSettingsAction::UseAutomaticBlenderPath);
+    assert!(configured(&app));
+    *app.world_mut().resource_mut::<BlenderPathPicker>() = BlenderPathPicker::default();
+    app.update();
+    assert!(configured(&app));
+
+    app.world_mut().resource_mut::<BlenderPathPicker>().error = Some("不能打开文件".into());
+    app.insert_resource(crate::workbench::WorkbenchSettingsAccess { editable: false });
+    click(&mut app, EditorSettingsAction::UseAutomaticBlenderPath);
+    assert!(configured(&app));
+    app.world_mut().resource_mut::<crate::workbench::WorkbenchSettingsAccess>().editable = true;
+    click(&mut app, EditorSettingsAction::UseAutomaticBlenderPath);
+    assert!(app.world().resource::<EditorSettings>().blender_executable.is_none());
+    assert!(app.world().resource::<BlenderPathPicker>().error.is_none());
+}
+
+#[test]
+fn editor_settings_automatic_blender_readout_shows_path_and_localizes_missing() {
+    let mut app = app();
+    let path = std::env::temp_dir().join("Blender 测试/blender.exe");
+    app.insert_resource(BlenderPathPicker {
+        automatic: BlenderAutoPath::Found(path.clone()),
+        ..default()
+    });
+    let label = app.world_mut().spawn((BlenderPathValue, Text::default())).id();
+    click(&mut app, EditorSettingsAction::Open);
+    assert_eq!(app.world().get::<Text>(label).unwrap().as_str(), path.to_str().unwrap());
+    assert!(app.world().resource::<EditorSettings>().blender_executable.is_none());
+
+    app.world_mut().resource_mut::<BlenderPathPicker>().automatic = BlenderAutoPath::NotFound;
+    app.insert_resource(feathrise_editor_ui::localization::EditorLocale::Chinese);
+    app.update();
+    assert_eq!(app.world().get::<Text>(label).unwrap().as_str(), "未找到 Blender，请选择程序。");
+    app.insert_resource(feathrise_editor_ui::localization::EditorLocale::English);
+    app.update();
+    assert_eq!(app.world().get::<Text>(label).unwrap().as_str(), "Blender not found. Choose the executable.");
 }
 
 #[test]

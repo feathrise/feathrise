@@ -161,7 +161,7 @@ pub(crate) use resources::{
     WaterMaskMaterializeTask, WaterNetworkEditState, WaterPreviewState,
 };
 pub(crate) use save::transaction::commit_owned_files; // 全局目录和数组必须作为一批stage并可逆发布。
-pub(crate) use save::find_blender_executable; // 本地绑骨复用地形工具的显式路径、PATH 和官方安装发现。
+pub(crate) use save::find_blender_executable; // 建模和本地 Blender 绑骨共享个人偏好及程序发现顺序。
 pub(crate) use save::{
     PortalPreviewHandoff, cleanup_saved_portal_previews, observe_added_placement_water_status,
     observe_removed_placement_water_status, observe_replaced_placement_water_status,

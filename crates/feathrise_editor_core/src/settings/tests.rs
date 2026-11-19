@@ -87,6 +87,7 @@ fn scene_editor_scrub_field_accessors_keep_slots_independent() {
 #[test]
 fn author_preferences_round_trip_without_any_game_fields() {
     let mut settings = EditorSettings::default();
+    settings.blender_executable = Some(std::env::temp_dir().join("测试 Blender/blender.exe"));
     settings.editor_ui_scale = 1.25;
     settings.editor_ui_scale_auto = true;
     settings.editor_ui_scale_auto_offset = 0.05;
@@ -127,6 +128,7 @@ fn author_preferences_round_trip_without_any_game_fields() {
 fn missing_and_bad_author_values_recover_independently() {
     let data: EditorSettingsData = serde_json::from_str("{}").unwrap();
     assert!(!data.show_editor_fps);
+    assert!(serde_json::to_value(&data).unwrap().get("blender_executable").is_none());
     assert_eq!(data.into_runtime(), EditorSettings::default());
     let data: EditorSettingsData = serde_json::from_str(r#"{"ui_scale":0.1,"ui_scale_auto":true,"ui_scale_auto_offset":8.0,"color_theme":"future","asset_browser_view_mode":"future","layout":{"content_width":900,"inspector_width":-2},"snapping":{"translation_meters":0,"rotation_degrees":30}}"#).unwrap();
     let restored = data.into_runtime();

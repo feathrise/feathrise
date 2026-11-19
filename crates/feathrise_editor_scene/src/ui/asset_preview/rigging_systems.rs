@@ -3,7 +3,8 @@
 use std::sync::atomic::Ordering;
 
 use bevy::{prelude::*, tasks::futures::check_ready};
-use feathrise_editor_glb_model::rigging::{RigBackend, RiggingOperations};
+use feathrise_editor_core::EditorSettings;
+use feathrise_editor_glb_model::rigging::{BlenderLocator, RigBackend, RiggingOperations};
 use feathrise_editor_ui::{EditorButtonClick, localization::EditorLocale};
 
 use super::{
@@ -109,6 +110,7 @@ pub(super) fn pick_project_animation(
 
 pub(super) fn actions(
     operations: Res<RiggingOperations>,
+    settings: Res<EditorSettings>,
     mut contexts: ParamSet<(Context, (
         ResMut<SceneEditorSidebarState>,
         Option<ResMut<SceneEditorLayoutState>>,
@@ -188,7 +190,7 @@ pub(super) fn actions(
         if state.session.as_ref().is_some_and(|session| session.matches(source)) {
             state.panel_open = true;
         } else {
-            inspect(&mut state, source, *operations);
+            inspect(&mut state, source, *operations, blender_locator(&settings));
         }
         if !central {
             // 原侧栏可以启动工作流；同一模型移入中央标签后有更大的关节编辑画布。
@@ -236,13 +238,13 @@ pub(super) fn actions(
     }
     let session = state.session.as_mut().expect("已核对当前绑骨会话");
     match action {
-        RigAction::Retry => inspect(&mut state, source, *operations),
+        RigAction::Retry => inspect(&mut state, source, *operations, blender_locator(&settings)),
         RigAction::SwitchBackend => {
             state.backend = match state.backend {
                 RigBackend::Native => RigBackend::Blender,
                 RigBackend::Blender => RigBackend::Native,
             };
-            inspect(&mut state, source, *operations);
+            inspect(&mut state, source, *operations, blender_locator(&settings));
         }
         RigAction::ResetMarks => {
             if let Some(draft) = &mut session.draft {
@@ -263,10 +265,11 @@ pub(super) fn actions(
             let reference = file.path.clone();
             let input = draft.input.clone();
             let landmarks = draft.points.clone();
+            let locate_blender = blender_locator(&settings);
             session.error = None;
             session.notice = Notice::Binding;
             state.work = Some(Work::start_async(Some(source.key()), move |cancel| async move {
-                Completion::Binding(input.bind(reference, landmarks, cancel).await)
+                Completion::Binding(input.bind(reference, landmarks, locate_blender, cancel).await)
             }));
         }
         _ => {}
@@ -341,7 +344,13 @@ fn current_session<'a>(state: &'a RiggingState, source: Candidate<'_>) -> Option
         .filter(|session| state.panel_open && session.matches(source))
 }
 
-fn inspect(state: &mut RiggingState, source: Candidate<'_>, operations: RiggingOperations) {
+fn blender_locator(settings: &EditorSettings) -> BlenderLocator {
+    // 检测与生成各读取当次的个人路径，调整 Blender 后可继续使用已经校正的关节点。
+    let saved = settings.blender_executable.clone();
+    Box::new(move || crate::authoring::find_blender_executable(saved.as_deref()))
+}
+
+fn inspect(state: &mut RiggingState, source: Candidate<'_>, operations: RiggingOperations, locate_blender: BlenderLocator) {
     let key = source.key();
     let mut next = Session::new(key.clone());
     if let Some(previous) = state.session.as_ref()
@@ -357,7 +366,7 @@ fn inspect(state: &mut RiggingState, source: Candidate<'_>, operations: RiggingO
         // 旧目录可能很大，移动所有权后在原单飞槽释放。
         drop(previous);
         Completion::Inspection(
-            (operations.inspect)(key.root, key.path, backend, crate::authoring::find_blender_executable, cancel)
+            (operations.inspect)(key.root, key.path, backend, locate_blender, cancel)
                 .await
                 .map(|inspection| {
                     let has_reference = inspection.animations.iter().any(|asset| asset.can_reference);

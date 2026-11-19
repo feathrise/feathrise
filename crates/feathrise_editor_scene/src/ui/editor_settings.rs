@@ -7,7 +7,7 @@ mod shortcuts_scene;
 
 use feathrise_editor_ui::InteractionButton;
 use self::components::{
-    SettingsBody, SettingsGeneralOnly, SettingsPageButton, SettingsShortcutsOnly,
+    BlenderPathGroup, BlenderPathValue, SettingsBody, SettingsGeneralOnly, SettingsPageButton, SettingsShortcutsOnly,
     SettingsThemeText, SettingsUtilityButton,
 };
 use feathrise_editor_ui::EditorButtonClick;
@@ -18,6 +18,7 @@ use bevy::ecs::message::MessageCursor;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
+use bevy::tasks::{IoTaskPool, Task, futures::check_ready};
 use bevy::text::FontSourceTemplate;
 use bevy::ui::{FocusPolicy, RelativeCursorPosition};
 use feathrise_editor_core::sanitize_editor_ui_scale_auto_offset;
@@ -38,6 +39,8 @@ use crate::resources::{
     SceneEditorLayoutState, SceneEditorNumericScrubMouseGuard, SceneEditorSettingsState, SceneEditorState,
 };
 use crate::types::{EditorSettingsAction, EditorShortcutNoticeKind};
+use crate::workbench::{BlenderAutoPath, BlenderPathPicker};
+use std::path::PathBuf;
 
 mod snapping; // 三个公共数值框只改编辑器偏好，不进入场景作者历史。
 pub(crate) use snapping::{handle_snap_inputs, setup_snap_inputs, sync_snap_inputs};
@@ -117,10 +120,11 @@ pub(crate) fn handle_settings_input(
         ),
         Or<(With<snapping::SnapField>, With<mesh_lod::MeshLodField>)>,
     >,
-    feedback: (
+    mut feedback: (
         Option<Res<Messages<feathrise_editor_ui::NumericInputCommitted>>>,
         Option<Res<super::context_help::EditorContextHelpState>>,
         Option<Res<crate::workbench::WorkbenchSettingsAccess>>,
+        Option<ResMut<BlenderPathPicker>>,
     ),
     mut commit_cursor: Local<MessageCursor<feathrise_editor_ui::NumericInputCommitted>>,
     mut set_values: Option<ResMut<Messages<feathrise_editor_ui::NumericInputSetValue>>>,
@@ -321,6 +325,23 @@ pub(crate) fn handle_settings_input(
                         settings.ui_locale = locale;
                     }
                 }
+                EditorSettingsAction::ChooseBlenderPath | EditorSettingsAction::UseAutomaticBlenderPath
+                    if !state.shortcuts =>
+                {
+                    let Some(picker) = feedback.3.as_deref_mut().filter(|picker| !picker.requested && !picker.busy) else {
+                        continue;
+                    };
+                    picker.error = None;
+                    if button.0 == EditorSettingsAction::ChooseBlenderPath {
+                        // 打开系统选择器只请求宿主。取消时不会改变现有路径。
+                        picker.requested = true;
+                    } else {
+                        picker.automatic = BlenderAutoPath::Searching;
+                        if settings.blender_executable.is_some() {
+                            settings.blender_executable = None;
+                        }
+                    }
+                }
                 EditorSettingsAction::SetAutoScale => {
                     if state.shortcuts {
                         continue;
@@ -402,10 +423,12 @@ pub(crate) fn sync_settings_panel(
     state: Res<SceneEditorSettingsState>,
     settings: Res<EditorSettings>,
     locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
+    mut picker: Option<ResMut<BlenderPathPicker>>,
+    mut blender_lookup: Local<Option<Task<Option<PathBuf>>>>,
     windows: Query<Ref<Window>>,
     mut panels: Query<(&mut Node, Option<&mut FocusPolicy>), With<SceneEditorSettingsPanel>>,
     mut pages: Query<
-        (&mut Node, Option<&SettingsGeneralOnly>),
+        (&mut Node, Option<&SettingsGeneralOnly>, Has<BlenderPathGroup>),
         (
             Or<(
                 With<SettingsGeneralOnly>,
@@ -420,8 +443,9 @@ pub(crate) fn sync_settings_panel(
             &mut Text,
             Option<&SceneEditorSettingsScaleText>,
             Option<&SettingsThemeText>,
+            Has<BlenderPathValue>,
         ),
-        Or<(With<SceneEditorSettingsScaleText>, With<SettingsThemeText>)>,
+        Or<(With<SceneEditorSettingsScaleText>, With<SettingsThemeText>, With<BlenderPathValue>)>,
     >,
     mut buttons: Query<(
         &SceneEditorSettingsButton,
@@ -433,6 +457,26 @@ pub(crate) fn sync_settings_panel(
         Option<&mut feathrise_editor_ui::ButtonColors>,
     )>,
 ) {
+    if let Some(picker) = picker.as_mut() {
+        let visible = state.open && !state.shortcuts && settings.blender_executable.is_none();
+        if let Some(found) = blender_lookup.as_mut().and_then(check_ready) {
+            *blender_lookup = None;
+            if visible {
+                picker.automatic = found.map_or(BlenderAutoPath::NotFound, BlenderAutoPath::Found);
+            }
+        }
+        if matches!(picker.automatic, BlenderAutoPath::Searching) {
+            // 安装目录和 PATH 可能位于其他盘，复用启动时的发现函数并在后台读取。
+            if visible && blender_lookup.is_none() && let Some(pool) = IoTaskPool::try_get() {
+                *blender_lookup = Some(pool.spawn(async {
+                    crate::authoring::find_blender_executable(None).ok()
+                        .and_then(|path| std::path::absolute(path).ok())
+                }));
+            }
+        } else if !visible {
+            picker.automatic = BlenderAutoPath::Searching;
+        }
+    }
     let window = windows.single().ok();
     let window_changed = window.as_ref().is_some_and(|window| window.is_changed());
     let (width, height) = window.as_ref().map_or((0.0, 0.0), |window| {
@@ -462,8 +506,8 @@ pub(crate) fn sync_settings_panel(
             });
         }
     }
-    for (mut page, general) in &mut pages {
-        let display = if state.open && state.shortcuts == general.is_none() {
+    for (mut page, general, blender) in &mut pages {
+        let display = if state.open && state.shortcuts == general.is_none() && (!blender || picker.is_some()) {
             Display::Flex
         } else {
             Display::None
@@ -475,10 +519,11 @@ pub(crate) fn sync_settings_panel(
     if settings.is_changed()
         || state.is_changed()
         || locale.as_ref().is_some_and(|locale| locale.is_changed())
+        || picker.as_ref().is_some_and(|picker| picker.is_changed())
         || (settings.editor_ui_scale_auto && window_changed)
     {
         let locale = locale.as_deref().copied().unwrap_or_default();
-        for (mut label, scale_marker, theme_marker) in &mut labels {
+        for (mut label, scale_marker, theme_marker, blender_value) in &mut labels {
             let text = if scale_marker.is_some() {
                 if settings.editor_ui_scale_auto {
                     locale.format("settings.scale.auto_value", &[("percent", format!("{:.0}", scale * 100.0))])
@@ -492,6 +537,28 @@ pub(crate) fn sync_settings_panel(
                     EditorColorTheme::WarmCopper => "暖墨铜金",
                 };
                 locale.format("settings.theme.current", &[("theme", locale.editor_label(theme).into())])
+            } else if blender_value {
+                let mut value = if let Some(path) = &settings.blender_executable {
+                    path.display().to_string()
+                } else {
+                    match picker.as_deref().map(|picker| &picker.automatic) {
+                        Some(BlenderAutoPath::Found(path)) => path.display().to_string(),
+                        Some(BlenderAutoPath::NotFound) => locale.editor_label("未找到 Blender，请选择程序。").to_owned(),
+                        _ => locale.editor_label("正在查找 Blender…").to_owned(),
+                    }
+                };
+                if let Some(picker) = &picker {
+                    let detail = if picker.requested || picker.busy {
+                        Some("正在选择 Blender…")
+                    } else {
+                        picker.error.as_deref()
+                    };
+                    if let Some(detail) = detail {
+                        value.push('\n');
+                        value.push_str(locale.editor_label(detail));
+                    }
+                }
+                value
             } else {
                 String::new()
             };
@@ -517,6 +584,7 @@ pub(crate) fn sync_settings_panel(
                 }
                 EditorSettingsAction::SetAutoScale => settings.editor_ui_scale_auto,
                 EditorSettingsAction::SetLocale(locale) => settings.ui_locale == locale,
+                EditorSettingsAction::UseAutomaticBlenderPath => settings.blender_executable.is_none(),
                 EditorSettingsAction::SetColorTheme(theme) => settings.editor_color_theme == theme,
                 EditorSettingsAction::SetMaxFps(fps) => settings.render.max_fps == fps,
                 EditorSettingsAction::ToggleBuildFrameLimit => settings.limit_build_fps,

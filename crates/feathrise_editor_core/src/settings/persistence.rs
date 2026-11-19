@@ -1,6 +1,7 @@
 //! 编辑器用户偏好的可序列化格式与显式转换；没有项目 settings.json 路径或游戏字段。
 use super::*;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 mod scene_editor_scrub;
 mod scrub_mapping;
 pub use scene_editor_scrub::SceneEditorScrubSensitivitySettings;
@@ -25,6 +26,8 @@ pub struct EditorSettingsData {
     pub scrub: SceneEditorScrubSensitivitySettings,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub numeric_scrub_speeds: std::collections::BTreeMap<String, f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blender_executable: Option<PathBuf>,
     /// 稳定动作名对应组合键；缺项继承默认，null表示作者主动解绑。
     #[serde(default)]
     pub shortcuts: std::collections::BTreeMap<String, Option<String>>,
@@ -132,6 +135,7 @@ impl Default for EditorSettingsData {
             environment: Default::default(),
             scrub: Default::default(),
             numeric_scrub_speeds: Default::default(),
+            blender_executable: None,
             ui_locale: default_ui_locale(),
             ui_scale: default_editor_ui_scale(),
             ui_scale_auto: false,
@@ -160,6 +164,7 @@ impl From<&EditorSettings> for EditorSettingsData {
                 &settings.scene_editor_scrub_sensitivities,
             ),
             numeric_scrub_speeds: settings.numeric_scrub_speeds.clone(),
+            blender_executable: settings.blender_executable.clone(),
             ui_locale: settings.ui_locale.as_str().into(),
             ui_scale: sanitize_editor_ui_scale(settings.editor_ui_scale),
             ui_scale_auto: settings.editor_ui_scale_auto,
@@ -239,6 +244,7 @@ impl EditorSettingsData {
             inspector_visible: data.layout.inspector_visible,
         }
         .sanitized();
+        settings.blender_executable = self.blender_executable;
         settings
     }
 }

@@ -46,7 +46,6 @@ struct RigInput {
     root: PathBuf,
     source: files::FrozenAsset,
     backend: RigBackend,
-    locate_blender: BlenderLocator,
 }
 
 impl RigSource for RigInput {
@@ -54,9 +53,10 @@ impl RigSource for RigInput {
         self: Arc<Self>,
         reference_path: String,
         landmarks: Landmarks,
+        locate_blender: BlenderLocator,
         cancel: Arc<AtomicBool>,
     ) -> GlbTask<PreparedRig> {
-        Box::pin(async move { bind(self, &reference_path, &landmarks, cancel).await })
+        Box::pin(async move { bind(self, &reference_path, &landmarks, locate_blender, cancel).await })
     }
 }
 
@@ -139,7 +139,6 @@ async fn inspect(
             root,
             source,
             backend,
-            locate_blender,
         }),
         landmarks: detected.landmarks,
         animations,
@@ -151,6 +150,7 @@ async fn bind(
     input: Arc<RigInput>,
     reference_path: &str,
     landmarks: &Landmarks,
+    locate_blender: BlenderLocator,
     cancel: Arc<AtomicBool>,
 ) -> Result<PreparedRig, String> {
     check_landmarks(landmarks)?;
@@ -188,7 +188,7 @@ async fn bind(
                 },
                 &report,
                 true,
-                input.locate_blender,
+                locate_blender,
                 &cancel,
             )?
         }

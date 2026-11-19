@@ -228,14 +228,16 @@ fn settings_scene_keeps_original_actions_and_seven_sections_without_rebuilding()
             .query_filtered::<Entity, With<SettingsGroup>>()
             .iter(world)
             .count(),
-        7 // 游戏内编辑器包含语言、视口、网格 LOD、缩放、主题、吸附与布局。
+        8 // 七组游戏内偏好与独立宿主可用的 Blender 程序配置。
     );
+    let blender_group = world.query_filtered::<&Node, With<BlenderPathGroup>>().single(world).unwrap();
+    assert_eq!(blender_group.display, Display::None); // 游戏内的宿主选择器缺席，模板分组不进入布局。
     let actions = world
         .query::<&SceneEditorSettingsButton>()
         .iter(world)
         .map(|button| button.0)
         .collect::<Vec<_>>();
-    assert_eq!(actions.len(), 49); // 包含三个语言选项和十三组快捷键的绑定与清除。
+    assert_eq!(actions.len(), 51); // 包含两个只在宿主分组可见的 Blender 操作。
     assert!(!world.query::<&Text>().iter(world).any(|text| {
         matches!(text.0.as_str(), "操作方式" | "第三人称" | "固定俯视")
     })); // 游戏相机配置不能重新混入作者设置。

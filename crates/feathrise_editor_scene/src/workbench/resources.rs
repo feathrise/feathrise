@@ -1,7 +1,7 @@
 //! 独立宿主提供的轻量UI快照与真实布局回报，不保存作者数据或World指针。
 use super::{EditorAction, WorkbenchScene, types::CatalogResult};
 use bevy::{prelude::*, tasks::Task};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 /// 无工程宿主交接偏好所有权时暂缓修改；不暴露宿主进程、文件或保存状态给共享工作台。
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -13,6 +13,24 @@ impl Default for WorkbenchSettingsAccess {
     fn default() -> Self {
         Self { editable: true }
     }
+}
+
+/// 共享设置页请求宿主打开 Blender 文件选择器。路径本身仍由作者个人设置持有。
+#[derive(Default, Resource)]
+pub struct BlenderPathPicker {
+    pub requested: bool,
+    pub busy: bool,
+    pub error: Option<String>,
+    pub(crate) automatic: BlenderAutoPath,
+}
+
+/// 自动查找的回显属于当前设置页，个人偏好只保存手动路径。
+#[derive(Default)]
+pub(crate) enum BlenderAutoPath {
+    #[default]
+    Searching,
+    Found(PathBuf),
+    NotFound,
 }
 
 #[derive(Resource, Clone)]

@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 const BLENDER_PATH_ENVIRONMENT: &str = "BEVY_LEARN5_BLENDER_PATH";
 
-/// 找到显式配置、PATH 或 Windows 标准安装目录中的 Blender 可执行文件。
-pub(crate) fn find_blender_executable() -> Result<PathBuf, String> {
+/// 定位优先级为进程覆盖、个人偏好、PATH，再到 Windows 标准安装目录。
+pub(crate) fn find_blender_executable(saved: Option<&Path>) -> Result<PathBuf, String> {
     if let Some(configured) = std::env::var_os(BLENDER_PATH_ENVIRONMENT) {
         if configured.is_empty() {
             return Err(format!(
@@ -15,6 +15,11 @@ pub(crate) fn find_blender_executable() -> Result<PathBuf, String> {
         let path = PathBuf::from(configured);
         ensure_nonempty_regular_file(&path, "显式配置的Blender可执行文件")?;
         return Ok(path);
+    }
+    if let Some(path) = saved {
+        ensure_nonempty_regular_file(path, "已保存的 Blender 程序")
+            .map_err(|error| format!("{error}。请在「设置 → 常规 → Blender 程序」重新选择或使用自动查找。"))?;
+        return Ok(path.to_owned());
     }
     let executable_name = if cfg!(windows) { "blender.exe" } else { "blender" };
     if let Some(path_value) = std::env::var_os("PATH") {
@@ -29,9 +34,7 @@ pub(crate) fn find_blender_executable() -> Result<PathBuf, String> {
     if let Some(candidate) = newest_windows_blender_installation() {
         return Ok(candidate);
     }
-    Err(format!(
-        "未找到Blender；请安装Blender，或设置环境变量{BLENDER_PATH_ENVIRONMENT}指向Blender可执行文件"
-    ))
+    Err(format!("未找到 Blender。请在「设置 → 常规 → Blender 程序」选择，或设置 {BLENDER_PATH_ENVIRONMENT}。"))
 }
 
 /// 只扫描两个标准根的直接子目录，按数值版本选择最新安装。

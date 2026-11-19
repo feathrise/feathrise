@@ -9,7 +9,8 @@ use std::{
 };
 
 pub type Landmarks = BTreeMap<String, [f32; 3]>;
-pub type BlenderLocator = fn() -> Result<PathBuf, String>;
+// 来源由宿主在每次后台任务开始时提供，模型库只在 Blender 后端调用。
+pub type BlenderLocator = Box<dyn FnOnce() -> Result<PathBuf, String> + Send>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RigBackend {
@@ -24,6 +25,7 @@ pub trait RigSource: Send + Sync {
         self: Arc<Self>,
         reference_path: String,
         landmarks: Landmarks,
+        locate_blender: BlenderLocator,
         cancel: Arc<AtomicBool>,
     ) -> GlbTask<PreparedRig>;
 }

@@ -30,6 +30,10 @@ impl FolderPicker {
         Self::spawn(owner, initial, "plugin")
     }
 
+    pub(crate) fn start_blender(owner: usize, initial: PathBuf) -> Result<Self, String> {
+        Self::spawn(owner, initial, "blender")
+    }
+
     /// 只增加独立用途，不增加另一个进程所有者；导出也沿用取消优先及有界结果轮询。
     pub(crate) fn start_export(owner: usize, initial: PathBuf) -> Result<Self, String> {
         Self::spawn(owner, initial, "export")
@@ -203,6 +207,7 @@ pub(crate) fn run_helper() -> Result<bool, String> {
     }
     let title = match kind.to_str() {
         Some("plugin") => "选择插件文件",
+        Some("blender") => "选择 Blender 程序",
         Some("directory") => "选择已有工程目录",
         Some("new") => "选择新工程的父目录",
         Some("export") => "选择工程导出目录",
@@ -237,6 +242,8 @@ pub(crate) fn run_helper() -> Result<bool, String> {
         dialog
             .add_filter("Feathrise 插件", &[extension])
             .pick_file()
+    } else if kind == "blender" {
+        dialog.pick_file()
     } else {
         dialog.pick_folder()
     };

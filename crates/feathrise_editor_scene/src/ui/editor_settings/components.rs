@@ -13,6 +13,10 @@ pub(super) struct SettingsFooter;
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct SettingsGroup;
 #[derive(Component, Clone, Copy, Default)]
+pub(crate) struct BlenderPathGroup;
+#[derive(Component, Clone, Copy, Default)]
+pub(crate) struct BlenderPathValue;
+#[derive(Component, Clone, Copy, Default)]
 pub(crate) struct SettingsThemeText;
 /// 关闭和重置是操作，不是可选档位；关闭遮罩不能被按钮样式染成实体面板。
 #[derive(Component, Clone, Copy, Default)]

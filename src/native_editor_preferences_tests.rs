@@ -226,13 +226,18 @@ fn numeric_speed_legacy_project_file_is_read_and_normal_save_writes_personal_pat
     assert!(error.is_none());
     assert_eq!(store.editor.numeric_scrub_speeds["测试字段"], 2.0);
     assert!(!active.exists());
+    let blender_executable = fixture.file().with_file_name("Blender 测试").join("blender.exe");
+    store.editor.blender_executable = Some(blender_executable.clone());
     store.editor.numeric_scrub_speeds.insert("测试字段".into(), 4.0);
     store.save().unwrap();
-    assert!(active.is_file());
+    let project_data: serde_json::Value = serde_json::from_slice(&fs::read(active).unwrap()).unwrap();
+    assert!(project_data.get("blender_executable").is_none());
+    assert_eq!(fixture.store().editor.blender_executable.as_ref(), Some(&blender_executable));
     assert_eq!(fs::read(legacy).unwrap(), original);
     let (store, error) = fixture.store().with_project(&project);
     assert!(error.is_none());
     assert_eq!(store.editor.numeric_scrub_speeds["测试字段"], 4.0);
+    assert_eq!(store.editor.blender_executable, Some(blender_executable));
 }
 
 #[test]
