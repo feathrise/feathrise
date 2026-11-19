@@ -149,6 +149,12 @@ fn page_with_render(render: bool) -> (App, Entity) {
             .chain(),
     );
     install(&mut app);
+    app.init_resource::<crate::ui::scene_context_menu::SceneContextMenuState>()
+        .init_resource::<crate::ui::scene_layers::SceneLayerSelection>()
+        .add_systems(Update, (
+            crate::ui::scene_layers::read_tree_selection,
+            crate::ui::scene_context_menu::select_target_for_tests,
+        ).chain().in_set(crate::SceneEditorSystemSet::Input));
     app.init_resource::<crate::ui::gltf_browser::EditorGltfBrowserState>()
         .init_resource::<crate::resources::TerrainShadingSession>()
         .init_resource::<crate::ui::placement_transform::PlacementTransformInputState>()
@@ -1417,7 +1423,7 @@ fn native_lod_real_focus_cannot_commit_into_a_new_layer_or_folded_group() {
 }
 
 #[test]
-fn scene_row_opens_mesh_attributes_without_entering_edit_mode_and_respects_mode_gate() {
+fn scene_row_opens_mesh_attributes_without_changing_the_viewport_mode() {
     let (mut app, window) = page();
     app.world_mut().resource_mut::<SceneEditorSidebarState>().left = EditorLeftSidebarTab::Scene;
     {
@@ -1466,8 +1472,9 @@ fn scene_row_opens_mesh_attributes_without_entering_edit_mode_and_respects_mode_
         app.world()
             .resource::<TerrainObjectsEditorState>()
             .selected_index,
-        Some(1)
+        Some(0)
     );
+    assert_eq!(app.world().resource::<ViewportModeState>().mode, ViewportMode::Edit);
 }
 
 #[test]

@@ -8,7 +8,7 @@ use super::helpers::{asset_file_name, revalidate_selection, water_kind_label}; /
 use super::retirement::{BrowserRetiredGeneration, BrowserRetirementBudget, BrowserRetirementStep}; // 发布旧树和取消草稿都进入同一有界退役队列。
 use super::{
     CachedGltfAssetPhase, EditorGltfBrowserEntry, EditorGltfBrowserEntryKind,
-    EditorGltfBrowserState, EditorGltfMeshSelection, GLTF_BROWSER_ROW_COUNT,
+    EditorGltfBrowserState, EditorGltfMeshSelection,
     MAX_GLTF_ENTRY_OPERATIONS_PER_FRAME, MAX_GLTF_ENTRY_PATH_SEGMENTS_PER_FRAME,
     MAX_GLTF_ENTRY_ROWS_PER_FRAME, MAX_GLTF_ENTRY_STRING_BYTES_PER_FRAME,
 }; // 所有硬预算和公开行类型集中在模块入口。
@@ -156,7 +156,7 @@ fn path_string_bytes(path: &[String]) -> usize {
 
 /// 将完成且身份仍匹配的行草稿一次替换为公开活动树。
 fn publish_completed_entries(
-    state: &mut EditorGltfBrowserState, // 当前活动签名、缓存、选择与分页。
+    state: &mut EditorGltfBrowserState, // 当前活动签名、缓存和选择。
     mut build: BrowserEntriesBuild,     // 已完成且修订匹配的拥有型草稿。
 ) -> Result<(), BrowserEntriesBuild> {
     let has_projection = !build.projection.roots.is_empty();
@@ -164,6 +164,7 @@ fn publish_completed_entries(
         return Err(build); // 旧活动树尚无退役槽时保留完整新草稿，最新修订继续合并。
     }
     let old_entries = std::mem::replace(&mut state.entries, std::mem::take(&mut build.entries));
+    state.published_entries_revision = build.revision;
     let mut retired = BrowserRetiredGeneration::default(); // 旧根行与展开子行只移动所有权。
     retired.entries(old_entries); // 后续Update按元素/路径/字节预算逐条释放。
     if has_projection {
@@ -175,8 +176,6 @@ fn publish_completed_entries(
     state.selection = old_selection.and_then(|selection| {
         revalidate_selection(state, selection, &state.duplicate_placement_ids) // 热更、释放和绑定结构换代后重新确认。
     });
-    let max_page = state.entries.len().saturating_sub(1) / GLTF_BROWSER_ROW_COUNT; // 空树仍稳定在第零页。
-    state.page = state.page.min(max_page); // 行数减少后不能停在空页。
     state.status = idle_status(state); // 原子发布后恢复常规资产摘要。
     Ok(()) // 新树已完整发布且旧树进入有界退役。
 }

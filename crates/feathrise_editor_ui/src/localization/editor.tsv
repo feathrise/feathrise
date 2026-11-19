@@ -97,7 +97,7 @@ label.shared-by-all-scenes-editing-or-deleting	所有场景共用；编辑或删
 label.group-presets-waiting-for-catalog	组合预设：等待目录	Group Presets: Waiting for catalog
 label.box-selection-0-items	当前框选：0 项	Box Selection: 0 Items
 label.group-name	组合名称	Group Name
-label.scene-objects-waiting-for-scene-draft-page	场景对象：等待场景草稿\n第 1/1 页	Scene Objects: Waiting for scene draft\nPage 1/1
+label.scene-objects-waiting-for-scene-draft	场景对象：等待场景草稿	Scene Objects: Waiting for scene draft
 label.help	操作说明	Help
 label.subscenes	子场景	Subscenes
 label.region-bounds-waiting-for-scene-data	区域边界：等待场景作者数据	Region Bounds: Waiting for scene data
@@ -916,6 +916,7 @@ label.failed	失败	Failed
 label.vegetation-layers	植被图层	Vegetation Layers
 label.frame-object	聚焦到对象	Frame Object
 label.edit-in-blender	在 Blender 编辑	Edit in Blender
+label.reveal-glb-file	定位 GLB 文件	Reveal GLB File
 blender-mesh.opening	正在打开 Blender	Opening Blender
 blender-mesh.opened	Blender 启动后，保存即可更新模型	Save in Blender to update the model.
 blender-mesh.applied	已更新 Blender 模型，请保存场景	Blender model updated. Save the scene to keep it.

@@ -36,7 +36,6 @@ pub(in crate::ui::gltf_browser) fn take_browser_session_generation(
     generation.entries_build(state.entries_build.take());
     generation.string(state.observation.draft_scene_id.take()); // 场景身份不跨F12会话。
 
-    state.page = 0; // 固定行池下一次开启从第一页重新显示。
     state.truncated = false; // 旧场景截断诊断立即清除。
     state.initialized = false; // 退役完成后下一次开启重新观察权威草稿。
     state.draft_available = false; // 关闭态不宣称持有草稿。
@@ -46,5 +45,6 @@ pub(in crate::ui::gltf_browser) fn take_browser_session_generation(
     state.failed_asset_count = 0; // 旧失败摘要不跨会话。
     state.truncated_asset_count = 0; // 旧World上限诊断不跨会话。
     state.entries_revision = 0; // 新会话重新建立自身行修订链。
+    state.published_entries_revision = 0;
     generation // 调用方放入专用关闭槽，不能直接Drop。
 }

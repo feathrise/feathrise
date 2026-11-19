@@ -96,7 +96,7 @@ pub(super) fn control(
                 } else {
                     if let Some(window) = shortcut_window {
                         if let (Ok(path), Some(navigation)) = (helpers::asset_path(target), floating_navigation.as_mut()) {
-                            navigation.write(crate::ui::file_manager::browser::BrowserNavigate {
+                            navigation.write(crate::ui::file_manager::browser::BrowserNavigate::InWindow {
                                 window, path: path.to_owned(), directory: target.is_directory });
                         }
                         break; // 同一收藏在当前文件窗口定位，不改变固定左栏目录。

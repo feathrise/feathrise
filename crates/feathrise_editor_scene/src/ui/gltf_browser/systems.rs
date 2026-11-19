@@ -1,4 +1,4 @@
-//! GLB浏览器固定行池、点击分页与样式同步系统。
+//! GLB浏览器固定行池、滚动范围、展开选择与样式同步。
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
@@ -11,48 +11,43 @@ use crate::authoring::EditorAuthoringSession; // 点击冻结当前草稿场景�
 use crate::resources::{
     EditorViewportSelectionState, SceneEditorNumericScrubMouseGuard, SceneEditorState,
 }; // 场景树点击同时结束查看工具中的植被整层选择。
-use crate::ui::list_layout::FixedRowPoolLayout; // 场景树与四类侧栏列表共享动态高度规则。
+use crate::ui::list_layout::{SCENE_OBJECT_LIST_ROWS, SCENE_OBJECT_ROW_PITCH, fit_scene_object_list};
+use crate::viewport::placement_move::PlacementMoveState;
 use crate::viewport::SelectedPlacementViewportState; // 有效网格按下登记中央高亮与双击定位请求。
 
 use super::entries::request_visible_entries_rebuild; // 点击只请求固定预算行构建。
 use super::helpers::selection_matches; // 选择身份不受热更索引漂移影响。
 use super::{
-    EditorGltfBrowserEntryKind, EditorGltfBrowserState, GLTF_BROWSER_ROW_COUNT,
-    GltfBrowserPageDirection, SceneEditorGltfBrowserList, SceneEditorGltfBrowserPageButton,
-    SceneEditorGltfBrowserPagination, SceneEditorGltfBrowserRow, SceneEditorGltfBrowserRowText,
+    EditorGltfBrowserEntryKind, EditorGltfBrowserState, SceneEditorGltfBrowserList,
+    SceneEditorGltfBrowserListContent, SceneEditorGltfBrowserRow, SceneEditorGltfBrowserRowText,
     SceneEditorGltfBrowserStatusText,
 }; // 模块私有组件与公开资源。
-
-const GLTF_BROWSER_LAYOUT: FixedRowPoolLayout = FixedRowPoolLayout {
-    capacity: GLTF_BROWSER_ROW_COUNT, // 固定八槽与分页步长保持一致。
-    row_height: feathrise_editor_ui::metrics::ROW_HEIGHT, // 与场景和作者树的可读行高一致。
-    row_gap: 2.0,                     // 相邻树行保留两像素间距。
-    padding_y: 0.0,                   // 场景页本身已经提供板块间距。
-};
 
 #[cfg(test)]
 #[path = "input_tests.rs"]
 mod input_tests;
 
-/// 在BSN列表容器下只创建一次固定八行。
+/// 在BSN内容层下只创建一次固定可见行池。
 pub(crate) fn spawn_gltf_browser_rows(
     mut commands: Commands, // 容器首次出现时挂载固定子实体。
-    lists: Query<Entity, Added<SceneEditorGltfBrowserList>>, // BSN场景重建时自动得到新行池。
+    lists: Query<Entity, Added<SceneEditorGltfBrowserListContent>>,
     asset_server: Res<AssetServer>, // 统一加载项目中文字体。
 ) {
     let font = feathrise_editor_core::editor_font(&asset_server, "fonts/open_source/noto_sans/cjk/NotoSansCJKsc-VF.otf"); // 与编辑器其他动态行共享字体路径。
     for container in &lists {
         commands.entity(container).with_children(|parent| {
-            for slot in 0..GLTF_BROWSER_ROW_COUNT {
+            for slot in 0..SCENE_OBJECT_LIST_ROWS {
                 parent
                     .spawn((
                         InteractionButton, // 原生Interaction负责左键点击和hover。
                         SceneEditorGltfBrowserRow {
                             slot,              // 固定物理槽位永不改变。
-                            entry_index: None, // Presentation按当前页绑定扁平索引。
+                            entry_index: None,
+                            entries_revision: 0,
                         },
                         Node {
                             display: Display::None, // 无条目槽默认隐藏。
+                            position_type: PositionType::Absolute, // 内容层高度代表完整树，行按实际树索引定位。
                             width: percent(100),    // 整行接收点击。
                             min_width: px(0),
                             height: px(feathrise_editor_ui::metrics::ROW_HEIGHT),
@@ -71,7 +66,7 @@ pub(crate) fn spawn_gltf_browser_rows(
                         parent.spawn((crate::components::SceneEditorGltfBrowserRowGlyph, ImageNode::default(), Node { width: px(16), height: px(16), flex_shrink: 0.0, ..default() }, Pickable::IGNORE));
                         parent.spawn((
                         SceneEditorGltfBrowserRowText, // 固定唯一文本子节点。
-                        Text::new(""),               // 由当前页增量覆盖。
+                        Text::new(""),               // 由可见窗口覆盖。
                         TextFont {
                             font: font.clone().into(), // 强字体句柄随UI实体持有。
                             font_size: feathrise_editor_ui::metrics::FONT_CONTROL.into(),
@@ -92,15 +87,15 @@ pub(crate) fn spawn_gltf_browser_rows(
     }
 }
 
-/// 左键点击实例根折叠子树、点击网格保存完整稳定引用，分页不进入EditorAction。
+/// 左键点场景树选中实例或网格，沿用当前视口工具。
 pub(crate) fn handle_gltf_browser_input(
     mut editor: ResMut<SceneEditorState>, // 双击登记后在底栏回显正在等待当前活动Scene0。
-    numeric_scrub_mouse: Res<SceneEditorNumericScrubMouseGuard>, // 数值拖动和弦期间丢弃行与分页边沿。
+    numeric_scrub_mouse: Res<SceneEditorNumericScrubMouseGuard>, // 数值拖动和弦期间丢弃点击。
     real_time: Res<Time<Real>>,         // 玩法虚拟时间暂停时仍识别正常双击节奏。
     session: Res<EditorAuthoringSession>, // 当前草稿提供不可跨场景复用的SceneId。
     rows: Query<(&EditorButtonClick, &SceneEditorGltfBrowserRow), Changed<EditorButtonClick>>, // 固定行点击。
-    page_buttons: Query<(&EditorButtonClick, &SceneEditorGltfBrowserPageButton), Changed<EditorButtonClick>>, // 专用上下页按钮。
-    mut state: ResMut<EditorGltfBrowserState>, // 只修改分页、折叠和选择。
+    movement: Option<Res<PlacementMoveState>>,
+    mut state: ResMut<EditorGltfBrowserState>, // 只修改树的折叠和选择。
     mut selected_viewport: ResMut<SelectedPlacementViewportState>, // 单击只高亮，双击只登记相机请求。
     mut viewport_selection: ResMut<EditorViewportSelectionState>, // 实际条目点击与植被整层保持单选语义。
     mut candidates: ResMut<crate::viewport::content_selection::LayerCandidateState>, // 显式场景树点击退出视口整实例选择。
@@ -111,40 +106,20 @@ pub(crate) fn handle_gltf_browser_input(
     workspace: Option<Res<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>>,
 ) {
     if !editor.open || numeric_scrub_mouse.blocked()
+        || movement.as_ref().is_some_and(|state| state.owns_mouse())
         || sidebar.as_ref().is_some_and(|state| !state.scene_tree_visible())
         || layout.as_ref().is_some_and(|state| !state.content_shown())
         || workspace.as_ref().is_some_and(|state| state.active_tab != crate::ui::vegetation_preset_editor::PresetWorkspaceTab::Scene) {
         return; // 系统持续推进Changed tick；隐藏或所有权帧保持选择且不延迟点击。
     }
-    let pressed_page = page_buttons.iter().find_map(|(interaction, button)| {
-        (interaction.is_clicked()).then_some(button.0)
-    }); // 同帧最多接纳一个分页动作。
-    let pressed_entry = rows.iter().find_map(|(interaction, row)| {
-        (interaction.is_clicked())
+    let Some(entry_index) = rows.iter().find_map(|(interaction, row)| {
+        (interaction.is_clicked() && row.entries_revision == state.published_entries_revision)
             .then_some(row.entry_index)
             .flatten()
-    }); // 行池索引已经与上一Presentation帧绑定。
-    if pressed_page.is_none() && pressed_entry.is_none() {
-        return; // hover不写资源，样式由Presentation单独处理。
-    }
+    }) else { return; }; // 点击只采用上一呈现阶段发布的树行身份。
     if state.signature_build.is_some() || state.entries_build.is_some() {
         state.status = "场景树正在更新，请完成后再选择或展开".to_owned();
         return; // 旧活动行保持完整，但其索引在新结构发布前不得继续接受输入。
-    }
-    if let Some(direction) = pressed_page {
-        selected_viewport.clear_click_sequence(); // 分页边沿不能与上一页网格按下组成双击。
-        let max_page = state.entries.len().saturating_sub(1) / GLTF_BROWSER_ROW_COUNT; // 空列表仍为零。
-        state.page = match direction {
-            GltfBrowserPageDirection::Previous => state.page.saturating_sub(1), // 首页面保持零。
-            GltfBrowserPageDirection::Next => state.page.saturating_add(1).min(max_page), // 尾页不进入空页。
-        };
-    }
-    let Some(entry_index) = pressed_entry else {
-        return; // 只有分页动作时无需重组条目。
-    };
-    if editor.placement_transform_enabled {
-        state.status = "当前变换目标已锁定；请切回选择模式更换对象".to_owned();
-        return; // 场景树不能绕过视口选择锁；分页仍可浏览，根行和子网格均不能换选。
     }
     let Some(entry) = state.entries.get(entry_index).cloned() else {
         return; // 热更错帧后的旧行索引不猜测目标。
@@ -162,7 +137,7 @@ pub(crate) fn handle_gltf_browser_input(
         return; // 目录点击管理目录和折叠态；整组选中由独立按钮完成，不触发模型展开。
     }
     state.selected_group = None;
-    viewport_selection.clear_vegetation_selection(); // 分页不清选择；真实场景条目点击才隐藏旧植被覆盖。
+    viewport_selection.clear_vegetation_selection(); // 明确选择场景对象时隐藏旧植被覆盖。
     if let Some(selection) = multi_selection.as_mut() {
         let additive = keyboard.as_ref().is_some_and(|keys| keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]));
         let id = match &entry.kind {
@@ -268,20 +243,21 @@ pub(crate) fn handle_gltf_browser_input(
     }
 }
 
-/// 固定行池按当前页原地更新文本、缩进、选中和hover样式。
+/// 固定行池按滚动窗口原地更新文本、缩进和选中样式。
 pub(crate) fn sync_gltf_browser_rows(
     editor: Res<SceneEditorState>,        // 编辑器打开时才刷新可见行。
     state: Res<EditorGltfBrowserState>, // 公开扁平条目与当前选择。
     multi_selection: Option<Res<crate::viewport::multi_select::PlacementSelectionSet>>,
     asset_server: Option<Res<AssetServer>>,
     images: Option<Res<Assets<Image>>>,
-    mut presented_scope: Local<Option<(Option<feathrise_scene_content::SceneId>, u64)>>,
+    mut presented_scope: Local<Option<(Option<feathrise_scene_content::SceneId>, u64, usize)>>,
+    mut presented_search: Local<String>,
     mut glyphs: Query<&mut ImageNode, With<crate::components::SceneEditorGltfBrowserRowGlyph>>,
     mut rows: Query<
         (
             &UiInteraction,                 // 当前hover或按压反馈。
             Option<&mut EditorButtonClick>,
-            &mut SceneEditorGltfBrowserRow, // 写回当前页稳定索引。
+            &mut SceneEditorGltfBrowserRow, // 写回当前窗口绑定的索引。
             &mut Node,                    // 隐藏空槽并调整Blender层级缩进。
             &mut BackgroundColor,         // 选择和hover底色。
             &mut BorderColor,             // 选择和hover铜边。
@@ -290,7 +266,7 @@ pub(crate) fn sync_gltf_browser_rows(
         (
             With<SceneEditorGltfBrowserRow>,
             Without<SceneEditorGltfBrowserList>,
-            Without<SceneEditorGltfBrowserPagination>,
+            Without<SceneEditorGltfBrowserListContent>,
         ),
     >,
     mut row_texts: Query<(&mut Text, &mut TextColor), With<SceneEditorGltfBrowserRowText>>, // 行文字和有效性颜色。
@@ -301,72 +277,72 @@ pub(crate) fn sync_gltf_browser_rows(
             Without<SceneEditorGltfBrowserRowText>,
             Without<SceneEditorGltfBrowserRow>,
             Without<SceneEditorGltfBrowserList>,
-            Without<SceneEditorGltfBrowserPagination>,
+            Without<SceneEditorGltfBrowserListContent>,
         ),
-    >, // 场景树状态和页码摘要。
-    mut page_labels: Query<
-        &mut Text,
-        (
-            With<super::scene::GltfBrowserPageLabel>,
-            Without<SceneEditorGltfBrowserRowText>,
-            Without<SceneEditorGltfBrowserStatusText>,
-        ),
-    >, // 页码留在导航行；加载/故障仍由原唯一反馈实体送到底栏。
-    mut layouts: ParamSet<(
+    >,
+    mut layouts: (
         Query<
-            &mut Node,
+            (&mut Node, &mut ScrollPosition),
             (
                 With<SceneEditorGltfBrowserList>,
+                Without<SceneEditorGltfBrowserListContent>,
                 Without<SceneEditorGltfBrowserRow>,
             ),
         >,
         Query<
             &mut Node,
             (
-                With<SceneEditorGltfBrowserPagination>,
+                With<SceneEditorGltfBrowserListContent>,
+                Without<SceneEditorGltfBrowserList>,
                 Without<SceneEditorGltfBrowserRow>,
             ),
         >,
-    )>,
+    ),
 ) {
     if !editor.open {
+        // 工程预览临时隐藏编辑器时保留树位置，真正关闭才清除会话滚动身份。
+        if !state.initialized {
+            *presented_scope = None;
+        }
         return; // 隐藏UI无需重复写文本和样式。
     }
-    let scope = (editor.selected_scene_id.clone(), state.entries_revision);
+    let scene_changed = presented_scope.as_ref().is_none_or(|(scene, _, _)| scene != &editor.selected_scene_id);
+    let scope = (editor.selected_scene_id.clone(), state.published_entries_revision, state.entries.len());
     let scope_changed = presented_scope.as_ref() != Some(&scope);
     *presented_scope = Some(scope);
-    let start = state.page.saturating_mul(GLTF_BROWSER_ROW_COUNT); // 当前页首条目索引。
-    let visible_rows = state
-        .entries
-        .len()
-        .saturating_sub(start)
-        .min(GLTF_BROWSER_ROW_COUNT);
-    for mut container in &mut layouts.p0() {
-        GLTF_BROWSER_LAYOUT.fit(&mut container, visible_rows); // 零项退出，一项起逐行增高到八项上限。
+    let search_changed = *presented_search != state.object_search;
+    if search_changed {
+        presented_search.clone_from(&state.object_search);
     }
-    let page_count = (state.entries.len().saturating_sub(1) / GLTF_BROWSER_ROW_COUNT) + 1; // 空列表显示1/1。
-    for mut text in &mut page_labels {
-        let value = format!("{}/{}", state.page + 1, page_count);
-        if text.as_str() != value { **text = value; }
-    }
-    for mut pagination in &mut layouts.p1() {
-        pagination.display = if page_count > 1 {
-            Display::Flex // 多页时显示两个稳定分页按钮。
-        } else {
-            Display::None // 单页纯分页条不占空间。
-        };
+    let mut start = 0;
+    if let (Ok((mut viewport, mut scroll)), Ok(mut content)) = (layouts.0.single_mut(), layouts.1.single_mut()) {
+        if scope_changed || search_changed || viewport.is_added() || scroll.is_changed() {
+            // 换场景或改搜索回到顶部，展开、折叠及热更新只钳制既有滚动位置。
+            let mut position = (*scroll).clone();
+            fit_scene_object_list(state.entries.len(), scene_changed || search_changed, None,
+                &mut viewport, &mut content, &mut position);
+            if scroll.0 != position.0 {
+                *scroll = position;
+            }
+        }
+        start = ((scroll.y / SCENE_OBJECT_ROW_PITCH).floor() as usize).saturating_sub(1);
     }
     for (interaction, mut click, mut row, mut node, mut background, mut border, children) in &mut rows {
-        let entry_index = start.saturating_add(row.slot); // 固定槽映射当前页条目。
-        if (scope_changed || row.entry_index != state.entries.get(entry_index).map(|_| entry_index))
-            && let Some(click) = click.as_deref_mut() { click.invalidate(); }
+        let entry_index = start.saturating_add(row.slot);
+        let binding = state.entries.get(entry_index).map(|_| entry_index);
+        if scene_changed || row.entries_revision != state.published_entries_revision || row.entry_index != binding {
+            if let Some(click) = click.as_deref_mut() {
+                click.invalidate();
+            }
+            row.entry_index = binding;
+            row.entries_revision = state.published_entries_revision;
+        }
         let Some(entry) = state.entries.get(entry_index) else {
-            row.entry_index = None; // 隐藏槽不保留旧点击目标。
             node.display = Display::None; // 实体池保留但不参与布局。
             continue;
         };
-        row.entry_index = Some(entry_index); // 点击系统下一帧使用该稳定索引。
         node.display = Display::Flex; // 当前条目原地复用槽位。
+        node.top = px(entry_index as f32 * SCENE_OBJECT_ROW_PITCH);
         node.padding.left = px(5.0 + entry.depth.min(8) as f32 * 18.0); // 与场景树共用层级步长。
         let selected = match &entry.kind {
             EditorGltfBrowserEntryKind::Group { name, .. } => state.selected_group.as_ref() == Some(name),
@@ -468,46 +444,6 @@ pub(crate) fn sync_gltf_browser_rows(
             || state.truncated || state.loading_asset_count > 0 || state.failed_asset_count > 0;
         let display = if visible { Display::Flex } else { Display::None };
         if node.display != display { node.display = display; }
-        **text = format!(
-            "{}\n第 {}/{} 页{selection_hint}",
-            state.status,
-            state.page + 1,
-            page_count,
-        ); // 两行内同时显示资产阶段、分页和选择有效性。
-    }
-}
-
-/// 场景树专用分页按钮提供hover/按压样式，不污染全局EditorAction系统。
-pub(crate) fn sync_gltf_browser_page_button_styles(
-    state: Res<EditorGltfBrowserState>, // 判断首页和尾页以降低不可用按钮对比度。
-    mut buttons: Query<(
-        &UiInteraction,
-        &SceneEditorGltfBrowserPageButton,
-        &mut BackgroundColor,
-        &mut BorderColor,
-    )>, // 固定两个按钮，逐帧常数开销。
-) {
-    let max_page = state.entries.len().saturating_sub(1) / GLTF_BROWSER_ROW_COUNT; // 页界与输入系统一致。
-    for (interaction, button, mut background, mut border) in &mut buttons {
-        let disabled = match button.0 {
-            GltfBrowserPageDirection::Previous => state.page == 0, // 首页不能继续向前。
-            GltfBrowserPageDirection::Next => state.page >= max_page, // 尾页不能继续向后。
-        };
-        background.0 = if disabled {
-            colors::SLOT_BG_DISABLED // 仍保留Button实体但明确不可前进。
-        } else {
-            match interaction {
-                UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED, // 鼠标按下反馈。
-                UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED, // 鼠标经过反馈。
-                UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL, // 常态与其他编辑器按钮一致。
-            }
-        };
-        *border = BorderColor::all(if disabled {
-            colors::COPPER_BORDER_WEAK // 不可用按钮降低边框强度。
-        } else if *interaction == UiInteraction::None {
-            colors::COPPER_BORDER_WEAK // 可用常态保持统一弱铜边。
-        } else {
-            colors::COPPER_BORDER // hover或按压强化边框。
-        });
+        **text = format!("{}{selection_hint}", state.status);
     }
 }

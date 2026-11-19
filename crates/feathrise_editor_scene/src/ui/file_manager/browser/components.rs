@@ -37,8 +37,7 @@ pub(crate) struct RowHint;
 pub(super) struct ServiceOrigin(pub Entity);
 
 #[derive(Message)]
-pub(crate) struct BrowserNavigate {
-    pub(crate) window: u64,
-    pub(crate) path: String,
-    pub(crate) directory: bool,
+pub(crate) enum BrowserNavigate {
+    InWindow { window: u64, path: String, directory: bool },
+    RevealFile { context: u64, path: String },
 }

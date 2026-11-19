@@ -1,4 +1,4 @@
-//! 固定八行在正式呈现后冻结完整实例或精确网格，分组及失效诊断行不冒充对象。
+//! 已呈现树行冻结完整实例或精确网格，分组及失效诊断行不冒充对象。
 
 use super::*;
 use crate::{
@@ -18,9 +18,7 @@ pub(crate) fn bind_scene_menu_rows(
             if browser.signature_build.is_some() || browser.entries_build.is_some() {
                 return None;
             }
-            let index = row
-                .entry_index
-                .filter(|index| *index == browser.page * GLTF_BROWSER_ROW_COUNT + row.slot)?;
+            let index = row.entry_index.filter(|_| row.entries_revision == browser.published_entries_revision)?;
             let entry = browser.entries.get(index)?;
             let (id, mesh) = match &entry.kind {
                 EditorGltfBrowserEntryKind::Placement { placement_id, .. } => (placement_id, None),

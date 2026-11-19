@@ -29,7 +29,6 @@ pub(crate) fn sync_sidebar_layer_selection(
                 && state.placement_mesh_selection(id) == browser.selection.as_ref()
         }); // 统一候选刚应用时不反向清空列表。
         if editor.open
-            && modes.selection_allowed(&editor)
             && let Some(id) = browser.selected_placement_id.as_ref()
             && !same_candidate_mesh
             && let Some(draft) = session.draft.as_ref()

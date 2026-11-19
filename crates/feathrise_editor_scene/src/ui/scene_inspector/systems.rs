@@ -164,18 +164,19 @@ pub(crate) fn sync_scene_inspector(
                     if record.asset_target.is_builtin() {
                         return record.asset_target.label(); // 内置形状以类型作默认名称，不显示空资产路径。
                     }
-                    record
-                        .asset_path
-                        .rsplit(['/', '\\'])
-                        .next()
-                        .unwrap_or(&record.asset_path)
-                        .to_owned()
+                    // 保留相对资产根的目录，便于区分来自不同目录的同名模型。
+                    record.asset_path.clone()
                 },
                 |selection| {
-                    if selection.mesh_name.trim().is_empty() {
-                        "未命名网格".to_owned()
+                    let name = if selection.mesh_name.trim().is_empty() {
+                        "未命名网格"
                     } else {
-                        selection.mesh_name.clone()
+                        &selection.mesh_name
+                    };
+                    if record.asset_path.is_empty() {
+                        name.to_owned()
+                    } else {
+                        format!("{name}\n{}", record.asset_path)
                     }
                 },
             );

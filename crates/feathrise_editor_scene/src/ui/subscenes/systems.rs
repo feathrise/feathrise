@@ -44,33 +44,19 @@ pub(super) fn input(mut editor: ResMut<SceneEditorState>, mut session: ResMut<Ed
     mut state: ResMut<SubsceneEditorState>,
     registry: Option<Res<feathrise_scene_content::SceneContentRegistry>>, catalogs: Res<Assets<SceneCatalogAsset>>, deletion: Res<SceneDeletionTask>,
     global: Res<GlobalEnvironmentAuthoringState>,
-    modes: Res<crate::viewport::modes::ViewportModeState>,
-    characters: Res<crate::game_authoring::scene_interaction::SceneInteractionState>,
     mut context: ParamSet<(crate::viewport::placement_move::MoveInputContext,
         (ResMut<crate::viewport::LayerCandidateState>, ResMut<SceneBrowserState>))>,
     menu: Option<Res<crate::ui::scene_context_menu::SceneContextMenuState>>,
     sidebars: Option<Res<crate::ui::sidebars::SceneEditorSidebarState>>,
     layout: Option<Res<crate::resources::SceneEditorLayoutState>>,
-    rows: Query<(&EditorButtonClick, &Row), Changed<EditorButtonClick>>,
     buttons: Query<(&EditorButtonClick, &ActionButton), (With<InteractionButton>, Changed<EditorButtonClick>)>) {
     if !enabled(&editor, &session, &state) || state.scrub.is_some() || !context.p0().scene_commands_available(&editor) { return; }
     let (mut candidates, mut browser) = context.p1();
-    let tree_visible = sidebars.as_ref().is_none_or(|state| state.scene_tree_visible())
-        && layout.as_ref().is_none_or(|state| state.content_shown());
     let properties_visible = sidebars.as_ref().is_none_or(|state| state.right == crate::ui::sidebars::EditorRightSidebarTab::Scene)
         && layout.as_ref().is_none_or(|state| state.inspector_shown());
     let creation_visible = sidebars.as_ref().is_none_or(|state| state.tool_page_visible(crate::ui::sidebars::EditorLeftSidebarTab::Gameplay))
         && layout.as_ref().is_none_or(|state| state.inspector_shown());
     let catalog = registry.as_deref().and_then(|registry| catalogs.get(&registry.catalog));
-    for (interaction, row) in &rows {
-        if tree_visible && interaction.is_clicked() && modes.mode == crate::viewport::modes::ViewportMode::Select {
-            if let Some(record) = session.draft.as_ref().and_then(|draft| draft.manifest.subscenes.get(state.list_start + row.0)) {
-                state.scene_id = Some(session.draft.as_ref().unwrap().scene_id.clone());
-                state.selected = Some(record.id.clone()); candidates.confirm_subscene(&record.id,
-                    &session, characters.observed_generation, modes.selection_filter(&editor));
-            }
-        }
-    }
     let menu_action = menu.as_ref().and_then(|menu| menu.ready.as_ref()).and_then(|request| {
         use crate::ui::scene_context_menu::{SceneMenuAction, SceneObjectKey};
         let SceneObjectKey::Subscene { index, .. } = &request.target.key else { return None; };

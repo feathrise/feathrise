@@ -62,6 +62,7 @@ pub(super) struct Controls<'w, 's> {
     ime: Option<Res<'w, crate::resources::EditorTextInputGuard>>,
     file_buttons: Query<'w, 's, (&'static FileManagerButton, &'static EditorButtonClick), Changed<EditorButtonClick>>,
     inputs: Query<'w, 's, &'static bevy::text::EditableText>,
+    settings: Option<Res<'w, feathrise_editor_core::EditorSettings>>,
 }
 
 pub(super) fn control(
@@ -118,8 +119,10 @@ pub(super) fn control(
         browsers.popup = None;
     }
     for request in navigation.read() {
-        let Some(window) = files.active_mut(request.window).filter(|window| !window.minimized && !window.is_animation_picker()) else {
-            continue;
+        let (window_id, path, is_directory) = match request {
+            BrowserNavigate::InWindow { window, path, directory } => (Some(*window), path, *directory),
+            BrowserNavigate::RevealFile { context, path } if *context == files.service_context() => (None, path, false),
+            BrowserNavigate::RevealFile { .. } => continue,
         };
         let Some(root) = browsers
             .asset_root
@@ -128,20 +131,39 @@ pub(super) fn control(
         else {
             continue;
         };
-        let path = root.join(&request.path);
-        let directory = if request.directory {
-            path
+        let absolute = root.join(path);
+        let directory = if is_directory {
+            absolute
         } else {
-            path.parent().unwrap_or(&root).to_path_buf()
+            absolute.parent().unwrap_or(&root).to_path_buf()
+        };
+        let id = if let Some(id) = window_id {
+            id
+        } else {
+            // 场景树定位复用最后活动的普通文件窗，动画选择窗仍由原工作模型持有。
+            if let Some(window) = files.windows.iter_mut().rev().find(|window| !window.is_animation_picker()) {
+                let id = window.id;
+                window.minimized = false;
+                files.raise(id);
+            } else {
+                files.open(directory.clone());
+            }
+            let Some(id) = files.focused else { continue; };
+            id
+        };
+        let Some(window) = files.active_mut(id).filter(|window| !window.minimized && !window.is_animation_picker()) else {
+            continue;
         };
         window.filter.clear();
         window.navigate(directory, true);
-        if let Some(session) = browsers.sessions.get_mut(&request.window) {
-            session.kind = Default::default();
-            // 扫描返回完整目标前保留旧选择；成功后同时采用目录、唯一选择和滚动位置。
-            session.reveal = (!request.directory).then(|| (window.revision, request.path.clone()));
-        }
-        browsers.release_window = Some(request.window);
+        let session = browsers.sessions.entry(id).or_insert_with(|| {
+            let view = controls.settings.as_ref().map_or(AssetBrowserViewMode::List, |settings| settings.asset_browser_view_mode);
+            BrowserSession::new(view)
+        });
+        session.kind = Default::default();
+        // 扫描返回完整目标前保留旧选择；成功后同时采用目录、唯一选择和滚动位置。
+        session.reveal = (!is_directory).then(|| (window.revision, path.clone()));
+        browsers.release_window = Some(id);
         browsers.service = None;
     }
     for request in extras.read() {

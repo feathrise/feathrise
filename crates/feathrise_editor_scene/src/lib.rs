@@ -54,7 +54,7 @@ use ui::delete_scene_dialog::{configure_delete_scene_dialog_focus, sync_delete_s
 use ui::environment::sync_editor_environment_text; // 天空盒草稿与统一加载阶段回显。
 use ui::gltf_browser::{
     EditorGltfBrowserState, handle_gltf_browser_input, refresh_gltf_browser_cache,
-    spawn_gltf_browser_rows, sync_gltf_browser_page_button_styles, sync_gltf_browser_rows,
+    spawn_gltf_browser_rows, sync_gltf_browser_rows,
 }; // 已摆放Scene0树按Input、Tasks、Presentation三阶段保持稳定选择。
 use ui::layer_status::sync_editor_layer_status; // 地表与植被页面分别回显当前作者选择。
 use ui::scene_deletion::handle_scene_deletion_buttons; // 删除按钮执行保护校验，只在目标已退出的稳定世界或空工作台回收。
@@ -426,7 +426,7 @@ impl Plugin for SceneEditorPlugin {
                             handle_placement_water_numeric_input, // 左键单击精确输入与右拖灵敏度先按旧Scene0选择收口。
                             apply_placement_water_numeric_scrub, // 左拖实时值在松开时只写一条有界PlacementChanged。
                             handle_asset_row_clicks,
-                            handle_gltf_browser_input, // 独立行与分页组件不扩大全局EditorAction。
+                            handle_gltf_browser_input, // 场景树直接选中，不切换视口工具。
                             handle_placement_transform_actions, // 使用本帧最终完整实例选择执行移动、复制或删除。
                             handle_placement_water_actions, // 使用本帧最终场景树选择修改完整摆放记录。
                             control_editor_viewport,
@@ -548,7 +548,7 @@ impl Plugin for SceneEditorPlugin {
                     (
                         (
                             spawn_dynamic_rows,
-                            spawn_gltf_browser_rows, // BSN容器首次出现时建立固定八行池。
+                            spawn_gltf_browser_rows, // BSN容器首次出现时建立固定可见行池。
                             setup_water_level_input, // BSN槽位只挂载一次公共NumericInput根。
                             setup_water_network_numeric_inputs, // 四个控制点槽位各挂载一次完整公共专业字段。
                             setup_boundary_thickness_input, // 区域边界旧加减按钮替换为一项完整米制字段。
@@ -680,7 +680,7 @@ impl Plugin for SceneEditorPlugin {
                                     sync_scene_browser_root_row, // 固定根目录行始终可选择并接收场景拖回根级。
                                     sync_scene_browser_drag_preview,
                                     sync_asset_rows,
-                                    sync_gltf_browser_rows, // 缓存与分页完成后原地回显Scene0树。
+                                    sync_gltf_browser_rows, // 按滚动窗口原地回显Scene0树。
                                     ui::gltf_browser::sync_scene_base_gltf_row, // GLB和Clipmap基础地形独立于摆放实例计数。
                                     (
                                         sync_placement_water_text, // 网格选择、撤销或草稿换代后回显实际水体语义。
@@ -718,7 +718,6 @@ impl Plugin for SceneEditorPlugin {
                     sync_terrain_shading_button_styles, // 场景页地形模式独立高亮，不影响其他作者按钮。
                     sync_terrain_grid_button_style, // 显示网格使用同一铜金交互态并允许与任一着色模式同时选中。
                     sync_brush_slider_interaction_styles, // 紧凑数值拖动区只在交互变化时强化暗墨铜边。
-                    sync_gltf_browser_page_button_styles, // 专用分页按钮不进入全局动作样式查询。
                     sync_placement_water_button_styles
                         .after(refresh_placement_water_selection_cache), // 当前水体类别读取同帧完成的共享派生值。
                     sync_current_portal_row_interactions, // 当前源点行提供即时按下与悬停反馈。

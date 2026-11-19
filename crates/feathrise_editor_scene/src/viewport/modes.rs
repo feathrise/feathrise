@@ -104,7 +104,7 @@ impl Default for ViewportModeState {
 impl ViewportModeState {
     pub fn selection_allowed(&self, _editor: &SceneEditorState) -> bool {
         self.mode == ViewportMode::Select
-    } // 【需求设计】先选择再变换；移动、旋转和缩放只操作既有目标，空处或其他物体不能换选。
+    } // 模式只约束视口拾取。场景树可直接更换变换目标。
 
     pub fn selection_filter(&self, _editor: &SceneEditorState) -> SelectionFilter {
         self.filter

@@ -15,12 +15,12 @@ use crate::{
 };
 use bevy::prelude::*;
 
-pub(super) fn input(
+pub(in crate::ui) fn input(
     context: crate::ui::scene_context_menu::MenuContext,
     editor: Res<SceneEditorState>,
     menu: Res<SceneContextMenuState>,
     guard: Res<SceneEditorNumericScrubMouseGuard>,
-    rows: Query<(&EditorButtonClick, &SceneObjectRow), (With<Row>, Changed<EditorButtonClick>)>,
+    rows: Query<(&EditorButtonClick, &SceneObjectRow), Changed<EditorButtonClick>>,
     mut selection: ResMut<SceneLayerSelection>,
 ) {
     selection.0 = None; // 只允许当帧选择，不把隐藏、切换场景前的点击积压到后续会话。
@@ -35,8 +35,10 @@ pub(super) fn input(
             && let Some(target) = row
                 .0
                 .as_ref()
-                .filter(|target| target.current(&editor, &context.session))
+                .filter(|target| !matches!(target.key, SceneObjectKey::Placement { .. })
+                    && target.current(&editor, &context.session))
         {
+            // 地形、子场景和作者层复用右键的稳定行身份。摆放行由 GLB 树处理展开及增减选择。
             selection.0 = Some(target.clone());
             break;
         }
@@ -193,11 +195,7 @@ pub(super) fn refresh_selection(
     domain: Option<Res<crate::game_authoring::scene_interaction::SceneInteractionState>>,
     modes: Option<Res<crate::viewport::modes::ViewportModeState>>,
 ) {
-    if editor.open
-        && modes
-            .as_ref()
-            .is_none_or(|state| state.selection_allowed(&editor))
-        && let Some(candidates) = candidates.as_mut()
+    if editor.open && let Some(candidates) = candidates.as_mut()
     {
         let filter = modes
             .as_ref()

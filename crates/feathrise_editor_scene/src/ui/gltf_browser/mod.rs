@@ -11,7 +11,7 @@ mod scene; // 右栏上半区的BSN静态外壳。
 pub(crate) use scene::{SceneBaseGltfRow, SceneBaseTerrainDetails, sync_scene_base_gltf_row, scene_display_panel}; // GLB与Clipmap地形节点独立于摆放实例。
 mod scene_build; // Scene0根发现、DFS与路径物化均按固定预算分帧并原子采用。
 mod signature; // 全部摆放结构签名按每帧记录预算渐进生成。
-mod systems; // 固定行池、分页、展开点击与样式同步系统。
+mod systems; // 固定行池、连续滚动、展开点击与样式同步系统。
 mod scene_menu; // 已呈现行的稳定对象身份供右键菜单使用。
 pub(crate) use scene_menu::bind_scene_menu_rows;
 mod projection; // 搜索与逻辑组的有界根投影，不改变真实实例层级。
@@ -35,12 +35,9 @@ pub(super) fn gltf_browser_panel() -> impl Scene {
 pub(crate) use cache::refresh_gltf_browser_cache; // Tasks阶段只处理展开需求和固定加载预算。
 pub(crate) use helpers::{mesh_index_from_primitive_label, stable_mesh_reference}; // 视口点击复用Scene0稳定网格身份规则。
 pub(crate) use systems::{
-    handle_gltf_browser_input, spawn_gltf_browser_rows, sync_gltf_browser_page_button_styles,
-    sync_gltf_browser_rows,
+    handle_gltf_browser_input, spawn_gltf_browser_rows, sync_gltf_browser_rows,
 }; // lib.rs按Input与Presentation阶段显式注册。
 
-/// 右栏固定行池大小；翻页只替换文本和稳定索引，不逐帧生成实体。
-pub(crate) const GLTF_BROWSER_ROW_COUNT: usize = 8;
 /// 每帧最多逐条检查的WorldAsset事件；超出时保守失效全部当前需求并O(1)清空其余reader。
 pub(super) const MAX_GLTF_ASSET_EVENTS_PER_FRAME: usize = 256;
 /// 每帧最多调和的展开资产需求路径数；结构换代不会在一帧加载或释放全部Scene0。
@@ -243,14 +240,12 @@ pub(crate) struct EditorGltfBrowserState {
     pub(crate) object_search: String,
     pub(crate) collapsed_groups: BTreeSet<String>,
     pub(crate) selected_group: Option<String>,
-    /// 当前展开状态和分页之前的扁平可见条目。
+    /// 当前展开状态的完整扁平树，行池按滚动位置取其窗口。
     pub(crate) entries: Vec<EditorGltfBrowserEntry>,
     /// 最近点击的完整网格引用；无效引用仍保留以便明确拒绝和诊断。
     pub(crate) selection: Option<EditorGltfMeshSelection>,
     /// 当前选中的完整摆放实例；根行和任一子网格点击都会更新该稳定ID。
     pub(crate) selected_placement_id: Option<String>,
-    /// 当前固定行池页码，从零开始。
-    pub(crate) page: usize,
     /// 任一实例、Scene0或可见行触及硬上限时为true。
     pub(crate) truncated: bool,
     /// 当前加载、失败和截断摘要，供右栏状态行显示。
@@ -304,6 +299,8 @@ pub(crate) struct EditorGltfBrowserState {
     pub(super) expanded_placements: BTreeSet<String>,
     /// 每次签名、展开或缓存阶段变化递增；旧行任务完成后若过期则重新开始而不发布半成品。
     pub(super) entries_revision: u64,
+    /// 当前已发布的行修订。等长换代也必须作废旧行上尚未释放的点击。
+    pub(super) published_entries_revision: u64,
     /// 当前按固定操作和行数预算构建的场景树草稿，完成后原子替换公开entries。
     entries_build: Option<BrowserEntriesBuild>,
     /// 大型旧代拥有型数据最多保留两代，并按元素、路径段和字符串预算逐帧释放。
@@ -312,7 +309,6 @@ pub(crate) struct EditorGltfBrowserState {
 
 impl EditorGltfBrowserState {
     pub(crate) fn request_object_rows(&mut self) {
-        self.page = 0;
         entries::request_visible_entries_rebuild(self);
     }
     /// 标签中的稳定选择必须等新场景签名完整采用，不能在分帧构建时被旧签名清掉。
@@ -393,17 +389,17 @@ impl EditorGltfBrowserState {
     } // 无窗口交互夹具只注入已采用的唯一结构索引，签名构建本身另有预算回归。
 }
 
-/// BSN右栏内供固定场景树行挂载的容器。
+/// 场景树摆放列表的滚动视区。
 #[derive(Component, Clone, Copy, Default)]
 pub(crate) struct SceneEditorGltfBrowserList;
 
-/// 场景树加载、页码和无效引用提示文本。
+/// 按扁平树长度占位，固定行池只挂在这一层。
+#[derive(Component, Clone, Copy, Default)]
+pub(crate) struct SceneEditorGltfBrowserListContent;
+
+/// 场景树加载和无效引用提示文本。
 #[derive(Component, Clone, Copy, Default)]
 pub(crate) struct SceneEditorGltfBrowserStatusText;
-
-/// 场景树纯分页条只在可见条目超过固定八行时参与布局。
-#[derive(Component, Clone, Copy, Default)]
-pub(crate) struct SceneEditorGltfBrowserPagination;
 
 /// 固定场景树行槽及其当前绑定条目。
 #[derive(Component)]
@@ -412,22 +408,9 @@ pub(crate) struct SceneEditorGltfBrowserRow {
     pub(super) slot: usize,
     /// 当前扁平条目索引；隐藏槽为None。
     pub(super) entry_index: Option<usize>,
+    pub(super) entries_revision: u64,
 }
 
 /// 场景树行的唯一文本子节点。
 #[derive(Component, Clone, Copy, Default)]
 pub(crate) struct SceneEditorGltfBrowserRowText;
-
-/// 场景树分页方向，不复用全局EditorAction。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) enum GltfBrowserPageDirection {
-    /// 前一页。
-    Previous,
-    /// 后一页。
-    #[default]
-    Next,
-}
-
-/// 场景树专用分页按钮。
-#[derive(Component, Clone, Copy, Debug, Default)]
-pub(crate) struct SceneEditorGltfBrowserPageButton(pub(super) GltfBrowserPageDirection);

@@ -44,7 +44,6 @@ pub(crate) struct MenuContext<'w, 's> {
     terrains: Option<Res<'w, crate::ui::terrain_objects::TerrainObjectsEditorState>>,
     subscenes: Option<Res<'w, crate::ui::subscenes::SubsceneEditorState>>,
     spatial: Option<Res<'w, crate::viewport::spatial_brush::SpatialBrushState>>,
-    modes: Option<Res<'w, crate::viewport::modes::ViewportModeState>>,
     domain: Option<Res<'w, crate::game_authoring::scene_interaction::SceneInteractionState>>,
     water_stroke: Option<Res<'w, crate::authoring::WaterBrushStroke>>,
     water_network: Option<Res<'w, crate::authoring::WaterNetworkEditState>>,
@@ -84,8 +83,6 @@ impl MenuContext<'_, '_> {
             && self.water_stroke.as_ref().is_none_or(|state| !state.active)
             && self.water_network.as_ref().is_none_or(|state| !state.dragging())
             && self.vegetation_stroke.as_ref().is_none_or(|state| !state.active)
-            // 场景树和视口沿用先选择再变换的同一权限，菜单不能暗换正在变换的目标。
-            && self.modes.as_ref().is_none_or(|state| state.selection_allowed(editor))
             && self.windows.single().is_ok_and(|window| window.focused)
     }
 
@@ -357,4 +354,30 @@ pub(super) fn send_blender_action(
         scene_id: target.scene_id.clone(),
         placement_id: id.clone(),
     });
+}
+
+pub(super) fn reveal_glb_file(
+    menu: Res<SceneContextMenuState>,
+    mut editor: ResMut<SceneEditorState>,
+    session: Res<EditorAuthoringSession>,
+    files: Res<crate::ui::file_manager::FileManagerState>,
+    mut navigation: MessageWriter<crate::ui::file_manager::browser::BrowserNavigate>,
+) {
+    let Some(request) = menu.ready.as_ref()
+        .filter(|request| request.action == SceneMenuAction::RevealGlb && request.target.current(&editor, &session))
+    else {
+        return;
+    };
+    let Some(path) = request.target.glb_path(&session) else {
+        return;
+    };
+    match crate::asset_catalog::normalize_asset_reference(path) {
+        Ok(path) => {
+            navigation.write(crate::ui::file_manager::browser::BrowserNavigate::RevealFile {
+                context: files.service_context(),
+                path,
+            });
+        }
+        Err(error) => editor.status = error,
+    }
 }

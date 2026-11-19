@@ -150,11 +150,9 @@ pub(super) fn input(
     mut session: ResMut<EditorAuthoringSession>,
     mut state: ResMut<TerrainObjectsEditorState>,
     buttons: Query<(&EditorButtonClick, &ActionButton, Option<&RowAction>, Option<&LodRowBinding>, Option<&LodActionBinding>), Changed<EditorButtonClick>>,
-    rows: Query<(&EditorButtonClick, &Row), Changed<EditorButtonClick>>,
     mut candidates: ResMut<crate::viewport::LayerCandidateState>,
     mut visibility: ResMut<feathrise_scene::TerrainObjectEditorVisibility>,
-    mode: Option<Res<crate::viewport::modes::ViewportModeState>>,
-    mut sidebar: Option<ResMut<crate::ui::sidebars::SceneEditorSidebarState>>,
+    sidebar: Option<Res<crate::ui::sidebars::SceneEditorSidebarState>>,
     gate: PanelWorkspaceGate,
 ) {
     // 旧会话可能记着0.010m；先进入公共创建范围，再处理本帧按钮或同步显示，不等创建失败。
@@ -176,34 +174,6 @@ pub(super) fn input(
     }
     // 创建直接作用于当前场景，不改中央标签；隐藏视口和对象属性仍要求场景工作区。
     let scene_workspace = gate.visible();
-    let legacy = state.legacy.clone();
-    let row_action_pressed = buttons.iter().any(|(interaction, _, row, _, _)| interaction.is_clicked() && row.is_some());
-    for (interaction, row) in &rows {
-        if !scene_workspace || row_action_pressed || !interaction.is_clicked()
-            || sidebar.as_ref().is_some_and(|sidebar| !sidebar.scene_tree_visible())
-            || mode
-                .as_ref()
-                .is_some_and(|mode| !mode.selection_allowed(&editor))
-        {
-            continue;
-        }
-        let index = state.list_start + row.0;
-        let objects = session
-            .draft
-            .as_ref()
-            .and_then(|draft| draft.manifest.terrains.as_deref())
-            .unwrap_or_else(|| legacy.as_deref().map_or(&[], std::slice::from_ref));
-        if let Some(object) = objects.get(index) {
-            state.selected = Some(object.id.clone());
-            state.selected_index = Some(index);
-            state.reset_lod_selection();
-            candidates.confirm_terrain(&object.id, index);
-            if let Some(sidebar) = sidebar.as_mut() {
-                sidebar.reveal_scene_properties();
-            }
-            editor.status = format!("已选择网格：{}", object.display_name);
-        }
-    }
     for (interaction, button, row_action, lod_binding, lod_action) in &buttons {
         if !interaction.is_clicked() {
             continue;
@@ -220,7 +190,7 @@ pub(super) fn input(
             let Some(target) = row.target.as_ref() else { continue; };
             let Some(draft) = session.draft.as_ref().filter(|draft| draft.scene_id == target.scene_id && session.revision == target.revision) else { continue; };
             let objects = draft.manifest.terrains.as_deref()
-                .unwrap_or_else(|| legacy.as_deref().map_or(&[], std::slice::from_ref));
+                .unwrap_or_else(|| state.legacy.as_deref().map_or(&[], std::slice::from_ref));
             if objects.get(target.index).is_none_or(|object| object.id != target.terrain) { continue; }
             // 行内管理沿用原属性按钮权限，雕刻模式下也能显隐和解锁；它不是视口选择手势。
             if state.selected.as_ref() != Some(&target.terrain) { state.reset_lod_selection(); }

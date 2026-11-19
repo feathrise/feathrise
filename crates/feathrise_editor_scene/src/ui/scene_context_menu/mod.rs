@@ -39,6 +39,16 @@ pub(crate) fn queue_blender_action_for_validation(world: &mut World, id: &str) -
     })
 }
 
+#[cfg(feature = "validation")]
+pub(crate) fn press_action_for_validation(world: &mut World, action: SceneMenuAction) -> Option<Entity> {
+    let button = world.query::<(Entity, &components::MenuButton, &ComputedNode)>().iter(world)
+        .find_map(|(entity, button, layout)| (button.0 == action && !layout.is_empty()).then_some(entity))?;
+    let mut nodes = world.query::<(&Node, Option<&ChildOf>)>();
+    if !crate::viewport::modes::controls_visible(button, &nodes.query(world)) { return None; }
+    world.entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
+    Some(button)
+}
+
 /// 验收从本帧真实可见的场景树行发出菜单命令，沿用冻结、静默门和业务分派。
 #[cfg(any(test, feature = "validation"))]
 fn queue_visible_scene_action(
@@ -174,7 +184,7 @@ pub(crate) fn install(app: &mut App) {
     install_controls(app);
     app.add_systems(
         Update,
-        systems::send_blender_action
+        (systems::send_blender_action, systems::reveal_glb_file)
             .after(focus::select_target)
             .in_set(SceneMenuDispatch)
             .in_set(crate::SceneEditorSystemSet::Input),

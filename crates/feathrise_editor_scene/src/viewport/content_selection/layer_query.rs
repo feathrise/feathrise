@@ -109,7 +109,7 @@ pub(crate) fn poll_layer_candidates(
     modes: Res<ViewportModeState>,
     mesh_edit: Option<Res<crate::authoring::mesh_edit::MeshEditState>>,
     mut state: ResMut<LayerCandidateState>,
-    mut selection_locked: Local<bool>, // 只在进入变换时淘汰旧点击票据，稳定帧不重建选择。
+    mut selection_locked: Local<bool>, // 停用视口拾取时淘汰旧票据，场景树仍可发布正式选择。
     mut locked_scene: Local<Option<feathrise_scene_content::SceneId>>, // confirm_terrain没有候选身份时，也不能把primary选中项带到另一场景。
     multi_selection: Option<Res<crate::viewport::multi_select::PlacementSelectionSet>>,
     subscenes: super::subscenes::PickInputs,
@@ -129,7 +129,7 @@ pub(crate) fn poll_layer_candidates(
         && session.draft.is_some();
     let editing_terrain = modes.mode == crate::viewport::modes::ViewportMode::Edit
         && matches!(state.selected, Some(LayerTarget::TerrainObject(_)));
-    if available && (modes.mode.transforms_placement() || editing_terrain || mesh_edit.as_ref().is_some_and(|state| state.active())) {
+    if available && (!modes.selection_allowed(&editor) || mesh_edit.as_ref().is_some_and(|state| state.active())) {
         if !*selection_locked {
             state.freeze_selection();
             *locked_scene = session.draft.as_ref().map(|draft| draft.scene_id.clone());
@@ -145,6 +145,9 @@ pub(crate) fn poll_layer_candidates(
             }
         });
         let scene_changed = session.draft.as_ref().is_none_or(|draft| locked_scene.as_ref() != Some(&draft.scene_id));
+        if scene_changed {
+            *locked_scene = session.draft.as_ref().map(|draft| draft.scene_id.clone());
+        }
         if terrain_removed || scene_changed || state.identity.as_ref().is_some_and(|old| {
             session.draft.as_ref().is_none_or(|draft| old.scene_id != draft.scene_id)
                 || editor.selected_scene_id.as_ref() != Some(&old.scene_id)
@@ -157,15 +160,14 @@ pub(crate) fn poll_layer_candidates(
             }
             state.invalidate_derived_pose(&session, domain.observed_generation, filter);
         }
-        return; // 编辑/变换保留已确认网格；高度修订不能清空属性目标，迟到点击仍不得抢选。
+        return; // 停用拾取仍保留有效的正式选择，迟到的视口查询不得抢回场景树目标。
     }
     *selection_locked = false;
     *locked_scene = None;
-    let active = available && modes.selection_allowed(&editor); // 编辑模式不能采纳旧点击。
     if multi_selection.as_ref().is_some_and(|selection| selection.box_busy()) {
         state.freeze_selection(); return; // 拖框期间旧单击（含空命中）不得改变现有选集。
     }
-    if !active {
+    if !available {
         if state.identity.is_some() || state.request.is_some() || state.waiting_canvas.is_some() || state.selected.is_some() {
             state.clear();
         }

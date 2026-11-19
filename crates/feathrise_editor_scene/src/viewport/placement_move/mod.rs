@@ -75,9 +75,9 @@ pub(crate) fn set_placement_mode(
         editor.tool = EditorTool::Inspect;
     }
     editor.status = match requested {
-        ViewportMode::Move => "移动模式：当前目标已锁定，换对象请回选择模式。拖动三色轴或铜色方框沿 XZ 平面移动；Ctrl 使用设置中的移动步长，Esc 取消。建筑沿用建筑网格。",
-        ViewportMode::Rotate => "旋转模式：当前目标已锁定，换对象请回选择模式。拖动 Y 轴圆环；Ctrl 使用设置中的角度步长，Esc 取消。建筑按 90° 档位旋转并校验；端视时请切到顶视或斜视。",
-        ViewportMode::Scale => "缩放模式：当前目标已锁定，换对象请回选择模式。拖动中心方块，向右/上放大、向左/下缩小；Ctrl 使用设置中的倍率步长，Esc 取消。建筑保持预设尺寸。",
+        ViewportMode::Move => "移动模式，可在场景树切换对象。拖动三色轴或铜色方框沿 XZ 平面移动，Ctrl 使用设置中的移动步长，Esc 取消。建筑沿用建筑网格。",
+        ViewportMode::Rotate => "旋转模式，可在场景树切换对象。拖动 Y 轴圆环，Ctrl 使用设置中的角度步长，Esc 取消。建筑按 90° 档位旋转并校验，端视时请切到顶视或斜视。",
+        ViewportMode::Scale => "缩放模式，可在场景树切换对象。拖动中心方块，向右或向上放大，向左或向下缩小。Ctrl 使用设置中的倍率步长，Esc 取消。建筑保持预设尺寸。",
         ViewportMode::Select => "已回到选择模式",
         ViewportMode::Edit => "已回到编辑模式",
     }

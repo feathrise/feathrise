@@ -11,6 +11,9 @@ mod model_surfaces;
 mod chunk_lod;
 #[path = "plane_validation.rs"]
 mod plane;
+#[cfg(feature = "validation")]
+#[path = "scene_tree_validation.rs"]
+mod scene_tree;
 #[cfg(test)]
 #[path = "validation_fixture_tests.rs"]
 mod tests;
@@ -150,12 +153,15 @@ pub struct SavedEditProof {
     pub chunk_lod: Option<serde_json::Value>,
     pub plane: Option<serde_json::Value>,
     pub blender_mesh: Option<serde_json::Value>,
+    pub scene_tree: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Idle,
     Creating,
+    #[cfg(feature = "validation")]
+    SceneTree(scene_tree::Step),
     Plane,
     BlenderMesh,
     ChunkLod,
@@ -223,6 +229,10 @@ pub fn request_edit_and_save(world: &mut World, scene_id: &str) -> Result<(), St
     }
     let map = SceneId::parse(scene_id)?;
     let paths = feathrise_editor_core::editor_project_paths().ok_or("验收实例未绑定独立工程来源")?;
+    #[cfg(feature = "validation")]
+    if scene_tree::enabled() {
+        scene_tree::preflight(paths.project_root(), &map)?;
+    }
     let session = world.resource::<EditorAuthoringSession>();
     let draft = session.draft.as_ref().ok_or("原场景草稿未就绪")?;
     let count_before = draft.placements.placements.len();
@@ -271,6 +281,7 @@ pub fn request_edit_and_save(world: &mut World, scene_id: &str) -> Result<(), St
         chunk_lod: None,
         plane: None,
         blender_mesh: None,
+        scene_tree: None,
     });
     Ok(())
 }
@@ -467,6 +478,11 @@ fn drive(world: &mut World) {
                     let proof = fixture.proof.as_mut().unwrap();
                     proof.new_placement_id = Some(id.clone());
                     proof.author_revision_after = revision;
+                    #[cfg(feature = "validation")]
+                    if scene_tree::enabled() {
+                        fixture.phase = Phase::SceneTree(scene_tree::Step::Open);
+                        return;
+                    }
                     if plane::enabled() {
                         plane::begin(world, record);
                         fixture.phase = Phase::Plane;
@@ -491,6 +507,20 @@ fn drive(world: &mut World) {
                     }
                 } else if !plane::enabled() && world.resource::<BasicShapeState>().creation_request.is_none() {
                     fail(&mut fixture, format!("原坐标创建未受理：{}", editor.status));
+                }
+            }
+            #[cfg(feature = "validation")]
+            Phase::SceneTree(mut step) => {
+                let fixture = &mut *fixture;
+                let proof = fixture.proof.as_ref().unwrap();
+                match scene_tree::advance(world, &mut step, proof.new_placement_id.as_deref().unwrap(),
+                    proof.author_revision_after, &mut fixture.click_pulse) {
+                    Ok(Some(proof)) => {
+                        fixture.proof.as_mut().unwrap().scene_tree = Some(proof);
+                        begin_geometry_unification(world, fixture);
+                    }
+                    Ok(None) => fixture.phase = Phase::SceneTree(step),
+                    Err(error) => fail(fixture, error),
                 }
             }
             Phase::Plane => {

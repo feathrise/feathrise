@@ -265,6 +265,7 @@ fn blender_menu_opens_builtin_and_whole_glb_placements() {
             let record = &mut session.draft.as_mut().unwrap().placements.placements[0];
             record.asset_path = asset_path.into();
             record.asset_target = asset_target;
+            record.water_surfaces.clear(); // 通用移动夹具带水绑定，本用例验证普通模型的 Blender 入口。
         }
         open(&mut test);
         let world = test.app.world_mut();
@@ -291,6 +292,54 @@ fn blender_menu_opens_builtin_and_whole_glb_placements() {
         } else {
             assert!(command.is_none());
         }
+    }
+}
+
+#[test]
+fn scene_menu_reveals_glb_from_frozen_row_and_ignores_builtin_models() {
+    use crate::ui::{file_manager::{FileManagerState, browser::BrowserNavigate}, gltf_browser::EditorGltfBrowserState};
+    use feathrise_scene_content::ScenePlacementAssetTarget;
+
+    const MODEL: &str = "scenes/测试场景/models/blender-abcd.GLB";
+    for (asset_path, asset_target) in [
+        (MODEL, ScenePlacementAssetTarget::Scene0),
+        ("", ScenePlacementAssetTarget::DEFAULT_CUBOID),
+    ] {
+        let mut test = fixture();
+        let mut browser = EditorGltfBrowserState::default();
+        browser.selected_placement_id = Some("previous-selection".into());
+        test.app.init_resource::<FileManagerState>().insert_resource(browser)
+            .add_message::<BrowserNavigate>()
+            .add_systems(Update, systems::reveal_glb_file.after(super::focus::select_target));
+        {
+            let mut session = test.app.world_mut().resource_mut::<EditorAuthoringSession>();
+            let record = &mut session.draft.as_mut().unwrap().placements.placements[0];
+            record.asset_path = asset_path.into();
+            record.asset_target = asset_target;
+        }
+        open(&mut test);
+        let world = test.app.world_mut();
+        let (_, node, children) = world.query::<(&MenuButton, &Node, &Children)>()
+            .iter(world).find(|(button, _, _)| button.0 == SceneMenuAction::RevealGlb).unwrap();
+        assert_eq!(node.display == Display::Flex, asset_path == MODEL);
+        if asset_path == MODEL {
+            assert_eq!(world.get::<Text>(children[0]).unwrap().as_str(), "定位 GLB 文件");
+        }
+        choose(&mut test, SceneMenuAction::RevealGlb);
+        test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+        step(&mut test.app);
+        assert!(test.app.world().resource::<Messages<BrowserNavigate>>().is_empty());
+        step(&mut test.app);
+        let world = test.app.world();
+        let messages = world.resource::<Messages<BrowserNavigate>>();
+        let mut reader = messages.get_cursor();
+        let request = reader.read(messages).next();
+        if asset_path == MODEL {
+            assert!(matches!(request, Some(BrowserNavigate::RevealFile { path, .. }) if path == MODEL));
+        } else {
+            assert!(request.is_none());
+        }
+        assert_eq!(world.resource::<EditorGltfBrowserState>().selected_placement_id.as_deref(), Some("previous-selection"));
     }
 }
 
@@ -584,9 +633,9 @@ fn scene_menu_escape_dismisses_without_closing_editor_and_anchor_stays_inside_sc
     }
     open(&mut test);
     let popup = test.app.world().get::<Node>(test.popup).unwrap();
-    assert_eq!((popup.width, popup.height), (px(184), px(176)));
+    assert_eq!((popup.width, popup.height), (px(184), px(204)));
     assert_eq!(popup.left, px(452));
-    assert_eq!(popup.top, px(180));
+    assert_eq!(popup.top, px(152));
     test.app
         .world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
@@ -673,7 +722,7 @@ fn scene_menu_types_offer_supported_actions_and_focus_the_clicked_target() {
                 .iter(world)
                 .filter(|node| node.display == Display::Flex)
                 .count(),
-            [6, 5, 4][kind]
+            [7, 5, 4][kind]
         );
         choose(&mut test, SceneMenuAction::Focus);
         test.app

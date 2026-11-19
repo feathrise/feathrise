@@ -40,7 +40,6 @@ pub(super) fn synchronize_signature_build(
             retired.string_set(std::mem::take(&mut state.expanded_placements)); // 展开偏好不跨场景且不整批clear。
             retired.selection(state.selection.take()); // 公开选择同帧立即失效，深路径随后释放。
             retired.string(state.selected_placement_id.take()); // 完整实例选择同样不能跨场景复用。
-            state.page = 0; // 新场景从第一页开始。
         }
         state.retirement.enqueue_normal_reserved(retired); // release构建也真实接管取消草稿。
         state.signature_build = Some(BrowserSignatureBuild::new(next_observation));

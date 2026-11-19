@@ -733,7 +733,7 @@ fn context_command(world: &mut World, run: &mut Run, window: Entity, id: Option<
     Ok(true)
 }
 
-fn right_click(world: &mut World, pending: &mut Option<(DVec2, u8)>, window: Entity, position: DVec2) -> bool {
+pub(crate) fn right_click(world: &mut World, pending: &mut Option<(DVec2, u8)>, window: Entity, position: DVec2) -> bool {
     let (position, frame) = *pending.get_or_insert((position, 0));
     move_cursor(world, window, position);
     match frame {

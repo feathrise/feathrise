@@ -220,8 +220,9 @@ fn inspector_reflow_keeps_numeric_entities_specs_values_and_active_buffer() {
 }
 
 #[test]
-fn inspector_tree_keeps_eight_rows_and_real_page_heights_in_low_window() {
-    for count in [0, 1, 8, 9] {
+fn inspector_tree_reuses_rows_and_scrolls_to_the_last_object_in_low_window() {
+    use crate::ui::list_layout::{SCENE_OBJECT_LIST_ROWS, SCENE_OBJECT_ROW_PITCH};
+    for count in [0, 1, 8, 24] {
         let (mut app, host) = page(count);
         app.world_mut().get_mut::<Node>(host).unwrap().height = px(160);
         settle(&mut app);
@@ -231,14 +232,17 @@ fn inspector_tree_keeps_eight_rows_and_real_page_heights_in_low_window() {
                 .query_filtered::<Entity, With<SceneEditorGltfBrowserRow>>()
                 .iter(world)
                 .count(),
-            8
+            SCENE_OBJECT_LIST_ROWS
         );
-        let list = world
-            .query_filtered::<&Node, With<SceneEditorGltfBrowserList>>()
+        let list_entity = world
+            .query_filtered::<Entity, With<SceneEditorGltfBrowserList>>()
             .single(world)
             .unwrap();
-        let rows = count.min(8) as f32;
-        assert_eq!(list.height, px(rows * feathrise_editor_ui::metrics::ROW_HEIGHT + (rows - 1.0).max(0.0) * 2.0));
+        let list = world.get::<Node>(list_entity).unwrap();
+        let rows = count.min(SCENE_OBJECT_LIST_ROWS - 2) as f32;
+        let height = |rows: f32| (rows * SCENE_OBJECT_ROW_PITCH - 3.0).max(0.0);
+        assert_eq!(list.height, px(height(rows)));
+        assert_eq!(list.overflow.y, OverflowAxis::Scroll);
         assert_eq!(
             list.display,
             if count == 0 {
@@ -247,41 +251,27 @@ fn inspector_tree_keeps_eight_rows_and_real_page_heights_in_low_window() {
                 Display::Flex
             }
         );
-        let pager = world
-            .query_filtered::<&Node, With<SceneEditorGltfBrowserPagination>>()
+        let content = world
+            .query_filtered::<&Node, With<SceneEditorGltfBrowserListContent>>()
             .single(world)
             .unwrap();
-        assert_eq!(
-            pager.display,
-            if count > 8 {
-                Display::Flex
-            } else {
-                Display::None
-            }
-        );
+        assert_eq!(content.height, px(height(count as f32)));
         let scroll = world
             .query_filtered::<&Node, With<InspectorTree>>()
             .single(world)
             .unwrap();
         assert_eq!(scroll.overflow.y, OverflowAxis::Scroll);
         assert_eq!(scroll.min_height, px(0));
-        if count == 9 {
-            world.resource_mut::<EditorGltfBrowserState>().page = 1;
+        if count > SCENE_OBJECT_LIST_ROWS {
+            let end = height(count as f32) - height(rows);
+            world.get_mut::<ScrollPosition>(list_entity).unwrap().y = end + SCENE_OBJECT_ROW_PITCH;
             settle(&mut app);
             let world = app.world_mut();
-            let list = world
-                .query_filtered::<&Node, With<SceneEditorGltfBrowserList>>()
-                .single(world)
-                .unwrap();
-            assert_eq!(list.height, px(feathrise_editor_ui::metrics::ROW_HEIGHT));
-            assert_eq!(
-                world
-                    .query::<&SceneEditorGltfBrowserRow>()
-                    .iter(world)
-                    .filter(|row| row.entry_index.is_some())
-                    .count(),
-                1
-            );
+            assert_eq!(world.get::<ScrollPosition>(list_entity).unwrap().y, end);
+            let mut bindings = world.query::<(&SceneEditorGltfBrowserRow, &Node)>();
+            assert!(bindings.iter(world).any(|(row, node)| row.entry_index == Some(count - 1)
+                && node.top == px((count - 1) as f32 * SCENE_OBJECT_ROW_PITCH)));
+            assert!(!bindings.iter(world).any(|(row, _)| row.entry_index == Some(0)));
         }
     }
 }

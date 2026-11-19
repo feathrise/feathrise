@@ -292,14 +292,17 @@ fn inspector_overview_separates_identity_and_keeps_original_mesh_diagnostics() {
     select(&mut app, false);
     assert_eq!(
         text(&mut app, SceneInspectorField::Name),
-        "场景中的测试资产.glb"
+        "gltf/用于检查长中文来源路径的目录/场景中的测试资产.glb"
     );
     let details = text(&mut app, SceneInspectorField::Details);
     assert!(details.contains("普通摆放实例") && details.contains("instance-0"));
     assert!(details.contains("gltf/") && !details.contains("位置"));
     assert_eq!(properties_display(&mut app), Display::Flex);
     select(&mut app, true);
-    assert_eq!(text(&mut app, SceneInspectorField::Name), "河面网格");
+    assert_eq!(
+        text(&mut app, SceneInspectorField::Name),
+        "河面网格\ngltf/用于检查长中文来源路径的目录/场景中的测试资产.glb"
+    );
     assert!(text(&mut app, SceneInspectorField::Details).contains("根节点 / 河面"));
     app.world_mut()
         .resource_mut::<EditorGltfBrowserState>()
@@ -472,7 +475,7 @@ fn inspector_locate_uses_original_context_gate_without_changing_tool_or_selectio
         .unwrap()
         .valid = false;
     app.update();
-    assert_eq!(text(&mut app, SceneInspectorField::Name), "未命名网格");
+    assert!(text(&mut app, SceneInspectorField::Name).starts_with("未命名网格\ngltf/"));
     assert!(
         app.world()
             .get::<bevy::ui::InteractionDisabled>(button)

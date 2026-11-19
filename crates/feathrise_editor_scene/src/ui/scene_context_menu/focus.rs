@@ -24,7 +24,8 @@ pub(crate) fn select_target(
     mut tree_selection: Option<ResMut<crate::ui::scene_layers::SceneLayerSelection>>,
 ) {
     let click = tree_selection.as_mut().and_then(|state| state.0.take());
-    let request = menu.ready.as_ref().cloned();
+    // 定位只请求文件窗选中来源，不抢占原场景选择。
+    let request = menu.ready.as_ref().filter(|request| request.action != SceneMenuAction::RevealGlb).cloned();
     let Some(mut target) = request
         .as_ref().map(|request| &request.target)
         .or(click.as_ref()).cloned()

@@ -9,9 +9,9 @@ use feathrise_scene_content::SceneTerrainKind; // GLB与稀疏Clipmap显示不�
 use crate::ui::theme as colors; // 与右栏资产浏览器共享水墨铜边配色。
 
 use super::{
-    GltfBrowserPageDirection, SceneEditorGltfBrowserList, SceneEditorGltfBrowserPageButton,
-    SceneEditorGltfBrowserPagination, SceneEditorGltfBrowserStatusText,
-}; // 专用容器和分页组件不进入全局EditorAction。
+    SceneEditorGltfBrowserList, SceneEditorGltfBrowserListContent, SceneEditorGltfBrowserStatusText,
+};
+use crate::ui::list_layout::SceneObjectListScroll;
 use crate::ui::scene::FONT_PATH; // 复用主编辑器字体常量。
 use crate::ui::terrain_shading::terrain_shading_controls; // 选中基础地形才展开网格着色设置。
 
@@ -21,8 +21,6 @@ pub(crate) struct SceneBaseGltfRow;
 pub(crate) struct SceneBaseTerrainLabel;
 #[derive(Component, Clone, Default)] // 基础地形被选中时才显示网格属性。
 pub(crate) struct SceneBaseTerrainDetails;
-#[derive(Component, Clone, Default)] // 分页是实际导航信息，与送到底栏的加载/故障反馈分开保留。
-pub(crate) struct GltfBrowserPageLabel;
 
 /// 基础GLB保留真实来源，稀疏Clipmap显示高度块来源而不假装有GLB文件。
 fn base_terrain_label(kind: SceneTerrainKind, glb_path: &str, height_path: Option<&str>) -> String {
@@ -110,36 +108,6 @@ pub(crate) fn sync_scene_base_gltf_row(
     }
 }
 
-/// 构造一个不进入全局动作枚举的场景树分页按钮。
-fn browser_page_button(label: &str, direction: GltfBrowserPageDirection) -> impl Scene {
-    bsn! {
-        InteractionButton
-        SceneEditorGltfBrowserPageButton(direction)
-        Node {
-            height: px(26), // 分页与作者工具统一命中高度，不改变树行池的20px步长。
-            flex_grow: 1.0,
-            flex_basis: px(0),
-            min_width: px(0),
-            flex_shrink: 0.0,
-            border: px(1), // 系统按可用、hover和按压状态更新铜边。
-            border_radius: BorderRadius::all(px(3)), // 与现有编辑器按钮一致。
-            align_items: AlignItems::Center, // 文本垂直居中。
-            justify_content: JustifyContent::Center, // 文本水平居中。
-            padding: UiRect::horizontal(px(5)), // 防止字体贴边。
-        }
-        BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) // 首帧同步前使用安全常态。
-        BorderColor::all(colors::COPPER_BORDER_WEAK) // 首帧同步前使用弱铜边。
-        Children [
-            Text(label) @feathrise_editor_ui::localization::label_scene(label)
-            TextFont {
-                font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // BSN通过AssetServer加载统一中文字体。
-                font_size: px(ui_metrics::FONT_CONTROL), // 紧凑分页文字。
-            }
-            TextColor(colors::TEXT_PRIMARY) // 可用性主要由背景和边框表达。
-        ]
-    }
-}
-
 /// 场景显示入口紧邻网格列表，不再埋在对象管理与子场景列表下方。
 pub(crate) fn scene_display_panel() -> impl Scene {
     bsn! { Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column,
@@ -180,7 +148,7 @@ pub(super) fn gltf_browser_panel() -> impl Scene {
             width: percent(100), // 与右栏完整宽度一致。
             min_width: px(0),
             flex_shrink: 0.0, // 下方资产列表自行使用剩余弹性空间。
-            flex_direction: FlexDirection::Column, // 标题、列表、分页、状态纵向排列。
+            flex_direction: FlexDirection::Column,
             row_gap: px(3), // 与主右栏分组密度一致。
             overflow: Overflow::clip(), // 超长路径和极低窗口不越出右栏。
         }
@@ -189,42 +157,22 @@ pub(super) fn gltf_browser_panel() -> impl Scene {
             @crate::ui::scene_objects::panel()--
             @crate::ui::subscenes::panel()-- // 子场景引用属于正式场景树，加载期间也保留可选来源行。
 
-                SceneEditorGltfBrowserList
+                SceneEditorGltfBrowserList SceneObjectListScroll
+                bevy::ui::RelativeCursorPosition::default() ScrollPosition::default()
                 Node {
-                    display: Display::None, // 零条目时固定八行池完全退出布局。
-                    width: percent(100), // 固定行池占满右栏可用宽度。
-                    min_width: px(0),
-                    height: px(0), // 一项起按当前页真实行数增长，八项后固定。
-                    flex_shrink: 0.0, // 动态高度不被状态摘要压缩。
-                    flex_direction: FlexDirection::Column, // 行按树顺序纵向排列。
-                    row_gap: px(2), // 与现有资产列表一致。
-                    overflow: Overflow::clip(), // 固定池之外内容必须通过分页访问。
+                    display: Display::None, width: percent(100), min_width: px(0),
+                    height: px(0), flex_shrink: 0.0, overflow: Overflow::scroll_y(),
                 }
-            --
-
-                SceneEditorGltfBrowserPagination
-                Node {
-                    display: Display::None, // 只有一页时纯分页条完全收起。
-                    width: percent(100), // 分页条横跨浏览器。
-                    height: px(26), // 固定按钮高度。
-                    min_width: px(0),
-                    flex_shrink: 0.0, // 状态文字增长时不压缩按钮。
-                    justify_content: JustifyContent::Center, // 两个分页按钮居中。
-                    column_gap: px(5), // 保持清晰点击间隔。
-                }
+                // 内容层为完整树留出滚动范围，可见行由固定实体池渲染。
                 Children [
-                    @browser_page_button("上一页", GltfBrowserPageDirection::Previous)--
-                    GltfBrowserPageLabel Text("1/1")
-                        TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
-                        TextColor(colors::TEXT_MUTED)
-                        Node { align_self: AlignSelf::Center } ~{bevy::ui::FocusPolicy::Pass}--
-                    @browser_page_button("下一页", GltfBrowserPageDirection::Next)
+                    SceneEditorGltfBrowserListContent
+                    Node { width: percent(100), min_width: px(0), height: px(0), flex_shrink: 0.0 }
                 ]
             --
 
                 SceneEditorGltfBrowserStatusText
                 ~{crate::ui::status_bar::PanelStatusText("场景资产")} feathrise_editor_ui::feedback::GlobalPanelStatus
-                Text("场景对象：等待场景草稿\n第 1/1 页") @feathrise_editor_ui::localization::label_scene("场景对象：等待场景草稿\n第 1/1 页")
+                Text("场景对象：等待场景草稿") @feathrise_editor_ui::localization::label_scene("场景对象：等待场景草稿")
                 TextFont {
                     font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 与动态行共享字体资产。
                     font_size: px(ui_metrics::FONT_HINT), // 状态保持可读字号，不靠缩字容纳长路径。

@@ -67,11 +67,13 @@ pub enum SceneMenuAction {
     Visibility,
     Lock,
     EditInBlender,
+    RevealGlb,
 }
 
 impl SceneMenuAction {
-    pub(super) const ALL: [Self; 7] = [
+    pub(super) const ALL: [Self; 8] = [
         Self::Focus,
+        Self::RevealGlb,
         Self::EditInBlender,
         Self::Rename,
         Self::Copy,
@@ -96,6 +98,7 @@ impl SceneMenuAction {
             Self::Lock if target.locked => "解锁",
             Self::Lock => "锁定",
             Self::EditInBlender => "在 Blender 编辑",
+            Self::RevealGlb => "定位 GLB 文件",
         }
     }
 }
@@ -186,6 +189,9 @@ impl SceneObjectTarget {
         action: SceneMenuAction,
         session: &EditorAuthoringSession,
     ) -> bool {
+        if action == SceneMenuAction::RevealGlb {
+            return self.glb_path(session).is_some();
+        }
         if !action.is_blender() {
             return self.supports(action);
         }
@@ -199,10 +205,26 @@ impl SceneObjectTarget {
             .is_some_and(|record| &record.id == id && blender_mesh::supports(record))
     }
 
+    pub(super) fn glb_path<'a>(&self, session: &'a EditorAuthoringSession) -> Option<&'a str> {
+        let SceneObjectKey::Placement { index, id, .. } = &self.key else {
+            return None;
+        };
+        let draft = session.draft.as_ref().filter(|draft| draft.scene_id == self.scene_id)?;
+        let record = draft.placements.placements.get(*index)
+            .filter(|record| &record.id == id && !record.asset_target.is_builtin())?;
+        // 子网格与完整实例都定位持久化记录引用的 GLB 文件。
+        let path = std::path::Path::new(&record.asset_path);
+        path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("glb"))
+            .then_some(record.asset_path.as_str())
+    }
+
     fn supports(&self, action: SceneMenuAction) -> bool {
         // 游戏领域仍使用原六个菜单动作的位掩码，编辑器专属命令不进入该协议。
         if action.is_blender() {
             return matches!(self.key, SceneObjectKey::Placement { mesh: None, .. });
+        }
+        if action == SceneMenuAction::RevealGlb {
+            return matches!(self.key, SceneObjectKey::Placement { .. });
         }
         match (&self.key, action) {
             (SceneObjectKey::Water { kind, .. }, action) => {
@@ -227,7 +249,8 @@ impl SceneObjectTarget {
     pub(crate) fn allows(&self, action: SceneMenuAction) -> bool {
         self.supports(action)
             && match action {
-                SceneMenuAction::Focus | SceneMenuAction::Visibility | SceneMenuAction::Lock => {
+                SceneMenuAction::Focus | SceneMenuAction::Visibility | SceneMenuAction::Lock
+                | SceneMenuAction::RevealGlb => {
                     true
                 }
                 SceneMenuAction::Rename => !self.locked,

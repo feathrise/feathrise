@@ -1,9 +1,8 @@
-//! 场景树真实输入回归：变换时根行/网格不能换选，分页可浏览，回到选择后重新点击生效。
+//! 场景树真实输入回归，点击根行和网格可以直接更换变换目标。
 
-use feathrise_editor_ui::UiInteraction;
 use super::super::{EditorGltfBrowserEntry, EditorGltfMeshSelection};
 use super::*;
-use crate::viewport::{LayerCandidateState, LayerTarget};
+use crate::viewport::{LayerCandidateState, LayerTarget, modes::{ViewportMode, ViewportModeState}};
 
 fn mesh(id: &str) -> EditorGltfMeshSelection {
     EditorGltfMeshSelection {
@@ -17,26 +16,27 @@ fn mesh(id: &str) -> EditorGltfMeshSelection {
 }
 
 #[test]
-fn selection_lock_blocks_scene_root_and_mesh_rows_but_allows_paging_and_later_selection() {
-    for kind in [
-        EditorGltfBrowserEntryKind::Placement {
+fn scene_tree_click_switches_root_and_mesh_rows_without_changing_the_viewport_tool() {
+    for (mode, kind) in [
+        (ViewportMode::Move, EditorGltfBrowserEntryKind::Placement {
             placement_id: "asset-b".into(),
             collapsed: true,
             expandable: false,
-        },
-        EditorGltfBrowserEntryKind::Mesh,
-        EditorGltfBrowserEntryKind::MissingWaterBinding,
+        }),
+        (ViewportMode::Rotate, EditorGltfBrowserEntryKind::Mesh),
+        (ViewportMode::Scale, EditorGltfBrowserEntryKind::MissingWaterBinding),
     ] {
+        let mut editor = SceneEditorState { open: true, ..default() };
+        let mut tools = ViewportModeState::default();
+        crate::viewport::placement_move::set_placement_mode(&mut editor, Some(&mut tools), mode);
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
-            .insert_resource(SceneEditorState {
-                open: true,
-                placement_transform_enabled: true,
-                ..default()
-            })
+            .insert_resource(editor)
+            .insert_resource(tools)
             .init_resource::<SceneEditorNumericScrubMouseGuard>()
             .init_resource::<EditorAuthoringSession>()
             .init_resource::<EditorGltfBrowserState>()
+            .init_resource::<PlacementMoveState>()
             .init_resource::<SelectedPlacementViewportState>()
             .init_resource::<EditorViewportSelectionState>()
             .init_resource::<LayerCandidateState>()
@@ -50,55 +50,28 @@ fn selection_lock_blocks_scene_root_and_mesh_rows_but_allows_paging_and_later_se
             state
                 .placement_asset_paths
                 .insert("asset-b".into(), "gltf/test.glb".into());
-            state.entries = vec![
-                EditorGltfBrowserEntry {
-                    kind: kind.clone(),
-                    display_name: "B".into(),
-                    depth: 0,
-                    selection: Some(mesh("asset-b"))
-                };
-                10
-            ];
+            state.entries = vec![EditorGltfBrowserEntry {
+                kind: kind.clone(),
+                display_name: "B".into(),
+                depth: 0,
+                selection: Some(mesh("asset-b")),
+            }];
         }
         let row = app
             .world_mut()
             .spawn((
-                feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
+                EditorButtonClick::triggered(),
                 SceneEditorGltfBrowserRow {
                     slot: 0,
                     entry_index: Some(0),
+                    entries_revision: 0,
                 },
             ))
             .id();
-        app.update();
-        let state = app.world().resource::<EditorGltfBrowserState>();
-        assert_eq!(state.selected_placement_id.as_deref(), Some("asset-a"));
-        assert_eq!(state.selection.as_ref(), Some(&old_mesh));
-        assert_eq!(
-            app.world().resource::<LayerCandidateState>().selected,
-            Some(LayerTarget::Placement("asset-a".into()))
-        );
-        let page = app
-            .world_mut()
-            .spawn((
-                feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed,
-                SceneEditorGltfBrowserPageButton(GltfBrowserPageDirection::Next),
-            ))
-            .id();
-        app.update();
-        assert_eq!(app.world().resource::<EditorGltfBrowserState>().page, 1);
-        assert_eq!(
-            app.world()
-                .resource::<EditorGltfBrowserState>()
-                .selection
-                .as_ref(),
-            Some(&old_mesh)
-        );
-        *app.world_mut().get_mut::<UiInteraction>(page).unwrap() = UiInteraction::None;
-        app.world_mut()
-            .resource_mut::<SceneEditorState>()
-            .placement_transform_enabled = false;
-        app.update(); // 原来锁定期间的Pressed不能在解锁后重放。
+        app.world_mut().resource_mut::<PlacementMoveState>().capture_mouse();
+        app.update(); // 已经由手柄拥有的拖动不能被行接管。
+        *app.world_mut().resource_mut::<PlacementMoveState>() = PlacementMoveState::default();
+        app.update(); // 手势归还后不重放拖动期间的边沿。
         assert_eq!(
             app.world()
                 .resource::<EditorGltfBrowserState>()
@@ -106,18 +79,16 @@ fn selection_lock_blocks_scene_root_and_mesh_rows_but_allows_paging_and_later_se
                 .as_deref(),
             Some("asset-a")
         );
-        *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
+        app.world_mut().entity_mut(row).insert(EditorButtonClick::triggered());
         app.update();
-        app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
-        app.update();
-        assert_eq!(
-            app.world()
-                .resource::<EditorGltfBrowserState>()
-                .selected_placement_id
-                .as_deref(),
-            Some("asset-b")
-        );
-        assert!(!app.world().resource::<SceneEditorState>().dirty);
+        let state = app.world().resource::<EditorGltfBrowserState>();
+        assert_eq!(state.selected_placement_id.as_deref(), Some("asset-b"));
+        let expected_mesh = (!matches!(kind, EditorGltfBrowserEntryKind::Placement { .. })).then(|| mesh("asset-b"));
+        assert_eq!(state.selection, expected_mesh);
+        assert_eq!(app.world().resource::<ViewportModeState>().mode, mode);
+        let editor = app.world().resource::<SceneEditorState>();
+        assert!(editor.placement_transform_enabled);
+        assert!(!editor.dirty);
     }
 }
 
@@ -159,7 +130,7 @@ fn static_patch_selection_scene_tree_click_publishes_world_anchor_and_rejects_di
                 placement_id: id.clone(), collapsed: true, expandable: false,
             }, display_name: "三维地形".into(), depth: 0, selection: None }];
         }
-        app.world_mut().spawn((feathrise_editor_ui::EditorButtonClick::triggered(), SceneEditorGltfBrowserRow { slot: 0, entry_index: Some(0) }));
+        app.world_mut().spawn((EditorButtonClick::triggered(), SceneEditorGltfBrowserRow { slot: 0, entry_index: Some(0), entries_revision: 0 }));
         app.world_mut().run_system_once(handle_gltf_browser_input).unwrap();
         let selection = app.world().resource::<PlacementSelectionSet>();
         let browser = app.world().resource::<EditorGltfBrowserState>();

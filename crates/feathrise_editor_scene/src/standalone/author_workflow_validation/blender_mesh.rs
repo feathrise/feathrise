@@ -157,7 +157,7 @@ fn drive(world: &mut World, fixture: &mut Fixture) -> Result<Option<Value>, Stri
             let mut browser = world.resource_mut::<EditorGltfBrowserState>();
             if browser.object_search != current.id {
                 browser.object_search.clone_from(&current.id);
-                browser.page = 0;
+                browser.request_object_rows();
             }
             if queue_blender_action_for_validation(world, &current.id)? {
                 fixture.stage = Step::WaitForGeometry;
