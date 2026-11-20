@@ -28,7 +28,19 @@ Feathrise brings scene authoring, project previews, and Rust development togethe
 
 *In the 剑与侠客 project, select a still-water body in the Scene Tree to adjust its water level in the properties panel or sample the level from the terrain.*
 
+## Scene Authoring, Modeling, and Rigging
+
+These features reflect the current source code.
+
+- **Scene Tree and GLB navigation.** Select and rename placed objects in the Scene Tree, or open the source GLB's location in the file window. With a project SDK that supports `scene-tree-v1`, **Project 3D** also shows a read-only hierarchy of window cameras, named lights, and objects created by the project. Each model instance appears as one item.
+- **Built-in mesh editing.** Start with a cube or plane and edit vertices, edges, and faces. Extrude faces, subdivide repeatedly, undo and redo edits, and save the result with the scene.
+- **Model LOD preview.** Configure rendering and collision LOD separately. Inspect the active rendering LOD, triangle wireframe, and triangle count, and compare with the original mesh from the same camera position.
+- **Single-object Blender editing.** Open a built-in mesh or a complete GLB instance in your local Blender installation. On save, Feathrise uses the GLB produced by its bundled exporter to update the object in place, preserving its scene transform. You can undo the update or save it with the scene. [Blender editing guide](docs/使用说明.md#在-blender-编辑单个网格)
+- **Humanoid rigging and skin weights.** Adjust joint positions on a T- or A-pose model and use a compatible skeleton from the project to generate a new skinned GLB in Feathrise or local Blender. Paint, smooth, or mirror skin weights on a skinned model, and compare the original and edited weights on the same animation frame before saving a copy.
+
 ## Ray Tracing, DLSS, and FSR
+
+Switch between a dynamic sky and a skybox, with separate controls for diffuse environment lighting and specular reflections.
 
 - **Bevy Solari hybrid ray tracing.** On compatible Vulkan devices, Solari provides real-time lighting for supported terrain and static geometry and composites it with the rasterized scene.
 - **NVIDIA DLSS.** Optional features enable Super Resolution, Ray Reconstruction, and 2× Frame Generation.
@@ -107,8 +119,6 @@ cargo run --locked
 The development build produces `target/debug/feathrise.exe` from the `feathrise_host` Cargo package. Users can run a prebuilt editor. Building a project requires the Rust/Cargo toolchain used by that project.
 
 The default public build works without branding assets. To build with branding assets you have permission to use, see [optional custom branding](docs/开发与验收.md#可选自有品牌构建).
-
-Terrain GLB saves leave Blender synchronization off by default. Creating or updating the matching `.blend` file requires configuring an external tools directory with two Python scripts. [Optional Blender terrain synchronization](docs/开发与验收.md#可选-blender-地形同步)
 
 ## User and Developer Documentation
 
