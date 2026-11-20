@@ -32,11 +32,11 @@ Feathrise brings scene authoring, project previews, and Rust development togethe
 
 These features reflect the current source code.
 
-- **Scene Tree and GLB navigation.** Select and rename placed objects in the Scene Tree, or open the source GLB's location in the file window. With a project SDK that supports `scene-tree-v1`, **Project 3D** also shows a read-only hierarchy of window cameras, named lights, and objects created by the project. Each model instance appears as one item.
-- **Built-in mesh editing.** Start with a cube or plane and edit vertices, edges, and faces. Extrude faces, subdivide repeatedly, undo and redo edits, and save the result with the scene.
+- **Scene Tree and GLB navigation.** Select and rename placed objects in the Scene Tree. Right-click a placed model and choose **Reveal GLB File** to select its source GLB in the file window. With a project SDK that supports `scene-tree-v1`, **Project 3D** also shows a read-only hierarchy of window cameras, named lights, and objects created by the project. Each model instance appears as one item.
+- **Built-in mesh editing.** Start with a cube or plane and edit vertices, edges, and faces. Extrude faces, apply linear subdivision repeatedly, undo and redo edits, and save the result with the scene.
 - **Model LOD preview.** Configure rendering and collision LOD separately. Inspect the active rendering LOD, triangle wireframe, and triangle count, and compare with the original mesh from the same camera position.
 - **Single-object Blender editing.** Open a built-in mesh or a complete GLB instance in your local Blender installation. On save, Feathrise uses the GLB produced by its bundled exporter to update the object in place, preserving its scene transform. You can undo the update or save it with the scene. [Blender editing guide](docs/使用说明.md#在-blender-编辑单个网格)
-- **Humanoid rigging and skin weights.** Adjust joint positions on a T- or A-pose model and use a compatible skeleton from the project to generate a new skinned GLB in Feathrise or local Blender. Paint, smooth, or mirror skin weights on a skinned model, and compare the original and edited weights on the same animation frame before saving a copy.
+- **Humanoid rigging and skin weights.** Adjust joint positions on a T- or A-pose model and use a compatible skeleton from the project to generate a new skinned GLB in Feathrise or local Blender. Paint, smooth, or mirror skin weights on a skinned model. Compare how the model deforms with the original and draft weights at the same animation frame before saving a copy.
 
 ## Ray Tracing, DLSS, and FSR
 
@@ -51,7 +51,7 @@ The single-file Windows preview includes `raytracing`. DLSS and FSR are optional
 ## Rust Development Workflow
 
 - **Preview unsaved scene edits.** Once **Project 3D** is ready for a compatible project, preview your unsaved scene edits in the same running world. Returning to editing preserves the selection, camera, and undo history. You can also launch a saved scene separately from **Editor 3D**.
-- **Build in the background when you save.** Saving source in the workspace or an external IDE triggers a build through DX (the Dioxus CLI) or directly through Cargo. Click a diagnostic to jump to its line and column. After a successful build, confirm when to apply the new version. Model and texture changes use asset hot reloading.
+- **Build in the background when you save.** Saving source in the workspace or an external IDE triggers a build through DX (the Dioxus CLI) or directly through Cargo. Click a diagnostic to jump to its line and column. Once the build succeeds, you can choose to apply it. Model and texture changes use asset hot reloading.
 - **Tune parameters while preserving runtime state.** With DX, compatible debug builds can patch the bodies of explicitly registered pure, zero-argument numeric functions in edit mode. Changes to structure or dependencies require a full rebuild. Applying that build restarts the project preview after confirmation.
 - **Extend and ship your project.** Import GLB files, edit materials and animations, and load native authoring plugins in the workspace. Write project logic in Rust with the Feathrise SDK. On Windows, you can export a standalone runtime directory.
 
@@ -118,7 +118,7 @@ cargo run --locked
 
 The development build produces `target/debug/feathrise.exe` from the `feathrise_host` Cargo package. Users can run a prebuilt editor. Building a project requires the Rust/Cargo toolchain used by that project.
 
-The default public build works without branding assets. To build with branding assets you have permission to use, see [optional custom branding](docs/开发与验收.md#可选自有品牌构建).
+The public source ships without the official Feathrise logo. The default build requires no branding assets. To build with branding assets you have permission to use, see [optional custom branding](docs/开发与验收.md#可选自有品牌构建).
 
 ## User and Developer Documentation
 
@@ -141,4 +141,4 @@ docs/               User, development, and CI documentation
 
 `build.rs` and `build/` are build inputs. The editor repository tracks `Cargo.lock` and ignores the `target/` build cache, `.local/` validation artifacts, and machine-local dependency overrides.
 
-Feathrise source code, tool icons, and test assets are dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. The official Feathrise logo has separate branding terms. [Branding terms and third-party notices](THIRD_PARTY_NOTICES.md)
+First-party source code, tool icons, and test assets are dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. The official Feathrise logo has separate branding terms. [Branding terms and third-party notices](THIRD_PARTY_NOTICES.md)
