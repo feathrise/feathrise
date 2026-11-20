@@ -31,6 +31,12 @@ pub(super) struct BlenderProcess {
     digest: String,
 }
 
+pub(super) enum Export {
+    Idle,
+    Writing,
+    Ready(String),
+}
+
 impl BlenderProcess {
     pub fn start(
         root: PathBuf,
@@ -76,14 +82,14 @@ impl BlenderProcess {
         }
     }
 
-    pub fn poll(&mut self) -> (bool, Result<Option<String>, String>) {
+    pub fn poll(&mut self) -> (bool, Result<Export, String>) {
         let status = match self.child.try_wait() {
             Ok(status) => status,
             Err(error) => return (true, Err(format!("无法查询 Blender 进程（{error}）"))),
         };
         let exited = status.is_some();
         let result = self.read_result(exited).and_then(|result| {
-            if result.is_some() || status.is_none_or(|status| status.success()) {
+            if matches!(result, Export::Ready(_)) || status.is_none_or(|status| status.success()) {
                 return Ok(result);
             }
             let log = log_tail(&self.directory);
@@ -100,10 +106,10 @@ impl BlenderProcess {
         cleanup_directory(&self.directory);
     }
 
-    fn read_result(&mut self, exited: bool) -> Result<Option<String>, String> {
+    fn read_result(&mut self, exited: bool) -> Result<Export, String> {
         let receipt = match read_receipt(&self.directory) {
             Ok(receipt) => receipt,
-            Err(error) if error.kind() == io::ErrorKind::NotFound && !exited => return Ok(None),
+            Err(error) if error.kind() == io::ErrorKind::NotFound && !exited => return Ok(Export::Idle),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 let log = log_tail(&self.directory);
                 return Err(if log.is_empty() { "Blender 尚未创建工作模型".into() } else { log });
@@ -119,14 +125,14 @@ impl BlenderProcess {
             self.digest = baseline.to_owned();
         }
         if state == "writing" {
-            return if exited { Err("Blender 在导出期间退出".into()) } else { Ok(None) };
+            return if exited { Err("Blender 在导出期间退出".into()) } else { Ok(Export::Writing) };
         }
         if state == "error" && (revision > self.revision || exited) {
             self.revision = revision;
             return Err(parts.next().unwrap_or("Blender 导出失败").to_owned());
         }
         if revision <= self.revision {
-            return Ok(None);
+            return Ok(Export::Idle);
         }
         if state != "ready" {
             return Err("Blender 保存回执状态无效".into());
@@ -134,19 +140,25 @@ impl BlenderProcess {
 
         let mut bytes = Vec::new();
         let path = self.directory.join(RESULT);
-        open_glb(&path, GLB_FORMAT_MAX_BYTES)?.take(GLB_FORMAT_MAX_BYTES + 1).read_to_end(&mut bytes)
-            .map_err(|error| error.to_string())?;
-        // 两次回执锁定一次完整替换。连续按保存时，跨版本读取直接留给下一次轮询。
+        let read = open_glb(&path, GLB_FORMAT_MAX_BYTES).and_then(|file| {
+            file.take(GLB_FORMAT_MAX_BYTES + 1).read_to_end(&mut bytes).map_err(|error| error.to_string())
+        });
+        // 两次回执锁定一次完整替换。新保存的半成品也可能导致读取失败，先检查是否已经换代。
         if read_receipt(&self.directory).map_err(|error| error.to_string())? != receipt {
-            return Ok(None);
+            return if exited {
+                Err("读取 Blender GLB 时保存回执已换代".into())
+            } else {
+                Ok(Export::Writing)
+            };
         }
+        read?;
         if bytes.len() as u64 > GLB_FORMAT_MAX_BYTES || !bytes.starts_with(b"glTF") {
             return Err("Blender 回传文件超出 GLB 格式长度范围或缺少 GLB 文件头".into());
         }
         let digest = bytes_hash(&bytes);
         if digest == self.digest {
             self.revision = revision;
-            return Ok(None);
+            return Ok(Export::Idle);
         }
         let relative = format!("{}/models/blender-{digest}.glb", self.folder);
         let destination = safe_content_path(&self.root, &relative)?;
@@ -154,7 +166,7 @@ impl BlenderProcess {
         publish_model(&destination, &tag, &digest, &bytes)?;
         self.digest = digest;
         self.revision = revision;
-        Ok(Some(relative))
+        Ok(Export::Ready(relative))
     }
 }
 

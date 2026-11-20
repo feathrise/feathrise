@@ -13,6 +13,14 @@ pub(super) fn collect(world: &World) -> (ProjectCloseSnapshot, Vec<SaveItem>) {
     let mut items = Vec::new();
     scene_pending(world, &mut snapshot);
     input_blocker(world, &mut snapshot);
+    if let Some(blender) = world.get_resource::<authoring::blender_mesh::BlenderMeshSession>() {
+        if blender.close_pending() {
+            snapshot.pending("正在等待 Blender 导出与模型回填");
+        }
+        if let Some(reason) = blender.close_failure() {
+            snapshot.blocked(reason);
+        }
+    }
 
     // 文件/动画先写原源文件，外部作者按应用登记顺序交接，最后保存场景引用。
     ui::asset_preview::documents::project_close::collect(world, &mut snapshot, &mut items);
