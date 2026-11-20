@@ -1,6 +1,6 @@
 //! 在原生队列采用前记录事务边界，采用后只处理当前文件的显式撤销/重做。
 
-use super::super::{components::DocumentSource, resources::DocumentState, types::ViewMode};
+use super::super::{components::DocumentSource, resources::DocumentState};
 use super::{components::HistoryAction, resources::HistoryCapture, types::*};
 use crate::resources::{
     EditorTextInputGuard, SceneEditorNumericScrubMouseGuard, SceneEditorSettingsState, SceneEditorState,
@@ -24,7 +24,7 @@ pub(super) fn prepare(
     let Some(key) = binding.key.as_ref().filter(|key| {
         documents
             .current()
-            .is_some_and(|doc| doc.mode == ViewMode::Edit && doc.source_key() == **key)
+            .is_some_and(|doc| documents.editing() && doc.source_key() == **key)
     }) else {
         *capture = HistoryCapture::default();
         return;
@@ -105,7 +105,7 @@ pub(super) fn input(
         return;
     };
     let Some(doc) = documents.current().filter(|doc| {
-        doc.mode == ViewMode::Edit && binding.key.as_ref() == Some(&doc.source_key())
+        documents.editing() && binding.key.as_ref() == Some(&doc.source_key())
     }) else {
         return;
     };

@@ -3,9 +3,7 @@
 mod files;
 mod systems;
 
-pub(crate) use systems::{BlenderMeshAction, supports};
-#[cfg(any(test, feature = "validation"))]
-pub(crate) use systems::BlenderMeshSession;
+pub(crate) use systems::{BlenderMeshAction, BlenderMeshSession, supports};
 
 use bevy::prelude::*;
 

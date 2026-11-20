@@ -92,7 +92,7 @@ pub(super) fn sync(
         }
         return; // 旧构造树真实退役前继续占槽，只保留当前资源中的最新目标。
     }
-    if !state.visible || doc.is_none_or(|doc| doc.mode != ViewMode::Preview) {
+    if !state.visible || doc.is_none() || state.editing() {
         return;
     }
     let Some(doc) = doc.filter(|doc| doc.preview_revision == Some(doc.revision)) else {

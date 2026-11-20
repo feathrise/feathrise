@@ -58,6 +58,69 @@ fn replace(app: &mut App, source: Entity, text: &str) {
     app.update();
 }
 
+#[test]
+fn queued_file_rename_rejects_native_input_and_clean_tab_saves_at_receipt_destination() {
+    use feathrise_editor_project_browser_model::file_operations::{FileOperation, FileOperationRequest, FileSources};
+
+    let fixture = Fixture::new();
+    fixture.write("已经保存的正文\n");
+    let (mut app, source) = native_app(&fixture, fixture.document());
+    let original = fixture.root.join("说明.md");
+    let renamed = fixture.root.join("说明#新版.md");
+    let service = feathrise_editor_project_browser::file_operation_service();
+    let context = 1;
+    let id = service.enqueue(FileOperationRequest {
+        context,
+        allowed_roots: vec![fixture.root.clone()],
+        operation: FileOperation::Rename { source: original.clone(), name: "说明#新版.md".into() },
+    }).unwrap();
+    {
+        let mut documents = app.world_mut().resource_mut::<DocumentState>();
+        let mut workspace = VegetationPresetEditorState::default();
+        documents.expand("说明.md".into(), &mut workspace).unwrap();
+        documents.file_writes.add(context, id, FileSources::from(vec![original.clone()]));
+    }
+    let tab = app.world().resource::<DocumentState>().active_tab_id();
+    replace(&mut app, source, "排队后尝试编辑的内容不能进入草稿\n");
+    assert_eq!(app.world().resource::<DocumentState>().current().unwrap().source_text(), "已经保存的正文\n");
+    let started = std::time::Instant::now();
+    let receipt = loop {
+        if let Some(receipt) = service.snapshot().and_then(|snapshot| snapshot.completed.into_iter().find(|receipt| receipt.id == id)) {
+            break receipt;
+        }
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "未收到真实后台改名回执");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    };
+    assert!(receipt.error.is_none(), "{:?}", receipt.error);
+    assert_eq!(std::fs::read_to_string(&renamed).unwrap(), "已经保存的正文\n");
+    {
+        let mut documents = app.world_mut().resource_mut::<DocumentState>();
+        documents.apply_file_receipt(&receipt, None);
+        documents.file_writes = default();
+        assert_eq!(documents.active_tab_id(), tab);
+        assert_eq!(documents.active.as_deref(), Some("说明#新版.md"));
+    }
+    app.update(); app.update();
+    replace(&mut app, source, "沿用原标签保存的正文\n");
+    app.world_mut().resource_mut::<DocumentState>().request_save();
+    settle_real_io(&mut app);
+    assert!(!original.exists());
+    assert_eq!(std::fs::read_to_string(renamed).unwrap(), "沿用原标签保存的正文\n");
+}
+
+#[test]
+fn dirty_text_document_only_protects_its_file_and_containing_directory() {
+    use feathrise_editor_project_browser_model::file_operations::FileSources;
+    let fixture = Fixture::new();
+    fixture.write("磁盘原文\n");
+    let mut doc = fixture.document();
+    doc.edit("未保存草稿\n");
+    let documents = DocumentState { root: fixture.root.clone(), documents: vec![doc], ..default() };
+    assert!(!documents.protects_file_changes(&FileSources::from(vec![fixture.root.join("独立.md")])));
+    assert!(documents.protects_file_changes(&FileSources::from(vec![fixture.root.join("说明.md")])));
+    assert!(documents.protects_file_changes(&FileSources::from(vec![fixture.root.clone()])));
+}
+
 fn begin_reload(app: &mut App) {
     press(app, DocumentAction::Reload);
     if app.world().resource::<DocumentState>().pending_load.is_none() {

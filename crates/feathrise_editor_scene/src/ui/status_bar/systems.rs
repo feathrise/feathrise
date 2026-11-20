@@ -231,6 +231,9 @@ pub(super) fn observe_status(
         state.observed_dirty = editor.dirty;
         state.detail_dirty = true;
     }
+    if state.popup_open && state.file_receipt.observe(inputs.files.as_deref(), locale, locale_changed) {
+        state.detail_dirty = true;
+    }
 
     // 完整诊断只在显式展开后组装，关闭的底栏不逐帧复制长路径和运行时明细。
     if state.popup_open && (state.detail_dirty || locale_changed || state.detail.is_empty()) {
@@ -243,6 +246,10 @@ pub(super) fn observe_status(
             detail.push_str(locale.editor_label(label));
             detail.push('\n');
             detail.push_str(value);
+            detail.push_str("\n\n");
+        }
+        if !state.file_receipt.text.is_empty() {
+            detail.push_str(&state.file_receipt.text);
             detail.push_str("\n\n");
         }
         if let Some((_, retained)) = &state.retained_runtime {
@@ -427,6 +434,9 @@ pub(super) fn control_details(
         match button.0 {
             StatusAction::Toggle => {
                 state.popup_open = !state.popup_open;
+                if state.popup_open {
+                    state.file_receipt = Default::default(); // 每次展开先显示最近一次实际文件任务回执。
+                }
                 state.detail_dirty = true;
                 state.copy_result.clear();
             }
@@ -447,6 +457,11 @@ pub(super) fn control_details(
             StatusAction::CancelFileTask => {
                 if let (Some(messages), Some(task)) = (file_cancellations.as_mut(), inputs.cancellable_file_task()) {
                     messages.write(task);
+                }
+            }
+            action => {
+                if state.file_receipt.navigate(action) {
+                    state.scroll_revision = state.scroll_revision.wrapping_add(1);
                 }
             }
         }
@@ -478,6 +493,7 @@ pub(super) fn sync_presentation(
     mut footers: Query<&mut GlobalZIndex, (With<StatusFooter>, Without<StatusPopup>)>,
     mut contents: Query<&mut Node, (With<StatusFooterContent>, Without<StatusPopup>, Without<StatusText>)>,
     mut texts: Query<(&StatusText, &mut Text, &mut TextColor, &mut Node), Without<StatusPopup>>,
+    mut navigation: Query<&mut Node, (With<StatusReceiptNavigation>, Without<StatusPopup>, Without<StatusFooterContent>, Without<StatusText>)>,
 ) {
     let visible = state.popup_open && !inputs.suppressed();
     let loading = inputs.editor.open && inputs.editor.scene_transition_in_progress;
@@ -501,6 +517,10 @@ pub(super) fn sync_presentation(
         if popup.display != display {
             popup.display = display;
         }
+    }
+    for mut node in &mut navigation {
+        let display = if visible && state.file_receipt.has_navigation() { Display::Flex } else { Display::None };
+        if node.display != display { node.display = display; }
     }
     let width = roots
         .single()
@@ -556,12 +576,14 @@ pub(super) fn sync_presentation(
 /// 小逻辑视口沿用UI库的共同紧凑档，保持原锚点/60%高度上限及唯一可滚动正文。
 pub(super) fn sync_popup_layout(
     inputs: StatusInputs,
+    state: Res<EditorStatusBarState>,
     roots: Query<&ComputedNode, With<SceneEditorRoot>>,
     mut sections: Query<(&mut Node, Has<StatusPopupHeader>, Has<StatusPopupFooter>),
         (Or<(With<StatusPopupHeader>, With<StatusPopupFooter>, With<StatusDetailScroll>)>, Without<StatusButton>)>,
     mut buttons: Query<(&StatusButton, &mut Node, Option<&mut EditorButtonClick>),
         (Without<StatusPopupHeader>, Without<StatusPopupFooter>, Without<StatusDetailScroll>)>,
     mut displayed_task: Local<Option<CancelFileTask>>,
+    mut displayed_receipt: Local<Option<(u64, u64, usize)>>,
 ) {
     let Ok(root) = roots.single() else { return; };
     let size = root.size() * root.inverse_scale_factor();
@@ -578,6 +600,7 @@ pub(super) fn sync_popup_layout(
         if *node != next { *node = next; }
     }
     let cancellable = inputs.cancellable_file_task();
+    let receipt = state.file_receipt.identity().filter(|_| state.popup_open);
     for (action, mut node, click) in &mut buttons {
         // 24px底栏的入口不属于弹窗外壳，不因展开或缩放改变原命中范围。
         if action.0 == StatusAction::Toggle { continue; }
@@ -593,8 +616,17 @@ pub(super) fn sync_popup_layout(
                 if let Some(mut click) = click { click.invalidate(); }
             }
             if cancellable.is_none() { style.node.display = Display::None; }
+        } else if action.0.navigates_receipt() {
+            // 在按下和松开之间切换任务或页时，旧操作不得作用到新显示的回执。
+            if *displayed_receipt != receipt {
+                if let Some(mut click) = click { click.invalidate(); }
+            }
+            if receipt.is_none() || !state.file_receipt.can_navigate(action.0) {
+                style.node.display = Display::None;
+            }
         }
         if *node != style.node { *node = style.node; }
     }
     *displayed_task = cancellable;
+    *displayed_receipt = receipt;
 }

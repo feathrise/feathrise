@@ -1,6 +1,7 @@
 //! 资产和工程目录共用快照与后台扫描入口。每个原目录会话拥有自己的工作器。
 
 pub mod file_operations;
+mod file_selection;
 
 use bevy::prelude::Resource;
 use feathrise_scene_content::SceneAssetKind;

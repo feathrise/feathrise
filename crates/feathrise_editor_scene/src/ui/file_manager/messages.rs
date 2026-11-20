@@ -2,6 +2,7 @@
 
 use super::types::{FileAction, ProjectMotionTarget};
 use bevy::prelude::*;
+use feathrise_editor_project_browser_model::file_operations::FileSources;
 use std::path::PathBuf;
 
 #[derive(Message)]
@@ -15,9 +16,9 @@ pub(crate) struct OpenAnimationPicker {
 #[derive(Message)]
 pub(crate) struct OpenManagedFile { pub(crate) path: PathBuf }
 #[derive(Message)]
-pub(crate) struct FileManagerExternalDrag { pub(crate) sources: Vec<PathBuf> }
+pub(crate) struct FileManagerExternalDrag { pub(crate) sources: FileSources }
 #[derive(Message)]
-pub(crate) struct FileManagerCommand { pub(crate) action: FileAction, pub(crate) path: Option<PathBuf>, pub(crate) sources: Vec<PathBuf> }
+pub(crate) struct FileManagerCommand { pub(crate) action: FileAction, pub(crate) path: Option<PathBuf>, pub(crate) sources: FileSources }
 /// 详情按钮绑定已显示的任务；任务换位后，旧的释放指令不得改派给新任务。
 #[derive(Message, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CancelFileTask { pub(super) context: u64, pub(super) id: u64 }
@@ -26,7 +27,7 @@ pub(crate) struct CancelFileTask { pub(super) context: u64, pub(super) id: u64 }
 pub(crate) struct FileManagerContextRequest {
     pub(crate) position: Vec2,
     pub(crate) directory: PathBuf,
-    pub(crate) sources: Vec<PathBuf>,
+    pub(crate) sources: FileSources,
     pub(crate) open_directory: PathBuf,
     pub(crate) is_directory: Option<bool>,
 }

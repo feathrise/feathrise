@@ -46,6 +46,7 @@ struct HostInputs<'w, 's> {
     sidebar: Res<'w, SceneEditorSidebarState>,
     workspace: Res<'w, VegetationPresetEditorState>,
     documents: Res<'w, DocumentState>,
+    preview: Option<Res<'w, AssetPreviewState>>,
     layout: Option<Res<'w, SceneEditorLayoutState>>,
     settings: Option<Res<'w, SceneEditorSettingsState>>,
     browser: Option<Res<'w, SceneBrowserState>>,
@@ -77,7 +78,10 @@ fn publish_host(source: HostInputs, mut host: ResMut<AnimationHost>) {
             .deletion
             .as_ref()
             .is_some_and(|s| s.confirmation.is_some())
-        || source.external.as_ref().is_some_and(|s| s.modal_open());
+        || source.external.as_ref().is_some_and(|s| s.modal_open())
+        || (!source.documents.file_writes.is_empty()
+            && source.preview.as_ref().and_then(|preview| preview.selected_path.as_ref())
+                .is_some_and(|path| source.documents.file_writes.blocks(&root.join(path))));
     host.sidebar_assets_visible = source.sidebar.right == EditorRightSidebarTab::Assets
         && source
             .layout
@@ -152,6 +156,7 @@ fn install_input_boundary(app: &mut App) {
         .add_systems(
             Update,
             publish_host.after(super::interaction::handle_asset_preview_actions)
+                .after(crate::ui::file_manager::FileManagerInput)
                 .before(AnimationSystems::Input)
                 .in_set(SceneEditorSystemSet::Input),
         );

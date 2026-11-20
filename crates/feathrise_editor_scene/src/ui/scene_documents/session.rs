@@ -46,6 +46,7 @@ pub(crate) struct SceneDocumentTransition<'w> {
     numeric: Option<Res<'w, feathrise_editor_ui::ActiveNumericInput>>,
     subscenes: Option<Res<'w, crate::ui::subscenes::SubsceneEditorState>>,
     terrain_objects: Option<Res<'w, crate::ui::terrain_objects::TerrainObjectsEditorState>>,
+    scene_objects: Option<Res<'w, crate::ui::scene_objects::SceneObjectState>>,
     subscene_transform: Option<Res<'w, crate::viewport::subscenes::SubsceneTransformState>>,
 }
 
@@ -54,6 +55,7 @@ impl SceneDocumentTransition<'_> {
         if self.subscenes.as_ref().is_some_and(|state| state.busy())
             || self.vegetation_cross.as_ref().is_some_and(|state|state.busy())
             || self.terrain_objects.as_ref().is_some_and(|state| state.busy())
+            || self.scene_objects.as_ref().is_some_and(|state| state.busy())
             || self.subscene_transform.as_ref().is_some_and(|state| state.owns_mouse()) { return true; }
         self.documents
             .as_ref()

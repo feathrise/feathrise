@@ -38,6 +38,14 @@ pub(super) struct Response {
     reply: Option<TreeReply>,
 }
 
+impl Response {
+    pub(super) fn retire(self, world: &mut World) {
+        if let Some(rows) = self.reply.and_then(|reply| reply.rows) {
+            embedded_scene_tree::retire_rows(world, rows);
+        }
+    }
+}
+
 struct TreeReply {
     world_id: u64,
     revision: u64,
@@ -140,6 +148,7 @@ pub(super) fn receive(
 ) {
     let tree = &mut runtime.tree;
     let Some((id, revision)) = tree.flight else {
+        response.retire(world);
         return;
     };
     if !tree.supported
@@ -151,11 +160,13 @@ pub(super) fn receive(
             .as_ref()
             .is_some_and(|reply| reply.world_id != status.world_id || reply.revision != revision)
     {
+        response.retire(world);
         return;
     }
     tree.flight = None;
     if revision != status.applied_revision || runtime.snapshot_in_flight.is_some() || status.playing
     {
+        response.retire(world);
         return;
     }
     tree.refresh_after = Some(Instant::now() + Duration::from_secs(1));
@@ -174,7 +185,12 @@ pub(super) fn receive(
             ..
         }) if Some(version) == tree.version => (),
         // 可选诊断失败时保留上一份完整层级，后续更新可自然恢复。
-        _ => embedded_scene_tree::unavailable(world),
+        reply => {
+            if let Some(rows) = reply.and_then(|reply| reply.rows) {
+                embedded_scene_tree::retire_rows(world, rows);
+            }
+            embedded_scene_tree::unavailable(world);
+        }
     }
 }
 
@@ -215,6 +231,7 @@ pub(super) fn sync(
             .refresh_after
             .is_some_and(|due| Instant::now() < due)
         || !embedded_scene_tree::visible(world)
+        || !embedded_scene_tree::ready_to_request(world)
     {
         return;
     }
@@ -240,5 +257,27 @@ pub(super) fn sync(
     ) {
         runtime.tree.next_id = request_id;
         runtime.tree.flight = Some((request_id, revision));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stale_scene_tree_reply_retires_rows_and_backpressures_new_queries() {
+        let mut app = App::new();
+        embedded_scene_tree::install(&mut app);
+        let rows = Arc::new(Vec::new());
+        let retired = Arc::downgrade(&rows);
+        let response = Response {
+            identity: SessionIdentity { project_id: "fixture".into(), session: 8, generation: 2 },
+            scene_id: "fixture".into(),
+            request_id: 1,
+            reply: Some(TreeReply { world_id: 4, revision: 1, version: Some(1), rows: Some(rows) }),
+        };
+        receive(app.world_mut(), &mut Runtime::default(), &EmbeddedStatus::default(), response);
+        assert!(retired.upgrade().is_some());
+        assert!(!embedded_scene_tree::ready_to_request(app.world()));
     }
 }

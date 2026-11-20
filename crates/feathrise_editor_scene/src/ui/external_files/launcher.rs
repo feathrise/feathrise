@@ -2,6 +2,7 @@
 
 use super::{messages::OpenExternalFile, types::{DetectedEditors, EditorLauncher, ExternalEditor, ExternalFileAction}};
 use std::{ffi::OsString, path::{Component, Path, PathBuf}, process::{Command, Stdio}};
+pub(crate) use feathrise_editor_project_browser_model::file_operations::platform_path;
 
 pub(super) fn checked_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
     // 文件菜单的空白目标可明确指向根目录本身；只接受单独的点，不放宽父级或拼接跳转。
@@ -259,26 +260,4 @@ fn folder_command(folder: &Path) -> Command {
     let mut command = Command::new("xdg-open");
     command.arg(platform_path(folder));
     command
-}
-
-/// Windows canonicalize 返回扩展路径前缀；外部应用使用普通盘符/UNC写法，Unicode仍原样保留。
-pub(crate) fn platform_path(path: &Path) -> PathBuf {
-    #[cfg(windows)]
-    if let Some(Component::Prefix(prefix)) = path.components().next() {
-        use std::path::Prefix;
-        let mut result = match prefix.kind() {
-            Prefix::VerbatimDisk(drive) => PathBuf::from(format!("{}:\\", drive as char)),
-            Prefix::VerbatimUNC(server, share) => {
-                let mut root = OsString::from("\\\\");
-                root.push(server); root.push("\\"); root.push(share);
-                PathBuf::from(root)
-            }
-            _ => return path.to_path_buf(),
-        };
-        for component in path.components().skip(1) {
-            if matches!(component, Component::Normal(_)) { result.push(component.as_os_str()); }
-        }
-        return result;
-    }
-    path.to_path_buf()
 }

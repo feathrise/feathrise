@@ -1,6 +1,6 @@
 //! 校验缓存、显式保存意图与任务背压；旧任务真正完成前不释放后台槽。
 
-use super::super::{resources::DocumentState, types::ViewMode};
+use super::super::resources::DocumentState;
 use super::types::*;
 use bevy::{
     prelude::*,
@@ -89,7 +89,7 @@ pub(in super::super) fn drive(
         !state.visible
             || state
                 .current()
-                .is_none_or(|doc| !request.key.current(doc) || doc.mode != ViewMode::Edit)
+                .is_none_or(|doc| !request.key.current(doc) || !state.editing())
     }) {
         state.json.format = None;
         state.json.ready = None; // 换文件、隐藏或新输入取消采用，但在途task仍然占槽。

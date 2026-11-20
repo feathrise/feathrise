@@ -45,6 +45,7 @@ pub(crate) fn refresh_gltf_browser_cache(
     world_assets: Res<Assets<WorldAsset>>, // 完整加载后只读一个`WorldAsset.world`。
     mut scene_events: feathrise_scene_core::residency::ResidentAssetEventReader<WorldAsset>, // 热更事件按固定预算消费。
     mut state: ResMut<EditorGltfBrowserState>, // 活动树与最多两代退役数据。
+    objects: Option<Res<crate::ui::scene_objects::SceneObjectState>>,
 ) {
     state.retirement.advance_frame(); // 无论F12开关状态，每帧只推进一次固定析构预算。
 
@@ -74,6 +75,6 @@ pub(crate) fn refresh_gltf_browser_cache(
     if entries_changed {
         request_visible_entries_rebuild(&mut state); // 同一Update只递增一次行修订。
     }
-    synchronize_signature_build(&session, session.is_changed(), &mut state); // 完成时会自行请求新结构行树。
+    synchronize_signature_build(&session, session.is_changed(), &mut state, objects.as_deref()); // 完成时会自行请求新结构行树。
     advance_visible_entries_build(&mut state); // 稳定时O(1)，在途时受操作、行、路径和字符四重预算。
 }

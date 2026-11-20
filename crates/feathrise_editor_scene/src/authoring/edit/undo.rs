@@ -104,7 +104,8 @@ pub(crate) fn apply_undo_redo(
         feathrise_scene::TerrainObjectQueries,
         Local<deletion_preparation::HistoryDeletionPreparation>), // 删除准备Local并入领域组，保持Bevy系统顶层参数不超过16项。
     domain_state: (Option<Res<crate::game_authoring::scene_interaction::SceneInteractionState>>, Option<Res<crate::authoring::domain_documents::SceneDomainAdapter>>,
-        Option<Res<crate::ui::vegetation_layers::VegetationBlankLayerAllocation>>), // 外部作者整笔和图层样本事务完成前保持原历史顺序。
+        Option<Res<crate::ui::vegetation_layers::VegetationBlankLayerAllocation>>,
+        Option<ResMut<crate::ui::scene_objects::SceneObjectState>>), // 外部作者整笔和图层样本事务完成前保持原历史顺序。
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     preview_assets: Res<EditorPreviewAssets>,
@@ -120,7 +121,8 @@ pub(crate) fn apply_undo_redo(
     placement_roots: Query<(Entity, &ScenePlacementInstance)>, // 共享活动门决定唯一可写正式批次，不能依赖分帧清理标记。
     handoff: Res<WaterFileHandoff>, // 保存候选在途时只拒绝网格水PlacementChanged。
 ) {
-    let (external_authoring, domain_adapter, vegetation_layers) = domain_state;
+    let (external_authoring, domain_adapter, vegetation_layers, mut scene_objects) = domain_state;
+    if scene_objects.as_ref().is_some_and(|state| state.managing()) { return; } // 读取完整元数据前保留原历史意图。
     if vegetation_layers.as_ref().is_some_and(|state| state.busy()) { return; }
     if session.model_vegetation_busy { return; } // 模型笔刷先排空并入栈，不能越过尚未形成的最后一笔。
     if session.water_preset_delete_pending {
@@ -228,6 +230,12 @@ pub(crate) fn apply_undo_redo(
         return; // 栈顶保持原样，另一对象的画布不能接收这条差分。
     }
     let candidate = candidate.unscoped();
+    if matches!(candidate, EditorCommand::SceneObjectsChanged(_)) {
+        if let Some(objects) = scene_objects.as_deref_mut() {
+            objects.apply_metadata_history(&mut session, &mut editor, undoing);
+        }
+        return; // 元数据历史只从分帧预检及原子发布入口采用。
+    }
     if matches!(candidate, EditorCommand::SparseTerrainChanged(_) | EditorCommand::BuildingSparseTerrainChanged(_) | EditorCommand::VolumeSculptChanged(_)) {
         return; // 专用稀疏后台门保留请求与栈顶，绝不先恢复建筑或误写GLB。
     }
@@ -380,7 +388,7 @@ pub(crate) fn apply_undo_redo(
                     crate::authoring::terrain_documents::restore_legacy(draft)?;
                     draft.terrain_ground = None;
                 }
-                EditorCommand::SceneObjectsChanged(change) => change.apply(&mut draft.placements, undoing)?,
+                EditorCommand::SceneObjectsChanged(_) => unreachable!("对象元数据由分帧历史入口采用"),
                 EditorCommand::SubscenesChanged { before, after } => {
                     draft.manifest.subscenes = if undoing { before.clone() } else { after.clone() };
                 }
@@ -1103,7 +1111,6 @@ pub(crate) fn apply_undo_redo(
     }
     let terrain_changed = matches!(&command, EditorCommand::TerrainChanged(_));
     let terrain_objects_changed = matches!(&command, EditorCommand::TerrainObjectsChanged { .. } | EditorCommand::ClipmapStitchesChanged {..});
-    let scene_objects_changed = matches!(&command, EditorCommand::SceneObjectsChanged(_));
     let building_terrain_changed = match &command {
         EditorCommand::BuildingTerrainChanged(change) => Some((
             matches!(&change.placement, BuildingPlacementChange::Added { .. }),
@@ -1186,8 +1193,6 @@ pub(crate) fn apply_undo_redo(
         global_environment.dirty = global_environment.draft != global_environment.saved; // 回到已保存基线时立即解除全局保存责任。
         session.revision = session.revision.wrapping_add(1); // 联合保存身份与实时预览同帧换代。
         editor.dirty = global_environment.dirty || session.has_scene_changes(); // 顶部脏状态汇总两份独立作者文件。
-    } else if scene_objects_changed {
-        session.mark_scene_objects_changed(&mut editor);
     } else if placement_structure_changed {
         session.mark_placement_structure_changed(&mut editor); // 命令已经完整采用后才发布新结构代次。
     } else if let Some((placement_structure_changed, terrain_changed)) = building_terrain_changed {

@@ -115,12 +115,12 @@ pub(super) fn control(
         }
         for (button, click, _) in &controls.buttons {
             if click.is_clicked() && matches!(button.action, FileAction::Confirm | FileAction::Cancel) {
-                requests.write(FileManagerCommand { action: button.action, path: None, sources: vec![] });
+                requests.write(FileManagerCommand { action: button.action, path: None, sources: default() });
             }
         }
         let composing = controls.inputs.iter().any(|(entity, _, _, input)| focus.get() == Some(entity) && input.is_composing());
-        if !ime_blocked && keys.just_pressed(KeyCode::Escape) { requests.write(FileManagerCommand { action: FileAction::Cancel, path: None, sources: vec![] }); }
-        if !ime_blocked && keys.just_pressed(KeyCode::Enter) && !composing { requests.write(FileManagerCommand { action: FileAction::Confirm, path: None, sources: vec![] }); }
+        if !ime_blocked && keys.just_pressed(KeyCode::Escape) { requests.write(FileManagerCommand { action: FileAction::Cancel, path: None, sources: default() }); }
+        if !ime_blocked && keys.just_pressed(KeyCode::Enter) && !composing { requests.write(FileManagerCommand { action: FileAction::Confirm, path: None, sources: default() }); }
         return;
     }
     let mut opened_menu = false;
@@ -292,14 +292,16 @@ pub(super) fn control(
         if mouse.just_pressed(MouseButton::Left) {
             if shift {
                 let anchor = window.anchor.unwrap_or(index);
-                let range = anchor.min(index)..=anchor.max(index).min(anchor.min(index) + 4095);
-                if !control { window.selection.clear(); }
-                for index in range { if let Some(entry) = window.entries.get(index) { window.selection.insert(entry.path.clone()); } }
+                let range = anchor.min(index)..anchor.max(index) + 1;
+                window.selection.select(&window.entries, range, control);
             } else if control {
-                if !window.selection.remove(&entry.path) && window.selection.len() < 4096 { window.selection.insert(entry.path.clone()); }
+                window.selection.toggle(&window.entries, index);
                 window.anchor = Some(index);
-            } else if !window.selection.contains(&entry.path) { window.selection.clear(); window.selection.insert(entry.path.clone()); window.anchor = Some(index); }
-            let sources: Vec<_> = window.selection.iter().cloned().collect();
+            } else if !window.selection.contains(&entry.path) {
+                window.selection.select(&window.entries, index..index + 1, false);
+                window.anchor = Some(index);
+            }
+            let sources = window.selection.clone();
             if mouse.just_pressed(MouseButton::Left) && !sources.is_empty() {
                 if let Some(origin) = point { state.drag = Some(FileDrag { sources, origin, position: origin, copy: control, destination: None, dragging: false }); }
             }
@@ -308,7 +310,8 @@ pub(super) fn control(
         if click.is_clicked() && !state.drag.as_ref().is_some_and(|drag| drag.dragging) {
             let window = state.active_mut(row.window).unwrap();
             if !control && !shift {
-                window.selection.clear(); window.selection.insert(entry.path.clone()); window.anchor = Some(index);
+                window.selection.select(&window.entries, index..index + 1, false);
+                window.anchor = Some(index);
             }
             let double = window.last_click.as_ref().is_some_and(|(old, seconds)| old == &entry.path && time.elapsed_secs_f64() - seconds <= 0.4);
             window.last_click = if double { None } else { Some((entry.path.clone(), time.elapsed_secs_f64())) };
@@ -333,8 +336,7 @@ pub(super) fn control(
     }).or_else(|| (foreground.is_none() && fixed.hovered).then(|| fixed.hover_destination.clone().unwrap_or_else(|| fixed.directory.clone())));
     if let Some(drag) = &mut state.drag {
         // 目标随前景与指针更新。覆层和窗口外释放都不能复用上一帧的目录。
-        drag.destination = point.and(destination)
-            .filter(|destination| !drag.sources.iter().any(|source| destination == source || destination.starts_with(source)));
+        drag.destination = point.and(destination).filter(|destination| !drag.sources.overlaps(destination));
         if let Some(point) = point {
             drag.position = point;
             drag.copy = control;
@@ -398,8 +400,8 @@ pub(super) fn control(
         if let Some(action) = action { handle_action(&mut state, id, action, &mut requests); }
         if control && keys.just_pressed(KeyCode::KeyA) {
             if let Some(window) = state.active_mut(id).filter(|window| !window.loading && !window.is_animation_picker()) {
-                window.selection = window.entries.iter().take(4096).map(|entry| entry.path.clone()).collect();
-                if window.entries.len() > 4096 { state.notice = "本次已选择前 4096 项；请按文件夹分批整理".into(); }
+                // 全选冻结当前筛选快照，只记录一段行区间。
+                window.selection.select(&window.entries, 0..window.entries.len(), false);
             }
         }
     }
@@ -424,7 +426,7 @@ fn handle_action(state: &mut FileManagerState, id: u64, action: FileAction, requ
         FileAction::Up => { if let Some(parent) = window.path.parent() { let parent = parent.to_path_buf(); window.navigate(parent, true); } }
         FileAction::Refresh => window.refresh(),
         _ if !window.loading && !window.is_animation_picker() => {
-            requests.write(FileManagerCommand { action, path: Some(window.path.clone()), sources: window.selection.iter().cloned().collect() });
+            requests.write(FileManagerCommand { action, path: Some(window.path.clone()), sources: window.selection.clone() });
         }
         _ if window.loading => { state.notice = "请等待当前目录加载完成".into(); }
         _ => {}

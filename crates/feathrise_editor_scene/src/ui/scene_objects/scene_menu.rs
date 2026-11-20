@@ -39,6 +39,7 @@ pub(super) fn input(
     }
     state.pending = Some(PendingManagement {
         scene_id: request.target.scene_id.clone(),
+        document: session.placement_deletions.identity(),
         revision: session.revision,
         structure: session.placement_structure_revision,
         terrain_revision: session.terrain_revision,
@@ -55,6 +56,7 @@ pub(super) fn input(
         flag_set: true,
         cursor: 0,
         changes: Vec::new(),
+        metadata: Default::default(),
         heap_bytes: 0,
         selected: Vec::new(),
     });

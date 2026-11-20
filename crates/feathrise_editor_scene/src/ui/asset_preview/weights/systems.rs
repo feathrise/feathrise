@@ -121,6 +121,7 @@ pub(super) struct Gate<'w> {
     guard: Option<Res<'w, SceneEditorNumericScrubMouseGuard>>,
     host: Option<Res<'w, crate::workbench::WorkbenchModel>>,
     settings: Option<Res<'w, crate::resources::SceneEditorSettingsState>>,
+    files: Option<Res<'w, crate::ui::file_manager::FileWriteReservations>>,
 }
 
 impl Gate<'_> {
@@ -143,6 +144,10 @@ impl Gate<'_> {
 
     pub fn can_press(&self, editor: &SceneEditorState) -> bool {
         self.open(editor) && self.guard.as_ref().is_none_or(|guard| !guard.blocked())
+    }
+
+    pub fn source_available(&self, key: &Key) -> bool {
+        !self.files.as_ref().is_some_and(|files| !files.is_empty() && files.blocks(&key.root.join(&key.path)))
     }
 }
 
@@ -306,7 +311,7 @@ pub(super) fn actions(
     if let Some((root, path)) = &state.opening
         && let Some(key) = target
             .key()
-            .filter(|key| &key.root == root && &key.path == path)
+            .filter(|key| &key.root == root && &key.path == path && gate.source_available(key))
     {
         open(&mut state, key, &assets, &mut sidebar, *operations);
         return;
@@ -343,7 +348,7 @@ pub(super) fn actions(
             open_asset.write(OpenAssetPreview { path });
             return;
         }
-        if let Some(key) = target.key() {
+        if let Some(key) = target.key().filter(|key| gate.source_available(key)) {
             open(&mut state, key, &assets, &mut sidebar, *operations);
         }
         return;
@@ -355,7 +360,7 @@ pub(super) fn actions(
     let Some(session) = state
         .session
         .as_mut()
-        .filter(|session| target.matches(&session.key))
+        .filter(|session| target.matches(&session.key) && gate.source_available(&session.key))
     else {
         return;
     };

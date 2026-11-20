@@ -3,8 +3,8 @@
 use super::types::*;
 use super::messages::{CancelFileTask, OpenAnimationPicker};
 use bevy::prelude::*;
-use feathrise_editor_project_browser_model::file_operations::{ConflictPolicy, FileOperationProgress, FileOperationSnapshot};
-use std::path::PathBuf;
+use feathrise_editor_project_browser_model::file_operations::{ConflictPolicy, FileOperationProgress, FileOperationReceipt, FileOperationService, FileOperationSnapshot, FileSources};
+use std::{path::PathBuf, sync::Arc};
 
 #[derive(Resource, Default)]
 pub(crate) struct FixedFileSelection {
@@ -40,7 +40,11 @@ pub(crate) struct FileManagerState {
     pub(super) source_context: Option<u64>,
     pub(super) project: Option<PathBuf>,
     pub(super) allowed_roots: Vec<PathBuf>,
-    pub(super) clipboard: Vec<PathBuf>,
+    pub(super) clipboard: FileSources,
+    pub(super) clipboard_generation: u64,
+    pub(super) clipboard_through: u64,
+    pub(super) publish_clipboard: bool,
+    pub(super) pending_paste: Option<(PathBuf, ConflictPolicy)>,
     pub(super) cut: bool,
     pub(super) gesture: Option<WindowGesture>,
     pub(super) drag: Option<FileDrag>,
@@ -52,21 +56,31 @@ pub(crate) struct FileManagerState {
     pub(super) snapshot: Option<FileOperationSnapshot>,
     pub(super) operation_revision: u64,
     pub(super) last_receipt: u64,
-    pub(super) refresh_pending: bool,
     pub(super) suspended: bool,
 }
 
 impl Default for FileManagerState {
     fn default() -> Self {
         Self { windows: vec![], focused: None, notice: String::new(), bounds: Rect::from_corners(Vec2::new(8., 88.), Vec2::new(1200., 740.)), movement_bounds: Rect::from_corners(Vec2::new(8., 88.), Vec2::new(1200., 740.)), next_id: 1,
-            context: 0, source_context: None, project: None, allowed_roots: vec![], clipboard: vec![], cut: false, gesture: None,
+            context: 0, source_context: None, project: None, allowed_roots: vec![], clipboard: default(), cut: false, clipboard_generation: 0, clipboard_through: 0,
+            publish_clipboard: false, pending_paste: None, gesture: None,
             drag: None, prompt: None, menu: None, hovered: false, release_guard: false, conflict: ConflictPolicy::KeepBoth,
-            snapshot: None, operation_revision: 0, last_receipt: 0, refresh_pending: false, suspended: false }
+            snapshot: None, operation_revision: 0, last_receipt: 0, suspended: false }
     }
 }
 
 impl FileManagerState {
+    pub(crate) fn work_pending(world: &World) -> bool {
+        // 粘贴已经受理，正在等待前次文件移动的回执。工程需保留到它提交并真正结束。
+        world.get_resource::<Self>().is_some_and(|state| state.pending_paste.is_some())
+            || world.get_resource::<FileOperationService>().is_some_and(FileOperationService::is_busy)
+    }
+
     pub(crate) fn service_context(&self) -> u64 { self.context }
+    pub(crate) fn receipts(&self) -> impl DoubleEndedIterator<Item = &FileOperationReceipt> {
+        self.snapshot.as_ref().map_or(&[][..], |snapshot| snapshot.completed.as_slice())
+            .iter().filter(|receipt| receipt.context == self.context).map(Arc::as_ref)
+    }
     pub(super) fn active_task(&self) -> Option<&FileOperationProgress> {
         self.snapshot.as_ref()?.active.as_ref().filter(|task| task.context == self.context)
     }
@@ -120,7 +134,7 @@ impl FileManagerState {
         self.windows.push(FileWindow { id, path: path.clone(), requested_path: path.clone(), rect, restored_rect: rect,
             minimized: false, maximized: false, entries: Default::default(), selection: Default::default(), history: vec![path], history_index: 0,
             first: 0, thumbnail_wheel: 0., loading: true, error: None, filter: String::new(), revision: 1,
-            animation_picker, scanned_revision: 0, anchor: None, last_click: None });
+            animation_picker, scanned_revision: 0, keep_scroll: false, refresh_after_scan: false, anchor: None, last_click: None });
         self.focused = Some(id);
     }
     pub(super) fn close(&mut self, id: u64) {

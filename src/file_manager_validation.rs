@@ -17,7 +17,7 @@ const PURPOSE: &str = "owned-file-manager-validation";
 const COPY_BYTES: &[u8] = b"feathrise-file-manager-copy-v1\n";
 const MOVE_BYTES: &[u8] = b"feathrise-file-manager-move-v1\n";
 const NESTED_BYTES: &[u8] = b"feathrise-file-manager-nested-v1\n";
-const CANCEL_FILES: usize = 4096;
+const CANCEL_ITEMS: usize = 4097;
 
 pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     if !report.is_absolute() || report.exists() {
@@ -55,11 +55,14 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
     ] {
         write_new(&source.join(name), bytes)?;
     }
-    // 同一顶层目录内的真实小文件复制留出点击取消的时间，取消时应丢弃未发布目录。
+    // 首项仍是原长目录复制，以可回收暂存的实际 IO 留出取消时间。其余同级文件使全选跨过旧上限。
     let cancel_source = root.join("file-cancel-fixture");
     let cancel_target = root.join("file-cancel-target");
+    let cancel_first = cancel_source.join("0000");
     fs::create_dir(&cancel_source).and_then(|_| fs::create_dir(&cancel_target)).map_err(|error| error.to_string())?;
-    for index in 0..CANCEL_FILES {
+    fs::create_dir(&cancel_first).map_err(|error| error.to_string())?;
+    for index in 1..CANCEL_ITEMS {
+        fs::write(cancel_first.join(format!("{index:04}.txt")), COPY_BYTES).map_err(|error| error.to_string())?;
         fs::write(cancel_source.join(format!("{index:04}.txt")), COPY_BYTES).map_err(|error| error.to_string())?;
     }
     let browser_assets = root.join("assets/浏览一致性");
@@ -119,9 +122,14 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
     if proof["window"]["steps"]["single_window_status_restore"] != true
         || proof["window"]["steps"]["compressed_file_buttons"].as_array().is_none_or(|buttons| buttons.len() != 8)
         || proof["window"]["steps"]["file_cancel_receipt"]["cancelled"] != true
-        || fs::read_dir(&cancel_source).map_err(|error| error.to_string())?.count() != CANCEL_FILES
+        || proof["window"]["steps"]["bulk_all_selected"]["count"] != CANCEL_ITEMS
+        || proof["window"]["steps"]["file_cancel_receipt"]["unprocessed"] != CANCEL_ITEMS
+        || proof["window"]["steps"]["file_receipt_page"]["page"] != 2
+        || proof["window"]["steps"]["file_receipt_page"]["first_item"].is_null()
+        || fs::read_dir(&cancel_source).map_err(|error| error.to_string())?.count() != CANCEL_ITEMS
+        || fs::read_dir(&cancel_first).map_err(|error| error.to_string())?.count() != CANCEL_ITEMS - 1
         || fs::read_dir(&cancel_target).map_err(|error| error.to_string())?.next().is_some()
-    { return Err("状态栏恢复、压缩按钮或取消后的实际磁盘验证不符".into()); }
+    { return Err("状态栏、全选、取消后逐项回执或实际磁盘验证不符".into()); }
     proof["disk_reread_verified"] = json!(true);
     let mut files = serde_json::Map::new();
     for name in ["中文笔记.txt", "中文说明.md", "中文空场景.glb"] {
@@ -161,6 +169,7 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
     }
     for name in ["files-context-menu.png", "files-new-submenu.png", "files-desktop.png", "files-restored.png",
         "files-status-single.png", "files-status-crowded.png",
+        "files-status-file-receipt.png",
         "files-assets-thumbnails.png", "files-assets-clips.png", "files-assets-services.png",
         "files-assets-grid-compact.png", "files-assets-grid-maximized.png"] {
         if proof["window"]["screenshots"][name].is_null() { return Err(format!("缺少本轮文件桌面截图 {name}")); }

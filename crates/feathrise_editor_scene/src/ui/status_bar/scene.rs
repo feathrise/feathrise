@@ -134,6 +134,15 @@ pub(in crate::ui) fn popup() -> impl Scene {
                 ~{FocusPolicy::Block}
                 ~{detail_scroll_node(false)}
                 Children [
+                    StatusReceiptNavigation
+                    Node { display: Display::None, width: percent(100), flex_shrink: 0.0,
+                        flex_wrap: FlexWrap::Wrap, column_gap: px(4), row_gap: px(4) }
+                    Children [
+                        @popup_button(StatusAction::EarlierReceipt, "较早任务", false)--
+                        @popup_button(StatusAction::LaterReceipt, "较新任务", false)--
+                        @popup_button(StatusAction::PreviousReceiptPage, "上一页", false)--
+                        @popup_button(StatusAction::NextReceiptPage, "下一页", false)
+                    ]--
                     StatusText(StatusTextRole::Detail) Text("")
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                     ~{LineHeight::Px(16.0)}
@@ -170,7 +179,7 @@ pub(super) fn detail_scroll_node(compact: bool) -> Node {
 fn popup_button(action: StatusAction, label: &'static str, close: bool) -> impl Scene {
     let mut style = if close { feathrise_editor_ui::dialog_close_button_style() }
         else { feathrise_editor_ui::dialog_button_style(false) };
-    if action == StatusAction::CancelFileTask { style.node.display = Display::None; }
+    if action == StatusAction::CancelFileTask || action.navigates_receipt() { style.node.display = Display::None; }
     bsn! {
         InteractionButton StatusButton(action) ~{style.node} @feathrise_editor_ui::dialog_button_colors_scene(false)
         ~{BackgroundColor(style.colors.normal)} BorderColor::all(feathrise_editor_ui::colors::DIALOG_BORDER)

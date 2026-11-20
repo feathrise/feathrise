@@ -73,6 +73,8 @@ pub(super) fn adopt(
         if documents.io.is_some() || documents.pending_load.is_some() || documents.saving.is_some()
         {
             Some("文件任务尚未结束，请稍后更新预览；所有草稿保持".to_owned())
+        } else if content.iter().any(|entry| plan.files.iter().any(|file| file.index == entry.index && documents.file_writes.blocks(&file.disk.path))) {
+            Some(super::super::super::file_changes::FILE_CHANGE_PENDING.to_owned())
         } else if !plan_current(plan, documents) {
             Some("文档在预览后已变化，请更新预览；所有草稿保持".to_owned())
         } else {
@@ -158,6 +160,7 @@ pub(super) fn travel(
             doc.path == stamp.key.path
                 && doc.generation == stamp.key.generation
                 && doc.revision == stamp.revision
+                && !documents.file_writes.blocks(&doc.disk.path)
                 && if redo {
                     doc.history.can_redo()
                 } else {

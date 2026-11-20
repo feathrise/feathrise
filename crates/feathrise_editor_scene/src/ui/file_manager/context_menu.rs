@@ -28,8 +28,7 @@ pub(super) fn target_for_window(window: &mut FileWindow, index: Option<usize>, p
         let entry = &window.entries[index];
         // 右键已选项保留多选；右键未选项只选这一项，Ctrl/Shift 不改写右键语义。
         if !window.selection.contains(&entry.path) {
-            window.selection.clear();
-            window.selection.insert(entry.path.clone());
+            window.selection.select(&window.entries, index..index + 1, false);
         }
         window.anchor = Some(index);
     } else {
@@ -37,11 +36,13 @@ pub(super) fn target_for_window(window: &mut FileWindow, index: Option<usize>, p
         window.anchor = None;
     }
     window.last_click = None;
-    let sources: Vec<_> = window.selection.iter().cloned().collect();
+    let sources = window.selection.clone();
     let is_directory = if sources.len() == 1 {
         index.and_then(|index| window.entries.get(index)).map(|entry| entry.directory)
     } else if sources.is_empty() { Some(true) } else { None };
-    let open_directory = if is_directory == Some(true) && sources.len() == 1 { sources[0].clone() } else { window.path.clone() };
+    let open_directory = if is_directory == Some(true) && sources.len() == 1 {
+        sources.first().unwrap().to_path_buf()
+    } else { window.path.clone() };
     FileManagerContextRequest { position, directory: window.path.clone(), sources, open_directory, is_directory }
 }
 
@@ -274,7 +275,7 @@ mod tests {
             target: FileManagerContextRequest {
                 position: Vec2::new(480., 190.),
                 directory: Default::default(),
-                sources: vec![],
+                sources: default(),
                 open_directory: Default::default(),
                 is_directory: None,
             },

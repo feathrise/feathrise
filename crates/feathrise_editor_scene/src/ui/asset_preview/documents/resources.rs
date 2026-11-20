@@ -27,6 +27,7 @@ pub(crate) struct DocumentState {
     pub(super) wheel_owned: bool,
     pub(super) error: String,
     pub(super) external: super::external::ExternalCheckState,
+    pub(crate) file_writes: crate::ui::file_manager::FileWriteReservations,
 }
 
 impl Default for DocumentState {
@@ -53,6 +54,7 @@ impl Default for DocumentState {
             wheel_owned: false,
             error: String::new(),
             external: default(),
+            file_writes: default(),
         }
     }
 }

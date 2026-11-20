@@ -4,7 +4,6 @@ use super::super::{
     components::DocumentSource,
     history::{EditContext, Selection},
     resources::DocumentState,
-    types::ViewMode,
 };
 use super::{control::busy, index, resources::DocumentNavigation, types::*};
 use crate::resources::{
@@ -90,7 +89,7 @@ pub(super) fn apply(
     state.replace = None;
     let request = result.request;
     let Some(doc) = documents.current().filter(|doc| {
-        doc.mode == ViewMode::Edit
+        documents.editing()
             && state.mode == NavigationMode::Replace
             && index::current(&request.index.key, doc, &state)
     }) else {

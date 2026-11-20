@@ -3,6 +3,7 @@
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use super::{components::*, resources::*};
+use super::metadata::{METADATA_PER_FRAME, MetadataBatch, effective_metadata};
 use crate::authoring::SceneObjectChange;
 use crate::authoring::{EditorAuthoringSession, EditorCommand};
 use crate::resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState};
@@ -23,6 +24,7 @@ pub(super) fn advance_management(
 ) -> Result<bool, String> {
     let draft = session.draft.as_ref().ok_or("场景草稿已离开")?;
     if pending.scene_id != draft.scene_id
+        || !pending.document.matches(&session.placement_deletions)
         || pending.revision != session.revision
         || pending.structure != session.placement_structure_revision
     {
@@ -39,7 +41,7 @@ pub(super) fn advance_management(
         ObjectTargets::Indices(indices) => indices.len(),
         ObjectTargets::Group(_) => draft.placements.placements.len(),
     };
-    let end = (pending.cursor + 128).min(total);
+    let end = (pending.cursor + METADATA_PER_FRAME).min(total);
     while pending.cursor < end {
         let index = match &pending.targets {
             ObjectTargets::Indices(indices) => indices[pending.cursor],
@@ -95,16 +97,20 @@ pub(super) fn advance_management(
         }
         next.validate()?;
         if next != *record.editor {
+            let next = Arc::new(next);
             pending.heap_bytes += record.id.len()
                 + record.editor.name.capacity()
                 + record.editor.group.capacity()
                 + next.name.capacity()
                 + next.group.capacity();
+            if pending.metadata.insert(record.id.clone(), (index, next.clone())).is_some() {
+                return Err(format!("场景对象标识重复，未完成管理操作：{}", record.id));
+            }
             pending.changes.push(SceneObjectChange {
                 index,
                 id: record.id.clone(),
                 before: record.editor.clone(),
-                after: Arc::new(next),
+                after: next,
             });
         }
     }
@@ -115,13 +121,14 @@ pub(super) fn adopt_management(
     pending: &mut PendingManagement,
     session: &mut EditorAuthoringSession,
     editor: &mut SceneEditorState,
-) -> Result<(usize, Vec<EditorCommand>), String> {
+) -> Result<(usize, Vec<EditorCommand>, MetadataBatch), String> {
     let draft = session
         .draft
-        .as_mut()
+        .as_ref()
         .filter(|draft| draft.scene_id == pending.scene_id)
         .ok_or("管理对象所属场景已经变化")?;
-    if session.revision != pending.revision
+    if !pending.document.matches(&session.placement_deletions)
+        || session.revision != pending.revision
         || session.placement_structure_revision != pending.structure
     {
         return Err("作者版本已经变化，未应用任何对象管理数据".into());
@@ -133,37 +140,23 @@ pub(super) fn adopt_management(
     if pending.cursor != total {
         return Err("场景对象尚未收集完成，未应用任何管理数据".into());
     }
-    // 下标、稳定ID及Arc身份全通过才替换小型字段；原值继续由历史持有，不集中析构大资源。
-    for change in &pending.changes {
-        let record = draft
-            .placements
-            .placements
-            .get(change.index)
-            .filter(|record| record.id == change.id)
-            .ok_or("对象已被删除或重排")?;
-        if !Arc::ptr_eq(&record.editor, &change.before) {
-            return Err("对象管理元数据已经变化".into());
-        }
-    }
     let count = pending.changes.len();
     let mut retired = Vec::new();
     if count != 0 {
-        for change in &pending.changes {
-            draft.placements.placements[change.index].editor = change.after.clone();
-        }
+        // 下标及原字段按帧捕获，完整作者与结构身份接续到发布点。这里只转移候选表和历史所有权。
         retired = std::mem::take(&mut session.redo); // 旧redo深内容交由唯一后台槽回收。
         let change = crate::authoring::SceneObjectBatchChange {
             heap_bytes: pending.heap_bytes
                 + pending.changes.capacity() * std::mem::size_of::<SceneObjectChange>(),
             changes: std::mem::take(&mut pending.changes),
         };
-        session.push_bounded_water_history(EditorCommand::SceneObjectsChanged(Box::new(change))); // 裁剪完整历史前缀时同步移动多地形归属游标。
+        session.push_bounded_history_retiring(EditorCommand::SceneObjectsChanged(Box::new(change)), &mut retired);
         session.mark_scene_objects_changed(editor);
     }
-    Ok((count, retired))
+    Ok((count, retired, std::mem::take(&mut pending.metadata)))
 }
 
-fn retire<T: Send + 'static>(state: &mut SceneObjectState, value: T) {
+pub(super) fn retire<T: Send + 'static>(state: &mut SceneObjectState, value: T) {
     debug_assert!(state.retirement.is_none());
     state.retirement = Some(bevy::tasks::AsyncComputeTaskPool::get().spawn(async move {
         drop(value);
@@ -300,8 +293,12 @@ pub(super) fn handle_objects(
             editor.request_close();
         }
     } // 批量捕获也必须允许关闭；通用输入门不能永久等待自己的任务。
+    if state.history.is_some() { state.check_metadata_history(&session, &mut editor); }
+    if state.metadata_write.is_some() { state.write_metadata(&mut session, &browser); }
     if let Some(mut pending) = state.pending.take() {
-        if editor.open && !editor.close_requested {
+        if editor.open && !editor.close_requested && !editor.scene_transition_in_progress
+            && editor.pending_scene_transition.is_none() && editor.scene_switch_confirmation.is_none()
+            && editor.selected_scene_id.as_ref() == Some(&pending.scene_id) {
             match advance_management(&mut pending, &session) {
                 Ok(false) => {
                     editor.status = format!("正在整理场景对象：已检查{}项", pending.cursor);
@@ -322,7 +319,9 @@ pub(super) fn handle_objects(
                     }
                 }
                 Ok(true) => match adopt_management(&mut pending, &mut session, &mut editor) {
-                    Ok((count, retired)) => {
+                    Ok((count, retired, metadata)) => {
+                        state.publish_metadata(&session, metadata);
+                        if count != 0 { state.write_metadata(&mut session, &browser); }
                         if !retired.is_empty() {
                             retire(&mut state, retired);
                         }
@@ -379,17 +378,17 @@ pub(super) fn handle_objects(
         state.bound = current;
         state.name.clear();
         state.group = browser.selected_group.clone().unwrap_or_default();
-        if let Some(id) = browser.selected_placement_id.as_deref()
+        if let Some(draft) = session.draft.as_ref()
+            && let Some(id) = browser.selected_placement_id.as_deref()
             && let Some(index) =
                 browser.placement_record_index(id, session.placement_structure_revision)
-            && let Some(record) = session
-                .draft
-                .as_ref()
-                .and_then(|draft| draft.placements.placements.get(index))
+            && let Some(record) = draft.placements.placements.get(index)
                 .filter(|r| r.id == id)
         {
-            state.name = record.editor.name.clone();
-            state.group = record.editor.group.clone();
+            let metadata = effective_metadata(Some(&state), &session, record);
+            let (name, group) = (metadata.name.clone(), metadata.group.clone());
+            state.name = name;
+            state.group = group;
         }
         if fields
             .iter()
@@ -426,10 +425,11 @@ pub(super) fn handle_objects(
     } else if selection.members.len() > 1 {
         format!("管理选集：{}个对象", selection.members.len())
     } else if let Some(id) = &browser.selected_placement_id {
-        let metadata = browser
-            .placement_record_index(id, session.placement_structure_revision)
-            .and_then(|index| session.draft.as_ref()?.placements.placements.get(index))
-            .map(|record| &record.editor);
+        let metadata = session.draft.as_ref().and_then(|draft| {
+            let index = browser.placement_record_index(id, session.placement_structure_revision)?;
+            let record = draft.placements.placements.get(index)?;
+            Some(effective_metadata(Some(&state), &session, record))
+        });
         format!(
             "当前对象：{id} · {} · {}",
             if metadata.is_some_and(|m| m.hidden) {
@@ -544,6 +544,7 @@ pub(super) fn handle_objects(
     let flag_set = matches!(targets, ObjectTargets::Indices(_));
     state.pending = Some(PendingManagement {
         scene_id: draft.scene_id.clone(),
+        document: session.placement_deletions.identity(),
         revision: session.revision,
         structure: session.placement_structure_revision,
         terrain_revision: session.terrain_revision,
@@ -556,6 +557,7 @@ pub(super) fn handle_objects(
         cursor: 0,
         flag_set,
         changes: Vec::new(),
+        metadata: Default::default(),
         heap_bytes: 0,
         selected: Vec::new(),
     });

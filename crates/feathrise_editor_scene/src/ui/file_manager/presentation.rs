@@ -113,7 +113,7 @@ pub(super) fn sync(world: &mut World) {
             let selected = entry.is_some_and(|entry| window.selection.contains(&entry.path));
             background.0 = if selected { colors::SELECT_BG } else if *interaction != UiInteraction::None { colors::SELECT_BG_HOVER } else { colors::PANEL_BG };
             if let Some(entry) = entry {
-                let cut = state.cut && state.clipboard.binary_search(&entry.path).is_ok();
+                let cut = state.cut && state.clipboard.contains(&entry.path);
                 // 文件夹图标已经说明类型；列表中只有文件附带大小，缩略卡名称由这里统一写入。
                 let title = if entry.directory || thumbnail { entry.name.clone() }
                     else { format!("{}    {}", entry.name, bytes_label(entry.bytes)) };

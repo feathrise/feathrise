@@ -232,6 +232,13 @@ impl EditorAuthoringSession {
         self.adjust_history_scope_after_append(previous_len);
     }
 
+    /// 整组历史裁剪只转移旧命令所有权，大量元数据随管理事务退役槽后台析构。
+    pub(crate) fn push_bounded_history_retiring(&mut self, command: EditorCommand, retired: &mut Vec<EditorCommand>) {
+        let previous_len = self.undo.len();
+        super::commands::push_bounded_history_retiring(&mut self.undo, command, retired);
+        self.adjust_history_scope_after_append(previous_len);
+    }
+
     /// 弹出撤销记录立即缩短已核对前缀，保护同帧从撤销状态起笔的新历史分支。
     pub fn pop_undo(&mut self) -> Option<EditorCommand> {
         let command = self.undo.pop();

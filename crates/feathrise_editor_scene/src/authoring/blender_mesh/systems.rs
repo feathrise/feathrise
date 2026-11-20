@@ -1,6 +1,6 @@
 //! 在后台读取 Blender 的 GLB，按原对象身份提交已加载的模型。
 
-use super::files::BlenderProcess;
+use super::files::{BlenderProcess, Export};
 use crate::{
     authoring::{
         EditorAuthoringSession, EditorSceneDraft, asset_target_with_mesh_collision, mesh_collision_enabled,
@@ -8,7 +8,9 @@ use crate::{
     },
     resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState},
     ui::gltf_browser::EditorGltfBrowserState,
+    ui::scene_objects::SceneObjectState,
     viewport::placement_move::PlacementMoveState,
+    workbench::WorkbenchModel,
 };
 use bevy::{
     asset::{LoadState, RecursiveDependencyLoadState}, ecs::system::SystemParam,
@@ -17,7 +19,7 @@ use bevy::{
 };
 use feathrise_editor_core::EditorSettings;
 use feathrise_scene_content::{SceneId, ScenePlacementAssetTarget, ScenePlacementRecord};
-use std::time::{Duration, Instant};
+use std::{path::PathBuf, time::{Duration, Instant}};
 
 #[derive(Clone, Message)]
 pub(crate) struct BlenderMeshAction {
@@ -37,17 +39,81 @@ pub(crate) fn supports(record: &ScenePlacementRecord) -> bool {
 pub(crate) struct BlenderMeshSession {
     active: Option<Session>,
     task: Option<Task<Finished>>,
+    next_check: u64,
+    close: CloseCheck,
 }
 
 impl BlenderMeshSession {
+    pub(crate) fn prepare_close(&mut self) {
+        self.next_check = self.next_check.wrapping_add(1);
+        self.close = if self.active.is_some() || self.task.is_some() {
+            CloseCheck::Waiting(self.next_check)
+        } else {
+            CloseCheck::Ready
+        };
+        if let Some(live) = &mut self.active {
+            live.next_poll = Instant::now();
+        }
+    }
+
+    pub(crate) fn cancel_close(&mut self) {
+        self.close = CloseCheck::Idle;
+    }
+
+    pub(crate) fn close_pending(&self) -> bool {
+        self.close.ticket().is_some()
+    }
+
+    pub(crate) fn close_failure(&self) -> Option<&str> {
+        match &self.close {
+            CloseCheck::Failed(error) => Some(error),
+            _ => None,
+        }
+    }
+
+    fn finish_check(&mut self, ticket: Option<u64>) {
+        // 取消或再次确认后，需要等新发起的回执探测。旧的空闲快照不得授权关闭。
+        if ticket.is_some() && self.close.ticket() == ticket {
+            self.close = CloseCheck::Ready;
+        }
+    }
+
+    fn report_failure(&mut self, author: &mut Author, error: String) {
+        if self.close_pending() {
+            self.close = CloseCheck::Failed(error.clone());
+        }
+        author.editor.status = error;
+    }
+
     #[cfg(any(test, feature = "validation"))]
     pub(crate) fn has_open_session(&self) -> bool {
         self.active.is_some() || self.task.is_some()
     }
 }
 
+#[derive(Default)]
+enum CloseCheck {
+    #[default]
+    Idle,
+    Waiting(u64),
+    Ready,
+    Failed(String),
+}
+
+impl CloseCheck {
+    fn ticket(&self) -> Option<u64> {
+        match self {
+            Self::Waiting(ticket) => Some(*ticket),
+            _ => None,
+        }
+    }
+}
+
 struct Session {
     target: BlenderMeshAction,
+    project: Option<u64>,
+    asset_root: PathBuf,
+    folder: String,
     basis: ScenePlacementRecord,
     process: BlenderProcess,
     next_poll: Instant,
@@ -58,7 +124,7 @@ struct Session {
 
 enum Finished {
     Opened(Result<Session, String>),
-    Polled(Session, Result<Option<String>, String>),
+    Polled(Session, Result<Export, String>, Option<u64>),
     Cleaned,
 }
 
@@ -69,8 +135,11 @@ pub(super) struct Author<'w, 's> {
     browser: Res<'w, EditorGltfBrowserState>,
     mesh_edit: Res<'w, MeshEditState>,
     batch: Res<'w, crate::authoring::placement_batch::PlacementBatchState>,
+    objects: Option<Res<'w, SceneObjectState>>,
     moving: Res<'w, PlacementMoveState>,
     numeric_mouse: Res<'w, SceneEditorNumericScrubMouseGuard>,
+    numeric_input: Option<Res<'w, feathrise_editor_ui::ActiveNumericInput>>,
+    project: Option<Res<'w, WorkbenchModel>>,
     assets: Res<'w, AssetServer>,
     world: EditWorld<'w, 's>,
 }
@@ -89,20 +158,34 @@ impl Author<'_, '_> {
             && !record.editor.locked && !record.editor.hidden).then_some((index, record))
     }
 
-    fn busy(&self) -> bool {
+    fn busy(&self, closing: bool) -> bool {
+        // 宿主关闭层会持续占用公共鼠标门。回填只等待真实手势和写事务，否则会与关闭互等。
+        let input_busy = if closing {
+            self.mesh_edit.moving() || self.numeric_input.as_ref().is_some_and(|input| input.entity.is_some())
+        } else {
+            self.mesh_edit.active() || self.numeric_mouse.blocked()
+        };
         self.editor.close_requested || self.editor.scene_transition_in_progress
             || self.editor.pending_scene_transition.is_some() || self.editor.save_requested
             || self.session.saving || self.session.model_vegetation_busy || self.session.vegetation_cross_busy
-            || self.batch.busy() || self.mesh_edit.active()
-            || self.moving.exit_pending() || self.numeric_mouse.blocked()
+            || self.objects.as_ref().is_some_and(|objects| objects.busy())
+            || self.batch.busy() || self.moving.exit_pending() || input_busy
     }
 
-    fn can_finish(&self, target: &BlenderMeshAction) -> bool {
-        self.draft(target).is_none() || (!self.busy()
+    fn can_finish(&self, target: &BlenderMeshAction, closing: bool) -> bool {
+        self.draft(target).is_none() || (!self.busy(closing)
             && self.browser.placement_index_ready(self.session.placement_structure_revision))
     }
 
+    fn owns(&self, live: &Session) -> bool {
+        self.project.as_ref().map(|project| project.context) == live.project
+            && self.project.as_ref().is_none_or(|project| project.asset_root.as_ref() == Some(&live.asset_root))
+    }
+
     fn adopt(&mut self, live: &mut Session, path: String) -> Result<(), String> {
+        if self.draft(&live.target).is_none_or(|draft| draft.folder != live.folder) {
+            return Err("原场景目录已经更换".into());
+        }
         let (index, record) = self.current(&live.target).ok_or("找不到原场景对象")?;
         // 切换碰撞只改场景属性。Blender 还在编辑同一模型，回填采用属性面板里的最新值。
         let source = |record: &ScenePlacementRecord| asset_target_with_mesh_collision(&record.asset_target, false);
@@ -126,11 +209,11 @@ impl Author<'_, '_> {
         self.editor.status = "已更新 Blender 模型，请保存场景".into();
         Ok(())
     }
+}
 
-    fn error(&mut self, live: &mut Session, error: &str) {
-        live.preserve_files = true;
-        self.editor.status = format!("Blender 模型更新失败：{error}。工作文件位于 {}", live.process.directory().display());
-    }
+fn report_export_failure(state: &mut BlenderMeshSession, author: &mut Author, live: &mut Session, error: &str) {
+    live.preserve_files = true;
+    state.report_failure(author, format!("Blender 模型更新失败：{error}。工作文件位于 {}", live.process.directory().display()));
 }
 
 pub(super) fn update(
@@ -146,15 +229,19 @@ pub(super) fn update(
                 state.active = Some(live);
                 author.editor.status = "Blender 启动后，保存即可更新模型".into();
             }
-            Finished::Opened(Err(error)) => author.editor.status = error,
-            Finished::Polled(mut live, result) => {
+            Finished::Opened(Err(error)) => state.report_failure(&mut author, error),
+            Finished::Polled(mut live, _, _) if !author.owns(&live) => {
+                report_export_failure(&mut state, &mut author, &mut live, "工程会话已更换");
+            }
+            Finished::Polled(mut live, result, ticket) => {
                 match result {
-                    Ok(Some(path)) => {
+                    Ok(Export::Ready(path)) => {
                         let asset = author.assets.load(GltfAssetLabel::Scene(0).from_asset(path.clone()));
                         live.pending = Some((path, asset));
                     }
-                    Ok(None) => {}
-                    Err(error) => author.error(&mut live, &error),
+                    Ok(Export::Idle) => state.finish_check(ticket),
+                    Ok(Export::Writing) => {}
+                    Err(error) => report_export_failure(&mut state, &mut author, &mut live, &error),
                 }
                 state.active = Some(live);
             }
@@ -162,18 +249,28 @@ pub(super) fn update(
         }
     }
 
-    if let Some(target) = messages.read().last().cloned() {
+    if let Some(target) = messages.read().last().cloned()
+        && matches!(state.close, CloseCheck::Idle)
+    {
         if state.active.is_some() || state.task.is_some() {
             author.editor.status = "请先关闭当前 Blender 窗口".into();
-        } else if let Some((_, record)) = author.current(&target).filter(|_| !author.busy()) {
+        } else if let Some((_, record)) = author.current(&target).filter(|_| !author.busy(false)) {
             let basis = record.clone();
             let folder = author.session.draft.as_ref().unwrap().folder.clone();
-            let root = feathrise_editor_core::workspace_asset_root();
+            let project = author.project.as_ref().map(|project| project.context);
+            let root = match &author.project {
+                Some(project) => {
+                    let Some(root) = &project.asset_root else { return; };
+                    root.clone()
+                }
+                None => feathrise_editor_core::workspace_asset_root(),
+            };
             let executable = settings.blender_executable.clone();
             state.task = Some(IoTaskPool::get().spawn(async move {
-                let process = BlenderProcess::start(root, folder, &basis, executable.as_deref());
+                let process = BlenderProcess::start(root.clone(), folder.clone(), &basis, executable.as_deref());
                 Finished::Opened(process.map(|process| Session {
-                    target, basis, process, next_poll: Instant::now(), pending: None,
+                    target, project, asset_root: root, folder, basis, process,
+                    next_poll: Instant::now(), pending: None,
                     ended: false, preserve_files: false,
                 }))
             }));
@@ -181,20 +278,32 @@ pub(super) fn update(
         }
     }
 
-    let Some(mut live) = state.active.take() else { return; };
+    let Some(mut live) = state.active.take() else {
+        if state.task.is_none() {
+            let ticket = state.close.ticket();
+            state.finish_check(ticket);
+        }
+        return;
+    };
+    if !author.owns(&live) {
+        report_export_failure(&mut state, &mut author, &mut live, "工程会话已更换");
+        return;
+    }
     if let Some((_, handle)) = &live.pending
         && let Some((load, _, dependencies)) = author.assets.get_load_states(handle.id())
     {
         match (load, dependencies) {
             (LoadState::Failed(error), _) | (_, RecursiveDependencyLoadState::Failed(error)) => {
-                author.error(&mut live, &error.to_string());
+                report_export_failure(&mut state, &mut author, &mut live, &error.to_string());
                 live.pending = None;
             }
-            (LoadState::Loaded, RecursiveDependencyLoadState::Loaded) if author.can_finish(&live.target) => {
+            (LoadState::Loaded, RecursiveDependencyLoadState::Loaded)
+                if author.can_finish(&live.target, state.close_pending()) =>
+            {
                 let (path, _handle) = live.pending.take().unwrap();
                 match author.adopt(&mut live, path) {
                     Ok(()) => live.preserve_files = false,
-                    Err(error) => author.error(&mut live, &error),
+                    Err(error) => report_export_failure(&mut state, &mut author, &mut live, &error),
                 }
             }
             _ => {}
@@ -209,14 +318,50 @@ pub(super) fn update(
                 Finished::Cleaned
             }));
         }
-    } else if live.pending.is_none() && Instant::now() >= live.next_poll {
+    } else if live.pending.is_none() && Instant::now() >= live.next_poll
+        && matches!(state.close, CloseCheck::Idle | CloseCheck::Waiting(_))
+    {
         live.next_poll = Instant::now() + Duration::from_millis(180);
+        let ticket = state.close.ticket();
         state.task = Some(IoTaskPool::get().spawn(async move {
             let (ended, result) = live.process.poll();
             live.ended = ended;
-            Finished::Polled(live, result)
+            Finished::Polled(live, result, ticket)
         }));
     } else {
         state.active = Some(live);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::standalone::{cancel_project_close_exports, prepare_project_close_exports, project_close_snapshot};
+
+    #[test]
+    fn blender_close_probe_requires_the_current_receipt_after_reconfirmation() {
+        let mut world = World::new();
+        let pool = IoTaskPool::get_or_init(bevy::tasks::TaskPool::new);
+        world.insert_resource(BlenderMeshSession {
+            task: Some(pool.spawn(async { Finished::Cleaned })),
+            ..default()
+        });
+        prepare_project_close_exports(&mut world);
+        let first = world.resource::<BlenderMeshSession>().close.ticket();
+        assert!(first.is_some());
+        assert!(project_close_snapshot(&world).pending.is_some());
+
+        cancel_project_close_exports(&mut world);
+        assert!(project_close_snapshot(&world).pending.is_none());
+        prepare_project_close_exports(&mut world);
+        let mut state = world.resource_mut::<BlenderMeshSession>();
+        let current = state.close.ticket();
+        assert_ne!(current, first);
+        state.finish_check(None);
+        state.finish_check(first);
+        assert!(project_close_snapshot(&world).pending.is_some());
+
+        world.resource_mut::<BlenderMeshSession>().finish_check(current);
+        assert!(project_close_snapshot(&world).pending.is_none());
     }
 }

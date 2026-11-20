@@ -12,6 +12,7 @@ pub(super) fn synchronize_signature_build(
     session: &EditorAuthoringSession,
     session_changed: bool,
     state: &mut EditorGltfBrowserState,
+    objects: Option<&crate::ui::scene_objects::SceneObjectState>,
 ) {
     let inspect = !state.initialized || session_changed || state.signature_build.is_some();
     if !inspect {
@@ -52,7 +53,8 @@ pub(super) fn synchronize_signature_build(
         .as_ref()
         .map(|draft| draft.placements.placements.as_slice())
         .unwrap_or_default();
-    let completed = advance_signature_build(&mut build, placements, &state.expanded_placements);
+    let completed = advance_signature_build(&mut build, placements, &state.expanded_placements,
+        objects.map(|objects| (objects, session)));
     if !completed {
         state.status = format!(
             "场景树：正在读取实例结构 {}/{}",

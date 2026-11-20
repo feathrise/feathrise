@@ -41,6 +41,19 @@ pub fn project_close_snapshot(world: &World) -> ProjectCloseSnapshot {
     snapshot::collect(world).0
 }
 
+/// 在发起关闭及确认动作时触发实际的 Blender 导出检查，取消后恢复普通回填。
+pub fn prepare_project_close_exports(world: &mut World) {
+    if let Some(mut session) = world.get_resource_mut::<crate::authoring::blender_mesh::BlenderMeshSession>() {
+        session.prepare_close();
+    }
+}
+
+pub fn cancel_project_close_exports(world: &mut World) {
+    if let Some(mut session) = world.get_resource_mut::<crate::authoring::blender_mesh::BlenderMeshSession>() {
+        session.cancel_close();
+    }
+}
+
 /// 保留原F12语义：场景/环境草稿进入玩法；独立文档与预设样品仍保留草稿，不强制保存。
 /// 只在一次 Play 意图时调用：复用原所有者的轻量文档枚举，不在稳定帧扫描全部标签。
 pub fn embedded_play_blocker(world: &World) -> Option<String> {

@@ -15,8 +15,9 @@ use bevy::{
 };
 use feathrise_editor_project_browser_model::{
     AssetTypeFilter, DirectoryFilters, DirectoryOperations, DirectoryQuery, DirectoryWorker, FolderScope,
+    file_operations::{FileDirectory, FileEntryStamp, FileSources},
 };
-use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 pub(super) fn start(
     mut state: ResMut<FileManagerState>,
@@ -63,6 +64,9 @@ pub(super) fn start(
         session.worker.ensure(*operations);
         let revealing = session.reveal.as_ref().is_some_and(|(revision, _)| *revision == window.revision);
         if session.worker.take_changed() && !revealing {
+            window.refresh_after_scan = true;
+        }
+        if window.refresh_after_scan && !window.loading {
             window.refresh();
         }
     }
@@ -78,7 +82,7 @@ pub(super) fn start(
         let revision = window.revision;
         window.scanned_revision = revision;
         let requested = window.requested_path.clone();
-        let selection = window.selection.clone(); // 选择上限4096；完整交集留在后台，不在采用帧扫描大目录。
+        let selection = window.selection.clone();
         let session = browsers.sessions.get_mut(&id).expect("已为每个窗口建立会话");
         if session.reveal.as_ref().is_some_and(|(ticket, _)| *ticket != revision) {
             session.reveal = None; // 用户已导航或修改筛选，旧定位不参与新快照。
@@ -157,8 +161,19 @@ pub(super) fn poll(
                 }
                 window.path = result.requested.clone();
                 window.selection = snapshot.selection;
-                window.first = snapshot.reveal_index.unwrap_or(0); // 表现层将起点夹在当前可见容量以内。
-                window.anchor = snapshot.reveal_index;
+                // 加载期间仍能在旧快照中滚动。采用时才把现有滚动及 Shift 锚点映射到新行。
+                let restored = |index| window.entries.get(index)
+                    .and_then(|entry: &FileEntry| snapshot.files.index_of(&entry.path));
+                let (first, anchor) = if let Some(index) = snapshot.reveal_index {
+                    (index, Some(index))
+                } else if window.keep_scroll {
+                    (restored(window.first).unwrap_or(window.first.min(snapshot.files.len().saturating_sub(1))),
+                        window.anchor.and_then(restored))
+                } else {
+                    (0, None)
+                };
+                window.first = first;
+                window.anchor = anchor;
                 window.error = None;
                 session.root = snapshot.root;
                 session.assets = snapshot.assets;
@@ -193,7 +208,7 @@ fn directory(
     worker: DirectoryWorker,
     context: u64,
     filters: DirectoryFilters,
-    selection: BTreeSet<PathBuf>,
+    selection: FileSources,
     reveal: Option<&str>,
     assets_only: bool,
 ) -> Result<BrowserSnapshot, String> {
@@ -249,27 +264,24 @@ fn directory(
         snapshot.entries.iter().position(|entry| !entry.is_directory && entry.asset_path == path)
             .ok_or_else(|| format!("资产定位失败：找不到 assets/{path}"))
     }).transpose()?;
-    let files: Arc<[FileEntry]> = snapshot
-        .entries
-        .iter()
-        .map(|entry| {
-            let full = crate::ui::external_files::platform_path(&root.join(&entry.asset_path));
-            let bytes = std::fs::metadata(&full).map_or(0, |metadata| metadata.len());
-            FileEntry {
-                path: full,
-                name: entry.display_name.clone(),
-                directory: entry.is_directory,
-                bytes,
-            }
-        })
-        .collect::<Vec<_>>()
-        .into();
+    let files = Arc::new(FileDirectory::with_stamps(&requested, snapshot.entries.iter().map(|entry| {
+        let full = crate::ui::external_files::platform_path(&root.join(&entry.asset_path));
+        let metadata = std::fs::metadata(&full).ok(); // 同一次读取生成展示大小和任务的冻结证据。
+        (FileEntry {
+            path: full,
+            name: entry.display_name.clone(),
+            directory: entry.is_directory,
+            bytes: metadata.as_ref().map_or(0, std::fs::Metadata::len),
+        }, FileEntryStamp::from_metadata(metadata.as_ref()))
+    })));
     let selection = if let Some(index) = reveal_index {
-        BTreeSet::from([files[index].path.clone()])
+        let mut selected = FileSources::default();
+        selected.select(&files, index..index + 1, false);
+        selected
+    } else if selection.is_empty() {
+        FileSources::default()
     } else {
-        let existing: std::collections::HashSet<_> = files.iter().map(|entry| &entry.path).collect();
-        selection.into_iter().map(|path| crate::ui::external_files::platform_path(&path))
-            .filter(|path| existing.contains(path)).collect()
+        FileSources::matching(files.clone(), |path| selection.contains(path))
     };
     Ok(BrowserSnapshot {
         root,

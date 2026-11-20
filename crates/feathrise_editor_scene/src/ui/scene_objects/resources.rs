@@ -5,6 +5,7 @@ use crate::authoring::SceneObjectChange;
 use crate::viewport::multi_select::SelectedMember;
 use bevy::prelude::*;
 use feathrise_scene_content::SceneId;
+use super::metadata::{MetadataBatch, MetadataHistory, PendingMetadataWrite};
 
 pub(super) enum ObjectTargets {
     Indices(Vec<usize>),
@@ -13,6 +14,7 @@ pub(super) enum ObjectTargets {
 
 pub(super) struct PendingManagement {
     pub scene_id: SceneId,
+    pub document: crate::authoring::placement_deletion::PlacementDeletionIdentity,
     pub revision: u64,
     pub structure: u64,
     // 只有选组缓存世界锚点；纯元数据管理不因无关地形或迟到贴地结果取消。
@@ -26,6 +28,7 @@ pub(super) struct PendingManagement {
     pub flag_set: bool,
     pub cursor: usize,
     pub changes: Vec<SceneObjectChange>,
+    pub metadata: MetadataBatch,
     pub heap_bytes: usize,
     pub selected: Vec<SelectedMember>,
 }
@@ -36,13 +39,18 @@ pub(crate) struct SceneObjectState {
     pub(super) group: String,
     pub(super) bound: Option<(SceneId, Option<String>, Option<String>, u64, u64)>,
     pub(super) pending: Option<PendingManagement>,
+    pub(super) metadata_write: Option<PendingMetadataWrite>,
+    pub(super) history: Option<MetadataHistory>,
     /// 取消或旧redo的拥有型数据在唯一CPU槽析构；不因关闭释放整个组的字符串。
     pub(super) retirement: Option<bevy::tasks::Task<()>>,
 }
 
 impl SceneObjectState {
     pub(crate) fn busy(&self) -> bool {
-        self.pending.is_some()
+        self.managing() || self.history.is_some()
+    }
+    pub(crate) fn managing(&self) -> bool {
+        self.pending.is_some() || self.metadata_write.is_some()
     }
     pub(crate) fn accepts_commands(&self) -> bool {
         !self.busy() && self.retirement.is_none()

@@ -323,6 +323,7 @@ pub(super) fn advance_signature_build(
     build: &mut BrowserSignatureBuild, // 持续跨帧拥有全部未发布草稿。
     placements: &[ScenePlacementRecord], // 当前结构代次的权威Vec切片。
     expanded_placements: &BTreeSet<String>, // 上一活动代次要保留的稳定展开偏好。
+    objects: Option<(&crate::ui::scene_objects::SceneObjectState, &crate::authoring::EditorAuthoringSession)>,
 ) -> bool {
     let total = placements.len();
     let mut completed_placements = 0usize; // 只有完整进入辅助索引的记录才消耗记录额度。
@@ -332,7 +333,10 @@ pub(super) fn advance_signature_build(
     {
         let placement = &placements[build.next_placement]; // 当前结构观察保证切片身份跨本次推进稳定。
         if build.pending_signature.is_none() {
-            build.has_object_groups |= !placement.editor.group.is_empty();
+            let metadata = objects.map_or(&placement.editor, |(state, session)| {
+                crate::ui::scene_objects::effective_metadata(Some(state), session, placement)
+            });
+            build.has_object_groups |= !metadata.group.is_empty();
             let base_bytes = placement
                 .id
                 .len()
@@ -341,7 +345,7 @@ pub(super) fn advance_signature_build(
                 break; // 当前记录壳下一Update再完整复制。
             }
             build.pending_signature = Some(PlacementSignature {
-                editor: placement.editor.clone(),
+                editor: metadata.clone(),
                 placement_id: placement.id.clone(),
                 asset_path: placement.asset_path.clone(),
                 asset_target: placement.asset_target.clone(), // 网格拓扑共享，签名不复制顶点与面。

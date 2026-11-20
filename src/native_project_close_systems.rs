@@ -3,13 +3,14 @@
 use super::{components::CloseAction, resources::*};
 use bevy::prelude::*;
 use feathrise_editor_scene::standalone::{
-    ProjectSaveProgress, SavedPlayFeedback, cancel_project_save, project_close_snapshot,
-    project_save_progress, request_save_all,
+    ProjectSaveProgress, SavedPlayFeedback, cancel_project_close_exports, cancel_project_save,
+    prepare_project_close_exports, project_close_snapshot, project_save_progress, request_save_all,
 };
 
 /// 返回true只是作者部分已经允许关闭；宿主仍须确认自己拥有的游戏和构建全部收口。
 pub(crate) fn authorize_exit(world: &mut World, requested: bool) -> bool {
     if requested && !world.resource::<NativeProjectCloseState>().active() {
+        prepare_project_close_exports(world);
         let previous_failure = match project_save_progress(world) {
             ProjectSaveProgress::Failed { detail } => Some(detail),
             _ => None,
@@ -30,6 +31,7 @@ pub(crate) fn authorize_exit(world: &mut World, requested: bool) -> bool {
         return false;
     }
     if choice == Some(CloseAction::Cancel) {
+        cancel_project_close_exports(world);
         cancel_project_save(world);
         let mut state = world.resource_mut::<NativeProjectCloseState>();
         state.stage = CloseStage::Idle;
@@ -50,6 +52,10 @@ pub(crate) fn authorize_exit(world: &mut World, requested: bool) -> bool {
         .is_some()
     {
         return false;
+    }
+    if stage == CloseStage::Confirm && matches!(choice, Some(CloseAction::Close | CloseAction::Save | CloseAction::Discard)) {
+        // Blender 可以在关闭确认层打开后继续保存。授权前再检查一次回执，然后重新收集草稿。
+        prepare_project_close_exports(world);
     }
     // 取消后原写者仍会收口；再次关闭可能先等到Running，随后才收到“已写盘但采用失败”。
     // 每次检查都保留原调度器的失败，不能仅靠首次关闭时的快照或已清除的dirty放行退出。

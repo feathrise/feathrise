@@ -192,9 +192,7 @@ pub(super) fn actions(
                 | DocumentAction::RestoreSidebar
         ) {
             if (document_visible || matches!(action, DocumentAction::ActivateTab(_)))
-                && state
-                    .current()
-                    .is_some_and(|doc| doc.mode == ViewMode::Edit)
+                && state.editing()
                 && let Ok((entity, _)) = source.single()
             {
                 focus.set(entity, FocusCause::Navigated); // 原实体移位不重绑整篇输入，继续保留光标、撤销与EditableText.viewport。
@@ -231,6 +229,9 @@ pub(super) fn actions(
             if let Some(path) = state.active.clone() {
                 state.request_load(path);
             }
+            continue;
+        }
+        if action == DocumentAction::Edit && state.active.as_ref().is_some_and(|path| state.file_change_pending(path)) {
             continue;
         }
         if action == DocumentAction::Edit

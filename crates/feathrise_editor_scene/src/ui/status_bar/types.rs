@@ -42,6 +42,16 @@ pub(in crate::ui) enum StatusAction {
     Dismiss,
     Close,
     CancelFileTask,
+    EarlierReceipt,
+    LaterReceipt,
+    PreviousReceiptPage,
+    NextReceiptPage,
+}
+
+impl StatusAction {
+    pub(super) fn navigates_receipt(self) -> bool {
+        matches!(self, Self::EarlierReceipt | Self::LaterReceipt | Self::PreviousReceiptPage | Self::NextReceiptPage)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

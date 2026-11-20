@@ -47,7 +47,8 @@ pub use crate::ui::asset_preview::documents::source_location_validation::{
 pub use project_close::{
     ProjectAuthorAdapter, ProjectAuthorAdapters, ProjectAuthorDocument, ProjectAuthorSnapshot,
     ProjectCloseSaveAdapters, ProjectCloseSnapshot, ProjectSavePlugin, ProjectSaveProgress, cancel_project_save,
-    embedded_play_blocker, project_close_snapshot, project_save_progress, request_save_all,
+    cancel_project_close_exports, embedded_play_blocker, prepare_project_close_exports, project_close_snapshot,
+    project_save_progress, request_save_all,
 };
 pub use resources::{EmbeddedAuthorInput, StandaloneEditorMode};
 pub(crate) use resources::StandalonePlayRequest;

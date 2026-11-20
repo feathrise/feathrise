@@ -4,11 +4,13 @@ mod components;
 mod resources;
 mod types;
 mod scene;
+mod metadata;
 mod systems;
 mod scene_menu;
 mod visibility;
 
 pub(crate) use resources::SceneObjectState;
+pub(crate) use metadata::effective_metadata;
 pub(crate) use types::PlacementVisibilityIntent;
 pub(crate) use scene::{panel, properties_panel};
 pub(crate) use visibility::{ObjectVisibilityState, placement_base_visibility, restore_placement_base_visibility};

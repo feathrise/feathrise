@@ -152,7 +152,7 @@ mod tests {
             .add_systems(Update, dispatch);
         app.world_mut().resource_mut::<SceneEditorState>().open = true;
         let target = |path: PathBuf| FileManagerContextRequest { position: Vec2::ZERO,
-            directory: path.parent().unwrap().to_path_buf(), sources: vec![path],
+            directory: path.parent().unwrap().to_path_buf(), sources: vec![path].into(),
             open_directory: assets.clone(), is_directory: Some(false) };
         app.world_mut().write_message(ExtraRequest { action: ExtraAction::Favorite, target: target(assets.join("模型.glb")) });
         app.update();
