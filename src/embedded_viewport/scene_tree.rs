@@ -24,11 +24,18 @@ const EMPTY_SCENE: &str = "__empty_world__";
 #[derive(Debug, Default)]
 pub(super) struct SceneTreeHost {
     pub supported: bool,
-    scope: Option<(u64, u64, u64)>,
+    scope: Option<SceneTreeScope>,
     next_id: u64,
     flight: Option<(u64, u64)>,
     version: Option<u64>,
     refresh_after: Option<Instant>,
+}
+
+#[derive(Debug)]
+struct SceneTreeScope {
+    identity: SessionIdentity,
+    world_id: u64,
+    scene_id: Option<String>,
 }
 
 pub(super) struct Response {
@@ -155,14 +162,11 @@ pub(super) fn receive(
         || runtime.identity.as_ref() != Some(&response.identity)
         || runtime.scene_id.as_deref().unwrap_or(EMPTY_SCENE) != response.scene_id
         || response.request_id != id
-        || response
-            .reply
-            .as_ref()
-            .is_some_and(|reply| reply.world_id != status.world_id || reply.revision != revision)
     {
         response.retire(world);
         return;
     }
+    // 匹配的信封已结清本次查询。正文身份错误时保留旧树，允许下一轮刷新。
     tree.flight = None;
     if revision != status.applied_revision || runtime.snapshot_in_flight.is_some() || status.playing
     {
@@ -170,12 +174,15 @@ pub(super) fn receive(
         return;
     }
     tree.refresh_after = Some(Instant::now() + Duration::from_secs(1));
+    let current = response.reply.as_ref().is_some_and(|reply| {
+        reply.world_id == status.world_id && reply.revision == revision
+    });
     match response.reply {
         Some(TreeReply {
             version: Some(version),
             rows: Some(rows),
             ..
-        }) => {
+        }) if current => {
             tree.version = Some(version);
             embedded_scene_tree::publish(world, rows);
         }
@@ -183,7 +190,7 @@ pub(super) fn receive(
             version: Some(version),
             rows: None,
             ..
-        }) if Some(version) == tree.version => (),
+        }) if current && Some(version) == tree.version => (),
         // 可选诊断失败时保留上一份完整层级，后续更新可自然恢复。
         reply => {
             if let Some(rows) = reply.and_then(|reply| reply.rows) {
@@ -213,9 +220,17 @@ pub(super) fn sync(
                 && !status.playing
                 && author.scene_id == runtime.scene_id
         })
-        .map(|identity| (identity.session, identity.generation, status.world_id));
-    if scope != runtime.tree.scope {
-        runtime.tree.scope = scope;
+        .map(|identity| (identity, status.world_id, runtime.scene_id.as_deref()));
+    let previous = runtime.tree.scope.as_ref().map(|scope| {
+        (&scope.identity, scope.world_id, scope.scene_id.as_deref())
+    });
+    // 空工程首次采用场景时可以沿用当前代次，仍须撤回旧场景的查询与行表。
+    if scope != previous {
+        runtime.tree.scope = scope.map(|(identity, world_id, scene_id)| SceneTreeScope {
+            identity: identity.clone(),
+            world_id,
+            scene_id: scene_id.map(str::to_owned),
+        });
         runtime.tree.flight = None;
         runtime.tree.version = None;
         runtime.tree.refresh_after = None;
@@ -263,6 +278,63 @@ pub(super) fn sync(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_scene_clears_empty_world_tree_at_the_same_generation() {
+        let mut app = App::new();
+        embedded_scene_tree::install(&mut app);
+        let world = app.world_mut();
+        world.init_resource::<EmbeddedSnapshotState>();
+        let mut runtime = Runtime::default();
+        runtime.tree.supported = true;
+        runtime.identity = Some(SessionIdentity {
+            project_id: "fixture".into(), session: 8, generation: 1,
+        });
+        let mut status = EmbeddedStatus { ready: true, world_id: 4, ..default() };
+        sync(world, &mut runtime, &mut status, true, false);
+        embedded_scene_tree::publish(world, Arc::new(Vec::new()));
+        runtime.tree.flight = Some((1, 0));
+        runtime.tree.version = Some(7);
+
+        // 首个 Snapshot 进入队列后，作者与工程已指向同一场景，且代次未变。
+        runtime.scene_id = Some("first-scene".into());
+        runtime.snapshot_in_flight = Some(1);
+        world.resource_mut::<EmbeddedSnapshotState>().scene_id = runtime.scene_id.clone();
+        sync(world, &mut runtime, &mut status, true, false);
+
+        assert_eq!(runtime.tree.flight, None);
+        assert_eq!(runtime.tree.version, None);
+        assert!(!embedded_scene_tree::ready_to_request(world));
+    }
+
+    #[test]
+    fn mismatched_body_releases_matching_query_and_retires_rows() {
+        let mut app = App::new();
+        embedded_scene_tree::install(&mut app);
+        let world = app.world_mut();
+        let identity = SessionIdentity { project_id: "fixture".into(), session: 8, generation: 2 };
+        let mut runtime = Runtime::default();
+        runtime.identity = Some(identity.clone());
+        runtime.scene_id = Some("fixture".into());
+        runtime.tree.supported = true;
+        runtime.tree.flight = Some((2, 1));
+        runtime.tree.version = Some(7);
+        let status = EmbeddedStatus { world_id: 4, applied_revision: 1, ..default() };
+        let response = Response {
+            identity,
+            scene_id: "fixture".into(),
+            request_id: 2,
+            reply: Some(TreeReply {
+                world_id: 5, revision: 1, version: Some(8), rows: Some(Arc::new(Vec::new())),
+            }),
+        };
+        receive(world, &mut runtime, &status, response);
+
+        assert_eq!(runtime.tree.flight, None);
+        assert_eq!(runtime.tree.version, Some(7));
+        assert!(runtime.tree.refresh_after.is_some());
+        assert!(!embedded_scene_tree::ready_to_request(world));
+    }
 
     #[test]
     fn stale_scene_tree_reply_retires_rows_and_backpressures_new_queries() {

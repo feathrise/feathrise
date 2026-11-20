@@ -61,7 +61,7 @@ mod tests {
         let mut app = App::new();
         let mut catalog = EditorProjectFileCatalog::default();
         catalog.entries = (0..192).map(|index| EditorAssetEntry { asset_path: format!("src/file{index:03}.rs"),
-            display_name: format!("file{index:03}.rs"), is_directory: false, kind: SceneAssetKind::Data }).collect();
+            display_name: format!("file{index:03}.rs"), is_directory: false, kind: SceneAssetKind::Data, metadata: Default::default() }).collect();
         app.insert_resource(catalog).init_resource::<ProjectBrowserState>().init_resource::<ProjectFileViewport>()
             .add_systems(Update, prepare);
         let page = app.world_mut().spawn((ProjectBrowserContent(ProjectBrowserView::ProjectFiles),

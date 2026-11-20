@@ -576,7 +576,13 @@ fn cancel_file_copy(world: &mut World, run: &mut Run, window: Entity) -> Result<
         if !receipt.cancelled || !receipt.completed.is_empty() || receipt.error.is_some()
             || receipt.unprocessed.len() != run.cancel_sources.len()
             || run.steps["file_status_progress"]["id"] != receipt.id || run.steps["file_details_cancel"] != true {
-            return Err(format!("详情取消未得到同一文件任务的取消回执：{receipt:?}"));
+            // 失败报告只记录单项路径和计数，避免整批路径超出宿主回读预算。
+            return Err(format!(
+                "详情取消未得到同一文件任务的回执（回执任务 {}，进度任务 {}，已点击取消 {}，已取消 {}，完成 {} 项，跳过 {} 项，未处理 {}/{} 项，失败路径 {:?}，原因 {:?}）",
+                receipt.id, run.steps["file_status_progress"]["id"], run.steps["file_details_cancel"],
+                receipt.cancelled, receipt.completed.len(), receipt.skipped.len(),
+                receipt.unprocessed.len(), run.cancel_sources.len(), receipt.failed, receipt.error,
+            ));
         }
         run.receipt = receipt.id;
         run.steps.insert("file_cancel_receipt".into(), json!({"id":receipt.id,"cancelled":receipt.cancelled,

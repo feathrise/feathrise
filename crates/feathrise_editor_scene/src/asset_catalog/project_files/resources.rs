@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use bevy::{prelude::Resource, tasks::Task};
-use feathrise_editor_project_browser_model::DirectoryWorker;
+use feathrise_editor_project_browser_model::{DirectoryWorker, file_operations::FileEntryStamp};
 
 use super::types::{ProjectFileIdentity, ProjectFileNavigation, ScanResult};
 use crate::{asset_catalog::{
@@ -24,6 +24,7 @@ pub(crate) struct EditorProjectFileCatalog {
     pub(super) asset_root: Option<PathBuf>,
     pub(super) worker: DirectoryWorker,
     pub(crate) selected_file: Option<ProjectFileIdentity>,
+    selected_stamp: Option<(u64, FileEntryStamp)>,
     pub(crate) feedback: Option<AssetCatalogFeedback>,
     pub(crate) requested_revision: u64,
     pub(crate) applied_revision: u64,
@@ -50,6 +51,7 @@ impl EditorProjectFileCatalog {
         self.asset_root = None;
         self.adopted_type_filter = AssetTypeFilter::All;
         self.selected_file = None;
+        self.selected_stamp = None;
         self.feedback = None;
         if !self.entries.is_empty() {
             debug_assert!(self.retired_source.is_none());
@@ -116,6 +118,13 @@ impl EditorProjectFileCatalog {
         }
     }
 
+    /// 预览标签可跨目录刷新保留，文件操作只采用当前扫描修订的选择证据。
+    pub(crate) fn selected_stamp(&self) -> Option<FileEntryStamp> {
+        self.selected_stamp
+            .filter(|(revision, _)| *revision == self.applied_revision)
+            .map(|(_, stamp)| stamp)
+    }
+
     /// 固定行只传当前完整快照的索引；目录请求不改变文件选择，更不武装场景摆放。
     pub(crate) fn select_entry(&mut self, index: usize) -> Option<ProjectFileIdentity> {
         let entry = self.entries.get(index)?.clone();
@@ -128,6 +137,7 @@ impl EditorProjectFileCatalog {
             context: *context, project_root: project_root.clone(), relative_path: entry.asset_path,
         };
         self.selected_file = Some(identity.clone());
+        self.selected_stamp = Some((self.applied_revision, entry.metadata.stamp));
         Some(identity)
     }
 }

@@ -7,7 +7,7 @@ use feathrise_scene_content::SceneAssetKind;
 
 fn entries(folder: &str) -> Vec<EditorAssetEntry> {
     (0..96).map(|index| EditorAssetEntry { asset_path: format!("{folder}/{index}.bin"),
-        display_name: format!("{index}.bin"), is_directory: false, kind: SceneAssetKind::Data }).collect()
+        display_name: format!("{index}.bin"), is_directory: false, kind: SceneAssetKind::Data, metadata: Default::default() }).collect()
 }
 
 fn context() -> (EditorAssetCatalog, SceneEditorState, SceneEditorSidebarState) {

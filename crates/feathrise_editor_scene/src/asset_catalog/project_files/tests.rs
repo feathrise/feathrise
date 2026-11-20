@@ -34,7 +34,7 @@ impl Drop for Fixture {
 
 fn entry(path: &str) -> EditorAssetEntry {
     EditorAssetEntry { asset_path: path.into(), display_name: path.rsplit('/').next().unwrap().into(),
-        is_directory: false, kind: SceneAssetKind::Data }
+        is_directory: false, kind: SceneAssetKind::Data, metadata: Default::default() }
 }
 
 fn request(catalog: &EditorProjectFileCatalog) -> ScanRequest {
@@ -73,6 +73,17 @@ fn project_root_and_filename_filter_reuse_typed_scan_and_hide_build_git_entries(
     assert_eq!(file.project_root, fixture.root);
     assert_eq!(file.relative_path, "src/main.rs");
     assert_eq!(file.context, 12);
+    let stamp = catalog.selected_stamp().expect("本修订的文件行提供操作证据");
+    assert!(matches!(stamp, feathrise_editor_project_browser_model::file_operations::FileEntryStamp::Captured(_)));
+    assert!(stamp.matches(&std::fs::metadata(fixture.root.join(&file.relative_path)).unwrap()));
+
+    catalog.set_filter("controller");
+    catalog.retired_entries = None; // 生产扫描槽会在下一次采用前回收上一轮目录。
+    let filtered = scan_request(request(&catalog));
+    adopt(&mut catalog, filtered);
+    assert_eq!(catalog.entries[0].asset_path, "src/controller.rs");
+    assert_eq!(catalog.selected_file.as_ref(), Some(&file), "原源码预览继续可用");
+    assert!(catalog.selected_stamp().is_none(), "换代后不能从旧预览恢复文件整理选择");
 }
 
 #[test]

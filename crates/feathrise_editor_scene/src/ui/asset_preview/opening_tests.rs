@@ -27,7 +27,7 @@ fn fixture() -> (App, Entity) {
         .add_systems(Update, (crate::asset_catalog::handle_asset_row_clicks, open).chain());
     app.world_mut().resource_mut::<EditorAssetCatalog>().entries = ["a.json", "b.json", "a.png", "b.glb", "audio/剑声.OGG", "audio/音乐.WAV"]
         .into_iter().map(|path| EditorAssetEntry { asset_path: path.into(), display_name: path.into(),
-            is_directory: false, kind: feathrise_scene_content::SceneAssetKind::Data }).collect();
+            is_directory: false, kind: feathrise_scene_content::SceneAssetKind::Data, metadata: Default::default() }).collect();
     let row = app.world_mut().spawn((UiInteraction::None, SceneEditorAssetRow { slot: 0, entry_index: Some(0) })).id();
     (app, row)
 }

@@ -5,6 +5,7 @@ mod file_selection;
 
 use bevy::prelude::Resource;
 use feathrise_scene_content::SceneAssetKind;
+use file_selection::FileEntryStamp;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -22,6 +23,14 @@ pub struct EditorAssetEntry {
     pub is_directory: bool,
     /// 文件可被场景编辑器消费的用途。
     pub kind: SceneAssetKind,
+    /// 目录读取取得的原始事实，由大小显示和文件任务共同采用。
+    pub metadata: FileEntryMetadata,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FileEntryMetadata {
+    pub bytes: u64,
+    pub stamp: FileEntryStamp,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

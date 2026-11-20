@@ -9,7 +9,7 @@ use std::{path::PathBuf, sync::Arc};
 #[derive(Resource, Default)]
 pub(crate) struct FixedFileSelection {
     pub(crate) directory: PathBuf,
-    pub(crate) selected: Vec<PathBuf>,
+    pub(crate) selected: FileSources,
     pub(crate) hovered: bool,
     pub(crate) hover_destination: Option<PathBuf>,
     pub(crate) asset_view: bool,

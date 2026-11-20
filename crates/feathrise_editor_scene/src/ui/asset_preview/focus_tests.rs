@@ -126,6 +126,7 @@ fn click(app: &mut App, path: &str) {
             asset_path: path.into(),             // 可以与装备模型路径完全相同。
             is_directory: false,                 // 点击文件才请求预览。
             kind: SceneAssetKind::Scene,           // 实际GLB模型用途。
+            metadata: Default::default(),
         });
     let index = app.world().resource::<EditorAssetCatalog>().entries.len() - 1; // 明确当前点击的目录项。
     app.world_mut().spawn((

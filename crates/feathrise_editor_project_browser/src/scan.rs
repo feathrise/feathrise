@@ -3,7 +3,7 @@
 use std::{fs::Metadata, path::{Path, PathBuf}};
 use feathrise_editor_project_browser_model::{
     AssetTypeFilter, DirectoryFilters, DirectoryQuery, DirectorySnapshot, EditorAssetEntry,
-    FolderScope, hidden_author_directory, hidden_path, hidden_project_path,
+    FileEntryMetadata, FolderScope, file_operations::FileEntryStamp, hidden_author_directory, hidden_path, hidden_project_path,
 };
 use feathrise_scene_content::SceneAssetKind;
 use super::{filter::{GlbMetadata, ResourceTypes}, watch::{DirectoryCache, DirectoryWorker, ScanLocation}};
@@ -108,9 +108,13 @@ impl CheckedFolder<'_> {
             if matches!(scope, FolderScope::ProjectFiles) && hidden_project_path(&root, &path) {
                 continue; // 不枚举构建产物或Git内部目录，含同名链接与worktree的.git文件。
             }
-            let metadata = entry
-                .metadata()
-                .map_err(|error| format!("读取{}元数据失败：{error}", path.display()))?;
+            let metadata = if cfg!(windows) && visible_layer {
+                // 枚举缓存中的修改时间可能滞后。可操作行使用与文件任务预检一致的路径元数据。
+                std::fs::symlink_metadata(&path)
+            } else {
+                entry.metadata()
+            }
+            .map_err(|error| format!("读取{}元数据失败：{error}", path.display()))?;
             // 递归筛选不跟随重解析点，避免循环、重复目录和目录范围意外扩张。
             if !visible_layer && is_link(&metadata) {
                 continue;
@@ -217,6 +221,10 @@ impl CheckedFolder<'_> {
                 asset_path,
                 display_name: entry.display_name,
                 is_directory,
+                metadata: FileEntryMetadata {
+                    bytes: entry.metadata.len(),
+                    stamp: FileEntryStamp::from_metadata(Some(&entry.metadata)),
+                },
                 kind: if is_directory {
                     SceneAssetKind::Unsupported
                 } else {

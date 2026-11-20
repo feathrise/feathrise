@@ -259,6 +259,7 @@ mod tests {
             display_name: "阻塞测试模型".to_owned(),   // UI名称不参与业务判定。
             is_directory: false,                       // 文件点击走选择分支而非目录切换。
             kind: SceneAssetKind::Scene,                 // 合法场景资产会产生明确可观察副作用。
+            metadata: Default::default(),
         });
         app.insert_resource(catalog) // 提供资产点击系统的目录数据。
             .init_resource::<SceneEditorState>() // 提供选中资产和状态文本。

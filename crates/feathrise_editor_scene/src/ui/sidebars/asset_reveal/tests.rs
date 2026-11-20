@@ -17,6 +17,7 @@ fn fixture_with_navigation_shell(scale: f32, with_shell: bool) -> (App, Entity) 
         display_name: "tree.glb".to_owned(),      // 文件名仅用于显示。
         is_directory: false,                      // 定位目标必须是文件。
         kind: SceneAssetKind::Scene,                // 正式模型资产分类。
+        metadata: Default::default(),
     });
     catalog.requested_revision = 3; // 后台已经完成本次定位。
     catalog.applied_revision = 3; // 请求与采用身份一致。
@@ -180,6 +181,7 @@ fn continuous_reveal_scrolls_to_a_deep_index_before_that_row_is_in_the_pool() {
             catalog.entries = (0..count).map(|index| EditorAssetEntry {
                 asset_path: if index == count - 1 { "models/tree.glb".into() } else { format!("models/{index}.glb") },
                 display_name: format!("模型{index}.glb"), is_directory: false, kind: SceneAssetKind::Scene,
+                metadata: Default::default(),
             }).collect();
             catalog.revealed_entry = Some((3, count - 1));
         }

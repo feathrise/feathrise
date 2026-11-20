@@ -130,11 +130,8 @@ pub(super) fn build(document: &AnimationDocument, command: Command) -> Result<Ed
                     "scale" => transform.scale.to_array().to_vec(),
                     _ => continue,
                 };
-                if let Some(key) = after.keys.iter_mut().find(|k| (k.time - time).abs() < 1e-6) {
-                    key.value = value;
-                } else {
-                    after.insert_key(*time, value)?;
-                }
+                // 精确秒值决定已有键的身份，近邻的合法关键帧仍各自保留。
+                after.insert_key(*time, value)?;
             }
             _ => {}
         }
@@ -268,6 +265,35 @@ mod tests {
         assert_eq!(draft.clips[0].channels[0].keys[0].value[0], 19.0);
         edit.apply(&mut draft, false).unwrap();
         assert_eq!(draft.clips[1].channels[0], before);
+    }
+
+    #[test]
+    fn pose_updates_the_exact_key_without_overwriting_a_nearby_time() {
+        let mut doc = super::super::data::tests::test_document();
+        let near_end = 0.000_000_5;
+        let channel = &mut doc.clips[0].channels[0];
+        let node = channel.node;
+        channel.insert_key(near_end, vec![2.0, 3.0, 4.0]).unwrap();
+        let original = channel.clone();
+        let edit = build(
+            &doc,
+            Command::Pose {
+                clip: 0,
+                time: near_end,
+                node,
+                transform: Transform::from_xyz(5.0, 6.0, 7.0),
+            },
+        ).unwrap();
+
+        edit.apply(&mut doc, true).unwrap();
+        let channel = &doc.clips[0].channels[0];
+        assert_eq!(channel.keys.len(), original.keys.len());
+        assert_eq!(channel.keys[0], original.keys[0]);
+        assert_eq!(channel.keys[1].time, near_end);
+        assert_eq!(channel.keys[1].value, vec![5.0, 6.0, 7.0]);
+        assert_eq!(channel.keys[2], original.keys[2]);
+        edit.apply(&mut doc, false).unwrap();
+        assert_eq!(doc.clips[0].channels[0], original);
     }
 
     #[test]

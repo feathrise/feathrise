@@ -102,14 +102,14 @@ fn create_rename_and_parent_child_selection_use_real_paths() {
     let fixture = Fixture::new();
     execute(fixture.request(FileOperation::CreateFolder { parent: fixture.path("source"), name: "文件夹".into() }), false).1.unwrap();
     fs::write(fixture.path("source/文件夹/a.txt"), b"one copy").unwrap();
-    execute(fixture.request(FileOperation::Rename { source: fixture.path("source/文件夹"), name: "renamed".into() }), false).1.unwrap();
+    execute(fixture.request(FileOperation::Rename { source: fixture.path("source/文件夹"), stamp: FileEntryStamp::Untracked, name: "renamed".into() }), false).1.unwrap();
     let (receipt, result) = execute(fixture.request(FileOperation::Copy { sources: vec![fixture.path("source/renamed"), fixture.path("source/renamed/a.txt")].into(), destination: fixture.path("destination"), conflict: ConflictPolicy::Fail }), false);
     result.unwrap();
     assert_eq!(receipt.completed.len(), 1, "父目录已包含的文件不能再复制一份");
     assert!(fixture.path("destination/renamed/a.txt").exists());
     assert!(!fixture.path("destination/a.txt").exists());
     assert!(execute(fixture.request(FileOperation::CreateFolder { parent: fixture.path("source"), name: "../escape".into() }), false).1.is_err());
-    assert!(execute(fixture.request(FileOperation::Rename { source: fixture.path("source/renamed/a.txt"), name: "CON.txt".into() }), false).1.is_err());
+    assert!(execute(fixture.request(FileOperation::Rename { source: fixture.path("source/renamed/a.txt"), stamp: FileEntryStamp::Untracked, name: "CON.txt".into() }), false).1.is_err());
 }
 
 #[test]
@@ -240,6 +240,55 @@ fn frozen_directory_selection_rejects_a_replaced_entry_before_any_move() {
 }
 
 #[test]
+fn rename_rejects_a_replaced_file_after_the_input_opens() {
+    let fixture = Fixture::new();
+    let source = fixture.path("source/selected.txt");
+    let original = fixture.path("original.txt");
+    fs::write(&source, b"original file").unwrap();
+    let stamp = FileEntryStamp::from_metadata(Some(&fs::metadata(&source).unwrap()));
+    // 保留原对象，再在同一位置写入替代文件，确认旧弹窗不能改名新对象。
+    fs::rename(&source, &original).unwrap();
+    fs::write(&source, b"replacement bytes").unwrap();
+
+    let (receipt, result) = execute(fixture.request(FileOperation::Rename {
+        source: source.clone(), stamp, name: "renamed.txt".into(),
+    }), false);
+    assert!(result.unwrap_err().contains("文件已变化"));
+    assert_eq!(receipt.failed.as_deref(), Some(source.as_path()));
+    assert!(receipt.completed.is_empty());
+    assert_eq!(fs::read(source).unwrap(), b"replacement bytes");
+    assert_eq!(fs::read(original).unwrap(), b"original file");
+    assert!(!fixture.path("source/renamed.txt").exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn rename_accepts_scanned_directory_with_an_allocated_index() {
+    use feathrise_editor_project_browser_model::{DirectoryFilters, DirectoryQuery, FolderScope};
+
+    let fixture = Fixture::new();
+    let source = fixture.path("source/selected");
+    fs::create_dir(&source).unwrap();
+    // NTFS 大目录按路径查询可能返回索引长度，目录枚举仍给出零长度。
+    for index in 0..256 {
+        fs::write(source.join(format!("file-{index:04}.txt")), []).unwrap();
+    }
+    let snapshot = (crate::directory_operations().create)().scan(fixture.path("source"), String::new(),
+        DirectoryQuery { context: 1, scope: FolderScope::ProjectFiles, asset_root: None,
+            filters: &DirectoryFilters::default(), reveal_file: None },
+    ).unwrap();
+    let entry = snapshot.entries.iter().find(|entry| entry.asset_path == "selected").unwrap();
+    let stamp = entry.metadata.stamp;
+    assert!(matches!(stamp, FileEntryStamp::Captured(_)));
+
+    let (_, result) = execute(fixture.request(FileOperation::Rename {
+        source, stamp, name: "renamed".into(),
+    }), false);
+    result.unwrap();
+    assert!(fixture.path("source/renamed/file-0255.txt").is_file());
+}
+
+#[test]
 fn failed_copy_reports_completed_failed_and_unprocessed_items() {
     let fixture = Fixture::new();
     for name in ["a.txt", "b.txt", "c.txt"] {
@@ -337,7 +386,7 @@ fn self_descendant_root_outside_and_cancelled_requests_never_remove_source() {
     let descendant = FileOperation::Move { sources: vec![fixture.path("source")].into(), destination: fixture.path("source"), conflict: ConflictPolicy::Fail };
     assert!(execute(fixture.request(descendant), false).1.is_err());
     assert!(execute(fixture.request(FileOperation::Delete { sources: vec![fixture.root.clone()].into() }), false).1.is_err());
-    let mut outside = fixture.request(FileOperation::Rename { source: fixture.path("source/file.txt"), name: "new.txt".into() });
+    let mut outside = fixture.request(FileOperation::Rename { source: fixture.path("source/file.txt"), stamp: FileEntryStamp::Untracked, name: "new.txt".into() });
     outside.allowed_roots = vec![fixture.path("destination")];
     assert!(execute(outside, false).1.is_err());
     let cancelled = fixture.request(FileOperation::Move { sources: vec![fixture.path("source/file.txt")].into(), destination: fixture.path("destination"), conflict: ConflictPolicy::Fail });
@@ -422,12 +471,12 @@ fn all_unavailable_or_file_roots_fail_before_any_mutation() {
 fn case_only_rename_keeps_content_and_never_replaces_a_different_file() {
     let fixture = Fixture::new();
     fs::write(fixture.path("source/Case.TXT"), b"preserve case bytes").unwrap();
-    execute(fixture.request(FileOperation::Rename { source: fixture.path("source/Case.TXT"), name: "case.txt".into() }), false).1.unwrap();
+    execute(fixture.request(FileOperation::Rename { source: fixture.path("source/Case.TXT"), stamp: FileEntryStamp::Untracked, name: "case.txt".into() }), false).1.unwrap();
     let names = fs::read_dir(fixture.path("source")).unwrap().map(|entry| entry.unwrap().file_name()).collect::<Vec<_>>();
     assert!(names.iter().any(|name| name == "case.txt"));
     assert_eq!(fs::read(fixture.path("source/case.txt")).unwrap(), b"preserve case bytes");
     fs::write(fixture.path("source/another.txt"), b"another author").unwrap();
-    assert!(execute(fixture.request(FileOperation::Rename { source: fixture.path("source/case.txt"), name: "another.txt".into() }), false).1.is_err());
+    assert!(execute(fixture.request(FileOperation::Rename { source: fixture.path("source/case.txt"), stamp: FileEntryStamp::Untracked, name: "another.txt".into() }), false).1.is_err());
     assert_eq!(fs::read(fixture.path("source/another.txt")).unwrap(), b"another author");
     assert_eq!(fs::read(fixture.path("source/case.txt")).unwrap(), b"preserve case bytes");
 }

@@ -15,7 +15,7 @@ use bevy::{
 };
 use feathrise_editor_project_browser_model::{
     AssetTypeFilter, DirectoryFilters, DirectoryOperations, DirectoryQuery, DirectoryWorker, FolderScope,
-    file_operations::{FileDirectory, FileEntryStamp, FileSources},
+    file_operations::{FileDirectory, FileSources},
 };
 use std::{path::PathBuf, sync::Arc};
 
@@ -266,22 +266,20 @@ fn directory(
     }).transpose()?;
     let files = Arc::new(FileDirectory::with_stamps(&requested, snapshot.entries.iter().map(|entry| {
         let full = crate::ui::external_files::platform_path(&root.join(&entry.asset_path));
-        let metadata = std::fs::metadata(&full).ok(); // 同一次读取生成展示大小和任务的冻结证据。
+        // 与固定栏共用目录读取取得的文件大小和身份，避免排序后再次访问同一条目。
         (FileEntry {
             path: full,
             name: entry.display_name.clone(),
             directory: entry.is_directory,
-            bytes: metadata.as_ref().map_or(0, std::fs::Metadata::len),
-        }, FileEntryStamp::from_metadata(metadata.as_ref()))
+            bytes: entry.metadata.bytes,
+        }, entry.metadata.stamp)
     })));
     let selection = if let Some(index) = reveal_index {
         let mut selected = FileSources::default();
         selected.select(&files, index..index + 1, false);
         selected
-    } else if selection.is_empty() {
-        FileSources::default()
     } else {
-        FileSources::matching(files.clone(), |path| selection.contains(path))
+        selection.rebind(files.clone())
     };
     Ok(BrowserSnapshot {
         root,

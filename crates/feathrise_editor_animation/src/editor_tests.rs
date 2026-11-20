@@ -253,6 +253,150 @@ fn run_until_idle(app: &mut App) {
 }
 
 #[test]
+fn insert_key_keeps_the_exact_playhead_at_both_display_rates() {
+    let time = 1.0 / 24.0;
+    for fps in [30, 60] {
+        let (mut app, _, _) = app_context();
+        app.add_systems(Update, drive::drive);
+        {
+            let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+            state.fps = fps;
+            state.seek(time); // 源 GLB 可使用与显示帧率不同的时间网格。
+            control::action(&mut state, AnimationAction::InsertKey);
+        }
+        run_until_idle(&mut app);
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        let session = state.current().unwrap();
+        let keys = &session.document.clips[0].channels[0].keys;
+        assert_eq!(keys.iter().map(|key| key.time).collect::<Vec<_>>(), [0.0, time, 2.0]);
+        assert_eq!(session.position, time);
+        control::action(&mut state, AnimationAction::InsertKey);
+        assert!(state.pending.is_none(), "已有精确时间的键不应再插入");
+    }
+}
+
+fn commit_numeric_value(app: &mut App, axis: usize, value: f32) {
+    let binding = app.world().resource::<AnimationEditorState>().revision();
+    let entity = app.world_mut().spawn(AnimationNumericInput {
+        field: AnimationNumericField::Value(axis),
+        binding,
+    }).id();
+    app.world_mut().write_message(NumericInputCommitted {
+        entity,
+        value: NumericValue::F32(value),
+        outcome: NumericInputCommitOutcome::Accepted,
+        source: NumericInputCommitSource::Text,
+        changed: true,
+        edited: true,
+    });
+    run_until_idle(app);
+}
+
+#[test]
+fn numeric_auto_key_edits_one_curve_and_retains_pending_manual_pose() {
+    let (mut app, alpha, _) = app_context();
+    app.add_systems(Update, (control::input, drive::drive).chain());
+    let mut document = test_document();
+    // 同一骨骼的三次旋转若被误补键，曲线会改变，即便新增的旋转值是当前采样值。
+    let rotation = &mut document.clips[0].channels[1];
+    rotation.node = 0;
+    rotation.path = "rotation".into();
+    rotation.keys[0].value = vec![0.0, 0.0, 0.0, 1.0];
+    rotation.keys[1].value = vec![0.0, 0.0, 1.0, 0.0];
+    rotation.set_interpolation("CUBICSPLINE").unwrap();
+    let original = document.clips[0].channels.clone();
+    {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        state.sessions.insert(alpha, Session::new(document));
+        state.seek(0.5);
+    }
+    commit_numeric_value(&mut app, 0, 9.0);
+    let edited = {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        let session = state.current().unwrap();
+        let channels = &session.document.clips[0].channels;
+        assert_eq!(channels[0].keys[1].time, 0.5);
+        assert_eq!(channels[0].keys[1].value[0], 9.0);
+        assert_eq!(channels[1], original[1]);
+        assert_eq!(session.cursor, 1);
+        let edited = channels.clone();
+        control::action(&mut state, AnimationAction::Undo);
+        edited
+    };
+    run_until_idle(&mut app);
+    {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        assert_eq!(state.current().unwrap().document.clips[0].channels, original);
+        control::action(&mut state, AnimationAction::Redo);
+    }
+    run_until_idle(&mut app);
+    {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        assert_eq!(state.current().unwrap().document.clips[0].channels, edited);
+        state.seek(1.0);
+        control::action(&mut state, AnimationAction::ToggleAutoKey);
+    }
+    commit_numeric_value(&mut app, 0, 11.0);
+    {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        let session = state.current().unwrap();
+        assert_eq!(session.document.clips[0].channels, edited);
+        assert_eq!(session.pose.unwrap().1.translation.x, 11.0);
+        assert_eq!(session.cursor, 1);
+        control::action(&mut state, AnimationAction::ToggleAutoKey);
+    }
+    commit_numeric_value(&mut app, 1, 14.0);
+    let state = app.world().resource::<AnimationEditorState>();
+    let session = state.current().unwrap();
+    let channels = &session.document.clips[0].channels;
+    assert_eq!(channels[0].keys[2].time, 1.0);
+    assert_eq!(&channels[0].keys[2].value[..2], &[11.0, 14.0]);
+    assert_eq!(channels[1].keys[1].time, 1.0, "显式积累的完整姿势仍按原合同提交");
+    assert!(session.pose.is_none());
+    assert_eq!(session.cursor, 2);
+}
+
+#[test]
+fn numeric_rotation_keeps_cubic_samples_in_the_original_hemisphere() {
+    for auto_key in [true, false] {
+        let (mut app, alpha, _) = app_context();
+        app.add_systems(Update, (control::input, drive::drive).chain());
+        let mut document = test_document();
+        let channel = &mut document.clips[0].channels[0];
+        channel.path = "rotation".into();
+        channel.interpolation = "CUBICSPLINE".into();
+        // 源四元数都取负半球且切线为零。编辑中间键时翻号会使小角度变化变成半圈旋转。
+        channel.keys = [0.0, 0.5, 1.0].into_iter().map(|time| Keyframe {
+            time,
+            value: vec![0.0, 0.0, 0.0, -1.0],
+            in_tangent: vec![0.0; 4],
+            out_tangent: vec![0.0; 4],
+        }).collect();
+        {
+            let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+            state.sessions.insert(alpha, Session::new(document));
+            state.auto_key = auto_key;
+            state.seek(0.5);
+        }
+        commit_numeric_value(&mut app, 2, 1.0);
+        if !auto_key {
+            let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+            assert!(state.current().unwrap().pose.is_some());
+            control::action(&mut state, AnimationAction::InsertPose);
+            drop(state);
+            run_until_idle(&mut app);
+        }
+        let state = app.world().resource::<AnimationEditorState>();
+        let channel = &state.active_document().unwrap().clips[0].channels[0];
+        assert_eq!(channel.keys.len(), 3);
+        assert!(channel.keys[1].value[3] < 0.0);
+        let midpoint = Quat::from_array(channel.sample(0.25).try_into().unwrap());
+        let angle = midpoint.to_euler(EulerRot::XYZ).2.to_degrees();
+        assert!((angle - 0.5).abs() < 0.01, "三次曲线的中间采样应为约 0.5°，实际为 {angle}°");
+    }
+}
+
+#[test]
 fn directory_clip_adopts_latest_source_index_without_losing_drafts_and_expires_on_tab_change() {
     use feathrise_editor_animation_model::media::ExpandedAssetPreview;
     use super::data::tests::{TemporaryDirectory, write_directory_clip_fixture};

@@ -189,6 +189,59 @@ fn large_pose_keeps_previous_bank_visible_until_every_node_is_complete() {
 }
 
 #[test]
+fn paused_seek_withdraws_the_old_candidate_before_publication() {
+    use crate::resources::Session;
+    use bevy::ecs::system::RunSystemOnce;
+
+    for (playing, draft) in [(false, false), (true, false), (false, true)] {
+        let mut app = candidate_app(130);
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<StandardMaterial>>()
+            .add_systems(Update, (drive, apply_tick).chain());
+        let source = PathBuf::from("fixture.glb");
+        let scene = app.world_mut().spawn_empty().id();
+        let mut editor = AnimationEditorState {
+            active: Some(source.clone()),
+            visible: true,
+            ..default()
+        };
+        editor.sessions.insert(source.clone(), Session::new(crate::data::tests::test_document()));
+        let request = (editor.revision(), editor.active_clip(), pose_request_time(&editor));
+        let identity = SourceIdentity { path: source, revision: editor.source_revision(), scene };
+        let mut runtime = app.world_mut().resource_mut::<PreviewRuntime>();
+        runtime.identity = Some(identity);
+        runtime.applied = Some(request);
+        let roots = runtime.roots.unwrap();
+        // 先由原分帧写入填到最后一批，另一个容器仍在显示完整姿态。
+        for _ in 0..2 {
+            app.world_mut().run_system_once(apply_tick).unwrap();
+        }
+        assert_eq!(app.world().resource::<PreviewRuntime>().cursor, 128);
+
+        editor.seek(1.0);
+        editor.playing = playing;
+        if draft {
+            editor.current_mut().unwrap().pose = Some((0, Transform::IDENTITY));
+        }
+        assert_eq!(editor.revision(), request.0);
+        app.insert_resource(editor).insert_resource(AssetPreviewState {
+            content: AssetPreviewContent::Model {
+                handle: Handle::default(), root: scene, phase: AssetPreviewPhase::Ready,
+            },
+            ..default()
+        });
+        app.update();
+        let keep_candidate = playing || draft;
+        let runtime = app.world().resource::<PreviewRuntime>();
+        assert_eq!(runtime.applied, keep_candidate.then_some(request));
+        assert_eq!(runtime.front, usize::from(keep_candidate));
+        assert_eq!(app.world().get::<Visibility>(roots[runtime.front]), Some(&Visibility::Inherited));
+        assert_eq!(app.world().get::<Visibility>(roots[1 - runtime.front]), Some(&Visibility::Hidden));
+    }
+}
+
+#[test]
 fn in_place_pose_budget_counts_mapped_joints_and_publishes_the_complete_model() {
     use crate::types::{ModelBank, SkeletonMapping};
     use feathrise_editor_animation_model::retarget::{JointCorrection, RigRetarget};

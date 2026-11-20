@@ -153,7 +153,7 @@ fn empty_floating_window_selection_cannot_borrow_fixed_sidebar_file() {
     use super::{messages::{FileManagerCommand, OpenFileWindow}, resources::FixedFileSelection, types::FileAction};
     let mut app = App::new();
     app.init_resource::<FileManagerState>().init_resource::<super::FileWriteReservations>().init_resource::<bevy::input_focus::InputFocus>()
-        .insert_resource(FixedFileSelection { directory: PathBuf::from("C:/fixture/left"), selected: vec![PathBuf::from("C:/fixture/left/keep.txt")], ..default() })
+        .insert_resource(FixedFileSelection { directory: PathBuf::from("C:/fixture/left"), selected: vec![PathBuf::from("C:/fixture/left/keep.txt")].into(), ..default() })
         .add_message::<OpenFileWindow>().add_message::<super::messages::OpenAnimationPicker>()
         .add_message::<FileManagerCommand>().add_systems(Update, super::operations::control);
     for action in [FileAction::Copy, FileAction::Cut, FileAction::Delete, FileAction::Rename] {

@@ -140,6 +140,7 @@ fn fixture(path: &str) -> Fixture {
         display_name: "右键目标".to_owned(), // 不通过显示名称猜测路径。
         is_directory: false,                 // 单击会改变选择，便于检测点透。
         kind: SceneAssetKind::Scene,           // 本测试不实际加载资产。
+        metadata: Default::default(),
     });
     let mut app = App::new(); // 裸ECS足以覆盖输入分派。
     app.insert_resource(catalog)
@@ -393,7 +394,7 @@ fn frozen_target_requires_the_original_path_window_revision_and_scene() {
 fn frozen_target_supports_late_absolute_entries_and_rejects_scroll_rebinding() {
     let mut catalog = EditorAssetCatalog::default();
     catalog.entries = (0..96).map(|index| EditorAssetEntry { asset_path: format!("models/item-{index}.glb"),
-        display_name: format!("item-{index}"), is_directory: false, kind: SceneAssetKind::Scene }).collect();
+        display_name: format!("item-{index}"), is_directory: false, kind: SceneAssetKind::Scene, metadata: Default::default() }).collect();
     catalog.requested_revision = 7;
     catalog.applied_revision = 7;
     catalog.visible_start = 72;

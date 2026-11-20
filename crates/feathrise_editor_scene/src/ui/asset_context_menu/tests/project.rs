@@ -15,7 +15,7 @@ fn project_fixture(path: &str, directory: bool) -> (Fixture, std::path::PathBuf,
     catalog.active = true;
     catalog.applied_revision = catalog.requested_revision;
     catalog.entries.push(EditorAssetEntry { asset_path: path.into(), display_name: "右键工程行".into(),
-        is_directory: directory, kind: SceneAssetKind::Data });
+        is_directory: directory, kind: SceneAssetKind::Data, metadata: Default::default() });
     let mut viewport = ProjectFileViewport::default();
     viewport.capacity = 1;
     viewport.revision = 7;

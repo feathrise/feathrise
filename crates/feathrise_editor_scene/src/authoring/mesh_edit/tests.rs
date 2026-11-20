@@ -284,6 +284,7 @@ fn real_asset_menu_owner_blocks_mesh_shortcuts_without_locking_its_closed_state(
         catalog.entries.push(EditorAssetEntry {
             asset_path: "gltf/menu-owner.glb".into(), display_name: "菜单目标".into(),
             is_directory: false, kind: feathrise_scene_content::SceneAssetKind::Scene,
+            metadata: Default::default(),
         });
     }
     let mut window = Window { focused: true, ..default() };

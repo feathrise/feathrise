@@ -132,7 +132,11 @@ pub(super) fn control(
                             _ => NewFileKind::Glb,
                         },
                     },
-                    FileAction::Rename => FileOperation::Rename { source: prompt.sources.first().expect("重命名已冻结单个源文件").to_owned(), name: prompt.value },
+                    FileAction::Rename => {
+                        // 确认沿用打开弹窗时冻结的行，等待输入期间同名文件可能已被替换。
+                        let (source, stamp) = prompt.sources.iter_with_stamp().next().expect("重命名已冻结单个源文件");
+                        FileOperation::Rename { source: source.to_owned(), stamp, name: prompt.value }
+                    }
                     FileAction::Delete => FileOperation::Delete { sources: prompt.sources },
                     _ => continue,
                 };

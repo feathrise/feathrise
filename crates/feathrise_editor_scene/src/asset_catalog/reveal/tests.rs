@@ -167,6 +167,7 @@ fn file(path: &str) -> EditorAssetEntry {
         display_name: path.rsplit('/').next().unwrap().to_owned(), // UI 可读文件名与实际目录相符。
         is_directory: false,         // 文件目标才允许成为预览选择。
         kind: SceneAssetKind::Scene,   // glTF 模型会沿已有预览链加载。
+        metadata: Default::default(),
     }
 }
 

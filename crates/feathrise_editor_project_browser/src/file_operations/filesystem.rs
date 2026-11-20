@@ -150,9 +150,10 @@ pub(super) fn execute(
             control.update(Some(&destination), 1, bytes.len() as u64);
             receipt.completed.push(FileOperationChange { source: None, destination: Some(destination), source_retained: false });
         }
-        FileOperation::Rename { source, name } => {
+        FileOperation::Rename { source, stamp, name } => {
             *current = Some(source.clone());
-            let source = checked(source, &roots, false)?;
+            let (source, metadata) = checked_entry(source, &roots)?;
+            verify_source_stamp(&source, *stamp, &metadata)?;
             protect_root(&source, &roots)?;
             validate_name(name)?;
             let destination = source.parent().ok_or("不能重命名磁盘根")?.join(name);

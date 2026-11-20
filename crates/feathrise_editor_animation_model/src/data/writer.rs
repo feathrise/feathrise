@@ -28,8 +28,8 @@ impl AnimationDocument {
 
     /// 保存后只换磁盘身份；LINEAR/STEP 暂未使用的三次切线继续留在作者草稿中供撤销恢复。
     pub fn save_rebased(&self, path: &Path) -> Result<Self, String> {
-        let expected = self.encode()?;
-        self.save(path)?;
+        // 回读核验复用实际写入的编码字节，避免再编码一遍完整 GLB。
+        let expected = self.write_current(path)?;
         let mut saved = Self::load(path)?;
         // 保存与重读之间也可能发生外部导出，不能把另一份文件当成本次草稿的版本基线。
         if saved.source.bytes.as_ref() != expected.as_slice() {
@@ -47,6 +47,10 @@ impl AnimationDocument {
 
     /// 保存只作用于已加载的原文件；成功后会话重新读取以建立下一次保存的精确字节基线。
     pub fn save(&self, path: &Path) -> Result<(), String> {
+        self.write_current(path).map(drop)
+    }
+
+    fn write_current(&self, path: &Path) -> Result<Vec<u8>, String> {
         if self.read_only {
             return Err("外置 GLTF/buffer 仅可查看，请先在 Blender 导出独立 GLB".into());
         }
@@ -77,14 +81,14 @@ impl AnimationDocument {
             Ok(())
         };
         verify()?;
-        if bytes.as_slice() == self.source.bytes.as_ref() {
-            return Ok(());
+        if bytes.as_slice() != self.source.bytes.as_ref() {
+            commit_prepared_writes_checked(
+                vec![PreparedWrite::borrowed(canonical.clone(), &bytes)],
+                |_, _| verify(),
+            )
+            .map_err(|error| format!("动画保存失败：{}", error.message()))?;
         }
-        commit_prepared_writes_checked(
-            vec![PreparedWrite::new(canonical.clone(), bytes)],
-            |_, _| verify(),
-        )
-        .map_err(|error| format!("动画保存失败：{}", error.message()))
+        Ok(bytes)
     }
 
     pub(super) fn encode(&self) -> Result<Vec<u8>, String> {

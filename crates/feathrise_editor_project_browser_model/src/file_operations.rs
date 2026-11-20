@@ -33,7 +33,7 @@ pub enum FileOperation {
     Delete { sources: FileSources },
     CreateFolder { parent: PathBuf, name: String },
     CreateFile { parent: PathBuf, name: String, kind: NewFileKind },
-    Rename { source: PathBuf, name: String },
+    Rename { source: PathBuf, stamp: FileEntryStamp, name: String },
 }
 
 impl FileOperation {

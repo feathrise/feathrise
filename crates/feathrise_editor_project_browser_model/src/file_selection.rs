@@ -36,16 +36,17 @@ impl FileEntryIdentity {
             directory: metadata.is_dir(),
             #[cfg(unix)]
             file_id: (metadata.dev(), metadata.ino()),
-            // Windows 的稳定 std 元数据不带文件 ID。用现有属性保守拒绝变更，扫描无需另开文件句柄。
+            // Windows 枚举目录返回长度 0，按路径读取可能返回目录索引长度。只用普通文件的长度比对身份。
             #[cfg(not(unix))]
-            fallback: (metadata.modified().ok(), metadata.len()),
+            fallback: (metadata.modified().ok(), if metadata.is_file() { metadata.len() } else { 0 }),
         }
     }
 }
 
 /// 真实目录快照缺少某行证据时，该行需要刷新。显式路径来源沿用原有后台预检。
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum FileEntryStamp {
+    #[default]
     Untracked,
     Missing,
     Captured(FileEntryIdentity),
@@ -103,6 +104,10 @@ impl FileDirectory {
         self.matching_name(&name_key(path.file_name()?)).iter().find_map(|&(_, index)| {
             (self.entries[index].path == path).then_some(index)
         })
+    }
+
+    fn stamp(&self, index: usize) -> FileEntryStamp {
+        self.stamps.get(index).copied().unwrap_or_default()
     }
 }
 
@@ -168,8 +173,14 @@ impl Rows {
 }
 
 #[derive(Clone, Debug)]
+struct ExplicitPath {
+    path: PathBuf,
+    stamp: FileEntryStamp,
+}
+
+#[derive(Clone, Debug)]
 enum Selection {
-    Paths(Arc<[PathBuf]>),
+    Paths(Arc<[ExplicitPath]>),
     Rows(Arc<Rows>),
 }
 
@@ -179,7 +190,7 @@ pub struct FileSources(Selection);
 
 #[derive(Clone, Debug)]
 enum SelectionIdentity {
-    Paths(Weak<[PathBuf]>),
+    Paths(Weak<[ExplicitPath]>),
     Rows(Weak<Rows>),
 }
 
@@ -204,11 +215,18 @@ impl From<Vec<PathBuf>> for FileSources {
     fn from(mut paths: Vec<PathBuf>) -> Self {
         paths.sort_unstable();
         paths.dedup();
-        Self(Selection::Paths(paths.into()))
+        Self(Selection::Paths(paths.into_iter().map(|path| ExplicitPath {
+            path, stamp: FileEntryStamp::Untracked,
+        }).collect()))
     }
 }
 
 impl FileSources {
+    /// 固定栏的一行保留目录取得的身份，与浮窗的行区间共用同一文件命令。
+    pub fn single(path: PathBuf, stamp: FileEntryStamp) -> Self {
+        Self(Selection::Paths(Arc::from([ExplicitPath { path, stamp }])))
+    }
+
     pub fn len(&self) -> usize {
         match &self.0 {
             Selection::Paths(paths) => paths.len(),
@@ -231,10 +249,10 @@ impl FileSources {
             Selection::Paths(paths) => (paths.as_ref(), None),
             Selection::Rows(rows) => (&[][..], Some(rows.as_ref())),
         };
-        paths.iter().map(|path| (path.as_path(), FileEntryStamp::Untracked)).chain(rows.into_iter().flat_map(|rows| {
+        paths.iter().map(|entry| (entry.path.as_path(), entry.stamp)).chain(rows.into_iter().flat_map(|rows| {
             rows.ranges.iter().cloned().flatten().map(move |index| (
                 rows.directory[index].path.as_path(),
-                rows.directory.stamps.get(index).copied().unwrap_or(FileEntryStamp::Untracked),
+                rows.directory.stamp(index),
             ))
         }))
     }
@@ -260,18 +278,26 @@ impl FileSources {
         }
     }
 
-    /// 扫描后台按新目录保留原选择；剪贴板也可在后台按真实移动回执剔除完成项。
-    pub fn matching(directory: Arc<FileDirectory>, mut keep: impl FnMut(&Path) -> bool) -> Self {
+    /// 扫描后台按路径与文件戳恢复选择。同名替代项必须由作者重新选择。
+    pub fn rebind(&self, directory: Arc<FileDirectory>) -> Self {
+        if self.is_empty() { return Self::default(); }
         let mut rows = Rows { directory, ranges: Vec::new(), count: 0 };
         for index in 0..rows.directory.len() {
-            if keep(&rows.directory[index].path) { rows.append(index); }
+            let path = &rows.directory[index].path;
+            if self.selected_stamp(path).is_some_and(|previous| match previous {
+                FileEntryStamp::Untracked => true,
+                FileEntryStamp::Missing => false,
+                FileEntryStamp::Captured(_) => previous == rows.directory.stamp(index),
+            }) {
+                rows.append(index);
+            }
         }
         Self(Selection::Rows(Arc::new(rows)))
     }
 
     pub(crate) fn retaining(&self, mut keep: impl FnMut(&Path) -> bool) -> Self {
         match &self.0 {
-            Selection::Paths(paths) => paths.iter().filter(|path| keep(path)).cloned().collect::<Vec<_>>().into(),
+            Selection::Paths(paths) => Self(Selection::Paths(paths.iter().filter(|entry| keep(&entry.path)).cloned().collect())),
             Selection::Rows(rows) => {
                 let mut next = Rows { directory: rows.directory.clone(), ranges: Vec::new(), count: 0 };
                 for index in rows.ranges.iter().cloned().flatten() {
@@ -291,9 +317,15 @@ impl FileSources {
 
     /// 精确行身份用实际路径区分大小写，保护草稿时另用兼容 Windows 显示路径的比较键。
     pub fn contains(&self, path: &Path) -> bool {
+        self.selected_stamp(path).is_some()
+    }
+
+    fn selected_stamp(&self, path: &Path) -> Option<FileEntryStamp> {
         match &self.0 {
-            Selection::Paths(paths) => paths.binary_search_by(|entry| entry.as_path().cmp(path)).is_ok(),
-            Selection::Rows(rows) => rows.directory.index_of(path).is_some_and(|index| rows.contains(index)),
+            Selection::Paths(paths) => paths.binary_search_by(|entry| entry.path.as_path().cmp(path))
+                .ok().map(|index| paths[index].stamp),
+            Selection::Rows(rows) => rows.directory.index_of(path).filter(|index| rows.contains(*index))
+                .map(|index| rows.directory.stamp(index)),
         }
     }
 
@@ -304,8 +336,8 @@ impl FileSources {
     fn overlaps_key(&self, key: &Path, tree: bool) -> bool {
         if self.is_empty() { return false; }
         match &self.0 {
-            Selection::Paths(paths) => paths.iter().any(|path| {
-                let source = path_key(path);
+            Selection::Paths(paths) => paths.iter().any(|entry| {
+                let source = path_key(&entry.path);
                 key.starts_with(&source) || tree && source.starts_with(key)
             }),
             Selection::Rows(rows) => {
@@ -365,4 +397,37 @@ pub fn path_key(path: &Path) -> PathBuf {
     { PathBuf::from(name_key(platform_path(path).as_os_str())) }
     #[cfg(not(windows))]
     path.to_path_buf()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn directory_refresh_drops_same_name_replacement_from_selection() {
+        let root = Path::new("fixture");
+        let stamp = |id| FileEntryStamp::Captured(FileEntryIdentity {
+            created: None,
+            directory: false,
+            #[cfg(unix)]
+            file_id: (0, id),
+            #[cfg(not(unix))]
+            fallback: (None, id),
+        });
+        let stable = stamp(1);
+        let directory = |changing| Arc::new(FileDirectory::with_stamps(root, [
+            ("changed.txt", changing), ("kept.txt", stable), ("synthetic.txt", FileEntryStamp::Untracked),
+        ].map(|(name, stamp)| (FileEntry {
+            path: root.join(name), name: name.into(), directory: false, bytes: 0,
+        }, stamp))));
+        let original = directory(stamp(2));
+        let mut selection = FileSources::default();
+        selection.select(&original, 0..original.len(), false);
+
+        let refreshed = selection.rebind(directory(stamp(3)));
+        assert_eq!(refreshed.len(), 2);
+        assert!(!refreshed.contains(&root.join("changed.txt")));
+        assert_eq!(refreshed.iter_with_stamp().next(), Some((root.join("kept.txt").as_path(), stable)));
+        assert!(refreshed.contains(&root.join("synthetic.txt")));
+    }
 }

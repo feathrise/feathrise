@@ -169,6 +169,7 @@ pub(crate) fn assert_gpu(
             display_name: "常用目录".into(),
             is_directory: true,
             kind: feathrise_scene_content::SceneAssetKind::Unsupported,
+            metadata: Default::default(),
         });
     frames(app, 4);
     let selected = app

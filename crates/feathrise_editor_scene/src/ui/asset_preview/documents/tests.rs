@@ -1229,17 +1229,20 @@ fn gpu_document_sidebar(
         display_name: path.into(),
         is_directory: false,
         kind: feathrise_scene_content::SceneAssetKind::Data,
+        metadata: Default::default(),
     }];
     if screenshot_type == "multi-document" {
         app.world_mut().resource_mut::<EditorAssetCatalog>().entries.push(EditorAssetEntry {
             asset_path: "第二代码.rs".into(), display_name: "第二代码.rs".into(),
             is_directory: false, kind: feathrise_scene_content::SceneAssetKind::Data,
+            metadata: Default::default(),
         });
     }
     if screenshot_type == "references" {
         app.world_mut().resource_mut::<EditorAssetCatalog>().entries.push(EditorAssetEntry {
             asset_path: "gltf/中文 空格.glb".into(), display_name: "中文 空格.glb".into(),
             is_directory: false, kind: feathrise_scene_content::SceneAssetKind::Scene,
+            metadata: Default::default(),
         });
     }
     app.finish();

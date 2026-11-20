@@ -526,12 +526,14 @@ pub(super) fn drive(
         retire(&mut runtime, &mut commands);
         runtime.identity = wanted.clone();
     }
-    if runtime.applying
-        && runtime.applied.is_some_and(|(revision, clip, _)| {
-            revision != editor.revision() || clip != editor.active_clip()
-        })
-    {
-        // 关键帧、插值或剪辑在候选填充期间变化，立即撤销候选，旧完整姿态继续可见。
+    let request = (editor.revision(), editor.active_clip(), pose_request_time(&editor));
+    // 连续播放与临时姿势可显示同一动作的中间帧，暂停定位只采用播放头指定的姿态。
+    let accepts = |(revision, clip, time)| {
+        revision == request.0 && clip == request.1
+            && (time == request.2 || editor.playing || editor.current().is_some_and(|s| s.pose.is_some()))
+    };
+    if runtime.applying && runtime.applied.is_none_or(|candidate| !accepts(candidate)) {
+        // 候选分帧填充时播放头也能移动，撤回无效候选并保留上一份已发布姿态。
         runtime.applying = false;
         runtime.applied = None;
         runtime.cursor = 0;
@@ -545,12 +547,8 @@ pub(super) fn drive(
         let pending = runtime.pending.take().expect("刚完成的唯一姿态任务");
         if let Some(pose) = result {
             if wanted == pending.identity
-                && pending.revision == editor.revision()
                 && pending.binding_revision == binding_revision
-                && pending.clip == editor.active_clip()
-                && (editor.playing
-                    || editor.current().is_some_and(|s| s.pose.is_some())
-                    || pending.time == pose_request_time(&editor))
+                && accepts((pending.revision, pending.clip, pending.time))
             {
                 if let Some(previous) = runtime.pose.replace(pose) {
                     runtime.retired.poses.push(previous);
@@ -563,11 +561,6 @@ pub(super) fn drive(
             }
         }
     }
-    let request = (
-        editor.revision(),
-        editor.active_clip(),
-        pose_request_time(&editor),
-    );
     if runtime.pending.is_none() {
         let snapshot = wanted
             .as_ref()

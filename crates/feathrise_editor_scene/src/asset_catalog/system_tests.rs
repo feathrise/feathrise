@@ -38,6 +38,7 @@ fn setup() -> (App, ReleaseIo) {
         display_name: path.rsplit('/').next().unwrap().to_owned(), // 仅用于读者可辨的夹具名称。
         is_directory: false,         // 选择文件会触发现有预览链。
         kind: SceneAssetKind::Scene,   // 不需要真的加载 GLB 来检测选择变化。
+        metadata: Default::default(),
     };
     let mut catalog = EditorAssetCatalog {
         current_folder: "old".to_owned(), // 当前显示目录与后台目标不同。

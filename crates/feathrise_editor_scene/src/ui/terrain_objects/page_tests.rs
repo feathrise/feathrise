@@ -1987,7 +1987,7 @@ fn editor_workbench_gpu_snapshot() {
     assets.sort_by_key(|entry| entry.file_name());
     app.world_mut().resource_mut::<crate::resources::EditorAssetCatalog>().entries = assets.into_iter().take(12).map(|entry| {
         let name = entry.file_name().to_string_lossy().into_owned();
-        crate::types::EditorAssetEntry { asset_path: format!("icons/editor/{name}"), display_name: name, is_directory: entry.file_type().unwrap().is_dir(), kind: SceneAssetKind::Texture }
+        crate::types::EditorAssetEntry { asset_path: format!("icons/editor/{name}"), display_name: name, is_directory: entry.file_type().unwrap().is_dir(), kind: SceneAssetKind::Texture, metadata: Default::default() }
     }).collect();
     app.world_mut().resource_mut::<crate::resources::EditorAssetCatalog>().current_folder = "icons/editor".into();
     app.world_mut().resource_mut::<crate::resources::EditorAssetCatalog>().feedback = Some(crate::asset_catalog::AssetCatalogFeedback { revision: 0, result: Ok(()) });

@@ -45,7 +45,12 @@ pub(super) fn prepare(root: &Path) -> Result<(), String> {
 fn scene_tree_fixture(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
     let camera = commands.spawn((Name::new("备用相机"), Camera3d::default(), Camera { is_active: false, ..default() })).id();
     let anonymous = commands.spawn((Transform::default(), Visibility::Inherited, ChildOf(camera))).id();
-    let parent = commands.spawn((Name::new("原生分组"), Transform::default(), Visibility::Inherited, ChildOf(anonymous))).id();
+    // 离屏父节点不应占行，正常分组仍应显示在备用相机下面。
+    let offscreen = commands.spawn((
+        Name::new("离屏父相机"), Camera3d::default(), Camera { is_active: false, ..default() },
+        bevy::camera::RenderTarget::None { size: UVec2::ONE }, ChildOf(anonymous),
+    )).id();
+    let parent = commands.spawn((Name::new("原生分组"), Transform::default(), Visibility::Inherited, ChildOf(offscreen))).id();
     let mesh = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
     let material = materials.add(Color::srgb(0.2, 0.6, 0.8));
     commands.spawn((
@@ -241,7 +246,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
                     || row.name.as_deref().is_some_and(|name| {
                         name.starts_with("DynamicCelestial")
                             || name.starts_with("场景显式实例候选_")
-                            || matches!(name, "实例内部网格" | "SunDirectionalLight" | "MoonDirectionalLight")
+                            || matches!(name, "离屏父相机" | "实例内部网格" | "SunDirectionalLight" | "MoonDirectionalLight")
                     })
                     || (row.category[0] == "渲染对象" || row.category[0] == "节点") && row.name.is_none()
             }) {

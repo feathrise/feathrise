@@ -9,6 +9,7 @@ use crate::{
     workbench::{WorkbenchFloatingPanels, WorkbenchModel},
 };
 use bevy::{prelude::*, ui::RelativeCursorPosition};
+use feathrise_editor_project_browser_model::file_operations::FileSources;
 use feathrise_editor_ui::UiInteraction;
 use std::path::Path;
 
@@ -34,7 +35,7 @@ pub(super) fn fixed_shortcuts(
     for (key, action) in candidates {
         if let Some(action) = action.filter(|_| keys.just_pressed(key)) {
             requests.write(crate::ui::file_manager::FileManagerCommand {
-                action, path: Some(fixed.directory.clone()), sources: fixed.selected.clone().into(),
+                action, path: Some(fixed.directory.clone()), sources: fixed.selected.clone(),
             });
             keys.clear_just_pressed(key); // 原场景快捷键不得再消费同一文件整理边沿。
         }
@@ -73,14 +74,14 @@ pub(super) fn sync_fixed_selection(
     if !active { return; }
     let asset_root = hosted.as_ref().and_then(|model| model.asset_root.clone())
         .unwrap_or_else(feathrise_editor_core::workspace_asset_root);
-    let (directory, selected) = match browser.view {
+    let (root, directory, selected) = match browser.view {
         ProjectBrowserView::ProjectFiles => {
             let Some(root) = files.project_root() else { fixed.directory.clear(); fixed.selected.clear(); return; };
-            (root.join(&files.current_folder), files.selected_file.as_ref()
+            (root, root.join(&files.current_folder), files.selected_file.as_ref()
                 .filter(|identity| identity.context == files.source_context().unwrap_or(0))
                 .map(|identity| root.join(&identity.relative_path)))
         }
-        ProjectBrowserView::Assets => (asset_root.join(&assets.current_folder), editor.selected_asset.as_ref()
+        ProjectBrowserView::Assets => (asset_root.as_path(), asset_root.join(&assets.current_folder), editor.selected_asset.as_ref()
             .map(|path| asset_root.join(path))),
     };
     let revision = match browser.view { ProjectBrowserView::Assets => assets.applied_revision,
@@ -91,18 +92,23 @@ pub(super) fn sync_fixed_selection(
         let selection_changed = observed.as_ref().is_none_or(|previous| previous.0 != identity.0
             || previous.1 != identity.1 || previous.2 != identity.2 || previous.3 != identity.3);
         // 同目录的筛选/刷新换代取消旧整理选择，避免快捷键命中已隐藏或删除的文件；不在主帧扫描整份快照。
-        let selected = selected.filter(|path| {
-            if !selection_changed || path.parent() != Some(directory.as_path()) { return false; }
-            if browser.view == ProjectBrowserView::ProjectFiles { return true; }
+        fixed.selected = selected.filter(|path| selection_changed && path.parent() == Some(directory.as_path())).and_then(|path| {
             // 资产预览可能显示 GLB 子资产。按下已从物理行冻结文件，反向定位也有实际目录行的回执。
             // 只以这两种来源确认文件身份，原样保留文件名中的 #。
-            observed.as_ref().is_some_and(|previous| previous.0 == identity.0 && previous.1 == identity.1
-                && previous.2 == identity.2 && previous.4 == identity.4 && fixed.selected.contains(path))
-                || assets.revealed_entry.filter(|(rev, _)| *rev == revision)
+            if observed.as_ref().is_some_and(|previous| previous.0 == identity.0 && previous.1 == identity.1
+                && previous.2 == identity.2 && previous.4 == identity.4 && fixed.selected.contains(&path))
+            {
+                return Some(fixed.selected.clone());
+            }
+            let stamp = match browser.view {
+                ProjectBrowserView::ProjectFiles => files.selected_stamp()?,
+                ProjectBrowserView::Assets => assets.revealed_entry.filter(|(rev, _)| *rev == revision)
                     .and_then(|(_, index)| assets.entries.get(index))
-                    .is_some_and(|entry| !entry.is_directory && asset_root.join(&entry.asset_path) == *path)
-        });
-        fixed.selected = selected.into_iter().collect();
+                    .filter(|entry| !entry.is_directory && root.join(&entry.asset_path) == path)?
+                    .metadata.stamp,
+            };
+            Some(FileSources::single(path, stamp))
+        }).unwrap_or_default();
         *observed = Some(identity);
     }
     fixed.directory = directory;
@@ -118,7 +124,7 @@ pub(super) fn sync_fixed_selection(
                 (visible.get() && *interaction != UiInteraction::None
                     && row.revision == files.applied_revision && super::window::current(&viewport, row, scroll))
                     .then(|| row.entry_index.and_then(|index| files.entries.get(index)))
-                    .flatten().and_then(|entry| files.project_root().map(|root| (root.join(&entry.asset_path), entry.is_directory)))
+                    .flatten()
             })
         }),
         ProjectBrowserView::Assets if !assets.is_loading() && asset_viewport.is_current(&assets) => asset_rows.iter().find_map(|(row, interaction, visible, binding)| {
@@ -127,16 +133,19 @@ pub(super) fn sync_fixed_selection(
                 .filter(|index| binding.is_some_and(|binding| binding.revision == assets.applied_revision
                     && binding.viewport_revision == assets.viewport_revision && binding.index == Some(*index)
                     && row.slot < assets.visible_count && *index == assets.visible_start + row.slot))
-                .and_then(|index| assets.entries.get(index))).flatten().map(|entry| (asset_root.join(&entry.asset_path), entry.is_directory))
+                .and_then(|index| assets.entries.get(index))).flatten()
         }),
         _ => None,
     };
-    fixed.hover_destination = entry.as_ref().filter(|(_, directory)| *directory).map(|(path, _)| path.clone());
-    if mouse.just_pressed(MouseButton::Right) {
-        let sources = entry.as_ref().map(|(path, _)| vec![path.clone()]).unwrap_or_default();
-        fixed.selected.clone_from(&sources);
-        let open_directory = entry.as_ref().filter(|(_, directory)| *directory)
-            .map_or_else(|| fixed.directory.clone(), |(path, _)| path.clone());
+    fixed.hover_destination = entry.filter(|entry| entry.is_directory).map(|entry| root.join(&entry.asset_path));
+    let right = mouse.just_pressed(MouseButton::Right);
+    let left = mouse.just_pressed(MouseButton::Left);
+    // 按下冻结物理路径和目录扫描时的身份，拖放阈值及释放仍由桌面统一处理。
+    if left || right {
+        fixed.selected = entry.map(|entry| FileSources::single(root.join(&entry.asset_path), entry.metadata.stamp)).unwrap_or_default();
+    }
+    if right {
+        let open_directory = fixed.hover_destination.clone().unwrap_or_else(|| fixed.directory.clone());
         if let Some(mut contexts) = contexts
             && let Ok((root, transform)) = roots.single()
             && let Some(cursor) = windows.single().ok().and_then(Window::physical_cursor_position)
@@ -144,16 +153,12 @@ pub(super) fn sync_fixed_selection(
                 Rect::from_center_size(transform.affine().translation, root.size()), root.inverse_scale_factor())
         {
             contexts.write(crate::ui::file_manager::FileManagerContextRequest { position,
-                directory: fixed.directory.clone(), sources: sources.into(), open_directory,
-                is_directory: entry.as_ref().map(|(_, directory)| *directory).or(Some(true)) });
+                directory: fixed.directory.clone(), sources: fixed.selected.clone(), open_directory,
+                is_directory: Some(entry.is_none_or(|entry| entry.is_directory)) });
         }
     }
-    // 按下就冻结路径；超过拖动阈值和真正释放的判定由桌面统一处理，换绑行不能换掉来源。
-    if mouse.just_pressed(MouseButton::Left) {
-        fixed.selected = entry.as_ref().map(|(source, _)| source.clone()).into_iter().collect();
-        if let Some((source, _)) = entry && let Some(mut drags) = drags {
-            drags.write(FileManagerExternalDrag { sources: vec![source].into() });
-        }
+    if left && !fixed.selected.is_empty() && let Some(mut drags) = drags {
+        drags.write(FileManagerExternalDrag { sources: fixed.selected.clone() });
     }
 }
 
@@ -194,6 +199,7 @@ mod tests {
         ui::{file_manager::FileManagerCommand, sidebars::{EditorNavigatorTab, SceneEditorSidebarState}},
     };
     use feathrise_scene_content::SceneAssetKind;
+    use feathrise_editor_project_browser_model::{FileEntryMetadata, file_operations::FileEntryStamp};
     use std::path::PathBuf;
 
     #[test]
@@ -203,6 +209,7 @@ mod tests {
         let mut assets = EditorAssetCatalog::default();
         assets.entries = ["a.glb", filename].into_iter().map(|name| EditorAssetEntry {
             asset_path: name.into(), display_name: name.into(), is_directory: false, kind: SceneAssetKind::Scene,
+            metadata: FileEntryMetadata { stamp: FileEntryStamp::Missing, ..default() },
         }).collect();
         assets.visible_count = assets.entries.len();
         let mut sidebar = SceneEditorSidebarState::default();
@@ -235,5 +242,6 @@ mod tests {
         let cut = commands.drain().next().expect("固定栏接收真实 Ctrl+X 命令");
         assert_eq!(cut.action, crate::ui::file_manager::FileAction::Cut);
         assert_eq!(cut.sources.first(), Some(root.join(filename).as_path()));
+        assert!(matches!(cut.sources.iter_with_stamp().next(), Some((_, FileEntryStamp::Missing))));
     }
 }

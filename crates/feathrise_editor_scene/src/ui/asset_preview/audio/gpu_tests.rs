@@ -392,6 +392,7 @@ impl Fixture {
                 display_name: path.rsplit('/').next().unwrap().into(),
                 is_directory: false,
                 kind: feathrise_scene_content::SceneAssetKind::Unsupported,
+                metadata: Default::default(),
             })
             .collect();
         app.finish();

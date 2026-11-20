@@ -60,7 +60,7 @@ fn replace(app: &mut App, source: Entity, text: &str) {
 
 #[test]
 fn queued_file_rename_rejects_native_input_and_clean_tab_saves_at_receipt_destination() {
-    use feathrise_editor_project_browser_model::file_operations::{FileOperation, FileOperationRequest, FileSources};
+    use feathrise_editor_project_browser_model::file_operations::{FileEntryStamp, FileOperation, FileOperationRequest, FileSources};
 
     let fixture = Fixture::new();
     fixture.write("已经保存的正文\n");
@@ -72,7 +72,7 @@ fn queued_file_rename_rejects_native_input_and_clean_tab_saves_at_receipt_destin
     let id = service.enqueue(FileOperationRequest {
         context,
         allowed_roots: vec![fixture.root.clone()],
-        operation: FileOperation::Rename { source: original.clone(), name: "说明#新版.md".into() },
+        operation: FileOperation::Rename { source: original.clone(), stamp: FileEntryStamp::Untracked, name: "说明#新版.md".into() },
     }).unwrap();
     {
         let mut documents = app.world_mut().resource_mut::<DocumentState>();

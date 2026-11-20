@@ -282,6 +282,7 @@ fn fixed_row_switches_grid_and_back_without_replacing_identity_or_selection() {
         display_name: "纹理.png".into(),
         is_directory: false,
         kind: SceneAssetKind::Texture,
+        metadata: Default::default(),
     });
     app.insert_resource(catalog)
         .init_resource::<EditorSettings>()
@@ -688,6 +689,7 @@ fn scroll_window_change_waits_for_visible_rows_to_bind_to_the_current_window() {
             display_name: format!("test-{index}.png"),
             is_directory: false,
             kind: SceneAssetKind::Texture,
+            metadata: Default::default(),
         })
         .collect();
     catalog.visible_start = 12;
@@ -770,6 +772,7 @@ fn closing_and_reopening_keeps_pending_io_single_flight_and_discards_old_epoch()
         display_name: "test.glb".into(),
         is_directory: false,
         kind: SceneAssetKind::Scene,
+        metadata: Default::default(),
     });
     catalog.visible_count = 1;
     let mut state = current_state();
@@ -1189,24 +1192,28 @@ fn gpu_thumbnail_snapshots_render_texture_and_deferred_model_and_freeze_previous
                 display_name: "预设目录".into(),
                 is_directory: true,
                 kind: SceneAssetKind::Unsupported,
+                metadata: Default::default(),
             },
             EditorAssetEntry {
                 asset_path: "texture.png".into(),
                 display_name: "横向纹理.png".into(),
                 is_directory: false,
                 kind: SceneAssetKind::Texture,
+                metadata: Default::default(),
             },
             EditorAssetEntry {
                 asset_path: "scene.gltf".into(),
                 display_name: "场景模型.gltf".into(),
                 is_directory: false,
                 kind: SceneAssetKind::Scene,
+                metadata: Default::default(),
             },
             EditorAssetEntry {
                 asset_path: "preset.json".into(),
                 display_name: "预设数据.json".into(),
                 is_directory: false,
                 kind: SceneAssetKind::Data,
+                metadata: Default::default(),
             },
         ];
     }

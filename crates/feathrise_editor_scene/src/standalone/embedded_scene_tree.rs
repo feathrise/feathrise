@@ -34,6 +34,7 @@ pub(crate) struct ProjectSceneTree {
     rows: Option<Arc<Vec<ProjectSceneTreeRow>>>,
     retirement: Arc<()>,
     revision: u64,
+    generation: u64,
     unavailable: bool,
 }
 
@@ -45,6 +46,7 @@ impl ProjectSceneTree {
 
 pub fn install(app: &mut App) {
     app.init_resource::<ProjectSceneTree>()
+        .init_resource::<AuthoringRetirement>()
         .add_systems(Update, present.in_set(SceneEditorSystemSet::Presentation));
 }
 
@@ -87,6 +89,7 @@ pub fn unavailable(world: &mut World) {
 pub fn clear(world: &mut World) {
     let previous = world.get_resource_mut::<ProjectSceneTree>().and_then(|mut state| {
         state.revision = state.revision.wrapping_add(1);
+        state.generation = state.generation.wrapping_add(1);
         state.unavailable = false;
         state.rows.take()
     });
@@ -141,6 +144,7 @@ pub(crate) fn panel() -> impl Scene {
 struct Matches {
     revision: u64,
     query: String,
+    rows: Arc<Vec<ProjectSceneTreeRow>>,
     indices: Vec<usize>,
 }
 
@@ -148,15 +152,26 @@ struct Matches {
 struct ListState {
     filtering: Option<Task<Matches>>,
     matches: Option<Matches>,
+    generation: u64,
     query: String,
     count: usize,
     start: usize,
+}
+
+fn retire_matches(source: &ProjectSceneTree, retirement: &mut AuthoringRetirement, matches: Option<Matches>) {
+    // 当前行表仍有来源持有，只有已经换下的行表可能在这里释放最后一个引用。
+    if let Some(matches) = matches
+        && source.rows.as_ref().is_none_or(|rows| !Arc::ptr_eq(rows, &matches.rows))
+    {
+        retirement.push((matches, source.retirement.clone()));
+    }
 }
 
 fn present(
     source: Res<ProjectSceneTree>,
     browser: Option<Res<EditorGltfBrowserState>>,
     locale: Res<EditorLocale>,
+    mut retirement: ResMut<AuthoringRetirement>,
     mut state: Local<ListState>,
     panel: Single<&mut Node, (With<Panel>, Without<Viewport>, Without<Content>, Without<Slot>)>,
     heading: Single<&mut Text, (With<Heading>, Without<Slot>)>,
@@ -166,34 +181,46 @@ fn present(
 ) {
     let state = &mut *state;
     let query = browser.as_ref().map_or("", |browser| browser.object_search.trim());
-    let reset = state.query != query;
-    if reset { state.query = query.to_owned(); }
-    let result = state.filtering.as_mut().and_then(check_ready);
-    let filter_finished = result.is_some();
-    if let Some(result) = result {
-        state.filtering = None;
-        state.matches = Some(result);
+    let reset = state.generation != source.generation || state.query != query;
+    if reset {
+        state.generation = source.generation;
+        state.query = query.to_owned();
     }
-    let rows = source.rows.as_deref().map_or(&[][..], Vec::as_slice);
-    let matches = state.matches.as_ref().filter(|result| result.revision == source.revision && result.query == query);
-    if !query.is_empty() && matches.is_none() && state.filtering.is_none()
+    if reset || source.rows.as_ref().is_none_or(|rows| rows.is_empty()) {
+        retire_matches(&source, &mut retirement, state.matches.take());
+    }
+    let mut filter_adopted = false;
+    if let Some(result) = state.filtering.as_mut().and_then(check_ready) {
+        state.filtering = None;
+        let retired = if result.revision == source.revision && result.query == query {
+            filter_adopted = true;
+            state.matches.replace(result)
+        } else {
+            Some(result)
+        };
+        retire_matches(&source, &mut retirement, retired);
+    }
+    let matches = state.matches.as_ref();
+    if !query.is_empty() && matches.is_none_or(|result| result.revision != source.revision)
+        && state.filtering.is_none()
         && let Some(rows) = source.rows.clone().filter(|rows| !rows.is_empty()) {
         let revision = source.revision;
         let query = query.to_owned();
         state.filtering = Some(AsyncComputeTaskPool::get().spawn(async move {
             let indices = find_matches(&rows, &query);
-            Matches { revision, query, indices }
+            Matches { revision, query, rows, indices }
         }));
     }
-    let indices = state.matches.as_ref().filter(|result| result.revision == source.revision && result.query == query)
-        .map_or(&[][..], |result| result.indices.as_slice());
-    let count = if query.is_empty() { rows.len() } else { indices.len() };
+    // 同一场景和关键字刷新时，沿用上一份完整的行表及索引，避免列表闪空或丢失滚动位置。
+    let rows = matches.map(|result| &result.rows).or(source.rows.as_ref())
+        .map_or(&[][..], |rows| rows.as_slice());
+    let count = if query.is_empty() { rows.len() } else { matches.map_or(0, |result| result.indices.len()) };
     let mut panel = panel.into_inner();
     let mut title = heading.into_inner();
     let (mut viewport, mut scroll) = viewport.into_inner();
     let mut content = content.into_inner();
     let layout_changed = reset || scroll.is_changed() || count != state.count || panel.is_added();
-    if !layout_changed && !source.is_changed() && !locale.is_changed() && !filter_finished { return; }
+    if !layout_changed && !source.is_changed() && !locale.is_changed() && !filter_adopted { return; }
     let english = *locale == EditorLocale::English;
     let caption = match (rows.is_empty() && source.unavailable, english) {
         (true, false) => "工程对象暂不可用",
@@ -215,7 +242,7 @@ fn present(
             if node.display != Display::None { node.display = Display::None; }
             continue;
         }
-        let item = &rows[if query.is_empty() { index } else { indices[index] }];
+        let item = &rows[matches.map_or(index, |result| result.indices[index])];
         let category = item.category[usize::from(english)];
         let caption = match item.name.as_deref() {
             Some(name) => format!("{category} · {name}"),
@@ -310,5 +337,56 @@ mod tests {
         ];
         assert_eq!(find_matches(&rows, "player"), vec![0, 1, 2, 4, 5]);
         assert!(find_matches(&rows, "camera").is_empty());
+    }
+
+    #[test]
+    fn scene_tree_search_keeps_scroll_on_refresh_and_rejects_previous_scope() {
+        AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
+        let mut app = App::new();
+        install(&mut app);
+        app.init_resource::<EditorLocale>().init_resource::<EditorGltfBrowserState>();
+        let world = app.world_mut();
+        world.resource_mut::<EditorGltfBrowserState>().object_search = "entry".into();
+        world.spawn((Panel, Node::default()));
+        world.spawn((Heading, Text::default()));
+        world.spawn((Content, Node::default()));
+        let viewport = world.spawn((Viewport, Node::default(), ScrollPosition::default())).id();
+        let slot = world.spawn((Slot(0), Text::default(), Node::default())).id();
+        let rows = |label: &str| Arc::new((0..16).map(|index| ProjectSceneTreeRow {
+            depth: 0, category: ["节点", "Node"], name: Some(format!("{label} entry {index}")), index,
+        }).collect());
+        let wait_for_row = |app: &mut App, expected: &str| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !app.world().get::<Text>(slot).unwrap().0.ends_with(expected) {
+                assert!(std::time::Instant::now() < deadline, "未发布预期搜索行 {expected}");
+                app.update();
+                std::thread::yield_now();
+            }
+        };
+
+        publish(app.world_mut(), rows("old"));
+        wait_for_row(&mut app, "old entry 0");
+        app.world_mut().get_mut::<ScrollPosition>(viewport).unwrap().y = 81.0;
+        app.update();
+        publish(app.world_mut(), rows("new"));
+        app.update(); // 本帧刚启动新过滤，仍显示旧表的滚动窗口。
+        assert_eq!(app.world().get::<Node>(slot).unwrap().display, Display::Flex);
+        assert!(app.world().get::<Text>(slot).unwrap().0.ends_with("old entry 2"));
+        assert_eq!(app.world().get::<ScrollPosition>(viewport).unwrap().y, 81.0);
+        wait_for_row(&mut app, "new entry 2");
+        assert_eq!(app.world().get::<ScrollPosition>(viewport).unwrap().y, 81.0);
+
+        publish(app.world_mut(), rows("discarded"));
+        app.update();
+        clear(app.world_mut());
+        publish(app.world_mut(), rows("next scene"));
+        app.update();
+        assert_eq!(app.world().get::<Node>(slot).unwrap().display, Display::None);
+        assert_eq!(app.world().get::<ScrollPosition>(viewport).unwrap().y, 0.0);
+        wait_for_row(&mut app, "next scene entry 0");
+
+        publish(app.world_mut(), Arc::new(Vec::new()));
+        app.update();
+        assert_eq!(app.world().get::<Node>(slot).unwrap().display, Display::None);
     }
 }

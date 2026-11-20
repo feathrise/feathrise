@@ -330,11 +330,15 @@ pub(super) fn sync(
             node.display = display;
         }
         if let Some(key) = key {
-            node.width = px(if key.clustered || stride > 1 {
+            let width = px(if key.clustered || stride > 1 {
                 5.0
             } else {
                 14.0
             });
+            // 静止菱形无需重新同步到布局引擎，播放时只更新真实变动的控件。
+            if node.width != width {
+                node.width = width;
+            }
             // 端点留出半个菱形命中宽度，首末帧均可完整点击。
             let left = percent(
                 (ratio(
@@ -554,5 +558,51 @@ pub(super) fn sync(
                 cancel_edit: true,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_marker_width_only_changes_when_timeline_density_changes() {
+        let (mut app, _, _) = crate::editor_tests::app_context();
+        app.init_resource::<ActiveNumericInput>()
+            .init_resource::<ActiveNumericInputScrub>()
+            .add_message::<NumericInputSetValue>()
+            .add_systems(Update, sync);
+        let track = app.world_mut().spawn((
+            AnimationTrack { row: Some(0), ..default() },
+            ComputedNode {
+                size: Vec2::new(400.0, 24.0),
+                inverse_scale_factor: 1.0,
+                ..default()
+            },
+        )).id();
+        let marker = app.world_mut().spawn((
+            AnimationKeyButton::default(),
+            Node::default(),
+            UiInteraction::None,
+            BackgroundColor::default(),
+        )).id();
+        let node_width_and_tick = |app: &App| {
+            let node = app.world().entity(marker).get_ref::<Node>().unwrap();
+            (node.width, node.last_changed())
+        };
+
+        app.update();
+        let wide = node_width_and_tick(&app);
+        assert_eq!(wide.0, px(14.0));
+        app.update();
+        assert_eq!(node_width_and_tick(&app), wide);
+
+        app.world_mut().get_mut::<ComputedNode>(track).unwrap().size.x = 14.0;
+        app.update();
+        let clustered = node_width_and_tick(&app);
+        assert_eq!(clustered.0, px(5.0));
+        assert_ne!(clustered.1, wide.1);
+        app.update();
+        assert_eq!(node_width_and_tick(&app), clustered);
     }
 }

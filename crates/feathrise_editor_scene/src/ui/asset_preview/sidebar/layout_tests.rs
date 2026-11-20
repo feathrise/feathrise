@@ -34,6 +34,7 @@ fn entries(count: usize) -> Vec<EditorAssetEntry> {
             display_name: format!("{}模型{index}.glb", "很长的中文模型名称".repeat(12)),
             is_directory: false,
             kind: SceneAssetKind::Scene,
+            metadata: Default::default(),
         })
         .collect()
 }

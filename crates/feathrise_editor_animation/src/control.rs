@@ -1,7 +1,7 @@
 //! 播放、时间轴定位与关键帧事务；固定槽身份在输入前复验，数值一次提交形成一条历史。
 
 use feathrise_editor_animation_model::{host::AnimationHost, media::{AssetPreviewWorkspace, AssetPreviewState}};
-use super::{components::*, context::AnimationContext, data::Keyframe, resources::*};
+use super::{components::*, context::AnimationContext, data::{Channel, Keyframe}, resources::*};
 use bevy::{input::mouse::MouseWheel, prelude::*};
 use feathrise_editor_ui::{
     EditorButtonClick, NumericInputCommitOutcome, NumericInputCommitted, NumericValue,
@@ -64,7 +64,10 @@ pub(super) fn input(
         if !value.is_finite() {
             continue;
         }
-        if let AnimationNumericField::Value(axis) = field.field {
+        // 有临时姿势时沿用整组提交，以保留先前手动修改的其他分量。
+        if let AnimationNumericField::Value(axis) = field.field
+            && (!state.auto_key || state.current().is_some_and(|session| session.pose.is_some()))
+        {
             if let Some(s) = state.current_mut()
                 && let Some(channel) = s.channel.map(|i| &s.document.clips[s.clip].channels[i])
             {
@@ -76,12 +79,11 @@ pub(super) fn input(
                 match channel.path.as_str() {
                     "translation" if axis < 3 => pose.translation[axis] = value,
                     "scale" if axis < 3 => pose.scale[axis] = value,
-                    "rotation" if axis < 3 => {
-                        let (x, y, z) = pose.rotation.to_euler(EulerRot::XYZ);
-                        let mut angles = [x, y, z];
-                        angles[axis] = value.to_radians();
-                        pose.rotation =
-                            Quat::from_euler(EulerRot::XYZ, angles[0], angles[1], angles[2]);
+                    "rotation" => {
+                        let Some(rotation) = rotation_with_angle(pose.rotation, axis, value) else {
+                            continue;
+                        };
+                        pose.rotation = rotation;
                     }
                     _ => continue,
                 }
@@ -94,7 +96,9 @@ pub(super) fn input(
             }
             continue;
         }
+        // 普通数值自动插帧只编辑所选通道，避免给同骨骼的其他曲线补键。
         if let Some(edit) = numeric_edit(&state, field.field, value) {
+            state.playing = false;
             state.pending = Some(PendingAction::Edit(edit));
         }
     }
@@ -176,12 +180,26 @@ pub(super) fn input(
     }
 }
 
+fn key_at(channel: &Channel, time: f32) -> Option<&Keyframe> {
+    let index = channel.keys.partition_point(|key| key.time < time);
+    channel.keys.get(index).filter(|key| key.time == time)
+}
+
+fn rotation_with_angle(rotation: Quat, axis: usize, degrees: f32) -> Option<Quat> {
+    let (x, y, z) = rotation.to_euler(EulerRot::XYZ);
+    let mut angles = [x, y, z];
+    *angles.get_mut(axis)? = degrees.to_radians();
+    let edited = Quat::from_euler(EulerRot::XYZ, angles[0], angles[1], angles[2]);
+    // 三次样条直接插值四元数分量，等价符号翻转会改变相邻帧之间的轨迹。
+    Some(if edited.dot(rotation) < 0.0 { -edited } else { edited })
+}
+
 fn numeric_edit(
     state: &AnimationEditorState,
     field: AnimationNumericField,
     value: f32,
 ) -> Option<Edit> {
-    let session = state.current()?;
+    let session = state.current().filter(|session| session.pose.is_none())?;
     let channel_index = session.channel?;
     let channel = session
         .document
@@ -189,14 +207,9 @@ fn numeric_edit(
         .get(session.clip)?
         .channels
         .get(channel_index)?;
-    let before = if field == AnimationNumericField::Frame {
-        channel.keys.get(session.key?).cloned()
-    } else {
-        channel
-            .keys
-            .iter()
-            .find(|key| (key.time - session.position).abs() < 1e-6)
-            .cloned()
+    let before = match field {
+        AnimationNumericField::Frame => Some(channel.keys.get(session.key?)?.clone()),
+        AnimationNumericField::Value(_) => key_at(channel, session.position).cloned(),
     };
     let mut after = before.clone().unwrap_or_else(|| Keyframe {
         time: session.position,
@@ -207,17 +220,12 @@ fn numeric_edit(
     match field {
         AnimationNumericField::Frame => after.time = value.max(0.0) / state.fps as f32,
         AnimationNumericField::Value(index) if channel.path == "rotation" => {
-            let q = Quat::from_array(after.value.as_slice().try_into().ok()?).normalize();
-            let (x, y, z) = q.to_euler(EulerRot::XYZ);
-            let mut angles = [x, y, z];
-            *angles.get_mut(index)? = value.to_radians();
-            after.value = Quat::from_euler(EulerRot::XYZ, angles[0], angles[1], angles[2])
-                .to_array()
-                .to_vec();
+            let rotation = Quat::from_array(after.value.as_slice().try_into().ok()?).normalize();
+            after.value = rotation_with_angle(rotation, index, value)?.to_array().to_vec();
         }
         AnimationNumericField::Value(index) => *after.value.get_mut(index)? = value,
     }
-    Some(Edit::Key {
+    (before.as_ref() != Some(&after)).then_some(Edit::Key {
         clip: session.clip,
         channel: channel_index,
         before,
@@ -566,13 +574,9 @@ pub(super) fn action(state: &mut AnimationEditorState, action: AnimationAction) 
                     }
                 }
                 _ => {
-                    let time = (session.position * state.fps as f32).round() / state.fps as f32;
-                    let near = channel.keys.partition_point(|key| key.time < time - 1e-6);
-                    if channel
-                        .keys
-                        .get(near)
-                        .is_some_and(|key| (key.time - time).abs() < 1e-6)
-                    {
+                    // 显示帧率只负责帧号和步进，插入采用播放头的精确秒值。
+                    let time = session.position;
+                    if key_at(channel, time).is_some() {
                         state.status = "当前帧已有关键帧，请选择菱形修改数值".to_owned();
                         return;
                     }
