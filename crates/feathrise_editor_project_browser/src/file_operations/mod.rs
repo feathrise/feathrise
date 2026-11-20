@@ -1,7 +1,10 @@
 //! 文件整理的唯一后台写入槽；窗口生命周期不拥有已提交任务，队列和回执都有固定上限。
 
+#[cfg(windows)]
+mod cross_volume;
 mod filesystem;
 mod recycle;
+mod tree_manifest;
 #[cfg(test)]
 mod tests;
 

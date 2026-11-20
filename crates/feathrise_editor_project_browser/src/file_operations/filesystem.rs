@@ -1,15 +1,10 @@
 //! 后台受检文件系统操作；完整预检后逐顶层提交，复制先写本轮暂存目录，发布时禁止覆盖。
 
-use super::{Control, recycle};
+use super::{Control, recycle, tree_manifest::{Entry, Manifest, ManifestWriter}};
 use feathrise_editor_project_browser_model::file_operations::*;
-use std::{collections::HashSet, fs::{self, File, Metadata, OpenOptions}, io::{Read, Write}, path::{Component, Path, PathBuf}};
+use std::{collections::HashSet, fs::{self, File, Metadata, OpenOptions}, io::{self, Read, Write}, path::{Component, Path, PathBuf}};
 
-const MAX_TREE_ENTRIES: usize = 100_000;
-const MAX_PATH_BYTES: usize = 32 * 1024 * 1024;
 const BUFFER_SIZE: usize = 256 * 1024;
-
-#[derive(Clone)]
-pub(super) struct Entry { relative: PathBuf, metadata: Metadata }
 
 /// Windows给文件路径附加空相对段会产生尾随分隔符；根条目必须直接使用原路径。
 fn member(root: &Path, relative: &Path) -> PathBuf { if relative.as_os_str().is_empty() { root.to_owned() } else { root.join(relative) } }
@@ -53,34 +48,50 @@ pub(super) fn execute(
                 if moving && requested == *source { receipt.skipped.push(source.clone()); continue; }
                 let target = target_path(&requested, *conflict)?;
                 let Some(target) = target else { receipt.skipped.push(source.clone()); continue; };
-                let manifest = tree(source, control)?;
-                verify_source_stamp(source, *stamp, &manifest[0].metadata)?;
-                if moving && move_without_replace(source, &target).is_ok() {
-                    receipt.completed.push(FileOperationChange { source: Some(source.clone()), destination: Some(target), source_retained: false });
-                    control.update(None, 1, 0);
-                    continue;
-                }
-                // 只有跨卷/受限移动才锁住源；同卷原子rename和普通复制不增加文件句柄预算。
-                let mut source_locks = if moving { Some(SourceLocks::acquire(source, &manifest)?) } else { None };
-                // 跨卷移动复用受检复制；失败时保留源，不能先删源再尝试复制。
-                let stage_container = reserve_stage(&destination, control.id(), index)?;
-                let stage = stage_container.join("content");
-                let result = copy_tree(source, &stage, &manifest, control)
-                    .and_then(|()| { control.check()?; verify_unchanged(source, &manifest)?; move_without_replace(&stage, &target) });
-                if let Err(error) = result {
-                    cleanup_stage(&stage_container);
-                    return Err(error);
-                }
-                let _ = fs::remove_dir(&stage_container);
                 if moving {
-                    // 文件发布后再次逐字节核验；并发改写则保留两份，绝不把复制成功当成源可删除的证明。
-                    if let Err(error) = verify_copied(source, &target, &manifest, control)
-                        .and_then(|()| source_locks.as_mut().expect("移动持有源身份锁").remove(&manifest, control)) {
-                        receipt.completed.push(FileOperationChange { source: Some(source.clone()), destination: Some(target), source_retained: true });
-                        return Err(format!("目标已复制，源文件保留或部分保留：{error}"));
+                    walk_tree(source, *stamp, control, |_, _, _| Ok(()))?;
+                    control.check()?;
+                    let metadata = tree_metadata(source)?;
+                    verify_source_stamp(source, *stamp, &metadata)?;
+                    reject_link_chain(&destination)?;
+                    match system_move_without_replace(source, &target, metadata.is_file()) {
+                        Ok(()) => {
+                            receipt.completed.push(FileOperationChange { source: Some(source.clone()), destination: Some(target), source_retained: false });
+                            control.update(None, 1, 0);
+                            continue;
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::CrossesDevices => {
+                            #[cfg(not(windows))]
+                            return Err(cross_volume_unsupported());
+                        }
+                        Err(error) => return Err(move_error(source, &target, error)),
                     }
                 }
-                receipt.completed.push(FileOperationChange { source: Some(source.clone()), destination: Some(target), source_retained: !moving });
+                reject_link_chain(&destination)?;
+                let stage_container = reserve_stage(&destination, control.id(), index)?;
+                let stage = stage_container.join("content");
+                let manifest_path = stage_container.join("source-manifest");
+                let published = (|| {
+                    let mut manifest = copy_tree(source, *stamp, &stage, &manifest_path, moving, control)?;
+                    // 先核对完整暂存结果，再发布目标。跨卷移动发布前完成整树逐字节核验。
+                    if moving { verify_cross_volume(source, &stage, &mut manifest, control, false)?; }
+                    else { verify_unchanged(source, &mut manifest, control)?; }
+                    control.check()?;
+                    reject_link_chain(&stage)?;
+                    move_without_replace(&stage, &target)?;
+                    Ok::<_, String>(manifest)
+                })();
+                let mut manifest = match published {
+                    Ok(manifest) => manifest,
+                    Err(error) => { cleanup_stage(&stage_container); return Err(error); }
+                };
+                // 发布后逐项重新持有源和目标，源内容发生变化的条目留在原位。
+                let removal = if moving { verify_cross_volume(source, &target, &mut manifest, control, true) } else { Ok(()) };
+                drop(manifest);
+                let _ = fs::remove_file(&manifest_path);
+                let _ = fs::remove_dir(&stage_container);
+                receipt.completed.push(FileOperationChange { source: Some(source.clone()), destination: Some(target), source_retained: !moving || removal.is_err() });
+                removal.map_err(|error| format!("目标已复制，源文件保留或部分保留：{error}"))?;
                 control.update(None, 1, 0);
             }
         }
@@ -90,18 +101,13 @@ pub(super) fn execute(
                 control.check()?;
                 *current = Some(source.clone());
                 protect_root(source, &roots)?;
-                let manifest = tree(source, control)?;
-                verify_source_stamp(source, *stamp, &manifest[0].metadata)?;
+                walk_tree(source, *stamp, control, |_, _, _| Ok(()))?;
             }
             for (source, stamp) in sources {
                 control.check()?;
                 *current = Some(source.clone());
                 control.update(Some(&source), 0, 0);
-                if !matches!(stamp, FileEntryStamp::Untracked) {
-                    let metadata = fs::symlink_metadata(&source).map_err(|error| error.to_string())?;
-                    reject_link(&source, &metadata)?;
-                    verify_source_stamp(&source, stamp, &metadata)?;
-                }
+                verify_source_stamp(&source, stamp, &tree_metadata(&source)?)?;
                 recycle::delete(&source)?;
                 receipt.completed.push(FileOperationChange { source: Some(source), destination: None, source_retained: false });
                 control.update(None, 1, 0);
@@ -256,7 +262,7 @@ fn validate_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn reject_link(path: &Path, metadata: &Metadata) -> Result<(), String> {
+pub(super) fn reject_link(path: &Path, metadata: &Metadata) -> Result<(), String> {
     #[cfg(windows)]
     let reparse = { use std::os::windows::fs::MetadataExt; metadata.file_attributes() & 0x400 != 0 };
     #[cfg(not(windows))]
@@ -266,7 +272,7 @@ fn reject_link(path: &Path, metadata: &Metadata) -> Result<(), String> {
     Ok(())
 }
 
-fn reject_link_chain(path: &Path) -> Result<(), String> {
+pub(super) fn reject_link_chain(path: &Path) -> Result<(), String> {
     // 预检之后外部工具仍可能改动目录；重新检查中间层，不能只检查叶子文件而跟随新联接。
     for ancestor in path.ancestors() {
         let metadata = fs::symlink_metadata(ancestor).map_err(|error| format!("路径已经改变 {}：{error}", ancestor.display()))?;
@@ -275,33 +281,44 @@ fn reject_link_chain(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn tree(source: &Path, control: &Control<'_>) -> Result<Vec<Entry>, String> {
-    let mut stack = vec![PathBuf::new()];
-    let mut entries = Vec::new();
-    let mut path_bytes = 0;
-    while let Some(relative) = stack.pop() {
+fn tree_metadata(path: &Path) -> Result<Metadata, String> {
+    if let Some(parent) = path.parent() { reject_link_chain(parent)?; }
+    let metadata = fs::symlink_metadata(path).map_err(|error| format!("无法读取 {}：{error}", path.display()))?;
+    reject_link(path, &metadata)?;
+    Ok(metadata)
+}
+
+/// 同卷移动和回收只需核验目录，逐层保留正在枚举的迭代器，不把兄弟条目积在内存。
+fn walk_tree(
+    source: &Path,
+    stamp: FileEntryStamp,
+    control: &Control<'_>,
+    mut visit: impl FnMut(&Path, &Path, &Metadata) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut directories = Vec::<fs::ReadDir>::new();
+    let mut relative = PathBuf::new();
+    loop {
         control.check()?;
         let path = member(source, &relative);
-        reject_link_chain(&path)?;
-        let metadata = fs::symlink_metadata(&path).map_err(|error| format!("无法读取 {}：{error}", path.display()))?;
-        reject_link(&path, &metadata)?;
-        path_bytes += relative.as_os_str().len();
-        if entries.len() >= MAX_TREE_ENTRIES || path_bytes > MAX_PATH_BYTES || relative.components().count() > 128 {
-            return Err("文件夹超过单次整理预算（10万条目、128层或32MiB路径），请分批整理".into());
-        }
+        let metadata = tree_metadata(&path)?;
+        if relative.as_os_str().is_empty() { verify_source_stamp(source, stamp, &metadata)?; }
+        visit(&path, &relative, &metadata)?;
         if metadata.is_dir() {
-            for entry in fs::read_dir(&path).map_err(|error| error.to_string())? {
-                let entry = entry.map_err(|error| error.to_string())?;
-                let child = relative.join(entry.file_name());
-                path_bytes += child.as_os_str().len();
-                if path_bytes > MAX_PATH_BYTES { return Err("文件夹路径超过32MiB预算，请分批整理".into()); }
-                stack.push(child);
-                if entries.len() + stack.len() > MAX_TREE_ENTRIES { return Err("文件夹条目超过10万，请分批整理".into()); }
-            }
+            directories.push(fs::read_dir(&path).map_err(|error| format!("无法枚举 {}：{error}", path.display()))?);
+        } else {
+            relative.pop();
         }
-        entries.push(Entry { relative, metadata });
+        loop {
+            control.check()?;
+            let Some(directory) = directories.last_mut() else { return Ok(()); };
+            if let Some(entry) = directory.next() {
+                relative.push(entry.map_err(|error| error.to_string())?.file_name());
+                break;
+            }
+            directories.pop();
+            relative.pop();
+        }
     }
-    Ok(entries)
 }
 
 fn target_path(requested: &Path, policy: ConflictPolicy) -> Result<Option<PathBuf>, String> {
@@ -334,129 +351,133 @@ fn reserve_stage(parent: &Path, id: u64, index: usize) -> Result<PathBuf, String
     Err("复制暂存名称已被占用，请稍后重试".into())
 }
 
-fn copy_tree(source: &Path, destination: &Path, manifest: &[Entry], control: &Control<'_>) -> Result<(), String> {
-    for entry in manifest {
-        control.check()?;
-        let from = member(source, &entry.relative);
-        let to = member(destination, &entry.relative);
-        reject_link_chain(&from)?;
-        let actual = fs::symlink_metadata(&from).map_err(|error| error.to_string())?;
-        reject_link(&from, &actual)?;
-        if !unchanged(&actual, &entry.metadata) { return Err(format!("复制期间源文件已改变：{}", from.display())); }
-        if entry.metadata.is_dir() {
+fn copy_tree(
+    source: &Path,
+    stamp: FileEntryStamp,
+    destination: &Path,
+    manifest_path: &Path,
+    moving: bool,
+    control: &Control<'_>,
+) -> Result<Manifest, String> {
+    let mut manifest = ManifestWriter::new(manifest_path.to_owned());
+    let mut buffer = vec![0; BUFFER_SIZE];
+    walk_tree(source, stamp, control, |from, relative, metadata| {
+        let mut entry = Entry::capture(relative.to_owned(), metadata);
+        let to = member(destination, relative);
+        // 跨卷复制从已核对身份的源句柄读取，一次持有一个源，其他条目稍后重新验证。
+        let locked = if moving { Some(lock_move_source(from, &mut entry)?) } else { None };
+        if entry.directory {
             fs::create_dir(&to).map_err(|error| format!("不能创建暂存目录 {}：{error}", to.display()))?;
         } else {
-            let mut input = File::open(&from).map_err(|error| format!("不能读取 {}：{error}", from.display()))?;
-            let mut output = OpenOptions::new().create_new(true).write(true).open(&to).map_err(|error| format!("不能创建暂存文件 {}：{error}", to.display()))?;
-            let mut buffer = vec![0; BUFFER_SIZE];
+            let mut input = match locked {
+                Some(file) => file,
+                None => open_copy_file(from, &entry)?,
+            };
+            let mut output = OpenOptions::new().create_new(true).write(true).open(&to)
+                .map_err(|error| format!("不能创建暂存文件 {}：{error}", to.display()))?;
             loop {
                 control.check()?;
                 let length = input.read(&mut buffer).map_err(|error| error.to_string())?;
                 if length == 0 { break; }
                 output.write_all(&buffer[..length]).map_err(|error| error.to_string())?;
-                control.update(Some(&from), 0, length as u64);
+                control.update(Some(from), 0, length as u64);
             }
             output.sync_all().map_err(|error| error.to_string())?;
         }
-    }
-    Ok(())
+        manifest.push(entry)
+    })?;
+    manifest.finish()
 }
 
-fn unchanged(actual: &Metadata, original: &Metadata) -> bool {
-    actual.is_dir() == original.is_dir() && actual.len() == original.len() && actual.modified().ok() == original.modified().ok()
-}
-
-fn verify_unchanged(source: &Path, manifest: &[Entry]) -> Result<(), String> {
-    for entry in manifest {
-        let path = member(source, &entry.relative);
-        reject_link_chain(&path)?;
-        let actual = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
-        reject_link(&path, &actual)?;
-        if !unchanged(&actual, &entry.metadata) { return Err(format!("复制期间源内容已改变，源文件保留：{}", path.display())); }
-    }
-    Ok(())
-}
-
-fn verify_copied(source: &Path, target: &Path, manifest: &[Entry], control: &Control<'_>) -> Result<(), String> {
-    verify_unchanged(source, manifest)?;
-    let mut left = vec![0; BUFFER_SIZE];
-    let mut right = vec![0; BUFFER_SIZE];
-    for entry in manifest.iter().filter(|entry| entry.metadata.is_file()) {
-        control.check()?;
-        let mut original = File::open(member(source, &entry.relative)).map_err(|error| error.to_string())?;
-        let mut copied = File::open(member(target, &entry.relative)).map_err(|error| error.to_string())?;
-        loop {
-            control.check()?;
-            let a = original.read(&mut left).map_err(|error| error.to_string())?;
-            let b = copied.read(&mut right).map_err(|error| error.to_string())?;
-            if a != b || left[..a] != right[..b] { return Err("目标逐字节校验失败".into()); }
-            if a == 0 { break; }
-        }
-    }
-    verify_unchanged(source, manifest)
-}
-
-#[cfg(windows)]
-struct SourceLocks { handles: Vec<Option<File>> }
-
-#[cfg(windows)]
-impl SourceLocks {
-    fn acquire(source: &Path, manifest: &[Entry]) -> Result<Self, String> {
+fn open_copy_file(path: &Path, entry: &Entry) -> Result<File, String> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
         use std::os::windows::fs::OpenOptionsExt;
-        if manifest.len() > 4096 { return Err("跨卷移动超过4096条目，请分批移动或先复制；源文件未删除".into()); }
-        let mut handles = Vec::with_capacity(manifest.len());
-        for entry in manifest {
-            let path = member(source, &entry.relative);
-            reject_link_chain(&path)?;
-            let mut options = OpenOptions::new();
-            if entry.metadata.is_dir() {
-                // 目录只禁止重命名/替换，仍允许外部工具增加新文件；新增成员会让最终空目录删除失败并保留。
-                options.access_mode(0x0001_0000 | 0x0010_0000 | 0x80).share_mode(1 | 2).custom_flags(0x0200_0000);
-            } else {
-                // 持有READ+DELETE权限，同时禁止其他WRITE/DELETE句柄；既不误删后来替换的文件，也不丢外部写入。
-                options.access_mode(0x8000_0000 | 0x0001_0000).share_mode(1);
-            }
-            let file = options.open(&path).map_err(|error| format!("源正在被写入、替换或占用，移动已停止，源保留 {}：{error}", path.display()))?;
-            if !unchanged(&file.metadata().map_err(|error| error.to_string())?, &entry.metadata) {
-                return Err(format!("源已被外部修改，移动已停止：{}", path.display()));
-            }
-            handles.push(Some(file));
-        }
-        Ok(Self { handles })
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options.open(path).map_err(|error| format!("不能读取 {}：{error}", path.display()))?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    reject_link(path, &metadata)?;
+    if !entry.matches(&metadata) { return Err(format!("复制期间源文件已改变：{}", path.display())); }
+    Ok(file)
+}
 
-    fn remove(&mut self, manifest: &[Entry], control: &Control<'_>) -> Result<(), String> {
-        use std::os::windows::io::AsRawHandle;
-        use windows_sys::Win32::Storage::FileSystem::{SetFileInformationByHandle, FileDispositionInfo, FILE_DISPOSITION_INFO};
-        for index in (0..manifest.len()).rev() {
-            control.check()?;
-            let Some(file) = self.handles[index].take() else { continue; };
-            let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
-            // 按锁定的真实句柄删除，不重新解析源路径；文件与目录在drop时真正释放。
-            if unsafe { SetFileInformationByHandle(file.as_raw_handle(), FileDispositionInfo,
-                (&disposition as *const FILE_DISPOSITION_INFO).cast(), std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32) } == 0 {
-                return Err(format!("源目录有新内容或文件被占用，未完成源保留：{}", std::io::Error::last_os_error()));
-            }
+fn verify_unchanged(source: &Path, manifest: &mut Manifest, control: &Control<'_>) -> Result<(), String> {
+    manifest.visit(false, |entry| {
+        control.check()?;
+        let path = member(source, &entry.relative);
+        if !entry.matches(&tree_metadata(&path)?) {
+            return Err(format!("复制期间源内容已改变，源文件保留：{}", path.display()));
         }
         Ok(())
-    }
+    })
+}
+
+#[cfg(windows)]
+fn lock_move_source(path: &Path, entry: &mut Entry) -> Result<File, String> {
+    let (file, key) = super::cross_volume::lock_source(path, entry, false)?;
+    entry.file_key = Some(key);
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn verify_cross_volume(
+    source: &Path,
+    target: &Path,
+    manifest: &mut Manifest,
+    control: &Control<'_>,
+    remove_source: bool,
+) -> Result<(), String> {
+    use super::cross_volume::{delete_locked, lock_source, verify_copy};
+    let mut left = vec![0; BUFFER_SIZE];
+    let mut right = vec![0; BUFFER_SIZE];
+    // 清单父项先记录。反序清理只删除本轮已复制的项，目录只能在子项处理完毕后按句柄删空目录。
+    manifest.visit(remove_source, |entry| {
+        control.check()?;
+        if entry.file_key.is_none() { return Err("跨卷清单缺少原文件身份，源文件保留".into()); }
+        let from = member(source, &entry.relative);
+        let to = member(target, &entry.relative);
+        let (mut original, _) = lock_source(&from, entry, remove_source)?;
+        let copied = if entry.directory {
+            if !tree_metadata(&to)?.is_dir() { return Err(format!("目标目录已改变：{}", to.display())); }
+            None
+        } else {
+            Some(verify_copy(&mut original, &to, &mut left, &mut right, control)?)
+        };
+        if remove_source {
+            control.check()?;
+            delete_locked(&original, &from)?;
+            drop(original); // 先关闭已标记删除的源，再释放目标的读锁。
+        }
+        drop(copied);
+        Ok(())
+    })
 }
 
 #[cfg(not(windows))]
-struct SourceLocks;
+fn cross_volume_unsupported() -> String {
+    "当前平台尚未支持可阻止并发写入的跨卷移动，请复制后另行回收源文件".into()
+}
 
 #[cfg(not(windows))]
-impl SourceLocks {
-    fn acquire(_source: &Path, _manifest: &[Entry]) -> Result<Self, String> {
-        Err("当前平台尚未支持可阻止并发写入的跨卷移动，请复制后另行回收源文件".into())
-    }
-    fn remove(&mut self, _manifest: &[Entry], _control: &Control<'_>) -> Result<(), String> { unreachable!("非Windows不会取得跨卷源锁") }
-}
+fn lock_move_source(_path: &Path, _entry: &mut Entry) -> Result<File, String> { Err(cross_volume_unsupported()) }
+
+#[cfg(not(windows))]
+fn verify_cross_volume(
+    _source: &Path, _target: &Path, _manifest: &mut Manifest, _control: &Control<'_>, _remove_source: bool,
+) -> Result<(), String> { Err(cross_volume_unsupported()) }
 
 fn rename_checked(source: &Path, destination: &Path, id: u64) -> Result<(), String> {
     #[cfg(windows)]
     if destination.canonicalize().ok().as_deref() == Some(source) {
-        // Windows同名大小写调整经同目录暂存跳转；两次MoveFileW仍均禁止覆盖，不使用可覆盖rename。
+        // Windows仅改大小写仍经同目录暂存跳转，两次移动都禁止覆盖。
         let container = reserve_stage(source.parent().ok_or("源缺少父目录")?, id, 0)?;
         let temporary = container.join("content");
         if let Err(error) = move_without_replace(source, &temporary) { let _ = fs::remove_dir(&container); return Err(error); }
@@ -480,34 +501,49 @@ fn cleanup_stage(path: &Path) {
     }
 }
 
-#[cfg(windows)]
 fn move_without_replace(source: &Path, destination: &Path) -> Result<(), String> {
+    system_move_without_replace(source, destination, false).map_err(|error| move_error(source, destination, error))
+}
+
+fn move_error(source: &Path, destination: &Path, error: io::Error) -> String {
+    format!("无法移动 {} 至 {}：{error}", source.display(), destination.display())
+}
+
+#[cfg(windows)]
+fn system_move_without_replace(source: &Path, destination: &Path, native_file: bool) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MoveFileW};
     let source_wide: Vec<_> = source.as_os_str().encode_wide().chain(Some(0)).collect();
     let destination_wide: Vec<_> = destination.as_os_str().encode_wide().chain(Some(0)).collect();
-    // MoveFileW既可同卷移动目录，也保证同名目标出现时失败，不会覆盖竞态中新建的文件。
-    if unsafe { windows_sys::Win32::Storage::FileSystem::MoveFileW(source_wide.as_ptr(), destination_wide.as_ptr()) } == 0 {
-        Err(format!("无法移动 {} 至 {}：{}", source.display(), destination.display(), std::io::Error::last_os_error()))
+    // 单文件沿用原生跨卷语义。目录和暂存发布明确要求同卷，才能准确区分跨卷和权限错误。
+    let result = unsafe {
+        if native_file { MoveFileW(source_wide.as_ptr(), destination_wide.as_ptr()) }
+        else { MoveFileExW(source_wide.as_ptr(), destination_wide.as_ptr(), 0) }
+    };
+    if result == 0 {
+        Err(io::Error::last_os_error())
     } else { Ok(()) }
 }
 
 #[cfg(unix)]
-fn move_without_replace(source: &Path, destination: &Path) -> Result<(), String> {
+fn system_move_without_replace(source: &Path, destination: &Path, _native_file: bool) -> io::Result<()> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
-    let source = CString::new(source.as_os_str().as_bytes()).map_err(|_| "源路径包含空字符")?;
-    let destination = CString::new(destination.as_os_str().as_bytes()).map_err(|_| "目标路径包含空字符")?;
+    let source = CString::new(source.as_os_str().as_bytes()).map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let destination = CString::new(destination.as_os_str().as_bytes()).map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
     #[cfg(any(target_os = "linux", target_os = "android"))]
     let result = unsafe { libc::renameat2(libc::AT_FDCWD, source.as_ptr(), libc::AT_FDCWD, destination.as_ptr(), libc::RENAME_NOREPLACE) };
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     let result = unsafe { libc::renamex_np(source.as_ptr(), destination.as_ptr(), libc::RENAME_EXCL) };
     #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos", target_os = "ios")))]
-    return Err("当前平台尚未提供不会覆盖目标的文件移动接口".into());
+    return Err(io::Error::new(io::ErrorKind::Unsupported, "当前平台尚未提供不会覆盖目标的文件移动接口"));
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos", target_os = "ios"))]
-    if result == 0 { Ok(()) } else { Err(std::io::Error::last_os_error().to_string()) }
+    if result == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
 }
 
 #[cfg(not(any(windows, unix)))]
-fn move_without_replace(_source: &Path, _destination: &Path) -> Result<(), String> { Err("当前平台尚未支持本地文件整理".into()) }
+fn system_move_without_replace(_source: &Path, _destination: &Path, _native_file: bool) -> io::Result<()> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "当前平台尚未支持本地文件整理"))
+}
 
 #[cfg(all(test, windows))]
 mod lock_tests {
@@ -520,21 +556,28 @@ mod lock_tests {
             destination: fixture.path("destination"), conflict: ConflictPolicy::Fail }), cancel: Arc::new(AtomicBool::new(false)) }
     }
 
+    fn copy_fixture(fixture: &Fixture, control: &Control<'_>) -> Result<Manifest, String> {
+        copy_tree(&fixture.path("source"), FileEntryStamp::Untracked, &fixture.path("destination/copied"),
+            &fixture.path("destination/manifest"), true, control)
+    }
+
     #[test]
-    fn cross_volume_source_locks_reject_external_writers_and_delete_the_exact_verified_files() {
+    fn cross_volume_item_lock_rejects_external_writers_and_deletes_the_verified_files() {
         let fixture = Fixture::new();
-        fs::write(fixture.path("source/file.txt"), b"locked source content").unwrap();
+        let source = fixture.path("source/file.txt");
+        fs::write(&source, b"locked source content").unwrap();
         let job = job(&fixture);
         let shared = Shared::default();
         let control = Control { shared: &shared, job: &job };
-        let manifest = tree(&fixture.path("source"), &control).unwrap();
-        let mut locks = SourceLocks::acquire(&fixture.path("source"), &manifest).unwrap();
-        assert!(OpenOptions::new().write(true).open(fixture.path("source/file.txt")).is_err(), "普通外部作者写入应被源锁拒绝");
-        assert!(fs::rename(fixture.path("source/file.txt"), fixture.path("source/replaced.txt")).is_err(), "源不可在复制期间被替换");
+        let mut entry = Entry::capture(PathBuf::from("file.txt"), &fs::metadata(&source).unwrap());
+        let lock = lock_move_source(&source, &mut entry).unwrap();
+        assert!(OpenOptions::new().write(true).open(&source).is_err(), "当前持锁项应拒绝外部写入");
+        assert!(fs::rename(&source, fixture.path("source/replaced.txt")).is_err(), "当前持锁项应拒绝改名");
+        drop(lock);
         let copied = fixture.path("destination/copied");
-        copy_tree(&fixture.path("source"), &copied, &manifest, &control).unwrap();
-        verify_copied(&fixture.path("source"), &copied, &manifest, &control).unwrap();
-        locks.remove(&manifest, &control).unwrap();
+        let mut manifest = copy_fixture(&fixture, &control).unwrap();
+        verify_cross_volume(&fixture.path("source"), &copied, &mut manifest, &control, false).unwrap();
+        verify_cross_volume(&fixture.path("source"), &copied, &mut manifest, &control, true).unwrap();
         assert!(!fixture.path("source").exists());
         assert_eq!(fs::read(copied.join("file.txt")).unwrap(), b"locked source content");
     }
@@ -546,9 +589,8 @@ mod lock_tests {
         let job = job(&fixture);
         let shared = Shared::default();
         let control = Control { shared: &shared, job: &job };
-        let manifest = tree(&fixture.path("source"), &control).unwrap();
         let mut author = OpenOptions::new().write(true).append(true).open(fixture.path("source/file.txt")).unwrap();
-        assert!(SourceLocks::acquire(&fixture.path("source"), &manifest).is_err());
+        assert!(copy_fixture(&fixture, &control).is_err());
         author.write_all(b" new bytes").unwrap();
         drop(author);
         assert_eq!(fs::read(fixture.path("source/file.txt")).unwrap(), b"author keeps writing new bytes");
@@ -562,15 +604,77 @@ mod lock_tests {
         let job = job(&fixture);
         let shared = Shared::default();
         let control = Control { shared: &shared, job: &job };
-        let manifest = tree(&fixture.path("source"), &control).unwrap();
-        let mut locks = SourceLocks::acquire(&fixture.path("source"), &manifest).unwrap();
         let copied = fixture.path("destination/copied");
-        copy_tree(&fixture.path("source"), &copied, &manifest, &control).unwrap();
-        verify_copied(&fixture.path("source"), &copied, &manifest, &control).unwrap();
+        let mut manifest = copy_fixture(&fixture, &control).unwrap();
+        verify_cross_volume(&fixture.path("source"), &copied, &mut manifest, &control, false).unwrap();
         fs::write(fixture.path("source/new-author-file.txt"), b"must survive").unwrap();
-        assert!(locks.remove(&manifest, &control).is_err(), "新文件不能被清单外递归删除");
-        drop(locks);
+        assert!(verify_cross_volume(&fixture.path("source"), &copied, &mut manifest, &control, true).is_err(),
+            "新文件不能被清单外递归删除");
         assert_eq!(fs::read(fixture.path("source/new-author-file.txt")).unwrap(), b"must survive");
         assert_eq!(fs::read(copied.join("file.txt")).unwrap(), b"copied content");
+    }
+
+    #[test]
+    fn replacement_with_identical_bytes_and_time_is_preserved_during_cross_volume_cleanup() {
+        let fixture = Fixture::new();
+        let source = fixture.path("source/file.txt");
+        let bytes = b"identical contents";
+        fs::write(&source, bytes).unwrap();
+        let original = fs::metadata(&source).unwrap();
+        let job = job(&fixture);
+        let shared = Shared::default();
+        let control = Control { shared: &shared, job: &job };
+        let copied = fixture.path("destination/copied");
+        let mut manifest = copy_fixture(&fixture, &control).unwrap();
+        verify_cross_volume(&fixture.path("source"), &copied, &mut manifest, &control, false).unwrap();
+        let saved = fixture.path("source/original.txt");
+        fs::rename(&source, &saved).unwrap();
+        fs::write(&source, bytes).unwrap();
+        OpenOptions::new().write(true).open(&source).unwrap()
+            .set_times(fs::FileTimes::new().set_modified(original.modified().unwrap())).unwrap();
+        assert_eq!(fs::metadata(&source).unwrap().modified().unwrap(), original.modified().unwrap());
+        assert!(verify_cross_volume(&fixture.path("source"), &copied, &mut manifest, &control, true).is_err());
+        assert_eq!(fs::read(&source).unwrap(), bytes);
+        assert_eq!(fs::read(&saved).unwrap(), bytes);
+        assert_eq!(fs::read(copied.join("file.txt")).unwrap(), bytes);
+    }
+
+    #[test]
+    #[ignore = "需要通过 FEATHRISE_FILE_OPERATION_SECOND_VOLUME 指定另一个本地卷上的验收目录"]
+    fn moves_file_and_folder_via_verified_worker_on_two_real_volumes() {
+        let source = Fixture::new();
+        let target_parent = PathBuf::from(std::env::var_os("FEATHRISE_FILE_OPERATION_SECOND_VOLUME")
+            .expect("指定另一卷的真实验收目录"));
+        assert!(target_parent.is_absolute() && target_parent.is_dir());
+        let target = Fixture::under(target_parent);
+        let loose = source.path("source/loose.txt");
+        let folder = source.path("source/asset-folder");
+        let nested = folder.join("子模型");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(&loose, b"loose asset").unwrap();
+        fs::write(source.path("source/loose.txt:editor-validation"), b"file stream").unwrap();
+        fs::write(nested.join("模型.txt"), b"nested asset").unwrap();
+        let destination = target.path("destination");
+        // 在两个真实卷上确认目录进入受检路径，同时覆盖系统移动单文件时的附加数据流。
+        assert_eq!(system_move_without_replace(&folder.canonicalize().unwrap(),
+            &destination.canonicalize().unwrap().join("asset-folder"), false).unwrap_err().kind(), io::ErrorKind::CrossesDevices);
+        let mut job = job(&source);
+        job.request.allowed_roots.push(target.path(""));
+        job.request.operation = FileOperation::Move {
+            sources: vec![loose.clone(), folder.clone()].into(),
+            destination: destination.clone(),
+            conflict: ConflictPolicy::Fail,
+        };
+        let shared = Shared::default();
+        let control = Control { shared: &shared, job: &job };
+        let mut receipt = FileOperationReceipt::new(job.id, 1, job.request.operation.kind());
+        execute(&job.request, &control, &mut receipt, &mut None).unwrap();
+        assert_eq!(receipt.completed.len(), 2);
+        assert!(receipt.completed.iter().all(|change| !change.source_retained));
+        assert!(!loose.exists() && !folder.exists());
+        assert_eq!(fs::read(destination.join("loose.txt")).unwrap(), b"loose asset");
+        assert_eq!(fs::read(destination.join("loose.txt:editor-validation")).unwrap(), b"file stream");
+        assert_eq!(fs::read(destination.join("asset-folder/子模型/模型.txt")).unwrap(), b"nested asset");
+        assert_eq!(fs::read_dir(destination).unwrap().count(), 2, "正式文件以外的暂存已清理");
     }
 }

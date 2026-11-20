@@ -3,17 +3,20 @@
 use super::*;
 use std::{fs, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
 
-pub(super) struct Fixture { root: PathBuf, token: String }
+pub(super) struct Fixture { root: PathBuf, parent: PathBuf, token: String }
 
 impl Fixture {
     pub(super) fn new() -> Self {
+        Self::under(std::env::temp_dir())
+    }
+    pub(super) fn under(parent: PathBuf) -> Self {
         let token = format!("file-operation-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
-        let root = std::env::temp_dir().join(&token);
+        let root = parent.join(&token);
         fs::create_dir(&root).unwrap();
         fs::write(root.join(".owner"), token.as_bytes()).unwrap();
         fs::create_dir(root.join("source")).unwrap();
         fs::create_dir(root.join("destination")).unwrap();
-        Self { root, token }
+        Self { root, parent, token }
     }
     pub(super) fn request(&self, operation: FileOperation) -> FileOperationRequest {
         FileOperationRequest { context: 1, allowed_roots: vec![self.root.clone()], operation }
@@ -25,8 +28,8 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         // 递归清理前再次验证绝对路径和本轮归属，只删除本测试create_dir成功创建的目录。
         let Ok(root) = self.root.canonicalize() else { return; };
-        let Ok(temp) = std::env::temp_dir().canonicalize() else { return; };
-        if root.starts_with(&temp) && root != temp && fs::read(root.join(".owner")).ok().as_deref() == Some(self.token.as_bytes()) {
+        let Ok(parent) = self.parent.canonicalize() else { return; };
+        if root.parent() == Some(parent.as_path()) && fs::read(root.join(".owner")).ok().as_deref() == Some(self.token.as_bytes()) {
             let _ = fs::remove_dir_all(root);
         }
     }
@@ -64,6 +67,34 @@ fn copy_move_and_conflicts_preserve_actual_file_bytes() {
     execute(fixture.request(FileOperation::Move { sources: vec![fixture.path("source/nested")].into(), destination: fixture.path("destination"), conflict: ConflictPolicy::KeepBoth }), false).1.unwrap();
     assert!(!fixture.path("source/nested").exists());
     assert_eq!(fs::read(fixture.path("destination/nested (3)/中文.txt")).unwrap(), b"actual disk content");
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "android", target_os = "macos", target_os = "ios"))]
+#[test]
+fn copy_preserves_contents_beyond_legacy_folder_depth_limit() {
+    let fixture = Fixture::new();
+    // 规范化路径保留 Windows 扩展路径前缀，使夹具能实际创建超过旧 128 层限制的目录。
+    let source = fixture.path("source").canonicalize().unwrap();
+    let destination = fixture.path("destination").canonicalize().unwrap();
+    let relative: PathBuf = (0..129).map(|_| "d").collect();
+    fs::create_dir_all(source.join(&relative)).unwrap();
+    let file = relative.join("leaf.txt");
+    let bytes = b"deep folder contents";
+    fs::write(source.join(&file), bytes).unwrap();
+
+    let target = destination.join("source");
+    let (receipt, result) = execute(fixture.request(FileOperation::Copy {
+        sources: vec![source.clone()].into(), destination, conflict: ConflictPolicy::Fail,
+    }), false);
+    result.unwrap();
+
+    assert_eq!(receipt.completed.len(), 1);
+    let change = &receipt.completed[0];
+    assert_eq!(change.source.as_deref(), Some(source.as_path()));
+    assert_eq!(change.destination.as_deref(), Some(target.as_path()));
+    assert!(change.source_retained);
+    assert_eq!(fs::read(source.join(&file)).unwrap(), bytes);
+    assert_eq!(fs::read(target.join(file)).unwrap(), bytes);
 }
 
 #[test]
