@@ -1,7 +1,7 @@
 //! 文件命令只冻结明确目标；后台回执独立于窗口，删除确认与未保存作者保护在提交前完成。
 
-use super::{messages::*, resources::*, types::*};
-use crate::{asset_catalog::project_files::EditorProjectFileCatalog, ui::asset_preview::{DocumentState, AnimationEditorState, weights::WeightEditor}};
+use super::{file_identity::{FileWriteReservations, ProtectedAuthors}, messages::*, resources::*, types::*};
+use crate::asset_catalog::project_files::EditorProjectFileCatalog;
 use bevy::{prelude::*, input_focus::InputFocus, text::EditableText};
 use feathrise_editor_project_browser_model::file_operations::*;
 use std::path::PathBuf;
@@ -19,10 +19,8 @@ pub(super) fn control(
     mut pickers: MessageReader<OpenAnimationPicker>,
     mut requests: MessageReader<FileManagerCommand>,
     inputs: Query<&EditableText, With<super::components::FileNameInput>>,
-    documents: Option<Res<DocumentState>>,
-    animation: Option<Res<AnimationEditorState>>,
-    weights: Option<Res<WeightEditor>>,
-    scene_authors: (Option<Res<crate::resources::SceneEditorState>>, Option<Res<crate::authoring::EditorAuthoringSession>>, Option<Res<crate::ui::scene_documents::SceneDocuments>>),
+    mut authors: ProtectedAuthors,
+    mut reservations: ResMut<FileWriteReservations>,
     mut focus: ResMut<InputFocus>,
     locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
 ) {
@@ -45,7 +43,7 @@ pub(super) fn control(
             let windows = std::mem::take(&mut state.windows);
             bevy::tasks::IoTaskPool::get().spawn(async move { drop(windows); }).detach();
             state.focused = None;
-            state.clipboard.clear();
+            replace_clipboard(&mut state, FileSources::default(), false);
             state.gesture = None;
             state.drag = None;
             state.prompt = None;
@@ -64,53 +62,49 @@ pub(super) fn control(
             }
         }
     }
-    let destructive_blocker = documents.as_ref().and_then(|documents| documents.exit_blocker())
-        .or_else(|| animation.as_ref().and_then(|animation| animation.exit_blocker()))
-        .or_else(|| weights.as_ref().filter(|weights| weights.dirty()).map(|_| "存在未保存蒙皮权重"))
-        .or_else(|| scene_authors.0.as_ref().filter(|editor| editor.dirty).map(|_| "存在未保存场景"))
-        .or_else(|| scene_authors.1.as_ref().filter(|session| session.saving || session.has_scene_data_changes()).map(|_| "场景作者数据尚未保存或保存仍在进行"))
-        .or_else(|| scene_authors.2.as_ref().and_then(|scenes| scenes.exit_blocker(scene_authors.0.as_ref().and_then(|editor| editor.selected_scene_id.as_ref()), false)));
+    publish_clipboard(&mut state, service.as_deref());
+    paste(&mut state, service.as_deref(), &authors, &mut reservations);
     for request in requests.read() {
         let directory = request.path.clone().filter(|path| !path.as_os_str().is_empty()).unwrap_or_else(|| fixed.directory.clone());
         // 来源由发出命令的具体窗口冻结；空选择不能借用左侧另一窗口的选中项。
         let sources = request.sources.clone();
+        if matches!(request.action, FileAction::Copy | FileAction::Cut | FileAction::Paste)
+            && let Some((destination, _)) = &state.pending_paste
+        {
+            state.notice = format!("粘贴到「{}」的请求正在等待剪贴板同步。请在该请求提交后重试。", destination.display());
+            continue;
+        }
         match request.action {
             FileAction::NewWindow => {
                 if !directory.as_os_str().is_empty() { state.open(directory); }
             }
             FileAction::Copy | FileAction::Cut => {
                 if sources.is_empty() { state.notice = "请先选择文件或文件夹".into(); continue; }
-                state.cut = request.action == FileAction::Cut;
-                state.clipboard = sources;
-                state.clipboard.sort();
-                state.clipboard.dedup();
+                replace_clipboard(&mut state, sources, request.action == FileAction::Cut);
+                publish_clipboard(&mut state, service.as_deref());
                 state.notice = if state.cut { format!("已剪切 {} 项；粘贴后才移动源文件", state.clipboard.len()) }
                     else { format!("已复制 {} 项；复制的是磁盘版本，未保存草稿不包含在内", state.clipboard.len()) };
             }
             FileAction::Paste => {
                 if state.clipboard.is_empty() { state.notice = "文件剪贴板为空".into(); continue; }
-                if state.cut && destructive_blocker.is_some() {
-                    state.notice = format!("请先保存并关闭文件草稿，再移动文件：{}", destructive_blocker.unwrap()); continue;
+                state.pending_paste = Some((directory, state.conflict));
+                paste(&mut state, service.as_deref(), &authors, &mut reservations);
+                if let Some((destination, _)) = &state.pending_paste {
+                    state.notice = format!("正在同步文件剪贴板，完成后会粘贴到「{}」", destination.display());
                 }
-                let operation = if state.cut { FileOperation::Move { sources: state.clipboard.clone(), destination: directory, conflict: state.conflict } }
-                    else { FileOperation::Copy { sources: state.clipboard.clone(), destination: directory, conflict: state.conflict } };
-                submit(&mut state, service.as_deref(), operation);
             }
             FileAction::CopyHere | FileAction::MoveHere => {
-                if request.action == FileAction::MoveHere && destructive_blocker.is_some() {
-                    state.notice = "请先保存并关闭文件草稿，再拖动源文件".into(); continue;
-                }
                 let operation = if request.action == FileAction::MoveHere { FileOperation::Move { sources, destination: directory, conflict: state.conflict } }
                     else { FileOperation::Copy { sources, destination: directory, conflict: state.conflict } };
-                submit(&mut state, service.as_deref(), operation);
+                submit(&mut state, service.as_deref(), &authors, &mut reservations, operation);
             }
             FileAction::Delete | FileAction::Rename | FileAction::NewFolder | FileAction::NewText | FileAction::NewMarkdown | FileAction::NewGlb => {
                 if !request.action.creates_entry() && sources.is_empty() { state.notice = "请先选择文件或文件夹".into(); continue; }
-                if !request.action.creates_entry() && destructive_blocker.is_some() {
-                    state.notice = format!("请先保存并关闭文件草稿，再整理源文件：{}", destructive_blocker.unwrap()); continue;
+                if !request.action.creates_entry() && let Some(reason) = authors.blocker(&sources) {
+                    state.notice = reason; continue;
                 }
                 if request.action == FileAction::Rename && sources.len() != 1 { state.notice = "重命名时请选择一项".into(); continue; }
-                let value = if request.action == FileAction::Rename { sources[0].file_name().unwrap_or_default().to_string_lossy().into_owned() }
+                let value = if request.action == FileAction::Rename { sources.first().and_then(std::path::Path::file_name).unwrap_or_default().to_string_lossy().into_owned() }
                     else { new_entry_name(request.action, english).into() };
                 state.prompt = Some(NamePrompt { action: request.action, directory, sources, value, initialized: false });
                 state.menu = None;
@@ -129,9 +123,6 @@ pub(super) fn control(
                     }
                 }
                 let Some(prompt) = state.prompt.take() else { continue; };
-                if !prompt.action.creates_entry() && destructive_blocker.is_some() {
-                    state.notice = "仍有未保存草稿，请先保存并关闭，再整理源文件".into(); continue;
-                }
                 let operation = match prompt.action {
                     FileAction::NewFolder => FileOperation::CreateFolder { parent: prompt.directory, name: prompt.value },
                     FileAction::NewText | FileAction::NewMarkdown | FileAction::NewGlb => FileOperation::CreateFile {
@@ -141,13 +132,13 @@ pub(super) fn control(
                             _ => NewFileKind::Glb,
                         },
                     },
-                    FileAction::Rename => FileOperation::Rename { source: prompt.sources[0].clone(), name: prompt.value },
+                    FileAction::Rename => FileOperation::Rename { source: prompt.sources.first().expect("重命名已冻结单个源文件").to_owned(), name: prompt.value },
                     FileAction::Delete => FileOperation::Delete { sources: prompt.sources },
                     _ => continue,
                 };
                 focus.clear();
                 state.release_guard = true;
-                submit(&mut state, service.as_deref(), operation);
+                submit(&mut state, service.as_deref(), &authors, &mut reservations, operation);
             }
             FileAction::Cancel => { state.prompt = None; focus.clear(); state.release_guard = true; }
             FileAction::ConflictPolicy => {
@@ -156,6 +147,59 @@ pub(super) fn control(
             _ => {}
         }
     }
+    if reservations.is_changed() && let Some(documents) = authors.documents.as_mut() {
+        documents.file_writes = reservations.clone();
+    }
+}
+
+fn replace_clipboard(state: &mut FileManagerState, sources: FileSources, cut: bool) {
+    state.clipboard_generation = state.clipboard_generation.wrapping_add(1);
+    state.clipboard_through = state.last_receipt;
+    state.clipboard = sources;
+    state.cut = cut;
+    state.publish_clipboard = true;
+    state.pending_paste = None;
+}
+
+fn publish_clipboard(state: &mut FileManagerState, service: Option<&FileOperationService>) {
+    if !state.publish_clipboard { return; }
+    let clipboard = (!state.clipboard.is_empty()).then(|| FileClipboard {
+        context: state.context,
+        generation: state.clipboard_generation,
+        sources: state.clipboard.clone(),
+        through: state.clipboard_through,
+    });
+    if service.is_some_and(|service| service.publish_clipboard(clipboard)) { state.publish_clipboard = false; }
+}
+
+fn adopt_clipboard(state: &mut FileManagerState, clipboard: &FileClipboard) -> bool {
+    if (clipboard.context, clipboard.generation) != (state.context, state.clipboard_generation) { return false; }
+    state.clipboard = clipboard.sources.clone();
+    true
+}
+
+fn paste(
+    state: &mut FileManagerState,
+    service: Option<&FileOperationService>,
+    authors: &ProtectedAuthors,
+    reservations: &mut FileWriteReservations,
+) {
+    if state.pending_paste.is_none() { return; }
+    let Some(service) = service else {
+        state.pending_paste = None;
+        state.notice = "文件操作服务尚未就绪".into();
+        return;
+    };
+    // 提交前直接核对后台快照，包含本帧尚未显示的独立拖动回执。等待期间仅保留本次粘贴目的地。
+    if !service.snapshot().and_then(|snapshot| snapshot.clipboard).is_some_and(|clipboard| adopt_clipboard(state, &clipboard)) {
+        return;
+    }
+    let (destination, conflict) = state.pending_paste.take().expect("此处有待提交的粘贴");
+    if state.clipboard.is_empty() { state.notice = "文件剪贴板为空".into(); return; }
+    let sources = state.clipboard.clone();
+    let operation = if state.cut { FileOperation::Move { sources, destination, conflict } }
+        else { FileOperation::Copy { sources, destination, conflict } };
+    submit(state, Some(service), authors, reservations, operation);
 }
 
 pub(super) fn cancel(
@@ -194,10 +238,29 @@ pub(super) fn creation_extension_matches(action: FileAction, value: &str) -> boo
         .and_then(|value| value.to_str()).is_some_and(|value| value.eq_ignore_ascii_case(extension)))
 }
 
-fn submit(state: &mut FileManagerState, service: Option<&FileOperationService>, operation: FileOperation) {
+fn submit(
+    state: &mut FileManagerState,
+    service: Option<&FileOperationService>,
+    authors: &ProtectedAuthors,
+    reservations: &mut FileWriteReservations,
+    operation: FileOperation,
+) {
     let Some(service) = service else { state.notice = "文件操作服务尚未就绪".into(); return; };
+    let sources = match &operation {
+        FileOperation::Move { sources, .. } | FileOperation::Delete { sources } => Some(sources.clone()),
+        FileOperation::Rename { source, .. } => Some(vec![source.clone()].into()),
+        _ => None,
+    };
+    // 确认与入队之间再查受影响草稿。在同一输入回合占用源身份，避免排队期间出现新的写入。
+    if let Some(reason) = sources.as_ref().and_then(|sources| authors.blocker(sources)) {
+        state.notice = reason;
+        return;
+    }
     match service.enqueue(FileOperationRequest { context: state.context, allowed_roots: state.allowed_roots.clone(), operation }) {
-        Ok(id) => state.notice = format!("文件任务 #{id} 已排队；可继续浏览或关闭文件窗口"),
+        Ok(id) => {
+            if let Some(sources) = sources { reservations.add(state.context, id, sources); }
+            state.notice = format!("文件任务 #{id} 已排队；可继续浏览或关闭文件窗口");
+        }
         Err(error) => state.notice = error,
     }
 }
@@ -210,13 +273,9 @@ pub(super) fn poll(mut state: ResMut<FileManagerState>, service: Option<Res<File
         if receipt.id <= state.last_receipt { continue; }
         state.last_receipt = receipt.id;
         if receipt.context != state.context { continue; }
-        state.refresh_pending |= !receipt.completed.is_empty(); // 同帧后续失败回执不能抹掉前一任务已经落盘的刷新。
-        if receipt.kind == FileOperationKind::Move && !receipt.completed.is_empty() {
-            // 只清除已真正搬移的剪切条目；失败或取消的剩余源仍可再次粘贴。
-            let moved: std::collections::HashSet<_> = receipt.completed.iter().filter(|change| !change.source_retained)
-                .filter_map(|change| change.source.as_deref()).map(crate::ui::external_files::platform_path).collect();
-            // canonicalize 回执在 Windows 带扩展前缀；只做词法转换，不在主帧重新访问磁盘。
-            state.clipboard.retain(|source| !moved.contains(&crate::ui::external_files::platform_path(source)));
+        for window in &mut state.windows {
+            // 不抢占在途导航或定位；这次结果采用后再刷新受影响的目录。
+            window.refresh_after_scan |= receipt.affects_directory(&window.requested_path);
         }
         state.notice = format!("任务 #{}：{} 项完成，{} 项跳过{}{}", receipt.id, receipt.completed.len(), receipt.skipped.len(),
             if receipt.cancelled { "，已取消" } else { "" }, receipt.error.as_ref().map_or(String::new(), |error| format!("；{error}")));
@@ -224,9 +283,6 @@ pub(super) fn poll(mut state: ResMut<FileManagerState>, service: Option<Res<File
             state.notice.push_str("。文件路径已改变，已有场景或源码引用请按需更新");
         }
     }
-    if state.refresh_pending {
-        for window in &mut state.windows { window.refresh(); }
-        state.refresh_pending = false;
-    }
+    if let Some(clipboard) = snapshot.clipboard.as_ref() { adopt_clipboard(&mut state, clipboard); }
     state.snapshot = Some(snapshot);
 }

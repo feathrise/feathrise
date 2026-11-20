@@ -21,7 +21,7 @@ pub(super) fn bind(
     // 重新载入和会话淘汰使旧输入失效；最多8份，后台文件不参与原生排版系统。
     inputs.sessions.retain(|entry| state.documents.iter().any(|doc| doc.path == entry.key.path && doc.generation == entry.key.generation));
     let doc = state.current();
-    let editing = doc.filter(|doc| state.visible && doc.mode == ViewMode::Edit && !state.is_loading(&doc.path));
+    let editing = doc.filter(|doc| state.visible && state.editing() && !state.is_loading(&doc.path));
     if let Some(previous_key) = source.key.as_ref().filter(|key| {
         editing.is_none_or(|doc| key.path != doc.path || key.generation != doc.generation)
     }).cloned() {
@@ -81,7 +81,7 @@ pub(super) fn capture_preview(
     areas: Query<&ScrollPosition, (With<DocumentPreviewScroll>, Changed<ScrollPosition>)>,
 ) {
     let Some(active) = rendering.active.as_ref() else { return; };
-    let Some(doc) = state.current().filter(|doc| state.visible && doc.mode == ViewMode::Preview
+    let Some(doc) = state.current().filter(|doc| state.visible && !state.editing()
         && doc.path == active.identity.path && doc.generation == active.identity.generation
         && doc.revision == active.identity.revision) else { return; };
     if let Ok(scroll) = areas.single() {

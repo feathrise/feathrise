@@ -36,6 +36,7 @@ pub(super) fn install(app: &mut App) {
             (systems::actions, input::input).chain()
                 .after(super::workspace::actions)
                 .after(super::interaction::handle_asset_preview_actions)
+                .after(crate::ui::file_manager::FileManagerInput)
                 .after(super::gltf_tree::weight_row_input)
                 .before(super::opening::open)
                 .before(super::navigation::control_asset_preview)

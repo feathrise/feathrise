@@ -3,6 +3,7 @@
 pub(crate) mod browser;
 mod components;
 mod context_menu;
+mod file_identity;
 mod input;
 mod messages;
 mod operations;
@@ -17,6 +18,7 @@ mod tests;
 #[cfg(feature = "validation")]
 pub(crate) use components::{FileContextLabel, FileContextPanel, FileList, FileManagerButton, FileNameInput, FileResizeHandle, FileRow, FileTaskButton, FileTitleBar};
 pub(crate) use components::FileWindowStrip;
+pub(crate) use file_identity::FileWriteReservations;
 pub(crate) use messages::{CancelFileTask, ExtraRequest, FileManagerCommand, FileManagerContextRequest, FileManagerExternalDrag, OpenAnimationPicker, OpenFileWindow, OpenManagedFile};
 pub(crate) use resources::{FileManagerState, FixedFileSelection};
 pub(crate) use types::{ExtraAction, FileAction, ProjectMotionTarget};
@@ -29,12 +31,13 @@ pub(crate) struct FileManagerInput;
 pub(crate) fn install(app: &mut App) {
     browser::install(app);
     app.init_resource::<FileManagerState>().init_resource::<FixedFileSelection>()
+        .init_resource::<FileWriteReservations>()
         .add_message::<OpenFileWindow>().add_message::<OpenManagedFile>().add_message::<OpenAnimationPicker>()
         .add_message::<FileManagerCommand>().add_message::<FileManagerExternalDrag>().add_message::<CancelFileTask>()
         .add_message::<FileManagerContextRequest>()
         .add_message::<ExtraRequest>()
         .add_systems(PreUpdate, input::track_pointer.after(bevy::ui::ui_focus_system))
-        .add_systems(Update, (input::control, operations::control, operations::cancel).chain()
+        .add_systems(Update, (input::control, operations::control, file_identity::settle, operations::cancel).chain()
             .after(bevy::text::apply_text_edits)
             .before(super::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)
             .in_set(FileManagerInput).in_set(crate::SceneEditorSystemSet::Input))

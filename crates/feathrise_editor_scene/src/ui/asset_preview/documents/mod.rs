@@ -8,6 +8,7 @@ mod components;
 mod batch_save; // 本批/全部草稿共享唯一IO槽，逐文件校验并保留失败项。
 mod constants;
 mod external; // 返回聚焦窗口或重新打开F12时核对磁盘，保留未保存草稿。
+mod file_changes;
 mod history; // 文件独立的有界历史与保存点，保留原生单一输入。
 mod interaction;
 mod io;

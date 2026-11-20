@@ -1,20 +1,14 @@
 //! 文件窗口的浏览快照与手势；所有路径保持真实磁盘身份，不把 GLB 子资产混为文件。
 
 use bevy::prelude::*;
-use std::{collections::BTreeSet, path::{Component, Path, PathBuf}, sync::Arc};
+use feathrise_editor_project_browser_model::file_operations::{FileDirectory, FileSources};
+pub(crate) use feathrise_editor_project_browser_model::file_operations::FileEntry;
+use std::{path::{Component, Path, PathBuf}, sync::Arc};
 
 pub(super) const FILE_ROW_SLOTS: usize = 64;
 pub(super) const FILE_LIST_PADDING: f32 = 8.;
 // 标题、地址、工具、状态栏和边框占去正文空间，另留出末行底部间距。
 pub(super) const FILE_LIST_CHROME_HEIGHT: f32 = 142.;
-
-#[derive(Clone, Debug)]
-pub(crate) struct FileEntry {
-    pub(crate) path: PathBuf,
-    pub(crate) name: String,
-    pub(crate) directory: bool,
-    pub(crate) bytes: u64,
-}
 
 pub(crate) struct FileWindow {
     pub(crate) id: u64,
@@ -24,8 +18,8 @@ pub(crate) struct FileWindow {
     pub(crate) restored_rect: Rect,
     pub(crate) minimized: bool,
     pub(crate) maximized: bool,
-    pub(crate) entries: Arc<[FileEntry]>,
-    pub(crate) selection: BTreeSet<PathBuf>,
+    pub(crate) entries: Arc<FileDirectory>,
+    pub(crate) selection: FileSources,
     pub(crate) history: Vec<PathBuf>,
     pub(crate) history_index: usize,
     pub(crate) first: usize,
@@ -36,6 +30,8 @@ pub(crate) struct FileWindow {
     pub(crate) revision: u64,
     pub(super) animation_picker: Option<AnimationPicker>,
     pub(super) scanned_revision: u64,
+    pub(super) keep_scroll: bool,
+    pub(super) refresh_after_scan: bool,
     pub(super) anchor: Option<usize>,
     pub(super) last_click: Option<(PathBuf, f64)>,
 }
@@ -65,6 +61,8 @@ impl FileWindow {
         self.loading = true;
         self.error = None;
         self.last_click = None;
+        self.keep_scroll = false;
+        self.refresh_after_scan = false;
         if let Some(picker) = &mut self.animation_picker {
             // 目录或筛选更新后，旧行的片段不能沿用到新的目录快照。
             picker.clip = None;
@@ -74,13 +72,15 @@ impl FileWindow {
         self.thumbnail_wheel = 0.;
     }
 
-    pub(super) fn refresh(&mut self) { self.navigate(self.requested_path.clone(), false); }
+    pub(super) fn refresh(&mut self) {
+        self.navigate(self.requested_path.clone(), false);
+        self.keep_scroll = self.path == self.requested_path;
+    }
     pub(super) fn select_picker_entry(&mut self, index: usize) {
         let Some(picker) = &mut self.animation_picker else { return; };
         let Some(entry) = self.entries.get(index) else { return; };
         if self.anchor == Some(index) && self.selection.contains(&entry.path) { return; }
-        self.selection.clear();
-        self.selection.insert(entry.path.clone());
+        self.selection.select(&self.entries, index..index + 1, false);
         self.anchor = Some(index);
         picker.clip = None;
     }
@@ -170,7 +170,7 @@ pub(super) struct WindowGesture {
 }
 
 pub(super) struct FileDrag {
-    pub(super) sources: Vec<PathBuf>,
+    pub(super) sources: FileSources,
     pub(super) origin: Vec2,
     pub(super) position: Vec2,
     pub(super) copy: bool,
@@ -181,7 +181,7 @@ pub(super) struct FileDrag {
 pub(super) struct NamePrompt {
     pub(super) action: FileAction,
     pub(super) directory: PathBuf,
-    pub(super) sources: Vec<PathBuf>,
+    pub(super) sources: FileSources,
     pub(super) value: String,
     pub(super) initialized: bool,
 }

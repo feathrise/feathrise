@@ -61,6 +61,7 @@ pub(super) fn input(
         && sidebar.right == EditorRightSidebarTab::Weights
         && state.session.as_ref().is_some_and(|session| {
             target.matches(&session.key)
+                && gate.source_available(&session.key)
                 && !session.stale
                 && match session.tool {
                     Tool::Bone => session.show_skeleton && target.preview.render_visible,

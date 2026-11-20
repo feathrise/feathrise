@@ -1,6 +1,6 @@
 //! 后台受检文件系统操作；完整预检后逐顶层提交，复制先写本轮暂存目录，发布时禁止覆盖。
 
-use super::{Control, MAX_SOURCES, recycle};
+use super::{Control, recycle};
 use feathrise_editor_project_browser_model::file_operations::*;
 use std::{collections::HashSet, fs::{self, File, Metadata, OpenOptions}, io::{Read, Write}, path::{Component, Path, PathBuf}};
 
@@ -14,7 +14,10 @@ pub(super) struct Entry { relative: PathBuf, metadata: Metadata }
 /// Windows给文件路径附加空相对段会产生尾随分隔符；根条目必须直接使用原路径。
 fn member(root: &Path, relative: &Path) -> PathBuf { if relative.as_os_str().is_empty() { root.to_owned() } else { root.join(relative) } }
 
-pub(super) fn execute(request: &FileOperationRequest, control: &Control<'_>, receipt: &mut FileOperationReceipt) -> Result<(), String> {
+pub(super) fn execute(
+    request: &FileOperationRequest, control: &Control<'_>, receipt: &mut FileOperationReceipt,
+    current: &mut Option<PathBuf>,
+) -> Result<(), String> {
     control.check()?;
     let mut roots = Vec::new();
     for path in &request.allowed_roots {
@@ -30,17 +33,20 @@ pub(super) fn execute(request: &FileOperationRequest, control: &Control<'_>, rec
         FileOperation::Copy { sources, destination, conflict } | FileOperation::Move { sources, destination, conflict } => {
             let destination = checked(destination, &roots, true)?;
             if !destination.is_dir() { return Err("粘贴目标必须是文件夹".into()); }
-            let sources = sources_checked(sources, &roots)?;
+            let sources = sources_checked(sources, &roots, control, &mut receipt.skipped, current)?;
             let moving = matches!(request.operation, FileOperation::Move { .. });
             // 整批先核对路径；不能复制一半之后才发现后面条目越界或移入自身后代。
-            for source in &sources {
+            for (source, _) in &sources {
+                control.check()?;
+                *current = Some(source.clone());
                 if moving { protect_root(source, &roots)?; }
                 if source.is_dir() && destination.starts_with(source) {
                     return Err(format!("不能把文件夹放入自身或子文件夹：{}", source.display()));
                 }
             }
-            for (index, source) in sources.iter().enumerate() {
+            for (index, (source, stamp)) in sources.iter().enumerate() {
                 control.check()?;
+                *current = Some(source.clone());
                 control.update(Some(source), 0, 0);
                 let file_name = source.file_name().ok_or("源路径没有文件名")?;
                 let requested = destination.join(file_name);
@@ -48,6 +54,7 @@ pub(super) fn execute(request: &FileOperationRequest, control: &Control<'_>, rec
                 let target = target_path(&requested, *conflict)?;
                 let Some(target) = target else { receipt.skipped.push(source.clone()); continue; };
                 let manifest = tree(source, control)?;
+                verify_source_stamp(source, *stamp, &manifest[0].metadata)?;
                 if moving && move_without_replace(source, &target).is_ok() {
                     receipt.completed.push(FileOperationChange { source: Some(source.clone()), destination: Some(target), source_retained: false });
                     control.update(None, 1, 0);
@@ -78,17 +85,30 @@ pub(super) fn execute(request: &FileOperationRequest, control: &Control<'_>, rec
             }
         }
         FileOperation::Delete { sources } => {
-            let sources = sources_checked(sources, &roots)?;
-            for source in &sources { protect_root(source, &roots)?; tree(source, control)?; }
-            for source in sources {
+            let sources = sources_checked(sources, &roots, control, &mut receipt.skipped, current)?;
+            for (source, stamp) in &sources {
                 control.check()?;
+                *current = Some(source.clone());
+                protect_root(source, &roots)?;
+                let manifest = tree(source, control)?;
+                verify_source_stamp(source, *stamp, &manifest[0].metadata)?;
+            }
+            for (source, stamp) in sources {
+                control.check()?;
+                *current = Some(source.clone());
                 control.update(Some(&source), 0, 0);
+                if !matches!(stamp, FileEntryStamp::Untracked) {
+                    let metadata = fs::symlink_metadata(&source).map_err(|error| error.to_string())?;
+                    reject_link(&source, &metadata)?;
+                    verify_source_stamp(&source, stamp, &metadata)?;
+                }
                 recycle::delete(&source)?;
                 receipt.completed.push(FileOperationChange { source: Some(source), destination: None, source_retained: false });
                 control.update(None, 1, 0);
             }
         }
         FileOperation::CreateFolder { parent, name } => {
+            *current = Some(parent.join(name));
             let parent = checked(parent, &roots, true)?;
             validate_name(name)?;
             control.check()?;
@@ -98,6 +118,7 @@ pub(super) fn execute(request: &FileOperationRequest, control: &Control<'_>, rec
             control.update(None, 1, 0);
         }
         FileOperation::CreateFile { parent, name, kind } => {
+            *current = Some(parent.join(name));
             let parent = checked(parent, &roots, true)?;
             validate_name(name)?;
             let destination = parent.join(name);
@@ -124,6 +145,7 @@ pub(super) fn execute(request: &FileOperationRequest, control: &Control<'_>, rec
             receipt.completed.push(FileOperationChange { source: None, destination: Some(destination), source_retained: false });
         }
         FileOperation::Rename { source, name } => {
+            *current = Some(source.clone());
             let source = checked(source, &roots, false)?;
             protect_root(&source, &roots)?;
             validate_name(name)?;
@@ -166,30 +188,54 @@ fn absolute(path: &Path) -> Result<(), String> {
 }
 
 fn checked(path: &Path, roots: &[PathBuf], require_directory: bool) -> Result<PathBuf, String> {
+    let (path, metadata) = checked_entry(path, roots)?;
+    if require_directory && !metadata.is_dir() { return Err(format!("目标不是文件夹：{}", path.display())); }
+    Ok(path)
+}
+
+fn checked_entry(path: &Path, roots: &[PathBuf]) -> Result<(PathBuf, Metadata), String> {
     absolute(path)?;
     let resolved = path.canonicalize().map_err(|error| format!("文件路径不可用 {}：{error}", path.display()))?;
     let root = roots.iter().filter(|root| resolved.starts_with(root)).max_by_key(|root| root.components().count())
         .ok_or_else(|| format!("文件超出已打开目录：{}", path.display()))?;
     // 逐级检查原请求路径，canonicalize不能掩盖指向另一目录的符号链接和Windows联接。
-    for ancestor in path.ancestors() {
-        let metadata = fs::symlink_metadata(ancestor).map_err(|error| error.to_string())?;
-        reject_link(ancestor, &metadata)?;
-        if ancestor.canonicalize().ok().as_ref() == Some(root) { break; }
+    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    reject_link(path, &metadata)?;
+    if &resolved != root {
+        for ancestor in path.ancestors().skip(1) {
+            let metadata = fs::symlink_metadata(ancestor).map_err(|error| error.to_string())?;
+            reject_link(ancestor, &metadata)?;
+            if ancestor.canonicalize().ok().as_ref() == Some(root) { break; }
+        }
     }
-    if require_directory && !resolved.is_dir() { return Err(format!("目标不是文件夹：{}", resolved.display())); }
-    Ok(resolved)
+    Ok((resolved, metadata))
 }
 
-fn sources_checked(sources: &[PathBuf], roots: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
-    if sources.is_empty() || sources.len() > MAX_SOURCES { return Err("文件选择数量超出单次任务上限".into()); }
+fn verify_source_stamp(path: &Path, stamp: FileEntryStamp, metadata: &Metadata) -> Result<(), String> {
+    if stamp.matches(metadata) { return Ok(()); }
+    Err(format!("选中后文件已变化，请刷新目录并重新选择：{}", path.display()))
+}
+
+fn sources_checked(
+    sources: &FileSources, roots: &[PathBuf], control: &Control<'_>,
+    skipped: &mut Vec<PathBuf>, current: &mut Option<PathBuf>,
+) -> Result<Vec<(PathBuf, FileEntryStamp)>, String> {
+    if sources.is_empty() { return Err("请先选择文件或文件夹".into()); }
     let mut seen = HashSet::new();
     let mut normalized = Vec::new();
-    for source in sources {
-        let source = checked(source, roots, false)?;
-        if seen.insert(source.clone()) { normalized.push(source); }
+    // 冻结选区按需展开到后台。整批受检后再发布，父子去重按深度查找。
+    for (source, stamp) in sources.iter_with_stamp() {
+        control.check()?;
+        *current = Some(source.to_path_buf());
+        let (source, metadata) = checked_entry(source, roots)?;
+        verify_source_stamp(&source, stamp, &metadata)?; // 原地址在排队期间仍可被替换；先验证整批再写磁盘。
+        if seen.insert(source.clone()) { normalized.push((source, stamp)); }
     }
-    let parents = normalized.clone();
-    normalized.retain(|path| !parents.iter().any(|parent| parent != path && path.starts_with(parent)));
+    normalized.retain(|(path, _)| {
+        let covered = path.ancestors().skip(1).any(|parent| seen.contains(parent));
+        if covered { skipped.push(path.clone()); }
+        !covered
+    });
     Ok(normalized)
 }
 
@@ -470,7 +516,7 @@ mod lock_tests {
     use std::sync::{Arc, atomic::AtomicBool};
 
     fn job(fixture: &Fixture) -> Job {
-        Job { id: 9001, request: fixture.request(FileOperation::Move { sources: vec![fixture.path("source")],
+        Job { id: 9001, request: fixture.request(FileOperation::Move { sources: vec![fixture.path("source")].into(),
             destination: fixture.path("destination"), conflict: ConflictPolicy::Fail }), cancel: Arc::new(AtomicBool::new(false)) }
     }
 

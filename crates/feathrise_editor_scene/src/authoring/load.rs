@@ -83,11 +83,11 @@ pub(crate) fn start_draft_load(
     session: Res<EditorAuthoringSession>,
     mut load: ResMut<DraftLoadTask>,
     mut boundary_events: feathrise_scene_core::residency::ResidentAssetEventReader<SceneBoundariesAsset>, // 捕获期间热更新使旧输入失效。
-    auxiliary: (Option<Res<crate::resources::SceneFolderPersistence>>, Option<Res<super::domain_documents::SceneDomainAdapter>>), // 重命名发布后才允许冻结清单名称。
+    auxiliary: (Option<Res<crate::resources::SceneFolderPersistence>>, Option<Res<super::domain_documents::SceneDomainAdapter>>, Option<Res<crate::ui::file_manager::FileWriteReservations>>), // 重命名发布后才允许冻结清单名称。
     mut boundary_capture: Local<BoundaryDraftCapture>, // 单在途输入，不深拷贝整图。
     documents: Option<Res<crate::ui::scene_documents::SceneDocuments>>,
 ) {
-    let (folder_persistence, domain_adapter) = auxiliary;
+    let (folder_persistence, domain_adapter, file_writes) = auxiliary;
     if session.water_preset_delete_pending || session.model_vegetation_busy { return; } // 作者整笔结束后再改变文档来源。
     for event in boundary_events.read() {
         if boundary_capture.source.is_some_and(|id| matches!(event,
@@ -132,6 +132,10 @@ pub(crate) fn start_draft_load(
     let Some(handles) = registry.handles(&scene_id) else {
         return;
     };
+    if file_writes.as_ref().is_some_and(|files| !files.is_empty() && files.blocks_scene_load(&workspace_asset_root(), handles)) {
+        editor.status = format!("正在整理场景「{}」的作者文件，完成后继续加载", entry.display_name);
+        return;
+    }
     let (Some(manifest), Some(placements), Some(portals)) = (
         manifests.get(&handles.manifest),
         placements.get(&handles.placements),

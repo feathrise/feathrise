@@ -67,6 +67,7 @@ pub(crate) struct SaveRuntimeReadiness<'w, 's> {
     deletion_capture: Local<'s, deletion_snapshot::DeletionSaveCapture>,
     placement_capture: Local<'s, placement_snapshot::PlacementSaveCapture>,
     authoring_retirement: Option<ResMut<'w, crate::authoring::AuthoringRetirement>>, // 独立保存工具缺省时由捕获槽承担有界后台退役。
+    file_writes: Option<Res<'w, crate::ui::file_manager::FileWriteReservations>>,
     boundary_edit: Option<Res<'w, crate::authoring::BoundaryEditState>>, // 实时拖点未收口时不冻结半笔。
     boundary_numeric: Option<Res<'w, crate::authoring::boundary::BoundaryThicknessInputState>>, // 三个墙体数值字段共享收口门。
     surface_task: Option<Res<'w, SurfaceLayerEditTask>>, // 可选资源保持不含地表UI的既有保存测试和独立工具兼容。
@@ -139,6 +140,13 @@ pub(crate) fn start_draft_save(
     if !editor.save_requested {
         *readiness.boundary_capture = default(); // 已取消的请求不保留待保存墙点。
         *readiness.water_capture = default();
+        return;
+    }
+    if readiness.file_writes.as_ref().is_some_and(|files| {
+        !files.is_empty() && session.draft.as_ref().is_some_and(|draft| files.blocks_scene_save(&feathrise_editor_core::workspace_asset_root(), draft))
+    }) {
+        // 保存与同一场景作者文件的移动/重命名不能并发发布，未受影响的场景仍照常保存。
+        editor.status = "正在整理此场景的作者文件，完成后继续保存".into();
         return;
     }
     if let Some(content) = readiness.terrain_content.as_ref() {

@@ -1,7 +1,7 @@
 //! 每个文件窗口独立保存浏览语义；目录任务仍共享两个在途槽，不复制资产加载器。
 
 use super::super::types::{
-    FILE_LIST_CHROME_HEIGHT, FILE_LIST_PADDING, FILE_ROW_SLOTS, FileEntry, FileWindow,
+    FILE_LIST_CHROME_HEIGHT, FILE_LIST_PADDING, FILE_ROW_SLOTS, FileWindow,
 };
 use super::types::*;
 use crate::ui::asset_thumbnails::{TILE_GAP, TILE_HEIGHT};
@@ -11,7 +11,7 @@ use feathrise_editor_project_browser_model::{
     AnimationClipInfo, AssetTypeFilter, DirectoryAnimations, DirectoryWorker, EditorAssetEntry,
 };
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     path::PathBuf,
     sync::Arc,
 };
@@ -209,9 +209,9 @@ pub(in crate::ui::file_manager) struct BrowserSnapshot {
     pub root: PathBuf,
     pub assets: bool,
     pub asset_folder: Option<String>,
-    pub files: Arc<[FileEntry]>,
+    pub files: Arc<feathrise_editor_project_browser_model::file_operations::FileDirectory>,
     pub entries: Arc<[EditorAssetEntry]>,
     pub animations: DirectoryAnimations,
-    pub selection: BTreeSet<PathBuf>,
+    pub selection: feathrise_editor_project_browser_model::file_operations::FileSources,
     pub reveal_index: Option<usize>,
 }

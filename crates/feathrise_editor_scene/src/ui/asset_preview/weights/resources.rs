@@ -314,6 +314,23 @@ impl WeightEditor {
         self.session.as_ref().is_some_and(Session::dirty)
     }
 
+    pub(crate) fn protects_file_changes(&self, sources: &feathrise_editor_project_browser_model::file_operations::FileSources) -> bool {
+        let overlaps = |key: &Key| sources.overlaps(&key.root.join(&key.path));
+        self.work.as_ref().is_some_and(|work| overlaps(&work.key))
+            || self.session.as_ref().is_some_and(|session| (session.dirty() || self.busy()) && overlaps(&session.key))
+    }
+
+    pub(crate) fn apply_file_receipt(&mut self, receipt: &feathrise_editor_project_browser_model::file_operations::FileOperationReceipt) {
+        if let Some(session) = self.session.as_mut()
+            && receipt.change_for(&session.key.root.join(&session.key.path)).is_some_and(|(change, _)| !change.source_retained)
+        {
+            // 源路径实际消失即停用旧笔刷和保存入口，不依赖异步热更新恰好先于鼠标输入。
+            session.stale = true;
+            self.notice = "调权源 GLB 已移动或删除，请在新位置打开模型".into();
+            self.bump();
+        }
+    }
+
     pub(in crate::ui::asset_preview) fn selected_tree(
         &self,
         tab: Option<u64>,

@@ -10,6 +10,7 @@ use crate::{
 };
 use bevy::{prelude::*, ui::RelativeCursorPosition};
 use feathrise_editor_ui::UiInteraction;
+use std::path::Path;
 
 /// 固定文件栏的键盘入口只在其实际悬停且没有文本焦点时消费，避免抢走中央源码的文本剪贴板。
 pub(super) fn fixed_shortcuts(
@@ -33,7 +34,7 @@ pub(super) fn fixed_shortcuts(
     for (key, action) in candidates {
         if let Some(action) = action.filter(|_| keys.just_pressed(key)) {
             requests.write(crate::ui::file_manager::FileManagerCommand {
-                action, path: Some(fixed.directory.clone()), sources: fixed.selected.clone(),
+                action, path: Some(fixed.directory.clone()), sources: fixed.selected.clone().into(),
             });
             keys.clear_just_pressed(key); // 原场景快捷键不得再消费同一文件整理边沿。
         }
@@ -80,7 +81,7 @@ pub(super) fn sync_fixed_selection(
                 .map(|identity| root.join(&identity.relative_path)))
         }
         ProjectBrowserView::Assets => (asset_root.join(&assets.current_folder), editor.selected_asset.as_ref()
-            .map(|path| asset_root.join(path.split('#').next().unwrap_or(path)))),
+            .map(|path| asset_root.join(path))),
     };
     let revision = match browser.view { ProjectBrowserView::Assets => assets.applied_revision,
         ProjectBrowserView::ProjectFiles => files.applied_revision };
@@ -90,8 +91,18 @@ pub(super) fn sync_fixed_selection(
         let selection_changed = observed.as_ref().is_none_or(|previous| previous.0 != identity.0
             || previous.1 != identity.1 || previous.2 != identity.2 || previous.3 != identity.3);
         // 同目录的筛选/刷新换代取消旧整理选择，避免快捷键命中已隐藏或删除的文件；不在主帧扫描整份快照。
-        fixed.selected = if selection_changed { selected.filter(|path| path.parent() == Some(directory.as_path())).into_iter().collect() }
-            else { Vec::new() };
+        let selected = selected.filter(|path| {
+            if !selection_changed || path.parent() != Some(directory.as_path()) { return false; }
+            if browser.view == ProjectBrowserView::ProjectFiles { return true; }
+            // 资产预览可能显示 GLB 子资产。按下已从物理行冻结文件，反向定位也有实际目录行的回执。
+            // 只以这两种来源确认文件身份，原样保留文件名中的 #。
+            observed.as_ref().is_some_and(|previous| previous.0 == identity.0 && previous.1 == identity.1
+                && previous.2 == identity.2 && previous.4 == identity.4 && fixed.selected.contains(path))
+                || assets.revealed_entry.filter(|(rev, _)| *rev == revision)
+                    .and_then(|(_, index)| assets.entries.get(index))
+                    .is_some_and(|entry| !entry.is_directory && asset_root.join(&entry.asset_path) == *path)
+        });
+        fixed.selected = selected.into_iter().collect();
         *observed = Some(identity);
     }
     fixed.directory = directory;
@@ -133,7 +144,7 @@ pub(super) fn sync_fixed_selection(
                 Rect::from_center_size(transform.affine().translation, root.size()), root.inverse_scale_factor())
         {
             contexts.write(crate::ui::file_manager::FileManagerContextRequest { position,
-                directory: fixed.directory.clone(), sources, open_directory,
+                directory: fixed.directory.clone(), sources: sources.into(), open_directory,
                 is_directory: entry.as_ref().map(|(_, directory)| *directory).or(Some(true)) });
         }
     }
@@ -141,26 +152,88 @@ pub(super) fn sync_fixed_selection(
     if mouse.just_pressed(MouseButton::Left) {
         fixed.selected = entry.as_ref().map(|(source, _)| source.clone()).into_iter().collect();
         if let Some((source, _)) = entry && let Some(mut drags) = drags {
-            drags.write(FileManagerExternalDrag { sources: vec![source] });
+            drags.write(FileManagerExternalDrag { sources: vec![source].into() });
         }
     }
 }
 
 /// 窗口外的固定栏也刷新真实目录；最多读取最近32个轻量回执，不依赖某个窗口仍然打开。
 pub(super) fn refresh_fixed_after_operation(
-    service: Option<Res<feathrise_editor_project_browser_model::file_operations::FileOperationService>>,
     mut files: ResMut<EditorProjectFileCatalog>,
     mut assets: ResMut<EditorAssetCatalog>,
     mut editor: ResMut<SceneEditorState>,
     manager: Option<Res<crate::ui::file_manager::FileManagerState>>,
+    hosted: Option<Res<WorkbenchModel>>,
     mut last_receipt: Local<u64>,
 ) {
     let Some(manager) = manager else { return; };
-    let Some(snapshot) = service.and_then(|service| service.snapshot()) else { return; };
-    let Some(latest) = snapshot.completed.iter().filter(|receipt| receipt.context == manager.service_context())
-        .map(|receipt| receipt.id).max().filter(|id| *id > *last_receipt) else { return; };
+    let Some(latest) = manager.receipts().next_back().map(|receipt| receipt.id)
+        .filter(|id| *id > *last_receipt) else { return; };
+    let file_path = files.project_root().map(|root| root.join(&files.current_folder));
+    let asset_path = hosted.as_ref().map_or_else(|| Some(feathrise_editor_core::workspace_asset_root()),
+        |host| host.asset_root.clone()).map(|root| root.join(&assets.current_folder));
+    let previous = *last_receipt;
     *last_receipt = latest;
-    files.navigate(crate::asset_catalog::project_files::ProjectFileNavigation::Refresh);
-    crate::asset_catalog::navigation::navigate(crate::types::EditorAction::RefreshAssets, &mut assets, &mut editor);
+    let affected = |path: Option<&Path>| path.is_some_and(|path|
+        manager.receipts().any(|receipt| receipt.id > previous && receipt.affects_directory(path)));
+    if affected(file_path.as_deref()) {
+        files.navigate(crate::asset_catalog::project_files::ProjectFileNavigation::Refresh);
+    }
+    if affected(asset_path.as_deref()) {
+        crate::asset_catalog::navigation::navigate(crate::types::EditorAction::RefreshAssets, &mut assets, &mut editor);
+    }
     editor.status = manager.notice.clone();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        resources::{SceneEditorLayoutState, SceneEditorNumericScrubMouseGuard},
+        types::EditorAssetEntry,
+        ui::{file_manager::FileManagerCommand, sidebars::{EditorNavigatorTab, SceneEditorSidebarState}},
+    };
+    use feathrise_scene_content::SceneAssetKind;
+    use std::path::PathBuf;
+
+    #[test]
+    fn fixed_sidebar_cut_keeps_literal_hash_from_accepted_physical_row() {
+        let root = PathBuf::from("C:/fixture/assets");
+        let filename = "a.glb#备份.glb";
+        let mut assets = EditorAssetCatalog::default();
+        assets.entries = ["a.glb", filename].into_iter().map(|name| EditorAssetEntry {
+            asset_path: name.into(), display_name: name.into(), is_directory: false, kind: SceneAssetKind::Scene,
+        }).collect();
+        assets.visible_count = assets.entries.len();
+        let mut sidebar = SceneEditorSidebarState::default();
+        sidebar.navigator = EditorNavigatorTab::Assets;
+        let mut app = App::new();
+        app.insert_resource(SceneEditorState { open: true, selected_asset: Some("其他.glb".into()), ..default() })
+            .insert_resource(ProjectBrowserState { view: ProjectBrowserView::Assets, ..default() })
+            .insert_resource(WorkbenchModel { asset_root: Some(root.clone()), visible: true, ..default() })
+            .insert_resource(sidebar).insert_resource(assets)
+            .init_resource::<FixedFileSelection>().init_resource::<EditorProjectFileCatalog>()
+            .init_resource::<ProjectFileViewport>().init_resource::<SceneEditorLayoutState>()
+            .init_resource::<SceneEditorNumericScrubMouseGuard>().init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<ButtonInput<KeyCode>>().add_message::<FileManagerCommand>()
+            .add_systems(Update, (sync_fixed_selection, fixed_shortcuts).chain());
+        app.world_mut().spawn((ProjectBrowserContent(ProjectBrowserView::Assets),
+            RelativeCursorPosition { cursor_over: true, ..default() }, InheritedVisibility::VISIBLE, ScrollPosition::default()));
+        app.world_mut().spawn((SceneEditorAssetRow { slot: 1, entry_index: Some(1) },
+            AssetRowBinding { index: Some(1), ..default() }, UiInteraction::Hovered, InheritedVisibility::VISIBLE));
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        app.update(); // 正式物理行路径在按下时冻结。
+        let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        mouse.release(MouseButton::Left);
+        mouse.clear();
+        app.world_mut().resource_mut::<SceneEditorState>().selected_asset = Some(filename.into());
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.press(KeyCode::ControlLeft);
+        keys.press(KeyCode::KeyX);
+        app.update();
+        let mut commands = app.world_mut().resource_mut::<Messages<FileManagerCommand>>();
+        let cut = commands.drain().next().expect("固定栏接收真实 Ctrl+X 命令");
+        assert_eq!(cut.action, crate::ui::file_manager::FileAction::Cut);
+        assert_eq!(cut.sources.first(), Some(root.join(filename).as_path()));
+    }
 }

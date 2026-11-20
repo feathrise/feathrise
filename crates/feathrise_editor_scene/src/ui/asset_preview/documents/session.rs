@@ -187,6 +187,9 @@ impl DocumentState {
     }
 
     pub(super) fn request_save(&mut self) {
+        if self.active.as_ref().is_some_and(|path| self.file_change_pending(path)) {
+            return;
+        }
         if self.io.is_some() || self.pending_load.is_some() {
             if let Some(doc) = self.current_mut() {
                 doc.status = "文件任务进行中，请完成后再保存".into();
@@ -210,6 +213,7 @@ impl DocumentState {
 
     /// JSON仅在同修订校验通过后抵达这里；切文件仍结清用户明确提交的原文件。
     pub(super) fn start_save(&mut self, path: &str) {
+        if self.file_change_pending(path) { return; }
         let Some(doc) = self.documents.iter_mut().find(|doc| doc.path == path) else { return; };
         doc.status = "正在后台保存完整文档…".into();
         let path = doc.path.clone();
@@ -243,7 +247,7 @@ pub(super) fn capture_edits(
         return; // 即使其他入口切回Edit，旧绑定的本帧残余输入也不能写进待替换正文。
     }
     for (binding, text) in &sources {
-        let Some(doc) = state.current().filter(|doc| doc.mode == ViewMode::Edit) else {
+        let Some(doc) = state.current().filter(|doc| doc.mode == ViewMode::Edit && !state.file_writes.blocks(&doc.disk.path)) else {
             return;
         };
         if !text.is_composing()
@@ -463,7 +467,7 @@ pub(super) fn drive_tasks(
     }
     if state.parser.is_none() && state.visible {
         if let Some(doc) = state.current().filter(|doc| {
-            doc.mode == ViewMode::Preview && doc.preview_revision != Some(doc.revision)
+            !state.editing() && doc.preview_revision != Some(doc.revision)
         }) {
             let path = doc.path.clone();
             let generation = doc.generation;

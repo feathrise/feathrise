@@ -8,7 +8,7 @@ use super::file_manager::{
     FileTaskButton, FileTitleBar, FileWindowStrip, OpenFileWindow,
 };
 use super::sidebars::{EditorNavigatorTab, EditorSidebarTab, SceneEditorSidebarTabButton};
-use super::status_bar::{StatusAction, StatusButton, StatusPopup, StatusText, StatusTextRole};
+use super::status_bar::{ITEMS_PER_PAGE, StatusAction, StatusButton, StatusPopup, StatusText, StatusTextRole};
 use crate::resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState};
 use bevy::{
     app::AppExit,
@@ -19,7 +19,7 @@ use bevy::{
     text::{EditableText, TextLayoutInfo},
     window::{Ime, PrimaryWindow, WindowEvent},
 };
-use feathrise_editor_project_browser_model::file_operations::{FileOperationKind, FileOperationService};
+use feathrise_editor_project_browser_model::file_operations::{FileOperationKind, FileOperationService, FileSources};
 use feathrise_editor_ui::UiInteraction;
 use serde_json::{Map, Value, json};
 use std::{fs, path::{Path, PathBuf}, time::{Duration, Instant}};
@@ -39,8 +39,8 @@ enum Stage {
     DeleteSelect, DeleteCommand, DeleteConfirm, DeleteWait,
     DragWindow, ResizeWindow, CaptureDesktop, Maximize, VerifyMaximize, RestoreSize,
     Minimize, VerifyMinimize, RestoreTask, VerifyRestore, CaptureRestored, CloseWindow, VerifyClose,
-    SingleMinimize, SingleRestore, SingleRestored, OpenCrowded, SwitchCrowded, CaptureCrowded, CloseCrowded,
-    OpenFileDetails, StartCancelCopy, CancelCopy, CloseFileDetails, Assets, Complete,
+    SingleMinimize, SingleRestore, SingleRestored, OpenCrowded, SwitchCrowded, CaptureCrowded, SelectCancelSources, CloseCrowded,
+    OpenFileDetails, StartCancelCopy, CancelCopy, ReadFileReceipt, ReadNextFileReceiptPage, CloseFileDetails, Assets, Complete,
 }
 
 #[derive(Resource)]
@@ -61,6 +61,7 @@ struct Run {
     drag: Option<(Entity, DVec2, DVec2, u8)>,
     typed: u8,
     receipt: u64,
+    cancel_sources: FileSources,
     rect_before: Option<Rect>,
     restored: Option<Rect>,
     blocked_seen: bool,
@@ -86,7 +87,8 @@ pub fn install(app: &mut App, work: PathBuf, project: PathBuf) -> Result<(), Str
     app.insert_resource(Run {
         source: project.join("assets/整理来源"), destination: project.join("assets/整理目标"), work, project,
         source_window: None, target_window: None, started: now, stage_started: now, stage: Stage::OpenSource,
-        click: None, right: None, menu_step: 0, pointer: None, drag: None, typed: 0, receipt: 0, rect_before: None, restored: None,
+        click: None, right: None, menu_step: 0, pointer: None, drag: None, typed: 0, receipt: 0,
+        cancel_sources: FileSources::default(), rect_before: None, restored: None,
         blocked_seen: false, capture: None, new_files: None, steps: Map::new(), screenshots: Map::new(),
     }).add_systems(PreUpdate, hold_pointer.before(bevy::ui::UiSystems::Focus))
         .add_systems(Update, fixture_focus.before(crate::SceneEditorSystemSet::Input))
@@ -489,6 +491,10 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
         Stage::CaptureCrowded => {
             let Some(proof) = evidence::capture(world, &mut run.capture, &run.work.join("files-status-crowded.png"))? else { return Ok(None); };
             run.screenshots.insert("files-status-crowded.png".into(), proof);
+            Stage::SelectCancelSources
+        }
+        Stage::SelectCancelSources => {
+            if !select_cancel_sources(world, run, window)? { return Ok(None); }
             Stage::CloseCrowded
         }
         Stage::CloseCrowded => {
@@ -510,11 +516,25 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
                 return Err("文件任务结束后详情仍显示取消入口".into());
             }
             world.write_message(FileManagerCommand { action: FileAction::CopyHere,
-                path: Some(run.project.join("file-cancel-target")), sources: vec![run.project.join("file-cancel-fixture")] });
+                path: Some(run.project.join("file-cancel-target")), sources: run.cancel_sources.clone() });
             Stage::CancelCopy
         }
         Stage::CancelCopy => {
             if !cancel_file_copy(world, run, window)? { return Ok(None); }
+            Stage::ReadFileReceipt
+        }
+        Stage::ReadFileReceipt => {
+            if file_receipt_page(world, run, 1)?.is_none() { return Ok(None); }
+            let next = visible(world, |button: &StatusButton| button.0 == StatusAction::NextReceiptPage);
+            if !click(world, &mut run.click, window, next) { return Ok(None); }
+            Stage::ReadNextFileReceiptPage
+        }
+        Stage::ReadNextFileReceiptPage => {
+            let Some(page) = file_receipt_page(world, run, 2)? else { return Ok(None); };
+            let name = "files-status-file-receipt.png";
+            let Some(proof) = evidence::capture(world, &mut run.capture, &run.work.join(name))? else { return Ok(None); };
+            run.screenshots.insert(name.into(), proof);
+            run.steps.insert("file_receipt_page".into(), page);
             Stage::CloseFileDetails
         }
         Stage::Assets => { if !assets::advance(world, run, window)? { return Ok(None); } Stage::Complete }
@@ -554,10 +574,13 @@ fn cancel_file_copy(world: &mut World, run: &mut Run, window: Entity) -> Result<
     let Some(snapshot) = world.get_resource::<FileOperationService>().and_then(FileOperationService::snapshot) else { return Ok(false); };
     if let Some(receipt) = snapshot.completed.iter().find(|receipt| receipt.id > run.receipt && receipt.kind == FileOperationKind::Copy) {
         if !receipt.cancelled || !receipt.completed.is_empty() || receipt.error.is_some()
+            || receipt.unprocessed.len() != run.cancel_sources.len()
             || run.steps["file_status_progress"]["id"] != receipt.id || run.steps["file_details_cancel"] != true {
             return Err(format!("详情取消未得到同一文件任务的取消回执：{receipt:?}"));
         }
-        run.steps.insert("file_cancel_receipt".into(), json!({"id":receipt.id,"cancelled":receipt.cancelled}));
+        run.receipt = receipt.id;
+        run.steps.insert("file_cancel_receipt".into(), json!({"id":receipt.id,"cancelled":receipt.cancelled,
+            "unprocessed":receipt.unprocessed.len()}));
         return Ok(true);
     }
     let Some(progress) = snapshot.active.as_ref().filter(|task| task.id > run.receipt && task.bytes > 0) else { return Ok(false); };
@@ -573,6 +596,53 @@ fn cancel_file_copy(world: &mut World, run: &mut Run, window: Entity) -> Result<
     Ok(false)
 }
 
+fn select_cancel_sources(world: &mut World, run: &mut Run, window: Entity) -> Result<bool, String> {
+    let path = run.project.join("file-cancel-fixture");
+    let id = world.resource::<FileManagerState>().windows.iter().find(|browser| same_path(&browser.path, &path))
+        .map(|browser| browser.id).ok_or("未找到用于大批全选的原浮窗")?;
+    if !path_ready(world, id, &path) || !activate(world, run, window, id) { return Ok(false); }
+    match run.typed {
+        0 => key_state(world, window, KeyCode::ControlLeft, Key::Control, ButtonState::Pressed),
+        1 => key(world, window, KeyCode::KeyA, Key::Character("a".into())),
+        2 => key_state(world, window, KeyCode::ControlLeft, Key::Control, ButtonState::Released),
+        _ => {
+            let state = world.resource::<FileManagerState>();
+            let browser = state.windows.iter().find(|browser| browser.id == id).ok_or("大批全选窗口已关闭")?;
+            let count = browser.selection.len();
+            if count <= 4096 || count != browser.entries.len() {
+                return Err(format!("原 Ctrl+A 选中 {count} 项，实际目录有 {} 项", browser.entries.len()));
+            }
+            run.cancel_sources = browser.selection.clone();
+            run.steps.insert("bulk_all_selected".into(), json!({"window":id,"count":count}));
+            return Ok(true);
+        }
+    }
+    run.typed += 1;
+    Ok(false)
+}
+
+fn file_receipt_page(world: &mut World, run: &Run, page: usize) -> Result<Option<Value>, String> {
+    let Some(snapshot) = world.get_resource::<FileOperationService>().and_then(FileOperationService::snapshot) else { return Ok(None); };
+    let Some(receipt) = snapshot.completed.iter().find(|receipt| receipt.id == run.receipt) else { return Ok(None); };
+    let Some(text) = visible(world, |text: &StatusText| text.0 == StatusTextRole::Detail)
+        .and_then(|entity| world.get::<Text>(entity)) else { return Ok(None); };
+    let locale = world.get_resource::<feathrise_editor_ui::localization::EditorLocale>().copied().unwrap_or_default();
+    let pages = receipt.unprocessed.len().div_ceil(ITEMS_PER_PAGE);
+    let title = locale.format("status.file_receipt.title", &[
+        ("id", receipt.id.to_string()), ("action", locale.editor_label("复制文件").into()),
+        ("page", page.to_string()), ("pages", pages.to_string()),
+    ]);
+    if !text.contains(&title) { return Ok(None); }
+    let first = crate::ui::external_files::platform_path(
+        receipt.unprocessed.get((page - 1) * ITEMS_PER_PAGE).ok_or("回执缺少本页首项")?,
+    );
+    let line = format!("{} · {}", locale.text("status.file_receipt.unprocessed"), first.display());
+    if !text.contains(&line) {
+        return Err(format!("详情第 {page} 页没有当前任务的真实未处理项 {line}"));
+    }
+    Ok(Some(json!({"id":receipt.id, "page":page, "pages":pages, "first_item":first, "text":text.as_str()})))
+}
+
 fn path_ready(world: &World, id: u64, path: &Path) -> bool {
     world.get_resource::<FileManagerState>().is_some_and(|state| state.windows.iter().any(|browser| browser.id == id && same_path(&browser.path, path) && !browser.loading))
 }
@@ -583,7 +653,7 @@ fn windows_proof(world: &World) -> Value {
     world.get_resource::<FileManagerState>().map_or(Value::Null, |state| json!({"focused":state.focused,"notice":state.notice,
         "windows":state.windows.iter().map(|browser| json!({"id":browser.id,"path":browser.path,"rect":rect_proof(browser.rect),
             "minimized":browser.minimized,"maximized":browser.maximized,"loading":browser.loading,"error":browser.error,
-            "selected":browser.selection,"entries":browser.entries.iter().map(|entry| &entry.name).collect::<Vec<_>>() })).collect::<Vec<_>>() }))
+            "selected":browser.selection.iter().collect::<Vec<_>>(),"entries":browser.entries.iter().map(|entry| &entry.name).collect::<Vec<_>>() })).collect::<Vec<_>>() }))
 }
 
 fn rect_proof(rect: Rect) -> Value { json!({"min":[rect.min.x,rect.min.y],"max":[rect.max.x,rect.max.y]}) }
@@ -641,7 +711,7 @@ fn fixed_blank_position(world: &mut World) -> Option<DVec2> {
 fn context_position(world: &mut World, id: Option<u64>, action: FileAction) -> Option<DVec2> {
     let Some(id) = id else { return fixed_blank_position(world); };
     if matches!(action, FileAction::Copy | FileAction::Cut | FileAction::Rename | FileAction::Delete) {
-        let path = world.get_resource::<FileManagerState>()?.windows.iter().find(|browser| browser.id == id)?.selection.first()?.clone();
+        let path = world.get_resource::<FileManagerState>()?.windows.iter().find(|browser| browser.id == id)?.selection.first()?.to_path_buf();
         let entity = visible(world, |row: &FileRow| row.window == id && row.path.as_deref() == Some(path.as_path()))?;
         return world.get::<UiGlobalTransform>(entity).map(|transform| transform.translation.as_dvec2());
     }

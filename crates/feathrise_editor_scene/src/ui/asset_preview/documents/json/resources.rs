@@ -16,6 +16,11 @@ pub(in super::super) struct JsonTools {
 }
 
 impl JsonTools {
+    pub(in super::super) fn edits_path(&self, path: &str) -> bool {
+        self.save.as_ref().is_some_and(|key| key.document.path == path)
+            || self.format.as_ref().is_some_and(|request| request.key.document.path == path)
+    }
+
     pub(in super::super) fn saved_play_pending(&self) -> bool { self.save.is_some() }
 
     pub(in super::super) fn exit_pending(&self) -> bool {

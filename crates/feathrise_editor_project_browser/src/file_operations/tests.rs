@@ -35,8 +35,12 @@ impl Drop for Fixture {
 fn execute(request: FileOperationRequest, cancelled: bool) -> (FileOperationReceipt, Result<(), String>) {
     let shared = Shared::default();
     let job = Job { id: 1, request, cancel: Arc::new(AtomicBool::new(cancelled)) };
-    let mut receipt = FileOperationReceipt { id: 1, context: 1, kind: job.request.operation.kind(), completed: vec![], skipped: vec![], error: None, cancelled: false };
-    let result = filesystem::execute(&job.request, &Control { shared: &shared, job: &job }, &mut receipt);
+    let mut receipt = FileOperationReceipt::new(1, 1, job.request.operation.kind());
+    let mut current = None;
+    let result = filesystem::execute(&job.request, &Control { shared: &shared, job: &job }, &mut receipt, &mut current);
+    receipt.cancelled = cancelled;
+    receipt.error = result.as_ref().err().filter(|error| error.as_str() != CANCELLED).cloned();
+    receipt.finish(&job.request.operation, current);
     (receipt, result)
 }
 
@@ -45,7 +49,7 @@ fn copy_move_and_conflicts_preserve_actual_file_bytes() {
     let fixture = Fixture::new();
     fs::create_dir(fixture.path("source/nested")).unwrap();
     fs::write(fixture.path("source/nested/中文.txt"), b"actual disk content").unwrap();
-    let operation = |conflict| FileOperation::Copy { sources: vec![fixture.path("source/nested")], destination: fixture.path("destination"), conflict };
+    let operation = |conflict| FileOperation::Copy { sources: vec![fixture.path("source/nested")].into(), destination: fixture.path("destination"), conflict };
     let (receipt, result) = execute(fixture.request(operation(ConflictPolicy::Fail)), false);
     result.unwrap();
     assert_eq!(receipt.completed.len(), 1);
@@ -57,7 +61,7 @@ fn copy_move_and_conflicts_preserve_actual_file_bytes() {
     assert_eq!(receipt.skipped.len(), 1);
     execute(fixture.request(operation(ConflictPolicy::KeepBoth)), false).1.unwrap();
     assert_eq!(fs::read(fixture.path("destination/nested (2)/中文.txt")).unwrap(), b"actual disk content");
-    execute(fixture.request(FileOperation::Move { sources: vec![fixture.path("source/nested")], destination: fixture.path("destination"), conflict: ConflictPolicy::KeepBoth }), false).1.unwrap();
+    execute(fixture.request(FileOperation::Move { sources: vec![fixture.path("source/nested")].into(), destination: fixture.path("destination"), conflict: ConflictPolicy::KeepBoth }), false).1.unwrap();
     assert!(!fixture.path("source/nested").exists());
     assert_eq!(fs::read(fixture.path("destination/nested (3)/中文.txt")).unwrap(), b"actual disk content");
 }
@@ -68,13 +72,163 @@ fn create_rename_and_parent_child_selection_use_real_paths() {
     execute(fixture.request(FileOperation::CreateFolder { parent: fixture.path("source"), name: "文件夹".into() }), false).1.unwrap();
     fs::write(fixture.path("source/文件夹/a.txt"), b"one copy").unwrap();
     execute(fixture.request(FileOperation::Rename { source: fixture.path("source/文件夹"), name: "renamed".into() }), false).1.unwrap();
-    let (receipt, result) = execute(fixture.request(FileOperation::Copy { sources: vec![fixture.path("source/renamed"), fixture.path("source/renamed/a.txt")], destination: fixture.path("destination"), conflict: ConflictPolicy::Fail }), false);
+    let (receipt, result) = execute(fixture.request(FileOperation::Copy { sources: vec![fixture.path("source/renamed"), fixture.path("source/renamed/a.txt")].into(), destination: fixture.path("destination"), conflict: ConflictPolicy::Fail }), false);
     result.unwrap();
     assert_eq!(receipt.completed.len(), 1, "父目录已包含的文件不能再复制一份");
     assert!(fixture.path("destination/renamed/a.txt").exists());
     assert!(!fixture.path("destination/a.txt").exists());
     assert!(execute(fixture.request(FileOperation::CreateFolder { parent: fixture.path("source"), name: "../escape".into() }), false).1.is_err());
     assert!(execute(fixture.request(FileOperation::Rename { source: fixture.path("source/renamed/a.txt"), name: "CON.txt".into() }), false).1.is_err());
+}
+
+#[test]
+fn frozen_bulk_selection_moves_more_than_4096_files_through_the_queue() {
+    use bevy::tasks::{IoTaskPool, TaskPool};
+    use std::time::{Duration, Instant};
+
+    let fixture = Fixture::new();
+    let directory = fixture.path("source");
+    let entries = (0..4097).map(|index| {
+        let name = format!("{index:05}.txt");
+        let path = directory.join(&name);
+        fs::write(&path, b"fixture").unwrap();
+        let stamp = FileEntryStamp::from_metadata(Some(&fs::metadata(&path).unwrap()));
+        (FileEntry { path, name, directory: false, bytes: 7 }, stamp)
+    });
+    let directory_snapshot = Arc::new(FileDirectory::with_stamps(&directory, entries));
+    let mut sources = FileSources::default();
+    sources.select(&directory_snapshot, 0..directory_snapshot.len(), false);
+    let later = directory.join("later.txt");
+    fs::write(&later, b"added after selection").unwrap();
+
+    IoTaskPool::get_or_init(TaskPool::new);
+    let backend = service();
+    let target = fixture.path("destination");
+    let id = backend.enqueue(fixture.request(FileOperation::Move {
+        sources: sources.clone(), destination: target.clone(), conflict: ConflictPolicy::Fail,
+    })).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(90);
+    let receipt = loop {
+        if let Some(receipt) = backend.snapshot().and_then(|snapshot| {
+            snapshot.completed.into_iter().find(|receipt| receipt.id == id)
+        }) {
+            break receipt;
+        }
+        assert!(Instant::now() < deadline, "后台大批移动未发布回执");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(receipt.error.is_none(), "{:?}", receipt.error);
+    assert_eq!(receipt.completed.len(), 4097);
+    assert!(receipt.remaining_clipboard(&sources).unwrap().is_empty());
+    assert_eq!(fs::read_dir(&target).unwrap().count(), 4097);
+    assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+    assert_eq!(fs::read(later).unwrap(), b"added after selection");
+    assert!(receipt.affects_directory(&directory));
+    assert!(receipt.affects_directory(&target));
+    assert!(!receipt.affects_directory(&fixture.root));
+}
+
+#[test]
+fn independent_moves_retire_clipboard_items_across_multiple_receipts_before_paste() {
+    use bevy::tasks::{IoTaskPool, TaskPool};
+    use std::time::{Duration, Instant};
+
+    let fixture = Fixture::new();
+    let source = fixture.path("source");
+    let dragged = fixture.path("destination");
+    let copied = fixture.path("copied");
+    let pasted = fixture.path("pasted");
+    fs::create_dir(&copied).unwrap();
+    fs::create_dir(&pasted).unwrap();
+    for name in ["A.txt", "B.txt", "C.txt"] { fs::write(source.join(name), name).unwrap(); }
+    let selected: FileSources = ["A.txt", "B.txt", "C.txt"].into_iter().map(|name| source.join(name)).collect::<Vec<_>>().into();
+    IoTaskPool::get_or_init(TaskPool::new);
+    let backend = service();
+    assert!(backend.publish_clipboard(Some(FileClipboard { context: 1, generation: 7, through: 0, sources: selected })));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let submit = |operation: FileOperation| loop {
+        match backend.enqueue(fixture.request(operation.clone())) {
+            Ok(id) => break id,
+            Err(error) if error == "文件任务正在更新，请重试" && Instant::now() < deadline => std::thread::yield_now(),
+            Err(error) => panic!("{error}"),
+        }
+    };
+    let clipboard_after = |through, finished| loop {
+        if let Some(snapshot) = backend.snapshot()
+            && snapshot.completed.iter().any(|receipt| receipt.id == finished)
+            && let Some(clipboard) = snapshot.clipboard.filter(|clipboard| clipboard.through == through)
+        {
+            assert_eq!(clipboard.generation, 7);
+            break clipboard.sources;
+        }
+        assert!(Instant::now() < deadline, "剪贴板未采用任务 #{finished} 后的快照");
+        std::thread::sleep(Duration::from_millis(1));
+    };
+    let _first = submit(FileOperation::Move { sources: vec![source.join("A.txt")].into(), destination: dragged.clone(), conflict: ConflictPolicy::Fail });
+    let second = submit(FileOperation::Move { sources: vec![source.join("B.txt")].into(), destination: dragged.clone(), conflict: ConflictPolicy::Fail });
+    let remainder = clipboard_after(second, second);
+    assert_eq!(remainder.len(), 1);
+    assert_eq!(remainder.first(), Some(source.join("C.txt").as_path()));
+    let copy = submit(FileOperation::Copy { sources: remainder, destination: copied.clone(), conflict: ConflictPolicy::Fail });
+    let remainder = clipboard_after(second, copy);
+    assert_eq!(remainder.first(), Some(source.join("C.txt").as_path()));
+    let last = submit(FileOperation::Move { sources: remainder, destination: pasted.clone(), conflict: ConflictPolicy::Fail });
+    assert!(clipboard_after(last, last).is_empty());
+    assert_eq!(fs::read(dragged.join("A.txt")).unwrap(), b"A.txt");
+    assert_eq!(fs::read(dragged.join("B.txt")).unwrap(), b"B.txt");
+    assert_eq!(fs::read(copied.join("C.txt")).unwrap(), b"C.txt");
+    assert_eq!(fs::read(pasted.join("C.txt")).unwrap(), b"C.txt");
+    assert_eq!(fs::read_dir(source).unwrap().count(), 0);
+}
+
+#[test]
+fn frozen_directory_selection_rejects_a_replaced_entry_before_any_move() {
+    let fixture = Fixture::new();
+    let directory = fixture.path("source");
+    let target = fixture.path("destination");
+    let snapshot = Arc::new(FileDirectory::with_stamps(&directory, ["a.txt", "b.txt"].map(|name| {
+        let path = directory.join(name);
+        fs::write(&path, b"original bytes").unwrap();
+        let metadata = fs::metadata(&path).unwrap();
+        (FileEntry { path, name: name.into(), directory: false, bytes: metadata.len() },
+            FileEntryStamp::from_metadata(Some(&metadata)))
+    })));
+    let mut sources = FileSources::default();
+    sources.select(&snapshot, 0..snapshot.len(), false);
+    // 保留旧文件占用原文件 ID，再写入同路径的新文件，避免测试依赖 inode 回收或时间戳精度。
+    fs::rename(directory.join("b.txt"), fixture.path("original-b.txt")).unwrap();
+    fs::write(directory.join("b.txt"), b"replacement").unwrap();
+    let (receipt, result) = execute(fixture.request(FileOperation::Move {
+        sources, destination: target.clone(), conflict: ConflictPolicy::Fail,
+    }), false);
+    assert!(result.unwrap_err().contains("文件已变化"));
+    assert!(receipt.completed.is_empty());
+    assert_eq!(fs::read(directory.join("a.txt")).unwrap(), b"original bytes");
+    assert_eq!(fs::read(directory.join("b.txt")).unwrap(), b"replacement");
+    assert_eq!(fs::read_dir(target).unwrap().count(), 0);
+}
+
+#[test]
+fn failed_copy_reports_completed_failed_and_unprocessed_items() {
+    let fixture = Fixture::new();
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        fs::write(fixture.path("source").join(name), name.as_bytes()).unwrap();
+    }
+    let target = fixture.path("destination");
+    fs::write(target.join("b.txt"), b"existing").unwrap();
+    let (receipt, result) = execute(fixture.request(FileOperation::Copy {
+        sources: ["a.txt", "b.txt", "c.txt"].map(|name| fixture.path("source").join(name)).to_vec().into(),
+        destination: target.clone(), conflict: ConflictPolicy::Fail,
+    }), false);
+    assert!(result.is_err());
+    assert_eq!(receipt.completed.len(), 1);
+    assert_eq!(receipt.failed.as_deref().unwrap().file_name().unwrap(), "b.txt");
+    assert_eq!(receipt.unprocessed, vec![fixture.path("source/c.txt")]);
+    assert_eq!(fs::read(target.join("a.txt")).unwrap(), b"a.txt");
+    assert_eq!(fs::read(target.join("b.txt")).unwrap(), b"existing");
+    assert!(!target.join("c.txt").exists());
+    assert!(receipt.affects_directory(&target));
+    assert!(!receipt.affects_directory(&fixture.path("source")));
 }
 
 #[test]
@@ -149,13 +303,13 @@ fn cancelled_or_unauthorized_file_creation_does_not_write_any_file() {
 fn self_descendant_root_outside_and_cancelled_requests_never_remove_source() {
     let fixture = Fixture::new();
     fs::write(fixture.path("source/file.txt"), b"keep me").unwrap();
-    let descendant = FileOperation::Move { sources: vec![fixture.path("source")], destination: fixture.path("source"), conflict: ConflictPolicy::Fail };
+    let descendant = FileOperation::Move { sources: vec![fixture.path("source")].into(), destination: fixture.path("source"), conflict: ConflictPolicy::Fail };
     assert!(execute(fixture.request(descendant), false).1.is_err());
-    assert!(execute(fixture.request(FileOperation::Delete { sources: vec![fixture.root.clone()] }), false).1.is_err());
+    assert!(execute(fixture.request(FileOperation::Delete { sources: vec![fixture.root.clone()].into() }), false).1.is_err());
     let mut outside = fixture.request(FileOperation::Rename { source: fixture.path("source/file.txt"), name: "new.txt".into() });
     outside.allowed_roots = vec![fixture.path("destination")];
     assert!(execute(outside, false).1.is_err());
-    let cancelled = fixture.request(FileOperation::Move { sources: vec![fixture.path("source/file.txt")], destination: fixture.path("destination"), conflict: ConflictPolicy::Fail });
+    let cancelled = fixture.request(FileOperation::Move { sources: vec![fixture.path("source/file.txt")].into(), destination: fixture.path("destination"), conflict: ConflictPolicy::Fail });
     assert!(execute(cancelled, true).1.is_err());
     assert_eq!(fs::read(fixture.path("source/file.txt")).unwrap(), b"keep me");
     assert!(!fixture.path("destination/file.txt").exists());
@@ -168,7 +322,7 @@ fn old_staging_directory_is_never_removed_on_name_collision() {
     let old_stage = fixture.path(&format!("destination/.feathrise-copy-{}-1-0-0", std::process::id()));
     fs::create_dir(&old_stage).unwrap();
     fs::write(old_stage.join("unrelated.txt"), b"preserve").unwrap();
-    execute(fixture.request(FileOperation::Copy { sources: vec![fixture.path("source/file.txt")], destination: fixture.path("destination"), conflict: ConflictPolicy::Fail }), false).1.unwrap();
+    execute(fixture.request(FileOperation::Copy { sources: vec![fixture.path("source/file.txt")].into(), destination: fixture.path("destination"), conflict: ConflictPolicy::Fail }), false).1.unwrap();
     assert_eq!(fs::read(old_stage.join("unrelated.txt")).unwrap(), b"preserve");
 }
 
@@ -201,7 +355,7 @@ fn unavailable_historical_root_does_not_block_valid_roots_or_grant_its_parent() 
     assert!(fixture.path("source/valid-after-bad-address").is_dir());
 
     fs::write(fixture.path("source/file.txt"), b"source stays inside valid root").unwrap();
-    let mut request = fixture.request(FileOperation::Copy { sources: vec![fixture.path("source/file.txt")],
+    let mut request = fixture.request(FileOperation::Copy { sources: vec![fixture.path("source/file.txt")].into(),
         destination: fixture.path("destination"), conflict: ConflictPolicy::Fail });
     request.allowed_roots = vec![missing, fixture.path("source")];
     let (receipt, result) = execute(request, false);
@@ -211,7 +365,7 @@ fn unavailable_historical_root_does_not_block_valid_roots_or_grant_its_parent() 
     assert!(!fixture.path("destination/file.txt").exists());
 
     fs::write(fixture.path("destination/outside.txt"), b"outside source must stay").unwrap();
-    let mut request = fixture.request(FileOperation::Move { sources: vec![fixture.path("destination/outside.txt")],
+    let mut request = fixture.request(FileOperation::Move { sources: vec![fixture.path("destination/outside.txt")].into(),
         destination: fixture.path("source"), conflict: ConflictPolicy::Fail });
     request.allowed_roots = vec![fixture.path("destination/no-longer-present"), fixture.path("source")];
     assert!(execute(request, false).1.unwrap_err().contains("超出已打开目录"), "有效目标也不能授权越界源");
@@ -260,7 +414,7 @@ fn directory_junction_at_leaf_or_inside_selected_tree_is_rejected_without_touchi
         .creation_flags(0x0800_0000).output().unwrap();
     assert!(result.status.success(), "无法创建本轮联接夹具（{}）：{} {}", result.status, String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
     for selected in [junction, fixture.path("source")] {
-        let (_, result) = execute(fixture.request(FileOperation::Copy { sources: vec![selected], destination: fixture.path("destination"), conflict: ConflictPolicy::Fail }), false);
+        let (_, result) = execute(fixture.request(FileOperation::Copy { sources: vec![selected].into(), destination: fixture.path("destination"), conflict: ConflictPolicy::Fail }), false);
         assert!(result.is_err(), "叶子和中间目录联接均不得作为普通目录遍历");
     }
     assert_eq!(fs::read(fixture.path("destination/author.txt")).unwrap(), b"junction target stays");
@@ -275,7 +429,7 @@ fn file_symbolic_link_is_rejected_without_copying_its_target() {
     fs::write(fixture.path("destination/author.txt"), b"symbolic target stays").unwrap();
     std::os::windows::fs::symlink_file(fixture.path("destination/author.txt"), fixture.path("source/linked.txt"))
         .expect("本机须启用开发者模式或符号链接权限以创建真实文件链接夹具");
-    let (_, result) = execute(fixture.request(FileOperation::Copy { sources: vec![fixture.path("source/linked.txt")], destination: fixture.path("destination"), conflict: ConflictPolicy::Fail }), false);
+    let (_, result) = execute(fixture.request(FileOperation::Copy { sources: vec![fixture.path("source/linked.txt")].into(), destination: fixture.path("destination"), conflict: ConflictPolicy::Fail }), false);
     assert!(result.is_err());
     assert!(!fixture.path("destination/linked.txt").exists());
     assert_eq!(fs::read(fixture.path("destination/author.txt")).unwrap(), b"symbolic target stays");

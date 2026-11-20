@@ -1,6 +1,7 @@
 //! F12固定底栏、真实操作回执与非模态完整诊断，不拥有保存或加载事务。
 
 mod components;
+mod file_receipts;
 mod helpers;
 mod inputs;
 mod resources;
@@ -13,6 +14,8 @@ pub(crate) use components::{PanelStatusText, StatusPopup};
 pub(super) use scene::{footer, popup};
 #[cfg(feature = "validation")]
 pub(super) use {components::{StatusButton, StatusText}, types::{StatusAction, StatusTextRole}};
+#[cfg(feature = "validation")]
+pub(super) use file_receipts::ITEMS_PER_PAGE;
 
 use bevy::prelude::*;
 

@@ -11,7 +11,7 @@ use std::{collections::VecDeque, sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU
 
 const MAX_QUEUE: usize = 8;
 const MAX_RECEIPTS: usize = 32;
-pub(super) const MAX_SOURCES: usize = 4096;
+const CANCELLED: &str = "文件任务已取消；已完成的条目保留，请查看任务回执";
 
 pub(super) fn service() -> FileOperationService { FileOperationService(Arc::new(Backend::default())) }
 
@@ -32,6 +32,15 @@ struct Queue {
     active: Option<(FileOperationProgress, Arc<AtomicBool>)>,
     completed: VecDeque<Arc<FileOperationReceipt>>,
     revision: u64,
+    clipboard: Option<FileClipboard>,
+    active_move: Option<u64>,
+}
+
+impl Queue {
+    fn clipboard_has_receipts(&self, clipboard: &FileClipboard) -> bool {
+        self.completed.iter().rev().take_while(|receipt| receipt.id > clipboard.through)
+            .any(|receipt| receipt.context == clipboard.context && receipt.kind == FileOperationKind::Move)
+    }
 }
 
 struct Job {
@@ -46,8 +55,8 @@ impl FileOperationBackend for Backend {
             FileOperation::Copy { sources, .. } | FileOperation::Move { sources, .. } | FileOperation::Delete { sources } => sources.len(),
             _ => 1,
         };
-        if source_count == 0 || source_count > MAX_SOURCES || request.allowed_roots.is_empty() || request.allowed_roots.len() > 32 {
-            return Err("请选择1至4096个文件，并先在编辑器中打开所属目录".into());
+        if source_count == 0 || request.allowed_roots.is_empty() || request.allowed_roots.len() > 32 {
+            return Err("请选择要操作的文件，并先在编辑器中打开所属目录".into());
         }
         if request.context == 0 || self.shared.cancelled_context.load(Ordering::Acquire) == request.context {
             return Err("文件操作所属工程会话已经结束".into());
@@ -57,12 +66,7 @@ impl FileOperationBackend for Backend {
         let id = self.shared.next_id.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         queue.pending.push_back(Job { id, request, cancel: Arc::new(AtomicBool::new(false)) });
         queue.revision = queue.revision.wrapping_add(1);
-        if !queue.running {
-            queue.running = true;
-            let shared = Arc::clone(&self.shared);
-            // 只启动一个IO worker；后台串行执行最多八个等待项，不占用帧线程，也不并发改写同一路径。
-            IoTaskPool::get().spawn(async move { run(shared); }).detach();
-        }
+        self.start_worker(&mut queue);
         Ok(id)
     }
 
@@ -76,6 +80,10 @@ impl FileOperationBackend for Backend {
             }),
             queued: queue.pending.iter().map(|job| progress(job)).collect(),
             completed: queue.completed.iter().cloned().collect(),
+            clipboard: queue.clipboard.as_ref().filter(|clipboard| !queue.clipboard_has_receipts(clipboard)
+                && queue.active_move != Some(clipboard.context)
+                && !queue.pending.iter().any(|job| job.request.context == clipboard.context && job.request.operation.kind() == FileOperationKind::Move))
+                .cloned(),
         })
     }
 
@@ -102,6 +110,28 @@ impl FileOperationBackend for Backend {
     fn is_busy(&self) -> bool {
         self.shared.queue.try_lock().map_or(true, |queue| queue.running || !queue.pending.is_empty())
     }
+
+    fn publish_clipboard(&self, clipboard: Option<FileClipboard>) -> bool {
+        let Ok(mut queue) = self.shared.queue.try_lock() else { return false; };
+        let needs_worker = clipboard.as_ref().is_some_and(|clipboard| queue.clipboard_has_receipts(clipboard));
+        let old = std::mem::replace(&mut queue.clipboard, clipboard);
+        queue.revision = queue.revision.wrapping_add(1);
+        if needs_worker { self.start_worker(&mut queue); }
+        drop(queue);
+        drop(old);
+        true
+    }
+}
+
+impl Backend {
+    fn start_worker(&self, queue: &mut Queue) {
+        if !queue.running {
+            queue.running = true;
+            let shared = Arc::clone(&self.shared);
+            // 文件事务和剪切板交集共用一个后台工作者，按真实发布顺序收口。
+            IoTaskPool::get().spawn(async move { run(shared); }).detach();
+        }
+    }
 }
 
 fn progress(job: &Job) -> FileOperationProgress {
@@ -118,27 +148,54 @@ fn run(shared: Arc<Shared>) {
     loop {
         let job = {
             let mut queue = shared.queue.lock().expect("文件任务队列不跨用户代码持锁");
+            if let Some(mut clipboard) = queue.clipboard.as_ref().filter(|clipboard| queue.clipboard_has_receipts(clipboard)).cloned() {
+                let through = clipboard.through;
+                let receipts: Vec<_> = queue.completed.iter().filter(|receipt| {
+                    receipt.id > through && receipt.context == clipboard.context && receipt.kind == FileOperationKind::Move
+                }).cloned().collect();
+                drop(queue);
+                for receipt in receipts {
+                    if let Some(remaining) = receipt.remaining_clipboard(&clipboard.sources) { clipboard.sources = remaining; }
+                    clipboard.through = receipt.id;
+                }
+                let mut queue = shared.queue.lock().expect("采用剪切板只替换已完成快照");
+                if queue.clipboard.as_ref().is_some_and(|current| (current.context, current.generation) == (clipboard.context, clipboard.generation)) {
+                    let old = queue.clipboard.replace(clipboard);
+                    queue.revision = queue.revision.wrapping_add(1);
+                    drop(queue);
+                    drop(old);
+                }
+                continue;
+            }
             let Some(job) = queue.pending.pop_front() else { queue.running = false; return; };
             queue.active = Some((progress(&job), Arc::clone(&job.cancel)));
+            queue.active_move = (job.request.operation.kind() == FileOperationKind::Move).then_some(job.request.context);
             queue.revision = queue.revision.wrapping_add(1);
             job
         };
         let control = Control { shared: &shared, job: &job };
-        let mut receipt = FileOperationReceipt { id: job.id, context: job.request.context, kind: job.request.operation.kind(),
-            completed: Vec::new(), skipped: Vec::new(), error: None, cancelled: false };
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| filesystem::execute(&job.request, &control, &mut receipt)));
+        let mut receipt = FileOperationReceipt::new(job.id, job.request.context, job.request.operation.kind());
+        let mut current = None;
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            filesystem::execute(&job.request, &control, &mut receipt, &mut current)
+        }));
         match result {
             Ok(Err(error)) => {
-                if control.cancelled() { receipt.cancelled = true; } else { receipt.error = Some(error); }
+                if control.cancelled() { receipt.cancelled = true; }
+                if !receipt.cancelled || error != CANCELLED { receipt.error = Some(error); }
             }
             Err(_) => receipt.error = Some("文件任务异常结束；已完成条目见回执，未发布暂存内容保留供检查".into()),
             Ok(Ok(())) => {}
         }
+        receipt.finish(&job.request.operation, current);
         let mut queue = shared.queue.lock().expect("文件任务完成只发布一次完整回执");
         queue.active = None;
-        if queue.completed.len() == MAX_RECEIPTS { queue.completed.pop_front(); }
+        queue.active_move = None;
+        let expired = (queue.completed.len() == MAX_RECEIPTS).then(|| queue.completed.pop_front()).flatten();
         queue.completed.push_back(Arc::new(receipt));
         queue.revision = queue.revision.wrapping_add(1);
+        drop(queue);
+        drop(expired);
     }
 }
 
@@ -150,7 +207,7 @@ impl Control<'_> {
             || self.shared.cancelled_context.load(Ordering::Acquire) == self.job.request.context
     }
     pub(super) fn check(&self) -> Result<(), String> {
-        if self.cancelled() { Err("文件任务已取消；已完成的条目保留，请查看任务回执".into()) } else { Ok(()) }
+        if self.cancelled() { Err(CANCELLED.into()) } else { Ok(()) }
     }
     pub(super) fn update(&self, current: Option<&std::path::Path>, completed: u64, bytes: u64) {
         let mut queue = self.shared.queue.lock().expect("后台进度更新不包含文件IO");

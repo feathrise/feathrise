@@ -123,7 +123,9 @@ impl WeightCommands<'_> {
                 .layout
                 .as_ref()
                 .is_none_or(|layout| layout.inspector_shown()),
-            busy: state.busy(),
+            busy: state.busy() || session.is_some_and(|session| self.documents.as_ref().is_some_and(|documents| {
+                !documents.file_writes.is_empty() && documents.file_writes.blocks(&session.key.root.join(&session.key.path))
+            })),
             stale: session.is_some_and(|session| session.stale),
             dirty: session.is_some_and(Session::dirty),
             undo: session.is_some_and(|session| !session.undo.is_empty()),
@@ -155,6 +157,7 @@ pub(super) fn receive(
     };
     if state.busy()
         || !gate.can_press(&editor)
+        || !gate.source_available(&request.key)
         || sidebar.right != EditorRightSidebarTab::Weights
         || !target.matches(&request.key)
         || !target.preview.render_visible

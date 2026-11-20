@@ -26,6 +26,9 @@ pub(super) struct StatusPopupFooter;
 pub(super) struct StatusDetailScroll;
 
 #[derive(Component, Clone, Default)]
+pub(super) struct StatusReceiptNavigation;
+
+#[derive(Component, Clone, Default)]
 pub(in crate::ui) struct StatusText(pub(in crate::ui) StatusTextRole);
 
 #[derive(Component, Clone, Default)]

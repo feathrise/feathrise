@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use feathrise_scene_content::SceneId;
 
 use super::types::StatusPhase;
+use super::file_receipts::FileReceiptView;
 use crate::types::{EditorStatusKind, EditorStatusOperation, EditorStatusResult};
 
 #[derive(Resource, Default)]
@@ -22,6 +23,7 @@ pub(crate) struct EditorStatusBarState {
     pub(super) summary: String,
     pub(super) task: String,
     pub(super) file_notice: String,
+    pub(super) file_receipt: FileReceiptView,
     pub(super) context: String,
     pub(super) detail: String,
     pub(super) scroll_revision: u64,

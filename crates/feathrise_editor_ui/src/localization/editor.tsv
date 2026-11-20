@@ -1096,6 +1096,16 @@ status.detail.current	当前提示\n	Current Message\n
 status.detail.task	\n\n当前任务：{task}	\n\nCurrent Task: {task}
 status.detail.no_task	无	None
 label.file-operation-status	文件操作	File Operations
+label.earlier-file-task	较早任务	Earlier Task
+label.later-file-task	较新任务	Later Task
+status.file_receipt.title	任务 #{id} · {action} · 第 {page}/{pages} 页	Task #{id} · {action} · Page {page}/{pages}
+status.file_receipt.summary	完成 {completed} 项 · 跳过 {skipped} 项 · 未处理 {unprocessed} 项	{completed} completed · {skipped} skipped · {unprocessed} unprocessed
+status.file_receipt.cancelled	已取消	Cancelled
+status.file_receipt.completed	已完成	Completed
+status.file_receipt.source_retained	已复制 · 源仍保留或部分保留	Copied · Source retained or partially retained
+status.file_receipt.skipped	已跳过	Skipped
+status.file_receipt.failed	失败	Failed
+status.file_receipt.unprocessed	未处理	Unprocessed
 label.cancel-file-task	取消文件任务	Cancel File Task
 label.file-operation-copy	复制文件	Copying Files
 label.file-operation-move	移动文件	Moving Files

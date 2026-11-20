@@ -2,12 +2,13 @@
 
 use super::{browser::{BrowserSessions, resources::{BrowserScan, BrowserSnapshot}}, resources::{FileManagerState, clamp_rect}, types::{FileDrag, FileEntry}};
 use bevy::prelude::*;
-use std::path::PathBuf;
+use feathrise_editor_project_browser_model::file_operations::FileDirectory;
+use std::{path::{Path, PathBuf}, sync::Arc};
 
 #[test]
 fn external_file_press_keeps_original_browser_click_until_drag_threshold() {
     let mut state = FileManagerState::default();
-    state.drag = Some(FileDrag { sources: vec![PathBuf::from("C:/fixture/a.txt")], origin: Vec2::ZERO, position: Vec2::ZERO, copy: false, destination: None, dragging: false });
+    state.drag = Some(FileDrag { sources: vec![PathBuf::from("C:/fixture/a.txt")].into(), origin: Vec2::ZERO, position: Vec2::ZERO, copy: false, destination: None, dragging: false });
     assert!(!state.owns_mouse(), "固定文件行普通点击继续交给原预览和目录导航");
     state.drag.as_mut().unwrap().dragging = true;
     assert!(state.owns_mouse(), "越过阈值后直到释放都归文件拖放");
@@ -21,7 +22,7 @@ fn directory_history_and_selection_are_independent_per_window() {
     let mut state = FileManagerState::default();
     state.open(PathBuf::from("C:/fixture/source"));
     state.open(PathBuf::from("C:/fixture/target"));
-    state.windows[0].selection.insert(PathBuf::from("C:/fixture/source/a.txt"));
+    state.windows[0].selection = vec![PathBuf::from("C:/fixture/source/a.txt")].into();
     state.windows[0].navigate(PathBuf::from("C:/fixture/source/nested"), true);
     assert_eq!(state.windows[0].history_index, 1);
     assert_eq!(state.windows[1].history_index, 0);
@@ -59,7 +60,7 @@ fn late_directory_result_cannot_replace_new_navigation_or_revive_closed_window()
         app.world_mut().resource_mut::<BrowserSessions>().tasks.push((id, IoTaskPool::get().spawn(async move {
             BrowserScan { window: id, revision: 1, context, requested: path,
                 result: Ok(BrowserSnapshot { root: PathBuf::from("C:/fixture"), assets: false, asset_folder: None,
-                    files: vec![FileEntry { path: PathBuf::from("C:/fixture/old/stale.txt"), name: "stale.txt".into(), directory: false, bytes: 1 }].into(),
+                    files: Arc::new(FileDirectory::new(Path::new("C:/fixture/old"), vec![FileEntry { path: PathBuf::from("C:/fixture/old/stale.txt"), name: "stale.txt".into(), directory: false, bytes: 1 }])),
                     entries: Default::default(), animations: Default::default(), selection: Default::default(), reveal_index: None }) }
         })));
     }
@@ -80,6 +81,48 @@ fn late_directory_result_cannot_replace_new_navigation_or_revive_closed_window()
     }
     drain_scans(&mut app);
     assert!(app.world().resource::<FileManagerState>().windows.is_empty(), "关闭浏览窗后迟到扫描不能重新创建窗口");
+}
+
+#[test]
+fn related_refresh_adopts_the_latest_scroll_and_shift_anchor() {
+    use super::browser::resources::BrowserSession;
+    use bevy::tasks::IoTaskPool;
+    use feathrise_editor_core::AssetBrowserViewMode;
+
+    let path = PathBuf::from("C:/fixture/scroll");
+    let rows = |names: &[&str]| Arc::new(FileDirectory::new(&path, names.iter().map(|name| FileEntry {
+        path: path.join(name), name: (*name).to_owned(), directory: false, bytes: 0,
+    }).collect()));
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins).init_resource::<FileManagerState>().init_resource::<BrowserSessions>()
+        .add_systems(Update, super::scan::poll);
+    let (id, revision, context) = {
+        let mut state = app.world_mut().resource_mut::<FileManagerState>();
+        state.open(path.clone());
+        let context = state.context;
+        let window = &mut state.windows[0];
+        window.entries = rows(&["a.txt", "b.txt", "c.txt", "d.txt"]);
+        window.anchor = Some(1);
+        window.refresh();
+        assert!(window.loading);
+        window.first = 2; // 模拟扫描尚未采用时继续滚动旧快照。
+        (window.id, window.revision, context)
+    };
+    let files = rows(&["00.txt", "a.txt", "b.txt", "c.txt", "d.txt"]);
+    {
+        let mut browsers = app.world_mut().resource_mut::<BrowserSessions>();
+        browsers.sessions.insert(id, BrowserSession::new(AssetBrowserViewMode::List));
+        browsers.tasks.push((id, IoTaskPool::get().spawn(async move {
+            BrowserScan { window: id, revision, context, requested: path.clone(),
+                result: Ok(BrowserSnapshot { root: path, assets: false, asset_folder: None,
+                    files, entries: Default::default(), animations: Default::default(),
+                    selection: Default::default(), reveal_index: None }) }
+        })));
+    }
+    drain_scans(&mut app);
+    let window = &app.world().resource::<FileManagerState>().windows[0];
+    assert_eq!(window.entries[window.first].name, "c.txt");
+    assert_eq!(window.entries[window.anchor.unwrap()].name, "b.txt");
 }
 
 #[test]
@@ -109,13 +152,13 @@ fn failed_directory_does_not_enter_file_operation_roots() {
 fn empty_floating_window_selection_cannot_borrow_fixed_sidebar_file() {
     use super::{messages::{FileManagerCommand, OpenFileWindow}, resources::FixedFileSelection, types::FileAction};
     let mut app = App::new();
-    app.init_resource::<FileManagerState>().init_resource::<bevy::input_focus::InputFocus>()
+    app.init_resource::<FileManagerState>().init_resource::<super::FileWriteReservations>().init_resource::<bevy::input_focus::InputFocus>()
         .insert_resource(FixedFileSelection { directory: PathBuf::from("C:/fixture/left"), selected: vec![PathBuf::from("C:/fixture/left/keep.txt")], ..default() })
         .add_message::<OpenFileWindow>().add_message::<super::messages::OpenAnimationPicker>()
         .add_message::<FileManagerCommand>().add_systems(Update, super::operations::control);
     for action in [FileAction::Copy, FileAction::Cut, FileAction::Delete, FileAction::Rename] {
         app.world_mut().resource_mut::<Messages<FileManagerCommand>>().write(FileManagerCommand { action,
-            path: Some(PathBuf::from("C:/fixture/right")), sources: vec![] });
+            path: Some(PathBuf::from("C:/fixture/right")), sources: default() });
         app.update();
         let state = app.world().resource::<FileManagerState>();
         assert!(state.clipboard.is_empty(), "右窗空选择不能剪切或复制左侧路径");
@@ -136,7 +179,7 @@ fn ime_commit_guard_blocks_file_keyboard_actions_only_for_guarded_frame() {
         .add_message::<bevy::input::mouse::MouseWheel>().add_systems(Update, super::input::control);
     app.world_mut().spawn((Window { focused: true, ..default() }, bevy::window::PrimaryWindow));
     app.world_mut().resource_mut::<FileManagerState>().prompt = Some(NamePrompt { action: FileAction::NewFolder,
-        directory: PathBuf::from("C:/fixture"), sources: vec![], value: "中文目录".into(), initialized: true });
+        directory: PathBuf::from("C:/fixture"), sources: default(), value: "中文目录".into(), initialized: true });
     for (key, action) in [(KeyCode::Enter, FileAction::Confirm), (KeyCode::Escape, FileAction::Cancel)] {
         app.world_mut().resource_mut::<crate::resources::EditorTextInputGuard>().block_shortcuts = true;
         app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(key);
@@ -176,9 +219,11 @@ fn context_target_preserves_selected_group_and_blank_uses_current_directory() {
     let window = &mut state.windows[0];
     let folder = directory.join("子目录");
     let file = directory.join("notes.txt");
-    window.entries = vec![FileEntry { path: folder.clone(), name: "子目录".into(), directory: true, bytes: 0 },
-        FileEntry { path: file.clone(), name: "notes.txt".into(), directory: false, bytes: 0 }].into();
-    window.selection.extend([folder.clone(), file.clone()]);
+    window.entries = Arc::new(FileDirectory::new(&directory, vec![
+        FileEntry { path: folder.clone(), name: "子目录".into(), directory: true, bytes: 0 },
+        FileEntry { path: file, name: "notes.txt".into(), directory: false, bytes: 0 },
+    ]));
+    window.selection.select(&window.entries, 0..2, false);
     let multiple = super::context_menu::target_for_window(window, Some(0), Vec2::new(800., 600.));
     assert_eq!(multiple.sources.len(), 2, "右键多选组内的目录不能把整理范围缩成一项");
     assert_eq!(multiple.open_directory, directory);
@@ -190,7 +235,7 @@ fn context_target_preserves_selected_group_and_blank_uses_current_directory() {
     assert!(blank.sources.is_empty());
     assert!(window.selection.is_empty());
     assert_eq!(blank.open_directory, directory);
-    assert_eq!(single.sources, vec![folder], "后续空白点击不能改写已经冻结的菜单来源");
+    assert_eq!(single.sources.first(), Some(folder.as_path()), "后续空白点击不能改写已经冻结的菜单来源");
     assert_eq!(multiple.sources.len(), 2);
 }
 
@@ -210,7 +255,7 @@ fn closing_context_menu_consumes_press_and_same_frame_file_shortcut() {
         let mut state = app.world_mut().resource_mut::<FileManagerState>();
         state.open(PathBuf::from("C:/fixture"));
         super::context_menu::open(&mut state, FileManagerContextRequest { position: Vec2::new(500., 400.),
-            directory: PathBuf::from("C:/fixture"), sources: vec![], open_directory: PathBuf::from("C:/fixture"), is_directory: Some(true) });
+            directory: PathBuf::from("C:/fixture"), sources: default(), open_directory: PathBuf::from("C:/fixture"), is_directory: Some(true) });
     }
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
     {
@@ -253,10 +298,10 @@ fn foreground_popup_blocks_file_rows_and_drop_but_window_gesture_finishes() {
         state.open(directory.clone());
         let window = &mut state.windows[0];
         window.loading = false;
-        window.entries = (0..32).map(|i| {
+        window.entries = Arc::new(FileDirectory::new(&directory, (0..32).map(|i| {
             let name = format!("{i}.txt");
             FileEntry { path: directory.join(&name), name, directory: false, bytes: 0 }
-        }).collect::<Vec<_>>().into();
+        }).collect()));
         (window.id, window.revision, window.rect)
     };
     // 覆层和下层行都具有真实布局可产生的几何悬停，只能让前景浮层接收此次输入。
@@ -282,7 +327,7 @@ fn foreground_popup_blocks_file_rows_and_drop_but_window_gesture_finishes() {
     }
     // 拖到详情时取消上一帧的有效落点，也不能回退到固定栏的旧悬停快照。
     app.world_mut().resource_mut::<FileManagerState>().drag = Some(FileDrag {
-        sources: vec![first_file], origin: point - Vec2::X * 20., position: point, copy: false,
+        sources: vec![first_file].into(), origin: point - Vec2::X * 20., position: point, copy: false,
         destination: Some(directory), dragging: true,
     });
     {
@@ -328,12 +373,13 @@ fn foreground_popup_blocks_file_rows_and_drop_but_window_gesture_finishes() {
 fn new_file_wrong_extension_keeps_name_prompt_for_correction() {
     use super::{messages::{FileManagerCommand, OpenFileWindow}, resources::FixedFileSelection, types::{FileAction, NamePrompt}};
     let mut app = App::new();
-    app.init_resource::<FileManagerState>().init_resource::<FixedFileSelection>().init_resource::<bevy::input_focus::InputFocus>()
+    app.init_resource::<FileManagerState>().init_resource::<super::FileWriteReservations>()
+        .init_resource::<FixedFileSelection>().init_resource::<bevy::input_focus::InputFocus>()
         .add_message::<FileManagerCommand>().add_message::<OpenFileWindow>()
         .add_message::<super::messages::OpenAnimationPicker>().add_systems(Update, super::operations::control);
     app.world_mut().resource_mut::<FileManagerState>().prompt = Some(NamePrompt { action: FileAction::NewGlb,
-        directory: PathBuf::from("C:/fixture"), sources: vec![], value: "我的场景.txt".into(), initialized: true });
-    app.world_mut().resource_mut::<Messages<FileManagerCommand>>().write(FileManagerCommand { action: FileAction::Confirm, path: None, sources: vec![] });
+        directory: PathBuf::from("C:/fixture"), sources: default(), value: "我的场景.txt".into(), initialized: true });
+    app.world_mut().resource_mut::<Messages<FileManagerCommand>>().write(FileManagerCommand { action: FileAction::Confirm, path: None, sources: default() });
     app.update();
     let state = app.world().resource::<FileManagerState>();
     assert_eq!(state.prompt.as_ref().unwrap().value, "我的场景.txt");
@@ -361,7 +407,9 @@ fn animation_picker_confines_navigation_and_clears_stale_candidates() {
     state.open_animation_picker(&request);
     let id = state.focused.unwrap();
     let picker = state.active_mut(id).unwrap();
-    picker.entries = vec![FileEntry { path: root.join("motions.glb"), name: "motions.glb".into(), directory: false, bytes: 108 }].into();
+    picker.entries = Arc::new(FileDirectory::new(&root, vec![
+        FileEntry { path: root.join("motions.glb"), name: "motions.glb".into(), directory: false, bytes: 108 },
+    ]));
     picker.loading = false;
     picker.select_picker_entry(0);
     picker.animation_picker.as_mut().unwrap().clip = Some(1);

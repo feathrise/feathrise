@@ -1,7 +1,7 @@
 //! 完整文档的原生输入绑定与工具条回显；连续正文构造由独立有界系统负责。
 
 use feathrise_editor_ui::UiInteraction;
-use super::{components::*, resources::DocumentState, types::*};
+use super::{components::*, resources::DocumentState};
 use crate::ui::theme as colors;
 use bevy::{
     input_focus::InputFocus,
@@ -70,7 +70,7 @@ pub(super) fn sync(
         return;
     }
     let doc = state.current();
-    let editing = doc.is_some_and(|doc| doc.mode == ViewMode::Edit);
+    let editing = state.editing();
     for (mut node, panel, source, edit_area, preview, launch, external) in &mut nodes {
         let show = if panel {
             state.active.is_some() && replacement.as_ref().is_none_or(|state| !state.preview_visible())
@@ -105,7 +105,7 @@ pub(super) fn sync(
             "{} · {}{}{}{}",
             locale.editor_label(doc.format.label()),
             if doc.dirty() { format!("{} · ", locale.text("document.unsaved")) } else { String::new() },
-            locale.editor_notice(&doc.status),
+            locale.editor_notice(if state.file_writes.blocks(&doc.disk.path) { super::file_changes::FILE_CHANGE_PENDING } else { &doc.status }),
             if editing {
                 locale.text("document.shortcut_summary")
             } else {
