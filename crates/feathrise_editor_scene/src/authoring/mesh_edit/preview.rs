@@ -323,10 +323,13 @@ fn visibility_intent_current(world: &World, hidden: &HiddenRoot) -> bool {
 }
 
 fn current_record_visible(world: &World, scene_id: &SceneId, id: &str, index: usize) -> bool {
-    world.get_resource::<EditorAuthoringSession>().and_then(|session| session.draft.as_ref())
+    let Some(session) = world.get_resource::<EditorAuthoringSession>() else { return false; };
+    let objects = world.get_resource::<crate::ui::scene_objects::SceneObjectState>();
+    session.draft.as_ref()
         .filter(|draft| &draft.scene_id == scene_id)
         .and_then(|draft| draft.placements.placements.get(index))
-        .is_some_and(|record| record.id == id && !record.editor.hidden)
+        .is_some_and(|record| record.id == id
+            && !crate::ui::scene_objects::effective_metadata(objects, session, record).hidden)
 }
 
 /// Query采样与Commands执行之间仍可发生外部显隐；旧票据不能把稍后的Visible再次藏住。

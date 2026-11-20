@@ -196,6 +196,7 @@ pub(crate) fn handle_placement_batch(
     mut visuals: ResMut<CourtyardAuthoringState>,
     guard: Res<SceneEditorNumericScrubMouseGuard>,
     buttons: Query<(&PlacementBatchButton, &EditorButtonClick), Changed<EditorButtonClick>>,
+    objects: Option<Res<crate::ui::scene_objects::SceneObjectState>>,
     mut env: BatchEnvironment,
 ) {
     if (state.busy() || movement.multi_transform_active()) && editor.open {
@@ -349,6 +350,7 @@ pub(crate) fn handle_placement_batch(
         }
     }
     if !context.batch_available(&editor)
+        || objects.as_ref().is_some_and(|state| state.busy()) // 本系统早于公共鼠标门，禁止复制尚在写回的摆放记录。
         || movement.owns_mouse()
         || selection.owns_mouse()
         || guard.blocked()

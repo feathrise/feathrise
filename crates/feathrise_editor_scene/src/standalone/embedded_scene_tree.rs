@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use crate::{
     SceneEditorState, SceneEditorSystemSet,
+    authoring::AuthoringRetirement,
     ui::{
         gltf_browser::EditorGltfBrowserState,
         list_layout::{self, SceneObjectListScroll},
@@ -31,6 +32,7 @@ pub struct ProjectSceneTreeRow {
 #[derive(Resource, Default)]
 pub(crate) struct ProjectSceneTree {
     rows: Option<Arc<Vec<ProjectSceneTreeRow>>>,
+    retirement: Arc<()>,
     revision: u64,
     unavailable: bool,
 }
@@ -52,11 +54,28 @@ pub fn visible(world: &World) -> bool {
 }
 
 pub fn publish(world: &mut World, rows: Arc<Vec<ProjectSceneTreeRow>>) {
-    if let Some(mut state) = world.get_resource_mut::<ProjectSceneTree>() {
-        state.rows = Some(rows);
+    let previous = if let Some(mut state) = world.get_resource_mut::<ProjectSceneTree>() {
         state.revision = state.revision.wrapping_add(1);
         state.unavailable = false;
+        state.rows.replace(rows)
+    } else {
+        Some(rows)
+    };
+    if let Some(previous) = previous {
+        retire_rows(world, previous);
     }
+}
+
+pub fn ready_to_request(world: &World) -> bool {
+    world.get_resource::<ProjectSceneTree>()
+        .is_some_and(|tree| Arc::strong_count(&tree.retirement) == 1)
+}
+
+pub fn retire_rows(world: &mut World, rows: Arc<Vec<ProjectSceneTreeRow>>) {
+    // 查询只有在已有队列排空时继续。晚到的回包和清空中的显示表仍由原通信容量兜住，
+    // 释放行表后才释放票据，避免不断把大正文堆进作者回收队列。
+    let credit = world.get_resource::<ProjectSceneTree>().map(|tree| tree.retirement.clone());
+    world.get_resource_or_init::<AuthoringRetirement>().push((rows, credit));
 }
 
 pub fn unavailable(world: &mut World) {
@@ -66,10 +85,13 @@ pub fn unavailable(world: &mut World) {
 }
 
 pub fn clear(world: &mut World) {
-    if let Some(mut state) = world.get_resource_mut::<ProjectSceneTree>() {
-        state.rows = None;
+    let previous = world.get_resource_mut::<ProjectSceneTree>().and_then(|mut state| {
         state.revision = state.revision.wrapping_add(1);
         state.unavailable = false;
+        state.rows.take()
+    });
+    if let Some(previous) = previous {
+        retire_rows(world, previous);
     }
 }
 
@@ -251,6 +273,31 @@ pub fn rendered_rows(world: &mut World) -> Vec<(String, Val)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scene_tree_replacement_and_clear_wait_for_background_retirement() {
+        let mut world = World::new();
+        world.init_resource::<ProjectSceneTree>();
+        let first = Arc::new(Vec::new());
+        let second = Arc::new(Vec::new());
+        let first_ref = Arc::downgrade(&first);
+        let second_ref = Arc::downgrade(&second);
+        publish(&mut world, first);
+        assert!(ready_to_request(&world));
+
+        publish(&mut world, second);
+        assert!(!ready_to_request(&world));
+        assert!(first_ref.upgrade().is_some());
+        clear(&mut world);
+        assert!(world.resource::<ProjectSceneTree>().rows.is_none());
+        assert!(second_ref.upgrade().is_some());
+
+        // 销毁回收资源等价于消费其持有权，确认前台没有另留旧行表与节流票据。
+        drop(world.remove_resource::<AuthoringRetirement>());
+        assert!(first_ref.upgrade().is_none());
+        assert!(second_ref.upgrade().is_none());
+        assert!(ready_to_request(&world));
+    }
 
     #[test]
     fn scene_tree_search_retains_context_across_siblings() {

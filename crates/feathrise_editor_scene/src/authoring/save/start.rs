@@ -59,6 +59,7 @@ pub(crate) struct SaveRuntimeReadiness<'w, 's> {
     vegetation_cross: Option<Res<'w, crate::authoring::vegetation_paint_scope::VegetationPaintState>>,
     vegetation_layers: Option<Res<'w, crate::ui::vegetation_layers::VegetationBlankLayerAllocation>>,
     terrain_objects: Option<Res<'w, crate::ui::terrain_objects::TerrainObjectsEditorState>>,
+    scene_objects: Option<Res<'w, crate::ui::scene_objects::SceneObjectState>>,
     terrain_content: Option<Res<'w, crate::authoring::content_bindings::ContentTerrainFollowState>>,
     volume: Option<Res<'w, crate::authoring::volume_sculpt::VolumeAuthoringState>>, // 尚未dirty的冻结点击和联合碰撞也必须先收口。
     folder_persistence: Option<Res<'w, crate::resources::SceneFolderPersistence>>, // 名称事务不能与旧清单保存并发。
@@ -141,6 +142,10 @@ pub(crate) fn start_draft_save(
         *readiness.boundary_capture = default(); // 已取消的请求不保留待保存墙点。
         *readiness.water_capture = default();
         return;
+    }
+    if readiness.scene_objects.as_ref().is_some_and(|state| state.busy()) {
+        editor.status = "等待场景对象管理完成后保存…".into();
+        return; // 保存仍从原摆放格式读取，等整批元数据有界写回。
     }
     if readiness.file_writes.as_ref().is_some_and(|files| {
         !files.is_empty() && session.draft.as_ref().is_some_and(|draft| files.blocks_scene_save(&feathrise_editor_core::workspace_asset_root(), draft))

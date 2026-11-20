@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use feathrise_scene::ScenePlacementInstance;
 use std::collections::{BTreeSet, HashMap};
 use super::types::PlacementVisibilityIntent;
+use super::{SceneObjectState, effective_metadata};
 
 #[derive(Component)]
 pub(super) struct EditorObjectVisibility {
@@ -36,7 +37,8 @@ fn editor_hides_root(world: &World, root: Entity) -> bool {
     }
     browser.placement_record_index(instance.id(), session.placement_structure_revision)
         .and_then(|index| draft.placements.placements.get(index))
-        .filter(|record| record.id == instance.id()).is_some_and(|record| record.editor.hidden)
+        .filter(|record| record.id == instance.id())
+        .is_some_and(|record| effective_metadata(world.get_resource::<SceneObjectState>(), session, record).hidden)
 }
 
 /// 释放预览只归还自己的覆盖；直接改值不发布新的外部显隐意图，行隐藏仍保留Hidden。
@@ -162,6 +164,7 @@ pub(super) fn sync_visibility(
     session: Res<EditorAuthoringSession>,
     browser: Res<EditorGltfBrowserState>,
     deletions: Option<Res<PlacementDeletionIndex>>,
+    objects: Option<Res<SceneObjectState>>,
     mut state: ResMut<ObjectVisibilityState>,
     mut roots: Query<(
         &ScenePlacementInstance,
@@ -231,11 +234,12 @@ pub(super) fn sync_visibility(
                 if deletion.is_some() { release_expired_deletion(&mut commands, entity); }
                 continue; // 旧索引不得跨场景或跨数组代次决定显隐。
             }
-            hide = browser
-                .placement_record_index(instance.id(), session.placement_structure_revision)
-                .and_then(|index| session.draft.as_ref()?.placements.placements.get(index))
-                .filter(|record| record.id == instance.id())
-                .is_some_and(|record| record.editor.hidden);
+            hide = session.draft.as_ref().is_some_and(|draft| {
+                browser.placement_record_index(instance.id(), session.placement_structure_revision)
+                    .and_then(|index| draft.placements.placements.get(index))
+                    .filter(|record| record.id == instance.id())
+                    .is_some_and(|record| effective_metadata(objects.as_deref(), &session, record).hidden)
+            });
         }
         if hide {
             if previous.is_none() {

@@ -583,6 +583,9 @@ fn poll(world: &mut World, runtime: &mut Runtime, status: &mut EmbeddedStatus) {
     for event in events {
         // 取消撤回的是整个旧会话的采用权；仍有界排空邮箱，但迟到进度与协议均不能复活旧启动。
         if runtime.active.as_ref().is_some_and(|active| active.control.is_cancelled()) {
+            if let Event::SceneTree(response) = event {
+                response.retire(world);
+            }
             continue;
         }
         match event {
@@ -732,6 +735,12 @@ fn poll(world: &mut World, runtime: &mut Runtime, status: &mut EmbeddedStatus) {
         .try_recv()
         .unwrap_or_else(|_| Err("常驻工作线程未返回退出回执".into()));
     let joined = active.thread.join().is_ok();
+    // 工作线程可能在本帧第一次轮询以后才发布最后的回包。关闭邮箱时仍沿原后台释放行表。
+    for event in active.receiver.try_iter() {
+        if let Event::SceneTree(response) = event {
+            response.retire(world);
+        }
+    }
     let log = active.control.log_sink();
     if active.control.cleanup_failed() || !joined {
         runtime.cleanup_failure = Some("常驻进程或管道线程退出未确认，禁止启动另一份工程实例".into());

@@ -61,7 +61,7 @@ fn large_short_signature_indexes_the_tail_under_the_frame_budget() {
     };
     let mut build = BrowserSignatureBuild::new(observation);
 
-    assert!(!advance_signature_build(&mut build, &placements, &expanded,));
+    assert!(!advance_signature_build(&mut build, &placements, &expanded, None));
     assert_eq!(
         build.next_placement,
         MAX_GLTF_SIGNATURE_PLACEMENTS_PER_FRAME
@@ -72,7 +72,7 @@ fn large_short_signature_indexes_the_tail_under_the_frame_budget() {
     ); // 第一帧不复制8192项。
 
     let mut frames = 1usize;
-    while !advance_signature_build(&mut build, &placements, &expanded) {
+    while !advance_signature_build(&mut build, &placements, &expanded, None) {
         frames += 1;
     }
     frames += 1; // 最后一次返回true的推进同样占一个Update预算。
@@ -105,7 +105,7 @@ fn duplicate_id_removes_expansion_and_all_provisional_asset_demand() {
         placement_structure_revision: 1,
     });
 
-    assert!(advance_signature_build(&mut build, &placements, &expanded,));
+    assert!(advance_signature_build(&mut build, &placements, &expanded, None));
 
     assert!(build.duplicate_ids.contains("duplicate"));
     assert!(!build.placement_asset_paths.contains_key("duplicate"));
@@ -133,7 +133,7 @@ fn primitive_target_never_restores_scene_expansion_or_asset_demand() {
         placement_structure_revision: 2,
     });
 
-    assert!(advance_signature_build(&mut build, &[primitive], &expanded));
+    assert!(advance_signature_build(&mut build, &[primitive], &expanded, None));
     assert!(!build.expanded_live.contains("leaf"));
     assert!(build.asset_demand_counts.is_empty());
     assert!(build.wanted_asset_paths.is_empty());
@@ -163,7 +163,7 @@ fn records_after_the_old_limit_also_invalidate_duplicate_ids() {
     });
     let expanded = BTreeSet::new();
 
-    while !advance_signature_build(&mut build, &placements, &expanded) {}
+    while !advance_signature_build(&mut build, &placements, &expanded, None) {}
 
     assert_eq!(build.signature.len(), placements.len());
     assert!(build.duplicate_ids.contains("instance-0"));
@@ -196,6 +196,7 @@ fn one_record_water_bindings_obey_path_segment_budget() {
         &mut build,
         &placements,
         &BTreeSet::new(),
+        None,
     ));
     assert_eq!(build.next_placement, 0); // 单条记录尚未完整，不能提前进入活动签名前缀。
     assert_eq!(
@@ -209,7 +210,7 @@ fn one_record_water_bindings_obey_path_segment_budget() {
     ); // 64层路径每帧只复制固定512段。
 
     let mut frames = 1usize;
-    while !advance_signature_build(&mut build, &placements, &BTreeSet::new()) {
+    while !advance_signature_build(&mut build, &placements, &BTreeSet::new(), None) {
         frames += 1;
     }
     assert!(frames > 1);
@@ -243,6 +244,7 @@ fn one_record_water_bindings_obey_string_byte_budget() {
         &mut build,
         &placements,
         &BTreeSet::new(),
+        None,
     ));
     let copied = build
         .pending_signature

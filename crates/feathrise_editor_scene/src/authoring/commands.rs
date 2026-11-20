@@ -705,6 +705,14 @@ fn trim_water_history_to_budget(undo: &mut Vec<EditorCommand>) {
 }
 
 fn trim_water_history_with_mask_budget(undo: &mut Vec<EditorCommand>, mask_budget: usize) {
+    trim_water_history(undo, mask_budget, |_| {});
+}
+
+fn trim_water_history(
+    undo: &mut Vec<EditorCommand>,
+    mask_budget: usize,
+    mut retire: impl FnMut(std::vec::Drain<'_, EditorCommand>),
+) {
     loop {
         let usage = water_history_usage(undo);
         if usage.samples <= MAX_RETAINED_WATER_UNDO_SAMPLES
@@ -720,11 +728,20 @@ fn trim_water_history_with_mask_budget(undo: &mut Vec<EditorCommand>, mask_budge
         };
         if oldest_water_index + 1 == undo.len() {
             // 水层、水网、绑定和笔划再大也保留最新完整事务，缓存预算不能变成作者容量门。
-            undo.drain(..oldest_water_index); // 超预算时只保留最新一笔，峰值受两代作者源大小约束。
+            retire(undo.drain(..oldest_water_index)); // 超预算时只保留最新一笔，峰值受两代作者源大小约束。
             return; // 其余旧历史已释放，不能继续裁当前唯一事务。
         }
-        undo.drain(..=oldest_water_index); // 烘焙最旧水结果时同步删除其前方全部命令，保持线性撤销基线。
+        retire(undo.drain(..=oldest_water_index)); // 烘焙最旧水结果时同步删除其前方全部命令，保持线性撤销基线。
     }
+}
+
+pub(super) fn push_bounded_history_retiring(
+    undo: &mut Vec<EditorCommand>,
+    command: EditorCommand,
+    retired: &mut Vec<EditorCommand>,
+) {
+    undo.push(command);
+    trim_water_history(undo, MAX_RETAINED_WATER_MASK_SNAPSHOT_BYTES, |prefix| retired.extend(prefix));
 }
 
 /// 会话入口与纯测试复用此Vec级裁剪；生产调用须由会话同步调整画布归属游标。

@@ -32,6 +32,7 @@ fn pending(
 ) -> PendingManagement {
     PendingManagement {
         scene_id: session.draft.as_ref().unwrap().scene_id.clone(),
+        document: session.placement_deletions.identity(),
         revision: session.revision,
         structure: session.placement_structure_revision,
         terrain_revision: session.terrain_revision,
@@ -44,6 +45,7 @@ fn pending(
         flag_set: false,
         cursor: 0,
         changes: Vec::new(),
+        metadata: Default::default(),
         heap_bytes: 0,
         selected: Vec::new(),
     }
@@ -108,6 +110,15 @@ fn finish(app: &mut App) {
     panic!("有界管理应完成");
 }
 
+fn apply_management(request: &mut PendingManagement, session: &mut EditorAuthoringSession, editor: &mut SceneEditorState) {
+    let (_, retired, batch) = adopt_management(request, session, editor).unwrap();
+    assert!(retired.is_empty());
+    let mut state = SceneObjectState::default();
+    let browser = EditorGltfBrowserState::default();
+    state.publish_metadata(session, batch);
+    while state.busy() { state.write_metadata(session, &browser); }
+}
+
 #[test]
 fn group_capture_is_bounded_and_adopts_one_complete_history() {
     let mut session = session(300, "旧组");
@@ -127,12 +138,19 @@ fn group_capture_is_bounded_and_adopts_one_complete_history() {
     );
     assert!(!advance_management(&mut request, &session).unwrap());
     assert!(advance_management(&mut request, &session).unwrap());
-    assert_eq!(
-        adopt_management(&mut request, &mut session, &mut editor)
-            .unwrap()
-            .0,
-        300
-    );
+    let (count, _, batch) = adopt_management(&mut request, &mut session, &mut editor).unwrap();
+    assert_eq!(count, 300);
+    let mut state = SceneObjectState::default();
+    state.publish_metadata(&session, batch);
+    let browser = EditorGltfBrowserState::default();
+    for written in [0, 128, 256] {
+        let draft = session.draft.as_ref().unwrap();
+        assert_eq!(draft.placements.placements.iter().filter(|record| record.editor.group == "村口").count(), written);
+        assert!(draft.placements.placements.iter().all(|record|
+            super::effective_metadata(Some(&state), &session, record).group == "村口"));
+        state.write_metadata(&mut session, &browser);
+    }
+    assert!(!state.busy());
     assert_eq!(session.undo.len(), 1);
     assert_eq!(session.scene_objects_revision, 1);
     assert_eq!(session.placement_structure_revision, 0);
@@ -179,7 +197,7 @@ fn stale_capture_and_corrupt_history_never_apply_a_prefix() {
     );
     assert!(advance_management(&mut request, &session).unwrap());
     let mut editor = SceneEditorState::default();
-    adopt_management(&mut request, &mut session, &mut editor).unwrap();
+    apply_management(&mut request, &mut session, &mut editor);
     let EditorCommand::SceneObjectsChanged(change) = &session.undo[0] else {
         panic!()
     };
@@ -187,6 +205,51 @@ fn stale_capture_and_corrupt_history_never_apply_a_prefix() {
     placements.placements[1].id = "另一对象".into();
     assert!(change.apply(&mut placements, true).is_err());
     assert_eq!(placements.placements[0].editor.group, "村口");
+}
+
+#[test]
+fn group_history_validates_in_batches_and_publishes_before_record_writeback() {
+    let mut app = app(300, "整组");
+    app.add_plugins(AssetPlugin::default())
+        .init_resource::<crate::ui::placement_water::PlacementInstanceIndex>();
+    crate::viewport::placement_move::interaction_tests::batch_undo_resources(&mut app);
+    app.world_mut().resource_mut::<EditorGltfBrowserState>().selected_group = Some("整组".into());
+    press(&mut app, ObjectAction::ToggleLocked);
+    finish(&mut app);
+    let history = app.world_mut().register_system(crate::authoring::apply_undo_redo);
+    for undoing in [true, false] {
+        let mut editor = app.world_mut().resource_mut::<SceneEditorState>();
+        editor.undo_requested = undoing;
+        editor.redo_requested = !undoing;
+        for step in 0..3 {
+            app.world_mut().run_system(history).unwrap();
+            let session = app.world().resource::<EditorAuthoringSession>();
+            let objects = app.world().resource::<SceneObjectState>();
+            let draft = session.draft.as_ref().unwrap();
+            assert!(draft.placements.placements.iter().all(|record| record.editor.locked == undoing));
+            assert_eq!(session.undo.len(), usize::from(undoing != (step == 2)));
+            let published = if step == 2 { !undoing } else { undoing };
+            assert!(draft.placements.placements.iter().all(|record|
+                super::effective_metadata(Some(objects), session, record).locked == published));
+        }
+        app.update();
+        let session = app.world().resource::<EditorAuthoringSession>();
+        let draft = session.draft.as_ref().unwrap();
+        assert_eq!(draft.placements.placements.iter().filter(|record| record.editor.locked != undoing).count(), 128);
+        finish(&mut app);
+    }
+
+    // 同名场景的作者所有者换代时，即使外部缓存未推进数值修订，也不能继续旧的历史请求。
+    app.world_mut().resource_mut::<SceneEditorState>().undo_requested = true;
+    app.world_mut().run_system(history).unwrap();
+    assert!(app.world().resource::<SceneObjectState>().busy());
+    app.world_mut().resource_mut::<EditorAuthoringSession>().placement_deletions = Default::default();
+    app.update();
+    let session = app.world().resource::<EditorAuthoringSession>();
+    assert!(session.draft.as_ref().unwrap().placements.placements.iter().all(|record| record.editor.locked));
+    assert_eq!(session.undo.len(), 1);
+    assert!(session.redo.is_empty());
+    assert!(!app.world().resource::<SceneEditorState>().undo_requested);
 }
 
 #[test]
@@ -200,7 +263,7 @@ fn name_changes_preserve_complete_records_and_empty_names_restore_default() {
         ObjectTargets::Indices(vec![0]),
     );
     advance_management(&mut request, &session).unwrap();
-    adopt_management(&mut request, &mut session, &mut editor).unwrap();
+    apply_management(&mut request, &mut session, &mut editor);
     let mut after = session.draft.as_ref().unwrap().placements.placements[0].clone();
     assert_eq!(after.editor.name, "村口路灯");
     let json = serde_json::to_string(&after).unwrap();
@@ -217,7 +280,7 @@ fn name_changes_preserve_complete_records_and_empty_names_restore_default() {
     );
     request.name.clear();
     advance_management(&mut request, &session).unwrap();
-    adopt_management(&mut request, &mut session, &mut editor).unwrap();
+    apply_management(&mut request, &mut session, &mut editor);
     assert!(
         session.draft.as_ref().unwrap().placements.placements[0]
             .editor
@@ -237,7 +300,7 @@ fn group_toggle_can_restore_all_members_and_selection_skips_protected_objects() 
             ObjectTargets::Group("村口".into()),
         );
         advance_management(&mut request, &session).unwrap();
-        adopt_management(&mut request, &mut session, &mut editor).unwrap();
+        apply_management(&mut request, &mut session, &mut editor);
         assert!(
             session
                 .draft

@@ -10,6 +10,7 @@ pub(crate) fn bind_scene_menu_rows(
     mut commands: Commands,
     session: Res<EditorAuthoringSession>,
     browser: Res<EditorGltfBrowserState>,
+    objects: Option<Res<crate::ui::scene_objects::SceneObjectState>>,
     rows: Query<(Entity, &SceneEditorGltfBrowserRow, Option<&SceneObjectRow>)>,
 ) {
     let draft = session.draft.as_ref();
@@ -38,6 +39,7 @@ pub(crate) fn bind_scene_menu_rows(
                 .placements
                 .get(index)
                 .filter(|record| record.id == *id)?;
+            let metadata = crate::ui::scene_objects::effective_metadata(objects.as_deref(), &session, record);
             Some(SceneObjectTarget {
                 scene_id: draft.scene_id.clone(),
                 revision: session.revision,
@@ -46,9 +48,9 @@ pub(crate) fn bind_scene_menu_rows(
                     id: id.clone(),
                     mesh,
                 },
-                name: record.editor.name.clone(),
-                hidden: record.editor.hidden,
-                locked: record.editor.locked,
+                name: metadata.name.clone(),
+                hidden: metadata.hidden,
+                locked: metadata.locked,
                 copyable: !record
                     .terrain_patch
                     .as_ref()
