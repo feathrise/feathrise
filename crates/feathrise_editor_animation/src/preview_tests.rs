@@ -1,5 +1,7 @@
 //! 骨架层级和旋转边界回归；曲线插值由作者数据模块的共享测试覆盖。
 
+use bevy::camera::visibility::RenderLayers;
+use feathrise_editor_core::constants::render_layers::SCENE_EDITOR_ASSET_PREVIEW_LAYER;
 use feathrise_editor_ui::UiInteraction;
 use super::*;
 
@@ -50,155 +52,29 @@ fn sampled_base_rotation_is_normalized_and_zero_is_safe() {
 }
 
 #[test]
-fn document_channels_drive_visible_joint_positions_and_bone_direction() {
+fn document_channels_drive_world_joint_positions() {
     let mut document = super::super::data::tests::test_document();
     let rotation = &mut document.clips[0].channels[0];
     rotation.path = "rotation".into();
     rotation.keys[0].value = vec![0.0, 0.0, 0.0, 1.0];
     rotation.keys[1].value = vec![0.0, 1.0, 0.0, 0.0];
     let pose = prepare_pose(Arc::new(document), 0, 1.0);
-    assert!(pose.joints[0].translation.abs_diff_eq(Vec3::Y, 1e-5));
+    let parent = pose.world[0].transform_point3(Vec3::ZERO);
+    let child = pose.world[1].transform_point3(Vec3::ZERO);
+    assert!(parent.abs_diff_eq(Vec3::Y, 1e-5));
     assert!(
-        pose.joints[1]
-            .translation
-            .abs_diff_eq(Vec3::new(1.0, 1.0, 0.0), 1e-5)
+        child.abs_diff_eq(Vec3::new(1.0, 1.0, 0.0), 1e-5)
     );
-    assert!((pose.bones[1].rotation * Vec3::Y).abs_diff_eq(Vec3::X, 1e-5));
-}
-
-fn candidate_app(count: usize) -> App {
-    let mut app = App::new();
-    let roots = [
-        app.world_mut().spawn(Visibility::Inherited).id(),
-        app.world_mut().spawn(Visibility::Hidden).id(),
-    ];
-    let entities = (0..count)
-        .map(|_| BoneEntities {
-            joint: std::array::from_fn(|bank| {
-                app.world_mut()
-                    .spawn((
-                        Transform::default(),
-                        MeshMaterial3d::<StandardMaterial>::default(),
-                        ChildOf(roots[bank]),
-                    ))
-                    .id()
-            }),
-            bone: std::array::from_fn(|bank| {
-                app.world_mut()
-                    .spawn((
-                        Transform::default(),
-                        MeshMaterial3d::<StandardMaterial>::default(),
-                        ChildOf(roots[bank]),
-                    ))
-                    .id()
-            }),
-        })
-        .collect();
-    let mut runtime = PreviewRuntime {
-        roots: Some(roots),
-        entities,
-        applying: true,
-        complete: true,
-        joint_material: Some(Handle::default()),
-        animated_material: Some(Handle::default()),
-        ..default()
-    };
-    runtime.pose = Some(Arc::new(Pose {
-        document: default(),
-        clip: 0,
-        draft: None,
-        time: 0.0,
-        local: vec![Transform::default(); count],
-        model_local: None,
-        world: vec![Mat4::IDENTITY; count],
-        joints: vec![Transform::from_xyz(10.0, 0.0, 0.0); count],
-        bones: vec![Transform::from_xyz(20.0, 0.0, 0.0); count],
-        animated: vec![true; count],
-        bounds: AssetPreviewModelBounds {
-            minimum: Vec3::ZERO,
-            maximum: Vec3::splat(20.0),
-        },
-    }));
-    app.insert_resource(runtime);
-    app
-}
-
-fn apply_tick(
-    mut commands: Commands,
-    mut runtime: ResMut<PreviewRuntime>,
-    mut transforms: Query<&mut Transform>,
-    mut materials: Query<&mut MeshMaterial3d<StandardMaterial>>,
-) {
-    if runtime.applying {
-        apply_candidate(&mut runtime, &mut commands, &mut transforms, &mut materials);
-    }
-}
-
-#[test]
-fn large_pose_keeps_previous_bank_visible_until_every_node_is_complete() {
-    let mut app = candidate_app(130);
-    app.add_systems(Update, apply_tick);
-    let roots = app.world().resource::<PreviewRuntime>().roots.unwrap();
-    for expected in [64, 128] {
-        app.update();
-        let runtime = app.world().resource::<PreviewRuntime>();
-        assert_eq!(runtime.cursor, expected);
-        assert_eq!(runtime.front, 0);
-        assert_eq!(
-            *app.world().get::<Visibility>(roots[0]).unwrap(),
-            Visibility::Inherited
-        );
-        assert_eq!(
-            *app.world().get::<Visibility>(roots[1]).unwrap(),
-            Visibility::Hidden
-        );
-        for pair in &runtime.entities {
-            assert_eq!(
-                app.world()
-                    .get::<Transform>(pair.joint[0])
-                    .unwrap()
-                    .translation,
-                Vec3::ZERO
-            );
-        }
-    }
-    app.update();
-    let runtime = app.world().resource::<PreviewRuntime>();
-    assert!(!runtime.applying);
-    assert_eq!(runtime.front, 1);
-    assert_eq!(
-        *app.world().get::<Visibility>(roots[0]).unwrap(),
-        Visibility::Hidden
-    );
-    assert_eq!(
-        *app.world().get::<Visibility>(roots[1]).unwrap(),
-        Visibility::Inherited
-    );
-    for pair in &runtime.entities {
-        assert_eq!(
-            app.world()
-                .get::<Transform>(pair.joint[1])
-                .unwrap()
-                .translation,
-            Vec3::new(10.0, 0.0, 0.0)
-        );
-    }
-    // 暂停状态没有新候选，保持完整容器，不再次交换或写入骨架。
-    app.update();
-    assert_eq!(app.world().resource::<PreviewRuntime>().front, 1);
 }
 
 #[test]
 fn paused_seek_withdraws_the_old_candidate_before_publication() {
     use crate::resources::Session;
-    use bevy::ecs::system::RunSystemOnce;
 
     for (playing, draft) in [(false, false), (true, false), (false, true)] {
-        let mut app = candidate_app(130);
+        let mut app = App::new();
         app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
-            .init_resource::<Assets<Mesh>>()
-            .init_resource::<Assets<StandardMaterial>>()
-            .add_systems(Update, (drive, apply_tick).chain());
+            .add_systems(Update, drive);
         let source = PathBuf::from("fixture.glb");
         let scene = app.world_mut().spawn_empty().id();
         let mut editor = AnimationEditorState {
@@ -207,17 +83,19 @@ fn paused_seek_withdraws_the_old_candidate_before_publication() {
             ..default()
         };
         editor.sessions.insert(source.clone(), Session::new(crate::data::tests::test_document()));
+        let published = Arc::new(prepare_pose(editor.document_snapshot().unwrap(), 0, 0.0));
         let request = (editor.revision(), editor.active_clip(), pose_request_time(&editor));
         let identity = SourceIdentity { path: source, revision: editor.source_revision(), scene };
-        let mut runtime = app.world_mut().resource_mut::<PreviewRuntime>();
-        runtime.identity = Some(identity);
-        runtime.applied = Some(request);
-        let roots = runtime.roots.unwrap();
-        // 先由原分帧写入填到最后一批，另一个容器仍在显示完整姿态。
-        for _ in 0..2 {
-            app.world_mut().run_system_once(apply_tick).unwrap();
-        }
-        assert_eq!(app.world().resource::<PreviewRuntime>().cursor, 128);
+        app.insert_resource(PreviewRuntime {
+            identity: Some(identity),
+            applied: Some(request),
+            pose: Some(published.clone()),
+            published_pose: Some(published.clone()),
+            applying: true,
+            cursor: NODES_PER_FRAME,
+            complete: true,
+            ..default()
+        });
 
         editor.seek(1.0);
         editor.playing = playing;
@@ -226,23 +104,27 @@ fn paused_seek_withdraws_the_old_candidate_before_publication() {
         }
         assert_eq!(editor.revision(), request.0);
         app.insert_resource(editor).insert_resource(AssetPreviewState {
+            render_visible: true,
+            selected_path: Some("fixture.glb".into()),
             content: AssetPreviewContent::Model {
                 handle: Handle::default(), root: scene, phase: AssetPreviewPhase::Ready,
             },
             ..default()
         });
         app.update();
+
+        // 暂停定位会撤下未完成的旧候选，仍保留上一份完整画面等候新帧。
         let keep_candidate = playing || draft;
         let runtime = app.world().resource::<PreviewRuntime>();
         assert_eq!(runtime.applied, keep_candidate.then_some(request));
-        assert_eq!(runtime.front, usize::from(keep_candidate));
-        assert_eq!(app.world().get::<Visibility>(roots[runtime.front]), Some(&Visibility::Inherited));
-        assert_eq!(app.world().get::<Visibility>(roots[1 - runtime.front]), Some(&Visibility::Hidden));
+        assert_eq!(runtime.applying, keep_candidate);
+        assert_eq!(runtime.cursor, if keep_candidate { NODES_PER_FRAME } else { 0 });
+        assert!(Arc::ptr_eq(runtime.published_pose.as_ref().unwrap(), &published));
     }
 }
 
 #[test]
-fn in_place_pose_budget_counts_mapped_joints_and_publishes_the_complete_model() {
+fn pose_budget_counts_mapped_joints_and_publishes_the_complete_model() {
     use crate::types::{ModelBank, SkeletonMapping};
     use feathrise_editor_animation_model::retarget::{JointCorrection, RigRetarget};
 
@@ -253,8 +135,10 @@ fn in_place_pose_budget_counts_mapped_joints_and_publishes_the_complete_model() 
         preview: Res<AssetPreviewState>,
         mut transforms: Query<&mut Transform>,
     ) {
-        if runtime.applying {
-            apply_in_place_candidate(&mut runtime, &mut binding, &preview, &mut commands, &mut transforms);
+        if runtime.applying
+            && apply_model_candidate(&mut runtime, &binding, &mut transforms, true)
+        {
+            publish_in_place_scene(&mut runtime, &mut binding, &preview, &mut commands);
         }
     }
 
@@ -292,6 +176,7 @@ fn in_place_pose_budget_counts_mapped_joints_and_publishes_the_complete_model() 
                 mapping: Some(SkeletonMapping {
                     names: mapped.iter().map(|&index| (format!("关节{index}"), index)).collect(),
                     retarget: Some(Arc::new(rig)),
+                    embedded_nodes: Default::default(),
                 }),
                 banks,
                 ..default()
@@ -333,87 +218,23 @@ fn in_place_pose_budget_counts_mapped_joints_and_publishes_the_complete_model() 
 }
 
 #[test]
-fn cancellation_hides_both_banks_then_releases_entities_with_a_fixed_budget() {
-    fn cancel(mut commands: Commands, mut runtime: ResMut<PreviewRuntime>, mut first: Local<bool>) {
-        if !*first {
-            retire(&mut runtime, &mut commands);
-            *first = true;
-        }
-        advance_retirement(&mut runtime, &mut commands);
+fn failed_source_can_only_restart_a_current_pose() {
+    let document = Arc::new(crate::data::tests::test_document());
+    let pose = Arc::new(prepare_pose(document, 0, 0.0));
+    for request in [Some((1, 0, 0)), None] {
+        let mut runtime = PreviewRuntime {
+            pose: Some(pose.clone()),
+            published_pose: Some(pose.clone()),
+            complete: true,
+            cursor: NODES_PER_FRAME,
+            applied: request,
+            ..default()
+        };
+        hide_failed_source(&mut runtime);
+        assert!(!runtime.complete);
+        assert_eq!(runtime.cursor, 0);
+        assert_eq!(runtime.applying, request.is_some());
     }
-    let mut app = candidate_app(130);
-    let roots = app.world().resource::<PreviewRuntime>().roots.unwrap();
-    let pairs = app.world().resource::<PreviewRuntime>().entities.clone();
-    app.add_systems(Update, cancel);
-    app.update();
-    for root in roots {
-        assert_eq!(
-            *app.world().get::<Visibility>(root).unwrap(),
-            Visibility::Hidden
-        );
-    }
-    let remaining = pairs
-        .iter()
-        .flat_map(|pair| pair.joint.into_iter().chain(pair.bone))
-        .filter(|entity| app.world().get_entity(*entity).is_ok())
-        .count();
-    assert_eq!(remaining, 130 * 4 - 64);
-    for _ in 0..9 {
-        app.update();
-    }
-    assert!(app.world().resource::<PreviewRuntime>().retiring.is_none());
-    for root in roots {
-        assert!(app.world().get_entity(root).is_err());
-    }
-}
-
-#[test]
-fn source_failure_hides_published_banks_and_recovery_republishes_only_a_complete_pose() {
-    use bevy::ecs::system::RunSystemOnce;
-    fn failed(mut commands: Commands, mut runtime: ResMut<PreviewRuntime>) {
-        hide_failed_source(&mut runtime, &mut commands);
-    }
-    let mut app = candidate_app(130);
-    {
-        let mut runtime = app.world_mut().resource_mut::<PreviewRuntime>();
-        runtime.applied = Some((1, 0, 0));
-        runtime.cursor = 64;
-    }
-    let roots = app.world().resource::<PreviewRuntime>().roots.unwrap();
-    app.world_mut().run_system_once(failed).unwrap();
-    let runtime = app.world().resource::<PreviewRuntime>();
-    assert!(!runtime.complete);
-    assert!(runtime.applying);
-    assert_eq!(runtime.cursor, 0);
-    for root in roots {
-        assert_eq!(
-            *app.world().get::<Visibility>(root).unwrap(),
-            Visibility::Hidden
-        );
-    }
-    app.add_systems(Update, apply_tick);
-    for _ in 0..2 {
-        app.update();
-        assert!(!app.world().resource::<PreviewRuntime>().complete);
-        for root in roots {
-            assert_eq!(
-                *app.world().get::<Visibility>(root).unwrap(),
-                Visibility::Hidden
-            );
-        }
-    }
-    app.update();
-    assert!(app.world().resource::<PreviewRuntime>().complete);
-    assert_eq!(
-        *app.world().get::<Visibility>(roots[1]).unwrap(),
-        Visibility::Inherited
-    );
-
-    // 编辑已撤销的候选虽然仍持有旧向量，源恢复时也不能重新变成有效画面。
-    let mut invalidated = candidate_app(2);
-    invalidated.world_mut().run_system_once(failed).unwrap();
-    let runtime = invalidated.world().resource::<PreviewRuntime>();
-    assert!(!runtime.complete && !runtime.applying);
 }
 
 /// 使用自建纯动画GLB和正式预览系统，验证显示的骨架确实随动作变化。
@@ -421,22 +242,36 @@ fn source_failure_hides_published_banks_and_recovery_republishes_only_a_complete
 #[test]
 #[ignore = "需要真实GPU；用--ignored --test-threads=1运行，中性动画夹具已随测试提供"]
 fn gpu_animation_only_glb_renders_and_changes_pose() {
-    gpu_preview(false, false);
+    gpu_preview(GpuPreview::Motion);
 }
 
 #[test]
 #[ignore = "需要真实GPU；使用随测试提供的中性五骨骼蒙皮GLB"]
-fn gpu_bound_character_skin_changes_without_skeleton_overlay() {
-    gpu_preview(true, false);
+fn gpu_bound_character_skin_changes_with_optional_skeleton_overlay() {
+    gpu_preview(GpuPreview::Bound);
+}
+
+#[test]
+#[ignore = "需要真实GPU；检查同源内嵌动作的实际蒙皮和浅色骨架"]
+fn gpu_embedded_animation_drives_skin_and_keeps_editable() {
+    gpu_preview(GpuPreview::Embedded);
 }
 
 #[test]
 #[ignore = "需要真实GPU；检查侧视旋转环及选择覆盖的实际像素"]
 fn gpu_pose_tools_move_arrows_and_edge_on_ring_stay_visible() {
-    gpu_preview(false, true);
+    gpu_preview(GpuPreview::Tools);
 }
 
-fn gpu_preview(bound: bool, handles: bool) {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GpuPreview {
+    Motion,
+    Bound,
+    Embedded,
+    Tools,
+}
+
+fn gpu_preview(mode: GpuPreview) {
     use feathrise_editor_animation_model::{host::AnimationHost, view_math::{AssetPreviewView, apply_model_preview_frame}};
     use super::super::resources::Session;
     use bevy::{
@@ -448,13 +283,15 @@ fn gpu_preview(bound: bool, handles: bool) {
         world_serialization::WorldAsset,
     };
 
-    const ASSET: &str = "animated_rig.glb";
+    let bound = mode == GpuPreview::Bound;
+    let embedded = mode == GpuPreview::Embedded;
+    let asset = if embedded { "skinned_animated_rig.glb" } else { "animated_rig.glb" };
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let asset_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/animation_preview")
         .canonicalize()
         .unwrap();
-    let source = asset_root.join(ASSET);
+    let source = asset_root.join(asset);
     let document = AnimationDocument::load(&source).expect("中性动画GLB应可读取");
     assert!(!document.clips.is_empty() && document.nodes.len() > 1);
     let midpoint = document.clips[0].duration() * 0.5;
@@ -493,20 +330,18 @@ fn gpu_preview(bound: bool, handles: bool) {
     );
     app.init_resource::<PreviewRuntime>()
         .add_systems(Update, drive);
-    if handles {
-        super::super::pose::install_visuals(&mut app);
-        app.world_mut().spawn((
-            AssetPreviewCanvas,
-            ComputedNode {
-                size: Vec2::splat(512.),
-                inverse_scale_factor: 1.,
-                ..default()
-            },
-            bevy::ui::RelativeCursorPosition::default(),
-            UiInteraction::None,
-        ));
-    }
-    if bound {
+    super::super::pose::install_visuals(&mut app);
+    app.world_mut().spawn((
+        AssetPreviewCanvas,
+        ComputedNode {
+            size: Vec2::splat(512.),
+            inverse_scale_factor: 1.,
+            ..default()
+        },
+        bevy::ui::RelativeCursorPosition::default(),
+        UiInteraction::None,
+    ));
+    if bound || embedded {
         app.insert_resource(AnimationHost { asset_root: asset_root.clone(), ..default() });
         super::super::binding::install(&mut app);
     }
@@ -535,8 +370,8 @@ fn gpu_preview(bound: bool, handles: bool) {
     let (gltf, scene): (Handle<Gltf>, Handle<WorldAsset>) = {
         let server = app.world().resource::<AssetServer>();
         (
-            server.load(ASSET),
-            server.load(GltfAssetLabel::Scene(0).from_asset(ASSET)),
+            server.load(asset),
+            server.load(GltfAssetLabel::Scene(0).from_asset(asset)),
         )
     };
     let scene_root = app
@@ -544,7 +379,7 @@ fn gpu_preview(bound: bool, handles: bool) {
         .spawn((
             WorldAssetRoot(scene.clone()),
             Transform::default(),
-            Visibility::Hidden,
+            if embedded { Visibility::Inherited } else { Visibility::Hidden },
             RenderLayers::layer(SCENE_EDITOR_ASSET_PREVIEW_LAYER),
         ))
         .id();
@@ -556,8 +391,13 @@ fn gpu_preview(bound: bool, handles: bool) {
     editor
         .sessions
         .insert(source, Session::new((*document).clone()));
-    if bound {
-        editor.current_mut().unwrap().model_path = Some("skinned_rig.glb".into());
+    if bound || embedded {
+        let session = editor.current_mut().unwrap();
+        // 让像素差异独立于选骨手柄；内嵌动作仍需同时出现模型和浅色骨架。
+        session.selected_node = None;
+        if bound {
+            session.model_path = Some("skinned_rig.glb".into());
+        }
         app.world_mut().spawn((
             DirectionalLight {
                 illuminance: 15000.0,
@@ -567,34 +407,38 @@ fn gpu_preview(bound: bool, handles: bool) {
             RenderLayers::layer(SCENE_EDITOR_ASSET_PREVIEW_LAYER),
         ));
     }
+    let mut model = AssetPreviewModelSession::new(1, gltf.clone());
+    model.scene_mesh_count = usize::from(embedded);
     app.insert_resource(editor)
         .insert_resource(AssetPreviewState {
-            selected_path: Some(ASSET.to_owned()),
+            render_visible: true,
+            selected_path: Some(asset.to_owned()),
             camera: Some(camera),
             _render_target: Some(target.clone()),
             content: AssetPreviewContent::Model {
                 handle: scene,
                 root: scene_root,
-                phase: AssetPreviewPhase::Loading,
+                phase: if embedded { AssetPreviewPhase::Ready } else { AssetPreviewPhase::Loading },
             },
-            model: Some(AssetPreviewModelSession::new(1, gltf.clone())),
+            model: Some(model),
             ..default()
         });
     wait_gpu_pose(&mut app, 0.0, &gltf);
-    if handles {
+    if mode == GpuPreview::Tools {
         verify_selection_and_edge_on_ring(&mut app, camera, target, &gltf, &document, &workspace);
         return;
     }
-    assert!(
+    assert_eq!(
         app.world()
             .resource::<Assets<Gltf>>()
             .get(&gltf)
             .unwrap()
             .meshes
             .is_empty(),
-        "回归输入必须是真实无Mesh动画文件"
+        !embedded,
+        "纯动作和内嵌动作分别需要无网格及有网格的真实 GLB"
     );
-    if bound {
+    if bound || embedded {
         let start = std::time::Instant::now();
         while !app
             .world()
@@ -610,17 +454,10 @@ fn gpu_preview(bound: bool, handles: bool) {
             );
         }
         wait_gpu_pose(&mut app, 0.0, &gltf);
-        let entities: Vec<_> = app
-            .world()
-            .resource::<PreviewRuntime>()
-            .entities
-            .iter()
-            .flat_map(|b| b.joint.into_iter().chain(b.bone))
-            .collect();
-        for entity in entities {
-            app.world_mut()
-                .entity_mut(entity)
-                .insert(Visibility::Hidden);
+        if embedded {
+            assert!(app.world().resource::<super::super::binding::BindingState>().embedded());
+            assert!(app.world().resource::<AnimationEditorState>().editable());
+            assert_eq!(app.world().get::<Visibility>(scene_root), Some(&Visibility::Hidden));
         }
         let skin_count = app
             .world_mut()
@@ -629,27 +466,40 @@ fn gpu_preview(bound: bool, handles: bool) {
             .count();
         assert!(skin_count >= 2, "两容器必须各有真实蒙皮网格");
     }
-    let start_transforms = published_gpu_joints(&app);
-    let first = read_gpu_skeleton(&mut app, target.clone(), None, !bound);
+    let start_joints = published_gpu_joints(&app, mode);
+    let bound_overlay = bound.then(|| {
+        // 同一完整角色帧先显示浅色骨架，再用正式的权重视口归属门取得纯网格对照。
+        let started = std::time::Instant::now();
+        while !super::super::pose::animation_overlay_submitted(app.world()) {
+            app.update();
+            std::thread::sleep(std::time::Duration::from_millis(16));
+            assert!(started.elapsed().as_secs() < 20, "兼容绑定未提交浅色骨架");
+        }
+        let rendered = read_gpu_preview(&mut app, target.clone(), None, GpuPreview::Motion);
+        app.world_mut().resource_mut::<AnimationHost>().weights_own_viewport = true;
+        rendered
+    });
+    let first = read_gpu_preview(&mut app, target.clone(), bound_overlay.as_deref(), mode);
     {
         let mut editor = app.world_mut().resource_mut::<AnimationEditorState>();
         editor.seek(midpoint);
         editor.changed();
     }
     wait_gpu_pose(&mut app, midpoint, &gltf);
-    let middle_transforms = published_gpu_joints(&app);
+    let middle_joints = published_gpu_joints(&app, mode);
     assert!(
-        start_transforms
+        start_joints
             .iter()
-            .zip(&middle_transforms)
-            .any(|(before, after)| !before.translation.abs_diff_eq(after.translation, 1e-4)),
+            .zip(&middle_joints)
+            .any(|(before, after)| !before.abs_diff_eq(*after, 1e-4)),
         "真实动作中间时刻没有改变骨节位置"
     );
-    let middle = read_gpu_skeleton(&mut app, target, Some(&first), !bound);
-    let output = workspace.join(if bound {
-        "target/animation-character-preview.png"
-    } else {
-        "target/animation-skeleton-preview.png"
+    let middle = read_gpu_preview(&mut app, target, Some(&first), mode);
+    assert_eq!(super::super::pose::animation_overlay_submitted(app.world()), !bound);
+    let output = workspace.join(match mode {
+        GpuPreview::Bound => "target/animation-character-preview.png",
+        GpuPreview::Embedded => "target/animation-embedded-preview.png",
+        _ => "target/animation-skeleton-preview.png",
     });
     std::fs::create_dir_all(output.parent().unwrap()).unwrap();
     let mut rgba = middle;
@@ -663,7 +513,7 @@ fn gpu_preview(bound: bool, handles: bool) {
     println!("纯动画真实GPU验证图片：{}", output.display());
 }
 
-/// 使用正式绘制系统和真实骨架，在完全侧视及两侧小角度检查绿色环，选择和换帧后再查青色连杆。
+/// 使用正式绘制系统检查侧视旋转环，以及随选骨和换帧更新的青色菱形与出射骨段。
 fn verify_selection_and_edge_on_ring(
     app: &mut App,
     camera: Entity,
@@ -672,16 +522,16 @@ fn verify_selection_and_edge_on_ring(
     document: &AnimationDocument,
     workspace: &Path,
 ) {
-    use feathrise_editor_animation_model::gizmo::GizmoCamera;
+    use feathrise_editor_animation_model::{gizmo::GizmoCamera, skeleton::JointGlyph};
     let node = document
         .nodes
         .iter()
-        .position(|n| n.name.contains("LeftForeArm"))
+        .position(|n| n.name.contains("LeftUpperArm"))
         .unwrap();
     let other = document
         .nodes
         .iter()
-        .position(|n| n.name.contains("RightForeArm"))
+        .position(|n| n.name.contains("RightUpperArm"))
         .unwrap();
     for (step, selected, tilt) in [(0, node, -0.03), (1, node, 0.0), (2, other, 0.03)] {
         {
@@ -694,12 +544,13 @@ fn verify_selection_and_edge_on_ring(
             editor.changed();
         }
         wait_gpu_pose(app, if step == 2 { 0.5 } else { 0.0 }, gltf);
-        let (origin, parent, extent) = {
+        let child = document.nodes.iter().position(|node| node.parent == Some(selected)).unwrap();
+        let (origin, tip, extent) = {
             let runtime = app.world().resource::<PreviewRuntime>();
             let pose = runtime.published_pose.as_ref().unwrap();
             (
-                pose.joints[selected].translation,
-                pose.joints[document.nodes[selected].parent.unwrap()].translation,
+                pose.world[selected].transform_point3(Vec3::ZERO),
+                pose.world[child].transform_point3(Vec3::ZERO),
                 (pose.bounds.maximum - pose.bounds.minimum).max_element() * 1.1,
             )
         };
@@ -721,6 +572,9 @@ fn verify_selection_and_edge_on_ring(
         app.world_mut()
             .entity_mut(camera)
             .insert((transform, projection));
+        let selected_glyph = JointGlyph::project(view, origin, true).unwrap();
+        let child_glyph = JointGlyph::project(view, tip, false).unwrap();
+        let [base, _, end] = selected_glyph.screen_bone_to(child_glyph).unwrap();
         let ring = feathrise_editor_animation_model::gizmo::rotation_rings(view, origin)[1]
             .take()
             .unwrap();
@@ -744,14 +598,13 @@ fn verify_selection_and_edge_on_ring(
         };
         let started = std::time::Instant::now();
         let bytes = loop {
-            let bytes = read_gpu_skeleton(app, target.clone(), None, true);
+            let bytes = read_gpu_preview(app, target.clone(), None, GpuPreview::Tools);
             let green = [6, 9, 12, 20, 23, 26]
                 .into_iter()
                 .filter(|&i| sample(&bytes, ring.screen[i], false))
                 .count();
-            let joint = view.project(origin).unwrap() * 512. + Vec2::splat(8.);
-            let link = view.project(origin.lerp(parent, 0.5)).unwrap() * 512.;
-            if green >= 4 && sample(&bytes, joint, true) && sample(&bytes, link, true) {
+            let diamond = selected_glyph.screen + Vec2::new(1., -1.) * (selected_glyph.radius * 0.5);
+            if green >= 4 && sample(&bytes, diamond, true) && sample(&bytes, base.lerp(end, 0.5), true) {
                 break bytes;
             }
             assert!(
@@ -784,7 +637,7 @@ fn verify_selection_and_edge_on_ring(
         .published_pose
         .as_ref()
         .unwrap();
-    let origin = pose.joints[other].translation;
+    let origin = pose.world[other].transform_point3(Vec3::ZERO);
     let extent = (pose.bounds.maximum - pose.bounds.minimum).max_element();
     let transform = Transform::from_translation(origin + Vec3::new(1.8, 1., 3.) * extent)
         .looking_at(origin, Vec3::Y);
@@ -808,7 +661,7 @@ fn verify_selection_and_edge_on_ring(
         .insert((transform, projection));
     let started = std::time::Instant::now();
     let mut bytes = loop {
-        let bytes = read_gpu_skeleton(app, target.clone(), None, true);
+        let bytes = read_gpu_preview(app, target.clone(), None, GpuPreview::Tools);
         let visible = arrows.iter().enumerate().all(|(axis, arrow)| {
             let [a, b, c, d] = arrow.as_ref().unwrap().screen;
             [a.lerp(b, 0.65), b.lerp(c, 0.7), b.lerp(d, 0.7)]
@@ -875,24 +728,27 @@ fn wait_gpu_pose(app: &mut App, position: f32, gltf: &Handle<Gltf>) {
     }
 }
 
-fn published_gpu_joints(app: &App) -> Vec<Transform> {
-    let runtime = app.world().resource::<PreviewRuntime>();
-    runtime
-        .entities
-        .iter()
-        .map(|pair| {
-            *app.world()
-                .get::<Transform>(pair.joint[runtime.front])
-                .unwrap()
-        })
+fn published_gpu_joints(app: &App, mode: GpuPreview) -> Vec<Vec3> {
+    let world = app.world();
+    let runtime = world.resource::<PreviewRuntime>();
+    if matches!(mode, GpuPreview::Bound | GpuPreview::Embedded) {
+        let binding = world.resource::<super::super::binding::BindingState>();
+        let bank = &binding.banks[runtime.front];
+        assert_eq!(world.get::<Visibility>(bank.root.unwrap()), Some(&Visibility::Inherited));
+        let mut nodes: Vec<_> = bank.nodes.iter().collect();
+        nodes.sort_unstable_by_key(|(index, _)| **index);
+        return nodes.into_iter().map(|(_, &entity)| world.get::<GlobalTransform>(entity).unwrap().translation()).collect();
+    }
+    runtime.published_pose.as_ref().unwrap().world.iter()
+        .map(|matrix| matrix.transform_point3(Vec3::ZERO))
         .collect()
 }
 
-fn read_gpu_skeleton(
+fn read_gpu_preview(
     app: &mut App,
     target: Handle<Image>,
     previous: Option<&[u8]>,
-    skeleton: bool,
+    mode: GpuPreview,
 ) -> Vec<u8> {
     use bevy::render::gpu_readback::{Readback, ReadbackComplete};
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
@@ -909,7 +765,13 @@ fn read_gpu_skeleton(
         std::thread::sleep(std::time::Duration::from_millis(16));
         if let Ok(bytes) = receiver.try_recv() {
             assert_eq!(bytes.len(), 512 * 512 * 4);
-            // BGRA8回读：橙色材质须满足红>绿>蓝；没有UI文字或其他场景可以冒充骨架。
+            // BGRA8 的独立相机没有 UI 或日光背景，直接核对浅色骨架像素和旧橙色像素。
+            let pale = bytes.chunks_exact(4).filter(|pixel| {
+                let color = &pixel[..3];
+                let low = *color.iter().min().unwrap();
+                let high = *color.iter().max().unwrap();
+                low > 120 && high - low < 42
+            }).count();
             let orange = bytes
                 .chunks_exact(4)
                 .filter(|pixel| {
@@ -919,11 +781,18 @@ fn read_gpu_skeleton(
                         && pixel[1] as u16 > pixel[0] as u16 + 20
                 })
                 .count();
+            // 内嵌动作夹具的蓝色网格与浅色线条分离，必须观测到网格覆盖范围真的随帧变化。
+            let blue_mesh = |pixel: &[u8]| {
+                pixel[0] > 80 && pixel[0].saturating_sub(pixel[1]) > 24 && pixel[0].saturating_sub(pixel[2]) > 48
+            };
             let changed = previous.map_or(usize::MAX, |before| {
                 before
                     .chunks_exact(4)
                     .zip(bytes.chunks_exact(4))
                     .filter(|(before, after)| {
+                        if mode == GpuPreview::Embedded {
+                            return blue_mesh(before) != blue_mesh(after);
+                        }
                         before[..3]
                             .iter()
                             .zip(&after[..3])
@@ -935,17 +804,18 @@ fn read_gpu_skeleton(
                 .chunks_exact(4)
                 .filter(|p| p[0].max(p[1]).max(p[2]) > 80)
                 .count();
-            if (if skeleton {
-                orange > 100
-            } else {
-                visible > 300
-            }) && changed > 100
-            {
+            let ready = match mode {
+                GpuPreview::Bound => visible > 300,
+                GpuPreview::Embedded => pale > 100 && orange == 0
+                    && bytes.chunks_exact(4).filter(|pixel| blue_mesh(pixel)).count() > 300,
+                GpuPreview::Motion | GpuPreview::Tools => pale > 100 && orange == 0,
+            };
+            if ready && changed > 100 {
                 break bytes;
             }
             assert!(
                 started.elapsed().as_secs() < 15,
-                "骨架GPU画面未就绪：橙色像素{orange}，变化像素{changed}"
+                "预览 GPU 画面未就绪：浅色像素{pale}，橙色像素{orange}，变化像素{changed}"
             );
         }
         assert!(started.elapsed().as_secs() < 20, "骨架GPU纹理回读超时");

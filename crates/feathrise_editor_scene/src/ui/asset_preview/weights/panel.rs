@@ -198,10 +198,7 @@ pub(super) fn present(
     let motion = animation
         .as_ref()
         .is_some_and(|animation| animation.weight_motion_active());
-    let returning = state.problem.is_some()
-        && animation
-            .as_ref()
-            .is_some_and(|animation| animation.weight_rest_active());
+    let returning = animation.as_ref().is_some_and(|animation| animation.weight_rest_active());
     let editable = session.is_some_and(|session| !session.stale && !session.original) && !motion;
     let editing = session.is_some_and(|session| session.tool != Tool::Bone);
     for (mut node, is_entry, is_edit) in &mut roots {
@@ -267,8 +264,11 @@ pub(super) fn present(
     }
     for (&label, mut text) in &mut labels {
         let next = match label {
-            Label::Button(Action::Rest) if returning => {
+            Label::Button(Action::Rest) if returning && state.problem.is_some() => {
                 tr(locale, "返回问题帧", "Return to issue").into()
+            }
+            Label::Button(Action::Rest) if returning => {
+                tr(locale, "返回动作", "Return to animation").into()
             }
             Label::Button(Action::Rest) if motion && state.problem.is_some() => {
                 tr(locale, "继续修权", "Edit selection").into()

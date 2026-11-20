@@ -94,6 +94,29 @@ pub fn test_scene(json: &Value) -> AnimationDocument {
         .expect("人形骨架场景夹具")
 }
 
+#[test]
+fn preview_joins_skin_bones_without_linking_the_scene_root() {
+    for with_mesh in [false, true] {
+        let mut root = json!({"children": [1]});
+        let mut skins = vec![json!({"joints": [1, 2]})];
+        if with_mesh {
+            root["mesh"] = json!(0);
+            root["skin"] = json!(0);
+            skins.push(json!({"joints": [3]})); // 另一场景的蒙皮不参与当前模型预览。
+        }
+        let document = test_scene(&json!({
+            "asset": {"version": "2.0"},
+            "scenes": [{"nodes": [0]}, {"nodes": [3]}],
+            "nodes": [root, {"children": [2]}, {}, {}],
+            "skins": skins,
+        }));
+        assert_eq!(&*document.skin_preview_topology(), &[
+            PreviewJoint { node: 1, parent: None },
+            PreviewJoint { node: 2, parent: Some(0) },
+        ]);
+    }
+}
+
 /// 两根骨骼都有平移通道，重排后旧数字索引仍可匹配另一骨骼，用于拒绝串骨骼粘贴。
 pub fn clipboard_document(reordered: bool) -> AnimationDocument {
     let (mut json, binary) = fixture_parts();

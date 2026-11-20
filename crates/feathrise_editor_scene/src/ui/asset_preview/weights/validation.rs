@@ -1,5 +1,6 @@
 //! 自有沈照雪夹具的真窗口验收，走原按钮和鼠标手势，核对落盘、动作与多图元热力图。
 
+use feathrise_editor_animation::animation_overlay_submitted;
 use feathrise_editor_glb_model::weights::{Tool, VertexWeights};
 use super::super::{
     AssetPreviewNavigation, AssetPreviewState, AssetPreviewWorkspace, DocumentState, OpenAssetPreview,
@@ -61,6 +62,7 @@ const BRUSHES: [Tool; 3] = [Tool::Add, Tool::Subtract, Tool::Smooth];
 enum Phase {
     Locate,
     Open,
+    EmbeddedSkeleton,
     RigLaunch,
     RigReference,
     RigBind,
@@ -77,6 +79,7 @@ enum Phase {
     BoneUp,
     BoneVerify,
     MultiSurfaceImage,
+    MultiSurfaceClosed,
     SelectImage,
     LockBone,
     LockRender,
@@ -703,10 +706,14 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             });
             if run.source == UNBOUND {
                 Phase::RigLaunch
+            } else if run.source == MULTI_SURFACE_MODEL {
+                Phase::EmbeddedSkeleton
             } else {
                 Phase::Enter
             }
         }
+        // 先等带内嵌动作的原模型实际提交骨架，再进入权重工具验证显示归属切换。
+        Phase::EmbeddedSkeleton if animation_overlay_submitted(world) => Phase::Enter,
         Phase::RigLaunch if rig(world, run, RigAction::Launch) => Phase::RigReference,
         Phase::RigReference => {
             if !world.resource::<RiggingState>().validation_status().open
@@ -740,9 +747,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             run.generated = Some((path.to_owned(), Sha256::digest(bytes).to_vec()));
             Phase::Enter
         }
-        Phase::Enter if button(world, run, Action::Open) => {
-            if run.source == MULTI_SURFACE_MODEL { Phase::BoneAim } else { Phase::HideSkeleton }
-        }
+        Phase::Enter if button(world, run, Action::Open) => Phase::HideSkeleton,
         Phase::HideSkeleton => {
             let expected = run.generated.as_ref().map_or(run.source, |(path, _)| path);
             let Some(session) = world
@@ -756,7 +761,13 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             if !session.show_skeleton {
                 return Err("进入权重页时骨架没有默认显示".into());
             }
-            if !super::skeleton::submitted(world) || !button(world, run, Action::Skeleton) {
+            if !super::skeleton::submitted(world) {
+                return Ok(None);
+            }
+            if animation_overlay_submitted(world) {
+                return Err("调权视口同时提交了动画辅助绘制和蒙皮骨架".into());
+            }
+            if !button(world, run, Action::Skeleton) {
                 return Ok(None);
             }
             Phase::ShowSkeleton
@@ -764,9 +775,14 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
         Phase::ShowSkeleton
             if world.resource::<WeightEditor>().session.as_ref()
                 .is_some_and(|session| !session.show_skeleton)
-                && !super::skeleton::submitted(world)
-                && button(world, run, Action::Skeleton) =>
+                && !super::skeleton::submitted(world) =>
         {
+            if animation_overlay_submitted(world) {
+                return Err("关闭权重骨架后仍提交了动画辅助绘制".into());
+            }
+            if !button(world, run, Action::Skeleton) {
+                return Ok(None);
+            }
             if !visible_fields(world).is_empty()
                 || !header_feedback(world, false, false, false)
                 || world.query::<(&Action, &ComputedNode)>().iter(world).any(|(action, node)| {
@@ -903,7 +919,11 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
                 {
                     return Err("多图元热力图夹具必须包含三个共用同一套 49 关节蒙皮的图元".into());
                 }
-                if !super::preview::heat_covers_skin(world)
+                if animation_overlay_submitted(world) {
+                    return Err("重新开启权重骨架后叠加了动画辅助绘制".into());
+                }
+                if super::skeleton::joint_markers(world) != skin.joints.len()
+                    || !super::preview::heat_covers_skin(world)
                     || !capture_heat_image(world, run.root.join(MULTI_SURFACE_IMAGE), Phase::BoneVerify)
                 {
                     return Ok(None);
@@ -925,11 +945,22 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Value>, String> {
             if !super::preview::heat_covers_skin(world) {
                 return Err("实际显示的三个蒙皮图元未同时保留热力材质".into());
             }
+            if !button(world, run, Action::Discard) {
+                return Ok(None);
+            }
+            Phase::MultiSurfaceClosed
+        }
+        Phase::MultiSurfaceClosed
+            if world.resource::<WeightEditor>().session.is_none()
+                && !super::skeleton::submitted(world)
+                && animation_overlay_submitted(world) =>
+        {
             verify_inputs(run)?;
             return Ok(Some(json!({
                 "passed": true, "os_input_verified": false,
                 "source": run.source, "source_sha256": run.inputs[0].1, "source_unchanged": true,
                 "picked_bone": "mixamorig:Head", "joint_count": 49, "heated_primitives": 3,
+                "weight_skeleton_toggled": true, "animation_overlay_restored": true,
                 "screenshots": [MULTI_SURFACE_IMAGE]
             })));
         }

@@ -2,7 +2,7 @@
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_animation_model::{host::AnimationHost, media::*};
-use super::{context::AnimationContext, preview::PreviewRuntime, resources::*, types::*};
+use super::{context::AnimationContext, preview::PreviewRuntime, resources::*, skeleton, types::*};
 use feathrise_editor_core::SceneEditorSystemSet;
 use feathrise_editor_animation_model::{assembly::AnimationSystems, gizmo::{GizmoCamera, MeshEditTool, MoveConstraint, self as gizmo}};
 use gizmo::{move_arrows, pick_transform_handle, rotation_delta, rotation_rings};
@@ -112,11 +112,15 @@ pub(super) fn input(
     state.pose_mouse_owned = false;
     let available = state.visible()
         && !state.retargeting()
+        && !context.host.weights_own_viewport
         && context.available(&preview, &media)
         && preview
             .selected_path
             .as_ref()
             .is_some_and(|p| state.source() == Some(documents.asset_root().join(p).as_path()));
+    if !available && let Some((_, revision, _)) = &mut interaction.pick {
+        *revision = None;
+    }
     if let Some(result) = interaction
         .pick
         .as_mut()
@@ -125,7 +129,7 @@ pub(super) fn input(
         let (source, revision, _) = interaction.pick.take().unwrap();
         if available
             && state.source() == Some(source.as_path())
-            && state.revision == revision
+            && Some(state.revision) == revision
             && let Some(node) = result
         {
             if let Some(s) = state.current_mut() {
@@ -340,7 +344,10 @@ pub(super) fn input(
         state.status = "请先插入或还原当前临时姿势，再选择其他骨骼".into();
         return;
     }
-    let document = s.document.clone();
+    // 相机还在重新投影时，等待与视口中菱形、骨段相同的一帧再拾取。
+    let Some(view) = runtime.published_skeleton_view.filter(|view|
+        view.camera == camera && view.selected == s.selected_node)
+    else { return };
     state.seek(pose.time);
     let pose = pose.clone();
     let source = state.active.clone().unwrap();
@@ -348,57 +355,16 @@ pub(super) fn input(
     // 全骨架拾取移至唯一后台槽；大骨架不在点击帧遍历，迟到结果按源与修订拒绝。
     interaction.pick = Some((
         source,
-        revision,
-        AsyncComputeTaskPool::get().spawn(async move { pick_bone(&document, &pose, camera, at) }),
+        Some(revision),
+        AsyncComputeTaskPool::get().spawn(async move { skeleton::pick(&pose, view, at) }),
     ));
     state.playing = false;
     state.pose_mouse_owned = true;
 }
 
-/// 点优先、连杆其次，线段归属于其子节点；仍在唯一后台槽遍历，不扩大点击帧工作量。
-fn pick_bone(
-    document: &super::data::AnimationDocument,
-    pose: &super::preview::Pose,
-    camera: GizmoCamera,
-    at: Vec2,
-) -> Option<usize> {
-    let logical = camera.size * camera.inverse_scale;
-    let point = at * logical;
-    let joint = pose
-        .joints
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| pose.animated[*i])
-        .filter_map(|(i, j)| {
-            let distance = (camera.project(j.translation)? * logical).distance(point);
-            (distance <= 14.0).then_some((i, distance))
-        })
-        .min_by(|a, b| a.1.total_cmp(&b.1));
-    joint.map(|(i, _)| i).or_else(|| {
-        document
-            .nodes
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| pose.animated[*i])
-            .filter_map(|(i, node)| {
-                let a = camera.project(pose.joints.get(node.parent?)?.translation)? * logical;
-                let b = camera.project(pose.joints[i].translation)? * logical;
-                let edge = b - a;
-                if edge.length_squared() < 1e-6 {
-                    return None;
-                }
-                let distance = point.distance(
-                    a + edge * ((point - a).dot(edge) / edge.length_squared()).clamp(0.0, 1.0),
-                );
-                (distance <= 8.0).then_some((i, distance))
-            })
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(i, _)| i)
-    })
-}
-
 fn draw(
     state: Res<AnimationEditorState>,
+    host: Option<Res<AnimationHost>>,
     preview: Res<AssetPreviewState>,
     interaction: Res<PoseInputState>,
     runtime: Res<PreviewRuntime>,
@@ -410,7 +376,9 @@ fn draw(
     mut gizmos: Gizmos<AnimationGizmos>,
     mut highlight: Gizmos<AnimationHighlightGizmos>,
 ) {
-    if !runtime.document_ready(&state, &preview) {
+    if host.is_some_and(|host| host.weights_own_viewport)
+        || !runtime.document_ready(&state, &preview)
+    {
         return;
     }
     let Some(s) = state.current() else {
@@ -441,23 +409,7 @@ fn draw(
         return;
     };
     let origin = world.transform_point3(Vec3::ZERO);
-    // 每帧仅访问所选节点和父节点；覆盖来自已发布完整姿态，不随双容器换帧丢失选中反馈。
-    // 青色粗连杆和固定屏幕尺寸方框独立于“橙色表示动画通道”，模型遮挡时也能辨识。
-    let selected = Color::srgb(0.15, 1.0, 1.0);
-    if let Some(parent) = s
-        .document
-        .nodes
-        .get(node)
-        .and_then(|n| n.parent)
-        .and_then(|p| pose.world.get(p))
-    {
-        highlight.line(parent.transform_point3(Vec3::ZERO), origin, selected);
-    }
-    if let Some(corners) = camera.screen_square(origin, 8.0) {
-        for i in 0..4 {
-            highlight.line(corners[i], corners[(i + 1) % 4], selected);
-        }
-    }
+    // 青色选中关节由骨架统一绘制，此处仅保留位移和旋转的交互手柄。
     let active = interaction
         .gesture
         .as_ref()
@@ -522,12 +474,29 @@ fn draw(
     }
 }
 
+#[cfg(any(test, feature = "validation"))]
+pub fn animation_overlay_submitted(world: &World) -> bool {
+    use bevy::gizmos::GizmoHandles;
+    use std::any::TypeId;
+
+    if skeleton::submitted(world) {
+        return true;
+    }
+    let (Some(handles), Some(assets)) = (world.get_resource::<GizmoHandles>(), world.get_resource::<Assets<GizmoAsset>>())
+    else { return false };
+    [TypeId::of::<AnimationGizmos>(), TypeId::of::<AnimationHighlightGizmos>()]
+        .into_iter()
+        .filter_map(|group| handles.handles().get(&group).and_then(Option::as_ref))
+        .filter_map(|handle| assets.get(handle))
+        .any(|asset| !asset.buffer().buffer().list_positions.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn bone_segment_selects_its_child_and_joint_selection_has_priority() {
+    fn bone_segment_selects_its_head_and_joint_selection_has_priority() {
         let mut document = super::super::data::tests::test_document();
         document.nodes[1].translation = [2.0, 0.0, 0.0];
         let document = std::sync::Arc::new(document);
@@ -539,13 +508,14 @@ mod tests {
         let camera =
             GizmoCamera::from_projection(&projection, &transform, Vec2::splat(600.), 1.).unwrap();
         let at = |world| camera.project(world).unwrap();
-        assert_eq!(pick_bone(&document, pose, camera, at(Vec3::X)), Some(1));
-        assert_eq!(pick_bone(&document, pose, camera, at(Vec3::ZERO)), Some(0));
+        let view = super::super::preview::SkeletonView { camera, selected: None };
+        assert_eq!(skeleton::pick(pose, view, at(Vec3::X)), Some(0));
+        assert_eq!(skeleton::pick(pose, view, at(Vec3::ZERO)), Some(0));
         assert_eq!(
-            pick_bone(&document, pose, camera, at(Vec3::X * 2.)),
+            skeleton::pick(pose, view, at(Vec3::X * 2.)),
             Some(1)
         );
-        assert_eq!(pick_bone(&document, pose, camera, at(Vec3::Y * 2.)), None);
+        assert_eq!(skeleton::pick(pose, view, at(Vec3::Y * 2.)), None);
     }
 
     fn fixture(auto_key: bool) -> (App, Entity, Vec2) {

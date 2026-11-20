@@ -10,5 +10,6 @@ pub mod preview;
 pub mod request;
 pub mod resources;
 pub mod retarget;
+pub mod skeleton;
 pub mod types;
 pub mod view_math;

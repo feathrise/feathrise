@@ -1,22 +1,21 @@
 //! 动画文档的真实姿态预览：后台采样 TRS，专层骨架复用资产浏览唯一相机与 RTT。
 //!
-//! 纯动画不必伪造可显示的 Scene0 网格。骨节和连杆在独立临时容器中完整准备后才显示，
-//! 两个骨架容器交替承接姿态，候选与绑定角色按固定预算共同写完后原子切换。
+//! 纯动作的轮廓与姿态在同一后台任务准备。模型仍使用原双容器，
+//! 候选模型与相同时间的骨架完成后才共同发布。
 
 use feathrise_editor_animation_model::{assembly::AnimationSystems, media::*};
 pub(super) use feathrise_editor_animation_model::preview::*;
 use super::{
-    data::{AnimationDocument, Channel, Node},
+    data::{AnimationDocument, Channel, Node, preview_joint_topology},
     resources::{AnimationEditorState, BindingState},
+    skeleton::{self, SkeletonPresentation},
 };
 use feathrise_editor_core::SceneEditorSystemSet;
 use bevy::asset::{DependencyLoadState, LoadState, RecursiveDependencyLoadState};
 use bevy::{
-    camera::visibility::{NoFrustumCulling, RenderLayers},
     prelude::*,
     tasks::{AsyncComputeTaskPool, futures::check_ready},
 };
-use feathrise_editor_core::constants::render_layers::SCENE_EDITOR_ASSET_PREVIEW_LAYER;
 use std::sync::Arc;
 #[cfg(any(test, feature = "validation"))]
 use std::path::PathBuf;
@@ -198,49 +197,26 @@ fn prepare_pose_draft(
         *local = value;
     }
     let matrices = world_matrices(&document.nodes, &local);
-    let positions: Vec<_> = matrices
-        .iter()
-        .map(|matrix| matrix.transform_point3(Vec3::ZERO))
-        .collect();
     let mut minimum = Vec3::splat(f32::INFINITY);
     let mut maximum = Vec3::splat(f32::NEG_INFINITY);
-    for position in positions.iter().filter(|position| position.is_finite()) {
-        minimum = minimum.min(*position);
-        maximum = maximum.max(*position);
+    for matrix in &matrices {
+        let position = matrix.transform_point3(Vec3::ZERO);
+        if position.is_finite() {
+            minimum = minimum.min(position);
+            maximum = maximum.max(position);
+        }
     }
     if !minimum.is_finite() || !maximum.is_finite() {
         minimum = Vec3::splat(-0.5);
         maximum = Vec3::splat(0.5);
     }
-    let thickness = ((maximum - minimum).max_element() * 0.0075).max(0.005);
-    let mut animated = vec![false; document.nodes.len()];
-    for channel in channels {
-        if let Some(animated) = animated.get_mut(channel.node) {
-            *animated = true;
-        }
+    let mut skeleton = document.skin_preview_topology();
+    if skeleton.is_empty() {
+        // 无蒙皮声明的动作仍可编辑，使用当前片段的节点关系。
+        skeleton = preview_joint_topology(&document.nodes, channels.iter().map(|channel| channel.node)).into();
     }
-    let mut joints = Vec::with_capacity(positions.len());
-    let mut bones = Vec::with_capacity(positions.len());
-    for (index, node) in document.nodes.iter().enumerate() {
-        let position = positions[index];
-        joints.push(Transform::from_translation(position).with_scale(Vec3::splat(thickness * 2.4)));
-        let parent = node
-            .parent
-            .and_then(|parent| positions.get(parent))
-            .copied()
-            .unwrap_or(position);
-        let delta = position - parent;
-        let length = delta.length();
-        bones.push(if length.is_finite() && length > 1e-6 {
-            Transform {
-                translation: (position + parent) * 0.5,
-                rotation: Quat::from_rotation_arc(Vec3::Y, delta / length),
-                scale: Vec3::new(thickness, length, thickness),
-            }
-        } else {
-            Transform::from_translation(position).with_scale(Vec3::ZERO)
-        });
-    }
+    // 保留原取景留白，轮廓本身改为相机投影的固定像素尺寸。
+    let padding = Vec3::splat(((maximum - minimum).max_element() * 0.03).max(0.02));
     Pose {
         document: Arc::downgrade(&document),
         clip,
@@ -249,26 +225,15 @@ fn prepare_pose_draft(
         local,
         model_local: None,
         world: matrices,
-        joints,
-        bones,
-        animated,
+        skeleton,
         bounds: AssetPreviewModelBounds {
-            minimum: minimum - Vec3::splat(thickness * 4.0),
-            maximum: maximum + Vec3::splat(thickness * 4.0),
+            minimum: minimum - padding,
+            maximum: maximum + padding,
         },
     }
 }
 
-fn retire(runtime: &mut PreviewRuntime, commands: &mut Commands) {
-    if let Some(roots) = runtime.roots.take() {
-        for root in roots {
-            commands.entity(root).try_insert(Visibility::Hidden);
-        }
-        runtime.retiring = Some(Retiring {
-            roots,
-            entities: std::mem::take(&mut runtime.entities).into_iter(),
-        });
-    }
+fn retire(runtime: &mut PreviewRuntime) {
     if let Some(old) = runtime.published_pose.take() {
         runtime.retired.poses.push(old);
     }
@@ -278,40 +243,24 @@ fn retire(runtime: &mut PreviewRuntime, commands: &mut Commands) {
     runtime.front = 0;
     runtime.published_bounds = None;
     runtime.applied = None;
+    runtime.discard_candidate_skeleton();
     if let Some(pose) = runtime.pose.take() {
         runtime.retired.poses.push(pose);
     }
 }
 
-fn advance_retirement(runtime: &mut PreviewRuntime, commands: &mut Commands) {
-    let Some(retiring) = runtime.retiring.as_mut() else {
-        return;
-    };
-    for _ in 0..NODES_PER_FRAME / 4 {
-        let Some(entities) = retiring.entities.next() else {
-            for root in retiring.roots {
-                commands.entity(root).try_despawn();
-            }
-            runtime.retiring = None;
-            return;
-        };
-        for entity in entities.joint.into_iter().chain(entities.bone) {
-            commands.entity(entity).try_despawn();
-        }
-    }
-}
-
 /// 根或依赖失败时立即撤下旧画面；恢复后仍须把当前候选完整写完才能重新显示。
-fn hide_failed_source(runtime: &mut PreviewRuntime, commands: &mut Commands) {
-    if let Some(roots) = runtime.roots {
-        for root in roots {
-            commands.entity(root).try_insert(Visibility::Hidden);
-        }
-    }
+fn hide_failed_source(runtime: &mut PreviewRuntime) {
     runtime.complete = false;
     runtime.cursor = 0;
     // 文档已换代并撤销的候选不能因源恢复而重新显示，必须等唯一worker返回有效结果。
     runtime.applying = runtime.pose.is_some() && runtime.applied.is_some();
+}
+
+fn clear_skeleton(runtime: &mut PreviewRuntime, skeleton: &mut SkeletonPresentation, commands: &mut Commands) {
+    runtime.discard_candidate_skeleton();
+    runtime.published_skeleton_view = None;
+    skeleton.clear(commands);
 }
 
 fn restore_in_place_scene(
@@ -376,113 +325,68 @@ fn apply_bound_pose(
     end
 }
 
-/// 一次提交至多六十四个已匹配关节，候选容器完整后才替换可见模型和已发布时间。
-fn apply_in_place_candidate(
-    runtime: &mut PreviewRuntime,
-    binding: &mut BindingState,
-    preview: &AssetPreviewState,
-    commands: &mut Commands,
-    transforms: &mut Query<&mut Transform>,
-) {
-    let bank = 1 - runtime.front;
-    let pose = runtime.pose.as_ref().expect("已就绪的候选姿态");
-    let Some(joints) = &pose.model_local else {
-        return;
-    };
-    runtime.cursor = apply_bound_pose(binding, bank, pose, runtime.cursor, transforms);
-    if runtime.cursor != joints.len() {
-        return;
-    }
-    runtime.front = bank;
-    runtime.applying = false;
+fn publish_pose(runtime: &mut PreviewRuntime, bank: usize) {
+    let pose = runtime.pose.as_ref().expect("候选来自完整后台姿态");
     if let Some(previous) = runtime.published_pose.replace(pose.clone()) {
         runtime.retired.poses.push(previous);
     }
-    publish_in_place_scene(runtime, binding, preview, commands);
+    runtime.front = bank;
+    runtime.complete = true;
+    runtime.applying = false;
+    runtime.published_bounds.get_or_insert(pose.bounds);
 }
 
-/// 分帧只写不可见容器；可见容器的完整姿态在最后一次定额写入后才被替换。
-fn apply_candidate(
+/// 模型候选仍按原预算写入隐藏容器，整副姿态完成才更新公开容器索引。
+fn apply_model_candidate(
     runtime: &mut PreviewRuntime,
-    commands: &mut Commands,
+    binding: &BindingState,
     transforms: &mut Query<&mut Transform>,
-    mesh_materials: &mut Query<&mut MeshMaterial3d<StandardMaterial>>,
-) {
-    let roots = runtime.roots.expect("候选应用前已建立两个专层容器");
-    let total = runtime.entities.len();
-    let target = 1 - runtime.front;
-    let end = runtime.cursor.saturating_add(NODES_PER_FRAME).min(total);
-    let pose = runtime.pose.as_ref().expect("候选来自完整后台姿态");
-    for index in runtime.cursor..end {
-        let entities = runtime.entities[index];
-        let material = if pose.animated[index] {
-            runtime.animated_material.as_ref().unwrap()
-        } else {
-            runtime.joint_material.as_ref().unwrap()
-        };
-        for (entity, value) in [
-            (entities.joint[target], pose.joints[index]),
-            (entities.bone[target], pose.bones[index]),
-        ] {
-            if let Ok(mut transform) = transforms.get_mut(entity)
-                && *transform != value
-            {
-                *transform = value;
-            }
-            if let Ok(mut applied) = mesh_materials.get_mut(entity)
-                && applied.0 != *material
-            {
-                applied.0 = material.clone();
-            }
-        }
+    skeleton_ready: bool,
+) -> bool {
+    let bank = 1 - runtime.front;
+    let pose = runtime.pose.as_ref().expect("已就绪的候选姿态");
+    let total = pose.model_local.as_ref().map_or(pose.local.len(), Vec::len);
+    runtime.cursor = apply_bound_pose(binding, bank, pose, runtime.cursor, transforms);
+    if runtime.cursor != total || !skeleton_ready {
+        return false;
     }
-    runtime.cursor = end;
-    if end == total {
-        commands
-            .entity(roots[runtime.front])
-            .try_insert(Visibility::Hidden);
-        commands
-            .entity(roots[target])
-            .try_insert(if pose.model_local.is_some() {
-                // 角色和动作的关节位置可能不同，重定向时只显示实际蒙皮结果。
-                Visibility::Hidden
-            } else {
-                Visibility::Inherited
-            });
-        if let Some(old) = runtime.published_pose.replace(pose.clone()) {
-            runtime.retired.poses.push(old);
-        }
-        runtime.front = target;
-        runtime.complete = true;
-        runtime.applying = false;
-        if runtime.published_bounds.is_none() {
-            runtime.published_bounds = Some(pose.bounds);
-        }
-    }
+    publish_pose(runtime, bank);
+    true
 }
 
-/// 同时最多一个姿态 worker；换源后旧任务仍保留并发信用，完成结果必须再次验证身份。
 pub(super) fn drive(
     mut commands: Commands,
-    editor: Res<AnimationEditorState>,
+    mut editor: ResMut<AnimationEditorState>,
     mut preview: ResMut<AssetPreviewState>,
     mut runtime: ResMut<PreviewRuntime>,
     assets: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut transforms: Query<&mut Transform>,
-    mut mesh_materials: Query<&mut MeshMaterial3d<StandardMaterial>>,
-    mut binding: Option<ResMut<super::binding::BindingState>>,
+    mut binding: Option<ResMut<BindingState>>,
+    mut skeleton: SkeletonPresentation,
 ) {
-    let in_place = editor.in_place_rig_preview();
+    skeleton.maintain(&mut commands);
+    let project_motion = editor.in_place_rig_preview();
+    let embedded = binding.as_ref().is_some_and(|binding| binding.embedded());
+    let in_place = project_motion || embedded;
     let in_place_ready = in_place && preview.render_visible
         && matches!(preview.content, AssetPreviewContent::Model { phase: AssetPreviewPhase::Ready, .. })
-        && binding.as_ref().is_some_and(|binding| {
-            binding.ready() && binding.mapping.as_ref().and_then(|mapping| mapping.retarget.as_ref())
-                .is_some_and(|rig| rig.supports(editor.active_clip()))
-        });
+        && binding.as_ref().is_some_and(|binding| binding.ready() && (embedded ||
+            binding.mapping.as_ref().and_then(|mapping| mapping.retarget.as_ref())
+                .is_some_and(|rig| rig.supports(editor.active_clip()))));
+    let embedded_motion = embedded && in_place_ready;
+    if editor.embedded_motion != embedded_motion {
+        editor.embedded_motion = embedded_motion;
+    }
+    let eligible = (!in_place || in_place_ready) && editor.visible()
+        && editor.active_document().is_some_and(|document| !document.clips.is_empty());
+    let view = (eligible && !editor.retargeting())
+        .then(|| skeleton.view(&preview, editor.current().and_then(|session| session.selected_node)))
+        .flatten();
+    if view.is_none() {
+        clear_skeleton(&mut runtime, &mut skeleton, &mut commands);
+    }
     if in_place_ready && editor.weight_rest_active() {
-        // 权重修正显示原静置网格，双动作容器和已经发布的帧继续留在当前模型标签。
+        // 权重修正使用原静置网格，保留已发布的动作容器供同一帧对照。
         if let Some(binding) = binding.as_mut().filter(|binding| binding.active) {
             binding.hide(&mut commands);
         }
@@ -493,7 +397,8 @@ pub(super) fn drive(
         && (!in_place_ready || runtime.published_pose.as_ref().is_none_or(|pose|
             !editor.current().is_some_and(|session| pose.matches_session(session))))
     {
-        binding.hide(&mut commands); // 换片段等待新姿态期间只显示原模型，禁止继续显示旧动作。
+        binding.hide(&mut commands);
+        clear_skeleton(&mut runtime, &mut skeleton, &mut commands);
     }
     if !in_place || binding.as_ref().is_none_or(|binding| !binding.active) {
         restore_in_place_scene(&mut runtime, &preview, &mut commands);
@@ -504,94 +409,103 @@ pub(super) fn drive(
         runtime.applied = None;
         runtime.applying = false;
         runtime.cursor = 0;
+        clear_skeleton(&mut runtime, &mut skeleton, &mut commands);
     }
-    advance_retirement(&mut runtime, &mut commands);
-    let eligible = (!in_place || in_place_ready) && editor.visible()
-        && editor
-            .active_document()
-            .is_some_and(|document| !document.clips.is_empty());
-    let wanted = eligible
-        .then(|| editor.source().zip(preview.scene_root()))
-        .flatten()
+    let wanted = eligible.then(|| editor.source().zip(preview.scene_root())).flatten()
         .map(|(path, scene)| SourceIdentity {
             path: path.to_owned(),
             revision: editor.source_revision(),
             scene,
         });
     if runtime.identity != wanted {
-        // 上一代退役尚未结束时不产生第三套骨架，连续切换只更新最新期望身份。
-        if runtime.retiring.is_some() {
-            return;
-        }
-        retire(&mut runtime, &mut commands);
+        retire(&mut runtime);
+        clear_skeleton(&mut runtime, &mut skeleton, &mut commands);
         runtime.identity = wanted.clone();
     }
+
     let request = (editor.revision(), editor.active_clip(), pose_request_time(&editor));
-    // 连续播放与临时姿势可显示同一动作的中间帧，暂停定位只采用播放头指定的姿态。
+    // 播放时保留上一完整姿态；暂停定位只接受播放头指定结果。
     let accepts = |(revision, clip, time)| {
         revision == request.0 && clip == request.1
             && (time == request.2 || editor.playing || editor.current().is_some_and(|s| s.pose.is_some()))
     };
     if runtime.applying && runtime.applied.is_none_or(|candidate| !accepts(candidate)) {
-        // 候选分帧填充时播放头也能移动，撤回无效候选并保留上一份已发布姿态。
         runtime.applying = false;
         runtime.applied = None;
         runtime.cursor = 0;
+        runtime.discard_candidate_skeleton();
+        skeleton.discard_candidate();
     }
     if !runtime.applying
-        && let Some(result) = runtime
-            .pending
-            .as_mut()
-            .and_then(|pending| check_ready(&mut pending.task))
+        && let Some(result) = runtime.pending.as_mut().and_then(|pending| check_ready(&mut pending.task))
     {
         let pending = runtime.pending.take().expect("刚完成的唯一姿态任务");
-        if let Some(pose) = result {
-            if wanted == pending.identity
-                && pending.binding_revision == binding_revision
+        if let Some(mut prepared) = result {
+            if wanted == pending.identity && pending.binding_revision == binding_revision
                 && accepts((pending.revision, pending.clip, pending.time))
             {
-                if let Some(previous) = runtime.pose.replace(pose) {
-                    runtime.retired.poses.push(previous);
+                if pending.view_only {
+                    if runtime.complete
+                        && runtime.published_pose.as_ref().is_some_and(|pose| Arc::ptr_eq(pose, &prepared.pose))
+                        && let Some(frame) = prepared.skeleton.as_ref()
+                        && view.is_some_and(|view| view.selected == frame.view.selected)
+                    {
+                        skeleton.discard_candidate();
+                        runtime.discard_candidate_skeleton();
+                        runtime.candidate_skeleton = prepared.skeleton.take();
+                    }
+                } else {
+                    if let Some(previous) = runtime.pose.replace(prepared.pose) {
+                        runtime.retired.poses.push(previous);
+                    }
+                    skeleton.discard_candidate();
+                    runtime.discard_candidate_skeleton();
+                    runtime.candidate_skeleton = prepared.skeleton.take();
+                    runtime.applied = Some((pending.revision, pending.clip, pending.time));
+                    runtime.applying = true;
+                    runtime.cursor = 0;
                 }
-                runtime.applied = Some((pending.revision, pending.clip, pending.time));
-                runtime.applying = true;
-                runtime.cursor = 0;
             } else {
-                runtime.retired.poses.push(pose);
+                runtime.retired.poses.push(prepared.pose);
             }
+            runtime.retired.skeletons.extend(prepared.skeleton);
         }
     }
     if runtime.pending.is_none() {
-        let snapshot = wanted
-            .as_ref()
+        let snapshot = wanted.as_ref()
             .filter(|_| runtime.applied != Some(request))
             .and_then(|_| editor.document_snapshot());
-        if snapshot.is_some() || runtime.retired.occupied() {
-            // 候选分帧写入时可重叠准备下一姿态；仍只保留一个worker，且写完前不会取代当前候选。
-            // 数据析构共用唯一 worker，不能为连续播放每帧 detach 一个释放任务。
+        let published = (snapshot.is_none() && !runtime.applying && runtime.complete
+            && runtime.candidate_skeleton.is_none()
+            && view.is_some_and(|view| skeleton.needs_view(view)))
+            .then(|| runtime.published_pose.clone()).flatten();
+        if snapshot.is_some() || published.is_some() || runtime.retired.occupied() {
+            // 相机变化只重投已发布姿态。新的播放帧与骨架复用同一工作槽和输入快照。
             let retired = std::mem::take(&mut runtime.retired);
             let clip = editor.active_clip();
             let position = editor.position();
             let draft = editor.current().and_then(|s| s.pose);
             let retarget = binding.as_ref().filter(|binding| binding.ready())
                 .and_then(|binding| binding.mapping.as_ref()?.retarget.as_ref())
-                .filter(|rig| rig.supports(clip))
-                .cloned();
+                .filter(|rig| rig.supports(clip)).cloned();
             runtime.pending = Some(PendingPose {
                 identity: wanted.clone(),
                 revision: request.0,
                 binding_revision,
-                clip,
+                clip: request.1,
                 time: request.2,
+                view_only: published.is_some(),
                 task: AsyncComputeTaskPool::get().spawn(async move {
                     drop(retired);
-                    snapshot.map(|document| {
+                    let pose = published.or_else(|| snapshot.map(|document| {
                         let mut pose = prepare_pose_draft(document, clip, position, draft);
                         if let Some(rig) = retarget {
                             pose.model_local = Some(rig.sample(&pose.local));
                         }
                         Arc::new(pose)
-                    })
+                    }))?;
+                    let skeleton = view.map(|view| skeleton::build(&pose, view));
+                    Some(PreparedPose { pose, skeleton })
                 }),
             });
         }
@@ -599,157 +513,83 @@ pub(super) fn drive(
     if wanted.is_none() {
         return;
     }
-    if runtime.retiring.is_some() {
-        return;
-    }
     let Some(source) = preview.model.as_ref().map(|model| model.catalog.gltf.id()) else {
         return;
     };
-    let source_failed =
-        assets
-            .get_load_states(source)
-            .is_some_and(|(direct, dependencies, recursive)| {
-                matches!(direct, LoadState::Failed(_))
-                    || matches!(dependencies, DependencyLoadState::Failed(_))
-                    || matches!(recursive, RecursiveDependencyLoadState::Failed(_))
-            });
-    if source_failed {
+    // 失败的依赖必须撤下已发布的骨架和模型。缓存中有旧 GLTF 也不能冒充就绪。
+    let failed = matches!(assets.load_state(source), LoadState::Failed(_))
+        || matches!(assets.dependency_load_state(source), DependencyLoadState::Failed(_))
+        || matches!(assets.recursive_dependency_load_state(source), RecursiveDependencyLoadState::Failed(_));
+    if failed {
         if let Some(binding) = binding.as_mut() {
             binding.hide(&mut commands);
         }
-        hide_failed_source(&mut runtime, &mut commands);
+        clear_skeleton(&mut runtime, &mut skeleton, &mut commands);
+        hide_failed_source(&mut runtime);
         restore_in_place_scene(&mut runtime, &preview, &mut commands);
         return;
-    } // 自建骨架不能把损坏 GLTF、缺失缓冲或纹理依赖伪装成成功模型。
-    if !assets.is_loaded_with_dependencies(source) {
-        return;
-    } // 缓存Gltf存在不代表当前加载成功；只检查真实根，不依赖合法纯动画可能没有的Scene0。
-    if runtime.pose.is_none() {
-        return;
     }
-    if in_place {
-        if let Some(binding) = binding.as_mut().filter(|binding| binding.ready() && !binding.active)
-            && !runtime.applying
-            && runtime.applied == Some(request)
-            && runtime.published_pose.as_ref().is_some_and(|pose| {
-                pose.time == editor.position()
-                    && editor.current().is_some_and(|session| pose.matches_session(session))
-            })
-        {
-            // 回到同一帧直接重新显示已发布的容器，避免用零帧或异步候选做对照。
-            publish_in_place_scene(&mut runtime, binding, &preview, &mut commands);
-        }
-        // 复用绑定角色的双容器和同一姿态预算。没有源骨架网格，也不更新原模型的取景范围。
-        if let Some(binding) = binding.as_mut().filter(|binding| binding.ready())
-            && runtime.applying
-        {
-            apply_in_place_candidate(&mut runtime, binding, &preview, &mut commands, &mut transforms);
-        }
-        return;
-    }
-    if runtime.mesh.is_none() {
-        runtime.mesh = Some(meshes.add(Cuboid::new(1.0, 1.0, 1.0)));
-        runtime.joint_material = Some(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.32, 0.74, 0.88),
-            unlit: true,
-            ..default()
-        }));
-        runtime.animated_material = Some(materials.add(StandardMaterial {
-            base_color: Color::srgb(1.0, 0.65, 0.22),
-            unlit: true,
-            ..default()
-        }));
-    }
-    if runtime.roots.is_none() {
-        runtime.roots = Some(std::array::from_fn(|bank| {
-            commands
-                .spawn((
-                    Name::new(format!("动画骨架预览_{bank}")),
-                    SceneEditorOwnedEntity,
-                    Transform::default(),
-                    Visibility::Hidden,
-                    RenderLayers::layer(SCENE_EDITOR_ASSET_PREVIEW_LAYER),
-                ))
-                .id()
-        }));
-    }
-    let roots = runtime.roots.unwrap();
-    let total = runtime.pose.as_ref().unwrap().joints.len();
-    // 一个作者节点包含两份骨节/连杆；每帧最多创建64份骨架节点，完整前两容器都隐藏。
-    for index in runtime.entities.len()..(runtime.entities.len() + NODES_PER_FRAME / 2).min(total) {
-        let pose = runtime.pose.as_ref().unwrap();
-        let material = if pose.animated[index] {
-            runtime.animated_material.as_ref().unwrap()
-        } else {
-            runtime.joint_material.as_ref().unwrap()
-        }
-        .clone();
-        let joint = std::array::from_fn(|bank| {
-            commands
-                .spawn((
-                    Name::new("动画骨节"),
-                    SceneEditorOwnedEntity,
-                    Mesh3d(runtime.mesh.as_ref().unwrap().clone()),
-                    MeshMaterial3d(material.clone()),
-                    pose.joints[index],
-                    NoFrustumCulling,
-                    ChildOf(roots[bank]),
-                    RenderLayers::layer(SCENE_EDITOR_ASSET_PREVIEW_LAYER),
-                ))
-                .id()
-        });
-        let bone = std::array::from_fn(|bank| {
-            commands
-                .spawn((
-                    Name::new("动画骨骼连杆"),
-                    SceneEditorOwnedEntity,
-                    Mesh3d(runtime.mesh.as_ref().unwrap().clone()),
-                    MeshMaterial3d(material.clone()),
-                    pose.bones[index],
-                    NoFrustumCulling,
-                    ChildOf(roots[bank]),
-                    RenderLayers::layer(SCENE_EDITOR_ASSET_PREVIEW_LAYER),
-                ))
-                .id()
-        });
-        runtime.entities.push(BoneEntities { joint, bone });
-    }
-    if runtime.entities.len() != total {
+    if !assets.is_loaded_with_dependencies(source) || runtime.pose.is_none() {
         return;
     }
 
-    if runtime.applying {
-        // 角色与骨架使用相同候选及预算；双方写完同一姿态后才同时切换前后容器。
-        if let Some(binding) = binding.as_ref().filter(|b| b.ready()) {
-            let bank = 1 - runtime.front;
-            let pose = runtime.pose.as_ref().unwrap();
-            apply_bound_pose(binding, bank, pose, runtime.cursor, &mut transforms);
-        }
-        apply_candidate(
-            &mut runtime,
-            &mut commands,
-            &mut transforms,
-            &mut mesh_materials,
-        );
-        if !runtime.applying
-            && let Some(binding) = binding.as_mut()
-        {
-            let retargeting = binding.mapping.as_ref().is_some_and(|mapping| mapping.retarget.is_some());
-            if !retargeting || runtime.pose.as_ref().is_some_and(|pose| pose.model_local.is_some()) {
+    if in_place
+        && let Some(binding) = binding.as_mut().filter(|b| b.ready() && !b.active)
+        && !runtime.applying && runtime.applied == Some(request)
+        && runtime.published_pose.as_ref().is_some_and(|pose|
+            editor.current().is_some_and(|session| pose.matches_session(session)))
+    {
+        // 从静置返回时立即采用已经发布的原动作容器。
+        publish_in_place_scene(&mut runtime, binding, &preview, &mut commands);
+    }
+    if runtime.candidate_skeleton.as_ref().is_some_and(|frame|
+        !view.is_some_and(|view| view.selected == frame.view.selected))
+    {
+        runtime.discard_candidate_skeleton();
+        skeleton.discard_candidate();
+    }
+    let skeleton_ready = runtime.candidate_skeleton.as_mut()
+        .is_none_or(|frame| skeleton.stage(&mut commands, frame));
+    let publishes_pose = runtime.applying;
+    if publishes_pose {
+        let model = binding.as_mut().filter(|b| b.ready() && (b.mapping.as_ref()
+            .is_some_and(|mapping| mapping.retarget.is_none())
+            || runtime.pose.as_ref().is_some_and(|pose| pose.model_local.is_some())));
+        if let Some(binding) = model {
+            if !apply_model_candidate(&mut runtime, binding, &mut transforms, skeleton_ready) {
+                return;
+            }
+            if in_place {
+                publish_in_place_scene(&mut runtime, binding, &preview, &mut commands);
+            } else {
                 binding.publish(&mut commands, runtime.front);
             }
+        } else if !in_place && skeleton_ready {
+            if let Some(binding) = binding.as_mut().filter(|binding| binding.active) {
+                binding.hide(&mut commands);
+            }
+            let bank = 1 - runtime.front;
+            publish_pose(&mut runtime, bank);
+        } else {
+            return;
         }
+    } else if !skeleton_ready {
+        return;
     }
-    if !runtime.complete {
+    if let Some(frame) = runtime.candidate_skeleton.take() {
+        skeleton.publish(&mut commands, frame.view);
+        runtime.published_skeleton_view = Some(frame.view);
+    } else if publishes_pose {
+        clear_skeleton(&mut runtime, &mut skeleton, &mut commands);
+    }
+    if in_place || !runtime.complete {
         return;
     }
     let bounds = runtime.published_bounds.unwrap();
     if let Some(binding) = binding.as_ref()
         && let Some(root) = preview.scene_root()
-        && preview
-            .model
-            .as_ref()
-            .is_some_and(|m| m.scene_mesh_count > 0)
+        && preview.model.as_ref().is_some_and(|model| model.scene_mesh_count > 0
+            && model.target == AssetPreviewModelTarget::Scene0)
     {
         commands.entity(root).try_insert(if binding.active {
             Visibility::Hidden
@@ -757,7 +597,6 @@ pub(super) fn drive(
             Visibility::Inherited
         });
     }
-    // Scene0继续使用原完整静态预览，不对真实蒙皮分批写入半套姿态；骨架是本版明确的动作显示。
     if preview.bounds_scan.is_none() {
         let rig_bounds = binding.as_ref().filter(|binding| binding.active)
             .and_then(|binding| binding.mapping.as_ref()?.retarget.as_ref())
@@ -769,28 +608,16 @@ pub(super) fn drive(
             }));
             runtime.using_retarget_bounds = using_retarget_bounds;
         }
-        let update_model = preview
-            .model
-            .as_ref()
-            .is_some_and(|model| !model.scene_ready || model.scene_bounds.is_none());
-        if update_model && let Some(model) = preview.model.as_mut() {
+        if preview.model.as_ref().is_some_and(|model| !model.scene_ready || model.scene_bounds.is_none())
+            && let Some(model) = preview.model.as_mut()
+        {
             model.scene_ready = true;
-            if model.scene_bounds.is_none() {
-                model.scene_bounds = Some(bounds);
-            }
+            model.scene_bounds.get_or_insert(bounds);
         }
-        let real_meshes = preview
-            .model
-            .as_ref()
-            .map_or(0, |model| model.scene_mesh_count);
-        let preserve_reveal = real_meshes > 0
-            && matches!(
-                preview.content,
-                AssetPreviewContent::Model {
-                    phase: AssetPreviewPhase::RevealPending,
-                    ..
-                }
-            );
+        let real_meshes = preview.model.as_ref().map_or(0, |model| model.scene_mesh_count);
+        let preserve_reveal = real_meshes > 0 && matches!(preview.content, AssetPreviewContent::Model {
+            phase: AssetPreviewPhase::RevealPending, ..
+        });
         if !preserve_reveal {
             if matches!(preview.content, AssetPreviewContent::Model { phase, .. } if phase != AssetPreviewPhase::Ready)
                 && let AssetPreviewContent::Model { phase, .. } = &mut preview.content
@@ -798,16 +625,14 @@ pub(super) fn drive(
                 *phase = AssetPreviewPhase::Ready;
             }
             let status = if using_retarget_bounds {
-                "已绑骨角色 · 外部 GLB 动作预览".to_owned()
-            } else if binding.as_ref().is_some_and(|b| b.active) {
-                format!("角色动画预览 · {total}个节点 · 点击骨节可编辑姿势")
-            } else if real_meshes > 0 {
-                format!("动画骨架预览 · {total}个节点 · 原模型保留静态姿态")
+                "已绑骨角色 · 外部 GLB 动作预览"
+            } else if binding.as_ref().is_some_and(|binding| binding.active) {
+                "角色动画预览"
             } else {
-                format!("动画骨架预览 · {total}个节点 · 橙色为动画通道")
+                "动画预览 · 点击关节或骨段选骨"
             };
             if preview.status != status {
-                preview.status = status;
+                preview.status = status.into();
             }
         }
     }

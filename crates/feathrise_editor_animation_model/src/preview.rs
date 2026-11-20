@@ -2,7 +2,7 @@
 
 use bevy::{prelude::*, tasks::Task};
 use std::{path::{Path, PathBuf}, sync::{Arc, Weak}};
-use super::{data::AnimationDocument, media::{AssetPreviewState, AssetPreviewModelBounds},
+use super::{data::{AnimationDocument, PreviewJoint}, gizmo::GizmoCamera, media::{AssetPreviewState, AssetPreviewModelBounds},
     resources::{AnimationEditorState, BindingState, Session, WeightFrame}};
 
 #[derive(Clone, PartialEq, Eq)]
@@ -22,9 +22,7 @@ pub struct Pose {
     /// 只保存已匹配的目标关节变换，以源节点索引定位容器中的实体。
     pub model_local: Option<Vec<(usize, Transform)>>,
     pub world: Vec<Mat4>,
-    pub joints: Vec<Transform>,
-    pub bones: Vec<Transform>,
-    pub animated: Vec<bool>,
+    pub skeleton: Arc<[PreviewJoint]>,
     pub bounds: AssetPreviewModelBounds,
 }
 
@@ -55,28 +53,36 @@ pub struct PendingPose {
     pub binding_revision: u64,
     pub clip: usize,
     pub time: u32,
-    pub task: Task<Option<Arc<Pose>>>,
+    pub view_only: bool,
+    pub task: Task<Option<PreparedPose>>,
 }
 
-#[derive(Clone, Copy)]
-pub struct BoneEntities {
-    pub joint: [Entity; 2],
-    pub bone: [Entity; 2],
+#[derive(Clone, Copy, PartialEq)]
+pub struct SkeletonView {
+    pub camera: GizmoCamera,
+    pub selected: Option<usize>,
 }
 
-pub struct Retiring {
-    pub roots: [Entity; 2],
-    pub entities: std::vec::IntoIter<BoneEntities>,
+pub struct SkeletonFrame {
+    pub view: SkeletonView,
+    /// 按关节预算分批登记，每批包含普通与高亮两组线带。
+    pub batches: std::collections::VecDeque<[GizmoAsset; 2]>,
+}
+
+pub struct PreparedPose {
+    pub pose: Arc<Pose>,
+    pub skeleton: Option<SkeletonFrame>,
 }
 
 #[derive(Default)]
 pub struct RetiredData {
     pub poses: Vec<Arc<Pose>>,
+    pub skeletons: Vec<SkeletonFrame>,
 }
 
 impl RetiredData {
     pub fn occupied(&self) -> bool {
-        !self.poses.is_empty()
+        !self.poses.is_empty() || !self.skeletons.is_empty()
     }
 }
 
@@ -88,12 +94,8 @@ pub struct PreviewRuntime {
     pub pose: Option<Arc<Pose>>,
     pub published_pose: Option<Arc<Pose>>,
     pub applied: Option<(u64, usize, u32)>,
-    pub roots: Option<[Entity; 2]>,
-    pub entities: Vec<BoneEntities>,
-    pub retiring: Option<Retiring>,
-    pub mesh: Option<Handle<Mesh>>,
-    pub joint_material: Option<Handle<StandardMaterial>>,
-    pub animated_material: Option<Handle<StandardMaterial>>,
+    pub candidate_skeleton: Option<SkeletonFrame>,
+    pub published_skeleton_view: Option<SkeletonView>,
     pub front: usize,
     pub applying: bool,
     pub cursor: usize,
@@ -106,6 +108,11 @@ pub struct PreviewRuntime {
 }
 
 impl PreviewRuntime {
+    pub fn discard_candidate_skeleton(&mut self) {
+        // 换源或隐藏时，剩余未登记的线带随原单槽任务释放。
+        self.retired.skeletons.extend(self.candidate_skeleton.take());
+    }
+
     /// 框选从 GPU 已显示的容器起手，冻结该容器并废弃还在准备的下一姿态。
     pub fn freeze_weight_frame(
         &mut self,
@@ -132,7 +139,8 @@ impl PreviewRuntime {
             && binding.active
             && binding.ready()
             && self.binding_revision == binding.revision
-            && binding.identity.as_ref().is_some_and(|identity| identity.retarget && identity.model == path)
+            && binding.identity.as_ref().is_some_and(|identity|
+                (identity.retarget || binding.embedded()) && identity.model == path)
         {
             binding.banks[self.front].root
         } else {
@@ -148,7 +156,8 @@ impl PreviewRuntime {
         let pose = self.published_pose.as_ref()?;
         let session = editor.current()?;
         (editor.visible()
-            && (!editor.in_place_rig_preview() || self.in_place_hidden_scene.is_some())
+            && (!(editor.in_place_rig_preview() || editor.embedded_motion)
+                || self.in_place_hidden_scene.is_some())
             && pose.matches_session(session)
             && pose.draft == session.pose)
             .then_some(pose.time)
@@ -162,7 +171,7 @@ impl PreviewRuntime {
 
     fn skeleton_ready(&self, source: &Path, scene: Entity) -> bool {
         self.complete
-            && !self.entities.is_empty()
+            && self.published_pose.is_some()
             && self
                 .identity
                 .as_ref()
@@ -175,6 +184,9 @@ impl PreviewRuntime {
         preview: &AssetPreviewState,
     ) -> bool {
         editor.visible()
+            && preview.render_visible
+            && preview.model.as_ref().is_some_and(|model|
+                model.target == super::media::AssetPreviewModelTarget::Scene0)
             && editor
                 .active_document()
                 .is_some_and(|document| !document.clips.is_empty())

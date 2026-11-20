@@ -52,6 +52,13 @@ pub struct Node {
     pub scale: [f32; 3],
 }
 
+/// 节点沿用 glTF 索引，父级指向同一骨架列表中的位置。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PreviewJoint {
+    pub node: usize,
+    pub parent: Option<usize>,
+}
+
 #[derive(Debug)]
 pub(super) struct Source {
     pub path: PathBuf,
@@ -60,6 +67,7 @@ pub(super) struct Source {
     pub buffers: Vec<Arc<[u8]>>,
     pub chunks: Vec<Chunk>,
     pub original_clips: Vec<Clip>,
+    pub preview_joints: Arc<[PreviewJoint]>,
 }
 
 #[derive(Debug)]

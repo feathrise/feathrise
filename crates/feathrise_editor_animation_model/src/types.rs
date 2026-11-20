@@ -1,7 +1,7 @@
 //! 连续动作表、选区与姿势手势的轻量契约；显示槽不再决定可编辑的数据范围。
 
 use bevy::prelude::*;
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::{HashMap, HashSet}, path::PathBuf, sync::Arc};
 
 /// 时间闭区间描述选区，框选十万个键也只保存最多八条可见轨道的范围。
 #[derive(Clone, Default, Debug, PartialEq)]
@@ -159,11 +159,14 @@ pub struct BindingIdentity {
     pub request: u64,
     pub model: String,
     pub retarget: bool,
+    /// 同一文件的动作直接写入本代 Scene0，热更新后不得复用旧节点索引。
+    pub embedded_generation: Option<u64>,
 }
 
 pub struct SkeletonMapping {
     pub names: HashMap<String, usize>,
     pub retarget: Option<Arc<super::retarget::RigRetarget>>,
+    pub embedded_nodes: HashSet<usize>,
 }
 
 #[derive(Default)]

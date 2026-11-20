@@ -19,6 +19,10 @@ use bevy::{
     prelude::*,
     transform::TransformSystems,
 };
+use feathrise_editor_animation_model::skeleton::{
+    BONE_COLOR, DEPTH_BIAS, JOINT_COLOR, JointGlyph, LINE_WIDTH, SELECTED_COLOR, SELECTED_LINE_WIDTH,
+    PICK_PADDING_PX, fit_connected_joints, triangle_distance_squared,
+};
 use feathrise_editor_core::constants::render_layers::SCENE_EDITOR_ASSET_PREVIEW_LAYER;
 
 #[derive(Default, Reflect, GizmoConfigGroup)]
@@ -27,10 +31,6 @@ struct SkeletonGizmos;
 #[derive(Default, Reflect, GizmoConfigGroup)]
 struct SelectedBoneGizmos;
 
-const JOINT_RADIUS_PX: f32 = 3.5;
-const SELECTED_JOINT_RADIUS_PX: f32 = 5.0;
-const MIN_JOINT_RADIUS_PX: f32 = 1.5;
-const PICK_PADDING_PX: f32 = 3.0;
 const LOCK_BODY: [Vec2; 5] = [
     Vec2::new(-4.0, 0.0),
     Vec2::new(4.0, 0.0),
@@ -46,76 +46,6 @@ const LOCK_SHACKLE: [Vec2; 6] = [
     Vec2::new(2.5, -2.5),
     Vec2::new(2.5, 0.0),
 ];
-
-#[derive(Clone, Copy)]
-struct JointGlyph {
-    origin: Vec3,
-    screen: Vec2,
-    right: Vec3,
-    down: Vec3,
-    radius: f32,
-}
-
-impl JointGlyph {
-    fn project(camera: MoveCamera, origin: Vec3, radius: f32) -> Option<Self> {
-        let screen = camera.project(origin)? * camera.size * camera.inverse_scale;
-        let [top_left, top_right, _, bottom_left] = camera.screen_square(origin, 1.0)?;
-        // 每个关节保留自己深度处的一像素基向量，透视下远近端的间隔仍按屏幕像素计算。
-        Some(Self {
-            origin,
-            screen,
-            right: (top_right - top_left) * 0.5,
-            down: (bottom_left - top_left) * 0.5,
-            radius,
-        })
-    }
-
-    fn offset(self, pixels: Vec2) -> Vec3 {
-        self.origin + self.right * pixels.x + self.down * pixels.y
-    }
-
-    fn diamond(self) -> [Vec3; 5] {
-        let right = self.right * self.radius;
-        let down = self.down * self.radius;
-        let top = self.origin - down;
-        [
-            top,
-            self.origin + right,
-            self.origin + down,
-            self.origin - right,
-            top,
-        ]
-    }
-
-    fn bone_offsets(self, tail: Self) -> Option<[Vec2; 3]> {
-        let axis = tail.screen - self.screen;
-        let length = axis.length();
-        let head_gap = self.radius + 2.0;
-        let tail_gap = tail.radius + 2.0;
-        let space = length - head_gap - tail_gap;
-        if !space.is_finite() || space < 3.0 {
-            // 端视重合或手指过短时仍各自提交起点，避免轮廓把两个关节盖成一团。
-            return None;
-        }
-        let axis = axis / length;
-        // 宽端紧接骨骼起点，尖端指向子关节。两端的留白让共线的骨段也能看出边界。
-        let width = (length * 0.085).clamp(1.5, 5.0).min(space * 0.5);
-        let side = Vec2::new(-axis.y, axis.x) * width;
-        let base = axis * head_gap;
-        Some([base + side, base - side, -axis * tail_gap])
-    }
-
-    fn bone_to(self, tail: Self) -> Option<[Vec3; 4]> {
-        let [left, right, tip] = self.bone_offsets(tail)?;
-        let left = self.offset(left);
-        Some([left, self.offset(right), tail.offset(tip), left])
-    }
-
-    fn screen_bone_to(self, tail: Self) -> Option<[Vec2; 3]> {
-        let [left, right, tip] = self.bone_offsets(tail)?;
-        Some([self.screen + left, self.screen + right, tail.screen + tip])
-    }
-}
 
 #[derive(Clone, Copy)]
 struct BoneFrame {
@@ -236,22 +166,6 @@ fn pick_glyph(
         .map(|(_, _, joint)| joint)
 }
 
-fn triangle_distance_squared(cursor: Vec2, [a, b, c]: [Vec2; 3]) -> f32 {
-    let mut positive = false;
-    let mut negative = false;
-    let mut closest = f32::INFINITY;
-    for (start, end) in [(a, b), (b, c), (c, a)] {
-        let edge = end - start;
-        let relative = cursor - start;
-        let side = edge.perp_dot(relative);
-        positive |= side > 0.0;
-        negative |= side < 0.0;
-        let t = (relative.dot(edge) / edge.length_squared()).clamp(0.0, 1.0);
-        closest = closest.min((relative - edge * t).length_squared());
-    }
-    if positive && negative { closest } else { 0.0 }
-}
-
 pub(super) fn install(app: &mut App) {
     app.init_resource::<BoneTargets>()
         .init_gizmo_group::<SkeletonGizmos>()
@@ -269,12 +183,12 @@ fn configure(mut store: ResMut<GizmoConfigStore>) {
     // 权重热力图显示在模型表面，骨骼轮廓和起点在同一预览相机中穿透该表面。
     let (config, _) = store.config_mut::<SkeletonGizmos>();
     config.render_layers = RenderLayers::layer(SCENE_EDITOR_ASSET_PREVIEW_LAYER);
-    config.depth_bias = -1.0;
-    config.line.width = 1.5;
+    config.depth_bias = DEPTH_BIAS;
+    config.line.width = LINE_WIDTH;
     let (config, _) = store.config_mut::<SelectedBoneGizmos>();
     config.render_layers = RenderLayers::layer(SCENE_EDITOR_ASSET_PREVIEW_LAYER);
-    config.depth_bias = -1.0;
-    config.line.width = 3.5;
+    config.depth_bias = DEPTH_BIAS;
+    config.line.width = SELECTED_LINE_WIDTH;
 }
 
 fn draw(
@@ -344,42 +258,22 @@ fn draw(
         if !origin.is_finite() {
             return;
         }
-        let radius = if index == active {
-            SELECTED_JOINT_RADIUS_PX
-        } else {
-            JOINT_RADIUS_PX
-        };
-        *glyph = JointGlyph::project(camera, origin, radius);
+        *glyph = JointGlyph::project(*camera, origin, index == active);
     }
     for (index, joint) in joints.iter().enumerate() {
-        let Some(parent) = joint.parent.map(usize::from) else {
-            continue;
-        };
-        let Some((head, tail)) = glyphs[parent].zip(glyphs[index]) else {
-            continue;
-        };
-        // 手指等密集关节按相邻起点的间距收小标记，放大后恢复正常尺寸。
-        let radius = (head.screen.distance(tail.screen) * 0.4).max(MIN_JOINT_RADIUS_PX);
-        for endpoint in [parent, index] {
-            if endpoint != active
-                && let Some(glyph) = &mut glyphs[endpoint]
-            {
-                glyph.radius = glyph.radius.min(radius);
-            }
+        if let Some(parent) = joint.parent.map(usize::from) {
+            fit_connected_joints(glyphs, parent, index, Some(active));
         }
     }
 
-    let joint_color = Color::srgb(0.96, 0.98, 1.0);
-    let bone_color = Color::srgba(0.87, 0.93, 0.99, 0.85);
-    let selected = Color::srgb(0.15, 1.0, 1.0);
     let lock_color = Color::srgb(1.0, 0.68, 0.18);
     let locks = session.current_locks();
     for (index, joint) in joints.iter().enumerate() {
         let Some(glyph) = glyphs[index] else { continue };
         if index == active {
-            highlight.linestrip(glyph.diamond(), selected);
+            highlight.linestrip(glyph.diamond(), SELECTED_COLOR);
         } else {
-            skeleton.linestrip(glyph.diamond(), joint_color);
+            skeleton.linestrip(glyph.diamond(), JOINT_COLOR);
         }
         if locks[index] {
             // 锁记号与关节共享投影深度，使用单独的像素偏移保留起点命中区。
@@ -397,9 +291,9 @@ fn draw(
         {
             // 选中左大腿时标出髋到膝，末端关节也有自己的起点标记。
             if parent == active {
-                highlight.linestrip(outline, selected);
+                highlight.linestrip(outline, SELECTED_COLOR);
             } else {
-                skeleton.linestrip(outline, bone_color);
+                skeleton.linestrip(outline, BONE_COLOR);
             }
         }
     }

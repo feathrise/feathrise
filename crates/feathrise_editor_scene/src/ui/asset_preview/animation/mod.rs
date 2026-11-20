@@ -87,6 +87,7 @@ fn publish_host(source: HostInputs, mut host: ResMut<AnimationHost>) {
             .layout
             .as_ref()
             .is_none_or(|layout| layout.inspector_shown());
+    host.weights_own_viewport = source.sidebar.right == EditorRightSidebarTab::Weights;
     host.layout_dragging = source
         .layout
         .as_ref()

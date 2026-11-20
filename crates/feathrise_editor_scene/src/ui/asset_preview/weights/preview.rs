@@ -22,11 +22,15 @@ pub(super) fn heat_covers_skin(world: &World) -> bool {
     let draw = world.resource::<WeightPreview>();
     let state = world.resource::<WeightEditor>();
     let preview = world.resource::<super::super::AssetPreviewState>();
-    let (Some(session), Some(root), Some(material)) =
-        (state.session.as_ref(), preview.scene_root(), draw.heat_material.as_ref())
+    let (Some(session), Some(material)) =
+        (state.session.as_ref(), draw.heat_material.as_ref())
     else {
         return false;
     };
+    use super::super::animation::AnimationPreviewRuntime;
+    let root = world.get_resource::<AnimationPreviewRuntime>().zip(world.get_resource::<WeightBinding>())
+        .and_then(|(runtime, binding)| runtime.weight_frame_root(binding, &session.key.path))
+        .or_else(|| preview.scene_root());
     let skin = session.doc.surface(session.surface).skin.index;
     let Some(map) = session.heatmap.as_ref().filter(|map| {
         (map.skin, map.joint, map.surface) == (skin, session.joint, session.surface)
@@ -40,7 +44,7 @@ pub(super) fn heat_covers_skin(world: &World) -> bool {
                 return false;
             };
             draw.parts.iter().any(|part| {
-                part.surface == index && part.root == root
+                part.surface == index && Some(part.root) == root
                     && world.get::<InheritedVisibility>(part.entity).is_some_and(|v| v.get())
                     && world.get::<Mesh3d>(part.entity).is_some_and(|mesh| &mesh.0 == expected_mesh)
                     && world.get::<MeshMaterial3d<StandardMaterial>>(part.entity)
@@ -104,7 +108,7 @@ pub(super) struct WeightPreview {
     pose_parts: HashMap<Entity, Vec<(Entity, Geometry)>>,
     scan_epoch: u64,
     heat_material: Option<Handle<StandardMaterial>>,
-    applied: Option<(u64, bool)>,
+    applied: Option<(u64, bool, bool)>,
 }
 
 impl WeightPreview {
@@ -264,12 +268,14 @@ pub(super) fn update(
             return;
         }
     }
+    // 同源内嵌动作暂停时，热力网格可沿用实际可见容器的 SkinnedMesh 与当前关节。
+    // 顶点拾取和画笔仍从原静置姿势进入。
+    let embedded_heat = animation.as_ref().is_some_and(|animation|
+        animation.embedded_motion && !animation.playing);
     let heat = sidebar.right == EditorRightSidebarTab::Weights
         && session.heat
         && !session.original
-        && animation
-            .as_ref()
-            .is_none_or(|animation| !animation.weight_motion_active());
+        && (embedded_heat || animation.as_ref().is_none_or(|animation| !animation.weight_motion_active()));
     if heat && draw.heat_material.is_none() {
         let Some(materials) = materials.as_deref_mut() else {
             return;
@@ -319,7 +325,7 @@ pub(super) fn update(
     if !draw.stack.is_empty() {
         return;
     }
-    let revision = (state.revision, heat);
+    let revision = (state.revision, heat, embedded_heat);
     if !added && draw.applied == Some(revision) {
         return;
     }
@@ -327,8 +333,8 @@ pub(super) fn update(
     let skin = session.doc.surface(session.surface).skin.index;
     let heatmap = session.heatmap.as_ref().filter(|map| heat && map.skin == skin);
     for part in &mut draw.parts {
-        // 完整场景里共用蒙皮的图元一起着色。两个动作容器继续使用原材质及各自的草稿权重。
-        let heat_mesh = heatmap.filter(|_| Some(part.root) == model)
+        // 共用蒙皮的图元随可见姿态一起着色，普通工程动作使用各自的草稿权重。
+        let heat_mesh = heatmap.filter(|_| Some(part.root) == model || embedded_heat)
             .and_then(|map| map.meshes.get(&part.surface));
         let draft = (!session.original)
             .then(|| session.drafts[part.surface].shaded.as_ref())

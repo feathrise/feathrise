@@ -15,6 +15,7 @@ pub(super) fn drive(
     documents: Res<AnimationHost>,
     time: Res<Time<Real>>,
     runtime: Option<Res<super::preview::PreviewRuntime>>,
+    binding: Option<Res<BindingState>>,
     mut state: ResMut<AnimationEditorState>,
 ) {
     if state.rig_preview.as_ref().is_some_and(|request| {
@@ -346,9 +347,16 @@ pub(super) fn drive(
             launch(&mut state, PendingAction::Reload);
         }
     }
-    // 初次匹配与换片段从真正显示的首帧起步，等待角色容器时不预先消耗动作时间。
+    // 真实角色的姿态容器就绪后再推进播放头，首帧和换片段不会被后台准备耗掉。
+    let wait_for_model = state.in_place_rig_preview() || (state.playing && binding.as_ref().is_some_and(|binding| {
+        super::binding::embedded_target(&state, &preview, documents.asset_root())
+            .is_some_and(|(_, generation)| !binding.failed || binding.identity.as_ref().is_none_or(|id| {
+                id.embedded_generation != Some(generation) || id.revision != state.source_revision()
+                    || id.request != state.model_binding_revision || state.source() != Some(id.source.as_path())
+            }))
+    }));
     if state.visible && state.playing && !state.busy()
-        && (!state.in_place_rig_preview() || preview.render_visible
+        && (!wait_for_model || preview.render_visible
             && runtime.as_ref().is_some_and(|runtime| runtime.rig_pose_published(&state)))
     {
         let delta = time.delta_secs().min(0.1) * state.speed;

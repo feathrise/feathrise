@@ -256,6 +256,7 @@ pub(super) fn mapping(
     Ok(SkeletonMapping {
         names,
         retarget: Some(Arc::new(rig)),
+        embedded_nodes: Default::default(),
     })
 }
 

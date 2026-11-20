@@ -15,6 +15,8 @@ pub struct AnimationHost {
     pub switching_scene: bool,
     pub modal_open: bool,
     pub sidebar_assets_visible: bool,
+    /// 权重页使用当前蒙皮的骨架及选骨，时间轴仍归动画编辑器。
+    pub weights_own_viewport: bool,
     pub shading_hovered: bool,
     pub layout_dragging: bool,
     pub scene_dragging: bool,

@@ -10,4 +10,7 @@ pub mod render_layers {
 
     /// 资产缩略图串行烘焙层，仅当前生成静态图片的任务启用。
     pub const SCENE_EDITOR_ASSET_THUMBNAIL_LAYER: usize = 20;
+
+    /// GLB 动画骨架分批准备的前后层，资产预览相机每次只取完整的一层。
+    pub const SCENE_EDITOR_ANIMATION_SKELETON_LAYERS: [usize; 2] = [21, 22];
 }

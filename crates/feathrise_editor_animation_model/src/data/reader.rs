@@ -13,6 +13,15 @@ impl AnimationDocument {
         &self.source.path
     }
 
+    pub fn skin_preview_topology(&self) -> Arc<[PreviewJoint]> {
+        self.source.preview_joints.clone()
+    }
+
+    /// 原生预览按 Scene0 节点索引匹配世界实例，其他场景的节点不参与模型发布条件。
+    pub fn scene_node_indices(&self) -> Vec<usize> {
+        scene0_node_indices(&self.source.json)
+    }
+
     /// 只采纳 Scene0 实际蒙皮网格的关节，防止同名空节点或其他场景的骨架被当作模型。
     pub fn scene_skin(
         &self,
@@ -22,21 +31,8 @@ impl AnimationDocument {
         let mut bounds = Vec::new();
         let index = |value: &Value| value.as_u64().and_then(|value| usize::try_from(value).ok());
         let nodes = array(json, "nodes");
-        let scenes = array(json, "scenes");
-        let mut stack: Vec<_> = scenes
-            .first()
-            .into_iter()
-            .flat_map(|scene| array(scene, "nodes").iter().filter_map(index))
-            .collect();
-        let mut seen = vec![false; nodes.len()];
-        while let Some(node_index) = stack.pop() {
-            let Some(node) = nodes.get(node_index) else {
-                continue;
-            };
-            if std::mem::replace(&mut seen[node_index], true) {
-                continue;
-            }
-            stack.extend(array(node, "children").iter().filter_map(index));
+        for node_index in self.scene_node_indices() {
+            let node = &nodes[node_index];
             let (Some(skin), Some(mesh)) = (
                 index(&node["skin"]).and_then(|i| array(json, "skins").get(i)),
                 index(&node["mesh"]).and_then(|i| array(json, "meshes").get(i)),
@@ -149,6 +145,7 @@ impl AnimationDocument {
                 "此文件含外置 GLTF/buffer，仅支持查看；可在 Blender 导出独立 GLB 后编辑保存".into(),
             );
         }
+        let preview_joints = read_preview_joints(&json, &nodes).into();
         Ok(Self {
             nodes,
             warnings,
@@ -161,10 +158,71 @@ impl AnimationDocument {
                 buffers,
                 chunks,
                 original_clips: clips.clone(),
+                preview_joints,
             }),
             clips,
         })
     }
+}
+
+fn scene0_node_indices(json: &Value) -> Vec<usize> {
+    let index = |value: &Value| value.as_u64().and_then(|value| usize::try_from(value).ok());
+    let nodes = array(json, "nodes");
+    let mut stack: Vec<_> = array(json, "scenes")
+        .first()
+        .into_iter()
+        .flat_map(|scene| array(scene, "nodes").iter().filter_map(index))
+        .collect();
+    let mut seen = vec![false; nodes.len()];
+    let mut indices = Vec::new();
+    while let Some(node) = stack.pop() {
+        if let Some(visited) = seen.get_mut(node)
+            && !std::mem::replace(visited, true)
+        {
+            indices.push(node);
+            stack.extend(array(&nodes[node], "children").iter().filter_map(index));
+        }
+    }
+    indices
+}
+
+fn read_preview_joints(json: &Value, nodes: &[Node]) -> Vec<PreviewJoint> {
+    let skins = array(json, "skins");
+    if skins.is_empty() {
+        return Vec::new();
+    }
+    let index = |value: &Value| usize::try_from(value.as_u64()?).ok();
+    let source_nodes = array(json, "nodes");
+    let mut mesh_nodes = scene0_node_indices(json).into_iter()
+        .map(|node| &source_nodes[node])
+        .filter(|node| index(&node["mesh"]).is_some())
+        .peekable();
+    let used_skins: Vec<_> = if mesh_nodes.peek().is_some() {
+        mesh_nodes.filter_map(|node| skins.get(index(&node["skin"])?)).collect()
+    } else {
+        // 纯动作可能保留未被网格引用的 skin。此时直接读取其中记录的关节。
+        skins.iter().collect()
+    };
+    preview_joint_topology(nodes, used_skins.into_iter().flat_map(|skin|
+        array(skin, "joints").iter().filter_map(index)))
+}
+
+pub fn preview_joint_topology(nodes: &[Node], indices: impl IntoIterator<Item = usize>) -> Vec<PreviewJoint> {
+    let mut slots = vec![None; nodes.len()];
+    let mut joints = Vec::new();
+    for node in indices {
+        if let Some(slot) = slots.get_mut(node)
+            && slot.is_none()
+        {
+            *slot = Some(joints.len());
+            joints.push(PreviewJoint { node, parent: None });
+        }
+    }
+    for joint in &mut joints {
+        // 场景包装节点会参与世界姿态计算，只有骨架内的父子才连成骨段。
+        joint.parent = nodes[joint.node].parent.and_then(|parent| slots.get(parent).copied().flatten());
+    }
+    joints
 }
 
 pub(super) fn array<'a>(value: &'a Value, name: &str) -> &'a [Value] {

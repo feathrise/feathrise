@@ -1,25 +1,41 @@
-//! 兼容角色的双容器蒙皮预览：后台核对骨架，隐藏扫描与骨架姿态共同完整发布。
+//! 同源与兼容角色的双容器蒙皮预览：后台核对节点，隐藏容器完整写入后才发布姿态。
 
 pub(super) use super::resources::BindingState;
 use super::{
-    components::BoundModel, data::AnimationDocument, resources::AnimationEditorState, types::*,
+    components::{BoundModel, EmbeddedNodeIndex}, data::AnimationDocument,
+    resources::AnimationEditorState, types::*,
 };
 use feathrise_editor_core::SceneEditorSystemSet;
-use feathrise_editor_animation_model::{assembly::AnimationSystems, host::AnimationHost, media::{AssetPreviewCamera, SceneEditorOwnedEntity}};
+use feathrise_editor_animation_model::{
+    assembly::AnimationSystems,
+    host::AnimationHost,
+    media::{AssetPreviewCamera, AssetPreviewContent, AssetPreviewModelTarget, AssetPreviewPhase, AssetPreviewState, SceneEditorOwnedEntity},
+};
 use bevy::{
+    asset::LoadContext,
     camera::visibility::{NoFrustumCulling, RenderLayers},
-    gltf::GltfAssetLabel,
+    ecs::world::EntityWorldMut,
+    gltf::{
+        GltfAssetLabel, GltfLoaderSettings, gltf,
+        extensions::{ErasedGltfExtensionHandler, GltfExtensionHandler, GltfExtensionHandlers},
+    },
     mesh::skinning::SkinnedMesh,
     prelude::*,
     tasks::{IoTaskPool, futures::check_ready},
     world_serialization::{WorldAsset, WorldAssetRoot, WorldInstanceReady},
 };
 use feathrise_editor_core::constants::render_layers::SCENE_EDITOR_ASSET_PREVIEW_LAYER;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 #[cfg(test)]
 use std::path::PathBuf;
 
 pub(super) fn install(app: &mut App) {
+    app.init_resource::<GltfExtensionHandlers>()
+        .register_type::<EmbeddedNodeIndex>();
+    app.world().resource::<GltfExtensionHandlers>().0.try_write()
+        .expect("GLTF 加载器启动前登记动画作者节点索引")
+        .push(Box::new(RecordEmbeddedNodes::default()));
     app.init_resource::<BindingState>()
         .add_observer(ready)
         .add_systems(
@@ -29,6 +45,56 @@ pub(super) fn install(app: &mut App) {
                 .before(super::preview::drive)
                 .in_set(SceneEditorSystemSet::Tasks),
         );
+}
+
+#[derive(Default)]
+struct RecordEmbeddedNodes {
+    animated_model: bool,
+}
+
+impl GltfExtensionHandler for RecordEmbeddedNodes {
+    fn dyn_clone(&self) -> Box<dyn ErasedGltfExtensionHandler> {
+        Box::new(Self::default())
+    }
+
+    fn on_root(&mut self, _: &mut LoadContext<'_>, file: &gltf::Gltf, _: &GltfLoaderSettings) {
+        self.animated_model = file.animations().next().is_some() && file.meshes().next().is_some();
+    }
+
+    fn on_gltf_node(&mut self, _: &mut LoadContext<'_>, node: &gltf::Node, entity: &mut EntityWorldMut) {
+        if self.animated_model {
+            // 同名节点在 GLB 内合法。加载时记录原索引，预览可精确匹配而不用按名字猜测。
+            entity.insert(EmbeddedNodeIndex(node.index()));
+        }
+    }
+}
+
+fn embedded_mapping(source: &AnimationDocument) -> Result<SkeletonMapping, String> {
+    let embedded_nodes: HashSet<_> = source.scene_node_indices().into_iter().collect();
+    if !source.clips.iter().flat_map(|clip| &clip.channels)
+        .any(|channel| embedded_nodes.contains(&channel.node))
+    {
+        return Err("当前 Scene0 没有可由内嵌动作驱动的节点".into());
+    }
+    Ok(SkeletonMapping { names: HashMap::new(), retarget: None, embedded_nodes })
+}
+
+pub(super) fn embedded_target<'p>(
+    editor: &AnimationEditorState, preview: &'p AssetPreviewState, asset_root: &Path,
+) -> Option<(&'p str, u64)> {
+    let session = editor.current()?;
+    // 旧文件草稿仍可编辑。对实际网格写姿态前，文档与 Scene0 必须属于同一代。
+    if session.model_path.is_some() || session.source_changed || !preview.render_visible
+        || !matches!(preview.content, AssetPreviewContent::Model { phase: AssetPreviewPhase::Ready, .. })
+    {
+        return None;
+    }
+    let model = preview.model.as_ref().filter(|model| {
+        model.target == AssetPreviewModelTarget::Scene0 && model.scene_mesh_count > 0
+    })?;
+    let relative_source = editor.source()?.strip_prefix(asset_root).ok()?;
+    let path = preview.selected_path.as_deref().filter(|path| relative_source == Path::new(path))?;
+    Some((path, model.generation))
 }
 
 fn compatible(
@@ -105,7 +171,7 @@ fn compatible(
     if names.is_empty() {
         return Err("动画没有可绑定骨骼".into());
     }
-    Ok(SkeletonMapping { names, retarget: None })
+    Ok(SkeletonMapping { names, retarget: None, embedded_nodes: Default::default() })
 }
 
 fn ready(
@@ -134,12 +200,13 @@ fn ready(
             editor.source() == Some(identity.source.as_path())
                 && editor.source_revision == identity.revision
                 && editor.model_binding_revision == identity.request
-                && editor.current().and_then(|session| session.model_path.as_ref()) == Some(&identity.model)
+                && (identity.embedded_generation.is_some()
+                    || editor.current().and_then(|session| session.model_path.as_ref()) == Some(&identity.model))
         });
         if current {
-            if binding.identity.as_ref().is_some_and(|identity| identity.retarget) {
-                // 绑骨预览仍持有同一模型与动作意图。换票后另一旧容器的 Ready 不再命中，
-                // 原单飞槽先完整退役，再重新读取磁盘骨架并应用当前动作。
+            if binding.identity.as_ref().is_some_and(|identity| identity.retarget || identity.embedded_generation.is_some()) {
+                // 原位预览仍拥有同一模型意图。换票后另一旧容器的 Ready 不再命中，
+                // 旧容器按原预算退役，再匹配新模型代并应用当前动作。
                 editor.model_binding_revision = editor.model_binding_revision.wrapping_add(1);
                 editor.model_status = "角色模型已重新就绪，正在复验动作映射".into();
             } else {
@@ -160,9 +227,11 @@ fn drive(
     mut commands: Commands,
     mut editor: ResMut<AnimationEditorState>,
     documents: Res<AnimationHost>,
+    preview: Res<AssetPreviewState>,
     assets: Res<AssetServer>,
     children: Query<&Children>,
     names: Query<&Name>,
+    indices: Query<&EmbeddedNodeIndex>,
     meshes: Query<(), With<Mesh3d>>,
     skinned_meshes: Query<(), With<SkinnedMesh>>,
     mut cameras: Query<&mut Camera, Without<AssetPreviewCamera>>,
@@ -173,13 +242,20 @@ fn drive(
         .then(|| {
             let source = editor.source()?;
             let session = editor.current()?;
-            session.model_path.as_ref().map(|model| BindingIdentity {
-                    source: source.to_owned(),
-                    revision: editor.source_revision,
-                    request: editor.model_binding_revision,
-                    model: model.clone(),
-                    retarget: session.retarget_model,
-                })
+            let (model, embedded_generation) = if let Some(model) = &session.model_path {
+                (model.as_str(), None)
+            } else {
+                let (model, generation) = embedded_target(&editor, &preview, documents.asset_root())?;
+                (model, Some(generation))
+            };
+            Some(BindingIdentity {
+                source: source.to_owned(),
+                revision: editor.source_revision,
+                request: editor.model_binding_revision,
+                model: model.to_owned(),
+                retarget: embedded_generation.is_none() && session.retarget_model,
+                embedded_generation,
+            })
         })
         .flatten();
     if binding.identity != desired && !binding.retiring {
@@ -285,13 +361,16 @@ fn drive(
             .map(|id| documents.asset_root().join(&id.model));
         let retarget = desired.as_ref().filter(|id| id.retarget)
             .map(|id| (documents.asset_root().to_owned(), id.source.clone()));
+        let embedded = desired.as_ref().is_some_and(|id| id.embedded_generation.is_some());
         let retired = std::mem::take(&mut binding.retired);
         binding.task = Some((
             desired.clone(),
             IoTaskPool::get().spawn(async move {
                 drop(retired);
                 if let (Some(source), Some(path)) = (source, path) {
-                    let mapping = if let Some((root, source_path)) = retarget {
+                    let mapping = if embedded {
+                        embedded_mapping(&source)?
+                    } else if let Some((root, source_path)) = retarget {
                         // 原动画列表来自当前工程；再次复验磁盘实际目标，拒绝替换成工程外的链接。
                         let root = root.canonicalize().map_err(|error| format!("无法打开工程资产根：{error}"))?;
                         let path = path.canonicalize().map_err(|error| format!("无法打开预览角色：{error}"))?;
@@ -323,9 +402,14 @@ fn drive(
     if binding.failed || binding.mapping.is_none() {
         return;
     }
+    let embedded = identity.embedded_generation.is_some();
     if binding.handle.is_none() {
-        let handle: Handle<WorldAsset> =
-            assets.load(GltfAssetLabel::Scene(0).from_asset(identity.model));
+        let handle: Handle<WorldAsset> = if embedded {
+            let AssetPreviewContent::Model { handle, .. } = &preview.content else { return };
+            handle.clone()
+        } else {
+            assets.load(GltfAssetLabel::Scene(0).from_asset(identity.model))
+        };
         for (index, bank) in binding.banks.iter_mut().enumerate() {
             bank.root = Some(
                 commands
@@ -355,6 +439,7 @@ fn drive(
     }
     let binding = &mut *binding;
     let mapping = binding.mapping.as_ref().unwrap();
+    let expected_nodes = if embedded { mapping.embedded_nodes.len() } else { mapping.names.len() };
     for bank in &mut binding.banks {
         if !bank.ready || bank.scanned {
             continue;
@@ -362,7 +447,7 @@ fn drive(
         for _ in 0..128 {
             let Some((entity, child_index)) = bank.stack.last_mut() else {
                 bank.scanned = true;
-                if bank.nodes.len() != mapping.names.len() || bank.mesh_count == 0 {
+                if bank.nodes.len() != expected_nodes || bank.mesh_count == 0 {
                     binding.failed = true;
                     editor.model_status = "模型Scene0缺少匹配骨骼或蒙皮网格".into();
                 }
@@ -380,9 +465,12 @@ fn drive(
                 if meshes.contains(*entity) && (!identity.retarget || skinned_meshes.contains(*entity)) {
                     bank.mesh_count += 1;
                 }
-                if let Ok(name) = names.get(*entity)
-                    && let Some(&source) = mapping.names.get(name.as_str())
-                {
+                let source = if embedded {
+                    indices.get(*entity).ok().map(|index| index.0).filter(|index| mapping.embedded_nodes.contains(index))
+                } else {
+                    names.get(*entity).ok().and_then(|name| mapping.names.get(name.as_str()).copied())
+                };
+                if let Some(source) = source {
                     if bank.nodes.insert(source, *entity).is_some() {
                         binding.failed = true;
                         editor.model_status = "实例中出现重名骨骼，绑定已取消".into();
@@ -409,6 +497,7 @@ fn drive(
         let status = match &mapping.retarget {
             Some(rig) if rig.supports(editor.active_clip()) => "动作已重定向 · 原地播放 · 预览只读",
             Some(_) => "该动作片段没有可重定向的骨骼旋转",
+            None if embedded => "正在预览当前模型的内嵌动作",
             None => "角色已绑定 · 同骨架蒙皮预览",
         };
         if editor.model_status != status {
@@ -426,10 +515,10 @@ mod tests {
     use bevy::world_serialization::WorldInstanceSpawner;
 
     #[test]
-    fn repeated_ready_revalidates_retarget_once_and_preserves_strict_unbind() {
+    fn repeated_ready_revalidates_in_place_once_and_preserves_strict_unbind() {
         use super::super::resources::Session;
 
-        for retarget in [true, false] {
+        for (retarget, embedded_generation) in [(true, None), (false, None), (false, Some(1))] {
             let source = PathBuf::from("motion.glb");
             let model = "hero.glb".to_owned();
             let mut editor = AnimationEditorState {
@@ -438,7 +527,7 @@ mod tests {
                 ..default()
             };
             let mut session = Session::new(super::super::data::tests::test_document());
-            session.model_path = Some(model.clone());
+            session.model_path = embedded_generation.is_none().then(|| model.clone());
             session.retarget_model = retarget;
             editor.sessions.insert(source.clone(), session);
             let identity = BindingIdentity {
@@ -447,6 +536,7 @@ mod tests {
                 request: editor.model_binding_revision,
                 model,
                 retarget,
+                embedded_generation,
             };
             let mut app = App::new();
             app.insert_resource(editor).add_observer(ready);
@@ -467,7 +557,7 @@ mod tests {
             app.world_mut().flush();
 
             let editor = app.world().resource::<AnimationEditorState>();
-            assert_eq!(editor.model_binding_revision, if retarget { 8 } else { 7 });
+            assert_eq!(editor.model_binding_revision, if retarget || embedded_generation.is_some() { 8 } else { 7 });
             assert_eq!(editor.retargeting(), retarget);
             assert_eq!(editor.current().unwrap().model_path.is_some(), retarget);
             assert!(!app.world().resource::<BindingState>().active);

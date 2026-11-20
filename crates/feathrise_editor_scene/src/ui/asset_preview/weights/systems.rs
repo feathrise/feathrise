@@ -398,10 +398,11 @@ pub(super) fn actions(
         Action::Open => {}
         Action::Discard => {
             let retired = state.session.take();
-            if let Some(problem) = state.problem.take()
-                && let Some(animation) = animation.as_deref_mut()
+            state.problem = None;
+            if let Some(animation) = animation.as_deref_mut()
+                && let Some(frame) = animation.weight_rest
             {
-                animation.resume_weight_frame(problem.frame);
+                animation.resume_weight_frame(frame);
             }
             AsyncComputeTaskPool::get()
                 .spawn(async move {
@@ -437,8 +438,11 @@ pub(super) fn actions(
                         session.original = false;
                         state.notice = "已返回静置姿势，保留所选顶点和骨骼".into();
                     }
+                } else if let Some(frame) = animation.weight_rest.filter(|_| animation.weight_rest_active()) {
+                    animation.resume_weight_frame(frame);
                 } else {
-                    animation.weight_rest_pose();
+                    let published = motion.as_ref().and_then(|motion| motion.published_weight_time(animation));
+                    animation.weight_rest_pose(published);
                 }
             }
         }
@@ -587,11 +591,16 @@ pub(super) fn poll(
         state.notice = "源 GLB 已热更新。保留现有草稿，请丢弃后重新打开。".into();
         state.bump();
     }
+    let target_changed = state.session.as_ref().is_none_or(|session| session.stale || !target.matches(&session.key));
+    if (target_changed || sidebar.right != EditorRightSidebarTab::Weights)
+        && let Some(animation) = animation.as_deref_mut()
+        && let Some(frame) = animation.weight_rest
+    {
+        // 静置仅属于当前权重画布，离开后让正常动画预览恢复原姿态。
+        animation.resume_weight_frame(frame);
+    }
     if let Some(problem) = state.problem
-        && (state
-            .session
-            .as_ref()
-            .is_none_or(|session| session.stale || !target.matches(&session.key))
+        && (target_changed
             || animation
                 .as_ref()
                 .is_none_or(|animation| !animation.matches_weight_frame(problem.frame)))

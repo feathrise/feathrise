@@ -24,6 +24,7 @@ mod preview;
 mod request;
 mod retarget;
 mod scene;
+mod skeleton;
 mod timeline;
 mod timeline_dock;
 
@@ -36,6 +37,8 @@ pub mod workflow_validation;
 pub use docking::{ProjectClipProperties, project_clip_properties, properties_panel_visible};
 #[cfg(feature = "validation")]
 pub use preview::{RigAnimationProbe, rig_animation_diagnostic, rig_animation_probe};
+#[cfg(feature = "validation")]
+pub use pose::animation_overlay_submitted;
 #[cfg(feature = "validation")]
 pub use request::{active_project_clip, rig_animation_identity};
 #[cfg(feature = "validation")]

@@ -15,7 +15,8 @@ use std::{
 #[derive(Resource, Default)]
 pub struct PoseInputState {
     pub gesture: Option<PoseGesture>,
-    pub pick: Option<(PathBuf, u64, Task<Option<usize>>)>,
+    /// 工具退出后只撤销修订票据，任务实际结束前仍占住唯一拾取槽。
+    pub pick: Option<(PathBuf, Option<u64>, Task<Option<usize>>)>,
 }
 
 /// 历史只保存被编辑的关键帧，避免每次修改都保留整个动作文件。
@@ -438,6 +439,8 @@ pub struct AnimationEditorState {
     pub model_status: String,
     pub model_binding_revision: u64,
     pub rig_preview: Option<super::request::RigPreviewRequest>,
+    /// 内嵌动作复用真实模型播放，但保留当前作者文档的编辑权限。
+    pub embedded_motion: bool,
     pub weight_rest: Option<WeightFrame>,
     /// 独立只读会话按请求票据访问，退出或换源后由原工作槽后台释放。
     pub rig_session: Option<(u64, Session)>,
@@ -476,6 +479,7 @@ impl Default for AnimationEditorState {
             model_status: String::new(),
             model_binding_revision: 0,
             rig_preview: None,
+            embedded_motion: false,
             weight_rest: None,
             rig_session: None,
             directory_pick: None,
@@ -567,11 +571,12 @@ impl AnimationEditorState {
     }
 
     pub fn weight_motion_active(&self) -> bool {
-        !self.weight_rest_active() && (self.in_place_rig_preview() || (self.visible && self.playing))
+        !self.weight_rest_active()
+            && (self.in_place_rig_preview() || (self.visible && (self.embedded_motion || self.playing)))
     }
 
     pub fn weight_frame(&self, time: f32) -> Option<WeightFrame> {
-        (self.visible && self.in_place_rig_preview() && self.current().is_some()).then(|| WeightFrame {
+        (self.visible && (self.in_place_rig_preview() || self.embedded_motion) && self.current().is_some()).then(|| WeightFrame {
             source_revision: self.source_revision,
             binding_request: self.model_binding_revision,
             clip: self.active_clip(),
@@ -603,9 +608,13 @@ impl AnimationEditorState {
         self.matches_weight_frame(frame)
     }
 
-    pub fn weight_rest_pose(&mut self) {
+    pub fn weight_rest_pose(&mut self, published: Option<f32>) {
         self.stop_rig_preview();
-        self.pause_weight_comparison(None);
+        self.pause_weight_comparison(published.filter(|_| self.embedded_motion));
+        if self.embedded_motion {
+            // 同文件仍由动画编辑器持有，返回时继续查看刚才实际显示的动作帧。
+            self.weight_rest = self.weight_frame(self.position());
+        }
     }
 
     pub fn pause_weight_comparison(&mut self, published: Option<f32>) {
@@ -809,8 +818,14 @@ pub struct BindingState {
 }
 
 impl BindingState {
+    pub fn embedded(&self) -> bool {
+        // 内嵌模型失败时原作者会话继续发布自己的骨架姿态，直到有效模型代可重新绑定。
+        !self.retiring && !self.failed
+            && self.identity.as_ref().is_some_and(|identity| identity.embedded_generation.is_some())
+    }
+
     pub fn weight_roots(&self, path: &str) -> [Option<Entity>; 2] {
-        if self.identity.as_ref().is_some_and(|id| id.model == path) {
+        if !self.retiring && self.identity.as_ref().is_some_and(|id| id.model == path) {
             [self.banks[0].root, self.banks[1].root]
         } else {
             [None, None]
