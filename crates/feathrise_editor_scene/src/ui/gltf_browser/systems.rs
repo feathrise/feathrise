@@ -333,6 +333,7 @@ pub(crate) fn sync_gltf_browser_rows(
         return; // 隐藏UI无需重复写文本和样式。
     }
     let main_glb = main_glb_draft(&editor, &session);
+    let editable_clip = main_glb.and_then(|draft| draft.motion.editable_clip_index());
     let clips = main_glb.filter(|draft| state.expanded_main_glb.as_ref() == Some(&draft.scene_id))
         .map(|draft| draft.motion.clip_names());
     // 内嵌网格是已发布条目的连续前缀。折叠时只跳过该段，保留原条目索引供右键、选中和开关使用。
@@ -372,7 +373,7 @@ pub(crate) fn sync_gltf_browser_rows(
             index if index < main_rows => {
                 let name = clips.and_then(|clips| clips.get(index - 1));
                 Some(name.map_or((MainSceneGlbRow::Empty, locale.text("label.main-scene-no-animations")),
-                    |name| (MainSceneGlbRow::Animation, name.as_str())))
+                    |name| (MainSceneGlbRow::Animation(index - 1), name.as_str())))
             }
             _ => None,
         };
@@ -393,7 +394,7 @@ pub(crate) fn sync_gltf_browser_rows(
         let (depth, name, prefix, base_color, icon, selected) = if let Some((kind, name)) = main_row {
             match kind {
                 MainSceneGlbRow::File => (0, name, "", colors::TEXT_ACCENT, asset_icons::GLB, false),
-                MainSceneGlbRow::Animation => (1, name, "", colors::TEXT_PRIMARY, "icons/editor/tree_file.png", false),
+                MainSceneGlbRow::Animation(_) => (1, name, "", colors::TEXT_PRIMARY, "icons/editor/tree_file.png", false),
                 MainSceneGlbRow::Empty => (1, name, "", colors::TEXT_MUTED, "icons/editor/tree_file.png", false),
             }
         } else if let Some((index, entry)) = placement {
@@ -426,9 +427,11 @@ pub(crate) fn sync_gltf_browser_rows(
         node.display = Display::Flex; // 当前条目原地复用槽位。
         node.top = px(tree_index as f32 * SCENE_OBJECT_ROW_PITCH);
         node.padding.left = tree_row_left(depth.min(8)); // 同层级箭头和叶子占位共用一列。
-        let interaction = if main_kind.is_some_and(|kind| kind != MainSceneGlbRow::File) {
-            UiInteraction::None
-        } else { *interaction };
+        let interaction = match main_kind {
+            Some(MainSceneGlbRow::Empty) => UiInteraction::None,
+            Some(MainSceneGlbRow::Animation(index)) if editable_clip != Some(index) => UiInteraction::None,
+            _ => *interaction,
+        };
         background.0 = match (interaction, selected) {
             (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下始终给即时强反馈。
             (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,   // 可点击行明确区别静态文字。

@@ -30,6 +30,10 @@ pub enum SceneMotionButton {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SceneMotionField { Frame, EndFrame }
 
+/// 主场景树双击冻结的片段，交给当前场景原有工作台统一核对和打开。
+#[derive(Message)]
+pub(super) struct OpenSceneAnimation(pub(super) super::scene_context_menu::SceneObjectTarget);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Channel { Position, Rotation }
 
@@ -232,6 +236,7 @@ impl Context<'_> {
 pub(crate) fn install(app: &mut App) {
     app.init_resource::<Workbench>()
         .add_systems(Update, input::input
+            .after(super::scene_context_menu::SceneMenuDispatch)
             // 点插帧会使右栏数值框失焦。先接收同一帧的提交，再采样姿势。
             .after(crate::ui::placement_transform::handle_placement_transform_numeric_input)
             // I、空格及 Delete 在当前时间轴受理后由它消费，不泄漏给可配置场景快捷键。

@@ -29,7 +29,8 @@ fn scene_tree_double_click_rejects_rebound_slots_modifiers_and_expired_first_cli
     app.init_resource::<Time<Real>>()
         .init_resource::<crate::ui::gltf_browser::EditorGltfBrowserState>()
         .add_message::<bevy::input::mouse::MouseWheel>()
-        .add_systems(Update, systems::queue_tree_focus
+        .add_message::<crate::ui::scene_motion::OpenSceneAnimation>()
+        .add_systems(Update, systems::queue_tree_double_click
             .after(update_scene_editor_numeric_scrub_mouse_guard)
             .before(systems::dispatch));
     let replacement = {

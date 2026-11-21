@@ -138,6 +138,7 @@ pub(crate) struct SceneMotionDocument {
     tracks: Arc<BTreeMap<String, SceneMotionTrack>>,
     // 目录跟随已打开和已保存的 GLB 修订。保存快照和 UI 只共享名称。
     clip_names: Arc<[String]>,
+    editable_clip: Option<EditableClip>,
     timing: SceneMotionTiming,
     available: bool,
     pub(crate) dirty: bool,
@@ -148,6 +149,7 @@ impl Default for SceneMotionDocument {
         Self {
             tracks: Default::default(),
             clip_names: Default::default(),
+            editable_clip: None,
             timing: SceneMotionTiming::default(),
             available: false,
             dirty: false,
@@ -166,6 +168,9 @@ impl SceneMotionDocument {
         let ids: HashSet<_> = placements.placements.iter().map(|record| record.id.as_str()).collect();
         let nodes = placement_nodes(&glb, &ids);
         let Some(clip) = active_clip(&glb, &nodes) else { return Ok(result); };
+        result.editable_clip = Some(glb.inspect_glb(|json, _| EditableClip::read(
+            json, clip.source_index, |node| nodes.get(&node).map(String::as_str),
+        )));
         let duration = glb.clip_extra(clip.source_index, DURATION).and_then(Value::as_f64)
             .map(|value| value as f32).filter(|value| value.is_finite() && *value > 0.0)
             .unwrap_or(0.0).max(clip.duration()).max(1.0 / 30.0);
@@ -189,6 +194,9 @@ impl SceneMotionDocument {
 
     pub(crate) fn available(&self) -> bool { self.available }
     pub(crate) fn clip_names(&self) -> &[String] { &self.clip_names }
+    pub(crate) fn editable_clip_index(&self) -> Option<usize> {
+        self.editable_clip.as_ref().map(|clip| clip.source_index)
+    }
     pub(crate) fn timing(&self) -> SceneMotionTiming { self.timing }
 
     /// 摆放删除可能让整个片段失去通道。从正式候选的 JSON 取名，不复制 BIN 或解码关键帧。
@@ -196,7 +204,28 @@ impl SceneMotionDocument {
         let glb = Glb::from_slice(bytes).map_err(|error| error.to_string())?;
         let json = serde_json::from_slice(&glb.json).map_err(|error| error.to_string())?;
         let clip_names = read_clip_names(&json);
-        Ok((clip_names != self.clip_names).then(|| Self { clip_names, ..self.clone() }))
+        let editable_clip = self.rebind_editable_clip(&json);
+        Ok((clip_names != self.clip_names || editable_clip != self.editable_clip)
+            .then(|| Self { clip_names, editable_clip, ..self.clone() }))
+    }
+
+    fn rebind_editable_clip(&self, json: &Value) -> Option<EditableClip> {
+        let current = self.editable_clip.as_ref()?;
+        let nodes = json["nodes"].as_array()?;
+        let placement = |index: usize| nodes.get(index)?["extras"]["feathrise_id"].as_str();
+        let ids: HashSet<_> = (0..nodes.len()).filter_map(placement).collect();
+        if !current.owned && !self.tracks.keys().any(|id| ids.contains(id.as_str())) {
+            return None; // 原 fallback 已无可写通道；新片段须重读轨道后才能打开。
+        }
+        let kept = current.channels.iter().filter(|(id, _)| id.as_deref().is_none_or(|id| ids.contains(id)));
+        if kept.clone().next().is_none() {
+            return None; // 摆放编码器会移除不再有通道的片段。
+        }
+        let clips = json["animations"].as_array()?;
+        (0..clips.len()).map(|index| EditableClip::read(json, index, placement)).find(|candidate| {
+            candidate.owned == current.owned && candidate.samplers == current.samplers
+                && candidate.channels.iter().eq(kept.clone())
+        })
     }
 
     pub(crate) fn set_timing(&mut self, timing: SceneMotionTiming) {
@@ -276,11 +305,43 @@ impl SceneMotionDocument {
                     root["extras"][OWNER] = json!(true);
                 }
                 saved.clip_names = read_clip_names(json);
+                saved.editable_clip = (!clip.channels.is_empty()).then(|| EditableClip::read(
+                    json, clip.source_index, |node| nodes.get(&node).map(String::as_str),
+                ));
                 Ok(())
             })?;
         Arc::make_mut(&mut saved.tracks).retain(|id, _| ids.contains(id.as_str()));
         saved.dirty = false;
         Ok((bytes, saved))
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct EditableClip {
+    source_index: usize,
+    owned: bool,
+    samplers: [u8; 32],
+    channels: Arc<[(Option<String>, [u8; 32])]>,
+}
+
+impl EditableClip {
+    fn read<'a>(json: &Value, source_index: usize, placement: impl Fn(usize) -> Option<&'a str>) -> Self {
+        let clip = &json["animations"][source_index];
+        let channels = clip["channels"].as_array().into_iter().flatten().filter_map(|channel| {
+            // 摆放写入只重绑节点索引并移除失效通道。用稳定 ID 和原采样器校验仍是同一片段。
+            let mut normalized = channel.clone();
+            let id = match normalized.get_mut("target")?.as_object_mut()?.remove("node") {
+                Some(node) => Some(placement(usize::try_from(node.as_u64()?).ok()?)?.to_owned()),
+                None => None,
+            };
+            Some((id, Sha256::digest(normalized.to_string()).into()))
+        }).collect();
+        Self {
+            source_index,
+            owned: clip["extras"][OWNER].as_bool() == Some(true),
+            samplers: Sha256::digest(clip["samplers"].to_string()).into(),
+            channels,
+        }
     }
 }
 

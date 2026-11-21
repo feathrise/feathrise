@@ -87,6 +87,7 @@ pub(super) fn input(
     mut session: ResMut<EditorAuthoringSession>,
     mut workbench: ResMut<Workbench>,
     mut edits: MessageReader<NumericInputCommitted>,
+    mut tree_opens: MessageReader<OpenSceneAnimation>,
     fields: Query<(&SceneMotionField, &controls::FieldTarget), Without<NumericInputDisabled>>,
     clicks: Query<(&SceneMotionButton, &EditorButtonClick), (Changed<EditorButtonClick>, Without<InteractionDisabled>)>,
     numeric_mouse: Res<SceneEditorNumericScrubMouseGuard>,
@@ -95,16 +96,22 @@ pub(super) fn input(
 ) {
     if !context.can_edit(&editor, &session) {
         edits.clear();
+        tree_opens.clear();
         workbench.ruler_capture = None;
         return;
     }
-    let Some(scene) = context.scene(&editor, &session) else { edits.clear(); return; };
+    let Some(scene) = context.scene(&editor, &session) else {
+        edits.clear();
+        tree_opens.clear();
+        return;
+    };
     let selected = context.record(&editor, &session).map(|(_, record)| record);
     let draft = session.draft.as_ref().expect("已核对当前场景");
     let motion = &draft.motion;
     let click = (!numeric_mouse.blocked()).then(|| clicks.iter().find_map(|(button, click)| click.is_clicked().then_some(*button))).flatten();
+    let open_from_tree = tree_opens.read().any(|request| request.0.current(&editor, &session));
     use SceneMotionButton::*;
-    if click == Some(Open) {
+    if click == Some(Open) || (open_from_tree && !numeric_mouse.blocked()) {
         if motion.available() {
             workbench.scene = Some(scene.clone());
         } else {

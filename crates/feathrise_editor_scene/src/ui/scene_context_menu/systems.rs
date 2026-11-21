@@ -9,6 +9,7 @@ use crate::{
     },
     components::SceneEditorRoot,
     resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState},
+    ui::scene_motion::OpenSceneAnimation,
 };
 use bevy::{
     ecs::system::SystemParam,
@@ -257,7 +258,8 @@ pub(super) fn control_menu(
         (node.display != Display::None && *interaction == UiInteraction::Hovered)
             .then_some(row.0.as_ref())
             .flatten()
-            .filter(|target| target.current(&editor, &context.session)) // 隐藏/换绑中的旧槽不能遮住另一条有效悬停行。
+            .filter(|target| !matches!(target.key, SceneObjectKey::MainSceneAnimation(_))
+                && target.current(&editor, &context.session)) // 隐藏/换绑中的旧槽不能遮住另一条有效悬停行。
             .map(|target| (entity, target.clone()))
     }) else {
         return;
@@ -293,7 +295,7 @@ pub(super) fn control_menu(
 }
 
 /// 双击只认两次共用按钮系统已验收的同一行释放；空白或子按钮不会产出行点击。
-pub(super) fn queue_tree_focus(
+pub(super) fn queue_tree_double_click(
     context: MenuContext,
     editor: Res<SceneEditorState>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -303,6 +305,7 @@ pub(super) fn queue_tree_focus(
     guard: Res<SceneEditorNumericScrubMouseGuard>,
     mut rows: Query<(Entity, &SceneObjectRow, &Node, &mut EditorButtonClick), Changed<EditorButtonClick>>,
     mut menu: ResMut<SceneContextMenuState>,
+    mut animation: MessageWriter<OpenSceneAnimation>,
 ) {
     let scrolled = !scroll.is_empty();
     scroll.clear();
@@ -337,15 +340,20 @@ pub(super) fn queue_tree_focus(
     let Some((row, object, mut click)) = rows.iter_mut().find_map(|(row, binding, node, click)| {
         let object = binding.0.as_ref()?;
         (click.is_clicked() && node.display != Display::None
-            && object.current(&editor, &context.session) && object.allows(SceneMenuAction::Focus))
+            && object.current(&editor, &context.session)
+            && (matches!(object.key, SceneObjectKey::MainSceneAnimation(_)) || object.allows(SceneMenuAction::Focus)))
             .then_some((row, object, click))
     }) else { return; };
     let target = MenuTarget { row, object: object.clone() };
     if previous.is_some_and(|(first, then)| first.row == row && first.object == *object
         && (0.0..=TREE_DOUBLE_CLICK_SECONDS).contains(&(seconds - then))) {
-        click.invalidate(); // 聚焦接管第二次释放，GLB 根不会同时再执行一次折叠。
-        menu.queued = Some((target, SceneObjectRequest { target: object.clone(), action: SceneMenuAction::Focus, name: String::new() }));
-        menu.tree_focus_queued = true;
+        click.invalidate(); // 双击接管第二次释放，避免同一释放同时触发单击选择。
+        if matches!(object.key, SceneObjectKey::MainSceneAnimation(_)) {
+            animation.write(OpenSceneAnimation(object.clone()));
+        } else {
+            menu.queued = Some((target, SceneObjectRequest { target: object.clone(), action: SceneMenuAction::Focus, name: String::new() }));
+            menu.tree_focus_queued = true;
+        }
     } else {
         menu.bypass_change_detection().last_tree_click = Some((target, seconds));
     }

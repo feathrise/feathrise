@@ -1,4 +1,4 @@
-//! 场景树对象的右键菜单与双击聚焦，共用冻结目标和原作者操作的单帧请求。
+//! 场景树右键菜单和双击操作共用冻结的树行身份，作者操作由各自入口处理。
 
 mod components;
 mod focus;
@@ -142,6 +142,7 @@ pub struct SceneMenuDispatch;
 fn install_controls(app: &mut App) {
     app.init_resource::<SceneContextMenuState>()
         .add_message::<bevy::input::mouse::MouseWheel>()
+        .add_message::<super::scene_motion::OpenSceneAnimation>()
         .add_systems(
             Update,
             systems::control_menu
@@ -162,7 +163,7 @@ fn install_controls(app: &mut App) {
         )
         .add_systems(
             Update,
-            systems::queue_tree_focus
+            systems::queue_tree_double_click
                 .after(super::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)
                 .before(super::scene_layers::read_tree_selection)
                 .before(super::gltf_browser::handle_gltf_browser_input)

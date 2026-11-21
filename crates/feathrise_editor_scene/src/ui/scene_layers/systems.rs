@@ -35,10 +35,11 @@ pub(in crate::ui) fn input(
             && let Some(target) = row
                 .0
                 .as_ref()
-                .filter(|target| !matches!(target.key, SceneObjectKey::Placement { .. } | SceneObjectKey::Group { .. })
+                .filter(|target| !matches!(target.key, SceneObjectKey::Placement { .. }
+                    | SceneObjectKey::Group { .. } | SceneObjectKey::MainSceneAnimation(_))
                     && target.current(&editor, &context.session))
         {
-            // 地形、子场景和作者层复用右键的稳定行身份。摆放和组沿用 GLB 树的选择链路。
+            // 地形、子场景和作者层复用右键的稳定行身份。动画双击直接打开工作台，保留原对象选择。
             selection.0 = Some(target.clone());
             break;
         }

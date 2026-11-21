@@ -5,6 +5,7 @@ use bevy::{
     tasks::{IoTaskPool, Task, futures::check_ready},
     ui::{InteractionDisabled, RelativeCursorPosition, UiGlobalTransform}, window::PrimaryWindow,
 };
+use feathrise_editor_core::PresetWorkspaceTab;
 use feathrise_editor_animation_model::data::AnimationDocument;
 use feathrise_editor_ui::{EditorUiSystemSet, NumericInputCommitOutcome, NumericInputCommitSource,
     NumericInputCommitted, NumericInputDisabled, NumericInputValue, NumericValue};
@@ -23,6 +24,7 @@ use crate::{
         placement_transform::PlacementTransformField,
         sidebars::{EditorNavigatorTab, EditorRightSidebarTab, EditorSidebarTab, SceneEditorSidebarTabButton,
             SceneEditorSidebarState},
+        vegetation_preset_editor::VegetationPresetEditorState,
     },
     viewport::{modes::{ViewportMode, ViewportModeState, validation_press_mode},
         placement_move::{validation_animation_drag_active, validation_animation_drag_points}},
@@ -41,7 +43,8 @@ const TURN_X_ON_TRIAL: f32 = 12.0;
 
 #[derive(Debug, Clone, Copy)]
 enum Step {
-    Enter, Tree, MainGlb, MainGlbExpanded, Select, FoldSelected, UnfoldSelected, Properties,
+    Enter, Tree, MainGlb, MainGlbExpanded, FirstAnimationClick, SecondAnimationClick, SceneTimeline,
+    Select, FoldSelected, UnfoldSelected, Properties,
     Open, Add, Length, Loop, PingPong, AutoPlay,
     KeyOrigin, SeekLow, KeyLow, SeekPeak, MoveTool, BeginMove, Move, ReleaseMove, PositionTrack, KeyPosition,
     RotateTool, BeginTurn, Turn, ReleaseTurn, EditRotationProperty, RestoreRotationProperty,
@@ -140,7 +143,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
                 let scene = feathrise_scene_content::SceneId::parse(SCENE)?;
                 if visible_placement_row(world, &scene, REFERENCED_MODEL).is_none() { return Ok(false); }
                 if visible_placement_row(world, &scene, PLATFORM).is_some()
-                    || main_glb_row(world, MainSceneGlbRow::Animation).is_some()
+                    || main_glb_row(world, MainSceneGlbRow::Animation(0)).is_some()
                 {
                     return Err("主场景 GLB 折叠时只能隐藏所属立方体和动画，独立引用应仍可见".into());
                 }
@@ -151,10 +154,43 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
         MainGlbExpanded => {
             if let Some(proof) = inspect_main_glb_tree(world, run.reopen)? {
                 run.scene_glb_tree = Some(proof);
+                run.step = if run.reopen { FirstAnimationClick } else { Select };
+            }
+        }
+        FirstAnimationClick | SecondAnimationClick => {
+            let first = matches!(run.step, FirstAnimationClick);
+            if run.click.is_none() {
+                if world.resource::<Workbench>().scene.is_some()
+                    || world.resource::<EditorGltfBrowserState>().selected_placement_id.is_some()
+                {
+                    return Err("动画行需要双击，并可在未选摆放对象时打开当前场景时间轴".into());
+                }
+                if !first && let Some(proof) = &mut run.scene_glb_tree {
+                    proof["single_click_kept_timeline_closed"] = json!(true);
+                }
+            }
+            // 同一实际树行走两次原窗口按松，由生产场景树判定双击。
+            let row = main_glb_row(world, MainSceneGlbRow::Animation(0));
+            if click(world, run, row)? {
+                run.step = if first { SecondAnimationClick } else { SceneTimeline };
+            }
+        }
+        SceneTimeline => {
+            if world.resource::<Workbench>().scene.is_none() { return Ok(false); }
+            if !current_scene_timeline(world) || world.resource::<Workbench>().target.is_some()
+                || world.resource::<EditorGltfBrowserState>().selected_placement_id.is_some()
+            {
+                return Err("双击动画应在原场景标签打开时间轴，并保留未选中摆放的状态".into());
+            }
+            if button(world, Action::TogglePlay).is_some() && commit(world, SceneMotionField::Frame, PEAK_FRAME) {
+                if let Some(proof) = &mut run.scene_glb_tree {
+                    proof["double_click_opened_without_placement"] = json!(true);
+                }
                 run.step = Select;
             }
         }
         Select => {
+            if run.reopen && run.click.is_none() && !at_frame(world, PEAK_FRAME) { return Ok(false); }
             let scene = feathrise_scene_content::SceneId::parse(SCENE)?;
             let row = visible_placement_row(world, &scene, PLATFORM).map(|(row, _)| row);
             if click(world, run, row)? { run.step = if run.reopen { FoldSelected } else { Properties }; }
@@ -184,6 +220,11 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
             if run.reopen && let Some(proof) = &mut run.scene_glb_tree {
                 let scene = feathrise_scene_content::SceneId::parse(SCENE)?;
                 if visible_placement_row(world, &scene, PLATFORM).is_none() { return Ok(false); }
+                if !current_scene_timeline(world) || !at_frame(world, PEAK_FRAME) {
+                    return Err("选择立方体并折叠展开时应保留已打开的场景时间轴和播放头".into());
+                }
+                if button(world, Action::TogglePlay).is_none() { return Ok(false); }
+                proof["playhead_retained_after_selection"] = json!(true);
                 proof["selection_retained_after_fold"] = json!(true);
             }
             let tab = sidebar(world, EditorSidebarTab::Right(EditorRightSidebarTab::Scene));
@@ -198,10 +239,10 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
                 view.extent = 13.0;
                 view.yaw = 0.72;
                 view.pitch = 0.56;
-                run.step = Open;
+                run.step = if run.reopen { Verify } else { Open };
             }
         }
-        Open => if click_button(world, run, Action::Open)? { run.step = if run.reopen { Review } else { Add }; },
+        Open => if click_button(world, run, Action::Open)? { run.step = Add; },
         Add => if click_button(world, run, Action::Add)? { run.step = Length; },
         Length => if commit(world, SceneMotionField::EndFrame, END_FRAME) { run.step = Loop; },
         Loop => if clip_settings(world).0 == 4.0 && click_button(world, run, Action::CyclePlayback)? { run.step = PingPong; },
@@ -430,6 +471,12 @@ fn platform_selected(world: &World) -> bool {
     world.resource::<EditorGltfBrowserState>().selected_placement_id.as_deref() == Some(PLATFORM)
 }
 
+fn current_scene_timeline(world: &World) -> bool {
+    world.resource::<Workbench>().scene.as_ref().is_some_and(|scene| scene.as_str() == SCENE)
+        && world.resource::<SceneEditorState>().selected_scene_id.as_ref().is_some_and(|scene| scene.as_str() == SCENE)
+        && world.resource::<VegetationPresetEditorState>().active_tab == PresetWorkspaceTab::Scene
+}
+
 fn tree_label(world: &World, row: Entity) -> Option<&str> {
     world.get::<Children>(row)?.iter().filter_map(|child| world.get::<Children>(child))
         .flat_map(|children| children.iter())
@@ -445,7 +492,7 @@ fn ui_position(world: &World, entity: Entity) -> Option<Vec2> {
 fn inspect_main_glb_tree(world: &mut World, reopened: bool) -> Result<Option<Value>, String> {
     let heading = world.query_filtered::<Entity, With<SceneMeshObjectsHeading>>().single(world).ok();
     let main = main_glb_row(world, MainSceneGlbRow::File);
-    let animation = main_glb_row(world, MainSceneGlbRow::Animation);
+    let animation = main_glb_row(world, MainSceneGlbRow::Animation(0));
     if reopened && animation.is_none() { return Ok(None); }
     let scene = feathrise_scene_content::SceneId::parse(SCENE)?;
     let platform = visible_placement_row(world, &scene, PLATFORM).map(|(row, _)| row);

@@ -441,7 +441,7 @@ pub(crate) struct SceneEditorGltfBrowserStatusText;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MainSceneGlbRow {
     File,
-    Animation,
+    Animation(usize), // GLB 中的原始片段索引，换绑时使旧点击失效。
     Empty,
 }
 

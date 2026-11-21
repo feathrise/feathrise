@@ -12,6 +12,7 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SceneObjectKey {
     MainSceneGlb,
+    MainSceneAnimation(usize),
     Placement {
         index: usize,
         id: String,
@@ -144,6 +145,8 @@ impl SceneObjectTarget {
         };
         match &self.key {
             SceneObjectKey::MainSceneGlb => draft.placement_glb_hash.is_some(),
+            SceneObjectKey::MainSceneAnimation(index) => draft.placement_glb_hash.is_some()
+                && draft.motion.editable_clip_index() == Some(*index),
             SceneObjectKey::Placement { index, id, .. } => draft
                 .placements
                 .placements
@@ -249,6 +252,7 @@ impl SceneObjectTarget {
             return matches!(self.key, SceneObjectKey::Placement { .. });
         }
         match (&self.key, action) {
+            (SceneObjectKey::MainSceneAnimation(_), _) => false,
             (SceneObjectKey::Group { .. }, action) => action == SceneMenuAction::Focus,
             (SceneObjectKey::Water { kind, .. }, action) => {
                 matches!(action, SceneMenuAction::Focus | SceneMenuAction::Delete)

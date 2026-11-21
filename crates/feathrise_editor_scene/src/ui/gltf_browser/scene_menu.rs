@@ -17,14 +17,21 @@ pub(crate) fn bind_scene_menu_rows(
     let draft = session.draft.as_ref();
     for (entity, row, previous) in &rows {
         let target = (|| {
-            if row.main_glb == Some(MainSceneGlbRow::File) {
+            if let Some(main_row) = row.main_glb {
                 let draft = super::systems::main_glb_draft(&editor, &session)?;
-                // 主文件有自己的菜单身份，只为文件行绑定；目录里的动画不是摆放。
+                // 动画行只绑定工作台能编辑的片段，使用 GLB 索引区分重名片段。
+                let (key, name) = match main_row {
+                    MainSceneGlbRow::File => (SceneObjectKey::MainSceneGlb, "scene.glb"),
+                    MainSceneGlbRow::Animation(index) if draft.motion.editable_clip_index() == Some(index) => (
+                        SceneObjectKey::MainSceneAnimation(index), draft.motion.clip_names().get(index)?.as_str(),
+                    ),
+                    _ => return None,
+                };
                 return Some(SceneObjectTarget {
                     scene_id: draft.scene_id.clone(),
                     revision: session.revision,
-                    key: SceneObjectKey::MainSceneGlb,
-                    name: "scene.glb".into(),
+                    key,
+                    name: name.into(),
                     hidden: false,
                     locked: false,
                     copyable: false,
