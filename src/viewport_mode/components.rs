@@ -75,13 +75,18 @@ pub(super) struct ApplyFeaturesButton;
 #[derive(Component)]
 pub(super) struct FeatureList;
 #[derive(Component)]
-pub(super) struct FeatureListContent;
+pub(super) struct FeatureListContent(pub(super) Handle<Font>);
+#[derive(Component)]
+pub(super) struct FeatureScrollbar;
 #[derive(Component)]
 pub(super) struct FeatureRowLabel;
+#[derive(Component)]
+pub(super) struct FeatureDefaultBadge;
 #[derive(Component)]
 pub(super) struct FeatureRow {
     pub(super) slot: usize,
     pub(super) index: Option<usize>,
     pub(super) revision: u64,
     pub(super) checked: bool,
+    pub(super) inherited: bool,
 }

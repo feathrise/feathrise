@@ -4,7 +4,7 @@
 mod dependency;
 #[path = "native_play_features.rs"]
 mod features;
-pub(crate) use features::catalog as project_feature_catalog;
+pub(crate) use features::{ProjectFeature, catalog as project_feature_catalog};
 #[path = "native_play_hotpatch.rs"]
 #[cfg(windows)]
 mod hotpatch;

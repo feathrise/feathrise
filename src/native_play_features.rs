@@ -25,11 +25,20 @@ fn declared(manifest: &toml::Value) -> impl Iterator<Item = &str> {
         .filter_map(|(name, value)| value.is_array().then_some(name.as_str()))
 }
 
-pub(crate) fn catalog(path: &std::path::Path) -> Result<Vec<String>, String> {
+pub(crate) struct ProjectFeature {
+    pub(crate) name: String,
+    pub(crate) in_default: bool,
+}
+
+pub(crate) fn catalog(path: &std::path::Path) -> Result<Vec<ProjectFeature>, String> {
     let manifest = crate::project_template::read_cargo_manifest(path)?;
-    let mut names: Vec<_> = declared(&manifest).map(str::to_owned).collect();
-    names.sort_unstable();
-    Ok(names)
+    let defaults = feature_closure(&manifest, vec!["default"]);
+    let mut options: Vec<_> = declared(&manifest).map(|name| ProjectFeature {
+        name: name.to_owned(),
+        in_default: name != "default" && defaults.contains(name),
+    }).collect();
+    options.sort_unstable_by(|a, b| (a.name != "default", &a.name).cmp(&(b.name != "default", &b.name)));
+    Ok(options)
 }
 
 pub(super) fn export_selection() -> ProjectBuildFeatures {
@@ -51,19 +60,23 @@ pub(super) fn validate(manifest: &toml::Value, selected: &ProjectBuildFeatures) 
 pub(super) fn requires_native(manifest: &toml::Value, selected: &ProjectBuildFeatures) -> bool {
     let mut pending: Vec<_> = selected.names().iter().map(String::as_str).collect();
     if selected.default_enabled() { pending.push("default"); }
+    feature_closure(manifest, pending).iter().any(|name| {
+        matches!(name.rsplit('/').next(), Some("rtx_rendering" | "dlss_frame_generation" | "fsr3_frame_generation"))
+    })
+}
+
+/// 只沿工程清单声明的同名项继续展开，依赖特性引用和循环引用均在此止步。
+fn feature_closure<'a>(manifest: &'a toml::Value, mut pending: Vec<&'a str>) -> BTreeSet<&'a str> {
     let mut seen = BTreeSet::new();
     let table = manifest.get("features").and_then(toml::Value::as_table);
     while let Some(name) = pending.pop() {
-        if matches!(name.rsplit('/').next(), Some("rtx_rendering" | "dlss_frame_generation" | "fsr3_frame_generation")) {
-            return true;
-        }
         if seen.insert(name)
             && let Some(values) = table.and_then(|table| table.get(name)).and_then(toml::Value::as_array)
         {
             pending.extend(values.iter().filter_map(toml::Value::as_str));
         }
     }
-    false
+    seen
 }
 
 pub(super) fn apply(command: &mut Command, selected: &ProjectBuildFeatures) {

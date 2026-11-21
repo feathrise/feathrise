@@ -42,7 +42,7 @@ pub(crate) fn install(
     let completion = self::preferences::install(app, preferences, project);
     if let Some(project) = project {
         app.insert_resource(resources::FeatureMenu::new(project.manifest.clone()))
-            .add_systems(Update, feature_ui::present.after(ViewportModeInput));
+            .add_systems(Update, (feature_ui::controls, feature_ui::present).after(ViewportModeInput));
     }
     {
         let mut mode = app.world_mut().resource_mut::<ViewportModeState>();

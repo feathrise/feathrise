@@ -1,7 +1,7 @@
 //! 视口选择与窗口布局的有界快照；进程和作者文档的所有权留给各自功能域。
 
 use super::ViewportMode;
-use crate::native_play::ProjectBuildFeatures;
+use crate::native_play::{ProjectBuildFeatures, ProjectFeature};
 use bevy::prelude::*;
 use std::path::PathBuf;
 
@@ -49,7 +49,7 @@ impl BuildProfileMenuState {
     pub(crate) fn captures_input(&self) -> bool { self.captured }
 }
 
-pub(super) type FeatureCatalog = Result<Vec<String>, String>;
+pub(super) type FeatureCatalog = Result<Vec<ProjectFeature>, String>;
 
 #[derive(Resource)]
 pub(super) struct FeatureMenu {
@@ -73,7 +73,7 @@ impl FeatureMenu {
         self.draft_default != selected.default_enabled() || self.draft != selected.names()
     }
 
-    pub(super) fn names(&self) -> &[String] {
+    pub(super) fn options(&self) -> &[ProjectFeature] {
         self.catalog.as_ref().and_then(|result| result.as_ref().ok()).map_or(&[], Vec::as_slice)
     }
 }

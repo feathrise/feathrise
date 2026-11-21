@@ -10,7 +10,7 @@ mod worker;
 #[path = "native_play_code_apply.rs"]
 mod code_apply;
 
-pub(crate) use worker::{prepare as prepare_game, prepare_export, project_feature_catalog, PreparedGame};
+pub(crate) use worker::{prepare as prepare_game, prepare_export, project_feature_catalog, PreparedGame, ProjectFeature};
 pub(crate) use worker::{prepare_function_patch, prepare_with_backend as prepare_game_with_backend};
 pub(crate) use worker::cargo_program;
 #[cfg(windows)]

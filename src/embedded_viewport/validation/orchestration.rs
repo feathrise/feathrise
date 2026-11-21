@@ -299,19 +299,22 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
             let features = manifest.get_mut("features").and_then(toml::Value::as_table_mut)
                 .ok_or("工程特性夹具缺少原模板的 features 表")?;
             let explicit = super::build_backend::FIXTURE_FEATURE;
-            let default_member = "check_preview_b";
+            let default_member = super::build_backend::FIXTURE_DEFAULT_MEMBER;
+            let default_group = "check_preview_group";
             for name in [explicit, default_member] {
                 features.insert(name.into(), toml::Value::Array(Vec::new()));
             }
+            // 夹具用两层引用覆盖 default 的间接成员。
+            features.insert(default_group.into(), toml::Value::Array(vec![toml::Value::String(default_member.into())]));
             features.entry("default".to_owned()).or_insert_with(|| toml::Value::Array(Vec::new()))
                 .as_array_mut().ok_or("验收夹具的 default 不是特性列表")?
-                .push(toml::Value::String(default_member.into()));
+                .push(toml::Value::String(default_group.into()));
             fs::write(&project.manifest, toml::to_string(&manifest).map_err(|error| error.to_string())?)
                 .map_err(|error| error.to_string())?;
             let main = project.manifest.parent().ok_or("工程特性夹具缺少包目录")?.join("src/main.rs");
             // 同时检查独有的默认组成员和模板的 raytracing，防止编辑器额外注入能力。
             writeln!(fs::OpenOptions::new().append(true).open(&main).map_err(|error| error.to_string())?,
-                "\n#[cfg(any(not(feature = \"{explicit}\"), feature = \"default\", feature = \"{default_member}\", feature = \"raytracing\"))]\ncompile_error!(\"validation requires the selected feature with Cargo defaults and raytracing off\");")
+                "\n#[cfg(any(not(feature = \"{explicit}\"), feature = \"default\", feature = \"{default_group}\", feature = \"{default_member}\", feature = \"raytracing\"))]\ncompile_error!(\"validation requires the selected feature with Cargo defaults and raytracing off\");")
                 .map_err(|error| error.to_string())?;
         }
         if super::build_backend::full_build() {
