@@ -66,6 +66,28 @@ fn asset_double_click_opens_multiple_files_and_reuses_existing_path() {
 }
 
 #[test]
+fn glb_double_click_reopens_the_same_tab_as_animation_preview() {
+    use feathrise_editor_animation_model::{data::tests::test_document, resources::{AnimationEditorState, Session}};
+    let (mut app, row) = fixture();
+    click(&mut app, row, 3, 0.05);
+    click(&mut app, row, 3, 0.12);
+    let tab = app.world().resource::<AssetPreviewWorkspace>().expanded.as_ref().unwrap().id;
+    let source = app.world().resource::<DocumentState>().asset_root().join("b.glb");
+    let mut animation = AnimationEditorState::default();
+    animation.active = Some(source.clone());
+    animation.sessions.insert(source, Session::new(test_document()));
+    assert!(animation.select_current_clip() && animation.enter_animation_edit());
+    app.insert_resource(animation);
+
+    click(&mut app, row, 3, 0.5);
+    assert!(app.world().resource::<AnimationEditorState>().editable()); // 单击仍可查看属性。
+    click(&mut app, row, 3, 0.12);
+    let animation = app.world().resource::<AnimationEditorState>();
+    assert!(!animation.editable() && !animation.can_edit_selected());
+    assert_eq!(app.world().resource::<AssetPreviewWorkspace>().expanded.as_ref().unwrap().id, tab);
+}
+
+#[test]
 fn asset_double_click_rejects_slow_different_recycled_or_directory_rows() {
     let (mut app, row) = fixture();
     click(&mut app, row, 0, 0.05);

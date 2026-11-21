@@ -9,6 +9,7 @@ use super::{
     data::{AnimationDocument, Channel, Node, preview_joint_topology},
     resources::{AnimationEditorState, BindingState},
     skeleton::{self, SkeletonPresentation},
+    types::PoseDraft,
 };
 use feathrise_editor_core::SceneEditorSystemSet;
 use bevy::asset::{DependencyLoadState, LoadState, RecursiveDependencyLoadState};
@@ -30,7 +31,7 @@ pub(super) fn for_input_tests(document: Arc<AnimationDocument>) -> PreviewRuntim
 }
 #[cfg(test)]
 pub(super) fn for_input_tests_at(
-    document: Arc<AnimationDocument>, clip: usize, time: f32, draft: Option<(usize, Transform)>,
+    document: Arc<AnimationDocument>, clip: usize, time: f32, draft: Option<PoseDraft>,
 ) -> PreviewRuntime {
     PreviewRuntime {
         published_pose: Some(Arc::new(prepare_pose_draft(document, clip, time, draft))),
@@ -72,7 +73,7 @@ pub fn rig_animation_probe(world: &World) -> Option<RigAnimationProbe> {
         || editor.source() != Some(identity.source.as_path())
         || editor.source_revision != identity.revision
         || editor.model_binding_revision != identity.request
-        || session.model_path.as_ref() != Some(&identity.model)
+        || editor.preview_model_path() != Some(identity.model.as_str())
         || pose.model_local.is_none()
         || !pose.matches_session(session)
     {
@@ -184,17 +185,20 @@ fn prepare_pose_draft(
     document: Arc<AnimationDocument>,
     clip: usize,
     time: f32,
-    draft: Option<(usize, Transform)>,
+    draft: Option<PoseDraft>,
 ) -> Pose {
     let channels = document
         .clips
         .get(clip)
         .map_or(&[][..], |clip| clip.channels.as_slice());
     let mut local = sampled_local(&document.nodes, channels, time);
-    if let Some((node, value)) = draft
-        && let Some(local) = local.get_mut(node)
-    {
-        *local = value;
+    if let Some(draft) = &draft {
+        // 所有局部覆写先一起采用，再沿父子层级计算一份一致的世界姿势。
+        for (node, pose) in draft.iter() {
+            if let Some(local) = local.get_mut(node) {
+                *local = pose.transform;
+            }
+        }
     }
     let matrices = world_matrices(&document.nodes, &local);
     let mut minimum = Vec3::splat(f32::INFINITY);
@@ -484,7 +488,7 @@ pub(super) fn drive(
             let retired = std::mem::take(&mut runtime.retired);
             let clip = editor.active_clip();
             let position = editor.position();
-            let draft = editor.current().and_then(|s| s.pose);
+            let draft = editor.current().and_then(|s| s.pose.clone());
             let retarget = binding.as_ref().filter(|binding| binding.ready())
                 .and_then(|binding| binding.mapping.as_ref()?.retarget.as_ref())
                 .filter(|rig| rig.supports(clip)).cloned();

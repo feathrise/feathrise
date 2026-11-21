@@ -1,7 +1,7 @@
 //! 连续动作表、选区与姿势手势的轻量契约；显示槽不再决定可编辑的数据范围。
 
 use bevy::prelude::*;
-use std::{collections::{HashMap, HashSet}, path::PathBuf, sync::Arc};
+use std::{collections::{BTreeMap, HashMap, HashSet}, path::PathBuf, sync::Arc};
 
 /// 时间闭区间描述选区，框选十万个键也只保存最多八条可见轨道的范围。
 #[derive(Clone, Default, Debug, PartialEq)]
@@ -44,6 +44,102 @@ pub enum PoseTool {
     Rotate,
 }
 
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum PoseProperty {
+    Translation,
+    Rotation,
+    Scale,
+}
+
+impl PoseProperty {
+    pub const ALL: [Self; 3] = [Self::Translation, Self::Rotation, Self::Scale];
+
+    pub fn from_path(path: &str) -> Option<Self> {
+        match path {
+            "translation" => Some(Self::Translation),
+            "rotation" => Some(Self::Rotation),
+            "scale" => Some(Self::Scale),
+            _ => None,
+        }
+    }
+
+    pub fn path(self) -> &'static str {
+        match self {
+            Self::Translation => "translation",
+            Self::Rotation => "rotation",
+            Self::Scale => "scale",
+        }
+    }
+
+    fn bit(self) -> u8 {
+        1 << self as u8
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BonePose {
+    pub transform: Transform,
+    properties: u8,
+}
+
+impl BonePose {
+    pub fn contains(self, property: PoseProperty) -> bool {
+        self.properties & property.bit() != 0
+    }
+}
+
+/// 同一帧累积各骨局部变换。指针拖动只更新当前骨，换骨首次修改才合入已完成的草稿。
+#[derive(Clone, Debug, Default)]
+pub struct PoseDraft {
+    settled: Arc<BTreeMap<usize, BonePose>>,
+    active: Option<(usize, BonePose)>,
+}
+
+impl PartialEq for PoseDraft {
+    fn eq(&self, other: &Self) -> bool {
+        // 发布快照共享同一份已完成姿势，逐帧核对无需遍历整个骨骼集合。
+        self.active == other.active && Arc::ptr_eq(&self.settled, &other.settled)
+    }
+}
+
+impl PoseDraft {
+    pub fn get(&self, node: usize) -> Option<BonePose> {
+        self.active.filter(|(index, _)| *index == node).map(|(_, value)| value)
+            .or_else(|| self.settled.get(&node).copied())
+    }
+
+    pub fn set(&mut self, node: usize, transform: Transform, property: PoseProperty) -> bool {
+        let previous = self.get(node);
+        let value = BonePose {
+            transform,
+            properties: previous.map_or(0, |pose| pose.properties) | property.bit(),
+        };
+        if previous == Some(value) {
+            return false;
+        }
+        if let Some((previous_node, previous_pose)) = self.active.filter(|(index, _)| *index != node) {
+            Arc::make_mut(&mut self.settled).insert(previous_node, previous_pose);
+        }
+        self.active = Some((node, value));
+        true
+    }
+
+    pub fn len(&self) -> usize {
+        self.settled.len() + usize::from(self.active.is_some_and(|(node, _)| !self.settled.contains_key(&node)))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.active.is_none() && self.settled.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (usize, BonePose)> + '_ {
+        self.settled.iter()
+            .filter(|(node, _)| self.active.is_none_or(|(index, _)| index != **node))
+            .map(|(&node, &value)| (node, value))
+            .chain(self.active)
+    }
+}
+
 #[derive(Default, Reflect, GizmoConfigGroup)]
 pub struct AnimationGizmos;
 
@@ -57,7 +153,7 @@ pub struct PoseGesture {
     pub clip: usize,
     pub node: usize,
     pub before: Transform,
-    pub previous: Option<(usize, Transform)>,
+    pub previous: Option<PoseDraft>,
     pub parent: Mat4,
     pub origin: Vec3,
     pub start: Vec2,
@@ -130,6 +226,7 @@ pub struct AnimationView {
     pub auto_key: bool,
     pub pose_tool: PoseTool,
     pub pose_dirty: bool,
+    pub pose_bones: usize,
     pub model_path: Option<String>,
     pub model_status: String,
     pub selected: KeySelection,
@@ -196,6 +293,7 @@ pub struct Clipboard {
 }
 
 pub enum Command {
+    CreateClip,
     Copy {
         clip: usize,
         selection: KeySelection,
@@ -219,7 +317,11 @@ pub enum Command {
     Pose {
         clip: usize,
         time: f32,
+        draft: PoseDraft,
+    },
+    CapturePose {
+        clip: usize,
+        time: f32,
         node: usize,
-        transform: Transform,
     },
 }

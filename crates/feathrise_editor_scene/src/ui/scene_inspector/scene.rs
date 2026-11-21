@@ -86,6 +86,7 @@ pub(in crate::ui) fn scene_inspector_properties() -> impl Scene {
             row_gap: px(4),
         }
         Children [
+            @crate::ui::scene_motion::entry()--
             @crate::ui::placement_transform::placement_transform_panel()--
             @crate::ui::placement_water::placement_water_properties_panel()
         ]

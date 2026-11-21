@@ -3,6 +3,7 @@
 pub mod assembly;
 pub mod constants;
 pub mod data;
+pub mod edit_mode;
 pub mod gizmo;
 pub mod host;
 pub mod media;

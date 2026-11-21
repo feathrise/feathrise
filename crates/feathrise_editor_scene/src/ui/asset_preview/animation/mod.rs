@@ -40,6 +40,9 @@ mod ui_tests;
 #[cfg(test)]
 mod workflow_validation_tests;
 
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) struct AnimationInputHost;
+
 #[derive(SystemParam)]
 struct HostInputs<'w, 's> {
     editor: Res<'w, SceneEditorState>,
@@ -159,6 +162,7 @@ fn install_input_boundary(app: &mut App) {
             publish_host.after(super::interaction::handle_asset_preview_actions)
                 .after(crate::ui::file_manager::FileManagerInput)
                 .before(AnimationSystems::Input)
+                .in_set(AnimationInputHost)
                 .in_set(SceneEditorSystemSet::Input),
         );
 }

@@ -12,6 +12,10 @@ pub struct AnimationDocument {
     pub read_only: bool,
     /// 同一作者来源的编辑与保存共享身份；重新解析即换代，节点索引不能跨代复用。
     pub source_identity: Arc<()>,
+    /// 初次载入时已有的片段，即使撤销本会话添加的动作也必须保留。
+    pub(super) preserved_clip_count: usize,
+    /// 记录初次读取的原始通道数，包含作者不支持的通道；保存后仍保留撤销新增轨道的边界。
+    pub(super) preserved_channel_counts: Vec<usize>,
     pub(super) source: Arc<Source>,
 }
 
@@ -68,6 +72,7 @@ pub(super) struct Source {
     pub chunks: Vec<Chunk>,
     pub original_clips: Vec<Clip>,
     pub preview_joints: Arc<[PreviewJoint]>,
+    pub animation_nodes: Vec<usize>,
 }
 
 #[derive(Debug)]
@@ -77,6 +82,32 @@ pub(super) struct Chunk {
 }
 
 impl Clip {
+    /// 用普通 GLB 变换通道承载其他编辑入口产生的关键帧。
+    pub fn push_transform_channel(
+        &mut self,
+        node: usize,
+        node_name: &str,
+        path: &'static str,
+        keys: Vec<Keyframe>,
+    ) -> Result<(), String> {
+        let channel = Channel {
+            node,
+            node_name: node_name.into(),
+            path: path.into(),
+            interpolation: "LINEAR".into(),
+            keys,
+            source_index: self.channels.len(),
+        };
+        self.push_existing_channel(channel)
+    }
+
+    pub fn push_existing_channel(&mut self, mut channel: Channel) -> Result<(), String> {
+        channel.validate()?;
+        channel.source_index = self.channels.len();
+        self.channels.push(channel);
+        Ok(())
+    }
+
     pub fn duration(&self) -> f32 {
         self.channels
             .iter()

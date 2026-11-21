@@ -277,7 +277,8 @@ pub(super) fn viewport_panel(scenes: &feathrise_editor_documents_model::Document
                         }
                         BackgroundColor(colors::MODEL_PREVIEW_BG)
                         BorderColor::all(colors::COPPER_BORDER)
-                        Children [@selection_region()] // 纯视觉选框不改变正式视口相机与 RTT。
+                        Children [@selection_region()]-- // 纯视觉选框不改变正式视口相机与 RTT。
+                    @super::scene_motion::workbench()
 
                 ]
             --

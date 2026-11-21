@@ -162,7 +162,7 @@ fn cubic() -> Channel {
 
 #[test]
 fn reads_nodes_all_clips_and_preserves_unsupported_channels() {
-    let doc = fixture();
+    let mut doc = fixture();
     assert_eq!(doc.clips.len(), 2);
     assert_eq!(doc.clips[0].channels.len(), 2);
     assert_eq!(doc.nodes[1].parent, Some(0));
@@ -175,6 +175,8 @@ fn reads_nodes_all_clips_and_preserves_unsupported_channels() {
             .any(|warning| warning.contains("weights"))
     );
     assert_eq!(doc.encode().expect("原样编码"), doc.source.bytes.as_ref());
+    doc.clips.reverse();
+    assert_eq!(doc.encode().expect("按来源索引编码"), doc.source.bytes.as_ref());
 }
 
 #[test]
@@ -219,6 +221,113 @@ fn edited_channel_appends_data_without_changing_other_clips_or_shared_sampler() 
     );
     assert_eq!(reloaded.source.json["extras"], original.json["extras"]);
     assert_eq!(reloaded.source.chunks[2].bytes.as_ref(), [9, 8, 7, 6]);
+}
+
+#[test]
+fn new_clip_round_trips_with_original_clips_and_can_be_undone_after_save() {
+    use crate::resources::Edit;
+
+    let directory = TemporaryDirectory::new();
+    let path = directory.0.join("model.glb");
+    let (json, binary) = fixture_parts();
+    let original_bytes = glb(&json, &binary);
+    std::fs::write(&path, &original_bytes).unwrap();
+    let mut draft = AnimationDocument::load(&path).unwrap();
+    let creation = Edit::AppendClip(Arc::new(draft.create_clip().unwrap()));
+    assert_eq!(creation.target(), (2, 0));
+    creation.apply(&mut draft, true).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), original_bytes);
+    let clip = &mut draft.clips[2];
+    assert_eq!(clip.channels.len(), 6);
+    assert_eq!(clip.duration(), 1.0);
+    clip.channels[0].insert_key(0.5, vec![1.0, 2.0, 3.0]).unwrap();
+
+    let mut saved = draft.save_rebased(&path).unwrap();
+    let disk = AnimationDocument::load(&path).unwrap();
+    assert_eq!(disk.source.json["animations"][0], json["animations"][0]);
+    assert_eq!(disk.source.json["animations"][1], json["animations"][1]);
+    assert_eq!(disk.source.json["extras"], json["extras"]);
+    assert_eq!(&disk.source.buffers[0][..binary.len()], binary.as_slice());
+    assert_eq!(disk.source.chunks[2].bytes.as_ref(), [9, 8, 7, 6]);
+    assert_eq!(disk.clips[2].channels[0].keys[1].value, [1.0, 2.0, 3.0]);
+
+    // 新进程视磁盘文件为自身基线，不能删除任何既有片段。
+    let mut reopened = disk;
+    reopened.clips.pop();
+    assert!(reopened.encode().is_err());
+    creation.apply(&mut saved, false).unwrap();
+    let mut restored = saved.save_rebased(&path).unwrap();
+    assert_eq!(restored.source.json["animations"], json["animations"]);
+    creation.apply(&mut restored, true).unwrap();
+    assert_eq!(restored.save_rebased(&path).unwrap().clips.len(), 3);
+}
+
+#[test]
+fn appended_pose_track_can_be_undone_and_saved_without_moving_original_channels() {
+    use crate::{resources::Edit, types::PoseProperty};
+
+    let directory = TemporaryDirectory::new();
+    let path = directory.0.join("sparse.glb");
+    let (json, binary) = fixture_parts();
+    std::fs::write(&path, glb(&json, &binary)).unwrap();
+    let mut document = AnimationDocument::load(&path).unwrap();
+    let original = &document.clips[0];
+    let mut appended = document.create_pose_tracks(original, &[(1, PoseProperty::Rotation)]).unwrap();
+    assert_eq!(appended[0].source_index, 3, "原文件中的权重通道保留位置");
+    appended[0].insert_key(0.5, vec![0.0, 0.0, 1.0, 0.0]).unwrap();
+    let mut translation = original.channels[0].clone();
+    translation.insert_key(0.5, vec![3.0, 2.0, 1.0]).unwrap();
+    let change = Edit::Channels {
+        clip: 0,
+        values: Arc::new(vec![(0, original.channels[0].keys.clone(), translation.keys)]),
+        appended: appended.into(),
+        first_appended: original.channels.len(),
+    };
+    change.apply(&mut document, true).unwrap();
+    let mut saved = document.save_rebased(&path).unwrap();
+    let reopened = AnimationDocument::load(&path).unwrap();
+    assert_eq!(reopened.clips[0].channels, document.clips[0].channels);
+    assert_eq!(reopened.source.json["animations"][0]["channels"][2], json["animations"][0]["channels"][2]);
+
+    change.apply(&mut saved, false).unwrap();
+    let mut restored = saved.save_rebased(&path).unwrap();
+    assert_eq!(AnimationDocument::load(&path).unwrap().clips[0].channels, fixture().clips[0].channels);
+    assert_eq!(restored.source.json["animations"][0]["channels"].as_array().unwrap().len(), 3);
+    change.apply(&mut restored, true).unwrap();
+    restored.save_rebased(&path).unwrap();
+    assert_eq!(AnimationDocument::load(&path).unwrap().clips[0].channels, reopened.clips[0].channels);
+}
+
+#[test]
+fn first_clip_uses_scene_skin_joints_and_adds_a_bin_chunk_to_a_bare_glb() {
+    let source = json!({
+        "asset": {"version": "2.0"},
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"children": [1, 2]}, {"translation": [0, 1, 0]}, {}],
+        "skins": [{"joints": [1]}],
+    });
+    let chunks = [
+        Chunk {kind: JSON_CHUNK, bytes: Arc::from([])},
+        Chunk {kind: 0x44434241, bytes: Arc::from([9, 8, 7, 6])},
+    ];
+    let path = Path::new("skeleton.glb");
+    for original_bin in [b"".as_slice(), b"tail".as_slice()] {
+        let bytes = encode_chunks(&chunks, &source, original_bin).unwrap();
+        let mut draft = AnimationDocument::from_bytes(path, bytes).unwrap();
+        let clip = draft.create_clip().unwrap();
+        assert_eq!(clip.channels.len(), 3);
+        assert!(clip.channels.iter().all(|channel| channel.node == 1));
+        assert_eq!(clip.channels[0].keys[0].value, [0.0, 1.0, 0.0]);
+        draft.clips.push(clip);
+
+        let reopened = AnimationDocument::from_bytes(path, draft.encode().unwrap()).unwrap();
+        assert_eq!(reopened.source.chunks[1].kind, BIN_CHUNK);
+        assert!(reopened.source.chunks[1].bytes.starts_with(original_bin));
+        assert_eq!(reopened.source.chunks[2].bytes.as_ref(), [9, 8, 7, 6]);
+        assert_eq!(reopened.source.json["nodes"], source["nodes"]);
+        assert_eq!(reopened.clips[0].duration(), 1.0);
+        assert_eq!(reopened.clips[0].channels.len(), 3);
+    }
 }
 
 #[test]

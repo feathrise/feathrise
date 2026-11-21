@@ -79,6 +79,9 @@ impl Source {
         session.key = Some(0);
         state.sessions.insert(self.0.clone(), session);
         state.visible = true;
+        // 原数值和布局回归从真实编辑门进入，默认预览另有专门的只读用例。
+        assert!(state.select_current_clip());
+        assert!(state.enter_animation_edit());
         state
     }
 }
@@ -97,6 +100,7 @@ fn fixture() -> App {
         bevy::scene::ScenePlugin,
     ))
     .init_asset::<Font>()
+    .init_asset::<Image>() // 原工具栏复用的移动、旋转图标在精简夹具也需要资源类型。
     .init_resource::<AnimationEditorState>()
     .init_resource::<ActiveNumericInput>()
     .init_resource::<ActiveNumericInputScrub>()

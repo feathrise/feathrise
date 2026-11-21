@@ -4,13 +4,13 @@ use bevy::{ecs::system::SystemParam, prelude::*};
 use feathrise_editor_ui::EditorButtonClick;
 
 use super::{
-    components::{AnimationPanel, AnimationPoseToolbar},
+    components::AnimationPanel,
     resources::AnimationEditorState,
     timeline_dock::Body,
 };
 use feathrise_editor_animation_model::{
     host::AnimationHost,
-    media::{AssetPreviewWorkspace, AssetPreviewCanvas, central_glb},
+    media::{AssetPreviewWorkspace, central_glb},
 };
 
 #[derive(Component, Clone, Copy, Default)]
@@ -47,6 +47,7 @@ pub fn properties_host() -> impl Scene {
         AnimationPropertiesHost
         Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0,
             flex_direction: FlexDirection::Column, row_gap: px(3) }
+        Children [@super::scene::mode_controls()]
     }
 }
 
@@ -70,7 +71,12 @@ impl Context<'_> {
     }
 
     pub(super) fn timeline_visible(&self, state: &AnimationEditorState) -> bool {
-        self.central_glb().is_some() && (state.visible() || state.in_place_rig_preview())
+        self.central_glb().is_some()
+            && (state.visible() || state.in_place_rig_preview() || state.editing_animation())
+    }
+
+    pub(super) fn weights_own_viewport(&self) -> bool {
+        self.host.as_ref().is_some_and(|host| host.weights_own_viewport)
     }
 }
 
@@ -81,10 +87,8 @@ pub(super) fn sync(
     state: Res<AnimationEditorState>,
     mut properties: Query<(Entity, &mut Node), With<AnimationPropertiesHost>>,
     mut inline: Query<(Entity, &mut Node), (With<InlineAnimationHost>, Without<AnimationPropertiesHost>)>,
-    canvas: Query<Entity, With<AssetPreviewCanvas>>,
     body: Query<Entity, With<Body>>,
     panel: Query<(Entity, &ChildOf), With<AnimationPanel>>,
-    mut pose_toolbar: Query<(Entity, &ChildOf, &mut Node), (With<AnimationPoseToolbar>, Without<AnimationPropertiesHost>, Without<InlineAnimationHost>, Without<InlinePropertyHost>)>,
     mut homes: Query<
         (Entity, &InlinePropertyHost, &mut Node),
         (Without<AnimationPropertiesHost>, Without<InlineAnimationHost>, Without<BindModelPropertiesHost>),
@@ -92,19 +96,20 @@ pub(super) fn sync(
     sections: Query<(Entity, &PropertySection, &ChildOf)>,
     mut binding_properties: Query<
         (Entity, &mut Node),
-        (With<BindModelPropertiesHost>, Without<AnimationPropertiesHost>, Without<InlineAnimationHost>, Without<AnimationPoseToolbar>),
+        (With<BindModelPropertiesHost>, Without<AnimationPropertiesHost>, Without<InlineAnimationHost>),
     >,
     binding_home: Query<Entity, With<BindModelHome>>,
     mut binding_button: Query<(Entity, &ChildOf, Option<&mut EditorButtonClick>), With<BindModelButton>>,
     binding_status: Query<(Entity, &ChildOf), With<BindModelStatus>>,
 ) {
-    let (Ok((properties, mut host)), Ok((inline, mut home)), Ok(canvas)) =
-        (properties.single_mut(), inline.single_mut(), canvas.single())
+    let (Ok((properties, mut host)), Ok((inline, mut home))) =
+        (properties.single_mut(), inline.single_mut())
     else {
         return;
     };
     let glb = context.central_glb();
-    let display = if glb == editor.selected_asset.as_deref() && context.timeline_visible(&state) {
+    // 模式按钮必须在无片段时也可见。实际片段属性仍由各段跟随动画会话显隐。
+    let display = if glb.is_some_and(|path| editor.selected_asset.as_deref() == Some(path)) {
         Display::Flex
     } else {
         Display::None
@@ -132,20 +137,6 @@ pub(super) fn sync(
             && let Some((entity, _, parent)) = sections.iter().find(|(_, group, _)| **group == section)
             && parent.parent() != target
         {
-            commands.entity(entity).insert(ChildOf(target));
-        }
-    }
-    if let Ok((entity, parent, mut node)) = pose_toolbar.single_mut() {
-        let target = if docked { properties } else { canvas };
-        if parent.parent() != target {
-            // 同一组按钮换父节点时才改布局，画布内的真实姿势手柄继续使用原系统。
-            node.position_type = if docked { PositionType::Relative } else { PositionType::Absolute };
-            node.left = if docked { Val::Auto } else { px(8) };
-            node.top = if docked { Val::Auto } else { px(8) };
-            node.width = if docked { percent(100) } else { px(76) };
-            node.flex_direction = if docked { FlexDirection::Row } else { FlexDirection::Column };
-            node.flex_wrap = if docked { FlexWrap::Wrap } else { FlexWrap::NoWrap };
-            node.column_gap = px(3);
             commands.entity(entity).insert(ChildOf(target));
         }
     }
@@ -270,7 +261,6 @@ mod tests {
         animation.active = Some(source.clone());
         animation.sessions.insert(source, Session::new(test_document()));
         animation.visible = true;
-        world.spawn(AssetPreviewCanvas);
         let inline = world.spawn((InlineAnimationHost, Node::default())).id();
         let timeline = world.spawn(Body).id();
         let properties = world.spawn((AnimationPropertiesHost, Node::default())).id();
@@ -313,5 +303,14 @@ mod tests {
         assert_eq!(world.get::<ChildOf>(button).unwrap().parent(), home);
         assert_eq!(world.get::<ChildOf>(home).unwrap().parent(), binding_home);
         assert_eq!(world.get::<ChildOf>(clips).unwrap().parent(), clips_home);
+
+        // 暂无动作的中央 GLB 仍需独立的模式入口，供首次新建动作。
+        let world = app.world_mut();
+        let mut host = world.resource_mut::<AnimationHost>();
+        host.tab = PresetWorkspaceTab::AssetPreview;
+        host.selected_asset = Some("动画.glb".into());
+        world.resource_mut::<AnimationEditorState>().active = None;
+        app.update();
+        assert_eq!(app.world().get::<Node>(properties).unwrap().display, Display::Flex);
     }
 }

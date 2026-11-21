@@ -1,4 +1,4 @@
-//! 绑骨后的只读动作沿用当前模型中央标签，源文件和蒙皮目标分别验明身份。
+//! 工程动作沿用当前模型中央标签，源文件与蒙皮目标分别验明身份。
 
 use super::{data::AnimationDocument, resources::{AnimationEditorState, Retired, Session, TaskResult, Work}};
 use feathrise_editor_animation_model::{
@@ -11,19 +11,28 @@ use std::path::{Path, PathBuf};
 pub(super) fn select(state: &mut AnimationEditorState, request: PreviewRigAnimation, source: PathBuf) {
     state.weight_rest = None;
     let reuse = state.rig_preview.as_ref().is_some_and(|previous| {
-        !request.recheck_source && !previous.failed && previous.request.same_assets(&request)
+        !request.recheck_source && !previous.failed && previous.source == source
+            && previous.request.same_assets(&request)
+            && (!previous.ready || !state.busy())
             && state.current().is_none_or(|session| {
                 session.clip_from_source(request.clip_index).is_some_and(|clip| clip != session.clip)
             })
     });
     if reuse {
+        if state.current().is_some_and(|session| session.pose.is_some()) {
+            state.status = "请先插入或还原临时姿势".into();
+            return;
+        }
         // 同一份已校验文档及角色只换片段，读取中则采用最终所选片段。
+        state.exit_animation_edit();
         state.rig_preview.as_mut().unwrap().request.clip_index = request.clip_index;
         if let Some(session) = state.current_mut() {
             let clip = session.clip_from_source(request.clip_index).expect("复用前已核对动作源索引");
             session.select_clip(clip);
             state.playing = true;
-            state.changed();
+            if !state.select_current_clip() {
+                state.changed();
+            }
         }
         return;
     }
@@ -32,32 +41,21 @@ pub(super) fn select(state: &mut AnimationEditorState, request: PreviewRigAnimat
         ticket: state.source_revision,
         source,
         request,
+        ready: false,
         failed: false,
     });
     state.status = "正在后台读取工程动作".into();
 }
 
-pub(super) fn retire(state: &mut AnimationEditorState) {
-    if state.work.is_none() && state.retired.is_none()
-        && state.rig_session.as_ref().is_some_and(|(ticket, _)| {
-            state.rig_preview.as_ref().is_none_or(|request| request.ticket != *ticket)
-        })
-    {
-        // 过期文档与原作者文件释放共用单槽。连续选择只保留最新意图。
-        state.retired = state.rig_session.take().map(|(_, session)| Retired::Session(session));
-    }
-}
-
 pub(super) fn launch(state: &mut AnimationEditorState) {
-    let Some(request) = state.rig_preview.as_ref().filter(|request| !request.failed) else {
+    let Some(request) = state.rig_preview.as_ref().filter(|request| !request.failed && !request.ready) else {
         return;
     };
-    if state.current().is_some() {
-        return;
-    }
     let source = request.source.clone();
     let root = request.request.asset_root.clone();
     let ticket = request.ticket;
+    let existing = state.sessions.get(&source)
+        .map(|session| (session.document.clone(), session.dirty()));
     state.work = Some(Work {
         path: source.clone(),
         generation: Some(request.request.host_generation),
@@ -69,43 +67,77 @@ pub(super) fn launch(state: &mut AnimationEditorState) {
                 if !source.starts_with(&root) {
                     return Err("动作资产已离开当前工程资产目录".into());
                 }
-                let mut document = AnimationDocument::load(&source)?;
-                // 仅读取磁盘版本。原动作标签的草稿、历史及临时姿势仍由原会话保留。
-                document.read_only = true;
-                Ok(Session::new(document))
+                if let Some((document, dirty)) = existing {
+                    // 精确核对作者基线。磁盘改变时，只有干净文档才能替换。
+                    if document.disk_unchanged(&source)? {
+                        return Ok(None);
+                    }
+                    if dirty {
+                        return Err("工程动作文件已在外部更新，原动画草稿已保留".into());
+                    }
+                }
+                Ok(Some(Session::new(AnimationDocument::load(&source)?)))
             })();
             TaskResult::RigLoad { ticket, result }
         }),
     });
 }
 
-pub(super) fn adopt(state: &mut AnimationEditorState, ticket: u64, result: Result<Session, String>) {
-    let Some(request) = state.rig_preview.as_mut().filter(|request| request.ticket == ticket) else {
-        state.retired = Some(Retired::Result(TaskResult::RigLoad { ticket, result }));
+pub(super) fn adopt(state: &mut AnimationEditorState, ticket: u64, result: Result<Option<Session>, String>) {
+    let Some(request) = state.rig_preview.as_ref().filter(|request| request.ticket == ticket) else {
+        state.retired = result.ok().flatten().map(Retired::Session);
         return;
     };
-    let mut session = match result {
-        Ok(session) => session,
+    let source = request.source.clone();
+    let source_clip = request.request.clip_index;
+    let loaded = match result {
+        Ok(loaded) => loaded,
         Err(error) => {
-            request.failed = true;
-            state.status = error;
+            reject(state, None, error);
             return;
         }
     };
-    let Some(clip) = session.clip_from_source(request.request.clip_index) else {
-        request.failed = true;
-        state.status = "所选动画片段已不存在，请重新选择动作 GLB".into();
-        state.retired = Some(Retired::Session(session));
+    let selected = loaded.as_ref().or_else(|| state.sessions.get(&source)).and_then(|session| {
+        session.clip_from_source(source_clip).map(|clip| (clip, session.clip, session.pose.is_some()))
+    });
+    let Some((clip, current_clip, has_pose)) = selected else {
+        reject(state, loaded, "所选动画片段已不存在，请重新选择动作 GLB");
         return;
     };
-    session.select_clip(clip);
-    session.model_path = Some(request.request.model_path.clone());
-    session.retarget_model = true;
-    debug_assert!(state.rig_session.is_none());
-    state.rig_session = Some((ticket, session));
-    state.status = "工程动作已载入 · 预览只读".into();
+    if has_pose && current_clip != clip {
+        reject(state, loaded, "请先插入或还原原片段的临时姿势");
+        return;
+    }
+    if let Some(session) = loaded {
+        let retired = match state.make_room_for_session(&source) {
+            Ok(retired) => retired,
+            Err(error) => {
+                reject(state, Some(session), error);
+                return;
+            }
+        };
+        state.retired = state.sessions.insert(source.clone(), session).or(retired).map(Retired::Session);
+    }
+    let session = state.sessions.get_mut(&source).expect("采用前已核对动画会话");
+    if !has_pose {
+        session.select_clip(clip);
+    }
+    session.last_used = state.revision;
+    session.source_changed = false;
+    // 分享作者会话，包括历史与未提交姿势。模型绑定只存在于该标签的请求中。
+    state.rig_preview.as_mut().unwrap().ready = true;
+    state.status = "工程动作已载入".into();
     state.model_status = "正在检查角色与动作骨架，准备重定向".into();
-    state.playing = true;
+    state.playing = !has_pose;
+    if !state.select_current_clip() {
+        state.changed();
+    }
+}
+
+fn reject(state: &mut AnimationEditorState, loaded: Option<Session>, error: impl Into<String>) {
+    state.rig_preview.as_mut().unwrap().failed = true;
+    state.retired = loaded.map(Retired::Session);
+    state.status = error.into();
     state.changed();
 }
 
@@ -180,7 +212,7 @@ pub(super) fn advance_directory_pick(
         false
     };
     state.cancel_directory_pick();
-    if can_select {
+    if can_select && !state.select_current_clip() {
         state.changed();
     }
 }
@@ -211,7 +243,7 @@ pub fn active_project_clip(world: &World) -> Option<(&Path, usize, f32, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::{components::AnimationAction, control, data::tests::test_document};
+    use super::super::{components::AnimationAction, control, data::tests::test_document, types::PoseProperty};
     use feathrise_editor_animation_model::media::{
         AssetPreviewModelSession, AssetPreviewModelTarget, AssetPreviewPrimitiveId,
         AssetPreviewState, ExpandedAssetPreview,
@@ -267,16 +299,19 @@ mod tests {
     }
 
     #[test]
-    fn rig_switch_retires_late_sources_and_keeps_editable_source_session() {
+    fn rig_switch_retires_late_sources_and_reuses_the_author_session() {
         let author_path = PathBuf::from("assets/walk.glb");
+        let model = PathBuf::from("assets/hero.glb");
         let mut author = Session::new(test_document());
-        author.pose = Some((0, Transform::from_xyz(3.0, 2.0, 1.0)));
+        author.set_pose(0, Transform::from_xyz(3.0, 2.0, 1.0), PoseProperty::Translation);
+        author.model_path = Some("previous-bound.glb".into());
         let mut state = AnimationEditorState {
-            active: Some(author_path.clone()),
+            active: Some(model.clone()),
             visible: true,
             ..default()
         };
         state.sessions.insert(author_path.clone(), author);
+        state.sessions.insert(model.clone(), Session::new(test_document()));
         select(&mut state, request("idle.glb", 0), "assets/idle.glb".into());
         let stale = state.rig_preview.as_ref().unwrap().ticket;
         select(&mut state, request("walk.glb", 0), author_path.clone());
@@ -284,26 +319,33 @@ mod tests {
         assert_ne!(ticket, stale);
         assert!(state.in_place_rig_preview() && !state.editable());
         assert!(state.current().is_none());
-        adopt(&mut state, stale, Ok(Session::new(test_document())));
+        adopt(&mut state, stale, Ok(Some(Session::new(test_document()))));
         assert!(state.current().is_none());
-        assert!(matches!(state.retired.take(), Some(Retired::Result(_))));
-        adopt(&mut state, ticket, Ok(Session::new(test_document())));
-        assert_eq!(state.current().unwrap().model_path.as_deref(), Some("hero_rigged.glb"));
+        assert!(matches!(state.retired.take(), Some(Retired::Session(_))));
+        adopt(&mut state, ticket, Ok(None));
+        assert_eq!(state.author_path(), Some(author_path.as_path()));
+        assert_eq!(state.preview_model_path(), Some("hero_rigged.glb"));
+        assert_eq!(state.current().unwrap().model_path.as_deref(), Some("previous-bound.glb"));
         assert_eq!(state.current().unwrap().clip, 0);
-        assert!(state.playing && !state.editable());
-        assert!(state.current().unwrap().pose.is_none());
+        assert!(!state.playing && !state.editable());
+        let pose = state.current().unwrap().pose.as_ref().unwrap().get(0).unwrap();
+        assert_eq!(pose.transform.translation, Vec3::new(3.0, 2.0, 1.0));
+        assert!(state.enter_animation_edit() && state.editable());
+        select(&mut state, request("walk.glb", 1), author_path.clone());
+        assert_eq!(state.active_clip(), 0, "未提交姿势必须留在原片段");
+        control::action(&mut state, AnimationAction::ResetPose);
         let snapshot = state.document_snapshot().unwrap();
         select(&mut state, request("walk.glb", 1), author_path.clone());
         assert_eq!(state.rig_preview.as_ref().unwrap().ticket, ticket);
         assert_eq!(state.active_clip(), 1);
+        assert!(!state.editable() && state.can_edit_selected());
         assert!(std::sync::Arc::ptr_eq(&snapshot, &state.document_snapshot().unwrap()));
         control::action(&mut state, AnimationAction::UnbindModel);
-        retire(&mut state);
         assert!(!state.in_place_rig_preview());
-        assert!(matches!(state.retired.as_ref(), Some(Retired::Session(_))));
-        assert_eq!(state.source(), Some(author_path.as_path()));
-        assert_eq!(state.current().unwrap().pose.unwrap().1.translation, Vec3::new(3.0, 2.0, 1.0));
-        assert!(state.editable());
+        assert_eq!(state.source(), Some(model.as_path()));
+        assert!(!state.editable(), "结束工程动作预览只回到角色会话");
+        state.active = Some(author_path);
+        assert!(std::sync::Arc::ptr_eq(&snapshot, &state.document_snapshot().unwrap()));
     }
 
     #[test]
@@ -317,15 +359,57 @@ mod tests {
         select(&mut state, pick, source);
         let new = state.rig_preview.as_ref().unwrap().ticket;
         assert_ne!(old, new);
-        adopt(&mut state, old, Ok(Session::new(test_document())));
+        adopt(&mut state, old, Ok(Some(Session::new(test_document()))));
         assert!(state.current().is_none(), "同路径旧文件的迟到结果不发布");
         assert!(state.retired.take().is_some());
         let mut replacement = test_document();
         replacement.clips[1].source_index = 5;
-        adopt(&mut state, new, Ok(Session::new(replacement)));
+        adopt(&mut state, new, Ok(Some(Session::new(replacement))));
         let session = state.current().unwrap();
         assert_eq!(session.document.clips[session.clip].name, "待机");
         assert_eq!(session.document.clips[session.clip].source_index, 5);
         assert!(state.playing && !state.editable());
+        assert!(state.can_edit_selected());
+    }
+
+    #[test]
+    fn rig_pick_reuses_the_cached_draft_and_refuses_a_conflicting_file() {
+        use super::super::data::tests::{TemporaryDirectory, write_directory_clip_fixture};
+
+        IoTaskPool::get_or_init(bevy::tasks::TaskPool::new);
+        let directory = TemporaryDirectory::new();
+        let source = directory.0.join("walk.glb");
+        write_directory_clip_fixture(&source, "原片段");
+        let mut session = Session::new(AnimationDocument::load(&source).unwrap());
+        session.saved_cursor = None;
+        let draft = session.document.clone();
+        let mut state = AnimationEditorState::default();
+        state.sessions.insert(source.clone(), session);
+        let mut choose = request("walk.glb", 1);
+        choose.asset_root = directory.0.clone();
+        choose.recheck_source = true;
+
+        for changed in [false, true] {
+            if changed {
+                write_directory_clip_fixture(&source, "外部替换");
+            }
+            select(&mut state, choose.clone(), source.clone());
+            assert!(state.current().is_none(), "复验期间不发布旧作者片段");
+            launch(&mut state);
+            let task = state.work.take().expect("使用原单槽读取").task;
+            let TaskResult::RigLoad { ticket, result } = bevy::tasks::block_on(task) else {
+                panic!("收到错误的动作读取回执");
+            };
+            adopt(&mut state, ticket, result);
+            assert!(std::sync::Arc::ptr_eq(&draft, &state.sessions[&source].document));
+            assert!(state.sessions[&source].dirty());
+            if changed {
+                assert!(state.current().is_none() && !state.can_edit_selected());
+                assert!(state.status.contains("外部更新"));
+            } else {
+                assert!(state.playing && state.can_edit_selected() && !state.editable());
+                assert_eq!(state.active_clip(), 1);
+            }
+        }
     }
 }

@@ -769,7 +769,7 @@ fn completed_placement_save_app(
     let success = DraftSaveSuccess {
         terrain_manifest: None, terrain_saved: Vec::new(), terrain_reload_paths: Vec::new(),
         terrain_digests: Vec::new(), terrain_water_changed: BTreeSet::new(),
-        root_water_changed: gate_failure, domain_hash: None, scene_id: map.clone(),
+        root_water_changed: gate_failure, domain_hash: None, motion: None, motion_written: false, scene_id: map.clone(),
         placements_snapshot: draft.placements.clone(),
         placements_changed, surface_definition_changed: false, surface_weights_changed: false,
         active_terrain_surface_changes: None, surface_source_identity: None,

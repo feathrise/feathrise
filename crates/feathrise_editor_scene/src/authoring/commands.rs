@@ -55,6 +55,15 @@ pub enum EditorCommand {
         before: ScenePlacementRecord, // 操作前的变换、资产路径与全部网格水体覆盖。
         after: ScenePlacementRecord, // 操作后已经通过公共格式校验的完整记录。
     },
+    SceneMotionChanged {
+        placement_id: String,
+        before: Option<super::scene_motion::SceneMotionTrack>,
+        after: Option<super::scene_motion::SceneMotionTrack>,
+    },
+    SceneMotionTimingChanged {
+        before: (f32, super::scene_motion::SceneMotionPlayback),
+        after: (f32, super::scene_motion::SceneMotionPlayback),
+    },
     /// 显式建筑整平把placement与真实GLB顶点差分绑定为一条不可拆分事务。
     BuildingTerrainChanged(Box<BuildingTerrainChange>), // Box避免扩大每条普通历史命令的栈尺寸。
     /// 单栋稀疏平台和建筑共用一条历史，格点Arc可交给后台恢复而不在输入帧复制。

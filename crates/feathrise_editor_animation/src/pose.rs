@@ -2,14 +2,16 @@
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_animation_model::{host::AnimationHost, media::*};
-use super::{context::AnimationContext, preview::PreviewRuntime, resources::*, skeleton, types::*};
+use super::{context::AnimationContext, preview::{Pose, PreviewRuntime}, resources::*, skeleton, types::*};
 use feathrise_editor_core::SceneEditorSystemSet;
 use feathrise_editor_animation_model::{assembly::AnimationSystems, gizmo::{GizmoCamera, MeshEditTool, MoveConstraint, self as gizmo}};
 use gizmo::{move_arrows, pick_transform_handle, rotation_delta, rotation_rings};
 use bevy::{
     camera::{Projection, visibility::RenderLayers},
+    ecs::system::SystemParam,
     prelude::*,
     tasks::{AsyncComputeTaskPool, futures::check_ready},
+    transform::TransformSystems,
     ui::RelativeCursorPosition,
 };
 use feathrise_editor_core::constants::render_layers::SCENE_EDITOR_ASSET_PREVIEW_LAYER;
@@ -31,9 +33,8 @@ pub(super) fn install_visuals(app: &mut App) {
         .init_gizmo_group::<AnimationHighlightGizmos>()
         .add_systems(Startup, configure)
         .add_systems(
-            Update,
-            draw.after(super::preview::drive)
-                .in_set(SceneEditorSystemSet::Presentation),
+            PostUpdate,
+            draw.after(TransformSystems::Propagate), // 工程动作工具必须读取当帧已发布角色的世界变换。
         );
 }
 fn configure(mut store: ResMut<bevy::gizmos::config::GizmoConfigStore>) {
@@ -93,6 +94,51 @@ fn camera(
     ))
 }
 
+#[derive(SystemParam)]
+pub(super) struct RigPoseTargets<'w, 's> {
+    binding: Option<Res<'w, BindingState>>,
+    joints: Query<'w, 's, (&'static GlobalTransform, Option<&'static ChildOf>)>,
+}
+
+impl RigPoseTargets<'_, '_> {
+    fn frame(
+        &self, state: &AnimationEditorState, runtime: &PreviewRuntime, pose: &Pose, node: usize,
+    ) -> Option<(Vec3, Mat4)> {
+        let session = state.current()?;
+        if !state.retargeting() {
+            let origin = pose.world.get(node)?.transform_point3(Vec3::ZERO);
+            let parent = session.document.nodes.get(node)?.parent
+                .and_then(|p| pose.world.get(p)).copied().unwrap_or(Mat4::IDENTITY);
+            return Some((origin, parent));
+        }
+        // 外部动作原地播放只映射旋转。位置/缩放仍可在源曲线上调整，不能套用目标骨长。
+        if !state.in_place_rig_preview() || state.pose_tool != PoseTool::Rotate {
+            return None;
+        }
+        let binding = self.binding.as_ref()?;
+        let identity = binding.identity.as_ref()?;
+        if !binding.active || !binding.ready() || !identity.retarget
+            || runtime.binding_revision != binding.revision || !runtime.rig_pose_published(state)
+            || identity.revision != state.source_revision() || identity.request != state.model_binding_revision
+            || state.source() != Some(identity.source.as_path())
+            || state.preview_model_path() != Some(identity.model.as_str())
+        {
+            return None;
+        }
+        if !session.document.can_animate_node(node) {
+            return None;
+        }
+        let rig = binding.mapping.as_ref()?.retarget.as_ref()?;
+        let correction = rig.corrections.get(node)?.as_ref()?;
+        let (world, parent) = self.joints.get(binding.node(runtime.front, node)?).ok()?;
+        let parent = parent.map_or(Some(Quat::IDENTITY), |p| {
+            self.joints.get(p.parent()).ok().map(|(transform, _)| transform.rotation())
+        })?;
+        // 目标局部旋转 = before × 源局部旋转 × after。用目标父级 × before 共轭消除显示坐标差异。
+        Some((world.translation(), Mat4::from_quat((parent * correction.before).normalize())))
+    }
+}
+
 pub(super) fn input(
     context: AnimationContext,
     preview: Res<AssetPreviewState>,
@@ -103,6 +149,7 @@ pub(super) fn input(
     mut state: ResMut<AnimationEditorState>,
     mut interaction: ResMut<PoseInputState>,
     runtime: Res<PreviewRuntime>,
+    targets: RigPoseTargets,
     canvases: Query<
         (&ComputedNode, &RelativeCursorPosition, &UiInteraction),
         With<AssetPreviewCanvas>,
@@ -111,13 +158,10 @@ pub(super) fn input(
 ) {
     state.pose_mouse_owned = false;
     let available = state.visible()
-        && !state.retargeting()
+        && (!state.retargeting() || state.in_place_rig_preview() && state.editable())
         && !context.host.weights_own_viewport
         && context.available(&preview, &media)
-        && preview
-            .selected_path
-            .as_ref()
-            .is_some_and(|p| state.source() == Some(documents.asset_root().join(p).as_path()));
+        && context.source_matches(&state, &preview, &media, documents.asset_root());
     if !available && let Some((_, revision, _)) = &mut interaction.pick {
         *revision = None;
     }
@@ -145,12 +189,16 @@ pub(super) fn input(
     let camera = camera(&canvases, &cameras);
     if let Some(gesture) = interaction.gesture.take() {
         state.pose_mouse_owned = true;
+        // 编辑权限随动作和工具页变化，失效时还原按下前的姿势，禁止松手自动插帧。
         let valid = available
+            && state.editable()
             && !escape
             && state.source() == Some(gesture.source.as_path())
             && state.revision == gesture.revision
             && state.source_revision == gesture.source_revision
             && state.active_clip() == gesture.clip
+            && (!state.in_place_rig_preview() || runtime.published_pose.as_ref()
+                .is_some_and(|pose| targets.frame(&state, &runtime, pose, gesture.node).is_some()))
             && camera.is_some();
         if !valid {
             if let Some(s) = state.sessions.get_mut(&gesture.source) {
@@ -207,23 +255,33 @@ pub(super) fn input(
                 }
             }
         }
+        let property = match gesture.tool {
+            PoseTool::Move => PoseProperty::Translation,
+            PoseTool::Rotate => PoseProperty::Rotation,
+        };
         if let Some(s) = state.current_mut() {
-            if s.pose != Some((gesture.node, value)) {
-                s.pose = Some((gesture.node, value));
+            let changed = if value == gesture.before {
+                let changed = s.pose != gesture.previous;
+                if changed {
+                    s.pose = gesture.previous.clone();
+                }
+                changed
+            } else {
+                s.set_pose(gesture.node, value, property)
+            };
+            if changed {
                 state.pose_revision = state.pose_revision.wrapping_add(1);
             }
         }
         if mouse.pressed(MouseButton::Left) {
             interaction.gesture = Some(gesture);
         } else {
-            if value == gesture.before {
-                if let Some(s) = state.current_mut() {
-                    s.pose = gesture.previous;
+            if value != gesture.before {
+                if state.auto_key {
+                    super::control::action(&mut state, super::components::AnimationAction::InsertPose);
+                } else {
+                    state.status = "继续调整骨骼，或将整组姿势插入当前帧".into();
                 }
-            } else if state.auto_key {
-                super::control::action(&mut state, super::components::AnimationAction::InsertPose);
-            } else {
-                state.status = "临时姿势：点击插入姿势保存到当前帧，或还原姿势".into();
             }
             state.changed();
         }
@@ -252,9 +310,8 @@ pub(super) fn input(
     if hovered
         && !context.text_input_focused()
         && !mouse.any_pressed([MouseButton::Left, MouseButton::Right, MouseButton::Middle])
-        && state
-            .current()
-            .is_some_and(|s| !s.document.read_only && s.selected_node.is_some())
+        && state.editable()
+        && state.current().is_some_and(|s| s.selected_node.is_some())
         && let Some(keys) = keys.as_mut()
         && !keys.any_pressed([
             KeyCode::ControlLeft,
@@ -296,37 +353,32 @@ pub(super) fn input(
     };
     if !pose.can_start_edit(&state) {
         state.pose_mouse_owned = true;
-        state.status = "正在准备当前姿态，完成后可编辑骨骼".into();
+        state.status = "正在准备当前姿态，请稍候再操作骨骼".into();
         return;
     }
     let Some(s) = state.current() else {
         return;
     };
-    if let Some(node) = s.selected_node
-        && let Some(world) = pose.world.get(node)
+    if let Some(node) = s.selected_node.filter(|&node| s.document.can_animate_node(node))
+        && let Some((origin, parent)) = targets.frame(&state, &runtime, pose, node)
     {
         let tool = if state.pose_tool == PoseTool::Move {
             MeshEditTool::Move
         } else {
             MeshEditTool::Rotate
         };
-        let origin = world.transform_point3(Vec3::ZERO);
-        if !s.document.read_only
+        if state.editable()
             && let Some(constraint) = pick_transform_handle(tool, camera, origin, at)
         {
             interaction.gesture = Some(PoseGesture {
-                source: state.active.clone().unwrap(),
+                source: state.source().expect("已验证当前动画源").to_owned(),
                 revision: state.revision,
                 source_revision: state.source_revision,
                 clip: s.clip,
                 node,
-                before: s.pose.map_or(pose.local[node], |(_, t)| t),
-                previous: s.pose,
-                parent: s.document.nodes[node]
-                    .parent
-                    .and_then(|p| pose.world.get(p))
-                    .copied()
-                    .unwrap_or(Mat4::IDENTITY),
+                before: pose.local[node],
+                previous: s.pose.clone(),
+                parent,
                 origin,
                 start: at,
                 camera,
@@ -340,9 +392,8 @@ pub(super) fn input(
             return;
         }
     }
-    if s.pose.is_some() {
-        state.status = "请先插入或还原当前临时姿势，再选择其他骨骼".into();
-        return;
+    if state.retargeting() {
+        return; // 当前角色用映射后的手柄，不能拿源骨架轮廓拾取目标骨骼。
     }
     // 相机还在重新投影时，等待与视口中菱形、骨段相同的一帧再拾取。
     let Some(view) = runtime.published_skeleton_view.filter(|view|
@@ -350,7 +401,7 @@ pub(super) fn input(
     else { return };
     state.seek(pose.time);
     let pose = pose.clone();
-    let source = state.active.clone().unwrap();
+    let source = state.source().expect("已验证当前动画源").to_owned();
     let revision = state.revision;
     // 全骨架拾取移至唯一后台槽；大骨架不在点击帧遍历，迟到结果按源与修订拒绝。
     interaction.pick = Some((
@@ -368,6 +419,7 @@ fn draw(
     preview: Res<AssetPreviewState>,
     interaction: Res<PoseInputState>,
     runtime: Res<PreviewRuntime>,
+    targets: RigPoseTargets,
     canvases: Query<
         (&ComputedNode, &RelativeCursorPosition, &UiInteraction),
         With<AssetPreviewCanvas>,
@@ -376,8 +428,13 @@ fn draw(
     mut gizmos: Gizmos<AnimationGizmos>,
     mut highlight: Gizmos<AnimationHighlightGizmos>,
 ) {
-    if host.is_some_and(|host| host.weights_own_viewport)
-        || !runtime.document_ready(&state, &preview)
+    if !state.editable()
+        || host.is_some_and(|host| host.weights_own_viewport)
+        || if state.in_place_rig_preview() {
+            !preview.render_visible || runtime.in_place_hidden_scene != preview.scene_root()
+        } else {
+            !runtime.document_ready(&state, &preview)
+        }
     {
         return;
     }
@@ -390,7 +447,7 @@ fn draw(
     if !pose.can_draw_tools(&state, interaction.gesture.is_some()) {
         return;
     }
-    let Some(world) = pose.world.get(node) else {
+    let Some((origin, _)) = targets.frame(&state, &runtime, pose, node) else {
         return;
     };
     // 绘制不依赖鼠标是否仍在画布内，移开鼠标后手柄仍可被发现。
@@ -408,7 +465,6 @@ fn draw(
     ) else {
         return;
     };
-    let origin = world.transform_point3(Vec3::ZERO);
     // 青色选中关节由骨架统一绘制，此处仅保留位移和旋转的交互手柄。
     let active = interaction
         .gesture
@@ -565,6 +621,78 @@ mod tests {
         state.current_mut().unwrap().select_node(0);
         (app, canvas, at)
     }
+
+    #[test]
+    fn rig_rotation_uses_visible_target_joint_and_converts_back_to_source_axes() {
+        use bevy::ecs::system::RunSystemOnce;
+        use feathrise_editor_animation_model::{
+            request::{PreviewRigAnimation, RigPreviewRequest},
+            retarget::{JointCorrection, RigRetarget},
+        };
+        use std::sync::Arc;
+
+        let (mut app, source, _) = super::super::editor_tests::app_context();
+        let root = app.world().resource::<AnimationHost>().asset_root().to_owned();
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        let mut document = (*state.document_snapshot().unwrap()).clone();
+        let channel = &mut document.clips[0].channels[0];
+        channel.path = "rotation".into();
+        for key in &mut channel.keys {
+            key.value = Quat::IDENTITY.to_array().to_vec();
+        }
+        let node = channel.node;
+        *state.current_mut().unwrap() = Session::new(document);
+        let revision = state.source_revision();
+        state.rig_preview = Some(RigPreviewRequest {
+            ticket: revision, source: source.clone(), ready: true, failed: false,
+            request: PreviewRigAnimation {
+                model_path: "rig.glb".into(), animation_path: "motion.glb".into(), clip_index: 0,
+                host_path: "rig.glb".into(), host_generation: 1, host_tab: 1, asset_root: root,
+                recheck_source: false,
+            },
+        });
+        state.pose_tool = PoseTool::Rotate;
+        let mut runtime = super::super::preview::for_input_tests(state.document_snapshot().unwrap());
+        runtime.in_place_hidden_scene = Some(Entity::PLACEHOLDER);
+        let request = state.model_binding_revision;
+        let parent_rotation = Quat::from_rotation_y(0.6);
+        let before = Quat::from_rotation_x(0.4);
+        let after = Quat::from_rotation_z(-0.3);
+        let parent = app.world_mut().spawn(GlobalTransform::from(Transform::from_rotation(parent_rotation))).id();
+        let origin = Vec3::new(1.0, 2.0, 3.0);
+        let joint = app.world_mut().spawn((GlobalTransform::from_translation(origin), ChildOf(parent))).id();
+        let mut corrections = vec![None; node + 1];
+        corrections[node] = Some(JointCorrection { rest: Transform::IDENTITY, before, after });
+        let mut binding = BindingState {
+            active: true,
+            identity: Some(BindingIdentity {
+                source, revision, request, model: "rig.glb".into(), retarget: true, embedded_generation: None,
+            }),
+            mapping: Some(SkeletonMapping {
+                names: default(), embedded_nodes: default(),
+                retarget: Some(Arc::new(RigRetarget {
+                    corrections, clips: vec![true],
+                    bounds: AssetPreviewModelBounds { minimum: Vec3::ZERO, maximum: Vec3::ONE },
+                })),
+            }),
+            ..default()
+        };
+        binding.banks[0].scanned = true;
+        binding.banks[0].nodes.insert(node, joint);
+        binding.banks[1].scanned = true;
+        app.insert_resource(runtime).insert_resource(binding);
+        let (center, basis) = app.world_mut().run_system_once(move |
+            state: Res<AnimationEditorState>, runtime: Res<PreviewRuntime>, targets: RigPoseTargets,
+        | targets.frame(&state, &runtime, runtime.published_pose.as_ref().unwrap(), node))
+            .unwrap().expect("已发布的目标关节有且仅有旋转工具");
+        assert_eq!(center, origin);
+        let (_, basis, _) = basis.to_scale_rotation_translation();
+        let delta_world = Quat::from_rotation_z(0.2);
+        let new_source = basis.inverse() * delta_world * basis;
+        let new_target = parent_rotation * before * new_source * after;
+        assert!(new_target.abs_diff_eq(delta_world * parent_rotation * before * after, 1.0e-5));
+    }
+
     #[test]
     fn canvas_tool_shortcuts_switch_and_do_not_steal_text_or_outside_keys() {
         let (mut app, canvas, at) = fixture(true);
@@ -656,8 +784,11 @@ mod tests {
                 .current()
                 .unwrap()
                 .pose
+                .as_ref()
                 .unwrap()
-                .1
+                .get(0)
+                .unwrap()
+                .transform
                 .translation
                 .x
                 > 0.1
@@ -683,6 +814,61 @@ mod tests {
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         app.update();
     }
+
+    #[test]
+    fn read_only_canvas_ignores_pose_tools_and_keeps_bone_selection() {
+        let (mut app, canvas, _) = fixture(true);
+        app.world_mut().resource_mut::<AnimationEditorState>().exit_animation_edit();
+        for (key, tool) in [(KeyCode::KeyR, PoseTool::Move), (KeyCode::KeyG, PoseTool::Rotate)] {
+            app.world_mut().resource_mut::<AnimationEditorState>().pose_tool = tool;
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            *keys = default();
+            keys.press(key);
+            drop(keys);
+            app.update();
+            assert!(app.world().resource::<AnimationEditorState>().pose_tool == tool);
+        }
+        app.world_mut().resource_mut::<AnimationEditorState>().pose_tool = PoseTool::Move;
+        click_published_move_handle(&mut app, canvas);
+        assert!(app.world().resource::<PoseInputState>().gesture.is_none());
+
+        let camera = app.world_mut().query_filtered::<(&Projection, &GlobalTransform), With<AssetPreviewCamera>>()
+            .single(app.world()).unwrap();
+        let camera = GizmoCamera::from_projection(camera.0, camera.1, Vec2::splat(400.), 1.).unwrap();
+        let mut runtime = app.world_mut().resource_mut::<PreviewRuntime>();
+        let target = runtime.published_pose.as_ref().unwrap().world[1].transform_point3(Vec3::ZERO);
+        runtime.published_skeleton_view = Some(super::super::preview::SkeletonView { camera, selected: Some(0) });
+        drop(runtime);
+        app.world_mut().get_mut::<RelativeCursorPosition>(canvas).unwrap().normalized = camera.project(target);
+        let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        *mouse = default();
+        mouse.press(MouseButton::Left);
+        drop(mouse);
+        app.update();
+        let started = std::time::Instant::now();
+        while app.world().resource::<PoseInputState>().pick.is_some() {
+            assert!(started.elapsed() < std::time::Duration::from_secs(5), "预览选骨任务应完成");
+            app.update();
+            std::thread::yield_now();
+        }
+        let state = app.world().resource::<AnimationEditorState>();
+        assert_eq!(state.current().unwrap().selected_node, Some(1));
+        assert!(state.pending.is_none() && !state.current().unwrap().dirty());
+    }
+
+    #[test]
+    fn weights_taking_over_canvas_restores_pose_without_auto_keying() {
+        let (mut app, canvas, at) = fixture(true);
+        begin_move(&mut app, canvas, at);
+        app.world_mut().resource_mut::<AnimationHost>().weights_own_viewport = true;
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+        app.update();
+        let state = app.world().resource::<AnimationEditorState>();
+        assert!(app.world().resource::<PoseInputState>().gesture.is_none());
+        assert!(state.current().unwrap().pose.is_none());
+        assert!(state.pending.is_none() && !state.current().unwrap().dirty());
+    }
+
     #[test]
     fn gizmo_release_records_once_and_escape_restores_the_draft() {
         let (mut app, canvas, at) = fixture(true);
@@ -716,7 +902,7 @@ mod tests {
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
         app.update();
         let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
-        let pose = state.current().unwrap().pose;
+        let pose = state.current().unwrap().pose.clone();
         let document = state.document_snapshot().unwrap();
         control::action(&mut state, AnimationAction::CycleInterpolation);
         assert!(state.pending.is_none(), "修改插值不能通过后台编辑清掉未插帧姿势");
@@ -750,6 +936,8 @@ mod tests {
                 let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
                 if change_clip {
                     control::action(&mut state, AnimationAction::NextClip);
+                    // 模拟明确选定另一动作后进入编辑，只考察旧姿态的身份保护。
+                    assert!(state.select_current_clip() && state.enter_animation_edit());
                 } else {
                     let mut document = (*document).clone();
                     for key in &mut document.clips[0].channels[0].keys {
@@ -800,7 +988,7 @@ mod tests {
         app.update();
         let (document, draft) = {
             let state = app.world().resource::<AnimationEditorState>();
-            (state.document_snapshot().unwrap(), state.current().unwrap().pose)
+            (state.document_snapshot().unwrap(), state.current().unwrap().pose.clone())
         };
         assert!(draft.is_some());
         app.insert_resource(super::super::preview::for_input_tests_at(document.clone(), 0, 0.0, draft));

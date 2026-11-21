@@ -1,6 +1,6 @@
 //! 连续时间轴的鼠标捕获与快捷键；手势只预览，释放时提交一次后台事务。
 
-use feathrise_editor_ui::UiInteraction;
+use feathrise_editor_ui::{UiInteraction, animation_timeline};
 use feathrise_editor_animation_model::{host::AnimationHost, media::{AssetPreviewWorkspace, AssetPreviewState}};
 use super::{components::*, context::AnimationContext, editing::Command, resources::*, types::*};
 use bevy::{
@@ -18,19 +18,6 @@ pub(super) fn zoom(state: &mut AnimationEditorState, lines: f32, anchor: f32) {
         s.window_start = (fixed - s.window_span * anchor).max(0.0);
     }
     state.changed();
-}
-
-fn nearest(keys: &[super::data::Keyframe], time: f32, tolerance: f32) -> Option<usize> {
-    let right = keys.partition_point(|key| key.time < time);
-    [right.checked_sub(1), (right < keys.len()).then_some(right)]
-        .into_iter()
-        .flatten()
-        .filter(|&i| (keys[i].time - time).abs() <= tolerance)
-        .min_by(|&a, &b| {
-            (keys[a].time - time)
-                .abs()
-                .total_cmp(&(keys[b].time - time).abs())
-        })
 }
 
 pub(super) fn input(
@@ -80,13 +67,17 @@ pub(super) fn input(
         state.mouse_owned |= state.gesture.take().is_some();
         return;
     }
+    let editable = state.editable() && !context.host.weights_own_viewport;
     let busy = state.busy();
     if busy {
         state.mouse_owned |= state.gesture.take().is_some();
     }
     if let Some(mut gesture) = state.gesture.take() {
         state.mouse_owned = true;
-        if gesture.binding != state.revision || state.source() != Some(gesture.source.as_path()) {
+        // 退出编辑或权重工具接管时撤回已开始的编辑手势，松手不能再修改关键帧。
+        if gesture.binding != state.revision || state.source() != Some(gesture.source.as_path())
+            || (!editable && matches!(gesture.kind, TimelineGestureKind::Move { .. } | TimelineGestureKind::Box { .. }))
+        {
             return;
         }
         let Ok((_, _, node, cursor, _)) = tracks.get(gesture.entity) else {
@@ -94,7 +85,7 @@ pub(super) fn input(
         };
         if let Some(at) = cursor.normalized {
             let s = state.current().unwrap();
-            let time = (s.window_start + (at.x + 0.5) * s.window_span).max(0.0);
+            let time = animation_timeline::cursor_time(s.window_start, s.window_span, at.x).max(0.0);
             let delta = ((at.x - gesture.cursor.x) * s.window_span * state.fps as f32).round()
                 / state.fps as f32;
             match &mut gesture.kind {
@@ -134,7 +125,7 @@ pub(super) fn input(
             return;
         }
         match gesture.kind {
-            TimelineGestureKind::Move { selection, delta } if delta != 0.0 && !state.retargeting() => {
+            TimelineGestureKind::Move { selection, delta } if delta != 0.0 => {
                 let clip = state.active_clip();
                 state.pending = Some(PendingAction::Command(Command::Move {
                     clip,
@@ -206,7 +197,9 @@ pub(super) fn input(
         if let Some(keys) = keyboard.as_mut() {
             keys.clear_just_pressed(key);
         }
-        if !busy {
+        if !busy && (editable || matches!(
+            action, AnimationAction::TogglePlayback | AnimationAction::FitTimeline | AnimationAction::CopyKeys
+        )) {
             super::control::action(&mut state, action);
         }
         return;
@@ -246,18 +239,18 @@ pub(super) fn input(
         state.status = "请先插入或还原临时姿势".into();
         return;
     }
-    let time = (s.window_start + (at.x + 0.5) * s.window_span).max(0.0);
+    let time = animation_timeline::cursor_time(s.window_start, s.window_span, at.x).max(0.0);
     let mut kind = TimelineGestureKind::Scrub;
     if button == MouseButton::Middle {
         kind = TimelineGestureKind::Pan {
             start: s.window_start,
         };
-    } else if let Some(row) = track.row.filter(|_| !state.retargeting()) {
+    } else if let Some(row) = track.row.filter(|_| editable) {
         let Some(channel) = s.visible_channels().get(row).copied() else {
             return;
         };
         let keys = &s.document.clips[s.clip].channels[channel].keys;
-        let hit = nearest(keys, time, 8.0 / node.size().x * s.window_span);
+        let hit = animation_timeline::nearest_key(keys, time, 8.0 / node.size().x * s.window_span, |key| key.time);
         if let Some(index) = hit {
             let key_time = keys[index].time;
             let s = state.current_mut().unwrap();
@@ -344,6 +337,61 @@ mod tests {
             .unwrap()
             .normalized = Some(Vec2::new(x, y));
     }
+
+    fn refresh_track_binding(app: &mut App, track: Entity) {
+        let revision = app.world().resource::<AnimationEditorState>().revision;
+        app.world_mut().get_mut::<AnimationTrack>(track).unwrap().binding = revision;
+    }
+
+    #[test]
+    fn read_only_track_scrubs_and_consumes_edit_shortcuts() {
+        let (mut app, track) = fixture(Some(0));
+        app.world_mut().resource_mut::<AnimationEditorState>().exit_animation_edit();
+        refresh_track_binding(&mut app, track);
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        app.update();
+        assert!(matches!(
+            app.world().resource::<AnimationEditorState>().gesture.as_ref().map(|gesture| &gesture.kind),
+            Some(TimelineGestureKind::Scrub)
+        ));
+        cursor(&mut app, track, -0.25, 0.0);
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+        app.update();
+        refresh_track_binding(&mut app, track);
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Delete);
+        app.update();
+        let state = app.world().resource::<AnimationEditorState>();
+        assert_eq!(state.position(), 0.5);
+        assert!(state.pending.is_none() && !state.current().unwrap().dirty());
+        // 时间轴占用的删除按键不能在只读时误传给场景。
+        assert!(!app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Delete));
+    }
+
+    #[test]
+    fn exiting_edit_or_switching_to_weights_cancels_key_move_before_release() {
+        for weights in [false, true] {
+            let (mut app, track) = fixture(Some(0));
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+            app.update();
+            cursor(&mut app, track, -0.25, 0.0);
+            app.update();
+            assert!(matches!(
+                app.world().resource::<AnimationEditorState>().gesture.as_ref().map(|gesture| &gesture.kind),
+                Some(TimelineGestureKind::Move { delta, .. }) if *delta == 0.5
+            ));
+            if weights {
+                app.world_mut().resource_mut::<AnimationHost>().weights_own_viewport = true;
+            } else {
+                app.world_mut().resource_mut::<AnimationEditorState>().exit_animation_edit();
+            }
+            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+            app.update();
+            let state = app.world().resource::<AnimationEditorState>();
+            assert!(state.gesture.is_none() && state.pending.is_none());
+            assert!(!state.current().unwrap().dirty());
+        }
+    }
+
     #[test]
     fn real_drag_submits_once_on_release_and_escape_cancels() {
         let (mut app, track) = fixture(Some(0));

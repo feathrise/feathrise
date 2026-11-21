@@ -194,6 +194,11 @@ pub fn install(app: &mut App) -> bool {
     {
         return false;
     }
+    if super::author_workflow_validation::animation_edit_only() {
+        super::author_workflow_validation::install(app);
+        app.insert_resource(FixtureInstalled);
+        return false; // 此专项只写独立动画资产，不启动场景新增摆放与水域交接。
+    }
     if !app.world().contains_resource::<Fixture>() {
         scene_tools::install(app);
         geometry_unification::install(app);
@@ -292,6 +297,21 @@ pub fn result(world: &World) -> Option<SavedEditProof> {
 
 pub fn author_tools_enabled() -> bool {
     super::author_workflow_validation::enabled()
+}
+
+pub fn begin_animation_edit(world: &mut World) -> Result<(), String> {
+    if !super::author_workflow_validation::animation_edit_only()
+        || !super::author_workflow_validation::begin(world)?
+    {
+        return Err("动画编辑窗口验收未显式启用".into());
+    }
+    Ok(())
+}
+
+pub fn advance_animation_edit(world: &mut World) -> Option<AuthorWorkflowProof> {
+    super::author_workflow_validation::animation_edit_only()
+        .then(|| super::author_workflow_validation::advance(world))
+        .flatten()
 }
 
 /// 只读验收图真正打开的作者文档，用于退出后重开核对。

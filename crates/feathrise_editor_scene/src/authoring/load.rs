@@ -263,6 +263,7 @@ pub(crate) fn start_draft_load(
         terrain_ground: None,
         terrain_documents: Default::default(),
         placements: placements.clone(),
+        motion: Default::default(),
         placement_glb_hash: None,
         placement_water_surface_count: 0, // 完整文档计数移到下方IO任务，主线程不额外扫描8192项。
         portals: portals.clone(),
@@ -317,14 +318,17 @@ pub(crate) fn start_draft_load(
             if let Some(relative) = placement_glb_path {
                 let path = safe_asset_path(&root, &relative)?;
                 let bytes = std::fs::read(&path).map_err(|error| format!("读取场景 GLB {} 失败：{error}", path.display()))?;
-                let (placements, digest) = AsyncComputeTaskPool::get().spawn(async move {
+                let (placements, digest, motion) = AsyncComputeTaskPool::get().spawn(async move {
                     let placements = feathrise_scene_content::read_scene_placements(&bytes, &relative)?;
-                    Ok::<_, String>((placements, feathrise_scene_content::authoring_io::bytes_hash(&bytes)))
+                    let digest = feathrise_scene_content::authoring_io::bytes_hash(&bytes);
+                    let motion = super::scene_motion::SceneMotionDocument::from_glb(&path, bytes, &placements)?;
+                    Ok::<_, String>((placements, digest, motion))
                 }).await?;
                 if placements.scene_id != draft.scene_id {
                     return Err("摆放 GLB 属于另一场景".into());
                 }
                 draft.placements = placements;
+                draft.motion = motion;
                 draft.placement_glb_hash = Some(digest); // 快照与保存冲突基线必须来自同一份文件。
             }
             if let Some(boundaries) = draft.boundaries.take() {

@@ -19,6 +19,7 @@ pub(super) fn open(
     mut documents: ResMut<DocumentState>,
     mut media: ResMut<AssetPreviewWorkspace>,
     mut workspace: ResMut<VegetationPresetEditorState>,
+    mut animation: Option<ResMut<super::AnimationEditorState>>,
     state: Res<AssetPreviewState>,
     navigation: Res<AssetPreviewNavigation>,
     inputs: Query<&EditableText>,
@@ -43,7 +44,13 @@ pub(super) fn open(
     let result = if crate::asset_catalog::document_format(&request.path).is_some() {
         documents.expand(request.path, &mut workspace)
     } else if workspace::media_path(&request.path) {
-        workspace::expand(&mut media, &mut workspace, &request.path, &state, &navigation)
+        let result = workspace::expand(&mut media, &mut workspace, &request.path, &state, &navigation);
+        if result.is_ok() && let Some(animation) = animation.as_deref_mut() {
+            // 双击资产即从预览开始，包括重新打开当前已存在的 GLB 标签。
+            animation.return_to_animation_preview();
+            animation.cancel_directory_pick();
+        }
+        result
     } else { return; };
     if let Err(error) = result { editor.status = error; }
 }

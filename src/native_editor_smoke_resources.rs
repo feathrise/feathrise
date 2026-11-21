@@ -16,6 +16,8 @@ pub(super) struct SmokePlan {
     pub scene_error: Option<String>,
     pub preview_ready: bool,
     pub author_status: String,
+    pub animation_only: bool,
+    pub animation_edit: Option<feathrise_editor_scene::standalone::validation_fixture::AuthorWorkflowProof>,
     pub save_fixture: bool,
     pub save_requested: bool,
     pub save_error: Option<String>,

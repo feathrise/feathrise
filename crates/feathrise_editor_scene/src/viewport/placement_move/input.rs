@@ -5,6 +5,7 @@ use super::super::{
     modes::{ViewportMode, ViewportModeState},
 };
 use super::{
+    animation::AnimationDrag,
     math::{MoveCamera, handle_point},
     resources::PlacementMoveState,
     rotation::{pick_rotation, rotation_yaw},
@@ -31,6 +32,7 @@ use crate::ui::{
     courtyard::{CourtyardUiState, CourtyardViewportMode},
     gltf_browser::EditorGltfBrowserState,
     placement_transform::PlacementTransformInputState,
+    scene_motion::Workbench,
     text_input::{EditorTextInput, EditorTextInputGuard},
     vegetation_preset_editor::{PresetWorkspaceTab, VegetationPresetEditorState},
 };
@@ -242,6 +244,7 @@ pub(crate) fn handle_placement_move(
     mut buildings: MessageWriter<BuildingEditRequest>,
     mut multi_selection: Option<ResMut<crate::viewport::multi_select::PlacementSelectionSet>>,
     batch: Option<Res<crate::authoring::placement_batch::PlacementBatchState>>,
+    mut animation: Option<ResMut<Workbench>>,
 ) {
     if state.group.is_some() && keyboard.just_pressed(KeyCode::F12) {
         editor.toggle_close_request();
@@ -302,6 +305,10 @@ pub(crate) fn handle_placement_move(
         keyboard.clear(); // 只消费边沿，保留 Ctrl 电平用于吸附；F12/保存/撤销不能泄漏到并行入口。
         let current = available
             && drag.formal_runtime_current(world.runtime_status.as_deref())
+            && match &drag.animation {
+                Some(edit) => animation.as_deref().is_some_and(|workbench| edit.current(workbench, &drag.scene_id, &drag.before.id)),
+                None => animation.as_deref().is_none_or(|workbench| !workbench.owns(&drag.scene_id, &drag.before.id)),
+            }
             && session.draft.as_ref().is_some_and(|draft| drag.patch_source.as_ref()
                 .is_none_or(|source| world.patch_source_current(draft, source)))
             && node.is_some_and(|(_, node)| node.size() == drag.viewport_ui_size)
@@ -363,6 +370,27 @@ pub(crate) fn handle_placement_move(
         } else {
             Some(origin)
         };
+        if let Some(edit) = drag.animation.as_mut() {
+            let result = if drag.handle.mode() == ViewportMode::Move {
+                position.ok_or("移动位置无效".into()).map(|position| edit.translate(position))
+            } else {
+                let ctrl = keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+                let step = if drag.snapping.active(ctrl) { drag.snapping.rotation_degrees } else { 0.0 };
+                edit.rotate(drag.handle, drag.camera, origin, drag.start_cursor, normalized, moved, step)
+            };
+            // 动画手势只发布帧姿势供预览。松手后写入临时姿势，原摆放和历史只由各自的命令拥有。
+            if mouse.pressed(MouseButton::Left) {
+                if let Err(error) = result { editor.status = error; }
+                state.drag = Some(drag);
+            } else if mouse.just_released(MouseButton::Left) && result.is_ok()
+                && let Some(edit) = drag.animation.take()
+                && let Some(workbench) = animation.as_deref_mut()
+                && edit.publish(workbench, &drag.scene_id, &drag.before.id)
+            {
+                editor.status = "已调整当前帧姿势，可插入关键帧".into();
+            }
+            return;
+        }
         let sampler = if drag.before.terrain_patch.is_none()
             && (drag.before.height_mode.follows_terrain() || drag.before.terrain_binding.is_some())
             && drag.before.building_preset_id.is_none()
@@ -589,7 +617,19 @@ pub(crate) fn handle_placement_move(
     };
     let Some(draft) = session.draft.as_ref() else { return; };
     let Ok(frame) = placement_record_frame(draft, record) else { return; };
-    let Ok(origin) = placement_record_world_position(draft, record) else { return; };
+    let frame_pose = match animation.as_deref().filter(|workbench| workbench.owns(&draft.scene_id, &record.id)) {
+        Some(workbench) => {
+            if !workbench.can_pose(&draft.scene_id, &record.id) || context.mode.mode == ViewportMode::Scale {
+                return;
+            }
+            let Some(pose) = workbench.pose_for(record, &draft.scene_id) else { return; };
+            Some(AnimationDrag::new(workbench, pose))
+        }
+        None => None,
+    };
+    let origin = if let Some(edit) = &frame_pose { Vec3::from_array(edit.pose.translation) }
+        else if let Ok(origin) = placement_record_world_position(draft, record) { origin }
+        else { return; };
     let Ok(source_bounds) = crate::authoring::placement_record_bounds(draft, record) else { return; };
     let Ok(world_before) = source_to_world(feathrise_scene_content::TerrainObjectTransform {
         translation: record.translation, yaw_degrees: record.yaw_degrees, scale: record.scale, ..default()
@@ -598,6 +638,7 @@ pub(crate) fn handle_placement_move(
         ViewportMode::Move => {
             camera.pick_handle(origin, normalized, record.building_preset_id.is_some())
         }
+        ViewportMode::Rotate if frame_pose.is_some() => super::animation::pick_rotation(camera, origin, normalized),
         ViewportMode::Rotate => {
             pick_rotation(camera, origin, normalized).then_some(MoveHandle::RotationY)
         }
@@ -661,6 +702,7 @@ pub(crate) fn handle_placement_move(
         terrain_content,
         before: record.clone(),
         preview: record.clone(),
+        animation: frame_pose,
         applied_world: world_before,
         frame,
         world_origin: origin,

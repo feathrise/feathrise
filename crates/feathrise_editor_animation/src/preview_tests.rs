@@ -68,8 +68,22 @@ fn document_channels_drive_world_joint_positions() {
 }
 
 #[test]
+fn manual_draft_applies_parent_and_child_together_before_hierarchy() {
+    use crate::types::PoseProperty;
+
+    let document = super::super::data::tests::test_document();
+    let mut draft = PoseDraft::default();
+    draft.set(0, Transform::from_xyz(4.0, 0.0, 0.0), PoseProperty::Translation);
+    draft.set(1, Transform::from_xyz(0.0, 3.0, 0.0), PoseProperty::Translation);
+    let pose = prepare_pose_draft(Arc::new(document), 0, 0.5, Some(draft));
+    assert_eq!(pose.world[0].transform_point3(Vec3::ZERO), Vec3::new(4.0, 0.0, 0.0));
+    assert_eq!(pose.world[1].transform_point3(Vec3::ZERO), Vec3::new(4.0, 3.0, 0.0));
+}
+
+#[test]
 fn paused_seek_withdraws_the_old_candidate_before_publication() {
     use crate::resources::Session;
+    use crate::types::PoseProperty;
 
     for (playing, draft) in [(false, false), (true, false), (false, true)] {
         let mut app = App::new();
@@ -100,7 +114,7 @@ fn paused_seek_withdraws_the_old_candidate_before_publication() {
         editor.seek(1.0);
         editor.playing = playing;
         if draft {
-            editor.current_mut().unwrap().pose = Some((0, Transform::IDENTITY));
+            editor.current_mut().unwrap().set_pose(0, Transform::IDENTITY, PoseProperty::Translation);
         }
         assert_eq!(editor.revision(), request.0);
         app.insert_resource(editor).insert_resource(AssetPreviewState {
@@ -391,6 +405,10 @@ fn gpu_preview(mode: GpuPreview) {
     editor
         .sessions
         .insert(source, Session::new((*document).clone()));
+    if mode == GpuPreview::Tools {
+        assert!(editor.select_current_clip());
+        assert!(editor.enter_animation_edit());
+    }
     if bound || embedded {
         let session = editor.current_mut().unwrap();
         // 让像素差异独立于选骨手柄；内嵌动作仍需同时出现模型和浅色骨架。
@@ -456,7 +474,11 @@ fn gpu_preview(mode: GpuPreview) {
         wait_gpu_pose(&mut app, 0.0, &gltf);
         if embedded {
             assert!(app.world().resource::<super::super::binding::BindingState>().embedded());
-            assert!(app.world().resource::<AnimationEditorState>().editable());
+            let mut editor = app.world_mut().resource_mut::<AnimationEditorState>();
+            assert!(!editor.editable(), "内嵌动画能播放，不会令预览自动进入编辑");
+            assert!(editor.select_current_clip());
+            assert!(editor.enter_animation_edit());
+            assert!(editor.editable());
             assert_eq!(app.world().get::<Visibility>(scene_root), Some(&Visibility::Hidden));
         }
         let skin_count = app

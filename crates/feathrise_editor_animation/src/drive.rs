@@ -18,6 +18,8 @@ pub(super) fn drive(
     binding: Option<Res<BindingState>>,
     mut state: ResMut<AnimationEditorState>,
 ) {
+    let host = &context.host;
+    state.sync_animation_scope(host.tab, host.open && !host.closing && !host.switching_scene, host.weights_own_viewport);
     if state.rig_preview.as_ref().is_some_and(|request| {
         !context.host.open || context.host.closing
             || !request.request.matches(&preview, &media, context.host.tab, documents.asset_root())
@@ -87,14 +89,13 @@ pub(super) fn drive(
     if let Some(completed) = completed {
         let work = state.work.take().unwrap();
         let changes_view = !matches!(&completed, TaskResult::Released | TaskResult::RigLoad { .. });
-        let is_author_path = state.active.as_ref() == Some(&work.path);
-        let is_current = is_author_path && !state.in_place_rig_preview();
+        let is_current = state.author_path() == Some(work.path.as_path());
         let current_generation = state
             .model_generation
             .as_ref()
             .filter(|(path, _)| path == &work.path)
             .map(|(_, generation)| *generation);
-        let stale_source = is_author_path && current_generation != work.generation;
+        let stale_source = state.active.as_ref() == Some(&work.path) && current_generation != work.generation;
         // 同一路径第二次热更新可先于上一轮后台结果到达；保留新标记并沿唯一槽重验最新代。
         // 切到其他文件时仍按原 path 更新其停放会话，不能把正常后台完成误当成串源。
         let completed =
@@ -119,12 +120,12 @@ pub(super) fn drive(
                         if let Some(old) = state.clipboard.replace(clipboard) {
                             state.retired = Some(Retired::Clipboard(old));
                         }
-                        if !state.in_place_rig_preview() {
+                        if is_current {
                             state.status = "已复制选中关键帧；移动播放头后粘贴".into();
                         }
                     }
                     Err(error) => {
-                        if !state.in_place_rig_preview() {
+                        if is_current {
                             state.status = error;
                         }
                     }
@@ -147,7 +148,7 @@ pub(super) fn drive(
                             state.retired = Some(Retired::Session(previous));
                         }
                         if is_current {
-                            state.status = "已载入动画；关键帧修改先保留为草稿".to_owned();
+                            state.status = "已载入动画数据".to_owned();
                             state.source_revision = state.source_revision.wrapping_add(1).max(1);
                         }
                     }
@@ -166,6 +167,9 @@ pub(super) fn drive(
                     selection,
                 } => match document {
                     Ok((document, metadata)) => {
+                        let created_clip = matches!(&action, PendingAction::Edit(Edit::AppendClip(_)));
+                        let mut clips_changed = false;
+                        let mut channels_changed = false;
                         let document = Arc::new(document);
                         let retired = if let Some(session) = state.sessions.get_mut(&work.path) {
                             let previous = std::mem::replace(&mut session.document, document);
@@ -190,31 +194,32 @@ pub(super) fn drive(
                                 | PendingAction::Reload
                                 | PendingAction::Command(_) => unreachable!(),
                             }
-                            session.clip = target.0;
-                            session.channel = Some(target.1);
-                            session.page = target.1 / super::components::CHANNEL_SLOTS;
-                            session.key = key;
                             session.pose = None;
-                            session.selected = selection.unwrap_or_default();
-                            session.selected_node = session.document.clips[target.0]
-                                .channels
-                                .get(target.1)
-                                .map(|c| c.node);
-                            if session.bone_filter {
-                                session.page = 0;
+                            clips_changed = previous.clips.len() != session.document.clips.len();
+                            if clips_changed {
+                                session.select_clip(target.0);
+                            } else {
+                                let channels = &session.document.clips[target.0].channels;
+                                channels_changed = channels.len() != previous.clips[target.0].channels.len();
+                                session.clip = target.0;
+                                // 撤销最后一组新增轨道后，原锚定通道可能已随组删除。
+                                session.channel = channels.len().checked_sub(1).map(|last| target.1.min(last));
+                                session.page = if session.bone_filter { 0 } else {
+                                    session.channel.unwrap_or(0) / super::components::CHANNEL_SLOTS
+                                };
+                                session.key = session.channel.filter(|&channel| channel == target.1).and(key);
+                                session.selected = selection.unwrap_or_default();
+                                session.selected_node = session.channel.map(|channel| channels[channel].node)
+                                    .or(session.selected_node);
+                                session.position = session.key
+                                    .and_then(|index| {
+                                        channels.get(target.1)?.keys.get(index)
+                                    })
+                                    .map_or(
+                                        session.position.min(session.metadata.durations[session.clip]),
+                                        |key| key.time,
+                                    );
                             }
-                            session.position = key
-                                .and_then(|index| {
-                                    session.document.clips[target.0].channels[target.1]
-                                        .keys
-                                        .get(index)
-                                })
-                                .map_or(
-                                    session
-                                        .position
-                                        .min(session.metadata.durations[session.clip]),
-                                    |key| key.time,
-                                );
                             Retired::Document {
                                 document: previous,
                                 metadata: Some(previous_metadata),
@@ -230,7 +235,19 @@ pub(super) fn drive(
                         debug_assert!(state.retired.is_none());
                         state.retired = Some(retired);
                         if is_current {
-                            state.status = "动画草稿已更新".to_owned();
+                            if (clips_changed || channels_changed) && !stale_source && binding.as_ref().is_some_and(|binding| {
+                                binding.identity.as_ref().is_some_and(|identity| identity.source == work.path
+                                    && (identity.embedded_generation.is_none() || binding.mapping.is_none() || binding.failed))
+                            }) {
+                                // 同源 Scene0 的已就绪映射包含全部节点。失败/在途映射及外部绑定按新通道复验。
+                                state.model_binding_revision = state.model_binding_revision.wrapping_add(1);
+                            }
+                            state.status = if created_clip && !stale_source {
+                                state.select_current_clip();
+                                "新动画已创建，可进入动画编辑"
+                            } else {
+                                "动画草稿已更新"
+                            }.to_owned();
                         }
                     }
                     Err(error) => {
@@ -276,7 +293,6 @@ pub(super) fn drive(
             state.changed();
         }
     }
-    super::request::retire(&mut state);
     super::request::advance_directory_pick(&mut state, &context, &media, documents.asset_root());
     if state.work.is_none() && state.retired.is_some() {
         // 释放占用原作者工作槽，不 detach GC；旧结果完整归还前不再启动下一份大文档工作。
@@ -296,30 +312,24 @@ pub(super) fn drive(
                 TaskResult::Released
             }),
         });
-    } else if state.work.is_none() && state.in_place_rig_preview() {
-        super::request::launch(&mut state);
     } else if state.work.is_none() {
-        if let Some(path) = state.active.clone().filter(|path| {
+        if state.in_place_rig_preview() {
+            // 工程动作选择仍使用原单槽。就绪后写操作和保存采用同一源会话。
+            if let Some(action) = state.pending.take() {
+                launch(&mut state, action);
+            } else {
+                super::request::launch(&mut state);
+            }
+        } else if let Some(path) = state.active.clone().filter(|path| {
             !state.sessions.contains_key(path) && state.failed.as_ref() != Some(path)
         }) {
-            // 与中央媒体32标签保持相同的文档缓存预算；只淘汰已保存会话，脏草稿绝不挤掉。
-            let retired = if state.sessions.len() >= 32 {
-                let oldest = state
-                    .sessions
-                    .iter()
-                    .filter(|(_, session)| !session.dirty())
-                    .min_by_key(|(_, session)| session.last_used)
-                    .map(|(path, _)| path.clone());
-                if let Some(oldest) = oldest {
-                    state.sessions.remove(&oldest)
-                } else {
+            let retired = match state.make_room_for_session(&path) {
+                Ok(retired) => retired,
+                Err(error) => {
                     state.failed = Some(path);
-                    state.status =
-                        "已有32份未保存动画草稿，请先保存其中一份再打开其他动画".to_owned();
+                    state.status = error.to_owned();
                     return;
                 }
-            } else {
-                None
             };
             state.status = "正在后台读取GLB动作与骨骼通道".to_owned();
             let source = path.clone();
@@ -388,7 +398,17 @@ pub(super) fn drive(
 }
 
 fn launch(state: &mut AnimationEditorState, action: PendingAction) {
-    let Some(path) = state.active.clone() else {
+    // 任务采用前再核对当前权限。工程关闭保存走独立入口，仍可保存停放草稿。
+    if !state.editable() && !matches!(&action,
+        PendingAction::Reload
+            | PendingAction::Command(super::editing::Command::Copy { .. } | super::editing::Command::CreateClip)
+    ) {
+        return;
+    }
+    if matches!(&action, PendingAction::Command(super::editing::Command::CreateClip)) && !state.can_create_clip() {
+        return;
+    }
+    let Some(path) = state.author_path().map(std::path::Path::to_path_buf) else {
         return;
     };
     let Some(session) = state.current() else {

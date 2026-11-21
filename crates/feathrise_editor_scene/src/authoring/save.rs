@@ -166,6 +166,8 @@ pub(crate) fn poll_draft_save(
                 "保存批次返回的全局写入证据必须与启动时冻结的全局快照一致"
             );
             let domain_hash = success.domain_hash; // 外部作者文件只按本批成功证据清脏。
+            let motion = success.motion;
+            let motion_written = success.motion_written;
             let placements_changed = success.placements_changed; // 只有本批语义内容不同才允许正式发布。
             let surface_definition_changed = success.surface_definition_changed; // 只有JSON真正进入事务才发布正式定义。
             let surface_weights_changed = success.surface_weights_changed; // 只有RGBA/KTX2真正进入事务才重载权重纹理。
@@ -288,6 +290,12 @@ pub(crate) fn poll_draft_save(
                     domain.value = (domain.ops.saved)(&*domain.value, &hash);
                     asset_server.reload(domain.asset_path().to_owned());
                 } // 内容hash不变时，各领域运行时保留已采用内容。
+                if let Some(motion) = motion {
+                    let retired = std::mem::replace(&mut draft.motion, motion);
+                    if let Some(retirement) = authoring_retirement.as_deref_mut() {
+                        retirement.push(retired); // 作废的整表交给既有后台释放槽。
+                    }
+                }
                 draft.boundary_catalog_registration_required = false; // 文件和目录已经完整落盘，下一帧归还AssetServer权威。
                 draft.boundaries_dirty = false; // F12内存覆盖可以在文件加载期间保留上一完整根并随后清除。
                 // 不把opening baseline替换成当前密度：本进程内冻结树位仍是打开时版本，后续笔划必须
@@ -473,7 +481,7 @@ pub(crate) fn poll_draft_save(
                 )
                 && let Some(path) = manifest_asset_path
             {
-                asset_server.reload(path); // 唯一句柄尚未就绪时才从刚落盘路径显式重载兜底。
+                asset_server.reload(path);
             }
             if let Some(author) = environment_publish.surface_author.as_deref_mut() {
                 author.begin_saved_handoff(
@@ -500,6 +508,10 @@ pub(crate) fn poll_draft_save(
                     &mut placement_rebuild_requests,  // 原样失败重试不伪造Modified。
                 )
             };
+            if motion_written && let Some(path) = placements_asset_path {
+                // 动画通道随主场景 GLB 加载，内存摆放快照不包含动画的缓冲数据。
+                asset_server.reload(path);
+            }
             if let Some(retirement) = authoring_retirement.as_deref_mut()
                 && let Some(obsolete) = previous_placements.or(placements_snapshot)
             {

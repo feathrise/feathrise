@@ -134,6 +134,7 @@ fn terrain_handle_hover_uses_original_pick_and_publishes_readonly_semantics() {
                 MoveHandle::XzPlane => origin + Vec3::new(0.36, 0.0, 0.36) * length,
                 MoveHandle::RotationY => rotation_ring(camera, origin).unwrap().world[13],
                 MoveHandle::UniformScale => origin,
+                MoveHandle::AnimationRotation(_) => unreachable!("地形验收只覆盖场景摆放的原旋转环"),
             };
             step(&mut app, node, camera.project(point).unwrap());
             let state = app.world().resource::<TransformState>();

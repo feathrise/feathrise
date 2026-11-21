@@ -1,4 +1,4 @@
-//! 中央 GLB 标签的左栏结构。调权页可定位图元、蒙皮与关节，复用连续虚拟列表。
+//! 中央 GLB 标签的左栏结构。调权时定位图元、蒙皮与关节，编辑动画时切换操作骨骼。
 
 use super::{AssetPreviewState, AssetPreviewWorkspace, DocumentState, types::AssetPreviewControls};
 use crate::{
@@ -20,6 +20,7 @@ use bevy::{
     ui::RelativeCursorPosition,
 };
 use feathrise_editor_ui::{EditorButtonClick, InteractionButton, UiInteraction, localization::EditorLocale, metrics};
+use feathrise_editor_animation_model::types::SkeletonMapping;
 use std::{
     borrow::Cow,
     path::{Path, PathBuf},
@@ -116,6 +117,7 @@ pub(super) fn install(app: &mut App) {
             Update,
             weight_row_input.in_set(SceneEditorSystemSet::Input),
         )
+        .add_systems(Update, animation_row_input.after(super::opening::open).in_set(SceneEditorSystemSet::Input))
         .add_systems(
             Update,
             update
@@ -200,6 +202,93 @@ pub(super) fn weight_row_input(
             && revision == state.revision && let Some(pick) = rows.get(index).and_then(weight_pick)
         {
             picks.write(pick);
+            break;
+        }
+    }
+}
+
+enum AnimationBoneRows<'a> {
+    Direct,
+    Mapped(&'a SkeletonMapping),
+}
+
+impl AnimationBoneRows<'_> {
+    fn node(&self, row: &data::Row) -> Option<usize> {
+        if !matches!(row.kind, data::Kind::Joint) {
+            return None;
+        }
+        match self {
+            Self::Direct => Some(row.index),
+            Self::Mapped(mapping) => mapping.names.get(&row.name).copied(),
+        }
+    }
+}
+
+fn animation_rows<'a>(
+    state: &TreeState, animation: &super::animation::AnimationEditorState,
+    binding: Option<&'a super::animation::WeightBinding>,
+) -> Option<AnimationBoneRows<'a>> {
+    let source = state.selected.as_ref()?;
+    if !animation.editable() || !animation.visible() {
+        return None;
+    }
+    if let Some(request) = animation.rig_preview.as_ref() {
+        let host = &request.request;
+        if host.host_path != source.path || host.host_generation != source.generation
+            || host.asset_root != source.root || Some(host.host_tab) != state.last_central_glb
+        {
+            return None;
+        }
+        let binding = binding.filter(|binding| binding.active && binding.ready())?;
+        let identity = binding.identity.as_ref()?;
+        // 工程动作的骨骼索引与角色各自独立，只采用已发布绑定的对应关系。
+        (identity.retarget && identity.source == request.source
+            && identity.revision == animation.source_revision()
+            && identity.request == animation.model_binding_revision)
+            .then_some(AnimationBoneRows::Mapped(binding.mapping.as_ref()?))
+    } else {
+        (animation.source()?.strip_prefix(&source.root).ok()? == Path::new(&source.path))
+            .then_some(AnimationBoneRows::Direct)
+    }
+}
+
+fn animation_row_input(
+    state: Res<TreeState>,
+    sidebar: Res<SceneEditorSidebarState>,
+    documents: Res<DocumentState>,
+    media: Res<AssetPreviewWorkspace>,
+    preview: Res<AssetPreviewState>,
+    workspace: Res<VegetationPresetEditorState>,
+    guard: Option<Res<SceneEditorNumericScrubMouseGuard>>,
+    mut animation: Option<ResMut<super::animation::AnimationEditorState>>,
+    binding: Option<Res<super::animation::WeightBinding>>,
+    clicks: Query<(&Slot, &EditorButtonClick), Changed<EditorButtonClick>>,
+) {
+    if sidebar.right != EditorRightSidebarTab::Assets || !sidebar.scene_tree_visible()
+        || guard.as_ref().is_some_and(|guard| guard.blocked())
+    {
+        return;
+    }
+    let Some(animation) = animation.as_mut().filter(|animation| !animation.busy()) else { return; };
+    let Some(path) = central_glb(&media, workspace.active_tab) else { return; };
+    let Some(model) = preview.model.as_ref() else { return; };
+    // 行绑定在 Tasks 阶段更新，Input 也要先验证标签和模型代次，避免松手时用上一份骨架。
+    if state.last_central_glb != media.expanded.as_ref().map(|entry| entry.id)
+        || preview.selected_path.as_deref() != Some(path)
+        || state.selected.as_ref().map(Source::key) != Some((documents.asset_root(), path, model.generation))
+    {
+        return;
+    }
+    let Some(target) = animation_rows(&state, animation, binding.as_deref()) else { return; };
+    let Some(Ok(rows)) = state.result() else { return; };
+    for (slot, click) in &clicks {
+        if click.is_clicked() && let Some((revision, index, _)) = slot.bound
+            && revision == state.revision && let Some(node) = rows.get(index).and_then(|row| target.node(row))
+            && let Some(session) = animation.current_mut()
+        {
+            // 换骨只更换操作目标；同一帧内已编辑其他骨骼的局部姿势继续保留。
+            session.select_node(node);
+            animation.changed();
             break;
         }
     }
@@ -482,6 +571,8 @@ fn present(
     state: Res<TreeState>,
     sidebar: Res<SceneEditorSidebarState>,
     weights: Option<Res<super::weights::WeightEditor>>,
+    animation: Option<Res<super::animation::AnimationEditorState>>,
+    binding: Option<Res<super::animation::WeightBinding>>,
     locale: Option<Res<EditorLocale>>,
     assets: Option<Res<AssetServer>>,
     mut commands: Commands,
@@ -578,6 +669,14 @@ fn present(
         .min(entries.len());
     let selected = weights.as_ref().and_then(|weights| weights.selected_tree(state.last_central_glb));
     let editable = sidebar.right == EditorRightSidebarTab::Weights;
+    let (animation_rows, active_bone) = if sidebar.right == EditorRightSidebarTab::Assets {
+        (
+            animation.as_ref().and_then(|animation| animation_rows(&state, animation, binding.as_deref())),
+            animation.as_ref().and_then(|animation| animation.current()).and_then(|session| session.selected_node),
+        )
+    } else {
+        (None, None)
+    };
     for (mut slot, mut node, mut text, mut color, mut pickable, mut click, mut background) in &mut slots {
         let prior = slot.bound;
         bind_slot(
@@ -592,10 +691,13 @@ fn present(
             locale,
         );
         if prior != slot.bound { click.invalidate(); } // 滚动换绑的行不能接受上一关节的松手。
-        let pick = slot.bound.and_then(|(_, index, _)| entries.get(index)).and_then(weight_pick)
-            .filter(|_| editable);
-        *pickable = if pick.is_some() { Pickable::default() } else { Pickable::IGNORE };
-        background.0 = if pick.is_some_and(|pick| selected.is_some_and(|selected| selected.contains(&pick))) {
+        let row = slot.bound.and_then(|(_, index, _)| entries.get(index));
+        let pick = row.and_then(weight_pick).filter(|_| editable);
+        let bone = row.and_then(|row| animation_rows.as_ref()?.node(row));
+        *pickable = if pick.is_some() || bone.is_some() { Pickable::default() } else { Pickable::IGNORE };
+        background.0 = if pick.is_some_and(|pick| selected.is_some_and(|selected| selected.contains(&pick)))
+            || bone.is_some_and(|bone| Some(bone) == active_bone)
+        {
             colors::SELECT_BG
         } else { Color::NONE };
     }

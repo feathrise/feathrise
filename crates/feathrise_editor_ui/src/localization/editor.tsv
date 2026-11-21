@@ -488,6 +488,9 @@ label.reload-action	重载动作	Reload Action
 label.animation-editor	动画编辑	Animation Editor
 animation.clip.current	动作 {index}/{count} · {name}	Clip {index}/{count} · {name}
 animation.clip.parameters	时长 {duration} 秒 · {fps} fps · {speed}× · {loop}	Duration {duration} s · {fps} fps · {speed}× · {loop}
+animation.mode.create	新建动画	New Animation
+animation.mode.edit	编辑动画	Edit Animation
+animation.mode.exit	退出动画编辑	Exit Animation Editing
 animation.loop.on	循环开	Loop on
 animation.loop.off	循环关	Loop off
 help.select-a-bone-and-pose-it-with	点选骨节，用移动轴或旋转环摆姿势。自动插帧在松开时记录；关闭后需插入姿势或还原。时间轴滚轮缩放，中键或Shift滚轮平移；空白拖动框选，Ctrl增减选区，拖菱形整组移动。悬停时间轴可用Delete、Ctrl+C/V/Z、空格；Esc取消拖动。旋转数值为XYZ角度，左键单击精确输入。密集关键帧显示为窄条，放大后可逐键选择。中央动画标签保持打开，在资产列表选择同骨架角色GLB后绑定；模型只用于预览，保存仅写当前动画GLB。外置GLTF只读。	Select a bone and pose it with the translation gizmo or rotation rings. Auto Key records on release. When disabled, insert or restore the pose manually. Scroll over the timeline to zoom. Pan with middle drag or Shift+scroll. Drag empty space to box select, use Ctrl to change the selection, and drag a diamond to move the selection. With the pointer over the timeline, use Delete, Ctrl+C/V/Z, or Space. Esc cancels a drag. Rotation uses XYZ degrees. Left-click and release without dragging for precise input. Dense keys appear as bands. Zoom in to select individual keys. Keep the animation tab open and bind a character GLB with the same skeleton from Assets. The model is for preview. Save writes the current animation GLB. External GLTF files are read-only.

@@ -28,7 +28,8 @@ pub(crate) fn sync_placement_transform_panel(
     editor: Res<SceneEditorState>,          // F12与当前场景状态决定可编辑性。
     browser: Res<EditorGltfBrowserState>, // 当前完整实例选择。
     session: Res<EditorAuthoringSession>, // 当前记录、修订和场景清单。
-    settings: (Res<EditorSettings>, Option<Res<crate::authoring::mesh_edit::MeshEditState>>), // 网格编辑时停用完整对象数值，保留相机导航。
+    settings: (Res<EditorSettings>, Option<Res<crate::authoring::mesh_edit::MeshEditState>>,
+        Option<Res<crate::ui::scene_motion::Workbench>>), // 网格与动画工作区限定原对象属性的编辑语义。
     mut state: ResMut<PlacementTransformInputState>, // 吸附目标失效时收口模式，活动期间禁用数字框。
     active: Res<ActiveNumericInput>,      // 字符缓冲期间不得覆盖显示或规格。
     active_scrub: Res<ActiveNumericInputScrub>, // 左右拖动期间不得覆盖数值和倍率。
@@ -71,6 +72,7 @@ pub(crate) fn sync_placement_transform_panel(
     >,
 ) {
     let mesh_editing = settings.1.as_ref().is_some_and(|state| state.active());
+    let animation = settings.2.as_deref();
     let settings = &settings.0;
     let relocation_valid = state.relocation_target.as_ref().is_none_or(|target| {
         editor.open
@@ -101,6 +103,10 @@ pub(crate) fn sync_placement_transform_panel(
             .and_then(|draft| draft.placements.placements.get(target.record_index))
             .filter(|record| record.id == target.placement_id)
     });
+    let animation_target = animation.zip(target.as_ref())
+        .filter(|(workbench, target)| workbench.owns(&target.scene_id, &target.placement_id));
+    let animation_pose = animation_target.zip(record)
+        .and_then(|((workbench, target), record)| workbench.pose_for(record, &target.scene_id));
     let visible = editor.open && record.is_some(); // 重复ID、在途签名和无选择都完整收起。
     let is_building = record.is_some_and(|record| record.building_preset_id.is_some());
     let is_cuboid = record.is_some_and(|record| record.asset_target.is_builtin());
@@ -167,7 +173,7 @@ pub(crate) fn sync_placement_transform_panel(
             panel.display = display;
         }
     }
-    let summary = record.map_or_else(
+    let mut summary = record.map_or_else(
         || "请选择场景树中的资产实例".to_owned(),
         |record| {
             let height_description = match record.height_mode {
@@ -191,6 +197,7 @@ pub(crate) fn sync_placement_transform_panel(
             } // 身份与来源由概览承担，坐标由原公共字段实时回显。
         },
     );
+    if animation_target.is_some() { summary.insert_str(0, "当前动画帧 · "); }
     for mut text in &mut summaries {
         if text.as_str() != summary {
             **text = summary.clone(); // 选择或真实记录变化时才触发文本重排。
@@ -209,7 +216,9 @@ pub(crate) fn sync_placement_transform_panel(
     for (entity, field, current, disabled, mut config, mut scrub) in &mut inputs {
         let context_editable = context_editable && (!is_building || field.is_lod())
             && (!field.is_cutout() || has_cutout)
-            && record.is_some_and(|record| field.supported_by(record));
+            && record.is_some_and(|record| field.supported_by(record))
+            && (!field.is_animation_pose() || animation_target.is_none_or(|(workbench, target)|
+                workbench.can_pose(&target.scene_id, &target.placement_id)));
         if context_editable == disabled {
             if context_editable {
                 commands.entity(entity).remove::<NumericInputDisabled>(); // 恢复中键和左右拖动。
@@ -232,9 +241,12 @@ pub(crate) fn sync_placement_transform_panel(
         if active.entity == Some(entity) || active_scrub.entity == Some(entity) {
             continue; // 共享 UI 控件拥有字符或指针时不得覆盖当前显示。
         }
-        let value = record.map_or(0.0, |record| {
-            round_to_decimals(field.value(record), field.decimals()) // 显示精度不反向量化作者高精度源。
-        });
+        let value = animation_pose.and_then(|pose| field.animation_value(pose))
+            .unwrap_or_else(|| record.map_or(0.0, |record| field.value(record)));
+        let mut value = round_to_decimals(value, field.decimals()); // 显示精度不反向量化作者高精度源。
+        if animation_pose.is_some() && *field == PlacementTransformField::Yaw {
+            value = value.rem_euclid(360.0); // 接近整圈时仍与原循环控件的显示规范一致。
+        }
         if current.0.as_f32() != Some(value) {
             set_values.write(NumericInputSetValue {
                 entity,                          // 只同步当前字段根。

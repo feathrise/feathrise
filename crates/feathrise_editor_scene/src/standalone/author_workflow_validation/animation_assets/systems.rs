@@ -2,19 +2,30 @@
 
 use super::{io, resources::Fixture, types::*};
 use crate::{
+    asset_catalog::{EditorAssetCatalog, request_asset_reveal},
     resources::{EditorTextInputGuard, SceneEditorNumericScrubMouseGuard, SceneEditorState},
     ui::{
-        asset_preview::{OpenAssetPreview, animation::workflow_validation as bridge},
-        sidebars::SceneEditorSidebarState,
+        asset_preview::{
+            AnimationEditorState, AssetPreviewState, AssetPreviewWorkspace, OpenAssetPreview, PickProjectAnimationClip,
+            animation::workflow_validation as bridge,
+        },
+        sidebars::{EditorRightSidebarTab, SceneEditorSidebarState},
     },
 };
+use feathrise_editor_animation_model::{media::{AssetPreviewContent, AssetPreviewPhase}, preview::PreviewRuntime, types::PoseTool};
 use bevy::{
     gltf::Gltf,
     prelude::*,
-    tasks::{IoTaskPool, futures::check_ready},
+    render::view::screenshot::{Screenshot, ScreenshotCaptured},
+    tasks::{IoTaskPool, Task, futures::check_ready},
 };
+#[cfg(feature = "validation")]
+use {crate::ui::file_manager_validation::pointer_click, bevy::window::PrimaryWindow};
 use serde_json::{Value, json};
-use std::time::{Duration, Instant};
+use std::{path::PathBuf, time::{Duration, Instant}};
+
+#[derive(Resource)]
+struct ModeScreenshot(Task<Result<(), String>>);
 
 pub(super) fn begin(world: &mut World) -> Result<(), String> {
     if !world.contains_resource::<Fixture>() {
@@ -77,18 +88,178 @@ pub(super) fn advance(world: &mut World) -> Option<Result<Value, String>> {
                     let Some(result)=state.io.as_mut().and_then(check_ready)else{return Ok(());};state.io=None;
                     let IoResult::Prepared(prepared)=result?else{return Err("动画资产准备回执身份不符".into());};
                     state.disk_before=prepared.animation_sha256;state.model_bytes=Some(prepared.model);state.texture_bytes=Some(prepared.texture);
-                    open_asset(world,ANIMATION)?;state.phase=Phase::OpenAnimation;
+                    state.unanimated_model_sha256 = prepared.unanimated_model_sha256;
+                    reveal_asset(world, ANIMATION)?;
+                    state.phase=Phase::OpenAnimation;
                 }
                 Phase::OpenAnimation=>{
+                    if !expanded_model_ready(world, ANIMATION) { return Ok(()); }
                     let Some(probe)=bridge::animation_probe(world,&source,None)?else{return Ok(());};
                     if probe.dirty||probe.cursor!=0||probe.key.value.len()!=3{return Err("动画验收必须从本工程干净平移通道开始".into());}
-                    if !bridge::input_ready(world){return Ok(());}
-                    record_action(world,&mut state,"SelectChannel");state.pulse=Some(bridge::select_channel(world,probe.key_identity)?);state.before=Some(probe);state.phase=Phase::SelectChannel;
+                    let author = world.resource::<AnimationEditorState>();
+                    if author.editable() || author.can_edit_selected() {
+                        return Err("直接打开 GLB 时已有动画编辑资格".into());
+                    }
+                    let runtime = world.resource::<PreviewRuntime>();
+                    if !runtime.document_ready(author, world.resource::<AssetPreviewState>())
+                        || runtime.published_weight_time(author).is_none()
+                    {
+                        return Ok(());
+                    }
+                    if !bridge::input_ready(world) || bridge::timeline_ruler(world).is_none() { return Ok(()); }
+                    state.before = Some(probe);
+                    state.phase = Phase::CaptureReadOnly;
+                }
+                Phase::CaptureReadOnly => {
+                    if bridge::pose_toolbar_visible(world)? {
+                        return Err("只读 GLB 预览显示了动画姿势工具栏".into());
+                    }
+                    // 中央视图已真实启用，等它经过一帧渲染后再截图。
+                    capture_mode(world, "animation-read-only.png")?;
+                    state.phase = Phase::ReadOnlyScreenshot;
+                }
+                Phase::ReadOnlyScreenshot => {
+                    if !bridge::input_ready(world) || !mode_captured(world)? { return Ok(()); }
+                    reveal_asset(world, ANIMATION)?;
+                    state.phase = Phase::PickClip;
+                }
+                Phase::PickClip => {
+                    if !bridge::input_ready(world) || !world.resource::<SceneEditorSidebarState>().assets_browser_visible() { return Ok(()); }
+                    // 与普通文件列表的动作行提交同一入口，打开文件本身仍然只提供预览。
+                    record_action(world, &mut state, "PickProjectClip");
+                    world.write_message(PickProjectAnimationClip { asset_path: ANIMATION.into(), clip_index: 0, target: None });
+                    state.phase = Phase::SelectClip;
+                }
+                Phase::SelectClip => {
+                    let author = world.resource::<AnimationEditorState>();
+                    if author.editable() { return Err("选择动作不应自动进入编辑".into()); }
+                    if !author.can_edit_selected() || !bridge::input_ready(world) { return Ok(()); }
+                    state.pulse = Some(command(world, &mut state, bridge::AnimationCommand::FirstFrame)?);
+                    state.phase = Phase::PauseSelectedClip;
+                }
+                Phase::PauseSelectedClip => {
+                    let author = world.resource::<AnimationEditorState>();
+                    if author.playing || author.position() != 0.0 || !bridge::input_ready(world) { return Ok(()); }
+                    record_action(world, &mut state, "SelectChannel");
+                    state.pulse = Some(bridge::select_channel(world, identity.unwrap())?);
+                    state.phase = Phase::SelectChannel;
                 }
                 Phase::SelectChannel=>{
                     let Some(probe)=bridge::animation_probe(world,&source,identity)?else{return Ok(());};
                     if !probe.channel_selected||!bridge::input_ready(world){return Ok(());}
-                    state.pulse=Some(command(world,&mut state,bridge::AnimationCommand::NextKey)?);state.phase=Phase::LocateKey;
+                    state.pulse = Some(command(world, &mut state, bridge::AnimationCommand::NextFrame)?);
+                    state.phase = Phase::LocateInsertFrame;
+                }
+                Phase::LocateInsertFrame => {
+                    let identity = identity.unwrap();
+                    let Some(probe) = bridge::animation_probe(world, &source, Some(identity))? else { return Ok(()); };
+                    if !probe.channel_selected || !bridge::input_ready(world) { return Ok(()); }
+                    let Some(second) = bridge::animation_probe(world, &source, Some(bridge::KeyIdentity { key: 1, ..identity }))?
+                        else { return Ok(()); };
+                    if probe.position <= probe.key.time || probe.position >= second.key.time {
+                        return Err("后帧未定位到自有夹具的两个真实关键帧之间".into());
+                    }
+                    state.insert_time = Some(probe.position);
+                    // 经原动作输入提交一次预览期间的插帧，证明隐藏的写入入口也会拒绝。
+                    state.pulse = Some(command(world, &mut state, bridge::AnimationCommand::InsertKey)?);
+                    state.phase = Phase::VerifyReadOnly;
+                }
+                Phase::VerifyReadOnly => {
+                    let Some(probe) = bridge::animation_probe(world, &source, identity)? else { return Ok(()); };
+                    let before = state.before.as_ref().unwrap();
+                    if probe.cursor != before.cursor || probe.history_len != before.history_len
+                        || probe.dirty || probe.key != before.key
+                        || world.resource::<AnimationEditorState>().editable()
+                    {
+                        return Err("预览中的插帧命令修改了动画".into());
+                    }
+                    if !bridge::input_ready(world) { return Ok(()); }
+                    state.phase = Phase::ClickEnterEditMode;
+                }
+                Phase::ClickEnterEditMode => {
+                    if click_animation_button(world, &mut state, bridge::AnimationCommand::ToggleEditing)? {
+                        state.phase = Phase::EnterEditMode;
+                    }
+                }
+                Phase::EnterEditMode => {
+                    // 原窗口依次点击旋转和移动，核对两个图标控制的是当前骨骼姿势工具。
+                    if world.resource::<AnimationEditorState>().editable()
+                        && bridge::pose_toolbar_visible(world)?
+                        && click_animation_button(world, &mut state, bridge::AnimationCommand::RotatePose)?
+                    {
+                        state.phase = Phase::RotatePoseTool;
+                    }
+                }
+                Phase::RotatePoseTool => {
+                    if world.resource::<AnimationEditorState>().pose_tool == PoseTool::Rotate {
+                        // 可见状态在释放时改变，后续点击阶段必须允许原鼠标流程完成收尾。
+                        state.phase = Phase::ClickMovePoseTool;
+                    }
+                }
+                Phase::ClickMovePoseTool => {
+                    if click_animation_button(world, &mut state, bridge::AnimationCommand::MovePose)? {
+                        state.phase = Phase::MovePoseTool;
+                    }
+                }
+                Phase::MovePoseTool => {
+                    if world.resource::<AnimationEditorState>().pose_tool != PoseTool::Move { return Ok(()); }
+                    let Some(probe) = bridge::animation_probe(world, &source, identity)? else { return Ok(()); };
+                    let before = state.before.as_ref().unwrap();
+                    if probe.dirty || probe.cursor != before.cursor || probe.history_len != before.history_len
+                        || Some(probe.position) != state.insert_time
+                    {
+                        return Err("切换动画姿势工具后，原播放位置或编辑历史发生变化".into());
+                    }
+                    if click_animation_button(world, &mut state, bridge::AnimationCommand::ToggleEditing)? {
+                        state.phase = Phase::ExitPoseToolMode;
+                    }
+                }
+                Phase::ExitPoseToolMode => {
+                    if world.resource::<AnimationEditorState>().editable() { return Ok(()); }
+                    if bridge::pose_toolbar_visible(world)? {
+                        return Err("退出动画编辑后，动画姿势工具栏仍然显示".into());
+                    }
+                    state.phase = Phase::ReenterAfterPoseTools;
+                }
+                Phase::ReenterAfterPoseTools => {
+                    if click_animation_button(world, &mut state, bridge::AnimationCommand::ToggleEditing)? {
+                        state.phase = Phase::InsertAfterPoseTools;
+                    }
+                }
+                Phase::InsertAfterPoseTools => {
+                    if world.resource::<AnimationEditorState>().editable()
+                        && bridge::pose_toolbar_visible(world)?
+                        && click_animation_button(world, &mut state, bridge::AnimationCommand::InsertKey)?
+                    {
+                        state.phase = Phase::VerifyInsertion;
+                    }
+                }
+                Phase::VerifyInsertion => {
+                    let identity = bridge::KeyIdentity { key: 1, ..identity.unwrap() };
+                    let Some(probe) = bridge::animation_probe(world, &source, Some(identity))? else { return Ok(()); };
+                    if !probe.dirty || probe.cursor != 1 || probe.history_len != 1
+                        || Some(probe.key.time) != state.insert_time
+                        || !world.resource::<AnimationEditorState>().editable()
+                    {
+                        return Err("显式进入动画编辑后，原插帧未在同一播放位置产生历史".into());
+                    }
+                    if !bridge::input_ready(world) || bridge::timeline_ruler(world).is_none() { return Ok(()); }
+                    capture_mode(world, "animation-edit-mode.png")?;
+                    state.phase = Phase::EditModeScreenshot;
+                }
+                Phase::EditModeScreenshot => {
+                    if !bridge::input_ready(world) || !mode_captured(world)? { return Ok(()); }
+                    state.pulse = Some(command(world, &mut state, bridge::AnimationCommand::Undo)?);
+                    state.phase = Phase::UndoInsertion;
+                }
+                Phase::UndoInsertion => {
+                    let identity = bridge::KeyIdentity { key: 1, ..identity.unwrap() };
+                    let Some(probe) = bridge::animation_probe(world, &source, Some(identity))? else { return Ok(()); };
+                    if probe.cursor != 0 { return Ok(()); }
+                    if probe.dirty || Some(probe.key.time) == state.insert_time { return Err("撤销未移除新插入的帧".into()); }
+                    if !bridge::input_ready(world) { return Ok(()); }
+                    state.pulse = Some(command(world, &mut state, bridge::AnimationCommand::NextKey)?);
+                    state.phase = Phase::LocateKey;
                 }
                 Phase::LocateKey=>{
                     let Some(probe)=bridge::animation_probe(world,&source,identity)?else{return Ok(());};
@@ -131,9 +302,78 @@ pub(super) fn advance(world: &mut World) -> Option<Result<Value, String>> {
                     let Some(result)=state.io.as_mut().and_then(check_ready)else{return Ok(());};state.io=None;
                     let IoResult::SavedAnimation{sha256,key}=result?else{return Err("动画落盘回执身份不符".into());};
                     if sha256==state.disk_before||key!=serde_json::to_value(&state.edited.as_ref().unwrap().key).map_err(|error|error.to_string())?{return Err("真实动画GLB没有保存原编辑后的关键帧".into());}
-                    state.disk_after=sha256;state.disk_key=Some(key);open_asset(world,MODEL)?;state.phase=Phase::OpenModel;
+                    state.disk_after=sha256;state.disk_key=Some(key);
+                    reveal_asset(world, MODEL)?;
+                    state.phase = if super::super::animation_edit_only() { Phase::OpenUnanimatedModel } else { Phase::OpenModel };
+                }
+                Phase::OpenUnanimatedModel => {
+                    if !expanded_model_ready(world, MODEL) { return Ok(()); }
+                    let author = world.resource::<AnimationEditorState>();
+                    if author.source() != Some(paths.assets.join(MODEL).as_path()) || author.busy() {
+                        return Ok(());
+                    }
+                    let Some(document) = author.active_document() else { return Ok(()); };
+                    if !document.clips.is_empty() || !author.can_create_clip() || author.editable() || author.can_edit_selected() {
+                        return Err("打开零动画 GLB 应可新建动画，并保持只读".into());
+                    }
+                    state.phase = Phase::ClickCreateClip;
+                }
+                Phase::ClickCreateClip => {
+                    if click_animation_button(world, &mut state, bridge::AnimationCommand::CreateClip)? {
+                        state.phase = Phase::VerifyCreatedClip;
+                    }
+                }
+                Phase::VerifyCreatedClip => {
+                    let Some(probe) = bridge::animation_probe(world, &paths.assets.join(MODEL), None)? else { return Ok(()); };
+                    let author = world.resource::<AnimationEditorState>();
+                    if author.active_document().is_none_or(|document| document.clips.len() != 1)
+                        || !probe.dirty || probe.history_len != 1 || author.editable() || !author.can_edit_selected()
+                    {
+                        return Err("新建动画应选中唯一的草稿，并等待用户进入编辑".into());
+                    }
+                    state.phase = Phase::ClickEditCreatedClip;
+                }
+                Phase::ClickEditCreatedClip => {
+                    if click_animation_button(world, &mut state, bridge::AnimationCommand::ToggleEditing)? {
+                        state.phase = Phase::SaveCreatedClip;
+                    }
+                }
+                Phase::SaveCreatedClip => {
+                    if world.resource::<AnimationEditorState>().editable()
+                        && click_animation_button(world, &mut state, bridge::AnimationCommand::Save)?
+                    {
+                        state.phase = Phase::ReadCreatedClip;
+                    }
+                }
+                Phase::ReadCreatedClip => {
+                    let Some(probe) = bridge::animation_probe(world, &paths.assets.join(MODEL), None)? else { return Ok(()); };
+                    if let Some(Err(error)) = probe.save_receipt.as_ref() {
+                        return Err(format!("原新建动画保存失败：{error}"));
+                    }
+                    if probe.save_receipt != Some(Ok(())) || probe.dirty { return Ok(()); }
+                    state.io = Some(IoTaskPool::get().spawn(async move { io::saved_created_clip(&paths) }));
+                    state.phase = Phase::VerifyCreatedClipOnDisk;
+                }
+                Phase::VerifyCreatedClipOnDisk => {
+                    let Some(result) = state.io.as_mut().and_then(check_ready) else { return Ok(()); };
+                    state.io = None;
+                    let IoResult::SavedCreatedClip { sha256, clip_count } = result? else {
+                        return Err("新建动画落盘回执身份不符".into());
+                    };
+                    let before = state.unanimated_model_sha256.as_ref().ok_or("缺少零动画原始摘要")?;
+                    if clip_count != 1 || sha256 == *before {
+                        return Err("保存后自有 GLB 应新增一个动画".into());
+                    }
+                    state.created_clip_proof = Some(json!({
+                        "asset_path": MODEL, "disk_clip_count_before": 0, "disk_clip_count_after": clip_count,
+                        "created_read_only": true, "entered_edit_mode": true, "save_receipt": {"Ok": null},
+                        "sha256_before": before, "sha256_after": sha256,
+                    }));
+                    state.pulse = Some(crate::standalone::validation_fixture::request_scene_tab(world)?);
+                    state.phase = Phase::ReturnScene;
                 }
                 Phase::OpenModel=>{
+                    if !expanded_model_ready(world, MODEL) { return Ok(()); }
                     let Some(probe)=bridge::model_probe(world,MODEL)?else{return Ok(());};
                     state.model_before=Some(probe);launch_write(&mut state,Mutation::Mesh)?;state.phase=Phase::MeshWrite;
                 }
@@ -164,11 +404,17 @@ pub(super) fn advance(world: &mut World) -> Option<Result<Value, String>> {
                 }
                 Phase::ReturnScene=>{
                     if !crate::standalone::preview_ready_for(world,"M1-SAMPLE"){return Ok(());}
-                    if state.events.animation<=state.animation_event_baseline{return Ok(());} // 保存后原动画源必须真实换代，不能借初载补标签的Modified冒充。
+                    // 全量验收另核对文件观察器；动画专项只核对真实保存回执及写后文件。
+                    if !super::super::animation_edit_only() && state.events.animation <= state.animation_event_baseline {
+                        return Ok(());
+                    }
                     state.report=Some(json!({
                         "passed":true,"source_asset_root":paths.assets,"animation_path":ANIMATION,"stage_and_action_trace":state.trace,
-                        "animation":{"input":"original channel/key/action pulses and original numeric commit contract; not physical input","before":state.before,"edited":state.edited,"undone":state.undone,"redone":state.redone,"saved":state.saved,"disk_key":state.disk_key,"sha256_before":state.disk_before,"sha256_after":state.disk_after,"modified_events_before_save":state.animation_event_baseline,"modified_events_after_save":state.events.animation},
-                        "asset_hot_reload":{"input":"atomic writes to this owned project's GLB/PNG files; original watcher and loaders; no Assets mutation","model_path":MODEL,"texture_path":TEXTURE,"before":state.model_before,"mesh_reloaded":state.model_mesh,"material_reloaded":state.model_material,"texture_reloaded":state.model_texture,"model_sha256":state.model_sha256,"texture_sha256":state.texture_sha256,"modified_events":state.events},
+                        "animation":{"input":"Bevy WindowEvent clicks on original mode, pose tools and key insert buttons; original hidden-action pulses and numeric commit contract","before":state.before,"edited":state.edited,"undone":state.undone,"redone":state.redone,"saved":state.saved,"disk_key":state.disk_key,"sha256_before":state.disk_before,"sha256_after":state.disk_after,"modified_events_before_save":state.animation_event_baseline,"modified_events_after_save":state.events.animation,
+                            "edit_gate":{"opened_read_only":true,"selected_read_only":true,"read_only_insert_rejected":true,"entered_edit_mode":true,"inserted_key":true,"insert_time":state.insert_time},
+                            "pose_toolbar":{"hidden_in_preview":true,"rotate_selected":true,"move_selected":true,"history_unchanged":true,"hidden_after_exit":true}},
+                        "created_clip":state.created_clip_proof,
+                        "asset_hot_reload":(!super::super::animation_edit_only()).then(|| json!({"input":"atomic writes to this owned project's GLB/PNG files; original watcher and loaders; no Assets mutation","model_path":MODEL,"texture_path":TEXTURE,"before":state.model_before,"mesh_reloaded":state.model_mesh,"material_reloaded":state.model_material,"texture_reloaded":state.model_texture,"model_sha256":state.model_sha256,"texture_sha256":state.texture_sha256,"modified_events":state.events})),
                         "scene_preview_restored":true,"not_verified":["physical timeline/pose dragging","Blender save callback","other formats and large assets","runtime consumption of probe unless a saved placement references it"]
                     }));state.phase=Phase::Complete;
                 }
@@ -183,6 +429,52 @@ pub(super) fn advance(world: &mut World) -> Option<Result<Value, String>> {
         }
         if state.phase==Phase::Complete{Some(Ok(state.report.clone().unwrap()))}else{None}
     })
+}
+
+#[cfg(feature = "validation")]
+fn click_animation_button(world: &mut World, state: &mut Fixture, action: bridge::AnimationCommand) -> Result<bool, String> {
+    let position = if let Some((position, _)) = state.click {
+        position
+    } else {
+        if !bridge::input_ready(world) { return Ok(false); }
+        let Some(entity) = bridge::original_button(world, action) else { return Ok(false); };
+        let Some(transform) = world.get::<UiGlobalTransform>(entity) else { return Ok(false); };
+        let position = transform.translation.as_dvec2();
+        record_action(world, state, &format!("Click{action:?}"));
+        position
+    };
+    let window = world.query_filtered::<Entity, With<PrimaryWindow>>()
+        .single(world).map_err(|error| error.to_string())?;
+    // 采用正常窗口鼠标路径。释放后由随后阶段确认状态变更，不把发出事件当作成功。
+    Ok(pointer_click(world, &mut state.click, window, position, MouseButton::Left))
+}
+
+#[cfg(not(feature = "validation"))]
+fn click_animation_button(_: &mut World, _: &mut Fixture, _: bridge::AnimationCommand) -> Result<bool, String> {
+    Err("动画原窗口按钮需要显式 validation 构建".into())
+}
+
+fn capture_mode(world: &mut World, filename: &'static str) -> Result<(), String> {
+    let output = PathBuf::from(std::env::var_os("NEW_EDITOR_NATIVE_SMOKE_DIR").ok_or("动画截图缺少自有目录")?);
+    let path = output.join(filename);
+    // 冻结原画布与编辑面板，等真实窗口回读写完再切换阶段。
+    world.spawn(Screenshot::primary_window()).observe(move |event: On<ScreenshotCaptured>, mut commands: Commands| {
+        let image = event.image.clone();
+        let path = path.clone();
+        commands.insert_resource(ModeScreenshot(IoTaskPool::get().spawn(async move {
+            image.try_into_dynamic().map_err(|error| error.to_string())?
+                .save(path).map_err(|error| error.to_string())
+        })));
+    });
+    Ok(())
+}
+
+fn mode_captured(world: &mut World) -> Result<bool, String> {
+    let Some(result) = world.get_resource_mut::<ModeScreenshot>().and_then(|mut screenshot| check_ready(&mut screenshot.0))
+        else { return Ok(false); };
+    result?;
+    world.remove_resource::<ModeScreenshot>();
+    Ok(true)
 }
 
 fn trace(state: &mut Fixture, value: Value) {
@@ -212,22 +504,31 @@ fn command(
     bridge::command(world, action)
 }
 
-fn open_asset(world: &mut World, path: &str) -> Result<(), String> {
-    if world
-        .get_resource::<EditorTextInputGuard>()
-        .is_some_and(|guard| guard.block_shortcuts)
-        || world
-            .get_resource::<SceneEditorNumericScrubMouseGuard>()
-            .is_some_and(|guard| guard.blocked())
-    {
-        return Err("原作者输入尚未静默，不能打开动画验收资产".into());
+fn reveal_asset(world: &mut World, path: &str) -> Result<(), String> {
+    world.resource_scope(|world, mut catalog: Mut<EditorAssetCatalog>| {
+        world.resource_scope(|world, mut editor: Mut<SceneEditorState>| {
+            request_asset_reveal(&mut catalog, &mut editor, &mut world.resource_mut::<SceneEditorSidebarState>(), path)
+        })
+    })
+}
+
+fn expanded_model_ready(world: &mut World, path: &str) -> bool {
+    let media = world.resource::<AssetPreviewWorkspace>();
+    if media.central_active && media.expanded.as_ref().is_some_and(|tab| tab.path == path) {
+        let preview = world.resource::<AssetPreviewState>();
+        return preview.selected_path.as_deref() == Some(path) && matches!(preview.content,
+            AssetPreviewContent::Model { phase: AssetPreviewPhase::Ready, .. })
+            && preview.render_visible;
     }
-    world
-        .resource_mut::<SceneEditorSidebarState>()
-        .reveal_asset_properties();
-    world.resource_mut::<SceneEditorState>().selected_asset = Some(path.into());
-    world.write_message(OpenAssetPreview { path: path.into() });
-    Ok(())
+    // 等文件定位与属性页采用后提交双击入口。旧中央标签可能仍在展示上一 GLB。
+    if world.resource::<SceneEditorState>().selected_asset.as_deref() == Some(path)
+        && world.resource::<SceneEditorSidebarState>().right == EditorRightSidebarTab::Assets
+        && !world.resource::<EditorTextInputGuard>().block_shortcuts
+        && !world.resource::<SceneEditorNumericScrubMouseGuard>().blocked()
+    {
+        world.write_message(OpenAssetPreview { path: path.into() });
+    }
+    false
 }
 
 fn launch_write(state: &mut Fixture, mutation: Mutation) -> Result<(), String> {

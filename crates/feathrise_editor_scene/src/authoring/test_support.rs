@@ -30,6 +30,7 @@ pub fn test_heightfield_draft(heights: Arc<Vec<u16>>) -> EditorSceneDraft {
     EditorSceneDraft {
         scene_id: scene_id.clone(),
         domain: None,
+        motion: Default::default(),
         preserved_asset_paths: Default::default(),
         folder: "scenes/EDGE-TEST".to_owned(),
         placement_glb_hash: None,

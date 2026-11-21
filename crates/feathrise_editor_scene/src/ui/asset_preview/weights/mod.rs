@@ -38,6 +38,7 @@ pub(super) fn install(app: &mut App) {
                 .after(super::interaction::handle_asset_preview_actions)
                 .after(crate::ui::file_manager::FileManagerInput)
                 .after(super::gltf_tree::weight_row_input)
+                .before(super::animation::AnimationInputHost) // 权重接管后再发布同帧的动画输入资格。
                 .before(super::opening::open)
                 .before(super::navigation::control_asset_preview)
                 .before(crate::ui::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)

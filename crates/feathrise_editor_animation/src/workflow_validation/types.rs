@@ -26,6 +26,10 @@ pub struct AnimationProbe {
     pub saved_cursor: Option<usize>,
     pub history_len: usize,
     pub dirty: bool,
+    pub pose_bones: usize,
+    pub node: usize,
+    pub node_name: String,
+    pub property: String,
     pub actual_clip: usize,
     pub actual_channel: Option<usize>,
     pub actual_key: Option<usize>,
@@ -37,6 +41,15 @@ pub struct AnimationProbe {
 
 #[derive(Clone, Copy, Debug)]
 pub enum AnimationCommand {
+    ToggleEditing,
+    MovePose,
+    RotatePose,
+    CreateClip,
+    ToggleAutoKey,
+    InsertPose,
+    InsertKey,
+    FirstFrame,
+    NextFrame,
     NextKey,
     Undo,
     Redo,

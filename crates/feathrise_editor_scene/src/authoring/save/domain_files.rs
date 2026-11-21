@@ -64,6 +64,7 @@ impl DraftSourceSaveGuard {
         }
         Ok(guard) // 返回全部需要保护的文档。
     }
+
     pub(super) fn check(&self, path: &Path) -> Result<(), String> {
         if let Some((target, expected)) = &self.vegetation
             && path == target

@@ -17,6 +17,7 @@ use crate::types::EditorTool;
 use crate::ui::{
     gltf_browser::EditorGltfBrowserState,
     placement_transform::PlacementTransformInputState,
+    scene_motion::Workbench,
     vegetation_preset_editor::{PresetWorkspaceTab, VegetationPresetEditorState},
 };
 use bevy::prelude::*;
@@ -36,6 +37,7 @@ pub(crate) fn draw_placement_move(
     transform: Res<PlacementTransformInputState>,
     mut tools: ResMut<AuthorToolFrame>,
     multi_selection: Option<Res<crate::viewport::multi_select::PlacementSelectionSet>>,
+    animation: Option<Res<Workbench>>,
 ) {
     if !editor.open
         || !editor.placement_transform_enabled
@@ -108,7 +110,14 @@ pub(crate) fn draw_placement_move(
         .as_ref()
         .or_else(|| state.pending_building.as_ref().map(|pending| &pending.drag))
         .filter(|drag| drag.before.id == record.id && drag.author_revision == session.revision);
-    let origin = if let Some(drag) = preview { drag.preview_world_position() }
+    let animated = session.draft.as_ref().and_then(|draft| animation.as_ref()
+        .filter(|workbench| workbench.owns(&draft.scene_id, &record.id))
+        .map(|workbench| (&draft.scene_id, workbench)));
+    let origin = if let Some((scene, workbench)) = animated {
+        if mode.mode != ViewportMode::Move || !workbench.can_pose(scene, &record.id) { return; }
+        let Some(pose) = state.animation_pose(scene, &record.id).or_else(|| workbench.pose_for(record, scene)) else { return; };
+        Vec3::from_array(pose.translation)
+    } else if let Some(drag) = preview { drag.preview_world_position() }
         else if let Some(origin) = session.draft.as_ref().and_then(|draft|
             crate::authoring::placement_pose::placement_record_world_position(draft, record).ok()) { origin }
         else { return; };
@@ -173,6 +182,52 @@ pub(crate) fn draw_placement_move(
         axis_colors: axis_colors(), anchor: (building && preview.is_some()).then_some(record.translation),
         marker_radius: (building && preview.is_some()).then_some(length * 0.15),
     })); // 候选位移线与16段落点圈仍跟随原校验预览，不提前改作者记录。
+}
+
+/// 动画姿势支持完整世界轴，沿用网格和骨骼的圆环几何与同一套拾取坐标。
+pub(crate) fn draw_animation_rotation(
+    editor: Res<SceneEditorState>,
+    session: Res<EditorAuthoringSession>,
+    state: Res<PlacementMoveState>,
+    mode: Res<ViewportModeState>,
+    viewport: Option<Res<SceneEditorViewportState>>,
+    nodes: Query<&ComputedNode, With<SceneEditorViewport>>,
+    browser: Res<EditorGltfBrowserState>,
+    candidates: Res<LayerCandidateState>,
+    animation: Res<Workbench>,
+    mut gizmos: Gizmos<crate::viewport::SceneEditorBrushGizmos>,
+) {
+    use feathrise_editor_animation_model::gizmo::{MoveConstraint, rotation_rings};
+
+    if !editor.open || !editor.placement_transform_enabled || editor.scene_transition_in_progress
+        || mode.mode != ViewportMode::Rotate || editor.tool != EditorTool::Inspect
+    {
+        return;
+    }
+    let Some(draft) = session.draft.as_ref() else { return; };
+    let Some(viewport) = viewport else { return; };
+    let Some((_, record)) = selected_record(&editor, &session, &browser, &candidates, &viewport) else { return; };
+    if !animation.can_pose(&draft.scene_id, &record.id) { return; }
+    let Some(pose) = state.animation_pose(&draft.scene_id, &record.id)
+        .or_else(|| animation.pose_for(record, &draft.scene_id)) else { return; };
+    let Some(camera) = nodes.single().ok().and_then(|node| MoveCamera::new(&editor, &viewport, node.inverse_scale_factor()))
+    else { return; };
+    let active = state.drag.as_ref().map(|drag| drag.handle).or(state.hover);
+    for ring in rotation_rings(*camera, Vec3::from_array(pose.translation)).into_iter().flatten() {
+        let color = if active == Some(MoveHandle::AnimationRotation(ring.constraint)) {
+            Color::srgb(0.92, 0.72, 0.40)
+        } else {
+            match ring.constraint {
+                MoveConstraint::X => MoveAxis::X.color(),
+                MoveConstraint::Y => MoveAxis::Y.color(),
+                MoveConstraint::Z => MoveAxis::Z.color(),
+                MoveConstraint::View => Color::srgb(0.82, 0.84, 0.87),
+            }
+        };
+        for segment in ring.world.windows(2) {
+            gizmos.line(segment[0], segment[1], color);
+        }
+    }
 }
 
 /// 发送前保留原相机的逐轴退化门；共享绘制端不能把不可拾取的轴重新画出来。

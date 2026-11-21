@@ -2,7 +2,12 @@
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_animation_model::media::AssetPreviewSubAssetPanel;
-use super::{components::*, resources::AnimationEditorState, types::AnimationView};
+use super::{
+    components::*,
+    docking::PropertySection,
+    resources::AnimationEditorState,
+    types::AnimationView,
+};
 use feathrise_editor_ui::colors;
 use bevy::{prelude::*, ui::InteractionDisabled};
 use feathrise_editor_ui::{
@@ -19,8 +24,20 @@ fn ratio(time: f32, duration: f32) -> f32 {
     }
 }
 
-fn button_label(action: AnimationAction, view: &AnimationView, in_place: bool) -> String {
+fn button_label(
+    action: AnimationAction,
+    view: &AnimationView,
+    in_place: bool,
+    editing: bool,
+    locale: EditorLocale,
+) -> String {
     match action {
+        AnimationAction::CreateClip => locale.text("animation.mode.create").into(),
+        AnimationAction::ToggleEditing => locale.text(if editing {
+            "animation.mode.exit"
+        } else {
+            "animation.mode.edit"
+        }).into(),
         AnimationAction::FitTimeline => "适配".into(),
         AnimationAction::ZoomIn => "＋".into(),
         AnimationAction::ZoomOut => "－".into(),
@@ -34,6 +51,7 @@ fn button_label(action: AnimationAction, view: &AnimationView, in_place: bool) -
         AnimationAction::NextBone => "下骨骼".into(),
         AnimationAction::MovePose => "移动 G".into(),
         AnimationAction::RotatePose => "旋转 R".into(),
+        AnimationAction::InsertPose if view.pose_bones > 0 => format!("插入姿势（{} 骨）", view.pose_bones),
         AnimationAction::InsertPose => "插入姿势".into(),
         AnimationAction::ToggleAutoKey => if view.auto_key {
             "自动插帧 开"
@@ -82,35 +100,52 @@ fn button_label(action: AnimationAction, view: &AnimationView, in_place: bool) -
     }
 }
 
-fn enabled(action: AnimationAction, view: &AnimationView) -> bool {
-    if !view.visible || view.busy || view.clip_count == 0 {
+fn enabled(
+    action: AnimationAction,
+    state: &AnimationEditorState,
+    view: &AnimationView,
+    writing_ui: bool,
+) -> bool {
+    if view.busy {
         return false;
     }
+    let author = writing_ui && view.editable;
+    let direct_source = !state.in_place_rig_preview();
     match action {
-        AnimationAction::PreviousClip => view.clip_index > 0,
-        AnimationAction::NextClip => view.clip_index + 1 < view.clip_count,
-        AnimationAction::Save => view.editable && view.dirty && !view.pose_dirty,
-        AnimationAction::Reload => !view.dirty,
-        AnimationAction::Undo => view.editable && (view.can_undo || view.pose_dirty),
-        AnimationAction::Redo => view.editable && view.can_redo,
+        AnimationAction::CreateClip => state.can_create_clip(),
+        AnimationAction::ToggleEditing => if state.editing_animation() {
+            !view.pose_dirty
+        } else {
+            state.can_edit_selected()
+        },
+        // 撤销唯一的新动画之后，保存和历史仍属于当前源。
+        AnimationAction::Save => author && view.dirty && !view.pose_dirty,
+        AnimationAction::Reload => direct_source && author && !view.dirty,
+        AnimationAction::Undo => author && (view.can_undo || view.pose_dirty),
+        AnimationAction::Redo => author && view.can_redo,
+        _ if !view.visible || view.clip_count == 0 => false,
+        AnimationAction::PreviousClip => direct_source && view.clip_index > 0,
+        AnimationAction::NextClip => direct_source && view.clip_index + 1 < view.clip_count,
+        AnimationAction::BindSelectedModel => direct_source,
         AnimationAction::PreviousChannelPage => view.page > 0,
         AnimationAction::NextChannelPage => (view.page + 1) * CHANNEL_SLOTS < view.channel_count,
         AnimationAction::CycleInterpolation => {
-            view.editable && view.selected_channel.is_some() && !view.pose_dirty
+            author && view.selected_channel.is_some() && !view.pose_dirty
         }
         AnimationAction::InsertKey => {
-            view.editable && view.selected_channel.is_some()
+            author && view.selected_channel.is_some()
         }
         AnimationAction::PreviousKey | AnimationAction::NextKey => view.selected_channel.is_some(),
         AnimationAction::DeleteKey => {
-            view.editable && (!view.selected.0.is_empty() || view.selected_key.is_some())
+            author && (!view.selected.0.is_empty() || view.selected_key.is_some())
         }
-        AnimationAction::CopyKeys => !view.selected.0.is_empty(),
+        AnimationAction::CopyKeys => writing_ui && !view.selected.0.is_empty(),
         AnimationAction::PasteKeys
         | AnimationAction::InsertPose
         | AnimationAction::MovePose
-        | AnimationAction::RotatePose => view.editable,
-        AnimationAction::ResetPose => view.pose_dirty,
+        | AnimationAction::RotatePose => author,
+        AnimationAction::ToggleAutoKey => writing_ui,
+        AnimationAction::ResetPose => writing_ui && view.pose_dirty,
         _ => true,
     }
 }
@@ -154,7 +189,9 @@ pub(super) fn sync(
                 Option<&AnimationNumericSlot>,
                 Option<&AnimationRulerTick>,
                 Option<&AssetPreviewSubAssetPanel>,
-                Has<AnimationWriteControls>,
+                Option<&AnimationWriteControls>,
+                Has<AnimationDirectSourceControls>,
+                Option<&PropertySection>,
             ),
             Or<(
                 With<AnimationPanel>,
@@ -165,6 +202,8 @@ pub(super) fn sync(
                 With<AnimationRulerTick>,
                 With<AssetPreviewSubAssetPanel>,
                 With<AnimationWriteControls>,
+                With<AnimationDirectSourceControls>,
+                With<PropertySection>,
             )>,
         >,
         Query<(
@@ -211,6 +250,8 @@ pub(super) fn sync(
             Without<AnimationRulerTick>,
             Without<AssetPreviewSubAssetPanel>,
             Without<AnimationWriteControls>,
+            Without<AnimationDirectSourceControls>,
+            Without<PropertySection>,
             Without<AnimationKeyButton>,
         ),
     >,
@@ -243,13 +284,25 @@ pub(super) fn sync(
     }
     let expanded_glb = dock.central_glb().is_some();
     let in_place = state.in_place_rig_preview();
+    let editing = state.editing_animation();
+    let writing_ui = editing && !dock.weights_own_viewport();
     let ready = view.visible && !view.busy && view.clip_count > 0;
-    for (mut node, panel, toolbar, row, playhead, numeric, tick, subassets, write) in &mut nodes.p0() {
-        if panel.is_some() || toolbar.is_some() || write {
-            let shown = if write {
-                !in_place
+    let clip_ui = view.visible && view.clip_count > 0;
+    for (mut node, panel, toolbar, row, playhead, numeric, tick, subassets, write, direct, property)
+        in &mut nodes.p0()
+    {
+        if panel.is_some() || toolbar.is_some() || write.is_some() || direct || property.is_some() {
+            // 预览保留原片段和播放区，写按钮、数值框和姿势工具跟随显式编辑。
+            let shown = if panel.is_some() {
+                view.visible || editing
+            } else if let Some(write) = write {
+                writing_ui && (clip_ui || matches!(write, AnimationWriteControls::History))
+            } else if toolbar.is_some() {
+                writing_ui && clip_ui
+            } else if direct {
+                clip_ui && !in_place
             } else {
-                view.visible && (panel.is_some() || !in_place)
+                clip_ui || (view.visible && in_place && property == Some(&PropertySection::Binding))
             };
             let display = if shown {
                 Display::Flex
@@ -371,11 +424,12 @@ pub(super) fn sync(
         }
         let enabled = !state.weight_rest_active()
             && ((in_place && marker.action == AnimationAction::UnbindModel)
-                || enabled(marker.action, &view));
+                || enabled(marker.action, &state, &view, writing_ui));
         set_disabled(&mut commands, entity, enabled, disabled);
         let selected = (marker.action == AnimationAction::TogglePlayback && view.playing)
             || (marker.action == AnimationAction::ToggleLoop && view.looping)
             || (marker.action == AnimationAction::ToggleAutoKey && view.auto_key)
+            || (marker.action == AnimationAction::ToggleEditing && (writing_ui || state.can_edit_selected()))
             || (marker.action == AnimationAction::MovePose
                 && view.pose_tool == super::types::PoseTool::Move)
             || (marker.action == AnimationAction::RotatePose
@@ -464,7 +518,7 @@ pub(super) fn sync(
             AnimationLabel::Status => {
                 let state = if view.busy {
                     "正在处理"
-                } else if !view.editable {
+                } else if !writing_ui || !view.editable {
                     "只读"
                 } else if view.dirty {
                     "未保存"
@@ -495,7 +549,7 @@ pub(super) fn sync(
                 "{:.0}",
                 (view.start + view.span * index as f32 / 8.0) * view.fps as f32
             ),
-            AnimationLabel::Button(action) => button_label(action, &view, in_place),
+            AnimationLabel::Button(action) => button_label(action, &view, in_place, editing, locale),
         };
         if text.as_str() != value {
             **text = value;
@@ -507,6 +561,7 @@ pub(super) fn sync(
             AnimationNumericField::Value(axis) => view.key_values.get(axis).copied(),
         };
         let enabled = ready
+            && writing_ui
             && view.editable
             && target.is_some()
             && !(view.pose_dirty && marker.field == AnimationNumericField::Frame);
@@ -564,6 +619,72 @@ pub(super) fn sync(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_actions_stay_read_only_until_explicit_edit_and_weights_hide_animation_writes() {
+        use crate::{data::tests::test_document, resources::Session};
+        use feathrise_editor_animation_model::host::AnimationHost;
+
+        let source = std::path::PathBuf::from("fixture.glb");
+        let mut state = AnimationEditorState::default();
+        state.active = Some(source.clone());
+        state.sessions.insert(source, Session::new(test_document()));
+        state.visible = true;
+        let mut app = App::new();
+        app.insert_resource(state)
+            .init_resource::<AnimationHost>()
+            .init_resource::<ActiveNumericInput>()
+            .init_resource::<ActiveNumericInputScrub>()
+            .add_message::<NumericInputSetValue>()
+            .add_systems(Update, sync);
+        let world = app.world_mut();
+        let spawn_button = |world: &mut World, action| {
+            world.spawn((
+                AnimationButton { action, ..default() },
+                UiInteraction::None,
+                Node::default(),
+                BackgroundColor::default(),
+            )).id()
+        };
+        let launch = spawn_button(world, AnimationAction::ToggleEditing);
+        let insert = spawn_button(world, AnimationAction::InsertKey);
+        world.entity_mut(insert).insert(AnimationWriteControls::Clip);
+        let playback = spawn_button(world, AnimationAction::TogglePlayback);
+        let pose = world.spawn((AnimationPoseToolbar, Node::default())).id();
+        let history = world.spawn((AnimationWriteControls::History, Node::default())).id();
+        let shown = |app: &App, entity| app.world().get::<Node>(entity).unwrap().display != Display::None;
+        let available = |app: &App, entity| app.world().get::<InteractionDisabled>(entity).is_none();
+
+        app.update();
+        assert!(available(&app, playback));
+        assert!(!available(&app, launch));
+        assert!(!available(&app, insert) && !shown(&app, insert));
+        assert!(!shown(&app, pose) && !shown(&app, history));
+
+        assert!(app.world_mut().resource_mut::<AnimationEditorState>().select_current_clip());
+        app.update();
+        assert!(available(&app, launch));
+        assert!(!shown(&app, insert) && !shown(&app, pose));
+
+        assert!(app.world_mut().resource_mut::<AnimationEditorState>().enter_animation_edit());
+        app.update();
+        assert!(available(&app, insert) && shown(&app, insert));
+        assert!(shown(&app, pose) && shown(&app, history));
+
+        app.world_mut().resource_mut::<AnimationHost>().weights_own_viewport = true;
+        app.update();
+        assert!(available(&app, playback));
+        assert!(!available(&app, insert) && !shown(&app, insert));
+        assert!(!shown(&app, pose) && !shown(&app, history));
+
+        // 唯一片段撤销后，历史仍可见，骨架写控件随片段消失。
+        app.world_mut().resource_mut::<AnimationHost>().weights_own_viewport = false;
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        std::sync::Arc::make_mut(&mut state.current_mut().unwrap().document).clips.clear();
+        app.update();
+        assert!(available(&app, launch) && shown(&app, history));
+        assert!(!shown(&app, insert) && !shown(&app, pose));
+    }
 
     #[test]
     fn key_marker_width_only_changes_when_timeline_density_changes() {

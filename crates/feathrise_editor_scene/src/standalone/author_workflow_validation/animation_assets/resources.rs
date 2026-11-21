@@ -13,6 +13,9 @@ pub(super) struct Fixture {
     pub paths: Option<Paths>,
     pub io: Option<Task<Result<IoResult, String>>>,
     pub pulse: Option<Entity>,
+    #[cfg(feature = "validation")]
+    pub click: Option<(bevy::math::DVec2, u8)>,
+    pub insert_time: Option<f32>,
     pub before: Option<AnimationProbe>,
     pub edited: Option<AnimationProbe>,
     pub undone: Option<AnimationProbe>,
@@ -21,6 +24,8 @@ pub(super) struct Fixture {
     pub disk_before: String,
     pub disk_after: String,
     pub disk_key: Option<Value>,
+    pub unanimated_model_sha256: Option<String>,
+    pub created_clip_proof: Option<Value>,
     pub model_bytes: Option<Arc<Vec<u8>>>,
     pub texture_bytes: Option<Arc<Vec<u8>>>,
     pub model_before: Option<ModelProbe>,

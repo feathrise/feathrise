@@ -69,6 +69,20 @@ pub(crate) enum PlacementTransformField {
 }
 
 impl PlacementTransformField {
+    pub(super) const fn is_animation_pose(self) -> bool {
+        matches!(self, Self::TranslationX | Self::TranslationY | Self::TranslationZ | Self::Yaw)
+    }
+
+    pub(super) fn animation_value(self, pose: crate::ui::scene_motion::SceneAnimationFramePose) -> Option<f32> {
+        match self {
+            Self::TranslationX => Some(pose.translation[0]),
+            Self::TranslationY => Some(pose.translation[1]),
+            Self::TranslationZ => Some(pose.translation[2]),
+            Self::Yaw => Some(pose.rotation_degrees[1].rem_euclid(360.0)), // 属性沿用原单圈角度显示，时间轴保留完整转数。
+            _ => None,
+        }
+    }
+
     pub(super) const fn is_lod(self) -> bool {
         matches!(self, Self::LodScreenError | Self::LodHysteresis | Self::LodSafeNear | Self::LodCollisionError)
     }
@@ -406,6 +420,14 @@ pub(super) struct PlacementTransformTarget {
 pub(super) struct PlacementTransformFocus {
     pub(super) entity: Entity, // 必须与最终Committed消息根一致。
     pub(super) target: PlacementTransformTarget, // 聚焦时完整冻结场景和数组身份。
+    pub(super) animation_time: Option<f64>, // 同一个对象换帧也会使旧输入失效。
+}
+
+struct PlacementAnimationScrub {
+    entity: Entity,
+    target: PlacementTransformTarget,
+    time: f64,
+    before: crate::ui::scene_motion::SceneAnimationFramePose,
 }
 
 /// 补丁数值拖动冻结完整来源身份，拒绝同一父实体被新代次复用。
@@ -435,6 +457,7 @@ pub(super) struct PlacementTransformScrub {
 pub(crate) struct PlacementTransformInputState {
     pub(super) focus: Option<PlacementTransformFocus>, // 当前左键单击精确输入身份。
     pub(super) scrub: Option<PlacementTransformScrub>, // 当前左拖事务。
+    animation_scrub: Option<PlacementAnimationScrub>, // 动画数值拖动只预览帧姿势，取消恢复该帧。
     pub(super) rejected_scrub: Option<Entity>, // 取消后的同根Changed持续拒收，直到真实Scrub松手，不能将事务空窗当作新笔。
     pub(super) relocation_target: Option<PlacementTransformTarget>, // 下一次中央视口左键绑定的完整稳定资产。
     pub(super) relocation_intent: PlacementRelocationIntent, // 建筑复制与普通移动共享一个视口点击门。
@@ -444,7 +467,7 @@ pub(crate) struct PlacementTransformInputState {
 
 impl PlacementTransformInputState {
     /// 完整来源捕获必须等待业务事务收口，不能用鼠标捕获状态代替数值Changed/Committed生命周期。
-    pub(crate) fn transaction_active(&self) -> bool { self.scrub.is_some() }
+    pub(crate) fn transaction_active(&self) -> bool { self.scrub.is_some() || self.animation_scrub.is_some() }
 
     /// 位置、旋转、缩放的实时投影直接借用原数值事务；颜色、洞口等属性由各自领域发布。
     pub(crate) fn embedded_scrub(&self) -> Option<(Entity, &feathrise_scene_content::SceneId, usize, u64, u64,

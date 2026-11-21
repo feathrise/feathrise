@@ -218,8 +218,10 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
             &mut app, directory, project.root.clone(),
         )?;
     }
+    #[cfg(all(feature = "validation", windows))]
+    crate::native_validation::animation_workspaces::install(&mut app, &project)?;
     #[cfg(feature = "validation")]
-    smoke::install(&mut app, project.root, asset_root)?;
+    smoke::install(&mut app, &project, asset_root)?;
     let preferences_completion = self::preferences::install(&mut app, author_preferences);
     crate::blender_path_picker::install(&mut app);
 

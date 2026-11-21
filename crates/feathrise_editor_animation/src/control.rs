@@ -1,7 +1,10 @@
 //! 播放、时间轴定位与关键帧事务；固定槽身份在输入前复验，数值一次提交形成一条历史。
 
-use feathrise_editor_animation_model::{host::AnimationHost, media::{AssetPreviewWorkspace, AssetPreviewState}};
-use super::{components::*, context::AnimationContext, data::{Channel, Keyframe}, resources::*};
+use feathrise_editor_animation_model::{
+    host::AnimationHost,
+    media::{AssetPreviewWorkspace, AssetPreviewState},
+};
+use super::{components::*, context::AnimationContext, data::{Channel, Keyframe}, preview::PreviewRuntime, resources::*, types::PoseProperty};
 use bevy::{input::mouse::MouseWheel, prelude::*};
 use feathrise_editor_ui::{
     EditorButtonClick, NumericInputCommitOutcome, NumericInputCommitted, NumericValue,
@@ -14,11 +17,14 @@ pub(super) fn input(
     documents: Res<AnimationHost>,
     mut wheels: MessageReader<MouseWheel>,
     mut commits: MessageReader<NumericInputCommitted>,
+    runtime: Option<Res<PreviewRuntime>>,
     mut state: ResMut<AnimationEditorState>,
     buttons: Query<(&AnimationButton, &EditorButtonClick), Changed<EditorButtonClick>>,
     channels: Query<(&AnimationChannelButton, &EditorButtonClick), Changed<EditorButtonClick>>,
     fields: Query<&AnimationNumericInput>,
 ) {
+    let host = &context.host;
+    state.sync_animation_scope(host.tab, host.open && !host.closing && !host.switching_scene, host.weights_own_viewport);
     state.mouse_owned = false;
     state.wheel_owned = false;
     let _wheel = wheels.read().any(|event| {
@@ -69,17 +75,20 @@ pub(super) fn input(
             && (!state.auto_key || state.current().is_some_and(|session| session.pose.is_some()))
         {
             if let Some(s) = state.current_mut()
-                && let Some(channel) = s.channel.map(|i| &s.document.clips[s.clip].channels[i])
+                && let Some(channel) = s.channel.and_then(|i| s.document.clips[s.clip].channels.get(i))
+                && let Some(property) = PoseProperty::from_path(&channel.path)
+                && s.document.can_animate_node(channel.node)
             {
                 let node = channel.node;
                 let mut pose = s
                     .pose
-                    .filter(|(n, _)| *n == node)
-                    .map_or_else(|| super::pose::local_at(s, node), |(_, t)| t);
-                match channel.path.as_str() {
-                    "translation" if axis < 3 => pose.translation[axis] = value,
-                    "scale" if axis < 3 => pose.scale[axis] = value,
-                    "rotation" => {
+                    .as_ref()
+                    .and_then(|draft| draft.get(node))
+                    .map_or_else(|| super::pose::local_at(s, node), |pose| pose.transform);
+                match property {
+                    PoseProperty::Translation if axis < 3 => pose.translation[axis] = value,
+                    PoseProperty::Scale if axis < 3 => pose.scale[axis] = value,
+                    PoseProperty::Rotation => {
                         let Some(rotation) = rotation_with_angle(pose.rotation, axis, value) else {
                             continue;
                         };
@@ -87,7 +96,7 @@ pub(super) fn input(
                     }
                     _ => continue,
                 }
-                s.pose = Some((node, pose));
+                s.set_pose(node, pose, property);
                 state.playing = false;
                 state.changed();
                 if state.auto_key {
@@ -122,7 +131,7 @@ pub(super) fn input(
             && click.is_clicked() && button.binding == state.revision
     }) {
         // 结束预览只撤销当前意图，旧读取会在原任务槽结束后退役。
-        state.stop_rig_preview();
+        action(&mut state, AnimationAction::UnbindModel);
         state.mouse_owned = true;
         return;
     }
@@ -131,6 +140,19 @@ pub(super) fn input(
     }
     for (button, click) in &buttons {
         if click.is_clicked() && button.binding == state.revision {
+            if matches!(
+                button.action, AnimationAction::CreateClip | AnimationAction::ToggleEditing
+            ) && (host.weights_own_viewport || !host.sidebar_assets_visible || host.selected_asset != preview.selected_path) {
+                // 只接受当前 GLB 自己的属性按钮，丢弃切换属性来源后的旧释放。
+                continue;
+            }
+            if button.action == AnimationAction::ToggleEditing
+                && state.in_place_rig_preview() && !state.editing_animation() && state.playing && state.can_edit_selected()
+                && let Some(time) = runtime.as_ref().and_then(|runtime| runtime.published_weight_time(&state))
+            {
+                // 后台采样可能落后于播放头。留在当前标签编辑用户实际看到的帧。
+                state.seek(time);
+            }
             if button.action == AnimationAction::BindSelectedModel {
                 if state.in_place_rig_preview() {
                     continue;
@@ -165,11 +187,6 @@ pub(super) fn input(
         if let Some(index) = button.index
             && let Some(session) = state.current_mut()
         {
-            if session.pose.is_some_and(|(node, _)| {
-                node != session.document.clips[session.clip].channels[index].node
-            }) {
-                continue;
-            }
             session.selected_node = Some(session.document.clips[session.clip].channels[index].node);
             session.channel = Some(index);
             session.key = None;
@@ -207,6 +224,9 @@ fn numeric_edit(
         .get(session.clip)?
         .channels
         .get(channel_index)?;
+    if !session.document.can_animate_node(channel.node) {
+        return None;
+    }
     let before = match field {
         AnimationNumericField::Frame => Some(channel.keys.get(session.key?)?.clone()),
         AnimationNumericField::Value(_) => key_at(channel, session.position).cloned(),
@@ -235,15 +255,16 @@ fn numeric_edit(
 
 pub(super) fn action(state: &mut AnimationEditorState, action: AnimationAction) {
     use AnimationAction::*;
-    if state.in_place_rig_preview() && matches!(
-        action,
-        Reload | MovePose | RotatePose | ToggleAutoKey | ResetPose | CopyKeys | BindSelectedModel
-    ) {
+    if state.in_place_rig_preview()
+        && (matches!(action, Reload | BindSelectedModel | PreviousClip | NextClip)
+            || (action == CopyKeys && !state.editable()))
+    {
         return;
     }
     if matches!(
         action,
         Save | Undo | Redo | InsertKey | DeleteKey | CycleInterpolation | InsertPose | PasteKeys
+            | MovePose | RotatePose | ToggleAutoKey | ResetPose
     ) && !state.editable()
     {
         return;
@@ -261,12 +282,11 @@ pub(super) fn action(state: &mut AnimationEditorState, action: AnimationAction) 
             action,
             Save | Reload
                 | Redo
+                | CreateClip
                 | InsertKey
                 | DeleteKey
                 | CycleInterpolation
                 | PasteKeys
-                | PreviousBone
-                | NextBone
                 | PreviousClip
                 | NextClip
                 | FirstFrame
@@ -281,10 +301,35 @@ pub(super) fn action(state: &mut AnimationEditorState, action: AnimationAction) 
             return;
         }
     }
+    if state.active_document().is_none_or(|document| document.clips.is_empty())
+        && !matches!(action, CreateClip | ToggleEditing | Save | Undo | Redo | Reload | UnbindModel)
+    {
+        return;
+    }
     let duration = state.current().map_or(0.0, |s| {
         s.metadata.durations.get(s.clip).copied().unwrap_or(0.0)
     });
     match action {
+        CreateClip => {
+            if !state.busy() && state.can_create_clip() {
+                // 在当前 GLB 建立草稿并选中新片段。之后仍由明确的编辑按钮授予曲线写权限。
+                state.exit_animation_edit();
+                state.stop_rig_preview();
+                state.playing = false;
+                state.pending = Some(PendingAction::Command(super::editing::Command::CreateClip));
+            }
+        }
+        ToggleEditing => {
+            if state.editing_animation() {
+                if state.current().is_some_and(|session| session.pose.is_some()) {
+                    state.status = "请先插入或还原临时姿势".into();
+                } else {
+                    state.exit_animation_edit();
+                }
+            } else {
+                state.enter_animation_edit();
+            }
+        }
         FitTimeline => {
             if let Some(s) = state.current_mut() {
                 s.window_start = 0.0;
@@ -353,22 +398,22 @@ pub(super) fn action(state: &mut AnimationEditorState, action: AnimationAction) 
         }
         InsertPose => {
             if let Some(s) = state.current() {
-                if let Some((node, transform)) = s.pose.or_else(|| {
-                    s.selected_node
-                        .map(|node| (node, super::pose::local_at(s, node)))
-                }) {
-                    state.pending = Some(PendingAction::Command(super::editing::Command::Pose {
-                        clip: s.clip,
-                        time: s.position,
-                        node,
-                        transform,
-                    }));
-                }
+                use super::editing::Command;
+                let command = if let Some(draft) = &s.pose {
+                    Command::Pose { clip: s.clip, time: s.position, draft: draft.clone() }
+                } else if let Some(node) = s.selected_node {
+                    Command::CapturePose { clip: s.clip, time: s.position, node }
+                } else { return; };
+                state.pending = Some(PendingAction::Command(command));
             }
         }
         UnbindModel => {
             if state.in_place_rig_preview() {
-                state.stop_rig_preview();
+                if state.current().is_some_and(|session| session.pose.is_some()) {
+                    state.status = "请先插入或还原临时姿势".into();
+                } else {
+                    state.stop_rig_preview();
+                }
                 return;
             }
             if let Some(s) = state.current_mut() {
@@ -380,7 +425,7 @@ pub(super) fn action(state: &mut AnimationEditorState, action: AnimationAction) 
         }
         BindSelectedModel => {}
         CopyKeys | PasteKeys => {
-            if let (Some(s), Some(source)) = (state.current(), state.active.clone()) {
+            if let (Some(s), Some(source)) = (state.current(), state.source().map(std::path::Path::to_path_buf)) {
                 let command = if action == CopyKeys {
                     super::editing::Command::Copy {
                         clip: s.clip,
@@ -482,8 +527,13 @@ pub(super) fn action(state: &mut AnimationEditorState, action: AnimationAction) 
                 } else {
                     (session.clip + 1) % count
                 };
+                if clip == session.clip {
+                    return;
+                }
                 session.select_clip(clip);
             }
+            // 浏览内嵌片段只换播放内容。真实文件选片段和新建流程负责授权。
+            state.return_to_animation_preview();
             state.playing = false;
             state.changed();
         }

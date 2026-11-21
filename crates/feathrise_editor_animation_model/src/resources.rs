@@ -22,10 +22,15 @@ pub struct PoseInputState {
 /// 历史只保存被编辑的关键帧，避免每次修改都保留整个动作文件。
 #[derive(Clone)]
 pub enum Edit {
+    /// 本会话追加的完整片段参与同一撤销历史，原 GLB 已有片段的索引保持不变。
+    AppendClip(Arc<Clip>),
     /// 批量编辑在后台构造，每条受影响曲线保存修改前后值；主线程仅移动共享所有权。
     Channels {
         clip: usize,
         values: Arc<Vec<(usize, Vec<Keyframe>, Vec<Keyframe>)>>,
+        /// 新增的通道始终追加在现有末端，随本组姿势一起撤销。
+        appended: Arc<[Channel]>,
+        first_appended: usize,
     },
     Key {
         clip: usize,
@@ -44,7 +49,10 @@ pub enum Edit {
 impl Edit {
     pub fn target(&self) -> (usize, usize) {
         match self {
-            Self::Channels { clip, values } => (*clip, values.first().map_or(0, |v| v.0)),
+            Self::AppendClip(clip) => (clip.source_index, 0),
+            Self::Channels { clip, values, appended: _, first_appended } => {
+                (*clip, values.first().map_or(*first_appended, |v| v.0))
+            }
             Self::Key { clip, channel, .. } | Self::Interpolation { clip, channel, .. } => {
                 (*clip, *channel)
             }
@@ -56,19 +64,42 @@ impl Edit {
         forward: bool,
     ) -> Result<Option<usize>, String> {
         match self {
-            Self::Channels { clip, values } => {
+            Self::AppendClip(clip) => {
+                if forward && doc.clips.len() == clip.source_index {
+                    doc.clips.push((**clip).clone());
+                } else if !forward
+                    && doc.clips.last().is_some_and(|last| last.source_index == clip.source_index)
+                {
+                    doc.clips.pop();
+                } else {
+                    return Err("动画片段已改变，请重新选择".into());
+                }
+                Ok(None)
+            }
+            Self::Channels { clip, values, appended, first_appended } => {
+                let clip = doc.clips.get_mut(*clip).ok_or("动作已改变")?;
+                if !appended.is_empty() && if forward {
+                    clip.channels.len() != *first_appended
+                } else {
+                    clip.channels.get(*first_appended..) != Some(appended.as_ref())
+                } {
+                    return Err("新增通道已改变，无法恢复整组姿势".into());
+                }
                 for (index, before, after) in values.iter() {
-                    let channel = doc
-                        .clips
-                        .get_mut(*clip)
-                        .and_then(|c| c.channels.get_mut(*index))
-                        .ok_or("通道已改变")?;
+                    let channel = clip.channels.get_mut(*index).ok_or("通道已改变")?;
                     channel.keys = if forward {
                         after.clone()
                     } else {
                         before.clone()
                     };
                     channel.validate()?;
+                }
+                if !appended.is_empty() {
+                    if forward {
+                        clip.channels.extend(appended.iter().cloned());
+                    } else {
+                        clip.channels.truncate(*first_appended);
+                    }
                 }
                 Ok(None)
             }
@@ -183,13 +214,14 @@ pub struct Session {
     pub selected_node: Option<usize>,
     pub bone_filter: bool,
     pub selected: KeySelection,
-    pub pose: Option<(usize, Transform)>,
+    pub pose: Option<PoseDraft>,
     pub model_path: Option<String>,
     pub retarget_model: bool,
 }
 
 impl Session {
     pub fn visible_channels(&self) -> Vec<usize> {
+        let Some(clip) = self.document.clips.get(self.clip) else { return Vec::new(); };
         if self.bone_filter {
             self.selected_node
                 .and_then(|node| self.metadata.channels_by_node.get(self.clip)?.get(&node))
@@ -203,13 +235,13 @@ impl Session {
                 })
                 .unwrap_or_default()
         } else {
-            (self.page * CHANNEL_SLOTS..self.document.clips[self.clip].channels.len())
+            (self.page * CHANNEL_SLOTS..clip.channels.len())
                 .take(CHANNEL_SLOTS)
                 .collect()
         }
     }
     pub fn select_node(&mut self, node: usize) {
-        if self.pose.is_some() {
+        if node >= self.document.nodes.len() {
             return;
         }
         self.selected_node = Some(node);
@@ -227,16 +259,22 @@ impl Session {
         self.key = None;
         self.page = 0;
     }
+
+    pub fn set_pose(&mut self, node: usize, transform: Transform, property: PoseProperty) -> bool {
+        self.pose.get_or_insert_default().set(node, transform, property)
+    }
     pub fn select_clip(&mut self, clip: usize) {
+        // 撤销唯一新片段后仍可保留文件会话和重做历史。
+        let clip = clip.min(self.document.clips.len().saturating_sub(1));
         self.clip = clip;
-        self.channel = (!self.document.clips[clip].channels.is_empty()).then_some(0);
+        self.channel = self.document.clips.get(clip).is_some_and(|clip| !clip.channels.is_empty()).then_some(0);
         self.key = None;
         self.position = 0.0;
         self.page = 0;
         self.selected = KeySelection::default();
         self.window_start = 0.0;
-        self.window_span = self.metadata.durations[clip].max(1.0 / 30.0);
-        self.selected_node = self.metadata.bones[clip].first().copied();
+        self.window_span = self.metadata.durations.get(clip).copied().unwrap_or(1.0).max(1.0 / 30.0);
+        self.selected_node = self.metadata.bones.get(clip).and_then(|bones| bones.first()).copied();
     }
     pub fn clip_from_source(&self, index: usize) -> Option<usize> {
         // 解析器按 GLB 原顺序保留片段。目录传来的是原索引，不能用编辑器数组位置猜测身份。
@@ -343,7 +381,8 @@ pub enum PendingAction {
 pub enum TaskResult {
     Copied(Result<Arc<super::types::Clipboard>, String>),
     Load(Result<Session, String>),
-    RigLoad { ticket: u64, result: Result<Session, String> },
+    /// `None` 表示已复验缓存的同一文件，继续沿用作者草稿和历史。
+    RigLoad { ticket: u64, result: Result<Option<Session>, String> },
     Unchanged,
     Released,
     Edit {
@@ -439,13 +478,12 @@ pub struct AnimationEditorState {
     pub model_status: String,
     pub model_binding_revision: u64,
     pub rig_preview: Option<super::request::RigPreviewRequest>,
-    /// 内嵌动作复用真实模型播放，但保留当前作者文档的编辑权限。
+    /// 内嵌动作复用真实模型播放，写入由独立的显式动画编辑态授权。
     pub embedded_motion: bool,
     pub weight_rest: Option<WeightFrame>,
-    /// 独立只读会话按请求票据访问，退出或换源后由原工作槽后台释放。
-    pub rig_session: Option<(u64, Session)>,
     /// 普通 GLB 的显式目录动作等待原打开流程发布文件会话，连续点击仅保留末次意图。
     pub directory_pick: Option<super::request::DirectoryPick>,
+    pub edit_mode: super::edit_mode::AnimationEditMode,
 }
 
 impl Default for AnimationEditorState {
@@ -481,8 +519,8 @@ impl Default for AnimationEditorState {
             rig_preview: None,
             embedded_motion: false,
             weight_rest: None,
-            rig_session: None,
             directory_pick: None,
+            edit_mode: Default::default(),
         }
     }
 }
@@ -502,21 +540,24 @@ impl AnimationEditorState {
             .then_some("存在未保存的动画草稿或姿态，请先使用原动画保存或取消操作收口")
     }
 
-    pub fn current(&self) -> Option<&Session> {
+    /// 角色视口和动画源分开持有身份，请求复验完成前禁止采用同路径旧文档。
+    pub fn author_path(&self) -> Option<&Path> {
         if let Some(request) = &self.rig_preview {
-            return self.rig_session.as_ref()
-                .filter(|(ticket, _)| *ticket == request.ticket)
-                .map(|(_, session)| session);
+            return request.ready.then_some(request.source.as_path());
         }
-        self.sessions.get(self.active.as_ref()?)
+        self.active.as_deref()
+    }
+
+    pub fn current(&self) -> Option<&Session> {
+        self.sessions.get(self.author_path()?)
     }
     pub fn current_mut(&mut self) -> Option<&mut Session> {
-        if let Some(request) = &self.rig_preview {
-            return self.rig_session.as_mut()
-                .filter(|(ticket, _)| *ticket == request.ticket)
-                .map(|(_, session)| session);
-        }
-        self.sessions.get_mut(self.active.as_ref()?)
+        let path = match &self.rig_preview {
+            Some(request) if request.ready => &request.source,
+            Some(_) => return None,
+            None => self.active.as_ref()?,
+        };
+        self.sessions.get_mut(path)
     }
     pub fn active_document(&self) -> Option<&AnimationDocument> {
         self.current().map(|s| s.document.as_ref())
@@ -552,6 +593,27 @@ impl AnimationEditorState {
     pub fn in_place_rig_preview(&self) -> bool {
         self.rig_preview.is_some()
     }
+
+    pub fn preview_model_path(&self) -> Option<&str> {
+        if let Some(request) = &self.rig_preview {
+            return Some(request.request.model_path.as_str());
+        }
+        self.current()?.model_path.as_deref()
+    }
+
+    /// 直接打开和角色动作共用同一缓存上限；取出的旧会话仍由后台释放。
+    pub fn make_room_for_session(&mut self, path: &Path) -> Result<Option<Session>, &'static str> {
+        if self.sessions.len() < 32 || self.sessions.contains_key(path) {
+            return Ok(None);
+        }
+        let oldest = self.sessions.iter()
+            .filter(|(_, session)| !session.dirty())
+            .min_by_key(|(_, session)| session.last_used)
+            .map(|(path, _)| path.clone())
+            .ok_or("已有32份未保存动画草稿，请先保存其中一份再打开其他动画")?;
+        Ok(self.sessions.remove(&oldest))
+    }
+
     pub fn reset_rig_playback(&mut self) {
         self.playing = false;
         self.weight_rest = None;
@@ -627,7 +689,7 @@ impl AnimationEditorState {
         }
     }
     pub fn editable(&self) -> bool {
-        !self.retargeting() && self.active_document().is_some_and(|doc| !doc.read_only)
+        self.editing_animation()
     }
     pub fn owns_mouse(&self) -> bool {
         self.mouse_owned || self.drag.is_some() || self.gesture.is_some() || self.pose_mouse_owned
@@ -685,7 +747,7 @@ impl AnimationEditorState {
         let Some(session) = self.current() else {
             return view;
         };
-        view.visible &= !session.document.clips.is_empty();
+        view.visible &= !session.document.clips.is_empty() || self.editing_animation();
         view.editable = self.editable();
         if session.source_changed {
             view.status = "源文件已更新；当前草稿保留，保存或撤销修改后可重新载入".to_owned();
@@ -714,7 +776,8 @@ impl AnimationEditorState {
             .and_then(|i| session.document.nodes.get(i))
             .map_or(String::new(), |n| n.name.clone());
         view.pose_dirty = session.pose.is_some();
-        view.model_path = session.model_path.clone();
+        view.pose_bones = session.pose.as_ref().map_or(0, PoseDraft::len);
+        view.model_path = self.preview_model_path().map(str::to_owned);
         view.selected = session.selected.clone();
         if let Some(gesture) = &self.gesture {
             match &gesture.kind {
@@ -780,8 +843,8 @@ impl AnimationEditorState {
                 .and_then(|i| channel.keys.get(i))
                 .map(|k| k.time);
             view.key_values = channel.sample(session.position);
-            if let Some((node, pose)) = session.pose.filter(|(node, _)| *node == channel.node) {
-                let _ = node;
+            if let Some(pose) = session.pose.as_ref().and_then(|draft| draft.get(channel.node)) {
+                let pose = pose.transform;
                 view.key_values = match channel.path.as_str() {
                     "rotation" => pose.rotation.to_array().to_vec(),
                     "translation" => pose.translation.to_array().to_vec(),

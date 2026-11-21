@@ -277,7 +277,7 @@ impl RetryFixture {
         DraftSaveSuccess {
             terrain_manifest: None, terrain_saved: Vec::new(), terrain_reload_paths: Vec::new(),
             terrain_digests: Vec::new(), terrain_water_changed: BTreeSet::new(),
-            root_water_changed: false, domain_hash: None, scene_id: self.scene_id.clone(),
+            root_water_changed: false, domain_hash: None, motion: None, motion_written: false, scene_id: self.scene_id.clone(),
             placements_snapshot: self.app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap().placements.clone(),
             placements_changed: false, surface_definition_changed: false, surface_weights_changed: false,
             active_terrain_surface_changes: None, surface_source_identity: None,

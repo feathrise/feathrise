@@ -56,6 +56,7 @@ pub(super) fn app_context() -> (App, PathBuf, PathBuf) {
     state
         .sessions
         .insert(beta.clone(), Session::new(test_document()));
+    assert!(state.select_current_clip() && state.enter_animation_edit());
     app.insert_resource(editor)
         .insert_resource(sidebar)
         .insert_resource(state)
@@ -93,6 +94,7 @@ pub(crate) fn install_timeline_input_for_tests(app: &mut App) -> Entity {
     state.active = Some(source.clone());
     state.visible = true;
     state.sessions.insert(source, Session::new(test_document()));
+    assert!(state.select_current_clip() && state.enter_animation_edit());
     let binding = state.revision;
     app.insert_resource(state)
         .insert_resource(AssetPreviewState {

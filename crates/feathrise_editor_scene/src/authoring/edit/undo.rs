@@ -501,6 +501,20 @@ pub(crate) fn apply_undo_redo(
                         }
                     }
                 }
+                EditorCommand::SceneMotionChanged { placement_id, before, after } => {
+                    let (expected, replacement) = if undoing { (after, before) } else { (before, after) };
+                    if draft.motion.get(placement_id) != expected.as_ref() {
+                        return Err("场景动画已变化，无法应用这笔历史".into());
+                    }
+                    draft.motion.replace(placement_id, replacement.clone());
+                }
+                EditorCommand::SceneMotionTimingChanged { before, after } => {
+                    let (expected, replacement) = if undoing { (after, before) } else { (before, after) };
+                    if draft.motion.timing() != *expected {
+                        return Err("场景动画时长或循环已变化，无法应用这笔历史".into());
+                    }
+                    draft.motion.set_timing(replacement.0, replacement.1);
+                }
                 EditorCommand::PlacementChanged {
                     record_index,
                     before,

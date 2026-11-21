@@ -23,6 +23,7 @@ pub(super) fn snapshot(
         placement_water_surface_count: source.placement_water_surface_count.clone(), // 保留该领域既有快照与共享语义。
         portals: source.portals.clone(), // 保留该领域既有快照与共享语义。
         domain: source.domain.clone(), // 外部不可变版本浅共享。
+        motion: source.motion.clone(),
         preserved_asset_paths: source.preserved_asset_paths.clone(),
         terrain_mesh: source.terrain_mesh.clone(), // 保留该领域既有快照与共享语义。
         terrain_editing_index: source.terrain_editing_index.clone(), // 保留该领域既有快照与共享语义。

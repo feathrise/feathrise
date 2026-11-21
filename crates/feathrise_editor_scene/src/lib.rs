@@ -144,6 +144,7 @@ impl Plugin for SceneEditorPlugin {
         }
         ui::text_input::install(app); // 先安装官方输入的公共消息保护与静态字段绑定。
         ui::scene_objects::install(app); // 场景对象管理独立推进，关闭与显隐恢复不被自己的作者输入门阻止。
+        ui::scene_motion::install(app); // 当前场景的轨迹预览与统一作者历史。
         ui::theme::install(app); // 偏好只更新小色板，保留已有UI、输入焦点、草稿和布局。
         ui::terrain_shading::install_collision_preview(app); // 复用全局物理显示偏好，不新增碰撞遍历或作者状态。
         viewport::modes::install(app); // 全局模式先于命中收口，选择模式禁止任何作者落笔。

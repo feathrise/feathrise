@@ -6,11 +6,12 @@ use super::{components::*, docking::{
     BindModelButton, BindModelHome, BindModelStatus, InlinePropertyHost, PropertySection,
 }};
 use feathrise_editor_core::FONT_PATH;
-use feathrise_editor_ui::colors;
+use feathrise_editor_ui::{animation_timeline as timeline, colors};
 use bevy::{
+    asset::HandleTemplate,
     prelude::*,
     text::FontSourceTemplate,
-    ui::{FocusPolicy, RelativeCursorPosition},
+    ui::FocusPolicy,
 };
 use feathrise_editor_ui::{
     NumericInputScrubConfig, NumericInputSpec, NumericScrubFieldOptions, NumericScrubFieldStyle,
@@ -44,59 +45,46 @@ fn button(text: &str, action: AnimationAction) -> impl Scene {
 }
 
 fn bind_button() -> impl Scene {
-    bsn! { BindModelButton AnimationWriteControls @button("绑定所选模型", AnimationAction::BindSelectedModel) }
+    bsn! { BindModelButton AnimationDirectSourceControls @button("绑定所选模型", AnimationAction::BindSelectedModel) }
 }
 
 fn bind_status() -> impl Scene {
     bsn! { BindModelStatus @label("", AnimationLabel::Model) }
 }
 
-/// 姿势工具紧邻骨架画布，避免藏在时间轴按钮中；固定两个入口不占画布布局高度。
+/// 动画编辑沿用场景视口左侧的图标和尺寸。轨道占用鼠标命中，避免按钮间隙选中骨骼或拖动画布。
 pub fn pose_toolbar() -> impl Scene {
-    bsn! { AnimationPoseToolbar ~{FocusPolicy::Pass} ZIndex(1)
+    bsn! { AnimationPoseToolbar UiInteraction::default() ~{FocusPolicy::Block} ZIndex(25)
         Node { display: Display::None, position_type: PositionType::Absolute,
-            left: px(8), top: px(8), width: px(76), flex_direction: FlexDirection::Column,
-            row_gap: px(3) }
-        Children [@button("移动 G", AnimationAction::MovePose)-- @button("旋转 R", AnimationAction::RotatePose)]
+            left: px(8), top: px(8), width: px(36), flex_direction: FlexDirection::Column,
+            row_gap: px(2), padding: UiRect::all(px(2)), border: UiRect::all(px(1)),
+            border_radius: BorderRadius::all(px(2)) }
+        BackgroundColor(colors::PANEL_BG_STRONG) BorderColor::all(colors::COPPER_BORDER_WEAK)
+        Children [@pose_icon("移动 (G)", "icons/editor/tool_move.png", AnimationAction::MovePose)--
+            @pose_icon("旋转 (R)", "icons/editor/tool_rotate.png", AnimationAction::RotatePose)]
+    }
+}
+
+fn pose_icon(label: &'static str, path: &'static str, action: AnimationAction) -> impl Scene {
+    let icon = HandleTemplate::Path(path.into());
+    let name = Name::new(label);
+    bsn! { InteractionButton ~{AnimationButton { action, binding: 0 }} ~{name} ~{FocusPolicy::Block}
+        Node { width: px(30), height: px(30), flex_shrink: 0.0,
+            align_items: AlignItems::Center, justify_content: JustifyContent::Center,
+            border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)) }
+        BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
+        Children [ImageNode { image: icon, color: colors::TEXT_PRIMARY }
+            Node { width: px(20), height: px(20), flex_shrink: 0.0 }
+            ~{FocusPolicy::Pass} Pickable::IGNORE]
     }
 }
 
 fn playhead() -> impl Scene {
-    bsn! { AnimationPlayhead ~{FocusPolicy::Pass}
-        Node { position_type: PositionType::Absolute, left: percent(0), top: px(0),
-            width: px(1), height: percent(100) }
-        BackgroundColor(colors::TEXT_ACCENT)
-    }
+    bsn! { AnimationPlayhead @timeline::playhead() }
 }
 
 fn tick(index: usize) -> impl Scene {
-    // 末刻度把文字放回尺内，边界线仍在真实100%位置，不能把终帧标签裁到画布外。
-    let last = index == 8;
-    let node = Node {
-        position_type: PositionType::Absolute,
-        left: if last {
-            Val::Auto
-        } else {
-            percent(index as f32 * 12.5)
-        },
-        right: if last { px(0) } else { Val::Auto },
-        top: px(0),
-        bottom: px(0),
-        width: px(RULER_TICK_WIDTH),
-        border: if last {
-            UiRect::right(px(1))
-        } else {
-            UiRect::left(px(1))
-        },
-        padding: UiRect::horizontal(px(3)),
-        justify_content: if last {
-            JustifyContent::FlexEnd
-        } else {
-            JustifyContent::FlexStart
-        },
-        overflow: Overflow::clip_x(),
-        ..default()
-    };
+    let node = timeline::tick_node(index);
     bsn! { ~{node} ~{AnimationRulerTick(index)}
         BorderColor::all(colors::COPPER_BORDER_WEAK) ~{FocusPolicy::Pass}
         Children [@label("0", AnimationLabel::Tick(index))]
@@ -104,18 +92,7 @@ fn tick(index: usize) -> impl Scene {
 }
 
 fn key(row: usize, slot: usize) -> impl Scene {
-    bsn! { UiInteraction::default() ~{FocusPolicy::Pass} ~{AnimationKeyButton { row, slot, ..default() }}
-        Node { display: Display::None, position_type: PositionType::Absolute,
-            left: percent(0), top: px(2), width: px(14), height: px(20),
-            margin: UiRect::left(px(-7)), align_items: AlignItems::Center,
-            justify_content: JustifyContent::Center }
-        BackgroundColor(Color::NONE)
-        Children [
-            Text("◆") ~{FocusPolicy::Pass}
-            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-            TextColor(colors::TEXT_VALUE)
-        ]
-    }
+    bsn! { ~{AnimationKeyButton { row, slot, ..default() }} @timeline::key_marker() }
 }
 
 /// 四个8键子池限制BSN临时树大小；实体上限固定，不限制实际动作长度。
@@ -143,11 +120,7 @@ fn channel(slot: usize) -> Box<dyn Scene> {
             BackgroundColor(colors::PANEL_BG_STRONG) BorderColor::all(colors::COPPER_BORDER_WEAK)
             Children [@label("", AnimationLabel::Channel(slot))]
         --
-            ~{AnimationTrack { binding: 0, row: Some(slot) }} RelativeCursorPosition::default() UiInteraction::default()
-            ~{FocusPolicy::Block}
-            Node { position_type: PositionType::Relative, flex_grow: 1.0, flex_basis: px(0),
-                min_width: px(0), height: percent(100), overflow: Overflow::clip() }
-            BackgroundColor(colors::TRACK_BG)
+            ~{AnimationTrack { binding: 0, row: Some(slot) }} @timeline::lane(false)
             Children [@playhead()-- @keys(slot, 0)-- @keys(slot, 8)-- @keys(slot, 16)-- @keys(slot, 24)-- @keys(slot, 32)-- @keys(slot, 40)-- @keys(slot, 48)-- @keys(slot, 56)--
                 ~{AnimationSelectionBox(slot)} ~{FocusPolicy::Pass}
                 Node { display: Display::None, position_type: PositionType::Absolute, top: px(0), height: percent(100), border: px(1) }
@@ -167,6 +140,14 @@ fn wrap_row() -> impl Scene {
     bsn! {
         Node { min_width: px(0), max_width: percent(100), flex_wrap: FlexWrap::Wrap,
             align_items: AlignItems::Center, column_gap: px(3), row_gap: px(3) }
+    }
+}
+
+/// 模式入口挂在 GLB 属性上，无动作的模型也可发起新建。
+pub(super) fn mode_controls() -> impl Scene {
+    bsn! { @wrap_row()
+        Children [@button("新建动画", AnimationAction::CreateClip)--
+            @button("编辑动画", AnimationAction::ToggleEditing)]
     }
 }
 
@@ -193,13 +174,13 @@ pub fn panel() -> impl Scene {
                     Children [
                         @label("动作", AnimationLabel::Clip)--
                         @label("", AnimationLabel::ClipParameters)--
-                        AnimationWriteControls @wrap_row()
+                        AnimationDirectSourceControls @wrap_row()
                         Children [@button("前动作", AnimationAction::PreviousClip)--
                             @button("后动作", AnimationAction::NextClip)]
                     ]
                 ]
             --
-                AnimationWriteControls @wrap_row()
+                ~{AnimationWriteControls::History} @wrap_row()
                 Children [@button("保存", AnimationAction::Save)-- @button("撤销", AnimationAction::Undo)--
                     @button("重做", AnimationAction::Redo)-- @button("重载动作", AnimationAction::Reload)]
             --
@@ -242,11 +223,7 @@ pub fn panel() -> impl Scene {
                     flex_shrink: 0.0, align_items: AlignItems::Center, padding: UiRect::left(px(5)) }
                 Children [@label("通道 / 关键帧", AnimationLabel::Pages)]
             --
-                AnimationTrack::default() RelativeCursorPosition::default() UiInteraction::default()
-                ~{FocusPolicy::Block}
-                Node { position_type: PositionType::Relative, flex_grow: 1.0, flex_basis: px(0), min_width: px(0),
-                    height: percent(100), overflow: Overflow::clip(), border: UiRect::bottom(px(1)) }
-                BackgroundColor(colors::PANEL_BG_STRONG) BorderColor::all(colors::COPPER_BORDER_WEAK)
+                AnimationTrack::default() @timeline::lane(true)
                 Children [@tick(0)-- @tick(2)-- @tick(4)-- @tick(6)-- @tick(8)-- @playhead()]
             ]
         --

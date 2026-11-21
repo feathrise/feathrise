@@ -447,7 +447,7 @@ pub(crate) fn asset_preview_panel(
                         TextColor(colors::TEXT_HINT)
                         Node { display: Display::None }
                     --
-                    @pose_toolbar-- // 小预览沿用原入口，中央 GLB 将原控件借给属性区。
+                    @pose_toolbar-- // 编辑动画时常驻画布左侧，随中央 GLB 画布一起迁移。
                     @super::rigging::scene::dots()--
                     @super::weights::panel::viewport_tools()
                 ]

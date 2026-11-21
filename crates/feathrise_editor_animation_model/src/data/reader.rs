@@ -139,18 +139,34 @@ impl AnimationDocument {
             });
         }
         let read_only =
-            !glb || array(&json, "buffers").len() != 1 || json.pointer("/buffers/0/uri").is_some();
+            !glb || buffers.len() > 1 || json.get("buffers").is_some_and(|value| !value.is_array())
+                || json.pointer("/buffers/0/uri").is_some();
         if read_only {
             warnings.push(
                 "此文件含外置 GLTF/buffer，仅支持查看；可在 Blender 导出独立 GLB 后编辑保存".into(),
             );
         }
-        let preview_joints = read_preview_joints(&json, &nodes).into();
+        let preview_joints = read_preview_joints(&json, &nodes);
+        let mut animation_nodes = if read_only {
+            Vec::new()
+        } else if !preview_joints.is_empty() {
+            preview_joints.iter().map(|joint| joint.node).collect()
+        } else if array(&json, "scenes").is_empty() {
+            (0..nodes.len()).collect() // 无 Scene 的纯动作文件仍可用自身骨架创建片段。
+        } else {
+            scene0_node_indices(&json)
+        };
+        animation_nodes.sort_unstable();
+        // glTF 动画不能指向使用 matrix 的节点，保留这类节点的原始变换。
+        animation_nodes.retain(|&index| json["nodes"][index].get("matrix").is_none());
         Ok(Self {
             nodes,
             warnings,
             read_only,
             source_identity: Arc::new(()),
+            preserved_clip_count: clips.len(),
+            preserved_channel_counts: array(&json, "animations").iter()
+                .map(|animation| array(animation, "channels").len()).collect(),
             source: Arc::new(Source {
                 path: path.to_owned(),
                 bytes: bytes.into(),
@@ -158,7 +174,8 @@ impl AnimationDocument {
                 buffers,
                 chunks,
                 original_clips: clips.clone(),
-                preview_joints,
+                preview_joints: preview_joints.into(),
+                animation_nodes,
             }),
             clips,
         })

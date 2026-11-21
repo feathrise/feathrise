@@ -3,7 +3,7 @@
 #[path = "native_editor_smoke_resources.rs"]
 mod resources;
 
-use crate::{native_authoring_validation, native_play::NativePlayStatus};
+use crate::{native_authoring_validation, native_play::NativePlayStatus, project::Project};
 use bevy::{
     app::AppExit,
     prelude::*,
@@ -25,7 +25,7 @@ use std::{
 
 pub(super) fn install(
     app: &mut App,
-    project_root: PathBuf,
+    project: &Project,
     asset_root: PathBuf,
 ) -> Result<(), String> {
     let Some(directory) = std::env::var_os("NEW_EDITOR_NATIVE_SMOKE_DIR").map(PathBuf::from) else {
@@ -34,11 +34,17 @@ pub(super) fn install(
     if !directory.is_absolute() {
         return Err("原生编辑器验收输出目录必须是绝对路径".into());
     }
-    if feathrise_editor_scene::standalone::validation_fixture::author_tools_enabled()
-        && !crate::native_play_recovery_validation::enabled(app.world())
-    {
-        return Err("专业作者验收必须先核对本轮自有工程标记".into());
+    let author_tools = feathrise_editor_scene::standalone::validation_fixture::author_tools_enabled();
+    let animation_only = author_tools
+        && std::env::var(crate::native_validation::ANIMATION_EDIT_VALIDATION).as_deref() == Ok("1");
+    if author_tools && !crate::native_play_recovery_validation::enabled(app.world()) {
+        if !animation_only {
+            return Err("专业作者验收必须先核对本轮自有工程标记".into());
+        }
+        // 动画专项复用同一份归属核验，不安装 F12 失败恢复事务。
+        crate::native_play_recovery_validation::check_owner(project)?;
     }
+    let project_root = project.root.clone();
     std::fs::create_dir_all(&directory)
         .map_err(|error| format!("无法创建验收输出目录：{error}"))?;
     let font = feathrise_editor_core::editor_font(app.world().resource::<AssetServer>(), feathrise_editor_core::FONT_PATH);
@@ -53,6 +59,8 @@ pub(super) fn install(
         scene_error: None,
         preview_ready: false,
         author_status: String::new(),
+        animation_only,
+        animation_edit: None,
         save_fixture,
         save_requested: false,
         save_error: None,
@@ -127,7 +135,8 @@ fn open_original_scene(world: &mut World) {
         }
     }
     let mut preview_ready = feathrise_editor_scene::standalone::preview_ready_for(world, "M1-SAMPLE");
-    if preview_ready && !world.resource::<SmokePlan>().save_fixture {
+    let plan = world.resource::<SmokePlan>();
+    if preview_ready && !plan.save_fixture && !plan.animation_only {
         match feathrise_editor_scene::standalone::validation_fixture::focus_validation_document(world) {
             Ok(ready) => preview_ready = ready,
             Err(error) => world.resource_mut::<SmokePlan>().scene_error = Some(error),
@@ -149,7 +158,11 @@ fn open_original_scene(world: &mut World) {
     let save_proof = feathrise_editor_scene::standalone::validation_fixture::result(world);
     let save_ready = !world.resource::<SmokePlan>().save_fixture
         || save_proof.as_ref().is_some_and(|proof| proof.complete);
-    native_authoring_validation::drive(world, preview_ready && save_ready);
+    if world.resource::<SmokePlan>().animation_only {
+        drive_animation_edit(world, preview_ready);
+    } else {
+        native_authoring_validation::drive(world, preview_ready && save_ready);
+    }
     if crate::native_play_recovery_validation::enabled(world)
         && save_proof.as_ref().is_some_and(|proof| proof.complete)
         && world
@@ -178,6 +191,23 @@ fn open_original_scene(world: &mut World) {
     plan.recovery_report = recovery_report;
     if current_document.is_some() {
         plan.current_author_document = current_document;
+    }
+}
+
+fn drive_animation_edit(world: &mut World, preview_ready: bool) {
+    use feathrise_editor_scene::standalone::validation_fixture;
+
+    let plan = world.resource::<SmokePlan>();
+    let proof = match &plan.animation_edit {
+        Some(proof) if !proof.complete && proof.error.is_none() => validation_fixture::advance_animation_edit(world),
+        None if preview_ready && plan.stable_frames >= 30 => Some(validation_fixture::AuthorWorkflowProof {
+            error: validation_fixture::begin_animation_edit(world).err(),
+            ..default()
+        }),
+        _ => None,
+    };
+    if let Some(proof) = proof {
+        world.resource_mut::<SmokePlan>().animation_edit = Some(proof);
     }
 }
 
@@ -275,14 +305,18 @@ fn observe(
             .is_some_and(|proof| proof.error.is_some());
     let save_complete =
         !plan.save_fixture || plan.save_proof.as_ref().is_some_and(|proof| proof.complete);
-    let authoring_complete = authoring.report().complete;
-    let authoring_failed = authoring.report().error.is_some();
+    let (authoring_complete, authoring_failed) = if plan.animation_only {
+        (plan.animation_edit.as_ref().is_some_and(|proof| proof.complete),
+            plan.animation_edit.as_ref().is_some_and(|proof| proof.error.is_some()))
+    } else {
+        (authoring.report().complete, authoring.report().error.is_some())
+    };
     let recovery_failed = plan.recovery_report.as_ref().is_some_and(Result::is_err);
     if plan.save_fixture
         && editor_3d_ready
         && !save_complete
         && !save_failed
-        && plan.started.elapsed().as_secs() < author_budget(240)
+        && plan.started.elapsed().as_secs() < author_budget(&plan, 240)
     {
         return; // 真实作者创建、保存及交接继续在原系统推进，未得到回执就不能运行旧磁盘版本冒充通过。
     }
@@ -291,7 +325,7 @@ fn observe(
         && !authoring_failed
         && !save_failed
         && !recovery_failed
-        && plan.started.elapsed().as_secs() < author_budget(360)
+        && plan.started.elapsed().as_secs() < author_budget(&plan, 360)
     {
         return; // 原预设目录就绪或显式三域保存仍在推进；F12只能读取三个原保存回执全部确认后的工程。
     }
@@ -300,7 +334,7 @@ fn observe(
         && !recovery_failed
         && !save_failed
         && !authoring_failed
-        && plan.started.elapsed().as_secs() < author_budget(360)
+        && plan.started.elapsed().as_secs() < author_budget(&plan, 360)
     {
         return; // 自有故障注入仍在恢复原字节；不能提前运行或把“尚未恢复”记为正式工程运行成功。
     }
@@ -352,7 +386,7 @@ fn observe(
         || recovery_failed
         || (plan.started.elapsed().as_secs()
             >= if plan.scene_requested {
-                author_budget(360)
+                author_budget(&plan, 360)
             } else {
                 60
             }
@@ -364,9 +398,9 @@ fn observe(
     // 首轮明确注入了坏工程入口，保留其代码状态供分析；干净打开/重开不能带着代码失败仍计为通过。
     let injected_recovery = plan.recovery_report.as_ref().and_then(|report| report.as_ref().ok())
         .is_some_and(|report| report.failure_observed && report.descriptor_restored && report.owner_marker_checked);
-    let code_iteration_error = match code_iteration.as_deref() {
-        Some(state) if state.phase == crate::code_iteration::CodeIterationPhase::Failed && !injected_recovery => Some(state.status.as_str()),
-        None => Some("原完整编辑器未安装代码迭代状态，无法核对打开后的后台服务"),
+    let code_iteration_error = match (plan.animation_only, code_iteration.as_deref()) {
+        (false, Some(state)) if state.phase == crate::code_iteration::CodeIterationPhase::Failed && !injected_recovery => Some(state.status.as_str()),
+        (false, None) => Some("原完整编辑器未安装代码迭代状态，无法核对打开后的后台服务"),
         _ => None,
     };
     let passed = ready
@@ -390,7 +424,8 @@ fn observe(
     };
     let mut report = json!({
         "schema": 2,
-        "scope": if plan.run_saved_play { "native_full_editor_saved_game_launcher_roundtrip" } else { "native_full_original_editor_startup_only" },
+        "scope": if plan.animation_only { "native_full_editor_animation_edit_mode" }
+            else if plan.run_saved_play { "native_full_editor_saved_game_launcher_roundtrip" } else { "native_full_original_editor_startup_only" },
         "passed": passed,
         "project_root": plan.project_root,
         "asset_root": plan.asset_root,
@@ -432,8 +467,11 @@ fn observe(
     report["author_save_requested"] = json!(plan.save_requested);
     report["author_save_error"] = json!(plan.save_error);
     report["author_save"] = json!(plan.save_proof);
+    if plan.animation_only {
+        report["animation_edit"] = json!(plan.animation_edit);
+    }
     report["current_author_document"] = json!(plan.current_author_document);
-    report["preset_authoring"] = json!(authoring.report());
+    report["preset_authoring"] = json!((!plan.animation_only).then(|| authoring.report()));
     report["saved_play_recovery"] = json!(plan.recovery_report);
     report["placement_instances"] = json!(instances);
     report["active_scene"] = json!(active.scene_id.as_ref().map(|id| &id.0));
@@ -496,6 +534,7 @@ fn observe(
                                 .as_str()
                                 .or_else(|| report["author_save_error"].as_str())
                                 .or_else(|| report["author_save"]["error"].as_str())
+                                .or_else(|| report["animation_edit"]["error"].as_str())
                                 .or_else(|| report["preset_authoring"]["error"].as_str())
                                 .or_else(|| report["saved_play_recovery"]["Err"].as_str())
                                 .or_else(|| report["saved_play_result"]["Err"].as_str())
@@ -531,8 +570,8 @@ fn emit_original_f12(world: &mut World, state: bevy::input::ButtonState) {
 }
 
 /// 只有显式六域作者验收扩大有限等待预算；常规启动和后台构建预算保持原合同。
-fn author_budget(ordinary: u64) -> u64 {
-    if feathrise_editor_scene::standalone::validation_fixture::author_tools_enabled() {
+fn author_budget(plan: &SmokePlan, ordinary: u64) -> u64 {
+    if !plan.animation_only && feathrise_editor_scene::standalone::validation_fixture::author_tools_enabled() {
         720
     } else {
         ordinary

@@ -1,6 +1,9 @@
 //! 不同World首版的自有工程窗口验收；只在显式--native-report时运行，不操作作者工程或桌面输入。
 #[path = "native_author_tools_validation.rs"]
 mod author_tools;
+#[cfg(windows)]
+#[path = "native_animation_workspaces.rs"]
+pub(crate) mod animation_workspaces;
 #[path = "native_boundary_validation.rs"]
 mod boundary;
 #[path = "native_validation_fixture.rs"]
@@ -29,6 +32,7 @@ use std::{
 pub(crate) const CLOSE_SCENE_MANIFEST_PATH: &str = "scenes/M1-SAMPLE/scene.scene_manifest.json";
 pub(crate) const SCENE_BEFORE_CLOSE_FILENAME: &str = "map-before-close.json";
 const SCENE_TREE_STARTUP: &str = "FEATHRISE_SCENE_TREE_STARTUP_VALIDATION";
+pub(crate) const ANIMATION_EDIT_VALIDATION: &str = "FEATHRISE_ANIMATION_EDIT_VALIDATION";
 
 /// 同窗口验收复用相同中性资产，父级独占标记和新空骨架仍由夹具内部严格核验。
 pub(crate) fn prepare_workspace_fixture(root: &Path, label: &str) -> Result<(), String> {
@@ -70,10 +74,18 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     let before = protected_files(&repository)?;
     let started = Instant::now();
     let scene_tree_startup = std::env::var(SCENE_TREE_STARTUP).as_deref() == Ok("1");
+    let animation_edit = std::env::var(ANIMATION_EDIT_VALIDATION).as_deref() == Ok("1");
+    let animation_workspaces = std::env::var(animation_workspaces::ENABLE).as_deref() == Ok("1");
     let export_lifecycle = std::env::var_os("FEATHRISE_NATIVE_EXPORT").as_deref() == Some(std::ffi::OsStr::new("1"));
     let blender_mesh = std::env::var("FEATHRISE_BLENDER_MESH_VALIDATION").as_deref() == Ok("1");
     let mut steps = Vec::new();
     let result = (|| -> Result<(), String> {
+        if animation_workspaces {
+            return animation_workspaces::run(&work, &repository, &target, &control, &mut steps);
+        }
+        if animation_edit {
+            return run_animation_edit(&work, &repository, &target, &control, &mut steps);
+        }
         if scene_tree_startup {
             return run_scene_tree_startup(&work, &repository, &target, &control, &mut steps);
         }
@@ -98,18 +110,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         }
         let recovery_project = project::open(&roots[0])?;
         author_tools::prepare(&roots[0])?;
-        // 仅本轮create_dir独占创建的工程带故障注入租约，普通作者目录不能启用验收改写。
-        fs::write(
-            recovery_project
-                .root
-                .join(".new-editor-recovery-owner.json"),
-            serde_json::to_vec_pretty(&json!({
-                "schema":1,"purpose":"native-play-recovery",
-                "project_id":recovery_project.id,"project_root":recovery_project.root
-            }))
-            .map_err(|error| error.to_string())?,
-        )
-        .map_err(|error| error.to_string())?;
+        write_author_fixture_owner(&recovery_project)?;
         let mut saved_edit = None;
         let mut saved_presets = None;
         // A真实编辑保存/工程运行，B独立来源，再重开A核对保存后的新对象仍由原作者视口还原。
@@ -323,14 +324,17 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     let after = protected_files(&repository)?;
     let unchanged = before == after;
     let passed = result.is_ok() && unchanged && !control.cleanup_failed();
-    let scope = if scene_tree_startup { "native_editor_scene_tree_startup" }
+    let scope = if animation_workspaces { "animation_workspaces_edit_reopen_and_gameplay" }
+        else if animation_edit { "native_editor_animation_edit_mode" }
+        else if scene_tree_startup { "native_editor_scene_tree_startup" }
         else if blender_mesh { "blender_mesh_roundtrip_saved_play_and_reopened_editor" }
         else if export_lifecycle { "saved_project_lifecycle_with_same_project_export" }
         else { "dual_world_modes_neutral_scene_and_ordinary_authoring" };
     fs::write(&report, serde_json::to_vec_pretty(&json!({
         "schema":4,"scope":scope,"passed":passed,
-        "resident_mode_comparison_included":!scene_tree_startup && !blender_mesh && !export_lifecycle,
-        "excluded_scope":if scene_tree_startup { "saved play, independent game, project reopening and export" }
+        "resident_mode_comparison_included":!animation_workspaces && !animation_edit && !scene_tree_startup && !blender_mesh && !export_lifecycle,
+        "excluded_scope":if animation_workspaces { "packaged export, physical keyboard and mouse, private RPG project" }
+            else if animation_edit || scene_tree_startup { "saved play, independent game, project reopening and export" }
             else if blender_mesh { "independent cargo runs, resident viewport comparison, export and gameplay" }
             else { "player initialization, movement, inventory, skills and combat" },
         "elapsed_seconds":started.elapsed().as_secs_f64(),"work_directory":work,
@@ -348,7 +352,9 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     if control.cleanup_failed() {
         return Err("验收进程收口未确认".into());
     }
-    let label = if scene_tree_startup { "首次打开场景树窗口验收完成" }
+    let label = if animation_workspaces { "双动画工作区保存、重开与游戏验收完成" }
+        else if animation_edit { "动画编辑模式窗口验收完成" }
+        else if scene_tree_startup { "首次打开场景树窗口验收完成" }
         else if blender_mesh { "Blender 网格往返窗口验收完成" } else { "双模式窗口验收完成" };
     println!("{label}：{}", report.display());
     Ok(())
@@ -409,13 +415,70 @@ fn run_author_window(command: &Command, control: &BuildControl, root: &Path, out
 }
 
 #[cfg(windows)]
-fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control: &BuildControl, steps: &mut Vec<Value>) -> Result<(), String> {
-    use bevy::{
-        asset::RenderAssetUsages,
-        image::{CompressedImageFormats, ImageSampler, ImageType},
-        prelude::Image,
-    };
+fn write_author_fixture_owner(project: &project::Project) -> Result<(), String> {
+    use std::io::Write;
 
+    // 这份租约只写入父验收独占创建的工程，允许动画夹具核对后写入自有资产。
+    let bytes = serde_json::to_vec_pretty(&json!({
+        "schema":1,"purpose":"native-play-recovery",
+        "project_id":project.id,"project_root":project.root,
+    })).map_err(|error| error.to_string())?;
+    fs::OpenOptions::new().write(true).create_new(true)
+        .open(project.root.join(".new-editor-recovery-owner.json"))
+        .and_then(|mut file| file.write_all(&bytes)).map_err(|error| error.to_string())
+}
+
+#[cfg(windows)]
+fn run_animation_edit(work: &Path, repository: &Path, target: &Path, control: &BuildControl, steps: &mut Vec<Value>) -> Result<(), String> {
+    let label = "独立工程 A";
+    let root = project_template::create_with_control(&work.join(label), label, repository, control)?;
+    fixture::prepare(&root, label)?;
+    write_author_fixture_owner(&project::open(&root)?)?;
+    let output = work.join("editor-1");
+    let mut command = author_window_command(&root, target, &output, true)?;
+    command.env("NEW_EDITOR_NATIVE_SMOKE_SAVE", "1").env("NEW_EDITOR_NATIVE_SMOKE_AUTHOR_TOOLS", "1")
+        .env(ANIMATION_EDIT_VALIDATION, "1");
+    let (project, observed) = run_author_window(&command, control, &root, &output)?;
+    let workflow = &observed["animation_edit"];
+    let animation = &workflow["animation_assets"]["animation"];
+    let gate = &animation["edit_gate"];
+    let toolbar = &animation["pose_toolbar"];
+    if workflow["complete"] != true || workflow["animation_assets"]["passed"] != true
+        || workflow["animation_assets"]["scene_preview_restored"] != true
+        || workflow["animation_assets"]["source_asset_root"] != json!(project.context.asset_roots[0])
+        || ["opened_read_only", "selected_read_only", "read_only_insert_rejected", "entered_edit_mode", "inserted_key"]
+            .into_iter().any(|key| gate[key] != true)
+        || ["hidden_in_preview", "rotate_selected", "move_selected", "history_unchanged", "hidden_after_exit"]
+            .into_iter().any(|key| toolbar[key] != true)
+        || animation["saved"]["save_receipt"] != json!({"Ok": null})
+        || animation["saved"]["dirty"] != false || animation["saved"]["key"] != animation["disk_key"]
+    {
+        return Err(format!("动画模式缺少原窗口、历史或磁盘回执：{workflow}"));
+    }
+    let path = project.context.asset_roots[0].join("scene/animation.glb");
+    let bytes = fs::read(&path).map_err(|error| error.to_string())?;
+    if animation["sha256_after"] != digest(&bytes) || animation["sha256_before"] == animation["sha256_after"] {
+        return Err("作者保存回执未对应本轮写入的动画 GLB".into());
+    }
+    let created = &workflow["animation_assets"]["created_clip"];
+    let model = fs::read(project.context.asset_roots[0].join("scene/probe.glb")).map_err(|error| error.to_string())?;
+    if created["asset_path"] != "scene/probe.glb" || created["disk_clip_count_before"] != 0
+        || created["disk_clip_count_after"] != 1 || created["created_read_only"] != true
+        || created["entered_edit_mode"] != true || created["save_receipt"] != json!({"Ok": null})
+        || created["sha256_after"] != digest(&model) || created["sha256_before"] == created["sha256_after"]
+    {
+        return Err(format!("零动画 GLB 缺少新建、显式编辑或磁盘回执：{created}"));
+    }
+    let screenshots = ["animation-read-only.png", "animation-edit-mode.png"].into_iter()
+        .map(|filename| read_author_screenshot(&output.join(filename)))
+        .collect::<Result<Vec<_>, _>>()?;
+    steps.push(json!({"stage":"animation_edit_mode_in_original_editor","passed":true,
+        "report":observed,"screenshots":screenshots}));
+    Ok(())
+}
+
+#[cfg(windows)]
+fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control: &BuildControl, steps: &mut Vec<Value>) -> Result<(), String> {
     let label = "独立工程 A";
     let root = project_template::create_with_control(&work.join(label), label, repository, control)?;
     fixture::prepare(&root, label)?;
@@ -442,15 +505,30 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
     if saved.scene_id.as_str() != "M1-SAMPLE" || !saved.placements.iter().any(|record| record.id == placement) {
         return Err("本轮立方体未随原保存写入该场景的 GLB".into());
     }
-    let screenshot = output.join("scene-tree-startup.png");
-    let bytes = fs::read(&screenshot).map_err(|error| format!("无法读取首屏GPU截图：{error}"))?;
+    let screenshot = read_author_screenshot(&output.join("scene-tree-startup.png"))?;
+    steps.push(json!({"stage":"scene_tree_startup_in_original_editor","passed":true,"report":observed,"saved_placement_id":placement,
+        "startup_screenshot":screenshot}));
+    Ok(())
+}
+
+#[cfg(windows)]
+fn digest(bytes: &[u8]) -> String {
+    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[cfg(windows)]
+fn read_author_screenshot(path: &Path) -> Result<Value, String> {
+    use bevy::{
+        asset::RenderAssetUsages,
+        image::{CompressedImageFormats, ImageSampler, ImageType},
+        prelude::Image,
+    };
+
+    let bytes = fs::read(path).map_err(|error| format!("无法读取GPU截图：{error}"))?;
     let image = Image::from_buffer(&bytes, ImageType::Extension("png"), CompressedImageFormats::NONE,
         true, ImageSampler::nearest(), RenderAssetUsages::default())
-        .map_err(|error| format!("首屏GPU截图无法解码：{error}"))?;
-    steps.push(json!({"stage":"scene_tree_startup_in_original_editor","passed":true,"report":observed,"saved_placement_id":placement,
-        "startup_screenshot":{"path":screenshot,"width":image.width(),"height":image.height(),
-            "sha256":Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>()}}));
-    Ok(())
+        .map_err(|error| format!("GPU截图无法解码：{error}"))?;
+    Ok(json!({"path":path,"width":image.width(),"height":image.height(),"sha256":digest(&bytes)}))
 }
 
 fn verify_preset_edits(report: &Value) -> Result<(), String> {

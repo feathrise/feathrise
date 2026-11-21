@@ -1,6 +1,7 @@
 //! 专项证据的非阻塞 GPU 截图和自有 GLB 原子替换。
 
 use super::{MOTIONS, STATIC};
+use super::workflow_validation::{self, AnimationProbe};
 use bevy::{
     prelude::*,
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
@@ -73,7 +74,7 @@ pub(super) fn capture(
                 write_new(&path, &bytes)?;
                 let mut proof = json!({
                     "source":"Bevy ScreenshotCaptured","width":width,"height":height,
-                    "sha256":Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
+                    "sha256":sha256(&bytes),
                 });
                 if let Some(pixels) = help_text_pixels {
                     proof["help_text_pixels"] = json!(pixels);
@@ -112,6 +113,31 @@ pub(super) fn replace_clip_file(work: &Path, assets: &Path, original: &[u8]) -> 
         return Err("待替换验收 GLB 在准备期间发生变化".into());
     }
     fs::rename(&staged, &target).map_err(|error| format!("自有动作 GLB 原子替换失败：{error}"))
+}
+
+/// 将业务保存刚落盘的原源文件留作父进程证据，后续目录热替换仍用同一份字节保护。
+pub(super) fn saved_clip_file(
+    work: &Path, assets: &Path, original: &[u8], expected: AnimationProbe,
+) -> Result<(Vec<u8>, Value), String> {
+    let source = assets.join(MOTIONS);
+    if assets != work.join("project/assets") || source.canonicalize().ok().as_deref() != Some(source.as_path()) {
+        return Err("动画保存回读已离开本轮自有工程".into());
+    }
+    let bytes = read_small(&source)?;
+    let disk_key = workflow_validation::read_saved(&source, expected.key_identity)?;
+    if bytes == original || disk_key != json!(expected.key) || read_small(&source)? != bytes {
+        return Err("工程动画保存后的实际字节或关键帧与编辑回执不符".into());
+    }
+    write_new(&work.join("edited-motion.glb"), &bytes)?;
+    let proof = json!({
+        "source":MOTIONS,"source_before_sha256":sha256(original),"source_after_sha256":sha256(&bytes),
+        "key_identity":expected.key_identity,"disk_key":disk_key,"save_receipt":expected.save_receipt,
+    });
+    Ok((bytes, proof))
+}
+
+fn sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn read_small(path: &Path) -> Result<Vec<u8>, String> {

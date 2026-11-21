@@ -3,7 +3,7 @@
 use bevy::{prelude::*, tasks::Task};
 use std::{path::{Path, PathBuf}, sync::{Arc, Weak}};
 use super::{data::{AnimationDocument, PreviewJoint}, gizmo::GizmoCamera, media::{AssetPreviewState, AssetPreviewModelBounds},
-    resources::{AnimationEditorState, BindingState, Session, WeightFrame}};
+    resources::{AnimationEditorState, BindingState, Session, WeightFrame}, types::PoseDraft};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct SourceIdentity {
@@ -16,7 +16,7 @@ pub struct Pose {
     /// 仅保留精确文档的弱身份；旧完整画面可以继续显示，但不能按新文档或动作开始编辑。
     pub document: Weak<AnimationDocument>,
     pub clip: usize,
-    pub draft: Option<(usize, Transform)>,
+    pub draft: Option<PoseDraft>,
     pub time: f32,
     pub local: Vec<Transform>,
     /// 只保存已匹配的目标关节变换，以源节点索引定位容器中的实体。
@@ -33,7 +33,7 @@ impl Pose {
     }
 
     pub fn can_start_edit(&self, editor: &AnimationEditorState) -> bool {
-        !editor.retargeting() && editor.current().is_some_and(|session| {
+        editor.current().is_some_and(|session| {
             self.matches_session(session)
                 && self.draft == session.pose
                 // 播放中从实际显示帧起手；暂停定位或还原姿势后必须等当前完整结果，不能跳回旧帧。
@@ -42,7 +42,7 @@ impl Pose {
     }
 
     pub fn can_draw_tools(&self, editor: &AnimationEditorState, dragging: bool) -> bool {
-        !editor.retargeting() && editor.current().is_some_and(|session| self.matches_session(session))
+        editor.current().is_some_and(|session| self.matches_session(session))
             && (dragging || self.can_start_edit(editor))
     }
 }

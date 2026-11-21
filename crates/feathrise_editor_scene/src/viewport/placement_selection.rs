@@ -186,6 +186,14 @@ pub(crate) struct SelectedPlacementViewportState {
 }
 
 impl SelectedPlacementViewportState {
+    /// 场景轨迹使用已有全实例范围，临时悬停和子网格都不能定义碰撞。
+    pub(crate) fn whole_instance_bounds(&self, scene: &SceneId, id: &str) -> Option<(Vec3, Vec3)> {
+        let identity = self.resolved_identity.as_ref()?;
+        let frame = self.frame?;
+        (!self.previewing && identity.whole_instance && &identity.scene_id == scene && identity.placement_id == id)
+            .then_some((frame.center, frame.size))
+    }
+
     /// 显式定位使用已确认选择；候选悬停只是视觉预览，不能成为导航目标。
     pub(crate) fn request_selected_focus(&mut self, editor: &SceneEditorState, browser: &EditorGltfBrowserState,
         session: &EditorAuthoringSession, candidates: &LayerCandidateState) -> bool {

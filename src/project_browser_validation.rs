@@ -66,6 +66,7 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
     }
     let steps = &proof["window"]["steps"];
     if steps["right_sidebar_animation_picker"]["keeps_model_properties"] != true
+        || steps["hero_edit_disabled_before_choice"] != true
         || steps["animation_picker_cancel_keeps_model"] != true
         || steps["animation_picker_reopened_clean"] != true
         || steps["animation_picker_confirms_clip_explicitly"] != true
@@ -73,6 +74,23 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
         || steps["ordinary_motion_properties"]["path"] != fixture::MOTIONS
     {
         return Err("浮动动作选择窗、取消后重开、片段确认播放或固定栏普通选择没有实际窗口证据".into());
+    }
+    let edit = &steps["project_motion_edited_in_place"];
+    let edited_path = work.join("edited-motion.glb");
+    let edited = fs::read(&edited_path).map_err(|error| error.to_string())?;
+    let disk_key = feathrise_editor_animation::workflow_validation::read_saved(
+        &edited_path, feathrise_editor_animation::workflow_validation::KeyIdentity { clip: 1, channel: 0, key: 1 },
+    )?;
+    if edit["source"] != fixture::MOTIONS || edit["model"] != fixture::HERO
+        || edit["same_model_tab"][0] != steps["second_clip"]["model_tab_id"]
+        || edit["source_before_sha256"] != original[fixture::MOTIONS]
+        || edit["source_after_sha256"] == edit["source_before_sha256"]
+        || edit["source_after_sha256"] != sha256(&edited)
+        || edit["key_identity"] != json!({"clip":1,"channel":0,"key":1})
+        || edit["save_receipt"] != json!({"Ok":null}) || edit["disk_key"] != disk_key
+        || disk_key["time"] != edit["edited_at_published_seconds"]
+    {
+        return Err("工程动作在原标签的编辑、插帧或原动画文件保存证据不完整".into());
     }
     let final_assets = fixture::fingerprints(&assets)?;
     for (name, initial) in &original {
@@ -85,7 +103,8 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
     proof["after_sha256"] = json!(final_assets);
     for name in [
         "skeleton.png", "narrow-menu.png", "compact-browser.png", "asset-tools-help.png",
-        "project-motion-help.png", "animation-picker.png", "clip-menu.png", "animation-picker-confirm.png", "second-clip.png", "replaced.png",
+        "project-motion-help.png", "animation-picker.png", "clip-menu.png", "animation-picker-confirm.png", "second-clip.png",
+        "project-motion-edit.png", "replaced.png",
         #[cfg(windows)]
         "title-fps.png",
     ] {

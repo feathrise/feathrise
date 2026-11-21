@@ -293,7 +293,7 @@ pub fn placement_tree_view(
         }))
 }
 
-fn visible_placement_row(world: &mut World, scene: &SceneId, placement: &str) -> Option<(Entity, Entity)> {
+pub(crate) fn visible_placement_row(world: &mut World, scene: &SceneId, placement: &str) -> Option<(Entity, Entity)> {
     world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
         let target = row.0.as_ref()?;
         if target.scene_id != *scene
@@ -311,7 +311,7 @@ fn ui_ancestors(world: &World, entity: Entity) -> impl Iterator<Item = Entity> +
     std::iter::successors(Some(entity), move |entity| world.get::<ChildOf>(*entity).map(ChildOf::parent))
 }
 
-fn action_button(world: &mut World, action: EditorAction) -> Option<Entity> {
+pub(crate) fn action_button(world: &mut World, action: EditorAction) -> Option<Entity> {
     world
         .query_filtered::<(Entity, &SceneEditorActionButton, &ComputedNode), (
             With<InteractionButton>,

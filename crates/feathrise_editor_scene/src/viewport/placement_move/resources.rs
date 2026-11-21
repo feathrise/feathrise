@@ -18,7 +18,15 @@ impl PlacementMoveState {
     pub(crate) fn embedded_single(&self) -> Option<(&feathrise_scene_content::SceneId, usize, u64, u64,
         &feathrise_scene_content::ScenePlacementRecord, Mat4)> {
         let drag = self.drag.as_ref().or_else(|| self.pending_building.as_ref().map(|pending| &pending.drag))?;
+        if drag.animation.is_some() { return None; } // 动画时间轴自己拥有临时姿势，不发普通摆放接管意图。
         Some((&drag.scene_id, drag.record_index, drag.author_revision, drag.structure_revision, &drag.before, drag.applied_world))
+    }
+
+    pub(crate) fn animation_pose(
+        &self, scene: &feathrise_scene_content::SceneId, id: &str,
+    ) -> Option<crate::ui::scene_motion::SceneAnimationFramePose> {
+        let drag = self.drag.as_ref().filter(|drag| &drag.scene_id == scene && drag.before.id == id)?;
+        drag.animation.as_ref().map(|animation| animation.pose)
     }
 
     pub(crate) fn embedded_group(&self) -> Option<(&feathrise_scene_content::SceneId, u64, u64, u64,

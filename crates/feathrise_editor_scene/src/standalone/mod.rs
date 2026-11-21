@@ -17,6 +17,8 @@ pub mod viewport_projection; // 仅公开窗口几何与原输入门结论，不
 mod exit;
 mod messages;
 mod navigation;
+#[cfg(feature = "validation")]
+mod pose_group_validation;
 pub(crate) mod project_close;
 mod resources;
 mod saved_play;
@@ -40,6 +42,12 @@ pub use exit::exit_blocker;
 pub use embedded_presentation::set_embedded_playing;
 pub use messages::{OpenProjectSourceLocation, RunSavedProject, SavedPlayFeedback};
 pub use navigation::{author_status, preview_ready_for, request_open_scene};
+#[cfg(feature = "validation")]
+pub use pose_group_validation::install as install_pose_group_validation;
+#[cfg(feature = "validation")]
+pub use crate::ui::scene_motion::validation as scene_motion_validation;
+#[cfg(feature = "validation")]
+pub use scene_motion_validation::install as install_scene_motion_validation;
 #[cfg(feature = "validation")]
 pub use crate::ui::asset_preview::documents::source_location_validation::{
     SourceLocationAction, source_location_action_entity, source_location_input_entity, source_location_navigation_probe, source_location_probe,

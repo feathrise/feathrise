@@ -67,6 +67,7 @@ pub struct EditorSceneDraft {
     pub terrain_ground: Option<Arc<super::terrain_ground::TerrainGroundSnapshot>>,
     pub(crate) terrain_documents: super::terrain_documents::TerrainDocumentStore,
     pub placements: ScenePlacementsAsset,
+    pub(crate) motion: super::scene_motion::SceneMotionDocument,
     /// 存在摘要时，摆放直接写回场景 GLB；摘要来自实际打开的字节。
     pub(crate) placement_glb_hash: Option<String>,
     /// 当前摆放文档的整网格水绑定总数；加载任务计算，赋水/撤销按单记录差值维护。
@@ -307,7 +308,7 @@ impl EditorAuthoringSession {
     /// 文档暂停只读取固定脏位；完整历史是否含场景命令在后台交接中判定。
     pub fn has_scene_data_changes(&self) -> bool {
         let draft_dirty = self.draft.as_ref().is_some_and(|draft| {
-            draft.domain_dirty() || draft.stored_terrain_changes()
+            draft.motion.dirty || draft.domain_dirty() || draft.stored_terrain_changes()
                 || draft.terrain_dirty
                 || draft.surface_dirty
                 || draft.puddles_dirty // 积水编辑同样进入统一关闭与切换场景保存门。
@@ -326,7 +327,7 @@ impl EditorAuthoringSession {
     /// 稀疏高度已经独立落盘后，判断是否还需要继续旧的联合场景保存事务。
     pub fn has_non_sparse_scene_changes(&self) -> bool {
         let draft_dirty = self.draft.as_ref().is_some_and(|draft| {
-            draft.domain_dirty() || draft.stored_terrain_changes()
+            draft.motion.dirty || draft.domain_dirty() || draft.stored_terrain_changes()
                 || draft.terrain_dirty
                 || draft.surface_dirty
                 || draft.puddles_dirty

@@ -11,10 +11,20 @@ pub struct AnimationPanel;
 pub struct AnimationPoseToolbar;
 
 #[derive(Component, Clone, Copy, Default)]
-pub(super) struct AnimationWriteControls; // 就地播放只读，复用控件但收起作者写入口。
+pub(super) enum AnimationWriteControls {
+    #[default]
+    Clip,
+    History, // 撤销唯一动作后仍可重做或保存。
+}
+
+/// 动作来源的切换和模型绑定仍由当前原文件预览提供。
+#[derive(Component, Clone, Copy, Default)]
+pub(super) struct AnimationDirectSourceControls;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AnimationAction {
+    CreateClip,
+    ToggleEditing,
     PreviousClip,
     NextClip,
     FirstFrame,

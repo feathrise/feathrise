@@ -304,7 +304,7 @@ fn write_scene_tree_vegetation(assets: &Path) -> Result<(), String> {
 }
 
 /// 两项实窗验收共用真实写入器。只切换本轮暂存目录的示例图，保持其他模板场景的各自来源。
-fn write_sample_scene_glb(assets: &Path, placements: &feathrise_scene_content::ScenePlacementsAsset, source: Option<&[u8]>) -> Result<(), String> {
+pub(super) fn write_sample_scene_glb(assets: &Path, placements: &feathrise_scene_content::ScenePlacementsAsset, source: Option<&[u8]>) -> Result<(), String> {
     use feathrise_scene_content::{SCENE_CATALOG_ASSET_PATH, SceneCatalogAsset, read_scene_placements, write_scene_placements_glb};
 
     let path = MODEL_SURFACE_SOURCE;

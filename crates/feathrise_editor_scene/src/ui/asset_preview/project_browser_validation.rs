@@ -3,8 +3,8 @@
 mod evidence;
 
 use super::{
-    AssetPreviewState, AssetPreviewWorkspace,
-    animation::{active_project_clip, project_clip_properties, rig_animation_identity, rig_animation_probe},
+    AnimationEditorState, AssetPreviewState, AssetPreviewWorkspace,
+    animation::{active_project_clip, project_clip_properties, rig_animation_identity, rig_animation_probe, workflow_validation},
     rigging::RigAction,
     rigging_validation::{click_window_entity, fixture_focus, move_cursor, window_event},
     sidebar::validation_details_text,
@@ -47,6 +47,7 @@ use bevy::{
 use feathrise_editor_core::{AssetBrowserViewMode, EditorSettings};
 use feathrise_editor_documents_model::search::components::{SearchAction, SearchBody, SearchReferenceControls, SearchTextControls};
 use feathrise_editor_ui::{UiInteraction, context_help::ContextHelpButton, localization::EditorLocale};
+use workflow_validation::{AnimationCommand, KeyIdentity};
 use serde_json::{Map, Value, json};
 use std::{
     fs,
@@ -117,6 +118,11 @@ enum Stage {
     ConfirmClip,
     ObservePlayback,
     PlaybackCapture,
+    EditProjectMotion,
+    InsertProjectMotionKey,
+    SaveProjectMotion,
+    ReadSavedProjectMotion,
+    CaptureProjectMotionEdit,
     ReopenDirectory,
     ReopenFiles,
     ReenterAssets,
@@ -153,6 +159,9 @@ struct Run {
     tab: Option<(u64, usize)>,
     picker: Option<u64>,
     playback: Option<PlaybackWitness>,
+    motion_model_frame: Option<(u64, f32)>,
+    motion_readback: Option<Task<Result<(Vec<u8>, Value), String>>>,
+    saved_motion: Option<Vec<u8>>,
     animation_revision: Option<u64>,
     capture: Option<evidence::CaptureTask>,
     help_ready: Option<(Entity, URect, u8)>,
@@ -184,7 +193,8 @@ pub fn install(app: &mut App, work: PathBuf, assets: PathBuf) -> Result<(), Stri
     let now = Instant::now();
     app.insert_resource(Run {
         work, assets, original_motion, replacement_size, stage: Stage::OpenDirectory, started: now, stage_started: now,
-        click: None, splitter_x: None, tab: None, picker: None, playback: None, animation_revision: None,
+        click: None, splitter_x: None, tab: None, picker: None, playback: None,
+        motion_model_frame: None, motion_readback: None, saved_motion: None, animation_revision: None,
         capture: None, help_ready: None, replacement: None,
         replacement_revision: None, steps: Map::new(), screenshots: Map::new(),
     })
@@ -344,6 +354,12 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             if !world.get_resource::<AssetPreviewState>().is_some_and(|preview| {
                 matches!(preview.content, AssetPreviewContent::Model { phase: AssetPreviewPhase::Ready, .. })
             }) { return Ok(None); }
+            let Some((_, enabled)) = workflow_validation::original_button_state(world, AnimationCommand::ToggleEditing)
+                else { return Ok(None); };
+            if enabled {
+                return Err("还未选择工程动作或新建动画，原编辑动画按钮已经可用".into());
+            }
+            run.steps.insert("hero_edit_disabled_before_choice".into(), json!(true));
             run.tab = Some(tab);
             Stage::RestoreDirectory
         }
@@ -691,6 +707,79 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
         }
         Stage::PlaybackCapture => {
             if !capture(world, run, "second-clip.png")? { return Ok(None); }
+            Stage::EditProjectMotion
+        }
+        Stage::EditProjectMotion => {
+            let Some((_, 1, _, true)) = active_project_clip(world) else { return Ok(None); };
+            if world.resource::<AnimationEditorState>().editable() {
+                return Err("选择工程动作后，播放阶段已经进入动画编辑".into());
+            }
+            let Some(pose) = rig_animation_probe(world) else { return Ok(None); };
+            let Some(model) = world.resource::<AssetPreviewState>().model.as_ref() else { return Ok(None); };
+            let model_generation = model.generation;
+            if !click_animation(world, run, window, AnimationCommand::ToggleEditing) { return Ok(None); }
+            // 松开原按钮之前冻结已发布姿态，验证编辑态没有跳回首帧或替换当前模型。
+            run.motion_model_frame = Some((model_generation, pose.time));
+            Stage::InsertProjectMotionKey
+        }
+        Stage::InsertProjectMotionKey => {
+            let time = project_motion_edit_frame(world, run)?;
+            if !world.resource::<AnimationEditorState>().editable() { return Ok(None); }
+            let Some(pose) = rig_animation_probe(world) else { return Ok(None); };
+            let Some((_, 1, position, false)) = active_project_clip(world) else { return Ok(None); };
+            if position != time || pose.time != time {
+                return Err(format!("同标签编辑未停在播放中已经显示的帧：{time} / {position} / {}", pose.time));
+            }
+            let Some(before) = workflow_validation::animation_probe(world, &run.assets.join(MOTIONS), Some(PROJECT_MOTION_KEY))?
+                else { return Ok(None); };
+            if before.dirty || !before.channel_selected || time <= 0.0 || time >= before.key.time {
+                return Err("工程动作插帧前缺少原片段通道或可插入的中间帧".into());
+            }
+            if !click_animation(world, run, window, AnimationCommand::InsertKey) { return Ok(None); }
+            Stage::SaveProjectMotion
+        }
+        Stage::SaveProjectMotion => {
+            let time = project_motion_edit_frame(world, run)?;
+            let Some(key) = workflow_validation::animation_probe(world, &run.assets.join(MOTIONS), Some(PROJECT_MOTION_KEY))?
+                else { return Ok(None); };
+            if key.cursor == 0 { return Ok(None); }
+            if key.cursor != 1 || !key.dirty || key.key.time != time || key.actual_clip != PROJECT_MOTION_KEY.clip {
+                return Err("相同标签中的插帧未落到选中的工程动作片段与当前帧".into());
+            }
+            if !click_animation(world, run, window, AnimationCommand::Save) { return Ok(None); }
+            Stage::ReadSavedProjectMotion
+        }
+        Stage::ReadSavedProjectMotion => {
+            let time = project_motion_edit_frame(world, run)?;
+            if run.motion_readback.is_none() {
+                let Some(key) = workflow_validation::animation_probe(world, &run.assets.join(MOTIONS), Some(PROJECT_MOTION_KEY))?
+                    else { return Ok(None); };
+                match &key.save_receipt {
+                    Some(Ok(())) if !key.dirty && key.key.time == time => {}
+                    Some(Err(error)) => return Err(format!("原动画保存失败：{error}")),
+                    _ => return Ok(None),
+                }
+                let (work, assets, original) = (run.work.clone(), run.assets.clone(), run.original_motion.clone());
+                run.motion_readback = Some(IoTaskPool::get().spawn(async move {
+                    evidence::saved_clip_file(&work, &assets, &original, key)
+                }));
+            }
+            let Some(result) = run.motion_readback.as_mut().and_then(check_ready) else { return Ok(None); };
+            let (bytes, mut proof) = result?;
+            proof["model"] = json!(HERO);
+            proof["same_model_tab"] = json!(run.tab);
+            proof["model_generation"] = json!(run.motion_model_frame.map(|(generation, _)| generation));
+            proof["edited_at_published_seconds"] = json!(time);
+            run.steps.insert("project_motion_edited_in_place".into(), proof);
+            run.saved_motion = Some(bytes);
+            Stage::CaptureProjectMotionEdit
+        }
+        Stage::CaptureProjectMotionEdit => {
+            project_motion_edit_frame(world, run)?;
+            if !world.resource::<AnimationEditorState>().editable() || rig_animation_probe(world).is_none() {
+                return Ok(None);
+            }
+            if !capture(world, run, "project-motion-edit.png")? { return Ok(None); }
             Stage::ReopenDirectory
         }
         Stage::ReopenDirectory => {
@@ -800,7 +889,8 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
         Stage::Replace => {
             if run.replacement.is_none() {
                 run.replacement_revision = Some(world.resource::<EditorAssetCatalog>().applied_revision);
-                let (work, assets, original) = (run.work.clone(), run.assets.clone(), run.original_motion.clone());
+                let original = run.saved_motion.take().ok_or("缺少本轮已验证的动画保存字节")?;
+                let (work, assets) = (run.work.clone(), run.assets.clone());
                 run.replacement = Some(IoTaskPool::get().spawn(async move {
                     evidence::replace_clip_file(&work, &assets, &original)
                 }));
@@ -984,6 +1074,27 @@ fn active_hero(world: &World) -> Option<(u64, usize)> {
     let workspace = world.get_resource::<VegetationPresetEditorState>()?;
     let tab = media.expanded.as_ref()?;
     (media.active(workspace.active_tab) && tab.path == HERO).then(|| (tab.id, media.tabs().count()))
+}
+
+// 第一帧和末帧来自夹具，光标中间插入的键必须成为第二个片段的第二个键。
+const PROJECT_MOTION_KEY: KeyIdentity = KeyIdentity { clip: 1, channel: 0, key: 1 };
+
+fn project_motion_edit_frame(world: &World, run: &Run) -> Result<f32, String> {
+    let (generation, time) = run.motion_model_frame.ok_or("缺少进入编辑前的已发布模型帧")?;
+    if !hero_properties_visible(world, run)
+        || world.resource::<AssetPreviewState>().model.as_ref().is_none_or(|model| model.generation != generation)
+        || rig_animation_identity(world).is_none_or(|(tab, host, model, source, index)| {
+            Some(tab) != run.tab.map(|(id, _)| id) || host != HERO || model != HERO || source != MOTIONS || index != 1
+        })
+    {
+        return Err("编辑动画改变了原模型、中央标签、右侧属性或已选工程片段".into());
+    }
+    Ok(time)
+}
+
+fn click_animation(world: &mut World, run: &mut Run, window: Entity, command: AnimationCommand) -> bool {
+    let button = run.click.map(|(entity, _)| entity).or_else(|| workflow_validation::original_button(world, command));
+    click_entity(world, run, window, button)
 }
 
 fn hero_properties_visible(world: &World, run: &Run) -> bool {

@@ -3,6 +3,7 @@
 //! 【功能设计】拖动快照独占输入；预览不写作者草稿，松手只提交一条历史。
 //! 不遍历场景或网格，不新增相机或 GPU 读回；多选复用共同位移并使用单个有界CPU槽。
 
+mod animation; // 场景动画复用对象手势，写回当前帧的临时姿势。
 mod constants; // 圆环和中心方块的固定预算及逻辑像素规格。
 mod group; // 多选共同移动、旋转和缩放，常数节点预览、分帧捕获与完整单次历史。
 mod group_types;
@@ -23,6 +24,9 @@ pub(crate) use input::selected_record; // 剪贴板单选沿用同一场景、�
 pub(crate) use math::{MoveCamera, handle_point, handle_translation, handle_translation_mode}; // 框选和地形手柄使用同一真实相机与吸附相位，避免第二套数学。
 
 pub(crate) use render::draw_placement_move;
+pub(crate) use render::draw_animation_rotation;
+#[cfg(feature = "validation")]
+pub(crate) use animation::{validation_animation_drag_active, validation_animation_drag_points};
 pub(crate) use render::{axis_colors, visible_axes}; // 地形、子场景与静水保留相同颜色和原相机逐轴退化门。
 pub(crate) use resources::PlacementMoveState;
 pub(crate) use rotation::{pick_rotation, rotation_ring, rotation_yaw};
@@ -76,7 +80,7 @@ pub(crate) fn set_placement_mode(
     }
     editor.status = match requested {
         ViewportMode::Move => "移动模式，可在场景树切换对象。拖动三色轴或铜色方框沿 XZ 平面移动，Ctrl 使用设置中的移动步长，Esc 取消。建筑沿用建筑网格。",
-        ViewportMode::Rotate => "旋转模式，可在场景树切换对象。拖动 Y 轴圆环，Ctrl 使用设置中的角度步长，Esc 取消。建筑按 90° 档位旋转并校验，端视时请切到顶视或斜视。",
+        ViewportMode::Rotate => "旋转模式，可在场景树切换对象。拖动旋转圆环，Ctrl 使用设置中的角度步长，Esc 取消。建筑按 90° 档位旋转并校验。",
         ViewportMode::Scale => "缩放模式，可在场景树切换对象。拖动中心方块，向右或向上放大，向左或向下缩小。Ctrl 使用设置中的倍率步长，Esc 取消。建筑保持预设尺寸。",
         ViewportMode::Select => "已回到选择模式",
         ViewportMode::Edit => "已回到编辑模式",

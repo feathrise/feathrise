@@ -24,8 +24,17 @@ pub(super) fn prepare(paths: &Paths) -> Result<IoResult, String> {
     let animation = read_asset(paths, ANIMATION)?;
     let model = read_asset(paths, MODEL)?;
     let texture = read_asset(paths, TEXTURE)?;
+    let unanimated_model_sha256 = if super::super::animation_edit_only() {
+        if model_clip_count(&model)? != 0 {
+            return Err("新建动画验收必须从磁盘中零动画的自有 GLB 开始".into());
+        }
+        Some(hash(&model))
+    } else {
+        None
+    };
     Ok(IoResult::Prepared(Prepared {
         animation_sha256: hash(&animation),
+        unanimated_model_sha256,
         model: Arc::new(model),
         texture: Arc::new(texture),
     }))
@@ -38,6 +47,21 @@ pub(super) fn saved(paths: &Paths, identity: KeyIdentity) -> Result<IoResult, St
     Ok(IoResult::SavedAnimation {
         sha256: hash(&bytes),
         key,
+    })
+}
+
+fn model_clip_count(bytes: &[u8]) -> Result<usize, String> {
+    gltf::Gltf::from_slice(bytes)
+        .map(|model| model.animations().count())
+        .map_err(|error| error.to_string())
+}
+
+pub(super) fn saved_created_clip(paths: &Paths) -> Result<IoResult, String> {
+    check_owner(paths)?;
+    let bytes = read_asset(paths, MODEL)?;
+    Ok(IoResult::SavedCreatedClip {
+        sha256: hash(&bytes),
+        clip_count: model_clip_count(&bytes)?,
     })
 }
 

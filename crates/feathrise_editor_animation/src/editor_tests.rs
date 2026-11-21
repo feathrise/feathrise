@@ -12,6 +12,7 @@ use super::{
     data::{AnimationDocument, Keyframe, tests::test_document},
     drive,
     resources::*,
+    types::PoseProperty,
 };
 use bevy::{input::mouse::MouseWheel, prelude::*, tasks::IoTaskPool};
 use feathrise_editor_ui::{
@@ -223,6 +224,7 @@ pub(super) fn app_context() -> (App, PathBuf, PathBuf) {
     state
         .sessions
         .insert(beta.clone(), Session::new(test_document()));
+    assert!(state.select_current_clip() && state.enter_animation_edit()); // 原作者回归明确取得编辑权限。
     app.insert_resource(host)
         .insert_resource(state)
         .insert_resource(AssetPreviewState {
@@ -250,6 +252,80 @@ fn run_until_idle(app: &mut App) {
         );
         std::thread::yield_now(); // 仅测试线程等待，不进入生产帧关键路径。
     }
+}
+
+#[test]
+fn selection_then_explicit_edit_is_required_to_change_the_draft() {
+    use AnimationAction::*;
+    let (mut app, _, _) = app_context();
+    app.add_systems(Update, drive::drive);
+    {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        state.return_to_animation_preview();
+        state.seek(0.5);
+        control::action(&mut state, ToggleEditing);
+        assert!(!state.editable());
+        control::action(&mut state, NextClip);
+        assert!(!state.can_edit_selected(), "浏览其他内嵌片段只能预览");
+        control::action(&mut state, PreviousClip);
+        assert!(!state.can_edit_selected(), "回到内嵌片段也不能授予编辑资格");
+        state.seek(0.5);
+        control::action(&mut state, InsertKey);
+        assert!(state.pending.is_none());
+        assert!(state.select_current_clip()); // 模拟正式文件片段已采用后的选中回执。
+        assert!(state.can_edit_selected() && !state.editable());
+        control::action(&mut state, InsertKey);
+        assert!(state.pending.is_none() && !state.current().unwrap().dirty());
+        control::action(&mut state, ToggleEditing);
+        assert!(state.editable());
+        control::action(&mut state, InsertKey);
+    }
+    run_until_idle(&mut app);
+    let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+    assert!(state.current().unwrap().dirty());
+    assert_eq!(state.current().unwrap().document.clips[0].channels[0].keys.len(), 3);
+    control::action(&mut state, ToggleEditing);
+    assert!(state.can_edit_selected() && !state.editable());
+    state.return_to_animation_preview(); // 同一标签再次打开也须重新明确选动作。
+    assert!(!state.can_edit_selected() && state.current().unwrap().dirty());
+}
+
+#[test]
+fn creating_the_first_clip_keeps_preview_until_edit_and_supports_redo() {
+    use AnimationAction::*;
+    let (mut app, source, _) = app_context();
+    app.add_systems(Update, drive::drive);
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/animation_preview/skinned_rig.glb");
+    let document = AnimationDocument::load(&fixture).expect("读取已有的零动作蒙皮夹具");
+    assert!(document.clips.is_empty());
+    {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        state.return_to_animation_preview();
+        state.sessions.insert(source, Session::new(document));
+        assert!(state.can_create_clip());
+        control::action(&mut state, CreateClip);
+    }
+    run_until_idle(&mut app);
+    {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        assert!(state.can_edit_selected() && !state.editable());
+        assert_eq!(state.current().unwrap().document.clips.len(), 1);
+        assert!(state.current().unwrap().dirty());
+        control::action(&mut state, ToggleEditing);
+        control::action(&mut state, Undo);
+    }
+    run_until_idle(&mut app);
+    {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        assert!(state.editable() && state.view().can_redo);
+        assert!(state.current().unwrap().document.clips.is_empty());
+        control::action(&mut state, Redo);
+    }
+    run_until_idle(&mut app);
+    let state = app.world().resource::<AnimationEditorState>();
+    assert!(state.editable());
+    assert_eq!(state.current().unwrap().document.clips.len(), 1);
 }
 
 #[test]
@@ -341,7 +417,7 @@ fn numeric_auto_key_edits_one_curve_and_retains_pending_manual_pose() {
         let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
         let session = state.current().unwrap();
         assert_eq!(session.document.clips[0].channels, edited);
-        assert_eq!(session.pose.unwrap().1.translation.x, 11.0);
+        assert_eq!(session.pose.as_ref().unwrap().get(0).unwrap().transform.translation.x, 11.0);
         assert_eq!(session.cursor, 1);
         control::action(&mut state, AnimationAction::ToggleAutoKey);
     }
@@ -351,9 +427,61 @@ fn numeric_auto_key_edits_one_curve_and_retains_pending_manual_pose() {
     let channels = &session.document.clips[0].channels;
     assert_eq!(channels[0].keys[2].time, 1.0);
     assert_eq!(&channels[0].keys[2].value[..2], &[11.0, 14.0]);
-    assert_eq!(channels[1].keys[1].time, 1.0, "显式积累的完整姿势仍按原合同提交");
+    assert_eq!(channels[1], original[1], "插入姿势只修改实际编辑的属性");
     assert!(session.pose.is_none());
     assert_eq!(session.cursor, 2);
+}
+
+#[test]
+fn manual_pose_keeps_two_bones_at_one_frame_and_inserts_one_history_entry() {
+    use AnimationAction::*;
+    let (mut app, _, _) = app_context();
+    app.add_systems(Update, (control::input, drive::drive).chain());
+    let original = {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        state.seek(0.5);
+        control::action(&mut state, ToggleAutoKey);
+        state.active_document().unwrap().clips[0].channels.clone()
+    };
+    commit_numeric_value(&mut app, 0, 9.0);
+    control::action(&mut app.world_mut().resource_mut::<AnimationEditorState>(), NextBone);
+    commit_numeric_value(&mut app, 2, 3.0);
+    let apply = |app: &mut App, action| {
+        control::action(&mut app.world_mut().resource_mut::<AnimationEditorState>(), action);
+        run_until_idle(app);
+    };
+    apply(&mut app, NextFrame);
+    {
+        let state = app.world().resource::<AnimationEditorState>();
+        let session = state.current().unwrap();
+        let draft = session.pose.as_ref().unwrap();
+        assert_eq!(session.position, 0.5);
+        assert_eq!(session.selected_node, Some(1));
+        assert_eq!(draft.len(), 2);
+        assert_eq!(draft.get(0).unwrap().transform.translation.x, 9.0);
+        assert_eq!(draft.get(1).unwrap().transform.scale.z, 3.0);
+        assert_eq!(session.document.clips[0].channels, original);
+        assert_eq!(session.cursor, 0);
+    }
+    apply(&mut app, InsertPose);
+    let edited = {
+        let state = app.world().resource::<AnimationEditorState>();
+        let session = state.current().unwrap();
+        let channels = &session.document.clips[0].channels;
+        assert_eq!(session.cursor, 1);
+        assert!(session.pose.is_none());
+        assert_eq!(channels[0].sample(0.5)[0], 9.0);
+        assert_eq!(channels[1].sample(0.5)[2], 3.0);
+        channels.clone()
+    };
+    apply(&mut app, Undo);
+    let session = app.world().resource::<AnimationEditorState>().current().unwrap();
+    assert_eq!(session.cursor, 0);
+    assert_eq!(session.document.clips[0].channels, original);
+    apply(&mut app, Redo);
+    let session = app.world().resource::<AnimationEditorState>().current().unwrap();
+    assert_eq!(session.cursor, 1);
+    assert_eq!(session.document.clips[0].channels, edited);
 }
 
 #[test]
@@ -440,7 +568,7 @@ fn directory_clip_adopts_latest_source_index_without_losing_drafts_and_expires_o
         assert!(Arc::ptr_eq(&snapshot, &state.current().unwrap().document));
         assert!(state.current().unwrap().dirty());
         state.playing = false;
-        state.current_mut().unwrap().pose = Some((0, pose));
+        state.current_mut().unwrap().set_pose(0, pose, PoseProperty::Translation);
         state.queue_directory_pick(root.clone(), alpha.clone(), 7, 0);
     }
     app.update();
@@ -448,7 +576,7 @@ fn directory_clip_adopts_latest_source_index_without_losing_drafts_and_expires_o
         let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
         assert_eq!(state.active_clip(), 1);
         assert!(!state.playing);
-        assert_eq!(state.current().unwrap().pose, Some((0, pose)));
+        assert_eq!(state.current().unwrap().pose.as_ref().unwrap().get(0).unwrap().transform, pose);
         assert!(state.status.contains("临时姿势"));
         state.current_mut().unwrap().pose = None;
         state.queue_directory_pick(root.clone(), alpha.clone(), 7, 0);
@@ -715,6 +843,11 @@ fn hot_reloaded_node_indices_reject_a_captured_old_paste_command() {
         },
     )
     .is_err());
+    {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        assert!(!state.editable(), "来源重新解析后应重新确认动画编辑");
+        assert!(state.select_current_clip() && state.enter_animation_edit());
+    }
     // 故意保留并提交换代前已捕获的命令，证明后台入口的保护不依赖清空UI剪贴板。
     queue(
         &mut app,
@@ -770,10 +903,11 @@ fn ordinary_static_models_have_no_animation_panel() {
     let (mut app, alpha, _) = app_context();
     let mut document = test_document();
     document.clips.clear();
-    app.world_mut()
-        .resource_mut::<AnimationEditorState>()
-        .sessions
-        .insert(alpha, Session::new(document));
+    {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        state.return_to_animation_preview();
+        state.sessions.insert(alpha, Session::new(document));
+    }
     let state = app.world().resource::<AnimationEditorState>();
     let view = state.view();
     assert!(!state.visible(), "普通静态模型也不应生成动画骨架覆盖");

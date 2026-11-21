@@ -156,7 +156,7 @@ pub(crate) fn handle_point(ray: Ray3d, origin: Vec3, handle: MoveHandle) -> Opti
             let point = ray.get_point(distance).with_y(origin.y);
             point.is_finite().then_some(point)
         }
-        MoveHandle::UniformScale => Some(origin), // 屏幕拖动控制倍率，无须猜测任何地形或世界轴交点。
+        MoveHandle::AnimationRotation(_) | MoveHandle::UniformScale => Some(origin), // 共用工具投影负责旋转环和缩放的计算。
     }
 }
 

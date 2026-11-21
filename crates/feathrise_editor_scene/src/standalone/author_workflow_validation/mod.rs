@@ -17,8 +17,10 @@ pub(super) fn install(app: &mut App) {
     if !enabled() {
         return;
     }
-    terrain::install(app);
-    river_building::install(app);
+    if !animation_edit_only() {
+        terrain::install(app);
+        river_building::install(app);
+    }
     animation_assets::install(app);
     app.init_resource::<Workflow>();
 }
@@ -29,12 +31,22 @@ pub(super) fn enabled() -> bool {
         && std::env::var("NEW_EDITOR_NATIVE_SMOKE_SAVE").as_deref() == Ok("1")
 }
 
+pub(super) fn animation_edit_only() -> bool {
+    std::env::var("FEATHRISE_ANIMATION_EDIT_VALIDATION").as_deref() == Ok("1")
+}
+
 pub(super) fn begin(world: &mut World) -> Result<bool, String> {
     if !world.contains_resource::<Workflow>() {
         return Ok(false);
     }
     if world.resource::<Workflow>().phase != Phase::Idle {
         return Err("专业作者验收不能重复执行".into());
+    }
+    if animation_edit_only() {
+        // 首屏/写入专项沿用同一自有工程和原保存链，直接走动画阶段。
+        animation_assets::begin(world)?;
+        world.resource_mut::<Workflow>().phase = Phase::AnimationAssets;
+        return Ok(true);
     }
     terrain::begin(world)?;
     eprintln!("原作者验收开始：雕刻、地表、Blade；最终保存仍由父原Save负责");

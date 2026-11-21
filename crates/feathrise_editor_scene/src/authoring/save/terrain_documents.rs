@@ -67,6 +67,7 @@ impl TerrainCanvas {
                 portals: Vec::new(),
             },
             domain: None, preserved_asset_paths: Default::default(),
+            motion: Default::default(),
             boundaries: None,
             boundary_catalog_registration_required: false,
             boundaries_dirty: false,

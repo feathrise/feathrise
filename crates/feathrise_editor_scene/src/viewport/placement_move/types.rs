@@ -8,12 +8,14 @@ use super::math::MoveCamera;
 use crate::authoring::buildings::BuildingEditTarget;
 
 pub(crate) use feathrise_editor_animation_model::gizmo::MoveAxis;
+use feathrise_editor_animation_model::gizmo::MoveConstraint;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MoveHandle {
     Axis(MoveAxis),
     XzPlane,
     RotationY,
+    AnimationRotation(MoveConstraint),
     UniformScale,
 }
 
@@ -23,6 +25,7 @@ impl MoveHandle {
             Self::Axis(axis) => axis.label(),
             Self::XzPlane => "XZ 平面",
             Self::RotationY => "Y 轴旋转",
+            Self::AnimationRotation(axis) => axis.label(),
             Self::UniformScale => "等比缩放",
         }
     }
@@ -31,7 +34,7 @@ impl MoveHandle {
         match self {
             Self::Axis(selected) => axis == selected,
             Self::XzPlane => axis != MoveAxis::Y,
-            Self::RotationY | Self::UniformScale => false,
+            Self::RotationY | Self::AnimationRotation(_) | Self::UniformScale => false,
         }
     }
 
@@ -39,7 +42,7 @@ impl MoveHandle {
         use super::super::modes::ViewportMode;
         match self {
             Self::Axis(_) | Self::XzPlane => ViewportMode::Move,
-            Self::RotationY => ViewportMode::Rotate,
+            Self::RotationY | Self::AnimationRotation(_) => ViewportMode::Rotate,
             Self::UniformScale => ViewportMode::Scale,
         }
     }
@@ -54,6 +57,7 @@ pub(super) struct MoveDrag {
     pub terrain_content: Option<[u64; 7]>, // Clipmap 根/清单/作者高度/浅坑/拓扑；局部缺页到达不使同代拖动失效。
     pub before: ScenePlacementRecord,        // 只在按下时克隆一次完整记录，撤销保留含水语义。
     pub preview: ScenePlacementRecord,       // 每帧只修改变换标量，不复制绑定数组。
+    pub animation: Option<super::animation::AnimationDrag>, // 时间轴帧姿态有独立提交权，不进入普通对象事务。
     pub applied_world: Mat4, // 只在原World预览成功后推进；跨进程显示不能采用被原工具拒绝的候选。
     pub frame: TerrainObjectTransform, // 按下冻结所属地形完整TRS；记录仍保持源局部格式。
     pub world_origin: Vec3,
@@ -120,6 +124,9 @@ impl MoveDrag {
     }
 
     pub(super) fn preview_world_position(&self) -> Vec3 {
+        if let Some(animation) = &self.animation {
+            return Vec3::from_array(animation.pose.translation);
+        }
         self.frame.as_transform().transform_point(self.preview.translation.into())
     }
 }

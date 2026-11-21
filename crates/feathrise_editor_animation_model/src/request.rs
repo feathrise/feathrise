@@ -53,6 +53,7 @@ pub struct RigPreviewRequest {
     pub ticket: u64,
     pub source: PathBuf,
     pub request: PreviewRigAnimation,
+    pub ready: bool,
     pub failed: bool,
 }
 
@@ -85,7 +86,9 @@ impl AnimationEditorState {
         if self.failed.as_ref() == Some(&source) {
             self.failed = None;
         }
-        self.directory_pick = Some(DirectoryPick { root, source, tab, clip_index, recheck_source });
+        self.directory_pick = Some(DirectoryPick {
+            root, source, tab, clip_index, recheck_source,
+        });
     }
 
     pub fn cancel_directory_pick(&mut self) {

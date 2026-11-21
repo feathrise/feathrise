@@ -128,7 +128,7 @@ pub(super) fn input(
         let context = contexts.p0();
         if !context.available(&preview, &media)
             || !media.active(context.host.tab)
-            || !(animation.visible() || animation.in_place_rig_preview())
+            || !(animation.visible() || animation.in_place_rig_preview() || animation.editing_animation())
         {
             return None;
         }
@@ -201,7 +201,7 @@ pub(super) fn sync(
     mut status: Query<&mut Text, With<Waiting>>,
 ) {
     let visible = context.timeline_visible(&animation);
-    let waiting = visible && !animation.visible();
+    let waiting = visible && !animation.visible() && !animation.editing_animation();
     let available = center.single().ok().map(|node| node.size().y * node.inverse_scale_factor());
     let height = available.filter(|height| height.is_finite() && *height > 0.0)
         .map_or(layout.preferred_height, |available| {

@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, fs, path::Path};
 
 pub(super) const MOTIONS: &str = "motions.glb";
 pub(super) const STATIC: &str = "roles/nested/static.glb";
-const HERO: &str = "roles/nested/hero.glb";
+pub(super) const HERO: &str = "roles/nested/hero.glb";
 const FILES: &[&str] = &[MOTIONS, STATIC, HERO, "swatch.png", "beep.wav", "sample.avi"];
 const MODEL_JOINTS: usize = 49;
 const MOTION_NODES: usize = 66;

@@ -3,8 +3,8 @@
 mod types;
 pub use types::*;
 
-use super::{components::*, data::AnimationDocument, resources::AnimationEditorState};
-use feathrise_editor_animation_model::{host::{AnimationHost, SceneEditorNumericScrubMouseGuard}, media::{AssetPreviewContent, AssetPreviewPhase, AssetPreviewState}};
+use super::{components::*, data::AnimationDocument, resources::AnimationEditorState, types::PoseTool};
+use feathrise_editor_animation_model::{host::{AnimationHost, SceneEditorNumericScrubMouseGuard}, media::{AssetPreviewCanvas, AssetPreviewContent, AssetPreviewPhase, AssetPreviewState}};
 use feathrise_editor_core::EditorTextInputGuard;
 use bevy::{mesh::VertexAttributeValues, prelude::*};
 use feathrise_editor_ui::{
@@ -15,12 +15,16 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 fn enabled() -> bool {
+    #[cfg(feature = "validation")]
+    if std::env::var_os("FEATHRISE_ANIMATION_WORKSPACES_PROBE_DIR").is_some() {
+        // 真实工作区验收已在宿主冻结自有工程，只复用原通道选择与数值提交契约。
+        return true;
+    }
     std::env::var("NEW_EDITOR_NATIVE_SMOKE_AUTHOR_TOOLS").as_deref() == Ok("1")
         && std::env::var_os("NEW_EDITOR_NATIVE_SMOKE_DIR").is_some()
         && std::env::var("NEW_EDITOR_NATIVE_SMOKE_SAVE").as_deref() == Ok("1")
 }
 
-#[cfg(feature = "validation")]
 pub fn timeline_ruler(world: &mut World) -> Option<(Entity, f32)> {
     let state = world.get_resource::<AnimationEditorState>()?;
     if !state.visible() || state.busy() {
@@ -101,6 +105,10 @@ pub fn animation_probe(
         saved_cursor: session.saved_cursor,
         history_len: session.history.len(),
         dirty: session.dirty(),
+        pose_bones: session.pose.as_ref().map_or(0, |draft| draft.len()),
+        node: channel.node,
+        node_name: channel.node_name.clone(),
+        property: channel.path.clone(),
         actual_clip: session.clip,
         actual_channel: session.channel,
         actual_key: session.key,
@@ -114,6 +122,14 @@ pub fn animation_probe(
             .filter(|(path, _)| path == source)
             .map(|(_, result)| result.clone()),
     }))
+}
+
+/// 仅观测作者草稿，不替代手柄或原数值输入。
+pub fn draft_bone_count(world: &World) -> usize {
+    world.get_resource::<AnimationEditorState>()
+        .and_then(AnimationEditorState::current)
+        .and_then(|session| session.pose.as_ref())
+        .map_or(0, |draft| draft.len())
 }
 
 pub fn select_channel(world: &mut World, identity: KeyIdentity) -> Result<Entity, String> {
@@ -133,17 +149,69 @@ pub fn select_channel(world: &mut World, identity: KeyIdentity) -> Result<Entity
         .id())
 }
 
+fn animation_action(command: AnimationCommand) -> AnimationAction {
+    match command {
+        AnimationCommand::ToggleEditing => AnimationAction::ToggleEditing,
+        AnimationCommand::MovePose => AnimationAction::MovePose,
+        AnimationCommand::RotatePose => AnimationAction::RotatePose,
+        AnimationCommand::CreateClip => AnimationAction::CreateClip,
+        AnimationCommand::ToggleAutoKey => AnimationAction::ToggleAutoKey,
+        AnimationCommand::InsertPose => AnimationAction::InsertPose,
+        AnimationCommand::InsertKey => AnimationAction::InsertKey,
+        AnimationCommand::FirstFrame => AnimationAction::FirstFrame,
+        AnimationCommand::NextFrame => AnimationAction::NextFrame,
+        AnimationCommand::NextKey => AnimationAction::NextKey,
+        AnimationCommand::Undo => AnimationAction::Undo,
+        AnimationCommand::Redo => AnimationAction::Redo,
+        AnimationCommand::Save => AnimationAction::Save,
+    }
+}
+
+/// 通过当前绑定和真实布局找到原按钮，允许窗口驱动复用鼠标事件。
+#[cfg(feature = "validation")]
+pub fn original_button(world: &mut World, command: AnimationCommand) -> Option<Entity> {
+    let (entity, enabled) = original_button_state(world, command)?;
+    enabled.then_some(entity)
+}
+
+/// 返回原控件及其可用性。只读检查同时服务于动画和工程目录的真窗口验收。
+#[cfg(feature = "validation")]
+pub fn original_button_state(world: &mut World, command: AnimationCommand) -> Option<(Entity, bool)> {
+    let binding = world.resource::<AnimationEditorState>().revision;
+    let action = animation_action(command);
+    world
+        .query::<(Entity, &AnimationButton, &Node, &ComputedNode, &InheritedVisibility, Has<bevy::ui::InteractionDisabled>)>()
+        .iter(world)
+        .find_map(|(entity, button, node, layout, visibility, disabled)| {
+            if matches!(action, AnimationAction::MovePose | AnimationAction::RotatePose) {
+                let parent = world.get::<ChildOf>(entity)?.parent();
+                world.get::<AnimationPoseToolbar>(parent)?;
+            }
+            (button.binding == binding
+                && button.action == action
+                && node.display != Display::None
+                && layout.size().min_element() > 1.0
+                && visibility.get())
+            .then_some((entity, !disabled))
+        })
+}
+
+/// 同时核对图标栏实际位于原视口，避免误把右侧属性按钮记为左侧工具。
+pub fn pose_toolbar_visible(world: &mut World) -> Result<bool, String> {
+    let (node, parent) = world.query_filtered::<(&Node, &ChildOf), With<AnimationPoseToolbar>>()
+        .single(world).map_err(|error| format!("原动画姿势工具栏身份不唯一：{error}"))?;
+    if world.get::<AssetPreviewCanvas>(parent.parent()).is_none() {
+        return Err("原动画姿势工具栏不在资产预览视口".into());
+    }
+    Ok(node.display != Display::None)
+}
+
 pub fn command(world: &mut World, command: AnimationCommand) -> Result<Entity, String> {
     if !enabled() {
         return Err("动画有限验收未启用".into());
     }
     let binding = world.resource::<AnimationEditorState>().revision;
-    let action = match command {
-        AnimationCommand::NextKey => AnimationAction::NextKey,
-        AnimationCommand::Undo => AnimationAction::Undo,
-        AnimationCommand::Redo => AnimationAction::Redo,
-        AnimationCommand::Save => AnimationAction::Save,
-    };
+    let action = animation_action(command);
     Ok(world
         .spawn((
             AnimationButton { action, binding },
@@ -297,7 +365,8 @@ pub fn diagnostic(world: &mut World) -> String {
 /// 读取原输入所有者；前一按钮受理后的释放门也属于忙碌，不把下一动作投进必被丢弃的一帧。
 pub fn input_ready(world: &World) -> bool {
     let animation = world.resource::<AnimationEditorState>();
-    animation.visible()
+    // 没有动画的模型尚未长出时间轴，属性中的新建按钮仍可接受窗口输入。
+    (animation.visible() || animation.can_create_clip())
         && !animation.busy()
         && !world
             .get_resource::<SceneEditorNumericScrubMouseGuard>()
@@ -332,6 +401,7 @@ pub fn diagnostic_value(world: &mut World) -> Value {
         .and_then(|focus| focus.get());
     json!({
         "source":animation.source(),"visible":animation.visible(),"busy":animation.busy(),"revision":animation.revision,
+        "pose_tool":match animation.pose_tool { PoseTool::Move => "Move", PoseTool::Rotate => "Rotate" },
         "status":animation.status,"clip":session.map(|session|session.clip),"channel":session.and_then(|session|session.channel),
         "key":session.and_then(|session|session.key),"position":session.map(|session|session.position),"cursor":session.map(|session|session.cursor),
         "pending":animation.pending.is_some(),"work":animation.work.as_ref().map(|work|json!({"path":work.path,"saving":work.saving})),

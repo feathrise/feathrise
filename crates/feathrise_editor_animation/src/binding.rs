@@ -49,7 +49,7 @@ pub(super) fn install(app: &mut App) {
 
 #[derive(Default)]
 struct RecordEmbeddedNodes {
-    animated_model: bool,
+    index_model_nodes: bool,
 }
 
 impl GltfExtensionHandler for RecordEmbeddedNodes {
@@ -57,12 +57,18 @@ impl GltfExtensionHandler for RecordEmbeddedNodes {
         Box::new(Self::default())
     }
 
-    fn on_root(&mut self, _: &mut LoadContext<'_>, file: &gltf::Gltf, _: &GltfLoaderSettings) {
-        self.animated_model = file.animations().next().is_some() && file.meshes().next().is_some();
+    fn on_root(&mut self, context: &mut LoadContext<'_>, file: &gltf::Gltf, _: &GltfLoaderSettings) {
+        let mut buffers = file.buffers();
+        let writable_glb = context.path().path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("glb"))
+            && buffers.next().is_none_or(|buffer| matches!(buffer.source(), gltf::buffer::Source::Bin))
+            && buffers.next().is_none();
+        // 零动作 GLB 可以创建首个草稿，使用同一后台加载器预留节点索引，无需重读模型。
+        self.index_model_nodes = file.meshes().next().is_some()
+            && (writable_glb || file.animations().next().is_some());
     }
 
     fn on_gltf_node(&mut self, _: &mut LoadContext<'_>, node: &gltf::Node, entity: &mut EntityWorldMut) {
-        if self.animated_model {
+        if self.index_model_nodes {
             // 同名节点在 GLB 内合法。加载时记录原索引，预览可精确匹配而不用按名字猜测。
             entity.insert(EmbeddedNodeIndex(node.index()));
         }
@@ -84,7 +90,7 @@ pub(super) fn embedded_target<'p>(
 ) -> Option<(&'p str, u64)> {
     let session = editor.current()?;
     // 旧文件草稿仍可编辑。对实际网格写姿态前，文档与 Scene0 必须属于同一代。
-    if session.model_path.is_some() || session.source_changed || !preview.render_visible
+    if session.document.clips.is_empty() || editor.preview_model_path().is_some() || session.source_changed || !preview.render_visible
         || !matches!(preview.content, AssetPreviewContent::Model { phase: AssetPreviewPhase::Ready, .. })
     {
         return None;
@@ -201,7 +207,7 @@ fn ready(
                 && editor.source_revision == identity.revision
                 && editor.model_binding_revision == identity.request
                 && (identity.embedded_generation.is_some()
-                    || editor.current().and_then(|session| session.model_path.as_ref()) == Some(&identity.model))
+                    || editor.preview_model_path() == Some(identity.model.as_str()))
         });
         if current {
             if binding.identity.as_ref().is_some_and(|identity| identity.retarget || identity.embedded_generation.is_some()) {
@@ -241,9 +247,9 @@ fn drive(
         .visible()
         .then(|| {
             let source = editor.source()?;
-            let session = editor.current()?;
-            let (model, embedded_generation) = if let Some(model) = &session.model_path {
-                (model.as_str(), None)
+            // 工程动作的角色由当前标签请求拥有，原文件会话仍保留自己的模型绑定。
+            let (model, embedded_generation) = if let Some(model) = editor.preview_model_path() {
+                (model, None)
             } else {
                 let (model, generation) = embedded_target(&editor, &preview, documents.asset_root())?;
                 (model, Some(generation))
@@ -253,7 +259,7 @@ fn drive(
                 revision: editor.source_revision,
                 request: editor.model_binding_revision,
                 model: model.to_owned(),
-                retarget: embedded_generation.is_none() && session.retarget_model,
+                retarget: embedded_generation.is_none() && editor.retargeting(),
                 embedded_generation,
             })
         })
@@ -495,6 +501,7 @@ fn drive(
     }
     if binding.ready() {
         let status = match &mapping.retarget {
+            Some(rig) if rig.supports(editor.active_clip()) && editor.editing_animation() => "当前角色预览 · 正在编辑源动画",
             Some(rig) if rig.supports(editor.active_clip()) => "动作已重定向 · 原地播放 · 预览只读",
             Some(_) => "该动作片段没有可重定向的骨骼旋转",
             None if embedded => "正在预览当前模型的内嵌动作",
@@ -513,6 +520,41 @@ fn drive(
 mod tests {
     use super::*;
     use bevy::world_serialization::WorldInstanceSpawner;
+
+    #[test]
+    fn visible_model_binding_begins_when_its_first_clip_is_authored() {
+        use feathrise_editor_animation_model::media::AssetPreviewModelSession;
+        use super::super::resources::Session;
+
+        let asset_root = Path::new("assets");
+        let source = asset_root.join("shape.glb");
+        let mut editor = AnimationEditorState { active: Some(source.clone()), ..default() };
+        let document = super::super::data::tests::test_scene(&serde_json::json!({
+            "asset": {"version": "2.0"},
+            "scenes": [{"nodes": [0]}],
+            "nodes": [{"name": "网格"}],
+        }));
+        editor.sessions.insert(source.clone(), Session::new(document));
+        let mut model = AssetPreviewModelSession::new(1, Handle::default());
+        model.scene_mesh_count = 1;
+        let preview = AssetPreviewState {
+            selected_path: Some("shape.glb".into()),
+            render_visible: true,
+            model: Some(model),
+            content: AssetPreviewContent::Model {
+                handle: Handle::default(),
+                root: Entity::PLACEHOLDER,
+                phase: AssetPreviewPhase::Ready,
+            },
+            ..default()
+        };
+        assert_eq!(embedded_target(&editor, &preview, asset_root), None);
+
+        let document = std::sync::Arc::make_mut(&mut editor.sessions.get_mut(&source).unwrap().document);
+        document.clips.push(document.create_clip().unwrap());
+        assert!(embedded_mapping(document).is_ok());
+        assert_eq!(embedded_target(&editor, &preview, asset_root), Some(("shape.glb", 1)));
+    }
 
     #[test]
     fn repeated_ready_revalidates_in_place_once_and_preserves_strict_unbind() {

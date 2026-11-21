@@ -146,6 +146,8 @@ pub(crate) struct DraftSaveSuccess {
     pub(crate) terrain_water_changed: std::collections::BTreeSet<feathrise_scene_content::TerrainId>, // 只为真实水定义/遮罩或依赖高度变化的画布建立正式水交接。
     pub(crate) root_water_changed: bool, // 根水与私有画布分别建立正式门，其他作者域保存不重发根水。
     pub(crate) domain_hash: Option<String>, // 本批真正写入的外部文档原字节基线。
+    pub(crate) motion: Option<crate::authoring::scene_motion::SceneMotionDocument>,
+    pub(crate) motion_written: bool,
     pub(crate) scene_id: SceneId,                   // 本次原子事务所属场景。
     pub(crate) placements_changed: bool, // 只有语义内容相对磁盘真实变化时才允许发布正式摆放资产。
     pub(crate) placements_snapshot: ScenePlacementsAsset, // 与本批落盘同源，主线程接收所有权。
@@ -160,6 +162,8 @@ pub(crate) struct DraftSaveSuccess {
 /// 完整待写集合与各类内容变化证据必须来自同一次后台预检。
 struct PreparedDraftWrites<'a> {
     domain_hash: Option<String>, // 只有外部脏文档进入事务才有新基线。
+    motion: Option<crate::authoring::scene_motion::SceneMotionDocument>,
+    writes_motion: bool,
     writes: Vec<PreparedWrite<'a>>,  // 仍由唯一跨文件事务统一stage、发布和回滚。
     placements_changed: bool,        // false时批次中完全没有placements目标。
     placement_glb_hash: Option<String>,
@@ -237,6 +241,8 @@ pub(super) async fn save_draft_with_volumes(
     commit_prepared_writes_checked(writes, |_, path| check_source(path))
         .map_err(|failure| DraftSaveError::from_transaction(&root, failure))?;
     let domain_hash = prepared.domain_hash.take();
+    let motion = prepared.motion.take();
+    let motion_written = prepared.writes_motion;
     let placement_glb_hash = prepared.placement_glb_hash.take();
     let (placements_changed, surface_definition_changed, surface_weights_changed, water_changed) = (
         prepared.placements_changed, prepared.surface_definition_changed,
@@ -247,6 +253,8 @@ pub(super) async fn save_draft_with_volumes(
     let terrain_digests = Vec::new();
     Ok(DraftSaveSuccess {
         domain_hash, // 成功之后才更新主世界外部文档磁盘基线。
+        motion,
+        motion_written,
         root_water_changed: water_changed,
         scene_id: draft.scene_id.clone(),              // 主线程只接纳同票据同作者修订结果。
         placements_changed, // 发布决策与实际事务目标严格同源。
@@ -341,11 +349,12 @@ fn prepare_draft_writes<'a>(
         folder.join(SCENE_MANIFEST_FILE_NAME),
         &draft.manifest,
     )); }
-    let (placements_changed, placement_glb_hash) = if canvas_only {
-        (false, None) // 对象投影没有独立摆放文档。
+    let (placements_changed, placement_glb_hash, motion) = if canvas_only {
+        (false, None, None) // 对象投影没有独立摆放文档。
     } else {
         prepare_placements_write(root, draft, &mut writes)?
     };
+    let writes_motion = motion.is_some() && placement_glb_hash.is_some();
     if !canvas_only { writes.push(PreparedWrite::json(
         folder.join(SCENE_PORTALS_FILE_NAME),
         &draft.portals,
@@ -477,6 +486,8 @@ fn prepare_draft_writes<'a>(
     // 根批次先拒绝领域正文与普通目标的别名，后续清单重编码不能移除真实领域写项后冒用它的权限。
     Ok(PreparedDraftWrites {
         domain_hash,
+        motion,
+        writes_motion,
         writes,                     // transaction会在创建首个stage前再次拒绝任何目标路径别名。
         placements_changed,         // 主线程据此决定是否建立正式placement交接门。
         placement_glb_hash,
@@ -510,29 +521,35 @@ fn prepare_placements_write<'a>(
     root: &Path,
     draft: &'a EditorSceneDraft,
     writes: &mut Vec<PreparedWrite<'a>>,
-) -> Result<(bool, Option<String>), String> {
+) -> Result<(bool, Option<String>, Option<crate::authoring::scene_motion::SceneMotionDocument>), String> {
     let relative = draft.placements_path();
     let path = safe_asset_path(root, &relative)?;
     let Some(expected) = &draft.placement_glb_hash else {
         if saved_placements_match(&path, &draft.placements) {
-            return Ok((false, None));
+            return Ok((false, None, None));
         }
         writes.push(PreparedWrite::json(path, &draft.placements));
-        return Ok((true, None));
+        return Ok((true, None, None));
     };
     use feathrise_scene_content::{authoring_io::bytes_hash, read_scene_placements, write_scene_placements_glb};
     let previous = std::fs::read(&path).map_err(|error| format!("读取场景 GLB {} 失败：{error}", path.display()))?;
     verify_placement_glb_hash(expected, &bytes_hash(&previous))?;
-    if read_scene_placements(&previous, &relative)?.placements == draft.placements.placements {
-        return Ok((false, None));
+    let placements_changed = read_scene_placements(&previous, &relative)?.placements != draft.placements.placements;
+    if !placements_changed && !draft.motion.dirty {
+        return Ok((false, None, None));
     }
-    let glb = write_scene_placements_glb(&draft.placements, &relative, Some(&previous))?;
-    if glb == previous {
-        return Ok((false, None));
-    }
+    let glb = if placements_changed {
+        write_scene_placements_glb(&draft.placements, &relative, Some(&previous))?
+    } else { previous };
+    // 同一个文件同时含网格节点和动画。候选只发布一次，两个编辑域共用原子的冲突检查。
+    let (glb, motion) = if draft.motion.dirty {
+        let (glb, saved) = draft.motion.encode_glb(&path, glb, &draft.placements)?;
+        (glb, Some(saved))
+    } else { (glb, None) };
     let digest = bytes_hash(&glb);
+    if &digest == expected { return Ok((false, None, motion)); }
     writes.push(PreparedWrite::new(path, glb));
-    Ok((true, Some(digest)))
+    Ok((placements_changed, Some(digest), motion))
 }
 
 fn saved_placements_match(path: &std::path::Path, snapshot: &ScenePlacementsAsset) -> bool {
