@@ -410,7 +410,6 @@ pub(crate) fn select_editor_viewport_content(
                     surface,
                     &scene_id,
                     water,
-                    real_time.elapsed_secs_f64(),
                     &mut editor,
                     &mut browser,
                     &mut selected_viewport,
@@ -446,8 +445,6 @@ pub(crate) fn select_editor_viewport_content(
                 selected_water.clear_viewport_selection(); // 任一摆放形态接管单选并取消迟到水面定位。
                 select_placement_hit(
                     hit,
-                    &scene_id,
-                    real_time.elapsed_secs_f64(),
                     &mut editor,
                     &mut browser,
                     &mut selected_viewport,
@@ -553,7 +550,6 @@ pub(crate) fn select_editor_viewport_content(
             preferred_author_hit,
         ); // 大场景扫描在后台single-flight完成。
         if let Some(request) = queries.layer_candidates.request.as_mut() {
-            request.click_seconds = Some(real_time.elapsed_secs_f64());
             request.additive = additive;
             request.terrain_ground = draft.terrain_ground.clone().filter(|ground| ground.revision == session.terrain_revision);
             request.terrain_objects = draft.manifest.terrains.clone().unwrap_or_default();

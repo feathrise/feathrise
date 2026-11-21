@@ -126,7 +126,9 @@ fn controls_fit_real_chinese_font_in_narrow_scaled_sidebars() {
             }
             count += 1;
         }
-        assert_eq!(count, 8);
+        assert_eq!(count, 6);
+        assert!(world.query::<&ObjectButton>().iter(world).all(|button|
+            !matches!(button.0, ObjectAction::ToggleHidden | ObjectAction::ToggleLocked)));
     }
 }
 

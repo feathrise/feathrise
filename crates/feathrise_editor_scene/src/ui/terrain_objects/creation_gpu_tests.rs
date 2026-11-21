@@ -31,7 +31,7 @@ fn activate(app: &mut App, window: Entity, camera: Entity, target: Action) {
 #[test]
 #[ignore = "显式离屏验证统一网格创建面板的立方体、Clipmap与坐标模式，不接管用户原生窗口"]
 fn unified_mesh_creation_gpu_snapshots() {
-    let (mut app, window) = page_with_render(true);
+    let (mut app, window) = page_with_render(true, true);
     crate::ui::theme::install(&mut app);
     app.world_mut().resource_mut::<SceneEditorSidebarState>().right = EditorRightSidebarTab::Tools;
     let (camera, target) = {

@@ -179,7 +179,7 @@ pub(super) fn retire<T: Send + 'static>(state: &mut SceneObjectState, value: T) 
     }));
 }
 
-/// 固定六个操作和两个文本入口只按实际资格回显；保护对象始终保留恢复入口。
+/// 名称和分组控件按实际资格回显；显隐与锁定的入口位于场景树行。
 pub(super) fn style_buttons(
     mut commands: Commands,
     editor: Res<SceneEditorState>,

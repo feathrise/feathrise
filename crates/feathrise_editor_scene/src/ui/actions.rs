@@ -247,8 +247,8 @@ pub(crate) fn sync_editor_action_button_styles(
                 WorkbenchHeaderItem::Save | WorkbenchHeaderItem::Undo | WorkbenchHeaderItem::Redo));
         if header_action {
             let feedback = match button.0 {
-                // 保存工作进行中仍标记脏草稿，成功回执消除提示。
-                EditorAction::Save if availability.needs_save() => SAVE_PENDING,
+                // 保存进行中由禁用样式反馈，失败后仍待保存时恢复琥珀色。
+                EditorAction::Save if !should_disable => SAVE_PENDING,
                 EditorAction::Undo | EditorAction::Redo if !should_disable => HISTORY_READY,
                 _ => HEADER_IDLE,
             };

@@ -42,7 +42,7 @@ fn field(label: &'static str, kind: ObjectField) -> impl Scene {
     }
 }
 
-/// 所选属性只挂载在右侧；复用原控件与作者事务。
+/// 右侧属性管理名称和分组。显隐与锁定沿用场景树行的原作者事务。
 pub(crate) fn properties_panel() -> impl Scene {
     bsn! { ~{crate::ui::scene_inspector::InspectorSection::ObjectManagement} Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(4), flex_shrink: 0.0 }
         Children [
@@ -58,9 +58,7 @@ pub(crate) fn properties_panel() -> impl Scene {
                 Children [
                     @button("归组", ObjectAction::AssignGroup)--
                     @button("移出组", ObjectAction::Ungroup)--
-                    @button("选择组", ObjectAction::SelectGroup)--
-                    @button("显隐", ObjectAction::ToggleHidden)--
-                    @button("锁定", ObjectAction::ToggleLocked)
+                    @button("选择组", ObjectAction::SelectGroup)
                 ]
             --
 

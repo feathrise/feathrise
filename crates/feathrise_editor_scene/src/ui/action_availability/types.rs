@@ -90,6 +90,7 @@ impl EditorActionAvailability {
             EditorAction::Save | EditorAction::Undo | EditorAction::Redo if self.saving => {
                 Some("当前场景正在保存")
             }
+            EditorAction::Save if !self.needs_save() => Some("当前场景没有未保存变更"),
             EditorAction::Undo if self.undo_empty => Some("当前场景没有可撤销操作"),
             EditorAction::Redo if self.redo_empty => Some("当前场景没有可重做操作"),
             EditorAction::ViewPerspective

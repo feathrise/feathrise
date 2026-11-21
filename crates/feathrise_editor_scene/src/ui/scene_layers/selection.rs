@@ -81,8 +81,7 @@ pub(crate) fn select(
             }
             if let Some(state) = context.water.as_mut() {
                 state.clear_viewport_selection();
-                state.select_from_viewport(&draft.scene_id, *kind, id, 0.0);
-                state.clear_click_sequence();
+                state.confirm_viewport_feature(&draft.scene_id, *kind, id);
             }
             (
                 LayerTarget::Water(*kind, id.clone()),

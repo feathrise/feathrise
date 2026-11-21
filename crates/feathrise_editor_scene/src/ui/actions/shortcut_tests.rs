@@ -110,6 +110,7 @@ fn mesh_edit_blocks_object_shortcuts_but_saves_and_undoes_confirmed_geometry() {
         assert!(!app.world().resource::<SceneEditorState>().placement_transform_enabled);
         assert!(!app.world().resource::<crate::authoring::basic_shapes::BasicShapeState>().request_menu);
     }
+    app.world_mut().resource_mut::<SceneEditorState>().dirty = true;
     press(&mut app, &[KeyCode::ControlLeft, KeyCode::KeyS]);
     assert!(app.world().resource::<SceneEditorState>().save_requested, "已确认几何复用原场景保存");
     app.world_mut().resource_mut::<EditorAuthoringSession>().undo.push(crate::authoring::EditorCommand::TerrainChanged(vec![crate::authoring::HeightChange { index: 0, before: 0.0, after: 1.0 }]));
@@ -335,6 +336,7 @@ fn text_numeric_ime_other_tabs_loading_and_mouse_drags_block_navigation() {
 #[test]
 fn existing_save_history_and_brush_keys_use_configured_bindings_without_repeat() {
     let mut app = app();
+    app.world_mut().resource_mut::<SceneEditorState>().dirty = true;
     let command = crate::authoring::EditorCommand::TerrainChanged(vec![crate::authoring::HeightChange {
         index: 0, before: 0.0, after: 1.0,
     }]);
@@ -376,6 +378,7 @@ fn existing_save_history_and_brush_keys_use_configured_bindings_without_repeat()
 fn right_plugin_tool_owns_history_even_while_central_scene_stays_visible() {
     use crate::ui::sidebars::{SceneEditorSidebarState, EditorLeftSidebarTab, EditorRightSidebarTab};
     let mut app = app();
+    app.world_mut().resource_mut::<SceneEditorState>().dirty = true;
     app.insert_resource(crate::game_authoring::DomainToolLabels([("fixture.tool", "插件工具".into())].into()))
         .init_resource::<SceneEditorSidebarState>();
     {

@@ -19,9 +19,10 @@ use crate::{
     components::{
         NewSceneNameText, SceneEditorActionButton, SceneEditorSceneRootRow, SceneEditorSceneRow,
     },
-    resources::{SceneBrowserIndexState, SceneBrowserState, SceneEditorState},
+    resources::{SceneBrowserIndexState, SceneBrowserState, SceneEditorState, SceneEditorViewportState},
     types::{EditorAction, SceneBrowserItem},
     ui::{
+        gltf_browser::EditorGltfBrowserState,
         scene_context_menu::{SceneObjectKey, SceneObjectRow},
         scene_inspector::InspectorTree,
     },
@@ -255,16 +256,7 @@ pub fn empty_terrain_placement_tree_labels(
     {
         return Err("场景显示验收需要无地形的自有场景".into());
     }
-    let Some(tree) = world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
-        let target = row.0.as_ref()?;
-        if target.scene_id != *scene
-            || !matches!(&target.key, SceneObjectKey::Placement { id, mesh: None, .. } if id == placement)
-            || !ui_visible(world, entity)
-        {
-            return None;
-        }
-        ui_ancestors(world, entity).find(|ancestor| world.get::<InspectorTree>(*ancestor).is_some())
-    }) else {
+    let Some((_, tree)) = visible_placement_row(world, scene, placement) else {
         return Ok(None);
     };
     let labels = world.query::<(Entity, &Text)>().iter(world).filter_map(|(entity, text)| {
@@ -272,6 +264,47 @@ pub fn empty_terrain_placement_tree_labels(
             .then(|| text.0.clone())
     }).collect();
     Ok(Some(labels))
+}
+
+pub struct PlacementTreeView {
+    pub row: Entity,
+    pub selected: bool,
+    pub center: Vec3,
+    pub extent: f32,
+}
+
+/// 把本轮立方体的实际布局行与同一场景的离屏相机对应起来，供宿主投递真实鼠标手势。
+pub fn placement_tree_view(
+    world: &mut World,
+    scene: &SceneId,
+    placement: &str,
+) -> Result<Option<PlacementTreeView>, String> {
+    require_owned(world)?;
+    let Some((row, _)) = visible_placement_row(world, scene, placement) else {
+        return Ok(None);
+    };
+    Ok(world.get_resource::<SceneEditorViewportState>()
+        .filter(|viewport| viewport.framed_scene_id.as_ref() == Some(scene))
+        .map(|viewport| PlacementTreeView {
+            row,
+            selected: world.resource::<EditorGltfBrowserState>().selected_placement_id.as_deref() == Some(placement),
+            center: viewport.center,
+            extent: viewport.extent,
+        }))
+}
+
+fn visible_placement_row(world: &mut World, scene: &SceneId, placement: &str) -> Option<(Entity, Entity)> {
+    world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
+        let target = row.0.as_ref()?;
+        if target.scene_id != *scene
+            || !matches!(&target.key, SceneObjectKey::Placement { id, mesh: None, .. } if id == placement)
+            || !ui_visible(world, entity)
+        {
+            return None;
+        }
+        let tree = ui_ancestors(world, entity).find(|ancestor| world.get::<InspectorTree>(*ancestor).is_some())?;
+        Some((entity, tree))
+    })
 }
 
 fn ui_ancestors(world: &World, entity: Entity) -> impl Iterator<Item = Entity> + '_ {

@@ -14,7 +14,7 @@ use std::{
 #[test]
 #[ignore = "显式GPU渲染真实场景目录，不打开或接管用户的原生窗口"]
 fn scene_directory_gpu_snapshot() {
-    let (mut app, window) = page_with_render(true);
+    let (mut app, window) = page_with_render(true, true);
     // 使用同一正式格式构造有限目录；公开测试不读取开发者的游戏内容或修改用户场景。
     let catalog: SceneCatalogAsset = serde_json::from_value(serde_json::json!({
         "schema_version": 2,

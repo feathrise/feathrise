@@ -285,7 +285,7 @@ pub(crate) fn sync_selected_water_viewport(
     let badge_text = if previewing {
         format!("预览：{summary} · 点击候选确认选择") // 临时预高亮不能冒充正式选中或提示双击。
     } else if frame.is_some() && preview_ready {
-        format!("已选：{summary} · 再次点击同一水面定位") // 当前完整水面已经精确高亮。
+        format!("已选：{summary}") // 当前完整水面已经精确高亮。
     } else if frame.is_some() && preview_failed {
         format!("已选：{summary} · 预览失败，正高亮上一完整版本") // 保留旧几何时明确避免误认为最新作者结果。
     } else if frame.is_some() {

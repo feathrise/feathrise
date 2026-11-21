@@ -11,6 +11,8 @@ pub struct SceneContextMenuState {
     pub(super) captured_this_frame: bool,
     /// 关闭点击先等待原鼠标静默门，随后只发布一帧，不能在其他场景补执行。
     pub(super) queued: Option<(MenuTarget, SceneObjectRequest)>,
+    pub(super) last_tree_click: Option<(MenuTarget, f64)>,
+    pub(super) tree_focus_queued: bool,
     pub(crate) ready: Option<SceneObjectRequest>,
 }
 

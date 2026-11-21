@@ -1,4 +1,4 @@
-//! 场景树对象右键菜单：固定浮层、中文重命名、冻结目标和原作者操作的单帧请求。
+//! 场景树对象的右键菜单与双击聚焦，共用冻结目标和原作者操作的单帧请求。
 
 mod components;
 mod focus;
@@ -158,6 +158,15 @@ fn install_controls(app: &mut App) {
                 .before(
                     super::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard,
                 )
+                .in_set(crate::SceneEditorSystemSet::Input),
+        )
+        .add_systems(
+            Update,
+            systems::queue_tree_focus
+                .after(super::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)
+                .before(super::scene_layers::read_tree_selection)
+                .before(super::gltf_browser::handle_gltf_browser_input)
+                .before(SceneMenuDispatch)
                 .in_set(crate::SceneEditorSystemSet::Input),
         )
         .add_systems(

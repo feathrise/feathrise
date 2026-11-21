@@ -200,7 +200,12 @@ pub(crate) fn vegetation_properties_panel() -> impl Scene {
                         }
                     --
                     @three_button_row("复制图层", EditorAction::VegetationDuplicateLayer, "上移图层", EditorAction::VegetationMoveUp, "下移图层", EditorAction::VegetationMoveDown)-- // 结构操作保持同一行。
-                    @three_button_row("显示/隐藏", EditorAction::VegetationToggleEnabled, "锁定/解锁", EditorAction::VegetationToggleLocked, "切换预览", EditorAction::VegetationPreviewNext)-- // 常用显示操作同组，当前预览见上方状态。
+                    // 场景树行提供植被参与和显隐，属性页保留锁定与覆盖预览。
+                    Node { width: percent(100), column_gap: px(3), flex_shrink: 0.0 }
+                    Children [
+                        @flex_editor_button("锁定/解锁", EditorAction::VegetationToggleLocked)--
+                        @flex_editor_button("切换预览", EditorAction::VegetationPreviewNext)
+                    ]--
                     @three_button_row("新建分组", EditorAction::VegetationNewGroup, "移入下组", EditorAction::VegetationNextGroup, "组内规则", EditorAction::VegetationCycleGroupMode)-- // 将分组操作集中，减少上下寻找。
                     @flex_editor_button("切换跨组合并规则", EditorAction::VegetationCycleMergeMode)-- // 明确这是循环切换，不是打开规则编辑器。
                     @vegetation_numeric_slots() // 参数紧随规则，避免状态打断表单。

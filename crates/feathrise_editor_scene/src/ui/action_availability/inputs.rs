@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use super::EditorActionAvailability;
 use crate::authoring::{
-    EditorAuthoringSession, TerrainExternalChangeState, WaterNetworkEditState,
+    EditorAuthoringSession, GlobalEnvironmentAuthoringState, TerrainExternalChangeState, WaterNetworkEditState,
 };
 use crate::resources::{
     SceneBrowserState, SceneDeletionTask, SceneEditorNumericScrubMouseGuard, SceneEditorSettingsState,
@@ -21,6 +21,7 @@ use crate::viewport::{LayerCandidateState, LayerTarget};
 #[derive(SystemParam)]
 pub(crate) struct EditorActionInputs<'w> {
     session: Res<'w, EditorAuthoringSession>,
+    global_environment: Option<Res<'w, GlobalEnvironmentAuthoringState>>,
     world: SceneEditorWorldSession<'w>,
     workspace: Option<Res<'w, VegetationPresetEditorState>>,
     weights: WeightCommands<'w>,
@@ -77,7 +78,9 @@ impl EditorActionInputs<'_> {
             weights: self.weights.status(),
             mesh_editing: self.mesh_edit.as_ref().is_some_and(|state| state.active()),
             current_scene: self.world.ready() && draft.is_some(),
-            scene_dirty: self.session.has_scene_data_changes(),
+            // 和场景保存入口读取同一组脏位。摆放和名称等普通编辑只推进编辑器脏位。
+            scene_dirty: editor.dirty || self.session.has_scene_data_changes()
+                || self.global_environment.as_ref().is_some_and(|global| global.dirty),
             viewport_ready: viewport.is_some_and(|viewport| {
                 draft.is_some_and(|draft| viewport.framed_scene_id.as_ref() == Some(&draft.scene_id))
             }),

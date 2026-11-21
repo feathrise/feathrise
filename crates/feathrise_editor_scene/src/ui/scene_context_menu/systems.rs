@@ -12,12 +12,16 @@ use crate::{
 };
 use bevy::{
     ecs::system::SystemParam,
+    input::mouse::MouseWheel,
     input_focus::{FocusCause, InputFocus},
     prelude::*,
     text::EditableText,
+    time::Real,
     window::PrimaryWindow,
 };
 use feathrise_editor_ui::{ActiveNumericInput, ActiveNumericInputScrub, EditorButtonClick};
+
+const TREE_DOUBLE_CLICK_SECONDS: f64 = 0.36; // 沿用原场景对象的双击间隔，独立于玩法虚拟时间。
 
 #[derive(SystemParam)]
 pub(crate) struct MenuContext<'w, 's> {
@@ -285,7 +289,66 @@ pub(super) fn control_menu(
         object,
     });
     menu.captured_this_frame = true;
-    focus.clear(); // 背景搜索框失去键盘权限，菜单期间输入不能继续改写树投影。
+    focus.clear(); // 菜单持有输入时让后台文本框失焦。
+}
+
+/// 双击只认两次共用按钮系统已验收的同一行释放；空白或子按钮不会产出行点击。
+pub(super) fn queue_tree_focus(
+    context: MenuContext,
+    editor: Res<SceneEditorState>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    time: Res<Time<Real>>,
+    mut scroll: MessageReader<MouseWheel>,
+    guard: Res<SceneEditorNumericScrubMouseGuard>,
+    mut rows: Query<(Entity, &SceneObjectRow, &Node, &mut EditorButtonClick), Changed<EditorButtonClick>>,
+    mut menu: ResMut<SceneContextMenuState>,
+) {
+    let scrolled = !scroll.is_empty();
+    scroll.clear();
+    if !mouse.just_released(MouseButton::Left) && menu.last_tree_click.is_none() && !menu.tree_focus_queued {
+        return;
+    }
+    let other_buttons = [MouseButton::Right, MouseButton::Middle];
+    let interrupted = scrolled || guard.blocked() || menu.owns_mouse() || context.composing()
+        || !context.enabled(&editor)
+        || mouse.any_pressed(other_buttons) || other_buttons.into_iter().any(|button| mouse.just_released(button))
+        || keyboard.any_just_pressed([KeyCode::Escape, KeyCode::F12])
+        || keyboard.any_pressed([
+            KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::ControlLeft, KeyCode::ControlRight,
+            KeyCode::AltLeft, KeyCode::AltRight, KeyCode::SuperLeft, KeyCode::SuperRight,
+        ]);
+    if menu.tree_focus_queued && (interrupted || mouse.just_pressed(MouseButton::Left)) {
+        menu.queued = None; // 已开始的新手势优先，旧双击不能在下一静默帧再抢镜头。
+        menu.tree_focus_queued = false;
+    }
+    let seconds = time.elapsed_secs_f64();
+    if interrupted || menu.queued.is_some() {
+        menu.bypass_change_detection().last_tree_click = None;
+        return;
+    }
+    if !mouse.just_released(MouseButton::Left) || mouse.pressed(MouseButton::Left) {
+        if menu.last_tree_click.as_ref().is_some_and(|(_, then)| seconds - then > TREE_DOUBLE_CLICK_SECONDS) {
+            menu.bypass_change_detection().last_tree_click = None;
+        }
+        return;
+    }
+    let previous = menu.bypass_change_detection().last_tree_click.take();
+    let Some((row, object, mut click)) = rows.iter_mut().find_map(|(row, binding, node, click)| {
+        let object = binding.0.as_ref()?;
+        (click.is_clicked() && node.display != Display::None
+            && object.current(&editor, &context.session) && object.allows(SceneMenuAction::Focus))
+            .then_some((row, object, click))
+    }) else { return; };
+    let target = MenuTarget { row, object: object.clone() };
+    if previous.is_some_and(|(first, then)| first.row == row && first.object == *object
+        && (0.0..=TREE_DOUBLE_CLICK_SECONDS).contains(&(seconds - then))) {
+        click.invalidate(); // 聚焦接管第二次释放，GLB 根不会同时再执行一次折叠。
+        menu.queued = Some((target, SceneObjectRequest { target: object.clone(), action: SceneMenuAction::Focus, name: String::new() }));
+        menu.tree_focus_queued = true;
+    } else {
+        menu.bypass_change_detection().last_tree_click = Some((target, seconds));
+    }
 }
 
 /// 原位替换保留官方已经同步的字体、字号和布局代次；重建EditableText会令再次打开的中文消失。
@@ -316,6 +379,7 @@ pub(super) fn dispatch(
         || mouse.any_just_pressed([MouseButton::Right, MouseButton::Middle])
     {
         menu.queued = None;
+        menu.tree_focus_queued = false;
         return;
     }
     if guard.blocked()
@@ -328,6 +392,7 @@ pub(super) fn dispatch(
         return;
     }
     menu.ready = menu.queued.take().map(|(_, request)| request);
+    menu.tree_focus_queued = false;
 }
 
 pub(super) fn send_blender_action(

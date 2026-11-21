@@ -1,4 +1,4 @@
-//! 明确菜单命令先同步右键对象的唯一正式选择；聚焦继续走原相机取景入口。
+//! 场景树命令先同步冻结对象的唯一正式选择；聚焦继续走原相机取景入口。
 
 use super::{SceneContextMenuState, SceneMenuAction, SceneObjectKey};
 use crate::{
@@ -118,6 +118,11 @@ pub(crate) fn select_target(
         ) { return; } },
     }
     if matches!(target.key, SceneObjectKey::Water { .. }) {
+        if request.is_none() && let Some((first, _)) = menu.bypass_change_detection().last_tree_click.as_mut()
+            && first.object == target
+        {
+            first.object.revision = session.revision; // 首次单击切入自身水源产生的新修订续接同一对象的双击。
+        }
         target.revision = session.revision;
         if let Some(request) = menu.ready.as_mut() { request.target.revision = session.revision; }
     } // 仅已经验证并完成的来源切换续接当前菜单命令；其他旧修订仍由current拒绝。

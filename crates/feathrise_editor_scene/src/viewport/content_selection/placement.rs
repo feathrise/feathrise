@@ -18,12 +18,12 @@ use crate::ui::gltf_browser::{
     stable_mesh_reference,
 }; // Scene0命中沿用右栏唯一稳定引用格式，primitive只发布整项选择。
 use crate::ui::sidebars::SceneEditorSidebarState; // 命中后显式发布右侧对象属性意图。
-use crate::viewport::SelectedPlacementViewportState; // Scene0保留双击定位，primitive明确清除旧点击序列。
+use crate::viewport::SelectedPlacementViewportState; // 视口选择会撤回上一目标的待定位请求。
 
 /// 中央视口命中的两种显式摆放语义。
 #[derive(Clone)] // 后台候选只携带稳定身份，不持有ECS实体借用。
 pub(super) enum PlacementViewportHit {
-    /// 完整Scene0中的真实Blender网格，保留精确高亮和双击定位能力。
+    /// 完整Scene0中的真实Blender网格，按节点路径恢复精确高亮身份。
     SceneMesh(EditorGltfMeshSelection),
     /// 直接primitive只选中所属完整摆放记录，不制造不存在的场景节点身份。
     Primitive {
@@ -214,14 +214,13 @@ pub(super) fn placement_hit_from_entity(
 /// 选中视口命中的显式摆放；Scene0保留网格能力，primitive只发布完整记录身份。
 pub(super) fn select_placement_hit(
     hit: PlacementViewportHit, // 已通过活动根和目标形态双重校验的命中。
-    scene_id: &SceneId,            // 当前草稿场景身份。
-    now_seconds: f64,          // Scene0真实时间双击时钟。
     editor: &mut SceneEditorState,
     browser: &mut EditorGltfBrowserState,
     selected_viewport: &mut SelectedPlacementViewportState,
     viewport_selection: &mut EditorViewportSelectionState,
     sidebars: &mut SceneEditorSidebarState,
 ) {
+    selected_viewport.clear_click_sequence(); // 视口选中接管当前目标，使旧的列表定位取消。
     viewport_selection.clear_vegetation_selection(); // 场景对象选择立即撤销“查看”模式整层密度覆盖。
     sidebars.reveal_scene_properties(); // 作者无需再手动切回右侧场景页核对选择。
     match hit {
@@ -229,7 +228,6 @@ pub(super) fn select_placement_hit(
             placement_id,
             target,
         } => {
-            selected_viewport.clear_click_sequence(); // 子资产没有Scene0范围身份，不能与旧网格点击组成双击。
             let valid = browser.select_primitive_placement_from_viewport(placement_id.clone()); // 同帧发布整条记录并清除旧网格水选择。
             editor.status = if valid {
                 format!(
@@ -247,30 +245,18 @@ pub(super) fn select_placement_hit(
                 return; // 上方方法保证存在，防御后续重构中的提前清理。
             };
             if !valid {
-                selected_viewport.clear_click_sequence(); // 无效稳定引用不能与旧有效点击组成双击。
                 editor.status = format!(
                     "已从视口选中摆放“{}”，但命中网格缺少可持久稳定身份",
                     selection.placement_id,
                 ); // 整实例属性仍可用，精确覆盖和网格水失败关闭。
                 return;
             }
-            let double_clicked =
-                selected_viewport.register_mesh_click(scene_id, selection, now_seconds); // 第二次同身份点击才登记相机定位。
-            editor.status = if double_clicked {
-                format!(
-                    "正在定位视口对象：{} / {} / {}",
-                    selection.placement_id,
-                    selection.node_path.join("/"),
-                    selection.mesh_name,
-                ) // 既有解析系统取得完整联合Aabb后执行真实定位。
-            } else {
-                format!(
-                    "已从视口选中对象：{} / {} / {}；再次点击同一对象可定位",
-                    selection.placement_id,
-                    selection.node_path.join("/"),
-                    selection.mesh_name,
-                ) // 普通单击不移动当前CAD视角。
-            };
+            editor.status = format!(
+                "已从视口选中对象：{} / {} / {}",
+                selection.placement_id,
+                selection.node_path.join("/"),
+                selection.mesh_name,
+            );
         }
     }
 }

@@ -311,6 +311,7 @@ fn empty_histories_and_saving_block_both_inputs_then_restore_without_rebuilding(
 fn live_save_state_overrules_both_stale_enabled_and_stale_disabled_markers() {
     let mut app = app(true);
     let save = button(&mut app, EditorAction::Save);
+    app.world_mut().resource_mut::<SceneEditorState>().dirty = true;
     app.world_mut()
         .resource_mut::<EditorSettings>()
         .editor_keybindings
@@ -337,6 +338,36 @@ fn live_save_state_overrules_both_stale_enabled_and_stale_disabled_markers() {
     clear_requests(&mut app);
     press(&mut app, &[KeyCode::KeyK]);
     assert!(app.world().resource::<SceneEditorState>().save_requested);
+}
+
+#[test]
+fn clean_save_is_disabled_and_pending_save_uses_amber() {
+    let mut app = app(true);
+    let save = button(&mut app, EditorAction::Save);
+    app.world_mut().spawn(crate::workbench::WorkbenchHeaderItem::Save).add_child(save);
+    app.update();
+    assert_style(&mut app, save, Some("当前场景没有未保存变更"));
+
+    // 普通摆放修改只推进编辑器的脏位，也要让原顶栏亮起琥珀色。
+    app.world_mut().resource_mut::<SceneEditorState>().dirty = true;
+    app.update();
+    assert_style(&mut app, save, None);
+    assert_eq!(
+        app.world().get::<BackgroundColor>(save).unwrap().0,
+        crate::ui::actions::SAVE_PENDING.normal,
+    );
+
+    app.world_mut().resource_mut::<EditorAuthoringSession>().saving = true;
+    app.update();
+    assert_style(&mut app, save, Some("当前场景正在保存"));
+    assert_eq!(
+        app.world().get::<BackgroundColor>(save).unwrap().0,
+        crate::ui::theme::SLOT_BG_DISABLED,
+    );
+    app.world_mut().resource_mut::<EditorAuthoringSession>().saving = false;
+    app.world_mut().resource_mut::<SceneEditorState>().dirty = false;
+    app.update();
+    assert_style(&mut app, save, Some("当前场景没有未保存变更"));
 }
 
 #[test]
@@ -509,6 +540,7 @@ fn modal_workspace_and_scene_identity_changes_do_not_queue_delayed_commands() {
     for case in 0..6 {
         let mut app = app(true);
         let save = button(&mut app, EditorAction::Save);
+        app.world_mut().resource_mut::<SceneEditorState>().dirty = true;
         app.update();
         match case {
             0 => {
@@ -577,6 +609,7 @@ fn modal_workspace_and_scene_identity_changes_do_not_queue_delayed_commands() {
 fn deletion_confirmation_holds_all_scene_commands_until_the_transaction_releases() {
     let mut app = app(true);
     let save = button(&mut app, EditorAction::Save);
+    app.world_mut().resource_mut::<SceneEditorState>().dirty = true;
     let scene_id = app
         .world()
         .resource::<SceneEditorState>()
@@ -634,6 +667,7 @@ fn mesh_edit_keeps_confirmed_save_available_and_disables_object_commands_in_plac
     let mut app = app(true);
     app.init_resource::<MeshEditState>();
     let save = button(&mut app, EditorAction::Save);
+    app.world_mut().resource_mut::<SceneEditorState>().dirty = true;
     let framing = button(&mut app, EditorAction::FrameScene);
     let node = app.world().get::<Node>(framing).unwrap().clone();
     app.world_mut().resource_mut::<MeshEditState>().activate_for_test();

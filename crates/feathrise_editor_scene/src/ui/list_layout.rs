@@ -9,17 +9,28 @@ pub(crate) struct SceneObjectListScroll;
 /// 八行视区加首尾缓冲共十个实体；池大小不是作者数量上限。
 pub(crate) const SCENE_OBJECT_LIST_ROWS: usize = 10;
 pub(crate) const SCENE_OBJECT_ROW_PITCH: f32 = 27.0;
+pub(crate) const SCENE_OBJECT_DEFAULT_VIEWPORT_HEIGHT: f32 =
+    (SCENE_OBJECT_LIST_ROWS - 2) as f32 * SCENE_OBJECT_ROW_PITCH - 3.0;
 
 /// 只按数量与滚动位置计算可见窗口，不复制或遍历完整作者集合。
 pub(crate) fn fit_scene_object_list(
     count: usize, reset: bool, reveal: Option<usize>,
     viewport: &mut Node, content: &mut Node, scroll: &mut ScrollPosition,
 ) -> usize {
-    let height = |rows: usize| (rows as f32 * SCENE_OBJECT_ROW_PITCH - 3.0).max(0.0);
-    let viewport_height = height(count.min(SCENE_OBJECT_LIST_ROWS - 2));
+    fit_scene_object_list_in_height(count, SCENE_OBJECT_DEFAULT_VIEWPORT_HEIGHT, reset, reveal,
+        viewport, content, scroll)
+}
+
+/// 摆放树以实际栏高为上限，窗口留有空间时直接显示八行以后的对象。
+pub(crate) fn fit_scene_object_list_in_height(
+    count: usize, height_limit: f32, reset: bool, reveal: Option<usize>,
+    viewport: &mut Node, content: &mut Node, scroll: &mut ScrollPosition,
+) -> usize {
+    let content_height = (count as f32 * SCENE_OBJECT_ROW_PITCH - 3.0).max(0.0);
+    let viewport_height = content_height.min(height_limit);
     viewport.display = if count == 0 { Display::None } else { Display::Flex };
     viewport.height = px(viewport_height);
-    content.height = px(height(count));
+    content.height = px(content_height);
     if reset { scroll.y = 0.0; }
     if let Some(index) = reveal.filter(|index| *index < count) {
         let top = index as f32 * SCENE_OBJECT_ROW_PITCH;
@@ -28,7 +39,7 @@ pub(crate) fn fit_scene_object_list(
             scroll.y = top + 24.0 - viewport_height;
         }
     }
-    scroll.y = scroll.y.clamp(0.0, (height(count) - viewport_height).max(0.0));
+    scroll.y = scroll.y.clamp(0.0, content_height - viewport_height);
     ((scroll.y / SCENE_OBJECT_ROW_PITCH).floor() as usize).saturating_sub(1)
 }
 

@@ -1,7 +1,7 @@
-//! 中央视口已摆放Scene0网格的精确高亮、紧凑身份徽标与双击定位。
+//! 中央视口已摆放Scene0网格的精确高亮、紧凑身份徽标与显式定位。
 //!
-//! 【功能设计】右栏选择继续以`SceneId + placement_id + node_path + mesh_name`作为稳定身份；
-//! 单击只显示当前活动World实例中全部匹配primitive的F12专属覆盖，双击才调整现有相机。
+//! 【功能设计】场景树选择以`SceneId + placement_id + node_path + mesh_name`作为稳定身份；
+//! 视口点选只更新当前活动World实例的F12覆盖，场景树双击、右键菜单和快捷键共用定位请求。
 //! 层级解析按固定操作预算跨帧推进，稳定帧只验证缓存根和有限primitive，不扫描全世界或Mesh顶点。
 
 use std::collections::HashSet;
@@ -27,7 +27,6 @@ pub(crate) use systems::{
 }; // 插件在Cursor与Presentation阶段分别注册解析、表现和范围框。
 pub(crate) use ui::setup_selected_placement_badge; // ViewportNode出现时只创建一次固定徽标实体。
 
-const DOUBLE_CLICK_MAX_SECONDS: f64 = 0.36; // 与静水列表保持同一常见双击节奏。
 const FOCUS_PADDING_SCALE: f32 = 1.25; // 三维物体定位后四周保留空间关系。
 const FOCUS_PADDING_METERS: f32 = 2.0; // 小道具也至少保留两米观察边距。
 pub(super) const LOOKUP_OPERATIONS_PER_FRAME: usize = 256; // DFS节点或父链路径段都占一次固定操作。
@@ -63,13 +62,6 @@ pub(super) struct SelectedPlacementMeshInfo {
     pub(super) identity: SelectedPlacementMeshIdentity, // 世界根、primitive和双击共用稳定身份。
     pub(super) valid: bool,                             // false时只显示诊断，不解析或伪造覆盖。
     pub(super) orphaned: bool,                          // 已删除或改名的水绑定只能清除作者记录。
-}
-
-/// 双击时间窗只记录最近一次真实有效网格行按下。
-#[derive(Clone, Debug)]
-struct TimedPlacementMeshClick {
-    identity: SelectedPlacementMeshIdentity, // 路径任一部分不同都不能组成双击。
-    seconds: f64,                            // F12暂停虚拟时间时仍使用真实时间。
 }
 
 /// 当前网格解析在用户可见层面的有限阶段。
@@ -176,10 +168,8 @@ impl PlacementWorldBounds {
 /// 当前Scene0网格选择在中央视口中的有限缓存与交互请求。
 #[derive(Resource, Default)]
 pub(crate) struct SelectedPlacementViewportState {
-    pub(super) previewing: bool, // 候选悬停期间暂停正式定位，并保留原点击序列。
-    last_click: Option<TimedPlacementMeshClick>, // 只为下一次同身份按下保留一个时间戳。
-    pub(super) focus_request: Option<SelectedPlacementMeshIdentity>, // 双击后等待完整世界范围。
-    explicit_focus: bool, // 显式取景采用正式选择；双击继续在临时悬停时暂停。
+    pub(super) previewing: bool, // 候选悬停只切换临时高亮。
+    pub(super) focus_request: Option<SelectedPlacementMeshIdentity>, // 显式定位等待完整世界范围。
     pub(super) resolved_identity: Option<SelectedPlacementMeshIdentity>, // 当前缓存对应的稳定选择。
     pub(super) root_entity: Option<Entity>, // 稳定帧O(1)复核当前活动摆放根。
     pub(super) instance_id: Option<InstanceId>, // World换票立即失效primitive缓存。
@@ -195,56 +185,22 @@ pub(crate) struct SelectedPlacementViewportState {
 }
 
 impl SelectedPlacementViewportState {
-    /// 快捷键使用已确认选择；候选悬停只是视觉预览，不能成为导航目标。
+    /// 显式定位使用已确认选择；候选悬停只是视觉预览，不能成为导航目标。
     pub(crate) fn request_selected_focus(&mut self, editor: &SceneEditorState, browser: &EditorGltfBrowserState,
         session: &EditorAuthoringSession, candidates: &LayerCandidateState) -> bool {
         let Some(info) = selected_placement_mesh_info(editor, browser, session, candidates, true) else { return false; };
         if !info.valid || info.orphaned { return false; }
         self.focus_request = Some(info.identity);
-        self.explicit_focus = true;
         true
     }
 
-    fn explicit_focus_pending(&self) -> bool { self.explicit_focus && self.focus_request.is_some() }
+    fn explicit_focus_pending(&self) -> bool { self.focus_request.is_some() }
 
     pub(crate) fn cancel_focus(&mut self) { self.clear_click_sequence(); }
 
-    /// 记录一次有效网格行按下；只有同一稳定身份在真实时间窗内再次按下才登记定位。
-    pub(crate) fn register_mesh_click(
-        &mut self,
-        scene_id: &SceneId,
-        selection: &EditorGltfMeshSelection,
-        now_seconds: f64,
-    ) -> bool {
-        let identity = SelectedPlacementMeshIdentity::from_selection(scene_id, selection); // 冻结完整行身份。
-        self.focus_request = None; // 新按下先取消尚未采用的旧定位请求。
-        self.explicit_focus = false; // 新鼠标点击恢复双击的原有预览语义。
-        if !now_seconds.is_finite() {
-            self.last_click = None; // 异常时钟值不得制造永久可匹配点击。
-            return false; // 非有限真实时间明确按普通单击处理。
-        }
-        let double_clicked = self.last_click.as_ref().is_some_and(|last| {
-            last.identity == identity // 场景、实例、路径和网格名必须完全一致。
-                && now_seconds >= last.seconds // 真实时间倒退时拒绝旧点击。
-                && now_seconds - last.seconds <= DOUBLE_CLICK_MAX_SECONDS // 固定窗口内才属于双击。
-        });
-        if double_clicked {
-            self.focus_request = Some(identity); // Cursor阶段等待当前活动实例完整范围。
-            self.last_click = None; // 三连击第三下重新作为下一组起点。
-        } else {
-            self.last_click = Some(TimedPlacementMeshClick {
-                identity,             // 保存本次完整稳定身份。
-                seconds: now_seconds, // 保存不受玩法暂停影响的真实时钟。
-            });
-        }
-        double_clicked // 输入系统只在true时回显“正在定位”。
-    }
-
-    /// 分页、实例根或无效行介入时终止未完成双击及迟到定位请求。
+    /// 普通选择接管时撤销上一目标仍在等待的定位请求。
     pub(crate) fn clear_click_sequence(&mut self) {
-        self.last_click = None; // 后续网格按下必须重新开始时间窗。
         self.focus_request = None; // 用户已经切换交互上下文，不再抢回相机。
-        self.explicit_focus = false;
     }
 
     /// 选择消失或改变时撤销旧世界解析，但保留可复用覆盖实体和材质。
@@ -406,16 +362,6 @@ mod tests {
         }
     }
 
-    #[test] // 只有同场景、同实例、同路径和同网格的两次快速按下才定位。
-    fn double_click_requires_same_complete_placement_mesh_identity() {
-        let scene_id = SceneId::parse("MAP-placement-focus").expect("测试场景ID合法"); // 当前草稿身份。
-        let mut state = SelectedPlacementViewportState::default(); // 独立点击状态。
-        assert!(!state.register_mesh_click(&scene_id, &selection("tree-1", "trunk"), 1.0)); // 首次只是选择。
-        assert!(!state.register_mesh_click(&scene_id, &selection("tree-1", "leaves"), 1.1)); // 不同网格重新计时。
-        assert!(state.register_mesh_click(&scene_id, &selection("tree-1", "leaves"), 1.3)); // 完整同身份快速第二次才定位。
-        assert!(state.focus_request.is_some()); // 定位请求等待世界范围完成。
-    }
-
     #[test] // 跨类型悬停只遮蔽资产表现，离开后恢复同一个正式网格引用。
     fn candidate_hover_preserves_formal_mesh_selection() {
         let selected = selection("tree-1", "leaves"); // 场景树当前正式目标。
@@ -435,17 +381,12 @@ mod tests {
         )); // 恢复原引用，没有正式状态写入。
     }
 
-    #[test] // 悬停切换解析目标不能打断已确认网格的双击时间窗和待定位请求。
-    fn hover_resolution_keeps_formal_click_state() {
+    #[test] // 临时解析不能更换正式待定位身份。
+    fn hover_resolution_keeps_formal_focus_request() {
         let scene_id = SceneId::parse("MAP-placement-hover").expect("测试场景ID合法"); // 当前场景。
-        let selected = selection("tree-1", "leaves"); // 正式网格。
-        let mut state = SelectedPlacementViewportState::default(); // 有界解析会话。
-        state.register_mesh_click(&scene_id, &selected, 1.0); // 第一按下。
-        state.previewing = true; // 临时悬停跨类型。
-        state.reset_resolution(None, PlacementMeshResolution::WaitingForRoot); // 只隐藏旧覆盖。
-        assert!(state.register_mesh_click(&scene_id, &selected, 1.2)); // 未丢失真实第一次点击。
-        let expected = state.focus_request.clone(); // 冻结正式待定位身份。
-        state.reset_resolution(None, PlacementMeshResolution::WaitingForRoot); // 再次跨类型预览。
+        let expected = Some(SelectedPlacementMeshIdentity::from_selection(&scene_id, &selection("tree-1", "leaves")));
+        let mut state = SelectedPlacementViewportState { previewing: true, focus_request: expected.clone(), ..default() };
+        state.reset_resolution(None, PlacementMeshResolution::WaitingForRoot);
         assert_eq!(state.focus_request, expected); // 暂停定位而不更换正式目标。
         state.previewing = false; // 离开恢复正式选择。
         state.reset_resolution(expected.clone(), PlacementMeshResolution::WaitingForRoot); // 正式身份仍相符。

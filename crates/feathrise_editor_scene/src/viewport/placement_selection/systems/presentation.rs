@@ -141,7 +141,7 @@ pub(crate) fn sync_selected_placement_viewport(
     mut badge_texts: Query<&mut Text, With<SceneEditorSelectedPlacementBadgeText>>,
 ) {
     let previewing =
-        editor.open && editor.tool == EditorTool::Inspect && candidates.hover.is_some() && !selection.explicit_focus_pending(); // 双击仍在悬停时暂停，F取景使用正式选择。
+        editor.open && editor.tool == EditorTool::Inspect && candidates.hover.is_some() && !selection.explicit_focus_pending(); // 定位请求优先保持正式目标。
     let Some(info) = selected_placement_mesh_info(&editor, &browser, &session, &candidates, selection.explicit_focus_pending()) else {
         sync_selection_outline(&mut commands, &cameras, None);
         selection.outline_active = false;

@@ -591,7 +591,15 @@ fn saved(world: &World, observed: &author::Observation, before: u64) -> Result<b
 }
 
 pub(crate) fn click_text(world: &mut World, label: &str) -> Option<Entity> {
-    let entity = world
+    let entity = text_button(world, label)?;
+    world
+        .entity_mut(entity)
+        .insert((UiInteraction::Pressed, EditorButtonClick::triggered()));
+    Some(entity)
+}
+
+pub(super) fn text_button(world: &mut World, label: &str) -> Option<Entity> {
+    world
         .query::<(Entity, &Text)>()
         .iter(world)
         .filter(|(_, text)| text.as_str() == label)
@@ -608,11 +616,7 @@ pub(crate) fn click_text(world: &mut World, label: &str) -> Option<Entity> {
                 }
                 entity = world.get::<ChildOf>(entity)?.parent();
             }
-        })?;
-    world
-        .entity_mut(entity)
-        .insert((UiInteraction::Pressed, EditorButtonClick::triggered()));
-    Some(entity)
+        })
 }
 
 fn visible(world: &World, entity: Entity) -> bool {

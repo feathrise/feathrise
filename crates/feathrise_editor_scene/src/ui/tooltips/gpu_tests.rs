@@ -452,6 +452,7 @@ fn tooltip_gpu_actual_hover_clipping_three_themes_and_scaled_roots() {
         .undo
         .clear();
     let save = target(&mut app, TooltipAction::Editor(EditorAction::Save));
+    app.world_mut().resource_mut::<SceneEditorState>().dirty = true;
     app.world_mut()
         .resource_mut::<EditorAuthoringSession>()
         .saving = true;

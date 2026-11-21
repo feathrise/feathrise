@@ -548,6 +548,8 @@ fn library_selection_and_scene_creation_target_remain_distinct_and_read_only() {
         "全局预设库",
         "当前场景图层",
         "所选层属性",
+        "锁定/解锁",
+        "切换预览",
         "用此预设新建空白层",
         "删除图层",
         "删除所选预设",
@@ -557,6 +559,7 @@ fn library_selection_and_scene_creation_target_remain_distinct_and_read_only() {
             "缺少明确作用域：{label}"
         );
     }
+    assert!(!texts.iter().any(|text| text == "显示/隐藏"));
     assert_eq!(
         world
             .query_filtered::<&Text, With<feathrise_editor_ui::PanelStatusText>>()

@@ -62,7 +62,8 @@ impl Plugin for WindowChromePlugin {
                     .before(crate::viewport_mode::ViewportModeInput)
                     .before(feathrise_editor_core::SceneEditorSystemSet::Input),
             )
-            .add_systems(Update, systems::present.after(ChromeMount))
+            .add_systems(Update, systems::present.after(ChromeMount)
+                .after(feathrise_editor_core::SceneEditorSystemSet::Presentation))
             .add_systems(Update, systems::sync_editor_fps.after(ChromeMount)
                 .after(feathrise_editor_core::SceneEditorSystemSet::Input))
             .add_systems(

@@ -3,6 +3,19 @@
 use super::*;
 use crate::components::SceneEditorActionButton;
 use crate::types::EditorAction;
+use crate::ui::continuous_list::pool_capacity;
+use crate::ui::list_layout::SCENE_OBJECT_ROW_PITCH;
+
+fn set_tree_height(app: &mut App, height: f32) -> Entity {
+    let world = app.world_mut();
+    let tree = world.query_filtered::<Entity, With<InspectorTree>>().single(world).unwrap();
+    let mut host = tree;
+    while let Some(parent) = world.get::<ChildOf>(host) { host = parent.parent(); }
+    *world.get_mut::<Node>(host).unwrap() = Node {
+        width: px(340), height: px(height), flex_direction: FlexDirection::Column, ..default()
+    };
+    tree
+}
 
 #[test]
 fn navigation_tree_and_properties_each_use_the_full_column_height() {
@@ -12,10 +25,7 @@ fn navigation_tree_and_properties_each_use_the_full_column_height() {
     let world = app.world_mut();
     world.resource_mut::<crate::ui::sidebars::SceneEditorSidebarState>().navigator = crate::ui::sidebars::EditorNavigatorTab::SceneTree;
     world.get_mut::<Node>(host).unwrap().height = px(800);
-    let tree = world.query_filtered::<Entity, With<InspectorTree>>().single(world).unwrap();
-    let mut tree_host = tree;
-    while let Some(parent) = world.get::<ChildOf>(tree_host) { tree_host = parent.parent(); }
-    *world.get_mut::<Node>(tree_host).unwrap() = Node { width: px(340), height: px(800), flex_direction: FlexDirection::Column, ..default() };
+    let tree = set_tree_height(&mut app, 800.0);
     settle(&mut app);
     let world = app.world_mut();
     let body = world.query_filtered::<Entity, With<InspectorBody>>().single(world).unwrap();
@@ -221,27 +231,29 @@ fn inspector_reflow_keeps_numeric_entities_specs_values_and_active_buffer() {
 
 #[test]
 fn inspector_tree_reuses_rows_and_scrolls_to_the_last_object_in_low_window() {
-    use crate::ui::list_layout::{SCENE_OBJECT_LIST_ROWS, SCENE_OBJECT_ROW_PITCH};
     for count in [0, 1, 8, 24] {
-        let (mut app, host) = page(count);
-        app.world_mut().get_mut::<Node>(host).unwrap().height = px(160);
+        let (mut app, _) = page(count);
+        let tree = set_tree_height(&mut app, 160.0);
         settle(&mut app);
         let world = app.world_mut();
+        let tree_layout = world.get::<ComputedNode>(tree).unwrap();
+        let tree_height = tree_layout.size().y * tree_layout.inverse_scale_factor();
+        assert!(tree_height > 0.0 && tree_height <= 160.0);
         assert_eq!(
             world
                 .query_filtered::<Entity, With<SceneEditorGltfBrowserRow>>()
                 .iter(world)
                 .count(),
-            SCENE_OBJECT_LIST_ROWS
+            pool_capacity(tree_height, 1, SCENE_OBJECT_ROW_PITCH)
         );
         let list_entity = world
             .query_filtered::<Entity, With<SceneEditorGltfBrowserList>>()
             .single(world)
             .unwrap();
         let list = world.get::<Node>(list_entity).unwrap();
-        let rows = count.min(SCENE_OBJECT_LIST_ROWS - 2) as f32;
-        let height = |rows: f32| (rows * SCENE_OBJECT_ROW_PITCH - 3.0).max(0.0);
-        assert_eq!(list.height, px(height(rows)));
+        let content_height = (count as f32 * SCENE_OBJECT_ROW_PITCH - 3.0).max(0.0);
+        let visible_height = content_height.min(tree_height);
+        assert_eq!(list.height, px(visible_height));
         assert_eq!(list.overflow.y, OverflowAxis::Scroll);
         assert_eq!(
             list.display,
@@ -255,15 +267,12 @@ fn inspector_tree_reuses_rows_and_scrolls_to_the_last_object_in_low_window() {
             .query_filtered::<&Node, With<SceneEditorGltfBrowserListContent>>()
             .single(world)
             .unwrap();
-        assert_eq!(content.height, px(height(count as f32)));
-        let scroll = world
-            .query_filtered::<&Node, With<InspectorTree>>()
-            .single(world)
-            .unwrap();
+        assert_eq!(content.height, px(content_height));
+        let scroll = world.get::<Node>(tree).unwrap();
         assert_eq!(scroll.overflow.y, OverflowAxis::Scroll);
         assert_eq!(scroll.min_height, px(0));
-        if count > SCENE_OBJECT_LIST_ROWS {
-            let end = height(count as f32) - height(rows);
+        if count == 24 {
+            let end = content_height - visible_height;
             world.get_mut::<ScrollPosition>(list_entity).unwrap().y = end + SCENE_OBJECT_ROW_PITCH;
             settle(&mut app);
             let world = app.world_mut();
@@ -273,5 +282,34 @@ fn inspector_tree_reuses_rows_and_scrolls_to_the_last_object_in_low_window() {
                 && node.top == px((count - 1) as f32 * SCENE_OBJECT_ROW_PITCH)));
             assert!(!bindings.iter(world).any(|(row, _)| row.entry_index == Some(0)));
         }
+    }
+}
+
+#[test]
+fn inspector_tree_shows_later_group_in_the_available_viewport_without_inner_scrolling() {
+    let mut placements: Vec<_> = (0..10).map(placement).collect();
+    std::sync::Arc::make_mut(&mut placements[9].editor).group = "后续组".into();
+    let (mut app, _) = page_with_placements(placements);
+    let tree = set_tree_height(&mut app, 720.0);
+    settle(&mut app);
+    let world = app.world_mut();
+    let group_index = world.resource::<EditorGltfBrowserState>().entries.iter().position(|entry| {
+        matches!(&entry.kind, EditorGltfBrowserEntryKind::Group { name, .. } if name == "后续组")
+    }).unwrap();
+    assert_eq!(group_index, 9); // 组排在九条现有条目之后，位于旧八行裁切范围之外。
+    let list = world.query_filtered::<Entity, With<SceneEditorGltfBrowserList>>().single(world).unwrap();
+    assert_eq!(world.get::<ScrollPosition>(list).unwrap().y, 0.0);
+    let group = world.query::<(Entity, &SceneEditorGltfBrowserRow)>().iter(world)
+        .find(|(_, row)| row.entry_index == Some(group_index)).unwrap().0;
+    let vertical_extent = |entity| {
+        let center = world.get::<UiGlobalTransform>(entity).unwrap().translation.y;
+        let half_height = world.get::<ComputedNode>(entity).unwrap().size().y * 0.5;
+        (center - half_height, center + half_height)
+    };
+    let (top, bottom) = vertical_extent(group);
+    assert!(bottom > top);
+    for viewport in [tree, list] {
+        let (visible_top, visible_bottom) = vertical_extent(viewport);
+        assert!(top >= visible_top && bottom <= visible_bottom);
     }
 }

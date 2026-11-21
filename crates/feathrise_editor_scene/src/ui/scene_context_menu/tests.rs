@@ -21,6 +21,56 @@ struct Fixture {
     backdrop: Entity,
 }
 
+#[test]
+fn scene_tree_double_click_rejects_rebound_slots_modifiers_and_expired_first_click() {
+    use bevy::time::Real;
+
+    let Fixture { mut app, row, .. } = fixture();
+    app.init_resource::<Time<Real>>()
+        .add_message::<bevy::input::mouse::MouseWheel>()
+        .add_systems(Update, systems::queue_tree_focus
+            .after(update_scene_editor_numeric_scrub_mouse_guard)
+            .before(systems::dispatch));
+    let replacement = {
+        let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+        let mut alternate = target(&session);
+        let placements = &mut session.draft.as_mut().unwrap().placements.placements;
+        let mut record = placements[0].clone();
+        record.id = "scroll-rebound-row".into();
+        alternate.key = SceneObjectKey::Placement { index: placements.len(), id: record.id.clone(), mesh: None };
+        placements.push(record);
+        alternate
+    };
+    let release = |app: &mut App| {
+        let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        mouse.press(MouseButton::Left);
+        mouse.release(MouseButton::Left);
+        app.world_mut().entity_mut(row).insert(feathrise_editor_ui::EditorButtonClick::triggered());
+        app.update();
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
+        app.update(); // 静默帧即使允许派发也只能采用尚有效的同一行双击。
+    };
+    let focused = |app: &App| app.world().resource::<SceneContextMenuState>().ready.as_ref()
+        .is_some_and(|request| request.action == SceneMenuAction::Focus);
+
+    release(&mut app);
+    assert!(!focused(&app));
+    app.world_mut().entity_mut(row).insert(SceneObjectRow(Some(replacement)));
+    release(&mut app);
+    assert!(!focused(&app), "同一复用槽换绑为另一对象时仍是两次单击");
+    app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::ShiftLeft);
+    release(&mut app);
+    assert!(!focused(&app), "Shift 的增量选择不得聚焦");
+    app.world_mut().resource_mut::<ButtonInput<KeyCode>>().release(KeyCode::ShiftLeft);
+    release(&mut app);
+    assert!(!focused(&app), "修饰键手势不得留下首击");
+    app.world_mut().resource_mut::<Time<Real>>().advance_by(std::time::Duration::from_millis(400));
+    release(&mut app);
+    assert!(!focused(&app), "超时再次点击只选择");
+    release(&mut app);
+    assert!(focused(&app), "当前行的有效二击仍能正常派发");
+}
+
 fn target(session: &EditorAuthoringSession) -> SceneObjectTarget {
     let draft = session.draft.as_ref().unwrap();
     SceneObjectTarget {

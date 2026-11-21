@@ -247,7 +247,7 @@ pub(crate) fn poll_layer_candidates(
                     .iter()
                     .map(|c| &c.target)
                     .eq(candidates.iter().map(|c| &c.target)); // 同点稳定候选顺序才能轮选。
-            let index = if repeat && !candidates.is_empty() && !quick_still_water_focus(&state, &request, &candidates) {
+            let index = if repeat && !candidates.is_empty() {
                 (state.index + 1) % candidates.len()
             } else {
                 0
@@ -262,7 +262,6 @@ pub(crate) fn poll_layer_candidates(
             state.page = index / 8; // 卡片直接显示待确认项所在页，正式行仅在成功后发布。
             state.hover = None; // 清除旧菜单悬停。
             state.hover_author_index = None;
-            state.apply_click_seconds = request.click_seconds;
             state.apply_candidate_index = state.candidates.get(index).map(|_| index);
             state.apply = state.candidates.get(index).map(|c| c.target.clone()); // 正式选择交给唯一应用系统。
             if state.apply.is_none() {
@@ -337,19 +336,6 @@ pub(crate) fn poll_layer_candidates(
         ); // 跨规模迭代只在后台。
         (key, request, candidates) // 不借用Commands/Assets/World。
     }));
-}
-
-fn quick_still_water_focus(state: &LayerCandidateState, request: &Request, candidates: &[LayerCandidate]) -> bool {
-    // 水面背后的地表和网格仍可慢点轮选；多个水体重叠时保留正常轮选顺序。
-    let [water] = request.water_candidates.as_slice() else { return false; };
-    let terrain = match &water.target {
-        LayerTarget::Water(..) => request.water_canvas_definition.as_ref().map(|source| &source.id),
-        _ => None,
-    };
-    candidates.first().is_some_and(|candidate| candidate.target == water.target)
-        && state.selected_still_water_matches(&water.target, terrain)
-        && request.click_seconds.zip(state.still_water_click_seconds).is_some_and(|(now, last)|
-            (0.0..=crate::viewport::water_selection::DOUBLE_CLICK_MAX_SECONDS).contains(&(now - last)))
 }
 
 fn collect_candidates(

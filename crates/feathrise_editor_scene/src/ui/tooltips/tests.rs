@@ -266,7 +266,7 @@ fn tooltip_reports_known_real_conditions_without_hiding_the_operation_descriptio
     state.focus_available = true;
     assert_eq!(unavailable_reason(focus, &state), None);
     let save = TooltipAction::Editor(EditorAction::Save);
-    assert_eq!(unavailable_reason(save, &state), None);
+    assert_eq!(unavailable_reason(save, &state), Some("当前场景没有未保存变更"));
     state.deletion_busy = true;
     assert_eq!(
         unavailable_reason(save, &state),

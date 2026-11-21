@@ -11,11 +11,11 @@ use feathrise_scene::{
 
 use super::layers::{LayerCandidate, LayerTarget}; // 水体加入同一重叠候选，而非提前消费整个点击。
 use crate::resources::{EditorViewportSelectionState, SceneEditorState}; // 查看工具、植被单选与列表索引会话态。
-use crate::types::{EditorTool, WaterAuthoringFeatureKind}; // 世界水面类别显式映射到左栏三类作者工具。
+use crate::types::WaterAuthoringFeatureKind; // 世界水面类别显式映射到左栏三类作者工具。
 use crate::ui::gltf_browser::EditorGltfBrowserState; // 水域对象与显式摆放保持单选语义。
 use crate::ui::sidebars::SceneEditorSidebarState; // 点选只揭示水体属性，不改变作者选中的创建模块。
 use crate::ui::water_feature_list::activate_water_feature; // 复用列表稳定ID重定位、分页和控制点清理。
-use crate::viewport::{SelectedPlacementViewportState, SelectedWaterViewportState}; // 复用两套精确高亮与双击状态机。
+use crate::viewport::{SelectedPlacementViewportState, SelectedWaterViewportState}; // 接管选中并回收旧对象定位。
 use std::{collections::BTreeMap, sync::Arc}; // 静水只采样共享R8源的一个纹素。
 
 /// 静水范围只是粗筛；R8空白处不能因为落在大矩形内就成为重叠候选。
@@ -261,13 +261,12 @@ fn selected_water_label<'a>(
     }
 }
 
-/// 选择轻量完成范围命中的整张水域作者对象；纯选择不修改作者数据或撤销栈。
+/// 作者工具用 Ctrl+左键吸取完整水域对象，按稳定身份切换作者选择。
 #[allow(clippy::too_many_arguments)]
 pub(super) fn select_water_surface(
     surface: &PaintedWaterSurface,
     scene_id: &SceneId,
     water: &SceneWaterAsset,
-    now_seconds: f64,
     editor: &mut SceneEditorState,
     browser: &mut EditorGltfBrowserState,
     selected_placement: &mut SelectedPlacementViewportState,
@@ -279,32 +278,19 @@ pub(super) fn select_water_surface(
         return false; // 跨场景残留水面不能改变当前草稿选择。
     }
     let kind = water_feature_kind(surface.kind); // 统一marker类别是唯一映射来源。
-    let previous_tool = editor.tool; // 查看点选保持只读工具，Ctrl吸取则切入命中的水域作者工具。
     if let Err(error) = activate_water_feature(editor, water, kind, &surface.layer_id) {
         editor.status = format!("视口命中的水域对象已变化：{error}"); // 热更边界不任选同类数组项。
         return true; // 世界确实命中水面，不能继续退化成其下方植被选择。
     }
 
-    let double_clicked = if previous_tool == EditorTool::Inspect {
-        editor.tool = EditorTool::Inspect; // 普通查看点击绝不暗中切入画水或加控制点模式。
-        selected_water.select_from_viewport(scene_id, kind, &surface.layer_id, now_seconds)
-    } else {
-        selected_water.clear_explicit_viewport_selection(); // Ctrl吸取后对应作者工具与类内索引成为权威选择。
-        selected_water.register_water_click(scene_id, kind, &surface.layer_id, now_seconds)
-    };
+    selected_water.clear_viewport_selection(); // Ctrl吸取后由当前作者工具与类内索引提供高亮。
     browser.clear_viewport_selection(); // 水域对象与Scene0摆放保持单选语义。
     selected_placement.clear_click_sequence(); // 旧摆放点击不能跨水域选择组成双击。
     viewport_selection.clear_vegetation_selection(); // 水域精确覆盖接管植被整层密度覆盖。
     sidebars.reveal_scene_properties();
 
     let (kind_name, label) = selected_water_label(water, editor, kind); // 激活后按真实数组索引取得作者名称。
-    editor.status = if double_clicked {
-        format!("正在定位视口{kind_name}：{label}；等待当前完整水面") // Cursor下一帧按后台Aabb完成定位。
-    } else if previous_tool == EditorTool::Inspect {
-        format!("已从视口选中{kind_name}：{label}；再次点击同一水面可定位") // 单击只改变选择表现。
-    } else {
-        format!("已从视口吸取{kind_name}：{label}；本次Ctrl+左键未修改作者数据") // 水域工具明确说明同键未绘制或新增点。
-    };
+    editor.status = format!("已从视口吸取{kind_name}：{label}；本次Ctrl+左键未修改作者数据");
     true // 水面命中完整消费本次点击，不能继续采样其下方植被R8。
 }
 

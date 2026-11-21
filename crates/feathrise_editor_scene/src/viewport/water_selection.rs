@@ -28,7 +28,7 @@ mod source_tests;
 pub(crate) use systems::{draw_selected_water_highlight_frame, sync_selected_water_viewport}; // 插件在Presentation与Cursor阶段分别注册表现和定位系统。
 pub(crate) use ui::setup_selected_water_badge; // ViewportNode出现时只创建一次固定徽标实体。
 
-pub(super) const DOUBLE_CLICK_MAX_SECONDS: f64 = 0.36; // 常见双击节奏，同时避免两次独立慢选误触定位。
+const DOUBLE_CLICK_MAX_SECONDS: f64 = 0.36; // 水域列表双击时间窗。
 const FOCUS_PADDING_SCALE: f32 = 1.25; // 定位后四周保留足够岸线和空间关系。
 const FOCUS_PADDING_METERS: f32 = 2.0; // 小池塘也保留至少两米额外观察边距。
 const SOURCE_LOOKUP_RETRY_FRAMES: u8 = 2; // Commands采用边界最多补查两帧，空层随后稳定短路。
@@ -162,7 +162,8 @@ impl SelectedWaterViewportState {
         double_clicked // 调用方可在底栏即时提示正在定位。
     }
 
-    /// “查看”工具直接点选一张完整水面，并复用统一双击定位序列。
+    /// 水面定位回归可组合选中与列表点击，直接验证共享范围解析。
+    #[cfg(test)]
     pub(crate) fn select_from_viewport(
         &mut self,
         scene_id: &SceneId,

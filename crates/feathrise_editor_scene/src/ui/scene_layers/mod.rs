@@ -13,7 +13,6 @@ pub(crate) use resources::SceneLayerSelection;
 pub(in crate::ui) use components::VegetationRowToggle;
 pub(crate) use scene::panel;
 pub(crate) use selection::{LayerSelectionContext, select};
-#[cfg(test)]
 pub(in crate::ui) use systems::input as read_tree_selection;
 
 pub(crate) fn install(app: &mut bevy::prelude::App) {

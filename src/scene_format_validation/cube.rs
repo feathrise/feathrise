@@ -1,14 +1,16 @@
 //! 对照真实编辑器3D视口保存前、热接管后和重开的同一普通立方体。
 
-use super::{driver::click_text, fixture::SavedCube};
+use super::{driver::{click_text, text_button}, fixture::SavedCube};
+use crate::locale_validation::click_entity;
 use bevy::{
     prelude::*,
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
     tasks::IoTaskPool,
+    window::PrimaryWindow,
 };
 use feathrise_editor_scene::standalone::{
     self,
-    scene_format_validation::{self, Observation, cube_save as author},
+    scene_format_validation::{self, Observation, PlacementTreeView, cube_save as author},
 };
 use feathrise_scene_content::{SceneId, ScenePlacementAssetTarget, ScenePlacementRecord};
 use serde_json::{Value, json};
@@ -18,6 +20,7 @@ use std::{path::Path, time::{Duration, Instant}};
 pub(super) const BEFORE: &str = "cube-wire-before-save";
 pub(super) const AFTER: &str = "cube-wire-after-save";
 pub(super) const REOPENED: &str = "cube-wire-reopened";
+const TREE_FOCUSED: &str = "cube-tree-focused";
 
 #[derive(Clone, Copy, Debug)]
 enum Phase {
@@ -27,6 +30,7 @@ enum Phase {
     Save,
     AwaitAdoption,
     ReopenWire,
+    TreeFocus,
 }
 
 pub(super) struct Probe {
@@ -40,6 +44,7 @@ pub(super) struct Probe {
     save_before: u64,
     adopted_since: Option<Instant>,
     after_framed: bool,
+    tree_focus: TreeFocusProbe,
 }
 
 impl Probe {
@@ -48,6 +53,7 @@ impl Probe {
             reopen, phase: Phase::Frame, record: None,
             pending: None, capture_attempt: 0, stable_frames: 0,
             rev_before: 0, save_before: 0, adopted_since: None, after_framed: false,
+            tree_focus: TreeFocusProbe::default(),
         }
     }
 
@@ -147,7 +153,13 @@ impl Probe {
                     if !adopted {
                         return Err("已保存记录重开后未生成同身份可见正式网格".into());
                     }
-                    return Ok(true);
+                    author::frame_cube(world, &record, false)?;
+                    self.phase = Phase::TreeFocus;
+                }
+            }
+            Phase::TreeFocus => {
+                if self.tree_focus.advance(world, scene, &record, &mut proof["tree_focus"])? {
+                    return self.capture(world, &record, directory, TREE_FOCUSED, proof);
                 }
             }
         }
@@ -222,6 +234,105 @@ impl Probe {
         });
         Ok(false)
     }
+}
+
+#[derive(Debug, Default)]
+enum TreeFocusPhase {
+    #[default]
+    SingleClick,
+    SecondClick,
+    AwaitDoubleFocus,
+    RightClick,
+    ChooseMenuFocus,
+    AwaitMenuFocus,
+    Done,
+}
+
+#[derive(Default)]
+struct TreeFocusProbe {
+    phase: TreeFocusPhase,
+    click: Option<(Entity, bool)>,
+    initial: Option<(Vec3, f32)>,
+    focused: Option<(Vec3, f32)>,
+}
+
+impl TreeFocusProbe {
+    fn advance(
+        &mut self, world: &mut World, scene: &SceneId, record: &ScenePlacementRecord, proof: &mut Value,
+    ) -> Result<bool, String> {
+        let Some(view) = scene_format_validation::placement_tree_view(world, scene, &record.id)? else {
+            return Ok(false);
+        };
+        let Ok(window) = world.query_filtered::<Entity, With<PrimaryWindow>>().single(world) else {
+            return Ok(false);
+        };
+        let pose = (view.center, view.extent);
+        let target = Vec3::from_array(record.translation);
+        proof["phase"] = json!(format!("{:?}", self.phase));
+        match self.phase {
+            TreeFocusPhase::SingleClick => {
+                if self.initial.is_none() {
+                    if view.selected || view.center.distance_squared(target) < 1.0 {
+                        return Err("树行首击验收应从未选择且偏离对象的相机开始".into());
+                    }
+                    self.initial = Some(pose);
+                    proof["placement_id"] = json!(record.id);
+                    proof["before_click"] = tree_pose(&view);
+                }
+                // 四次按松都进入窗口原消息，原拾取确认每一笔确实落在同一已布局树行。
+                if click_entity(world, &mut self.click, window, Some(view.row), MouseButton::Left) {
+                    self.phase = TreeFocusPhase::SecondClick;
+                }
+            }
+            TreeFocusPhase::SecondClick => {
+                if self.click.is_none() {
+                    if !view.selected || self.initial != Some(pose) {
+                        return Err("单击场景树应选中立方体并保留原相机".into());
+                    }
+                    proof["single_click"] = tree_pose(&view);
+                }
+                if click_entity(world, &mut self.click, window, Some(view.row), MouseButton::Left) {
+                    self.phase = TreeFocusPhase::AwaitDoubleFocus;
+                }
+            }
+            TreeFocusPhase::AwaitDoubleFocus => {
+                if view.selected && view.center.distance_squared(target) < 0.0001 {
+                    self.focused = Some(pose);
+                    proof["double_click"] = tree_pose(&view);
+                    // 从同一偏离姿态再次执行右键菜单，对照原取景的中心与量程。
+                    author::frame_cube(world, record, false)?;
+                    self.phase = TreeFocusPhase::RightClick;
+                }
+            }
+            TreeFocusPhase::RightClick => {
+                if click_entity(world, &mut self.click, window, Some(view.row), MouseButton::Right) {
+                    self.phase = TreeFocusPhase::ChooseMenuFocus;
+                }
+            }
+            TreeFocusPhase::ChooseMenuFocus => {
+                let button = text_button(world, "聚焦到对象");
+                if click_entity(world, &mut self.click, window, button, MouseButton::Left) {
+                    self.phase = TreeFocusPhase::AwaitMenuFocus;
+                }
+            }
+            TreeFocusPhase::AwaitMenuFocus => {
+                if view.selected && view.center.distance_squared(target) < 0.0001 {
+                    if self.focused != Some(pose) {
+                        return Err("场景树双击与右键聚焦的取景结果不一致".into());
+                    }
+                    proof["right_click_focus"] = tree_pose(&view);
+                    self.phase = TreeFocusPhase::Done;
+                    return Ok(true);
+                }
+            }
+            TreeFocusPhase::Done => return Ok(true),
+        }
+        Ok(false)
+    }
+}
+
+fn tree_pose(view: &PlacementTreeView) -> Value {
+    json!({"selected":view.selected, "center":view.center.to_array(), "extent":view.extent})
 }
 
 fn scene_display_ready(

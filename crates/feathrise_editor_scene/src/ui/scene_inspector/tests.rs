@@ -43,6 +43,10 @@ fn placement(index: usize) -> ScenePlacementRecord {
 }
 
 pub(crate) fn page(count: usize) -> (App, Entity) {
+    page_with_placements((0..count).map(placement).collect())
+}
+
+fn page_with_placements(placements: Vec<ScenePlacementRecord>) -> (App, Entity) {
     let mut app = App::new();
     app.add_plugins((
         MinimalPlugins,
@@ -77,7 +81,7 @@ pub(crate) fn page(count: usize) -> (App, Entity) {
         .add_message::<NumericInputSetValue>();
     let mut draft = crate::authoring::test_heightfield_draft(vec![0; 121].into());
     draft.manifest.display_name = "检查器测试场景".into();
-    draft.placements.placements = (0..count).map(placement).collect();
+    draft.placements.placements = placements;
     let scene_id = draft.scene_id.clone();
     app.insert_resource(SceneEditorState {
         open: true,

@@ -39,6 +39,7 @@ fn point_at(app: &mut App, window: Entity, entity: Entity) {
 
 fn point_at_stable_row(app: &mut App, window: Entity, entity: Entity) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut descendants = app.world_mut().query::<&Children>();
     let mut previous = None;
     let mut stable_frames = 0;
     loop {
@@ -47,14 +48,17 @@ fn point_at_stable_row(app: &mut App, window: Entity, entity: Entity) {
         let node = world.get::<ComputedNode>(entity).unwrap();
         let center = world.get::<UiGlobalTransform>(entity).unwrap().translation;
         let layout = (center, node.size());
-        let glyphs_ready = world.get::<Children>(entity).is_some_and(|children| children.iter().any(|child|
-            world.get::<bevy::text::TextLayoutInfo>(child).is_some_and(|text| !text.glyphs.is_empty())));
+        // 场景层行的文字在裁切容器内，等待实际排版完成再取点击位置。
+        let glyphs_ready = descendants.query(world).iter_descendants(entity).any(|child| {
+            world.get::<bevy::text::TextLayoutInfo>(child).is_some_and(|text| !text.glyphs.is_empty())
+        });
         if glyphs_ready && node.size().min_element() > 0.0 && previous == Some(layout) {
             stable_frames += 1;
         } else { stable_frames = 0; }
         if stable_frames >= 2 { break; }
         previous = Some(layout);
-        assert!(std::time::Instant::now() < deadline, "场景行中文字和实际布局必须有限稳定：{layout:?}");
+        assert!(std::time::Instant::now() < deadline,
+            "场景行 {entity} 的文字和布局未稳定：{layout:?}，字形就绪 {glyphs_ready}");
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
     // 稳定后只取一次当前坐标，随后仍只发送一次真实按下；不靠反复右键掩盖命中失败。
@@ -75,7 +79,7 @@ fn mouse(app: &mut App, window: Entity, state: ButtonState, button: MouseButton)
 
 #[test]
 fn scene_context_menu_real_pointer_and_chinese_input_rename_the_right_clicked_mesh_once() {
-    let (mut app, window) = crate::ui::terrain_objects::page_tests::page();
+    let (mut app, window) = crate::ui::terrain_objects::page_tests::page_without_tree_input();
     let world = app.world_mut();
     let root = world
         .query_filtered::<Entity, With<feathrise_editor_ui::EditorThemeRoot>>()
@@ -214,8 +218,9 @@ fn scene_context_menu_real_pointer_and_chinese_input_rename_the_right_clicked_me
 }
 
 #[test]
-fn scene_layers_real_pointer_selects_water_vegetation_and_domain_and_opens_exact_context_menu() {
-    let (mut app, window) = crate::ui::terrain_objects::page_tests::page();
+fn scene_layers_real_pointer_selects_and_focuses_water_vegetation_and_domain() {
+    let (mut app, window) = crate::ui::terrain_objects::page_tests::page_without_tree_input();
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_millis(16)));
     crate::ui::scene_layers::tests::load_author_layers_fixture(&mut app);
     let world = app.world_mut();
     let ready_font = world.query::<(&TextFont, &bevy::text::TextLayoutInfo)>().iter(world)
@@ -277,6 +282,7 @@ fn scene_layers_real_pointer_selects_water_vegetation_and_domain_and_opens_exact
         point_at_stable_row(&mut app, window, row);
         mouse(&mut app, window, ButtonState::Pressed, MouseButton::Left);
         mouse(&mut app, window, ButtonState::Released, MouseButton::Left);
+        assert!(app.world().resource::<SceneContextMenuState>().queued.is_none(), "单击只选择");
         assert_eq!(
             app.world().resource::<SceneEditorState>().tool,
             crate::types::EditorTool::Inspect
@@ -303,6 +309,17 @@ fn scene_layers_real_pointer_selects_water_vegetation_and_domain_and_opens_exact
                 Some(&id)
             );
         }
+        // 继续从相同渲染行输入第二次真实按下和释放，聚焦从原菜单分派发布。
+        point_at(&mut app, window, row);
+        mouse(&mut app, window, ButtonState::Pressed, MouseButton::Left);
+        mouse(&mut app, window, ButtonState::Released, MouseButton::Left);
+        assert!(app.world().resource::<SceneContextMenuState>().ready.is_none(), "释放帧仍由当前鼠标手势持有");
+        app.update();
+        let request = app.world().resource::<SceneContextMenuState>().ready.as_ref()
+            .unwrap_or_else(|| panic!("类别 {kind} 的双击应派发聚焦"));
+        assert!(request.action == SceneMenuAction::Focus);
+        assert_eq!(app.world().get::<SceneObjectRow>(row).unwrap().0.as_ref(), Some(&request.target));
+
         point_at_stable_row(&mut app, window, row); // 左选后的属性重排也完整稳定后再取一次右键位置。
         assert_eq!(
             app.world().get::<UiInteraction>(row),

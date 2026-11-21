@@ -49,7 +49,12 @@ fn shell() -> impl Scene {
 }
 
 pub(crate) fn page() -> (App, Entity) {
-    page_with_render(false)
+    page_with_render(false, true)
+}
+
+/// 菜单指针夹具自行安装完整生产分派，避免重复登记简化的树选择。
+pub(in crate::ui) fn page_without_tree_input() -> (App, Entity) {
+    page_with_render(false, false)
 }
 
 /// 创建表单如今位于右侧工具页，夹具必须显式切到工具后才能编辑真实数字框。
@@ -65,7 +70,7 @@ pub(crate) fn creation_page() -> (App, Entity) {
     (app, window)
 }
 
-fn page_with_render(render: bool) -> (App, Entity) {
+fn page_with_render(render: bool, standalone_tree_input: bool) -> (App, Entity) {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin {
         file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets").into(),
@@ -150,11 +155,13 @@ fn page_with_render(render: bool) -> (App, Entity) {
     );
     install(&mut app);
     app.init_resource::<crate::ui::scene_context_menu::SceneContextMenuState>()
-        .init_resource::<crate::ui::scene_layers::SceneLayerSelection>()
-        .add_systems(Update, (
+        .init_resource::<crate::ui::scene_layers::SceneLayerSelection>();
+    if standalone_tree_input {
+        app.add_systems(Update, (
             crate::ui::scene_layers::read_tree_selection,
             crate::ui::scene_context_menu::select_target_for_tests,
         ).chain().in_set(crate::SceneEditorSystemSet::Input));
+    }
     app.init_resource::<crate::ui::gltf_browser::EditorGltfBrowserState>()
         .init_resource::<crate::resources::TerrainShadingSession>()
         .init_resource::<crate::ui::placement_transform::PlacementTransformInputState>()
@@ -1509,6 +1516,19 @@ fn continuous_mesh_list_scrolls_to_later_objects_and_selects_the_displayed_row()
     };
     click(&mut app, window, row, MouseButton::Left);
     assert_eq!(app.world().resource::<TerrainObjectsEditorState>().selected_index, Some(25));
+    let selected_fill = crate::ui::scene_sidebar::tree_row_colors(
+        true, false, *app.world().get::<UiInteraction>(row).unwrap(),
+    ).0;
+    assert_eq!(app.world().get::<BackgroundColor>(row).unwrap().0, selected_fill);
+    app.world_mut().resource_mut::<crate::viewport::LayerCandidateState>().selected =
+        Some(crate::viewport::LayerTarget::Placement("cube".into()));
+    app.update();
+    let unselected_fill = crate::ui::scene_sidebar::tree_row_colors(
+        false, false, *app.world().get::<UiInteraction>(row).unwrap(),
+    ).0;
+    assert_eq!(app.world().get::<BackgroundColor>(row).unwrap().0, unselected_fill);
+    assert_eq!(app.world().resource::<TerrainObjectsEditorState>().selected_index, Some(25),
+        "切换正式选择时可以保留地形画布身份");
     assert!(app.world().resource::<EditorAuthoringSession>().undo.is_empty());
 }
 
@@ -1807,7 +1827,7 @@ fn mesh_sidebar_gpu_snapshot() {
     use bevy::ecs::system::RunSystemOnce;
     use bevy::render::{gpu_readback::{Readback, ReadbackComplete}, render_resource::{TextureFormat, TextureUsages}};
     use std::time::{Duration, Instant};
-    let (mut app, window) = page_with_render(true);
+    let (mut app, window) = page_with_render(true, true);
     crate::ui::theme::install(&mut app);
     app.add_systems(Update, crate::ui::gltf_browser::sync_scene_base_gltf_row);
     let map = app.world().resource::<SceneEditorState>().selected_scene_id.clone();
@@ -1963,7 +1983,7 @@ fn editor_workbench_gpu_snapshot() {
     use bevy::render::{gpu_readback::{Readback, ReadbackComplete}, render_resource::{TextureFormat, TextureUsages}};
     use crate::ui::sidebars::{EditorNavigatorTab, sync_editor_sidebar_presentation};
     use std::time::{Duration, Instant};
-    let (mut app, window) = page_with_render(true);
+    let (mut app, window) = page_with_render(true, true);
     // 用真实内存Clipmap作者配置验收参考图中的表示与LOD，不能用等待态空表单代表完成。
     configure_native(&mut app, SceneTerrainKind::SparseClipmap, 3);
     {

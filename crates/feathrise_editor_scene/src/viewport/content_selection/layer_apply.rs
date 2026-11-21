@@ -256,7 +256,6 @@ pub(crate) fn apply_layer_candidate(
         editor.status = "此处没有符合筛选的作者层".to_owned();
         state.clear_objects = false;
     } // 完整空命中是明确取消，不保留旧对象高亮。
-    let click_seconds = state.apply_click_seconds.take();
     let Some(mut target) = state.apply.take() else {
         state.apply_candidate_index = None;
         return;
@@ -271,9 +270,6 @@ pub(crate) fn apply_layer_candidate(
         let Some(candidate) = state.candidates.get(index).filter(|candidate| candidate.target == target) else { return; };
         candidate.author_index
     } else { state.selected_author_index };
-    // 换槽前比较来源，同名根水与私有地形水也不能组成再次点击。
-    let repeat_still_water = candidate_index.is_some() && click_seconds.is_some() && !state.additive
-        && state.selected_still_water_matches(&target, state.candidate_terrain(&target));
     if state.additive && !matches!(target, LayerTarget::Placement(_))
         && let Some(selection) = multi_selection.as_ref().filter(|selection| !selection.members.is_empty()) {
         crate::viewport::multi_select::publish_primary(selection, &mut browser, &mut state);
@@ -431,18 +427,14 @@ pub(crate) fn apply_layer_candidate(
             } else { state.placement_hits.get(id).cloned() };
             if let Some(hit) = hit {
                 confirmed_placement_hit = Some(hit.clone());
-                placement.clear_click_sequence(); // 统一候选轮选不是旧对象双击。
                 super::placement::select_placement_hit(
                     hit,
-                    &draft.scene_id,
-                    0.0,
                     &mut editor,
                     &mut browser,
                     &mut placement,
                     &mut legacy,
                     &mut sidebars,
                 ); // 场景树和属性区复用既有稳定选择入口。
-                placement.clear_click_sequence(); // 列表确认只选择，不移动相机。
                 editor.status = format!("已选择资产“{id}”；可在场景面板变换、复制或删除"); // 不误导用户再次点击定位。
                 true
             } else {
@@ -510,12 +502,7 @@ pub(crate) fn apply_layer_candidate(
             {
                 water.clear_viewport_selection();
                 water.confirm_viewport_feature(&draft.scene_id, *kind, id);
-                editor.status = if repeat_still_water {
-                    water.request_focus(&draft.scene_id, *kind, id); // 与原场景树聚焦共用完整水面和相机取景。
-                    "正在定位静水体，等待当前完整水面"
-                } else {
-                    "已选择水体；切到编辑模式可修改"
-                }.to_owned();
+                editor.status = "已选择水体；切到编辑模式可修改".to_owned();
                 true
             } else {
                 false // 删除或过期候选不修改正式选择。
@@ -568,10 +555,6 @@ pub(crate) fn apply_layer_candidate(
         state.selected_placement_hit = confirmed_placement_hit;
         state.confirmed_viewport_selection = candidate_index.is_some()
             || (state.confirmed_viewport_selection && state.selected.as_ref() == Some(&target));
-        state.still_water_click_seconds = if !repeat_still_water && !state.additive
-            && matches!(&target, LayerTarget::Water(WaterAuthoringFeatureKind::StillWater, _)) {
-            click_seconds
-        } else { None };
         state.selected = Some(target); // 临时hover不覆盖这个正式身份。
         state.selected_author_index = author_index;
         if let Some(index) = candidate_index { state.index = index; state.page = index / 8; }

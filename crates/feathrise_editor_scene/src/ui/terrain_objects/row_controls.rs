@@ -11,6 +11,7 @@ use crate::{
         TreeRowToggle, load_tree_toggle_images, sync_tree_toggle_icon, tree_row_colors,
         tree_toggle_colors,
     },
+    viewport::{LayerCandidateState, LayerTarget},
 };
 use bevy::prelude::*;
 use bevy::ui::InteractionDisabled;
@@ -28,6 +29,7 @@ pub(super) fn sync(
     editor: Res<SceneEditorState>,
     session: Res<EditorAuthoringSession>,
     state: Res<TerrainObjectsEditorState>,
+    selection: Res<LayerCandidateState>,
     gate: NamePanelGate,
     server: Res<AssetServer>,
     mut images: Local<Option<[Handle<Image>; 6]>>,
@@ -61,10 +63,15 @@ pub(super) fn sync(
         TreeRowToggle::Visibility => !state.hidden.contains(&object.id),
         TreeRowToggle::Lock => state.locked.contains(&object.id),
     });
+    // 地形状态会记住作者画布。树行只高亮当前正式选择，切到摆放物时画布仍可复用。
+    let selected_terrain = match selection.selected.as_ref() {
+        Some(LayerTarget::TerrainObject(id)) => Some(id.as_str()),
+        _ => None,
+    };
     for (row, interaction, mut background, mut border) in &mut rows {
         let selected = objects
             .get(state.list_start + row.0)
-            .is_some_and(|object| state.selected.as_ref() == Some(&object.id));
+            .is_some_and(|object| selected_terrain == Some(object.id.as_str()));
         let (fill, outline) = tree_row_colors(selected, false, *interaction);
         background.set_if_neq(BackgroundColor(fill));
         border.set_if_neq(outline);
