@@ -16,6 +16,18 @@ use crate::types::{EditorTool, EditorViewportFraming, WaterAuthoringFeatureKind}
 use crate::ui::gltf_browser::EditorGltfBrowserState;
 use crate::ui::vegetation_preset_editor::{PresetWorkspaceTab, VegetationPresetEditorState};
 
+pub(super) fn framing_available(
+    editor: &SceneEditorState,
+    guard: &SceneEditorNumericScrubMouseGuard,
+    water_edit: &WaterNetworkEditState,
+    workspace: &VegetationPresetEditorState,
+) -> bool {
+    editor.open && !editor.close_requested && !editor.new_scene_dialog_open
+        && !editor.scene_transition_in_progress && editor.pending_scene_transition.is_none()
+        && editor.scene_switch_confirmation.is_none() && !guard.blocked()
+        && !water_edit.dragging() && workspace.active_tab == PresetWorkspaceTab::Scene
+}
+
 pub(crate) fn apply_viewport_framing(
     mut editor: ResMut<SceneEditorState>,
     session: Res<EditorAuthoringSession>,
@@ -31,8 +43,9 @@ pub(crate) fn apply_viewport_framing(
     registry: Option<Res<feathrise_scene_content::SceneContentRegistry>>,
     manifests: Option<Res<Assets<feathrise_scene_content::SceneManifestAsset>>>,
     transform: Option<Res<super::subscenes::SubsceneTransformState>>,
-    terrains: Option<Res<crate::ui::terrain_objects::TerrainObjectsEditorState>>,
-    terrain_preview: Option<Res<feathrise_scene::TerrainObjectTransformPreview>>,
+    terrain: (Option<Res<crate::ui::terrain_objects::TerrainObjectsEditorState>>,
+        Option<Res<feathrise_scene::TerrainObjectTransformPreview>>),
+    mut group_focus: Option<ResMut<super::group_focus::GroupFocusState>>,
 ) {
     if editor.viewport_framing_requested.is_none() {
         return;
@@ -41,16 +54,8 @@ pub(crate) fn apply_viewport_framing(
         .viewport_framing_requested
         .take()
         .expect("已确认存在一次取景请求");
-    if !editor.open
-        || editor.close_requested
-        || editor.new_scene_dialog_open
-        || editor.scene_transition_in_progress
-        || editor.pending_scene_transition.is_some()
-        || editor.scene_switch_confirmation.is_some()
-        || guard.blocked()
-        || water_edit.dragging()
-        || workspace.active_tab != PresetWorkspaceTab::Scene
-    {
+    if let Some(state) = group_focus.as_mut() { state.cancel(); }
+    if !framing_available(&editor, &guard, &water_edit, &workspace) {
         return; // 不把一次按键缓存到其他场景、中央标签或模态结束后补执行。
     }
     let Some(draft) = session.draft.as_ref() else {
@@ -68,6 +73,20 @@ pub(crate) fn apply_viewport_framing(
     water.cancel_focus();
     portal.cancel_focus(); // 新导航意图覆盖未完成的旧双击，Home不会随后又被旧定位抢回。
     if request == EditorViewportFraming::Scene { return; } // 不能回退到旧清单矩形。
+    if request == EditorViewportFraming::TreePlacement {
+        // 显式树命令已发布摆放身份，不能沿用当前水域等工具记住的旧索引。
+        let requested = matches!(candidates.selected.as_ref(), Some(LayerTarget::Placement(id))
+            if browser.selected_placement_id.as_ref() == Some(id))
+            && placement.request_selected_focus(&editor, &browser, &session, &candidates);
+        editor.status = if requested { "正在聚焦所选摆放，等待当前完整范围" } else { "所选摆放已变化，无法聚焦" }.into();
+        return;
+    }
+    if let (Some(group), Some(mut state)) = (browser.selected_group.as_deref(), group_focus) {
+        state.request(group, &draft.scene_id, &session, &viewport, editor.orthographic);
+        editor.status = format!("正在按可见成员计算组「{group}」的范围");
+        return;
+    }
+    let (terrains, terrain_preview) = terrain;
     if let Some(LayerTarget::TerrainObject(id)) = candidates.selected.as_ref()
         && let Some(object)=terrains.as_ref().and_then(|state|crate::ui::terrain_objects::selected(&session,state)).filter(|object|object.id.as_str()==id) {
         let fallback_min=object.voxel.as_ref().map_or(Vec3::new(object.world_min[0],object.terrain.base_height,object.world_min[1]),|v|Vec3::from_array(v.min));

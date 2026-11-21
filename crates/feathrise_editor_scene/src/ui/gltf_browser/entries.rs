@@ -227,7 +227,7 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                     kind: EditorGltfBrowserEntryKind::Group {
                         name: name.clone(), count: *count, collapsed: *collapsed, first_member: *first_member,
                     },
-                    display_name: format!("{} {}（{}项）", if *collapsed { "[+]" } else { "[-]" }, name, count),
+                    display_name: format!("{name}（{count}项）"),
                     depth: 0, selection: None,
                 });
                 operations += 1; rows += 1; build.placement_index += 1; continue;

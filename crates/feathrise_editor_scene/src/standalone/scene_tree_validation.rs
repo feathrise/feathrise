@@ -4,12 +4,12 @@ use super::{open_scene_tree, ui_visible};
 use crate::{
     authoring::EditorAuthoringSession,
     components::SceneEditorRightPanelScroll,
-    resources::SceneEditorState,
+    resources::{SceneEditorState, SceneEditorViewportState},
     ui::{
         external_files::platform_path,
         file_manager::{FileManagerState, FileRow},
-        file_manager_validation::right_click,
-        gltf_browser::EditorGltfBrowserState,
+        file_manager_validation::{pointer_click, right_click},
+        gltf_browser::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeExpander},
         scene_context_menu::{SceneMenuAction, SceneObjectKey, SceneObjectRow, press_action_for_validation},
     },
     viewport::modes::{self, ViewportMode, ViewportModeState},
@@ -22,14 +22,20 @@ use std::{fs, path::{Path, PathBuf}};
 const MODEL: &str = "sample-model";
 const ASSET_PATH: &str = "scene/probe.glb";
 const MESH: &str = "ProjectAssetQuad";
+const GROUP: &str = "验收组";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Step {
     Open,
     Move,
-    SelectRoot,
+    SelectRoot { press: u8, frame: u8, before: [u32; 4] },
+    RootFocused([u32; 4]),
+    ExpandRoot(u8),
     SelectMesh,
     Verify,
+    GroupName { press: u8, frame: u8, before: [u32; 4] },
+    GroupFocused { frame: u8, before: [u32; 4] },
+    RestoreMesh,
     OpenMenu(u8),
     ChooseLocate,
     Locate,
@@ -76,20 +82,45 @@ pub(super) fn advance(
         }
         Step::Move if selected == Some(cube) => {
             *pulse = Some(modes::validation_press_mode(world, ViewportMode::Move)?);
-            *step = Step::SelectRoot;
+            *step = Step::SelectRoot { press: 0, frame: 0, before: camera_pose(world) };
         }
-        Step::SelectRoot if mode == ViewportMode::Move && transform_enabled => {
-            if let Some(row) = click_row(world, MODEL, false) {
-                *pulse = Some(row);
-                *step = Step::SelectMesh;
+        Step::SelectRoot { press, frame, before } if mode == ViewportMode::Move && transform_enabled => {
+            if press == 1 && frame == 0
+                && (selected != Some(MODEL) || camera_pose(world) != before || !branch_collapsed(world, MODEL)?)
+            {
+                return Err("首次点击 GLB 名称应只选中，保留相机和折叠状态".into());
+            }
+            if let Some(row) = scene_row(world, MODEL, false) {
+                *step = match click_control(world, row, frame)? {
+                    Some(frame) => Step::SelectRoot { press, frame, before },
+                    None if press == 0 => Step::SelectRoot { press: 1, frame: 0, before },
+                    None => Step::RootFocused(before),
+                };
             }
         }
-        Step::SelectMesh if selected == Some(MODEL) => {
-            // 原根行先展开项目的 GLB，等真实属性文本及子网格绑定完成再点击。
+        Step::RootFocused(before) if camera_pose(world) != before => {
+            if selected != Some(MODEL) || !branch_collapsed(world, MODEL)? {
+                return Err("双击 GLB 名称取景应保留原选择和折叠状态".into());
+            }
+            *step = Step::ExpandRoot(0);
+        }
+        Step::ExpandRoot(frame) if selected == Some(MODEL) => {
             if mode != ViewportMode::Move || !transform_enabled {
                 return Err("场景树根行选择改变了移动工具".into());
             }
-            if properties_show_path(world) && let Some(row) = click_row(world, MODEL, true) {
+            if frame == 0 && !branch_collapsed(world, MODEL)? {
+                return Err("GLB 必须等待独立箭头展开".into());
+            }
+            if properties_show_path(world) && let Some(row) = scene_row(world, MODEL, false) {
+                let arrow = row_arrow(world, row)?;
+                *step = click_control(world, arrow, frame)?.map_or(Step::SelectMesh, Step::ExpandRoot);
+            }
+        }
+        Step::SelectMesh => {
+            if selected != Some(MODEL) {
+                return Err("点击 GLB 展开箭头改变了名称选择".into());
+            }
+            if let Some(row) = click_row(world, MODEL, true) {
                 *pulse = Some(row);
                 *step = Step::Verify;
             }
@@ -102,6 +133,47 @@ pub(super) fn advance(
             if selected == Some(MODEL) && let Some(mesh) = &browser.selection
                 && mesh.valid && mesh.placement_id == MODEL && mesh.mesh_name == MESH
             {
+                *step = Step::GroupName { press: 0, frame: 0, before: camera_pose(world) };
+            }
+        }
+        Step::GroupName { press, frame, before } => {
+            if !branch_collapsed(world, GROUP)? || branch_collapsed(world, MODEL)? {
+                return Err("选择组名应保留 GLB 与组原有的展开状态".into());
+            }
+            if press == 1 && frame == 0
+                && (world.resource::<EditorGltfBrowserState>().selected_group.as_deref() != Some(GROUP)
+                    || camera_pose(world) != before)
+            {
+                return Err("首次点击组名应只选组并保留相机".into());
+            }
+            let Some(row) = group_row(world) else { return Ok(None); };
+            // 实际按松同一组行两次，形成生产双击并通过原菜单请求取景。
+            *step = match click_control(world, row, frame)? {
+                Some(frame) => Step::GroupName { press, frame, before },
+                None if press == 0 => Step::GroupName { press: 1, frame: 0, before },
+                None => Step::GroupFocused { frame: 0, before },
+            };
+        }
+        Step::GroupFocused { frame, before } => {
+            let viewport = world.resource::<SceneEditorViewportState>();
+            // 两成员位于 X=24 和 X=36；命中中间区域证明使用了合并范围。
+            if (27.0..33.0).contains(&viewport.center.x) && camera_pose(world) != before {
+                if frame == 0 && (!branch_collapsed(world, GROUP)? || branch_collapsed(world, MODEL)?) {
+                    return Err("双击组名定位不应改变两支的展开状态".into());
+                }
+                if let Some(row) = group_row(world) {
+                    let arrow = row_arrow(world, row)?;
+                    *step = click_control(world, arrow, frame)?
+                        .map_or(Step::RestoreMesh, |frame| Step::GroupFocused { frame, before });
+                }
+            }
+        }
+        Step::RestoreMesh => {
+            if world.resource::<EditorGltfBrowserState>().selected_group.as_deref() != Some(GROUP) {
+                return Err("点击组箭头改变了选中的组".into());
+            }
+            if !branch_collapsed(world, GROUP)? && let Some(row) = click_row(world, MODEL, true) {
+                *pulse = Some(row);
                 *step = Step::OpenMenu(0);
             }
         }
@@ -129,6 +201,9 @@ pub(super) fn advance(
                 return Err("定位 GLB 改变了场景选择或移动工具".into());
             }
             if file_window_shows_source(world)? {
+                if branch_collapsed(world, GROUP)? || branch_collapsed(world, MODEL)? {
+                    return Err("切回网格和定位 GLB 文件应保留展开的分支".into());
+                }
                 return Ok(Some(json!({
                     "viewport_mode": format!("{mode:?}"),
                     "previous_placement": cube,
@@ -137,6 +212,10 @@ pub(super) fn advance(
                     "asset_path_shown_in_properties": ASSET_PATH,
                     "file_window_selected": ASSET_PATH,
                     "scene_revision": revision,
+                    "selected_names_without_expansion": true,
+                    "model_double_click_focused_while_folded": true,
+                    "explicit_arrows_preserved_selection": true,
+                    "group_focused_center": world.resource::<SceneEditorViewportState>().center.to_array(),
                 })));
             }
         }
@@ -149,6 +228,43 @@ fn click_row(world: &mut World, placement: &str, child: bool) -> Option<Entity> 
     let row = scene_row(world, placement, child)?;
     world.entity_mut(row).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     Some(row)
+}
+
+fn branch_collapsed(world: &World, branch: &str) -> Result<bool, String> {
+    world.resource::<EditorGltfBrowserState>().entries.iter().find_map(|row| match &row.kind {
+        EditorGltfBrowserEntryKind::Group { name, collapsed, .. } if name == branch => Some(*collapsed),
+        EditorGltfBrowserEntryKind::Placement { placement_id, collapsed, .. } if placement_id == branch => Some(*collapsed),
+        _ => None,
+    }).ok_or_else(|| "场景树验收缺少已发布的 GLB 或组分支".into())
+}
+
+fn group_row(world: &mut World) -> Option<Entity> {
+    world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
+        let target = row.0.as_ref()?;
+        (matches!(target.key, SceneObjectKey::Group { .. }) && target.name == GROUP && ui_visible(world, entity))
+            .then_some(entity)
+    })
+}
+
+fn row_arrow(world: &World, row: Entity) -> Result<Entity, String> {
+    world.get::<Children>(row).and_then(|children| children.iter()
+        .find(|child| world.get::<PlacementTreeExpander>(*child).is_some()))
+        .ok_or_else(|| "场景树验收没有实际的展开按钮".into())
+}
+
+fn click_control(world: &mut World, entity: Entity, frame: u8) -> Result<Option<u8>, String> {
+    let position = world.get::<UiGlobalTransform>(entity).ok_or("树控件尚未布局")?.translation.as_dvec2();
+    let window = world.query_filtered::<Entity, With<PrimaryWindow>>().single(world)
+        .map_err(|_| "没有场景树验收窗口")?;
+    let mut pending = Some((position, frame));
+    pointer_click(world, &mut pending, window, position, MouseButton::Left);
+    Ok(pending.map(|(_, next)| next))
+}
+
+fn camera_pose(world: &World) -> [u32; 4] {
+    let viewport = world.resource::<SceneEditorViewportState>();
+    let [x, y, z] = viewport.center.to_array();
+    [x, y, z, viewport.extent].map(f32::to_bits)
 }
 
 fn scene_row(world: &mut World, placement: &str, child: bool) -> Option<Entity> {

@@ -7,6 +7,11 @@ use bevy::prelude::*;
 pub(super) struct Section(pub LayerList);
 #[derive(Component, Clone, Default)]
 pub(super) struct Title(pub LayerList);
+#[derive(Component, Clone)]
+pub(super) struct SectionArrow {
+    pub list: LayerList,
+    pub scene: Option<feathrise_scene_content::SceneId>,
+}
 #[derive(Component, Clone, Default)]
 pub(super) struct List(pub LayerList);
 #[derive(Component, Clone, Default)]

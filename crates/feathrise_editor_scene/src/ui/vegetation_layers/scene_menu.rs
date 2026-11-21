@@ -1,13 +1,15 @@
 //! 统一树植被命令只作用于冻结的作者层，参与与锁定复用作者事务，眼睛只写编辑器会话。
 
 use crate::{
-    authoring::{EditorAuthoringSession, VegetationBrushStroke},
+    authoring::{EditorAuthoringSession, VegetationBrushStroke, terrain_documents::TerrainDocumentTask},
     resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState},
     types::EditorAction,
     ui::{
         scene_context_menu::{MenuContext, SceneContextMenuState, SceneMenuAction, SceneObjectKey, SceneObjectRow},
-        scene_layers::VegetationRowToggle,
+        scene_layers::{VegetationRowToggle, vegetation_source},
         scene_sidebar::TreeRowToggle,
+        terrain_objects::TerrainObjectsEditorState,
+        water_feature_list::WaterSourceSelectionGuard,
     },
 };
 use bevy::prelude::*;
@@ -20,13 +22,17 @@ enum LayerAction {
 
 pub(in crate::ui) fn input(
     menu: Res<SceneContextMenuState>,
-    mut authoring: ParamSet<(MenuContext, ResMut<EditorAuthoringSession>)>,
+    mut authoring: ParamSet<(
+        MenuContext,
+        (WaterSourceSelectionGuard, Res<EditorAuthoringSession>),
+        (ResMut<EditorAuthoringSession>, Option<ResMut<TerrainObjectsEditorState>>,
+            Option<ResMut<TerrainDocumentTask>>, Option<ResMut<super::VegetationBlankLayerAllocation>>),
+    )>,
     mut editor: ResMut<SceneEditorState>,
     stroke: Res<VegetationBrushStroke>,
     guard: Res<SceneEditorNumericScrubMouseGuard>,
     buttons: Query<(&EditorButtonClick, &VegetationRowToggle, &ChildOf), Changed<EditorButtonClick>>,
     rows: Query<&SceneObjectRow>,
-    mut allocation: Option<ResMut<super::VegetationBlankLayerAllocation>>,
 ) {
     if stroke.active || guard.blocked() { return; }
     let button = buttons.iter().find(|(click, ..)| click.is_clicked());
@@ -55,39 +61,53 @@ pub(in crate::ui) fn input(
         Some((&request.target, action))
     });
     let Some((target, action)) = menu_action.or(inline) else { return; };
-    let mut session = authoring.p1();
-    if !target.current(&editor, &session) {
-        return;
-    }
     let SceneObjectKey::Vegetation {
         index,
         output: false,
         id,
+        terrain,
     } = &target.key
     else {
         return;
     };
-    let LayerAction::Authoring(action) = action else {
+    let (action, changed_canvas) = {
+        let (source_guard, session) = authoring.p1();
+        if !target.current(&editor, &session) { return; }
         let draft = session.draft.as_ref().unwrap();
-        let terrain = draft.terrain_documents.active.as_ref().map(|canvas| &canvas.definition.id);
-        let hidden = editor.vegetation_visibility.toggle(&target.scene_id, terrain, id);
-        editor.status = format!("植被图层“{}”已在编辑器{}",
-            target.name, if hidden { "隐藏" } else { "显示" });
-        if terrain.is_some() && draft.vegetation.as_ref().and_then(|asset| asset.authoring.as_ref())
-            .is_some_and(|authoring| {
-                let output = &authoring.layers[*index].output_layer_id;
-                authoring.layers.iter().any(|layer| &layer.id != id && &layer.output_layer_id == output)
-            })
-        {
-            editor.status.push_str("；同一输出已有的旧三维样本共用来源，维持原显示");
+        let LayerAction::Authoring(action) = action else {
+            // 眼睛是编辑器状态，按冻结来源更新即可，不抢走当前画布和选中对象。
+            let hidden = editor.vegetation_visibility.toggle(&target.scene_id, terrain.as_ref(), id);
+            editor.status = format!("植被图层“{}”已在编辑器{}",
+                target.name, if hidden { "隐藏" } else { "显示" });
+            if terrain.is_some() && vegetation_source(draft, terrain.as_ref()).and_then(|asset| asset.authoring.as_ref())
+                .is_some_and(|authoring| {
+                    let output = &authoring.layers[*index].output_layer_id;
+                    authoring.layers.iter().any(|layer| &layer.id != id && &layer.output_layer_id == output)
+                })
+            {
+                editor.status.push_str("；同一输出已有的旧三维样本共用来源，维持原显示");
+            }
+            return;
+        };
+        let busy = source_guard.busy(&session);
+        let before = session.revision;
+        let (mut session, mut terrains, mut documents, allocation) = authoring.p2();
+        if allocation.as_ref().is_some_and(|state| state.busy()) {
+            editor.status = "植被作者层事务仍在后台完成，请稍候".into();
+            return;
         }
-        return;
+        // 参与和锁定复用正规的作者命令与预览编译，写侧先恢复被点中的完整来源。
+        if let Err(error) = crate::ui::water_feature_list::focus_author_source(&mut editor, &mut session,
+            terrain.as_ref(), busy, terrains.as_deref_mut(), documents.as_deref_mut())
+        {
+            editor.status = error;
+            return;
+        }
+        (action, before != session.revision)
     };
+    if changed_canvas { authoring.p1().0.retarget_terrain_canvas(); }
+    let (mut session, _, _, mut allocation) = authoring.p2();
     editor.selected_vegetation_layer = *index;
-    if allocation.as_ref().is_some_and(|state| state.busy()) {
-        editor.status = "植被作者层事务仍在后台完成，请稍候".into();
-        return;
-    }
     if let Some(allocation) = allocation.as_deref_mut() {
         match super::allocation::request_model_layer(action, &mut editor, &session, allocation) {
             Ok(true) => return,

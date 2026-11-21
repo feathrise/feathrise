@@ -810,12 +810,18 @@ fn context_command(world: &mut World, run: &mut Run, window: Entity, id: Option<
 }
 
 pub(crate) fn right_click(world: &mut World, pending: &mut Option<(DVec2, u8)>, window: Entity, position: DVec2) -> bool {
+    pointer_click(world, pending, window, position, MouseButton::Right)
+}
+
+pub(crate) fn pointer_click(
+    world: &mut World, pending: &mut Option<(DVec2, u8)>, window: Entity, position: DVec2, button: MouseButton,
+) -> bool {
     let (position, frame) = *pending.get_or_insert((position, 0));
     move_cursor(world, window, position);
     match frame {
         0 => {}
-        1 => window_event(world, MouseButtonInput { window, button: MouseButton::Right, state: ButtonState::Pressed }),
-        2 => window_event(world, MouseButtonInput { window, button: MouseButton::Right, state: ButtonState::Released }),
+        1 => window_event(world, MouseButtonInput { window, button, state: ButtonState::Pressed }),
+        2 => window_event(world, MouseButtonInput { window, button, state: ButtonState::Released }),
         _ => { *pending = None; return true; }
     }
     *pending = Some((position, frame + 1));

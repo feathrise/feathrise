@@ -46,16 +46,35 @@ fn section(list: LayerList) -> impl Scene {
     bsn! { Section(list) Node { display: Display::None, width: percent(100), min_width: px(0),
             flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
         Children [
-            Title(list) Text("") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-                TextColor(colors::TEXT_ACCENT) Node { width: percent(100), min_width: px(0), flex_shrink: 0.0,
-                    padding: UiRect::top(px(4)), border: UiRect::bottom(px(1)) }
-                BorderColor::all(colors::COPPER_BORDER_WEAK)--
+            @section_title(list)--
             List(list) crate::ui::list_layout::SceneObjectListScroll
                 bevy::ui::RelativeCursorPosition::default() ScrollPosition::default()
                 Node { width: percent(100), min_width: px(0), height: px(0), flex_shrink: 0.0, overflow: Overflow::scroll_y() }
                 Children [Content Node { width: percent(100), min_width: px(0), height: px(0), flex_shrink: 0.0 }
                     Children [@row(list, 0)-- @row(list, 1)-- @row(list, 2)-- @row(list, 3)-- @row(list, 4)--
                         @row(list, 5)-- @row(list, 6)-- @row(list, 7)-- @row(list, 8)-- @row(list, 9)]]
+        ]
+    }
+}
+
+fn section_title(list: LayerList) -> impl Scene {
+    let arrow = matches!(list, LayerList::Water | LayerList::Vegetation).then(|| bsn! {
+        InteractionButton ~{SectionArrow { list, scene: None }}
+        Node { width: px(18), height: px(21), flex_shrink: 0.0,
+            align_items: AlignItems::Center, justify_content: JustifyContent::Center }
+        BackgroundColor(colors::PANEL_BG)
+        Children [@tree_toggle_icon()]
+    });
+    // 分类文字填满箭头右侧的剩余空间，窄栏内裁切正文而不换行挤动下面的树项。
+    bsn! { Node { width: percent(100), min_width: px(0), padding: UiRect::top(px(4)), border: UiRect::bottom(px(1)),
+            align_items: AlignItems::Center, column_gap: px(3), flex_shrink: 0.0 }
+        BorderColor::all(colors::COPPER_BORDER_WEAK)
+        Children [
+            @arrow--
+            Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }
+            Children [Title(list) Text("") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+                TextColor(colors::TEXT_ACCENT) TextLayout::no_wrap()
+                Node { width: percent(100), min_width: px(0) }]
         ]
     }
 }

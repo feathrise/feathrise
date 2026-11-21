@@ -27,6 +27,7 @@ fn scene_tree_double_click_rejects_rebound_slots_modifiers_and_expired_first_cli
 
     let Fixture { mut app, row, .. } = fixture();
     app.init_resource::<Time<Real>>()
+        .init_resource::<crate::ui::gltf_browser::EditorGltfBrowserState>()
         .add_message::<bevy::input::mouse::MouseWheel>()
         .add_systems(Update, systems::queue_tree_focus
             .after(update_scene_editor_numeric_scrub_mouse_guard)
@@ -37,7 +38,9 @@ fn scene_tree_double_click_rejects_rebound_slots_modifiers_and_expired_first_cli
         let placements = &mut session.draft.as_mut().unwrap().placements.placements;
         let mut record = placements[0].clone();
         record.id = "scroll-rebound-row".into();
-        alternate.key = SceneObjectKey::Placement { index: placements.len(), id: record.id.clone(), mesh: None };
+        alternate.name = "滚动后可见组".into();
+        std::sync::Arc::make_mut(&mut record.editor).group = alternate.name.clone();
+        alternate.key = SceneObjectKey::Group { first_member: placements.len(), id: record.id.clone() };
         placements.push(record);
         alternate
     };
@@ -69,6 +72,7 @@ fn scene_tree_double_click_rejects_rebound_slots_modifiers_and_expired_first_cli
     assert!(!focused(&app), "超时再次点击只选择");
     release(&mut app);
     assert!(focused(&app), "当前行的有效二击仍能正常派发");
+    assert_eq!(app.world().resource::<crate::ui::gltf_browser::EditorGltfBrowserState>().selected_group.as_deref(), Some("滚动后可见组"));
 }
 
 fn target(session: &EditorAuthoringSession) -> SceneObjectTarget {
@@ -713,13 +717,16 @@ fn scene_menu_types_offer_supported_actions_and_focus_the_clicked_target() {
     };
     use crate::viewport::{LayerCandidateState, LayerTarget};
     use feathrise_scene_content::{SceneId, SceneInstanceId, SceneInstancePlacement, TerrainId};
-    for kind in 0..3 {
+    for kind in 0..4 {
         let mut test = fixture();
         test.app
             .init_resource::<EditorGltfBrowserState>()
             .init_resource::<LayerCandidateState>()
             .init_resource::<TerrainObjectsEditorState>()
             .init_resource::<SubsceneEditorState>();
+        if kind == 0 {
+            test.app.world_mut().resource_mut::<SceneEditorState>().tool = crate::types::EditorTool::Water;
+        }
         let key = match kind {
             0 => test
                 .app
@@ -735,7 +742,7 @@ fn scene_menu_types_offer_supported_actions_and_focus_the_clicked_target() {
                 index: 0,
                 id: TerrainId::legacy(),
             },
-            _ => {
+            2 => {
                 test.app
                     .world_mut()
                     .resource_mut::<EditorAuthoringSession>()
@@ -755,6 +762,17 @@ fn scene_menu_types_offer_supported_actions_and_focus_the_clicked_target() {
                     id: SceneInstanceId("village".into()),
                 }
             }
+            _ => {
+                let world = test.app.world_mut();
+                let id = {
+                    let mut session = world.resource_mut::<EditorAuthoringSession>();
+                    let record = &mut session.draft.as_mut().unwrap().placements.placements[0];
+                    std::sync::Arc::make_mut(&mut record.editor).group = "村口组".into();
+                    record.id.clone()
+                };
+                world.get_mut::<SceneObjectRow>(test.row).unwrap().0.as_mut().unwrap().name = "村口组".into();
+                SceneObjectKey::Group { first_member: 0, id }
+            }
         };
         test.app
             .world_mut()
@@ -772,7 +790,7 @@ fn scene_menu_types_offer_supported_actions_and_focus_the_clicked_target() {
                 .iter(world)
                 .filter(|node| node.display == Display::Flex)
                 .count(),
-            [7, 5, 4][kind]
+            [7, 5, 4, 1][kind]
         );
         choose(&mut test, SceneMenuAction::Focus);
         test.app
@@ -786,22 +804,26 @@ fn scene_menu_types_offer_supported_actions_and_focus_the_clicked_target() {
                 .world()
                 .resource::<SceneEditorState>()
                 .viewport_framing_requested,
-            Some(crate::types::EditorViewportFraming::Selected)
+            Some(if kind == 0 { crate::types::EditorViewportFraming::TreePlacement }
+                else { crate::types::EditorViewportFraming::Selected })
         );
         let selected = test
             .app
             .world()
             .resource::<LayerCandidateState>()
             .selected
-            .as_ref()
-            .unwrap();
+            .as_ref();
         match kind {
-            0 => assert_eq!(selected, &LayerTarget::Placement("move-test".into())),
+            0 => assert_eq!(selected, Some(&LayerTarget::Placement("move-test".into()))),
             1 => assert_eq!(
                 selected,
-                &LayerTarget::TerrainObject(TerrainId::legacy().as_str().to_owned())
+                Some(&LayerTarget::TerrainObject(TerrainId::legacy().as_str().to_owned()))
             ),
-            _ => assert_eq!(selected, &LayerTarget::Subscene("village".into())),
+            2 => assert_eq!(selected, Some(&LayerTarget::Subscene("village".into()))),
+            _ => {
+                assert!(selected.is_none()); // 只聚焦整组，不把成员强行改成多选。
+                assert_eq!(test.app.world().resource::<EditorGltfBrowserState>().selected_group.as_deref(), Some("村口组"));
+            }
         }
     }
 }

@@ -184,6 +184,7 @@ impl Plugin for SceneEditorPlugin {
             .init_resource::<SelectedWaterViewportState>() // 三类水域对象的高亮与双击定位只保留有限会话缓存。
             .init_resource::<SelectedPortalViewportState>() // 当前源传送点单击标记与双击定位只读取作者小型记录。
             .init_resource::<SelectedPlacementViewportState>() // Scene0网格选择只缓存当前活动根和有限primitive。
+            .init_resource::<viewport::group_focus::GroupFocusState>()
             .init_resource::<EditorViewportSelectionState>() // 视口植被选择只保存正式输出身份和小型重叠候选序列。
             .init_resource::<LayerCandidateState>() // 跨类别作者层候选使用一个在途后台任务与稳定ID。
             .init_resource::<viewport::source_fence::SourceAuthoringFence>() // 子场景范围索引与析构共用单飞预算。
@@ -467,6 +468,7 @@ impl Plugin for SceneEditorPlugin {
                         frame_selected_scene,
                         viewport::content_framing::frame_content,
                         viewport::framing::apply_viewport_framing,
+                        viewport::group_focus::frame_group_selection,
                     )
                         .chain(),
                     sync_portal_directions_from_boundary, // 边界或传送修订变化时更新未保存预览的自动箭头方向。

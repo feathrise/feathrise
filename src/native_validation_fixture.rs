@@ -59,6 +59,8 @@ pub(super) fn prepare(root: &Path, label: &str) -> Result<(), String> {
     if std::env::var("FEATHRISE_MODEL_SURFACE_VALIDATION").as_deref() == Ok("1") {
         sources.extend(copy_model_vegetation_probe(&staging)?);
         write_model_surface_fixture(&staging)?;
+    } else if label == "独立工程 A" && std::env::var("FEATHRISE_SCENE_TREE_VALIDATION").as_deref() == Ok("1") {
+        write_scene_tree_group(&staging)?;
     } else if label == "独立工程 A" && std::env::var("FEATHRISE_BLENDER_MESH_VALIDATION").as_deref() == Ok("1") {
         let mut placements = read_sample_placements(&staging)?;
         // 复用实际带索引的 GLB。额外碰撞面分开放置，让验收能逐个用物理射线核验。
@@ -230,6 +232,23 @@ fn write_model_surface_fixture(assets: &Path) -> Result<(), String> {
 fn read_sample_placements(assets: &Path) -> Result<feathrise_scene_content::ScenePlacementsAsset, String> {
     let file = assets.join(SAMPLE_FOLDER).join(feathrise_scene_content::SCENE_PLACEMENTS_FILE_NAME);
     serde_json::from_slice(&read_small(&file)?).map_err(|error| error.to_string())
+}
+
+/// 两个同源 GLB 分开放置，原树的组定位必须取到成员之间的范围中心。
+fn write_scene_tree_group(assets: &Path) -> Result<(), String> {
+    let mut placements = read_sample_placements(assets)?;
+    let source = placements.placements.iter().find(|record| record.id == "sample-model")
+        .ok_or("场景树夹具缺少样例 GLB")?.clone();
+    for (index, x) in [24.0, 36.0].into_iter().enumerate() {
+        let mut member = source.clone();
+        member.id = format!("scene-tree-group-{index}");
+        member.translation = [x, 2.0, 12.0];
+        member.height_mode = feathrise_scene_content::ScenePlacementHeightMode::FixedHeight;
+        member.building_preset_id = None; // 本组使用普通 GLB，无需示例建筑的五点地基。
+        std::sync::Arc::make_mut(&mut member.editor).group = "验收组".to_owned();
+        placements.placements.push(member);
+    }
+    write_sample_scene_glb(assets, &placements, None)
 }
 
 /// 两项实窗验收共用真实写入器。只切换本轮暂存目录的示例图，保持其他模板场景的各自来源。

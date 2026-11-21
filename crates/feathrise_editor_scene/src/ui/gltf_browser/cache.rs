@@ -117,10 +117,9 @@ fn reconcile_asset_path(
     asset_server: &AssetServer,
     asset_path: &str,
 ) -> AssetPathReconcile {
-    let wanted = state
-        .asset_demand_counts
-        .get(asset_path)
-        .is_some_and(|count| *count > 0); // 共享GLB只要还有一个展开实例就继续持有。
+    let wanted = state.selection_validation_path.as_deref() == Some(asset_path)
+        || state.asset_demand_counts.get(asset_path).is_some_and(|count| *count > 0);
+    // 展开实例和当前精确网格共用同一份缓存，即使树收起也可继续校验所选网格。
     if wanted {
         if state.assets.contains_key(asset_path) {
             return AssetPathReconcile::Unchanged; // 已有Loading/Ready/Failed缓存均复用原强句柄。

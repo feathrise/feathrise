@@ -16,6 +16,10 @@ pub(crate) enum SceneObjectKey {
         id: String,
         mesh: Option<EditorGltfMeshSelection>,
     },
+    Group {
+        first_member: usize,
+        id: String,
+    },
     Terrain {
         index: usize,
         id: TerrainId,
@@ -35,6 +39,7 @@ pub(crate) enum SceneObjectKey {
         id: String,
         /// 旧场景只有正式输出层时仍显示内容，但不把合并输出冒充可写作者层。
         output: bool,
+        terrain: Option<TerrainId>,
     },
     Domain {
         kind: crate::game_authoring::scene_interaction::DomainItemKind,
@@ -140,6 +145,8 @@ impl SceneObjectTarget {
                 .placements
                 .get(*index)
                 .is_some_and(|record| &record.id == id),
+            SceneObjectKey::Group { first_member, id } => draft.placements.placements
+                .get(*first_member).is_some_and(|record| &record.id == id && record.editor.group == self.name),
             SceneObjectKey::Terrain { index, id } => draft
                 .manifest
                 .terrains
@@ -163,8 +170,8 @@ impl SceneObjectTarget {
                     .is_some_and(|current| current == id)
                 })
             }
-            SceneObjectKey::Vegetation { index, id, output } => {
-                draft.vegetation.as_ref().is_some_and(|vegetation| {
+            SceneObjectKey::Vegetation { index, id, output, terrain } => {
+                crate::ui::scene_layers::vegetation_source(draft, terrain.as_ref()).is_some_and(|vegetation| {
                     if *output {
                         vegetation
                             .layers
@@ -227,6 +234,7 @@ impl SceneObjectTarget {
             return matches!(self.key, SceneObjectKey::Placement { .. });
         }
         match (&self.key, action) {
+            (SceneObjectKey::Group { .. }, action) => action == SceneMenuAction::Focus,
             (SceneObjectKey::Water { kind, .. }, action) => {
                 matches!(action, SceneMenuAction::Focus | SceneMenuAction::Delete)
                     || (matches!(kind, crate::types::WaterAuthoringFeatureKind::StillWater)

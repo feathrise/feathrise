@@ -422,6 +422,9 @@ pub(crate) fn frame_content(world: &mut World, mut state: Local<ContentFraming>)
 }
 
 fn for_cancel_focus(world: &mut World) {
+    if let Some(mut s) = world.get_resource_mut::<super::super::group_focus::GroupFocusState>() {
+        s.cancel();
+    }
     if let Some(mut s) = world.get_resource_mut::<super::super::SelectedPlacementViewportState>() {
         s.cancel_focus();
     }

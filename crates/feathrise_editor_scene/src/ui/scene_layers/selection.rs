@@ -51,34 +51,32 @@ pub(crate) fn select(
     session: &mut EditorAuthoringSession,
     terrains: Option<&mut crate::ui::terrain_objects::TerrainObjectsEditorState>,
     candidates: Option<&mut LayerCandidateState>,
-    legacy: Option<&mut EditorViewportSelectionState>,
+    mut legacy: Option<&mut EditorViewportSelectionState>,
     context: &mut LayerSelectionContext,
 ) -> bool {
-    // 根水可能正在停放槽中；先恢复完整来源，再让原选择桥读取当前水文档。
-    if let SceneObjectKey::Water { kind, id, terrain, .. } = &target.key {
-        let previous_tool = editor.tool;
-        let busy = context.source_guard.busy(session);
-        if let Err(error) = crate::ui::water_feature_list::activate_listed_water_feature(editor, session,
-            terrain.as_ref(), busy, *kind, id, terrains, context.documents.as_deref_mut()) {
-            editor.status = error;
-            return false;
-        }
+    // 稳定行引用可能属于已停放的画布。完整恢复成功后，原属性编辑器才能使用当前作者索引。
+    let previous_tool = editor.tool;
+    let before_revision = session.revision;
+    let result = match &target.key {
+        SceneObjectKey::Water { kind, id, terrain, .. } =>
+            crate::ui::water_feature_list::activate_listed_water_feature(editor, session,
+                terrain.as_ref(), context.source_guard.busy(session), *kind, id, terrains, context.documents.as_deref_mut()),
+        SceneObjectKey::Vegetation { terrain, .. } =>
+            crate::ui::water_feature_list::focus_author_source(editor, session,
+                terrain.as_ref(), context.source_guard.busy(session), terrains, context.documents.as_deref_mut()),
+        _ => Ok(()),
+    };
+    if let Err(error) = result {
         editor.tool = previous_tool;
+        editor.status = error;
+        return false;
     }
+    if session.revision != before_revision { context.source_guard.retarget_terrain_canvas(); }
     let Some(draft) = session.draft.as_ref() else {
         return false;
     };
-    let previous_tool = editor.tool;
     let (layer_target, index, tool) = match &target.key {
         SceneObjectKey::Water { kind, index, id, .. } => {
-            let Some(asset) = draft.water.as_ref() else {
-                return false;
-            };
-            if crate::ui::water_feature_list::activate_water_feature(editor, asset, *kind, id)
-                .is_err()
-            {
-                return false;
-            }
             if let Some(state) = context.water.as_mut() {
                 state.clear_viewport_selection();
                 state.confirm_viewport_feature(&draft.scene_id, *kind, id);
@@ -89,7 +87,8 @@ pub(crate) fn select(
                 editor.tool,
             )
         }
-        SceneObjectKey::Vegetation { index, id, output } => {
+        SceneObjectKey::Vegetation { index, id, output, .. } => {
+            if let Some(legacy) = legacy.as_deref_mut() { legacy.clear_vegetation_selection(); }
             if *output {
                 editor.selected_vegetation_layer = *index;
                 if let Some(legacy) = legacy {

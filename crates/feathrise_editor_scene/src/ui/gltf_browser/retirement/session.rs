@@ -10,6 +10,7 @@ pub(in crate::ui::gltf_browser) fn take_browser_session_generation(
     let mut generation = BrowserRetiredGeneration::default(); // 工作项个数固定，不随内容规模增长。
     generation.entries(std::mem::take(&mut state.entries)); // 公开行立即从UI资源撤下。
     generation.selection(state.selection.take()); // 对外选择立即失效。
+    generation.string(state.selected_group.take());
     generation.string(state.selected_placement_id.take()); // 完整资产选择不跨F12会话。
     generation.string((!state.status.is_empty()).then(|| std::mem::take(&mut state.status)));
     generation.signature_build(state.signature_build.take()); // 取消但不整批析构未发布签名。
@@ -22,6 +23,7 @@ pub(in crate::ui::gltf_browser) fn take_browser_session_generation(
     generation.string_u64_map(std::mem::take(&mut state.queued_revision_by_path));
     generation.loading_queue(std::mem::take(&mut state.loading_queue));
     generation.string_usize_tree(std::mem::take(&mut state.asset_demand_counts));
+    generation.string(state.selection_validation_path.take());
     generation.string_set(std::mem::take(&mut state.asset_demand_changes));
     generation.demand_transition(state.asset_demand_transition.take());
     generation.string(
@@ -33,6 +35,7 @@ pub(in crate::ui::gltf_browser) fn take_browser_session_generation(
     generation.string_set(std::mem::take(&mut state.pending_asset_invalidations));
     generation.scene_build(state.scene_build.take());
     generation.string_set(std::mem::take(&mut state.expanded_placements));
+    generation.string_set(std::mem::take(&mut state.expanded_groups));
     generation.entries_build(state.entries_build.take());
     generation.string(state.observation.draft_scene_id.take()); // 场景身份不跨F12会话。
 

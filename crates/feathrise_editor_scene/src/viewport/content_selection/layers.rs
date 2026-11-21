@@ -146,7 +146,7 @@ impl LayerCandidateState {
                     && session.selected_boundary_path.as_ref().is_some_and(|(map, selected)| map == &draft.scene_id && selected == id))
                     .map(|path| (LayerTarget::Boundary(path.id.clone()), Some(index)))
             }), // 属性提交只续接正式作者目标；改名和数值提交不能让原表单消失。
-            Some(LayerTarget::Water(..)) if !self.author_canvas_matches(draft) => None, // 撤销恢复其他画布后，旧索引不能把属性目标续接成另一来源的同名水体。
+            Some(LayerTarget::Water(..) | LayerTarget::Vegetation(_)) if !self.author_canvas_matches(draft) => None,
             Some(LayerTarget::Water(kind, _)) => draft.water.as_ref().and_then(|water| {
                 use crate::types::WaterAuthoringFeatureKind::*;
                 let (id, index) = match kind {

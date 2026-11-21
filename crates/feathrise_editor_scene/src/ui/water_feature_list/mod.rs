@@ -5,7 +5,7 @@ mod systems; // 固定行池生成、回显、交互样式与点击系统。
 #[cfg(test)]
 pub(crate) mod source_selection_tests; // 根水与同ID私有水必须按完整来源恢复、拒绝和隔离历史。
 
-pub(crate) use helpers::{activate_water_feature, activate_listed_water_feature, focus_author_source, listed_water_feature_at, WaterSourceSelectionGuard}; // 中央视口、列表和场景树复用来源与稳定ID激活逻辑。
+pub(crate) use helpers::{activate_water_feature, activate_listed_water_feature, focus_author_source, water_feature_at, WaterSourceSelectionGuard}; // 中央视口、列表和场景树复用来源与稳定ID激活逻辑。
 pub(crate) use systems::{
     handle_water_feature_page_buttons, handle_water_feature_row_clicks, spawn_water_feature_rows,
     sync_water_feature_row_interactions, sync_water_feature_rows,

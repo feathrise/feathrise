@@ -8,6 +8,7 @@ pub(crate) mod tool_preview; // 原工具发布语义状态，两种视口共用
 pub(crate) mod spatial_brush; // 固定空间笔刷与起终点直线；摆放预览和密度执行分离。
 mod camera_math; // 三维场景取景、正交深度与四种视图姿态的纯数学。
 pub(crate) mod framing; // 聚焦所选/查看全图复用完整选择范围与当前观察轴。
+pub(crate) mod group_focus; // 逻辑组聚焦按成员和实例层级分帧合并真实世界范围。
 pub(crate) mod content_framing; // 按固定预算捕获当前内容，后台统计GPU地形真实范围。
 pub(crate) mod content_selection; // 作者层候选与各类别高亮共享稳定选择身份。
 pub(crate) mod modes; // 全视口选择/移动/编辑模式与固定类别筛选，不隶属于地形工具。

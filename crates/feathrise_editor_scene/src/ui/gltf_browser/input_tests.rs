@@ -1,4 +1,4 @@
-//! 场景树真实输入回归，点击根行和网格可以直接更换变换目标。
+//! 场景树真实输入回归，名称与箭头各自消费原按钮释放。
 
 use super::super::{EditorGltfBrowserEntry, EditorGltfMeshSelection};
 use super::*;
@@ -13,6 +13,82 @@ fn mesh(id: &str) -> EditorGltfMeshSelection {
         valid: true,
         orphaned_water_binding: false,
     }
+}
+
+#[test]
+fn placement_and_group_names_select_but_only_arrow_releases_expand() {
+    use crate::ui::terrain_objects::page_tests::{click, page_without_tree_input};
+    use bevy::world_serialization::WorldAsset;
+    use feathrise_scene_content::{ScenePlacementEditorMetadata, ScenePlacementHeightMode, ScenePlacementRecord};
+
+    let (mut app, window) = page_without_tree_input();
+    let record = |id: &str, group: &str| ScenePlacementRecord {
+        editor: ScenePlacementEditorMetadata { name: id.into(), group: group.into(), ..default() }.into(),
+        id: id.into(), asset_path: "gltf/scene-tree-input-fixture.glb".into(), asset_target: default(),
+        mesh_lod: None, terrain_binding: None, building_preset_id: None, courtyard: None, terrain_patch: None,
+        translation: [0.0; 3], height_mode: ScenePlacementHeightMode::FixedHeight, terrain_offset: 0.0,
+        yaw_degrees: 0.0, scale: [1.0; 3], water_surfaces: Vec::new(),
+    };
+    app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap()
+        .placements.placements = vec![record("主模型", ""), record("分组模型", "摆放组")];
+    {
+        let world = app.world_mut();
+        let root = world.query_filtered::<Entity, With<feathrise_editor_ui::EditorThemeRoot>>().single(world).unwrap();
+        for child in world.get::<Children>(root).unwrap().to_vec() {
+            world.get_mut::<Node>(child).unwrap().display = Display::None;
+        }
+        let list = world.spawn((ChildOf(root), SceneEditorGltfBrowserList, ScrollPosition::default(),
+            Node { width: px(500), overflow: Overflow::scroll_y(), ..default() })).id();
+        world.spawn((ChildOf(list), SceneEditorGltfBrowserListContent, Node { width: percent(100), ..default() }));
+    }
+    app.init_asset::<WorldAsset>()
+        .init_resource::<crate::ui::scene_objects::SceneObjectState>()
+        .init_resource::<SelectedPlacementViewportState>()
+        .init_resource::<EditorViewportSelectionState>()
+        .add_systems(Update, handle_gltf_browser_input.in_set(crate::SceneEditorSystemSet::Input))
+        .add_systems(Update, super::super::refresh_gltf_browser_cache.in_set(crate::SceneEditorSystemSet::Tasks))
+        .add_systems(Update, (spawn_gltf_browser_rows, sync_gltf_browser_rows, super::super::sync_gltf_row_toggles)
+            .chain().in_set(crate::SceneEditorSystemSet::Presentation));
+    for _ in 0..5 { app.update(); }
+
+    let row_at = |app: &mut App, index| {
+        let world = app.world_mut();
+        world.query::<(Entity, &SceneEditorGltfBrowserRow)>().iter(world)
+            .find_map(|(entity, row)| (row.entry_index == Some(index)).then_some(entity)).unwrap()
+    };
+    let arrow_of = |app: &App, row| {
+        app.world().get::<Children>(row).unwrap().iter()
+            .find(|child| app.world().get::<PlacementTreeExpander>(*child).is_some()).unwrap()
+    };
+    let revision = app.world().resource::<EditorGltfBrowserState>().published_entries_revision;
+    let model = row_at(&mut app, 0);
+    let group = row_at(&mut app, 1);
+    click(&mut app, window, model, MouseButton::Left);
+    assert_eq!(app.world().resource::<EditorGltfBrowserState>().selected_placement_id.as_deref(), Some("主模型"));
+    click(&mut app, window, group, MouseButton::Left);
+    {
+        let state = app.world().resource::<EditorGltfBrowserState>();
+        assert_eq!(state.selected_group.as_deref(), Some("摆放组"));
+        assert_eq!(state.published_entries_revision, revision, "两次名称选择均保留原树投影");
+        assert!(state.expanded_groups.is_empty() && state.expanded_placements.is_empty());
+        assert!(state.asset_demand_counts.is_empty(), "选择模型根无需请求Scene0");
+    }
+    let model_arrow = arrow_of(&app, model);
+    click(&mut app, window, model_arrow, MouseButton::Left);
+    let group = row_at(&mut app, 1);
+    let group_arrow = arrow_of(&app, group);
+    click(&mut app, window, group_arrow, MouseButton::Left);
+    {
+        let state = app.world().resource::<EditorGltfBrowserState>();
+        assert_eq!(state.selected_group.as_deref(), Some("摆放组"), "两处箭头都保留原选择");
+        assert!(state.expanded_placements.contains("主模型") && state.expanded_groups.contains("摆放组"));
+        assert_eq!(state.asset_demand_counts.get("gltf/scene-tree-input-fixture.glb"), Some(&1));
+        assert!(state.entries.iter().any(|entry| entry.depth == 1 && matches!(&entry.kind,
+            EditorGltfBrowserEntryKind::Placement { placement_id, collapsed: true, .. } if placement_id == "分组模型")));
+    }
+    let session = app.world().resource::<EditorAuthoringSession>();
+    assert!(session.undo.is_empty());
+    assert!(!app.world().resource::<SceneEditorState>().dirty);
 }
 
 #[test]

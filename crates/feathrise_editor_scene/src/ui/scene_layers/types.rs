@@ -1,6 +1,7 @@
 //! 作者内容分类与常数时间的数量、行号映射，不扫描场景实体或完整角色集合。
 
 use crate::authoring::EditorSceneDraft;
+use super::inventory::LayerInventory;
 
 pub(super) type CameraIdentity = (
     bevy::prelude::Vec3,
@@ -36,15 +37,10 @@ impl LayerList {
         }
     }
 
-    pub(super) fn count(self, draft: &EditorSceneDraft, domain: Option<&crate::game_authoring::scene_interaction::SceneInteractionState>) -> usize {
+    pub(super) fn count(self, draft: &EditorSceneDraft, inventory: &LayerInventory, domain: Option<&crate::game_authoring::scene_interaction::SceneInteractionState>) -> usize {
         match self {
-            Self::Water => crate::authoring::terrain_documents::root_water::listed_count(draft),
-            Self::Vegetation => draft.vegetation.as_ref().map_or(0, |vegetation| {
-                vegetation
-                    .authoring
-                    .as_ref()
-                    .map_or(vegetation.layers.len(), |authoring| authoring.layers.len())
-            }),
+            Self::Water => inventory.count(true),
+            Self::Vegetation => inventory.count(false),
             Self::DomainLayers => domain.and_then(|state| state.snapshot_for(draft)).map_or(0, |snapshot| snapshot.layer_count),
             Self::DomainObjects => domain.and_then(|state| state.snapshot_for(draft)).map_or(0, |snapshot| snapshot.object_count),
         }

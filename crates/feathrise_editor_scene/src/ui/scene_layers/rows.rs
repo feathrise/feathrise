@@ -1,6 +1,6 @@
 //! 可见行直接按数组下标或已有角色归属索引取一项；旧图正式植被输出保留只读入口。
 
-use super::types::LayerList;
+use super::{inventory::{LayerInventory, vegetation_source}, types::LayerList};
 use crate::{
     authoring::EditorAuthoringSession,
     resources::VegetationEditorVisibility,
@@ -10,16 +10,27 @@ use crate::game_authoring::scene_interaction::{SceneInteractionState, DomainItem
 
 pub(super) fn object(
     session: &EditorAuthoringSession,
+    inventory: &LayerInventory,
     list: LayerList,
     index: usize,
     domain: Option<&SceneInteractionState>,
     visibility: &VegetationEditorVisibility,
 ) -> Option<(SceneObjectTarget, String)> {
     let draft = session.draft.as_ref()?;
+    let source = |water| {
+        let (terrain_index, index) = inventory.source(water, index)?;
+        let terrain = match terrain_index {
+            Some(index) => Some(draft.manifest.terrains.as_ref()?.get(index)?),
+            None => None,
+        };
+        Some((terrain, index))
+    };
     let (key, name, label, hidden, locked) = match list {
         LayerList::Water => {
             use crate::types::WaterAuthoringFeatureKind::*;
-            let (terrain, water, kind, index, id) = crate::ui::water_feature_list::listed_water_feature_at(draft, index)?;
+            let (terrain, ordinal) = source(true)?;
+            let water = crate::authoring::terrain_documents::root_water::listed_source(draft, terrain.map(|object| &object.id))?;
+            let (kind, index, id) = crate::ui::water_feature_list::water_feature_at(water, ordinal)?;
             let (name, kind_label) = match kind {
                 StillWater => (&water.layers[index].label, "静水"),
                 River => (&water.rivers[index].label, "河流"),
@@ -30,16 +41,22 @@ pub(super) fn object(
                     kind,
                     index,
                     id: id.to_owned(),
-                    terrain: terrain.cloned(),
+                    terrain: terrain.map(|object| object.id.clone()),
                 },
                 name.clone(),
-                format!("{} · {kind_label} {} · {name}", if terrain.is_some() { "网格" } else { "场景" }, index + 1),
+                format!("{} · {kind_label} {} · {name}", terrain.map_or("场景", |object| object.display_name.as_str()), index + 1),
                 false,
                 false,
             )
         }
         LayerList::Vegetation => {
-            let vegetation = draft.vegetation.as_ref()?;
+            let (terrain, index) = source(false)?;
+            let terrain_id = terrain.map(|object| &object.id);
+            let vegetation = vegetation_source(draft, terrain_id)?;
+            let label = |name: &str| match terrain {
+                Some(object) => format!("{name} · {}", object.display_name),
+                None => format!("{name} · 场景"),
+            };
             if let Some(authoring) = &vegetation.authoring {
                 let item = authoring.layers.get(index)?;
                 (
@@ -47,10 +64,11 @@ pub(super) fn object(
                         index,
                         id: item.id.clone(),
                         output: false,
+                        terrain: terrain_id.cloned(),
                     },
                     item.label.clone(),
-                    item.label.clone(),
-                    visibility.hidden_in(&draft.scene_id, draft.terrain_documents.active.as_ref().map(|canvas| &canvas.definition.id))
+                    label(&item.label),
+                    visibility.hidden_in(&draft.scene_id, terrain_id)
                         .is_some_and(|hidden| hidden.contains(&item.id)),
                     item.locked,
                 )
@@ -61,9 +79,10 @@ pub(super) fn object(
                         index,
                         id: item.id.clone(),
                         output: true,
+                        terrain: terrain_id.cloned(),
                     },
                     item.label.clone(),
-                    format!("{} · 正式输出", item.label),
+                    format!("{} · 正式输出", label(&item.label)),
                     false,
                     false,
                 )

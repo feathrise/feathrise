@@ -240,7 +240,7 @@ pub(super) fn select_placement_hit(
             };
         }
         PlacementViewportHit::SceneMesh(selection) => {
-            let valid = browser.select_mesh_from_viewport(selection); // 同帧发布整实例和精确网格身份，并按需展开Scene0。
+            let valid = browser.select_mesh_from_viewport(selection); // 同帧发布整实例和精确网格身份，保留树的展开状态。
             let Some(selection) = browser.selection.as_ref() else {
                 return; // 上方方法保证存在，防御后续重构中的提前清理。
             };

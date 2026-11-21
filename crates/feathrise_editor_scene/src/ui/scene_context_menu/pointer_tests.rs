@@ -222,6 +222,7 @@ fn scene_layers_real_pointer_selects_and_focuses_water_vegetation_and_domain() {
     let (mut app, window) = crate::ui::terrain_objects::page_tests::page_without_tree_input();
     app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_millis(16)));
     crate::ui::scene_layers::tests::load_author_layers_fixture(&mut app);
+    let terrain = crate::ui::scene_layers::tests::add_scene_root_water_fixture(&mut app);
     let world = app.world_mut();
     let ready_font = world.query::<(&TextFont, &bevy::text::TextLayoutInfo)>().iter(world)
         .find(|(_, layout)| !layout.glyphs.is_empty()).expect("正式网格页应已呈现中文字体").0.font.clone();
@@ -255,6 +256,17 @@ fn scene_layers_real_pointer_selects_and_focuses_water_vegetation_and_domain() {
             .in_set(crate::SceneEditorSystemSet::Input),
     );
     app.update(); // 先建立真实行绑定；每次点击前由字形和行矩形的稳定门等待完整布局。
+    let plant_rows = |world: &mut World| {
+        let mut rows = world.query::<(Entity, &SceneObjectRow, &Node)>().iter(world)
+            .filter_map(|(entity, row, node)| {
+                let key = row.0.as_ref()?.key.clone();
+                matches!(key, SceneObjectKey::Vegetation { .. }).then_some((entity, key, node.top))
+            }).collect::<Vec<_>>();
+        rows.sort_unstable_by_key(|row| row.0);
+        rows
+    };
+    let original_plants = plant_rows(app.world_mut());
+    assert_eq!(original_plants.len(), 3);
     for kind in 0..3 {
         let world = app.world_mut();
         let row = world
@@ -264,7 +276,7 @@ fn scene_layers_real_pointer_selects_and_focuses_water_vegetation_and_domain() {
                 row.0
                     .as_ref()
                     .filter(|target| match (&target.key, kind) {
-                        (SceneObjectKey::Water { index: 0, .. }, 0) => true,
+                        (SceneObjectKey::Water { terrain: None, index: 0, .. }, 0) => true,
                         (SceneObjectKey::Vegetation { index: 0, .. }, 1) => true,
                         (
                             SceneObjectKey::Domain {
@@ -299,6 +311,12 @@ fn scene_layers_real_pointer_selects_and_focuses_water_vegetation_and_domain() {
                 | (crate::viewport::LayerTarget::Vegetation(_), 1)
                 | (crate::viewport::LayerTarget::Domain(_), 2)
         ));
+        if kind < 2 {
+            let draft = app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap();
+            let source = draft.terrain_documents.active.as_ref().map(|canvas| &canvas.definition.id);
+            assert_eq!(source, (kind == 1).then_some(&terrain));
+            assert_eq!(plant_rows(app.world_mut()), original_plants, "选中根水和私有植被都保持同三行原位置");
+        }
         if kind == 2 {
             let id = "fixture-source-0".to_owned();
             assert_eq!(

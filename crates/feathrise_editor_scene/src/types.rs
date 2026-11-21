@@ -62,6 +62,7 @@ pub(crate) enum EditorShortcutNoticeKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EditorViewportFraming {
     Selected,
+    TreePlacement, // 树行显式取景以已冻结的摆放为准，保留当前作者工具。
     Scene,
     RefreshDepth, // 恢复旧视角时仅更新实际内容的裁剪范围，保留用户镜头。
 }

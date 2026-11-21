@@ -19,10 +19,9 @@ use crate::ui::scene_sidebar::{TreeRowToggle, tree_toggle_button, tree_toggle_ic
 use crate::viewport::placement_move::PlacementMoveState;
 use crate::viewport::SelectedPlacementViewportState;
 
-use super::entries::request_visible_entries_rebuild; // 点击只请求固定预算行构建。
 use super::helpers::selection_matches; // 选择身份不受热更索引漂移影响。
 use super::{
-    EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeToggle, SceneEditorGltfBrowserList,
+    EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeExpander, PlacementTreeToggle, SceneEditorGltfBrowserList,
     SceneEditorGltfBrowserListContent, SceneEditorGltfBrowserRow, SceneEditorGltfBrowserRowText,
     SceneEditorGltfBrowserStatusText,
 }; // 模块私有组件与公开资源。
@@ -82,6 +81,21 @@ pub(crate) fn spawn_gltf_browser_rows(
                 BackgroundColor(colors::PANEL_BG),
                 BorderColor::all(colors::COPPER_BORDER_WEAK),
             )).id();
+            // 箭头有自己的释放脉冲，名称行仍负责单击选择和双击定位。
+            let expander = commands.spawn((
+                ChildOf(row),
+                PlacementTreeExpander::default(),
+                InteractionButton,
+                bevy::ui::InteractionDisabled,
+                Visibility::Hidden,
+                Node {
+                    width: px(18), height: px(21), flex_shrink: 0.0,
+                    align_items: AlignItems::Center, justify_content: JustifyContent::Center,
+                    border_radius: BorderRadius::all(px(3)), ..default()
+                },
+                BackgroundColor(Color::NONE),
+            )).id();
+            commands.spawn_scene(tree_toggle_icon()).insert(ChildOf(expander));
             // 单独裁切图标和文字区，为三个行内按钮保留固定宽度。
             commands.spawn((ChildOf(row), GltfRowCaption, Node {
                 flex_grow: 1.0, flex_basis: px(0), min_width: px(0),
@@ -117,12 +131,13 @@ pub(crate) fn spawn_gltf_browser_rows(
     }
 }
 
-/// 左键点场景树选中实例或网格，沿用当前视口工具。
+/// 名称只选择，箭头只改变当前分支，沿用同一鼠标所有权。
 pub(crate) fn handle_gltf_browser_input(
     editor: Res<SceneEditorState>,
     numeric_scrub_mouse: Res<SceneEditorNumericScrubMouseGuard>, // 数值拖动和弦期间丢弃点击。
     session: Res<EditorAuthoringSession>, // 当前草稿提供不可跨场景复用的SceneId。
-    rows: Query<(&EditorButtonClick, &SceneEditorGltfBrowserRow), Changed<EditorButtonClick>>, // 固定行点击。
+    rows: Query<(Ref<EditorButtonClick>, &SceneEditorGltfBrowserRow)>,
+    expanders: Query<(&EditorButtonClick, &ChildOf, &PlacementTreeExpander), Changed<EditorButtonClick>>,
     movement: Option<Res<PlacementMoveState>>,
     mut state: ResMut<EditorGltfBrowserState>, // 只修改树的折叠和选择。
     mut selected_viewport: ResMut<SelectedPlacementViewportState>,
@@ -141,8 +156,16 @@ pub(crate) fn handle_gltf_browser_input(
         || workspace.as_ref().is_some_and(|state| state.active_tab != crate::ui::vegetation_preset_editor::PresetWorkspaceTab::Scene) {
         return; // 系统持续推进Changed tick；隐藏或所有权帧保持选择且不延迟点击。
     }
+    if let Some((_, parent, expander)) = expanders.iter().find(|(click, ..)| click.is_clicked()) {
+        if let Ok((_, row)) = rows.get(parent.parent())
+            && let Some(index) = expander.target_index(&state, &session, row)
+        {
+            state.toggle_tree_branch(index);
+        }
+        return; // 只处理箭头自己的脉冲，也不让旧箭头手势改派到名称行。
+    }
     let Some(entry_index) = rows.iter().find_map(|(interaction, row)| {
-        (interaction.is_clicked() && row.entries_revision == state.published_entries_revision)
+        (interaction.is_changed() && interaction.is_clicked() && row.entries_revision == state.published_entries_revision)
             .then_some(row.entry_index)
             .flatten()
     }) else { return; }; // 点击只采用上一呈现阶段发布的树行身份。
@@ -156,17 +179,15 @@ pub(crate) fn handle_gltf_browser_input(
     if let Some(sidebar) = sidebar.as_mut() {
         sidebar.reveal_scene_properties(); // 左树选择后立即显示全高属性，保留导航和工具记忆。
     }
+    viewport_selection.clear_vegetation_selection(); // 明确选择场景对象时隐藏旧植被覆盖。
     if let EditorGltfBrowserEntryKind::Group { name, .. } = &entry.kind {
         state.selected_group = Some(name.clone());
         state.selected_placement_id = None; state.selection = None;
-        if !state.collapsed_groups.remove(name) { state.collapsed_groups.insert(name.clone()); }
         if let Some(selection) = multi_selection.as_mut() { selection.clear(); }
         candidates.clear_for_scene_tree(); selected_viewport.clear_click_sequence();
-        request_visible_entries_rebuild(&mut state);
-        return; // 目录点击管理目录和折叠态；整组选中由独立按钮完成，不触发模型展开。
+        return; // 组行直接选中该组，保留分支与子模型展开偏好。
     }
     state.selected_group = None;
-    viewport_selection.clear_vegetation_selection(); // 明确选择场景对象时隐藏旧植被覆盖。
     if let Some(selection) = multi_selection.as_mut() {
         let additive = keyboard.as_ref().is_some_and(|keys| keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]));
         let id = match &entry.kind {
@@ -200,47 +221,23 @@ pub(crate) fn handle_gltf_browser_input(
     }
     match entry.kind {
         EditorGltfBrowserEntryKind::Group { .. } => unreachable!("目录已由上方消费"),
-        EditorGltfBrowserEntryKind::Placement {
-            placement_id,
-            expandable,
-            ..
-        } => {
+        EditorGltfBrowserEntryKind::Placement { placement_id, .. } => {
             selected_viewport.clear_click_sequence(); // 明确选择新的树行时取消旧定位请求。
-            let Some(asset_path) = state.placement_asset_paths.get(&placement_id).cloned() else {
-                state.status = "该对象ID重复或已过期，不能稳定展开".to_owned();
-                return; // 重复ID根只供诊断，绝不猜测应加载哪条记录。
-            };
+            if !state.placement_asset_paths.contains_key(&placement_id) {
+                state.status = "该对象ID重复或已过期，不能稳定选择".to_owned();
+                return; // 重复ID根只供诊断。
+            }
             state.selected_placement_id = Some(placement_id.clone()); // 根行同时成为五类完整资产操作目标。
             candidates.clear_for_scene_tree(); // 即使重复点同一实例，也取消旧候选悬停及迟到查询。
             state.selection = None; // 根选择不冒充具体Blender网格，网格水属性随之收起。
-            if !expandable {
-                let builtin = state.placement_record_indices.get(&placement_id)
-                    .and_then(|index| state.signature.get(*index))
-                    .is_some_and(|signature| signature.asset_target.is_builtin());
-                state.status = if builtin {
-                    format!("已选网格 · 立方体 · {placement_id}")
-                } else {
-                    format!("已选场景对象 · {placement_id}")
-                };
-                return; // 保留整项变换、复制和删除选择，但绝不请求同文件完整场景。
-            }
-            if state.expanded_placements.remove(&placement_id) {
-                if let Some(count) = state.asset_demand_counts.get_mut(&asset_path) {
-                    *count = count.saturating_sub(1);
-                    if *count == 0 {
-                        state.asset_demand_counts.remove(&asset_path);
-                    }
-                }
+            let builtin = state.placement_record_indices.get(&placement_id)
+                .and_then(|index| state.signature.get(*index))
+                .is_some_and(|signature| signature.asset_target.is_builtin());
+            state.status = if builtin {
+                format!("已选网格 · 立方体 · {placement_id}")
             } else {
-                state.expanded_placements.insert(placement_id); // 默认折叠；首次点击才产生Scene0需求。
-                let count = state
-                    .asset_demand_counts
-                    .entry(asset_path.clone())
-                    .or_default();
-                *count = count.saturating_add(1); // 同一路径多个实例共享一个强句柄。
-            }
-            state.asset_demand_changes.insert(asset_path); // Tasks阶段每帧最多采用固定数量路径变化。
-            request_visible_entries_rebuild(&mut state); // 箭头与子树完成后原子替换，不同步扫描8192根。
+                format!("已选场景对象 · {placement_id}")
+            };
         }
         EditorGltfBrowserEntryKind::Mesh | EditorGltfBrowserEntryKind::MissingWaterBinding => {
             candidates.clear_for_scene_tree(); // 同一个网格再次点击也应切回精确网格查看。
@@ -379,22 +376,7 @@ pub(crate) fn sync_gltf_browser_rows(
         });
         let (prefix, base_color) = match &entry.kind {
             EditorGltfBrowserEntryKind::Group { .. } => ("", colors::TEXT_PRIMARY),
-            EditorGltfBrowserEntryKind::Placement {
-                collapsed,
-                expandable,
-                ..
-            } => {
-                (
-                    if !expandable {
-                        "" // 单primitive根的类型由图标说明。
-                    } else if *collapsed {
-                        "▸"
-                    } else {
-                        "▾"
-                    },
-                    colors::TEXT_ACCENT,
-                ) // Scene0根显示折叠态，直接primitive使用固定实体标记。
-            }
+            EditorGltfBrowserEntryKind::Placement { .. } => ("", colors::TEXT_ACCENT),
             EditorGltfBrowserEntryKind::Mesh => {
                 if entry
                     .selection

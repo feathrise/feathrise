@@ -24,7 +24,10 @@ fn has_live_browser_session(state: &EditorGltfBrowserState) -> bool {
         || !state.entries.is_empty()
         || !state.signature.is_empty()
         || !state.expanded_placements.is_empty()
+        || !state.expanded_groups.is_empty()
+        || state.selection_validation_path.is_some()
         || state.selection.is_some()
+        || state.selected_group.is_some()
         || state.selected_placement_id.is_some()
         || !state.loading_queue.is_empty()
         || !state.status.is_empty() // 关闭等待提示也属于当前公开会话。
@@ -34,6 +37,24 @@ fn has_live_browser_session(state: &EditorGltfBrowserState) -> bool {
 pub(super) fn release_browser_session(state: &mut EditorGltfBrowserState) {
     let generation = take_browser_session_generation(state); // 所有容器只做mem::take/移动。
     state.retirement.enqueue_close(generation); // 第二代槽专门保证关闭不会被正常换代阻塞。
+}
+
+/// 使用已发布的摆放索引，精确选择最多增减两个路径，继续走原分帧加载与退役。
+fn sync_selection_validation_demand(session: &EditorAuthoringSession, state: &mut EditorGltfBrowserState) {
+    let scene = session.draft.as_ref().map(|draft| draft.scene_id.as_str());
+    let same_scene = scene.is_some() && scene == state.observation.draft_scene_id.as_deref();
+    if same_scene && !state.placement_index_ready(session.placement_structure_revision) { return; }
+    let path = state.selection.as_ref().filter(|_| same_scene).and_then(|selection| {
+        let index = state.placement_record_indices.get(&selection.placement_id)?;
+        let placement = state.signature.get(*index)?;
+        placement.asset_target.is_scene0().then_some(&placement.asset_path)
+    });
+    if path == state.selection_validation_path.as_ref() { return; }
+    let next = path.cloned();
+    if let Some(previous) = std::mem::replace(&mut state.selection_validation_path, next.clone()) {
+        state.asset_demand_changes.insert(previous);
+    }
+    if let Some(path) = next { state.asset_demand_changes.insert(path); }
 }
 
 /// 草稿结构、展开需求、相关Scene0事件或有界加载队列驱动浏览缓存更新。
@@ -70,6 +91,7 @@ pub(crate) fn refresh_gltf_browser_cache(
 
     let invalidated = collect_invalidated_paths(&mut scene_events, &mut state);
     let mut entries_changed = invalidate_cached_paths(&mut state, invalidated);
+    sync_selection_validation_demand(&session, &mut state);
     entries_changed |= process_asset_demand_budget(&mut state, &asset_server);
     entries_changed |= process_loading_budget(&mut state, &asset_server, &world_assets);
     if entries_changed {

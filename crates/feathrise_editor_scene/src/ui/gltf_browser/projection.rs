@@ -45,14 +45,13 @@ mod tests {
     #[test]
     fn folders_collapse_and_expand() {
         let mut state = state(3);
-        state.collapsed_groups.insert("村口".into());
         let mut projection = RootProjection::default();
         assert!(projection.advance(&state));
         assert_eq!(projection.roots.len(), 1);
         assert!(
             matches!(&projection.roots[0], RootToken::Group { name, collapsed: true, count: 3, first_member: 0 } if name == "村口")
         );
-        state.collapsed_groups.clear();
+        state.expanded_groups.insert("村口".into());
         let mut projection = RootProjection::default();
         assert!(projection.advance(&state));
         assert_eq!(projection.roots.len(), 4);
@@ -64,7 +63,8 @@ mod tests {
 
     #[test]
     fn large_projection_is_bounded_and_has_no_partial_result() {
-        let state = state(8192);
+        let mut state = state(8192);
+        state.expanded_groups.insert("村口".into());
         let mut projection = RootProjection::default();
         assert!(!projection.advance(&state));
         assert_eq!(projection.cursor, 256);
@@ -134,7 +134,7 @@ impl RootProjection {
                 self.complete = true;
                 return true;
             };
-            let collapsed = state.collapsed_groups.contains(&name);
+            let collapsed = !name.is_empty() && !state.expanded_groups.contains(&name);
             if !name.is_empty() {
                 self.roots.push(RootToken::Group {
                     name: name.clone(),

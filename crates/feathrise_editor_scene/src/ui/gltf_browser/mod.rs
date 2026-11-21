@@ -14,9 +14,9 @@ mod signature; // 全部摆放结构签名按每帧记录预算渐进生成。
 mod systems; // 固定行池、连续滚动、展开点击与样式同步系统。
 mod scene_menu; // 已呈现行的稳定对象身份供右键菜单使用。
 pub(crate) use scene_menu::bind_scene_menu_rows;
-pub(crate) use row_controls::{PlacementTreeToggle, sync as sync_gltf_row_toggles};
+pub(crate) use row_controls::{PlacementTreeExpander, PlacementTreeToggle, sync as sync_gltf_row_toggles};
 mod projection; // 逻辑组的有界根投影，不改变真实实例层级。
-mod row_controls; // 摆放与逻辑组共享固定行池的三种开关。
+mod row_controls; // 摆放与逻辑组共享固定行池的箭头和三种开关。
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque}; // 路径缓存、展开需求与有界加载队列。
 
@@ -92,7 +92,7 @@ pub(crate) struct EditorGltfMeshSelection {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum EditorGltfBrowserEntryKind {
     Group { name: String, collapsed: bool, count: usize, first_member: usize },
-    /// 一个已摆放GLB实例根，可点击展开或折叠其网格。
+    /// 一个已摆放GLB实例根，有子网格时由独立箭头展开或收起。
     Placement {
         /// 草稿中的稳定实例ID。
         placement_id: String,
@@ -110,7 +110,7 @@ pub(crate) enum EditorGltfBrowserEntryKind {
 /// 右栏对crate其余作者功能公开的一条扁平场景树记录。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EditorGltfBrowserEntry {
-    /// 行类型决定点击是折叠实例还是选择网格。
+    /// 行类型决定选中目标以及是否显示独立的展开箭头。
     pub(crate) kind: EditorGltfBrowserEntryKind,
     /// 已含树形前缀与必要诊断的短显示文本。
     pub(crate) display_name: String,
@@ -239,7 +239,8 @@ pub(super) struct CachedGltfAsset {
 /// 已摆放GLB浏览器的公开选择、可见行与私有强句柄缓存。
 #[derive(Resource, Default)]
 pub(crate) struct EditorGltfBrowserState {
-    pub(crate) collapsed_groups: BTreeSet<String>,
+    /// 组与GLB均默认收起，只有显式点箭头才改变当前场景的展开偏好。
+    pub(super) expanded_groups: BTreeSet<String>,
     pub(crate) selected_group: Option<String>,
     /// 当前展开状态的完整扁平树，行池按滚动位置取其窗口。
     pub(crate) entries: Vec<EditorGltfBrowserEntry>,
@@ -286,6 +287,8 @@ pub(crate) struct EditorGltfBrowserState {
     pub(super) loading_queue: VecDeque<BrowserLoadingTicket>,
     /// 当前展开实例按唯一资产路径汇总的引用计数；单次展开/折叠只修改一个键。
     pub(super) asset_demand_counts: BTreeMap<String, usize>,
+    /// 精确网格选择最多借用一个缓存做身份校验，独立于树上分支是否展开。
+    pub(super) selection_validation_path: Option<String>,
     /// UI单次展开/折叠产生的O(1)路径需求变化，由Tasks固定预算采用。
     pub(super) asset_demand_changes: BTreeSet<String>,
     /// 结构换代后的旧/新路径集合以固定预算逐项调和。
@@ -328,7 +331,7 @@ impl EditorGltfBrowserState {
         valid // 调用方据此显示可编辑或重复ID失败诊断。
     }
 
-    /// 采用中央视口命中的稳定网格，并在唯一摆放身份可用时展开所属 Scene0 根。
+    /// 视口或标签恢复只同步网格选择；树的展开状态属于作者显式操作。
     pub(crate) fn select_mesh_from_viewport(
         &mut self,
         mut selection: EditorGltfMeshSelection,
@@ -337,24 +340,37 @@ impl EditorGltfBrowserState {
             .duplicate_placement_ids
             .contains(&selection.placement_id); // 重复摆放ID即使世界恰好命中一根也不能授权后续作者动作。
         selection.orphaned_water_binding = false; // 世界实际命中不可能是只存在于旧作者数据的失效绑定。
-        let placement_id = selection.placement_id.clone(); // 浏览器完整实例选择与网格身份同帧发布。
         self.selected_group = None;
         let valid = selection.valid; // 移入资源前冻结调用方需要的授权结论。
-        self.selected_placement_id = Some(placement_id.clone()); // 资产变换区始终作用于整条摆放记录。
+        self.selected_placement_id = Some(selection.placement_id.clone()); // 收起时仍可从完整摆放根接续操作。
         self.selection = Some(selection); // 精确网格继续驱动淡青覆盖与整网格水属性。
-        let Some(asset_path) = self.placement_asset_paths.get(&placement_id).cloned() else {
-            return valid; // 签名仍在分帧构建时先保留世界选择，完成后由既有校验链重新确认。
-        };
-        if self.expanded_placements.insert(placement_id) {
-            let count = self
-                .asset_demand_counts
-                .entry(asset_path.clone())
-                .or_default(); // 同一路径多个展开实例继续共享一个Scene0强句柄。
-            *count = count.saturating_add(1); // 单次视口点击只增加所属唯一实例的一份需求。
-            self.asset_demand_changes.insert(asset_path); // Tasks阶段按既有固定路径预算真正加载。
-            entries::request_visible_entries_rebuild(self); // 箭头和子行继续分帧构建后原子发布。
+        valid
+    }
+
+    /// 接收已经校验过发布代次的分支。改变投影和资产需求，保留作者选择。
+    pub(crate) fn toggle_tree_branch(&mut self, index: usize) {
+        let Some(entry) = self.entries.get(index) else { return; };
+        match &entry.kind {
+            EditorGltfBrowserEntryKind::Group { name, .. } => {
+                if !self.expanded_groups.remove(name) { self.expanded_groups.insert(name.clone()); }
+            }
+            EditorGltfBrowserEntryKind::Placement { placement_id, expandable: true, .. } => {
+                let Some(path) = self.placement_asset_paths.get(placement_id) else { return; };
+                if self.expanded_placements.remove(placement_id) {
+                    if let Some(count) = self.asset_demand_counts.get_mut(path) {
+                        *count = count.saturating_sub(1);
+                        if *count == 0 { self.asset_demand_counts.remove(path); }
+                    }
+                } else {
+                    self.expanded_placements.insert(placement_id.clone());
+                    let count = self.asset_demand_counts.entry(path.clone()).or_default();
+                    *count = count.saturating_add(1); // 同一文件的展开实例共享原Scene0强句柄。
+                }
+                self.asset_demand_changes.insert(path.clone()); // Tasks按原固定路径预算收拢需求。
+            }
+            _ => return,
         }
-        valid // 只有稳定引用才允许登记双击定位，整实例选择不受此返回值影响。
+        entries::request_visible_entries_rebuild(self);
     }
 
     /// 清除中央视口拥有的摆放与精确网格选择，不改变作者手动展开的场景树。

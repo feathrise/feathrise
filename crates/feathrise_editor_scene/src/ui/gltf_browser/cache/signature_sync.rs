@@ -29,7 +29,7 @@ pub(super) fn synchronize_signature_build(
         let scene_changed = state.observation.draft_scene_id != next_observation.draft_scene_id;
         let needs_retirement = state.signature_build.is_some()
             || state.entries_build.is_some()
-            || (scene_changed && !state.expanded_placements.is_empty());
+            || (scene_changed && (!state.expanded_placements.is_empty() || !state.expanded_groups.is_empty()));
         if needs_retirement && !state.retirement.can_enqueue_normal() {
             state.status = "场景树：等待上一代分帧释放，最新场景结构已合并".to_owned();
             return; // 保留唯一旧草稿；下帧重新观察最新确定性代次。
@@ -39,6 +39,8 @@ pub(super) fn synchronize_signature_build(
         retired.entries_build(state.entries_build.take()); // 旧行草稿逐条清理。
         if scene_changed {
             retired.string_set(std::mem::take(&mut state.expanded_placements)); // 展开偏好不跨场景且不整批clear。
+            retired.string_set(std::mem::take(&mut state.expanded_groups));
+            retired.string(state.selected_group.take());
             retired.selection(state.selection.take()); // 公开选择同帧立即失效，深路径随后释放。
             retired.string(state.selected_placement_id.take()); // 完整实例选择同样不能跨场景复用。
         }

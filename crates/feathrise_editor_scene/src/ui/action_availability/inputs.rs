@@ -107,6 +107,9 @@ impl EditorActionInputs<'_> {
 
     /// 复用取景入口的选择分支：只看已确认对象与O(1)层下标，悬停候选不算选择。
     fn focus_available(&self, editor: &SceneEditorState) -> bool {
+        if self.browser.as_ref().is_some_and(|browser| browser.selected_group.is_some()) {
+            return true; // 与树的双击和右键共用整组取景。
+        }
         if self.candidates.as_ref().is_some_and(|candidates|matches!(candidates.selected,Some(LayerTarget::TerrainObject(_))))
             && self.terrain_objects.as_ref().is_some_and(|state|crate::ui::terrain_objects::selected(&self.session,state).is_some()) { return true; }
         // 场景树按稳定ID确认整份引用，没有视口候选列表；与正式取景分派一样先认领该选择，不能借hover启用。

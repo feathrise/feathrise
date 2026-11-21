@@ -313,3 +313,39 @@ fn inspector_tree_shows_later_group_in_the_available_viewport_without_inner_scro
         assert!(top >= visible_top && bottom <= visible_bottom);
     }
 }
+
+#[test]
+fn inspector_tree_selection_keeps_the_measured_scroll_positions() {
+    let (mut app, _) = page(24);
+    app.init_resource::<crate::resources::SceneEditorNumericScrubMouseGuard>()
+        .init_resource::<crate::resources::EditorViewportSelectionState>()
+        .init_resource::<crate::viewport::SelectedPlacementViewportState>()
+        .add_systems(Update, handle_gltf_browser_input.before(refresh_gltf_browser_cache));
+    let tree = set_tree_height(&mut app, 160.0);
+    settle(&mut app);
+    let world = app.world_mut();
+    let list = world.query_filtered::<Entity, With<SceneEditorGltfBrowserList>>().single(world).unwrap();
+    let layout = world.get::<ComputedNode>(tree).unwrap();
+    let outer = (layout.content_size().y - layout.size().y) * layout.inverse_scale_factor();
+    assert!(outer > 0.0, "低窗必须同时出现外层与摆放列表滚动");
+    let inner = 6.0 * SCENE_OBJECT_ROW_PITCH;
+    for (entity, y) in [(tree, outer), (list, inner)] {
+        world.get_mut::<ScrollPosition>(entity).unwrap().y = y;
+    }
+    settle(&mut app);
+
+    for index in [7, 8] {
+        let world = app.world_mut();
+        let row = world.query::<(Entity, &SceneEditorGltfBrowserRow)>().iter(world)
+            .find(|(_, row)| row.entry_index == Some(index)).unwrap().0;
+        world.entity_mut(row).insert(EditorButtonClick::triggered());
+        app.update();
+
+        // 低窗同时滚动两级视区后，生产行点击只能改变所选对象。
+        let world = app.world();
+        let browser = world.resource::<EditorGltfBrowserState>();
+        assert_eq!(browser.selected_placement_id, Some(format!("instance-{index}")));
+        assert_eq!(world.get::<ScrollPosition>(tree).unwrap().y, outer);
+        assert_eq!(world.get::<ScrollPosition>(list).unwrap().y, inner);
+    }
+}

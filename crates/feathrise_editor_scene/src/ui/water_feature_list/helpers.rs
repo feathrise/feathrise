@@ -169,7 +169,7 @@ pub(super) fn water_feature_page_count(total: usize) -> usize {
 }
 
 /// 把“静水→河流→瀑布”的列表扁平位置解析为类别、类内索引和稳定ID。
-pub(super) fn water_feature_at(
+pub(crate) fn water_feature_at(
     water: &SceneWaterAsset,
     flat_index: usize,
 ) -> Option<(WaterAuthoringFeatureKind, usize, &str)> {

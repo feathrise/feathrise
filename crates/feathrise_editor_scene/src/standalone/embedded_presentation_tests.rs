@@ -493,11 +493,14 @@ fn embedded_play_real_browser_cache_preserves_selection_expansion_and_index_unti
         valid: true,
         orphaned_water_binding: false,
     };
-    assert!(
-        app.world_mut()
-            .resource_mut::<EditorGltfBrowserState>()
-            .select_mesh_from_viewport(mesh.clone())
-    );
+    {
+        let mut browser = app.world_mut().resource_mut::<EditorGltfBrowserState>();
+        assert!(browser.select_mesh_from_viewport(mesh.clone()));
+        let root = browser.entries.iter().position(|entry| matches!(&entry.kind,
+            EditorGltfBrowserEntryKind::Placement { placement_id, collapsed: true, .. }
+                if placement_id == "selection-kept")).expect("视口选中网格保持根收起");
+        browser.toggle_tree_branch(root); // 模拟箭头已确认的显式展开，便于检查试玩前后保留状态。
+    }
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         app.update();

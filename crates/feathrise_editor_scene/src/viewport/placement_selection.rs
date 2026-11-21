@@ -26,6 +26,7 @@ pub(crate) use systems::{
     sync_selected_placement_viewport,
 }; // 插件在Cursor与Presentation阶段分别注册解析、表现和范围框。
 pub(crate) use ui::setup_selected_placement_badge; // ViewportNode出现时只创建一次固定徽标实体。
+pub(super) use systems::resolve_active_root;
 
 const FOCUS_PADDING_SCALE: f32 = 1.25; // 三维物体定位后四周保留空间关系。
 const FOCUS_PADDING_METERS: f32 = 2.0; // 小道具也至少保留两米观察边距。
@@ -240,8 +241,10 @@ pub(super) fn selected_placement_mesh_info(
     let whole = if ignore_hover {
         if editor.tool == EditorTool::Inspect && candidates.has_viewport_selection() {
             match candidates.selected.as_ref() { Some(LayerTarget::Placement(id)) => Some(id.as_str()), _ => return None }
-        } else { (matches!(editor.tool, EditorTool::Inspect | EditorTool::PlaceAsset) && browser.selection.is_none())
-            .then_some(browser.selected_placement_id.as_deref()).flatten() }
+        } else {
+            // 此处只用于显式取景。树冻结的整实例要跨水域等工具解析完毕，普通覆盖继续按工具筛选。
+            browser.selection.is_none().then_some(browser.selected_placement_id.as_deref()).flatten()
+        }
     } else { displayed_whole_placement(editor.tool, browser, candidates) };
     if let Some(id) = whole {
         return Some(SelectedPlacementMeshInfo {

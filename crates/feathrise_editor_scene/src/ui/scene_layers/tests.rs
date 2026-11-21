@@ -10,8 +10,10 @@ use bevy::prelude::*;
 use crate::game_authoring::scene_interaction::{fixtures, DomainItemKind, SceneInteractionState};
 
 fn test_object(session: &EditorAuthoringSession, list: types::LayerList, index: usize) -> Option<(crate::ui::scene_context_menu::SceneObjectTarget, String)> {
-    let hash = session.draft.as_ref()?.adopted_domain_hash();
-    rows::object(session, list, index, Some(&fixtures::state(hash, 60)), &Default::default())
+    let draft = session.draft.as_ref()?;
+    let mut inventory = inventory::LayerInventory::default();
+    inventory.sync(session, draft);
+    rows::object(session, &inventory, list, index, Some(&fixtures::state(draft.adopted_domain_hash(), 60)), &Default::default())
 }
 
 
@@ -21,8 +23,11 @@ pub(crate) fn install_snapshot_sync(app: &mut App) {
 
 /// 保存回归通过正式树行解析器取当前快照，避免只检查底层水槽而漏掉UI再次丢项。
 pub(crate) fn water_snapshot(session: &EditorAuthoringSession) -> Vec<crate::ui::scene_context_menu::SceneObjectTarget> {
-    let count = session.draft.as_ref().map_or(0, |draft| types::LayerList::Water.count(draft, None));
-    (0..count).filter_map(|index| test_object(session, types::LayerList::Water, index).map(|item| item.0)).collect()
+    let Some(draft) = session.draft.as_ref() else { return Vec::new(); };
+    let mut inventory = inventory::LayerInventory::default();
+    inventory.sync(session, draft);
+    (0..inventory.count(true)).filter_map(|index|
+        rows::object(session, &inventory, types::LayerList::Water, index, None, &default()).map(|item| item.0)).collect()
 }
 
 pub(crate) fn assert_snapshot_glyphs(app: &mut App) {
@@ -110,6 +115,121 @@ pub(crate) fn load_author_layers_fixture(app: &mut App) {
     app.world_mut()
         .resource_mut::<SceneEditorState>()
         .selected_scene_id = Some(map);
+}
+
+/// 当前地形有完整植被，场景根有静水；两类行必须跨来源选择而不改变布局。
+pub(crate) fn add_scene_root_water_fixture(app: &mut App) -> feathrise_scene_content::TerrainId {
+    use crate::authoring::terrain_documents::RootWaterCanvas;
+    let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+    let draft = session.draft.as_mut().unwrap();
+    draft.manifest.terrain = feathrise_scene_content::SceneTerrainDescriptor::empty();
+    let mut root = crate::authoring::default_water_asset(&draft.scene_id);
+    let mut water = crate::authoring::default_water_layer(&draft.folder);
+    water.id = "fixture-root-water".into();
+    water.label = "测试场景静水".into();
+    root.layers.push(water);
+    draft.terrain_documents.root_water = Some(RootWaterCanvas { water: Some(root), ..default() });
+    draft.terrain_documents.active.as_ref().unwrap().definition.id.clone()
+}
+
+#[test]
+fn scene_layers_fold_scroll_and_same_id_vegetation_stay_with_their_source() {
+    use bevy::{ecs::system::RunSystemOnce, window::PrimaryWindow};
+    use crate::ui::scene_context_menu::{SceneContextMenuState, SceneMenuAction, SceneObjectRequest};
+    let (mut app, _) = crate::ui::scene_inspector::tests::page(0);
+    // 通用属性夹具默认隐藏独立左栏，分类按钮测试需测量实际可见树并注册图标资产。
+    app.init_asset::<Image>();
+    let world = app.world_mut();
+    let tree = world.query::<(Entity, &crate::ui::sidebars::SceneEditorSidebarPage)>().iter(world)
+        .find(|(_, page)| page.0 == crate::ui::sidebars::EditorSidebarTab::Navigator(
+            crate::ui::sidebars::EditorNavigatorTab::SceneTree)).unwrap().0;
+    let host = world.get::<ChildOf>(tree).unwrap().parent();
+    world.get_mut::<Node>(host).unwrap().display = Display::Flex;
+    load_author_layers_fixture(&mut app);
+    let terrain = add_scene_root_water_fixture(&mut app);
+    {
+        use crate::authoring::terrain_documents::TerrainCanvas;
+        let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+        let draft = session.draft.as_mut().unwrap();
+        let vegetation = draft.vegetation.as_mut().unwrap();
+        let mut root = vegetation.clone();
+        root.authoring.as_mut().unwrap().layers.truncate(1);
+        draft.terrain_documents.root_vegetation = Some(std::sync::Arc::new(TerrainCanvas {
+            vegetation: Some(root), ..default()
+        }));
+        let layers = &mut vegetation.authoring.as_mut().unwrap().layers;
+        let template = layers[0].clone();
+        layers.extend((3..16).map(|index| feathrise_scene_content::SceneVegetationAuthorLayer {
+            id: format!("fixture-author-{index}"), label: format!("测试植被{index}"), ..template.clone()
+        }));
+    }
+    app.init_resource::<SceneContextMenuState>()
+        .init_resource::<SceneLayerSelection>()
+        .init_resource::<resources::LayerTreeFolds>()
+        .init_resource::<crate::resources::SceneEditorNumericScrubMouseGuard>()
+        .init_resource::<crate::authoring::VegetationBrushStroke>()
+        .add_systems(Update, (systems::sync, systems::sync_vegetation_toggles, systems::sync_section_arrows).chain());
+    app.world_mut().spawn((Window { focused: true, ..default() }, PrimaryWindow));
+    crate::ui::scene_inspector::tests::settle(&mut app);
+    let (list, arrow) = {
+        let world = app.world_mut();
+        let list = world.query::<(Entity, &components::List)>().iter(world)
+            .find(|(_, list)| list.0 == types::LayerList::Vegetation).unwrap().0;
+        let arrow = world.query::<(Entity, &components::SectionArrow)>().iter(world)
+            .find(|(_, arrow)| arrow.list == types::LayerList::Vegetation).unwrap().0;
+        let title = world.query::<(Entity, &components::Title)>().iter(world)
+            .find(|(_, title)| title.0 == types::LayerList::Vegetation).unwrap().0;
+        let width = |entity| world.get::<ComputedNode>(entity).unwrap().size().x;
+        let available = width(list) - width(arrow);
+        assert!(width(title) > 0.0 && (available - width(title) - 3.0).abs() <= 1.0,
+            "分类标题应占用扣除箭头和间距后的宽度");
+        assert_eq!(world.get::<TextLayout>(title).unwrap().linebreak, TextLayout::no_wrap().linebreak);
+        (list, arrow)
+    };
+    app.world_mut().get_mut::<ScrollPosition>(list).unwrap().y = 81.0;
+    let select_row = |app: &mut App, list, index| {
+        let target = test_object(app.world().resource::<EditorAuthoringSession>(), list, index).unwrap().0;
+        app.world_mut().resource_mut::<SceneLayerSelection>().0 = Some(target);
+        app.world_mut().run_system_once(crate::ui::scene_context_menu::select_target_for_tests).unwrap();
+        app.update();
+    };
+    let toggle_fold = |app: &mut App| {
+        let world = app.world_mut();
+        world.entity_mut(arrow).insert(feathrise_editor_ui::EditorButtonClick::triggered());
+        world.run_system_once(systems::fold_sections).unwrap();
+        world.entity_mut(arrow).insert(feathrise_editor_ui::EditorButtonClick::default());
+        app.update();
+    };
+    toggle_fold(&mut app);
+    assert_eq!(app.world().get::<Node>(list).unwrap().display, Display::None);
+    select_row(&mut app, types::LayerList::Water, 0);
+    assert_eq!(app.world().get::<Node>(list).unwrap().display, Display::None);
+    toggle_fold(&mut app);
+    assert_eq!(app.world().get::<Node>(list).unwrap().display, Display::Flex);
+    assert_eq!(app.world().get::<ScrollPosition>(list).unwrap().y, 81.0);
+
+    let (target, _) = test_object(app.world().resource::<EditorAuthoringSession>(), types::LayerList::Vegetation, 1).unwrap();
+    let id = match &target.key {
+        SceneObjectKey::Vegetation { id, terrain: Some(owner), .. } if owner == &terrain => id.clone(),
+        key => panic!("私有植被归属错误：{key:?}"),
+    };
+    let scene = target.scene_id.clone();
+    app.world_mut().resource_mut::<SceneContextMenuState>().ready = Some(SceneObjectRequest {
+        target, action: SceneMenuAction::Visibility, name: String::new(),
+    });
+    app.world_mut().run_system_once(crate::ui::vegetation_layers::handle_scene_menu).unwrap();
+    app.world_mut().resource_mut::<SceneContextMenuState>().ready = None;
+    let editor = app.world().resource::<SceneEditorState>();
+    assert!(editor.vegetation_visibility.hidden_in(&scene, Some(&terrain)).is_some_and(|hidden| hidden.contains(&id)));
+    assert!(editor.vegetation_visibility.hidden_in(&scene, None).is_none());
+    assert!(app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap().terrain_documents.active.is_none());
+
+    select_row(&mut app, types::LayerList::Vegetation, 1);
+    let session = app.world().resource::<EditorAuthoringSession>();
+    let draft = session.draft.as_ref().unwrap();
+    assert_eq!(draft.terrain_documents.active.as_ref().map(|canvas| &canvas.definition.id), Some(&terrain));
+    assert_eq!(app.world().get::<ScrollPosition>(list).unwrap().y, 81.0);
+    assert!(session.undo.is_empty());
 }
 
 #[test]

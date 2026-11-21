@@ -213,7 +213,12 @@ fn whole_scene_cancels_a_waiting_old_object_focus() {
 
 #[test]
 fn asset_focus_uses_complete_cached_bounds_and_formal_selection_during_hover() {
-    for orthographic in [false, true] {
+    for (orthographic, tool, command) in [
+        (false, EditorTool::Inspect, EditorViewportFraming::Selected),
+        (true, EditorTool::Inspect, EditorViewportFraming::Selected),
+        (false, EditorTool::Water, EditorViewportFraming::TreePlacement),
+        (false, EditorTool::Vegetation, EditorViewportFraming::TreePlacement),
+    ] {
         let mut app = app();
         let scene_id = map(&app);
         app.init_resource::<Assets<StandardMaterial>>()
@@ -223,9 +228,11 @@ fn asset_focus_uses_complete_cached_bounds_and_formal_selection_during_hover() {
                 Update,
                 crate::viewport::sync_selected_placement_viewport.after(apply_viewport_framing),
             );
-        app.world_mut()
-            .resource_mut::<SceneEditorState>()
-            .orthographic = orthographic;
+        {
+            let mut state = app.world_mut().resource_mut::<SceneEditorState>();
+            state.orthographic = orthographic;
+            state.tool = tool;
+        }
         app.world_mut()
             .resource_mut::<EditorGltfBrowserState>()
             .selected_placement_id = Some("树".into());
@@ -248,7 +255,7 @@ fn asset_focus_uses_complete_cached_bounds_and_formal_selection_during_hover() {
                 .world_mut()
                 .resource_mut::<SelectedPlacementViewportState>();
             placement.resolved_identity = Some(SelectedPlacementMeshIdentity {
-                scene_id,
+                scene_id: scene_id.clone(),
                 placement_id: "树".into(),
                 whole_instance: true,
                 node_path: vec![],
@@ -257,7 +264,23 @@ fn asset_focus_uses_complete_cached_bounds_and_formal_selection_during_hover() {
             placement.resolution = PlacementMeshResolution::Ready;
             placement.source_entities.push(source);
         }
-        request(&mut app, EditorViewportFraming::Selected);
+        if command == EditorViewportFraming::TreePlacement {
+            app.world_mut().resource_mut::<LayerCandidateState>().selected =
+                Some(LayerTarget::Placement("树".into()));
+        }
+        if tool == EditorTool::Water {
+            let mut water = crate::authoring::default_water_asset(&scene_id);
+            let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+            let draft = session.draft.as_mut().unwrap();
+            water.layers.push(crate::authoring::default_water_layer(&draft.folder));
+            draft.water = Some(water);
+            let before = app.world().resource::<SceneEditorViewportState>().center;
+            request(&mut app, EditorViewportFraming::Selected);
+            assert_eq!(app.world().resource::<SceneEditorViewportState>().center, before);
+            assert_eq!(app.world().resource::<SceneEditorState>().status, "正在聚焦所选，等待当前完整范围",
+                "普通 F 仍按水域工具提交其自身的范围请求");
+        }
+        request(&mut app, command);
         let viewport = app.world().resource::<SceneEditorViewportState>();
         assert_eq!(viewport.center, Vec3::new(100.0, 15.0, -20.0));
         assert_eq!((viewport.yaw, viewport.pitch), (0.8, 0.4));
@@ -266,6 +289,7 @@ fn asset_focus_uses_complete_cached_bounds_and_formal_selection_during_hover() {
             app.world().resource::<SceneEditorState>().orthographic,
             orthographic
         );
+        assert_eq!(app.world().resource::<SceneEditorState>().tool, tool);
         assert!(!app.world().resource::<SceneEditorState>().dirty);
         assert_eq!(app.world().resource::<EditorAuthoringSession>().revision, 7);
         assert!(
@@ -275,6 +299,64 @@ fn asset_focus_uses_complete_cached_bounds_and_formal_selection_during_hover() {
                 .is_none()
         );
     }
+}
+
+#[test]
+fn group_focus_waits_for_complete_visible_bounds_and_cancels_after_camera_navigation() {
+    use crate::ui::placement_water::{PlacementInstanceIndex, register_placement_instance_root};
+    use crate::viewport::group_focus::{GroupFocusState, frame_group_selection};
+    use feathrise_scene::ScenePlacementInstance;
+    use feathrise_scene_content::ScenePlacementAssetTarget;
+
+    let mut app = app();
+    let scene_id = map(&app);
+    app.init_resource::<GroupFocusState>()
+        .init_resource::<PlacementInstanceIndex>()
+        .add_observer(register_placement_instance_root)
+        .add_systems(Update, frame_group_selection.after(apply_viewport_framing));
+    let mut add_root = |id: &str, group: &str, x, hidden, locked, ready| {
+        let mut record = crate::viewport::placement_move::interaction_tests::record();
+        record.id = id.into();
+        record.asset_target = ScenePlacementAssetTarget::Primitive {
+            mesh: 0, primitive: 0, material: None, collision: false,
+        };
+        let metadata = Arc::make_mut(&mut record.editor);
+        metadata.group = group.into();
+        metadata.hidden = hidden;
+        metadata.locked = locked;
+        let world = app.world_mut();
+        world.resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap().placements.placements.push(record.clone());
+        let mut root = world.spawn((ScenePlacementInstance::new(&scene_id, &record),
+            Mesh3d::default(), GlobalTransform::from_translation(Vec3::new(x, 0.0, 0.0)), InheritedVisibility::VISIBLE));
+        if ready { root.insert(Aabb::from_min_max(-Vec3::ONE, Vec3::ONE)); }
+        root.id()
+    };
+    let first = add_root("left", "村口", -12.0, false, false, true);
+    let second = add_root("right", "村口", 20.0, false, true, false);
+    add_root("hidden", "村口", 500.0, true, false, true);
+    add_root("other", "城里", 600.0, false, false, true);
+    for _ in 0..300 { app.world_mut().spawn(ChildOf(first)); }
+    app.world_mut().resource_mut::<EditorGltfBrowserState>().selected_group = Some("村口".into());
+    let before = app.world().resource::<SceneEditorViewportState>().center;
+    request(&mut app, EditorViewportFraming::Selected);
+    for _ in 0..5 { app.update(); }
+    assert_eq!(app.world().resource::<SceneEditorViewportState>().center, before, "缺右侧模型范围时不领用部分结果");
+
+    let bounds = Aabb::from_min_max(-Vec3::ONE, Vec3::ONE);
+    app.world_mut().entity_mut(second).insert(bounds);
+    app.update();
+    let view = app.world().resource::<SceneEditorViewportState>();
+    assert_eq!(view.center, Vec3::new(4.0, 0.0, 0.0)); // 两个可见同组成员都贡献，锁定不限制取景。
+    assert_eq!(view.extent, framing_extent(Vec3::new(17.0, 1.0, 1.0), view.yaw, view.pitch, view.render_size, false));
+    assert!(!app.world().resource::<SceneEditorState>().dirty);
+
+    app.world_mut().entity_mut(second).remove::<Aabb>();
+    request(&mut app, EditorViewportFraming::Selected);
+    let manual = Vec3::new(100.0, 5.0, 200.0);
+    app.world_mut().resource_mut::<SceneEditorViewportState>().center = manual;
+    app.world_mut().entity_mut(second).insert(bounds);
+    for _ in 0..5 { app.update(); }
+    assert_eq!(app.world().resource::<SceneEditorViewportState>().center, manual, "手动导航覆盖等待中的旧请求");
 }
 
 #[test]

@@ -1,4 +1,4 @@
-//! 已呈现树行冻结完整实例或精确网格，分组及失效诊断行不冒充对象。
+//! 已呈现树行冻结完整实例、精确网格或组，失效诊断行不冒充对象。
 
 use super::*;
 use crate::{
@@ -21,6 +21,26 @@ pub(crate) fn bind_scene_menu_rows(
             }
             let index = row.entry_index.filter(|_| row.entries_revision == browser.published_entries_revision)?;
             let entry = browser.entries.get(index)?;
+            let draft = draft?;
+            if let EditorGltfBrowserEntryKind::Group { name, first_member, .. } = &entry.kind {
+                // 整组只提供读操作。首成员加组名校验当前目录身份，展开与收起均使用同一目标。
+                let record = draft.placements.placements.get(*first_member)?;
+                let signature = browser.signature.get(*first_member)?;
+                if !browser.placement_index_ready(session.placement_structure_revision)
+                    || record.id != signature.placement_id || record.editor.group != *name
+                {
+                    return None;
+                }
+                return Some(SceneObjectTarget {
+                    scene_id: draft.scene_id.clone(),
+                    revision: session.revision,
+                    key: SceneObjectKey::Group { first_member: *first_member, id: record.id.clone() },
+                    name: name.clone(),
+                    hidden: false,
+                    locked: false,
+                    copyable: false,
+                });
+            }
             let (id, mesh) = match &entry.kind {
                 EditorGltfBrowserEntryKind::Placement { placement_id, .. } => (placement_id, None),
                 EditorGltfBrowserEntryKind::Mesh => {
@@ -33,7 +53,6 @@ pub(crate) fn bind_scene_menu_rows(
                 _ => return None,
             };
             let index = browser.placement_record_index(id, session.placement_structure_revision)?;
-            let draft = draft?;
             let record = draft
                 .placements
                 .placements

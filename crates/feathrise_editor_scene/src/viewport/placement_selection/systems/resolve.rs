@@ -23,19 +23,20 @@ use crate::ui::placement_water::PlacementInstanceIndex;
 use crate::viewport::content_selection::LayerCandidateState; // 高亮解析消费统一候选的只读身份。 // 正式根按场景和稳定ID O(1)定位小集合。
 
 /// 优先采用当前作者会话的未保存精确预览；否则只接受唯一活动正式根。
-fn resolve_active_root(
-    identity: &SelectedPlacementMeshIdentity,
+pub(in crate::viewport) fn resolve_active_root(
+    scene_id: &feathrise_scene_content::SceneId,
+    placement_id: &str,
     session: &EditorAuthoringSession,
     root_index: &PlacementInstanceIndex,
     roots: &Query<(Entity, &ScenePlacementInstance)>,
 ) -> Result<Option<(Entity, bool)>, String> {
     if let Some(entity) = session
         .placement_previews
-        .get(identity.placement_id.as_str())
+        .get(placement_id)
         .copied()
         && roots.get(entity).is_ok_and(|(_, instance)| {
-            instance.scene_id() == &identity.scene_id
-                && instance.id() == identity.placement_id
+            instance.scene_id() == scene_id
+                && instance.id() == placement_id
                 && instance.is_active()
         })
     {
@@ -45,8 +46,8 @@ fn resolve_active_root(
     let mut found = None; // 同图同ID正常情况下只存在一个活动正式根。
     let mut ambiguous = false; // 多个活动根时绝不猜测高亮哪一个空间实例。
     root_index.for_each_active_root(
-        &identity.scene_id,
-        identity.placement_id.as_str(),
+        scene_id,
+        placement_id,
         roots,
         |entity| {
             if found.replace(entity).is_some() {
@@ -57,7 +58,7 @@ fn resolve_active_root(
     if ambiguous {
         Err(format!(
             "摆放{}同时存在多个活动实例根",
-            identity.placement_id
+            placement_id
         )) // 失败关闭，不发布任何一棵树的部分高亮。
     } else {
         Ok(found.map(|entity| (entity, false))) // 无作者预览时允许当前完整正式根提供空间参照。
@@ -235,7 +236,7 @@ pub(crate) fn resolve_selected_placement_mesh(
     }
 
     let (root, author_preview) =
-        match resolve_active_root(&info.identity, &session, &root_index, &roots) {
+        match resolve_active_root(&info.identity.scene_id, &info.identity.placement_id, &session, &root_index, &roots) {
             Ok(Some(root)) => root,
             Ok(None) => {
                 reset_if_changed(
