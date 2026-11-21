@@ -2,93 +2,23 @@
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
-use super::{components::*, resources::BuildProfileMenuState};
+use super::{components::*, feature_ui, resources::BuildProfileMenuState};
 use crate::environment_diagnostics::{BuildEnvironmentState, RequestBuildEnvironment};
 use crate::native_play::ProjectBuildBackend;
 use bevy::{input_focus::InputFocus, prelude::*, ui::{FocusPolicy, RelativeCursorPosition}, window::PrimaryWindow};
 use feathrise_editor_core::{ProjectBuildProfile, ProjectLaunchSettings};
 use feathrise_editor_ui::{EditorButtonClick, colors as c};
 
-pub(super) fn mount(header: &mut ChildSpawnerCommands, font: &Handle<Font>, diagnostics: bool) {
-    // 配置名按文字自然占宽，Debug/Release 都只保留两侧必要留白；菜单继续独立右对齐。
-    header.spawn((crate::window_chrome::ChromeSlot::Profile, Node { height: px(26), flex_shrink: 0., ..default() }))
-        .with_children(|selector| {
-            selector.spawn((
-                InteractionButton, ProfileToggle, Name::new("启动配置"),
-                feathrise_editor_ui::ButtonColors::new(c::BUTTON_DEV_SMALL_NORMAL, c::BUTTON_DEV_SMALL_HOVERED, c::BUTTON_DEV_SMALL_PRESSED),
-                Node {
-                    height: px(26), padding: UiRect::horizontal(px(7)), flex_shrink: 0.,
-                    align_items: AlignItems::Center, justify_content: JustifyContent::Center,
-                    border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(3)), ..default()
-                },
-                BackgroundColor(c::BUTTON_DEV_SMALL_NORMAL), BorderColor::all(c::COPPER_BORDER_WEAK),
-            )).with_child((
-                ProfileLabel(None), Text::new("Debug · DX ▼"),
-                TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
-                TextColor(c::TEXT_PRIMARY), TextLayout::no_wrap(), Pickable::IGNORE,
-            ));
-            selector.spawn((
-                ProfileMenu, GlobalZIndex(4201), FocusPolicy::Block,
-                UiInteraction::None, RelativeCursorPosition::default(),
-                Node {
-                    display: Display::None, position_type: PositionType::Absolute,
-                    right: px(0), top: px(28), width: px(if diagnostics { 192 } else { 148 }),
-                    flex_direction: FlexDirection::Column, padding: UiRect::all(px(4)),
-                    row_gap: px(2), border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(3)), ..default()
-                },
-                BackgroundColor(c::PANEL_BG_STRONG), BorderColor::all(c::COPPER_BORDER_WEAK),
-            )).with_children(|menu| {
-                for profile in [ProjectBuildProfile::Debug, ProjectBuildProfile::Release] {
-                    menu.spawn((
-                        InteractionButton, ProfileOption(profile),
-                        feathrise_editor_ui::ButtonColors::new(c::BUTTON_DEV_SMALL_NORMAL, c::BUTTON_DEV_SMALL_HOVERED, c::BUTTON_DEV_SMALL_PRESSED),
-                        Node {
-                            width: percent(100), height: px(26), padding: UiRect::horizontal(px(5)),
-                            align_items: AlignItems::Center, border: UiRect::all(px(1)),
-                            border_radius: BorderRadius::all(px(2)), ..default()
-                        },
-                        BackgroundColor(c::BUTTON_DEV_SMALL_NORMAL), BorderColor::all(c::COPPER_BORDER_WEAK),
-                    )).with_child((
-                        ProfileLabel(Some(profile)), Text::new(profile.label()),
-                        TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
-                        TextColor(c::TEXT_PRIMARY), TextLayout::no_wrap(), Pickable::IGNORE,
-                    ));
-                }
-                // 两种3D方式都可选择启动工具，共用配置菜单的遮罩和释放帧输入门。
-                menu.spawn((BackendOptions, Node { display: Display::Flex, width: percent(100),
-                    flex_direction: FlexDirection::Column, row_gap: px(2), ..default() }))
-                    .with_children(|options| {
-                        options.spawn((Node { height: px(1), margin: UiRect::vertical(px(3)), ..default() },
-                            BackgroundColor(c::COPPER_BORDER_WEAK), Pickable::IGNORE));
-                        for backend in [ProjectBuildBackend::Dx, ProjectBuildBackend::Native] {
-                            options.spawn((InteractionButton, BackendOption(backend), Name::new(backend.label()),
-                                feathrise_editor_ui::ButtonColors::new(c::BUTTON_DEV_SMALL_NORMAL, c::BUTTON_DEV_SMALL_HOVERED, c::BUTTON_DEV_SMALL_PRESSED),
-                                Node { width: percent(100), height: px(26), padding: UiRect::horizontal(px(5)),
-                                    align_items: AlignItems::Center, border: UiRect::all(px(1)),
-                                    border_radius: BorderRadius::all(px(2)), ..default() },
-                                BackgroundColor(c::BUTTON_DEV_SMALL_NORMAL), BorderColor::all(c::COPPER_BORDER_WEAK),
-                            )).with_child((BackendLabel(backend), Text::new(backend.label()),
-                                TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
-                                TextColor(c::TEXT_PRIMARY), TextLayout::no_wrap(), Pickable::IGNORE));
-                        }
-                    });
-                if diagnostics {
-                    menu.spawn((Node { height: px(1), margin: UiRect::vertical(px(3)), ..default() },
-                        BackgroundColor(c::COPPER_BORDER_WEAK), Pickable::IGNORE));
-                    // 主动预检沿用原启动菜单的输入门，结果写入工程日志浮层。
-                    menu.spawn((InteractionButton, BuildEnvironmentButton, Name::new("检查构建环境"),
-                        feathrise_editor_ui::ButtonColors::new(c::BUTTON_DEV_SMALL_NORMAL, c::BUTTON_DEV_SMALL_HOVERED, c::BUTTON_DEV_SMALL_PRESSED),
-                        Node { width: percent(100), height: px(26), padding: UiRect::horizontal(px(5)),
-                            align_items: AlignItems::Center, border: UiRect::all(px(1)),
-                            border_radius: BorderRadius::all(px(2)), ..default() },
-                        BackgroundColor(c::BUTTON_DEV_SMALL_NORMAL), BorderColor::all(c::COPPER_BORDER_WEAK),
-                    )).with_child((BuildEnvironmentLabel, Text::new("检查构建环境"),
-                        TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
-                        TextColor(c::TEXT_PRIMARY), TextLayout::no_wrap(), Pickable::IGNORE));
-                }
-            });
-        });
-    // 遮罩按整个作者窗口拦截外部点击；工程原生子窗由同一宿主浮层门临时让出。
+pub(super) fn mount(header: &mut ChildSpawnerCommands, font: &Handle<Font>, diagnostics: bool, features: bool) {
+    // 作为同一顶栏组重排，特性始终紧跟 Debug/Release，两个下拉仍各自对齐对应按钮。
+    header.spawn((crate::window_chrome::ChromeSlot::Profile, Node {
+        height: px(26), flex_shrink: 0., column_gap: px(4), ..default()
+    })).with_children(|group| {
+        group.spawn(Node { height: px(26), flex_shrink: 0., ..default() })
+            .with_children(|selector| mount_selector(selector, font, diagnostics));
+        if features { feature_ui::mount(group, font); }
+    });
+    // 两个菜单共用遮罩与释放帧输入门，工程原生子窗也按同一门临时让出。
     header.spawn((
         ProfileBackdrop, GlobalZIndex(4200), FocusPolicy::Block, UiInteraction::None,
         Node {
@@ -98,12 +28,90 @@ pub(super) fn mount(header: &mut ChildSpawnerCommands, font: &Handle<Font>, diag
     ));
 }
 
+fn mount_selector(selector: &mut ChildSpawnerCommands, font: &Handle<Font>, diagnostics: bool) {
+    selector.spawn((
+        InteractionButton, ProfileToggle, Name::new("启动配置"),
+        feathrise_editor_ui::ButtonColors::new(c::BUTTON_DEV_SMALL_NORMAL, c::BUTTON_DEV_SMALL_HOVERED, c::BUTTON_DEV_SMALL_PRESSED),
+        Node {
+            height: px(26), padding: UiRect::horizontal(px(7)), flex_shrink: 0.,
+            align_items: AlignItems::Center, justify_content: JustifyContent::Center,
+            border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(3)), ..default()
+        },
+        BackgroundColor(c::BUTTON_DEV_SMALL_NORMAL), BorderColor::all(c::COPPER_BORDER_WEAK),
+    )).with_child((
+        ProfileLabel(None), Text::new("Debug · DX ▼"),
+        TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
+        TextColor(c::TEXT_PRIMARY), TextLayout::no_wrap(), Pickable::IGNORE,
+    ));
+    selector.spawn((
+        ProfileMenu, GlobalZIndex(4201), FocusPolicy::Block,
+        UiInteraction::None, RelativeCursorPosition::default(),
+        Node {
+            display: Display::None, position_type: PositionType::Absolute,
+            right: px(0), top: px(28), width: px(if diagnostics { 192 } else { 148 }),
+            flex_direction: FlexDirection::Column, padding: UiRect::all(px(4)),
+            row_gap: px(2), border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(3)), ..default()
+        },
+        BackgroundColor(c::PANEL_BG_STRONG), BorderColor::all(c::COPPER_BORDER_WEAK),
+    )).with_children(|menu| {
+        for profile in [ProjectBuildProfile::Debug, ProjectBuildProfile::Release] {
+            menu.spawn((
+                InteractionButton, ProfileOption(profile),
+                feathrise_editor_ui::ButtonColors::new(c::BUTTON_DEV_SMALL_NORMAL, c::BUTTON_DEV_SMALL_HOVERED, c::BUTTON_DEV_SMALL_PRESSED),
+                Node {
+                    width: percent(100), height: px(26), padding: UiRect::horizontal(px(5)),
+                    align_items: AlignItems::Center, border: UiRect::all(px(1)),
+                    border_radius: BorderRadius::all(px(2)), ..default()
+                },
+                BackgroundColor(c::BUTTON_DEV_SMALL_NORMAL), BorderColor::all(c::COPPER_BORDER_WEAK),
+            )).with_child((
+                ProfileLabel(Some(profile)), Text::new(profile.label()),
+                TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
+                TextColor(c::TEXT_PRIMARY), TextLayout::no_wrap(), Pickable::IGNORE,
+            ));
+        }
+        // 两种3D方式都可选择启动工具，共用配置菜单的遮罩和释放帧输入门。
+        menu.spawn((BackendOptions, Node { display: Display::Flex, width: percent(100),
+            flex_direction: FlexDirection::Column, row_gap: px(2), ..default() }))
+            .with_children(|options| {
+                options.spawn((Node { height: px(1), margin: UiRect::vertical(px(3)), ..default() },
+                    BackgroundColor(c::COPPER_BORDER_WEAK), Pickable::IGNORE));
+                for backend in [ProjectBuildBackend::Dx, ProjectBuildBackend::Native] {
+                    options.spawn((InteractionButton, BackendOption(backend), Name::new(backend.label()),
+                        feathrise_editor_ui::ButtonColors::new(c::BUTTON_DEV_SMALL_NORMAL, c::BUTTON_DEV_SMALL_HOVERED, c::BUTTON_DEV_SMALL_PRESSED),
+                        Node { width: percent(100), height: px(26), padding: UiRect::horizontal(px(5)),
+                            align_items: AlignItems::Center, border: UiRect::all(px(1)),
+                            border_radius: BorderRadius::all(px(2)), ..default() },
+                        BackgroundColor(c::BUTTON_DEV_SMALL_NORMAL), BorderColor::all(c::COPPER_BORDER_WEAK),
+                    )).with_child((BackendLabel(backend), Text::new(backend.label()),
+                        TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
+                        TextColor(c::TEXT_PRIMARY), TextLayout::no_wrap(), Pickable::IGNORE));
+                }
+            });
+        if diagnostics {
+            menu.spawn((Node { height: px(1), margin: UiRect::vertical(px(3)), ..default() },
+                BackgroundColor(c::COPPER_BORDER_WEAK), Pickable::IGNORE));
+            // 主动预检沿用原启动菜单的输入门，结果写入工程日志浮层。
+            menu.spawn((InteractionButton, BuildEnvironmentButton, Name::new("检查构建环境"),
+                feathrise_editor_ui::ButtonColors::new(c::BUTTON_DEV_SMALL_NORMAL, c::BUTTON_DEV_SMALL_HOVERED, c::BUTTON_DEV_SMALL_PRESSED),
+                Node { width: percent(100), height: px(26), padding: UiRect::horizontal(px(5)),
+                    align_items: AlignItems::Center, border: UiRect::all(px(1)),
+                    border_radius: BorderRadius::all(px(2)), ..default() },
+                BackgroundColor(c::BUTTON_DEV_SMALL_NORMAL), BorderColor::all(c::COPPER_BORDER_WEAK),
+            )).with_child((BuildEnvironmentLabel, Text::new("检查构建环境"),
+                TextFont { font: font.clone().into(), font_size: 12.0.into(), ..default() },
+                TextColor(c::TEXT_PRIMARY), TextLayout::no_wrap(), Pickable::IGNORE));
+        }
+    });
+}
+
 pub(super) fn input(
-    toggles: Query<&EditorButtonClick, With<ProfileToggle>>,
+    toggles: Query<(&EditorButtonClick, Has<FeatureToggle>), Or<(With<ProfileToggle>, With<FeatureToggle>)>>,
     options: Query<(&ProfileOption, &EditorButtonClick), Changed<EditorButtonClick>>,
     backends: Query<(&BackendOption, &EditorButtonClick), Changed<EditorButtonClick>>,
     diagnostics: Query<&EditorButtonClick, (With<BuildEnvironmentButton>, Changed<EditorButtonClick>)>,
-    panels: Query<&RelativeCursorPosition, Or<(With<ProfileMenu>, With<ProfileToggle>)>>,
+    panels: Query<&RelativeCursorPosition,
+        Or<(With<ProfileMenu>, With<ProfileToggle>, With<FeaturePanel>, With<FeatureToggle>)>>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -128,8 +136,9 @@ pub(super) fn input(
     if blocked {
         state.open = false;
     } else {
-        if toggles.iter().any(EditorButtonClick::is_clicked) {
-            state.open = !state.open;
+        if let Some(features) = toggles.iter().find_map(|(click, features)| click.is_clicked().then_some(features)) {
+            state.open = !state.open || state.features != features;
+            state.features = features;
             if state.open { focus.clear(); }
         }
         if was_open {
@@ -138,14 +147,14 @@ pub(super) fn input(
                     && !panels.iter().any(RelativeCursorPosition::cursor_over)
             {
                 state.open = false;
-            } else if let Some(profile) = options.iter().find_map(|(option, click)| click.is_clicked().then_some(option.0)) {
+            } else if !state.features && let Some(profile) = options.iter().find_map(|(option, click)| click.is_clicked().then_some(option.0)) {
                 // 只发布原请求；业务门拒绝时仍回显实际采用的配置，不假装已经切换成功。
                 requests.write(super::messages::RequestBuildProfile(profile));
                 state.open = false;
-            } else if let Some(backend) = backends.iter().find_map(|(option, click)| click.is_clicked().then_some(option.0)) {
+            } else if !state.features && let Some(backend) = backends.iter().find_map(|(option, click)| click.is_clicked().then_some(option.0)) {
                 backend_requests.write(super::messages::RequestBuildBackend(backend));
                 state.open = false;
-            } else if diagnostics.iter().any(EditorButtonClick::is_clicked) {
+            } else if !state.features && diagnostics.iter().any(EditorButtonClick::is_clicked) {
                 diagnostic_requests.write(RequestBuildEnvironment);
                 state.open = false;
             }
@@ -160,8 +169,9 @@ pub(super) fn present(
     launch: Res<ProjectLaunchSettings>,
     backend: Res<ProjectBuildBackend>,
     locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
-    mut panels: Query<&mut Node, Or<(With<ProfileMenu>, With<ProfileBackdrop>)>>,
-    toggles: Query<(Entity, Has<GlobalZIndex>), With<ProfileToggle>>,
+    mut panels: Query<(&mut Node, Has<ProfileBackdrop>, Has<FeaturePanel>),
+        Or<(With<ProfileMenu>, With<ProfileBackdrop>, With<FeaturePanel>)>>,
+    toggles: Query<(Entity, Has<GlobalZIndex>), Or<(With<ProfileToggle>, With<FeatureToggle>)>>,
     mut labels: Query<(&ProfileLabel, &mut Text)>,
     mut options: Query<(&ProfileOption, &mut BorderColor)>,
     mut backend_labels: Query<(&BackendLabel, &mut Text), Without<ProfileLabel>>,
@@ -173,8 +183,10 @@ pub(super) fn present(
         && !locale.as_ref().is_some_and(|locale| locale.is_changed())
         && !diagnostics.as_ref().is_some_and(|diagnostics| diagnostics.is_changed()) { return; }
     let locale = locale.as_deref().copied().unwrap_or_default();
-    for mut node in &mut panels {
-        node.display = if state.open { Display::Flex } else { Display::None };
+    for (mut node, backdrop, features) in &mut panels {
+        let visible = state.open && (backdrop || state.features == features);
+        let display = if visible { Display::Flex } else { Display::None };
+        if node.display != display { node.display = display; }
     }
     // 收起时恢复普通子节点堆叠；显式全局0会把按钮压到作者工作台背景之后。
     for (entity, elevated) in &toggles {

@@ -249,6 +249,11 @@ fn capture_launch_settings(project: &project::Project, output: &Path, stage: &st
         || stored["mode"] != json!(crate::viewport_mode::ViewportMode::SavedWorld) {
         return Err(format!("真实作者退出后工程配置未保存 Cargo Debug 和最终编辑器视口：{stored}"));
     }
+    if super::build_backend::feature_settings()
+        && (stored["default_features"] != false || stored["features"] != json!([super::build_backend::FIXTURE_FEATURE]))
+    {
+        return Err(format!("真实作者退出后没有保存关闭的默认组和所选特性：{stored}"));
+    }
     let snapshot = format!("launch-after-{stage}.json");
     fs::write(output.join(&snapshot), &bytes).map_err(|error|error.to_string())?;
     let hash: String = Sha256::digest(bytes).iter().map(|byte|format!("{byte:02x}")).collect();
@@ -288,6 +293,30 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
             &BuildControl::default(),
         )?;
         crate::native_validation::prepare_workspace_fixture(&root, "常驻工程对比")?;
+        if super::build_backend::feature_settings() {
+            let project = owner(&root)?;
+            let mut manifest = crate::project_template::read_cargo_manifest(&project.manifest)?;
+            let features = manifest.get_mut("features").and_then(toml::Value::as_table_mut)
+                .ok_or("工程特性夹具缺少原模板的 features 表")?;
+            let explicit = super::build_backend::FIXTURE_FEATURE;
+            let default_member = super::build_backend::FIXTURE_DEFAULT_MEMBER;
+            let default_group = "check_preview_group";
+            for name in [explicit, default_member] {
+                features.insert(name.into(), toml::Value::Array(Vec::new()));
+            }
+            // 夹具用两层引用覆盖 default 的间接成员。
+            features.insert(default_group.into(), toml::Value::Array(vec![toml::Value::String(default_member.into())]));
+            features.entry("default".to_owned()).or_insert_with(|| toml::Value::Array(Vec::new()))
+                .as_array_mut().ok_or("验收夹具的 default 不是特性列表")?
+                .push(toml::Value::String(default_group.into()));
+            fs::write(&project.manifest, toml::to_string(&manifest).map_err(|error| error.to_string())?)
+                .map_err(|error| error.to_string())?;
+            let main = project.manifest.parent().ok_or("工程特性夹具缺少包目录")?.join("src/main.rs");
+            // 同时检查独有的默认组成员和模板的 raytracing，防止编辑器额外注入能力。
+            writeln!(fs::OpenOptions::new().append(true).open(&main).map_err(|error| error.to_string())?,
+                "\n#[cfg(any(not(feature = \"{explicit}\"), feature = \"default\", feature = \"{default_group}\", feature = \"{default_member}\", feature = \"raytracing\"))]\ncompile_error!(\"validation requires the selected feature with Cargo defaults and raytracing off\");")
+                .map_err(|error| error.to_string())?;
+        }
         if super::build_backend::full_build() {
             // 只移除自有夹具的热更新声明，保留普通模板的 rust-lld 和锁文件供真实 DX 构建。
             let project = owner(&root)?;
@@ -315,6 +344,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         Ok("dx-full") => "dx_full_owned_window_validation",
         Ok("native-cargo") => "native_cargo_owned_window_validation",
         Ok("cargo-settings") => "cargo_settings_owned_window_validation",
+        Ok("cargo-features") => "cargo_features_owned_window_validation",
         Ok("native-preview") => "native_preview_owned_window_validation",
         Ok("preview-chrome") => "preview_chrome_owned_three_level_window_validation",
         Ok("scene-tree") => "resident_project_scene_tree_owned_window_validation",

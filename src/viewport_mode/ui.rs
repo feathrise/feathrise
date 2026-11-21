@@ -24,6 +24,7 @@ pub(super) fn mount(
     launch_buttons: Query<(), With<ProjectLaunchButton>>,
     assets: Res<AssetServer>,
     diagnostics: Option<Res<crate::environment_diagnostics::BuildEnvironmentState>>,
+    features: Option<Res<super::resources::FeatureMenu>>,
 ) {
     let font = feathrise_editor_core::editor_font(&assets, feathrise_editor_core::FONT_PATH);
     for (header, children) in &headers {
@@ -81,7 +82,7 @@ pub(super) fn mount(
             commands.entity(header).add_child(modes);
         }
         commands.entity(header).with_children(|header| {
-            super::profile_ui::mount(header, &font, diagnostics.as_ref().is_some_and(|state| state.enabled));
+            super::profile_ui::mount(header, &font, diagnostics.as_ref().is_some_and(|state| state.enabled), features.is_some());
             header.spawn((
                 ModeStatus,
                 feathrise_editor_ui::PanelStatusText("3D视口"),

@@ -57,6 +57,9 @@ pub(crate) enum Event {
     Failed(String),
 }
 
+// 与原子构建选择修订同票发布，只保留最后一份轻量快照。
+pub(super) type BuildFeatureUpdate = (u64, crate::native_play::ProjectBuildFeatures);
+
 pub(super) struct BuildRequest {
     pub generation: u64,
     pub profile: ProjectBuildProfile,

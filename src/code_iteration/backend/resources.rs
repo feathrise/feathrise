@@ -1,6 +1,7 @@
 //! 两个固定后台线程的所有权与原子代次门；UI 不获取后台互斥锁，也不等待进程或文件扫描。
 
-use super::types::{BuildIdentity, BuildRequest, Event, WatchStart};
+use super::types::{BuildFeatureUpdate, BuildIdentity, BuildRequest, Event, WatchStart};
+use crate::native_play::{ProjectBuildBackend, ProjectBuildFeatures};
 use crate::{build_process::BuildControl, project::Project, project_log::ProjectLogChannel};
 use crate::code_iteration::hotpatch::{PatchContext, PatchTarget};
 use feathrise_editor_core::ProjectBuildProfile;
@@ -18,7 +19,7 @@ pub(super) struct Shared {
     pub control: BuildControl,
     pub generation: AtomicU64,
     pub profile: AtomicU8,
-    /// 低位是DX/原生选择，其余位保留切换历史；与源码代次分开，切换不额外排第二次编译。
+    /// 低位是 DX/Cargo，其余位记录构建工具和特性的切换历史。配置变化不额外排源码构建。
     pub build_backend: AtomicU64,
     pub stopped: AtomicBool,
     /// 只有监听与构建线程访问此一槽；运行中的构建占另一个固定槽，不因过期而提前归还。
@@ -71,6 +72,8 @@ pub(crate) struct Backend {
     shared: Arc<Shared>,
     receiver: mpsc::Receiver<Event>,
     patch_sender: mpsc::SyncSender<Option<PatchContext>>,
+    feature_updates: async_channel::Sender<BuildFeatureUpdate>,
+    features: ProjectBuildFeatures,
     /// 仅记录已经成功投递的目标；满槽时不能提前记成已清除，否则None永远无法撤销旧上下文。
     last_patch_target: Option<PatchTarget>,
     source_thread: Option<JoinHandle<()>>,
@@ -103,7 +106,7 @@ impl Backend {
             let _ = build_ended.try_send(());
         });
         (Self { project_id: project.id.clone(), root: project.root.clone(), shared, receiver,
-            patch_sender, last_patch_target: None,
+            patch_sender, last_patch_target: None, feature_updates: async_channel::bounded(1).0, features: Default::default(),
             source_thread: Some(source_thread), build_thread: Some(build_thread) }, source_end, build_end)
     }
 
@@ -112,8 +115,10 @@ impl Backend {
         target: PathBuf,
         profile: ProjectBuildProfile,
         logs: Option<ProjectLogChannel>,
+        build_backend: ProjectBuildBackend,
+        features: ProjectBuildFeatures,
     ) -> Self {
-        Self::spawn_started(project, target, profile, logs, WatchStart::BaselineOnly { generation: 1 })
+        Self::spawn_started(project, target, profile, logs, WatchStart::BaselineOnly { generation: 1 }, build_backend, features)
     }
 
     /// 调用方必须先确认旧实例 is_finished 并成功 finish；传入其停止后的最终代次。
@@ -123,36 +128,30 @@ impl Backend {
         profile: ProjectBuildProfile,
         logs: Option<ProjectLogChannel>,
         previous_generation: u64,
-        build_backend: crate::native_play::ProjectBuildBackend,
+        build_backend: ProjectBuildBackend,
+        features: ProjectBuildFeatures,
     ) -> Result<Self, String> {
         let start = resumed_start(previous_generation)?;
-        Ok(Self::spawn_started_with_backend(project, target, profile, logs, start, build_backend))
+        Ok(Self::spawn_started(project, target, profile, logs, start, build_backend, features))
     }
 
     fn spawn_started(
-        project: Project,
-        target: PathBuf,
-        profile: ProjectBuildProfile,
-        logs: Option<ProjectLogChannel>,
-        start: WatchStart,
-    ) -> Self {
-        Self::spawn_started_with_backend(project, target, profile, logs, start, crate::native_play::ProjectBuildBackend::Dx)
-    }
-
-    fn spawn_started_with_backend(
         project: Project, target: PathBuf, profile: ProjectBuildProfile, logs: Option<ProjectLogChannel>,
-        start: WatchStart, build_backend: crate::native_play::ProjectBuildBackend,
+        start: WatchStart, build_backend: ProjectBuildBackend, features: ProjectBuildFeatures,
     ) -> Self {
         let control = logs
             .map(|logs| {
                 BuildControl::with_log(logs.begin_task(crate::project_log::LogTaskKind::CodeBuild))
             })
             .unwrap_or_default();
+        let revision = u64::from(build_backend == ProjectBuildBackend::Native);
+        let (feature_updates, feature_receiver) = async_channel::bounded(1);
+        feature_updates.try_send((revision, features.clone())).expect("初始构建选择槽为空");
         let shared = Arc::new(Shared {
             control,
             generation: AtomicU64::new(start.generation()),
             profile: AtomicU8::new(encode_profile(profile)),
-            build_backend: AtomicU64::new(u64::from(build_backend == crate::native_play::ProjectBuildBackend::Native)),
+            build_backend: AtomicU64::new(revision),
             stopped: AtomicBool::new(false),
             latest: Mutex::new(None),
             wake: Condvar::new(),
@@ -170,7 +169,7 @@ impl Backend {
         let build_shared = shared.clone();
         let build_project = project.clone();
         let build_thread = thread::spawn(move || {
-            super::worker::build(build_project, target, build_shared, events, patch_context)
+            super::worker::build(build_project, target, build_shared, events, patch_context, feature_receiver)
         });
         Self {
             project_id: project.id,
@@ -178,6 +177,8 @@ impl Backend {
             shared,
             receiver,
             patch_sender,
+            feature_updates,
+            features,
             last_patch_target: None,
             source_thread: Some(source_thread),
             build_thread: Some(build_thread),
@@ -206,14 +207,16 @@ impl Backend {
         }
     }
 
-    /// 仅撤销旧候选；工程3D协调器拥有这次重新构建，源码监听不能再重复构建一次。
-    /// 选择与修订以单个原子值发布，DX→原生→DX也不能复活旧成功结果。
-    pub(crate) fn set_build_backend(&self, backend: crate::native_play::ProjectBuildBackend) -> bool {
-        let encoded = u64::from(backend == crate::native_play::ProjectBuildBackend::Native);
+    /// 仅撤销旧候选。特性快照先进入单槽邮箱，再公开其修订，作者帧不等待后台。
+    pub(crate) fn set_build_selection(&mut self, backend: ProjectBuildBackend, features: &ProjectBuildFeatures) -> bool {
+        let encoded = u64::from(backend == ProjectBuildBackend::Native);
         let previous = self.shared.build_backend.load(Ordering::Acquire);
-        if previous & 1 == encoded { return false; }
-        if let Some(next) = previous.checked_add(1) {
-            // 此入口只有作者线程写；后台只读取一次冻结本请求的选择和修订。
+        let same_backend = previous & 1 == encoded;
+        if same_backend && &self.features == features { return false; }
+        if let Some(next) = previous.checked_add(if same_backend { 2 } else { 1 }) {
+            // 只保留最新值。若后台已退出，原完成邮箱会报告退出，仍要撤销旧产物。
+            let _ = self.feature_updates.force_send((next, features.clone()));
+            self.features = features.clone();
             self.shared.build_backend.store(next, Ordering::Release);
         } else {
             self.cancel(); // 不能回绕复活旧候选。
@@ -315,7 +318,7 @@ impl Backend {
         });
         (Self {
             project_id: project.id.clone(), root: project.root.clone(), shared, receiver,
-            patch_sender, last_patch_target: None,
+            patch_sender, last_patch_target: None, feature_updates: async_channel::bounded(1).0, features: Default::default(),
             source_thread: Some(source_thread), build_thread: None,
         }, release)
     }
@@ -401,9 +404,10 @@ mod tests {
         });
         let (_events, receiver) = mpsc::sync_channel(16);
         let (patch_sender, _patch_context) = mpsc::sync_channel(1);
-        let backend = Backend {
+        let (feature_updates, feature_receiver) = async_channel::bounded(1);
+        let mut backend = Backend {
             project_id: "owned-resumed-code".into(), root: root.clone(), shared, receiver,
-            patch_sender, last_patch_target: None,
+            patch_sender, last_patch_target: None, feature_updates, features: Default::default(),
             source_thread: None, build_thread: None,
         };
         let mut identity = BuildIdentity {
@@ -417,7 +421,7 @@ mod tests {
         identity.profile = ProjectBuildProfile::Release;
         assert!(!backend.is_current(&identity));
         identity.profile = ProjectBuildProfile::Debug;
-        assert!(backend.set_build_backend(crate::native_play::ProjectBuildBackend::Native));
+        assert!(backend.set_build_selection(ProjectBuildBackend::Native, &ProjectBuildFeatures::default()));
         assert!(!backend.is_current(&identity), "更换工具须拒绝旧DX产物");
         assert_eq!(backend.current_generation(), 74, "工具切换由工程3D重建，不能冒充源码保存再编译一次");
         identity.generation = backend.current_generation();
@@ -425,14 +429,22 @@ mod tests {
         identity.build_backend = crate::native_play::ProjectBuildBackend::Native;
         identity.backend_revision = 1;
         assert!(backend.is_current(&identity));
-        assert!(!backend.set_build_backend(crate::native_play::ProjectBuildBackend::Native));
+        assert!(!backend.set_build_selection(ProjectBuildBackend::Native, &ProjectBuildFeatures::default()));
         assert!(backend.is_current(&identity), "重复选择不额外换代");
-        assert!(backend.set_build_backend(crate::native_play::ProjectBuildBackend::Dx));
+        assert!(backend.set_build_selection(ProjectBuildBackend::Dx, &ProjectBuildFeatures::default()));
         assert!(!backend.is_current(&identity), "切回DX不能复活原生候选");
         identity.build_backend = crate::native_play::ProjectBuildBackend::Dx;
         identity.backend_revision = 0;
         assert!(!backend.is_current(&identity), "切回同一个DX也不能复活首次候选");
         identity.backend_revision = 2;
+        assert!(backend.is_current(&identity));
+        assert!(backend.set_build_selection(ProjectBuildBackend::Dx, &ProjectBuildFeatures::new(false, vec!["custom".into()])));
+        assert!(backend.set_build_selection(ProjectBuildBackend::Dx, &ProjectBuildFeatures::default()));
+        assert!(!backend.is_current(&identity), "特性改回原值后旧候选仍然过期");
+        let (revision, features) = feature_receiver.try_recv().unwrap();
+        assert_eq!(revision, 6);
+        assert_eq!(features, ProjectBuildFeatures::default(), "单槽只保留最新完整选择");
+        identity.backend_revision = revision;
         assert!(backend.is_current(&identity));
         identity.project_id = "another-project".into();
         assert!(!backend.is_current(&identity));
@@ -474,6 +486,7 @@ mod tests {
         let mut backend = Backend {
             project_id: previous.project_id.clone(), root: PathBuf::from("C:/owned-patch-mailbox"),
             shared, receiver, patch_sender, last_patch_target: Some(previous.clone()),
+            feature_updates: async_channel::bounded(1).0, features: Default::default(),
             source_thread: None, build_thread: None,
         };
         backend.set_patch_context(None);

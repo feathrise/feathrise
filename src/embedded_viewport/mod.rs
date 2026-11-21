@@ -116,21 +116,21 @@ pub(crate) fn build_profile_blocker(world: &World) -> Option<String> {
     let runtime = world.get_non_send::<resources::Runtime>()?;
     if let Some(error) = &runtime.cleanup_failure { return Some(error.clone()); }
     if runtime.code_apply.is_some() {
-        return Some("正在应用新代码，请等待草稿和原预览模式恢复后再切换Debug/Release".into());
+        return Some("正在应用新代码，请等待草稿和原预览模式恢复后再切换构建选项".into());
     }
     if runtime.hotpatch.flight.is_some() {
-        return Some("正在等待函数体热更新的实际结果，请确认结束后再切换Debug/Release".into());
+        return Some("正在等待函数体热更新的实际结果，请确认结束后再切换构建选项".into());
     }
     if runtime.exit_requested || runtime.close_return_requested {
-        return Some("请先完成或取消关闭工程，再切换Debug/Release".into());
+        return Some("请先完成或取消关闭工程，再切换构建选项".into());
     }
     if runtime.pending_play || runtime.pending_edit || runtime.waiting_mode.is_some()
         || world.get_resource::<EmbeddedStatus>().is_some_and(|status| status.playing)
     {
-        return Some("请先返回编辑并完成模式交接，再切换Debug/Release".into());
+        return Some("请先返回编辑并完成模式交接，再切换构建选项".into());
     }
     if runtime.active.as_ref().is_some_and(|active| active.control.is_cancelled()) {
-        return Some("正在确认当前运行进程和通信线程退出，请稍后切换Debug/Release".into());
+        return Some("正在确认当前运行进程和通信线程退出，请稍后切换构建选项".into());
     }
     None
 }

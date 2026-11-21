@@ -1,30 +1,30 @@
 //! 首次完整fat版本沿用原运行副本；冻结EXE/PDB和输入摘要，为同一World提供不可变补丁基线。
 
-use super::{PreparedGame, DiagnosticCallback, features, rust_runtime_directory};
+use super::{PreparedGame, DiagnosticCallback, ProjectBuildFeatures, rust_runtime_directory};
 use crate::{build_artifacts, build_process::BuildControl, code_iteration::{capture_source, hotpatch::{self, FatBaseline}}, project::Project};
 use feathrise_editor_core::ProjectBuildProfile;
 use std::{fs, path::Path, sync::Arc};
 
 pub(super) fn prepare(project: &Project, target: &Path, profile: ProjectBuildProfile, dx: &Path,
+    manifest: &toml::Value, selected_features: &ProjectBuildFeatures,
     control: &BuildControl, diagnostics: Option<DiagnosticCallback>) -> Result<Option<PreparedGame>, String> {
-    let manifest = fs::read_to_string(&project.manifest).map_err(|error| error.to_string())?;
-    let manifest: toml::Value = toml::from_str(&manifest).map_err(|error| error.to_string())?;
     // dx首轮只替换入口bin；Cargo隐式lib属于所选叶包，不能按外层工程根漏掉嵌套lib后将其误判为bin补丁。
     let package_root = project.manifest.parent().ok_or("热更新Cargo入口缺少包目录")?;
     if manifest.get("lib").is_some() || package_root.join("src/lib.rs").is_file() { return Ok(None); }
     if manifest.get("features").and_then(|features| features.get("function_hotpatch")).is_none()
-        || !matches!(hotpatch::compatibility::Contract::parse(&toml::to_string(&manifest).map_err(|error| error.to_string())?), Ok(Some(_))) {
+        || !matches!(hotpatch::compatibility::Contract::parse(&toml::to_string(manifest).map_err(|error| error.to_string())?), Ok(Some(_))) {
         return Ok(None);
     }
     let source = capture_source(project, target, control)?;
     if source.hotpatch_shape.is_none() { return Ok(None); }
-    let mut features = features::identity();
-    if !features.is_empty() { features.push(','); }
-    features.push_str("function_hotpatch");
+    // fat 与后续薄补丁使用同一套已冻结的工程特性，避免按另一组 cfg 生成函数。
+    let mut enabled: Vec<_> = selected_features.names().iter().map(String::as_str).collect();
+    if !enabled.contains(&"function_hotpatch") { enabled.push("function_hotpatch"); }
+    let features = enabled.join(",");
     if let Some(log) = control.log_sink() {
         log.task_message(&format!("构建方式：DX；配置：render-dev；缓存：{}；启用函数热更新", target.display()));
     }
-    let fat = hotpatch::toolchain::fat(project, target, dx, control, &features, diagnostics)?;
+    let fat = hotpatch::toolchain::fat(project, target, dx, control, selected_features.default_enabled(), &features, diagnostics)?;
     if source != capture_source(project, target, control)? { return Err("完整热更新基线构建期间源码变化，请等待最新编译".into()); }
     let dlls = hotpatch::toolchain::runtime_dlls(&fat, target, control)?;
     let profile_dir = fat.artifacts.executable.parent().ok_or("fat产物缺少父目录")?;
@@ -39,12 +39,14 @@ pub(super) fn prepare(project: &Project, target: &Path, profile: ProjectBuildPro
     fs::create_dir(&patch_root).map_err(|error| error.to_string())?;
     let baseline = Arc::new(FatBaseline {
         client_json: fat.client_for_frozen_executable(&bundle.executable)?, source, base_build,
-        directory: bundle.directory.clone(), patch_root, features, bundle: bundle.clone(),
+        directory: bundle.directory.clone(), patch_root, features, selected_features: selected_features.clone(),
+        bundle: bundle.clone(),
     });
     Ok(Some(PreparedGame {
         executable: bundle.executable.clone(), target: target.to_owned(), linked_paths: vec![bundle.directory.clone()],
         dlls, build_outputs: Vec::new(), project_id: project.id.clone(), project_root: project.root.clone(),
-        profile, build_backend: crate::native_play::ProjectBuildBackend::Dx, bundle: Some(bundle), hotpatch: Some(baseline),
+        profile, build_backend: crate::native_play::ProjectBuildBackend::Dx, selected_features: selected_features.clone(),
+        bundle: Some(bundle), hotpatch: Some(baseline),
     }))
 }
 
@@ -78,7 +80,9 @@ mod tests {
         // 先撤销构建租约：正确的lib门须在任何源码扫描/工具准备前返回None，错过此门只能报取消，绝不执行dx。
         let control = BuildControl::default();
         control.cancel();
-        assert!(prepare(&project, &fixture.0.join("unused-target"), ProjectBuildProfile::Debug, Path::new("unused-dx"), &control, None)
+        let manifest = crate::project_template::read_cargo_manifest(&project.manifest).unwrap();
+        assert!(prepare(&project, &fixture.0.join("unused-target"), ProjectBuildProfile::Debug, Path::new("unused-dx"),
+            &manifest, &ProjectBuildFeatures::default(), &control, None)
             .is_ok_and(|prepared| prepared.is_none()));
         assert!(!fixture.0.join("unused-target").exists());
     }

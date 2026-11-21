@@ -3,10 +3,16 @@
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
-use bevy::{prelude::*, render::view::screenshot::{Screenshot, ScreenshotCaptured}, tasks::IoTaskPool};
-use crate::{native_play::ProjectBuildBackend as Backend, viewport_mode::{ViewportMode, ViewportModeState}};
+use bevy::{camera::RenderTarget,
+    picking::{backend::HitData, events::{Pointer, PointerDrag, PointerDragEnd, PointerDragStart},
+        pointer::{Location, PointerButton, PointerId}},
+    prelude::*, render::view::screenshot::{Screenshot, ScreenshotCaptured}, tasks::IoTaskPool,
+    ui::ComputedUiRenderTargetInfo, ui_widgets::{Scrollbar, ScrollbarThumb},
+    window::{PrimaryWindow, WindowRef}};
+use crate::{native_play::{ProjectBuildBackend as Backend, ProjectBuildFeatures},
+    viewport_mode::{ViewportMode, ViewportModeState}};
 use feathrise_editor_scene::standalone::{self, embedded_validation as author};
-use feathrise_editor_core::{ProjectBuildProfile, ProjectLaunchSettings};
+use feathrise_editor_core::{EditorSettings, ProjectBuildProfile, ProjectLaunchSettings};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{path::{Path, PathBuf}, time::{Duration, Instant}};
@@ -16,6 +22,10 @@ enum Phase { Open, Local, Layout, Added, Await, Menu, Return, Finish, Done }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SettingsStage { Select, Reopen }
+
+pub(super) const FIXTURE_FEATURE: &str = "check_preview_a";
+pub(super) const FIXTURE_DEFAULT_MEMBER: &str = "check_preview_b";
+const FEATURE_STEPS: usize = 9;
 
 #[derive(Resource)]
 struct Plan {
@@ -36,6 +46,8 @@ struct Plan {
     initial_backend: Backend,
     initial_profile: ProjectBuildProfile,
     selection_clicks: usize,
+    feature_step: usize,
+    feature_menu: Option<Value>,
     window_resized: bool,
     layout: Option<Value>,
 }
@@ -46,11 +58,15 @@ impl Plan {
 }
 
 pub(super) fn active() -> bool {
-    matches!(std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref(), Ok("build-backend" | "bundled-dx" | "dx-full" | "native-cargo" | "cargo-settings"))
+    matches!(std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref(), Ok("build-backend" | "bundled-dx" | "dx-full" | "native-cargo" | "cargo-settings" | "cargo-features"))
 }
 
 pub(super) fn cargo_settings() -> bool {
-    std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("cargo-settings")
+    matches!(std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref(), Ok("cargo-settings" | "cargo-features"))
+}
+
+pub(super) fn feature_settings() -> bool {
+    std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("cargo-features")
 }
 
 pub(super) fn full_build() -> bool {
@@ -58,7 +74,7 @@ pub(super) fn full_build() -> bool {
 }
 
 fn native_only() -> bool {
-    matches!(std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref(), Ok("native-cargo" | "cargo-settings"))
+    matches!(std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref(), Ok("native-cargo" | "cargo-settings" | "cargo-features"))
 }
 
 pub(super) fn install(app: &mut App, directory: PathBuf) -> Result<(), String> {
@@ -79,7 +95,7 @@ pub(super) fn install(app: &mut App, directory: PathBuf) -> Result<(), String> {
         frames: 0, pulse: None, author: None, steps: Vec::new(), error: None,
         guest: None, screenshot: None, completion: None, build_command: None,
         settings_stage, initial_backend, initial_profile, selection_clicks: 0,
-        window_resized: false, layout: None })
+        feature_step: 0, feature_menu: None, window_resized: false, layout: None })
         .add_systems(Update, super::input_ownership.before(feathrise_editor_core::SceneEditorSystemSet::Input))
         .add_systems(Last, drive);
     Ok(())
@@ -92,8 +108,14 @@ fn drive(world: &mut World) {
         if plan.settings_stage.is_some() && !plan.window_resized && plan.frames <= 30 {
             // 修改真实主窗口尺寸后等待正常布局；不直接改 ComputedNode 或假造窄视口坐标。
             if let Ok(mut window) = world.query_filtered::<&mut Window, With<bevy::window::PrimaryWindow>>().single_mut(world) {
-                window.resolution.set(1100., 800.);
+                window.resolution.set(1100., if feature_settings() { 940. } else { 800. });
                 plan.window_resized = true;
+                if feature_settings() && plan.settings_stage == Some(SettingsStage::Select) {
+                    // 首轮用较小的 UI 缩放确保全量可见，再恢复正常大小验证溢出。
+                    let mut settings = world.resource_mut::<EditorSettings>();
+                    settings.editor_ui_scale_auto = false;
+                    settings.editor_ui_scale = 0.75;
+                }
             }
         }
         if plan.phase == Phase::Done {
@@ -132,6 +154,14 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
             if plan.initial_profile != ProjectBuildProfile::Debug || world.resource::<ProjectLaunchSettings>().profile != ProjectBuildProfile::Debug {
                 return Err("新作者会话没有恢复 Debug 配置".into());
             }
+            if feature_settings() {
+                let selected = ProjectBuildFeatures::selected(world);
+                let default_enabled = plan.settings_stage != Some(SettingsStage::Reopen);
+                let expected: &[&str] = if default_enabled { &[] } else { &[FIXTURE_FEATURE] };
+                if selected.default_enabled() != default_enabled || selected.names() != expected {
+                    return Err("新作者会话的默认组开关或特性选择与预期不符".into());
+                }
+            }
             if plan.settings_stage.is_some() && world.resource::<super::EmbeddedStatus>().starts != 0 {
                 return Err("工程配置专项在原按钮输入前意外启动了工程".into());
             }
@@ -144,7 +174,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
             else { author::request_cuboid(world, [7., 1., -2.])?; plan.advance(Phase::Added); }
         }
         Phase::Layout => {
-            let layout = narrow_layout(world)?;
+            let layout = if feature_settings() { feature_layout(world)? } else { narrow_layout(world)? };
             let Some(capture) = screenshot(world, plan, "narrow-layout.png")? else { return Ok(()); };
             plan.layout = Some(json!({"geometry":layout,"screenshot":capture}));
             author::request_cuboid(world, [7., 1., -2.])?;
@@ -160,6 +190,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
                 else { press(world, plan, "Debug · DX ▼")?; }
                 return Ok(());
             }
+            if feature_settings() && !select_features(world, plan)? { return Ok(()); }
             if press(world, plan, "工程 3D")? { plan.author = Some(current); plan.advance(Phase::Await); }
         }
         Phase::Await => {
@@ -185,7 +216,17 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
             if expected == Backend::Native && !plan.build_command.as_deref().is_some_and(is_native_debug_command) {
                 return Err(format!("原生 Debug 未使用普通 Cargo 开发缓存：{:?}", plan.build_command));
             }
-            if plan.steps.iter().any(|step|step["pid"] == status.pid) { return Err("更换构建方式没有替换旧工程进程".into()); }
+            if feature_settings() && (runtime.attempted_features.default_enabled()
+                || runtime.attempted_features.names() != [FIXTURE_FEATURE]
+                || !plan.build_command.as_deref().is_some_and(|command| {
+                    command.split_whitespace().any(|argument| argument == "--no-default-features")
+                        && command.split_once(" --features ").and_then(|(_, arguments)| arguments.split_whitespace().next())
+                            .is_some_and(|argument| argument.trim_matches(['\'', '"']) == FIXTURE_FEATURE)
+                }))
+            {
+                return Err(format!("实际构建未关闭默认组或传入了额外特性：{:?}", plan.build_command));
+            }
+            if plan.steps.iter().take(plan.index).any(|step|step["pid"] == status.pid) { return Err("更换构建方式没有替换旧工程进程".into()); }
             preserve_author(world, plan)?;
             if !capture_guest(world, plan)? { return Ok(()); }
             let title = format!("Debug · {} ▼", expected.label());
@@ -225,6 +266,7 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
                 "default_profile":plan.initial_profile,"backend_selection_clicks":plan.selection_clicks,
                 "settings_stage":plan.settings_stage.map(|stage|match stage { SettingsStage::Select => "select", SettingsStage::Reopen => "reopen" }),
                 "narrow_layout":plan.layout,"game_jobs_drained":jobs_drained,
+                "feature_menu":plan.feature_menu,"feature_selection_steps":plan.feature_step,
                 "author_draft_preserved":plan.error.is_none(),
                 "os_input_verified":false,"input":"original menu EditorButtonClick -> production request -> actual build and Job",
                 "not_verified":["cold build timing", "physical mouse and native focus", "Release and vendor feature combinations"]});
@@ -241,6 +283,31 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
         _ => {}
     }
     Ok(())
+}
+
+/// 核对本轮新增控件的实际布局，由生产系统完成排版后再读取。
+fn feature_layout(world: &mut World) -> Result<Value, String> {
+    let mut buttons = world.query::<(&Name, &ComputedNode, &UiGlobalTransform, &InheritedVisibility)>();
+    let mut rect = |name: &str| {
+        let mut matches = buttons.iter(world).filter(|(label, node, _, visible)| {
+            label.as_str() == name && visible.get() && node.size().min_element() > 0.
+        });
+        let (_, node, transform, _) = matches.next().ok_or_else(|| format!("未找到可见的启动控件：{name}"))?;
+        if matches.next().is_some() { return Err(format!("启动控件不唯一：{name}")); }
+        Ok(Rect::from_center_size(transform.translation, node.size()))
+    };
+    let profile = rect("启动配置")?;
+    let features = rect("特性")?;
+    if features.min.x < profile.max.x - 1. || (features.min.y - profile.min.y).abs() > 1. {
+        return Err(format!("「特性」下拉未紧跟构建配置：{profile:?} {features:?}"));
+    }
+    let window = world.query_filtered::<&Window, With<bevy::window::PrimaryWindow>>().single(world)
+        .map_err(|_| "工程特性验收缺少主窗口")?;
+    Ok(json!({
+        "profile_rect":[profile.min.x, profile.min.y, profile.max.x, profile.max.y],
+        "feature_rect":[features.min.x, features.min.y, features.max.x, features.max.y],
+        "window_physical_size":[window.physical_width(), window.physical_height()]
+    }))
 }
 
 /// 仅在本轮固定夹具的一次截图阶段读取原节点；Name用于验收定位，不进入产品布局逻辑。
@@ -306,10 +373,119 @@ fn preserve_author(world: &World, plan: &Plan) -> Result<(), String> {
     Ok(())
 }
 
+/// 通过原菜单确认 default 初始勾选，再取消并应用。夹具源码验证显式特性与关闭的默认组。
+fn select_features(world: &mut World, plan: &mut Plan) -> Result<bool, String> {
+    let selected = ProjectBuildFeatures::selected(world);
+    if !selected.default_enabled() && selected.names() == [FIXTURE_FEATURE] {
+        if plan.settings_stage == Some(SettingsStage::Select) && plan.feature_step != FEATURE_STEPS {
+            return Err("工程特性在点击应用前已生效".into());
+        }
+        return Ok(true);
+    }
+    let label = match plan.feature_step {
+        0 => "特性 ▼",
+        1 => {
+            if !feature_rows(world, true)? || !feature_scrollbar(world, false, None)? { return Ok(false); }
+            if screenshot(world, plan, "project-features-fit.png")?.is_none() { return Ok(false); }
+            world.query_filtered::<&mut Window, With<PrimaryWindow>>().single_mut(world)
+                .map_err(|_| "特性验收缺少编辑器窗口")?.resolution.set(1100., 640.);
+            world.resource_mut::<EditorSettings>().editor_ui_scale = 1.;
+            plan.feature_step += 1;
+            return Ok(false);
+        }
+        2 => {
+            if !feature_scrollbar(world, true, None)? { return Ok(false); }
+            if plan.feature_menu.is_none() {
+                plan.feature_menu = screenshot(world, plan, "project-features-menu.png")?;
+                if plan.feature_menu.is_none() { return Ok(false); }
+            }
+            if feature_scrollbar(world, true, Some(true))? { plan.feature_step += 1; }
+            return Ok(false);
+        }
+        3 => {
+            if feature_scrollbar(world, true, Some(false))? { plan.feature_step += 1; }
+            return Ok(false);
+        }
+        4 => FIXTURE_FEATURE,
+        5 | 7 if feature_rows(world, true)? => "✓ default",
+        6 if feature_rows(world, false)? => "□ default",
+        8 if feature_rows(world, false)? => "应用",
+        _ => return Ok(false),
+    };
+    if press(world, plan, label)? { plan.feature_step += 1; }
+    Ok(false)
+}
+
+fn feature_rows(world: &mut World, enabled: bool) -> Result<bool, String> {
+    let mark = if enabled { "✓" } else { "□" };
+    let label = format!("{mark} default");
+    let member = format!("{mark} {FIXTURE_DEFAULT_MEMBER}");
+    let mut labels = world.query::<(&Text, &ChildOf)>();
+    let Some(default_row) = labels.iter(world).find_map(|(text, row)| (text.as_str() == label).then(|| row.parent()))
+        else { return Ok(false); };
+    let Some(member_row) = labels.iter(world).find_map(|(text, row)| (text.as_str() == member).then(|| row.parent()))
+        else { return Ok(false); };
+    if world.get::<Node>(default_row).is_none_or(|node| node.top != px(0)) {
+        return Err("default 没有在第一行".into());
+    }
+    let badge = if enabled { "由 default 启用" } else { "默认组" };
+    if world.get::<Children>(member_row).is_none_or(|children| {
+        !children.iter().any(|child| world.get::<Text>(child).is_some_and(|text| text.as_str() == badge))
+    }) || world.get::<bevy::ui::InteractionDisabled>(member_row).is_some() != enabled {
+        return Err("默认组成员的联动标记或可点击状态不符".into());
+    }
+    Ok(true)
+}
+
+/// 使用原生滑块的拖动观察器取证，避免直接写滚动位置伪造交互。
+fn feature_scrollbar(world: &mut World, overflowing: bool, drag_down: Option<bool>) -> Result<bool, String> {
+    let (id, window) = world.query_filtered::<(Entity, &Window), With<PrimaryWindow>>().single(world)
+        .map_err(|_| "特性验收缺少编辑器窗口")?;
+    let scale = window.scale_factor();
+    let mut nodes = world.query::<(&Name, &ComputedNode, &ComputedUiRenderTargetInfo)>();
+    let Some((_, panel, target)) = nodes.iter(world).find(|(name, ..)| name.as_str() == "特性面板") else { return Ok(false); };
+    let height = target.physical_size().y as f32;
+    let panel_height = panel.size().y;
+    if panel_height > height / 2. + 1. { return Err("特性面板超过编辑器窗口的一半".into()); }
+    let mut bars = world.query::<(&Name, &Scrollbar, &ComputedNode, &Children)>();
+    let Some((_, bar, track, children)) = bars.iter(world).find(|(name, ..)| name.as_str() == "特性滚动条")
+        else { return Ok(false); };
+    let body = bar.target;
+    let pane = world.get::<ComputedNode>(body).ok_or("特性列表缺少布局")?;
+    let extent = ((pane.content_size().y - pane.size().y) * pane.inverse_scale_factor()).max(0.);
+    if extent > 1. && !overflowing {
+        return Err(format!("充足高度下仍裁切特性列表：窗口 {height}，面板 {}，列表 {}，内容 {}，逆缩放 {}",
+            panel_height, pane.size().y, pane.content_size().y, pane.inverse_scale_factor()));
+    }
+    if overflowing != !track.is_empty() || overflowing != (extent > 1.) { return Ok(false); }
+    let Some(down) = drag_down else { return Ok(true); };
+    let Some(thumb) = children.iter().find(|&child| world.get::<ScrollbarThumb>(child).is_some())
+        else { return Ok(false); };
+    if world.get::<ComputedNode>(thumb).is_none_or(ComputedNode::is_empty) { return Ok(false); }
+    let origin = world.get::<UiGlobalTransform>(thumb).ok_or("滚动条滑块缺少位置")?.translation;
+    let distance = Vec2::Y * track.size().y / scale * if down { 1. } else { -1. };
+    let mut location = Location {
+        target: RenderTarget::Window(WindowRef::Entity(id)).normalize(Some(id)).ok_or("缺少特性滚动条输入窗口")?,
+        position: origin / scale,
+    };
+    let button = PointerButton::Primary;
+    world.trigger(PointerDragStart { entity: thumb, pointer: Pointer::new(PointerId::Mouse, location.clone()), button,
+        hit: HitData::new(Entity::PLACEHOLDER, 0., None, None) });
+    location.position += distance;
+    world.trigger(PointerDrag { entity: thumb, pointer: Pointer::new(PointerId::Mouse, location.clone()), button, distance, delta: distance });
+    world.trigger(PointerDragEnd { entity: thumb, pointer: Pointer::new(PointerId::Mouse, location), button, distance });
+    let scroll = world.get::<ScrollPosition>(body).ok_or("特性列表缺少滚动位置")?.y;
+    if (scroll - if down { extent } else { 0. }).abs() > 1. { return Err("特性滑块未能拖到列表边界".into()); }
+    Ok(true)
+}
+
 /// 限定原可见按钮与当前布局；菜单隐藏时保留的旧ComputedNode不算可点入口。
 fn press(world: &mut World, plan: &mut Plan, label: &str) -> Result<bool, String> {
     let labels: Vec<_> = world.query::<(Entity, &Text)>().iter(world)
-        .filter_map(|(entity, text)|(text.trim().trim_start_matches('✓').trim() == label).then_some(entity)).collect();
+        .filter_map(|(entity, text)| {
+            let text = text.trim();
+            (text == label || text.trim_start_matches(['✓', '□']).trim() == label).then_some(entity)
+        }).collect();
     let mut matches = Vec::new();
     for entity in labels {
         let mut current = Some(entity);
@@ -425,10 +601,29 @@ pub(super) fn verify(output: &Path, report: &Value) -> Result<Vec<Value>, String
             || report["host_pid"].as_u64().unwrap_or(0) == 0 {
             return Err("工程配置选择、默认恢复、作者草稿或真实Job收口证据不符".into());
         }
+        if feature_settings() {
+            if report["feature_selection_steps"] != (if reopened { 0 } else { FEATURE_STEPS }) {
+                return Err("工程特性重开再次进行了选择，或首次未通过原菜单应用".into());
+            }
+            if !reopened {
+                let png = std::fs::read(output.join("project-features-menu.png")).map_err(|error|error.to_string())?;
+                let hash: String = Sha256::digest(&png).iter().map(|byte|format!("{byte:02x}")).collect();
+                if report["feature_menu"]["png_sha256"] != hash {
+                    return Err("「特性」菜单截图身份不符".into());
+                }
+            }
+        }
         let layout = &report["narrow_layout"];
-        if layout["geometry"]["viewport_logical_width"].as_f64().is_none_or(|width| !(0.0..610.0).contains(&width))
-            || layout["geometry"]["controls"].as_array().is_none_or(|controls|controls.len() != 2)
-            || layout["screenshot"]["source"] != "Bevy ScreenshotCaptured" || layout["screenshot"]["path"] != "narrow-layout.png" {
+        let geometry = &layout["geometry"];
+        let placed = if feature_settings() {
+            geometry["profile_rect"][2].as_f64().zip(geometry["feature_rect"][0].as_f64())
+                .is_some_and(|(right, left)| left >= right - 1.)
+        } else {
+            geometry["viewport_logical_width"].as_f64().is_some_and(|width| (0.0..610.0).contains(&width))
+                && geometry["controls"].as_array().is_some_and(|controls| controls.len() == 2)
+        };
+        if !placed || layout["screenshot"]["source"] != "Bevy ScreenshotCaptured"
+            || layout["screenshot"]["path"] != "narrow-layout.png" {
             return Err("工程配置专项缺少真实窄窗和XYZ右上布局证据".into());
         }
         let png = std::fs::read(output.join("narrow-layout.png")).map_err(|error|error.to_string())?;
@@ -476,5 +671,5 @@ fn is_native_debug_command(command: &str) -> bool {
 
 /// 单方式专项验证一次真实启动，构建方式切换专项验证三次。
 fn run_count() -> usize {
-    if matches!(std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref(), Ok("bundled-dx" | "dx-full" | "native-cargo" | "cargo-settings")) { 1 } else { 3 }
+    if std::env::var("FEATHRISE_EMBEDDED_SCENARIO").as_deref() == Ok("build-backend") { 3 } else { 1 }
 }

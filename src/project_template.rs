@@ -11,7 +11,7 @@ mod manifest;
 mod resources;
 #[path = "project_template_sdk.rs"]
 mod sdk;
-pub(crate) use sdk::apply_project_network_policy;
+pub(crate) use sdk::{apply_project_network_policy, read_manifest as read_cargo_manifest};
 
 use crate::build_process::BuildControl;
 use serde_json::json;

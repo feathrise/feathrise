@@ -50,6 +50,8 @@ struct Context {
     format: u32,
     project: ProjectIdentity,
     target: PathBuf,
+    #[serde(default)]
+    default_features: bool,
     features: String,
     bin: String,
     dx: PathBuf,
@@ -145,10 +147,11 @@ pub(crate) fn full_build_command(project: &Project, target: &Path, profile: Proj
 }
 
 /// 返回的client包含本次实际完整链接记录及只属于该基线的上下文；EXE/PDB发布由原运行版本层负责。
-pub(crate) fn fat(project: &Project, target: &Path, dx: &Path, control: &BuildControl, features: &str, diagnostics: Diagnostics) -> Result<FatBuildOutput, String> {
+pub(crate) fn fat(project: &Project, target: &Path, dx: &Path, control: &BuildControl,
+    default_features: bool, features: &str, diagnostics: Diagnostics) -> Result<FatBuildOutput, String> {
     validate_project(project, control)?;
     let target = existing_target(target)?;
-    let mut context = prepare_context(project, &target, dx, features, control)?;
+    let mut context = prepare_context(project, &target, dx, default_features, features, control)?;
     let path = context.link_manifest.parent().unwrap().join("context.json");
     let mut command = context.command(project)?;
     command.args(["build", "--fat-binary"]);
@@ -210,7 +213,7 @@ pub(crate) fn runtime_dlls(fat: &FatBuildOutput, target: &Path, control: &BuildC
 
 /// 只根据原fat client与其冻结环境生成补丁；不连接devserver、不执行或替换运行实例。
 pub(crate) fn patch(project: &Project, target: &Path, frozen_client_json: Arc<Vec<u8>>, aslr_ref: u64,
-    control: &BuildControl, features: &str, diagnostics: Diagnostics) -> Result<HotpatchOutput, String> {
+    control: &BuildControl, default_features: bool, features: &str, diagnostics: Diagnostics) -> Result<HotpatchOutput, String> {
     validate_project(project, control)?;
     if aslr_ref == 0 || frozen_client_json.len() > MAX_COMPILER_OUTPUT_BYTES {
         return Err("薄补丁缺少有效运行ASLR或基线client超过8MiB".into());
@@ -225,7 +228,8 @@ pub(crate) fn patch(project: &Project, target: &Path, frozen_client_json: Arc<Ve
     if sha(&bytes) != client_environment(&client, CONTEXT_HASH_ENV)? { return Err("原fat工具上下文已改变".into()); }
     let context: Context = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
     if context.format != 1 || context.project != ProjectIdentity::from(project) || context.target != target
-        || context.features != normalized_features(features)? || context.bin != select_bin(project)? {
+        || context.default_features != default_features || context.features != normalized_features(features)?
+        || context.bin != select_bin(project)? {
         return Err("薄补丁工程、入口、target或特性与原fat基线不同".into());
     }
     let mut locks = Vec::new();
@@ -287,14 +291,17 @@ impl Context {
     }
     fn arguments(&self, command: &mut Command) {
         command.args(["--package", &self.project.package, "--bin", &self.bin,
-            "--profile", "render-dev", "--no-default-features", "--offline", "--locked",
+            "--profile", "render-dev", "--offline", "--locked",
             "--raw-json-diagnostics", "--json-output", "--session-cache-dir"])
             .arg(&self.session_cache);
+        // 完整版本和薄补丁都使用该基线冻结的默认组开关。
+        if !self.default_features { command.arg("--no-default-features"); }
         for feature in self.features.split(',') { command.args(["--features", feature]); }
     }
 }
 
-fn prepare_context(project: &Project, target: &Path, dx: &Path, features: &str, control: &BuildControl) -> Result<Context, String> {
+fn prepare_context(project: &Project, target: &Path, dx: &Path, default_features: bool,
+    features: &str, control: &BuildControl) -> Result<Context, String> {
     let resources = crate::project_template_root();
     let rustc = rustup_which("rustc", project, control)?;
     let cargo = rustup_which("cargo", project, control)?;
@@ -344,7 +351,8 @@ fn prepare_context(project: &Project, target: &Path, dx: &Path, features: &str, 
     // 独立 thin rustc 不属于已退出的 Cargo jobserver；临时调度句柄不能跨构建会话继承。
     environment.insert("CARGO_MAKEFLAGS".into(), None);
     environment.insert("MAKEFLAGS".into(), None);
-    let mut context = Context { format: 1, project: project.into(), target: target.to_owned(), features: normalized_features(features)?,
+    let mut context = Context { format: 1, project: project.into(), target: target.to_owned(),
+        default_features, features: normalized_features(features)?,
         bin, dx_sha256: hash_file(dx, control)?, dx: dx.to_owned(), rustc_sha256: hash_file(&rustc, control)?, rustc, rustc_version,
         cargo_sha256: hash_file(&cargo, control)?, cargo,
         proxy_sha256: hash_file(&proxy, control)?, proxy, raw_linker, raw_sha256, sysroot_lib,

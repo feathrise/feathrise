@@ -1,8 +1,9 @@
-//! 宿主向工程预览和独立启动转发游戏能力，默认特性一致时复用普通 Cargo 开发产物。
+//! 工程启动使用工程声明的 Cargo 默认组和显式选择，独立导出沿用发布能力。
 
-use std::process::Command;
+use super::ProjectBuildFeatures;
+use std::{collections::BTreeSet, process::Command};
 
-// 只转发宿主编译时已经启用的游戏能力，不读取环境变量、用户字符串或作者工具特性。
+// 仅独立导出沿用编辑器发布版本的能力合同。
 const GAME_FEATURES: [(&str, bool); 7] = [
     ("raytracing", cfg!(feature = "raytracing")),
     ("rtx_rendering", cfg!(feature = "rtx_rendering")),
@@ -19,38 +20,71 @@ const GAME_FEATURES: [(&str, bool); 7] = [
     ("initial_items", cfg!(feature = "initial_items")),
 ];
 
-pub(super) fn apply(command: &mut Command, native_debug_manifest: Option<&toml::Value>) {
-    append(command, GAME_FEATURES, native_debug_manifest);
+fn declared(manifest: &toml::Value) -> impl Iterator<Item = &str> {
+    manifest.get("features").and_then(toml::Value::as_table).into_iter().flatten()
+        .filter_map(|(name, value)| value.is_array().then_some(name.as_str()))
 }
 
-/// 构建身份与实际命令共用同一特性表，不能在监听器维护另一份可能漂移的能力列表。
-pub(super) fn identity() -> String {
-    GAME_FEATURES.into_iter().filter_map(|(name, enabled)| enabled.then_some(name)).collect::<Vec<_>>().join(",")
+pub(crate) struct ProjectFeature {
+    pub(crate) name: String,
+    pub(crate) in_default: bool,
 }
 
-fn append(command: &mut Command, features: [(&str, bool); 7], native_debug_manifest: Option<&toml::Value>) {
-    let enabled = features
-        .into_iter()
-        .filter_map(|(name, active)| active.then_some(name))
-        .collect::<Vec<_>>();
-    // Cargo 会把名为 default 的特性也计入构建指纹。原生 Debug 只有能力完全一致时才保留它。
-    if native_debug_manifest.is_some_and(|manifest| defaults_match(manifest, &enabled)) {
-        return;
+pub(crate) fn catalog(path: &std::path::Path) -> Result<Vec<ProjectFeature>, String> {
+    let manifest = crate::project_template::read_cargo_manifest(path)?;
+    let defaults = feature_closure(&manifest, vec!["default"]);
+    let mut options: Vec<_> = declared(&manifest).map(|name| ProjectFeature {
+        name: name.to_owned(),
+        in_default: name != "default" && defaults.contains(name),
+    }).collect();
+    options.sort_unstable_by(|a, b| (a.name != "default", &a.name).cmp(&(b.name != "default", &b.name)));
+    Ok(options)
+}
+
+pub(super) fn export_selection() -> ProjectBuildFeatures {
+    let names = GAME_FEATURES.into_iter().filter(|(_, enabled)| *enabled)
+        .map(|(name, _)| name.to_owned()).collect();
+    ProjectBuildFeatures::new(false, names)
+}
+
+pub(super) fn validate(manifest: &toml::Value, selected: &ProjectBuildFeatures) -> Result<(), String> {
+    for name in selected.names() {
+        if !manifest.get("features").and_then(|table| table.get(name)).is_some_and(toml::Value::is_array) {
+            return Err(format!("工程 Cargo.toml 未声明特性“{name}”，请在「特性」菜单中重新选择"));
+        }
     }
-    command.arg("--no-default-features");
-    if !enabled.is_empty() {
-        command.args(["--features", &enabled.join(",")]);
-    }
+    Ok(())
 }
 
-fn defaults_match(manifest: &toml::Value, enabled: &[&str]) -> bool {
-    let Some(defaults) = manifest.get("features").and_then(|features| features.get("default")) else {
-        return enabled.is_empty();
-    };
-    defaults.as_array().is_some_and(|defaults| {
-        defaults.len() == enabled.len()
-            && enabled.iter().all(|&name| defaults.iter().any(|feature| feature.as_str() == Some(name)))
+/// 工程别名也可能间接打开厂商桥；保留这些组合原有的 Cargo 完整构建路径。
+pub(super) fn requires_native(manifest: &toml::Value, selected: &ProjectBuildFeatures) -> bool {
+    let mut pending: Vec<_> = selected.names().iter().map(String::as_str).collect();
+    if selected.default_enabled() { pending.push("default"); }
+    feature_closure(manifest, pending).iter().any(|name| {
+        matches!(name.rsplit('/').next(), Some("rtx_rendering" | "dlss_frame_generation" | "fsr3_frame_generation"))
     })
+}
+
+/// 只沿工程清单声明的同名项继续展开，依赖特性引用和循环引用均在此止步。
+fn feature_closure<'a>(manifest: &'a toml::Value, mut pending: Vec<&'a str>) -> BTreeSet<&'a str> {
+    let mut seen = BTreeSet::new();
+    let table = manifest.get("features").and_then(toml::Value::as_table);
+    while let Some(name) = pending.pop() {
+        if seen.insert(name)
+            && let Some(values) = table.and_then(|table| table.get(name)).and_then(toml::Value::as_array)
+        {
+            pending.extend(values.iter().filter_map(toml::Value::as_str));
+        }
+    }
+    seen
+}
+
+pub(super) fn apply(command: &mut Command, selected: &ProjectBuildFeatures) {
+    // 勾选 default 时由 Cargo 展开工程默认组，命令与普通 cargo run 保持一致。
+    if !selected.default_enabled() { command.arg("--no-default-features"); }
+    if !selected.names().is_empty() {
+        command.args(["--features", &selected.names().join(",")]);
+    }
 }
 
 #[cfg(test)]
@@ -58,22 +92,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_host_game_capabilities_never_reenable_project_defaults_or_pass_empty_features() {
-        let mut command = Command::new("cargo");
-        let manifest = toml::from_str("[features]\ndefault = ['raytracing']\nraytracing = []").unwrap();
-        append(&mut command, GAME_FEATURES.map(|(name, _)| (name, false)), Some(&manifest));
-        assert_eq!(
-            command.get_args().collect::<Vec<_>>(),
-            ["--no-default-features"]
-        );
+    fn project_features_follow_the_cargo_default_switch() {
+        let manifest = toml::from_str("[features]\ndefault = ['raytracing']\nraytracing = []\ncustom = []").unwrap();
+        for (selected, expected) in [
+            (ProjectBuildFeatures::default(), &[][..]),
+            (ProjectBuildFeatures::new(false, vec![]), &["--no-default-features"][..]),
+            (ProjectBuildFeatures::new(true, vec!["custom".into()]), &["--features", "custom"][..]),
+            (ProjectBuildFeatures::new(false, vec!["custom".into()]), &["--no-default-features", "--features", "custom"][..]),
+            (ProjectBuildFeatures::new(false, vec!["raytracing".into()]), &["--no-default-features", "--features", "raytracing"][..]),
+        ] {
+            validate(&manifest, &selected).unwrap();
+            let mut command = Command::new("cargo");
+            apply(&mut command, &selected);
+            assert_eq!(command.get_args().collect::<Vec<_>>(), expected);
+        }
+        validate(&toml::Value::Table(Default::default()), &ProjectBuildFeatures::default()).unwrap();
+    }
+
+    #[test]
+    fn project_features_follow_default_aliases_for_native_builds_and_reject_removed_entries() {
+        let manifest = toml::from_str("[features]\ndefault = ['alias']\nalias = ['vendor']\nvendor = ['feathrise_runtime/fsr3_frame_generation']").unwrap();
+        assert!(declared(&manifest).any(|name| name == "default"));
+        assert!(requires_native(&manifest, &ProjectBuildFeatures::default()));
+        assert!(!requires_native(&manifest, &ProjectBuildFeatures::new(false, vec![])));
+        assert!(requires_native(&manifest, &ProjectBuildFeatures::new(false, vec!["alias".into()])));
+        assert!(validate(&manifest, &ProjectBuildFeatures::new(true, vec!["missing".into()])).is_err());
     }
 
     #[test]
     fn complete_game_capability_contract_is_declared_by_the_project_template() {
-        // 模板漏一个名字就会让显式功能的工程预览构建失败。
+        // 模板保留各发布版本用于导出的工程特性名。
         let manifest = include_str!("../templates/empty/Cargo.toml");
         let mut command = Command::new("cargo");
-        append(&mut command, GAME_FEATURES.map(|(name, _)| (name, true)), None);
+        let all = ProjectBuildFeatures::new(false, GAME_FEATURES.into_iter().map(|(name, _)| name.to_owned()).collect());
+        apply(&mut command, &all);
         let args = command
             .get_args()
             .map(|arg| arg.to_str().unwrap())

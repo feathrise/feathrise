@@ -65,6 +65,7 @@ pub(crate) fn ready_to_exit(world: &mut World) -> Result<bool, String> {
 pub(super) fn advance(
     runtime: &mut CodeIterationRuntime, state: &mut CodeIterationState, profile: ProjectBuildProfile,
     build_backend: crate::native_play::ProjectBuildBackend,
+    features: &crate::native_play::ProjectBuildFeatures,
 ) -> bool {
     match runtime.lifecycle {
         BackendLifecycle::Running => return true,
@@ -78,7 +79,7 @@ pub(super) fn advance(
     }
     let settings = &runtime.settings;
     match Backend::spawn_resumed(settings.project.clone(), settings.target.clone(), profile,
-        settings.logs.clone(), runtime.last_generation, build_backend)
+        settings.logs.clone(), runtime.last_generation, build_backend, features.clone())
     {
         Ok(backend) => {
             state.generation = backend.current_generation();

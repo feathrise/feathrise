@@ -2,7 +2,7 @@
 
 use super::{
     resources::{ActivePlay, NativePlayRuntime, NativePlaySettings, PendingCodeApply},
-    CodeApplyState, CodeApplyStatus, NativePlayStatus, PreparedGame,
+    CodeApplyState, CodeApplyStatus, NativePlayStatus, PreparedGame, ProjectBuildFeatures,
 };
 use bevy::prelude::*;
 use feathrise_editor_scene::standalone::{SavedPlayFeedback, StandaloneEditorMode};
@@ -56,8 +56,10 @@ pub(crate) fn request_code_apply(
         .map_or(default(), |settings| settings.profile);
     let build_backend = super::ProjectBuildBackend::selected(world);
     let settings = world.resource::<NativePlaySettings>();
-    if !prepared.matches_project(&settings.project, profile) || !prepared.matches_backend(build_backend) {
-        return Err("新代码产物与当前工程、构建配置或构建方式不一致，本次未应用".into());
+    if !prepared.matches_project(&settings.project, profile)
+        || !prepared.matches_build_selection(build_backend, &ProjectBuildFeatures::selected(world))
+    {
+        return Err("新代码产物与当前工程或构建选项不一致，本次未应用".into());
     }
     let request = world.non_send::<NativePlayRuntime>().active_request.clone()
         .unwrap_or_else(|| feathrise_editor_scene::standalone::current_saved_play_request(world, profile));
@@ -123,10 +125,11 @@ pub(super) fn advance(world: &mut World) {
     let pending = world.non_send_mut::<NativePlayRuntime>().code_apply_pending.take().unwrap();
     let project = world.resource::<NativePlaySettings>().project.clone();
     let build_backend = super::ProjectBuildBackend::selected(world);
-    // 等待旧进程退出期间选择也可能失效，必须在创建新Job前再次核对完整启动身份。
+    let features = ProjectBuildFeatures::selected(world);
+    // 等待旧进程退役时构建选择也可能变化，创建新 Job 前再次核对。
     if !pending.prepared.matches_project(&project, pending.request.profile)
-        || !pending.prepared.matches_backend(build_backend) {
-        fail(&mut world.non_send_mut::<NativePlayRuntime>(), "产物工程身份或构建方式变化，未启动新版本");
+        || !pending.prepared.matches_build_selection(build_backend, &features) {
+        fail(&mut world.non_send_mut::<NativePlayRuntime>(), "产物工程身份或构建选项变化，未启动新版本");
         return;
     }
     let control = world.get_resource::<crate::project_log::ProjectLogChannel>()
@@ -139,7 +142,8 @@ pub(super) fn advance(world: &mut World) {
     let request = pending.request.clone();
     let prepared = pending.prepared;
     let handle = thread::spawn(move || {
-        let result = super::worker::run_prepared(project, prepared, request, build_backend, &worker_control, &progress_tx, Some(started_tx));
+        let result = super::worker::run_prepared(project, prepared, request, build_backend, &features,
+            &worker_control, &progress_tx, Some(started_tx));
         let _ = result_tx.send(result);
     });
     let mut runtime = world.non_send_mut::<NativePlayRuntime>();

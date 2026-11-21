@@ -19,7 +19,7 @@ fn app() -> App {
         .add_systems(Update, (super::profile_ui::input, super::systems::apply, super::systems::apply_backend, super::profile_ui::present).chain());
     let font = Handle::<Font>::default();
     let mut commands = app.world_mut().commands();
-    commands.spawn(Node::default()).with_children(|header| super::profile_ui::mount(header, &font, true));
+    commands.spawn(Node::default()).with_children(|header| super::profile_ui::mount(header, &font, true, false));
     app.world_mut().flush();
     app
 }

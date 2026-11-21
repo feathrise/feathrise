@@ -15,7 +15,7 @@ pub(crate) fn prepare(project: &Project, target: &Path, context: &PatchContext, 
     }
     build_artifacts::verify(&baseline.bundle, control)?;
     let output = toolchain::patch(project, target, baseline.client_json.clone(), context.target.aslr_reference,
-        control, &baseline.features, diagnostics)?;
+        control, baseline.selected_features.default_enabled(), &baseline.features, diagnostics)?;
     let root = baseline.patch_root.canonicalize().map_err(|error| error.to_string())?;
     if !root.starts_with(&baseline.directory) { return Err("热补丁目录不属于当前基线".into()); }
     let name = format!("generation-{generation}-{}", bevy::asset::uuid::Uuid::new_v4());

@@ -26,7 +26,8 @@ fn fixture(sent: bool) -> Fixture {
     let baseline = Arc::new(FatBaseline { client_json: Arc::new(Vec::new()),
         source: SourceSnapshot { sha256: "body-one".into(), environment_sha256: "same-env".into(), hotpatch_shape: Some("same-shape".into()),
             files: 1, bytes: 16, watches: BTreeSet::new(), source_watches: BTreeSet::new() }, base_build: "fat-base".into(),
-        directory: bundle.directory.clone(), patch_root: bundle.directory.join("patches"), features: "function_hotpatch".into(), bundle });
+        directory: bundle.directory.clone(), patch_root: bundle.directory.join("patches"), features: "function_hotpatch".into(),
+        selected_features: default(), bundle });
     let target = PatchTarget { project_id: "owned-function-transaction".into(), session: 17, pid: 19, world_id: 23,
         aslr_reference: 29, base_build: baseline.base_build.clone() };
     let prepared = Arc::new(PreparedPatch { target: target.clone(), source_generation: 5, artifact: "patch-5/package.json".into(),

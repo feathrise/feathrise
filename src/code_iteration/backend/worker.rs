@@ -4,7 +4,7 @@ use super::{
     artifacts,
     resources::Shared,
     source,
-    types::{BuildIdentity, BuildRequest, Event, WatchStart},
+    types::{BuildFeatureUpdate, BuildIdentity, BuildRequest, Event, WatchStart},
 };
 use crate::project::Project;
 use crate::code_iteration::hotpatch::PatchContext;
@@ -390,8 +390,10 @@ pub(super) fn build(
     shared: Arc<Shared>,
     events: mpsc::SyncSender<Event>,
     patch_receiver: mpsc::Receiver<Option<PatchContext>>,
+    feature_receiver: async_channel::Receiver<BuildFeatureUpdate>,
 ) {
     let mut patch_context = None;
+    let (mut feature_revision, mut features) = (0, crate::native_play::ProjectBuildFeatures::default());
     while !shared.stopped() {
         drain_patch_context(&patch_receiver, &mut patch_context);
         let request = {
@@ -415,6 +417,11 @@ pub(super) fn build(
         if !shared.current_build(request.generation, request.profile, request.build_backend, request.backend_revision) {
             continue;
         }
+        if let Ok(update) = feature_receiver.try_recv() {
+            (feature_revision, features) = update;
+        }
+        // 同一修订才可把选择交给 Cargo，切换时迟到的源码请求不能误用另一组特性。
+        if feature_revision != request.backend_revision { continue; }
         let mut identity = BuildIdentity {
             project_id: project.id.clone(),
             root: project.root.clone(),
@@ -432,7 +439,7 @@ pub(super) fn build(
                 identity: identity.clone(),
             },
         );
-        match artifacts::context(&project, &request, &shared) {
+        match artifacts::context(&project, &request, &shared, &features) {
             Ok(context) => identity.context_sha256 = context,
             Err(error) => {
                 send(
@@ -450,7 +457,7 @@ pub(super) fn build(
         let (result, diagnostics) =
             {
                 drain_patch_context(&patch_receiver, &mut patch_context);
-                artifacts::prepare(&project, &target, &request, &identity, &shared, patch_context.as_ref())
+                artifacts::prepare(&project, &target, &request, &identity, &shared, &features, patch_context.as_ref())
             };
         send(
             &shared,

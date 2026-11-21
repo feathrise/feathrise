@@ -233,7 +233,7 @@ fn read_bounded(file: File, limit: usize, path: &Path) -> Result<String, String>
     Ok(text)
 }
 
-fn read_manifest(path: &Path) -> Result<Value, String> {
+pub(crate) fn read_manifest(path: &Path) -> Result<Value, String> {
     let file = File::open(path).map_err(|error| format!("Cargo 清单不可读（{}）：{error}", path.display()))?;
     toml::from_str(&read_bounded(file, MANIFEST_LIMIT, path)?)
         .map_err(|error| format!("Cargo 清单无效（{}）：{error}", path.display()))
@@ -241,9 +241,7 @@ fn read_manifest(path: &Path) -> Result<Value, String> {
 
 /// 工程预览按当前工程清单中的依赖决定取源策略，避免套用新建工程的配置。
 /// 未知/继承的工作区或自定义依赖交给 Cargo；已知纯本地 SDK 保持原离线行为。
-/// 返回同一次有界解析的清单，供构建入口核对工程默认特性。
-pub(crate) fn apply_project_network_policy(manifest: &Path, command: &mut Command) -> Result<Value, String> {
-    let value = read_manifest(manifest)?;
+pub(crate) fn apply_project_network_policy(value: &Value, command: &mut Command) {
     let known_local = value.get("dependencies").and_then(Value::as_table).is_some_and(|table| {
         table.iter().any(|(alias, dependency)| {
             let package = dependency.get("package").and_then(Value::as_str).unwrap_or(alias);
@@ -251,10 +249,9 @@ pub(crate) fn apply_project_network_policy(manifest: &Path, command: &mut Comman
                 && dependency.get("path").and_then(Value::as_str).is_some()
         })
     });
-    if known_local && !needs_cargo_source_resolution(&value) {
+    if known_local && !needs_cargo_source_resolution(value) {
         command.arg("--offline");
     }
-    Ok(value)
 }
 
 fn needs_cargo_source_resolution(value: &Value) -> bool {
