@@ -2,6 +2,7 @@
 
 use super::resources::Event;
 use super::resources::*;
+use crate::native_play::ProjectBuildFeatures;
 use crate::viewport_mode::{
     ViewportGeometry, ViewportMode, ViewportModeAvailability, ViewportModeState,
 };
@@ -23,6 +24,7 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
     let profile = world.get_resource::<feathrise_editor_core::ProjectLaunchSettings>()
         .map_or(default(), |settings| settings.profile);
     let build_backend = crate::native_play::ProjectBuildBackend::selected(world);
+    let features = ProjectBuildFeatures::selected(world);
     let geometry = world.resource::<ViewportGeometry>().clone();
     let viewport_visible = geometry.visible;
     let request = requests
@@ -43,8 +45,10 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
 
     poll(world, &mut runtime, &mut status);
     super::hotpatch::advance(world, &mut runtime, &mut status, selected, profile);
-    if runtime.attempted_profile.is_some_and(|attempted| attempted != profile)
-        || runtime.attempted_backend.is_some_and(|attempted| attempted != build_backend) {
+    let configuration_changed = runtime.attempted_profile.is_some_and(|attempted| attempted != profile)
+        || runtime.attempted_backend.is_some_and(|attempted| attempted != build_backend)
+        || runtime.attempted_features != features;
+    if configuration_changed {
         runtime.pending_play = false;
         runtime.pending_edit = false;
         runtime.restart_requested = false;
@@ -97,8 +101,7 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
         && (runtime.code_apply.is_none() || super::code_apply::ready_to_start(&runtime))
         && ((runtime.compilation_stop_input != Some((selection_revision, profile))
                 && (selection_revision != runtime.attempted_selection
-                    || runtime.attempted_profile != Some(profile)
-                    || runtime.attempted_backend.is_some_and(|attempted| attempted != build_backend)))
+                    || runtime.attempted_profile != Some(profile) || configuration_changed))
             || requested
             || runtime.restart_requested
             || super::code_apply::ready_to_start(&runtime))
@@ -113,6 +116,7 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
             selection_revision,
             profile,
             build_backend,
+            features.clone(),
             prepared,
         );
         runtime.restart_requested = false;
@@ -132,6 +136,7 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
         && runtime.hotpatch.flight.is_none()
         && runtime.attempted_profile.is_none_or(|attempted| attempted == profile)
         && runtime.attempted_backend.is_none_or(|attempted| attempted == build_backend)
+        && runtime.attempted_features == features
     {
         // 顶部预览按钮复用既有可靠模式交接，stop_only仍沿用旧消息合同。
         if status.playing {
@@ -268,7 +273,8 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
     if let Some(mut launch) = world.get_resource_mut::<feathrise_editor_core::ProjectLaunchSettings>() {
         launch.switching_profile = runtime.active.is_some() && !runtime.compilation_stopped
             && (runtime.attempted_profile.is_some_and(|attempted| attempted != profile)
-                || runtime.attempted_backend.is_some_and(|attempted| attempted != build_backend));
+                || runtime.attempted_backend.is_some_and(|attempted| attempted != build_backend)
+                || runtime.attempted_features != features);
     }
     world.insert_resource(status);
     world.insert_non_send(runtime);
@@ -481,6 +487,7 @@ fn start(
     selection: u64,
     profile: feathrise_editor_core::ProjectBuildProfile,
     build_backend: crate::native_play::ProjectBuildBackend,
+    features: ProjectBuildFeatures,
     prepared: Option<Arc<crate::native_play::PreparedGame>>,
 ) {
     let settings = world.resource::<Settings>();
@@ -504,6 +511,7 @@ fn start(
     let (sender, commands) = mpsc::sync_channel(4);
     let (events, receiver) = mpsc::sync_channel(16);
     let (result_sender, result) = mpsc::sync_channel(1);
+    let build_features = features.clone();
     let handle = thread::spawn(move || {
         #[cfg(windows)]
         let result = super::worker::run(
@@ -511,6 +519,7 @@ fn start(
             target,
             profile,
             build_backend,
+            build_features,
             prepared,
             geometry,
             worker_identity,
@@ -521,7 +530,7 @@ fn start(
         #[cfg(not(windows))]
         let result: Result<(), String> = {
             // UI和偏好均已屏蔽此能力；异常外部请求也明确失败，绝不伪造工程呈现回执。
-            drop((project, target, profile, build_backend, prepared, geometry, worker_identity, worker_control, commands, events));
+            drop((project, target, profile, build_backend, build_features, prepared, geometry, worker_identity, worker_control, commands, events));
             Err("工程 3D 需要 Windows 窗口支持。请切换到编辑器 3D，再点击“启动”".into())
         };
         let _ = result_sender.send(result);
@@ -538,6 +547,7 @@ fn start(
     runtime.attempted_selection = selection;
     runtime.attempted_profile = Some(profile);
     runtime.attempted_backend = Some(build_backend);
+    runtime.attempted_features = features;
     runtime.compilation_stopped = false;
     runtime.compilation_stop_input = None;
     runtime.waiting_mode = None;
@@ -1712,15 +1722,22 @@ mod tests {
 
     #[test]
     fn changing_build_profile_joins_the_old_job_before_one_new_attempt() {
-        changing_build_choice_joins_before_restart(false);
+        changing_build_choice_joins_before_restart(BuildChange::Profile);
     }
 
     #[test]
     fn changing_build_backend_joins_the_old_job_before_one_new_attempt() {
-        changing_build_choice_joins_before_restart(true);
+        changing_build_choice_joins_before_restart(BuildChange::Backend);
     }
 
-    fn changing_build_choice_joins_before_restart(change_backend: bool) {
+    #[test]
+    fn changing_project_features_joins_the_old_job_before_one_new_attempt() {
+        changing_build_choice_joins_before_restart(BuildChange::Features);
+    }
+
+    enum BuildChange { Profile, Backend, Features }
+
+    fn changing_build_choice_joins_before_restart(change: BuildChange) {
         use feathrise_editor_core::{ProjectBuildProfile, ProjectLaunchSettings};
         let (sender, _commands) = mpsc::sync_channel(4);
         let (_events, receiver) = mpsc::sync_channel(4);
@@ -1747,9 +1764,13 @@ mod tests {
         world.init_resource::<EmbeddedSnapshotState>();
         world.init_resource::<feathrise_editor_scene::standalone::embedded_overlay::EmbeddedOverlay>();
         world.resource_mut::<EmbeddedSnapshotState>().revision = 42;
-        let profile = if change_backend { ProjectBuildProfile::Debug } else { ProjectBuildProfile::Release };
-        let backend = if change_backend { crate::native_play::ProjectBuildBackend::Native } else { crate::native_play::ProjectBuildBackend::Dx };
+        let profile = if matches!(change, BuildChange::Profile) { ProjectBuildProfile::Release } else { ProjectBuildProfile::Debug };
+        let backend = if matches!(change, BuildChange::Backend) { crate::native_play::ProjectBuildBackend::Native } else { crate::native_play::ProjectBuildBackend::Dx };
+        let features = if matches!(change, BuildChange::Features) {
+            ProjectBuildFeatures::new(false, Vec::new())
+        } else { ProjectBuildFeatures::default() };
         world.insert_resource(backend);
+        world.insert_resource(features.clone());
         world.insert_resource(ProjectLaunchSettings { profile, preview: true, switching_profile: true });
         world.insert_resource(EmbeddedStatus { active: true, ready: true, starts: 1, ..default() });
         world.insert_non_send(runtime);
@@ -1758,6 +1779,7 @@ mod tests {
         schedule.run(&mut world);
         assert!(thread_control.is_cancelled());
         assert!(world.non_send::<Runtime>().active.is_some(), "旧线程未确认结束仍须占槽");
+        assert!(world.resource::<ProjectLaunchSettings>().switching_profile, "旧配置收口期间须保留切换提示");
         assert_eq!(world.resource::<EmbeddedStatus>().starts, 1);
         release.send(()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
@@ -1781,6 +1803,7 @@ mod tests {
         assert_eq!(world.resource::<EmbeddedStatus>().starts, 2);
         assert_eq!(world.non_send::<Runtime>().attempted_profile, Some(profile));
         assert_eq!(world.non_send::<Runtime>().attempted_backend, Some(backend));
+        assert_eq!(world.non_send::<Runtime>().attempted_features, features);
         let deadline = Instant::now() + Duration::from_secs(3);
         while world.non_send::<Runtime>().active.is_some() {
             assert!(Instant::now() < deadline);

@@ -12,6 +12,9 @@ pub(super) struct RequestBuildProfile(pub feathrise_editor_core::ProjectBuildPro
 #[derive(Message, Debug, Clone, Copy)]
 pub(super) struct RequestBuildBackend(pub crate::native_play::ProjectBuildBackend);
 
+#[derive(Message, Debug, Clone)]
+pub(super) struct RequestBuildFeatures(pub crate::native_play::ProjectBuildFeatures);
+
 #[derive(Message, Debug, Clone, Copy)]
 // 消息只确认切换已受理；当前模式和代次统一从 ViewportModeState 读取。
 pub(crate) struct ViewportModeChanged;

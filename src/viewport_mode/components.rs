@@ -61,3 +61,27 @@ pub(super) struct BuildEnvironmentButton;
 
 #[derive(Component)]
 pub(super) struct BuildEnvironmentLabel;
+
+#[derive(Component)]
+pub(super) struct FeatureToggle;
+#[derive(Component)]
+pub(super) struct FeaturePanel;
+#[derive(Component)]
+pub(super) struct FeatureToggleLabel;
+#[derive(Component)]
+pub(super) struct FeatureStatusLabel;
+#[derive(Component)]
+pub(super) struct ApplyFeaturesButton;
+#[derive(Component)]
+pub(super) struct FeatureList;
+#[derive(Component)]
+pub(super) struct FeatureListContent;
+#[derive(Component)]
+pub(super) struct FeatureRowLabel;
+#[derive(Component)]
+pub(super) struct FeatureRow {
+    pub(super) slot: usize,
+    pub(super) index: Option<usize>,
+    pub(super) revision: u64,
+    pub(super) checked: bool,
+}

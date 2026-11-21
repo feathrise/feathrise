@@ -10,7 +10,7 @@ mod worker;
 #[path = "native_play_code_apply.rs"]
 mod code_apply;
 
-pub(crate) use worker::{build_feature_identity, prepare as prepare_game, prepare_export, PreparedGame};
+pub(crate) use worker::{prepare as prepare_game, prepare_export, project_feature_catalog, PreparedGame};
 pub(crate) use worker::{prepare_function_patch, prepare_with_backend as prepare_game_with_backend};
 pub(crate) use worker::cargo_program;
 #[cfg(windows)]
@@ -18,7 +18,7 @@ pub(crate) use worker::supports_dx;
 #[cfg(test)]
 pub(crate) use worker::prepared_for_test;
 pub(crate) use code_apply::{cancel_pending_code_apply, code_apply_blocker, code_apply_status, request_code_apply};
-pub(crate) use resources::{CodeApplyState, CodeApplyStatus, ProjectBuildBackend};
+pub(crate) use resources::{CodeApplyState, CodeApplyStatus, ProjectBuildBackend, ProjectBuildFeatures};
 
 use bevy::{
     ecs::message::MessageCursor,
@@ -104,6 +104,7 @@ fn request_play(
     mut mode: Option<ResMut<StandaloneEditorMode>>,
     viewport: Option<Res<crate::viewport_mode::ViewportModeState>>,
     backend: Option<Res<ProjectBuildBackend>>,
+    features: Option<Res<ProjectBuildFeatures>>,
     embedded: Option<Res<crate::embedded_viewport::EmbeddedStatus>>,
     logs: Option<Res<crate::project_log::ProjectLogChannel>>,
 ) {
@@ -151,15 +152,17 @@ fn request_play(
     let (started_tx, started_rx) = mpsc::sync_channel(1);
     let project = settings.project.clone();
     let target = settings.target.clone();
-    // 受理时冻结与顶栏相同的构建工具，后台任务不能回落到默认DX或回读之后的选择。
+    // 受理时冻结顶栏的构建工具与工程特性，后台任务不回读之后的选择。
     let build_backend = backend.map_or(ProjectBuildBackend::Dx, |backend| *backend);
+    let features = features.as_deref().cloned().unwrap_or_default();
     runtime.active_request = Some(request.clone());
     runtime.code_apply_active_token = None;
     runtime.code_apply_started = None;
     runtime.launch_started = Some(started_rx);
     let job_control = control.clone();
     let handle = thread::spawn(move || {
-        let result = worker::run(project, target, request, build_backend, &job_control, &progress_tx, Some(started_tx));
+        let result = worker::run(project, target, request, build_backend, &features,
+            &job_control, &progress_tx, Some(started_tx));
         let _ = result_tx.send(result);
     });
     runtime.active = Some(resources::ActivePlay {

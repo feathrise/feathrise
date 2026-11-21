@@ -31,7 +31,8 @@ pub(super) fn verify(root: &Path, control: &BuildControl) -> Result<Value, Strin
         .arg(&project.manifest)
         .args(["--filter-platform", "x86_64-pc-windows-msvc"])
         .current_dir(root);
-    crate::project_template::apply_project_network_policy(&project.manifest, &mut command)?;
+    let manifest = crate::project_template::read_cargo_manifest(&project.manifest)?;
+    crate::project_template::apply_project_network_policy(&manifest, &mut command);
     let output = build_process::run(&command, control, Some(Duration::from_secs(180)), metadata)?;
     if output.exit_code != 0 {
         return Err(format!("正式工程依赖解析失败：{}", output.stderr));

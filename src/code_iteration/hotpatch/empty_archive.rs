@@ -312,12 +312,25 @@ mod tests {
             let client = serde_json::json!({"link_args":["/DEBUG", fixture.dependency, fixture.dependency, second],
                 "rustc_envs":[["DX_LINK_ARGS_FILE",link_args],["FEATHRISE_HOTPATCH_LINK_CONTEXT",link_manifest]]});
             let context = Context { format:1, project:super::super::ProjectIdentity { id:"fixture".into(), root:fixture.workspace.clone(),
-                    manifest:fixture.workspace.join("Cargo.toml"), package:"fixture".into() }, target, features:String::new(), bin:"actual-bin".into(),
+                    manifest:fixture.workspace.join("Cargo.toml"), package:"fixture".into() }, target,
+                default_features:false, features:String::new(), bin:"actual-bin".into(),
                 dx:PathBuf::new(), dx_sha256:String::new(), rustc:PathBuf::new(), rustc_sha256:String::new(), rustc_version:String::new(),
                 cargo:PathBuf::new(), cargo_sha256:String::new(), proxy:PathBuf::new(), proxy_sha256:String::new(), raw_linker:PathBuf::new(),
                 raw_sha256:String::new(), sysroot_lib:PathBuf::new(), session_cache, link_manifest, link_manifest_sha256:String::new(),
                 imports_file:session.join("imports.txt"), imports:Vec::new(), environment:Default::default() };
             Self { fixture, context, client, response, archive, sidecar }
+        }
+    }
+
+    #[test]
+    fn hotpatch_project_features_follow_the_frozen_default_switch() {
+        let mut fixture = FatFixture::new();
+        fixture.context.features = "function_hotpatch".into();
+        for enabled in [true, false] {
+            fixture.context.default_features = enabled;
+            let mut command = std::process::Command::new("unused-dx");
+            fixture.context.arguments(&mut command);
+            assert_eq!(command.get_args().any(|arg| arg == "--no-default-features"), !enabled);
         }
     }
 

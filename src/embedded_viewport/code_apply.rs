@@ -1,7 +1,7 @@
 //! 新代码只重启精确持有的游戏Job；重用原作者快照、相机和可靠模式事务恢复工作现场。
 
 use super::resources::{CodeApply, CodeApplyStage, EmbeddedStatus, Runtime, Settings};
-use crate::{native_play::{CodeApplyState, CodeApplyStatus, PreparedGame}, viewport_mode::ViewportMode};
+use crate::{native_play::{CodeApplyState, CodeApplyStatus, PreparedGame, ProjectBuildBackend, ProjectBuildFeatures}, viewport_mode::ViewportMode};
 use bevy::prelude::*;
 use feathrise_editor_protocol::Mode;
 use feathrise_editor_scene::standalone::embedded_snapshot::{self, EmbeddedSnapshotState};
@@ -40,7 +40,7 @@ pub(crate) fn request_code_apply(
     let profile = world.get_resource::<feathrise_editor_core::ProjectLaunchSettings>()
         .map_or(default(), |settings| settings.profile);
     if !prepared.matches_project(&world.resource::<Settings>().project, profile)
-        || !prepared.matches_backend(crate::native_play::ProjectBuildBackend::selected(world)) {
+        || !prepared.matches_build_selection(ProjectBuildBackend::selected(world), &ProjectBuildFeatures::selected(world)) {
         return Err("新代码产物与当前工程或构建配置不一致，本次未应用".into());
     }
     let status = world.resource::<EmbeddedStatus>();
@@ -100,7 +100,7 @@ pub(super) fn before_start(
     } else if let Some(error) = &runtime.cleanup_failure {
         Some(error.clone())
     } else if !apply.prepared.matches_project(&world.resource::<Settings>().project, profile)
-        || !apply.prepared.matches_backend(crate::native_play::ProjectBuildBackend::selected(world)) {
+        || !apply.prepared.matches_build_selection(ProjectBuildBackend::selected(world), &ProjectBuildFeatures::selected(world)) {
         Some("当前工程或构建配置已变化，未继续应用旧候选版本".into())
     } else if matches!(apply.stage, CodeApplyStage::Starting | CodeApplyStage::Synchronizing | CodeApplyStage::Restoring)
         && (runtime.active.is_none() || status.error.is_some())

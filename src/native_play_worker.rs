@@ -4,12 +4,13 @@
 mod dependency;
 #[path = "native_play_features.rs"]
 mod features;
+pub(crate) use features::catalog as project_feature_catalog;
 #[path = "native_play_hotpatch.rs"]
 #[cfg(windows)]
 mod hotpatch;
 #[cfg(windows)]
 use crate::code_iteration::hotpatch::toolchain as dx_tools;
-use super::ProjectBuildBackend;
+use super::{ProjectBuildBackend, ProjectBuildFeatures};
 use feathrise_runtime_manifest::streamline as streamline_files;
 #[cfg(test)]
 #[path = "native_play_worker_scene_tests.rs"]
@@ -38,12 +39,14 @@ pub(super) fn run(
     target: PathBuf,
     request: RunSavedProject,
     build_backend: super::ProjectBuildBackend,
+    selected_features: &ProjectBuildFeatures,
     control: &BuildControl,
     progress: &SyncSender<String>,
     started: Option<SyncSender<()>>,
 ) -> Result<u32, String> {
-    let prepared = prepare_with_backend(&project, &target, request.scene_id.as_deref(), request.profile, build_backend, control, None)?;
-    run_prepared(project, Arc::new(prepared), request, build_backend, control, progress, started)
+    let prepared = prepare_with_backend(&project, &target, request.scene_id.as_deref(), request.profile,
+        build_backend, selected_features, control, None)?;
+    run_prepared(project, Arc::new(prepared), request, build_backend, selected_features, control, progress, started)
 }
 
 /// 显式采用后台已完成的不可变版本；直接运行副本，避免 Windows 占用 Cargo 的下一次链接目标。
@@ -52,12 +55,15 @@ pub(super) fn run_prepared(
     prepared: Arc<PreparedGame>,
     request: RunSavedProject,
     build_backend: super::ProjectBuildBackend,
+    selected_features: &ProjectBuildFeatures,
     control: &BuildControl,
     progress: &SyncSender<String>,
     started: Option<SyncSender<()>>,
 ) -> Result<u32, String> {
-    if !prepared.matches_project(&project, request.profile) || !prepared.matches_backend(build_backend) {
-        return Err("运行版本不属于当前工程、构建配置或构建方式".into());
+    if !prepared.matches_project(&project, request.profile)
+        || !prepared.matches_build_selection(build_backend, selected_features)
+    {
+        return Err("运行版本不属于当前工程、构建配置、构建方式或所选特性".into());
     }
     if project::open(&project.root)? != project { return Err("工程清单已变化，拒绝运行旧工程版本".into()); }
     if let Some(scene_id) = request.scene_id.as_deref() { validate_requested_scene(&project, scene_id, control)?; }
@@ -101,13 +107,12 @@ pub(crate) struct PreparedGame {
     project_root: PathBuf,
     profile: ProjectBuildProfile,
     build_backend: super::ProjectBuildBackend,
+    selected_features: ProjectBuildFeatures,
     bundle: Option<crate::build_artifacts::PublishedBundle>,
     pub(crate) hotpatch: Option<Arc<crate::code_iteration::hotpatch::FatBaseline>>,
 }
 
 pub(crate) type DiagnosticCallback = Arc<dyn Fn(crate::compiler_diagnostics::CompilerDiagnostic) + Send + Sync>;
-
-pub(crate) fn build_feature_identity() -> String { features::identity() }
 
 /// 普通构建和预检共用入口覆盖优先级，避免预检误报编辑器没有使用的 Cargo。
 pub(crate) fn cargo_program() -> std::ffi::OsString {
@@ -125,7 +130,8 @@ pub(crate) fn prepared_for_test(project: &Project, profile: ProjectBuildProfile)
     PreparedGame { executable: project.root.join("test-version/game.exe"), target: project.root.join("unused-target"),
         linked_paths: Vec::new(), dlls: Vec::new(), build_outputs: Vec::new(),
         project_id: project.id.clone(), project_root: project.root.clone(), profile,
-        build_backend: super::ProjectBuildBackend::Dx, bundle: None, hotpatch: None }
+        build_backend: super::ProjectBuildBackend::Dx, selected_features: ProjectBuildFeatures::default(),
+        bundle: None, hotpatch: None }
 }
 
 // 普通启动与自动编译共用一个取消感知后台门；不能各自再启动 Cargo 等待同一缓存锁。
@@ -185,7 +191,8 @@ pub(crate) fn prepare_export(
     // 显式厂商原生组合有独立的运行库前提，基础 Windows 导出才要求整个依赖闭包免装 VC Redist。
     let no_vc_redist = cfg!(all(windows, target_env = "msvc"))
         && !cfg!(any(feature = "rtx_rendering", feature = "dlss_frame_generation", feature = "fsr3_frame_generation"));
-    prepare_build(project, target, None, profile, super::ProjectBuildBackend::Dx, control, None, no_vc_redist)
+    prepare_build(project, target, None, profile, super::ProjectBuildBackend::Dx,
+        &features::export_selection(), control, None, no_vc_redist)
 }
 
 pub(crate) fn prepare_with_diagnostics(
@@ -196,15 +203,17 @@ pub(crate) fn prepare_with_diagnostics(
     control: &BuildControl,
     diagnostics: Option<DiagnosticCallback>,
 ) -> Result<PreparedGame, String> {
-    prepare_with_backend(project, target, scene_id, profile, super::ProjectBuildBackend::Dx, control, diagnostics)
+    prepare_with_backend(project, target, scene_id, profile, super::ProjectBuildBackend::Dx,
+        &ProjectBuildFeatures::default(), control, diagnostics)
 }
 
 /// 构建方式随本次请求冻结；计时含工具准备、实际构建与运行副本发布，排除宿主构建槽排队。
 pub(crate) fn prepare_with_backend(
     project: &Project, target: &Path, scene_id: Option<&str>, profile: ProjectBuildProfile,
-    build_backend: super::ProjectBuildBackend, control: &BuildControl, diagnostics: Option<DiagnosticCallback>,
+    build_backend: super::ProjectBuildBackend, selected_features: &ProjectBuildFeatures,
+    control: &BuildControl, diagnostics: Option<DiagnosticCallback>,
 ) -> Result<PreparedGame, String> {
-    prepare_build(project, target, scene_id, profile, build_backend, control, diagnostics, false)
+    prepare_build(project, target, scene_id, profile, build_backend, selected_features, control, diagnostics, false)
 }
 
 fn prepare_build(
@@ -213,6 +222,7 @@ fn prepare_build(
     scene_id: Option<&str>,
     profile: ProjectBuildProfile,
     build_backend: super::ProjectBuildBackend,
+    selected_features: &ProjectBuildFeatures,
     control: &BuildControl,
     diagnostics: Option<DiagnosticCallback>,
     no_vc_redist: bool,
@@ -231,12 +241,16 @@ fn prepare_build(
     let target = target.canonicalize().map_err(|error| crate::environment_diagnostics::cache_failure(&target, "确认构建缓存目录", &error))?;
     // DX 工具入口与函数热更新资格分开：普通 Debug 工程用 DX 完整构建，合格工程才准备 fat 基线。
     // 独立交付、Release 和未经验证的厂商组合继续使用原生发布链。
-    let use_dx = !no_vc_redist && build_backend == ProjectBuildBackend::Dx && supports_dx(profile);
+    let cargo_manifest = crate::project_template::read_cargo_manifest(&project.manifest)?;
+    features::validate(&cargo_manifest, selected_features)?;
+    let use_dx = !no_vc_redist && build_backend == ProjectBuildBackend::Dx && supports_dx(profile)
+        && !features::requires_native(&cargo_manifest, selected_features);
     #[cfg(windows)]
     let dx_has_rustup = use_dx && dx_tools::rustup_available();
     #[cfg(windows)]
     let dx_command = if dx_has_rustup && let Some((dx, bin)) = dx_tools::project_tool(project, &target, control)? {
-        if let Some(prepared) = hotpatch::prepare(project, &target, profile, &dx, control, diagnostics.clone())? {
+        if let Some(prepared) = hotpatch::prepare(project, &target, profile, &dx, &cargo_manifest,
+            selected_features, control, diagnostics.clone())? {
             if let Some(log) = control.log_sink() {
                 log.task_message(&format!("DX 工程构建与产物准备完成，用时 {:.2} 秒", started.elapsed().as_secs_f64()));
             }
@@ -261,8 +275,8 @@ fn prepare_build(
         }
     };
     // 只依据该工程自己的依赖决定是否允许取源，不把编辑器的新建配置套到旧工程上。
-    let cargo_manifest = crate::project_template::apply_project_network_policy(&project.manifest, &mut command)?;
-    features::apply(&mut command, (cargo_profile == "dev").then_some(&cargo_manifest));
+    crate::project_template::apply_project_network_policy(&cargo_manifest, &mut command);
+    features::apply(&mut command, selected_features);
     let is_dx = actual_backend == ProjectBuildBackend::Dx;
     let manifest = project.manifest.clone();
     let project_root = project.root.clone();
@@ -310,7 +324,8 @@ fn prepare_build(
     if let Some(log) = control.log_sink() { log.task_message("工程构建完成"); }
     let prepared = PreparedGame { executable, target, linked_paths: build.stdout.linked_paths,
         dlls: build.stdout.dlls, build_outputs: build.stdout.build_outputs,
-        project_id: project.id.clone(), project_root: project.root.clone(), profile, build_backend, bundle: None, hotpatch: None,
+        project_id: project.id.clone(), project_root: project.root.clone(), profile, build_backend,
+        selected_features: selected_features.clone(), bundle: None, hotpatch: None,
     }.snapshot(project, control, no_vc_redist)?;
     if let Some(log) = control.log_sink() {
         log.task_message(&format!("{} 工程构建与产物准备完成，用时 {:.2} 秒", actual_backend.label(), started.elapsed().as_secs_f64()));
@@ -330,8 +345,8 @@ impl PreparedGame {
         self.project_id == project.id && self.project_root == project.root && self.profile == profile
     }
 
-    pub(crate) fn matches_backend(&self, backend: super::ProjectBuildBackend) -> bool {
-        self.build_backend == backend
+    pub(crate) fn matches_build_selection(&self, backend: super::ProjectBuildBackend, features: &ProjectBuildFeatures) -> bool {
+        self.build_backend == backend && &self.selected_features == features
     }
 
     fn snapshot(&self, project: &Project, control: &BuildControl, no_vc_redist: bool) -> Result<Self, String> {

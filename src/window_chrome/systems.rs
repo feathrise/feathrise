@@ -131,7 +131,7 @@ pub(super) fn input(world: &mut World) {
                     // 配置下拉仍在原父容器中展开，选择完成前保留“更多”容器。
                     clicked
                         && !parts.profile.is_some_and(|profile| {
-                            scene::descendants(world, profile, 4).contains(&entity)
+                            scene::descendants(world, profile, 6).contains(&entity)
                         })
                 })
         });

@@ -21,7 +21,11 @@ pub(crate) fn patch_context(world: &World) -> Option<PatchContext> {
     }
     let target = runtime.hotpatch.ready.as_ref()?;
     let baseline = runtime.hotpatch.baseline.as_ref()?;
-    if !target_is_current(runtime, status, target) || target.base_build != baseline.base_build { return None; }
+    if !target_is_current(runtime, status, target) || target.base_build != baseline.base_build
+        || baseline.selected_features != crate::native_play::ProjectBuildFeatures::selected(world)
+    {
+        return None;
+    }
     Some(PatchContext { target: target.clone(), baseline: baseline.clone() })
 }
 

@@ -799,6 +799,13 @@ viewport.project_3d.spaced	工程 3D	Project 3D
 toolbar.rebuild	重新编译	Rebuild
 toolbar.cargo	Cargo	Cargo
 toolbar.launch.building	正在构建工程…	Building project…
+toolbar.launch.features	特性	Features
+toolbar.launch.features.apply	应用	Apply
+toolbar.launch.features.loading	正在读取特性…	Loading project features…
+toolbar.launch.features.unavailable	无法读取 Cargo.toml	Could not read Cargo.toml
+toolbar.launch.features.empty	工程未声明可选特性	No optional features declared
+toolbar.launch.features.saved	按工程保存	Saved for this project
+toolbar.launch.features.scroll	滚动查看更多特性	Scroll for more features
 toolbar.project.connected	工程3D：已连接	Project 3D: Connected
 toolbar.project.disconnected	工程3D：未连接	Project 3D: Disconnected
 toolbar.project.starting	工程3D：启动中	Project 3D: Starting

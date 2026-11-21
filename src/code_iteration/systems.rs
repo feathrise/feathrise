@@ -16,16 +16,19 @@ pub(super) fn sync_patch_context(world: &mut World) {
 pub(super) fn poll(
     launch: Res<ProjectLaunchSettings>,
     build_backend: Option<Res<crate::native_play::ProjectBuildBackend>>,
+    features: Option<Res<crate::native_play::ProjectBuildFeatures>>,
     mut state: ResMut<super::CodeIterationState>,
     mut runtime: NonSendMut<CodeIterationRuntime>,
 ) {
     // 稳定运行不借用整个作者状态的可变引用，避免每帧误标changed并触发代码UI重排。
     let selected_backend = build_backend.map_or(crate::native_play::ProjectBuildBackend::Dx, |backend| *backend);
+    let selected_features = features.as_deref().cloned().unwrap_or_default();
     if runtime.lifecycle != BackendLifecycle::Running
-        && !super::lifecycle::advance(&mut runtime, &mut state, launch.profile, selected_backend) { return; }
-    let backend_changed = runtime.backend.as_ref().is_some_and(|backend| backend.set_build_backend(selected_backend));
+        && !super::lifecycle::advance(&mut runtime, &mut state, launch.profile, selected_backend, &selected_features) { return; }
+    let configuration_changed = runtime.backend.as_mut()
+        .is_some_and(|backend| backend.set_build_selection(selected_backend, &selected_features));
     let profile_changed = runtime.profile != launch.profile;
-    if profile_changed || backend_changed {
+    if profile_changed || configuration_changed {
         if let Some(backend) = runtime.backend.as_ref() { backend.set_profile(launch.profile); }
         runtime.profile = launch.profile;
         state.pending = None;

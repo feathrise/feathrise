@@ -1,7 +1,9 @@
 //! 视口选择与窗口布局的有界快照；进程和作者文档的所有权留给各自功能域。
 
 use super::ViewportMode;
+use crate::native_play::ProjectBuildFeatures;
 use bevy::prelude::*;
+use std::path::PathBuf;
 
 #[derive(Resource, Debug)]
 pub(crate) struct ViewportModeState {
@@ -37,11 +39,43 @@ pub(super) struct CompilationReturn {
 #[derive(Resource, Default)]
 pub(crate) struct BuildProfileMenuState {
     pub(super) open: bool,
+    pub(super) features: bool,
     pub(super) captured: bool,
 }
 
 impl BuildProfileMenuState {
+    pub(super) fn features_open(&self) -> bool { self.open && self.features }
+
     pub(crate) fn captures_input(&self) -> bool { self.captured }
+}
+
+pub(super) type FeatureCatalog = Result<Vec<String>, String>;
+
+#[derive(Resource)]
+pub(super) struct FeatureMenu {
+    pub(super) manifest: PathBuf,
+    pub(super) catalog: Option<FeatureCatalog>,
+    pub(super) loading: Option<async_channel::Receiver<FeatureCatalog>>,
+    pub(super) discard_read: bool,
+    pub(super) was_open: bool,
+    pub(super) revision: u64,
+    pub(super) draft: Vec<String>,
+    pub(super) draft_default: bool,
+}
+
+impl FeatureMenu {
+    pub(super) fn new(manifest: PathBuf) -> Self {
+        Self { manifest, catalog: None, loading: None, discard_read: false,
+            was_open: false, revision: 0, draft: Vec::new(), draft_default: true }
+    }
+
+    pub(super) fn changed(&self, selected: &ProjectBuildFeatures) -> bool {
+        self.draft_default != selected.default_enabled() || self.draft != selected.names()
+    }
+
+    pub(super) fn names(&self) -> &[String] {
+        self.catalog.as_ref().and_then(|result| result.as_ref().ok()).map_or(&[], Vec::as_slice)
+    }
 }
 
 /// 以作者客户区为原点的物理像素矩形；隐藏时保留末次有效尺寸，避免最小化触发零尺寸重建。

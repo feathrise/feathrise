@@ -10,7 +10,7 @@ use crate::{
     compiler_diagnostics::{CompilerDiagnostic, DIAGNOSTIC_LIMIT},
     project::Project,
 };
-use crate::code_iteration::hotpatch::PatchContext;
+use crate::{code_iteration::hotpatch::PatchContext, native_play::ProjectBuildFeatures};
 use feathrise_editor_core::ProjectBuildProfile;
 use std::{
     io::Read,
@@ -24,6 +24,7 @@ pub(super) fn context(
     project: &Project,
     request: &BuildRequest,
     shared: &Shared,
+    features: &ProjectBuildFeatures,
 ) -> Result<String, String> {
     let cargo = crate::native_play::cargo_program();
     let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
@@ -31,7 +32,7 @@ pub(super) fn context(
         request.source.environment_sha256.clone(),
         request.build_backend.cargo_profile(request.profile).into(),
         request.build_backend.key().into(),
-        crate::native_play::build_feature_identity(),
+        serde_json::to_string(&(features.default_enabled(), features.names())).map_err(|error| error.to_string())?,
     ];
     for (program, args) in [
         (cargo, vec!["--version", "--verbose"]),
@@ -71,6 +72,7 @@ pub(super) fn prepare(
     request: &BuildRequest,
     identity: &BuildIdentity,
     shared: &Shared,
+    features: &ProjectBuildFeatures,
     patch_context: Option<&PatchContext>,
 ) -> (
     Result<Arc<PreparedVersion>, String>,
@@ -92,14 +94,14 @@ pub(super) fn prepare(
         if source::capture(project, target, &shared.control)? != request.source {
             return Err("构建开始前源码已变化，等待最新保存版本".into());
         }
-        let artifact = if let Some(context) = patch_context.filter(|context| patch_compatible(project, request, context)) {
+        let artifact = if let Some(context) = patch_context.filter(|context| patch_compatible(project, request, features, context)) {
             let patch = crate::native_play::prepare_function_patch(
                 project, target, context, request.generation, &shared.control, Some(callback),
             )?;
             PreparedArtifact::Patch(Arc::new(patch))
         } else {
             let mut prepared = crate::native_play::prepare_game_with_backend(
-                project, target, None, request.profile, request.build_backend, &shared.control, Some(callback),
+                project, target, None, request.profile, request.build_backend, features, &shared.control, Some(callback),
             )?;
             prepared.bind_build_metadata(serde_json::json!({"build_identity":identity.json(),"source_files":request.source.files,"source_bytes":request.source.bytes}), &shared.control)?;
             PreparedArtifact::Restart(Arc::new(prepared))
@@ -126,11 +128,12 @@ pub(super) fn prepare(
     (result, diagnostics)
 }
 
-fn patch_compatible(project: &Project, request: &BuildRequest, context: &PatchContext) -> bool {
+fn patch_compatible(project: &Project, request: &BuildRequest, features: &ProjectBuildFeatures, context: &PatchContext) -> bool {
     request.build_backend == crate::native_play::ProjectBuildBackend::Dx
         && request.profile == ProjectBuildProfile::Debug
         && context.target.project_id == project.id
         && context.target.base_build == context.baseline.base_build
+        && &context.baseline.selected_features == features
         && inputs_compatible(&request.source, &context.baseline.source)
 }
 

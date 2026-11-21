@@ -141,6 +141,7 @@ pub(super) fn run(
     target: PathBuf,
     profile: feathrise_editor_core::ProjectBuildProfile,
     build_backend: crate::native_play::ProjectBuildBackend,
+    features: crate::native_play::ProjectBuildFeatures,
     prepared: Option<Arc<crate::native_play::PreparedGame>>,
     geometry: ViewportGeometry,
     mut identity: SessionIdentity,
@@ -150,7 +151,7 @@ pub(super) fn run(
 ) -> Result<(), String> {
     let prepared = match prepared {
         Some(prepared) => {
-            if !prepared.matches_project(&project, profile) || !prepared.matches_backend(build_backend) {
+            if !prepared.matches_project(&project, profile) || !prepared.matches_build_selection(build_backend, &features) {
                 return Err("待应用版本与本次工程或构建配置不一致，拒绝启动".into());
             }
             prepared
@@ -159,7 +160,8 @@ pub(super) fn run(
             let _ = events.try_send(Event::Progress(
                 "正在构建工程，首次准备可能较久；作者文档保持可用".into(),
             ));
-            Arc::new(crate::native_play::prepare_game_with_backend(&project, &target, None, profile, build_backend, &control, None)?)
+            Arc::new(crate::native_play::prepare_game_with_backend(&project, &target, None, profile,
+                build_backend, &features, &control, None)?)
         }
     };
     if let Some(baseline) = &prepared.hotpatch {

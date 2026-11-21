@@ -57,7 +57,7 @@ fn production_empty_archive_gate_cold_and_warm() {
         validate_project(&project, &control)?;
         // 与正式构建共用 DX 发现路径，实测必须取得实际工具。
         let (dx, _) = project_tool(&project, &target, &control)?.ok_or("归档门实测需要 DX 0.7.9")?;
-        let context = prepare_context(&project, &target, &dx, "fixture", &control)
+        let context = prepare_context(&project, &target, &dx, false, "fixture", &control)
             .map_err(|error| format!("准备归档门真实链接环境：{error}"))?;
         // 只给新建夹具生成离线锁文件；两次真实DX仍沿用生产--locked，不改任何既有工程。
         let mut metadata = context.command_for(&context.cargo, &project)?;

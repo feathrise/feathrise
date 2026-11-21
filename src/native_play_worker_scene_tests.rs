@@ -111,7 +111,7 @@ fn prepared_standalone_worker_rejects_the_other_backend_before_any_spawn() {
         let (progress, progress_rx) = std::sync::mpsc::sync_channel(4);
         let (started, started_rx) = std::sync::mpsc::sync_channel(1);
         let error = super::run_prepared(fixture.project.clone(), std::sync::Arc::new(prepared), request,
-            selected, &BuildControl::default(), &progress, Some(started)).unwrap_err();
+            selected, &super::ProjectBuildFeatures::default(), &BuildControl::default(), &progress, Some(started)).unwrap_err();
         assert!(error.contains("构建方式"));
         assert!(progress_rx.try_recv().is_err());
         assert!(started_rx.try_recv().is_err(), "后端不匹配时不能创建游戏Job或发布启动回执");
@@ -213,19 +213,19 @@ fn native_debug_reuses_cargo_run_in_each_projects_target() {
     let first = Fixture::new();
     let second = Fixture::new();
     for fixture in [&first, &second] {
-        // 夹具只声明与当前宿主匹配的默认特性，并且不声明 render-dev；用真实 cargo run 预热。
-        let identity = super::features::identity();
-        let enabled = identity.split(',').filter(|name| !name.is_empty()).collect::<Vec<_>>();
-        let feature_defs = enabled.iter().map(|name| format!("{name} = []\n")).collect::<String>();
+        // 默认组与宿主能力故意不同。原生 Debug 必须用工程默认组命中 cargo run 的产物。
         fs::write(&fixture.project.manifest, format!(
-            "[package]\nname='{}'\nversion='0.1.0'\nedition='2024'\n[features]\ndefault = {enabled:?}\n{feature_defs}",
+            "[package]\nname='{}'\nversion='0.1.0'\nedition='2024'\n[features]\ndefault = ['fixture_default']\nfixture_default = []\nraytracing = []\n",
             fixture.project.package
         )).unwrap();
         fs::write(fixture.root.join("Cargo.lock"), format!(
             "version = 4\n[[package]]\nname = '{}'\nversion = '0.1.0'\n", fixture.project.package,
         )).unwrap();
         fs::create_dir(fixture.root.join("src")).unwrap();
-        fs::write(fixture.root.join("src/main.rs"), "// 本轮缓存归属夹具，无外部依赖。\nfn main() {}\n").unwrap();
+        fs::write(fixture.root.join("src/main.rs"), "\
+#[cfg(any(not(feature = \"fixture_default\"), feature = \"raytracing\"))]\n\
+compile_error!(\"expected the project's Cargo defaults without editor raytracing\");\n\
+fn main() {}\n").unwrap();
         let output = std::process::Command::new(env!("CARGO"))
             .args(["run", "--offline"])
             .current_dir(&fixture.root)
@@ -242,7 +242,7 @@ fn native_debug_reuses_cargo_run_in_each_projects_target() {
         let modified = fs::metadata(&exe).unwrap().modified().unwrap();
         let (sink, logs) = crate::project_log::fixture_log_probe(&fixture.project.id);
         let prepared = super::prepare_with_backend(&fixture.project, &target, None, ProjectBuildProfile::Debug,
-            super::ProjectBuildBackend::Native, &BuildControl::with_log(sink), None).unwrap();
+            super::ProjectBuildBackend::Native, &super::ProjectBuildFeatures::default(), &BuildControl::with_log(sink), None).unwrap();
         let logs = logs.drain();
         assert!(logs.iter().any(|event| event.text.contains("--profile dev")));
         assert!(!logs.iter().any(|event| event.text.contains("Compiling ")),
@@ -277,7 +277,8 @@ fn fat_metadata_version(fixture: &Fixture) -> super::PreparedGame {
             hotpatch_shape: Some("owned-shape".into()), files: 1, bytes: 1,
             watches: Default::default(), source_watches: Default::default() },
         base_build: "owned-fat-base".into(), directory: bundle.directory.clone(),
-        patch_root: bundle.directory.join("code-patches"), features: "function_hotpatch".into(), bundle,
+        patch_root: bundle.directory.join("code-patches"), features: "function_hotpatch".into(),
+        selected_features: super::ProjectBuildFeatures::default(), bundle,
     }));
     prepared
 }

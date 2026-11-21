@@ -430,12 +430,12 @@ fn existing_project_network_policy_is_read_only_and_does_not_assume_new_source_c
     ] {
         fs::write(&manifest, source).unwrap();
         let mut command = Command::new("cargo");
-        apply_project_network_policy(&manifest, &mut command).unwrap();
+        apply_project_network_policy(&read_manifest(&manifest).unwrap(), &mut command);
         assert_eq!(command.get_args().any(|arg| arg == "--offline"), offline, "{source}");
         assert_eq!(fs::read_to_string(&manifest).unwrap(), source);
     }
     fs::write(&manifest, " ".repeat(MANIFEST_LIMIT + 1)).unwrap();
-    assert!(apply_project_network_policy(&manifest, &mut Command::new("cargo")).unwrap_err().contains("64 KiB"));
+    assert!(read_manifest(&manifest).unwrap_err().contains("64 KiB"));
 }
 
 #[test]

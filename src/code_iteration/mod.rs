@@ -72,9 +72,11 @@ impl Plugin for CodeIterationPlugin {
         let profile = app.world().get_resource::<feathrise_editor_core::ProjectLaunchSettings>()
             .map_or(feathrise_editor_core::ProjectBuildProfile::default(), |launch| launch.profile);
         let logs = app.world().get_resource::<crate::project_log::ProjectLogChannel>().cloned();
+        let build_backend = crate::native_play::ProjectBuildBackend::selected(app.world());
+        let features = crate::native_play::ProjectBuildFeatures::selected(app.world());
         app.insert_resource(CodeIterationState::new(&self.project))
             .insert_non_send(CodeIterationRuntime {
-                backend: Some(Backend::spawn(self.project.clone(), self.target.clone(), profile, logs.clone())),
+                backend: Some(Backend::spawn(self.project.clone(), self.target.clone(), profile, logs.clone(), build_backend, features)),
                 settings: BackendSettings { project: self.project.clone(), target: self.target.clone(), logs },
                 profile, lifecycle: BackendLifecycle::Running, last_generation: 1, failure: None,
             })

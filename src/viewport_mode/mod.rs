@@ -4,6 +4,7 @@
 mod components;
 mod compilation;
 mod busy_border;
+mod feature_ui;
 mod messages;
 mod preferences;
 mod profile_ui;
@@ -39,6 +40,10 @@ pub(crate) fn install(
 ) -> Completion {
     feathrise_editor_scene::standalone::viewport_projection::install(app);
     let completion = self::preferences::install(app, preferences, project);
+    if let Some(project) = project {
+        app.insert_resource(resources::FeatureMenu::new(project.manifest.clone()))
+            .add_systems(Update, feature_ui::present.after(ViewportModeInput));
+    }
     {
         let mut mode = app.world_mut().resource_mut::<ViewportModeState>();
         if !mode.selected.supported() {
@@ -61,6 +66,7 @@ pub(crate) fn install(
         .add_message::<ViewportModeChanged>()
         .add_message::<messages::RequestBuildProfile>()
         .add_message::<messages::RequestBuildBackend>()
+        .add_message::<messages::RequestBuildFeatures>()
         .add_message::<feathrise_editor_scene::standalone::SavedPlayFeedback>()
         .add_systems(Update, ui::mount.before(ViewportModeInput))
         .add_systems(Update, ui::mount_launch.before(ViewportModeInput))
@@ -74,7 +80,8 @@ pub(crate) fn install(
             .before(ViewportModeInput))
         .add_systems(
             Update,
-            (ui::input, profile_ui::input, compilation::return_when_stopped, systems::apply, systems::apply_profile, systems::apply_backend)
+            (ui::input, profile_ui::input, feature_ui::input, compilation::return_when_stopped,
+                systems::apply, systems::apply_profile, systems::apply_backend, systems::apply_features)
                 .chain()
                 .in_set(ViewportModeInput)
                 .after(feathrise_editor_ui::update_editor_button_clicks)

@@ -38,6 +38,37 @@ impl ProjectBuildBackend {
     }
 }
 
+/// Cargo 默认组开关和显式勾选的其他特性，共同冻结到本次构建。
+#[derive(Resource, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProjectBuildFeatures {
+    default_enabled: bool,
+    names: Arc<Vec<String>>,
+}
+
+impl Default for ProjectBuildFeatures {
+    fn default() -> Self {
+        Self { default_enabled: true, names: Arc::default() }
+    }
+}
+
+impl ProjectBuildFeatures {
+    pub(crate) fn new(default_enabled: bool, mut names: Vec<String>) -> Self {
+        // 旧偏好曾把 default 当作额外特性。迁移到独立开关，避免关闭时又显式启用。
+        names.retain(|name| name != "default");
+        names.sort_unstable();
+        names.dedup();
+        Self { default_enabled, names: Arc::new(names) }
+    }
+
+    pub(crate) fn default_enabled(&self) -> bool { self.default_enabled }
+
+    pub(crate) fn names(&self) -> &[String] { &self.names }
+
+    pub(crate) fn selected(world: &World) -> Self {
+        world.get_resource::<Self>().cloned().unwrap_or_default()
+    }
+}
+
 /// 应用回执只描述本次明确请求；源码代次与工程身份由代码迭代协调器绑定token。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodeApplyState {

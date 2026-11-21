@@ -1,9 +1,9 @@
-//! 视口、构建方式和Debug/Release按工程保存在作者数据目录，旧全局侧文件只用于首次继承模式。
+//! 视口、构建方式、Debug/Release 和工程特性按工程保存，旧全局文件只用于继承视口模式。
 //! 最多一个后台写入和一份最新选择；只有成功回执才能更新磁盘身份，失败保留最后有效文件。
 
 use super::{ViewportMode, ViewportModeState};
 use crate::user_preferences::{Preferences, publish_checked, read_optional};
-use crate::{native_play::ProjectBuildBackend, project::{Project, ProjectContext}};
+use crate::{native_play::{ProjectBuildBackend, ProjectBuildFeatures}, project::{Project, ProjectContext}};
 use feathrise_editor_core::{ProjectBuildProfile, ProjectLaunchSettings};
 use async_channel::{Receiver, TryRecvError};
 use bevy::{prelude::*, tasks::IoTaskPool};
@@ -20,13 +20,18 @@ struct Stored {
     profile: ProjectBuildProfile,
     #[serde(default)]
     backend: ProjectBuildBackend,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    features: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    default_features: Option<bool>,
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 struct Selection {
     mode: ViewportMode,
     profile: ProjectBuildProfile,
     backend: ProjectBuildBackend,
+    features: ProjectBuildFeatures,
 }
 
 struct Store {
@@ -35,6 +40,7 @@ struct Store {
     mode: ViewportMode,
     profile: ProjectBuildProfile,
     backend: ProjectBuildBackend,
+    features: ProjectBuildFeatures,
     context: Option<ProjectContext>,
 }
 
@@ -47,7 +53,8 @@ impl Store {
             if stored.format != 1 {
                 return Err(format!("不支持视口偏好版本{}，原文保留", stored.format));
             }
-            Selection { mode: stored.mode, profile: stored.profile, backend: stored.backend }
+            Selection { mode: stored.mode, profile: stored.profile, backend: stored.backend,
+                features: ProjectBuildFeatures::new(stored.default_features.unwrap_or(true), stored.features) }
         } else {
             Selection::default()
         };
@@ -57,6 +64,7 @@ impl Store {
             mode: selection.mode,
             profile: selection.profile,
             backend: selection.backend,
+            features: selection.features,
             context: None,
         })
     }
@@ -84,13 +92,14 @@ impl Store {
     }
 
     fn selection(&self) -> Selection {
-        Selection { mode: self.mode, profile: self.profile, backend: self.backend }
+        Selection { mode: self.mode, profile: self.profile, backend: self.backend, features: self.features.clone() }
     }
 
     fn set_selection(&mut self, selection: Selection) {
         self.mode = selection.mode;
         self.profile = selection.profile;
         self.backend = selection.backend;
+        self.features = selection.features;
     }
 
     fn save(&mut self) -> Result<(), String> {
@@ -105,6 +114,8 @@ impl Store {
             mode: self.mode,
             profile: self.profile,
             backend: self.backend,
+            features: self.features.names().to_vec(),
+            default_features: (!self.features.default_enabled()).then_some(false),
         })
         .map_err(|error| error.to_string())?;
         bytes.push(b'\n');
@@ -182,7 +193,7 @@ impl State {
             ));
             return;
         };
-        store.set_selection(self.current);
+        store.set_selection(self.current.clone());
         let revision = self.revision;
         let (sender, receiver) = async_channel::bounded(1);
         self.job = Some(receiver);
@@ -219,6 +230,7 @@ pub(super) fn install(app: &mut App, preferences: &Preferences, project: Option<
                 mode: ViewportMode::default(),
                 profile: ProjectBuildProfile::default(),
                 backend: ProjectBuildBackend::default(),
+                features: ProjectBuildFeatures::default(),
                 context: project.map(|project| project.context.clone()),
             },
             Some(error),
@@ -227,8 +239,8 @@ pub(super) fn install(app: &mut App, preferences: &Preferences, project: Option<
     let selection = store.selection();
     let state = Rc::new(RefCell::new(State {
         store: Some(store),
-        current: selection,
-        committed: selection,
+        current: selection.clone(),
+        committed: selection.clone(),
         revision: 1,
         job: None,
         failure: None,
@@ -239,6 +251,7 @@ pub(super) fn install(app: &mut App, preferences: &Preferences, project: Option<
         status: error.unwrap_or_default(),
     })
     .insert_resource(selection.backend)
+    .insert_resource(selection.features)
     .init_resource::<ProjectLaunchSettings>()
     .insert_non_send(Runtime(Rc::clone(&state)))
     .add_systems(Last, capture_and_poll);
@@ -247,9 +260,10 @@ pub(super) fn install(app: &mut App, preferences: &Preferences, project: Option<
     Completion(state)
 }
 
-fn capture_and_poll(mut mode: ResMut<ViewportModeState>, launch: Res<ProjectLaunchSettings>, backend: Res<ProjectBuildBackend>, runtime: NonSend<Runtime>) {
+fn capture_and_poll(mut mode: ResMut<ViewportModeState>, launch: Res<ProjectLaunchSettings>,
+    backend: Res<ProjectBuildBackend>, features: Res<ProjectBuildFeatures>, runtime: NonSend<Runtime>) {
     let mut state = runtime.0.borrow_mut();
-    state.capture(Selection { mode: mode.selected, profile: launch.profile, backend: *backend });
+    state.capture(Selection { mode: mode.selected, profile: launch.profile, backend: *backend, features: features.clone() });
     state.advance();
     if let Some(error) = state.error() {
         let message = format!("工程启动配置尚未保存：{error}");
@@ -269,6 +283,7 @@ pub(crate) fn ready_to_exit(world: &mut World, retry: bool) -> Result<bool, Stri
         mode: world.resource::<ViewportModeState>().selected,
         profile: world.resource::<ProjectLaunchSettings>().profile,
         backend: *world.resource::<ProjectBuildBackend>(),
+        features: ProjectBuildFeatures::selected(world),
     });
     if retry {
         state.failure = None;
@@ -298,9 +313,9 @@ impl Completion {
         if let Some(error) = state.error() {
             return Err(error.to_owned());
         }
-        let selection = state.current;
+        let selection = state.current.clone();
         let store = state.store.as_mut().ok_or("视口偏好写入槽未归还")?;
-        store.set_selection(selection);
+        store.set_selection(selection.clone());
         store.save()?;
         state.committed = selection;
         Ok(())
@@ -356,6 +371,27 @@ mod tests {
             Store::load(fixture.0.clone()).unwrap().mode,
             ViewportMode::SavedWorld
         );
+    }
+
+    #[test]
+    fn project_features_reopen_disabled_defaults_and_migrate_legacy_choices() {
+        let fixture = Fixture::new();
+        fs::write(&fixture.0, r#"{"format":1,"profile":"debug","backend":"cargo"}"#).unwrap();
+        let store = Store::load(fixture.0.clone()).unwrap();
+        assert!(store.features.names().is_empty());
+        assert!(store.features.default_enabled());
+
+        fs::write(&fixture.0, r#"{"format":1,"profile":"debug","backend":"cargo","features":["beta","default","alpha","beta"]}"#).unwrap();
+        let mut store = Store::load(fixture.0.clone()).unwrap();
+        assert!(store.features.default_enabled());
+        assert_eq!(store.features.names(), ["alpha", "beta"]);
+
+        store.features = ProjectBuildFeatures::new(false, store.features.names().to_vec());
+        store.save().unwrap();
+        let reopened = Store::load(fixture.0.clone()).unwrap();
+        assert!(!reopened.features.default_enabled());
+        assert_eq!(reopened.features.names(), ["alpha", "beta"]);
+        assert_eq!(reopened.backend, ProjectBuildBackend::Native);
     }
 
     #[test]

@@ -12,6 +12,7 @@ pub(crate) struct FatBaseline {
     pub directory: PathBuf,
     pub patch_root: PathBuf,
     pub features: String,
+    pub selected_features: crate::native_play::ProjectBuildFeatures,
     pub bundle: PublishedBundle,
 }
 

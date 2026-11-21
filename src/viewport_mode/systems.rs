@@ -58,6 +58,18 @@ pub(super) fn apply(
     world.write_message(SavedPlayFeedback(feedback));
 }
 
+/// 预览配置只在安全编辑状态受理。被拒绝的点击不进入后台重新播放。
+fn build_change_blocked(world: &mut World, mode: super::ViewportMode) -> bool {
+    let reason = crate::native_play::build_profile_blocker(world)
+        .or_else(|| crate::project_export::build_profile_blocker(world))
+        .or_else(|| crate::embedded_viewport::build_profile_blocker(world))
+        .or_else(|| blocked_reason(world, mode));
+    let Some(reason) = reason else { return false; };
+    world.resource_mut::<ViewportModeState>().status = reason.clone();
+    world.write_message(SavedPlayFeedback(reason));
+    true
+}
+
 /// 配置只在安全编辑状态受理；常驻协调器随后停止旧Job，真实回收后按新配置重建。
 pub(super) fn apply_profile(
     world: &mut World,
@@ -70,15 +82,7 @@ pub(super) fn apply_profile(
         return;
     }
     let mode = world.resource::<ViewportModeState>().selected;
-    let reason = crate::native_play::build_profile_blocker(world)
-        .or_else(|| crate::project_export::build_profile_blocker(world))
-        .or_else(|| crate::embedded_viewport::build_profile_blocker(world))
-        .or_else(|| blocked_reason(world, mode));
-    if let Some(reason) = reason {
-        world.resource_mut::<ViewportModeState>().status = reason.clone();
-        world.write_message(SavedPlayFeedback(reason));
-        return; // 不排队旧点击；结束工程运行/关闭后必须由作者重新选择。
-    }
+    if build_change_blocked(world, mode) { return; }
     let restarting = mode == super::ViewportMode::EmbeddedWorld
         && world.get_resource::<crate::embedded_viewport::EmbeddedStatus>().is_some_and(|status| status.active);
     let mut launch = world.resource_mut::<feathrise_editor_core::ProjectLaunchSettings>();
@@ -102,15 +106,7 @@ pub(super) fn apply_backend(
     let Some(request) = cursor.read(world.resource::<Messages<super::messages::RequestBuildBackend>>()).last().copied() else { return; };
     let mode = world.resource::<ViewportModeState>().selected;
     if request.0 == crate::native_play::ProjectBuildBackend::selected(world) { return; }
-    let reason = crate::native_play::build_profile_blocker(world)
-        .or_else(|| crate::project_export::build_profile_blocker(world))
-        .or_else(|| crate::embedded_viewport::build_profile_blocker(world))
-        .or_else(|| blocked_reason(world, mode));
-    if let Some(reason) = reason {
-        world.resource_mut::<ViewportModeState>().status = reason.clone();
-        world.write_message(SavedPlayFeedback(reason));
-        return;
-    }
+    if build_change_blocked(world, mode) { return; }
     world.insert_resource(request.0);
     let embedded = mode == super::ViewportMode::EmbeddedWorld;
     let restarting = embedded && world.get_resource::<crate::embedded_viewport::EmbeddedStatus>().is_some_and(|status| status.active);
@@ -126,6 +122,31 @@ pub(super) fn apply_backend(
     if embedded { state.revision = state.revision.wrapping_add(1).max(1); }
     state.status = message.clone();
     world.write_message(SavedPlayFeedback(message));
+}
+
+/// 一次受理整组勾选，工程 3D 只重建一次，沿用原 Job 收口与草稿恢复。
+pub(super) fn apply_features(
+    world: &mut World,
+    mut cursor: Local<bevy::ecs::message::MessageCursor<super::messages::RequestBuildFeatures>>,
+) {
+    let Some(request) = cursor.read(world.resource::<Messages<super::messages::RequestBuildFeatures>>()).last().cloned() else {
+        return;
+    };
+    let mode = world.resource::<ViewportModeState>().selected;
+    if request.0 == crate::native_play::ProjectBuildFeatures::selected(world) || build_change_blocked(world, mode) {
+        return;
+    }
+    world.insert_resource(request.0);
+    let embedded = mode == super::ViewportMode::EmbeddedWorld;
+    if embedded {
+        let restarting = world.get_resource::<crate::embedded_viewport::EmbeddedStatus>().is_some_and(|status| status.active);
+        world.resource_mut::<feathrise_editor_core::ProjectLaunchSettings>().switching_profile = restarting;
+    }
+    let message = if embedded { "正在按所选特性准备预览" } else { "下次启动使用所选特性" };
+    let mut state = world.resource_mut::<ViewportModeState>();
+    if embedded { state.revision = state.revision.wrapping_add(1).max(1); }
+    state.status = message.into();
+    world.write_message(SavedPlayFeedback(message.into()));
 }
 
 pub(super) fn blocked_reason(world: &World, requested: super::ViewportMode) -> Option<String> {
