@@ -19,7 +19,10 @@ pub(crate) use context_menu::{DirectoryMenuSnapshot, install_snapshot, assert_sn
 pub(crate) use resources::{SceneSidebarFeedback, SceneSidebarInputContext, SceneBrowserTreeIcons};
 pub(crate) use scene::scene_page;
 pub(crate) use properties_scene::scene_properties_page;
-pub(crate) use tree_style::tree_row_colors;
+pub(crate) use tree_style::{
+    TreeRowToggle, load_tree_toggle_images, sync_tree_toggle_icon, tree_row_colors,
+    tree_toggle_button, tree_toggle_colors, tree_toggle_icon,
+};
 
 /// 新宿主先接相同的目录右键实体与手势；目录写入和元数据仍由宿主独立接线。
 pub(crate) fn install_workbench_menu(app: &mut bevy::prelude::App) {

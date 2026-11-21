@@ -6,6 +6,7 @@ use crate::{
     ui::gltf_browser::EditorGltfBrowserState,
 };
 use crate::authoring::placement_deletion::PlacementDeletionIdentity;
+use crate::authoring::placement_participation;
 use feathrise_scene_content::{SceneId, ScenePlacementEditorMetadata, ScenePlacementRecord};
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -46,6 +47,14 @@ pub(crate) fn effective_metadata<'a>(
         .unwrap_or(&record.editor)
 }
 
+pub(crate) fn effective_participation(
+    state: Option<&super::SceneObjectState>,
+    session: &EditorAuthoringSession,
+    record: &ScenePlacementRecord,
+) -> bool {
+    crate::authoring::placement_participation::participates(effective_metadata(state, session, record))
+}
+
 impl super::SceneObjectState {
     pub(super) fn publish_metadata(&mut self, session: &EditorAuthoringSession, changes: MetadataBatch) {
         debug_assert!(self.metadata_write.is_none());
@@ -62,6 +71,7 @@ impl super::SceneObjectState {
         &mut self,
         session: &mut EditorAuthoringSession,
         browser: &EditorGltfBrowserState,
+        mut previews: Option<(&mut super::participation_previews::ParticipationPreviews<'_, '_>, &mut usize)>,
     ) {
         let Some(write) = self.metadata_write.as_mut() else { return; };
         let Some(draft) = session.draft.as_mut().filter(|draft| draft.scene_id == write.scene
@@ -72,19 +82,28 @@ impl super::SceneObjectState {
             }
             return;
         };
-        let records = &mut draft.placements.placements;
         // 完整新值已经对读取方生效；每帧只转移固定数量的 Arc。移出覆盖时，记录已接管相同值。
         for _ in 0..METADATA_PER_FRAME {
-            let Some((id, (index, _))) = write.changes.first_key_value() else { break; };
-            let index = if records.get(*index).is_some_and(|record| record.id == *id) {
+            let Some((id, (index, value))) = write.changes.first_key_value() else { break; };
+            let index = if draft.placements.placements.get(*index).is_some_and(|record| record.id == *id) {
                 Some(*index)
             } else if browser.placement_index_ready(session.placement_structure_revision) {
                 browser.placement_record_index(id, session.placement_structure_revision)
             } else {
                 break; // 来源重排时等待可证明身份的完整索引，不能套用旧下标。
             };
+            if let Some((context, remaining)) = previews.as_mut()
+                && let Some(record) = index.and_then(|index| draft.placements.placements.get(index)).filter(|record| record.id == *id)
+            {
+                let enabled = placement_participation::participates(value);
+                if enabled != placement_participation::participates(&record.editor)
+                    && !context.apply(draft, record, enabled, &mut session.placement_previews, remaining)
+                {
+                    break; // 作者根受独立预算约束，当前覆盖继续生效，下一帧接续写回。
+                }
+            }
             let (id, (_, value)) = write.changes.pop_first().expect("已经取得首项");
-            if let Some(record) = index.and_then(|index| records.get_mut(index)).filter(|record| record.id == id) {
+            if let Some(record) = index.and_then(|index| draft.placements.placements.get_mut(index)).filter(|record| record.id == id) {
                 record.editor = value;
             }
         }

@@ -30,7 +30,8 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
         )
         .add_systems(
             Update,
-            publication::publish
+            (publication::publish, super::vegetation_editor_visibility::sync)
+                .chain()
                 .in_set(crate::SceneEditorSystemSet::Presentation)
                 .after(super::sync_live_blade_density),
         );

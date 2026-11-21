@@ -7,10 +7,21 @@ use super::{
 use crate::{
     authoring::EditorAuthoringSession,
     resources::SceneEditorState,
-    ui::{scene_sidebar::tree_row_colors, theme as colors},
+    ui::scene_sidebar::{
+        TreeRowToggle, load_tree_toggle_images, sync_tree_toggle_icon, tree_row_colors,
+        tree_toggle_colors,
+    },
 };
 use bevy::prelude::*;
 use bevy::ui::InteractionDisabled;
+
+pub(super) fn tree_toggle(action: Action) -> TreeRowToggle {
+    match action {
+        Action::Enabled => TreeRowToggle::Participation,
+        Action::Visible => TreeRowToggle::Visibility,
+        _ => TreeRowToggle::Lock,
+    }
+}
 
 pub(super) fn sync(
     mut commands: Commands,
@@ -39,17 +50,17 @@ pub(super) fn sync(
     >,
     mut icons: Query<(&RowIcon, &mut ImageNode)>,
 ) {
-    let images = images.get_or_insert_with(|| {
-        [
-            "enabled", "disabled", "visible", "hidden", "locked", "unlocked",
-        ]
-        .map(|name| server.load(format!("icons/editor/mesh_{name}.png")))
-    });
+    let images = images.get_or_insert_with(|| load_tree_toggle_images(&server));
     let draft = session.draft.as_ref();
     let objects = draft
         .and_then(|draft| draft.manifest.terrains.as_deref())
         .unwrap_or_else(|| state.legacy.as_deref().map_or(&[], std::slice::from_ref));
     let usable = systems::enabled(&editor, &session, &state) && gate.scene_visible();
+    let active = |object: Option<&feathrise_scene_content::SceneTerrainObject>, toggle| object.is_some_and(|object| match toggle {
+        TreeRowToggle::Participation => object.enabled,
+        TreeRowToggle::Visibility => !state.hidden.contains(&object.id),
+        TreeRowToggle::Lock => state.locked.contains(&object.id),
+    });
     for (row, interaction, mut background, mut border) in &mut rows {
         let selected = objects
             .get(state.list_start + row.0)
@@ -80,63 +91,13 @@ pub(super) fn sync(
         if !available && !disabled {
             commands.entity(entity).insert(InteractionDisabled);
         }
-        let active = object.is_some_and(|object| match action.0 {
-            Action::Enabled => object.enabled,
-            Action::Visible => !state.hidden.contains(&object.id),
-            Action::Lock => state.locked.contains(&object.id),
-            _ => false,
-        });
-        let fill = if available && *interaction == UiInteraction::Pressed {
-            colors::SELECT_BG_PRESSED
-        } else if available && *interaction == UiInteraction::Hovered {
-            colors::SELECT_BG_HOVER
-        } else if active {
-            colors::SELECT_BG
-        } else {
-            colors::BUTTON_DEV_SMALL_NORMAL
-        };
-        background.set_if_neq(BackgroundColor(fill));
-        border.set_if_neq(BorderColor::all(if active {
-            colors::COPPER_BORDER
-        } else {
-            colors::COPPER_BORDER_WEAK
-        }));
+        let (fill, outline) = tree_toggle_colors(available, active(object, tree_toggle(action.0)), *interaction);
+        background.set_if_neq(fill);
+        border.set_if_neq(outline);
     }
     for (icon, mut image) in &mut icons {
         let object = objects.get(state.list_start + icon.slot);
-        let index = match icon.action {
-            Action::Enabled => {
-                if object.is_some_and(|object| object.enabled) {
-                    0
-                } else {
-                    1
-                }
-            }
-            Action::Visible => {
-                if object.is_some_and(|object| !state.hidden.contains(&object.id)) {
-                    2
-                } else {
-                    3
-                }
-            }
-            _ => {
-                if object.is_some_and(|object| state.locked.contains(&object.id)) {
-                    4
-                } else {
-                    5
-                }
-            }
-        };
-        if image.image != images[index] {
-            image.image = images[index].clone();
-        }
-        let color = if index == 1 || index == 3 {
-            colors::TEXT_MUTED
-        } else {
-            colors::TEXT_PRIMARY
-        };
-        if image.color != color {
-            image.color = color;
-        }
+        let toggle = tree_toggle(icon.action);
+        sync_tree_toggle_icon(toggle, active(object, toggle), images, &mut image);
     }
 }

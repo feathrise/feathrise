@@ -1,10 +1,25 @@
 //! 植被作者层到所属组和固定正式运行时层的选择映射。
 
 use feathrise_scene_content::{
-    SceneVegetationAuthorGroup, SceneVegetationAuthorLayer, SceneVegetationLayer,
+    SceneVegetationAsset, SceneVegetationAuthorGroup, SceneVegetationAuthorLayer, SceneVegetationLayer,
 }; // 返回值显式区分作者画布、组规则和正式profile。
+use std::collections::BTreeSet;
 
 use super::resources::EditorSceneDraft; // 当前完整草稿拥有作者描述与像素表。
+
+/// 只过滤预览副本中的作者贡献，由同一组规则重新决定其他层的实际密度。
+pub(crate) fn hide_layers_in_preview(vegetation: &mut SceneVegetationAsset, hidden: &BTreeSet<String>) -> bool {
+    let mut changed = false;
+    if let Some(authoring) = &mut vegetation.authoring {
+        for layer in &mut authoring.layers {
+            if layer.enabled && hidden.contains(&layer.id) {
+                layer.enabled = false;
+                changed = true;
+            }
+        }
+    }
+    changed
+}
 
 /// 当前选中作者层的三段稳定引用。
 pub(crate) struct SelectedVegetationLayer<'a> {

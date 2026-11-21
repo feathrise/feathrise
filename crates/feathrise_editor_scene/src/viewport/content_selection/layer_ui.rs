@@ -197,6 +197,8 @@ pub(crate) fn layer_candidate_interactions(
         state.request = None; // 未启动的旧点击同时撤销。
         state.waiting_canvas = None; // 明确选择候选后，旧网格载入不能重放先前点击。
         state.task_identity = None;
+        state.apply_click_seconds = None;
+        state.still_water_click_seconds = None;
         match *action {
             // 每个按钮只改变会话态。
             CandidateAction::Select(index) => {

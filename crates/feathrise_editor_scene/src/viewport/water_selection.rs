@@ -28,7 +28,7 @@ mod source_tests;
 pub(crate) use systems::{draw_selected_water_highlight_frame, sync_selected_water_viewport}; // 插件在Presentation与Cursor阶段分别注册表现和定位系统。
 pub(crate) use ui::setup_selected_water_badge; // ViewportNode出现时只创建一次固定徽标实体。
 
-const DOUBLE_CLICK_MAX_SECONDS: f64 = 0.36; // 常见双击节奏，同时避免两次独立慢选误触定位。
+pub(super) const DOUBLE_CLICK_MAX_SECONDS: f64 = 0.36; // 常见双击节奏，同时避免两次独立慢选误触定位。
 const FOCUS_PADDING_SCALE: f32 = 1.25; // 定位后四周保留足够岸线和空间关系。
 const FOCUS_PADDING_METERS: f32 = 2.0; // 小池塘也保留至少两米额外观察边距。
 const SOURCE_LOOKUP_RETRY_FRAMES: u8 = 2; // Commands采用边界最多补查两帧，空层随后稳定短路。
@@ -170,6 +170,12 @@ impl SelectedWaterViewportState {
         feature_id: &str,
         now_seconds: f64,
     ) -> bool {
+        self.confirm_viewport_feature(scene_id, kind, feature_id);
+        self.register_water_click(scene_id, kind, feature_id, now_seconds) // 第二次同一水面才登记定位。
+    }
+
+    /// 统一候选与列表确认可以独立发布选择，无需伪造一次带时间戳的视口点击。
+    pub(crate) fn confirm_viewport_feature(&mut self, scene_id: &SceneId, kind: WaterAuthoringFeatureKind, feature_id: &str) {
         let identity = SelectedWaterIdentity {
             scene_id: scene_id.clone(),            // 世界命中只属于当前真实草稿场景。
             kind,                              // 统一水面marker的类别进入会话身份。
@@ -179,7 +185,6 @@ impl SelectedWaterViewportState {
             self.viewport_identity = Some(identity); // 查看工具下一帧按稳定身份解析完整作者对象。
             self.viewport_selection_revision = self.viewport_selection_revision.wrapping_add(1); // 固定行池只在真实换项时刷新。
         }
-        self.register_water_click(scene_id, kind, feature_id, now_seconds) // 第二次同一水面才登记定位。
     }
 
     /// 水域作者工具或列表接管选择时只撤销“查看”工具专用身份，不破坏本次双击序列。

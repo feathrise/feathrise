@@ -1,4 +1,4 @@
-//! 搜索和单层逻辑目录的渐进投影；只重排树行，不改变实例和源模型。
+//! 单层逻辑目录的渐进投影；只重排树行，不改变实例和源模型。
 
 use super::EditorGltfBrowserState;
 use std::collections::BTreeMap;
@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 pub(super) enum RootToken {
     Group {
         name: String,
+        first_member: usize,
         count: usize,
         collapsed: bool,
     },
@@ -42,50 +43,29 @@ mod tests {
     }
 
     #[test]
-    fn chinese_names_ids_paths_and_groups_are_searchable() {
-        let state = state(3);
-        for (query, expected) in [
-            ("村口路灯1", 1),
-            ("ID-2", 1),
-            ("tree.GLB", 3),
-            ("村口", 3),
-            ("不存在", 0),
-        ] {
-            let mut projection = RootProjection::new(query);
-            while !projection.advance(&state) {}
-            assert_eq!(
-                projection
-                    .roots
-                    .iter()
-                    .filter(|token| matches!(token, RootToken::Placement { .. }))
-                    .count(),
-                expected
-            );
-        }
-    }
-
-    #[test]
-    fn folders_collapse_and_search_reveals_matching_children() {
+    fn folders_collapse_and_expand() {
         let mut state = state(3);
         state.collapsed_groups.insert("村口".into());
-        let mut projection = RootProjection::new("");
+        let mut projection = RootProjection::default();
         assert!(projection.advance(&state));
         assert_eq!(projection.roots.len(), 1);
         assert!(
-            matches!(&projection.roots[0], RootToken::Group { name, collapsed: true, count: 3 } if name == "村口")
+            matches!(&projection.roots[0], RootToken::Group { name, collapsed: true, count: 3, first_member: 0 } if name == "村口")
         );
-        let mut projection = RootProjection::new("路灯1");
+        state.collapsed_groups.clear();
+        let mut projection = RootProjection::default();
         assert!(projection.advance(&state));
+        assert_eq!(projection.roots.len(), 4);
         assert!(matches!(
             projection.roots[1],
-            RootToken::Placement { index: 1, depth: 1 }
+            RootToken::Placement { index: 0, depth: 1 }
         ));
     }
 
     #[test]
     fn large_projection_is_bounded_and_has_no_partial_result() {
         let state = state(8192);
-        let mut projection = RootProjection::new("");
+        let mut projection = RootProjection::default();
         assert!(!projection.advance(&state));
         assert_eq!(projection.cursor, 256);
         assert!(projection.roots.is_empty());
@@ -99,68 +79,38 @@ mod tests {
     }
 }
 
+#[derive(Default)]
 pub(super) struct RootProjection {
     pub(super) linear: bool,
     cursor: usize,
     groups: BTreeMap<String, Vec<usize>>,
     current: Option<(String, std::vec::IntoIter<usize>)>,
     pub(super) roots: Vec<RootToken>,
-    query: String,
     captured: bool,
     complete: bool,
 }
 
 impl RootProjection {
-    pub(super) fn new(query: &str) -> Self {
-        Self {
-            linear: false,
-            cursor: 0,
-            groups: BTreeMap::new(),
-            current: None,
-            roots: Vec::new(),
-            query: query.trim().to_lowercase(),
-            captured: false,
-            complete: false,
-        }
-    }
-
     pub(super) fn advance(&mut self, state: &EditorGltfBrowserState) -> bool {
         if self.complete {
             return true;
         }
-        if self.query.is_empty() && !state.has_object_groups {
+        if !state.has_object_groups {
             self.linear = true;
             self.complete = true;
-            return true; // 无目录且无搜索时直接沿用旧根顺序和每帧256行预算。
+            return true; // 无目录时按摆放顺序生成树行，沿用每帧256行预算。
         }
         if !self.captured {
             let end = (self.cursor + 256).min(state.signature.len());
             let start = self.cursor;
             let mut bytes = 0;
             while self.cursor < end {
-                let p = &state.signature[self.cursor];
-                bytes += p.editor.name.len()
-                    + p.editor.group.len()
-                    + p.asset_path.len()
-                    + p.placement_id.len();
+                let group = &state.signature[self.cursor].editor.group;
+                bytes += group.len();
                 if bytes > 128 * 1024 && self.cursor > start {
                     break;
                 }
-                let matches = self.query.is_empty()
-                    || [
-                        &p.editor.name,
-                        &p.editor.group,
-                        &p.placement_id,
-                        &p.asset_path,
-                    ]
-                    .into_iter()
-                    .any(|text| text.to_lowercase().contains(&self.query));
-                if matches {
-                    self.groups
-                        .entry(p.editor.group.clone())
-                        .or_default()
-                        .push(self.cursor);
-                }
+                self.groups.entry(group.clone()).or_default().push(self.cursor);
                 self.cursor += 1;
             }
             self.captured = self.cursor == state.signature.len();
@@ -168,7 +118,7 @@ impl RootProjection {
                 return false;
             }
         }
-        // 目录、根和折叠省略均按256步限流，搜索期间主动展开匹配目录。
+        // 目录、根和折叠省略均按256步限流。
         for _ in 0..256 {
             if let Some((name, indices)) = &mut self.current {
                 if let Some(index) = indices.next() {
@@ -184,10 +134,11 @@ impl RootProjection {
                 self.complete = true;
                 return true;
             };
-            let collapsed = self.query.is_empty() && state.collapsed_groups.contains(&name);
+            let collapsed = state.collapsed_groups.contains(&name);
             if !name.is_empty() {
                 self.roots.push(RootToken::Group {
                     name: name.clone(),
+                    first_member: indices[0], // 组开关沿用首成员的状态来决定整组切换方向。
                     count: indices.len(),
                     collapsed,
                 });

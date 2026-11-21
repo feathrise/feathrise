@@ -396,6 +396,55 @@ pub(crate) struct TerrainShadingSession {
     pub(crate) grid_scenes: BTreeSet<SceneId>, // 本进程仅记录开启三角网格的场景，不写settings、清单或存档。
 }
 
+/// 只保留编辑器的植被显隐选择。私有地形画布与场景根可以有同名作者层。
+#[derive(Debug, Default)]
+pub(crate) struct VegetationEditorVisibility {
+    hidden: BTreeMap<SceneId, BTreeMap<Option<feathrise_scene_content::TerrainId>, Arc<BTreeSet<String>>>>,
+    revision: u64,
+}
+
+impl VegetationEditorVisibility {
+    pub(crate) fn revision(&self) -> u64 { self.revision }
+
+    pub(crate) fn canvases(
+        &self,
+        scene: &SceneId,
+    ) -> Option<&BTreeMap<Option<feathrise_scene_content::TerrainId>, Arc<BTreeSet<String>>>> {
+        self.hidden.get(scene)
+    }
+
+    pub(crate) fn hidden_in(
+        &self,
+        scene: &SceneId,
+        terrain: Option<&feathrise_scene_content::TerrainId>,
+    ) -> Option<&Arc<BTreeSet<String>>> {
+        self.canvases(scene)?.get(&terrain.cloned())
+    }
+
+    pub(crate) fn toggle(
+        &mut self,
+        scene: &SceneId,
+        terrain: Option<&feathrise_scene_content::TerrainId>,
+        layer: &str,
+    ) -> bool {
+        self.revision = self.revision.wrapping_add(1);
+        let canvases = self.hidden.entry(scene.clone()).or_default();
+        let terrain = terrain.cloned();
+        let hidden = Arc::make_mut(canvases.entry(terrain.clone()).or_default());
+        let now_hidden = if hidden.remove(layer) { false } else {
+            hidden.insert(layer.to_owned());
+            true
+        };
+        if hidden.is_empty() {
+            canvases.remove(&terrain);
+        }
+        if canvases.is_empty() {
+            self.hidden.remove(scene);
+        }
+        now_hidden
+    }
+}
+
 /// F12编辑器当前会话状态。
 #[derive(Resource, Debug)]
 pub struct SceneEditorState {
@@ -515,6 +564,7 @@ pub struct SceneEditorState {
     pub(crate) surface_selected_preset_id: Option<String>,
     /// 当前植被层编号。
     pub(crate) selected_vegetation_layer: usize,
+    pub(crate) vegetation_visibility: VegetationEditorVisibility,
     /// “新空白层”使用的开发者预设稳定 ID；正式输出只在首次使用时延迟创建。
     pub(crate) vegetation_selected_preset_id: Option<String>,
     /// 作者植被图层固定行池当前页。
@@ -601,6 +651,7 @@ impl Default for SceneEditorState {
             selected_surface_layer: 0,
             surface_selected_preset_id: None,
             selected_vegetation_layer: 0,
+            vegetation_visibility: VegetationEditorVisibility::default(),
             vegetation_selected_preset_id: None,
             vegetation_layer_page: 0,
             vegetation_preview_mode: VegetationPreviewMode::Source,

@@ -5,14 +5,15 @@ mod resources;
 mod types;
 mod scene;
 mod metadata;
+mod participation_previews;
 mod systems;
 mod scene_menu;
 mod visibility;
 
 pub(crate) use resources::SceneObjectState;
-pub(crate) use metadata::effective_metadata;
+pub(crate) use metadata::{effective_metadata, effective_participation};
 pub(crate) use types::PlacementVisibilityIntent;
-pub(crate) use scene::{panel, properties_panel};
+pub(crate) use scene::properties_panel;
 pub(crate) use visibility::{ObjectVisibilityState, placement_base_visibility, restore_placement_base_visibility};
 
 pub(crate) fn install(app: &mut bevy::prelude::App) {

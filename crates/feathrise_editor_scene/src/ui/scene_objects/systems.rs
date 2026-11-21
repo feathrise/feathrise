@@ -4,10 +4,15 @@ use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use super::{components::*, resources::*};
 use super::metadata::{METADATA_PER_FRAME, MetadataBatch, effective_metadata};
+use super::participation_previews::{PREVIEW_CHANGES_PER_FRAME, ParticipationPreviews};
 use crate::authoring::SceneObjectChange;
+use crate::authoring::placement_participation;
 use crate::authoring::{EditorAuthoringSession, EditorCommand};
 use crate::resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState};
-use crate::ui::gltf_browser::EditorGltfBrowserState;
+use crate::ui::{
+    gltf_browser::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeToggle, SceneEditorGltfBrowserRow},
+    scene_sidebar::TreeRowToggle,
+};
 use crate::viewport::content_selection::LayerCandidateState;
 use crate::viewport::multi_select::{PlacementSelectionSet, SelectedMember};
 use bevy::input_focus::{InputFocus, tab_navigation::TabIndex};
@@ -16,6 +21,17 @@ use bevy::text::EditableText;
 use bevy::ui::InteractionDisabled;
 use feathrise_scene_content::MAX_PLACEMENT_EDITOR_NAME_CHARS;
 use std::sync::Arc;
+
+fn current_flag(
+    action: ObjectAction,
+    record: &feathrise_scene_content::ScenePlacementRecord,
+) -> bool {
+    match action {
+        ObjectAction::ToggleParticipation => placement_participation::participates(&record.editor),
+        ObjectAction::ToggleHidden => record.editor.hidden,
+        _ => record.editor.locked,
+    }
+}
 
 /// 捕获只复制短ID及元数据Arc；大模型和完整水体记录不进入管理历史。
 pub(super) fn advance_management(
@@ -78,19 +94,19 @@ pub(super) fn advance_management(
             }
             continue;
         }
-        let mut next = record.editor.as_ref().clone();
+        if pending.action == ObjectAction::ToggleParticipation && record.editor.locked {
+            return Err("请先解锁选定对象或组内对象，再修改参与状态".into());
+        }
         if !pending.flag_set {
-            pending.flag = !(if pending.action == ObjectAction::ToggleHidden {
-                record.editor.hidden
-            } else {
-                record.editor.locked
-            });
+            pending.flag = !current_flag(pending.action, record);
             pending.flag_set = true; // 目录以首个成员冻结共同目标，后续帧和成员不能各自反转。
         }
+        let mut next = record.editor.as_ref().clone();
         match pending.action {
             ObjectAction::Rename => next.name = pending.name.clone(),
             ObjectAction::AssignGroup => next.group = pending.group.clone(),
             ObjectAction::Ungroup => next.group.clear(),
+            ObjectAction::ToggleParticipation => placement_participation::set_participation(&mut next, pending.flag)?,
             ObjectAction::ToggleHidden => next.hidden = pending.flag,
             ObjectAction::ToggleLocked => next.locked = pending.flag,
             _ => return Err("无效的对象管理动作".into()),
@@ -163,7 +179,7 @@ pub(super) fn retire<T: Send + 'static>(state: &mut SceneObjectState, value: T) 
     }));
 }
 
-/// 固定六个操作和三个文本入口只按实际资格回显；保护对象始终保留恢复入口。
+/// 固定六个操作和两个文本入口只按实际资格回显；保护对象始终保留恢复入口。
 pub(super) fn style_buttons(
     mut commands: Commands,
     editor: Res<SceneEditorState>,
@@ -171,9 +187,7 @@ pub(super) fn style_buttons(
     session: Res<EditorAuthoringSession>,
     browser: Res<EditorGltfBrowserState>,
     selection: Res<PlacementSelectionSet>,
-    project_tree: Option<Res<crate::standalone::embedded_scene_tree::ProjectSceneTree>>,
     focus: Res<InputFocus>,
-    mut searches: Query<&mut Node, With<SceneAssetSearch>>,
     mut controls: Query<
         (Entity, Option<&ObjectButton>, Option<&ObjectInput>, &UiInteraction,
             &mut BackgroundColor, &mut BorderColor, Has<InteractionDisabled>),
@@ -181,14 +195,6 @@ pub(super) fn style_buttons(
     >,
 ) {
     use crate::ui::theme as colors;
-    // 两类行共用搜索；过滤到零条后仍可清除关键字。
-    let search_visible = !browser.object_search.is_empty()
-        || session.draft.as_ref().is_some_and(|draft| !draft.placements.placements.is_empty())
-        || project_tree.as_ref().is_some_and(|tree| tree.has_objects());
-    for mut node in &mut searches {
-        let display = if search_visible { Display::Flex } else { Display::None };
-        if node.display != display { node.display = display; }
-    }
     let ready = editor.open
         && !editor.close_requested
         && !editor.new_scene_dialog_open
@@ -205,7 +211,6 @@ pub(super) fn style_buttons(
     for (entity, button, field, interaction, mut background, mut border, disabled) in &mut controls {
         let enabled = ready
             && match (button, field) {
-                (_, Some(ObjectInput(ObjectField::Search))) => true,
                 (Some(ObjectButton(ObjectAction::Rename)), _) | (_, Some(ObjectInput(ObjectField::Name))) => {
                     single && state.retirement.is_none()
                 }
@@ -258,6 +263,10 @@ pub(super) fn handle_objects(
             ),
             Changed<EditorButtonClick>,
         >,
+        Query<
+            (Entity, &EditorButtonClick, &PlacementTreeToggle, &ChildOf),
+            (Changed<EditorButtonClick>, Without<InteractionDisabled>),
+        >,
     ),
     mut fields: Query<(Entity, &ObjectInput, &mut EditableText)>,
     mut summaries: Query<&mut Text, With<ObjectSummary>>,
@@ -274,8 +283,11 @@ pub(super) fn handle_objects(
         Res<crate::authoring::placement_batch::PlacementBatchState>,
     ),
     mut keyboard: ResMut<ButtonInput<KeyCode>>,
+    tree: (Query<&SceneEditorGltfBrowserRow>, Query<(&Node, Option<&ChildOf>)>),
+    mut previews: ParticipationPreviews,
 ) {
     let (mouse, moving, batch) = guards;
+    let mut preview_budget = PREVIEW_CHANGES_PER_FRAME;
     if let Some(task) = state.retirement.as_mut()
         && bevy::tasks::futures::check_ready(task).is_some()
     {
@@ -294,7 +306,9 @@ pub(super) fn handle_objects(
         }
     } // 批量捕获也必须允许关闭；通用输入门不能永久等待自己的任务。
     if state.history.is_some() { state.check_metadata_history(&session, &mut editor); }
-    if state.metadata_write.is_some() { state.write_metadata(&mut session, &browser); }
+    if state.metadata_write.is_some() {
+        state.write_metadata(&mut session, &browser, Some((&mut previews, &mut preview_budget)));
+    }
     if let Some(mut pending) = state.pending.take() {
         if editor.open && !editor.close_requested && !editor.scene_transition_in_progress
             && editor.pending_scene_transition.is_none() && editor.scene_switch_confirmation.is_none()
@@ -318,44 +332,51 @@ pub(super) fn handle_objects(
                         editor.status = format!("已选择{}个组内场景对象", selection.members.len());
                     }
                 }
-                Ok(true) => match adopt_management(&mut pending, &mut session, &mut editor) {
-                    Ok((count, retired, metadata)) => {
-                        state.publish_metadata(&session, metadata);
-                        if count != 0 { state.write_metadata(&mut session, &browser); }
-                        if !retired.is_empty() {
-                            retire(&mut state, retired);
-                        }
-                        editor.status = if count == 0 {
-                            "对象管理值未变化".into()
-                        } else {
-                            format!("已更新{count}个场景对象，可一次撤销")
-                        };
-                        if count != 0 {
-                            if pending.action == ObjectAction::AssignGroup {
-                                browser.selected_group =
-                                    (!pending.group.is_empty()).then(|| pending.group.clone());
-                                if browser.selected_group.is_some() {
-                                    browser.selected_placement_id = None;
-                                    browser.selection = None;
+                Ok(true) => {
+                    let protects_objects = match pending.action {
+                        ObjectAction::ToggleHidden | ObjectAction::ToggleLocked => pending.flag,
+                        ObjectAction::ToggleParticipation => !pending.flag,
+                        _ => false,
+                    };
+                    let clear_selection = protects_objects && selection.members.iter()
+                        .any(|member| pending.metadata.contains_key(&member.id));
+                    match adopt_management(&mut pending, &mut session, &mut editor) {
+                        Ok((count, retired, metadata)) => {
+                            state.publish_metadata(&session, metadata);
+                            if count != 0 {
+                                state.write_metadata(&mut session, &browser, Some((&mut previews, &mut preview_budget)));
+                            }
+                            if !retired.is_empty() {
+                                retire(&mut state, retired);
+                            }
+                            editor.status = if count == 0 {
+                                "对象管理值未变化".into()
+                            } else {
+                                format!("已更新{count}个场景对象，可一次撤销")
+                            };
+                            if count != 0 {
+                                if pending.action == ObjectAction::AssignGroup {
+                                    browser.selected_group =
+                                        (!pending.group.is_empty()).then(|| pending.group.clone());
+                                    if browser.selected_group.is_some() {
+                                        browser.selected_placement_id = None;
+                                        browser.selection = None;
+                                    }
+                                } else if pending.action == ObjectAction::Ungroup {
+                                    browser.selected_group = None;
                                 }
-                            } else if pending.action == ObjectAction::Ungroup {
-                                browser.selected_group = None;
+                                if clear_selection {
+                                    selection.clear();
+                                }
+                                candidates.clear_for_scene_tree();
                             }
-                            if matches!(
-                                pending.action,
-                                ObjectAction::ToggleHidden | ObjectAction::ToggleLocked
-                            ) && pending.flag
-                            {
-                                selection.clear();
-                            }
-                            candidates.clear_for_scene_tree();
+                        }
+                        Err(error) => {
+                            editor.status = error;
+                            retire(&mut state, pending);
                         }
                     }
-                    Err(error) => {
-                        editor.status = error;
-                        retire(&mut state, pending);
-                    }
-                },
+                }
                 Err(error) => {
                     editor.status = error;
                     retire(&mut state, pending);
@@ -400,20 +421,14 @@ pub(super) fn handle_objects(
     for (entity, kind, mut input) in &mut fields {
         let kind = kind.0;
         let desired = match kind {
-            ObjectField::Search => &browser.object_search,
             ObjectField::Name => &state.name,
             ObjectField::Group => &state.group,
         };
         if editor.open && focus.get() == Some(entity) {
             let value = input.value().to_string();
             match kind {
-                ObjectField::Search if value != browser.object_search => {
-                    browser.object_search = value;
-                    browser.request_object_rows();
-                }
                 ObjectField::Name => state.name = value,
                 ObjectField::Group => state.group = value,
-                _ => {}
             }
         } else if input.value().to_string() != *desired {
             // 切换对象时保留 Bevy 已同步的字体与布局，只替换文本值。
@@ -464,9 +479,27 @@ pub(super) fn handle_objects(
     {
         return;
     }
-    let Some(action) = buttons.0.iter().find_map(|(interaction, button)| {
-        (interaction.is_clicked()).then_some(button.0)
-    }) else {
+    // 行内操作按释放时仍匹配的行来提交，不借用右侧属性栏当前选择。
+    let direct = buttons.2.iter().find_map(|(entity, click, button, parent)| {
+        if !click.is_clicked() || !crate::viewport::modes::controls_visible(entity, &tree.1) { return None; }
+        let row = tree.0.get(parent.parent()).ok()?;
+        let targets = match button.target(&browser, &session, row)? {
+            EditorGltfBrowserEntryKind::Placement { placement_id, .. } => ObjectTargets::Indices(vec![
+                browser.placement_record_index(placement_id, session.placement_structure_revision)?,
+            ]),
+            EditorGltfBrowserEntryKind::Group { name, .. } => ObjectTargets::Group(name.clone()),
+            _ => return None,
+        };
+        let action = match button.kind {
+            TreeRowToggle::Participation => ObjectAction::ToggleParticipation,
+            TreeRowToggle::Visibility => ObjectAction::ToggleHidden,
+            TreeRowToggle::Lock => ObjectAction::ToggleLocked,
+        };
+        Some((action, Some(targets)))
+    });
+    let Some((action, direct_targets)) = direct.or_else(|| buttons.0.iter().find_map(|(interaction, button)| {
+        interaction.is_clicked().then_some((button.0, None))
+    })) else {
         return;
     };
     if state.retirement.is_some() {
@@ -489,7 +522,9 @@ pub(super) fn handle_objects(
         editor.status = "请先打开一个场景".into();
         return;
     };
-    let targets = if let Some(group) = &browser.selected_group {
+    let targets = if let Some(targets) = direct_targets {
+        targets
+    } else if let Some(group) = &browser.selected_group {
         if action == ObjectAction::Rename {
             editor.status = "请选择单个对象后修改名称；组名使用应用组名".into();
             return;
@@ -526,18 +561,12 @@ pub(super) fn handle_objects(
     } else {
         targets
     };
-    let current_flag = match &targets {
+    let flag = match &targets {
         ObjectTargets::Indices(indices) => draft
             .placements
             .placements
             .get(indices[0])
-            .map(|r| {
-                if action == ObjectAction::ToggleHidden {
-                    r.editor.hidden
-                } else {
-                    r.editor.locked
-                }
-            })
+            .map(|record| current_flag(action, record))
             .unwrap_or(false),
         ObjectTargets::Group(_) => false,
     };
@@ -553,7 +582,7 @@ pub(super) fn handle_objects(
         action,
         name: state.name.trim().to_string(),
         group: state.group.trim().to_string(),
-        flag: !current_flag,
+        flag: !flag,
         cursor: 0,
         flag_set,
         changes: Vec::new(),

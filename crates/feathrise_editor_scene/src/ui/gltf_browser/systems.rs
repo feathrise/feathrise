@@ -12,13 +12,14 @@ use crate::resources::{
     EditorViewportSelectionState, SceneEditorNumericScrubMouseGuard, SceneEditorState,
 }; // 场景树点击同时结束查看工具中的植被整层选择。
 use crate::ui::list_layout::{SCENE_OBJECT_LIST_ROWS, SCENE_OBJECT_ROW_PITCH, fit_scene_object_list};
+use crate::ui::scene_sidebar::{TreeRowToggle, tree_toggle_button, tree_toggle_icon};
 use crate::viewport::placement_move::PlacementMoveState;
 use crate::viewport::SelectedPlacementViewportState; // 有效网格按下登记中央高亮与双击定位请求。
 
 use super::entries::request_visible_entries_rebuild; // 点击只请求固定预算行构建。
 use super::helpers::selection_matches; // 选择身份不受热更索引漂移影响。
 use super::{
-    EditorGltfBrowserEntryKind, EditorGltfBrowserState, SceneEditorGltfBrowserList,
+    EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeToggle, SceneEditorGltfBrowserList,
     SceneEditorGltfBrowserListContent, SceneEditorGltfBrowserRow, SceneEditorGltfBrowserRowText,
     SceneEditorGltfBrowserStatusText,
 }; // 模块私有组件与公开资源。
@@ -26,6 +27,9 @@ use super::{
 #[cfg(test)]
 #[path = "input_tests.rs"]
 mod input_tests;
+
+#[derive(Component)]
+pub(crate) struct GltfRowCaption;
 
 /// 在BSN内容层下只创建一次固定可见行池。
 pub(crate) fn spawn_gltf_browser_rows(
@@ -35,55 +39,60 @@ pub(crate) fn spawn_gltf_browser_rows(
 ) {
     let font = feathrise_editor_core::editor_font(&asset_server, "fonts/open_source/noto_sans/cjk/NotoSansCJKsc-VF.otf"); // 与编辑器其他动态行共享字体路径。
     for container in &lists {
-        commands.entity(container).with_children(|parent| {
-            for slot in 0..SCENE_OBJECT_LIST_ROWS {
-                parent
-                    .spawn((
-                        InteractionButton, // 原生Interaction负责左键点击和hover。
-                        SceneEditorGltfBrowserRow {
-                            slot,              // 固定物理槽位永不改变。
-                            entry_index: None,
-                            entries_revision: 0,
-                        },
-                        Node {
-                            display: Display::None, // 无条目槽默认隐藏。
-                            position_type: PositionType::Absolute, // 内容层高度代表完整树，行按实际树索引定位。
-                            width: percent(100),    // 整行接收点击。
-                            min_width: px(0),
-                            height: px(feathrise_editor_ui::metrics::ROW_HEIGHT),
-                            flex_shrink: 0.0, // 固定行高避免文本抖动。
-                            align_items: AlignItems::Center, // 单行垂直居中。
-                            padding: UiRect::horizontal(px(5)), // 深度会由同步系统只改左padding。
-                            column_gap: px(5),
-                            border_radius: BorderRadius::all(px(2)),
-                            overflow: Overflow::clip_x(), // 长Blender路径不会撑宽右栏。
-                            ..default()
-                        },
-                        BackgroundColor(colors::PANEL_BG), // 普通树行与导航面板连成一体。
-                        BorderColor::all(colors::COPPER_BORDER_WEAK), // 默认弱铜边。
-                    ))
-                    .with_children(|parent| {
-                        parent.spawn((crate::components::SceneEditorGltfBrowserRowGlyph, ImageNode::default(), Node { width: px(16), height: px(16), flex_shrink: 0.0, ..default() }, Pickable::IGNORE));
-                        parent.spawn((
-                        SceneEditorGltfBrowserRowText, // 固定唯一文本子节点。
-                        Text::new(""),               // 由可见窗口覆盖。
-                        TextFont {
-                            font: font.clone().into(), // 强字体句柄随UI实体持有。
-                            font_size: feathrise_editor_ui::metrics::FONT_CONTROL.into(),
-                            ..default()
-                        },
-                        TextColor(colors::TEXT_PRIMARY), // 行类型和有效性随后细分。
-                        TextLayout::no_wrap(),
-                        Node {
-                            width: percent(100),
-                            min_width: px(0),
-                            ..default()
-                        },
-                        bevy::ui::FocusPolicy::Pass,
-                        ));
-                    });
+        for slot in 0..SCENE_OBJECT_LIST_ROWS {
+            let row = commands.spawn((
+                ChildOf(container),
+                InteractionButton,
+                SceneEditorGltfBrowserRow { slot, entry_index: None, entries_revision: 0 },
+                Node {
+                    display: Display::None,
+                    position_type: PositionType::Absolute, // 内容层布局保留完整树，行按实际索引定位。
+                    width: percent(100),
+                    min_width: px(0),
+                    height: px(feathrise_editor_ui::metrics::ROW_HEIGHT),
+                    flex_shrink: 0.0,
+                    align_items: AlignItems::Center,
+                    padding: UiRect::horizontal(px(5)),
+                    column_gap: px(2),
+                    border_radius: BorderRadius::all(px(2)),
+                    overflow: Overflow::clip_x(),
+                    ..default()
+                },
+                BackgroundColor(colors::PANEL_BG),
+                BorderColor::all(colors::COPPER_BORDER_WEAK),
+            )).id();
+            // 单独裁切图标和文字区，为三个行内按钮保留固定宽度。
+            commands.spawn((ChildOf(row), GltfRowCaption, Node {
+                flex_grow: 1.0, flex_basis: px(0), min_width: px(0),
+                align_items: AlignItems::Center, column_gap: px(5),
+                overflow: Overflow::clip_x(), ..default()
+            }, Pickable::IGNORE)).with_children(|caption| {
+                caption.spawn((
+                    crate::components::SceneEditorGltfBrowserRowGlyph,
+                    ImageNode::default(),
+                    Node { width: px(16), height: px(16), flex_shrink: 0.0, ..default() },
+                    Pickable::IGNORE,
+                ));
+                caption.spawn((
+                    SceneEditorGltfBrowserRowText,
+                    Text::new(""),
+                    TextFont {
+                        font: font.clone().into(),
+                        font_size: feathrise_editor_ui::metrics::FONT_CONTROL.into(),
+                        ..default()
+                    },
+                    TextColor(colors::TEXT_PRIMARY),
+                    TextLayout::no_wrap(),
+                    Node { min_width: px(0), ..default() },
+                    Pickable::IGNORE,
+                ));
+            });
+            for kind in TreeRowToggle::ALL {
+                let button = commands.spawn_scene(tree_toggle_button(kind))
+                    .insert((ChildOf(row), PlacementTreeToggle::new(kind), bevy::ui::InteractionDisabled)).id();
+                commands.spawn_scene(tree_toggle_icon()).insert(ChildOf(button));
             }
-        });
+        }
     }
 }
 
@@ -251,8 +260,8 @@ pub(crate) fn sync_gltf_browser_rows(
     asset_server: Option<Res<AssetServer>>,
     images: Option<Res<Assets<Image>>>,
     mut presented_scope: Local<Option<(Option<feathrise_scene_content::SceneId>, u64, usize)>>,
-    mut presented_search: Local<String>,
     mut glyphs: Query<&mut ImageNode, With<crate::components::SceneEditorGltfBrowserRowGlyph>>,
+    captions: Query<&Children, With<GltfRowCaption>>,
     mut rows: Query<
         (
             &UiInteraction,                 // 当前hover或按压反馈。
@@ -310,16 +319,12 @@ pub(crate) fn sync_gltf_browser_rows(
     let scope = (editor.selected_scene_id.clone(), state.published_entries_revision, state.entries.len());
     let scope_changed = presented_scope.as_ref() != Some(&scope);
     *presented_scope = Some(scope);
-    let search_changed = *presented_search != state.object_search;
-    if search_changed {
-        presented_search.clone_from(&state.object_search);
-    }
     let mut start = 0;
     if let (Ok((mut viewport, mut scroll)), Ok(mut content)) = (layouts.0.single_mut(), layouts.1.single_mut()) {
-        if scope_changed || search_changed || viewport.is_added() || scroll.is_changed() {
-            // 换场景或改搜索回到顶部，展开、折叠及热更新只钳制既有滚动位置。
+        if scope_changed || viewport.is_added() || scroll.is_changed() {
+            // 换场景回到顶部，展开、折叠及热更新只钳制既有滚动位置。
             let mut position = (*scroll).clone();
-            fit_scene_object_list(state.entries.len(), scene_changed || search_changed, None,
+            fit_scene_object_list(state.entries.len(), scene_changed, None,
                 &mut viewport, &mut content, &mut position);
             if scroll.0 != position.0 {
                 *scroll = position;
@@ -399,7 +404,8 @@ pub(crate) fn sync_gltf_browser_rows(
                 ("×", colors::DANGER_TEXT) // 当前GLB缺失的作者绑定使用明确危险色且仍可点击清除。
             }
         };
-        for child in children.iter() {
+        let Some(caption) = children.iter().find_map(|entity| captions.get(entity).ok()) else { continue; };
+        for child in caption.iter() {
             if images.is_some() && let Some(server) = asset_server.as_ref() && let Ok(mut image) = glyphs.get_mut(child) {
                 let icon = if matches!(entry.kind, EditorGltfBrowserEntryKind::Group { .. }) { "tree_folder" } else { "tree_mesh" };
                 let handle = server.load(format!("icons/editor/{icon}.png"));

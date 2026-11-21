@@ -95,6 +95,9 @@ pub(super) fn advance_placement_water_record_cache(
             .total_surface_count
             .checked_add(record.water_surfaces.len())
             .ok_or_else(|| "整网格水体保存前绑定数量计算溢出".to_owned())?; // 损坏输入失败关闭而不是绕过预算。
+        if !crate::authoring::placement_participation::participates(&record.editor) {
+            continue; // 原绑定照常计入作者文档；停用摆放没有需要证明的运行时水面根。
+        }
         let record_index = cache.water_records.len(); // 当前非空记录将稳定追加到此槽。
         if cache
             .water_record_indices

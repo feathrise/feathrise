@@ -3,6 +3,7 @@
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::{components::*, types::LayerList};
+use crate::ui::scene_sidebar::{TreeRowToggle, tree_toggle_button, tree_toggle_icon};
 use crate::ui::{scene::FONT_PATH, theme as colors};
 use bevy::{prelude::*, text::FontSourceTemplate};
 
@@ -12,16 +13,33 @@ fn row(list: LayerList, slot: usize) -> impl Scene {
         LayerList::Vegetation => "icons/editor/tree_leaf.png",
         LayerList::DomainLayers | LayerList::DomainObjects => "icons/editor/tree_file.png",
     };
+    let toggles = TreeRowToggle::ALL.map(|toggle| vegetation_toggle(list, toggle));
+    let [participation, visibility, lock] = toggles;
+    let (inset, gap) = if list == LayerList::Vegetation { (4, 3) } else { (20, 5) };
     bsn! { InteractionButton Row { list, slot } crate::ui::scene_context_menu::SceneObjectRow(None)
         Node { display: Display::None, position_type: PositionType::Absolute, width: percent(100),
             height: px(24), min_width: px(0), flex_shrink: 0.0, align_items: AlignItems::Center,
-            padding: UiRect::horizontal(px(20)), column_gap: px(5), border_radius: BorderRadius::all(px(2)), overflow: Overflow::clip_x() }
+            padding: UiRect::horizontal(px(inset)), column_gap: px(gap), border_radius: BorderRadius::all(px(2)), overflow: Overflow::clip_x() }
         BackgroundColor(colors::PANEL_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [@crate::ui::scene::tree_icon(icon)--
-            Text("") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-            TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap()
-            ~{bevy::ui::FocusPolicy::Pass} Node { min_width: px(0), flex_shrink: 0.0 }]
+        Children [@crate::ui::scene::tree_icon(icon)-- @row_label()--
+            @participation-- @visibility-- @lock]
     }
+}
+
+fn row_label() -> impl Scene {
+    // 长名称只在文字区内裁切，尾部三个图标继续可用。
+    bsn! { RowLabel Pickable::IGNORE
+        Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }
+        Children [Text("") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+            TextColor(colors::TEXT_PRIMARY) TextLayout::no_wrap() Pickable::IGNORE
+            Node { width: percent(100), min_width: px(0) }] }
+}
+
+fn vegetation_toggle(list: LayerList, toggle: TreeRowToggle) -> impl Scene {
+    (list == LayerList::Vegetation).then(|| bsn! {
+        @tree_toggle_button(toggle) ~{VegetationRowToggle(toggle)}
+        Children [@tree_toggle_icon()]
+    })
 }
 
 fn section(list: LayerList) -> impl Scene {

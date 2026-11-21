@@ -447,13 +447,13 @@ fn toggle_layer_enabled(
         .layers
         .get_mut(index)
         .ok_or_else(|| "选择的作者图层不存在".to_owned())?;
-    layer.enabled = !layer.enabled; // 显隐允许在锁定状态切换，像素与规则仍受锁保护。
+    layer.enabled = !layer.enabled; // 参与决定正式编译与保存，同时兼容原植被作者工具。
     Ok(changed(
         Some(index),
         format!(
             "作者图层“{}”已{}",
             layer.label,
-            if layer.enabled { "显示" } else { "隐藏" }
+            if layer.enabled { "参与场景" } else { "停止参与场景" }
         ),
     ))
 }

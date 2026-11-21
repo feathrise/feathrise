@@ -1,8 +1,7 @@
-//! 工程 3D 场景树的只读分支。复用原搜索和滚动行池，行本身没有作者操作。
+//! 工程 3D 场景树的只读分支，按原层级顺序通过滚动行池展示。
 
 use bevy::{
     prelude::*,
-    tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
     text::FontSourceTemplate,
     ui::RelativeCursorPosition,
 };
@@ -13,7 +12,6 @@ use crate::{
     SceneEditorState, SceneEditorSystemSet,
     authoring::AuthoringRetirement,
     ui::{
-        gltf_browser::EditorGltfBrowserState,
         list_layout::{self, SceneObjectListScroll},
         scene::FONT_PATH,
         sidebars::SceneEditorSidebarState,
@@ -33,15 +31,8 @@ pub struct ProjectSceneTreeRow {
 pub(crate) struct ProjectSceneTree {
     rows: Option<Arc<Vec<ProjectSceneTreeRow>>>,
     retirement: Arc<()>,
-    revision: u64,
     generation: u64,
     unavailable: bool,
-}
-
-impl ProjectSceneTree {
-    pub(crate) fn has_objects(&self) -> bool {
-        self.rows.as_ref().is_some_and(|rows| !rows.is_empty())
-    }
 }
 
 pub fn install(app: &mut App) {
@@ -57,7 +48,6 @@ pub fn visible(world: &World) -> bool {
 
 pub fn publish(world: &mut World, rows: Arc<Vec<ProjectSceneTreeRow>>) {
     let previous = if let Some(mut state) = world.get_resource_mut::<ProjectSceneTree>() {
-        state.revision = state.revision.wrapping_add(1);
         state.unavailable = false;
         state.rows.replace(rows)
     } else {
@@ -88,7 +78,6 @@ pub fn unavailable(world: &mut World) {
 
 pub fn clear(world: &mut World) {
     let previous = world.get_resource_mut::<ProjectSceneTree>().and_then(|mut state| {
-        state.revision = state.revision.wrapping_add(1);
         state.generation = state.generation.wrapping_add(1);
         state.unavailable = false;
         state.rows.take()
@@ -141,37 +130,16 @@ pub(crate) fn panel() -> impl Scene {
     }
 }
 
-struct Matches {
-    revision: u64,
-    query: String,
-    rows: Arc<Vec<ProjectSceneTreeRow>>,
-    indices: Vec<usize>,
-}
-
 #[derive(Default)]
 struct ListState {
-    filtering: Option<Task<Matches>>,
-    matches: Option<Matches>,
     generation: u64,
-    query: String,
     count: usize,
     start: usize,
 }
 
-fn retire_matches(source: &ProjectSceneTree, retirement: &mut AuthoringRetirement, matches: Option<Matches>) {
-    // 当前行表仍有来源持有，只有已经换下的行表可能在这里释放最后一个引用。
-    if let Some(matches) = matches
-        && source.rows.as_ref().is_none_or(|rows| !Arc::ptr_eq(rows, &matches.rows))
-    {
-        retirement.push((matches, source.retirement.clone()));
-    }
-}
-
 fn present(
     source: Res<ProjectSceneTree>,
-    browser: Option<Res<EditorGltfBrowserState>>,
     locale: Res<EditorLocale>,
-    mut retirement: ResMut<AuthoringRetirement>,
     mut state: Local<ListState>,
     panel: Single<&mut Node, (With<Panel>, Without<Viewport>, Without<Content>, Without<Slot>)>,
     heading: Single<&mut Text, (With<Heading>, Without<Slot>)>,
@@ -180,47 +148,17 @@ fn present(
     mut slots: Query<(&Slot, &mut Text, &mut Node), Without<Heading>>,
 ) {
     let state = &mut *state;
-    let query = browser.as_ref().map_or("", |browser| browser.object_search.trim());
-    let reset = state.generation != source.generation || state.query != query;
-    if reset {
-        state.generation = source.generation;
-        state.query = query.to_owned();
-    }
-    if reset || source.rows.as_ref().is_none_or(|rows| rows.is_empty()) {
-        retire_matches(&source, &mut retirement, state.matches.take());
-    }
-    let mut filter_adopted = false;
-    if let Some(result) = state.filtering.as_mut().and_then(check_ready) {
-        state.filtering = None;
-        let retired = if result.revision == source.revision && result.query == query {
-            filter_adopted = true;
-            state.matches.replace(result)
-        } else {
-            Some(result)
-        };
-        retire_matches(&source, &mut retirement, retired);
-    }
-    let matches = state.matches.as_ref();
-    if !query.is_empty() && matches.is_none_or(|result| result.revision != source.revision)
-        && state.filtering.is_none()
-        && let Some(rows) = source.rows.clone().filter(|rows| !rows.is_empty()) {
-        let revision = source.revision;
-        let query = query.to_owned();
-        state.filtering = Some(AsyncComputeTaskPool::get().spawn(async move {
-            let indices = find_matches(&rows, &query);
-            Matches { revision, query, rows, indices }
-        }));
-    }
-    // 同一场景和关键字刷新时，沿用上一份完整的行表及索引，避免列表闪空或丢失滚动位置。
-    let rows = matches.map(|result| &result.rows).or(source.rows.as_ref())
-        .map_or(&[][..], |rows| rows.as_slice());
-    let count = if query.is_empty() { rows.len() } else { matches.map_or(0, |result| result.indices.len()) };
+    // 同一场景刷新完整行表时保留滚动位置，切换场景后从第一行开始。
+    let reset = state.generation != source.generation;
+    state.generation = source.generation;
+    let rows = source.rows.as_deref().map_or(&[][..], Vec::as_slice);
+    let count = rows.len();
     let mut panel = panel.into_inner();
     let mut title = heading.into_inner();
     let (mut viewport, mut scroll) = viewport.into_inner();
     let mut content = content.into_inner();
     let layout_changed = reset || scroll.is_changed() || count != state.count || panel.is_added();
-    if !layout_changed && !source.is_changed() && !locale.is_changed() && !filter_adopted { return; }
+    if !layout_changed && !source.is_changed() && !locale.is_changed() { return; }
     let english = *locale == EditorLocale::English;
     let caption = match (rows.is_empty() && source.unavailable, english) {
         (true, false) => "工程对象暂不可用",
@@ -242,7 +180,7 @@ fn present(
             if node.display != Display::None { node.display = Display::None; }
             continue;
         }
-        let item = &rows[matches.map_or(index, |result| result.indices[index])];
+        let item = &rows[index];
         let category = item.category[usize::from(english)];
         let caption = match item.name.as_deref() {
             Some(name) => format!("{category} · {name}"),
@@ -258,27 +196,6 @@ fn present(
             node.padding = UiRect { left, right: px(5), ..default() };
         }
     }
-}
-
-fn find_matches(rows: &[ProjectSceneTreeRow], query: &str) -> Vec<usize> {
-    let query = query.to_lowercase();
-    let mut parents = Vec::new();
-    let mut included = vec![false; rows.len()];
-    for (index, row) in rows.iter().enumerate() {
-        parents.truncate(row.depth as usize);
-        let matches = row.category.iter().any(|label| label.to_lowercase().contains(&query))
-            || row.name.as_ref().is_some_and(|name| name.to_lowercase().contains(&query))
-            || query.strip_prefix('#').is_some_and(|id| id.parse::<u32>().ok() == Some(row.index));
-        if matches {
-            included[index] = true;
-            for &parent in parents.iter().rev() {
-                if included[parent] { break; }
-                included[parent] = true;
-            }
-        }
-        parents.push(index);
-    }
-    included.into_iter().enumerate().filter_map(|(index, yes)| yes.then_some(index)).collect()
 }
 
 #[cfg(feature = "validation")]
@@ -327,26 +244,11 @@ mod tests {
     }
 
     #[test]
-    fn scene_tree_search_retains_context_across_siblings() {
-        let make_row = |depth, name: &str| ProjectSceneTreeRow {
-            depth, category: ["节点", "Node"], name: Some(name.to_owned()), index: 7,
-        };
-        let rows = [
-            make_row(0, "Root"), make_row(1, "Parent"), make_row(2, "Player"),
-            make_row(1, "Decoration"), make_row(0, "Other"), make_row(1, "PLAYER Shadow"),
-        ];
-        assert_eq!(find_matches(&rows, "player"), vec![0, 1, 2, 4, 5]);
-        assert!(find_matches(&rows, "camera").is_empty());
-    }
-
-    #[test]
-    fn scene_tree_search_keeps_scroll_on_refresh_and_rejects_previous_scope() {
-        AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
+    fn scene_tree_keeps_scroll_on_refresh_and_resets_for_next_scene() {
         let mut app = App::new();
         install(&mut app);
-        app.init_resource::<EditorLocale>().init_resource::<EditorGltfBrowserState>();
+        app.init_resource::<EditorLocale>();
         let world = app.world_mut();
-        world.resource_mut::<EditorGltfBrowserState>().object_search = "entry".into();
         world.spawn((Panel, Node::default()));
         world.spawn((Heading, Text::default()));
         world.spawn((Content, Node::default()));
@@ -355,35 +257,22 @@ mod tests {
         let rows = |label: &str| Arc::new((0..16).map(|index| ProjectSceneTreeRow {
             depth: 0, category: ["节点", "Node"], name: Some(format!("{label} entry {index}")), index,
         }).collect());
-        let wait_for_row = |app: &mut App, expected: &str| {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            while !app.world().get::<Text>(slot).unwrap().0.ends_with(expected) {
-                assert!(std::time::Instant::now() < deadline, "未发布预期搜索行 {expected}");
-                app.update();
-                std::thread::yield_now();
-            }
-        };
-
         publish(app.world_mut(), rows("old"));
-        wait_for_row(&mut app, "old entry 0");
+        app.update();
+        assert!(app.world().get::<Text>(slot).unwrap().0.ends_with("old entry 0"));
         app.world_mut().get_mut::<ScrollPosition>(viewport).unwrap().y = 81.0;
         app.update();
         publish(app.world_mut(), rows("new"));
-        app.update(); // 本帧刚启动新过滤，仍显示旧表的滚动窗口。
+        app.update();
         assert_eq!(app.world().get::<Node>(slot).unwrap().display, Display::Flex);
-        assert!(app.world().get::<Text>(slot).unwrap().0.ends_with("old entry 2"));
-        assert_eq!(app.world().get::<ScrollPosition>(viewport).unwrap().y, 81.0);
-        wait_for_row(&mut app, "new entry 2");
+        assert!(app.world().get::<Text>(slot).unwrap().0.ends_with("new entry 2"));
         assert_eq!(app.world().get::<ScrollPosition>(viewport).unwrap().y, 81.0);
 
-        publish(app.world_mut(), rows("discarded"));
-        app.update();
         clear(app.world_mut());
         publish(app.world_mut(), rows("next scene"));
         app.update();
-        assert_eq!(app.world().get::<Node>(slot).unwrap().display, Display::None);
         assert_eq!(app.world().get::<ScrollPosition>(viewport).unwrap().y, 0.0);
-        wait_for_row(&mut app, "next scene entry 0");
+        assert!(app.world().get::<Text>(slot).unwrap().0.ends_with("next scene entry 0"));
 
         publish(app.world_mut(), Arc::new(Vec::new()));
         app.update();

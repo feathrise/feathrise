@@ -10,6 +10,7 @@ mod systems;
 mod types;
 
 pub(crate) use resources::SceneLayerSelection;
+pub(in crate::ui) use components::VegetationRowToggle;
 pub(crate) use scene::panel;
 pub(crate) use selection::{LayerSelectionContext, select};
 #[cfg(test)]
@@ -31,7 +32,8 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
         .add_systems(Update, systems::refresh_selection
             .after(crate::game_authoring::scene_interaction::SceneInteractionAdoption)
             .before(crate::viewport::poll_layer_candidates).in_set(crate::SceneEditorSystemSet::Tasks))
-        .add_systems(Update, systems::sync.in_set(crate::SceneEditorSystemSet::Presentation));
+        .add_systems(Update, (systems::sync, systems::sync_vegetation_toggles).chain()
+            .in_set(crate::SceneEditorSystemSet::Presentation));
 }
 
 #[cfg(test)]

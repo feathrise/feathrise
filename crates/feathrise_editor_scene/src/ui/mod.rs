@@ -16,7 +16,7 @@ pub(crate) mod brush_controls; // 视口参数区的公共数值控件与原笔�
 pub(crate) mod building_presets; // 建筑目录、占地/正门/地基表单与专用精确摆放。
 pub(crate) mod building_sidebar; // 单栋/院落顶部工具页和统一反馈，不改变作者事务。
 pub(crate) mod close; // 未保存地形画面与碰撞联合完成后再关闭F12。
-pub(crate) mod scene_objects; // 当前场景的名称、逻辑组、搜索和编辑器保护状态。
+pub(crate) mod scene_objects; // 当前场景的名称、逻辑组、参与状态和编辑器保护。
 pub(crate) mod scene_context_menu; // 场景树右键冻结单对象，复用各作者域的完整操作。
 pub(crate) mod scene_layers; // 统一树补齐水域、植被与角色作者内容。
 pub(crate) mod courtyard; // 院落组合名称、多选、印章与整体操作的 UI 输入门。

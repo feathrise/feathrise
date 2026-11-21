@@ -397,9 +397,17 @@ fn inspector_base_terrain_and_building_use_distinct_read_only_summary() {
     shading.preview_expanded = true;
     app.update();
     assert_eq!(text(&mut app, SceneInspectorField::Name), "原场景基础网格");
+    assert!(text(&mut app, SceneInspectorField::Details).contains("scenes/EDGE-TEST/terrain/terrain.glb"));
     assert!(text(&mut app, SceneInspectorField::Hint).contains("下方显示网格属性"));
     assert_eq!(properties_display(&mut app), Display::None);
     assert_eq!(author(&app), before);
+    {
+        let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+        session.draft.as_mut().unwrap().manifest.terrain = feathrise_scene_content::SceneTerrainDescriptor::empty();
+        session.revision += 1;
+    }
+    app.update();
+    assert_eq!(text(&mut app, SceneInspectorField::Name), "场景 · 检查器测试场景");
     let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
     session.draft.as_mut().unwrap().placements.placements[0].building_preset_id =
         Some("courtyard-gate".into());

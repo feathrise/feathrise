@@ -12,7 +12,12 @@ pub(super) struct List(pub LayerList);
 #[derive(Component, Clone, Default)]
 pub(super) struct Content;
 #[derive(Component, Clone, Default)]
+pub(super) struct RowLabel;
+#[derive(Component, Clone, Default)]
 pub(super) struct Row {
     pub list: LayerList,
     pub slot: usize,
 }
+
+#[derive(Component, Clone, Copy)]
+pub(in crate::ui) struct VegetationRowToggle(pub crate::ui::scene_sidebar::TreeRowToggle);

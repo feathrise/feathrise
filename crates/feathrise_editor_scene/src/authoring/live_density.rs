@@ -1,6 +1,6 @@
 //! 将全部正式Blade输出的内存R8完成值同步到运行时Image基础Mip。
 
-use std::collections::BTreeMap; // 最多八个正式Blade输出按稳定ID保留各自Image同步进度。
+use std::{collections::{BTreeMap, BTreeSet}, sync::Arc};
 
 use bevy::image::{ImageLoaderSettings, ImageSampler}; // 与现有GPU叶片加载保持线性最近采样。
 use bevy::prelude::*; // AssetServer、Assets<Image>与编辑资源。
@@ -23,7 +23,7 @@ struct LiveBladeLayerState {
 #[derive(Resource, Default)]
 pub(crate) struct LiveBladeDensityState {
     pub(crate) dynamic: super::live_density_dynamic::DynamicLiveDensityState, // 同图草稿任务在关闭F12后继续完成。
-    model_identity: Option<(SceneId, u64, u64, usize)>, // 索引地址区分同图重开后归零的作者修订。
+    model_identity: Option<(SceneId, u64, u64, usize, Option<Arc<BTreeSet<String>>>)>,
     scene_id: Option<SceneId>,   // 切换场景时整表失效，旧句柄不得接管新场景。
     prepared_revision: u64,  // 已为哪个编译修订建立正式层句柄集合。
     completed_revision: u64, // 全部Blade输出均写入后的完整修订门。
@@ -105,13 +105,20 @@ pub(crate) fn sync_live_blade_density(
 ) {
     if let Some(models) = models.as_deref_mut() {
         let current = session.draft.as_ref().filter(|draft| Some(&draft.scene_id) == active.scene_id.as_ref());
+        let hidden = current.filter(|_| editor.open && !editor.close_requested)
+            .and_then(|draft| editor.vegetation_visibility.hidden_in(&draft.scene_id, None)).cloned();
         let identity = current.map(|draft| (draft.scene_id.clone(), session.vegetation_revision, session.vegetation_structure_revision,
             super::terrain_documents::root_vegetation::source(draft).and_then(|source| source.vegetation)
-                .map_or(0, |definition| std::sync::Arc::as_ptr(&definition.model_surfaces) as usize)));
+                .map_or(0, |definition| Arc::as_ptr(&definition.model_surfaces) as usize), hidden.clone()));
         if identity != live.model_identity && !session.model_vegetation_busy {
             if let Some(draft) = current {
                 if let Some(definition) = super::terrain_documents::root_vegetation::source(draft).and_then(|source| source.vegetation) {
-                    models.publish(draft.scene_id.clone(), session.vegetation_revision, std::sync::Arc::new(definition.clone()));
+                    let mut preview = definition.clone();
+                    if let Some(hidden) = hidden.as_deref() {
+                        super::vegetation_layers::hide_layers_in_preview(&mut preview, hidden);
+                    }
+                    // 样本继续浅共享，只过滤输入描述；保存、撤销和独立运行仍读取作者原图层。
+                    models.publish(draft.scene_id.clone(), session.vegetation_revision, Arc::new(preview));
                 } else { models.clear(); }
             } else { models.clear(); }
             live.model_identity = identity;

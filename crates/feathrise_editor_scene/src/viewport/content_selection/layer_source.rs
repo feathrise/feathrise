@@ -4,6 +4,15 @@ use crate::{authoring::EditorSceneDraft, types::WaterAuthoringFeatureKind};
 use feathrise_scene_content::TerrainId;
 
 impl LayerCandidateState {
+    pub(super) fn selected_still_water_matches(&self, target: &LayerTarget, terrain: Option<&TerrainId>) -> bool {
+        let kind = WaterAuthoringFeatureKind::StillWater;
+        self.confirmed_viewport_selection && self.canvas_terrain.as_ref() == terrain
+            && matches!((self.selected.as_ref(), target),
+                (Some(LayerTarget::Water(WaterAuthoringFeatureKind::StillWater, selected)),
+                    LayerTarget::Water(candidate_kind, id) | LayerTarget::RootWater(candidate_kind, id))
+                if *candidate_kind == kind && selected == id)
+    }
+
     /// 一次查询只捕获一个普通作者画布；根水始终有独立来源，场景级对象无需借作者槽。
     pub(super) fn candidate_uses_canvas(&self, target: &LayerTarget) -> bool {
         matches!(target, LayerTarget::RootWater(..) | LayerTarget::Water(..)

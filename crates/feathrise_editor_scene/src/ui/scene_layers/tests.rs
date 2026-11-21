@@ -11,12 +11,12 @@ use crate::game_authoring::scene_interaction::{fixtures, DomainItemKind, SceneIn
 
 fn test_object(session: &EditorAuthoringSession, list: types::LayerList, index: usize) -> Option<(crate::ui::scene_context_menu::SceneObjectTarget, String)> {
     let hash = session.draft.as_ref()?.adopted_domain_hash();
-    rows::object(session, list, index, Some(&fixtures::state(hash, 60)))
+    rows::object(session, list, index, Some(&fixtures::state(hash, 60)), &Default::default())
 }
 
 
 pub(crate) fn install_snapshot_sync(app: &mut App) {
-    app.add_systems(Update, systems::sync);
+    app.add_systems(Update, (systems::sync, systems::sync_vegetation_toggles).chain());
 }
 
 /// 保存回归通过正式树行解析器取当前快照，避免只检查底层水槽而漏掉UI再次丢项。
@@ -36,11 +36,11 @@ pub(crate) fn assert_snapshot_glyphs(app: &mut App) {
             continue;
         }
         kinds[row.list as usize] = true;
-        assert!(children.iter().any(|child| {
-            world
-                .get::<bevy::text::TextLayoutInfo>(child)
-                .is_some_and(|layout| !layout.glyphs.is_empty())
-        }));
+        assert!(children.iter().find_map(|child| {
+            world.get::<components::RowLabel>(child)?;
+            world.get::<Children>(child)?.first().copied()
+        }).is_some_and(|child| world.get::<bevy::text::TextLayoutInfo>(child)
+            .is_some_and(|layout| !layout.glyphs.is_empty())));
     }
     assert!(kinds.into_iter().all(|present| present));
 }
@@ -136,6 +136,7 @@ fn scene_layers_water_and_vegetation_menus_use_the_frozen_row_and_original_histo
         .init_resource::<crate::authoring::WaterBrushStroke>()
         .init_resource::<crate::authoring::WaterNetworkEditState>()
         .init_resource::<crate::authoring::VegetationBrushStroke>()
+        .init_resource::<crate::resources::SceneEditorNumericScrubMouseGuard>()
         .add_systems(
             Update,
             (
@@ -282,8 +283,12 @@ fn scene_layers_water_and_vegetation_menus_use_the_frozen_row_and_original_histo
         .as_ref()
         .unwrap()
         .layers[1];
-    assert!(!layer.enabled && layer.locked);
-    assert_eq!(session.undo.len(), 3);
+    assert!(layer.enabled && layer.locked); // 眼睛只影响编辑器，不占正式参与位。
+    assert_eq!(session.undo.len(), 2);
+    let draft = session.draft.as_ref().unwrap();
+    let canvas = &draft.terrain_documents.active.as_ref().unwrap().definition.id;
+    let editor = app.world().resource::<SceneEditorState>();
+    assert!(editor.vegetation_visibility.hidden_in(&draft.scene_id, Some(canvas)).unwrap().contains(&layer.id));
 }
 
 #[test]

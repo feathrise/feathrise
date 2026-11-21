@@ -13,9 +13,9 @@ pub(crate) enum TooltipAction {
     Layout(EditorLayoutAction),
     #[default]
     Settings,
-    TerrainParticipation,
-    TerrainVisibility,
-    TerrainLock,
+    SceneTreeParticipation,
+    SceneTreeVisibility,
+    SceneTreeLock,
     ViewportMode(crate::viewport::modes::ViewportMode),
     WeightSelect,
     WeightEdit,

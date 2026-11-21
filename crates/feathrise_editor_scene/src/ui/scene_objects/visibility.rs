@@ -2,11 +2,13 @@
 
 use crate::authoring::EditorAuthoringSession;
 use crate::authoring::placement_deletion::{PlacementDeletionIndex, PlacementDeletionSuppression};
+use crate::authoring::placement_participation;
 use crate::authoring::placement_preview_ownership::components::PlacementPreviewSuppression;
 use crate::resources::SceneEditorState;
 use crate::ui::gltf_browser::EditorGltfBrowserState;
 use bevy::prelude::*;
 use feathrise_scene::ScenePlacementInstance;
+use feathrise_scene_content::ScenePlacementRecord;
 use std::collections::{BTreeSet, HashMap};
 use super::types::PlacementVisibilityIntent;
 use super::{SceneObjectState, effective_metadata};
@@ -14,6 +16,14 @@ use super::{SceneObjectState, effective_metadata};
 #[derive(Component)]
 pub(super) struct EditorObjectVisibility {
     original: Visibility,
+    participation_disabled: bool,
+}
+
+fn visibility_reasons(
+    objects: Option<&SceneObjectState>, session: &EditorAuthoringSession, record: &ScenePlacementRecord,
+) -> (bool, bool) {
+    let metadata = effective_metadata(objects, session, record);
+    (metadata.hidden, !placement_participation::participates(metadata))
 }
 
 /// 作者预览和场景树隐藏共用底层显隐；不能把另一覆盖层产生的Hidden当作正式原值。
@@ -38,15 +48,21 @@ fn editor_hides_root(world: &World, root: Entity) -> bool {
     browser.placement_record_index(instance.id(), session.placement_structure_revision)
         .and_then(|index| draft.placements.placements.get(index))
         .filter(|record| record.id == instance.id())
-        .is_some_and(|record| effective_metadata(world.get_resource::<SceneObjectState>(), session, record).hidden)
+        .is_some_and(|record| {
+            let (hidden, disabled) = visibility_reasons(world.get_resource::<SceneObjectState>(), session, record);
+            hidden || disabled
+        })
 }
 
 /// 释放预览只归还自己的覆盖；直接改值不发布新的外部显隐意图，行隐藏仍保留Hidden。
 pub(crate) fn restore_placement_base_visibility(world: &mut World, root: Entity, original: Visibility) {
     if world.get_entity(root).is_err() { return; }
-    let overridden = world.get::<EditorObjectVisibility>(root).is_some() || editor_hides_root(world, root);
+    let previous = world.get::<EditorObjectVisibility>(root);
+    let participation_disabled = previous.is_some_and(|visibility| visibility.participation_disabled);
+    let overridden = previous.is_some() || editor_hides_root(world, root);
     if overridden {
-        world.entity_mut(root).insert(EditorObjectVisibility { original });
+        // 新增覆盖时先保留已实际应用的碰撞状态，之后由有界同步推进参与边沿。
+        world.entity_mut(root).insert(EditorObjectVisibility { original, participation_disabled });
     }
     let masked = world.get::<PlacementPreviewSuppression>(root).is_some()
         || world.get::<PlacementDeletionSuppression>(root).is_some();
@@ -65,6 +81,7 @@ pub(crate) struct ObjectVisibilityState {
     roots: BTreeSet<Entity>,
     intents: HashMap<Entity, PlacementVisibilityIntent>, // 与根同生共灭；不逐帧扫描或依赖会回绕的change tick。
     dirty: BTreeSet<Entity>,
+    participation_dirty: BTreeSet<Entity>,
     overridden: BTreeSet<Entity>,
     deletion_roots: BTreeSet<Entity>, // 删除票据可在无预览时存活；关闭F12只定向遍历这些根以归还过期覆盖。
     context: Option<(bool, Option<feathrise_scene_content::SceneId>, u64, u64, u64)>,
@@ -84,6 +101,10 @@ impl ObjectVisibilityState {
     pub(crate) fn restored(&self) -> bool {
         self.overridden.is_empty()
     }
+
+    pub(super) fn prioritize_participation(&mut self, roots: &[Entity]) {
+        self.participation_dirty.extend(roots.iter().copied());
+    }
 }
 
 pub(super) fn register_root(
@@ -102,6 +123,7 @@ pub(super) fn remove_root(
     state.roots.remove(&event.entity);
     state.intents.remove(&event.entity);
     state.dirty.remove(&event.entity);
+    state.participation_dirty.remove(&event.entity);
     state.overridden.remove(&event.entity);
 }
 
@@ -142,6 +164,7 @@ pub(super) fn remember_external_visibility(
         let external = *visibility;
         if let Some(mut previous) = previous {
             previous.original = external;
+            *visibility = Visibility::Hidden; // 外部更新只改变基线，不能跳过已应用的作者覆盖。
         }
         if let Some(mut suppression) = suppression {
             suppression.original_visibility = external; // 自身遮蔽只直接改值；真实Insert仍能记录删除或新外部显隐意图。
@@ -169,7 +192,7 @@ pub(super) fn sync_visibility(
     mut roots: Query<(
         &ScenePlacementInstance,
         &mut Visibility,
-        Option<&EditorObjectVisibility>,
+        Option<&mut EditorObjectVisibility>,
         Option<&PlacementPreviewSuppression>,
         Option<&PlacementDeletionSuppression>,
     )>,
@@ -191,6 +214,11 @@ pub(super) fn sync_visibility(
     // 恢复优先使用真实覆盖根，空场景或无覆盖时不等待完整场景索引扫描。
     if !enabled {
         work.extend(state.overridden.iter().take(64).copied());
+    }
+    // 单个参与操作不用等待整棵场景树扫描，仍共用现有显隐预算。
+    while work.len() < 64 {
+        let Some(entity) = state.participation_dirty.pop_first() else { break; };
+        if !work.contains(&entity) { work.push(entity); }
     }
     if state.sweeping && work.len() < 64 {
         use std::ops::Bound::{Excluded, Unbounded};
@@ -224,7 +252,7 @@ pub(super) fn sync_visibility(
         if masked {
             *visibility = Visibility::Hidden; // 作者覆盖独立于F12开关和场景树索引，任何显隐刷新都不能复活正式旧根。
         }
-        let mut hide = false;
+        let mut reasons = (false, false);
         if enabled && context.1.as_ref() == Some(instance.scene_id()) {
             if !browser.placement_index_ready(session.placement_structure_revision) {
                 state.dirty.insert(entity);
@@ -234,18 +262,25 @@ pub(super) fn sync_visibility(
                 if deletion.is_some() { release_expired_deletion(&mut commands, entity); }
                 continue; // 旧索引不得跨场景或跨数组代次决定显隐。
             }
-            hide = session.draft.as_ref().is_some_and(|draft| {
+            reasons = session.draft.as_ref().and_then(|draft| {
                 browser.placement_record_index(instance.id(), session.placement_structure_revision)
                     .and_then(|index| draft.placements.placements.get(index))
                     .filter(|record| record.id == instance.id())
-                    .is_some_and(|record| effective_metadata(objects.as_deref(), &session, record).hidden)
-            });
+                    .map(|record| visibility_reasons(objects.as_deref(), &session, record))
+            }).unwrap_or_default();
         }
-        if hide {
-            if previous.is_none() {
+        let (hidden, participation_disabled) = reasons;
+        let was_disabled = previous.as_ref().is_some_and(|visibility| visibility.participation_disabled);
+        if hidden || participation_disabled {
+            if let Some(mut previous) = previous {
+                if was_disabled != participation_disabled {
+                    previous.participation_disabled = participation_disabled;
+                }
+            } else {
                 commands.entity(entity).insert(EditorObjectVisibility {
                     original: suppression.map(|suppression| suppression.original_visibility)
                         .or_else(|| deletion.map(|deletion| deletion.original_visibility)).unwrap_or(*visibility),
+                    participation_disabled,
                 });
                 state.overridden.insert(entity);
             }
@@ -259,6 +294,9 @@ pub(super) fn sync_visibility(
         }
         if instance.asset_target().is_builtin() {
             feathrise_scene::set_builtin_placement_collision_enabled(&mut commands, entity, *visibility != Visibility::Hidden);
+        } else if was_disabled != participation_disabled && (instance.is_active() || instance.is_pending()) {
+            // GLB 的眼睛只控制编辑器显示。参与边沿单独暂停或归还这个根的物理代理。
+            placement_participation::sync_gltf_collision(&mut commands, entity, !participation_disabled);
         }
         if deletion.is_some() { release_expired_deletion(&mut commands, entity); }
         // 行隐藏的移除先落地，再归还删除覆盖，避免旧行组件让最终显隐永久停在Hidden。

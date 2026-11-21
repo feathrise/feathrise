@@ -296,6 +296,31 @@ fn placement_water_record_cache_scans_large_plain_scene_once_with_fixed_budget()
 }
 
 #[test]
+fn placement_water_record_cache_rechecks_participation_without_requiring_disabled_roots() {
+    use crate::authoring::placement_participation::{available, set_participation};
+
+    if !available() { return; } // 固定旧 SDK 的记录默认参与，没有可停用的字段。
+    let mut document = placement_document();
+    let original_water = document.placements[0].water_surfaces.clone();
+    let mut cache = PlacementWaterSavePreflightCache::default();
+    for (revision, enabled) in [(41, true), (42, false), (43, true)] {
+        set_participation(std::sync::Arc::make_mut(&mut document.placements[0].editor), enabled).unwrap();
+        let progress = advance_placement_water_record_cache(&mut cache, revision, 7, &document).unwrap();
+        assert!(progress.complete);
+        assert_eq!(progress.processed, 1); // 参与开关推进作者修订，原结构修订和记录数量保持不变。
+        assert_eq!(cache.total_surface_count, original_water.len());
+        let readiness = placement_water_save_readiness(&document.scene_id, &cache.water_records, std::iter::empty());
+        if enabled {
+            assert!(matches!(readiness, PlacementWaterSaveReadiness::Failed(detail) if detail.contains("没有可验证")));
+        } else {
+            assert!(cache.water_records.is_empty());
+            assert_eq!(readiness, PlacementWaterSaveReadiness::Ready);
+        }
+    }
+    assert_eq!(document.placements[0].water_surfaces, original_water); // 停用期间保留原作者绑定，复启重新取证。
+}
+
+#[test]
 fn multi_terrain_content_failure_cancels_save_and_close_with_error_receipt() {
     use crate::authoring::content_bindings::ContentTerrainFollowState;
     use crate::types::{EditorStatusKind, EditorStatusOperation};

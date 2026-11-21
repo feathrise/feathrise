@@ -14,7 +14,9 @@ mod signature; // 全部摆放结构签名按每帧记录预算渐进生成。
 mod systems; // 固定行池、连续滚动、展开点击与样式同步系统。
 mod scene_menu; // 已呈现行的稳定对象身份供右键菜单使用。
 pub(crate) use scene_menu::bind_scene_menu_rows;
-mod projection; // 搜索与逻辑组的有界根投影，不改变真实实例层级。
+pub(crate) use row_controls::{PlacementTreeToggle, sync as sync_gltf_row_toggles};
+mod projection; // 逻辑组的有界根投影，不改变真实实例层级。
+mod row_controls; // 摆放与逻辑组共享固定行池的三种开关。
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque}; // 路径缓存、展开需求与有界加载队列。
 
@@ -89,7 +91,7 @@ pub(crate) struct EditorGltfMeshSelection {
 /// 一条固定行可显示的场景树节点类型。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum EditorGltfBrowserEntryKind {
-    Group { name: String, collapsed: bool, count: usize },
+    Group { name: String, collapsed: bool, count: usize, first_member: usize },
     /// 一个已摆放GLB实例根，可点击展开或折叠其网格。
     Placement {
         /// 草稿中的稳定实例ID。
@@ -237,7 +239,6 @@ pub(super) struct CachedGltfAsset {
 /// 已摆放GLB浏览器的公开选择、可见行与私有强句柄缓存。
 #[derive(Resource, Default)]
 pub(crate) struct EditorGltfBrowserState {
-    pub(crate) object_search: String,
     pub(crate) collapsed_groups: BTreeSet<String>,
     pub(crate) selected_group: Option<String>,
     /// 当前展开状态的完整扁平树，行池按滚动位置取其窗口。
@@ -308,9 +309,6 @@ pub(crate) struct EditorGltfBrowserState {
 }
 
 impl EditorGltfBrowserState {
-    pub(crate) fn request_object_rows(&mut self) {
-        entries::request_visible_entries_rebuild(self);
-    }
     /// 标签中的稳定选择必须等新场景签名完整采用，不能在分帧构建时被旧签名清掉。
     pub(crate) fn document_selection_ready(&self, map: &feathrise_scene_content::SceneId) -> bool {
         self.initialized

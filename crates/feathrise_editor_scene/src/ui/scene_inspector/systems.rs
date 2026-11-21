@@ -230,7 +230,8 @@ pub(crate) fn sync_scene_inspector(
                 "等待场景树完成后重新选择；不按名称猜测替代对象。".to_owned(),
             )
         } else if shading.preview_expanded && shading.scene_id.as_ref() == Some(&draft.scene_id)
-            && draft.manifest.terrains.is_none() {
+            && draft.manifest.terrains.is_none() && !draft.manifest.terrain.is_empty() {
+            // 旧场景的真实来源仍可查看，零地形场景展开显示预览时沿用通用概览。
             let terrain = &draft.manifest.terrain;
             let source = if terrain.kind == SceneTerrainKind::SparseClipmap {
                 terrain

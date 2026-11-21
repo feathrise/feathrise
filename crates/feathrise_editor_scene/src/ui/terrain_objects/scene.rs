@@ -50,19 +50,10 @@ fn row(index: usize) -> impl Scene {
         @row_action(index, Action::Enabled)-- @row_action(index, Action::Visible)-- @row_action(index, Action::Lock)] }
 }
 fn row_action(index: usize, action: Action) -> impl Scene {
-    use crate::ui::tooltips::{EditorTooltipTarget, TooltipAction};
-    let tooltip = match action {
-        Action::Enabled => TooltipAction::TerrainParticipation,
-        Action::Visible => TooltipAction::TerrainVisibility,
-        _ => TooltipAction::TerrainLock,
-    };
-    bsn! { InteractionButton ActionButton(action) RowAction { slot: index, target: None }
-    EditorTooltipTarget(tooltip)
-    Node { width: px(18), height: px(21), flex_shrink: 0.0, border: px(0),
-        border_radius: BorderRadius::all(px(3)), align_items: AlignItems::Center, justify_content: JustifyContent::Center }
-    BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL) BorderColor::all(colors::COPPER_BORDER_WEAK)
-    Children [RowIcon { slot: index, action } ImageNode::default()
-        Node { width: px(14), height: px(14), flex_shrink: 0.0 } Pickable::IGNORE] }
+    use crate::ui::scene_sidebar::{tree_toggle_button, tree_toggle_icon};
+    let toggle = super::row_controls::tree_toggle(action);
+    bsn! { @tree_toggle_button(toggle) ActionButton(action) RowAction { slot: index, target: None }
+    Children [@tree_toggle_icon() RowIcon { slot: index, action }] }
 }
 fn lod_row(index: usize, display: bool) -> impl Scene {
     let action = Action::SelectLod(index, display);

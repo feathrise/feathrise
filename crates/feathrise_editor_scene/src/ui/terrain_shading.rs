@@ -11,13 +11,13 @@ use feathrise_scene::{TerrainGridPreview, TerrainShadingPreview}; // 场景渲�
 use feathrise_scene_core::state::ScenePhase; // 菜单和加载页不得继承上一个场景的平直着色。
 use crate::ui::theme as colors; // 复用编辑器铜边与选中态配色。
 
-use crate::authoring::EditorAuthoringSession; // 场景页只允许选择已载入的当前基础地形。
+use crate::authoring::EditorAuthoringSession; // 预览入口使用当前已加载草稿的场景身份。
 use crate::components::{TerrainGridButton, TerrainShadingButton, TerrainCollisionButton}; // 三角线、着色与实际碰撞显示使用独立输入身份。
 use crate::scene_identity::active_gameplay_scene_id; // 玩法场景身份与F12场景目录保持一致。
 use crate::resources::SceneEditorNumericScrubMouseGuard;
 use crate::resources::{SceneEditorState, TerrainShadingSession}; // 切换场景恢复场景选择，关闭仍保留玩法模式。
 
-use super::gltf_browser::SceneBaseGltfRow; // 点击右侧场景树的基础地形才展开网格设置。
+use super::gltf_browser::SceneBaseGltfRow;
 use super::scene::FONT_PATH; // 保持工具栏中文字体一致。
 use super::sidebars::SceneEditorSidebarState; // 场景显示开关跟随左侧场景树，不受右侧属性页影响。
 
@@ -127,13 +127,13 @@ fn sync_collision_preview(
     }
 }
 
-/// 基础地形选中后显示独立着色与真实三角网格设置。
+/// 展开场景显示入口后显示着色、三角线和碰撞设置。
 pub(crate) fn terrain_shading_controls() -> impl Scene {
     bsn! {
         super::gltf_browser::SceneBaseTerrainDetails
         Node {
-            display: Display::None, // 初始未选择基础地形时不占场景列表空间。
-            width: percent(100), // 与基础地形场景行对齐。
+            display: Display::None, // 收起时不占场景树布局。
+            width: percent(100), // 与场景显示标题对齐。
             flex_shrink: 0.0, // 展开后不得被摆放实例列表压缩。
             flex_direction: FlexDirection::Column, // 标题、按钮与会话提示依次排列。
             row_gap: px(4), // 紧凑场景属性行距。
@@ -182,37 +182,36 @@ pub(crate) fn terrain_shading_controls() -> impl Scene {
     }
 }
 
-/// 点击场景页当前基础地形才展开设置，不占用摆放实例选择身份。
+/// 点击当前场景的显示入口只改变折叠态，零地形场景也可使用。
 pub(crate) fn handle_scene_base_terrain_row(
-    editor: Res<SceneEditorState>, // 未进入场景或编辑器关闭时不得选择隐藏行。
-    authoring: Res<EditorAuthoringSession>, // 当前基础地形必须已对应真实草稿。
-    sidebar: Res<SceneEditorSidebarState>, // 切离场景页后旧交互不应改变选择。
-    numeric_scrub: Res<SceneEditorNumericScrubMouseGuard>, // 数值拖动和弦不能误选地形。
-    row: Query<&EditorButtonClick, (With<SceneBaseGltfRow>, Changed<EditorButtonClick>)>, // 固定一个基础地形按钮。
-    mut session: ResMut<TerrainShadingSession>, // 仅记录面板展开态，不创建作者实例。
+    editor: Res<SceneEditorState>,
+    authoring: Res<EditorAuthoringSession>,
+    sidebar: Res<SceneEditorSidebarState>,
+    numeric_scrub: Res<SceneEditorNumericScrubMouseGuard>,
+    row: Query<&EditorButtonClick, (With<SceneBaseGltfRow>, Changed<EditorButtonClick>)>,
+    mut session: ResMut<TerrainShadingSession>,
 ) {
     if !editor.open
         || editor.close_requested
+        || editor.scene_transition_in_progress
         || numeric_scrub.blocked()
         || !sidebar.scene_tree_visible()
         || session.scene_id.as_ref() != editor.selected_scene_id.as_ref()
         || !authoring
             .draft
             .as_ref()
-            .is_some_and(|draft| Some(&draft.scene_id) == session.scene_id.as_ref()
-                && draft.manifest.terrains.as_ref().map_or_else(
-                    || !draft.manifest.terrain.is_empty(), |objects| !objects.is_empty()))
+            .is_some_and(|draft| Some(&draft.scene_id) == session.scene_id.as_ref())
     {
-        return; // 草稿尚未到达或切换场景期间不可展开旧地形。
+        return; // 空工作台和切换期间保留标题，等当前场景草稿就绪再响应点击。
     }
     for interaction in &row {
         if interaction.is_clicked() {
-            session.preview_expanded = !session.preview_expanded; // 再次点击同一地形收起属性。
+            session.preview_expanded = !session.preview_expanded;
         }
     }
 }
 
-/// 仅接受场景页选中地形的着色按钮；选择不进入保存链。
+/// 场景显示预览展开时接受着色按钮，选择不进入保存链。
 pub(crate) fn handle_terrain_shading_buttons(
     editor: Res<SceneEditorState>, // 避免没有活动场景时设置无法预览的模式。
     buttons: Query<(&EditorButtonClick, &TerrainShadingButton), Changed<EditorButtonClick>>, // 两个静态按钮保持独立输入身份。
@@ -223,13 +222,14 @@ pub(crate) fn handle_terrain_shading_buttons(
 ) {
     if !editor.open
         || editor.close_requested
+        || editor.scene_transition_in_progress
         || numeric_scrub.blocked()
         || !sidebar.scene_tree_visible()
         || !session.preview_expanded
         || session.scene_id.as_ref() != editor.selected_scene_id.as_ref()
         || session.scene_id.is_none()
     {
-        return; // 仅选中当前基础地形时允许切换玩法和编辑器共用的模式。
+        return; // 只有当前场景的可见预览可以切换玩法和编辑器共用的模式。
     }
     for (interaction, button) in &buttons {
         if interaction.is_clicked() && preview.flat != button.0 {
@@ -244,7 +244,7 @@ pub(crate) fn handle_terrain_shading_buttons(
     }
 }
 
-/// 仅接受场景页已选地形的网格按钮；它与平滑/平直互不改写。
+/// 场景显示预览展开时接受三角线按钮，它与平滑/平直互不改写。
 pub(crate) fn handle_terrain_grid_button(
     editor: Res<SceneEditorState>, // 避免没有活动场景时保留无法显示的网格状态。
     buttons: Query<&EditorButtonClick, (With<TerrainGridButton>, Changed<EditorButtonClick>)>, // 固定一个独立切换按钮。
@@ -255,14 +255,14 @@ pub(crate) fn handle_terrain_grid_button(
 ) {
     if !editor.open // 关闭F12时保留现有选择，但隐藏按钮不能继续响应。
         || editor.close_requested // 安全关闭等待阶段也拒绝新输入。
+        || editor.scene_transition_in_progress
         || numeric_scrub.blocked() // 公共数值控件拥有当前鼠标和弦。
         || !sidebar.scene_tree_visible() // 只允许左侧场景导航操作。
-        || !session.preview_expanded // 基础地形属性必须真实展开。
+        || !session.preview_expanded // 场景预览必须已展开。
         || session.scene_id.as_ref() != editor.selected_scene_id.as_ref() // 切换场景期间禁止写旧场景集合。
         || session.scene_id.is_none()
-    // 菜单与加载页没有可显示基础地形。
     {
-        return; // 隐藏控件、未选地形或无场景时完全无效。
+        return; // 隐藏控件与无活动场景时拒绝迟到输入。
     } // 完成网格按钮输入门。
     for interaction in &buttons {
         // 固定一个按钮，Changed过滤稳定帧为空。
@@ -308,7 +308,7 @@ pub(crate) fn sync_terrain_shading_session(
     let grid_visible = scene_id
         .as_ref()
         .is_some_and(|id| session.grid_scenes.contains(id)); // 新图与非玩法阶段默认关闭网格。
-    session.preview_expanded = false; // 关闭或切换场景只撤销场景属性选择，不丢失每图着色模式。
+    session.preview_expanded = false; // 关闭或切换场景时收起预览，保留每个场景的设置。
     session.editor_open = editor.open; // 保存本次最终可见性。
     session.scene_id = scene_id; // 玩法视角仍保留当前场景身份。
     if preview.flat != flat {
@@ -409,8 +409,8 @@ mod tests {
         assert!(!app.world().resource::<GizmoConfigStore>().config::<PhysicsGizmos>().0.enabled);
     }
 
-    #[test] // 基础地形的选择和网格模式只响应当前场景页的真实草稿。
-    fn clicking_base_terrain_opens_shading_properties_without_placement_selection() {
+    #[test]
+    fn clicking_scene_display_opens_preview_even_without_terrain() {
         let draft = crate::authoring::test_heightfield_draft(std::sync::Arc::new(vec![0; 121])); // 小型完整GLB地形草稿。
         let scene_id = draft.scene_id.clone(); // UI和场景会话必须属于同一真实场景。
         let mut app = App::new(); // 只运行固定交互系统，不启动实际GPU。
@@ -424,7 +424,7 @@ mod tests {
             .add_systems(
                 Update,
                 (
-                    handle_scene_base_terrain_row,    // 同帧先展开属性。
+                    handle_scene_base_terrain_row,    // 同帧先展开场景显示。
                     handle_terrain_shading_buttons, // 再接受互斥着色输入。
                     handle_terrain_grid_button,     // 最后接受独立网格输入。
                 )
@@ -442,9 +442,9 @@ mod tests {
         let row = app
             .world_mut()
             .spawn((SceneBaseGltfRow, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed))
-            .id(); // 点击树内唯一基础地形。
+            .id();
         app.world_mut()
-            .spawn((TerrainShadingButton(true), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)); // 同帧点击模式也只由选择门授权。
+            .spawn((TerrainShadingButton(true), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)); // 展开后着色操作才生效。
         app.world_mut()
             .spawn((TerrainGridButton, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)); // 同帧独立开启真实三角网格。
         app.update();
@@ -452,12 +452,12 @@ mod tests {
             app.world()
                 .resource::<TerrainShadingSession>()
                 .preview_expanded
-        ); // 场景节点确实展开属性。
-        assert!(app.world().resource::<TerrainShadingPreview>().flat); // 选择后模式写入当前地形。
+        );
+        assert!(app.world().resource::<TerrainShadingPreview>().flat);
         assert!(app.world().resource::<TerrainGridPreview>().visible); // 网格与平直可同时启用。
         *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
         app.update();
-        app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 再次点击收起地形属性。
+        app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 再次点击收起场景预览。
         app.world_mut()
             .spawn((TerrainShadingButton(false), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)); // 隐藏的模式按钮不得生效。
         app.world_mut()
@@ -467,17 +467,31 @@ mod tests {
             !app.world()
                 .resource::<TerrainShadingSession>()
                 .preview_expanded
-        ); // 不删除地形或摆放实例。
+        );
         assert!(app.world().resource::<TerrainShadingPreview>().flat); // 收起面板不重置本次运行的选择。
         assert!(app.world().resource::<TerrainGridPreview>().visible); // 隐藏控件不能翻转网格状态。
-        app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap()
-            .manifest.terrains = Some(Vec::new().into());
+        {
+            let mut authoring = app.world_mut().resource_mut::<EditorAuthoringSession>();
+            let manifest = &mut authoring.draft.as_mut().unwrap().manifest;
+            manifest.terrain = feathrise_scene_content::SceneTerrainDescriptor::empty();
+            manifest.terrains = Some(Vec::new().into());
+        }
         *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
         app.update();
         app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered()));
+        app.world_mut()
+            .spawn((TerrainShadingButton(false), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
+        app.world_mut()
+            .spawn((TerrainGridButton, feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed));
+        app.update(); // 即使已经删除最后一个地形，显示入口和设置仍可操作。
+        assert!(app.world().resource::<TerrainShadingSession>().preview_expanded);
+        assert!(!app.world().resource::<TerrainShadingPreview>().flat);
+        assert!(!app.world().resource::<TerrainGridPreview>().visible);
+        app.world_mut().resource_mut::<TerrainShadingSession>().preview_expanded = false;
+        app.world_mut().resource_mut::<EditorAuthoringSession>().draft = None;
+        app.world_mut().entity_mut(row).insert(feathrise_editor_ui::EditorButtonClick::triggered());
         app.update();
-        assert!(!app.world().resource::<TerrainShadingSession>().preview_expanded);
-        // 隐藏预览条的迟到Pressed不能把显式空容器当作原基础网格重新展开。
+        assert!(!app.world().resource::<TerrainShadingSession>().preview_expanded); // 无当前草稿时不能展开。
     }
 
     #[test] // 着色和网格彼此独立，且都在关闭F12后保留并按场景恢复。

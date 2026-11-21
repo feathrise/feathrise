@@ -50,7 +50,7 @@ impl BrowserEntriesBuild {
     /// 从当前活动签名建立空行草稿，不同步扫描任何实例。
     fn new(state: &EditorGltfBrowserState) -> Self {
         Self {
-            projection: super::projection::RootProjection::new(&state.object_search),
+            projection: super::projection::RootProjection::default(),
             revision: state.entries_revision, // 锁定当前最新行请求修订。
             signature_revision: state.observation.placement_structure_revision, // 锁定当前活动签名身份。
             placement_index: 0,                       // 下一次从第一个实例根开始。
@@ -168,7 +168,7 @@ fn publish_completed_entries(
     let mut retired = BrowserRetiredGeneration::default(); // 旧根行与展开子行只移动所有权。
     retired.entries(old_entries); // 后续Update按元素/路径/字节预算逐条释放。
     if has_projection {
-        retired.entries_build(Some(build)); // 搜索和分组索引也随旧行分帧释放。
+        retired.entries_build(Some(build)); // 分组索引也随旧行分帧释放。
     }
     state.retirement.enqueue_normal_reserved(retired); // release构建同样无条件转移旧树。
     state.truncated = state.truncated_asset_count > 0; // O(1)汇总无法表示完整引用路径的资产。
@@ -222,9 +222,11 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
             break; // 已处理全部活动签名。
         };
         let (source_index, group_depth) = match token {
-            super::projection::RootToken::Group { name, count, collapsed } => {
+            super::projection::RootToken::Group { name, count, collapsed, first_member } => {
                 build.entries.push(EditorGltfBrowserEntry {
-                    kind: EditorGltfBrowserEntryKind::Group { name: name.clone(), count: *count, collapsed: *collapsed },
+                    kind: EditorGltfBrowserEntryKind::Group {
+                        name: name.clone(), count: *count, collapsed: *collapsed, first_member: *first_member,
+                    },
                     display_name: format!("{} {}（{}项）", if *collapsed { "[+]" } else { "[-]" }, name, count),
                     depth: 0, selection: None,
                 });

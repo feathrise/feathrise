@@ -8,7 +8,7 @@ mod operations; // 纯作者值变换、Arc浅快照与统一撤销命令。
 pub(crate) use operations::vegetation_canvas_unavailable; // 预设选择、底栏反馈和建层入口共用当前画布身份门。
 mod systems; // 静态按钮、固定行池和正式profile选择接线。
 mod scene_menu;
-pub(crate) use scene_menu::input as handle_scene_menu;
+pub(in crate::ui) use scene_menu::input as handle_scene_menu;
 
 pub(crate) use allocation::{
     VegetationBlankLayerAllocation, poll_vegetation_blank_layer_allocation,

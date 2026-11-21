@@ -54,6 +54,7 @@ pub(super) struct Request {
     pub ray: Ray3d,                          // 点击相机姿态已经冻结。
     pub world: Option<Vec3>,                 // 地形实际三角形命中。
     pub pixel: Vec2,                         // 同位置轮选使用RTT像素。
+    pub click_seconds: Option<f64>,          // 仅真实视口鼠标输入携带按下时间，画布等待不改变它。
     pub radius: f32,                         // 角色标记的屏幕点击容差换算世界值。
     pub preferred: Option<u64>,              // 逐株Mesh射线强命中。
     pub vegetation_world: Option<Vec2>,      // 冠层命中以实际Mesh的XZ采样，避免斜视落到树后。
@@ -99,6 +100,8 @@ pub struct LayerCandidateState {
     pub(super) applied_ui_revision: u64,      // 显示侧签名缓存。
     pub(super) apply: Option<LayerTarget>,    // 查询和按钮共用一个正式选层出口。
     pub(super) apply_candidate_index: Option<usize>, // 待确认行与正式下标分离；拒绝切源时保留原目标、下标和选中行。
+    pub(super) apply_click_seconds: Option<f64>, // 与候选一起采用的真实视口点击，候选卡片操作不继承。
+    pub(super) still_water_click_seconds: Option<f64>, // 当前确认静水的上次视口按下，用来区分聚焦双击与同点轮选。
     pub(crate) clear_objects: bool,           // 空命中完成后才清除旧对象选择，等待期间保持画面。
 }
 
@@ -376,6 +379,7 @@ impl LayerCandidateState {
             ray,
             world,
             pixel,
+            click_seconds: None,
             radius,
             preferred: preferred.map(|hit| hit.0),
             vegetation_world: preferred
@@ -400,6 +404,8 @@ impl LayerCandidateState {
         self.task_identity = None;
         self.apply = None;
         self.apply_candidate_index = None;
+        self.apply_click_seconds = None;
+        self.still_water_click_seconds = None;
         self.clear_objects = false;
         self.hover = None;
         self.hover_author_index = None;
@@ -460,6 +466,8 @@ impl LayerCandidateState {
         self.hover = None; // 恢复正常模块覆盖。
         self.apply = None; // 取消未发布点击。
         self.apply_candidate_index = None;
+        self.apply_click_seconds = None;
+        self.still_water_click_seconds = None;
         self.clear_objects = false; // 模式退出不额外取消用户既有对象选择。
         self.candidates.clear(); // 清空候选列表。
         self.placement_hits.clear(); // 网格身份不能跨场景或候选代次沿用。

@@ -63,7 +63,7 @@ fn controls_fit_real_chinese_font_in_narrow_scaled_sidebars() {
         let logical_width = width / (scale * dpi);
         app.add_systems(Startup, bevy::prelude::SpawnSystem::spawn(move || bsn! {
             Node { width: px(logical_width), min_width: px(0), flex_direction: FlexDirection::Column }
-            Children [@super::scene::panel()-- @super::scene::properties_panel()]
+            Children [@super::scene::properties_panel()]
         }));
         app.world_mut().spawn((
             Camera2d,
@@ -91,8 +91,6 @@ fn controls_fit_real_chinese_font_in_narrow_scaled_sidebars() {
         app.update();
         let world = app.world_mut();
         for mut node in world.query_filtered::<&mut Node, With<crate::ui::scene_inspector::InspectorSection>>().iter_mut(world) { node.display = Display::Flex; }
-        // 布局夹具显式展开搜索；正式界面只在存在摆放资产或搜索词时显示它。
-        for mut node in world.query_filtered::<&mut Node, With<super::components::SceneAssetSearch>>().iter_mut(world) { node.display = Display::Flex; }
         for mut text_font in world.query::<&mut TextFont>().iter_mut(world) {
             text_font.font = font.clone().into();
         }
@@ -128,7 +126,7 @@ fn controls_fit_real_chinese_font_in_narrow_scaled_sidebars() {
             }
             count += 1;
         }
-        assert_eq!(count, 9);
+        assert_eq!(count, 8);
     }
 }
 

@@ -112,14 +112,14 @@ pub(super) fn tooltip_copy(action: TooltipAction, mesh_edit: bool) -> TooltipCop
             None,
             None,
         ),
-        TooltipAction::TerrainParticipation => (
+        TooltipAction::SceneTreeParticipation => (
             "参与场景", "勾选表示参与场景；点击切换。会写入场景，可撤销；锁定时需先解锁。", None, None,
         ),
-        TooltipAction::TerrainVisibility => (
+        TooltipAction::SceneTreeVisibility => (
             "编辑器显示", "眼睛表示显示，划线表示隐藏；只影响编辑器显示，保留场景参与状态和碰撞。", None, None,
         ),
-        TooltipAction::TerrainLock => (
-            "锁定 / 解锁", "闭锁时禁止修改网格，仍可选中查看；再次点击解锁。", None, None,
+        TooltipAction::SceneTreeLock => (
+            "锁定 / 解锁", "闭锁时禁止修改对象，仍可选中查看；再次点击解锁。", None, None,
         ),
         TooltipAction::WeightSelect => (
             "选骨骼", "点击骨段或菱形起点，选中要调权的骨骼。", None, None,

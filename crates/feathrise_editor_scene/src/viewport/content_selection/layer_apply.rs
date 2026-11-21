@@ -256,6 +256,7 @@ pub(crate) fn apply_layer_candidate(
         editor.status = "此处没有符合筛选的作者层".to_owned();
         state.clear_objects = false;
     } // 完整空命中是明确取消，不保留旧对象高亮。
+    let click_seconds = state.apply_click_seconds.take();
     let Some(mut target) = state.apply.take() else {
         state.apply_candidate_index = None;
         return;
@@ -270,6 +271,9 @@ pub(crate) fn apply_layer_candidate(
         let Some(candidate) = state.candidates.get(index).filter(|candidate| candidate.target == target) else { return; };
         candidate.author_index
     } else { state.selected_author_index };
+    // 换槽前比较来源，同名根水与私有地形水也不能组成再次点击。
+    let repeat_still_water = candidate_index.is_some() && click_seconds.is_some() && !state.additive
+        && state.selected_still_water_matches(&target, state.candidate_terrain(&target));
     if state.additive && !matches!(target, LayerTarget::Placement(_))
         && let Some(selection) = multi_selection.as_ref().filter(|selection| !selection.members.is_empty()) {
         crate::viewport::multi_select::publish_primary(selection, &mut browser, &mut state);
@@ -504,10 +508,14 @@ pub(crate) fn apply_layer_candidate(
             if let Some(asset) = draft.water.as_ref()
                 && activate_water_feature(&mut editor, asset, *kind, id).is_ok()
             {
-                water.clear_viewport_selection(); // 候选轮选不触发旧水体双击定位。
-                water.select_from_viewport(&draft.scene_id, *kind, id, 0.0); // 正式身份与水体侧栏保持一致。
-                water.clear_click_sequence(); // 列表确认只选中，不产生定位请求。
-                editor.status = "已选择水体；切到编辑模式可修改".to_owned(); // 与其他候选统一提示。
+                water.clear_viewport_selection();
+                water.confirm_viewport_feature(&draft.scene_id, *kind, id);
+                editor.status = if repeat_still_water {
+                    water.request_focus(&draft.scene_id, *kind, id); // 与原场景树聚焦共用完整水面和相机取景。
+                    "正在定位静水体，等待当前完整水面"
+                } else {
+                    "已选择水体；切到编辑模式可修改"
+                }.to_owned();
                 true
             } else {
                 false // 删除或过期候选不修改正式选择。
@@ -560,6 +568,10 @@ pub(crate) fn apply_layer_candidate(
         state.selected_placement_hit = confirmed_placement_hit;
         state.confirmed_viewport_selection = candidate_index.is_some()
             || (state.confirmed_viewport_selection && state.selected.as_ref() == Some(&target));
+        state.still_water_click_seconds = if !repeat_still_water && !state.additive
+            && matches!(&target, LayerTarget::Water(WaterAuthoringFeatureKind::StillWater, _)) {
+            click_seconds
+        } else { None };
         state.selected = Some(target); // 临时hover不覆盖这个正式身份。
         state.selected_author_index = author_index;
         if let Some(index) = candidate_index { state.index = index; state.page = index / 8; }

@@ -51,6 +51,7 @@ pub(crate) mod placement_batch; // 跨场景剪贴板、受检粘贴预览和单
 pub(crate) mod placement_pose; // 摆放记录的所属源框架与精确世界姿态换算，供选择、变换及复制共用。
 pub(crate) mod placement_preview_ownership; // 独立作者预览定向遮蔽正式候选，精确保存或冷载后归还。
 pub(crate) mod placement_deletion; // 文档持有删除票据，约束旧保存迟到Add及精确撤销/保存确认。
+pub(crate) mod placement_participation;
 mod portal_direction; // 传送箭头按当前主区域边界最近线段点自动派生。
 #[path = "preview/mod.rs"]
 mod preview; // 地表综合色与正式多档Mesh植被按职责拆分的有界后台预览。
@@ -70,6 +71,8 @@ mod vegetation_compile; // 多张作者R8按组规则后台编译为原有固定
 pub(crate) use vegetation_compile::author_layers_at_world; // 统一视口后台候选只复用纯采样接口。
 mod vegetation_defaults; // 新场景和旧草稿迁移共用六个正式密度层定义。
 mod vegetation_layers; // 作者层选择到正式profile、所属组和R8画布的唯一映射入口。
+mod vegetation_editor_visibility;
+pub(crate) use vegetation_layers::hide_layers_in_preview;
 mod vegetation_load; // 正式输出与独立作者R8在IO任务中按兼容规则完整装载。
 mod vegetation_paint; // 独立作者R8笔刷、写时复制和撤销差分收口。
 pub(crate) mod model_vegetation; // 静态模型稀疏表面笔刷复用根图层及统一历史。

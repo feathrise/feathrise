@@ -110,13 +110,68 @@ fn finish(app: &mut App) {
     panic!("有界管理应完成");
 }
 
+#[test]
+fn participation_recovers_missing_preview_but_reuses_the_existing_formal_root() {
+    use crate::authoring::placement_participation;
+    use crate::components::EditorPlacedAsset;
+    use crate::ui::placement_water::{
+        PlacementInstanceIndex, register_placement_instance_root, unregister_placement_instance_root,
+    };
+    use feathrise_scene::ScenePlacementInstance;
+
+    if !placement_participation::available() { return; } // 此回归需要配套 SDK 的正式参与字段。
+    let mut app = app(2, "");
+    app.add_plugins(bevy::asset::AssetPlugin::default())
+        .init_asset::<bevy::world_serialization::WorldAsset>()
+        .init_resource::<PlacementInstanceIndex>()
+        .add_observer(register_placement_instance_root)
+        .add_observer(unregister_placement_instance_root);
+    let (scene, record) = {
+        let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+        let draft = session.draft.as_mut().unwrap();
+        let disabled = Arc::make_mut(&mut draft.placements.placements[0].editor);
+        placement_participation::set_participation(disabled, false).unwrap();
+        disabled.hidden = true; // 从已保存停用、独立关闭眼睛的摆放开始。
+        (draft.scene_id.clone(), draft.placements.placements[1].clone())
+    };
+    let formal = app.world_mut().spawn((
+        ScenePlacementInstance::new(&scene, &record), Transform::IDENTITY, Visibility::Inherited,
+    )).id();
+
+    press(&mut app, ObjectAction::ToggleParticipation);
+    finish(&mut app);
+    app.update();
+    let owner = app.world().resource::<EditorAuthoringSession>().placement_previews["object-0"];
+    assert!(app.world().get::<EditorPlacedAsset>(owner).is_some());
+    assert_eq!(app.world().get::<Visibility>(owner), Some(&Visibility::Hidden));
+
+    app.world_mut().resource_mut::<EditorGltfBrowserState>().selected_placement_id = Some(record.id);
+    press(&mut app, ObjectAction::ToggleParticipation);
+    finish(&mut app);
+    app.update();
+    assert_eq!(app.world().get::<Visibility>(formal), Some(&Visibility::Hidden));
+    press(&mut app, ObjectAction::ToggleParticipation);
+    finish(&mut app);
+    app.update();
+    assert_eq!(app.world().get::<Visibility>(formal), Some(&Visibility::Inherited));
+    assert_eq!(app.world().resource::<EditorAuthoringSession>().placement_previews.len(), 1);
+
+    app.world_mut().resource_mut::<EditorGltfBrowserState>().selected_placement_id = Some("object-0".into());
+    press(&mut app, ObjectAction::ToggleParticipation);
+    finish(&mut app);
+    assert!(app.world().get_entity(owner).is_err());
+    let session = app.world().resource::<EditorAuthoringSession>();
+    assert!(session.placement_previews.is_empty(), "停用后不留下等待不存在的正式根的保存交接");
+    assert!(session.draft.as_ref().unwrap().placements.placements[0].editor.hidden);
+}
+
 fn apply_management(request: &mut PendingManagement, session: &mut EditorAuthoringSession, editor: &mut SceneEditorState) {
     let (_, retired, batch) = adopt_management(request, session, editor).unwrap();
     assert!(retired.is_empty());
     let mut state = SceneObjectState::default();
     let browser = EditorGltfBrowserState::default();
     state.publish_metadata(session, batch);
-    while state.busy() { state.write_metadata(session, &browser); }
+    while state.busy() { state.write_metadata(session, &browser, None); }
 }
 
 #[test]
@@ -148,7 +203,7 @@ fn group_capture_is_bounded_and_adopts_one_complete_history() {
         assert_eq!(draft.placements.placements.iter().filter(|record| record.editor.group == "村口").count(), written);
         assert!(draft.placements.placements.iter().all(|record|
             super::effective_metadata(Some(&state), &session, record).group == "村口"));
-        state.write_metadata(&mut session, &browser);
+        state.write_metadata(&mut session, &browser, None);
     }
     assert!(!state.busy());
     assert_eq!(session.undo.len(), 1);

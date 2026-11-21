@@ -5,7 +5,6 @@ use bevy::prelude::*;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum ObjectField {
     #[default]
-    Search,
     Name,
     Group,
 }
@@ -20,6 +19,7 @@ pub(super) enum ObjectAction {
     AssignGroup,
     Ungroup,
     SelectGroup,
+    ToggleParticipation,
     ToggleHidden,
     ToggleLocked,
 }
@@ -29,5 +29,3 @@ pub(super) struct ObjectButton(pub(super) ObjectAction);
 
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct ObjectSummary;
-#[derive(Component, Clone, Copy, Default)]
-pub(super) struct SceneAssetSearch;

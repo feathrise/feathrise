@@ -1,6 +1,6 @@
 //! 对照真实编辑器3D视口保存前、热接管后和重开的同一普通立方体。
 
-use super::fixture::SavedCube;
+use super::{driver::click_text, fixture::SavedCube};
 use bevy::{
     prelude::*,
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
@@ -8,7 +8,7 @@ use bevy::{
 };
 use feathrise_editor_scene::standalone::{
     self,
-    scene_format_validation::{Observation, cube_save as author},
+    scene_format_validation::{self, Observation, cube_save as author},
 };
 use feathrise_scene_content::{SceneId, ScenePlacementAssetTarget, ScenePlacementRecord};
 use serde_json::{Value, json};
@@ -72,8 +72,13 @@ impl Probe {
         {
             return Err("作者记录不再是已冻结的未细分普通立方体".into());
         }
-        let state = author::cube_state(world, scene, &record);
         proof["phase"] = json!(format!("{:?}", self.phase));
+        if matches!(self.phase, Phase::BeforeSave | Phase::ReopenWire)
+            && !scene_display_ready(world, scene, &record.id, observed, pulse, proof)?
+        {
+            return Ok(false);
+        }
+        let state = author::cube_state(world, scene, &record);
         proof["last"] = state.details.clone();
         match self.phase {
             Phase::Frame => {
@@ -217,6 +222,37 @@ impl Probe {
         });
         Ok(false)
     }
+}
+
+fn scene_display_ready(
+    world: &mut World,
+    scene: &SceneId,
+    placement: &str,
+    observed: &Observation,
+    pulse: &mut Option<Entity>,
+    proof: &mut Value,
+) -> Result<bool, String> {
+    if !observed.tree_visible {
+        *pulse = click_text(world, "场景树");
+        return Ok(false);
+    }
+    let Some(labels) = scene_format_validation::empty_terrain_placement_tree_labels(world, scene, placement)? else {
+        return Ok(false);
+    };
+    let visible = |label: &str| labels.iter().any(|text| text == label);
+    if visible("搜索") {
+        return Err("场景树的摆放列表上方仍显示搜索框".into());
+    }
+    // 展开原按钮后等待真实布局，与同一立方体的主窗口截图一起取证。
+    const COLLAPSED: &str = "▶ 场景显示 · 网格 / 碰撞 / 着色";
+    if visible(COLLAPSED) {
+        *pulse = click_text(world, COLLAPSED);
+    }
+    let ready = ["▼ 场景显示 · 网格 / 碰撞 / 着色", "平滑", "平直", "显示三角线", "显示碰撞"]
+        .into_iter().all(visible);
+    proof["scene_tree"] = json!({"scene_id": scene, "placement_id": placement,
+        "terrain_count": 0, "display_controls_visible": ready, "visible_labels": labels});
+    Ok(ready)
 }
 
 fn viewport_digest(bytes: &[u8], width: u32, height: u32, [left, top, right, bottom]: [u32; 4]) -> Result<String, String> {

@@ -111,6 +111,7 @@ pub(crate) fn poll_layer_candidates(
     mut state: ResMut<LayerCandidateState>,
     mut selection_locked: Local<bool>, // 停用视口拾取时淘汰旧票据，场景树仍可发布正式选择。
     mut locked_scene: Local<Option<feathrise_scene_content::SceneId>>, // confirm_terrain没有候选身份时，也不能把primary选中项带到另一场景。
+    mut vegetation_visibility_revision: Local<u64>,
     multi_selection: Option<Res<crate::viewport::multi_select::PlacementSelectionSet>>,
     subscenes: super::subscenes::PickInputs,
     mut terrains: Option<ResMut<crate::ui::terrain_objects::TerrainObjectsEditorState>>,
@@ -118,6 +119,13 @@ pub(crate) fn poll_layer_candidates(
 ) {
     // 唯一single-flight调度出口。
     let filter = modes.selection_filter(&editor); // 保留选择时使用的类别身份。
+    let visible_revision = editor.vegetation_visibility.revision();
+    if *vegetation_visibility_revision != visible_revision {
+        *vegetation_visibility_revision = visible_revision;
+        state.freeze_selection();
+        state.candidates.clear();
+        state.ui_revision = state.ui_revision.wrapping_add(1);
+    } // 撤销旧命中票据，保留正式的场景树选择。
     let ready = state.task.as_mut().and_then(check_ready); // 关闭也回收完成任务。
     let ready_identity = ready.as_ref().and_then(|_| state.task_identity.take());
     if ready.is_some() {
@@ -239,7 +247,7 @@ pub(crate) fn poll_layer_candidates(
                     .iter()
                     .map(|c| &c.target)
                     .eq(candidates.iter().map(|c| &c.target)); // 同点稳定候选顺序才能轮选。
-            let index = if repeat && !candidates.is_empty() {
+            let index = if repeat && !candidates.is_empty() && !quick_still_water_focus(&state, &request, &candidates) {
                 (state.index + 1) % candidates.len()
             } else {
                 0
@@ -254,6 +262,7 @@ pub(crate) fn poll_layer_candidates(
             state.page = index / 8; // 卡片直接显示待确认项所在页，正式行仅在成功后发布。
             state.hover = None; // 清除旧菜单悬停。
             state.hover_author_index = None;
+            state.apply_click_seconds = request.click_seconds;
             state.apply_candidate_index = state.candidates.get(index).map(|_| index);
             state.apply = state.candidates.get(index).map(|c| c.target.clone()); // 正式选择交给唯一应用系统。
             if state.apply.is_none() {
@@ -288,6 +297,7 @@ pub(crate) fn poll_layer_candidates(
         return;
     }
     let canvas = super::layer_canvas::Snapshot::capture(draft);
+    let hidden_vegetation = editor.vegetation_visibility.hidden_in(&key.scene_id, canvas.terrain.as_ref()).cloned();
     request.canvas_terrain = canvas.terrain.clone();
     request.canvas_definition = draft.terrain_documents.active.as_ref().map(|active| active.definition.clone());
     let asset = domain.snapshot_for(draft).cloned(); // 文档和空间索引均为Arc，并与当前场景完整身份一致。
@@ -298,6 +308,10 @@ pub(crate) fn poll_layer_candidates(
     state.task_identity = Some(key.clone());
     state.task = Some(AsyncComputeTaskPool::get().spawn(async move {
         let mut request = request;
+        let mut canvas = canvas;
+        if let Some((definition, hidden)) = canvas.vegetation.as_mut().zip(hidden_vegetation.as_deref()) {
+            crate::authoring::hide_layers_in_preview(definition, hidden);
+        } // 重用组解析，隐藏竞争的上层后允许拾取新露出的下层。
         if let Some(ground) = &request.terrain_ground && let Some((id, point)) = ground.ray_visible(request.ray.origin, *request.ray.direction, &request.hidden_terrains) {
             request.world = Some(point);
             request.hit_terrain = request.terrain_objects.iter().position(|object| object.id == id).map(|index| (id, index));
@@ -323,6 +337,19 @@ pub(crate) fn poll_layer_candidates(
         ); // 跨规模迭代只在后台。
         (key, request, candidates) // 不借用Commands/Assets/World。
     }));
+}
+
+fn quick_still_water_focus(state: &LayerCandidateState, request: &Request, candidates: &[LayerCandidate]) -> bool {
+    // 水面背后的地表和网格仍可慢点轮选；多个水体重叠时保留正常轮选顺序。
+    let [water] = request.water_candidates.as_slice() else { return false; };
+    let terrain = match &water.target {
+        LayerTarget::Water(..) => request.water_canvas_definition.as_ref().map(|source| &source.id),
+        _ => None,
+    };
+    candidates.first().is_some_and(|candidate| candidate.target == water.target)
+        && state.selected_still_water_matches(&water.target, terrain)
+        && request.click_seconds.zip(state.still_water_click_seconds).is_some_and(|(now, last)|
+            (0.0..=crate::viewport::water_selection::DOUBLE_CLICK_MAX_SECONDS).contains(&(now - last)))
 }
 
 fn collect_candidates(

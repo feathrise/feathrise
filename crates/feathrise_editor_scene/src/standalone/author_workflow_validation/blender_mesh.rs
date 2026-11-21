@@ -11,7 +11,11 @@ use crate::{
     standalone::validation_fixture::{open_scene_tree, reveal_property_control, ui_visible},
     types::EditorAction,
     ui::{
-        gltf_browser::EditorGltfBrowserState,
+        gltf_browser::{
+            EditorGltfBrowserEntryKind, EditorGltfBrowserState, SceneEditorGltfBrowserList,
+            SceneEditorGltfBrowserListContent,
+        },
+        list_layout::fit_scene_object_list,
         placement_transform::{PlacementTransformAction, SceneEditorPlacementTransformActionButton},
         scene_context_menu::queue_blender_action_for_validation,
     },
@@ -153,13 +157,7 @@ fn drive(world: &mut World, fixture: &mut Fixture) -> Result<Option<Value>, Stri
         }
         Step::OpenBlender => {
             if !open_scene_tree(world)? { return Ok(None); }
-            // 使用场景树现有搜索投影露出本批末尾的对象，然后从真实可见行发菜单动作。
-            let mut browser = world.resource_mut::<EditorGltfBrowserState>();
-            if browser.object_search != current.id {
-                browser.object_search.clone_from(&current.id);
-                browser.request_object_rows();
-            }
-            if queue_blender_action_for_validation(world, &current.id)? {
+            if placement_row_in_view(world, &current.id) && queue_blender_action_for_validation(world, &current.id)? {
                 fixture.stage = Step::WaitForGeometry;
             }
         }
@@ -236,7 +234,7 @@ fn drive(world: &mut World, fixture: &mut Fixture) -> Result<Option<Value>, Stri
             }
         }
         Step::ReopenBlender => {
-            if queue_blender_action_for_validation(world, &current.id)? {
+            if placement_row_in_view(world, &current.id) && queue_blender_action_for_validation(world, &current.id)? {
                 fixture.stage = Step::ReadEvidence;
             }
         }
@@ -258,13 +256,33 @@ fn drive(world: &mut World, fixture: &mut Fixture) -> Result<Option<Value>, Stri
                     "saved_record": current, "peer_record": fixture.peer, "placements_path": draft.placements_path(),
                     "blender": proof?, "screenshot": "blender-roundtrip-feathrise.png", "os_input_verified": false
                 });
-                world.resource_mut::<EditorGltfBrowserState>().object_search.clear();
                 return Ok(Some(proof));
             }
         }
         _ => {}
     }
     Ok(None)
+}
+
+/// 大批量夹具中的目标可能在列表尾部。滚动后等行池更新，再从实际树行发菜单动作。
+fn placement_row_in_view(world: &mut World, id: &str) -> bool {
+    let browser = world.resource::<EditorGltfBrowserState>();
+    let count = browser.entries.len();
+    let Some(index) = browser.entries.iter().position(|entry| {
+        matches!(&entry.kind, EditorGltfBrowserEntryKind::Placement { placement_id, .. } if placement_id == id)
+    }) else { return false; };
+    let Ok(viewport) = world.query_filtered::<Entity, With<SceneEditorGltfBrowserList>>().single(world)
+    else { return false; };
+    let Ok(content) = world.query_filtered::<Entity, With<SceneEditorGltfBrowserListContent>>().single(world)
+    else { return false; };
+    let Ok([(mut viewport, Some(mut scroll)), (mut content, _)]) = world
+        .query::<(&mut Node, Option<&mut ScrollPosition>)>().get_many_mut(world, [viewport, content])
+    else { return false; };
+    let mut position = (*scroll).clone();
+    fit_scene_object_list(count, false, Some(index), &mut viewport, &mut content, &mut position);
+    if scroll.0 == position.0 { return true; }
+    *scroll = position;
+    false
 }
 
 fn verify_round_trip(folder: &str, before: &ScenePlacementRecord, after: &ScenePlacementRecord) -> Result<(), String> {

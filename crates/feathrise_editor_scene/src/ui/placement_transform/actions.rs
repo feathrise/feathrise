@@ -58,6 +58,9 @@ fn sync_placement_record_world_impl(
     record: &ScenePlacementRecord, world_bounds: Rect, visible: bool, spawn_when_missing: bool,
     terrain_queries: Option<&feathrise_scene::TerrainObjectQueries>,
 ) -> Result<usize, String> {
+    if visible && !crate::authoring::placement_participation::participates(&record.editor) {
+        return Ok(0); // 作者位置已经更新，停用期间不恢复旧根或创建新预览。
+    }
     let draft_scene_id = session
         .draft
         .as_ref()

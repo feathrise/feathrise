@@ -1,4 +1,4 @@
-//! 场景树上方的紧凑管理控件，复用正式中文EditableText与当前编辑器主题。
+//! 右侧属性栏的场景对象管理控件，沿用编辑器的中文输入样式。
 
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
@@ -21,13 +21,12 @@ fn button(label: &'static str, action: ObjectAction) -> impl Scene {
 }
 
 fn field(label: &'static str, kind: ObjectField) -> impl Scene {
-    let search = kind == ObjectField::Search;
     bsn! {
         Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Row,
             column_gap: px(4), align_items: AlignItems::Center, flex_shrink: 0.0 }
         Children [
             Text(label) @feathrise_editor_ui::localization::label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) } TextColor(colors::TEXT_HINT)
-                Node { width: px(if search { 28.0 } else { 36.0 }), min_width: px(0), flex_shrink: 0.0 }--
+                Node { width: px(36), min_width: px(0), flex_shrink: 0.0 }--
 
                 // 命中、键盘焦点和文字绘制共用实体，点击文字或边缘都能聚焦。
                 InteractionButton ObjectInput(kind) crate::ui::text_input::EditorTextInput ~{TabIndex(0)}
@@ -39,15 +38,6 @@ fn field(label: &'static str, kind: ObjectField) -> impl Scene {
                 Node { flex_grow: 1.0, min_width: px(0), height: px(26), padding: UiRect::axes(px(5), px(3)), border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)), overflow: Overflow::clip_x() }
                 BackgroundColor(colors::INPUT_BG)
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
-        ]
-    }
-}
-
-pub(crate) fn panel() -> impl Scene {
-    bsn! {
-        SceneAssetSearch Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
-        Children [
-            @field("搜索", ObjectField::Search)
         ]
     }
 }

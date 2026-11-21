@@ -10,6 +10,7 @@ use bevy::{
 use feathrise_editor_ui::{EditorButtonClick, InteractionButton, UiInteraction};
 use feathrise_scene_content::{SceneCatalogAsset, SceneContentRegistry, SceneId};
 
+use super::validation_fixture::ui_visible;
 use crate::{
     authoring::{
         EditorAuthoringSession,
@@ -20,7 +21,10 @@ use crate::{
     },
     resources::{SceneBrowserIndexState, SceneBrowserState, SceneEditorState},
     types::{EditorAction, SceneBrowserItem},
-    ui::scene_context_menu::{SceneObjectKey, SceneObjectRow},
+    ui::{
+        scene_context_menu::{SceneObjectKey, SceneObjectRow},
+        scene_inspector::InspectorTree,
+    },
 };
 
 #[derive(Default, Resource)]
@@ -233,6 +237,45 @@ pub fn reference_row_visible(world: &mut World, parent: &SceneId, name: &str) ->
                         && matches!(&target.key, SceneObjectKey::Subscene { .. })
                 })
         })
+}
+
+/// 摆放行真正可见后读取同一场景树的文案，以覆盖旧搜索框会出现的条件。
+pub fn empty_terrain_placement_tree_labels(
+    world: &mut World,
+    scene: &SceneId,
+    placement: &str,
+) -> Result<Option<Vec<String>>, String> {
+    require_owned(world)?;
+    let session = world.resource::<EditorAuthoringSession>();
+    let Some(draft) = session.draft.as_ref().filter(|draft| draft.scene_id == *scene) else {
+        return Ok(None);
+    };
+    if !draft.manifest.terrain.is_empty()
+        || draft.manifest.terrains.as_ref().is_some_and(|terrains| !terrains.is_empty())
+    {
+        return Err("场景显示验收需要无地形的自有场景".into());
+    }
+    let Some(tree) = world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
+        let target = row.0.as_ref()?;
+        if target.scene_id != *scene
+            || !matches!(&target.key, SceneObjectKey::Placement { id, mesh: None, .. } if id == placement)
+            || !ui_visible(world, entity)
+        {
+            return None;
+        }
+        ui_ancestors(world, entity).find(|ancestor| world.get::<InspectorTree>(*ancestor).is_some())
+    }) else {
+        return Ok(None);
+    };
+    let labels = world.query::<(Entity, &Text)>().iter(world).filter_map(|(entity, text)| {
+        (ui_ancestors(world, entity).any(|ancestor| ancestor == tree) && ui_visible(world, entity))
+            .then(|| text.0.clone())
+    }).collect();
+    Ok(Some(labels))
+}
+
+fn ui_ancestors(world: &World, entity: Entity) -> impl Iterator<Item = Entity> + '_ {
+    std::iter::successors(Some(entity), move |entity| world.get::<ChildOf>(*entity).map(ChildOf::parent))
 }
 
 fn action_button(world: &mut World, action: EditorAction) -> Option<Entity> {

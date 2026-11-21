@@ -95,6 +95,7 @@ pub(super) fn sync(
         (Without<Section>, Without<List>, Without<Content>),
     >,
     mut texts: Query<(&mut Text, Option<&Title>)>,
+    labels: Query<&Children, With<RowLabel>>,
     mut previous: Local<[Option<(feathrise_scene_content::SceneId, usize)>; 4]>,
 ) {
     let draft = session.draft.as_ref().filter(|draft| {
@@ -153,7 +154,7 @@ pub(super) fn sync(
     for (row, interaction, mut binding, click, mut node, mut background, mut border, children) in &mut rows
     {
         let index = starts[row.list as usize] + row.slot;
-        let item = draft.and_then(|_| rows::object(&session, row.list, index, domain.as_deref()));
+        let item = draft.and_then(|_| rows::object(&session, row.list, index, domain.as_deref(), &editor.vegetation_visibility));
         let active = item.as_ref().is_some_and(|(target, _)| {
             selected(&target.key, draft.and_then(|draft| draft.terrain_documents.active.as_ref()).map(|active| &active.definition.id), candidates.as_deref(), domain.as_deref())
         });
@@ -179,10 +180,64 @@ pub(super) fn sync(
             binding.0 = target;
             if let Some(mut click) = click { click.invalidate(); }
         }
-        for child in children.iter() {
-            if let Ok((mut text, _)) = texts.get_mut(child) {
-                text.set_if_neq(Text::new(&label));
-            }
+        if let Some(text_entity) = children.iter().find_map(|child| labels.get(child).ok()?.first())
+            && let Ok((mut text, _)) = texts.get_mut(*text_entity)
+        {
+            text.set_if_neq(Text::new(label));
+        }
+    }
+}
+
+/// 行池换绑时同时作废子按钮的未完成手势，避免滚动后作用到另一植被层。
+pub(super) fn sync_vegetation_toggles(
+    mut commands: Commands,
+    session: Res<EditorAuthoringSession>,
+    server: Option<Res<AssetServer>>,
+    mut images: Local<Option<[Handle<Image>; 6]>>,
+    rows: Query<Ref<SceneObjectRow>, With<Row>>,
+    mut buttons: Query<(
+        Entity, &VegetationRowToggle, &ChildOf, &Children, &UiInteraction,
+        Option<&mut EditorButtonClick>, &mut Node, &mut BackgroundColor, &mut BorderColor,
+        Has<bevy::ui::InteractionDisabled>,
+    )>,
+    mut icons: Query<&mut ImageNode>,
+) {
+    use crate::ui::scene_sidebar::{TreeRowToggle, load_tree_toggle_images, sync_tree_toggle_icon, tree_toggle_colors};
+    use bevy::ui::InteractionDisabled;
+    if images.is_none() && let Some(server) = server.as_deref() {
+        *images = Some(load_tree_toggle_images(server));
+    }
+    let authoring = session.draft.as_ref()
+        .and_then(|draft| draft.vegetation.as_ref())
+        .and_then(|vegetation| vegetation.authoring.as_ref());
+    for (entity, toggle, parent, children, interaction, click, mut node, mut background, mut border, disabled) in &mut buttons {
+        let Ok(row) = rows.get(parent.parent()) else { continue };
+        if row.is_changed() && let Some(mut click) = click { click.invalidate(); }
+        let item = row.0.as_ref().and_then(|target| {
+            let SceneObjectKey::Vegetation { index, id, output: false } = &target.key else { return None };
+            let layer = authoring?.layers.get(*index).filter(|layer| layer.id == *id)?;
+            Some((layer, target))
+        });
+        let display = if item.is_some() { Display::Flex } else { Display::None };
+        if node.display != display { node.display = display; }
+        let available = !session.saving && !session.model_vegetation_busy && !session.vegetation_cross_busy
+            && item.is_some_and(|(layer, _)| toggle.0 != TreeRowToggle::Participation || !layer.locked);
+        if available == disabled {
+            if available { commands.entity(entity).remove::<InteractionDisabled>(); }
+            else { commands.entity(entity).insert(InteractionDisabled); }
+        }
+        let active = item.is_some_and(|(layer, target)| match toggle.0 {
+            TreeRowToggle::Participation => layer.enabled,
+            TreeRowToggle::Visibility => !target.hidden,
+            TreeRowToggle::Lock => layer.locked,
+        });
+        let (fill, outline) = tree_toggle_colors(available, active, *interaction);
+        background.set_if_neq(fill);
+        border.set_if_neq(outline);
+        if let Some(images) = images.as_ref() && let Some(child) = children.first()
+            && let Ok(mut icon) = icons.get_mut(*child)
+        {
+            sync_tree_toggle_icon(toggle.0, active, images, &mut icon);
         }
     }
 }

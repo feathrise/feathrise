@@ -44,11 +44,12 @@ fn root_over_private_fixture() -> (App, Vec<String>) {
         draft.water = Some(water);
         (draft.scene_id.clone(), layer)
     };
+    let transform = Transform::from_xyz(0.0, 7.0, 0.0);
     app.world_mut().spawn((
         PaintedWaterSurface { scene_id: map, layer_id: layer.id,
             kind: WaterSurfaceKind::Still, purpose: PaintedWaterPurpose::Runtime },
         Aabb::from_min_max(Vec3::new(-32.0, 0.0, -32.0), Vec3::new(32.0, 0.0, 32.0)),
-        GlobalTransform::from(Transform::from_xyz(0.0, 7.0, 0.0)), Visibility::Visible,
+        Mesh3d::default(), transform, GlobalTransform::from(transform), Visibility::Visible,
     )); // 真实Input按正式水面Aabb与R8采样，不直接伪造候选或正式选择。
     let grid_label = app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap()
         .manifest.terrains.as_ref().unwrap()[0].display_name.clone();
@@ -80,6 +81,7 @@ fn finish_confirmation_count(app: &mut App, before: u64, expected: &LayerTarget,
 #[test]
 fn private_clipmap_root_water_keeps_real_three_row_card_and_restores_surface_and_grid_sources() {
     let (mut app, labels) = root_over_private_fixture();
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(Duration::from_secs(1))); // 普通分开的点击应保留同点轮选。
     let root = LayerTarget::Water(crate::types::WaterAuthoringFeatureKind::StillWater, "root-over-private".into());
     let grid = LayerTarget::TerrainObject("terrain-a".into());
     let surface = LayerTarget::Surface("soil-a-a".into());
@@ -108,6 +110,38 @@ fn private_clipmap_root_water_keeps_real_three_row_card_and_restores_surface_and
         finish_confirmation(&mut app, before, &expected);
         assert_card(&mut app, &labels);
     }
+}
+
+#[test]
+fn quick_repeat_on_front_still_water_focuses_after_current_preview_and_keeps_all_candidates() {
+    let (mut app, labels) = root_over_private_fixture();
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(Duration::ZERO))
+        .init_resource::<crate::authoring::WaterPreviewState>()
+        .init_resource::<Assets<feathrise_scene::DynamicWaterMaterial>>()
+        .init_resource::<Assets<feathrise_scene::ClipmapWaterMaterial>>()
+        .add_systems(PostUpdate, crate::viewport::sync_selected_water_viewport);
+    let root = LayerTarget::Water(crate::types::WaterAuthoringFeatureKind::StillWater, "root-over-private".into());
+    let initial = app.world().resource::<SceneEditorViewportState>().center;
+    for _ in 0..2 {
+        let before = app.world().resource::<LayerCandidateState>().selection_revision;
+        click_grid(&mut app, 0);
+        finish_confirmation(&mut app, before, &root);
+        assert_eq!(app.world().resource::<SceneEditorViewportState>().center, initial);
+        assert_card(&mut app, &labels);
+    }
+    assert!(app.world().resource::<SceneEditorState>().status.starts_with("正在定位静水体"));
+    // 两次真实输入在预览未采用时仍应保留定位请求，完成后复用原相机取景。
+    let session = app.world().resource::<EditorAuthoringSession>();
+    let (map, water, terrain) = (session.draft.as_ref().unwrap().scene_id.clone(), session.water_revision, session.terrain_revision);
+    let mut preview = app.world_mut().resource_mut::<crate::authoring::WaterPreviewState>();
+    preview.applied_scene_id = Some(map);
+    preview.applied_water_revision = water;
+    preview.applied_terrain_revision = terrain;
+    app.update();
+    assert_eq!(app.world().resource::<SceneEditorViewportState>().center, Vec3::Y * 7.0);
+    assert_eq!(app.world().resource::<SceneEditorState>().status, "已定位静水体：场景湖");
+    assert!(app.world().resource::<EditorAuthoringSession>().undo.is_empty());
+    assert!(!app.world().resource::<SceneEditorState>().dirty);
 }
 
 #[test]

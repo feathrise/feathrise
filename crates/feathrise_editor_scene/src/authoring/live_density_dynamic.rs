@@ -9,6 +9,7 @@ use bevy::tasks::{AsyncComputeTaskPool, Task, futures::check_ready}; // single-f
 use feathrise_scene_content::{SceneId, SceneVegetationAsset}; // 与正式层同源定义。
 use feathrise_scene::{DynamicBladeDraft, DynamicBladeDraftSnapshot}; // 完整输入交还正式四级运行时。
 use std::collections::{BTreeMap, BTreeSet, VecDeque}; // 逐帧登记图片，整批齐备后才发布。
+use std::sync::Arc;
 
 type Identity = (super::vegetation_compile::VegetationCompileSource, u64); // 场景、网格、结构与完整编译修订共同绑定预览。
 type Prepared = (
@@ -95,13 +96,16 @@ impl DynamicLiveDensityState {
             return; // 本帧不再启动另一个任务。
         }
         let Some(id) = identity else { return }; // 没有当前场景草稿。
-        if output.for_scene(&id.0.scene_id).is_some_and(|snapshot| snapshot.source_revision==id.1
-            && current.and_then(|d|d.vegetation.as_ref()).is_some_and(|v|v.layers==snapshot.definition.layers)) {
+        let published = output.for_scene(&id.0.scene_id);
+        if self.applied.as_ref() == Some(&id) && published.is_some() { return; }
+        if published.is_some_and(|snapshot| snapshot.source_revision == id.1
+            && current.and_then(|d| d.vegetation.as_ref()).is_some_and(|v|
+                v.layers == snapshot.definition.layers && v.authoring == snapshot.definition.authoring)) {
             self.applied=Some(id); // 跨网格事务已经发布当前网格的同代完整快照，不再准备重复图片。
             return;
         }
+        // 临时隐藏输出可使用同一作者修订，但不能充当正式草稿已发布的回执。
         if self.task.is_some()
-            || self.applied.as_ref() == Some(&id)
             || self.attempted.as_ref() == Some(&id)
         {
             return; // 编译中、失败或稳定状态均不重复分配。
@@ -122,37 +126,49 @@ impl DynamicLiveDensityState {
                         .all(|layer| previous.sources.get(&layer.id).zip(densities.get(&layer.id))
                             .is_some_and(|(before, after)| before.as_ref() == after.as_slice()))
             } else { false }; // 整图比较留在worker；Mesh散布或正式布局改变仍走完整原子重建。
-            let mut prepared = VecDeque::new(); // 图片按定义顺序逐帧登记。
-            let mut sources = BTreeMap::new(); // 同代净空源在后台冻结。
-            let mut nonzero_layers = BTreeSet::new(); // 扫描留在worker，避免4096²画布进入帧路径。
-            for layer in &definition.layers {
-                let source = densities
-                    .get(&layer.id)
-                    .ok_or_else(|| format!("{}缺少编译密度", layer.id))?; // 失败拒绝整批。
-                if source.len() != layer.resolution[0] as usize * layer.resolution[1] as usize {
-                    return Err(format!("{}密度尺寸不匹配", layer.id)); // 不创建半张GPU图片。
-                }
-                let mut image = Image::new(
-                    Extent3d {
-                        width: layer.resolution[0],  // 作者图宽度。
-                        height: layer.resolution[1], // 作者图高度。
-                        depth_or_array_layers: 1,    // 单层二维纹理。
-                    }, // 精确作者尺寸。
-                    TextureDimension::D2,    // Blade使用二维密度。
-                    source.as_ref().clone(), // 大像素复制仅在后台执行。
-                    TextureFormat::R8Unorm,  // 线性密度，与正式KTX2基础级一致。
-                    RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD, // 同时支持净空和渲染。
-                );
-                image.sampler = ImageSampler::nearest(); // 不对概率做颜色或线性插值。
-                if source.iter().any(|value| *value != 0) {
-                    nonzero_layers.insert(layer.id.clone()); // 空Mesh层不加载四级大原型。
-                }
-                sources.insert(layer.id.clone(), std::sync::Arc::from(source.as_slice())); // 整图复制仅发生在worker。
-                prepared.push_back((layer.id.clone(), image)); // 完整完成值不访问World。
-            }
-            Ok((id, definition, prepared, sources, nonzero_layers, density_only)) // 同来源的完整结果才允许采用。
+            let prepared = prepare_density_images(&definition, &densities)?;
+            Ok((id, definition, prepared.images, prepared.sources, prepared.nonzero_layers, density_only))
         }));
     }
+}
+
+#[derive(Default)]
+pub(super) struct PreparedDensityImages {
+    pub(super) images: VecDeque<(String, Image)>,
+    pub(super) sources: BTreeMap<String, Arc<[u8]>>,
+    pub(super) nonzero_layers: BTreeSet<String>,
+}
+
+/// 正式与临时显示快照共用相同的 R8 布局、净空像素和非零标记。调用方在后台运行。
+pub(super) fn prepare_density_images(
+    definition: &SceneVegetationAsset,
+    densities: &BTreeMap<String, Arc<Vec<u8>>>,
+) -> Result<PreparedDensityImages, String> {
+    let mut prepared = PreparedDensityImages::default();
+    for layer in &definition.layers {
+        let source = densities.get(&layer.id).ok_or_else(|| format!("{}缺少编译密度", layer.id))?;
+        if source.len() != layer.resolution[0] as usize * layer.resolution[1] as usize {
+            return Err(format!("{}密度尺寸不匹配", layer.id));
+        }
+        let mut image = Image::new(
+            Extent3d {
+                width: layer.resolution[0],
+                height: layer.resolution[1],
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            source.as_ref().clone(),
+            TextureFormat::R8Unorm,
+            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+        );
+        image.sampler = ImageSampler::nearest();
+        if source.iter().any(|value| *value != 0) {
+            prepared.nonzero_layers.insert(layer.id.clone());
+        }
+        prepared.sources.insert(layer.id.clone(), Arc::from(source.as_slice()));
+        prepared.images.push_back((layer.id.clone(), image));
+    }
+    Ok(prepared)
 }
 
 fn same_source_result(result: &Identity, current: Option<&Identity>) -> bool {

@@ -3,6 +3,7 @@
 use super::types::LayerList;
 use crate::{
     authoring::EditorAuthoringSession,
+    resources::VegetationEditorVisibility,
     ui::scene_context_menu::{SceneObjectKey, SceneObjectTarget},
 };
 use crate::game_authoring::scene_interaction::{SceneInteractionState, DomainItemKind};
@@ -12,6 +13,7 @@ pub(super) fn object(
     list: LayerList,
     index: usize,
     domain: Option<&SceneInteractionState>,
+    visibility: &VegetationEditorVisibility,
 ) -> Option<(SceneObjectTarget, String)> {
     let draft = session.draft.as_ref()?;
     let (key, name, label, hidden, locked) = match list {
@@ -48,7 +50,8 @@ pub(super) fn object(
                     },
                     item.label.clone(),
                     item.label.clone(),
-                    !item.enabled,
+                    visibility.hidden_in(&draft.scene_id, draft.terrain_documents.active.as_ref().map(|canvas| &canvas.definition.id))
+                        .is_some_and(|hidden| hidden.contains(&item.id)),
                     item.locked,
                 )
             } else {
