@@ -7,6 +7,7 @@ use super::super::{
 };
 use super::{components::*, resources::BrowserSessions, types::*};
 use crate::ui::{
+    asset_icons,
     asset_thumbnails::{self, SharedThumbnailDemand, SharedThumbnails},
     theme as colors,
 };
@@ -43,6 +44,7 @@ pub(super) fn sync_rows(
     let english = locale.as_deref().copied() == Some(EditorLocale::English);
     let folder = assets.load("icons/editor/tree_folder.png");
     let file = assets.load("icons/editor/tree_file.png");
+    let glb = assets.load(asset_icons::GLB);
     let mut visuals = HashMap::new();
     for (entity, row, mut node) in &mut nodes.p0() {
         let Some(window) = files.active(row.window) else {
@@ -84,6 +86,8 @@ pub(super) fn sync_rows(
         let image = cached.filter(|_| thumbnail).unwrap_or_else(|| {
             if entry.directory {
                 folder.clone()
+            } else if asset_icons::is_glb(&entry.path) {
+                glb.clone()
             } else {
                 file.clone()
             }

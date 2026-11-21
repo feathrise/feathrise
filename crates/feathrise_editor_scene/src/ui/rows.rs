@@ -2,7 +2,7 @@
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
-use crate::ui::theme as colors;
+use crate::ui::{asset_icons, theme as colors};
 use bevy::prelude::*; // UI实体生成、Interaction和文本查询。
 use feathrise_scene_content::{SceneAssetKind, SceneCatalogAsset}; // 场景进入测试仍使用公共目录，资产行读取公共类型。 // 动态行使用静态BSN相同水墨配色。
 
@@ -515,13 +515,14 @@ pub(crate) fn sync_asset_rows(
         if node.top != px(top) { node.top = px(top); }
         if node.left != left { node.left = left; }
         let (icon, color) = if entry.is_directory {
-            ("tree_folder", colors::TEXT_PRIMARY)
+            ("icons/editor/tree_folder.png", colors::TEXT_PRIMARY)
         } else {
             match entry.kind {
-                SceneAssetKind::Scene => ("tree_mesh", colors::TEXT_PRIMARY),
-                SceneAssetKind::Texture => ("tree_image", colors::TEXT_PRIMARY),
-                SceneAssetKind::Data => ("tree_file", colors::TEXT_PRIMARY),
-                SceneAssetKind::Unsupported => ("tree_file", colors::TEXT_MUTED),
+                SceneAssetKind::Scene if asset_icons::is_glb(&entry.asset_path) => (asset_icons::GLB, colors::TEXT_PRIMARY),
+                SceneAssetKind::Scene => ("icons/editor/tree_mesh.png", colors::TEXT_PRIMARY),
+                SceneAssetKind::Texture => ("icons/editor/tree_image.png", colors::TEXT_PRIMARY),
+                SceneAssetKind::Data => ("icons/editor/tree_file.png", colors::TEXT_PRIMARY),
+                SceneAssetKind::Unsupported => ("icons/editor/tree_file.png", colors::TEXT_MUTED),
             }
         };
         let selected = fixed.as_ref().filter(|_| !reference.active())
@@ -532,9 +533,10 @@ pub(crate) fn sync_asset_rows(
                 let display = if thumbnails { Display::None } else { Display::Flex };
                 if icon_node.display != display { icon_node.display = display; }
                 if let Some(server) = asset_server.as_ref() {
-                    let handle = server.load(format!("icons/editor/{icon}.png"));
+                    let handle = server.load(icon);
                     if image.image != handle { image.image = handle; }
-                    if image.color != color { image.color = color; }
+                    let tint = asset_icons::tint(icon, color);
+                    if image.color != tint { image.color = tint; }
                 }
             }
             if let Ok((mut text, mut text_color)) = texts.get_mut(child) {

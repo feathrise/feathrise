@@ -16,7 +16,7 @@ mod tests;
 mod root_water_focus_tests;
 pub(crate) use load::prepare_sources;
 pub(crate) use paint_space::{PaintMetricSpace, canvas_transform, canvas_visible, canvas_writable};
-pub(crate) use resources::TerrainDocumentTask;
+pub(crate) use resources::{TerrainDocumentTask, TreeVegetationAction, TreeVegetationRequest};
 pub(crate) use resources::CanvasIdle; // 列表/场景树恢复水源也必须服从原画布的笔划与后台事务门。
 pub(crate) use systems::{request_focus, scope_history};
 #[cfg(test)]

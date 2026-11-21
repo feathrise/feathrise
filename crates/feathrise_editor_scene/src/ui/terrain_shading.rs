@@ -17,7 +17,7 @@ use crate::scene_identity::active_gameplay_scene_id; // 玩法场景身份与F12
 use crate::resources::SceneEditorNumericScrubMouseGuard;
 use crate::resources::{SceneEditorState, TerrainShadingSession}; // 切换场景恢复场景选择，关闭仍保留玩法模式。
 
-use super::gltf_browser::SceneBaseGltfRow;
+use super::gltf_browser::{SceneBaseGltfArrow, SceneBaseGltfRow};
 use super::scene::FONT_PATH; // 保持工具栏中文字体一致。
 use super::sidebars::SceneEditorSidebarState; // 场景显示开关跟随左侧场景树，不受右侧属性页影响。
 
@@ -188,7 +188,7 @@ pub(crate) fn handle_scene_base_terrain_row(
     authoring: Res<EditorAuthoringSession>,
     sidebar: Res<SceneEditorSidebarState>,
     numeric_scrub: Res<SceneEditorNumericScrubMouseGuard>,
-    row: Query<&EditorButtonClick, (With<SceneBaseGltfRow>, Changed<EditorButtonClick>)>,
+    row: Query<&EditorButtonClick, (Or<(With<SceneBaseGltfRow>, With<SceneBaseGltfArrow>)>, Changed<EditorButtonClick>)>,
     mut session: ResMut<TerrainShadingSession>,
 ) {
     if !editor.open
@@ -204,10 +204,8 @@ pub(crate) fn handle_scene_base_terrain_row(
     {
         return; // 空工作台和切换期间保留标题，等当前场景草稿就绪再响应点击。
     }
-    for interaction in &row {
-        if interaction.is_clicked() {
-            session.preview_expanded = !session.preview_expanded;
-        }
+    if row.iter().any(EditorButtonClick::is_clicked) {
+        session.preview_expanded = !session.preview_expanded;
     }
 }
 
@@ -457,7 +455,7 @@ mod tests {
         assert!(app.world().resource::<TerrainGridPreview>().visible); // 网格与平直可同时启用。
         *app.world_mut().get_mut::<UiInteraction>(row).unwrap() = UiInteraction::None;
         app.update();
-        app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 再次点击收起场景预览。
+        app.world_mut().spawn((SceneBaseGltfArrow, UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::triggered())); // 独立箭头也能收起场景预览。
         app.world_mut()
             .spawn((TerrainShadingButton(false), feathrise_editor_ui::EditorButtonClick::triggered(), UiInteraction::Pressed)); // 隐藏的模式按钮不得生效。
         app.world_mut()

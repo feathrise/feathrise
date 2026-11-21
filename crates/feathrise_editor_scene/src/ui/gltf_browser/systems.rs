@@ -11,11 +11,15 @@ use crate::resources::{
     EditorViewportSelectionState, SceneEditorNumericScrubMouseGuard, SceneEditorState,
 }; // 场景树点击同时结束查看工具中的植被整层选择。
 use crate::ui::continuous_list::pool_capacity;
+use crate::ui::asset_icons;
 use crate::ui::list_layout::{
     SCENE_OBJECT_DEFAULT_VIEWPORT_HEIGHT, SCENE_OBJECT_ROW_PITCH, fit_scene_object_list_in_height,
 };
 use crate::ui::scene_inspector::InspectorTree;
-use crate::ui::scene_sidebar::{TreeRowToggle, tree_toggle_button, tree_toggle_icon};
+use crate::ui::scene_sidebar::{
+    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TreeRowToggle, tree_branch_button, tree_row_left,
+    tree_toggle_button, tree_toggle_icon,
+};
 use crate::viewport::placement_move::PlacementMoveState;
 use crate::viewport::SelectedPlacementViewportState;
 
@@ -23,7 +27,7 @@ use super::helpers::selection_matches; // 选择身份不受热更索引漂移�
 use super::{
     EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeExpander, PlacementTreeToggle, SceneEditorGltfBrowserList,
     SceneEditorGltfBrowserListContent, SceneEditorGltfBrowserRow, SceneEditorGltfBrowserRowText,
-    SceneEditorGltfBrowserStatusText,
+    SceneEditorGltfBrowserStatusText, SceneMeshObjectsHeading,
 }; // 模块私有组件与公开资源。
 
 #[cfg(test)]
@@ -72,8 +76,8 @@ pub(crate) fn spawn_gltf_browser_rows(
                     height: px(feathrise_editor_ui::metrics::ROW_HEIGHT),
                     flex_shrink: 0.0,
                     align_items: AlignItems::Center,
-                    padding: UiRect::horizontal(px(5)),
-                    column_gap: px(2),
+                    padding: UiRect { left: tree_row_left(0), right: px(5), ..UiRect::ZERO },
+                    column_gap: px(TREE_BRANCH_GAP),
                     border_radius: BorderRadius::all(px(2)),
                     overflow: Overflow::clip_x(),
                     ..default()
@@ -82,24 +86,14 @@ pub(crate) fn spawn_gltf_browser_rows(
                 BorderColor::all(colors::COPPER_BORDER_WEAK),
             )).id();
             // 箭头有自己的释放脉冲，名称行仍负责单击选择和双击定位。
-            let expander = commands.spawn((
-                ChildOf(row),
-                PlacementTreeExpander::default(),
-                InteractionButton,
-                bevy::ui::InteractionDisabled,
-                Visibility::Hidden,
-                Node {
-                    width: px(18), height: px(21), flex_shrink: 0.0,
-                    align_items: AlignItems::Center, justify_content: JustifyContent::Center,
-                    border_radius: BorderRadius::all(px(3)), ..default()
-                },
-                BackgroundColor(Color::NONE),
-            )).id();
-            commands.spawn_scene(tree_toggle_icon()).insert(ChildOf(expander));
+            commands.spawn_scene(tree_branch_button()).insert((
+                ChildOf(row), PlacementTreeExpander::default(),
+                bevy::ui::InteractionDisabled, Visibility::Hidden,
+            ));
             // 单独裁切图标和文字区，为三个行内按钮保留固定宽度。
             commands.spawn((ChildOf(row), GltfRowCaption, Node {
                 flex_grow: 1.0, flex_basis: px(0), min_width: px(0),
-                align_items: AlignItems::Center, column_gap: px(5),
+                align_items: AlignItems::Center, column_gap: px(TREE_CAPTION_GAP),
                 overflow: Overflow::clip_x(), ..default()
             }, Pickable::IGNORE)).with_children(|caption| {
                 caption.spawn((
@@ -289,6 +283,11 @@ pub(crate) fn sync_gltf_browser_rows(
             Without<SceneEditorGltfBrowserListContent>,
         ),
     >,
+    mut headings: Query<&mut Node, (
+        With<SceneMeshObjectsHeading>, Without<SceneEditorGltfBrowserRow>,
+        Without<SceneEditorGltfBrowserList>, Without<SceneEditorGltfBrowserListContent>,
+        Without<SceneEditorGltfBrowserStatusText>,
+    )>,
     mut layouts: (
         Query<
             (&mut Node, &mut ScrollPosition),
@@ -314,6 +313,10 @@ pub(crate) fn sync_gltf_browser_rows(
             *presented_scope = None;
         }
         return; // 隐藏UI无需重复写文本和样式。
+    }
+    for mut heading in &mut headings {
+        let display = if state.entries.is_empty() { Display::None } else { Display::Flex };
+        if heading.display != display { heading.display = display; } // 与已发布的摆放列表同帧出现或收起。
     }
     let scene_changed = presented_scope.as_ref().is_none_or(|(scene, _, _, _)| scene != &editor.selected_scene_id);
     let height = scene_tree_viewport_height(&tree)
@@ -351,7 +354,7 @@ pub(crate) fn sync_gltf_browser_rows(
         };
         node.display = Display::Flex; // 当前条目原地复用槽位。
         node.top = px(entry_index as f32 * SCENE_OBJECT_ROW_PITCH);
-        node.padding.left = px(5.0 + entry.depth.min(8) as f32 * 18.0); // 与场景树共用层级步长。
+        node.padding.left = tree_row_left(entry.depth.min(8)); // 同层级箭头和叶子占位共用一列。
         let selected = match &entry.kind {
             EditorGltfBrowserEntryKind::Group { name, .. } => state.selected_group.as_ref() == Some(name),
             EditorGltfBrowserEntryKind::Placement { placement_id, .. } => state
@@ -395,10 +398,15 @@ pub(crate) fn sync_gltf_browser_rows(
         let Some(caption) = children.iter().find_map(|entity| captions.get(entity).ok()) else { continue; };
         for child in caption.iter() {
             if images.is_some() && let Some(server) = asset_server.as_ref() && let Ok(mut image) = glyphs.get_mut(child) {
-                let icon = if matches!(entry.kind, EditorGltfBrowserEntryKind::Group { .. }) { "tree_folder" } else { "tree_mesh" };
-                let handle = server.load(format!("icons/editor/{icon}.png"));
+                let icon = match entry.kind {
+                    EditorGltfBrowserEntryKind::Group { .. } => "icons/editor/tree_folder.png",
+                    EditorGltfBrowserEntryKind::Placement { glb: true, .. } => asset_icons::GLB,
+                    _ => "icons/editor/tree_mesh.png",
+                };
+                let handle = server.load(icon);
                 if image.image != handle { image.image = handle; }
-                if image.color != base_color { image.color = base_color; }
+                let tint = asset_icons::tint(icon, base_color);
+                if image.color != tint { image.color = tint; }
             }
             if let Ok((mut text, mut color)) = row_texts.get_mut(child) {
                 **text = if prefix.is_empty() { entry.display_name.clone() } else { format!("{prefix} {}", entry.display_name) };

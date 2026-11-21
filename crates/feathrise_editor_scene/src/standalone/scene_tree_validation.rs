@@ -9,12 +9,17 @@ use crate::{
         external_files::platform_path,
         file_manager::{FileManagerState, FileRow},
         file_manager_validation::{pointer_click, right_click},
-        gltf_browser::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeExpander},
+        gltf_browser::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeExpander, SceneMeshObjectsHeading},
         scene_context_menu::{SceneMenuAction, SceneObjectKey, SceneObjectRow, press_action_for_validation},
     },
     viewport::modes::{self, ViewportMode, ViewportModeState},
 };
-use bevy::{prelude::*, window::PrimaryWindow};
+use bevy::{
+    prelude::*,
+    render::view::screenshot::{Screenshot, ScreenshotCaptured},
+    tasks::{IoTaskPool, Task, futures::check_ready},
+    window::PrimaryWindow,
+};
 use feathrise_scene_content::SceneId;
 use serde_json::{Value, json};
 use std::{fs, path::{Path, PathBuf}};
@@ -23,10 +28,18 @@ const MODEL: &str = "sample-model";
 const ASSET_PATH: &str = "scene/probe.glb";
 const MESH: &str = "ProjectAssetQuad";
 const GROUP: &str = "验收组";
+const PRIVATE_TERRAIN: &str = "starter-ground";
+const PRIVATE_LAYER: &str = "scene-tree-private-grass";
+const GLB_ICON: &str = "icons/editor/tree_glb.png";
+
+#[derive(Resource)]
+struct StartupScreenshot(Task<Result<(), String>>);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Step {
     Open,
+    StartupScreenshot,
+    SelectCube,
     Move,
     SelectRoot { press: u8, frame: u8, before: [u32; 4] },
     RootFocused([u32; 4]),
@@ -43,6 +56,10 @@ pub(super) enum Step {
 
 pub(super) fn enabled() -> bool {
     std::env::var("FEATHRISE_SCENE_TREE_VALIDATION").as_deref() == Ok("1")
+}
+
+fn startup_enabled() -> bool {
+    std::env::var("FEATHRISE_SCENE_TREE_STARTUP_VALIDATION").as_deref() == Ok("1")
 }
 
 pub(super) fn preflight(project: &Path, scene: &SceneId) -> Result<(), String> {
@@ -75,7 +92,26 @@ pub(super) fn advance(
     let transform_enabled = world.resource::<SceneEditorState>().placement_transform_enabled;
     match *step {
         Step::Open => {
-            if open_scene_tree(world)? && let Some(row) = click_row(world, cube, false) {
+            if open_scene_tree(world)? {
+                if !startup_enabled() {
+                    *step = Step::SelectCube;
+                } else if startup_tree_visible(world, cube)? {
+                    request_startup_screenshot(world)?;
+                    *step = Step::StartupScreenshot;
+                }
+            }
+        }
+        Step::StartupScreenshot => {
+            if let Some(result) = world.get_resource_mut::<StartupScreenshot>()
+                .and_then(|mut capture| check_ready(&mut capture.0))
+            {
+                result?;
+                world.remove_resource::<StartupScreenshot>();
+                *step = Step::SelectCube;
+            }
+        }
+        Step::SelectCube => {
+            if let Some(row) = click_row(world, cube, false) {
                 *pulse = Some(row);
                 *step = Step::Move;
             }
@@ -216,12 +252,66 @@ pub(super) fn advance(
                     "model_double_click_focused_while_folded": true,
                     "explicit_arrows_preserved_selection": true,
                     "group_focused_center": world.resource::<SceneEditorViewportState>().center.to_array(),
+                    "startup": startup_enabled().then(|| json!({
+                        "vegetation_layer": PRIVATE_LAYER,
+                        "terrain": PRIVATE_TERRAIN,
+                        "terrain_canvas_unloaded": true,
+                        "mesh_section_below_vegetation": true,
+                        "tree_glb_icon": GLB_ICON,
+                        "file_glb_icon": GLB_ICON,
+                        "screenshot": "scene-tree-startup.png",
+                    })),
                 })));
             }
         }
         _ => {}
     }
     Ok(None)
+}
+
+fn startup_tree_visible(world: &mut World, cube: &str) -> Result<bool, String> {
+    let draft = world.resource::<EditorAuthoringSession>().draft.as_ref().ok_or("首屏验收缺少作者草稿")?;
+    if draft.terrain_documents.active.is_some() {
+        return Err("首屏植被目录依赖已载入的地形编辑画布".into());
+    }
+    let Some(plant) = world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
+        let target = row.0.as_ref()?;
+        matches!(&target.key, SceneObjectKey::Vegetation { terrain: Some(terrain), id, output: false, cold: Some(_), .. }
+            if terrain.as_str() == PRIVATE_TERRAIN && id == PRIVATE_LAYER && ui_visible(world, entity))
+            .then_some(entity)
+    }) else { return Ok(false); };
+    let Some(heading) = world.query_filtered::<Entity, With<SceneMeshObjectsHeading>>().iter(world)
+        .find(|entity| ui_visible(world, *entity)) else { return Ok(false); };
+    let Some(model) = scene_row(world, MODEL, false) else { return Ok(false); };
+    let Some(cuboid) = scene_row(world, cube, false) else { return Ok(false); };
+    let y = |entity| world.get::<UiGlobalTransform>(entity).unwrap().translation.y;
+    Ok(y(plant) < y(heading) && y(heading) < y(model)
+        && row_has_icon(world, model, GLB_ICON) && row_has_icon(world, cuboid, "icons/editor/tree_mesh.png"))
+}
+
+fn request_startup_screenshot(world: &mut World) -> Result<(), String> {
+    let output = PathBuf::from(std::env::var_os("NEW_EDITOR_NATIVE_SMOKE_DIR").ok_or("首屏截图缺少独占目录")?);
+    let path = output.join("scene-tree-startup.png");
+    // 保持打开首屏，等实际主窗口完成渲染并写证据，再驱动任何树行选择。
+    world.spawn(Screenshot::primary_window()).observe(move |event: On<ScreenshotCaptured>, mut commands: Commands| {
+        let image = event.image.clone();
+        let path = path.clone();
+        commands.insert_resource(StartupScreenshot(IoTaskPool::get().spawn(async move {
+            image.try_into_dynamic().map_err(|error| error.to_string())?
+                .save(path).map_err(|error| error.to_string())
+        })));
+    });
+    Ok(())
+}
+
+fn row_has_icon(world: &World, row: Entity, path: &str) -> bool {
+    let children = |entity| world.get::<Children>(entity).into_iter().flat_map(|children| children.iter());
+    children(row).chain(children(row).flat_map(children)).any(|entity| {
+        world.get::<ImageNode>(entity).is_some_and(|icon| {
+            icon.image.path().is_some_and(|source| source.path() == Path::new(path))
+                && world.resource::<Assets<Image>>().get(&icon.image).is_some()
+        })
+    })
 }
 
 fn click_row(world: &mut World, placement: &str, child: bool) -> Option<Entity> {
@@ -287,6 +377,7 @@ fn file_window_shows_source(world: &mut World) -> Result<bool, String> {
     let window = window.id;
     Ok(world.query::<(Entity, &FileRow)>().iter(world).any(|(entity, row)| {
         row.window == window && row.path.as_deref() == Some(path.as_path()) && ui_visible(world, entity)
+            && (!startup_enabled() || row_has_icon(world, entity, GLB_ICON))
     }))
 }
 

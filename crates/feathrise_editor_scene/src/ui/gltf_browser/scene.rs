@@ -12,24 +12,34 @@ use super::{
 };
 use crate::ui::list_layout::SceneObjectListScroll;
 use crate::ui::scene::FONT_PATH; // 复用主编辑器字体常量。
+use crate::ui::scene_sidebar::{
+    TREE_BRANCH_GAP, load_tree_branch_images, sync_tree_branch_icon, tree_branch_button,
+    tree_branch_fill, tree_branch_slot, tree_row_left, tree_section_header,
+};
 use crate::ui::terrain_shading::terrain_shading_controls;
 
 #[derive(Component, Clone, Default)] // 场景显示入口独立于场景对象行。
 pub(crate) struct SceneBaseGltfRow;
-#[derive(Component, Clone, Default)] // 展开箭头与标题共用一份文字。
-pub(crate) struct SceneBaseTerrainLabel;
+#[derive(Component, Clone, Default)] // 显示入口也使用场景树共用箭头。
+pub(crate) struct SceneBaseGltfArrow;
 #[derive(Component, Clone, Default)] // 预览按钮区随场景显示入口展开或收起。
 pub(crate) struct SceneBaseTerrainDetails;
+#[derive(Component, Clone, Default)]
+pub(crate) struct SceneMeshObjectsHeading;
 
 pub(crate) fn sync_scene_base_gltf_row(
     session: Res<crate::authoring::EditorAuthoringSession>,
     editor: Res<crate::resources::SceneEditorState>,
     shading: Res<crate::resources::TerrainShadingSession>,
+    server: Option<Res<AssetServer>>,
+    image_assets: Option<Res<Assets<Image>>>,
+    mut images: Local<Option<[Handle<Image>; 2]>>,
     mut rows: Query<
         (&UiInteraction, &mut Node, &mut BackgroundColor),
         (With<SceneBaseGltfRow>, Without<SceneBaseTerrainDetails>), // 与下方按钮区的可变Node查询静态互斥。
     >,
-    mut labels: Query<&mut Text, With<SceneBaseTerrainLabel>>,
+    mut arrows: Query<(&UiInteraction, &Children, &mut BackgroundColor), (With<SceneBaseGltfArrow>, Without<SceneBaseGltfRow>)>,
+    mut icons: Query<&mut ImageNode>,
     mut details: Query<
         &mut Node,
         (With<SceneBaseTerrainDetails>, Without<SceneBaseGltfRow>),
@@ -59,11 +69,16 @@ pub(crate) fn sync_scene_base_gltf_row(
             background.0 = color; // 只在交互或选择真实改变时更新UI。
         }
     }
-    let arrow = if expanded { '▼' } else { '▶' };
-    for mut text in &mut labels {
-        if !text.0.starts_with(arrow) {
-            text.0 = format!("{arrow} 场景显示 · 网格 / 碰撞 / 着色");
-        } // 标题固定，展开状态变化时才更新文字。
+    if images.is_none() && image_assets.is_some() && let Some(server) = server.as_deref() {
+        *images = Some(load_tree_branch_images(server));
+    }
+    for (interaction, children, mut fill) in &mut arrows {
+        fill.set_if_neq(tree_branch_fill(available, *interaction));
+        if let Some(images) = &*images && let Some(child) = children.first()
+            && let Ok(mut image) = icons.get_mut(*child)
+        {
+            sync_tree_branch_icon(!expanded, available, images, &mut image);
+        }
     }
     let details_display = if expanded { Display::Flex } else { Display::None };
     for mut node in &mut details {
@@ -85,25 +100,41 @@ pub(crate) fn scene_display_panel() -> impl Scene {
                     width: percent(100), // 跟随场景树宽度。
                     min_width: px(0),
                     flex_shrink: 0.0,
-                    padding: UiRect::axes(px(3), px(2)), // 显示选项是一行工具入口，不伪装成另一份场景对象。
+                    padding: UiRect { left: tree_row_left(0), right: px(5), top: px(2), bottom: px(2) },
+                    align_items: AlignItems::Center,
+                    column_gap: px(TREE_BRANCH_GAP),
                     border_radius: BorderRadius::all(px(3)),
                 }
                 BackgroundColor(colors::SLOT_BG) // 共用场景树暗底。
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
                 Children [
-                    SceneBaseTerrainLabel // 点击仍由父按钮接收。
-                    Text("")
+                    @tree_branch_button() SceneBaseGltfArrow--
+                    Text("场景显示 · 网格 / 碰撞 / 着色") Pickable::IGNORE
                     TextFont {
                         font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 共用中文字体。
                     font_size: px(ui_metrics::FONT_CONTROL), // 与场景树行保持紧凑密度。
                     }
                     TextColor(colors::TEXT_PRIMARY)
                     TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }
-                    Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }
+                    Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }
                 ]
             --
             @terrain_shading_controls()
     ] }
+}
+
+fn mesh_objects_heading() -> impl Scene {
+    let header = Node { display: Display::None, ..tree_section_header() };
+    // 标题仅分隔类别，摆放根和组仍从同级箭头列起排。
+    bsn! { SceneMeshObjectsHeading ~{header} BorderColor::all(colors::COPPER_BORDER_WEAK)
+        Children [
+            @tree_branch_slot()--
+            Text("网格对象") @feathrise_editor_ui::localization::label_scene("网格对象")
+            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+            TextColor(colors::TEXT_ACCENT) TextLayout::no_wrap()
+            Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }
+        ]
+    }
 }
 
 /// 构造右栏上半区的已摆放实例与Blender网格浏览器。
@@ -120,6 +151,7 @@ pub(super) fn gltf_browser_panel() -> impl Scene {
         Children [
             @crate::ui::scene_layers::panel()-- // 独立作者内容与摆放共用同一场景树。
             @crate::ui::subscenes::panel()-- // 子场景引用属于正式场景树，加载期间也保留可选来源行。
+            @mesh_objects_heading()--
 
                 SceneEditorGltfBrowserList SceneObjectListScroll
                 bevy::ui::RelativeCursorPosition::default() ScrollPosition::default()
@@ -189,10 +221,6 @@ mod tests {
                 BackgroundColor::default(),
             ))
             .id(); // 按钮根唯一持有Node。
-        let label = app
-            .world_mut()
-            .spawn((SceneBaseTerrainLabel, Text::new("")))
-            .id(); // 标题文字独立于按钮根。
         let details = app
             .world_mut()
             .spawn((SceneBaseTerrainDetails, Node::default()))
@@ -200,7 +228,6 @@ mod tests {
         app.update(); // 旧版此处在实际系统初始化时抛出B0001。
         assert_eq!(app.world().get::<Node>(row).unwrap().display, Display::Flex);
         assert_eq!(app.world().get::<Node>(details).unwrap().display, Display::Flex);
-        assert_eq!(app.world().get::<Text>(label).unwrap().0, "▼ 场景显示 · 网格 / 碰撞 / 着色");
         {
             let mut session = app.world_mut().resource_mut::<crate::authoring::EditorAuthoringSession>();
             let draft = session.draft.as_mut().unwrap();
@@ -215,7 +242,6 @@ mod tests {
         app.update(); // 切换期间保留标题，旧场景的控制区暂时收起。
         assert_eq!(app.world().get::<Node>(row).unwrap().display, Display::Flex);
         assert_eq!(app.world().get::<Node>(details).unwrap().display, Display::None);
-        assert_eq!(app.world().get::<Text>(label).unwrap().0, "▶ 场景显示 · 网格 / 碰撞 / 着色");
         app.world_mut().resource_mut::<crate::authoring::EditorAuthoringSession>().draft = None;
         app.world_mut().resource_mut::<crate::resources::SceneEditorState>()
             .scene_transition_in_progress = false;

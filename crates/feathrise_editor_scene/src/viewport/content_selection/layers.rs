@@ -308,6 +308,7 @@ impl LayerCandidateState {
     pub(crate) fn clear_for_scene_tree(&mut self) {
         self.clear(); // 明确的场景树点击即使身份相同也接管选择。
     }
+    pub(crate) fn selection_ticket(&self) -> u64 { self.ticket }
     pub(crate) fn placement_mesh_selection(
         &self,
         id: &str,

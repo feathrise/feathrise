@@ -185,6 +185,7 @@ fn primitive_placement_is_a_labeled_non_expandable_root() {
         EditorGltfBrowserEntryKind::Placement {
             collapsed: true,
             expandable: false,
+            glb: true,
             ..
         }
     ));
@@ -211,7 +212,7 @@ fn builtin_cuboid_is_a_mesh_row_with_the_original_object_identity_and_no_glb_loa
     assert_eq!(state.entries.len(), 2);
     assert_eq!(state.entries[0].display_name, "白模墙 · 网格 · 立方体 · 隐藏 · 锁定");
     assert!(matches!(&state.entries[0].kind,
-        EditorGltfBrowserEntryKind::Placement { placement_id, expandable: false, collapsed: true }
+        EditorGltfBrowserEntryKind::Placement { placement_id, expandable: false, collapsed: true, glb: false }
         if placement_id == "instance-0")); // 视觉分类改变后仍由原稳定ID处理选择、右键和历史。
     assert!(state.entries[0].selection.is_none());
     assert!(state.assets.is_empty());

@@ -98,6 +98,7 @@ fn scene_tree_click_switches_root_and_mesh_rows_without_changing_the_viewport_to
             placement_id: "asset-b".into(),
             collapsed: true,
             expandable: false,
+            glb: true,
         }),
         (ViewportMode::Rotate, EditorGltfBrowserEntryKind::Mesh),
         (ViewportMode::Scale, EditorGltfBrowserEntryKind::MissingWaterBinding),
@@ -203,7 +204,7 @@ fn static_patch_selection_scene_tree_click_publishes_world_anchor_and_rejects_di
             let mut browser = app.world_mut().resource_mut::<EditorGltfBrowserState>();
             browser.placement_asset_paths.insert(id.clone(), "gltf/test.glb".into());
             browser.entries = vec![EditorGltfBrowserEntry { kind: EditorGltfBrowserEntryKind::Placement {
-                placement_id: id.clone(), collapsed: true, expandable: false,
+                placement_id: id.clone(), collapsed: true, expandable: false, glb: true,
             }, display_name: "三维地形".into(), depth: 0, selection: None }];
         }
         app.world_mut().spawn((EditorButtonClick::triggered(), SceneEditorGltfBrowserRow { slot: 0, entry_index: Some(0), entries_revision: 0 }));

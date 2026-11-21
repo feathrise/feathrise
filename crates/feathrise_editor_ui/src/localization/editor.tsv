@@ -914,6 +914,7 @@ label.complete	已完成	Complete
 label.action-required	需处理	Action Required
 label.failed	失败	Failed
 label.vegetation-layers	植被图层	Vegetation Layers
+label.mesh-objects	网格对象	Mesh Objects
 label.frame-object	聚焦到对象	Frame Object
 label.edit-in-blender	在 Blender 编辑	Edit in Blender
 label.reveal-glb-file	定位 GLB 文件	Reveal GLB File

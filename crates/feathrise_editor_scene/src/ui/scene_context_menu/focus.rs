@@ -2,7 +2,7 @@
 
 use super::{SceneContextMenuState, SceneMenuAction, SceneObjectKey};
 use crate::{
-    authoring::EditorAuthoringSession,
+    authoring::{EditorAuthoringSession, terrain_documents::TreeVegetationAction},
     resources::{EditorViewportSelectionState, SceneEditorState},
     ui::gltf_browser::EditorGltfBrowserState,
     viewport::{LayerCandidateState, LayerTarget},
@@ -25,17 +25,38 @@ pub(crate) fn select_target(
 ) {
     let click = tree_selection.as_mut().and_then(|state| state.0.take());
     // 文件定位与植被的编辑器显隐可按稳定来源处理，保持当前场景选择和画布。
-    let request = menu.ready.as_ref().filter(|request| !matches!(
+    let mut request = menu.ready.as_ref().filter(|request| !matches!(
         (&request.target.key, request.action),
         (_, SceneMenuAction::RevealGlb) | (SceneObjectKey::Vegetation { .. }, SceneMenuAction::Visibility)
     )).cloned();
+    let deferred = layers.take_vegetation_selection(candidates.as_deref());
+    let mut adopted = None;
+    if request.is_none() && click.is_none() && let Some(intent) = deferred
+        && intent.target.current(&editor, &session)
+    {
+        if intent.action == TreeVegetationAction::Focus {
+            let focus = super::types::SceneObjectRequest { target: intent.target.clone(), action: SceneMenuAction::Focus, name: String::new() };
+            menu.ready = Some(focus.clone());
+            request = Some(focus);
+        }
+        adopted = Some(intent.target);
+    }
     let Some(mut target) = request
         .as_ref().map(|request| &request.target)
-        .or(click.as_ref()).cloned()
+        .or(click.as_ref()).or(adopted.as_ref()).cloned()
         .filter(|target| target.current(&editor, &session))
     else {
         return;
     };
+    if matches!(target.key, SceneObjectKey::Vegetation { cold: Some(_), .. }) {
+        if request.as_ref().is_none_or(|request| request.action == SceneMenuAction::Focus) {
+            let action = if request.is_some() { TreeVegetationAction::Focus } else { TreeVegetationAction::Select };
+            layers.request_vegetation(target, &mut editor, &session, candidates.as_deref(), action);
+            menu.ready = None;
+        }
+        return; // 冷作者命令由植被事务系统处理，等待完整画布前维持原正式选择。
+    }
+    layers.cancel_vegetation(&mut session); // 任何明确换选都比旧的冷来源意图优先。
     let author_layer_selected = matches!(&target.key, SceneObjectKey::Water { .. } | SceneObjectKey::Vegetation { .. });
     if author_layer_selected && !crate::ui::scene_layers::select(
         &target,

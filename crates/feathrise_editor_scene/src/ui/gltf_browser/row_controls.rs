@@ -7,9 +7,9 @@ use crate::{
     ui::{
         scene_objects::{SceneObjectState, effective_metadata, effective_participation},
         scene_sidebar::{
-            TreeRowToggle, load_tree_toggle_images, sync_tree_toggle_icon, tree_toggle_colors,
+            TreeRowToggle, load_tree_branch_images, load_tree_toggle_images, sync_tree_branch_icon,
+            sync_tree_toggle_icon, tree_branch_fill, tree_toggle_colors,
         },
-        theme as colors,
     },
 };
 use bevy::{prelude::*, ui::InteractionDisabled};
@@ -168,15 +168,13 @@ pub(crate) fn sync(
         }
     }
 
-    let expander_images = expander_images.get_or_insert_with(|| [
-        server.load("icons/editor/tree_expand.png"), server.load("icons/editor/tree_collapse.png"),
-    ]);
+    let expander_images = expander_images.get_or_insert_with(|| load_tree_branch_images(&server));
     for (entity, parent, children, mut expander, mut visibility, click, interaction, disabled, mut fill) in &mut expanders {
         let Ok(row) = rows.get(parent.parent()) else { continue; };
         let entry = row.entry_index.and_then(|index| browser.entries.get(index));
         let (collapsed, valid) = match entry.map(|entry| &entry.kind) {
             Some(EditorGltfBrowserEntryKind::Group { collapsed, .. }) => (Some(*collapsed), true),
-            Some(EditorGltfBrowserEntryKind::Placement { collapsed, expandable: true, placement_id }) => {
+            Some(EditorGltfBrowserEntryKind::Placement { collapsed, expandable: true, placement_id, .. }) => {
                 (Some(*collapsed), browser.placement_asset_paths.contains_key(placement_id))
             }
             _ => (None, false),
@@ -191,18 +189,11 @@ pub(crate) fn sync(
             if available { entity.remove::<InteractionDisabled>(); }
             else { entity.insert(InteractionDisabled); }
         }
-        fill.set_if_neq(BackgroundColor(match (available, *interaction) {
-            (true, UiInteraction::Pressed) => colors::SELECT_BG_PRESSED,
-            (true, UiInteraction::Hovered) => colors::SELECT_BG_HOVER,
-            _ => Color::NONE,
-        }));
+        fill.set_if_neq(tree_branch_fill(available, *interaction));
         if let Some(collapsed) = collapsed && let Some(icon) = children.first()
             && let Ok(mut image) = icons.get_mut(*icon)
         {
-            let handle = &expander_images[usize::from(!collapsed)];
-            if &image.image != handle { image.image = handle.clone(); }
-            let color = if available { colors::TEXT_PRIMARY } else { colors::TEXT_MUTED };
-            if image.color != color { image.color = color; }
+            sync_tree_branch_icon(collapsed, available, expander_images, &mut image);
         }
     }
 }

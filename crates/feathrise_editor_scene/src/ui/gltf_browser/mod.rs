@@ -8,7 +8,10 @@ mod entries; // 可见场景树按固定操作/输出预算分帧构建并在完
 mod helpers; // Scene0遍历、稳定引用校验和可见行组合保持为无系统参数的纯逻辑。
 mod retirement; // 旧活动树、签名、Scene草稿与资产缓存按固定预算分帧析构。
 mod scene; // 右栏上半区的BSN静态外壳。
-pub(crate) use scene::{SceneBaseGltfRow, SceneBaseTerrainDetails, sync_scene_base_gltf_row, scene_display_panel}; // GLB与Clipmap地形节点独立于摆放实例。
+pub(crate) use scene::{
+    SceneBaseGltfArrow, SceneBaseGltfRow, SceneBaseTerrainDetails, SceneMeshObjectsHeading,
+    sync_scene_base_gltf_row, scene_display_panel,
+}; // 场景显示面板与摆放实例列表各自占用独立布局。
 mod scene_build; // Scene0根发现、DFS与路径物化均按固定预算分帧并原子采用。
 mod signature; // 全部摆放结构签名按每帧记录预算渐进生成。
 mod systems; // 固定行池、连续滚动、展开点击与样式同步系统。
@@ -100,6 +103,8 @@ pub(crate) enum EditorGltfBrowserEntryKind {
         collapsed: bool,
         /// 只有完整Scene0根允许产生展开需求；直接primitive根只承担整项选择。
         expandable: bool,
+        /// 从完整投影的源文件确定图标，GLB 根和网格子行各有自己的身份。
+        glb: bool,
     },
     /// 一个含Mesh3d的Blender节点/网格组合。
     Mesh,

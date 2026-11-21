@@ -1,16 +1,17 @@
 //! 统一树植被命令只作用于冻结的作者层，参与与锁定复用作者事务，眼睛只写编辑器会话。
 
 use crate::{
-    authoring::{EditorAuthoringSession, VegetationBrushStroke, terrain_documents::TerrainDocumentTask},
+    authoring::{EditorAuthoringSession, VegetationBrushStroke, terrain_documents::{TerrainDocumentTask, TreeVegetationAction}},
     resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState},
     types::EditorAction,
     ui::{
         scene_context_menu::{MenuContext, SceneContextMenuState, SceneMenuAction, SceneObjectKey, SceneObjectRow},
-        scene_layers::{VegetationRowToggle, vegetation_source},
+        scene_layers::{VegetationCatalogAssets, VegetationRowToggle, request_cold_vegetation, vegetation_source},
         scene_sidebar::TreeRowToggle,
         terrain_objects::TerrainObjectsEditorState,
         water_feature_list::WaterSourceSelectionGuard,
     },
+    viewport::LayerCandidateState,
 };
 use bevy::prelude::*;
 use feathrise_editor_ui::EditorButtonClick;
@@ -33,6 +34,8 @@ pub(in crate::ui) fn input(
     guard: Res<SceneEditorNumericScrubMouseGuard>,
     buttons: Query<(&EditorButtonClick, &VegetationRowToggle, &ChildOf), Changed<EditorButtonClick>>,
     rows: Query<&SceneObjectRow>,
+    catalog: VegetationCatalogAssets,
+    candidates: Option<Res<LayerCandidateState>>,
 ) {
     if stroke.active || guard.blocked() { return; }
     let button = buttons.iter().find(|(click, ..)| click.is_clicked());
@@ -60,16 +63,40 @@ pub(in crate::ui) fn input(
         };
         Some((&request.target, action))
     });
-    let Some((target, action)) = menu_action.or(inline) else { return; };
+    let deferred = authoring.p2().2.as_deref_mut()
+        .and_then(|documents| documents.vegetation_ready.take_if(|intent| !intent.action.selects()))
+        .filter(|intent| intent.selection_ticket == candidates.as_deref().map(LayerCandidateState::selection_ticket));
+    let deferred_action = deferred.as_ref().and_then(|intent| {
+        let action = match intent.action {
+            TreeVegetationAction::Author(edit) => LayerAction::Authoring(edit),
+            TreeVegetationAction::Visibility => LayerAction::Visibility,
+            _ => return None,
+        };
+        Some((&intent.target, action))
+    });
+    let Some((target, action)) = menu_action.or(inline).or(deferred_action) else { return; };
     let SceneObjectKey::Vegetation {
         index,
         output: false,
         id,
         terrain,
+        cold,
     } = &target.key
     else {
         return;
     };
+    if cold.is_some() {
+        let action = match action {
+            LayerAction::Authoring(edit) => TreeVegetationAction::Author(edit),
+            LayerAction::Visibility => TreeVegetationAction::Visibility,
+        };
+        let (session, _, mut documents, _) = authoring.p2();
+        if let Some(documents) = documents.as_deref_mut() {
+            request_cold_vegetation(target.clone(), &mut editor, &session, &catalog, documents,
+                candidates.as_deref(), action);
+        }
+        return;
+    }
     let (action, changed_canvas) = {
         let (source_guard, session) = authoring.p1();
         if !target.current(&editor, &session) { return; }
@@ -89,6 +116,7 @@ pub(in crate::ui) fn input(
             }
             return;
         };
+        if target.locked && action != EditorAction::VegetationToggleLocked { return; }
         let busy = source_guard.busy(&session);
         let before = session.revision;
         let (mut session, mut terrains, mut documents, allocation) = authoring.p2();

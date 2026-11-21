@@ -3,7 +3,7 @@
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{components::*, resources::{ProjectBrowserState, ProjectFileViewport}, types::*, window};
-use crate::{asset_catalog::project_files::EditorProjectFileCatalog, ui::theme as colors};
+use crate::{asset_catalog::project_files::EditorProjectFileCatalog, ui::{asset_icons, theme as colors}};
 use bevy::{prelude::*, ui::FocusPolicy};
 use feathrise_editor_ui::{EditorButtonClick, localization::EditorLocale};
 
@@ -116,8 +116,9 @@ pub(super) fn files(
                 color.set_if_neq(TextColor(if selected { colors::TEXT_ACCENT } else { colors::TEXT_PRIMARY }));
             }
             if changed && let Ok(mut image) = icons.get_mut(*child) {
-                image.image = asset_server.load(if entry.is_directory { "icons/editor/tree_folder.png" } else { "icons/editor/tree_file.png" });
-                image.color = colors::TEXT_PRIMARY;
+                let icon = asset_icons::file_row(&entry.asset_path, entry.is_directory);
+                image.image = asset_server.load(icon);
+                image.color = asset_icons::tint(icon, colors::TEXT_PRIMARY);
             }
         }
     }

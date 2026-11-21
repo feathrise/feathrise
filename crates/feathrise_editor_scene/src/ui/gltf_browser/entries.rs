@@ -3,6 +3,7 @@
 mod status; // 稳定态摘要与深行构建游标分离，避免主实现越过模块拆分阈值。
 
 use std::collections::BTreeMap; // 单实例最多64项水绑定先渐进建立稳定身份索引。
+use crate::ui::asset_icons;
 
 use super::helpers::{asset_file_name, revalidate_selection, water_kind_label}; // 行文字和选择校验复用稳定身份规则。
 use super::retirement::{BrowserRetiredGeneration, BrowserRetirementBudget, BrowserRetirementStep}; // 发布旧树和取消草稿都进入同一有界退役队列。
@@ -289,6 +290,7 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                         placement_id: placement.placement_id.clone(), // 点击仍使用稳定作者ID。
                         collapsed,  // 箭头直接反映本次完整草稿的展开偏好。
                         expandable, // 输入系统据此拒绝为直接primitive产生Scene0需求。
+                        glb: !builtin && asset_icons::is_glb(&placement.asset_path),
                     },
                     display_name: format!(
                         "{} · {}{target_hint}{phase_hint}{duplicate_hint}{}{}",

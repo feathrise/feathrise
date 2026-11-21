@@ -1,6 +1,6 @@
 //! 可见行直接按数组下标或已有角色归属索引取一项；旧图正式植被输出保留只读入口。
 
-use super::{inventory::{LayerInventory, vegetation_source}, types::LayerList};
+use super::{catalog::VegetationCatalogAssets, inventory::LayerInventory, types::LayerList};
 use crate::{
     authoring::EditorAuthoringSession,
     resources::VegetationEditorVisibility,
@@ -11,6 +11,7 @@ use crate::game_authoring::scene_interaction::{SceneInteractionState, DomainItem
 pub(super) fn object(
     session: &EditorAuthoringSession,
     inventory: &LayerInventory,
+    assets: Option<&VegetationCatalogAssets<'_>>,
     list: LayerList,
     index: usize,
     domain: Option<&SceneInteractionState>,
@@ -23,12 +24,12 @@ pub(super) fn object(
             Some(index) => Some(draft.manifest.terrains.as_ref()?.get(index)?),
             None => None,
         };
-        Some((terrain, index))
+        Some((terrain_index, terrain, index))
     };
     let (key, name, label, hidden, locked) = match list {
         LayerList::Water => {
             use crate::types::WaterAuthoringFeatureKind::*;
-            let (terrain, ordinal) = source(true)?;
+            let (_, terrain, ordinal) = source(true)?;
             let water = crate::authoring::terrain_documents::root_water::listed_source(draft, terrain.map(|object| &object.id))?;
             let (kind, index, id) = crate::ui::water_feature_list::water_feature_at(water, ordinal)?;
             let (name, kind_label) = match kind {
@@ -50,9 +51,10 @@ pub(super) fn object(
             )
         }
         LayerList::Vegetation => {
-            let (terrain, index) = source(false)?;
+            let (terrain_index, terrain, index) = source(false)?;
             let terrain_id = terrain.map(|object| &object.id);
-            let vegetation = vegetation_source(draft, terrain_id)?;
+            let (vegetation, cold) = inventory.vegetation_at(draft, terrain_index, assets);
+            let vegetation = vegetation?;
             let label = |name: &str| match terrain {
                 Some(object) => format!("{name} · {}", object.display_name),
                 None => format!("{name} · 场景"),
@@ -65,6 +67,7 @@ pub(super) fn object(
                         id: item.id.clone(),
                         output: false,
                         terrain: terrain_id.cloned(),
+                        cold,
                     },
                     item.label.clone(),
                     label(&item.label),
@@ -80,6 +83,7 @@ pub(super) fn object(
                         id: item.id.clone(),
                         output: true,
                         terrain: terrain_id.cloned(),
+                        cold,
                     },
                     item.label.clone(),
                     format!("{} · 正式输出", label(&item.label)),

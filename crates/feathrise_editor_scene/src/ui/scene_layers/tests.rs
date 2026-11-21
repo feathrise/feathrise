@@ -12,8 +12,8 @@ use crate::game_authoring::scene_interaction::{fixtures, DomainItemKind, SceneIn
 fn test_object(session: &EditorAuthoringSession, list: types::LayerList, index: usize) -> Option<(crate::ui::scene_context_menu::SceneObjectTarget, String)> {
     let draft = session.draft.as_ref()?;
     let mut inventory = inventory::LayerInventory::default();
-    inventory.sync(session, draft);
-    rows::object(session, &inventory, list, index, Some(&fixtures::state(draft.adopted_domain_hash(), 60)), &Default::default())
+    inventory.sync(session, draft, None);
+    rows::object(session, &inventory, None, list, index, Some(&fixtures::state(draft.adopted_domain_hash(), 60)), &Default::default())
 }
 
 
@@ -25,9 +25,9 @@ pub(crate) fn install_snapshot_sync(app: &mut App) {
 pub(crate) fn water_snapshot(session: &EditorAuthoringSession) -> Vec<crate::ui::scene_context_menu::SceneObjectTarget> {
     let Some(draft) = session.draft.as_ref() else { return Vec::new(); };
     let mut inventory = inventory::LayerInventory::default();
-    inventory.sync(session, draft);
+    inventory.sync(session, draft, None);
     (0..inventory.count(true)).filter_map(|index|
-        rows::object(session, &inventory, types::LayerList::Water, index, None, &default()).map(|item| item.0)).collect()
+        rows::object(session, &inventory, None, types::LayerList::Water, index, None, &default()).map(|item| item.0)).collect()
 }
 
 pub(crate) fn assert_snapshot_glyphs(app: &mut App) {
@@ -133,6 +133,97 @@ pub(crate) fn add_scene_root_water_fixture(app: &mut App) -> feathrise_scene_con
 }
 
 #[test]
+fn scene_tree_mesh_section_and_branch_columns_keep_actual_layout_aligned() {
+    use crate::components::SceneEditorGltfBrowserRowGlyph;
+    use crate::ui::gltf_browser::*;
+    use crate::ui::scene_inspector::{InspectorTree, tests::{page, settle}};
+    use feathrise_scene_content::ScenePlacementAssetTarget;
+
+    let (mut app, _) = page(2);
+    let mut placements = app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap()
+        .placements.placements.clone();
+    let child = &mut placements[1];
+    std::sync::Arc::make_mut(&mut child.editor).group = "摆放组".into();
+    child.asset_path.clear();
+    child.asset_target = ScenePlacementAssetTarget::Cuboid {
+        size_mm: [1000; 3], color_srgb: [160; 3], roughness_milli: 600, collision: false,
+    };
+    let child_id = child.id.clone();
+    load_author_layers_fixture(&mut app);
+    {
+        let world = app.world_mut();
+        let mut session = world.resource_mut::<EditorAuthoringSession>();
+        session.draft.as_mut().unwrap().placements.placements = placements;
+        session.placement_structure_revision += 1;
+        let tree = world.query_filtered::<Entity, With<InspectorTree>>().single(world).unwrap();
+        let mut host = tree;
+        while let Some(parent) = world.get::<ChildOf>(host) { host = parent.parent(); }
+        *world.get_mut::<Node>(host).unwrap() = Node {
+            width: px(300), height: px(1450), flex_direction: FlexDirection::Column, ..default()
+        };
+    }
+    app.init_asset::<Image>()
+        .init_resource::<crate::ui::scene_objects::SceneObjectState>()
+        .init_resource::<resources::LayerTreeFolds>()
+        .add_systems(Update, (systems::sync, systems::sync_section_arrows, systems::sync_vegetation_toggles).chain())
+        .add_systems(Update, sync_gltf_row_toggles.after(sync_gltf_browser_rows));
+    settle(&mut app);
+    {
+        let mut browser = app.world_mut().resource_mut::<EditorGltfBrowserState>();
+        let group = browser.entries.iter().position(|entry| matches!(&entry.kind, EditorGltfBrowserEntryKind::Group { .. })).unwrap();
+        browser.toggle_tree_branch(group);
+    }
+    for scale in [1.0, 1.5] {
+        app.world_mut().resource_mut::<UiScale>().0 = scale;
+        settle(&mut app);
+        let world = app.world_mut();
+        let heading = world.query_filtered::<Entity, With<SceneMeshObjectsHeading>>().single(world).unwrap();
+        let display_arrow = world.query_filtered::<Entity, With<SceneBaseGltfArrow>>().single(world).unwrap();
+        let layer_arrows: Vec<_> = world.query::<(Entity, &components::SectionArrow)>().iter(world)
+            .map(|(entity, _)| entity).collect();
+        assert_eq!(layer_arrows.len(), 2);
+        let rows: Vec<_> = world.query::<(Entity, &SceneEditorGltfBrowserRow)>().iter(world)
+            .filter_map(|(entity, row)| row.entry_index.map(|index| (entity, index))).collect();
+        let layer_rows: Vec<_> = world.query::<(Entity, &components::Row)>().iter(world)
+            .filter_map(|(entity, row)| (row.slot == 0
+                && matches!(row.list, types::LayerList::Water | types::LayerList::Vegetation)).then_some(entity)).collect();
+        assert_eq!(layer_rows.len(), 2);
+        let browser = world.resource::<EditorGltfBrowserState>();
+        let branch_rows: Vec<_> = rows.iter().filter_map(|&(row, index)| {
+            (browser.entries[index].depth == 0).then_some(row)
+        }).collect();
+        assert_eq!(branch_rows.len(), 2);
+        let leaf = rows.iter().find_map(|&(row, index)| matches!(&browser.entries[index].kind,
+            EditorGltfBrowserEntryKind::Placement { placement_id, .. } if placement_id == &child_id).then_some(row)).unwrap();
+        let expander = |row| world.get::<Children>(row).unwrap().iter()
+            .find(|child| world.get::<PlacementTreeExpander>(*child).is_some()).unwrap();
+        let center = |entity| world.get::<UiGlobalTransform>(entity).unwrap().translation;
+        let size = |entity| world.get::<ComputedNode>(entity).unwrap().size();
+        let heading_text = world.get::<Children>(heading).unwrap().iter()
+            .find(|child| world.get::<Text>(*child).is_some()).unwrap();
+        assert_eq!(world.get::<Text>(heading_text).unwrap().as_str(), "网格对象");
+        assert!(size(heading).y > 0.0 && center(heading).y < center(branch_rows[0]).y);
+        assert!(layer_arrows.iter().all(|&arrow| center(arrow).y < center(heading).y));
+        for arrow in layer_arrows.into_iter().chain(branch_rows.into_iter().map(|row| expander(row))) {
+            assert!((center(arrow).x - center(display_arrow).x).abs() <= 1.1);
+            assert!(size(arrow).abs_diff_eq(size(display_arrow), 1.1));
+        }
+        assert_eq!(*world.get::<Visibility>(expander(leaf)).unwrap(), Visibility::Hidden);
+        assert!((center(expander(leaf)).x - center(display_arrow).x - 18.0 * scale).abs() <= 1.1);
+        let glyph = |row, glb| world.get::<Children>(row).unwrap().iter()
+            .filter_map(|child| world.get::<Children>(child)).flat_map(|children| children.iter())
+            .find(|child| if glb { world.get::<SceneEditorGltfBrowserRowGlyph>(*child).is_some() }
+                else { world.get::<crate::components::SceneEditorTreeGlyph>(*child).is_some() }).unwrap();
+        assert!(layer_rows.iter().all(|&row| (center(glyph(row, false)).x - center(glyph(leaf, true)).x).abs() <= 1.1));
+    }
+    app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap().placements.placements.clear();
+    settle(&mut app);
+    let world = app.world_mut();
+    let heading = world.query_filtered::<&ComputedNode, With<SceneMeshObjectsHeading>>().single(world).unwrap();
+    assert_eq!(heading.size(), Vec2::ZERO, "空场景留给水域和植被，网格标题不占高度");
+}
+
+#[test]
 fn scene_layers_fold_scroll_and_same_id_vegetation_stay_with_their_source() {
     use bevy::{ecs::system::RunSystemOnce, window::PrimaryWindow};
     use crate::ui::scene_context_menu::{SceneContextMenuState, SceneMenuAction, SceneObjectRequest};
@@ -179,10 +270,19 @@ fn scene_layers_fold_scroll_and_same_id_vegetation_stay_with_their_source() {
             .find(|(_, arrow)| arrow.list == types::LayerList::Vegetation).unwrap().0;
         let title = world.query::<(Entity, &components::Title)>().iter(world)
             .find(|(_, title)| title.0 == types::LayerList::Vegetation).unwrap().0;
-        let width = |entity| world.get::<ComputedNode>(entity).unwrap().size().x;
-        let available = width(list) - width(arrow);
-        assert!(width(title) > 0.0 && (available - width(title) - 3.0).abs() <= 1.0,
-            "分类标题应占用扣除箭头和间距后的宽度");
+        let horizontal_edges = |entity| {
+            let center = world.get::<UiGlobalTransform>(entity).unwrap().translation.x;
+            let half_width = world.get::<ComputedNode>(entity).unwrap().size().x / 2.0;
+            (center - half_width, center + half_width)
+        };
+        let (_, arrow_right) = horizontal_edges(arrow);
+        let (_, header_right) = horizontal_edges(world.get::<ChildOf>(arrow).unwrap().parent());
+        let (title_left, title_right) = horizontal_edges(title);
+        // 左边距与箭头共用新列，标题实际占满从箭头间距到本标题行右边缘的区间。
+        assert!(title_right > title_left
+            && (title_left - arrow_right - crate::ui::scene_sidebar::TREE_BRANCH_GAP).abs() <= 1.0
+            && (title_right - header_right).abs() <= 1.0,
+            "分类标题应占满箭头右侧的实际可用宽度");
         assert_eq!(world.get::<TextLayout>(title).unwrap().linebreak, TextLayout::no_wrap().linebreak);
         (list, arrow)
     };

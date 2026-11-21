@@ -1,6 +1,6 @@
 //! 单个临时菜单与至多一个明确操作；不持有整图或另建保存状态。
 
-use super::types::{MenuTarget, SceneObjectRequest};
+use super::types::{MenuTarget, SceneMenuAction, SceneObjectKey, SceneObjectRequest, SceneObjectTarget};
 use bevy::prelude::*;
 
 #[derive(Resource, Default)]
@@ -27,6 +27,26 @@ pub struct DomainSceneRequest<'a> {
 }
 
 impl SceneContextMenuState {
+    pub(crate) fn rebind_loaded_vegetation(&mut self, target: &SceneObjectTarget, revision: u64) {
+        let SceneObjectKey::Vegetation { index, terrain, id, output, cold: None } = &target.key else { return; };
+        let pending = |previous: &SceneObjectTarget| {
+            previous.revision == revision && previous.scene_id == target.scene_id
+                && matches!(&previous.key, SceneObjectKey::Vegetation {
+                    index: old_index, terrain: old_terrain, id: old_id, output: old_output, cold: Some(_),
+                } if (old_index, old_terrain, old_id, old_output) == (index, terrain, id, output))
+        };
+        if let Some((first, _)) = self.last_tree_click.as_mut() && pending(&first.object) {
+            first.object = target.clone();
+        }
+        // 画布若恰在第二次释放和静默门之间完成，只续接同一行的聚焦，不解冻其他命令。
+        if let Some((row, request)) = self.queued.as_mut() && self.tree_focus_queued
+            && request.action == SceneMenuAction::Focus && pending(&row.object) && request.target == row.object
+        {
+            row.object = target.clone();
+            request.target = target.clone();
+        }
+    }
+
     pub fn domain_request(&self, editor: &crate::resources::SceneEditorState, session: &crate::authoring::EditorAuthoringSession) -> Option<DomainSceneRequest<'_>> {
         let request = self.ready.as_ref().filter(|request| request.target.current(editor, session) && request.target.allows(request.action))?;
         let super::types::SceneObjectKey::Domain { kind, id, .. } = &request.target.key else { return None; };

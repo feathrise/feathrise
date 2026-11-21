@@ -1,7 +1,7 @@
 //! 桌面布局和有限可见行投影；目录快照 O(1) 共享，不在绘制帧扫描磁盘。
 
 use super::{components::*, resources::*, types::*};
-use crate::{components::SceneEditorRoot, resources::SceneEditorLayoutState, ui::theme as colors};
+use crate::{components::SceneEditorRoot, resources::SceneEditorLayoutState, ui::{asset_icons, theme as colors}};
 use bevy::{prelude::*, input_focus::{InputFocus, FocusCause}, text::EditableText, ui::InteractionDisabled};
 use feathrise_editor_project_browser_model::file_operations::ConflictPolicy;
 use feathrise_editor_ui::{EditorButtonClick, UiInteraction, localization::EditorLocale};
@@ -117,17 +117,17 @@ pub(super) fn sync(world: &mut World) {
                 // 文件夹图标已经说明类型；列表中只有文件附带大小，缩略卡名称由这里统一写入。
                 let title = if entry.directory || thumbnail { entry.name.clone() }
                     else { format!("{}    {}", entry.name, bytes_label(entry.bytes)) };
-                row_changes.push((entity, title, cut, entry.directory));
+                row_changes.push((entity, title, cut, asset_icons::file_row(&entry.path, entry.directory)));
             }
         }
-        let folder_image: Handle<Image> = world.resource::<AssetServer>().load("icons/editor/tree_folder.png");
-        let file_image: Handle<Image> = world.resource::<AssetServer>().load("icons/editor/tree_file.png");
+        let assets = world.resource::<AssetServer>().clone();
         let mut icons = world.query_filtered::<(&ChildOf, &mut ImageNode), With<FileRowIcon>>();
         for (parent, mut image) in icons.iter_mut(world) {
-            if let Some((_, _, cut, directory)) = row_changes.iter().find(|(row, ..)| *row == parent.parent()) {
-                let wanted = if *directory { &folder_image } else { &file_image };
-                if &image.image != wanted { image.image = wanted.clone(); }
-                image.color = if *cut { colors::TEXT_MUTED } else { colors::TEXT_PRIMARY };
+            if let Some((_, _, cut, icon)) = row_changes.iter().find(|(row, ..)| *row == parent.parent()) {
+                if image.image.path().is_none_or(|source| source.path() != std::path::Path::new(icon)) {
+                    image.image = assets.load(*icon);
+                }
+                image.color = if *cut { colors::TEXT_MUTED } else { asset_icons::tint(icon, colors::TEXT_PRIMARY) };
             }
         }
         let mut texts = world.query_filtered::<(&mut Text, &mut TextColor, Option<&WindowTitle>, Option<&WindowStatus>, Option<&ButtonLabel>, Option<&NameDialogTitle>, Option<&DragLabel>, Option<&RowLabel>, Option<&ChildOf>, Option<&TaskTitle>, Option<&NameDialogBodyText>, Option<&FileSearchHint>),

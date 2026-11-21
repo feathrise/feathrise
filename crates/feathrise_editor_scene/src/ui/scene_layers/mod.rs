@@ -1,6 +1,7 @@
 //! 场景树补齐水域、植被作者层、角色层与点位；固定行池直接读取当前作者文档。
 
 mod components;
+mod catalog;
 mod focus;
 mod inventory;
 mod resources;
@@ -12,9 +13,11 @@ mod types;
 
 pub(crate) use resources::SceneLayerSelection;
 pub(in crate::ui) use components::VegetationRowToggle;
+pub(crate) use catalog::VegetationCatalogAssets;
 pub(in crate::ui) use inventory::vegetation_source;
 pub(crate) use scene::panel;
 pub(crate) use selection::{LayerSelectionContext, select};
+pub(in crate::ui) use selection::request_cold_vegetation;
 pub(in crate::ui) use systems::input as read_tree_selection;
 
 pub(crate) fn install(app: &mut bevy::prelude::App) {
@@ -43,3 +46,5 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
 
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod cold_vegetation_tests;

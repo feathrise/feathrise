@@ -40,6 +40,8 @@ pub(crate) enum SceneObjectKey {
         /// 旧场景只有正式输出层时仍显示内容，但不把合并输出冒充可写作者层。
         output: bool,
         terrain: Option<TerrainId>,
+        /// 尚未载入作者画布时记录清单槽及正式定义的句柄。
+        cold: Option<(usize, AssetId<feathrise_scene_content::SceneVegetationAsset>)>,
     },
     Domain {
         kind: crate::game_authoring::scene_interaction::DomainItemKind,
@@ -170,7 +172,11 @@ impl SceneObjectTarget {
                     .is_some_and(|current| current == id)
                 })
             }
-            SceneObjectKey::Vegetation { index, id, output, terrain } => {
+            SceneObjectKey::Vegetation { terrain, cold: Some((slot, _)), .. } => {
+                draft.manifest.terrains.as_ref().and_then(|objects| objects.get(*slot))
+                    .is_some_and(|object| terrain.as_ref() == Some(&object.id) && object.vegetation_path.is_some())
+            }
+            SceneObjectKey::Vegetation { index, id, output, terrain, cold: None } => {
                 crate::ui::scene_layers::vegetation_source(draft, terrain.as_ref()).is_some_and(|vegetation| {
                     if *output {
                         vegetation

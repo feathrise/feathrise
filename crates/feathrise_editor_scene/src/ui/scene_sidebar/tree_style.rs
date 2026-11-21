@@ -5,6 +5,63 @@ use crate::ui::theme as colors;
 use crate::ui::tooltips::{EditorTooltipTarget, TooltipAction};
 use bevy::prelude::*;
 
+const TREE_BRANCH_WIDTH: f32 = 18.0;
+pub(crate) const TREE_BRANCH_GAP: f32 = 2.0;
+pub(crate) const TREE_CAPTION_GAP: f32 = 5.0;
+
+pub(crate) fn tree_row_left(depth: usize) -> Val {
+    px(5.0 + depth as f32 * TREE_BRANCH_WIDTH)
+}
+
+fn tree_branch_node() -> Node {
+    Node {
+        width: px(TREE_BRANCH_WIDTH), height: px(21), flex_shrink: 0.0,
+        align_items: AlignItems::Center, justify_content: JustifyContent::Center,
+        border_radius: BorderRadius::all(px(3)), ..default()
+    }
+}
+
+/// 场景树各分支共享同一箭头列与命中面积，视觉图标不截走按钮点击。
+pub(crate) fn tree_branch_button() -> impl Scene {
+    bsn! { InteractionButton ~{tree_branch_node()} BackgroundColor(Color::NONE)
+        Children [@tree_toggle_icon()] }
+}
+
+/// 叶子和纯标题占用同一箭头列，缩进只取决于树深度。
+pub(crate) fn tree_branch_slot() -> impl Scene {
+    bsn! { ~{tree_branch_node()} Pickable::IGNORE }
+}
+
+pub(crate) fn tree_section_header() -> Node {
+    Node {
+        width: percent(100), min_width: px(0),
+        padding: UiRect { left: tree_row_left(0), top: px(4), ..UiRect::ZERO },
+        border: UiRect::bottom(px(1)), align_items: AlignItems::Center,
+        column_gap: px(TREE_BRANCH_GAP), flex_shrink: 0.0, ..default()
+    }
+}
+
+pub(crate) fn load_tree_branch_images(server: &AssetServer) -> [Handle<Image>; 2] {
+    ["tree_expand", "tree_collapse"].map(|name| server.load(format!("icons/editor/{name}.png")))
+}
+
+pub(crate) fn sync_tree_branch_icon(
+    collapsed: bool, available: bool, images: &[Handle<Image>; 2], image: &mut Mut<'_, ImageNode>,
+) {
+    let handle = &images[usize::from(!collapsed)];
+    if &image.image != handle { image.image = handle.clone(); }
+    let color = if available { colors::TEXT_PRIMARY } else { colors::TEXT_MUTED };
+    if image.color != color { image.color = color; }
+}
+
+pub(crate) fn tree_branch_fill(available: bool, interaction: UiInteraction) -> BackgroundColor {
+    BackgroundColor(match (available, interaction) {
+        (true, UiInteraction::Pressed) => colors::SELECT_BG_PRESSED,
+        (true, UiInteraction::Hovered) => colors::SELECT_BG_HOVER,
+        _ => Color::NONE,
+    })
+}
+
 pub(crate) fn tree_row_colors(
     selected: bool,
     drop_target: bool,

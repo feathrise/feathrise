@@ -56,7 +56,11 @@ pub(super) fn prepare(root: &Path, label: &str) -> Result<(), String> {
     fs::write(&manifest_path, toml::to_string_pretty(&manifest).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     let mut sources = copy_probe(&staging)?;
     write_animation(&staging)?;
-    if std::env::var("FEATHRISE_MODEL_SURFACE_VALIDATION").as_deref() == Ok("1") {
+    if label == "独立工程 A" && std::env::var(super::SCENE_TREE_STARTUP).as_deref() == Ok("1") {
+        // 完整场景工具链会从空目录新增预设。仅首次打开专项预置作者层。
+        write_scene_tree_group(&staging)?;
+        write_scene_tree_vegetation(&staging)?;
+    } else if std::env::var("FEATHRISE_MODEL_SURFACE_VALIDATION").as_deref() == Ok("1") {
         sources.extend(copy_model_vegetation_probe(&staging)?);
         write_model_surface_fixture(&staging)?;
     } else if label == "独立工程 A" && std::env::var("FEATHRISE_SCENE_TREE_VALIDATION").as_deref() == Ok("1") {
@@ -249,6 +253,54 @@ fn write_scene_tree_group(assets: &Path) -> Result<(), String> {
         placements.placements.push(member);
     }
     write_sample_scene_glb(assets, &placements, None)
+}
+
+/// 只给场景树专项布置已保存的私有作者层，从首次打开场景就能检查目录，无需先选地形。
+fn write_scene_tree_vegetation(assets: &Path) -> Result<(), String> {
+    use feathrise_scene_content::{
+        SCENE_VEGETATION_FILE_NAME, VEGETATION_PRESET_CATALOG_ASSET_PATH, SceneVegetationAsset,
+        SceneVegetationAuthorLayer, SceneVegetationKind, VegetationPresetCatalogAsset, VegetationPresetRuntime,
+    };
+
+    let mut catalog: VegetationPresetCatalogAsset = serde_json::from_str(include_str!(
+        "../crates/feathrise_editor_scene/tests/fixtures/vegetation_presets.vegetation_presets.json"
+    )).map_err(|error| error.to_string())?;
+    catalog.presets.retain(|preset| preset.kind() == SceneVegetationKind::Blade);
+    catalog.presets.truncate(1);
+    let preset = catalog.presets.first_mut().ok_or("场景树夹具缺少 Blade 预设")?;
+    preset.author_asset_path = "scene/probe.glb".into();
+    if let VegetationPresetRuntime::Blade { lods, base_color_texture_path, .. } = &mut preset.runtime {
+        *base_color_texture_path = None;
+        for lod in lods { lod.mesh_path = "scene/probe.glb#Mesh0/Primitive0".into(); }
+    }
+    let folder = feathrise_project::seed::SAMPLE_TERRAIN_FOLDER;
+    let output = preset.create_scene_layer(folder);
+    let resolution = output.resolution;
+    let author_path = format!("{folder}/vegetation/scene-tree-private-grass.r8");
+    let document = assets.join(folder).join(SCENE_VEGETATION_FILE_NAME);
+    let mut vegetation: SceneVegetationAsset = serde_json::from_slice(&read_small(&document)?)
+        .map_err(|error| error.to_string())?;
+    let authoring = vegetation.authoring.as_mut().ok_or("场景树夹具缺少私有植被作者画布")?;
+    authoring.layers.push(SceneVegetationAuthorLayer {
+        id: "scene-tree-private-grass".into(), label: "验收私有植被".into(),
+        group_id: "base".into(), output_layer_id: output.id.clone(),
+        density_source_path: author_path.clone(), resolution,
+        enabled: true, locked: false, opacity: 1.0, priority: 0, weight: 1.0,
+    });
+    // 保留合法零密度和实际派生纹理，专门验收作者层的目录显示。
+    let pixels = vec![0; resolution[0] as usize * resolution[1] as usize];
+    write_new(&assets.join(&author_path), &pixels)?;
+    write_new(&assets.join(&output.density_source_path), &pixels)?;
+    write_new(&assets.join(&output.density_texture_path), &feathrise_editor_assets::ktx2::encode_r8(&pixels, resolution)?)?;
+    vegetation.layers.push(output);
+    authoring.validate(&vegetation.layers)?;
+    for (path, bytes) in [
+        (document, serde_json::to_vec_pretty(&vegetation).map_err(|error| error.to_string())?),
+        (assets.join(VEGETATION_PRESET_CATALOG_ASSET_PATH), serde_json::to_vec_pretty(&catalog).map_err(|error| error.to_string())?),
+    ] {
+        fs::write(path, bytes).map_err(|error| error.to_string())?; // 两份目标均为本轮暂存区已有的空骨架。
+    }
+    Ok(())
 }
 
 /// 两项实窗验收共用真实写入器。只切换本轮暂存目录的示例图，保持其他模板场景的各自来源。

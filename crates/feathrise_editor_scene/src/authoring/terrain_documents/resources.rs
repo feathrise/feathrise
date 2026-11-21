@@ -2,24 +2,86 @@
 use super::TerrainCanvas;
 use bevy::{prelude::*, tasks::Task};
 use feathrise_scene_content::{SceneId, SceneTerrainObject, TerrainId};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
+use crate::ui::scene_context_menu::{SceneObjectKey, SceneObjectTarget};
 pub(super) struct Pending {
     pub scene_id: SceneId,
     pub revision: u64,
     pub index: usize,
     pub object: Arc<SceneTerrainObject>,
+    pub vegetation: bool,
+    pub parked: Option<Weak<TerrainCanvas>>,
     pub task: Task<Result<TerrainCanvas, String>>,
 }
 #[derive(Resource, Default)]
 pub(crate) struct TerrainDocumentTask {
     pub reloads: std::collections::VecDeque<String>,
     pub requested: Option<TerrainId>,
+    pub(crate) vegetation: Option<TreeVegetationRequest>,
+    pub(crate) vegetation_ready: Option<TreeVegetationRequest>,
     pub(super) pending: Option<Pending>,
     /// 大画布的迟到结果在后台退役；真实释放完成前仍占用同一载入槽。
     pub(super) retirement: Option<Task<()>>,
 }
 
+/// 浏览行只有文件元数据，进入画布后才授予作者选择与编辑资格。
+#[derive(Clone)]
+pub(crate) struct TreeVegetationRequest {
+    pub target: SceneObjectTarget,
+    pub action: TreeVegetationAction,
+    pub selection_ticket: Option<u64>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TreeVegetationAction {
+    Select,
+    Focus,
+    Visibility,
+    Author(crate::types::EditorAction),
+}
+
+impl TreeVegetationAction {
+    pub fn selects(self) -> bool { matches!(self, Self::Select | Self::Focus) }
+}
+
+impl TreeVegetationRequest {
+    pub(super) fn source(&self) -> Option<(usize, AssetId<feathrise_scene_content::SceneVegetationAsset>)> {
+        if let SceneObjectKey::Vegetation { cold, .. } = self.target.key { cold } else { None }
+    }
+
+    pub(super) fn adopt(&mut self, definition: Option<&feathrise_scene_content::SceneVegetationAsset>) -> bool {
+        let SceneObjectKey::Vegetation { index, id, output, cold, .. } = &mut self.target.key else { return false; };
+        let Some(asset) = definition else { return false; };
+        let layer = if *output && asset.authoring.is_none() {
+            asset.layers.get(*index).filter(|layer| &layer.id == id).map(|layer| (&layer.label, false))
+        } else if !*output {
+            asset.authoring.as_ref().and_then(|authoring| authoring.layers.get(*index))
+                .filter(|layer| &layer.id == id).map(|layer| (&layer.label, layer.locked))
+        } else {
+            None
+        };
+        let Some((label, locked)) = layer else { return false; };
+        if locked && matches!(self.action, TreeVegetationAction::Author(edit)
+            if edit != crate::types::EditorAction::VegetationToggleLocked) { return false; }
+        self.target.name.clone_from(label);
+        self.target.locked = locked;
+        *cold = None;
+        true
+    }
+}
+
 impl TerrainDocumentTask {
+    pub(crate) fn cancel_vegetation(&mut self, draft: Option<&mut super::super::EditorSceneDraft>) {
+        self.vegetation = None;
+        self.vegetation_ready = None;
+        // 后台句柄仍占用原槽，但取消后立刻恢复已载入的作者工具供更新的场景树选择使用。
+        if let Some(pending) = self.pending.as_ref().filter(|pending| pending.vegetation)
+            && let Some(draft) = draft.filter(|draft| draft.scene_id == pending.scene_id)
+        {
+            draft.terrain_documents.loading = false;
+        }
+    }
+
     /// 单槽可能仍在结束上一网格的载入；等待选择只能观察属于自己这张画布的开始/结束。
     pub(crate) fn loading_for(&self, map: &SceneId, id: &TerrainId, index: usize, revision: u64) -> bool {
         self.pending.as_ref().is_some_and(|pending| pending.scene_id == *map

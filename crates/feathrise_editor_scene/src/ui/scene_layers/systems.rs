@@ -2,13 +2,13 @@
 
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
-use super::{components::*, inventory::{LayerInventory, vegetation_source}, resources::*, rows, types::LayerList};
+use super::{catalog::VegetationCatalogAssets, components::*, inventory::LayerInventory, resources::*, rows, types::LayerList};
 use crate::{
     authoring::EditorAuthoringSession,
     resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState},
     ui::{
         list_layout,
-        scene_sidebar::tree_row_colors,
+        scene_sidebar::{load_tree_branch_images, sync_tree_branch_icon, tree_branch_fill, tree_row_colors},
         scene_context_menu::{SceneContextMenuState, SceneObjectKey, SceneObjectRow},
     },
     viewport::{LayerCandidateState, LayerTarget},
@@ -79,6 +79,7 @@ pub(super) fn sync(
     locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     candidates: Option<Res<LayerCandidateState>>,
     domain: Option<Res<crate::game_authoring::scene_interaction::SceneInteractionState>>,
+    assets: VegetationCatalogAssets,
     folds: Option<Res<LayerTreeFolds>>,
     mut sections: Query<(&Section, &mut Node), (Without<List>, Without<Content>, Without<Row>)>,
     mut lists: Query<
@@ -109,7 +110,7 @@ pub(super) fn sync(
             && editor.selected_scene_id.as_ref() == Some(&draft.scene_id)
             && !editor.scene_transition_in_progress
     });
-    if let Some(draft) = draft { inventory.sync(&session, draft); }
+    if let Some(draft) = draft { inventory.sync(&session, draft, Some(&assets)); }
     let collapsed = |list| draft.is_some_and(|draft|
         folds.as_ref().is_some_and(|folds| folds.collapsed(&draft.scene_id, list)));
     for (section, mut node) in &mut sections {
@@ -169,7 +170,7 @@ pub(super) fn sync(
     {
         let index = starts[row.list as usize] + row.slot;
         let item = draft.filter(|_| !collapsed(row.list))
-            .and_then(|_| rows::object(&session, &inventory, row.list, index, domain.as_deref(), &editor.vegetation_visibility));
+            .and_then(|_| rows::object(&session, &inventory, Some(&assets), row.list, index, domain.as_deref(), &editor.vegetation_visibility));
         let active = item.as_ref().is_some_and(|(target, _)| {
             draft.is_some_and(|draft| selected(&target.key, draft, candidates.as_deref(), domain.as_deref()))
         });
@@ -207,6 +208,7 @@ pub(super) fn sync(
 pub(super) fn sync_vegetation_toggles(
     mut commands: Commands,
     session: Res<EditorAuthoringSession>,
+    assets: VegetationCatalogAssets,
     server: Option<Res<AssetServer>>,
     mut images: Local<Option<[Handle<Image>; 6]>>,
     rows: Query<Ref<SceneObjectRow>, With<Row>>,
@@ -226,8 +228,8 @@ pub(super) fn sync_vegetation_toggles(
         let Ok(row) = rows.get(parent.parent()) else { continue };
         if row.is_changed() && let Some(mut click) = click { click.invalidate(); }
         let item = row.0.as_ref().and_then(|target| {
-            let SceneObjectKey::Vegetation { index, id, output: false, terrain } = &target.key else { return None };
-            let authoring = vegetation_source(session.draft.as_ref()?, terrain.as_ref())?.authoring.as_ref()?;
+            let SceneObjectKey::Vegetation { index, id, output: false, .. } = &target.key else { return None };
+            let authoring = assets.row_definition(session.draft.as_ref()?, &target.key)?.authoring.as_ref()?;
             let layer = authoring.layers.get(*index).filter(|layer| layer.id == *id)?;
             Some((layer, target))
         });
@@ -285,22 +287,19 @@ pub(super) fn sync_section_arrows(
         && !editor.scene_transition_in_progress && editor.selected_scene_id.as_ref() == Some(&draft.scene_id))
         .map(|draft| &draft.scene_id);
     if images.is_none() && let Some(server) = server.as_deref() {
-        *images = Some(["tree_collapse", "tree_expand"]
-            .map(|name| server.load(format!("icons/editor/{name}.png"))));
+        *images = Some(load_tree_branch_images(server));
     }
     for (mut arrow, interaction, mut click, children, mut background) in &mut arrows {
         if arrow.scene.as_ref() != scene {
             arrow.scene = scene.cloned();
             click.invalidate(); // 场景交接后的箭头不能采用上一场景还没松开的手势。
         }
-        let (fill, _) = tree_row_colors(false, false, *interaction);
-        background.set_if_neq(BackgroundColor(fill));
+        background.set_if_neq(tree_branch_fill(scene.is_some(), *interaction));
         let collapsed = scene.is_some_and(|scene| folds.collapsed(scene, arrow.list));
         if let Some(images) = &*images && let Some(child) = children.first()
             && let Ok(mut image) = icons.get_mut(*child)
-            && image.image != images[usize::from(collapsed)]
         {
-            image.image = images[usize::from(collapsed)].clone();
+            sync_tree_branch_icon(collapsed, scene.is_some(), images, &mut image);
         }
     }
 }

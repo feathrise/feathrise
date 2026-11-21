@@ -28,6 +28,7 @@ use std::{
 
 pub(crate) const CLOSE_SCENE_MANIFEST_PATH: &str = "scenes/M1-SAMPLE/scene.scene_manifest.json";
 pub(crate) const SCENE_BEFORE_CLOSE_FILENAME: &str = "map-before-close.json";
+const SCENE_TREE_STARTUP: &str = "FEATHRISE_SCENE_TREE_STARTUP_VALIDATION";
 
 /// 同窗口验收复用相同中性资产，父级独占标记和新空骨架仍由夹具内部严格核验。
 pub(crate) fn prepare_workspace_fixture(root: &Path, label: &str) -> Result<(), String> {
@@ -68,10 +69,14 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     let control = BuildControl::default();
     let before = protected_files(&repository)?;
     let started = Instant::now();
+    let scene_tree_startup = std::env::var(SCENE_TREE_STARTUP).as_deref() == Ok("1");
     let export_lifecycle = std::env::var_os("FEATHRISE_NATIVE_EXPORT").as_deref() == Some(std::ffi::OsStr::new("1"));
     let blender_mesh = std::env::var("FEATHRISE_BLENDER_MESH_VALIDATION").as_deref() == Ok("1");
     let mut steps = Vec::new();
     let result = (|| -> Result<(), String> {
+        if scene_tree_startup {
+            return run_scene_tree_startup(&work, &repository, &target, &control, &mut steps);
+        }
         // 旧分离管理器已随原型归档。本轮只验证当前作者实例和保存后普通游戏，
         // 不再以历史管理器的截图冒充正式同窗口工程管理验收。
         let mut roots = Vec::new();
@@ -110,16 +115,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         // A真实编辑保存/工程运行，B独立来源，再重开A核对保存后的新对象仍由原作者视口还原。
         for (index, root) in roots.iter().chain(std::iter::once(&roots[0])).enumerate() {
             let output = work.join(format!("editor-{}", index + 1));
-            fs::create_dir(&output).map_err(|error| format!("作者验收输出不能独占创建：{error}"))?;
-            let mut command = Command::new(std::env::current_exe().map_err(|e| e.to_string())?);
-            isolate_author_command(&mut command, &output)?;
-            command
-                .arg("--native-editor")
-                .arg("--project")
-                .arg(root)
-                .arg("--target-dir")
-                .arg(&target)
-                .env("NEW_EDITOR_NATIVE_SMOKE_DIR", &output);
+            let mut command = author_window_command(root, &target, &output, false)?;
             if index == 0 {
                 command
                     .env("NEW_EDITOR_NATIVE_SMOKE_PLAY", "1")
@@ -130,46 +126,8 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
                     .env("NEW_EDITOR_NATIVE_SMOKE_SCENE_TOOLS", "1")
                     .env("NEW_EDITOR_NATIVE_SMOKE_AUTHOR_TOOLS", "1")
                     .env("NEW_EDITOR_GAME_SMOKE_DIR", work.join("game-f12"));
-            } else {
-                command
-                    .env_remove("NEW_EDITOR_NATIVE_SMOKE_PLAY")
-                    .env_remove("NEW_EDITOR_NATIVE_SMOKE_SAVE")
-                    .env_remove("NEW_EDITOR_NATIVE_SMOKE_AUTHORING")
-                    .env_remove("NEW_EDITOR_NATIVE_SMOKE_RECOVERY")
-                    .env_remove("NEW_EDITOR_NATIVE_SMOKE_CLOSE")
-                    .env_remove("NEW_EDITOR_NATIVE_SMOKE_SCENE_TOOLS")
-                    .env_remove("NEW_EDITOR_NATIVE_SMOKE_AUTHOR_TOOLS")
-                    .env_remove("NEW_EDITOR_GAME_SMOKE_DIR");
             }
-            let run =
-                build_process::run(&command, &control, Some(Duration::from_secs(1900)), tail)?;
-            fs::create_dir_all(&output).map_err(|e| e.to_string())?;
-            fs::write(
-                output.join("process.log"),
-                format!("{}\n{}", run.stdout, run.stderr),
-            )
-            .map_err(|e| e.to_string())?;
-            if run.exit_code != 0 {
-                return Err(format!(
-                    "原完整编辑器验收{index}退出{}：{}\n{}",
-                    run.exit_code, run.stdout, run.stderr
-                ));
-            }
-            let observed: Value = serde_json::from_slice(
-                &fs::read(output.join("native-editor.json")).map_err(|e| e.to_string())?,
-            )
-            .map_err(|e| e.to_string())?;
-            if observed["passed"] != true {
-                return Err(format!("原完整编辑器验收{index}未通过：{observed}"));
-            }
-            let project = project::open(root)?;
-            if observed["schema"] != 2
-                || observed["project_root"] != json!(project.root)
-                || observed["asset_root"] != json!(project.context.asset_roots[0])
-                || observed["camera_3d_count"].as_u64().unwrap_or(0) == 0
-            {
-                return Err("编辑器没有确认当前工程来源及实际3D视图，旧RPG报告不能计入本轮".into());
-            }
+            let (project, observed) = run_author_window(&command, &control, root, &output)?;
             if index == 0 {
                 let presets = &observed["preset_authoring"];
                 verify_preset_edits(presets)?;
@@ -365,13 +323,15 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     let after = protected_files(&repository)?;
     let unchanged = before == after;
     let passed = result.is_ok() && unchanged && !control.cleanup_failed();
-    let scope = if blender_mesh { "blender_mesh_roundtrip_saved_play_and_reopened_editor" }
+    let scope = if scene_tree_startup { "native_editor_scene_tree_startup" }
+        else if blender_mesh { "blender_mesh_roundtrip_saved_play_and_reopened_editor" }
         else if export_lifecycle { "saved_project_lifecycle_with_same_project_export" }
         else { "dual_world_modes_neutral_scene_and_ordinary_authoring" };
     fs::write(&report, serde_json::to_vec_pretty(&json!({
         "schema":4,"scope":scope,"passed":passed,
-        "resident_mode_comparison_included":!blender_mesh && !export_lifecycle,
-        "excluded_scope":if blender_mesh { "independent cargo runs, resident viewport comparison, export and gameplay" }
+        "resident_mode_comparison_included":!scene_tree_startup && !blender_mesh && !export_lifecycle,
+        "excluded_scope":if scene_tree_startup { "saved play, independent game, project reopening and export" }
+            else if blender_mesh { "independent cargo runs, resident viewport comparison, export and gameplay" }
             else { "player initialization, movement, inventory, skills and combat" },
         "elapsed_seconds":started.elapsed().as_secs_f64(),"work_directory":work,
         // 移动程序验收必须记录实际绑定的资源根，不能只凭窗口成功推定使用了安装资源。
@@ -388,8 +348,108 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     if control.cleanup_failed() {
         return Err("验收进程收口未确认".into());
     }
-    let label = if blender_mesh { "Blender 网格往返窗口验收完成" } else { "双模式窗口验收完成" };
+    let label = if scene_tree_startup { "首次打开场景树窗口验收完成" }
+        else if blender_mesh { "Blender 网格往返窗口验收完成" } else { "双模式窗口验收完成" };
     println!("{label}：{}", report.display());
+    Ok(())
+}
+
+#[cfg(windows)]
+fn author_window_command(root: &Path, target: &Path, output: &Path, startup_only: bool) -> Result<Command, String> {
+    fs::create_dir(output).map_err(|error| format!("作者验收输出不能独占创建：{error}"))?;
+    let mut command = Command::new(std::env::current_exe().map_err(|error| error.to_string())?);
+    for name in [
+        "NEW_EDITOR_NATIVE_SMOKE_PLAY", "NEW_EDITOR_NATIVE_SMOKE_SAVE", "NEW_EDITOR_NATIVE_SMOKE_AUTHORING",
+        "NEW_EDITOR_NATIVE_SMOKE_RECOVERY", "NEW_EDITOR_NATIVE_SMOKE_CLOSE", "NEW_EDITOR_NATIVE_SMOKE_SCENE_TOOLS",
+        "NEW_EDITOR_NATIVE_SMOKE_AUTHOR_TOOLS", "NEW_EDITOR_GAME_SMOKE_DIR",
+    ] {
+        command.env_remove(name);
+    }
+    if startup_only {
+        // 首次打开专项不继承外层其他验收计划，作者偏好与插件另由同一隔离入口设置。
+        for (key, _) in std::env::vars_os() {
+            let name = key.to_string_lossy();
+            if name.starts_with("NEW_EDITOR_") || name.starts_with("FEATHRISE_WORKSPACE_")
+                || name.starts_with("FEATHRISE_EMBEDDED_") || name.contains("_VALIDATION")
+                || name.contains("_SMOKE_") || name.starts_with("FEATHRISE_EXPORT_")
+                || name.starts_with("FEATHRISE_CODE_ITERATION_") || name.starts_with("FEATHRISE_FILE_MANAGER_")
+                || name.starts_with("FEATHRISE_PROJECT_BROWSER_")
+            {
+                command.env_remove(key);
+            }
+        }
+    }
+    isolate_author_command(&mut command, output)?;
+    command.arg("--native-editor").arg("--project").arg(root).arg("--target-dir").arg(target)
+        .env("NEW_EDITOR_NATIVE_SMOKE_DIR", output);
+    Ok(command)
+}
+
+#[cfg(windows)]
+fn run_author_window(command: &Command, control: &BuildControl, root: &Path, output: &Path) -> Result<(project::Project, Value), String> {
+    let run = build_process::run(command, control, Some(Duration::from_secs(1900)), tail)?;
+    fs::write(output.join("process.log"), format!("{}\n{}", run.stdout, run.stderr))
+        .map_err(|error| error.to_string())?;
+    if run.exit_code != 0 {
+        return Err(format!("原生编辑器验收退出{}：{}\n{}", run.exit_code, run.stdout, run.stderr));
+    }
+    let observed: Value = serde_json::from_slice(&fs::read(output.join("native-editor.json"))
+        .map_err(|error| error.to_string())?).map_err(|error| error.to_string())?;
+    if observed["passed"] != true {
+        return Err(format!("原生编辑器验收未通过：{observed}"));
+    }
+    let project = project::open(root)?;
+    if observed["schema"] != 2 || observed["project_root"] != json!(project.root)
+        || observed["asset_root"] != json!(project.context.asset_roots[0])
+        || observed["camera_3d_count"].as_u64().unwrap_or(0) == 0
+    {
+        return Err("编辑器没有确认当前工程来源及实际3D视图".into());
+    }
+    Ok((project, observed))
+}
+
+#[cfg(windows)]
+fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control: &BuildControl, steps: &mut Vec<Value>) -> Result<(), String> {
+    use bevy::{
+        asset::RenderAssetUsages,
+        image::{CompressedImageFormats, ImageSampler, ImageType},
+        prelude::Image,
+    };
+
+    let label = "独立工程 A";
+    let root = project_template::create_with_control(&work.join(label), label, repository, control)?;
+    fixture::prepare(&root, label)?;
+    steps.push(json!({"stage":"create_owned_scene_tree_startup_fixture","passed":true,"root":root}));
+    let output = work.join("editor-1");
+    let mut command = author_window_command(&root, target, &output, true)?;
+    command.env("NEW_EDITOR_NATIVE_SMOKE_SAVE", "1").env("FEATHRISE_SCENE_TREE_VALIDATION", "1")
+        .env(SCENE_TREE_STARTUP, "1");
+    let (project, observed) = run_author_window(&command, control, &root, &output)?;
+    let proof = &observed["author_save"];
+    if proof["complete"] != true || proof["draft_clean"] != true || proof["handoff_complete"] != true
+        || !proof["error"].is_null() || proof["source_project_root"] != json!(project.root)
+        || proof["source_asset_root"] != json!(project.context.asset_roots[0])
+        || proof["successful_save_sequence"].as_u64().zip(proof["original_save_sequence"].as_u64())
+            .is_none_or(|(after, before)| after == before)
+        || !proof["scene_tree"]["startup"].is_object()
+    {
+        return Err(format!("首次打开场景树或原保存缺少真实回执：{proof}"));
+    }
+    let placement = proof["new_placement_id"].as_str().ok_or("保存报告缺少本轮新增摆放 ID")?;
+    let placement_path = fixture::MODEL_SURFACE_SOURCE; // 场景树种子和保存均使用 M1-SAMPLE 私有 scene.glb。
+    let saved = fs::read(project.context.asset_roots[0].join(placement_path)).map_err(|error| error.to_string())?;
+    let saved = feathrise_scene_content::read_scene_placements(&saved, placement_path)?;
+    if saved.scene_id.as_str() != "M1-SAMPLE" || !saved.placements.iter().any(|record| record.id == placement) {
+        return Err("本轮立方体未随原保存写入该场景的 GLB".into());
+    }
+    let screenshot = output.join("scene-tree-startup.png");
+    let bytes = fs::read(&screenshot).map_err(|error| format!("无法读取首屏GPU截图：{error}"))?;
+    let image = Image::from_buffer(&bytes, ImageType::Extension("png"), CompressedImageFormats::NONE,
+        true, ImageSampler::nearest(), RenderAssetUsages::default())
+        .map_err(|error| format!("首屏GPU截图无法解码：{error}"))?;
+    steps.push(json!({"stage":"scene_tree_startup_in_original_editor","passed":true,"report":observed,"saved_placement_id":placement,
+        "startup_screenshot":{"path":screenshot,"width":image.width(),"height":image.height(),
+            "sha256":Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>()}}));
     Ok(())
 }
 
