@@ -5,7 +5,7 @@ use super::{components::*, resources::SceneContextMenuState, types::*};
 use crate::{
     authoring::{
         EditorAuthoringSession,
-        blender_mesh::BlenderMeshAction,
+        blender_mesh::{BlenderMainSceneAction, BlenderMeshAction},
     },
     components::SceneEditorRoot,
     resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState},
@@ -400,6 +400,7 @@ pub(super) fn send_blender_action(
     editor: Res<SceneEditorState>,
     session: Res<EditorAuthoringSession>,
     mut actions: MessageWriter<BlenderMeshAction>,
+    mut main_scenes: MessageWriter<BlenderMainSceneAction>,
 ) {
     let Some(request) = menu.ready.as_ref().filter(|request| request.action.is_blender()) else {
         return;
@@ -412,13 +413,15 @@ pub(super) fn send_blender_action(
     {
         return;
     }
-    let SceneObjectKey::Placement { id, .. } = &target.key else {
-        return;
-    };
-    actions.write(BlenderMeshAction {
-        scene_id: target.scene_id.clone(),
-        placement_id: id.clone(),
-    });
+    match &target.key {
+        SceneObjectKey::MainSceneGlb => {
+            main_scenes.write(BlenderMainSceneAction { scene_id: target.scene_id.clone() });
+        }
+        SceneObjectKey::Placement { id, .. } => {
+            actions.write(BlenderMeshAction { scene_id: target.scene_id.clone(), placement_id: id.clone() });
+        }
+        _ => {}
+    }
 }
 
 pub(super) fn reveal_glb_file(

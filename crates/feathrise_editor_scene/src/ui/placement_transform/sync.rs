@@ -15,7 +15,7 @@ use super::{
     SceneEditorPlacementTransformActionButton, SceneEditorPlacementTransformPanel, SceneEditorPlacementTransformLocate,
     SceneEditorPlacementTransformSummary, PlacementRelocationIntent, PlacementTransformAction,
     PlacementTransformField, PlacementTransformInputState, selected_target,
-    PlacementPropertiesSection, SceneEditorCuboidGeometryRow,
+    PlacementPropertiesSection, SceneEditorCuboidGeometryRow, SceneEditorAnimationRotationRow,
 }; // 当前面板marker、字段、动作和吸附模式。
 use crate::authoring::EditorAuthoringSession; // 当前完整记录和场景边界来自作者草稿。
 use crate::resources::SceneEditorState; // F12生命周期、选择场景与保存状态。
@@ -34,16 +34,16 @@ pub(crate) fn sync_placement_transform_panel(
     active: Res<ActiveNumericInput>,      // 字符缓冲期间不得覆盖显示或规格。
     active_scrub: Res<ActiveNumericInputScrub>, // 左右拖动期间不得覆盖数值和倍率。
     mut panels: Query<
-        (&mut Node, Option<&PlacementPropertiesSection>, Has<SceneEditorCuboidGeometryRow>),
+        (&mut Node, Option<&PlacementPropertiesSection>, Has<SceneEditorCuboidGeometryRow>, Has<SceneEditorAnimationRotationRow>),
         (
-            Or<(With<SceneEditorPlacementTransformPanel>, With<PlacementPropertiesSection>, With<SceneEditorCuboidGeometryRow>)>,
+            Or<(With<SceneEditorPlacementTransformPanel>, With<PlacementPropertiesSection>, With<SceneEditorCuboidGeometryRow>, With<SceneEditorAnimationRotationRow>)>,
             Without<super::PlacementTransformInputSlot>,
             Without<SceneEditorPlacementTransformActionButton>,
         ),
     >, // 与槽位Node显式互斥。
     mut slots: Query<
         (&super::PlacementTransformInputSlot, &mut Node),
-        (Without<SceneEditorPlacementTransformPanel>, Without<PlacementPropertiesSection>, Without<SceneEditorCuboidGeometryRow>, Without<SceneEditorPlacementTransformActionButton>),
+        (Without<SceneEditorPlacementTransformPanel>, Without<PlacementPropertiesSection>, Without<SceneEditorCuboidGeometryRow>, Without<SceneEditorAnimationRotationRow>, Without<SceneEditorPlacementTransformActionButton>),
     >,
     mut summaries: Query<&mut Text, With<SceneEditorPlacementTransformSummary>>, // 唯一身份与变换摘要。
     mut inputs: Query<(
@@ -63,7 +63,7 @@ pub(crate) fn sync_placement_transform_panel(
             &mut BackgroundColor,
             &mut BorderColor,
         ),
-        (Without<SceneEditorPlacementTransformPanel>, Without<PlacementPropertiesSection>, Without<SceneEditorCuboidGeometryRow>),
+        (Without<SceneEditorPlacementTransformPanel>, Without<PlacementPropertiesSection>, Without<SceneEditorCuboidGeometryRow>, Without<SceneEditorAnimationRotationRow>),
     >, // 面板与按钮Node必须静态互斥，建筑旋转只在适用时显示。
     candidates: Res<crate::viewport::content_selection::LayerCandidateState>,
     locate_buttons: Query<
@@ -105,6 +105,7 @@ pub(crate) fn sync_placement_transform_panel(
     });
     let animation_target = animation.zip(target.as_ref())
         .filter(|(workbench, target)| workbench.owns(&target.scene_id, &target.placement_id));
+    let editing_animation = animation_target.is_some();
     let animation_pose = animation_target.zip(record)
         .and_then(|((workbench, target), record)| workbench.pose_for(record, &target.scene_id));
     let visible = editor.open && record.is_some(); // 重复ID、在途签名和无选择都完整收起。
@@ -153,7 +154,8 @@ pub(crate) fn sync_placement_transform_panel(
             .is_some_and(|patch| patch.cutout.is_some())
     });
     for (slot, mut node) in &mut slots {
-        let display = if (slot.0.is_cutout() && !has_cutout) || record.is_none_or(|record| !slot.0.supported_by(record)) {
+        let display = if !slot.0.available_in_mode(editing_animation) || (slot.0.is_cutout() && !has_cutout)
+            || record.is_none_or(|record| !slot.0.supported_by(record)) {
             Display::None
         } else {
             Display::Flex
@@ -162,10 +164,11 @@ pub(crate) fn sync_placement_transform_panel(
             node.display = display;
         }
     }
-    for (mut panel, section, cuboid_geometry) in &mut panels {
+    for (mut panel, section, cuboid_geometry, animation_rotation) in &mut panels {
         let display = if visible && (!cuboid_geometry || has_size_recipe)
+            && (!animation_rotation || editing_animation)
             && section.is_none_or(|section| record.is_some_and(|record| section.supported_by(record))) {
-            Display::Flex // 选择稳定完整记录后显示全部七字段和动作。
+            Display::Flex // 选择稳定完整记录后显示当前模式的字段和动作。
         } else {
             Display::None // 无选择时不占场景页滚动高度。
         };
@@ -210,11 +213,16 @@ pub(crate) fn sync_placement_transform_panel(
         .and_then(|draft| record.and_then(|record| crate::authoring::placement_record_bounds(draft, record).ok())); // 补丁数值按源局部范围配置，容器不能截断合法源坐标。
     let context_editable = visible
         && !mesh_editing
+        && !editor.close_requested
         && !session.saving
         && !editor.new_scene_dialog_open
+        && !editor.scene_transition_in_progress
+        && editor.pending_scene_transition.is_none()
+        && !editor.scene_switch_confirmation_open()
         && !state.relocation_armed(); // 建筑只能走五点地基受检动作，禁用七个普通任意数值入口。
     for (entity, field, current, disabled, mut config, mut scrub) in &mut inputs {
         let context_editable = context_editable && (!is_building || field.is_lod())
+            && field.available_in_mode(editing_animation)
             && (!field.is_cutout() || has_cutout)
             && record.is_some_and(|record| field.supported_by(record))
             && (!field.is_animation_pose() || animation_target.is_none_or(|(workbench, target)|
@@ -227,13 +235,13 @@ pub(crate) fn sync_placement_transform_panel(
             }
         }
         if active.entity != Some(entity) {
-            let spec = field.spec(bounds); // 当前场景X/Z边界可能随切换场景变化。
+            let spec = field.spec(bounds, editing_animation);
             if config.0 != spec {
                 config.0 = spec; // 只更新下一次精确输入，当前字符缓冲不换规则。
             }
         }
         if active_scrub.entity != Some(entity) {
-            let next = field.scrub_config(&settings, bounds); // 轴范围和三类倍率共同形成下一次拖动配置。
+            let next = field.scrub_config(settings, bounds, editing_animation); // 轴范围和三类倍率共同形成下一次拖动配置。
             if *scrub != next {
                 *scrub = next; // 当前物理拖动捕获期间不改变映射。
             }
@@ -243,10 +251,7 @@ pub(crate) fn sync_placement_transform_panel(
         }
         let value = animation_pose.and_then(|pose| field.animation_value(pose))
             .unwrap_or_else(|| record.map_or(0.0, |record| field.value(record)));
-        let mut value = round_to_decimals(value, field.decimals()); // 显示精度不反向量化作者高精度源。
-        if animation_pose.is_some() && *field == PlacementTransformField::Yaw {
-            value = value.rem_euclid(360.0); // 接近整圈时仍与原循环控件的显示规范一致。
-        }
+        let value = round_to_decimals(value, field.decimals()); // 显示精度不反向量化作者高精度源。
         if current.0.as_f32() != Some(value) {
             set_values.write(NumericInputSetValue {
                 entity,                          // 只同步当前字段根。

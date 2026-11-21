@@ -11,6 +11,7 @@ use crate::{
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SceneObjectKey {
+    MainSceneGlb,
     Placement {
         index: usize,
         id: String,
@@ -142,6 +143,7 @@ impl SceneObjectTarget {
             return false;
         };
         match &self.key {
+            SceneObjectKey::MainSceneGlb => draft.placement_glb_hash.is_some(),
             SceneObjectKey::Placement { index, id, .. } => draft
                 .placements
                 .placements
@@ -202,6 +204,10 @@ impl SceneObjectTarget {
         action: SceneMenuAction,
         session: &EditorAuthoringSession,
     ) -> bool {
+        if matches!(self.key, SceneObjectKey::MainSceneGlb) {
+            return self.supports(action) && session.draft.as_ref().is_some_and(|draft|
+                draft.scene_id == self.scene_id && draft.placement_glb_hash.is_some());
+        }
         if action == SceneMenuAction::RevealGlb {
             return self.glb_path(session).is_some();
         }
@@ -232,6 +238,9 @@ impl SceneObjectTarget {
     }
 
     fn supports(&self, action: SceneMenuAction) -> bool {
+        if matches!(self.key, SceneObjectKey::MainSceneGlb) {
+            return action.is_blender();
+        }
         // 游戏领域仍使用原六个菜单动作的位掩码，编辑器专属命令不进入该协议。
         if action.is_blender() {
             return matches!(self.key, SceneObjectKey::Placement { mesh: None, .. });
@@ -269,7 +278,8 @@ impl SceneObjectTarget {
                 }
                 SceneMenuAction::Rename => !self.locked,
                 SceneMenuAction::EditInBlender => {
-                    !self.locked && !self.hidden && self.copyable
+                    !self.locked && !self.hidden
+                        && (self.copyable || matches!(self.key, SceneObjectKey::MainSceneGlb))
                 }
                 SceneMenuAction::Copy
                     if matches!(self.key, SceneObjectKey::Domain { copy_locked: true, .. }) =>

@@ -127,6 +127,15 @@ fn controls_fit_real_chinese_font_in_narrow_scaled_sidebars() {
             count += 1;
         }
         assert_eq!(count, 6);
+        let (name_size, name_center) = world.query::<(&ObjectInput, &ComputedNode, &UiGlobalTransform)>()
+            .iter(world).find(|(input, ..)| input.0 == ObjectField::Name)
+            .map(|(_, node, transform)| (node.size(), transform.translation)).unwrap();
+        let (confirm_size, confirm_center) = world.query::<(&ObjectButton, &ComputedNode, &UiGlobalTransform)>()
+            .iter(world).find(|(button, ..)| button.0 == ObjectAction::Rename)
+            .map(|(_, node, transform)| (node.size(), transform.translation)).unwrap();
+        assert!((name_center.y - confirm_center.y).abs() <= 1.1);
+        assert!(name_center.x + name_size.x / 2.0 < confirm_center.x - confirm_size.x / 2.0);
+        assert!(name_size.x > confirm_size.x); // 长名称占剩余一行，确认按钮只占标签所需尺寸。
         assert!(world.query::<&ObjectButton>().iter(world).all(|button|
             !matches!(button.0, ObjectAction::ToggleHidden | ObjectAction::ToggleLocked)));
     }

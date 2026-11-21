@@ -300,7 +300,7 @@ fn choose(fixture: &mut Fixture, action: SceneMenuAction) {
 
 #[test]
 fn blender_menu_opens_builtin_and_whole_glb_placements() {
-    use crate::authoring::blender_mesh::BlenderMeshAction;
+    use crate::authoring::blender_mesh::{BlenderMainSceneAction, BlenderMeshAction};
     use feathrise_editor_ui::localization::EditorLocale;
     use feathrise_scene_content::ScenePlacementAssetTarget;
 
@@ -312,6 +312,7 @@ fn blender_menu_opens_builtin_and_whole_glb_placements() {
         let mut test = fixture();
         test.app
             .add_message::<BlenderMeshAction>()
+            .add_message::<BlenderMainSceneAction>()
             .add_systems(Update, systems::send_blender_action.after(super::focus::select_target))
             .insert_resource(EditorLocale::English);
         {
@@ -347,6 +348,50 @@ fn blender_menu_opens_builtin_and_whole_glb_placements() {
             assert!(command.is_none());
         }
     }
+}
+
+#[test]
+fn main_scene_blender_menu_keeps_the_current_placement_selected() {
+    use crate::{
+        authoring::blender_mesh::{BlenderMainSceneAction, BlenderMeshAction},
+        ui::gltf_browser::EditorGltfBrowserState,
+    };
+
+    let mut test = fixture();
+    test.app
+        .add_message::<BlenderMeshAction>()
+        .add_message::<BlenderMainSceneAction>()
+        .init_resource::<EditorGltfBrowserState>()
+        .add_systems(Update, systems::send_blender_action.after(super::focus::select_target));
+    let world = test.app.world_mut();
+    let (main, selected) = {
+        let mut session = world.resource_mut::<EditorAuthoringSession>();
+        let draft = session.draft.as_mut().unwrap();
+        draft.placement_glb_hash = Some("fixture".into());
+        let selected = draft.placements.placements[0].id.clone();
+        let mut main = target(&session);
+        main.key = SceneObjectKey::MainSceneGlb;
+        main.copyable = false;
+        (main, selected)
+    };
+    world.resource_mut::<EditorGltfBrowserState>().selected_placement_id = Some(selected.clone());
+    world.entity_mut(test.row).insert(SceneObjectRow(Some(main.clone())));
+    open(&mut test);
+    let world = test.app.world_mut();
+    let commands: Vec<_> = world.query::<(&MenuButton, &Node)>().iter(world)
+        .filter_map(|(button, node)| (node.display == Display::Flex).then_some(button.0))
+        .collect();
+    assert_eq!(commands, [SceneMenuAction::EditInBlender]);
+    choose(&mut test, SceneMenuAction::EditInBlender);
+    test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+    step(&mut test.app);
+    step(&mut test.app);
+    let world = test.app.world();
+    let messages = world.resource::<Messages<BlenderMainSceneAction>>();
+    assert!(messages.get_cursor().read(messages).any(|command| command.scene_id == main.scene_id));
+    let placements = world.resource::<Messages<BlenderMeshAction>>();
+    assert!(placements.get_cursor().read(placements).next().is_none());
+    assert_eq!(world.resource::<EditorGltfBrowserState>().selected_placement_id, Some(selected));
 }
 
 #[test]

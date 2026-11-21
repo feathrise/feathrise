@@ -61,8 +61,8 @@ pub enum EditorCommand {
         after: Option<super::scene_motion::SceneMotionTrack>,
     },
     SceneMotionTimingChanged {
-        before: (f32, super::scene_motion::SceneMotionPlayback),
-        after: (f32, super::scene_motion::SceneMotionPlayback),
+        before: super::scene_motion::SceneMotionTiming,
+        after: super::scene_motion::SceneMotionTiming,
     },
     /// 显式建筑整平把placement与真实GLB顶点差分绑定为一条不可拆分事务。
     BuildingTerrainChanged(Box<BuildingTerrainChange>), // Box避免扩大每条普通历史命令的栈尺寸。

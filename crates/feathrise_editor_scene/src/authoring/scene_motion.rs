@@ -1,6 +1,6 @@
 //! 主场景 GLB 变换动画的作者投影，采样与标准通道使用原 GLB 动画合同。
 
-use bevy::math::{EulerRot, Quat, Vec3};
+use bevy::{gltf::gltf::binary::Glb, math::{EulerRot, Quat, Vec3}};
 use feathrise_editor_animation_model::data::{AnimationDocument, Channel, Clip, Keyframe};
 use feathrise_scene_content::{ScenePlacementsAsset, authoring_io::bytes_hash};
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,7 @@ const OWNER: &str = "feathrise_scene_animation";
 const SCENE_ID: &str = "feathrise_scene_id";
 const DURATION: &str = "feathrise_duration";
 const PLAYBACK: &str = "feathrise_playback";
+const AUTO_PLAY: &str = "feathrise_autoplay";
 const COLLIDER: &str = "feathrise_motion_collider";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,6 +32,20 @@ impl SceneMotionPlayback {
             Self::Loop => elapsed.rem_euclid(duration),
             Self::PingPong => duration - (elapsed.rem_euclid(2.0 * duration) - duration).abs(),
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SceneMotionTiming {
+    pub(crate) duration_seconds: f32,
+    pub(crate) playback: SceneMotionPlayback,
+    /// 进入工程预览或游戏后是否开始。编辑时间轴的播放始终由作者控制。
+    pub(crate) auto_play: bool,
+}
+
+impl Default for SceneMotionTiming {
+    fn default() -> Self {
+        Self { duration_seconds: 2.0, playback: SceneMotionPlayback::Once, auto_play: false }
     }
 }
 
@@ -121,21 +136,33 @@ fn degrees(rotation: Quat) -> [f32; 3] {
 #[derive(Clone)]
 pub(crate) struct SceneMotionDocument {
     tracks: Arc<BTreeMap<String, SceneMotionTrack>>,
-    timing: (f32, SceneMotionPlayback),
+    // 目录跟随已打开和已保存的 GLB 修订。保存快照和 UI 只共享名称。
+    clip_names: Arc<[String]>,
+    timing: SceneMotionTiming,
     available: bool,
     pub(crate) dirty: bool,
 }
 
 impl Default for SceneMotionDocument {
     fn default() -> Self {
-        Self { tracks: Default::default(), timing: (2.0, SceneMotionPlayback::Once), available: false, dirty: false }
+        Self {
+            tracks: Default::default(),
+            clip_names: Default::default(),
+            timing: SceneMotionTiming::default(),
+            available: false,
+            dirty: false,
+        }
     }
 }
 
 impl SceneMotionDocument {
     pub(crate) fn from_glb(path: &Path, bytes: Vec<u8>, placements: &ScenePlacementsAsset) -> Result<Self, String> {
         let glb = AnimationDocument::from_glb_bytes(path, bytes)?;
-        let mut result = Self { available: true, ..Self::default() };
+        let mut result = Self {
+            available: true,
+            clip_names: glb.inspect_glb(|json, _| read_clip_names(json)),
+            ..Self::default()
+        };
         let ids: HashSet<_> = placements.placements.iter().map(|record| record.id.as_str()).collect();
         let nodes = placement_nodes(&glb, &ids);
         let Some(clip) = active_clip(&glb, &nodes) else { return Ok(result); };
@@ -144,7 +171,8 @@ impl SceneMotionDocument {
             .unwrap_or(0.0).max(clip.duration()).max(1.0 / 30.0);
         let playback = glb.clip_extra(clip.source_index, PLAYBACK).cloned()
             .and_then(|value| serde_json::from_value(value).ok()).unwrap_or_default();
-        result.timing = (duration, playback);
+        let auto_play = glb.clip_extra(clip.source_index, AUTO_PLAY).and_then(Value::as_bool).unwrap_or_default();
+        result.timing = SceneMotionTiming { duration_seconds: duration, playback, auto_play };
         let tracks = Arc::make_mut(&mut result.tracks);
         for channel in &clip.channels {
             let Some(id) = nodes.get(&channel.node).filter(|_| matches!(channel.path.as_str(), "translation" | "rotation"))
@@ -160,10 +188,19 @@ impl SceneMotionDocument {
     }
 
     pub(crate) fn available(&self) -> bool { self.available }
-    pub(crate) fn timing(&self) -> (f32, SceneMotionPlayback) { self.timing }
+    pub(crate) fn clip_names(&self) -> &[String] { &self.clip_names }
+    pub(crate) fn timing(&self) -> SceneMotionTiming { self.timing }
 
-    pub(crate) fn set_timing(&mut self, duration: f32, playback: SceneMotionPlayback) {
-        self.timing = (duration, playback);
+    /// 摆放删除可能让整个片段失去通道。从正式候选的 JSON 取名，不复制 BIN 或解码关键帧。
+    pub(crate) fn with_saved_clip_names(&self, bytes: &[u8]) -> Result<Option<Self>, String> {
+        let glb = Glb::from_slice(bytes).map_err(|error| error.to_string())?;
+        let json = serde_json::from_slice(&glb.json).map_err(|error| error.to_string())?;
+        let clip_names = read_clip_names(&json);
+        Ok((clip_names != self.clip_names).then(|| Self { clip_names, ..self.clone() }))
+    }
+
+    pub(crate) fn set_timing(&mut self, timing: SceneMotionTiming) {
+        self.timing = timing;
         self.dirty = true;
     }
 
@@ -210,7 +247,7 @@ impl SceneMotionDocument {
                 }
             }
         }
-        let (duration, playback) = self.timing;
+        let SceneMotionTiming { duration_seconds: duration, playback, auto_play } = self.timing;
         if !duration.is_finite() || duration <= 0.0 || duration + 1e-6 < clip.duration() {
             return Err("场景动画结束帧必须容纳所有关键帧".into());
         }
@@ -221,8 +258,9 @@ impl SceneMotionDocument {
                 .and_then(|node| node["extras"]["feathrise_geometry_hash"].as_str())
                 .is_some_and(|hash| geometry_hash(json, bin) == hash)
         });
+        let mut saved = self.clone();
         let bytes = glb.encode_owned_clip(owned.map(|clip| clip.source_index), &clip,
-            json!({(OWNER): true, (DURATION): duration, (PLAYBACK): playback}),
+            json!({(OWNER): true, (DURATION): duration, (PLAYBACK): playback, (AUTO_PLAY): auto_play}),
             |json, bin| {
                 for (node, collider) in colliders {
                     if let Some(extras) = json["nodes"][node]["extras"].as_object_mut() {
@@ -237,13 +275,23 @@ impl SceneMotionDocument {
                 {
                     root["extras"][OWNER] = json!(true);
                 }
+                saved.clip_names = read_clip_names(json);
                 Ok(())
             })?;
-        let mut saved = self.clone();
         Arc::make_mut(&mut saved.tracks).retain(|id, _| ids.contains(id.as_str()));
         saved.dirty = false;
         Ok((bytes, saved))
     }
+}
+
+fn read_clip_names(json: &Value) -> Arc<[String]> {
+    let Some(clips) = json["animations"].as_array() else { return Arc::default(); };
+    clips.iter().enumerate().map(|(index, clip)| {
+        clip["name"]
+            .as_str()
+            .filter(|name| !name.trim().is_empty())
+            .map_or_else(|| format!("动画 {}", index + 1), str::to_owned)
+    }).collect()
 }
 
 fn placement_nodes(glb: &AnimationDocument, ids: &HashSet<&str>) -> BTreeMap<usize, String> {

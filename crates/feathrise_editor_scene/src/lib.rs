@@ -417,14 +417,17 @@ impl Plugin for SceneEditorPlugin {
                                 )
                                     .chain(), // 局部嵌套避免超过外层系统元组上限，仍保持原有输入顺序。
                                 handle_new_scene_form_input, // 尺寸公共提交已在前组完成，本系统只处理名称与Enter顺序。
-                                handle_editor_shortcuts,
+                                (
+                                    // 点击插帧会让右栏数字失焦，先把当帧提交交给动画，再交由全局快捷键处理。
+                                    handle_placement_transform_numeric_input,
+                                    handle_editor_shortcuts,
+                                ).chain(),
                                 scroll_editor_side_panels,
                             )
                                 .chain(),
                         )
                             .chain(), // 分组保持作者域严格顺序，同时避开超长系统元组实现上限。
                         (
-                            handle_placement_transform_numeric_input, // 完整资产七字段先收口字符、拖动与灵敏度。
                             handle_placement_water_numeric_input, // 左键单击精确输入与右拖灵敏度先按旧Scene0选择收口。
                             apply_placement_water_numeric_scrub, // 左拖实时值在松开时只写一条有界PlacementChanged。
                             handle_asset_row_clicks,

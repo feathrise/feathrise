@@ -1,12 +1,15 @@
-# Feathrise 单对象 Blender 会话。模型只交换标准 GLB，保存使用项目原自动导出插件。
-# 用法：blender --disable-autoexec --python-exit-code 1 --python bridge.py -- <会话目录> <输入GLB> <导出脚本路径>
+# Feathrise 单对象与主场景 Blender 会话。保存均使用项目原自动导出插件。
+# 用法：blender --disable-autoexec --python-exit-code 1 --python bridge.py -- <会话目录> <输入GLB> <导出脚本路径> [main_scene <场景ID> <源摘要>]
 # 依赖：Blender 4.0+ 内置 glTF 和由编辑器准备的导出脚本。
 
 import hashlib
+import json
 import os
 import runpy
+import shutil
 import struct
 import sys
+import uuid
 from pathlib import Path
 
 import bmesh
@@ -24,10 +27,10 @@ def load_exporter(path):
     # 只接管项目导出回调。保留正常启动已启用的第三方插件和用户偏好。
     handlers = bpy.app.handlers.save_post
     handlers[:] = [handler for handler in handlers if not owns_handler(handler)]
-    return export, saved_path
+    return plugin, export, saved_path
 
 
-def import_model(source, builtin_seed):
+def import_model(source, builtin_seed, require_mesh=True):
     for obj in tuple(bpy.context.scene.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
     if "FINISHED" not in bpy.ops.import_scene.gltf(filepath=str(source)):
@@ -51,7 +54,9 @@ def import_model(source, builtin_seed):
     view_layer.update()  # 刷新移除场景标记后的活动对象列表。
     meshes = [obj for obj in view_layer.objects if obj.type == "MESH" and obj.visible_get()]
     if not meshes:
-        raise RuntimeError("输入 GLB 没有可建模的网格。")
+        if require_mesh:
+            raise RuntimeError("输入 GLB 没有可建模的网格。")
+        return None
     for obj in bpy.context.selected_objects:
         obj.select_set(False)
     for obj in meshes:
@@ -100,12 +105,204 @@ def initial_digest(path):
     return digest.hexdigest()
 
 
+def read_glb_json(path):
+    with path.open("rb") as stream:
+        stream.seek(12)
+        size, kind = struct.unpack("<I4s", stream.read(8))
+        if kind != b"JSON":
+            raise RuntimeError("主场景 GLB 缺少 JSON 块。")
+        return json.loads(stream.read(size)), 20 + size
+
+
+def main_scene_version(data, scene_id):
+    # 完整场景保存必须保留目录登记的根标记，否则禁止覆盖可用的游戏场景。
+    nodes = data["nodes"]
+    roots = data["scenes"][data.get("scene", 0)]["nodes"]
+    extras = [nodes[index].get("extras") or {} for index in roots]
+    markers = [values for values in extras if "feathrise_scene_id" in values]
+    if len(markers) != 1 or markers[0]["feathrise_scene_id"] != scene_id:
+        raise RuntimeError(f"主场景根标记丢失或不属于 {scene_id}。")
+    return markers[0]["feathrise_scene_version"]
+
+
+def action_bindings():
+    for obj in bpy.context.scene.objects:
+        animation = obj.animation_data
+        if animation is None:
+            continue
+        if animation.action is not None:
+            yield None, animation.action
+        for track in animation.nla_tracks:
+            for strip in track.strips:
+                if strip.action is not None:
+                    yield track.name, strip.action
+
+
+def tag_scene_animations(source_count, metadata, marker):
+    tracks = getattr(bpy.context.scene, "gltf2_animation_tracks", ())
+    if len(tracks) != source_count:
+        return set()
+    # Blender 的导入页签顺序对应原 GLB。动作携带真实来源，即使之后在 Blender 改名。
+    identities = {tracks[index].name: index for index in metadata}
+    tagged = set()
+    for name, action in action_bindings():
+        if name in identities:
+            index = identities[name]
+            action[marker] = index
+            tagged.add(index)
+    return tagged
+
+
+def clip_signature(document, clip):
+    # 仅对可核对到稳定摆放的通道按名称匹配，避免把播放设置赋给同名新动作。
+    name = clip.get("name")
+    if not name:
+        return None
+    channels = []
+    for channel in clip["channels"]:
+        target = channel["target"]
+        if "node" not in target:
+            return None
+        node = document["nodes"][target["node"]]
+        identity = (node.get("extras") or {}).get("feathrise_id")
+        if not identity:
+            return None
+        channels.append((identity, target["path"]))
+    return name, tuple(sorted(channels))
+
+
+def restore_scene_animations(signatures, result, metadata, marker, tagged):
+    if not metadata:
+        return False
+    live = {action.get(marker) for _, action in action_bindings()}
+    expected = metadata.keys() - (tagged - live)
+    matched = set()
+    changed = False
+    for clip in result.get("animations", ()):
+        extras = clip.get("extras") or {}
+        index = extras.pop(marker, None)
+        if index is None:
+            candidates = signatures.get(clip_signature(result, clip), [])
+            if len(candidates) != 1 or candidates[0] not in expected:
+                continue
+            index = candidates[0]
+        if index not in expected or index in matched:
+            raise RuntimeError("无法唯一验证主场景动画片段，原 GLB 已保留。")
+        matched.add(index)
+        extras.update(metadata[index])
+        clip["extras"] = extras
+        changed = True
+    if expected != matched:
+        raise RuntimeError("导出缺少仍在使用的主场景动画，原 GLB 已保留。")
+    return changed
+
+
+def write_glb_json(path, data, old_header_size):
+    # 只写已验证的暂存 GLB 的 JSON，BIN 和其它块逐字节复制，原采样器无需换算。
+    encoded = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    encoded += b" " * (-len(encoded) % 4)
+    trailing_size = path.stat().st_size - old_header_size
+    temporary = path.with_name(f".{uuid.uuid4().hex}.glb")
+    try:
+        with path.open("rb") as source, temporary.open("xb") as output:
+            output.write(struct.pack("<4sIII4s", b"glTF", 2, 20 + len(encoded) + trailing_size, len(encoded), b"JSON"))
+            output.write(encoded)
+            source.seek(old_header_size)
+            shutil.copyfileobj(source, output, 1024 * 1024)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def open_main_scene(directory, source, plugin_path, scene_id, expected):
+    if initial_digest(source) != expected:
+        raise RuntimeError("主场景 GLB 已换代，请重新打开场景。")
+    original, _ = read_glb_json(source)
+    version = main_scene_version(original, scene_id)
+    plugin, export, saved_path = load_exporter(plugin_path)
+    set_target = plugin.get("set_glb_export_path_override")
+    clear_target = plugin.get("clear_glb_export_path_override")
+    if not callable(set_target) or not callable(clear_target):
+        raise RuntimeError("项目 Blender 插件缺少受检导出入口。")
+
+    # 始终编辑当前主 GLB 的完整副本。工程中的同名 Blend 可能早于当前版本。
+    span = import_model(source, builtin_seed=False, require_mesh=False)
+    if span is not None:
+        frame_model(span)
+    animations = original.get("animations", ())
+    metadata = {}
+    signatures = {}
+    for index, clip in enumerate(animations):
+        extra = {key: value for key, value in (clip.get("extras") or {}).items() if key.startswith("feathrise_")}
+        if extra:
+            metadata[index] = extra
+        signature = clip_signature(original, clip)
+        if signature is not None:
+            signatures.setdefault(signature, []).append(index)
+    marker = f"feathrise_session_{uuid.uuid4().hex}"
+    tagged = tag_scene_animations(len(animations), metadata, marker)
+    blend = directory / "model.blend"
+    if "FINISHED" not in bpy.ops.wm.save_as_mainfile(filepath=str(blend), check_existing=False):
+        raise RuntimeError("无法创建主场景工作副本。")
+    if initial_digest(source) != expected:
+        raise RuntimeError("导入期间主场景 GLB 已换代，请重新打开场景。")
+
+    @bpy.app.handlers.persistent
+    def saved(*args):
+        if saved_path(args) != blend:
+            return
+        nonlocal expected
+        candidate = source.with_name(f".{source.stem}.{uuid.uuid4().hex}.glb")
+        active = bpy.context.view_layer.objects.active
+        mode = active.mode if active else "OBJECT"
+        try:
+            if initial_digest(source) != expected:
+                raise RuntimeError("主场景 GLB 已被其他程序修改。")
+            # 只在本次保存临时导出。校验来源身份与输出完整性后替换同名主场景。
+            set_target(candidate)
+            export(*args)
+            check_export(candidate, None)
+            document, old_header_size = read_glb_json(candidate)
+            if main_scene_version(document, scene_id) != version:
+                raise RuntimeError("导出的主场景格式版本不同。")
+            if restore_scene_animations(signatures, document, metadata, marker, tagged):
+                write_glb_json(candidate, document, old_header_size)
+            next_digest = initial_digest(candidate)
+            if initial_digest(source) != expected:
+                raise RuntimeError("导出期间主场景 GLB 已被其他程序修改。")
+            os.replace(candidate, source)
+            expected = next_digest
+            print(f"[Feathrise 建模] 已更新主场景：{source}", flush=True)
+        except Exception as error:
+            print(f"[Feathrise 建模] 主场景导出失败：{error}", file=sys.stderr, flush=True)
+            if not bpy.app.background and bpy.context.window is not None:
+                message = str(error)
+                bpy.context.window_manager.popup_menu(
+                    lambda menu, _context: menu.layout.label(text=message),
+                    title="主场景导出失败", icon="ERROR",
+                )
+        finally:
+            clear_target()
+            candidate.unlink(missing_ok=True)
+            restore_mode(active, mode)
+
+    bpy.app.handlers.save_post.append(saved)
+    print(f"[Feathrise 建模] 已打开主场景：{blend}", flush=True)
+
+
+def restore_mode(active, mode):
+    # 原导出器可能退出编辑模式。保留用户当前 Blender 建模操作环境。
+    if mode != "OBJECT" and active == bpy.context.view_layer.objects.active and active.mode == "OBJECT":
+        if bpy.ops.object.mode_set.poll():
+            bpy.ops.object.mode_set(mode=mode)
+
+
 def start_session(directory, source, plugin_path):
     blend_path = directory / "model.blend"
     glb_path = directory / "model.glb"
     if blend_path.exists() or glb_path.exists():
         raise RuntimeError("会话目录已有模型文件。")
-    export, saved_path = load_exporter(plugin_path)
+    _, export, saved_path = load_exporter(plugin_path)
     if hasattr(bpy.app, "use_userpref_skip_save_on_exit"):
         bpy.app.use_userpref_skip_save_on_exit = True
     bpy.context.preferences.filepaths.temporary_directory = str(directory)
@@ -147,10 +344,7 @@ def start_session(directory, source, plugin_path):
             print(f"[Feathrise 建模] 回传失败：{error}", file=sys.stderr, flush=True)
             publish("error", str(error))
         finally:
-            # 原导出器可能退出编辑模式。保留用户当前 Blender 建模操作环境。
-            if mode != "OBJECT" and active == bpy.context.view_layer.objects.active and active.mode == "OBJECT":
-                if bpy.ops.object.mode_set.poll():
-                    bpy.ops.object.mode_set(mode=mode)
+            restore_mode(active, mode)
 
     handlers.append(saved)
     publish("ready")
@@ -159,10 +353,13 @@ def start_session(directory, source, plugin_path):
 
 if __name__ == "__main__":
     arguments = sys.argv[sys.argv.index("--") + 1 :]
-    directory, source, plugin_path = (Path(value).resolve(strict=True) for value in arguments)
+    directory, source, plugin_path = (Path(value).resolve(strict=True) for value in arguments[:3])
     # 先读取出厂空场景，正常启动加载的用户偏好仍留在进程内。
     if "FINISHED" not in bpy.ops.wm.read_homefile(use_factory_startup=True, use_empty=True, app_template=""):
         raise RuntimeError("Blender 未能准备空白建模场景。")
-    window = bpy.context.window or next(iter(bpy.context.window_manager.windows), None)
-    with bpy.context.temp_override(window=window):
-        start_session(directory, source, plugin_path)
+    if len(arguments) == 6 and arguments[3] == "main_scene":
+        open_main_scene(directory, source, plugin_path, arguments[4], arguments[5])
+    else:
+        window = bpy.context.window or next(iter(bpy.context.window_manager.windows), None)
+        with bpy.context.temp_override(window=window):
+            start_session(directory, source, plugin_path)

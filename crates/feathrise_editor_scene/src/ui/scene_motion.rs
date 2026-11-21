@@ -24,16 +24,20 @@ const FPS: f64 = 30.0;
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SceneMotionButton {
     Open, Close, Add, First, PreviousFrame, TogglePlay, NextFrame, Last, CyclePlayback, Seek,
-    InsertPosition, InsertRotation, InsertBoth, DeleteKey, ResetPose,
+    SelectPosition, SelectRotation, InsertKey, DeleteKey, ResetPose, ToggleAutoPlay,
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SceneMotionField { Frame, EndFrame, PositionX, PositionY, PositionZ, RotationX, RotationY, RotationZ }
+pub enum SceneMotionField { Frame, EndFrame }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Channel { Position, Rotation }
 
 impl Channel {
+    fn index(self) -> usize {
+        match self { Self::Position => 0, Self::Rotation => 1 }
+    }
+
     fn keys(self, track: &SceneMotionTrack) -> &[SceneMotionKey] {
         match self { Self::Position => &track.position, Self::Rotation => &track.rotation }
     }
@@ -80,6 +84,13 @@ struct PoseDraft {
     rotation: Option<[f32; 3]>,
 }
 
+/// 默认给完整变换插键。普通点击只选一条，Ctrl 点击增减一条。
+struct KeyingTracks([bool; 2]);
+
+impl Default for KeyingTracks {
+    fn default() -> Self { Self([true, true]) }
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct Workbench {
     scene: Option<SceneId>,
@@ -93,6 +104,7 @@ pub(crate) struct Workbench {
     current_previews: HashMap<Entity, preview::PreviewPose>,
     sampled: Option<SceneAnimationFramePose>,
     draft: PoseDraft,
+    keying_tracks: KeyingTracks,
     selected_key: Option<SelectedKey>,
     ruler_capture: Option<Entity>,
 }
@@ -107,6 +119,16 @@ impl Workbench {
     }
 
     pub(crate) fn frame_time(&self) -> f64 { self.seconds }
+
+    fn keys_channel(&self, channel: Channel) -> bool { self.keying_tracks.0[channel.index()] }
+
+    fn select_track(&mut self, channel: Channel, additive: bool) {
+        let tracks = &mut self.keying_tracks.0;
+        if !additive { *tracks = [false; 2]; }
+        tracks[channel.index()] = !tracks[channel.index()];
+    }
+
+    fn has_keying_tracks(&self) -> bool { self.keying_tracks.0.iter().any(|&selected| selected) }
 
     pub(crate) fn pose_for(&self, record: &ScenePlacementRecord, scene: &SceneId) -> Option<SceneAnimationFramePose> {
         if !self.owns(scene, &record.id) { return None; }
@@ -127,12 +149,6 @@ impl Workbench {
         if !self.can_pose(scene, id) || !Vec3::from_array(value).is_finite() { return false; }
         self.draft.rotation = self.sampled.filter(|pose| pose.rotation_degrees != value).map(|_| value);
         true
-    }
-
-    pub(crate) fn set_rotation_y(&mut self, scene: &SceneId, id: &str, value: f32) -> bool {
-        let Some(mut rotation) = self.draft.rotation.or(self.sampled.map(|pose| pose.rotation_degrees)) else { return false; };
-        rotation[1] = value;
-        self.set_rotation(scene, id, rotation)
     }
 
     fn seek(&mut self, seconds: f64, duration: f32, key: Option<SelectedKey>) {
@@ -163,6 +179,7 @@ impl Workbench {
         self.seconds = 0.0;
         self.elapsed = 0.0;
         self.playing = false;
+        self.keying_tracks = KeyingTracks::default();
         // 关窗后由预览归还实际渲染根，以免覆盖新一代摆放。
     }
 }
@@ -215,6 +232,8 @@ impl Context<'_> {
 pub(crate) fn install(app: &mut App) {
     app.init_resource::<Workbench>()
         .add_systems(Update, input::input
+            // 点插帧会使右栏数值框失焦。先接收同一帧的提交，再采样姿势。
+            .after(crate::ui::placement_transform::handle_placement_transform_numeric_input)
             // I、空格及 Delete 在当前时间轴受理后由它消费，不泄漏给可配置场景快捷键。
             .before(crate::ui::actions::handle_editor_shortcuts)
             .before(crate::authoring::apply_undo_redo)

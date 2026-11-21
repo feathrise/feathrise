@@ -3,13 +3,14 @@
 mod files;
 mod systems;
 
-pub(crate) use systems::{BlenderMeshAction, BlenderMeshSession, supports};
+pub(crate) use systems::{BlenderMainSceneAction, BlenderMeshAction, BlenderMeshSession, supports};
 
 use bevy::prelude::*;
 
 pub(crate) fn install(app: &mut App) {
     app.init_resource::<systems::BlenderMeshSession>()
         .add_message::<BlenderMeshAction>()
+        .add_message::<BlenderMainSceneAction>()
         .add_systems(
             Update,
             systems::update

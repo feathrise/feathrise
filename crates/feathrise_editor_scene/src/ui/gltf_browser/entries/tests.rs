@@ -14,6 +14,59 @@ fn placement_signature(index: usize) -> PlacementSignature {
     }
 }
 
+#[test]
+fn main_glb_prefix_preserves_original_group_membership() {
+    let main_glb = "scenes/MAP-local/scene.glb";
+    let mut signature = (0..8).map(placement_signature).collect::<Vec<_>>();
+    for index in [1, 3, 6] {
+        signature[index].asset_path.clear();
+        signature[index].asset_target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
+    }
+    for index in [2, 4, 7] {
+        signature[index].asset_target = ScenePlacementAssetTarget::Primitive {
+            mesh: 0, primitive: 0, material: None, collision: false,
+        };
+    }
+    for index in [2, 4] {
+        signature[index].asset_path = main_glb.to_owned();
+    }
+    for (index, group) in [(3, "内嵌组"), (4, "内嵌组"), (5, "混合组"), (6, "混合组")] {
+        std::sync::Arc::make_mut(&mut signature[index].editor).group = group.into();
+    }
+    let mut state = EditorGltfBrowserState {
+        main_glb_path: Some(main_glb.into()),
+        has_object_groups: true,
+        expanded_groups: ["内嵌组".into(), "混合组".into()].into_iter().collect(),
+        signature,
+        ..Default::default()
+    };
+
+    request_visible_entries_rebuild(&mut state);
+    assert!(advance_visible_entries_build(&mut state));
+
+    let rows = state.entries.iter().map(|entry| {
+        let (identity, glb) = match &entry.kind {
+            EditorGltfBrowserEntryKind::Placement { placement_id, glb, .. } =>
+                (placement_id.as_str(), *glb),
+            EditorGltfBrowserEntryKind::Group { name, .. } => (name.as_str(), false),
+            _ => panic!("此夹具没有网格子行"),
+        };
+        (identity, entry.depth, glb)
+    }).collect::<Vec<_>>();
+    assert_eq!(state.main_glb_entry_count, 5);
+    assert_eq!(rows[..state.main_glb_entry_count], [
+        ("instance-1", 0, false), ("instance-2", 0, false), ("内嵌组", 0, false),
+        ("instance-3", 1, false), ("instance-4", 1, false),
+    ]);
+    assert_eq!(rows[state.main_glb_entry_count..], [
+        ("instance-0", 0, true), ("instance-7", 0, true), ("混合组", 0, false),
+        ("instance-5", 1, true), ("instance-6", 1, false),
+    ]);
+    assert!(matches!(
+        state.entries[7].kind, EditorGltfBrowserEntryKind::Group { first_member: 5, count: 2, .. }
+    ));
+}
+
 fn mesh_entry(index: usize) -> EditorGltfBrowserEntry {
     EditorGltfBrowserEntry {
         kind: EditorGltfBrowserEntryKind::Mesh, // 旧公开行携带完整稳定选择。

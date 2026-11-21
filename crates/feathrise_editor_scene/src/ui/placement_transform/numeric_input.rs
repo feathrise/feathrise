@@ -1,4 +1,4 @@
-//! 七个资产变换字段的精确提交、左拖事务与右拖灵敏度持久化。
+//! 资产属性数值的精确提交、左拖事务与右拖灵敏度持久化。
 
 use bevy::ecs::system::SystemParam; // 资产句柄与Clipmap曲面收束为一个参数，避免越过Bevy系统元组上限。
 use bevy::prelude::*; // Commands、消息、查询和资源系统参数。
@@ -107,7 +107,11 @@ fn restore_patch_scrub_value(
 /// 当前作者上下文是否允许开始或继续变换输入。
 fn input_context_valid(editor: &SceneEditorState, session: &EditorAuthoringSession) -> bool {
     editor.open
+        && !editor.close_requested
         && !editor.new_scene_dialog_open
+        && !editor.scene_transition_in_progress
+        && editor.pending_scene_transition.is_none()
+        && !editor.scene_switch_confirmation_open()
         && !session.saving
         && session
             .draft
@@ -132,7 +136,7 @@ fn target_is_current(
                 .placements
                 .placements
                 .get(target.record_index)
-                .is_some_and(|record| record.id == target.placement_id)
+                .is_some_and(|record| record.id == target.placement_id && record.editor.selectable())
     }) // O(1)数组槽仍必须复核稳定ID。
 }
 
@@ -154,8 +158,9 @@ fn target_value(
 fn frame_pose(
     workbench: &Workbench, target: &PlacementTransformTarget, session: &EditorAuthoringSession,
 ) -> Option<SceneAnimationFramePose> {
-    let record = session.draft.as_ref()?.placements.placements.get(target.record_index)?;
-    if record.id != target.placement_id { return None; }
+    let draft = session.draft.as_ref().filter(|draft| draft.scene_id == target.scene_id)?;
+    let record = draft.placements.placements.get(target.record_index)
+        .filter(|record| record.id == target.placement_id && record.editor.selectable())?;
     workbench.pose_for(record, &target.scene_id)
 }
 
@@ -163,20 +168,14 @@ fn set_animation_value(
     workbench: &mut Workbench, target: &PlacementTransformTarget, field: PlacementTransformField,
     mut pose: SceneAnimationFramePose, value: f32,
 ) -> bool {
-    let axis = match field {
-        PlacementTransformField::TranslationX => 0,
-        PlacementTransformField::TranslationY => 1,
-        PlacementTransformField::TranslationZ => 2,
-        PlacementTransformField::Yaw => {
-            // 普通属性显示单圈值，编辑时保留动画已有圈数并选择最近的等效角。
-            let yaw = pose.rotation_degrees[1];
-            let delta = (value - yaw.rem_euclid(360.0) + 180.0).rem_euclid(360.0) - 180.0;
-            return workbench.set_rotation_y(&target.scene_id, &target.placement_id, yaw + delta);
-        }
-        _ => return false,
-    };
-    pose.translation[axis] = value;
-    workbench.set_position(&target.scene_id, &target.placement_id, pose.translation)
+    if let Some(axis) = field.translation_axis() {
+        pose.translation[axis] = value;
+        workbench.set_position(&target.scene_id, &target.placement_id, pose.translation)
+    } else if let Some(axis) = field.animation_rotation_axis() {
+        // 三轴输入共用当前帧完整姿势，只替换刚提交的轴。
+        pose.rotation_degrees[axis] = value;
+        workbench.set_rotation(&target.scene_id, &target.placement_id, pose.rotation_degrees)
+    } else { false }
 }
 
 /// 使用当前场景清单完整验证一条候选记录。
@@ -466,7 +465,12 @@ pub(crate) fn handle_placement_transform_numeric_input(
     if state.rejected_scrub.is_some_and(|entity| inputs.get(entity).is_err()) {
         state.rejected_scrub = None; // 销毁的字段没有可续接的捕获，不让旧地址阻挡之后重建的控件。
     }
-    if state.scrub.is_some() && (mesh_edit_active || !input_context_valid(&editor, &session)) {
+    if state.scrub.as_ref().is_some_and(|capture| {
+        let pose_active = animation.as_deref().is_some_and(|workbench|
+            workbench.owns(&capture.target.scene_id, &capture.target.placement_id));
+        mesh_edit_active || !input_context_valid(&editor, &session)
+            || pose_active && (capture.field.is_animation_pose() || !capture.field.available_in_mode(true))
+    }) {
         let transaction = state.scrub.take().expect("上方已确认资产变换拖动存在");
         state.rejected_scrub = Some(transaction.entity); // 恢复上下文仍须等这笔真实松手，不能继续接收它的后续档。
         match restore_scrub_value(
@@ -528,23 +532,25 @@ pub(crate) fn handle_placement_transform_numeric_input(
             editor.status = "资产变换拖动产生了非浮点值".to_owned();
             continue;
         };
-        if field.is_animation_pose()
-            && let Some(workbench) = animation.as_deref_mut()
-            && let Some(target) = selected_target(&browser, &session)
-            && workbench.owns(&target.scene_id, &target.placement_id)
-        {
-            if input_context_valid(&editor, &session)
-                && workbench.can_pose(&target.scene_id, &target.placement_id)
-                && let Some(pose) = frame_pose(workbench, &target, &session)
-            {
-                let capture = state.animation_scrub.get_or_insert_with(|| PlacementAnimationScrub {
-                    entity: event.entity, target: target.clone(), time: workbench.frame_time(), before: pose,
-                });
-                if capture.entity == event.entity && capture.target == target && capture.time == workbench.frame_time() {
-                    set_animation_value(workbench, &target, *field, pose, value);
+        if field.is_animation_pose() || *field == PlacementTransformField::Yaw {
+            let target = selected_target(&browser, &session);
+            let pose_scope = target.as_ref().zip(animation.as_deref_mut())
+                .filter(|(target, workbench)| workbench.owns(&target.scene_id, &target.placement_id));
+            if !field.available_in_mode(pose_scope.is_some()) { continue; }
+            if let Some((target, workbench)) = pose_scope {
+                if input_context_valid(&editor, &session)
+                    && workbench.can_pose(&target.scene_id, &target.placement_id)
+                    && let Some(pose) = frame_pose(workbench, target, &session)
+                {
+                    let capture = state.animation_scrub.get_or_insert_with(|| PlacementAnimationScrub {
+                        entity: event.entity, target: target.clone(), time: workbench.frame_time(), before: pose,
+                    });
+                    if capture.entity == event.entity && &capture.target == target && capture.time == workbench.frame_time() {
+                        set_animation_value(workbench, target, *field, pose, value);
+                    }
                 }
+                continue; // 帧姿势和隐藏的静态朝向都不能落入常规摆放事务。
             }
-            continue; // 上述字段由动画帧拥有，始终拦住静态摆放事务。
         }
         if !input_context_valid(&editor, &session) {
             editor.status = "当前界面或保存状态不能拖动资产变换".to_owned();
@@ -856,6 +862,7 @@ pub(crate) fn handle_placement_transform_numeric_input(
             editor.status = "当前界面或保存状态不能提交资产变换".to_owned();
             continue;
         }
+        let had_focus = bound_focus.is_some();
         let bound_time = bound_focus.as_ref().and_then(|focus| focus.animation_time);
         let target = bound_focus.map(|focus| focus.target).or_else(|| selected_target(&browser, &session));
         let Some(target) = target.filter(|target| target_is_current(target, &browser, &session))
@@ -867,10 +874,12 @@ pub(crate) fn handle_placement_transform_numeric_input(
             editor.status = "资产变换数值控件返回了非浮点值".to_owned();
             continue;
         };
-        let pose_editor = animation.as_deref_mut()
-            .filter(|workbench| field.is_animation_pose() && workbench.owns(&target.scene_id, &target.placement_id));
-        if let Some(workbench) = pose_editor {
-            if bound_time.is_none_or(|time| time == workbench.frame_time())
+        let pose_scope = animation.as_deref_mut()
+            .filter(|workbench| workbench.owns(&target.scene_id, &target.placement_id));
+        if !field.available_in_mode(pose_scope.is_some()) { continue; }
+        if let Some(workbench) = pose_scope.filter(|_| field.is_animation_pose()) {
+            if (!had_focus || bound_time == Some(workbench.frame_time()))
+                && target.authoring_revision == session.revision
                 && workbench.can_pose(&target.scene_id, &target.placement_id)
                 && let Some(pose) = frame_pose(workbench, &target, &session)
                 && set_animation_value(workbench, &target, *field, pose, value)
@@ -913,7 +922,12 @@ pub(crate) fn handle_placement_transform_numeric_input(
         state.focus = None; // 字符焦点结束后不保留旧场景身份。
         return;
     };
-    let current_target = selected_target(&browser, &session);
+    let current_target = selected_target(&browser, &session).filter(|target| {
+        let pose_scope = animation.as_deref().filter(|workbench| workbench.owns(&target.scene_id, &target.placement_id));
+        active_field.available_in_mode(pose_scope.is_some())
+            && (!active_field.is_animation_pose() || pose_scope.is_none_or(|workbench|
+                workbench.can_pose(&target.scene_id, &target.placement_id)))
+    });
     if !input_context_valid(&editor, &session) || current_target.is_none() {
         set_values.write(NumericInputSetValue {
             entity: active_entity,         // 只取消当前资产字段根。

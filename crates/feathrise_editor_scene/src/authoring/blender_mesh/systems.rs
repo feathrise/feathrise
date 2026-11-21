@@ -1,6 +1,6 @@
 //! 在后台读取 Blender 的 GLB，按原对象身份提交已加载的模型。
 
-use super::files::{BlenderProcess, Export};
+use super::files::{BlenderProcess, Export, MainSceneProcess};
 use crate::{
     authoring::{
         EditorAuthoringSession, EditorSceneDraft, asset_target_with_mesh_collision, mesh_collision_enabled,
@@ -27,6 +27,11 @@ pub(crate) struct BlenderMeshAction {
     pub placement_id: String,
 }
 
+#[derive(Message)]
+pub(crate) struct BlenderMainSceneAction {
+    pub scene_id: SceneId,
+}
+
 pub(crate) fn supports(record: &ScenePlacementRecord) -> bool {
     record.terrain_patch.is_none() && record.building_preset_id.is_none()
         && record.water_surfaces.is_empty()
@@ -38,6 +43,7 @@ pub(crate) fn supports(record: &ScenePlacementRecord) -> bool {
 #[derive(Default, Resource)]
 pub(crate) struct BlenderMeshSession {
     active: Option<Session>,
+    main_scene: Option<MainSceneProcess>,
     task: Option<Task<Finished>>,
     next_check: u64,
     close: CloseCheck,
@@ -85,9 +91,13 @@ impl BlenderMeshSession {
         author.editor.status = error;
     }
 
+    fn blender_open(&self) -> bool {
+        self.active.is_some() || self.task.is_some() || self.main_scene.is_some()
+    }
+
     #[cfg(any(test, feature = "validation"))]
     pub(crate) fn has_open_session(&self) -> bool {
-        self.active.is_some() || self.task.is_some()
+        self.blender_open()
     }
 }
 
@@ -124,6 +134,7 @@ struct Session {
 
 enum Finished {
     Opened(Result<Session, String>),
+    MainSceneOpened(Result<MainSceneProcess, String>),
     Polled(Session, Result<Export, String>, Option<u64>),
     Cleaned,
 }
@@ -156,6 +167,13 @@ impl Author<'_, '_> {
         let record = draft.placements.placements.get(index)?;
         (record.id == target.placement_id && supports(record)
             && !record.editor.locked && !record.editor.hidden).then_some((index, record))
+    }
+
+    fn asset_root(&self) -> Option<PathBuf> {
+        match &self.project {
+            Some(project) => project.asset_root.clone(),
+            None => Some(feathrise_editor_core::workspace_asset_root()),
+        }
     }
 
     fn busy(&self, closing: bool) -> bool {
@@ -219,6 +237,7 @@ fn report_export_failure(state: &mut BlenderMeshSession, author: &mut Author, li
 pub(super) fn update(
     mut state: ResMut<BlenderMeshSession>,
     mut messages: MessageReader<BlenderMeshAction>,
+    mut main_scenes: MessageReader<BlenderMainSceneAction>,
     mut author: Author<'_, '_>,
     settings: Res<EditorSettings>,
 ) {
@@ -230,6 +249,11 @@ pub(super) fn update(
                 author.editor.status = "Blender 启动后，保存即可更新模型".into();
             }
             Finished::Opened(Err(error)) => state.report_failure(&mut author, error),
+            Finished::MainSceneOpened(Ok(live)) => {
+                state.main_scene = Some(live);
+                author.editor.status = "已启动 Blender。主场景导出后，关闭并重新打开场景标签读取改动".into();
+            }
+            Finished::MainSceneOpened(Err(error)) => state.report_failure(&mut author, error),
             Finished::Polled(mut live, _, _) if !author.owns(&live) => {
                 report_export_failure(&mut state, &mut author, &mut live, "工程会话已更换");
             }
@@ -249,22 +273,55 @@ pub(super) fn update(
         }
     }
 
+    if let Some(exit) = state.main_scene.as_mut().and_then(MainSceneProcess::poll_exit) {
+        let live = state.main_scene.take().unwrap();
+        match exit {
+            Ok(status) if status.success() => {
+                state.task = Some(IoTaskPool::get().spawn(async move {
+                    live.cleanup();
+                    Finished::Cleaned
+                }));
+            }
+            status => state.report_failure(&mut author, format!(
+                "主场景 Blender 会话结束异常：{status:?}。日志位于 {}", live.directory().display()
+            )),
+        }
+    }
+
+    if let Some(target) = main_scenes.read().last()
+        && matches!(state.close, CloseCheck::Idle)
+    {
+        if state.blender_open() {
+            author.editor.status = "请先关闭当前 Blender 窗口".into();
+        } else if !author.busy(false) && author.editor.open
+            && author.editor.selected_scene_id.as_ref() == Some(&target.scene_id)
+            && let Some(draft) = author.session.draft.as_ref().filter(|draft| draft.scene_id == target.scene_id)
+            && let Some(expected) = draft.placement_glb_hash.clone()
+            && let Some(root) = author.asset_root()
+        {
+            // 用当前场景的正式版本。只打开文件，不保存或接管尚未提交的作者草稿。
+            let scene_id = draft.scene_id.clone();
+            let path = draft.placements_path();
+            let executable = settings.blender_executable.clone();
+            state.task = Some(IoTaskPool::get().spawn(async move {
+                Finished::MainSceneOpened(MainSceneProcess::start(
+                    &root, scene_id.as_str(), &path, &expected, executable.as_deref(),
+                ))
+            }));
+            author.editor.status = "正在 Blender 打开主场景".into();
+        }
+    }
+
     if let Some(target) = messages.read().last().cloned()
         && matches!(state.close, CloseCheck::Idle)
     {
-        if state.active.is_some() || state.task.is_some() {
+        if state.blender_open() {
             author.editor.status = "请先关闭当前 Blender 窗口".into();
         } else if let Some((_, record)) = author.current(&target).filter(|_| !author.busy(false)) {
             let basis = record.clone();
             let folder = author.session.draft.as_ref().unwrap().folder.clone();
             let project = author.project.as_ref().map(|project| project.context);
-            let root = match &author.project {
-                Some(project) => {
-                    let Some(root) = &project.asset_root else { return; };
-                    root.clone()
-                }
-                None => feathrise_editor_core::workspace_asset_root(),
-            };
+            let Some(root) = author.asset_root() else { return; };
             let executable = settings.blender_executable.clone();
             state.task = Some(IoTaskPool::get().spawn(async move {
                 let process = BlenderProcess::start(root.clone(), folder.clone(), &basis, executable.as_deref());

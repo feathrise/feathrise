@@ -129,9 +129,9 @@ pub(super) fn apply(
     if motion_ready && workbench.playing {
         // 离屏编辑器暂停玩法时钟，作者播放沿用角色时间线的真实帧钟。
         workbench.elapsed += time.delta_secs_f64();
-        let (duration, playback) = motion.timing();
-        workbench.seconds = playback.time(workbench.elapsed, duration);
-        if playback == SceneMotionPlayback::Once && workbench.seconds >= f64::from(duration) {
+        let timing = motion.timing();
+        workbench.seconds = timing.playback.time(workbench.elapsed, timing.duration_seconds);
+        if timing.playback == SceneMotionPlayback::Once && workbench.seconds >= f64::from(timing.duration_seconds) {
             workbench.playing = false;
         }
     }

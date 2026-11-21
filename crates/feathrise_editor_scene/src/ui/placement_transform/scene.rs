@@ -1,4 +1,4 @@
-//! 完整摆放实例的右栏属性面板与七个公共专业数值框槽。
+//! 完整摆放实例的右栏属性面板与公共数值输入槽。
 
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
@@ -12,7 +12,7 @@ use feathrise_editor_ui::{
 use super::{
     SceneEditorPlacementTransformActionButton, SceneEditorPlacementTransformPanel, SceneEditorPlacementTransformLocate,
     SceneEditorPlacementTransformSummary, PlacementTransformAction, PlacementTransformField,
-    PlacementTransformInputSlot, PlacementPropertiesSection, SceneEditorCuboidGeometryRow,
+    PlacementTransformInputSlot, PlacementPropertiesSection, SceneEditorCuboidGeometryRow, SceneEditorAnimationRotationRow,
 }; // 当前功能域静态marker、字段和动作。
 use crate::types::EditorAction;
 use crate::ui::scene::FONT_PATH; // 紧凑分组与原定位动作共享编辑器控件。
@@ -60,12 +60,14 @@ fn numeric_input_slot(field: PlacementTransformField) -> impl Scene {
 fn axis_row(label: &str, fields: [PlacementTransformField; 3]) -> impl Scene {
     let cells = fields.into_iter().map(|field| bsn! {
         ~{PlacementTransformInputSlot(field)}
-        Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), height: px(NUMERIC_FIELD_HEIGHT), flex_shrink: 0.0 }
+        Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), height: px(NUMERIC_FIELD_HEIGHT) }
     }).collect::<Vec<_>>();
     bsn! { Node { width: percent(100), min_width: px(0), column_gap: px(3), align_items: AlignItems::Center, flex_shrink: 0.0 }
         Children [
+            // 侧栏变窄时三轴共享剩余空间，双字标签预留字宽和缩放取整余量。
             Text(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
-                TextColor(colors::TEXT_MUTED) Node { width: px(22), flex_shrink: 0.0 }--
+                TextColor(colors::TEXT_MUTED) TextLayout::no_wrap()
+                Node { min_width: px(ui_metrics::FONT_HINT * 2.0 + 4.0), flex_shrink: 0.0 }--
             {cells}
         ] }
 }
@@ -184,6 +186,9 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
             --
             @axis_row("位置", [PlacementTransformField::TranslationX, PlacementTransformField::TranslationY, PlacementTransformField::TranslationZ])--
             @numeric_input_slot(PlacementTransformField::Yaw)--
+            SceneEditorAnimationRotationRow
+                Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }
+                Children [@axis_row("旋转", [PlacementTransformField::RotationX, PlacementTransformField::RotationY, PlacementTransformField::RotationZ])]--
             @action_button("建筑旋转 90°", PlacementTransformAction::RotateQuarterTurn, false)-- // 建筑必须先后台重检占地、门口和五点地基。
             @axis_row("缩放", [PlacementTransformField::ScaleX, PlacementTransformField::ScaleY, PlacementTransformField::ScaleZ])
                 ]
@@ -269,7 +274,7 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
     }
 }
 
-/// 在七个BSN槽位内挂载完整公共NumericInput子树。
+/// 在BSN槽位内挂载完整公共NumericInput子树。
 pub(crate) fn setup_placement_transform_numeric_inputs(
     mut commands: Commands, // 新增槽位只创建一次固定子树。
     slots: Query<(Entity, &PlacementTransformInputSlot), Added<PlacementTransformInputSlot>>, // 每个字段只处理Added帧。
@@ -279,9 +284,9 @@ pub(crate) fn setup_placement_transform_numeric_inputs(
     for (slot, marker) in &slots {
         let field = marker.0; // 冻结当前槽位字段身份供整个子树复用。
         let axis_label = match field {
-            PlacementTransformField::TranslationX | PlacementTransformField::ScaleX | PlacementTransformField::CuboidSizeX => Some("X"),
-            PlacementTransformField::TranslationY | PlacementTransformField::ScaleY | PlacementTransformField::CuboidSizeY => Some("Y"),
-            PlacementTransformField::TranslationZ | PlacementTransformField::ScaleZ | PlacementTransformField::CuboidSizeZ => Some("Z"),
+            PlacementTransformField::TranslationX | PlacementTransformField::RotationX | PlacementTransformField::ScaleX | PlacementTransformField::CuboidSizeX => Some("X"),
+            PlacementTransformField::TranslationY | PlacementTransformField::RotationY | PlacementTransformField::ScaleY | PlacementTransformField::CuboidSizeY => Some("Y"),
+            PlacementTransformField::TranslationZ | PlacementTransformField::RotationZ | PlacementTransformField::ScaleZ | PlacementTransformField::CuboidSizeZ => Some("Z"),
             PlacementTransformField::CuboidColorR => Some("R"),
             PlacementTransformField::CuboidColorG => Some("G"),
             PlacementTransformField::CuboidColorB => Some("B"),
@@ -301,8 +306,8 @@ pub(crate) fn setup_placement_transform_numeric_inputs(
             axis_label.unwrap_or(field.label()), // 保留原字段的单位、精度和输入协议。
             field.unit(),                        // 米、度或倍率符号。
             NumericValue::F32(0.0),              // 尚无选择时由同步系统禁用并保持安全零值。
-            field.spec(None),                    // 首帧壳使用安全范围，随后同步当前场景真实XZ边界。
-            field.scrub_config(&settings, None), // 初始持久手感随后同样按当前场景同步。
+            field.spec(None, false),                    // 首帧壳使用安全范围，随后同步当前场景和动画状态。
+            field.scrub_config(&settings, None, false), // 初始持久手感随后同样按当前场景同步。
         )
         .with_style(style); // 只覆盖尺寸，交互树继续由公共builder拥有。
         commands.entity(slot).with_children(|slot| {

@@ -16,11 +16,12 @@ fn button(label: &'static str, action: ObjectAction) -> impl Scene {
         Node { min_height: px(25), padding: UiRect::axes(px(5), px(3)), border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(3)), flex_shrink: 0.0 }
         BackgroundColor(colors::SLOT_BG)
         BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [Text(label) @feathrise_editor_ui::localization::label_scene(label) TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_PRIMARY)]
+        Children [Text(label) @feathrise_editor_ui::localization::label_scene(label) TextLayout::no_wrap() TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) } TextColor(colors::TEXT_PRIMARY)]
     }
 }
 
 fn field(label: &'static str, kind: ObjectField) -> impl Scene {
+    let confirmation = (kind == ObjectField::Name).then(|| button("确认名称", ObjectAction::Rename));
     bsn! {
         Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Row,
             column_gap: px(4), align_items: AlignItems::Center, flex_shrink: 0.0 }
@@ -35,9 +36,12 @@ fn field(label: &'static str, kind: ObjectField) -> impl Scene {
                 bevy::text::TextCursorStyle::default() TextLayout::no_wrap() ~{LineHeight::Px(18.0)}
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_PRIMARY)
-                Node { flex_grow: 1.0, min_width: px(0), height: px(26), padding: UiRect::axes(px(5), px(3)), border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)), overflow: Overflow::clip_x() }
+                // 名称输入占标签与确认按钮以外的宽度，长名称只在输入框内裁切。
+                Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), height: px(26), padding: UiRect::axes(px(5), px(3)), border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)), overflow: Overflow::clip_x() }
                 BackgroundColor(colors::INPUT_BG)
                 BorderColor::all(colors::COPPER_BORDER_WEAK)
+            --
+                @confirmation
         ]
     }
 }
@@ -48,10 +52,7 @@ pub(crate) fn properties_panel() -> impl Scene {
         Children [
             ~{crate::ui::scene_inspector::InspectorSection::ObjectName}
                 Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
-                Children [
-                    @field("名称", ObjectField::Name)--
-                    @button("确认名称", ObjectAction::Rename)
-                ]--
+                Children [@field("名称", ObjectField::Name)]--
             @field("分组", ObjectField::Group)--
 
                 Node { width: percent(100), min_width: px(0), flex_wrap: FlexWrap::Wrap, column_gap: px(3), row_gap: px(3) }

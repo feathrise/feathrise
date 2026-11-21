@@ -8,6 +8,7 @@ use crate::{
 
 pub(crate) fn bind_scene_menu_rows(
     mut commands: Commands,
+    editor: Res<crate::resources::SceneEditorState>,
     session: Res<EditorAuthoringSession>,
     browser: Res<EditorGltfBrowserState>,
     objects: Option<Res<crate::ui::scene_objects::SceneObjectState>>,
@@ -16,6 +17,19 @@ pub(crate) fn bind_scene_menu_rows(
     let draft = session.draft.as_ref();
     for (entity, row, previous) in &rows {
         let target = (|| {
+            if row.main_glb == Some(MainSceneGlbRow::File) {
+                let draft = super::systems::main_glb_draft(&editor, &session)?;
+                // 主文件有自己的菜单身份，只为文件行绑定；目录里的动画不是摆放。
+                return Some(SceneObjectTarget {
+                    scene_id: draft.scene_id.clone(),
+                    revision: session.revision,
+                    key: SceneObjectKey::MainSceneGlb,
+                    name: "scene.glb".into(),
+                    hidden: false,
+                    locked: false,
+                    copyable: false,
+                });
+            }
             if browser.signature_build.is_some() || browser.entries_build.is_some() {
                 return None;
             }

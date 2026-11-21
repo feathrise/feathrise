@@ -545,6 +545,9 @@ fn prepare_placements_write<'a>(
     let (glb, motion) = if draft.motion.dirty {
         let (glb, saved) = draft.motion.encode_glb(&path, glb, &draft.placements)?;
         (glb, Some(saved))
+    } else if !draft.motion.clip_names().is_empty() {
+        let motion = draft.motion.with_saved_clip_names(&glb)?;
+        (glb, motion)
     } else { (glb, None) };
     let digest = bytes_hash(&glb);
     if &digest == expected { return Ok((false, None, motion)); }

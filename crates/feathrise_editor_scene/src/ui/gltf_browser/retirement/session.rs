@@ -38,8 +38,11 @@ pub(in crate::ui::gltf_browser) fn take_browser_session_generation(
     generation.string_set(std::mem::take(&mut state.expanded_groups));
     generation.entries_build(state.entries_build.take());
     generation.string(state.observation.draft_scene_id.take()); // 场景身份不跨F12会话。
+    generation.string(state.main_glb_path.take());
 
     state.truncated = false; // 旧场景截断诊断立即清除。
+    state.expanded_main_glb = None;
+    state.main_glb_entry_count = 0;
     state.initialized = false; // 退役完成后下一次开启重新观察权威草稿。
     state.draft_available = false; // 关闭态不宣称持有草稿。
     state.observation = Default::default(); // 剩余标量可同步清零。

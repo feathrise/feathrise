@@ -481,16 +481,16 @@ fn terrain_patch_panel_uses_source_local_limits_and_explains_coordinate_space() 
     let (mut app, input, _, _, _) = fixture(PlacementTransformField::TranslationX, source_pose(), true, true);
     let field = PlacementTransformField::TranslationX;
     app.world_mut().entity_mut(input).insert((
-        feathrise_editor_ui::NumericInputConfig(field.spec(None)),
+        feathrise_editor_ui::NumericInputConfig(field.spec(None, false)),
         feathrise_editor_ui::NumericInputValue(NumericValue::F32(0.0)),
-        field.scrub_config(&feathrise_editor_core::EditorSettings::default(), None),
+        field.scrub_config(&feathrise_editor_core::EditorSettings::default(), None, false),
     ));
     let summary = app.world_mut().spawn((SceneEditorPlacementTransformSummary, Text::new(""))).id();
     app.world_mut().run_system_once(sync_placement_transform_panel).unwrap();
     let bounds = Rect::from_corners(Vec2::splat(100.0), Vec2::splat(200.0));
-    assert_eq!(app.world().get::<feathrise_editor_ui::NumericInputConfig>(input).unwrap().0, field.spec(Some(bounds)));
+    assert_eq!(app.world().get::<feathrise_editor_ui::NumericInputConfig>(input).unwrap().0, field.spec(Some(bounds), false));
     assert_eq!(app.world().get::<feathrise_editor_ui::NumericInputScrubConfig>(input).unwrap(),
-        &field.scrub_config(&feathrise_editor_core::EditorSettings::default(), Some(bounds)));
+        &field.scrub_config(&feathrise_editor_core::EditorSettings::default(), Some(bounds), false));
     assert!(app.world().get::<Text>(summary).unwrap().contains("源局部"));
 }
 

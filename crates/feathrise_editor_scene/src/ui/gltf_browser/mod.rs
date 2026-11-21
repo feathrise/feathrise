@@ -163,6 +163,17 @@ pub(super) struct PlacementSignature {
     pub(super) water_bindings: Vec<PlacementWaterBindingSignature>,
 }
 
+impl PlacementSignature {
+    fn is_embedded_in(&self, main_glb_path: Option<&str>) -> bool {
+        // 内置网格尚可处于草稿。Blender 网格由本场景 GLB 中的子资产表示。
+        main_glb_path.is_some_and(|path| {
+            self.asset_target.is_builtin()
+                || (matches!(self.asset_target, ScenePlacementAssetTarget::Primitive { .. })
+                    && self.asset_path == path)
+        })
+    }
+}
+
 /// 浏览器对作者会话保存的O(1)确定性结构观察，用于识别真正结构变化。
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct BrowserSessionObservation {
@@ -246,9 +257,15 @@ pub(super) struct CachedGltfAsset {
 pub(crate) struct EditorGltfBrowserState {
     /// 组与GLB均默认收起，只有显式点箭头才改变当前场景的展开偏好。
     pub(super) expanded_groups: BTreeSet<String>,
+    /// 主 GLB 自有折叠状态，身份与普通引用模型分开。
+    pub(super) expanded_main_glb: Option<feathrise_scene_content::SceneId>,
     pub(crate) selected_group: Option<String>,
     /// 当前展开状态的完整扁平树，行池按滚动位置取其窗口。
     pub(crate) entries: Vec<EditorGltfBrowserEntry>,
+    /// 与活动签名一起采用的主 GLB 文件路径。
+    main_glb_path: Option<String>,
+    /// 完整扁平树的内嵌分支前缀。行索引仍用于原摆放和分组操作。
+    pub(super) main_glb_entry_count: usize,
     /// 最近点击的完整网格引用；无效引用仍保留以便明确拒绝和诊断。
     pub(crate) selection: Option<EditorGltfMeshSelection>,
     /// 当前选中的完整摆放实例；根行和任一子网格点击都会更新该稳定ID。
@@ -420,6 +437,14 @@ pub(crate) struct SceneEditorGltfBrowserListContent;
 #[derive(Component, Clone, Copy, Default)]
 pub(crate) struct SceneEditorGltfBrowserStatusText;
 
+/// 主 GLB 及其动画作为网格列表的固定前缀，复用摆放行池。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MainSceneGlbRow {
+    File,
+    Animation,
+    Empty,
+}
+
 /// 固定场景树行槽及其当前绑定条目。
 #[derive(Component)]
 pub(crate) struct SceneEditorGltfBrowserRow {
@@ -428,6 +453,7 @@ pub(crate) struct SceneEditorGltfBrowserRow {
     /// 当前扁平条目索引；隐藏槽为None。
     pub(super) entry_index: Option<usize>,
     pub(super) entries_revision: u64,
+    pub(crate) main_glb: Option<MainSceneGlbRow>,
 }
 
 /// 场景树行的唯一文本子节点。

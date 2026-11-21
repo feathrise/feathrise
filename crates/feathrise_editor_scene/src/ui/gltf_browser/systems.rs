@@ -6,7 +6,7 @@ use feathrise_editor_ui::EditorButtonClick;
 use bevy::prelude::*; // ECS系统参数、UI组件和字体。
 use crate::ui::theme as colors; // 固定行池复用全屏编辑器水墨铜边配色。
 
-use crate::authoring::EditorAuthoringSession;
+use crate::authoring::{EditorAuthoringSession, EditorSceneDraft};
 use crate::resources::{
     EditorViewportSelectionState, SceneEditorNumericScrubMouseGuard, SceneEditorState,
 }; // 场景树点击同时结束查看工具中的植被整层选择。
@@ -23,9 +23,9 @@ use crate::ui::scene_sidebar::{
 use crate::viewport::placement_move::PlacementMoveState;
 use crate::viewport::SelectedPlacementViewportState;
 
-use super::helpers::selection_matches; // 选择身份不受热更索引漂移影响。
+use super::{helpers::selection_matches, row_controls::BranchTarget}; // 选择身份不受热更索引漂移影响。
 use super::{
-    EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeExpander, PlacementTreeToggle, SceneEditorGltfBrowserList,
+    EditorGltfBrowserEntryKind, EditorGltfBrowserState, MainSceneGlbRow, PlacementTreeExpander, PlacementTreeToggle, SceneEditorGltfBrowserList,
     SceneEditorGltfBrowserListContent, SceneEditorGltfBrowserRow, SceneEditorGltfBrowserRowText,
     SceneEditorGltfBrowserStatusText, SceneMeshObjectsHeading,
 }; // 模块私有组件与公开资源。
@@ -36,6 +36,16 @@ mod input_tests;
 
 #[derive(Component)]
 pub(crate) struct GltfRowCaption;
+
+pub(super) fn main_glb_draft<'a>(
+    editor: &SceneEditorState, session: &'a EditorAuthoringSession,
+) -> Option<&'a EditorSceneDraft> {
+    // 只展示当前场景实际使用的 GLB，切换过程中不借用上一场景的动画目录。
+    session.draft.as_ref().filter(|draft| {
+        !editor.scene_transition_in_progress && editor.selected_scene_id.as_ref() == Some(&draft.scene_id)
+            && draft.placement_glb_hash.is_some()
+    })
+}
 
 /// 以左栏整个滚动视口为上限，保留由外层滚动露出摆放树的空间。
 fn scene_tree_viewport_height(tree: &Query<&ComputedNode, With<InspectorTree>>) -> Option<f32> {
@@ -67,7 +77,7 @@ pub(crate) fn spawn_gltf_browser_rows(
             let row = commands.spawn((
                 ChildOf(container),
                 InteractionButton,
-                SceneEditorGltfBrowserRow { slot, entry_index: None, entries_revision: 0 },
+                SceneEditorGltfBrowserRow { slot, entry_index: None, entries_revision: 0, main_glb: None },
                 Node {
                     display: Display::None,
                     position_type: PositionType::Absolute, // 内容层布局保留完整树，行按实际索引定位。
@@ -152,9 +162,15 @@ pub(crate) fn handle_gltf_browser_input(
     }
     if let Some((_, parent, expander)) = expanders.iter().find(|(click, ..)| click.is_clicked()) {
         if let Ok((_, row)) = rows.get(parent.parent())
-            && let Some(index) = expander.target_index(&state, &session, row)
+            && let Some(target) = expander.target(&editor, &state, &session, row)
         {
-            state.toggle_tree_branch(index);
+            match target {
+                BranchTarget::Entry(index) => state.toggle_tree_branch(index),
+                BranchTarget::MainGlb => {
+                    let scene = editor.selected_scene_id.as_ref();
+                    state.expanded_main_glb = if state.expanded_main_glb.as_ref() == scene { None } else { scene.cloned() };
+                }
+            }
         }
         return; // 只处理箭头自己的脉冲，也不让旧箭头手势改派到名称行。
     }
@@ -248,7 +264,9 @@ pub(crate) fn handle_gltf_browser_input(
 /// 可见行池按滚动窗口原地更新文本、缩进和选中样式。
 pub(crate) fn sync_gltf_browser_rows(
     editor: Res<SceneEditorState>,        // 编辑器打开时才刷新可见行。
+    session: Res<EditorAuthoringSession>,
     state: Res<EditorGltfBrowserState>, // 公开扁平条目与当前选择。
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     multi_selection: Option<Res<crate::viewport::multi_select::PlacementSelectionSet>>,
     asset_server: Option<Res<AssetServer>>,
     images: Option<Res<Assets<Image>>>,
@@ -314,15 +332,24 @@ pub(crate) fn sync_gltf_browser_rows(
         }
         return; // 隐藏UI无需重复写文本和样式。
     }
+    let main_glb = main_glb_draft(&editor, &session);
+    let clips = main_glb.filter(|draft| state.expanded_main_glb.as_ref() == Some(&draft.scene_id))
+        .map(|draft| draft.motion.clip_names());
+    // 内嵌网格是已发布条目的连续前缀。折叠时只跳过该段，保留原条目索引供右键、选中和开关使用。
+    let hidden_meshes = if clips.is_none() { state.main_glb_entry_count } else { 0 };
+    let empty_hint = usize::from(state.main_glb_entry_count == 0);
+    let main_rows = usize::from(main_glb.is_some()) + clips.map_or(0, |clips| clips.len().max(empty_hint));
+    let total_rows = main_rows.saturating_add(state.entries.len().saturating_sub(hidden_meshes));
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for mut heading in &mut headings {
-        let display = if state.entries.is_empty() { Display::None } else { Display::Flex };
+        let display = if total_rows == 0 { Display::None } else { Display::Flex };
         if heading.display != display { heading.display = display; } // 与已发布的摆放列表同帧出现或收起。
     }
     let scene_changed = presented_scope.as_ref().is_none_or(|(scene, _, _, _)| scene != &editor.selected_scene_id);
     let height = scene_tree_viewport_height(&tree)
         .or_else(|| presented_scope.as_ref().map(|(_, _, _, height)| *height))
         .unwrap_or(SCENE_OBJECT_DEFAULT_VIEWPORT_HEIGHT);
-    let scope = (editor.selected_scene_id.clone(), state.published_entries_revision, state.entries.len(), height);
+    let scope = (editor.selected_scene_id.clone(), state.published_entries_revision, total_rows, height);
     let scope_changed = presented_scope.as_ref() != Some(&scope);
     *presented_scope = Some(scope);
     let mut start = 0;
@@ -330,7 +357,7 @@ pub(crate) fn sync_gltf_browser_rows(
         if scope_changed || viewport.is_added() || scroll.is_changed() {
             // 换场景回到顶部，展开、折叠及热更新只钳制既有滚动位置。
             let mut position = (*scroll).clone();
-            fit_scene_object_list_in_height(state.entries.len(), height, scene_changed, None,
+            fit_scene_object_list_in_height(total_rows, height, scene_changed, None,
                 &mut viewport, &mut content, &mut position);
             if scroll.0 != position.0 {
                 *scroll = position;
@@ -339,77 +366,94 @@ pub(crate) fn sync_gltf_browser_rows(
         start = ((scroll.y / SCENE_OBJECT_ROW_PITCH).floor() as usize).saturating_sub(1);
     }
     for (interaction, mut click, mut row, mut node, mut background, mut border, children) in &mut rows {
-        let entry_index = start.saturating_add(row.slot);
-        let binding = state.entries.get(entry_index).map(|_| entry_index);
-        if scene_changed || row.entries_revision != state.published_entries_revision || row.entry_index != binding {
+        let tree_index = start.saturating_add(row.slot);
+        let main_row = match tree_index {
+            0 if main_glb.is_some() => Some((MainSceneGlbRow::File, locale.text("label.main-scene-glb"))),
+            index if index < main_rows => {
+                let name = clips.and_then(|clips| clips.get(index - 1));
+                Some(name.map_or((MainSceneGlbRow::Empty, locale.text("label.main-scene-no-animations")),
+                    |name| (MainSceneGlbRow::Animation, name.as_str())))
+            }
+            _ => None,
+        };
+        let main_kind = main_row.map(|(kind, _)| kind);
+        let binding = tree_index.checked_sub(main_rows).map(|index| index.saturating_add(hidden_meshes))
+            .filter(|&index| index < state.entries.len());
+        if scene_changed || row.entries_revision != state.published_entries_revision
+            || row.entry_index != binding || row.main_glb != main_kind
+        {
             if let Some(click) = click.as_deref_mut() {
                 click.invalidate();
             }
             row.entry_index = binding;
+            row.main_glb = main_kind;
             row.entries_revision = state.published_entries_revision;
         }
-        let Some(entry) = state.entries.get(entry_index) else {
+        let placement = binding.and_then(|index| state.entries.get(index).map(|entry| (index, entry)));
+        let (depth, name, prefix, base_color, icon, selected) = if let Some((kind, name)) = main_row {
+            match kind {
+                MainSceneGlbRow::File => (0, name, "", colors::TEXT_ACCENT, asset_icons::GLB, false),
+                MainSceneGlbRow::Animation => (1, name, "", colors::TEXT_PRIMARY, "icons/editor/tree_file.png", false),
+                MainSceneGlbRow::Empty => (1, name, "", colors::TEXT_MUTED, "icons/editor/tree_file.png", false),
+            }
+        } else if let Some((index, entry)) = placement {
+            let selected = match &entry.kind {
+                EditorGltfBrowserEntryKind::Group { name, .. } => state.selected_group.as_ref() == Some(name),
+                EditorGltfBrowserEntryKind::Placement { placement_id, .. } =>
+                    state.selected_placement_id.as_ref() == Some(placement_id)
+                        || multi_selection.as_ref().is_some_and(|selection| selection.contains(placement_id)),
+                EditorGltfBrowserEntryKind::Mesh | EditorGltfBrowserEntryKind::MissingWaterBinding =>
+                    selection_matches(state.selection.as_ref(), entry.selection.as_ref()),
+            };
+            let (prefix, base_color, icon) = match &entry.kind {
+                EditorGltfBrowserEntryKind::Group { .. } => ("", colors::TEXT_PRIMARY, "icons/editor/tree_folder.png"),
+                EditorGltfBrowserEntryKind::Placement { glb, .. } => ("", colors::TEXT_ACCENT,
+                    if *glb { asset_icons::GLB } else { "icons/editor/tree_mesh.png" }),
+                EditorGltfBrowserEntryKind::Mesh => {
+                    let (prefix, color) = if entry.selection.as_ref().is_some_and(|selection| selection.valid) {
+                        ("", colors::TEXT_PRIMARY)
+                    } else { ("!", colors::TEXT_MUTED) };
+                    (prefix, color, "icons/editor/tree_mesh.png")
+                }
+                EditorGltfBrowserEntryKind::MissingWaterBinding => ("×", colors::DANGER_TEXT, "icons/editor/tree_mesh.png"),
+            };
+            let depth = entry.depth + usize::from(index < state.main_glb_entry_count);
+            (depth, entry.display_name.as_str(), prefix, base_color, icon, selected)
+        } else {
             node.display = Display::None; // 实体池保留但不参与布局。
             continue;
         };
         node.display = Display::Flex; // 当前条目原地复用槽位。
-        node.top = px(entry_index as f32 * SCENE_OBJECT_ROW_PITCH);
-        node.padding.left = tree_row_left(entry.depth.min(8)); // 同层级箭头和叶子占位共用一列。
-        let selected = match &entry.kind {
-            EditorGltfBrowserEntryKind::Group { name, .. } => state.selected_group.as_ref() == Some(name),
-            EditorGltfBrowserEntryKind::Placement { placement_id, .. } => state
-                .selected_placement_id
-                .as_deref()
-                .is_some_and(|selected| selected == placement_id)
-                || multi_selection.as_ref().is_some_and(|selection| selection.contains(placement_id)), // 多选根行共用同一集合高亮。
-            EditorGltfBrowserEntryKind::Mesh | EditorGltfBrowserEntryKind::MissingWaterBinding => {
-                selection_matches(state.selection.as_ref(), entry.selection.as_ref())
-            } // 子行仍只高亮精确Blender网格，避免整棵树同时变色。
-        };
-        background.0 = match (*interaction, selected) {
+        node.top = px(tree_index as f32 * SCENE_OBJECT_ROW_PITCH);
+        node.padding.left = tree_row_left(depth.min(8)); // 同层级箭头和叶子占位共用一列。
+        let interaction = if main_kind.is_some_and(|kind| kind != MainSceneGlbRow::File) {
+            UiInteraction::None
+        } else { *interaction };
+        background.0 = match (interaction, selected) {
             (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下始终给即时强反馈。
             (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,   // 可点击行明确区别静态文字。
             (UiInteraction::None, true) => colors::SELECT_BG,         // 当前网格保持暗金选中底。
             (UiInteraction::None, false) => colors::PANEL_BG,
         };
-        *border = BorderColor::all(if selected || *interaction != UiInteraction::None {
+        *border = BorderColor::all(if selected || interaction != UiInteraction::None {
             colors::COPPER_BORDER // hover与选择强化完整铜边。
         } else {
             colors::COPPER_BORDER_WEAK // 静止普通行保留弱分隔。
         });
-        let (prefix, base_color) = match &entry.kind {
-            EditorGltfBrowserEntryKind::Group { .. } => ("", colors::TEXT_PRIMARY),
-            EditorGltfBrowserEntryKind::Placement { .. } => ("", colors::TEXT_ACCENT),
-            EditorGltfBrowserEntryKind::Mesh => {
-                if entry
-                    .selection
-                    .as_ref()
-                    .is_some_and(|selection| selection.valid)
-                {
-                    ("", colors::TEXT_PRIMARY)
-                } else {
-                    ("!", colors::TEXT_MUTED) // 缺名或重复ID明确作为诊断行。
-                }
-            }
-            EditorGltfBrowserEntryKind::MissingWaterBinding => {
-                ("×", colors::DANGER_TEXT) // 当前GLB缺失的作者绑定使用明确危险色且仍可点击清除。
-            }
-        };
         let Some(caption) = children.iter().find_map(|entity| captions.get(entity).ok()) else { continue; };
         for child in caption.iter() {
             if images.is_some() && let Some(server) = asset_server.as_ref() && let Ok(mut image) = glyphs.get_mut(child) {
-                let icon = match entry.kind {
-                    EditorGltfBrowserEntryKind::Group { .. } => "icons/editor/tree_folder.png",
-                    EditorGltfBrowserEntryKind::Placement { glb: true, .. } => asset_icons::GLB,
-                    _ => "icons/editor/tree_mesh.png",
-                };
                 let handle = server.load(icon);
                 if image.image != handle { image.image = handle; }
                 let tint = asset_icons::tint(icon, base_color);
                 if image.color != tint { image.color = tint; }
             }
             if let Ok((mut text, mut color)) = row_texts.get_mut(child) {
-                **text = if prefix.is_empty() { entry.display_name.clone() } else { format!("{prefix} {}", entry.display_name) };
+                if prefix.is_empty() && text.as_str() != name {
+                    name.clone_into(&mut **text);
+                } else if !prefix.is_empty() {
+                    **text = format!("{prefix} {name}");
+                }
                 color.0 = if selected {
                     colors::TEXT_ACCENT // 选中态优先于行类型色。
                 } else {

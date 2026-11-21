@@ -38,6 +38,7 @@ pub(super) fn synchronize_signature_build(
         retired.signature_build(state.signature_build.take()); // 取消草稿逐记录/索引清理。
         retired.entries_build(state.entries_build.take()); // 旧行草稿逐条清理。
         if scene_changed {
+            state.expanded_main_glb = None;
             retired.string_set(std::mem::take(&mut state.expanded_placements)); // 展开偏好不跨场景且不整批clear。
             retired.string_set(std::mem::take(&mut state.expanded_groups));
             retired.string(state.selected_group.take());
@@ -85,6 +86,7 @@ pub(super) fn synchronize_signature_build(
     retired.string_usize_map(std::mem::take(&mut state.placement_record_indices));
     retired.string_set(std::mem::take(&mut state.expanded_placements));
     retired.string(state.observation.draft_scene_id.take());
+    retired.string(state.main_glb_path.take());
 
     let stale_paths = std::mem::replace(
         &mut state.asset_demand_counts,
@@ -102,6 +104,10 @@ pub(super) fn synchronize_signature_build(
     state.source_placement_count = next_observation.source_placement_count;
     state.observation = next_observation;
     state.signature = std::mem::take(&mut build.signature);
+    // 随正式草稿采用路径。普通保存保留摆放格式，重开场景按新文件重建投影。
+    state.main_glb_path = session.draft.as_ref()
+        .filter(|draft| draft.placement_glb_hash.is_some())
+        .map(|draft| draft.placements_path());
     state.has_object_groups = build.has_object_groups;
     state.duplicate_placement_ids = std::mem::take(&mut build.duplicate_ids);
     state.placement_asset_paths = std::mem::take(&mut build.placement_asset_paths);

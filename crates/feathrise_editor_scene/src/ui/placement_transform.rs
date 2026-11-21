@@ -40,7 +40,7 @@ const ROTATION_STEP: f32 = 0.1; // Yaw显示与拖动吸附到十分之一度。
 const SCALE_EXPONENT_PER_PIXEL: f32 = 0.01; // 指数拖动在小缩放附近保留精调空间。
 const SCALE_STEP: f32 = 0.001; // 三位小数避免拖动结果藏有不可见尾数。
 
-/// 七个数值根的稳定业务身份。
+/// 属性栏数值根的稳定业务身份。
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum PlacementTransformField {
     #[default]
@@ -48,6 +48,9 @@ pub(crate) enum PlacementTransformField {
     TranslationY, // 世界Y位置。
     TranslationZ, // 世界Z位置。
     Yaw,          // 绕世界Y轴旋转。
+    RotationX,    // 当前动画帧的欧拉角。
+    RotationY,
+    RotationZ,
     ScaleX,       // 局部X缩放。
     ScaleY,       // 局部Y缩放。
     ScaleZ,       // 局部Z缩放。
@@ -69,18 +72,37 @@ pub(crate) enum PlacementTransformField {
 }
 
 impl PlacementTransformField {
+    pub(super) const fn translation_axis(self) -> Option<usize> {
+        match self {
+            Self::TranslationX => Some(0),
+            Self::TranslationY => Some(1),
+            Self::TranslationZ => Some(2),
+            _ => None,
+        }
+    }
+
+    pub(super) const fn animation_rotation_axis(self) -> Option<usize> {
+        match self {
+            Self::RotationX => Some(0),
+            Self::RotationY => Some(1),
+            Self::RotationZ => Some(2),
+            _ => None,
+        }
+    }
+
+    /// 静态记录只有朝向，动画帧才独立编辑三轴旋转。隐藏字段也不能接受旧事件。
+    pub(super) const fn available_in_mode(self, editing_animation: bool) -> bool {
+        if matches!(self, Self::Yaw) { !editing_animation }
+        else { self.animation_rotation_axis().is_none() || editing_animation }
+    }
+
     pub(super) const fn is_animation_pose(self) -> bool {
-        matches!(self, Self::TranslationX | Self::TranslationY | Self::TranslationZ | Self::Yaw)
+        self.translation_axis().is_some() || self.animation_rotation_axis().is_some()
     }
 
     pub(super) fn animation_value(self, pose: crate::ui::scene_motion::SceneAnimationFramePose) -> Option<f32> {
-        match self {
-            Self::TranslationX => Some(pose.translation[0]),
-            Self::TranslationY => Some(pose.translation[1]),
-            Self::TranslationZ => Some(pose.translation[2]),
-            Self::Yaw => Some(pose.rotation_degrees[1].rem_euclid(360.0)), // 属性沿用原单圈角度显示，时间轴保留完整转数。
-            _ => None,
-        }
+        self.translation_axis().map(|axis| pose.translation[axis])
+            .or_else(|| self.animation_rotation_axis().map(|axis| pose.rotation_degrees[axis]))
     }
 
     pub(super) const fn is_lod(self) -> bool {
@@ -120,6 +142,9 @@ impl PlacementTransformField {
             Self::TranslationY => "位置 Y", // 高度可独立精调。
             Self::TranslationZ => "位置 Z", // 世界南北轴。
             Self::Yaw => "旋转 Y",          // 当前格式只持久化Y轴旋转。
+            Self::RotationX => "旋转 X",
+            Self::RotationY => "旋转 Y",
+            Self::RotationZ => "旋转 Z",
             Self::ScaleX => "缩放 X",       // 三轴缩放保持独立。
             Self::ScaleY => "缩放 Y",       // 三轴缩放保持独立。
             Self::ScaleZ => "缩放 Z",       // 三轴缩放保持独立。
@@ -144,7 +169,7 @@ impl PlacementTransformField {
     pub(super) const fn unit(self) -> &'static str {
         match self {
             Self::TranslationX | Self::TranslationY | Self::TranslationZ => "m", // 世界位置使用米。
-            Self::Yaw => "°", // 旋转使用角度而不是弧度。
+            Self::Yaw | Self::RotationX | Self::RotationY | Self::RotationZ => "°", // 旋转使用角度而不是弧度。
             Self::ScaleX | Self::ScaleY | Self::ScaleZ => "×", // 缩放是无量纲倍率。
             Self::CuboidColorR | Self::CuboidColorG | Self::CuboidColorB => "",
             Self::CuboidRoughness => "",
@@ -157,6 +182,7 @@ impl PlacementTransformField {
     pub(super) const fn decimals(self) -> u8 {
         match self {
             Self::Yaw => 1, // 角度显示十分之一度。
+            Self::RotationX | Self::RotationY | Self::RotationZ => 2, // 保留原动画帧的角度显示精度。
             Self::CuboidColorR | Self::CuboidColorG | Self::CuboidColorB => 0,
             Self::LodCollisionError => 4, // 必须能编辑共享合同允许的0.0001米，不能被三位小数舍入成零。
             _ => 3,         // 位置和缩放保留三位小数。
@@ -168,13 +194,16 @@ impl PlacementTransformField {
             Self::TranslationX | Self::TranslationY | Self::TranslationZ => {
                 SceneEditorScrubField::PlacementTranslation
             } // 三轴平移共享统一米制手感。
-            Self::Yaw => SceneEditorScrubField::PlacementRotation, // 旋转使用独立角度手感。
+            Self::Yaw | Self::RotationX | Self::RotationY | Self::RotationZ => SceneEditorScrubField::PlacementRotation, // 旋转使用独立角度手感。
             Self::ScaleX | Self::ScaleY | Self::ScaleZ => SceneEditorScrubField::PlacementScale, // 三轴缩放共享统一倍率手感。
             _ => SceneEditorScrubField::PlacementTranslation,
         }
     }
 
-    pub(super) fn limits(self, bounds: Option<Rect>) -> (f32, f32) {
+    pub(super) fn limits(self, bounds: Option<Rect>, editing_animation: bool) -> (f32, f32) {
+        if self.animation_rotation_axis().is_some() || editing_animation && self.translation_axis().is_some() {
+            return (-f32::MAX / 2.0, f32::MAX / 2.0); // 动画帧可以越出静态摆放边界，沿用原时间轴数值范围。
+        }
         match self {
             Self::TranslationX => bounds
                 .map(|bounds| (bounds.min.x, bounds.max.x))
@@ -198,13 +227,13 @@ impl PlacementTransformField {
         }
     }
 
-    pub(super) fn spec(self, bounds: Option<Rect>) -> NumericInputSpec {
-        let (minimum, maximum) = self.limits(bounds); // 动态场景边界直接限制X/Z精确输入。
+    pub(super) fn spec(self, bounds: Option<Rect>, editing_animation: bool) -> NumericInputSpec {
+        let (minimum, maximum) = self.limits(bounds, editing_animation);
         NumericInputSpec::f32(self.decimals())
             .with_min(NumericValue::F32(minimum)) // 精确输入复用正式下界。
             .with_max(NumericValue::F32(maximum)) // 精确输入复用正式上界。
             .with_step(NumericValue::F32(match self {
-                Self::Yaw => ROTATION_STEP, // 角度吸附到十分之一度。
+                Self::Yaw | Self::RotationX | Self::RotationY | Self::RotationZ => ROTATION_STEP, // 角度吸附到十分之一度。
                 Self::ScaleX | Self::ScaleY | Self::ScaleZ => SCALE_STEP, // 缩放吸附到千分之一。
                 Self::CuboidColorR | Self::CuboidColorG | Self::CuboidColorB => 1.0,
                 Self::LodScreenError => 0.1,
@@ -223,11 +252,12 @@ impl PlacementTransformField {
         self,
         settings: &EditorSettings,
         bounds: Option<Rect>,
+        editing_animation: bool,
     ) -> NumericInputScrubConfig {
         let sensitivity = settings
             .scene_editor_scrub_sensitivities
             .get(self.scrub_field()); // 每类变换读取自己的持久倍率。
-        let (minimum, maximum) = self.limits(bounds); // 左拖与精确输入共享同一业务范围。
+        let (minimum, maximum) = self.limits(bounds, editing_animation); // 左拖与精确输入共享同一业务范围。
         match self {
             Self::ScaleX | Self::ScaleY | Self::ScaleZ => NumericInputScrubConfig::exponential(
                 SCALE_EXPONENT_PER_PIXEL, // 正比例拖动覆盖千分之一到一千倍而不丢低值精度。
@@ -236,11 +266,11 @@ impl PlacementTransformField {
                 maximum,                  // 正缩放闭区间上界。
                 sensitivity,              // 用户持久手感倍率。
             ),
-            Self::Yaw => NumericInputScrubConfig::linear(
+            Self::Yaw | Self::RotationX | Self::RotationY | Self::RotationZ => NumericInputScrubConfig::linear(
                 ROTATION_UNITS_PER_PIXEL, // 固定角度/像素映射。
                 ROTATION_STEP,            // 十分之一度吸附。
-                minimum,                  // 零度起点。
-                maximum,                  // 三百六十度由InputSpec循环回零。
+                minimum,
+                maximum,
                 sensitivity,              // 旋转独立倍率。
             ),
             Self::CuboidColorR | Self::CuboidColorG | Self::CuboidColorB => {
@@ -273,6 +303,7 @@ impl PlacementTransformField {
             Self::TranslationY => record.translation[1], // 世界Y。
             Self::TranslationZ => record.translation[2], // 世界Z。
             Self::Yaw => record.yaw_degrees,             // 作者角度。
+            Self::RotationX | Self::RotationY | Self::RotationZ => 0.0, // 无动画帧时字段隐藏。
             Self::ScaleX => record.scale[0],             // X倍率。
             Self::ScaleY => record.scale[1],             // Y倍率。
             Self::ScaleZ => record.scale[2],             // Z倍率。
@@ -299,6 +330,7 @@ impl PlacementTransformField {
             Self::TranslationY => &mut record.translation[1], // 只写世界Y。
             Self::TranslationZ => &mut record.translation[2], // 只写世界Z。
             Self::Yaw => &mut record.yaw_degrees,             // 只写Y轴角度。
+            Self::RotationX | Self::RotationY | Self::RotationZ => return false, // 动画姿势由工作台保存，静态摆放不接受这些事件。
             Self::ScaleX => &mut record.scale[0],             // 只写缩放X。
             Self::ScaleY => &mut record.scale[1],             // 只写缩放Y。
             Self::ScaleZ => &mut record.scale[2],             // 只写缩放Z。
@@ -349,6 +381,10 @@ pub(crate) enum PlacementPropertiesSection {
 /// 尺寸行连同轴标签一起按生成器能力显隐，外部网格不保留空白尺寸行。
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub(crate) struct SceneEditorCuboidGeometryRow;
+
+/// 进入场景动画时整行出现，退出后恢复普通朝向输入。
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub(crate) struct SceneEditorAnimationRotationRow;
 
 impl PlacementPropertiesSection {
     pub(super) fn supported_by(self, record: &ScenePlacementRecord) -> bool {

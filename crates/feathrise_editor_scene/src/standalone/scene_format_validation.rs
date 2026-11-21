@@ -22,7 +22,7 @@ use crate::{
     resources::{SceneBrowserIndexState, SceneBrowserState, SceneEditorState, SceneEditorViewportState},
     types::{EditorAction, SceneBrowserItem},
     ui::{
-        gltf_browser::EditorGltfBrowserState,
+        gltf_browser::{EditorGltfBrowserState, PlacementTreeExpander},
         scene_context_menu::{SceneObjectKey, SceneObjectRow},
         scene_inspector::InspectorTree,
     },
@@ -238,6 +238,22 @@ pub fn reference_row_visible(world: &mut World, parent: &SceneId, name: &str) ->
                         && matches!(&target.key, SceneObjectKey::Subscene { .. })
                 })
         })
+}
+
+/// 只定位当前自有场景的已布局分支箭头，展开仍由宿主发送原窗口鼠标事件。
+pub fn main_glb_tree_arrow(world: &mut World, scene: &SceneId) -> Result<Option<Entity>, String> {
+    require_owned(world)?;
+    Ok(world.query::<(Entity, &SceneObjectRow, &Children)>().iter(world).find_map(|(entity, row, children)| {
+        let target = row.0.as_ref()?;
+        if target.scene_id != *scene || !matches!(&target.key, SceneObjectKey::MainSceneGlb) || !ui_visible(world, entity) {
+            return None;
+        }
+        children.iter().find(|&child| {
+            world.get::<PlacementTreeExpander>(child).is_some()
+                && world.get::<bevy::ui::InteractionDisabled>(child).is_none()
+                && ui_visible(world, child)
+        })
+    }))
 }
 
 /// 摆放行真正可见后读取同一场景树的文案，以覆盖旧搜索框会出现的条件。

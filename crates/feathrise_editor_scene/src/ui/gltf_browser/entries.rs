@@ -42,6 +42,7 @@ pub(super) struct BrowserEntriesBuild {
     stage: BrowserEntryBuildStage,
     /// 完成前不暴露给固定UI行池的拥有型结果。
     entries: Vec<EditorGltfBrowserEntry>,
+    main_glb_entry_count: usize,
     /// 当前实例尚未被真实网格命中的水绑定；真实网格阶段只做O(log 64)查找。
     unmatched_water_bindings:
         BTreeMap<(Vec<String>, String), (u32, feathrise_scene_content::ScenePlacementWaterKind)>,
@@ -57,6 +58,7 @@ impl BrowserEntriesBuild {
             placement_index: 0,                       // 下一次从第一个实例根开始。
             stage: BrowserEntryBuildStage::Placement, // 每个实例必须先发布根。
             entries: Vec::with_capacity(state.signature.len()),
+            main_glb_entry_count: 0,
             unmatched_water_bindings: BTreeMap::new(), // 每个实例重新渐进填入最多64项绑定。
         }
     }
@@ -160,11 +162,12 @@ fn publish_completed_entries(
     state: &mut EditorGltfBrowserState, // 当前活动签名、缓存和选择。
     mut build: BrowserEntriesBuild,     // 已完成且修订匹配的拥有型草稿。
 ) -> Result<(), BrowserEntriesBuild> {
-    let has_projection = !build.projection.roots.is_empty();
+    let has_projection = build.projection.root(0).is_some();
     if (!state.entries.is_empty() || has_projection) && !state.retirement.can_enqueue_normal() {
         return Err(build); // 旧活动树尚无退役槽时保留完整新草稿，最新修订继续合并。
     }
     let old_entries = std::mem::replace(&mut state.entries, std::mem::take(&mut build.entries));
+    state.main_glb_entry_count = build.main_glb_entry_count; // 与完整行向量同代发布。
     state.published_entries_revision = build.revision;
     let mut retired = BrowserRetiredGeneration::default(); // 旧根行与展开子行只移动所有权。
     retired.entries(old_entries); // 后续Update按元素/路径/字节预算逐条释放。
@@ -214,10 +217,16 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
     let mut copy_budget = EntryBuildFrameBudget::default(); // 深路径和字符串不能藏在单行额度内。
     let mut completed = false; // 完整根及其展开行读取完毕后发布。
     while operations < MAX_GLTF_ENTRY_OPERATIONS_PER_FRAME && rows < MAX_GLTF_ENTRY_ROWS_PER_FRAME {
+        if build.stage == BrowserEntryBuildStage::Placement
+            && build.placement_index == build.projection.main_glb_root_count()
+        {
+            // 碰到外部分支前，所有主 GLB 根与组内可见行已构建完成。
+            build.main_glb_entry_count = build.entries.len();
+        }
         let linear_token = super::projection::RootToken::Placement { index: build.placement_index, depth: 0 };
         let token = if build.projection.linear {
             (build.placement_index < state.signature.len()).then_some(&linear_token)
-        } else { build.projection.roots.get(build.placement_index) };
+        } else { build.projection.root(build.placement_index) };
         let Some(token) = token else {
             completed = true;
             break; // 已处理全部活动签名。
@@ -290,7 +299,8 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                         placement_id: placement.placement_id.clone(), // 点击仍使用稳定作者ID。
                         collapsed,  // 箭头直接反映本次完整草稿的展开偏好。
                         expandable, // 输入系统据此拒绝为直接primitive产生Scene0需求。
-                        glb: !builtin && asset_icons::is_glb(&placement.asset_path),
+                        glb: !builtin && !placement.is_embedded_in(state.main_glb_path.as_deref())
+                            && asset_icons::is_glb(&placement.asset_path),
                     },
                     display_name: format!(
                         "{} · {}{target_hint}{phase_hint}{duplicate_hint}{}{}",

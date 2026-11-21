@@ -142,6 +142,7 @@ fn scene_tree_click_switches_root_and_mesh_rows_without_changing_the_viewport_to
                     slot: 0,
                     entry_index: Some(0),
                     entries_revision: 0,
+                    main_glb: None,
                 },
             ))
             .id();
@@ -207,7 +208,7 @@ fn static_patch_selection_scene_tree_click_publishes_world_anchor_and_rejects_di
                 placement_id: id.clone(), collapsed: true, expandable: false, glb: true,
             }, display_name: "三维地形".into(), depth: 0, selection: None }];
         }
-        app.world_mut().spawn((EditorButtonClick::triggered(), SceneEditorGltfBrowserRow { slot: 0, entry_index: Some(0), entries_revision: 0 }));
+        app.world_mut().spawn((EditorButtonClick::triggered(), SceneEditorGltfBrowserRow { slot: 0, entry_index: Some(0), entries_revision: 0, main_glb: None }));
         app.world_mut().run_system_once(handle_gltf_browser_input).unwrap();
         let selection = app.world().resource::<PlacementSelectionSet>();
         let browser = app.world().resource::<EditorGltfBrowserState>();

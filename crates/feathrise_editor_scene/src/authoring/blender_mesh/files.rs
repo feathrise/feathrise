@@ -13,7 +13,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -44,35 +44,13 @@ impl BlenderProcess {
         record: &ScenePlacementRecord,
         saved_executable: Option<&Path>,
     ) -> Result<Self, String> {
-        let executable = super::super::find_blender_executable(saved_executable)?
-            .canonicalize().map_err(|error| error.to_string())?;
+        let executable = blender_executable(saved_executable)?;
         let root = root.canonicalize().map_err(|error| error.to_string())?;
         safe_content_path(&root, &folder)?;
 
-        // 旧点面往返会话另属 v1。新进程只创建、清理自己独占的目录。
-        let cache = std::env::temp_dir().join("feathrise/blender-glb-v2");
-        fs::create_dir_all(&cache).map_err(|error| error.to_string())?;
-        let time = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?;
-        let directory = cache.join(format!("session-{}-{}", std::process::id(), time.as_nanos()));
-        fs::create_dir(&directory).map_err(|error| error.to_string())?;
-
-        let launch = (|| -> Result<Child, String> {
-            let exporter = blender_export::prepare(&directory, std::env::var_os("FEATHRISE_BLENDER_TOOLS_DIR"))?;
-            let input = input_glb(&root, &directory, record)?;
-            let script = directory.join("bridge.py");
-            fs::write(&script, BRIDGE).map_err(|error| error.to_string())?;
-            let mut command = Command::new(executable);
-            // 正常 Blender 启动读取用户偏好，脚本只替换本进程里的场景。
-            command.args(["--disable-autoexec", "--python-exit-code", "1", "--python"])
-                .arg(script).arg("--").arg(&directory).arg(input).arg(exporter)
-                .current_dir(&directory)
-                .env("PYTHONDONTWRITEBYTECODE", "1")
-                .env("PYTHONIOENCODING", "utf-8")
-                .stdin(Stdio::null())
-                .stdout(File::create(directory.join("stdout.log")).map_err(|error| error.to_string())?)
-                .stderr(File::create(directory.join("stderr.log")).map_err(|error| error.to_string())?);
-            command.spawn().map_err(|error| format!("无法启动 Blender（{error}）"))
-        })();
+        let directory = create_session_directory()?;
+        let launch = input_glb(&root, &directory, record)
+            .and_then(|input| launch_bridge(&executable, &directory, &input, &[]));
         match launch {
             Ok(child) => Ok(Self { child, root, folder, directory, revision: 0, digest: String::new() }),
             Err(error) => {
@@ -168,6 +146,81 @@ impl BlenderProcess {
         self.revision = revision;
         Ok(Export::Ready(relative))
     }
+}
+
+pub(super) struct MainSceneProcess {
+    child: Child,
+    directory: PathBuf,
+}
+
+impl MainSceneProcess {
+    pub fn start(
+        root: &Path,
+        scene_id: &str,
+        relative: &str,
+        expected: &str,
+        saved_executable: Option<&Path>,
+    ) -> Result<Self, String> {
+        let executable = blender_executable(saved_executable)?;
+        let source = safe_content_path(root, relative)?;
+        open_glb(&source, GLB_FORMAT_MAX_BYTES)?;
+        if file_hash(&source)? != expected {
+            return Err("主场景 GLB 已被其他程序修改，请重新打开场景".into());
+        }
+        let directory = create_session_directory()?;
+        // 会话启动只交接正式 GLB 的路径与版本。之后的 Blender 保存仍会核对源版本。
+        match launch_bridge(&executable, &directory, &source, &["main_scene", scene_id, expected]) {
+            Ok(child) => Ok(Self { child, directory }),
+            Err(error) => {
+                cleanup_directory(&directory);
+                Err(error)
+            }
+        }
+    }
+
+    pub fn poll_exit(&mut self) -> Option<Result<ExitStatus, io::Error>> {
+        self.child.try_wait().transpose()
+    }
+
+    pub fn directory(&self) -> &Path {
+        &self.directory
+    }
+
+    pub fn cleanup(self) {
+        cleanup_directory(&self.directory);
+    }
+}
+
+fn blender_executable(saved_executable: Option<&Path>) -> Result<PathBuf, String> {
+    super::super::find_blender_executable(saved_executable)?
+        .canonicalize().map_err(|error| error.to_string())
+}
+
+fn create_session_directory() -> Result<PathBuf, String> {
+    // 旧点面往返会话另属 v1。新进程只创建、清理自己独占的目录。
+    let cache = std::env::temp_dir().join("feathrise/blender-glb-v2");
+    fs::create_dir_all(&cache).map_err(|error| error.to_string())?;
+    let time = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?;
+    let directory = cache.join(format!("session-{}-{}", std::process::id(), time.as_nanos()));
+    fs::create_dir(&directory).map_err(|error| error.to_string())?;
+    Ok(directory)
+}
+
+fn launch_bridge(executable: &Path, directory: &Path, input: &Path, extra: &[&str]) -> Result<Child, String> {
+    let exporter = blender_export::prepare(directory, std::env::var_os("FEATHRISE_BLENDER_TOOLS_DIR"))?;
+    let script = directory.join("bridge.py");
+    fs::write(&script, BRIDGE).map_err(|error| error.to_string())?;
+    let mut command = Command::new(executable);
+    // 正常 Blender 启动读取用户偏好，脚本只替换本进程里的场景。
+    command.args(["--disable-autoexec", "--python-exit-code", "1", "--python"])
+        .arg(script).arg("--").arg(directory).arg(input).arg(exporter).args(extra)
+        .current_dir(directory)
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .env("PYTHONIOENCODING", "utf-8")
+        .stdin(Stdio::null())
+        .stdout(File::create(directory.join("stdout.log")).map_err(|error| error.to_string())?)
+        .stderr(File::create(directory.join("stderr.log")).map_err(|error| error.to_string())?);
+    command.spawn().map_err(|error| format!("无法启动 Blender（{error}）"))
 }
 
 fn input_glb(root: &Path, directory: &Path, record: &ScenePlacementRecord) -> Result<PathBuf, String> {

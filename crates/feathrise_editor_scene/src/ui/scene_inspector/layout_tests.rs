@@ -132,7 +132,7 @@ fn inspector_reflow_keeps_numeric_entities_specs_values_and_active_buffer() {
     let world = app.world_mut();
     let fields = world.query_filtered::<(Entity, &NumericInputConfig, &NumericInputValue), With<NumericInputRoot>>()
         .iter(world).map(|(entity, config, value)| (entity, *config, *value)).collect::<Vec<_>>();
-    assert_eq!(fields.len(), 24); // 原20个输入加上独立显示/碰撞LOD四字段，隐藏时也保留实体身份。
+    assert_eq!(fields.len(), 27); // 动画三轴旋转和静态字段在隐藏时也保留实体身份。
     let active = world
         .query::<(Entity, &PlacementTransformField)>()
         .iter(world)
@@ -172,7 +172,8 @@ fn inspector_reflow_keeps_numeric_entities_specs_values_and_active_buffer() {
                     let computed = world.get::<ComputedNode>(*entity).unwrap();
                     if world
                         .get::<PlacementTransformField>(*entity)
-                        .is_some_and(|field| field.is_cutout() || field.is_cuboid() || field.is_lod())
+                        .is_some_and(|field| field.is_cutout() || field.is_cuboid() || field.is_lod()
+                            || field.animation_rotation_axis().is_some())
                     {
                         assert_eq!(computed.size(), Vec2::ZERO); // 普通GLB的洞口及内置形状字段保留身份，但不占布局。
                     } else {
@@ -194,6 +195,12 @@ fn inspector_reflow_keeps_numeric_entities_specs_values_and_active_buffer() {
                     assert!((positions[1].y - positions[2].y).abs() <= 1.1);
                     assert!(positions[0].x < positions[1].x && positions[1].x < positions[2].x);
                 } // 同排只是布局变化，下面继续验证原焦点、完整缓冲与固定输入根数量。
+                for (text, node, layout) in world.query::<(&Text, &ComputedNode, &TextLayout)>().iter(world) {
+                    if node.size().x > 0.0 && matches!(text.as_str(), "位置" | "缩放") {
+                        assert_eq!(layout.linebreak, bevy::text::LineBreak::NoWrap);
+                        assert!(node.size().x + 1.1 >= 26.0 * scale * dpi);
+                    }
+                }
                 for (entity, node, layout) in world
                     .query::<(Entity, &ComputedNode, &TextLayout)>()
                     .iter(world)
@@ -221,7 +228,7 @@ fn inspector_reflow_keeps_numeric_entities_specs_values_and_active_buffer() {
                         .query_filtered::<Entity, With<NumericInputRoot>>()
                         .iter(world)
                         .count(),
-                    24
+                    27
                 );
             }
         }

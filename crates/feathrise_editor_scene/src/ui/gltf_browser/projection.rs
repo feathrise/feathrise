@@ -79,13 +79,19 @@ mod tests {
     }
 }
 
+struct GroupMembers {
+    all_embedded: bool,
+    indices: Vec<usize>,
+}
+
 #[derive(Default)]
 pub(super) struct RootProjection {
     pub(super) linear: bool,
     cursor: usize,
-    groups: BTreeMap<String, Vec<usize>>,
-    current: Option<(String, std::vec::IntoIter<usize>)>,
-    pub(super) roots: Vec<RootToken>,
+    groups: BTreeMap<String, GroupMembers>,
+    current: Option<(bool, std::vec::IntoIter<usize>)>,
+    main_roots: Vec<RootToken>,
+    roots: Vec<RootToken>,
     captured: bool,
     complete: bool,
 }
@@ -95,7 +101,7 @@ impl RootProjection {
         if self.complete {
             return true;
         }
-        if !state.has_object_groups {
+        if !state.has_object_groups && state.main_glb_path.is_none() {
             self.linear = true;
             self.complete = true;
             return true; // 无目录时按摆放顺序生成树行，沿用每帧256行预算。
@@ -105,12 +111,25 @@ impl RootProjection {
             let start = self.cursor;
             let mut bytes = 0;
             while self.cursor < end {
-                let group = &state.signature[self.cursor].editor.group;
+                let index = self.cursor;
+                let placement = &state.signature[index];
+                let group = &placement.editor.group;
                 bytes += group.len();
                 if bytes > 128 * 1024 && self.cursor > start {
                     break;
                 }
-                self.groups.entry(group.clone()).or_default().push(self.cursor);
+                let embedded = placement.is_embedded_in(state.main_glb_path.as_deref());
+                if group.is_empty() {
+                    self.push_root(embedded, RootToken::Placement { index, depth: 0 });
+                } else {
+                    let members = self.groups.entry(group.clone()).or_insert_with(|| GroupMembers {
+                        all_embedded: embedded,
+                        indices: Vec::new(),
+                    });
+                    // 跨来源仍用同一个逻辑组，保持原组命令的成员范围。
+                    members.all_embedded &= embedded;
+                    members.indices.push(index);
+                }
                 self.cursor += 1;
             }
             self.captured = self.cursor == state.signature.len();
@@ -120,39 +139,48 @@ impl RootProjection {
         }
         // 目录、根和折叠省略均按256步限流。
         for _ in 0..256 {
-            if let Some((name, indices)) = &mut self.current {
+            if let Some((embedded, indices)) = &mut self.current {
                 if let Some(index) = indices.next() {
-                    self.roots.push(RootToken::Placement {
-                        index,
-                        depth: usize::from(!name.is_empty()),
-                    });
+                    let embedded = *embedded;
+                    self.push_root(embedded, RootToken::Placement { index, depth: 1 });
                     continue;
                 }
                 self.current = None;
             }
-            let Some((name, indices)) = self.groups.pop_first() else {
+            let Some((name, GroupMembers { all_embedded, indices })) = self.groups.pop_first() else {
                 self.complete = true;
                 return true;
             };
-            let collapsed = !name.is_empty() && !state.expanded_groups.contains(&name);
-            if !name.is_empty() {
-                self.roots.push(RootToken::Group {
-                    name: name.clone(),
-                    first_member: indices[0], // 组开关沿用首成员的状态来决定整组切换方向。
-                    count: indices.len(),
-                    collapsed,
-                });
-            }
+            let collapsed = !state.expanded_groups.contains(&name);
+            self.push_root(all_embedded, RootToken::Group {
+                name,
+                first_member: indices[0], // 组开关沿用首成员的状态来决定整组切换方向。
+                count: indices.len(),
+                collapsed,
+            });
             if !collapsed {
-                self.current = Some((name, indices.into_iter()));
+                self.current = Some((all_embedded, indices.into_iter()));
             }
         }
         false
     }
 
+    fn push_root(&mut self, embedded: bool, token: RootToken) {
+        let roots = if embedded { &mut self.main_roots } else { &mut self.roots };
+        roots.push(token);
+    }
+
+    pub(super) fn main_glb_root_count(&self) -> usize {
+        self.main_roots.len()
+    }
+
+    pub(super) fn root(&self, index: usize) -> Option<&RootToken> {
+        self.main_roots.get(index).or_else(|| self.roots.get(index - self.main_roots.len()))
+    }
+
     /// 投影索引随原行草稿逐项释放。
     pub(super) fn retire_one(&mut self) -> bool {
-        if self.roots.pop().is_some() {
+        if self.roots.pop().is_some() || self.main_roots.pop().is_some() {
             return false;
         }
         if let Some((_, indices)) = &mut self.current {
@@ -161,12 +189,11 @@ impl RootProjection {
             }
             self.current = None;
         }
-        if let Some((_, indices)) = self.groups.first_key_value() {
-            if !indices.is_empty() {
-                self.groups.first_entry().unwrap().get_mut().pop();
+        if let Some(mut group) = self.groups.first_entry() {
+            if group.get_mut().indices.pop().is_some() {
                 return false;
             }
-            self.groups.pop_first();
+            group.remove_entry();
             return false;
         }
         true

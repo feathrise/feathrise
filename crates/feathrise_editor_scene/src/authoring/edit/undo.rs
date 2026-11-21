@@ -511,9 +511,9 @@ pub(crate) fn apply_undo_redo(
                 EditorCommand::SceneMotionTimingChanged { before, after } => {
                     let (expected, replacement) = if undoing { (after, before) } else { (before, after) };
                     if draft.motion.timing() != *expected {
-                        return Err("场景动画时长或循环已变化，无法应用这笔历史".into());
+                        return Err("场景动画的播放设置已变化，无法应用这笔历史".into());
                     }
-                    draft.motion.set_timing(replacement.0, replacement.1);
+                    draft.motion.set_timing(*replacement);
                 }
                 EditorCommand::PlacementChanged {
                     record_index,
