@@ -27,6 +27,8 @@ mod output_log;
 mod tool_cache;
 #[path = "bundled_dx.rs"]
 mod bundled_dx;
+#[path = "dx_path.rs"]
+mod dx_path;
 pub(crate) use bundled_dx::DxSource;
 pub(crate) use output_log::OutputLog as DxOutputLog;
 #[cfg(test)]
@@ -89,7 +91,7 @@ pub(crate) fn project_tool(project: &Project, target: &Path, control: &BuildCont
             return Ok(None);
         }
     };
-    let Some(dx) = bundled_dx::resolve(target, &development_dx_path()?, control)? else {
+    let Some(dx) = bundled_dx::resolve(target, dx_source()?, control)? else {
         if let Some(log) = control.log_sink() { log.task_message("已选择 DX，但未找到 DX 0.7.9，回退到 Cargo"); }
         return Ok(None);
     };
@@ -102,13 +104,9 @@ pub(crate) fn project_tool(project: &Project, target: &Path, control: &BuildCont
 }
 
 pub(crate) fn dx_source() -> Result<DxSource, String> {
-    Ok(DxSource::configured(std::env::var_os("FEATHRISE_DX_PATH").map(PathBuf::from), &development_dx_path()?))
-}
-
-fn development_dx_path() -> Result<PathBuf, String> {
     let resources = crate::project_template_root();
     let repository = resources.parent().ok_or("编辑器资源目录没有工具仓库父目录")?;
-    Ok(repository.join(".local/hotpatch/tools/dx-0.7.9/dx.exe"))
+    DxSource::from_workspace(repository)
 }
 
 pub(crate) fn supported_dx_version(version: &str) -> bool {

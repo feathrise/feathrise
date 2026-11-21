@@ -1,14 +1,10 @@
 //! 在后台完整释放内嵌 DX 与本地 CRT，按内容摘要复用缓存，拒绝半包与被替换的工具。
-use super::tool_cache;
+use super::{dx_path, tool_cache};
 use crate::build_process::BuildControl;
 use std::{fs, io::{Read, Write}, path::{Path, PathBuf}};
 
 struct Payload { name: &'static str, bytes: usize, sha256: &'static str, compressed: &'static [u8] }
 include!(concat!(env!("OUT_DIR"), "/embedded_dx.rs"));
-
-pub(super) fn resolve(target: &Path, legacy: &Path, control: &BuildControl) -> Result<Option<PathBuf>, String> {
-    select(std::env::var_os("FEATHRISE_DX_PATH").map(PathBuf::from), target, legacy, control)
-}
 
 pub(crate) enum DxSource {
     Explicit(PathBuf),
@@ -17,6 +13,18 @@ pub(crate) enum DxSource {
 }
 
 impl DxSource {
+    pub(super) fn from_workspace(workspace: &Path) -> Result<Self, String> {
+        let legacy = workspace.join(".local/hotpatch/tools/dx-0.7.9/dx.exe");
+        let source = Self::configured(std::env::var_os("FEATHRISE_DX_PATH").map(PathBuf::from), &legacy);
+        // 路径文件只参与源码开发工具选择。无 DX 的独立检出仍可回退到 Cargo。
+        if matches!(&source, Self::Development(_))
+            && let Some(path) = dx_path::read_local_path(&workspace.join("dx-path.txt")).map_err(|error| error.to_string())?
+        {
+            return Ok(Self::Development(path));
+        }
+        Ok(source)
+    }
+
     pub(super) fn configured(explicit: Option<PathBuf>, legacy: &Path) -> Self {
         match explicit {
             Some(path) => Self::Explicit(path),
@@ -39,9 +47,9 @@ impl DxSource {
     }
 }
 
-fn select(explicit: Option<PathBuf>, target: &Path, legacy: &Path, control: &BuildControl) -> Result<Option<PathBuf>, String> {
+pub(super) fn resolve(target: &Path, source: DxSource, control: &BuildControl) -> Result<Option<PathBuf>, String> {
     control.check()?;
-    match DxSource::configured(explicit, legacy) {
+    match source {
         DxSource::Bundled => {
             std::hint::black_box(MARKER);
             materialize(target, IDENTITY, PAYLOAD, control).map(Some)
@@ -136,19 +144,20 @@ mod tests {
         fs::create_dir(&directory).unwrap();
         let target = directory.canonicalize().unwrap();
         let control = BuildControl::default();
-        let path = select(None, &target, Path::new("missing-development-tool"), &control).unwrap().unwrap();
+        let source = || DxSource::configured(None, Path::new("missing-development-tool"));
+        let path = resolve(&target, source(), &control).unwrap().unwrap();
         let output = std::process::Command::new(&path).arg("--version").output().unwrap();
         assert!(output.status.success());
         assert!(String::from_utf8_lossy(&output.stdout).split_whitespace().any(|part| part == "0.7.9"));
         assert!(path.with_file_name("vcruntime140.dll").is_file());
-        assert_eq!(select(None, &target, Path::new("missing"), &control).unwrap(), Some(path.clone()));
+        assert_eq!(resolve(&target, source(), &control).unwrap(), Some(path.clone()));
         fs::write(path.with_file_name("vcruntime140.dll"), b"corrupt").unwrap();
-        let recovered = select(None, &target, Path::new("missing"), &control).unwrap().unwrap();
+        let recovered = resolve(&target, source(), &control).unwrap().unwrap();
         assert_ne!(recovered, path);
-        assert_eq!(select(None, &target, Path::new("missing"), &control).unwrap(), Some(recovered));
+        assert_eq!(resolve(&target, source(), &control).unwrap(), Some(recovered));
         let cancelled = BuildControl::default();
         cancelled.cancel();
-        assert!(select(None, &target, Path::new("missing"), &cancelled).is_err());
+        assert!(resolve(&target, source(), &cancelled).is_err());
         fs::remove_dir_all(&directory).unwrap();
     }
 }
