@@ -6,9 +6,9 @@ use super::{
     resources::{ObjectTargets, PendingManagement},
 };
 use crate::{
-    authoring::EditorAuthoringSession,
+    authoring::{EditorAuthoringSession, EditorCommand, placement_folders},
     resources::SceneEditorState,
-    ui::scene_context_menu::{SceneContextMenuState, SceneMenuAction, SceneObjectKey},
+    ui::scene_context_menu::{SceneContextMenuState, SceneMenuAction, SceneObjectKey, SceneObjectTarget},
 };
 use bevy::prelude::*;
 
@@ -37,22 +37,57 @@ pub(super) fn input(
     {
         return;
     }
+    queue_management(&mut state, &session, &request.target, *index, action, request.name.clone(), String::new(),
+        if request.action == SceneMenuAction::Visibility { !request.target.hidden } else { !request.target.locked });
+}
+
+/// 目录拖放更新摆放的轻量管理字段，沿用已有整笔历史与分帧采用。
+pub(crate) fn queue_group_drop(
+    state: &mut SceneObjectState, session: &EditorAuthoringSession,
+    source: &SceneObjectTarget, group: Option<String>,
+) -> bool {
+    let SceneObjectKey::Placement { index, id, mesh: None } = &source.key else { return false; };
+    let Some(record) = session.draft.as_ref().filter(|draft| draft.scene_id == source.scene_id)
+        .and_then(|draft| draft.placements.placements.get(*index)).filter(|record| record.id == *id) else { return false; };
+    let group = group.unwrap_or_default();
+    if !state.accepts_commands() || record.editor.locked || record.editor.group == group { return false; }
+    let action = if group.is_empty() { ObjectAction::Ungroup } else { ObjectAction::AssignGroup };
+    queue_management(state, session, source, *index, action, String::new(), group, false);
+    true
+}
+
+pub(crate) fn create_folder(
+    state: &mut SceneObjectState, session: &mut EditorAuthoringSession,
+    editor: &mut SceneEditorState, name: &str,
+) -> Result<(), String> {
+    if !state.accepts_commands() { return Err("请等待上一项场景对象修改完成".into()); }
+    placement_folders::validate_name(name)?;
+    let draft = session.draft.as_mut().ok_or("还没有可编辑的场景")?;
+    if draft.object_folders.contains(name) { return Err("已存在同名文件夹".into()); }
+    std::sync::Arc::make_mut(&mut draft.object_folders).insert(name.to_owned());
+    let mut retired = std::mem::take(&mut session.redo);
+    session.push_bounded_history_retiring(EditorCommand::PlacementFolderAdded(name.to_owned()), &mut retired);
+    if !retired.is_empty() { super::systems::retire(state, retired); }
+    session.mark_placement_structure_changed(editor);
+    Ok(())
+}
+
+fn queue_management(
+    state: &mut SceneObjectState, session: &EditorAuthoringSession, target: &SceneObjectTarget,
+    index: usize, action: ObjectAction, name: String, group: String, flag: bool,
+) {
     state.pending = Some(PendingManagement {
-        scene_id: request.target.scene_id.clone(),
+        scene_id: target.scene_id.clone(),
         document: session.placement_deletions.identity(),
         revision: session.revision,
         structure: session.placement_structure_revision,
         terrain_revision: session.terrain_revision,
         derived_pose_revision: session.placement_derived_pose_revision,
-        targets: ObjectTargets::Indices(vec![*index]),
+        targets: ObjectTargets::Indices(vec![index]),
         action,
-        name: request.name.clone(),
-        group: String::new(),
-        flag: if request.action == SceneMenuAction::Visibility {
-            !request.target.hidden
-        } else {
-            !request.target.locked
-        },
+        name,
+        group,
+        flag,
         flag_set: true,
         cursor: 0,
         changes: Vec::new(),

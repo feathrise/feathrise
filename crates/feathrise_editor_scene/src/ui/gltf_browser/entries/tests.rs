@@ -63,8 +63,37 @@ fn main_glb_prefix_preserves_original_group_membership() {
         ("instance-5", 1, true), ("instance-6", 1, false),
     ]);
     assert!(matches!(
-        state.entries[7].kind, EditorGltfBrowserEntryKind::Group { first_member: 5, count: 2, .. }
+        state.entries[7].kind, EditorGltfBrowserEntryKind::Group { first_member: Some(5), count: 2, .. }
     ));
+}
+
+#[test]
+fn expanded_reference_lists_original_clip_indices_between_glb_root_and_mesh() {
+    let placement = placement_signature(0);
+    let path = placement.asset_path.clone();
+    let id = placement.placement_id.clone();
+    let mut state = EditorGltfBrowserState { signature: vec![placement], ..Default::default() };
+    state.expanded_placements.insert(id);
+    // 同名动作保持两个原序号，因此双击同名片段也能进入正确轨道。
+    let names: std::sync::Arc<[String]> = vec!["往返".into(), "往返".into()].into();
+    state.assets.insert(path, CachedGltfAsset {
+        handle: Handle::default(), animation_names: Some(std::sync::Arc::downgrade(&names)),
+        meshes: vec![CachedGltfMesh {
+            node_path: vec!["平台".into()], mesh_name: "平台网格".into(), mesh_index: Some(0),
+            node_index: Some(1), valid: true, ambiguous: false,
+        }],
+        active_ready: true, phase: CachedGltfAssetPhase::Ready, truncated: false, content_revision: 1,
+    });
+    request_visible_entries_rebuild(&mut state);
+    assert!(advance_visible_entries_build(&mut state));
+    assert_eq!(state.entries.len(), 4);
+    assert!(matches!(state.entries[0].kind, EditorGltfBrowserEntryKind::Placement { glb: true, .. }));
+    for clip_index in 0..2 {
+        assert!(matches!(state.entries[clip_index + 1].kind,
+            EditorGltfBrowserEntryKind::SourceAnimation { clip_index: index, .. } if index == clip_index));
+        assert_eq!(state.entries[clip_index + 1].display_name, "往返");
+    }
+    assert!(matches!(state.entries[3].kind, EditorGltfBrowserEntryKind::Mesh));
 }
 
 fn mesh_entry(index: usize) -> EditorGltfBrowserEntry {
@@ -77,6 +106,7 @@ fn mesh_entry(index: usize) -> EditorGltfBrowserEntry {
             node_path: (0..16).map(|depth| format!("节点-{depth}")).collect(), // 深路径确保析构预算可见。
             mesh_name: format!("WaterSurface-{index}"),                        // 独立网格名分配。
             mesh_index: Some(index as u32),                                    // 非权威诊断索引。
+            node_index: None,
             valid: true,                   // 模拟当前Ready选择。
             orphaned_water_binding: false, // 真实网格行而非失效绑定。
         }),
@@ -212,10 +242,12 @@ fn primitive_placement_is_a_labeled_non_expandable_root() {
         asset_path,
         CachedGltfAsset {
             handle: Handle::default(),
+            animation_names: None,
             meshes: vec![CachedGltfMesh {
                 node_path: vec!["完整场景对象".to_owned()],
                 mesh_name: "不应显示".to_owned(),
                 mesh_index: Some(99),
+                node_index: None,
                 valid: true,
                 ambiguous: false,
             }],
@@ -299,10 +331,12 @@ fn placement_beyond_the_old_limit_can_expand_and_publish_a_selectable_mesh() {
         asset_path,
         CachedGltfAsset {
             handle: Handle::default(),
+            animation_names: None,
             meshes: vec![CachedGltfMesh {
                 node_path: vec!["RiverObject".to_owned()],
                 mesh_name: "RiverMesh".to_owned(),
                 mesh_index: Some(7),
+                node_index: None,
                 valid: true,
                 ambiguous: false,
             }],
@@ -363,11 +397,13 @@ fn one_large_ready_asset_obeys_the_per_update_row_budget() {
         asset_path,
         CachedGltfAsset {
             handle: Handle::default(),
+            animation_names: None,
             meshes: (0..mesh_count)
                 .map(|index| CachedGltfMesh {
                     node_path: vec![format!("node-{index}")],
                     mesh_name: format!("mesh-{index}"),
                     mesh_index: Some(index as u32),
+                    node_index: None,
                     valid: true,
                     ambiguous: false,
                 })
@@ -430,6 +466,7 @@ fn ready_state_with_mesh_paths(paths: Vec<Vec<String>>) -> EditorGltfBrowserStat
         asset_path,
         CachedGltfAsset {
             handle: Handle::default(), // 纯测试无需真实AssetServer。
+            animation_names: None,
             meshes: paths
                 .into_iter()
                 .enumerate()
@@ -437,6 +474,7 @@ fn ready_state_with_mesh_paths(paths: Vec<Vec<String>>) -> EditorGltfBrowserStat
                     node_path,                          // 调用方控制路径深度与字符串量。
                     mesh_name: format!("mesh-{index}"), // 每行独立名称。
                     mesh_index: Some(index as u32),     // 稳定诊断索引。
+                    node_index: None,
                     valid: true,                        // 全部允许选择。
                     ambiguous: false,                   // 测试资产身份唯一。
                 })

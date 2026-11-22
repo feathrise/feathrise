@@ -125,7 +125,8 @@ fn target_is_current(
     browser: &EditorGltfBrowserState,  // 当前完整实例选择。
     session: &EditorAuthoringSession,  // 当前场景、结构修订和草稿数组。
 ) -> bool {
-    if target.structure_revision != session.placement_structure_revision
+    if crate::ui::scene_source_glb::owns_selection(browser)
+        || target.structure_revision != session.placement_structure_revision
         || browser.selected_placement_id.as_deref() != Some(target.placement_id.as_str())
     {
         return false; // 删除、复制、切换场景或另选实例都会使旧目标失效。

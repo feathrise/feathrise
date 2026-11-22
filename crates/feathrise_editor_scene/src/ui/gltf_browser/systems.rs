@@ -77,6 +77,7 @@ pub(crate) fn spawn_gltf_browser_rows(
             let row = commands.spawn((
                 ChildOf(container),
                 InteractionButton,
+                bevy::ui::RelativeCursorPosition::default(),
                 SceneEditorGltfBrowserRow { slot, entry_index: None, entries_revision: 0, main_glb: None },
                 Node {
                     display: Display::None,
@@ -186,6 +187,9 @@ pub(crate) fn handle_gltf_browser_input(
     let Some(entry) = state.entries.get(entry_index).cloned() else {
         return; // 热更错帧后的旧行索引不猜测目标。
     };
+    if matches!(entry.kind, EditorGltfBrowserEntryKind::SourceAnimation { .. }) {
+        return; // 与主 GLB 对齐，单击动画行保留场景选择，双击才进入编辑。
+    }
     if let Some(sidebar) = sidebar.as_mut() {
         sidebar.reveal_scene_properties(); // 左树选择后立即显示全高属性，保留导航和工具记忆。
     }
@@ -230,7 +234,8 @@ pub(crate) fn handle_gltf_browser_input(
         } else if !additive { selection.clear(); }
     }
     match entry.kind {
-        EditorGltfBrowserEntryKind::Group { .. } => unreachable!("目录已由上方消费"),
+        EditorGltfBrowserEntryKind::Group { .. } | EditorGltfBrowserEntryKind::SourceAnimation { .. } =>
+            unreachable!("目录与动画已由上方消费"),
         EditorGltfBrowserEntryKind::Placement { placement_id, .. } => {
             selected_viewport.clear_click_sequence(); // 明确选择新的树行时取消旧定位请求。
             if !state.placement_asset_paths.contains_key(&placement_id) {
@@ -346,7 +351,8 @@ pub(crate) fn sync_gltf_browser_rows(
     let total_rows = main_rows.saturating_add(state.entries.len().saturating_sub(hidden_meshes));
     let locale = locale.as_deref().copied().unwrap_or_default();
     for mut heading in &mut headings {
-        let display = if total_rows == 0 { Display::None } else { Display::Flex };
+        let display = if session.draft.as_ref().is_some_and(|draft| editor.selected_scene_id.as_ref() == Some(&draft.scene_id))
+            && !editor.scene_transition_in_progress { Display::Flex } else { Display::None };
         if heading.display != display { heading.display = display; } // 与已发布的摆放列表同帧出现或收起。
     }
     let scene_changed = presented_scope.as_ref().is_none_or(|(scene, _, _, _)| scene != &editor.selected_scene_id);
@@ -410,15 +416,18 @@ pub(crate) fn sync_gltf_browser_rows(
             let selected = match &entry.kind {
                 EditorGltfBrowserEntryKind::Group { name, .. } => state.selected_group.as_ref() == Some(name),
                 EditorGltfBrowserEntryKind::Placement { placement_id, .. } =>
-                    state.selected_placement_id.as_ref() == Some(placement_id)
-                        || multi_selection.as_ref().is_some_and(|selection| selection.contains(placement_id)),
+                    state.selection.is_none() && (state.selected_placement_id.as_ref() == Some(placement_id)
+                        || multi_selection.as_ref().is_some_and(|selection| selection.contains(placement_id))),
                 EditorGltfBrowserEntryKind::Mesh | EditorGltfBrowserEntryKind::MissingWaterBinding =>
                     selection_matches(state.selection.as_ref(), entry.selection.as_ref()),
+                EditorGltfBrowserEntryKind::SourceAnimation { .. } => false,
             };
             let (prefix, base_color, icon) = match &entry.kind {
                 EditorGltfBrowserEntryKind::Group { .. } => ("", colors::TEXT_PRIMARY, "icons/editor/tree_folder.png"),
                 EditorGltfBrowserEntryKind::Placement { glb, .. } => ("", colors::TEXT_ACCENT,
                     if *glb { asset_icons::GLB } else { "icons/editor/tree_mesh.png" }),
+                EditorGltfBrowserEntryKind::Mesh if entry.selection.as_ref().is_some_and(|mesh| mesh.is_source_folder()) =>
+                    ("", colors::TEXT_PRIMARY, "icons/editor/tree_folder.png"),
                 EditorGltfBrowserEntryKind::Mesh => {
                     let (prefix, color) = if entry.selection.as_ref().is_some_and(|selection| selection.valid) {
                         ("", colors::TEXT_PRIMARY)
@@ -426,6 +435,7 @@ pub(crate) fn sync_gltf_browser_rows(
                     (prefix, color, "icons/editor/tree_mesh.png")
                 }
                 EditorGltfBrowserEntryKind::MissingWaterBinding => ("×", colors::DANGER_TEXT, "icons/editor/tree_mesh.png"),
+                EditorGltfBrowserEntryKind::SourceAnimation { .. } => ("", colors::TEXT_PRIMARY, "icons/editor/tree_file.png"),
             };
             let depth = entry.depth + usize::from(index < state.main_glb_entry_count);
             (depth, entry.display_name.as_str(), prefix, base_color, icon, selected)

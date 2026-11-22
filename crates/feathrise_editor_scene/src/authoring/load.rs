@@ -263,8 +263,10 @@ pub(crate) fn start_draft_load(
         terrain_ground: None,
         terrain_documents: Default::default(),
         placements: placements.clone(),
+        object_folders: Default::default(),
         motion: Default::default(),
         placement_glb_hash: None,
+        source_glb_edits: Default::default(),
         placement_water_surface_count: 0, // 完整文档计数移到下方IO任务，主线程不额外扫描8192项。
         portals: portals.clone(),
         domain: None,
@@ -318,18 +320,27 @@ pub(crate) fn start_draft_load(
             if let Some(relative) = placement_glb_path {
                 let path = safe_asset_path(&root, &relative)?;
                 let bytes = std::fs::read(&path).map_err(|error| format!("读取场景 GLB {} 失败：{error}", path.display()))?;
-                let (placements, digest, motion) = AsyncComputeTaskPool::get().spawn(async move {
+                let (placements, digest, motion, folders) = AsyncComputeTaskPool::get().spawn(async move {
                     let placements = feathrise_scene_content::read_scene_placements(&bytes, &relative)?;
                     let digest = feathrise_scene_content::authoring_io::bytes_hash(&bytes);
+                    let folders = super::placement_folders::read_glb(&bytes)?;
                     let motion = super::scene_motion::SceneMotionDocument::from_glb(&path, bytes, &placements)?;
-                    Ok::<_, String>((placements, digest, motion))
+                    Ok::<_, String>((placements, digest, motion, folders))
                 }).await?;
                 if placements.scene_id != draft.scene_id {
                     return Err("摆放 GLB 属于另一场景".into());
                 }
                 draft.placements = placements;
+                draft.object_folders = Arc::new(folders);
                 draft.motion = motion;
                 draft.placement_glb_hash = Some(digest); // 快照与保存冲突基线必须来自同一份文件。
+            } else {
+                let path = safe_asset_path(&root, &draft.placements_path())?;
+                match std::fs::read(&path) {
+                    Ok(bytes) => draft.object_folders = Arc::new(super::placement_folders::read_json(&bytes)?),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(format!("读取摆放文件夹 {} 失败：{error}", path.display())),
+                }
             }
             if let Some(boundaries) = draft.boundaries.take() {
                 let expected = draft.scene_id.clone(); // 校验纯数据身份。

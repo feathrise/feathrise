@@ -43,7 +43,7 @@ pub(crate) fn update_scene_editor_numeric_scrub_mouse_guard(
     layout: Option<Res<SceneEditorLayoutState>>, // 分隔条与布局按钮不能把同次点击穿透到刚移动的场景画布。
     settings: Option<Res<crate::resources::SceneEditorSettingsState>>,
     editor: Option<Res<SceneEditorState>>,
-    scene_drag: Option<Res<SceneBrowserDragState>>,
+    scene_drag: (Option<Res<SceneBrowserDragState>>, Option<Res<super::gltf_browser::PlacementTreeDrag>>),
     placement_move: Option<Res<crate::viewport::placement_move::PlacementMoveState>>,
     selection_owners: (
         Option<Res<crate::viewport::multi_select::PlacementSelectionSet>>,
@@ -80,7 +80,8 @@ pub(crate) fn update_scene_editor_numeric_scrub_mouse_guard(
             || spatial.0.as_ref().is_some_and(|state| state.owns_mouse()) // 空间笔刷定位与手柄拖动等到三键静默后归还。
             || spatial.1.as_ref().is_some_and(|overlay| overlay.active) // 宿主工程菜单与关闭点击复用同一静默释放门。
             || editor.as_ref().is_some_and(|editor| editor.scene_switch_confirmation.is_some())
-            || scene_drag.as_ref().is_some_and(|drag| drag.blocks_other_mouse()) // 切换场景模态及取消 release 同时阻止并列工作区输入，不只隔离场景笔刷。
+            || scene_drag.1.as_ref().is_some_and(|drag| drag.owns_mouse())
+            || scene_drag.0.as_ref().is_some_and(|drag| drag.blocks_other_mouse()) // 切换场景模态及取消 release 同时阻止并列工作区输入，不只隔离场景笔刷。
             || preview.0.as_ref().is_some_and(|preview| preview.dragging())
             || preview.1.as_ref().is_some_and(|audio| audio.owns_mouse())
             || preview.2.as_ref().is_some_and(|animation| animation.owns_mouse())

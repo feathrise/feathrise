@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 pub(super) enum RootToken {
     Group {
         name: String,
-        first_member: usize,
+        first_member: Option<usize>,
         count: usize,
         collapsed: bool,
     },
@@ -20,6 +20,7 @@ pub(super) enum RootToken {
 mod tests {
     use super::super::PlacementSignature;
     use super::*;
+    use std::collections::BTreeSet;
     use std::sync::Arc;
 
     fn state(count: usize) -> EditorGltfBrowserState {
@@ -49,7 +50,7 @@ mod tests {
         assert!(projection.advance(&state));
         assert_eq!(projection.roots.len(), 1);
         assert!(
-            matches!(&projection.roots[0], RootToken::Group { name, collapsed: true, count: 3, first_member: 0 } if name == "村口")
+            matches!(&projection.roots[0], RootToken::Group { name, collapsed: true, count: 3, first_member: Some(0) } if name == "村口")
         );
         state.expanded_groups.insert("村口".into());
         let mut projection = RootProjection::default();
@@ -77,6 +78,20 @@ mod tests {
         assert!(projection.complete);
         assert_eq!(projection.roots.len(), 8193);
     }
+
+    #[test]
+    fn declared_empty_folder_stays_at_the_outer_root() {
+        let folders = std::sync::Arc::new(BTreeSet::from(["空的文件夹".into()]));
+        let state = EditorGltfBrowserState {
+            main_glb_path: Some("scenes/test/scene.glb".into()),
+            object_folders: std::sync::Arc::downgrade(&folders),
+            ..Default::default()
+        };
+        let mut projection = RootProjection::default();
+        assert!(projection.advance(&state));
+        assert_eq!(projection.main_glb_root_count(), 0);
+        assert!(matches!(projection.root(0), Some(RootToken::Group { name, count: 0, first_member: None, .. }) if name == "空的文件夹"));
+    }
 }
 
 struct GroupMembers {
@@ -93,6 +108,8 @@ pub(super) struct RootProjection {
     main_roots: Vec<RootToken>,
     roots: Vec<RootToken>,
     captured: bool,
+    folder_cursor: Option<String>,
+    folders_captured: bool,
     complete: bool,
 }
 
@@ -101,7 +118,9 @@ impl RootProjection {
         if self.complete {
             return true;
         }
-        if !state.has_object_groups && state.main_glb_path.is_none() {
+        let folders = state.object_folders.upgrade();
+        if !state.has_object_groups && state.main_glb_path.is_none()
+            && folders.as_ref().is_none_or(|folders| folders.is_empty()) {
             self.linear = true;
             self.complete = true;
             return true; // 无目录时按摆放顺序生成树行，沿用每帧256行预算。
@@ -137,6 +156,20 @@ impl RootProjection {
                 return false;
             }
         }
+        if !self.folders_captured && let Some(folders) = folders {
+            use std::ops::Bound::{Excluded, Unbounded};
+            let start = self.folder_cursor.as_deref().map_or(Unbounded, Excluded);
+            let mut names = folders.range::<str, _>((start, Unbounded));
+            for name in names.by_ref().take(256) {
+                // 旧成员归属可与新目录同名。显式登记的文件夹在外层，即使没有成员。
+                self.groups.entry(name.clone()).or_insert_with(|| GroupMembers {
+                    all_embedded: false, indices: Vec::new(),
+                }).all_embedded = false;
+                self.folder_cursor = Some(name.clone());
+            }
+            self.folders_captured = names.next().is_none();
+            if !self.folders_captured { return false; }
+        }
         // 目录、根和折叠省略均按256步限流。
         for _ in 0..256 {
             if let Some((embedded, indices)) = &mut self.current {
@@ -154,7 +187,7 @@ impl RootProjection {
             let collapsed = !state.expanded_groups.contains(&name);
             self.push_root(all_embedded, RootToken::Group {
                 name,
-                first_member: indices[0], // 组开关沿用首成员的状态来决定整组切换方向。
+                first_member: indices.first().copied(), // 空文件夹不伪造对象操作或首成员。
                 count: indices.len(),
                 collapsed,
             });

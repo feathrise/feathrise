@@ -31,6 +31,8 @@ pub enum EditorCommand {
     },
     /// 只持有有界管理元数据的Arc前后值，批量修改不复制Mesh或整网格水体。
     SceneObjectsChanged(Box<SceneObjectBatchChange>),
+    /// 空文件夹仍拥有独立历史，不借助虚拟摆放记录。
+    PlacementFolderAdded(String),
     /// 全局太阳/月光基础配置按完整前后快照撤销，颜色三个通道共同保持原子性。
     GlobalCelestialLightingChanged {
         sequence: u64, // 全局作者修订单调命令号，跨场景交接保留原撤销顺序，不写入文件。
@@ -68,6 +70,12 @@ pub enum EditorCommand {
     SceneMotionNameChanged {
         before: Option<String>,
         after: Option<String>,
+    },
+    /// 跨源移动只有一笔历史，两份 GLB 的完整版本一起采用。
+    SourceGlbsChanged {
+        before: super::source_glbs::SourceGlbEdits,
+        after: super::source_glbs::SourceGlbEdits,
+        bytes: usize,
     },
     /// 显式建筑整平把placement与真实GLB顶点差分绑定为一条不可拆分事务。
     BuildingTerrainChanged(Box<BuildingTerrainChange>), // Box避免扩大每条普通历史命令的栈尺寸。
@@ -546,7 +554,8 @@ pub fn command_uses_bounded_water_history(command: &EditorCommand) -> bool {
                 placement_water_differs(before, after)
             }
         }, // 联合命令的建筑记录仍服从同一整网格水历史预算。
-        EditorCommand::CourtyardBatch(_) | EditorCommand::BuildingSparseTerrainChanged(_) | EditorCommand::SceneObjectsChanged(_) => true, // 整组管理也复用统一历史内存预算。
+        EditorCommand::CourtyardBatch(_) | EditorCommand::BuildingSparseTerrainChanged(_) | EditorCommand::SceneObjectsChanged(_)
+        | EditorCommand::SourceGlbsChanged { .. } => true, // 大型源版本复用统一历史内存预算。
         EditorCommand::VegetationPaintChanged(_) // 多网格完整R8共享同一有界历史预算。
         | EditorCommand::ModelVegetationChanged { .. } // 稀疏模型样本同样不能无限保留整笔快照。
         | EditorCommand::PuddlesChanged { .. } // 独立积水快照共用历史内存预算，不复用作者数据。
@@ -657,6 +666,9 @@ fn water_history_usage(commands: &[EditorCommand]) -> WaterHistoryUsage {
             }
             EditorCommand::SceneObjectsChanged(change) => {
                 usage.asset_bytes = usage.asset_bytes.saturating_add(change.heap_bytes);
+            }
+            EditorCommand::SourceGlbsChanged { bytes, .. } => {
+                usage.asset_bytes = usage.asset_bytes.saturating_add(*bytes);
             }
             EditorCommand::BuildingSparseTerrainChanged(change) => {
                 usage.asset_bytes = usage.asset_bytes.saturating_add(

@@ -15,6 +15,7 @@ mod resources; // 单一拖动、建筑校验暂存与静默释放门。
 mod rotation; // 固定圆环投影、拾取和相对Y角，拒绝端视与轴心退化。
 mod scale; // 三轴方帽、平面和等比中心的几何与共同限幅。
 mod source_identity; // 静态地形手势冻结真实来源身份，缺失或运行代际变化时整笔取消。
+mod source_node; // 外部 GLB 子网格在同一视口使用原手柄，提交原文件的局部姿势。
 mod transaction; // 单记录高度规则、当前权威恢复和一次撤销。
 mod types; // 轴/平面手柄及冻结拖动身份。
 

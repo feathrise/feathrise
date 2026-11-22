@@ -407,6 +407,10 @@ pub(crate) fn handle_placement_batch(
         }
         return;
     }
+    if crate::ui::scene_source_glb::owns_selection(&context.browser) {
+        editor.status = "请先选择 GLB 本体再操作整个摆放".into();
+        return;
+    }
     let Some(draft) = session.draft.as_ref() else {
         return;
     };

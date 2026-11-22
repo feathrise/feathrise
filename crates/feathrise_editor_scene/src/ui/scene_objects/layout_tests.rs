@@ -1,4 +1,4 @@
-//! 真实中文字体的对象管理排版；窄侧栏、缩放和DPI下按钮折行、字段裁剪。
+//! 真实中文字体下验证窄侧栏、缩放与 DPI 下的对象名称输入及确认按钮。
 
 use super::components::{ObjectAction, ObjectButton, ObjectField, ObjectInput};
 use bevy::app::{HierarchyPropagatePlugin, PropagateSet};
@@ -126,7 +126,7 @@ fn controls_fit_real_chinese_font_in_narrow_scaled_sidebars() {
             }
             count += 1;
         }
-        assert_eq!(count, 6);
+        assert_eq!(count, 2, "对象属性栏只保留名称输入和确认按钮");
         let (name_size, name_center) = world.query::<(&ObjectInput, &ComputedNode, &UiGlobalTransform)>()
             .iter(world).find(|(input, ..)| input.0 == ObjectField::Name)
             .map(|(_, node, transform)| (node.size(), transform.translation)).unwrap();

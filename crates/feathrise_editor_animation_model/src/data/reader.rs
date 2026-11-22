@@ -258,7 +258,7 @@ pub(super) fn index_field(value: &Value, name: &str) -> Result<usize, String> {
         .ok_or_else(|| format!("缺少合法 {name}"))
 }
 
-fn read_chunks(bytes: &[u8]) -> Result<Vec<Chunk>, String> {
+pub(super) fn read_chunks(bytes: &[u8]) -> Result<Vec<Chunk>, String> {
     if bytes.len() < 12 || read_u32(bytes, 4)? != 2 || read_u32(bytes, 8)? as usize != bytes.len() {
         return Err("GLB 文件头、版本或总长度无效".into());
     }
@@ -339,7 +339,7 @@ fn read_external_buffer(path: &Path, uri: &str) -> Result<Arc<[u8]>, String> {
         .map_err(|error| format!("读取 GLTF 外置 BIN 失败：{error}"))
 }
 
-fn float_array<const N: usize>(
+pub(super) fn float_array<const N: usize>(
     value: Option<&Value>,
     fallback: [f32; N],
 ) -> Result<[f32; N], String> {
@@ -504,7 +504,7 @@ fn read_channel(
     Ok(result)
 }
 
-fn read_accessor(
+pub(super) fn read_accessor(
     json: &Value,
     buffers: &[Arc<[u8]>],
     index: usize,

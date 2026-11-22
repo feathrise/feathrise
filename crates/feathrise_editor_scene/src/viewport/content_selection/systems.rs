@@ -53,7 +53,7 @@ pub(crate) struct ViewportContentSelectionQueries<'w, 's> {
     viewport_cursors: Query<'w, 's, &'static RelativeCursorPosition, With<SceneEditorViewport>>, // 中央视口光标与物理像素换算。
     cameras: Query<'w, 's, (&'static Camera, &'static Transform), With<SceneEditorCamera>>, // 相机Transform已由前序Cursor系统写入。
     parents: Query<'w, 's, &'static ChildOf>, // 候选过滤先有界向上寻找活动摆放根。
-    named_nodes: Query<'w, 's, (&'static Name, &'static ChildOf)>, // 最终选择恢复Scene0根之后的显式节点路径。
+    named_nodes: Query<'w, 's, (&'static Name, &'static ChildOf, Option<&'static feathrise_editor_animation_model::types::EmbeddedNodeIndex>)>, // 恢复显式路径与源 GLB 节点。
     placement_roots: Query<'w, 's, &'static ScenePlacementInstance>, // 只接受当前场景唯一活动批次或作者预览根。
     gltf_primitives: Query<'w, 's, (&'static GltfMeshName, &'static Mesh3d, &'static ChildOf, Option<&'static feathrise_scene::StaticMeshLodOriginal>)>, // 精确作者路径优先原始GLB，不读取临时LOD子资产身份。
     direct_placement_primitives:

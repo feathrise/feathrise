@@ -21,6 +21,8 @@ enum BrowserEntryBuildStage {
     /// 发布实例根并决定是否读取Ready网格。
     #[default]
     Placement,
+    /// 已展开引用文件的片段先于它的网格逐行显示。
+    SourceAnimation(usize),
     /// 把当前实例最多64项作者水绑定按稳定身份渐进建立索引。
     WaterBindingIndex(usize),
     /// 按缓存索引逐条发布真实Scene0网格。
@@ -71,7 +73,9 @@ impl BrowserEntriesBuild {
         if let Some(entry) = self.entries.last() {
             let mut bytes = entry.display_name.len(); // 显示文本始终是行内拥有字符串。
             let mut segments = 0usize; // 根行没有节点路径。
-            if let EditorGltfBrowserEntryKind::Placement { placement_id, .. } = &entry.kind {
+            if let EditorGltfBrowserEntryKind::Placement { placement_id, .. }
+                | EditorGltfBrowserEntryKind::SourceAnimation { placement_id, .. } = &entry.kind
+            {
                 bytes = bytes.saturating_add(placement_id.len());
             }
             if let Some(selection) = &entry.selection {
@@ -315,8 +319,34 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                 if !expandable || collapsed || !cache.is_some_and(|cache| cache.active_ready) {
                     advance_to_next_placement(&mut build); // 折叠、加载和失败根没有当前子行。
                 } else {
-                    build.stage = BrowserEntryBuildStage::WaterBindingIndex(0); // 先按预算建立最多64项绑定索引。
+                    build.stage = if placement.is_embedded_in(state.main_glb_path.as_deref()) {
+                        BrowserEntryBuildStage::WaterBindingIndex(0)
+                    } else {
+                        BrowserEntryBuildStage::SourceAnimation(0)
+                    };
                 }
+            }
+            BrowserEntryBuildStage::SourceAnimation(clip_index) => {
+                operations += 1;
+                let names = state.assets.get(&placement.asset_path)
+                    .and_then(|asset| asset.animation_names.as_ref().and_then(std::sync::Weak::upgrade));
+                let Some(name) = names.as_ref().and_then(|names| names.get(clip_index)) else {
+                    build.stage = BrowserEntryBuildStage::WaterBindingIndex(0);
+                    continue;
+                };
+                if !copy_budget.try_charge(0, name.len().saturating_add(placement.placement_id.len())) {
+                    break;
+                }
+                rows += 1;
+                build.entries.push(EditorGltfBrowserEntry {
+                    kind: EditorGltfBrowserEntryKind::SourceAnimation {
+                        placement_id: placement.placement_id.clone(), clip_index,
+                    },
+                    display_name: name.clone(),
+                    depth: group_depth + 1,
+                    selection: None,
+                });
+                build.stage = BrowserEntryBuildStage::SourceAnimation(clip_index.saturating_add(1));
             }
             BrowserEntryBuildStage::WaterBindingIndex(binding_index) => {
                 operations += 1; // 索引检查即使到达末尾也占一个固定操作。
@@ -339,23 +369,26 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
             }
             BrowserEntryBuildStage::Mesh(mesh_index) => {
                 operations += 1; // 即使缓存阶段已变化也计入一步。
-                let Some(cache) = state
-                    .assets
-                    .get(&placement.asset_path)
-                    .filter(|cache| cache.active_ready)
-                else {
-                    advance_to_next_placement(&mut build); // 过期草稿最终会按修订拒绝，此处先安全结束实例。
-                    continue;
+                let mesh = if let Some(version) = state.source_glb_edits.version(&placement.asset_path) {
+                    version.nodes.get(mesh_index).map(|node| {
+                        let valid = !node.folder && super::helpers::stable_mesh_reference(
+                            &node.path, &node.mesh_name, node.mesh, true);
+                        (node.path.as_slice(), node.mesh_name.as_str(), node.mesh, Some(node.index), valid, false)
+                    })
+                } else {
+                    state.assets.get(&placement.asset_path).filter(|cache| cache.active_ready)
+                        .and_then(|cache| cache.meshes.get(mesh_index)).map(|mesh|
+                            (mesh.node_path.as_slice(), mesh.mesh_name.as_str(), mesh.mesh_index, mesh.node_index, mesh.valid, mesh.ambiguous))
                 };
-                let Some(mesh) = cache.meshes.get(mesh_index) else {
+                let Some((node_path, mesh_label, mesh_slot, node_index, mesh_valid, ambiguous)) = mesh else {
                     build.stage = BrowserEntryBuildStage::MissingWaterBinding; // 索引中只剩真正失效的作者绑定。
                     continue;
                 };
-                let path_bytes = path_string_bytes(&mesh.node_path); // 预先O(depth)核算，depth受64硬门。
-                let row_segments = mesh.node_path.len().saturating_mul(4); // 查找键、选择、join与命中键释放各遍历一份路径。
+                let path_bytes = path_string_bytes(node_path); // 行复制和路径查找使用同一个预算。
+                let row_segments = node_path.len().saturating_mul(4);
                 let row_bytes = path_bytes
                     .saturating_mul(5) // 查找键、命中键、选择、join及最终display的保守总量。
-                    .saturating_add(mesh.mesh_name.len().saturating_mul(4))
+                    .saturating_add(mesh_label.len().saturating_mul(4))
                     .saturating_add(placement.placement_id.len())
                     .saturating_add(96); // 类别/不可引用诊断和分隔符固定余量。
                 if !copy_budget.try_charge(row_segments, row_bytes) {
@@ -364,30 +397,31 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                 rows += 1; // 一条网格行复制完整节点路径和网格名。
                 let binding = build
                     .unmatched_water_bindings
-                    .remove(&(mesh.node_path.clone(), mesh.mesh_name.clone())); // 命中项移除后不会参与失效行。
-                let valid = mesh.valid
+                    .remove(&(node_path.to_vec(), mesh_label.to_owned()));
+                let valid = mesh_valid
                     && !state
                         .duplicate_placement_ids
                         .contains(&placement.placement_id); // 重复ID无法稳定回写。
                 let selection = EditorGltfMeshSelection {
                     placement_id: placement.placement_id.clone(), // 绑定当前实例而非共享路径。
-                    node_path: mesh.node_path.clone(),            // 保存完整Blender对象层级。
-                    mesh_name: mesh.mesh_name.clone(),            // 缺名保持空并由valid拒绝。
-                    mesh_index: mesh.mesh_index, // 当前导出索引仅作诊断，不参与稳定匹配或候选筛选。
+                    node_path: node_path.to_vec(),                // 保存完整 Blender 对象层级。
+                    mesh_name: mesh_label.to_owned(),
+                    mesh_index: mesh_slot,
+                    node_index,
                     valid,                       // 显式名称与唯一实例ID稳定后才允许写回作者数据。
                     orphaned_water_binding: false, // 当前行来自真实Ready网格。
                 };
-                let path = if mesh.node_path.is_empty() {
+                let path = if node_path.is_empty() {
                     "[缺少节点路径]".to_owned() // 占位只供诊断。
                 } else {
-                    mesh.node_path.join("/") // 显示完整Blender层级。
+                    node_path.join("/") // 显示完整 Blender 层级。
                 };
-                let mesh_name = if mesh.mesh_name.is_empty() {
+                let mesh_name = if mesh_label.is_empty() {
                     "[未命名网格]" // 不把占位写回稳定选择。
                 } else {
-                    mesh.mesh_name.as_str() // 复用缓存名称显示。
+                    mesh_label
                 };
-                let binding_hint = if mesh.ambiguous {
+                let binding_hint = if ambiguous {
                     " · 路径/网格名歧义，请在Blender重命名对象".to_owned()
                 } else {
                     match (binding, valid) {
@@ -401,8 +435,10 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                 };
                 build.entries.push(EditorGltfBrowserEntry {
                     kind: EditorGltfBrowserEntryKind::Mesh, // 点击后保存完整选择。
-                    display_name: format!("{path} · {mesh_name}{binding_hint}"), // 路径、网格名和水类别同显。
-                    depth: group_depth + mesh.node_path.len().clamp(1, 5), // 组内网格保留逻辑目录缩进。
+                    display_name: if selection.is_source_folder() {
+                        node_path.last().cloned().unwrap_or(path)
+                    } else { format!("{path} · {mesh_name}{binding_hint}") },
+                    depth: group_depth + node_path.len().clamp(1, 5), // 组内网格保留逻辑目录缩进。
                     selection: Some(selection),              // 无效网格也能选中查看诊断。
                 });
                 build.stage = BrowserEntryBuildStage::Mesh(mesh_index.saturating_add(1)); // 下一帧预算继续同一实例。
@@ -448,6 +484,7 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                         node_path, // 原路径所有权直接移入选择，不额外复制第三份Vec。
                         mesh_name, // 原网格名所有权直接移入选择。
                         mesh_index: Some(mesh_index), // 旧索引只作诊断。
+                        node_index: None,
                         valid: false, // 任何赋水或数值动作必须拒绝。
                         orphaned_water_binding: true, // 属性区只开放取消水体。
                     }),

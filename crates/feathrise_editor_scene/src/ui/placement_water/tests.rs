@@ -9,6 +9,7 @@ fn selection() -> EditorGltfMeshSelection {
         node_path: vec!["河流对象".to_owned()],
         mesh_name: "河流水面".to_owned(),
         mesh_index: Some(3),
+        node_index: None,
         valid: true,
         orphaned_water_binding: false,
     }

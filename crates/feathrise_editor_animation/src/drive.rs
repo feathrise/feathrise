@@ -6,7 +6,17 @@ use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, IoTaskPool, futures::check_ready},
 };
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
+
+fn load_project_animation(root: &Path, source: &Path) -> Result<Session, String> {
+    // 从场景树或文件栏显式打开的 GLB 必须仍位于工程资产根，重载时也不能跟到工程外。
+    let root = root.canonicalize().map_err(|error| format!("无法打开工程资产根：{error}"))?;
+    let source = source.canonicalize().map_err(|error| format!("无法打开动画文件：{error}"))?;
+    if !source.starts_with(&root) {
+        return Err("动画文件已离开当前工程资产目录".into());
+    }
+    AnimationDocument::load(&source).map(Session::new)
+}
 
 pub(super) fn drive(
     context: AnimationContext,
@@ -316,7 +326,7 @@ pub(super) fn drive(
         if state.in_place_rig_preview() {
             // 工程动作选择仍使用原单槽。就绪后写操作和保存采用同一源会话。
             if let Some(action) = state.pending.take() {
-                launch(&mut state, action);
+                launch(&mut state, action, documents.asset_root());
             } else {
                 super::request::launch(&mut state);
             }
@@ -333,6 +343,7 @@ pub(super) fn drive(
             };
             state.status = "正在后台读取GLB动作与骨骼通道".to_owned();
             let source = path.clone();
+            let root = documents.asset_root().to_owned();
             let generation = state
                 .model_generation
                 .as_ref()
@@ -344,17 +355,17 @@ pub(super) fn drive(
                 saving: false,
                 task: IoTaskPool::get().spawn(async move {
                     drop(retired); // 大曲线和历史的最后引用也在单一后台槽释放。
-                    TaskResult::Load(AnimationDocument::load(&source).map(Session::new))
+                    TaskResult::Load(load_project_animation(&root, &source))
                 }),
             });
         } else if let Some(action) = state.pending.take() {
-            launch(&mut state, action);
+            launch(&mut state, action, documents.asset_root());
         } else if state.failed != state.active
             && state
                 .current()
                 .is_some_and(|session| session.source_changed && !session.dirty())
         {
-            launch(&mut state, PendingAction::Reload);
+            launch(&mut state, PendingAction::Reload, documents.asset_root());
         }
     }
     // 真实角色的姿态容器就绪后再推进播放头，首帧和换片段不会被后台准备耗掉。
@@ -397,7 +408,7 @@ pub(super) fn drive(
     }
 }
 
-fn launch(state: &mut AnimationEditorState, action: PendingAction) {
+fn launch(state: &mut AnimationEditorState, action: PendingAction, asset_root: &Path) {
     // 任务采用前再核对当前权限。工程关闭保存走独立入口，仍可保存停放草稿。
     if !state.editable() && !matches!(&action,
         PendingAction::Reload
@@ -483,6 +494,7 @@ fn launch(state: &mut AnimationEditorState, action: PendingAction) {
         state.failed = None;
         state.status = "正在后台重新载入动作".to_owned();
         let source = path.clone();
+        let root = asset_root.to_owned();
         state.work = Some(Work {
             path,
             generation,
@@ -491,7 +503,7 @@ fn launch(state: &mut AnimationEditorState, action: PendingAction) {
                 match snapshot.disk_unchanged(&source) {
                     Ok(true) => TaskResult::Unchanged,
                     Ok(false) => {
-                        TaskResult::Load(AnimationDocument::load(&source).map(Session::new))
+                        TaskResult::Load(load_project_animation(&root, &source))
                     }
                     Err(error) => TaskResult::Load(Err(error)),
                 }

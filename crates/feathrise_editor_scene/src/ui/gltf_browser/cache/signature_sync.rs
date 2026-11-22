@@ -109,6 +109,8 @@ pub(super) fn synchronize_signature_build(
         .filter(|draft| draft.placement_glb_hash.is_some())
         .map(|draft| draft.placements_path());
     state.has_object_groups = build.has_object_groups;
+    state.object_folders = session.draft.as_ref()
+        .map(|draft| std::sync::Arc::downgrade(&draft.object_folders)).unwrap_or_default();
     state.duplicate_placement_ids = std::mem::take(&mut build.duplicate_ids);
     state.placement_asset_paths = std::mem::take(&mut build.placement_asset_paths);
     state.placement_record_indices = std::mem::take(&mut build.placement_record_indices);

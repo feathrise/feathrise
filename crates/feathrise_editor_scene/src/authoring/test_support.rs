@@ -34,6 +34,8 @@ pub fn test_heightfield_draft(heights: Arc<Vec<u16>>) -> EditorSceneDraft {
         preserved_asset_paths: Default::default(),
         folder: "scenes/EDGE-TEST".to_owned(),
         placement_glb_hash: None,
+        object_folders: Default::default(),
+        source_glb_edits: Default::default(),
         water_asset_path: "scenes/EDGE-TEST/water.scene_water.json".to_owned(),
         terrain_ground: None,
         terrain_documents: Default::default(),

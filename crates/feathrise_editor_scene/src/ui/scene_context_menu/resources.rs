@@ -8,6 +8,7 @@ pub struct SceneContextMenuState {
     pub(super) target: Option<MenuTarget>,
     pub(super) anchor: Vec2,
     pub(super) renaming: bool,
+    pub(super) name_action: Option<SceneMenuAction>,
     pub(super) captured_this_frame: bool,
     /// 关闭点击先等待原鼠标静默门，随后只发布一帧，不能在其他场景补执行。
     pub(super) queued: Option<(MenuTarget, SceneObjectRequest)>,

@@ -733,9 +733,9 @@ fn scene_menu_escape_dismisses_without_closing_editor_and_anchor_stays_inside_sc
     }
     open(&mut test);
     let popup = test.app.world().get::<Node>(test.popup).unwrap();
-    assert_eq!((popup.width, popup.height), (px(184), px(204)));
+    assert_eq!((popup.width, popup.height), (px(184), px(288)));
     assert_eq!(popup.left, px(452));
-    assert_eq!(popup.top, px(152));
+    assert_eq!(popup.top, px(68));
     test.app
         .world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
@@ -836,7 +836,7 @@ fn scene_menu_types_offer_supported_actions_and_focus_the_clicked_target() {
                 .iter(world)
                 .filter(|node| node.display == Display::Flex)
                 .count(),
-            [7, 5, 4, 1][kind]
+            [10, 5, 4, 1][kind]
         );
         choose(&mut test, SceneMenuAction::Focus);
         test.app

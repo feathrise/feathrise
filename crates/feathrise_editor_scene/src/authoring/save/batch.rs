@@ -139,6 +139,7 @@ impl std::fmt::Display for DraftSaveError {
 
 /// 保存成功后交给主线程的结构化发布决定。
 pub(crate) struct DraftSaveSuccess {
+    pub(crate) source_glb_reload_paths: Vec<String>,
     pub(crate) terrain_manifest: Option<feathrise_scene_content::SceneManifestAsset>,
     pub(crate) terrain_saved: Vec<feathrise_scene_content::TerrainId>,
     pub(crate) terrain_reload_paths: Vec<String>,
@@ -221,6 +222,9 @@ pub(super) async fn save_draft_with_volumes(
     }
     let generated = super::volume::prepare_verified(&root, &draft, volumes, &verified_volumes)?;
     prepared.writes.splice(0..0, generated); // 生成GLB先于引用它的placement JSON提交，回滚仍覆盖同一批。
+    // 多源拖动、安全重命名和节点变换同场景一起暂存，任何一份过期都拒绝这批保存。
+    let mut source_glbs = super::super::source_glbs::SourceGlbSave::prepare(&root, &draft.source_glb_edits)?;
+    prepared.writes.append(&mut source_glbs.writes);
     let mut writes = std::mem::take(&mut prepared.writes);
     let catalog_path = root.join(feathrise_scene_content::SCENE_CATALOG_ASSET_PATH);
     if let Some(index) = writes.iter().position(|write| write.path == catalog_path) {
@@ -233,6 +237,7 @@ pub(super) async fn save_draft_with_volumes(
     let placement_path = safe_asset_path(&root, &draft.placements_path())?;
     let check_source = |path: &Path| {
         source_guard.check(path)?;
+        source_glbs.check_source(path)?;
         if path == placement_path && let Some(expected) = &draft.placement_glb_hash {
             verify_placement_glb_hash(expected, &feathrise_scene_content::authoring_io::file_hash(path)?)?;
         }
@@ -240,6 +245,8 @@ pub(super) async fn save_draft_with_volumes(
     };
     commit_prepared_writes_checked(writes, |_, path| check_source(path))
         .map_err(|failure| DraftSaveError::from_transaction(&root, failure))?;
+    let source_glb_reload_paths = std::mem::take(&mut source_glbs.paths);
+    drop(source_glbs); // 解除本批源文件的借用后再移交场景摆放数组。
     let domain_hash = prepared.domain_hash.take();
     let motion = prepared.motion.take();
     let motion_written = prepared.writes_motion;
@@ -252,6 +259,7 @@ pub(super) async fn save_draft_with_volumes(
     // 高度作者源由分页文档保存；模型继续使用普通 scene.glb 摘要守卫。
     let terrain_digests = Vec::new();
     Ok(DraftSaveSuccess {
+        source_glb_reload_paths,
         domain_hash, // 成功之后才更新主世界外部文档磁盘基线。
         motion,
         motion_written,
@@ -525,17 +533,25 @@ fn prepare_placements_write<'a>(
     let relative = draft.placements_path();
     let path = safe_asset_path(root, &relative)?;
     let Some(expected) = &draft.placement_glb_hash else {
-        if saved_placements_match(&path, &draft.placements) {
-            return Ok((false, None, None));
+        let previous = std::fs::read(&path).ok();
+        let placements_changed = previous.as_ref().is_none_or(|bytes| !saved_placement_bytes_match(bytes, &draft.placements));
+        let folders_changed = previous.as_ref().and_then(|bytes| super::super::placement_folders::read_json(bytes).ok())
+            .unwrap_or_default() != *draft.object_folders;
+        if placements_changed && !folders_changed && draft.object_folders.is_empty() {
+            writes.push(PreparedWrite::json(path, &draft.placements));
+        } else if placements_changed || folders_changed {
+            let json = super::super::placement_folders::write_json(&draft.placements, &draft.object_folders)?;
+            let bytes = serde_json::to_vec_pretty(&json).map_err(|error| error.to_string())?;
+            writes.push(PreparedWrite::new(path, bytes));
         }
-        writes.push(PreparedWrite::json(path, &draft.placements));
-        return Ok((true, None, None));
+        return Ok((placements_changed, None, None));
     };
     use feathrise_scene_content::{authoring_io::bytes_hash, read_scene_placements, write_scene_placements_glb};
     let previous = std::fs::read(&path).map_err(|error| format!("读取场景 GLB {} 失败：{error}", path.display()))?;
     verify_placement_glb_hash(expected, &bytes_hash(&previous))?;
     let placements_changed = read_scene_placements(&previous, &relative)?.placements != draft.placements.placements;
-    if !placements_changed && !draft.motion.dirty {
+    let folders_changed = super::super::placement_folders::read_glb(&previous)? != *draft.object_folders;
+    if !placements_changed && !draft.motion.dirty && !folders_changed {
         return Ok((false, None, None));
     }
     let glb = if placements_changed {
@@ -549,16 +565,13 @@ fn prepare_placements_write<'a>(
         let motion = draft.motion.with_saved_clip_names(&glb)?;
         (glb, motion)
     } else { (glb, None) };
+    let glb = if folders_changed {
+        super::super::placement_folders::write_glb(&glb, &draft.object_folders)?
+    } else { glb };
     let digest = bytes_hash(&glb);
     if &digest == expected { return Ok((false, None, motion)); }
     writes.push(PreparedWrite::new(path, glb));
     Ok((placements_changed, Some(digest), motion))
-}
-
-fn saved_placements_match(path: &std::path::Path, snapshot: &ScenePlacementsAsset) -> bool {
-    std::fs::read(path)
-        .ok()
-        .is_some_and(|bytes| saved_placement_bytes_match(&bytes, snapshot)) // 文件读取只发生在有界IO保存任务内。
 }
 
 /// JSON排版和默认字段省略不属于作者内容变化；损坏字节则继续沿旧行为完整覆盖。

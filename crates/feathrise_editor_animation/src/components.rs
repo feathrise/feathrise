@@ -139,8 +139,3 @@ pub struct AnimationNumericInput {
 
 #[derive(Component)]
 pub(super) struct BoundModel(pub usize);
-
-/// Bevy 加载 Scene0 时记录的作者节点索引，供同源动作定位实际网格实例。
-#[derive(Component, Reflect)]
-#[reflect(Component)]
-pub(super) struct EmbeddedNodeIndex(pub usize);

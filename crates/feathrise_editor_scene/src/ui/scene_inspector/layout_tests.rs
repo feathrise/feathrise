@@ -66,7 +66,10 @@ fn inspector_tree_and_properties_have_independent_scroll_hosts() {
                 .filter(|(entity, text)| {
                     if text.as_str() != label { return false; }
                     if !matches!(label, "位置" | "缩放" | "变换") { return true; }
-                    // 隐藏的网格面板也有XYZ行；只在摆放子树检查同名组标签，避免误报重复。
+                    // 「应用」菜单也包含位置和缩放。仅核对摆放面板中实际参与布局的字段标签。
+                    if world.get::<ComputedNode>(*entity).is_none_or(|node| node.size().min_element() <= 0.0) {
+                        return false;
+                    }
                     let mut ancestor = *entity;
                     loop {
                         if world.get::<SceneEditorPlacementTransformPanel>(ancestor).is_some() { return true; }
@@ -144,6 +147,7 @@ fn inspector_reflow_keeps_numeric_entities_specs_values_and_active_buffer() {
     edit.editing = true;
     edit.buffer = "-123.456".into();
     let before = author(&app);
+    let rotation_xyz = crate::authoring::placement_pose::placement_supports_full_rotation();
     for width in [260.0, 320.0, 420.0, 560.0] {
         app.world_mut().get_mut::<Node>(host).unwrap().width = px(width);
         for scale in [0.6, 1.0, 1.5] {
@@ -170,16 +174,15 @@ fn inspector_reflow_keeps_numeric_entities_specs_values_and_active_buffer() {
                     assert_eq!(node.width, percent(100));
                     assert_eq!(node.min_width, px(0));
                     let computed = world.get::<ComputedNode>(*entity).unwrap();
-                    if world
-                        .get::<PlacementTransformField>(*entity)
-                        .is_some_and(|field| field.is_cutout() || field.is_cuboid() || field.is_lod()
-                            || field.animation_rotation_axis().is_some())
+                    let field = world.get::<PlacementTransformField>(*entity);
+                    if field.is_some_and(|field| field.is_cutout() || field.is_cuboid() || field.is_lod()
+                        || (field.animation_rotation_axis().is_some() && !rotation_xyz)
+                        || (*field == PlacementTransformField::Yaw && rotation_xyz))
                     {
-                        assert_eq!(computed.size(), Vec2::ZERO); // 普通GLB的洞口及内置形状字段保留身份，但不占布局。
+                        assert_eq!(computed.size(), Vec2::ZERO); // 当前 SDK 和对象类型决定可见字段，隐藏项仍保留控件身份。
                     } else {
-                        let axis = world.get::<PlacementTransformField>(*entity).is_some_and(|field| matches!(field,
-                            PlacementTransformField::TranslationX | PlacementTransformField::TranslationY | PlacementTransformField::TranslationZ
-                            | PlacementTransformField::ScaleX | PlacementTransformField::ScaleY | PlacementTransformField::ScaleZ));
+                        let axis = field.is_some_and(|field| field.translation_axis().is_some()
+                            || field.animation_rotation_axis().is_some() || field.scale_axis().is_some());
                         let minimum_width = if axis { 55.0 } else { 160.0 };
                         assert!(computed.size().x > minimum_width * scale * dpi);
                         assert!(computed.size().x <= host_node.size().x + 1.1);

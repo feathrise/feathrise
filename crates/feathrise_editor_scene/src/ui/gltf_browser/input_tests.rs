@@ -10,6 +10,7 @@ fn mesh(id: &str) -> EditorGltfMeshSelection {
         node_path: vec!["对象".into()],
         mesh_name: "mesh".into(),
         mesh_index: Some(0),
+        node_index: None,
         valid: true,
         orphaned_water_binding: false,
     }

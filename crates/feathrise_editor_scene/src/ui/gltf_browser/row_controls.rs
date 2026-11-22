@@ -116,8 +116,8 @@ fn representative<'a>(
             browser.placement_record_index(placement_id, session.placement_structure_revision)?,
             placement_id.as_str(),
         ),
-        EditorGltfBrowserEntryKind::Group { first_member, .. } => (
-            *first_member, browser.signature.get(*first_member)?.placement_id.as_str(),
+        EditorGltfBrowserEntryKind::Group { first_member: Some(index), .. } => (
+            *index, browser.signature.get(*index)?.placement_id.as_str(),
         ),
         _ => return None,
     };
@@ -153,7 +153,7 @@ pub(crate) fn sync(
     for (entity, parent, children, mut toggle, mut node, click, interaction, disabled, mut fill, mut border) in &mut buttons {
         let Ok(row) = rows.get(parent.parent()) else { continue; };
         let kind = row.entry_index.and_then(|index| browser.entries.get(index)).map(|entry| &entry.kind);
-        let show = matches!(kind, Some(EditorGltfBrowserEntryKind::Placement { .. } | EditorGltfBrowserEntryKind::Group { .. }));
+        let show = matches!(kind, Some(EditorGltfBrowserEntryKind::Placement { .. } | EditorGltfBrowserEntryKind::Group { first_member: Some(_), .. }));
         let display = if show { Display::Flex } else { Display::None };
         if node.display != display { node.display = display; }
         let record = kind.and_then(|kind| representative(&browser, &session, kind));
@@ -190,7 +190,7 @@ pub(crate) fn sync(
                 main_glb.map(|draft| browser.expanded_main_glb.as_ref() != Some(&draft.scene_id)),
                 main_glb.map(|_| BranchTarget::MainGlb),
             ),
-            (_, Some(EditorGltfBrowserEntryKind::Group { collapsed, .. })) =>
+            (_, Some(EditorGltfBrowserEntryKind::Group { collapsed, first_member: Some(_), .. })) =>
                 (Some(*collapsed), published_index(&browser, &session, row).map(BranchTarget::Entry)),
             (_, Some(EditorGltfBrowserEntryKind::Placement { collapsed, expandable: true, placement_id, .. })) => {
                 let target = browser.placement_asset_paths.contains_key(placement_id)

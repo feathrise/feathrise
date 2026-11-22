@@ -95,6 +95,7 @@ pub(crate) fn refresh_placement_water_runtime_selection_cache(
     let placement_id = browser
         .selection
         .as_ref()
+        .filter(|selection| !selection.is_source_folder())
         .map(|selection| selection.placement_id.as_str());
     let membership_revision = root_index.membership_revision();
     let status_revision = scene_id
@@ -147,7 +148,7 @@ pub(crate) fn sync_placement_water_runtime_status(
     if !editor.open {
         return; // F12关闭期间不让后台候选日志覆盖玩家下一次打开时的作者提示。
     }
-    let Some(selection) = browser.selection.as_ref() else {
+    let Some(selection) = browser.selection.as_ref().filter(|selection| !selection.is_source_folder()) else {
         return; // 没有选中网格时不把其他placement的内部状态冒充当前操作结果。
     };
     if *observed_revision == runtime_cache.presentation_revision() {

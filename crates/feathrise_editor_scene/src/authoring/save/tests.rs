@@ -18,6 +18,50 @@ mod rollback_placement_retry; // 水文件回滚不能接管或遗失先前失�
 
 static SAVE_TRANSACTION_TEST_COUNTER: AtomicU64 = AtomicU64::new(0); // 唯一测试目录后缀。
 
+#[test]
+fn source_glb_edits_stage_both_files_and_reject_externally_changed_input() {
+    use super::transaction::commit_prepared_writes_checked;
+    use crate::authoring::source_glbs::{SourceGlbEdits, SourceGlbOperation, SourceGlbSave, SourceGlbTarget, SourceNodeAddress, edit};
+    use feathrise_editor_animation_model::data::{GlbParent, GlbStructure};
+    let tmp = SaveTransactionTestDirectory::new();
+    let mut json = br#"{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"name":"Original"}]}"#.to_vec();
+    json.resize(json.len().next_multiple_of(4), b' ');
+    let mut bytes = b"glTF".to_vec();
+    bytes.extend(2_u32.to_le_bytes());
+    bytes.extend((20 + json.len() as u32).to_le_bytes());
+    bytes.extend((json.len() as u32).to_le_bytes());
+    bytes.extend(b"JSON");
+    bytes.extend(json);
+    let source = tmp.path.join("source.glb");
+    let target = tmp.path.join("target.glb");
+    std::fs::write(&source, &bytes).unwrap();
+    std::fs::write(&target, &bytes).unwrap();
+    let origin = SourceGlbTarget {
+        path: "source.glb".into(),
+        node: Some(SourceNodeAddress { index: 0, path: vec!["Original".into()], mesh: None }),
+        world: Mat4::IDENTITY,
+    };
+    let destination = SourceGlbTarget { path: "target.glb".into(), node: None, world: Mat4::IDENTITY };
+    let (draft, _) = edit(&tmp.path, &SourceGlbEdits::default(), origin, SourceGlbOperation::Move(destination))
+        .unwrap().unwrap();
+    assert_eq!(std::fs::read(&source).unwrap(), bytes);
+    assert_eq!(std::fs::read(&target).unwrap(), bytes);
+    let mut batch = SourceGlbSave::prepare(&tmp.path, &draft).unwrap();
+    std::fs::write(&target, b"external replacement").unwrap();
+    let writes = std::mem::take(&mut batch.writes);
+    assert!(commit_prepared_writes_checked(writes, |_, path| batch.check_source(path)).is_err());
+    assert_eq!(std::fs::read(&source).unwrap(), bytes);
+    assert_eq!(std::fs::read(&target).unwrap(), b"external replacement");
+
+    std::fs::write(&target, &bytes).unwrap();
+    let mut batch = SourceGlbSave::prepare(&tmp.path, &draft).unwrap();
+    let writes = std::mem::take(&mut batch.writes);
+    assert!(commit_prepared_writes_checked(writes, |_, path| batch.check_source(path)).is_ok());
+    let reopened = |path| GlbStructure::from_bytes(&std::fs::read(path).unwrap()).unwrap();
+    assert!(reopened(source).children(GlbParent::Scene(0)).unwrap().is_empty());
+    assert_eq!(reopened(target).children(GlbParent::Scene(0)).unwrap().len(), 2);
+}
+
 pub(super) struct SaveTransactionTestDirectory {
     pub(super) path: PathBuf, // 保存批次测试共用隔离根；Drop只回收自己创建的直接子目录。
 }
@@ -767,6 +811,7 @@ fn completed_placement_save_app(
         dirty_height_path: None, catalog_registration_required: false, terrains: Vec::new(),
     }); // 真实begin因缺失清单路径拒绝建门；摆放内容本身仍要求严格新Ready交接。
     let success = DraftSaveSuccess {
+        source_glb_reload_paths: Vec::new(),
         terrain_manifest: None, terrain_saved: Vec::new(), terrain_reload_paths: Vec::new(),
         terrain_digests: Vec::new(), terrain_water_changed: BTreeSet::new(),
         root_water_changed: gate_failure, domain_hash: None, motion: None, motion_written: false, scene_id: map.clone(),

@@ -108,12 +108,13 @@ fn scene_mesh_selection_from_hit(
     entity: Entity,             // MeshRayCast返回的最近Scene0 primitive。
     root: Entity,               // 已复核属于当前场景的活动placement根。
     asset_server: &AssetServer, // Mesh子资产标签提供诊断mesh_index。
-    named_nodes: &Query<(&Name, &ChildOf)>,
+    named_nodes: &Query<(&Name, &ChildOf, Option<&feathrise_editor_animation_model::types::EmbeddedNodeIndex>)>,
     roots: &Query<&ScenePlacementInstance>,
     scene_primitives: &Query<(&GltfMeshName, &Mesh3d, &ChildOf, Option<&feathrise_scene::StaticMeshLodOriginal>)>,
 ) -> Option<EditorGltfMeshSelection> {
     let (mesh_name, mesh, primitive_parent, original) = scene_primitives.get(entity).ok()?; // 非glTF Mesh不伪造对象引用。
     let mut current = primitive_parent.parent(); // primitive父级是携带显式Name的Blender对象节点。
+    let node_index = named_nodes.get(current).ok().and_then(|(_, _, index)| index).map(|index| index.0);
     let mut reversed = Vec::new(); // 父链先得到对象到场景根的逆序路径。
     let mut path_chars = 0usize; // 完整路径总字符数服从正式作者硬门。
     let mut path_names_valid = true; // 任何缺名、超长或断链都只保留无效诊断选择。
@@ -123,7 +124,7 @@ fn scene_mesh_selection_from_hit(
             reached_scene_root = true; // 防御直接挂根结构；空路径随后仍被稳定引用规则拒绝。
             break;
         }
-        let Ok((name, parent)) = named_nodes.get(current) else {
+        let Ok((name, parent, _)) = named_nodes.get(current) else {
             path_names_valid = false; // 缺少显式Name的节点不能成为可持久引用。
             break;
         };
@@ -174,6 +175,7 @@ fn scene_mesh_selection_from_hit(
         node_path: reversed,           // 精确覆盖和整网格水使用完整Blender对象路径。
         mesh_name,                     // 同对象多primitive共享该稳定Mesh名。
         mesh_index,                    // 仅供当前导出诊断，不参与最终运行时匹配。
+        node_index,                    // 与场景树一致，源动画指向此父节点而不是 primitive 句柄。
         valid,                         // 无效引用仍允许选中整实例并显示明确诊断。
         orphaned_water_binding: false, // 世界真实命中绝不是旧作者孤儿项。
     })
@@ -185,7 +187,7 @@ pub(super) fn placement_hit_from_entity(
     scene_id: &SceneId,             // 当前草稿场景身份。
     asset_server: &AssetServer, // Scene0网格标签提供诊断索引，直接primitive不读取它。
     parents: &Query<&ChildOf>,
-    named_nodes: &Query<(&Name, &ChildOf)>,
+    named_nodes: &Query<(&Name, &ChildOf, Option<&feathrise_editor_animation_model::types::EmbeddedNodeIndex>)>,
     roots: &Query<&ScenePlacementInstance>,
     scene_primitives: &Query<(&GltfMeshName, &Mesh3d, &ChildOf, Option<&feathrise_scene::StaticMeshLodOriginal>)>,
     direct_primitives: &Query<(), (With<ScenePlacementPrimitiveVisual>, With<Mesh3d>)>,
@@ -277,6 +279,7 @@ mod tests {
                 node_path: vec![name.to_owned()], // 两个真实网格提供可区别的命中身份。
                 mesh_name: name.to_owned(),       // 最靠近相机的网格必须留给场景树。
                 mesh_index: Some(0),              // 测试不依赖运行时资产加载。
+                node_index: None,
                 valid: true,                      // 明确合法稳定引用。
                 orphaned_water_binding: false,    // 真实命中不是失效绑定。
             })
@@ -369,7 +372,7 @@ mod tests {
             .id();
         let mut query_state: SystemState<(
             Query<&ChildOf>,
-            Query<(&Name, &ChildOf)>,
+            Query<(&Name, &ChildOf, Option<&feathrise_editor_animation_model::types::EmbeddedNodeIndex>)>,
             Query<&ScenePlacementInstance>,
             Query<(&GltfMeshName, &Mesh3d, &ChildOf, Option<&feathrise_scene::StaticMeshLodOriginal>)>,
             Query<(), (With<ScenePlacementPrimitiveVisual>, With<Mesh3d>)>,

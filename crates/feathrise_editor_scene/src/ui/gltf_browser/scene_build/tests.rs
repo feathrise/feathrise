@@ -28,6 +28,25 @@ fn scene_mesh_index_keeps_original_glb_identity_after_display_lod_swap() {
 }
 
 #[test]
+fn two_primitives_of_one_gltf_node_offer_one_valid_source_editing_target() {
+    let mut world = World::new();
+    let root = world.spawn_empty().id();
+    let node = world.spawn((Name::new("多材质对象"), EmbeddedNodeIndex(7))).id();
+    world.entity_mut(root).add_child(node);
+    for _ in 0..2 {
+        let mesh = world.spawn((Mesh3d(Handle::default()), GltfMeshName("网格".into()))).id();
+        world.entity_mut(node).add_child(mesh);
+    }
+    let mut build = BrowserSceneBuild::new(
+        "gltf/multi-primitive.glb".into(), Handle::<WorldAsset>::default().id(), 1, &world,
+    );
+    while !advance_scene_build(&mut build, &world, |_| Some(3)) {}
+    assert_eq!(build.meshes.len(), 1);
+    assert_eq!(build.meshes[0].node_index, Some(7));
+    assert!(build.meshes[0].valid && !build.meshes[0].ambiguous);
+}
+
+#[test]
 fn scene_world_discovers_mesh_after_the_old_entity_limit() {
     let mut world = World::new();
     for _ in 0..8_192 {

@@ -188,6 +188,11 @@ pub(super) fn control_menu(
                 && !input.is_composing()
             {
                 let name = input.value().to_string().trim().to_owned();
+                let action = menu.name_action.unwrap_or(SceneMenuAction::Rename);
+                if name.is_empty() && action != SceneMenuAction::Rename {
+                    editor.status = "名称不能为空".into();
+                    return;
+                }
                 if let Err(error) = menu.target.as_ref().unwrap().object.validate_name(&name) {
                     editor.status = error.into();
                     return;
@@ -197,7 +202,7 @@ pub(super) fn control_menu(
                     target.clone(),
                     SceneObjectRequest {
                         target: target.object,
-                        action: SceneMenuAction::Rename,
+                        action,
                         name,
                     },
                 ));
@@ -219,11 +224,22 @@ pub(super) fn control_menu(
             {
                 return;
             }
-            if action == SceneMenuAction::Rename {
+            if action.requests_name() {
                 if let Ok((entity, mut input)) = inputs.single_mut() {
-                    set_name(&mut input, &target.object.name);
+                    let initial = match action {
+                        SceneMenuAction::Rename => target.object.name.as_str(),
+                        SceneMenuAction::RenameSourceNode => match &target.object.key {
+                            SceneObjectKey::Placement { mesh: Some(mesh), .. } => {
+                                mesh.node_path.last().map_or("", String::as_str)
+                            }
+                            _ => "",
+                        },
+                        _ => "",
+                    };
+                    set_name(&mut input, initial);
                     focus.set(entity, FocusCause::Navigated);
                     menu.renaming = true;
+                    menu.name_action = Some(action);
                 }
             } else {
                 let target = menu.target.take().unwrap();
@@ -340,7 +356,9 @@ pub(super) fn queue_tree_double_click(
         let object = binding.0.as_ref()?;
         (click.is_clicked() && node.display != Display::None
             && object.current(&editor, &context.session)
-            && (matches!(object.key, SceneObjectKey::MainSceneAnimation(_)) || object.allows(SceneMenuAction::Focus)))
+            && (matches!(object.key, SceneObjectKey::MainSceneAnimation(_)) || object.allows(SceneMenuAction::Focus)
+                || (matches!(object.key, SceneObjectKey::SourceGlbAnimation { .. })
+                    && object.allows(SceneMenuAction::EditSourceGlbAnimation))))
             .then_some((row, object, click))
     }) else { return; };
     let target = MenuTarget { row, object: object.clone() };
@@ -350,7 +368,10 @@ pub(super) fn queue_tree_double_click(
         if matches!(object.key, SceneObjectKey::MainSceneAnimation(_)) {
             animation.write(OpenSceneAnimation(object.clone()));
         } else {
-            menu.queued = Some((target, SceneObjectRequest { target: object.clone(), action: SceneMenuAction::Focus, name: String::new() }));
+            let action = if matches!(object.key, SceneObjectKey::SourceGlbAnimation { .. }) {
+                SceneMenuAction::EditSourceGlbAnimation
+            } else { SceneMenuAction::Focus };
+            menu.queued = Some((target, SceneObjectRequest { target: object.clone(), action, name: String::new() }));
             menu.tree_focus_queued = true;
         }
     } else {

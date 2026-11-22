@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 fn precise(id: &str) -> EditorGltfMeshSelection {
     EditorGltfMeshSelection { placement_id: id.into(), node_path: vec!["模型".into(), "叶片".into()],
-        mesh_name: "叶片网格".into(), mesh_index: Some(1), valid: true, orphaned_water_binding: false }
+        mesh_name: "叶片网格".into(), mesh_index: Some(1), node_index: None, valid: true, orphaned_water_binding: false }
 }
 
 /// 冻结本次输入的稳定网格命中；任务结果由真实poll计算，不能手填已完成的Task。

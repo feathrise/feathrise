@@ -36,7 +36,8 @@ pub(in crate::ui) fn input(
                 .0
                 .as_ref()
                 .filter(|target| !matches!(target.key, SceneObjectKey::Placement { .. }
-                    | SceneObjectKey::Group { .. } | SceneObjectKey::MainSceneAnimation(_))
+                    | SceneObjectKey::Group { .. } | SceneObjectKey::MainSceneAnimation(_)
+                    | SceneObjectKey::SourceGlbAnimation { .. })
                     && target.current(&editor, &context.session))
         {
             // 地形、子场景和作者层复用右键的稳定行身份。动画双击直接打开工作台，保留原对象选择。

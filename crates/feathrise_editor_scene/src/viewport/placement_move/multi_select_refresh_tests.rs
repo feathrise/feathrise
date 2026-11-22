@@ -111,6 +111,7 @@ fn multi_selection_refresh_keeps_same_single_instance_precise_mesh_selection() {
         node_path: vec!["树根".into(), "叶片".into()],
         mesh_name: "叶片网格".into(),
         mesh_index: Some(1),
+        node_index: None,
         valid: true,
         orphaned_water_binding: false,
     };

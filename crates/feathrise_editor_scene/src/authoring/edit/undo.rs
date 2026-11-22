@@ -124,7 +124,7 @@ pub(crate) fn apply_undo_redo(
     let (external_authoring, domain_adapter, vegetation_layers, mut scene_objects) = domain_state;
     if scene_objects.as_ref().is_some_and(|state| state.managing()) { return; } // 读取完整元数据前保留原历史意图。
     if vegetation_layers.as_ref().is_some_and(|state| state.busy()) { return; }
-    if session.model_vegetation_busy { return; } // 模型笔刷先排空并入栈，不能越过尚未形成的最后一笔。
+    if session.model_vegetation_busy || session.source_glb_busy { return; } // 后台笔划和源文件修改先完整入栈。
     if session.water_preset_delete_pending {
         editor.undo_requested = false;
         editor.redo_requested = false;
@@ -389,6 +389,15 @@ pub(crate) fn apply_undo_redo(
                     draft.terrain_ground = None;
                 }
                 EditorCommand::SceneObjectsChanged(_) => unreachable!("对象元数据由分帧历史入口采用"),
+                EditorCommand::PlacementFolderAdded(name) => {
+                    // 此命令只拥有同名显式目录，成员的原摆放归属由独立历史恢复。
+                    if draft.object_folders.contains(name) != undoing {
+                        return Err("文件夹已经变化，无法应用这笔历史".into());
+                    }
+                    let folders = std::sync::Arc::make_mut(&mut draft.object_folders);
+                    if undoing { folders.remove(name); }
+                    else { folders.insert(name.clone()); }
+                }
                 EditorCommand::SubscenesChanged { before, after } => {
                     draft.manifest.subscenes = if undoing { before.clone() } else { after.clone() };
                 }
@@ -521,6 +530,11 @@ pub(crate) fn apply_undo_redo(
                         return Err("场景动画名称已变化，无法应用这笔历史".into());
                     }
                     draft.motion.set_clip_name(replacement.clone());
+                }
+                EditorCommand::SourceGlbsChanged { before, after, .. } => {
+                    let (expected, replacement) = if undoing { (after, before) } else { (before, after) };
+                    draft.source_glb_edits.verify_current(expected)?;
+                    draft.source_glb_edits = replacement.clone();
                 }
                 EditorCommand::PlacementChanged {
                     record_index,
@@ -1186,6 +1200,7 @@ pub(crate) fn apply_undo_redo(
             | EditorCommand::PortalLabelChanged { .. }
     ); // 增删或改名都会刷新当前列表、目标列表和保存修订。
     let placement_structure_changed = match &command {
+        EditorCommand::PlacementFolderAdded(_) => true, // 空文件夹的撤销和重做也会改变已发布的树行。
         EditorCommand::PlacementAdded(_) => true, // 撤销和重做都增删一个实例根。
         EditorCommand::PlacementRemoved { .. } => true, // 删除与恢复都改变实例根和场景树结构。
         EditorCommand::CourtyardBatch(_) => true, // 整组成员共享一次结构与作者修订换代。

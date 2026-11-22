@@ -1,7 +1,6 @@
 //! 已摆放场景资产的完整实例选择、专业变换输入与结构操作。
 //!
-//! 【功能设计】场景树根或其任一网格都只选中一条`ScenePlacementRecord`；位置、
-//! Y轴旋转、三轴缩放、高度模式、复制与删除直接修改正式草稿，并复用统一撤销、保存和热接管链路。
+//! 【功能设计】场景树根的变换、高度模式、复制和删除操作当前摆放；明确选中的源节点由 GLB 属性负责。
 
 mod actions; // 高度模式、复制、删除及运行时根定向同步。
 pub(crate) mod apply_transform; // 普通内置网格应用对象变换，完整候选就绪后发布。
@@ -601,6 +600,7 @@ pub(super) fn selected_target(
     browser: &crate::ui::gltf_browser::EditorGltfBrowserState, // 当前场景树完整实例选择。
     session: &crate::authoring::EditorAuthoringSession,        // 当前草稿与结构修订。
 ) -> Option<PlacementTransformTarget> {
+    if crate::ui::scene_source_glb::owns_selection(browser) { return None; }
     let placement_id = browser.selected_placement_id.as_ref()?; // 根或子网格必须已经发布完整实例选择。
     let record_index =
         browser.placement_record_index(placement_id, session.placement_structure_revision)?; // 在途旧签名拒绝提供下标。

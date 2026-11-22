@@ -72,13 +72,33 @@ pub struct DirectoryPick {
     pub root: PathBuf,
     pub source: PathBuf,
     pub tab: u64,
-    pub clip_index: usize,
+    pub action: DirectoryAnimationAction,
     pub recheck_source: bool,
+}
+
+/// 场景树明确点到的 GLB 节点。载入原文件后仍要核对节点所在路径和网格。
+pub struct SourceAnimationNode {
+    pub index: usize,
+    pub path: Vec<String>,
+    pub mesh_index: Option<u32>,
+}
+
+pub enum DirectoryAnimationAction {
+    Preview(usize),
+    Edit { clip: Option<(usize, String)>, node: Option<SourceAnimationNode> },
+    Create { node: Option<SourceAnimationNode> },
+    EnterCreated { clip_index: usize, node: Option<SourceAnimationNode> },
 }
 
 impl AnimationEditorState {
     pub fn queue_directory_pick(
         &mut self, root: PathBuf, source: PathBuf, tab: u64, clip_index: usize,
+    ) {
+        self.queue_directory_animation(root, source, tab, DirectoryAnimationAction::Preview(clip_index));
+    }
+
+    pub fn queue_directory_animation(
+        &mut self, root: PathBuf, source: PathBuf, tab: u64, action: DirectoryAnimationAction,
     ) {
         self.stop_rig_preview();
         let recheck_source = self.sessions.contains_key(&source)
@@ -87,7 +107,7 @@ impl AnimationEditorState {
             self.failed = None;
         }
         self.directory_pick = Some(DirectoryPick {
-            root, source, tab, clip_index, recheck_source,
+            root, source, tab, action, recheck_source,
         });
     }
 

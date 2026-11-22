@@ -117,7 +117,7 @@ pub(crate) fn start_draft_save(
 ) {
     readiness.deletion_capture.poll(&session, editor.save_requested, readiness.authoring_retirement.as_deref_mut());
     readiness.placement_capture.poll(&session, editor.save_requested, readiness.authoring_retirement.as_deref_mut());
-    if session.water_preset_delete_pending || session.model_vegetation_busy { return; } // 整笔后台采用前不冻结半份模型植被。
+    if session.water_preset_delete_pending || session.model_vegetation_busy || session.source_glb_busy { return; } // 后台整笔采用前不冻结半份内容。
     if readiness.vegetation_layers.as_ref().is_some_and(|state| state.busy()) { return; } // 作者层结构与模型样本共同采用后再响应保存意图。
     // 最先轮询：请求撤销、切换场景或其他领域仍在等待时，也不能遗弃持有旧源的后台任务。
     if readiness.terrain_objects.as_ref().is_some_and(|state| state.busy()) { return; } // 对象完整采用前不冻结过期集合。

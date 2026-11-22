@@ -16,10 +16,12 @@ pub(super) fn snapshot(
         folder: source.folder.clone(), // 保留该领域既有快照与共享语义。
         water_asset_path: source.water_asset_path.clone(), // 保留该领域既有快照与共享语义。
         placement_glb_hash: source.placement_glb_hash.clone(),
+        source_glb_edits: source.source_glb_edits.clone(),
         manifest: source.manifest.clone(), // 保留该领域既有快照与共享语义。
         terrain_ground: source.terrain_ground.clone(),
         terrain_documents: source.terrain_documents.clone(),
         placements, // 转移分帧复制的摆放，启动IO时不克隆场景记录。
+        object_folders: source.object_folders.clone(),
         placement_water_surface_count: source.placement_water_surface_count.clone(), // 保留该领域既有快照与共享语义。
         portals: source.portals.clone(), // 保留该领域既有快照与共享语义。
         domain: source.domain.clone(), // 外部不可变版本浅共享。

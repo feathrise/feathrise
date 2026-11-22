@@ -11,6 +11,8 @@ pub(crate) struct PlacementMoveState {
     pub(super) pending_building: Option<PendingBuildingMove>, // 最多保留本次单槽校验的一个模型预览。
     pub(super) hover: Option<MoveHandle>,
     pub(super) owns_mouse: bool,
+    pub(super) source_drag: Option<super::source_node::SourceNodeDrag>,
+    pub(super) source_display: Option<super::source_node::SourceNodeDisplay>,
 }
 
 impl PlacementMoveState {
@@ -39,6 +41,7 @@ impl PlacementMoveState {
 
     pub(crate) fn exit_pending(&self) -> bool {
         self.group.is_some() || self.group_task.is_some() || self.drag.is_some() || self.pending_building.is_some()
+            || self.source_drag.is_some()
     }
 
     pub(crate) fn grid_reference(&self, control: bool) -> Option<(Vec3, Vec3, feathrise_editor_core::EditorTranslationSnap)> {
@@ -55,13 +58,17 @@ impl PlacementMoveState {
         self.owns_mouse
     }
 
+    pub(crate) fn owns_source_node(&self, entity: Entity) -> bool {
+        self.source_drag.as_ref().is_some_and(|drag| drag.entity() == entity)
+    }
+
     /// 静水Y轴沿用移动工具的统一捕获门，最终release与和弦仍由同一静默帧归还。
     pub(crate) fn capture_mouse(&mut self) {
         self.owns_mouse = true;
     }
 
     pub(super) fn release_when_quiet(&mut self, mouse: &ButtonInput<MouseButton>) {
-        if self.drag.is_none() && self.group.is_none()
+        if self.drag.is_none() && self.group.is_none() && self.source_drag.is_none()
             && !mouse.any_pressed([MouseButton::Left, MouseButton::Right, MouseButton::Middle])
             && ![MouseButton::Left, MouseButton::Right, MouseButton::Middle]
                 .into_iter()

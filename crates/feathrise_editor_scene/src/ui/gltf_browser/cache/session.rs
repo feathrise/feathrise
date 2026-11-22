@@ -91,6 +91,11 @@ pub(crate) fn refresh_gltf_browser_cache(
 
     let invalidated = collect_invalidated_paths(&mut scene_events, &mut state);
     let mut entries_changed = invalidate_cached_paths(&mut state, invalidated);
+    let source_edits = session.draft.as_ref().map(|draft| &draft.source_glb_edits);
+    if source_edits.is_some_and(|edits| state.source_glb_edits.verify_current(edits).is_err()) {
+        state.source_glb_edits = source_edits.unwrap().clone();
+        entries_changed = true; // 未保存节点层级与文件更改原子显示。
+    }
     sync_selection_validation_demand(&session, &mut state);
     entries_changed |= process_asset_demand_budget(&mut state, &asset_server);
     entries_changed |= process_loading_budget(&mut state, &asset_server, &world_assets);

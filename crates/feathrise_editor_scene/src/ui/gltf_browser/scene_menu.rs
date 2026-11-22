@@ -43,7 +43,25 @@ pub(crate) fn bind_scene_menu_rows(
             let index = row.entry_index.filter(|_| row.entries_revision == browser.published_entries_revision)?;
             let entry = browser.entries.get(index)?;
             let draft = draft?;
+            if let EditorGltfBrowserEntryKind::SourceAnimation { placement_id, clip_index } = &entry.kind {
+                let index = browser.placement_record_index(placement_id, session.placement_structure_revision)?;
+                let record = draft.placements.placements.get(index).filter(|record| &record.id == placement_id)?;
+                let metadata = crate::ui::scene_objects::effective_metadata(objects.as_deref(), &session, record);
+                return Some(SceneObjectTarget {
+                    scene_id: draft.scene_id.clone(), revision: session.revision,
+                    key: SceneObjectKey::SourceGlbAnimation { index, id: record.id.clone(), clip_index: *clip_index },
+                    name: entry.display_name.clone(), hidden: metadata.hidden, locked: metadata.locked, copyable: false,
+                });
+            }
             if let EditorGltfBrowserEntryKind::Group { name, first_member, .. } = &entry.kind {
+                let Some(first_member) = first_member else {
+                    // 空组可作为拖放目标，但没有可供聚焦或操作的摆放。
+                    return draft.object_folders.contains(name).then(|| SceneObjectTarget {
+                        scene_id: draft.scene_id.clone(), revision: session.revision,
+                        key: SceneObjectKey::PlacementFolder, name: name.clone(),
+                        hidden: false, locked: false, copyable: false,
+                    });
+                };
                 // 整组只提供读操作。首成员加组名校验当前目录身份，展开与收起均使用同一目标。
                 let record = draft.placements.placements.get(*first_member)?;
                 let signature = browser.signature.get(*first_member)?;
@@ -68,7 +86,7 @@ pub(crate) fn bind_scene_menu_rows(
                     let mesh = entry
                         .selection
                         .as_ref()
-                        .filter(|mesh| mesh.valid && !mesh.orphaned_water_binding)?;
+                        .filter(|mesh| (mesh.valid || mesh.node_index.is_some()) && !mesh.orphaned_water_binding)?;
                     (&mesh.placement_id, Some(mesh.clone()))
                 }
                 _ => return None,

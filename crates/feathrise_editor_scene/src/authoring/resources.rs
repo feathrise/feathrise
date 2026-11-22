@@ -67,7 +67,10 @@ pub struct EditorSceneDraft {
     pub terrain_ground: Option<Arc<super::terrain_ground::TerrainGroundSnapshot>>,
     pub(crate) terrain_documents: super::terrain_documents::TerrainDocumentStore,
     pub placements: ScenePlacementsAsset,
+    /// 显式新建的外层文件夹；即使没有摆放成员仍随该场景保存。
+    pub(crate) object_folders: Arc<BTreeSet<String>>,
     pub(crate) motion: super::scene_motion::SceneMotionDocument,
+    pub(crate) source_glb_edits: super::source_glbs::SourceGlbEdits,
     /// 存在摘要时，摆放直接写回场景 GLB；摘要来自实际打开的字节。
     pub(crate) placement_glb_hash: Option<String>,
     /// 当前摆放文档的整网格水绑定总数；加载任务计算，赋水/撤销按单记录差值维护。
@@ -149,6 +152,7 @@ impl EditorSceneDraft {
 /// 当前场景编辑会话及未保存预览实体。
 #[derive(Resource, Default)]
 pub struct EditorAuthoringSession {
+    pub(crate) source_glb_busy: bool, // 后台还未完整采用的跨源编辑不能被保存和撤销越过。
     pub model_vegetation_busy: bool, // 模型单飞采样与整笔排空期间，保存和来源切换必须等待完整采用。
     pub vegetation_cross_busy: bool, // 冻结笔划及完整发布期间，姿态等作者事务不得插入历史顺序。
     /// 玩法选择记忆只绑定场景和稳定路径ID；不保存、不进入撤销、不随控制点松手清空。

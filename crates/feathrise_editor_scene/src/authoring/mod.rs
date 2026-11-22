@@ -52,12 +52,14 @@ pub(crate) mod placement_pose; // 摆放记录的所属源框架与精确世界�
 pub(crate) mod placement_preview_ownership; // 独立作者预览定向遮蔽正式候选，精确保存或冷载后归还。
 pub(crate) mod placement_deletion; // 文档持有删除票据，约束旧保存迟到Add及精确撤销/保存确认。
 pub(crate) mod placement_participation;
+pub(crate) mod placement_folders; // 场景树外层空文件夹的作者数据，与已摆放实例同一次保存。
 mod portal_direction; // 传送箭头按当前主区域边界最近线段点自动派生。
 #[path = "preview/mod.rs"]
 mod preview; // 地表综合色与正式多档Mesh植被按职责拆分的有界后台预览。
 pub(crate) use preview::{same_surface_canvas, surface_canvas_mesh}; // 覆盖与材质预热共用当前对象的固定成本来源。
 mod resources; // 草稿、撤销历史、预览资产和任务槽。
 pub(crate) mod scene_motion; // 稳定摆放的往返轨迹与场景源事务。
+pub(crate) mod source_glbs; // 场景引用的 GLB 源草稿随原作者事务提交。
 pub(crate) mod volume_sculpt; // 局部体积原型只通过密度后台、联合场景发布和场景原子保存进入作者流程。
 mod save; // JSON、场景模型scene.glb和作者资源的后台原子保存。
 pub(crate) mod sparse_terrain; // 新图局部高度笔刷、差分与后台IO可调用的稀疏作者会话。

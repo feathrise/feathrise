@@ -7,10 +7,12 @@ use super::*;
 fn cached_asset(handle: Handle<WorldAsset>, revision: u64) -> CachedGltfAsset {
     CachedGltfAsset {
         handle,
+        animation_names: None,
         meshes: vec![super::super::CachedGltfMesh {
             node_path: vec!["旧节点".to_owned()],
             mesh_name: "旧网格".to_owned(),
             mesh_index: Some(1),
+            node_index: None,
             valid: true,
             ambiguous: false,
         }],

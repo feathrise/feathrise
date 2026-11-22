@@ -8,6 +8,7 @@ use bevy::ecs::entity::EntityIndex; // 按实体槽位游标读取，避免每�
 use bevy::gltf::GltfMeshName; // 只有原始glTF网格显式命名时loader才添加此组件。
 use bevy::prelude::*; // World、Entity、Children、Name与Mesh3d只读访问。
 use bevy::world_serialization::WorldAsset; // Scene0强句柄的资产类型。
+use feathrise_editor_animation_model::types::{EmbeddedNodeIndex, EmbeddedSceneAnimations};
 use feathrise_scene_content::{
     MAX_SCENE_PLACEMENT_WATER_NAME_CHARS, MAX_SCENE_PLACEMENT_WATER_NODE_PATH_DEPTH,
 }; // 稳定作者身份本身已有公共名称与层级硬门。
@@ -76,6 +77,7 @@ struct PendingSceneMesh {
     path_names_valid: bool,             // 层级读取期间累计的稳定性。
     mesh_name: String,                  // 已按公共名称上限截断。
     mesh_index: Option<u32>,            // 仅作诊断，不参与后续稳定匹配。
+    node_index: Option<usize>,          // primitive 的父节点才是 GLB 中变换和动画的目标。
 }
 
 /// 单个Scene0完整新修订的未发布读取状态。
@@ -100,6 +102,7 @@ pub(super) struct BrowserSceneBuild {
     pending_mesh: Option<PendingSceneMesh>,
     /// 已完成且尚未发布的去重网格前缀。
     meshes: Vec<CachedGltfMesh>,
+    animation_names: Option<std::sync::Weak<[String]>>,
     /// 稳定路径与网格名映射到首个输出行；第二次命中会把该身份标记为歧义。
     dedupe: BTreeMap<(Vec<String>, String), usize>,
     /// 标记已进入的实体，避免损坏的关系造成重复遍历或形成循环。
@@ -131,6 +134,7 @@ impl BrowserSceneBuild {
             stack: Vec::new(),
             pending_mesh: None,
             meshes: Vec::new(),
+            animation_names: None,
             dedupe: BTreeMap::new(),
             visited_entities: HashSet::new(),
             truncated: false,
@@ -145,6 +149,7 @@ impl BrowserSceneBuild {
         BrowserSceneBuildResult {
             asset_path: std::mem::take(&mut self.asset_path), // 发布帧不析构完成草稿中的深索引。
             meshes: std::mem::take(&mut self.meshes), // 最终缓存一次换指针，草稿其余字段仍逐项清理。
+            animation_names: self.animation_names.take(),
             truncated: self.truncated,
         }
     }
@@ -222,6 +227,7 @@ impl BrowserSceneBuild {
 pub(super) struct BrowserSceneBuildResult {
     pub(super) asset_path: String,
     pub(super) meshes: Vec<CachedGltfMesh>,
+    pub(super) animation_names: Option<std::sync::Weak<[String]>>,
     pub(super) truncated: bool,
 }
 
@@ -309,8 +315,10 @@ fn advance_pending_mesh(
     *path_copies += copies_needed;
     let key = (pending.reversed_path.clone(), pending.mesh_name.clone());
     if let Some(existing_row) = build.dedupe.get(&key).copied() {
-        if let Some(mesh) = build.meshes.get_mut(existing_row) {
-            mesh.valid = false; // 同一路径和网格名会让运行时命中多个对象，UI必须在作者写入前失败关闭。
+        if let Some(mesh) = build.meshes.get_mut(existing_row)
+            && (mesh.node_index.is_none() || mesh.node_index != pending.node_index)
+        {
+            mesh.valid = false; // 不同节点的同名路径歧义。一个节点的多个材质 primitive 仍为同一个对象。
             mesh.ambiguous = true; // 可见行给出具体重命名诊断，而不是误报为普通缺名。
         }
     } else {
@@ -326,6 +334,7 @@ fn advance_pending_mesh(
             node_path: pending.reversed_path,
             mesh_name: pending.mesh_name,
             mesh_index: pending.mesh_index,
+            node_index: pending.node_index,
             ambiguous: false, // 首次命中先视为唯一，后续同身份会回写首行歧义标记。
         });
         *mesh_rows += 1;
@@ -370,6 +379,9 @@ fn advance_traversal(
                 continue; // 只读World不会变；断链节点按已消费操作跳过。
             };
             if frame.scene_root {
+                if let Some(names) = entity_ref.get::<EmbeddedSceneAnimations>() {
+                    build.animation_names = Some(Arc::downgrade(&names.0));
+                }
                 frame.entered = true; // Scene0根本身不形成Blender路径或网格行。
                 frame.resolved_path = frame.parent_path.clone();
                 build.stack.push(frame);
@@ -392,6 +404,9 @@ fn advance_traversal(
                     path_names_valid: frame.path_names_valid && mesh_name_valid,
                     mesh_name,
                     mesh_index: resolve_mesh_index(mesh),
+                    node_index: entity_ref.get::<ChildOf>()
+                        .and_then(|parent| world.get::<EmbeddedNodeIndex>(parent.parent()))
+                        .map(|index| index.0),
                 });
                 continue; // primitive Name与子节点不进入Blender路径。
             }
@@ -414,6 +429,23 @@ fn advance_traversal(
                 build.truncated = true;
             }
             frame.path_names_valid &= name_valid;
+            if let Some(index) = entity_ref.get::<EmbeddedNodeIndex>()
+                && entity_ref.get::<bevy::gltf::GltfExtras>().is_some_and(|extras| {
+                    extras.value.contains("feathrise_folder")
+                        && serde_json::from_str::<serde_json::Value>(&extras.value).is_ok_and(
+                            |value| value.get("feathrise_folder").and_then(serde_json::Value::as_bool) == Some(true))
+                })
+            {
+                build.pending_mesh = Some(PendingSceneMesh {
+                    cursor: frame.resolved_path.clone(),
+                    reversed_path: Vec::new(),
+                    path_materialized: false,
+                    path_names_valid: false, // 文件夹不暴露整网格水入口。
+                    mesh_name: String::new(),
+                    mesh_index: None,
+                    node_index: Some(index.0),
+                });
+            }
             frame.entered = true;
             build.stack.push(frame);
             continue;

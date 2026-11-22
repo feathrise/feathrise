@@ -146,6 +146,7 @@ impl Plugin for SceneEditorPlugin {
         ui::text_input::install(app); // 先安装官方输入的公共消息保护与静态字段绑定。
         ui::scene_objects::install(app); // 场景对象管理独立推进，关闭与显隐恢复不被自己的作者输入门阻止。
         ui::scene_motion::install(app); // 当前场景的轨迹预览与统一作者历史。
+        ui::scene_source_glb::install(app);
         ui::theme::install(app); // 偏好只更新小色板，保留已有UI、输入焦点、草稿和布局。
         ui::terrain_shading::install_collision_preview(app); // 复用全局物理显示偏好，不新增碰撞遍历或作者状态。
         viewport::modes::install(app); // 全局模式先于命中收口，选择模式禁止任何作者落笔。
@@ -843,6 +844,7 @@ impl Plugin for SceneEditorPlugin {
         ui::external_files::install(app); // 路径检查与外部进程启动不占编辑器帧关键路径。
         ui::asset_context_menu::install(app); // 复制、外部编辑和文件夹入口共用鼠标门。
         ui::scene_context_menu::install(app); // 对象菜单与中文重命名复用原作者事务及静默释放门。
+        ui::gltf_browser::install_organization(app);
         ui::scene_layers::install(app); // 四组固定行池展示场景里已有的水域、植被与角色。
         ui::asset_shortcuts::install(app); // 收藏/最近访问复用目录定位，个人记录在后台原子保存。
         editor_monitor::install_editor_scene_monitor(app); // 独立F4面板读取上方已初始化作者与预览资源，不改变F3职责。

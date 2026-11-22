@@ -185,6 +185,7 @@ pub(crate) fn selected_record<'a>(
     {
         return None;
     }
+    if crate::ui::scene_source_glb::owns_selection(browser) { return None; }
     let id = browser.selected_placement_id.as_deref()?;
     if candidates.selected.as_ref().is_some_and(
         |selected| !matches!(selected, LayerTarget::Placement(selected) if selected == id),
@@ -278,13 +279,13 @@ pub(crate) fn handle_placement_move(
     context: MoveInputContext,
     controls: Res<BuildingPlacementControls>,
     clipmap: Option<Res<DynamicClipmapGroundSurface>>,
-    mut world: MoveWorld,
+    mut worlds: ParamSet<(MoveWorld, super::source_node::SourceNodeWorld)>,
     mut buildings: MessageWriter<BuildingEditRequest>,
     mut multi_selection: Option<ResMut<crate::viewport::multi_select::PlacementSelectionSet>>,
     batch: Option<Res<crate::authoring::placement_batch::PlacementBatchState>>,
     mut animation: Option<ResMut<Workbench>>,
 ) {
-    if state.group.is_some() && keyboard.just_pressed(KeyCode::F12) {
+    if (state.group.is_some() || state.source_drag.is_some()) && keyboard.just_pressed(KeyCode::F12) {
         editor.toggle_close_request();
         keyboard.clear_just_pressed(KeyCode::F12);
     } // 整组手势先恢复当前作者姿态，再沿统一安全关闭流程收尾，不让输入占用永久锁住F12。
@@ -295,6 +296,17 @@ pub(crate) fn handle_placement_move(
         node.and_then(|(_, node)| MoveCamera::new(&editor, viewport, node.inverse_scale_factor()))
     });
     let available = context.available(&editor) && !session.saving && batch.as_ref().is_none_or(|batch| !batch.busy());
+    if state.source_drag.is_some()
+        || state.drag.is_none() && state.group.is_none() && state.pending_building.is_none()
+            && multi_selection.as_ref().is_none_or(|selection| selection.members.len() <= 1)
+            && crate::ui::scene_source_glb::owns_selection(&context.browser)
+    {
+        worlds.p1().update(&mut state, &mut editor, &session, &context, &mouse, &mut keyboard,
+            available, guard.blocked(), viewport.as_deref(), camera, node);
+        return;
+    }
+    state.source_display = None;
+    let mut world = worlds.p0();
     let terrain_content = clipmap
         .as_ref()
         .and_then(|surface| surface.snapshot.as_ref())

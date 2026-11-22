@@ -204,6 +204,7 @@ fn select(app: &mut App, mesh: bool) {
         node_path: vec!["根节点".into(), "河面".into()],
         mesh_name: "河面网格".into(),
         mesh_index: Some(0),
+        node_index: None,
         valid: true,
         orphaned_water_binding: false,
     });

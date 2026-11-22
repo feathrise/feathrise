@@ -48,6 +48,7 @@ impl TerrainCanvas {
             scene_id: map.clone(),
             folder: identity.folder.clone(),
             placement_glb_hash: None,
+            source_glb_edits: Default::default(),
             manifest: identity.manifest.clone(),
             terrain_ground: None,
             terrain_documents: TerrainDocumentStore {
@@ -60,6 +61,7 @@ impl TerrainCanvas {
                 scene_id: map.clone(),
                 placements: Vec::new(),
             },
+            object_folders: Default::default(),
             placement_water_surface_count: 0,
             portals: ScenePortalsAsset {
                 schema_version: SCENE_SCHEMA_VERSION,

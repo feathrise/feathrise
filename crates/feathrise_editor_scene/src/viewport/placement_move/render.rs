@@ -76,6 +76,19 @@ pub(crate) fn draw_placement_move(
         }
         return; // 多选始终绘制共同中心手柄，不借用单体选择。
     }
+    if crate::ui::scene_source_glb::owns_selection(&browser) {
+        if local && mode.mode.accepts_transform(ViewportMode::Move)
+            && let Some(display) = state.source_display.as_ref().filter(|display| display.current(&browser, session.revision))
+        {
+            PlacementGizmo {
+                camera, origin: display.origin, basis: Mat3::IDENTITY, building: false, local,
+                animated: false, yaw_only: false, active: state.hover,
+                guide: state.source_drag.as_ref().filter(|_| held).map(|drag| drag.handle),
+                yaw: 0.0, before_yaw: None, anchor: None,
+            }.draw(ViewportMode::Move, pointer, &mut tools, &mut canvas);
+        }
+        return;
+    }
     let Some((_, record)) = selected_record(&editor, &session, &browser, &candidates, &viewport)
     else {
         return;

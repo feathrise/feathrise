@@ -44,6 +44,7 @@ pub(crate) mod new_scene_dialog; // 名称、米制长宽与创建事务状态�
 pub(crate) mod numeric_scrub_mouse_guard; // 数值拖动延迟到三键全松后的静默帧再归还场景编辑器鼠标。
 pub(crate) mod placement_transform; // 完整摆放实例的变换、复制、删除与视口移动作者桥。
 pub(crate) mod scene_motion; // 当前场景对象的变换关键帧、时间线与原保存入口。
+pub(crate) mod scene_source_glb;
 pub(crate) mod placement_water; // 场景树选中完整Blender网格后的水体语义与参数作者桥。
 pub(crate) mod portal_list; // 当前场景源点与场景树目标落点的双完整列表和显式选择。
 mod portal_scene; // 玩法页传送双列表BSN静态外壳。

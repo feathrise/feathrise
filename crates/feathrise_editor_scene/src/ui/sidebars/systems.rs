@@ -289,7 +289,7 @@ fn sidebar_context(
         editor,
         [still_count, river_count, waterfall_count],
         vegetation_count,
-        browser.selection.is_some(),
+        browser.selection.as_ref().is_some_and(|mesh| !mesh.is_source_folder()),
     )
 }
 

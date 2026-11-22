@@ -46,23 +46,13 @@ fn field(label: &'static str, kind: ObjectField) -> impl Scene {
     }
 }
 
-/// 右侧属性管理名称和分组。显隐与锁定沿用场景树行的原作者事务。
+/// 右侧属性编辑对象名称。归类、显隐和锁定都在场景树操作。
 pub(crate) fn properties_panel() -> impl Scene {
     bsn! { ~{crate::ui::scene_inspector::InspectorSection::ObjectManagement} Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(4), flex_shrink: 0.0 }
         Children [
             ~{crate::ui::scene_inspector::InspectorSection::ObjectName}
                 Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
                 Children [@field("名称", ObjectField::Name)]--
-            @field("分组", ObjectField::Group)--
-
-                Node { width: percent(100), min_width: px(0), flex_wrap: FlexWrap::Wrap, column_gap: px(3), row_gap: px(3) }
-                Children [
-                    @button("归组", ObjectAction::AssignGroup)--
-                    @button("移出组", ObjectAction::Ungroup)--
-                    @button("选择组", ObjectAction::SelectGroup)
-                ]
-            --
-
                 ObjectSummary
                 Text("选择对象或目录后进行管理") @feathrise_editor_ui::localization::label_scene("选择对象或目录后进行管理")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }

@@ -135,6 +135,7 @@ fn reconcile_asset_path(
             CachedGltfAsset {
                 handle,                               // 仅展开需求期间强持有。
                 meshes: Vec::new(),                   // 完整依赖就绪后一次采用。
+                animation_names: None,
                 active_ready: false,                  // 首次Scene0尚无可保留的完整缓存。
                 phase: CachedGltfAssetPhase::Loading, // 固定轮询预算渐进推进。
                 truncated: false,                     // 尚未遍历World。
@@ -309,6 +310,7 @@ fn adopt_scene_build_result(
         .get_mut(&result.asset_path)
         .expect("采用身份刚由当前缓存验证");
     let old_meshes = std::mem::replace(&mut cached.meshes, result.meshes); // 完整新列表一次换指针。
+    cached.animation_names = result.animation_names;
     cached.active_ready = true;
     cached.phase = CachedGltfAssetPhase::Ready;
     cached.truncated = result.truncated;

@@ -126,10 +126,11 @@ pub(crate) fn scene_display_panel() -> impl Scene {
 fn mesh_objects_heading() -> impl Scene {
     let header = Node { display: Display::None, ..tree_section_header() };
     // 标题仅分隔类别，摆放根和组仍从同级箭头列起排。
-    bsn! { SceneMeshObjectsHeading ~{header} BorderColor::all(colors::COPPER_BORDER_WEAK)
+    bsn! { SceneMeshObjectsHeading InteractionButton bevy::ui::RelativeCursorPosition::default()
+        ~{header} BackgroundColor(colors::PANEL_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
             @tree_branch_slot()--
-            Text("网格对象") @feathrise_editor_ui::localization::label_scene("网格对象")
+            Text("网格对象") @feathrise_editor_ui::localization::label_scene("网格对象") Pickable::IGNORE
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_ACCENT) TextLayout::no_wrap()
             Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }

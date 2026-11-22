@@ -168,6 +168,7 @@ pub(crate) fn poll_draft_save(
             let domain_hash = success.domain_hash; // 外部作者文件只按本批成功证据清脏。
             let motion = success.motion;
             let motion_written = success.motion_written;
+            let source_glb_reload_paths = success.source_glb_reload_paths;
             let placements_changed = success.placements_changed; // 只有本批语义内容不同才允许正式发布。
             let surface_definition_changed = success.surface_definition_changed; // 只有JSON真正进入事务才发布正式定义。
             let surface_weights_changed = success.surface_weights_changed; // 只有RGBA/KTX2真正进入事务才重载权重纹理。
@@ -193,6 +194,12 @@ pub(crate) fn poll_draft_save(
             let terrain_revision = session.terrain_revision; // 水域交接仍须绑定同次Clipmap高度修订，不能借用旧河床。
             let water_revision = session.water_revision; // 水交接绑定保存成功时的作者修订，后续笔划会作废旧门。
             if let Some(draft) = session.draft.as_mut() {
+                if !source_glb_reload_paths.is_empty() {
+                    let saved = std::mem::take(&mut draft.source_glb_edits);
+                    if let Some(retirement) = authoring_retirement.as_deref_mut() {
+                        retirement.push(saved);
+                    }
+                }
                 let root_water = super::terrain_documents::root_water::source(draft);
                 catalog_registration_changed = (draft.domain.as_ref().is_some_and(|domain| domain.registration_required())
                     && domain_hash.is_some())
@@ -511,6 +518,9 @@ pub(crate) fn poll_draft_save(
             if motion_written && let Some(path) = placements_asset_path {
                 // 动画通道随主场景 GLB 加载，内存摆放快照不包含动画的缓冲数据。
                 asset_server.reload(path);
+            }
+            for source in source_glb_reload_paths {
+                asset_server.reload(source); // 同一源的所有引用共享本次落盘版本。
             }
             if let Some(retirement) = authoring_retirement.as_deref_mut()
                 && let Some(obsolete) = previous_placements.or(placements_snapshot)

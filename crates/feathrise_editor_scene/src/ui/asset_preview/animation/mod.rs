@@ -16,6 +16,7 @@ use feathrise_editor_animation_model::{
 };
 
 pub(crate) mod project_close;
+mod source_scene;
 pub(crate) use feathrise_editor_animation_model::resources::AnimationEditorState;
 pub(super) use feathrise_editor_animation_model::{
     preview::PreviewRuntime as AnimationPreviewRuntime,
@@ -110,6 +111,11 @@ pub(super) fn install(app: &mut App) {
 
     install_input_boundary(app);
     app.add_message::<PreviewRigAnimation>()
+        .add_systems(Update, source_scene::open
+            .after(crate::ui::scene_context_menu::SceneMenuDispatch)
+            .after(super::workspace::actions)
+            // 场景菜单在输入占用发布之后提交，异步动画驱动从本帧 Tasks 接续。
+            .in_set(SceneEditorSystemSet::Input))
         .configure_sets(
             Update,
             AnimationSystems::Drive.before(super::loading::poll_asset_preview_loading),

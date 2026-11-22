@@ -179,7 +179,7 @@ pub(super) fn retire<T: Send + 'static>(state: &mut SceneObjectState, value: T) 
     }));
 }
 
-/// 名称和分组控件按实际资格回显；显隐与锁定的入口位于场景树行。
+/// 名称控件按当前选择回显，分组、显隐与锁定入口位于场景树。
 pub(super) fn style_buttons(
     mut commands: Commands,
     editor: Res<SceneEditorState>,
@@ -422,13 +422,11 @@ pub(super) fn handle_objects(
         let kind = kind.0;
         let desired = match kind {
             ObjectField::Name => &state.name,
-            ObjectField::Group => &state.group,
         };
         if editor.open && focus.get() == Some(entity) {
             let value = input.value().to_string();
             match kind {
                 ObjectField::Name => state.name = value,
-                ObjectField::Group => state.group = value,
             }
         } else if input.value().to_string() != *desired {
             // 切换对象时保留 Bevy 已同步的字体与布局，只替换文本值。

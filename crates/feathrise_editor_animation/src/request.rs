@@ -1,9 +1,9 @@
 //! 工程动作沿用当前模型中央标签，源文件与蒙皮目标分别验明身份。
 
-use super::{data::AnimationDocument, resources::{AnimationEditorState, Retired, Session, TaskResult, Work}};
+use super::{data::AnimationDocument, resources::{AnimationEditorState, PendingAction, Retired, Session, TaskResult, Work}};
 use feathrise_editor_animation_model::{
     media::AssetPreviewWorkspace,
-    request::{PreviewRigAnimation, RigPreviewRequest},
+    request::{DirectoryAnimationAction, PreviewRigAnimation, RigPreviewRequest, SourceAnimationNode},
 };
 use bevy::{prelude::*, tasks::IoTaskPool};
 use std::path::{Path, PathBuf};
@@ -196,25 +196,98 @@ pub(super) fn advance_directory_pick(
     if session.source_changed && !session.dirty() {
         return; // 先等热更新的完整新文档采用，再解释目录提供的原片段索引。
     }
-    let clip = session.clip_from_source(pick.clip_index);
-    let can_select = if session.pose.is_some() {
+    if session.pose.is_some() {
         state.status = "请先插入或还原临时姿势".into();
-        false
+        state.cancel_directory_pick();
+        return;
     } else if session.source_changed {
         state.status = "动作源已更新，请先处理当前草稿".into();
-        false
-    } else if let Some(clip) = clip {
-        session.select_clip(clip);
-        state.playing = true;
-        true
-    } else {
-        state.status = "所选动画片段已不存在，请重新选择动作 GLB".into();
-        false
-    };
-    state.cancel_directory_pick();
-    if can_select && !state.select_current_clip() {
-        state.changed();
+        state.cancel_directory_pick();
+        return;
     }
+    let pick = state.directory_pick.take().expect("当前标签已核对待选动作");
+    let (index, node, edit) = match pick.action {
+        DirectoryAnimationAction::Preview(index) => (index, None, false),
+        DirectoryAnimationAction::Edit { clip, node } => {
+            let target = if let Some((index, name)) = clip {
+                let Some(clip) = session.clip_from_source(index).and_then(|clip| session.document.clips.get(clip))
+                    .filter(|clip| clip.name == name) else {
+                        state.status = "源 GLB 动画列表已变化，请在场景树重新选择".into();
+                        return;
+                    };
+                Some(clip.source_index)
+            } else {
+                session.document.clips.get(session.clip).map(|clip| clip.source_index)
+            };
+            let Some(index) = target else {
+                state.status = "该 GLB 暂无动画，可在源模型中点击新建动画".into();
+                return;
+            };
+            (index, node, true)
+        }
+        DirectoryAnimationAction::Create { node } => {
+            if !source_node_current(&session.document, node.as_ref()) {
+                state.status = "源网格节点已变化或不可写动画，请在场景树重新选择".into();
+                return;
+            }
+            if !session.document.can_create_clip() {
+                state.status = "当前 GLB 没有可写入动画的节点".into();
+                return;
+            }
+            let clip_index = session.document.clips.len();
+            state.directory_pick = Some(feathrise_editor_animation_model::request::DirectoryPick {
+                action: DirectoryAnimationAction::EnterCreated { clip_index, node },
+                ..pick
+            });
+            // 复用模型动画的单槽创建和撤销，不从场景菜单直接生成关键帧。
+            state.pending = Some(PendingAction::Command(super::editing::Command::CreateClip));
+            return;
+        }
+        DirectoryAnimationAction::EnterCreated { clip_index, node } => {
+            // 后台失败保留已有的创建诊断，不将失败结果视为进入编辑。
+            if session.clip_from_source(clip_index).is_none() { return; }
+            (clip_index, node, true)
+        }
+    };
+    let Some(clip) = session.clip_from_source(index) else {
+        state.status = "所选动画片段已不存在，请重新选择动作 GLB".into();
+        return;
+    };
+    if edit && !source_node_current(&session.document, node.as_ref()) {
+        state.status = "源网格节点已变化或不可写动画，请在场景树重新选择".into();
+        return;
+    }
+    if edit && session.document.read_only {
+        state.status = "该 GLB 使用外置动画数据，仅能预览".into();
+        return;
+    }
+    if !edit || session.clip != clip {
+        session.select_clip(clip);
+    }
+    if let Some(node) = node {
+        session.select_node(node.index);
+    }
+    state.playing = !edit;
+    if !state.select_current_clip() {
+        state.changed();
+    } else if edit && state.enter_animation_edit() {
+        state.status = "正在编辑共享源 GLB 动画，保存后同步引用实例".into();
+    }
+}
+
+fn source_node_current(document: &AnimationDocument, target: Option<&SourceAnimationNode>) -> bool {
+    let Some(target) = target else { return true; };
+    if !document.can_animate_node(target.index) { return false; }
+    // 节点索引只在本份 GLB 内有效，后台读盘后核对父路径和 mesh，避免换代文件串改。
+    let mut parent = Some(target.index);
+    for name in target.path.iter().rev() {
+        let Some(node) = parent.and_then(|index| document.nodes.get(index)) else { return false; };
+        if &node.name != name { return false; }
+        parent = node.parent;
+    }
+    parent.is_none() && target.mesh_index.is_none_or(|mesh| document.inspect_glb(|json, _| {
+        json["nodes"].get(target.index).and_then(|node| node["mesh"].as_u64()) == Some(u64::from(mesh))
+    }))
 }
 
 #[cfg(feature = "validation")]
@@ -243,12 +316,35 @@ pub fn active_project_clip(world: &World) -> Option<(&Path, usize, f32, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::{components::AnimationAction, control, data::tests::test_document, types::PoseProperty};
+    use super::super::{components::AnimationAction, control, data::tests::{test_document, test_scene}, types::PoseProperty};
     use feathrise_editor_animation_model::media::{
         AssetPreviewModelSession, AssetPreviewModelTarget, AssetPreviewPrimitiveId,
         AssetPreviewState, ExpandedAssetPreview,
     };
     use feathrise_editor_core::PresetWorkspaceTab;
+
+    #[test]
+    fn source_animation_rejects_a_stale_node_index_after_reparenting_or_reexport() {
+        use serde_json::json;
+        let document = test_scene(&json!({
+            "asset": { "version": "2.0" },
+            "scenes": [{ "nodes": [0, 2] }],
+            "nodes": [
+                { "name": "机关组", "children": [1] },
+                { "name": "活动网格", "mesh": 3 },
+                { "name": "活动网格", "mesh": 3 }
+            ]
+        }));
+        let mut target = SourceAnimationNode {
+            index: 1, path: vec!["机关组".into(), "活动网格".into()], mesh_index: Some(3),
+        };
+        assert!(source_node_current(&document, Some(&target)));
+        target.index = 2;
+        assert!(!source_node_current(&document, Some(&target)));
+        target.index = 1;
+        target.mesh_index = Some(4);
+        assert!(!source_node_current(&document, Some(&target)));
+    }
 
     fn request(path: &str, clip_index: usize) -> PreviewRigAnimation {
         PreviewRigAnimation {

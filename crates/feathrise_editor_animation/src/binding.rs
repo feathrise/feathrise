@@ -2,7 +2,7 @@
 
 pub(super) use super::resources::BindingState;
 use super::{
-    components::{BoundModel, EmbeddedNodeIndex}, data::AnimationDocument,
+    components::BoundModel, data::AnimationDocument,
     resources::AnimationEditorState, types::*,
 };
 use feathrise_editor_core::SceneEditorSystemSet;
@@ -26,7 +26,7 @@ use bevy::{
 };
 use feathrise_editor_core::constants::render_layers::SCENE_EDITOR_ASSET_PREVIEW_LAYER;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 #[cfg(test)]
 use std::path::PathBuf;
 
@@ -50,6 +50,7 @@ pub(super) fn install(app: &mut App) {
 #[derive(Default)]
 struct RecordEmbeddedNodes {
     index_model_nodes: bool,
+    animation_names: Option<Arc<[String]>>,
 }
 
 impl GltfExtensionHandler for RecordEmbeddedNodes {
@@ -59,18 +60,31 @@ impl GltfExtensionHandler for RecordEmbeddedNodes {
 
     fn on_root(&mut self, context: &mut LoadContext<'_>, file: &gltf::Gltf, _: &GltfLoaderSettings) {
         let mut buffers = file.buffers();
-        let writable_glb = context.path().path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("glb"))
-            && buffers.next().is_none_or(|buffer| matches!(buffer.source(), gltf::buffer::Source::Bin))
+        let glb = context.path().path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("glb"));
+        let writable_glb = glb && buffers.next().is_none_or(|buffer| matches!(buffer.source(), gltf::buffer::Source::Bin))
             && buffers.next().is_none();
         // 零动作 GLB 可以创建首个草稿，使用同一后台加载器预留节点索引，无需重读模型。
         self.index_model_nodes = file.meshes().next().is_some()
             && (writable_glb || file.animations().next().is_some());
+        if glb && self.index_model_nodes {
+            // 随现有资产加载在后台读取片段目录，场景树不用为每个摆放再扫描文件。
+            self.animation_names = Some(file.animations().enumerate().map(|(index, clip)| {
+                clip.name().filter(|name| !name.trim().is_empty()).map(str::to_owned)
+                    .unwrap_or_else(|| format!("动画 {}", index + 1))
+            }).collect());
+        }
     }
 
     fn on_gltf_node(&mut self, _: &mut LoadContext<'_>, node: &gltf::Node, entity: &mut EntityWorldMut) {
         if self.index_model_nodes {
             // 同名节点在 GLB 内合法。加载时记录原索引，预览可精确匹配而不用按名字猜测。
             entity.insert(EmbeddedNodeIndex(node.index()));
+        }
+    }
+
+    fn on_scene_completed(&mut self, _: &mut LoadContext<'_>, scene: &gltf::Scene, root: Entity, world: &mut World) {
+        if scene.index() == 0 && let Some(names) = self.animation_names.take().filter(|names| !names.is_empty()) {
+            world.entity_mut(root).insert(EmbeddedSceneAnimations(names));
         }
     }
 }

@@ -70,6 +70,7 @@ fn selection_identity_ignores_reexported_mesh_index() {
         node_path: vec!["河道".to_owned(), "水面".to_owned()], // 完整Blender对象路径。
         mesh_name: "WaterSurface".to_owned(), // 显式Mesh datablock名。
         mesh_index: Some(2),                // 旧导出的非权威诊断索引。
+        node_index: None,
         valid: true,                        // 初始Scene0引用完整有效。
         orphaned_water_binding: false,      // 当前行来自真实网格。
     };
@@ -135,6 +136,7 @@ fn missing_water_binding_stays_visible_and_clearable_after_ready_reexport() {
         asset_path,
         super::super::CachedGltfAsset {
             handle: Handle::default(),          // 纯测试不加载真实WorldAsset。
+            animation_names: None,
             meshes: Vec::new(),                 // 重导后的Ready GLB已经没有旧目标。
             phase: CachedGltfAssetPhase::Ready, // 只有Ready才能确认目标确实消失。
             active_ready: true,                 // 空网格表属于完整采用结果。

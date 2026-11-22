@@ -118,9 +118,11 @@ pub(crate) fn sync_scene_inspector(
         relocation_armed,
     }); // 只在真实身份/状态边沿拥有短快照，不复制摆放记录、水绑定或场景树。
     let record = indexed_record.map(|(_, record)| record);
+    let source_node_selected = crate::ui::scene_source_glb::owns_selection(&browser);
     for (kind, mut node) in &mut sections {
         let visible = draft.is_some() && (section == Some(*kind)
-            || (matches!(kind, InspectorSection::ObjectManagement | InspectorSection::ObjectName) && record.is_some()));
+            || (matches!(kind, InspectorSection::ObjectManagement | InspectorSection::ObjectName) && record.is_some()))
+            && !(source_node_selected && matches!(kind, InspectorSection::ObjectManagement | InspectorSection::ObjectName));
         let display = if visible { Display::Flex } else { Display::None };
         if node.display != display { node.display = display; }
     }
@@ -168,7 +170,9 @@ pub(crate) fn sync_scene_inspector(
                     record.asset_path.clone()
                 },
                 |selection| {
-                    let name = if selection.mesh_name.trim().is_empty() {
+                    let name = if selection.is_source_folder() {
+                        selection.node_path.last().map_or("文件夹", String::as_str)
+                    } else if selection.mesh_name.trim().is_empty() {
                         "未命名网格"
                     } else {
                         &selection.mesh_name

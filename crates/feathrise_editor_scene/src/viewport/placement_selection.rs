@@ -186,6 +186,18 @@ pub(crate) struct SelectedPlacementViewportState {
 }
 
 impl SelectedPlacementViewportState {
+    pub(crate) fn exact_primitive(&self, scene: &SceneId, selection: &EditorGltfMeshSelection) -> Option<Entity> {
+        let identity = self.resolved_identity.as_ref()?;
+        if self.previewing || self.resolution != PlacementMeshResolution::Ready
+            || identity.whole_instance || &identity.scene_id != scene
+            || identity.placement_id != selection.placement_id
+            || identity.node_path != selection.node_path || identity.mesh_name != selection.mesh_name
+        {
+            return None;
+        }
+        self.source_entities.first().copied()
+    }
+
     /// 场景轨迹使用已有全实例范围，临时悬停和子网格都不能定义碰撞。
     pub(crate) fn whole_instance_bounds(&self, scene: &SceneId, id: &str) -> Option<(Vec3, Vec3)> {
         let identity = self.resolved_identity.as_ref()?;
@@ -269,6 +281,9 @@ pub(super) fn selected_placement_mesh_info(
     }
     let selection = if ignore_hover { browser.selection.as_ref() }
         else { displayed_mesh_selection(editor.tool, browser.selection.as_ref(), candidates) }?;
+    if selection.is_source_folder() {
+        return None; // 文件夹仅作为源层级的父节点，没有独立的网格高亮或取景目标。
+    }
     Some(SelectedPlacementMeshInfo {
         identity: SelectedPlacementMeshIdentity::from_selection(&draft.scene_id, selection), // 冻结跨帧身份。
         valid: selection.valid, // 缺名、重复ID和歧义行只显示失败诊断。
@@ -368,6 +383,7 @@ mod tests {
             node_path: vec!["场景根".to_owned(), "对象".to_owned()], // 完整显式对象路径。
             mesh_name: mesh_name.to_owned(),       // 同路径不同网格必须隔离双击。
             mesh_index: Some(0),                   // 诊断索引不参与身份比较。
+            node_index: None,
             valid: true,                           // 测试目标允许世界解析。
             orphaned_water_binding: false,         // 不是失效作者绑定。
         }

@@ -16,6 +16,8 @@ mod scene_build; // Scene0根发现、DFS与路径物化均按固定预算分帧
 mod signature; // 全部摆放结构签名按每帧记录预算渐进生成。
 mod systems; // 固定行池、连续滚动、展开点击与样式同步系统。
 mod scene_menu; // 已呈现行的稳定对象身份供右键菜单使用。
+mod organize; // 外层文件夹、摆放拖放以及内部节点跨源拖放的共同手势。
+pub(crate) use organize::{PlacementTreeDrag, install as install_organization};
 pub(crate) use scene_menu::bind_scene_menu_rows;
 pub(crate) use row_controls::{PlacementTreeExpander, PlacementTreeToggle, sync as sync_gltf_row_toggles};
 mod projection; // 逻辑组的有界根投影，不改变真实实例层级。
@@ -85,16 +87,26 @@ pub(crate) struct EditorGltfMeshSelection {
     pub(crate) mesh_name: String,
     /// glTF内部Mesh索引；无法从primitive子资产标签恢复时为None。
     pub(crate) mesh_index: Option<u32>,
+    /// 当前已加载 GLB 的 nodes 索引，用于源文件编辑和标准 glTF 动画目标。
+    pub(crate) node_index: Option<usize>,
     /// false表示只能在浏览器中诊断，任何后续作者动作都必须拒绝采用。
     pub(crate) valid: bool,
     /// true表示该项来自作者数据但已无法在当前Ready GLB中匹配，只允许执行清除动作。
     pub(crate) orphaned_water_binding: bool,
 }
 
+impl EditorGltfMeshSelection {
+    /// 源父节点有节点索引，且不产生任何 Mesh 标签或水绑定目标。
+    pub(crate) fn is_source_folder(&self) -> bool {
+        self.node_index.is_some() && self.mesh_index.is_none() && self.mesh_name.is_empty()
+            && !self.orphaned_water_binding
+    }
+}
+
 /// 一条固定行可显示的场景树节点类型。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum EditorGltfBrowserEntryKind {
-    Group { name: String, collapsed: bool, count: usize, first_member: usize },
+    Group { name: String, collapsed: bool, count: usize, first_member: Option<usize> },
     /// 一个已摆放GLB实例根，有子网格时由独立箭头展开或收起。
     Placement {
         /// 草稿中的稳定实例ID。
@@ -108,6 +120,8 @@ pub(crate) enum EditorGltfBrowserEntryKind {
     },
     /// 一个含Mesh3d的Blender节点/网格组合。
     Mesh,
+    /// 展开引用 GLB 时展示原文件的标准动画索引，片段名可以重名。
+    SourceAnimation { placement_id: String, clip_index: usize },
     /// 作者数据仍有水体语义、但当前Ready GLB已删除或改名的稳定网格身份。
     MissingWaterBinding,
 }
@@ -218,6 +232,8 @@ pub(super) struct CachedGltfMesh {
     pub(super) mesh_name: String,
     /// 从`MeshN/PrimitiveM`恢复的glTF网格索引。
     pub(super) mesh_index: Option<u32>,
+    /// Bevy 加载节点的原始 glTF 索引，同一节点的多个 primitive 共用此索引。
+    pub(super) node_index: Option<usize>,
     /// 节点和网格名称是否足以形成稳定作者引用。
     pub(super) valid: bool,
     /// 同一Scene0中是否有多个对象命中完全相同的节点路径与网格名。
@@ -242,6 +258,8 @@ pub(super) struct CachedGltfAsset {
     pub(super) handle: Handle<WorldAsset>,
     /// 只在资产成功加载或热更时重建的去重网格表。
     pub(super) meshes: Vec<CachedGltfMesh>,
+    /// 由现有 WorldAsset 持有片段目录，浏览缓存只借用同一份。
+    pub(super) animation_names: Option<std::sync::Weak<[String]>>,
     /// true表示`meshes`属于上一份完整采用结果；热更构建期间继续原子保留供UI使用。
     pub(super) active_ready: bool,
     /// 稳定帧据此直接跳过World遍历。
@@ -255,6 +273,7 @@ pub(super) struct CachedGltfAsset {
 /// 已摆放GLB浏览器的公开选择、可见行与私有强句柄缓存。
 #[derive(Resource, Default)]
 pub(crate) struct EditorGltfBrowserState {
+    pub(super) source_glb_edits: crate::authoring::source_glbs::SourceGlbEdits,
     /// 组与GLB均默认收起，只有显式点箭头才改变当前场景的展开偏好。
     pub(super) expanded_groups: BTreeSet<String>,
     /// 主 GLB 自有折叠状态，身份与普通引用模型分开。
@@ -285,6 +304,8 @@ pub(crate) struct EditorGltfBrowserState {
     /// 只有确定性摆放结构代次变化时才扫描重建的有界身份表。
     pub(super) signature: Vec<PlacementSignature>,
     pub(super) has_object_groups: bool, // 随签名增量统计，普通旧场景无需新增全树投影阶段。
+    /// 数据由当前场景草稿拥有。浏览器不持有强引用，创建文件夹无需复制目录。
+    pub(super) object_folders: std::sync::Weak<BTreeSet<String>>,
     /// 活动签名内无法稳定回写的重复实例ID，由签名分帧构建途中增量识别。
     pub(super) duplicate_placement_ids: BTreeSet<String>,
     /// 唯一实例ID到资产路径的O(1)索引；重复ID故意不进入，点击时明确拒绝。

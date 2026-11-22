@@ -78,7 +78,9 @@ impl BrowserRetirementBudget {
     pub(super) fn try_charge_entry(&mut self, entry: &EditorGltfBrowserEntry) -> bool {
         let mut bytes = entry.display_name.len(); // 行显示文本始终拥有一份完整副本。
         let mut segments = 0usize; // 根行没有节点路径，网格行至多公共64段。
-        if let EditorGltfBrowserEntryKind::Placement { placement_id, .. } = &entry.kind {
+        if let EditorGltfBrowserEntryKind::Placement { placement_id, .. }
+            | EditorGltfBrowserEntryKind::SourceAnimation { placement_id, .. } = &entry.kind
+        {
             bytes = bytes.saturating_add(placement_id.len()); // 根点击身份是第二份拥有字符串。
         }
         if let Some(selection) = &entry.selection {

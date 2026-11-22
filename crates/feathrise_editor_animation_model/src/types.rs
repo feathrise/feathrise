@@ -3,6 +3,16 @@
 use bevy::prelude::*;
 use std::{collections::{BTreeMap, HashMap, HashSet}, path::PathBuf, sync::Arc};
 
+/// 加载 GLB 时记录真实 nodes 索引。场景树和动画都用它绑定同一份源节点。
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct EmbeddedNodeIndex(pub usize);
+
+/// 源文件中的原片段顺序，只供编辑器读 WorldAsset，不在每个渲染实例重复存放。
+#[derive(Component)]
+#[component(clone_behavior = Ignore)]
+pub struct EmbeddedSceneAnimations(pub Arc<[String]>);
+
 /// 时间闭区间描述选区，框选十万个键也只保存最多八条可见轨道的范围。
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct KeySelection(pub Vec<(usize, f32, f32)>);

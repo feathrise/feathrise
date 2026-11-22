@@ -6,7 +6,6 @@ use bevy::prelude::*;
 pub(super) enum ObjectField {
     #[default]
     Name,
-    Group,
 }
 
 #[derive(Component, Clone, Copy, Default)]

@@ -353,17 +353,21 @@ fn append_channel_accessors(json: &mut Value, binary: &mut Vec<u8>, channel: &Ch
     Ok((input, output))
 }
 
-fn append_accessor(
+pub(super) fn append_accessor(
     json: &mut Value,
     binary: &mut Vec<u8>,
     values: &[f32],
     dimensions: usize,
     time: bool,
 ) -> Result<usize, String> {
-    while binary.len() % 4 != 0 {
-        binary.push(0);
-    }
-    let start = binary.len();
+    let padding = (4 - binary.len() % 4) % 4;
+    let length = values.len().checked_mul(4).ok_or("动画 accessor 大小溢出")?;
+    let remaining = padding.checked_add(length).ok_or("动画缓冲偏移溢出")?;
+    binary.len().checked_add(remaining).and_then(|size| u32::try_from(size).ok())
+        .ok_or("追加动画数据后 GLB 缓冲超过 4 GiB")?;
+    binary.try_reserve(remaining).map_err(|_| "无法为动画 accessor 分配缓冲")?;
+    let start = binary.len() + padding;
+    binary.resize(start, 0);
     for value in values {
         binary.extend_from_slice(&value.to_le_bytes());
     }
@@ -374,7 +378,7 @@ fn append_accessor(
         .as_array_mut()
         .ok_or("bufferViews 不是数组")?;
     let view = views.len();
-    views.push(json!({"buffer": 0, "byteOffset": start, "byteLength": values.len() * 4}));
+    views.push(json!({"buffer": 0, "byteOffset": start, "byteLength": length}));
     if json.get("accessors").is_none() {
         json["accessors"] = json!([]);
     }

@@ -107,7 +107,7 @@ pub(super) fn setup(
                                     },
                                 ))
                                 .with_children(|rename| {
-                                    label(rename, &font, "重命名对象");
+                                    label(rename, &font, "名称");
                                     rename
                                         .spawn((
                                             InteractionButton,

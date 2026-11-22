@@ -490,6 +490,7 @@ fn embedded_play_real_browser_cache_preserves_selection_expansion_and_index_unti
         node_path: vec!["original-node".into()],
         mesh_name: "original-mesh".into(),
         mesh_index: Some(0),
+        node_index: None,
         valid: true,
         orphaned_water_binding: false,
     };

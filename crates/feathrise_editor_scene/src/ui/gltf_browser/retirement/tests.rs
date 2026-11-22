@@ -37,10 +37,12 @@ fn closing_large_signatures_and_caches_retires_over_multiple_frames() {
             path,
             CachedGltfAsset {
                 handle: Handle::<WorldAsset>::default(), // 无AssetServer也能验证强句柄所有权转移。
+                animation_names: None,
                 meshes: vec![CachedGltfMesh {
                     node_path: vec!["河道".to_owned(), "水面".to_owned()], // 深字段不能随BTreeMap整批Drop。
                     mesh_name: format!("WaterSurface{index}"), // 每缓存拥有独立名称分配。
                     mesh_index: Some(index as u32),            // 诊断索引不影响退役预算。
+                    node_index: None,
                     valid: true,                               // 完整Ready缓存语义。
                     ambiguous: false,                          // 退役测试不构造歧义身份。
                 }],

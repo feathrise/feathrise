@@ -78,6 +78,18 @@ pub(super) fn revalidate_selection(
     if placement.placement_id != selection.placement_id {
         return None; // 防御索引与签名未同批采用；绝不把选择串到另一条记录。
     }
+    if let Some(version) = state.source_glb_edits.version(&placement.asset_path)
+        && let Some(index) = selection.node_index
+    {
+        // 本地事务保留节点索引，可以续接本次确知的改名；外部热更仍要按完整路径复核。
+        let node = version.node(index)?;
+        selection.node_path.clone_from(&node.path);
+        selection.mesh_name.clone_from(&node.mesh_name);
+        selection.mesh_index = node.mesh;
+        selection.valid = !node.folder && stable_mesh_reference(&node.path, &node.mesh_name, node.mesh, true)
+            && !duplicate_ids.contains(&selection.placement_id);
+        return Some(selection);
+    }
     let cached = state.assets.get(&placement.asset_path); // 加载期允许保留身份但必须无效。
     let refreshed_mesh = cached
         .filter(|cached| cached.active_ready)
@@ -88,6 +100,7 @@ pub(super) fn revalidate_selection(
         }); // 最终身份只使用摆放ID、节点路径与网格名，不把易漂移索引当主键。
     if let Some(mesh) = refreshed_mesh {
         selection.mesh_index = mesh.mesh_index; // 热更后只刷新当前导出的诊断值；稳定身份匹配已经在上方完成。
+        selection.node_index = mesh.node_index;
         selection.valid = mesh.valid && !duplicate_ids.contains(&selection.placement_id);
         selection.orphaned_water_binding = false; // 当前Ready GLB重新命中后不再显示失效绑定诊断。
     } else if cached.is_some_and(|cached| cached.active_ready) {

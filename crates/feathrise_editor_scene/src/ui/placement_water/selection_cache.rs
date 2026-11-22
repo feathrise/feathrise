@@ -143,6 +143,7 @@ mod tests {
             node_path: vec!["河道".to_owned(), "水面".to_owned()],
             mesh_name: "WaterSurface".to_owned(),
             mesh_index: Some(7),
+            node_index: None,
             valid: true,
             orphaned_water_binding: false,
         }
