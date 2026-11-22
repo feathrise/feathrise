@@ -1,6 +1,19 @@
 //! 用自有隐藏原生窗口与真实相机更新证明：late原生还原不改变已计算的渲染尺寸。
 
 use super::*;
+
+#[test]
+fn startup_requires_a_submitted_frame_for_the_current_dimensions_and_dpi() {
+    let initial = StartupFrameSize { physical: (1270, 720), dpi: 96 };
+    let resized = StartupFrameSize { physical: (1440, 900), dpi: 96 };
+    let hidpi = StartupFrameSize { physical: (1440, 900), dpi: 144 };
+    assert_eq!(startup_ready_frame(None, None, initial), None);
+    assert_eq!(startup_ready_frame(None, Some(initial), initial), Some(initial));
+    assert_eq!(startup_ready_frame(Some(initial), Some(initial), resized), None);
+    assert_eq!(startup_ready_frame(Some(resized), Some(resized), hidpi), None);
+    assert_eq!(startup_ready_frame(Some(resized), Some(hidpi), hidpi), Some(hidpi));
+    assert_eq!(startup_ready_frame(Some(hidpi), None, hidpi), Some(hidpi));
+}
 use bevy::{
     camera::Viewport,
     ecs::system::SystemState,
@@ -62,7 +75,6 @@ fn state(target: EmbedTarget) -> EmbedState {
         target: Some(target),
         candidate: true,
         started: Instant::now(),
-        frames: 0,
         last_size: None,
         focus_settled: false,
         root_was_foreground: false,

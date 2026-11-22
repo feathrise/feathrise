@@ -22,6 +22,10 @@ use windows_sys::Win32::{
     },
 };
 
+#[path = "startup_frame.rs"]
+mod startup_frame;
+pub(crate) use startup_frame::StartupFrameSize;
+
 const PARENT_HWND_ENV: &str = "FEATHRISE_WORKSPACE_PARENT_HWND";
 const PARENT_PID_ENV: &str = "FEATHRISE_WORKSPACE_PARENT_PID";
 const CANDIDATE_ENV: &str = "FEATHRISE_WORKSPACE_CANDIDATE";
@@ -76,12 +80,13 @@ fn parse_target(hwnd: Option<String>, pid: Option<String>) -> Result<Option<Embe
     }
 }
 
-/// Ready只表示窗口已正确嵌入且原字体/最小UI帧已就绪，场景与文档就绪仍由作者运行时确认。
+/// 首个匹配当前客户区的工作台帧已经提交呈现；地图与文档仍沿用原加载等待。
 #[derive(Resource, Debug, Default)]
 pub(crate) struct EmbeddedAuthorStatus {
     pub hwnd: Option<usize>,
     pub attached: bool,
     pub ready: bool,
+    pub startup_frame: Option<StartupFrameSize>,
     pub activated: bool,
     pub error: Option<String>,
 }
@@ -91,7 +96,6 @@ struct EmbedState {
     target: Option<EmbedTarget>,
     candidate: bool,
     started: Instant,
-    frames: u64,
     last_size: Option<(u32, u32)>,
     focus_settled: bool,
     root_was_foreground: bool,
@@ -123,7 +127,6 @@ impl Plugin for EmbeddedAuthorPlugin {
                 target,
                 candidate: std::env::var_os(CANDIDATE_ENV).is_some_and(|value| value == "1"),
                 started: Instant::now(),
-                frames: 0,
                 last_size: None,
                 focus_settled: false,
                 root_was_foreground: false,
@@ -141,6 +144,7 @@ impl Plugin for EmbeddedAuthorPlugin {
         let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
         order.insert_before(Last, EmbeddedFocusPrepare);
         order.insert_after(Last, EmbeddedWindowSync);
+        startup_frame::install(app);
     }
 }
 
@@ -347,21 +351,34 @@ pub(crate) fn activate_child(parent: usize, pid: u32, child: usize) -> Result<()
         if IsWindow(parent) == 0 || !child_belongs_to(child, parent, pid) {
             return Err("候选作者窗口身份或父子关系已变化，拒绝显示".into());
         }
-        let (width, height) = client_size(parent)?;
+        // 已完成的候选窗口覆盖正确客户区。单独显示，避免搬移或缩放请求使首帧失效。
         if SetWindowPos(
             child,
             HWND_TOP,
             0,
             0,
-            width as i32,
-            height as i32,
-            SWP_ASYNCWINDOWPOS | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            0,
+            0,
+            SWP_ASYNCWINDOWPOS | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
         ) == 0
         {
             return Err(win32_error("无法显示候选作者子窗口"));
         }
     }
     Ok(())
+}
+
+fn native_frame_size(parent: HWND) -> Result<StartupFrameSize, String> {
+    let physical = unsafe { client_size(parent)? };
+    let dpi = unsafe { GetDpiForWindow(parent) };
+    if dpi == 0 { return Err("主窗口 DPI 尚未就绪".into()); }
+    Ok(StartupFrameSize { physical, dpi: dpi.max(96) })
+}
+
+pub(crate) fn startup_frame_matches(parent: usize, child: usize, frame: StartupFrameSize) -> bool {
+    let parent = parent as HWND;
+    native_frame_size(parent).is_ok_and(|current| current == frame)
+        && unsafe { fills_client(parent, child as HWND, frame.physical) }
 }
 
 /// 已确认当前作者退出后，将焦点交还持续存在的主工作台；不提升后台窗口，不触碰候选子窗口。
@@ -475,6 +492,7 @@ fn sync_embedded_window(
     mut status: ResMut<EmbeddedAuthorStatus>,
     mut windows: Query<(Entity, &mut Window, Option<&RawHandleWrapper>), With<PrimaryWindow>>,
     fonts: Option<Res<Assets<Font>>>,
+    frames: Res<startup_frame::StartupFrameReceiver>,
     close: Option<Res<crate::native_project_close::NativeProjectCloseState>>,
     mut focused: MessageWriter<WindowFocused>,
     mut exit: MessageWriter<AppExit>,
@@ -487,6 +505,7 @@ fn sync_embedded_window(
         &mut status,
         &mut windows,
         fonts.as_deref(),
+        frames.0.try_recv().ok(),
         close.as_ref().is_some_and(|state| state.active()),
         &mut focused,
     );
@@ -504,6 +523,7 @@ fn sync_inner(
     status: &mut EmbeddedAuthorStatus,
     windows: &mut Query<(Entity, &mut Window, Option<&RawHandleWrapper>), With<PrimaryWindow>>,
     fonts: Option<&Assets<Font>>,
+    submitted_frame: Option<StartupFrameSize>,
     close_active: bool,
     focused: &mut MessageWriter<WindowFocused>,
 ) -> Result<(), String> {
@@ -587,13 +607,14 @@ fn sync_inner(
     // 禁止在这里再写Window.resolution或DPI：本帧PostUpdate已计算UI裁剪和Camera视口。
     // 父窗口若在帧中途还原，late只对齐原生子窗口，新的渲染尺寸留给下一First原子发布。
 
-    state.frames = state.frames.saturating_add(1);
-    if !status.ready {
-        // 默认中文字体已在插件装配时登记，不再等待外置字体路径的 AssetServer 加载状态。
+    if !status.activated {
+        // 保留隐藏候选，直到相同尺寸的工作台相机真实提交呈现。冷管线或暂不可用的窗口继续原等待。
         let font_ready = fonts.is_some_and(|fonts| fonts.contains(bevy::asset::AssetId::<Font>::default()));
-        status.ready = state.frames >= 3 && font_ready;
+        let current = native_frame_size(parent)?;
+        status.startup_frame = startup_ready_frame(status.startup_frame, submitted_frame, current);
+        status.ready = font_ready && status.startup_frame.is_some();
         if !status.ready {
-            check_preparation_timeout(state, "作者工作台字体尚未就绪")?;
+            check_preparation_timeout(state, "作者工作台尚未提交匹配当前窗口尺寸的首帧")?;
         }
     }
     if status.ready && !state.candidate && !status.activated {
@@ -602,6 +623,7 @@ fn sync_inner(
     let visible = unsafe { IsWindowVisible(child) } != 0;
     if visible && !status.activated {
         status.activated = true;
+        info!("作者窗口已实际显示：parent={},child={hwnd},frame={:?}", target.parent, status.startup_frame);
         // 原生显示由父提交，随后把可见状态交还Bevy；下帧Winit样式回写仍经本阶段校正。
         window.visible = true;
     }
@@ -649,6 +671,15 @@ fn sync_inner(
         });
     }
     Ok(())
+}
+
+fn startup_ready_frame(
+    previous: Option<StartupFrameSize>,
+    submitted: Option<StartupFrameSize>,
+    current: StartupFrameSize,
+) -> Option<StartupFrameSize> {
+    // 旧回执在尺寸改变的同帧即失效，迟到提交不能恢复显示资格。
+    submitted.filter(|frame| *frame == current).or(previous.filter(|frame| *frame == current))
 }
 
 fn sync_native_size(

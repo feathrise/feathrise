@@ -256,11 +256,17 @@ pub(super) fn advance(
     for (candidate, pid, event) in events {
         match event {
             #[cfg(windows)]
-            AuthorEvent::Ready { hwnd } if candidate => {
+            AuthorEvent::Ready { hwnd, frame } if candidate => {
+                // 命令与回执同帧到达时，先核对候选仍是发送该帧的进程。
+                if host.candidate.as_ref().is_none_or(|instance| instance.child.id() != pid) {
+                    continue;
+                }
                 if crate::workspace_window::find_child(parent, pid) == Some(hwnd) {
                     if let Some(instance) = host.candidate.as_mut() {
                         instance.hwnd = Some(hwnd);
+                        instance.startup_frame = Some(frame);
                     }
+                    info!("候选作者已提交工作台首帧：parent={parent},child={hwnd},pid={pid},frame={frame:?}");
                     host.notice("目标工程已准备，正在交接当前工程…");
                 } else {
                     fail_candidate(&mut host, "候选作者窗口身份不匹配".into());
@@ -299,7 +305,7 @@ pub(super) fn advance(
     poll_processes(&mut host, world, parent);
     poll_author_preferences(&mut host, world);
     if !empty_exit_blocks_work(&host, world)
-        && host.candidate.as_ref().is_some_and(AuthorProcess::ready) {
+        && host.candidate.as_ref().is_some_and(|candidate| candidate.ready(parent)) {
         if host.current.is_none() {
             adopt(&mut host, world, parent);
         } else {
@@ -728,7 +734,7 @@ fn poll_processes(host: &mut Host, world: &mut World, parent: usize) {
                 host,
                 format!("目标工程工作台未能打开：{status}；原工程保留"),
             );
-        } else if candidate.started.elapsed() > Duration::from_secs(120) && !candidate.ready()
+        } else if candidate.started.elapsed() > Duration::from_secs(120) && !candidate.ready(parent)
         {
             fail_candidate(host, "目标工程准备超时，原工程保留".into());
         }
@@ -745,7 +751,7 @@ fn poll_processes(host: &mut Host, world: &mut World, parent: usize) {
         if host
             .candidate
             .as_ref()
-            .is_some_and(AuthorProcess::ready)
+            .is_some_and(|candidate| candidate.ready(parent))
             && !host.exit_app
         {
             adopt(host, world, parent);
@@ -772,6 +778,10 @@ fn adopt(host: &mut Host, world: &mut World, parent: usize) {
     let Some(mut candidate) = host.candidate.take() else {
         return;
     };
+    if !candidate.ready(parent) {
+        host.candidate = Some(candidate); // 主窗口刚换尺寸，继续等待同一候选的当前帧回执。
+        return;
+    }
     // 先可靠排入采用意图再显示，避免满通道使已可编辑实例仍被当作可无条件退役的隐藏候选。
     let result = candidate.send(HostEvent::Activate)
         .and_then(|()| candidate.activate(world, parent));
@@ -781,6 +791,8 @@ fn adopt(host: &mut Host, world: &mut World, parent: usize) {
         host.notice(error);
         return;
     }
+    #[cfg(windows)]
+    info!("已请求显示候选作者：parent={parent},child={:?},pid={},frame={:?}", candidate.hwnd, candidate.child.id(), candidate.startup_frame);
     candidate.model_revision = 0;
     let _ = host
         .preferences

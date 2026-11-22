@@ -12,6 +12,8 @@ pub(super) struct AuthorProcess {
     pub project: Project,
     pub transport: Transport<AuthorEvent, HostEvent>,
     pub hwnd: Option<usize>,
+    #[cfg(windows)]
+    pub startup_frame: Option<crate::workspace_window::StartupFrameSize>,
     pub started: Instant,
     pub model_revision: u64,
     #[cfg(windows)]
@@ -89,6 +91,8 @@ impl AuthorProcess {
                 project,
                 transport,
                 hwnd: None,
+                #[cfg(windows)]
+                startup_frame: None,
                 started: Instant::now(),
                 model_revision: 0,
                 #[cfg(windows)]
@@ -111,11 +115,12 @@ impl AuthorProcess {
         self.transport.try_send(event)
     }
 
-    pub fn ready(&self) -> bool {
+    pub fn ready(&self, parent: usize) -> bool {
         #[cfg(windows)]
-        { self.hwnd.is_some() }
+        { self.hwnd.zip(self.startup_frame).is_some_and(|(child, frame)|
+            crate::workspace_window::startup_frame_matches(parent, child, frame)) }
         #[cfg(unix)]
-        { self.surface_ready && self.surface.ready() }
+        { let _ = parent; self.surface_ready && self.surface.ready() }
     }
 
     pub fn activate(&mut self, world: &mut bevy::prelude::World, parent: usize) -> Result<(), String> {

@@ -10,8 +10,12 @@ use bevy::{
 
 struct Bridge {
     transport: Transport<HostEvent, AuthorEvent>,
+    #[cfg(unix)]
     frames: u32,
+    #[cfg(unix)]
     ready: bool,
+    #[cfg(windows)]
+    frame_sent: Option<crate::workspace_window::StartupFrameSize>,
     closing: bool,
     saw_confirmation: bool,
     candidate: bool,
@@ -37,8 +41,12 @@ pub(crate) fn install(app: &mut App, project: &crate::project::Project) -> Resul
         .add_plugins(crate::workspace_window::EmbeddedAuthorPlugin)
         .insert_non_send(Bridge {
             transport,
+            #[cfg(unix)]
             frames: 0,
+            #[cfg(unix)]
             ready: false,
+            #[cfg(windows)]
+            frame_sent: None,
             closing: false,
             saw_confirmation: false,
             candidate: true,
@@ -151,9 +159,10 @@ fn send(world: &mut World, mut cursor: Local<MessageCursor<WorkspaceCommand>>) {
         }
     }
     let status = world.get_resource::<crate::workspace_window::EmbeddedAuthorStatus>();
+    #[cfg(unix)]
     let ready = status.is_some_and(|status| status.ready);
     #[cfg(windows)]
-    let hwnd = status.and_then(|status| status.hwnd).unwrap_or_default();
+    let startup = status.filter(|status| status.ready).and_then(|status| status.hwnd.zip(status.startup_frame));
     let error = status.and_then(|status| status.error.clone());
     let close = world.resource::<NativeProjectCloseState>();
     let confirmation = close.active();
@@ -163,20 +172,22 @@ fn send(world: &mut World, mut cursor: Local<MessageCursor<WorkspaceCommand>>) {
         .map(|settings| crate::editor_frame_pacing::FramePacingRequest::new(
             settings, crate::build_process::project_build_active()));
     let mut bridge = world.non_send_mut::<Bridge>();
-    bridge.frames = bridge.frames.saturating_add(1);
+    #[cfg(unix)]
+    { bridge.frames = bridge.frames.saturating_add(1); }
     if let Some(error) = error {
         let _ = bridge.transport.try_send(AuthorEvent::Failed(error));
-    } else if ready && bridge.frames > 3 && !bridge.ready {
+    } else {
         #[cfg(windows)]
-        let event = AuthorEvent::Ready { hwnd };
-        #[cfg(unix)]
-        let event = AuthorEvent::ReadySurface { session: std::env::var("FEATHRISE_WORKSPACE_TOKEN").unwrap_or_default() };
-        if bridge
-            .transport
-            .try_send(event)
-            .is_ok()
+        if bridge.candidate && let Some((hwnd, frame)) = startup
+            && bridge.frame_sent != Some(frame)
+            && bridge.transport.try_send(AuthorEvent::Ready { hwnd, frame }).is_ok()
         {
-            bridge.ready = true;
+            bridge.frame_sent = Some(frame);
+        }
+        #[cfg(unix)]
+        if ready && bridge.frames > 3 && !bridge.ready {
+            let event = AuthorEvent::ReadySurface { session: std::env::var("FEATHRISE_WORKSPACE_TOKEN").unwrap_or_default() };
+            if bridge.transport.try_send(event).is_ok() { bridge.ready = true; }
         }
     }
     if bridge.closing {
@@ -217,7 +228,13 @@ mod close_target_tests {
         let window = world.spawn((Window::default(), PrimaryWindow)).id();
         world.insert_non_send(Bridge {
             transport: Transport::new(std::io::empty(), std::io::sink(), "close-target-fixture".into()).unwrap(),
-            frames: 0, ready: false, closing: false, saw_confirmation: false, candidate: false,
+            #[cfg(unix)]
+            frames: 0,
+            #[cfg(unix)]
+            ready: false,
+            #[cfg(windows)]
+            frame_sent: None,
+            closing: false, saw_confirmation: false, candidate: false,
             #[cfg(windows)]
             frame_pacing_sent: None,
         });

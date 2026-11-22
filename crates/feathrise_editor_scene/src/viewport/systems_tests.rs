@@ -1,5 +1,68 @@
 // 编辑器视口导航与射线命中的纯算法回归测试。
 use super::*;
+
+#[test]
+fn resident_viewports_keep_hidden_targets_and_match_first_visible_frame() {
+    let mut app = App::new();
+    app.init_resource::<bevy::picking::pointer::PointerMap>()
+        .init_resource::<Assets<Image>>()
+        .add_systems(PostUpdate, (
+            bind_editor_viewport_camera,
+            bevy::ui::widget::update_viewport_render_target_size,
+            sync_editor_viewport_render_size,
+        ).chain());
+    let world = app.world_mut();
+    let start = UVec2::new(640, 360);
+    let node = world.spawn((SceneEditorViewport, ViewportNode { camera: None },
+        ComputedNode { size: start.as_vec2(), ..default() })).id();
+    let pointer = *world.get::<bevy::picking::pointer::PointerId>(node).unwrap();
+    let mut spawn = |size: UVec2| {
+        let mut image = Image { data: None, ..default() };
+        image.resize(Extent3d { width: size.x, height: size.y, depth_or_array_layers: 1 });
+        let handle = world.resource_mut::<Assets<Image>>().add(image);
+        let camera = world.spawn((SceneEditorCamera, Camera::default(), RenderTarget::from(handle.clone()),
+            Projection::Perspective(PerspectiveProjection::default()))).id();
+        SceneEditorViewportState { _image: handle, camera, center: Vec3::ZERO,
+            scene_center: Vec3::ZERO, scene_half_extents: Vec3::ONE, extent: 10.0,
+            yaw: 0.0, pitch: 0.5, framed_scene_id: None, render_size: size }
+    };
+    let first = spawn(start);
+    let second = spawn(UVec2::new(800, 450));
+    let first_camera = first.camera;
+    let first_target = first._image.clone();
+    let second_camera = second.camera;
+    world.insert_resource(first);
+
+    app.update();
+    let assert_visible = |world: &World, expected_camera: Entity, size: UVec2| {
+        let viewport = world.resource::<SceneEditorViewportState>();
+        assert_eq!(world.get::<ViewportNode>(node).unwrap().camera, Some(expected_camera));
+        assert_eq!(world.get::<bevy::picking::pointer::PointerId>(node), Some(&pointer));
+        assert_eq!(world.get::<Camera>(expected_camera).unwrap().physical_target_size(), Some(size));
+        assert_eq!(world.resource::<Assets<Image>>().get(&viewport._image).unwrap().size(), size);
+        assert_eq!(viewport.render_size, size);
+        let Projection::Perspective(projection) = world.get::<Projection>(expected_camera).unwrap() else { panic!("测试相机应使用透视"); };
+        assert_eq!(projection.aspect_ratio, size.x as f32 / size.y as f32);
+    };
+    assert_visible(app.world(), first_camera, start);
+
+    // 开始页隐藏实际布局，即使相机仍处于活动状态，也不能缩小目标纹理。
+    app.world_mut().get_mut::<ComputedNode>(node).unwrap().size = Vec2::ZERO;
+    app.update();
+    assert_eq!(app.world().get::<ViewportNode>(node).unwrap().camera, None);
+    assert_eq!(app.world().resource::<Assets<Image>>().get(&first_target).unwrap().size(), start);
+    let resumed = UVec2::new(960, 500);
+    app.world_mut().get_mut::<ComputedNode>(node).unwrap().size = resumed.as_vec2();
+    app.update();
+    assert_visible(app.world(), first_camera, resumed);
+
+    // 暖场景以同一节点接回不同相机，且相机使用布局调整后的同帧宽高比。
+    app.world_mut().get_mut::<Camera>(first_camera).unwrap().is_active = false;
+    app.world_mut().insert_resource(second);
+    app.update();
+    assert_visible(app.world(), second_camera, resumed);
+    assert_eq!(app.world().resource::<Assets<Image>>().get(&first_target).unwrap().size(), resumed);
+}
 const APPLICATION_MODEL_LAYER: usize = 24; // 中性应用夹具，不依赖任何游戏角色层定义。
 const APPLICATION_TRANSIENT_LAYER: usize = 25;
 

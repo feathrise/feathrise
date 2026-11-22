@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) enum AuthorEvent {
-    Ready { hwnd: usize },
+    #[cfg(windows)]
+    Ready { hwnd: usize, frame: crate::workspace_window::StartupFrameSize },
     /// Unix由token和实际共享帧确认呈现，不能用伪HWND混入Win32身份检查。
     ReadySurface { session: String },
     #[cfg(windows)]

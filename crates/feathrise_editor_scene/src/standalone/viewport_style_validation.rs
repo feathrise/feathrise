@@ -12,6 +12,9 @@ use crate::{
     },
 };
 use bevy::{
+    camera::Hdr,
+    core_pipeline::prepass::{DepthPrepass, NormalPrepass},
+    diagnostic::FrameCount,
     prelude::*,
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
     tasks::{IoTaskPool, Task, futures::check_ready},
@@ -30,6 +33,7 @@ enum Phase {
     HideGround,
     Frame,
     SolidWithBackground,
+    SolidContinuity,
     OpenBackgroundMenu,
     HideBackground,
     CloseMenu,
@@ -54,11 +58,32 @@ pub(super) struct StyleFixture {
     capture_pending: bool,
     capture_attempt: u8,
     original_navigator: Option<EditorNavigatorTab>,
+    solid_series: Option<SolidSeries>,
     proof: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Resource)]
 struct Capture(Task<Result<(bool, serde_json::Value), String>>);
+
+const SOLID_FRAMES: usize = 16;
+const SOLID_POINTS_PER_SIDE: u32 = 8;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SolidView {
+    camera: Entity,
+    image: AssetId<Image>,
+    size: UVec2,
+    atmosphere: bool,
+}
+
+struct SolidSeries {
+    source: SolidView,
+    first_frame: u32,
+    requested: usize,
+}
+
+#[derive(Resource, Default)]
+struct SolidReadbacks(Vec<(u32, Result<Vec<[u8; 4]>, String>)>);
 
 impl StyleFixture {
     pub(super) fn stage(&self) -> String { format!("{:?}", self.phase) }
@@ -138,6 +163,11 @@ impl StyleFixture {
             }
             SolidWithBackground if view.options.x == 1.0 && view.options.w > 0.5 => {
                 if self.capture(world, record, "viewport-solid-scene-background", false)? {
+                    self.phase = SolidContinuity;
+                }
+            }
+            SolidContinuity if view.options.x == 1.0 && view.options.w > 0.5 => {
+                if self.capture_solid_series(world)? {
                     self.phase = OpenBackgroundMenu;
                 }
             }
@@ -216,6 +246,73 @@ impl StyleFixture {
         Ok(())
     }
 
+    fn capture_solid_series(&mut self, world: &mut World) -> Result<bool, String> {
+        let viewport = world.resource::<SceneEditorViewportState>();
+        let source = SolidView {
+            camera: viewport.camera,
+            image: viewport._image.id(),
+            size: viewport.render_size,
+            atmosphere: world.get::<bevy::pbr::AtmosphereSettings>(viewport.camera).is_some(),
+        };
+        let image = viewport._image.clone();
+        if world.get::<Msaa>(source.camera) != Some(&Msaa::Off)
+            || world.get::<Hdr>(source.camera).is_none()
+            || world.get::<NormalPrepass>(source.camera).is_none()
+            || world.get::<DepthPrepass>(source.camera).is_none()
+        {
+            return Err("连续实体取证期间相机的着色附件不完整".into());
+        }
+        let frame = world.resource::<FrameCount>().0;
+        let series = self.solid_series.get_or_insert_with(|| {
+            world.insert_resource(SolidReadbacks::default());
+            SolidSeries { source, first_frame: frame, requested: 0 }
+        });
+        if series.source != source {
+            return Err("连续实体取证期间相机、目标或大气资格发生变化".into());
+        }
+        if series.requested < SOLID_FRAMES {
+            if frame.wrapping_sub(series.first_frame) as usize != series.requested {
+                return Err("连续实体取证没有覆盖相邻渲染请求帧".into());
+            }
+            // 每帧都从同一个真实 RTT 读取。只采固定网格，不在接收帧克隆或编码整幅图。
+            world.spawn(Screenshot::image(image)).observe(move |capture: On<ScreenshotCaptured>, mut frames: ResMut<SolidReadbacks>| {
+                frames.0.push((frame, solid_pixels(&capture.image, source.size)));
+            });
+            series.requested += 1;
+            return Ok(false);
+        }
+        if world.resource::<SolidReadbacks>().0.len() < SOLID_FRAMES {
+            return Ok(false);
+        }
+        let first = series.first_frame;
+        let mut frames = world.remove_resource::<SolidReadbacks>().unwrap().0;
+        frames.sort_unstable_by_key(|(frame, _)| frame.wrapping_sub(first));
+        let mut prior: Option<Vec<[u8; 4]>> = None;
+        let mut changed = Vec::with_capacity(SOLID_FRAMES - 1);
+        for (index, (frame, pixels)) in frames.into_iter().enumerate() {
+            if frame.wrapping_sub(first) as usize != index {
+                return Err("连续实体的 GPU 读回帧缺失或重复".into());
+            }
+            let pixels = pixels?;
+            if let Some(previous) = prior.replace(pixels) {
+                let count = previous.iter().zip(prior.as_ref().unwrap())
+                    .filter(|(a, b)| a.iter().zip(b.iter()).take(3).any(|(a, b)| a.abs_diff(*b) > 28))
+                    .count();
+                changed.push(count);
+                // 动态天空允许局部变化，超过四分之一取样点的明显跳色才算整视口闪烁。
+                if count > (SOLID_POINTS_PER_SIDE * SOLID_POINTS_PER_SIDE / 4) as usize {
+                    return Err(format!("实体视口第 {frame} 帧明显跳色，受影响采样点 {count}"));
+                }
+            }
+        }
+        self.proof.insert("solid_consecutive_gpu_frames".into(), serde_json::json!({
+            "first_frame": first, "count": SOLID_FRAMES, "size": source.size.to_array(),
+            "atmosphere": source.atmosphere, "camera": source.camera.to_bits(),
+            "strong_color_changes_per_pair": changed,
+        }));
+        Ok(true)
+    }
+
     fn capture(&mut self, world: &mut World, record: &ScenePlacementRecord, name: &'static str, wire: bool) -> Result<bool, String> {
         if self.capture_pending {
             let Some(mut capture) = world.get_resource_mut::<Capture>() else { return Ok(false); };
@@ -292,6 +389,18 @@ impl StyleFixture {
         self.capture_pending = true;
         Ok(false)
     }
+}
+
+fn solid_pixels(image: &Image, expected: UVec2) -> Result<Vec<[u8; 4]>, String> {
+    if image.size() != expected {
+        return Err(format!("连续实体读回尺寸不符：预期 {expected}，实际 {}", image.size()));
+    }
+    let side = SOLID_POINTS_PER_SIDE;
+    (0..side).flat_map(|row| (0..side).map(move |column| (row, column))).map(|(row, column)| {
+        let x = (column * 2 + 1) * expected.x / (side * 2);
+        let y = (row * 2 + 1) * expected.y / (side * 2);
+        image.get_color_at(x, y).map(|color| color.to_srgba().to_u8_array()).map_err(|error| error.to_string())
+    }).collect()
 }
 
 #[derive(Clone)]

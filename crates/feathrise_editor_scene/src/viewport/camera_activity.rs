@@ -17,7 +17,7 @@ pub(crate) fn sync_editor_camera_activity(
     host_page: Option<Res<crate::workbench::WorkbenchHostPageState>>,
     mut cameras: Query<(Entity, &mut Camera), With<SceneEditorCamera>>,
 ) {
-    // 位姿/射线系统受document_active保护，启停必须在该门之外运行；否则旧相机可一直抢占游戏LOD。
+    // 唯一活动写入点，独立于位姿和射线；驻留交接或开始页隐藏时旧相机不能继续抢占 LOD。
     let enabled = editor.open && !host_page.as_ref().is_some_and(|page| page.active)
         && crate::scene_residency::document_active(session, scenes, activity);
     let selected = viewport.as_ref().map(|viewport| viewport.camera);

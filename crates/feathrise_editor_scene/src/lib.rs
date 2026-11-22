@@ -471,7 +471,6 @@ impl Plugin for SceneEditorPlugin {
                     setup_selected_water_badge, // 中央视口左上角只创建一次当前水域对象身份徽标。
                     setup_selected_portal_badge, // 传送工具复用第一信息位显示当前源点名称和坐标。
                     (setup_selected_placement_badge, ui::editor_settings::setup_snap_inputs, ui::editor_settings::setup_mesh_lod_inputs, viewport::multi_select::setup_multi_selection_ui).chain(), // 固定槽初始化不扩大外层系统元组。
-                    sync_editor_viewport_render_size,
                     (
                         frame_selected_scene,
                         viewport::content_framing::frame_content,
@@ -760,6 +759,15 @@ impl Plugin for SceneEditorPlugin {
                 Update,
                 sync_editor_camera_activity.after(SceneEditorSystemSet::Presentation), // 关闭门之后仍执行，作者恢复/切换场景不能遗留活动编辑相机。
             )
+            .add_systems(PostUpdate, (
+                bind_editor_viewport_camera
+                    .after(bevy::ui::UiSystems::Layout)
+                    .before(bevy::ui::widget::update_viewport_render_target_size),
+                sync_editor_viewport_render_size
+                    .after(bevy::ui::widget::update_viewport_render_target_size)
+                    .before(bevy::asset::AssetEventSystems)
+                    .before(bevy::camera::visibility::VisibilitySystems::UpdateFrusta),
+            )) // 暖恢复的相机、RTT 与资源提取使用同一帧布局，空布局不触发目标重分配。
             .add_systems(
                 PostUpdate,
                 (ui::editor_settings::sync_settings_panel, ui::editor_settings::sync_snap_inputs, ui::editor_settings::sync_mesh_lod_inputs)

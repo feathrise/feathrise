@@ -1,14 +1,14 @@
 //! 场景编辑器离屏视口实现。
 
 use bevy::camera::visibility::RenderLayers; // 离屏相机额外接收专用笔刷Gizmo层。
-use bevy::camera::{Hdr, Projection, RenderTarget}; // 两种投影共享稳定HDR颜色路径和同一个RTT目标。
+use bevy::camera::{Hdr, Projection, RenderTarget, RenderTargetInfo}; // 两种投影共享稳定HDR颜色路径和同一个RTT目标。
 use bevy::input::mouse::{MouseMotion, MouseWheel}; // CAD式轨道、平移和缩放。
 use bevy::shape::InfinitePlane3d; // 把视口光标射线投到地形基准平面。
 use bevy::prelude::*; // ECS、图像、相机与数学类型。
 use bevy::render::render_resource::{
     Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
 }; // 创建固定预算离屏纹理。
-use bevy::ui::widget::ViewportNode; // 使用Bevy正式视口节点按中央区域实际尺寸维护RTT，避免黑边和画面拉伸。
+use bevy::ui::widget::ViewportNode; // 保留原生视口显示和指针映射。
 use bevy::ui::{ComputedNode, FocusPolicy, RelativeCursorPosition}; // 中央视口阻止点击穿透并只在悬停时接管导航。
 use feathrise_atmosphere::WeatherPreviewCamera; // F12明确加入正式天气视图，不让普通辅助相机意外继承云雨雾。
 use feathrise_scene_core::view::DeferredRasterAuxiliaryCamera; // 共享Deferred材质在离屏视口保持可见。
@@ -130,12 +130,7 @@ pub(crate) fn setup_editor_viewport(
             .as_ref()
             .is_some_and(|state| state.enabled && state.active.is_some())
         {
-            for (entity, node) in &viewports {
-                if node.is_some() {
-                    commands.entity(entity).remove::<ViewportNode>();
-                }
-            }
-            return; // 加载及分帧恢复期间保留RTT和相机，资源所有权由驻留场景槽负责。
+            return; // 驻留场景保留 RTT 和相机，实际画布绑定在布局后更新。
         }
         if let Some(viewport) = viewport {
             remember_editor_viewport(&mut view_memory, &editor, &viewport); // 加载页先回收旧RTT，必须在回收前冻结源场景视角与投影。
@@ -157,10 +152,8 @@ pub(crate) fn setup_editor_viewport(
             }
         }
         for (entity, node) in &viewports {
-            if node.is_none_or(|node| node.camera != Some(viewport.camera)) {
-                commands
-                    .entity(entity)
-                    .insert((ViewportNode::new(viewport.camera), FocusPolicy::Block));
+            if node.is_none() {
+                commands.entity(entity).insert((ViewportNode { camera: None }, FocusPolicy::Block));
             }
         }
         return; // BSN节点比世界更早存在，不能再依赖 Added；稳定帧也不得重复创建 RTT。
@@ -173,7 +166,8 @@ pub(crate) fn setup_editor_viewport(
         height: 1, // 首帧只创建最小占位纹理，PostLayout按中央节点真实物理高度调整。
         depth_or_array_layers: 1,
     };
-    let mut image = Image {
+    let image = Image {
+        data: None, // 纯 RTT 在 GPU 上绘制，切回标签无需重传 CPU 占位像素。
         texture_descriptor: TextureDescriptor {
             label: Some("scene_editor_viewport_target"),
             size,
@@ -188,7 +182,6 @@ pub(crate) fn setup_editor_viewport(
         },
         ..default()
     };
-    image.resize(size);
     let image_handle = images.add(image);
     let center = Vec3::ZERO;
     let extent = 1_200.0;
@@ -229,7 +222,7 @@ pub(crate) fn setup_editor_viewport(
         commands.entity(camera).insert(feathrise_scene::SceneRuntimeObserver);
     }
     commands.entity(viewport_entity).insert((
-        ViewportNode::new(camera), // Bevy只在节点尺寸变化时同步RTT，画面与区域宽高比始终一致。
+        ViewportNode { camera: None }, // 布局完成且当前相机可用后绑定。
         FocusPolicy::Block,        // BSN不强行表达有缺陷的枚举模板，原生补齐交互组件。
     ));
     commands.insert_resource(SceneEditorViewportState {
@@ -246,21 +239,48 @@ pub(crate) fn setup_editor_viewport(
     });
 }
 
-/// 把Bevy视口节点已经计算出的物理尺寸同步给自定义导航与光标射线。
+/// 首次展示和暖恢复都按本帧真实布局连接相机。空布局不让 Bevy 把驻留 RTT 改成 1×1。
+pub(crate) fn bind_editor_viewport_camera(
+    viewport: Option<Res<SceneEditorViewportState>>,
+    cameras: Query<&Camera, With<SceneEditorCamera>>,
+    mut nodes: Query<(&ComputedNode, &mut ViewportNode), With<SceneEditorViewport>>,
+) {
+    let active = viewport.as_ref().map(|viewport| viewport.camera)
+        .filter(|entity| cameras.get(*entity).is_ok_and(|camera| camera.is_active));
+    for (computed, mut node) in &mut nodes {
+        let next = active.filter(|_| !computed.is_empty());
+        if node.camera != next {
+            node.camera = next;
+        }
+    }
+}
+
+/// Bevy先算相机再跑UI布局。原生ViewportNode完成RTT调整后，在RenderApp提取前补齐当前相机的同帧尺寸。
 pub(crate) fn sync_editor_viewport_render_size(
     viewport: Option<ResMut<SceneEditorViewportState>>,
-    viewport_nodes: Query<&ComputedNode, (With<SceneEditorViewport>, Changed<ComputedNode>)>,
+    viewport_nodes: Query<&ViewportNode, With<SceneEditorViewport>>,
+    mut cameras: Query<(&RenderTarget, &mut Camera, &mut Projection), With<SceneEditorCamera>>,
+    images: Res<Assets<Image>>,
 ) {
-    let Some(mut viewport) = viewport else {
-        return;
-    };
-    let Ok(node) = viewport_nodes.single() else {
-        return;
-    };
-    if node.is_empty() { return; } // F12收起仅隐藏节点，保留上次有效导航尺寸；重新布局后再采用真实尺寸。
-    let render_size = node.size().as_uvec2().max(UVec2::ONE); // 与ViewportNode内部采用相同换算，保持点击像素和相机目标严格一致。
+    let Some(mut viewport) = viewport else { return; };
+    if !viewport_nodes.single().is_ok_and(|node| node.camera == Some(viewport.camera)) { return; }
+    let Ok((RenderTarget::Image(target), mut camera, mut projection)) = cameras.get_mut(viewport.camera) else { return; };
+    let Some(image) = images.get(&target.handle) else { return; };
+    let render_size = image.size();
     if viewport.render_size != render_size {
-        viewport.render_size = render_size; // 只在窗口或三栏布局真正变化时通知后续导航系统。
+        viewport.render_size = render_size;
+    }
+    if camera.physical_target_size() == Some(render_size) { return; }
+    if let Some(rect) = &mut camera.viewport {
+        rect.clamp_to_size(render_size);
+    }
+    camera.computed.target_info = Some(RenderTargetInfo { physical_size: render_size, scale_factor: target.scale_factor });
+    if let Some(size) = camera.logical_viewport_size().filter(|size| size.min_element() > 0.0) {
+        projection.update(size.x, size.y);
+        camera.computed.clip_from_view = camera.sub_camera_view.as_ref().map_or_else(
+            || projection.get_clip_from_view(),
+            |sub_view| projection.get_clip_from_view_for_sub(sub_view),
+        );
     }
 }
 
@@ -417,7 +437,7 @@ pub(crate) fn sync_editor_viewport_camera(
     cursor: Query<&RelativeCursorPosition, With<SceneEditorViewport>>,
     mut camera_query: Query<
         (
-            &mut Camera,
+            &Camera,
             &mut Projection,
             &mut Transform,
             &mut DynamicClipmapAuthoringView,
@@ -441,7 +461,7 @@ pub(crate) fn sync_editor_viewport_camera(
         editor.brush_cursor_triangle = None; // 洞穴分层命中身份必须与光标位置同步清除。
         return;
     };
-    let Ok((mut camera, mut projection, mut transform, mut clipmap_view)) =
+    let Ok((camera, mut projection, mut transform, mut clipmap_view)) =
         camera_query.get_mut(viewport.camera)
     else {
         editor.cursor_world = None; // 相机实体失效时清除全部作者落点。
@@ -450,7 +470,6 @@ pub(crate) fn sync_editor_viewport_camera(
         editor.brush_cursor_triangle = None; // 不允许下一笔沿用上一相机的源三角。
         return;
     };
-    camera.is_active = editor.open;
     clipmap_view.focus_xz = Vec2::new(viewport.center.x, viewport.center.z); // 透视机位远离地面时仍把最细环放在编辑焦点。
     clipmap_view.focus_y = viewport.center.y;
     let (next_projection, next_transform) = editor_camera_pose(editor.orthographic, &viewport);

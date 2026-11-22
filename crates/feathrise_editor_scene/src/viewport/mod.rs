@@ -69,7 +69,7 @@ pub(crate) use portal_selection::{
 };
 pub(crate) use surface_trail::{SurfaceStrokeTrail, SurfaceTrailSource, draw_surface_stroke_trail}; // 输入与显示共享固定柔边覆盖图。
 pub(crate) use systems::{
-    control_editor_viewport, frame_selected_scene, set_editor_view, setup_editor_viewport,
+    bind_editor_viewport_camera, control_editor_viewport, frame_selected_scene, set_editor_view, setup_editor_viewport,
     sync_editor_viewport_camera, sync_editor_viewport_render_size,
 };
 pub(crate) use water_selection::{
