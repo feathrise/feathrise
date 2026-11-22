@@ -89,6 +89,26 @@ fn typed_host_projection_reports_work_without_overwriting_tool_feedback() {
 }
 
 #[test]
+fn project_open_stage_is_the_footer_summary_until_handoff() {
+    use crate::workbench::WorkbenchProjectOpenProgress;
+
+    let mut app = app();
+    app.world_mut().resource_mut::<SceneEditorState>().status = "当前工具的操作说明".into();
+    for label in ["打开工程 · 准备文件…", "打开工程 · 加载工作台…"] {
+        app.insert_resource(WorkbenchProjectOpenProgress(Some(label)));
+        app.update();
+        let status = app.world().resource::<EditorStatusBarState>();
+        assert_eq!(status.phase, StatusPhase::Working);
+        assert_eq!(status.summary, label);
+    }
+    app.insert_resource(WorkbenchProjectOpenProgress::default());
+    app.update();
+    let status = app.world().resource::<EditorStatusBarState>();
+    assert_eq!(status.phase, StatusPhase::Ready);
+    assert_eq!(status.summary, "当前工具的操作说明");
+}
+
+#[test]
 fn typed_host_failure_is_visible_and_keeps_original_save_error_priority() {
     use feathrise_editor_ui::feedback::{PanelStatusPhase, PanelStatusState};
     let mut app = app();

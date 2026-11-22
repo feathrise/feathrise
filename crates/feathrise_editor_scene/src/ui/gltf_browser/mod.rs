@@ -278,6 +278,8 @@ pub(crate) struct EditorGltfBrowserState {
     pub(super) expanded_groups: BTreeSet<String>,
     /// 主 GLB 自有折叠状态，身份与普通引用模型分开。
     pub(super) expanded_main_glb: Option<feathrise_scene_content::SceneId>,
+    /// 主 GLB 是场景文件选择，没有对应的摆放记录。
+    pub(super) selected_main_glb: Option<feathrise_scene_content::SceneId>,
     pub(crate) selected_group: Option<String>,
     /// 当前展开状态的完整扁平树，行池按滚动位置取其窗口。
     pub(crate) entries: Vec<EditorGltfBrowserEntry>,
@@ -368,6 +370,7 @@ impl EditorGltfBrowserState {
         placement_id: String,
     ) -> bool {
         let valid = !self.duplicate_placement_ids.contains(&placement_id); // 重复ID不能授权变换、复制或删除中的任一条记录。
+        self.selected_main_glb = None;
         self.selected_group = None;
         self.selected_placement_id = Some(placement_id); // 属性区仍以完整ScenePlacementRecord作为操作目标。
         self.selection = None; // 直接primitive没有Blender对象路径，不能冒充整网格水或Scene0高亮身份。
@@ -383,6 +386,7 @@ impl EditorGltfBrowserState {
             .duplicate_placement_ids
             .contains(&selection.placement_id); // 重复摆放ID即使世界恰好命中一根也不能授权后续作者动作。
         selection.orphaned_water_binding = false; // 世界实际命中不可能是只存在于旧作者数据的失效绑定。
+        self.selected_main_glb = None;
         self.selected_group = None;
         let valid = selection.valid; // 移入资源前冻结调用方需要的授权结论。
         self.selected_placement_id = Some(selection.placement_id.clone()); // 收起时仍可从完整摆放根接续操作。
@@ -416,8 +420,14 @@ impl EditorGltfBrowserState {
         entries::request_visible_entries_rebuild(self);
     }
 
-    /// 清除中央视口拥有的摆放与精确网格选择，不改变作者手动展开的场景树。
+    pub(crate) fn is_main_glb_selected(&self, scene: &feathrise_scene_content::SceneId) -> bool {
+        self.selected_main_glb.as_ref() == Some(scene)
+            && self.selected_placement_id.is_none() && self.selected_group.is_none()
+    }
+
+    /// 清除场景对象选择，不改变作者手动展开的场景树。
     pub(crate) fn clear_viewport_selection(&mut self) {
+        self.selected_main_glb = None;
         self.selected_group = None;
         self.selected_placement_id = None; // 资产变换区同帧收起。
         self.selection = None; // 精确网格覆盖由下一Cursor阶段隐藏。

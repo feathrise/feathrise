@@ -42,6 +42,7 @@ pub(in crate::ui::gltf_browser) fn take_browser_session_generation(
 
     state.truncated = false; // 旧场景截断诊断立即清除。
     state.expanded_main_glb = None;
+    state.selected_main_glb = None;
     state.main_glb_entry_count = 0;
     state.initialized = false; // 退役完成后下一次开启重新观察权威草稿。
     state.draft_available = false; // 关闭态不宣称持有草稿。

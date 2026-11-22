@@ -122,7 +122,14 @@ impl MoveInputContext<'_, '_> {
         !self.mesh_edit_active() && self.document_available(editor) && editor.tool.is_volume_sculpt() && self.mode.mode == ViewportMode::Edit
     }
 
-    pub(crate) fn batch_available(&self, editor: &SceneEditorState) -> bool { !self.mesh_edit_active() && self.pointer_available(editor) }
+    pub(crate) fn batch_available(&self, editor: &SceneEditorState) -> bool {
+        editor.tool == EditorTool::Inspect && self.tree_batch_available(editor)
+    }
+
+    /// 右键菜单锁定明确树行，工具模式只限制视口快捷键，不影响该菜单入口。
+    pub(crate) fn tree_batch_available(&self, editor: &SceneEditorState) -> bool {
+        !self.mesh_edit_active() && self.scene_commands_available(editor)
+    }
 
     fn mesh_edit_active(&self) -> bool {
         self.mesh_edit.as_ref().is_some_and(|state| state.active())

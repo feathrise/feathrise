@@ -10,34 +10,11 @@ use feathrise_editor_ui::{
 }; // 一次复用字符输入、左右拖动、进度填充和统一水墨控件视觉。
 
 use super::{
-    SceneEditorPlacementTransformActionButton, SceneEditorPlacementTransformPanel, SceneEditorPlacementTransformLocate,
+    SceneEditorPlacementTransformActionButton, SceneEditorPlacementTransformPanel,
     SceneEditorPlacementTransformSummary, PlacementTransformAction, PlacementTransformField,
     PlacementTransformInputSlot, PlacementPropertiesSection, SceneEditorCuboidGeometryRow, SceneEditorAnimationRotationRow,
 }; // 当前功能域静态marker、字段和动作。
-use crate::types::EditorAction;
-use crate::ui::scene::FONT_PATH; // 紧凑分组与原定位动作共享编辑器控件。
-
-/// 使用原全局导航动作并保留专属marker，禁用门只影响此属性入口，不改变视口工具条。
-fn locate_button() -> impl Scene {
-    bsn! {
-        InteractionButton
-        SceneEditorPlacementTransformLocate
-        crate::components::SceneEditorActionButton(EditorAction::FocusSelected)
-        Node {
-            height: px(26), flex_grow: 1.0, flex_basis: px(0), min_width: px(0), flex_shrink: 0.0,
-            border: px(1), border_radius: BorderRadius::all(px(3)),
-            align_items: AlignItems::Center, justify_content: JustifyContent::Center,
-            padding: UiRect::horizontal(px(4)),
-        }
-        BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
-        BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [
-            Text("定位") @feathrise_editor_ui::localization::label_scene("定位")
-            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-            TextColor(colors::TEXT_PRIMARY)
-        ]
-    }
-}
+use crate::ui::scene::FONT_PATH;
 
 const NUMERIC_CONTROL_WIDTH: f32 = 164.0; // 公共builder的初始像素基准；创建帧将根改为整栏百分比宽度。
 const NUMERIC_FIELD_HEIGHT: f32 = 24.0; // 数值行沿用原命中高度，不随26px动作按钮改变输入树。
@@ -76,23 +53,7 @@ fn axis_row(label: &str, fields: [PlacementTransformField; 3]) -> impl Scene {
 fn action_button(
     label: &str,                      // 用户可见短动作名。
     action: PlacementTransformAction, // 独立结构化动作。
-    danger: bool,                     // 删除使用危险色，其余保持开发工具铜边色。
 ) -> impl Scene {
-    let background = if danger {
-        colors::DANGER_BG // 删除常态使用危险底色。
-    } else {
-        colors::BUTTON_DEV_SMALL_NORMAL // 普通动作使用暗墨开发工具底色。
-    };
-    let border = if danger {
-        colors::DANGER_BORDER // 删除使用红铜危险边。
-    } else {
-        colors::COPPER_BORDER_WEAK // 普通动作使用弱铜边。
-    };
-    let text_color = if danger {
-        colors::DANGER_TEXT // 删除文字保持高可读危险色。
-    } else {
-        colors::TEXT_PRIMARY // 普通动作使用主要文字色。
-    };
     bsn! {
         InteractionButton
         SceneEditorPlacementTransformActionButton(action)
@@ -102,21 +63,21 @@ fn action_button(
             flex_grow: 1.0, // 同一操作行内严格等宽，单列动作也会填满整行。
             flex_basis: px(0), // 中文长度不参与列宽。
             min_width: px(0), // 低分辨率允许安全收缩。
-            border: px(1), // 铜边或危险边界表达可交互性。
+            border: px(1), // 铜边表达可交互性。
             border_radius: BorderRadius::all(px(3)), // 紧凑作者工具小圆角。
             align_items: AlignItems::Center, // 文字垂直居中。
             justify_content: JustifyContent::Center, // 文字水平居中。
             padding: UiRect::horizontal(px(4)), // 保留短标签呼吸空间。
         }
-        BackgroundColor(background)
-        BorderColor::all(border)
+        BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
+        BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
             Text(label) @feathrise_editor_ui::localization::label_scene(label)
             TextFont {
                 font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 统一中文字体避免按钮乱码。
                 font_size: px(ui_metrics::FONT_CONTROL), // 与同页网格属性按钮一致。
             }
-            TextColor(text_color)
+            TextColor(colors::TEXT_PRIMARY)
         ]
     }
 }
@@ -141,18 +102,7 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
                 Children [
             @crate::ui::context_help::section_header("变换", "数值框支持左拖实际值、右拖本字段灵敏度、左键单击精确输入。普通资产使用世界变换，三维地形使用关联Clipmap的源局部变换；位置使用米，缩放为无量纲倍率。")--
 
-                Node {
-                    width: percent(100),
-                    min_width: px(0),
-                    column_gap: px(3),
-                    flex_shrink: 0.0,
-                }
-                Children [
-                    @locate_button()-- // 只登记原相机聚焦请求，不与地面吸附混淆。
-                    @action_button("复制", PlacementTransformAction::Duplicate, false)--
-                    @action_button("删除", PlacementTransformAction::Delete, true)
-                ]
-            --
+            // 聚焦、复制和删除由场景树右键使用树行身份分派；此处继续编辑高度与变换。
             @crate::ui::context_help::section_header("高度与落点", "吸附地面会等待中央视口单击，并按首次摆放规则命中真实地形。跟随地形会归零离地偏移；固定高度保留模式并采用命中Y。")--
 
                 SceneEditorPlacementTransformSummary
@@ -179,9 +129,9 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
                     flex_shrink: 0.0, // 固定按钮高度不能被右栏滚动布局压扁。
                 }
                 Children [
-                    @action_button("跟随地形", PlacementTransformAction::FollowTerrain, false)-- // 持续保持当前离地偏移。
-                    @action_button("固定高度", PlacementTransformAction::FixedHeight, false)-- // 持续保持当前世界Y。
-                    @action_button("吸附地面", PlacementTransformAction::Relocate, false) // 复用首次摆放的真实三角命中选择新落点。
+                    @action_button("跟随地形", PlacementTransformAction::FollowTerrain)-- // 持续保持当前离地偏移。
+                    @action_button("固定高度", PlacementTransformAction::FixedHeight)-- // 持续保持当前世界Y。
+                    @action_button("吸附地面", PlacementTransformAction::Relocate) // 复用首次摆放的真实三角命中选择新落点。
                 ]
             --
             @axis_row("位置", [PlacementTransformField::TranslationX, PlacementTransformField::TranslationY, PlacementTransformField::TranslationZ])--
@@ -189,7 +139,7 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
             SceneEditorAnimationRotationRow
                 Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                 Children [@axis_row("旋转", [PlacementTransformField::RotationX, PlacementTransformField::RotationY, PlacementTransformField::RotationZ])]--
-            @action_button("建筑旋转 90°", PlacementTransformAction::RotateQuarterTurn, false)-- // 建筑必须先后台重检占地、门口和五点地基。
+            @action_button("建筑旋转 90°", PlacementTransformAction::RotateQuarterTurn)-- // 建筑必须先后台重检占地、门口和五点地基。
             @axis_row("缩放", [PlacementTransformField::ScaleX, PlacementTransformField::ScaleY, PlacementTransformField::ScaleZ])--
             @super::apply_transform::apply_menu()
                 ]
@@ -205,8 +155,8 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
 
                         Node { width:percent(100),flex_direction:FlexDirection::Row,column_gap:px(3),flex_shrink:0.0 }
                         Children [
-                            @action_button("三维地形",PlacementTransformAction::ToggleTerrainPatch,false)--
-                            @action_button("洞口开关",PlacementTransformAction::ToggleTerrainCutout,false)
+                            @action_button("三维地形",PlacementTransformAction::ToggleTerrainPatch)--
+                            @action_button("洞口开关",PlacementTransformAction::ToggleTerrainCutout)
                         ]
                     --
                     @numeric_input_slot(PlacementTransformField::CutoutMinX)--
@@ -229,7 +179,7 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
                 Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
                 Children [
                     @crate::ui::context_help::section_header("碰撞", "参数立方体使用盒碰撞。编辑网格和普通 GLB 使用模型的三角网格。按钮选中表示开启。内置对象隐藏或删除时暂停碰撞，恢复后按原状态生效。普通 GLB 的碰撞设置在保存场景后生效。")--
-                    @action_button("碰撞", PlacementTransformAction::ToggleCuboidCollision, false)
+                    @action_button("碰撞", PlacementTransformAction::ToggleCuboidCollision)
                 ]
             --
                 ~{PlacementPropertiesSection::DisplayLod}
@@ -238,17 +188,17 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
                     @crate::ui::context_help::section_header("显示 LOD", "按屏幕误差自动选档。预览 LOD 显示实际三角线、档位和面数；关闭三角线，可在同一镜头用“对照原始”比较显示开销。全局开关控制简化。骨骼和形态目标保持原始。")--
                     Node { width: percent(100), column_gap: px(3), flex_shrink: 0.0 }
                     Children [
-                        @action_button("继承全局", PlacementTransformAction::DisplayLodInherit, false)--
-                        @action_button("保持原始", PlacementTransformAction::DisplayLodOriginal, false)--
-                        @action_button("自定义", PlacementTransformAction::DisplayLodCustom, false)
+                        @action_button("继承全局", PlacementTransformAction::DisplayLodInherit)--
+                        @action_button("保持原始", PlacementTransformAction::DisplayLodOriginal)--
+                        @action_button("自定义", PlacementTransformAction::DisplayLodCustom)
                     ]--
                     @numeric_input_slot(PlacementTransformField::LodScreenError)--
                     @numeric_input_slot(PlacementTransformField::LodHysteresis)--
                     Node { width: percent(100), column_gap: px(3), flex_shrink: 0.0 }
                     Children [
-                        @action_button("预览 LOD", PlacementTransformAction::ToggleLodPreview, false)--
-                        @action_button("三角线", PlacementTransformAction::ToggleLodTriangles, false)--
-                        @action_button("对照原始", PlacementTransformAction::CompareLodOriginal, false)
+                        @action_button("预览 LOD", PlacementTransformAction::ToggleLodPreview)--
+                        @action_button("三角线", PlacementTransformAction::ToggleLodTriangles)--
+                        @action_button("对照原始", PlacementTransformAction::CompareLodOriginal)
                     ]--
                     super::lod_preview::LodPreviewSummary Text("")
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
@@ -263,9 +213,9 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
                     @crate::ui::context_help::section_header("碰撞 LOD", "碰撞精度独立于显示和相机，安全近区至少32米。保持原始只停止减面，不关闭碰撞；自定义也受全局碰撞LOD开关约束，默认关闭简化。盒碰撞、建筑专用碰撞等安全形状保持原实现。")--
                     Node { width: percent(100), column_gap: px(3), flex_shrink: 0.0 }
                     Children [
-                        @action_button("继承全局", PlacementTransformAction::CollisionLodInherit, false)--
-                        @action_button("保持原始", PlacementTransformAction::CollisionLodOriginal, false)--
-                        @action_button("自定义", PlacementTransformAction::CollisionLodCustom, false)
+                        @action_button("继承全局", PlacementTransformAction::CollisionLodInherit)--
+                        @action_button("保持原始", PlacementTransformAction::CollisionLodOriginal)--
+                        @action_button("自定义", PlacementTransformAction::CollisionLodCustom)
                     ]--
                     @numeric_input_slot(PlacementTransformField::LodSafeNear)--
                     @numeric_input_slot(PlacementTransformField::LodCollisionError)

@@ -57,6 +57,7 @@ fn model(preferences: &Preferences, project: Option<&crate::project::Project>) -
             .collect(),
         busy: false,
         cancellable: false,
+        opening: None,
         status: if project.is_some() {
             "工程已打开"
         } else {

@@ -942,7 +942,7 @@ fn key(world: &mut World, window: Entity, code: KeyCode, logical: Key) {
     key_state(world, window, code, logical, ButtonState::Released);
 }
 
-fn key_state(world: &mut World, window: Entity, key_code: KeyCode, logical_key: Key, state: ButtonState) {
+pub(crate) fn key_state(world: &mut World, window: Entity, key_code: KeyCode, logical_key: Key, state: ButtonState) {
     window_event(world, KeyboardInput { window, key_code, logical_key, state, repeat: false, text: None });
 }
 

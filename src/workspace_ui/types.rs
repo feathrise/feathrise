@@ -29,6 +29,25 @@ pub(crate) enum Page {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum ProjectOpenStage {
+    PreparingFiles,
+    SavingPreferences,
+    LoadingWorkbench,
+    WaitingForHandoff,
+}
+
+impl ProjectOpenStage {
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::PreparingFiles => "打开工程 · 准备文件…",
+            Self::SavingPreferences => "打开工程 · 保存界面设置…",
+            Self::LoadingWorkbench => "打开工程 · 加载工作台…",
+            Self::WaitingForHandoff => "打开工程 · 等待切换…",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum WorkspaceField {
     NewParent,
     OpenPath,

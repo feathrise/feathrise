@@ -38,15 +38,6 @@ pub(crate) struct BatchEnvironment<'w, 's> {
     pub(super) registry: Option<Res<'w, BuildingPresetRegistry>>,
     pub(super) clipmap: Option<Res<'w, feathrise_scene::DynamicClipmapGroundSurface>>,
     pub(super) terrain_queries: feathrise_scene::TerrainObjectQueries<'w, 's>,
-    pub(super) legacy_buttons: Query<
-        'w,
-        's,
-        (
-            &'static crate::ui::placement_transform::SceneEditorPlacementTransformActionButton,
-            &'static EditorButtonClick,
-        ),
-        Changed<EditorButtonClick>,
-    >,
     pub(super) close_buttons: Query<
         'w,
         's,
@@ -366,21 +357,6 @@ pub(crate) fn handle_placement_batch(
         .iter()
         .find(|(_, interaction)| interaction.is_clicked())
         .map(|(button, _)| button.0)
-        .or_else(|| {
-            env.legacy_buttons.iter().find_map(|(button, interaction)| {
-                if !interaction.is_clicked() {
-                    return None;
-                }
-                use crate::ui::placement_transform::PlacementTransformAction;
-                match button.0 {
-                    // 【需求设计】属性面板的单对象复制同样冻结模型植被并后台重绑新ID；
-                    // 不能再落到旧PlacementAdded捷径，否则作者看得见的草会在副本上丢失。
-                    PlacementTransformAction::Duplicate => Some(PlacementBatchAction::Duplicate),
-                    PlacementTransformAction::Delete if selection.members.len() > 1 => Some(PlacementBatchAction::Delete),
-                    _ => None,
-                }
-            })
-        })
         .or_else(|| {
             if ctrl && keyboard.just_pressed(KeyCode::KeyC) {
                 Some(PlacementBatchAction::Copy)

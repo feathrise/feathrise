@@ -14,7 +14,9 @@ use bevy::{
     ui::{CalculatedClip, InteractionDisabled, RelativeCursorPosition},
     window::{FileDragAndDrop, Ime, PrimaryWindow, RawHandleWrapper},
 };
-use feathrise_editor_scene::workbench::{WorkbenchCentralPageHost, WorkbenchFloatingPanels, WorkbenchHostPageState};
+use feathrise_editor_scene::workbench::{
+    WorkbenchCentralPageHost, WorkbenchFloatingPanels, WorkbenchHostPageState, WorkbenchProjectOpenProgress,
+};
 use feathrise_editor_ui::colors as c;
 
 pub(super) fn show(state: &mut Presentation, page: Page) {
@@ -331,6 +333,7 @@ pub(super) fn present(
     mut commands: Commands,
     model: Res<WorkspaceModel>,
     state: Res<Presentation>,
+    mut progress: ResMut<WorkbenchProjectOpenProgress>,
     mut bodies: Query<
         &mut Node,
         (
@@ -418,7 +421,12 @@ pub(super) fn present(
             **text = target.clone();
         }
     }
-    let status = if state.error.is_empty() {
+    let opening = model.opening.map(ProjectOpenStage::label);
+    progress.set_if_neq(WorkbenchProjectOpenProgress(opening));
+    // 最近列表可以滚出正文末尾，把在途阶段统一交给始终可见的原信息栏。
+    let status = if opening.is_some() {
+        ""
+    } else if state.error.is_empty() {
         &model.status
     } else {
         &state.error

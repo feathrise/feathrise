@@ -2,7 +2,7 @@
 use super::process::AuthorProcess;
 use crate::{
     build_process::BuildControl, folder_picker::FolderPicker, project::Project,
-    user_preferences::Preferences, workspace_ui::WorkspaceField,
+    user_preferences::Preferences, workspace_ui::{ProjectOpenStage, WorkspaceField},
 };
 use std::{path::PathBuf, sync::mpsc::Receiver, thread::JoinHandle, time::Instant};
 
@@ -53,6 +53,25 @@ impl Host {
     pub fn notice(&mut self, notice: impl Into<String>) {
         self.notice = notice.into();
         self.changed = true;
+    }
+
+    /// 各阶段从唯一的工程任务槽和实际候选交接推导，取消后及时收起加载反馈。
+    pub(super) fn project_open_stage(&self) -> Option<ProjectOpenStage> {
+        if self.exit_app {
+            None
+        } else if self.job.as_ref().is_some_and(|job| !job.control.is_cancelled()) {
+            Some(ProjectOpenStage::PreparingFiles)
+        } else if self.prepared.is_some() {
+            Some(ProjectOpenStage::SavingPreferences)
+        } else if self.candidate.is_some() {
+            Some(if self.want_close {
+                ProjectOpenStage::WaitingForHandoff
+            } else {
+                ProjectOpenStage::LoadingWorkbench
+            })
+        } else {
+            None
+        }
     }
 }
 

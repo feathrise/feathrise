@@ -437,30 +437,14 @@ fn inspector_base_terrain_and_building_use_distinct_read_only_summary() {
 }
 
 #[test]
-fn inspector_locate_uses_original_context_gate_without_changing_tool_or_selection() {
+fn inspector_points_to_scene_tree_actions_without_changing_tool_or_selection() {
     let (mut app, _) = page(1);
     select(&mut app, false);
     let before = author(&app);
     let world = app.world_mut();
-    let button = world
-        .query_filtered::<Entity, With<SceneEditorPlacementTransformLocate>>()
-        .single(world)
-        .unwrap();
-    world.resource_mut::<SceneEditorState>().tool = crate::types::EditorTool::Inspect;
+    world.resource_mut::<SceneEditorState>().tool = crate::types::EditorTool::Portal;
     app.update();
-    assert!(
-        app.world()
-            .get::<bevy::ui::InteractionDisabled>(button)
-            .is_none()
-    );
-    app.world_mut().resource_mut::<SceneEditorState>().tool = crate::types::EditorTool::Portal;
-    app.update();
-    assert!(
-        app.world()
-            .get::<bevy::ui::InteractionDisabled>(button)
-            .is_some()
-    );
-    assert!(text(&mut app, SceneInspectorField::Hint).contains("定位请先切到选择模式"));
+    assert!(text(&mut app, SceneInspectorField::Hint).contains("场景树右键"));
     assert_eq!(
         app.world()
             .resource::<EditorGltfBrowserState>()
@@ -489,11 +473,6 @@ fn inspector_locate_uses_original_context_gate_without_changing_tool_or_selectio
         .valid = false;
     app.update();
     assert!(text(&mut app, SceneInspectorField::Name).starts_with("未命名网格\ngltf/"));
-    assert!(
-        app.world()
-            .get::<bevy::ui::InteractionDisabled>(button)
-            .is_some()
-    );
     app.world_mut()
         .resource_mut::<EditorAuthoringSession>()
         .saving = true;

@@ -2,6 +2,10 @@
 
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
+use crate::authoring::{
+    courtyards::{CourtyardAuthoringState, sync_visuals},
+    placement_batch::{PlacementBatchState, handle_placement_batch, handle_scene_menu, sync_batch_selection},
+};
 use feathrise_scene_content::{ScenePlacementTerrainPatch, SceneTerrainKind, TerrainId, TerrainObjectTransform};
 use std::sync::Arc;
 
@@ -77,11 +81,16 @@ fn terrain_patch_preview_recovers_retired_address_without_overwriting_another_ow
     }
 }
 
-/// 删除按钮沿用真实作者选择和活动根索引；旧预览地址不应获得销毁实体的信用。
+/// 夹具同时提供真实作者选择和活动根索引；旧预览地址不应获得销毁实体的信用。
 fn deletion_fixture(terrain_patch: bool) -> (App, Entity, ScenePlacementRecord, feathrise_scene_content::SceneId) {
     let (mut app, root, _) = crate::viewport::placement_move::interaction_tests::app();
     app.add_observer(crate::ui::placement_water::register_placement_instance_root)
-        .add_observer(crate::ui::placement_water::unregister_placement_instance_root);
+        .add_observer(crate::ui::placement_water::unregister_placement_instance_root)
+        .init_resource::<PlacementBatchState>()
+        .init_resource::<crate::viewport::multi_select::PlacementSelectionSet>()
+        .init_resource::<CourtyardAuthoringState>()
+        .add_systems(Update, (handle_placement_batch, sync_batch_selection, sync_visuals).chain()
+            .before(crate::viewport::placement_move::handle_placement_move));
     let (map, record, source) = {
         let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
         let draft = session.draft.as_mut().unwrap();
@@ -163,11 +172,47 @@ fn author_preview_replaces_visual_source_and_keeps_formal_suppression() {
     }
 }
 
-fn click_delete(app: &mut App) {
-    let button = app.world_mut().spawn((feathrise_editor_ui::EditorButtonClick::triggered(),
-        SceneEditorPlacementTransformActionButton(PlacementTransformAction::Delete))).id();
-    app.world_mut().run_system_once(handle_placement_transform_actions).unwrap();
-    app.world_mut().despawn(button);
+fn delete_from_scene_tree(app: &mut App, record: &ScenePlacementRecord) {
+    queue_scene_tree_delete(app, record);
+    finish_scene_tree_delete(app);
+}
+
+fn queue_scene_tree_delete(app: &mut App, record: &ScenePlacementRecord) {
+    use crate::ui::scene_context_menu::{
+        SceneContextMenuState, SceneMenuAction, SceneObjectKey, SceneObjectRequest, SceneObjectTarget,
+    };
+
+    let session = app.world().resource::<EditorAuthoringSession>();
+    let target = SceneObjectTarget {
+        scene_id: session.draft.as_ref().unwrap().scene_id.clone(),
+        revision: session.revision,
+        key: SceneObjectKey::Placement { index: 0, id: record.id.clone(), mesh: None },
+        name: record.id.clone(),
+        hidden: false,
+        locked: false,
+        copyable: true,
+    };
+    let mut menu = SceneContextMenuState::default();
+    menu.ready = Some(SceneObjectRequest { target, action: SceneMenuAction::Delete, name: String::new() });
+    app.insert_resource(menu);
+
+    // 模拟菜单已经派发的请求，正式批量提交和有界视觉队列仍负责落地。
+    app.world_mut().resource_mut::<SceneEditorState>().suppress_world_pick_this_frame = false;
+    app.world_mut().run_system_once(handle_scene_menu).unwrap();
+    app.world_mut().resource_mut::<SceneContextMenuState>().ready = None;
+    assert!(app.world().resource::<PlacementBatchState>().busy());
+}
+
+fn finish_scene_tree_delete(app: &mut App) {
+    let start = std::time::Instant::now();
+    while app.world().resource::<PlacementBatchState>().busy()
+        || app.world().resource::<PlacementBatchState>().owns_mouse()
+        || app.world().resource::<CourtyardAuthoringState>().visual_sync_pending()
+    {
+        app.update();
+        assert!(start.elapsed().as_secs() < 5);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
 }
 
 #[test]
@@ -195,13 +240,12 @@ fn terrain_patch_delete_stale_preview_addresses_preserve_other_owners_and_hide_a
             // 退役预览不能遮蔽同记录的新活动根；删除草稿时必须同时隐藏它。
             let active = app.world_mut().spawn((ScenePlacementInstance::new(&map, &record),
                 Transform::default(), Visibility::Inherited)).id();
-            click_delete(&mut app);
+            delete_from_scene_tree(&mut app, &record);
             let session = app.world().resource::<EditorAuthoringSession>();
             assert!(session.draft.as_ref().unwrap().placements.placements.is_empty(), "{stale_address}");
             assert!(!session.placement_previews.contains_key(&record.id), "{stale_address}");
-            assert!(matches!(session.undo.last(), Some(EditorCommand::PlacementRemoved {
-                had_author_preview: false, ..
-            })), "{stale_address}");
+            assert!(matches!(session.undo.as_slice(), [EditorCommand::CourtyardBatch(change)]
+                if change.removed.as_slice() == [(0, record.clone())]), "{stale_address}");
             assert_eq!(app.world().get::<Visibility>(active), Some(&Visibility::Hidden), "{stale_address}");
             if let Some((foreign_scene, foreign_id, transform, child)) = foreign {
                 let instance = app.world().get::<ScenePlacementInstance>(root).expect("外部拥有者的根必须保留");
@@ -226,13 +270,12 @@ fn terrain_patch_delete_owned_preview_still_despawns_root_and_preserves_rebuild_
         let formal = app.world_mut().spawn((ScenePlacementInstance::new(&map, &record),
             formal_transform, Visibility::Inherited, ChildOf(formal_parent))).id();
         let formal_child = app.world_mut().spawn(ChildOf(formal)).id();
-        click_delete(&mut app);
+        delete_from_scene_tree(&mut app, &record);
         let session = app.world().resource::<EditorAuthoringSession>();
         assert!(session.draft.as_ref().unwrap().placements.placements.is_empty());
         assert!(!session.placement_previews.contains_key(&record.id));
-        assert!(matches!(session.undo.last(), Some(EditorCommand::PlacementRemoved {
-            had_author_preview: true, ..
-        })));
+        assert!(matches!(session.undo.as_slice(), [EditorCommand::CourtyardBatch(change)]
+            if change.removed.as_slice() == [(0, record.clone())]));
         assert!(app.world().get_entity(root).is_err());
         assert!(app.world().get_entity(child).is_err());
         assert!(app.world().get_entity(formal).is_ok());
@@ -263,14 +306,15 @@ fn terrain_patch_delete_builtin_formal_root_disables_collision_without_rebuildin
         let transform = Transform::from_xyz(8.0, 9.0, 10.0);
         let formal = app.world_mut().spawn((ScenePlacementInstance::new(&map, &record),
             transform, Visibility::Inherited, ChildOf(parent))).id();
+        let asset_target = record.asset_target.clone();
         assert!(app.world_mut().run_system_once(move |mut commands: Commands| {
-            feathrise_scene::spawn_builtin_placement_visual(&mut commands, formal, record.asset_target.clone())
+            feathrise_scene::spawn_builtin_placement_visual(&mut commands, formal, asset_target.clone())
         }).unwrap());
         let visual = app.world().get::<Children>(formal).unwrap()[0];
         assert!(app.world().get::<Collider>(visual).is_some());
         assert!(app.world().get::<ColliderDisabled>(visual).is_none());
         let mesh = app.world().get::<Mesh3d>(visual).unwrap().0.clone();
-        click_delete(&mut app);
+        delete_from_scene_tree(&mut app, &record);
         assert_eq!(app.world().get::<Visibility>(formal), Some(&Visibility::Hidden));
         assert_eq!(app.world().get::<Transform>(formal), Some(&transform));
         assert_eq!(app.world().get::<ChildOf>(formal).map(ChildOf::parent), Some(parent));

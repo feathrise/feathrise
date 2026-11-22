@@ -175,11 +175,23 @@ pub(crate) fn handle_gltf_browser_input(
         }
         return; // 只处理箭头自己的脉冲，也不让旧箭头手势改派到名称行。
     }
-    let Some(entry_index) = rows.iter().find_map(|(interaction, row)| {
+    let Some(row) = rows.iter().find_map(|(interaction, row)| {
         (interaction.is_changed() && interaction.is_clicked() && row.entries_revision == state.published_entries_revision)
-            .then_some(row.entry_index)
-            .flatten()
+            .then_some(row)
     }) else { return; }; // 点击只采用上一呈现阶段发布的树行身份。
+    if row.main_glb == Some(MainSceneGlbRow::File) {
+        let Some(draft) = main_glb_draft(&editor, &session) else { return; };
+        state.clear_viewport_selection();
+        // 文件行只选中主 GLB，摆放或地形的旧目标不得继续接收属性操作。
+        state.selected_main_glb = Some(draft.scene_id.clone());
+        viewport_selection.clear_vegetation_selection();
+        candidates.clear_for_scene_tree();
+        selected_viewport.clear_click_sequence();
+        if let Some(selection) = multi_selection.as_mut() { selection.clear(); }
+        if let Some(sidebar) = sidebar.as_mut() { sidebar.reveal_scene_properties(); }
+        return;
+    }
+    let Some(entry_index) = row.entry_index else { return; };
     if state.signature_build.is_some() || state.entries_build.is_some() {
         state.status = "场景树正在更新，请完成后再选择或展开".to_owned();
         return; // 旧活动行保持完整，但其索引在新结构发布前不得继续接受输入。
@@ -194,6 +206,7 @@ pub(crate) fn handle_gltf_browser_input(
         sidebar.reveal_scene_properties(); // 左树选择后立即显示全高属性，保留导航和工具记忆。
     }
     viewport_selection.clear_vegetation_selection(); // 明确选择场景对象时隐藏旧植被覆盖。
+    state.selected_main_glb = None;
     if let EditorGltfBrowserEntryKind::Group { name, .. } = &entry.kind {
         state.selected_group = Some(name.clone());
         state.selected_placement_id = None; state.selection = None;
@@ -408,7 +421,8 @@ pub(crate) fn sync_gltf_browser_rows(
         let placement = binding.and_then(|index| state.entries.get(index).map(|entry| (index, entry)));
         let (depth, name, prefix, base_color, icon, selected) = if let Some((kind, name)) = main_row {
             match kind {
-                MainSceneGlbRow::File => (0, name, "", colors::TEXT_ACCENT, asset_icons::GLB, false),
+                MainSceneGlbRow::File => (0, name, "", colors::TEXT_ACCENT, asset_icons::GLB,
+                    main_glb.is_some_and(|draft| state.is_main_glb_selected(&draft.scene_id))),
                 MainSceneGlbRow::Animation(_) => (1, name, "", colors::TEXT_PRIMARY, "icons/editor/tree_file.png", false),
                 MainSceneGlbRow::Empty => (1, name, "", colors::TEXT_MUTED, "icons/editor/tree_file.png", false),
             }

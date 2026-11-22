@@ -81,9 +81,7 @@ pub(crate) fn select_target(
         placement.clear_click_sequence();
     }
     if let Some(browser) = browser.as_mut() {
-        browser.selected_group = None;
-        browser.selection = None;
-        browser.selected_placement_id = None;
+        browser.clear_viewport_selection();
     }
     if !author_layer_selected && let Some(candidates) = candidates.as_mut() {
         candidates.clear_for_scene_tree();

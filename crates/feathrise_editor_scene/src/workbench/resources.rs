@@ -3,6 +3,10 @@ use super::{EditorAction, WorkbenchScene, types::CatalogResult};
 use bevy::{prelude::*, tasks::Task};
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
+/// 主宿主发布的真实工程打开阶段。离开打开流程后，信息栏恢复采用原作者状态。
+#[derive(Resource, Default, PartialEq, Eq)]
+pub struct WorkbenchProjectOpenProgress(pub Option<&'static str>);
+
 /// 无工程宿主交接偏好所有权时暂缓修改；不暴露宿主进程、文件或保存状态给共享工作台。
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WorkbenchSettingsAccess {

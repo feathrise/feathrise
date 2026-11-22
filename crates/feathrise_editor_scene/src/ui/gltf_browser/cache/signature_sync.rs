@@ -39,6 +39,7 @@ pub(super) fn synchronize_signature_build(
         retired.entries_build(state.entries_build.take()); // 旧行草稿逐条清理。
         if scene_changed {
             state.expanded_main_glb = None;
+            state.selected_main_glb = None;
             retired.string_set(std::mem::take(&mut state.expanded_placements)); // 展开偏好不跨场景且不整批clear。
             retired.string_set(std::mem::take(&mut state.expanded_groups));
             retired.string(state.selected_group.take());

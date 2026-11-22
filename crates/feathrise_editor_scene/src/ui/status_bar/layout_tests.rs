@@ -195,11 +195,12 @@ fn footer_and_viewport_do_not_move_when_details_expand_or_feedback_grows() {
                     "{width}/{scale}/{dpi}: {body:?}"
                 );
                 let world = app.world_mut();
-                for (button, node, transform) in world
-                    .query::<(&StatusButton, &ComputedNode, &UiGlobalTransform)>()
+                for (button, style, node, transform) in world
+                    .query::<(&StatusButton, &Node, &ComputedNode, &UiGlobalTransform)>()
                     .iter(world)
                 {
-                    if button.0 == StatusAction::Toggle {
+                    // 空闲时隐藏的任务与回执按钮没有弹窗内的可见几何。
+                    if button.0 == StatusAction::Toggle || style.display == Display::None {
                         continue;
                     }
                     let rect = Rect::from_center_size(transform.translation, node.size());
@@ -210,7 +211,8 @@ fn footer_and_viewport_do_not_move_when_details_expand_or_feedback_grows() {
                         );
                     } else {
                         assert!(
-                            rect.min.y >= body.max.y - 1.01 && rect.max.y <= panel.max.y + 1.01
+                            rect.min.y >= body.max.y - 1.01 && rect.max.y <= panel.max.y + 1.01,
+                            "{width}/{scale}/{dpi} {:?}: {rect:?}, {body:?}, {panel:?}", button.0
                         );
                     }
                 }

@@ -8,10 +8,8 @@ use bevy::ui::RelativeCursorPosition; // 落点只接受中央编辑视口内的
 use feathrise_scene_content::ScenePlacementRecord; // 纯帮助函数只修改完整摆放记录的落点字段，并区分Clipmap查询路线。
 use feathrise_scene::{ClipmapGroundHit, DynamicClipmapGroundSurface, ScenePlacementInstance}; // Clipmap普通摆放消费一次正式三角点击；活动正式根与作者预览共享稳定身份。
 
-use super::{
-    PlacementRelocationIntent, PlacementTransformInputState, actions::sync_placement_record_world_with_terrain,
-}; // 武装身份、延迟复制意图与定向世界同步仍由完整变换域统一所有。
-use crate::authoring::buildings::{BuildingEditRequest, BuildingTerrainHit}; // 建筑移动和复制只提交后台受检候选。
+use super::{PlacementTransformInputState, actions::sync_placement_record_world_with_terrain};
+use crate::authoring::buildings::{BuildingEditRequest, BuildingTerrainHit}; // 建筑移动提交后台受检候选。
 use crate::authoring::placement_pose::placement_rotation;
 use crate::authoring::{EditorAuthoringSession, EditorCommand}; // 单次落点写回草稿并进入既有有界撤销链。
 use crate::components::SceneEditorViewport; // 中央视口稳定命中marker。
@@ -122,7 +120,6 @@ pub(crate) fn apply_selected_placement_relocation(
     }
     if session.saving {
         transform_state.relocation_target = None; // 保存抢占后旧点击意图不能跨快照继续。
-        transform_state.relocation_intent = PlacementRelocationIntent::Move;
         editor.status = "场景正在保存，本次资产吸附已取消".to_owned();
         return;
     }
@@ -138,7 +135,6 @@ pub(crate) fn apply_selected_placement_relocation(
         || target.authoring_revision != session.revision
     {
         transform_state.relocation_target = None; // 中途改选或发生其他作者动作时禁止误吸附另一项。
-        transform_state.relocation_intent = PlacementRelocationIntent::Move;
         editor.status = "待吸附资产选择或作者状态已经变化，本次吸附已取消".to_owned();
         return;
     }
@@ -159,7 +155,6 @@ pub(crate) fn apply_selected_placement_relocation(
             })
     }) else {
         transform_state.relocation_target = None;
-        transform_state.relocation_intent = PlacementRelocationIntent::Move;
         editor.status = "待吸附资产记录已经失效".to_owned();
         return;
     };
@@ -265,32 +260,14 @@ pub(crate) fn apply_selected_placement_relocation(
             position, // 与三角序号来自同一帧相机命中。
             triangle, // 后台据此隔离洞顶、洞底和悬空层。
         });
-        let request = match transform_state.relocation_intent {
-            PlacementRelocationIntent::Move => BuildingEditRequest::Relocate {
-                target: frozen,
-                world_xz,
-                terrain_hit,
-            },
-            PlacementRelocationIntent::DuplicateBuilding => BuildingEditRequest::DuplicateAt {
-                target: frozen,
-                world_xz,
-                terrain_hit,
-            },
-        };
-        building_edits.write(request);
-        let action = match transform_state.relocation_intent {
-            PlacementRelocationIntent::Move => "移动",
-            PlacementRelocationIntent::DuplicateBuilding => "复制",
-        };
+        building_edits.write(BuildingEditRequest::Relocate { target: frozen, world_xz, terrain_hit });
         transform_state.relocation_target = None; // 当前点击已经移交专用single-flight任务。
-        transform_state.relocation_intent = PlacementRelocationIntent::Move;
-        editor.status = format!("已提交建筑{action}候选，正在后台校验占地、门口与五点地基");
+        editor.status = "已提交建筑移动候选，正在后台校验占地、门口与五点地基".into();
         return; // 校验成功前不改草稿、不改预览、不生成撤销记录。
     }
     let (before, after, bounds) = {
         let Some(draft) = session.draft.as_ref() else {
             transform_state.relocation_target = None;
-            transform_state.relocation_intent = PlacementRelocationIntent::Move;
             editor.status = "场景作者草稿尚未就绪".to_owned();
             return;
         };
@@ -301,7 +278,6 @@ pub(crate) fn apply_selected_placement_relocation(
             .filter(|record| record.id == target.placement_id)
         else {
             transform_state.relocation_target = None;
-            transform_state.relocation_intent = PlacementRelocationIntent::Move;
             editor.status = "待吸附资产记录已经失效".to_owned();
             return;
         };
@@ -318,7 +294,6 @@ pub(crate) fn apply_selected_placement_relocation(
         (before, after, bounds) // 候选转换与验证不修改作者数组。
     };
     transform_state.relocation_target = None; // 当前点击已经形成明确结果。
-    transform_state.relocation_intent = PlacementRelocationIntent::Move;
     if before == after {
         editor.status = format!("资产 {} 已位于该吸附落点", after.id);
         return; // 同位置点击不制造撤销或dirty。

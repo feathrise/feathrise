@@ -44,7 +44,7 @@ pub(crate) fn input(
         || !request.target.allows(request.action)
         || state.busy()
         || session.model_vegetation_busy
-        || !context.batch_available(&editor)
+        || !context.tree_batch_available(&editor)
         || movement.owns_mouse()
         || selection.owns_mouse()
         || guard.blocked()
@@ -115,7 +115,7 @@ mod tests {
             {
                 let mut editor = app.world_mut().resource_mut::<SceneEditorState>();
                 editor.placement_transform_enabled = false;
-                editor.tool = crate::types::EditorTool::Inspect;
+                editor.tool = crate::types::EditorTool::Vegetation;
             }
             let target = {
                 let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
@@ -157,6 +157,7 @@ mod tests {
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
             let session = app.world().resource::<EditorAuthoringSession>();
+            assert_eq!(app.world().resource::<SceneEditorState>().tool, crate::types::EditorTool::Vegetation);
             let records = &session.draft.as_ref().unwrap().placements.placements;
             assert_eq!(records[0].id, "move-test");
             if action == SceneMenuAction::Copy {

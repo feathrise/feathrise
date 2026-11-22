@@ -1,8 +1,6 @@
 //! 项目CJK字体下检查窄栏、缩放、DPI与固定行池；不替代原生窗口视觉验收。
 
 use super::*;
-use crate::components::SceneEditorActionButton;
-use crate::types::EditorAction;
 use crate::ui::continuous_list::pool_capacity;
 use crate::ui::list_layout::SCENE_OBJECT_ROW_PITCH;
 
@@ -85,37 +83,9 @@ fn inspector_tree_and_properties_have_independent_scroll_hosts() {
     assert_eq!(world.query::<&crate::ui::sidebars::SceneEditorSidebarHelpButton>()
         .iter(world).filter(|button| button.0 == crate::ui::sidebars::EditorSidebarHelp::Inspector).count(), 1,
         "完整来源通过唯一问号浮层查看，正文不再保留整行展开标签");
-    let locate = world
-        .query::<(Entity, &SceneEditorActionButton)>()
-        .iter(world)
-        .find(|(_, action)| action.0 == EditorAction::FocusSelected)
-        .unwrap()
-        .0;
-    let [duplicate, delete] = [
-        PlacementTransformAction::Duplicate,
-        PlacementTransformAction::Delete,
-    ]
-    .map(|action| {
-        world
-            .query::<(Entity, &SceneEditorPlacementTransformActionButton)>()
-            .iter(world)
-            .find(|(_, marker)| marker.0 == action)
-            .unwrap()
-            .0
-    });
-    let row = world.get::<ChildOf>(locate).unwrap().parent();
-    assert_eq!(world.get::<ChildOf>(duplicate).unwrap().parent(), row);
-    assert_eq!(world.get::<ChildOf>(delete).unwrap().parent(), row);
-    for entity in [locate, duplicate, delete] {
-        let node = world.get::<Node>(entity).unwrap();
-        assert_eq!(node.height, px(26));
-        assert_eq!(node.align_items, AlignItems::Center);
-        assert_eq!(node.justify_content, JustifyContent::Center);
-    }
-    assert_eq!(
-        world.get::<BackgroundColor>(delete).unwrap().0,
-        crate::ui::theme::DANGER_BG
-    );
+    assert!(world.query::<&Text>().iter(world)
+        .all(|text| !matches!(text.as_str(), "定位" | "复制" | "删除")),
+        "检查器只保留对象属性动作");
     let quarter = world
         .query::<(&SceneEditorPlacementTransformActionButton, &Node)>()
         .iter(world)

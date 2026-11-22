@@ -89,6 +89,7 @@ pub(crate) enum BuildingEditRequest {
         target: BuildingEditTarget,
         yaw_degrees: f32, // 旋转手柄一次指定90°档位，逆时针/跨多档仍通过同一后台槽和一次历史。
     },
+    #[expect(dead_code, reason = "保留单栋复制的显式整平事务，当前编辑器由批量入口发起复制")]
     DuplicateAt {
         target: BuildingEditTarget, // 源建筑保持不动且不预先创建重叠副本。
         world_xz: Vec2,             // 新副本通过校验后才原子出现。

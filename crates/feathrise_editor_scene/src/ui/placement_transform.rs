@@ -429,10 +429,6 @@ impl PlacementPropertiesSection {
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub(crate) struct SceneEditorPlacementTransformSummary;
 
-/// 此定位入口复用原聚焦动作，仅在能定位当前场景选择的原工具上下文可用。
-#[derive(Component, Clone, Copy, Default)]
-pub(crate) struct SceneEditorPlacementTransformLocate;
-
 /// 属性面板独立动作，不扩大全局编辑工具枚举。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum PlacementTransformAction {
@@ -441,8 +437,6 @@ pub(crate) enum PlacementTransformAction {
     FollowTerrain,       // 保持当前世界Y并改用“R16地表+离地偏移”语义。
     FixedHeight,         // 保持当前世界Y并停止响应后续地形变化。
     RotateQuarterTurn,   // 建筑专用：顺时针旋转90°并走完整后台占地与地基校验。
-    Duplicate,           // 克隆完整记录并立即进入吸附落点模式。
-    Delete,              // 删除当前完整记录，保留统一撤销能力。
     ToggleTerrainPatch,  // 普通GLB与静态三维地形之间切换，开启时固定当前世界高度。
     ToggleTerrainCutout, // 一条记录内的可撤销矩形开口，不建立独立孤立洞口实体。
     ToggleCuboidCollision, // 内置网格和普通 GLB 的碰撞设置随场景保存。
@@ -457,15 +451,7 @@ pub(crate) enum PlacementTransformAction {
     CompareLodOriginal,
 }
 
-/// 下一次中央视口落点对应移动现有记录，还是延迟创建建筑副本。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) enum PlacementRelocationIntent {
-    #[default]
-    Move, // 普通资产或建筑移动现有记录。
-    DuplicateBuilding, // 建筑校验成功前不创建任何临时重叠记录。
-}
-
-/// 高度模式、吸附、复制和删除按钮的稳定业务marker。
+/// 完整摆放属性按钮的稳定业务 marker。
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub(crate) struct SceneEditorPlacementTransformActionButton(pub(crate) PlacementTransformAction);
 
@@ -524,7 +510,6 @@ pub(crate) struct PlacementTransformInputState {
     animation_scrub: Option<PlacementAnimationScrub>, // 动画数值拖动只预览帧姿势，取消恢复该帧。
     pub(super) rejected_scrub: Option<Entity>, // 取消后的同根Changed持续拒收，直到真实Scrub松手，不能将事务空窗当作新笔。
     pub(super) relocation_target: Option<PlacementTransformTarget>, // 下一次中央视口左键绑定的完整稳定资产。
-    pub(super) relocation_intent: PlacementRelocationIntent, // 建筑复制与普通移动共享一个视口点击门。
     lod_preview: Option<lod_preview::PlacementLodPreview>,
     lod_preview_available: bool,
 }
@@ -544,7 +529,7 @@ impl PlacementTransformInputState {
             scrub.target.structure_revision, &scrub.before, &scrub.latest_record))
     }
 
-    /// 普通资产与建筑共用射线，建筑最终高度仍交给五点地基；复制不能变成迟到移动。
+    /// 普通资产与建筑共用射线，建筑最终高度仍交给五点地基。
     pub(crate) fn relocation_ground_target(
         &self,
         building: bool,
@@ -555,7 +540,7 @@ impl PlacementTransformInputState {
         Some(if building {
             crate::viewport::vegetation_ground::GroundCursorTarget::RelocateBuilding {
                 placement_id,
-                duplicate: self.relocation_intent == PlacementRelocationIntent::DuplicateBuilding,
+                duplicate: false,
                 controls,
                 catalog_revision,
             }

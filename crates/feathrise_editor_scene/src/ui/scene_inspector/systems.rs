@@ -52,6 +52,9 @@ pub(crate) fn sync_scene_inspector(
         editor.selected_scene_id.as_ref() == Some(&draft.scene_id) && !editor.scene_transition_in_progress
     }); // 旧草稿和新图同名实例不得在检查器中串用。
     let target = selection.0.as_deref().and_then(|state| state.selected.as_ref());
+    let main_glb = target.is_none() && draft.is_some_and(|draft| {
+        draft.placement_glb_hash.is_some() && browser.is_main_glb_selected(&draft.scene_id)
+    });
     let multi_count = selection.1.as_deref().filter(|state| state.ready_for(&session))
         .map_or(0, |state| state.members.len());
     let management = matches!(target, None | Some(LayerTarget::Placement(_)))
@@ -73,6 +76,7 @@ pub(crate) fn sync_scene_inspector(
     let relocation_armed = transform.relocation_armed();
     let unchanged = previous.as_ref().is_some_and(|old| {
         old.target.as_ref() == target && old.multi_count == multi_count && old.group == browser.selected_group
+            && old.main_glb == main_glb
             && old.scene_id.as_ref() == editor.selected_scene_id.as_ref()
             && old.draft_scene_id.as_ref() == draft_scene_id
             && old.revision == session.revision
@@ -93,7 +97,7 @@ pub(crate) fn sync_scene_inspector(
     let changed_selection = previous.as_ref().is_none_or(|old| {
         old.target.as_ref() != target || old.scene_id != editor.selected_scene_id
             || old.placement_id != browser.selected_placement_id || old.group != browser.selected_group
-            || old.multi_count != multi_count
+            || old.multi_count != multi_count || old.main_glb != main_glb
     });
     if changed_selection {
         // 新对象从属性标题开始阅读；数值回显、后台反馈与分隔拖动不打断当前滚动位置。
@@ -102,7 +106,7 @@ pub(crate) fn sync_scene_inspector(
         }
     }
     *previous = Some(SceneInspectorObservation {
-        target: target.cloned(), multi_count, group: browser.selected_group.clone(),
+        target: target.cloned(), multi_count, group: browser.selected_group.clone(), main_glb,
         scene_id: editor.selected_scene_id.clone(),
         draft_scene_id: draft_scene_id.cloned(),
         revision: session.revision,
@@ -131,7 +135,7 @@ pub(crate) fn sync_scene_inspector(
         .as_ref()
         .filter(|selection| record.is_some_and(|record| record.id == selection.placement_id));
     for mut node in &mut properties {
-        let display = if record.is_some() {
+        let display = if record.is_some() || main_glb {
             Display::Flex
         } else {
             Display::None
@@ -140,6 +144,7 @@ pub(crate) fn sync_scene_inspector(
             node.display = display;
         }
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     let (name, details, hint) = if editor.scene_transition_in_progress {
         (
             "场景加载中".to_owned(),
@@ -160,6 +165,13 @@ pub(crate) fn sync_scene_inspector(
             };
             (format!("所选{label}"), format!("对象 ID  {id}"),
                 "属性修改沿用场景保存与撤销；创建与绘制入口位于顶部工具栏。".to_owned())
+        } else if main_glb {
+            (
+                format!("{}\n{}", locale.text("label.main-scene-glb"), draft.placements_path()),
+                format!("{}  GLB\n{}  {}\n{}  {}", locale.text("label.type"), locale.text("label.scene"),
+                    draft.manifest.display_name, locale.text("project.filter.animations"), draft.motion.clip_names().len()),
+                String::new(),
+            )
         } else if let Some(record) = record {
             let name = mesh.map_or_else(
                 || {
@@ -218,13 +230,8 @@ pub(crate) fn sync_scene_inspector(
                 "等待中央视口单击落点；吸附地面沿用真实地形命中规则。"
             } else if record.building_preset_id.is_some() {
                 "建筑使用受检落点与90°旋转，不开放任意变换数值。"
-            } else if !matches!(
-                editor.tool,
-                crate::types::EditorTool::Inspect | crate::types::EditorTool::PlaceAsset
-            ) {
-                "变换、复制与删除仍可使用；定位请先切到选择模式，避免聚焦其他工具的目标。"
             } else {
-                "选择模式下定位只调整视图；复制、删除和变换沿用场景撤销与保存。"
+                "对象操作位于场景树右键菜单。"
             };
             (name, details, hint.to_owned())
         } else if browser.selected_placement_id.is_some() {
@@ -277,7 +284,6 @@ pub(crate) fn sync_scene_inspector(
     let (name, hint) = if section == Some(InspectorSection::Terrain) {
         (String::new(), String::new()) // 网格自身已给出真实名称、来源与常用属性，避免重复“所选网格”和固定教程。
     } else { (name, hint) };
-    let locale = locale.as_deref().copied().unwrap_or_default();
     for (marker, mut text, mut node) in &mut texts {
         let value = match marker.0 {
             SceneInspectorField::Name => &name,

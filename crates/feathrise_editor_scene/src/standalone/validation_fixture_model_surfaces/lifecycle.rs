@@ -1,4 +1,4 @@
-//! 用原数值消息、属性按钮和视口确认验证模型生命周期；观测真实运行子树与热更回执。
+//! 用原数值消息、键盘快捷键和视口确认验证模型生命周期；观测真实运行子树与热更回执。
 
 use super::{lifecycle_io::{self, Mutation, Source}, resources::Fixture, types::MODEL};
 use crate::{
@@ -6,11 +6,12 @@ use crate::{
     components::{SceneEditorActionButton, SceneEditorViewport},
     resources::{SceneEditorState, SceneEditorViewportState},
     types::{EditorAction, EditorTool, EditorView},
-    ui::{gltf_browser::EditorGltfBrowserState, placement_transform::{PlacementTransformAction,
-        PlacementTransformField, SceneEditorPlacementTransformActionButton}},
+    ui::{file_manager_validation::key_state, gltf_browser::EditorGltfBrowserState,
+        placement_transform::PlacementTransformField},
     viewport::{modes::{ViewportMode, ViewportModeState}, multi_select::PlacementSelectionSet},
 };
-use bevy::{prelude::*, tasks::{IoTaskPool, Task, futures::check_ready}, ui::RelativeCursorPosition};
+use bevy::{input::{ButtonState, keyboard::Key}, prelude::*,
+    tasks::{IoTaskPool, Task, futures::check_ready}, ui::RelativeCursorPosition, window::PrimaryWindow};
 use feathrise_editor_ui::{EditorButtonClick, NumericInputCommitted, NumericInputCommitOutcome,
     NumericInputCommitSource, NumericValue};
 use feathrise_environment::vegetation::blade::GpuBladePatch;
@@ -149,17 +150,18 @@ fn step(world: &mut World, state: &mut Lifecycle, pulse: &mut Option<Entity>) ->
         }
         Stage::Duplicate => {
             if !state.issued { select(world, MODEL); state.issued = true; }
-            let session = world.resource::<EditorAuthoringSession>();
-            let selection = world.resource::<PlacementSelectionSet>();
             // 原选择域在Tasks阶段把树的单项同步到选集；须等它完成本轮Undo后的正式复核，
             // 不能先清空选集又同帧按复制，让下一次自动发布被正确识别成“选集已变化”。
-            if !selection.ready_for(session) || selection.members.len() != 1 || selection.members[0].id != MODEL
-                || world.resource::<EditorGltfBrowserState>().placement_record_index(MODEL, session.placement_structure_revision).is_none()
-            { return Ok(None); }
-            *pulse = Some(object_action(world, PlacementTransformAction::Duplicate));
+            if !selection_ready(world, MODEL) { return Ok(None); }
+            duplicate_shortcut(world, ButtonState::Pressed)?;
             state.next(Stage::WaitPaste);
         }
         Stage::WaitPaste => {
+            if !state.issued {
+                // Ctrl 与 D 保持按住到下一轮原 Input 系统读到组合键，随后分别释放。
+                duplicate_shortcut(world, ButtonState::Released)?;
+                state.issued = true;
+            }
             if world.resource::<PlacementBatchState>().grid_reference().is_some() { state.next(Stage::ConfirmCopy); }
             else if state.at.elapsed() > Duration::from_secs(5)
                 && world.resource::<PlacementBatchState>().validation_waiting_for_ghost_records()
@@ -172,7 +174,7 @@ fn step(world: &mut World, state: &mut Lifecycle, pulse: &mut Option<Entity>) ->
                 && ["已取消对象批量操作", "批量操作身份已变化"].iter()
                     .any(|&prefix| world.resource::<SceneEditorState>().status.starts_with(prefix))
             {
-                return Err(format!("模型属性复制被原批量域取消：{}", world.resource::<SceneEditorState>().status));
+                return Err(format!("Ctrl+D 复制被原批量域取消：{}", world.resource::<SceneEditorState>().status));
             }
         }
         Stage::ConfirmCopy => { state.next(Stage::WaitCopy); }
@@ -181,18 +183,22 @@ fn step(world: &mut World, state: &mut Lifecycle, pulse: &mut Option<Entity>) ->
             let session = world.resource::<EditorAuthoringSession>();
             let draft = session.draft.as_ref().ok_or("模型副本草稿丢失")?;
             let added: Vec<_> = draft.placements.placements.iter().filter(|r|!state.placements.contains(&r.id)).collect();
-            if added.len() != 1 { return Err("属性复制没有且仅有一个新对象ID".into()); }
+            if added.len() != 1 { return Err("Ctrl+D 复制应产生一个新对象 ID".into()); }
             let copied = added[0].id.clone();
             let current = model_vegetation::root_targets(draft);
             same_copy(&state.targets, &current, &copied)?;
             if !ready(world) || output(world, &copied)?.is_none() { return Ok(None); }
-            state.proofs.push(json!({"duplicate":"original_property_button_and_viewport_confirm",
+            state.proofs.push(json!({"duplicate":"original_ctrl_d_shortcut_and_viewport_confirm",
                 "source_id":MODEL,"new_id":copied,"anchors_and_all_layer_densities_preserved":true}));
             state.copied = Some(copied.clone()); state.copied_targets = Some(current);
             select(world, &copied); state.next(Stage::Delete);
         }
         Stage::Delete => {
-            *pulse = Some(object_action(world, PlacementTransformAction::Delete)); state.next(Stage::WaitDelete);
+            if !selection_ready(world, state.copied.as_deref().unwrap()) { return Ok(None); }
+            let window = primary_window(world)?;
+            key_state(world, window, KeyCode::Delete, Key::Delete, ButtonState::Pressed);
+            key_state(world, window, KeyCode::Delete, Key::Delete, ButtonState::Released);
+            state.next(Stage::WaitDelete);
         }
         Stage::WaitDelete | Stage::WaitRedoDelete => {
             let copied = state.copied.as_deref().unwrap();
@@ -309,8 +315,22 @@ fn step(world: &mut World, state: &mut Lifecycle, pulse: &mut Option<Entity>) ->
 fn action(world: &mut World, action: EditorAction) -> Entity {
     world.spawn((SceneEditorActionButton(action),EditorButtonClick::triggered())).id()
 }
-fn object_action(world: &mut World, action: PlacementTransformAction) -> Entity {
-    world.spawn((SceneEditorPlacementTransformActionButton(action),EditorButtonClick::triggered())).id()
+fn primary_window(world: &mut World) -> Result<Entity, String> {
+    world.query_filtered::<Entity, With<PrimaryWindow>>().single(world)
+        .map_err(|_| "模型生命周期验收需要唯一主窗口".into())
+}
+fn duplicate_shortcut(world: &mut World, state: ButtonState) -> Result<(), String> {
+    let window = primary_window(world)?;
+    key_state(world, window, KeyCode::ControlLeft, Key::Control, state);
+    key_state(world, window, KeyCode::KeyD, Key::Character("d".into()), state);
+    Ok(())
+}
+fn selection_ready(world: &World, id: &str) -> bool {
+    let session = world.resource::<EditorAuthoringSession>();
+    let selection = world.resource::<PlacementSelectionSet>();
+    selection.ready_for(session) && selection.members.len() == 1 && selection.members[0].id == id
+        && world.resource::<EditorGltfBrowserState>()
+            .placement_record_index(id, session.placement_structure_revision).is_some()
 }
 fn select(world: &mut World, id: &str) {
     let selection = world.resource::<PlacementSelectionSet>();

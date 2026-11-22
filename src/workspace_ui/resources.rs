@@ -1,7 +1,7 @@
 //! 工程页快照和表单现场；模型更新不覆盖正在输入的名称或目录。
 
 use super::{
-    Page, RecentEntry, WorkspaceField, WorkspaceProject,
+    Page, ProjectOpenStage, RecentEntry, WorkspaceField, WorkspaceProject,
     types::{ProbeButton, ProbeField},
 };
 use bevy::prelude::*;
@@ -66,6 +66,8 @@ pub(crate) struct WorkspaceModel {
     pub recent: Vec<RecentEntry>,
     pub busy: bool,
     pub cancellable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opening: Option<ProjectOpenStage>,
     pub status: String,
     pub revision: u64,
 }

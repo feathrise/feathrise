@@ -308,8 +308,9 @@ pub(super) fn advance(
         && host.candidate.as_ref().is_some_and(|candidate| candidate.ready(parent)) {
         if host.current.is_none() {
             adopt(&mut host, world, parent);
-        } else {
+        } else if !host.want_close {
             host.want_close = true;
+            host.changed = true; // 实际首帧就绪后才向当前作者发布等待交接阶段。
         }
     }
     if let Some(current) = &host.current {
@@ -851,7 +852,13 @@ fn publish(host: &mut Host, world: &mut World) {
     model.busy = host.busy() || (!authors_present(host) && !author_preferences::home_ready(world));
     model.cancellable = host.job.is_some() || host.prepared.is_some()
         || host.candidate.is_some() || host.picker.is_some();
+    model.opening = host.project_open_stage();
     model.revision = world.resource::<WorkspaceModel>().revision.wrapping_add(1);
+    if let Some(mut workbench) = world.get_resource_mut::<feathrise_editor_scene::workbench::WorkbenchModel>()
+        && workbench.status != model.status
+    {
+        workbench.status.clone_from(&model.status); // 无工程工作台的原信息栏也能显示失败或取消原因。
+    }
     world.insert_resource(model);
     host.changed = false;
 }

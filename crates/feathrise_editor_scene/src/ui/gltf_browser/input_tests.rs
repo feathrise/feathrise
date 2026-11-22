@@ -30,8 +30,12 @@ fn placement_and_group_names_select_but_only_arrow_releases_expand() {
         translation: [0.0; 3], height_mode: ScenePlacementHeightMode::FixedHeight, terrain_offset: 0.0,
         yaw_degrees: 0.0, scale: [1.0; 3], water_surfaces: Vec::new(),
     };
-    app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap()
-        .placements.placements = vec![record("主模型", ""), record("分组模型", "摆放组")];
+    {
+        let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+        let draft = session.draft.as_mut().unwrap();
+        draft.placement_glb_hash = Some("测试主场景".into());
+        draft.placements.placements = vec![record("主模型", ""), record("分组模型", "摆放组")];
+    }
     {
         let world = app.world_mut();
         let root = world.query_filtered::<Entity, With<feathrise_editor_ui::EditorThemeRoot>>().single(world).unwrap();
@@ -87,6 +91,22 @@ fn placement_and_group_names_select_but_only_arrow_releases_expand() {
         assert!(state.entries.iter().any(|entry| entry.depth == 1 && matches!(&entry.kind,
             EditorGltfBrowserEntryKind::Placement { placement_id, collapsed: true, .. } if placement_id == "分组模型")));
     }
+    let main_glb = {
+        let world = app.world_mut();
+        world.query::<(Entity, &SceneEditorGltfBrowserRow)>().iter(world)
+            .find_map(|(entity, row)| (row.main_glb == Some(MainSceneGlbRow::File)).then_some(entity)).unwrap()
+    };
+    click(&mut app, window, main_glb, MouseButton::Left);
+    let scene = app.world().resource::<SceneEditorState>().selected_scene_id.clone().unwrap();
+    let state = app.world().resource::<EditorGltfBrowserState>();
+    assert!(state.is_main_glb_selected(&scene) && state.expanded_main_glb.is_none());
+    assert!(state.selected_group.is_none() && state.selected_placement_id.is_none());
+    assert!(state.expanded_placements.contains("主模型") && state.expanded_groups.contains("摆放组"));
+    let model = row_at(&mut app, 0);
+    click(&mut app, window, model, MouseButton::Left);
+    let state = app.world().resource::<EditorGltfBrowserState>();
+    assert!(state.selected_main_glb.is_none());
+    assert_eq!(state.selected_placement_id.as_deref(), Some("主模型"));
     let session = app.world().resource::<EditorAuthoringSession>();
     assert!(session.undo.is_empty());
     assert!(!app.world().resource::<SceneEditorState>().dirty);

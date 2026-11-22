@@ -247,6 +247,7 @@ fn sync(
 ) {
     let scene = context.scene(&editor, &session);
     let selected = context.record(&editor, &session);
+    let show_entry = selected.is_some() || scene.is_some_and(|scene| context.browser.is_main_glb_selected(scene));
     let opened = state.scene.as_ref().zip(scene).is_some_and(|(a, b)| a == b);
     let motion = session.draft.as_ref().map(|draft| &draft.motion);
     let created = opened && motion.is_some_and(|motion| motion.clip_name().is_some());
@@ -263,7 +264,7 @@ fn sync(
 
     for (mut node, panel) in &mut panels {
         let visible = match panel {
-            Panel::Entry => selected.is_some(),
+            Panel::Entry => show_entry,
             Panel::Workbench => opened,
             Panel::Create => opened && !created,
             Panel::Track => created,
@@ -274,7 +275,7 @@ fn sync(
     use SceneMotionButton::*;
     for (entity, button, disabled, interaction, mut background) in &mut buttons {
         let enabled = match button {
-            Open => !opened && selected.is_some() && context.can_edit(&editor, &session),
+            Open => !opened && show_entry && context.can_edit(&editor, &session),
             Close => editing,
             Add => can_add,
             InsertKey => can_pose && state.has_keying_tracks(),

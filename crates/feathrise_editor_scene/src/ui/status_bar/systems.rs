@@ -160,7 +160,11 @@ pub(super) fn observe_status(
     }
     let context = tool_context(editor, locale);
     let preset_failures = inputs.preset_failures();
-    let phase = if inputs.loading_failed() {
+    let project_open = inputs.project_open.as_deref().and_then(|progress| progress.0);
+    state.detail_dirty |= inputs.project_open.as_ref().is_some_and(|progress| progress.is_changed());
+    let phase = if project_open.is_some() {
+        StatusPhase::Working
+    } else if inputs.loading_failed() {
         StatusPhase::Error // 正式失败仍需重试或取消，清除阅读提示不能把加载失败显示为正常处理中。
     } else if let Some((kind, _)) = &state.retained {
         match kind {
@@ -187,7 +191,10 @@ pub(super) fn observe_status(
         .retained
         .as_ref()
         .map_or(editor.status.as_str(), |(_, detail)| detail.as_ref());
-    let short = if state.retained.is_none()
+    // 工程加载放在主摘要，窄窗仍能看到当前阶段，作者反馈继续留在原状态资源。
+    let short = if let Some(stage) = project_open {
+        summary(stage)
+    } else if state.retained.is_none()
         && let Some(entry) = entries
             .iter()
             .find(|entry| entry.phase == Some(RuntimePhase::Failed))
@@ -238,7 +245,7 @@ pub(super) fn observe_status(
     // 完整诊断只在显式展开后组装，关闭的底栏不逐帧复制长路径和运行时明细。
     if state.popup_open && (state.detail_dirty || locale_changed || state.detail.is_empty()) {
         let mut detail = String::new();
-        let current_message = locale.editor_notice(&editor.status);
+        let current_message = locale.editor_notice(project_open.unwrap_or(&editor.status));
         // 切换场景时先呈现当前正式阶段及完整失败原因，窄窗不必翻过旧场景的工具信息。
         if editor.scene_transition_in_progress
             && let Some((label, value)) = state.panel_status.values().find(|(label, _)| *label == "场景加载")
@@ -286,7 +293,7 @@ pub(super) fn observe_status(
                 .latest_result
                 .as_ref()
                 .is_some_and(|result| result.status_text.as_ref() == editor.status);
-        if !current_is_receipt {
+        if project_open.is_some() || !current_is_receipt {
             detail.push_str(locale.text("status.detail.current"));
             detail.push_str(&current_message);
         }

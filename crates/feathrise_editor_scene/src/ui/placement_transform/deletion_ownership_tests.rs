@@ -28,13 +28,14 @@ fn assert_hidden_without_rewriting_formal(app: &App, root: Entity, parent: Entit
 }
 
 #[test]
-fn deletion_button_rejects_a_shared_table_before_changing_record_preview_or_history() {
+fn tree_delete_waits_for_a_shared_table_before_changing_record_preview_or_history() {
     let (mut app, preview, record, map) = deletion_fixture(false);
     let (reader, before_revision) = {
         let session = app.world().resource::<EditorAuthoringSession>();
         (session.placement_deletions.source(), session.revision)
     };
-    click_delete(&mut app);
+    queue_scene_tree_delete(&mut app, &record);
+    app.update();
     let session = app.world().resource::<EditorAuthoringSession>();
     assert_eq!(session.draft.as_ref().unwrap().placements.placements, [record.clone()]);
     assert_eq!(session.revision, before_revision);
@@ -45,7 +46,7 @@ fn deletion_button_rejects_a_shared_table_before_changing_record_preview_or_hist
     assert!(app.world().resource::<SceneEditorState>().status.contains("后台"));
 
     drop(reader);
-    click_delete(&mut app);
+    finish_scene_tree_delete(&mut app);
     assert!(app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap().placements.placements.is_empty());
     let (late, parent, pose) = late_formal(&mut app, &map, &record);
     assert_hidden_without_rewriting_formal(&app, late, parent, pose);
@@ -56,7 +57,7 @@ fn single_deletion_undo_keeps_the_request_and_stack_until_a_shared_reader_finish
     let (mut app, _, record, _) = deletion_fixture(false);
     app.init_asset::<bevy::world_serialization::WorldAsset>();
     crate::viewport::placement_move::interaction_tests::batch_undo_resources(&mut app);
-    click_delete(&mut app);
+    delete_from_scene_tree(&mut app, &record);
     let reader = app.world().resource::<EditorAuthoringSession>().placement_deletions.source();
     app.world_mut().resource_mut::<SceneEditorState>().undo_requested = true;
     app.world_mut().run_system_once(crate::authoring::apply_undo_redo).unwrap();
@@ -66,7 +67,7 @@ fn single_deletion_undo_keeps_the_request_and_stack_until_a_shared_reader_finish
     assert!(app.world().resource::<SceneEditorState>().undo_requested);
 
     drop(reader);
-    app.world_mut().run_system_once(crate::authoring::apply_undo_redo).unwrap();
+    crate::authoring::drive_undo_redo_to_completion(&mut app);
     let session = app.world().resource::<EditorAuthoringSession>();
     assert_eq!(session.draft.as_ref().unwrap().placements.placements, [record]);
     assert_eq!((session.undo.len(), session.redo.len()), (0, 1));
@@ -77,7 +78,7 @@ fn single_deletion_undo_keeps_the_request_and_stack_until_a_shared_reader_finish
 fn successful_delete_masks_formal_roots_added_after_the_author_preview_is_gone() {
     for terrain_patch in [false, true] {
         let (mut app, preview, record, map) = deletion_fixture(terrain_patch);
-        click_delete(&mut app);
+        delete_from_scene_tree(&mut app, &record);
         let session = app.world().resource::<EditorAuthoringSession>();
         assert!(session.draft.as_ref().unwrap().placements.placements.is_empty());
         assert!(!session.placement_previews.contains_key(&record.id));
@@ -94,7 +95,7 @@ fn successful_delete_masks_formal_roots_added_after_the_author_preview_is_gone()
 fn successful_delete_keeps_late_pending_roots_hidden_through_real_batch_activation() {
     for terrain_patch in [false, true] {
         let (mut app, _, record, map) = deletion_fixture(terrain_patch);
-        click_delete(&mut app);
+        delete_from_scene_tree(&mut app, &record);
         let (pending, activation) = feathrise_scene::runtime_test_support::pending_placement_instance(&map, &record);
         let (late, parent, transform) = formal_with_instance(&mut app, pending);
         assert!(app.world().get::<ScenePlacementInstance>(late).unwrap().is_pending());
@@ -110,7 +111,7 @@ fn successful_delete_keeps_late_pending_roots_hidden_through_real_batch_activati
 #[test]
 fn successful_delete_keeps_external_neighbor_and_same_id_other_scene_visible() {
     let (mut app, _, record, map) = deletion_fixture(false);
-    click_delete(&mut app);
+    delete_from_scene_tree(&mut app, &record);
     let mut neighbor = record.clone();
     neighbor.id = "external-late-neighbor".into();
     let other_scene = SceneId::parse("MAP-deletion-late-foreign").unwrap();
@@ -133,9 +134,10 @@ fn undo_delete_then_delete_again_masks_a_new_late_formal_generation() {
     let (mut app, _, record, map) = deletion_fixture(false);
     app.init_asset::<bevy::world_serialization::WorldAsset>();
     crate::viewport::placement_move::interaction_tests::batch_undo_resources(&mut app);
-    click_delete(&mut app);
+    delete_from_scene_tree(&mut app, &record);
     app.world_mut().resource_mut::<SceneEditorState>().undo_requested = true;
-    app.world_mut().run_system_once(crate::authoring::apply_undo_redo).unwrap();
+    crate::authoring::drive_undo_redo_to_completion(&mut app);
+    app.world_mut().run_system_once(sync_visuals).unwrap();
     let (restored, structure_revision) = {
         let session = app.world().resource::<EditorAuthoringSession>();
         assert_eq!(session.draft.as_ref().unwrap().placements.placements, vec![record.clone()]);
@@ -145,10 +147,10 @@ fn undo_delete_then_delete_again_masks_a_new_late_formal_generation() {
     assert_eq!(app.world().get::<Visibility>(restored), Some(&Visibility::Inherited),
         "撤销删除后的新作者预览应正常显示");
 
-    // 重新选择恢复后的实际数组槽，第二次仍经过真实按钮及新结构修订门。
+    // 重新选择恢复后的实际数组槽，第二次仍经过场景树菜单及新结构修订门。
     app.world_mut().resource_mut::<EditorGltfBrowserState>()
         .select_indexed_test_placement(&record.id, 0, structure_revision);
-    click_delete(&mut app);
+    delete_from_scene_tree(&mut app, &record);
     let session = app.world().resource::<EditorAuthoringSession>();
     assert!(session.draft.as_ref().unwrap().placements.placements.is_empty());
     assert_eq!((session.undo.len(), session.redo.len()), (1, 0));
@@ -174,7 +176,7 @@ fn delete_after_the_old_limit_hides_the_target_and_keeps_prior_tickets() {
         let session = app.world().resource::<EditorAuthoringSession>();
         session.placement_deletions.snapshots()[0].clone()
     };
-    click_delete(&mut app);
+    delete_from_scene_tree(&mut app, &record);
     let session = app.world().resource::<EditorAuthoringSession>();
     assert!(session.draft.as_ref().unwrap().placements.placements.is_empty());
     assert_eq!(session.undo.len(), 1);

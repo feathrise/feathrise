@@ -12,8 +12,8 @@ use feathrise_scene_content::{ScenePlacementAssetTarget, ScenePlacementHeightMod
 use feathrise_editor_core::EditorSettings; // 三类变换拖动手感的当前持久值。 // 公共输入继续拥有焦点、指针捕获、范围和权威显示同步。
 
 use super::{
-    SceneEditorPlacementTransformActionButton, SceneEditorPlacementTransformPanel, SceneEditorPlacementTransformLocate,
-    SceneEditorPlacementTransformSummary, PlacementRelocationIntent, PlacementTransformAction,
+    SceneEditorPlacementTransformActionButton, SceneEditorPlacementTransformPanel,
+    SceneEditorPlacementTransformSummary, PlacementTransformAction,
     PlacementTransformField, PlacementTransformInputState, selected_target,
     PlacementPropertiesSection, SceneEditorCuboidGeometryRow, SceneEditorAnimationRotationRow,
 }; // 当前面板marker、字段、动作和吸附模式。
@@ -65,11 +65,6 @@ pub(crate) fn sync_placement_transform_panel(
         ),
         (Without<SceneEditorPlacementTransformPanel>, Without<PlacementPropertiesSection>, Without<SceneEditorCuboidGeometryRow>, Without<SceneEditorAnimationRotationRow>),
     >, // 面板与按钮Node必须静态互斥，建筑旋转只在适用时显示。
-    candidates: Res<crate::viewport::content_selection::LayerCandidateState>,
-    locate_buttons: Query<
-        (Entity, Has<bevy::ui::InteractionDisabled>),
-        With<SceneEditorPlacementTransformLocate>,
-    >,
 ) {
     let mesh_editing = settings.1.as_ref().is_some_and(|state| state.active());
     let animation = settings.2.as_deref();
@@ -92,7 +87,6 @@ pub(crate) fn sync_placement_transform_panel(
     }); // 关闭、保存、切换场景、结构变化、另选资产或其他作者动作都不能保留旧落点意图。
     if !relocation_valid {
         state.relocation_target = None; // Presentation边沿及时归还新资产放置和数值输入的鼠标资格。
-        state.relocation_intent = PlacementRelocationIntent::Move;
     }
     let target = selected_target(&browser, &session); // O(1)取得当前唯一完整记录身份。
     let record = target.as_ref().and_then(|target| {
@@ -113,40 +107,6 @@ pub(crate) fn sync_placement_transform_panel(
     let is_cuboid = record.is_some_and(|record| record.asset_target.is_builtin());
     let collision_state = record.and_then(super::cuboid::collision_state);
     let has_size_recipe = record.is_some_and(|record| matches!(record.asset_target, ScenePlacementAssetTarget::Cuboid { .. }));
-    let locate_enabled = visible
-        && !editor.close_requested
-        && !editor.new_scene_dialog_open
-        && !editor.scene_transition_in_progress
-        && editor.pending_scene_transition.is_none()
-        && editor.scene_switch_confirmation.is_none()
-        && target
-            .as_ref()
-            .is_some_and(|target| editor.selected_scene_id.as_ref() == Some(&target.scene_id))
-        && matches!(
-            editor.tool,
-            crate::types::EditorTool::Inspect | crate::types::EditorTool::PlaceAsset
-        )
-        && browser
-            .selection
-            .as_ref()
-            .is_none_or(|selection| selection.valid && !selection.orphaned_water_binding)
-        && (editor.tool != crate::types::EditorTool::Inspect
-            || !candidates.has_viewport_selection()
-            || matches!(candidates.selected.as_ref(), Some(crate::viewport::content_selection::LayerTarget::Placement(id))
-                if record.is_some_and(|record| record.id == *id)));
-    for (entity, disabled) in &locate_buttons {
-        if locate_enabled == disabled {
-            if locate_enabled {
-                commands
-                    .entity(entity)
-                    .remove::<bevy::ui::InteractionDisabled>();
-            } else {
-                commands
-                    .entity(entity)
-                    .insert(bevy::ui::InteractionDisabled);
-            }
-        }
-    } // 原聚焦按工具选择目标；此处只限制新按钮，避免资产属性里的“定位”聚焦到旧水体或传送点。
     let has_cutout = record.is_some_and(|record| {
         record
             .terrain_patch
@@ -282,7 +242,6 @@ pub(crate) fn sync_placement_transform_panel(
         if node.display != display {
             node.display = display;
         }
-        let danger = button.0 == PlacementTransformAction::Delete; // 删除始终保留危险语义。
         let armed = button.0 == PlacementTransformAction::Relocate && state.relocation_armed(); // “吸附地面”等待视口落点期间持续高亮。
         let mode_selected = !is_building
             && record.is_some_and(|record| {
@@ -306,21 +265,16 @@ pub(crate) fn sync_placement_transform_panel(
         let lod_selected = record.is_some_and(|record| super::lod::selected(button.0, record));
         let preview_selected = preview.is_some_and(|preview| preview.selected(button.0));
         let selected = armed || mode_selected || terrain_selected || lod_selected || preview_selected;
-        let color = match (*interaction, danger, selected) {
-            (UiInteraction::Pressed, true, _) => colors::DANGER_BG, // 删除按压保持红色而非普通铜色。
-            (UiInteraction::Hovered, true, _) => colors::DANGER_BG, // 删除悬停强化危险底色。
-            (UiInteraction::None, true, _) => colors::DANGER_BG,    // 删除常态仍可一眼辨认。
-            (UiInteraction::Pressed, false, _) => colors::BUTTON_DEV_SMALL_PRESSED, // 普通动作按压反馈。
-            (UiInteraction::Hovered, false, _) => colors::BUTTON_DEV_SMALL_HOVERED, // 普通动作悬停反馈。
-            (UiInteraction::None, false, true) => colors::SELECT_BG, // 高度模式或等待落点持续显示选中铜底。
-            (UiInteraction::None, false, false) => colors::BUTTON_DEV_SMALL_NORMAL, // 普通静止底色。
+        let color = match (*interaction, selected) {
+            (UiInteraction::Pressed, _) => colors::BUTTON_DEV_SMALL_PRESSED,
+            (UiInteraction::Hovered, _) => colors::BUTTON_DEV_SMALL_HOVERED,
+            (UiInteraction::None, true) => colors::SELECT_BG, // 高度模式或等待落点持续显示选中铜底。
+            (UiInteraction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL,
         };
         if background.0 != color {
             background.0 = color;
         }
-        let border_color = BorderColor::all(if danger {
-            colors::DANGER_BORDER // 删除使用红铜危险边。
-        } else if selected || *interaction != UiInteraction::None {
+        let border_color = BorderColor::all(if selected || *interaction != UiInteraction::None {
             colors::COPPER_BORDER // 活动、hover和按压强化铜边。
         } else {
             colors::COPPER_BORDER_WEAK // 普通静止动作使用弱边。

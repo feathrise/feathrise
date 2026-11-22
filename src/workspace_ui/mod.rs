@@ -22,7 +22,7 @@ pub(crate) use messages::WorkspaceCommand;
 #[cfg(all(feature = "validation", windows))]
 pub(crate) use recent_validation::install as install_recent_validation;
 pub(crate) use resources::{AboutState, WorkspaceModel, WorkspaceProbe};
-pub(crate) use types::{Page, RecentEntry, WorkspaceField, WorkspaceProject};
+pub(crate) use types::{Page, ProjectOpenStage, RecentEntry, WorkspaceField, WorkspaceProject};
 
 use bevy::prelude::*;
 
@@ -44,6 +44,7 @@ impl Plugin for WorkspaceUiPlugin {
         app.add_plugins(feathrise_editor_scene::workbench::WorkbenchHostPagesPlugin)
             .init_resource::<WorkspaceModel>()
             .init_resource::<WorkspaceProbe>()
+            .init_resource::<feathrise_editor_scene::workbench::WorkbenchProjectOpenProgress>()
             .init_resource::<resources::Presentation>()
             .init_resource::<AboutState>()
             .add_message::<WorkspaceCommand>()

@@ -21,6 +21,7 @@ pub(super) struct StatusInputs<'w> {
     pub(super) editor: Res<'w, SceneEditorState>,
     pub(super) session: Option<Res<'w, EditorAuthoringSession>>,
     pub(super) files: Option<Res<'w, FileManagerState>>,
+    pub(super) project_open: Option<Res<'w, crate::workbench::WorkbenchProjectOpenProgress>>,
     loading: Option<Res<'w, feathrise_scene_core::state::LoadingProgress>>,
     creation: Option<Res<'w, SceneCreationTask>>,
     deletion: Option<Res<'w, SceneDeletionTask>>,
