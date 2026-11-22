@@ -27,7 +27,6 @@ fn values(spacing: f32) -> [f32; 8] {
 #[test]
 fn plane_creation_uses_xz_dimensions_and_ignores_hidden_cube_height() {
     let mut state = TerrainObjectsEditorState::default();
-    state.creation_open = true;
     state.creation_source = CreationSource::Plane;
     state.cuboid_creation = [3.0, f32::NAN, 5.0, 100.0, 150.0, 200.0, 0.25];
     state.cuboid_collision = false;
@@ -47,7 +46,6 @@ fn plane_creation_uses_xz_dimensions_and_ignores_hidden_cube_height() {
 #[test]
 fn real_plane_source_button_selects_a_visible_plane_form() {
     let (mut app, window) = page_tests::creation_page();
-    click_action(&mut app, window, Action::ToggleCreation);
     click_action(&mut app, window, Action::Plane);
     assert_eq!(app.world().resource::<TerrainObjectsEditorState>().creation_source, CreationSource::Plane);
     let world = app.world_mut();
@@ -191,8 +189,6 @@ fn click_action(app: &mut App, window: Entity, target: Action) {
     app.update();
 }
 fn open(app: &mut App, window: Entity) {
-    click_action(app, window, Action::ToggleCreation);
-    assert!(app.world().resource::<TerrainObjectsEditorState>().creation_open);
     // 来源按钮现在只选择规格；数字框必须通过真实来源和放置方式才取得可编辑身份。
     click_action(app, window, Action::Clipmap);
     click_action(app, window, Action::PlacementCoordinates);

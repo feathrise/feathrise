@@ -7,8 +7,6 @@ fn form(source: Action, mode: Action) -> (App, Entity) {
     let (mut app, window) = creation_page();
     app.init_resource::<VegetationPresetEditorState>();
     app.world_mut().resource_mut::<VegetationPresetEditorState>().active_tab = PresetWorkspaceTab::Document;
-    let toggle = action(&mut app, Action::ToggleCreation);
-    click(&mut app, window, toggle, MouseButton::Left);
     let source = action(&mut app, source);
     click(&mut app, window, source, MouseButton::Left);
     let mode = action(&mut app, mode);

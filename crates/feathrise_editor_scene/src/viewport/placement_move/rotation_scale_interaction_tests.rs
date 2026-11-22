@@ -1,11 +1,11 @@
 //! 真实输入与模型根回归：旋转/缩放只预览，松手一次提交；建筑仍使用真实异步校验。
 
-use super::super::{constants::ROTATION_RADIUS_FRACTION, rotation::yaw_direction};
+use super::super::{constants::{ROTATION_RADIUS_FRACTION, ROTATION_SEGMENTS}, rotation::yaw_direction};
 use super::*;
 use crate::viewport::modes::ViewportMode;
 use crate::authoring::placement_pose::placement_rotation;
 use feathrise_editor_animation_model::gizmo::{MoveConstraint, rotation_rings};
-use super::super::{scale::ScaleGizmo, types::MovePlane};
+use super::super::{scale::{ScaleGizmo, UNIFORM_SCALE_RADIUS}, types::MovePlane};
 
 fn prepare(app: &mut App, root: Entity, mode: ViewportMode, view: EditorView, orthographic: bool) {
     app.world_mut().resource_mut::<ViewportModeState>().mode = mode;
@@ -36,8 +36,14 @@ fn cursor(app: &App, mode: ViewportMode, delta: f32) -> Vec2 {
     if mode == ViewportMode::Rotate {
         yaw_cursor(camera, origin, super::super::input::yaw_only(before), delta).0
     } else {
-        camera.project(origin).unwrap() + Vec2::X * delta / camera.size / camera.inverse_scale
+        scale_center_cursor(camera, origin, delta)
     }
+}
+
+pub(super) fn scale_center_cursor(camera: MoveCamera, origin: Vec3, delta: f32) -> Vec2 {
+    // 从圆心略偏下的位置按下，径向外拉仍应放大。
+    let radius = UNIFORM_SCALE_RADIUS * 0.75 + delta;
+    camera.project(origin).unwrap() + Vec2::Y * radius / (camera.size * camera.inverse_scale)
 }
 
 pub(super) fn yaw_cursor(camera: MoveCamera, origin: Vec3, yaw_only: bool, delta: f32) -> (Vec2, MoveHandle) {
@@ -92,20 +98,25 @@ fn assert_root(app: &App, root: Entity, expected: &ScenePlacementRecord) {
     assert!(root.scale.distance(expected.scale) < 0.002);
 }
 
+fn install_foreground(app: &mut App) {
+    use crate::viewport::tool_preview::{AuthorToolFrame, foreground::Foreground};
+    app.init_resource::<AuthorToolFrame>().init_resource::<Foreground>()
+        .add_systems(First, |mut frame: ResMut<AuthorToolFrame>, mut geometry: ResMut<Foreground>| {
+            *frame = default();
+            *geometry = default();
+        })
+        .add_systems(Update, super::super::render::draw_placement_move.after(handle_placement_move));
+}
+
 #[test]
 fn captured_move_rotation_and_scale_only_show_guides_while_held() {
-    use crate::viewport::tool_preview::{AuthorToolFrame, foreground::Foreground};
+    use crate::viewport::tool_preview::foreground::Foreground;
     for mode in [ViewportMode::Move, ViewportMode::Rotate, ViewportMode::Scale] {
         let (mut app, root, node) = app();
         app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap()
             .placements.placements[0].yaw_degrees = 0.;
         prepare(&mut app, root, mode, EditorView::Perspective, false);
-        app.init_resource::<AuthorToolFrame>().init_resource::<Foreground>()
-            .add_systems(First, |mut frame: ResMut<AuthorToolFrame>, mut geometry: ResMut<Foreground>| {
-                *frame = default();
-                *geometry = default();
-            })
-            .add_systems(Update, super::super::render::draw_placement_move.after(handle_placement_move));
+        install_foreground(&mut app);
         let camera = camera(&app);
         let record = draft_record(&app);
         let origin = Vec3::from_array(record.translation);
@@ -134,6 +145,38 @@ fn captured_move_rotation_and_scale_only_show_guides_while_held() {
 }
 
 #[test]
+fn captured_uniform_scale_shows_a_dashed_guide_until_release_or_escape() {
+    use crate::viewport::tool_preview::foreground::Foreground;
+    for cancel in [false, true] {
+        let (mut app, root, node) = app();
+        prepare(&mut app, root, ViewportMode::Scale, EditorView::Perspective, false);
+        install_foreground(&mut app);
+        let camera = camera(&app);
+        let logical = camera.size * camera.inverse_scale;
+        let center = camera.project(draft_record(&app).translation.into()).unwrap();
+        let direction = Vec2::new(-0.6, 0.8);
+        let start = center + direction * (UNIFORM_SCALE_RADIUS - 2.0) / logical;
+        let target = center + direction * 70.0 / logical;
+        // 采样点位于圆外第一段白虚线上，也避开常驻的轴和平面手柄。
+        let sample = center * logical + direction * (UNIFORM_SCALE_RADIUS + 4.0);
+        let guide_visible = |app: &App| app.world().resource::<Foreground>().covers_white_at(logical, sample);
+        step(&mut app, node, start);
+        assert!(!guide_visible(&app));
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        step(&mut app, node, start);
+        step(&mut app, node, target);
+        assert!(guide_visible(&app));
+        if cancel {
+            app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Escape);
+            step(&mut app, node, target);
+        } else {
+            release(&mut app, node, target);
+        }
+        assert!(!guide_visible(&app));
+    }
+}
+
+#[test]
 fn scale_axis_plane_and_outer_ring_update_only_their_scale_components() {
     for handle in [MoveHandle::AxisScale(MoveAxis::X), MoveHandle::PlaneScale(MovePlane::Xy), MoveHandle::UniformScale] {
         let (mut app, root, node) = app();
@@ -149,7 +192,7 @@ fn scale_axis_plane_and_outer_ring_update_only_their_scale_components() {
                 let corners = geometry.planes[MovePlane::ALL.iter().position(|shown| *shown == plane).unwrap()].unwrap();
                 corners[0].lerp(corners[2], 0.5)
             }
-            _ => geometry.outer.unwrap()[0],
+            _ => geometry.outer.unwrap()[ROTATION_SEGMENTS / 2],
         };
         let start = camera.project(point).unwrap();
         let center = camera.project(origin).unwrap();
@@ -159,11 +202,21 @@ fn scale_axis_plane_and_outer_ring_update_only_their_scale_components() {
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         step(&mut app, node, start);
         assert_eq!(app.world().resource::<PlacementMoveState>().drag.as_ref().map(|drag| drag.handle), Some(handle));
+        let start_radius = ((start - center) * logical).length();
+        let factor = if handle == MoveHandle::UniformScale {
+            let mut smaller = before.clone();
+            smaller.scale = before.scale.map(|value| value * (1.0 - 30.0 / start_radius));
+            step(&mut app, node, start - direction * 30.0 / logical);
+            assert_root(&app, root, &smaller);
+            1.0 + 30.0 / start_radius
+        } else {
+            2.0_f32.powf(0.25)
+        };
         step(&mut app, node, target);
         assert_eq!(draft_record(&app), &before);
         let mut expected = before.clone();
         for axis in MoveAxis::ALL {
-            if handle.scales_axis(axis) { expected.scale[axis.index()] *= 2.0_f32.powf(0.25); }
+            if handle.scales_axis(axis) { expected.scale[axis.index()] *= factor; }
         }
         assert_root(&app, root, &expected);
         release(&mut app, node, target);
@@ -210,7 +263,7 @@ fn custom_rotation_and_scale_snap_steps_are_frozen_for_each_drag() {
         start(&mut app, node, mode);
         app.world_mut().resource_mut::<feathrise_editor_core::EditorSettings>().editor_snapping = default();
         app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::ControlLeft);
-        let target = cursor(&app, mode, if mode == ViewportMode::Rotate { 24.0 } else { 35.0 });
+        let target = cursor(&app, mode, if mode == ViewportMode::Rotate { 24.0 } else { UNIFORM_SCALE_RADIUS * 0.32 });
         step(&mut app, node, target);
         let mut expected = before.clone();
         if mode == ViewportMode::Rotate { expected.yaw_degrees = 67.5; }
@@ -249,9 +302,9 @@ fn rotation_scale_live_preview_preserves_other_fields_and_commits_once() {
                     let delta = if mode == ViewportMode::Rotate {
                         if snap { 19.0 } else { 23.0 }
                     } else if snap {
-                        1.26_f32.log2() * 120.0
+                        UNIFORM_SCALE_RADIUS * 0.26
                     } else {
-                        120.0
+                        UNIFORM_SCALE_RADIUS
                     };
                     let cursor = cursor(&app, mode, delta);
                     for _ in 0..3 {

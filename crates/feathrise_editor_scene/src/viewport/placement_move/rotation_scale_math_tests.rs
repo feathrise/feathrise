@@ -1,6 +1,6 @@
 //! 实际编辑相机的旋转圆环与中心缩放回归，验证方向、DPI、端视退化和比例边界。
 
-use super::super::{constants::*, rotation::*, scale::*};
+use super::super::{rotation::*, scale::*};
 use super::*;
 use feathrise_scene_content::{MAX_SCENE_PLACEMENT_SCALE, MIN_SCENE_PLACEMENT_SCALE};
 
@@ -91,7 +91,7 @@ fn rotation_rejects_end_on_views_and_axis_center_and_wraps_both_directions() {
 }
 
 #[test]
-fn scale_square_keeps_logical_size_in_every_view_projection_and_dpi() {
+fn scale_center_uses_a_round_pick_region_in_every_view_projection_and_dpi() {
     for view in [
         EditorView::Top,
         EditorView::Perspective,
@@ -103,23 +103,16 @@ fn scale_square_keeps_logical_size_in_every_view_projection_and_dpi() {
                 let camera = camera(view, orthographic, UVec2::new(1200, 280), 1.0 / scale);
                 let origin = Vec3::ZERO;
                 let center = camera.project(origin).unwrap();
-                assert!(pick_scale(camera, origin, center));
-                assert!(!pick_scale(
-                    camera,
-                    origin,
-                    center + Vec2::X * 12.0 / camera.size / camera.inverse_scale
-                ));
-                for point in camera.screen_square(origin, PICK_LOGICAL_PIXELS).unwrap() {
-                    let offset = (camera.project(point).unwrap() - center)
-                        * camera.size
-                        * camera.inverse_scale;
-                    assert!(
-                        (offset.abs() - Vec2::splat(PICK_LOGICAL_PIXELS))
-                            .abs()
-                            .max_element()
-                            < 0.02
-                    );
+                let logical = camera.size * camera.inverse_scale;
+                let pick = |offset: Vec2| {
+                    pick_scale_handle(camera, origin, Mat3::IDENTITY, center + offset / logical, false)
+                };
+                assert_eq!(pick(Vec2::ZERO), Some(MoveHandle::UniformScale));
+                for direction in [Vec2::X, Vec2::Y, Vec2::NEG_X, Vec2::NEG_Y] {
+                    assert_eq!(pick(direction * (UNIFORM_SCALE_RADIUS - 1.0)), Some(MoveHandle::UniformScale));
                 }
+                // 这个对角点仍在原方框以内，已经超出新圆盘。
+                assert_ne!(pick(Vec2::splat(UNIFORM_SCALE_RADIUS * 0.8)), Some(MoveHandle::UniformScale));
             }
         }
     }
@@ -128,26 +121,35 @@ fn scale_square_keeps_logical_size_in_every_view_projection_and_dpi() {
 #[test]
 fn uniform_scaling_keeps_original_ratios_and_clamps_one_common_factor() {
     let before = [1.1, 1.2, 1.3];
-    assert_eq!(
-        uniform_scale(before, Vec2::new(120.0, 0.0), false),
-        Some([2.2, 2.4, 2.6])
-    );
-    assert_eq!(
-        uniform_scale(before, Vec2::new(0.0, -120.0), false),
-        Some([2.2, 2.4, 2.6])
-    );
-    let value = uniform_scale(before, Vec2::new(1.26_f32.log2() * 120.0, 0.0), true).unwrap();
-    for i in 0..3 {
-        assert!((value[i] / before[i] - 1.3).abs() < 0.001);
+    let camera = camera(EditorView::Perspective, false, UVec2::new(1200, 280), 0.5);
+    let origin = Vec3::new(4.0, 2.0, -3.0);
+    let point = |offset: Vec2| camera.project(origin).unwrap() + offset / (camera.size * camera.inverse_scale);
+    let scale = |start, end, before, step| {
+        scale_values(camera, origin, Mat3::IDENTITY, point(start), point(end), MoveHandle::UniformScale, before, step)
+    };
+    let start = Vec2::new(60.0, 80.0);
+    // 不同比例的画布下，各象限到中心的距离同样决定倍率。
+    for sign in [Vec2::ONE, -Vec2::ONE, Vec2::new(1.0, -1.0), Vec2::new(-1.0, 1.0)] {
+        let start = start * sign;
+        for factor in [0.5, 2.0] {
+            let value = scale(start, start * factor, before, 0.0).unwrap();
+            assert!(Vec3::from_array(value).abs_diff_eq(Vec3::from_array(before) * factor, 0.002));
+        }
     }
-    for delta in [Vec2::splat(-10000.0).with_y(0.0), Vec2::new(10000.0, 0.0)] {
-        let value = uniform_scale(before, delta, false).unwrap();
+    assert_eq!(scale(start, Vec2::new(-80.0, 60.0), before, 0.3), Some(before));
+    let snapped = scale(start, start * 1.26, before, 0.1).unwrap();
+    assert!(Vec3::from_array(snapped).abs_diff_eq(Vec3::from_array(before) * 1.3, 0.002));
+    for end in [Vec2::ZERO, start * 10_000.0] {
+        let value = scale(start, end, before, 0.0).unwrap();
         let factor = value[0] / before[0];
         for i in 0..3 {
             assert!(value[i] >= MIN_SCENE_PLACEMENT_SCALE && value[i] <= MAX_SCENE_PLACEMENT_SCALE);
             assert!((value[i] / before[i] - factor).abs() <= factor * 0.00001);
         }
     }
-    assert!(uniform_scale([0.0, 1.0, 1.0], Vec2::ZERO, false).is_none());
-    assert!(uniform_scale(before, Vec2::splat(f32::NAN), false).is_none());
+    assert_eq!(scale(Vec2::ZERO, Vec2::ZERO, before, 0.0), Some(before));
+    let from_center = scale(Vec2::ZERO, Vec2::Y * UNIFORM_SCALE_RADIUS, before, 0.0).unwrap();
+    assert!(Vec3::from_array(from_center).abs_diff_eq(Vec3::from_array(before) * 2.0, 0.002));
+    assert!(scale(start, Vec2::ZERO, [0.0, 1.0, 1.0], 0.0).is_none());
+    assert!(scale(start, Vec2::splat(f32::NAN), before, 0.0).is_none());
 }

@@ -633,7 +633,6 @@ label.use-blender-version	采用 Blender	Use Blender Version
 label.discard-the-terrain-draft-and-reload-and	放弃地形草稿，重新加载并验证外部地形。	Discard the terrain draft and reload and validate the external terrain.
 label.overwrite-with-draft	使用草稿覆盖	Overwrite With Draft
 help.keep-the-current-vertices-and-replace-the	保留当前顶点并覆盖本次检测到的外部版本。外部文件再次变化时必须重新处理冲突，不能沿用旧授权。	Keep the current vertices and replace the external revision shown here. A later external change requires a new decision.
-label.add-mesh	添加网格 ▶	Add Mesh ▶
 label.basic-shapes	基础形状	Basic Shapes
 label.cube	立方体	Cube
 label.plane	平面	Plane
@@ -1166,7 +1165,6 @@ scene.directory.count	场景 · 显示{visible}项 / 共{total}项{progress}	Sce
 scene.directory.rebuilding	 · 整理中	 · Updating…
 toolbar.stop_build.help	停止本次工程3D编译，保留当前视口模式、未保存草稿和历史。	Stop the current Project 3D build. The viewport mode, unsaved drafts, and history are kept.
 toolbar.stopping_build.help	正在等待本次编译及后台任务退出，未保存草稿和历史保留。	Waiting for the build and its background task to exit. Unsaved drafts and history are kept.
-mesh.add.expanded	添加网格 ▼	Add Mesh ▼
 mesh.selection.hint	在左侧场景树或视口选择网格，右侧查看属性。	Select a mesh in the Scene Tree or 3D Viewport to see its properties.
 mesh.source.glb	原始 GLB	Original GLB
 mesh.source.empty	空源	Empty Source
@@ -1223,7 +1221,7 @@ shortcut.action.move	移动模式	Move Mode
 shortcut.action.rotate	旋转模式	Rotate Mode
 shortcut.action.scale	缩放模式	Scale Mode
 shortcut.action.snapping	切换吸附	Toggle Snapping
-shortcut.help	添加网格打开顶部网格工具的同一面板，可在中央文档和预览页使用；其他动作仅中央场景工作区生效。文字、数值输入和弹框期间暂停。\n录入主键，可同时按Ctrl、Shift、Alt；冲突不会覆盖已有绑定。Esc先取消录入，再关闭设置；功能键、删除和文本控制键保留。\n移动：轴或XZ方框；旋转：Y轴圆环；缩放：中心方块。Ctrl吸附默认1米、15°、0.1倍率，实际步长取吸附设置；Esc取消变换。\n手柄操作期间暂停取景与工具切换；固定鼠标导航不参与改键。右键旋转、中键平移、滚轮缩放。运行时和文档键位不受本页影响。	Add Mesh opens the Mesh panel from the scene, a document, or a preview. Other actions work in the central scene workspace. Text and numeric inputs and dialogs suspend these shortcuts.\nPress one key with optional Ctrl, Shift, or Alt. Conflicts preserve the existing binding. Esc cancels capture before closing Settings. Function keys, Delete, and text-editing keys are reserved.\nMove uses axes or the XZ plane handle, Rotate uses the Y-axis ring, and Scale uses the center handle. Hold Ctrl to snap. Default increments are 1 m, 15°, and 0.1×. Esc cancels a transform.\nFraming and tool switching pause while dragging a gizmo. Right-drag orbits, middle-drag pans, and the wheel zooms. Runtime and document shortcuts are configured separately.
+shortcut.help	添加网格打开顶部网格工具的同一面板，可在中央文档和预览页使用；其他动作仅中央场景工作区生效。文字、数值输入和弹框期间暂停。\n录入主键，可同时按Ctrl、Shift、Alt；冲突不会覆盖已有绑定。Esc先取消录入，再关闭设置；功能键、删除和文本控制键保留。\n移动使用轴或平面手柄，旋转使用圆环，等比缩放拖动中心圆或外环。Ctrl吸附默认1米、15°、0.1倍率，实际步长取吸附设置；Esc取消变换。\n手柄操作期间暂停取景与工具切换；固定鼠标导航不参与改键。右键旋转、中键平移、滚轮缩放。运行时和文档键位不受本页影响。	Add Mesh opens the Mesh panel from the scene, a document, or a preview. Other actions work in the central scene workspace. Text and numeric inputs and dialogs suspend these shortcuts.\nPress one key with optional Ctrl, Shift, or Alt. Conflicts preserve the existing binding. Esc cancels capture before closing Settings. Function keys, Delete, and text-editing keys are reserved.\nMove uses axis and plane handles. Rotate uses rings. Drag the center circle or the outer ring to scale uniformly. Hold Ctrl to snap. Default increments are 1 m, 15°, and 0.1×. Esc cancels a transform.\nFraming and tool switching pause while dragging a gizmo. Right-drag orbits, middle-drag pans, and the wheel zooms. Runtime and document shortcuts are configured separately.
 shortcut.binding.listening	按新组合键…	Press a New Shortcut…
 shortcut.notice.default	点击键位录入组合键；Esc取消。修改自动保存。	Select a binding to record a shortcut. Esc cancels. Changes save automatically.
 shortcut.notice.listen	请为“{action}”按新组合键；Esc取消	Press a new shortcut for “{action}”. Esc cancels.

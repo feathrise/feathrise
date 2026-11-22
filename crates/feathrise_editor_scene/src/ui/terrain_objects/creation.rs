@@ -3,7 +3,6 @@ use feathrise_scene_content::{SceneTerrainKind, SparseHeightSpec};
 use super::{components::Field, resources::TerrainObjectsEditorState, types::{CreationSource, CreationPlacementMode}};
 
 pub(super) fn field_visible(field: Field, state: &TerrainObjectsEditorState) -> bool {
-    if !state.creation_open { return false; }
     match field {
         Field::CuboidCreation(index) => state.creation_source.is_builtin()
             && (state.creation_source != CreationSource::Plane || index != 1),

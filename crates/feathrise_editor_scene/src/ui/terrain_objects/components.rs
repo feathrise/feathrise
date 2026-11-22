@@ -60,7 +60,6 @@ pub(super) struct PanelSection(pub Section);
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Section {
     #[default]
-    Creation,
     CreationCuboid,
     Selection,
     Basic,
@@ -177,7 +176,6 @@ pub(super) enum Action {
     Visible,
     Lock,
     Rename,
-    ToggleCreation,
     BasicProperties,
     TypeProperties,
     SourceProperties,
@@ -187,7 +185,7 @@ pub(super) enum Action {
 }
 impl Action {
     pub(super) fn creation_action(self) -> bool {
-        matches!(self, Self::ToggleCreation | Self::Clipmap | Self::Voxel | Self::ImportGlb
+        matches!(self, Self::Clipmap | Self::Voxel | Self::ImportGlb
             | Self::Cuboid | Self::Plane | Self::PlacementViewport | Self::PlacementCoordinates | Self::StartCreation
             | Self::CancelPlacement | Self::CuboidCollision)
     }

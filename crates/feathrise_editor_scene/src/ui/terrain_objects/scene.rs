@@ -146,9 +146,8 @@ pub(crate) fn panel() -> impl Scene {
     bsn! { MeshPageRoot Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column,
     flex_shrink: 0.0, row_gap: px(5), padding: UiRect::top(px(4)) }
     Children [
-        // 中文正文字体包含这组实心三角；小三角▸/▾缺字会显示方框。
-        @button("添加网格 ▶", Action::ToggleCreation)--
-        PanelSection(Section::Creation) Node { display: Display::None, width: percent(100), min_width: px(0),
+        // 进入网格页即可选择创建来源，表单的显示随工具页切换。
+        Node { width: percent(100), min_width: px(0),
             flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0,
             padding: UiRect::all(px(4)), border: UiRect::bottom(px(1)) }
             BorderColor::all(colors::COPPER_BORDER_WEAK)

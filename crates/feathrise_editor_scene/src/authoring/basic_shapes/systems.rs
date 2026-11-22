@@ -34,7 +34,7 @@ pub(super) fn control_menu(
     mut workspace: ResMut<VegetationPresetEditorState>,
     mut mode: ResMut<ViewportModeState>,
     mut sidebar: ResMut<SceneEditorSidebarState>,
-    mut meshes: ResMut<TerrainObjectsEditorState>,
+    meshes: Res<TerrainObjectsEditorState>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut context: CreationContext,
 ) {
@@ -74,7 +74,6 @@ pub(super) fn control_menu(
         return; // 这次Esc只取消点放，不继续关闭中央文档或F12。
     }
     if open_requested && !guard.blocked() {
-        meshes.creation_open = true;
         sidebar.left = EditorLeftSidebarTab::Meshes;
         sidebar.right = EditorLeftSidebarTab::Meshes.work_page();
         state.captured_this_frame = true;

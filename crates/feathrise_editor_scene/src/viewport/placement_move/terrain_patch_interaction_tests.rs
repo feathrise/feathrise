@@ -1,6 +1,8 @@
 //! 三维地形手柄必须使用世界坐标，真实输入和层级传播验证源局部记录、完整仿射和单次历史。
 
 use super::*;
+use super::rotation_scale_tests::scale_center_cursor;
+use super::super::scale::UNIFORM_SCALE_RADIUS;
 use crate::viewport::multi_select::{PlacementSelectionSet, SelectedMember};
 use feathrise_scene_content::{ScenePlacementTerrainPatch, SceneTerrainDescriptor, SceneTerrainKind,
     SceneTerrainObject, TerrainId, TerrainObjectTransform};
@@ -252,11 +254,11 @@ fn patch_single_cutout_uses_source_bounds_for_move_and_uniform_scale() {
         let origin = matrix.w_axis.truncate();
         if scaling { app.world_mut().resource_mut::<ViewportModeState>().mode = crate::viewport::modes::ViewportMode::Scale; }
         let camera = camera(&app);
-        let start = if scaling { camera.project(origin).unwrap() } else { single_point(&app, origin, 0.0) };
+        let start = if scaling { scale_center_cursor(camera, origin, 0.0) } else { single_point(&app, origin, 0.0) };
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         step(&mut app, node, start);
         assert!(app.world().resource::<PlacementMoveState>().drag.is_some());
-        let cursor = if scaling { start + Vec2::X * 120.0 / camera.size / camera.inverse_scale }
+        let cursor = if scaling { scale_center_cursor(camera, origin, UNIFORM_SCALE_RADIUS) }
             else { single_point(&app, origin, 1.0) };
         step(&mut app, node, cursor);
         assert!(app.world().resource::<PlacementMoveState>().drag.as_ref().unwrap().valid,
@@ -291,11 +293,12 @@ fn patch_single_representable_world_y_rotation_and_tilted_uniform_scale_commit_e
             else { crate::viewport::modes::ViewportMode::Rotate };
         let camera = camera(&app);
         let radius = camera.handle_length(origin).unwrap() * super::super::constants::ROTATION_RADIUS_FRACTION;
-        let start = camera.project(origin + if scaling { Vec3::ZERO } else { Vec3::X * radius }).unwrap();
+        let start = if scaling { scale_center_cursor(camera, origin, 0.0) }
+            else { camera.project(origin + Vec3::X * radius).unwrap() };
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         step(&mut app, node, start);
         assert!(app.world().resource::<PlacementMoveState>().drag.is_some());
-        let cursor = if scaling { start + Vec2::X * 120.0 / camera.size / camera.inverse_scale }
+        let cursor = if scaling { scale_center_cursor(camera, origin, UNIFORM_SCALE_RADIUS) }
             else { camera.project(origin + super::super::rotation::yaw_direction(20.0) * radius).unwrap() };
         step(&mut app, node, cursor);
         let change = Mat4::from_translation(origin) * if scaling { Mat4::from_scale(Vec3::splat(2.0)) }
@@ -537,7 +540,7 @@ fn patch_group_cleanup_preserves_root_reparented_by_new_runtime_owner() {
     assert!(app.world().resource::<EditorAuthoringSession>().undo.is_empty());
 }
 
-fn start_group_transform(app: &mut App, node: Entity, scaling: bool) -> (Vec3, MoveCamera, Vec2) {
+fn start_group_transform(app: &mut App, node: Entity, scaling: bool) -> (Vec3, MoveCamera) {
     let origin = app.world().resource::<PlacementSelectionSet>().center;
     plane_tests::set_camera(app, EditorView::Top, false);
     app.world_mut().resource_mut::<SceneEditorViewportState>().center = origin;
@@ -545,12 +548,13 @@ fn start_group_transform(app: &mut App, node: Entity, scaling: bool) -> (Vec3, M
         else { crate::viewport::modes::ViewportMode::Rotate };
     let camera = camera(app);
     let radius = camera.handle_length(origin).unwrap() * super::super::constants::ROTATION_RADIUS_FRACTION;
-    let start = camera.project(origin + if scaling { Vec3::ZERO } else { Vec3::X * radius }).unwrap();
+    let start = if scaling { scale_center_cursor(camera, origin, 0.0) }
+        else { camera.project(origin + Vec3::X * radius).unwrap() };
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
     step(app, node, start); step(app, node, start);
     assert!(app.world().resource::<PlacementMoveState>().group.as_ref()
         .is_some_and(|group| group.phase == super::super::group_types::GroupPhase::Dragging));
-    (origin, camera, start)
+    (origin, camera)
 }
 
 #[test]
@@ -562,10 +566,10 @@ fn patch_group_representable_rotation_and_tilted_uniform_scale_commit_exact_affi
         let (mut app, roots, node, parents) = transformed_group(frame);
         let before = app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap().placements.placements.clone();
         let matrices = roots.map(|root| app.world().get::<GlobalTransform>(root).unwrap().to_matrix());
-        let (origin, camera, start) = start_group_transform(&mut app, node, scaling);
+        let (origin, camera) = start_group_transform(&mut app, node, scaling);
         let helpers = group_helpers(&app);
         let radius = camera.handle_length(origin).unwrap() * super::super::constants::ROTATION_RADIUS_FRACTION;
-        let cursor = if scaling { start + Vec2::X * 120.0 / camera.size / camera.inverse_scale }
+        let cursor = if scaling { scale_center_cursor(camera, origin, UNIFORM_SCALE_RADIUS) }
             else { camera.project(origin + super::super::rotation::yaw_direction(20.0) * radius).unwrap() };
         step(&mut app, node, cursor);
         let change = Mat4::from_translation(origin) * if scaling { Mat4::from_scale(Vec3::splat(2.0)) }
@@ -592,7 +596,7 @@ fn patch_group_unrepresentable_world_rotation_restores_every_member_and_original
     let (mut app, roots, node, parents) = transformed_group(frame);
     let before = app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap().placements.placements.clone();
     let matrices = roots.map(|root| app.world().get::<GlobalTransform>(root).unwrap().to_matrix());
-    let (origin, camera, _) = start_group_transform(&mut app, node, false);
+    let (origin, camera) = start_group_transform(&mut app, node, false);
     let helpers = group_helpers(&app);
     let radius = camera.handle_length(origin).unwrap() * super::super::constants::ROTATION_RADIUS_FRACTION;
     let cursor = camera.project(origin + super::super::rotation::yaw_direction(20.0) * radius).unwrap();

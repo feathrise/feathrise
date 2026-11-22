@@ -106,6 +106,9 @@ fn draw(
                 Some(camera) => foreground::draw_move(&mut foreground, camera, handle),
                 None => draw_transform(&mut transforms, handle),
             },
+            AuthorTool::Transform(handle @ TransformPreview::Scale { cube: false, .. }) if let Some(camera) = camera => {
+                foreground::draw_scale_center(&mut foreground, camera, handle);
+            }
             AuthorTool::Transform(handle) => draw_transform(&mut transforms, handle),
         }
     }

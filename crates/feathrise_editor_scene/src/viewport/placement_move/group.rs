@@ -268,9 +268,10 @@ pub(super) fn handle_group(
                 drag.rotation = Quat::from_axis_angle(axis, angle);
             }).is_ok(),
             handle if moved && handle.mode() == ViewportMode::Scale => {
-                super::scale::scale_drag_delta(drag.camera, drag.origin, Mat3::IDENTITY, drag.start_cursor, normalized, handle)
-                    .and_then(|delta| super::scale::group_scale_factor(delta,
-                        if snapping { drag.snapping.scale_factor } else { 0.0 }, drag.min_factor, drag.max_factor))
+                super::scale::scale_drag_factor(
+                    drag.camera, drag.origin, Mat3::IDENTITY, drag.start_cursor, normalized, handle,
+                    if snapping { drag.snapping.scale_factor } else { 0.0 }, (drag.min_factor, drag.max_factor),
+                )
                     .map(|factor| drag.factor = Vec3::from_array(MoveAxis::ALL.map(|axis| if handle.scales_axis(axis) { factor } else { 1.0 })))
                     .is_some()
             }

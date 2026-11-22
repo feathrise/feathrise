@@ -218,10 +218,6 @@ pub(super) fn input(
             }),
             Action::ConfirmStitch | Action::CancelStitch => None,
             Action::Unstitch => state.selected.clone().map(Mutation::Unstitch),
-            Action::ToggleCreation => {
-                state.creation_open = !state.creation_open;
-                None
-            }
             Action::BasicProperties | Action::TypeProperties | Action::SourceProperties | Action::StitchProperties => {
                 let section = match button.0 {
                     Action::TypeProperties => MeshPropertySection::Type,
@@ -440,8 +436,7 @@ pub(crate) fn poll(
             state.selected = prepared.selected;
             state.selected_index = prepared.selected_index;
             if pending.target.is_none() {
-                // 添加完成即回到新网格基本属性，避免创建规格与已有网格表单同时挤满左栏。
-                state.creation_open = false;
+                // 添加完成后，右侧切到新网格的基本属性。
                 state.set_section_open(MeshPropertySection::Basic, true);
                 state.reset_lod_selection();
                 if let Some(sidebar) = sidebar.as_deref_mut() { sidebar.reveal_scene_properties(); }

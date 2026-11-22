@@ -47,7 +47,6 @@ pub(crate) fn validation_request_plane(world: &mut bevy::prelude::World, positio
     use bevy::prelude::*;
     let mut state = world.resource_mut::<TerrainObjectsEditorState>();
     if state.busy() || state.start_requested { return Err("原创建槽尚未空闲".into()); }
-    state.creation_open = true;
     state.placement_mode = CreationPlacementMode::Coordinates;
     state.creation[..3].copy_from_slice(&position);
     state.cuboid_creation = [6.0, 2.0, 6.0, 180.0, 120.0, 60.0, 0.7];

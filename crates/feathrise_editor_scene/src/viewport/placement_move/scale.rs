@@ -1,4 +1,4 @@
-//! 三轴方帽、平面和等比方块共用屏幕投影与倍率计算。
+//! 三轴方帽、平面和等比圆环共用屏幕投影与倍率计算。
 
 use super::{
     constants::{PICK_LOGICAL_PIXELS, ROTATION_SEGMENTS},
@@ -6,6 +6,7 @@ use super::{
     types::{MoveAxis, MoveHandle, MovePlane},
 };
 use bevy::prelude::*;
+use feathrise_editor_animation_model::gizmo::constrain_scale_factor;
 use feathrise_scene_content::{MAX_SCENE_PLACEMENT_SCALE, MIN_SCENE_PLACEMENT_SCALE};
 
 pub(super) fn frame_scale_basis(degrees: [f32; 3]) -> Mat3 {
@@ -22,11 +23,11 @@ pub(super) struct ScaleAxisHandle {
 pub(super) struct ScaleGizmo {
     pub axes: [Option<ScaleAxisHandle>; 3],
     pub planes: [Option<[Vec3; 4]>; 3],
-    pub uniform: Option<[Vec3; 4]>,
     pub outer: Option<[Vec3; ROTATION_SEGMENTS + 1]>,
     screen_center: Vec2,
 }
 
+pub(super) const UNIFORM_SCALE_RADIUS: f32 = 8.0;
 const SCALE_RING_LOGICAL_PIXELS: f32 = 105.0;
 
 impl ScaleGizmo {
@@ -56,13 +57,14 @@ impl ScaleGizmo {
                 })
             }) // 屏幕同深度的真实世界圆环，透视、正交与 DPI 下均保持固定逻辑尺寸。
         };
-        Some(Self { axes, planes, uniform: camera.screen_square(origin, PICK_LOGICAL_PIXELS), outer, screen_center })
+        Some(Self { axes, planes, outer, screen_center })
     }
 
     fn pick(&self, camera: MoveCamera, normalized: Vec2, combined: bool) -> Option<MoveHandle> {
         if !normalized.is_finite() { return None; }
         let cursor = normalized * camera.size * camera.inverse_scale;
-        if self.uniform.and_then(|corners| camera.project_quad(corners)).is_some_and(|quad| quad_contains(quad, cursor)) {
+        let radius = cursor.distance(self.screen_center);
+        if radius <= UNIFORM_SCALE_RADIUS {
             return Some(MoveHandle::UniformScale);
         }
         if let Some(axis) = MoveAxis::ALL.into_iter().filter_map(|axis| {
@@ -77,7 +79,7 @@ impl ScaleGizmo {
                 return Some(MoveHandle::PlaneScale(plane));
             }
         }
-        if self.outer.is_some() && (cursor.distance(self.screen_center) - SCALE_RING_LOGICAL_PIXELS).abs() <= PICK_LOGICAL_PIXELS {
+        if self.outer.is_some() && (radius - SCALE_RING_LOGICAL_PIXELS).abs() <= PICK_LOGICAL_PIXELS {
             return Some(MoveHandle::UniformScale);
         }
         if combined { return None; } // 复用移动箭头的主轴拾取区域，只点末端方帽才缩放。
@@ -104,32 +106,10 @@ pub(crate) fn pick_scale(camera: MoveCamera, origin: Vec3, normalized: Vec2) -> 
     offset.is_finite() && offset.abs().max_element() <= PICK_LOGICAL_PIXELS
 }
 
-#[cfg(test)]
-pub(super) fn uniform_scale(before: [f32; 3], logical_delta: Vec2, snap: bool) -> Option<[f32; 3]> {
-    scale_with_delta(before, logical_delta, MoveHandle::UniformScale, if snap { 0.1 } else { 0.0 })
-}
-
 pub(super) fn scale_values(
     camera: MoveCamera, origin: Vec3, basis: Mat3, start: Vec2, cursor: Vec2,
     handle: MoveHandle, before: [f32; 3], step: f32,
 ) -> Option<[f32; 3]> {
-    scale_with_delta(before, scale_drag_delta(camera, origin, basis, start, cursor, handle)?, handle, step)
-}
-
-pub(super) fn scale_drag_delta(camera: MoveCamera, origin: Vec3, basis: Mat3, start: Vec2, cursor: Vec2, handle: MoveHandle) -> Option<Vec2> {
-    let delta = (cursor - start) * camera.size * camera.inverse_scale;
-    if handle == MoveHandle::UniformScale { return Some(delta); }
-    let direction = match handle {
-        MoveHandle::AxisScale(axis) => axis.direction(),
-        MoveHandle::PlaneScale(plane) => plane.axes().map(MoveAxis::direction).into_iter().sum::<Vec3>(),
-        _ => return None,
-    };
-    let tip = origin + basis * direction * (camera.handle_length(origin)? * 0.36);
-    let screen_direction = (camera.logical_point(tip)? - camera.logical_point(origin)?).try_normalize()?;
-    Some(Vec2::new(delta.dot(screen_direction), 0.0))
-}
-
-fn scale_with_delta(before: [f32; 3], logical_delta: Vec2, handle: MoveHandle, step: f32) -> Option<[f32; 3]> {
     let scale = Vec3::from_array(before);
     if !scale.is_finite()
         || scale.min_element() < MIN_SCENE_PLACEMENT_SCALE
@@ -138,16 +118,42 @@ fn scale_with_delta(before: [f32; 3], logical_delta: Vec2, handle: MoveHandle, s
         return None;
     }
     let axes = MoveAxis::ALL.into_iter().filter(|axis| handle.scales_axis(*axis));
-    let (min, max) = axes.clone().fold((0.0_f32, f32::INFINITY), |(min, max), axis| {
+    let bounds = axes.clone().fold((0.0_f32, f32::INFINITY), |(min, max), axis| {
         let value = before[axis.index()];
         (min.max(MIN_SCENE_PLACEMENT_SCALE / value), max.min(MAX_SCENE_PLACEMENT_SCALE / value))
     });
-    let factor = group_scale_factor(logical_delta, step, min, max)?;
+    let factor = scale_drag_factor(camera, origin, basis, start, cursor, handle, step, bounds)?;
     let mut result = before;
     for axis in axes {
         result[axis.index()] = (result[axis.index()] * factor).clamp(MIN_SCENE_PLACEMENT_SCALE, MAX_SCENE_PLACEMENT_SCALE);
     } // 同一平面上的两轴共享倍率，其他轴逐位保留。
     Some(result)
+}
+
+pub(super) fn scale_drag_factor(
+    camera: MoveCamera, origin: Vec3, basis: Mat3, start: Vec2, cursor: Vec2,
+    handle: MoveHandle, step: f32, (min, max): (f32, f32),
+) -> Option<f32> {
+    let size = camera.size * camera.inverse_scale;
+    let center = camera.logical_point(origin)?;
+    if handle == MoveHandle::UniformScale {
+        let start_radius = (start * size).distance(center);
+        let radial_delta = (cursor * size).distance(center) - start_radius;
+        // 沿同一半径转向时忽略投影舍入误差，吸附也应保留原比例。
+        if radial_delta.abs() <= 1.0e-4 { return constrain_scale_factor(1.0, 0.0, min, max); }
+        // 外环按距离比缩放。中心圆用自身半径保底，点中圆心也能从原比例连续放大。
+        let factor = 1.0 + radial_delta / start_radius.max(UNIFORM_SCALE_RADIUS);
+        return constrain_scale_factor(factor, step, min, max);
+    }
+    let direction = match handle {
+        MoveHandle::AxisScale(axis) => axis.direction(),
+        MoveHandle::PlaneScale(plane) => plane.axes().map(MoveAxis::direction).into_iter().sum::<Vec3>(),
+        _ => return None,
+    };
+    let tip = origin + basis * direction * (camera.handle_length(origin)? * 0.36);
+    let screen_direction = (camera.logical_point(tip)? - center).try_normalize()?;
+    let delta = ((cursor - start) * size).dot(screen_direction);
+    group_scale_factor(Vec2::new(delta, 0.0), step, min, max)
 }
 
 /// 整组倍率由按下时汇总的共同上下界约束，拖动帧只做常数计算。

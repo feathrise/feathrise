@@ -4,7 +4,7 @@
 //! 不遍历场景或网格，不新增相机或 GPU 读回；多选复用共同位移并使用单个有界CPU槽。
 
 mod animation; // 场景动画复用对象手势，写回当前帧的临时姿势。
-mod constants; // 圆环和中心方块的固定预算及逻辑像素规格。
+mod constants; // 手柄绘制和拾取的逻辑像素规格。
 mod group; // 多选共同移动、旋转和缩放，常数节点预览、分帧捕获与完整单次历史。
 mod group_types;
 mod group_world;
@@ -81,8 +81,8 @@ pub(crate) fn set_placement_mode(
     editor.status = match requested {
         ViewportMode::Move => "移动模式，可在场景树切换对象。拖动箭头沿轴移动，拖动方框沿平面移动。Ctrl 吸附，Esc 取消。",
         ViewportMode::Rotate => "旋转模式，可在场景树切换对象。拖动旋转圆环，Ctrl 使用设置中的角度步长，Esc 取消。建筑按 90° 档位旋转并校验。",
-        ViewportMode::Scale => "缩放模式。拖动轴端方块或平面框缩放对应分量，拖动中心方块等比缩放。Ctrl 吸附，Esc 取消。",
-        ViewportMode::Transform => "变换模式。拖动箭头移动，拖动圆环旋转，拖动方帽或中心方块缩放。Ctrl 吸附，Esc 取消。",
+        ViewportMode::Scale => "缩放模式。轴端方块和平面框缩放对应分量。拖动中心圆或外环向内缩小、向外放大。Ctrl 吸附，Esc 取消。",
+        ViewportMode::Transform => "变换模式。箭头移动，圆环旋转，方帽和平面框缩放对应分量，中心圆等比缩放。Ctrl 吸附，Esc 取消。",
         ViewportMode::Select => "已回到选择模式",
         ViewportMode::Edit => "已回到编辑模式",
     }

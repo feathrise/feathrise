@@ -17,6 +17,21 @@ use std::{sync::mpsc, time::{Duration, Instant}};
 const EDGE: u32 = 256; // BGRA 行宽已按 GPU 回读要求对齐。
 const SIZE: Vec2 = Vec2::splat(EDGE as f32);
 
+impl Foreground {
+    /// 按实际提交的三角形采样，允许交互夹具检验特定前景笔画是否出现。
+    pub(crate) fn covers_white_at(&self, canvas_size: Vec2, point: Vec2) -> bool {
+        let point = point / canvas_size * Vec2::new(2., -2.);
+        self.0.chunks_exact(3).any(|triangle| {
+            if triangle[0][5] <= 0. || triangle[0][2..5].iter().any(|&channel| channel < 0.75) {
+                return false;
+            }
+            let [a, b, c] = [0, 1, 2].map(|index| Vec2::new(triangle[index][0], triangle[index][1]));
+            let sides = [(a, b), (b, c), (c, a)].map(|(a, b)| (b - a).perp_dot(point - a));
+            sides.iter().all(|&side| side >= 0.) || sides.iter().all(|&side| side <= 0.)
+        })
+    }
+}
+
 fn sampled_colors(
     app: &mut App,
     target: &Handle<Image>,
@@ -59,6 +74,34 @@ fn constraint_guide_crosses_both_viewport_edges() {
     assert!(frame.0.iter().any(|vertex| vertex[0] < -1.));
     assert!(frame.0.iter().any(|vertex| vertex[0] > 1.));
     assert!(frame.0.iter().all(|vertex| (vertex[1].abs() * SIZE.y * 0.5 - 1.).abs() < 0.001));
+}
+
+#[test]
+fn radial_scale_guide_has_gaps_and_opposing_arrowheads() {
+    let size = Vec2::new(360., 240.);
+    let center = Vec2::new(-70., -80.);
+    let direction = Vec2::new(0.6, 0.8);
+    let pointer = center + direction * 120.;
+    let radius = 12.;
+    let mut frame = Foreground::default();
+    frame.canvas(size).radial_scale_guide(center, pointer, radius);
+
+    // 斜拖穿过非方形视口，交替采样虚线段和间隔，还要给中心圆留空。
+    for (distance, covered) in [(radius + 1., false), (17., true), (22., false), (26., true), (31., false)] {
+        assert_eq!(frame.covers_white_at(size, center + direction * distance), covered);
+    }
+    assert!(!frame.contains_viewport_guide());
+    assert!(frame.covers_white_at(size, pointer));
+
+    let across = direction.perp();
+    for sign in [-1., 1.] {
+        assert!(frame.covers_white_at(size, pointer + direction * (sign * 9.)));
+        for side in [-1., 1.] {
+            // 两个尖端都应有径向两侧的箭翼。只画一条短横线会漏掉这些采样点。
+            let wing = pointer + direction * (sign * 7.) + across * (side * 2.5);
+            assert!(frame.covers_white_at(size, wing), "缺少径向 {sign}、侧向 {side} 的箭翼");
+        }
+    }
 }
 
 #[test]
@@ -121,6 +164,34 @@ fn gpu_move_foreground_fills_handles_over_opaque_mesh() {
         (0..3).all(|index| blended(colors[index], baseline[index], 0))
             && blended(colors[3], baseline[3], 1)
             && colors[4] == baseline[4]
+    });
+    app.world_mut().resource_mut::<Foreground>().clear();
+    sampled_colors(&mut app, &target, points, |colors| colors == baseline);
+
+    let radius = 8.0;
+    let [a, b, _, d] = camera.screen_square(origin, radius).unwrap();
+    let center = world_point(origin);
+    let points = [
+        center + Vec2::new(-7.5, 0.5), center + Vec2::splat(0.5), center + Vec2::new(13.5, 0.5),
+        center + Vec2::new(18.5, 0.5), center + Vec2::new(60.5, 0.5),
+    ];
+    let baseline = sampled_colors(&mut app, &target, points, |colors| {
+        colors.into_iter().all(|[r, g, b]| r > 48 && r.abs_diff(g) <= 4 && r.abs_diff(b) <= 4)
+    });
+    {
+        let mut foreground = app.world_mut().resource_mut::<Foreground>();
+        let pivot = center + Vec2::splat(0.5);
+        foreground.canvas(SIZE).radial_scale_guide(pivot, pivot + Vec2::X * 60.0, radius);
+        super::draw_scale_center(&mut foreground, camera, &TransformPreview::Scale {
+            origin: origin.to_array(), right: (b - a).normalize().to_array(),
+            up: (d - a).normalize().to_array(), half_size: (b - a).length() * 0.5,
+            color: [1.; 4], cube: false,
+        });
+    }
+    // 圆环、虚线实段和双箭头可见，环心和虚线间隔仍为原底色。
+    sampled_colors(&mut app, &target, points, |colors| {
+        [0, 2, 4].into_iter().all(|index| colors[index].into_iter().all(|channel| channel > 240))
+            && colors[1] == baseline[1] && colors[3] == baseline[3]
     });
     app.world_mut().resource_mut::<Foreground>().clear();
     sampled_colors(&mut app, &target, points, |colors| colors == baseline);

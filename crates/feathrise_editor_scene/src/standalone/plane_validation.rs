@@ -155,7 +155,6 @@ pub(super) fn advance(world: &mut World) -> Option<Result<serde_json::Value, Str
                 let root = session.placement_previews.get(&current.id).copied().ok_or("平面没有真实作者根")?;
                 if !feathrise_scene::builtin_placement_visual_ready(world, root) { return Ok(None); }
                 // 重新展示原创建面板，截图同时记录平面入口和已细分的真实对象。
-                world.resource_mut::<crate::ui::terrain_objects::TerrainObjectsEditorState>().creation_open = true;
                 world.resource_mut::<crate::ui::sidebars::SceneEditorSidebarState>().right = crate::ui::sidebars::EditorRightSidebarTab::Tools;
                 state.ticks += 1;
                 if state.ticks < 12 { return Ok(None); }

@@ -58,7 +58,6 @@ pub(crate) struct TerrainObjectsEditorState {
     pub(super) lods: [LodListState; 2],
     /// 添加区和所选属性是两套常驻控件，创建规格不会因场景选择改变语义。
     pub creation: [f32; 8],
-    pub(crate) creation_open: bool,
     pub(crate) creation_source: super::types::CreationSource,
     pub(crate) placement_mode: super::types::CreationPlacementMode,
     /// 尺寸XYZ、sRGB三色和粗糙度；定点单位在请求边界归一为毫米与千分比。
@@ -97,7 +96,6 @@ impl Default for TerrainObjectsEditorState {
             display_lods: true,
             lods: Default::default(),
             creation: [0.0, 0.0, 0.0, 64.0, 16.0, 64.0, 0.0, 0.25],
-            creation_open: false,
             creation_source: Default::default(),
             placement_mode: Default::default(),
             cuboid_creation: [2.0, 2.0, 2.0, 160.0, 160.0, 160.0, 0.7],

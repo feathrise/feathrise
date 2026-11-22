@@ -493,10 +493,14 @@ pub fn rotation_delta(
 pub const SCALE_DOUBLE_LOGICAL_PIXELS: f32 = 120.0; // 拖动120逻辑像素翻倍，指数变化兼顾小模型精调。
 
 pub fn group_scale_factor(logical_delta: Vec2, step: f32, minimum: f32, maximum: f32) -> Option<f32> {
-    if !logical_delta.is_finite() || !minimum.is_finite() || !maximum.is_finite()
-        || minimum <= 0.0 || maximum < minimum { return None; }
+    if !logical_delta.is_finite() { return None; }
     let exponent = ((logical_delta.x - logical_delta.y) / SCALE_DOUBLE_LOGICAL_PIXELS).clamp(-30.0, 30.0);
-    let mut factor = 2.0_f32.powf(exponent);
+    constrain_scale_factor(2.0_f32.powf(exponent), step, minimum, maximum)
+}
+
+pub fn constrain_scale_factor(mut factor: f32, step: f32, minimum: f32, maximum: f32) -> Option<f32> {
+    if !factor.is_finite() || !minimum.is_finite() || !maximum.is_finite()
+        || minimum <= 0.0 || maximum < minimum { return None; }
     if step.is_finite() && step > 0.0 { factor = (factor / step).round() * step; }
     Some(factor.clamp(minimum, maximum))
 }

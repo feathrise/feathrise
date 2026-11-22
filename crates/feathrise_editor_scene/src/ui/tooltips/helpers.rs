@@ -137,8 +137,8 @@ pub(super) fn tooltip_copy(action: TooltipAction, mesh_edit: bool) -> TooltipCop
                 (_, ViewportMode::Select) => ("选择", "选择场景中的对象并查看属性，不落笔修改场景。", None, None),
                 (_, ViewportMode::Move) => ("移动", "拖动一个轴或两个轴之间的平面手柄移动对象。", Some(EditorShortcutAction::MoveSelected), None),
                 (_, ViewportMode::Rotate) => ("旋转", "彩色圆环绕对应轴旋转，外环绕视角转动。建筑沿用方向档位。", Some(EditorShortcutAction::RotateSelected), None),
-                (_, ViewportMode::Scale) => ("缩放", "缩放所选普通资产。轴方帽和平面方块限制维度，外环或中心进行等比缩放。", Some(EditorShortcutAction::ScaleSelected), None),
-                (_, ViewportMode::Transform) => ("变换", "在同一对象上使用移动箭头、旋转圆环和缩放方帽。", None, None),
+                (_, ViewportMode::Scale) => ("缩放", "轴方帽和平面框缩放对应分量。拖动中心圆或外环向内缩小、向外放大。", Some(EditorShortcutAction::ScaleSelected), None),
+                (_, ViewportMode::Transform) => ("变换", "箭头移动，圆环旋转，方帽和平面框缩放对应分量，中心圆等比缩放。", None, None),
                 (_, ViewportMode::Edit) => ("编辑", "恢复当前工具面板上次使用的绘制工具。", None, None),
             } // 同一图标随对象/元素模式回显真实操作及键位，不能让 W/E/R 的对象说明误导网格编辑。
         },

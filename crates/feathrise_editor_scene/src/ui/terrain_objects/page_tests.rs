@@ -598,41 +598,42 @@ fn mesh_page_and_scene_share_one_row_pool_and_keep_creation_fields_distinct() {
             .count(),
         4
     );
-    assert!(!world.resource::<TerrainObjectsEditorState>().creation_open);
 }
 
 #[test]
-fn mesh_creation_entry_preserves_other_workspaces_and_toggles_normally() {
+fn mesh_creation_sources_are_available_without_changing_other_workspaces() {
     use crate::ui::vegetation_preset_editor::{PresetWorkspaceTab, VegetationPresetEditorState};
 
     let (mut app, window) = creation_page();
     app.init_resource::<VegetationPresetEditorState>();
-    let toggle = action(&mut app, Action::ToggleCreation);
     let remove = action(&mut app, Action::Remove);
     let map = app.world().resource::<TerrainObjectsEditorState>().scene_id.clone();
     let revision = app.world().resource::<EditorAuthoringSession>().revision;
-    for tab in [PresetWorkspaceTab::Document, PresetWorkspaceTab::AssetPreview, PresetWorkspaceTab::Vegetation(7)] {
-        for already_open in [false, true] {
-            app.world_mut().resource_mut::<VegetationPresetEditorState>().active_tab = tab;
-            let ui_revision = app.world().resource::<VegetationPresetEditorState>().ui_revision;
-            app.world_mut().resource_mut::<TerrainObjectsEditorState>().creation_open = already_open;
-            app.update();
-            assert!(app.world().get::<bevy::ui::InteractionDisabled>(toggle).is_none(),
-                "主场景仍在时，其他中央标签不能禁用添加入口");
-            assert!(app.world().get::<bevy::ui::InteractionDisabled>(remove).is_some(),
-                "中央显示其他工作区时，隐藏的对象操作仍应禁止");
-            click(&mut app, window, toggle, MouseButton::Left);
-            let workspace = app.world().resource::<VegetationPresetEditorState>();
-            assert_eq!(workspace.active_tab, tab);
-            assert_eq!(workspace.ui_revision, ui_revision, "添加区不应重建中央工作区");
-            let state = app.world().resource::<TerrainObjectsEditorState>();
-            assert_eq!(state.creation_open, !already_open, "添加区在原工作区正常展开和折叠");
-            assert_eq!(state.scene_id, map);
-            let session = app.world().resource::<EditorAuthoringSession>();
-            assert_eq!(session.revision, revision);
-            assert!(session.undo.is_empty());
-            assert!(!state.preparing(), "展开入口不应启动创建或文件任务");
-        }
+    for (tab, source, expected) in [
+        (PresetWorkspaceTab::Document, Action::Plane, CreationSource::Plane),
+        (PresetWorkspaceTab::AssetPreview, Action::Cuboid, CreationSource::Cuboid),
+        (PresetWorkspaceTab::Vegetation(7), Action::Voxel, CreationSource::Voxel),
+    ] {
+        app.world_mut().resource_mut::<VegetationPresetEditorState>().active_tab = tab;
+        let ui_revision = app.world().resource::<VegetationPresetEditorState>().ui_revision;
+        app.update();
+        let source = action(&mut app, source);
+        assert!(app.world().get::<ComputedNode>(source).unwrap().size().y > 0.0,
+            "网格页打开后应直接显示创建来源");
+        assert!(app.world().get::<bevy::ui::InteractionDisabled>(source).is_none());
+        assert!(app.world().get::<bevy::ui::InteractionDisabled>(remove).is_some(),
+            "中央显示其他工作区时，隐藏的对象操作仍应禁止");
+        click(&mut app, window, source, MouseButton::Left);
+        let workspace = app.world().resource::<VegetationPresetEditorState>();
+        assert_eq!(workspace.active_tab, tab);
+        assert_eq!(workspace.ui_revision, ui_revision, "选择来源不应重建中央工作区");
+        let state = app.world().resource::<TerrainObjectsEditorState>();
+        assert_eq!(state.creation_source, expected);
+        assert_eq!(state.scene_id, map);
+        let session = app.world().resource::<EditorAuthoringSession>();
+        assert_eq!(session.revision, revision);
+        assert!(session.undo.is_empty());
+        assert!(!state.preparing(), "选择来源不应启动创建或文件任务");
     }
 }
 
@@ -655,11 +656,11 @@ fn mesh_creation_entry_keeps_scene_and_modal_guards_in_other_workspaces() {
             }
         }
         app.update();
-        let toggle = action(&mut app, Action::ToggleCreation);
-        assert!(app.world().get::<bevy::ui::InteractionDisabled>(toggle).is_some());
-        click(&mut app, window, toggle, MouseButton::Left);
+        let plane = action(&mut app, Action::Plane);
+        assert!(app.world().get::<bevy::ui::InteractionDisabled>(plane).is_some());
+        click(&mut app, window, plane, MouseButton::Left);
         assert_eq!(app.world().resource::<VegetationPresetEditorState>().active_tab, PresetWorkspaceTab::Document);
-        assert!(!app.world().resource::<TerrainObjectsEditorState>().creation_open);
+        assert_eq!(app.world().resource::<TerrainObjectsEditorState>().creation_source, CreationSource::Clipmap);
     }
 }
 
@@ -669,8 +670,6 @@ fn real_numeric_creation_edit_does_not_change_the_selected_mesh() {
     app.init_resource::<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>();
     app.world_mut().resource_mut::<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>().active_tab =
         crate::ui::vegetation_preset_editor::PresetWorkspaceTab::Document;
-    let toggle = action(&mut app, Action::ToggleCreation);
-    click(&mut app, window, toggle, MouseButton::Left);
     let root = field(&mut app, Field::Creation(0));
     click(&mut app, window, root, MouseButton::Left);
     assert_eq!(
@@ -742,8 +741,6 @@ fn mesh_creation_in_document_adds_all_backends_to_the_current_scene() {
         let original = session.draft.as_ref().unwrap().manifest.terrains.clone().unwrap();
         let ui_revision = app.world().resource::<VegetationPresetEditorState>().ui_revision;
         app.update();
-        let toggle = action(&mut app, Action::ToggleCreation);
-        click(&mut app, window, toggle, MouseButton::Left);
         let create = action(&mut app, create);
         assert!(app.world().get::<bevy::ui::InteractionDisabled>(create).is_none());
         click(&mut app, window, create, MouseButton::Left);
@@ -1781,9 +1778,13 @@ fn chinese_mesh_pages_stay_inside_narrow_and_wide_hosts_at_scaled_dpi() {
                         "中文网格按钮越过右边界：kind={kind:?} width={width} scale={scale} dpi={dpi} size={:?}", node.size());
                     if let Some(children) = children {
                         for child in children.iter() {
+                            // 帮助正文在根浮层按独立宽度排版，这里只检查按钮本身的标签。
+                            if world.get::<feathrise_editor_ui::context_help::ContextHelpBody>(child).is_some() {
+                                continue;
+                            }
                             if let Some(text) = world.get::<bevy::text::TextLayoutInfo>(child) {
                                 assert!(text.size.x <= node.size().x + 1.1,
-                                    "LOD按钮真实中文排版越出按钮：kind={kind:?} width={width} scale={scale} dpi={dpi} text={:?} button={:?}", text.size, node.size());
+                                    "网格按钮真实中文排版越出按钮：kind={kind:?} width={width} scale={scale} dpi={dpi} text={:?} button={:?}", text.size, node.size());
                             }
                         }
                     }
@@ -1824,10 +1825,9 @@ fn assert_axis_column_alignment(world: &mut World) {
 #[test]
 #[ignore = "显式离屏渲染场景网格侧栏，保留用户正在编辑的原生窗口"]
 fn mesh_sidebar_gpu_snapshot() {
-    use bevy::ecs::system::RunSystemOnce;
     use bevy::render::{gpu_readback::{Readback, ReadbackComplete}, render_resource::{TextureFormat, TextureUsages}};
     use std::time::{Duration, Instant};
-    let (mut app, window) = page_with_render(true, true);
+    let (mut app, _) = page_with_render(true, true);
     crate::ui::theme::install(&mut app);
     app.add_systems(Update, crate::ui::gltf_browser::sync_scene_base_gltf_row);
     let map = app.world().resource::<SceneEditorState>().selected_scene_id.clone();
@@ -1914,66 +1914,36 @@ fn mesh_sidebar_gpu_snapshot() {
     image::RgbaImage::from_raw(768, 900, bytes).unwrap()
         .save(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/mesh-sidebar-validation/mesh-lods-compact.png")).unwrap();
 
-    // 同一正式UI离屏验证两种箭头；文档工作区中的真实点击保持中央标签不变。
-    app.init_resource::<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>();
-    // 创建工具页独立于中央文档标签，必须显式揭示后再验证真实箭头点击。
+    // 文档工作区打开网格页即可看到创建来源，记录实际布局而不改变中央标签。
+    use crate::ui::vegetation_preset_editor::{PresetWorkspaceTab, VegetationPresetEditorState};
+    app.init_resource::<VegetationPresetEditorState>();
+    app.world_mut().resource_mut::<VegetationPresetEditorState>().active_tab = PresetWorkspaceTab::Document;
     app.world_mut().resource_mut::<SceneEditorSidebarState>().right = EditorRightSidebarTab::Tools;
     {
         let world = app.world_mut();
         for mut node in world.query_filtered::<&mut Node, With<ListHost>>().iter_mut(world) { node.display = Display::None; }
         for mut node in world.query_filtered::<&mut Node, With<PageHost>>().iter_mut(world) { node.display = Display::Flex; node.width = px(280); }
     }
-    for expanded in [false, true] {
-        if expanded {
-            app.world_mut().resource_mut::<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>().active_tab =
-                crate::ui::vegetation_preset_editor::PresetWorkspaceTab::Document;
-            app.update();
-            let toggle = action(&mut app, Action::ToggleCreation);
-            // Bevy官方命中只接受窗口目标；只在执行命中系统时临时映射，渲染仍使用原离屏图像。
-            let position = app.world().get::<UiGlobalTransform>(toggle).unwrap().translation;
-            app.world_mut().get_mut::<Window>(window).unwrap()
-                .set_physical_cursor_position(Some(position.as_dvec2()));
-            let original_target = app.world().get::<bevy::camera::RenderTarget>(camera).unwrap().clone();
-            *app.world_mut().get_mut::<bevy::camera::RenderTarget>(camera).unwrap() =
-                bevy::camera::RenderTarget::Window(bevy::window::WindowRef::Entity(window));
-            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
-            app.world_mut().run_system_cached(bevy::ui::ui_focus_system).unwrap();
-            app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
-            assert_eq!(*app.world().get::<UiInteraction>(toggle).unwrap(), UiInteraction::Pressed);
-            assert!(!app.world().get::<feathrise_editor_ui::EditorButtonClick>(toggle).unwrap().is_clicked());
-            app.world_mut().run_system_once(systems::input).unwrap();
-            assert!(!app.world().resource::<TerrainObjectsEditorState>().creation_open,
-                "真实按住只显示反馈，创建区必须等原按钮内释放后展开");
-            // 分开真实按下和释放边沿；两次命中共用正式焦点状态，不伪造已确认点击。
-            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
-            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
-            app.world_mut().run_system_cached(bevy::ui::ui_focus_system).unwrap();
-            app.world_mut().run_system_once(feathrise_editor_ui::update_editor_button_clicks).unwrap();
-            assert!(app.world().get::<feathrise_editor_ui::EditorButtonClick>(toggle).unwrap().is_clicked(),
-                "在原箭头内释放必须由共享点击系统确认");
-            app.world_mut().run_system_once(systems::input).unwrap();
-            app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
-            *app.world_mut().get_mut::<bevy::camera::RenderTarget>(camera).unwrap() = original_target;
-            assert_eq!(app.world().resource::<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>().active_tab,
-                crate::ui::vegetation_preset_editor::PresetWorkspaceTab::Document);
-            assert!(app.world().resource::<TerrainObjectsEditorState>().creation_open);
-        }
-        for _ in 0..16 { app.update(); std::thread::sleep(Duration::from_millis(16)); }
-        let (sender, receiver) = std::sync::mpsc::channel();
-        app.world_mut().spawn(Readback::texture(target.clone())).observe(move |event: On<ReadbackComplete>, mut commands: Commands| {
-            let _ = sender.send(event.data.clone()); commands.entity(event.entity).try_despawn();
-        });
-        let started = Instant::now();
-        let bytes = loop {
-            app.update();
-            if let Ok(bytes) = receiver.try_recv() { break bytes; }
-            assert!(started.elapsed().as_secs() < 10);
-            std::thread::sleep(Duration::from_millis(16));
-        };
-        let output = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/mesh-sidebar-validation");
-        image::RgbaImage::from_raw(768, 900, bytes).unwrap()
-            .save(output.join(if expanded { "mesh-create-expanded.png" } else { "mesh-create-collapsed.png" })).unwrap();
+    for _ in 0..16 { app.update(); std::thread::sleep(Duration::from_millis(16)); }
+    for source in [Action::Cuboid, Action::Plane, Action::ImportGlb, Action::Clipmap, Action::Voxel] {
+        let button = action(&mut app, source);
+        assert!(app.world().get::<ComputedNode>(button).unwrap().size().y > 0.0);
+        assert!(app.world().get::<bevy::ui::InteractionDisabled>(button).is_none());
     }
+    let (sender, receiver) = std::sync::mpsc::channel();
+    app.world_mut().spawn(Readback::texture(target.clone())).observe(move |event: On<ReadbackComplete>, mut commands: Commands| {
+        let _ = sender.send(event.data.clone()); commands.entity(event.entity).try_despawn();
+    });
+    let started = Instant::now();
+    let bytes = loop {
+        app.update();
+        if let Ok(bytes) = receiver.try_recv() { break bytes; }
+        assert!(started.elapsed().as_secs() < 10);
+        std::thread::sleep(Duration::from_millis(16));
+    };
+    let output = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/mesh-sidebar-validation");
+    image::RgbaImage::from_raw(768, 900, bytes).unwrap()
+        .save(output.join("mesh-create.png")).unwrap();
 }
 
 #[test]

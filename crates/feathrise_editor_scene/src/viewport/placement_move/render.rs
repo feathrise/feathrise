@@ -3,12 +3,12 @@
 use super::super::modes::{ViewportMode, ViewportModeState};
 use super::super::LayerCandidateState;
 use super::{
-    constants::PICK_LOGICAL_PIXELS,
+    group_types::GroupPhase,
     input::{placement_scale_basis, selected_record, yaw_only},
     math::{MoveCamera, move_plane_corners},
     resources::PlacementMoveState,
     rotation::rotation_ring,
-    scale::{ScaleGizmo, frame_scale_basis},
+    scale::{ScaleGizmo, UNIFORM_SCALE_RADIUS, frame_scale_basis},
     types::{MoveAxis, MoveHandle, MovePlane},
 };
 use crate::authoring::EditorAuthoringSession;
@@ -21,7 +21,7 @@ use crate::ui::{
     scene_motion::Workbench,
     vegetation_preset_editor::{PresetWorkspaceTab, VegetationPresetEditorState},
 };
-use bevy::prelude::*;
+use bevy::{prelude::*, ui::RelativeCursorPosition};
 use feathrise_author_tools::{AuthorTool, TransformPreview};
 use crate::viewport::tool_preview::{AuthorToolFrame, foreground::{Canvas, Foreground}};
 use crate::standalone::embedded_snapshot::EmbeddedSnapshotState;
@@ -33,7 +33,7 @@ pub(crate) fn draw_placement_move(
     state: Res<PlacementMoveState>,
     mode: Res<ViewportModeState>,
     viewport: Option<Res<SceneEditorViewportState>>,
-    nodes: Query<&ComputedNode, With<SceneEditorViewport>>,
+    nodes: Query<(&ComputedNode, &RelativeCursorPosition), With<SceneEditorViewport>>,
     browser: Res<EditorGltfBrowserState>,
     candidates: Res<LayerCandidateState>,
     workspace: Res<VegetationPresetEditorState>,
@@ -55,22 +55,24 @@ pub(crate) fn draw_placement_move(
     {
         return;
     }
-    let (Some(viewport), Ok(node)) = (viewport, nodes.single()) else { return; };
+    let (Some(viewport), Ok((node, relative))) = (viewport, nodes.single()) else { return; };
     let Some(camera) = MoveCamera::new(&editor, &viewport, node.inverse_scale_factor()) else { return; };
     let local = !snapshot.is_some_and(|snapshot| snapshot.enabled);
     let held = mouse.pressed(MouseButton::Left);
-    let mut canvas = foreground.canvas(camera.size * camera.inverse_scale);
+    let size = camera.size * camera.inverse_scale;
+    let pointer = relative.normalized.map(|point| point * size);
+    let mut canvas = foreground.canvas(size);
     if let Some(selection) = multi_selection.as_ref().filter(|selection| selection.members.len() > 1) {
         if selection.ready_for(&session) || state.group.is_some() {
             PlacementGizmo {
                 camera, origin: selection.center + state.group_delta(), basis: Mat3::IDENTITY,
                 active: state.group.as_ref().map(|group| group.handle).or(state.hover),
-                guide: state.group.as_ref().filter(|_| held).map(|group| group.handle),
+                guide: state.group.as_ref().filter(|group| held && group.phase == GroupPhase::Dragging).map(|group| group.handle),
                 building: false, local, animated: false,
                 yaw_only: selection.terrain_patch_selected || !crate::authoring::placement_pose::placement_supports_full_rotation(),
                 yaw: state.group.as_ref().map_or(0.0, |group| group.rotation.to_euler(EulerRot::YXZ).0.to_degrees()),
                 before_yaw: None, anchor: None,
-            }.draw(mode.mode, &mut tools, &mut canvas);
+            }.draw(mode.mode, pointer, &mut tools, &mut canvas);
         }
         return; // 多选始终绘制共同中心手柄，不借用单体选择。
     }
@@ -105,7 +107,7 @@ pub(crate) fn draw_placement_move(
         yaw: preview.map_or(record.yaw_degrees, |drag| drag.preview.yaw_degrees),
         before_yaw: preview.map(|drag| drag.before.yaw_degrees),
         anchor: (building && preview.is_some()).then_some(record.translation),
-    }.draw(mode.mode, &mut tools, &mut canvas);
+    }.draw(mode.mode, pointer, &mut tools, &mut canvas);
 }
 
 struct PlacementGizmo {
@@ -130,7 +132,15 @@ impl PlacementGizmo {
         handle_color(normal, self.active == Some(handle))
     }
 
-    fn draw(self, mode: ViewportMode, tools: &mut AuthorToolFrame, canvas: &mut Canvas) {
+    fn draw(self, mode: ViewportMode, pointer: Option<Vec2>, tools: &mut AuthorToolFrame, canvas: &mut Canvas) {
+        if self.local && self.guide == Some(MoveHandle::UniformScale) {
+            // 等比拖动期间凸显中心和径向反馈，松开后恢复可选择的轴、平面和外环。
+            self.publish_scale_center(tools);
+            if let Some((center, pointer)) = canvas.point(self.camera, self.origin).zip(pointer) {
+                canvas.radial_scale_guide(center, pointer, UNIFORM_SCALE_RADIUS);
+            }
+            return;
+        }
         if self.local && let Some(handle) = self.guide && let Some(length) = self.camera.handle_length(self.origin) {
             // 单轴、平面与局部缩放按已捕获的约束绘制。自由旋转和等比缩放没有轴线。
             for axis in MoveAxis::ALL {
@@ -205,12 +215,16 @@ impl PlacementGizmo {
         }
     }
 
-    fn draw_scale(&self, combined: bool, tools: &mut AuthorToolFrame, canvas: &mut Canvas) {
-        if let Some(corners) = self.camera.screen_square(self.origin, PICK_LOGICAL_PIXELS)
+    fn publish_scale_center(&self, tools: &mut AuthorToolFrame) {
+        if let Some(corners) = self.camera.screen_square(self.origin, UNIFORM_SCALE_RADIUS)
             && let Some(preview) = screen_scale_preview(self.origin, corners, self.tint(MoveHandle::UniformScale, Color::WHITE))
         {
             tools.push(AuthorTool::Transform(preview));
         }
+    }
+
+    fn draw_scale(&self, combined: bool, tools: &mut AuthorToolFrame, canvas: &mut Canvas) {
+        self.publish_scale_center(tools);
         if !self.local { return; }
         let Some(geometry) = ScaleGizmo::new(self.camera, self.origin, self.basis, combined) else { return; };
         if let Some(ring) = geometry.outer {

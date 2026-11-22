@@ -28,7 +28,6 @@ fn fixture() -> (App, Entity) {
     sidebar.right = EditorRightSidebarTab::Tools;
     let mut state = TerrainObjectsEditorState::default();
     state.scene_id = Some(map.clone());
-    state.creation_open = true;
     state.creation_source = CreationSource::ImportedGlb;
     state.placement_mode = CreationPlacementMode::Viewport;
     state.creation = [91.0, 92.0, 93.0, 8.0, 6.0, 10.0, 37.0, 0.25];

@@ -814,7 +814,7 @@ fn transform_cursor(app: &App, mode: ViewportMode, delta: f32) -> Vec2 {
         super::rotation_scale_tests::yaw_cursor(camera, center,
             !crate::authoring::placement_pose::placement_supports_full_rotation(), delta).0
     } else {
-        camera.project(center).unwrap() + Vec2::X * delta / camera.size / camera.inverse_scale
+        super::rotation_scale_tests::scale_center_cursor(camera, center, delta)
     }
 }
 
@@ -831,7 +831,8 @@ fn multi_rotation_and_scale_preview_actual_roots_and_commit_one_undo() {
             app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
             step(&mut app, node, start); step(&mut app, node, start);
             assert!(app.world().resource::<PlacementMoveState>().group.as_ref().is_some_and(|group| group.phase == GroupPhase::Dragging));
-            let cursor = transform_cursor(&app, mode, if mode == ViewportMode::Rotate { 90.0 } else { 120.0 });
+            let cursor = transform_cursor(&app, mode, if mode == ViewportMode::Rotate { 90.0 }
+                else { super::super::scale::UNIFORM_SCALE_RADIUS });
             step(&mut app, node, cursor);
             let angle = if mode == ViewportMode::Rotate { 90.0_f32 } else { 0.0 };
             let factor = if mode == ViewportMode::Scale { 2.0 } else { 1.0 };

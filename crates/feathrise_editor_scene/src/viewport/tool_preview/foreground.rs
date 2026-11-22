@@ -79,6 +79,35 @@ impl Canvas<'_> {
         }
     }
 
+    pub(crate) fn radial_scale_guide(&mut self, center: Vec2, pointer: Vec2, radius: f32) {
+        let ray = pointer - center;
+        let Some(direction) = ray.try_normalize() else { return; };
+        let side = direction.perp() * 4.0;
+        let outline = Color::srgb_u8(24, 24, 24);
+        let dash_start = radius + 3.0;
+        let dash_end = ray.length() - 12.0;
+        // 一次仅有一条拖动线。普通视口保留短节奏，高分屏或移出视口时也只提交有界的线段。
+        const MAX_DASHES: usize = 256;
+        let period = 9.0_f32.max((dash_end - dash_start) / MAX_DASHES as f32);
+        for index in 0..MAX_DASHES {
+            let start = dash_start + index as f32 * period;
+            if start >= dash_end { break; }
+            let a = center + direction * start;
+            let b = center + direction * (start + 5.0).min(dash_end);
+            self.line(a, b, 3.0, outline);
+            self.line(a, b, 1.0, Color::WHITE);
+        }
+        let inner = pointer - direction * 10.0;
+        let outer = pointer + direction * 10.0;
+        for (tint, width) in [(outline, 4.0), (Color::WHITE, 2.0)] {
+            self.line(inner, outer, width, tint);
+            for (tip, base) in [(inner, inner + direction * 5.0), (outer, outer - direction * 5.0)] {
+                self.line(base + side, tip, width, tint);
+                self.line(base - side, tip, width, tint);
+            }
+        }
+    }
+
     pub(crate) fn guide(&mut self, camera: MoveCamera, origin: Vec3, axis: Vec3, length: f32, tint: Color) {
         let Some(start) = self.point(camera, origin) else { return; };
         let Some(end) = self.point(camera, origin + axis * length)
@@ -89,6 +118,18 @@ impl Canvas<'_> {
         let span = projected.normalize() * (self.size.length() + start.length());
         self.line(start - span, start + span, 2., tint);
     }
+}
+
+pub(super) fn draw_scale_center(foreground: &mut Foreground, camera: MoveCamera, handle: &TransformPreview) {
+    let TransformPreview::Scale { origin, right, half_size, color, .. } = *handle else { return; };
+    let origin = Vec3::from_array(origin);
+    let mut canvas = foreground.canvas(camera.size * camera.inverse_scale);
+    let Some(center) = canvas.point(camera, origin) else { return; };
+    let Some(edge) = canvas.point(camera, origin + Vec3::from_array(right) * half_size) else { return; };
+    let radius = edge.distance(center);
+    let tint = LinearRgba::from_f32_array(color).into();
+    let rim = |i| center + Vec2::from_angle(i as f32 * std::f32::consts::TAU / 32.0) * radius;
+    for i in 0..32 { canvas.line(rim(i), rim(i + 1), 2.0, tint); }
 }
 
 pub(super) fn draw_move(foreground: &mut Foreground, camera: MoveCamera, handle: &TransformPreview) {

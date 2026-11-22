@@ -143,7 +143,6 @@ fn non_divisible_clipmap_creation_in_empty_container_adopts_the_full_background_
         let mut state = app.world_mut().resource_mut::<TerrainObjectsEditorState>();
         state.scene_id = Some(map.clone());
         state.creation = creation;
-        state.creation_open = true;
         // 入口预检由creation_tests覆盖；这里执行实际生产准备器，只有源/画布全部成功才交给原poll采用。
         state.pending = Some(types::Pending {
             preview_stitch: false, stitching: false, stroke: None, target: None,
@@ -207,7 +206,7 @@ fn non_divisible_clipmap_creation_in_empty_container_adopts_the_full_background_
     let state = app.world().resource::<TerrainObjectsEditorState>();
     assert_eq!(state.selected.as_ref(), Some(&object.id));
     assert_eq!(state.selected_index, Some(0));
-    assert!(!state.creation_open && !state.preparing());
+    assert!(!state.preparing());
     assert!(app.world().resource::<SceneEditorState>().status.contains("网格已采用"));
     drop(document);
     drop(app);

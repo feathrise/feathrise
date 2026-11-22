@@ -17,7 +17,7 @@ use bevy::ui::{FocusPolicy, RelativeCursorPosition};
 use bevy::ui_widgets::ScrollbarThumb;
 use feathrise_editor_core::EditorShortcutAction;
 
-const SHORTCUT_HELP: &str = "添加网格打开顶部网格工具的同一面板，可在中央文档和预览页使用；其他动作仅中央场景工作区生效。文字、数值输入和弹框期间暂停。\n录入主键，可同时按Ctrl、Shift、Alt；冲突不会覆盖已有绑定。Esc先取消录入，再关闭设置；功能键、删除和文本控制键保留。\n移动：轴或XZ方框；旋转：Y轴圆环；缩放：中心方块。Ctrl吸附默认1米、15°、0.1倍率，实际步长取吸附设置；Esc取消变换。\n手柄操作期间暂停取景与工具切换；固定鼠标导航不参与改键。右键旋转、中键平移、滚轮缩放。运行时和文档键位不受本页影响。";
+const SHORTCUT_HELP: &str = "添加网格打开顶部网格工具的同一面板，可在中央文档和预览页使用；其他动作仅中央场景工作区生效。文字、数值输入和弹框期间暂停。\n录入主键，可同时按Ctrl、Shift、Alt；冲突不会覆盖已有绑定。Esc先取消录入，再关闭设置；功能键、删除和文本控制键保留。\n移动使用轴或平面手柄，旋转使用圆环，等比缩放拖动中心圆或外环。Ctrl吸附默认1米、15°、0.1倍率，实际步长取吸附设置；Esc取消变换。\n手柄操作期间暂停取景与工具切换；固定鼠标导航不参与改键。右键旋转、中键平移、滚轮缩放。运行时和文档键位不受本页影响。";
 
 pub(super) fn shortcut_page() -> impl Scene {
     use EditorShortcutAction::*;

@@ -192,7 +192,7 @@ pub(super) fn input(
                 button.0.creation_action() || matches!(button.0, Action::BasicProperties | Action::TypeProperties | Action::SourceProperties
                     | Action::StitchProperties | Action::DisplayLods | Action::CollisionLods
                     | Action::SelectLod(..) | Action::AddLod(_) | Action::RemoveLod(_)
-                    | Action::ToggleCreation | Action::Rename | Action::Lock)
+                    | Action::Rename | Action::Lock)
             }))
         }));
     // 公共文字控件在按下外部按钮时就失焦，但折叠/选层要等合法释放。

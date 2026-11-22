@@ -56,7 +56,6 @@ fn unified_mesh_creation_gpu_snapshots() {
         world.entity_mut(host).insert(BackgroundColor(crate::ui::theme::PANEL_BG));
     }
     for _ in 0..24 { app.update(); std::thread::sleep(Duration::from_millis(16)); }
-    activate(&mut app, window, camera, Action::ToggleCreation);
     let output = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/unified-mesh-creation-validation");
     std::fs::create_dir_all(&output).unwrap();
     for (source, placement, name) in [
