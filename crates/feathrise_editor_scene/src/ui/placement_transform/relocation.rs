@@ -12,6 +12,7 @@ use super::{
     PlacementRelocationIntent, PlacementTransformInputState, actions::sync_placement_record_world_with_terrain,
 }; // 武装身份、延迟复制意图与定向世界同步仍由完整变换域统一所有。
 use crate::authoring::buildings::{BuildingEditRequest, BuildingTerrainHit}; // 建筑移动和复制只提交后台受检候选。
+use crate::authoring::placement_pose::placement_rotation;
 use crate::authoring::{EditorAuthoringSession, EditorCommand}; // 单次落点写回草稿并进入既有有界撤销链。
 use crate::components::SceneEditorViewport; // 中央视口稳定命中marker。
 use crate::resources::SceneEditorState; // 当前真实地形光标、dirty和状态栏。
@@ -26,8 +27,19 @@ fn apply_ground_snap_hit(
     position: Vec3,                  // 中央视口对当前地形Mesh的最近射线命中。
 ) {
     let half_height = record.asset_target.editable_geometry().map_or(0.0, |geometry| {
-        -geometry.vertices().iter().map(|point| point[1]).min().unwrap() as f32 * 0.0005 * record.scale[1]
-    }); // 变形后的内置网格按真实最低顶点落地，不能继续使用旧盒体半高。
+        // 将世界竖直轴投进网格坐标。最低点同时受摆放旋转和非均匀缩放影响。
+        let rotation = placement_rotation(record);
+        if rotation.x == 0.0 && rotation.z == 0.0 {
+            // 纯 Y 轴旋转保留已有精确的高度计算顺序，避免四元数舍入漂移。
+            let min = geometry.vertices().iter().map(|point| point[1]).min().unwrap_or_default();
+            return -min as f32 * 0.0005 * record.scale[1];
+        }
+        let up = (rotation.inverse() * Vec3::Y) * Vec3::from_array(record.scale);
+        let min = geometry.vertices().iter()
+            .map(|&point| up.dot(Vec3::from_array(point.map(|v| v as f32))))
+            .reduce(f32::min).unwrap_or_default();
+        -min * 0.0005
+    });
     record.translation = (position + Vec3::Y * half_height).to_array(); // X/Z和承托Y来自同一次真实命中，不二次猜测洞穴或倒扣地形。
     if record.height_mode.follows_terrain() {
         record.terrain_offset = half_height; // 跟随型盒的中心偏移须与底面对齐一致，GLB仍从零偏移继续跟随。
@@ -67,10 +79,11 @@ fn relocation_candidate(
             after.terrain_binding = None;
         } else if draft.manifest.terrains.is_some() {
             let id = terrain.ok_or("资产吸附的承托身份已失效，请重新单击")?;
+            let pose = feathrise_scene_content::TerrainObjectTransform {
+                translation: after.translation, scale: after.scale, ..Default::default()
+            }.with_rotation(placement_rotation(&after));
             after.terrain_binding = Some(draft.terrain_ground.as_ref()
-                .ok_or("资产吸附的承托快照尚未就绪")?.bind(id,
-                    feathrise_scene_content::TerrainObjectTransform { translation: after.translation,
-                        yaw_degrees: after.yaw_degrees, scale: after.scale, ..Default::default() })?);
+                .ok_or("资产吸附的承托快照尚未就绪")?.bind(id, pose)?);
         }
     }
     let bounds = crate::authoring::placement_record_bounds(draft, &after)?;

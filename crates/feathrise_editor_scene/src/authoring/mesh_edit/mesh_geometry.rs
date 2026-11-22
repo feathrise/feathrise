@@ -4,6 +4,7 @@ mod spatial;
 
 use self::spatial::{Bounds, ScreenIndex};
 use super::{selection::MeshSelection, types::MeshElementKind};
+use crate::authoring::placement_pose::placement_rotation;
 use crate::viewport::placement_move::MoveCamera;
 use bevy::{math::{DQuat, DVec3}, prelude::*};
 use feathrise_scene_content::{EditableMeshGeometry, MeshFace, ScenePlacementAssetTarget, ScenePlacementRecord};
@@ -13,7 +14,7 @@ pub(super) struct WorldMesh {
     source: ScenePlacementAssetTarget,
     geometry: EditableMeshGeometry,
     translation: Vec3,
-    yaw_degrees: f32,
+    rotation: Quat,
     scale: Vec3,
     inverse_rotation: DQuat,
     screen: [Option<ScreenIndex>; 3],
@@ -23,12 +24,11 @@ pub(super) fn world_mesh(record: &ScenePlacementRecord) -> Option<WorldMesh> {
     let geometry = record.asset_target.editable_geometry()?;
     let translation = Vec3::from_array(record.translation);
     let scale = Vec3::from_array(record.scale);
+    let rotation = placement_rotation(record);
     if !translation.is_finite() || !scale.is_finite() || scale.min_element() <= 0.0
-        || !record.yaw_degrees.is_finite() {
+        || !rotation.is_finite() {
         return None;
     }
-    let radians = record.yaw_degrees.to_radians();
-    let rotation = Quat::from_rotation_y(radians);
     let vertices: Vec<_> = geometry.vertices().iter().map(|point| {
         let local = Vec3::from_array(point.map(|value| value as f32 * 0.0005));
         translation + rotation * (local * scale)
@@ -56,9 +56,9 @@ pub(super) fn world_mesh(record: &ScenePlacementRecord) -> Option<WorldMesh> {
         source: record.asset_target.clone(),
         geometry,
         translation,
-        yaw_degrees: record.yaw_degrees,
+        rotation,
         scale,
-        inverse_rotation: DQuat::from_rotation_y(-f64::from(radians)),
+        inverse_rotation: rotation.as_dquat().normalize().inverse(),
         screen,
     })
 }
@@ -66,7 +66,7 @@ pub(super) fn world_mesh(record: &ScenePlacementRecord) -> Option<WorldMesh> {
 impl WorldMesh {
     pub fn matches_record(&self, record: &ScenePlacementRecord) -> bool {
         self.translation.to_array() == record.translation
-            && self.yaw_degrees == record.yaw_degrees
+            && self.rotation == placement_rotation(record)
             && self.scale.to_array() == record.scale
             && match &record.asset_target {
                 ScenePlacementAssetTarget::EditableMesh { geometry, .. } => self.geometry.same_storage(geometry),

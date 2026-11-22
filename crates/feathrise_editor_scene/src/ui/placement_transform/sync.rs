@@ -164,9 +164,11 @@ pub(crate) fn sync_placement_transform_panel(
             node.display = display;
         }
     }
+    let rotation_xyz = editing_animation || record.is_some_and(|record|
+        PlacementTransformField::RotationX.supported_by(record) && PlacementTransformField::RotationX.available_in_mode(false));
     for (mut panel, section, cuboid_geometry, animation_rotation) in &mut panels {
         let display = if visible && (!cuboid_geometry || has_size_recipe)
-            && (!animation_rotation || editing_animation)
+            && (!animation_rotation || rotation_xyz)
             && section.is_none_or(|section| record.is_some_and(|record| section.supported_by(record))) {
             Display::Flex // 选择稳定完整记录后显示当前模式的字段和动作。
         } else {

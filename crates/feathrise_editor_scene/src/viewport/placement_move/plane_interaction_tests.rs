@@ -1,6 +1,6 @@
 //! XZ平面实际输入回归：复用已有单资产夹具，验证双轴预览、高度、历史与取消。
 
-use super::super::math::plane_corners;
+use super::super::{math::{move_plane_corners, plane_corners}, types::MovePlane};
 use super::*;
 
 pub(super) fn set_camera(app: &mut App, view: EditorView, orthographic: bool) {
@@ -47,6 +47,35 @@ pub(super) fn begin_plane(app: &mut App, node: Entity) {
             .resource::<SceneEditorNumericScrubMouseGuard>()
             .blocked()
     );
+}
+
+#[test]
+fn vertical_plane_drag_moves_two_axes_and_preserves_the_unselected_axis() {
+    for (plane, view, delta) in [
+        (MovePlane::Xy, EditorView::Front, Vec3::new(2.0, 1.0, 0.0)),
+        (MovePlane::Yz, EditorView::Side, Vec3::new(0.0, 1.0, 2.0)),
+    ] {
+        let (mut app, root, node) = app();
+        set_camera(&mut app, view, true);
+        let before = draft_record(&app).clone();
+        let origin = Vec3::from_array(before.translation);
+        let camera = camera(&app);
+        let corners = move_plane_corners(origin, camera.handle_length(origin).unwrap(), plane);
+        let grab = corners[0].lerp(corners[2], 0.5);
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        step(&mut app, node, camera.project(grab).unwrap());
+        assert_eq!(app.world().resource::<PlacementMoveState>().drag.as_ref().map(|drag| drag.handle), Some(plane.move_handle()));
+        let target = camera.project(grab + delta).unwrap();
+        step(&mut app, node, target);
+        assert_eq!(draft_record(&app), &before);
+        assert!(app.world().get::<Transform>(root).unwrap().translation.abs_diff_eq(origin + delta, 0.002));
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+        step(&mut app, node, target);
+        let after = draft_record(&app);
+        assert!(Vec3::from_array(after.translation).abs_diff_eq(origin + delta, 0.002));
+        assert_eq!(after.scale, before.scale);
+        assert_eq!(app.world().resource::<EditorAuthoringSession>().undo.len(), 1);
+    }
 }
 
 #[test]

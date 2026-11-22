@@ -1,7 +1,8 @@
 //! 操作共享的世界米制工作网格、半毫米回写及多边形三角化；不接触ECS、磁盘或作者会话。
 
 use super::super::selection::MeshSelection;
-use bevy::math::{DQuat, DVec2, DVec3};
+use crate::authoring::placement_pose::placement_rotation;
+use bevy::math::{DVec2, DVec3};
 use feathrise_scene_content::{
     MAX_EDITABLE_MESH_FACE_VERTICES, MAX_EDITABLE_MESH_FACES,
     MAX_EDITABLE_MESH_VERTICES, ScenePlacementAssetTarget, ScenePlacementRecord, MeshFace,
@@ -51,14 +52,15 @@ impl MeshWork {
             .ok_or("当前来源不支持拓扑编辑")?;
         let scale = DVec3::from_array(before.scale.map(f64::from));
         let origin = DVec3::from_array(before.translation.map(f64::from));
+        let rotation = placement_rotation(before).as_dquat();
         if !scale.is_finite()
             || scale.min_element() <= 0.0
             || !origin.is_finite()
-            || !before.yaw_degrees.is_finite()
+            || !rotation.is_finite()
         {
             return Err("对象变换无效，不能编辑拓扑".into());
         }
-        let rotation = DQuat::from_rotation_y(f64::from(before.yaw_degrees.to_radians()));
+        let rotation = rotation.normalize();
         Ok(Self {
             points: geometry
                 .vertices()
@@ -91,7 +93,7 @@ impl MeshWork {
     pub fn finish(self, before: &ScenePlacementRecord) -> Result<ScenePlacementRecord, String> {
         let scale = DVec3::from_array(before.scale.map(f64::from));
         let origin = DVec3::from_array(before.translation.map(f64::from));
-        let inverse = DQuat::from_rotation_y(-f64::from(before.yaw_degrees.to_radians()));
+        let inverse = placement_rotation(before).as_dquat().normalize().inverse();
         self.finish_record(before, |point| inverse * (point - origin) / scale * 2_000.0)
     }
 

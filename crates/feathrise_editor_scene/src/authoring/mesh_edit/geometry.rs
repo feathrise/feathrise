@@ -8,6 +8,7 @@ pub(super) use super::transform_math::{
 use super::types::MeshElementKind;
 use super::types::MoveConstraint;
 use super::selection::MeshSelection;
+use crate::authoring::placement_pose::placement_rotation;
 use crate::viewport::placement_move::MoveCamera;
 use bevy::prelude::*;
 use feathrise_scene_content::ScenePlacementRecord;
@@ -29,8 +30,7 @@ pub(super) fn world_vertices(record: &ScenePlacementRecord) -> Option<Vec<Vec3>>
 pub(super) fn world_vertex(record: &ScenePlacementRecord, point: [i32; 3]) -> Vec3 {
     let local = Vec3::from_array(point.map(|value| value as f32 * 0.0005));
     Vec3::from_array(record.translation)
-        + Quat::from_rotation_y(record.yaw_degrees.to_radians())
-            * (local * Vec3::from_array(record.scale))
+        + placement_rotation(record) * (local * Vec3::from_array(record.scale))
 }
 
 #[cfg(test)]
@@ -266,7 +266,7 @@ pub(super) fn translated_record(
         .asset_target
         .editable_geometry()
         .ok_or("当前对象不支持点边面编辑")?;
-    let local = Quat::from_rotation_y(-before.yaw_degrees.to_radians()) * world_delta
+    let local = placement_rotation(before).inverse() * world_delta
         / Vec3::from_array(before.scale);
     let mut vertices = geometry.vertices().to_vec();
     for index in selected.iter() {

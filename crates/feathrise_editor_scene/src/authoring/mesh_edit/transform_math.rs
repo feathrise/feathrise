@@ -1,6 +1,7 @@
 //! 点边面选择集的移动、旋转、缩放手柄与世界变换逆算；显示与拾取共用选点坐标。
 
 use super::{selection::MeshSelection, types::{MeshEditTool, MoveConstraint}};
+use crate::authoring::placement_pose::placement_rotation;
 use crate::viewport::placement_move::MoveCamera;
 use bevy::{
     math::{DQuat, DVec3},
@@ -102,12 +103,13 @@ fn edit_transformed_vertices(
 ) -> Result<ScenePlacementRecord, String> {
     let geometry = before.asset_target.editable_geometry().ok_or("当前对象不支持元素变换")?;
     let scale = Vec3::from_array(before.scale).as_dvec3();
-    let root = DQuat::from_rotation_y(f64::from(before.yaw_degrees.to_radians()));
+    let root = placement_rotation(before).as_dquat();
     let origin = Vec3::from_array(before.translation).as_dvec3();
     if !scale.is_finite() || scale.min_element() <= 0.0 || !root.is_finite() || !origin.is_finite()
     {
         return Err("实例变换无效".into());
     }
+    let root = root.normalize();
     let original = geometry.vertices();
     if selected.len() == 1 && let Some(index) = selected.iter().next() {
         // 单点绕屏幕上显示的自身枢轴是空操作，低倍率实例不能将 f32 舍入放大到本地顶点。

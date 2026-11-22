@@ -8,9 +8,10 @@ use feathrise_editor_ui::{
 };
 use super::*;
 use crate::{
-    authoring::{EditorCommand, scene_motion::{SceneMotionPlayback, SceneMotionTiming}},
+    authoring::{EditorCommand, scene_motion::{DEFAULT_SCENE_ANIMATION_NAME, SceneMotionPlayback, SceneMotionTiming}},
     components::SceneEditorViewport,
     resources::{EditorTextInputGuard, SceneEditorNumericScrubMouseGuard},
+    ui::scene_context_menu::{SceneContextMenuState, SceneMenuAction, SceneObjectKey},
     viewport::SelectedPlacementViewportState,
 };
 
@@ -77,7 +78,7 @@ fn snap_time(seconds: f64) -> f64 { (seconds * FPS).round() / FPS }
 fn new_track(target: &Target, timing: SceneMotionTiming, collider: Option<crate::authoring::scene_motion::SceneMotionCollider>) -> SceneMotionTrack {
     SceneMotionTrack {
         placement_id: target.placement_id.clone(), duration_seconds: timing.duration_seconds, playback: timing.playback,
-        position: Vec::new(), rotation: Vec::new(), collider,
+        position: Vec::new(), rotation: Vec::new(), scale: Vec::new(), collider,
     }
 }
 
@@ -88,6 +89,7 @@ pub(super) fn input(
     mut workbench: ResMut<Workbench>,
     mut edits: MessageReader<NumericInputCommitted>,
     mut tree_opens: MessageReader<OpenSceneAnimation>,
+    menu: Res<SceneContextMenuState>,
     fields: Query<(&SceneMotionField, &controls::FieldTarget), Without<NumericInputDisabled>>,
     clicks: Query<(&SceneMotionButton, &EditorButtonClick), (Changed<EditorButtonClick>, Without<InteractionDisabled>)>,
     numeric_mouse: Res<SceneEditorNumericScrubMouseGuard>,
@@ -111,6 +113,29 @@ pub(super) fn input(
     let click = (!numeric_mouse.blocked()).then(|| clicks.iter().find_map(|(button, click)| click.is_clicked().then_some(*button))).flatten();
     let open_from_tree = tree_opens.read().any(|request| request.0.current(&editor, &session));
     use SceneMotionButton::*;
+    let menu_action = menu.ready.as_ref().filter(|request| !numeric_mouse.blocked()
+        && request.target.current(&editor, &session) && request.target.allows(request.action));
+    let create = motion.available() && motion.clip_name().is_none()
+        && (menu_action.is_some_and(|request| request.action == SceneMenuAction::NewSceneAnimation)
+            || (click == Some(Add) && workbench.scene.as_ref() == Some(scene)));
+    let rename = menu_action.filter(|request| request.action == SceneMenuAction::Rename
+        && matches!(request.target.key, SceneObjectKey::MainSceneAnimation(_)))
+        .map(|request| request.name.as_str());
+    let name = if create { Some(DEFAULT_SCENE_ANIMATION_NAME) } else { rename };
+    if let Some(name) = name.filter(|name| Some(*name) != motion.clip_name()) {
+        // 片段是场景级状态。先建立名称和时间轴，选中对象后按实际插帧创建轨道。
+        let before = motion.clip_name().map(str::to_owned);
+        let after = Some(name.to_owned());
+        if create { workbench.scene = Some(scene.clone()); }
+        let session = &mut *session;
+        session.draft.as_mut().expect("已核对当前场景").motion.set_clip_name(after.clone());
+        session.undo.push(EditorCommand::SceneMotionNameChanged { before, after });
+        session.redo.clear();
+        session.mark_changed(&mut editor);
+        editor.status = if create { "已新建场景动画" } else { "已改动画名称" }.into();
+        edits.clear();
+        return;
+    }
     if click == Some(Open) || (open_from_tree && !numeric_mouse.blocked()) {
         if motion.available() {
             workbench.scene = Some(scene.clone());
@@ -123,7 +148,7 @@ pub(super) fn input(
     let target = selected.map(|record| Target::new(scene, record));
     workbench.target(target.clone());
     let current = target.as_ref().and_then(|target| motion.get(&target.placement_id));
-    let created = motion.tracks().next().is_some();
+    let created = motion.clip_name().is_some();
     let timing_before = motion.timing();
     let mut timing = timing_before;
     let action = click.or_else(|| (created && !numeric_mouse.blocked()).then(|| timeline.shortcut()).flatten());
@@ -141,7 +166,7 @@ pub(super) fn input(
             SceneMotionField::Frame => workbench.seek(snap_time(f64::from(value) / FPS), timing.duration_seconds, None),
             SceneMotionField::EndFrame => {
                 let duration = snap_time(f64::from(value.max(1.0)) / FPS) as f32;
-                let last = motion.tracks().flat_map(|track| track.position.last().into_iter().chain(track.rotation.last()))
+                let last = motion.tracks().flat_map(|track| [track.position.last(), track.rotation.last(), track.scale.last()].into_iter().flatten())
                     .map(|key| key.time).fold(0.0, f32::max);
                 if duration < last {
                     editor.status = "片段结束帧需包含最后一个关键帧".into();
@@ -159,11 +184,6 @@ pub(super) fn input(
         let seconds = workbench.seconds;
         let duration = timing.duration_seconds;
         match action {
-            Add if !created => {
-                if let Some((target, collider)) = target.as_ref().zip(selected.and_then(|record| preview::initial_collision(record, scene, &bounds))) {
-                    replacement = Some(new_track(target, timing, collider));
-                }
-            }
             First => workbench.seek(0.0, duration, None),
             PreviousFrame => workbench.seek(snap_time(seconds - 1.0 / FPS), duration, None),
             NextFrame => workbench.seek(snap_time(seconds + 1.0 / FPS), duration, None),
@@ -186,6 +206,7 @@ pub(super) fn input(
             ToggleAutoPlay => timing.auto_play = !timing.auto_play,
             SelectPosition => workbench.select_track(Channel::Position, timeline.additive_track_selection()),
             SelectRotation => workbench.select_track(Channel::Rotation, timeline.additive_track_selection()),
+            SelectScale => workbench.select_track(Channel::Scale, timeline.additive_track_selection()),
             InsertKey if !workbench.playing && workbench.has_keying_tracks() => {
                 let Some((target, record)) = target.as_ref().zip(selected) else { return; };
                 let Some(pose) = workbench.pose_for(record, scene) else { return; };
@@ -194,12 +215,13 @@ pub(super) fn input(
                     new_track(target, timing, collider)
                 };
                 let time = seconds as f32;
-                for (channel, value) in [(Channel::Position, pose.translation), (Channel::Rotation, pose.rotation_degrees)] {
+                for (channel, value) in [(Channel::Position, pose.translation), (Channel::Rotation, pose.rotation_degrees), (Channel::Scale, pose.scale)] {
                     if workbench.keys_channel(channel) {
-                        track.insert_key(channel == Channel::Rotation, SceneMotionKey { time, value });
+                        SceneMotionTrack::insert_key(channel.keys_mut(&mut track), SceneMotionKey { time, value });
                         match channel {
                             Channel::Position => workbench.draft.position = None,
                             Channel::Rotation => workbench.draft.rotation = None,
+                            Channel::Scale => workbench.draft.scale = None,
                         }
                         workbench.selected_key = Some(SelectedKey { channel, time });
                     }

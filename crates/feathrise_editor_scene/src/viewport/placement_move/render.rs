@@ -1,14 +1,15 @@
-//! 只发布原工具确认的移动、旋转与缩放语义；两种视口共用SDK几何，不复制输入或事务。
+//! 场景手柄几何与拾取共用同一实际相机；工程视口沿用已有语义预览。
 
 use super::super::modes::{ViewportMode, ViewportModeState};
 use super::super::LayerCandidateState;
 use super::{
     constants::PICK_LOGICAL_PIXELS,
-    input::selected_record,
-    math::MoveCamera,
+    input::{placement_scale_basis, selected_record, yaw_only},
+    math::{MoveCamera, move_plane_corners},
     resources::PlacementMoveState,
     rotation::rotation_ring,
-    types::{MoveAxis, MoveHandle},
+    scale::{ScaleGizmo, frame_scale_basis},
+    types::{MoveAxis, MoveHandle, MovePlane},
 };
 use crate::authoring::EditorAuthoringSession;
 use crate::components::SceneEditorViewport;
@@ -22,7 +23,9 @@ use crate::ui::{
 };
 use bevy::prelude::*;
 use feathrise_author_tools::{AuthorTool, TransformPreview};
-use crate::viewport::tool_preview::AuthorToolFrame;
+use crate::viewport::{SceneEditorBrushGizmos, tool_preview::AuthorToolFrame};
+use crate::standalone::embedded_snapshot::EmbeddedSnapshotState;
+use feathrise_editor_animation_model::gizmo::{MoveConstraint, rotation_rings};
 
 pub(crate) fn draw_placement_move(
     editor: Res<SceneEditorState>,
@@ -38,6 +41,8 @@ pub(crate) fn draw_placement_move(
     mut tools: ResMut<AuthorToolFrame>,
     multi_selection: Option<Res<crate::viewport::multi_select::PlacementSelectionSet>>,
     animation: Option<Res<Workbench>>,
+    snapshot: Option<Res<EmbeddedSnapshotState>>,
+    mut gizmos: Gizmos<SceneEditorBrushGizmos>,
 ) {
     if !editor.open
         || !editor.placement_transform_enabled
@@ -49,52 +54,19 @@ pub(crate) fn draw_placement_move(
     {
         return;
     }
-    let (Some(viewport), Ok(node)) = (viewport, nodes.single()) else {
-        return;
-    };
+    let (Some(viewport), Ok(node)) = (viewport, nodes.single()) else { return; };
+    let Some(camera) = MoveCamera::new(&editor, &viewport, node.inverse_scale_factor()) else { return; };
+    let local = !snapshot.is_some_and(|snapshot| snapshot.enabled);
     if let Some(selection) = multi_selection.as_ref().filter(|selection| selection.members.len() > 1) {
-        if mode.mode.transforms_placement() && (selection.ready_for(&session) || state.group.is_some())
-            && let Some(camera) = MoveCamera::new(&editor, &viewport, node.inverse_scale_factor()) {
-            let origin = selection.center + state.group_delta();
-            let color = Color::srgb(0.92, 0.72, 0.40);
-            let active = |handle| state.group.as_ref().map(|group| group.handle).or(state.hover) == Some(handle);
-            if mode.mode == ViewportMode::Rotate {
-                if let Some(ring) = rotation_ring(camera, origin) {
-                    let angle = state.group.as_ref().map_or(0.0, |group| group.rotation_degrees);
-                    let radius = ring.world[0].distance(origin);
-                    tools.push(AuthorTool::Transform(TransformPreview::Rotate {
-                        origin: origin.to_array(), radius, yaw_degrees: Some(angle),
-                        before_yaw_degrees: None,
-                        color: if active(MoveHandle::RotationY) { color } else { MoveAxis::Y.color() }.to_linear().to_f32_array(),
-                    }));
-                }
-                return;
-            }
-            if mode.mode == ViewportMode::Scale {
-                if let Some(corners) = camera.screen_square(origin, PICK_LOGICAL_PIXELS) {
-                    let color = if active(MoveHandle::UniformScale) { color } else { Color::srgba(0.745, 0.529, 0.243, 0.8) };
-                    if let Some(preview) = screen_scale_preview(origin, corners, color) {
-                        tools.push(AuthorTool::Transform(preview));
-                    }
-                }
-                return;
-            }
-            if let Some(length) = camera.handle_length(origin) {
-                let axes = visible_axes(camera, origin, length, 0b111);
-                let active_axes = MoveAxis::ALL.into_iter().fold(0, |mask, axis| {
-                    let handle = MoveHandle::Axis(axis);
-                    mask | if state.group.as_ref().is_some_and(|group| group.handle == handle)
-                        || state.hover == Some(handle) { 1 << axis.index() } else { 0 }
-                }) & axes;
-                tools.push(AuthorTool::Transform(TransformPreview::Move {
-                    spatial: false,
-                    origin: origin.to_array(), length, axes, active_axes,
-                    plane: camera.plane_quad(origin, length).is_some(), plane_active: active(MoveHandle::XzPlane), plane_cross: true,
-                    plane_color: Color::srgba(0.745, 0.529, 0.243, 0.8).to_linear().to_f32_array(),
-                    color_active: color.to_linear().to_f32_array(), axis_colors: axis_colors(),
-                    anchor: None, marker_radius: None,
-                }));
-            }
+        if selection.ready_for(&session) || state.group.is_some() {
+            PlacementGizmo {
+                camera, origin: selection.center + state.group_delta(), basis: Mat3::IDENTITY,
+                active: state.group.as_ref().map(|group| group.handle).or(state.hover),
+                building: false, local, animated: false,
+                yaw_only: selection.terrain_patch_selected || !crate::authoring::placement_pose::placement_supports_full_rotation(),
+                yaw: state.group.as_ref().map_or(0.0, |group| group.rotation.to_euler(EulerRot::YXZ).0.to_degrees()),
+                before_yaw: None, anchor: None,
+            }.draw(mode.mode, &mut tools, &mut gizmos);
         }
         return; // 多选始终绘制共同中心手柄，不借用单体选择。
     }
@@ -102,132 +74,142 @@ pub(crate) fn draw_placement_move(
     else {
         return;
     };
-    let Some(camera) = MoveCamera::new(&editor, &viewport, node.inverse_scale_factor()) else {
-        return;
-    };
     let preview = state
         .drag
         .as_ref()
         .or_else(|| state.pending_building.as_ref().map(|pending| &pending.drag))
         .filter(|drag| drag.before.id == record.id && drag.author_revision == session.revision);
-    let animated = session.draft.as_ref().and_then(|draft| animation.as_ref()
-        .filter(|workbench| workbench.owns(&draft.scene_id, &record.id))
-        .map(|workbench| (&draft.scene_id, workbench)));
-    let origin = if let Some((scene, workbench)) = animated {
-        if mode.mode != ViewportMode::Move || !workbench.can_pose(scene, &record.id) { return; }
-        let Some(pose) = state.animation_pose(scene, &record.id).or_else(|| workbench.pose_for(record, scene)) else { return; };
-        Vec3::from_array(pose.translation)
-    } else if let Some(drag) = preview { drag.preview_world_position() }
-        else if let Some(origin) = session.draft.as_ref().and_then(|draft|
-            crate::authoring::placement_pose::placement_record_world_position(draft, record).ok()) { origin }
-        else { return; };
-    let Some(length) = camera.handle_length(origin) else {
-        return;
+    let Some(draft) = session.draft.as_ref() else { return; };
+    let animated = animation.as_ref().filter(|workbench| workbench.owns(&draft.scene_id, &record.id));
+    let (origin, basis) = if let Some(workbench) = animated {
+        if !workbench.can_pose(&draft.scene_id, &record.id) { return; }
+        let Some(pose) = state.animation_pose(&draft.scene_id, &record.id)
+            .or_else(|| workbench.pose_for(record, &draft.scene_id)) else { return; };
+        (Vec3::from_array(pose.translation), frame_scale_basis(pose.rotation_degrees))
+    } else {
+        let Ok(frame) = crate::authoring::placement_pose::placement_record_frame(draft, record) else { return; };
+        let origin = preview.map_or_else(|| frame.as_transform().transform_point(record.translation.into()),
+            |drag| drag.preview_world_position());
+        (origin, placement_scale_basis(frame, preview.map_or(record, |drag| &drag.preview)))
     };
     let building = record.building_preset_id.is_some();
-    if mode.mode == ViewportMode::Rotate {
-        if let Some(ring) = rotation_ring(camera, origin) {
-            let active = preview.is_some_and(|drag| drag.handle == MoveHandle::RotationY)
-                || state.hover == Some(MoveHandle::RotationY);
-            let color = if active {
-                Color::srgb(0.92, 0.72, 0.40)
-            } else {
-                MoveAxis::Y.color()
-            };
-            let yaw = preview.map_or(record.yaw_degrees, |drag| drag.preview.yaw_degrees);
-            let radius = ring.world[0].distance(origin);
-            tools.push(AuthorTool::Transform(TransformPreview::Rotate {
-                origin: origin.to_array(), radius, yaw_degrees: Some(yaw),
-                before_yaw_degrees: preview.map(|drag| drag.before.yaw_degrees),
-                color: color.to_linear().to_f32_array(),
-            }));
-        }
-        return; // 圆环和指示线共用冻结根与实际相机；端视退化门与拾取完全相同。
-    }
-    if mode.mode == ViewportMode::Scale {
-        if !building && let Some(corners) = camera.screen_square(origin, PICK_LOGICAL_PIXELS) {
-            let active = state
-                .drag
-                .as_ref()
-                .is_some_and(|drag| drag.handle == MoveHandle::UniformScale)
-                || state.hover == Some(MoveHandle::UniformScale);
-            let color = if active {
-                Color::srgb(0.92, 0.72, 0.40)
-            } else {
-                Color::srgba(0.745, 0.529, 0.243, 0.80)
-            };
-            if let Some(preview) = screen_scale_preview(origin, corners, color) {
-                tools.push(AuthorTool::Transform(preview));
-            }
-        }
-        return; // 建筑不提供缩放入口；普通模型倍率变化不改变中心方块的屏幕尺寸。
-    }
-    if mode.mode != ViewportMode::Move {
-        return;
-    }
-    let axes = visible_axes(camera, origin, length, if building { 0b101 } else { 0b111 });
-    let active = |handle| state.drag.as_ref().is_some_and(|drag| drag.handle == handle)
-        || state.hover == Some(handle);
-    let active_axes = MoveAxis::ALL.into_iter().fold(0, |mask, axis| {
-        let handle = MoveHandle::Axis(axis);
-        mask | if active(handle) { 1 << axis.index() } else { 0 }
-    }) & axes;
-    let plane = camera.plane_quad(origin, length).is_some();
-    tools.push(AuthorTool::Transform(TransformPreview::Move {
-        spatial: false,
-        origin: origin.to_array(), length, axes, active_axes, plane,
-        plane_active: plane && active(MoveHandle::XzPlane), plane_cross: true,
-        plane_color: Color::srgba(0.745, 0.529, 0.243, 0.8).to_linear().to_f32_array(),
-        color_active: Color::srgb(0.92, 0.72, 0.40).to_linear().to_f32_array(),
-        axis_colors: axis_colors(), anchor: (building && preview.is_some()).then_some(record.translation),
-        marker_radius: (building && preview.is_some()).then_some(length * 0.15),
-    })); // 候选位移线与16段落点圈仍跟随原校验预览，不提前改作者记录。
+    PlacementGizmo {
+        camera, origin, basis, building, local, animated: animated.is_some(),
+        yaw_only: animated.is_none() && yaw_only(record),
+        active: preview.map(|drag| drag.handle).or(state.hover),
+        yaw: preview.map_or(record.yaw_degrees, |drag| drag.preview.yaw_degrees),
+        before_yaw: preview.map(|drag| drag.before.yaw_degrees),
+        anchor: (building && preview.is_some()).then_some(record.translation),
+    }.draw(mode.mode, &mut tools, &mut gizmos);
 }
 
-/// 动画姿势支持完整世界轴，沿用网格和骨骼的圆环几何与同一套拾取坐标。
-pub(crate) fn draw_animation_rotation(
-    editor: Res<SceneEditorState>,
-    session: Res<EditorAuthoringSession>,
-    state: Res<PlacementMoveState>,
-    mode: Res<ViewportModeState>,
-    viewport: Option<Res<SceneEditorViewportState>>,
-    nodes: Query<&ComputedNode, With<SceneEditorViewport>>,
-    browser: Res<EditorGltfBrowserState>,
-    candidates: Res<LayerCandidateState>,
-    animation: Res<Workbench>,
-    mut gizmos: Gizmos<crate::viewport::SceneEditorBrushGizmos>,
-) {
-    use feathrise_editor_animation_model::gizmo::{MoveConstraint, rotation_rings};
+struct PlacementGizmo {
+    camera: MoveCamera,
+    origin: Vec3,
+    basis: Mat3,
+    building: bool,
+    local: bool,
+    animated: bool,
+    yaw_only: bool,
+    active: Option<MoveHandle>,
+    yaw: f32,
+    before_yaw: Option<f32>,
+    anchor: Option<[f32; 3]>,
+}
 
-    if !editor.open || !editor.placement_transform_enabled || editor.scene_transition_in_progress
-        || mode.mode != ViewportMode::Rotate || editor.tool != EditorTool::Inspect
-    {
-        return;
+const HIGHLIGHT: Color = Color::srgb(0.92, 0.72, 0.40);
+const COPPER: Color = Color::srgba(0.745, 0.529, 0.243, 0.8);
+
+impl PlacementGizmo {
+    fn tint(&self, handle: MoveHandle, normal: Color) -> Color {
+        if self.active == Some(handle) { HIGHLIGHT } else { normal }
     }
-    let Some(draft) = session.draft.as_ref() else { return; };
-    let Some(viewport) = viewport else { return; };
-    let Some((_, record)) = selected_record(&editor, &session, &browser, &candidates, &viewport) else { return; };
-    if !animation.can_pose(&draft.scene_id, &record.id) { return; }
-    let Some(pose) = state.animation_pose(&draft.scene_id, &record.id)
-        .or_else(|| animation.pose_for(record, &draft.scene_id)) else { return; };
-    let Some(camera) = nodes.single().ok().and_then(|node| MoveCamera::new(&editor, &viewport, node.inverse_scale_factor()))
-    else { return; };
-    let active = state.drag.as_ref().map(|drag| drag.handle).or(state.hover);
-    for ring in rotation_rings(*camera, Vec3::from_array(pose.translation)).into_iter().flatten() {
-        let color = if active == Some(MoveHandle::AnimationRotation(ring.constraint)) {
-            Color::srgb(0.92, 0.72, 0.40)
-        } else {
-            match ring.constraint {
+
+    fn draw(self, mode: ViewportMode, tools: &mut AuthorToolFrame, gizmos: &mut Gizmos<SceneEditorBrushGizmos>) {
+        if mode.accepts_transform(ViewportMode::Move) { self.draw_move(tools, gizmos); }
+        if mode.accepts_transform(ViewportMode::Rotate) { self.draw_rotate(tools, gizmos); }
+        if mode.accepts_transform(ViewportMode::Scale) && !self.building {
+            self.draw_scale(mode == ViewportMode::Transform, tools, gizmos);
+        }
+    }
+
+    fn draw_move(&self, tools: &mut AuthorToolFrame, gizmos: &mut Gizmos<SceneEditorBrushGizmos>) {
+        let Some(length) = self.camera.handle_length(self.origin) else { return; };
+        let axes = visible_axes(self.camera, self.origin, length, if self.building { 0b101 } else { 0b111 });
+        let active_axes = match self.active {
+            Some(MoveHandle::Axis(axis)) => axes & (1 << axis.index()),
+            _ => 0,
+        };
+        let plane = self.camera.plane_quad(self.origin, length).is_some();
+        tools.push(AuthorTool::Transform(TransformPreview::Move {
+            spatial: false, origin: self.origin.to_array(), length, axes, active_axes, plane,
+            plane_active: plane && self.active == Some(MoveHandle::XzPlane), plane_cross: true,
+            plane_color: COPPER.to_linear().to_f32_array(), color_active: HIGHLIGHT.to_linear().to_f32_array(),
+            axis_colors: axis_colors(), anchor: self.anchor, marker_radius: self.anchor.map(|_| length * 0.15),
+        }));
+        if self.local && !self.building {
+            for plane in [MovePlane::Xy, MovePlane::Yz] {
+                let corners = move_plane_corners(self.origin, length, plane);
+                if self.camera.project_quad(corners).is_some() {
+                    draw_quad(gizmos, corners, self.tint(plane.move_handle(), plane.normal().color()));
+                }
+            }
+        }
+    }
+
+    fn draw_rotate(&self, tools: &mut AuthorToolFrame, gizmos: &mut Gizmos<SceneEditorBrushGizmos>) {
+        if !self.local || self.yaw_only {
+            if !self.animated && let Some(ring) = rotation_ring(self.camera, self.origin) {
+                tools.push(AuthorTool::Transform(TransformPreview::Rotate {
+                    origin: self.origin.to_array(), radius: ring.world[0].distance(self.origin),
+                    yaw_degrees: Some(self.yaw), before_yaw_degrees: self.before_yaw,
+                    color: self.tint(MoveHandle::RotationY, MoveAxis::Y.color()).to_linear().to_f32_array(),
+                }));
+            }
+            return;
+        }
+        for ring in rotation_rings(*self.camera, self.origin).into_iter().flatten() {
+            let color = match ring.constraint {
                 MoveConstraint::X => MoveAxis::X.color(),
                 MoveConstraint::Y => MoveAxis::Y.color(),
                 MoveConstraint::Z => MoveAxis::Z.color(),
                 MoveConstraint::View => Color::srgb(0.82, 0.84, 0.87),
+            };
+            let color = self.tint(MoveHandle::AnimationRotation(ring.constraint), color);
+            for segment in ring.world.windows(2) {
+                gizmos.line(segment[0], segment[1], color);
             }
-        };
-        for segment in ring.world.windows(2) {
-            gizmos.line(segment[0], segment[1], color);
         }
     }
+
+    fn draw_scale(&self, combined: bool, tools: &mut AuthorToolFrame, gizmos: &mut Gizmos<SceneEditorBrushGizmos>) {
+        if let Some(corners) = self.camera.screen_square(self.origin, PICK_LOGICAL_PIXELS)
+            && let Some(preview) = screen_scale_preview(self.origin, corners, self.tint(MoveHandle::UniformScale, COPPER))
+        {
+            tools.push(AuthorTool::Transform(preview));
+        }
+        if !self.local { return; }
+        let Some(geometry) = ScaleGizmo::new(self.camera, self.origin, self.basis, combined) else { return; };
+        if let Some(ring) = geometry.outer {
+            let color = self.tint(MoveHandle::UniformScale, Color::srgb(0.82, 0.84, 0.87));
+            for segment in ring.windows(2) { gizmos.line(segment[0], segment[1], color); }
+        }
+        for (axis, shape) in MoveAxis::ALL.into_iter().zip(geometry.axes) {
+            let Some(shape) = shape else { continue; };
+            let color = self.tint(MoveHandle::AxisScale(axis), axis.color());
+            if !combined { gizmos.line(self.origin, shape.tip, color); }
+            draw_quad(gizmos, shape.cap, color);
+        }
+        for (plane, shape) in MovePlane::ALL.into_iter().zip(geometry.planes) {
+            if let Some(shape) = shape {
+                draw_quad(gizmos, shape, self.tint(MoveHandle::PlaneScale(plane), plane.normal().color()));
+            }
+        }
+    }
+}
+
+fn draw_quad(gizmos: &mut Gizmos<SceneEditorBrushGizmos>, points: [Vec3; 4], color: Color) {
+    for index in 0..4 { gizmos.line(points[index], points[(index + 1) % 4], color); }
 }
 
 /// 发送前保留原相机的逐轴退化门；共享绘制端不能把不可拾取的轴重新画出来。

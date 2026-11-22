@@ -29,6 +29,16 @@ impl AnimationDrag {
         self.pose.translation = position.to_array();
     }
 
+    pub(super) fn scale(
+        &mut self, handle: MoveHandle, camera: MoveCamera, origin: Vec3,
+        start: Vec2, cursor: Vec2, step: f32,
+    ) -> Result<(), String> {
+        let basis = super::scale::frame_scale_basis(self.before.rotation_degrees);
+        self.pose.scale = super::scale::scale_values(camera, origin, basis, start, cursor, handle, self.before.scale, step)
+            .ok_or("当前视角无法计算缩放")?;
+        Ok(())
+    }
+
     pub(super) fn rotate(
         &mut self, handle: MoveHandle, camera: MoveCamera, origin: Vec3,
         start: Vec2, cursor: Vec2, moved: bool, step_degrees: f32,
@@ -61,6 +71,8 @@ impl AnimationDrag {
             workbench.set_position(scene, id, self.pose.translation)
         } else if self.pose.rotation_degrees != self.before.rotation_degrees {
             workbench.set_rotation(scene, id, self.pose.rotation_degrees)
+        } else if self.pose.scale != self.before.scale {
+            workbench.set_scale(scene, id, self.pose.scale)
         } else {
             false
         }
@@ -135,6 +147,19 @@ pub(crate) fn validation_animation_drag_points(
                 (inside(from) && inside(to) && pick_rotation(camera, origin, from) == Some(MoveHandle::AnimationRotation(MoveConstraint::Y)))
                     .then_some((from, to))
             })
+        }
+        ViewportMode::Scale | ViewportMode::Transform => {
+            use super::scale::{ScaleGizmo, pick_scale_handle};
+            let combined = mode == ViewportMode::Transform;
+            let basis = Mat3::from_quat(pose.rotation());
+            let tip = ScaleGizmo::new(camera, origin, basis, combined)?.axes[MoveAxis::X.index()].as_ref()?.tip;
+            let from = camera.project(tip)?;
+            let logical_size = camera.size * camera.inverse_scale;
+            let direction = ((from - camera.project(origin)?) * logical_size).try_normalize()?;
+            let to = from + direction * delta / logical_size;
+            (inside(from) && inside(to)
+                && pick_scale_handle(camera, origin, basis, from, combined) == Some(MoveHandle::AxisScale(MoveAxis::X)))
+                .then_some((from, to))
         }
         _ => None,
     }

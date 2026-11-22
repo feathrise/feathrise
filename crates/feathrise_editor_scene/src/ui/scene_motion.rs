@@ -12,7 +12,7 @@ use feathrise_scene_content::{SceneId, ScenePlacementRecord};
 use std::collections::HashMap;
 use crate::{
     SceneEditorSystemSet,
-    authoring::{EditorAuthoringSession, scene_motion::{SceneMotionKey, SceneMotionTrack}},
+    authoring::{EditorAuthoringSession, placement_pose::placement_rotation_degrees, scene_motion::{SceneMotionKey, SceneMotionTrack}},
     resources::SceneEditorState,
     ui::{gltf_browser::EditorGltfBrowserState, vegetation_preset_editor::VegetationPresetEditorState},
     viewport::{multi_select::PlacementSelectionSet, placement_move::PlacementMoveState},
@@ -24,7 +24,7 @@ const FPS: f64 = 30.0;
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SceneMotionButton {
     Open, Close, Add, First, PreviousFrame, TogglePlay, NextFrame, Last, CyclePlayback, Seek,
-    SelectPosition, SelectRotation, InsertKey, DeleteKey, ResetPose, ToggleAutoPlay,
+    SelectPosition, SelectRotation, SelectScale, InsertKey, DeleteKey, ResetPose, ToggleAutoPlay,
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,19 +35,19 @@ pub enum SceneMotionField { Frame, EndFrame }
 pub(super) struct OpenSceneAnimation(pub(super) super::scene_context_menu::SceneObjectTarget);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Channel { Position, Rotation }
+enum Channel { Position, Rotation, Scale }
 
 impl Channel {
     fn index(self) -> usize {
-        match self { Self::Position => 0, Self::Rotation => 1 }
+        match self { Self::Position => 0, Self::Rotation => 1, Self::Scale => 2 }
     }
 
     fn keys(self, track: &SceneMotionTrack) -> &[SceneMotionKey] {
-        match self { Self::Position => &track.position, Self::Rotation => &track.rotation }
+        match self { Self::Position => &track.position, Self::Rotation => &track.rotation, Self::Scale => &track.scale }
     }
 
     fn keys_mut(self, track: &mut SceneMotionTrack) -> &mut Vec<SceneMotionKey> {
-        match self { Self::Position => &mut track.position, Self::Rotation => &mut track.rotation }
+        match self { Self::Position => &mut track.position, Self::Rotation => &mut track.rotation, Self::Scale => &mut track.scale }
     }
 }
 
@@ -74,11 +74,17 @@ impl Target {
 pub(crate) struct SceneAnimationFramePose {
     pub(crate) translation: [f32; 3],
     pub(crate) rotation_degrees: [f32; 3],
+    pub(crate) scale: [f32; 3],
 }
 
 impl SceneAnimationFramePose {
     fn base(record: &ScenePlacementRecord) -> Self {
-        Self { translation: record.translation, rotation_degrees: [0.0, record.yaw_degrees, 0.0] }
+        Self { translation: record.translation, rotation_degrees: placement_rotation_degrees(record), scale: record.scale }
+    }
+
+    pub(crate) fn rotation(self) -> Quat {
+        let [x, y, z] = self.rotation_degrees.map(f32::to_radians);
+        Quat::from_euler(EulerRot::XYZ, x, y, z)
     }
 }
 
@@ -86,13 +92,14 @@ impl SceneAnimationFramePose {
 struct PoseDraft {
     position: Option<[f32; 3]>,
     rotation: Option<[f32; 3]>,
+    scale: Option<[f32; 3]>,
 }
 
-/// 默认给完整变换插键。普通点击只选一条，Ctrl 点击增减一条。
-struct KeyingTracks([bool; 2]);
+/// 旧工作流默认插位置和旋转。缩放可单选，也可用 Ctrl 加入本次插帧。
+struct KeyingTracks([bool; 3]);
 
 impl Default for KeyingTracks {
-    fn default() -> Self { Self([true, true]) }
+    fn default() -> Self { Self([true, true, false]) }
 }
 
 #[derive(Resource, Default)]
@@ -128,7 +135,7 @@ impl Workbench {
 
     fn select_track(&mut self, channel: Channel, additive: bool) {
         let tracks = &mut self.keying_tracks.0;
-        if !additive { *tracks = [false; 2]; }
+        if !additive { *tracks = [false; 3]; }
         tracks[channel.index()] = !tracks[channel.index()];
     }
 
@@ -140,6 +147,7 @@ impl Workbench {
         Some(SceneAnimationFramePose {
             translation: self.draft.position.unwrap_or(sampled.translation),
             rotation_degrees: self.draft.rotation.unwrap_or(sampled.rotation_degrees),
+            scale: self.draft.scale.unwrap_or(sampled.scale),
         })
     }
 
@@ -152,6 +160,12 @@ impl Workbench {
     pub(crate) fn set_rotation(&mut self, scene: &SceneId, id: &str, value: [f32; 3]) -> bool {
         if !self.can_pose(scene, id) || !Vec3::from_array(value).is_finite() { return false; }
         self.draft.rotation = self.sampled.filter(|pose| pose.rotation_degrees != value).map(|_| value);
+        true
+    }
+
+    pub(crate) fn set_scale(&mut self, scene: &SceneId, id: &str, value: [f32; 3]) -> bool {
+        if !self.can_pose(scene, id) || value.into_iter().any(|axis| !(0.001..=1_000.0).contains(&axis)) { return false; }
+        self.draft.scale = self.sampled.filter(|pose| pose.scale != value).map(|_| value);
         true
     }
 

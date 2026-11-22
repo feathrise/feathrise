@@ -114,7 +114,7 @@ def read_glb_json(path):
         return json.loads(stream.read(size)), 20 + size
 
 
-def main_scene_version(data, scene_id):
+def main_scene_extras(data, scene_id):
     # 完整场景保存必须保留目录登记的根标记，否则禁止覆盖可用的游戏场景。
     nodes = data["nodes"]
     roots = data["scenes"][data.get("scene", 0)]["nodes"]
@@ -122,7 +122,7 @@ def main_scene_version(data, scene_id):
     markers = [values for values in extras if "feathrise_scene_id" in values]
     if len(markers) != 1 or markers[0]["feathrise_scene_id"] != scene_id:
         raise RuntimeError(f"主场景根标记丢失或不属于 {scene_id}。")
-    return markers[0]["feathrise_scene_version"]
+    return markers[0]
 
 
 def action_bindings():
@@ -197,6 +197,22 @@ def restore_scene_animations(signatures, result, metadata, marker, tagged):
     return changed
 
 
+def restore_scene_animation_draft(draft, root, animations):
+    if draft is None:
+        return False
+    owner = "feathrise_scene_animation"
+    key = "feathrise_scene_animation_draft"
+    owner_changed = root.get(owner) is not True
+    root[owner] = True
+    # Blender 新增的普通片段保留各自的身份。只有明确拥有的实际通道才接替空草稿。
+    if any(clip.get("channels") and (clip.get("extras") or {}).get(owner) is True for clip in animations):
+        return (root.pop(key, None) is not None) or owner_changed
+    if root.get(key) == draft:
+        return owner_changed
+    root[key] = draft
+    return True
+
+
 def write_glb_json(path, data, old_header_size):
     # 只写已验证的暂存 GLB 的 JSON，BIN 和其它块逐字节复制，原采样器无需换算。
     encoded = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -218,7 +234,9 @@ def open_main_scene(directory, source, plugin_path, scene_id, expected):
     if initial_digest(source) != expected:
         raise RuntimeError("主场景 GLB 已换代，请重新打开场景。")
     original, _ = read_glb_json(source)
-    version = main_scene_version(original, scene_id)
+    original_root = main_scene_extras(original, scene_id)
+    version = original_root["feathrise_scene_version"]
+    draft = original_root.get("feathrise_scene_animation_draft")
     plugin, export, saved_path = load_exporter(plugin_path)
     set_target = plugin.get("set_glb_export_path_override")
     clear_target = plugin.get("clear_glb_export_path_override")
@@ -263,9 +281,12 @@ def open_main_scene(directory, source, plugin_path, scene_id, expected):
             export(*args)
             check_export(candidate, None)
             document, old_header_size = read_glb_json(candidate)
-            if main_scene_version(document, scene_id) != version:
+            root = main_scene_extras(document, scene_id)
+            if root["feathrise_scene_version"] != version:
                 raise RuntimeError("导出的主场景格式版本不同。")
-            if restore_scene_animations(signatures, document, metadata, marker, tagged):
+            clips_changed = restore_scene_animations(signatures, document, metadata, marker, tagged)
+            draft_changed = restore_scene_animation_draft(draft, root, document.get("animations", ()))
+            if clips_changed or draft_changed:
                 write_glb_json(candidate, document, old_header_size)
             next_digest = initial_digest(candidate)
             if initial_digest(source) != expected:

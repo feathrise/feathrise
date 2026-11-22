@@ -1,7 +1,47 @@
 //! 摆放记录的源局部与世界姿态边界；三维地形保留父级非等比缩放形成的完整仿射组合。
 
 use bevy::prelude::*;
-use feathrise_scene_content::TerrainObjectTransform;
+use feathrise_scene_content::{ScenePlacementRecord, TerrainObjectTransform};
+
+// 公开旧 SDK 仍按原 Y 轴合同编译，匹配的 SDK 通过同名固有方法接管完整四元数。
+#[allow(dead_code)]
+trait LegacyPlacementRotation {
+    const SUPPORTS_FULL_ROTATION: bool = false;
+    fn rotation(&self) -> Quat;
+    fn set_rotation(&mut self, rotation: Quat) -> Result<(), String>;
+}
+
+impl LegacyPlacementRotation for ScenePlacementRecord {
+    fn rotation(&self) -> Quat { Quat::from_rotation_y(self.yaw_degrees.to_radians()) }
+
+    fn set_rotation(&mut self, rotation: Quat) -> Result<(), String> {
+        if !rotation.is_finite() || rotation.length_squared() <= f32::EPSILON {
+            return Err("旋转必须为有效四元数".into());
+        }
+        let rotation = rotation.normalize();
+        if !(rotation * Vec3::Y).abs_diff_eq(Vec3::Y, BASIS_TOLERANCE) {
+            return Err("当前 SDK 的普通摆放只支持绕 Y 轴旋转".into());
+        }
+        let forward = rotation * Vec3::Z;
+        self.yaw_degrees = forward.x.atan2(forward.z).to_degrees().rem_euclid(360.0);
+        Ok(())
+    }
+}
+
+pub(crate) const fn placement_supports_full_rotation() -> bool { ScenePlacementRecord::SUPPORTS_FULL_ROTATION }
+
+pub(crate) fn placement_rotation(record: &ScenePlacementRecord) -> Quat { record.rotation() }
+
+pub(crate) fn set_placement_rotation(record: &mut ScenePlacementRecord, rotation: Quat) -> Result<(), String> {
+    record.set_rotation(rotation)
+}
+
+pub(crate) fn placement_rotation_degrees(record: &ScenePlacementRecord) -> [f32; 3] {
+    let rotation = placement_rotation(record);
+    if rotation.x == 0.0 && rotation.z == 0.0 { return [0.0, record.yaw_degrees, 0.0]; }
+    let (x, y, z) = rotation.to_euler(EulerRot::XYZ);
+    [x.to_degrees(), y.to_degrees(), z.to_degrees()]
+}
 
 /// 自动体积的记录、接缝与驻留根由专用雕刻/拓扑链共同拥有，普通选择、变换和批删不得接管。
 /// 两个标志独立检查以失败关闭；普通外部GLB三维地形仍沿用完整源坐标编辑能力。

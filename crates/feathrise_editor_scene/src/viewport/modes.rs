@@ -44,15 +44,20 @@ pub fn install_snapshot_controls(app: &mut App) {
 pub enum ViewportMode {
     #[default]
     Select, // 默认只选择作者层，绝不落笔。
-    Move, // 保持已选完整资产并拖动世界轴/XZ平面，与绘制模式独立高亮。
-    Rotate, // 绕世界Y轴旋转，建筑保留90°档位。
-    Scale, // 普通资产等比缩放，保持已有三轴比例。
+    Move, // 选中对象沿世界轴或平面移动。
+    Rotate, // 普通网格使用三轴圆环和视图圆环，建筑保持原方向档位。
+    Scale, // 按轴、平面或等比缩放。
+    Transform, // 同时提供三类手柄。按下时冻结命中的单个约束。
     Edit, // 显式进入后恢复当前模块最近工具。
 }
 
 impl ViewportMode {
     pub fn transforms_placement(self) -> bool {
-        matches!(self, Self::Move | Self::Rotate | Self::Scale)
+        matches!(self, Self::Move | Self::Rotate | Self::Scale | Self::Transform)
+    }
+
+    pub(crate) fn accepts_transform(self, handle_mode: Self) -> bool {
+        self == handle_mode || self == Self::Transform && handle_mode.transforms_placement()
     }
 }
 

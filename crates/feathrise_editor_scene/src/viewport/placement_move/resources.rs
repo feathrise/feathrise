@@ -32,9 +32,7 @@ impl PlacementMoveState {
     pub(crate) fn embedded_group(&self) -> Option<(&feathrise_scene_content::SceneId, u64, u64, u64,
         &std::sync::Arc<Vec<crate::viewport::multi_select::SelectedMember>>, Mat4, bool, bool)> {
         let group = self.group.as_ref()?;
-        let rotation = Quat::from_rotation_y(group.rotation_degrees.to_radians());
-        let matrix = Mat4::from_scale_rotation_translation(Vec3::splat(group.factor), rotation,
-            group.origin + group.delta - rotation * (group.origin * group.factor));
+        let matrix = group.delta_transform().to_matrix();
         Some((&group.scene_id, group.author_revision, group.structure_revision, group.selection_revision,
             &group.members, matrix, group.phase == super::group_types::GroupPhase::Finishing, group.committed))
     }

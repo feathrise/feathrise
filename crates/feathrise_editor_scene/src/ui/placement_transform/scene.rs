@@ -190,7 +190,8 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
                 Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                 Children [@axis_row("旋转", [PlacementTransformField::RotationX, PlacementTransformField::RotationY, PlacementTransformField::RotationZ])]--
             @action_button("建筑旋转 90°", PlacementTransformAction::RotateQuarterTurn, false)-- // 建筑必须先后台重检占地、门口和五点地基。
-            @axis_row("缩放", [PlacementTransformField::ScaleX, PlacementTransformField::ScaleY, PlacementTransformField::ScaleZ])
+            @axis_row("缩放", [PlacementTransformField::ScaleX, PlacementTransformField::ScaleY, PlacementTransformField::ScaleZ])--
+            @super::apply_transform::apply_menu()
                 ]
             --
 

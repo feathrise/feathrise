@@ -2,7 +2,7 @@
 
 use super::resources::*;
 use crate::{
-    authoring::{EditorAuthoringSession, EditorCommand, terrain_documents},
+    authoring::{EditorAuthoringSession, EditorCommand, placement_pose::placement_rotation, terrain_documents},
     components::{SceneEditorCamera, SceneEditorViewport},
     resources::{SceneEditorState, SceneEditorViewportState},
     types::EditorTool,
@@ -68,7 +68,7 @@ fn record<'a>(
 fn matrix(record: &ScenePlacementRecord) -> Mat4 {
     Mat4::from_scale_rotation_translation(
         Vec3::from_array(record.scale),
-        Quat::from_rotation_y(record.yaw_degrees.to_radians()),
+        placement_rotation(record),
         Vec3::from_array(record.translation),
     )
 }

@@ -163,14 +163,9 @@ impl MoveWorld<'_, '_> {
         (entity, attach, cleanup)
     }
 
-    pub(super) fn group_preview(&mut self, drag: &GroupDrag, delta: Vec3) {
-        let rotation = Quat::from_rotation_y(drag.rotation_degrees.to_radians());
+    pub(super) fn group_preview(&mut self, drag: &GroupDrag) {
         // 临时父级的局部变换围绕共同世界中心；根仍保留原缩放和朝向，不逐帧遍历模型。
-        let transform = Transform {
-            translation: drag.origin + delta - rotation * (drag.origin * drag.factor),
-            rotation,
-            scale: Vec3::splat(drag.factor),
-        };
+        let transform = drag.delta_transform();
         for pivot in &drag.pivots {
             if self.group_roots.get(pivot.entity).is_ok() {
                 self.commands
@@ -182,9 +177,9 @@ impl MoveWorld<'_, '_> {
 
     pub(super) fn group_cancel(&mut self, drag: &mut GroupDrag) {
         drag.delta = Vec3::ZERO;
-        drag.rotation_degrees = 0.0;
-        drag.factor = 1.0;
-        self.group_preview(drag, Vec3::ZERO);
+        drag.rotation = Quat::IDENTITY;
+        drag.factor = Vec3::ONE;
+        self.group_preview(drag);
         drag.phase = super::group_types::GroupPhase::Finishing;
     }
 

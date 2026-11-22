@@ -515,6 +515,13 @@ pub(crate) fn apply_undo_redo(
                     }
                     draft.motion.set_timing(*replacement);
                 }
+                EditorCommand::SceneMotionNameChanged { before, after } => {
+                    let (expected, replacement) = if undoing { (after, before) } else { (before, after) };
+                    if draft.motion.clip_name() != expected.as_deref() {
+                        return Err("场景动画名称已变化，无法应用这笔历史".into());
+                    }
+                    draft.motion.set_clip_name(replacement.clone());
+                }
                 EditorCommand::PlacementChanged {
                     record_index,
                     before,

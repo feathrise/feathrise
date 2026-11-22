@@ -55,13 +55,14 @@ pub(super) struct GroupDrag {
     pub camera: MoveCamera,
     pub ui_size: Vec2,
     pub handle: MoveHandle,
+    pub viewport_mode: crate::viewport::modes::ViewportMode,
     pub snapping: feathrise_editor_core::EditorSnapSettings,
     pub bounds: Rect,
     pub delta_min: Vec3,
     pub delta_max: Vec3,
     pub delta: Vec3,
-    pub rotation_degrees: f32,
-    pub factor: f32,
+    pub rotation: Quat,
+    pub factor: Vec3,
     pub min_factor: f32,
     pub max_factor: f32,
     pub pivots: Vec<GroupPivot>,
@@ -80,9 +81,15 @@ pub(super) struct GroupDrag {
 impl GroupDrag {
     /// 预览、高度页需求、历史和高亮共用同一个仿射变换，禁止只旋转模型而漏转成员位置。
     pub(super) fn transformed_position(&self, position: Vec3) -> Vec3 {
-        self.origin + self.delta
-            + Quat::from_rotation_y(self.rotation_degrees.to_radians())
-                * ((position - self.origin) * self.factor)
+        self.delta_transform().transform_point(position)
+    }
+
+    pub(super) fn delta_transform(&self) -> Transform {
+        Transform {
+            translation: self.origin + self.delta - self.rotation * (self.origin * self.factor),
+            rotation: self.rotation,
+            scale: self.factor,
+        }
     }
 }
 

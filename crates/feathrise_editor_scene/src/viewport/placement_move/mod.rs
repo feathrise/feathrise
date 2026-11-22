@@ -1,4 +1,4 @@
-//! 单资产移动、Y轴旋转与等比缩放手柄：保留原入口路径，共用实时预览及原作者事务。
+//! 场景资产的移动、旋转、缩放与组合手柄，共用实时预览及原作者事务。
 //!
 //! 【功能设计】拖动快照独占输入；预览不写作者草稿，松手只提交一条历史。
 //! 不遍历场景或网格，不新增相机或 GPU 读回；多选复用共同位移并使用单个有界CPU槽。
@@ -10,10 +10,10 @@ mod group_types;
 mod group_world;
 mod input; // 按下、预览、提交和身份失效取消。
 mod math; // 真实相机投影、轴/平面拾取与冻结约束。
-mod render; // 发布原手柄语义，显示几何由SDK共享；输入与事务仍由本模块拥有。
+mod render; // 编辑器场景几何与拾取共用，工程画布沿用原 SDK 语义。
 mod resources; // 单一拖动、建筑校验暂存与静默释放门。
 mod rotation; // 固定圆环投影、拾取和相对Y角，拒绝端视与轴心退化。
-mod scale; // 视口中心方块、等比倍率和共同限幅。
+mod scale; // 三轴方帽、平面和等比中心的几何与共同限幅。
 mod source_identity; // 静态地形手势冻结真实来源身份，缺失或运行代际变化时整笔取消。
 mod transaction; // 单记录高度规则、当前权威恢复和一次撤销。
 mod types; // 轴/平面手柄及冻结拖动身份。
@@ -24,7 +24,6 @@ pub(crate) use input::selected_record; // 剪贴板单选沿用同一场景、�
 pub(crate) use math::{MoveCamera, handle_point, handle_translation, handle_translation_mode}; // 框选和地形手柄使用同一真实相机与吸附相位，避免第二套数学。
 
 pub(crate) use render::draw_placement_move;
-pub(crate) use render::draw_animation_rotation;
 #[cfg(feature = "validation")]
 pub(crate) use animation::{validation_animation_drag_active, validation_animation_drag_points};
 pub(crate) use render::{axis_colors, visible_axes}; // 地形、子场景与静水保留相同颜色和原相机逐轴退化门。
@@ -79,9 +78,10 @@ pub(crate) fn set_placement_mode(
         editor.tool = EditorTool::Inspect;
     }
     editor.status = match requested {
-        ViewportMode::Move => "移动模式，可在场景树切换对象。拖动三色轴或铜色方框沿 XZ 平面移动，Ctrl 使用设置中的移动步长，Esc 取消。建筑沿用建筑网格。",
+        ViewportMode::Move => "移动模式，可在场景树切换对象。拖动箭头沿轴移动，拖动方框沿平面移动。Ctrl 吸附，Esc 取消。",
         ViewportMode::Rotate => "旋转模式，可在场景树切换对象。拖动旋转圆环，Ctrl 使用设置中的角度步长，Esc 取消。建筑按 90° 档位旋转并校验。",
-        ViewportMode::Scale => "缩放模式，可在场景树切换对象。拖动中心方块，向右或向上放大，向左或向下缩小。Ctrl 使用设置中的倍率步长，Esc 取消。建筑保持预设尺寸。",
+        ViewportMode::Scale => "缩放模式。拖动轴端方块或平面框缩放对应分量，拖动中心方块等比缩放。Ctrl 吸附，Esc 取消。",
+        ViewportMode::Transform => "变换模式。拖动箭头移动，拖动圆环旋转，拖动方帽或中心方块缩放。Ctrl 吸附，Esc 取消。",
         ViewportMode::Select => "已回到选择模式",
         ViewportMode::Edit => "已回到编辑模式",
     }

@@ -131,30 +131,33 @@ fn group_handle_hover_highlights_plane_rotation_and_scale_without_history() {
     use crate::viewport::tool_preview::AuthorToolFrame;
     use feathrise_author_tools::{AuthorTool, TransformPreview};
     let (mut app, _, node, _) = group_app();
-    app.init_resource::<AuthorToolFrame>()
+    app.init_asset::<bevy::gizmos::GizmoAsset>()
+        .init_resource::<AuthorToolFrame>()
+        .init_gizmo_group::<crate::viewport::SceneEditorBrushGizmos>()
         .add_systems(First, |mut frame: ResMut<AuthorToolFrame>| *frame = default())
         .add_systems(Update, super::super::render::draw_placement_move.after(handle_placement_move));
     plane_tests::set_camera(&mut app, EditorView::Perspective, false);
     let origin = app.world().resource::<PlacementSelectionSet>().center;
-    for handle in [MoveHandle::XzPlane, MoveHandle::RotationY, MoveHandle::UniformScale] {
-        app.world_mut().resource_mut::<ViewportModeState>().mode = handle.mode();
+    for mode in [ViewportMode::Move, ViewportMode::Rotate, ViewportMode::Scale] {
+        app.world_mut().resource_mut::<ViewportModeState>().mode = mode;
         let camera = camera(&app);
-        let point = match handle {
-            MoveHandle::XzPlane => origin + Vec3::new(0.36, 0.0, 0.36) * camera.handle_length(origin).unwrap(),
-            MoveHandle::RotationY => super::super::rotation::rotation_ring(camera, origin).unwrap().world[13],
-            _ => origin,
+        let (cursor, handle) = match mode {
+            ViewportMode::Move => (camera.project(origin + Vec3::new(0.36, 0.0, 0.36) * camera.handle_length(origin).unwrap()).unwrap(), MoveHandle::XzPlane),
+            ViewportMode::Rotate => super::rotation_scale_tests::yaw_cursor(camera, origin,
+                !crate::authoring::placement_pose::placement_supports_full_rotation(), 0.0),
+            _ => (camera.project(origin).unwrap(), MoveHandle::UniformScale),
         };
-        step(&mut app, node, camera.project(point).unwrap());
+        step(&mut app, node, cursor);
         let state = app.world().resource::<PlacementMoveState>();
         assert_eq!(state.hover, Some(handle));
         assert!(!state.owns_mouse() && state.group.is_none());
         let color = Color::srgb(0.92, 0.72, 0.40).to_linear().to_f32_array();
-        let preview = &app.world().resource::<AuthorToolFrame>().preview.items[0];
-        match preview {
-            AuthorTool::Transform(TransformPreview::Move {plane_active, active_axes, ..}) => {
+        match app.world().resource::<AuthorToolFrame>().preview.items.first() {
+            Some(AuthorTool::Transform(TransformPreview::Move {plane_active, active_axes, ..})) => {
                 assert!(*plane_active); assert_eq!(*active_axes, 0);
             }
-            AuthorTool::Transform(TransformPreview::Rotate {color: actual, ..} | TransformPreview::Scale {color: actual, ..}) => assert_eq!(*actual, color),
+            Some(AuthorTool::Transform(TransformPreview::Rotate {color: actual, ..} | TransformPreview::Scale {color: actual, ..})) => assert_eq!(*actual, color),
+            None if matches!(handle, MoveHandle::AnimationRotation(_)) => {}, // 全轴环由当前编辑器原生 Gizmos 渲染。
             _ => panic!("多选未发布对应手柄"),
         }
         step(&mut app, node, Vec2::new(-0.45, -0.45));
@@ -804,8 +807,8 @@ fn transform_cursor(app: &App, mode: ViewportMode, delta: f32) -> Vec2 {
     let center = app.world().resource::<PlacementSelectionSet>().center;
     let camera = camera(app);
     if mode == ViewportMode::Rotate {
-        let radius = camera.handle_length(center).unwrap() * super::super::constants::ROTATION_RADIUS_FRACTION;
-        camera.project(center + super::super::rotation::yaw_direction(delta) * radius).unwrap()
+        super::rotation_scale_tests::yaw_cursor(camera, center,
+            !crate::authoring::placement_pose::placement_supports_full_rotation(), delta).0
     } else {
         camera.project(center).unwrap() + Vec2::X * delta / camera.size / camera.inverse_scale
     }

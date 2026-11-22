@@ -22,8 +22,8 @@ pub(crate) fn bind_scene_menu_rows(
                 // 动画行只绑定工作台能编辑的片段，使用 GLB 索引区分重名片段。
                 let (key, name) = match main_row {
                     MainSceneGlbRow::File => (SceneObjectKey::MainSceneGlb, "scene.glb"),
-                    MainSceneGlbRow::Animation(index) if draft.motion.editable_clip_index() == Some(index) => (
-                        SceneObjectKey::MainSceneAnimation(index), draft.motion.clip_names().get(index)?.as_str(),
+                    MainSceneGlbRow::Animation(index) if draft.motion.editable_clip_index() == index => (
+                        SceneObjectKey::MainSceneAnimation(index), draft.motion.clip_name()?,
                     ),
                     _ => return None,
                 };

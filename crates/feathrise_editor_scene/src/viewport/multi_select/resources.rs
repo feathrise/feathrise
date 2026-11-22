@@ -55,6 +55,7 @@ pub(crate) struct PlacementSelectionSet {
     pub derived_pose_revision: u64,
     pub ready: bool,
     pub center: Vec3,
+    pub(crate) terrain_patch_selected: bool,
     pub(super) gesture: Option<SelectionGesture>,
     pub(super) scan: Option<SelectionScan>,
     pub(super) refresh: Option<SelectionRefresh>,
@@ -93,6 +94,7 @@ impl PlacementSelectionSet {
             self.revision = self.revision.wrapping_add(1);
         }
         self.members = Arc::default();
+        self.terrain_patch_selected = false;
         self.ready = false;
         self.refresh = None;
     }
@@ -104,6 +106,11 @@ impl PlacementSelectionSet {
     ) {
         self.scene_id = session.draft.as_ref().map(|draft| draft.scene_id.clone());
         self.center = selection_center(&members);
+        // 源局部地形记录仍只保存 Y 轴旋转；发布选集时记录约束，绘制与拾取每帧直接读取。
+        self.terrain_patch_selected = session.draft.as_ref().is_some_and(|draft| {
+            members.iter().any(|member| draft.placements.placements.get(member.index)
+                .is_some_and(|record| record.id == member.id && record.terrain_patch.is_some()))
+        });
         self.members = Arc::new(members);
         self.author_revision = session.revision;
         self.structure_revision = session.placement_structure_revision;

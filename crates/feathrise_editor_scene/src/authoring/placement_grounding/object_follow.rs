@@ -1,6 +1,7 @@
 //! 只冻结128条姿态元数据；真实承托查询在后台执行，采用时复核整份输入而不只复核变化项。
 
 use super::*;
+use crate::authoring::placement_pose::{placement_supports_full_rotation, set_placement_rotation};
 use bevy::tasks::{AsyncComputeTaskPool, Task, futures::check_ready};
 use feathrise_scene_content::{SceneTerrainBinding, TerrainObjectTransform};
 
@@ -21,12 +22,7 @@ impl PoseInput {
         Self {
             index,
             id: record.id.clone(),
-            pose: TerrainObjectTransform {
-                translation: record.translation,
-                yaw_degrees: record.yaw_degrees,
-                scale: record.scale,
-                ..Default::default()
-            },
+            pose: binding_pose(record),
             mode: record.height_mode,
             offset: record.terrain_offset,
             binding: record.terrain_binding.clone(),
@@ -46,9 +42,7 @@ impl PoseInput {
         self.id == record.id
             && self.mode == record.height_mode
             && self.offset == record.terrain_offset
-            && self.pose.translation == record.translation
-            && self.pose.yaw_degrees == record.yaw_degrees
-            && self.pose.scale == record.scale
+            && self.pose == binding_pose(record)
             && self.binding == record.terrain_binding
             && self.terrain_patch == record.terrain_patch.is_some()
     }
@@ -67,8 +61,18 @@ impl PoseChange {
             return None;
         }
         let record = &mut records[self.index];
+        let rotation = self.after.pose.rotation();
+        if self.before.pose.rotation() != rotation {
+            if placement_supports_full_rotation() {
+                set_placement_rotation(record, rotation).ok()?;
+            }
+            if !placement_supports_full_rotation()
+                || (self.after.pose.pitch_degrees == 0.0 && self.after.pose.roll_degrees == 0.0)
+            {
+                record.yaw_degrees = self.after.pose.yaw_degrees;
+            }
+        }
         record.translation = self.after.pose.translation;
-        record.yaw_degrees = self.after.pose.yaw_degrees;
         record.scale = self.after.pose.scale;
         record.terrain_offset = self.after.offset;
         record.terrain_binding = self.after.binding;

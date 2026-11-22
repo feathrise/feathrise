@@ -65,6 +65,7 @@ use ui::numeric_scrub_mouse_guard::{
 }; // 数值拖动及其和弦release帧统一拥有全部场景编辑器鼠标入口。
 use ui::placement_transform::{
     PlacementTransformInputState, apply_selected_placement_relocation,
+    apply_transform::{ApplyTransformState, handle_apply_transform, observe_apply_transform_visual, poll_apply_transform, sync_apply_menu},
     handle_placement_transform_actions, handle_placement_transform_numeric_input,
     setup_placement_transform_numeric_inputs, sync_placement_transform_panel,
 }; // 完整资产变换、复制、删除与视口落点共用正式placements草稿和历史。
@@ -216,6 +217,7 @@ impl Plugin for SceneEditorPlugin {
             .init_resource::<DynamicCelestialLightingPreview>() // 独立编辑器测试也具备安全空预览资源。
             .init_resource::<EditorGltfBrowserState>() // 强持有唯一Scene0并公开稳定网格选择。
             .init_resource::<PlacementTransformInputState>() // 七字段事务与一次视口移动模式共享稳定作者身份。
+            .init_resource::<ApplyTransformState>()
             .init_resource::<PlacementWaterSelectionCache>() // 属性文字、按钮和NumericInput共享变化帧派生绑定。
             .init_resource::<PlacementWaterNumericInputState>() // 两个字段共享唯一字符绑定和左拖作者事务。
             .init_resource::<PlacementInstanceIndex>() // 连续作者写入按稳定ID定位少量并存placement根。
@@ -270,6 +272,7 @@ impl Plugin for SceneEditorPlugin {
             .add_observer(unregister_placement_water_evidence_root) // marker删除或实体despawn立即撤销旧Ready聚合。
             .add_observer(register_placement_instance_root) // 正式、候选和预览根Add时建立作者写入索引。
             .add_observer(authoring::placement_preview_ownership::reconcile_builtin_visual)
+            .add_observer(observe_apply_transform_visual)
             .add_observer(unregister_placement_instance_root) // Remove或despawn立即撤销旧实体信用。
             .add_observer(authoring::placement_batch::retire_empty_paste_group) // 原子显示的粘贴父级在失去最后一个孩子时回收。
             .add_observer(observe_placement_water_status_inserted) // 状态插入/替换只推进所属placement票据。
@@ -433,6 +436,7 @@ impl Plugin for SceneEditorPlugin {
                             handle_asset_row_clicks,
                             handle_gltf_browser_input, // 场景树直接选中，不切换视口工具。
                             handle_placement_transform_actions, // 使用本帧最终完整实例选择执行移动、复制或删除。
+                            handle_apply_transform, // 在数值输入和场景树切换收口后冻结唯一完整记录。
                             handle_placement_water_actions, // 使用本帧最终场景树选择修改完整摆放记录。
                             control_editor_viewport,
                             handoff_gpu_blade_view,
@@ -527,6 +531,7 @@ impl Plugin for SceneEditorPlugin {
                             poll_water_file_handoff, // 先消费已有JSON/R8/GLB地形事件；随后本帧新建的保存门只会看到发布后的新消息。
                             cleanup_placement_handoff_previews, // 严格新Ready同帧只回收本批精确Scene0实体。
                             cleanup_saved_portal_previews, // 传送正式新修订完整Ready后才无缝回收作者预览。
+                            poll_apply_transform, // 通过原作者事务采用已完整准备的几何，然后生成本帧保存快照。
                             start_global_environment_save, // 仅全局脏时直接消费统一保存请求并绕过场景预检。
                             poll_global_environment_save, // 单文件结果非阻塞采用并立即发布动态场景配置。
                             start_sparse_terrain_save, // 新图先原子提交脏块与清单，再继续其余作者文件。
@@ -750,6 +755,7 @@ impl Plugin for SceneEditorPlugin {
                 Update,
                 ui::ime::sync_scene_editor_ime.after(SceneEditorSystemSet::Presentation), // 所有点击、切页和模态状态收口后，只写一次主窗口IME最终值。
             )
+            .add_systems(Update, sync_apply_menu.in_set(SceneEditorSystemSet::Presentation).after(sync_placement_transform_panel))
             .add_systems(
                 Update,
                 sync_editor_camera_activity.after(SceneEditorSystemSet::Presentation), // 关闭门之后仍执行，作者恢复/切换场景不能遗留活动编辑相机。

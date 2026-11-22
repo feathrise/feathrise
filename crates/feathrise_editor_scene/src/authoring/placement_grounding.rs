@@ -8,13 +8,14 @@ use std::sync::Arc; // 地形采样器只克隆内存高度场强句柄，不复
 
 use bevy::prelude::*; // Resource、Commands、Query和世界范围类型。
 use feathrise_scene_content::{
-    SceneId, ScenePlacementHeightMode, ScenePlacementRecord, SceneTerrainKind,
+    SceneId, ScenePlacementHeightMode, ScenePlacementRecord, SceneTerrainKind, TerrainObjectTransform,
 }; // 作者与运行时共享高度模式、记录格式和正式三角形采样。
 use feathrise_scene::{
     ClipmapGroundHit, ClipmapGroundSnapshot, DynamicClipmapGroundSurface, ScenePlacementInstance,
 }; // Clipmap普通摆放与植被、水域读取同一已采用三角面快照；分帧更新只定向当前活动或作者预览根。
 
 use super::{EditorAuthoringSession, EditorSceneDraft, TerrainBrushStroke, WaterBrushStroke}; // 当前草稿、修订和两类可能改写地形高度的活动笔划。
+use super::placement_pose::placement_rotation;
 use crate::resources::SceneEditorState; // F12生命周期决定是否继续作者重贴地。
 use crate::ui::placement_transform::sync_placement_record_world; // 已解析记录复用单根预览同步链路。
 use crate::ui::placement_water::PlacementInstanceIndex; // 稳定ID避免扫描完整世界实体集合。
@@ -22,6 +23,18 @@ mod object_follow; // 多地形真实三角批次移出主线程，采用仍沿�
 
 /// 每帧最多检查并采用的摆放记录数；与正式摆放规划预算保持一致。
 pub(crate) const PLACEMENT_GROUNDING_RECORD_BUDGET_PER_FRAME: usize = 128;
+
+/// 承托关系保存完整局部朝向，原本只有 Y 轴的记录保留角度原值。
+fn binding_pose(record: &ScenePlacementRecord) -> TerrainObjectTransform {
+    let pose = TerrainObjectTransform {
+        translation: record.translation,
+        yaw_degrees: record.yaw_degrees,
+        scale: record.scale,
+        ..Default::default()
+    };
+    let rotation = placement_rotation(record);
+    if rotation.x == 0.0 && rotation.z == 0.0 { pose } else { pose.with_rotation(rotation) }
+}
 
 /// 一次O(1)克隆得到的不可变地形采样输入。
 #[derive(Clone)]
@@ -310,10 +323,7 @@ impl PlacementTerrainSampler {
     /// 属性/手柄只改内容姿态时更新源局部记录；O(log N)，无需重新执行网格射线。
     pub(crate) fn refresh_record_binding(&self,record:&mut ScenePlacementRecord)->Result<(),String> {
         let (PlacementTerrainSource::Objects{ground,..},Some(binding))=(&self.source,&record.terrain_binding) else {return Ok(());};
-        let mut updated=ground.bind(&binding.terrain_id,feathrise_scene_content::TerrainObjectTransform {
-            translation:record.translation,yaw_degrees:record.yaw_degrees,scale:record.scale,
-            ..Default::default()
-        })?;
+        let mut updated=ground.bind(&binding.terrain_id,binding_pose(record))?;
         if record.height_mode.follows_terrain() {updated.local_height_offset=Some(record.terrain_offset/ground.bindings.pose(&binding.terrain_id).ok_or("关联地形已不存在")?.scale[1]);}
         record.terrain_binding=Some(updated);Ok(())
     }

@@ -24,10 +24,10 @@ pub(crate) fn select_target(
     mut tree_selection: Option<ResMut<crate::ui::scene_layers::SceneLayerSelection>>,
 ) {
     let click = tree_selection.as_mut().and_then(|state| state.0.take());
-    // 文件操作与植被的编辑器显隐可按稳定来源处理，保持当前选择和画布。
+    // 主 GLB 文件及动画操作和植被显隐只接管各自的作者数据，保留当前对象选择。
     let mut request = menu.ready.as_ref().filter(|request| !matches!(
         (&request.target.key, request.action),
-        (SceneObjectKey::MainSceneGlb, _) | (_, SceneMenuAction::RevealGlb)
+        (SceneObjectKey::MainSceneGlb | SceneObjectKey::MainSceneAnimation(_), _) | (_, SceneMenuAction::RevealGlb)
             | (SceneObjectKey::Vegetation { .. }, SceneMenuAction::Visibility)
     )).cloned();
     let deferred = layers.take_vegetation_selection(candidates.as_deref());

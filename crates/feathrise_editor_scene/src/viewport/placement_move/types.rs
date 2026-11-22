@@ -1,8 +1,9 @@
-//! 单轴/水平面手柄与一次按下冻结的完整身份；不保留场景或模型副本。
+//! 三轴变换手柄与一次按下冻结的完整身份；不保留场景或模型副本。
 
 use bevy::prelude::*;
 use feathrise_scene_content::{SceneId, ScenePlacementRecord, TerrainId, TerrainObjectTransform};
 
+use super::super::modes::ViewportMode;
 use super::constants::ROTATION_SEGMENTS;
 use super::math::MoveCamera;
 use crate::authoring::buildings::BuildingEditTarget;
@@ -11,19 +12,60 @@ pub(crate) use feathrise_editor_animation_model::gizmo::MoveAxis;
 use feathrise_editor_animation_model::gizmo::MoveConstraint;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MovePlane {
+    Xy,
+    Xz,
+    Yz,
+}
+
+impl MovePlane {
+    pub(super) const ALL: [Self; 3] = [Self::Xz, Self::Xy, Self::Yz];
+
+    pub(super) fn axes(self) -> [MoveAxis; 2] {
+        match self {
+            Self::Xy => [MoveAxis::X, MoveAxis::Y],
+            Self::Xz => [MoveAxis::X, MoveAxis::Z],
+            Self::Yz => [MoveAxis::Y, MoveAxis::Z],
+        }
+    }
+
+    pub(super) fn normal(self) -> MoveAxis {
+        match self {
+            Self::Xy => MoveAxis::Z,
+            Self::Xz => MoveAxis::Y,
+            Self::Yz => MoveAxis::X,
+        }
+    }
+
+    pub(super) fn move_handle(self) -> MoveHandle {
+        match self {
+            Self::Xy => MoveHandle::XyPlane,
+            Self::Xz => MoveHandle::XzPlane,
+            Self::Yz => MoveHandle::YzPlane,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MoveHandle {
     Axis(MoveAxis),
+    XyPlane,
     XzPlane,
+    YzPlane,
     RotationY,
     AnimationRotation(MoveConstraint),
+    AxisScale(MoveAxis),
+    PlaneScale(MovePlane),
     UniformScale,
 }
 
 impl MoveHandle {
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::Axis(axis) => axis.label(),
-            Self::XzPlane => "XZ 平面",
+            Self::Axis(axis) | Self::AxisScale(axis) => axis.label(),
+            Self::XyPlane | Self::PlaneScale(MovePlane::Xy) => "XY 平面",
+            Self::XzPlane | Self::PlaneScale(MovePlane::Xz) => "XZ 平面",
+            Self::YzPlane | Self::PlaneScale(MovePlane::Yz) => "YZ 平面",
             Self::RotationY => "Y 轴旋转",
             Self::AnimationRotation(axis) => axis.label(),
             Self::UniformScale => "等比缩放",
@@ -33,17 +75,27 @@ impl MoveHandle {
     pub(crate) fn moves_axis(self, axis: MoveAxis) -> bool {
         match self {
             Self::Axis(selected) => axis == selected,
+            Self::XyPlane => axis != MoveAxis::Z,
             Self::XzPlane => axis != MoveAxis::Y,
-            Self::RotationY | Self::AnimationRotation(_) | Self::UniformScale => false,
+            Self::YzPlane => axis != MoveAxis::X,
+            _ => false,
         }
     }
 
-    pub(crate) fn mode(self) -> super::super::modes::ViewportMode {
-        use super::super::modes::ViewportMode;
+    pub(super) fn scales_axis(self, axis: MoveAxis) -> bool {
         match self {
-            Self::Axis(_) | Self::XzPlane => ViewportMode::Move,
+            Self::AxisScale(selected) => axis == selected,
+            Self::PlaneScale(plane) => axis != plane.normal(),
+            Self::UniformScale => true,
+            _ => false,
+        }
+    }
+
+    pub(crate) fn mode(self) -> ViewportMode {
+        match self {
+            Self::Axis(_) | Self::XyPlane | Self::XzPlane | Self::YzPlane => ViewportMode::Move,
             Self::RotationY | Self::AnimationRotation(_) => ViewportMode::Rotate,
-            Self::UniformScale => ViewportMode::Scale,
+            Self::AxisScale(_) | Self::PlaneScale(_) | Self::UniformScale => ViewportMode::Scale,
         }
     }
 }
@@ -66,7 +118,8 @@ pub(super) struct MoveDrag {
     pub patch_source: Option<PatchSourceSnapshot>, // 相同作者值不能掩盖真实地形实例换代。
     pub formal_runtime_identity: Option<(Option<SceneId>, u64, usize)>, // 鼠标手势不得跨正式根采用/退役；松手后建筑意图仍归其独立校验事务。
     pub handle: MoveHandle,
-    pub start_point: Vec3, // 按下时的轴最近点/水平面交点，保持抓取偏移，不能把模型原点跳到鼠标下。
+    pub viewport_mode: ViewportMode, // 组合模式也冻结实际入口；外部切工具须取消当前手势。
+    pub start_point: Vec3, // 按下时的轴最近点或平面交点，保持抓取偏移。
     pub start_cursor: Vec2, // 两逻辑像素以内仍视为单击，不因 Ctrl 把原点悄悄吸到网格。
     pub camera: MoveCamera, // 相机、物理尺寸和逻辑缩放任何一项变化均取消。
     pub viewport_ui_size: Vec2, // UI 先完成布局、RTT 下一阶段才采用新尺寸；release 帧也必须识别这一个阶段差。

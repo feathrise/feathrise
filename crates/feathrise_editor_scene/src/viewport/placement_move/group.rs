@@ -1,19 +1,20 @@
-//! 多选的共同移动、Y轴旋转和等比缩放：常数父级实时预览，后台生成完整单次历史。
+//! 多选共用世界中心与有界父级预览，在后台校验全部成员后提交一次历史。
 
 use super::{
     group_types::*,
-    input::MoveInputContext,
+    input::{MoveInputContext, pick_placement_handle},
     math::{MoveCamera, handle_point},
     resources::PlacementMoveState,
     transaction::MoveWorld,
-    types::MoveHandle,
+    types::{MoveAxis, MoveHandle},
 };
 use crate::authoring::{
     CourtyardBatchChange, EditorAuthoringSession, PlacementTerrainSampler,
     update_follow_offset_from_world_y,
 };
 use crate::authoring::{placement_record_bounds,
-    placement_pose::{is_automatic_volume, placement_record_frame, source_to_world, world_to_source}};
+    placement_pose::{is_automatic_volume, placement_record_frame, placement_rotation,
+        placement_supports_full_rotation, set_placement_rotation, source_to_world, world_to_source}};
 use crate::resources::{SceneEditorState, SceneEditorViewportState};
 use crate::viewport::{modes::ViewportMode, multi_select::PlacementSelectionSet};
 use bevy::{
@@ -22,6 +23,7 @@ use bevy::{
     ui::RelativeCursorPosition,
 };
 use feathrise_scene::DynamicClipmapGroundSurface;
+use feathrise_editor_animation_model::gizmo::rotation_delta;
 
 pub(super) fn handle_group(
     state: &mut PlacementMoveState,
@@ -61,7 +63,7 @@ pub(super) fn handle_group(
             return true;
         }
         let current = available
-            && context.mode.mode == drag.handle.mode()
+            && context.mode.mode == drag.viewport_mode
             && camera == Some(drag.camera)
             && node.is_some_and(|(_, node)| node.size() == drag.ui_size)
             && session.revision == drag.author_revision
@@ -191,8 +193,8 @@ pub(super) fn handle_group(
                             selection.publish(members, session);
                         }
                         drag.delta = Vec3::ZERO; // 选择缓存已原子更新，标记和手柄不再重复叠加预览位移。
-                        drag.rotation_degrees = 0.0;
-                        drag.factor = 1.0;
+                        drag.rotation = Quat::IDENTITY;
+                        drag.factor = Vec3::ONE;
                         drag.phase = GroupPhase::Finishing;
                         editor.status = "已完成整组变换；Ctrl+Z一次撤销整组".into();
                     }
@@ -257,12 +259,22 @@ pub(super) fn handle_group(
             MoveHandle::RotationY if moved => super::rotation::rotation_yaw(
                 0.0, drag.origin, drag.start_point, point,
                 if snapping { drag.snapping.rotation_degrees } else { 0.0 },
-            ).map(|angle| drag.rotation_degrees = angle).is_some(),
-            MoveHandle::UniformScale if moved => super::scale::group_scale_factor(
-                (normalized - drag.start_cursor) * drag.camera.size * drag.camera.inverse_scale,
-                if snapping { drag.snapping.scale_factor } else { 0.0 }, drag.min_factor, drag.max_factor,
-            ).map(|factor| drag.factor = factor).is_some(),
-            _ => { drag.rotation_degrees = 0.0; drag.factor = 1.0; true },
+            ).map(|angle| drag.rotation = Quat::from_rotation_y(angle.to_radians())).is_some(),
+            MoveHandle::AnimationRotation(constraint) if moved => rotation_delta(
+                *drag.camera, drag.start_cursor, normalized, drag.origin, constraint,
+            ).map(|(axis, angle)| {
+                let step = drag.snapping.rotation_degrees.to_radians();
+                let angle = if snapping && step > 0.0 { (angle / step).round() * step } else { angle };
+                drag.rotation = Quat::from_axis_angle(axis, angle);
+            }).is_ok(),
+            handle if moved && handle.mode() == ViewportMode::Scale => {
+                super::scale::scale_drag_delta(drag.camera, drag.origin, Mat3::IDENTITY, drag.start_cursor, normalized, handle)
+                    .and_then(|delta| super::scale::group_scale_factor(delta,
+                        if snapping { drag.snapping.scale_factor } else { 0.0 }, drag.min_factor, drag.max_factor))
+                    .map(|factor| drag.factor = Vec3::from_array(MoveAxis::ALL.map(|axis| if handle.scales_axis(axis) { factor } else { 1.0 })))
+                    .is_some()
+            }
+            _ => { drag.rotation = Quat::IDENTITY; drag.factor = Vec3::ONE; true },
         };
         if !valid {
             cancel_group(state, world, &mut drag);
@@ -270,7 +282,7 @@ pub(super) fn handle_group(
             editor.status = "整组变换目标无效，已取消".into();
             return true;
         }
-        world.group_preview(&drag, delta);
+        world.group_preview(&drag);
         if let Some(snapshot) = clipmap
             .and_then(|surface| surface.snapshot.as_ref())
             .filter(|snapshot| {
@@ -289,7 +301,10 @@ pub(super) fn handle_group(
             }
         }
         if mouse.just_released(MouseButton::Left) {
-            if delta.length_squared() <= 1.0e-10 && drag.rotation_degrees.abs() <= 1.0e-5 && (drag.factor - 1.0).abs() <= 1.0e-6 {
+            if delta.length_squared() <= 1.0e-10
+                && Vec3::new(drag.rotation.x, drag.rotation.y, drag.rotation.z).length_squared() <= 1.0e-12
+                && drag.factor.abs_diff_eq(Vec3::ONE, 1.0e-6)
+            {
                 cancel_group(state, world, &mut drag);
                 editor.status = "整组变换未变化".into();
             } else {
@@ -299,11 +314,10 @@ pub(super) fn handle_group(
                 });
                 let sources = std::mem::take(&mut drag.sources);
                 let map = drag.scene_id.clone();
-                let origin = drag.origin;
-                let angle = drag.rotation_degrees;
+                let transform = drag.delta_transform();
                 let factor = drag.factor;
                 state.group_task = Some(AsyncComputeTaskPool::get().spawn(async move {
-                    prepare_group_transform(sources, origin, delta, angle, factor, sampler, map)
+                    prepare_group_transform(sources, transform, factor, sampler, map)
                 }));
                 drag.phase = GroupPhase::Waiting;
                 editor.status = "正在完成整组变换校验…".into();
@@ -336,12 +350,8 @@ pub(super) fn handle_group(
     let Some(normalized) = cursor.normalized.filter(|p| p.is_finite()) else {
         return true;
     };
-    let handle = match context.mode.mode {
-        ViewportMode::Move => camera.pick_handle(selection.center, normalized, false),
-        ViewportMode::Rotate => super::rotation::pick_rotation(camera, selection.center, normalized).then_some(MoveHandle::RotationY),
-        ViewportMode::Scale => super::scale::pick_scale(camera, selection.center, normalized).then_some(MoveHandle::UniformScale),
-        _ => None,
-    };
+    let handle = pick_placement_handle(context.mode.mode, camera, selection.center, Mat3::IDENTITY, normalized,
+        false, selection.terrain_patch_selected || !placement_supports_full_rotation(), context.local_gizmos());
     let Some(handle) = handle else {
         return true;
     };
@@ -378,13 +388,14 @@ pub(super) fn handle_group(
         camera,
         ui_size: node.size(),
         handle,
+        viewport_mode: context.mode.mode,
         snapping: context.preferences.as_ref().map_or_else(Default::default, |settings| settings.editor_snapping.sanitized()),
         bounds,
         delta_min: Vec3::splat(f32::NEG_INFINITY),
         delta_max: Vec3::splat(f32::INFINITY),
         delta: Vec3::ZERO,
-        rotation_degrees: 0.0,
-        factor: 1.0,
+        rotation: Quat::IDENTITY,
+        factor: Vec3::ONE,
         min_factor: 0.0,
         max_factor: f32::INFINITY,
         pivots: Vec::new(),
@@ -406,33 +417,41 @@ pub(super) fn handle_group(
 
 fn prepare_group_transform(
     sources: Vec<GroupSource>,
-    origin: Vec3,
-    delta: Vec3,
-    angle: f32,
-    factor: f32,
+    transform: Transform,
+    factor: Vec3,
     sampler: Option<PlacementTerrainSampler>,
     map: feathrise_scene_content::SceneId,
 ) -> Result<PreparedGroupMove, String> {
     let mut changed = Vec::new();
     let mut apply = Vec::new();
+    let rotated = transform.rotation != Quat::IDENTITY;
+    let uniform = factor.x == factor.y && factor.y == factor.z;
+    let change = transform.to_matrix();
     for GroupSource { index, before, frame, bounds } in sources {
         let mut after = before.clone();
-        let rotation = Quat::from_rotation_y(angle.to_radians());
         if before.terrain_patch.is_some() {
             let world = source_to_world(feathrise_scene_content::TerrainObjectTransform {
                 translation: before.translation, yaw_degrees: before.yaw_degrees, scale: before.scale, ..default()
             }, frame)?;
-            let change = Mat4::from_scale_rotation_translation(Vec3::splat(factor), rotation,
-                origin + delta - rotation * (origin * factor));
             let pose = world_to_source(change * world, frame)?;
             after.translation = pose.translation;
-            // 纯移动/等比缩放不编辑局部朝向；精确可表达性已校验，保留原标量避免舍入变成无关编辑。
-            after.yaw_degrees = if angle == 0.0 { before.yaw_degrees } else { pose.yaw_degrees };
-            after.scale = if angle == 0.0 { (Vec3::from_array(before.scale) * factor).to_array() } else { pose.scale };
+            // 源局部朝向通过真实世界父框架校验，保留未编辑的原始标量。
+            if rotated { after.yaw_degrees = pose.yaw_degrees; }
+            after.scale = if !rotated && uniform { (Vec3::from_array(before.scale) * factor).to_array() } else { pose.scale };
         } else {
-            after.translation = (origin + delta + rotation * ((Vec3::from_array(before.translation) - origin) * factor)).to_array();
-            after.yaw_degrees = (before.yaw_degrees + angle).rem_euclid(360.0);
-            after.scale = (Vec3::from_array(before.scale) * factor).to_array();
+            after.translation = change.transform_point3(Vec3::from_array(before.translation)).to_array();
+            if rotated { set_placement_rotation(&mut after, transform.rotation * placement_rotation(&before))?; }
+            if uniform {
+                after.scale = (Vec3::from_array(before.scale) * factor).to_array();
+            } else {
+                let expected = change * before.validated_transform(&map, bounds)?.to_matrix();
+                let (scale, _, translation) = expected.to_scale_rotation_translation();
+                let candidate = Mat4::from_scale_rotation_translation(scale, placement_rotation(&after), translation);
+                if !super::source_identity::same_source_matrix(candidate, expected) {
+                    return Err("沿世界轴缩放会剪切部分已旋转的成员，请使用等比缩放或单独编辑这些成员".into());
+                }
+                after.scale = scale.to_array();
+            }
         }
         if after.terrain_patch.is_none() && after.height_mode.follows_terrain() {
             let sampler = sampler

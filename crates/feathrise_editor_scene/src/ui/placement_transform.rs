@@ -4,6 +4,7 @@
 //! Y轴旋转、三轴缩放、高度模式、复制与删除直接修改正式草稿，并复用统一撤销、保存和热接管链路。
 
 mod actions; // 高度模式、复制、删除及运行时根定向同步。
+pub(crate) mod apply_transform; // 普通内置网格应用对象变换，完整候选就绪后发布。
 mod cuboid; // 内置立方体的米制尺寸、材质和盒碰撞，复用完整记录事务。
 mod lod; // 普通摆放网格的显示/碰撞策略及自定义精度，写回同一作者记录。
 mod lod_preview; // 选中模型的实际档位、三角线和原始对照，只影响作者观察。
@@ -48,7 +49,7 @@ pub(crate) enum PlacementTransformField {
     TranslationY, // 世界Y位置。
     TranslationZ, // 世界Z位置。
     Yaw,          // 绕世界Y轴旋转。
-    RotationX,    // 当前动画帧的欧拉角。
+    RotationX,    // 普通摆放和动画帧的 XYZ 欧拉角。
     RotationY,
     RotationZ,
     ScaleX,       // 局部X缩放。
@@ -90,19 +91,28 @@ impl PlacementTransformField {
         }
     }
 
-    /// 静态记录只有朝向，动画帧才独立编辑三轴旋转。隐藏字段也不能接受旧事件。
+    pub(super) const fn scale_axis(self) -> Option<usize> {
+        match self {
+            Self::ScaleX => Some(0), Self::ScaleY => Some(1), Self::ScaleZ => Some(2),
+            _ => None,
+        }
+    }
+
+    /// 旧 SDK 的静态记录及特殊作者对象仍走已有方向合同。
     pub(super) const fn available_in_mode(self, editing_animation: bool) -> bool {
         if matches!(self, Self::Yaw) { !editing_animation }
-        else { self.animation_rotation_axis().is_none() || editing_animation }
+        else { self.animation_rotation_axis().is_none() || editing_animation
+            || crate::authoring::placement_pose::placement_supports_full_rotation() }
     }
 
     pub(super) const fn is_animation_pose(self) -> bool {
-        self.translation_axis().is_some() || self.animation_rotation_axis().is_some()
+        self.translation_axis().is_some() || self.animation_rotation_axis().is_some() || self.scale_axis().is_some()
     }
 
     pub(super) fn animation_value(self, pose: crate::ui::scene_motion::SceneAnimationFramePose) -> Option<f32> {
         self.translation_axis().map(|axis| pose.translation[axis])
             .or_else(|| self.animation_rotation_axis().map(|axis| pose.rotation_degrees[axis]))
+            .or_else(|| self.scale_axis().map(|axis| pose.scale[axis]))
     }
 
     pub(super) const fn is_lod(self) -> bool {
@@ -113,6 +123,14 @@ impl PlacementTransformField {
             | Self::CuboidColorR | Self::CuboidColorG | Self::CuboidColorB | Self::CuboidRoughness)
     }
     pub(super) fn supported_by(self, record: &ScenePlacementRecord) -> bool {
+        let orientation_only = record.terrain_patch.is_some() || record.building_preset_id.is_some()
+            || record.courtyard.is_some();
+        if self == Self::Yaw {
+            return orientation_only || !crate::authoring::placement_pose::placement_supports_full_rotation();
+        }
+        if self.animation_rotation_axis().is_some() {
+            return !orientation_only;
+        }
         if self.is_lod() {
             lod::field_supported(self, record)
         } else if matches!(self, Self::CuboidSizeX | Self::CuboidSizeY | Self::CuboidSizeZ) {
@@ -298,12 +316,14 @@ impl PlacementTransformField {
         if self.is_cuboid() {
             return cuboid::field_value(self, record).unwrap_or_default();
         }
+        if let Some(axis) = self.animation_rotation_axis() {
+            return crate::authoring::placement_pose::placement_rotation_degrees(record)[axis];
+        }
         match self {
             Self::TranslationX => record.translation[0], // 世界X。
             Self::TranslationY => record.translation[1], // 世界Y。
             Self::TranslationZ => record.translation[2], // 世界Z。
             Self::Yaw => record.yaw_degrees,             // 作者角度。
-            Self::RotationX | Self::RotationY | Self::RotationZ => 0.0, // 无动画帧时字段隐藏。
             Self::ScaleX => record.scale[0],             // X倍率。
             Self::ScaleY => record.scale[1],             // Y倍率。
             Self::ScaleZ => record.scale[2],             // Z倍率。
@@ -325,12 +345,21 @@ impl PlacementTransformField {
         if self.is_cuboid() {
             return cuboid::set_field_value(self, record, value);
         }
+        if let Some(axis) = self.animation_rotation_axis() {
+            if !self.supported_by(record) || !self.available_in_mode(false) || !value.is_finite() {
+                return false;
+            }
+            let mut angles = crate::authoring::placement_pose::placement_rotation_degrees(record);
+            if angles[axis] == value { return false; }
+            angles[axis] = value;
+            let [x, y, z] = angles.map(f32::to_radians);
+            return crate::authoring::placement_pose::set_placement_rotation(record, Quat::from_euler(EulerRot::XYZ, x, y, z)).is_ok();
+        }
         let target = match self {
             Self::TranslationX => &mut record.translation[0], // 只写世界X。
             Self::TranslationY => &mut record.translation[1], // 只写世界Y。
             Self::TranslationZ => &mut record.translation[2], // 只写世界Z。
             Self::Yaw => &mut record.yaw_degrees,             // 只写Y轴角度。
-            Self::RotationX | Self::RotationY | Self::RotationZ => return false, // 动画姿势由工作台保存，静态摆放不接受这些事件。
             Self::ScaleX => &mut record.scale[0],             // 只写缩放X。
             Self::ScaleY => &mut record.scale[1],             // 只写缩放Y。
             Self::ScaleZ => &mut record.scale[2],             // 只写缩放Z。

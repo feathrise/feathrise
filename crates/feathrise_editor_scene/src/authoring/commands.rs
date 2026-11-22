@@ -64,6 +64,11 @@ pub enum EditorCommand {
         before: super::scene_motion::SceneMotionTiming,
         after: super::scene_motion::SceneMotionTiming,
     },
+    // 用同一条历史承载首次创建与改名，不需要选中或新建摆放。
+    SceneMotionNameChanged {
+        before: Option<String>,
+        after: Option<String>,
+    },
     /// 显式建筑整平把placement与真实GLB顶点差分绑定为一条不可拆分事务。
     BuildingTerrainChanged(Box<BuildingTerrainChange>), // Box避免扩大每条普通历史命令的栈尺寸。
     /// 单栋稀疏平台和建筑共用一条历史，格点Arc可交给后台恢复而不在输入帧复制。

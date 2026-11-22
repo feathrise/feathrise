@@ -279,6 +279,7 @@ fn viewport_mode_rail_gpu_actual_clicks_and_context_snapshot() {
         ViewportMode::Move,
         ViewportMode::Rotate,
         ViewportMode::Scale,
+        ViewportMode::Transform,
         ViewportMode::Edit,
     ] {
         let button = {
@@ -293,7 +294,7 @@ fn viewport_mode_rail_gpu_actual_clicks_and_context_snapshot() {
         click(&mut app, button);
         assert_eq!(app.world().resource::<ViewportModeState>().mode, mode);
         assert!(!app.world().resource::<SceneEditorState>().dirty);
-    } // 五个真实图标沿用原互斥模式动作，点击仅改工具状态，不产生作者数据事务。
+    } // 六个真实图标沿用原互斥模式动作，点击仅改工具状态，不产生作者数据事务。
     for (mode, name) in [
         (ViewportMode::Select, "viewport-mode-rail-select.png"),
         (ViewportMode::Rotate, "viewport-mode-rail-rotate.png"),

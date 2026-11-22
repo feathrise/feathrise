@@ -12,7 +12,7 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SceneObjectKey {
     MainSceneGlb,
-    MainSceneAnimation(usize),
+    MainSceneAnimation(Option<usize>), // None 是当前尚无标准动画通道的命名草稿。
     Placement {
         index: usize,
         id: String,
@@ -77,12 +77,14 @@ pub enum SceneMenuAction {
     Lock,
     EditInBlender,
     RevealGlb,
+    NewSceneAnimation,
 }
 
 impl SceneMenuAction {
-    pub(super) const ALL: [Self; 8] = [
+    pub(super) const ALL: [Self; 9] = [
         Self::Focus,
         Self::RevealGlb,
+        Self::NewSceneAnimation,
         Self::EditInBlender,
         Self::Rename,
         Self::Copy,
@@ -108,6 +110,7 @@ impl SceneMenuAction {
             Self::Lock => "锁定",
             Self::EditInBlender => "在 Blender 编辑",
             Self::RevealGlb => "定位 GLB 文件",
+            Self::NewSceneAnimation => "新建动画",
         }
     }
 }
@@ -146,7 +149,7 @@ impl SceneObjectTarget {
         match &self.key {
             SceneObjectKey::MainSceneGlb => draft.placement_glb_hash.is_some(),
             SceneObjectKey::MainSceneAnimation(index) => draft.placement_glb_hash.is_some()
-                && draft.motion.editable_clip_index() == Some(*index),
+                && draft.motion.editable_clip_index() == *index && draft.motion.clip_name().is_some(),
             SceneObjectKey::Placement { index, id, .. } => draft
                 .placements
                 .placements
@@ -209,7 +212,9 @@ impl SceneObjectTarget {
     ) -> bool {
         if matches!(self.key, SceneObjectKey::MainSceneGlb) {
             return self.supports(action) && session.draft.as_ref().is_some_and(|draft|
-                draft.scene_id == self.scene_id && draft.placement_glb_hash.is_some());
+                draft.scene_id == self.scene_id && draft.placement_glb_hash.is_some()
+                    && (action != SceneMenuAction::NewSceneAnimation
+                        || (draft.motion.available() && draft.motion.clip_name().is_none())));
         }
         if action == SceneMenuAction::RevealGlb {
             return self.glb_path(session).is_some();
@@ -242,9 +247,12 @@ impl SceneObjectTarget {
 
     fn supports(&self, action: SceneMenuAction) -> bool {
         if matches!(self.key, SceneObjectKey::MainSceneGlb) {
-            return action.is_blender();
+            return matches!(action, SceneMenuAction::EditInBlender | SceneMenuAction::NewSceneAnimation);
         }
         // 游戏领域仍使用原六个菜单动作的位掩码，编辑器专属命令不进入该协议。
+        if action == SceneMenuAction::NewSceneAnimation {
+            return false;
+        }
         if action.is_blender() {
             return matches!(self.key, SceneObjectKey::Placement { mesh: None, .. });
         }
@@ -252,7 +260,7 @@ impl SceneObjectTarget {
             return matches!(self.key, SceneObjectKey::Placement { .. });
         }
         match (&self.key, action) {
-            (SceneObjectKey::MainSceneAnimation(_), _) => false,
+            (SceneObjectKey::MainSceneAnimation(_), action) => action == SceneMenuAction::Rename,
             (SceneObjectKey::Group { .. }, action) => action == SceneMenuAction::Focus,
             (SceneObjectKey::Water { kind, .. }, action) => {
                 matches!(action, SceneMenuAction::Focus | SceneMenuAction::Delete)
@@ -277,7 +285,7 @@ impl SceneObjectTarget {
         self.supports(action)
             && match action {
                 SceneMenuAction::Focus | SceneMenuAction::Visibility | SceneMenuAction::Lock
-                | SceneMenuAction::RevealGlb => {
+                | SceneMenuAction::RevealGlb | SceneMenuAction::NewSceneAnimation => {
                     true
                 }
                 SceneMenuAction::Rename => !self.locked,

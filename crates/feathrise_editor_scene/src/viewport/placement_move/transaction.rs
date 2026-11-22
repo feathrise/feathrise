@@ -1,10 +1,10 @@
 //! 手柄的单记录事务；预览与草稿分离，取消恢复当下权威值，提交只登记一次历史。
 
-use super::types::{MoveAxis, MoveDrag, MoveHandle};
+use super::types::{MoveAxis, MoveDrag};
 use crate::authoring::{
     EditorAuthoringSession, EditorCommand, PlacementTerrainSampler, reconcile_record_with_terrain, update_follow_offset_from_world_y,
 };
-use crate::authoring::{placement_record_bounds, placement_pose::world_to_source};
+use crate::authoring::{placement_record_bounds, placement_pose::{placement_rotation, world_to_source}};
 use crate::resources::SceneEditorState;
 use crate::ui::{
     placement_transform::sync_placement_record_world_with_terrain, placement_water::PlacementInstanceIndex,
@@ -117,12 +117,6 @@ impl MoveWorld<'_, '_> {
         else {
             return Err("场景已经变化".into());
         };
-        if let Some(binding)=drag.preview.terrain_binding.as_ref() {
-            drag.preview.terrain_binding=Some(draft.terrain_ground.as_ref().ok_or("关联地形姿态尚未就绪")?.bind(&binding.terrain_id,feathrise_scene_content::TerrainObjectTransform {
-                translation:drag.preview.translation,yaw_degrees:drag.preview.yaw_degrees,scale:drag.preview.scale,
-                ..Default::default()
-            })?);
-        }
         let Some(current) = draft
             .placements
             .placements
@@ -134,6 +128,14 @@ impl MoveWorld<'_, '_> {
         if current == &drag.preview {
             return Ok(false);
         } // 回到起点或单击不得清空 redo、推进修订或标脏。
+        if let Some(binding) = drag.preview.terrain_binding.as_ref() {
+            let pose = feathrise_scene_content::TerrainObjectTransform {
+                translation: drag.preview.translation, scale: drag.preview.scale, ..default()
+            }.with_rotation(placement_rotation(&drag.preview));
+            let mut updated = draft.terrain_ground.as_ref().ok_or("关联地形姿态尚未就绪")?.bind(&binding.terrain_id, pose)?;
+            updated.local_height_offset = binding.local_height_offset;
+            drag.preview.terrain_binding = Some(updated);
+        }
         self.preview(session, &drag.preview)?; // 写草稿前完成公共校验和根同步，失败保持原作者值。
         session
             .draft
@@ -173,7 +175,7 @@ pub(super) fn update_preview(
         if drag.before.building_preset_id.is_some() || !drag.before.height_mode.follows_terrain() {
             Ok(())
         } else if let Some(sampler) = sampler {
-            if drag.handle == MoveHandle::Axis(MoveAxis::Y) {
+            if drag.handle.moves_axis(MoveAxis::Y) {
                 update_follow_offset_from_world_y(&mut drag.preview, sampler)
             } else {
                 reconcile_record_with_terrain(&mut drag.preview, sampler).map(|_| ())

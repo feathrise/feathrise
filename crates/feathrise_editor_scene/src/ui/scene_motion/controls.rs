@@ -11,7 +11,6 @@ use crate::{
     authoring::{EditorAuthoringSession, scene_motion::{SceneMotionPlayback, SceneMotionTrack}},
     resources::SceneEditorState,
     ui::scene::FONT_PATH,
-    viewport::SelectedPlacementViewportState,
 };
 use super::{Channel, Context, FPS, SceneMotionButton, SceneMotionField, SelectedKey, Workbench, preview};
 
@@ -145,6 +144,7 @@ fn channel(label: &str, channel: Channel) -> impl Scene {
     let select = match channel {
         Channel::Position => SceneMotionButton::SelectPosition,
         Channel::Rotation => SceneMotionButton::SelectRotation,
+        Channel::Scale => SceneMotionButton::SelectScale,
     };
     bsn! {
         Node { width: percent(100), min_width: px(0), height: px(24), flex_shrink: 0.0,
@@ -189,7 +189,7 @@ pub(in crate::ui) fn workbench() -> impl Scene {
                     @changing_button(ToggleAutoPlay, "手动播放", Caption::AutoPlay)-- @slot(Frame)-- @slot(EndFrame)
                 ]
             --
-                @ruler()-- @channel("位置", Channel::Position)-- @channel("旋转", Channel::Rotation)
+                @ruler()-- @channel("位置", Channel::Position)-- @channel("旋转", Channel::Rotation)-- @channel("缩放", Channel::Scale)
             --
                 @row() Children [
                     @button(InsertKey, "插入关键帧 (I)")-- @button(DeleteKey, "删除关键帧")--
@@ -202,7 +202,7 @@ pub(in crate::ui) fn workbench() -> impl Scene {
 
 pub(super) fn install(app: &mut App) {
     app.add_systems(Update,
-        (spawn_fields, preview::apply, crate::viewport::placement_move::draw_animation_rotation, sync).chain()
+        (spawn_fields, preview::apply, sync).chain()
             .after(crate::viewport::placement_move::handle_placement_move)
             .in_set(crate::SceneEditorSystemSet::Presentation));
 }
@@ -234,7 +234,7 @@ fn spawn_fields(mut commands: Commands, assets: Res<AssetServer>, slots: Query<(
 
 fn sync(
     mut commands: Commands, editor: Res<SceneEditorState>, session: Res<EditorAuthoringSession>,
-    context: Context, state: Res<Workbench>, bounds: Res<SelectedPlacementViewportState>,
+    context: Context, state: Res<Workbench>,
     mut panels: Query<(&mut Node, &Panel), (Without<Playhead>, Without<Marker>)>,
     mut playheads: Query<&mut Node, (With<Playhead>, Without<Panel>, Without<Marker>)>,
     mut markers: Query<(&mut Node, &Marker, &Children), (Without<Playhead>, Without<Panel>)>,
@@ -249,14 +249,14 @@ fn sync(
     let selected = context.record(&editor, &session);
     let opened = state.scene.as_ref().zip(scene).is_some_and(|(a, b)| a == b);
     let motion = session.draft.as_ref().map(|draft| &draft.motion);
-    let created = opened && motion.is_some_and(|motion| motion.tracks().next().is_some());
+    let created = opened && motion.is_some_and(|motion| motion.clip_name().is_some());
     let track = selected.and_then(|(_, record)| motion?.get(&record.id));
     let timing = motion.map(|motion| motion.timing()).unwrap_or_default();
     let duration = timing.duration_seconds;
     let editing = opened && context.can_edit(&editor, &session);
     let can_pose = editing && selected.is_some_and(|(scene, record)| state.can_pose(scene, &record.id));
-    let can_add = editing && selected.is_some_and(|(scene, record)| preview::initial_collision(record, scene, &bounds).is_some());
-    let dirty_pose = state.draft.position.is_some() || state.draft.rotation.is_some();
+    let can_add = editing && motion.is_some_and(|motion| motion.available()) && !created;
+    let dirty_pose = state.draft.position.is_some() || state.draft.rotation.is_some() || state.draft.scale.is_some();
     let valid_key = track.zip(state.selected_key).is_some_and(|(track, selected)| {
         selected.channel.keys(track).binary_search_by(|key| key.time.total_cmp(&selected.time)).is_ok()
     });
@@ -276,7 +276,7 @@ fn sync(
         let enabled = match button {
             Open => !opened && selected.is_some() && context.can_edit(&editor, &session),
             Close => editing,
-            Add => can_add && !created,
+            Add => can_add,
             InsertKey => can_pose && state.has_keying_tracks(),
             DeleteKey => can_pose && valid_key,
             ResetPose => can_pose && dirty_pose,
@@ -289,6 +289,7 @@ fn sync(
         let selected = match button {
             SelectPosition => state.keys_channel(Channel::Position),
             SelectRotation => state.keys_channel(Channel::Rotation),
+            SelectScale => state.keys_channel(Channel::Scale),
             ToggleAutoPlay => timing.auto_play,
             _ => false,
         };
@@ -319,14 +320,15 @@ fn sync(
             values.write(NumericInputSetValue { entity, value: NumericValue::F32(value), cancel_edit: true });
         }
     }
+    let clip_name = motion.and_then(|motion| motion.clip_name()).unwrap_or("场景动画");
     for (mut text, caption) in &mut captions {
         let value = match caption {
-            Caption::Subject => selected.map_or_else(|| "场景动画 · 请选择对象".into(), |(_, record)| {
+            Caption::Subject => selected.map_or_else(|| format!("{clip_name} · 请选择对象"), |(_, record)| {
                 let name = if !record.editor.name.is_empty() { &record.editor.name }
                     else if matches!(record.asset_target, ScenePlacementAssetTarget::Cuboid { .. }) { "立方体" }
                     else if record.asset_target.is_builtin() { "网格对象" }
                     else { record.asset_path.rsplit('/').next().unwrap_or(&record.id) };
-                format!("场景动画 · {name}")
+                format!("{clip_name} · {name}")
             }),
             Caption::Play => if state.playing { "暂停" } else { "播放" }.into(),
             Caption::Playback => match timing.playback {
@@ -335,6 +337,7 @@ fn sync(
                 SceneMotionPlayback::PingPong => "往返",
             }.into(),
             Caption::AutoPlay => if timing.auto_play { "自动播放" } else { "手动播放" }.into(),
+            Caption::Pending if state.draft.scale.is_some() => "变换待插帧".into(),
             Caption::Pending => match (state.draft.position.is_some(), state.draft.rotation.is_some()) {
                 (true, true) => "位置和旋转待插帧",
                 (true, false) => "位置待插帧",

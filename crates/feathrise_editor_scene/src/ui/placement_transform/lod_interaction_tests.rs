@@ -17,9 +17,15 @@ fn mesh_lod_buttons_keep_channels_independent_and_update_preview_for_builtin_and
     for builtin in [true, false] {
         let (mut app, _, root) = app(PlacementTransformField::LodScreenError);
         if !builtin {
-            let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
-            let record = &mut session.draft.as_mut().unwrap().placements.placements[0];
-            record.asset_path = "gltf/test.glb".into(); record.asset_target = Default::default();
+            let (scene, record) = {
+                let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+                let draft = session.draft.as_mut().unwrap();
+                let record = &mut draft.placements.placements[0];
+                record.asset_path = "gltf/test.glb".into(); record.asset_target = Default::default();
+                (draft.scene_id.clone(), record.clone())
+            };
+            // LOD 夹具从已摆放 GLB 开始，记录和当前预览根必须指向同一资产。
+            app.world_mut().entity_mut(root).insert(ScenePlacementInstance::new(&scene, &record));
         }
         let before = record(&app).clone();
         let global = app.world().resource::<EditorSettings>().render.mesh_lod;

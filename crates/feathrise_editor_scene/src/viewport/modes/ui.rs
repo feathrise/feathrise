@@ -24,6 +24,7 @@ pub(crate) fn mode_icon_path(mode: ViewportMode) -> &'static str {
         ViewportMode::Move => "icons/editor/tool_move.png",
         ViewportMode::Rotate => "icons/editor/tool_rotate.png",
         ViewportMode::Scale => "icons/editor/tool_scale.png",
+        ViewportMode::Transform => "icons/editor/tool_transform.png",
         ViewportMode::Edit => "icons/editor/tool_edit.png",
     }
 }
@@ -55,7 +56,7 @@ fn mesh_tool(mode: ViewportMode) -> Option<MeshEditTool> {
         ViewportMode::Move => Some(MeshEditTool::Move),
         ViewportMode::Rotate => Some(MeshEditTool::Rotate),
         ViewportMode::Scale => Some(MeshEditTool::Scale),
-        ViewportMode::Edit => None,
+        ViewportMode::Transform | ViewportMode::Edit => None,
     }
 }
 
@@ -66,7 +67,7 @@ pub(crate) struct ModeToolsRoot; // 独立于空间笔刷的ControlsRoot宿主�
 #[derive(Component)]
 pub(super) struct ContextControls;
 
-/// 顶行只保留紧凑菜单入口；五种模式的唯一按钮位于实际三维视口内部。
+/// 顶行只保留紧凑菜单入口。模式按钮位于实际三维视口内部。
 pub(crate) fn global_mode_toolbar() -> impl Scene {
     use bevy::text::FontSourceTemplate;
     let action = ModeButton::Options;
@@ -94,7 +95,7 @@ fn spawn_mode_tools(parent: &mut ChildSpawnerCommands, assets: &AssetServer) {
         for (mode, label) in [
             (ViewportMode::Select, "选择"), (ViewportMode::Move, "移动"),
             (ViewportMode::Rotate, "旋转"), (ViewportMode::Scale, "缩放"),
-            (ViewportMode::Edit, "编辑"),
+            (ViewportMode::Transform, "变换"), (ViewportMode::Edit, "编辑"),
         ] {
             rail.spawn((
                 InteractionButton, ModeButton::Mode(mode), Name::new(label), FocusPolicy::Block,

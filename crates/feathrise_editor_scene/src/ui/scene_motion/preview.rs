@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use feathrise_scene::ScenePlacementInstance;
 use feathrise_scene_content::{SceneId, ScenePlacementAssetTarget, ScenePlacementRecord};
 use crate::{
-    authoring::{EditorAuthoringSession, scene_motion::{SceneMotionCollider, SceneMotionPlayback, SceneMotionTrack}},
+    authoring::{EditorAuthoringSession, placement_pose::placement_rotation, scene_motion::{SceneMotionCollider, SceneMotionPlayback, SceneMotionTrack}},
     resources::SceneEditorState,
     ui::placement_water::PlacementInstanceIndex,
     viewport::SelectedPlacementViewportState,
@@ -36,8 +36,21 @@ impl PreviewPose {
             if transform.rotation == self.applied.rotation {
                 transform.rotation = self.source.rotation;
             }
+            if transform.scale == self.applied.scale {
+                transform.scale = self.source.scale;
+            }
         }
     }
+}
+
+// 公开旧 SDK 只给 GLB 子网格定义碰撞。新 SDK 的固有方法还识别完整 GLB 实例。
+#[allow(dead_code)]
+trait LegacyGltfCollision {
+    fn has_gltf_collision(&self) -> bool;
+}
+
+impl LegacyGltfCollision for ScenePlacementAssetTarget {
+    fn has_gltf_collision(&self) -> bool { self.has_primitive_collision() }
 }
 
 /// 保留原有网格碰撞的参与意图。需要承托的普通立方体用实际尺寸，其余资产复用作者世界包围盒。
@@ -56,7 +69,7 @@ pub(super) fn initial_collision(
         (Vec3::ZERO, size * Vec3::from_array(record.scale).abs() * 0.5)
     } else {
         let (world_center, size) = bounds.whole_instance_bounds(scene, &record.id)?;
-        let inverse = Quat::from_rotation_y(-record.yaw_degrees.to_radians());
+        let inverse = placement_rotation(record).inverse();
         let half = size * 0.5;
         let extent = (inverse * Vec3::X).abs() * half.x
             + (inverse * Vec3::Y).abs() * half.y + (inverse * Vec3::Z).abs() * half.z;
@@ -68,8 +81,8 @@ pub(super) fn initial_collision(
 fn sample(track: Option<&SceneMotionTrack>, seconds: f64, record: &ScenePlacementRecord) -> SceneAnimationFramePose {
     let base = SceneAnimationFramePose::base(record);
     let Some(track) = track else { return base; };
-    let (translation, rotation_degrees) = track.sample(seconds, base.translation, base.rotation_degrees);
-    SceneAnimationFramePose { translation, rotation_degrees }
+    let (translation, rotation_degrees, scale) = track.sample(seconds, base.translation, base.rotation_degrees, base.scale);
+    SceneAnimationFramePose { translation, rotation_degrees, scale }
 }
 
 fn publish(
@@ -88,23 +101,22 @@ fn publish(
     if let Some(previous) = previous {
         if source.translation == previous.applied.translation { source.translation = previous.source.translation; }
         if source.rotation == previous.applied.rotation { source.rotation = previous.source.rotation; }
+        if source.scale == previous.applied.scale { source.scale = previous.source.scale; }
     }
     let base = SceneAnimationFramePose::base(record);
-    let [x, y, z] = pose.rotation_degrees.map(f32::to_radians);
-    let rotation = Quat::from_euler(EulerRot::XYZ, x, y, z);
-    let base_yaw = Quat::from_rotation_y(record.yaw_degrees.to_radians());
     // 正式根和作者预览根可以有各自的父变换。只叠加相对作者记录的变化，保留现有层级来源。
     let applied = Transform {
         translation: source.translation + (Vec3::from_array(pose.translation) - Vec3::from_array(base.translation)),
-        rotation: (source.rotation * base_yaw.inverse() * rotation).normalize(),
-        scale: source.scale,
+        rotation: (source.rotation * placement_rotation(record).inverse() * pose.rotation()).normalize(),
+        scale: source.scale * (Vec3::from_array(pose.scale) / Vec3::from_array(base.scale)),
     };
-    if !applied.translation.is_finite() || !applied.rotation.is_finite() {
+    if !applied.translation.is_finite() || !applied.rotation.is_finite() || !applied.scale.is_finite() {
         if let Some(previous) = previous { state.previews.insert(root, previous); }
         return None;
     }
     if transform.translation != applied.translation { transform.translation = applied.translation; }
     if transform.rotation != applied.rotation { transform.rotation = applied.rotation; }
+    if transform.scale != applied.scale { transform.scale = applied.scale; }
     let pose = PreviewPose { entity: root, parent, source, applied };
     state.current_previews.insert(root, pose);
     Some(pose)
@@ -123,7 +135,7 @@ pub(super) fn apply(
         return;
     };
     let selected = context.record(&editor, &session).map(|(_, record)| record);
-    let motion_ready = motion.tracks().next().is_some();
+    let motion_ready = motion.clip_name().is_some(); // 空片段也可先摆姿势，首键才生成通道。
     if !context.moving.owns_mouse() { workbench.target(selected.map(|record| Target::new(scene, record))); }
 
     if motion_ready && workbench.playing {
@@ -139,7 +151,7 @@ pub(super) fn apply(
     workbench.sampled = result;
     let selected_id = selected.map(|record| record.id.as_str());
     for track in motion.tracks() {
-        if track.position.is_empty() && track.rotation.is_empty() || selected_id == Some(track.placement_id.as_str()) { continue; }
+        if track.is_empty() || selected_id == Some(track.placement_id.as_str()) { continue; }
         let Some(record) = context.placement(&session, &track.placement_id) else { continue; };
         let pose = sample(Some(track), workbench.seconds, record);
         publish(record, scene, pose, &session, &index, &mut roots, &mut workbench);

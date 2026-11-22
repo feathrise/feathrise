@@ -441,7 +441,7 @@ pub(crate) struct SceneEditorGltfBrowserStatusText;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MainSceneGlbRow {
     File,
-    Animation(usize), // GLB 中的原始片段索引，换绑时使旧点击失效。
+    Animation(Option<usize>), // None 是无标准动画通道的命名草稿，避免把草稿当成已保存的片段索引。
     Empty,
 }
 

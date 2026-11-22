@@ -9,7 +9,7 @@ use super::{
     math::{MoveCamera, handle_point},
     resources::PlacementMoveState,
     rotation::{pick_rotation, rotation_yaw},
-    scale::pick_scale,
+    scale::{pick_scale, pick_scale_handle, scale_values},
     transaction::{MoveWorld, update_preview, update_world_rotation},
     types::{MoveDrag, MoveHandle, PendingBuildingMove},
 };
@@ -19,7 +19,10 @@ use crate::authoring::buildings::{
 use crate::authoring::{
     EditorAuthoringSession, PlacementTerrainSampler, TerrainExternalChangeState,
 };
-use crate::authoring::placement_pose::{placement_record_frame, placement_record_world_position, source_to_world};
+use crate::authoring::placement_pose::{
+    placement_record_frame, placement_record_world_position, placement_rotation,
+    placement_supports_full_rotation, set_placement_rotation,
+};
 use crate::components::SceneEditorViewport;
 use crate::resources::{
     SceneBrowserDragState, SceneBrowserState, SceneDeletionTask, SceneEditorLayoutState,
@@ -41,6 +44,7 @@ use bevy::{
     window::PrimaryWindow,
 };
 use feathrise_editor_ui::{ActiveNumericInput, ActiveNumericInputScrub};
+use feathrise_editor_animation_model::gizmo::{MoveConstraint, rotation_delta};
 use feathrise_scene_content::ScenePlacementRecord;
 use feathrise_scene::DynamicClipmapGroundSurface;
 
@@ -64,6 +68,7 @@ pub(crate) struct MoveInputContext<'w, 's> {
     numeric: Res<'w, ActiveNumericInput>,
     scrub: Res<'w, ActiveNumericInputScrub>,
     mesh_edit: Option<Res<'w, crate::authoring::mesh_edit::MeshEditState>>,
+    snapshot: Option<Res<'w, crate::standalone::embedded_snapshot::EmbeddedSnapshotState>>,
     text: Res<'w, EditorTextInputGuard>,
     focus: Option<Res<'w, InputFocus>>,
     fields: Query<'w, 's, (), Or<(With<EditorTextInput>, With<bevy::text::EditableText>)>>, // 官方原生文字控件也独占字符键，不能仅依赖编辑器标记或IME候选。
@@ -90,6 +95,10 @@ pub(crate) struct MoveInputContext<'w, 's> {
 }
 
 impl MoveInputContext<'_, '_> {
+    pub(super) fn local_gizmos(&self) -> bool {
+        !self.snapshot.as_ref().is_some_and(|snapshot| snapshot.enabled)
+    }
+
     pub(crate) fn snap_settings(&self) -> feathrise_editor_core::EditorSnapSettings {
         self.preferences.as_ref().map_or_else(Default::default, |settings| settings.editor_snapping.sanitized())
     }
@@ -202,7 +211,7 @@ fn drag_is_current(
     controls: &BuildingPlacementControls,
 ) -> bool {
     session.revision == drag.author_revision
-        && context.mode.mode == drag.handle.mode()
+        && context.mode.mode == drag.viewport_mode
         && session.terrain_revision == drag.terrain_revision
         && session.placement_structure_revision == drag.structure_revision
         && camera == drag.camera
@@ -221,12 +230,41 @@ fn drag_is_current(
                 && record.translation == drag.before.translation
                 && record.height_mode == drag.before.height_mode
                 && record.terrain_offset == drag.before.terrain_offset
-                && record.yaw_degrees == drag.before.yaw_degrees
+                && placement_rotation(record) == placement_rotation(&drag.before)
                 && record.scale == drag.before.scale
                 && record.terrain_patch == drag.before.terrain_patch
                 && session.draft.as_ref().is_some_and(|draft| placement_record_frame(draft, record) == Ok(drag.frame))
         })
 } // 派生变换可能不推进作者revision，仍核对常数大小的姿态字段，不能用旧预览覆盖它。
+
+pub(super) fn pick_placement_handle(
+    mode: ViewportMode, camera: MoveCamera, origin: Vec3, basis: Mat3, cursor: Vec2,
+    building: bool, yaw_only: bool, local: bool,
+) -> Option<MoveHandle> {
+    if !building && mode.accepts_transform(ViewportMode::Scale) {
+        let scale = if local { pick_scale_handle(camera, origin, basis, cursor, mode == ViewportMode::Transform) }
+            else { pick_scale(camera, origin, cursor).then_some(MoveHandle::UniformScale) };
+        if scale.is_some() { return scale; } // 合并模式中方帽及外圈平面独立于移动轴杆。
+    }
+    if mode.accepts_transform(ViewportMode::Move) {
+        let movement = if local { camera.pick_mesh_move(origin, cursor, building) }
+            else { camera.pick_handle(origin, cursor, building) };
+        if movement.is_some() { return movement; }
+    }
+    if !mode.accepts_transform(ViewportMode::Rotate) { return None; }
+    if yaw_only || !local {
+        return pick_rotation(camera, origin, cursor).then_some(MoveHandle::RotationY);
+    }
+    super::animation::pick_rotation(camera, origin, cursor)
+}
+
+pub(super) fn placement_scale_basis(frame: feathrise_scene_content::TerrainObjectTransform, record: &feathrise_scene_content::ScenePlacementRecord) -> Mat3 {
+    Mat3::from_quat(frame.rotation() * placement_rotation(record))
+}
+
+pub(super) fn yaw_only(record: &feathrise_scene_content::ScenePlacementRecord) -> bool {
+    !placement_supports_full_rotation() || record.building_preset_id.is_some() || record.terrain_patch.is_some()
+}
 
 pub(crate) fn handle_placement_move(
     mut state: ResMut<PlacementMoveState>,
@@ -371,12 +409,16 @@ pub(crate) fn handle_placement_move(
             Some(origin)
         };
         if let Some(edit) = drag.animation.as_mut() {
-            let result = if drag.handle.mode() == ViewportMode::Move {
-                position.ok_or("移动位置无效".into()).map(|position| edit.translate(position))
-            } else {
-                let ctrl = keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
-                let step = if drag.snapping.active(ctrl) { drag.snapping.rotation_degrees } else { 0.0 };
-                edit.rotate(drag.handle, drag.camera, origin, drag.start_cursor, normalized, moved, step)
+            let ctrl = keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+            let snap = drag.snapping.active(ctrl);
+            let result = match drag.handle.mode() {
+                ViewportMode::Move => position.ok_or("移动位置无效".into()).map(|position| edit.translate(position)),
+                ViewportMode::Rotate => edit.rotate(drag.handle, drag.camera, origin, drag.start_cursor, normalized, moved,
+                    if snap { drag.snapping.rotation_degrees } else { 0.0 }),
+                ViewportMode::Scale => edit.scale(drag.handle, drag.camera, origin, drag.start_cursor,
+                    if moved { normalized } else { drag.start_cursor },
+                    if snap && moved { drag.snapping.scale_factor } else { 0.0 }),
+                _ => unreachable!("变换手柄只属于移动、旋转、缩放"),
             };
             // 动画手势只发布帧姿势供预览。松手后写入临时姿势，原摆放和历史只由各自的命令拥有。
             if mouse.pressed(MouseButton::Left) {
@@ -410,7 +452,7 @@ pub(crate) fn handle_placement_move(
         let previous = (
             drag.preview.translation,
             drag.preview.terrain_offset,
-            drag.preview.yaw_degrees,
+            placement_rotation(&drag.preview),
             drag.preview.scale,
         );
         let was_valid = drag.valid;
@@ -441,11 +483,28 @@ pub(crate) fn handle_placement_move(
                     .and_then(|yaw| if patch { update_world_rotation(&mut drag, yaw) }
                         else { drag.preview.yaw_degrees = yaw; Ok(()) })
             }
-            MoveHandle::UniformScale => {
-                let delta =
-                    (normalized - drag.start_cursor) * drag.camera.size * drag.camera.inverse_scale;
+            MoveHandle::AnimationRotation(constraint) => {
+                let before = placement_rotation(&drag.before);
+                let step = if snapping { drag.snapping.rotation_degrees.to_radians() } else { 0.0 };
+                if moved {
+                    rotation_delta(*drag.camera, drag.start_cursor, normalized, origin, constraint)
+                        .and_then(|(axis, angle)| {
+                            // 保留原世界 Y 朝向的绝对吸附，其它轴吸附本笔拖动的转角。
+                            let base = if constraint == MoveConstraint::Y { drag.before.yaw_degrees.to_radians() } else { 0.0 };
+                            let angle = if step > 0.0 { ((base + angle) / step).round() * step - base } else { angle };
+                            set_placement_rotation(&mut drag.preview, Quat::from_axis_angle(axis, angle) * before)
+                        })
+                } else {
+                    // 无变化恢复原持久化表示，避免四元数往返产生舍入并清掉 redo。
+                    drag.preview.yaw_degrees = drag.before.yaw_degrees;
+                    drag.preview.editor = drag.before.editor.clone();
+                    Ok(())
+                }
+            }
+            handle if handle.mode() == ViewportMode::Scale => {
                 let scale = if moved {
-                    super::scale::uniform_scale_step(drag.before.scale, delta,
+                    scale_values(drag.camera, origin, placement_scale_basis(drag.frame, &drag.before),
+                        drag.start_cursor, normalized, handle, drag.before.scale,
                         if snapping { drag.snapping.scale_factor } else { 0.0 })
                 } else {
                     Some(drag.before.scale)
@@ -481,7 +540,7 @@ pub(crate) fn handle_placement_move(
                 != (
                     drag.preview.translation,
                     drag.preview.terrain_offset,
-                    drag.preview.yaw_degrees,
+                    placement_rotation(&drag.preview),
                     drag.preview.scale,
                 )
         {
@@ -494,7 +553,7 @@ pub(crate) fn handle_placement_move(
                 drag.applied_world = drag.frame.as_transform().to_matrix()
                     * Mat4::from_scale_rotation_translation(
                         Vec3::from_array(drag.preview.scale),
-                        Quat::from_rotation_y(drag.preview.yaw_degrees.to_radians()),
+                        placement_rotation(&drag.preview),
                         Vec3::from_array(drag.preview.translation),
                     );
             }
@@ -506,14 +565,14 @@ pub(crate) fn handle_placement_move(
                     != (
                         drag.preview.translation,
                         drag.preview.terrain_offset,
-                        drag.preview.yaw_degrees,
+                        placement_rotation(&drag.preview),
                         drag.preview.scale,
                     ))
         {
             let [x, y, z] = drag.preview.translation;
-            let label = if drag.handle == MoveHandle::RotationY {
+            let label = if drag.handle.mode() == ViewportMode::Rotate {
                 "旋转预览"
-            } else if drag.handle == MoveHandle::UniformScale {
+            } else if drag.handle.mode() == ViewportMode::Scale {
                 "缩放预览"
             } else if drag.before.building_preset_id.is_some() {
                 "建筑移动预览"
@@ -522,7 +581,11 @@ pub(crate) fn handle_placement_move(
             };
             let detail = match drag.handle {
                 MoveHandle::RotationY => format!("{:.1}°", drag.preview.yaw_degrees),
-                MoveHandle::UniformScale => {
+                MoveHandle::AnimationRotation(_) => {
+                    let (x, y, z) = placement_rotation(&drag.preview).to_euler(EulerRot::XYZ);
+                    format!("({:.1}°, {:.1}°, {:.1}°)", x.to_degrees(), y.to_degrees(), z.to_degrees())
+                }
+                handle if handle.mode() == ViewportMode::Scale => {
                     let [a, b, c] = drag.preview.scale;
                     format!("({a:.3}, {b:.3}, {c:.3})")
                 }
@@ -619,7 +682,7 @@ pub(crate) fn handle_placement_move(
     let Ok(frame) = placement_record_frame(draft, record) else { return; };
     let frame_pose = match animation.as_deref().filter(|workbench| workbench.owns(&draft.scene_id, &record.id)) {
         Some(workbench) => {
-            if !workbench.can_pose(&draft.scene_id, &record.id) || context.mode.mode == ViewportMode::Scale {
+            if !workbench.can_pose(&draft.scene_id, &record.id) {
                 return;
             }
             let Some(pose) = workbench.pose_for(record, &draft.scene_id) else { return; };
@@ -631,22 +694,14 @@ pub(crate) fn handle_placement_move(
         else if let Ok(origin) = placement_record_world_position(draft, record) { origin }
         else { return; };
     let Ok(source_bounds) = crate::authoring::placement_record_bounds(draft, record) else { return; };
-    let Ok(world_before) = source_to_world(feathrise_scene_content::TerrainObjectTransform {
-        translation: record.translation, yaw_degrees: record.yaw_degrees, scale: record.scale, ..default()
-    }, frame) else { return; };
-    let handle = match context.mode.mode {
-        ViewportMode::Move => {
-            camera.pick_handle(origin, normalized, record.building_preset_id.is_some())
-        }
-        ViewportMode::Rotate if frame_pose.is_some() => super::animation::pick_rotation(camera, origin, normalized),
-        ViewportMode::Rotate => {
-            pick_rotation(camera, origin, normalized).then_some(MoveHandle::RotationY)
-        }
-        ViewportMode::Scale if record.building_preset_id.is_none() => {
-            pick_scale(camera, origin, normalized).then_some(MoveHandle::UniformScale)
-        }
-        _ => None,
-    };
+    let Ok(local_before) = record.validated_transform(&draft.scene_id, source_bounds) else { return; };
+    let world_before = frame.as_transform().to_matrix() * local_before.to_matrix();
+    let basis = frame_pose.as_ref().map_or_else(|| placement_scale_basis(frame, record),
+        |edit| super::scale::frame_scale_basis(edit.pose.rotation_degrees));
+    let local = context.local_gizmos();
+    let handle = pick_placement_handle(context.mode.mode, camera, origin, basis, normalized,
+        record.building_preset_id.is_some(), frame_pose.is_none() && yaw_only(record), local)
+        .filter(|handle| local || frame_pose.is_none() || handle.mode() != ViewportMode::Rotate);
     let Some(handle) = handle else {
         return;
     };
@@ -711,6 +766,7 @@ pub(crate) fn handle_placement_move(
         patch_source,
         formal_runtime_identity: world.group_runtime_identity(),
         handle,
+        viewport_mode: context.mode.mode,
         start_point,
         start_cursor: normalized,
         camera,

@@ -333,13 +333,16 @@ pub(crate) fn sync_gltf_browser_rows(
         return; // 隐藏UI无需重复写文本和样式。
     }
     let main_glb = main_glb_draft(&editor, &session);
-    let editable_clip = main_glb.and_then(|draft| draft.motion.editable_clip_index());
-    let clips = main_glb.filter(|draft| state.expanded_main_glb.as_ref() == Some(&draft.scene_id))
-        .map(|draft| draft.motion.clip_names());
+    let motion = main_glb.filter(|draft| state.expanded_main_glb.as_ref() == Some(&draft.scene_id))
+        .map(|draft| &draft.motion);
+    let clips = motion.map(|motion| motion.clip_names());
+    let editable = motion.and_then(|motion| Some((motion.editable_clip_index(), motion.clip_name()?)));
+    let draft_name = editable.filter(|(index, _)| index.is_none()).map(|(_, name)| name);
     // 内嵌网格是已发布条目的连续前缀。折叠时只跳过该段，保留原条目索引供右键、选中和开关使用。
     let hidden_meshes = if clips.is_none() { state.main_glb_entry_count } else { 0 };
     let empty_hint = usize::from(state.main_glb_entry_count == 0);
-    let main_rows = usize::from(main_glb.is_some()) + clips.map_or(0, |clips| clips.len().max(empty_hint));
+    let main_rows = usize::from(main_glb.is_some())
+        + clips.map_or(0, |clips| (clips.len() + usize::from(draft_name.is_some())).max(empty_hint));
     let total_rows = main_rows.saturating_add(state.entries.len().saturating_sub(hidden_meshes));
     let locale = locale.as_deref().copied().unwrap_or_default();
     for mut heading in &mut headings {
@@ -371,9 +374,15 @@ pub(crate) fn sync_gltf_browser_rows(
         let main_row = match tree_index {
             0 if main_glb.is_some() => Some((MainSceneGlbRow::File, locale.text("label.main-scene-glb"))),
             index if index < main_rows => {
-                let name = clips.and_then(|clips| clips.get(index - 1));
-                Some(name.map_or((MainSceneGlbRow::Empty, locale.text("label.main-scene-no-animations")),
-                    |name| (MainSceneGlbRow::Animation(index - 1), name.as_str())))
+                let index = Some(index - 1);
+                if let Some(name) = index.and_then(|index| clips?.get(index)) {
+                    let name = editable.filter(|(editable, _)| *editable == index).map_or(name.as_str(), |(_, name)| name);
+                    Some((MainSceneGlbRow::Animation(index), name))
+                } else if let Some(name) = draft_name {
+                    Some((MainSceneGlbRow::Animation(None), name))
+                } else {
+                    Some((MainSceneGlbRow::Empty, locale.text("label.main-scene-no-animations")))
+                }
             }
             _ => None,
         };
@@ -429,7 +438,7 @@ pub(crate) fn sync_gltf_browser_rows(
         node.padding.left = tree_row_left(depth.min(8)); // 同层级箭头和叶子占位共用一列。
         let interaction = match main_kind {
             Some(MainSceneGlbRow::Empty) => UiInteraction::None,
-            Some(MainSceneGlbRow::Animation(index)) if editable_clip != Some(index) => UiInteraction::None,
+            Some(MainSceneGlbRow::Animation(index)) if !editable.is_some_and(|(editable, _)| editable == index) => UiInteraction::None,
             _ => *interaction,
         };
         background.0 = match (interaction, selected) {

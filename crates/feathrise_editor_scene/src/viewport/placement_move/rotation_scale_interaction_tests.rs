@@ -3,6 +3,9 @@
 use super::super::{constants::ROTATION_RADIUS_FRACTION, rotation::yaw_direction};
 use super::*;
 use crate::viewport::modes::ViewportMode;
+use crate::authoring::placement_pose::placement_rotation;
+use feathrise_editor_animation_model::gizmo::{MoveConstraint, rotation_rings};
+use super::super::{scale::ScaleGizmo, types::MovePlane};
 
 fn prepare(app: &mut App, root: Entity, mode: ViewportMode, view: EditorView, orthographic: bool) {
     app.world_mut().resource_mut::<ViewportModeState>().mode = mode;
@@ -17,7 +20,7 @@ fn prepare(app: &mut App, root: Entity, mode: ViewportMode, view: EditorView, or
 fn transform(record: &ScenePlacementRecord) -> Transform {
     Transform {
         translation: Vec3::from_array(record.translation),
-        rotation: Quat::from_rotation_y(record.yaw_degrees.to_radians()),
+        rotation: placement_rotation(record),
         scale: Vec3::from_array(record.scale),
     }
 }
@@ -31,28 +34,41 @@ fn cursor(app: &App, mode: ViewportMode, delta: f32) -> Vec2 {
         .map_or_else(|| draft_record(app), |drag| &drag.before);
     let origin = Vec3::from_array(before.translation);
     if mode == ViewportMode::Rotate {
-        let radius = camera.handle_length(origin).unwrap() * ROTATION_RADIUS_FRACTION;
-        camera
-            .project(origin + yaw_direction(delta) * radius)
-            .unwrap()
+        yaw_cursor(camera, origin, super::super::input::yaw_only(before), delta).0
     } else {
         camera.project(origin).unwrap() + Vec2::X * delta / camera.size / camera.inverse_scale
     }
 }
 
+pub(super) fn yaw_cursor(camera: MoveCamera, origin: Vec3, yaw_only: bool, delta: f32) -> (Vec2, MoveHandle) {
+    if yaw_only {
+        let radius = camera.handle_length(origin).unwrap() * ROTATION_RADIUS_FRACTION;
+        return (camera.project(origin + yaw_direction(delta) * radius).unwrap(), MoveHandle::RotationY);
+    }
+    let handle = MoveHandle::AnimationRotation(MoveConstraint::Y);
+    let start = rotation_rings(*camera, origin).into_iter().flatten()
+        .find(|ring| ring.constraint == MoveConstraint::Y).unwrap().world.into_iter().find(|point| {
+            let cursor = camera.project(*point).unwrap();
+            super::super::animation::pick_rotation(camera, origin, cursor) == Some(handle)
+        }).unwrap();
+    let point = origin + Quat::from_rotation_y(delta.to_radians()) * (start - origin);
+    (camera.project(point).unwrap(), handle)
+}
+
 fn start(app: &mut App, node: Entity, mode: ViewportMode) {
     let cursor = cursor(app, mode, 0.0);
+    let expected = if mode == ViewportMode::Rotate {
+        let record = draft_record(app);
+        yaw_cursor(camera(app), record.translation.into(), super::super::input::yaw_only(record), 0.0).1
+    } else {
+        MoveHandle::UniformScale
+    };
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
     step(app, node, cursor);
     let state = app.world().resource::<PlacementMoveState>();
-    let handle = if mode == ViewportMode::Rotate {
-        MoveHandle::RotationY
-    } else {
-        MoveHandle::UniformScale
-    };
-    assert_eq!(state.drag.as_ref().map(|drag| drag.handle), Some(handle));
+    assert_eq!(state.drag.as_ref().map(|drag| drag.handle), Some(expected));
     assert!(state.owns_mouse());
     assert!(
         app.world()
@@ -74,6 +90,72 @@ fn assert_root(app: &App, root: Entity, expected: &ScenePlacementRecord) {
     assert!(root.translation.distance(expected.translation) < 0.002);
     assert!(root.rotation.angle_between(expected.rotation).abs() < 0.002);
     assert!(root.scale.distance(expected.scale) < 0.002);
+}
+
+#[test]
+fn scale_axis_plane_and_outer_ring_update_only_their_scale_components() {
+    for handle in [MoveHandle::AxisScale(MoveAxis::X), MoveHandle::PlaneScale(MovePlane::Xy), MoveHandle::UniformScale] {
+        let (mut app, root, node) = app();
+        app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap().placements.placements[0].yaw_degrees = 0.0;
+        prepare(&mut app, root, ViewportMode::Scale, EditorView::Front, true);
+        let camera = camera(&app);
+        let before = draft_record(&app).clone();
+        let origin = Vec3::from_array(before.translation);
+        let geometry = ScaleGizmo::new(camera, origin, Mat3::IDENTITY, false).unwrap();
+        let point = match handle {
+            MoveHandle::AxisScale(_) => geometry.axes[MoveAxis::X.index()].as_ref().unwrap().tip,
+            MoveHandle::PlaneScale(plane) => {
+                let corners = geometry.planes[MovePlane::ALL.iter().position(|shown| *shown == plane).unwrap()].unwrap();
+                corners[0].lerp(corners[2], 0.5)
+            }
+            _ => geometry.outer.unwrap()[0],
+        };
+        let start = camera.project(point).unwrap();
+        let center = camera.project(origin).unwrap();
+        let logical = camera.size * camera.inverse_scale;
+        let direction = ((start - center) * logical).normalize();
+        let target = start + direction * 30.0 / logical;
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        step(&mut app, node, start);
+        assert_eq!(app.world().resource::<PlacementMoveState>().drag.as_ref().map(|drag| drag.handle), Some(handle));
+        step(&mut app, node, target);
+        assert_eq!(draft_record(&app), &before);
+        let mut expected = before.clone();
+        for axis in MoveAxis::ALL {
+            if handle.scales_axis(axis) { expected.scale[axis.index()] *= 2.0_f32.powf(0.25); }
+        }
+        assert_root(&app, root, &expected);
+        release(&mut app, node, target);
+        assert!(Vec3::from_array(draft_record(&app).scale).abs_diff_eq(Vec3::from_array(expected.scale), 0.002));
+        assert_eq!(app.world().resource::<EditorAuthoringSession>().undo.len(), 1);
+    }
+}
+
+#[test]
+fn combined_shape_leaves_separate_movement_rotation_and_scale_hit_regions() {
+    let (mut app, root, node) = app();
+    prepare(&mut app, root, ViewportMode::Transform, EditorView::Top, true);
+    let camera = camera(&app);
+    let record = draft_record(&app);
+    let origin = Vec3::from_array(record.translation);
+    let basis = Mat3::from_quat(placement_rotation(record));
+    let geometry = ScaleGizmo::new(camera, origin, basis, true).unwrap();
+    assert!(geometry.outer.is_none());
+    let length = camera.handle_length(origin).unwrap();
+    let (rotate, handle) = if super::super::input::yaw_only(record) {
+        (camera.project(origin + Vec3::NEG_X * length * ROTATION_RADIUS_FRACTION).unwrap(), MoveHandle::RotationY)
+    } else {
+        (camera.project(origin + Vec3::NEG_X * length * 0.9 * 1.2).unwrap(), MoveHandle::AnimationRotation(MoveConstraint::View))
+    };
+    for (cursor, expected) in [
+        (camera.project(origin + Vec3::X * length * 0.5).unwrap(), MoveHandle::Axis(MoveAxis::X)),
+        (camera.project(origin).unwrap(), MoveHandle::UniformScale),
+        (camera.project(geometry.axes[0].as_ref().unwrap().tip).unwrap(), MoveHandle::AxisScale(MoveAxis::X)),
+        (rotate, handle),
+    ] {
+        step(&mut app, node, cursor);
+        assert_eq!(app.world().resource::<PlacementMoveState>().hover, Some(expected));
+    }
 }
 
 #[test]

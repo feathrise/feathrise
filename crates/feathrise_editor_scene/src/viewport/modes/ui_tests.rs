@@ -73,7 +73,7 @@ fn vertical_mode_tools_own_the_only_modes_and_header_reveals_context_controls_ex
     app.insert_resource(crate::game_authoring::scene_interaction::fixtures::state("filter-fixture", 1));
     app.update();
     let world = app.world_mut();
-    assert_eq!(world.query::<&ModeButton>().iter(world).filter(|button| matches!(button, ModeButton::Mode(_))).count(), 5);
+    assert_eq!(world.query::<&ModeButton>().iter(world).filter(|button| matches!(button, ModeButton::Mode(_))).count(), 6);
     for (button, tooltip) in world.query::<(&ModeButton, &crate::ui::tooltips::EditorTooltipTarget)>().iter(world) {
         let expected = match button {
             ModeButton::Mode(value) => crate::ui::tooltips::TooltipAction::ViewportMode(*value),
@@ -157,7 +157,7 @@ fn assert_mode(app: &mut App, value: ViewportMode) {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(modes.len(), 5);
+    assert_eq!(modes.len(), 6);
     for (mode, interaction, background, border) in modes {
         let fill = match (interaction, mode == value) {
             (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
@@ -200,6 +200,7 @@ fn five_modes_share_one_vertical_rail_and_restore_the_previous_edit_tool() {
             ViewportMode::Move,
             ViewportMode::Rotate,
             ViewportMode::Scale,
+            ViewportMode::Transform,
             ViewportMode::Edit
         ]
     );
@@ -316,7 +317,9 @@ fn mesh_edit_reuses_the_rail_without_activating_object_transforms() {
         assert_eq!(world.query_filtered::<&Node, With<ModeToolsRoot>>().single(world).unwrap().display, Display::Flex);
         for (button, node) in world.query::<(&ModeButton, &Node)>().iter(world) {
             if let ModeButton::Mode(mode) = *button {
-                assert_eq!(node.display, if mode == ViewportMode::Edit { Display::None } else { Display::Flex });
+                assert_eq!(node.display, if matches!(mode, ViewportMode::Edit | ViewportMode::Transform) {
+                    Display::None
+                } else { Display::Flex });
             }
         }
     }
@@ -359,7 +362,7 @@ fn mesh_edit_reuses_the_rail_without_activating_object_transforms() {
     app.world_mut().resource_mut::<MeshEditState>().request = Some(MeshEditAction::SelectAll);
     press(&mut app, ViewportMode::Rotate);
     assert_eq!(app.world().resource::<MeshEditState>().request, Some(MeshEditAction::SelectAll), "竖栏不得覆盖同帧已发布的元素意图");
-    // 退出后恢复同一组五个节点，普通模式按钮继续经过原对象变换入口。
+    // 退出后恢复同一组对象模式按钮，继续经过原对象变换入口。
     *app.world_mut().resource_mut::<MeshEditState>() = MeshEditState::default();
     app.update();
     {
@@ -371,7 +374,7 @@ fn mesh_edit_reuses_the_rail_without_activating_object_transforms() {
                 visible += 1;
             }
         }
-        assert_eq!(visible, 5);
+        assert_eq!(visible, 6);
     }
     press(&mut app, ViewportMode::Move);
     assert_mode(&mut app, ViewportMode::Move);

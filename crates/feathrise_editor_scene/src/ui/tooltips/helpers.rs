@@ -135,9 +135,10 @@ pub(super) fn tooltip_copy(action: TooltipAction, mesh_edit: bool) -> TooltipCop
                 (true, ViewportMode::Rotate) => ("旋转所选元素", "绕所选元素中心旋转；R 开始旋转，XYZ 约束。单点绕自身中心旋转不改变位置。", None, Some("R")),
                 (true, ViewportMode::Scale) => ("缩放所选元素", "围绕所选元素中心缩放；S 开始缩放，XYZ 约束。单点围绕自身中心缩放不改变位置。", None, Some("S")),
                 (_, ViewportMode::Select) => ("选择", "选择场景中的对象并查看属性，不落笔修改场景。", None, None),
-                (_, ViewportMode::Move) => ("移动", "拖动世界轴或XZ平面手柄移动当前所选对象。", Some(EditorShortcutAction::MoveSelected), None),
-                (_, ViewportMode::Rotate) => ("旋转", "绕世界Y轴旋转所选对象；建筑沿用90°档位。", Some(EditorShortcutAction::RotateSelected), None),
-                (_, ViewportMode::Scale) => ("缩放", "等比缩放所选普通资产，保持已有三轴比例。", Some(EditorShortcutAction::ScaleSelected), None),
+                (_, ViewportMode::Move) => ("移动", "拖动一个轴或两个轴之间的平面手柄移动对象。", Some(EditorShortcutAction::MoveSelected), None),
+                (_, ViewportMode::Rotate) => ("旋转", "彩色圆环绕对应轴旋转，外环绕视角转动。建筑沿用方向档位。", Some(EditorShortcutAction::RotateSelected), None),
+                (_, ViewportMode::Scale) => ("缩放", "缩放所选普通资产。轴方帽和平面方块限制维度，外环或中心进行等比缩放。", Some(EditorShortcutAction::ScaleSelected), None),
+                (_, ViewportMode::Transform) => ("变换", "在同一对象上使用移动箭头、旋转圆环和缩放方帽。", None, None),
                 (_, ViewportMode::Edit) => ("编辑", "恢复当前工具面板上次使用的绘制工具。", None, None),
             } // 同一图标随对象/元素模式回显真实操作及键位，不能让 W/E/R 的对象说明误导网格编辑。
         },

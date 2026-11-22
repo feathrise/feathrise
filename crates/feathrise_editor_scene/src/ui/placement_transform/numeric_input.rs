@@ -175,6 +175,9 @@ fn set_animation_value(
         // 三轴输入共用当前帧完整姿势，只替换刚提交的轴。
         pose.rotation_degrees[axis] = value;
         workbench.set_rotation(&target.scene_id, &target.placement_id, pose.rotation_degrees)
+    } else if let Some(axis) = field.scale_axis() {
+        pose.scale[axis] = value;
+        workbench.set_scale(&target.scene_id, &target.placement_id, pose.scale)
     } else { false }
 }
 
@@ -225,6 +228,7 @@ fn set_field_value_with_height_mode(
                     update_follow_offset_from_world_y(record, sampler) // 编辑世界Y时把差值转换为新的离地偏移。
                 }
                 PlacementTransformField::Yaw
+                | PlacementTransformField::RotationX | PlacementTransformField::RotationY | PlacementTransformField::RotationZ
                 | PlacementTransformField::ScaleX
                 | PlacementTransformField::ScaleY
                 | PlacementTransformField::ScaleZ => Ok(()), // 姿态不改变实例原点的地表采样位置。
@@ -460,6 +464,7 @@ pub(crate) fn handle_placement_transform_numeric_input(
         {
             workbench.set_position(&capture.target.scene_id, &capture.target.placement_id, capture.before.translation);
             workbench.set_rotation(&capture.target.scene_id, &capture.target.placement_id, capture.before.rotation_degrees);
+            workbench.set_scale(&capture.target.scene_id, &capture.target.placement_id, capture.before.scale);
         }
     }
     if state.rejected_scrub.is_some_and(|entity| inputs.get(entity).is_err()) {
@@ -738,6 +743,7 @@ pub(crate) fn handle_placement_transform_numeric_input(
                     } else {
                         workbench.set_position(&target.scene_id, &target.placement_id, capture.before.translation);
                         workbench.set_rotation(&target.scene_id, &target.placement_id, capture.before.rotation_degrees);
+                        workbench.set_scale(&target.scene_id, &target.placement_id, capture.before.scale);
                     }
                 }
                 continue;

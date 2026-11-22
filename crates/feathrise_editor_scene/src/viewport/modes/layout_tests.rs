@@ -212,14 +212,14 @@ fn vertical_mode_icons_and_context_menu_fit_narrow_viewports_and_real_font() {
                     }
                 }
             }
-            assert_eq!(count, 5);
+            assert_eq!(count, 6);
             let mut last_bottom = rail.min.y;
             let rail_entity = world.query_filtered::<Entity, With<ModeToolsRoot>>().single(world).unwrap();
             for button in world.get::<Children>(rail_entity).unwrap().iter() {
                 let node = world.get::<ComputedNode>(button).unwrap();
                 let transform = world.get::<UiGlobalTransform>(button).unwrap();
                 let rect = Rect::from_center_size(transform.translation, node.size());
-                assert!(rect.min.y >= last_bottom - 1.0, "五种模式应按顺序纵向排列");
+                assert!(rect.min.y >= last_bottom - 1.0, "模式图标应按顺序纵向排列");
                 last_bottom = rect.max.y;
             }
             if mode == ViewportMode::Edit {
@@ -275,9 +275,9 @@ fn mesh_element_toolbar_wraps_beside_the_shared_transform_rail() {
         assert!(rect.min.x >= rail_rect.max.x, "元素栏在竖栏右侧折行，不能覆盖原工具");
         for (button, node) in world.query::<(&ModeButton, &Node)>().iter(world) {
             if let ModeButton::Mode(mode) = button {
-                assert_eq!(node.display, if *mode != ViewportMode::Edit {
-                    Display::Flex
-                } else { Display::None });
+                assert_eq!(node.display, if matches!(mode, ViewportMode::Edit | ViewportMode::Transform) {
+                    Display::None
+                } else { Display::Flex });
             }
         }
         let mut visible = Vec::new();

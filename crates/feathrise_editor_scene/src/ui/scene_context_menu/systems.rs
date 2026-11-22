@@ -258,8 +258,7 @@ pub(super) fn control_menu(
         (node.display != Display::None && *interaction == UiInteraction::Hovered)
             .then_some(row.0.as_ref())
             .flatten()
-            .filter(|target| !matches!(target.key, SceneObjectKey::MainSceneAnimation(_))
-                && target.current(&editor, &context.session)) // 隐藏/换绑中的旧槽不能遮住另一条有效悬停行。
+            .filter(|target| target.current(&editor, &context.session)) // 隐藏/换绑中的旧槽不能遮住另一条有效悬停行。
             .map(|target| (entity, target.clone()))
     }) else {
         return;

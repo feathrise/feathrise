@@ -19,6 +19,7 @@ use feathrise_scene::{
 }; // 预览与正式根共用水体接管、完整摆放身份及非空保存证据。 // 未保存预览直接复用正式十四米顶部渐隐直光幕规格。
 
 use super::resources::{EditorAuthoringSession, EditorCommand, EditorPreviewAssets};
+use super::placement_pose::placement_rotation;
 use crate::components::{EditorPlacedAsset, EditorPortalPreview, SceneEditorViewport};
 use crate::resources::SceneEditorState; // 传送落点由玩法页显式双列表写入编辑器状态。
 use crate::types::EditorTool;
@@ -231,7 +232,7 @@ pub(crate) fn spawn_placement_preview(
         EditorPlacedAsset,
         ScenePlacementInstance::new(scene_id, record), // 预览冻结SceneId、文件内目标和原始变换，保存前不能借用同名旧根。
         Transform::from_translation(Vec3::from_array(record.translation))
-            .with_rotation(Quat::from_rotation_y(record.yaw_degrees.to_radians()))
+            .with_rotation(placement_rotation(record))
             .with_scale(Vec3::from_array(record.scale)),
         Visibility::Inherited, // Scene0与直接primitive都通过同一根响应属性栏显隐和变换。
     ));

@@ -40,11 +40,26 @@ pub(crate) fn queue_blender_action_for_validation(world: &mut World, id: &str) -
 }
 
 #[cfg(feature = "validation")]
-pub(crate) fn press_action_for_validation(world: &mut World, action: SceneMenuAction) -> Option<Entity> {
+pub(crate) fn visible_action_for_validation(world: &mut World, action: SceneMenuAction) -> Option<Entity> {
     let button = world.query::<(Entity, &components::MenuButton, &ComputedNode)>().iter(world)
         .find_map(|(entity, button, layout)| (button.0 == action && !layout.is_empty()).then_some(entity))?;
     let mut nodes = world.query::<(&Node, Option<&ChildOf>)>();
-    if !crate::viewport::modes::controls_visible(button, &nodes.query(world)) { return None; }
+    crate::viewport::modes::controls_visible(button, &nodes.query(world)).then_some(button)
+}
+
+#[cfg(feature = "validation")]
+pub(crate) fn visible_rename_controls_for_validation(world: &mut World) -> Option<(Entity, Entity)> {
+    let input = world.query_filtered::<Entity, With<components::RenameInput>>().single(world).ok()?;
+    let confirm = world.query_filtered::<Entity, With<components::RenameConfirm>>().single(world).ok()?;
+    let mut nodes = world.query::<(&Node, Option<&ChildOf>)>();
+    let nodes = nodes.query(world);
+    [input, confirm].into_iter().all(|entity| crate::viewport::modes::controls_visible(entity, &nodes))
+        .then_some((input, confirm))
+}
+
+#[cfg(feature = "validation")]
+pub(crate) fn press_action_for_validation(world: &mut World, action: SceneMenuAction) -> Option<Entity> {
+    let button = visible_action_for_validation(world, action)?;
     world.entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
     Some(button)
 }
