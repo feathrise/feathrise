@@ -448,6 +448,21 @@ impl EditorGltfBrowserState {
             .flatten() // 数值拖动只推进普通作者修订，因此整个拖动期间保持稳定O(1)索引。
     }
 
+    /// 旧树可在重载期间继续显示，源属性读取只认本次已采用的 Scene0 缓存。
+    pub(crate) fn ready_source_revision(&self, path: &str) -> Option<(AssetId<WorldAsset>, u64)> {
+        let cached = self.assets.get(path)?;
+        (cached.phase == CachedGltfAssetPhase::Ready).then(|| (cached.handle.id(), cached.content_revision))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_source_revision(&mut self, path: String, revision: u64) {
+        self.assets.insert(path, CachedGltfAsset {
+            handle: Handle::default(), meshes: Vec::new(), animation_names: None,
+            active_ready: true, phase: CachedGltfAssetPhase::Ready,
+            truncated: false, content_revision: revision,
+        });
+    }
+
     #[cfg(test)]
     pub(crate) fn select_indexed_test_placement(&mut self, id: &str, index: usize, revision: u64) {
         self.selected_placement_id = Some(id.into());

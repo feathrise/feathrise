@@ -2,7 +2,7 @@
 
 use super::{
     SourceGlbRequest,
-    pose::{AdoptNodeSnapshot, Control as PoseControl, Inspector, mount_numeric},
+    pose::{AdoptNodeSnapshot, Control as PoseControl, Inspector, SourcePublication, mount_numeric, source_publication},
 };
 use crate::{
     SceneEditorSystemSet,
@@ -331,7 +331,8 @@ fn sync(
     }
     for (entity, field, current, disabled) in &fields {
         let value = properties.and_then(|properties| field.value(properties));
-        let field_enabled = enabled && value.is_some();
+        let field_enabled = enabled && value.is_some() && !state.selection_changed
+            && (!disabled || scrub.entity != Some(entity));
         if field_enabled == disabled {
             if field_enabled {
                 commands.entity(entity).remove::<NumericInputDisabled>();
@@ -339,17 +340,17 @@ fn sync(
                 commands.entity(entity).insert(NumericInputDisabled);
             }
         }
-        // 继承模式隐藏数值根，并保留上次显示。向安全近区等带正下界的输入反复写零会被规范化回下界。
-        let Some(value) = value else { continue };
-        let next = round_to_decimals(value, field.0.decimals());
+        // 待加载或继承时保留显示值，也要撤销旧字段尚未提交的文本。
+        let next = value.map_or(current.0, |value| NumericValue::F32(round_to_decimals(value, field.0.decimals())));
         if state.selection_changed
-            || (active.entity != Some(entity)
+            || (value.is_some()
+                && active.entity != Some(entity)
                 && scrub.entity != Some(entity)
-                && current.0.as_f32() != Some(next))
+                && current.0 != next)
         {
             values.write(NumericInputSetValue {
                 entity,
-                value: NumericValue::F32(next),
+                value: next,
                 cancel_edit: true,
             });
         }
@@ -420,13 +421,17 @@ mod tests {
 
     #[test]
     fn source_node_numeric_blur_and_mode_release_share_one_frozen_request() {
-        for (fast_click, switch_node) in [(false, false), (true, false), (false, true)] {
+        for (fast_click, switch_node, reload) in [
+            (false, false, false), (true, false, false), (false, true, false), (false, false, true),
+        ] {
             let (mut app, _, _) = crate::viewport::placement_move::interaction_tests::app();
             app.add_message::<NumericInputCommitted>()
+                .add_message::<NumericInputSetValue>()
                 .add_message::<SourceGlbRequest>();
             let world = app.world_mut();
             let session = world.resource::<EditorAuthoringSession>();
             let draft = session.draft.as_ref().unwrap();
+            let path = draft.placements.placements[0].asset_path.clone();
             let mesh = EditorGltfMeshSelection {
                 placement_id: draft.placements.placements[0].id.clone(),
                 node_path: vec!["测试网格".into()],
@@ -449,17 +454,19 @@ mod tests {
                 locked: false,
                 copyable: false,
             };
-            world.resource_mut::<EditorGltfBrowserState>().selection = Some(mesh);
+            let mut browser = world.resource_mut::<EditorGltfBrowserState>();
+            browser.selection = Some(mesh);
+            browser.set_test_source_revision(path.clone(), 1);
             let mut properties = SourceMeshProperties::default();
             Mode::DisplayLod(Lod::Custom).apply(&mut properties);
-            world.insert_resource(Inspector::test_snapshot(
-                target.clone(),
-                Transform::IDENTITY,
-                properties,
-            ));
+            let snapshot = |world: &World, hash| Inspector::test_snapshot(
+                target.clone(), Transform::IDENTITY, properties, hash,
+                world.resource::<EditorGltfBrowserState>(), world.resource::<EditorAuthoringSession>(),
+            );
+            world.insert_resource(snapshot(world, "最初源版本"));
             let run_input = world.register_system(input);
             let offset = world.spawn(PoseControl(Field::TranslationY)).id();
-            let display_error = world.spawn(ValueField(Field::LodScreenError)).id();
+            let display_error = world.spawn((ValueField(Field::LodScreenError), NumericInputValue(NumericValue::F32(1.5)))).id();
             let collision_button = world
                 .spawn((Mode::Collision(Some(false)), EditorButtonClick::default()))
                 .id();
@@ -492,6 +499,27 @@ mod tests {
                     .unwrap()
                     .node_index = Some(8);
             }
+            if reload {
+                world.resource_mut::<EditorGltfBrowserState>().set_test_source_revision(path, 2);
+                assert!(world.resource::<Inspector>().selected_pose(
+                    world.resource::<EditorGltfBrowserState>(), world.resource::<SceneEditorState>(),
+                    world.resource::<EditorAuthoringSession>(),
+                ).is_none(), "同节点重载当帧已经不能使用旧数值");
+                let run_sync = world.register_system(sync);
+                let mut loading = Inspector::default();
+                loading.selection_changed = true;
+                world.insert_resource(loading);
+                world.resource_mut::<ActiveNumericInput>().entity = Some(display_error);
+                world.run_system(run_sync).unwrap();
+                let reset = world.resource_mut::<Messages<NumericInputSetValue>>().drain().next().unwrap();
+                assert_eq!(reset.entity, display_error);
+                assert_eq!(reset.value, NumericValue::F32(1.5));
+                assert!(reset.cancel_edit, "新快照还没读到值也应取消旧文本");
+                world.insert_resource(snapshot(world, "重载后版本"));
+                world.resource_mut::<ActiveNumericInputScrub>().entity = Some(display_error);
+                world.run_system(run_sync).unwrap();
+                assert!(world.get::<NumericInputDisabled>(display_error).is_some(), "旧鼠标捕获结束前不得启用同一控件");
+            }
             world
                 .resource_mut::<ButtonInput<MouseButton>>()
                 .release(MouseButton::Left);
@@ -499,10 +527,21 @@ mod tests {
                 .entity_mut(collision_button)
                 .insert(EditorButtonClick::triggered());
             world.run_system(run_input).unwrap();
+            if reload {
+                assert!(world.resource::<Messages<SourceGlbRequest>>().is_empty(), "换代前的失焦和按钮释放均不得落到新版本");
+                // 公开旧 SDK 可能仍在禁用根松手时发出 Accepted，编辑器必须独立拒绝该消息。
+                world.resource_mut::<ActiveNumericInputScrub>().entity = None;
+                world.write_message(NumericInputCommitted { entity: display_error, value: NumericValue::F32(9.0),
+                    outcome: NumericInputCommitOutcome::Accepted, source: NumericInputCommitSource::Scrub, changed: true, edited: true });
+                world.run_system(run_input).unwrap();
+                assert!(world.resource::<Messages<SourceGlbRequest>>().is_empty());
+                continue;
+            }
             let mut messages = world.resource_mut::<Messages<SourceGlbRequest>>();
             assert_eq!(messages.len(), 1);
             let Some(SourceGlbRequest::NodeEdit {
                 target: actual,
+                expected_hash,
                 pose: Some(pose),
                 properties: Some(properties),
             }) = messages.drain().next()
@@ -510,6 +549,7 @@ mod tests {
                 panic!("局部姿态和覆盖应在一笔请求交给源文件")
             };
             assert!(actual == target, "换选不能改派已确认的数值");
+            assert_eq!(expected_hash, "最初源版本");
             assert_eq!(pose.translation.y, 1.5);
             assert_eq!(
                 ValueField(Field::LodScreenError).value(properties),
@@ -522,6 +562,8 @@ mod tests {
 
 struct PendingNodeInput {
     target: SceneObjectTarget,
+    publication: SourcePublication,
+    expected_hash: String,
     pose: Option<Transform>,
     properties: Option<SourceMeshProperties>,
 }
@@ -537,8 +579,9 @@ fn input(
         (&Mode, &EditorButtonClick),
         (Changed<EditorButtonClick>, Without<InteractionDisabled>),
     >,
-    fields: Query<&ValueField>,
-    pose_fields: Query<&PoseControl>,
+    // 兼容仍可能在禁用根上发出旧松手提交的 SDK。
+    fields: Query<&ValueField, Without<NumericInputDisabled>>,
+    pose_fields: Query<&PoseControl, Without<NumericInputDisabled>>,
     mut pending: Local<Option<PendingNodeInput>>,
     mut commits: MessageReader<NumericInputCommitted>,
     mut requests: MessageWriter<SourceGlbRequest>,
@@ -552,11 +595,12 @@ fn input(
         .flatten();
     if !session.source_glb_busy
         && (!commits.is_empty() || clicked.is_some())
-        && let Some((target, before_pose)) = state.selected_pose(&browser, &editor, &session)
+        && let Some((target, before_pose, hash)) = state.selected_pose(&browser, &editor, &session)
+        && let Some(publication) = source_publication(target, &browser, &session)
         && let Some(before_properties) = state.mesh_properties
         && pending
             .as_ref()
-            .is_none_or(|pending| &pending.target == target)
+            .is_none_or(|pending| &pending.target == target && pending.expected_hash == hash && pending.publication == publication)
     {
         let mut pose = pending
             .as_ref()
@@ -593,6 +637,8 @@ fn input(
             (properties != before_properties && policy.validate().is_ok()).then_some(properties);
         *pending = (pose.is_some() || properties.is_some()).then(|| PendingNodeInput {
             target: target.clone(),
+            publication,
+            expected_hash: hash.to_owned(),
             pose,
             properties,
         });
@@ -604,14 +650,18 @@ fn input(
     if !mouse.pressed(MouseButton::Left)
         && let Some(PendingNodeInput {
             target,
+            publication,
+            expected_hash,
             pose,
             properties,
         }) = pending.take()
         && !session.source_glb_busy
         && target.current(&editor, &session)
+        && source_publication(&target, &browser, &session) == Some(publication)
     {
         requests.write(SourceGlbRequest::NodeEdit {
             target,
+            expected_hash,
             pose,
             properties,
         });

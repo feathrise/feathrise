@@ -62,6 +62,71 @@ fn source_glb_edits_stage_both_files_and_reject_externally_changed_input() {
     assert_eq!(reopened(target).children(GlbParent::Scene(0)).unwrap().len(), 2);
 }
 
+#[test]
+fn source_glb_node_edit_rejects_stale_disk_and_draft_snapshots() {
+    use crate::authoring::source_glbs::{SourceGlbEdits, SourceGlbOperation, SourceGlbSave, SourceGlbTarget, SourceMeshProperties, SourceNodeAddress, edit, read_node};
+    use feathrise_editor_animation_model::data::GlbStructure;
+    use feathrise_scene_content::{MeshDisplayLodSettings, MeshLodMode};
+    use serde_json::json;
+
+    let tmp = SaveTransactionTestDirectory::new();
+    let path = tmp.path.join("mesh.glb");
+    let bytes = |name, max_error_pixels| {
+        let settings = SourceMeshProperties { display_lod: Some(MeshLodMode::Override(MeshDisplayLodSettings {
+            max_error_pixels, ..Default::default()
+        })), ..Default::default() };
+        let mut json = serde_json::to_vec(&json!({
+            "asset":{"version":"2.0"}, "scene":0, "scenes":[{"nodes":[0]}],
+            "meshes":[{"primitives":[]}], "nodes":[{"name":name,"mesh":0,"extras":{"feathrise_mesh_properties":settings}}]
+        })).unwrap();
+        json.resize(json.len().next_multiple_of(4), b' ');
+        let len = json.len() as u32;
+        let mut bytes = b"glTF".to_vec();
+        for word in [2, len + 20, len, 0x4e4f_534a] { bytes.extend_from_slice(&word.to_le_bytes()); }
+        bytes.extend(json);
+        bytes
+    };
+    let target = SourceGlbTarget { path: "mesh.glb".into(), world: Mat4::IDENTITY,
+        node: Some(SourceNodeAddress { index: 0, path: vec!["Mesh".into()], mesh: Some(0) }),
+    };
+    let empty = SourceGlbEdits::default();
+    let apply = |draft, expected_hash, pose, properties| edit(&tmp.path, draft, target.clone(),
+        SourceGlbOperation::NodeEdit { expected_hash, pose, properties });
+    std::fs::write(&path, bytes("Mesh", 1.25)).unwrap();
+    let (_, mut stale, stale_hash) = read_node(&tmp.path, &target, &empty).unwrap();
+    stale.collision = Some(true);
+
+    // 外部只改已有节点的显示精度，索引和名称相同也不能接受旧属性整组。
+    let external = bytes("Mesh", 2.5);
+    std::fs::write(&path, &external).unwrap();
+    assert!(apply(&empty, stale_hash.clone(), None, Some(stale)).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), external);
+    let (original, mut fresh, fresh_hash) = read_node(&tmp.path, &target, &empty).unwrap();
+    assert!(matches!(fresh.display_lod, Some(MeshLodMode::Override(lod)) if lod.max_error_pixels == 2.5));
+    fresh.collision = Some(true);
+    let (with_property, _) = apply(&empty, fresh_hash.clone(), None, Some(fresh)).unwrap().unwrap();
+    assert!(with_property.version("mesh.glb").unwrap().original_node_pose(0).is_none());
+    let (_, _, draft_hash) = read_node(&tmp.path, &target, &with_property).unwrap();
+    assert!(apply(&with_property, fresh_hash, None, Some(stale)).is_err());
+
+    let moved = original.with_translation(Vec3::X);
+    let (with_pose, _) = apply(&with_property, draft_hash, Some(moved), None).unwrap().unwrap();
+    let (_, mut properties, pose_hash) = read_node(&tmp.path, &target, &with_pose).unwrap();
+    properties.collision = Some(false);
+    let (latest, _) = apply(&with_pose, pose_hash, None, Some(properties)).unwrap().unwrap();
+    let version = latest.version("mesh.glb").unwrap();
+    assert_eq!(version.original_node_pose(0), Some(original));
+    assert_eq!(GlbStructure::from_bytes(&version.bytes).unwrap().node_transform(0).unwrap(), moved);
+
+    // 同一个索引现在属于另一个节点。原草稿的保存冲突门和原地址检查都继续生效。
+    let replaced = bytes("Replacement", 3.0);
+    std::fs::write(&path, &replaced).unwrap();
+    assert!(apply(&empty, stale_hash, None, Some(stale)).is_err());
+    assert!(read_node(&tmp.path, &target, &empty).is_err());
+    assert!(SourceGlbSave::prepare(&tmp.path, &latest).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), replaced);
+}
+
 pub(super) struct SaveTransactionTestDirectory {
     pub(super) path: PathBuf, // 保存批次测试共用隔离根；Drop只回收自己创建的直接子目录。
 }

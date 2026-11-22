@@ -13,9 +13,11 @@ use crate::{
     },
 };
 use bevy::{
+    asset::AssetId,
     prelude::*,
     tasks::{IoTaskPool, Task, futures::check_ready},
     text::FontSourceTemplate,
+    world_serialization::WorldAsset,
 };
 use feathrise_editor_ui::{
     ActiveNumericInput, ActiveNumericInputScrub, NumericInputDisabled, NumericInputSetValue,
@@ -47,18 +49,26 @@ impl Control {
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct AdoptNodeSnapshot;
 
-type NodeRead = (Transform, SourceMeshProperties);
+type NodeRead = (Transform, SourceMeshProperties, String);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum SourcePublication {
+    Draft,
+    Scene(AssetId<WorldAsset>, u64),
+}
 
 #[derive(Resource, Default)]
 pub(crate) struct Inspector {
     visible: bool,
     displayed: Option<SceneObjectTarget>,
     requested: Option<SceneObjectTarget>,
+    requested_publication: Option<SourcePublication>,
     pose: Option<Transform>,
+    content_hash: Option<String>,
     pub(super) mesh_properties: Option<SourceMeshProperties>,
     pub(super) read_error: Option<String>,
     pub(super) selection_changed: bool,
-    read: Option<(SceneObjectTarget, Task<Result<NodeRead, String>>)>,
+    read: Option<(SceneObjectTarget, SourcePublication, Task<Result<NodeRead, String>>)>,
 }
 
 impl Inspector {
@@ -68,8 +78,8 @@ impl Inspector {
         browser: &EditorGltfBrowserState,
         editor: &SceneEditorState,
         session: &EditorAuthoringSession,
-    ) -> Option<(&SceneObjectTarget, Transform)> {
-        Some((self.editable_target(browser, editor, session)?, self.pose?))
+    ) -> Option<(&SceneObjectTarget, Transform, &str)> {
+        Some((self.editable_target(browser, editor, session)?, self.pose?, self.content_hash.as_deref()?))
     }
 
     pub(super) fn editable_target(
@@ -89,14 +99,19 @@ impl Inspector {
             && !object.hidden
             && !object.locked
             && object.current(editor, session)
+            && self.requested_publication.is_some()
+            && source_publication(object, browser, session) == self.requested_publication
             && browser.selection.as_ref() == Some(mesh)
             && browser.selected_placement_id.as_ref() == Some(&mesh.placement_id))
         .then_some(object)
     }
 
     #[cfg(test)]
-    pub(super) fn test_snapshot(target: SceneObjectTarget, pose: Transform, properties: SourceMeshProperties) -> Self {
-        Self { visible: true, displayed: Some(target), pose: Some(pose), mesh_properties: Some(properties), ..Self::default() }
+    pub(super) fn test_snapshot(target: SceneObjectTarget, pose: Transform, properties: SourceMeshProperties,
+        content_hash: &str, browser: &EditorGltfBrowserState, session: &EditorAuthoringSession) -> Self {
+        Self { visible: true, requested: Some(target.clone()), requested_publication: source_publication(&target, browser, session),
+            displayed: Some(target), pose: Some(pose), content_hash: Some(content_hash.to_owned()),
+            mesh_properties: Some(properties), ..Self::default() }
     }
 }
 
@@ -137,6 +152,33 @@ struct AppliedPose {
     current: Transform,
 }
 
+impl AppliedPose {
+    fn without_preview(&self, mut live: Transform) -> Transform {
+        // 只归还预览仍持有的分量。运行时只刷新高度时，不能把已有水平差量加第二次。
+        live.translation = Vec3::select(
+            live.translation.cmpeq(self.current.translation), self.before.translation, live.translation,
+        );
+        live.scale = Vec3::select(live.scale.cmpeq(self.current.scale), self.before.scale, live.scale);
+        if live.rotation == self.current.rotation {
+            live.rotation = self.before.rotation;
+        }
+        live
+    }
+}
+
+fn preview_pose(live: Transform, original: Transform, edited: Transform) -> Transform {
+    // 在实际实例姿态上叠加源位移，保留运行时已经算出的贴地修正。
+    let mut next = live;
+    next.translation += edited.translation - original.translation;
+    if edited.rotation != original.rotation {
+        next.rotation = edited.rotation;
+    }
+    if edited.scale != original.scale {
+        next.scale = edited.scale;
+    }
+    next
+}
+
 fn preview(
     editor: Res<SceneEditorState>,
     session: Res<EditorAuthoringSession>,
@@ -165,15 +207,20 @@ fn preview(
         };
         let draft = session.draft.as_ref()?;
         let record = draft.placements.placements.get(*index)?;
-        draft.source_glb_edits.version(&record.asset_path)?;
+        let node_index = mesh.node_index?;
+        // 碰撞、LOD 和其它节点的草稿不会获得当前节点的变换预览权。
+        let original = draft.source_glb_edits
+            .version(&record.asset_path)?
+            .original_node_pose(node_index)?;
         let primitive = selection.exact_primitive(&draft.scene_id, mesh)?;
         Some((
             parents.get(primitive).ok()?.parent(),
-            mesh.node_index?,
+            node_index,
+            original,
             state.pose?,
         ))
     })();
-    if wanted.as_ref().is_some_and(|(entity, _, _)| {
+    if wanted.as_ref().is_some_and(|(entity, ..)| {
         movement
             .as_ref()
             .is_some_and(|movement| movement.owns_source_node(*entity))
@@ -181,30 +228,50 @@ fn preview(
         return; // 本次手柄持有同一实时节点，属性预览在松手或取消后再继续。
     }
     if let Some(old) = applied.as_ref()
-        && wanted.is_none_or(|(entity, index, _)| (entity, index) != (old.entity, old.index))
+        && wanted.is_none_or(|(entity, index, ..)| (entity, index) != (old.entity, old.index))
     {
         let old = applied.take().unwrap();
         if let Ok((index, mut transform)) = nodes.get_mut(old.entity)
             && index.0 == old.index
-            && *transform == old.current
         {
-            *transform = old.before; // 只有仍由本预览持有的姿势可恢复，热更后的实体保持权威数据。
+            let restored = old.without_preview(*transform);
+            transform.set_if_neq(restored);
         }
     }
-    if let Some((entity, index, next)) = wanted
+    if let Some((entity, index, original, edited)) = wanted
         && let Ok((marker, mut transform)) = nodes.get_mut(entity)
         && marker.0 == index
-        && *transform != next
     {
-        let before = applied.as_ref().map_or(*transform, |old| old.before);
-        *transform = next;
-        *applied = Some(AppliedPose {
-            entity,
-            index,
-            before,
-            current: next,
-        });
+        let before = applied.as_ref().map_or(*transform, |old| old.without_preview(*transform));
+        let next = preview_pose(before, original, edited);
+        transform.set_if_neq(next);
+        *applied = (next != before).then_some(AppliedPose { entity, index, before, current: next });
     }
+}
+
+#[test]
+fn source_pose_preview_applies_authored_changes_to_settled_height() {
+    let original = Transform::from_xyz(1.0, 0.0, 2.0);
+    let live = Transform::from_xyz(1.0, 7.25, 2.0);
+    assert_eq!(preview_pose(live, original, original), live);
+
+    let edited = Transform::from_xyz(4.0, 0.0, 2.0)
+        .with_rotation(Quat::from_rotation_y(0.5))
+        .with_scale(Vec3::splat(2.0));
+    let visual = preview_pose(live, original, edited);
+    assert_eq!(visual.translation, Vec3::new(4.0, 7.25, 2.0));
+    assert_eq!(visual.rotation, edited.rotation);
+    assert_eq!(visual.scale, edited.scale);
+
+    let preview = AppliedPose { entity: Entity::PLACEHOLDER, index: 0, before: live, current: visual };
+    let mut refreshed = visual;
+    refreshed.translation.y = 9.0;
+    refreshed.rotation = Quat::from_rotation_x(0.75);
+    let restored = preview.without_preview(refreshed);
+    assert_eq!(restored.translation, Vec3::new(1.0, 9.0, 2.0));
+    assert_eq!(restored.rotation, refreshed.rotation);
+    assert_eq!(restored.scale, live.scale);
+    assert_eq!(preview_pose(restored, original, edited).translation, Vec3::new(4.0, 9.0, 2.0));
 }
 
 pub(in crate::ui) fn panel() -> impl Scene {
@@ -300,6 +367,21 @@ fn selected(
     })
 }
 
+pub(super) fn source_publication(
+    object: &SceneObjectTarget,
+    browser: &EditorGltfBrowserState,
+    session: &EditorAuthoringSession,
+) -> Option<SourcePublication> {
+    let SceneObjectKey::Placement { index, .. } = &object.key else { return None; };
+    let draft = session.draft.as_ref()?;
+    let path = &draft.placements.placements.get(*index)?.asset_path;
+    if draft.source_glb_edits.version(path).is_some() {
+        return Some(SourcePublication::Draft);
+    }
+    let (asset, revision) = browser.ready_source_revision(path)?;
+    Some(SourcePublication::Scene(asset, revision))
+}
+
 fn value(pose: Transform, field: Field) -> f32 {
     if let Some(axis) = field.translation_axis() {
         return pose.translation[axis];
@@ -329,25 +411,29 @@ fn refresh(
     mut commands: Commands,
 ) {
     let chosen = selected(&browser, &editor, &session);
-    let changed = state.requested != chosen;
+    let publication = chosen.as_ref().and_then(|object| source_publication(object, &browser, &session));
+    let changed = state.requested != chosen || state.requested_publication != publication;
     state.selection_changed = changed;
     if changed {
         state.requested = chosen.clone();
+        state.requested_publication = publication;
         state.displayed = None;
         state.pose = None;
+        state.content_hash = None;
         state.mesh_properties = None;
         state.read_error = None;
     }
-    if let Some((_, task)) = state.read.as_mut()
+    if let Some((_, _, task)) = state.read.as_mut()
         && let Some(result) = check_ready(task)
     {
-        let (read, _) = state.read.take().unwrap();
-        if chosen.as_ref() == Some(&read) {
+        let (read, read_publication, _) = state.read.take().unwrap();
+        if chosen.as_ref() == Some(&read) && publication == Some(read_publication) {
             state.displayed = Some(read);
             match result {
-                Ok((pose, mesh_properties)) => {
+                Ok((pose, mesh_properties, content_hash)) => {
                     state.pose = Some(pose);
                     state.mesh_properties = Some(mesh_properties);
+                    state.content_hash = Some(content_hash);
                 }
                 Err(error) => state.read_error = Some(error),
             }
@@ -355,6 +441,7 @@ fn refresh(
     }
     if state.read.is_none()
         && state.displayed.is_none()
+        && let Some(publication) = publication
         && let Some(object) = chosen.as_ref().filter(|object| object.current(&editor, &session))
         && let Some(draft) = session.draft.as_ref()
     {
@@ -366,7 +453,7 @@ fn refresh(
                 let task = IoTaskPool::get().spawn(async move {
                     source_glbs::read_node(&root, &owner, &edits)
                 });
-                state.read = Some((object.clone(), task));
+                state.read = Some((object.clone(), publication, task));
             }
             Err(error) => {
                 state.displayed = Some(object.clone());
@@ -382,11 +469,13 @@ fn refresh(
             node.display = display;
         }
     }
-    let enabled = state.pose.is_some() && !session.source_glb_busy
+    let enabled = !changed && state.pose.is_some() && !session.source_glb_busy
         && state.editable_target(&browser, &editor, &session).is_some();
     for (entity, field, current, disabled) in &fields {
-        if enabled == disabled {
-            if enabled {
+        // 让上一代拖动先走完共享捕获的取消/松手，再把同一数值框交给新节点。
+        let field_enabled = enabled && (!disabled || scrub.entity != Some(entity));
+        if field_enabled == disabled {
+            if field_enabled {
                 commands.entity(entity).remove::<NumericInputDisabled>();
             } else {
                 commands.entity(entity).insert(NumericInputDisabled);
@@ -411,7 +500,7 @@ fn refresh(
         } else if changed {
             values.write(NumericInputSetValue {
                 entity,
-                value: NumericValue::F32(0.0),
+                value: current.0,
                 cancel_edit: true,
             });
         }

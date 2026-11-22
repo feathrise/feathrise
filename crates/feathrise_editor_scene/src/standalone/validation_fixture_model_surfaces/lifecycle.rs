@@ -6,7 +6,8 @@ use crate::{
     components::{SceneEditorActionButton, SceneEditorViewport},
     resources::{SceneEditorState, SceneEditorViewportState},
     types::{EditorAction, EditorTool, EditorView},
-    ui::{file_manager_validation::key_state, gltf_browser::EditorGltfBrowserState,
+    standalone::validation_fixture::key_state,
+    ui::{gltf_browser::EditorGltfBrowserState,
         placement_transform::PlacementTransformField},
     viewport::{modes::{ViewportMode, ViewportModeState}, multi_select::PlacementSelectionSet},
 };

@@ -10,14 +10,15 @@ use super::file_manager::{
 use super::sidebars::{EditorNavigatorTab, EditorSidebarTab, SceneEditorSidebarTabButton};
 use super::status_bar::{ITEMS_PER_PAGE, StatusAction, StatusButton, StatusPopup, StatusText, StatusTextRole};
 use crate::resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState};
+use crate::standalone::validation_fixture::{key_state, window_event};
 use bevy::{
     app::AppExit,
-    input::{ButtonState, keyboard::{Key, KeyboardInput}, mouse::MouseButtonInput},
+    input::{ButtonState, keyboard::Key, mouse::MouseButtonInput},
     input_focus::InputFocus,
     math::DVec2,
     prelude::*,
     text::{EditableText, TextLayoutInfo},
-    window::{Ime, PrimaryWindow, WindowEvent},
+    window::{Ime, PrimaryWindow},
 };
 use feathrise_editor_project_browser_model::file_operations::{FileOperationKind, FileOperationService, FileSources};
 use feathrise_editor_ui::UiInteraction;
@@ -942,10 +943,6 @@ fn key(world: &mut World, window: Entity, code: KeyCode, logical: Key) {
     key_state(world, window, code, logical, ButtonState::Released);
 }
 
-pub(crate) fn key_state(world: &mut World, window: Entity, key_code: KeyCode, logical_key: Key, state: ButtonState) {
-    window_event(world, KeyboardInput { window, key_code, logical_key, state, repeat: false, text: None });
-}
-
 fn mouse(world: &mut World, window: Entity, state: ButtonState) {
     window_event(world, MouseButtonInput { window, button: MouseButton::Left, state });
 }
@@ -955,10 +952,4 @@ fn move_cursor(world: &mut World, window: Entity, physical: DVec2) {
     target.set_physical_cursor_position(Some(physical));
     let position = physical.as_vec2() / target.scale_factor();
     window_event(world, CursorMoved { window, position, delta: None });
-}
-
-fn window_event(world: &mut World, event: impl Message + Clone + Into<WindowEvent>) {
-    let window_event: WindowEvent = event.clone().into();
-    world.write_message(window_event);
-    world.write_message(event);
 }

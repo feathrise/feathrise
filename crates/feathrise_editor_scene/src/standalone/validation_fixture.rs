@@ -41,7 +41,11 @@ use crate::{
     resources::SceneEditorState,
     types::EditorAction,
 };
-use bevy::prelude::*;
+use bevy::{
+    input::{ButtonState, keyboard::{Key, KeyboardInput}},
+    prelude::*,
+    window::WindowEvent,
+};
 use feathrise_scene_content::{SceneId, ScenePlacementAssetTarget};
 use std::{
     path::PathBuf,
@@ -49,6 +53,17 @@ use std::{
 };
 
 const POSITION: [f32; 3] = [4.0, 1.0, 0.0];
+
+pub(crate) fn key_state(world: &mut World, window: Entity, key_code: KeyCode, logical_key: Key, state: ButtonState) {
+    window_event(world, KeyboardInput { window, key_code, logical_key, state, repeat: false, text: None });
+}
+
+/// 与真实窗口后端一致，验收输入同时投递独立输入事件和聚合窗口事件。
+pub(crate) fn window_event(world: &mut World, event: impl Message + Clone + Into<WindowEvent>) {
+    let window_event: WindowEvent = event.clone().into();
+    world.write_message(window_event);
+    world.write_message(event);
+}
 
 /// 安装权限独立于可变阶段资源；resource_scope暂时借出Fixture时，嵌套原动作仍属同一验收。
 #[derive(Resource)]

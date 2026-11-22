@@ -48,6 +48,7 @@ struct NodeIdentity {
 
 pub(super) struct SourceNodeDrag {
     source: SceneObjectTarget,
+    source_hash: String,
     identity: NodeIdentity,
     camera: MoveCamera,
     mode: ViewportMode,
@@ -85,8 +86,8 @@ impl SourceNodeWorld<'_, '_> {
         editor: &SceneEditorState,
         session: &EditorAuthoringSession,
         viewport: &SceneEditorViewportState,
-    ) -> Option<(&SceneObjectTarget, NodeIdentity, Transform, Transform)> {
-        let (source, pose) = self
+    ) -> Option<(&SceneObjectTarget, NodeIdentity, Transform, Transform, &str)> {
+        let (source, pose, source_hash) = self
             .inspector
             .as_ref()?
             .selected_pose(browser, editor, session)?;
@@ -120,6 +121,7 @@ impl SourceNodeWorld<'_, '_> {
             },
             pose,
             *transform,
+            source_hash,
         ))
     }
 
@@ -171,9 +173,10 @@ impl SourceNodeWorld<'_, '_> {
                     if camera != drag.camera || node.size() != drag.ui_size {
                         return None;
                     }
-                    let (source, identity, _, pose) =
+                    let (source, identity, _, pose, source_hash) =
                         self.current_node(&context.browser, editor, session, viewport)?;
-                    (source == &drag.source && identity == drag.identity && pose == drag.applied)
+                    (source == &drag.source && source_hash == drag.source_hash.as_str()
+                        && identity == drag.identity && pose == drag.applied)
                         .then_some(cursor.normalized)
                         .flatten()
                 })
@@ -214,9 +217,11 @@ impl SourceNodeWorld<'_, '_> {
                 {
                     let mut pose = drag.source_before;
                     pose.translation += delta;
-                    requests.write(SourceGlbRequest::Pose {
+                    requests.write(SourceGlbRequest::NodeEdit {
                         target: drag.source,
-                        pose,
+                        expected_hash: drag.source_hash,
+                        pose: Some(pose),
+                        properties: None,
                     });
                     editor.status = "正在准备源 GLB 节点的局部姿势".into();
                 }
@@ -227,7 +232,7 @@ impl SourceNodeWorld<'_, '_> {
             state.source_display = None;
             return;
         };
-        let Some((source, identity, source_before, visual_before)) =
+        let Some((source, identity, source_before, visual_before, source_hash)) =
             self.current_node(&context.browser, editor, session, viewport)
         else {
             state.source_display = None;
@@ -275,6 +280,7 @@ impl SourceNodeWorld<'_, '_> {
         state.capture_mouse();
         state.source_drag = Some(SourceNodeDrag {
             source: source.clone(),
+            source_hash: source_hash.to_owned(),
             identity,
             camera,
             mode,
@@ -345,6 +351,7 @@ mod tests {
         let start = camera.project(origin + Vec3::X * 0.75).unwrap();
         let handle = MoveHandle::Axis(MoveAxis::X);
         SourceNodeDrag {
+            source_hash: "fixture".into(),
             source: SceneObjectTarget {
                 key: SceneObjectKey::Placement {
                     index: 0,

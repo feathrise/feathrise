@@ -30,12 +30,9 @@ pub(crate) enum SourceGlbRequest {
         source: SceneObjectTarget,
         destination: SceneObjectTarget,
     },
-    Pose {
-        target: SceneObjectTarget,
-        pose: Transform,
-    },
     NodeEdit {
         target: SceneObjectTarget,
+        expected_hash: String,
         pose: Option<Transform>,
         properties: Option<SourceMeshProperties>,
     },
@@ -204,22 +201,16 @@ fn advance(
             ))
         }),
         (
-            Some(SourceGlbRequest::Pose {
-                target: object,
-                pose,
-            }),
-            _,
-        ) => target(&object, &editor, &session, false)
-            .map(|target| (target, SourceGlbOperation::NodeEdit { pose: Some(pose), properties: None })),
-        (
             Some(SourceGlbRequest::NodeEdit {
                 target: object,
+                expected_hash,
                 pose,
                 properties,
             }),
             _,
-        ) => target(&object, &editor, &session, false)
-            .map(|target| (target, SourceGlbOperation::NodeEdit { pose, properties })),
+        ) => target(&object, &editor, &session, false).map(|target| {
+            (target, SourceGlbOperation::NodeEdit { expected_hash, pose, properties })
+        }),
         (None, Some(request)) => target(
             &request.target,
             &editor,

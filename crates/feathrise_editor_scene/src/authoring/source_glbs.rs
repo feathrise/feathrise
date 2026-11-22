@@ -25,14 +25,20 @@ pub(crate) struct SourceGlbNode {
 #[derive(Clone)]
 pub(crate) struct SourceGlbVersion {
     pub(crate) original_hash: String,
+    content_hash: String,
     pub(crate) bytes: Arc<Vec<u8>>,
     pub(crate) nodes: Arc<[SourceGlbNode]>,
     node_slots: BTreeMap<usize, usize>,
+    original_node_poses: Arc<BTreeMap<usize, Transform>>,
 }
 
 impl SourceGlbVersion {
     pub(crate) fn node(&self, index: usize) -> Option<&SourceGlbNode> {
         self.nodes.get(*self.node_slots.get(&index)?)
+    }
+
+    pub(crate) fn original_node_pose(&self, index: usize) -> Option<Transform> {
+        self.original_node_poses.get(&index).copied()
     }
 }
 
@@ -171,16 +177,16 @@ pub(crate) fn read_node(
     root: &Path,
     target: &SourceGlbTarget,
     draft: &SourceGlbEdits,
-) -> Result<(Transform, SourceMeshProperties), String> {
+) -> Result<(Transform, SourceMeshProperties, String), String> {
     let path = source_path(root, &target.path)?;
-    let document = if let Some(staged) = draft.version(&target.path) {
-        GlbStructure::from_bytes(&staged.bytes)?
+    let (document, content_hash) = if let Some(staged) = draft.version(&target.path) {
+        (GlbStructure::from_bytes(&staged.bytes)?, staged.content_hash.clone())
     } else {
         let bytes = std::fs::read(&path).map_err(|error| format!("读取源 GLB 失败：{error}"))?;
-        GlbStructure::from_bytes(&bytes)?
+        (GlbStructure::from_bytes(&bytes)?, bytes_hash(&bytes))
     };
     let node = target.node(&document)?;
-    Ok((document.node_transform(node)?, SourceMeshProperties::read(&document, node)?))
+    Ok((document.node_transform(node)?, SourceMeshProperties::read(&document, node)?, content_hash))
 }
 
 pub(crate) enum SourceGlbOperation {
@@ -188,6 +194,7 @@ pub(crate) enum SourceGlbOperation {
     Folder(String),
     Move(SourceGlbTarget),
     NodeEdit {
+        expected_hash: String,
         pose: Option<Transform>,
         properties: Option<SourceMeshProperties>,
     },
@@ -206,21 +213,26 @@ pub(crate) fn edit(
             return Ok((
                 GlbStructure::from_bytes(&previous.bytes)?,
                 previous.original_hash.clone(),
+                previous.content_hash.clone(),
                 previous.bytes.clone(),
             ));
         }
         let bytes =
             std::fs::read(&path).map_err(|error| format!("读取源 GLB {relative} 失败：{error}"))?;
         let hash = bytes_hash(&bytes);
-        Ok::<_, String>((GlbStructure::from_bytes(&bytes)?, hash, Arc::new(bytes)))
+        Ok::<_, String>((GlbStructure::from_bytes(&bytes)?, hash.clone(), hash, Arc::new(bytes)))
     };
-    let (mut document, source_hash, source_bytes) = load(&source.path)?;
+    let (mut document, source_hash, content_hash, source_bytes) = load(&source.path)?;
+    let original_poses = |path: &str| before.version(path)
+        .map_or_else(Arc::default, |version| version.original_node_poses.clone());
+    let mut source_poses = original_poses(&source.path);
     let mut next = before.0.as_ref().clone();
     let mut changed_bytes = 0usize;
     let mut store = |path: String,
                      document: GlbStructure,
                      original_hash: String,
-                     base: Arc<Vec<u8>>|
+                     base: Arc<Vec<u8>>,
+                     original_node_poses: Arc<BTreeMap<usize, Transform>>|
      -> Result<(), String> {
         let bytes = document.encode()?;
         if bytes != *base {
@@ -235,9 +247,11 @@ pub(crate) fn edit(
                 path,
                 SourceGlbVersion {
                     original_hash,
+                    content_hash: bytes_hash(&bytes),
                     bytes: Arc::new(bytes),
                     nodes,
                     node_slots,
+                    original_node_poses,
                 },
             );
         }
@@ -254,11 +268,20 @@ pub(crate) fn edit(
         SourceGlbOperation::Folder(name) => {
             document.create_folder(source.parent(&document)?, &name)?;
         }
-        SourceGlbOperation::NodeEdit { pose, properties } => {
+        SourceGlbOperation::NodeEdit { expected_hash, pose, properties } => {
+            // 数值与模式来自完整节点快照。版本冲突时保留外部或较新的草稿，等面板重读后重试。
+            if expected_hash != content_hash {
+                return Err("源 GLB 在读取属性后已变化，请使用更新后的属性重新编辑".into());
+            }
             let node = source.node(&document)?;
             let mut changed = false;
-            if let Some(pose) = pose && document.node_transform(node)? != pose {
+            if let Some(pose) = pose && let previous = document.node_transform(node)? && previous != pose {
                 document.set_node_transform(node, pose)?;
+                // 只为真正写过 TRS 的节点保留源姿势，视口用这个差量叠加已经算出的贴地姿态。
+                let poses = Arc::make_mut(&mut source_poses);
+                if *poses.entry(node).or_insert(previous) == pose {
+                    poses.remove(&node);
+                }
                 changed = true;
             }
             if let Some(properties) = properties {
@@ -287,18 +310,19 @@ pub(crate) fn edit(
                 }
                 document.move_node(node, parent)?;
             } else {
-                let (mut target, hash, bytes) = load(&destination.path)?;
+                let (mut target, hash, _, bytes) = load(&destination.path)?;
                 let parent = destination.parent(&target)?;
                 let basis = destination.world.inverse() * source.world;
                 if !basis.is_finite() {
                     return Err("目标 GLB 的场景变换不可逆".into());
                 }
                 document.transfer_node_to_in_space(node, &mut target, parent, basis)?;
-                store(destination.path, target, hash, bytes)?;
+                let target_poses = original_poses(&destination.path);
+                store(destination.path, target, hash, bytes, target_poses)?;
             }
         }
     }
-    store(source.path, document, source_hash, source_bytes)?;
+    store(source.path, document, source_hash, source_bytes, source_poses)?;
     Ok((changed_bytes > 0).then(|| (SourceGlbEdits(Arc::new(next)), changed_bytes)))
 }
 
