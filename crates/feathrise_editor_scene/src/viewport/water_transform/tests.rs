@@ -87,11 +87,12 @@ fn water_move_hover_highlights_only_y_without_opening_a_scrub_or_owning_mouse() 
         *app.world_mut().resource_mut::<AuthorToolFrame>() = default();
         app.world_mut().run_system_once(draw).unwrap();
         let frame = app.world().resource::<AuthorToolFrame>();
-        let [AuthorTool::Transform(TransformPreview::Move { axes, active_axes, color_active, .. })] = frame.preview.items.as_slice() else {
+        let [AuthorTool::Transform(TransformPreview::Move { axes, active_axes, color_active, axis_colors, .. })] = frame.preview.items.as_slice() else {
             panic!("正式静水选择必须只投影一个可写Y轴手柄");
         };
         assert_eq!(*axes, 0b010);
-        assert_eq!(*color_active, Color::srgb(0.92, 0.72, 0.40).to_linear().to_f32_array());
+        assert_eq!(color_active[..3], axis_colors[MoveAxis::Y.index()][..3]);
+        assert_eq!(color_active[3], 1.);
         *active_axes
     };
     let cursor = pointer(&app, origin, 0.0);

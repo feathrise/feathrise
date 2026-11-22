@@ -53,7 +53,7 @@ impl MoveCamera {
         self.project_quad(plane_corners(origin, length))
     }
 
-    pub(super) fn project_quad(self, corners: [Vec3; 4]) -> Option<[Vec2; 4]> {
+    pub(crate) fn project_quad(self, corners: [Vec3; 4]) -> Option<[Vec2; 4]> {
         let mut quad = [Vec2::ZERO; 4];
         for (point, corner) in quad.iter_mut().zip(corners) {
             *point = self.logical_point(corner)?;

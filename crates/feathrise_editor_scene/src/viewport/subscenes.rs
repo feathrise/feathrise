@@ -5,7 +5,8 @@ use std::sync::Arc;
 use crate::{authoring::EditorAuthoringSession, components::SceneEditorViewport,
     resources::{SceneEditorState, SceneEditorViewportState}, ui::subscenes::SubsceneEditorState};
 use super::{modes::{ViewportMode, ViewportModeState}, placement_move::{MoveInputContext, MoveCamera,
-    MoveHandle, handle_point, handle_translation, pick_rotation, rotation_ring, rotation_yaw, axis_colors, visible_axes},
+    MoveAxis, MoveHandle, active_move_color, handle_point, handle_translation, pick_rotation, rotation_ring,
+    rotation_yaw, axis_colors, transform_axis_color, visible_axes},
     LayerCandidateState, LayerTarget};
 use feathrise_author_tools::{AuthorTool, TransformPreview};
 use crate::viewport::tool_preview::AuthorToolFrame;
@@ -129,7 +130,6 @@ fn draw(editor: Res<SceneEditorState>, session: Res<EditorAuthoringSession>, sel
     let Some(length) = camera.handle_length(origin) else { return; };
     let copper = Color::srgb(0.745, 0.529, 0.243);
     let active = state.drag.as_ref().map(|drag| drag.handle).or(state.hover);
-    let highlight = Color::srgb(0.92, 0.72, 0.40);
     if let Some(manifest) = registry.as_ref().and_then(|registry| registry.handles(&record.source_scene_id))
         .and_then(|handles| manifests.get(&handles.manifest)) {
         let min = Vec3::new(manifest.world_min[0], manifest.terrain.base_height, manifest.world_min[1]);
@@ -150,7 +150,7 @@ fn draw(editor: Res<SceneEditorState>, session: Res<EditorAuthoringSession>, sel
             tools.push(AuthorTool::Transform(TransformPreview::Rotate {
                 origin: origin.to_array(), radius: ring.world[0].distance(origin), yaw_degrees: None,
                 before_yaw_degrees: None,
-                color: (if active == Some(MoveHandle::RotationY) { highlight } else { copper }).to_linear().to_f32_array(),
+                color: transform_axis_color(MoveAxis::Y, active == Some(MoveHandle::RotationY)).to_linear().to_f32_array(),
             }));
         }
     } else if mode.mode == ViewportMode::Move {
@@ -161,8 +161,8 @@ fn draw(editor: Res<SceneEditorState>, session: Res<EditorAuthoringSession>, sel
             spatial: false,
             origin: origin.to_array(), length, axes, active_axes, plane,
             plane_active: plane && active == Some(MoveHandle::XzPlane),
-            plane_cross: false, plane_color: copper.to_linear().to_f32_array(),
-            color_active: highlight.to_linear().to_f32_array(), axis_colors: axis_colors(),
+            plane_cross: false, plane_color: transform_axis_color(MoveAxis::Y, false).to_linear().to_f32_array(),
+            color_active: active_move_color(active), axis_colors: axis_colors(),
             anchor: None, marker_radius: None,
         }));
     }

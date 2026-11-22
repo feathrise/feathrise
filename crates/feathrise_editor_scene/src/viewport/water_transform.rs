@@ -3,7 +3,8 @@
 use super::{
     LayerCandidateState, LayerTarget, SelectedWaterViewportState,
     modes::{ViewportMode, ViewportModeState},
-    placement_move::{MoveAxis, MoveCamera, MoveHandle, MoveInputContext, PlacementMoveState, handle_point, handle_translation_mode, axis_colors},
+    placement_move::{MoveAxis, MoveCamera, MoveHandle, MoveInputContext, PlacementMoveState, handle_point,
+        handle_translation_mode, axis_colors, transform_axis_color},
 };
 use crate::{
     authoring::{EditorAuthoringSession, WaterLevelScrubState, abort_water_level_scrub, begin_water_level_scrub, finish_water_level_scrub, set_water_level},
@@ -231,8 +232,8 @@ fn draw(
             spatial: false,
             origin: point.to_array(), length, axes: 0b010,
             active_axes: if state.drag.is_some() || state.hover { 0b010 } else { 0 }, plane: false,
-            plane_active: false, plane_cross: false, plane_color: MoveAxis::Y.color().to_linear().to_f32_array(),
-            color_active: Color::srgb(0.92, 0.72, 0.40).to_linear().to_f32_array(), axis_colors: axis_colors(),
+            plane_active: false, plane_cross: false, plane_color: transform_axis_color(MoveAxis::Y, false).to_linear().to_f32_array(),
+            color_active: transform_axis_color(MoveAxis::Y, true).to_linear().to_f32_array(), axis_colors: axis_colors(),
             anchor: None, marker_radius: None,
         }));
     } // 只画可写的Y轴，X/Z移动和旋转缩放不能暗中改作者水位或覆盖画布。

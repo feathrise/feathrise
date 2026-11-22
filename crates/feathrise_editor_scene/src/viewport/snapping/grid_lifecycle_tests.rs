@@ -170,6 +170,28 @@ fn actual_grid_uniform_uses_each_work_plane_and_preserves_base_step_during_zoom(
 }
 
 #[test]
+fn orientation_cube_shows_the_grid_on_both_sides_of_each_axis() {
+    let (mut app, author, _) = fixture();
+    {
+        let mut editor = app.world_mut().resource_mut::<SceneEditorState>();
+        editor.view = EditorView::Perspective;
+        editor.orthographic = true;
+    }
+    for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+        for positive in [true, false] {
+            let mut view = app.world_mut().resource_mut::<SceneEditorViewportState>();
+            (view.yaw, view.pitch) = super::super::orientation_axis::axis_angles(axis, positive);
+            publish(&mut app);
+            assert_eq!(grid(&app, author).plane, axis.extend(0.0));
+        }
+    }
+    let mut view = app.world_mut().resource_mut::<SceneEditorViewportState>();
+    (view.yaw, view.pitch) = (0.6, 0.4);
+    publish(&mut app);
+    assert_eq!(grid(&app, author).plane, Vec4::Y, "斜向自由观察继续使用地平面");
+}
+
+#[test]
 fn actual_grid_stays_at_world_origin_while_real_drag_keeps_its_own_frozen_snap() {
     use crate::viewport::placement_move::interaction_tests::{app, camera, step};
     for building in [false, true] {

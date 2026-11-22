@@ -22,11 +22,12 @@ pub(crate) use input::handle_placement_move;
 pub(crate) use input::MoveInputContext; // 框选复用同一套模态、文字焦点与鼠标导航门。
 pub(crate) use input::selected_record; // 剪贴板单选沿用同一场景、候选层与稳定下标核对。
 pub(crate) use math::{MoveCamera, handle_point, handle_translation, handle_translation_mode}; // 框选和地形手柄使用同一真实相机与吸附相位，避免第二套数学。
+pub(crate) use math::plane_corners;
 
 pub(crate) use render::draw_placement_move;
 #[cfg(feature = "validation")]
 pub(crate) use animation::{validation_animation_drag_active, validation_animation_drag_points};
-pub(crate) use render::{axis_colors, visible_axes}; // 地形、子场景与静水保留相同颜色和原相机逐轴退化门。
+pub(crate) use render::{active_move_color, axis_colors, handle_color, transform_axis_color, visible_axes};
 pub(crate) use resources::PlacementMoveState;
 pub(crate) use rotation::{pick_rotation, rotation_ring, rotation_yaw};
 pub(crate) use types::{MoveAxis, MoveHandle};

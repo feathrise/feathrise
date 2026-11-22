@@ -331,12 +331,12 @@ fn capture(app: &mut App, target: Handle<Image>, name: &str) -> Vec<u8> {
 }
 
 /// 在同源深灰背景上量普通线宽与对比；正交且关闭MSAA，避免交点或抗锯齿替细线通过。
-fn wire_line_profile(app: &App, camera: Entity, on: &[u8], off: &[u8]) -> (usize, u8) {
+fn wire_line_profile(app: &App, camera: Entity, point: Vec3, on: &[u8], off: &[u8]) -> (usize, u8) {
     let world = app.world();
     let point = world.get::<Camera>(camera).unwrap().world_to_viewport(
         world.get::<GlobalTransform>(camera).unwrap(),
-        Vec3::new(1.0, 0.0, 1.35),
-    ).unwrap(); // x=1普通格线，z=1.35避开横线与主格；12米视高下邻格相距40像素。
+        point,
+    ).unwrap();
     let (x, y) = (point.x.floor() as i32, point.y.floor() as i32);
     (-6..=6).fold((0, 0), |(width, peak), dx| {
         let index = (y as usize * 640 + (x + dx) as usize) * 4;
@@ -409,12 +409,15 @@ fn verify_wire_reference(app: &mut App, target: Handle<Image>, camera: Entity, r
     use crate::viewport::shading::types::ShadingAction;
     let previous_shading = app.world_mut().remove_resource::<ShadingState>();
     let previous_snap = app.world().resource::<EditorSettings>().editor_snapping;
-    let (previous_open, previous_view, previous_cursor) = {
+    let (previous_open, previous_view, previous_orthographic, previous_cursor) = {
         let editor = app.world().resource::<SceneEditorState>();
-        (editor.open, editor.view, editor.cursor_world)
+        (editor.open, editor.view, editor.orthographic, editor.cursor_world)
     };
     let previous_preview = app.world().resource::<MeshSnapCursor>().preview;
-    let previous_center = app.world().resource::<SceneEditorViewportState>().center;
+    let (previous_center, previous_yaw, previous_pitch) = {
+        let view = app.world().resource::<SceneEditorViewportState>();
+        (view.center, view.yaw, view.pitch)
+    };
     let previous_transform = *app.world().get::<Transform>(camera).unwrap();
     let previous_projection = app.world().get::<Projection>(camera).unwrap().clone();
     let previous_msaa = *app.world().get::<Msaa>(camera).unwrap();
@@ -460,7 +463,8 @@ fn verify_wire_reference(app: &mut App, target: Handle<Image>, camera: Entity, r
         std::thread::sleep(Duration::from_millis(16));
     } // 新正交组合须先让真实GPU管线就绪，不能把空白帧误当作细线。
     let ordinary = capture(app, target.clone(), "editor-grid-wireframe-regular.png");
-    let (ordinary_width, ordinary_delta) = wire_line_profile(app, camera, &ordinary, &off);
+    // x=1普通格线，z=1.35避开横线与主格；12米视高下邻格相距40像素。
+    let (ordinary_width, ordinary_delta) = wire_line_profile(app, camera, Vec3::new(1.0, 0.0, 1.35), &ordinary, &off);
     assert!(ordinary_width > 0 && ordinary_width <= 2,
         "所有模式普通格线应为约一像素细线，不能继续保留粗描边：{ordinary_width}");
     assert!((4..=45).contains(&ordinary_delta),
@@ -496,13 +500,22 @@ fn verify_wire_reference(app: &mut App, target: Handle<Image>, camera: Entity, r
     assert!(projected_delta(app, camera, marker, &marked, &ordinary) > 30,
         "无限细网格不能撤下独立的金色落点十字");
     app.world_mut().resource_mut::<MeshSnapCursor>().preview = None;
-    app.world_mut().resource_mut::<SceneEditorState>().view = crate::types::EditorView::Front;
+    {
+        let mut editor = app.world_mut().resource_mut::<SceneEditorState>();
+        editor.view = crate::types::EditorView::Perspective; // 点击方向球后保留自由视图枚举。
+        editor.orthographic = true;
+        let mut view = app.world_mut().resource_mut::<SceneEditorViewportState>();
+        (view.yaw, view.pitch) = super::super::orientation_axis::axis_angles(Vec3::Z, true);
+    }
     *app.world_mut().get_mut::<Transform>(camera).unwrap() =
         Transform::from_xyz(0.0, 0.0, 18.0).looking_at(Vec3::ZERO, Vec3::Y);
     for _ in 0..4 { app.update(); }
     let front = capture(app, target.clone(), "editor-grid-wireframe-front.png");
     assert_wire_axis(app, camera, &front, Vec3::new(2.35, 0.0, 0.0), 0, "X红");
     assert_wire_axis(app, camera, &front, Vec3::new(0.0, 2.35, 0.0), 2, "竖直Y蓝");
+    let (front_width, front_delta) = wire_line_profile(app, camera, Vec3::new(1.0, 1.35, 0.0), &front, &off);
+    assert!((1..=2).contains(&front_width) && (4..=45).contains(&front_delta),
+        "关闭场景背景后，正视的空白区必须保留普通细格：宽{front_width}px，亮差{front_delta}");
     app.world_mut().resource_mut::<SceneEditorState>().view = crate::types::EditorView::Side;
     *app.world_mut().get_mut::<Transform>(camera).unwrap() =
         Transform::from_xyz(18.0, 0.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y);
@@ -631,10 +644,14 @@ fn verify_wire_reference(app: &mut App, target: Handle<Image>, camera: Entity, r
         let mut editor = app.world_mut().resource_mut::<SceneEditorState>();
         editor.open = previous_open;
         editor.view = previous_view;
+        editor.orthographic = previous_orthographic;
         editor.cursor_world = previous_cursor;
     }
     app.world_mut().resource_mut::<MeshSnapCursor>().preview = previous_preview;
-    app.world_mut().resource_mut::<SceneEditorViewportState>().center = previous_center;
+    {
+        let mut view = app.world_mut().resource_mut::<SceneEditorViewportState>();
+        (view.center, view.yaw, view.pitch) = (previous_center, previous_yaw, previous_pitch);
+    }
     *app.world_mut().get_mut::<Visibility>(resident).unwrap() = previous_visibility;
     *app.world_mut().get_mut::<Transform>(camera).unwrap() = previous_transform;
     *app.world_mut().get_mut::<Projection>(camera).unwrap() = previous_projection;

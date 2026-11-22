@@ -148,15 +148,17 @@ fn terrain_handle_hover_uses_original_pick_and_publishes_readonly_semantics() {
             let transported: AuthorToolPreview = serde_json::from_slice(&serde_json::to_vec(published).unwrap()).unwrap();
             assert_eq!(&transported, published, "悬停使用既有语义合同，两种3D来源传递相同颜色和激活位");
             let AuthorTool::Transform(preview) = &published.items[0] else { panic!("没有原手柄显示") };
-            let highlight = Color::srgb(0.92, 0.72, 0.40).to_linear().to_f32_array();
             match (handle, preview) {
-                (MoveHandle::Axis(axis), TransformPreview::Move { active_axes, plane_active, color_active, .. }) => {
-                    assert_eq!(*active_axes, 1 << axis.index()); assert!(!plane_active); assert_eq!(*color_active, highlight);
+                (MoveHandle::Axis(axis), TransformPreview::Move { active_axes, plane_active, color_active, axis_colors, .. }) => {
+                    assert_eq!(*active_axes, 1 << axis.index()); assert!(!plane_active);
+                    assert_eq!(color_active[..3], axis_colors[axis.index()][..3]); assert_eq!(color_active[3], 1.);
                 }
-                (MoveHandle::XzPlane, TransformPreview::Move { active_axes, plane_active, color_active, .. }) => {
-                    assert_eq!(*active_axes, 0); assert!(*plane_active); assert_eq!(*color_active, highlight);
+                (MoveHandle::XzPlane, TransformPreview::Move { active_axes, plane_active, color_active, plane_color, .. }) => {
+                    assert_eq!(*active_axes, 0); assert!(*plane_active);
+                    assert_eq!(color_active[..3], plane_color[..3]); assert_eq!(color_active[3], 1.);
                 }
-                (_, TransformPreview::Rotate { color, .. } | TransformPreview::Scale { color, .. }) => assert_eq!(*color, highlight),
+                (_, TransformPreview::Rotate { color, .. }) => assert_eq!(*color, transform_axis_color(MoveAxis::Y, true).to_linear().to_f32_array()),
+                (_, TransformPreview::Scale { color, .. }) => assert_eq!(*color, [1.; 4]),
                 _ => panic!("原手柄类型与显示语义不符"),
             }
             // 不按鼠标移出后同一帧清高亮，不能依赖下一次点击或留下作者修改。

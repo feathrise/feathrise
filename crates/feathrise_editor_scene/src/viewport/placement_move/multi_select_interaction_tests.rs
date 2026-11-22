@@ -133,7 +133,7 @@ fn group_handle_hover_highlights_plane_rotation_and_scale_without_history() {
     let (mut app, _, node, _) = group_app();
     app.init_asset::<bevy::gizmos::GizmoAsset>()
         .init_resource::<AuthorToolFrame>()
-        .init_gizmo_group::<crate::viewport::SceneEditorBrushGizmos>()
+        .init_resource::<crate::viewport::tool_preview::foreground::Foreground>()
         .add_systems(First, |mut frame: ResMut<AuthorToolFrame>| *frame = default())
         .add_systems(Update, super::super::render::draw_placement_move.after(handle_placement_move));
     plane_tests::set_camera(&mut app, EditorView::Perspective, false);
@@ -151,13 +151,17 @@ fn group_handle_hover_highlights_plane_rotation_and_scale_without_history() {
         let state = app.world().resource::<PlacementMoveState>();
         assert_eq!(state.hover, Some(handle));
         assert!(!state.owns_mouse() && state.group.is_none());
-        let color = Color::srgb(0.92, 0.72, 0.40).to_linear().to_f32_array();
         match app.world().resource::<AuthorToolFrame>().preview.items.first() {
-            Some(AuthorTool::Transform(TransformPreview::Move {plane_active, active_axes, ..})) => {
+            Some(AuthorTool::Transform(TransformPreview::Move {plane_active, active_axes, color_active, plane_color, ..})) => {
                 assert!(*plane_active); assert_eq!(*active_axes, 0);
+                assert_eq!(color_active[..3], plane_color[..3]);
+                assert_eq!(color_active[3], 1.);
             }
-            Some(AuthorTool::Transform(TransformPreview::Rotate {color: actual, ..} | TransformPreview::Scale {color: actual, ..})) => assert_eq!(*actual, color),
-            None if matches!(handle, MoveHandle::AnimationRotation(_)) => {}, // 全轴环由当前编辑器原生 Gizmos 渲染。
+            Some(AuthorTool::Transform(TransformPreview::Rotate {color, ..})) => {
+                assert_eq!(*color, super::super::render::transform_axis_color(MoveAxis::Y, true).to_linear().to_f32_array());
+            }
+            Some(AuthorTool::Transform(TransformPreview::Scale {color, ..})) => assert_eq!(*color, [1.; 4]),
+            None if matches!(handle, MoveHandle::AnimationRotation(_)) => {}, // 全轴环由本地前景直接绘制。
             _ => panic!("多选未发布对应手柄"),
         }
         step(&mut app, node, Vec2::new(-0.45, -0.45));

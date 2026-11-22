@@ -93,6 +93,47 @@ fn assert_root(app: &App, root: Entity, expected: &ScenePlacementRecord) {
 }
 
 #[test]
+fn captured_move_rotation_and_scale_only_show_guides_while_held() {
+    use crate::viewport::tool_preview::{AuthorToolFrame, foreground::Foreground};
+    for mode in [ViewportMode::Move, ViewportMode::Rotate, ViewportMode::Scale] {
+        let (mut app, root, node) = app();
+        app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap()
+            .placements.placements[0].yaw_degrees = 0.;
+        prepare(&mut app, root, mode, EditorView::Perspective, false);
+        app.init_resource::<AuthorToolFrame>().init_resource::<Foreground>()
+            .add_systems(First, |mut frame: ResMut<AuthorToolFrame>, mut geometry: ResMut<Foreground>| {
+                *frame = default();
+                *geometry = default();
+            })
+            .add_systems(Update, super::super::render::draw_placement_move.after(handle_placement_move));
+        let camera = camera(&app);
+        let record = draft_record(&app);
+        let origin = Vec3::from_array(record.translation);
+        let (pointer, handle) = match mode {
+            ViewportMode::Move => (
+                camera.project(origin + Vec3::X * camera.handle_length(origin).unwrap() * 0.65).unwrap(),
+                MoveHandle::Axis(MoveAxis::X),
+            ),
+            ViewportMode::Rotate => yaw_cursor(camera, origin, super::super::input::yaw_only(record), 0.),
+            ViewportMode::Scale => {
+                let scale = ScaleGizmo::new(camera, origin, Mat3::IDENTITY, false).unwrap();
+                (camera.project(scale.axes[0].as_ref().unwrap().tip).unwrap(), MoveHandle::AxisScale(MoveAxis::X))
+            }
+            _ => unreachable!(),
+        };
+        step(&mut app, node, pointer);
+        assert_eq!(app.world().resource::<PlacementMoveState>().hover, Some(handle));
+        assert!(!app.world().resource::<Foreground>().contains_viewport_guide());
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        step(&mut app, node, pointer);
+        assert_eq!(app.world().resource::<PlacementMoveState>().drag.as_ref().map(|drag| drag.handle), Some(handle));
+        assert!(app.world().resource::<Foreground>().contains_viewport_guide(), "{mode:?} 捕获期间需要贯穿轴线");
+        release(&mut app, node, pointer);
+        assert!(!app.world().resource::<Foreground>().contains_viewport_guide());
+    }
+}
+
+#[test]
 fn scale_axis_plane_and_outer_ring_update_only_their_scale_components() {
     for handle in [MoveHandle::AxisScale(MoveAxis::X), MoveHandle::PlaneScale(MovePlane::Xy), MoveHandle::UniformScale] {
         let (mut app, root, node) = app();

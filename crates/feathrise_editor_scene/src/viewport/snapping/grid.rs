@@ -12,6 +12,7 @@ use crate::{
 use bevy::{camera::visibility::RenderLayers, gizmos::config::GizmoConfigStore, prelude::*};
 use feathrise_editor_core::EditorSettings;
 use feathrise_editor_core::EditorSnapMode;
+use std::f32::consts::{FRAC_PI_2, PI};
 
 #[derive(Default, Reflect, GizmoConfigGroup)]
 pub struct EditorGridGizmos;
@@ -115,7 +116,13 @@ pub(crate) fn draw_grid(
         }
         // 参考网格只采用配置间距与观察平面，选择、落点、冻结吸附相位及观察目标均不能移动它。
         // GPU继续按像素足迹抽稀；透明合成不读地形深度，因此无需抬高平面来避免重叠。
-        let frame = GridFrame::new(snap.translation_meters, editor.view)?;
+        // 六轴方向球使用标准正负角和自由视图枚举。正交对轴时采用垂直于观察方向的世界平面。
+        let view = match (editor.view, editor.orthographic, viewport.yaw.abs(), viewport.pitch) {
+            (EditorView::Perspective, true, 0.0 | PI, 0.0) => EditorView::Front,
+            (EditorView::Perspective, true, FRAC_PI_2, 0.0) => EditorView::Side,
+            (view, ..) => view,
+        };
+        let frame = GridFrame::new(snap.translation_meters, view)?;
         let (selected, selected_building) = if editor.tool != crate::types::EditorTool::Inspect
             && !transform.relocation_armed()
         {

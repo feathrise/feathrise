@@ -30,8 +30,13 @@ fn move_feedback(app: &mut App) -> (u8, bool) {
     app.world_mut().run_system_once(draw).unwrap();
     let frame = app.world().resource::<AuthorToolFrame>();
     frame.preview.items.iter().find_map(|item| match item {
-        AuthorTool::Transform(TransformPreview::Move { axes, active_axes, plane_active, color_active, .. }) if *axes != 0 => {
-            assert_eq!(*color_active, Color::srgb(0.92, 0.72, 0.40).to_linear().to_f32_array());
+        AuthorTool::Transform(TransformPreview::Move { axes, active_axes, plane_active, color_active, plane_color, axis_colors, .. }) if *axes != 0 => {
+            let base = if *plane_active { Some(plane_color) }
+                else { (0..3).find(|index| *active_axes & (1 << index) != 0).map(|index| &axis_colors[index]) };
+            if let Some(base) = base {
+                assert_eq!(color_active[..3], base[..3]);
+                assert_eq!(color_active[3], 1.);
+            }
             Some((*active_axes, *plane_active))
         }
         _ => None,

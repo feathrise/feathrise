@@ -9,7 +9,7 @@ use crate::{
         brush_cursor::{SCENE_EDITOR_BRUSH_RENDER_LAYER, spatial_volume_brush_preview},
         placement_move::{
             MoveAxis, MoveCamera, MoveHandle, MoveInputContext, handle_point, handle_translation,
-            axis_colors, visible_axes,
+            visible_axes,
         },
     },
 };
@@ -378,6 +378,6 @@ pub(super) fn draw(
         plane_active: selected == Some(MoveHandle::XzPlane), plane_cross: false,
         plane_color: color.to_linear().to_f32_array(),
         color_active: Color::srgb(1., 0.8, 0.2).to_linear().to_f32_array(),
-        axis_colors: axis_colors(), anchor: None, marker_radius: None,
+        axis_colors: MoveAxis::ALL.map(|axis| axis.color().to_linear().to_f32_array()), anchor: None, marker_radius: None,
     }));
 }

@@ -101,7 +101,7 @@ pub(super) fn exercise(world:&mut World,directory:&Path)->Result<Option<Value>,S
             None
         };
         if let Some(capture)=capture {
-            if matches!(driver.step,1|2) && !has_highlight_sample(&capture){
+            if matches!(driver.step,1|2) && !has_highlight_sample(&capture,&actual){
                 return Err("悬停高亮未出现在实际Gizmo颜色和GPU样本中".into());
             }
             let stage=STAGES[driver.step];
@@ -131,10 +131,16 @@ fn verify_rebind(before:&Value,before_canvas:&Value,after:&Value,after_canvas:&V
     Ok(())
 }
 
-fn has_highlight_sample(capture:&Value)->bool{
+fn has_highlight_sample(capture:&Value,requested:&Value)->bool{
+    let Some(preview) = requested["preview"]["items"].as_array().and_then(|items| items.iter()
+        .map(|item| &item["preview"]).find(|preview| preview["kind"]=="move"
+            && (preview["plane_active"]==true || preview["active_axes"].as_u64().is_some_and(|axes| axes!=0)))) else { return false; };
+    let Some(color) = preview["color_active"].as_array() else { return false; };
+    let [Some(r),Some(g),Some(b)] = [0,1,2].map(|index| color.get(index).and_then(Value::as_f64)) else { return false; };
+    let srgb = Color::linear_rgb(r as f32,g as f32,b as f32).to_srgba();
     capture["author_tools"]["samples"].as_array().is_some_and(|samples|samples.iter().any(|sample|{
         sample["matched"]==true && sample["srgb"].as_array().is_some_and(|color|color.len()==3
-            && color.iter().zip([0.92,0.72,0.40]).all(|(actual,wanted)|actual.as_f64().is_some_and(|actual|(actual-wanted).abs()<0.01)))
+            && color.iter().zip([srgb.red,srgb.green,srgb.blue]).all(|(actual,wanted)|actual.as_f64().is_some_and(|actual|(actual-f64::from(wanted)).abs()<0.01)))
     }))
 }
 
@@ -175,7 +181,7 @@ pub(super) fn verify(directory:&Path,evidence:&Value)->Result<(),String>{
             || !super::tool_previews::matches_request(capture,&proof["requested"]) {
             return Err(format!("悬停{stage}没有对应原输入及工程真实几何"));
         }
-        if matches!(index,1|2)&&!has_highlight_sample(capture){return Err(format!("悬停{stage}缺少实际高亮像素"))}
+        if matches!(index,1|2)&&!has_highlight_sample(capture,&proof["requested"]){return Err(format!("悬停{stage}缺少实际高亮像素"))}
         let file=capture["immutable_evidence"].as_str().ok_or("悬停缺少独立截图路径")?;
         if Path::new(file).components().count()!=1 || !file.ends_with(".json"){return Err("悬停取证路径越界".into())}
         let stored:Value=serde_json::from_slice(&std::fs::read(directory.join(file)).map_err(|error|error.to_string())?)

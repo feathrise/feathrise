@@ -153,7 +153,8 @@ pub(crate) enum SceneEditorBrushSliderKind {
 pub(crate) struct SceneEditorBrushSlider(pub(crate) SceneEditorBrushSliderKind);
 
 /// 编辑器独立三维相机。
-#[derive(Component, Clone, Copy, Default)]
+#[derive(Component, Clone, Copy, Default, bevy::render::extract_component::ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct SceneEditorCamera;
 
 /// 中央视口右上角的固定屏幕空间XYZ方向轴根节点。

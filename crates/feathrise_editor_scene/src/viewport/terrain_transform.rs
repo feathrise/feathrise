@@ -3,8 +3,9 @@ use super::{
     LayerCandidateState, LayerTarget,
     modes::{ViewportMode, ViewportModeState},
     placement_move::{
-        MoveCamera, MoveHandle, MoveInputContext, group_scale_factor, handle_point,
-        handle_translation_mode, pick_rotation, pick_scale, rotation_ring, rotation_yaw, axis_colors, visible_axes,
+        MoveAxis, MoveCamera, MoveHandle, MoveInputContext, group_scale_factor, handle_point,
+        active_move_color, axis_colors, handle_color, handle_translation_mode, pick_rotation, pick_scale,
+        rotation_ring, rotation_yaw, transform_axis_color, visible_axes,
     },
 };
 use crate::{
@@ -323,21 +324,19 @@ fn draw(
     let Some(length) = camera.handle_length(origin) else {
         return;
     };
-    let copper = Color::srgb(0.745, 0.529, 0.243);
-    let highlight = Color::srgb(0.92, 0.72, 0.40);
     // 继续由原作者输入判定命中，语义合同只传显示状态，两种3D视口自然使用同一高亮。
-    let active = |handle| state.drag.as_ref().map(|drag| drag.handle).or(state.hover) == Some(handle);
+    let selected = state.drag.as_ref().map(|drag| drag.handle).or(state.hover);
+    let active = |handle| selected == Some(handle);
     match mode.mode {
         ViewportMode::Move => {
             let axes = visible_axes(camera, origin, length, 0b111);
-            let active_axes = super::placement_move::MoveAxis::ALL.into_iter().fold(0, |mask, axis|
-                mask | if active(MoveHandle::Axis(axis)) { 1 << axis.index() } else { 0 }) & axes;
+            let active_axes = match selected { Some(MoveHandle::Axis(axis)) => 1 << axis.index(), _ => 0 } & axes;
             tools.push(AuthorTool::Transform(TransformPreview::Move {
                 spatial: false,
                 origin: origin.to_array(), length, axes,
                 active_axes, plane: camera.plane_quad(origin, length).is_some(), plane_active: active(MoveHandle::XzPlane),
-                plane_cross: false, plane_color: copper.to_linear().to_f32_array(),
-                color_active: highlight.to_linear().to_f32_array(), axis_colors: axis_colors(),
+                plane_cross: false, plane_color: transform_axis_color(MoveAxis::Y, false).to_linear().to_f32_array(),
+                color_active: active_move_color(selected), axis_colors: axis_colors(),
                 anchor: None, marker_radius: None,
             }));
         }
@@ -346,7 +345,7 @@ fn draw(
                 tools.push(AuthorTool::Transform(TransformPreview::Rotate {
                     origin: origin.to_array(), radius: ring.world[0].distance(origin), yaw_degrees: None,
                     before_yaw_degrees: None,
-                    color: if active(MoveHandle::RotationY) { highlight } else { copper }.to_linear().to_f32_array(),
+                    color: transform_axis_color(MoveAxis::Y, active(MoveHandle::RotationY)).to_linear().to_f32_array(),
                 }));
             }
         }
@@ -354,7 +353,7 @@ fn draw(
             tools.push(AuthorTool::Transform(TransformPreview::Scale {
                 origin: origin.to_array(), right: Vec3::X.to_array(), up: Vec3::Y.to_array(),
                 half_size: length * 0.075,
-                color: if active(MoveHandle::UniformScale) { highlight } else { copper }.to_linear().to_f32_array(), cube: true,
+                color: handle_color(Color::WHITE, active(MoveHandle::UniformScale)).to_linear().to_f32_array(), cube: true,
             })); // cube仍为原length*0.15总边长，不能把半边长当成缩放系数。
         }
         _ => {}
