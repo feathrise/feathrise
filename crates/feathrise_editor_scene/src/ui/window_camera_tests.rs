@@ -203,6 +203,12 @@ fn new_editor_root_gets_window_camera_before_first_ui_layout() {
         *app.world().get::<RenderLayers>(ui_camera).unwrap(),
         RenderLayers::none()
     );
+    let camera = app.world().get::<Camera>(ui_camera).unwrap();
+    assert!(matches!(camera.clear_color, ClearColorConfig::None));
+    assert!(matches!(camera.output_mode, CameraOutputMode::Write {
+        blend_state: Some(BlendState::ALPHA_BLENDING),
+        clear_color: ClearColorConfig::Custom(color),
+    } if color == crate::ui::theme::OVERLAY_BG));
     app.world_mut().entity_mut(root).despawn();
     let replacement = app.world_mut().spawn((SceneEditorRoot, Node::default())).id();
     app.update();

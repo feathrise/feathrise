@@ -2,9 +2,10 @@
 
 use crate::components::{SceneEditorRoot, SceneEditorUiCamera};
 use crate::resources::SceneEditorState;
-use bevy::camera::{RenderTarget, visibility::RenderLayers};
+use bevy::camera::{CameraOutputMode, RenderTarget, visibility::RenderLayers};
 use bevy::ecs::{entity_disabling::Disabled, query::Allow};
 use bevy::prelude::*;
+use bevy::render::render_resource::BlendState;
 
 /// 在相机更新和UI布局之前采用窗口目标，所有场景、冷载和暖恢复共用同一份窗口尺寸及DPI。
 pub(crate) fn install(app: &mut App) {
@@ -54,6 +55,11 @@ fn sync_editor_ui_camera(
                 Camera {
                     order: 600,
                     clear_color: ClearColorConfig::None,
+                    // 首次进场会在 UI 前加入场景相机。固定叠加方式，保持工程打开时已准备的输出管线。
+                    output_mode: CameraOutputMode::Write {
+                        blend_state: Some(BlendState::ALPHA_BLENDING),
+                        clear_color: ClearColorConfig::Custom(super::theme::OVERLAY_BG),
+                    },
                     ..default()
                 },
                 RenderTarget::default(), // 固定主窗口；不采用任何场景RTT、视口裁剪或按图资源快照。

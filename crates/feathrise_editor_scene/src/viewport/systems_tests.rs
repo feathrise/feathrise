@@ -2,6 +2,34 @@
 use super::*;
 
 #[test]
+fn newly_created_editor_viewport_keeps_its_clear_color_for_final_output() {
+    let mut app = App::new();
+    app.init_resource::<bevy::picking::pointer::PointerMap>()
+        .init_resource::<Assets<Image>>()
+        .init_resource::<SceneEditorViewMemory>()
+        .insert_resource(SceneEditorState { open: true, ..default() })
+        .insert_resource(State::new(feathrise_scene_core::state::ScenePhase::Active))
+        .insert_resource(feathrise_scene_content::ActiveDynamicScene {
+            scene_id: Some(feathrise_scene_content::SceneId::parse("SCENE-cold-viewport").unwrap()),
+        })
+        .insert_resource(ClearColor(Color::srgb(0.5, 0.7, 1.0)))
+        .add_systems(Update, setup_editor_viewport);
+    app.world_mut().spawn(SceneEditorViewport);
+    app.update();
+
+    let world = app.world();
+    let viewport = world.resource::<SceneEditorViewportState>();
+    let camera = world.get::<Camera>(viewport.camera).unwrap();
+    let ClearColorConfig::Custom(scene_clear) = camera.clear_color else {
+        panic!("作者相机必须使用自己的背景");
+    };
+    // Bevy 冷启动时按 output_mode 清除目标纹理，主渲染的 clear_color 不参与该分支。
+    assert!(matches!(camera.output_mode,
+        CameraOutputMode::Write { clear_color: ClearColorConfig::Custom(output_clear), .. }
+            if output_clear == scene_clear && output_clear != world.resource::<ClearColor>().0));
+}
+
+#[test]
 fn resident_viewports_keep_hidden_targets_and_match_first_visible_frame() {
     let mut app = App::new();
     app.init_resource::<bevy::picking::pointer::PointerMap>()

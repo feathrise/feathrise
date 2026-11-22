@@ -1,7 +1,7 @@
 //! 场景编辑器离屏视口实现。
 
 use bevy::camera::visibility::RenderLayers; // 离屏相机额外接收专用笔刷Gizmo层。
-use bevy::camera::{Hdr, Projection, RenderTarget, RenderTargetInfo}; // 两种投影共享稳定HDR颜色路径和同一个RTT目标。
+use bevy::camera::{CameraOutputMode, Hdr, Projection, RenderTarget, RenderTargetInfo}; // 两种投影共享稳定HDR颜色路径和同一个RTT目标。
 use bevy::input::mouse::{MouseMotion, MouseWheel}; // CAD式轨道、平移和缩放。
 use bevy::shape::InfinitePlane3d; // 把视口光标射线投到地形基准平面。
 use bevy::prelude::*; // ECS、图像、相机与数学类型。
@@ -186,6 +186,7 @@ pub(crate) fn setup_editor_viewport(
     let center = Vec3::ZERO;
     let extent = 1_200.0;
     let (yaw, pitch) = orbit_angles_from_view(EditorView::Perspective);
+    let clear_color = ClearColorConfig::Custom(Color::srgb(0.16, 0.18, 0.17));
     let camera = commands
         .spawn((
             Name::new("场景编辑器独立离屏相机"),
@@ -203,7 +204,9 @@ pub(crate) fn setup_editor_viewport(
             Camera {
                 order: -3,
                 is_active: false,
-                clear_color: ClearColorConfig::Custom(Color::srgb(0.16, 0.18, 0.17)),
+                clear_color,
+                // 正式画面与输出管线冷启动都使用作者视口底色，避免整张纹理先盖上玩法天空色。
+                output_mode: CameraOutputMode::Write { blend_state: None, clear_color },
                 ..default()
             },
             RenderTarget::from(image_handle.clone()),
@@ -890,6 +893,10 @@ pub(crate) fn sync_editor_viewport_camera(
 #[cfg(test)]
 #[path = "systems_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cold_output_gpu_tests.rs"]
+mod cold_output_gpu_tests;
 
 #[cfg(test)]
 #[path = "navigation_tests.rs"]

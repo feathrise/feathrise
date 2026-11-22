@@ -2,11 +2,19 @@
 
 use feathrise_editor_ui::InteractionButton;
 use super::*;
+use bevy::core_pipeline::upscaling::ViewUpscalingPipeline;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
+use bevy::render::{
+    Render, RenderApp, RenderSystems,
+    camera::ExtractedCamera,
+    render_resource::{PipelineCache, TextureFormat},
+    sync_world::MainEntity,
+    view::ViewTarget,
+};
 use bevy::ui::{ComputedUiRenderTargetInfo, ComputedUiTargetCamera};
 use bevy::winit::WinitPlugin;
 use std::sync::{
-    Arc,
+    Arc, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
 
@@ -28,6 +36,58 @@ struct UiCameraProof {
     button_size: Vec2,
     label_size: Vec2,
     captured: Arc<AtomicBool>,
+    output: Arc<WindowOutputProof>,
+}
+
+#[derive(Default)]
+struct WindowOutputProof {
+    camera: OnceLock<Entity>,
+    idle_format: OnceLock<TextureFormat>,
+    first_scene_ready: AtomicBool,
+}
+
+#[derive(Resource)]
+struct OutputProbe(Arc<WindowOutputProof>);
+
+fn verify_first_scene_output(
+    probe: Res<OutputProbe>,
+    cache: Res<PipelineCache>,
+    views: Query<(
+        &MainEntity,
+        &ExtractedCamera,
+        Option<&ViewTarget>,
+        Option<Ref<ViewUpscalingPipeline>>,
+    )>,
+) {
+    let proof = &probe.0;
+    if proof.first_scene_ready.load(Ordering::Acquire) {
+        return;
+    }
+    let Some((_, camera, target, pipeline)) = views
+        .iter()
+        .find(|(entity, ..)| proof.camera.get() == Some(&entity.id()))
+    else {
+        return;
+    };
+    let format = target.and_then(ViewTarget::out_texture_view_format);
+    if camera.sorted_camera_index_for_target == 0 {
+        if let Some(format) = format
+            && target.is_some_and(ViewTarget::needs_present)
+            && pipeline.is_some_and(|pipeline| pipeline.is_ready(&cache))
+        {
+            let _ = proof.idle_format.set(format);
+        }
+        return;
+    }
+    let idle_format = proof.idle_format.get().expect("先呈现没有场景相机的窗口");
+    let pipeline = pipeline.expect("首次叠加时作者窗口输出必须有管线");
+    assert_eq!(camera.sorted_camera_index_for_target, 1);
+    assert_eq!(format, Some(*idle_format));
+    assert!(target.is_some_and(ViewTarget::needs_present));
+    assert!(pipeline.is_ready(&cache), "首次叠加帧的作者输出管线必须就绪");
+    // 组件仅在最终输出规格变化时重新插入。即使 GPU 很快编完新管线，也必须检查本帧沿用原变体。
+    assert!(!pipeline.is_changed(), "场景相机加入时必须沿用已就绪的作者输出管线");
+    proof.first_scene_ready.store(true, Ordering::Release);
 }
 
 fn assert_geometry(world: &World, proof: &UiCameraProof) {
@@ -60,10 +120,16 @@ fn drive_window_test(world: &mut World) {
         }
         match proof.phase {
             0 => {
-                proof.ui_camera = world
+                let camera = world
                     .get::<ComputedUiTargetCamera>(proof.root)
                     .unwrap()
-                    .get();
+                    .get()
+                    .unwrap();
+                proof.ui_camera = Some(camera);
+                let _ = proof.output.camera.set(camera);
+                if proof.output.idle_format.get().is_none() {
+                    return;
+                }
                 // 实机DPI由显示器决定；先验证真实窗口换算，再检查切换场景全过程保持同一结果。
                 let window = world
                     .query_filtered::<&Window, With<bevy::window::PrimaryWindow>>()
@@ -76,25 +142,34 @@ fn drive_window_test(world: &mut World) {
                 assert!(proof.button_size.x >= 127.0 && proof.button_size.y >= 35.0);
                 assert!(proof.label_size.x > 40.0 && proof.label_size.y > 5.0);
                 assert_geometry(world, &proof);
-                world.entity_mut(proof.source).insert(Disabled);
+                // 让 RenderApp 在窗口已提交过 UI 之后首次接入玩法相机。
+                world.get_mut::<Camera>(proof.source).unwrap().is_active = true;
             }
             1 => {
+                if !proof.output.first_scene_ready.load(Ordering::Acquire) {
+                    return;
+                }
+                assert_geometry(world, &proof);
+                world.entity_mut(proof.source).insert(Disabled);
+            }
+            2 => {
                 assert_geometry(world, &proof);
                 world.entity_mut(proof.target).remove::<Disabled>();
             }
-            2 => {
+            3 => {
                 assert_geometry(world, &proof);
                 world.entity_mut(proof.target).insert(Disabled);
                 world.entity_mut(proof.source).remove::<Disabled>();
             }
-            3 => {
+            4 => {
                 assert_geometry(world, &proof);
                 world.resource_mut::<SceneEditorState>().open = false;
                 world.get_mut::<Node>(proof.root).unwrap().display = Display::None;
                 world.get_mut::<Node>(proof.menu_root).unwrap().display = Display::Flex;
                 world.entity_mut(proof.source).insert(Disabled);
+                world.entity_mut(proof.menu_camera).remove::<Disabled>();
             }
-            4 => {
+            5 => {
                 assert!(world.get::<Disabled>(proof.ui_camera.unwrap()).is_some());
                 assert_eq!(
                     world
@@ -107,8 +182,9 @@ fn drive_window_test(world: &mut World) {
                 world.get_mut::<Node>(proof.root).unwrap().display = Display::Flex;
                 world.get_mut::<Node>(proof.menu_root).unwrap().display = Display::None;
                 world.entity_mut(proof.source).remove::<Disabled>();
+                world.entity_mut(proof.menu_camera).insert(Disabled);
             }
-            5 => {
+            6 => {
                 assert_geometry(world, &proof);
                 let captured = proof.captured.clone();
                 let path = std::env::var("RPG_EDITOR_UI_CAMERA_GPU_PATH").expect("指定UI截图路径");
@@ -172,6 +248,11 @@ fn gpu_editor_ui_keeps_chinese_button_geometry_through_scene_camera_handoff_and_
     })
     .insert_resource(UiScale(0.85));
     install(&mut app);
+    let output = Arc::new(WindowOutputProof::default());
+    app.get_sub_app_mut(RenderApp)
+        .unwrap()
+        .insert_resource(OutputProbe(output.clone()))
+        .add_systems(Render, verify_first_scene_output.in_set(RenderSystems::Cleanup));
     let font = app
         .world_mut()
         .resource_mut::<Assets<Font>>()
@@ -180,7 +261,14 @@ fn gpu_editor_ui_keeps_chinese_button_geometry_through_scene_camera_handoff_and_
         ));
     let source = app
         .world_mut()
-        .spawn((Camera3d::default(), IsDefaultUiCamera))
+        .spawn((
+            Camera3d::default(),
+            Camera {
+                is_active: false,
+                ..default()
+            },
+            IsDefaultUiCamera,
+        ))
         .id();
     let target = app
         .world_mut()
@@ -195,6 +283,7 @@ fn gpu_editor_ui_keeps_chinese_button_geometry_through_scene_camera_handoff_and_
                 ..default()
             },
             RenderLayers::none(),
+            Disabled,
         ))
         .id();
     let root = app
@@ -270,6 +359,7 @@ fn gpu_editor_ui_keeps_chinese_button_geometry_through_scene_camera_handoff_and_
         button_size: Vec2::ZERO,
         label_size: Vec2::ZERO,
         captured: captured.clone(),
+        output,
     })
     .add_systems(Last, drive_window_test);
     app.run();
