@@ -6,6 +6,7 @@ use crate::{
         EditorAuthoringSession, EditorCommand, EditorSceneDraft,
         source_glbs::{
             self, SourceGlbEdits, SourceGlbOperation, SourceGlbTarget, SourceNodeAddress,
+            SourceMeshProperties,
         },
     },
     resources::SceneEditorState,
@@ -19,6 +20,7 @@ use bevy::{
 };
 use feathrise_scene_content::SceneId;
 mod pose;
+mod properties;
 pub(crate) use pose::Inspector as SourceNodeInspector;
 pub(super) use pose::panel;
 
@@ -31,6 +33,11 @@ pub(crate) enum SourceGlbRequest {
     Pose {
         target: SceneObjectTarget,
         pose: Transform,
+    },
+    NodeEdit {
+        target: SceneObjectTarget,
+        pose: Option<Transform>,
+        properties: Option<SourceMeshProperties>,
     },
 }
 
@@ -70,11 +77,21 @@ fn target(
     if !object.current(editor, session) || object.hidden || object.locked {
         return Err("GLB 目标已变化、隐藏或锁定".into());
     }
-    let SceneObjectKey::Placement { index, mesh, .. } = &object.key else {
+    let draft = session.draft.as_ref().ok_or("场景尚未打开")?;
+    resolve_source_target(object, draft, hierarchy_changed)
+}
+
+/// 属性读取也使用同一节点地址校验，锁定或隐藏仅限制写入。
+fn resolve_source_target(
+    object: &SceneObjectTarget,
+    draft: &EditorSceneDraft,
+    hierarchy_changed: bool,
+) -> Result<SourceGlbTarget, String> {
+    let SceneObjectKey::Placement { index, id, mesh } = &object.key else {
         return Err("请选择一个外部 GLB 或其中的节点".into());
     };
-    let draft = session.draft.as_ref().ok_or("场景尚未打开")?;
-    let record = &draft.placements.placements[*index];
+    let record = draft.placements.placements.get(*index).filter(|record| &record.id == id)
+        .ok_or("源 GLB 摆放已变化")?;
     if !record.asset_target.is_scene0() || record.asset_path == draft.placements_path() {
         return Err("此节点不属于可直接编辑的源 GLB".into());
     }
@@ -193,7 +210,16 @@ fn advance(
             }),
             _,
         ) => target(&object, &editor, &session, false)
-            .map(|target| (target, SourceGlbOperation::Pose(pose))),
+            .map(|target| (target, SourceGlbOperation::NodeEdit { pose: Some(pose), properties: None })),
+        (
+            Some(SourceGlbRequest::NodeEdit {
+                target: object,
+                pose,
+                properties,
+            }),
+            _,
+        ) => target(&object, &editor, &session, false)
+            .map(|target| (target, SourceGlbOperation::NodeEdit { pose, properties })),
         (None, Some(request)) => target(
             &request.target,
             &editor,

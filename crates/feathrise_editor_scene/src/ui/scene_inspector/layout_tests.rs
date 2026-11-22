@@ -63,8 +63,8 @@ fn inspector_tree_and_properties_have_independent_scroll_hosts() {
                 .iter(world)
                 .filter(|(entity, text)| {
                     if text.as_str() != label { return false; }
-                    if !matches!(label, "位置" | "缩放" | "变换") { return true; }
-                    // 「应用」菜单也包含位置和缩放。仅核对摆放面板中实际参与布局的字段标签。
+                    if !matches!(label, "位置" | "缩放" | "变换" | "高度与落点") { return true; }
+                    // 应用菜单和隐藏的源节点属性也有同名文字；核对当前摆放面板参与布局的标签。
                     if world.get::<ComputedNode>(*entity).is_none_or(|node| node.size().min_element() <= 0.0) {
                         return false;
                     }

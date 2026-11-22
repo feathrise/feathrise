@@ -128,6 +128,26 @@ impl GlbStructure {
         }
     }
 
+    pub fn node_extra(&self, index: usize, key: &str) -> Result<Option<&Value>, String> {
+        Ok(object_at(&self.json, "nodes", index)?.get("extras").and_then(|extras| extras.get(key)))
+    }
+
+    /// 只更新指定的 extras 字段，保留其他工具写入的数据。
+    pub fn set_node_extra(&mut self, index: usize, key: &str, value: Option<Value>) -> Result<(), String> {
+        object_at(&self.json, "nodes", index)?;
+        let node = self.json["nodes"][index].as_object_mut().unwrap();
+        if let Some(value) = value {
+            let extras = node.entry("extras").or_insert_with(|| json!({}));
+            extras.as_object_mut().ok_or("GLB 节点的 extras 不是对象，无法保留原数据并写入属性")?
+                .insert(key.to_owned(), value);
+        } else if let Some(extras) = node.get_mut("extras").and_then(Value::as_object_mut) {
+            if extras.remove(key).is_some() && extras.is_empty() {
+                node.remove("extras");
+            }
+        }
+        Ok(())
+    }
+
     /// 以明确场景重建节点路径，外部重导出后用来复核树行所见的真实身份。
     pub fn node_path_in_scene(
         &self,

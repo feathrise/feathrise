@@ -10,6 +10,9 @@ use std::{
     sync::Arc,
 };
 
+mod mesh_properties;
+pub(crate) use mesh_properties::{SourceMeshHeight, SourceMeshProperties};
+
 #[derive(Clone)]
 pub(crate) struct SourceGlbNode {
     pub(crate) index: usize,
@@ -164,11 +167,11 @@ impl SourceGlbTarget {
     }
 }
 
-pub(crate) fn read_pose(
+pub(crate) fn read_node(
     root: &Path,
     target: &SourceGlbTarget,
     draft: &SourceGlbEdits,
-) -> Result<Transform, String> {
+) -> Result<(Transform, SourceMeshProperties), String> {
     let path = source_path(root, &target.path)?;
     let document = if let Some(staged) = draft.version(&target.path) {
         GlbStructure::from_bytes(&staged.bytes)?
@@ -176,14 +179,18 @@ pub(crate) fn read_pose(
         let bytes = std::fs::read(&path).map_err(|error| format!("读取源 GLB 失败：{error}"))?;
         GlbStructure::from_bytes(&bytes)?
     };
-    document.node_transform(target.node(&document)?)
+    let node = target.node(&document)?;
+    Ok((document.node_transform(node)?, SourceMeshProperties::read(&document, node)?))
 }
 
 pub(crate) enum SourceGlbOperation {
     Rename(String),
     Folder(String),
     Move(SourceGlbTarget),
-    Pose(Transform),
+    NodeEdit {
+        pose: Option<Transform>,
+        properties: Option<SourceMeshProperties>,
+    },
 }
 
 pub(crate) fn edit(
@@ -247,12 +254,25 @@ pub(crate) fn edit(
         SourceGlbOperation::Folder(name) => {
             document.create_folder(source.parent(&document)?, &name)?;
         }
-        SourceGlbOperation::Pose(pose) => {
+        SourceGlbOperation::NodeEdit { pose, properties } => {
             let node = source.node(&document)?;
-            if document.node_transform(node)? == pose {
+            let mut changed = false;
+            if let Some(pose) = pose && document.node_transform(node)? != pose {
+                document.set_node_transform(node, pose)?;
+                changed = true;
+            }
+            if let Some(properties) = properties {
+                if document.node(node)?.mesh.is_none() {
+                    return Err("请选择源 GLB 内的网格".into());
+                }
+                if SourceMeshProperties::read(&document, node)? != properties {
+                    properties.write(&mut document, node)?;
+                    changed = true;
+                }
+            }
+            if !changed {
                 return Ok(None);
             }
-            document.set_node_transform(node, pose)?;
         }
         SourceGlbOperation::Move(destination) => {
             let node = source.node(&document)?;
