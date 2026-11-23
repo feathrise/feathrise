@@ -473,6 +473,9 @@ pub struct SceneEditorState {
     pub scene_list_selection_id: Option<SceneId>,
     /// 点击“进入场景”后等待正式目录与清单就绪的稳定目标。
     pub pending_scene_transition: Option<SceneId>,
+    /// 仅「打开源场景编辑」为同一待进入请求冻结坐标。其它入口用目标场景自己的世界。
+    pub(crate) pending_reference_coordinates: Option<crate::ui::subscenes::ReferenceCoordinates>,
+    pub(crate) reset_reference_coordinates: bool,
     /// 未保存切换场景的冻结目标与一次性选择；目录高亮不能重定向这份请求。
     pub(crate) scene_switch_confirmation: Option<SceneSwitchConfirmation>,
     /// 当前资产浏览器选中的资源路径。
@@ -602,6 +605,8 @@ impl Default for SceneEditorState {
             selected_scene_id: None,
             scene_list_selection_id: None,
             pending_scene_transition: None,
+            pending_reference_coordinates: None,
+            reset_reference_coordinates: false,
             scene_switch_confirmation: None,
             selected_asset: None,
             building_selected_preset_id: None,
@@ -778,6 +783,7 @@ impl SceneEditorState {
 
     /// 显式进入按钮登记一次可等待资产热加载的正式切换场景请求。
     pub(crate) fn queue_scene_transition(&mut self, scene_id: SceneId, status: impl Into<String>) {
+        self.pending_reference_coordinates = None;
         self.scene_list_selection_id = Some(scene_id.clone()); // 请求期间保持用户明确选中的目录项。
         self.pending_scene_transition = Some(scene_id); // 驱动系统完整验证清单后才改写当前作者场景。
         self.status = status.into(); // 底栏明确说明当前正在等待自动进入，而不是要求用户再次点击。
@@ -788,6 +794,7 @@ impl SceneEditorState {
         self.new_scene_dialog_open = false; // 不让新建弹框残留到下次打开编辑器。
         self.new_scene_edit_target = None; // 关闭F12不保留旧场景的编辑目标。
         self.pending_scene_transition = None; // 迟到目录热加载结果不得在关闭后突然切换场景。
+        self.pending_reference_coordinates = None;
         self.scene_switch_confirmation = None; // 放弃授权不能跨编辑器关闭或下次打开复用。
     }
 }

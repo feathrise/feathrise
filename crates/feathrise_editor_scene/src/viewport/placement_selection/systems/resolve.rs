@@ -23,7 +23,7 @@ use crate::ui::placement_water::PlacementInstanceIndex;
 use crate::viewport::content_selection::LayerCandidateState; // 高亮解析消费统一候选的只读身份。 // 正式根按场景和稳定ID O(1)定位小集合。
 
 /// 优先采用当前作者会话的未保存精确预览；否则只接受唯一活动正式根。
-pub(in crate::viewport) fn resolve_active_root(
+pub(crate) fn resolve_active_root(
     scene_id: &feathrise_scene_content::SceneId,
     placement_id: &str,
     session: &EditorAuthoringSession,

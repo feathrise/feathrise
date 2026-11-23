@@ -334,7 +334,8 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         "schema":4,"scope":scope,"passed":passed,
         "resident_mode_comparison_included":!animation_workspaces && !animation_edit && !scene_tree_startup && !blender_mesh && !export_lifecycle,
         "excluded_scope":if animation_workspaces { "packaged export, physical keyboard and mouse, private RPG project" }
-            else if animation_edit || scene_tree_startup { "saved play, independent game, project reopening and export" }
+            else if scene_tree_startup { "saved play, independent game and export" }
+            else if animation_edit { "saved play, independent game, project reopening and export" }
             else if blender_mesh { "independent cargo runs, resident viewport comparison, export and gameplay" }
             else { "player initialization, movement, inventory, skills and combat" },
         "elapsed_seconds":started.elapsed().as_secs_f64(),"work_directory":work,
@@ -505,9 +506,34 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
     if saved.scene_id.as_str() != "M1-SAMPLE" || !saved.placements.iter().any(|record| record.id == placement) {
         return Err("本轮立方体未随原保存写入该场景的 GLB".into());
     }
+    let source = fs::read(project.context.asset_roots[0].join("scene/probe.glb")).map_err(|error| error.to_string())?;
+    let source = bevy::gltf::gltf::Glb::from_slice(&source).map_err(|error| error.to_string())?;
+    let source: Value = serde_json::from_slice(&source.json).map_err(|error| error.to_string())?;
+    let local_x = source["nodes"][0]["translation"][0].as_f64();
+    // 世界 7.5 米扣除整件 5 米和父节点 1.25 米，只有网格的源局部位置应改变。
+    if local_x != Some(1.25) || source["nodes"][0]["name"] != "ProjectAssetNode"
+        || source["nodes"][1]["translation"][0].as_f64() != Some(1.25)
+        || !saved.placements.iter().any(|record| record.id == "sample-model" && record.translation[0] == 5.0)
+    {
+        return Err("保存的源 GLB 节点未在原子场景事务中正确写回局部 X".into());
+    }
     let screenshot = read_author_screenshot(&output.join("scene-tree-startup.png"))?;
+    let coordinates = read_author_screenshot(&output.join("scene-tree-glb-coordinates.png"))?;
     steps.push(json!({"stage":"scene_tree_startup_in_original_editor","passed":true,"report":observed,"saved_placement_id":placement,
-        "startup_screenshot":screenshot}));
+        "startup_screenshot":screenshot,"source_coordinates_screenshot":coordinates,"saved_source_local_x":local_x}));
+
+    let output = work.join("editor-2");
+    let mut command = author_window_command(&root, target, &output, true)?;
+    command.env("FEATHRISE_SCENE_TREE_REOPEN_VALIDATION", "1");
+    let (_, reopened) = run_author_window(&command, control, &root, &output)?;
+    let node = &reopened["current_author_document"]["reopened_source_node"];
+    if reopened["author_save_requested"] != false || node["placement"] != "sample-model"
+        || node["local_x"].as_f64() != Some(1.25) || node["world_x"].as_f64() != Some(7.5)
+    {
+        return Err(format!("重开工程后未采用已保存的源节点变换：{node}"));
+    }
+    let screenshot = read_author_screenshot(&output.join("native-editor.png"))?;
+    steps.push(json!({"stage":"saved_source_node_reopened_in_original_editor","passed":true,"report":reopened,"screenshot":screenshot}));
     Ok(())
 }
 

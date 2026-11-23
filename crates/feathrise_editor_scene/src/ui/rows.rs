@@ -407,6 +407,7 @@ pub(crate) fn request_selected_scene_entry(
         return;
     };
     if editor.selected_scene_id.as_ref() == Some(&scene_id) {
+        editor.reset_reference_coordinates = true; // 从目录独立打开同一文档时也退出上次引用的外层框架。
         editor.status = format!("当前已在场景“{}” [{}]", entry.display_name, entry.id); // 同图进入不重走LoadingScene。
         return;
     }

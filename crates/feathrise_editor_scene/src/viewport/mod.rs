@@ -16,6 +16,7 @@ pub(crate) mod orientation_axis; // 场景和模型预览复用方向轴控件�
 pub(crate) mod shading; // 四球显示只作用于当前场景离屏相机。
 mod view_controls_input; // 方向球与四球共用文档、模态、外部拖动和数值焦点门。
 mod placement_selection; // Scene0网格单击精确高亮、中央徽标和双击相机定位。
+pub(crate) use placement_selection::resolve_active_root;
 pub(crate) mod placement_move; // 世界轴/XZ平面移动与输入捕获；建筑松手复用原后台地基验证。
 pub(crate) mod multi_select; // 普通资产的临时选择集合、拖框与单次整组移动。
 pub(crate) mod snapping; // 同排吸附偏好、局部参考网格和真实地形落点。

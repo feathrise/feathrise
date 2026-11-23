@@ -82,6 +82,7 @@ pub(crate) fn drive_pending_scene_transition(
     mut authoring: SceneTransitionAuthoring,
     puddles: Option<Res<crate::authoring::PuddleAuthoringState>>, // 切换场景等待同场景整笔后台完成。
     mut documents: super::scene_documents::SceneDocumentTransition,
+    mut coordinates: Option<ResMut<super::subscenes::SceneReferenceCoordinates>>,
 ) {
     if authoring.session.water_preset_delete_pending { return; } // 保留切换场景请求；全局预设文件事务不能跨作者来源提交。
     let preparing = documents
@@ -112,12 +113,14 @@ pub(crate) fn drive_pending_scene_transition(
         };
         if manifest.id != scene_id {
             editor.pending_scene_transition = None; // 身份错误不能持续重试并污染其他场景。
+            editor.pending_reference_coordinates = None;
             editor.scene_switch_confirmation = None; // 目标验证失败不消费放弃，也不留下旧授权。
             editor.status = format!("场景{scene_id}清单身份不一致，已取消自动进入"); // 明确反馈损坏项。
             return;
         }
         let Some(target_scene) = manifest_scene(&manifest.runtime_scene) else {
             editor.pending_scene_transition = None; // 未发布场景需要作者修正文件后重新选择。
+            editor.pending_reference_coordinates = None;
             editor.scene_switch_confirmation = None;
             editor.status = format!("场景{scene_id}尚未发布有效运行时场景"); // 禁止无声停留在旧场景。
             return;
@@ -156,6 +159,7 @@ pub(crate) fn drive_pending_scene_transition(
             && transition_became_unsafe(&editor, &authoring.session, &authoring.global))
     {
         editor.pending_scene_transition = None;
+        editor.pending_reference_coordinates = None;
         editor.scene_switch_confirmation = None;
         editor.status = if editor.dirty {
             "等待进入场景期间当前草稿又产生未保存修改；已取消切换场景，请先保存后重新进入".to_owned()
@@ -226,6 +230,11 @@ pub(crate) fn drive_pending_scene_transition(
         documents.preparing_target = None;
     }
     editor.selected_scene_id = Some(scene_id.clone()); // 目录与清单完整验证后才把目标发布为当前作者场景。
+    let frame = editor.pending_reference_coordinates.take();
+    if let Some(coordinates) = coordinates.as_mut() {
+        editor.reset_reference_coordinates = false;
+        coordinates.adopt(&scene_id, frame);
+    }
     editor.scene_list_selection_id = Some(scene_id.clone()); // 切换场景期间目录高亮与冻结目标保持一致。
     if target_scene == ScenePhase::Active {
         active_dynamic.select(scene_id.clone()); // LoadingScene进入前写入动态场景唯一身份。

@@ -7,4 +7,4 @@ pub(crate) use presentation::{
     draw_selected_placement_highlight_frame, sync_selected_placement_viewport,
 }; // 父模块保持原系统路径和插件注册接口。
 pub(crate) use resolve::resolve_selected_placement_mesh; // Cursor阶段先原子发布完整源primitive。
-pub(in crate::viewport) use resolve::resolve_active_root;
+pub(crate) use resolve::resolve_active_root;

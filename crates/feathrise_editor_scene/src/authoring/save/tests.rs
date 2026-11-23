@@ -93,7 +93,7 @@ fn source_glb_node_edit_rejects_stale_disk_and_draft_snapshots() {
     let apply = |draft, expected_hash, pose, properties| edit(&tmp.path, draft, target.clone(),
         SourceGlbOperation::NodeEdit { expected_hash, pose, properties });
     std::fs::write(&path, bytes("Mesh", 1.25)).unwrap();
-    let (_, mut stale, stale_hash) = read_node(&tmp.path, &target, &empty).unwrap();
+    let (_, _, mut stale, stale_hash) = read_node(&tmp.path, &target, &empty).unwrap();
     stale.collision = Some(true);
 
     // 外部只改已有节点的显示精度，索引和名称相同也不能接受旧属性整组。
@@ -101,17 +101,17 @@ fn source_glb_node_edit_rejects_stale_disk_and_draft_snapshots() {
     std::fs::write(&path, &external).unwrap();
     assert!(apply(&empty, stale_hash.clone(), None, Some(stale)).is_err());
     assert_eq!(std::fs::read(&path).unwrap(), external);
-    let (original, mut fresh, fresh_hash) = read_node(&tmp.path, &target, &empty).unwrap();
+    let (original, _, mut fresh, fresh_hash) = read_node(&tmp.path, &target, &empty).unwrap();
     assert!(matches!(fresh.display_lod, Some(MeshLodMode::Override(lod)) if lod.max_error_pixels == 2.5));
     fresh.collision = Some(true);
     let (with_property, _) = apply(&empty, fresh_hash.clone(), None, Some(fresh)).unwrap().unwrap();
     assert!(with_property.version("mesh.glb").unwrap().original_node_pose(0).is_none());
-    let (_, _, draft_hash) = read_node(&tmp.path, &target, &with_property).unwrap();
+    let (_, _, _, draft_hash) = read_node(&tmp.path, &target, &with_property).unwrap();
     assert!(apply(&with_property, fresh_hash, None, Some(stale)).is_err());
 
     let moved = original.with_translation(Vec3::X);
     let (with_pose, _) = apply(&with_property, draft_hash, Some(moved), None).unwrap().unwrap();
-    let (_, mut properties, pose_hash) = read_node(&tmp.path, &target, &with_pose).unwrap();
+    let (_, _, mut properties, pose_hash) = read_node(&tmp.path, &target, &with_pose).unwrap();
     properties.collision = Some(false);
     let (latest, _) = apply(&with_pose, pose_hash, None, Some(properties)).unwrap().unwrap();
     let version = latest.version("mesh.glb").unwrap();

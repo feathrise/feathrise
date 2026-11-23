@@ -171,7 +171,7 @@ pub struct SavedEditProof {
     pub scene_tree: Option<serde_json::Value>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
     Idle,
     Creating,
@@ -366,6 +366,10 @@ pub fn current_author_runtime_snapshot(world: &mut World) -> Option<serde_json::
     if let Some(record) = blender_mesh::saved_model(world) {
         snapshot["blender_mesh_collision"] = blender_mesh::saved_collision(world, &record)?;
     }
+    #[cfg(feature = "validation")]
+    if std::env::var("FEATHRISE_SCENE_TREE_REOPEN_VALIDATION").as_deref() == Ok("1") {
+        snapshot["reopened_source_node"] = scene_tree::reopened_source_position(world)?;
+    }
     Some(snapshot)
 }
 
@@ -484,7 +488,8 @@ fn drive(world: &mut World) {
         if matches!(fixture.phase, Phase::Idle | Phase::Complete | Phase::Failed) { return; }
         let budget = if super::author_workflow_validation::enabled() { 600 } else { 180 };
         if fixture.started_at.elapsed() > Duration::from_secs(budget) {
-            fail(&mut fixture, format!("原编辑保存验收超时：{}", super::author_status(world).unwrap_or("未知状态")));
+            let phase = fixture.phase;
+            fail(&mut fixture, format!("原编辑保存验收超时（{phase:?}）：{}", super::author_status(world).unwrap_or("未知状态")));
             return;
         }
         let map = fixture.scene_id.clone().expect("活跃夹具必须冻结场景");
@@ -547,9 +552,9 @@ fn drive(world: &mut World) {
             #[cfg(feature = "validation")]
             Phase::SceneTree(mut step) => {
                 let fixture = &mut *fixture;
-                let proof = fixture.proof.as_ref().unwrap();
+                let proof = fixture.proof.as_mut().unwrap();
                 match scene_tree::advance(world, &mut step, proof.new_placement_id.as_deref().unwrap(),
-                    proof.author_revision_after, &mut fixture.click_pulse) {
+                    &mut proof.author_revision_after, &mut fixture.click_pulse) {
                     Ok(Some(proof)) => {
                         fixture.proof.as_mut().unwrap().scene_tree = Some(proof);
                         begin_geometry_unification(world, fixture);

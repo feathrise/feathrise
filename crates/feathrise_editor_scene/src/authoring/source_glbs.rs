@@ -177,7 +177,7 @@ pub(crate) fn read_node(
     root: &Path,
     target: &SourceGlbTarget,
     draft: &SourceGlbEdits,
-) -> Result<(Transform, SourceMeshProperties, String), String> {
+) -> Result<(Transform, Mat4, SourceMeshProperties, String), String> {
     let path = source_path(root, &target.path)?;
     let (document, content_hash) = if let Some(staged) = draft.version(&target.path) {
         (GlbStructure::from_bytes(&staged.bytes)?, staged.content_hash.clone())
@@ -186,7 +186,8 @@ pub(crate) fn read_node(
         (GlbStructure::from_bytes(&bytes)?, bytes_hash(&bytes))
     };
     let node = target.node(&document)?;
-    Ok((document.node_transform(node)?, SourceMeshProperties::read(&document, node)?, content_hash))
+    Ok((document.node_transform(node)?, document.node_parent_matrix(0, node)?,
+        SourceMeshProperties::read(&document, node)?, content_hash))
 }
 
 pub(crate) enum SourceGlbOperation {

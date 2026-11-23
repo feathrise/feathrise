@@ -152,8 +152,12 @@ impl GlbStructure {
     pub fn node_path_in_scene(
         &self,
         scene: usize,
-        mut index: usize,
+        index: usize,
     ) -> Result<Vec<String>, String> {
+        self.node_lineage_in_scene(scene, index)?.into_iter().map(|index| Ok(self.node(index)?.name)).collect()
+    }
+
+    fn node_lineage_in_scene(&self, scene: usize, mut index: usize) -> Result<Vec<usize>, String> {
         let hierarchy = Hierarchy::read(&self.json)?;
         let mut path = Vec::new();
         loop {
@@ -161,7 +165,7 @@ impl GlbStructure {
             if path.len() == hierarchy.parents.len() {
                 return Err("GLB 父节点形成循环".into());
             }
-            path.push(self.node(index)?.name);
+            path.push(index);
             let Some(parent) = parent else {
                 break;
             };
@@ -185,6 +189,18 @@ impl GlbStructure {
         let hierarchy = Hierarchy::read(&self.json)?;
         let lineage = hierarchy.lineage(GlbParent::Node(index))?;
         accumulate(&self.json, &lineage)
+    }
+
+    /// 返回直属父节点相对 GLB 根的完整矩阵。不反求所选节点，因此也支持它已有零缩放。
+    pub fn node_parent_matrix(&self, scene: usize, index: usize) -> Result<Mat4, String> {
+        let mut lineage = self.node_lineage_in_scene(scene, index)?;
+        lineage.pop(); // 节点自身旋转和缩放由独立的局部姿态读取。
+        accumulate(&self.json, &lineage)
+    }
+
+    /// 复用 GLB 局部变换的精确检查，编辑器换坐标时也不能把剪切默默丢弃。
+    pub fn decompose_node_matrix(matrix: Mat4) -> Result<Transform, String> {
+        decompose(matrix)
     }
 
     pub fn create_folder(&mut self, parent: GlbParent, name: &str) -> Result<usize, String> {
@@ -454,7 +470,7 @@ fn decompose(matrix: Mat4) -> Result<Transform, String> {
         .zip(restored)
         .all(|(input, output)| (input - output).abs() <= 1.0e-5 * input.abs().max(1.0))
     {
-        return Err("换父会产生无法用 glTF 节点保存的剪切变换".into());
+        return Err("当前变换包含无法用 GLB 节点表示的剪切".into());
     }
     Ok(transform)
 }

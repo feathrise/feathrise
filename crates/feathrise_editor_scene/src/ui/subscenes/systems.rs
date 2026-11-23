@@ -9,6 +9,7 @@ use feathrise_editor_ui::{ActiveNumericInput, ActiveNumericInputScrub, NumericIn
     NumericInputSetValue, NumericInputValue, NumericValue};
 use std::sync::Arc;
 use super::{components::*, resources::*};
+use super::SceneReferenceCoordinates;
 use crate::{authoring::{EditorAuthoringSession, EditorCommand, GlobalEnvironmentAuthoringState},
     resources::{SceneBrowserState, SceneDeletionTask, SceneEditorState}};
 
@@ -49,6 +50,9 @@ pub(super) fn input(mut editor: ResMut<SceneEditorState>, mut session: ResMut<Ed
     menu: Option<Res<crate::ui::scene_context_menu::SceneContextMenuState>>,
     sidebars: Option<Res<crate::ui::sidebars::SceneEditorSidebarState>>,
     layout: Option<Res<crate::resources::SceneEditorLayoutState>>,
+    coordinates: Res<SceneReferenceCoordinates>,
+    instances: Query<(&feathrise_scene::SubsceneInstance, &GlobalTransform)>,
+    active_batches: Query<(), With<feathrise_scene::SubsceneActive>>,
     buttons: Query<(&EditorButtonClick, &ActionButton), (With<InteractionButton>, Changed<EditorButtonClick>)>) {
     if !enabled(&editor, &session, &state) || state.scrub.is_some() || !context.p0().scene_commands_available(&editor) { return; }
     let (mut candidates, mut browser) = context.p1();
@@ -75,11 +79,19 @@ pub(super) fn input(mut editor: ResMut<SceneEditorState>, mut session: ResMut<Ed
         match action {
             Action::OpenSource => {
                 let Some(index) = index else { continue; };
-                let source = draft.manifest.subscenes[index].source_scene_id.clone();
+                let reference = &draft.manifest.subscenes[index];
+                let frame = match coordinates.freeze(&draft.scene_id, reference, &instances, &active_batches) {
+                    Ok(frame) => frame,
+                    Err(error) => { editor.status = error; continue; }
+                };
+                let source = reference.source_scene_id.clone();
                 editor.scene_list_selection_id = Some(source.clone());
-                browser.select_only(Some(crate::types::SceneBrowserItem::Scene(source)));
+                browser.select_only(Some(crate::types::SceneBrowserItem::Scene(source.clone())));
                 crate::ui::rows::request_selected_scene_entry(&mut editor, &deletion,
                     catalog, &session, &global, true);
+                if editor.pending_scene_transition.as_ref() == Some(&source) {
+                    editor.pending_reference_coordinates = Some(frame);
+                }
             }
             Action::Remove => {
                 let Some(index) = index else { continue; };

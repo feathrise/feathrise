@@ -26,7 +26,7 @@ pub(crate) use systems::{
     sync_selected_placement_viewport,
 }; // 插件在Cursor与Presentation阶段分别注册解析、表现和范围框。
 pub(crate) use ui::setup_selected_placement_badge; // ViewportNode出现时只创建一次固定徽标实体。
-pub(super) use systems::resolve_active_root;
+pub(crate) use systems::resolve_active_root;
 
 const FOCUS_PADDING_SCALE: f32 = 1.25; // 三维物体定位后四周保留空间关系。
 const FOCUS_PADDING_METERS: f32 = 2.0; // 小道具也至少保留两米观察边距。

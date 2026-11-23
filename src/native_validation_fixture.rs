@@ -54,17 +54,18 @@ pub(super) fn prepare(root: &Path, label: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     enable_validation_features(&mut manifest)?;
     fs::write(&manifest_path, toml::to_string_pretty(&manifest).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    let mut sources = copy_probe(&staging)?;
+    let scene_tree_startup = label == "独立工程 A" && std::env::var(super::SCENE_TREE_STARTUP).as_deref() == Ok("1");
+    let mut sources = copy_probe(&staging, scene_tree_startup)?;
     write_animation(&staging)?;
-    if label == "独立工程 A" && std::env::var(super::SCENE_TREE_STARTUP).as_deref() == Ok("1") {
+    if scene_tree_startup {
         // 完整场景工具链会从空目录新增预设。仅首次打开专项预置作者层。
-        write_scene_tree_group(&staging)?;
+        write_scene_tree_group(&staging, true)?;
         write_scene_tree_vegetation(&staging)?;
     } else if std::env::var("FEATHRISE_MODEL_SURFACE_VALIDATION").as_deref() == Ok("1") {
         sources.extend(copy_model_vegetation_probe(&staging)?);
         write_model_surface_fixture(&staging)?;
     } else if label == "独立工程 A" && std::env::var("FEATHRISE_SCENE_TREE_VALIDATION").as_deref() == Ok("1") {
-        write_scene_tree_group(&staging)?;
+        write_scene_tree_group(&staging, false)?;
     } else if label == "独立工程 A" && std::env::var("FEATHRISE_BLENDER_MESH_VALIDATION").as_deref() == Ok("1") {
         let mut placements = read_sample_placements(&staging)?;
         // 复用实际带索引的 GLB。额外碰撞面分开放置，让验收能逐个用物理射线核验。
@@ -239,10 +240,16 @@ fn read_sample_placements(assets: &Path) -> Result<feathrise_scene_content::Scen
 }
 
 /// 两个同源 GLB 分开放置，原树的组定位必须取到成员之间的范围中心。
-fn write_scene_tree_group(assets: &Path) -> Result<(), String> {
+fn write_scene_tree_group(assets: &Path, source_coordinates: bool) -> Result<(), String> {
     let mut placements = read_sample_placements(assets)?;
-    let source = placements.placements.iter().find(|record| record.id == "sample-model")
-        .ok_or("场景树夹具缺少样例 GLB")?.clone();
+    let source = placements.placements.iter_mut().find(|record| record.id == "sample-model")
+        .ok_or("场景树夹具缺少样例 GLB")?;
+    if source_coordinates {
+        // 整件偏移五米，让源 GLB 与顶层场景的坐标有可核对的差值。
+        source.translation[0] = 5.0;
+        source.building_preset_id = None;
+    }
+    let source = source.clone();
     for (index, x) in [24.0, 36.0].into_iter().enumerate() {
         let mut member = source.clone();
         member.id = format!("scene-tree-group-{index}");
@@ -377,13 +384,28 @@ pub(super) fn scene_fixture(name: &str) -> Result<&'static [u8], String> {
     }
 }
 
-fn copy_probe(assets: &Path) -> Result<Vec<Value>, String> {
+fn copy_probe(assets: &Path, source_coordinates: bool) -> Result<Vec<Value>, String> {
+    use std::borrow::Cow;
+
     let mut sources = Vec::new();
     for name in ["probe.glb", "albedo.png"] {
         let relative = format!("tests/fixtures/scene/{name}");
         let bytes = scene_fixture(name)?;
-        write_new(&assets.join("scene").join(name), bytes)?;
-        let sha256: String = Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect();
+        let bytes = if source_coordinates && name == "probe.glb" {
+            // 保留原几何与贴图；新增父节点后，源 GLB 坐标与网格的直接局部坐标不同。
+            let mut glb = bevy::gltf::gltf::Glb::from_slice(bytes).map_err(|error| error.to_string())?;
+            let mut document: Value = serde_json::from_slice(&glb.json).map_err(|error| error.to_string())?;
+            document["scenes"][0]["nodes"] = json!([1]);
+            document["nodes"][0]["translation"] = json!([0.5, 0.0, 0.0]);
+            document["nodes"].as_array_mut().ok_or("坐标验收 GLB 缺少节点")?
+                .push(json!({"name":"CoordinateParent","translation":[1.25,0.0,0.0],"children":[0]}));
+            glb.json = Cow::Owned(serde_json::to_vec(&document).map_err(|error| error.to_string())?);
+            Cow::Owned(glb.to_vec().map_err(|error| error.to_string())?)
+        } else {
+            Cow::Borrowed(bytes)
+        };
+        write_new(&assets.join("scene").join(name), &bytes)?;
+        let sha256: String = Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect();
         sources.push(json!({"source":relative,"embedded":true,"destination":format!("scene/{name}"),"bytes":bytes.len(),"sha256":sha256}));
     }
     Ok(sources)
@@ -598,7 +620,7 @@ mod tests {
     #[test]
     fn model_vegetation_source_and_adjacent_texture_survive_other_probe_hot_reload() {
         let directory = OwnedDirectory::new();
-        copy_probe(&directory.0).unwrap();
+        copy_probe(&directory.0, false).unwrap();
         let sources = copy_model_vegetation_probe(&directory.0).unwrap();
         // 重现另一专项替换同名GLB与贴图；种植预设必须仍看到完整原型和原相邻贴图。
         fs::write(directory.0.join("scene/probe.glb"), b"other-model-hot-reload").unwrap();

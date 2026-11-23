@@ -21,8 +21,11 @@ use bevy::{
 use feathrise_scene_content::SceneId;
 mod pose;
 mod properties;
+mod spaces; // 源 GLB、所在场景和世界坐标的矩阵换算与引用核对。
 pub(crate) use pose::Inspector as SourceNodeInspector;
 pub(super) use pose::panel;
+#[cfg(feature = "validation")]
+pub(crate) use pose::source_position_field_for_validation;
 
 #[derive(Message, Clone)]
 pub(crate) enum SourceGlbRequest {

@@ -3,6 +3,7 @@
 use super::{
     SourceGlbRequest,
     pose::{AdoptNodeSnapshot, Control as PoseControl, Inspector, SourcePublication, mount_numeric, source_publication},
+    spaces::{EditFrame, Frames, Space},
 };
 use crate::{
     SceneEditorSystemSet,
@@ -25,7 +26,6 @@ use feathrise_editor_ui::{
     round_to_decimals,
 };
 use feathrise_scene_content::{MeshLodMode, MeshLodPolicy};
-use std::mem::discriminant;
 
 pub(super) fn install(app: &mut App) {
     app.add_systems(
@@ -47,10 +47,40 @@ pub(super) fn install(app: &mut App) {
 
 #[derive(Component, Clone, Copy)]
 enum Mode {
-    Height(Option<SourceMeshHeight>),
+    Height(Height),
     Collision(Option<bool>),
     DisplayLod(Lod),
     CollisionLod(Lod),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Height {
+    Inherit,
+    FollowTerrain,
+    FixedHeight,
+}
+
+impl Height {
+    const ALL: [Self; 3] = [Self::Inherit, Self::FollowTerrain, Self::FixedHeight];
+
+    fn from_source(height: Option<SourceMeshHeight>) -> Self {
+        match height {
+            None => Self::Inherit,
+            // 旧吸附按相同场景地表和零偏移结算，读取时仍保留原节点数据。
+            Some(SourceMeshHeight::FollowTerrain { .. } | SourceMeshHeight::SnapToGround) => {
+                Self::FollowTerrain
+            }
+            Some(SourceMeshHeight::FixedHeight) => Self::FixedHeight,
+        }
+    }
+
+    fn source(self) -> Option<SourceMeshHeight> {
+        match self {
+            Self::Inherit => None,
+            Self::FollowTerrain => Some(SourceMeshHeight::FollowTerrain { offset: 0.0 }),
+            Self::FixedHeight => Some(SourceMeshHeight::FixedHeight),
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -86,13 +116,12 @@ impl Lod {
 impl Mode {
     fn label(self) -> &'static str {
         match self {
-            Self::Height(None)
-            | Self::Collision(None)
+            Self::Height(Height::Inherit) => "继承",
+            Self::Height(Height::FollowTerrain) => "跟随地形",
+            Self::Height(Height::FixedHeight) => "固定高度",
+            Self::Collision(None)
             | Self::DisplayLod(Lod::Placement)
             | Self::CollisionLod(Lod::Placement) => "继承摆放",
-            Self::Height(Some(SourceMeshHeight::FollowTerrain { .. })) => "跟随地形",
-            Self::Height(Some(SourceMeshHeight::FixedHeight)) => "固定高度",
-            Self::Height(Some(SourceMeshHeight::SnapToGround)) => "吸附地面",
             Self::Collision(Some(true)) => "开启",
             Self::Collision(Some(false)) => "关闭",
             Self::DisplayLod(Lod::Global) | Self::CollisionLod(Lod::Global) => "继承全局",
@@ -103,9 +132,7 @@ impl Mode {
 
     fn selected(self, properties: SourceMeshProperties) -> bool {
         match self {
-            Self::Height(mode) => {
-                mode.as_ref().map(discriminant) == properties.height.as_ref().map(discriminant)
-            }
+            Self::Height(mode) => mode == Height::from_source(properties.height),
             Self::Collision(mode) => mode == properties.collision,
             Self::DisplayLod(mode) => mode == Lod::from_mode(properties.display_lod),
             Self::CollisionLod(mode) => mode == Lod::from_mode(properties.collision_lod),
@@ -118,7 +145,7 @@ impl Mode {
             return;
         }
         match self {
-            Self::Height(mode) => properties.height = mode,
+            Self::Height(mode) => properties.height = mode.source(),
             Self::Collision(mode) => properties.collision = mode,
             Self::DisplayLod(mode) => properties.display_lod = mode.mode(),
             Self::CollisionLod(mode) => properties.collision_lod = mode.mode(),
@@ -139,6 +166,10 @@ impl ValueField {
     }
 
     fn slot(self, properties: &mut SourceMeshProperties) -> Option<&mut f32> {
+        if self.0 == Field::TranslationY && properties.height == Some(SourceMeshHeight::SnapToGround) {
+            // 面板读取只操作副本。确认编辑旧吸附的偏移时才改写为标准跟随。
+            properties.height = Height::FollowTerrain.source();
+        }
         match (
             self.0,
             &mut properties.height,
@@ -182,9 +213,12 @@ fn mode_row(modes: impl IntoIterator<Item = Mode>) -> impl Scene {
 }
 
 fn mode_button(mode: Mode) -> impl Scene {
-    let label = mode.label();
+    property_button(mode.label(), mode)
+}
+
+pub(super) fn property_button(label: &'static str, marker: impl Component + Clone + Unpin) -> impl Scene {
     bsn! {
-        InteractionButton InteractionDisabled ~{mode}
+        InteractionButton InteractionDisabled ~{marker}
         Node {
             height: px(26), flex_grow: 1.0, flex_basis: px(0), min_width: px(metrics::FONT_CONTROL * 4.0 + 4.0),
             flex_shrink: 0.0, border: px(1), border_radius: BorderRadius::all(px(3)),
@@ -200,18 +234,22 @@ fn mode_button(mode: Mode) -> impl Scene {
     }
 }
 
+pub(super) fn button_color(interaction: UiInteraction, selected: bool) -> Color {
+    match (interaction, selected) {
+        (UiInteraction::Pressed, _) => theme::BUTTON_DEV_SMALL_PRESSED,
+        (UiInteraction::Hovered, _) => theme::BUTTON_DEV_SMALL_HOVERED,
+        (UiInteraction::None, true) => theme::SELECT_BG,
+        (UiInteraction::None, false) => theme::BUTTON_DEV_SMALL_NORMAL,
+    }
+}
+
 fn numeric_slot(field: Field) -> impl Scene {
     bsn! { ~{NumericSlot(ValueField(field))}
     Node { display: Display::None, width: percent(100), min_width: px(0), height: px(24), flex_shrink: 0.0 } }
 }
 
 pub(super) fn panel() -> impl Scene {
-    let height_modes = [
-        Mode::Height(None),
-        Mode::Height(Some(SourceMeshHeight::FollowTerrain { offset: 0.0 })),
-        Mode::Height(Some(SourceMeshHeight::FixedHeight)),
-        Mode::Height(Some(SourceMeshHeight::SnapToGround)),
-    ];
+    let height_modes = Height::ALL.map(Mode::Height);
     let collision_modes = [
         Mode::Collision(None),
         Mode::Collision(Some(true)),
@@ -225,7 +263,7 @@ pub(super) fn panel() -> impl Scene {
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(metrics::FONT_HINT) }
                 TextColor(theme::TEXT_MUTED) TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }
                 Node { display: Display::None, width: percent(100), min_width: px(0) }--
-            @section_header("高度与落点", "继承该 GLB 摆放的高度设置。跟随地形使用本节点的离地偏移，吸附地面以零偏移贴地，固定高度保留源节点姿态。")--
+            @section_header("高度与落点", "继承该 GLB 摆放的高度设置。跟随地形可以调整本节点的离地偏移，零米贴地。固定高度保留源节点姿态。")--
             @mode_row(height_modes)--
             @numeric_slot(Field::TranslationY)--
             @section_header("碰撞", "可只为当前节点启用或关闭碰撞。该设置与碰撞 LOD 分开保存。")--
@@ -308,13 +346,7 @@ fn sync(
         }
         let selected = properties.is_some_and(|properties| mode.selected(properties));
         let interaction = if enabled { *hover } else { UiInteraction::None };
-        let color = match (interaction, selected) {
-            (UiInteraction::Pressed, _) => theme::BUTTON_DEV_SMALL_PRESSED,
-            (UiInteraction::Hovered, _) => theme::BUTTON_DEV_SMALL_HOVERED,
-            (UiInteraction::None, true) => theme::SELECT_BG,
-            (UiInteraction::None, false) => theme::BUTTON_DEV_SMALL_NORMAL,
-        };
-        background.set_if_neq(BackgroundColor(color));
+        background.set_if_neq(BackgroundColor(button_color(interaction, selected)));
     }
     for (slot, mut node) in &mut slots {
         let has_value = properties
@@ -356,7 +388,7 @@ fn sync(
         }
     }
     let notice = if properties.is_some() {
-        ""
+        state.space_notice
     } else {
         state.read_error.as_deref().unwrap_or("正在读取源网格属性…")
     };
@@ -384,7 +416,7 @@ mod tests {
     #[test]
     fn mesh_property_modes_preserve_other_overrides_and_custom_precision() {
         let mut properties = SourceMeshProperties::default();
-        let follow = Mode::Height(Some(SourceMeshHeight::FollowTerrain { offset: 0.0 }));
+        let follow = Mode::Height(Height::FollowTerrain);
         let display_custom = Mode::DisplayLod(Lod::Custom);
         let collision_custom = Mode::CollisionLod(Lod::Custom);
         for mode in [
@@ -408,7 +440,7 @@ mod tests {
         assert_eq!(display_error.value(properties), Some(3.5));
         assert_eq!(collision_error.value(properties), Some(0.0002));
 
-        Mode::Height(None).apply(&mut properties);
+        Mode::Height(Height::Inherit).apply(&mut properties);
         Mode::DisplayLod(Lod::Global).apply(&mut properties);
         assert_eq!(properties.height, None);
         assert_eq!(properties.collision, Some(false));
@@ -420,9 +452,41 @@ mod tests {
     }
 
     #[test]
+    fn source_mesh_legacy_snap_is_zero_offset_follow_until_height_is_edited() {
+        let legacy = serde_json::json!({"mode":"snap_to_ground"});
+        let mut properties: SourceMeshProperties =
+            serde_json::from_value(serde_json::json!({"height":legacy})).unwrap();
+        let follow = Mode::Height(Height::FollowTerrain);
+        let offset = ValueField(Field::TranslationY);
+        assert_eq!(
+            Height::ALL.map(|height| Mode::Height(height).label()),
+            ["继承", "跟随地形", "固定高度"]
+        );
+        assert!(follow.selected(properties));
+        assert_eq!(offset.value(properties), Some(0.0));
+        follow.apply(&mut properties);
+        Mode::Collision(Some(true)).apply(&mut properties);
+        assert_eq!(serde_json::to_value(properties).unwrap()["height"], legacy);
+
+        *offset.slot(&mut properties).unwrap() = 1.25;
+        let saved = serde_json::to_value(properties).unwrap();
+        assert_eq!(
+            saved["height"],
+            serde_json::json!({"mode":"follow_terrain","offset":1.25})
+        );
+        let mut reopened = serde_json::from_value(saved).unwrap();
+        assert!(follow.selected(reopened));
+        assert_eq!(offset.value(reopened), Some(1.25));
+        Mode::Height(Height::FixedHeight).apply(&mut reopened);
+        assert_eq!(reopened.height, Some(SourceMeshHeight::FixedHeight));
+        assert_eq!(offset.value(reopened), None);
+    }
+
+    #[test]
     fn source_node_numeric_blur_and_mode_release_share_one_frozen_request() {
-        for (fast_click, switch_node, reload) in [
-            (false, false, false), (true, false, false), (false, true, false), (false, false, true),
+        for (fast_click, switch_node, reload, switch_space) in [
+            (false, false, false, false), (true, false, false, false),
+            (false, true, false, false), (false, false, true, false), (false, false, false, true),
         ] {
             let (mut app, _, _) = crate::viewport::placement_move::interaction_tests::app();
             app.add_message::<NumericInputCommitted>()
@@ -523,6 +587,15 @@ mod tests {
             world
                 .resource_mut::<ButtonInput<MouseButton>>()
                 .release(MouseButton::Left);
+            if switch_space {
+                let revision = world.resource::<EditorAuthoringSession>().revision;
+                world.spawn((Space::World, EditorButtonClick::triggered()));
+                world.run_system(run_input).unwrap();
+                assert_eq!(world.resource::<Inspector>().space, Space::World);
+                assert_eq!(world.resource::<EditorAuthoringSession>().revision, revision);
+                assert!(world.resource::<Messages<SourceGlbRequest>>().is_empty(), "切换坐标不提交旧档失焦值");
+                continue;
+            }
             world
                 .entity_mut(collision_button)
                 .insert(EditorButtonClick::triggered());
@@ -564,21 +637,23 @@ struct PendingNodeInput {
     target: SceneObjectTarget,
     publication: SourcePublication,
     expected_hash: String,
-    pose: Option<Transform>,
+    pose: Option<(Transform, EditFrame, Mat4)>,
     properties: Option<SourceMeshProperties>,
 }
 
 fn input(
-    editor: Res<SceneEditorState>,
+    mut editor: ResMut<SceneEditorState>,
     browser: Res<EditorGltfBrowserState>,
     session: Res<EditorAuthoringSession>,
-    state: Res<Inspector>,
+    mut state: ResMut<Inspector>,
     guard: Res<SceneEditorNumericScrubMouseGuard>,
     mouse: Res<ButtonInput<MouseButton>>,
     buttons: Query<
         (&Mode, &EditorButtonClick),
         (Changed<EditorButtonClick>, Without<InteractionDisabled>),
     >,
+    spaces: Query<(&Space, &EditorButtonClick), (Changed<EditorButtonClick>, Without<InteractionDisabled>)>,
+    frames: Frames,
     // 兼容仍可能在禁用根上发出旧松手提交的 SDK。
     fields: Query<&ValueField, Without<NumericInputDisabled>>,
     pose_fields: Query<&PoseControl, Without<NumericInputDisabled>>,
@@ -586,6 +661,15 @@ fn input(
     mut commits: MessageReader<NumericInputCommitted>,
     mut requests: MessageWriter<SourceGlbRequest>,
 ) {
+    if !guard.blocked()
+        && let Some((space, _)) = spaces.iter().find(|(space, click)| click.is_clicked() && **space != state.space)
+    {
+        // 释放坐标按钮时先丢掉因失焦产生的旧坐标提交，浏览坐标不进入源文件历史。
+        state.space = *space;
+        *pending = None;
+        commits.clear();
+        return;
+    }
     let clicked = (!guard.blocked())
         .then(|| {
             buttons
@@ -602,9 +686,12 @@ fn input(
             .as_ref()
             .is_none_or(|pending| &pending.target == target && pending.expected_hash == hash && pending.publication == publication)
     {
+        let parent = state.parent_in_glb;
+        let frame = frames.get(state.space, target, parent).filter(|frame| Some(*frame) == state.frame);
         let mut pose = pending
             .as_ref()
-            .and_then(|pending| pending.pose)
+            .and_then(|pending| pending.pose.filter(|(_, basis, _)| Some(*basis) == frame))
+            .map(|(pose, _, _)| pose)
             .unwrap_or(before_pose);
         let mut properties = pending
             .as_ref()
@@ -618,7 +705,11 @@ fn input(
                 continue;
             };
             if let Ok(field) = pose_fields.get(event.entity) {
-                field.apply(&mut pose, value);
+                if let Some(frame) = frame
+                    && let Err(error) = frame.apply(*field, &mut pose, value)
+                {
+                    editor.status = error;
+                }
             } else if let Ok(field) = fields.get(event.entity)
                 && let Some(slot) = field.slot(&mut properties)
             {
@@ -632,7 +723,7 @@ fn input(
             display: properties.display_lod.unwrap_or_default(),
             collision: properties.collision_lod.unwrap_or_default(),
         };
-        let pose = (pose != before_pose).then_some(pose);
+        let pose = frame.filter(|_| pose != before_pose).map(|frame| (pose, frame, parent));
         let properties =
             (properties != before_properties && policy.validate().is_ok()).then_some(properties);
         *pending = (pose.is_some() || properties.is_some()).then(|| PendingNodeInput {
@@ -659,11 +750,12 @@ fn input(
         && target.current(&editor, &session)
         && source_publication(&target, &browser, &session) == Some(publication)
     {
-        requests.write(SourceGlbRequest::NodeEdit {
-            target,
-            expected_hash,
-            pose,
-            properties,
+        // 松手时仍需同一引用及矩阵。父级移动或实例换代后不能采用旧基准的数值。
+        let pose = pose.and_then(|(pose, frame, parent)| {
+            (state.space == frame.space && frames.get(frame.space, &target, parent) == Some(frame)).then_some(pose)
         });
+        if pose.is_some() || properties.is_some() {
+            requests.write(SourceGlbRequest::NodeEdit { target, expected_hash, pose, properties });
+        }
     }
 }

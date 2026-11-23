@@ -2,7 +2,7 @@
 
 use super::{open_scene_tree, ui_visible};
 use crate::{
-    authoring::EditorAuthoringSession,
+    authoring::{EditorAuthoringSession, EditorCommand},
     components::SceneEditorRightPanelScroll,
     resources::{SceneEditorState, SceneEditorViewportState},
     ui::{
@@ -11,6 +11,7 @@ use crate::{
         file_manager_validation::{pointer_click, right_click},
         gltf_browser::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeExpander, SceneMeshObjectsHeading},
         scene_context_menu::{SceneMenuAction, SceneObjectKey, SceneObjectRow, press_action_for_validation},
+        scene_source_glb::source_position_field_for_validation,
     },
     viewport::modes::{self, ViewportMode, ViewportModeState},
 };
@@ -21,6 +22,7 @@ use bevy::{
     window::PrimaryWindow,
 };
 use feathrise_scene_content::SceneId;
+use feathrise_editor_ui::{EditorButtonClick, NumericInputCommitOutcome, NumericInputCommitSource, NumericInputCommitted, NumericInputValue, NumericValue};
 use serde_json::{Value, json};
 use std::{fs, path::{Path, PathBuf}};
 
@@ -31,13 +33,19 @@ const GROUP: &str = "验收组";
 const PRIVATE_TERRAIN: &str = "starter-ground";
 const PRIVATE_LAYER: &str = "scene-tree-private-grass";
 const GLB_ICON: &str = "icons/editor/tree_glb.png";
+const SOURCE_SPACES: [&str; 3] = ["源 GLB", "当前场景", "世界"];
+const SOURCE_X_VALUES: [f32; 3] = [1.75, 6.75, 6.75];
+const WORLD_X_EDIT: f32 = 7.5;
+const COORDINATE_SCREENSHOT: &str = "scene-tree-glb-coordinates.png";
 
 #[derive(Resource)]
 struct StartupScreenshot(Task<Result<(), String>>);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Step {
     Open,
+    ExpandMain(u8),
+    StartupTreeReady,
     StartupScreenshot,
     SelectCube,
     Move,
@@ -46,6 +54,10 @@ pub(super) enum Step {
     ExpandRoot(u8),
     SelectMesh,
     Verify,
+    SourceSpace { index: usize, frame: u8 },
+    VerifySourceSpace(usize),
+    SourceSpaceScreenshot,
+    SourceSpaceEdited,
     GroupName { press: u8, frame: u8, before: [u32; 4] },
     GroupFocused { frame: u8, before: [u32; 4] },
     RestoreMesh,
@@ -76,15 +88,35 @@ pub(super) fn preflight(project: &Path, scene: &SceneId) -> Result<(), String> {
     Ok(())
 }
 
+pub(super) fn reopened_source_position(world: &mut World) -> Option<Value> {
+    use feathrise_editor_animation_model::types::EmbeddedNodeIndex;
+    use feathrise_scene::ScenePlacementInstance;
+
+    let paths = feathrise_editor_core::editor_project_paths()?;
+    let scene = SceneId::parse("M1-SAMPLE").ok()?;
+    preflight(paths.project_root(), &scene).ok()?;
+    let root = world.query::<(Entity, &ScenePlacementInstance)>().iter(world).find_map(|(entity, instance)| {
+        (instance.scene_id() == &scene && instance.id() == MODEL && instance.asset_path() == ASSET_PATH
+            && instance.is_active()).then_some(entity)
+    })?;
+    let mut children = world.query::<&Children>();
+    // 针对新进程实际采用的资产实例取数，避免用磁盘回读结果冒充重开后的世界坐标。
+    children.query(world).iter_descendants(root).find_map(|entity| {
+        if world.get::<EmbeddedNodeIndex>(entity)?.0 != 0 { return None; }
+        Some(json!({"placement": MODEL, "local_x": world.get::<Transform>(entity)?.translation.x,
+            "world_x": world.get::<GlobalTransform>(entity)?.translation().x}))
+    })
+}
+
 pub(super) fn advance(
     world: &mut World,
     step: &mut Step,
     cube: &str,
-    revision: u64,
+    revision: &mut u64,
     pulse: &mut Option<Entity>,
 ) -> Result<Option<Value>, String> {
     let session = world.resource::<EditorAuthoringSession>();
-    if session.revision != revision {
+    if session.revision != *revision && *step != Step::SourceSpaceEdited {
         return Err("切换视口工具和树行选择不应修改场景修订".into());
     }
     let selected = world.resource::<EditorGltfBrowserState>().selected_placement_id.as_deref();
@@ -93,12 +125,24 @@ pub(super) fn advance(
     match *step {
         Step::Open => {
             if open_scene_tree(world)? {
-                if !startup_enabled() {
-                    *step = Step::SelectCube;
-                } else if startup_tree_visible(world, cube)? {
-                    request_startup_screenshot(world)?;
-                    *step = Step::StartupScreenshot;
-                }
+                *step = Step::ExpandMain(0);
+            }
+        }
+        Step::ExpandMain(frame) => {
+            if frame == 0 && scene_row(world, cube, false).is_some() {
+                *step = Step::StartupTreeReady;
+            } else if let Some(row) = main_scene_row(world) {
+                // 内置立方体现由主场景 GLB 收纳，先操作真实箭头才能验证它的图标和选择。
+                let arrow = row_arrow(world, row)?;
+                *step = click_control(world, arrow, frame)?.map_or(Step::StartupTreeReady, Step::ExpandMain);
+            }
+        }
+        Step::StartupTreeReady => {
+            if !startup_enabled() {
+                *step = Step::SelectCube;
+            } else if startup_tree_visible(world, cube)? {
+                request_screenshot(world, "scene-tree-startup.png")?;
+                *step = Step::StartupScreenshot;
             }
         }
         Step::StartupScreenshot => {
@@ -169,6 +213,58 @@ pub(super) fn advance(
             if selected == Some(MODEL) && let Some(mesh) = &browser.selection
                 && mesh.valid && mesh.placement_id == MODEL && mesh.mesh_name == MESH
             {
+                *step = if startup_enabled() {
+                    let Some((_, active)) = source_position_field_for_validation(world) else { return Ok(None); };
+                    if active != SOURCE_SPACES[0] { return Err("源网格默认坐标应为源 GLB".into()); }
+                    Step::SourceSpace { index: 0, frame: 0 }
+                } else {
+                    Step::GroupName { press: 0, frame: 0, before: camera_pose(world) }
+                };
+            }
+        }
+        Step::SourceSpace { index, frame } => {
+            if let Some(button) = source_space_button(world, SOURCE_SPACES[index]) {
+                *step = click_control(world, button, frame)?.map_or(Step::VerifySourceSpace(index),
+                    |frame| Step::SourceSpace { index, frame });
+            }
+        }
+        Step::VerifySourceSpace(index) => {
+            // 顶层场景与世界同值。分别核对真实采用的档位，防止两个按钮误走同一分支也通过。
+            if let Some((field, active)) = source_position_field_for_validation(world)
+                && active == SOURCE_SPACES[index]
+                && world.get::<NumericInputValue>(field).and_then(|value| value.0.as_f32()) == Some(SOURCE_X_VALUES[index])
+            {
+                if index + 1 < SOURCE_SPACES.len() {
+                    *step = Step::SourceSpace { index: index + 1, frame: 0 };
+                } else {
+                    request_screenshot(world, COORDINATE_SCREENSHOT)?;
+                    *step = Step::SourceSpaceScreenshot;
+                }
+            }
+        }
+        Step::SourceSpaceScreenshot => {
+            if let Some(result) = world.get_resource_mut::<StartupScreenshot>()
+                .and_then(|mut capture| check_ready(&mut capture.0))
+            {
+                result?;
+                world.remove_resource::<StartupScreenshot>();
+                let (entity, label) = source_position_field_for_validation(world).ok_or("真实源网格 X 字段已失效")?;
+                if label != "世界" { return Err("世界坐标字段未采用".into()); }
+                // 复用实际数字框的正式提交协议，源编辑和随后场景保存仍由原系统执行。
+                world.write_message(NumericInputCommitted { entity, value: NumericValue::F32(WORLD_X_EDIT),
+                    outcome: NumericInputCommitOutcome::Accepted, source: NumericInputCommitSource::Text,
+                    changed: true, edited: true });
+                *step = Step::SourceSpaceEdited;
+            }
+        }
+        Step::SourceSpaceEdited => {
+            if session.revision != *revision {
+                if session.revision != revision.wrapping_add(1)
+                    || !matches!(session.undo.last(), Some(EditorCommand::SourceGlbsChanged { .. }))
+                {
+                    return Err("一次世界 X 提交应形成一笔源 GLB 编辑".into());
+                }
+                *revision = session.revision;
                 *step = Step::GroupName { press: 0, frame: 0, before: camera_pose(world) };
             }
         }
@@ -247,7 +343,7 @@ pub(super) fn advance(
                     "selected_mesh": MESH,
                     "asset_path_shown_in_properties": ASSET_PATH,
                     "file_window_selected": ASSET_PATH,
-                    "scene_revision": revision,
+                    "scene_revision": *revision,
                     "selected_names_without_expansion": true,
                     "model_double_click_focused_while_folded": true,
                     "explicit_arrows_preserved_selection": true,
@@ -260,6 +356,13 @@ pub(super) fn advance(
                         "tree_glb_icon": GLB_ICON,
                         "file_glb_icon": GLB_ICON,
                         "screenshot": "scene-tree-startup.png",
+                        "source_coordinates": {
+                            "labels": SOURCE_SPACES,
+                            "x_meters": SOURCE_X_VALUES,
+                            "switch_preserved_author_revision": true,
+                            "edited_world_x": WORLD_X_EDIT,
+                            "screenshot": COORDINATE_SCREENSHOT,
+                        },
                     })),
                 })));
             }
@@ -289,10 +392,10 @@ fn startup_tree_visible(world: &mut World, cube: &str) -> Result<bool, String> {
         && row_has_icon(world, model, GLB_ICON) && row_has_icon(world, cuboid, "icons/editor/tree_mesh.png"))
 }
 
-fn request_startup_screenshot(world: &mut World) -> Result<(), String> {
+fn request_screenshot(world: &mut World, name: &str) -> Result<(), String> {
     let output = PathBuf::from(std::env::var_os("NEW_EDITOR_NATIVE_SMOKE_DIR").ok_or("首屏截图缺少独占目录")?);
-    let path = output.join("scene-tree-startup.png");
-    // 保持打开首屏，等实际主窗口完成渲染并写证据，再驱动任何树行选择。
+    let path = output.join(name);
+    // 当前作者阶段保持不变，等实际主窗口完成渲染并写证据再推进。
     world.spawn(Screenshot::primary_window()).observe(move |event: On<ScreenshotCaptured>, mut commands: Commands| {
         let image = event.image.clone();
         let path = path.clone();
@@ -302,6 +405,16 @@ fn request_startup_screenshot(world: &mut World) -> Result<(), String> {
         })));
     });
     Ok(())
+}
+
+fn source_space_button(world: &mut World, label: &str) -> Option<Entity> {
+    world.query::<(Entity, &Text)>().iter(world).filter(|(_, text)| text.0 == label)
+        .find_map(|(entity, _)| {
+            std::iter::successors(Some(entity), |entity| world.get::<ChildOf>(*entity).map(ChildOf::parent))
+                .find(|entity| world.get::<EditorButtonClick>(*entity).is_some()
+                    && world.get::<bevy::ui::InteractionDisabled>(*entity).is_none()
+                    && ui_visible(world, *entity))
+        })
 }
 
 fn row_has_icon(world: &World, row: Entity, path: &str) -> bool {
@@ -361,7 +474,14 @@ fn scene_row(world: &mut World, placement: &str, child: bool) -> Option<Entity> 
     world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
         let target = row.0.as_ref()?;
         matches!(&target.key, SceneObjectKey::Placement { id, mesh, .. }
-            if id == placement && mesh.is_some() == child && ui_visible(world, entity)).then_some(entity)
+            if id == placement && mesh.is_some() == child && ui_visible(world, entity)
+                && mesh.as_ref().is_none_or(|mesh| mesh.mesh_name == MESH)).then_some(entity)
+    })
+}
+
+fn main_scene_row(world: &mut World) -> Option<Entity> {
+    world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
+        (matches!(row.0.as_ref()?.key, SceneObjectKey::MainSceneGlb) && ui_visible(world, entity)).then_some(entity)
     })
 }
 

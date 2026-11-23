@@ -1,6 +1,7 @@
-//! 属性面板用原专业数值框编辑当前 GLB 节点的源局部 TRS。
+//! 属性面板在源 GLB、场景和世界坐标中查看与编辑同一节点的源变换。
 
 use super::{owns_selection, properties, resolve_source_target};
+use super::spaces::{EditFrame, Frames, Space};
 use crate::{
     SceneEditorSystemSet,
     authoring::{EditorAuthoringSession, source_glbs::{self, SourceMeshProperties}},
@@ -17,11 +18,14 @@ use bevy::{
     prelude::*,
     tasks::{IoTaskPool, Task, futures::check_ready},
     text::FontSourceTemplate,
+    ui::InteractionDisabled,
     world_serialization::WorldAsset,
 };
 use feathrise_editor_ui::{
-    ActiveNumericInput, ActiveNumericInputScrub, NumericInputDisabled, NumericInputSetValue,
-    NumericInputValue, NumericScrubFieldOptions, NumericValue, spawn_numeric_scrub_field,
+    ActiveNumericInput, ActiveNumericInputScrub, EditorButtonClick, NumericInputConfig,
+    NumericInputDisabled, NumericInputScrubConfig, NumericInputScrubMapping, NumericInputSetValue,
+    NumericInputSpec, NumericInputValue, NumericScrubFieldOptions, NumericValue, UiInteraction,
+    normalize_numeric_value, spawn_numeric_scrub_field,
 };
 
 #[derive(Component, Clone, Copy, Default)]
@@ -30,6 +34,13 @@ struct Panel;
 struct Slot(Field);
 #[derive(Component, Clone, Copy)]
 pub(super) struct Control(pub(super) Field);
+
+#[cfg(feature = "validation")]
+pub(crate) fn source_position_field_for_validation(world: &mut World) -> Option<(Entity, &'static str)> {
+    let space = world.resource::<Inspector>().frame?.space.label();
+    let mut fields = world.query_filtered::<(Entity, &Control), Without<NumericInputDisabled>>();
+    fields.iter(world).find_map(|(entity, field)| (field.0 == Field::TranslationX).then_some((entity, space)))
+}
 
 impl Control {
     pub(super) fn apply(self, pose: &mut Transform, next: f32) {
@@ -49,7 +60,7 @@ impl Control {
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct AdoptNodeSnapshot;
 
-type NodeRead = (Transform, SourceMeshProperties, String);
+type NodeRead = (Transform, Mat4, SourceMeshProperties, String);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum SourcePublication {
@@ -64,6 +75,10 @@ pub(crate) struct Inspector {
     requested: Option<SceneObjectTarget>,
     requested_publication: Option<SourcePublication>,
     pose: Option<Transform>,
+    pub(super) parent_in_glb: Mat4,
+    pub(super) space: Space,
+    pub(super) frame: Option<EditFrame>,
+    pub(super) space_notice: &'static str,
     content_hash: Option<String>,
     pub(super) mesh_properties: Option<SourceMeshProperties>,
     pub(super) read_error: Option<String>,
@@ -111,6 +126,7 @@ impl Inspector {
         content_hash: &str, browser: &EditorGltfBrowserState, session: &EditorAuthoringSession) -> Self {
         Self { visible: true, requested: Some(target.clone()), requested_publication: source_publication(&target, browser, session),
             displayed: Some(target), pose: Some(pose), content_hash: Some(content_hash.to_owned()),
+            frame: Some(EditFrame::glb(Mat4::IDENTITY)),
             mesh_properties: Some(properties), ..Self::default() }
     }
 }
@@ -275,9 +291,13 @@ fn source_pose_preview_applies_authored_changes_to_settled_height() {
 }
 
 pub(in crate::ui) fn panel() -> impl Scene {
+    let spaces: Vec<_> = Space::ALL.into_iter()
+        .map(|space| properties::property_button(space.label(), space)).collect();
     bsn! { Panel Node { display: Display::None, width: percent(100), flex_direction: FlexDirection::Column, row_gap: px(3) }
         Children [
-            @crate::ui::context_help::section_header("源 GLB 节点", "位置、旋转和缩放是此节点在 GLB 中的局部变换。保存后该源文件的所有引用实例一起更新。")--
+            @crate::ui::context_help::section_header("节点变换", "切换位置、旋转、缩放共用的参考坐标。源 GLB 以所属模型根为准，当前场景以所在场景为准，世界包含外层引用。修改后换算为直属父节点的局部变换并保存到源 GLB。")--
+            Node { width: percent(100), flex_wrap: FlexWrap::Wrap, column_gap: px(3), row_gap: px(3) }
+                Children [{spaces}]--
             @row("位置", [Field::TranslationX, Field::TranslationY, Field::TranslationZ])--
             @row("旋转", [Field::RotationX, Field::RotationY, Field::RotationZ])--
             @row("缩放", [Field::ScaleX, Field::ScaleY, Field::ScaleZ])--
@@ -304,10 +324,51 @@ fn setup(
             ["X", "Y", "Z"][axis],
             field.unit(),
             NumericValue::F32(0.0),
-            field.spec(None, true),
+            node_input_spec(field),
             field.scrub_config(&settings, None, true),
         );
         mount_numeric(&mut commands, slot, Control(field), font.clone(), options);
+    }
+}
+
+fn node_input_spec(field: Field) -> NumericInputSpec {
+    let mut spec = field.spec(None, true);
+    if field.scale_axis().is_some() {
+        // 父级组合后可超过整件摆放的范围，GLB 节点还可以镜像或缩到零。
+        spec.min = None;
+        spec.max = None;
+    }
+    spec
+}
+
+fn node_scale_scrub(mut config: NumericInputScrubConfig, shown: f32) -> NumericInputScrubConfig {
+    // 保留常用正倍率的指数手感。超出普通范围时从实际值起拖，避免首帧跳变。
+    config.maximum = config.maximum.max((2.0 * shown.abs()).min(f32::MAX));
+    if shown > 0.0 {
+        config.minimum = config.minimum.min(shown * 0.5);
+    } else if let NumericInputScrubMapping::Exponential { exponent_per_pixel } = config.mapping {
+        config.minimum = -config.maximum;
+        config.mapping = NumericInputScrubMapping::Linear {
+            units_per_pixel: exponent_per_pixel * shown.abs().max(1.0),
+        };
+    }
+    config
+}
+
+#[test]
+fn source_glb_scale_input_preserves_combined_and_mirrored_scale() {
+    let field = Field::ScaleX;
+    let spec = node_input_spec(field);
+    let base = field.scrub_config(&feathrise_editor_core::EditorSettings::default(), None, true);
+    assert_eq!(node_scale_scrub(base, 1.0), base);
+    for shown in [-2500.0, -0.5, 0.0, 0.0006, 2500.0] {
+        let expected = if shown == 0.0006 { 0.001 } else { shown };
+        let proposed = NumericValue::F32(shown);
+        let actual = normalize_numeric_value(proposed, spec).as_f32().unwrap();
+        assert_eq!(actual, expected);
+        let config = node_scale_scrub(base, actual);
+        assert!(config.minimum < actual && actual < config.maximum);
+        assert_eq!(matches!(config.mapping, NumericInputScrubMapping::Exponential { .. }), actual > 0.0);
     }
 }
 
@@ -397,15 +458,20 @@ fn refresh(
     editor: Res<SceneEditorState>,
     session: Res<EditorAuthoringSession>,
     browser: Res<EditorGltfBrowserState>,
+    settings: Res<feathrise_editor_core::EditorSettings>,
     active: Res<ActiveNumericInput>,
     scrub: Res<ActiveNumericInputScrub>,
     mut panel_nodes: Query<&mut Node, With<Panel>>,
-    fields: Query<(
+    mut fields: Query<(
         Entity,
         &Control,
         &NumericInputValue,
+        &NumericInputConfig,
+        &mut NumericInputScrubConfig,
         Has<NumericInputDisabled>,
     )>,
+    frames: Frames,
+    mut buttons: Query<(Entity, &Space, &UiInteraction, Has<InteractionDisabled>, &mut BackgroundColor, &mut EditorButtonClick)>,
     mut state: ResMut<Inspector>,
     mut values: MessageWriter<NumericInputSetValue>,
     mut commands: Commands,
@@ -430,8 +496,9 @@ fn refresh(
         if chosen.as_ref() == Some(&read) && publication == Some(read_publication) {
             state.displayed = Some(read);
             match result {
-                Ok((pose, mesh_properties, content_hash)) => {
+                Ok((pose, parent, mesh_properties, content_hash)) => {
                     state.pose = Some(pose);
+                    state.parent_in_glb = parent;
                     state.mesh_properties = Some(mesh_properties);
                     state.content_hash = Some(content_hash);
                 }
@@ -469,11 +536,33 @@ fn refresh(
             node.display = display;
         }
     }
-    let enabled = !changed && state.pose.is_some() && !session.source_glb_busy
+    for (entity, space, hover, disabled, mut background, mut click) in &mut buttons {
+        if changed { click.invalidate(); }
+        if show == disabled {
+            if show { commands.entity(entity).remove::<InteractionDisabled>(); }
+            else { commands.entity(entity).insert(InteractionDisabled); }
+        }
+        background.set_if_neq(BackgroundColor(properties::button_color(if show { *hover } else { UiInteraction::None }, *space == state.space)));
+    }
+    let frame = state.pose.and_then(|_| chosen.as_ref().and_then(|object| frames.get(state.space, object, state.parent_in_glb)));
+    let reference_changed = changed || frame != state.frame;
+    state.frame = frame;
+    let position = frame.zip(state.pose).map(|(frame, pose)| frame.position(pose)).filter(|point| point.is_finite());
+    let displayed = frame.zip(state.pose).and_then(|(frame, pose)| frame.pose(pose));
+    state.space_notice = if state.pose.is_none() { "" }
+        else if frame.is_none() && state.space == Space::Glb { "源 GLB 父级坐标无法换算" }
+        else if frame.is_none() { "当前引用的坐标尚未就绪" }
+        else if displayed.is_none() { "当前坐标系的旋转和缩放无法精确表示，可编辑位置" }
+        else { "" };
+    let enabled = !reference_changed && !session.source_glb_busy
         && state.editable_target(&browser, &editor, &session).is_some();
-    for (entity, field, current, disabled) in &fields {
+    for (entity, field, current, input, mut drag, disabled) in &mut fields {
+        let next = match field.0.translation_axis() {
+            Some(axis) => position.map(|position| position[axis]),
+            None => displayed.map(|pose| value(pose, field.0)),
+        };
         // 让上一代拖动先走完共享捕获的取消/松手，再把同一数值框交给新节点。
-        let field_enabled = enabled && (!disabled || scrub.entity != Some(entity));
+        let field_enabled = enabled && next.is_some() && (!disabled || scrub.entity != Some(entity));
         if field_enabled == disabled {
             if field_enabled {
                 commands.entity(entity).remove::<NumericInputDisabled>();
@@ -481,23 +570,22 @@ fn refresh(
                 commands.entity(entity).insert(NumericInputDisabled);
             }
         }
-        if let Some(pose) = state.pose {
-            let next = value(pose, field.0);
-            if changed
-                || (active.entity != Some(entity)
-                    && scrub.entity != Some(entity)
-                    && current
-                        .0
-                        .as_f32()
-                        .is_none_or(|previous| (previous - next).abs() > 0.0005))
-            {
+        if let Some(next) = next {
+            let next = normalize_numeric_value(NumericValue::F32(next), input.0);
+            let idle = active.entity != Some(entity) && scrub.entity != Some(entity);
+            if idle && field.0.scale_axis().is_some() {
+                let mut base = field.0.scrub_config(&settings, None, true);
+                base.sensitivity = drag.sensitivity;
+                drag.set_if_neq(node_scale_scrub(base, next.as_f32().unwrap()));
+            }
+            if reference_changed || idle && current.0 != next {
                 values.write(NumericInputSetValue {
                     entity,
-                    value: NumericValue::F32(next),
+                    value: next,
                     cancel_edit: true,
                 });
             }
-        } else if changed {
+        } else if reference_changed {
             values.write(NumericInputSetValue {
                 entity,
                 value: current.0,
