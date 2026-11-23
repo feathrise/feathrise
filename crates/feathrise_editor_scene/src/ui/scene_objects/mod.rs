@@ -11,7 +11,7 @@ mod scene_menu;
 mod visibility;
 
 pub(crate) use resources::SceneObjectState;
-pub(crate) use scene_menu::{create_folder, queue_group_drop};
+pub(crate) use scene_menu::{create_folder, move_folder, queue_group_drop};
 pub(crate) use metadata::{effective_metadata, effective_participation};
 pub(crate) use types::PlacementVisibilityIntent;
 pub(crate) use scene::properties_panel;

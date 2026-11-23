@@ -12,8 +12,6 @@ pub(super) struct ListContent;
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct Summary;
 #[derive(Component, Clone, Copy, Default)]
-pub(super) struct ListSummary;
-#[derive(Component, Clone, Copy, Default)]
 pub(super) struct CreationSummary;
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct CreationFeedback;
@@ -85,6 +83,8 @@ pub(super) enum MeshPropertySection {
 }
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct Row(pub usize);
+#[derive(Component, Clone, Copy, Default)]
+pub(super) struct RowGlyph(pub usize);
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct RowText(pub usize);
 #[derive(Component, Clone, Copy, Default)]

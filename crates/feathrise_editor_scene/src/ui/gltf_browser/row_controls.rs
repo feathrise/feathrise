@@ -22,6 +22,7 @@ pub(super) enum BranchTarget {
     Entry(usize),
 }
 
+#[derive(Clone)]
 struct RowBinding {
     document: PlacementDeletionIdentity,
     revision: u64,
@@ -75,7 +76,7 @@ pub(crate) struct PlacementTreeToggle {
 }
 
 /// 独立于名称区的左侧分支按钮，虚拟行复用时沿用同一释放身份门。
-#[derive(Component, Default)]
+#[derive(Component, Clone, Default)]
 pub(crate) struct PlacementTreeExpander(Option<RowBinding>);
 
 impl PlacementTreeExpander {
@@ -140,7 +141,7 @@ pub(crate) fn sync(
         &mut BackgroundColor, &mut BorderColor,
     ), Without<PlacementTreeExpander>>,
     mut expanders: Query<(
-        Entity, &ChildOf, &Children, &mut PlacementTreeExpander, &mut Visibility,
+        Entity, &ChildOf, &Children, &mut PlacementTreeExpander, &mut Node, &mut Visibility,
         Option<&mut EditorButtonClick>, &UiInteraction, Has<InteractionDisabled>, &mut BackgroundColor,
     ), Without<PlacementTreeToggle>>,
     mut icons: Query<&mut ImageNode>,
@@ -182,15 +183,15 @@ pub(crate) fn sync(
 
     let expander_images = expander_images.get_or_insert_with(|| load_tree_branch_images(&server));
     let main_glb = main_glb_draft(&editor, &session);
-    for (entity, parent, children, mut expander, mut visibility, click, interaction, disabled, mut fill) in &mut expanders {
+    for (entity, parent, children, mut expander, mut node, mut visibility, click, interaction, disabled, mut fill) in &mut expanders {
         let Ok(row) = rows.get(parent.parent()) else { continue; };
         let entry = row.entry_index.and_then(|index| browser.entries.get(index));
         let (collapsed, target) = match (row.main_glb, entry.map(|entry| &entry.kind)) {
             (Some(MainSceneGlbRow::File), _) => (
-                main_glb.map(|draft| browser.expanded_main_glb.as_ref() != Some(&draft.scene_id)),
+                main_glb.map(|draft| browser.collapsed_main_glb.as_ref() == Some(&draft.scene_id)),
                 main_glb.map(|_| BranchTarget::MainGlb),
             ),
-            (_, Some(EditorGltfBrowserEntryKind::Group { collapsed, first_member: Some(_), .. })) =>
+            (_, Some(EditorGltfBrowserEntryKind::Group { collapsed, expandable: true, .. })) =>
                 (Some(*collapsed), published_index(&browser, &session, row).map(BranchTarget::Entry)),
             (_, Some(EditorGltfBrowserEntryKind::Placement { collapsed, expandable: true, placement_id, .. })) => {
                 let target = browser.placement_asset_paths.contains_key(placement_id)
@@ -199,7 +200,9 @@ pub(crate) fn sync(
             }
             _ => (None, None),
         };
-        // 叶子保留箭头所在列，只隐藏这个按钮，文字缩进不会在行池换绑时跳动。
+        // 主场景的内嵌网格用图标占箭头列，其他叶子继续保留原占位。
+        let display = if browser.mesh_uses_arrow_column(row.entry_index) { Display::None } else { Display::Flex };
+        if node.display != display { node.display = display; }
         visibility.set_if_neq(if collapsed.is_some() { Visibility::Inherited } else { Visibility::Hidden });
         let target = target.filter(|_| ready);
         RowBinding::sync(&mut expander.0, &session, row, target, click);

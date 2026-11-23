@@ -92,7 +92,8 @@ impl GroupScan {
 
     fn advance(&mut self, session: &EditorAuthoringSession, objects: Option<&SceneObjectState>,
         geometry: &GroupGeometry) -> Result<bool, String> {
-        let records = &session.draft.as_ref().expect("已验收组所属草稿").placements.placements;
+        let draft = session.draft.as_ref().expect("已验收组所属草稿");
+        let records = &draft.placements.placements;
         let runtime = geometry.runtime.as_ref().filter(|runtime| runtime.scene_id.as_ref() == Some(&self.scene));
         let revision = (geometry.index.membership_revision(), runtime.map_or(0, |runtime| runtime.revision));
         if self.geometry_revision != revision
@@ -136,7 +137,8 @@ impl GroupScan {
             self.branch = None;
             let Some(record) = records.get(self.cursor) else { return Ok(true); };
             let metadata = effective_metadata(objects, session, record);
-            if metadata.group != self.group || metadata.hidden || !effective_participation(objects, session, record) {
+            if !draft.object_folders.contains_member(&self.group, &metadata.group)
+                || metadata.hidden || !effective_participation(objects, session, record) {
                 self.cursor += 1;
                 continue;
             } // 锁定只限制编辑，仍可对可见锁定成员取景。

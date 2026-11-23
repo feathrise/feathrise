@@ -398,6 +398,7 @@ pub(crate) fn apply_undo_redo(
                     if undoing { folders.remove(name); }
                     else { folders.insert(name.clone()); }
                 }
+                EditorCommand::PlacementFolderMoved(change) => change.apply(&mut draft.object_folders, undoing)?,
                 EditorCommand::SubscenesChanged { before, after } => {
                     draft.manifest.subscenes = if undoing { before.clone() } else { after.clone() };
                 }

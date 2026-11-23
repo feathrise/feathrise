@@ -259,7 +259,18 @@ fn write_scene_tree_group(assets: &Path, source_coordinates: bool) -> Result<(),
         std::sync::Arc::make_mut(&mut member.editor).group = "验收组".to_owned();
         placements.placements.push(member);
     }
-    write_sample_scene_glb(assets, &placements, None)
+    write_sample_scene_glb(assets, &placements, None)?;
+    if source_coordinates {
+        // 在本轮夹具预置一个空文件夹，整夹归类和落盘随后由原窗口完成。
+        let path = assets.join(MODEL_SURFACE_SOURCE);
+        let bytes = read_small(&path)?;
+        let mut glb = bevy::gltf::gltf::Glb::from_slice(&bytes).map_err(|error| error.to_string())?;
+        let mut document: Value = serde_json::from_slice(&glb.json).map_err(|error| error.to_string())?;
+        document["extras"]["feathrise_object_folders"] = json!(["验收目标"]);
+        glb.json = std::borrow::Cow::Owned(serde_json::to_vec(&document).map_err(|error| error.to_string())?);
+        fs::write(path, glb.to_vec().map_err(|error| error.to_string())?).map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 /// 只给场景树专项布置已保存的私有作者层，从首次打开场景就能检查目录，无需先选地形。

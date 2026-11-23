@@ -33,6 +33,8 @@ pub enum EditorCommand {
     SceneObjectsChanged(Box<SceneObjectBatchChange>),
     /// 空文件夹仍拥有独立历史，不借助虚拟摆放记录。
     PlacementFolderAdded(String),
+    /// 移动分支只记录一条父级边，成员自身的作者数据不参与写入。
+    PlacementFolderMoved(super::placement_folders::PlacementFolderMove),
     /// 全局太阳/月光基础配置按完整前后快照撤销，颜色三个通道共同保持原子性。
     GlobalCelestialLightingChanged {
         sequence: u64, // 全局作者修订单调命令号，跨场景交接保留原撤销顺序，不写入文件。
@@ -180,14 +182,10 @@ pub struct SceneObjectFolderRename {
 }
 
 impl SceneObjectFolderRename {
-    pub(crate) fn apply(&self, folders: &mut Arc<BTreeSet<String>>, undoing: bool) -> Result<(), String> {
+    pub(crate) fn apply(&self, folders: &mut Arc<super::placement_folders::PlacementFolders>, undoing: bool) -> Result<(), String> {
         if !self.explicit { return Ok(()); }
         let (before, after) = if undoing { (&self.after, &self.before) } else { (&self.before, &self.after) };
-        if !folders.contains(before) || folders.contains(after) { return Err("文件夹名称已变化，原操作已保留".into()); }
-        let folders = Arc::make_mut(folders);
-        folders.remove(before);
-        folders.insert(after.clone());
-        Ok(())
+        Arc::make_mut(folders).rename(before, after)
     }
 }
 

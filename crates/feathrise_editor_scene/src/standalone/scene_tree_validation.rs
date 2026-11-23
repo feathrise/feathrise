@@ -9,8 +9,9 @@ use crate::{
         external_files::platform_path,
         file_manager::{FileManagerState, FileRow},
         file_manager_validation::{mouse, move_cursor, pointer_click, right_click},
-        gltf_browser::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeExpander, SceneMeshObjectsHeading},
-        scene_context_menu::{SceneMenuAction, SceneObjectKey, SceneObjectRow, press_action_for_validation},
+        gltf_browser::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeDrag, PlacementTreeExpander, SceneBaseGltfRow, SceneTreeRootRow},
+        scene_context_menu::{SceneMenuAction, SceneObjectKey, SceneObjectRow, press_action_for_validation,
+            visible_action_for_validation, visible_rename_controls_for_validation},
         scene_objects,
         scene_source_glb::{source_name_input_for_validation, source_position_field_for_validation},
     },
@@ -34,6 +35,7 @@ const GROUP: &str = "验收组";
 const PRIVATE_TERRAIN: &str = "starter-ground";
 const PRIVATE_LAYER: &str = "scene-tree-private-grass";
 const GLB_ICON: &str = "icons/editor/tree_glb.png";
+const TERRAIN_ICON: &str = "icons/editor/tree_terrain.png";
 const SOURCE_SPACES: [&str; 3] = ["源 GLB", "当前场景", "世界"];
 const SOURCE_X_VALUES: [f32; 3] = [1.75, 6.75, 6.75];
 const WORLD_X_EDIT: f32 = 7.5;
@@ -42,6 +44,9 @@ const CUBE_PROPERTIES_SCREENSHOT: &str = "scene-tree-cube-properties.png";
 const DRAG_PREVIEW_SCREENSHOT: &str = "scene-tree-drag-preview.png";
 const RENAMED_NODE: &str = "验收网格";
 const RENAMED_FOLDER: &str = "验收文件夹";
+const FOLDER_PARENT: &str = "验收目标";
+const CREATED_CHILD: &str = "验收子文件夹";
+const NESTED_FOLDER_SCREENSHOT: &str = "scene-tree-nested-folder.png";
 
 #[derive(Resource)]
 struct StartupScreenshot(Task<Result<(), String>>);
@@ -49,7 +54,6 @@ struct StartupScreenshot(Task<Result<(), String>>);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Step {
     Open,
-    ExpandMain(u8),
     StartupTreeReady,
     StartupScreenshot,
     SelectCube,
@@ -77,10 +81,34 @@ pub(super) enum Step {
     GroupFocused { frame: u8, before: [u32; 4] },
     RenameFolder(u8),
     FolderRenamed,
+    ChildFolderMenu(u8),
+    ChildFolderAction(u8),
+    ChildFolderName(u8),
+    ChildFolderCreated,
+    DragFolder { drop: FolderDrop, frame: u8 },
+    FolderDropped(FolderDrop),
+    NestedFolderScreenshot,
     RestoreMesh,
     OpenMenu(u8),
     ChooseLocate,
     Locate,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FolderDrop { IntoParent, ToRoot, SaveInsideParent }
+
+impl FolderDrop {
+    fn parent(self) -> Option<&'static str> {
+        (self != Self::ToRoot).then_some(FOLDER_PARENT)
+    }
+
+    fn next(self) -> Option<Self> {
+        match self {
+            Self::IntoParent => Some(Self::ToRoot),
+            Self::ToRoot => Some(Self::SaveInsideParent),
+            Self::SaveInsideParent => None,
+        }
+    }
 }
 
 pub(super) fn enabled() -> bool {
@@ -112,6 +140,15 @@ pub(super) fn reopened_source_position(world: &mut World) -> Option<Value> {
     let paths = feathrise_editor_core::editor_project_paths()?;
     let scene = SceneId::parse("M1-SAMPLE").ok()?;
     preflight(paths.project_root(), &scene).ok()?;
+    let folders = &world.resource::<EditorAuthoringSession>().draft.as_ref()?.object_folders;
+    let folder_parent = folders.parent(RENAMED_FOLDER)?.to_owned();
+    let child_parent = folders.parent(CREATED_CHILD)?.to_owned();
+    let folder_members = world.resource::<EditorGltfBrowserState>().entries.iter().find_map(|entry| {
+        match &entry.kind {
+            EditorGltfBrowserEntryKind::Group { name, count, .. } if name == FOLDER_PARENT && entry.depth == 0 => Some(*count),
+            _ => None,
+        }
+    })?;
     let root = world.query::<(Entity, &ScenePlacementInstance)>().iter(world).find_map(|(entity, instance)| {
         (instance.scene_id() == &scene && instance.id() == MODEL && instance.asset_path() == ASSET_PATH
             && instance.is_active()).then_some(entity)
@@ -121,7 +158,9 @@ pub(super) fn reopened_source_position(world: &mut World) -> Option<Value> {
     children.query(world).iter_descendants(root).find_map(|entity| {
         if world.get::<EmbeddedNodeIndex>(entity)?.0 != 0 { return None; }
         Some(json!({"placement": MODEL, "local_x": world.get::<Transform>(entity)?.translation.x,
-            "world_x": world.get::<GlobalTransform>(entity)?.translation().x}))
+            "world_x": world.get::<GlobalTransform>(entity)?.translation().x,
+            "reopened_folder_parent": folder_parent, "reopened_folder_members": folder_members,
+            "reopened_created_child_parent": child_parent}))
     })
 }
 
@@ -133,7 +172,9 @@ pub(super) fn advance(
     pulse: &mut Option<Entity>,
 ) -> Result<Option<Value>, String> {
     let session = world.resource::<EditorAuthoringSession>();
-    if session.revision != *revision && !matches!(step, Step::SourceSpaceEdited | Step::MeshScaleApplied | Step::MeshRenamed | Step::FolderRenamed) {
+    if session.revision != *revision && !matches!(step, Step::SourceSpaceEdited | Step::MeshScaleApplied | Step::MeshRenamed
+        | Step::FolderRenamed | Step::ChildFolderCreated | Step::FolderDropped(_))
+    {
         return Err(format!("切换视口工具和树行选择不应修改场景修订：{step:?}，{} → {}", *revision, session.revision));
     }
     let selected = world.resource::<EditorGltfBrowserState>().selected_placement_id.as_deref();
@@ -142,16 +183,7 @@ pub(super) fn advance(
     match *step {
         Step::Open => {
             if open_scene_tree(world)? {
-                *step = Step::ExpandMain(0);
-            }
-        }
-        Step::ExpandMain(frame) => {
-            if frame == 0 && scene_row(world, cube, false).is_some() {
                 *step = Step::StartupTreeReady;
-            } else if let Some(row) = main_scene_row(world) {
-                // 内置立方体现由主场景 GLB 收纳，先操作真实箭头才能验证它的图标和选择。
-                let arrow = row_arrow(world, row)?;
-                *step = click_control(world, arrow, frame)?.map_or(Step::StartupTreeReady, Step::ExpandMain);
             }
         }
         Step::StartupTreeReady => {
@@ -326,12 +358,17 @@ pub(super) fn advance(
         }
         Step::DragPreview(frame) => {
             let Some(source) = scene_row(world, MODEL, false) else { return Ok(None); };
-            let Some(target) = group_row(world) else { return Ok(None); };
+            let Some(target) = folder_row(world, GROUP) else { return Ok(None); };
             let point = if frame < 2 { source } else { target };
             let (window, position) = pointer_context(world, point)?;
+            move_cursor(world, window, position);
             if frame < 3 {
-                move_cursor(world, window, position);
-                if frame == 1 { mouse(world, window, bevy::input::ButtonState::Pressed); }
+                if frame == 1 {
+                    if world.get::<feathrise_editor_ui::UiInteraction>(source) != Some(&feathrise_editor_ui::UiInteraction::Hovered) {
+                        return Ok(None); // 窗口鼠标事件可能晚一帧到达，收到原生悬停后才按下。
+                    }
+                    mouse(world, window, bevy::input::ButtonState::Pressed);
+                }
                 *step = Step::DragPreview(frame + 1);
             } else {
                 let (fill, edge) = crate::ui::scene_sidebar::tree_row_colors(false, true, feathrise_editor_ui::UiInteraction::None);
@@ -342,7 +379,7 @@ pub(super) fn advance(
                     || !world.query_filtered::<&Text, With<SceneBrowserDragPreviewText>>().iter(world)
                         .any(|text| text.0.contains(MODEL))
                 {
-                    return Err("场景树拖动未显示名称浮层或有效文件夹落点".into());
+                    return Ok(None); // 持续悬停，等待真实落点样式与浮层采用同一帧的指针输入。
                 }
                 request_screenshot(world, DRAG_PREVIEW_SCREENSHOT)?;
                 *step = Step::DragScreenshot;
@@ -376,7 +413,7 @@ pub(super) fn advance(
             {
                 return Err("首次点击组名应只选组并保留相机".into());
             }
-            let Some(row) = group_row(world) else { return Ok(None); };
+            let Some(row) = folder_row(world, GROUP) else { return Ok(None); };
             // 实际按松同一组行两次，形成生产双击并通过原菜单请求取景。
             *step = match click_control(world, row, frame)? {
                 Some(frame) => Step::GroupName { press, frame, before },
@@ -391,7 +428,7 @@ pub(super) fn advance(
                 if frame == 0 && (!branch_collapsed(world, GROUP)? || branch_collapsed(world, MODEL)?) {
                     return Err("双击组名定位不应改变两支的展开状态".into());
                 }
-                if let Some(row) = group_row(world) {
+                if let Some(row) = folder_row(world, GROUP) {
                     let arrow = row_arrow(world, row)?;
                     let next = if startup_enabled() { Step::RenameFolder(0) } else { Step::RestoreMesh };
                     *step = click_control(world, arrow, frame)?
@@ -411,7 +448,97 @@ pub(super) fn advance(
                 || !matches!(session.undo.last(), Some(EditorCommand::SceneObjectsChanged(_)))
             { return Err("文件夹改名应形成一笔场景对象历史".into()); }
             *revision = session.revision;
-            *step = Step::RestoreMesh;
+            *step = Step::ChildFolderMenu(0);
+        }
+        Step::ChildFolderMenu(frame) => {
+            let Some(row) = folder_row(world, RENAMED_FOLDER) else { return Ok(None); };
+            let (window, position) = pointer_context(world, row)?;
+            let mut pending = Some((position, frame));
+            *step = if right_click(world, &mut pending, window, position) {
+                Step::ChildFolderAction(0)
+            } else { Step::ChildFolderMenu(pending.unwrap().1) };
+        }
+        Step::ChildFolderAction(frame) => {
+            if let Some(button) = visible_action_for_validation(world, SceneMenuAction::NewPlacementFolder)
+                && let Some(next) = click_control(world, button, frame)?
+            {
+                // 菜单项在松开后换成名称框，下一阶段等待新的控件出现。
+                *step = if frame == 2 { Step::ChildFolderName(0) } else { Step::ChildFolderAction(next) };
+            }
+        }
+        Step::ChildFolderName(frame) => {
+            if let Some((input, button)) = visible_rename_controls_for_validation(world) {
+                if frame == 0 { set_test_name(world, input, CREATED_CHILD)?; }
+                if let Some(next) = click_control(world, button, frame)? {
+                    *step = if frame == 2 { Step::ChildFolderCreated } else { Step::ChildFolderName(next) };
+                }
+            }
+        }
+        Step::ChildFolderCreated if session.revision != *revision => {
+            if session.revision != revision.wrapping_add(1)
+                || !matches!(session.undo.last(), Some(EditorCommand::PlacementFolderMoved(_)))
+                || session.draft.as_ref().and_then(|draft| draft.object_folders.parent(CREATED_CHILD)) != Some(RENAMED_FOLDER)
+            { return Err("右键新建的子文件夹应随所在文件夹写入一笔历史".into()); }
+            if folder_row(world, CREATED_CHILD).is_some() {
+                *revision = world.resource::<EditorAuthoringSession>().revision;
+                *step = Step::DragFolder { drop: FolderDrop::IntoParent, frame: 0 };
+            }
+        }
+        Step::DragFolder { drop, frame } => {
+            let Some(source) = folder_row(world, RENAMED_FOLDER) else { return Ok(None); };
+            let target = match drop.parent() {
+                Some(name) => folder_row(world, name),
+                None => main_scene_row(world),
+            };
+            let Some(target) = target else { return Ok(None); };
+            let (window, position) = pointer_context(world, if frame < 2 { source } else { target })?;
+            move_cursor(world, window, position);
+            if frame == 1 {
+                if world.get::<feathrise_editor_ui::UiInteraction>(source) != Some(&feathrise_editor_ui::UiInteraction::Hovered) {
+                    return Ok(None);
+                }
+                mouse(world, window, bevy::input::ButtonState::Pressed);
+            }
+            if frame == 3 {
+                let (fill, border) = crate::ui::scene_sidebar::tree_row_colors(false, true, feathrise_editor_ui::UiInteraction::None);
+                // 普通悬停也会变色，等实际拖放状态采用该落点后再松开。
+                if !world.resource::<PlacementTreeDrag>().highlights(target)
+                    || !drag_preview_visible(world)
+                    || world.get::<BackgroundColor>(target).map(|color| color.0) != Some(fill)
+                    || world.get::<BorderColor>(target) != Some(&border)
+                {
+                    return Ok(None);
+                }
+                mouse(world, window, bevy::input::ButtonState::Released);
+                *step = Step::FolderDropped(drop);
+            } else {
+                *step = Step::DragFolder { drop, frame: frame + 1 };
+            }
+        }
+        Step::FolderDropped(drop) => {
+            let draft = session.draft.as_ref().ok_or("整夹拖放失去场景草稿")?;
+            if session.revision != *revision {
+                if session.revision != revision.wrapping_add(1)
+                    || !matches!(session.undo.last(), Some(EditorCommand::PlacementFolderMoved(_)))
+                    || draft.object_folders.parent(RENAMED_FOLDER) != drop.parent()
+                { return Err("整夹拖放需要恰好一笔历史和明确的目标父级".into()); }
+                *revision = session.revision;
+            }
+            if draft.object_folders.parent(RENAMED_FOLDER) == drop.parent() && folder_rows_reparented(world, drop) {
+                if let Some(next) = drop.next() {
+                    *step = Step::DragFolder { drop: next, frame: 0 };
+                } else {
+                    request_screenshot(world, NESTED_FOLDER_SCREENSHOT)?;
+                    *step = Step::NestedFolderScreenshot;
+                }
+            }
+        }
+        Step::NestedFolderScreenshot => {
+            if let Some(result) = world.get_resource_mut::<StartupScreenshot>().and_then(|mut task| check_ready(&mut task.0)) {
+                result?;
+                world.remove_resource::<StartupScreenshot>();
+                *step = Step::RestoreMesh;
+            }
         }
         Step::RestoreMesh => {
             let folder = if startup_enabled() { RENAMED_FOLDER } else { GROUP };
@@ -467,7 +594,9 @@ pub(super) fn advance(
                         "vegetation_layer": PRIVATE_LAYER,
                         "terrain": PRIVATE_TERRAIN,
                         "terrain_canvas_unloaded": true,
-                        "mesh_section_below_vegetation": true,
+                        "mesh_rows_below_vegetation": true,
+                        "embedded_mesh_icon_aligned": true,
+                        "terrain_icon": TERRAIN_ICON,
                         "tree_glb_icon": GLB_ICON,
                         "file_glb_icon": GLB_ICON,
                         "screenshot": "scene-tree-startup.png",
@@ -481,6 +610,7 @@ pub(super) fn advance(
                         "cube_properties_screenshot": CUBE_PROPERTIES_SCREENSHOT,
                         "source_name": RENAMED_NODE,
                         "folder_name": RENAMED_FOLDER,
+                        "created_child_folder": CREATED_CHILD,
                         "drag_preview_screenshot": DRAG_PREVIEW_SCREENSHOT,
                     })),
                 })));
@@ -502,13 +632,33 @@ fn startup_tree_visible(world: &mut World, cube: &str) -> Result<bool, String> {
             if terrain.as_str() == PRIVATE_TERRAIN && id == PRIVATE_LAYER && ui_visible(world, entity))
             .then_some(entity)
     }) else { return Ok(false); };
-    let Some(heading) = world.query_filtered::<Entity, With<SceneMeshObjectsHeading>>().iter(world)
+    let Some(terrain) = world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
+        matches!(&row.0.as_ref()?.key, SceneObjectKey::Terrain { id, .. }
+            if id.as_str() == PRIVATE_TERRAIN && ui_visible(world, entity)).then_some(entity)
+    }) else { return Ok(false); };
+    let Some(display) = world.query_filtered::<Entity, With<SceneBaseGltfRow>>().iter(world)
         .find(|entity| ui_visible(world, *entity)) else { return Ok(false); };
+    let Some(root) = main_scene_row(world) else { return Ok(false); };
     let Some(model) = scene_row(world, MODEL, false) else { return Ok(false); };
     let Some(cuboid) = scene_row(world, cube, false) else { return Ok(false); };
-    let y = |entity| world.get::<UiGlobalTransform>(entity).unwrap().translation.y;
-    Ok(y(plant) < y(heading) && y(heading) < y(model)
-        && row_has_icon(world, model, GLB_ICON) && row_has_icon(world, cuboid, "icons/editor/tree_mesh.png"))
+    let Some(cube_icon) = row_icon(world, cuboid, "icons/editor/tree_mesh.png") else { return Ok(false); };
+    let model_arrow = row_arrow(world, model)?;
+    let has_heading = world.query::<(Entity, &Text)>().iter(world)
+        .any(|(entity, text)| text.as_str() == "网格对象" && ui_visible(world, entity));
+    let position = |entity| world.get::<UiGlobalTransform>(entity).unwrap().translation;
+    let left = |entity| position(entity).x - world.get::<ComputedNode>(entity).unwrap().size().x * 0.5;
+    let name = world.get::<Children>(root).into_iter().flat_map(|children| children.iter())
+        .flat_map(|child| world.get::<Children>(child).into_iter().flat_map(|children| children.iter()))
+        .find_map(|child| world.get::<Text>(child)).map(|text| text.as_str());
+    Ok(name.is_some_and(|name| name.contains("scene.glb"))
+        && !has_heading
+        && position(display).y < position(root).y
+        && position(root).y < position(plant).y && left(root) < left(cuboid)
+        && position(plant).y < position(cuboid).y && position(cuboid).y < position(model).y
+        && (position(cube_icon).x - position(model_arrow).x).abs() < 1.1
+        && row_has_icon(world, terrain, TERRAIN_ICON)
+        && row_has_icon(world, root, GLB_ICON)
+        && row_has_icon(world, model, GLB_ICON))
 }
 
 fn request_screenshot(world: &mut World, name: &str) -> Result<(), String> {
@@ -537,8 +687,12 @@ fn source_space_button(world: &mut World, label: &str) -> Option<Entity> {
 }
 
 fn row_has_icon(world: &World, row: Entity, path: &str) -> bool {
+    row_icon(world, row, path).is_some()
+}
+
+fn row_icon(world: &World, row: Entity, path: &str) -> Option<Entity> {
     let children = |entity| world.get::<Children>(entity).into_iter().flat_map(|children| children.iter());
-    children(row).chain(children(row).flat_map(children)).any(|entity| {
+    children(row).chain(children(row).flat_map(children)).find(|&entity| {
         world.get::<ImageNode>(entity).is_some_and(|icon| {
             icon.image.path().is_some_and(|source| source.path() == Path::new(path))
                 && world.resource::<Assets<Image>>().get(&icon.image).is_some()
@@ -560,12 +714,25 @@ fn branch_collapsed(world: &World, branch: &str) -> Result<bool, String> {
     }).ok_or_else(|| "场景树验收缺少已发布的 GLB 或组分支".into())
 }
 
-fn group_row(world: &mut World) -> Option<Entity> {
+fn folder_row(world: &mut World, name: &str) -> Option<Entity> {
     world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
         let target = row.0.as_ref()?;
-        (matches!(target.key, SceneObjectKey::Group { .. }) && target.name == GROUP && ui_visible(world, entity))
+        (matches!(target.key, SceneObjectKey::Group { .. } | SceneObjectKey::PlacementFolder)
+            && target.name == name && ui_visible(world, entity))
             .then_some(entity)
     })
+}
+
+fn folder_rows_reparented(world: &World, drop: FolderDrop) -> bool {
+    let browser = world.resource::<EditorGltfBrowserState>();
+    let depth = usize::from(drop.parent().is_some());
+    // 新发布树的实际缩进和成员一起变化，闭合目标在首次放下后应自动展开。
+    browser.entries.iter().any(|row| row.depth == depth && matches!(&row.kind,
+        EditorGltfBrowserEntryKind::Group { name, count: 2, collapsed: false, .. } if name == RENAMED_FOLDER))
+        && ["scene-tree-group-0", "scene-tree-group-1"].into_iter().all(|id| {
+            browser.entries.iter().any(|row| row.depth == depth + 1 && matches!(&row.kind,
+                EditorGltfBrowserEntryKind::Placement { placement_id, .. } if placement_id == id))
+        })
 }
 
 fn row_arrow(world: &World, row: Entity) -> Result<Entity, String> {
@@ -583,15 +750,18 @@ fn click_control(world: &mut World, entity: Entity, frame: u8) -> Result<Option<
 
 fn press_rename(world: &mut World, input: Entity, name: &str, frame: u8) -> Result<bool, String> {
     let Some(button) = source_space_button(world, "确认名称") else { return Ok(false); };
-    if frame == 0 {
-        // 设置实际字段值并点击原按钮，名字事务与落盘仍由生产系统执行。
-        world.resource_mut::<bevy::input_focus::InputFocus>()
-            .set(input, bevy::input_focus::FocusCause::Navigated);
-        let mut text = world.get_mut::<bevy::text::EditableText>(input).ok_or("缺少名称输入")?;
-        crate::ui::text_input::replace_single_line_value(&mut text, name, 128);
-    }
+    if frame == 0 { set_test_name(world, input, name)?; }
     click_control(world, button, frame)?;
     Ok(true)
+}
+
+fn set_test_name(world: &mut World, input: Entity, name: &str) -> Result<(), String> {
+    // 设置实际字段值，名字事务与落盘仍由生产系统执行。
+    world.resource_mut::<bevy::input_focus::InputFocus>()
+        .set(input, bevy::input_focus::FocusCause::Navigated);
+    let mut text = world.get_mut::<bevy::text::EditableText>(input).ok_or("缺少名称输入")?;
+    crate::ui::text_input::replace_single_line_value(&mut text, name, 128);
+    Ok(())
 }
 
 fn pointer_context(world: &mut World, entity: Entity) -> Result<(Entity, bevy::math::DVec2), String> {
@@ -622,7 +792,7 @@ fn scene_row(world: &mut World, placement: &str, child: bool) -> Option<Entity> 
 }
 
 fn main_scene_row(world: &mut World) -> Option<Entity> {
-    world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
+    world.query_filtered::<(Entity, &SceneObjectRow), With<SceneTreeRootRow>>().iter(world).find_map(|(entity, row)| {
         (matches!(row.0.as_ref()?.key, SceneObjectKey::MainSceneGlb) && ui_visible(world, entity)).then_some(entity)
     })
 }

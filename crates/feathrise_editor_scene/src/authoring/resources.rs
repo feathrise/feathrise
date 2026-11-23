@@ -68,7 +68,7 @@ pub struct EditorSceneDraft {
     pub(crate) terrain_documents: super::terrain_documents::TerrainDocumentStore,
     pub placements: ScenePlacementsAsset,
     /// 显式新建的外层文件夹；即使没有摆放成员仍随该场景保存。
-    pub(crate) object_folders: Arc<BTreeSet<String>>,
+    pub(crate) object_folders: Arc<super::placement_folders::PlacementFolders>,
     pub(crate) motion: super::scene_motion::SceneMotionDocument,
     pub(crate) source_glb_edits: super::source_glbs::SourceGlbEdits,
     /// 存在摘要时，摆放直接写回场景 GLB；摘要来自实际打开的字节。

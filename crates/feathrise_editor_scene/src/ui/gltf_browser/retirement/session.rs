@@ -16,6 +16,7 @@ pub(in crate::ui::gltf_browser) fn take_browser_session_generation(
     generation.signature_build(state.signature_build.take()); // 取消但不整批析构未发布签名。
     generation.signatures(std::mem::take(&mut state.signature)); // 活动签名逐记录/绑定释放。
     generation.string_set(std::mem::take(&mut state.duplicate_placement_ids));
+    generation.string_set(std::mem::take(&mut state.placement_group_names));
     generation.string_string_map(std::mem::take(&mut state.placement_asset_paths));
     generation.string_usize_map(std::mem::take(&mut state.placement_record_indices));
     generation.assets(std::mem::take(&mut state.assets)); // 强句柄随每个缓存完成退役后释放。
@@ -41,8 +42,8 @@ pub(in crate::ui::gltf_browser) fn take_browser_session_generation(
     generation.string(state.main_glb_path.take());
 
     state.truncated = false; // 旧场景截断诊断立即清除。
-    state.expanded_main_glb = None;
-    state.selected_main_glb = None;
+    state.collapsed_main_glb = None;
+    state.selected_main_row = None;
     state.main_glb_entry_count = 0;
     state.initialized = false; // 退役完成后下一次开启重新观察权威草稿。
     state.draft_available = false; // 关闭态不宣称持有草稿。

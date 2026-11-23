@@ -13,7 +13,8 @@ use feathrise_editor_ui::{EditorUiSystemSet, NumericInputCommitOutcome, NumericI
 use serde_json::{Value, json};
 use std::{path::{Path, PathBuf}, time::{Duration, Instant}};
 use crate::{
-    SceneEditorSystemSet, authoring::EditorAuthoringSession, components::SceneEditorViewport,
+    SceneEditorSystemSet, authoring::EditorAuthoringSession,
+    components::{SceneEditorGltfBrowserRowGlyph, SceneEditorViewport},
     resources::{SceneEditorState, SceneEditorViewportState},
     standalone::{author_status, preview_ready_for, request_open_scene,
         scene_format_validation::{action_button, visible_placement_row}},
@@ -21,7 +22,7 @@ use crate::{
     ui::{
         file_manager_validation::pointer_click,
         gltf_browser::{EditorGltfBrowserState, MainSceneGlbRow, PlacementTreeExpander,
-            SceneEditorGltfBrowserRow, SceneEditorGltfBrowserRowText, SceneMeshObjectsHeading},
+            SceneEditorGltfBrowserRow, SceneEditorGltfBrowserRowText},
         placement_transform::PlacementTransformField,
         scene_context_menu::{SceneMenuAction, visible_action_for_validation, visible_rename_controls_for_validation},
         sidebars::{EditorNavigatorTab, EditorRightSidebarTab, EditorSidebarTab, SceneEditorSidebarTabButton,
@@ -47,7 +48,7 @@ const END_SCALE_X: f32 = 1.25;
 
 #[derive(Debug, Clone, Copy)]
 enum Step {
-    Enter, Tree, MainGlb, MainGlbExpanded, NewAnimationMenu, NewAnimation, RenameMenu, RenameAnimation,
+    Enter, Tree, MainGlbExpanded, NewAnimationMenu, NewAnimation, SelectAnimationForRename, RenameMenu, RenameAnimation,
     EnterName, ConfirmName, VerifyRename, FirstAnimationClick, SecondAnimationClick, SceneTimeline,
     Select, FoldSelected, UnfoldSelected, Properties, Length, Loop, PingPong, AutoPlay,
     KeyOrigin, SeekLow, KeyLow, SeekPeak, MoveTool, BeginMove, Move, ReleaseMove, PositionTrack, KeyPosition,
@@ -139,22 +140,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
         Tree => {
             let tab = sidebar(world, EditorSidebarTab::Navigator(EditorNavigatorTab::SceneTree));
             if (world.resource::<SceneEditorSidebarState>().scene_tree_visible() && run.click.is_none())
-                || click(world, run, tab)? { run.step = MainGlb; }
-        }
-        MainGlb => {
-            let arrow = main_glb_arrow(world);
-            if run.click.is_none() {
-                if arrow.is_none() { return Ok(false); }
-                let scene = feathrise_scene_content::SceneId::parse(SCENE)?;
-                if visible_placement_row(world, &scene, REFERENCED_MODEL).is_none() { return Ok(false); }
-                if visible_placement_row(world, &scene, PLATFORM).is_some()
-                    || main_glb_row(world, MainSceneGlbRow::Animation(Some(0))).is_some()
-                {
-                    return Err("主场景 GLB 折叠时只能隐藏所属立方体和动画，独立引用应仍可见".into());
-                }
-            }
-            // 只点击树行的正式箭头，展开结果须由生产场景树实际呈现。
-            if click(world, run, arrow)? { run.step = MainGlbExpanded; }
+                || click(world, run, tab)? { run.step = MainGlbExpanded; }
         }
         MainGlbExpanded => {
             if let Some(proof) = inspect_main_glb_tree(world, run.reopen)? {
@@ -168,17 +154,22 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
         }
         NewAnimation => {
             let item = visible_action_for_validation(world, SceneMenuAction::NewSceneAnimation);
-            if click(world, run, item)? { run.step = RenameMenu; }
+            if click(world, run, item)? { run.step = SelectAnimationForRename; }
         }
-        RenameMenu => {
+        SelectAnimationForRename => {
             if run.click.is_none() && (!timeline_without_placement(world)? || button(world, Action::Close).is_none()) {
                 return Ok(false);
             }
             let row = main_glb_row(world, MainSceneGlbRow::Animation(None));
-            // 无通道的草稿应成为可见动画行，可在原菜单里改名。
+            if click(world, run, row)? { run.step = RenameMenu; }
+        }
+        RenameMenu => {
+            let row = main_glb_row(world, MainSceneGlbRow::Animation(None));
+            if !row.is_some_and(|row| tree_animation_selected(world, row)) { return Ok(false); }
             if click_with_button(world, run, row, MouseButton::Right)? {
                 if let Some(proof) = &mut run.scene_glb_tree {
                     proof["context_create_opened_without_placement"] = json!(true);
+                    proof["selected_animation_before_rename"] = json!(true);
                 }
                 run.step = RenameAnimation;
             }
@@ -207,7 +198,8 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
         VerifyRename => {
             if !timeline_without_placement(world)? { return Ok(false); }
             let row = main_glb_row(world, MainSceneGlbRow::Animation(None));
-            if let Some(name) = row.and_then(|row| tree_label(world, row)).filter(|&name| name == CLIP_NAME) {
+            if let Some(name) = row.filter(|&row| tree_animation_selected(world, row))
+                .and_then(|row| tree_label(world, row)).filter(|&name| name == CLIP_NAME) {
                 if let Some(proof) = &mut run.scene_glb_tree {
                     proof["animation"] = json!(name);
                     proof["renamed_without_placement"] = json!(true);
@@ -217,18 +209,21 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
         }
         FirstAnimationClick | SecondAnimationClick => {
             let first = matches!(run.step, FirstAnimationClick);
+            let row = main_glb_row(world, MainSceneGlbRow::Animation(Some(0)));
             if run.click.is_none() {
                 if world.resource::<Workbench>().scene.is_some()
                     || world.resource::<EditorGltfBrowserState>().selected_placement_id.is_some()
                 {
                     return Err("动画行需要双击，并可在未选摆放对象时打开当前场景时间轴".into());
                 }
-                if !first && let Some(proof) = &mut run.scene_glb_tree {
-                    proof["single_click_kept_timeline_closed"] = json!(true);
+                if !first {
+                    if !row.is_some_and(|row| tree_animation_selected(world, row)) { return Ok(false); }
+                    if let Some(proof) = &mut run.scene_glb_tree {
+                        proof["single_click_selected_with_timeline_closed"] = json!(true);
+                    }
                 }
             }
             // 同一实际树行走两次原窗口按松，由生产场景树判定双击。
-            let row = main_glb_row(world, MainSceneGlbRow::Animation(Some(0)));
             if click(world, run, row)? {
                 run.step = if first { SecondAnimationClick } else { SceneTimeline };
             }
@@ -257,12 +252,12 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
             if run.click.is_none() {
                 let scene = feathrise_scene_content::SceneId::parse(SCENE)?;
                 if visible_placement_row(world, &scene, PLATFORM).is_some()
-                    || visible_placement_row(world, &scene, REFERENCED_MODEL).is_none()
+                    || visible_placement_row(world, &scene, REFERENCED_MODEL).is_some()
                 {
                     return Ok(false);
                 }
                 if !platform_selected(world) {
-                    return Err("折叠主 GLB 后应保留独立引用与立方体的当前选择".into());
+                    return Err("折叠主 GLB 后应保留立方体的当前选择".into());
                 }
             }
             let arrow = main_glb_arrow(world);
@@ -581,12 +576,21 @@ fn timeline_without_placement(world: &World) -> Result<bool, String> {
     Ok(true)
 }
 
-fn tree_label(world: &World, row: Entity) -> Option<&str> {
+fn tree_caption_child<T: Component>(world: &World, row: Entity) -> Option<Entity> {
     world.get::<Children>(row)?.iter().filter_map(|child| world.get::<Children>(child))
         .flat_map(|children| children.iter())
-        .find(|&child| world.get::<SceneEditorGltfBrowserRowText>(child).is_some())
-        .and_then(|child| world.get::<Text>(child))
+        .find(|&child| world.get::<T>(child).is_some())
+}
+
+fn tree_label(world: &World, row: Entity) -> Option<&str> {
+    world.get::<Text>(tree_caption_child::<SceneEditorGltfBrowserRowText>(world, row)?)
         .map(|text| text.as_str())
+}
+
+fn tree_animation_selected(world: &World, row: Entity) -> bool {
+    tree_caption_child::<SceneEditorGltfBrowserRowText>(world, row)
+        .and_then(|label| world.get::<TextColor>(label))
+        .is_some_and(|color| color.0 == crate::ui::theme::TEXT_ACCENT)
 }
 
 fn ui_position(world: &World, entity: Entity) -> Option<Vec2> {
@@ -594,7 +598,6 @@ fn ui_position(world: &World, entity: Entity) -> Option<Vec2> {
 }
 
 fn inspect_main_glb_tree(world: &mut World, reopened: bool) -> Result<Option<Value>, String> {
-    let heading = world.query_filtered::<Entity, With<SceneMeshObjectsHeading>>().single(world).ok();
     let main = main_glb_row(world, MainSceneGlbRow::File);
     let animation = main_glb_row(world, MainSceneGlbRow::Animation(Some(0)));
     if reopened && animation.is_none() { return Ok(None); }
@@ -603,33 +606,34 @@ fn inspect_main_glb_tree(world: &mut World, reopened: bool) -> Result<Option<Val
     let reference = visible_placement_row(world, &scene, REFERENCED_MODEL).map(|(row, _)| row);
     let proof = || {
         let (main, platform, reference) = (main?, platform?, reference?);
-        let rows = [heading?, main, platform, reference];
+        let rows = [main, platform, reference];
         let ys = rows.map(|row| ui_position(world, row).map(|position| position.y));
-        let [Some(heading_y), Some(main_y), Some(platform_y), Some(reference_y)] = ys else {
+        let [Some(main_y), Some(platform_y), Some(reference_y)] = ys else {
             return None;
         };
-        // 叶子行的箭头列仍占位，比较实际按钮列以避开文件名长度带来的文字中心差异。
+        // 内嵌网格用图标占据箭头列，比较实际图标和按钮位置。
         let arrow_x = |row| ui_position(world, tree_arrow(world, row)?).map(|position| position.x);
-        let (main_x, platform_x, reference_x) = (arrow_x(main)?, arrow_x(platform)?, arrow_x(reference)?);
+        let platform_icon = tree_caption_child::<SceneEditorGltfBrowserRowGlyph>(world, platform)?;
+        let (main_x, platform_x, reference_x) = (arrow_x(main)?, ui_position(world, platform_icon)?.x, arrow_x(reference)?);
         let animation = if let Some(row) = animation {
             let y = ui_position(world, row)?.y;
             let same_depth = (arrow_x(row)? - platform_x).abs() < 1.1;
-            Some((tree_label(world, row)?, main_y < y && y < reference_y && same_depth))
+            Some((tree_label(world, row)?, main_y < y && y < platform_y && same_depth))
         } else { None };
-        Some((heading_y < main_y && main_y < platform_y && platform_y < reference_y,
-            platform_x > main_x + 1.0, (reference_x - main_x).abs() < 1.1, tree_label(world, main)?, animation))
+        Some((main_y < platform_y && platform_y < reference_y,
+            platform_x > main_x + 1.0, (reference_x - platform_x).abs() < 1.1, tree_label(world, main)?, animation))
     };
-    let Some((ordered, cuboid_indented, reference_at_root, main_label, animation)) = proof() else {
+    let Some((ordered, cuboid_indented, reference_under_root, main_label, animation)) = proof() else {
         return Ok(None);
     };
-    if !(ordered && cuboid_indented && reference_at_root && main_label.contains("scene.glb")
+    if !(ordered && cuboid_indented && reference_under_root && main_label.contains("scene.glb")
         && animation.is_none_or(|(label, inside)| label == CLIP_NAME && inside))
     {
-        return Err(format!("主 GLB 树验证失败，顺序 {ordered}，立方体缩进 {cuboid_indented}，引用根层 {reference_at_root}，动画 {animation:?}"));
+        return Err(format!("主 GLB 树验证失败，顺序 {ordered}，立方体缩进 {cuboid_indented}，引用层级 {reference_under_root}，动画 {animation:?}"));
     }
-    Ok(Some(json!({"main_glb":main_label,"animation":animation.map(|(label, _)| label),"first_mesh_row":ordered,
+    Ok(Some(json!({"main_glb":main_label,"animation":animation.map(|(label, _)| label),"root_above_meshes":ordered,
         "cuboid_indented":cuboid_indented,"animation_indented":animation.map(|(_, inside)| inside),
-        "reference_at_root":reference_at_root})))
+        "reference_under_root":reference_under_root})))
 }
 
 pub fn inspect_saved_glb(path: &Path, id: &str) -> Result<Value, String> {

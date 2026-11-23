@@ -8,15 +8,18 @@ use bevy::text::FontSourceTemplate; // 静态按钮和状态使用项目中文�
 use crate::ui::theme as colors; // 与右栏资产浏览器共享水墨铜边配色。
 
 use super::{
-    SceneEditorGltfBrowserList, SceneEditorGltfBrowserListContent, SceneEditorGltfBrowserStatusText,
+    PlacementTreeExpander, SceneEditorGltfBrowserList, SceneEditorGltfBrowserListContent,
+    SceneEditorGltfBrowserRow, SceneEditorGltfBrowserRowText, SceneEditorGltfBrowserStatusText,
+    systems::GltfRowCaption,
 };
+use crate::components::SceneEditorGltfBrowserRowGlyph;
 use crate::ui::list_layout::SceneObjectListScroll;
+use crate::ui::scene_context_menu::SceneObjectRow;
 use crate::ui::scene::FONT_PATH; // 复用主编辑器字体常量。
 use crate::ui::scene_sidebar::{
     TREE_BRANCH_GAP, load_tree_branch_images, sync_tree_branch_icon, tree_branch_button,
-    tree_branch_fill, tree_branch_slot, tree_row_left, tree_section_header,
+    tree_branch_fill, tree_row_left,
 };
-use crate::ui::terrain_shading::terrain_shading_controls;
 
 #[derive(Component, Clone, Default)] // 场景显示入口独立于场景对象行。
 pub(crate) struct SceneBaseGltfRow;
@@ -25,7 +28,9 @@ pub(crate) struct SceneBaseGltfArrow;
 #[derive(Component, Clone, Default)] // 预览按钮区随场景显示入口展开或收起。
 pub(crate) struct SceneBaseTerrainDetails;
 #[derive(Component, Clone, Default)]
-pub(crate) struct SceneMeshObjectsHeading;
+pub(crate) struct SceneTreeRootRow;
+#[derive(Component, Clone, Default)]
+pub(crate) struct SceneTreeContents;
 
 pub(crate) fn sync_scene_base_gltf_row(
     session: Res<crate::authoring::EditorAuthoringSession>,
@@ -88,52 +93,50 @@ pub(crate) fn sync_scene_base_gltf_row(
     }
 }
 
-/// 场景显示入口紧邻网格列表，不再埋在对象管理与子场景列表下方。
-pub(crate) fn scene_display_panel() -> impl Scene {
-    bsn! { Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column,
-        row_gap: px(3), flex_shrink: 0.0 } Children [
-
-                InteractionButton
-                SceneBaseGltfRow // 在地形与摆放列表上方保留单独的显示入口。
-                Node {
-                    display: Display::None, // 首次界面同步后随编辑器一起显示。
-                    width: percent(100), // 跟随场景树宽度。
-                    min_width: px(0),
-                    flex_shrink: 0.0,
-                    padding: UiRect { left: tree_row_left(0), right: px(5), top: px(2), bottom: px(2) },
-                    align_items: AlignItems::Center,
-                    column_gap: px(TREE_BRANCH_GAP),
-                    border_radius: BorderRadius::all(px(3)),
-                }
-                BackgroundColor(colors::SLOT_BG) // 共用场景树暗底。
-                BorderColor::all(colors::COPPER_BORDER_WEAK)
-                Children [
-                    @tree_branch_button() SceneBaseGltfArrow--
-                    Text("场景显示 · 网格 / 碰撞 / 着色") Pickable::IGNORE
-                    TextFont {
-                        font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), // 共用中文字体。
-                    font_size: px(ui_metrics::FONT_CONTROL), // 与场景树行保持紧凑密度。
-                    }
-                    TextColor(colors::TEXT_PRIMARY)
-                    TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }
-                    Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }
-                ]
-            --
-            @terrain_shading_controls()
-    ] }
+/// 场景显示是场景级工具，标题可独立于滚动的设置区布局。
+pub(crate) fn scene_display_button() -> impl Scene {
+    bsn! {
+        InteractionButton SceneBaseGltfRow
+        Node {
+            display: Display::None, // 首次界面同步后随编辑器一起显示。
+            width: percent(100), min_width: px(0), flex_shrink: 0.0,
+            padding: UiRect { left: tree_row_left(0), right: px(5), top: px(2), bottom: px(2) },
+            align_items: AlignItems::Center, column_gap: px(TREE_BRANCH_GAP),
+            border_radius: BorderRadius::all(px(3)),
+        }
+        BackgroundColor(colors::SLOT_BG)
+        BorderColor::all(colors::COPPER_BORDER_WEAK)
+        Children [
+            @tree_branch_button() SceneBaseGltfArrow--
+            Text("场景显示 · 网格 / 碰撞 / 着色") Pickable::IGNORE
+            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+            TextColor(colors::TEXT_PRIMARY)
+            TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }
+            Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }
+        ]
+    }
 }
 
-fn mesh_objects_heading() -> impl Scene {
-    let header = Node { display: Display::None, ..tree_section_header() };
-    // 标题仅分隔类别，摆放根和组仍从同级箭头列起排。
-    bsn! { SceneMeshObjectsHeading InteractionButton bevy::ui::RelativeCursorPosition::default()
-        ~{header} BackgroundColor(colors::PANEL_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
+/// 主场景 GLB 复用对象行身份与箭头控件，固定在可滚动子树上方。
+pub(crate) fn scene_tree_root_row() -> impl Scene {
+    let row = SceneEditorGltfBrowserRow { slot: 0, entry_index: None, entries_revision: 0, main_glb: None };
+    bsn! { SceneTreeRootRow InteractionButton SceneObjectRow::default() bevy::ui::RelativeCursorPosition::default()
+        ~{row}
+        Node { display: Display::None, width: percent(100), min_width: px(0), height: px(25), flex_shrink: 0.0,
+            padding: UiRect::horizontal(px(5)), align_items: AlignItems::Center, column_gap: px(TREE_BRANCH_GAP),
+            border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(3)), overflow: Overflow::clip_x() }
+        BackgroundColor(colors::PANEL_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
-            @tree_branch_slot()--
-            Text("网格对象") @feathrise_editor_ui::localization::label_scene("网格对象") Pickable::IGNORE
-            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-            TextColor(colors::TEXT_ACCENT) TextLayout::no_wrap()
-            Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }
+            @tree_branch_button() PlacementTreeExpander::default()--
+            GltfRowCaption Pickable::IGNORE
+            Node { align_items: AlignItems::Center, column_gap: px(5), flex_grow: 1.0, min_width: px(0), overflow: Overflow::clip_x() }
+            Children [
+                SceneEditorGltfBrowserRowGlyph ImageNode::default() Pickable::IGNORE
+                Node { width: px(16), height: px(16), flex_shrink: 0.0 }--
+                SceneEditorGltfBrowserRowText Text("") Pickable::IGNORE TextLayout::no_wrap()
+                TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
+                TextColor(colors::TEXT_ACCENT) Node { min_width: px(0), overflow: Overflow::clip_x() }
+            ]
         ]
     }
 }
@@ -152,7 +155,6 @@ pub(super) fn gltf_browser_panel() -> impl Scene {
         Children [
             @crate::ui::scene_layers::panel()-- // 独立作者内容与摆放共用同一场景树。
             @crate::ui::subscenes::panel()-- // 子场景引用属于正式场景树，加载期间也保留可选来源行。
-            @mesh_objects_heading()--
 
                 SceneEditorGltfBrowserList SceneObjectListScroll
                 bevy::ui::RelativeCursorPosition::default() ScrollPosition::default()

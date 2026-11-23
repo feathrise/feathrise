@@ -502,12 +502,19 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
     let placement = proof["new_placement_id"].as_str().ok_or("保存报告缺少本轮新增摆放 ID")?;
     let placement_path = fixture::MODEL_SURFACE_SOURCE; // 场景树种子和保存均使用 M1-SAMPLE 私有 scene.glb。
     let saved = fs::read(project.context.asset_roots[0].join(placement_path)).map_err(|error| error.to_string())?;
+    let folder_glb = bevy::gltf::gltf::Glb::from_slice(&saved).map_err(|error| error.to_string())?;
+    let folder_document: Value = serde_json::from_slice(&folder_glb.json).map_err(|error| error.to_string())?;
+    let parents = &folder_document["extras"]["feathrise_object_folder_parents"];
+    if parents["验收文件夹"] != "验收目标" || parents["验收子文件夹"] != "验收文件夹" {
+        return Err("场景 GLB 未保存新建子文件夹或整夹移动的父级关系".into());
+    }
     let saved = feathrise_scene_content::read_scene_placements(&saved, placement_path)?;
     if saved.scene_id.as_str() != "M1-SAMPLE" || !saved.placements.iter().any(|record| record.id == placement) {
         return Err("本轮立方体未随原保存写入该场景的 GLB".into());
     }
-    for id in ["scene-tree-group-0", "scene-tree-group-1"] {
-        if !saved.placements.iter().any(|record| record.id == id && record.editor.group == "验收文件夹") {
+    for (id, x) in [("scene-tree-group-0", 24.0), ("scene-tree-group-1", 36.0)] {
+        if !saved.placements.iter().any(|record| record.id == id && record.editor.group == "验收文件夹"
+            && record.asset_path == "scene/probe.glb" && record.translation == [x, 2.0, 12.0]) {
             return Err("改名后的文件夹未与原成员一起写入场景 GLB".into());
         }
     }
@@ -535,9 +542,10 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
     let coordinates = read_author_screenshot(&output.join("scene-tree-glb-coordinates.png"))?;
     let cube_properties = read_author_screenshot(&output.join("scene-tree-cube-properties.png"))?;
     let drag_preview = read_author_screenshot(&output.join("scene-tree-drag-preview.png"))?;
+    let nested_folder = read_author_screenshot(&output.join("scene-tree-nested-folder.png"))?;
     steps.push(json!({"stage":"scene_tree_startup_in_original_editor","passed":true,"report":observed,"saved_placement_id":placement,
         "startup_screenshot":screenshot,"source_coordinates_screenshot":coordinates,"mesh_properties_screenshot":cube_properties,
-        "drag_preview_screenshot":drag_preview,"renamed_folder":"验收文件夹",
+        "drag_preview_screenshot":drag_preview,"nested_folder_screenshot":nested_folder,"renamed_folder":"验收文件夹",
         "saved_source_local_x":local_x,"saved_source_name":"验收网格","applied_scale_x":1.0}));
 
     let output = work.join("editor-2");
@@ -547,6 +555,8 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
     let node = &reopened["current_author_document"]["reopened_source_node"];
     if reopened["author_save_requested"] != false || node["placement"] != "sample-model"
         || node["local_x"].as_f64() != Some(1.25) || node["world_x"].as_f64() != Some(7.5)
+        || node["reopened_folder_parent"] != "验收目标" || node["reopened_folder_members"] != 2
+        || node["reopened_created_child_parent"] != "验收文件夹"
     {
         return Err(format!("重开工程后未采用已保存的源节点变换：{node}"));
     }

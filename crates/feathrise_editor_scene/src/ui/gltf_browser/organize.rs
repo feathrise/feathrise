@@ -1,20 +1,22 @@
 //! 场景树以固定行池解析拖拽，外层归属送原摆放管理，内部节点送 GLB 作者事务。
 
 use super::{
-    EditorGltfBrowserState, SceneEditorGltfBrowserRow, SceneMeshObjectsHeading,
+    EditorGltfBrowserState, MainSceneGlbRow, SceneEditorGltfBrowserRow, SceneTreeContents, SceneTreeRootRow,
     systems::GltfRowCaption,
 };
 use crate::{
     SceneEditorSystemSet,
     authoring::EditorAuthoringSession,
+    components::SceneEditorGltfBrowserRowGlyph,
     resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState},
     ui::{
+        asset_icons,
         numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard,
         scene_context_menu::{
             MenuContext, SceneContextMenuState, SceneMenuAction, SceneMenuDispatch, SceneObjectKey,
             SceneObjectRow, SceneObjectTarget,
         },
-        scene_objects::{SceneObjectState, create_folder, queue_group_drop},
+        scene_objects::{SceneObjectState, create_folder, move_folder, queue_group_drop},
         scene_source_glb::SourceGlbRequest,
     },
 };
@@ -25,7 +27,7 @@ use bevy::{
     ui::{CalculatedClip, ComputedUiTargetCamera, RelativeCursorPosition},
     window::PrimaryWindow,
 };
-use feathrise_editor_ui::UiInteraction;
+use feathrise_editor_ui::{EditorButtonClick, UiInteraction, localization::EditorLocale};
 
 struct Press {
     source: SceneObjectTarget,
@@ -75,37 +77,91 @@ pub(crate) fn install(app: &mut App) {
         )
         .add_systems(
             Update,
-            (bind_root_menu, highlight_root_drop)
+            sync_root_row
                 .after(super::sync_gltf_browser_rows)
+                .before(super::sync_gltf_row_toggles)
                 .in_set(SceneEditorSystemSet::Presentation),
         );
 }
 
-fn bind_root_menu(
-    mut commands: Commands,
+pub(super) fn sync_root_row(
     editor: Res<SceneEditorState>,
     session: Res<EditorAuthoringSession>,
-    rows: Query<(Entity, Option<&SceneObjectRow>), With<SceneMeshObjectsHeading>>,
+    browser: Res<EditorGltfBrowserState>,
+    drag: Res<PlacementTreeDrag>,
+    locale: Option<Res<EditorLocale>>,
+    server: Option<Res<AssetServer>>,
+    images: Option<Res<Assets<Image>>>,
+    mut rows: Query<(
+        Entity, &Children, &UiInteraction, &mut EditorButtonClick, &mut SceneEditorGltfBrowserRow,
+        &mut SceneObjectRow, &mut Node, &mut BackgroundColor, &mut BorderColor,
+    ), (With<SceneTreeRootRow>, Without<SceneTreeContents>)>,
+    mut contents: Query<&mut Node, (With<SceneTreeContents>, Without<SceneTreeRootRow>)>,
+    captions: Query<&Children, With<GltfRowCaption>>,
+    mut labels: Query<&mut Text>,
+    mut icons: Query<&mut ImageNode, With<SceneEditorGltfBrowserRowGlyph>>,
 ) {
-    let target = session
-        .draft
-        .as_ref()
-        .filter(|draft| editor.selected_scene_id.as_ref() == Some(&draft.scene_id))
-        .map(|draft| SceneObjectTarget {
-            scene_id: draft.scene_id.clone(),
-            revision: session.revision,
-            key: SceneObjectKey::PlacementTreeRoot,
-            name: "网格对象".into(),
-            hidden: false,
-            locked: false,
-            copyable: false,
-        });
-    for (entity, previous) in &rows {
-        if previous.is_none_or(|previous| previous.0 != target) {
-            commands
-                .entity(entity)
-                .insert(SceneObjectRow(target.clone()));
+    let draft = session.draft.as_ref().filter(|draft| {
+        editor.open && !editor.scene_transition_in_progress
+            && editor.selected_scene_id.as_ref() == Some(&draft.scene_id)
+    });
+    let main = draft.filter(|draft| draft.placement_glb_hash.is_some());
+    let kind = main.map(|_| MainSceneGlbRow::File);
+    let locale = locale.as_deref().copied().unwrap_or_default();
+    for (entity, children, interaction, mut click, mut row, mut object, mut node, mut background, mut border) in &mut rows {
+        let display = if draft.is_some() { Display::Flex } else { Display::None };
+        if node.display != display { node.display = display; }
+        if row.main_glb != kind || row.entries_revision != browser.published_entries_revision
+            || object.0.as_ref().map(|target| &target.scene_id) != draft.map(|draft| &draft.scene_id)
+        {
+            row.main_glb = kind;
+            row.entries_revision = browser.published_entries_revision;
+            click.invalidate(); // 固定行换场景或文件格式时丢弃上一行的按压。
         }
+        if let Some(draft) = draft {
+            // 老格式没有可选的主 GLB，沿用场景名称承接根级归类。
+            let (key, name, label, icon) = if main.is_some() {
+                (SceneObjectKey::MainSceneGlb, "scene.glb", locale.text("label.main-scene-glb"), asset_icons::GLB)
+            } else {
+                let name = draft.manifest.display_name.as_str();
+                (SceneObjectKey::PlacementTreeRoot, name, name, "icons/editor/tree_scene.png")
+            };
+            if object.0.as_ref().is_none_or(|target| target.scene_id != draft.scene_id
+                || target.revision != session.revision || target.key != key || target.name != name)
+            {
+                object.0 = Some(SceneObjectTarget {
+                    scene_id: draft.scene_id.clone(), revision: session.revision,
+                    key, name: name.into(), hidden: false, locked: false, copyable: false,
+                });
+            }
+            if let Some(caption) = children.iter().find_map(|child| captions.get(child).ok()) {
+                for child in caption.iter() {
+                    if let Ok(mut text) = labels.get_mut(child) && text.as_str() != label {
+                        label.clone_into(&mut text.0);
+                    }
+                    if let Some(server) = server.as_ref().filter(|_| images.is_some())
+                        && let Ok(mut image) = icons.get_mut(child)
+                        && image.image.path().is_none_or(|path| path.path() != std::path::Path::new(icon))
+                    {
+                        image.image = server.load(icon);
+                        image.color = asset_icons::tint(icon, crate::ui::theme::TEXT_ACCENT);
+                    }
+                }
+            }
+        } else if object.0.is_some() {
+            object.0 = None;
+        }
+        let highlighted = drag.highlights(entity);
+        let selected = main.is_some_and(|draft| browser.is_main_glb_selected(&draft.scene_id));
+        let interaction = if drag.owns_mouse() { UiInteraction::None } else { *interaction };
+        let (fill, outline) = crate::ui::scene_sidebar::tree_row_colors(selected, highlighted, interaction);
+        background.set_if_neq(BackgroundColor(fill));
+        border.set_if_neq(outline);
+    }
+    let collapsed = main.is_some_and(|draft| browser.collapsed_main_glb.as_ref() == Some(&draft.scene_id));
+    let display = if collapsed { Display::None } else { Display::Flex };
+    for mut node in &mut contents {
+        if node.display != display { node.display = display; }
     }
 }
 
@@ -122,7 +178,7 @@ type Rows<'w, 's> = Query<
     ),
     Or<(
         With<SceneEditorGltfBrowserRow>,
-        With<SceneMeshObjectsHeading>,
+        With<SceneTreeRootRow>,
     )>,
 >;
 
@@ -175,12 +231,20 @@ fn caption_at(origin: Vec2, captions: &Captions, cameras: &Query<&Camera>) -> Op
         })
 }
 
+fn folder(key: &SceneObjectKey) -> bool {
+    matches!(key, SceneObjectKey::PlacementFolder | SceneObjectKey::Group { .. })
+}
+
+fn scene_root(key: &SceneObjectKey) -> bool {
+    matches!(key, SceneObjectKey::MainSceneGlb | SceneObjectKey::PlacementTreeRoot)
+}
+
 fn editable_source(target: &SceneObjectTarget, session: &EditorAuthoringSession) -> bool {
-    !target.locked
+    folder(&target.key) || (!target.locked
         && target.copyable
         && target.glb_path(session).is_some()
         && matches!(&target.key, SceneObjectKey::Placement { mesh, .. } if
-            mesh.as_ref().is_none_or(|mesh| !target.hidden && mesh.node_index.is_some()))
+            mesh.as_ref().is_none_or(|mesh| !target.hidden && mesh.node_index.is_some())))
 }
 
 fn drop_allowed(
@@ -189,16 +253,21 @@ fn drop_allowed(
     browser: &EditorGltfBrowserState,
     session: &EditorAuthoringSession,
 ) -> bool {
+    if folder(&source.key) {
+        let parent = if folder(&target.key) { Some(target.name.as_str()) }
+            else if scene_root(&target.key) { None }
+            else { return false; };
+        // 两个空文件夹共用行类型，实际身份由当前场景的唯一名称区分。
+        return session.draft.as_ref().is_some_and(|draft| draft.object_folders.can_move(&source.name, parent));
+    }
     if source.key == target.key {
         return false;
     }
     match (&source.key, &target.key) {
         (
             SceneObjectKey::Placement { mesh: None, .. },
-            SceneObjectKey::PlacementTreeRoot
-            | SceneObjectKey::PlacementFolder
-            | SceneObjectKey::Group { .. },
-        ) => true,
+            parent,
+        ) => scene_root(parent) || folder(parent),
         (
             SceneObjectKey::Placement { mesh: Some(_), .. },
             SceneObjectKey::Placement {
@@ -358,14 +427,25 @@ fn apply(
         if !source.current(&editor, &session) || !target.current(&editor, &session) {
             return;
         }
-        if matches!(&source.key, SceneObjectKey::Placement { mesh: Some(_), .. }) {
+        if folder(&source.key) {
+            let parent = folder(&target.key).then_some(target.name.as_str());
+            match move_folder(&mut objects, &mut session, &mut editor, &source.name, parent) {
+                Ok(true) => {
+                    if let Some(parent) = parent { browser.expanded_groups.insert(parent.to_owned()); }
+                    editor.status = parent.map_or_else(|| format!("已将文件夹「{}」移回根级", source.name),
+                        |parent| format!("已将文件夹「{}」移入「{parent}」", source.name));
+                }
+                Ok(false) => {}
+                Err(error) => editor.status = error,
+            }
+        } else if matches!(&source.key, SceneObjectKey::Placement { mesh: Some(_), .. }) {
             source_requests.write(SourceGlbRequest::Move {
                 source,
                 destination: target,
             });
         } else {
-            let name =
-                (!matches!(target.key, SceneObjectKey::PlacementTreeRoot)).then_some(target.name);
+            // 整件 GLB 放到主文件根行时只调整场景树归属，保留资产引用。
+            let name = folder(&target.key).then_some(target.name);
             if queue_group_drop(&mut objects, &session, &source, name.clone())
                 && let Some(name) = name
             {
@@ -381,29 +461,23 @@ fn apply(
         return;
     };
     let name = request.name.trim();
-    match create_folder(&mut objects, &mut session, &mut editor, name) {
-        Ok(()) => editor.status = format!("已新建文件夹「{name}」"),
-        Err(error) => editor.status = error,
+    if !browser.document_selection_ready(&request.target.scene_id)
+        || !browser.placement_index_ready(session.placement_structure_revision)
+    {
+        editor.status = "场景树正在更新，请刷新完成后再新建文件夹".into();
+        return;
     }
-}
-
-fn highlight_root_drop(
-    drag: Res<PlacementTreeDrag>,
-    mut headings: Query<(Entity, &mut Node, &mut BackgroundColor, &mut BorderColor), With<SceneMeshObjectsHeading>>,
-) {
-    for (entity, mut node, mut background, mut border) in &mut headings {
-        let highlighted = drag.highlights(entity);
-        let (fill, outline) = crate::ui::scene_sidebar::tree_row_colors(false, highlighted, UiInteraction::None);
-        let width = if highlighted {
-            UiRect::all(px(1))
-        } else {
-            UiRect::bottom(px(1))
-        };
-        if node.border != width {
-            node.border = width;
+    if browser.placement_group_names.contains(name) {
+        editor.status = "已存在同名文件夹".into();
+        return;
+    }
+    let parent = folder(&request.target.key).then_some(request.target.name.as_str());
+    match create_folder(&mut objects, &mut session, &mut editor, name, parent) {
+        Ok(()) => {
+            if let Some(parent) = parent { browser.expanded_groups.insert(parent.to_owned()); }
+            editor.status = format!("已新建文件夹「{name}」");
         }
-        background.set_if_neq(BackgroundColor(fill));
-        border.set_if_neq(outline);
+        Err(error) => editor.status = error,
     }
 }
 
@@ -430,6 +504,7 @@ mod tests {
             let mut session = world.resource_mut::<EditorAuthoringSession>();
             let revision = session.revision;
             let draft = session.draft.as_mut().unwrap();
+            draft.placement_glb_hash = Some("测试主场景".into());
             draft.placements.placements = vec![record];
             (draft.scene_id.clone(), revision)
         };
@@ -443,7 +518,7 @@ mod tests {
             id: source_id,
             mesh: None,
         });
-        let destination = target(SceneObjectKey::PlacementTreeRoot);
+        let destination = target(SceneObjectKey::MainSceneGlb);
         let row_node = |top| Node {
             position_type: PositionType::Absolute,
             left: px(720.0),
@@ -479,7 +554,7 @@ mod tests {
             .spawn((
                 InteractionButton,
                 row_node(146.0),
-                SceneMeshObjectsHeading,
+                SceneTreeRootRow,
                 SceneObjectRow(Some(destination.clone())),
             ))
             .id();
@@ -546,6 +621,7 @@ mod tests {
             orphaned_water_binding: false,
         };
         for key in [
+            SceneObjectKey::MainSceneGlb,
             SceneObjectKey::PlacementTreeRoot,
             SceneObjectKey::PlacementFolder,
             SceneObjectKey::Group {

@@ -121,7 +121,7 @@ fn signature_finalize_string_bytes(signature: &PlacementSignature) -> usize {
 
 /// 当前结构代次尚未发布的签名、重复身份与展开资产需求草稿。
 pub(super) struct BrowserSignatureBuild {
-    pub(super) has_object_groups: bool,
+    pub(super) placement_group_names: BTreeSet<String>,
     /// 构建开始时冻结的确定性作者结构身份；变化后整个草稿失效并重启。
     pub(super) observation: BrowserSessionObservation,
     /// 下一条待读取的摆放索引。
@@ -159,7 +159,7 @@ impl BrowserSignatureBuild {
     pub(super) fn new(observation: BrowserSessionObservation) -> Self {
         let capacity = observation.source_placement_count;
         Self {
-            has_object_groups: false,
+            placement_group_names: BTreeSet::new(),
             observation,                              // 冻结构身份供每帧继续前复核。
             next_placement: 0,                        // 从第一条摆放开始。
             pending_signature: None,                  // 第一帧再复制首条记录壳。
@@ -220,6 +220,7 @@ impl BrowserSignatureBuild {
             };
         }
         retire_string_set!(self.seen_ids);
+        retire_string_set!(self.placement_group_names);
         retire_string_set!(self.duplicate_ids);
         retire_string_set!(self.expanded_live);
         retire_string_set!(self.wanted_asset_paths);
@@ -336,13 +337,18 @@ pub(super) fn advance_signature_build(
             let metadata = objects.map_or(&placement.editor, |(state, session)| {
                 crate::ui::scene_objects::effective_metadata(Some(state), session, placement)
             });
-            build.has_object_groups |= !metadata.group.is_empty();
+            let group = metadata.group.as_str();
+            let new_group = (!group.is_empty() && !build.placement_group_names.contains(group)).then_some(group);
             let base_bytes = placement
                 .id
                 .len()
-                .saturating_add(placement.asset_path.len()); // 先计费签名本体各一份ID和资产路径。
+                .saturating_add(placement.asset_path.len())
+                .saturating_add(new_group.map_or(0, str::len));
             if !frame_budget.try_charge(0, 0, base_bytes) {
                 break; // 当前记录壳下一Update再完整复制。
+            }
+            if let Some(group) = new_group {
+                build.placement_group_names.insert(group.to_owned());
             }
             build.pending_signature = Some(PlacementSignature {
                 editor: metadata.clone(),

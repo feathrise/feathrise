@@ -188,7 +188,7 @@ fn folder_rename_preserves_members_and_empty_folders_in_one_history() {
         assert_eq!(session.undo.len(), 1);
         let assert_folder = |session: &EditorAuthoringSession, name: &str| {
             let draft = session.draft.as_ref().unwrap();
-            assert_eq!(draft.object_folders.iter().map(String::as_str).collect::<Vec<_>>(), [name]);
+            assert_eq!(draft.object_folders.names_after(None).collect::<Vec<_>>(), [name]);
             assert!(draft.placements.placements.iter().all(|record| record.editor.group == name));
         };
         assert_folder(&session, "新文件夹");

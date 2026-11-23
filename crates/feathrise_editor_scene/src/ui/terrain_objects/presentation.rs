@@ -1,7 +1,7 @@
 //! 网格页和场景列表的常驻表现同步；只访问固定控件、当前选择、十个虚拟网格行与有界LOD可见行。
 use feathrise_editor_ui::UiInteraction;
 use super::{components::*, numeric, resources::*, systems};
-use crate::{authoring::EditorAuthoringSession, resources::SceneEditorState, ui::theme as colors};
+use crate::{authoring::EditorAuthoringSession, components::SceneEditorTreeGlyph, resources::SceneEditorState, ui::theme as colors};
 use bevy::{ecs::system::SystemParam, prelude::*};
 use feathrise_editor_ui::{
     ActiveNumericInput, ActiveNumericInputScrub, NumericInputDisabled, NumericInputSetValue,
@@ -17,7 +17,6 @@ pub(super) struct PanelPresentation<'w, 's> {
         's,
         (
             Option<&'static Summary>,
-            Option<&'static ListSummary>,
             Option<&'static CreationSummary>,
             Option<&'static SourceSummary>,
             Option<&'static LodSummary>,
@@ -31,7 +30,6 @@ pub(super) struct PanelPresentation<'w, 's> {
         ),
         Or<(
             With<Summary>,
-            With<ListSummary>,
             With<CreationSummary>,
             With<SourceSummary>,
             With<LodSummary>,
@@ -59,6 +57,7 @@ pub(super) struct PanelPresentation<'w, 's> {
     >,
     list_viewport: Query<'w, 's, (&'static mut Node, &'static mut ScrollPosition), (With<ListViewport>, Without<ListContent>, Without<LodList>, Without<crate::ui::scene_inspector::InspectorBody>)>,
     list_content: Query<'w, 's, &'static mut Node, (With<ListContent>, Without<ListViewport>, Without<LodList>)>,
+    glyphs: Query<'w, 's, (&'static RowGlyph, &'static mut SceneEditorTreeGlyph)>,
     lod_list: Query<'w, 's, (&'static LodList, &'static mut Node, &'static ComputedNode, &'static UiGlobalTransform), (Without<ListViewport>, Without<ListContent>)>,
     inspector: Query<'w, 's, (&'static ComputedNode, &'static UiGlobalTransform, &'static mut ScrollPosition), (With<crate::ui::scene_inspector::InspectorBody>, Without<ListViewport>)>,
     lod_bindings: Query<'w, 's, (&'static LodRow, &'static mut LodRowBinding, &'static mut UiInteraction, Option<&'static mut feathrise_editor_ui::EditorButtonClick>)>,
@@ -332,6 +331,14 @@ pub(super) fn sync(
             *list_identity = Some(identity);
         }
     }
+    // 行槽滚动换绑后，只有高度地形使用山形图标。
+    for (slot, mut glyph) in &mut ui.glyphs {
+        let Some(object) = objects.get(state.list_start + slot.0) else { continue; };
+        let path = if object.terrain.kind == SceneTerrainKind::SparseClipmap {
+            "icons/editor/tree_terrain.png"
+        } else { "icons/editor/tree_mesh.png" };
+        if glyph.0 != path { glyph.0 = path; }
+    }
     let counts = [lod_count(systems::selected(&session, &state), false), lod_count(systems::selected(&session, &state), true)];
     for display in [false, true] {
         let list = state.lod_mut(display);
@@ -456,7 +463,6 @@ pub(super) fn sync(
     }
     for (
         summary,
-        list,
         creation,
         source,
         lod,
@@ -503,8 +509,6 @@ pub(super) fn sync(
                     )
                 },
             )
-        } else if list.is_some() {
-            session.draft.as_ref().map_or_else(String::new, |draft| draft.manifest.display_name.clone())
         } else if creation.is_some() {
             super::creation::summary(&state.creation, editor.selected_asset.as_deref())
         } else if source.is_some() {

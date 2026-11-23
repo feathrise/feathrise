@@ -171,18 +171,29 @@ pub(crate) fn scene_tree_page() -> impl Scene {
         Node { display: Display::None, width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_direction: FlexDirection::Column, overflow: Overflow::clip() }
         Children [
             SceneEditorSceneContext crate::ui::asset_preview::gltf_tree::EditorSceneTreePanel
-            Node { width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_direction: FlexDirection::Column }
+            Node { width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_direction: FlexDirection::Column, row_gap: px(3) }
             Children [
+                // 场景级工具与主 GLB 同级，展开设置也为对象树留出一个行高。
+                @crate::ui::gltf_browser::scene_display_button()--
+                @crate::ui::terrain_shading::terrain_shading_controls()--
+                @crate::ui::gltf_browser::scene_tree_root_row()--
+                // 根行固定在滚动区上方，正文统一缩进，滚到深处仍可拖回根级。
                 crate::ui::scene_inspector::InspectorTree
                 SceneEditorLeftPanelScroll RelativeCursorPosition::default() ScrollPosition::default()
-                Node { width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_basis: px(0), flex_direction: FlexDirection::Column, row_gap: px(3), overflow: Overflow::scroll_y() }
+                Node { width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_shrink: 0.0,
+                    flex_basis: px(crate::ui::list_layout::SCENE_OBJECT_ROW_PITCH), flex_direction: FlexDirection::Column,
+                    padding: UiRect::left(px(12)), overflow: Overflow::scroll_y() }
                 Children [
-                    @crate::ui::gltf_browser::scene_display_panel()--
-                    @crate::ui::terrain_objects::scene_list_panel()--
-                    @crate::ui::gltf_browser::gltf_browser_panel()--
-                    @crate::standalone::embedded_scene_tree::panel()--
-                    crate::viewport::content_selection::LayerCandidateSlot
-                        Node { display: Display::None, width: percent(100), flex_shrink: 0.0, flex_direction: FlexDirection::Column }
+                    // 根箭头只收起场景内容，工具入口位于子树之外。
+                    crate::ui::gltf_browser::SceneTreeContents
+                    Node { width: percent(100), min_width: px(0), flex_shrink: 0.0, flex_direction: FlexDirection::Column, row_gap: px(3) }
+                    Children [
+                        @crate::ui::terrain_objects::scene_list_panel()--
+                        @crate::ui::gltf_browser::gltf_browser_panel()--
+                        @crate::standalone::embedded_scene_tree::panel()--
+                        crate::viewport::content_selection::LayerCandidateSlot
+                            Node { display: Display::None, width: percent(100), flex_shrink: 0.0, flex_direction: FlexDirection::Column }
+                    ]
                 ]
             ]
         --

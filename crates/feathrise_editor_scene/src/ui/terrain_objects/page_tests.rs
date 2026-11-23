@@ -44,7 +44,8 @@ fn shell() -> impl Scene {
         PageHost Node { width: px(280), height: px(700), min_width: px(0), flex_direction: FlexDirection::Column,
             overflow: Overflow::scroll_y(), flex_shrink: 0.0 } Children [@scene::panel()]--
         ListHost Node { width: px(280), height: px(700), min_width: px(0), flex_direction: FlexDirection::Column,
-            flex_shrink: 0.0 } Children [@crate::ui::gltf_browser::scene_display_panel()-- @scene::scene_list_panel()-- @scene::properties_panel()]
+            flex_shrink: 0.0 } Children [@crate::ui::gltf_browser::scene_display_button()--
+                @crate::ui::terrain_shading::terrain_shading_controls()-- @scene::scene_list_panel()-- @scene::properties_panel()]
     ] }
 }
 

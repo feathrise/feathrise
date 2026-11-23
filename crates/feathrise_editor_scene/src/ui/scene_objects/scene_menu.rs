@@ -58,18 +58,38 @@ pub(crate) fn queue_group_drop(
 
 pub(crate) fn create_folder(
     state: &mut SceneObjectState, session: &mut EditorAuthoringSession,
-    editor: &mut SceneEditorState, name: &str,
+    editor: &mut SceneEditorState, name: &str, parent: Option<&str>,
 ) -> Result<(), String> {
     if !state.accepts_commands() { return Err("请等待上一项场景对象修改完成".into()); }
     placement_folders::validate_name(name)?;
     let draft = session.draft.as_mut().ok_or("还没有可编辑的场景")?;
     if draft.object_folders.contains(name) { return Err("已存在同名文件夹".into()); }
+    if let Some(parent) = parent {
+        // 复用父级变更事务。撤销时会一起移除这次新建的子文件夹。
+        return move_folder(state, session, editor, name, Some(parent)).map(|_| ());
+    }
     std::sync::Arc::make_mut(&mut draft.object_folders).insert(name.to_owned());
     let mut retired = std::mem::take(&mut session.redo);
     session.push_bounded_history_retiring(EditorCommand::PlacementFolderAdded(name.to_owned()), &mut retired);
     if !retired.is_empty() { super::systems::retire(state, retired); }
     session.mark_placement_structure_changed(editor);
     Ok(())
+}
+
+/// 拖放整夹只换一条父级边，GLB 的直属归类和位姿由原摆放记录继续持有。
+pub(crate) fn move_folder(
+    state: &mut SceneObjectState, session: &mut EditorAuthoringSession,
+    editor: &mut SceneEditorState, name: &str, parent: Option<&str>,
+) -> Result<bool, String> {
+    if !state.accepts_commands() { return Err("请等待上一项场景对象修改完成".into()); }
+    let draft = session.draft.as_mut().ok_or("还没有可编辑的场景")?;
+    let Some(change) = draft.object_folders.prepare_move(name, parent)? else { return Ok(false); };
+    change.apply(&mut draft.object_folders, false)?;
+    let mut retired = std::mem::take(&mut session.redo);
+    session.push_bounded_history_retiring(EditorCommand::PlacementFolderMoved(change), &mut retired);
+    if !retired.is_empty() { super::systems::retire(state, retired); }
+    session.mark_changed(editor); // 浏览器用文件夹快照身份刷新树行，沿用原模型签名。
+    Ok(true)
 }
 
 fn queue_management(

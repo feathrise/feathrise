@@ -182,7 +182,8 @@ impl SceneObjectTarget {
                 .get(*index)
                 .is_some_and(|record| &record.id == id),
             SceneObjectKey::Group { first_member, id } => draft.placements.placements
-                .get(*first_member).is_some_and(|record| &record.id == id && record.editor.group == self.name),
+                .get(*first_member).is_some_and(|record| &record.id == id
+                    && draft.object_folders.contains_member(&self.name, &record.editor.group)),
             SceneObjectKey::Terrain { index, id } => draft
                 .manifest
                 .terrains
@@ -297,7 +298,8 @@ impl SceneObjectTarget {
                 if mesh.as_ref().is_none_or(|mesh| mesh.is_source_folder()));
         }
         if action == SceneMenuAction::NewPlacementFolder {
-            return matches!(self.key, SceneObjectKey::PlacementTreeRoot | SceneObjectKey::PlacementFolder);
+            return matches!(self.key, SceneObjectKey::MainSceneGlb | SceneObjectKey::PlacementTreeRoot
+                | SceneObjectKey::PlacementFolder | SceneObjectKey::Group { .. });
         }
         if matches!(self.key, SceneObjectKey::PlacementTreeRoot | SceneObjectKey::PlacementFolder) {
             return false;

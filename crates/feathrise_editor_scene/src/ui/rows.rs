@@ -107,12 +107,12 @@ pub(crate) fn spawn_dynamic_rows(
     asset_server: Res<AssetServer>,
     icons: Option<Res<super::scene_sidebar::SceneBrowserTreeIcons>>,
     mut root_icons: Query<(&SceneEditorSceneRowGlyph, &mut ImageNode), Added<SceneEditorSceneRowGlyph>>,
-    mut tree_glyphs: Query<(&SceneEditorTreeGlyph, &mut ImageNode), (Added<SceneEditorTreeGlyph>, Without<SceneEditorSceneRowGlyph>)>,
+    mut tree_glyphs: Query<(&SceneEditorTreeGlyph, &mut ImageNode), (Changed<SceneEditorTreeGlyph>, Without<SceneEditorSceneRowGlyph>)>,
 ) {
     for (glyph, mut image) in &mut tree_glyphs {
         image.image = asset_server.load(glyph.0);
         image.color = colors::TEXT_PRIMARY;
-    } // 只处理首次挂载的固定行池，不在稳定帧重新加载图标。
+    } // 图标路径首次挂载或换绑时更新，稳定帧不重复读取。
     let font = feathrise_editor_core::editor_font(&asset_server, "fonts/open_source/noto_sans/cjk/NotoSansCJKsc-VF.otf");
     let tree_icons = if !scene_lists.is_empty() || root_icons.iter().any(|(glyph, _)| matches!(glyph, SceneEditorSceneRowGlyph::Root)) {
         let handles = icons.as_deref().cloned().unwrap_or_else(|| super::scene_sidebar::SceneBrowserTreeIcons::load(&asset_server));

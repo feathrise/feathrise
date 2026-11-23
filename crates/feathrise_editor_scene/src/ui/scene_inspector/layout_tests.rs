@@ -27,11 +27,13 @@ fn navigation_tree_and_properties_each_use_the_full_column_height() {
     settle(&mut app);
     let world = app.world_mut();
     let body = world.query_filtered::<Entity, With<InspectorBody>>().single(world).unwrap();
-    // 左树和右属性不再按42/58分割；同一窗口高度分别拥有完整、独立的滚动视口。
-    for entity in [tree, body] {
+    // 左列包含固定工具区和场景树，仍与右侧属性各自使用完整栏高。
+    let tree_column = world.get::<ChildOf>(tree).unwrap().parent();
+    for entity in [tree_column, body] {
         assert!(world.get::<ComputedNode>(entity).unwrap().size().y >= 790.0);
         assert_eq!(world.get::<Node>(entity).unwrap().flex_grow, 1.0);
     }
+    assert_eq!(world.get::<Node>(tree).unwrap().flex_grow, 1.0);
     assert_eq!(author(&app), before);
 }
 
@@ -219,9 +221,10 @@ fn inspector_tree_reuses_rows_and_scrolls_to_the_last_object_in_low_window() {
         let tree_layout = world.get::<ComputedNode>(tree).unwrap();
         let tree_height = tree_layout.size().y * tree_layout.inverse_scale_factor();
         assert!(tree_height > 0.0 && tree_height <= 160.0);
+        // 固定主 GLB 根行不占用滚动行池的槽位。
         assert_eq!(
             world
-                .query_filtered::<Entity, With<SceneEditorGltfBrowserRow>>()
+                .query_filtered::<Entity, (With<SceneEditorGltfBrowserRow>, Without<SceneTreeRootRow>)>()
                 .iter(world)
                 .count(),
             pool_capacity(tree_height, 1, SCENE_OBJECT_ROW_PITCH)
@@ -261,6 +264,14 @@ fn inspector_tree_reuses_rows_and_scrolls_to_the_last_object_in_low_window() {
             assert!(bindings.iter(world).any(|(row, node)| row.entry_index == Some(count - 1)
                 && node.top == px((count - 1) as f32 * SCENE_OBJECT_ROW_PITCH)));
             assert!(!bindings.iter(world).any(|(row, _)| row.entry_index == Some(0)));
+
+            set_tree_height(&mut app, 120.0);
+            app.world_mut().resource_mut::<TerrainShadingSession>().preview_expanded = true;
+            settle(&mut app);
+            let world = app.world_mut();
+            let settings = world.query_filtered::<&ComputedNode, With<SceneBaseTerrainDetails>>().single(world).unwrap();
+            assert!(settings.size().y > 0.0 && settings.content_size().y > settings.size().y);
+            assert!(world.get::<ComputedNode>(tree).unwrap().size().y >= SCENE_OBJECT_ROW_PITCH);
         }
     }
 }

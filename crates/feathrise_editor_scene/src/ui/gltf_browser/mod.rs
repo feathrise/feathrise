@@ -9,8 +9,8 @@ mod helpers; // Scene0遍历、稳定引用校验和可见行组合保持为无�
 mod retirement; // 旧活动树、签名、Scene草稿与资产缓存按固定预算分帧析构。
 mod scene; // 右栏上半区的BSN静态外壳。
 pub(crate) use scene::{
-    SceneBaseGltfArrow, SceneBaseGltfRow, SceneBaseTerrainDetails, SceneMeshObjectsHeading,
-    sync_scene_base_gltf_row, scene_display_panel,
+    SceneBaseGltfArrow, SceneBaseGltfRow, SceneBaseTerrainDetails, SceneTreeContents, SceneTreeRootRow,
+    sync_scene_base_gltf_row, scene_display_button, scene_tree_root_row,
 }; // 场景显示面板与摆放实例列表各自占用独立布局。
 mod scene_build; // Scene0根发现、DFS与路径物化均按固定预算分帧并原子采用。
 mod signature; // 全部摆放结构签名按每帧记录预算渐进生成。
@@ -106,7 +106,7 @@ impl EditorGltfMeshSelection {
 /// 一条固定行可显示的场景树节点类型。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum EditorGltfBrowserEntryKind {
-    Group { name: String, collapsed: bool, count: usize, first_member: Option<usize> },
+    Group { name: String, collapsed: bool, expandable: bool, count: usize, first_member: Option<usize> },
     /// 一个已摆放GLB实例根，有子网格时由独立箭头展开或收起。
     Placement {
         /// 草稿中的稳定实例ID。
@@ -274,12 +274,12 @@ pub(super) struct CachedGltfAsset {
 #[derive(Resource, Default)]
 pub(crate) struct EditorGltfBrowserState {
     pub(super) source_glb_edits: crate::authoring::source_glbs::SourceGlbEdits,
-    /// 组与GLB均默认收起，只有显式点箭头才改变当前场景的展开偏好。
+    /// 文件夹与引用 GLB 默认收起，箭头改变当前场景的展开偏好。
     pub(super) expanded_groups: BTreeSet<String>,
-    /// 主 GLB 自有折叠状态，身份与普通引用模型分开。
-    pub(super) expanded_main_glb: Option<feathrise_scene_content::SceneId>,
-    /// 主 GLB 是场景文件选择，没有对应的摆放记录。
-    pub(super) selected_main_glb: Option<feathrise_scene_content::SceneId>,
+    /// 主 GLB 默认展开，收起状态绑定实际场景身份。
+    pub(super) collapsed_main_glb: Option<feathrise_scene_content::SceneId>,
+    /// 主文件与场景动画没有对应的摆放记录。
+    pub(super) selected_main_row: Option<(feathrise_scene_content::SceneId, MainSceneSelection)>,
     pub(crate) selected_group: Option<String>,
     /// 当前展开状态的完整扁平树，行池按滚动位置取其窗口。
     pub(crate) entries: Vec<EditorGltfBrowserEntry>,
@@ -305,9 +305,10 @@ pub(crate) struct EditorGltfBrowserState {
     signature_build: Option<BrowserSignatureBuild>,
     /// 只有确定性摆放结构代次变化时才扫描重建的有界身份表。
     pub(super) signature: Vec<PlacementSignature>,
-    pub(super) has_object_groups: bool, // 随签名增量统计，普通旧场景无需新增全树投影阶段。
+    /// 随签名增量索引旧版由摆放名称隐式建立的文件夹，防止新建时复用同名目录。
+    pub(super) placement_group_names: BTreeSet<String>,
     /// 数据由当前场景草稿拥有。浏览器不持有强引用，创建文件夹无需复制目录。
-    pub(super) object_folders: std::sync::Weak<BTreeSet<String>>,
+    pub(super) object_folders: std::sync::Weak<crate::authoring::placement_folders::PlacementFolders>,
     /// 活动签名内无法稳定回写的重复实例ID，由签名分帧构建途中增量识别。
     pub(super) duplicate_placement_ids: BTreeSet<String>,
     /// 唯一实例ID到资产路径的O(1)索引；重复ID故意不进入，点击时明确拒绝。
@@ -375,7 +376,7 @@ impl EditorGltfBrowserState {
         placement_id: String,
     ) -> bool {
         let valid = !self.duplicate_placement_ids.contains(&placement_id); // 重复ID不能授权变换、复制或删除中的任一条记录。
-        self.selected_main_glb = None;
+        self.selected_main_row = None;
         self.selected_group = None;
         self.selected_placement_id = Some(placement_id); // 属性区仍以完整ScenePlacementRecord作为操作目标。
         self.selection = None; // 直接primitive没有Blender对象路径，不能冒充整网格水或Scene0高亮身份。
@@ -391,7 +392,7 @@ impl EditorGltfBrowserState {
             .duplicate_placement_ids
             .contains(&selection.placement_id); // 重复摆放ID即使世界恰好命中一根也不能授权后续作者动作。
         selection.orphaned_water_binding = false; // 世界实际命中不可能是只存在于旧作者数据的失效绑定。
-        self.selected_main_glb = None;
+        self.selected_main_row = None;
         self.selected_group = None;
         let valid = selection.valid; // 移入资源前冻结调用方需要的授权结论。
         self.selected_placement_id = Some(selection.placement_id.clone()); // 收起时仍可从完整摆放根接续操作。
@@ -425,14 +426,20 @@ impl EditorGltfBrowserState {
         entries::request_visible_entries_rebuild(self);
     }
 
+    pub(super) fn mesh_uses_arrow_column(&self, entry: Option<usize>) -> bool {
+        entry.filter(|&index| index < self.main_glb_entry_count)
+            .and_then(|index| self.entries.get(index))
+            .is_some_and(|entry| matches!(entry.kind, EditorGltfBrowserEntryKind::Placement { expandable: false, glb: false, .. }))
+    }
+
     pub(crate) fn is_main_glb_selected(&self, scene: &feathrise_scene_content::SceneId) -> bool {
-        self.selected_main_glb.as_ref() == Some(scene)
+        matches!(&self.selected_main_row, Some((selected, MainSceneSelection::File)) if selected == scene)
             && self.selected_placement_id.is_none() && self.selected_group.is_none()
     }
 
     /// 清除场景对象选择，不改变作者手动展开的场景树。
     pub(crate) fn clear_viewport_selection(&mut self) {
-        self.selected_main_glb = None;
+        self.selected_main_row = None;
         self.selected_group = None;
         self.selected_placement_id = None; // 资产变换区同帧收起。
         self.selection = None; // 精确网格覆盖由下一Cursor阶段隐藏。
@@ -488,7 +495,7 @@ pub(crate) struct SceneEditorGltfBrowserListContent;
 #[derive(Component, Clone, Copy, Default)]
 pub(crate) struct SceneEditorGltfBrowserStatusText;
 
-/// 主 GLB 及其动画作为网格列表的固定前缀，复用摆放行池。
+/// 主 GLB 位于固定根行，动画子行复用网格列表的行池。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MainSceneGlbRow {
     File,
@@ -496,8 +503,14 @@ pub(crate) enum MainSceneGlbRow {
     Empty,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum MainSceneSelection {
+    File,
+    Animation, // 首次插键会改变 GLB 索引，选中的是同一条可编辑片段。
+}
+
 /// 固定场景树行槽及其当前绑定条目。
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub(crate) struct SceneEditorGltfBrowserRow {
     /// 固定行池槽位。
     pub(super) slot: usize,

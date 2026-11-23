@@ -18,7 +18,8 @@ fn mesh(id: &str) -> EditorGltfMeshSelection {
 
 #[test]
 fn placement_and_group_names_select_but_only_arrow_releases_expand() {
-    use crate::ui::terrain_objects::page_tests::{click, page_without_tree_input};
+    use crate::ui::{scene_context_menu::{SceneObjectKey, SceneObjectRow}, terrain_objects::page_tests::{click, page_without_tree_input}};
+    use super::super::{SceneTreeContents, organize::sync_root_row, scene_tree_root_row};
     use bevy::world_serialization::WorldAsset;
     use feathrise_scene_content::{ScenePlacementEditorMetadata, ScenePlacementHeightMode, ScenePlacementRecord};
 
@@ -34,25 +35,31 @@ fn placement_and_group_names_select_but_only_arrow_releases_expand() {
         let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
         let draft = session.draft.as_mut().unwrap();
         draft.placement_glb_hash = Some("测试主场景".into());
+        draft.motion.set_clip_name(Some("测试场景动画".into()));
         draft.placements.placements = vec![record("主模型", ""), record("分组模型", "摆放组")];
     }
-    {
+    let contents = {
         let world = app.world_mut();
         let root = world.query_filtered::<Entity, With<feathrise_editor_ui::EditorThemeRoot>>().single(world).unwrap();
         for child in world.get::<Children>(root).unwrap().to_vec() {
             world.get_mut::<Node>(child).unwrap().display = Display::None;
         }
-        let list = world.spawn((ChildOf(root), SceneEditorGltfBrowserList, ScrollPosition::default(),
+        let host = world.spawn((ChildOf(root), Node { width: px(500), flex_direction: FlexDirection::Column, ..default() })).id();
+        world.spawn_scene(scene_tree_root_row()).unwrap().insert(ChildOf(host));
+        let contents = world.spawn((ChildOf(host), SceneTreeContents, Node::default())).id();
+        let list = world.spawn((ChildOf(contents), SceneEditorGltfBrowserList, ScrollPosition::default(),
             Node { width: px(500), overflow: Overflow::scroll_y(), ..default() })).id();
         world.spawn((ChildOf(list), SceneEditorGltfBrowserListContent, Node { width: percent(100), ..default() }));
-    }
+        contents
+    };
     app.init_asset::<WorldAsset>()
+        .init_resource::<PlacementTreeDrag>()
         .init_resource::<crate::ui::scene_objects::SceneObjectState>()
         .init_resource::<SelectedPlacementViewportState>()
         .init_resource::<EditorViewportSelectionState>()
         .add_systems(Update, handle_gltf_browser_input.in_set(crate::SceneEditorSystemSet::Input))
         .add_systems(Update, super::super::refresh_gltf_browser_cache.in_set(crate::SceneEditorSystemSet::Tasks))
-        .add_systems(Update, (spawn_gltf_browser_rows, sync_gltf_browser_rows, super::super::sync_gltf_row_toggles)
+        .add_systems(Update, (spawn_gltf_browser_rows, sync_gltf_browser_rows, sync_root_row, super::super::sync_gltf_row_toggles)
             .chain().in_set(crate::SceneEditorSystemSet::Presentation));
     for _ in 0..5 { app.update(); }
 
@@ -96,17 +103,36 @@ fn placement_and_group_names_select_but_only_arrow_releases_expand() {
         world.query::<(Entity, &SceneEditorGltfBrowserRow)>().iter(world)
             .find_map(|(entity, row)| (row.main_glb == Some(MainSceneGlbRow::File)).then_some(entity)).unwrap()
     };
+    assert!(matches!(app.world().get::<SceneObjectRow>(main_glb).unwrap().0.as_ref().unwrap().key, SceneObjectKey::MainSceneGlb));
     click(&mut app, window, main_glb, MouseButton::Left);
     let scene = app.world().resource::<SceneEditorState>().selected_scene_id.clone().unwrap();
     let state = app.world().resource::<EditorGltfBrowserState>();
-    assert!(state.is_main_glb_selected(&scene) && state.expanded_main_glb.is_none());
+    assert!(state.is_main_glb_selected(&scene) && state.collapsed_main_glb.is_none());
     assert!(state.selected_group.is_none() && state.selected_placement_id.is_none());
     assert!(state.expanded_placements.contains("主模型") && state.expanded_groups.contains("摆放组"));
+    let root_arrow = arrow_of(&app, main_glb);
+    click(&mut app, window, root_arrow, MouseButton::Left);
+    assert_eq!(app.world().get::<Node>(contents).unwrap().display, Display::None);
+    assert!(app.world().resource::<EditorGltfBrowserState>().is_main_glb_selected(&scene));
+    assert_eq!(app.world().get::<Node>(main_glb).unwrap().display, Display::Flex);
+    click(&mut app, window, root_arrow, MouseButton::Left);
+    assert_eq!(app.world().get::<Node>(contents).unwrap().display, Display::Flex);
     let model = row_at(&mut app, 0);
     click(&mut app, window, model, MouseButton::Left);
     let state = app.world().resource::<EditorGltfBrowserState>();
-    assert!(state.selected_main_glb.is_none());
+    assert!(state.selected_main_row.is_none());
     assert_eq!(state.selected_placement_id.as_deref(), Some("主模型"));
+    let animation = {
+        let world = app.world_mut();
+        world.query::<(Entity, &SceneEditorGltfBrowserRow)>().iter(world)
+            .find_map(|(entity, row)| (row.main_glb == Some(MainSceneGlbRow::Animation(None))).then_some(entity)).unwrap()
+    };
+    click(&mut app, window, animation, MouseButton::Left);
+    let state = app.world().resource::<EditorGltfBrowserState>();
+    assert!(matches!(&state.selected_main_row, Some((id, MainSceneSelection::Animation)) if id == &scene));
+    assert_eq!(state.selected_placement_id.as_deref(), Some("主模型"), "选择动画仍保留原视口姿势目标");
+    click(&mut app, window, model, MouseButton::Left);
+    assert!(app.world().resource::<EditorGltfBrowserState>().selected_main_row.is_none());
     let session = app.world().resource::<EditorAuthoringSession>();
     assert!(session.undo.is_empty());
     assert!(!app.world().resource::<SceneEditorState>().dirty);

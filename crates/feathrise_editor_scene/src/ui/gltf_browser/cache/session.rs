@@ -27,6 +27,7 @@ fn has_live_browser_session(state: &EditorGltfBrowserState) -> bool {
         || !state.expanded_groups.is_empty()
         || state.selection_validation_path.is_some()
         || state.selection.is_some()
+        || state.selected_main_row.is_some()
         || state.selected_group.is_some()
         || state.selected_placement_id.is_some()
         || !state.loading_queue.is_empty()

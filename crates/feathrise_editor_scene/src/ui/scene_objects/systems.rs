@@ -72,9 +72,11 @@ pub(super) fn advance_management(
         if pending.action == ObjectAction::RenameFolder && record.editor.group == pending.name {
             return Err("已存在同名文件夹".into());
         }
-        if matches!(&pending.targets, ObjectTargets::Group(group) if record.editor.group != *group)
-        {
-            continue;
+        if let ObjectTargets::Group(group) = &pending.targets {
+            // 改名只重写直属成员的旧名称，整夹开关与选择也包含子文件夹的成员。
+            let included = if pending.action == ObjectAction::RenameFolder { record.editor.group == *group }
+                else { draft.object_folders.contains_member(group, &record.editor.group) };
+            if !included { continue; }
         }
         if pending.action == ObjectAction::SelectGroup {
             if record.building_preset_id.is_none()

@@ -17,7 +17,7 @@ use crate::ui::list_layout::{
 };
 use crate::ui::scene_inspector::InspectorTree;
 use crate::ui::scene_sidebar::{
-    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TreeRowToggle, tree_branch_button, tree_row_colors, tree_row_left,
+    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TreeRowToggle, tree_branch_button, tree_row_colors, tree_row_icon_left, tree_row_left,
     tree_toggle_button, tree_toggle_icon,
 };
 use crate::viewport::placement_move::PlacementMoveState;
@@ -25,17 +25,19 @@ use crate::viewport::SelectedPlacementViewportState;
 
 use super::{helpers::selection_matches, row_controls::BranchTarget}; // 选择身份不受热更索引漂移影响。
 use super::{
-    EditorGltfBrowserEntryKind, EditorGltfBrowserState, MainSceneGlbRow, PlacementTreeDrag, PlacementTreeExpander, PlacementTreeToggle, SceneEditorGltfBrowserList,
+    EditorGltfBrowserEntryKind, EditorGltfBrowserState, MainSceneGlbRow, MainSceneSelection, PlacementTreeDrag, PlacementTreeExpander, PlacementTreeToggle, SceneEditorGltfBrowserList,
     SceneEditorGltfBrowserListContent, SceneEditorGltfBrowserRow, SceneEditorGltfBrowserRowText,
-    SceneEditorGltfBrowserStatusText, SceneMeshObjectsHeading,
+    SceneEditorGltfBrowserStatusText, SceneTreeRootRow,
 }; // 模块私有组件与公开资源。
 
 #[cfg(test)]
 #[path = "input_tests.rs"]
 mod input_tests;
 
-#[derive(Component)]
+#[derive(Component, Clone, Copy, Default)]
 pub(crate) struct GltfRowCaption;
+
+const GLTF_TREE_ICON_SIZE: f32 = 16.0;
 
 pub(super) fn main_glb_draft<'a>(
     editor: &SceneEditorState, session: &'a EditorAuthoringSession,
@@ -110,7 +112,7 @@ pub(crate) fn spawn_gltf_browser_rows(
                 caption.spawn((
                     crate::components::SceneEditorGltfBrowserRowGlyph,
                     ImageNode::default(),
-                    Node { width: px(16), height: px(16), flex_shrink: 0.0, ..default() },
+                    Node { width: px(GLTF_TREE_ICON_SIZE), height: px(GLTF_TREE_ICON_SIZE), flex_shrink: 0.0, ..default() },
                     Pickable::IGNORE,
                 ));
                 caption.spawn((
@@ -169,7 +171,7 @@ pub(crate) fn handle_gltf_browser_input(
                 BranchTarget::Entry(index) => state.toggle_tree_branch(index),
                 BranchTarget::MainGlb => {
                     let scene = editor.selected_scene_id.as_ref();
-                    state.expanded_main_glb = if state.expanded_main_glb.as_ref() == scene { None } else { scene.cloned() };
+                    state.collapsed_main_glb = if state.collapsed_main_glb.as_ref() == scene { None } else { scene.cloned() };
                 }
             }
         }
@@ -183,12 +185,22 @@ pub(crate) fn handle_gltf_browser_input(
         let Some(draft) = main_glb_draft(&editor, &session) else { return; };
         state.clear_viewport_selection();
         // 文件行只选中主 GLB，摆放或地形的旧目标不得继续接收属性操作。
-        state.selected_main_glb = Some(draft.scene_id.clone());
+        state.selected_main_row = Some((draft.scene_id.clone(), MainSceneSelection::File));
         viewport_selection.clear_vegetation_selection();
         candidates.clear_for_scene_tree();
         selected_viewport.clear_click_sequence();
         if let Some(selection) = multi_selection.as_mut() { selection.clear(); }
         if let Some(sidebar) = sidebar.as_mut() { sidebar.reveal_scene_properties(); }
+        return;
+    }
+    if let Some(MainSceneGlbRow::Animation(index)) = row.main_glb {
+        if let Some(draft) = main_glb_draft(&editor, &session)
+            && draft.motion.editable_clip_index() == index && draft.motion.clip_name().is_some()
+        {
+            // 动画行选中后可经原菜单改名。保留视口姿势目标，双击仍由原时间轴入口处理。
+            state.selected_main_row = Some((draft.scene_id.clone(), MainSceneSelection::Animation));
+            state.selected_group = None;
+        }
         return;
     }
     let Some(entry_index) = row.entry_index else { return; };
@@ -200,13 +212,13 @@ pub(crate) fn handle_gltf_browser_input(
         return; // 热更错帧后的旧行索引不猜测目标。
     };
     if matches!(entry.kind, EditorGltfBrowserEntryKind::SourceAnimation { .. }) {
-        return; // 与主 GLB 对齐，单击动画行保留场景选择，双击才进入编辑。
+        return; // 源文件片段由自己的动画标签处理。
     }
     if let Some(sidebar) = sidebar.as_mut() {
         sidebar.reveal_scene_properties(); // 左树选择后立即显示全高属性，保留导航和工具记忆。
     }
     viewport_selection.clear_vegetation_selection(); // 明确选择场景对象时隐藏旧植被覆盖。
-    state.selected_main_glb = None;
+    state.selected_main_row = None;
     if let EditorGltfBrowserEntryKind::Group { name, .. } = &entry.kind {
         state.selected_group = Some(name.clone());
         state.selected_placement_id = None; state.selection = None;
@@ -305,6 +317,7 @@ pub(crate) fn sync_gltf_browser_rows(
         ),
         (
             With<SceneEditorGltfBrowserRow>,
+            Without<SceneTreeRootRow>, // 主 GLB 根行固定，不参与滚动槽位换绑。
             Without<SceneEditorGltfBrowserList>,
             Without<SceneEditorGltfBrowserListContent>,
         ),
@@ -320,11 +333,6 @@ pub(crate) fn sync_gltf_browser_rows(
             Without<SceneEditorGltfBrowserListContent>,
         ),
     >,
-    mut headings: Query<&mut Node, (
-        With<SceneMeshObjectsHeading>, Without<SceneEditorGltfBrowserRow>,
-        Without<SceneEditorGltfBrowserList>, Without<SceneEditorGltfBrowserListContent>,
-        Without<SceneEditorGltfBrowserStatusText>,
-    )>,
     mut layouts: (
         Query<
             (&mut Node, &mut ScrollPosition),
@@ -352,24 +360,19 @@ pub(crate) fn sync_gltf_browser_rows(
         return; // 隐藏UI无需重复写文本和样式。
     }
     let main_glb = main_glb_draft(&editor, &session);
-    let motion = main_glb.filter(|draft| state.expanded_main_glb.as_ref() == Some(&draft.scene_id))
-        .map(|draft| &draft.motion);
+    let motion = main_glb.map(|draft| &draft.motion);
     let clips = motion.map(|motion| motion.clip_names());
     let editable = motion.and_then(|motion| Some((motion.editable_clip_index(), motion.clip_name()?)));
+    let animation_selected = editable.is_some()
+        && matches!(&state.selected_main_row, Some((scene, MainSceneSelection::Animation))
+            if Some(scene) == editor.selected_scene_id.as_ref());
     let draft_name = editable.filter(|(index, _)| index.is_none()).map(|(_, name)| name);
-    // 内嵌网格是已发布条目的连续前缀。折叠时只跳过该段，保留原条目索引供右键、选中和开关使用。
-    let hidden_meshes = if clips.is_none() { state.main_glb_entry_count } else { 0 };
     let empty_hint = usize::from(state.main_glb_entry_count == 0);
-    let main_rows = usize::from(main_glb.is_some())
-        + clips.map_or(0, |clips| (clips.len() + usize::from(draft_name.is_some())).max(empty_hint));
-    let total_rows = main_rows.saturating_add(state.entries.len().saturating_sub(hidden_meshes));
+    // 主文件在独立根行，滚动列表从动画和内嵌网格开始，再列引用与文件夹。
+    let main_rows = clips.map_or(0, |clips| (clips.len() + usize::from(draft_name.is_some())).max(empty_hint));
+    let total_rows = main_rows.saturating_add(state.entries.len());
     let (drag, locale) = view;
     let locale = locale.as_deref().copied().unwrap_or_default();
-    for mut heading in &mut headings {
-        let display = if session.draft.as_ref().is_some_and(|draft| editor.selected_scene_id.as_ref() == Some(&draft.scene_id))
-            && !editor.scene_transition_in_progress { Display::Flex } else { Display::None };
-        if heading.display != display { heading.display = display; } // 与已发布的摆放列表同帧出现或收起。
-    }
     let scene_changed = presented_scope.as_ref().is_none_or(|(scene, _, _, _)| scene != &editor.selected_scene_id);
     let height = scene_tree_viewport_height(&tree)
         .or_else(|| presented_scope.as_ref().map(|(_, _, _, height)| *height))
@@ -393,9 +396,8 @@ pub(crate) fn sync_gltf_browser_rows(
     for (entity, interaction, mut click, mut row, mut node, mut background, mut border, children) in &mut rows {
         let tree_index = start.saturating_add(row.slot);
         let main_row = match tree_index {
-            0 if main_glb.is_some() => Some((MainSceneGlbRow::File, locale.text("label.main-scene-glb"))),
             index if index < main_rows => {
-                let index = Some(index - 1);
+                let index = Some(index);
                 if let Some(name) = index.and_then(|index| clips?.get(index)) {
                     let name = editable.filter(|(editable, _)| *editable == index).map_or(name.as_str(), |(_, name)| name);
                     Some((MainSceneGlbRow::Animation(index), name))
@@ -408,7 +410,7 @@ pub(crate) fn sync_gltf_browser_rows(
             _ => None,
         };
         let main_kind = main_row.map(|(kind, _)| kind);
-        let binding = tree_index.checked_sub(main_rows).map(|index| index.saturating_add(hidden_meshes))
+        let binding = tree_index.checked_sub(main_rows)
             .filter(|&index| index < state.entries.len());
         let rebound = scene_changed || row.entries_revision != state.published_entries_revision
             || row.entry_index != binding || row.main_glb != main_kind;
@@ -420,16 +422,14 @@ pub(crate) fn sync_gltf_browser_rows(
             row.main_glb = main_kind;
             row.entries_revision = state.published_entries_revision;
         }
-        let placement = binding.and_then(|index| state.entries.get(index).map(|entry| (index, entry)));
+        let placement = binding.and_then(|index| state.entries.get(index));
         let (depth, name, prefix, base_color, icon, selected) = if let Some((kind, name)) = main_row {
-            match kind {
-                MainSceneGlbRow::File => (0, name, "", colors::TEXT_ACCENT, asset_icons::GLB,
-                    main_glb.is_some_and(|draft| state.is_main_glb_selected(&draft.scene_id))),
-                MainSceneGlbRow::Animation(_) => (1, name, "", colors::TEXT_PRIMARY, "icons/editor/tree_file.png", false),
-                MainSceneGlbRow::Empty => (1, name, "", colors::TEXT_MUTED, "icons/editor/tree_file.png", false),
-            }
-        } else if let Some((index, entry)) = placement {
-            let selected = match &entry.kind {
+            let color = if kind == MainSceneGlbRow::Empty { colors::TEXT_MUTED } else { colors::TEXT_PRIMARY };
+            let selected = animation_selected
+                && matches!(kind, MainSceneGlbRow::Animation(index) if editable.is_some_and(|(editable, _)| editable == index));
+            (0, name, "", color, "icons/editor/tree_file.png", selected)
+        } else if let Some(entry) = placement {
+            let selected = !animation_selected && match &entry.kind {
                 EditorGltfBrowserEntryKind::Group { name, .. } => state.selected_group.as_ref() == Some(name),
                 EditorGltfBrowserEntryKind::Placement { placement_id, .. } =>
                     state.selection.is_none() && (state.selected_placement_id.as_ref() == Some(placement_id)
@@ -453,15 +453,17 @@ pub(crate) fn sync_gltf_browser_rows(
                 EditorGltfBrowserEntryKind::MissingWaterBinding => ("×", colors::DANGER_TEXT, "icons/editor/tree_mesh.png"),
                 EditorGltfBrowserEntryKind::SourceAnimation { .. } => ("", colors::TEXT_PRIMARY, "icons/editor/tree_file.png"),
             };
-            let depth = entry.depth + usize::from(index < state.main_glb_entry_count);
-            (depth, entry.display_name.as_str(), prefix, base_color, icon, selected)
+            (entry.depth, entry.display_name.as_str(), prefix, base_color, icon, selected)
         } else {
             node.display = Display::None; // 实体池保留但不参与布局。
             continue;
         };
         node.display = Display::Flex; // 当前条目原地复用槽位。
         node.top = px(tree_index as f32 * SCENE_OBJECT_ROW_PITCH);
-        node.padding.left = tree_row_left(depth.min(8)); // 同层级箭头和叶子占位共用一列。
+        let depth = depth.min(8);
+        node.padding.left = if state.mesh_uses_arrow_column(binding) {
+            tree_row_icon_left(depth, GLTF_TREE_ICON_SIZE)
+        } else { tree_row_left(depth) };
         let interaction = match main_kind {
             _ if drag.as_ref().is_some_and(|drag| drag.owns_mouse()) => UiInteraction::None,
             Some(MainSceneGlbRow::Empty) => UiInteraction::None,

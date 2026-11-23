@@ -480,7 +480,7 @@ pub(crate) struct SceneEditorSceneRowNameCell;
 pub(crate) struct SceneEditorTreeGlyph(pub &'static str);
 #[derive(Component, Clone, Copy)]
 pub(crate) struct SceneEditorAssetRowGlyph;
-#[derive(Component)]
+#[derive(Component, Clone, Copy, Default)]
 pub(crate) struct SceneEditorGltfBrowserRowGlyph;
 #[derive(Component)]
 pub(crate) struct SceneEditorSceneRowCurrent;

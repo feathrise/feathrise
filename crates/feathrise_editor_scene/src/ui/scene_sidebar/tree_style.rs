@@ -10,7 +10,12 @@ pub(crate) const TREE_BRANCH_GAP: f32 = 2.0;
 pub(crate) const TREE_CAPTION_GAP: f32 = 5.0;
 
 pub(crate) fn tree_row_left(depth: usize) -> Val {
-    px(5.0 + depth as f32 * TREE_BRANCH_WIDTH)
+    tree_row_icon_left(depth, TREE_BRANCH_WIDTH)
+}
+
+/// 网格图标与同深度箭头共用列中心。
+pub(crate) fn tree_row_icon_left(depth: usize, width: f32) -> Val {
+    px(5.0 + depth as f32 * TREE_BRANCH_WIDTH + (TREE_BRANCH_WIDTH - width) * 0.5)
 }
 
 fn tree_branch_node() -> Node {

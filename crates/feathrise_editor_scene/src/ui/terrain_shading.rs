@@ -131,10 +131,12 @@ fn sync_collision_preview(
 pub(crate) fn terrain_shading_controls() -> impl Scene {
     bsn! {
         super::gltf_browser::SceneBaseTerrainDetails
+        bevy::ui::RelativeCursorPosition::default() ScrollPosition::default()
         Node {
             display: Display::None, // 收起时不占场景树布局。
             width: percent(100), // 与场景显示标题对齐。
-            flex_shrink: 0.0, // 展开后不得被摆放实例列表压缩。
+            min_height: px(0), // 低窗口优先保留标题、根行和可滚动的对象行。
+            overflow: Overflow::scroll_y(), // 展开区可缩短，设置仍能独立滚动到末尾。
             flex_direction: FlexDirection::Column, // 标题、按钮与会话提示依次排列。
             row_gap: px(4), // 紧凑场景属性行距。
             padding: UiRect::all(px(6)), // 网格设置与树行保持可读间距。

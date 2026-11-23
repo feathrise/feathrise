@@ -177,7 +177,7 @@ fn scene_tree_mesh_section_and_branch_columns_keep_actual_layout_aligned() {
         app.world_mut().resource_mut::<UiScale>().0 = scale;
         settle(&mut app);
         let world = app.world_mut();
-        let heading = world.query_filtered::<Entity, With<SceneMeshObjectsHeading>>().single(world).unwrap();
+        assert!(!world.query::<&Text>().iter(world).any(|text| text.as_str() == "网格对象"));
         let display_arrow = world.query_filtered::<Entity, With<SceneBaseGltfArrow>>().single(world).unwrap();
         let layer_arrows: Vec<_> = world.query::<(Entity, &components::SectionArrow)>().iter(world)
             .map(|(entity, _)| entity).collect();
@@ -199,17 +199,16 @@ fn scene_tree_mesh_section_and_branch_columns_keep_actual_layout_aligned() {
             .find(|child| world.get::<PlacementTreeExpander>(*child).is_some()).unwrap();
         let center = |entity| world.get::<UiGlobalTransform>(entity).unwrap().translation;
         let size = |entity| world.get::<ComputedNode>(entity).unwrap().size();
-        let heading_text = world.get::<Children>(heading).unwrap().iter()
-            .find(|child| world.get::<Text>(*child).is_some()).unwrap();
-        assert_eq!(world.get::<Text>(heading_text).unwrap().as_str(), "网格对象");
-        assert!(size(heading).y > 0.0 && center(heading).y < center(branch_rows[0]).y);
-        assert!(layer_arrows.iter().all(|&arrow| center(arrow).y < center(heading).y));
+        let branch_column = center(layer_arrows[0]).x;
+        assert!(center(display_arrow).x < branch_column);
+        assert!(layer_arrows.iter().all(|&arrow| center(display_arrow).y < center(arrow).y));
+        assert!(layer_arrows.iter().all(|&arrow| center(arrow).y < center(branch_rows[0]).y));
         for arrow in layer_arrows.into_iter().chain(branch_rows.into_iter().map(|row| expander(row))) {
-            assert!((center(arrow).x - center(display_arrow).x).abs() <= 1.1);
+            assert!((center(arrow).x - branch_column).abs() <= 1.1);
             assert!(size(arrow).abs_diff_eq(size(display_arrow), 1.1));
         }
         assert_eq!(*world.get::<Visibility>(expander(leaf)).unwrap(), Visibility::Hidden);
-        assert!((center(expander(leaf)).x - center(display_arrow).x - 18.0 * scale).abs() <= 1.1);
+        assert!((center(expander(leaf)).x - branch_column - 18.0 * scale).abs() <= 1.1);
         let glyph = |row, glb| world.get::<Children>(row).unwrap().iter()
             .filter_map(|child| world.get::<Children>(child)).flat_map(|children| children.iter())
             .find(|child| if glb { world.get::<SceneEditorGltfBrowserRowGlyph>(*child).is_some() }
@@ -219,8 +218,8 @@ fn scene_tree_mesh_section_and_branch_columns_keep_actual_layout_aligned() {
     app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap().placements.placements.clear();
     settle(&mut app);
     let world = app.world_mut();
-    let heading = world.query_filtered::<&ComputedNode, With<SceneMeshObjectsHeading>>().single(world).unwrap();
-    assert_eq!(heading.size(), Vec2::ZERO, "空场景留给水域和植被，网格标题不占高度");
+    let list = world.query_filtered::<&ComputedNode, With<SceneEditorGltfBrowserList>>().single(world).unwrap();
+    assert_eq!(list.size(), Vec2::ZERO, "没有摆放时列表不占高度");
 }
 
 #[test]

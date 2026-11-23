@@ -45,7 +45,6 @@ pub(super) struct Probe {
     save_before: u64,
     adopted_since: Option<Instant>,
     after_framed: bool,
-    main_glb_click: Option<(Entity, bool)>,
     tree_focus: TreeFocusProbe,
 }
 
@@ -55,7 +54,6 @@ impl Probe {
             reopen, phase: Phase::Frame, record: None,
             pending: None, capture_attempt: 0, stable_frames: 0,
             rev_before: 0, save_before: 0, adopted_since: None, after_framed: false,
-            main_glb_click: None,
             tree_focus: TreeFocusProbe::default(),
         }
     }
@@ -110,16 +108,10 @@ impl Probe {
                     *pulse = click_text(world, "场景树");
                     return Ok(false);
                 }
-                // 内置立方体随主 GLB 默认折叠，先走实际箭头才能获得可见树行。
-                let visible = self.main_glb_click.is_none()
-                    && scene_format_validation::empty_terrain_placement_tree_labels(world, scene, &record.id)?.is_some();
-                let expanded = if !visible
-                    && let Ok(window) = world.query_filtered::<Entity, With<PrimaryWindow>>().single(world)
+                // 主 GLB 默认展开，等待根行和内置立方体由正式树投影一同呈现。
+                if scene_format_validation::main_glb_tree_arrow(world, scene)?.is_some()
+                    && scene_format_validation::empty_terrain_placement_tree_labels(world, scene, &record.id)?.is_some()
                 {
-                    let arrow = scene_format_validation::main_glb_tree_arrow(world, scene)?;
-                    click_entity(world, &mut self.main_glb_click, window, arrow, MouseButton::Left)
-                } else { false };
-                if visible || expanded {
                     self.phase = if self.reopen.is_some() { Phase::ReopenWire } else { Phase::BeforeSave };
                 }
             }

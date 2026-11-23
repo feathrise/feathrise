@@ -35,7 +35,7 @@ fn main_glb_prefix_preserves_original_group_membership() {
     }
     let mut state = EditorGltfBrowserState {
         main_glb_path: Some(main_glb.into()),
-        has_object_groups: true,
+        placement_group_names: ["内嵌组".into(), "混合组".into()].into(),
         expanded_groups: ["内嵌组".into(), "混合组".into()].into_iter().collect(),
         signature,
         ..Default::default()

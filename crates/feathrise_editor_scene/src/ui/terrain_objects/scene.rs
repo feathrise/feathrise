@@ -40,7 +40,7 @@ fn row(index: usize) -> impl Scene {
     column_gap: px(2), border: px(0), border_radius: BorderRadius::all(px(2)) }
     BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
     // 裁切由文本父容器承担；Text自身的overflow不会裁掉本节点绘制的超长字形。
-    Children [@crate::ui::scene::tree_icon("icons/editor/tree_mesh.png")--
+    Children [@crate::ui::scene::tree_icon("icons/editor/tree_mesh.png") RowGlyph(index)--
         Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }
         Children [RowText(index) Text("") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_VALUE) TextLayout::no_wrap()
@@ -198,12 +198,8 @@ pub(crate) fn panel() -> impl Scene {
 /// 完整网格列表连续滚动；固定十行只覆盖可见窗口，参数在右侧下方独立滚动。
 pub(crate) fn scene_list_panel() -> impl Scene {
     bsn! { MeshSceneListRoot Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column,
-    flex_shrink: 0.0, row_gap: px(3), padding: UiRect::top(px(4)) }
+    flex_shrink: 0.0 }
     Children [
-        ListSummary Text("当前场景暂无独立网格。") @feathrise_editor_ui::localization::label_scene("当前场景暂无独立网格。")
-            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_HINT) }
-            TextColor(colors::TEXT_MUTED) TextLayout::linebreak(LineBreak::AnyCharacter)
-            Node { width: percent(100), min_width: px(0) }--
         ListViewport crate::ui::list_layout::SceneObjectListScroll bevy::ui::RelativeCursorPosition::default() ScrollPosition::default()
             Node { width: percent(100), min_width: px(0), height: px(0), flex_shrink: 0.0, overflow: Overflow::scroll_y() }
             Children [ListContent Node { width: percent(100), min_width: px(0), height: px(0), flex_shrink: 0.0 }

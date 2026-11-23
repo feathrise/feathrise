@@ -382,7 +382,7 @@ fn main_scene_blender_menu_keeps_the_current_placement_selected() {
     let commands: Vec<_> = world.query::<(&MenuButton, &Node)>().iter(world)
         .filter_map(|(button, node)| (node.display == Display::Flex).then_some(button.0))
         .collect();
-    assert_eq!(commands, [SceneMenuAction::EditInBlender]);
+    assert_eq!(commands, [SceneMenuAction::NewPlacementFolder, SceneMenuAction::EditInBlender]);
     choose(&mut test, SceneMenuAction::EditInBlender);
     test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
     step(&mut test.app);
@@ -830,14 +830,12 @@ fn scene_menu_types_offer_supported_actions_and_focus_the_clicked_target() {
             .key = key;
         open(&mut test);
         let world = test.app.world_mut();
-        assert_eq!(
-            world
-                .query_filtered::<&Node, With<MenuButton>>()
-                .iter(world)
-                .filter(|node| node.display == Display::Flex)
-                .count(),
-            [10, 5, 4, 1][kind]
-        );
+        let actions: Vec<_> = world.query::<(&MenuButton, &Node)>().iter(world)
+            .filter_map(|(button, node)| (node.display == Display::Flex).then_some(button.0)).collect();
+        assert_eq!(actions.len(), [10, 5, 4, 2][kind]);
+        if kind == 3 {
+            assert!(actions.contains(&SceneMenuAction::NewPlacementFolder));
+        }
         choose(&mut test, SceneMenuAction::Focus);
         test.app
             .world_mut()

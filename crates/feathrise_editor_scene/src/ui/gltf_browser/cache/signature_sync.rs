@@ -38,8 +38,8 @@ pub(super) fn synchronize_signature_build(
         retired.signature_build(state.signature_build.take()); // 取消草稿逐记录/索引清理。
         retired.entries_build(state.entries_build.take()); // 旧行草稿逐条清理。
         if scene_changed {
-            state.expanded_main_glb = None;
-            state.selected_main_glb = None;
+            state.collapsed_main_glb = None;
+            state.selected_main_row = None;
             retired.string_set(std::mem::take(&mut state.expanded_placements)); // 展开偏好不跨场景且不整批clear。
             retired.string_set(std::mem::take(&mut state.expanded_groups));
             retired.string(state.selected_group.take());
@@ -50,7 +50,13 @@ pub(super) fn synchronize_signature_build(
         state.signature_build = Some(BrowserSignatureBuild::new(next_observation));
     }
     let Some(mut build) = state.signature_build.take() else {
-        return; // Changed只来自非结构字段时仍保持O(1)短路。
+        let folders = session.draft.as_ref().map(|draft| std::sync::Arc::downgrade(&draft.object_folders)).unwrap_or_default();
+        if !state.object_folders.ptr_eq(&folders) {
+            // 整夹拖放只换父级，用现有摆放签名重排树行，避免重扫实例和资产需求。
+            state.object_folders = folders;
+            request_visible_entries_rebuild(state);
+        }
+        return;
     };
     let placements = session
         .draft
@@ -83,6 +89,7 @@ pub(super) fn synchronize_signature_build(
     let mut retired = BrowserRetiredGeneration::default();
     retired.signatures(std::mem::take(&mut state.signature)); // 活动签名逐记录、逐水绑定释放。
     retired.string_set(std::mem::take(&mut state.duplicate_placement_ids));
+    retired.string_set(std::mem::take(&mut state.placement_group_names));
     retired.string_string_map(std::mem::take(&mut state.placement_asset_paths));
     retired.string_usize_map(std::mem::take(&mut state.placement_record_indices));
     retired.string_set(std::mem::take(&mut state.expanded_placements));
@@ -109,7 +116,7 @@ pub(super) fn synchronize_signature_build(
     state.main_glb_path = session.draft.as_ref()
         .filter(|draft| draft.placement_glb_hash.is_some())
         .map(|draft| draft.placements_path());
-    state.has_object_groups = build.has_object_groups;
+    state.placement_group_names = std::mem::take(&mut build.placement_group_names);
     state.object_folders = session.draft.as_ref()
         .map(|draft| std::sync::Arc::downgrade(&draft.object_folders)).unwrap_or_default();
     state.duplicate_placement_ids = std::mem::take(&mut build.duplicate_ids);
