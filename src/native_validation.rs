@@ -514,6 +514,9 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
     }
     let startup = &proof["scene_tree"]["startup"];
     let new_folder = startup["root_folder_from_blank"].as_str().ok_or("缺少空白处新建目录的回执")?;
+    if !saved.placements.iter().any(|record| record.asset_path == "scene/probe.glb" && record.editor.group == new_folder) {
+        return Err("从活动选择窗口添加的 GLB 没有保存在右键指向的文件夹".into());
+    }
     for (index, group) in ["", new_folder].into_iter().enumerate() {
         let name = startup["empty_glbs"][index].as_str().ok_or("缺少空 GLB 创建回执")?;
         let relative = format!("scenes/M1-SAMPLE/models/{name}.glb");
@@ -571,7 +574,7 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
         || node["local_x"].as_f64() != Some(1.25) || node["world_x"].as_f64() != Some(7.5)
         || node["reopened_folder_parent"] != "验收目标" || node["reopened_folder_members"] != 2
         || node["reopened_created_child_parent"] != "验收文件夹"
-        || node["reopened_empty_glbs"] != true
+        || node["reopened_empty_glbs"] != true || node["reopened_picked_glb"] != true
     {
         return Err(format!("重开工程后未采用已保存的源节点变换：{node}"));
     }
@@ -894,8 +897,10 @@ fn verify_blender_mesh(observed: &Value, proof: &Value) -> Result<(), String> {
         .canonicalize().map_err(|error| error.to_string())?;
     let relative = roundtrip["placements_path"].as_str().ok_or("缺少 Blender 正式摆放路径")?;
     let path = assets.join(relative).canonicalize().map_err(|error| error.to_string())?;
-    if !path.starts_with(&assets) || path.file_name().and_then(|name| name.to_str()) != Some("scene.glb") {
-        return Err("Blender 验收只读自有场景 GLB".into());
+    if !path.starts_with(&assets)
+        || path.file_name().and_then(|name| name.to_str()) != Some(feathrise_scene_content::SCENE_PLACEMENTS_FILE_NAME)
+    {
+        return Err("单件 Blender 验收只读取自有场景的旧式 JSON 摆放".into());
     }
     let saved = feathrise_scene_content::read_scene_placements(&fs::read(path).map_err(|error| error.to_string())?, relative)?;
     if saved.placements.len() <= 8_192 || roundtrip["saved_collision"]["additional_collision_hits"] != 130
@@ -909,7 +914,7 @@ fn verify_blender_mesh(observed: &Value, proof: &Value) -> Result<(), String> {
         let expected: feathrise_scene_content::ScenePlacementRecord = serde_json::from_value(roundtrip[key].clone())
             .map_err(|error| error.to_string())?;
         if saved.placements.iter().find(|record| record.id == expected.id) != Some(&expected) {
-            return Err(format!("正式 GLB 未保存完整对象记录 {key}"));
+            return Err(format!("正式摆放文件未保存完整对象记录 {key}"));
         }
         if observed["entry"] != "production-SceneRuntimePlugin"
             && !observed["current_author_document"]["placements"].as_array()
@@ -940,7 +945,7 @@ fn verify_blender_mesh(observed: &Value, proof: &Value) -> Result<(), String> {
             {
                 return Err("保存或重开时没有采用 Blender 模型的真实台阶碰撞".into());
             }
-            // 场景 GLB 持久化外链。核对模型字节仍与 Blender 实际出件相同，且位于场景自有资产目录。
+            // 摆放文件持久化模型外链。核对模型字节仍与 Blender 实际出件相同，且位于场景自有资产目录。
             let model = assets.join(&expected.asset_path).canonicalize().map_err(|error| error.to_string())?;
             let models = assets.join(relative).parent().ok_or("缺少场景自有目录")?.join("models");
             if !expected.asset_target.is_scene0() || model.parent() != Some(models.as_path()) {

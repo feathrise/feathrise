@@ -197,7 +197,7 @@ pub(super) fn control(
         if let (Some(id), Some(position)) = (top, point) {
             let over_list = controls.lists.iter().any(|(list, cursor)| list.window == id && cursor.cursor_over());
             if over_list && !service_open(id) {
-                if let Some(window) = state.active_mut(id).filter(|window| !window.loading && !window.is_animation_picker()) {
+                if let Some(window) = state.active_mut(id).filter(|window| !window.loading && !window.is_picker()) {
                     let index = controls.rows.iter().find_map(|(row, cursor, _, _)| {
                         if row.window != id || !cursor.cursor_over() || row.revision != window.revision { return None; }
                         row.index.filter(|index| window.entries.get(*index).is_some_and(|entry| row.path.as_ref() == Some(&entry.path)))
@@ -276,7 +276,7 @@ pub(super) fn control(
         let Some(index) = row.index else { continue; };
         let Some(entry) = window.entries.get(index).filter(|entry| row.path.as_ref() == Some(&entry.path)).cloned() else { continue; };
         // 选择窗只维护本地单选，拖动、双击文件和修饰键都不能接管原模型属性或整理文件。
-        if window.is_animation_picker() {
+        if window.is_picker() {
             if mouse.just_pressed(MouseButton::Left) || click.is_clicked() {
                 window.select_picker_entry(index);
                 focus.clear();
@@ -326,7 +326,7 @@ pub(super) fn control(
     }
     let destination = top.and_then(|id| {
         if service_open(id) { return None; }
-        let window = state.active(id).filter(|window| !window.loading && !window.is_animation_picker())?;
+        let window = state.active(id).filter(|window| !window.loading && !window.is_picker())?;
         controls.rows.iter().find_map(|(row, cursor, _, _)| {
             if row.window != id || !cursor.cursor_over() || row.revision != window.revision { return None; }
             window.entries.get(row.index?)
@@ -352,7 +352,7 @@ pub(super) fn control(
         }
     }
     if !ime_blocked && keys.just_pressed(KeyCode::Escape) {
-        if let Some(id) = state.focused.filter(|id| state.active(*id).is_some_and(|window| window.is_animation_picker()))
+        if let Some(id) = state.focused.filter(|id| state.active(*id).is_some_and(|window| window.is_picker()))
             && !service_open(id) && state.gesture.is_none()
         {
             state.close(id);
@@ -399,7 +399,7 @@ pub(super) fn control(
             else { None };
         if let Some(action) = action { handle_action(&mut state, id, action, &mut requests); }
         if control && keys.just_pressed(KeyCode::KeyA) {
-            if let Some(window) = state.active_mut(id).filter(|window| !window.loading && !window.is_animation_picker()) {
+            if let Some(window) = state.active_mut(id).filter(|window| !window.loading && !window.is_picker()) {
                 // 全选冻结当前筛选快照，只记录一段行区间。
                 window.selection.select(&window.entries, 0..window.entries.len(), false);
             }
@@ -425,7 +425,7 @@ fn handle_action(state: &mut FileManagerState, id: u64, action: FileAction, requ
         FileAction::Forward => { if window.history_index + 1 < window.history.len() { window.history_index += 1; window.navigate(window.history[window.history_index].clone(), false); } }
         FileAction::Up => { if let Some(parent) = window.path.parent() { let parent = parent.to_path_buf(); window.navigate(parent, true); } }
         FileAction::Refresh => window.refresh(),
-        _ if !window.loading && !window.is_animation_picker() => {
+        _ if !window.loading && !window.is_picker() => {
             requests.write(FileManagerCommand { action, path: Some(window.path.clone()), sources: window.selection.clone() });
         }
         _ if window.loading => { state.notice = "请等待当前目录加载完成".into(); }

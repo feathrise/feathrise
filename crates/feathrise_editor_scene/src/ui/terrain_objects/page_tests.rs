@@ -1926,7 +1926,7 @@ fn mesh_sidebar_gpu_snapshot() {
         for mut node in world.query_filtered::<&mut Node, With<PageHost>>().iter_mut(world) { node.display = Display::Flex; node.width = px(280); }
     }
     for _ in 0..16 { app.update(); std::thread::sleep(Duration::from_millis(16)); }
-    for source in [Action::Cuboid, Action::Plane, Action::ImportGlb, Action::Clipmap, Action::Voxel] {
+    for source in [Action::Cuboid, Action::Plane, Action::Clipmap, Action::Voxel] {
         let button = action(&mut app, source);
         assert!(app.world().get::<ComputedNode>(button).unwrap().size().y > 0.0);
         assert!(app.world().get::<bevy::ui::InteractionDisabled>(button).is_none());

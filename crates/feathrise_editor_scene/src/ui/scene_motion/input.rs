@@ -8,7 +8,7 @@ use feathrise_editor_ui::{
 };
 use super::*;
 use crate::{
-    authoring::{EditorCommand, scene_motion::{DEFAULT_SCENE_ANIMATION_NAME, SceneMotionPlayback, SceneMotionTiming}},
+    authoring::{AuthoringRetirement, EditorCommand, scene_motion::{DEFAULT_SCENE_ANIMATION_NAME, SceneMotionPlayback, SceneMotionTiming}},
     components::SceneEditorViewport,
     resources::{EditorTextInputGuard, SceneEditorNumericScrubMouseGuard},
     ui::scene_context_menu::{SceneContextMenuState, SceneMenuAction, SceneObjectKey},
@@ -87,6 +87,7 @@ pub(super) fn input(
     mut editor: ResMut<SceneEditorState>,
     mut session: ResMut<EditorAuthoringSession>,
     mut workbench: ResMut<Workbench>,
+    mut retirement: ResMut<AuthoringRetirement>,
     mut edits: MessageReader<NumericInputCommitted>,
     mut tree_opens: MessageReader<OpenSceneAnimation>,
     menu: Res<SceneContextMenuState>,
@@ -115,6 +116,21 @@ pub(super) fn input(
     use SceneMotionButton::*;
     let menu_action = menu.ready.as_ref().filter(|request| !numeric_mouse.blocked()
         && request.target.current(&editor, &session) && request.target.allows(request.action));
+    if menu_action.is_some_and(|request| request.action == SceneMenuAction::Delete
+        && matches!(request.target.key, SceneObjectKey::MainSceneAnimation(_)))
+    {
+        let motion = &mut session.draft.as_mut().expect("已核对当前场景").motion;
+        if let Some(removed) = motion.remove_clip() {
+            // 草稿立即移除，原保存按冻结索引写回。预览系统归还时间轴接管的摆放变换。
+            session.undo.push(EditorCommand::SceneMotionClipRemoved(Box::new(removed)));
+            retirement.push(std::mem::take(&mut session.redo));
+            session.mark_changed(&mut editor);
+            workbench.close();
+            editor.status = "已删除场景动画".into();
+        }
+        edits.clear();
+        return;
+    }
     let create = motion.available() && motion.clip_name().is_none()
         && (menu_action.is_some_and(|request| request.action == SceneMenuAction::NewSceneAnimation)
             || (click == Some(Add) && workbench.scene.as_ref() == Some(scene)));
@@ -130,7 +146,7 @@ pub(super) fn input(
         let session = &mut *session;
         session.draft.as_mut().expect("已核对当前场景").motion.set_clip_name(after.clone());
         session.undo.push(EditorCommand::SceneMotionNameChanged { before, after });
-        session.redo.clear();
+        retirement.push(std::mem::take(&mut session.redo));
         session.mark_changed(&mut editor);
         editor.status = if create { "已新建场景动画" } else { "已改动画名称" }.into();
         edits.clear();
@@ -263,7 +279,7 @@ pub(super) fn input(
         draft.motion.replace(&id, after.clone());
         session.undo.push(EditorCommand::SceneMotionChanged { placement_id: id, before, after });
     }
-    session.redo.clear();
+    retirement.push(std::mem::take(&mut session.redo));
     session.mark_changed(&mut editor);
     editor.status = match action {
         Some(InsertKey) => "已为所选轨道插入关键帧",

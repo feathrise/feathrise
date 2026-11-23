@@ -17,7 +17,7 @@ use crate::ui::list_layout::SceneObjectListScroll;
 use crate::ui::scene_context_menu::SceneObjectRow;
 use crate::ui::scene::FONT_PATH; // 复用主编辑器字体常量。
 use crate::ui::scene_sidebar::{
-    TREE_BRANCH_GAP, load_tree_branch_images, sync_tree_branch_icon, tree_branch_button,
+    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TREE_ICON_SIZE, TREE_ROOT_BORDER, load_tree_branch_images, sync_tree_branch_icon, tree_branch_button,
     tree_branch_fill, tree_row_left,
 };
 
@@ -123,16 +123,16 @@ pub(crate) fn scene_tree_root_row() -> impl Scene {
     bsn! { SceneTreeRootRow InteractionButton SceneObjectRow::default() bevy::ui::RelativeCursorPosition::default()
         ~{row}
         Node { display: Display::None, width: percent(100), min_width: px(0), height: px(25), flex_shrink: 0.0,
-            padding: UiRect::horizontal(px(5)), align_items: AlignItems::Center, column_gap: px(TREE_BRANCH_GAP),
-            border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(3)), overflow: Overflow::clip_x() }
+            padding: UiRect::horizontal(tree_row_left(0)), align_items: AlignItems::Center, column_gap: px(TREE_BRANCH_GAP),
+            border: UiRect::all(px(TREE_ROOT_BORDER)), border_radius: BorderRadius::all(px(3)), overflow: Overflow::clip_x() }
         BackgroundColor(colors::PANEL_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
             @tree_branch_button() PlacementTreeExpander::default()--
             GltfRowCaption Pickable::IGNORE
-            Node { align_items: AlignItems::Center, column_gap: px(5), flex_grow: 1.0, min_width: px(0), overflow: Overflow::clip_x() }
+            Node { align_items: AlignItems::Center, column_gap: px(TREE_CAPTION_GAP), flex_grow: 1.0, min_width: px(0), overflow: Overflow::clip_x() }
             Children [
                 SceneEditorGltfBrowserRowGlyph ImageNode::default() Pickable::IGNORE
-                Node { width: px(16), height: px(16), flex_shrink: 0.0 }--
+                Node { width: px(TREE_ICON_SIZE), height: px(TREE_ICON_SIZE), flex_shrink: 0.0 }--
                 SceneEditorGltfBrowserRowText Text("") Pickable::IGNORE TextLayout::no_wrap()
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_ACCENT) Node { min_width: px(0), overflow: Overflow::clip_x() }

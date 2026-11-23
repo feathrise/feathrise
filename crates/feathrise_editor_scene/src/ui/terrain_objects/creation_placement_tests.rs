@@ -39,7 +39,6 @@ fn unified_creation_real_sources_and_modes_show_only_applicable_fields_without_s
         (Action::Cuboid, Field::CuboidCreation(0), Field::Creation(3)),
         (Action::Clipmap, Field::Creation(7), Field::Creation(4)),
         (Action::Voxel, Field::Creation(4), Field::CuboidCreation(0)),
-        (Action::ImportGlb, Field::Creation(6), Field::Creation(7)),
     ] {
         let button = action(&mut app, source);
         click(&mut app, window, button, MouseButton::Left);
@@ -53,13 +52,6 @@ fn unified_creation_real_sources_and_modes_show_only_applicable_fields_without_s
     click(&mut app, window, coordinates, MouseButton::Left);
     assert!(displayed(&mut app, Field::Creation(0)));
     assert_eq!(app.world().resource::<VegetationPresetEditorState>().active_tab, PresetWorkspaceTab::Document);
-    let start = action(&mut app, Action::StartCreation);
-    assert!(app.world().entity(start).contains::<bevy::ui::InteractionDisabled>());
-    assert!(feedback(&mut app).contains("请先选择GLB资产"));
-    app.world_mut().resource_mut::<SceneEditorState>().selected_asset = Some("fixtures/参考模型.glb".into());
-    app.update();
-    assert!(!app.world().entity(start).contains::<bevy::ui::InteractionDisabled>());
-    assert!(feedback(&mut app).contains("资产：fixtures/参考模型.glb"));
     unchanged(&app);
 }
 

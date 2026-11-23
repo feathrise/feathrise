@@ -155,11 +155,23 @@ pub(crate) struct SceneMotionDocument {
     // 目录跟随已打开和已保存的 GLB 修订。保存快照和 UI 只共享名称。
     clip_names: Arc<[String]>,
     clip_name: Option<String>,
+    // 已保存索引保留至下一次保存。删除后仅从树目录跳过该索引，不复制整份目录。
     editable_clip: Option<EditableClip>,
+    clip_removed: bool,
     timing: SceneMotionTiming,
     available: bool,
     content_dirty: bool,
     pub(crate) dirty: bool,
+}
+
+/// 保存前的整段删除历史共享全部轨道，恢复时不必重新解码 GLB。
+#[derive(Clone)]
+pub struct SceneMotionRemovedClip {
+    name: String,
+    tracks: Arc<BTreeMap<String, SceneMotionTrack>>,
+    timing: SceneMotionTiming,
+    clip_removed: bool,
+    content_dirty: bool,
 }
 
 impl Default for SceneMotionDocument {
@@ -169,6 +181,7 @@ impl Default for SceneMotionDocument {
             clip_names: Default::default(),
             clip_name: None,
             editable_clip: None,
+            clip_removed: false,
             timing: SceneMotionTiming::default(),
             available: false,
             content_dirty: false,
@@ -229,6 +242,19 @@ impl SceneMotionDocument {
     pub(crate) fn clip_names(&self) -> &[String] { &self.clip_names }
     pub(crate) fn clip_name(&self) -> Option<&str> { self.clip_name.as_deref() }
 
+    pub(crate) fn visible_clip_count(&self) -> usize {
+        self.clip_names.len().saturating_sub(usize::from(self.hidden_saved_index().is_some()))
+    }
+
+    pub(crate) fn visible_clip(&self, row: usize) -> Option<(usize, &str)> {
+        let index = row + usize::from(self.hidden_saved_index().is_some_and(|hidden| hidden <= row));
+        self.clip_names.get(index).map(|name| (index, name.as_str()))
+    }
+
+    fn hidden_saved_index(&self) -> Option<usize> {
+        self.editable_clip.as_ref().filter(|_| self.clip_removed).map(|clip| clip.source_index)
+    }
+
     pub(crate) fn set_clip_name(&mut self, name: Option<String>) {
         if self.clip_name != name {
             self.clip_name = name;
@@ -237,13 +263,43 @@ impl SceneMotionDocument {
     }
 
     pub(super) fn has_empty_clip_metadata(&self) -> bool {
-        self.clip_name.is_some() && self.editable_clip.is_none()
+        self.clip_name.is_some() && self.editable_clip_index().is_none()
     }
 
     pub(crate) fn editable_clip_index(&self) -> Option<usize> {
-        self.editable_clip.as_ref().map(|clip| clip.source_index)
+        self.editable_clip.as_ref().filter(|_| !self.clip_removed).map(|clip| clip.source_index)
     }
     pub(crate) fn timing(&self) -> SceneMotionTiming { self.timing }
+
+    pub(crate) fn remove_clip(&mut self) -> Option<SceneMotionRemovedClip> {
+        let name = self.clip_name.take()?;
+        let removed = SceneMotionRemovedClip {
+            name,
+            tracks: std::mem::take(&mut self.tracks),
+            timing: std::mem::take(&mut self.timing),
+            clip_removed: std::mem::replace(&mut self.clip_removed, true),
+            content_dirty: std::mem::take(&mut self.content_dirty),
+        };
+        self.dirty = true;
+        Some(removed)
+    }
+
+    pub(crate) fn undo_clip_removal(&mut self, removed: &SceneMotionRemovedClip) -> Result<(), String> {
+        if self.clip_name.is_some() { return Err("场景动画已变化，无法撤销删除".into()); }
+        self.clip_name = Some(removed.name.clone());
+        self.tracks = removed.tracks.clone();
+        self.timing = removed.timing;
+        self.content_dirty = removed.content_dirty;
+        self.clip_removed = removed.clip_removed;
+        self.dirty = true;
+        Ok(())
+    }
+
+    pub(crate) fn redo_clip_removal(&mut self, removed: &SceneMotionRemovedClip) -> Result<(), String> {
+        if self.clip_name() != Some(removed.name.as_str()) { return Err("场景动画已变化，无法重做删除".into()); }
+        let _ = self.remove_clip();
+        Ok(())
+    }
 
     /// 摆放删除可能让整个片段失去通道。从正式候选的 JSON 取名，不复制 BIN 或解码关键帧。
     pub(crate) fn with_saved_clip_names(&self, bytes: &[u8]) -> Result<Option<Self>, String> {
@@ -276,15 +332,16 @@ impl SceneMotionDocument {
         if !current.owned && !self.tracks.keys().any(|id| ids.contains(id.as_str())) {
             return None; // 原 fallback 已无可写通道；新片段须重读轨道后才能打开。
         }
-        let kept = current.channels.iter().filter(|(id, _)| id.as_deref().is_none_or(|id| ids.contains(id)));
-        if kept.clone().next().is_none() {
-            return None; // 摆放编码器会移除不再有通道的片段。
-        }
-        let clips = json["animations"].as_array()?;
-        (0..clips.len()).map(|index| EditableClip::read(json, index, placement)).find(|candidate| {
-            candidate.owned == current.owned && candidate.samplers == current.samplers
-                && candidate.channels.iter().eq(kept.clone())
-        })
+        current.rebind(json, placement, &ids)
+    }
+
+    fn saved_index_for_edit(&self, json: &Value, nodes: &BTreeMap<usize, String>, changed: bool) -> Option<usize> {
+        let current = self.editable_clip.as_ref()?;
+        if !changed { return Some(current.source_index); }
+        // 同时有摆放调整时，原下标可能因别的片段失去全部通道而变化。
+        let ids = nodes.values().map(String::as_str).collect();
+        current.rebind(json, |node| nodes.get(&node).map(String::as_str), &ids)
+            .map(|clip| clip.source_index)
     }
 
     pub(crate) fn set_timing(&mut self, timing: SceneMotionTiming) {
@@ -312,7 +369,7 @@ impl SceneMotionDocument {
         let glb = AnimationDocument::from_glb_bytes(path, bytes)?;
         let ids: HashSet<_> = placements.placements.iter().map(|record| record.id.as_str()).collect();
         let nodes = placement_nodes(&glb, &ids);
-        let source = active_clip(&glb, &nodes);
+        let source = if self.clip_removed { None } else { active_clip(&glb, &nodes) };
         let owned = owned_clip(&glb);
         let scene_id = placements.scene_id.as_str();
         let marker = glb.inspect_glb(|json, _| scene_marker(json, scene_id))
@@ -326,8 +383,15 @@ impl SceneMotionDocument {
         if saved.tracks.keys().any(|id| !ids.contains(id.as_str())) {
             Arc::make_mut(&mut saved.tracks).retain(|id, _| ids.contains(id.as_str()));
         }
+        saved.clip_removed = false;
         saved.content_dirty = false;
         saved.dirty = false;
+
+        let previous = if self.clip_removed {
+            glb.inspect_glb(|json, _| self.saved_index_for_edit(json, &nodes, placements_changed))
+        } else {
+            owned.map(|clip| clip.source_index)
+        };
 
         let rename_binding = || {
             if !placements_changed {
@@ -338,8 +402,8 @@ impl SceneMotionDocument {
                 json, |node| nodes.get(&node).map(String::as_str),
             ))
         };
-        if !self.content_dirty && let Some(name) = self.clip_name()
-            && let Some(binding) = rename_binding()
+        if !self.clip_removed && !self.content_dirty && let Some(name) = self.clip_name()
+            && let Some(mut binding) = rename_binding()
         {
             // 改名不重编码任何通道。已有外部片段原位保留缩放、权重和未识别的属性。
             let index = binding.source_index;
@@ -350,6 +414,7 @@ impl SceneMotionDocument {
                 saved.clip_names = read_clip_names(json);
                 Ok(())
             })?;
+            binding.name = Some(Arc::from(name));
             saved.editable_clip = Some(binding);
             return Ok((bytes, saved));
         }
@@ -358,7 +423,7 @@ impl SceneMotionDocument {
             .or_else(|| source.map(|clip| clip.name.as_str()))
             .unwrap_or(DEFAULT_SCENE_ANIMATION_NAME);
         let mut clip = Clip { name: name.into(),
-            source_index: owned.map_or(glb.clips.len(), |clip| clip.source_index), channels: Vec::new() };
+            source_index: previous.unwrap_or(glb.clips.len()), channels: Vec::new() };
         let mut colliders = Vec::new();
         for (&node, id) in &nodes {
             let Some(track) = self.get(id) else { continue; };
@@ -393,7 +458,7 @@ impl SceneMotionDocument {
             serde_json::to_value(EmptySceneAnimation { name, timing: self.timing })
                 .map_err(|error| error.to_string())
         }).transpose()?;
-        let bytes = glb.encode_owned_clip(owned.map(|clip| clip.source_index), &clip,
+        let bytes = glb.encode_owned_clip(previous, &clip,
             json!({(OWNER): true, (DURATION): duration, (PLAYBACK): playback, (AUTO_PLAY): auto_play}),
             |json, bin| {
                 for (node, collider) in colliders {
@@ -405,7 +470,8 @@ impl SceneMotionDocument {
                 }
                 if retain_geometry { refresh_geometry_hash(json, bin, marker); }
                 let extras = json["nodes"][marker]["extras"].as_object_mut().ok_or("场景 GLB 根属性无效")?;
-                if keyed || empty.is_some() {
+                // 显式删除后重开不得自动把另一个导入片段接成当前场景动画。
+                if keyed || empty.is_some() || self.clip_removed && self.editable_clip.is_some() {
                     extras.insert(OWNER.into(), json!(true));
                 }
                 if let Some(empty) = empty {
@@ -427,6 +493,7 @@ impl SceneMotionDocument {
 #[derive(Clone, PartialEq, Eq)]
 struct EditableClip {
     source_index: usize,
+    name: Option<Arc<str>>,
     owned: bool,
     samplers: [u8; 32],
     channels: Arc<[(Option<String>, [u8; 32])]>,
@@ -446,10 +513,25 @@ impl EditableClip {
         }).collect();
         Self {
             source_index,
+            name: clip["name"].as_str().map(Arc::from),
             owned: clip["extras"][OWNER].as_bool() == Some(true),
             samplers: Sha256::digest(clip["samplers"].to_string()).into(),
             channels,
         }
+    }
+
+    fn rebind<'a>(
+        &self, json: &Value, placement: impl Fn(usize) -> Option<&'a str> + Copy, ids: &HashSet<&str>,
+    ) -> Option<Self> {
+        let kept = self.channels.iter().filter(|(id, _)| id.as_deref().is_none_or(|id| ids.contains(id)));
+        if kept.clone().next().is_none() { return None; }
+        let clips = json["animations"].as_array()?;
+        clips.iter().enumerate()
+            .filter(|(_, entry)| entry["name"].as_str() == self.name.as_deref())
+            .map(|(index, _)| Self::read(json, index, placement)).find(|candidate| {
+                candidate.owned == self.owned && candidate.samplers == self.samplers
+                    && candidate.channels.iter().eq(kept.clone())
+            })
     }
 }
 
@@ -526,3 +608,6 @@ fn refresh_geometry_hash(json: &mut Value, bin: &[u8], marker: usize) {
     let digest = geometry_hash(json, bin);
     json["nodes"][marker]["extras"]["feathrise_geometry_hash"] = json!(digest);
 }
+
+#[cfg(test)]
+mod tests;

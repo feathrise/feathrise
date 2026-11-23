@@ -6,6 +6,9 @@ use crate::ui::tooltips::{EditorTooltipTarget, TooltipAction};
 use bevy::prelude::*;
 
 const TREE_BRANCH_WIDTH: f32 = 18.0;
+const TREE_ROW_INSET: f32 = 5.0;
+pub(crate) const TREE_CONTENT_INSET: f32 = 12.0;
+pub(crate) const TREE_ROOT_BORDER: f32 = 1.0;
 pub(crate) const TREE_ICON_SIZE: f32 = 16.0;
 pub(crate) const TREE_BRANCH_GAP: f32 = 2.0;
 pub(crate) const TREE_CAPTION_GAP: f32 = 5.0;
@@ -16,7 +19,12 @@ pub(crate) fn tree_row_left(depth: usize) -> Val {
 
 /// 网格图标与同深度箭头共用列中心。
 pub(crate) fn tree_row_icon_left(depth: usize, width: f32) -> Val {
-    px(5.0 + depth as f32 * TREE_ICON_SIZE + (TREE_BRANCH_WIDTH - width) * 0.5)
+    px(TREE_ROW_INSET + depth as f32 * TREE_ICON_SIZE + (TREE_BRANCH_WIDTH - width) * 0.5)
+}
+
+/// 地形在带缩进的正文里，图标对齐正文外固定主场景行的文件图标。
+pub(crate) fn tree_root_icon_left_in_content() -> Val {
+    px(TREE_ROOT_BORDER + TREE_ROW_INSET + TREE_BRANCH_WIDTH + TREE_BRANCH_GAP - TREE_CONTENT_INSET)
 }
 
 fn tree_branch_node() -> Node {
@@ -33,15 +41,10 @@ pub(crate) fn tree_branch_button() -> impl Scene {
         Children [@tree_toggle_icon()] }
 }
 
-/// 叶子和纯标题占用同一箭头列，缩进只取决于树深度。
-pub(crate) fn tree_branch_slot() -> impl Scene {
-    bsn! { ~{tree_branch_node()} Pickable::IGNORE }
-}
-
 pub(crate) fn tree_section_header() -> Node {
     Node {
-        width: percent(100), min_width: px(0),
-        padding: UiRect { left: tree_row_left(0), top: px(4), ..UiRect::ZERO },
+        width: percent(100), min_width: px(0), height: px(24),
+        padding: UiRect::left(tree_row_left(0)),
         border: UiRect::bottom(px(1)), align_items: AlignItems::Center,
         column_gap: px(TREE_BRANCH_GAP), flex_shrink: 0.0, ..default()
     }

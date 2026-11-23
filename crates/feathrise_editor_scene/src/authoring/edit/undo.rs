@@ -533,6 +533,10 @@ pub(crate) fn apply_undo_redo(
                     }
                     draft.motion.set_clip_name(replacement.clone());
                 }
+                EditorCommand::SceneMotionClipRemoved(removed) => {
+                    if undoing { draft.motion.undo_clip_removal(removed)?; }
+                    else { draft.motion.redo_clip_removal(removed)?; }
+                }
                 EditorCommand::SourceGlbsChanged { before, after, .. } => {
                     let (expected, replacement) = if undoing { (after, before) } else { (before, after) };
                     draft.source_glb_edits.verify_current(expected)?;

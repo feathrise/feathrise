@@ -28,7 +28,7 @@ pub(crate) struct FileWindow {
     pub(crate) error: Option<String>,
     pub(crate) filter: String,
     pub(crate) revision: u64,
-    pub(super) animation_picker: Option<AnimationPicker>,
+    pub(super) picker: Option<FilePicker>,
     pub(super) scanned_revision: u64,
     pub(super) keep_scroll: bool,
     pub(super) refresh_after_scan: bool,
@@ -37,11 +37,30 @@ pub(crate) struct FileWindow {
 }
 
 impl FileWindow {
-    pub(crate) fn is_animation_picker(&self) -> bool { self.animation_picker.is_some() }
+    pub(super) fn is_picker(&self) -> bool { self.picker.is_some() }
+
+    pub(crate) fn is_animation_picker(&self) -> bool { self.animation_picker().is_some() }
+
+    pub(super) fn is_glb_picker(&self) -> bool { matches!(&self.picker, Some(FilePicker::Glb(_))) }
+
+    pub(super) fn animation_picker(&self) -> Option<&AnimationPicker> {
+        match self.picker.as_ref()? { FilePicker::Animation(picker) => Some(picker), _ => None }
+    }
+
+    pub(super) fn animation_picker_mut(&mut self) -> Option<&mut AnimationPicker> {
+        match self.picker.as_mut()? { FilePicker::Animation(picker) => Some(picker), _ => None }
+    }
+
+    pub(super) fn picker_asset_root(&self) -> Option<&Path> {
+        Some(match self.picker.as_ref()? {
+            FilePicker::Animation(picker) => &picker.target.asset_root,
+            FilePicker::Glb(root) => root,
+        })
+    }
 
     pub(super) fn can_browse(&self, path: &Path) -> bool {
-        self.animation_picker.as_ref().is_none_or(|picker| {
-            let root = crate::ui::external_files::platform_path(&picker.target.asset_root);
+        self.picker_asset_root().is_none_or(|root| {
+            let root = crate::ui::external_files::platform_path(root);
             let path = crate::ui::external_files::platform_path(path);
             path.strip_prefix(root).is_ok_and(|relative| relative.components()
                 .all(|part| matches!(part, Component::Normal(_))))
@@ -63,9 +82,9 @@ impl FileWindow {
         self.last_click = None;
         self.keep_scroll = false;
         self.refresh_after_scan = false;
-        if let Some(picker) = &mut self.animation_picker {
-            // 目录或筛选更新后，旧行的片段不能沿用到新的目录快照。
-            picker.clip = None;
+        if self.is_picker() {
+            // 目录或筛选更新后，旧文件和片段不能沿用到新的目录快照。
+            if let Some(picker) = self.animation_picker_mut() { picker.clip = None; }
             self.selection.clear();
             self.anchor = None;
         }
@@ -77,12 +96,17 @@ impl FileWindow {
         self.keep_scroll = self.path == self.requested_path;
     }
     pub(super) fn select_picker_entry(&mut self, index: usize) {
-        let Some(picker) = &mut self.animation_picker else { return; };
         let Some(entry) = self.entries.get(index) else { return; };
         if self.anchor == Some(index) && self.selection.contains(&entry.path) { return; }
         self.selection.select(&self.entries, index..index + 1, false);
         self.anchor = Some(index);
-        picker.clip = None;
+        if let Some(picker) = self.animation_picker_mut() { picker.clip = None; }
+    }
+
+    pub(super) fn selected_picker_index(&self) -> Option<usize> {
+        let index = self.anchor?;
+        let file = self.entries.get(index)?;
+        (!self.loading && self.error.is_none() && !file.directory && self.selection.contains(&file.path)).then_some(index)
     }
     pub(super) fn visible_capacity(&self) -> usize { (((self.rect.height() - FILE_LIST_CHROME_HEIGHT).max(26.) / 26.).floor() as usize).clamp(1, FILE_ROW_SLOTS) }
 
@@ -103,6 +127,11 @@ pub(crate) struct ProjectMotionTarget {
 pub(super) struct AnimationPicker {
     pub(super) target: ProjectMotionTarget,
     pub(super) clip: Option<usize>,
+}
+
+pub(super) enum FilePicker {
+    Animation(AnimationPicker),
+    Glb(PathBuf),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

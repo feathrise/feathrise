@@ -284,7 +284,7 @@ pub(super) fn sync_toolbar(
         image.image = assets.load(icon.0);
     }
     for (button, interaction, mut background, mut border, mut node) in &mut appearance {
-        let visible = !files.active(button.window).is_some_and(|window| window.is_animation_picker())
+        let visible = !files.active(button.window).is_some_and(|window| window.is_picker())
             || button.action == BrowserAction::View;
         node.display = if visible { Display::Flex } else { Display::None };
         let selected = match button.action {

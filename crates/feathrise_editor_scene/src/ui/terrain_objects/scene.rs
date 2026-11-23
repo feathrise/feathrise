@@ -4,6 +4,7 @@ use feathrise_editor_ui::metrics as ui_metrics;
 use super::components::*;
 use crate::ui::{
     scene::FONT_PATH,
+    scene_sidebar::{TREE_BRANCH_GAP, TREE_CAPTION_GAP, tree_root_icon_left_in_content},
     sidebars::{EditorSidebarHelp, sidebar_help_body, sidebar_help_button},
     theme as colors,
 };
@@ -36,12 +37,13 @@ fn caption(label: &str) -> impl Scene {
 }
 fn row(index: usize) -> impl Scene {
     bsn! { InteractionButton Row(index) Node { display: Display::None, position_type: PositionType::Absolute, width: percent(100), height: px(24),
-    align_items: AlignItems::Center, padding: UiRect::horizontal(px(4)), flex_shrink: 0.0,
-    column_gap: px(2), border: px(0), border_radius: BorderRadius::all(px(2)) }
+    align_items: AlignItems::Center, padding: UiRect { left: tree_root_icon_left_in_content(), right: px(4), ..UiRect::ZERO }, flex_shrink: 0.0,
+    column_gap: px(TREE_BRANCH_GAP), border: px(0), border_radius: BorderRadius::all(px(2)) }
     BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
     // 裁切由文本父容器承担；Text自身的overflow不会裁掉本节点绘制的超长字形。
     Children [@crate::ui::scene::tree_icon("icons/editor/tree_mesh.png") RowGlyph(index)--
-        Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }
+        Node { margin: UiRect::left(px(TREE_CAPTION_GAP - TREE_BRANCH_GAP)),
+            flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x() }
         Children [RowText(index) Text("") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
             TextColor(colors::TEXT_VALUE) TextLayout::no_wrap()
             Node { width: percent(100), min_width: px(0) } Pickable::IGNORE]--
@@ -157,7 +159,6 @@ pub(crate) fn panel() -> impl Scene {
                 Node { width: percent(100), column_gap: px(3) } Children [
                     @button("立方体", Action::Cuboid)-- @button("平面", Action::Plane)
                 ]--
-                @button("原始 GLB · 使用所选资产", Action::ImportGlb)--
                 @caption("地形")--
                 Node { width: percent(100), column_gap: px(3) } Children [
                     @button("高度地形", Action::Clipmap)-- @button("体素地形", Action::Voxel)]--

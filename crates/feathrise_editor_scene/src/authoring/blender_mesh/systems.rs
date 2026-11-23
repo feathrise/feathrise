@@ -32,12 +32,18 @@ pub(crate) struct BlenderMainSceneAction {
     pub scene_id: SceneId,
 }
 
-pub(crate) fn supports(record: &ScenePlacementRecord) -> bool {
-    record.terrain_patch.is_none() && record.building_preset_id.is_none()
-        && record.water_surfaces.is_empty()
-        && (record.asset_target.is_builtin() || (record.asset_target.is_scene0()
-            && std::path::Path::new(&record.asset_path).extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("glb"))))
+pub(crate) fn supports(draft: &EditorSceneDraft, record: &ScenePlacementRecord) -> bool {
+    if record.terrain_patch.is_some() || record.building_preset_id.is_some() || !record.water_surfaces.is_empty() {
+        return false;
+    }
+    // 主场景内嵌网格跟随整份主 GLB 编辑，仍采用 JSON 摆放的旧场景保留单件入口。
+    if record.asset_target.is_builtin() {
+        return draft.placement_glb_hash.is_none();
+    }
+    record.asset_target.is_scene0()
+        && std::path::Path::new(&record.asset_path).extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("glb"))
+        && (draft.placement_glb_hash.is_none() || record.asset_path != draft.placements_path())
 }
 
 #[derive(Default, Resource)]
@@ -165,7 +171,7 @@ impl Author<'_, '_> {
         let draft = self.draft(target)?;
         let index = self.browser.placement_record_index(&target.placement_id, self.session.placement_structure_revision)?;
         let record = draft.placements.placements.get(index)?;
-        (record.id == target.placement_id && supports(record)
+        (record.id == target.placement_id && supports(draft, record)
             && !record.editor.locked && !record.editor.hidden).then_some((index, record))
     }
 

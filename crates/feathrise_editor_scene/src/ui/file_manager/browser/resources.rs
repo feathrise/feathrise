@@ -60,15 +60,21 @@ pub(crate) struct BrowserSessions {
 }
 
 impl BrowserSessions {
-    pub(in crate::ui::file_manager) fn picker_clip<'a>(&'a self, window: &FileWindow) -> Option<(&'a str, &'a AnimationClipInfo)> {
-        let picker = window.animation_picker.as_ref()?;
-        let index = window.anchor?;
-        let file = window.entries.get(index)?;
-        if window.loading || window.error.is_some() || file.directory || !window.selection.contains(&file.path) {
-            return None;
-        }
+    fn picker_asset<'a>(&'a self, window: &FileWindow) -> Option<(&'a BrowserSession, &'a str)> {
+        let index = window.selected_picker_index()?;
         let session = self.sessions.get(&window.id).filter(|session| session.applied == window.revision && session.assets)?;
-        let path = &session.entries.get(index)?.asset_path;
+        Some((session, &session.entries.get(index)?.asset_path))
+    }
+
+    pub(in crate::ui::file_manager) fn picker_glb<'a>(&'a self, window: &FileWindow) -> Option<&'a str> {
+        let (_, path) = self.picker_asset(window)?;
+        (window.is_glb_picker() && std::path::Path::new(path).extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("glb"))).then_some(path)
+    }
+
+    pub(in crate::ui::file_manager) fn picker_clip<'a>(&'a self, window: &FileWindow) -> Option<(&'a str, &'a AnimationClipInfo)> {
+        let picker = window.animation_picker()?;
+        let (session, path) = self.picker_asset(window)?;
         let clips = session.animations.get(path)?;
         let slot = picker.clip.or_else(|| (clips.len() == 1).then_some(0))?;
         Some((path, clips.get(slot)?))

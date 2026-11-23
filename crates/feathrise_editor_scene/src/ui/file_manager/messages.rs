@@ -14,6 +14,8 @@ pub(crate) struct OpenAnimationPicker {
     pub(crate) target: ProjectMotionTarget,
 }
 #[derive(Message)]
+pub(crate) struct PickedSceneGlb { pub(crate) window: u64, pub(crate) path: String }
+#[derive(Message)]
 pub(crate) struct OpenManagedFile { pub(crate) path: PathBuf }
 #[derive(Message)]
 pub(crate) struct FileManagerExternalDrag { pub(crate) sources: FileSources }

@@ -46,7 +46,7 @@ fn paste_legacy_static_patch(cutout: Option<SceneTerrainCutout>) {
         records: vec![(0, source.clone())],
         bounds: source_draft.manifest.world_bounds().unwrap(),
         source_objects: source_draft.manifest.terrain_objects_for_edit(),
-        length: 1, selection_revision: 0, selected_id: Some(source.id.clone()),
+        length: 1, selection_revision: Some(0), selected_id: Some(source.id.clone()),
     }) else { panic!("合法普通静态三维地形必须能复制；自动sculpted_volume不属于本夹具"); };
 
     let mut target = source_draft.clone();

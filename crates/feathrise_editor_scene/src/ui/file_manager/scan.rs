@@ -58,7 +58,8 @@ pub(super) fn start(
             .entry(window.id)
             .or_insert_with(|| {
                 let mut session = BrowserSession::new(view);
-                if window.is_animation_picker() { session.kind = AssetTypeFilter::Animation; }
+                if window.animation_picker().is_some() { session.kind = AssetTypeFilter::Animation; }
+                if window.is_glb_picker() { session.kind = AssetTypeFilter::Glb; }
                 session
             });
         session.worker.ensure(*operations);
@@ -94,8 +95,8 @@ pub(super) fn start(
             kind: session.kind,
             filename: window.filter.clone(),
         };
-        let assets_only = window.is_animation_picker();
-        let picker_root = window.animation_picker.as_ref().map(|picker| picker.target.asset_root.clone());
+        let assets_only = window.is_picker();
+        let picker_root = window.picker_asset_root().map(std::path::Path::to_path_buf);
         let context = state.context;
         let project = state.project.clone();
         let asset_root = picker_root
@@ -145,7 +146,7 @@ pub(super) fn poll(
         let focused = state.focused == Some(result.window);
         let visible = !state.suspended;
         let window = state.active_mut(result.window).unwrap();
-        let picker = window.is_animation_picker();
+        let picker = window.is_picker();
         window.loading = false;
         let session = browsers.sessions.get_mut(&result.window);
         match result.result {
@@ -227,7 +228,7 @@ fn directory(
         .as_ref()
         .is_some_and(|root| requested.starts_with(root));
     if assets_only && !assets {
-        return Err("请选择当前工程资产目录内的动作文件".into());
+        return Err("请选择当前工程资产目录内的文件".into());
     }
     if reveal.is_some() && !assets {
         return Err("定位目标所在目录不属于当前工程资产根".into());

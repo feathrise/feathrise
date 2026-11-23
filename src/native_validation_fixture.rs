@@ -83,7 +83,10 @@ pub(super) fn prepare(root: &Path, label: &str) -> Result<(), String> {
                 "translation":translation, "yaw_degrees":0.0, "scale":[1.0,1.0,1.0]
             })).map_err(|e| e.to_string())?);
         }
-        write_sample_scene_glb(&staging, &placements, None)?;
+        // 旧式单件立方体回填专项沿用模板的 JSON 摆放。主 GLB 内嵌网格改由整文件入口交接。
+        let path = staging.join(SAMPLE_FOLDER).join(feathrise_scene_content::SCENE_PLACEMENTS_FILE_NAME);
+        let bytes = serde_json::to_vec(&placements).map_err(|error| error.to_string())?;
+        fs::write(path, bytes).map_err(|error| error.to_string())?;
     }
     encode_surface(&staging)?;
     write_new(
@@ -411,6 +414,21 @@ fn copy_probe(assets: &Path, source_coordinates: bool) -> Result<Vec<Value>, Str
             document["nodes"][0]["scale"] = json!([2.0, 1.0, 1.0]);
             document["nodes"].as_array_mut().ok_or("坐标验收 GLB 缺少节点")?
                 .push(json!({"name":"CoordinateParent","translation":[1.25,0.0,0.0],"children":[0]}));
+            // 场景树会把这个网格拖到另一个 GLB。贴图随原 BIN 一起迁移，保留实际材质。
+            let pixels = scene_fixture("albedo.png")?;
+            let mut binary = glb.bin.take().ok_or("坐标验收 GLB 缺少 BIN")?.into_owned();
+            let image_offset = binary.len().next_multiple_of(4);
+            binary.resize(image_offset, 0);
+            binary.extend_from_slice(pixels);
+            let views = document["bufferViews"].as_array_mut().ok_or("坐标验收 GLB 缺少缓冲视图")?;
+            let image_view = views.len();
+            views.push(json!({"buffer":0,"byteOffset":image_offset,"byteLength":pixels.len()}));
+            let image = document["images"][0].as_object_mut().ok_or("坐标验收 GLB 缺少贴图描述")?;
+            image.remove("uri");
+            image.insert("bufferView".into(), json!(image_view));
+            image.insert("mimeType".into(), json!("image/png"));
+            document["buffers"][0]["byteLength"] = json!(binary.len());
+            glb.bin = Some(Cow::Owned(binary));
             glb.json = Cow::Owned(serde_json::to_vec(&document).map_err(|error| error.to_string())?);
             Cow::Owned(glb.to_vec().map_err(|error| error.to_string())?)
         } else {

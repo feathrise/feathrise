@@ -238,7 +238,6 @@ fn empty_scene_accepts_screenshot_rectangular_clipmap_at_minimum_requested_spaci
 fn creation_spacing_buttons_explain_unavailable_backends_without_changing_input() {
     let (mut app, window) = page_tests::creation_page();
     open(&mut app, window);
-    app.world_mut().resource_mut::<SceneEditorState>().selected_asset = Some("gltf/creation-feedback.glb".into());
     let spacing_root = field(&mut app);
     for (spacing, clipmap, voxel) in [
         (0.125, true, true),
@@ -252,19 +251,17 @@ fn creation_spacing_buttons_explain_unavailable_backends_without_changing_input(
         for (target, allowed) in [
             (Action::Clipmap, clipmap),
             (Action::Voxel, voxel),
-            (Action::ImportGlb, true),
         ] {
             let label = match target {
                 Action::Clipmap => "高度地形",
-                Action::Voxel => "体素", _ => "原始 GLB",
+                Action::Voxel => "体素", _ => unreachable!(),
             };
             let button = action(&mut app, target);
             assert!(!app.world().entity(button).contains::<bevy::ui::InteractionDisabled>(),
                 "无效规格仍允许选择来源以阅读原因：{label}");
             click_action(&mut app, window, target);
             assert_eq!(field(&mut app), spacing_root, "切换来源只改变能力显隐，不重建数值输入根");
-            assert_eq!(app.world().get::<ComputedNode>(spacing_root).unwrap().size().y > 0.0,
-                target != Action::ImportGlb, "原始GLB不暴露未使用的生成格距");
+            assert!(app.world().get::<ComputedNode>(spacing_root).unwrap().size().y > 0.0);
             let start = action(&mut app, Action::StartCreation);
             assert_eq!(
                 !app.world()
@@ -279,7 +276,6 @@ fn creation_spacing_buttons_explain_unavailable_backends_without_changing_input(
             };
             if allowed {
                 assert!(feedback.contains("可创建"));
-                if target == Action::ImportGlb { assert!(feedback.contains("gltf/creation-feedback.glb")); }
             } else {
                 assert!(!feedback.contains("可创建"));
                 assert!(feedback.contains(if target == Action::Voxel {

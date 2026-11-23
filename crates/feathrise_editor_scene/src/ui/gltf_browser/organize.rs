@@ -252,7 +252,6 @@ fn editable_source(target: &SceneObjectTarget, session: &EditorAuthoringSession)
 fn drop_allowed(
     source: &SceneObjectTarget,
     target: &SceneObjectTarget,
-    browser: &EditorGltfBrowserState,
     session: &EditorAuthoringSession,
 ) -> bool {
     if folder(&source.key) {
@@ -273,7 +272,7 @@ fn drop_allowed(
         (
             SceneObjectKey::Placement { mesh: Some(_), .. },
             SceneObjectKey::Placement {
-                id, index, mesh, ..
+                index, mesh, ..
             },
         ) => {
             !target.locked
@@ -282,14 +281,11 @@ fn drop_allowed(
                 && if let Some(mesh) = mesh {
                     mesh.is_source_folder()
                 } else {
-                    browser.expanded_placements.contains(id)
-                        && session.draft.as_ref().is_some_and(|draft| {
-                            draft
-                                .placements
-                                .placements
-                                .get(*index)
-                                .is_some_and(|record| record.asset_target.is_scene0())
-                        })
+                    // 整份 GLB 根本身就是节点的父级。折叠状态只影响可见行，空 GLB 也可接收。
+                    session.draft.as_ref().is_some_and(|draft| {
+                        draft.placements.placements.get(*index)
+                            .is_some_and(|record| record.asset_target.is_scene0())
+                    })
                 }
         }
         _ => false,
@@ -397,7 +393,7 @@ fn capture(
         let mut destination = None;
         if drag.active {
             for (entity, target) in hovered() {
-                if drop_allowed(&press.source, target, &browser, &context.session) {
+                if drop_allowed(&press.source, target, &context.session) {
                     destination = Some((entity, target));
                     break;
                 }
@@ -618,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn group_and_root_accept_an_instance_but_never_an_internal_node() {
+    fn mesh_can_drop_on_a_collapsed_glb_root_while_folders_accept_whole_instances() {
         let source = |mesh| {
             object(SceneObjectKey::Placement {
                 index: 1,
@@ -635,6 +631,8 @@ mod tests {
             valid: true,
             orphaned_water_binding: false, empty_source_folder: false,
         };
+        let mesh = source(Some(mesh));
+        let session = EditorAuthoringSession::default();
         for key in [
             SceneObjectKey::MainSceneGlb,
             SceneObjectKey::PlacementTreeRoot,
@@ -645,15 +643,17 @@ mod tests {
             },
         ] {
             let target = object(key);
-            let session = EditorAuthoringSession::default();
-            let browser = EditorGltfBrowserState::default();
-            assert!(drop_allowed(&source(None), &target, &browser, &session));
-            assert!(!drop_allowed(
-                &source(Some(mesh.clone())),
-                &target,
-                &browser,
-                &session
-            ));
+            assert!(drop_allowed(&source(None), &target, &session));
+            assert!(!drop_allowed(&mesh, &target, &session));
         }
+        let mut draft = crate::authoring::test_heightfield_draft(vec![0; 121].into());
+        draft.scene_id = mesh.scene_id.clone();
+        let mut record = crate::viewport::placement_move::interaction_tests::record();
+        record.asset_path = "models/空模型.glb".into();
+        record.water_surfaces.clear();
+        let target = object(SceneObjectKey::Placement { index: 0, id: record.id.clone(), mesh: None });
+        draft.placements.placements.push(record);
+        let session = EditorAuthoringSession { draft: Some(draft), ..default() };
+        assert!(drop_allowed(&mesh, &target, &session));
     }
 }

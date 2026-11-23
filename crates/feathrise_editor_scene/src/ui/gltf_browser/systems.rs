@@ -154,6 +154,11 @@ pub(crate) fn handle_gltf_browser_input(
     layout: Option<Res<crate::resources::SceneEditorLayoutState>>,
     workspace: Option<Res<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>>,
 ) {
+    if let Some((scene, MainSceneSelection::Animation)) = &state.selected_main_row
+        && session.draft.as_ref().is_some_and(|draft| &draft.scene_id == scene && draft.motion.clip_name().is_none())
+    {
+        state.selected_main_row = None; // 原片段删除后清除高亮，保留摆放和网格选择。
+    }
     if !editor.open || numeric_scrub_mouse.blocked()
         || movement.as_ref().is_some_and(|state| state.owns_mouse())
         || sidebar.as_ref().is_some_and(|state| !state.scene_tree_visible())
@@ -359,7 +364,6 @@ pub(crate) fn sync_gltf_browser_rows(
     }
     let main_glb = main_glb_draft(&editor, &session);
     let motion = main_glb.map(|draft| &draft.motion);
-    let clips = motion.map(|motion| motion.clip_names());
     let editable = motion.and_then(|motion| Some((motion.editable_clip_index(), motion.clip_name()?)));
     let animation_selected = editable.is_some()
         && matches!(&state.selected_main_row, Some((scene, MainSceneSelection::Animation))
@@ -367,7 +371,7 @@ pub(crate) fn sync_gltf_browser_rows(
     let draft_name = editable.filter(|(index, _)| index.is_none()).map(|(_, name)| name);
     let empty_hint = usize::from(state.main_glb_entry_count == 0);
     // 主文件在独立根行，滚动列表从动画和内嵌网格开始，再列引用与文件夹。
-    let main_rows = clips.map_or(0, |clips| (clips.len() + usize::from(draft_name.is_some())).max(empty_hint));
+    let main_rows = motion.map_or(0, |motion| (motion.visible_clip_count() + usize::from(draft_name.is_some())).max(empty_hint));
     let total_rows = main_rows.saturating_add(state.entries.len());
     let (drag, locale) = view;
     let locale = locale.as_deref().copied().unwrap_or_default();
@@ -395,9 +399,9 @@ pub(crate) fn sync_gltf_browser_rows(
         let tree_index = start.saturating_add(row.slot);
         let main_row = match tree_index {
             index if index < main_rows => {
-                let index = Some(index);
-                if let Some(name) = index.and_then(|index| clips?.get(index)) {
-                    let name = editable.filter(|(editable, _)| *editable == index).map_or(name.as_str(), |(_, name)| name);
+                if let Some((clip_index, name)) = motion.and_then(|motion| motion.visible_clip(index)) {
+                    let index = Some(clip_index);
+                    let name = editable.filter(|(editable, _)| *editable == index).map_or(name, |(_, name)| name);
                     Some((MainSceneGlbRow::Animation(index), name))
                 } else if let Some(name) = draft_name {
                     Some((MainSceneGlbRow::Animation(None), name))
@@ -459,7 +463,7 @@ pub(crate) fn sync_gltf_browser_rows(
         node.display = Display::Flex; // 当前条目原地复用槽位。
         node.top = px(tree_index as f32 * SCENE_OBJECT_ROW_PITCH);
         let depth = depth.min(8);
-        node.padding.left = if state.mesh_uses_arrow_column(binding) {
+        node.padding.left = if state.glyph_uses_arrow_column(binding, main_kind) {
             tree_row_icon_left(depth, TREE_ICON_SIZE)
         } else { tree_row_left(depth) };
         let interaction = match main_kind {

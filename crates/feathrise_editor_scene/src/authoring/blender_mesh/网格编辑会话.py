@@ -327,7 +327,11 @@ def start_session(directory, source, plugin_path):
     if hasattr(bpy.app, "use_userpref_skip_save_on_exit"):
         bpy.app.use_userpref_skip_save_on_exit = True
     bpy.context.preferences.filepaths.temporary_directory = str(directory)
-    frame_model(import_model(source, source == directory / "input.glb"))
+    builtin_seed = source == directory / "input.glb"
+    # 新建的独立 GLB 是合法空场景，从空白画布开始建模。内置种子仍须导入网格。
+    span = import_model(source, builtin_seed, require_mesh=builtin_seed)
+    if span is not None:
+        frame_model(span)
 
     handlers = bpy.app.handlers.save_post
     handlers.append(export)

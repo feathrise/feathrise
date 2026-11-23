@@ -216,7 +216,8 @@ pub(crate) fn handle_placement_batch(
     }
     let invalid = state.capture.as_ref().and_then(|capture| {
         current_failure(&capture.identity, &editor, &session, &env)
-            .or_else(|| (capture.selection_revision != selection.revision).then_some("对象选集已变化"))
+            .or_else(|| capture.selection_revision.is_some_and(|revision| revision != selection.revision)
+                .then_some("对象选集已变化"))
             .or_else(|| (capture.selected_id != context.browser.selected_placement_id).then_some("当前对象选择已变化"))
     }).or_else(|| state.paste.as_ref().and_then(|paste| {
         current_failure(&paste.identity, &editor, &session, &env)
@@ -244,7 +245,8 @@ pub(crate) fn handle_placement_batch(
             let rejected = (job.ticket != state.ticket).then_some("任务票据已变化")
                 .or_else(|| current_failure(&job.identity, &editor, &session, &env))
                 .or_else(|| job.selection.as_ref().is_some_and(|(revision, id)| {
-                    *revision != selection.revision || *id != context.browser.selected_placement_id
+                    revision.is_some_and(|revision| revision != selection.revision)
+                        || *id != context.browser.selected_placement_id
                 }).then_some("对象选集或当前选择已变化"));
             if let Some(reason) = rejected {
                 // 旧输出失去信用时同时撤销其未确认粘贴；只回收输出会留下永远等不到Ghosts的0/N空壳。
@@ -433,7 +435,7 @@ pub(crate) fn handle_placement_batch(
         bounds,
         source_objects: draft.manifest.terrain_objects_for_edit(),
         length: draft.placements.placements.len(),
-        selection_revision: selection.revision,
+        selection_revision: Some(selection.revision),
         selected_id: context.browser.selected_placement_id.clone(),
     });
     state.owns_mouse = true;

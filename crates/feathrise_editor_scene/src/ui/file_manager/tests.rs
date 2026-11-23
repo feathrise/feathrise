@@ -412,13 +412,13 @@ fn animation_picker_confines_navigation_and_clears_stale_candidates() {
     ]));
     picker.loading = false;
     picker.select_picker_entry(0);
-    picker.animation_picker.as_mut().unwrap().clip = Some(1);
+    picker.animation_picker_mut().unwrap().clip = Some(1);
     let revision = picker.revision;
     picker.navigate(root.join("../source"), true);
     assert_eq!(picker.revision, revision, "选择窗地址不能越出当前资产根");
     picker.refresh();
     assert!(picker.selection.is_empty());
-    assert!(picker.animation_picker.as_ref().unwrap().clip.is_none(), "目录换代后不能确认旧行片段");
+    assert!(picker.animation_picker().unwrap().clip.is_none(), "目录换代后不能确认旧行片段");
     assert!(state.active(ordinary).unwrap().selection.is_empty());
     state.active_mut(id).unwrap().minimized = true;
     state.open_animation_picker(&request);

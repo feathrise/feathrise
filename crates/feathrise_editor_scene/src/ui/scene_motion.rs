@@ -109,6 +109,7 @@ pub(crate) struct Workbench {
     seconds: f64,
     elapsed: f64,
     playing: bool,
+    has_clip: bool,
     pose: Option<preview::PreviewPose>,
     // 两个索引交替使用，在选择与热重载换根时只还原已接管的场景对象。
     previews: HashMap<Entity, preview::PreviewPose>,
@@ -197,6 +198,7 @@ impl Workbench {
         self.seconds = 0.0;
         self.elapsed = 0.0;
         self.playing = false;
+        self.has_clip = false;
         self.keying_tracks = KeyingTracks::default();
         // 关窗后由预览归还实际渲染根，以免覆盖新一代摆放。
     }

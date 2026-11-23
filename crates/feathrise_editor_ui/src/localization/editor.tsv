@@ -70,6 +70,7 @@ label.open-selected-document-in-workspace	在中央打开所选文档	Open Selec
 label.virtual-scene-folder	场景文件夹	Scene Folder
 scenes.action.create-folder	新建文件夹	New Folder
 label.scene-tree-new-empty-glb	新建空 GLB	New Empty GLB
+label.scene-tree-choose-glb	选择已有 GLB	Choose Existing GLB
 scenes.action.delete-folder	删除空文件夹	Delete Empty Folder
 scenes.dialog.create-folder	新建场景文件夹	New Scene Folder
 scenes.dialog.rename-folder	重命名场景文件夹	Rename Scene Folder

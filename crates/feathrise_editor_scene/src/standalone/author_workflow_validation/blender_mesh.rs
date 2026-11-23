@@ -89,8 +89,8 @@ pub(in crate::standalone) fn begin(world: &mut World, original: ScenePlacementRe
         || owner["work_root"] != json!(work) || paths.project_root() != work.join("独立工程 A") {
         return Err("Blender 验收只允许本轮独占创建的工程 A".into());
     }
-    if draft.scene_id.as_str() != "M1-SAMPLE" || !draft.placements_path().ends_with("/scene.glb") {
-        return Err(format!("Blender 验收的示例场景未使用私有 GLB：{}", draft.placements_path()));
+    if draft.scene_id.as_str() != "M1-SAMPLE" || draft.placement_glb_hash.is_some() {
+        return Err(format!("单件 Blender 验收需要示例场景的旧式 JSON 摆放：{}", draft.placements_path()));
     }
     if original.asset_target != ScenePlacementAssetTarget::DEFAULT_CUBOID {
         return Err("Blender 验收缺少原坐标创建的立方体".into());

@@ -213,7 +213,9 @@ fn scene_tree_mesh_section_and_branch_columns_keep_actual_layout_aligned() {
             .filter_map(|child| world.get::<Children>(child)).flat_map(|children| children.iter())
             .find(|child| if glb { world.get::<SceneEditorGltfBrowserRowGlyph>(*child).is_some() }
                 else { world.get::<crate::components::SceneEditorTreeGlyph>(*child).is_some() }).unwrap();
-        assert!(layer_rows.iter().all(|&row| (center(glyph(row, false)).x - center(glyph(leaf, true)).x).abs() <= 1.1));
+        // 分类标题只有箭头，子项的实际图标与它相距一层。
+        let child_column = branch_column + crate::ui::scene_sidebar::TREE_ICON_SIZE * scale;
+        assert!(layer_rows.iter().all(|&row| (center(glyph(row, false)).x - child_column).abs() <= 1.1));
     }
     app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap().placements.placements.clear();
     settle(&mut app);

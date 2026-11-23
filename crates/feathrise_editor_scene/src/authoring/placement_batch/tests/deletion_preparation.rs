@@ -86,7 +86,7 @@ fn held_job(app: &mut App, prepare_before_gate: bool) -> (WorkerGate, Arc<Atomic
         records: draft.placements.placements.iter().cloned().enumerate().collect(),
         members: selection.members.clone(), bounds: draft.manifest.world_bounds().unwrap(),
         source_objects: draft.manifest.terrain_objects_for_edit(), length: draft.placements.placements.len(),
-        selection_revision: selection.revision,
+        selection_revision: Some(selection.revision),
         selected_id: app.world().resource::<crate::ui::gltf_browser::EditorGltfBrowserState>().selected_placement_id.clone(),
     };
     let source = session.placement_deletions.source();

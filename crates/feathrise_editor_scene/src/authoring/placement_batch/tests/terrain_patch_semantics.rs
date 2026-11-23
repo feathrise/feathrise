@@ -52,7 +52,7 @@ fn capture(records: &[ScenePlacementRecord], objects: &[SceneTerrainObject]) -> 
         records: records.iter().cloned().enumerate().collect(),
         members: Arc::new(members), source_objects: objects.to_vec().into(),
         // 故意与独立来源范围不同，捕获不能再用场景容器范围裁掉合法的源局部洞口。
-        bounds: bounds(), length: records.len(), selection_revision: 0, selected_id: None,
+        bounds: bounds(), length: records.len(), selection_revision: Some(0), selected_id: None,
     });
     match output {
         BatchOutput::Captured(result, false) => result,

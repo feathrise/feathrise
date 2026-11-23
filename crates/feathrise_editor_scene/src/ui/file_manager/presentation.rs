@@ -33,10 +33,12 @@ pub(super) fn sync(world: &mut World) {
             );
             window.first = first;
             capacities.push((window.id, capacity, grid.is_some()));
-            if window.is_animation_picker() {
+            if window.is_picker() {
                 let label = world.get_resource::<super::browser::BrowserSessions>()
-                    .and_then(|browser| browser.picker_clip(window))
-                    .map(|(path, clip)| format!("{} · {}", std::path::Path::new(path).file_name().unwrap_or_default().to_string_lossy(), clip.label));
+                    .and_then(|browser| {
+                        if window.is_glb_picker() { return browser.picker_glb(window).map(str::to_owned); }
+                        browser.picker_clip(window).map(|(path, clip)| format!("{} · {}", std::path::Path::new(path).file_name().unwrap_or_default().to_string_lossy(), clip.label))
+                    });
                 picker_labels.push((window.id, label));
             }
         }
@@ -135,7 +137,8 @@ pub(super) fn sync(world: &mut World) {
         for (mut text, mut color, title, status, button, dialog_title, drag_label, row_label, parent, task_title, dialog_body, search_hint) in texts.iter_mut(world) {
             let wanted = if let Some(title) = title {
                 state.active(title.0).map(|window| format!("{} — {}", window.path.file_name().unwrap_or_default().to_string_lossy(),
-                    if window.is_animation_picker() { if english { "Choose Animation" } else { "选择动画" } }
+                    if window.is_glb_picker() { if english { "Choose GLB" } else { "选择 GLB" } }
+                    else if window.animation_picker().is_some() { if english { "Choose Animation" } else { "选择动画" } }
                     else if english { "Files" } else { "文件" }))
             } else if let Some(task) = task_title {
                 state.active(task.0).map(|window| {
@@ -151,10 +154,14 @@ pub(super) fn sync(world: &mut World) {
                 state.active(status.0).map(|window| {
                     if let Some(error) = &window.error { error.clone() }
                     else if window.loading { if english { "Reading folder…".into() } else { "正在读取目录…".into() } }
-                    else if window.is_animation_picker() {
+                    else if window.is_picker() {
                         picker_labels.iter().find(|(id, _)| *id == window.id).and_then(|(_, label)| label.clone())
-                            .unwrap_or_else(|| if english { "Select an animation file, then choose a clip with its arrow".into() }
-                                else { "选择动画文件，点击箭头选择片段".into() })
+                            .unwrap_or_else(|| match (window.is_glb_picker(), english) {
+                                (true, true) => "Select a GLB file from the project assets".into(),
+                                (true, false) => "选择当前工程的 GLB 文件".into(),
+                                (false, true) => "Select an animation file, then choose a clip with its arrow".into(),
+                                (false, false) => "选择动画文件，点击箭头选择片段".into(),
+                            })
                     }
                     else if english { format!("{} items  ·  {} selected  ·  Drag to move, Ctrl to copy", window.entries.len(), window.selection.len()) }
                     else { format!("{} 项 · 已选 {} 项 · 拖动移动，Ctrl 拖动复制", window.entries.len(), window.selection.len()) }

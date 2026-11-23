@@ -149,6 +149,8 @@ pub(super) fn reopened_source_position(world: &mut World) -> Option<Value> {
     let restored_glbs = [(creation::ROOT_GLB, ""), (creation::NESTED_GLB, creation::ROOT_FOLDER)]
         .into_iter().all(|(name, group)| draft.placements.placements.iter().any(|record|
             record.editor.name == name && record.editor.group == group && record.asset_target.is_scene0()));
+    let restored_picked = draft.placements.placements.iter().any(|record|
+        record.asset_path == ASSET_PATH && record.editor.group == creation::ROOT_FOLDER && record.asset_target.is_scene0());
     let folder_parent = folders.parent(RENAMED_FOLDER)?.to_owned();
     let child_parent = folders.parent(CREATED_CHILD)?.to_owned();
     let folder_members = world.resource::<EditorGltfBrowserState>().entries.iter().find_map(|entry| {
@@ -168,7 +170,8 @@ pub(super) fn reopened_source_position(world: &mut World) -> Option<Value> {
         Some(json!({"placement": MODEL, "local_x": world.get::<Transform>(entity)?.translation.x,
             "world_x": world.get::<GlobalTransform>(entity)?.translation().x,
             "reopened_folder_parent": folder_parent, "reopened_folder_members": folder_members,
-            "reopened_created_child_parent": child_parent, "reopened_empty_glbs": restored_glbs}))
+            "reopened_created_child_parent": child_parent, "reopened_empty_glbs": restored_glbs,
+            "reopened_picked_glb": restored_picked}))
     })
 }
 
@@ -503,7 +506,7 @@ pub(super) fn advance(
             }
         }
         Step::CreateObjects(mut stage) => {
-            *step = if creation::advance(world, &mut stage, revision, pulse)? {
+            *step = if creation::advance(world, &mut stage, cube, revision, pulse)? {
                 Step::DragFolder { drop: FolderDrop::IntoParent, frame: 0 }
             } else { Step::CreateObjects(stage) };
         }
@@ -514,29 +517,8 @@ pub(super) fn advance(
                 None => main_scene_row(world),
             };
             let Some(target) = target else { return Ok(None); };
-            let (window, position) = pointer_context(world, if frame < 2 { source } else { target })?;
-            move_cursor(world, window, position);
-            if frame == 1 {
-                if world.get::<feathrise_editor_ui::UiInteraction>(source) != Some(&feathrise_editor_ui::UiInteraction::Hovered) {
-                    return Ok(None);
-                }
-                mouse(world, window, bevy::input::ButtonState::Pressed);
-            }
-            if frame == 3 {
-                let (fill, border) = crate::ui::scene_sidebar::tree_row_colors(false, true, feathrise_editor_ui::UiInteraction::None);
-                // 普通悬停也会变色，等实际拖放状态采用该落点后再松开。
-                if !world.resource::<PlacementTreeDrag>().highlights(target)
-                    || !drag_preview_visible(world)
-                    || world.get::<BackgroundColor>(target).map(|color| color.0) != Some(fill)
-                    || world.get::<BorderColor>(target) != Some(&border)
-                {
-                    return Ok(None);
-                }
-                mouse(world, window, bevy::input::ButtonState::Released);
-                *step = Step::FolderDropped(drop);
-            } else {
-                *step = Step::DragFolder { drop, frame: frame + 1 };
-            }
+            *step = drag_tree_rows(world, source, target, frame)?
+                .map_or(Step::FolderDropped(drop), |frame| Step::DragFolder { drop, frame });
         }
         Step::FolderDropped(drop) => {
             let draft = session.draft.as_ref().ok_or("整夹拖放失去场景草稿")?;
@@ -619,6 +601,7 @@ pub(super) fn advance(
                         "terrain_canvas_unloaded": true,
                         "mesh_rows_below_vegetation": true,
                         "embedded_mesh_icon_aligned": true,
+                        "terrain_root_icon_aligned": true,
                         "source_mesh_indent_one_icon": true,
                         "terrain_icon": TERRAIN_ICON,
                         "tree_glb_icon": GLB_ICON,
@@ -638,6 +621,11 @@ pub(super) fn advance(
                         "root_folder_from_blank": creation::ROOT_FOLDER,
                         "empty_glbs": [creation::ROOT_GLB, creation::NESTED_GLB],
                         "empty_folder_delete_and_undo": true,
+                        "empty_glb_and_cube_delete_undo": true,
+                        "existing_glb_added_from_picker": true,
+                        "main_scene_animation_deleted": true,
+                        "mesh_transferred_to_folded_glb_and_undone": true,
+                        "animation_layout_screenshot": "scene-tree-animation-alignment.png",
                         "source_folder_create_and_delete": true,
                         "drag_preview_screenshot": DRAG_PREVIEW_SCREENSHOT,
                     })),
@@ -670,6 +658,8 @@ fn startup_tree_visible(world: &mut World, cube: &str) -> Result<bool, String> {
     let Some(model) = scene_row(world, MODEL, false) else { return Ok(false); };
     let Some(cuboid) = scene_row(world, cube, false) else { return Ok(false); };
     let Some(cube_icon) = row_icon(world, cuboid, "icons/editor/tree_mesh.png") else { return Ok(false); };
+    let Some(terrain_icon) = row_icon(world, terrain, TERRAIN_ICON) else { return Ok(false); };
+    let Some(root_icon) = row_icon(world, root, GLB_ICON) else { return Ok(false); };
     let model_arrow = row_arrow(world, model)?;
     let has_heading = world.query::<(Entity, &Text)>().iter(world)
         .any(|(entity, text)| text.as_str() == "网格对象" && ui_visible(world, entity));
@@ -684,8 +674,7 @@ fn startup_tree_visible(world: &mut World, cube: &str) -> Result<bool, String> {
         && position(root).y < position(plant).y && left(root) < left(cuboid)
         && position(plant).y < position(cuboid).y && position(cuboid).y < position(model).y
         && (position(cube_icon).x - position(model_arrow).x).abs() < 1.1
-        && row_has_icon(world, terrain, TERRAIN_ICON)
-        && row_has_icon(world, root, GLB_ICON)
+        && (position(terrain_icon).x - position(root_icon).x).abs() < 1.1
         && row_has_icon(world, model, GLB_ICON))
 }
 
@@ -767,6 +756,29 @@ fn row_arrow(world: &World, row: Entity) -> Result<Entity, String> {
     world.get::<Children>(row).and_then(|children| children.iter()
         .find(|child| world.get::<PlacementTreeExpander>(*child).is_some()))
         .ok_or_else(|| "场景树验收没有实际的展开按钮".into())
+}
+
+fn drag_tree_rows(world: &mut World, source: Entity, target: Entity, frame: u8) -> Result<Option<u8>, String> {
+    let (window, position) = pointer_context(world, if frame < 2 { source } else { target })?;
+    move_cursor(world, window, position);
+    if frame == 1 {
+        if world.get::<feathrise_editor_ui::UiInteraction>(source) != Some(&feathrise_editor_ui::UiInteraction::Hovered) {
+            return Ok(Some(frame));
+        }
+        mouse(world, window, bevy::input::ButtonState::Pressed);
+    }
+    if frame == 3 {
+        let (fill, border) = crate::ui::scene_sidebar::tree_row_colors(false, true, feathrise_editor_ui::UiInteraction::None);
+        // 普通悬停也会变色，等实际拖放状态采用该落点后再松开。
+        if !world.resource::<PlacementTreeDrag>().highlights(target)
+            || !drag_preview_visible(world)
+            || world.get::<BackgroundColor>(target).map(|color| color.0) != Some(fill)
+            || world.get::<BorderColor>(target) != Some(&border)
+        { return Ok(Some(frame)); }
+        mouse(world, window, bevy::input::ButtonState::Released);
+        return Ok(None);
+    }
+    Ok(Some(frame + 1))
 }
 
 fn click_control(world: &mut World, entity: Entity, frame: u8) -> Result<Option<u8>, String> {

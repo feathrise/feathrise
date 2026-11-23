@@ -19,7 +19,7 @@ mod tests;
 pub(crate) use components::{FileContextLabel, FileContextPanel, FileList, FileManagerButton, FileNameInput, FileResizeHandle, FileRow, FileTaskButton, FileTitleBar};
 pub(crate) use components::FileWindowStrip;
 pub(crate) use file_identity::FileWriteReservations;
-pub(crate) use messages::{CancelFileTask, ExtraRequest, FileManagerCommand, FileManagerContextRequest, FileManagerExternalDrag, OpenAnimationPicker, OpenFileWindow, OpenManagedFile};
+pub(crate) use messages::{CancelFileTask, ExtraRequest, FileManagerCommand, FileManagerContextRequest, FileManagerExternalDrag, OpenAnimationPicker, OpenFileWindow, OpenManagedFile, PickedSceneGlb};
 pub(crate) use resources::{FileManagerState, FixedFileSelection};
 pub(crate) use types::{ExtraAction, FileAction, ProjectMotionTarget};
 
@@ -32,7 +32,7 @@ pub(crate) fn install(app: &mut App) {
     browser::install(app);
     app.init_resource::<FileManagerState>().init_resource::<FixedFileSelection>()
         .init_resource::<FileWriteReservations>()
-        .add_message::<OpenFileWindow>().add_message::<OpenManagedFile>().add_message::<OpenAnimationPicker>()
+        .add_message::<OpenFileWindow>().add_message::<OpenManagedFile>().add_message::<OpenAnimationPicker>().add_message::<PickedSceneGlb>()
         .add_message::<FileManagerCommand>().add_message::<FileManagerExternalDrag>().add_message::<CancelFileTask>()
         .add_message::<FileManagerContextRequest>()
         .add_message::<ExtraRequest>()

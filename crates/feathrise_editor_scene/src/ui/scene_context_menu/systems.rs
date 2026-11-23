@@ -461,7 +461,7 @@ pub(super) fn send_blender_action(
         SceneObjectKey::MainSceneGlb => {
             main_scenes.write(BlenderMainSceneAction { scene_id: target.scene_id.clone() });
         }
-        SceneObjectKey::Placement { id, .. } => {
+        SceneObjectKey::Placement { id, mesh: None, .. } => {
             actions.write(BlenderMeshAction { scene_id: target.scene_id.clone(), placement_id: id.clone() });
         }
         _ => {}

@@ -300,15 +300,16 @@ fn choose(fixture: &mut Fixture, action: SceneMenuAction) {
 }
 
 #[test]
-fn blender_menu_opens_builtin_and_whole_glb_placements() {
+fn blender_menu_opens_external_glb_and_keeps_legacy_builtin_workflow() {
     use crate::authoring::blender_mesh::{BlenderMainSceneAction, BlenderMeshAction};
     use feathrise_editor_ui::localization::EditorLocale;
     use feathrise_scene_content::ScenePlacementAssetTarget;
 
-    for (asset_path, asset_target, allowed) in [
-        ("", ScenePlacementAssetTarget::DEFAULT_CUBOID, true),
-        ("gltf/model.glb", ScenePlacementAssetTarget::Scene0, true),
-        ("gltf/model.gltf", ScenePlacementAssetTarget::Scene0, false),
+    for (asset_path, asset_target, main_glb, allowed) in [
+        ("", ScenePlacementAssetTarget::DEFAULT_CUBOID, false, true),
+        ("", ScenePlacementAssetTarget::DEFAULT_CUBOID, true, false),
+        ("gltf/model.glb", ScenePlacementAssetTarget::Scene0, true, true),
+        ("gltf/model.gltf", ScenePlacementAssetTarget::Scene0, true, false),
     ] {
         let mut test = fixture();
         test.app
@@ -318,7 +319,9 @@ fn blender_menu_opens_builtin_and_whole_glb_placements() {
             .insert_resource(EditorLocale::English);
         {
             let mut session = test.app.world_mut().resource_mut::<EditorAuthoringSession>();
-            let record = &mut session.draft.as_mut().unwrap().placements.placements[0];
+            let draft = session.draft.as_mut().unwrap();
+            draft.placement_glb_hash = main_glb.then(|| "fixture".into());
+            let record = &mut draft.placements.placements[0];
             record.asset_path = asset_path.into();
             record.asset_target = asset_target;
             record.water_surfaces.clear(); // 通用移动夹具带水绑定，本用例验证普通模型的 Blender 入口。
@@ -832,10 +835,11 @@ fn scene_menu_types_offer_supported_actions_and_focus_the_clicked_target() {
         let world = test.app.world_mut();
         let actions: Vec<_> = world.query::<(&MenuButton, &Node)>().iter(world)
             .filter_map(|(button, node)| (node.display == Display::Flex).then_some(button.0)).collect();
-        assert_eq!(actions.len(), [10, 5, 4, 3][kind]);
+        assert_eq!(actions.len(), [10, 5, 4, 4][kind]);
         if kind == 3 {
             assert!(actions.contains(&SceneMenuAction::NewPlacementFolder));
             assert!(actions.contains(&SceneMenuAction::NewEmptyGlb));
+            assert!(actions.contains(&SceneMenuAction::ChooseExistingGlb));
             assert!(!actions.contains(&SceneMenuAction::Delete));
         }
         choose(&mut test, SceneMenuAction::Focus);

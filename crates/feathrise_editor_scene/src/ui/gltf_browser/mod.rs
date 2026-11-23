@@ -430,10 +430,11 @@ impl EditorGltfBrowserState {
         entries::request_visible_entries_rebuild(self);
     }
 
-    pub(super) fn mesh_uses_arrow_column(&self, entry: Option<usize>) -> bool {
-        entry.filter(|&index| index < self.main_glb_entry_count)
-            .and_then(|index| self.entries.get(index))
-            .is_some_and(|entry| matches!(entry.kind, EditorGltfBrowserEntryKind::Placement { expandable: false, glb: false, .. }))
+    pub(super) fn glyph_uses_arrow_column(&self, entry: Option<usize>, main_row: Option<MainSceneGlbRow>) -> bool {
+        matches!(main_row, Some(MainSceneGlbRow::Animation(_) | MainSceneGlbRow::Empty))
+            || entry.filter(|&index| index < self.main_glb_entry_count)
+                .and_then(|index| self.entries.get(index))
+                .is_some_and(|entry| matches!(entry.kind, EditorGltfBrowserEntryKind::Placement { expandable: false, glb: false, .. }))
     }
 
     pub(crate) fn is_main_glb_selected(&self, scene: &feathrise_scene_content::SceneId) -> bool {

@@ -39,7 +39,7 @@ fn captured() -> Arc<ClipboardData> {
         bounds: bounds(),
         source_objects: Default::default(),
         length: 2,
-        selection_revision: 0,
+        selection_revision: Some(0),
         selected_id: None,
     }) else {
         panic!("内置对象复制不应访问空资产路径")

@@ -200,8 +200,8 @@ pub(crate) fn sync(
             }
             _ => (None, None),
         };
-        // 主场景的内嵌网格用图标占箭头列，其他叶子继续保留原占位。
-        let display = if browser.mesh_uses_arrow_column(row.entry_index) { Display::None } else { Display::Flex };
+        // 主场景动画与内嵌网格共用箭头列，省去叶子前的空槽。
+        let display = if browser.glyph_uses_arrow_column(row.entry_index, row.main_glb) { Display::None } else { Display::Flex };
         if node.display != display { node.display = display; }
         visibility.set_if_neq(if collapsed.is_some() { Visibility::Inherited } else { Visibility::Hidden });
         let target = target.filter(|_| ready);

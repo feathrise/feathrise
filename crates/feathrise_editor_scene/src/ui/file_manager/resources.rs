@@ -103,7 +103,7 @@ impl FileManagerState {
         }
     }
     pub(super) fn open(&mut self, path: PathBuf) {
-        if self.windows.iter().filter(|window| !window.is_animation_picker()).count() >= 8 {
+        if self.windows.iter().filter(|window| !window.is_picker()).count() >= 8 {
             self.notice = "最多同时打开 8 个文件窗口，请先关闭一个窗口".into();
             return;
         }
@@ -113,19 +113,35 @@ impl FileManagerState {
         if request.context != self.context || self.suspended || self.prompt.is_some() || self.menu.is_some() {
             return;
         }
-        if let Some(window) = self.windows.iter().find(|window| window.is_animation_picker()) {
+        if let Some(window) = self.windows.iter().find(|window| window.animation_picker().is_some()) {
             let id = window.id;
-            if window.animation_picker.as_ref().is_some_and(|picker| picker.target == request.target) {
+            if window.animation_picker().is_some_and(|picker| picker.target == request.target) {
                 self.active_mut(id).unwrap().minimized = false;
                 self.raise(id);
                 return;
             }
             self.close(id);
         }
-        let picker = AnimationPicker { target: request.target.clone(), clip: None };
+        let picker = FilePicker::Animation(AnimationPicker { target: request.target.clone(), clip: None });
         self.open_window(request.directory.clone(), Some(picker));
     }
-    fn open_window(&mut self, path: PathBuf, animation_picker: Option<AnimationPicker>) {
+    pub(crate) fn open_glb_picker(&mut self, root: PathBuf) -> Option<u64> {
+        if self.suspended || self.prompt.is_some() || self.menu.is_some() { return None; }
+        if let Some(id) = self.windows.iter().find(|window| window.is_glb_picker()).map(|window| window.id) {
+            self.close(id);
+        }
+        Some(self.open_window(root.clone(), Some(FilePicker::Glb(root))))
+    }
+    pub(crate) fn glb_picker_open(&self, id: u64) -> bool {
+        self.active(id).is_some_and(FileWindow::is_glb_picker)
+    }
+    pub(crate) fn close_glb_picker(&mut self, id: u64) {
+        if self.glb_picker_open(id) {
+            self.close(id);
+            self.release_guard = true;
+        }
+    }
+    fn open_window(&mut self, path: PathBuf, picker: Option<FilePicker>) -> u64 {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1).max(1);
         let size = Vec2::new(690., 460.).min(self.movement_bounds.size());
@@ -134,8 +150,9 @@ impl FileManagerState {
         self.windows.push(FileWindow { id, path: path.clone(), requested_path: path.clone(), rect, restored_rect: rect,
             minimized: false, maximized: false, entries: Default::default(), selection: Default::default(), history: vec![path], history_index: 0,
             first: 0, thumbnail_wheel: 0., loading: true, error: None, filter: String::new(), revision: 1,
-            animation_picker, scanned_revision: 0, keep_scroll: false, refresh_after_scan: false, anchor: None, last_click: None });
+            picker, scanned_revision: 0, keep_scroll: false, refresh_after_scan: false, anchor: None, last_click: None });
         self.focused = Some(id);
+        id
     }
     pub(super) fn close(&mut self, id: u64) {
         if let Some(index) = self.windows.iter().position(|window| window.id == id) {
@@ -162,7 +179,7 @@ impl FileManagerState {
     }
     fn animation_picker_id(&self, matches: impl Fn(&ProjectMotionTarget) -> bool) -> Option<u64> {
         self.windows.iter().find_map(|window| {
-            window.animation_picker.as_ref().filter(|picker| matches(&picker.target)).map(|_| window.id)
+            window.animation_picker().filter(|picker| matches(&picker.target)).map(|_| window.id)
         })
     }
     pub(super) fn allow_directory(&mut self, path: PathBuf) {

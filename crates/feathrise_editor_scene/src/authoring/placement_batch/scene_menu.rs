@@ -75,7 +75,8 @@ pub(crate) fn input(
         bounds,
         source_objects: draft.manifest.terrain_objects_for_edit(),
         length: draft.placements.placements.len(),
-        selection_revision: selection.revision,
+        // 右键冻结的是单行。选中后 Cursor 阶段同步单项选集，不应使这个命令失效。
+        selection_revision: None,
         selected_id: context.browser.selected_placement_id.clone(),
     });
     state.owns_mouse = true;
@@ -86,9 +87,13 @@ pub(crate) fn input(
 mod tests {
     use super::*;
     use crate::{
-        ui::scene_context_menu::{SceneObjectRequest, SceneObjectTarget},
+        ui::{
+            gltf_browser::EditorGltfBrowserState,
+            scene_context_menu::{SceneObjectRequest, SceneObjectTarget, select_target_for_tests},
+        },
         viewport::{
             modes::{ViewportMode, ViewportModeState},
+            multi_select::advance_multi_selection,
             placement_move::interaction_tests::app as base_app,
         },
     };
@@ -96,7 +101,11 @@ mod tests {
 
     #[test]
     fn scene_context_menu_copy_and_delete_keep_the_complete_frozen_record_and_single_history() {
-        for action in [SceneMenuAction::Copy, SceneMenuAction::Delete] {
+        for (action, cuboid) in [
+            (SceneMenuAction::Copy, false),
+            (SceneMenuAction::Delete, false),
+            (SceneMenuAction::Delete, true),
+        ] {
             let (mut app, _, _) = base_app();
             app.init_resource::<PlacementBatchState>()
                 .init_resource::<PlacementSelectionSet>()
@@ -122,8 +131,15 @@ mod tests {
                 let draft = session.draft.as_mut().unwrap();
                 let mut record = draft.placements.placements[0].clone();
                 record.id = "right-clicked".into();
+                if cuboid {
+                    record.asset_path.clear();
+                    record.asset_target = feathrise_scene_content::ScenePlacementAssetTarget::Cuboid {
+                        size_mm: [1000; 3], color_srgb: [160; 3], roughness_milli: 600, collision: false,
+                    };
+                    record.water_surfaces.clear();
+                }
+                draft.placement_water_surface_count = 1 + record.water_surfaces.len();
                 draft.placements.placements.push(record.clone());
-                draft.placement_water_surface_count = 2;
                 SceneObjectTarget {
                     scene_id: draft.scene_id.clone(),
                     revision: session.revision,
@@ -145,11 +161,21 @@ mod tests {
                 name: String::new(),
             });
             app.insert_resource(menu);
+            {
+                let mut browser = app.world_mut().resource_mut::<EditorGltfBrowserState>();
+                browser.select_indexed_test_placement("right-clicked", 1, 3);
+                browser.selected_placement_id = Some("move-test".into());
+            }
+            app.world_mut().run_system_once(select_target_for_tests).unwrap();
             app.world_mut().run_system_once(input).unwrap();
             app.world_mut()
                 .resource_mut::<SceneContextMenuState>()
                 .ready = None;
             assert!(app.world().resource::<PlacementBatchState>().busy());
+            // 正式 Cursor 同步把菜单选中的对象投影为选集，必须在后台捕获消费前实际换代。
+            let revision = app.world().resource::<PlacementSelectionSet>().revision;
+            app.world_mut().run_system_once(advance_multi_selection).unwrap();
+            assert_ne!(app.world().resource::<PlacementSelectionSet>().revision, revision);
             let start = std::time::Instant::now();
             while app.world().resource::<PlacementBatchState>().busy() {
                 app.update();

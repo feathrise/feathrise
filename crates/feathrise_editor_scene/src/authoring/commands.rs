@@ -74,6 +74,7 @@ pub enum EditorCommand {
         before: Option<String>,
         after: Option<String>,
     },
+    SceneMotionClipRemoved(Box<super::scene_motion::SceneMotionRemovedClip>),
     /// 跨源移动只有一笔历史，两份 GLB 的完整版本一起采用。
     SourceGlbsChanged {
         before: super::source_glbs::SourceGlbEdits,

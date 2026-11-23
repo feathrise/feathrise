@@ -62,7 +62,7 @@ pub(super) struct Capture {
     pub bounds: Rect,
     pub source_objects: Arc<[SceneTerrainObject]>,
     pub length: usize,
-    pub selection_revision: u64,
+    pub selection_revision: Option<u64>, // 只有来自视口选集的命令依赖该集合。
     pub selected_id: Option<String>,
 }
 
@@ -165,5 +165,5 @@ pub(super) struct BatchJob {
     pub identity: BatchIdentity,
     pub ticket: u64,
     pub task: bevy::tasks::Task<BatchOutput>,
-    pub selection: Option<(u64, Option<String>)>,
+    pub selection: Option<(Option<u64>, Option<String>)>,
 }

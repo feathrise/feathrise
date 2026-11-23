@@ -2,7 +2,7 @@
 
 use super::super::{
     components::{FileManagerButton, FileRow, FileWindowRoot},
-    messages::ExtraRequest,
+    messages::{ExtraRequest, PickedSceneGlb},
     resources::FileManagerState,
     types::{ExtraAction, FileAction},
 };
@@ -74,6 +74,7 @@ pub(super) fn control(
     focus: Res<InputFocus>,
     mut wheels: MessageReader<MouseWheel>,
     mut clips: MessageWriter<PickProjectAnimationClip>,
+    mut glbs: MessageWriter<PickedSceneGlb>,
     search_state: Option<Res<AssetSearchState>>,
     mut navigation: MessageReader<BrowserNavigate>,
     mut extras: MessageReader<ExtraRequest>,
@@ -141,7 +142,7 @@ pub(super) fn control(
             id
         } else {
             // 场景树定位复用最后活动的普通文件窗，动画选择窗仍由原工作模型持有。
-            if let Some(window) = files.windows.iter_mut().rev().find(|window| !window.is_animation_picker()) {
+            if let Some(window) = files.windows.iter_mut().rev().find(|window| !window.is_picker()) {
                 let id = window.id;
                 window.minimized = false;
                 files.raise(id);
@@ -151,7 +152,7 @@ pub(super) fn control(
             let Some(id) = files.focused else { continue; };
             id
         };
-        let Some(window) = files.active_mut(id).filter(|window| !window.minimized && !window.is_animation_picker()) else {
+        let Some(window) = files.active_mut(id).filter(|window| !window.minimized && !window.is_picker()) else {
             continue;
         };
         window.filter.clear();
@@ -250,22 +251,25 @@ pub(super) fn control(
         && !focus.get().is_some_and(|entity| controls.inputs.contains(entity))
         && browsers.popup.is_none()).then_some(focused).flatten();
     if let Some(window) = confirm_button.or(confirm_key).and_then(|id| files.active(id))
-        .filter(|window| !window.minimized && window.is_animation_picker() && files.focused == Some(window.id)
+        .filter(|window| !window.minimized && window.is_picker() && files.focused == Some(window.id)
             && (foreground.is_none() || top_hovered == Some(window.id)))
-        && let Some((path, clip)) = browsers.picker_clip(window)
     {
-        let path = path.to_owned();
-        let index = clip.index;
-        let target = window.animation_picker.as_ref().unwrap().target.clone();
-        browsers.clip_intent = Some((path.clone(), index));
-        clips.write(PickProjectAnimationClip { asset_path: path, clip_index: index, target: Some(target) });
+        if let Some(path) = browsers.picker_glb(window) {
+            glbs.write(PickedSceneGlb { window: window.id, path: path.into() });
+        } else if let Some((path, clip)) = browsers.picker_clip(window) {
+            let path = path.to_owned();
+            let index = clip.index;
+            let target = window.animation_picker().unwrap().target.clone();
+            browsers.clip_intent = Some((path.clone(), index));
+            clips.write(PickProjectAnimationClip { asset_path: path, clip_index: index, target: Some(target) });
+        }
         return;
     }
     for (entity, button, click) in &controls.buttons {
         if !click.is_clicked() || top_hovered != Some(button.window) {
             continue;
         }
-        if files.active(button.window).is_some_and(|window| window.is_animation_picker())
+        if files.active(button.window).is_some_and(|window| window.is_picker())
             && button.action != BrowserAction::View
         {
             continue;
@@ -368,7 +372,7 @@ pub(super) fn control(
         }
         let revision = window.revision;
         // 箭头只定位当前文件的片段候选，选择窗仍保留原工作模型和属性。
-        if let Some(window) = files.active_mut(row.window).filter(|window| window.is_animation_picker()) {
+        if let Some(window) = files.active_mut(row.window).filter(|window| window.animation_picker().is_some()) {
             window.select_picker_entry(index);
         }
         browsers.popup = Some(BrowserPopup {
@@ -423,8 +427,8 @@ pub(super) fn control(
                         .map(|clip| clip.index)
                         .filter(|index| Some(*index) == choice.clip);
                     if let Some(index) = index {
-                        if let Some(window) = files.active_mut(open.window).filter(|window| window.is_animation_picker()) {
-                            window.animation_picker.as_mut().unwrap().clip = Some(open.first + choice.slot);
+                        if let Some(picker) = files.active_mut(open.window).and_then(|window| window.animation_picker_mut()) {
+                            picker.clip = Some(open.first + choice.slot);
                         } else {
                             let path = path.clone();
                             browsers.clip_intent = Some((path.clone(), index));
@@ -494,7 +498,7 @@ pub(super) fn select(
         }
         let window = files
             .active(row.window)
-            .filter(|window| !window.loading && !window.is_animation_picker() && window.revision == row.revision)?;
+            .filter(|window| !window.loading && !window.is_picker() && window.revision == row.revision)?;
         let session = browsers
             .sessions
             .get(&row.window)
@@ -512,7 +516,7 @@ pub(super) fn select(
             return None; // 等待期间切窗或打开另一面板，不能用旧定位抢回属性。
         }
         let window = files.active(id).filter(|window| !window.minimized && !window.loading
-            && !window.is_animation_picker() && window.revision == revision)?;
+            && !window.is_picker() && window.revision == revision)?;
         if !window.selection.contains(&window.entries.get(index)?.path) {
             return None;
         }

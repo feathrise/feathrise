@@ -29,6 +29,7 @@ pub(crate) fn select_target(
         (&request.target.key, request.action),
         (SceneObjectKey::MainSceneGlb | SceneObjectKey::MainSceneAnimation(_) | SceneObjectKey::PlacementTreeRoot | SceneObjectKey::PlacementFolder { .. }, _) | (_, SceneMenuAction::RevealGlb)
             | (_, SceneMenuAction::NewEmptyGlb)
+            | (_, SceneMenuAction::ChooseExistingGlb)
             | (SceneObjectKey::Vegetation { .. }, SceneMenuAction::Visibility)
     )).cloned();
     let deferred = layers.take_vegetation_selection(candidates.as_deref());

@@ -154,7 +154,7 @@ fn automatic_volume_delete_worker_rejects_a_complete_mixed_capture_atomically() 
             members: std::sync::Arc::new(draft.placements.placements.iter().enumerate().map(|(index, record)|
                 SelectedMember { id: record.id.clone(), index, position: record.translation.into() }).collect()),
             bounds: draft.manifest.world_bounds().unwrap(), source_objects: draft.manifest.terrain_objects_for_edit(),
-            length: draft.placements.placements.len(), selection_revision: 0, selected_id: None,
+            length: draft.placements.placements.len(), selection_revision: Some(0), selected_id: None,
         };
         assert!(matches!(worker::capture(capture), BatchOutput::Deleted(Err(_))),
             "worker末端也须拒绝旧入口递交的混合自动层删除，不能只修选择表现；streamed={streamed}");

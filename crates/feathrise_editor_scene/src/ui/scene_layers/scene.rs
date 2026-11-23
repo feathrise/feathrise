@@ -4,8 +4,8 @@ use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::{components::*, types::LayerList};
 use crate::ui::scene_sidebar::{
-    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TreeRowToggle, tree_branch_button, tree_branch_slot,
-    tree_row_left, tree_section_header, tree_toggle_button, tree_toggle_icon,
+    TREE_CAPTION_GAP, TREE_ICON_SIZE, TreeRowToggle, tree_branch_button,
+    tree_row_icon_left, tree_section_header, tree_toggle_button, tree_toggle_icon,
 };
 use crate::ui::{scene::FONT_PATH, theme as colors};
 use bevy::{prelude::*, text::FontSourceTemplate};
@@ -19,7 +19,7 @@ fn row(list: LayerList, slot: usize) -> impl Scene {
     let toggles = TreeRowToggle::ALL.map(|toggle| vegetation_toggle(list, toggle));
     let [participation, visibility, lock] = toggles;
     let in_section = matches!(list, LayerList::Water | LayerList::Vegetation);
-    let left = if in_section { tree_row_left(1) } else { px(20) };
+    let left = if in_section { tree_row_icon_left(1, TREE_ICON_SIZE) } else { px(20) };
     let (right, gap) = if list == LayerList::Vegetation { (4, 3.0) } else { (20, TREE_CAPTION_GAP) };
     bsn! { InteractionButton Row { list, slot } crate::ui::scene_context_menu::SceneObjectRow(None)
         Node { display: Display::None, position_type: PositionType::Absolute, width: percent(100),
@@ -27,17 +27,16 @@ fn row(list: LayerList, slot: usize) -> impl Scene {
             padding: UiRect { left, right: px(right), ..UiRect::ZERO },
             column_gap: px(gap), border_radius: BorderRadius::all(px(2)), overflow: Overflow::clip_x() }
         BackgroundColor(colors::PANEL_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [@row_lead(icon, in_section, gap)-- @row_label()--
+        Children [@row_lead(icon, gap)-- @row_label()--
             @participation-- @visibility-- @lock]
     }
 }
 
-fn row_lead(icon: &'static str, in_section: bool, row_gap: f32) -> impl Scene {
-    let branch_slot = in_section.then(tree_branch_slot);
-    // 左侧按子行统一留位，右侧三按钮继续使用植被行原有间距。
-    bsn! { Node { flex_shrink: 0.0, align_items: AlignItems::Center, column_gap: px(TREE_BRANCH_GAP),
+fn row_lead(icon: &'static str, row_gap: f32) -> impl Scene {
+    // 水域和植被叶子直接占下一层图标列，右侧按钮沿用原有间距。
+    bsn! { Node { flex_shrink: 0.0, align_items: AlignItems::Center,
             padding: UiRect::right(px(TREE_CAPTION_GAP - row_gap)) } Pickable::IGNORE
-        Children [@branch_slot-- @crate::ui::scene::tree_icon(icon)] }
+        Children [@crate::ui::scene::tree_icon(icon)] }
 }
 
 fn row_label() -> impl Scene {
@@ -93,7 +92,7 @@ fn section_title(list: LayerList) -> impl Scene {
 
 pub(crate) fn panel() -> impl Scene {
     bsn! { Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column,
-            flex_shrink: 0.0, row_gap: px(4) }
+            flex_shrink: 0.0, row_gap: px(3) }
         Children [@section(LayerList::Water)-- @section(LayerList::Vegetation)--
             @section(LayerList::DomainLayers)-- @section(LayerList::DomainObjects)]
     }
