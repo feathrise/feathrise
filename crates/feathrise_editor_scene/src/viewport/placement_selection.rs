@@ -385,7 +385,7 @@ mod tests {
             mesh_index: Some(0),                   // 诊断索引不参与身份比较。
             node_index: None,
             valid: true,                           // 测试目标允许世界解析。
-            orphaned_water_binding: false,         // 不是失效作者绑定。
+            orphaned_water_binding: false, empty_source_folder: false,         // 不是失效作者绑定。
         }
     }
 

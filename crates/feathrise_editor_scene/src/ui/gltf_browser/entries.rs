@@ -373,14 +373,14 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                     version.nodes.get(mesh_index).map(|node| {
                         let valid = !node.folder && super::helpers::stable_mesh_reference(
                             &node.path, &node.mesh_name, node.mesh, true);
-                        (node.path.as_slice(), node.mesh_name.as_str(), node.mesh, Some(node.index), valid, false)
+                        (node.path.as_slice(), node.mesh_name.as_str(), node.mesh, Some(node.index), valid, false, node.empty_folder, node.tree_depth)
                     })
                 } else {
                     state.assets.get(&placement.asset_path).filter(|cache| cache.active_ready)
                         .and_then(|cache| cache.meshes.get(mesh_index)).map(|mesh|
-                            (mesh.node_path.as_slice(), mesh.mesh_name.as_str(), mesh.mesh_index, mesh.node_index, mesh.valid, mesh.ambiguous))
+                            (mesh.node_path.as_slice(), mesh.mesh_name.as_str(), mesh.mesh_index, mesh.node_index, mesh.valid, mesh.ambiguous, mesh.empty_source_folder, mesh.tree_depth))
                 };
-                let Some((node_path, mesh_label, mesh_slot, node_index, mesh_valid, ambiguous)) = mesh else {
+                let Some((node_path, mesh_label, mesh_slot, node_index, mesh_valid, ambiguous, empty_source_folder, tree_depth)) = mesh else {
                     build.stage = BrowserEntryBuildStage::MissingWaterBinding; // 索引中只剩真正失效的作者绑定。
                     continue;
                 };
@@ -410,6 +410,7 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                     node_index,
                     valid,                       // 显式名称与唯一实例ID稳定后才允许写回作者数据。
                     orphaned_water_binding: false, // 当前行来自真实Ready网格。
+                    empty_source_folder,
                 };
                 let path = if node_path.is_empty() {
                     "[缺少节点路径]".to_owned() // 占位只供诊断。
@@ -438,7 +439,7 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                     display_name: if selection.is_source_folder() {
                         node_path.last().cloned().unwrap_or(path)
                     } else { format!("{path} · {mesh_name}{binding_hint}") },
-                    depth: group_depth + node_path.len().clamp(1, 5), // 组内网格保留逻辑目录缩进。
+                    depth: group_depth + tree_depth.min(5), // 只按实际显示的父行缩进。
                     selection: Some(selection),              // 无效网格也能选中查看诊断。
                 });
                 build.stage = BrowserEntryBuildStage::Mesh(mesh_index.saturating_add(1)); // 下一帧预算继续同一实例。
@@ -478,7 +479,7 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                         mesh_name,              // 原Mesh datablock名。
                         water_kind_label(kind), // 原绑定类别。
                     ),
-                    depth: group_depth + node_path.len().clamp(1, 5),
+                    depth: group_depth + 1, // 失效绑定无现存节点，直接显示在所属 GLB 下。
                     selection: Some(EditorGltfMeshSelection {
                         placement_id: placement.placement_id.clone(), // 清除动作定位所属实例。
                         node_path, // 原路径所有权直接移入选择，不额外复制第三份Vec。
@@ -487,6 +488,7 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                         node_index: None,
                         valid: false, // 任何赋水或数值动作必须拒绝。
                         orphaned_water_binding: true, // 属性区只开放取消水体。
+                        empty_source_folder: false,
                     }),
                 });
             }

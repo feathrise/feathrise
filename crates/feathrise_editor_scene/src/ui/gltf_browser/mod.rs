@@ -93,6 +93,8 @@ pub(crate) struct EditorGltfMeshSelection {
     pub(crate) valid: bool,
     /// true表示该项来自作者数据但已无法在当前Ready GLB中匹配，只允许执行清除动作。
     pub(crate) orphaned_water_binding: bool,
+    /// 源 GLB 中已确认无子节点的作者文件夹，可从所属场景移除。
+    pub(crate) empty_source_folder: bool,
 }
 
 impl EditorGltfMeshSelection {
@@ -238,6 +240,8 @@ pub(super) struct CachedGltfMesh {
     pub(super) valid: bool,
     /// 同一Scene0中是否有多个对象命中完全相同的节点路径与网格名。
     pub(super) ambiguous: bool,
+    pub(super) empty_source_folder: bool,
+    pub(super) tree_depth: usize,
 }
 
 /// 唯一GLB Scene0缓存的生命周期。

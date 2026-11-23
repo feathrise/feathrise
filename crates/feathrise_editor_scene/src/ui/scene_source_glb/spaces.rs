@@ -173,7 +173,7 @@ mod tests {
         let target = SceneObjectTarget { scene_id: scene.clone(), revision: 7,
             key: SceneObjectKey::Placement { index: 0, id: id.clone(), mesh: Some(EditorGltfMeshSelection {
                 placement_id: id, node_path: vec!["窗户".into()], mesh_name: "窗户".into(),
-                mesh_index: Some(0), node_index: Some(1), valid: true, orphaned_water_binding: false,
+                mesh_index: Some(0), node_index: Some(1), valid: true, orphaned_water_binding: false, empty_source_folder: false,
             }) }, name: "窗户".into(), hidden: false, locked: false, copyable: false };
         let batch = world.spawn(SubsceneActive).id();
         let owner = world.spawn((

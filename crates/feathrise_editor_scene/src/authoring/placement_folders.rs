@@ -35,6 +35,9 @@ impl PlacementFolders {
 
     pub(crate) fn contains(&self, name: &str) -> bool { self.names.contains_key(name) }
 
+    /// 编号仅在当前场景草稿内有效，用于区分同名的新旧文件夹。
+    pub(crate) fn id_for(&self, name: &str) -> Option<usize> { self.names.get(name).copied() }
+
     pub(crate) fn names_after<'a>(&'a self, cursor: Option<&str>) -> impl Iterator<Item = &'a str> + use<'a> {
         self.names.range::<str, _>((cursor.map_or(Unbounded, Excluded), Unbounded))
             .map(|(name, _)| name.as_ref())
@@ -95,6 +98,15 @@ impl PlacementFolders {
             name: name.to_owned(), before: before.map(str::to_owned), after: parent.map(str::to_owned),
             added_source: !self.contains(name), added_parent: parent.is_some_and(|name| !self.contains(name)),
         }))
+    }
+
+    /// 空目录经完整树投影确认后，用一条反向的创建记录保留原父级。
+    pub(crate) fn prepare_empty_removal(&self, name: &str) -> Result<PlacementFolderMove, String> {
+        if !self.contains(name) { return Err("文件夹已变化，请重新选择".into()); }
+        Ok(PlacementFolderMove {
+            name: name.to_owned(), before: None, after: self.parent(name).map(str::to_owned),
+            added_source: true, added_parent: false,
+        })
     }
 
     fn set_parent(&mut self, name: &str, parent: Option<&str>) {
@@ -256,6 +268,19 @@ mod tests {
         let legacy = serde_json::to_vec(&write_json(&adopted, &names).unwrap()).unwrap();
         assert_eq!(read_json(&legacy).unwrap(), names);
         assert!(serde_json::from_slice::<ScenePlacementsAsset>(&legacy).is_ok());
+    }
+
+    #[test]
+    fn removing_an_empty_subfolder_can_restore_its_parent() {
+        let mut folders = Arc::new(PlacementFolders::default());
+        folders.prepare_move("空文件夹", Some("父文件夹")).unwrap().unwrap().apply(&mut folders, false).unwrap();
+        let removal = folders.prepare_empty_removal("空文件夹").unwrap();
+        removal.apply(&mut folders, true).unwrap();
+        assert!(folders.contains("父文件夹") && !folders.contains("空文件夹"));
+        removal.apply(&mut folders, false).unwrap();
+        assert_eq!(folders.parent("空文件夹"), Some("父文件夹"));
+        removal.apply(&mut folders, true).unwrap();
+        assert!(!folders.contains("空文件夹"));
     }
 
     #[test]

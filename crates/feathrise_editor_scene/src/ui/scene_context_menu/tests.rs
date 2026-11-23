@@ -832,9 +832,11 @@ fn scene_menu_types_offer_supported_actions_and_focus_the_clicked_target() {
         let world = test.app.world_mut();
         let actions: Vec<_> = world.query::<(&MenuButton, &Node)>().iter(world)
             .filter_map(|(button, node)| (node.display == Display::Flex).then_some(button.0)).collect();
-        assert_eq!(actions.len(), [10, 5, 4, 2][kind]);
+        assert_eq!(actions.len(), [10, 5, 4, 3][kind]);
         if kind == 3 {
             assert!(actions.contains(&SceneMenuAction::NewPlacementFolder));
+            assert!(actions.contains(&SceneMenuAction::NewEmptyGlb));
+            assert!(!actions.contains(&SceneMenuAction::Delete));
         }
         choose(&mut test, SceneMenuAction::Focus);
         test.app

@@ -13,9 +13,7 @@ pub(crate) use focus::select_target as select_target_for_tests; // 保存回归�
 pub use resources::SceneContextMenuState;
 pub(crate) use systems::MenuContext;
 pub use types::SceneMenuAction;
-#[cfg(test)]
-pub(crate) use types::SceneObjectRequest;
-pub(crate) use types::{SceneObjectKey, SceneObjectTarget};
+pub(crate) use types::{SceneObjectKey, SceneObjectRequest, SceneObjectTarget};
 
 /// 自有验收从本帧真实地形树行冻结完整目标，再由原菜单分派和唯一选择出口接管模型/地形身份。
 #[cfg(any(test, feature = "validation"))]

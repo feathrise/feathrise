@@ -193,8 +193,8 @@ fn advance(
         .filter(|request| {
             matches!(
                 request.action,
-                SceneMenuAction::RenameSourceNode | SceneMenuAction::NewSourceFolder
-            )
+                SceneMenuAction::RenameSourceNode | SceneMenuAction::NewSourceFolder | SceneMenuAction::DeleteSourceFolder
+            ) && request.target.allows(request.action)
         });
     let resolved = match (request, menu_request) {
         (
@@ -242,6 +242,7 @@ fn advance(
                     SceneMenuAction::RenameSourceNode => {
                         SourceGlbOperation::Rename { name: request.name.clone(), expected_hash: None }
                     }
+                    SceneMenuAction::DeleteSourceFolder => SourceGlbOperation::DeleteFolder,
                     _ => SourceGlbOperation::Folder(request.name.clone()),
                 },
             )

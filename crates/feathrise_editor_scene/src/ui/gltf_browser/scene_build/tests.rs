@@ -3,6 +3,35 @@ use bevy::world_serialization::WorldAsset;
 use super::*;
 
 #[test]
+fn tree_depth_counts_visible_rows_while_preserving_the_source_path() {
+    use bevy::gltf::GltfExtras;
+
+    let mut world = World::new();
+    let root = world.spawn_empty().id();
+    let offset = world.spawn((Name::new("偏移"), ChildOf(root))).id();
+    let wall = world.spawn((Name::new("墙"), EmbeddedNodeIndex(1), ChildOf(offset))).id();
+    // Bevy 先挂载网格 primitive，再挂载 GLB 子节点。
+    world.spawn((Mesh3d(Handle::default()), GltfMeshName("墙体".into()), ChildOf(wall)));
+    let folder = world.spawn((
+        Name::new("文件夹"), EmbeddedNodeIndex(2), ChildOf(wall),
+        GltfExtras { value: r#"{"feathrise_folder":true}"#.into() },
+    )).id();
+    let pivot = world.spawn((Name::new("轴心"), ChildOf(folder))).id();
+    let trim = world.spawn((Name::new("墙檐"), EmbeddedNodeIndex(4), ChildOf(pivot))).id();
+    world.spawn((Mesh3d(Handle::default()), GltfMeshName("墙檐网格".into()), ChildOf(trim)));
+
+    let mut build = BrowserSceneBuild::new(
+        "gltf/wall.glb".into(), Handle::<WorldAsset>::default().id(), 1, &world,
+    );
+    while !advance_scene_build(&mut build, &world, |_| Some(0)) {}
+
+    let depths = build.meshes.iter().map(|row| row.tree_depth).collect::<Vec<_>>();
+    assert_eq!(depths, [1, 2, 3]);
+    assert_eq!(build.meshes[0].node_path, ["偏移", "墙"]);
+    assert_eq!(build.meshes[2].node_path, ["偏移", "墙", "文件夹", "轴心", "墙檐"]);
+}
+
+#[test]
 fn scene_mesh_index_keeps_original_glb_identity_after_display_lod_swap() {
     let mut assets = Assets::<Mesh>::default();
     let original = assets.add(Mesh::from(Cuboid::new(1.0, 1.0, 1.0)));

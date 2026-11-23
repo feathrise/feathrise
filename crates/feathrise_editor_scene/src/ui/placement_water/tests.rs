@@ -11,7 +11,7 @@ fn selection() -> EditorGltfMeshSelection {
         mesh_index: Some(3),
         node_index: None,
         valid: true,
-        orphaned_water_binding: false,
+        orphaned_water_binding: false, empty_source_folder: false,
     }
 }
 

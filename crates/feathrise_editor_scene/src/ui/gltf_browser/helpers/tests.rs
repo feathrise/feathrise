@@ -72,7 +72,7 @@ fn selection_identity_ignores_reexported_mesh_index() {
         mesh_index: Some(2),                // 旧导出的非权威诊断索引。
         node_index: None,
         valid: true,                        // 初始Scene0引用完整有效。
-        orphaned_water_binding: false,      // 当前行来自真实网格。
+        orphaned_water_binding: false, empty_source_folder: false,      // 当前行来自真实网格。
     };
     let mut right = left.clone(); // 只改变重导出后可能漂移的索引。
     right.mesh_index = Some(17); // Blender重导出会因其他网格增删而改变数组位置。

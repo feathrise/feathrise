@@ -79,8 +79,8 @@ fn expanded_reference_lists_original_clip_indices_between_glb_root_and_mesh() {
     state.assets.insert(path, CachedGltfAsset {
         handle: Handle::default(), animation_names: Some(std::sync::Arc::downgrade(&names)),
         meshes: vec![CachedGltfMesh {
-            node_path: vec!["平台".into()], mesh_name: "平台网格".into(), mesh_index: Some(0),
-            node_index: Some(1), valid: true, ambiguous: false,
+            node_path: vec!["偏移节点".into(), "平台".into()], mesh_name: "平台网格".into(), mesh_index: Some(0),
+            node_index: Some(1), valid: true, ambiguous: false, empty_source_folder: false, tree_depth: 1,
         }],
         active_ready: true, phase: CachedGltfAssetPhase::Ready, truncated: false, content_revision: 1,
     });
@@ -94,6 +94,8 @@ fn expanded_reference_lists_original_clip_indices_between_glb_root_and_mesh() {
         assert_eq!(state.entries[clip_index + 1].display_name, "往返");
     }
     assert!(matches!(state.entries[3].kind, EditorGltfBrowserEntryKind::Mesh));
+    assert_eq!(state.entries[3].depth, state.entries[0].depth + 1);
+    assert_eq!(state.entries[3].selection.as_ref().unwrap().node_path, ["偏移节点", "平台"]);
 }
 
 fn mesh_entry(index: usize) -> EditorGltfBrowserEntry {
@@ -108,7 +110,7 @@ fn mesh_entry(index: usize) -> EditorGltfBrowserEntry {
             mesh_index: Some(index as u32),                                    // 非权威诊断索引。
             node_index: None,
             valid: true,                   // 模拟当前Ready选择。
-            orphaned_water_binding: false, // 真实网格行而非失效绑定。
+            orphaned_water_binding: false, empty_source_folder: false, // 真实网格行而非失效绑定。
         }),
     }
 }
@@ -249,7 +251,8 @@ fn primitive_placement_is_a_labeled_non_expandable_root() {
                 mesh_index: Some(99),
                 node_index: None,
                 valid: true,
-                ambiguous: false,
+                ambiguous: false, empty_source_folder: false,
+                tree_depth: 1,
             }],
             phase: CachedGltfAssetPhase::Ready,
             active_ready: true,
@@ -338,7 +341,8 @@ fn placement_beyond_the_old_limit_can_expand_and_publish_a_selectable_mesh() {
                 mesh_index: Some(7),
                 node_index: None,
                 valid: true,
-                ambiguous: false,
+                ambiguous: false, empty_source_folder: false,
+                tree_depth: 1,
             }],
             phase: CachedGltfAssetPhase::Ready,
             active_ready: true,
@@ -405,7 +409,8 @@ fn one_large_ready_asset_obeys_the_per_update_row_budget() {
                     mesh_index: Some(index as u32),
                     node_index: None,
                     valid: true,
-                    ambiguous: false,
+                    ambiguous: false, empty_source_folder: false,
+                    tree_depth: 1,
                 })
                 .collect(),
             phase: CachedGltfAssetPhase::Ready,
@@ -476,7 +481,8 @@ fn ready_state_with_mesh_paths(paths: Vec<Vec<String>>) -> EditorGltfBrowserStat
                     mesh_index: Some(index as u32),     // 稳定诊断索引。
                     node_index: None,
                     valid: true,                        // 全部允许选择。
-                    ambiguous: false,                   // 测试资产身份唯一。
+                    ambiguous: false, empty_source_folder: false,                   // 测试资产身份唯一。
+                    tree_depth: 1,
                 })
                 .collect(),
             phase: CachedGltfAssetPhase::Ready, // 网格缓存已经完整采用。

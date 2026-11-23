@@ -17,7 +17,7 @@ use crate::ui::list_layout::{
 };
 use crate::ui::scene_inspector::InspectorTree;
 use crate::ui::scene_sidebar::{
-    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TreeRowToggle, tree_branch_button, tree_row_colors, tree_row_icon_left, tree_row_left,
+    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TREE_ICON_SIZE, TreeRowToggle, tree_branch_button, tree_row_colors, tree_row_icon_left, tree_row_left,
     tree_toggle_button, tree_toggle_icon,
 };
 use crate::viewport::placement_move::PlacementMoveState;
@@ -36,8 +36,6 @@ mod input_tests;
 
 #[derive(Component, Clone, Copy, Default)]
 pub(crate) struct GltfRowCaption;
-
-const GLTF_TREE_ICON_SIZE: f32 = 16.0;
 
 pub(super) fn main_glb_draft<'a>(
     editor: &SceneEditorState, session: &'a EditorAuthoringSession,
@@ -112,7 +110,7 @@ pub(crate) fn spawn_gltf_browser_rows(
                 caption.spawn((
                     crate::components::SceneEditorGltfBrowserRowGlyph,
                     ImageNode::default(),
-                    Node { width: px(GLTF_TREE_ICON_SIZE), height: px(GLTF_TREE_ICON_SIZE), flex_shrink: 0.0, ..default() },
+                    Node { width: px(TREE_ICON_SIZE), height: px(TREE_ICON_SIZE), flex_shrink: 0.0, ..default() },
                     Pickable::IGNORE,
                 ));
                 caption.spawn((
@@ -462,7 +460,7 @@ pub(crate) fn sync_gltf_browser_rows(
         node.top = px(tree_index as f32 * SCENE_OBJECT_ROW_PITCH);
         let depth = depth.min(8);
         node.padding.left = if state.mesh_uses_arrow_column(binding) {
-            tree_row_icon_left(depth, GLTF_TREE_ICON_SIZE)
+            tree_row_icon_left(depth, TREE_ICON_SIZE)
         } else { tree_row_left(depth) };
         let interaction = match main_kind {
             _ if drag.as_ref().is_some_and(|drag| drag.owns_mouse()) => UiInteraction::None,

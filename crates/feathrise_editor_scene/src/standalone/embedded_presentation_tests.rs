@@ -492,7 +492,7 @@ fn embedded_play_real_browser_cache_preserves_selection_expansion_and_index_unti
         mesh_index: Some(0),
         node_index: None,
         valid: true,
-        orphaned_water_binding: false,
+        orphaned_water_binding: false, empty_source_folder: false,
     };
     {
         let mut browser = app.world_mut().resource_mut::<EditorGltfBrowserState>();

@@ -20,6 +20,8 @@ pub(crate) struct SourceGlbNode {
     pub(crate) mesh: Option<u32>,
     pub(crate) mesh_name: String,
     pub(crate) folder: bool,
+    pub(crate) empty_folder: bool,
+    pub(crate) tree_depth: usize,
 }
 
 #[derive(Clone)]
@@ -198,6 +200,7 @@ pub(crate) fn read_node(
 pub(crate) enum SourceGlbOperation {
     Rename { name: String, expected_hash: Option<String> },
     Folder(String),
+    DeleteFolder,
     Move(SourceGlbTarget),
     ApplyTransform { expected_hash: String, remaining: Transform },
     NodeEdit {
@@ -278,6 +281,9 @@ pub(crate) fn edit(
         SourceGlbOperation::Folder(name) => {
             document.create_folder(source.parent(&document)?, &name)?;
         }
+        SourceGlbOperation::DeleteFolder => {
+            document.remove_empty_folder(source.node(&document)?)?;
+        }
         SourceGlbOperation::ApplyTransform { expected_hash, remaining } => {
             if expected_hash != content_hash { return Err("源 GLB 已改变，请重新选择要应用的变换".into()); }
             let node = source.node(&document)?;
@@ -357,10 +363,10 @@ fn outline(document: &GlbStructure) -> Result<Arc<[SourceGlbNode]>, String> {
         .children(GlbParent::Scene(0))?
         .into_iter()
         .rev()
-        .map(|node| (node, Vec::new()))
+        .map(|node| (node, Vec::new(), 0))
         .collect::<Vec<_>>();
     let mut seen = std::collections::HashSet::new();
-    while let Some((node, mut path)) = pending.pop() {
+    while let Some((node, mut path, mut tree_depth)) = pending.pop() {
         if !seen.insert(node.index) {
             return Err("源 GLB 树包含重复或循环节点".into());
         }
@@ -371,6 +377,8 @@ fn outline(document: &GlbStructure) -> Result<Arc<[SourceGlbNode]>, String> {
             .transpose()
             .map_err(|_| "GLB 网格索引越界")?;
         if node.folder || mesh.is_some() {
+            // 只给可见网格和文件夹加一级。path 仍完整记录普通变换节点以便写回源文件。
+            tree_depth += 1;
             let mesh_name = node
                 .mesh
                 .map(|index| document.mesh_name(index))
@@ -384,10 +392,12 @@ fn outline(document: &GlbStructure) -> Result<Arc<[SourceGlbNode]>, String> {
                 mesh,
                 mesh_name,
                 folder: node.folder,
+                empty_folder: node.folder && node.mesh.is_none() && node.children.is_empty(),
+                tree_depth,
             });
         }
         for child in node.children.into_iter().rev() {
-            pending.push((document.node(child)?, path.clone()));
+            pending.push((document.node(child)?, path.clone(), tree_depth));
         }
     }
     Ok(result.into())

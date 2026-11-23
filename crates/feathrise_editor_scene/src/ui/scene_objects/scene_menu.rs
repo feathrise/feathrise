@@ -76,6 +76,21 @@ pub(crate) fn create_folder(
     Ok(())
 }
 
+pub(crate) fn remove_empty_folder(
+    state: &mut SceneObjectState, session: &mut EditorAuthoringSession,
+    editor: &mut SceneEditorState, name: &str,
+) -> Result<(), String> {
+    if !state.accepts_commands() { return Err("请等待上一项场景对象修改完成".into()); }
+    let draft = session.draft.as_mut().ok_or("还没有可编辑的场景")?;
+    let change = draft.object_folders.prepare_empty_removal(name)?;
+    change.apply(&mut draft.object_folders, true)?;
+    let mut retired = std::mem::take(&mut session.redo);
+    session.push_bounded_history_retiring(EditorCommand::PlacementFolderRemoved(change), &mut retired);
+    if !retired.is_empty() { super::systems::retire(state, retired); }
+    session.mark_changed(editor);
+    Ok(())
+}
+
 /// 拖放整夹只换一条父级边，GLB 的直属归类和位姿由原摆放记录继续持有。
 pub(crate) fn move_folder(
     state: &mut SceneObjectState, session: &mut EditorAuthoringSession,

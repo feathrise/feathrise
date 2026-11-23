@@ -1,4 +1,4 @@
-//! 右键只接受真实可见行；关闭点击通过静默门后将冻结操作发布一帧。
+//! 右键冻结可见行或场景树空白的根级目标，关闭后经静默门分派。
 
 use feathrise_editor_ui::UiInteraction;
 use super::{components::*, resources::SceneContextMenuState, types::*};
@@ -10,14 +10,17 @@ use crate::{
     components::SceneEditorRoot,
     resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState},
     ui::scene_motion::OpenSceneAnimation,
+    ui::{gltf_browser::SceneTreeContents, scene_inspector::InspectorTree},
 };
 use bevy::{
+    ecs::query::QueryFilter,
     ecs::system::SystemParam,
     input::mouse::MouseWheel,
     input_focus::{FocusCause, InputFocus},
     prelude::*,
     text::EditableText,
     time::Real,
+    ui::RelativeCursorPosition,
     window::PrimaryWindow,
 };
 use feathrise_editor_ui::{ActiveNumericInput, ActiveNumericInputScrub, EditorButtonClick};
@@ -56,6 +59,8 @@ pub(crate) struct MenuContext<'w, 's> {
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     pub(super) roots:
         Query<'w, 's, (&'static ComputedNode, &'static UiGlobalTransform), With<SceneEditorRoot>>,
+    tree: Query<'w, 's, (Entity, &'static ComputedNode, &'static RelativeCursorPosition), With<InspectorTree>>,
+    tree_content: Query<'w, 's, (&'static ComputedNode, &'static RelativeCursorPosition), With<SceneTreeContents>>,
 }
 
 impl MenuContext<'_, '_> {
@@ -96,18 +101,35 @@ impl MenuContext<'_, '_> {
             .as_ref()
             .is_some_and(|state| state.block_shortcuts)
     }
+
+    fn blank_tree_target(&self, editor: &SceneEditorState) -> Option<MenuTarget> {
+        let (row, layout, cursor) = self.tree.single().ok()?;
+        if layout.is_empty() || !cursor.cursor_over()
+            || self.tree_content.iter().any(|(layout, cursor)| !layout.is_empty() && cursor.cursor_over())
+        {
+            return None; // 行内按钮和分类标题也占用正文，只有正文之外是空白。
+        }
+        let draft = self.session.draft.as_ref()?;
+        let object = SceneObjectTarget {
+            scene_id: draft.scene_id.clone(), revision: self.session.revision,
+            key: SceneObjectKey::PlacementTreeRoot, name: String::new(),
+            hidden: false, locked: false, copyable: false,
+        };
+        object.current(editor, &self.session).then_some(MenuTarget { row, object })
+    }
 }
 
-pub(super) fn valid_target(
+pub(super) fn valid_target<F: QueryFilter>(
     target: &MenuTarget,
     editor: &SceneEditorState,
-    session: &EditorAuthoringSession,
-    rows: &Query<(Entity, &SceneObjectRow, &Node, &UiInteraction)>,
+    context: &MenuContext,
+    rows: &Query<(Entity, &SceneObjectRow, &Node, &UiInteraction), F>,
 ) -> bool {
-    target.object.current(editor, session)
-        && rows.get(target.row).is_ok_and(|(_, row, node, _)| {
+    target.object.current(editor, &context.session)
+        && (rows.get(target.row).is_ok_and(|(_, row, node, _)| {
             node.display != Display::None && row.0.as_ref() == Some(&target.object)
-        }) // 翻页、滚动换绑及列表重建同样取消菜单，绝不追随新占用该槽的对象。
+        }) || matches!(target.object.key, SceneObjectKey::PlacementTreeRoot)
+            && context.tree.get(target.row).is_ok_and(|(_, layout, _)| !layout.is_empty()))
 }
 
 pub(super) fn control_menu(
@@ -142,7 +164,7 @@ pub(super) fn control_menu(
                 || !menu
                     .target
                     .as_ref()
-                    .is_some_and(|target| valid_target(target, &editor, &context.session, &rows)));
+                    .is_some_and(|target| valid_target(target, &editor, &context, &rows)));
     if close {
         menu.target = None;
         menu.renaming = false;
@@ -270,13 +292,13 @@ pub(super) fn control_menu(
     {
         return;
     }
-    let Some((entity, object)) = rows.iter().find_map(|(entity, row, node, interaction)| {
+    let Some(target) = rows.iter().find_map(|(entity, row, node, interaction)| {
         (node.display != Display::None && *interaction == UiInteraction::Hovered)
             .then_some(row.0.as_ref())
             .flatten()
             .filter(|target| target.current(&editor, &context.session)) // 隐藏/换绑中的旧槽不能遮住另一条有效悬停行。
-            .map(|target| (entity, target.clone()))
-    }) else {
+            .map(|target| MenuTarget { row: entity, object: target.clone() })
+    }).or_else(|| context.blank_tree_target(&editor)) else {
         return;
     };
     let Some(cursor) = context
@@ -297,14 +319,8 @@ pub(super) fn control_menu(
     ) else {
         return;
     };
-    if !object.current(&editor, &context.session) {
-        return;
-    }
     menu.anchor = anchor;
-    menu.target = Some(MenuTarget {
-        row: entity,
-        object,
-    });
+    menu.target = Some(target);
     menu.captured_this_frame = true;
     focus.clear(); // 菜单持有输入时让后台文本框失焦。
 }
@@ -402,7 +418,7 @@ pub(super) fn dispatch(
         return;
     };
     if !context.enabled(&editor)
-        || !valid_target(target, &editor, &context.session, &rows)
+        || !valid_target(target, &editor, &context, &rows)
         || keyboard.any_just_pressed([KeyCode::Escape, KeyCode::F12])
         || mouse.any_just_pressed([MouseButton::Right, MouseButton::Middle])
     {

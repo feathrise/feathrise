@@ -208,7 +208,7 @@ fn scene_tree_mesh_section_and_branch_columns_keep_actual_layout_aligned() {
             assert!(size(arrow).abs_diff_eq(size(display_arrow), 1.1));
         }
         assert_eq!(*world.get::<Visibility>(expander(leaf)).unwrap(), Visibility::Hidden);
-        assert!((center(expander(leaf)).x - branch_column - 18.0 * scale).abs() <= 1.1);
+        assert!((center(expander(leaf)).x - branch_column - crate::ui::scene_sidebar::TREE_ICON_SIZE * scale).abs() <= 1.1);
         let glyph = |row, glb| world.get::<Children>(row).unwrap().iter()
             .filter_map(|child| world.get::<Children>(child)).flat_map(|children| children.iter())
             .find(|child| if glb { world.get::<SceneEditorGltfBrowserRowGlyph>(*child).is_some() }

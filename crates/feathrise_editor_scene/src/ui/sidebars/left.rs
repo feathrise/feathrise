@@ -186,6 +186,7 @@ pub(crate) fn scene_tree_page() -> impl Scene {
                 Children [
                     // 根箭头只收起场景内容，工具入口位于子树之外。
                     crate::ui::gltf_browser::SceneTreeContents
+                    RelativeCursorPosition::default()
                     Node { width: percent(100), min_width: px(0), flex_shrink: 0.0, flex_direction: FlexDirection::Column, row_gap: px(3) }
                     Children [
                         @crate::ui::terrain_objects::scene_list_panel()--

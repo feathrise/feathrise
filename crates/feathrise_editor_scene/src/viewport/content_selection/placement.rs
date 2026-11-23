@@ -177,7 +177,7 @@ fn scene_mesh_selection_from_hit(
         mesh_index,                    // 仅供当前导出诊断，不参与最终运行时匹配。
         node_index,                    // 与场景树一致，源动画指向此父节点而不是 primitive 句柄。
         valid,                         // 无效引用仍允许选中整实例并显示明确诊断。
-        orphaned_water_binding: false, // 世界真实命中绝不是旧作者孤儿项。
+        orphaned_water_binding: false, empty_source_folder: false, // 世界真实命中绝不是旧作者孤儿项。
     })
 }
 
@@ -281,7 +281,7 @@ mod tests {
                 mesh_index: Some(0),              // 测试不依赖运行时资产加载。
                 node_index: None,
                 valid: true,                      // 明确合法稳定引用。
-                orphaned_water_binding: false,    // 真实命中不是失效绑定。
+                orphaned_water_binding: false, empty_source_folder: false,    // 真实命中不是失效绑定。
             })
         };
         let mut candidates = Vec::new(); // 与生产点击收集使用相同容器。

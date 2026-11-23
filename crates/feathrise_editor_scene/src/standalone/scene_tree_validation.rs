@@ -28,6 +28,9 @@ use feathrise_editor_ui::{EditorButtonClick, NumericInputCommitOutcome, NumericI
 use serde_json::{Value, json};
 use std::{fs, path::{Path, PathBuf}};
 
+#[path = "scene_tree_validation/creation.rs"]
+mod creation;
+
 const MODEL: &str = "sample-model";
 const ASSET_PATH: &str = "scene/probe.glb";
 const MESH: &str = "ProjectAssetQuad";
@@ -85,6 +88,7 @@ pub(super) enum Step {
     ChildFolderAction(u8),
     ChildFolderName(u8),
     ChildFolderCreated,
+    CreateObjects(creation::Stage),
     DragFolder { drop: FolderDrop, frame: u8 },
     FolderDropped(FolderDrop),
     NestedFolderScreenshot,
@@ -140,7 +144,11 @@ pub(super) fn reopened_source_position(world: &mut World) -> Option<Value> {
     let paths = feathrise_editor_core::editor_project_paths()?;
     let scene = SceneId::parse("M1-SAMPLE").ok()?;
     preflight(paths.project_root(), &scene).ok()?;
-    let folders = &world.resource::<EditorAuthoringSession>().draft.as_ref()?.object_folders;
+    let draft = world.resource::<EditorAuthoringSession>().draft.as_ref()?;
+    let folders = &draft.object_folders;
+    let restored_glbs = [(creation::ROOT_GLB, ""), (creation::NESTED_GLB, creation::ROOT_FOLDER)]
+        .into_iter().all(|(name, group)| draft.placements.placements.iter().any(|record|
+            record.editor.name == name && record.editor.group == group && record.asset_target.is_scene0()));
     let folder_parent = folders.parent(RENAMED_FOLDER)?.to_owned();
     let child_parent = folders.parent(CREATED_CHILD)?.to_owned();
     let folder_members = world.resource::<EditorGltfBrowserState>().entries.iter().find_map(|entry| {
@@ -160,7 +168,7 @@ pub(super) fn reopened_source_position(world: &mut World) -> Option<Value> {
         Some(json!({"placement": MODEL, "local_x": world.get::<Transform>(entity)?.translation.x,
             "world_x": world.get::<GlobalTransform>(entity)?.translation().x,
             "reopened_folder_parent": folder_parent, "reopened_folder_members": folder_members,
-            "reopened_created_child_parent": child_parent}))
+            "reopened_created_child_parent": child_parent, "reopened_empty_glbs": restored_glbs}))
     })
 }
 
@@ -173,7 +181,7 @@ pub(super) fn advance(
 ) -> Result<Option<Value>, String> {
     let session = world.resource::<EditorAuthoringSession>();
     if session.revision != *revision && !matches!(step, Step::SourceSpaceEdited | Step::MeshScaleApplied | Step::MeshRenamed
-        | Step::FolderRenamed | Step::ChildFolderCreated | Step::FolderDropped(_))
+        | Step::FolderRenamed | Step::ChildFolderCreated | Step::CreateObjects(_) | Step::FolderDropped(_))
     {
         return Err(format!("切换视口工具和树行选择不应修改场景修订：{step:?}，{} → {}", *revision, session.revision));
     }
@@ -278,6 +286,16 @@ pub(super) fn advance(
                 *step = if startup_enabled() {
                     let Some((_, active)) = source_position_field_for_validation(world) else { return Ok(None); };
                     if active != SOURCE_SPACES[0] { return Err("源网格默认坐标应为源 GLB".into()); }
+                    let Some(model) = scene_row(world, MODEL, false) else { return Ok(None); };
+                    let Some(mesh) = scene_row(world, MODEL, true) else { return Ok(None); };
+                    let Some(model_icon) = row_icon(world, model, GLB_ICON) else { return Ok(None); };
+                    let Some(mesh_icon) = row_icon(world, mesh, "icons/editor/tree_mesh.png") else { return Ok(None); };
+                    // 夹具网格经过一个无树行的变换父级，两个可见图标仍只错开一格。
+                    let icon_width = world.get::<ComputedNode>(mesh_icon).unwrap().size().x;
+                    let icon_x = |entity| world.get::<UiGlobalTransform>(entity).unwrap().translation.x;
+                    if (icon_x(mesh_icon) - icon_x(model_icon) - icon_width).abs() >= 1.1 {
+                        return Err("GLB 子网格相对可见父行应只缩进一个图标宽度".into());
+                    }
                     Step::SourceSpace { index: 0, frame: 0 }
                 } else {
                     Step::GroupName { press: 0, frame: 0, before: camera_pose(world) }
@@ -481,8 +499,13 @@ pub(super) fn advance(
             { return Err("右键新建的子文件夹应随所在文件夹写入一笔历史".into()); }
             if folder_row(world, CREATED_CHILD).is_some() {
                 *revision = world.resource::<EditorAuthoringSession>().revision;
-                *step = Step::DragFolder { drop: FolderDrop::IntoParent, frame: 0 };
+                *step = Step::CreateObjects(creation::begin());
             }
+        }
+        Step::CreateObjects(mut stage) => {
+            *step = if creation::advance(world, &mut stage, revision, pulse)? {
+                Step::DragFolder { drop: FolderDrop::IntoParent, frame: 0 }
+            } else { Step::CreateObjects(stage) };
         }
         Step::DragFolder { drop, frame } => {
             let Some(source) = folder_row(world, RENAMED_FOLDER) else { return Ok(None); };
@@ -596,6 +619,7 @@ pub(super) fn advance(
                         "terrain_canvas_unloaded": true,
                         "mesh_rows_below_vegetation": true,
                         "embedded_mesh_icon_aligned": true,
+                        "source_mesh_indent_one_icon": true,
                         "terrain_icon": TERRAIN_ICON,
                         "tree_glb_icon": GLB_ICON,
                         "file_glb_icon": GLB_ICON,
@@ -611,6 +635,10 @@ pub(super) fn advance(
                         "source_name": RENAMED_NODE,
                         "folder_name": RENAMED_FOLDER,
                         "created_child_folder": CREATED_CHILD,
+                        "root_folder_from_blank": creation::ROOT_FOLDER,
+                        "empty_glbs": [creation::ROOT_GLB, creation::NESTED_GLB],
+                        "empty_folder_delete_and_undo": true,
+                        "source_folder_create_and_delete": true,
                         "drag_preview_screenshot": DRAG_PREVIEW_SCREENSHOT,
                     })),
                 })));
@@ -717,7 +745,7 @@ fn branch_collapsed(world: &World, branch: &str) -> Result<bool, String> {
 fn folder_row(world: &mut World, name: &str) -> Option<Entity> {
     world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
         let target = row.0.as_ref()?;
-        (matches!(target.key, SceneObjectKey::Group { .. } | SceneObjectKey::PlacementFolder)
+        (matches!(target.key, SceneObjectKey::Group { .. } | SceneObjectKey::PlacementFolder { .. })
             && target.name == name && ui_visible(world, entity))
             .then_some(entity)
     })

@@ -341,6 +341,24 @@ fn create_files_write_empty_utf8_and_a_parser_validated_glb_scene() {
 }
 
 #[test]
+fn new_scene_glb_uses_private_models_directory_without_replacing_an_asset() {
+    let fixture = Fixture::new();
+    let request = || fixture.request(FileOperation::CreateSceneGlb {
+        parent: fixture.path("source"),
+        name: "验收空 GLB.glb".into(),
+    });
+    let (receipt, result) = execute(request(), false);
+    result.unwrap();
+    let path = fixture.path("source/models/验收空 GLB.glb");
+    assert_eq!(receipt.completed[0].destination.as_ref(), Some(&path.canonicalize().unwrap()));
+    let bytes = fs::read(&path).unwrap();
+    let glb = gltf::Gltf::from_slice(&bytes).unwrap();
+    assert_eq!(glb.default_scene().unwrap().nodes().count(), 0);
+    assert!(execute(request(), false).1.is_err());
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
 fn create_files_reject_conflicts_and_invalid_names_without_changing_existing_bytes() {
     let fixture = Fixture::new();
     for (kind, name) in [(NewFileKind::Text, "existing.txt"), (NewFileKind::Markdown, "existing.md"), (NewFileKind::Glb, "existing.glb")] {

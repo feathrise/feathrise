@@ -12,7 +12,7 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SceneObjectKey {
     PlacementTreeRoot,
-    PlacementFolder,
+    PlacementFolder { empty: bool },
     MainSceneGlb,
     MainSceneAnimation(Option<usize>), // None 是当前尚无标准动画通道的命名草稿。
     SourceGlbAnimation { index: usize, id: String, clip_index: usize },
@@ -84,24 +84,28 @@ pub enum SceneMenuAction {
     EditSourceGlbAnimation,
     NewSourceGlbAnimation,
     NewPlacementFolder,
+    NewEmptyGlb,
     NewSourceFolder,
+    DeleteSourceFolder,
     RenameSourceNode,
 }
 
 impl SceneMenuAction {
-    pub(super) const ALL: [Self; 14] = [
+    pub(super) const ALL: [Self; 16] = [
         Self::Focus,
         Self::RevealGlb,
         Self::NewSceneAnimation,
         Self::EditSourceGlbAnimation,
         Self::NewSourceGlbAnimation,
         Self::NewPlacementFolder,
+        Self::NewEmptyGlb,
         Self::NewSourceFolder,
         Self::EditInBlender,
         Self::Rename,
         Self::RenameSourceNode,
         Self::Copy,
         Self::Delete,
+        Self::DeleteSourceFolder,
         Self::Visibility,
         Self::Lock,
     ];
@@ -115,7 +119,7 @@ impl SceneMenuAction {
     }
 
     pub(super) fn requests_name(self) -> bool {
-        matches!(self, Self::Rename | Self::RenameSourceNode | Self::NewPlacementFolder | Self::NewSourceFolder)
+        matches!(self, Self::Rename | Self::RenameSourceNode | Self::NewPlacementFolder | Self::NewEmptyGlb | Self::NewSourceFolder)
     }
 
     pub(super) fn label(self, target: &SceneObjectTarget) -> &'static str {
@@ -124,7 +128,7 @@ impl SceneMenuAction {
             Self::Rename | Self::RenameSourceNode => "重命名",
             Self::Copy if !matches!(target.key, SceneObjectKey::Placement { .. }) => "复制副本",
             Self::Copy => "复制",
-            Self::Delete => "删除",
+            Self::Delete | Self::DeleteSourceFolder => "删除",
             Self::Visibility if target.hidden => "显示",
             Self::Visibility => "隐藏",
             Self::Lock if target.locked => "解锁",
@@ -135,6 +139,7 @@ impl SceneMenuAction {
             Self::EditSourceGlbAnimation => "编辑源 GLB 动画",
             Self::NewSourceGlbAnimation => "在源 GLB 新建动画",
             Self::NewPlacementFolder | Self::NewSourceFolder => "新建文件夹",
+            Self::NewEmptyGlb => "新建空 GLB",
         }
     }
 }
@@ -172,7 +177,7 @@ impl SceneObjectTarget {
         };
         match &self.key {
             SceneObjectKey::PlacementTreeRoot => true,
-            SceneObjectKey::PlacementFolder => draft.object_folders.contains(&self.name),
+            SceneObjectKey::PlacementFolder { .. } => draft.object_folders.contains(&self.name),
             SceneObjectKey::MainSceneGlb => draft.placement_glb_hash.is_some(),
             SceneObjectKey::MainSceneAnimation(index) => draft.placement_glb_hash.is_some()
                 && draft.motion.editable_clip_index() == *index && draft.motion.clip_name().is_some(),
@@ -249,7 +254,7 @@ impl SceneObjectTarget {
         if action == SceneMenuAction::RevealGlb {
             return self.supports(action) && self.glb_path(session).is_some();
         }
-        if matches!(action, SceneMenuAction::RenameSourceNode | SceneMenuAction::NewSourceFolder) {
+        if matches!(action, SceneMenuAction::RenameSourceNode | SceneMenuAction::NewSourceFolder | SceneMenuAction::DeleteSourceFolder) {
             return self.supports(action) && self.glb_path(session).is_some()
                 && matches!(&self.key, SceneObjectKey::Placement { index, .. }
                     if session.draft.as_ref().is_some_and(|draft|
@@ -297,12 +302,20 @@ impl SceneObjectTarget {
             return matches!(&self.key, SceneObjectKey::Placement { mesh, .. }
                 if mesh.as_ref().is_none_or(|mesh| mesh.is_source_folder()));
         }
+        if action == SceneMenuAction::DeleteSourceFolder {
+            return matches!(&self.key, SceneObjectKey::Placement { mesh: Some(mesh), .. }
+                if mesh.is_source_folder() && mesh.empty_source_folder);
+        }
         if action == SceneMenuAction::NewPlacementFolder {
             return matches!(self.key, SceneObjectKey::MainSceneGlb | SceneObjectKey::PlacementTreeRoot
-                | SceneObjectKey::PlacementFolder | SceneObjectKey::Group { .. });
+                | SceneObjectKey::PlacementFolder { .. } | SceneObjectKey::Group { .. });
         }
-        if matches!(self.key, SceneObjectKey::PlacementTreeRoot | SceneObjectKey::PlacementFolder) {
-            return false;
+        if action == SceneMenuAction::NewEmptyGlb {
+            // 空 GLB 是场景级资产引用，只能进入根目录或外层文件夹。
+            return matches!(self.key, SceneObjectKey::PlacementTreeRoot | SceneObjectKey::PlacementFolder { .. } | SceneObjectKey::Group { .. });
+        }
+        if matches!(self.key, SceneObjectKey::PlacementTreeRoot | SceneObjectKey::PlacementFolder { .. }) {
+            return action == SceneMenuAction::Delete && matches!(self.key, SceneObjectKey::PlacementFolder { empty: true });
         }
         if matches!(self.key, SceneObjectKey::MainSceneGlb) {
             return matches!(action, SceneMenuAction::EditInBlender | SceneMenuAction::NewSceneAnimation);
@@ -355,11 +368,13 @@ impl SceneObjectTarget {
         self.supports(action)
             && match action {
                 SceneMenuAction::Focus | SceneMenuAction::Visibility | SceneMenuAction::Lock
-                | SceneMenuAction::RevealGlb | SceneMenuAction::NewSceneAnimation | SceneMenuAction::NewPlacementFolder => {
+                | SceneMenuAction::RevealGlb | SceneMenuAction::NewSceneAnimation | SceneMenuAction::NewPlacementFolder
+                | SceneMenuAction::NewEmptyGlb => {
                     true
                 }
                 SceneMenuAction::Rename | SceneMenuAction::RenameSourceNode => !self.locked,
-                SceneMenuAction::NewSourceFolder => !self.locked && !self.hidden,
+                SceneMenuAction::NewSourceFolder | SceneMenuAction::DeleteSourceFolder => !self.locked && !self.hidden,
+                SceneMenuAction::Delete if matches!(self.key, SceneObjectKey::PlacementFolder { empty: true }) => true,
                 SceneMenuAction::EditSourceGlbAnimation | SceneMenuAction::NewSourceGlbAnimation => !self.locked,
                 SceneMenuAction::EditInBlender => {
                     !self.locked && !self.hidden

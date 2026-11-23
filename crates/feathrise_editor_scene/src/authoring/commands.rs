@@ -33,6 +33,7 @@ pub enum EditorCommand {
     SceneObjectsChanged(Box<SceneObjectBatchChange>),
     /// 空文件夹仍拥有独立历史，不借助虚拟摆放记录。
     PlacementFolderAdded(String),
+    PlacementFolderRemoved(super::placement_folders::PlacementFolderMove),
     /// 移动分支只记录一条父级边，成员自身的作者数据不参与写入。
     PlacementFolderMoved(super::placement_folders::PlacementFolderMove),
     /// 全局太阳/月光基础配置按完整前后快照撤销，颜色三个通道共同保持原子性。

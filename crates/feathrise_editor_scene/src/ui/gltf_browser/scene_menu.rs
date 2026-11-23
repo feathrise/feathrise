@@ -52,12 +52,12 @@ pub(crate) fn bind_scene_menu_rows(
                     name: entry.display_name.clone(), hidden: metadata.hidden, locked: metadata.locked, copyable: false,
                 });
             }
-            if let EditorGltfBrowserEntryKind::Group { name, first_member, .. } = &entry.kind {
+            if let EditorGltfBrowserEntryKind::Group { name, first_member, expandable, .. } = &entry.kind {
                 let Some(first_member) = first_member else {
                     // 空组可作为拖放目标，但没有可供聚焦或操作的摆放。
                     return draft.object_folders.contains(name).then(|| SceneObjectTarget {
                         scene_id: draft.scene_id.clone(), revision: session.revision,
-                        key: SceneObjectKey::PlacementFolder, name: name.clone(),
+                        key: SceneObjectKey::PlacementFolder { empty: !expandable }, name: name.clone(),
                         hidden: false, locked: false, copyable: false,
                     });
                 };

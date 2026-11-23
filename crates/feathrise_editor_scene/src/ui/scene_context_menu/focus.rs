@@ -27,7 +27,8 @@ pub(crate) fn select_target(
     // 主 GLB 文件及动画操作和植被显隐只接管各自的作者数据，保留当前对象选择。
     let mut request = menu.ready.as_ref().filter(|request| !request.action.is_source_animation() && !matches!(
         (&request.target.key, request.action),
-        (SceneObjectKey::MainSceneGlb | SceneObjectKey::MainSceneAnimation(_) | SceneObjectKey::PlacementTreeRoot | SceneObjectKey::PlacementFolder, _) | (_, SceneMenuAction::RevealGlb)
+        (SceneObjectKey::MainSceneGlb | SceneObjectKey::MainSceneAnimation(_) | SceneObjectKey::PlacementTreeRoot | SceneObjectKey::PlacementFolder { .. }, _) | (_, SceneMenuAction::RevealGlb)
+            | (_, SceneMenuAction::NewEmptyGlb)
             | (SceneObjectKey::Vegetation { .. }, SceneMenuAction::Visibility)
     )).cloned();
     let deferred = layers.take_vegetation_selection(candidates.as_deref());

@@ -44,7 +44,8 @@ fn closing_large_signatures_and_caches_retires_over_multiple_frames() {
                     mesh_index: Some(index as u32),            // 诊断索引不影响退役预算。
                     node_index: None,
                     valid: true,                               // 完整Ready缓存语义。
-                    ambiguous: false,                          // 退役测试不构造歧义身份。
+                    ambiguous: false, empty_source_folder: false,                          // 退役测试不构造歧义身份。
+                    tree_depth: 1,
                 }],
                 active_ready: true,                 // 关闭前属于公开可用缓存。
                 phase: CachedGltfAssetPhase::Ready, // 无加载轮询状态。

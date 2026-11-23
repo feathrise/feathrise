@@ -6,6 +6,7 @@ use crate::ui::tooltips::{EditorTooltipTarget, TooltipAction};
 use bevy::prelude::*;
 
 const TREE_BRANCH_WIDTH: f32 = 18.0;
+pub(crate) const TREE_ICON_SIZE: f32 = 16.0;
 pub(crate) const TREE_BRANCH_GAP: f32 = 2.0;
 pub(crate) const TREE_CAPTION_GAP: f32 = 5.0;
 
@@ -15,7 +16,7 @@ pub(crate) fn tree_row_left(depth: usize) -> Val {
 
 /// 网格图标与同深度箭头共用列中心。
 pub(crate) fn tree_row_icon_left(depth: usize, width: f32) -> Val {
-    px(5.0 + depth as f32 * TREE_BRANCH_WIDTH + (TREE_BRANCH_WIDTH - width) * 0.5)
+    px(5.0 + depth as f32 * TREE_ICON_SIZE + (TREE_BRANCH_WIDTH - width) * 0.5)
 }
 
 fn tree_branch_node() -> Node {

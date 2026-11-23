@@ -3,7 +3,7 @@
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{
-    components::*, resources::SceneContextMenuState, systems::MenuContext, types::SceneMenuAction,
+    components::*, resources::SceneContextMenuState, systems::{MenuContext, valid_target}, types::SceneMenuAction,
 };
 use crate::{components::SceneEditorRoot, resources::SceneEditorState, ui::theme as colors};
 use bevy::{prelude::*, ui::FocusPolicy};
@@ -235,12 +235,7 @@ pub(super) fn sync(
     inputs: Query<Entity, With<RenameInput>>,
 ) {
     let valid = context.enabled(&editor)
-        && menu.target.as_ref().is_some_and(|target| {
-            target.object.current(&editor, &context.session)
-                && rows.get(target.row).is_ok_and(|(_, row, node, _)| {
-                    node.display != Display::None && row.0.as_ref() == Some(&target.object)
-                })
-        });
+        && menu.target.as_ref().is_some_and(|target| valid_target(target, &editor, &context, &rows));
     if !valid && menu.target.is_some() {
         menu.target = None;
         menu.renaming = false;

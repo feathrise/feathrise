@@ -16,7 +16,7 @@ use crate::{
             MenuContext, SceneContextMenuState, SceneMenuAction, SceneMenuDispatch, SceneObjectKey,
             SceneObjectRow, SceneObjectTarget,
         },
-        scene_objects::{SceneObjectState, create_folder, move_folder, queue_group_drop},
+        scene_objects::{SceneObjectState, create_folder, move_folder, remove_empty_folder, queue_group_drop},
         scene_source_glb::SourceGlbRequest,
     },
 };
@@ -28,6 +28,8 @@ use bevy::{
     window::PrimaryWindow,
 };
 use feathrise_editor_ui::{EditorButtonClick, UiInteraction, localization::EditorLocale};
+
+mod glb_creation;
 
 struct Press {
     source: SceneObjectTarget,
@@ -71,7 +73,7 @@ pub(crate) fn install(app: &mut App) {
         )
         .add_systems(
             Update,
-            apply
+            (apply, glb_creation::advance)
                 .after(SceneMenuDispatch)
                 .in_set(SceneEditorSystemSet::Input),
         )
@@ -232,7 +234,7 @@ fn caption_at(origin: Vec2, captions: &Captions, cameras: &Query<&Camera>) -> Op
 }
 
 fn folder(key: &SceneObjectKey) -> bool {
-    matches!(key, SceneObjectKey::PlacementFolder | SceneObjectKey::Group { .. })
+    matches!(key, SceneObjectKey::PlacementFolder { .. } | SceneObjectKey::Group { .. })
 }
 
 fn scene_root(key: &SceneObjectKey) -> bool {
@@ -455,11 +457,23 @@ fn apply(
         return;
     }
     let Some(request) = menu.ready.as_ref().filter(|request| {
-        request.action == SceneMenuAction::NewPlacementFolder
-            && request.target.current(&editor, &session)
+        request.target.current(&editor, &session) && request.target.allows(request.action)
     }) else {
         return;
     };
+    if request.action == SceneMenuAction::Delete && matches!(request.target.key, SceneObjectKey::PlacementFolder { empty: true }) {
+        let name = &request.target.name;
+        match remove_empty_folder(&mut objects, &mut session, &mut editor, name) {
+            Ok(()) => {
+                browser.expanded_groups.remove(name);
+                if browser.selected_group.as_ref() == Some(name) { browser.selected_group = None; }
+                editor.status = format!("已删除空文件夹「{name}」");
+            }
+            Err(error) => editor.status = error,
+        }
+        return;
+    }
+    if request.action != SceneMenuAction::NewPlacementFolder { return; }
     let name = request.name.trim();
     if !browser.document_selection_ready(&request.target.scene_id)
         || !browser.placement_index_ready(session.placement_structure_revision)
@@ -474,6 +488,7 @@ fn apply(
     let parent = folder(&request.target.key).then_some(request.target.name.as_str());
     match create_folder(&mut objects, &mut session, &mut editor, name, parent) {
         Ok(()) => {
+            browser.collapsed_main_glb = None; // 从折叠后的树空白处新建时，也直接显示结果。
             if let Some(parent) = parent { browser.expanded_groups.insert(parent.to_owned()); }
             editor.status = format!("已新建文件夹「{name}」");
         }
@@ -618,12 +633,12 @@ mod tests {
             mesh_index: Some(0),
             node_index: Some(1),
             valid: true,
-            orphaned_water_binding: false,
+            orphaned_water_binding: false, empty_source_folder: false,
         };
         for key in [
             SceneObjectKey::MainSceneGlb,
             SceneObjectKey::PlacementTreeRoot,
-            SceneObjectKey::PlacementFolder,
+            SceneObjectKey::PlacementFolder { empty: true },
             SceneObjectKey::Group {
                 first_member: 0,
                 id: "首项".into(),

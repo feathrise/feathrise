@@ -56,4 +56,9 @@ impl SceneContextMenuState {
     pub fn owns_mouse(&self) -> bool {
         self.target.is_some() || self.captured_this_frame
     }
+
+    /// 后台采用若推进作者修订，须等菜单编辑与已冻结的点击分派完成。
+    pub(crate) fn has_pending_interaction(&self) -> bool {
+        self.owns_mouse() || self.queued.is_some() || self.ready.is_some()
+    }
 }

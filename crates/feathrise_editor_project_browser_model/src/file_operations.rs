@@ -33,6 +33,8 @@ pub enum FileOperation {
     Delete { sources: FileSources },
     CreateFolder { parent: PathBuf, name: String },
     CreateFile { parent: PathBuf, name: String, kind: NewFileKind },
+    /// 场景树的空模型写到场景私有 models 目录，必要时创建这一层。
+    CreateSceneGlb { parent: PathBuf, name: String },
     Rename { source: PathBuf, stamp: FileEntryStamp, name: String },
 }
 
@@ -43,7 +45,7 @@ impl FileOperation {
             Self::Move { .. } => FileOperationKind::Move,
             Self::Delete { .. } => FileOperationKind::Delete,
             Self::CreateFolder { .. } => FileOperationKind::CreateFolder,
-            Self::CreateFile { .. } => FileOperationKind::CreateFile,
+            Self::CreateFile { .. } | Self::CreateSceneGlb { .. } => FileOperationKind::CreateFile,
             Self::Rename { .. } => FileOperationKind::Rename,
         }
     }

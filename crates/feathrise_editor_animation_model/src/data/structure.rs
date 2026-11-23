@@ -220,6 +220,22 @@ impl GlbStructure {
         Ok(index)
     }
 
+    /// 从场景层级移除空作者文件夹，保留其余 glTF 节点的索引。
+    pub fn remove_empty_folder(&mut self, index: usize) -> Result<(), String> {
+        let folder = self.node(index)?;
+        let value = object_at(&self.json, "nodes", index)?;
+        if !folder.folder || folder.mesh.is_some() || !folder.children.is_empty()
+            || value.get("camera").is_some() || value.get("extensions").is_some()
+        {
+            return Err("只能删除没有内容的源 GLB 文件夹".into());
+        }
+        check_unbound(&self.json, &HashSet::from([index]))?;
+        check_static_ancestors(&self.json, [index])?;
+        let parent = Hierarchy::read(&self.json)?.parent(index)?;
+        detach(&mut self.json, parent, index);
+        Ok(())
+    }
+
     pub fn rename_node(&mut self, index: usize, name: &str) -> Result<(), String> {
         let name = checked_name(name)?;
         object_at(&self.json, "nodes", index)?;
@@ -542,7 +558,8 @@ fn detach(json: &mut Value, parent: GlbParent, node: usize) {
         .and_then(Value::as_array_mut)
         .expect("已确认旧父级关系");
     values.retain(|value| value.as_u64() != Some(node as u64));
-    if values.is_empty() {
+    // Bevy 使用的 glTF 解析器要求场景保留 nodes，节点的 children 可以省略。
+    if values.is_empty() && matches!(parent, GlbParent::Node(_)) {
         entry.remove(children);
     }
 }

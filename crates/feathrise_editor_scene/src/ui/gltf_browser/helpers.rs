@@ -86,6 +86,7 @@ pub(super) fn revalidate_selection(
         selection.node_path.clone_from(&node.path);
         selection.mesh_name.clone_from(&node.mesh_name);
         selection.mesh_index = node.mesh;
+        selection.empty_source_folder = node.empty_folder;
         selection.valid = !node.folder && stable_mesh_reference(&node.path, &node.mesh_name, node.mesh, true)
             && !duplicate_ids.contains(&selection.placement_id);
         return Some(selection);
@@ -101,9 +102,11 @@ pub(super) fn revalidate_selection(
     if let Some(mesh) = refreshed_mesh {
         selection.mesh_index = mesh.mesh_index; // 热更后只刷新当前导出的诊断值；稳定身份匹配已经在上方完成。
         selection.node_index = mesh.node_index;
+        selection.empty_source_folder = mesh.empty_source_folder;
         selection.valid = mesh.valid && !duplicate_ids.contains(&selection.placement_id);
         selection.orphaned_water_binding = false; // 当前Ready GLB重新命中后不再显示失效绑定诊断。
     } else if cached.is_some_and(|cached| cached.active_ready) {
+        selection.empty_source_folder = false;
         let binding_exists = placement.water_bindings.iter().any(|binding| {
             binding.node_path == selection.node_path && binding.mesh_name == selection.mesh_name
         }); // 只有作者数据仍持有相同身份时才需要保留可清除的失效选择。
@@ -113,6 +116,7 @@ pub(super) fn revalidate_selection(
         selection.valid = false; // 失效绑定不得继续改类别或参数。
         selection.orphaned_water_binding = true; // 明确允许属性区只执行“取消水体”。
     } else {
+        selection.empty_source_folder = false;
         selection.valid = false; // 加载或失败期间保留原选择，等待下一完整Scene0重新确认。
         selection.orphaned_water_binding = false; // 资产尚未Ready不能提前宣判目标已经消失。
     }

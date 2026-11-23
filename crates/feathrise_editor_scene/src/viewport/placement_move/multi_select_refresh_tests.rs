@@ -113,7 +113,7 @@ fn multi_selection_refresh_keeps_same_single_instance_precise_mesh_selection() {
         mesh_index: Some(1),
         node_index: None,
         valid: true,
-        orphaned_water_binding: false,
+        orphaned_water_binding: false, empty_source_folder: false,
     };
     app.world_mut().resource_mut::<EditorGltfBrowserState>().selection = Some(precise.clone());
     app.world_mut().resource_scope(|world, mut selection: Mut<PlacementSelectionSet>| {

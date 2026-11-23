@@ -369,7 +369,7 @@ mod tests {
                         mesh_index: Some(0),
                         node_index: Some(7),
                         valid: true,
-                        orphaned_water_binding: false,
+                        orphaned_water_binding: false, empty_source_folder: false,
                     }),
                 },
                 name: "子网格".into(),

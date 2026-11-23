@@ -87,6 +87,39 @@ fn writes_real_folder_and_keeps_node_world_transform() {
 }
 
 #[test]
+fn remove_empty_folder_preserves_other_nodes_and_rejects_a_parent() {
+    let mut document = fixture(&json!({
+        "asset": {"version": "2.0"}, "scenes": [{"nodes": [0]}], "nodes": [{"name": "已有模型"}],
+    }), &[]);
+    let root = GlbParent::Scene(0);
+    let folder = document.create_folder(root, "外层").unwrap();
+    let child = document.create_folder(GlbParent::Node(folder), "空的").unwrap();
+    assert!(document.remove_empty_folder(folder).is_err());
+    assert!(document.remove_empty_folder(0).is_err());
+    document.remove_empty_folder(child).unwrap();
+    assert!(document.children(GlbParent::Node(folder)).unwrap().is_empty());
+    document.remove_empty_folder(folder).unwrap();
+    let saved = GlbStructure::from_bytes(&document.encode().unwrap()).unwrap();
+    assert_eq!(saved.children(root).unwrap()[0].name, "已有模型");
+    assert_eq!(saved.children(root).unwrap().len(), 1);
+}
+
+#[test]
+fn remove_empty_folder_keeps_the_last_scene_root_loadable() {
+    let chunks = [Chunk { kind: JSON_CHUNK, bytes: Arc::default() }];
+    let bytes = encode_chunks(&chunks, &json!({
+        "asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": []}],
+    }), &[]).unwrap();
+    let mut document = GlbStructure::from_bytes(&bytes).unwrap();
+    let folder = document.create_folder(GlbParent::Scene(0), "空的").unwrap();
+    document.remove_empty_folder(folder).unwrap();
+
+    let bytes = document.encode().unwrap();
+    let glb = bevy::gltf::gltf::Gltf::from_slice(&bytes).unwrap();
+    assert_eq!(glb.default_scene().unwrap().nodes().count(), 0);
+}
+
+#[test]
 fn reparent_keeps_unchanged_animation_space_and_rejects_cycle_and_changed_basis() {
     let mut document = fixture(
         &json!({

@@ -512,6 +512,20 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
     if saved.scene_id.as_str() != "M1-SAMPLE" || !saved.placements.iter().any(|record| record.id == placement) {
         return Err("本轮立方体未随原保存写入该场景的 GLB".into());
     }
+    let startup = &proof["scene_tree"]["startup"];
+    let new_folder = startup["root_folder_from_blank"].as_str().ok_or("缺少空白处新建目录的回执")?;
+    for (index, group) in ["", new_folder].into_iter().enumerate() {
+        let name = startup["empty_glbs"][index].as_str().ok_or("缺少空 GLB 创建回执")?;
+        let relative = format!("scenes/M1-SAMPLE/models/{name}.glb");
+        if !saved.placements.iter().any(|record| record.asset_path == relative && record.editor.group == group) {
+            return Err(format!("新建空 GLB 未按场景树归属保存：{relative}"));
+        }
+        let bytes = fs::read(project.context.asset_roots[0].join(&relative)).map_err(|error| error.to_string())?;
+        let model = bevy::gltf::gltf::Gltf::from_slice(&bytes).map_err(|error| error.to_string())?;
+        if model.default_scene().is_none_or(|scene| scene.nodes().next().is_some()) || model.meshes().next().is_some() {
+            return Err(format!("新建 GLB 没有保存为可独立读取的空场景：{relative}"));
+        }
+    }
     for (id, x) in [("scene-tree-group-0", 24.0), ("scene-tree-group-1", 36.0)] {
         if !saved.placements.iter().any(|record| record.id == id && record.editor.group == "验收文件夹"
             && record.asset_path == "scene/probe.glb" && record.translation == [x, 2.0, 12.0]) {
@@ -557,6 +571,7 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
         || node["local_x"].as_f64() != Some(1.25) || node["world_x"].as_f64() != Some(7.5)
         || node["reopened_folder_parent"] != "验收目标" || node["reopened_folder_members"] != 2
         || node["reopened_created_child_parent"] != "验收文件夹"
+        || node["reopened_empty_glbs"] != true
     {
         return Err(format!("重开工程后未采用已保存的源节点变换：{node}"));
     }

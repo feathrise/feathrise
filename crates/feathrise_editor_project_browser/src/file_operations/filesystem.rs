@@ -123,17 +123,31 @@ pub(super) fn execute(
             receipt.completed.push(FileOperationChange { source: None, destination: Some(destination), source_retained: false });
             control.update(None, 1, 0);
         }
-        FileOperation::CreateFile { parent, name, kind } => {
+        FileOperation::CreateFile { parent, name, .. } | FileOperation::CreateSceneGlb { parent, name } => {
             *current = Some(parent.join(name));
             let parent = checked(parent, &roots, true)?;
             validate_name(name)?;
+            let (parent, kind) = if let FileOperation::CreateFile { kind, .. } = &request.operation {
+                (parent, *kind)
+            } else {
+                let models = parent.join("models");
+                *current = Some(models.join(name));
+                control.check()?;
+                // 只创建直属资产目录，再走原目录与联接校验，和文件窗口共用无覆盖发布。
+                match fs::create_dir(&models) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                    Err(error) => return Err(format!("无法建立场景模型目录：{error}")),
+                }
+                (checked(&models, &roots, true)?, NewFileKind::Glb)
+            };
             let destination = parent.join(name);
             target_path(&destination, ConflictPolicy::Fail)?;
             control.check()?;
             reject_link_chain(&parent)?;
             let stage_container = reserve_stage(&parent, control.id(), 0)?;
             let stage = stage_container.join("content");
-            let bytes = new_file_bytes(*kind);
+            let bytes = new_file_bytes(kind);
             // 即使GLB很小也先完整写入私有暂存并关闭句柄，再无覆盖发布；失败不会留下正式半文件。
             let result = (|| {
                 let mut output = OpenOptions::new().create_new(true).write(true).open(&stage)

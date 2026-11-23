@@ -34,6 +34,7 @@ struct SceneTraversalFrame {
     parent_path: Option<Arc<ScenePathNode>>, // 进入节点前的祖先链。
     resolved_path: Option<Arc<ScenePathNode>>, // 进入普通节点后包含自身的路径。
     path_names_valid: bool, // 缺名、超长或超深后代都不能形成作者引用。
+    tree_depth: usize, // 完整名称路径中的普通变换节点不占树行。
     entered: bool,  // false先解析当前节点，true后每步只读取一个Child。
     next_child: usize, // 宽节点按子项游标跨帧推进。
     scene_root: bool, // Scene0根Name与根自身Mesh沿用既有规则，不进入Blender路径。
@@ -46,6 +47,7 @@ impl SceneTraversalFrame {
             parent_path: None,
             resolved_path: None,
             path_names_valid: true,
+            tree_depth: 0,
             entered: false,
             next_child: 0,
             scene_root: true,
@@ -56,12 +58,14 @@ impl SceneTraversalFrame {
         entity: Entity,
         parent_path: Option<Arc<ScenePathNode>>,
         path_names_valid: bool,
+        tree_depth: usize,
     ) -> Self {
         Self {
             entity,
             parent_path,
             resolved_path: None,
             path_names_valid,
+            tree_depth,
             entered: false,
             next_child: 0,
             scene_root: false,
@@ -78,6 +82,8 @@ struct PendingSceneMesh {
     mesh_name: String,                  // 已按公共名称上限截断。
     mesh_index: Option<u32>,            // 仅作诊断，不参与后续稳定匹配。
     node_index: Option<usize>,          // primitive 的父节点才是 GLB 中变换和动画的目标。
+    empty_source_folder: bool,
+    tree_depth: usize,
 }
 
 /// 单个Scene0完整新修订的未发布读取状态。
@@ -336,6 +342,8 @@ fn advance_pending_mesh(
             mesh_index: pending.mesh_index,
             node_index: pending.node_index,
             ambiguous: false, // 首次命中先视为唯一，后续同身份会回写首行歧义标记。
+            empty_source_folder: pending.empty_source_folder,
+            tree_depth: pending.tree_depth,
         });
         *mesh_rows += 1;
     }
@@ -407,6 +415,8 @@ fn advance_traversal(
                     node_index: entity_ref.get::<ChildOf>()
                         .and_then(|parent| world.get::<EmbeddedNodeIndex>(parent.parent()))
                         .map(|index| index.0),
+                    empty_source_folder: false,
+                    tree_depth: frame.tree_depth.max(1),
                 });
                 continue; // primitive Name与子节点不进入Blender路径。
             }
@@ -429,13 +439,21 @@ fn advance_traversal(
                 build.truncated = true;
             }
             frame.path_names_valid &= name_valid;
-            if let Some(index) = entity_ref.get::<EmbeddedNodeIndex>()
-                && entity_ref.get::<bevy::gltf::GltfExtras>().is_some_and(|extras| {
+            let folder_index = entity_ref.get::<EmbeddedNodeIndex>().filter(|_| {
+                entity_ref.get::<bevy::gltf::GltfExtras>().is_some_and(|extras| {
                     extras.value.contains("feathrise_folder")
                         && serde_json::from_str::<serde_json::Value>(&extras.value).is_ok_and(
                             |value| value.get("feathrise_folder").and_then(serde_json::Value::as_bool) == Some(true))
                 })
+            });
+            // Bevy 在 glTF 子节点之前生成网格 primitive。只看首个孩子即可判定当前节点是否占一行。
+            let children = entity_ref.get::<Children>();
+            if folder_index.is_some() || children.and_then(|children| children.first())
+                .is_some_and(|&child| world.get::<Mesh3d>(child).is_some())
             {
+                frame.tree_depth += 1;
+            }
+            if let Some(index) = folder_index {
                 build.pending_mesh = Some(PendingSceneMesh {
                     cursor: frame.resolved_path.clone(),
                     reversed_path: Vec::new(),
@@ -444,6 +462,8 @@ fn advance_traversal(
                     mesh_name: String::new(),
                     mesh_index: None,
                     node_index: Some(index.0),
+                    empty_source_folder: children.is_none_or(|children| children.is_empty()),
+                    tree_depth: frame.tree_depth,
                 });
             }
             frame.entered = true;
@@ -462,8 +482,9 @@ fn advance_traversal(
             continue; // 当前节点全部子项结束，帧不再压回栈。
         };
         frame.next_child = frame.next_child.saturating_add(1);
-        let child_frame =
-            SceneTraversalFrame::child(child, frame.resolved_path.clone(), frame.path_names_valid);
+        let child_frame = SceneTraversalFrame::child(
+            child, frame.resolved_path.clone(), frame.path_names_valid, frame.tree_depth,
+        );
         build.stack.push(frame); // 父帧保留下一子项游标。
         build.stack.push(child_frame); // LIFO保持原Children顺序的深度优先遍历。
     }
