@@ -77,10 +77,10 @@ pub(super) fn structure_change_allowed(
         return Err("场景归类正在保存，请等待本次写入完成".to_owned()); // 回滚槽只能服务一个结构操作。
     }
     if scene_creation_busy(creation) {
-        return Err("新场景创建完成前不能修改虚拟文件夹结构".to_owned()); // 创建请求冻结了已选归类身份。
+        return Err("新场景创建完成前不能修改文件夹结构".to_owned()); // 创建请求冻结了已选归类身份。
     }
     if deletion.busy() {
-        return Err("场景回收事务完成前不能修改虚拟文件夹结构".to_owned()); // 删除必须与归属移除保持一致。
+        return Err("场景回收事务完成前不能修改文件夹结构".to_owned()); // 删除必须与归属移除保持一致。
     }
     Ok(())
 }
@@ -109,7 +109,7 @@ fn toggle_folder_expansion(
     folder_id: &str,
 ) {
     let Some(folder) = folder_by_id(&browser.document, folder_id) else {
-        editor.status = "所选虚拟文件夹已不存在".to_owned();
+        editor.status = "所选文件夹已不存在".to_owned();
         return;
     };
     let name = folder.display_name.clone();
@@ -295,7 +295,7 @@ pub(crate) fn handle_scene_browser_input(
         editor.scene_list_selection_id = None; // 根目录绝不能沿用旧场景进入或删除目标。
         drag.press = None; // 根目录行不可拖动。
         drag.selection = None;
-        editor.status = "已选中虚拟根目录".to_owned(); // 根固定展开，不执行无意义收起。
+        editor.status = "已选中根文件夹".to_owned(); // 根固定展开，不执行无意义收起。
     }
     for (interaction, row, click) in &rows {
         if !directory_visible {
@@ -385,7 +385,7 @@ pub(crate) fn handle_scene_browser_input(
                 editor.scene_list_selection_id = None; // 文件夹选择绝不能误删旧场景目标。
                 let Some(folder) = folder_by_id(&browser.document, &folder_id) else {
                     browser.select_only(None); // 热更新移除后的旧虚拟行不能修改展开集合。
-                    editor.status = "所选虚拟文件夹已不存在".to_owned();
+                    editor.status = "所选文件夹已不存在".to_owned();
                     continue;
                 };
                 let display_name = folder.display_name.clone();
@@ -495,10 +495,10 @@ pub(crate) fn handle_scene_browser_input(
                 Some(SceneBrowserItem::Folder(folder_id)) => {
                     if folder_by_id(&browser.document, &folder_id).is_none() {
                         browser.select_only(None); // 热更新移除旧选择后不操作失效ID。
-                        editor.status = "所选虚拟文件夹已不存在".to_owned();
+                        editor.status = "所选文件夹已不存在".to_owned();
                         continue;
                     }
-                    editor.status = "目录请直接点击行展开或收起；“进入场景”只作用于场景".to_owned(); // 树结构不再切换当前目录。
+                    editor.status = "点击文件夹行展开或收起。".to_owned(); // 树结构不再切换当前目录。
                 }
                 Some(SceneBrowserItem::Scene(scene_id)) => {
                     editor.scene_list_selection_id = Some(scene_id); // 显式同步既有切换场景保护函数目标。
@@ -512,7 +512,7 @@ pub(crate) fn handle_scene_browser_input(
                     ); // 继续走原加载链，并在按钮帧核对作者加载基线。
                 }
                 Some(SceneBrowserItem::Root) => {
-                    editor.status = "根目录固定展开；请选中一个场景后进入".to_owned(); // 根目录不是玩法场景。
+                    editor.status = "根文件夹固定展开。请选择要进入的场景。".to_owned(); // 根目录不是玩法场景。
                 }
                 None => editor.status = "请先选择一个场景".to_owned(), // 不猜测列表首项。
             },
@@ -524,7 +524,7 @@ pub(crate) fn handle_scene_browser_input(
                     continue;
                 }
                 if browser.document.folders.len() >= SCENE_FOLDER_MAX_FOLDERS {
-                    editor.status = format!("虚拟文件夹已达到{SCENE_FOLDER_MAX_FOLDERS}项上限");
+                    editor.status = format!("文件夹已达到{SCENE_FOLDER_MAX_FOLDERS}项上限");
                     continue;
                 }
                 let parent_folder_id =
@@ -581,16 +581,16 @@ pub(crate) fn handle_scene_browser_input(
                 let folder_id = match browser.selected_item.clone() {
                     Some(SceneBrowserItem::Folder(folder_id)) => folder_id, // 文件夹继续使用原事务。
                     Some(SceneBrowserItem::Root) => {
-                        editor.status = "虚拟根目录不能重命名".to_owned();
+                        editor.status = "根文件夹不能重命名".to_owned();
                         continue;
                     }
                     _ => {
-                        editor.status = "请先选择场景或虚拟文件夹再编辑".to_owned();
+                        editor.status = "请先选择场景或文件夹再编辑".to_owned();
                         continue;
                     }
                 };
                 let Some(folder) = folder_by_id(&browser.document, &folder_id) else {
-                    editor.status = "所选虚拟文件夹已不存在".to_owned();
+                    editor.status = "所选文件夹已不存在".to_owned();
                     browser.select_only(None);
                     continue;
                 };
@@ -607,7 +607,7 @@ pub(crate) fn handle_scene_browser_input(
                 let folder_id = match browser.selected_item.clone() {
                     Some(SceneBrowserItem::Folder(folder_id)) => folder_id, // 文件夹走空目录二次确认。
                     Some(SceneBrowserItem::Root) => {
-                        editor.status = "虚拟根目录不能删除".to_owned();
+                        editor.status = "根文件夹不能删除".to_owned();
                         continue;
                     }
                     _ => continue, // 场景删除仍交给既有可恢复事务系统。
@@ -619,7 +619,7 @@ pub(crate) fn handle_scene_browser_input(
                     continue;
                 }
                 let Some(folder) = folder_by_id(&browser.document, &folder_id) else {
-                    editor.status = "所选虚拟文件夹已不存在".to_owned();
+                    editor.status = "所选文件夹已不存在".to_owned();
                     browser.select_only(None);
                     continue;
                 };

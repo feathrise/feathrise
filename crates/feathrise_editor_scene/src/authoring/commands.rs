@@ -168,6 +168,27 @@ pub enum EditorCommand {
 pub struct SceneObjectBatchChange {
     pub changes: Vec<SceneObjectChange>,
     pub heap_bytes: usize,
+    pub folder: Option<SceneObjectFolderRename>,
+}
+
+/// 文件夹名和所有成员里的归属字段在同一笔历史里往返，空文件夹也可改名。
+#[derive(Clone)]
+pub struct SceneObjectFolderRename {
+    pub before: String,
+    pub after: String,
+    pub explicit: bool,
+}
+
+impl SceneObjectFolderRename {
+    pub(crate) fn apply(&self, folders: &mut Arc<BTreeSet<String>>, undoing: bool) -> Result<(), String> {
+        if !self.explicit { return Ok(()); }
+        let (before, after) = if undoing { (&self.after, &self.before) } else { (&self.before, &self.after) };
+        if !folders.contains(before) || folders.contains(after) { return Err("文件夹名称已变化，原操作已保留".into()); }
+        let folders = Arc::make_mut(folders);
+        folders.remove(before);
+        folders.insert(after.clone());
+        Ok(())
+    }
 }
 
 impl SceneObjectBatchChange {

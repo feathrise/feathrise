@@ -15,7 +15,15 @@ pub(crate) use scene_menu::{create_folder, queue_group_drop};
 pub(crate) use metadata::{effective_metadata, effective_participation};
 pub(crate) use types::PlacementVisibilityIntent;
 pub(crate) use scene::properties_panel;
+pub(super) use scene::name_row;
 pub(crate) use visibility::{ObjectVisibilityState, placement_base_visibility, restore_placement_base_visibility};
+
+#[cfg(feature = "validation")]
+pub(crate) fn name_input_for_validation(world: &mut bevy::prelude::World) -> Option<bevy::prelude::Entity> {
+    use bevy::{prelude::*, ui::InteractionDisabled};
+    world.query_filtered::<Entity, (With<components::ObjectInput>, Without<InteractionDisabled>)>()
+        .single(world).ok()
+}
 
 pub(crate) fn install(app: &mut bevy::prelude::App) {
     use bevy::prelude::*;

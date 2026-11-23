@@ -142,7 +142,13 @@ impl super::SceneObjectState {
         if editor.selected_scene_id.as_ref() != Some(&draft.scene_id) { return; }
         let command = if undoing { session.undo.last() } else { session.redo.last() };
         let Some(EditorCommand::SceneObjectsChanged(command)) = command.map(EditorCommand::unscoped) else { return; };
-        match self.prepare_metadata_history(&draft.scene_id, session, command, undoing) {
+        let prepared = self.prepare_metadata_history(&draft.scene_id, session, command, undoing).and_then(|ready| {
+            if ready && let Some(rename) = &command.folder {
+                rename.apply(&mut session.draft.as_mut().unwrap().object_folders, undoing)?;
+            }
+            Ok(ready)
+        });
+        match prepared {
             Ok(false) => editor.status = "正在准备场景对象撤销或重做".into(),
             Ok(true) => {
                 let capture = self.history.take().expect("已完成对象历史候选");

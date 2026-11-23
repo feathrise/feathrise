@@ -26,7 +26,8 @@ use feathrise_editor_core::SceneEditorScrubField; // 三类变换手感各自持
 pub(crate) use actions::{handle_placement_transform_actions, sync_placement_record_world, sync_placement_record_world_with_terrain}; // Input处理高度模式、复制和删除按钮。
 pub(crate) use numeric_input::handle_placement_transform_numeric_input; // Input消费七字段公共消息。
 pub(crate) use relocation::apply_selected_placement_relocation; // Tasks在现有地形光标更新后采用一次真实三角落点。
-pub(super) use scene::placement_transform_panel; // 右栏场景页只组合一个完整功能域Scene。
+pub(super) use scene::{axis_row, numeric_field_style, placement_transform_panel, property_button,
+    property_button_visual, property_column, property_panel_layout};
 pub(crate) use scene::setup_placement_transform_numeric_inputs; // Presentation只为新增槽位挂载一次控件。
 pub(crate) use sync::sync_placement_transform_panel; // Presentation统一同步显隐、值和交互视觉。
 pub(crate) use lod_preview::sync_lod_preview_request;

@@ -12,6 +12,7 @@ pub mod retirement;
 pub use retirement::AuthoringRetirement;
 pub(crate) use retirement::poll as poll_authoring_retirement;
 mod commands; // 可撤销局部差分与作者图层结构快照普通类型。
+pub(crate) use commands::SceneObjectFolderRename;
 #[cfg(test)]
 pub(crate) use commands::ByteChange; // 有限窗口夹具的来源回归复用正式差分类型，不扩大生产接口。
 pub(crate) mod courtyards; // 院落模板保存、分帧成员索引和整组受检作者事务。

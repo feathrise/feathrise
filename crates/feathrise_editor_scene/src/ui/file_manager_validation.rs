@@ -943,11 +943,11 @@ fn key(world: &mut World, window: Entity, code: KeyCode, logical: Key) {
     key_state(world, window, code, logical, ButtonState::Released);
 }
 
-fn mouse(world: &mut World, window: Entity, state: ButtonState) {
+pub(crate) fn mouse(world: &mut World, window: Entity, state: ButtonState) {
     window_event(world, MouseButtonInput { window, button: MouseButton::Left, state });
 }
 
-fn move_cursor(world: &mut World, window: Entity, physical: DVec2) {
+pub(crate) fn move_cursor(world: &mut World, window: Entity, physical: DVec2) {
     let mut target = world.get_mut::<Window>(window).unwrap();
     target.set_physical_cursor_position(Some(physical));
     let position = physical.as_vec2() / target.scale_factor();

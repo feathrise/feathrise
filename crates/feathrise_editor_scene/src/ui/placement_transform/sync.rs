@@ -1,7 +1,6 @@
 //! 完整实例属性面板的显隐、摘要、数值模型和动作按钮视觉同步。
 
 use feathrise_editor_ui::UiInteraction;
-use crate::ui::theme as colors;
 use bevy::prelude::*; // Commands、Node、文本、颜色、查询和资源。
 use feathrise_editor_ui::{
     ActiveNumericInput, ActiveNumericInputScrub, NumericInputConfig, NumericInputDisabled,
@@ -265,23 +264,9 @@ pub(crate) fn sync_placement_transform_panel(
         let lod_selected = record.is_some_and(|record| super::lod::selected(button.0, record));
         let preview_selected = preview.is_some_and(|preview| preview.selected(button.0));
         let selected = armed || mode_selected || terrain_selected || lod_selected || preview_selected;
-        let color = match (*interaction, selected) {
-            (UiInteraction::Pressed, _) => colors::BUTTON_DEV_SMALL_PRESSED,
-            (UiInteraction::Hovered, _) => colors::BUTTON_DEV_SMALL_HOVERED,
-            (UiInteraction::None, true) => colors::SELECT_BG, // 高度模式或等待落点持续显示选中铜底。
-            (UiInteraction::None, false) => colors::BUTTON_DEV_SMALL_NORMAL,
-        };
-        if background.0 != color {
-            background.0 = color;
-        }
-        let border_color = BorderColor::all(if selected || *interaction != UiInteraction::None {
-            colors::COPPER_BORDER // 活动、hover和按压强化铜边。
-        } else {
-            colors::COPPER_BORDER_WEAK // 普通静止动作使用弱边。
-        });
-        if *border != border_color {
-            *border = border_color;
-        }
+        let (next_background, next_border) = super::property_button_visual(*interaction, selected);
+        background.set_if_neq(next_background);
+        border.set_if_neq(next_border);
     }
 }
 

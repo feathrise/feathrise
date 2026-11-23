@@ -11,7 +11,9 @@ use std::{collections::HashSet, sync::Arc};
 
 #[cfg(test)]
 mod tests;
+mod mesh;
 mod transfer;
+pub use mesh::MeshGeometry;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GlbParent {
@@ -37,7 +39,7 @@ pub struct GlbNodeInfo {
     pub folder: bool,
 }
 
-/// 按源文件保留二进制和未知数据块，只有跨文件移植才追加目标二进制。
+/// 按源文件保留二进制和未知数据块，几何写入为受影响的访问器追加数据。
 pub struct GlbStructure {
     json: Value,
     chunks: Vec<Chunk>,

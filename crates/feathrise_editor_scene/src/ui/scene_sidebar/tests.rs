@@ -597,5 +597,5 @@ fn cursor_and_other_tool_status_do_not_rewrite_sidebar_text() {
     app.world_mut().resource_mut::<SceneEditorSidebarState>().navigator = EditorNavigatorTab::Scenes;
     app.update();
     assert_eq!(field(&mut app, SidebarField::SelectedName), entity);
-    assert_eq!(text(&mut app, SidebarField::SelectedName), "根目录");
+    assert_eq!(text(&mut app, SidebarField::SelectedName), "根文件夹");
 }

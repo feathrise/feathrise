@@ -51,7 +51,7 @@ pub(super) fn advance_management(
         && (pending.terrain_revision != session.terrain_revision
             || pending.derived_pose_revision != session.placement_derived_pose_revision)
     {
-        return Err("对象世界姿态已变化，本次选组已取消，原选择已保留".into());
+        return Err("对象世界姿态已变化，已取消选择文件夹成员".into());
     }
     let total = match &pending.targets {
         ObjectTargets::Indices(indices) => indices.len(),
@@ -69,6 +69,9 @@ pub(super) fn advance_management(
             .get(index)
             .ok_or("管理对象下标已经失效")?;
         pending.cursor += 1;
+        if pending.action == ObjectAction::RenameFolder && record.editor.group == pending.name {
+            return Err("已存在同名文件夹".into());
+        }
         if matches!(&pending.targets, ObjectTargets::Group(group) if record.editor.group != *group)
         {
             continue;
@@ -84,7 +87,7 @@ pub(super) fn advance_management(
                 // 目录选组与视口框选共用世界原点；失效独立源不再提供可变换的选择资格。
                 let Ok(position) = crate::authoring::placement_pose::placement_record_world_position(draft, record) else { continue; };
                 if pending.selected.len() == feathrise_scene_content::MAX_COURTYARD_MEMBERS_PER_PRESET {
-                    return Err("组内可选对象超过256项；请分批选择，原选择已保留".into());
+                    return Err("文件夹内可选对象超过 256 项，请分批选择".into());
                 }
                 pending.selected.push(SelectedMember {
                     id: record.id.clone(),
@@ -95,7 +98,7 @@ pub(super) fn advance_management(
             continue;
         }
         if pending.action == ObjectAction::ToggleParticipation && record.editor.locked {
-            return Err("请先解锁选定对象或组内对象，再修改参与状态".into());
+            return Err("请先解锁选定对象或文件夹内的对象，再修改参与状态".into());
         }
         if !pending.flag_set {
             pending.flag = !current_flag(pending.action, record);
@@ -104,6 +107,7 @@ pub(super) fn advance_management(
         let mut next = record.editor.as_ref().clone();
         match pending.action {
             ObjectAction::Rename => next.name = pending.name.clone(),
+            ObjectAction::RenameFolder => next.group = pending.name.clone(),
             ObjectAction::AssignGroup => next.group = pending.group.clone(),
             ObjectAction::Ungroup => next.group.clear(),
             ObjectAction::ToggleParticipation => placement_participation::set_participation(&mut next, pending.flag)?,
@@ -157,14 +161,29 @@ pub(super) fn adopt_management(
         return Err("场景对象尚未收集完成，未应用任何管理数据".into());
     }
     let count = pending.changes.len();
+    let folder = match &pending.targets {
+        ObjectTargets::Group(before) if pending.action == ObjectAction::RenameFolder => {
+            let explicit = draft.object_folders.contains(before);
+            if count == 0 && !explicit { return Err("文件夹已不存在".into()); }
+            Some(crate::authoring::SceneObjectFolderRename {
+                explicit, before: before.clone(), after: pending.name.clone(),
+            })
+        }
+        _ => None,
+    };
     let mut retired = Vec::new();
-    if count != 0 {
+    if count != 0 || folder.is_some() {
+        if let Some(rename) = &folder {
+            rename.apply(&mut session.draft.as_mut().unwrap().object_folders, false)?;
+        }
         // 下标及原字段按帧捕获，完整作者与结构身份接续到发布点。这里只转移候选表和历史所有权。
         retired = std::mem::take(&mut session.redo); // 旧redo深内容交由唯一后台槽回收。
         let change = crate::authoring::SceneObjectBatchChange {
             heap_bytes: pending.heap_bytes
+                + folder.as_ref().map_or(0, |rename| rename.before.capacity() + rename.after.capacity())
                 + pending.changes.capacity() * std::mem::size_of::<SceneObjectChange>(),
             changes: std::mem::take(&mut pending.changes),
+            folder,
         };
         session.push_bounded_history_retiring(EditorCommand::SceneObjectsChanged(Box::new(change)), &mut retired);
         session.mark_scene_objects_changed(editor);
@@ -205,9 +224,8 @@ pub(super) fn style_buttons(
     let target = browser.selected_placement_id.is_some()
         || browser.selected_group.is_some()
         || (selection.ready_for(&session) && selection.members.len() > 1);
-    let single = browser.selected_placement_id.is_some()
-        && browser.selected_group.is_none()
-        && selection.members.len() <= 1;
+    let single = browser.selected_group.is_some()
+        || (browser.selected_placement_id.is_some() && selection.members.len() <= 1);
     for (entity, button, field, interaction, mut background, mut border, disabled) in &mut controls {
         let enabled = ready
             && match (button, field) {
@@ -320,7 +338,7 @@ pub(super) fn handle_objects(
                 }
                 Ok(true) if pending.action == ObjectAction::SelectGroup => {
                     if pending.selected.is_empty() {
-                        editor.status = "此组没有可选择的场景对象，建筑请使用单栋或院落工具".into();
+                        editor.status = "此文件夹没有可选择的场景对象，建筑请使用单栋或院落工具".into();
                     } else {
                         selection.publish(pending.selected, &session);
                         candidates.freeze_selection();
@@ -329,7 +347,7 @@ pub(super) fn handle_objects(
                             &mut browser,
                             &mut candidates,
                         );
-                        editor.status = format!("已选择{}个组内场景对象", selection.members.len());
+                        editor.status = format!("已选择文件夹中的{}个场景对象", selection.members.len());
                     }
                 }
                 Ok(true) => {
@@ -349,7 +367,12 @@ pub(super) fn handle_objects(
                             if !retired.is_empty() {
                                 retire(&mut state, retired);
                             }
-                            editor.status = if count == 0 {
+                            editor.status = if pending.action == ObjectAction::RenameFolder {
+                                if let ObjectTargets::Group(before) = &pending.targets {
+                                    browser.rename_folder_branch(before, &pending.name);
+                                }
+                                format!("文件夹已改名为{}", pending.name)
+                            } else if count == 0 {
                                 "对象管理值未变化".into()
                             } else {
                                 format!("已更新{count}个场景对象，可一次撤销")
@@ -397,7 +420,7 @@ pub(super) fn handle_objects(
     });
     if state.bound != current {
         state.bound = current;
-        state.name.clear();
+        state.name = browser.selected_group.clone().unwrap_or_default();
         state.group = browser.selected_group.clone().unwrap_or_default();
         if let Some(draft) = session.draft.as_ref()
             && let Some(id) = browser.selected_placement_id.as_deref()
@@ -434,7 +457,7 @@ pub(super) fn handle_objects(
         }
     }
     let context = if let Some(group) = &browser.selected_group {
-        format!("当前组：{group}")
+        format!("当前文件夹 · {group}")
     } else if selection.members.len() > 1 {
         format!("管理选集：{}个对象", selection.members.len())
     } else if let Some(id) = &browser.selected_placement_id {
@@ -457,7 +480,7 @@ pub(super) fn handle_objects(
             }
         )
     } else {
-        "选择对象或目录后进行管理".into()
+        "选择对象或文件夹后进行管理".into()
     };
     for mut text in &mut summaries {
         if text.0 != context {
@@ -495,7 +518,7 @@ pub(super) fn handle_objects(
         };
         Some((action, Some(targets)))
     });
-    let Some((action, direct_targets)) = direct.or_else(|| buttons.0.iter().find_map(|(interaction, button)| {
+    let Some((mut action, direct_targets)) = direct.or_else(|| buttons.0.iter().find_map(|(interaction, button)| {
         interaction.is_clicked().then_some((button.0, None))
     })) else {
         return;
@@ -508,7 +531,7 @@ pub(super) fn handle_objects(
         .iter()
         .any(|(entity, _, input)| focus.get() == Some(entity) && input.is_composing())
     {
-        editor.status = "请先确认对象名称或组名的输入法候选".into();
+        editor.status = "请先确认名称的输入法候选".into();
         return;
     }
     focus.clear();
@@ -524,8 +547,17 @@ pub(super) fn handle_objects(
         targets
     } else if let Some(group) = &browser.selected_group {
         if action == ObjectAction::Rename {
-            editor.status = "请选择单个对象后修改名称；组名使用应用组名".into();
-            return;
+            let name = state.name.trim();
+            if name == group { return; }
+            if let Err(error) = crate::authoring::placement_folders::validate_name(name) {
+                editor.status = error.into();
+                return;
+            }
+            if draft.object_folders.contains(name) {
+                editor.status = "已存在同名文件夹".into();
+                return;
+            }
+            action = ObjectAction::RenameFolder;
         }
         ObjectTargets::Group(group.clone())
     } else if selection.ready_for(&session) && selection.members.len() > 1 {
@@ -541,7 +573,7 @@ pub(super) fn handle_objects(
     {
         ObjectTargets::Indices(vec![index])
     } else {
-        editor.status = "请先选择要管理的对象或目录".into();
+        editor.status = "请先选择要管理的对象或文件夹".into();
         return;
     };
     let targets = if action == ObjectAction::SelectGroup {
@@ -552,7 +584,7 @@ pub(super) fn handle_objects(
             }
         };
         if group.is_empty() {
-            editor.status = "当前对象尚未归组".into();
+            editor.status = "当前对象尚未放入文件夹".into();
             return;
         }
         ObjectTargets::Group(group)

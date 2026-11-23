@@ -23,7 +23,7 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum ApplyPart {
+pub(in crate::ui) enum ApplyPart {
     #[default]
     Position,
     Rotation,
@@ -32,7 +32,7 @@ enum ApplyPart {
 }
 
 impl ApplyPart {
-    const fn label(self) -> &'static str {
+    pub(in crate::ui) const fn label(self) -> &'static str {
         match self {
             Self::Position => "位置",
             Self::Rotation => "旋转",
@@ -132,10 +132,10 @@ fn current_record<'a>(
         .then_some((draft, record))
 }
 
-fn button(label: &str, part: Option<ApplyPart>) -> impl Scene {
+fn button(label: &str, marker: impl Component + Clone + Unpin) -> impl Scene {
     bsn! {
         InteractionButton
-        ApplyMenuButton(part)
+        ~{marker}
         Node {
             width: percent(100), height: px(26), min_width: px(0), flex_shrink: 0.0,
             border: px(1), border_radius: BorderRadius::all(px(3)),
@@ -155,17 +155,24 @@ fn button(label: &str, part: Option<ApplyPart>) -> impl Scene {
 }
 
 pub(super) fn apply_menu() -> impl Scene {
+    transform_apply_menu(ApplyMenuButton, ApplyMenuItems)
+}
+
+pub(in crate::ui) fn transform_apply_menu<T: Component + Clone + Unpin>(
+    marker: impl Fn(Option<ApplyPart>) -> T,
+    items: impl Component + Clone + Unpin,
+) -> impl Scene {
     bsn! {
         Node { width: percent(100), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
         Children [
-            @button("应用", None)--
-            ApplyMenuItems
+            @button("应用", marker(None))--
+            ~{items}
             Node { display: Display::None, width: percent(100), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
             Children [
-                @button(ApplyPart::Position.label(), Some(ApplyPart::Position))--
-                @button(ApplyPart::Rotation.label(), Some(ApplyPart::Rotation))--
-                @button(ApplyPart::Scale.label(), Some(ApplyPart::Scale))--
-                @button(ApplyPart::All.label(), Some(ApplyPart::All))
+                @button(ApplyPart::Position.label(), marker(Some(ApplyPart::Position)))--
+                @button(ApplyPart::Rotation.label(), marker(Some(ApplyPart::Rotation)))--
+                @button(ApplyPart::Scale.label(), marker(Some(ApplyPart::Scale)))--
+                @button(ApplyPart::All.label(), marker(Some(ApplyPart::All)))
             ]
         ]
     }

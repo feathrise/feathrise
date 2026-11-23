@@ -175,6 +175,36 @@ fn apply_management(request: &mut PendingManagement, session: &mut EditorAuthori
 }
 
 #[test]
+fn folder_rename_preserves_members_and_empty_folders_in_one_history() {
+    for count in [0, 2] {
+        let mut session = session(count, "旧文件夹");
+        let draft = session.draft.as_mut().unwrap();
+        Arc::make_mut(&mut draft.object_folders).insert("旧文件夹".into());
+        let mut editor = SceneEditorState { open: true, selected_scene_id: Some(draft.scene_id.clone()), ..default() };
+        let mut request = pending(&session, ObjectAction::RenameFolder, ObjectTargets::Group("旧文件夹".into()));
+        request.name = "新文件夹".into();
+        assert!(advance_management(&mut request, &session).unwrap());
+        apply_management(&mut request, &mut session, &mut editor);
+        assert_eq!(session.undo.len(), 1);
+        let assert_folder = |session: &EditorAuthoringSession, name: &str| {
+            let draft = session.draft.as_ref().unwrap();
+            assert_eq!(draft.object_folders.iter().map(String::as_str).collect::<Vec<_>>(), [name]);
+            assert!(draft.placements.placements.iter().all(|record| record.editor.group == name));
+        };
+        assert_folder(&session, "新文件夹");
+        let mut state = SceneObjectState::default();
+        let browser = EditorGltfBrowserState::default();
+        for (undoing, name) in [(true, "旧文件夹"), (false, "新文件夹")] {
+            editor.undo_requested = undoing;
+            editor.redo_requested = !undoing;
+            state.apply_metadata_history(&mut session, &mut editor, undoing);
+            while state.managing() { state.write_metadata(&mut session, &browser, None); }
+            assert_folder(&session, name);
+        }
+    }
+}
+
+#[test]
 fn group_capture_is_bounded_and_adopts_one_complete_history() {
     let mut session = session(300, "旧组");
     let mut editor = SceneEditorState::default();

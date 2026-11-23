@@ -125,7 +125,8 @@ pub(crate) fn sync_scene_inspector(
     let source_node_selected = crate::ui::scene_source_glb::owns_selection(&browser);
     for (kind, mut node) in &mut sections {
         let visible = draft.is_some() && (section == Some(*kind)
-            || (matches!(kind, InspectorSection::ObjectManagement | InspectorSection::ObjectName) && record.is_some()))
+            || (matches!(kind, InspectorSection::ObjectManagement | InspectorSection::ObjectName)
+                && (record.is_some() || browser.selected_group.is_some())))
             && !(source_node_selected && matches!(kind, InspectorSection::ObjectManagement | InspectorSection::ObjectName));
         let display = if visible { Display::Flex } else { Display::None };
         if node.display != display { node.display = display; }
@@ -153,8 +154,8 @@ pub(crate) fn sync_scene_inspector(
         )
     } else if let Some(draft) = draft {
         if management {
-            (browser.selected_group.as_ref().map_or_else(|| format!("已选择 {multi_count} 个对象"), |group| format!("对象组 · {group}")),
-                "批量属性".to_owned(), "分组、显隐和锁定作用于当前选集；单个对象参数已收起。".to_owned())
+            (browser.selected_group.as_ref().map_or_else(|| format!("已选择 {multi_count} 个对象"), |group| format!("文件夹 · {group}")),
+                "批量属性".to_owned(), "文件夹归类、显隐和锁定作用于当前选集。".to_owned())
         } else if target.is_some_and(|target| !matches!(target, LayerTarget::Placement(_))) {
             let (label, id) = match target.unwrap() {
                 LayerTarget::TerrainObject(id) => ("网格", id), LayerTarget::Subscene(id) => ("子场景", id),

@@ -40,14 +40,14 @@ fn confirm_folder_dialog(
     match dialog.mode {
         SceneFolderDialogMode::Create => {
             if document.folders.len() >= SCENE_FOLDER_MAX_FOLDERS {
-                return Err(format!("虚拟文件夹已达到{SCENE_FOLDER_MAX_FOLDERS}项上限"));
+                return Err(format!("文件夹已达到{SCENE_FOLDER_MAX_FOLDERS}项上限"));
             }
             let parent_id = dialog.target_folder_id.clone(); // 模态打开时已经冻结目录、场景父级或根上下文。
             if parent_id
                 .as_deref()
                 .is_some_and(|folder_id| folder_by_id(&document, folder_id).is_none())
             {
-                return Err("新建文件夹的父目录已不存在".to_owned()); // 热更新错帧不能把目标静默改到根目录。
+                return Err("新建文件夹的父文件夹已不存在".to_owned()); // 热更新错帧不能把目标静默改到根目录。
             }
             let name = normalize_folder_name(&dialog.name)?; // 修剪空白并拒绝路径和保留名称。
             if sibling_name_exists(&document, parent_id.as_deref(), &name, None) {

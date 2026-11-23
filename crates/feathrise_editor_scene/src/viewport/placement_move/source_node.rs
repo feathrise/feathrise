@@ -95,11 +95,17 @@ impl SourceNodeWorld<'_, '_> {
             return None;
         }
         let SceneObjectKey::Placement {
-            mesh: Some(mesh), ..
+            index, mesh: Some(mesh), ..
         } = &source.key
         else {
             return None;
         };
+        let draft = session.draft.as_ref()?;
+        let path = &draft.placements.placements.get(*index)?.asset_path;
+        let node_index = mesh.node_index?;
+        if draft.source_glb_edits.version(path).is_some_and(|version| version.geometry_waits_for_save(node_index)) {
+            return None; // 保存采用前，手柄不能用归零后的姿态拖动旧几何。
+        }
         let primitive = self
             .selected
             .as_ref()?

@@ -32,7 +32,7 @@ fn menu() -> impl Scene {
                 @super::super::scene::action("编辑", EditorAction::SceneFolderRename)--
                 @super::super::scene::action("删除", EditorAction::DeleteScene)--
                 @super::super::scene::action("新场景", EditorAction::NewScene)--
-                @super::super::scene::action("新目录", EditorAction::SceneFolderCreate)
+                @super::super::scene::action("新建文件夹", EditorAction::SceneFolderCreate)
             ]
         ]
     }

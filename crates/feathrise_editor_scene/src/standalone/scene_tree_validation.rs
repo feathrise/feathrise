@@ -3,15 +3,16 @@
 use super::{open_scene_tree, ui_visible};
 use crate::{
     authoring::{EditorAuthoringSession, EditorCommand},
-    components::SceneEditorRightPanelScroll,
+    components::{SceneBrowserDragPreview, SceneBrowserDragPreviewText, SceneEditorRightPanelScroll},
     resources::{SceneEditorState, SceneEditorViewportState},
     ui::{
         external_files::platform_path,
         file_manager::{FileManagerState, FileRow},
-        file_manager_validation::{pointer_click, right_click},
+        file_manager_validation::{mouse, move_cursor, pointer_click, right_click},
         gltf_browser::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeExpander, SceneMeshObjectsHeading},
         scene_context_menu::{SceneMenuAction, SceneObjectKey, SceneObjectRow, press_action_for_validation},
-        scene_source_glb::source_position_field_for_validation,
+        scene_objects,
+        scene_source_glb::{source_name_input_for_validation, source_position_field_for_validation},
     },
     viewport::modes::{self, ViewportMode, ViewportModeState},
 };
@@ -37,6 +38,10 @@ const SOURCE_SPACES: [&str; 3] = ["源 GLB", "当前场景", "世界"];
 const SOURCE_X_VALUES: [f32; 3] = [1.75, 6.75, 6.75];
 const WORLD_X_EDIT: f32 = 7.5;
 const COORDINATE_SCREENSHOT: &str = "scene-tree-glb-coordinates.png";
+const CUBE_PROPERTIES_SCREENSHOT: &str = "scene-tree-cube-properties.png";
+const DRAG_PREVIEW_SCREENSHOT: &str = "scene-tree-drag-preview.png";
+const RENAMED_NODE: &str = "验收网格";
+const RENAMED_FOLDER: &str = "验收文件夹";
 
 #[derive(Resource)]
 struct StartupScreenshot(Task<Result<(), String>>);
@@ -48,6 +53,8 @@ pub(super) enum Step {
     StartupTreeReady,
     StartupScreenshot,
     SelectCube,
+    CubeProperties,
+    CubePropertiesScreenshot,
     Move,
     SelectRoot { press: u8, frame: u8, before: [u32; 4] },
     RootFocused([u32; 4]),
@@ -58,8 +65,18 @@ pub(super) enum Step {
     VerifySourceSpace(usize),
     SourceSpaceScreenshot,
     SourceSpaceEdited,
+    OpenMeshApply(u8),
+    ApplyMeshScale(u8),
+    MeshScaleApplied,
+    RenameMesh(u8),
+    MeshRenamed,
+    DragPreview(u8),
+    DragScreenshot,
+    DragFinished,
     GroupName { press: u8, frame: u8, before: [u32; 4] },
     GroupFocused { frame: u8, before: [u32; 4] },
+    RenameFolder(u8),
+    FolderRenamed,
     RestoreMesh,
     OpenMenu(u8),
     ChooseLocate,
@@ -116,8 +133,8 @@ pub(super) fn advance(
     pulse: &mut Option<Entity>,
 ) -> Result<Option<Value>, String> {
     let session = world.resource::<EditorAuthoringSession>();
-    if session.revision != *revision && *step != Step::SourceSpaceEdited {
-        return Err("切换视口工具和树行选择不应修改场景修订".into());
+    if session.revision != *revision && !matches!(step, Step::SourceSpaceEdited | Step::MeshScaleApplied | Step::MeshRenamed | Step::FolderRenamed) {
+        return Err(format!("切换视口工具和树行选择不应修改场景修订：{step:?}，{} → {}", *revision, session.revision));
     }
     let selected = world.resource::<EditorGltfBrowserState>().selected_placement_id.as_deref();
     let mode = world.resource::<ViewportModeState>().mode;
@@ -157,6 +174,19 @@ pub(super) fn advance(
         Step::SelectCube => {
             if let Some(row) = click_row(world, cube, false) {
                 *pulse = Some(row);
+                *step = if startup_enabled() { Step::CubeProperties } else { Step::Move };
+            }
+        }
+        Step::CubeProperties if selected == Some(cube) => {
+            if source_space_button(world, "应用").is_some() {
+                request_screenshot(world, CUBE_PROPERTIES_SCREENSHOT)?;
+                *step = Step::CubePropertiesScreenshot;
+            }
+        }
+        Step::CubePropertiesScreenshot => {
+            if let Some(result) = world.get_resource_mut::<StartupScreenshot>().and_then(|mut capture| check_ready(&mut capture.0)) {
+                result?;
+                world.remove_resource::<StartupScreenshot>();
                 *step = Step::Move;
             }
         }
@@ -265,8 +295,76 @@ pub(super) fn advance(
                     return Err("一次世界 X 提交应形成一笔源 GLB 编辑".into());
                 }
                 *revision = session.revision;
-                *step = Step::GroupName { press: 0, frame: 0, before: camera_pose(world) };
+                *step = Step::OpenMeshApply(0);
             }
+        }
+        Step::OpenMeshApply(frame) => {
+            if let Some(button) = source_space_button(world, "应用") {
+                *step = click_control(world, button, frame)?.map_or(Step::ApplyMeshScale(0), Step::OpenMeshApply);
+            }
+        }
+        Step::ApplyMeshScale(frame) => {
+            if let Some(button) = source_space_button(world, "缩放") {
+                // 原点击在松手后的更新立即收起菜单，从释放请求起就等待业务回执。
+                *step = click_control(world, button, frame)?.filter(|frame| *frame < 3)
+                    .map_or(Step::MeshScaleApplied, Step::ApplyMeshScale);
+            }
+        }
+        Step::MeshScaleApplied | Step::MeshRenamed if session.revision != *revision => {
+            if session.revision != revision.wrapping_add(1)
+                || !matches!(session.undo.last(), Some(EditorCommand::SourceGlbsChanged { .. }))
+            { return Err("应用和改名各应形成一笔源 GLB 编辑".into()); }
+            *revision = session.revision;
+            *step = if *step == Step::MeshScaleApplied { Step::RenameMesh(0) } else { Step::DragPreview(0) };
+        }
+        Step::RenameMesh(frame) => {
+            if let Some(input) = source_name_input_for_validation(world)
+                && press_rename(world, input, RENAMED_NODE, frame)?
+            {
+                *step = if frame == 2 { Step::MeshRenamed } else { Step::RenameMesh(frame + 1) };
+            }
+        }
+        Step::DragPreview(frame) => {
+            let Some(source) = scene_row(world, MODEL, false) else { return Ok(None); };
+            let Some(target) = group_row(world) else { return Ok(None); };
+            let point = if frame < 2 { source } else { target };
+            let (window, position) = pointer_context(world, point)?;
+            if frame < 3 {
+                move_cursor(world, window, position);
+                if frame == 1 { mouse(world, window, bevy::input::ButtonState::Pressed); }
+                *step = Step::DragPreview(frame + 1);
+            } else {
+                let (fill, edge) = crate::ui::scene_sidebar::tree_row_colors(false, true, feathrise_editor_ui::UiInteraction::None);
+                if world.get::<BackgroundColor>(target) != Some(&BackgroundColor(fill))
+                    || world.get::<BorderColor>(target) != Some(&edge)
+                    || world.get::<Node>(target).map(|node| node.border) != Some(UiRect::all(px(1)))
+                    || !drag_preview_visible(world)
+                    || !world.query_filtered::<&Text, With<SceneBrowserDragPreviewText>>().iter(world)
+                        .any(|text| text.0.contains(MODEL))
+                {
+                    return Err("场景树拖动未显示名称浮层或有效文件夹落点".into());
+                }
+                request_screenshot(world, DRAG_PREVIEW_SCREENSHOT)?;
+                *step = Step::DragScreenshot;
+            }
+        }
+        Step::DragScreenshot => {
+            if let Some(result) = world.get_resource_mut::<StartupScreenshot>().and_then(|mut task| check_ready(&mut task.0)) {
+                result?;
+                world.remove_resource::<StartupScreenshot>();
+                let source = scene_row(world, MODEL, false).ok_or("拖动源已丢失")?;
+                let (window, position) = pointer_context(world, source)?;
+                // 在源行释放，验证无效落点撤回浮层且不产生摆放修改。
+                move_cursor(world, window, position);
+                mouse(world, window, bevy::input::ButtonState::Released);
+                *step = Step::DragFinished;
+            }
+        }
+        Step::DragFinished => {
+            if drag_preview_visible(world) {
+                return Err("松手后拖动浮层应当收起".into());
+            }
+            *step = Step::GroupName { press: 0, frame: 0, before: camera_pose(world) };
         }
         Step::GroupName { press, frame, before } => {
             if !branch_collapsed(world, GROUP)? || branch_collapsed(world, MODEL)? {
@@ -295,16 +393,32 @@ pub(super) fn advance(
                 }
                 if let Some(row) = group_row(world) {
                     let arrow = row_arrow(world, row)?;
+                    let next = if startup_enabled() { Step::RenameFolder(0) } else { Step::RestoreMesh };
                     *step = click_control(world, arrow, frame)?
-                        .map_or(Step::RestoreMesh, |frame| Step::GroupFocused { frame, before });
+                        .map_or(next, |frame| Step::GroupFocused { frame, before });
                 }
             }
         }
+        Step::RenameFolder(frame) => {
+            if let Some(input) = scene_objects::name_input_for_validation(world)
+                && press_rename(world, input, RENAMED_FOLDER, frame)?
+            {
+                *step = if frame == 2 { Step::FolderRenamed } else { Step::RenameFolder(frame + 1) };
+            }
+        }
+        Step::FolderRenamed if session.revision != *revision => {
+            if session.revision != revision.wrapping_add(1)
+                || !matches!(session.undo.last(), Some(EditorCommand::SceneObjectsChanged(_)))
+            { return Err("文件夹改名应形成一笔场景对象历史".into()); }
+            *revision = session.revision;
+            *step = Step::RestoreMesh;
+        }
         Step::RestoreMesh => {
-            if world.resource::<EditorGltfBrowserState>().selected_group.as_deref() != Some(GROUP) {
+            let folder = if startup_enabled() { RENAMED_FOLDER } else { GROUP };
+            if world.resource::<EditorGltfBrowserState>().selected_group.as_deref() != Some(folder) {
                 return Err("点击组箭头改变了选中的组".into());
             }
-            if !branch_collapsed(world, GROUP)? && let Some(row) = click_row(world, MODEL, true) {
+            if branch_collapsed(world, folder) == Ok(false) && let Some(row) = click_row(world, MODEL, true) {
                 *pulse = Some(row);
                 *step = Step::OpenMenu(0);
             }
@@ -333,7 +447,8 @@ pub(super) fn advance(
                 return Err("定位 GLB 改变了场景选择或移动工具".into());
             }
             if file_window_shows_source(world)? {
-                if branch_collapsed(world, GROUP)? || branch_collapsed(world, MODEL)? {
+                let folder = if startup_enabled() { RENAMED_FOLDER } else { GROUP };
+                if branch_collapsed(world, folder)? || branch_collapsed(world, MODEL)? {
                     return Err("切回网格和定位 GLB 文件应保留展开的分支".into());
                 }
                 return Ok(Some(json!({
@@ -363,6 +478,10 @@ pub(super) fn advance(
                             "edited_world_x": WORLD_X_EDIT,
                             "screenshot": COORDINATE_SCREENSHOT,
                         },
+                        "cube_properties_screenshot": CUBE_PROPERTIES_SCREENSHOT,
+                        "source_name": RENAMED_NODE,
+                        "folder_name": RENAMED_FOLDER,
+                        "drag_preview_screenshot": DRAG_PREVIEW_SCREENSHOT,
                     })),
                 })));
             }
@@ -456,12 +575,35 @@ fn row_arrow(world: &World, row: Entity) -> Result<Entity, String> {
 }
 
 fn click_control(world: &mut World, entity: Entity, frame: u8) -> Result<Option<u8>, String> {
-    let position = world.get::<UiGlobalTransform>(entity).ok_or("树控件尚未布局")?.translation.as_dvec2();
-    let window = world.query_filtered::<Entity, With<PrimaryWindow>>().single(world)
-        .map_err(|_| "没有场景树验收窗口")?;
+    let (window, position) = pointer_context(world, entity)?;
     let mut pending = Some((position, frame));
     pointer_click(world, &mut pending, window, position, MouseButton::Left);
     Ok(pending.map(|(_, next)| next))
+}
+
+fn press_rename(world: &mut World, input: Entity, name: &str, frame: u8) -> Result<bool, String> {
+    let Some(button) = source_space_button(world, "确认名称") else { return Ok(false); };
+    if frame == 0 {
+        // 设置实际字段值并点击原按钮，名字事务与落盘仍由生产系统执行。
+        world.resource_mut::<bevy::input_focus::InputFocus>()
+            .set(input, bevy::input_focus::FocusCause::Navigated);
+        let mut text = world.get_mut::<bevy::text::EditableText>(input).ok_or("缺少名称输入")?;
+        crate::ui::text_input::replace_single_line_value(&mut text, name, 128);
+    }
+    click_control(world, button, frame)?;
+    Ok(true)
+}
+
+fn pointer_context(world: &mut World, entity: Entity) -> Result<(Entity, bevy::math::DVec2), String> {
+    let position = world.get::<UiGlobalTransform>(entity).ok_or("树控件尚未布局")?.translation.as_dvec2();
+    let window = world.query_filtered::<Entity, With<PrimaryWindow>>().single(world)
+        .map_err(|_| "没有场景树验收窗口")?;
+    Ok((window, position))
+}
+
+fn drag_preview_visible(world: &mut World) -> bool {
+    world.query_filtered::<&Node, With<SceneBrowserDragPreview>>().iter(world)
+        .any(|node| node.display == Display::Flex)
 }
 
 fn camera_pose(world: &World) -> [u32; 4] {

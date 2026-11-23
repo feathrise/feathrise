@@ -34,7 +34,7 @@ pub(crate) fn scene_folder_dialog() -> impl Scene {
             BorderColor::all(colors::COPPER_BORDER_WEAK)
             Children [
 
-                    SceneFolderDialogTitle Text("虚拟场景文件夹") @feathrise_editor_ui::localization::label_scene("虚拟场景文件夹")
+                    SceneFolderDialogTitle Text("场景文件夹") @feathrise_editor_ui::localization::label_scene("场景文件夹")
                     TextLayout::linebreak(bevy::text::LineBreak::AnyCharacter)
                     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(13) }
                     TextColor(colors::TEXT_ACCENT)

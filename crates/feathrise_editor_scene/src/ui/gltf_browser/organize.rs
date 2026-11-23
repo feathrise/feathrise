@@ -16,7 +16,6 @@ use crate::{
         },
         scene_objects::{SceneObjectState, create_folder, queue_group_drop},
         scene_source_glb::SourceGlbRequest,
-        theme as colors,
     },
 };
 use bevy::{
@@ -30,6 +29,7 @@ use feathrise_editor_ui::UiInteraction;
 
 struct Press {
     source: SceneObjectTarget,
+    label: String,
     entries_revision: u64,
     origin: Vec2,
 }
@@ -39,12 +39,22 @@ pub(crate) struct PlacementTreeDrag {
     press: Option<Press>,
     active: bool,
     hovered: Option<Entity>,
+    rejected: bool,
     dropped: Option<(SceneObjectTarget, SceneObjectTarget)>,
 }
 
 impl PlacementTreeDrag {
     pub(crate) fn owns_mouse(&self) -> bool {
         self.active
+    }
+
+    pub(crate) fn highlights(&self, row: Entity) -> bool {
+        self.hovered == Some(row)
+    }
+
+    pub(crate) fn preview(&self) -> Option<(&str, bool)> {
+        let press = self.press.as_ref().filter(|_| self.active)?;
+        Some((&press.label, self.rejected))
     }
 }
 
@@ -65,7 +75,7 @@ pub(crate) fn install(app: &mut App) {
         )
         .add_systems(
             Update,
-            (bind_root_menu, highlight_drop)
+            (bind_root_menu, highlight_root_drop)
                 .after(super::sync_gltf_browser_rows)
                 .in_set(SceneEditorSystemSet::Presentation),
         );
@@ -231,6 +241,7 @@ fn capture(
     mut drag: ResMut<PlacementTreeDrag>,
 ) {
     drag.hovered = None;
+    drag.rejected = false;
     if drag.press.is_none() {
         drag.active = false;
     }
@@ -276,19 +287,22 @@ fn capture(
             // 仅命中源行图标与名称区域，避开同一行的展开箭头和三个快捷按钮。
             caption_at(origin, &captions, &cameras)
                 .and_then(|entity| rows.get(entity).ok())
-                .and_then(target_for)
-                .map(|target| (origin, target))
+                .and_then(|row| target_for(row).map(|target| (origin, row.0, target)))
         } else {
             hovered()
                 .find(|(_, target)| editable_source(target, &context.session))
-                .map(|(_, target)| (position, target))
+                .map(|(entity, target)| (position, entity, target))
         };
-        if let Some((origin, source)) =
-            source.filter(|(_, target)| editable_source(target, &context.session))
+        if let Some((origin, row, source)) =
+            source.filter(|(_, _, target)| editable_source(target, &context.session))
         {
+            let label = rows.get(row).ok().and_then(|row| row.5?.entry_index)
+                .and_then(|index| browser.entries.get(index))
+                .map_or_else(|| source.name.clone(), |entry| entry.display_name.clone());
             // 冻结作者身份，后续滚动行池可以换绑，但不能换掉拖动的对象。
             drag.press = Some(Press {
                 source: source.clone(),
+                label,
                 origin,
                 entries_revision: browser.published_entries_revision,
             });
@@ -309,14 +323,17 @@ fn capture(
         {
             drag.active = true;
         }
-        let destination = drag
-            .active
-            .then(|| {
-                hovered().find(|(_, target)| {
-                    drop_allowed(&press.source, target, &browser, &context.session)
-                })
-            })
-            .flatten();
+        let mut destination = None;
+        if drag.active {
+            for (entity, target) in hovered() {
+                if drop_allowed(&press.source, target, &browser, &context.session) {
+                    destination = Some((entity, target));
+                    break;
+                }
+                drag.rejected = true;
+            }
+            drag.rejected &= destination.is_none();
+        }
         if mouse.just_released(MouseButton::Left) {
             drag.dropped = destination.map(|(_, target)| (press.source, target.clone()));
             return; // 保留 active 到本帧结束，随后公共鼠标门等待静默。
@@ -370,31 +387,23 @@ fn apply(
     }
 }
 
-fn highlight_drop(
+fn highlight_root_drop(
     drag: Res<PlacementTreeDrag>,
-    mut rows: Query<
-        &mut BackgroundColor,
-        (
-            With<SceneEditorGltfBrowserRow>,
-            Without<SceneMeshObjectsHeading>,
-        ),
-    >,
-    mut headings: Query<(Entity, &mut BackgroundColor), With<SceneMeshObjectsHeading>>,
+    mut headings: Query<(Entity, &mut Node, &mut BackgroundColor, &mut BorderColor), With<SceneMeshObjectsHeading>>,
 ) {
-    if let Some(target) = drag.hovered
-        && let Ok(mut fill) = rows.get_mut(target)
-    {
-        fill.0 = colors::SELECT_BG_HOVER;
-    }
-    for (entity, mut fill) in &mut headings {
-        let next = if drag.hovered == Some(entity) {
-            colors::SELECT_BG_HOVER
+    for (entity, mut node, mut background, mut border) in &mut headings {
+        let highlighted = drag.highlights(entity);
+        let (fill, outline) = crate::ui::scene_sidebar::tree_row_colors(false, highlighted, UiInteraction::None);
+        let width = if highlighted {
+            UiRect::all(px(1))
         } else {
-            colors::PANEL_BG
+            UiRect::bottom(px(1))
         };
-        if fill.0 != next {
-            fill.0 = next;
+        if node.border != width {
+            node.border = width;
         }
+        background.set_if_neq(BackgroundColor(fill));
+        border.set_if_neq(outline);
     }
 }
 

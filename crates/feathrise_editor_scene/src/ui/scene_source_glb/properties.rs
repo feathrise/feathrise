@@ -14,13 +14,14 @@ use crate::{
     resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState},
     ui::{
         context_help::section_header, gltf_browser::EditorGltfBrowserState,
-        placement_transform::PlacementTransformField as Field, scene::FONT_PATH,
+        placement_transform::{self, PlacementTransformField as Field, numeric_field_style,
+            property_button_visual, property_column}, scene::FONT_PATH,
         scene_context_menu::SceneObjectTarget, theme,
     },
 };
 use bevy::{prelude::*, text::FontSourceTemplate, ui::InteractionDisabled};
 use feathrise_editor_ui::{
-    ActiveNumericInput, ActiveNumericInputScrub, EditorButtonClick, InteractionButton,
+    ActiveNumericInput, ActiveNumericInputScrub, EditorButtonClick,
     NumericInputCommitOutcome, NumericInputCommitted, NumericInputDisabled, NumericInputSetValue,
     NumericInputValue, NumericScrubFieldOptions, NumericValue, UiInteraction, metrics,
     round_to_decimals,
@@ -206,6 +207,9 @@ struct NumericSlot(ValueField);
 #[derive(Component, Clone, Copy, Default)]
 struct ReadStatus;
 
+#[derive(Component, Clone, Copy, Default, PartialEq)]
+struct GeometrySummary(Option<feathrise_editor_animation_model::data::MeshGeometry>);
+
 fn mode_row(modes: impl IntoIterator<Item = Mode>) -> impl Scene {
     let buttons = modes.into_iter().map(mode_button).collect::<Vec<_>>();
     bsn! { Node { width: percent(100), flex_wrap: FlexWrap::Wrap, column_gap: px(3), row_gap: px(3), flex_shrink: 0.0 }
@@ -217,30 +221,8 @@ fn mode_button(mode: Mode) -> impl Scene {
 }
 
 pub(super) fn property_button(label: &'static str, marker: impl Component + Clone + Unpin) -> impl Scene {
-    bsn! {
-        InteractionButton InteractionDisabled ~{marker}
-        Node {
-            height: px(26), flex_grow: 1.0, flex_basis: px(0), min_width: px(metrics::FONT_CONTROL * 4.0 + 4.0),
-            flex_shrink: 0.0, border: px(1), border_radius: BorderRadius::all(px(3)),
-            align_items: AlignItems::Center, justify_content: JustifyContent::Center,
-        }
-        BackgroundColor(theme::BUTTON_DEV_SMALL_NORMAL)
-        BorderColor::all(theme::COPPER_BORDER_WEAK)
-        Children [
-            Text(label) @feathrise_editor_ui::localization::label_scene(label)
-            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(metrics::FONT_CONTROL) }
-            TextColor(theme::TEXT_PRIMARY) TextLayout::no_wrap()
-        ]
-    }
-}
-
-pub(super) fn button_color(interaction: UiInteraction, selected: bool) -> Color {
-    match (interaction, selected) {
-        (UiInteraction::Pressed, _) => theme::BUTTON_DEV_SMALL_PRESSED,
-        (UiInteraction::Hovered, _) => theme::BUTTON_DEV_SMALL_HOVERED,
-        (UiInteraction::None, true) => theme::SELECT_BG,
-        (UiInteraction::None, false) => theme::BUTTON_DEV_SMALL_NORMAL,
-    }
+    // 子网格的四列 LOD 在窄窗可折行，按钮保留四字标签及公共边距。
+    (placement_transform::property_button(label, marker, metrics::FONT_CONTROL * 4.0 + 10.0), bsn! { InteractionDisabled })
 }
 
 fn numeric_slot(field: Field) -> impl Scene {
@@ -257,7 +239,7 @@ pub(super) fn panel() -> impl Scene {
     ];
     let display_lod_modes = Lod::ALL.map(Mode::DisplayLod);
     let collision_lod_modes = Lod::ALL.map(Mode::CollisionLod);
-    bsn! { Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(3) }
+    bsn! { ~{property_column()}
         Children [
             ReadStatus Text("")
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(metrics::FONT_HINT) }
@@ -266,6 +248,11 @@ pub(super) fn panel() -> impl Scene {
             @section_header("高度与落点", "继承该 GLB 摆放的高度设置。跟随地形可以调整本节点的离地偏移，零米贴地。固定高度保留源节点姿态。")--
             @mode_row(height_modes)--
             @numeric_slot(Field::TranslationY)--
+            @section_header("几何", "当前源网格的顶点、三角面和局部尺寸。应用变换后会更新几何数据。")--
+            GeometrySummary::default() Text("暂无几何数据")
+                TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(metrics::FONT_CONTROL) }
+                TextColor(theme::TEXT_VALUE) TextLayout { linebreak: bevy::text::LineBreak::AnyCharacter }
+                Node { width: percent(100), min_width: px(0), flex_shrink: 0.0 }--
             @section_header("碰撞", "可只为当前节点启用或关闭碰撞。该设置与碰撞 LOD 分开保存。")--
             @mode_row(collision_modes)--
             @section_header("显示 LOD", "继承摆放沿用所属 GLB 实例的策略。继承全局直接使用全局设置，自定义精度仍受全局开关约束。")--
@@ -298,7 +285,7 @@ fn setup(
             NumericValue::F32(0.0),
             field.0.spec(None, false),
             field.0.scrub_config(&settings, None, false),
-        );
+        ).with_style(numeric_field_style(false));
         mount_numeric(&mut commands, slot, field, font.clone(), options);
     }
 }
@@ -317,10 +304,12 @@ fn sync(
         &UiInteraction,
         Has<InteractionDisabled>,
         &mut BackgroundColor,
+        &mut BorderColor,
         &mut EditorButtonClick,
     )>,
     mut slots: Query<(&NumericSlot, &mut Node), Without<ReadStatus>>,
     mut status: Query<(&mut Text, &mut Node), With<ReadStatus>>,
+    mut geometry: Query<(&mut Text, &mut GeometrySummary), Without<ReadStatus>>,
     fields: Query<(
         Entity,
         &ValueField,
@@ -333,7 +322,7 @@ fn sync(
     let enabled = properties.is_some()
         && !session.source_glb_busy
         && state.editable_target(&browser, &editor, &session).is_some();
-    for (entity, mode, hover, disabled, mut background, mut click) in &mut buttons {
+    for (entity, mode, hover, disabled, mut background, mut border, mut click) in &mut buttons {
         if state.selection_changed {
             click.invalidate(); // 固定面板重绑节点时，按在旧节点上的按钮不能在新节点上松手生效。
         }
@@ -346,7 +335,9 @@ fn sync(
         }
         let selected = properties.is_some_and(|properties| mode.selected(properties));
         let interaction = if enabled { *hover } else { UiInteraction::None };
-        background.set_if_neq(BackgroundColor(button_color(interaction, selected)));
+        let (next_background, next_border) = property_button_visual(interaction, selected);
+        background.set_if_neq(next_background);
+        border.set_if_neq(next_border);
     }
     for (slot, mut node) in &mut slots {
         let has_value = properties
@@ -392,6 +383,19 @@ fn sync(
     } else {
         state.read_error.as_deref().unwrap_or("正在读取源网格属性…")
     };
+    for (mut text, mut summary) in &mut geometry {
+        if !summary.set_if_neq(GeometrySummary(state.geometry)) {
+            continue; // 数据随后台快照换代，不在稳定帧重复格式化尺寸。
+        }
+        text.0 = state.geometry.map_or_else(|| "暂无几何数据".to_owned(), |mesh| {
+            let mut summary = format!("顶点 {} · 三角面 {}", mesh.vertices, mesh.triangles);
+            if let Some(size) = mesh.size {
+                use std::fmt::Write;
+                let _ = write!(summary, "\n尺寸  X {:.3} m  Y {:.3} m  Z {:.3} m", size.x, size.y, size.z);
+            }
+            summary
+        });
+    }
     for (mut text, mut node) in &mut status {
         if text.as_str() != notice {
             text.0 = notice.to_owned();

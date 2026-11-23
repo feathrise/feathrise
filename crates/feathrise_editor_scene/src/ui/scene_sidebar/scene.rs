@@ -28,7 +28,7 @@ fn field(field: SidebarField, initial: &str) -> impl Scene {
     let padding = if footer { UiRect::top(px(6)) } else { UiRect::ZERO };
     let feedback = match field {
         SidebarField::DirectoryFeedback | SidebarField::OperationFeedback | SidebarField::CurrentState => Some("场景目录"),
-        SidebarField::SelectedSummary => Some("场景目录选择"),
+        SidebarField::SelectedSummary => Some("场景列表选择"),
         _ => None,
     }.map(|label| bsn! { ~{crate::ui::status_bar::PanelStatusText(label)} });
     (bsn! {
@@ -73,7 +73,7 @@ fn root_directory_row() -> impl Scene {
         BackgroundColor(colors::PANEL_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
             ~{SceneEditorSceneRowGlyph::Root} ImageNode::default() Node { width: px(18), height: px(18), flex_shrink: 0.0 } Pickable::IGNORE--
-            Text("根目录") @feathrise_editor_ui::localization::label_scene("根目录") ~{FocusPolicy::Pass} TextLayout::no_wrap()
+            Text("根文件夹") @feathrise_editor_ui::localization::label_scene("根文件夹") ~{FocusPolicy::Pass} TextLayout::no_wrap()
             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_BODY) }
             TextColor(colors::TEXT_VALUE) Node { min_width: px(0), overflow: Overflow::clip_x() }
             Pickable::IGNORE
@@ -119,7 +119,7 @@ pub(crate) fn scene_page() -> impl Scene {
                     @field(SidebarField::CurrentName, "尚未进入场景")--
                     @field(SidebarField::CurrentState, "")--
                     @field(SidebarField::SelectedKind, "尚未选择")--
-                    @field(SidebarField::SelectedName, "选择只改变目录高亮，不切换当前场景")--
+                    @field(SidebarField::SelectedName, "请在列表中选择场景或文件夹")--
                     @field(SidebarField::SelectedIdentity, "")--
                     @field(SidebarField::SelectionHint, "")
                 ]

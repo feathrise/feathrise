@@ -21,6 +21,35 @@ fn fixture(json: &Value, binary: &[u8]) -> GlbStructure {
 }
 
 #[test]
+fn mesh_apply_preserves_world_geometry_children_and_shared_mesh_after_reopen() {
+    let positions = [0.0_f32,0.0,0.0, 1.0,0.0,0.0, 0.0,1.0,0.0];
+    let bytes = positions.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>();
+    let mut document = fixture(&json!({
+        "asset":{"version":"2.0"}, "scenes":[{"nodes":[0,1]}],
+        "nodes":[{"mesh":0,"children":[2],"translation":[4.0,5.0,6.0],"scale":[-2.0,3.0,4.0]},
+            {"mesh":0}, {"translation":[0.0,3.0,0.0]}],
+        "meshes":[{"primitives":[{"attributes":{"POSITION":0}}]}],
+        "buffers":[{"byteLength":36}], "bufferViews":[{"buffer":0,"byteLength":36}],
+        "accessors":[{"bufferView":0,"type":"VEC3","componentType":5126,"count":3,"min":[0,0,0],"max":[1,1,0]}]
+    }), &bytes);
+    let world = document.node_world_matrix(0).unwrap();
+    let child = document.node_world_matrix(2).unwrap();
+    assert!(document.bake_mesh_transform(0, Transform::IDENTITY).unwrap());
+    let document = GlbStructure::from_bytes(&document.encode().unwrap()).unwrap();
+    assert_eq!(document.node_transform(0).unwrap(), Transform::IDENTITY);
+    assert_eq!(document.node(1).unwrap().mesh, Some(0));
+    assert!(document.node_world_matrix(2).unwrap().abs_diff_eq(child, 1.0e-6));
+    let primitive = &document.json["meshes"][1]["primitives"][0];
+    let index = index_field(&primitive["attributes"], "POSITION").unwrap();
+    let floats = super::super::reader::read_accessor(&document.json, &[document.binary.clone()], index, 3).unwrap();
+    for (before, after) in positions.chunks_exact(3).zip(floats.chunks_exact(3)) {
+        assert_eq!(world.transform_point3(Vec3::from_slice(before)), Vec3::from_slice(after));
+    }
+    assert_eq!(&document.binary[document.binary.len()-12..], &[0,0,0,0,2,0,0,0,1,0,0,0]);
+    assert_eq!(document.mesh_geometry(0).unwrap().size, Some(Vec3::new(2.0,3.0,0.0)));
+}
+
+#[test]
 fn writes_real_folder_and_keeps_node_world_transform() {
     let mut document = fixture(
         &json!({

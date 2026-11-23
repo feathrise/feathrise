@@ -196,7 +196,7 @@ pub(crate) fn frame_group_selection(
                 let frame = bounds.frame();
                 view.center = frame.center;
                 view.extent = framing_extent(frame.size * 0.5, view.yaw, view.pitch, view.render_size, editor.orthographic);
-                editor.status = format!("已聚焦组「{}」", scan.group);
+                editor.status = format!("已聚焦文件夹「{}」", scan.group);
             } else {
                 editor.status = format!("组「{}」没有可定位的可见对象", scan.group);
             }

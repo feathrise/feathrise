@@ -397,6 +397,7 @@ fn copy_probe(assets: &Path, source_coordinates: bool) -> Result<Vec<Value>, Str
             let mut document: Value = serde_json::from_slice(&glb.json).map_err(|error| error.to_string())?;
             document["scenes"][0]["nodes"] = json!([1]);
             document["nodes"][0]["translation"] = json!([0.5, 0.0, 0.0]);
+            document["nodes"][0]["scale"] = json!([2.0, 1.0, 1.0]);
             document["nodes"].as_array_mut().ok_or("坐标验收 GLB 缺少节点")?
                 .push(json!({"name":"CoordinateParent","translation":[1.25,0.0,0.0],"children":[0]}));
             glb.json = Cow::Owned(serde_json::to_vec(&document).map_err(|error| error.to_string())?);

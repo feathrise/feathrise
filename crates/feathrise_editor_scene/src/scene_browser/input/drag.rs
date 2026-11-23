@@ -49,7 +49,7 @@ fn prepare_drop(
             .ok_or_else(|| "待移动的文件夹已不存在".to_owned())?
             .parent_id
             .as_deref(),
-        SceneBrowserItem::Root => return Err("根目录不能移动".to_owned()),
+        SceneBrowserItem::Root => return Err("根文件夹不能移动".to_owned()),
     };
     if previous == parent {
         return Ok(None); // 放回原目录不克隆文档、不写盘。

@@ -90,13 +90,13 @@ pub(crate) fn sync_scene_folder_dialog(
         }
     }
     let title = match dialog.mode {
-        SceneFolderDialogMode::Create => "新建虚拟场景文件夹",
-        SceneFolderDialogMode::Rename => "重命名虚拟场景文件夹",
-        SceneFolderDialogMode::Delete => "删除空虚拟场景文件夹",
+        SceneFolderDialogMode::Create => "新建场景文件夹",
+        SceneFolderDialogMode::Rename => "重命名场景文件夹",
+        SceneFolderDialogMode::Delete => "删除空场景文件夹",
     }; // 标题明确本操作不会移动真实资产目录。
     let target = match dialog.mode {
         SceneFolderDialogMode::Create => dialog.target_folder_id.as_deref().map_or_else(
-            || "创建位置：虚拟根目录".to_owned(),
+            || "创建位置：根文件夹".to_owned(),
             |id| format!("创建位置 · 父文件夹 ID：{id}"),
         ),
         SceneFolderDialogMode::Rename => format!(
@@ -123,7 +123,7 @@ pub(crate) fn sync_scene_folder_dialog(
             "只改变显示名；稳定 ID、父级、子文件夹及场景归属保持不变，不移动磁盘目录。"
         }
         SceneFolderDialogMode::Delete => {
-            "只允许删除空虚拟文件夹。确认时重新校验，不删除任何场景资产。"
+            "只允许删除空文件夹。确认时重新校验，不删除任何场景资产。"
         }
     };
     let confirm = match dialog.mode {
@@ -167,6 +167,7 @@ pub(crate) fn sync_scene_folder_dialog(
 pub(crate) fn sync_scene_browser_drag_preview(
     editor: Res<SceneEditorState>,    // F12关闭时立即隐藏浮层。
     drag: Res<SceneBrowserDragState>, // 活动态、落点诊断和冻结名称。
+    object_drag: Option<Res<crate::ui::gltf_browser::PlacementTreeDrag>>,
     mut previews: Query<(&mut Node, &mut FocusPolicy), With<SceneBrowserDragPreview>>, // 唯一浮层根始终穿透命中。
     mut texts: Query<
         (&mut Text, &mut FocusPolicy),
@@ -176,10 +177,12 @@ pub(crate) fn sync_scene_browser_drag_preview(
         ),
     >, // 显式与可变浮层根查询互斥；名称子节点也必须穿透命中。
 ) {
-    if !(editor.is_changed() || drag.is_changed()) {
+    if !(editor.is_changed() || drag.is_changed() || object_drag.as_ref().is_some_and(|drag| drag.is_changed())) {
         return; // 稳定帧不改正文；位置单独在布局后按物理鼠标同步。
     }
-    let visible = editor.open && drag.active; // 阈值内普通单击不显示浮层。
+    // 两页共用一张穿透拾取的浮层，拖动来源只负责提供冻结名称。
+    let object = object_drag.as_ref().and_then(|drag| drag.preview());
+    let visible = editor.open && (drag.active || object.is_some()); // 阈值内普通单击不显示浮层。
     for (mut node, mut focus) in &mut previews {
         focus.set_if_neq(FocusPolicy::Pass);
         let display = if visible {
@@ -191,7 +194,13 @@ pub(crate) fn sync_scene_browser_drag_preview(
             node.display = display;
         }
     }
-    let label = drag
+    if !visible {
+        return;
+    }
+    let label = if let Some((name, rejected)) = object {
+        let suffix = if rejected { "\n无法放置：此处不能放入该对象" } else { "" };
+        format!("拖动：{name}{suffix}")
+    } else { drag
         .press
         .as_ref()
         .map(|press| {
@@ -214,7 +223,7 @@ pub(crate) fn sync_scene_browser_drag_preview(
                 format!("拖动{kind}：{}{error}", press.display_name)
             }
         })
-        .unwrap_or_else(|| "拖动目录项".to_owned()); // 防御性占位不会在正常活动态出现。
+        .unwrap_or_else(|| "拖动目录项".to_owned()) }; // 防御性占位不会在正常活动态出现。
     for (mut text, mut focus) in &mut texts {
         focus.set_if_neq(FocusPolicy::Pass); // 子文本不能遮住光标右下方的文件夹或根目录落点。
         if text.0 != label {

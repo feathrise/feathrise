@@ -357,6 +357,11 @@ pub(crate) struct EditorGltfBrowserState {
 }
 
 impl EditorGltfBrowserState {
+    pub(crate) fn rename_folder_branch(&mut self, before: &str, after: &str) {
+        if self.expanded_groups.remove(before) { self.expanded_groups.insert(after.to_owned()); }
+        if self.selected_group.as_deref() == Some(before) { self.selected_group = Some(after.to_owned()); }
+    }
+
     /// 标签中的稳定选择必须等新场景签名完整采用，不能在分帧构建时被旧签名清掉。
     pub(crate) fn document_selection_ready(&self, map: &feathrise_scene_content::SceneId) -> bool {
         self.initialized

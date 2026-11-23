@@ -22,10 +22,13 @@ use feathrise_scene_content::SceneId;
 mod pose;
 mod properties;
 mod spaces; // 源 GLB、所在场景和世界坐标的矩阵换算与引用核对。
+mod actions;
 pub(crate) use pose::Inspector as SourceNodeInspector;
 pub(super) use pose::panel;
 #[cfg(feature = "validation")]
 pub(crate) use pose::source_position_field_for_validation;
+#[cfg(feature = "validation")]
+pub(crate) use actions::source_name_input_for_validation;
 
 #[derive(Message, Clone)]
 pub(crate) enum SourceGlbRequest {
@@ -39,6 +42,8 @@ pub(crate) enum SourceGlbRequest {
         pose: Option<Transform>,
         properties: Option<SourceMeshProperties>,
     },
+    Rename { target: SceneObjectTarget, expected_hash: String, name: String },
+    ApplyTransform { target: SceneObjectTarget, expected_hash: String, remaining: Transform },
 }
 
 type Prepared = Result<Option<(SourceGlbEdits, usize)>, String>;
@@ -58,6 +63,7 @@ pub(crate) fn install(app: &mut App) {
         .add_message::<SourceGlbRequest>()
         .add_systems(Update, advance.in_set(SceneEditorSystemSet::Tasks));
     pose::install(app);
+    actions::install(app);
 }
 
 pub(crate) fn owns_selection(browser: &crate::ui::gltf_browser::EditorGltfBrowserState) -> bool {
@@ -214,6 +220,15 @@ fn advance(
         ) => target(&object, &editor, &session, false).map(|target| {
             (target, SourceGlbOperation::NodeEdit { expected_hash, pose, properties })
         }),
+        (Some(SourceGlbRequest::Rename { target: object, expected_hash, name }), _) => {
+            target(&object, &editor, &session, true).map(|target| {
+                (target, SourceGlbOperation::Rename { name, expected_hash: Some(expected_hash) })
+            })
+        }
+        (Some(SourceGlbRequest::ApplyTransform { target: object, expected_hash, remaining }), _) =>
+            target(&object, &editor, &session, false).map(|target| {
+                (target, SourceGlbOperation::ApplyTransform { expected_hash, remaining })
+            }),
         (None, Some(request)) => target(
             &request.target,
             &editor,
@@ -225,7 +240,7 @@ fn advance(
                 target,
                 match request.action {
                     SceneMenuAction::RenameSourceNode => {
-                        SourceGlbOperation::Rename(request.name.clone())
+                        SourceGlbOperation::Rename { name: request.name.clone(), expected_hash: None }
                     }
                     _ => SourceGlbOperation::Folder(request.name.clone()),
                 },

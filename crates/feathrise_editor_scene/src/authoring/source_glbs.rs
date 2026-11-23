@@ -29,7 +29,8 @@ pub(crate) struct SourceGlbVersion {
     pub(crate) bytes: Arc<Vec<u8>>,
     pub(crate) nodes: Arc<[SourceGlbNode]>,
     node_slots: BTreeMap<usize, usize>,
-    original_node_poses: Arc<BTreeMap<usize, Transform>>,
+    // None 表示几何或父级已烘焙，保存前沿用上一套一致的视口模型。
+    original_node_poses: Arc<BTreeMap<usize, Option<Transform>>>,
 }
 
 impl SourceGlbVersion {
@@ -38,7 +39,11 @@ impl SourceGlbVersion {
     }
 
     pub(crate) fn original_node_pose(&self, index: usize) -> Option<Transform> {
-        self.original_node_poses.get(&index).copied()
+        self.original_node_poses.get(&index).copied().flatten()
+    }
+
+    pub(crate) fn geometry_waits_for_save(&self, index: usize) -> bool {
+        self.original_node_poses.get(&index) == Some(&None)
     }
 }
 
@@ -177,7 +182,7 @@ pub(crate) fn read_node(
     root: &Path,
     target: &SourceGlbTarget,
     draft: &SourceGlbEdits,
-) -> Result<(Transform, Mat4, SourceMeshProperties, String), String> {
+) -> Result<(Transform, Mat4, SourceMeshProperties, Option<feathrise_editor_animation_model::data::MeshGeometry>, String), String> {
     let path = source_path(root, &target.path)?;
     let (document, content_hash) = if let Some(staged) = draft.version(&target.path) {
         (GlbStructure::from_bytes(&staged.bytes)?, staged.content_hash.clone())
@@ -187,13 +192,14 @@ pub(crate) fn read_node(
     };
     let node = target.node(&document)?;
     Ok((document.node_transform(node)?, document.node_parent_matrix(0, node)?,
-        SourceMeshProperties::read(&document, node)?, content_hash))
+        SourceMeshProperties::read(&document, node)?, document.mesh_geometry(node), content_hash))
 }
 
 pub(crate) enum SourceGlbOperation {
-    Rename(String),
+    Rename { name: String, expected_hash: Option<String> },
     Folder(String),
     Move(SourceGlbTarget),
+    ApplyTransform { expected_hash: String, remaining: Transform },
     NodeEdit {
         expected_hash: String,
         pose: Option<Transform>,
@@ -233,7 +239,7 @@ pub(crate) fn edit(
                      document: GlbStructure,
                      original_hash: String,
                      base: Arc<Vec<u8>>,
-                     original_node_poses: Arc<BTreeMap<usize, Transform>>|
+                     original_node_poses: Arc<BTreeMap<usize, Option<Transform>>>|
      -> Result<(), String> {
         let bytes = document.encode()?;
         if bytes != *base {
@@ -259,7 +265,10 @@ pub(crate) fn edit(
         Ok(())
     };
     match operation {
-        SourceGlbOperation::Rename(name) => {
+        SourceGlbOperation::Rename { name, expected_hash } => {
+            if expected_hash.is_some_and(|hash| hash != content_hash) {
+                return Err("源 GLB 已改变，请使用更新后的属性修改名称".into());
+            }
             let node = source.node(&document)?;
             if document.node(node)?.name == name {
                 return Ok(None);
@@ -268,6 +277,21 @@ pub(crate) fn edit(
         }
         SourceGlbOperation::Folder(name) => {
             document.create_folder(source.parent(&document)?, &name)?;
+        }
+        SourceGlbOperation::ApplyTransform { expected_hash, remaining } => {
+            if expected_hash != content_hash { return Err("源 GLB 已改变，请重新选择要应用的变换".into()); }
+            let node = source.node(&document)?;
+            if document.node_transform(node)?.translation != remaining.translation
+                && matches!(SourceMeshProperties::read(&document, node)?.height,
+                    Some(SourceMeshHeight::FollowTerrain { .. } | SourceMeshHeight::SnapToGround))
+            {
+                return Err("请先将此网格设为固定高度，再应用位置".into());
+            }
+            let children = document.node(node)?.children;
+            if !document.bake_mesh_transform(node, remaining)? { return Ok(None); }
+            // 变换归零后的数据必须与新几何一并采用，不能用旧顶点预览归零后的姿态。
+            let poses = Arc::make_mut(&mut source_poses);
+            for index in std::iter::once(node).chain(children) { poses.insert(index, None); }
         }
         SourceGlbOperation::NodeEdit { expected_hash, pose, properties } => {
             // 数值与模式来自完整节点快照。版本冲突时保留外部或较新的草稿，等面板重读后重试。
@@ -280,7 +304,7 @@ pub(crate) fn edit(
                 document.set_node_transform(node, pose)?;
                 // 只为真正写过 TRS 的节点保留源姿势，视口用这个差量叠加已经算出的贴地姿态。
                 let poses = Arc::make_mut(&mut source_poses);
-                if *poses.entry(node).or_insert(previous) == pose {
+                if *poses.entry(node).or_insert(Some(previous)) == Some(pose) {
                     poses.remove(&node);
                 }
                 changed = true;

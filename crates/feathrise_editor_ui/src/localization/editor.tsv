@@ -67,7 +67,12 @@ label.reload	重新载入	Reload
 label.changed-on-disk	磁盘已变化	Changed on Disk
 label.keep-draft	保留草稿	Keep Draft
 label.open-selected-document-in-workspace	在中央打开所选文档	Open Selected Document in Workspace
-label.virtual-scene-folder	虚拟场景文件夹	Virtual Scene Folder
+label.virtual-scene-folder	场景文件夹	Scene Folder
+scenes.action.create-folder	新建文件夹	New Folder
+scenes.action.delete-folder	删除空文件夹	Delete Empty Folder
+scenes.dialog.create-folder	新建场景文件夹	New Scene Folder
+scenes.dialog.rename-folder	重命名场景文件夹	Rename Scene Folder
+scenes.dialog.delete-folder	删除空场景文件夹	Delete Empty Scene Folder
 label.waiting-for-target-to-be-locked	等待冻结目标	Waiting for target to be locked
 label.awaiting-action	等待操作	Awaiting action
 label.drag-folder-items	拖动目录项	Drag Folder Items
@@ -136,14 +141,14 @@ label.project-waiting-for-catalog	工程 · 等待目录	Project · Waiting for 
 label.switching-scenes	正在切换场景	Switching Scenes
 label.0-0-s	0% · 0秒	0% · 0 s
 label.waiting-for-preview	等待预览	Waiting for Preview
-label.root	根目录	Root
+label.root	根文件夹	Root Folder
 label.scene-waiting-for-catalog	场景 · 等待目录	Scene · Waiting for catalog
 label.scene	场景	Scene
 label.edit	编辑	Edit
 label.confirm	确认	Confirm
 label.editor	编辑器	Editor
 label.no-scene-loaded-open-a-scene-from	尚未进入场景\n从场景目录进入场景，或从顶部工具打开预设库	No scene loaded\nOpen a scene from the catalog or open the preset library from the toolbar.
-label.select-an-object-or-folder-to-manage	选择对象或目录后进行管理	Select an object or folder to manage it
+label.select-an-object-or-folder-to-manage	选择对象或文件夹后进行管理	Select an object or folder to manage it
 label.show-wireframe	显示三角线	Show Wireframe
 label.show-collision	显示碰撞	Show Collision
 label.scene-display-preview	场景显示预览	Scene Display Preview
@@ -946,7 +951,7 @@ label.loading-coordinates	坐标加载中	Loading coordinates
 label.coordinates-are-unavailable	坐标已失效	Coordinates are unavailable
 label.discard-scene-changes-and-close	放弃场景修改并关闭	Discard Scene Changes and Close
 label.cancel-close	取消关闭	Cancel Close
-label.select-scene-folder	场景目录选择	Select Scene Folder
+label.select-scene-folder	场景列表选择	Scene List Selection
 label.interaction-tools	交互工具	Interaction Tools
 label.recent-interaction-actions	交互最近操作	Recent Interaction Actions
 label.scene-environment	场景环境	Scene Environment
@@ -1461,9 +1466,9 @@ scenes.state.entered	已进入	Loaded
 scenes.selected.multi	批量选择	Multiple Selection
 scenes.selected.current	当前场景	Current Scene
 scenes.selected.unopened	场景 · 尚未进入	Scene · Not Loaded
-scenes.selected.folder	虚拟文件夹	Virtual Folder
+scenes.selected.folder	文件夹	Folder
 scenes.selected.none	尚未选择	None selected
-scenes.selected.prompt	请在目录中选择场景或文件夹	Select a scene or folder in the catalog.
+scenes.selected.prompt	请在列表中选择场景或文件夹	Select a scene or folder in the list.
 scenes.selected.missing	所选对象已不在目录中	The selected item is no longer in the catalog.
 scenes.selected.loading	正在同步所选名称	Loading selection name…
 scenes.selected.summary	所选：{name} · {kind}	Selected: {name} · {kind}
@@ -1472,11 +1477,11 @@ scenes.selected.summary_empty	所选：尚未选择	Selected: None
 scenes.selected.count	{scenes} 个场景、{folders} 个文件夹	Scenes: {scenes} · Folders: {folders}
 scenes.selected.id	场景ID：{id}	Scene ID: {id}
 scenes.help.range	正在按可见目录顺序连选…	Selecting a range in the visible catalog…
-scenes.help.multi	Ctrl点击增减选择，Shift连续选择；拖动任一选中项整批归类，父目录包含子项时自动去重	Ctrl-click to toggle items or Shift-click to select a range. Drag a selected item to move the selection. A selected folder already includes its children.
+scenes.help.multi	Ctrl点击增减选择，Shift连续选择；拖动任一选中项整批归类，父文件夹包含子项时自动去重	Ctrl-click to toggle items or Shift-click to select a range. Drag a selected item to move the selection. A selected folder already includes its children.
 scenes.help.scene_dirty	进入前由原切换场景确认处理未保存修改；当前不能删除场景	Resolve unsaved changes before switching scenes. The current scene cannot be deleted yet.
-scenes.help.scene	双击场景或点击进入打开；Ctrl多选、Shift连选，拖动批量归类；新建项建在该场景所在目录	Double-click a scene or use Enter to open it. Ctrl-click or Shift-click to select multiple items, then drag to move them. New items go in the scene's folder.
-scenes.help.folder	点击目录展开或收起；Ctrl多选、Shift连选，拖动可整体移动；新建项建在该目录，只能删除空文件夹	Click a folder to expand or collapse it. Ctrl-click or Shift-click to select multiple items, then drag to move them. New items go in this folder. Empty folders can be deleted.
-scenes.help.root	新场景和文件夹建在根目录；目录选择不改变当前场景	New scenes and folders go in the root folder. Selecting a folder keeps the current scene open.
+scenes.help.scene	双击场景或点击进入打开；Ctrl多选、Shift连选，拖动批量归类；新建项建在该场景所在文件夹	Double-click a scene or use Enter to open it. Ctrl-click or Shift-click to select multiple items, then drag to move them. New items go in the scene's folder.
+scenes.help.folder	点击文件夹展开或收起；Ctrl多选、Shift连选，拖动可整体移动；新建项建在该文件夹，只能删除空文件夹	Click a folder to expand or collapse it. Ctrl-click or Shift-click to select multiple items, then drag to move them. New items go in this folder. Empty folders can be deleted.
+scenes.help.root	新场景和文件夹建在根文件夹；选择文件夹不会切换场景	New scenes and folders go in the root folder. Selecting a folder keeps the current scene open.
 diagnostics.phase.waiting	等待代码编译	Waiting for a code build
 diagnostics.phase.building	正在后台编译代码	Building code in the background…
 diagnostics.phase.failed	代码构建或应用失败 · 完整输出见日志	Code build or apply failed · See Project Log

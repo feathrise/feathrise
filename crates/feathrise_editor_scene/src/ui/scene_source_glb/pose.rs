@@ -1,6 +1,6 @@
 //! 属性面板在源 GLB、场景和世界坐标中查看与编辑同一节点的源变换。
 
-use super::{owns_selection, properties, resolve_source_target};
+use super::{actions, owns_selection, properties, resolve_source_target};
 use super::spaces::{EditFrame, Frames, Space};
 use crate::{
     SceneEditorSystemSet,
@@ -8,16 +8,15 @@ use crate::{
     resources::SceneEditorState,
     ui::{
         gltf_browser::EditorGltfBrowserState,
-        placement_transform::PlacementTransformField as Field,
+        placement_transform::{PlacementTransformField as Field, axis_row, numeric_field_style,
+            property_button_visual, property_column, property_panel_layout},
         scene_context_menu::{SceneObjectKey, SceneObjectTarget},
-        theme,
     },
 };
 use bevy::{
     asset::AssetId,
     prelude::*,
     tasks::{IoTaskPool, Task, futures::check_ready},
-    text::FontSourceTemplate,
     ui::InteractionDisabled,
     world_serialization::WorldAsset,
 };
@@ -30,6 +29,8 @@ use feathrise_editor_ui::{
 
 #[derive(Component, Clone, Copy, Default)]
 struct Panel;
+#[derive(Component, Clone, Copy, Default)]
+struct MeshPanel;
 #[derive(Component, Clone, Copy)]
 struct Slot(Field);
 #[derive(Component, Clone, Copy)]
@@ -60,7 +61,7 @@ impl Control {
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct AdoptNodeSnapshot;
 
-type NodeRead = (Transform, Mat4, SourceMeshProperties, String);
+type NodeRead = (Transform, Mat4, SourceMeshProperties, Option<feathrise_editor_animation_model::data::MeshGeometry>, String);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum SourcePublication {
@@ -81,12 +82,17 @@ pub(crate) struct Inspector {
     pub(super) space_notice: &'static str,
     content_hash: Option<String>,
     pub(super) mesh_properties: Option<SourceMeshProperties>,
+    pub(super) geometry: Option<feathrise_editor_animation_model::data::MeshGeometry>,
     pub(super) read_error: Option<String>,
     pub(super) selection_changed: bool,
     read: Option<(SceneObjectTarget, SourcePublication, Task<Result<NodeRead, String>>)>,
 }
 
 impl Inspector {
+    pub(super) fn identity(&self) -> Option<(&SceneObjectTarget, &str)> {
+        Some((self.displayed.as_ref()?, self.content_hash.as_deref()?))
+    }
+
     /// 视口只借用已从源文件或当前草稿读到的节点局部姿势。
     pub(crate) fn selected_pose(
         &self,
@@ -94,7 +100,8 @@ impl Inspector {
         editor: &SceneEditorState,
         session: &EditorAuthoringSession,
     ) -> Option<(&SceneObjectTarget, Transform, &str)> {
-        Some((self.editable_target(browser, editor, session)?, self.pose?, self.content_hash.as_deref()?))
+        let target = self.editable_target(browser, editor, session)?;
+        is_mesh(target).then_some((target, self.pose?, self.content_hash.as_deref()?))
     }
 
     pub(super) fn editable_target(
@@ -131,6 +138,10 @@ impl Inspector {
     }
 }
 
+pub(super) fn is_mesh(target: &SceneObjectTarget) -> bool {
+    matches!(&target.key, SceneObjectKey::Placement { mesh: Some(mesh), .. } if !mesh.is_source_folder())
+}
+
 pub(super) fn install(app: &mut App) {
     app.init_resource::<Inspector>()
         .add_systems(
@@ -140,25 +151,6 @@ pub(super) fn install(app: &mut App) {
                 .in_set(SceneEditorSystemSet::Presentation),
         );
     properties::install(app);
-}
-
-fn row(label: &str, fields: [Field; 3]) -> impl Scene {
-    let slots = fields
-        .into_iter()
-        .map(|field| {
-            bsn! { ~{Slot(field)}
-                Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), height: px(24) }
-            }
-        })
-        .collect::<Vec<_>>();
-    bsn! { Node { width: percent(100), min_width: px(0), column_gap: px(3), align_items: AlignItems::Center }
-        Children [
-            Text(label) TextColor(theme::TEXT_MUTED) TextLayout::no_wrap()
-                TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(crate::ui::scene::FONT_PATH)), font_size: px(10) }
-                Node { min_width: px(35), flex_shrink: 0.0 }--
-            {slots}
-        ]
-    }
 }
 
 struct AppliedPose {
@@ -293,15 +285,19 @@ fn source_pose_preview_applies_authored_changes_to_settled_height() {
 pub(in crate::ui) fn panel() -> impl Scene {
     let spaces: Vec<_> = Space::ALL.into_iter()
         .map(|space| properties::property_button(space.label(), space)).collect();
-    bsn! { Panel Node { display: Display::None, width: percent(100), flex_direction: FlexDirection::Column, row_gap: px(3) }
+    bsn! { Panel ~{property_panel_layout()}
         Children [
-            @crate::ui::context_help::section_header("节点变换", "切换位置、旋转、缩放共用的参考坐标。源 GLB 以所属模型根为准，当前场景以所在场景为准，世界包含外层引用。修改后换算为直属父节点的局部变换并保存到源 GLB。")--
-            Node { width: percent(100), flex_wrap: FlexWrap::Wrap, column_gap: px(3), row_gap: px(3) }
+            @actions::name_row()--
+            MeshPanel ~{property_column()} Children [
+            @crate::ui::context_help::section_header("变换", "切换位置、旋转、缩放共用的参考坐标。源 GLB 以所属模型根为准，当前场景以所在场景为准，世界包含外层引用。修改后换算为直属父节点的局部变换并保存到源 GLB。")--
+            Node { width: percent(100), min_width: px(0), flex_shrink: 0.0, flex_wrap: FlexWrap::Wrap, column_gap: px(3), row_gap: px(3) }
                 Children [{spaces}]--
-            @row("位置", [Field::TranslationX, Field::TranslationY, Field::TranslationZ])--
-            @row("旋转", [Field::RotationX, Field::RotationY, Field::RotationZ])--
-            @row("缩放", [Field::ScaleX, Field::ScaleY, Field::ScaleZ])--
+            @axis_row("位置", [Slot(Field::TranslationX), Slot(Field::TranslationY), Slot(Field::TranslationZ)])--
+            @axis_row("旋转", [Slot(Field::RotationX), Slot(Field::RotationY), Slot(Field::RotationZ)])--
+            @axis_row("缩放", [Slot(Field::ScaleX), Slot(Field::ScaleY), Slot(Field::ScaleZ)])--
+            @actions::apply_menu()--
             @properties::panel()
+            ]
         ]
     }
 }
@@ -326,7 +322,7 @@ fn setup(
             NumericValue::F32(0.0),
             node_input_spec(field),
             field.scrub_config(&settings, None, true),
-        );
+        ).with_style(numeric_field_style(true));
         mount_numeric(&mut commands, slot, Control(field), font.clone(), options);
     }
 }
@@ -387,7 +383,7 @@ pub(super) fn mount_numeric(
             .and_modify(|mut node| {
                 node.width = percent(100);
                 node.min_width = px(0);
-                node.height = px(24);
+                node.max_width = percent(100);
             });
     });
 }
@@ -400,10 +396,7 @@ fn selected(
     if !editor.open || editor.scene_transition_in_progress || !owns_selection(browser) {
         return None;
     }
-    let mesh = browser
-        .selection
-        .as_ref()
-        .filter(|mesh| !mesh.is_source_folder())?;
+    let mesh = browser.selection.as_ref()?;
     let draft = session.draft.as_ref()?;
     let index =
         browser.placement_record_index(&mesh.placement_id, session.placement_structure_revision)?;
@@ -461,7 +454,7 @@ fn refresh(
     settings: Res<feathrise_editor_core::EditorSettings>,
     active: Res<ActiveNumericInput>,
     scrub: Res<ActiveNumericInputScrub>,
-    mut panel_nodes: Query<&mut Node, With<Panel>>,
+    mut panel_nodes: Query<(&mut Node, Has<MeshPanel>), Or<(With<Panel>, With<MeshPanel>)>>,
     mut fields: Query<(
         Entity,
         &Control,
@@ -471,7 +464,7 @@ fn refresh(
         Has<NumericInputDisabled>,
     )>,
     frames: Frames,
-    mut buttons: Query<(Entity, &Space, &UiInteraction, Has<InteractionDisabled>, &mut BackgroundColor, &mut EditorButtonClick)>,
+    mut buttons: Query<(Entity, &Space, &UiInteraction, Has<InteractionDisabled>, &mut BackgroundColor, &mut BorderColor, &mut EditorButtonClick)>,
     mut state: ResMut<Inspector>,
     mut values: MessageWriter<NumericInputSetValue>,
     mut commands: Commands,
@@ -487,6 +480,7 @@ fn refresh(
         state.pose = None;
         state.content_hash = None;
         state.mesh_properties = None;
+        state.geometry = None;
         state.read_error = None;
     }
     if let Some((_, _, task)) = state.read.as_mut()
@@ -496,10 +490,11 @@ fn refresh(
         if chosen.as_ref() == Some(&read) && publication == Some(read_publication) {
             state.displayed = Some(read);
             match result {
-                Ok((pose, parent, mesh_properties, content_hash)) => {
+                Ok((pose, parent, mesh_properties, geometry, content_hash)) => {
                     state.pose = Some(pose);
                     state.parent_in_glb = parent;
                     state.mesh_properties = Some(mesh_properties);
+                    state.geometry = geometry;
                     state.content_hash = Some(content_hash);
                 }
                 Err(error) => state.read_error = Some(error),
@@ -529,22 +524,26 @@ fn refresh(
         }
     }
     let show = chosen.is_some();
+    let show_mesh = chosen.as_ref().is_some_and(is_mesh);
     state.visible = show;
-    for mut node in &mut panel_nodes {
-        let display = if show { Display::Flex } else { Display::None };
+    for (mut node, mesh_only) in &mut panel_nodes {
+        let display = if show && (!mesh_only || show_mesh) { Display::Flex } else { Display::None };
         if node.display != display {
             node.display = display;
         }
     }
-    for (entity, space, hover, disabled, mut background, mut click) in &mut buttons {
+    for (entity, space, hover, disabled, mut background, mut border, mut click) in &mut buttons {
         if changed { click.invalidate(); }
-        if show == disabled {
-            if show { commands.entity(entity).remove::<InteractionDisabled>(); }
+        if show_mesh == disabled {
+            if show_mesh { commands.entity(entity).remove::<InteractionDisabled>(); }
             else { commands.entity(entity).insert(InteractionDisabled); }
         }
-        background.set_if_neq(BackgroundColor(properties::button_color(if show { *hover } else { UiInteraction::None }, *space == state.space)));
+        let (next_background, next_border) = property_button_visual(if show_mesh { *hover } else { UiInteraction::None }, *space == state.space);
+        background.set_if_neq(next_background);
+        border.set_if_neq(next_border);
     }
-    let frame = state.pose.and_then(|_| chosen.as_ref().and_then(|object| frames.get(state.space, object, state.parent_in_glb)));
+    let frame = state.pose.and_then(|_| chosen.as_ref().filter(|object| is_mesh(object))
+        .and_then(|object| frames.get(state.space, object, state.parent_in_glb)));
     let reference_changed = changed || frame != state.frame;
     state.frame = frame;
     let position = frame.zip(state.pose).map(|(frame, pose)| frame.position(pose)).filter(|point| point.is_finite());
@@ -554,7 +553,7 @@ fn refresh(
         else if frame.is_none() { "当前引用的坐标尚未就绪" }
         else if displayed.is_none() { "当前坐标系的旋转和缩放无法精确表示，可编辑位置" }
         else { "" };
-    let enabled = !reference_changed && !session.source_glb_busy
+    let enabled = show_mesh && !reference_changed && !session.source_glb_busy
         && state.editable_target(&browser, &editor, &session).is_some();
     for (entity, field, current, input, mut drag, disabled) in &mut fields {
         let next = match field.0.translation_axis() {

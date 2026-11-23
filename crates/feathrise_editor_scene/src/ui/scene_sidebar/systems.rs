@@ -114,7 +114,7 @@ fn operation_message<'a>(source: &'a SidebarSources, phase: OperationPhase) -> &
         OperationPhase::Switching => "正在切换场景 · 详细进度见中央工作区",
         // 拖拽过程与拒绝原因由原随鼠标浮层完整显示；不再用重复正文压缩树高、移动滚动边缘。
         OperationPhase::Dragging => "",
-        OperationPhase::FolderDialog => "请在弹框中确认目录操作 · 不改真实场景资产目录",
+        OperationPhase::FolderDialog => "请在弹框中确认文件夹操作 · 场景资产路径保持原样",
         OperationPhase::SceneDialog if source.editor.new_scene_edit_target.is_some() => {
             "请在弹框中编辑场景资料 · 确认后由原事务保存"
         }
@@ -276,10 +276,10 @@ pub(super) fn sync_sidebar(
             EditorAction::SceneFolderRename if has_folder => "重命名",
             EditorAction::SceneFolderRename if source.menu.is_some() => "编辑",
             EditorAction::SceneFolderRename => "资料",
-            EditorAction::DeleteScene if has_folder && source.menu.is_some() => "删除空目录",
+            EditorAction::DeleteScene if has_folder && source.menu.is_some() => "删除空文件夹",
             EditorAction::DeleteScene => "删除",
             EditorAction::NewScene => "新场景",
-            EditorAction::SceneFolderCreate => "新目录",
+            EditorAction::SceneFolderCreate => "新建文件夹",
             _ if source.menu.is_some() => "进入场景",
             _ => "进入",
         };
@@ -378,8 +378,8 @@ pub(super) fn sync_sidebar(
         match selected {
             Some(SceneBrowserItem::Scene(id)) if Some(id) == current => "当前场景",
             Some(SceneBrowserItem::Scene(_)) => "场景 · 尚未进入",
-            Some(SceneBrowserItem::Folder(_)) => "虚拟文件夹",
-            Some(SceneBrowserItem::Root) => "根目录",
+            Some(SceneBrowserItem::Folder(_)) => "文件夹",
+            Some(SceneBrowserItem::Root) => "根文件夹",
             None => "尚未选择",
         }
     };
@@ -426,19 +426,19 @@ pub(super) fn sync_sidebar(
     let hint = if source.browser.selection_pending {
         "正在按可见目录顺序连选…"
     } else if multiple {
-        "Ctrl点击增减选择，Shift连续选择；拖动任一选中项整批归类，父目录包含子项时自动去重"
+        "Ctrl点击增减选择，Shift连续选择；拖动任一选中项整批归类，父文件夹包含子项时自动去重"
     } else {
         match selected {
             Some(SceneBrowserItem::Scene(_)) if dirty => {
                 "进入前由原切换场景确认处理未保存修改；当前不能删除场景"
             }
             Some(SceneBrowserItem::Scene(_)) => {
-                "双击场景或点击进入打开；Ctrl多选、Shift连选，拖动批量归类；新建项建在该场景所在目录"
+                "双击场景或点击进入打开；Ctrl多选、Shift连选，拖动批量归类；新建项建在该场景所在文件夹"
             }
             Some(SceneBrowserItem::Folder(_)) => {
-                "点击目录展开或收起；Ctrl多选、Shift连选，拖动可整体移动；新建项建在该目录，只能删除空文件夹"
+                "点击文件夹展开或收起；Ctrl多选、Shift连选，拖动可整体移动；新建项建在该文件夹，只能删除空文件夹"
             }
-            _ => "新场景和文件夹建在根目录；目录选择不改变当前场景",
+            _ => "新场景和文件夹建在根文件夹；选择文件夹不会切换场景",
         }
     };
     let directory = locale.editor_notice(directory);

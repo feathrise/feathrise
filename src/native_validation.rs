@@ -506,21 +506,39 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
     if saved.scene_id.as_str() != "M1-SAMPLE" || !saved.placements.iter().any(|record| record.id == placement) {
         return Err("本轮立方体未随原保存写入该场景的 GLB".into());
     }
+    for id in ["scene-tree-group-0", "scene-tree-group-1"] {
+        if !saved.placements.iter().any(|record| record.id == id && record.editor.group == "验收文件夹") {
+            return Err("改名后的文件夹未与原成员一起写入场景 GLB".into());
+        }
+    }
     let source = fs::read(project.context.asset_roots[0].join("scene/probe.glb")).map_err(|error| error.to_string())?;
     let source = bevy::gltf::gltf::Glb::from_slice(&source).map_err(|error| error.to_string())?;
     let source: Value = serde_json::from_slice(&source.json).map_err(|error| error.to_string())?;
     let local_x = source["nodes"][0]["translation"][0].as_f64();
     // 世界 7.5 米扣除整件 5 米和父节点 1.25 米，只有网格的源局部位置应改变。
-    if local_x != Some(1.25) || source["nodes"][0]["name"] != "ProjectAssetNode"
+    if local_x != Some(1.25) || source["nodes"][0]["name"] != "验收网格"
         || source["nodes"][1]["translation"][0].as_f64() != Some(1.25)
         || !saved.placements.iter().any(|record| record.id == "sample-model" && record.translation[0] == 5.0)
     {
-        return Err("保存的源 GLB 节点未在原子场景事务中正确写回局部 X".into());
+        return Err("保存的源 GLB 节点名称或局部 X 未正确写回".into());
     }
+    let baseline = bevy::gltf::gltf::Glb::from_slice(include_bytes!("../tests/fixtures/scene/probe.glb"))
+        .map_err(|error| error.to_string())?;
+    let baseline: Value = serde_json::from_slice(&baseline.json).map_err(|error| error.to_string())?;
+    let position = |doc: &Value| doc["meshes"][0]["primitives"][0]["attributes"]["POSITION"].as_u64().map(|index| index as usize);
+    let original = position(&baseline).ok_or("原夹具位置访问器缺失")?;
+    let applied = position(&source).ok_or("保存的网格位置访问器缺失")?;
+    if original == applied || source["nodes"][0]["scale"][0].as_f64() != Some(1.0)
+        || source["accessors"][applied]["max"][0].as_f64() != baseline["accessors"][original]["max"][0].as_f64().map(|x| x * 2.0)
+    { return Err("应用缩放后没有归一姿态并写入二倍的真实源网格几何".into()); }
     let screenshot = read_author_screenshot(&output.join("scene-tree-startup.png"))?;
     let coordinates = read_author_screenshot(&output.join("scene-tree-glb-coordinates.png"))?;
+    let cube_properties = read_author_screenshot(&output.join("scene-tree-cube-properties.png"))?;
+    let drag_preview = read_author_screenshot(&output.join("scene-tree-drag-preview.png"))?;
     steps.push(json!({"stage":"scene_tree_startup_in_original_editor","passed":true,"report":observed,"saved_placement_id":placement,
-        "startup_screenshot":screenshot,"source_coordinates_screenshot":coordinates,"saved_source_local_x":local_x}));
+        "startup_screenshot":screenshot,"source_coordinates_screenshot":coordinates,"mesh_properties_screenshot":cube_properties,
+        "drag_preview_screenshot":drag_preview,"renamed_folder":"验收文件夹",
+        "saved_source_local_x":local_x,"saved_source_name":"验收网格","applied_scale_x":1.0}));
 
     let output = work.join("editor-2");
     let mut command = author_window_command(&root, target, &output, true)?;

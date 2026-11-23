@@ -17,7 +17,7 @@ use crate::ui::list_layout::{
 };
 use crate::ui::scene_inspector::InspectorTree;
 use crate::ui::scene_sidebar::{
-    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TreeRowToggle, tree_branch_button, tree_row_left,
+    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TreeRowToggle, tree_branch_button, tree_row_colors, tree_row_left,
     tree_toggle_button, tree_toggle_icon,
 };
 use crate::viewport::placement_move::PlacementMoveState;
@@ -25,7 +25,7 @@ use crate::viewport::SelectedPlacementViewportState;
 
 use super::{helpers::selection_matches, row_controls::BranchTarget}; // 选择身份不受热更索引漂移影响。
 use super::{
-    EditorGltfBrowserEntryKind, EditorGltfBrowserState, MainSceneGlbRow, PlacementTreeExpander, PlacementTreeToggle, SceneEditorGltfBrowserList,
+    EditorGltfBrowserEntryKind, EditorGltfBrowserState, MainSceneGlbRow, PlacementTreeDrag, PlacementTreeExpander, PlacementTreeToggle, SceneEditorGltfBrowserList,
     SceneEditorGltfBrowserListContent, SceneEditorGltfBrowserRow, SceneEditorGltfBrowserRowText,
     SceneEditorGltfBrowserStatusText, SceneMeshObjectsHeading,
 }; // 模块私有组件与公开资源。
@@ -284,7 +284,7 @@ pub(crate) fn sync_gltf_browser_rows(
     editor: Res<SceneEditorState>,        // 编辑器打开时才刷新可见行。
     session: Res<EditorAuthoringSession>,
     state: Res<EditorGltfBrowserState>, // 公开扁平条目与当前选择。
-    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
+    view: (Option<Res<PlacementTreeDrag>>, Option<Res<feathrise_editor_ui::localization::EditorLocale>>),
     multi_selection: Option<Res<crate::viewport::multi_select::PlacementSelectionSet>>,
     asset_server: Option<Res<AssetServer>>,
     images: Option<Res<Assets<Image>>>,
@@ -294,6 +294,7 @@ pub(crate) fn sync_gltf_browser_rows(
     captions: Query<&Children, With<GltfRowCaption>>,
     mut rows: Query<
         (
+            Entity,
             &UiInteraction,                 // 当前hover或按压反馈。
             Option<&mut EditorButtonClick>,
             &mut SceneEditorGltfBrowserRow, // 写回当前窗口绑定的索引。
@@ -362,6 +363,7 @@ pub(crate) fn sync_gltf_browser_rows(
     let main_rows = usize::from(main_glb.is_some())
         + clips.map_or(0, |clips| (clips.len() + usize::from(draft_name.is_some())).max(empty_hint));
     let total_rows = main_rows.saturating_add(state.entries.len().saturating_sub(hidden_meshes));
+    let (drag, locale) = view;
     let locale = locale.as_deref().copied().unwrap_or_default();
     for mut heading in &mut headings {
         let display = if session.draft.as_ref().is_some_and(|draft| editor.selected_scene_id.as_ref() == Some(&draft.scene_id))
@@ -388,7 +390,7 @@ pub(crate) fn sync_gltf_browser_rows(
         }
         start = ((scroll.y / SCENE_OBJECT_ROW_PITCH).floor() as usize).saturating_sub(1);
     }
-    for (interaction, mut click, mut row, mut node, mut background, mut border, children) in &mut rows {
+    for (entity, interaction, mut click, mut row, mut node, mut background, mut border, children) in &mut rows {
         let tree_index = start.saturating_add(row.slot);
         let main_row = match tree_index {
             0 if main_glb.is_some() => Some((MainSceneGlbRow::File, locale.text("label.main-scene-glb"))),
@@ -408,9 +410,9 @@ pub(crate) fn sync_gltf_browser_rows(
         let main_kind = main_row.map(|(kind, _)| kind);
         let binding = tree_index.checked_sub(main_rows).map(|index| index.saturating_add(hidden_meshes))
             .filter(|&index| index < state.entries.len());
-        if scene_changed || row.entries_revision != state.published_entries_revision
-            || row.entry_index != binding || row.main_glb != main_kind
-        {
+        let rebound = scene_changed || row.entries_revision != state.published_entries_revision
+            || row.entry_index != binding || row.main_glb != main_kind;
+        if rebound {
             if let Some(click) = click.as_deref_mut() {
                 click.invalidate();
             }
@@ -461,21 +463,17 @@ pub(crate) fn sync_gltf_browser_rows(
         node.top = px(tree_index as f32 * SCENE_OBJECT_ROW_PITCH);
         node.padding.left = tree_row_left(depth.min(8)); // 同层级箭头和叶子占位共用一列。
         let interaction = match main_kind {
+            _ if drag.as_ref().is_some_and(|drag| drag.owns_mouse()) => UiInteraction::None,
             Some(MainSceneGlbRow::Empty) => UiInteraction::None,
             Some(MainSceneGlbRow::Animation(index)) if !editable.is_some_and(|(editable, _)| editable == index) => UiInteraction::None,
             _ => *interaction,
         };
-        background.0 = match (interaction, selected) {
-            (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED, // 按下始终给即时强反馈。
-            (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,   // 可点击行明确区别静态文字。
-            (UiInteraction::None, true) => colors::SELECT_BG,         // 当前网格保持暗金选中底。
-            (UiInteraction::None, false) => colors::PANEL_BG,
-        };
-        *border = BorderColor::all(if selected || interaction != UiInteraction::None {
-            colors::COPPER_BORDER // hover与选择强化完整铜边。
-        } else {
-            colors::COPPER_BORDER_WEAK // 静止普通行保留弱分隔。
-        });
+        // 行池同帧滚动换绑时，不把上一行的有效落点高亮借给新条目。
+        let drop_target = !rebound && drag.as_ref().is_some_and(|drag| drag.highlights(entity));
+        let (fill, outline) = tree_row_colors(selected, drop_target, interaction);
+        node.border = if drop_target { UiRect::all(px(1)) } else { UiRect::ZERO };
+        background.set_if_neq(BackgroundColor(fill));
+        border.set_if_neq(outline);
         let Some(caption) = children.iter().find_map(|entity| captions.get(entity).ok()) else { continue; };
         for child in caption.iter() {
             if images.is_some() && let Some(server) = asset_server.as_ref() && let Ok(mut image) = glyphs.get_mut(child) {

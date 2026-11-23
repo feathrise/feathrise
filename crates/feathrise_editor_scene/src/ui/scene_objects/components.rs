@@ -15,6 +15,7 @@ pub(super) struct ObjectInput(pub(super) ObjectField);
 pub(super) enum ObjectAction {
     #[default]
     Rename,
+    RenameFolder,
     AssignGroup,
     Ungroup,
     SelectGroup,
