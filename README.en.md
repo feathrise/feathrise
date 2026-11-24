@@ -90,10 +90,11 @@ You can create an empty project offline with its matching lockfile. Cargo fetche
 
 ## Bevy Version Compatibility
 
-The current editor source and the default scene project template use Bevy 0.20.1 and the matching scene SDK. The table lists compatibility for published versions.
+The current editor source and the default scene project template use Bevy 0.20.1 and the matching scene SDK.
 
 | Bevy version | Feathrise editor version | `feathrise_runtime` SDK |
 | --- | --- | --- |
+| [0.20.1](https://crates.io/crates/bevy/0.20.1) | [0.3.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.3.0-preview.1) | [Pinned GitHub commit fb5efca](https://github.com/feathrise/feathrise_runtime/tree/fb5efcabc23b4a48b42e7b7df23e9e63d328eb71) |
 | [0.20.1](https://crates.io/crates/bevy/0.20.1) | [0.2.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.2.0-preview.1) | [0.2.0](https://crates.io/crates/feathrise_runtime/0.2.0) · [GitHub Release](https://github.com/feathrise/feathrise_runtime/releases/tag/0.2.0) |
 | [0.19.1](https://crates.io/crates/bevy/0.19.1) | [0.1.0-preview.2](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.2), [0.1.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.1) | [0.1.0](https://crates.io/crates/feathrise_runtime/0.1.0) |
 

@@ -90,10 +90,11 @@ Windows 单文件预览版编入 `raytracing`。DLSS 与 FSR 通过 Cargo 特性
 
 ## Bevy 版本对应表
 
-当前编辑器源码和默认新建的场景工程使用 Bevy 0.20.1 与配套场景 SDK。下表列出已发布版本的兼容关系。
+当前编辑器源码和默认新建的场景工程使用 Bevy 0.20.1 与配套场景 SDK。
 
 | Bevy 版本 | Feathrise 编辑器版本 | `feathrise_runtime` SDK |
 | --- | --- | --- |
+| [0.20.1](https://crates.io/crates/bevy/0.20.1) | [0.3.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.3.0-preview.1) | [GitHub 固定提交 fb5efca](https://github.com/feathrise/feathrise_runtime/tree/fb5efcabc23b4a48b42e7b7df23e9e63d328eb71) |
 | [0.20.1](https://crates.io/crates/bevy/0.20.1) | [0.2.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.2.0-preview.1) | [0.2.0](https://crates.io/crates/feathrise_runtime/0.2.0) · [GitHub Release](https://github.com/feathrise/feathrise_runtime/releases/tag/0.2.0) |
 | [0.19.1](https://crates.io/crates/bevy/0.19.1) | [0.1.0-preview.2](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.2)、[0.1.0-preview.1](https://github.com/feathrise/feathrise/releases/tag/0.1.0-preview.1) | [0.1.0](https://crates.io/crates/feathrise_runtime/0.1.0) |
 
