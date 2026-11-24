@@ -8,10 +8,6 @@ Feathrise brings scene authoring, project previews, and Rust development togethe
 
 [**Download the Windows Preview**](https://github.com/feathrise/feathrise/releases) · [Quick Start](#quick-start) · [Bevy Versions](#bevy-version-compatibility) · [User Guide](docs/使用说明.md)
 
-![Riverbend Camp in the Feathrise workspace, with hillsides, a river bend, pine woods, and a wooden bridge in the central viewport](docs/media/editor-overview.webp)
-
-*The Riverbend Camp demo in the editor, showing terrain, woodland, a spline-based river, and model placement.*
-
 ## High-Performance Terrain, Vegetation, and Water
 
 - **Geometry Clipmap terrain LOD.** Terrain stays detailed near the camera and uses coarser rings in the distance. Sparse height pages load on demand, and rendering and collision have separate LOD controls.
@@ -19,10 +15,6 @@ Feathrise brings scene authoring, project previews, and Rust development togethe
 - **GPU vegetation.** Paint grass and crops with a density brush. Grass uses GPU instancing and four levels of detail. Vegetation presets support configurable wind motion.
 - **Large-scale tree and shrub placement.** Woodland instances share meshes and materials and switch detail levels with distance. Trees stay in place as the camera moves, and presets can enable collision for nearby instances.
 - **Dynamic water.** Paint lakes and ponds, and use 3D splines to build rivers, rapids, and waterfalls. Surface geometry is generated in the background and uploaded in chunks. Terrain defines the shoreline for still water, while the GPU renders waves and interactive ripples.
-
-![The Riverbend Camp running in the project, with the free camera above the river looking toward the wooden bridge and camp](docs/media/riverbend-runtime.webp)
-
-*The same wooden bridge in the running project.* [Watch the 12-second scene tour](docs/media/riverbend-tour.webp)
 
 ![Still-water editing in the 剑与侠客 project, with water and shoreline vegetation in the viewport and the water level in the right-hand properties panel](docs/media/still-water-editing.jpg)
 
@@ -37,6 +29,25 @@ These features reflect the current source code.
 - **Model LOD preview.** Configure rendering and collision LOD separately. Inspect the active rendering LOD, triangle wireframe, and triangle count, and compare with the original mesh from the same camera position.
 - **Single-object Blender editing.** Open a built-in mesh or a complete GLB instance in your local Blender installation. On save, Feathrise uses the GLB produced by its bundled exporter to update the object in place, preserving its scene transform. You can undo the update or save it with the scene. [Blender editing guide](docs/使用说明.md#在-blender-编辑单个网格)
 - **Humanoid rigging and skin weights.** Adjust joint positions on a T- or A-pose model and use a compatible skeleton from the project to generate a new skinned GLB in Feathrise or local Blender. Paint, smooth, or mirror skin weights on a skinned model. Compare how the model deforms with the original and draft weights at the same animation frame before saving a copy.
+
+### Scene Animation
+
+Right-click **Main Scene · scene.glb** in the Scene Tree and choose **New → Animation**. Adjust the pose at the current frame with the viewport gizmos or by entering values in the properties panel, then insert keyframes on the position, rotation, and scale tracks. A main scene GLB can store multiple clips. You can rename, duplicate, or delete clips and set them to play once, loop, or play back and forth.
+
+**All Objects** lists the scene objects with keyframes in the current clip. A clip can animate both built-in meshes and whole instances of external GLBs. Click an object's name to open its tracks at the current frame.
+
+![Scene animation in Rendered mode, with the move gizmo on the cube and position, rotation, and scale tracks below the viewport](docs/media/scene-animation-rendered.png)
+
+*In the 剑与侠客 project, the cube is being repositioned at frame 24. The properties panel on the right shows its current pose.*
+
+<details>
+<summary>See animation editing in Solid and Wireframe modes</summary>
+
+![Scene animation in Solid mode, with gray models, the reference grid, and the scale gizmo in the viewport](docs/media/scene-animation-solid.png)
+
+![Scene animation in Wireframe mode, with mesh edges and the selected object's scale gizmo in the viewport](docs/media/scene-animation-wireframe.png)
+
+</details>
 
 ## Ray Tracing, DLSS, and FSR
 
@@ -54,6 +65,20 @@ The single-file Windows preview includes `raytracing`. DLSS and FSR are optional
 - **Build in the background when you save.** Saving source in the workspace or an external IDE triggers a build through DX (the Dioxus CLI) or directly through Cargo. Click a diagnostic to jump to its line and column. Once the build succeeds, you can choose to apply it. Model and texture changes use asset hot reloading.
 - **Tune parameters while preserving runtime state.** With DX, compatible debug builds can patch the bodies of explicitly registered pure, zero-argument numeric functions in edit mode. Changes to structure or dependencies require a full rebuild. Applying that build restarts the project preview after confirmation.
 - **Extend and ship your project.** Import GLB files, edit materials and animations, and load native authoring plugins in the workspace. Write project logic in Rust with the Feathrise SDK. On Windows, you can export a standalone runtime directory.
+
+### Project 3D Preview
+
+Once **Project 3D** is ready, click **Preview** in the top bar to **switch to the game view instantly**. Use the preview toolbar to toggle the mesh and collision mesh overlays, or click **Return** to resume editing.
+
+![Project 3D preview of 剑与侠客, with the player between trees and tall grass](docs/media/rpg-scene-runtime.png)
+
+### Build Configuration and Project Features
+
+Use the top-bar build menu to choose `Debug` or `Release`, and `DX` or `Cargo`. Choose **Check Build Environment** in the same menu to see the results in the project log. The **Features** menu reads the current project's `Cargo.toml`. Select the features you want and click **Apply**. The menu indicates which features are enabled by `default`.
+
+| Build configuration | Project Cargo features |
+| --- | --- |
+| ![Project 3D build menu with Debug and Cargo selected](docs/media/project-3d-build-menu.png) | ![Project 3D Features menu showing that raytracing is enabled by default](docs/media/project-3d-cargo-features.png) |
 
 ## Quick Start
 
