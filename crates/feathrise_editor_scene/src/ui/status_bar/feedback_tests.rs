@@ -233,6 +233,7 @@ fn creation_receipt_uses_frozen_name_and_published_files_do_not_mean_scene_is_re
             Ok(CreatedScene {
                 scene_id: id.clone(),
                 display_name: "冻结新图".into(),
+                folder: "scenes/冻结新图".into(),
                 width_meters: 128.0,
                 length_meters: 128.0,
                 terrain_mode: NewSceneTerrainMode::SparseClipmap,
@@ -255,6 +256,7 @@ fn creation_receipt_uses_frozen_name_and_published_files_do_not_mean_scene_is_re
     assert_eq!(receipt.kind, EditorStatusKind::Success);
     assert_eq!(receipt.target.id, target.id);
     assert_eq!(editor.pending_scene_transition.as_ref(), Some(&id));
+    assert_eq!(app.world().resource::<EditorAssetCatalog>().current_folder, "scenes/冻结新图");
     assert!(editor.dirty); // 原草稿责任不因反馈变化被清除。
     assert_eq!(snapshot(&mut app).0, "处理中");
 }

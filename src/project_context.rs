@@ -262,7 +262,7 @@ pub(super) fn safe_directory(root: &Path, relative: &Path) -> Result<PathBuf, St
     Ok(path)
 }
 
-fn ensure_directory(root: &Path, relative: &Path) -> Result<PathBuf, String> {
+pub(super) fn ensure_directory(root: &Path, relative: &Path) -> Result<PathBuf, String> {
     let checked = safe_directory(root, relative)?;
     let mut current = root.to_owned();
     for component in relative.components() {

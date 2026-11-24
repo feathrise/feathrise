@@ -1,6 +1,7 @@
 //! 工程菜单输入、单槽任务轮询与原UI回显；F12、确认和取消不穿透到后方作者动作。
 
 use super::{components::*, resources::*};
+use crate::project_settings::{OpenProjectSettings, ProjectSettingsPresentation, ProjectSettingsSaved};
 use bevy::{
     ecs::message::MessageCursor,
     input_focus::InputFocus,
@@ -27,7 +28,11 @@ pub(super) fn handle(
     settings: Res<ProjectMenuSettings>,
     active: Res<ActiveDynamicScene>,
     mut state: ResMut<NativeProjectMenuState>,
-    mut feedback: (MessageWriter<SavedPlayFeedback>, MessageWriter<crate::project_export::messages::OpenExportDialog>),
+    mut feedback: (
+        MessageWriter<SavedPlayFeedback>,
+        MessageWriter<crate::project_export::messages::OpenExportDialog>,
+        MessageWriter<OpenProjectSettings>,
+    ),
     windows: Query<Entity, With<PrimaryWindow>>,
     mut close: ResMut<Messages<WindowCloseRequested>>,
     mut close_cursor: Local<MessageCursor<WindowCloseRequested>>,
@@ -98,6 +103,10 @@ pub(super) fn handle(
             Some(ProjectAction::BackToManager) if state.open && !state.saving() => {
                 state.open = false;
                 state.pending_close = true; // 关闭点击帧仍由菜单拥有，下一静默帧再交给原退出门。
+            }
+            Some(ProjectAction::Settings) if state.open && !state.saving() => {
+                state.open = false;
+                feedback.2.write(OpenProjectSettings);
             }
             Some(ProjectAction::Export) if state.open && !state.saving() => {
                 state.open = false;
@@ -232,14 +241,44 @@ pub(super) fn poll(
     feedback.write(SavedPlayFeedback(state.status.clone()));
 }
 
+pub(super) fn project_settings_saved(
+    mut messages: MessageReader<ProjectSettingsSaved>,
+    mut settings: ResMut<ProjectMenuSettings>,
+    mut names: Query<&mut Text, With<ProjectMenuName>>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+) {
+    let Some(saved) = messages.read().filter(|saved| {
+        saved.project.id == settings.project.id && saved.project.root == settings.project.root
+    }).last() else { return; };
+    // 文件写入成功后才替换标题和菜单使用的工程快照，失败或旧会话回执不改显示。
+    settings.project.clone_from(&saved.project);
+    for mut name in &mut names {
+        name.0.clone_from(&settings.project.name);
+    }
+    if let Ok(mut window) = windows.single_mut() {
+        window.title = format!("{} · Feathrise（羽立）", settings.project.name);
+    }
+}
+
 pub(super) fn present(
     mut commands: Commands,
     state: Res<NativeProjectMenuState>,
     active: Res<ActiveDynamicScene>,
     mut overlays: Query<&mut Node, With<ProjectMenuOverlay>>,
+    mut icons: Query<(&mut Node, &mut ImageNode), (With<ProjectMenuIcon>, Without<ProjectMenuOverlay>)>,
+    project: Option<Res<ProjectSettingsPresentation>>,
     mut statuses: Query<&mut Text, With<ProjectMenuStatus>>,
     buttons: Query<(Entity, &ProjectAction, Has<InteractionDisabled>)>,
 ) {
+    let icon = project.as_ref().and_then(|project| project.icon.as_ref());
+    let empty = Handle::default();
+    let desired = icon.unwrap_or(&empty);
+    for (mut node, mut image) in &mut icons {
+        // 只显示已保存并解码完成的工程图标；无图标时收起位置与间距。
+        let display = if icon.is_some() { Display::Flex } else { Display::None };
+        if node.display != display { node.display = display; }
+        if image.image != *desired { image.image.clone_from(desired); }
+    }
     if !state.is_changed() && !active.is_changed() {
         return;
     }
@@ -259,7 +298,7 @@ pub(super) fn present(
         let next = match action {
             ProjectAction::Toggle => false,
             ProjectAction::SetStartup => state.saving() || active.scene_id.is_none(),
-            ProjectAction::Export => state.saving(),
+            ProjectAction::Settings | ProjectAction::Export => state.saving(),
             ProjectAction::BackToManager => state.saving(),
             ProjectAction::Plugins => state.saving(),
         };
@@ -297,6 +336,7 @@ mod tests {
             .init_resource::<crate::native_project_close::NativeProjectCloseState>()
             .add_message::<WindowCloseRequested>().add_message::<SavedPlayFeedback>()
             .add_message::<crate::project_export::messages::OpenExportDialog>()
+            .add_message::<OpenProjectSettings>()
             .add_systems(Update, handle);
         app.update();
         let toggle = app.world_mut().spawn((ProjectAction::Toggle, feathrise_editor_ui::EditorButtonClick::triggered())).id();

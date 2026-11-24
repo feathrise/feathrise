@@ -18,6 +18,7 @@ pub(super) enum Action {
     StepLicensePage(isize),
     QuitApp,
     SetStartup,
+    ProjectSettings,
     ExportProject,
     Plugins,
     Browse(WorkspaceField),

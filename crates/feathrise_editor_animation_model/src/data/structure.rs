@@ -250,6 +250,13 @@ impl GlbStructure {
         Ok(())
     }
 
+    pub fn rename_mesh(&mut self, index: usize, name: &str) -> Result<(), String> {
+        let name = checked_name(name).map_err(|_| "请输入网格名称")?;
+        object_at(&self.json, "meshes", index)?;
+        self.json["meshes"][index]["name"] = json!(name);
+        Ok(())
+    }
+
     /// 文件内移动保留节点序号、其余场景和所有资源。只有可无损变换父空间时才接纳换父。
     pub fn move_node(&mut self, index: usize, parent: GlbParent) -> Result<(), String> {
         child_indices(&self.json, parent)?;

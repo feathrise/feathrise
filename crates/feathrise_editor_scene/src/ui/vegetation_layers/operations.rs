@@ -33,6 +33,9 @@ pub(crate) fn vegetation_canvas_unavailable(
     editor: &SceneEditorState,
     draft: &EditorSceneDraft,
 ) -> Option<&'static str> {
+    if let Some(reason) = crate::authoring::layer_categories::edit_error(draft, true) {
+        return Some(reason);
+    }
     if draft.terrain_documents.loading {
         return Some("正在载入网格作者画布；完成后可新建植被作者层。");
     }

@@ -517,7 +517,7 @@ fn client_environment<'a>(client: &'a Value, name: &str) -> Result<&'a str, Stri
 
 fn validate_project(project: &Project, control: &BuildControl) -> Result<(), String> {
     control.check()?;
-    if project::open(&project.root)? != *project { return Err("工程身份已改变，热更新任务未继续".into()); }
+    if !project.same_session(&project::open(&project.root)?) { return Err("工程身份已改变，热更新任务未继续".into()); }
     Ok(())
 }
 

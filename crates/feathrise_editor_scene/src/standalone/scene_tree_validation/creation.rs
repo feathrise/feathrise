@@ -3,7 +3,10 @@
 use super::*;
 use crate::{
     types::EditorAction,
-    ui::{file_manager::{FileAction, FileManagerButton}, gltf_browser::SceneTreeContents, scene_inspector::InspectorTree},
+    ui::{
+        file_manager::{FileAction, FileManagerButton}, gltf_browser::SceneTreeContents,
+        scene_context_menu::scene_menu_panels_for_validation, scene_inspector::InspectorTree,
+    },
 };
 
 pub(super) const ROOT_FOLDER: &str = "验收根目录";
@@ -11,11 +14,12 @@ pub(super) const ROOT_GLB: &str = "验收根空模型";
 pub(super) const NESTED_GLB: &str = "验收夹内空模型";
 const SOURCE_FOLDER: &str = "验收源节点";
 pub(super) const DELETED_GLB: &str = "验收永久删除空模型";
+pub(super) const CREATION_MENU_SCREENSHOT: &str = "scene-tree-new-glb-submenu.png";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in super::super) enum Case {
     RootFolder, RootGlb, NestedGlb, SourceFolder, RemoveSourceFolder, RemoveEmptyFolder, RemoveGlb, RemoveCube,
-    ChooseGlb, NewMotion, RemoveMotion, NewMainPlane, NewSourceCuboid, DisposableGlb, DeleteGlbFile,
+    ChooseGlb, NewMotion, RemoveMotion, NewMainPlane, NewMainCuboid, NewSourceCuboid, DisposableGlb, DeleteGlbFile,
 }
 
 impl Case {
@@ -28,7 +32,7 @@ impl Case {
             Self::RemoveSourceFolder => SceneMenuAction::DeleteSourceFolder,
             Self::NewMotion => SceneMenuAction::NewSceneAnimation,
             Self::NewMainPlane => SceneMenuAction::NewGlbPlane,
-            Self::NewSourceCuboid => SceneMenuAction::NewGlbCuboid,
+            Self::NewMainCuboid | Self::NewSourceCuboid => SceneMenuAction::NewGlbCuboid,
             Self::RemoveGlb => SceneMenuAction::RemoveGlb,
             Self::DeleteGlbFile => SceneMenuAction::DeleteGlbFile,
             Self::RemoveEmptyFolder | Self::RemoveCube | Self::RemoveMotion => SceneMenuAction::Delete,
@@ -50,7 +54,8 @@ impl Case {
         match self {
             Self::RootFolder | Self::RootGlb => world.query_filtered::<Entity, With<InspectorTree>>().single(world).ok(),
             Self::NestedGlb | Self::ChooseGlb | Self::DisposableGlb => folder_row(world, ROOT_FOLDER),
-            Self::SourceFolder | Self::RemoveGlb | Self::NewSourceCuboid => model_row(world),
+            Self::SourceFolder | Self::RemoveGlb => model_row(world),
+            Self::NewSourceCuboid => scene_row(world, MODEL, false),
             Self::DeleteGlbFile => named_model_row(world, DELETED_GLB),
             Self::RemoveSourceFolder => world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
                 let target = row.0.as_ref()?;
@@ -60,7 +65,7 @@ impl Case {
             }),
             Self::RemoveEmptyFolder => folder_row(world, CREATED_CHILD),
             Self::RemoveCube => scene_row(world, cube, false),
-            Self::NewMotion | Self::NewMainPlane => main_scene_row(world),
+            Self::NewMotion | Self::NewMainPlane | Self::NewMainCuboid => main_scene_row(world),
             Self::RemoveMotion => world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
                 (matches!(row.0.as_ref()?.key, SceneObjectKey::MainSceneAnimation(_)) && ui_visible(world, entity))
                     .then_some(entity)
@@ -71,7 +76,9 @@ impl Case {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in super::super) enum Stage {
-    CollapseMain(Case, u8), Menu(Case, u8), OpenCreation(Case, u8), Action(Case), Name(Case), Applied(Case),
+    CollapseMain(Case, u8), Menu(Case, u8), OpenCreation(Case, u8, Option<(Entity, [u32; 4])>),
+    VerifyCreation(Case, Entity, [u32; 4]), CreationScreenshot(Case), ChooseCreation(Case, u8),
+    Action(Case), Name(Case), Applied(Case),
     RootVisible(Case), ExpandSource(u8), Mode(ViewportMode), Undo(Case), Restored(Case),
     PickDirectory(u8, u8), PickFile(u8), ConfirmFile(u8),
     MoveMesh(u8), MeshMoved, MeshRestored,
@@ -92,12 +99,23 @@ fn named_model_row(world: &mut World, name: &str) -> Option<Entity> {
     })
 }
 
+fn panel_rect(world: &World, panel: Entity) -> Option<Rect> {
+    let layout = world.get::<ComputedNode>(panel)?;
+    let center = world.get::<UiGlobalTransform>(panel)?.translation;
+    let scale = layout.inverse_scale_factor();
+    Some(Rect::from_center_size(center * scale, layout.size() * scale))
+}
+
+fn rect_bits(rect: Rect) -> [u32; 4] {
+    [rect.min.x, rect.min.y, rect.max.x, rect.max.y].map(f32::to_bits)
+}
+
 pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision: &mut u64, pulse: &mut Option<Entity>) -> Result<bool, String> {
     use Case::*;
     *stage = match *stage {
         Stage::CollapseMain(case, frame) => {
             let Some(root) = main_scene_row(world) else { return Ok(false); };
-            let icon = row_fold_icon(world, root)?;
+            let Some(icon) = tree_row_glyph(world, root) else { return Ok(false); };
             click_control(world, icon, frame)?.map_or(Stage::Menu(case, 0), |next| Stage::CollapseMain(case, next))
         }
         Stage::Menu(case, frame) => {
@@ -109,8 +127,11 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
                 if !layout.is_empty() { return Ok(false); }
             }
             let Some(node) = case.node(world, cube) else { return Ok(false); };
-            // 主场景和次场景的 GLB 图标也要命中父行右键菜单，而左键才负责展开。
-            let node = if matches!(case, NewMotion | NewSourceCuboid) { row_fold_icon(world, node)? } else { node };
+            // 文件图标左键开合，右键仍应打开所属 GLB 的菜单。
+            let node = if matches!(case, NewMotion | NewSourceCuboid) {
+                let Some(icon) = tree_row_glyph(world, node) else { return Ok(false); };
+                icon
+            } else { node };
             let (window, mut position) = pointer_context(world, node)?;
             if root_case {
                 // 先找真实滚动视口，再点其末尾留白，避免借用任何对象行。
@@ -118,16 +139,62 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
             }
             let mut click = Some((position, frame));
             if right_click(world, &mut click, window, position) {
-                if matches!(case, NewMotion | NewMainPlane | NewSourceCuboid) { Stage::OpenCreation(case, 0) }
+                if matches!(case, NewMotion | NewMainPlane | NewMainCuboid | NewSourceCuboid) { Stage::OpenCreation(case, 0, None) }
                 else { Stage::Action(case) }
             } else { Stage::Menu(case, click.unwrap().1) }
         }
-        Stage::OpenCreation(case, frame) => {
+        Stage::OpenCreation(case, frame, before) => {
             let Some(button) = visible_action_for_validation(world, SceneMenuAction::NewGlbContent) else { return Ok(false); };
-            if frame == 0 && visible_action_for_validation(world, case.action()).is_some() {
-                return Err("GLB 新建动作应在展开子菜单后出现".into());
+            let (panel, original) = if let Some(before) = before { before } else {
+                let Some((main, side)) = scene_menu_panels_for_validation(world) else { return Ok(false); };
+                if side.is_some() || visible_action_for_validation(world, case.action()).is_some() {
+                    return Err("GLB 新建项目应在打开子菜单后显示".into());
+                }
+                let Some(original) = panel_rect(world, main) else { return Ok(false); };
+                (main, rect_bits(original))
+            };
+            click_control(world, button, frame)?.map_or(Stage::VerifyCreation(case, panel, original),
+                |next| Stage::OpenCreation(case, next, Some((panel, original))))
+        }
+        Stage::VerifyCreation(case, panel, original) => {
+            let Some((main, Some(side))) = scene_menu_panels_for_validation(world) else { return Ok(false); };
+            let (Some(main_rect), Some(side_rect)) = (panel_rect(world, main), panel_rect(world, side)) else { return Ok(false); };
+            if panel != main || original != rect_bits(main_rect) {
+                return Err("打开 GLB 新建子菜单移动或调整了原右键菜单".into());
             }
-            click_control(world, button, frame)?.map_or(Stage::Action(case), |next| Stage::OpenCreation(case, next))
+            // 子面板只与主面板共用一个边框，不纵向挤进父菜单。
+            let seam = if side_rect.center().x > main_rect.center().x {
+                side_rect.min.x - main_rect.max.x
+            } else {
+                main_rect.min.x - side_rect.max.x
+            };
+            if (seam + 1.0).abs() > 1.1 || side_rect.min.y >= main_rect.max.y || side_rect.max.y <= main_rect.min.y {
+                return Err(format!("GLB 新建子菜单没有贴在原菜单侧边：{main_rect:?}，{side_rect:?}"));
+            }
+            if case == NewMotion {
+                if visible_action_for_validation(world, SceneMenuAction::EditInBlender).is_none() {
+                    return Err("打开新建子菜单应保留主 GLB 的 Blender 入口".into());
+                }
+                let Some(create) = visible_action_for_validation(world, SceneMenuAction::NewGlbContent) else { return Ok(false); };
+                if row_icon(world, create, "icons/editor/tree_expand.png").is_none() {
+                    return Err("「新建」应显示实际的小箭头图标".into());
+                }
+                request_screenshot(world, CREATION_MENU_SCREENSHOT)?;
+                Stage::CreationScreenshot(case)
+            } else { Stage::ChooseCreation(case, 0) }
+        }
+        Stage::CreationScreenshot(case) => {
+            let Some(result) = world.get_resource_mut::<StartupScreenshot>()
+                .and_then(|mut capture| check_ready(&mut capture.0)) else { return Ok(false); };
+            result?;
+            world.remove_resource::<StartupScreenshot>();
+            Stage::ChooseCreation(case, 0)
+        }
+        // 第 2 帧已发出鼠标释放，真实菜单随后关闭。等待作者结果无需再找已隐藏的子项。
+        Stage::ChooseCreation(case, 3) => Stage::Applied(case),
+        Stage::ChooseCreation(case, frame) => {
+            let Some(button) = visible_action_for_validation(world, case.action()) else { return Ok(false); };
+            click_control(world, button, frame)?.map_or(Stage::Applied(case), |next| Stage::ChooseCreation(case, next))
         }
         Stage::Action(case) => {
             let Some(button) = visible_action_for_validation(world, case.action()) else { return Ok(false); };
@@ -137,8 +204,8 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
             if case == RemoveCube && visible_action_for_validation(world, SceneMenuAction::EditInBlender).is_some() {
                 return Err("主场景内嵌网格应从主 GLB 根行打开 Blender".into());
             }
-            if matches!(case, NewMotion | SourceFolder) && visible_action_for_validation(world, SceneMenuAction::EditInBlender).is_none() {
-                return Err("主场景和独立 GLB 都应在文件根提供 Blender 入口".into());
+            if case == SourceFolder && visible_action_for_validation(world, SceneMenuAction::EditInBlender).is_none() {
+                return Err("独立 GLB 应在文件根提供 Blender 入口".into());
             }
             if case == DeleteGlbFile && (visible_action_for_validation(world, SceneMenuAction::RemoveGlb).is_none()
                 || !world.get::<Children>(button).is_some_and(|labels| labels.iter().any(|label|
@@ -187,9 +254,24 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
                     if matches!(&record.asset_target, feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh {geometry, ..}
                         if geometry.is_open())
                     && record.translation == world.resource::<crate::resources::SceneEditorViewportState>().scene_center.to_array()),
-                NewSourceCuboid => draft.source_glb_edits.version(&source).is_some_and(|version|
-                    version.nodes.iter().any(|node| node.mesh.is_some()
-                        && node.path.last().is_some_and(|name| name.starts_with("立方体")))),
+                NewMainCuboid => matches!(session.undo.last(), Some(EditorCommand::PlacementAdded(record))
+                    if matches!(&record.asset_target, feathrise_scene_content::ScenePlacementAssetTarget::Cuboid { .. })
+                        && record.translation == [0.0; 3] && record.terrain_offset == 0.0
+                        && record.height_mode == feathrise_scene_content::ScenePlacementHeightMode::FixedHeight),
+                NewSourceCuboid => {
+                    // 用原夹具已有偏移的引用，确认写入的是文件坐标而非场景位置。
+                    let center = world.resource::<crate::resources::SceneEditorViewportState>().scene_center.to_array();
+                    if !draft.placements.placements.iter().any(|item|
+                        item.id == MODEL && item.translation != [0.0; 3] && item.translation != center)
+                    {
+                        return Err("外部 GLB 立方体验收需要偏移且不处于场景中心的引用".into());
+                    }
+                    let version = draft.source_glb_edits.version(ASSET_PATH).ok_or("新立方体未写入选中的外部 GLB")?;
+                    let glb = bevy::gltf::gltf::Gltf::from_slice(&version.bytes).map_err(|error| error.to_string())?;
+                    glb.nodes().any(|node| node.name().is_some_and(|name| name.starts_with("立方体")
+                        && node.mesh().and_then(|mesh| mesh.name()).is_some_and(|mesh_name| mesh_name == name))
+                        && node.transform().decomposed().0 == [0.0; 3])
+                }
                 RemoveMotion => draft.motion.clip_name().is_none(),
             };
             if !expected { return Err(format!("场景树操作落在了错误的目标下：{case:?}")); }
@@ -210,7 +292,8 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
                 SourceFolder => Stage::ExpandSource(0),
                 RemoveSourceFolder => Stage::Menu(RemoveEmptyFolder, 0),
                 RemoveEmptyFolder | RemoveGlb | RemoveCube | NewSourceCuboid => Stage::Undo(case),
-                NewMainPlane => Stage::Menu(NewSourceCuboid, 0),
+                NewMainPlane => Stage::Menu(NewMainCuboid, 0),
+                NewMainCuboid => Stage::Menu(NewSourceCuboid, 0),
                 NewMotion => Stage::MotionLayout,
                 RemoveMotion => Stage::Menu(DisposableGlb, 0),
                 DeleteGlbFile => Stage::Mode(ViewportMode::Move),
@@ -284,8 +367,8 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
         }
         Stage::ExpandSource(frame) => {
             let Some(row) = model_row(world) else { return Ok(false); };
-            let icon = row_fold_icon(world, row)?;
-            match click_control(world, icon, frame)? {
+            let arrow = row_arrow(world, row)?;
+            match click_control(world, arrow, frame)? {
                 Some(frame) => Stage::ExpandSource(frame),
                 None => Stage::Menu(RemoveSourceFolder, 0),
             }
@@ -313,10 +396,8 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
                 RemoveEmptyFolder => draft.object_folders.parent(CREATED_CHILD) == Some(RENAMED_FOLDER),
                 RemoveGlb => draft.placements.placements.iter().any(|item| item.editor.name == ROOT_GLB && item.editor.group.is_empty()),
                 RemoveCube => draft.placements.placements.iter().any(|item| item.id == cube && item.asset_target.is_builtin()),
-                NewSourceCuboid => {
-                    let source = format!("{}/models/{ROOT_GLB}.glb", draft.folder.trim_end_matches('/'));
-                    draft.source_glb_edits.version(&source).is_none_or(|version| !version.nodes.iter().any(|node| node.mesh.is_some()))
-                }
+                NewSourceCuboid => draft.source_glb_edits.version(ASSET_PATH).is_none_or(|version|
+                    !version.nodes.iter().any(|node| node.mesh.is_some() && node.mesh_name.starts_with("立方体"))),
                 _ => false,
             };
             if !restored || session.revision != revision.wrapping_add(1) {

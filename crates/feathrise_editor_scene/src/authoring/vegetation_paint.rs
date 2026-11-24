@@ -55,6 +55,7 @@ pub(crate) fn apply_vegetation_brush(
     let brush_context = editor.open
         && scope.as_ref().is_none_or(|scope| scope.scope==super::vegetation_paint_scope::PaintScope::Current)
         && editor.tool == EditorTool::Vegetation
+        && session.draft.as_ref().is_some_and(|draft| super::layer_categories::edit_error(draft, true).is_none())
         && super::terrain_documents::canvas_writable(&session, &editor)
         && (draining || !selecting_layer)
         && (draining || ground.as_ref().is_none_or(|ground| ground.source_authoring_available()))

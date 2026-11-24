@@ -6,10 +6,12 @@
 
 use bevy::prelude::*;
 use bevy::tasks::futures::check_ready;
+use std::{collections::BTreeSet, sync::Arc};
 use feathrise_scene_content::WaterPresetRegistry; // 轮询采用门直接复验当前正式目录修订。
 use feathrise_scene::{
     ClipmapSplineWaterSurface, ClipmapWaterSurface, DynamicClipmapWaterDraft, DynamicWaterMaterial,
-    DynamicWaterStatus, PaintedWaterPurpose, PaintedWaterSurface, TerrainObjectResource,
+    DynamicWaterStatus, PaintedWaterPurpose, PaintedWaterSurface, PaintedWaterSurfaceSpawn,
+    StagedWaterSurface, TerrainObjectResource, WaterSurfaceKind,
     WaterGpuUploadQueue, WaterGpuUploadReceipts,
     spawn_staged_water_surface, spawn_staged_water_warmup, stage_water_surface_chunk,
 };
@@ -29,9 +31,31 @@ pub(crate) use build::start_water_preview_rebuild; // 保持系统注册使用�
 use cleanup::{discard_pending_preview, remove_preview_assets, restore_hidden_runtime};
 use suppression::{current_source, hide_replaced_surface, runtime_target};
 
-use super::resources::{EditorAuthoringSession, PendingWaterPreviewBatch, WaterPreviewState};
+use super::{layer_categories::LayerPreviewVisibility, resources::{EditorAuthoringSession, PendingWaterPreviewBatch, WaterPreviewState}};
 use crate::components::EditorWaterPreview;
 use crate::resources::SceneEditorState;
+use crate::ui::scene_layers::WaterLayerEyes;
+
+// 旧 SDK 不提供单水层状态，也无需读取待采用水面的单层身份。
+#[allow(dead_code)]
+trait LegacyStagedWaterSurface { fn still_water_id(&self) -> Option<&str> { None } }
+impl LegacyStagedWaterSurface for StagedWaterSurface {}
+
+#[allow(dead_code)]
+trait LegacyPaintedWaterSurfaceSpawn {
+    fn set_interaction_enabled(&self, _commands: &mut Commands, _enabled: bool) {}
+}
+impl LegacyPaintedWaterSurfaceSpawn for PaintedWaterSurfaceSpawn {}
+
+type WaterPresentationInputs = (bool, Visibility, Option<Arc<BTreeSet<String>>>, Option<WaterLayerEyes>);
+
+fn same_input<T>(left: Option<&Arc<T>>, right: Option<&Arc<T>>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+        (None, None) => true,
+        _ => false,
+    }
+}
 
 /// 只有场景和正式目录修订仍完全匹配时，才原子采用全部水层完成值。
 #[allow(clippy::too_many_arguments)]
@@ -52,9 +76,35 @@ pub(crate) fn poll_water_preview_rebuild(
         (Without<EditorWaterPreview>, Without<ClipmapWaterSurface>, Without<ClipmapSplineWaterSurface>),
     >,
     mut preview: ResMut<WaterPreviewState>,
+    categories: LayerPreviewVisibility,
+    mut published_presentation: Local<Option<WaterPresentationInputs>>,
+    editor_surfaces: Query<&PaintedWaterSurface, With<EditorWaterPreview>>,
 ) {
+    let editor_open = editor.open;
+    let visibility = categories.for_root(editor_open, session.draft.as_ref(), false);
     let current_source = current_source(&session)
         .filter(|source| editor.selected_scene_id.as_ref() == Some(&source.scene_id));
+    let terrain = current_source.as_ref().and_then(|source| source.terrain_id.as_ref());
+    let (disabled, eyes) = categories.still_water_inputs(editor_open, session.draft.as_ref(), terrain);
+    let surface_presentation = |still_water: Option<&str>| {
+        let visible = visibility != Visibility::Hidden && still_water.is_none_or(|id|
+            categories.still_water_visible(editor_open, session.draft.as_ref(), terrain, id));
+        // 编辑器的眼睛只改画面。关闭后 visible 只来自正式参与，已停用水面也退出玩法互动。
+        (if visible { Visibility::Inherited } else { Visibility::Hidden }, editor_open || visible)
+    };
+    if published_presentation.as_ref().is_none_or(|(old_open, old_visibility, old_disabled, old_eyes)|
+        *old_open != editor_open || *old_visibility != visibility
+            || !same_input(old_disabled.as_ref(), disabled) || !same_input(old_eyes.as_ref(), eyes)) {
+        *published_presentation = Some((editor_open, visibility, disabled.cloned(), eyes.cloned()));
+        // F12 开合与图层变化沿用已采用的 GPU 资产和原替换关系。
+        for spawn in &preview.spawns {
+            let id = editor_surfaces.get(spawn.entity).ok().filter(|surface| surface.kind == WaterSurfaceKind::Still)
+                .map(|surface| surface.layer_id.as_str());
+            let (visibility, interactive) = surface_presentation(id);
+            commands.entity(spawn.entity).try_insert(visibility);
+            spawn.set_interaction_enabled(&mut commands, interactive);
+        }
+    }
     if preview.replacement_source.as_ref().is_some_and(|source| Some(source) != current_source.as_ref()) {
         // 切到根水、Clipmap或另一GLB时立即归还旧来源；Ready映射不能继续携带旧GLB替代物。
         restore_hidden_runtime(&mut commands, &mut preview);
@@ -331,6 +381,7 @@ pub(crate) fn poll_water_preview_rebuild(
     let triangle_count = pending.triangle_count;
     let mut new_spawns = Vec::with_capacity(pending.staged.len());
     for staged in pending.staged {
+        let (layer_visibility, interactive) = surface_presentation(staged.still_water_id());
         let spawn = spawn_staged_water_surface(
             &mut commands,
             scene_id.clone(),
@@ -339,7 +390,10 @@ pub(crate) fn poll_water_preview_rebuild(
         );
         commands
             .entity(spawn.entity)
-            .insert((EditorWaterPreview, DespawnOnExit(*scene.get())));
+            .insert((EditorWaterPreview, DespawnOnExit(*scene.get()), layer_visibility));
+        if !interactive {
+            spawn.set_interaction_enabled(&mut commands, false);
+        }
         new_spawns.push(spawn);
     }
 

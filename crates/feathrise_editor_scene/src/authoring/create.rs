@@ -3,9 +3,9 @@
 use std::path::Path; // 私有目录和目录JSON路径拼接。
 use std::time::{SystemTime, UNIX_EPOCH}; // 无额外依赖生成稳定ASCII草稿ID。
 
-use super::creation_input::{SceneDimensions, normalize_display_name, validated_creation_request}; // 旧双层预算已由唯一多层规划器替代。
+use super::creation_input::{SceneDimensions, normalize_display_name, scene_directory_name, validated_creation_request};
 use super::files::{
-    atomic_write, atomic_write_json, decode_scene_catalog, workspace_asset_root, workspace_scenes_root,
+    atomic_write, atomic_write_json, decode_scene_catalog, workspace_asset_root,
 };
 use super::ktx2::encode_surface_maps; // 新场景一次预生成严格匹配的地表索引和权重 Mip。
 use super::vegetation_defaults::empty_vegetation_authoring; // 新场景的正式输出和作者画布都从空白开始。
@@ -25,7 +25,7 @@ use feathrise_scene_content::{
     GENERATED_SCENE_ID_PREFIX, SCENE_BOUNDARIES_FILE_NAME, SCENE_CATALOG_ASSET_PATH, SCENE_MANIFEST_FILE_NAME,
     SCENE_PLACEMENTS_GLB_FILE_NAME, SCENE_PORTALS_FILE_NAME, SCENE_SCHEMA_VERSION, SCENE_SURFACE_FILE_NAME,
     SCENE_SURFACE_SCHEMA_VERSION, SCENE_VEGETATION_FILE_NAME, SCENE_WATER_FILE_NAME, SceneBoundariesAsset,
-    SceneCatalogEntry, SceneClipmapCollisionMode, SceneEnvironmentDescriptor, SceneId, SceneManifestAsset,
+    SceneCatalogEntry, SceneClipmapCollisionMode, SceneId, SceneManifestAsset,
     ScenePlacementsAsset, ScenePortalsAsset, SceneSurfaceAsset, SceneTerrainDescriptor, SceneVegetationAsset,
     SparseHeightDocument, SparseHeightSpec, sparse_height_manifest_asset_path,
 }; // 新建文件严格复用运行时资产契约。 // 后台任务只返回轻量成功身份。
@@ -80,8 +80,8 @@ fn default_new_scene_vegetation(
     }
 }
 
-/// 生成不依赖中文转写、可用于目录与传送引用的稳定ASCII ID。
-fn next_scene_id(scenes_root: &Path, unix_millis: u128) -> Result<SceneId, String> {
+/// 目录名与引用身份分离，同时避开既有目录登记和 SDK 按 ID 保留的地形路径。
+fn next_scene_id(scenes_root: &Path, entries: &[SceneCatalogEntry], unix_millis: u128) -> Result<SceneId, String> {
     let base = format!("{GENERATED_SCENE_ID_PREFIX}{unix_millis}");
     for suffix in 0..10_000u32 {
         let value = if suffix == 0 {
@@ -89,7 +89,10 @@ fn next_scene_id(scenes_root: &Path, unix_millis: u128) -> Result<SceneId, Strin
         } else {
             format!("{base}-{suffix}")
         };
-        if !scenes_root.join(&value).exists() {
+        if !entries.iter().any(|entry| entry.id.as_str().eq_ignore_ascii_case(&value))
+            && std::fs::symlink_metadata(scenes_root.join(&value))
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+        {
             return SceneId::parse(value);
         }
     }
@@ -138,6 +141,7 @@ fn new_scene_terrain_descriptor(
 fn new_scene_catalog_entry(
     scene_id: &SceneId,
     display_name: &str,
+    folder: &str,
     terrain_mode: NewSceneTerrainMode,
 ) -> SceneCatalogEntry {
     // 不读取磁盘，不分配任何密度画布。
@@ -145,32 +149,33 @@ fn new_scene_catalog_entry(
         // 只登记创建事务已经完整写入的内容。
         id: scene_id.clone(),                    // 稳定场景身份。
         display_name: display_name.to_owned(), // 已通过创建请求名称校验。
-        folder: format!("scenes/{scene_id}"),      // 唯一私有目录根。
+        folder: folder.to_owned(),             // 物理目录使用名称，ID 仍用于保存与引用。
         published: true,                       // 完整创建后公开场景。
         placements_glb: true,
-        surface_path: (terrain_mode != NewSceneTerrainMode::Empty).then(|| format!("scenes/{scene_id}/{SCENE_SURFACE_FILE_NAME}")), // 空图不创建无地形可承载的画布。
-        vegetation_path: Some(format!("scenes/{scene_id}/{SCENE_VEGETATION_FILE_NAME}")), // Clipmap使用分页高度Blade后端，不能再按GLB路线过滤入口。
-        water_path: Some(format!("scenes/{scene_id}/{SCENE_WATER_FILE_NAME}")), // 两条动态地形路线都登记已经同批写入的空静水作者文件。
+        surface_path: (terrain_mode != NewSceneTerrainMode::Empty).then(|| format!("{folder}/{SCENE_SURFACE_FILE_NAME}")), // 空图不创建无地形可承载的画布。
+        vegetation_path: Some(format!("{folder}/{SCENE_VEGETATION_FILE_NAME}")),
+        water_path: Some(format!("{folder}/{SCENE_WATER_FILE_NAME}")),
         characters_path: None, // 旧格式入口保持为空；外部作者首次使用时自行登记对应文件。
-        boundary_path: (terrain_mode != NewSceneTerrainMode::Empty).then(|| format!("scenes/{scene_id}/{SCENE_BOUNDARIES_FILE_NAME}")), // 空图没有隐含安全墙。
+        boundary_path: (terrain_mode != NewSceneTerrainMode::Empty).then(|| format!("{folder}/{SCENE_BOUNDARIES_FILE_NAME}")), // 空图没有隐含安全墙。
     } // 目录是创建事务最后一个可见目标。
 } // 不为新图预建任何植被正式层。
 
 /// 在IO线程写入所选地形作者源和公共私有文件，最后才原子发布目录入口。
 fn create_scene(
+    asset_root: &Path,
     request: SceneCreationRequest,
     prepared_terrain: PreparedTerrain,
 ) -> Result<CreatedScene, String> {
     let display_name = normalize_display_name(&request.display_name)?;
+    let directory_name = scene_directory_name(&display_name)?;
     let dimensions = SceneDimensions::for_mode(
         request.terrain_mode,
         request.width_meters,        // 后台重验冻结的场景X尺寸。
         request.length_meters,       // 后台重验冻结的场景Z尺寸。
         request.terrain_cell_meters, // 后台按冻结路线重验作者格距与容量，不能只信UI。
     )?;
-    let asset_root = workspace_asset_root();
-    let _content_author_lock = feathrise_scene_content::ContentAuthorLock::acquire(&asset_root)?; // 场景目录发布与已有领域作者事务继续使用同一写锁，避免并发丢登记。
-    let scenes_root = workspace_scenes_root();
+    let _content_author_lock = feathrise_scene_content::ContentAuthorLock::acquire(asset_root)?; // 场景目录发布与已有领域作者事务继续使用同一写锁，避免并发丢登记。
+    let scenes_root = asset_root.join("scenes");
     let catalog_path = asset_root.join(SCENE_CATALOG_ASSET_PATH);
     let original_catalog_bytes = std::fs::read(&catalog_path)
         .map_err(|error| format!("读取场景目录{}失败：{error}", catalog_path.display()))?; // 保留原字节用于并发检测。
@@ -179,19 +184,29 @@ fn create_scene(
         .duration_since(UNIX_EPOCH)
         .map_err(|error| format!("系统时间早于Unix纪元：{error}"))?
         .as_millis();
-    let scene_id = next_scene_id(&scenes_root, unix_millis)?;
-    if catalog.scenes.iter().any(|entry| entry.id == scene_id) {
-        return Err(format!("场景目录已存在ID {scene_id}"));
+    let scene_id = next_scene_id(&scenes_root, &catalog.scenes, unix_millis)?;
+    let folder_relative = format!("scenes/{directory_name}");
+    let folder_key = folder_relative.to_lowercase();
+    let name_key = display_name.to_lowercase();
+    if catalog.scenes.iter().any(|entry| {
+        entry.display_name.trim().to_lowercase() == name_key
+            || entry.folder.trim_end_matches('/').to_lowercase() == folder_key
+            || entry.id.as_str().eq_ignore_ascii_case(&directory_name)
+    })
+    {
+        return Err(format!("场景目录已登记同名场景或目录“{directory_name}”"));
     }
 
-    let folder_relative = format!("scenes/{scene_id}");
     let folder = asset_root.join(&folder_relative);
-    let terrain_folder = folder.join("terrain");
-    if folder.exists() {
-        return Err(format!("场景私有目录已存在：{}", folder.display()));
-    }
-    std::fs::create_dir_all(&terrain_folder)
-        .map_err(|error| format!("创建场景目录{}失败：{error}", terrain_folder.display()))?;
+    // 独占创建成功后才写入；预先存在的普通目录、文件或链接均不能被接管。
+    std::fs::create_dir(&folder).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            format!("场景私有目录已存在：{}", folder.display())
+        } else {
+            format!("创建场景目录{}失败：{error}", folder.display())
+        }
+    })?;
+    let mut sparse_folder = None;
 
     let result = (|| {
         let mesh_resolution = dimensions.terrain_mesh_resolution; // 原始路线表示GLB顶点，Clipmap路线表示作者逻辑格点。
@@ -199,6 +214,13 @@ fn create_scene(
         match (request.terrain_mode, prepared_terrain) {
             (NewSceneTerrainMode::Empty, PreparedTerrain::Empty) => {},
             (NewSceneTerrainMode::SparseClipmap, PreparedTerrain::SparseClipmap) => {
+                // 已发布 SDK 的稀疏高度清单仍使用稳定 ID 路径，不随场景资料目录更名。
+                let sdk_folder = scenes_root.join(scene_id.as_str());
+                if sdk_folder != folder {
+                    std::fs::create_dir(&sdk_folder)
+                        .map_err(|error| format!("创建场景高度目录{}失败：{error}", sdk_folder.display()))?;
+                    sparse_folder = Some(sdk_folder);
+                }
                 let sparse_spec = SparseHeightSpec::new(
                     dimensions.world_min,
                     dimensions.world_max,
@@ -207,39 +229,28 @@ fn create_scene(
                     DEFAULT_HEIGHT_SCALE,
                 )?; // 只计算标量元数据，不生成最大场景的整图网格。
                 let mut sparse_height =
-                    SparseHeightDocument::create_empty(&asset_root, scene_id.clone(), sparse_spec)?; // 独立编辑器可复用同一稀疏作者数据入口。
+                    SparseHeightDocument::create_empty(asset_root, scene_id.clone(), sparse_spec)?; // 独立编辑器可复用同一稀疏作者数据入口。
                 sparse_height.save_dirty()?; // 先发布空白稀疏清单，最后才发布场景目录入口。
             }
             _ => return Err("新建场景地形方案与后台准备产物不一致".to_owned()),
         }
 
-        let mut manifest = SceneManifestAsset {
-            vegetation_paint_groups: Default::default(),
-            terrains: (request.terrain_mode == NewSceneTerrainMode::Empty).then(Default::default),
-            subscenes: Default::default(), // 新图没有子场景引用，添加操作单独进入作者历史。
-            schema_version: SCENE_SCHEMA_VERSION,
-            id: scene_id.clone(),
-            display_name: display_name.clone(),
-            notes: request.notes.clone(), // 与名称一起冻结并写入私有清单，不进入全局目录索引。
-            runtime_scene: feathrise_scene_content::SceneRuntimeKind::DataDriven.as_str().to_owned(), // 新图不依赖原游戏枚举名称。
-            world_min: dimensions.world_min,
-            world_max: dimensions.world_max,
-            default_spawn: [0.0, 2.0, 0.0],
-            environment: SceneEnvironmentDescriptor::default(), // 新场景先使用中性清屏色，作者在F12明确选择立方体后才增加依赖。
-            puddles: None, // 新图及旧图夹具默认没有积水，首次有效落笔才创建。
-            terrain: new_scene_terrain_descriptor(
-                request.terrain_mode,
-                &scene_id,
-                &folder_relative,
-                height_resolution,
-            ), // 清单永久冻结本次创建选择，现有场景不会随默认项改变。
-            asset_roots: vec![
-                folder_relative.clone(),
-                "gltf".to_owned(),
-                "textures".to_owned(),
-            ],
-        };
+        // 走正式清单的默认规则，让公开固定 SDK 和新增可选字段的本地 SDK 共用创建入口。
+        let mut manifest: SceneManifestAsset = serde_json::from_value(serde_json::json!({
+            "schema_version": SCENE_SCHEMA_VERSION,
+            "id": scene_id,
+            "display_name": display_name,
+            "notes": request.notes,
+            "runtime_scene": feathrise_scene_content::SceneRuntimeKind::DataDriven.as_str(),
+            "world_min": dimensions.world_min,
+            "world_max": dimensions.world_max,
+            "default_spawn": [0.0, 2.0, 0.0],
+            "asset_roots": [folder_relative.as_str(), "gltf", "textures"],
+        })).map_err(|error| format!("构造新场景清单失败：{error}"))?;
+        manifest.terrains = (request.terrain_mode == NewSceneTerrainMode::Empty).then(Default::default);
+        manifest.terrain = new_scene_terrain_descriptor(request.terrain_mode, &scene_id, &folder_relative, height_resolution);
         if request.terrain_mode == NewSceneTerrainMode::SparseClipmap {
+            if sparse_folder.is_some() { manifest.asset_roots.push(format!("scenes/{scene_id}")); }
             // 新模式才写完整列表。
             let spec = SparseHeightSpec::new(
                 dimensions.world_min,
@@ -275,7 +286,7 @@ fn create_scene(
                 scene_id: scene_id.clone(),
                 placements: Vec::new(),
             },
-            &format!("scenes/{scene_id}/{SCENE_PLACEMENTS_GLB_FILE_NAME}"),
+            &format!("{folder_relative}/{SCENE_PLACEMENTS_GLB_FILE_NAME}"),
             None,
         )?;
         atomic_write(&folder.join(SCENE_PLACEMENTS_GLB_FILE_NAME), &placement_glb)?;
@@ -316,7 +327,7 @@ fn create_scene(
         }
 
         let folder_mutation = prepare_scene_assignment_mutation(
-            &asset_root,
+            asset_root,
             request.folder_source_bytes.clone(),
             &scene_id,
             request.folder_id.as_deref(),
@@ -326,6 +337,7 @@ fn create_scene(
         catalog.scenes.push(new_scene_catalog_entry(
             &scene_id,
             &display_name,
+            &folder_relative,
             request.terrain_mode,
         )); // 私有文件全部完成后，两条路线均公开Blade植被入口。
         let latest_catalog_bytes = std::fs::read(&catalog_path)
@@ -349,6 +361,7 @@ fn create_scene(
         Ok(CreatedScene {
             scene_id,
             display_name,
+            folder: folder_relative,
             width_meters: dimensions.width_meters,
             length_meters: dimensions.length_meters,
             terrain_mode: request.terrain_mode,
@@ -359,6 +372,7 @@ fn create_scene(
     if result.is_err() {
         // 新目录尚未进入全局目录，失败时可安全清除本次唯一目标；既有场景不受影响。
         let _ = std::fs::remove_dir_all(&folder);
+        if let Some(folder) = sparse_folder { let _ = std::fs::remove_dir_all(folder); }
     }
     result
 }
@@ -383,6 +397,7 @@ fn start_scene_creation(
     task.feedback_target = Some(EditorStatusTarget::new(&display_name, &display_name)); // 名称在进入后台前冻结，失败回执不读取后来修改的输入。
     task.ticket = task.ticket.wrapping_add(1);
     let ticket = task.ticket;
+    let asset_root = workspace_asset_root();
     task.task = Some(IoTaskPool::get().spawn(async move {
         let prepared = match terrain_mode {
             NewSceneTerrainMode::Empty => Ok(PreparedTerrain::Empty),
@@ -390,7 +405,7 @@ fn start_scene_creation(
         };
         (
             ticket,
-            prepared.and_then(|terrain| create_scene(request, terrain)),
+            prepared.and_then(|terrain| create_scene(&asset_root, request, terrain)),
         )
     })); // 同一任务槽和票据覆盖可选计算、IO及发布阶段，主线程始终只非阻塞轮询。
     let grid_label = match terrain_mode {
@@ -541,7 +556,7 @@ pub(crate) fn poll_scene_creation(
             ); // 创建结果不能只停留在选中态，必须登记等待清单就绪的正式切换场景请求。
             editor.new_scene_dialog_open = false;
             editor.new_scene_name.clear();
-            assets.current_folder = format!("scenes/{}", created.scene_id);
+            assets.current_folder = created.folder;
             assets.requested_revision = assets.requested_revision.wrapping_add(1);
             if let Some(target) = task.feedback_target.take() {
                 editor.record_operation_result(
@@ -570,6 +585,67 @@ pub(crate) fn poll_scene_creation(
 mod tests {
     use super::*;
 
+    #[test]
+    fn scene_directory_names_preserve_unicode_and_reject_reserved_components() {
+        assert_eq!(scene_directory_name("   秋風/河谷: Forêt #01. . ").unwrap(), "秋風河谷 Forêt 01");
+        for name in ["..", " /:*? ", ".TRASH.", "con.txt", "NuL .文件", "COM¹.目录", "lpt9"] {
+            assert!(scene_directory_name(name).is_err(), "{name}");
+        }
+        assert_eq!(scene_directory_name("Combate ２号").unwrap(), "Combate ２号");
+    }
+
+    #[test]
+    fn new_scene_uses_named_directory_and_keeps_registered_id_and_existing_files() {
+        struct Fixture(std::path::PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+        }
+        let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("feathrise-scene-named-{}-{time}", std::process::id()));
+        std::fs::create_dir(&root).unwrap(); // 只清理本例独占创建的目录。
+        let fixture = Fixture(root);
+        let root = &fixture.0;
+        std::fs::create_dir(root.join("scenes")).unwrap();
+        let catalog_path = root.join(SCENE_CATALOG_ASSET_PATH);
+        atomic_write_json(&catalog_path, &serde_json::json!({
+            "schema_version": SCENE_SCHEMA_VERSION,
+            "scenes": [{"id":"SCENE-legacy","display_name":"旧場景","folder":"scenes/SCENE-legacy","published":true}]
+        })).unwrap();
+        let original = std::fs::read(&catalog_path).unwrap();
+        let existing = root.join("scenes/既有目录");
+        std::fs::create_dir(&existing).unwrap();
+        std::fs::write(existing.join("保留.txt"), b"untouched").unwrap();
+        let create = |name| create_scene(root, validated_creation_request(
+            name, "", "", "", NewSceneTerrainMode::Empty,
+        ).unwrap(), PreparedTerrain::Empty);
+        assert!(create("既有目录").is_err());
+        assert!(create("旧場景").is_err());
+        assert!(create("SCENE-legacy").is_err());
+        assert_eq!(std::fs::read(existing.join("保留.txt")).unwrap(), b"untouched");
+        assert_eq!(std::fs::read(&catalog_path).unwrap(), original);
+
+        let scene = create("新/場景 Réserve*.").unwrap();
+        assert_eq!(scene.display_name, "新/場景 Réserve*.");
+        assert_eq!(scene.folder, "scenes/新場景 Réserve");
+        let bytes = std::fs::read(&catalog_path).unwrap();
+        assert!(create("新場景 Réserve").is_err(), "清理后同目录也不能覆盖");
+        assert_eq!(std::fs::read(&catalog_path).unwrap(), bytes);
+        let catalog = decode_scene_catalog(&catalog_path, &bytes).unwrap();
+        assert_eq!(catalog.scenes[0].folder, "scenes/SCENE-legacy");
+        let entry = &catalog.scenes[1];
+        assert_eq!(entry.id, scene.scene_id);
+        assert_eq!(entry.folder, scene.folder);
+        assert!(!root.join("scenes").join(scene.scene_id.as_str()).exists());
+        let manifest: SceneManifestAsset = serde_json::from_slice(
+            &std::fs::read(root.join(entry.manifest_path())).unwrap(),
+        ).unwrap();
+        assert_eq!(manifest.id, scene.scene_id);
+        assert_eq!(manifest.asset_roots[0], entry.folder);
+        let path = entry.placements_path();
+        let glb = std::fs::read(root.join(&path)).unwrap();
+        assert_eq!(feathrise_scene_content::read_scene_placements(&glb, &path).unwrap().scene_id, scene.scene_id);
+    }
+
     #[test] // 原始GLB与Clipmap共享空白画布，不因地形路线隐式引用全局地表。
     fn both_new_scene_routes_start_with_unpainted_layerless_surface() {
         let scene_id = SceneId::parse("MAP-empty-surface-test").unwrap(); // 两种路线都复用同一场景地表契约。
@@ -596,14 +672,14 @@ mod tests {
             NewSceneTerrainMode::SparseClipmap,
         ] {
             // 两路线必须具有同样Blade作者入口。
-            let entry = new_scene_catalog_entry(&scene_id, "空草地", mode); // 与生产发布调用相同。
+            let entry = new_scene_catalog_entry(&scene_id, "空草地", "scenes/空草地", mode);
             assert_eq!(
                 entry.vegetation_path.as_deref(),
-                Some("scenes/MAP-vegetation-entry/vegetation.scene_vegetation.json")
+                Some("scenes/空草地/vegetation.scene_vegetation.json")
             ); // 路径严格指向已写入的空JSON。
             assert_eq!(
                 entry.water_path.as_deref(),
-                Some("scenes/MAP-vegetation-entry/water.scene_water.json")
+                Some("scenes/空草地/water.scene_water.json")
             ); // 空水域JSON与目录入口同批发布。
         } // 不需要任何整图高度数组。
     } // 默认Clipmap路线不会再次出现无植被入口。

@@ -15,6 +15,7 @@ pub(crate) enum SceneObjectKey {
     PlacementFolder { empty: bool },
     MainSceneGlb,
     MainSceneAnimation(Option<usize>), // None 是当前尚无标准动画通道的命名草稿。
+    AuthorCategory(crate::ui::scene_layers::AuthorLayerCategory),
     SourceGlbAnimation { index: usize, id: String, clip_index: usize },
     Placement {
         index: usize,
@@ -139,6 +140,15 @@ impl SceneMenuAction {
             || self == Self::NewSourceGlbAnimation && matches!(target.key, SceneObjectKey::Placement { mesh: None, .. })
     }
 
+    pub(super) fn panel_actions(creation: bool) -> impl Iterator<Item = Self> {
+        Self::ALL.into_iter().filter(move |action| match action {
+            Self::NewSceneAnimation | Self::NewGlbCuboid | Self::NewGlbPlane => creation,
+            // 源动画在 GLB 根行是子项，仍为独立源网格行保留原菜单入口。
+            Self::NewSourceGlbAnimation => true,
+            _ => !creation,
+        })
+    }
+
     pub(super) fn requests_name(self) -> bool {
         matches!(self, Self::Rename | Self::RenameSourceNode | Self::NewPlacementFolder | Self::NewEmptyGlb | Self::NewSourceFolder)
     }
@@ -203,7 +213,7 @@ impl SceneObjectTarget {
             return false;
         };
         match &self.key {
-            SceneObjectKey::PlacementTreeRoot => true,
+            SceneObjectKey::PlacementTreeRoot | SceneObjectKey::AuthorCategory(_) => true,
             SceneObjectKey::PlacementFolder { .. } => draft.object_folders.contains(&self.name),
             SceneObjectKey::MainSceneGlb => draft.placement_glb_hash.is_some(),
             SceneObjectKey::MainSceneAnimation(index) => draft.placement_glb_hash.is_some()
@@ -396,6 +406,7 @@ impl SceneObjectTarget {
             return matches!(self.key, SceneObjectKey::Placement { .. });
         }
         match (&self.key, action) {
+            (SceneObjectKey::AuthorCategory(_), _) => false,
             (SceneObjectKey::MainSceneAnimation(_), action) => matches!(action, SceneMenuAction::Rename | SceneMenuAction::Delete),
             (SceneObjectKey::Placement { mesh: Some(mesh), .. }, SceneMenuAction::Focus)
                 if mesh.is_source_folder() => false,

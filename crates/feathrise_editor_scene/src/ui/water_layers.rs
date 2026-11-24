@@ -18,7 +18,7 @@ use crate::authoring::{
 use crate::components::{SceneEditorActionButton, SceneEditorViewport}; // 静态按钮和视口命中水位来源。
 use crate::resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState}; // 当前鼠标所有权、选择、状态和统一脏标记。
 use crate::types::{EditorAction, EditorTool}; // 消费两个静水专用动作和列表级删除所选。
-use crate::ui::water_actions::reject_water_feature_switch; // 增删静水与列表直选共享跨帧身份保护。
+use crate::ui::{scene_layers::LayerCategoryVisibility, water_actions::reject_water_feature_switch};
 
 mod create; // 空白R8在单个后台任务中分配，完成后复验身份再形成一次撤销事务。
 
@@ -30,6 +30,7 @@ pub(crate) fn handle_scene_menu(
     mut terrains: Option<ResMut<crate::ui::terrain_objects::TerrainObjectsEditorState>>,
     mut documents: Option<ResMut<crate::authoring::terrain_documents::TerrainDocumentTask>>,
     source_guard: crate::ui::water_feature_list::WaterSourceSelectionGuard,
+    mut visibility: Option<ResMut<LayerCategoryVisibility>>,
 ) {
     use crate::ui::scene_context_menu::{SceneMenuAction, SceneObjectKey};
     use crate::types::{WaterAuthoringFeatureKind, WaterNetworkAction};
@@ -37,6 +38,10 @@ pub(crate) fn handle_scene_menu(
     let SceneObjectKey::Water { kind, index, id, terrain } = &request.target.key else { return; };
     if !matches!(request.action, SceneMenuAction::Copy | SceneMenuAction::Delete)
         || reject_water_feature_switch(&mut editor, &session, &stroke, &network) { return; }
+    if let Some(reason) = session.draft.as_ref().and_then(|draft| crate::authoring::layer_categories::edit_error(draft, false)) {
+        editor.status = reason.to_owned();
+        return;
+    }
     let old_tool = editor.tool;
     let busy = source_guard.busy(&session);
     if let Err(error) = crate::ui::water_feature_list::activate_listed_water_feature(&mut editor, &mut session,
@@ -48,7 +53,7 @@ pub(crate) fn handle_scene_menu(
     if *kind == WaterAuthoringFeatureKind::StillWater {
         let action = if request.action == SceneMenuAction::Copy { EditorAction::WaterDuplicateLayer } else { EditorAction::WaterDeleteSelected };
         let old_tool = editor.tool;
-        apply_and_present_water_structure_action(action, *index, None, None, false, &mut editor, &mut session, None);
+        apply_and_present_water_structure_action(action, *index, None, None, false, &mut editor, &mut session, None, visibility.as_deref_mut());
         editor.tool = old_tool; // 对象管理不启用静水笔刷。
     } else if request.action == SceneMenuAction::Delete {
         editor.water_network_action_requested = Some(match kind {
@@ -220,9 +225,10 @@ pub(crate) fn handle_water_layer_buttons(
     mut terrain_selection: Option<ResMut<crate::ui::terrain_objects::TerrainObjectsEditorState>>,
     mut terrain_documents: Option<ResMut<crate::authoring::terrain_documents::TerrainDocumentTask>>,
     source_guard: crate::ui::water_feature_list::WaterSourceSelectionGuard,
+    mut visibility: Option<ResMut<LayerCategoryVisibility>>,
 ) {
     if numeric_scrub_mouse.blocked() { return; }
-    create::poll(&mut pending_create, &mut editor, &mut session);
+    create::poll(&mut pending_create, &mut editor, &mut session, visibility.as_deref_mut());
     observe_legacy_creation(&mut pending_create, &editor, &session);
     if pending_create.legacy.as_ref().is_some_and(|wait| wait.adopted) {
         let wait = pending_create.legacy.take().unwrap();
@@ -236,6 +242,10 @@ pub(crate) fn handle_water_layer_buttons(
     for (interaction, button) in &buttons {
         if !interaction.is_clicked() || !water_structure_action(button.0, editor.tool)
             || reject_water_feature_switch(&mut editor, &session, &stroke, &network_edit) { continue; }
+        if let Some(reason) = session.draft.as_ref().and_then(|draft| crate::authoring::layer_categories::edit_error(draft, false)) {
+            editor.status = reason.to_owned();
+            continue;
+        }
         if button.0 == EditorAction::WaterAddLayer {
             if pending_create.blank.is_some() {
                 editor.status = "静水层遮罩正在后台准备，完成后可继续新建".into();
@@ -274,7 +284,7 @@ pub(crate) fn handle_water_layer_buttons(
             create::begin(selected, preset.as_deref(), None, &mut pending_create, &mut editor, &session, None);
         } else {
             apply_and_present_water_structure_action(button.0, selected, preset.as_deref(), None,
-                viewport.single().is_ok_and(|cursor| cursor.cursor_over()), &mut editor, &mut session, None);
+                viewport.single().is_ok_and(|cursor| cursor.cursor_over()), &mut editor, &mut session, None, visibility.as_deref_mut());
         }
     }
 }
@@ -297,10 +307,22 @@ fn apply_and_present_water_structure_action(
     editor: &mut SceneEditorState,
     session: &mut EditorAuthoringSession,
     ready_mask: Option<Arc<Vec<u8>>>,
+    visibility: Option<&mut LayerCategoryVisibility>,
 ) {
+    let removed_id = (action == EditorAction::WaterDeleteSelected).then(|| {
+        let layers = &session.draft.as_ref()?.water.as_ref()?.layers;
+        layers.get(selected.min(layers.len().saturating_sub(1))).map(|layer| layer.id.clone())
+    }).flatten();
     match apply_water_structure_action(action, selected, selected_preset_id, cursor_level, session, ready_mask)
     {
         Ok((selected, status)) => {
+            if let (Some(visibility), Some(draft)) = (visibility, session.draft.as_ref()) {
+                let id = removed_id.as_deref().or_else(|| draft.water.as_ref()?.layers.get(selected).map(|layer| layer.id.as_str()));
+                if let Some(id) = id {
+                    let terrain = draft.terrain_documents.active.as_ref().map(|active| &active.definition.id);
+                    visibility.set_water_hidden(&draft.scene_id, terrain, id, false);
+                }
+            }
             editor.selected_water_layer = selected;
             editor.tool = EditorTool::Water;
             editor.water_selected_preset_id = session
@@ -346,6 +368,7 @@ fn apply_water_structure_action(
             .draft
             .as_ref()
             .ok_or_else(|| "场景作者数据尚未就绪".to_owned())?;
+        if let Some(reason) = crate::authoring::layer_categories::edit_error(draft, false) { return Err(reason.into()); }
         (
             draft.scene_id.clone(),
             draft.terrain_folder().to_owned(),
@@ -360,6 +383,15 @@ fn apply_water_structure_action(
     let mut after = before.clone();
     let mut after_masks = before_masks.clone();
     let selected = selected.min(after.layers.len().saturating_sub(1));
+    let removed_controls = if action != EditorAction::WaterAddLayer {
+        let draft = session.draft.as_ref().expect("水域来源已检查");
+        let terrain = draft.terrain_documents.active.as_ref().map(|active| &active.definition.id);
+        if let Some(layer) = before.layers.get(selected) {
+            let state = crate::authoring::layer_categories::water_layer_state(draft, terrain, &layer.id);
+            if state.1 { return Err("请先解锁该静水体再修改".into()); }
+            (action == EditorAction::WaterDeleteSelected && state != (true, false)).then(|| (layer.id.clone(), state))
+        } else { None }
+    } else { None };
     let (next_selected, status) = match action {
         EditorAction::WaterAddLayer => add_water_layer_with_mask(
             selected,
@@ -395,12 +427,17 @@ fn apply_water_structure_action(
         .ok_or_else(|| "场景作者数据在水层操作期间失效".to_owned())?;
     draft.water = Some(after.clone());
     draft.water_masks = after_masks.clone(); // 描述与像素表在同一系统中原子替换。
+    if let Some((id, _)) = removed_controls.as_ref() {
+        let terrain = draft.terrain_documents.active.as_ref().map(|active| active.definition.id.clone());
+        crate::authoring::layer_categories::set_water_layer_state(draft, terrain.as_ref(), id, (true, false));
+    }
     session.push_bounded_water_history(EditorCommand::WaterLayersChanged(Box::new(
         WaterLayersChange {
             before,
             after,
             before_masks,
             after_masks,
+            removed_controls,
         })),
     );
     Ok((next_selected, status))

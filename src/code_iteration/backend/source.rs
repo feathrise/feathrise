@@ -139,7 +139,7 @@ pub(crate) fn capture(
     control: &BuildControl,
 ) -> Result<SourceSnapshot, String> {
     control.check()?;
-    if crate::project::open(&project.root)? != *project {
+    if !project.same_session(&crate::project::open(&project.root)?) {
         return Err("工程清单已变化，请重新打开工程后继续代码迭代".into());
     }
     let mut capture = Capture {

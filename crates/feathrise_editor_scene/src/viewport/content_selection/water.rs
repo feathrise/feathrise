@@ -200,11 +200,13 @@ pub(super) fn nearest_water_surface_hit(
         Option<&ClipmapWaterSurface>, // 已采用R8、水位、水深和高度修订组成真实静水足迹。
     )>,
     clipmap_ground: Option<&ClipmapGroundSnapshot>,
+    visible_source: impl Fn(Entity, &PaintedWaterSurface) -> bool,
 ) -> Option<WaterSurfaceHit> {
     surfaces
         .iter()
-        .filter(|(_, surface, _, _, visibility, _)| {
-            surface.scene_id == *scene_id && **visibility != Visibility::Hidden // 只选当前图真实可见代次。
+        .filter(|(entity, surface, _, _, visibility, _)| {
+            surface.scene_id == *scene_id && **visibility != Visibility::Hidden
+                && visible_source(*entity, surface) // 同时核对父根继承的单层显隐。
         })
         .filter_map(|(entity, _, aabb, transform, _, clipmap)| {
             let distance = if let Some(clipmap) = clipmap {

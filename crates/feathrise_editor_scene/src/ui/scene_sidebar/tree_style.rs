@@ -5,47 +5,73 @@ use crate::ui::theme as colors;
 use crate::ui::tooltips::{EditorTooltipTarget, TooltipAction};
 use bevy::prelude::*;
 
-const TREE_BRANCH_WIDTH: f32 = 18.0;
+const TREE_BRANCH_SLOT_WIDTH: f32 = 12.0;
+const TREE_BRANCH_MARGIN_LEFT: f32 = -4.0;
 const TREE_ROW_INSET: f32 = 5.0;
-pub(crate) const TREE_CONTENT_INSET: f32 = 12.0;
+pub(crate) const TREE_DISCLOSURE_WIDTH: f32 = 18.0;
+pub(crate) const TREE_DISCLOSURE_ICON_SIZE: f32 = 14.0;
+pub(crate) const TREE_INDENT: f32 = 14.0;
+pub(crate) const TREE_CONTENT_INSET: f32 = TREE_INDENT;
 pub(crate) const TREE_ROOT_BORDER: f32 = 1.0;
 pub(crate) const TREE_ICON_SIZE: f32 = 16.0;
 pub(crate) const TREE_BRANCH_GAP: f32 = 2.0;
 pub(crate) const TREE_CAPTION_GAP: f32 = 5.0;
 
 pub(crate) fn tree_row_left(depth: usize) -> Val {
-    tree_row_icon_left(depth, TREE_BRANCH_WIDTH)
+    px(TREE_ROW_INSET + depth as f32 * TREE_INDENT)
 }
 
-/// 网格图标与同深度箭头共用列中心。
+/// 同级类型图标同列；每行只占一个窄箭头槽，层级变化只增加缩进。
 pub(crate) fn tree_row_icon_left(depth: usize, width: f32) -> Val {
-    px(TREE_ROW_INSET + depth as f32 * TREE_ICON_SIZE + (TREE_BRANCH_WIDTH - width) * 0.5)
+    px(TREE_ROW_INSET + depth as f32 * TREE_INDENT + TREE_BRANCH_SLOT_WIDTH + TREE_BRANCH_GAP + (TREE_ICON_SIZE - width) * 0.5)
 }
 
-/// 主场景根行在滚动正文外，其图标沿用正文首列的中心。
+/// 根行的边框计入左边距，正文从根行的下一档开始。
 pub(crate) fn tree_root_row_left() -> Val {
-    px(TREE_CONTENT_INSET + TREE_ROW_INSET - TREE_ROOT_BORDER)
+    px(TREE_ROW_INSET - TREE_ROOT_BORDER)
 }
 
-fn tree_branch_node() -> Node {
+pub(crate) fn tree_parent_guide_x(depth: usize) -> f32 {
+    TREE_ROW_INSET + depth.saturating_sub(1) as f32 * TREE_INDENT + TREE_BRANCH_MARGIN_LEFT + TREE_DISCLOSURE_WIDTH * 0.5
+}
+
+fn tree_branch_node(width: f32) -> Node {
     Node {
-        width: px(TREE_BRANCH_WIDTH), height: px(21), flex_shrink: 0.0,
-        align_items: AlignItems::Center, justify_content: JustifyContent::Center,
+        width: px(width), height: px(21), flex_shrink: 0.0,
+        // 展开控件可以覆盖类型图标列，抵消新增宽度后，图标和名称仍在原位。
+        margin: UiRect {
+            left: px(TREE_BRANCH_MARGIN_LEFT),
+            right: px(TREE_BRANCH_SLOT_WIDTH - width - TREE_BRANCH_MARGIN_LEFT),
+            ..UiRect::ZERO
+        },
+        padding: UiRect::left(px((TREE_DISCLOSURE_WIDTH - TREE_DISCLOSURE_ICON_SIZE) * 0.5)),
+        align_items: AlignItems::Center,
         border_radius: BorderRadius::all(px(3)), ..default()
     }
 }
 
-/// 场景树各分支共享同一箭头列与命中面积，视觉图标不截走按钮点击。
+/// 没有类型图标的显示入口使用单独的箭头槽。
 pub(crate) fn tree_branch_button() -> impl Scene {
-    bsn! { InteractionButton ~{tree_branch_node()} BackgroundColor(Color::NONE)
-        Children [@tree_toggle_icon()] }
+    tree_branch_control(TREE_DISCLOSURE_WIDTH)
+}
+
+/// 对象分支的展开区延伸到名称起点，覆盖箭头和类型图标。
+pub(crate) fn tree_object_branch_button() -> impl Scene {
+    tree_branch_control(TREE_DISCLOSURE_WIDTH + TREE_ICON_SIZE + TREE_CAPTION_GAP)
+}
+
+fn tree_branch_control(width: f32) -> impl Scene {
+    bsn! { InteractionButton ~{tree_branch_node(width)} BackgroundColor(Color::NONE)
+        Children [ImageNode::default()
+            Node { width: px(TREE_DISCLOSURE_ICON_SIZE), height: px(TREE_DISCLOSURE_ICON_SIZE), flex_shrink: 0.0 } Pickable::IGNORE] }
 }
 
 pub(crate) fn tree_section_header() -> Node {
     Node {
         width: percent(100), min_width: px(0), height: px(24),
-        padding: UiRect::left(tree_row_left(0)),
-        border: UiRect::bottom(px(1)), align_items: AlignItems::Center,
+        // 分类复用普通容器的箭头槽，名称、同级图标和右侧操作按固定列排列。
+        padding: UiRect { left: tree_row_left(0), right: px(4), ..UiRect::ZERO },
+        border_radius: BorderRadius::all(px(2)), align_items: AlignItems::Center,
         column_gap: px(TREE_BRANCH_GAP), flex_shrink: 0.0, ..default()
     }
 }

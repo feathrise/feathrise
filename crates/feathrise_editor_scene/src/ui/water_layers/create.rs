@@ -96,6 +96,7 @@ pub(super) fn poll(
     pending: &mut PendingClipmapWaterLayerCreate,
     editor: &mut SceneEditorState,
     session: &mut EditorAuthoringSession,
+    visibility: Option<&mut LayerCategoryVisibility>,
 ) {
     observe(pending, editor, session);
     let Some(result) = pending
@@ -134,6 +135,7 @@ pub(super) fn poll(
             editor,
             session,
             Some(mask),
+            visibility,
         ),
         Err(error) => editor.status = error,
     }

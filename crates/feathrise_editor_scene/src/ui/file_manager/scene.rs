@@ -50,8 +50,9 @@ pub(super) fn mount(
     let folder_image: Handle<Image> = assets.load("icons/editor/tree_folder.png");
     let file_image: Handle<Image> = assets.load("icons/editor/tree_file.png");
     if dialogs.is_empty() {
+        let arrow = assets.load(crate::ui::menu_style::ARROW_ICON);
         commands.entity(root).with_children(|parent| {
-            super::context_menu::mount(parent, &font);
+            super::context_menu::mount(parent, &font, &arrow);
             // 确认期间由透明背景接管空白点击；不能仅靠业务鼠标门让官方文本焦点落到背后的文件。
             parent.spawn((NameDialogBackdrop, WorkbenchFloatingPanel, GlobalZIndex(428), FocusPolicy::Block, UiInteraction::default(),
                 Node { display: Display::None, position_type: PositionType::Absolute, left: px(0), top: px(0), width: percent(100), height: percent(100), ..default() }));

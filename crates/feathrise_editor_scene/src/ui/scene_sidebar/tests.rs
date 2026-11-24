@@ -10,7 +10,6 @@ use crate::ui::sidebars::{EditorNavigatorTab, SceneEditorSidebarState};
 use bevy::prelude::*;
 use feathrise_scene_content::{
     SceneCatalogAsset, SceneContentHandles, SceneContentRegistry, SceneId, SceneManifestAsset,
-    SceneTerrainDescriptor, SceneTerrainKind,
 };
 use std::sync::Arc;
 
@@ -171,40 +170,10 @@ fn select(app: &mut App, item: Option<SceneBrowserItem>) {
 }
 
 pub(super) fn manifest(id: &str, name: &str) -> SceneManifestAsset {
-    SceneManifestAsset {
-        vegetation_paint_groups: Default::default(),
-        terrains: None,
-        subscenes: Default::default(),
-        schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
-        id: SceneId::parse(id).unwrap(),
-        display_name: name.into(),
-        notes: "真实备注".into(),
-        runtime_scene: "data_driven".into(),
-        world_min: [0.0; 2],
-        world_max: [10.0; 2],
-        default_spawn: [5.0, 0.0, 5.0],
-        environment: default(),
-        puddles: None,
-        asset_roots: vec![],
-        terrain: SceneTerrainDescriptor {resolved_stitches: Default::default(),
-            kind: SceneTerrainKind::Gltf,
-            glb_path: "scenes/fixture/terrain.glb".into(),
-            resolution: [11; 2],
-            base_height: 0.0,
-            height_scale: 1.0,
-            collision_lods: vec![],
-            display_lods: None,
-            collision_mode: default(),
-            player_collision_preload_radius_meters: 16.0,
-            role_collision_preload_radius_meters: None,
-            player_collision_chunk_cells: None,
-            role_collision_chunk_cells: None,
-            player_collision_span_meters: None,
-            role_collision_span_meters: None,
-            height_path: None,
-            height_texture_path: None,
-        },
-    }
+    let id = SceneId::parse(id).unwrap();
+    let mut manifest = crate::authoring::test_support::test_gltf_scene_manifest(&id, name, "scenes/fixture/terrain.glb");
+    manifest.notes = "真实备注".into();
+    manifest
 }
 
 pub(super) fn register_manifest(app: &mut App, manifest: SceneManifestAsset) {

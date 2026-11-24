@@ -18,11 +18,12 @@ pub(crate) struct SceneBrowserTreeIcons {
     pub(crate) folder: Handle<Image>,
     pub(crate) scene: Handle<Image>,
     pub(crate) root: Handle<Image>,
+    pub(crate) branch: [Handle<Image>; 2],
 }
 impl SceneBrowserTreeIcons {
     pub(crate) fn load(server: &AssetServer) -> Self {
         Self { folder: server.load("icons/editor/tree_folder.png"), scene: server.load("icons/editor/tree_scene.png"),
-            root: server.load("icons/editor/tree_root.png") }
+            root: server.load("icons/editor/tree_root.png"), branch: super::load_tree_branch_images(server) }
     }
 }
 

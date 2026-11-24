@@ -14,6 +14,7 @@ use feathrise_scene_core::state::ScenePhase; // 隐藏或活动预览父根随�
 use super::super::super::resources::{
     VegetationMeshLayerPreview, VegetationPreviewInstall, VegetationPreviewState,
 }; // CPU任务、隐藏安装和活动层使用显式不同状态。
+use crate::authoring::{EditorAuthoringSession, layer_categories::LayerPreviewVisibility};
 use crate::components::EditorVegetationPreview; // 预览根不得被正式运行时新增根抑制系统误识别。
 use crate::constants::EDITOR_VEGETATION_PREVIEW_LAYER_BIT; // 运行时拾取与预览安装共用最高位隔离语义。
 use crate::resources::SceneEditorState; // 状态栏回显真实分帧进度与最终数量。
@@ -84,7 +85,15 @@ pub(crate) fn poll_vegetation_preview_rebuild(
     >,
     mut preview: ResMut<VegetationPreviewState>,
     scene: Res<State<ScenePhase>>,
+    session: Option<Res<EditorAuthoringSession>>,
+    categories: LayerPreviewVisibility,
+    mut published_visibility: Local<Option<Visibility>>,
 ) {
+    let visibility = categories.for_root(editor.open, session.as_ref().and_then(|session| session.draft.as_ref()), true);
+    if published_visibility.replace(visibility) != Some(visibility) {
+        // 每层只切换一个完整预览父根，保留正式替换关系和分帧安装中的候选。
+        for layer in preview.layers.values() { commands.entity(layer.container).try_insert(visibility); }
+    }
     let preset_revision = presets.as_deref().map_or(0, |presets| presets.revision);
     let prototype_ready = |build: &crate::authoring::resources::VegetationPreviewBuild, revision| {
         build.transforms.is_empty() || presets.as_deref().is_some_and(|presets| {
@@ -263,7 +272,7 @@ pub(crate) fn poll_vegetation_preview_rebuild(
     }
     commands
         .entity(install.container)
-        .insert(Visibility::Inherited); // 一次父根切换显示完整新层，不逐株闪现。
+        .insert(visibility); // 由父根一次应用分类显隐，新层全部安装后才采用。
     let count = install.build.transforms.len(); // 最终数量就是作者密度选中的全部候选。
     let runtime_profile = install.build.runtime_profile.clone(); // 状态文字在移动安装值前冻结。
     preview.layers.insert(

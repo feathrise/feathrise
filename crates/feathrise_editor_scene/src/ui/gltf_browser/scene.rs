@@ -18,7 +18,7 @@ use crate::ui::scene_context_menu::SceneObjectRow;
 use crate::ui::scene::FONT_PATH; // 复用主编辑器字体常量。
 use crate::ui::scene_sidebar::{
     TREE_BRANCH_GAP, TREE_CAPTION_GAP, TREE_ICON_SIZE, TREE_ROOT_BORDER, load_tree_branch_images, sync_tree_branch_icon, tree_branch_button,
-    tree_branch_fill, tree_root_row_left, tree_row_left,
+    tree_branch_fill, tree_object_branch_button, tree_root_row_left, tree_row_left,
 };
 
 #[derive(Component, Clone, Default)] // 场景显示入口独立于场景对象行。
@@ -117,28 +117,23 @@ pub(crate) fn scene_display_button() -> impl Scene {
     }
 }
 
-/// 类型图标承接原展开按钮，名称与网格仍留在同一个可拖动的标题区。
+/// 类型图标不独占输入，由树行或其展开控件接收点击。
 pub(super) fn gltf_row_icon() -> impl Scene {
-    bsn! { InteractionButton PlacementTreeExpander::default() bevy::ui::InteractionDisabled Pickable::IGNORE
-        Node { width: px(18), height: px(21), flex_shrink: 0.0, align_items: AlignItems::Center,
-            justify_content: JustifyContent::Center, border: UiRect::bottom(px(1)), border_radius: BorderRadius::all(px(3)) }
-        BackgroundColor(Color::NONE) BorderColor::all(Color::NONE)
-        Children [
-            SceneEditorGltfBrowserRowGlyph ImageNode::default() Pickable::IGNORE
-            Node { width: px(TREE_ICON_SIZE), height: px(TREE_ICON_SIZE), flex_shrink: 0.0 }
-        ] }
+    bsn! { SceneEditorGltfBrowserRowGlyph ImageNode::default() Pickable::IGNORE
+        Node { width: px(TREE_ICON_SIZE), height: px(TREE_ICON_SIZE), flex_shrink: 0.0 } }
 }
 
-/// 主场景 GLB 复用分支图标，固定在可滚动子树上方。
+/// 主场景 GLB 复用窄箭头槽，固定在可滚动子树上方。
 pub(crate) fn scene_tree_root_row() -> impl Scene {
     let row = SceneEditorGltfBrowserRow { slot: 0, entry_index: None, entries_revision: 0, main_glb: None };
     bsn! { SceneTreeRootRow InteractionButton SceneObjectRow::default() bevy::ui::RelativeCursorPosition::default()
         ~{row}
         Node { display: Display::None, width: percent(100), min_width: px(0), height: px(25), flex_shrink: 0.0,
-            padding: UiRect { left: tree_root_row_left(), right: px(5), ..UiRect::ZERO }, align_items: AlignItems::Center,
+            padding: UiRect { left: tree_root_row_left(), right: px(5), ..UiRect::ZERO }, align_items: AlignItems::Center, column_gap: px(TREE_BRANCH_GAP),
             border: UiRect::all(px(TREE_ROOT_BORDER)), border_radius: BorderRadius::all(px(3)), overflow: Overflow::clip_x() }
         BackgroundColor(colors::PANEL_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [
+            @tree_object_branch_button() PlacementTreeExpander::default() bevy::ui::InteractionDisabled Visibility::Hidden Pickable::IGNORE--
             GltfRowCaption Pickable::IGNORE
             Node { align_items: AlignItems::Center, column_gap: px(TREE_CAPTION_GAP), flex_grow: 1.0, min_width: px(0), overflow: Overflow::clip_x() }
             Children [

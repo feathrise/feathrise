@@ -12,14 +12,26 @@ use feathrise_scene_content::{SceneId, ScenePlacementRecord};
 use std::collections::HashMap;
 use crate::{
     SceneEditorSystemSet,
-    authoring::{EditorAuthoringSession, placement_pose::placement_rotation_degrees, scene_motion::{SceneMotionKey, SceneMotionTrack}},
+    authoring::{EditorAuthoringSession, EditorSceneDraft, placement_pose::placement_rotation_degrees,
+        scene_motion::{SceneMotionKey, SceneMotionTrack}},
     resources::SceneEditorState,
-    ui::{gltf_browser::EditorGltfBrowserState, vegetation_preset_editor::VegetationPresetEditorState},
+    ui::{gltf_browser::{EditorGltfBrowserState, MainSceneSelection}, vegetation_preset_editor::VegetationPresetEditorState},
     viewport::{multi_select::PlacementSelectionSet, placement_move::PlacementMoveState},
 };
 
 pub(super) use controls::{entry, workbench};
 const FPS: f64 = 30.0;
+
+/// 动画选中身份独立于工作台仍需使用的摆放姿势目标。
+pub(super) fn selected_clip_name<'a>(browser: &EditorGltfBrowserState, draft: &'a EditorSceneDraft) -> Option<&'a str> {
+    if draft.placement_glb_hash.is_some()
+        && matches!(&browser.selected_main_row, Some((scene, MainSceneSelection::Animation)) if scene == &draft.scene_id)
+    {
+        draft.motion.clip_name()
+    } else {
+        None
+    }
+}
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SceneMotionButton {

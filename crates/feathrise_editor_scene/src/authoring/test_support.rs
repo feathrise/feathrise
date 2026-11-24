@@ -2,11 +2,28 @@
 
 use super::{EditorAuthoringSession, EditorSceneDraft};
 use feathrise_scene_content::{
-    SceneId, SceneManifestAsset, ScenePlacementsAsset, ScenePortalsAsset, SceneTerrainDescriptor,
+    SceneId, SceneManifestAsset, ScenePlacementsAsset, ScenePortalsAsset,
     SceneTerrainKind,
 };
 use feathrise_terrain::{TerrainMeshInput, build_terrain_editing_index};
 use std::sync::Arc;
+
+/// 共用正式 serde 清单的可选字段默认值，测试只补自己的地形规格。
+pub(crate) fn test_gltf_scene_manifest(id: &SceneId, name: &str, terrain_path: &str) -> SceneManifestAsset {
+    let mut manifest: SceneManifestAsset = serde_json::from_value(serde_json::json!({
+        "schema_version": feathrise_scene_content::SCENE_SCHEMA_VERSION,
+        "id": id,
+        "display_name": name,
+        "runtime_scene": "data_driven",
+        "world_min": [0.0, 0.0],
+        "world_max": [10.0, 10.0],
+        "default_spawn": [5.0, 0.0, 5.0],
+    })).expect("测试场景清单应符合公开格式");
+    manifest.terrain.kind = SceneTerrainKind::Gltf;
+    manifest.terrain.glb_path = terrain_path.to_owned();
+    manifest.terrain.resolution = [11, 11];
+    manifest
+}
 
 /// 其他作者域测试共用的11×11动态GLB草稿夹具。
 pub fn test_heightfield_draft(heights: Arc<Vec<u16>>) -> EditorSceneDraft {
@@ -27,6 +44,8 @@ pub fn test_heightfield_draft(heights: Arc<Vec<u16>>) -> EditorSceneDraft {
     }
     let mesh = TerrainMeshInput { positions, indices };
     let editing_index = build_terrain_editing_index(&mesh).expect("测试GLB必须建立拓扑索引");
+    let mut manifest = test_gltf_scene_manifest(&scene_id, "边界笔刷测试", "scenes/EDGE-TEST/terrain/terrain.glb");
+    manifest.terrain.height_scale = u16::MAX as f32;
     EditorSceneDraft {
         scene_id: scene_id.clone(),
         domain: None,
@@ -40,42 +59,7 @@ pub fn test_heightfield_draft(heights: Arc<Vec<u16>>) -> EditorSceneDraft {
         water_asset_path: "scenes/EDGE-TEST/water.scene_water.json".to_owned(),
         terrain_ground: None,
         terrain_documents: Default::default(),
-        manifest: SceneManifestAsset {
-            vegetation_paint_groups: Default::default(),
-            terrains: None,
-            subscenes: Default::default(),
-            schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
-            id: scene_id.clone(),
-            display_name: "边界笔刷测试".to_owned(),
-            notes: String::new(), // 测试旧场景缺省备注。
-            runtime_scene: "data_driven".to_owned(),
-            world_min: [0.0, 0.0],
-            world_max: [10.0, 10.0],
-            default_spawn: [5.0, 0.0, 5.0],
-            environment: Default::default(),
-            puddles: None, // 新图及旧图夹具默认没有积水，首次有效落笔才创建。
-            terrain: SceneTerrainDescriptor {
-                resolved_stitches: Default::default(),
-                collision_lods: Vec::new(), // GLB测试不消费稀疏碰撞配置。
-                display_lods: None,         // GLB测试不消费SparseClipmap显示LOD。
-                kind: SceneTerrainKind::Gltf,
-                collision_mode: Default::default(), // 高度场测试不启用Clipmap物理。
-                player_collision_preload_radius_meters:
-                    feathrise_scene_content::DEFAULT_PLAYER_COLLISION_PRELOAD_RADIUS_METERS, // 旧路线不读取。
-                role_collision_preload_radius_meters: None, // 旧路线不登记稀疏粗级半径。
-                player_collision_chunk_cells: None,
-                role_collision_chunk_cells: None,
-                player_collision_span_meters: None, // 测试旧路线不读取联动设置。
-                role_collision_span_meters: None,   // 测试旧路线不读取联动设置。
-                glb_path: "scenes/EDGE-TEST/terrain/terrain.glb".to_owned(),
-                height_path: None,
-                height_texture_path: None,
-                resolution: [11, 11],
-                base_height: 0.0,
-                height_scale: u16::MAX as f32,
-            },
-            asset_roots: Vec::new(),
-        },
+        manifest,
         placements: ScenePlacementsAsset {
             scene_id: scene_id.clone(),
             ..Default::default()

@@ -361,6 +361,7 @@ pub(crate) fn sync_density_overlay(
     mut commands: Commands,
     editor: Res<SceneEditorState>,
     session: Res<EditorAuthoringSession>,
+    categories: Option<Res<crate::ui::scene_layers::LayerCategoryVisibility>>,
     viewport_selection: Res<LayerCandidateState>, // 悬停结束自动回到正式选择。
     stroke: Res<VegetationBrushStroke>,
     water_stroke: Res<WaterBrushStroke>,
@@ -377,8 +378,16 @@ pub(crate) fn sync_density_overlay(
     if let Some(clipmap) = clipmap.as_mut() {
         clipmap.density = None;
     } // 关闭、切换场景和切层先撤销旧覆盖。
-    let selected = selected_overlay(&editor, &session, &viewport_selection); // 选择模式优先悬停作者源。
     let draft = session.draft.as_ref();
+    let selected = draft.filter(|draft| {
+        let water = editor.tool == EditorTool::Water;
+        super::layer_categories::preview_visible(draft, categories.as_deref(), !water)
+            && (!water || draft.water.as_ref().and_then(|water| water.layers.get(editor.selected_water_layer))
+                .is_some_and(|layer| {
+                    let terrain = draft.terrain_documents.active.as_ref().map(|active| &active.definition.id);
+                    super::layer_categories::water_layer_visible(draft, categories.as_deref(), terrain, &layer.id)
+                }))
+    }).and_then(|_| selected_overlay(&editor, &session, &viewport_selection)); // 选择模式优先悬停作者源。
     let transform = draft.map_or_else(Transform::default, |draft| {
         super::terrain_documents::canvas_transform(draft, pose.as_deref())
     });

@@ -196,7 +196,7 @@ fn find_scene<'a>(
         .iter()
         .find(|entry| entry.display_name == name)
         .ok_or_else(|| format!("正式目录缺少{name}"))?;
-    if entry.folder != format!("scenes/{}", entry.id) {
+    if entry.folder != format!("scenes/{name}") {
         return Err(format!("正式目录将{name}指向了错误的资产目录"));
     }
     Ok(entry)

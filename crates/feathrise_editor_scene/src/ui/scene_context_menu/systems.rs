@@ -139,7 +139,8 @@ pub(super) fn control_menu(
     mut keyboard: ResMut<ButtonInput<KeyCode>>,
     guard: Res<SceneEditorNumericScrubMouseGuard>,
     rows: Query<(Entity, &SceneObjectRow, &Node, &UiInteraction)>,
-    actions: Query<(&MenuButton, &UiInteraction, Ref<EditorButtonClick>)>,
+    actions: Query<(&MenuButton, &UiInteraction, Ref<EditorButtonClick>, &Node, Has<NewGlbPopupItem>)>,
+    panels: Query<(&Node, &RelativeCursorPosition, Has<NewGlbPopup>), Or<(With<Popup>, With<NewGlbPopup>)>>,
     rename_buttons: Query<
         (&UiInteraction, Ref<EditorButtonClick>, Has<RenameConfirm>, Has<RenameCancel>),
         Or<(With<RenameConfirm>, With<RenameCancel>)>,
@@ -168,6 +169,7 @@ pub(super) fn control_menu(
     if close {
         menu.target = None;
         menu.renaming = false;
+        menu.creating = false;
         if inputs.iter().any(|(entity, _)| focus.get() == Some(entity)) {
             focus.clear();
         }
@@ -235,20 +237,27 @@ pub(super) fn control_menu(
             }
             return;
         }
-        let action = actions.iter().find_map(|(button, _, click)| {
-            (click.is_changed() && click.is_clicked()).then_some(button.0)
+        let hovered_main = actions.iter().find_map(|(button, interaction, _, node, side)| {
+            (!side && node.display != Display::None && *interaction != UiInteraction::None).then_some(button.0)
+        });
+        if let Some(action) = hovered_main {
+            let target = &menu.target.as_ref().unwrap().object;
+            let open = action == SceneMenuAction::NewGlbContent && target.allows(action)
+                && menu.shows_action(target, action, &context.session, false);
+            if menu.creating != open { menu.creating = open; }
+        } // 越过两个面板的边框时保留展开。悬停其他主菜单命令才收起。
+        let target = menu.target.as_ref().unwrap();
+        let action = actions.iter().find_map(|(button, _, click, node, side)| {
+            let action = button.0;
+            (node.display != Display::None && click.is_changed() && click.is_clicked()
+                && target.object.allows(action) && menu.shows_action(&target.object, action, &context.session, side))
+                .then_some(action)
         });
         if let Some(action) = action {
             // 菜单项按住只显示反馈，完整动作在同一项内松开并复核冻结目标后登记。
-            let target = menu.target.as_ref().unwrap();
-            if !target.object.allows(action)
-                || !menu.shows_action(&target.object, action, &context.session)
-            {
-                return;
-            }
             if action == SceneMenuAction::NewGlbContent {
                 // 子菜单保留本次右键冻结的 GLB，展开列表不分派任何作者命令。
-                menu.creating = !menu.creating;
+                if !menu.creating { menu.creating = true; }
             } else if action.requests_name() {
                 if let Ok((entity, mut input)) = inputs.single_mut() {
                     let initial = match action {
@@ -264,6 +273,8 @@ pub(super) fn control_menu(
                     set_name(&mut input, initial);
                     focus.set(entity, FocusCause::Navigated);
                     menu.renaming = true;
+                    menu.creating = false;
+                    menu.reset_scroll = true;
                     menu.name_action = Some(action);
                 }
             } else {
@@ -276,12 +287,19 @@ pub(super) fn control_menu(
                         name: String::new(),
                     },
                 ));
+                menu.creating = false;
                 focus.clear();
             }
         } else if mouse.just_pressed(MouseButton::Left)
-            && actions.iter().all(|(_, interaction, _)| *interaction == UiInteraction::None)
+            && !panels.iter().any(|(node, cursor, side)| {
+                node.display != Display::None && (!side || menu.creating) && cursor.cursor_over()
+            })
+            && actions.iter().all(|(_, interaction, _, node, side)| {
+                *interaction == UiInteraction::None || node.display == Display::None || side && !menu.creating
+            })
         {
             menu.target = None; // 外部按下只关闭；不能提前吞掉菜单项等待松开的手势。
+            menu.creating = false;
         }
         return;
     }
@@ -304,6 +322,9 @@ pub(super) fn control_menu(
     }).or_else(|| context.blank_tree_target(&editor)) else {
         return;
     };
+    if matches!(target.object.key, SceneObjectKey::AuthorCategory(_)) {
+        return; // 固定分类的操作由它的三个行内按钮提供。
+    }
     let Some(cursor) = context
         .windows
         .single()
@@ -325,6 +346,7 @@ pub(super) fn control_menu(
     menu.anchor = anchor;
     menu.target = Some(target);
     menu.creating = false;
+    menu.reset_scroll = true;
     menu.captured_this_frame = true;
     focus.clear(); // 菜单持有输入时让后台文本框失焦。
 }
@@ -457,15 +479,22 @@ pub(super) fn queue_main_glb_shape(
             && request.target.menu_has(request.action, &session)
     }) else { return; };
     if shapes.creation_request.is_some() { return; }
-    // 工作台先安装菜单，打开场景后才建立视口和实际场景中心。
-    let Some(viewport) = viewport else {
-        editor.status = "场景视口尚未就绪，请稍后新建网格".into();
-        return;
+    let plane = request.action == SceneMenuAction::NewGlbPlane;
+    let position = if plane {
+        // 平面沿用场景中心，需要已经建立的视口。
+        let Some(viewport) = viewport else {
+            editor.status = "场景视口尚未就绪，请稍后新建平面".into();
+            return;
+        };
+        viewport.scene_center
+    } else {
+        // 主 GLB 局部原点与场景原点重合，显式坐标创建使用固定高度。
+        Vec3::ZERO
     };
-    match crate::ui::terrain_objects::tree_shape_target(request.action == SceneMenuAction::NewGlbPlane) {
+    match crate::ui::terrain_objects::tree_shape_target(plane) {
         Ok(target) => {
             shapes.creation_request = Some(crate::authoring::basic_shapes::CuboidCreationRequest {
-                target, position: Some(viewport.scene_center),
+                target, position: Some(position),
             });
             // 消费发生在下一输入帧，换场景或修订后原创建槽会拒绝旧请求。
             shapes.creation_identity = Some((request.target.scene_id.clone(), request.target.revision));

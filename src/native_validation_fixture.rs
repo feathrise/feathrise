@@ -20,6 +20,7 @@ const SAMPLE_FOLDER: &str = "scenes/M1-SAMPLE";
 pub(super) const MODEL_SURFACE_SOURCE: &str = "scenes/M1-SAMPLE/scene.glb";
 pub(super) const MODEL_SURFACE_ID: &str = "model-surface-fixture";
 const MODEL_VEGETATION_FOLDER: &str = "scene/vegetation-probe";
+pub(super) const SCENE_TREE_WATER_IDS: [&str; 2] = ["scene-tree-water-target", "scene-tree-water-neighbor"];
 
 /// 调用方必须先create_dir独占工作根并create_new写入父级owner，再新建空工程；不得用于已有作者工程。
 /// 本函数只在窗口启动前的显式验收流程调用，固定场景/纹理生成不进入Bevy帧关键路径。
@@ -61,6 +62,7 @@ pub(super) fn prepare(root: &Path, label: &str) -> Result<(), String> {
         // 完整场景工具链会从空目录新增预设。仅首次打开专项预置作者层。
         write_scene_tree_group(&staging, true)?;
         write_scene_tree_vegetation(&staging)?;
+        write_scene_tree_water(&staging)?;
     } else if std::env::var("FEATHRISE_MODEL_SURFACE_VALIDATION").as_deref() == Ok("1") {
         sources.extend(copy_model_vegetation_probe(&staging)?);
         write_model_surface_fixture(&staging)?;
@@ -322,6 +324,45 @@ fn write_scene_tree_vegetation(assets: &Path) -> Result<(), String> {
         fs::write(path, bytes).map_err(|error| error.to_string())?; // 两份目标均为本轮暂存区已有的空骨架。
     }
     Ok(())
+}
+
+/// 两个不相交的根静水使用真实 R8 和 KTX2，各自能在场景树中领取独立按钮。
+fn write_scene_tree_water(assets: &Path) -> Result<(), String> {
+    use feathrise_scene_content::{SCENE_CATALOG_ASSET_PATH, SCENE_SCHEMA_VERSION, SCENE_WATER_FILE_NAME,
+        SceneCatalogAsset, SceneWaterAsset};
+
+    let catalog_path = assets.join(SCENE_CATALOG_ASSET_PATH);
+    let mut catalog: SceneCatalogAsset = serde_json::from_slice(&read_small(&catalog_path)?)
+        .map_err(|error| error.to_string())?;
+    let sample = catalog.scenes.iter_mut().find(|entry| entry.id.as_str() == "M1-SAMPLE")
+        .ok_or("场景树夹具缺少示例场景")?;
+    let relative = format!("{SAMPLE_FOLDER}/{SCENE_WATER_FILE_NAME}");
+    let mut layers = Vec::new();
+    let resolution = [2, 2];
+    let pixels = [255; 4];
+    let texture = feathrise_editor_assets::ktx2::encode_r8(&pixels, resolution)?;
+    for (id, label, x) in [
+        (SCENE_TREE_WATER_IDS[0], "验收目标静水", -8.0),
+        (SCENE_TREE_WATER_IDS[1], "验收邻近静水", 2.0),
+    ] {
+        let source_path = format!("{SAMPLE_FOLDER}/water/{id}.r8");
+        let texture_path = format!("{SAMPLE_FOLDER}/water/{id}.ktx2");
+        write_new(&assets.join(&source_path), &pixels)?;
+        write_new(&assets.join(&texture_path), &texture)?;
+        layers.push(json!({
+            "id":id, "label":label, "resolution":resolution, "water_level":1.0,
+            "canvas_bounds":[[x,-24.0],[x+6.0,-18.0]],
+            "mask_source_path":source_path,"mask_texture_path":texture_path,
+        }));
+    }
+    let water: SceneWaterAsset = serde_json::from_value(json!({
+        "schema_version":SCENE_SCHEMA_VERSION,"scene_id":sample.id,"layers":layers,
+    })).map_err(|error| error.to_string())?;
+    water.validate(&sample.id)?;
+    write_new(&assets.join(&relative), &serde_json::to_vec_pretty(&water).map_err(|error| error.to_string())?)?;
+    sample.water_path = Some(relative);
+    fs::write(catalog_path, serde_json::to_vec_pretty(&catalog).map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())
 }
 
 /// 两项实窗验收共用真实写入器。只切换本轮暂存目录的示例图，保持其他模板场景的各自来源。

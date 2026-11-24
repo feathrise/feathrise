@@ -247,7 +247,10 @@ fn sync(
 ) {
     let scene = context.scene(&editor, &session);
     let selected = context.record(&editor, &session);
-    let show_entry = selected.is_some() || scene.is_some_and(|scene| context.browser.is_main_glb_selected(scene));
+    let show_entry = selected.is_some() || scene.is_some_and(|scene| {
+        context.browser.is_main_glb_selected(scene) || session.draft.as_ref()
+            .is_some_and(|draft| super::selected_clip_name(&context.browser, draft).is_some())
+    });
     let opened = state.scene.as_ref().zip(scene).is_some_and(|(a, b)| a == b);
     let motion = session.draft.as_ref().map(|draft| &draft.motion);
     let created = opened && motion.is_some_and(|motion| motion.clip_name().is_some());

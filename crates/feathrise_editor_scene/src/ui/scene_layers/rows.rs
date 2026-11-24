@@ -1,6 +1,6 @@
 //! 可见行直接按数组下标或已有角色归属索引取一项；旧图正式植被输出保留只读入口。
 
-use super::{catalog::VegetationCatalogAssets, inventory::LayerInventory, types::LayerList};
+use super::{catalog::VegetationCatalogAssets, inventory::LayerInventory, resources::LayerCategoryVisibility, types::LayerList};
 use crate::{
     authoring::EditorAuthoringSession,
     resources::VegetationEditorVisibility,
@@ -15,7 +15,7 @@ pub(super) fn object(
     list: LayerList,
     index: usize,
     domain: Option<&SceneInteractionState>,
-    visibility: &VegetationEditorVisibility,
+    visibility: (&VegetationEditorVisibility, Option<&LayerCategoryVisibility>),
 ) -> Option<(SceneObjectTarget, String)> {
     let draft = session.draft.as_ref()?;
     let source = |water| {
@@ -30,13 +30,20 @@ pub(super) fn object(
         LayerList::Water => {
             use crate::types::WaterAuthoringFeatureKind::*;
             let (_, terrain, ordinal) = source(true)?;
-            let water = crate::authoring::terrain_documents::root_water::listed_source(draft, terrain.map(|object| &object.id))?;
+            let terrain_id = terrain.map(|object| &object.id);
+            let water = crate::authoring::terrain_documents::root_water::listed_source(draft, terrain_id)?;
             let (kind, index, id) = crate::ui::water_feature_list::water_feature_at(water, ordinal)?;
             let (name, kind_label) = match kind {
                 StillWater => (&water.layers[index].label, "静水"),
                 River => (&water.rivers[index].label, "河流"),
                 Waterfall => (&water.waterfalls[index].label, "瀑布"),
             };
+            let (category_enabled, category_locked) = crate::authoring::layer_categories::category_state(draft, false);
+            let (enabled, locked) = if kind == StillWater {
+                crate::authoring::layer_categories::water_layer_state(draft, terrain_id, id)
+            } else { (true, false) };
+            let hidden = !category_enabled || !enabled || visibility.1.is_some_and(|visibility|
+                visibility.hidden(&draft.scene_id, false) || kind == StillWater && visibility.water_hidden(&draft.scene_id, terrain_id, id));
             (
                 SceneObjectKey::Water {
                     kind,
@@ -46,8 +53,8 @@ pub(super) fn object(
                 },
                 name.clone(),
                 format!("{} · {kind_label} {} · {name}", terrain.map_or("场景", |object| object.display_name.as_str()), index + 1),
-                false,
-                false,
+                hidden,
+                category_locked || locked,
             )
         }
         LayerList::Vegetation => {
@@ -71,7 +78,7 @@ pub(super) fn object(
                     },
                     item.label.clone(),
                     label(&item.label),
-                    visibility.hidden_in(&draft.scene_id, terrain_id)
+                    visibility.0.hidden_in(&draft.scene_id, terrain_id)
                         .is_some_and(|hidden| hidden.contains(&item.id)),
                     item.locked,
                 )

@@ -62,6 +62,7 @@ fn draw_path(
 pub(crate) fn draw_water_network(
     editor: Res<SceneEditorState>,
     session: Res<EditorAuthoringSession>,
+    categories: Option<Res<crate::ui::scene_layers::LayerCategoryVisibility>>,
     edit: Res<WaterNetworkEditState>,
     viewport: Option<Res<SceneEditorViewportState>>,
     mut gizmos: Gizmos<SceneEditorBrushGizmos>,
@@ -72,6 +73,7 @@ pub(crate) fn draw_water_network(
     let Some(water) = session
         .draft
         .as_ref()
+        .filter(|draft| crate::authoring::layer_categories::preview_visible(draft, categories.as_deref(), false))
         .and_then(|draft| draft.water.as_ref())
     else {
         return;

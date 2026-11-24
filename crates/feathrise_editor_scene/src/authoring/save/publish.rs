@@ -152,51 +152,20 @@ mod tests {
 
     use bevy::prelude::Handle; // 非被测私有资产使用空类型化句柄即可。
     use feathrise_scene_content::{
-        SCENE_SCHEMA_VERSION, SceneCatalogAsset, SceneContentHandles, SceneEnvironmentDescriptor,
+        SCENE_SCHEMA_VERSION, SceneCatalogAsset, SceneContentHandles,
         SceneManifestAsset, ScenePlacementAssetTarget, ScenePlacementHeightMode, ScenePlacementRecord,
-        ScenePortalsAsset, SceneTerrainDescriptor, SceneTerrainKind,
+        ScenePortalsAsset,
     }; // 注册表必须保持与生产结构完全相同的类型。
 
     use super::*; // 直接验证摆放快照通过唯一句柄产生可见替换。
 
     /// 构造只含本测试所需字段的完整动态场景清单。
     fn test_manifest(scene_id: &SceneId, display_name: &str) -> SceneManifestAsset {
-        SceneManifestAsset {
-            vegetation_paint_groups: Default::default(),
-            terrains: None,
-            subscenes: Default::default(),
-            schema_version: SCENE_SCHEMA_VERSION,    // 模拟当前正式清单格式。
-            id: scene_id.clone(),                    // 清单身份必须匹配目录键。
-            display_name: display_name.to_owned(), // 字段变化用于证明原位替换真实发生。
-            notes: String::new(),                  // 测试清单无需备注。
-            runtime_scene: "data_driven".to_owned(), // 新天体配置只服务统一动态运行时。
-            world_min: [0.0, 0.0],                 // 合法最小测试范围。
-            world_max: [10.0, 10.0],               // 合法最大测试范围。
-            default_spawn: [5.0, 0.0, 5.0],        // 出生点不参与发布逻辑。
-            environment: SceneEnvironmentDescriptor::default(), // 从无场景覆盖的安全环境开始。
-            puddles: None, // 新图及旧图夹具默认没有积水，首次有效落笔才创建。
-            terrain: SceneTerrainDescriptor {
-                resolved_stitches:Default::default(),
-                collision_lods: Vec::new(),         // GLB测试不消费稀疏碰撞配置。
-                display_lods: None,                 // GLB测试不保存SparseClipmap显示LOD。
-                kind: SceneTerrainKind::Gltf,  // 动态场景使用可编辑高度场。
-                collision_mode: Default::default(), // GLB路线不读取稀疏碰撞方案。
-                player_collision_preload_radius_meters:
-                    feathrise_scene_content::DEFAULT_PLAYER_COLLISION_PRELOAD_RADIUS_METERS, // GLB路线占位。
-                role_collision_preload_radius_meters: None, // GLB路线没有粗级分块预载。
-                player_collision_chunk_cells: None,
-                role_collision_chunk_cells: None,
-                player_collision_span_meters: None, // GLB不使用分块联动设置。
-                role_collision_span_meters: None,   // GLB不使用分块联动设置。
-                glb_path: "scenes/test/terrain.glb".to_owned(), // 测试不实际加载该路径。
-                height_path: None,                  // 发布测试不读取 R16。
-                height_texture_path: None,          // 发布测试不读取 GPU 高度纹理。
-                resolution: [11, 11],               // 保持合法高度场描述。
-                base_height: 0.0,                   // 不影响环境清单发布。
-                height_scale: 100.0,                // 不影响环境清单发布。
-            },
-            asset_roots: Vec::new(), // 发布测试不浏览作者资产。
-        }
+        let mut manifest = crate::authoring::test_support::test_gltf_scene_manifest(
+            scene_id, display_name, "scenes/test/terrain.glb",
+        );
+        manifest.terrain.height_scale = 100.0;
+        manifest
     }
 
     #[test]

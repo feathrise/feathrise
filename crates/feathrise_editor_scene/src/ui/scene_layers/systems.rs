@@ -7,9 +7,10 @@ use crate::{
     authoring::EditorAuthoringSession,
     resources::{SceneEditorNumericScrubMouseGuard, SceneEditorState},
     ui::{
+        gltf_browser::EditorGltfBrowserState,
         list_layout,
         scene_sidebar::{load_tree_branch_images, sync_tree_branch_icon, tree_branch_fill, tree_row_colors},
-        scene_context_menu::{SceneContextMenuState, SceneObjectKey, SceneObjectRow},
+        scene_context_menu::{SceneContextMenuState, SceneObjectKey, SceneObjectRow, SceneObjectTarget},
     },
     viewport::{LayerCandidateState, LayerTarget},
 };
@@ -79,10 +80,10 @@ pub(super) fn sync(
     editor: Res<SceneEditorState>,
     session: Res<EditorAuthoringSession>,
     locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
-    candidates: Option<Res<LayerCandidateState>>,
+    selection: (Option<Res<LayerCandidateState>>, Option<Res<EditorGltfBrowserState>>),
     domain: Option<Res<crate::game_authoring::scene_interaction::SceneInteractionState>>,
     assets: VegetationCatalogAssets,
-    folds: Option<Res<LayerTreeFolds>>,
+    presentation: (Option<Res<LayerTreeFolds>>, Option<Res<LayerCategoryVisibility>>),
     mut sections: Query<(&Section, &mut Node), (Without<List>, Without<Content>, Without<Row>)>,
     mut lists: Query<
         (&List, &Children, &mut Node, &mut ScrollPosition),
@@ -100,13 +101,17 @@ pub(super) fn sync(
             &mut BorderColor,
             &Children,
         ),
-        (Without<Section>, Without<List>, Without<Content>),
+        (Without<Section>, Without<List>, Without<Content>, Without<SectionSelection>),
     >,
+    mut headers: Query<(&SectionSelection, &UiInteraction, &mut SceneObjectRow, &mut EditorButtonClick,
+        &mut BackgroundColor, &mut BorderColor), Without<Row>>,
     mut texts: Query<(&mut Text, Option<&Title>)>,
     labels: Query<&Children, With<RowLabel>>,
     mut previous: Local<[Option<(feathrise_scene_content::SceneId, usize)>; 4]>,
     mut inventory: Local<LayerInventory>,
 ) {
+    let (candidates, browser) = selection;
+    let (folds, visibility) = presentation;
     let draft = session.draft.as_ref().filter(|draft| {
         editor.open
             && editor.selected_scene_id.as_ref() == Some(&draft.scene_id)
@@ -126,6 +131,24 @@ pub(super) fn sync(
         }
     }
     let locale = locale.as_deref().copied().unwrap_or_default();
+    for (category, interaction, mut binding, mut click, mut background, mut border) in &mut headers {
+        let category = category.0;
+        let visible = draft.filter(|_| inventory.count(category == super::AuthorLayerCategory::Water) > 0);
+        let scene = visible.map(|draft| &draft.scene_id);
+        if binding.0.as_ref().map(|target| &target.scene_id) != scene {
+            click.invalidate(); // 收起/重绑时不能用旧场景按下对应新行的名称。
+            binding.0 = scene.map(|scene| SceneObjectTarget {
+                scene_id: scene.clone(), revision: session.revision, key: SceneObjectKey::AuthorCategory(category),
+                name: category.label().to_owned(), hidden: false, locked: false, copyable: false,
+            });
+        } else if let Some(target) = binding.0.as_mut() && target.revision != session.revision {
+            target.revision = session.revision;
+        }
+        let selected = scene.and_then(|scene| browser.as_ref()?.selected_author_category(scene)) == Some(category);
+        let (fill, outline) = tree_row_colors(selected, false, *interaction);
+        background.set_if_neq(BackgroundColor(fill));
+        border.set_if_neq(outline);
+    }
     for (mut text, title) in &mut texts {
         if let Some(title) = title {
             let count = draft.map_or(0, |draft| title.0.count(draft, &inventory, domain.as_deref()));
@@ -172,7 +195,8 @@ pub(super) fn sync(
     {
         let index = starts[row.list as usize] + row.slot;
         let item = draft.filter(|_| !collapsed(row.list))
-            .and_then(|_| rows::object(&session, &inventory, Some(&assets), row.list, index, domain.as_deref(), &editor.vegetation_visibility));
+            .and_then(|_| rows::object(&session, &inventory, Some(&assets), row.list, index, domain.as_deref(),
+                (&editor.vegetation_visibility, visibility.as_deref())));
         let active = item.as_ref().is_some_and(|(target, _)| {
             draft.is_some_and(|draft| selected(&target.key, draft, candidates.as_deref(), domain.as_deref()))
         });
@@ -206,19 +230,20 @@ pub(super) fn sync(
     }
 }
 
-/// 行池换绑时同时作废子按钮的未完成手势，避免滚动后作用到另一植被层。
+/// 行池换绑时同时作废子按钮的未完成手势，避免滚动后作用到另一图层。
 pub(super) fn sync_vegetation_toggles(
     mut commands: Commands,
     session: Res<EditorAuthoringSession>,
     assets: VegetationCatalogAssets,
+    visibility: Option<Res<LayerCategoryVisibility>>,
     server: Option<Res<AssetServer>>,
     mut images: Local<Option<[Handle<Image>; 6]>>,
     rows: Query<Ref<SceneObjectRow>, With<Row>>,
     mut buttons: Query<(
-        Entity, &VegetationRowToggle, &ChildOf, &Children, &UiInteraction,
+        Entity, Option<&VegetationRowToggle>, Option<&StillWaterRowToggle>, &ChildOf, &Children, &UiInteraction,
         Option<&mut EditorButtonClick>, &mut Node, &mut BackgroundColor, &mut BorderColor,
         Has<bevy::ui::InteractionDisabled>,
-    )>,
+    ), Or<(With<VegetationRowToggle>, With<StillWaterRowToggle>)>>,
     mut icons: Query<&mut ImageNode>,
 ) {
     use crate::ui::scene_sidebar::{TreeRowToggle, load_tree_toggle_images, sync_tree_toggle_icon, tree_toggle_colors};
@@ -226,27 +251,40 @@ pub(super) fn sync_vegetation_toggles(
     if images.is_none() && let Some(server) = server.as_deref() {
         *images = Some(load_tree_toggle_images(server));
     }
-    for (entity, toggle, parent, children, interaction, click, mut node, mut background, mut border, disabled) in &mut buttons {
+    for (entity, vegetation, water, parent, children, interaction, click, mut node, mut background, mut border, disabled) in &mut buttons {
         let Ok(row) = rows.get(parent.parent()) else { continue };
         if row.is_changed() && let Some(mut click) = click { click.invalidate(); }
+        let Some(toggle) = vegetation.map(|item| item.0).or_else(|| water.map(|item| item.0)) else { continue };
         let item = row.0.as_ref().and_then(|target| {
+            let draft = session.draft.as_ref()?;
+            if let Some((terrain, id)) = still_water_target(draft, &target.key) {
+                use crate::authoring::layer_categories;
+                let (enabled, locked) = layer_categories::water_layer_state(draft, terrain, id);
+                let group_locked = layer_categories::category_state(draft, false).1;
+                let visible = !visibility.as_deref().is_some_and(|visibility| visibility.water_hidden(&target.scene_id, terrain, id));
+                let available = layer_categories::water_layer_supported(draft) && !session.water_preset_delete_pending
+                    && (toggle == TreeRowToggle::Visibility || !group_locked)
+                    && (toggle != TreeRowToggle::Participation || !locked);
+                return Some((enabled, visible, locked, available));
+            }
             let SceneObjectKey::Vegetation { index, id, output: false, .. } = &target.key else { return None };
-            let authoring = assets.row_definition(session.draft.as_ref()?, &target.key)?.authoring.as_ref()?;
+            let authoring = assets.row_definition(draft, &target.key)?.authoring.as_ref()?;
             let layer = authoring.layers.get(*index).filter(|layer| layer.id == *id)?;
-            Some((layer, target))
+            let available = !session.model_vegetation_busy && !session.vegetation_cross_busy
+                && (toggle != TreeRowToggle::Participation || !layer.locked);
+            Some((layer.enabled, !target.hidden, layer.locked, available))
         });
         let display = if item.is_some() { Display::Flex } else { Display::None };
         if node.display != display { node.display = display; }
-        let available = !session.saving && !session.model_vegetation_busy && !session.vegetation_cross_busy
-            && item.is_some_and(|(layer, _)| toggle.0 != TreeRowToggle::Participation || !layer.locked);
+        let available = !session.saving && item.is_some_and(|(_, _, _, available)| available);
         if available == disabled {
             if available { commands.entity(entity).remove::<InteractionDisabled>(); }
             else { commands.entity(entity).insert(InteractionDisabled); }
         }
-        let active = item.is_some_and(|(layer, target)| match toggle.0 {
-            TreeRowToggle::Participation => layer.enabled,
-            TreeRowToggle::Visibility => !target.hidden,
-            TreeRowToggle::Lock => layer.locked,
+        let active = item.is_some_and(|(enabled, visible, locked, _)| match toggle {
+            TreeRowToggle::Participation => enabled,
+            TreeRowToggle::Visibility => visible,
+            TreeRowToggle::Lock => locked,
         });
         let (fill, outline) = tree_toggle_colors(available, active, *interaction);
         background.set_if_neq(fill);
@@ -254,9 +292,56 @@ pub(super) fn sync_vegetation_toggles(
         if let Some(images) = images.as_ref() && let Some(child) = children.first()
             && let Ok(mut icon) = icons.get_mut(*child)
         {
-            sync_tree_toggle_icon(toggle.0, active, images, &mut icon);
+            sync_tree_toggle_icon(toggle, active, images, &mut icon);
         }
     }
+}
+
+fn still_water_target<'a>(draft: &crate::authoring::EditorSceneDraft, target: &'a SceneObjectKey)
+    -> Option<(Option<&'a feathrise_scene_content::TerrainId>, &'a str)>
+{
+    let SceneObjectKey::Water { kind: crate::types::WaterAuthoringFeatureKind::StillWater, terrain, id, index } = target else { return None; };
+    let terrain = terrain.as_ref();
+    let water = crate::authoring::terrain_documents::root_water::listed_source(draft, terrain)?;
+    water.layers.get(*index).filter(|layer| &layer.id == id)?;
+    Some((terrain, id))
+}
+
+pub(super) fn toggle_still_water(
+    mut contexts: ParamSet<(crate::ui::scene_context_menu::MenuContext, ResMut<EditorAuthoringSession>)>,
+    mut editor: ResMut<SceneEditorState>,
+    menu: Res<SceneContextMenuState>,
+    guard: Res<SceneEditorNumericScrubMouseGuard>,
+    rows: Query<&SceneObjectRow, With<Row>>,
+    buttons: Query<(&EditorButtonClick, &StillWaterRowToggle, &ChildOf), (Changed<EditorButtonClick>, Without<bevy::ui::InteractionDisabled>)>,
+    mut visibility: ResMut<LayerCategoryVisibility>,
+) {
+    use crate::authoring::{EditorCommand, layer_categories};
+    use crate::ui::scene_sidebar::TreeRowToggle;
+    if guard.blocked() || menu.owns_mouse() || !contexts.p0().enabled(&editor) { return; }
+    let mut session = contexts.p1();
+    if session.water_preset_delete_pending { return; }
+    let Some((toggle, target)) = buttons.iter().filter(|(click, _, _)| click.is_clicked())
+        .find_map(|(_, toggle, parent)| Some((toggle.0, rows.get(parent.parent()).ok()?.0.as_ref()?))) else { return; };
+    if !target.current(&editor, &session) { return; }
+    let Some(draft) = session.draft.as_mut().filter(|draft| layer_categories::water_layer_supported(draft)) else { return; };
+    let Some((terrain, id)) = still_water_target(draft, &target.key) else { return; };
+    let before = layer_categories::water_layer_state(draft, terrain, id);
+    let after = match toggle {
+        TreeRowToggle::Visibility => {
+            let hidden = visibility.water_hidden(&target.scene_id, terrain, id);
+            visibility.set_water_hidden(&target.scene_id, terrain, id, !hidden);
+            return;
+        }
+        _ if layer_categories::category_state(draft, false).1 => return,
+        TreeRowToggle::Participation if before.1 => return,
+        TreeRowToggle::Participation => (!before.0, before.1),
+        TreeRowToggle::Lock => (before.0, !before.1),
+    };
+    layer_categories::set_water_layer_state(draft, terrain, id, after);
+    session.undo.push(EditorCommand::StillWaterLayerChanged { terrain: terrain.cloned(), layer_id: id.to_owned(), before, after });
+    session.redo.clear();
+    session.mark_changed(&mut editor);
 }
 
 pub(super) fn fold_sections(
@@ -302,6 +387,85 @@ pub(super) fn sync_section_arrows(
             && let Ok(mut image) = icons.get_mut(*child)
         {
             sync_tree_branch_icon(collapsed, scene.is_some(), images, &mut image);
+        }
+    }
+}
+
+pub(super) fn toggle_categories(
+    mut contexts: ParamSet<(crate::ui::scene_context_menu::MenuContext, ResMut<EditorAuthoringSession>)>,
+    mut editor: ResMut<SceneEditorState>,
+    menu: Res<SceneContextMenuState>,
+    guard: Res<SceneEditorNumericScrubMouseGuard>,
+    buttons: Query<(&SectionToggle, &EditorButtonClick), (Changed<EditorButtonClick>, Without<bevy::ui::InteractionDisabled>)>,
+    mut visibility: ResMut<LayerCategoryVisibility>,
+) {
+    use crate::authoring::{EditorCommand, layer_categories};
+    use crate::ui::scene_sidebar::TreeRowToggle;
+    let Some(scene) = editor.selected_scene_id.as_ref() else { return; };
+    let Some((button, _)) = buttons.iter().find(|(button, click)| click.is_clicked() && button.scene.as_ref() == Some(scene)) else { return; };
+    if guard.blocked() || menu.owns_mouse() || !contexts.p0().enabled(&editor) { return; }
+    let vegetation = button.list == LayerList::Vegetation;
+    let mut session = contexts.p1();
+    let Some(draft) = session.draft.as_mut().filter(|draft| &draft.scene_id == scene) else { return; };
+    let before = layer_categories::category_state(draft, vegetation);
+    let after = match button.toggle {
+        TreeRowToggle::Visibility => { visibility.toggle(scene, vegetation); return; }
+        TreeRowToggle::Participation if before.1 => return,
+        TreeRowToggle::Participation => (!before.0, before.1),
+        TreeRowToggle::Lock => (before.0, !before.1),
+    };
+    // 清单只修改分类自身，未加载的子项也受整组约束，成员状态与各份作者资产保持原样。
+    if let Err(error) = layer_categories::set_state(draft, vegetation, after) {
+        editor.status = error;
+        return;
+    }
+    session.undo.push(EditorCommand::LayerCategoryChanged { vegetation, before, after });
+    session.redo.clear();
+    session.mark_changed(&mut editor);
+}
+
+pub(super) fn sync_category_toggles(
+    mut commands: Commands,
+    editor: Res<SceneEditorState>,
+    session: Res<EditorAuthoringSession>,
+    visibility: Res<LayerCategoryVisibility>,
+    server: Res<AssetServer>,
+    mut images: Local<Option<[Handle<Image>; 6]>>,
+    mut buttons: Query<(Entity, &mut SectionToggle, &UiInteraction, &mut EditorButtonClick, &Children,
+        &mut Node, Has<bevy::ui::InteractionDisabled>, &mut BackgroundColor, &mut BorderColor)>,
+    mut icons: Query<&mut ImageNode>,
+) {
+    use crate::authoring::layer_categories;
+    use crate::ui::scene_sidebar::{TreeRowToggle, load_tree_toggle_images, sync_tree_toggle_icon, tree_toggle_colors};
+    let draft = session.draft.as_ref().filter(|draft| editor.open && !editor.scene_transition_in_progress
+        && editor.selected_scene_id.as_ref() == Some(&draft.scene_id));
+    let scene = draft.map(|draft| &draft.scene_id);
+    let images = images.get_or_insert_with(|| load_tree_toggle_images(&server));
+    let supports = draft.is_some_and(layer_categories::supported);
+    for (entity, mut button, interaction, mut click, children, mut node, disabled, mut fill, mut border) in &mut buttons {
+        if button.scene.as_ref() != scene {
+            button.scene = scene.cloned();
+            click.invalidate();
+        }
+        let display = if scene.is_some() { Display::Flex } else { Display::None };
+        if node.display != display { node.display = display; }
+        let vegetation = button.list == LayerList::Vegetation;
+        let (participates, locked) = draft.map_or((true, false), |draft| layer_categories::category_state(draft, vegetation));
+        let (available, active) = match button.toggle {
+            TreeRowToggle::Participation => (supports && !locked, participates),
+            TreeRowToggle::Visibility => (supports, !scene.is_some_and(|scene| visibility.hidden(scene, vegetation))),
+            TreeRowToggle::Lock => (supports, locked),
+        };
+        let available = available && !session.saving;
+        if available == disabled {
+            if available { commands.entity(entity).remove::<bevy::ui::InteractionDisabled>(); }
+            else { commands.entity(entity).insert(bevy::ui::InteractionDisabled); }
+        }
+        let (color, outline) = tree_toggle_colors(available, active, *interaction);
+        fill.set_if_neq(color);
+        border.set_if_neq(outline);
+        if let Some(icon) = children.first() && let Ok(mut image) = icons.get_mut(*icon) {
+            sync_tree_toggle_icon(button.toggle, active, images, &mut image);
         }
     }
 }

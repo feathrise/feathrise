@@ -312,14 +312,11 @@ fn prepare_draft_writes<'a>(
     let root_water = super::super::terrain_documents::root_water::source(draft);
     if canvas_only { super::super::terrain_documents::TerrainCanvas::snapshot(draft).validate_paths(root, &draft.folder)?; }
     feathrise_scene_content::validate_terrain_objects(&draft.manifest)?;
-    if draft.folder.is_empty()
-        || draft.folder.starts_with('/')
-        || draft.folder.contains("..")
-        || draft.folder.contains('\\')
-    {
-        return Err(format!("场景{}私有目录越过assets根", draft.scene_id));
-    }
-    let folder = root.join(&draft.folder);
+    let relative_folder = draft.folder.trim_end_matches('/');
+    // 只拦截不安全的路径分量，合法目录名中的连续点仍应沿原作者路径保存。
+    safe_asset_path(root, relative_folder)
+        .map_err(|error| format!("场景{}私有目录无效：{error}", draft.scene_id))?;
+    let folder = root.join(relative_folder);
     let water_json_path = resolve_water_json_output_path(
         &root,
         &draft.folder,

@@ -78,7 +78,13 @@ pub(super) fn mount(
                             BorderColor::all(c::COPPER_BORDER),
                         ))
                         .with_children(|panel| {
-                            panel.spawn(caption(&font, &settings.project.name, 14.));
+                            panel.spawn(Node { align_items: AlignItems::Center, column_gap: px(7), ..default() })
+                                .with_children(|heading| {
+                                    heading.spawn((ProjectMenuIcon, ImageNode::default(), Node {
+                                        display: Display::None, width: px(20), height: px(20), flex_shrink: 0.0, ..default()
+                                    }));
+                                    heading.spawn((ProjectMenuName, caption(&font, &settings.project.name, 14.)));
+                                });
                             panel.spawn((
                                 caption(&font, &crate::project::display_path(&settings.project.root), 12.),
                                 TextLayout {
@@ -103,6 +109,7 @@ pub(super) fn mount(
                                 "此操作只保存启动设置；场景草稿请使用原保存按钮。",
                                 12.,
                             ));
+                            button(panel, &font, ProjectAction::Settings, "工程设置");
                             button(panel, &font, ProjectAction::Export, "导出工程…");
                             panel.spawn((
                                 ProjectMenuStatus,

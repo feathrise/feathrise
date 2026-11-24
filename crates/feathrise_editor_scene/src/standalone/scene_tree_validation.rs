@@ -1,7 +1,7 @@
 //! 原生窗口验收场景树换选与来源定位，沿用原保存和截图。
 
 use super::{open_scene_tree, ui_visible};
-use crate::standalone::scene_format_validation::{tree_fold_icon, tree_row_glyph};
+use crate::standalone::scene_format_validation::{tree_branch_arrow, tree_icon_offset, tree_row_glyph};
 use crate::{
     authoring::{EditorAuthoringSession, EditorCommand},
     components::{SceneBrowserDragPreview, SceneBrowserDragPreviewText, SceneEditorRightPanelScroll},
@@ -10,7 +10,8 @@ use crate::{
         external_files::platform_path,
         file_manager::{FileManagerState, FileRow},
         file_manager_validation::{mouse, move_cursor, pointer_click, right_click},
-        gltf_browser::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeDrag, SceneBaseGltfRow, SceneTreeRootRow},
+        gltf_browser::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeDrag, SceneBaseGltfRow,
+            SceneEditorGltfBrowserRowText, SceneTreeRootRow},
         scene_context_menu::{SceneMenuAction, SceneObjectKey, SceneObjectRow, press_action_for_validation,
             visible_action_for_validation, visible_rename_controls_for_validation},
         scene_objects,
@@ -31,6 +32,8 @@ use std::{fs, path::{Path, PathBuf}};
 
 #[path = "scene_tree_validation/creation.rs"]
 mod creation;
+#[path = "scene_tree_validation/still_water.rs"]
+mod still_water;
 
 const MODEL: &str = "sample-model";
 const ASSET_PATH: &str = "scene/probe.glb";
@@ -60,6 +63,8 @@ pub(super) enum Step {
     Open,
     StartupTreeReady,
     StartupScreenshot,
+    StillWater(still_water::Step),
+    StillWaterScreenshot,
     SelectCube,
     CubeProperties,
     CubePropertiesScreenshot,
@@ -172,7 +177,7 @@ pub(super) fn reopened_source_position(world: &mut World) -> Option<Value> {
             "world_x": world.get::<GlobalTransform>(entity)?.translation().x,
             "reopened_folder_parent": folder_parent, "reopened_folder_members": folder_members,
             "reopened_created_child_parent": child_parent, "reopened_empty_glbs": restored_glbs,
-            "reopened_picked_glb": restored_picked}))
+            "reopened_picked_glb": restored_picked, "reopened_still_water": still_water::proof(world)}))
     })
 }
 
@@ -185,7 +190,7 @@ pub(super) fn advance(
 ) -> Result<Option<Value>, String> {
     let session = world.resource::<EditorAuthoringSession>();
     if session.revision != *revision && !matches!(step, Step::SourceSpaceEdited | Step::MeshScaleApplied | Step::MeshRenamed
-        | Step::FolderRenamed | Step::ChildFolderCreated | Step::CreateObjects(_) | Step::FolderDropped(_))
+        | Step::FolderRenamed | Step::ChildFolderCreated | Step::CreateObjects(_) | Step::FolderDropped(_) | Step::StillWater(_))
     {
         return Err(format!("切换视口工具和树行选择不应修改场景修订：{step:?}，{} → {}", *revision, session.revision));
     }
@@ -207,6 +212,23 @@ pub(super) fn advance(
             }
         }
         Step::StartupScreenshot => {
+            if let Some(result) = world.get_resource_mut::<StartupScreenshot>()
+                .and_then(|mut capture| check_ready(&mut capture.0))
+            {
+                result?;
+                world.remove_resource::<StartupScreenshot>();
+                *step = Step::StillWater(still_water::Step::Click(0, 0));
+            }
+        }
+        Step::StillWater(mut action) => {
+            if still_water::advance(world, &mut action, revision)? {
+                request_screenshot(world, still_water::SCREENSHOT)?;
+                *step = Step::StillWaterScreenshot;
+            } else {
+                *step = Step::StillWater(action);
+            }
+        }
+        Step::StillWaterScreenshot => {
             if let Some(result) = world.get_resource_mut::<StartupScreenshot>()
                 .and_then(|mut capture| check_ready(&mut capture.0))
             {
@@ -244,8 +266,8 @@ pub(super) fn advance(
             {
                 return Err("首次点击 GLB 名称应只选中，保留相机和折叠状态".into());
             }
-            if let Some(row) = scene_row(world, MODEL, false) {
-                *step = match click_control(world, row, frame)? {
+            if let Some(row) = scene_row(world, MODEL, false) && let Some(name) = row_name(world, row) {
+                *step = match click_control(world, name, frame)? {
                     Some(frame) => Step::SelectRoot { press, frame, before },
                     None if press == 0 => Step::SelectRoot { press: 1, frame: 0, before },
                     None => Step::RootFocused(before),
@@ -263,16 +285,16 @@ pub(super) fn advance(
                 return Err("场景树根行选择改变了移动工具".into());
             }
             if frame == 0 && !branch_collapsed(world, MODEL)? {
-                return Err("GLB 必须等待点击文件图标展开".into());
+                return Err("GLB 必须等待点击展开箭头".into());
             }
             if properties_show_path(world) && let Some(row) = scene_row(world, MODEL, false) {
-                let icon = row_fold_icon(world, row)?;
-                *step = click_control(world, icon, frame)?.map_or(Step::SelectMesh, Step::ExpandRoot);
+                let arrow = row_arrow(world, row)?;
+                *step = click_control(world, arrow, frame)?.map_or(Step::SelectMesh, Step::ExpandRoot);
             }
         }
         Step::SelectMesh => {
             if selected != Some(MODEL) {
-                return Err("点击 GLB 文件图标改变了名称选择".into());
+                return Err("点击 GLB 展开箭头改变了名称选择".into());
             }
             if let Some(row) = click_row(world, MODEL, true) {
                 *pulse = Some(row);
@@ -294,10 +316,10 @@ pub(super) fn advance(
                     let Some(mesh) = scene_row(world, MODEL, true) else { return Ok(None); };
                     let Some(model_icon) = row_icon(world, model, GLB_ICON) else { return Ok(None); };
                     let Some(mesh_icon) = row_icon(world, mesh, "icons/editor/tree_mesh.png") else { return Ok(None); };
-                    // 夹具网格经过一个不显示的变换节点，仍与所属 GLB 共用一个图标列。
-                    let icon_x = |entity| world.get::<UiGlobalTransform>(entity).unwrap().translation.x;
-                    if (icon_x(mesh_icon) - icon_x(model_icon)).abs() >= 1.1 {
-                        return Err("GLB 直属网格图标应与文件图标对齐".into());
+                    // 夹具经过一个不显示的变换节点，真实层级只增加一个可见缩进。
+                    let Some(offset) = tree_icon_offset(world, model_icon, mesh_icon) else { return Ok(None); };
+                    if (offset - 14.0).abs() >= 1.1 {
+                        return Err(format!("GLB 直属网格应缩进 14 个逻辑像素，实际为 {offset}"));
                     }
                     Step::SourceSpace { index: 0, frame: 0 }
                 } else {
@@ -435,8 +457,9 @@ pub(super) fn advance(
                 return Err("首次点击组名应只选组并保留相机".into());
             }
             let Some(row) = folder_row(world, GROUP) else { return Ok(None); };
-            // 实际按松同一组行两次，形成生产双击并通过原菜单请求取景。
-            *step = match click_control(world, row, frame)? {
+            let Some(name) = row_name(world, row) else { return Ok(None); };
+            // 双击真实名称，确保图标命中区扩大后仍能选中并取景。
+            *step = match click_control(world, name, frame)? {
                 Some(frame) => Step::GroupName { press, frame, before },
                 None if press == 0 => Step::GroupName { press: 1, frame: 0, before },
                 None => Step::GroupFocused { frame: 0, before },
@@ -450,8 +473,10 @@ pub(super) fn advance(
                     return Err("双击组名定位不应改变两支的展开状态".into());
                 }
                 if let Some(row) = folder_row(world, GROUP) {
-                    let icon = row_fold_icon(world, row)?;
+                    let Some(icon) = tree_row_glyph(world, row) else { return Ok(None); };
+                    if frame >= 3 && branch_collapsed(world, GROUP)? { return Ok(None); }
                     let next = if startup_enabled() { Step::RenameFolder(0) } else { Step::RestoreMesh };
+                    // 实际点击类型图标，打开刚刚选中的文件夹。
                     *step = click_control(world, icon, frame)?
                         .map_or(next, |frame| Step::GroupFocused { frame, before });
                 }
@@ -586,9 +611,20 @@ pub(super) fn advance(
                 let glb_menu = json!({
                     "source_staged_for_permanent_deletion": creation::DELETED_GLB,
                     "created_main_plane_at_scene_center": true,
+                    "created_main_cuboid_at_local_origin": true,
+                    "created_source_cuboid_at_local_origin": true,
                     "created_source_cuboid_and_undone": true,
                     "removed_without_deleting_source_and_undone": true,
                     "existing_glb_added_from_picker": true,
+                    "creation_submenu_beside_unchanged_main": true,
+                    "creation_submenu_screenshot": creation::CREATION_MENU_SCREENSHOT,
+                });
+                let tree_layout = json!({
+                    "main_glb_icons_indented_14_px": true,
+                    "terrain_and_object_icons_aligned": true,
+                    "height_terrain_has_one_caption": true,
+                    "source_mesh_indented_14_px": true,
+                    "initial_glb_arrows_visible": true,
                 });
                 return Ok(Some(json!({
                     "viewport_mode": format!("{mode:?}"),
@@ -600,20 +636,21 @@ pub(super) fn advance(
                     "scene_revision": *revision,
                     "selected_names_without_expansion": true,
                     "model_double_click_focused_while_folded": true,
-                    "fold_icons_preserved_selection": true,
+                    "branch_arrows_preserved_selection": true,
+                    "folder_icon_opened_branch": true,
                     "group_focused_center": world.resource::<SceneEditorViewportState>().center.to_array(),
                     "startup": startup_enabled().then(|| json!({
                         "vegetation_layer": PRIVATE_LAYER,
                         "terrain": PRIVATE_TERRAIN,
                         "terrain_canvas_unloaded": true,
                         "mesh_rows_below_vegetation": true,
-                        "embedded_mesh_icon_aligned": true,
-                        "terrain_root_icon_aligned": true,
-                        "source_mesh_icon_aligned": true,
+                        "layout": tree_layout,
                         "terrain_icon": TERRAIN_ICON,
                         "tree_glb_icon": GLB_ICON,
                         "file_glb_icon": GLB_ICON,
                         "screenshot": "scene-tree-startup.png",
+                        "still_water": still_water::proof(world),
+                        "still_water_screenshot": still_water::SCREENSHOT,
                         "source_coordinates": {
                             "labels": SOURCE_SPACES,
                             "x_meters": SOURCE_X_VALUES,
@@ -668,6 +705,23 @@ fn startup_tree_visible(world: &mut World, cube: &str) -> Result<bool, String> {
     let Some(terrain_icon) = row_icon(world, terrain, TERRAIN_ICON) else { return Ok(false); };
     let Some(root_icon) = row_icon(world, root, GLB_ICON) else { return Ok(false); };
     let Some(model_icon) = row_icon(world, model, GLB_ICON) else { return Ok(false); };
+    let Some(root_arrow) = tree_branch_arrow(world, root) else { return Ok(false); };
+    let Some(model_arrow) = tree_branch_arrow(world, model) else { return Ok(false); };
+    let logical_size = |entity| world.get::<ComputedNode>(entity)
+        .map(|node| node.size() * node.inverse_scale_factor()).unwrap_or_default();
+    let arrow_size_matches = |arrow, path| {
+        use crate::ui::scene_sidebar::{TREE_CAPTION_GAP, TREE_DISCLOSURE_ICON_SIZE, TREE_DISCLOSURE_WIDTH, TREE_ICON_SIZE};
+        let Some(icon) = row_icon(world, arrow, path) else { return false; };
+        let hit_width = TREE_DISCLOSURE_WIDTH + TREE_ICON_SIZE + TREE_CAPTION_GAP;
+        (logical_size(arrow).x - hit_width).abs() < 1.1
+            && (logical_size(icon) - Vec2::splat(TREE_DISCLOSURE_ICON_SIZE)).abs().max_element() < 1.1
+    };
+    let arrows_match = arrow_size_matches(root_arrow, "icons/editor/tree_collapse.png")
+        && arrow_size_matches(model_arrow, "icons/editor/tree_expand.png");
+    let mut children = world.query::<&Children>();
+    let terrain_captions = children.query(world).iter_descendants(terrain).filter(|&entity| {
+        world.get::<Text>(entity).is_some_and(|text| !text.as_str().trim().is_empty()) && ui_visible(world, entity)
+    }).count();
     let has_heading = world.query::<(Entity, &Text)>().iter(world)
         .any(|(entity, text)| text.as_str() == "网格对象" && ui_visible(world, entity));
     let position = |entity| world.get::<UiGlobalTransform>(entity).unwrap().translation;
@@ -676,11 +730,15 @@ fn startup_tree_visible(world: &mut World, cube: &str) -> Result<bool, String> {
         .find_map(|child| world.get::<Text>(child)).map(|text| text.as_str());
     Ok(name.is_some_and(|name| name.contains("scene.glb"))
         && !has_heading
+        && terrain_captions == 1
         && position(display).y < position(root).y
         && position(root).y < position(plant).y
         && position(plant).y < position(cuboid).y && position(cuboid).y < position(model).y
-        && [cube_icon, terrain_icon, model_icon].into_iter()
-            .all(|icon| (position(icon).x - position(root_icon).x).abs() < 1.1))
+        && arrows_match
+        && tree_icon_offset(world, root_icon, cube_icon).is_some_and(|offset| (offset - 14.0).abs() < 1.1)
+        && [terrain_icon, model_icon].into_iter().all(|icon| {
+            tree_icon_offset(world, cube_icon, icon).is_some_and(|offset| offset.abs() < 1.1)
+        }))
 }
 
 fn request_screenshot(world: &mut World, name: &str) -> Result<(), String> {
@@ -714,7 +772,7 @@ fn row_has_icon(world: &World, row: Entity, path: &str) -> bool {
 
 fn row_icon(world: &World, row: Entity, path: &str) -> Option<Entity> {
     let children = |entity| world.get::<Children>(entity).into_iter().flat_map(|children| children.iter());
-    children(row).chain(children(row).flat_map(children)).chain(tree_row_glyph(world, row)).find(|&entity| {
+    children(row).chain(children(row).flat_map(children)).find(|&entity| {
         world.get::<ImageNode>(entity).is_some_and(|icon| {
             icon.image.path().is_some_and(|source| source.path() == Path::new(path))
                 && world.resource::<Assets<Image>>().get(&icon.image).is_some()
@@ -757,8 +815,14 @@ fn folder_rows_reparented(world: &World, drop: FolderDrop) -> bool {
         })
 }
 
-fn row_fold_icon(world: &World, row: Entity) -> Result<Entity, String> {
-    tree_fold_icon(world, row).ok_or_else(|| "场景树验收没有可点击的展开图标".into())
+fn row_arrow(world: &World, row: Entity) -> Result<Entity, String> {
+    tree_branch_arrow(world, row).ok_or_else(|| "场景树验收没有可点击的展开箭头".into())
+}
+
+fn row_name(world: &World, row: Entity) -> Option<Entity> {
+    world.get::<Children>(row)?.iter().filter_map(|child| world.get::<Children>(child))
+        .flat_map(|children| children.iter())
+        .find(|&child| world.get::<SceneEditorGltfBrowserRowText>(child).is_some() && ui_visible(world, child))
 }
 
 fn drag_tree_rows(world: &mut World, source: Entity, target: Entity, frame: u8) -> Result<Option<u8>, String> {
@@ -785,7 +849,13 @@ fn drag_tree_rows(world: &mut World, source: Entity, target: Entity, frame: u8) 
 }
 
 fn click_control(world: &mut World, entity: Entity, frame: u8) -> Result<Option<u8>, String> {
-    let (window, position) = pointer_context(world, entity)?;
+    let (window, mut position) = pointer_context(world, entity)?;
+    if world.get::<crate::ui::gltf_browser::PlacementTreeExpander>(entity).is_some()
+        && let Some(node) = world.get::<ComputedNode>(entity)
+    {
+        // 实际点击离左边两像素的位置，覆盖新增的命中区。
+        position.x -= f64::from((node.size().x * 0.5 - 2.0 / node.inverse_scale_factor()).max(0.0));
+    }
     let mut pending = Some((position, frame));
     pointer_click(world, &mut pending, window, position, MouseButton::Left);
     Ok(pending.map(|(_, next)| next))

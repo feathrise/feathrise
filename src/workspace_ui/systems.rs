@@ -51,14 +51,15 @@ pub(super) fn adopt(
         state.page = Page::Editor;
     }
     if state.project != model.project {
-        state.project = model.project.clone();
-        state.page = if model.project.is_some() {
-            Page::Editor
-        } else {
-            Page::Start
-        };
-        state.start_open = true;
-        state.error.clear();
+        let switching = state.project.as_ref().map(|project| &project.root)
+            != model.project.as_ref().map(|project| &project.root);
+        state.project.clone_from(&model.project);
+        if switching {
+            // 同一工程保存新名称时，保留作者当前页面和管理器表单状态。
+            state.page = if model.project.is_some() { Page::Editor } else { Page::Start };
+            state.start_open = true;
+            state.error.clear();
+        }
     }
     if state.applied_default.as_deref() != Some(model.default_directory.as_str()) {
         let previous = state.applied_default.clone().unwrap_or_default();
@@ -235,6 +236,11 @@ pub(super) fn input(
                 Action::SetStartup if !model.busy && model.project.is_some() => {
                     state.menu = false;
                     out.write(WorkspaceCommand::SetStartupScene);
+                }
+                Action::ProjectSettings if !model.busy && model.project.is_some() => {
+                    state.menu = false;
+                    state.page = Page::Editor; // 标签挂在当前工程的原作者工作台，即使从开始页进入。
+                    out.write(WorkspaceCommand::OpenProjectSettings);
                 }
                 Action::ExportProject if !model.busy && model.project.is_some() => {
                     state.menu = false;
@@ -445,7 +451,9 @@ pub(super) fn present(
             | Action::Browse(_)
             | Action::SaveDefault
             | Action::ResetDefault => !model.busy,
-            Action::CloseProject | Action::SetStartup | Action::ExportProject => !model.busy && model.project.is_some(),
+            Action::CloseProject | Action::SetStartup | Action::ProjectSettings | Action::ExportProject => {
+                !model.busy && model.project.is_some()
+            }
             Action::Plugins => !model.busy,
             Action::CancelOperation => model.busy && model.cancellable,
             _ => true,
@@ -708,6 +716,23 @@ pub(super) fn measure(
 mod tests {
     use super::*;
     use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+
+    #[test]
+    fn adopting_a_saved_project_name_keeps_the_current_page() {
+        let root = std::path::PathBuf::from("当前工程路径");
+        let mut app = App::new();
+        app.insert_resource(Presentation {
+            project: Some(WorkspaceProject { root: root.clone(), name: "原工程名".into() }),
+            page: Page::Open, start_open: false, ..default()
+        }).insert_resource(WorkspaceModel {
+            project: Some(WorkspaceProject { root, name: "已保存工程名".into() }), ..default()
+        }).init_resource::<WorkbenchHostPageState>().add_systems(Update, adopt);
+        app.update();
+        let state = app.world().resource::<Presentation>();
+        assert_eq!(state.project.as_ref().unwrap().name, "已保存工程名");
+        assert_eq!(state.page, Page::Open);
+        assert!(!state.start_open);
+    }
 
     fn scroll_app(page: Page) -> (App, Entity) {
         let mut app = App::new();

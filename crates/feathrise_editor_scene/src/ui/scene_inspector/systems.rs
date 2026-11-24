@@ -51,17 +51,23 @@ pub(crate) fn sync_scene_inspector(
     let draft = session.draft.as_ref().filter(|draft| {
         editor.selected_scene_id.as_ref() == Some(&draft.scene_id) && !editor.scene_transition_in_progress
     }); // 旧草稿和新图同名实例不得在检查器中串用。
-    let target = selection.0.as_deref().and_then(|state| state.selected.as_ref());
+    let animation_name = draft.and_then(|draft| crate::ui::scene_motion::selected_clip_name(&browser, draft));
+    let animation = animation_name.is_some();
+    let author_category = draft.and_then(|draft| browser.selected_author_category(&draft.scene_id));
+    // 动画是当前属性对象，旧地形/选集不再占用右栏，姿势目标原样留给时间轴。
+    let target = selection.0.as_deref().and_then(|state| state.selected.as_ref())
+        .filter(|_| !animation && author_category.is_none());
     let main_glb = target.is_none() && draft.is_some_and(|draft| {
         draft.placement_glb_hash.is_some() && browser.is_main_glb_selected(&draft.scene_id)
     });
     let multi_count = selection.1.as_deref().filter(|state| state.ready_for(&session))
         .map_or(0, |state| state.members.len());
-    let management = matches!(target, None | Some(LayerTarget::Placement(_)))
+    let management = !animation && author_category.is_none() && matches!(target, None | Some(LayerTarget::Placement(_)))
         && (multi_count > 1 || browser.selected_group.is_some());
     let section = if management { Some(InspectorSection::ObjectManagement) } else { section_for(target) };
     let indexed_record = draft.and_then(|draft| {
-        if management || target.is_some_and(|target| !matches!(target, LayerTarget::Placement(_))) { return None; }
+        if animation || author_category.is_some() || management
+            || target.is_some_and(|target| !matches!(target, LayerTarget::Placement(_))) { return None; }
         let id = browser.selected_placement_id.as_ref()?;
         let index = browser.placement_record_index(id, session.placement_structure_revision)?;
         draft
@@ -76,7 +82,7 @@ pub(crate) fn sync_scene_inspector(
     let relocation_armed = transform.relocation_armed();
     let unchanged = previous.as_ref().is_some_and(|old| {
         old.target.as_ref() == target && old.multi_count == multi_count && old.group == browser.selected_group
-            && old.main_glb == main_glb
+            && old.main_glb == main_glb && old.animation == animation && old.author_category == author_category
             && old.scene_id.as_ref() == editor.selected_scene_id.as_ref()
             && old.draft_scene_id.as_ref() == draft_scene_id
             && old.revision == session.revision
@@ -97,7 +103,8 @@ pub(crate) fn sync_scene_inspector(
     let changed_selection = previous.as_ref().is_none_or(|old| {
         old.target.as_ref() != target || old.scene_id != editor.selected_scene_id
             || old.placement_id != browser.selected_placement_id || old.group != browser.selected_group
-            || old.multi_count != multi_count || old.main_glb != main_glb
+            || old.multi_count != multi_count || old.main_glb != main_glb || old.animation != animation
+            || old.author_category != author_category
     });
     if changed_selection {
         // 新对象从属性标题开始阅读；数值回显、后台反馈与分隔拖动不打断当前滚动位置。
@@ -106,7 +113,7 @@ pub(crate) fn sync_scene_inspector(
         }
     }
     *previous = Some(SceneInspectorObservation {
-        target: target.cloned(), multi_count, group: browser.selected_group.clone(), main_glb,
+        target: target.cloned(), multi_count, group: browser.selected_group.clone(), main_glb, animation, author_category,
         scene_id: editor.selected_scene_id.clone(),
         draft_scene_id: draft_scene_id.cloned(),
         revision: session.revision,
@@ -125,8 +132,9 @@ pub(crate) fn sync_scene_inspector(
     let source_node_selected = crate::ui::scene_source_glb::owns_selection(&browser);
     for (kind, mut node) in &mut sections {
         let visible = draft.is_some() && (section == Some(*kind)
+            || (*kind == InspectorSection::PlacementControls && record.is_some())
             || (matches!(kind, InspectorSection::ObjectManagement | InspectorSection::ObjectName)
-                && (record.is_some() || browser.selected_group.is_some())))
+                && !animation && (record.is_some() || browser.selected_group.is_some())))
             && !(source_node_selected && matches!(kind, InspectorSection::ObjectManagement | InspectorSection::ObjectName));
         let display = if visible { Display::Flex } else { Display::None };
         if node.display != display { node.display = display; }
@@ -136,7 +144,7 @@ pub(crate) fn sync_scene_inspector(
         .as_ref()
         .filter(|selection| record.is_some_and(|record| record.id == selection.placement_id));
     for mut node in &mut properties {
-        let display = if record.is_some() || main_glb {
+        let display = if record.is_some() || main_glb || animation {
             Display::Flex
         } else {
             Display::None
@@ -153,7 +161,11 @@ pub(crate) fn sync_scene_inspector(
             "加载期间不显示旧场景对象属性；进度与失败原因沿用原加载反馈。".to_owned(),
         )
     } else if let Some(draft) = draft {
-        if management {
+        if let Some(name) = animation_name {
+            (name.to_owned(), format!("{}  {}", locale.text("label.type"), locale.editor_label("场景动画")), String::new())
+        } else if let Some(category) = author_category {
+            (locale.editor_label(category.label()).to_owned(), String::new(), String::new())
+        } else if management {
             (browser.selected_group.as_ref().map_or_else(|| format!("已选择 {multi_count} 个对象"), |group| format!("文件夹 · {group}")),
                 "批量属性".to_owned(), "文件夹归类、显隐和锁定作用于当前选集。".to_owned())
         } else if target.is_some_and(|target| !matches!(target, LayerTarget::Placement(_))) {

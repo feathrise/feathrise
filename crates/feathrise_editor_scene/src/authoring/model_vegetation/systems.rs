@@ -102,6 +102,7 @@ pub(super) fn focus_root(
 ) {
     if !editor.open
         || editor.tool != EditorTool::Vegetation
+        || session.draft.as_ref().is_some_and(|draft| crate::authoring::layer_categories::edit_error(draft, true).is_some())
         || selected(&session, &browser).is_none()
         || session.saving
         || mouse.pressed(MouseButton::Left)
@@ -180,6 +181,7 @@ pub(super) fn capture(
         && !control
         && session.draft.as_ref().is_some_and(|draft| {
             draft.terrain_documents.active.is_none() && !draft.terrain_documents.loading
+                && crate::authoring::layer_categories::edit_error(draft, true).is_none()
         });
     let current = selected(&session, &browser).filter(|(_, record)| record.editor.selectable());
     let current_source =

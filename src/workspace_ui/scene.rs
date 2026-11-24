@@ -319,6 +319,7 @@ pub(super) fn mount(
                 button(menu, &font, "新建工程…", Action::Show(Page::New));
                 button(menu, &font, "打开工程…", Action::Show(Page::Open));
                 button(menu, &font, "当前场景设为启动场景", Action::SetStartup);
+                button(menu, &font, "工程设置", Action::ProjectSettings);
                 button(menu, &font, "导出工程…", Action::ExportProject);
                 button(menu, &font, "插件管理…", Action::Plugins);
                 button(menu, &font, "关闭工程", Action::CloseProject);

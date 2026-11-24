@@ -347,23 +347,9 @@ fn append_placements(
 }
 
 fn manifest_without_roots(source: &SceneManifestAsset) -> SceneManifestAsset {
-    SceneManifestAsset {
-        schema_version: source.schema_version,
-        id: source.id.clone(),
-        display_name: source.display_name.clone(),
-        notes: source.notes.clone(),
-        runtime_scene: source.runtime_scene.clone(),
-        world_min: source.world_min,
-        world_max: source.world_max,
-        default_spawn: source.default_spawn,
-        environment: source.environment.clone(),
-        terrain: source.terrain.clone(),
-        terrains: source.terrains.clone(),
-        puddles: source.puddles.clone(),
-        asset_roots: Vec::new(),
-        subscenes: source.subscenes.clone(),
-        vegetation_paint_groups: source.vegetation_paint_groups.clone(),
-    }
+    let mut manifest = source.clone();
+    manifest.asset_roots.clear(); // 试玩只替换路径映射，保留其余场景作者字段。
+    manifest
 }
 
 pub(super) struct CanvasCapture {

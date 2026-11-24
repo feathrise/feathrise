@@ -48,12 +48,13 @@ pub(super) struct PanelPresentation<'w, 's> {
             Option<&'static PanelSection>,
             Option<&'static Slot>,
             Option<&'static Row>,
+            Option<&'static RowKind>,
             Option<&'static LodRow>,
             Option<&'static LodValueFallback>,
             Option<&'static NativeLodEditor>,
             &'static mut Node,
         ),
-        (Or<(With<PanelSection>, With<Slot>, With<Row>, With<LodRow>, With<LodValueFallback>)>, Without<ListViewport>, Without<ListContent>, Without<LodList>),
+        (Or<(With<PanelSection>, With<Slot>, With<Row>, With<RowKind>, With<LodRow>, With<LodValueFallback>)>, Without<ListViewport>, Without<ListContent>, Without<LodList>),
     >,
     list_viewport: Query<'w, 's, (&'static mut Node, &'static mut ScrollPosition), (With<ListViewport>, Without<ListContent>, Without<LodList>, Without<crate::ui::scene_inspector::InspectorBody>)>,
     list_content: Query<'w, 's, &'static mut Node, (With<ListContent>, Without<ListViewport>, Without<LodList>)>,
@@ -419,11 +420,15 @@ pub(super) fn sync(
             if let Some(mut click) = click { click.invalidate(); }
         }
     }
-    for (section, slot, row, lod_row, fallback, native_editor, mut node) in &mut ui.nodes {
+    for (section, slot, row, row_kind, lod_row, fallback, native_editor, mut node) in &mut ui.nodes {
         let show = if let Some(row) = row {
             let top = px((state.list_start + row.0) as f32 * crate::ui::list_layout::SCENE_OBJECT_ROW_PITCH);
             if node.top != top { node.top = top; }
             objects.get(state.list_start + row.0).is_some()
+        } else if let Some(row) = row_kind {
+            // 场景树的山形图标已经标明高度地形，收起类型槽可将三个控件前的空隙一并移除。
+            objects.get(state.list_start + row.0)
+                .is_some_and(|object| object.terrain.kind != SceneTerrainKind::SparseClipmap)
         } else if let Some(row) = lod_row {
             let index = state.lod(row.1).start.saturating_add(row.0);
             let top = px(index as f32 * lod_pitch);

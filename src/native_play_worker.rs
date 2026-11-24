@@ -18,7 +18,7 @@ mod scene_tests;
 
 use crate::{
     build_process::{self, BuildControl},
-    project::{self, Project},
+    project::Project,
 };
 use feathrise_editor_scene::standalone::RunSavedProject;
 use feathrise_editor_core::ProjectBuildProfile;
@@ -60,12 +60,12 @@ pub(super) fn run_prepared(
     progress: &SyncSender<String>,
     started: Option<SyncSender<()>>,
 ) -> Result<u32, String> {
+    let project = project.refresh_for_session()?;
     if !prepared.matches_project(&project, request.profile)
         || !prepared.matches_build_selection(build_backend, selected_features)
     {
         return Err("运行版本不属于当前工程、构建配置、构建方式或所选特性".into());
     }
-    if project::open(&project.root)? != project { return Err("工程清单已变化，拒绝运行旧工程版本".into()); }
     if let Some(scene_id) = request.scene_id.as_deref() { validate_requested_scene(&project, scene_id, control)?; }
     let warning = if request.has_unsaved_changes {
         "；当前未保存修改仍只在编辑器"
@@ -230,9 +230,9 @@ fn prepare_build(
     let _guard = acquire_build_slot(control)?;
     let started = std::time::Instant::now();
     control.check()?;
-    if project::open(&project.root)? != *project {
-        return Err("工程清单已变化，请重新打开工程".into());
-    }
+    let current = project.refresh_for_session()?;
+    let project = &current;
+    let identity = crate::project_identity::identity(project)?;
     verify_game_contract(&project, control)?;
     if let Some(id) = scene_id {
         validate_requested_scene(&project, id, control)?;
@@ -251,6 +251,9 @@ fn prepare_build(
     let dx_command = if dx_has_rustup && let Some((dx, bin)) = dx_tools::project_tool(project, &target, control)? {
         if let Some(prepared) = hotpatch::prepare(project, &target, profile, &dx, &cargo_manifest,
             selected_features, control, diagnostics.clone())? {
+            if crate::project_identity::identity(project)? != identity {
+                return Err("工程清单在构建期间变化，本次工程运行已取消".into());
+            }
             if let Some(log) = control.log_sink() {
                 log.task_message(&format!("DX 工程构建与产物准备完成，用时 {:.2} 秒", started.elapsed().as_secs_f64()));
             }
@@ -313,7 +316,7 @@ fn prepare_build(
     }
     let executable = select_executable(build.stdout.executables, &target)?;
     control.check()?;
-    if project::open(&project.root)? != *project {
+    if crate::project_identity::identity(project)? != identity {
         return Err("工程清单在构建期间变化，本次工程运行已取消".into());
     }
     verify_game_contract(&project, control)?;

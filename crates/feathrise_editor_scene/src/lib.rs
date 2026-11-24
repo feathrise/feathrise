@@ -19,6 +19,7 @@ mod viewport; // 独立RTT相机与透视/正交CAD式导航。
 mod world_environment_controls; // 从 F1 迁入的时间、月份和运行时天气调试控件。
 pub mod workbench; // 原工作台的独立装配入口；新旧宿主共用实体树，作者/运行时系统按边界分别接入。
 pub mod standalone; // 首版独立编辑模式只请求运行已保存工程，作者World与历史继续驻留本地。
+pub mod project_icon; // 工程资料选图和预览共用现有 PNG/JPEG 解码器。
 pub mod game_authoring; // 应用自有作者域只通过来源、状态及挂载合同接入，不反向依赖原游戏实现。
 
 use bevy::prelude::*; // App、Plugin、Startup与Update。

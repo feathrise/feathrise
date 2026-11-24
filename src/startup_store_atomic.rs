@@ -8,7 +8,7 @@ use std::{
 };
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
-pub(super) fn replace(
+pub(crate) fn replace(
     path: &Path,
     bytes: &[u8],
     existed: bool,

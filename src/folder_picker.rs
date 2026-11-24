@@ -1,4 +1,7 @@
-//! 原生选择器的平台门面；工程及导出选目录，作者插件只选当前平台单文件。
+//! 原生选择器的平台门面，统一工程目录、作者工具和单文件选择。
+
+const PROJECT_ICON_TITLE: &str = "选择工程图标 / Select Project Icon";
+const PROJECT_ICON_FILTER: &str = "图像 / Images (PNG, JPG, JPEG)";
 
 #[cfg(windows)]
 mod windows;

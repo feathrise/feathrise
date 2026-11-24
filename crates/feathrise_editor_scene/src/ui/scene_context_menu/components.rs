@@ -11,7 +11,11 @@ pub(super) struct Backdrop;
 #[derive(Component)]
 pub(super) struct Popup;
 #[derive(Component)]
+pub(super) struct NewGlbPopup;
+#[derive(Component)]
 pub(super) struct MenuButton(pub SceneMenuAction);
+#[derive(Component)]
+pub(super) struct NewGlbPopupItem;
 #[derive(Component)]
 pub(super) struct RenamePanel;
 #[derive(Component)]

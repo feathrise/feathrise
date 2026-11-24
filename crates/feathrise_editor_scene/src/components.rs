@@ -475,6 +475,9 @@ pub(crate) struct SceneEditorSceneRowText;
 /// 行名在独立裁切单元中显示，右侧“当前”徽标不能被长名称挤走或覆盖。
 #[derive(Component)]
 pub(crate) struct SceneEditorSceneRowNameCell;
+/// 小箭头使用类型图标前的缩进区域，整行仍是共享按钮。
+#[derive(Component)]
+pub(crate) struct SceneEditorSceneRowDisclosure;
 /// 固定树行共享线框图标，路径只在实体首次挂载时交给AssetServer加载。
 #[derive(Component, Clone, Copy, Default)]
 pub(crate) struct SceneEditorTreeGlyph(pub &'static str);
@@ -489,6 +492,7 @@ pub(crate) struct SceneEditorSceneRowCurrent;
 pub(crate) enum SceneEditorSceneRowGlyph {
     #[default]
     Entry,
+    Disclosure,
     Root,
 }
 

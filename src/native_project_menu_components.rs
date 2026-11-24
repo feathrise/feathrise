@@ -6,6 +6,7 @@ use bevy::prelude::*;
 pub(super) enum ProjectAction {
     Toggle,
     SetStartup,
+    Settings,
     Export,
     Plugins,
     BackToManager,
@@ -15,5 +16,9 @@ pub(super) enum ProjectAction {
 pub(super) struct ProjectMenuOverlay;
 #[derive(Component)]
 pub(super) struct ProjectMenuPanel;
+#[derive(Component)]
+pub(super) struct ProjectMenuName;
+#[derive(Component)]
+pub(super) struct ProjectMenuIcon;
 #[derive(Component)]
 pub(super) struct ProjectMenuStatus;

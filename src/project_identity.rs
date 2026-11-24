@@ -20,9 +20,7 @@ pub(crate) struct ProjectIdentity {
 }
 
 pub(crate) fn identity(project: &Project) -> Result<ProjectIdentity, String> {
-    if project::open(&project.root)? != *project {
-        return Err("工程清单已变化，请重新打开工程".into());
-    }
+    project.refresh_for_session()?;
     let descriptor = project::descriptor_name(&project.root)?;
     let descriptor = checked_path(&project.root, Path::new(descriptor), false)?;
     let cargo_relative = project
@@ -35,7 +33,7 @@ pub(crate) fn identity(project: &Project) -> Result<ProjectIdentity, String> {
     }
     let descriptor_bytes = read_bounded(&descriptor, DESCRIPTOR_LIMIT, "工程清单")?;
     let cargo_bytes = read_bounded(&cargo, CARGO_LIMIT, "Cargo清单")?;
-    if project::open(&project.root)? != *project
+    if !project.same_session(&project::open(&project.root)?)
         || read_bounded(&descriptor, DESCRIPTOR_LIMIT, "工程清单")? != descriptor_bytes
         || read_bounded(&cargo, CARGO_LIMIT, "Cargo清单")? != cargo_bytes
     {
@@ -81,7 +79,7 @@ fn reject_link(metadata: &fs::Metadata) -> Result<(), String> {
     Ok(())
 }
 
-fn checked_path(root: &Path, relative: &Path, directory: bool) -> Result<PathBuf, String> {
+pub(crate) fn checked_path(root: &Path, relative: &Path, directory: bool) -> Result<PathBuf, String> {
     let mut full = root.to_owned();
     if relative.components().count() > DEPTH_LIMIT {
         return Err("资产路径超过16层".into());

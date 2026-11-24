@@ -20,10 +20,11 @@ pub(crate) use resources::{SceneSidebarFeedback, SceneSidebarInputContext, Scene
 pub(crate) use scene::scene_page;
 pub(crate) use properties_scene::scene_properties_page;
 pub(crate) use tree_style::{
-    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TREE_CONTENT_INSET, TREE_ICON_SIZE, TREE_ROOT_BORDER, TreeRowToggle,
+    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TREE_CONTENT_INSET, TREE_DISCLOSURE_ICON_SIZE, TREE_DISCLOSURE_WIDTH, TREE_ICON_SIZE, TREE_INDENT,
+    TREE_ROOT_BORDER, TreeRowToggle,
     load_tree_branch_images, load_tree_toggle_images, sync_tree_branch_icon, sync_tree_toggle_icon,
-    tree_branch_button, tree_branch_fill, tree_root_row_left, tree_row_colors, tree_row_icon_left,
-    tree_row_left, tree_section_header, tree_toggle_button, tree_toggle_colors, tree_toggle_icon,
+    tree_branch_button, tree_branch_fill, tree_object_branch_button, tree_root_row_left, tree_row_colors, tree_row_icon_left,
+    tree_parent_guide_x, tree_row_left, tree_section_header, tree_toggle_button, tree_toggle_colors, tree_toggle_icon,
 };
 
 /// 新宿主先接相同的目录右键实体与手势；目录写入和元数据仍由宿主独立接线。

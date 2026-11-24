@@ -61,6 +61,7 @@ pub(super) fn selected_layer<'a>(
     }
     let water = draft.water.as_ref().filter(|water| water.scene_id == draft.scene_id)?;
     let layer = water.layers.get(editor.selected_water_layer)?;
+    if crate::authoring::water_canvas::layer_edit_error(draft, &layer.id).is_some() { return None; }
     matches!(candidates.selected.as_ref(), Some(LayerTarget::Water(WaterAuthoringFeatureKind::StillWater, id)) if id == &layer.id)
         .then_some(layer)
 }

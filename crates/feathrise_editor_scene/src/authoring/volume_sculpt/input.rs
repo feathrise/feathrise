@@ -80,7 +80,7 @@ pub(super) fn brush(
                     },
                 ))
             }),
-        EditorTool::Vegetation => d
+        EditorTool::Vegetation if crate::authoring::layer_categories::edit_error(d, true).is_none() => d
             .vegetation
             .as_ref()?
             .authoring

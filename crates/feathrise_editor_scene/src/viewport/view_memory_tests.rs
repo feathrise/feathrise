@@ -2,48 +2,19 @@
 
 use super::*;
 use crate::types::SceneEditorViewSnapshot;
-use feathrise_scene_content::{
-    ActiveDynamicScene, SceneContentHandles, SceneId, SceneTerrainDescriptor, SceneTerrainKind,
-};
+use feathrise_scene_content::{ActiveDynamicScene, SceneContentHandles, SceneId};
 use feathrise_scene_core::state::ScenePhase;
 use std::collections::BTreeMap;
 
 fn manifest(id: &SceneId, offset: f32) -> SceneManifestAsset {
-    SceneManifestAsset {
-        vegetation_paint_groups: Default::default(),
-        terrains: None,
-        subscenes: Default::default(),
-        schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
-        id: id.clone(),
-        display_name: id.to_string(),
-        notes: String::new(),
-        runtime_scene: "data_driven".to_owned(),
-        world_min: [offset, offset],
-        world_max: [offset + 1_000.0, offset + 600.0],
-        default_spawn: [offset + 100.0, 0.0, offset + 100.0],
-        environment: default(),
-        puddles: None,
-        asset_roots: Vec::new(),
-        terrain: SceneTerrainDescriptor {resolved_stitches: Default::default(),
-            kind: SceneTerrainKind::Gltf,
-            collision_mode: default(),
-            collision_lods: Vec::new(),
-            display_lods: None,
-            player_collision_preload_radius_meters:
-                feathrise_scene_content::DEFAULT_PLAYER_COLLISION_PRELOAD_RADIUS_METERS,
-            role_collision_preload_radius_meters: None,
-            player_collision_chunk_cells: None,
-            role_collision_chunk_cells: None,
-            player_collision_span_meters: None,
-            role_collision_span_meters: None,
-            glb_path: format!("scenes/{id}/terrain.glb"),
-            height_path: None,
-            height_texture_path: None,
-            resolution: [129, 129],
-            base_height: -80.0,
-            height_scale: 160.0,
-        },
-    } // 只构造清单，不生成地形、磁盘资产或整图草稿。
+    let mut manifest = crate::authoring::test_support::test_gltf_scene_manifest(id, id.as_str(), &format!("scenes/{id}/terrain.glb"));
+    manifest.world_min = [offset, offset];
+    manifest.world_max = [offset + 1_000.0, offset + 600.0];
+    manifest.default_spawn = [offset + 100.0, 0.0, offset + 100.0];
+    manifest.terrain.resolution = [129, 129];
+    manifest.terrain.base_height = -80.0;
+    manifest.terrain.height_scale = 160.0;
+    manifest
 }
 
 fn fixture(recreate_camera: bool) -> (App, SceneId, SceneId) {

@@ -50,6 +50,8 @@ impl Plugin for NativeProjectMenuPlugin {
         })
         .init_resource::<NativeProjectMenuState>()
         .init_resource::<feathrise_editor_core::EditorHostOverlay>()
+        .add_message::<crate::project_settings::OpenProjectSettings>()
+        .add_message::<crate::project_settings::ProjectSettingsSaved>()
         .add_systems(Update, ui::mount.before(systems::present))
         .add_systems(
             Update,
@@ -71,6 +73,7 @@ impl Plugin for NativeProjectMenuPlugin {
                 .chain()
                 .after(systems::handle),
         )
+        .add_systems(Update, systems::project_settings_saved.after(systems::handle))
         .add_systems(
             Update,
             systems::emit_close.after(feathrise_editor_core::SceneEditorSystemSet::Input),

@@ -1029,6 +1029,11 @@ pub(crate) fn apply_undo_redo(
                     if let Some(water) = draft.water.as_mut() {
                         sync_water_network_connections(water); // 结构快照恢复后清理失效引用并重新吸附全部端点。
                     }
+                    if let Some((id, before)) = &change.removed_controls {
+                        let terrain = draft.terrain_documents.active.as_ref().map(|active| active.definition.id.clone());
+                        super::super::layer_categories::set_water_layer_state(draft, terrain.as_ref(), id,
+                            if undoing { *before } else { (true, false) });
+                    }
                 }
                 EditorCommand::WaterDefinitionsChanged { before, after } => {
                     draft.water = Some(if undoing {
@@ -1049,6 +1054,17 @@ pub(crate) fn apply_undo_redo(
                     } else {
                         after.clone() // 重做采用同一份已验证完整快照。
                     };
+                }
+                EditorCommand::LayerCategoryChanged { vegetation, before, after } => {
+                    super::super::layer_categories::set_state(draft, *vegetation, *if undoing { before } else { after })?;
+                }
+                EditorCommand::StillWaterLayerChanged { terrain, layer_id, before, after } => {
+                    if !super::super::terrain_documents::root_water::listed_source(draft, terrain.as_ref())
+                        .is_some_and(|water| water.layers.iter().any(|layer| &layer.id == layer_id)) {
+                        return Err("静水体已失效，无法应用这笔历史".into());
+                    }
+                    super::super::layer_categories::set_water_layer_state(draft, terrain.as_ref(), layer_id,
+                        *if undoing { before } else { after });
                 }
                 EditorCommand::BoundaryPathChanged { index, before, after } => {
                     let document = draft.boundaries.as_mut().ok_or("空气墙文档已失效")?; // 不重建错误场景的墙。

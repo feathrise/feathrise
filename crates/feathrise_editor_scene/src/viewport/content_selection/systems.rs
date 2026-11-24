@@ -20,7 +20,7 @@ use super::placement::{
     is_placement_mesh_candidate, placement_hit_from_entity, select_placement_hit,
 }; // Scene0精确网格与直接primitive整项命中共用独立摆放选择域。
 use super::water::{nearest_water_surface_hit, select_water_surface, water_layer_candidates}; // 水体在选择模式加入候选，编辑吸取保留旧入口。
-use crate::authoring::{EditorAuthoringSession, WaterBrushStroke, WaterNetworkEditState}; // 当前草稿与水域跨帧事务门。
+use crate::authoring::{EditorAuthoringSession, WaterBrushStroke, WaterNetworkEditState, layer_categories}; // 当前草稿与水域跨帧事务门。
 use crate::components::{SceneEditorCamera, SceneEditorViewport}; // 唯一离屏相机和中央UI命中区域。
 use crate::resources::{EditorViewportSelectionState, SceneEditorState, SceneEditorViewportState}; // 当前工具、相机规格和整层选择会话身份。
 use crate::types::{EditorTool, VegetationPreviewMode}; // 查看/植被输入门与真实覆盖模式。
@@ -29,6 +29,7 @@ use crate::ui::courtyard::{CourtyardUiState, CourtyardViewportMode}; // 院落�
 use crate::ui::gltf_browser::EditorGltfBrowserState; // 视口命中发布右栏完整实例或Scene0网格选择。
 use crate::ui::placement_transform::PlacementTransformInputState; // 已武装移动落点时选择系统必须让出同一次左键。
 use crate::ui::reject_water_feature_switch; // Ctrl吸取不得穿过静水笔划或控制点拖动事务。
+use crate::ui::scene_layers::LayerCategoryVisibility;
 use crate::ui::sidebars::SceneEditorSidebarState; // 点选只揭示所选对象属性，保留顶部工具选择。
 use crate::ui::vegetation_layers::VEGETATION_LAYER_ROW_COUNT; // 视口直选后同步固定六行池页码。
 use crate::viewport::{SelectedPlacementViewportState, SelectedWaterViewportState}; // 摆放与水域精确高亮沿用既有状态机。
@@ -74,6 +75,7 @@ pub(crate) struct ViewportContentSelectionQueries<'w, 's> {
     >,
     author_water_previews: Query<'w, 's, (), With<crate::components::EditorWaterPreview>>,
     water_preview: Option<Res<'w, crate::authoring::WaterPreviewState>>,
+    layer_categories: Option<Res<'w, LayerCategoryVisibility>>,
     clipmap_ground: Res<'w, DynamicClipmapGroundSurface>, // 点击边沿只执行一次固定复杂度真实三角采样。
     water_stroke: Res<'w, WaterBrushStroke>, // Ctrl吸取不能切走仍在收尾的静水复合笔划。
     water_network_edit: Res<'w, WaterNetworkEditState>, // Ctrl吸取不能切走仍按住的控制点拖动。
@@ -84,6 +86,10 @@ impl ViewportContentSelectionQueries<'_, '_> {
     fn water_source_frame(&self, entity: Entity, session: &EditorAuthoringSession,
         terrain: Option<&feathrise_scene_content::TerrainId>) -> Option<Mat4> {
         let draft = session.draft.as_ref()?;
+        if self.water_surfaces.get(entity).is_ok_and(|(_, surface, ..)| surface.kind == feathrise_scene::WaterSurfaceKind::Still
+            && !layer_categories::water_layer_visible(draft, self.layer_categories.as_deref(), terrain, &surface.layer_id)) {
+            return None; // 正式水面可能从隐藏父根继承可见性，CPU拾取也核对同一水层覆盖。
+        }
         if self.author_water_previews.contains(entity) {
             let preview = self.water_preview.as_ref()?;
             let source = preview.replacement_source.as_ref()?;
@@ -281,10 +287,12 @@ pub(crate) fn select_editor_viewport_content(
     };
     let scene_id = draft.scene_id.clone(); // 射线过滤闭包与后续选择共享同一稳定场景身份。
     let filter = queries.modes.selection_filter(&editor); // 只在允许选择时沿用用户的类别筛选。
+    let water_visible = layer_categories::preview_visible(draft, queries.layer_categories.as_deref(), false);
+    let vegetation_visible = layer_categories::preview_visible(draft, queries.layer_categories.as_deref(), true);
     let mesh_hits = {
         let filter = |entity| {
             (editor.tool == EditorTool::Inspect && !queries.clipmap_meshes.contains(entity) && !queries.gpu_meshes.contains(entity) && queries.owners.get(entity).ok().and_then(|owner| queries.subscene_roots.get(owner.0).ok()).is_some_and(|instance| instance.path.root_scene_id == scene_id && queries.subscene_active.contains(instance.batch)))
-                || (queries.owners.get(entity).is_err() && queries.vegetation_meshes.get(entity).is_ok())
+                || (vegetation_visible && queries.owners.get(entity).is_err() && queries.vegetation_meshes.get(entity).is_ok())
                 || is_placement_mesh_candidate(
                     entity,
                     &scene_id,
@@ -304,12 +312,20 @@ pub(crate) fn select_editor_viewport_content(
             .map(|(entity, hit)| (*entity, hit.point, hit.distance)) // 立即复制小型命中值，释放RayCast内部借用。
             .collect::<Vec<_>>() // 选择模式保留每一个真实命中，不只保留最近实例。
     };
-    let water_hit = nearest_water_surface_hit(
-        ray,
-        &scene_id,
-        &queries.water_surfaces,
-        queries.clipmap_ground.snapshot.as_ref(),
-    ) // GLB读有限Aabb，Clipmap读水位平面、R8与同代真实水深。
+    let water_hit = water_visible.then(|| nearest_water_surface_hit(
+        ray, &scene_id, &queries.water_surfaces, queries.clipmap_ground.snapshot.as_ref(),
+        |entity, surface| {
+            if surface.kind != feathrise_scene::WaterSurfaceKind::Still { return true; }
+            let terrain = if queries.author_water_previews.contains(entity) {
+                queries.water_preview.as_deref().and_then(|preview| preview.replacement_source.as_ref())
+                    .and_then(|source| source.terrain_id.as_ref())
+            } else {
+                queries.owners.get(entity).ok().and_then(|owner| queries.subscene_roots.get(owner.0).ok())
+                    .and_then(|source| source.path.terrain_id.as_ref())
+            };
+            layer_categories::water_layer_visible(draft, queries.layer_categories.as_deref(), terrain, &surface.layer_id)
+        },
+    )).flatten() // GLB读有限Aabb，Clipmap读水位平面、R8与同代真实水深。
     .map(|hit| (hit.entity, hit.point, hit.distance)); // 与普通Mesh命中统一成同一小型比较值。
     let selectable_hit = match (
         mesh_hits.first().copied(),
@@ -326,7 +342,7 @@ pub(crate) fn select_editor_viewport_content(
         .filter(|_| draft.manifest.terrains.is_none())
         .map(|terrain| ray.origin.distance(terrain)); // 前序相机系统已发布最近真实地形三角命中。
     // 多网格的严格悬停可能尚未完成当前射线；保留真实对象命中，交给同票据后台地面查询统一遮挡。
-    let (water_candidates, water_canvas_definition) = if editor.tool == EditorTool::Inspect
+    let (water_candidates, water_canvas_definition) = if water_visible && editor.tool == EditorTool::Inspect
         && matches!(
             filter,
             crate::viewport::modes::SelectionFilter::All
@@ -562,6 +578,7 @@ pub(crate) fn select_editor_viewport_content(
         return; // 不让旧正式植被输出吸取逻辑误合并独立作者层。
     }
     let candidates = vegetation_world
+        .filter(|_| vegetation_visible)
         .and_then(|world| {
             let vegetation = draft.vegetation.as_ref()?; // 无植被文件的场景直接得到空候选。
             Some(vegetation_layer_candidates(

@@ -105,7 +105,8 @@ fn pending_origin_is_current(
             && session
                 .draft
                 .as_ref()
-                .is_some_and(|draft| &draft.scene_id == scene_id)
+                .is_some_and(|draft| &draft.scene_id == scene_id && stroke.layer_id.as_deref()
+                    .is_none_or(|id| super::water_canvas::layer_edit_error(draft, id).is_none()))
     })
 }
 
@@ -245,7 +246,12 @@ pub(crate) fn apply_water_brush(
         *object_active = None;
         return; // 先拒绝换源，再处理锁定或隐藏；不能用新画布同名层为旧笔划生成after_mask。
     }
-    if !super::water_canvas::writable(&session, &editor) {
+    let layer_writable = session.draft.as_ref().is_some_and(|draft| {
+        let id = stroke.layer_id.as_deref().or_else(|| draft.water.as_ref()?.layers.get(editor.selected_water_layer)
+            .map(|layer| layer.id.as_str()));
+        id.is_none_or(|id| super::water_canvas::layer_edit_error(draft, id).is_none())
+    });
+    if !layer_writable || !super::water_canvas::writable(&session, &editor) {
         stroke.pending_sample = None;
         stroke.queued_sample = None;
         stroke.pending_ground = None;

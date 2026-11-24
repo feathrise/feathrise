@@ -497,7 +497,7 @@ fn double_clicking_a_group_member_collapses_then_opens_the_clicked_scene() {
 }
 
 #[test]
-fn folder_icon_click_toggles_expansion_while_the_name_selects_and_drags() {
+fn folder_arrow_and_icon_toggle_expansion_while_the_name_selects_and_drags() {
     use bevy::ui::RelativeCursorPosition;
     use bevy::window::PrimaryWindow;
     let mut app = input_app();
@@ -510,45 +510,39 @@ fn folder_icon_click_toggles_expansion_while_the_name_selects_and_drags() {
     window.set_physical_cursor_position(Some(Vec2::new(10.0, 10.0).into()));
     let window = app.world_mut().spawn((window, PrimaryWindow)).id();
     let row = folder_row(&mut app);
-    let glyph = app.world_mut().spawn((
-        SceneEditorSceneRowGlyph::Entry,
-        RelativeCursorPosition { cursor_over: true, normalized: Some(Vec2::ZERO) },
+    let branch = app.world_mut().spawn((
+        SceneEditorSceneRowDisclosure,
+        Node::default(),
+        RelativeCursorPosition::default(),
     )).id();
-    app.world_mut().entity_mut(row).add_child(glyph);
+    app.world_mut().entity_mut(row).add_child(branch);
     let prior_selection = scene_item("SCENE-2");
     app.world_mut().resource_mut::<SceneBrowserState>().select_only(Some(prior_selection.clone()));
-    app.world_mut()
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Left);
-    app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
-    app.update();
-    assert!(
-        !app.world()
-            .resource::<SceneBrowserState>()
-            .expanded_folder_ids
-            .contains("FOLDER-1")
-    );
-    assert!(
-        app.world()
-            .resource::<SceneBrowserDragState>()
-            .press
-            .is_none(),
-        "图标按下不登记文件夹拖动"
-    );
-    // 领域夹具未安装 InputPlugin，手动清理上一帧的按下边沿。
-    app.world_mut()
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .clear_just_pressed(MouseButton::Left);
-    app.world_mut()
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .release(MouseButton::Left);
-    app.world_mut().entity_mut(row).insert((UiInteraction::Hovered, feathrise_editor_ui::EditorButtonClick::triggered()));
-    app.update();
-    let browser = app.world().resource::<SceneBrowserState>();
-    assert!(browser.expanded_folder_ids.contains("FOLDER-1"));
-    assert_eq!(browser.selected_item.as_ref(), Some(&prior_selection));
+    // 开合区右半部是类型图标，左半部是原箭头。
+    for (x, expanded) in [(0.25, true), (0.25, false), (-0.25, true)] {
+        *app.world_mut().get_mut::<RelativeCursorPosition>(branch).unwrap() =
+            RelativeCursorPosition { cursor_over: true, normalized: Some(Vec2::new(x, 0.0)) };
+        let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        mouse.clear();
+        mouse.press(MouseButton::Left);
+        app.world_mut().entity_mut(row).insert((UiInteraction::Pressed, feathrise_editor_ui::EditorButtonClick::default()));
+        app.update();
+        let browser = app.world().resource::<SceneBrowserState>();
+        assert_eq!(browser.expanded_folder_ids.contains("FOLDER-1"), !expanded, "等待有效松开");
+        assert!(app.world().resource::<SceneBrowserDragState>().press.is_none(), "开合区不登记拖动");
 
-    app.world_mut().get_mut::<RelativeCursorPosition>(glyph).unwrap().cursor_over = false;
+        // 领域夹具未安装 InputPlugin，手动清理上一帧的按下边沿。
+        let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        mouse.clear_just_pressed(MouseButton::Left);
+        mouse.release(MouseButton::Left);
+        app.world_mut().entity_mut(row).insert((UiInteraction::Hovered, feathrise_editor_ui::EditorButtonClick::triggered()));
+        app.update();
+        let browser = app.world().resource::<SceneBrowserState>();
+        assert_eq!(browser.expanded_folder_ids.contains("FOLDER-1"), expanded);
+        assert_eq!(browser.selected_item.as_ref(), Some(&prior_selection));
+    }
+
+    app.world_mut().get_mut::<RelativeCursorPosition>(branch).unwrap().cursor_over = false;
     click_row(&mut app, row);
     let browser = app.world().resource::<SceneBrowserState>();
     assert_eq!(browser.selected_item, Some(SceneBrowserItem::Folder("FOLDER-1".into())));

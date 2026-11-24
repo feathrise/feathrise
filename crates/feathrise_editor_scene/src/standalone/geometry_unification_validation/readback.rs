@@ -142,8 +142,12 @@ pub(super) fn verify_saved(root: &Path, proof: &GeometryUnificationProof) -> Res
         return Err("小Clipmap缺少原保存回执和独立落盘密度回读".into());
     }
     let owner = SceneId::parse(&proof.scene_id)?;
-    let path = format!("scenes/{owner}/{SCENE_MANIFEST_FILE_NAME}");
-    let manifest: SceneManifestAsset = serde_json::from_slice(&source_bytes(root, &path)?).map_err(|error| error.to_string())?;
+    let catalog: SceneCatalogAsset = serde_json::from_slice(&source_bytes(root, SCENE_CATALOG_ASSET_PATH)?)
+        .map_err(|error| error.to_string())?;
+    let entry = catalog.scenes.iter().find(|entry| entry.id == owner).ok_or("几何验收场景未登记")?;
+    let manifest: SceneManifestAsset = serde_json::from_slice(&source_bytes(root, &entry.manifest_path())?)
+        .map_err(|error| error.to_string())?;
+    if manifest.id != owner { return Err("几何验收清单与目录的场景身份不一致".into()); }
     let objects = manifest.terrains.as_ref().filter(|objects| objects.len() <= 8).ok_or("保存后几何夹具对象集合缺失或越界")?;
     for expected in [proof.tiny.as_ref(), proof.small.as_ref().map(|stroke| &stroke.after), proof.voxel_underside.as_ref().map(|stroke| &stroke.after)] {
         let expected = expected.ok_or("几何专项缺少微型/高度/体积源证据")?;

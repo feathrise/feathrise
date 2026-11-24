@@ -37,7 +37,7 @@ pub(crate) fn layer_bounds(draft: &EditorSceneDraft, layer: &SceneWaterLayer) ->
 
 pub(crate) fn visible(session: &EditorAuthoringSession, editor: &SceneEditorState) -> bool {
     let Some(draft) = session.draft.as_ref() else { return false; };
-    if draft.terrain_documents.loading { return false; }
+    if draft.terrain_documents.loading || !super::layer_categories::category_state(draft, false).0 { return false; }
     let Some(active) = draft.terrain_documents.active.as_ref() else {
         return true; // 根水文档不以“存在地形网格”为前提。
     };
@@ -47,8 +47,14 @@ pub(crate) fn visible(session: &EditorAuthoringSession, editor: &SceneEditorStat
 
 pub(crate) fn writable(session: &EditorAuthoringSession, editor: &SceneEditorState) -> bool {
     !session.water_preset_delete_pending && visible(session, editor) && session.draft.as_ref().is_some_and(|draft|
-        draft.terrain_documents.active.as_ref().is_none_or(|active|
+        super::layer_categories::edit_error(draft, false).is_none()
+        && draft.terrain_documents.active.as_ref().is_none_or(|active|
             !editor.terrain_locked.contains(&active.definition.id)))
+}
+
+pub(crate) fn layer_edit_error(draft: &EditorSceneDraft, id: &str) -> Option<&'static str> {
+    let terrain = draft.terrain_documents.active.as_ref().map(|active| &active.definition.id);
+    super::layer_categories::water_layer_edit_error(draft, terrain, id)
 }
 
 #[cfg(test)]

@@ -193,6 +193,14 @@ label.new-project.2	新建工程…	New Project…
 label.open-project	打开工程…	Open Project…
 label.drop-project-folder	拖入工程文件夹即可打开	Drop a project folder here
 label.use-current-scene-as-startup-scene	当前场景设为启动场景	Use Current Scene as Startup Scene
+label.project-settings	工程设置	Project Settings
+label.project-icon	工程图标	Project Icon
+label.project-description	工程简介	Project Description
+label.choose-project-icon	选择图标…	Choose Icon…
+label.reset-project-icon	恢复默认图标	Restore Default Icon
+label.save-project-settings	保存设置	Save Settings
+label.reload-project-settings	重新读取工程设置	Reload Project Settings
+label.default-project-icon	默认图标	Default Icon
 label.export-project	导出工程…	Export Project…
 label.manage-plugins	插件管理…	Manage Plugins…
 label.about-feathrise	关于 Feathrise…	About Feathrise…
@@ -840,7 +848,7 @@ project.save.done	保存成功	Saved
 project.save.failed	保存失败	Save Failed
 project.save.pending	正在保存…	Saving…
 tooltip.controls.branch	展开 / 收起	Expand / Collapse
-tooltip.controls.branch_help	点击图标切换分支，点击名称选中。	Click the icon to expand or collapse. Click the name to select.
+tooltip.controls.branch_help	点击箭头或图标展开或收起，点击名称选中。	Click the arrow or icon to expand or collapse. Click the name to select.
 tooltip.controls.include	参与场景	Include in Scene
 tooltip.controls.visibility	编辑器显示	Editor Visibility
 tooltip.controls.lock	锁定 / 解锁	Lock / Unlock
@@ -1485,7 +1493,7 @@ scenes.help.range	正在按可见目录顺序连选…	Selecting a range in the 
 scenes.help.multi	Ctrl点击增减选择，Shift连续选择；拖动任一选中项整批归类，父文件夹包含子项时自动去重	Ctrl-click to toggle items or Shift-click to select a range. Drag a selected item to move the selection. A selected folder already includes its children.
 scenes.help.scene_dirty	进入前由原切换场景确认处理未保存修改；当前不能删除场景	Resolve unsaved changes before switching scenes. The current scene cannot be deleted yet.
 scenes.help.scene	双击场景或点击进入打开；Ctrl多选、Shift连选，拖动批量归类；新建项建在该场景所在文件夹	Double-click a scene or use Enter to open it. Ctrl-click or Shift-click to select multiple items, then drag to move them. New items go in the scene's folder.
-scenes.help.folder	点击文件夹图标展开或收起，点击名称选中；Ctrl多选、Shift连选，拖动可整体移动；新建项建在该文件夹，只能删除空文件夹	Click the folder icon to expand or collapse it. Click the name to select it. Ctrl-click or Shift-click to select multiple items, then drag to move them. New items go in this folder. Empty folders can be deleted.
+scenes.help.folder	点击箭头或图标展开或收起，点击名称选中。支持 Ctrl 多选、Shift 连选和整体拖动。新建项归入该文件夹，只能删除空文件夹。	Click the arrow or icon to expand or collapse the folder. Click the name to select it. Ctrl-click or Shift-click to select multiple items, then drag to move them. New items go in this folder. Empty folders can be deleted.
 scenes.help.root	新场景和文件夹建在根文件夹；选择文件夹不会切换场景	New scenes and folders go in the root folder. Selecting a folder keeps the current scene open.
 diagnostics.phase.waiting	等待代码编译	Waiting for a code build
 diagnostics.phase.building	正在后台编译代码	Building code in the background…

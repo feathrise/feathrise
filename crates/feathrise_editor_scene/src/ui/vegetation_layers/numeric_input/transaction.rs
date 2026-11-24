@@ -73,6 +73,7 @@ pub(super) fn selected_numeric(
         && !editor.new_scene_dialog_open
         && !session.saving
         && !session.vegetation_cross_busy
+        && crate::authoring::layer_categories::edit_error(draft, true).is_none()
         && !layer.locked
         && kind.relevant_for_group(group.mode); // 不相关共享参数明确禁用，避免改了却看不出效果。
     Some(SelectedVegetationNumeric {

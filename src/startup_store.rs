@@ -15,6 +15,7 @@ use std::{
 
 #[path = "startup_store_atomic.rs"]
 mod atomic;
+pub(crate) use atomic::replace as replace_project_file;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SceneFileIdentity {

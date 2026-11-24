@@ -76,6 +76,7 @@ pub(super) fn input(
         && model.as_ref().is_none_or(|browser| !super::super::model_vegetation::model_selected(&session, browser))
         && !session.model_vegetation_busy
         && editor.tool == EditorTool::Vegetation
+        && session.draft.as_ref().is_some_and(|draft| crate::authoring::layer_categories::edit_error(draft, true).is_none())
         && settings.scope == PaintScope::Cross
         && mode
             .as_ref()

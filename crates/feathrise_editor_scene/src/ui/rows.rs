@@ -3,6 +3,7 @@
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use crate::ui::{asset_icons, theme as colors};
+use crate::ui::scene_sidebar::{TREE_DISCLOSURE_ICON_SIZE, TREE_DISCLOSURE_WIDTH, TREE_INDENT, sync_tree_branch_icon};
 use bevy::prelude::*; // UI实体生成、Interaction和文本查询。
 use bevy::ui::RelativeCursorPosition;
 use feathrise_scene_content::{SceneAssetKind, SceneCatalogAsset}; // 场景进入测试仍使用公共目录，资产行读取公共类型。 // 动态行使用静态BSN相同水墨配色。
@@ -23,6 +24,8 @@ mod asset_window;
 pub(crate) use asset_window::AssetViewport;
 
 pub(crate) const ASSET_ROW_COUNT: usize = 12; // 最小可见行池；实际容量只随视口高度增长，不限制目录总量。
+const SCENE_BROWSER_ICON_SIZE: f32 = 18.0;
+const SCENE_BROWSER_CAPTION_GAP: f32 = 5.0;
 
 /// 返回全部可见树行形成的滚动内容高度；末行之后不额外保留行距。
 fn scene_tree_content_height(row_count: usize) -> f32 {
@@ -143,7 +146,7 @@ pub(crate) fn spawn_dynamic_rows(
                             flex_shrink: 0.0, // 绝对定位行不参与父级压缩。
                             align_items: AlignItems::Center, // 目录与场景文字垂直居中。
                             padding: UiRect::horizontal(px(5)), // 同步系统在左侧叠加有限树缩进。
-                            column_gap: px(5),
+                            column_gap: px(SCENE_BROWSER_CAPTION_GAP),
                             border_radius: BorderRadius::all(px(2)), // 树行使用连续背景，去掉每行四周的按钮边框。
                             overflow: Overflow::clip_x(), // 长名称裁切在当前栏宽内。
                             ..default()
@@ -153,9 +156,19 @@ pub(crate) fn spawn_dynamic_rows(
                     ))
                     .with_children(|row| {
                         let icons = tree_icons.as_ref().expect("场景行池与图标一起初始化");
-                        // 图标记录自身命中，鼠标状态仍交给整行，保留全宽右键和拖放落点。
+                        let caption_start = SCENE_BROWSER_ICON_SIZE + SCENE_BROWSER_CAPTION_GAP;
+                        // 开合区止于名称起点，右内边距让箭头仍居中在原有槽内。
+                        row.spawn((SceneEditorSceneRowDisclosure, RelativeCursorPosition::default(), Pickable::IGNORE,
+                            Node { display: Display::None, position_type: PositionType::Absolute,
+                                width: px(TREE_DISCLOSURE_WIDTH + caption_start),
+                                padding: UiRect::right(px(caption_start)),
+                                height: percent(100), top: px(0), align_items: AlignItems::Center,
+                                justify_content: JustifyContent::Center, ..default() },
+                            BorderColor::all(colors::COPPER_BORDER_WEAK),
+                        )).with_child((SceneEditorSceneRowGlyph::Disclosure,
+                            ImageNode::default(), Node { width: px(TREE_DISCLOSURE_ICON_SIZE), height: px(TREE_DISCLOSURE_ICON_SIZE), ..default() }, Pickable::IGNORE));
                         row.spawn((SceneEditorSceneRowGlyph::Entry, ImageNode { image: icons.scene.clone(), color: colors::TEXT_PRIMARY, ..default() },
-                            Node { width: px(18), height: px(18), flex_shrink: 0.0, ..default() }, RelativeCursorPosition::default(), Pickable::IGNORE));
+                            Node { width: px(SCENE_BROWSER_ICON_SIZE), height: px(SCENE_BROWSER_ICON_SIZE), flex_shrink: 0.0, ..default() }, Pickable::IGNORE));
                         row.spawn((SceneEditorSceneRowNameCell, Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x(), ..default() }, Pickable::IGNORE))
                             .with_child((
                                 SceneEditorSceneRowText, // 文本子实体保持固定，滚动时只原地改内容。
@@ -243,12 +256,13 @@ pub(crate) fn sync_scene_rows(
         &Children,                // 文本子节点保持固定实体。
         Option<Ref<UiInteraction>>, // 固定行池的悬停边沿也需刷新；兼容原域无按钮夹具。
         Option<&mut feathrise_editor_ui::EditorButtonClick>, // 行池换绑时取消原按钮手势。
-    )>,
+    ), (Without<SceneEditorSceneRowDisclosure>, Without<SceneEditorSceneRowGlyph>)>,
     mut presented_scope: Local<Option<(u64, Option<(crate::types::SceneBrowserIndexSignature, u64)>)>>,
     mut texts: Query<(&mut Text, &mut TextColor), With<SceneEditorSceneRowText>>,
     name_cells: Query<&Children, With<SceneEditorSceneRowNameCell>>,
     mut current_labels: Query<&mut Text, (With<SceneEditorSceneRowCurrent>, Without<SceneEditorSceneRowText>)>,
-    mut glyphs: Query<&mut ImageNode, With<SceneEditorSceneRowGlyph>>,
+    mut disclosures: Query<(&mut Node, &Children), (With<SceneEditorSceneRowDisclosure>, Without<SceneEditorSceneRowGlyph>)>,
+    mut glyphs: Query<(&mut ImageNode, &mut Node), With<SceneEditorSceneRowGlyph>>,
     icons: Option<Res<super::scene_sidebar::SceneBrowserTreeIcons>>,
 ) {
     let Ok((scroll, computed)) = scrolls.single() else {
@@ -304,10 +318,8 @@ pub(crate) fn sync_scene_rows(
         if node.top != top {
             node.top = top;
         } // 行保持在完整滚动内容的真实位置。
-        // 直属场景复用父文件夹的图标列；嵌套文件夹仍逐级向右，拖放沿用原树深度。
-        let grouped_scene = matches!(entry.item, SceneBrowserItem::Scene(_)) && entry.parent_folder_id.is_some();
-        let depth = entry.depth.saturating_sub(1 + usize::from(grouped_scene));
-        let indentation = (depth.min(8) as f32 * 18.0).min((width - 104.0).max(0.0));
+        // 固定根是深度零，场景和文件夹按同一真实深度缩进，窄栏至少留出第一档箭头槽。
+        let indentation = (entry.depth as f32 * TREE_INDENT).min((width - 104.0).max(TREE_INDENT));
         let left = px(5.0 + indentation); // 深层窄栏也为类型图标、短名称和右侧“当前”保留位置。
         if node.padding.left != left {
             node.padding.left = left;
@@ -332,19 +344,32 @@ pub(crate) fn sync_scene_rows(
         );
         background.set_if_neq(BackgroundColor(background_color));
         border.set_if_neq(border_color); // 与根行共用落点、选中和悬停优先级，只写差异。
+        let folder = matches!(entry.item, SceneBrowserItem::Folder(_));
+        let expanded = matches!(&entry.item, SceneBrowserItem::Folder(id) if browser.expanded_folder_ids.contains(id));
+        let guide = entry.depth > 1;
         for child in children.iter() {
             if let Ok(mut text) = current_labels.get_mut(child) {
                 let value = if active { active_label } else { "" };
                 if text.as_str() != value { **text = value.to_owned(); }
             }
-            if let Some(icons) = icons.as_ref()
-                && let Ok(mut image) = glyphs.get_mut(child)
-            {
-                let handle = match &entry.item {
-                    SceneBrowserItem::Folder(id) if browser.expanded_folder_ids.contains(id) => &icons.root,
-                    SceneBrowserItem::Folder(_) => &icons.folder,
-                    _ => &icons.scene,
-                };
+            let Some(icons) = icons.as_deref() else { continue; };
+            if let Ok((mut node, children)) = disclosures.get_mut(child) {
+                let display = if folder || guide { Display::Flex } else { Display::None };
+                let left = px(5.0 + indentation - TREE_DISCLOSURE_WIDTH);
+                // 每个子行只画紧邻父级的一根弱引导线，叶行没有箭头。
+                let border = if guide { UiRect::left(px(1)) } else { UiRect::ZERO };
+                if node.display != display { node.display = display; }
+                if node.left != left { node.left = left; }
+                if node.border != border { node.border = border; }
+                if let Some(arrow) = children.first() && let Ok((mut image, mut node)) = glyphs.get_mut(*arrow) {
+                    let display = if folder { Display::Flex } else { Display::None };
+                    if node.display != display { node.display = display; }
+                    if folder { sync_tree_branch_icon(!expanded, true, &icons.branch, &mut image); }
+                }
+            } else if let Ok((mut image, _)) = glyphs.get_mut(child) {
+                let handle = if expanded { &icons.root }
+                    else if folder { &icons.folder }
+                    else { &icons.scene };
                 if image.image != *handle { image.image = handle.clone(); }
             }
         }

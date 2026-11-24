@@ -17,7 +17,7 @@ use crate::ui::list_layout::{
 };
 use crate::ui::scene_inspector::InspectorTree;
 use crate::ui::scene_sidebar::{
-    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TreeRowToggle, tree_row_colors, tree_row_left,
+    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TreeRowToggle, tree_object_branch_button, tree_parent_guide_x, tree_row_colors, tree_row_left,
     tree_toggle_button, tree_toggle_icon,
 };
 use crate::viewport::placement_move::PlacementMoveState;
@@ -36,6 +36,9 @@ mod input_tests;
 
 #[derive(Component, Clone, Copy, Default)]
 pub(crate) struct GltfRowCaption;
+
+#[derive(Component)]
+pub(crate) struct GltfRowGuide;
 
 pub(super) fn main_glb_draft<'a>(
     editor: &SceneEditorState, session: &'a EditorAuthoringSession,
@@ -96,6 +99,15 @@ pub(crate) fn spawn_gltf_browser_rows(
                 BackgroundColor(colors::PANEL_BG),
                 BorderColor::all(colors::COPPER_BORDER_WEAK),
             )).id();
+            // 引导线画在父级缩进内，箭头与类型图标共用原行，保留名称的命中区。
+            commands.spawn((ChildOf(row), GltfRowGuide, Pickable::IGNORE, Visibility::Hidden,
+                Node { position_type: PositionType::Absolute, left: px(0), top: px(0),
+                    width: px(1), height: px(SCENE_OBJECT_ROW_PITCH), ..default() },
+                UiTransform::default(), BackgroundColor(colors::COPPER_BORDER_WEAK)));
+            commands.spawn_scene(tree_object_branch_button()).insert((
+                ChildOf(row), PlacementTreeExpander::default(),
+                bevy::ui::InteractionDisabled, Visibility::Hidden, Pickable::IGNORE,
+            ));
             // 单独裁切图标和文字区，为三个行内按钮保留固定宽度。
             let caption = commands.spawn((ChildOf(row), GltfRowCaption, Node {
                 flex_grow: 1.0, flex_basis: px(0), min_width: px(0),
@@ -126,13 +138,12 @@ pub(crate) fn spawn_gltf_browser_rows(
     }
 }
 
-/// 名称只选择，图标只改变当前分支，沿用同一鼠标所有权。
+/// 分支行由箭头和类型图标开合，名称区由整行负责选择。
 pub(crate) fn handle_gltf_browser_input(
     editor: Res<SceneEditorState>,
     numeric_scrub_mouse: Res<SceneEditorNumericScrubMouseGuard>, // 数值拖动和弦期间丢弃点击。
     session: Res<EditorAuthoringSession>, // 当前草稿提供不可跨场景复用的SceneId。
     rows: Query<(Ref<EditorButtonClick>, &SceneEditorGltfBrowserRow)>,
-    captions: Query<&ChildOf, With<GltfRowCaption>>,
     expanders: Query<(&EditorButtonClick, &ChildOf, &PlacementTreeExpander), Changed<EditorButtonClick>>,
     movement: Option<Res<PlacementMoveState>>,
     mut state: ResMut<EditorGltfBrowserState>, // 只修改树的折叠和选择。
@@ -158,8 +169,7 @@ pub(crate) fn handle_gltf_browser_input(
         return; // 系统持续推进Changed tick；隐藏或所有权帧保持选择且不延迟点击。
     }
     if let Some((_, parent, expander)) = expanders.iter().find(|(click, ..)| click.is_clicked()) {
-        if let Ok(caption) = captions.get(parent.parent())
-            && let Ok((_, row)) = rows.get(caption.parent())
+        if let Ok((_, row)) = rows.get(parent.parent())
             && let Some(target) = expander.target(&editor, &state, &session, row)
         {
             match target {
@@ -170,7 +180,7 @@ pub(crate) fn handle_gltf_browser_input(
                 }
             }
         }
-        return; // 只处理图标自己的脉冲，也不让旧图标手势改派到名称行。
+        return; // 箭头释放不会改派给名称行。
     }
     let Some(row) = rows.iter().find_map(|(interaction, row)| {
         (interaction.is_changed() && interaction.is_clicked() && row.entries_revision == state.published_entries_revision)
@@ -195,6 +205,7 @@ pub(crate) fn handle_gltf_browser_input(
             // 动画行选中后可经原菜单改名。保留视口姿势目标，双击仍由原时间轴入口处理。
             state.selected_main_row = Some((draft.scene_id.clone(), MainSceneSelection::Animation));
             state.selected_group = None;
+            if let Some(sidebar) = sidebar.as_mut() { sidebar.reveal_scene_properties(); }
         }
         return;
     }
@@ -298,7 +309,7 @@ pub(crate) fn sync_gltf_browser_rows(
     tree: Query<&ComputedNode, With<InspectorTree>>,
     mut presented_scope: Local<Option<(Option<feathrise_scene_content::SceneId>, u64, usize, f32)>>,
     mut glyphs: Query<&mut ImageNode, With<crate::components::SceneEditorGltfBrowserRowGlyph>>,
-    icon_buttons: Query<&Children, With<PlacementTreeExpander>>,
+    mut guides: Query<(&mut UiTransform, &mut Visibility), With<GltfRowGuide>>,
     captions: Query<&Children, With<GltfRowCaption>>,
     mut rows: Query<
         (
@@ -449,20 +460,23 @@ pub(crate) fn sync_gltf_browser_rows(
                 EditorGltfBrowserEntryKind::MissingWaterBinding => ("×", colors::DANGER_TEXT, "icons/editor/tree_mesh.png"),
                 EditorGltfBrowserEntryKind::SourceAnimation { .. } => ("", colors::TEXT_PRIMARY, "icons/editor/tree_file.png"),
             };
-            // 文件的直属内容与文件图标同列。后续可见父级仍逐层缩进，树的实际身份和归属不变。
-            let depth = match entry.kind {
-                EditorGltfBrowserEntryKind::Mesh | EditorGltfBrowserEntryKind::MissingWaterBinding
-                | EditorGltfBrowserEntryKind::SourceAnimation { .. } => entry.depth.saturating_sub(1),
-                _ => entry.depth,
-            };
-            (depth, entry.display_name.as_str(), prefix, base_color, icon, selected)
+            // 文件夹和 GLB 共享真实的可见层级，直属网格和动画也占下一档。
+            (entry.depth, entry.display_name.as_str(), prefix, base_color, icon, selected)
         } else {
             node.display = Display::None; // 实体池保留但不参与布局。
             continue;
         };
         node.display = Display::Flex; // 当前条目原地复用槽位。
         node.top = px(tree_index as f32 * SCENE_OBJECT_ROW_PITCH);
-        node.padding.left = tree_row_left(depth.min(8));
+        let depth = depth.min(8);
+        node.padding.left = tree_row_left(depth);
+        for child in children.iter() {
+            if let Ok((mut transform, mut visibility)) = guides.get_mut(child) {
+                visibility.set_if_neq(if depth > 0 { Visibility::Inherited } else { Visibility::Hidden });
+                let translation = Val2::px(tree_parent_guide_x(depth), 0.0);
+                if transform.translation != translation { transform.translation = translation; }
+            }
+        }
         let interaction = match main_kind {
             _ if drag.as_ref().is_some_and(|drag| drag.owns_mouse()) => UiInteraction::None,
             Some(MainSceneGlbRow::Empty) => UiInteraction::None,
@@ -478,8 +492,7 @@ pub(crate) fn sync_gltf_browser_rows(
         let Some(caption) = children.iter().find_map(|entity| captions.get(entity).ok()) else { continue; };
         for child in caption.iter() {
             if images.is_some() && let Some(server) = asset_server.as_ref()
-                && let Ok(button) = icon_buttons.get(child) && let Some(glyph) = button.first()
-                && let Ok(mut image) = glyphs.get_mut(*glyph)
+                && let Ok(mut image) = glyphs.get_mut(child)
             {
                 let handle = server.load(icon);
                 if image.image != handle { image.image = handle; }

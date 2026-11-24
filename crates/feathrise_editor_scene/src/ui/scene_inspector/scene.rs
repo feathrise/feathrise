@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use bevy::text::{FontSourceTemplate, LineBreak};
 
-use super::components::{SceneInspectorOverview, SceneInspectorProperties, SceneInspectorText};
+use super::components::{InspectorSection, SceneInspectorOverview, SceneInspectorProperties, SceneInspectorText};
 use super::types::SceneInspectorField;
 use crate::ui::scene::FONT_PATH;
 use crate::ui::sidebars::{EditorSidebarHelp, SceneEditorSidebarHelpBody, sidebar_help_button};
@@ -87,9 +87,14 @@ pub(in crate::ui) fn scene_inspector_properties() -> impl Scene {
         }
         Children [
             @crate::ui::scene_motion::entry()--
-            @crate::ui::placement_transform::placement_transform_panel()--
-            @crate::ui::scene_source_glb::panel()--
-            @crate::ui::placement_water::placement_water_properties_panel()
+            ~{InspectorSection::PlacementControls}
+            Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0,
+                flex_direction: FlexDirection::Column, row_gap: px(4) }
+            Children [
+                @crate::ui::placement_transform::placement_transform_panel()--
+                @crate::ui::scene_source_glb::panel()--
+                @crate::ui::placement_water::placement_water_properties_panel()
+            ]
         ]
     }
 }

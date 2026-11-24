@@ -29,6 +29,7 @@ pub enum InspectorSection {
     Subscene,
     ObjectManagement,
     ObjectName,
+    PlacementControls,
 }
 
 #[derive(Component, Clone, Copy, Default)]

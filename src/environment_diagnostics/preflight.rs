@@ -163,7 +163,7 @@ fn collect_report(
         ],
     ));
     match project::open(&project.root) {
-        Ok(opened) if opened == *project => {
+        Ok(opened) if project.same_session(&opened) => {
             let probe = Probe {
                 control,
                 deadline: Instant::now() + Duration::from_secs(15),

@@ -61,7 +61,7 @@ fn undo_and_redo_before_after_water_references_are_protected_without_discarding_
                     EditorCommand::WaterDefinitionsChanged { before, after }
                 } else {
                     EditorCommand::WaterLayersChanged(Box::new(WaterLayersChange {
-                        before, after, before_masks: Default::default(), after_masks: Default::default(),
+                        before, after, before_masks: Default::default(), after_masks: Default::default(), removed_controls: None,
                     }))
                 };
                 let scoped = EditorCommand::RootWater(Box::new(command));

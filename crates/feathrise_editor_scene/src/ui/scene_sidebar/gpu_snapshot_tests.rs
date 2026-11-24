@@ -158,7 +158,7 @@ fn scene_directory_gpu_snapshot() {
         feathrise_runtime::app::default_font::DEFAULT_FONT_BYTES.to_vec(),
     ));
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
-    let output = workspace.join("target/scene-directory-validation");
+    let output = workspace.join("target/scene-directory-large-arrow-validation");
     std::fs::create_dir_all(&output).unwrap();
     let (menu_scene, menu_folder) = {
         let index = app.world().resource::<SceneBrowserIndexState>();
@@ -225,11 +225,26 @@ fn scene_directory_gpu_snapshot() {
         let images = app.world().resource::<Assets<Image>>();
         assert!(
             [&icons.folder, &icons.scene, &icons.root]
-                .iter()
+                .into_iter()
+                .chain(icons.branch.iter())
                 .all(|icon| images.contains(icon.id())),
-            "目录三类图标必须实际加载"
+            "目录类型图标和两种小箭头必须实际加载"
         );
         let world = app.world_mut();
+        let (root_x, inverse_scale) = world.query::<(&SceneEditorSceneRowGlyph, &ComputedNode, &UiGlobalTransform)>()
+            .iter(world).find_map(|(glyph, node, at)| matches!(glyph, SceneEditorSceneRowGlyph::Root)
+                .then_some((at.translation.x, node.inverse_scale_factor()))).unwrap();
+        let indent = crate::ui::scene_sidebar::TREE_INDENT / inverse_scale;
+        for (row, children) in world.query::<(&SceneEditorSceneRow, &Children)>().iter(world) {
+            let depth = match row.item.as_ref() {
+                Some(SceneBrowserItem::Folder(_)) => 1.0,
+                Some(SceneBrowserItem::Scene(_)) => 2.0,
+                _ => continue,
+            };
+            let glyph = children.iter().find(|child| matches!(world.get::<SceneEditorSceneRowGlyph>(*child), Some(SceneEditorSceneRowGlyph::Entry))).unwrap();
+            let x = world.get::<UiGlobalTransform>(glyph).unwrap().translation.x;
+            assert!((x - root_x - depth * indent).abs() <= 1.0, "各倍率按真实深度排目录图标");
+        }
         if let Some((_, item)) = context.as_ref() {
             crate::ui::scene_sidebar::assert_snapshot_bounds(world, host, item);
         }

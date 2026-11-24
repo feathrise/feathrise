@@ -159,6 +159,19 @@ pub enum EditorCommand {
         before: SceneEnvironmentDescriptor, // 操作前完整环境。
         after: SceneEnvironmentDescriptor,  // 操作后完整环境。
     },
+    /// 分类的参与和锁定保存于场景清单，子项独立设置不被覆盖。
+    LayerCategoryChanged {
+        vegetation: bool,
+        before: (bool, bool),
+        after: (bool, bool),
+    },
+    /// 单静水体的持久设置按来源撤销，不切换当前作者画布。
+    StillWaterLayerChanged {
+        terrain: Option<feathrise_scene_content::TerrainId>,
+        layer_id: String,
+        before: (bool, bool),
+        after: (bool, bool),
+    },
     /// 空气墙对象事务只保存受影响的一道墙，不复制全图墙体。
     BoundaryPathChanged {
         index: usize,                                     // 删除后撤销恢复原列表位置。
@@ -419,6 +432,7 @@ pub struct WaterLayersChange {
     pub after: SceneWaterAsset,  // 操作后完整受检水层描述。
     pub before_masks: BTreeMap<String, Arc<Vec<u8>>>, // 浅快照保留被删层供撤销。
     pub after_masks: BTreeMap<String, Arc<Vec<u8>>>, // 复制层可继续共享只读像素。
+    pub removed_controls: Option<(String, (bool, bool))>, // 删除时同时撤下稀疏状态，恢复旧层时随结构复原。
 }
 
 /// 静水整笔前后版本；复合河床与遮罩只做常数时间原子换指针。
@@ -933,6 +947,7 @@ mod tests {
             after: SceneWaterAsset::default(),
             before_masks,
             after_masks,
+            removed_controls: None,
         }));
 
         assert_eq!(water_history_usage(&[command]).mask_bytes, 7);
@@ -949,6 +964,7 @@ mod tests {
                 after: SceneWaterAsset::default(),
                 before_masks: BTreeMap::from([("lake".into(), before.clone())]),
                 after_masks: BTreeMap::from([("lake".into(), after.clone())]),
+                removed_controls: None,
             })),
         ];
         trim_water_history_with_mask_budget(&mut undo, 1);

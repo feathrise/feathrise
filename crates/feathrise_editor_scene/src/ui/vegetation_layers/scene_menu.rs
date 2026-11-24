@@ -85,6 +85,13 @@ pub(in crate::ui) fn input(
     else {
         return;
     };
+    if matches!(action, LayerAction::Authoring(_)) {
+        let (_, session) = authoring.p1();
+        if let Some(reason) = session.draft.as_ref().and_then(|draft| crate::authoring::layer_categories::edit_error(draft, true)) {
+            editor.status = reason.to_owned();
+            return;
+        }
+    }
     if cold.is_some() {
         let action = match action {
             LayerAction::Authoring(edit) => TreeVegetationAction::Author(edit),

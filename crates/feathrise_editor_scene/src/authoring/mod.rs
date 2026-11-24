@@ -18,6 +18,7 @@ pub(crate) use commands::ByteChange; // 有限窗口夹具的来源回归复用�
 pub(crate) mod courtyards; // 院落模板保存、分帧成员索引和整组受检作者事务。
 mod create; // 完整新场景事务：先构建私有目录，最后发布全局目录入口。
 pub(crate) mod creation_input; // 名称、米制范围与有界高度场规格校验供弹框预览复用。
+pub(crate) mod layer_categories;
 mod delete; // 受保护场景校验、传送引用检查与可恢复后台删除事务。
 mod density_overlay; // 当前植被层以局部即时、全层后台方式覆盖到地形网格。
 mod edit; // 显式模型与传送点放置、目标选择和撤销重做。

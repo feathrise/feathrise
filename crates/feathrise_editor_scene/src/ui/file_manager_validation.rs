@@ -736,7 +736,7 @@ fn menu_width(world: &mut World, submenu: bool) -> Result<Option<Value>, String>
     let viewport = world.query_filtered::<&ComputedNode, With<crate::components::SceneEditorRoot>>().single(world)
         .map_err(|error| error.to_string())?;
     let viewport_width = viewport.size().x * viewport.inverse_scale_factor;
-    let mut longest = (0., "");
+    let mut longest = (0., 0., "");
     let mut measured_rows = 0;
     // 标签可能因菜单高度而需要滚动，但隐藏的未安装 IDE 不能参与量宽。
     for (parent, text, layout) in world.query_filtered::<(&ChildOf, &Text, &TextLayoutInfo), With<FileContextLabel>>().iter(world) {
@@ -747,19 +747,23 @@ fn menu_width(world: &mut World, submenu: bool) -> Result<Option<Value>, String>
             continue;
         }
         if layout.glyphs.is_empty() || layout.size.x <= 0. { return Ok(None); }
-        let width = layout.size.x * inverse;
-        if width > longest.0 { longest = (width, text.as_str()); }
+        let text_width = layout.size.x * inverse;
+        let indicator = world.get::<Children>(row).into_iter().flat_map(|children| children.iter())
+            .find_map(|child| world.get::<ImageNode>(child).and_then(|_| world.get::<ComputedNode>(child)));
+        // 独立测量布局后的箭头及文字，附上两者之间的行内间距。
+        let width = text_width + indicator.map_or(0., |arrow| arrow.size().x * inverse + 4.);
+        if width > longest.0 { longest = (width, text_width, text.as_str()); }
         measured_rows += 1;
     }
     if measured_rows < if submenu { 4 } else { 11 } { return Ok(None); }
-    let (text_width, longest_label) = longest;
-    // 8px 行内边距、4px 面板内边距、1px 边框各两侧。实际布局可有一物理像素舍入。
-    let expected = (text_width + 26.).ceil().min((viewport_width - 8.).max(1.));
+    let (content_width, text_width, longest_label) = longest;
+    // 主菜单和子菜单每侧均有 8px 行内边距、4px 面板内边距和两道 1px 边框。
+    let expected = (content_width + 28.).ceil().min((viewport_width - 8.).max(1.));
     if (actual - expected).abs() > (1. + inverse) {
-        return Err(format!("{}宽度未按实际文字排布：最长项「{longest_label}」{text_width:.2}px，期望 {expected:.2}px，实际 {actual:.2}px",
+        return Err(format!("{}宽度未按实际条目排布：最长项「{longest_label}」{content_width:.2}px，期望 {expected:.2}px，实际 {actual:.2}px",
             if submenu { "新建子菜单" } else { "文件右键菜单" }));
     }
-    Ok(Some(json!({"panel_logical_px":actual,"text_logical_px":text_width,"expected_logical_px":expected,
+    Ok(Some(json!({"panel_logical_px":actual,"text_logical_px":text_width,"content_logical_px":content_width,"expected_logical_px":expected,
         "longest_label":longest_label,"measured_rows":measured_rows,"ui_scale":inverse.recip()})))
 }
 

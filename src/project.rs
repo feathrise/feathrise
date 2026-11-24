@@ -5,6 +5,7 @@ use std::{fs::File, io::Read, path::{Path, PathBuf}};
 mod context;
 pub use context::ProjectContext;
 pub(crate) use context::DEFAULT_EDITOR_DATA;
+pub(crate) mod metadata;
 const MANIFEST_LIMIT: usize = 64 * 1024;
 const TOML_DESCRIPTOR: &str = "feathrise.toml";
 pub(crate) const DESCRIPTOR_NAMES: [&str; 2] = [TOML_DESCRIPTOR, "editor-project.json"];
@@ -20,6 +21,28 @@ pub struct Project {
     pub root: PathBuf,
     pub package: String,
     pub context: ProjectContext,
+}
+
+impl Project {
+    /// 工程资料可以在当前会话内重新保存；工作目录、构建及资产路由必须保持同一身份。
+    pub(crate) fn same_session(&self, other: &Self) -> bool {
+        let first = &self.context;
+        let second = &other.context;
+        self.id == other.id && self.root == other.root && self.manifest == other.manifest
+            && self.package == other.package && first.id == second.id && first.root == second.root
+            && first.format == second.format && first.asset_roots == second.asset_roots
+            && first.editor_data == second.editor_data && first.storage_key == second.storage_key
+            && first.startup_scene == second.startup_scene
+    }
+
+    /// 新后台事务选择当前已保存工程，同时拒绝被移动、替换或重配路由的会话。
+    pub(crate) fn refresh_for_session(&self) -> Result<Self, String> {
+        let current = open(&self.root)?;
+        if !self.same_session(&current) {
+            return Err("工程清单路由已变化，请重新打开工程".into());
+        }
+        Ok(current)
+    }
 }
 
 #[derive(Deserialize)]
@@ -82,15 +105,7 @@ pub fn open(root: &Path) -> Result<Project, String> {
     }
     let name = descriptor_name(&root)?;
     let descriptor = contained_file(&root.join(name), &root)?;
-    let mut bytes = Vec::with_capacity(MANIFEST_LIMIT.min(4096));
-    File::open(&descriptor)
-        .map_err(|e| error(format!("无法打开工程清单：{e}")))?
-        .take((MANIFEST_LIMIT + 1) as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|e| error(format!("无法读取工程清单：{e}")))?;
-    if bytes.len() > MANIFEST_LIMIT {
-        return Err("工程清单超过 64 KiB 上限".into());
-    }
+    let bytes = read_descriptor_bytes(&descriptor)?;
     let manifest: ProjectManifest = parse_descriptor(name, &bytes)?;
     if !matches!(manifest.format, 1 | 2) {
         return Err(format!("不支持的工程清单版本：{}", manifest.format));
@@ -128,6 +143,19 @@ fn valid_text(label: &str, value: &str, max: usize) -> Result<(), String> {
         return Err(format!("{label} 必须非空、不含控制字符且不超过 {max} 字节"));
     }
     Ok(())
+}
+
+fn read_descriptor_bytes(path: &Path) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::with_capacity(MANIFEST_LIMIT.min(4096));
+    File::open(path)
+        .map_err(|e| error(format!("无法打开工程清单：{e}")))?
+        .take((MANIFEST_LIMIT + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|e| error(format!("无法读取工程清单：{e}")))?;
+    if bytes.len() > MANIFEST_LIMIT {
+        return Err("工程清单超过 64 KiB 上限".into());
+    }
+    Ok(bytes)
 }
 
 fn contained_file(path: &Path, root: &Path) -> Result<PathBuf, String> {

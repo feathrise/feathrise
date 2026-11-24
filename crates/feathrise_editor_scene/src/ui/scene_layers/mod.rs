@@ -11,8 +11,11 @@ mod selection;
 mod systems;
 mod types;
 
-pub(crate) use resources::SceneLayerSelection;
+pub(crate) use resources::{LayerCategoryVisibility, SceneLayerSelection, WaterLayerEyes};
+pub(crate) use types::AuthorLayerCategory;
 pub(in crate::ui) use components::VegetationRowToggle;
+#[cfg(feature = "validation")]
+pub(crate) use components::StillWaterRowToggle;
 pub(crate) use catalog::VegetationCatalogAssets;
 pub(in crate::ui) use inventory::vegetation_source;
 pub(crate) use scene::panel;
@@ -25,6 +28,7 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
     app.init_resource::<SceneLayerSelection>()
         .init_resource::<resources::LayerFocusState>()
         .init_resource::<resources::LayerTreeFolds>()
+        .init_resource::<LayerCategoryVisibility>()
         .add_systems(Update, focus::update.after(crate::ui::scene_context_menu::SceneMenuDispatch)
             .in_set(crate::SceneEditorSystemSet::Input))
         .add_systems(Update, (crate::ui::water_layers::handle_scene_menu, crate::ui::vegetation_layers::handle_scene_menu)
@@ -34,13 +38,15 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
             .after(crate::ui::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)
             .before(crate::ui::scene_context_menu::SceneMenuDispatch)
             .in_set(crate::SceneEditorSystemSet::Input))
-        .add_systems(Update, systems::fold_sections
+        .add_systems(Update, (systems::fold_sections, systems::toggle_categories, systems::toggle_still_water)
             .after(crate::ui::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)
             .in_set(crate::SceneEditorSystemSet::Input))
         .add_systems(Update, systems::refresh_selection
             .after(crate::game_authoring::scene_interaction::SceneInteractionAdoption)
             .before(crate::viewport::poll_layer_candidates).in_set(crate::SceneEditorSystemSet::Tasks))
-        .add_systems(Update, (systems::sync, systems::sync_vegetation_toggles, systems::sync_section_arrows).chain()
+        .add_systems(Update, (systems::sync, systems::sync_vegetation_toggles, systems::sync_section_arrows, systems::sync_category_toggles,
+            crate::authoring::layer_categories::sync_layer_category_preview,
+            crate::authoring::layer_categories::sync_still_water_preview).chain()
             .in_set(crate::SceneEditorSystemSet::Presentation));
 }
 

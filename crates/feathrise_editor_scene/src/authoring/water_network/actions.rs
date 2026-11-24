@@ -81,6 +81,12 @@ pub(crate) fn apply_water_network_actions(
     let Some(action) = editor.water_network_action_requested.take() else {
         return; // 稳定帧不克隆水域文档。
     };
+    if action != WaterNetworkAction::PointPrevious
+        && let Some(reason) = session.draft.as_ref().and_then(|draft| crate::authoring::layer_categories::edit_error(draft, false))
+    {
+        editor.status = reason.to_owned();
+        return;
+    }
     if session
         .draft
         .as_ref()

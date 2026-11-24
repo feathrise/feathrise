@@ -90,6 +90,12 @@ pub(crate) fn select_target(
     }
     match &target.key {
         SceneObjectKey::Water { .. } | SceneObjectKey::Vegetation { .. } => {},
+        SceneObjectKey::AuthorCategory(category) => {
+            // 分类走原树行换选，只选择分类本身，成员画布不切换。
+            if let Some(browser) = browser.as_mut() {
+                browser.select_author_category(&target.scene_id, *category);
+            }
+        }
         SceneObjectKey::Placement { id, mesh, .. } => {
             if let Some(browser) = browser.as_mut() {
                 browser.selected_placement_id = Some(id.clone());

@@ -1,4 +1,4 @@
-//! 场景树真实输入回归，分别验证名称选择与类型图标展开。
+//! 场景树真实输入回归，验证类型图标和箭头开合、名称选择。
 
 use super::super::{EditorGltfBrowserEntry, EditorGltfMeshSelection};
 use super::*;
@@ -17,7 +17,7 @@ fn mesh(id: &str) -> EditorGltfMeshSelection {
 }
 
 #[test]
-fn placement_and_group_names_select_but_only_icons_expand() {
+fn placement_arrows_and_icons_expand_while_names_select() {
     use crate::ui::{scene_context_menu::{SceneObjectKey, SceneObjectRow}, terrain_objects::page_tests::{click, page_without_tree_input}};
     use super::super::{SceneTreeContents, organize::sync_root_row, scene_tree_root_row};
     use bevy::world_serialization::WorldAsset;
@@ -68,40 +68,73 @@ fn placement_and_group_names_select_but_only_icons_expand() {
         world.query::<(Entity, &SceneEditorGltfBrowserRow)>().iter(world)
             .find_map(|(entity, row)| (row.entry_index == Some(index)).then_some(entity)).unwrap()
     };
-    let fold_icon = |app: &App, row, path| {
+    let caption = |app: &App, row| {
+        app.world().get::<Children>(row).unwrap().iter()
+            .find(|&child| app.world().get::<GltfRowCaption>(child).is_some()).unwrap()
+    };
+    let row_name = |app: &App, row| {
+        app.world().get::<Children>(caption(app, row)).unwrap().iter()
+            .find(|&child| app.world().get::<SceneEditorGltfBrowserRowText>(child).is_some()).unwrap()
+    };
+    let click_name = |app: &mut App, row| {
+        let body = caption(app, row);
+        let name = row_name(app, row);
         let world = app.world();
-        let caption = world.get::<Children>(row).unwrap().iter()
-            .find(|&child| world.get::<GltfRowCaption>(child).is_some()).unwrap();
-        let button = world.get::<Children>(caption).unwrap().iter()
-            .find(|&child| world.get::<PlacementTreeExpander>(child).is_some()).unwrap();
-        let glyph = world.get::<Children>(button).unwrap().iter()
+        let center_x = |entity| world.get::<UiGlobalTransform>(entity).unwrap().translation.x;
+        let text_start = center_x(name) - world.get::<ComputedNode>(name).unwrap().size().x * 0.5;
+        // 无窗口夹具中字体可能尚未布局，名称后的整行正文仍是实际选择区域。
+        assert!(center_x(body) > text_start, "点击点须位于文字起点之后");
+        click(app, window, body, MouseButton::Left);
+    };
+    let type_icon = |app: &App, row, path| {
+        let world = app.world();
+        let glyph = world.get::<Children>(caption(app, row)).unwrap().iter()
             .find(|&child| world.get::<crate::components::SceneEditorGltfBrowserRowGlyph>(child).is_some()).unwrap();
-        // 向图标中心发送原鼠标事件，防止控件仍留在独立的空槽。
         let image = world.get::<ImageNode>(glyph).unwrap();
         assert_eq!(image.image.path().unwrap().path(), std::path::Path::new(path));
+        glyph
+    };
+    let branch_arrow = |app: &App, row, path| {
+        let world = app.world();
+        let arrow = world.get::<Children>(row).unwrap().iter()
+            .find(|&child| world.get::<PlacementTreeExpander>(child).is_some()).unwrap();
+        assert_eq!(*world.get::<Visibility>(arrow).unwrap(), Visibility::Inherited);
+        let glyph = *world.get::<Children>(arrow).unwrap().first().unwrap();
+        let image = world.get::<ImageNode>(glyph).unwrap();
+        assert_eq!(image.image.path().unwrap().path(), std::path::Path::new(path));
+        let layout = world.get::<ComputedNode>(glyph).unwrap();
+        assert!((layout.size() * layout.inverse_scale_factor()).abs_diff_eq(Vec2::splat(14.0), 1.1));
+        let hit_target = world.get::<ComputedNode>(arrow).unwrap();
+        assert!((hit_target.size() * hit_target.inverse_scale_factor()).abs_diff_eq(Vec2::new(39.0, 21.0), 1.1));
+        let hit_right = world.get::<UiGlobalTransform>(arrow).unwrap().translation.x + hit_target.size().x * 0.5;
+        let name = row_name(app, row);
+        let name_left = world.get::<UiGlobalTransform>(name).unwrap().translation.x
+            - world.get::<ComputedNode>(name).unwrap().size().x * 0.5;
+        assert!((hit_right - name_left).abs() <= 1.1, "展开区在文字起点结束");
         glyph
     };
     let revision = app.world().resource::<EditorGltfBrowserState>().published_entries_revision;
     let model = row_at(&mut app, 0);
     let group = row_at(&mut app, 1);
-    click(&mut app, window, model, MouseButton::Left);
+    let model_icon = type_icon(&app, model, "icons/editor/tree_glb.png");
+    click_name(&mut app, model);
     assert_eq!(app.world().resource::<EditorGltfBrowserState>().selected_placement_id.as_deref(), Some("主模型"));
-    click(&mut app, window, group, MouseButton::Left);
+    click_name(&mut app, group);
     {
         let state = app.world().resource::<EditorGltfBrowserState>();
         assert_eq!(state.selected_group.as_deref(), Some("摆放组"));
-        assert_eq!(state.published_entries_revision, revision, "两次名称选择均保留原树投影");
+        assert_eq!(state.published_entries_revision, revision, "名称选择保留原树投影");
         assert!(state.expanded_groups.is_empty() && state.expanded_placements.is_empty());
         assert!(state.asset_demand_counts.is_empty(), "选择模型根无需请求Scene0");
     }
-    let model_icon = fold_icon(&app, model, "icons/editor/tree_glb.png");
+    branch_arrow(&app, model, "icons/editor/tree_expand.png");
     click(&mut app, window, model_icon, MouseButton::Left);
     let group = row_at(&mut app, 1);
-    let group_icon = fold_icon(&app, group, "icons/editor/tree_folder.png");
-    click(&mut app, window, group_icon, MouseButton::Left);
+    let group_arrow = branch_arrow(&app, group, "icons/editor/tree_expand.png");
+    click(&mut app, window, group_arrow, MouseButton::Left);
     {
         let state = app.world().resource::<EditorGltfBrowserState>();
-        assert_eq!(state.selected_group.as_deref(), Some("摆放组"), "点击展开图标保留原选择");
+        assert_eq!(state.selected_group.as_deref(), Some("摆放组"), "点击图标或箭头开合均保留原选择");
         assert!(state.expanded_placements.contains("主模型") && state.expanded_groups.contains("摆放组"));
         assert_eq!(state.asset_demand_counts.get("gltf/scene-tree-input-fixture.glb"), Some(&1));
         assert!(state.entries.iter().any(|entry| entry.depth == 1 && matches!(&entry.kind,
@@ -113,21 +146,22 @@ fn placement_and_group_names_select_but_only_icons_expand() {
             .find_map(|(entity, row)| (row.main_glb == Some(MainSceneGlbRow::File)).then_some(entity)).unwrap()
     };
     assert!(matches!(app.world().get::<SceneObjectRow>(main_glb).unwrap().0.as_ref().unwrap().key, SceneObjectKey::MainSceneGlb));
-    click(&mut app, window, main_glb, MouseButton::Left);
+    let root_icon = type_icon(&app, main_glb, "icons/editor/tree_glb.png");
+    click_name(&mut app, main_glb);
     let scene = app.world().resource::<SceneEditorState>().selected_scene_id.clone().unwrap();
     let state = app.world().resource::<EditorGltfBrowserState>();
     assert!(state.is_main_glb_selected(&scene) && state.collapsed_main_glb.is_none());
     assert!(state.selected_group.is_none() && state.selected_placement_id.is_none());
     assert!(state.expanded_placements.contains("主模型") && state.expanded_groups.contains("摆放组"));
-    let root_icon = fold_icon(&app, main_glb, "icons/editor/tree_glb.png");
+    let root_arrow = branch_arrow(&app, main_glb, "icons/editor/tree_collapse.png");
     click(&mut app, window, root_icon, MouseButton::Left);
     assert_eq!(app.world().get::<Node>(contents).unwrap().display, Display::None);
     assert!(app.world().resource::<EditorGltfBrowserState>().is_main_glb_selected(&scene));
     assert_eq!(app.world().get::<Node>(main_glb).unwrap().display, Display::Flex);
-    click(&mut app, window, root_icon, MouseButton::Left);
+    click(&mut app, window, root_arrow, MouseButton::Left);
     assert_eq!(app.world().get::<Node>(contents).unwrap().display, Display::Flex);
     let model = row_at(&mut app, 0);
-    click(&mut app, window, model, MouseButton::Left);
+    click_name(&mut app, model);
     let state = app.world().resource::<EditorGltfBrowserState>();
     assert!(state.selected_main_row.is_none());
     assert_eq!(state.selected_placement_id.as_deref(), Some("主模型"));
@@ -136,11 +170,12 @@ fn placement_and_group_names_select_but_only_icons_expand() {
         world.query::<(Entity, &SceneEditorGltfBrowserRow)>().iter(world)
             .find_map(|(entity, row)| (row.main_glb == Some(MainSceneGlbRow::Animation(None))).then_some(entity)).unwrap()
     };
-    click(&mut app, window, animation, MouseButton::Left);
+    let animation_icon = type_icon(&app, animation, "icons/editor/tree_file.png");
+    click(&mut app, window, animation_icon, MouseButton::Left);
     let state = app.world().resource::<EditorGltfBrowserState>();
     assert!(matches!(&state.selected_main_row, Some((id, MainSceneSelection::Animation)) if id == &scene));
     assert_eq!(state.selected_placement_id.as_deref(), Some("主模型"), "选择动画仍保留原视口姿势目标");
-    click(&mut app, window, model, MouseButton::Left);
+    click_name(&mut app, model);
     assert!(app.world().resource::<EditorGltfBrowserState>().selected_main_row.is_none());
     let session = app.world().resource::<EditorAuthoringSession>();
     assert!(session.undo.is_empty());

@@ -64,6 +64,7 @@ pub(crate) mod terrain_shading; // 场景页基础地形的本次运行着色模
 pub(crate) mod terrain_sidebar; // 雕刻/地表/积水顶部工具页及只读作者反馈。
 pub(crate) mod text_input; // 官方文本组件的公共身份与候选确认帧保护。
 pub(crate) mod theme; // F12 独立工具主题；不改变游戏 HUD、背包和设置界面。
+mod menu_style;
 pub(crate) mod tooltips; // 顶栏与视口按钮的只读悬停提示，固定浮层不参与正文测量或输入所有权。
 pub(crate) mod vegetation_layers; // 作者图层结构按钮、固定行点击与撤销快照采用。
 pub(crate) mod vegetation_preset_editor; // F12全局植被预设的新建、编辑、引用保护删除与原子保存。

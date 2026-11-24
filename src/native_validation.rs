@@ -513,6 +513,26 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
         return Err("本轮立方体未随原保存写入该场景的 GLB".into());
     }
     let startup = &proof["scene_tree"]["startup"];
+    if ["main_glb_icons_indented_14_px", "terrain_and_object_icons_aligned", "height_terrain_has_one_caption",
+        "source_mesh_indented_14_px", "initial_glb_arrows_visible"]
+        .into_iter().any(|key| startup["layout"][key] != true)
+        || startup["glb_menu"]["creation_submenu_beside_unchanged_main"] != true
+    {
+        return Err("场景树层级、小箭头或侧开新建子菜单缺少实际布局回执".into());
+    }
+    let [water_target, water_neighbor] = fixture::SCENE_TREE_WATER_IDS;
+    let mut expected_water = json!({
+        "target":{"id":water_target,"enabled":false,"hidden":true,"locked":true},
+        "neighbor":{"id":water_neighbor,"enabled":true,"hidden":false,"locked":false},
+    });
+    let manifest: Value = serde_json::from_slice(&fs::read(project.context.asset_roots[0].join(CLOSE_SCENE_MANIFEST_PATH))
+        .map_err(|error| error.to_string())?).map_err(|error| error.to_string())?;
+    let stored_water = &manifest["scene_layers"]["still_water"]["root"];
+    if startup["still_water"] != expected_water
+        || stored_water != &json!({"disabled":[water_target],"locked":[water_target]})
+    {
+        return Err("静水子行未分别改变目标状态，或工程清单未只保存目标的参与与锁定".into());
+    }
     let new_folder = startup["root_folder_from_blank"].as_str().ok_or("缺少空白处新建目录的回执")?;
     let deleted = startup["glb_menu"]["source_staged_for_permanent_deletion"].as_str().ok_or("缺少永久删除 GLB 的菜单回执")?;
     let deleted_path = format!("scenes/M1-SAMPLE/models/{deleted}.glb");
@@ -525,6 +545,15 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
         matches!(&record.asset_target, feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { geometry, .. } if geometry.is_open()))
     {
         return Err("从主 GLB 新建的平面未经过原保存链写入".into());
+    }
+    if startup["glb_menu"]["created_main_cuboid_at_local_origin"] != true
+        || startup["glb_menu"]["created_source_cuboid_at_local_origin"] != true
+        || !saved.placements.iter().any(|record| record.id != placement
+            && matches!(&record.asset_target, feathrise_scene_content::ScenePlacementAssetTarget::Cuboid { .. })
+            && record.translation == [0.0; 3] && record.terrain_offset == 0.0
+            && record.height_mode == feathrise_scene_content::ScenePlacementHeightMode::FixedHeight)
+    {
+        return Err("右键新建立方体缺少当前 GLB 本地原点或主场景固定高度的落盘证据".into());
     }
     if !saved.placements.iter().any(|record| record.asset_path == "scene/probe.glb" && record.editor.group == new_folder) {
         return Err("从活动选择窗口添加的 GLB 没有保存在右键指向的文件夹".into());
@@ -572,9 +601,13 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
     let cube_properties = read_author_screenshot(&output.join("scene-tree-cube-properties.png"))?;
     let drag_preview = read_author_screenshot(&output.join("scene-tree-drag-preview.png"))?;
     let nested_folder = read_author_screenshot(&output.join("scene-tree-nested-folder.png"))?;
+    let creation_submenu = read_author_screenshot(&output.join("scene-tree-new-glb-submenu.png"))?;
+    let still_water = read_author_screenshot(&output.join("scene-tree-still-water-toggles.png"))?;
     steps.push(json!({"stage":"scene_tree_startup_in_original_editor","passed":true,"report":observed,"saved_placement_id":placement,
         "startup_screenshot":screenshot,"source_coordinates_screenshot":coordinates,"mesh_properties_screenshot":cube_properties,
-        "drag_preview_screenshot":drag_preview,"nested_folder_screenshot":nested_folder,"renamed_folder":"验收文件夹",
+        "drag_preview_screenshot":drag_preview,"nested_folder_screenshot":nested_folder,"creation_submenu_screenshot":creation_submenu,
+        "still_water_screenshot":still_water,"saved_still_water":stored_water,
+        "renamed_folder":"验收文件夹",
         "saved_source_local_x":local_x,"saved_source_name":"验收网格","applied_scale_x":1.0}));
 
     let output = work.join("editor-2");
@@ -582,6 +615,10 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
     command.env("FEATHRISE_SCENE_TREE_REOPEN_VALIDATION", "1");
     let (_, reopened) = run_author_window(&command, control, &root, &output)?;
     let node = &reopened["current_author_document"]["reopened_source_node"];
+    expected_water["target"]["hidden"] = json!(false); // 眼睛只作用于作者进程，重开恢复可见偏好。
+    if node["reopened_still_water"] != expected_water {
+        return Err(format!("重开工程后静水子行参与、锁定或临时显隐不符：{}", node["reopened_still_water"]));
+    }
     if reopened["author_save_requested"] != false || node["placement"] != "sample-model"
         || node["local_x"].as_f64() != Some(1.25) || node["world_x"].as_f64() != Some(7.5)
         || node["reopened_folder_parent"] != "验收目标" || node["reopened_folder_members"] != 2

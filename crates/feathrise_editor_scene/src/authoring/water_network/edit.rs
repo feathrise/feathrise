@@ -194,6 +194,14 @@ pub(crate) fn edit_water_network_from_viewport(
     if should_finish_drag(edit.dragging(), mouse.pressed(MouseButton::Left)) {
         finish_drag(&mut editor, &mut session, &mut edit); // 丢失释放事件或同帧短按短放也必须收口唯一撤销事务。
     }
+    if let Some(reason) = session.draft.as_ref().and_then(|draft| crate::authoring::layer_categories::edit_error(draft, false)) {
+        if edit.dragging() { finish_drag(&mut editor, &mut session, &mut edit); }
+        *pending_object = None;
+        if mouse.just_pressed(MouseButton::Left) && matches!(editor.tool, EditorTool::RiverSpline | EditorTool::Waterfall) {
+            editor.status = reason.to_owned();
+        }
+        return;
+    }
     if session.draft.as_ref().is_some_and(|draft| {
         !draft
             .terrain_manifest()

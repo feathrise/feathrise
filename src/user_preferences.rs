@@ -252,6 +252,16 @@ impl Preferences {
         Ok(())
     }
 
+    /// 工程改名只更新同路径的现有名称，保留最后打开时间、固定状态和顺序。
+    pub(crate) fn rename_recent(&mut self, path: &Path, name: &str) -> Result<bool, String> {
+        let Some(index) = self.recent_index(path) else { return Ok(false); };
+        validate_recent(name, path)?;
+        let entry = &mut self.recent_projects[index];
+        if entry.name == name { return Ok(false); }
+        entry.name = name.to_owned();
+        Ok(true)
+    }
+
     /// 固定命令携带目标值，过期的重复命令不会把刚保存的状态再反转。
     pub(crate) fn set_recent_pinned(&mut self, path: &Path, pinned: bool) -> Result<bool, String> {
         let Some(index) = self.recent_index(path) else {
@@ -820,8 +830,11 @@ mod tests {
             ).unwrap();
         }
         assert_eq!(preferences.recent_projects.len(), MAX_RECENT_PROJECTS);
+        assert!(preferences.rename_recent(&first, "工作树 A 的新名称").unwrap());
         assert_eq!(preferences.recent_projects[0].path, second);
+        assert_eq!(preferences.recent_projects[0].name, "同名工程");
         assert_eq!(preferences.recent_projects[1].path, first);
+        assert_eq!(preferences.recent_projects[1].name, "工作树 A 的新名称");
         assert_eq!(preferences.recent_projects[1].last_opened_unix_seconds, 100);
         assert_eq!(preferences.recent_projects[2].path, fixture.root.join("other-39"));
         assert!(preferences.recent_projects[..2].iter().all(|entry| entry.pinned));

@@ -205,7 +205,7 @@ pub(crate) enum SourceGlbOperation {
     Folder(String),
     DeleteFolder,
     Move(SourceGlbTarget),
-    AddPrimitive { shape: ScenePlacementAssetTarget, center: Vec3 },
+    AddPrimitive { shape: ScenePlacementAssetTarget, world_center: Option<Vec3> },
     ApplyTransform { expected_hash: String, remaining: Transform },
     NodeEdit {
         expected_hash: String,
@@ -288,9 +288,9 @@ pub(crate) fn edit(
         SourceGlbOperation::DeleteFolder => {
             document.remove_empty_folder(source.node(&document)?)?;
         }
-        SourceGlbOperation::AddPrimitive { shape, center } => {
-            // 采用被右键的引用实例的坐标系，同一个源仍由其所有实例共享。
-            let local = source.world.inverse().transform_point3(center);
+        SourceGlbOperation::AddPrimitive { shape, world_center } => {
+            // 有世界坐标的平面按本次引用换算，立方体直接以所有引用共享的本地原点创建。
+            let local = world_center.map_or(Vec3::ZERO, |center| source.world.inverse().transform_point3(center));
             if !local.is_finite() || source.node.is_some() {
                 return Err("请在有有效场景变换的完整 GLB 行新建网格".into());
             }

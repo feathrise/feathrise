@@ -2,9 +2,10 @@
 
 use super::layers::*; // 完整请求与结果身份。
 use crate::authoring::author_layers_at_world; // 使用与编译完全一致的贡献规则。
-use crate::authoring::EditorAuthoringSession;
+use crate::authoring::{EditorAuthoringSession, layer_categories};
 use crate::game_authoring::scene_interaction::{SceneInteractionState, SceneInteractionSnapshot}; // 外部作者层选择端口。
 use crate::resources::SceneEditorState; // 全局编辑生命周期门。
+use crate::ui::scene_layers::LayerCategoryVisibility;
 use crate::viewport::modes::{SelectionFilter, ViewportModeState}; // 唯一模式及筛选。
 use bevy::{
     prelude::*,
@@ -112,6 +113,8 @@ pub(crate) fn poll_layer_candidates(
     mut selection_locked: Local<bool>, // 停用视口拾取时淘汰旧票据，场景树仍可发布正式选择。
     mut locked_scene: Local<Option<feathrise_scene_content::SceneId>>, // confirm_terrain没有候选身份时，也不能把primary选中项带到另一场景。
     mut vegetation_visibility_revision: Local<u64>,
+    category_visibility: Option<Res<LayerCategoryVisibility>>,
+    mut previous_category_visibility: Local<Option<([bool; 2], u64)>>,
     multi_selection: Option<Res<crate::viewport::multi_select::PlacementSelectionSet>>,
     subscenes: super::subscenes::PickInputs,
     mut terrains: Option<ResMut<crate::ui::terrain_objects::TerrainObjectsEditorState>>,
@@ -120,7 +123,12 @@ pub(crate) fn poll_layer_candidates(
     // 唯一single-flight调度出口。
     let filter = modes.selection_filter(&editor); // 保留选择时使用的类别身份。
     let visible_revision = editor.vegetation_visibility.revision();
-    if *vegetation_visibility_revision != visible_revision {
+    let visible_categories = session.draft.as_ref().map_or([true; 2], |draft| {
+        [false, true].map(|vegetation| layer_categories::preview_visible(draft, category_visibility.as_deref(), vegetation))
+    });
+    let visible_state = (visible_categories, category_visibility.as_deref().map_or(0, LayerCategoryVisibility::water_revision));
+    let category_changed = previous_category_visibility.replace(visible_state).is_some_and(|old| old != visible_state);
+    if *vegetation_visibility_revision != visible_revision || category_changed {
         *vegetation_visibility_revision = visible_revision;
         state.freeze_selection();
         state.candidates.clear();
@@ -295,7 +303,7 @@ pub(crate) fn poll_layer_candidates(
         state.request = Some(request); // 每帧有界捕获，身份变化会整批丢弃；等待时不发布半套结果。
         return;
     }
-    let canvas = super::layer_canvas::Snapshot::capture(draft);
+    let canvas = super::layer_canvas::Snapshot::capture(draft, visible_categories[1]);
     let hidden_vegetation = editor.vegetation_visibility.hidden_in(&key.scene_id, canvas.terrain.as_ref()).cloned();
     request.canvas_terrain = canvas.terrain.clone();
     request.canvas_definition = draft.terrain_documents.active.as_ref().map(|active| active.definition.clone());

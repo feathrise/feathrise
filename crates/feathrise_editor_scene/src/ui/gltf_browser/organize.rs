@@ -1,7 +1,7 @@
 //! 场景树以固定行池解析拖拽，外层归属送原摆放管理，内部节点送 GLB 作者事务。
 
 use super::{
-    EditorGltfBrowserState, MainSceneGlbRow, PlacementTreeExpander, SceneEditorGltfBrowserRow, SceneTreeContents, SceneTreeRootRow,
+    EditorGltfBrowserState, MainSceneGlbRow, SceneEditorGltfBrowserRow, SceneTreeContents, SceneTreeRootRow,
     systems::GltfRowCaption,
 };
 use crate::{
@@ -100,7 +100,6 @@ pub(super) fn sync_root_row(
     ), (With<SceneTreeRootRow>, Without<SceneTreeContents>)>,
     mut contents: Query<&mut Node, (With<SceneTreeContents>, Without<SceneTreeRootRow>)>,
     captions: Query<&Children, With<GltfRowCaption>>,
-    icon_buttons: Query<&Children, With<PlacementTreeExpander>>,
     mut labels: Query<&mut Text>,
     mut icons: Query<&mut ImageNode, With<SceneEditorGltfBrowserRowGlyph>>,
 ) {
@@ -143,8 +142,7 @@ pub(super) fn sync_root_row(
                         label.clone_into(&mut text.0);
                     }
                     if let Some(server) = server.as_ref().filter(|_| images.is_some())
-                        && let Ok(button) = icon_buttons.get(child) && let Some(glyph) = button.first()
-                        && let Ok(mut image) = icons.get_mut(*glyph)
+                        && let Ok(mut image) = icons.get_mut(child)
                         && image.image.path().is_none_or(|path| path.path() != std::path::Path::new(icon))
                     {
                         image.image = server.load(icon);

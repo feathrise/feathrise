@@ -303,7 +303,8 @@ pub(crate) fn sync_water_level_input(
         && !editor.close_requested
         && !editor.new_scene_dialog_open
         && !session.saving
-        && selected.is_some();
+        && selected.as_ref().is_some_and(|(target, _)| session.draft.as_ref().is_some_and(|draft|
+            crate::authoring::water_canvas::layer_edit_error(draft, &target.layer_id).is_none()));
     if should_enable == disabled {
         if should_enable {
             commands

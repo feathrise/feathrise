@@ -2,6 +2,7 @@
 use crate::workspace_ui::{WorkspaceCommand, WorkspaceField, WorkspaceModel};
 use crate::native_project_close::CloseTarget;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) enum AuthorEvent {
@@ -12,6 +13,7 @@ pub(super) enum AuthorEvent {
     #[cfg(windows)]
     FramePacing(crate::editor_frame_pacing::FramePacingRequest),
     Command(WorkspaceCommand),
+    ProjectSettingsSaved { id: String, root: PathBuf, name: String },
     CloseCancelled,
     /// 旧单位回执继续解码为工程关闭；新版显式带目标，避免迟到取消撤回另一种关闭意图。
     CloseCancelledFor { target: CloseTarget },

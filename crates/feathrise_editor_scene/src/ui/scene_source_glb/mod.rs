@@ -246,10 +246,12 @@ fn advance(
                 }
                 SceneMenuAction::DeleteSourceFolder => SourceGlbOperation::DeleteFolder,
                 SceneMenuAction::NewGlbCuboid | SceneMenuAction::NewGlbPlane => {
-                    let viewport = viewport.as_deref().ok_or("场景中心尚未就绪")?;
+                    let plane = request.action == SceneMenuAction::NewGlbPlane;
+                    let world_center = if plane { Some(viewport.as_deref().ok_or("场景中心尚未就绪")?.scene_center) }
+                        else { None }; // 立方体由源文件事务直接写入局部原点。
                     SourceGlbOperation::AddPrimitive {
-                        shape: crate::ui::terrain_objects::tree_shape_target(request.action == SceneMenuAction::NewGlbPlane)?,
-                        center: viewport.scene_center,
+                        shape: crate::ui::terrain_objects::tree_shape_target(plane)?,
+                        world_center,
                     }
                 }
                 _ => SourceGlbOperation::Folder(request.name.clone()),

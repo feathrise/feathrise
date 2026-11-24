@@ -293,16 +293,15 @@ fn apply_to_selected_still_water(
     let preset = registry
         .resolve(selected_id)
         .ok_or_else(|| "所选水体预设已不存在".to_owned())?;
-    let before = session
-        .draft
-        .as_ref()
-        .and_then(|draft| draft.water.clone())
+    let draft = session.draft.as_ref().ok_or_else(|| "场景作者草稿尚未就绪".to_owned())?;
+    let before = draft.water.clone()
         .ok_or_else(|| "当前场景没有可编辑水域文件".to_owned())?;
     let mut after = before.clone();
     let layer = after
         .layers
         .get_mut(editor.selected_water_layer)
         .ok_or_else(|| "当前没有可应用预设的静水体".to_owned())?;
+    if let Some(reason) = crate::authoring::water_canvas::layer_edit_error(draft, &layer.id) { return Err(reason.into()); }
     layer.preset_id = preset.id.clone();
     layer.base_color_srgba = preset.base_color_srgba; // 同步兼容回退，使缺目录诊断状态仍保留作者所见基础材质。
     layer.perceptual_roughness = preset.perceptual_roughness;

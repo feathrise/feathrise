@@ -13,12 +13,67 @@ fn test_object(session: &EditorAuthoringSession, list: types::LayerList, index: 
     let draft = session.draft.as_ref()?;
     let mut inventory = inventory::LayerInventory::default();
     inventory.sync(session, draft, None);
-    rows::object(session, &inventory, None, list, index, Some(&fixtures::state(draft.adopted_domain_hash(), 60)), &Default::default())
+    rows::object(session, &inventory, None, list, index, Some(&fixtures::state(draft.adopted_domain_hash(), 60)), (&Default::default(), None))
 }
 
 
 pub(crate) fn install_snapshot_sync(app: &mut App) {
     app.add_systems(Update, (systems::sync, systems::sync_vegetation_toggles).chain());
+}
+
+#[test]
+fn water_category_controls_keep_editor_visibility_separate_from_saved_participation() {
+    use crate::authoring::layer_categories;
+    use crate::resources::SceneEditorNumericScrubMouseGuard;
+    use crate::ui::{scene_context_menu::SceneContextMenuState, scene_sidebar::TreeRowToggle};
+    use feathrise_editor_ui::EditorButtonClick;
+    use feathrise_scene_content::SceneManifestAsset;
+
+    let mut app = App::new();
+    app.init_resource::<SceneEditorState>()
+        .init_resource::<EditorAuthoringSession>()
+        .init_resource::<SceneContextMenuState>()
+        .init_resource::<SceneEditorNumericScrubMouseGuard>()
+        .init_resource::<LayerCategoryVisibility>()
+        .add_systems(Update, systems::toggle_categories);
+    let draft = crate::authoring::test_heightfield_draft(std::sync::Arc::new(vec![0; 121]));
+    let scene = draft.scene_id.clone();
+    let supported = layer_categories::supported(&draft);
+    app.world_mut().resource_mut::<EditorAuthoringSession>().draft = Some(draft);
+    app.world_mut().spawn((Window { focused: true, ..default() }, bevy::window::PrimaryWindow));
+    let mut editor = app.world_mut().resource_mut::<SceneEditorState>();
+    editor.open = true;
+    editor.selected_scene_id = Some(scene.clone());
+    let click = |app: &mut App, toggle| {
+        let button = app.world_mut().spawn((components::SectionToggle {
+            list: types::LayerList::Water, toggle, scene: Some(scene.clone()),
+        }, EditorButtonClick::triggered())).id();
+        app.update();
+        app.world_mut().despawn(button);
+    };
+    let scope = |app: &App| layer_categories::category_state(
+        app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap(), false);
+    click(&mut app, TreeRowToggle::Visibility);
+    assert!(app.world().resource::<LayerCategoryVisibility>().hidden(&scene, false));
+    assert!(!app.world().resource::<SceneEditorState>().dirty);
+    assert_eq!(scope(&app), (true, false));
+    if !supported { return; }
+
+    click(&mut app, TreeRowToggle::Lock);
+    click(&mut app, TreeRowToggle::Participation);
+    assert_eq!(scope(&app), (true, true));
+    click(&mut app, TreeRowToggle::Lock);
+    click(&mut app, TreeRowToggle::Participation);
+    let session = app.world().resource::<EditorAuthoringSession>();
+    let draft = session.draft.as_ref().unwrap();
+    assert_eq!(scope(&app), (false, false));
+    assert!(app.world().resource::<SceneEditorState>().dirty && !session.undo.is_empty());
+    let saved = serde_json::to_vec(&draft.manifest).unwrap();
+    let reopened: SceneManifestAsset = serde_json::from_slice(&saved).unwrap();
+    let mut draft = crate::authoring::test_heightfield_draft(std::sync::Arc::new(vec![0; 121]));
+    draft.manifest = reopened;
+    assert_eq!(layer_categories::category_state(&draft, false), (false, false));
+    assert_eq!(layer_categories::category_state(&draft, true), (true, false));
 }
 
 /// 保存回归通过正式树行解析器取当前快照，避免只检查底层水槽而漏掉UI再次丢项。
@@ -27,7 +82,7 @@ pub(crate) fn water_snapshot(session: &EditorAuthoringSession) -> Vec<crate::ui:
     let mut inventory = inventory::LayerInventory::default();
     inventory.sync(session, draft, None);
     (0..inventory.count(true)).filter_map(|index|
-        rows::object(session, &inventory, None, types::LayerList::Water, index, None, &default()).map(|item| item.0)).collect()
+        rows::object(session, &inventory, None, types::LayerList::Water, index, None, (&default(), None)).map(|item| item.0)).collect()
 }
 
 pub(crate) fn assert_snapshot_glyphs(app: &mut App) {
@@ -132,6 +187,13 @@ pub(crate) fn add_scene_root_water_fixture(app: &mut App) -> feathrise_scene_con
     draft.terrain_documents.active.as_ref().unwrap().definition.id.clone()
 }
 
+fn section_type_icon(world: &World, arrow_button: Entity) -> Entity {
+    let row = world.get::<ChildOf>(arrow_button).unwrap().parent();
+    world.get::<Children>(row).unwrap().iter()
+        .filter_map(|child| world.get::<Children>(child)).flat_map(|children| children.iter())
+        .find(|&child| world.get::<crate::components::SceneEditorTreeGlyph>(child).is_some()).unwrap()
+}
+
 #[test]
 fn scene_tree_mesh_section_and_branch_columns_keep_actual_layout_aligned() {
     use crate::components::SceneEditorGltfBrowserRowGlyph;
@@ -179,9 +241,9 @@ fn scene_tree_mesh_section_and_branch_columns_keep_actual_layout_aligned() {
         let world = app.world_mut();
         assert!(!world.query::<&Text>().iter(world).any(|text| text.as_str() == "网格对象"));
         let display_arrow = world.query_filtered::<Entity, With<SceneBaseGltfArrow>>().single(world).unwrap();
-        let layer_arrows: Vec<_> = world.query::<(Entity, &components::SectionArrow)>().iter(world)
+        let layer_buttons: Vec<_> = world.query::<(Entity, &components::SectionArrow)>().iter(world)
             .map(|(entity, _)| entity).collect();
-        assert_eq!(layer_arrows.len(), 2);
+        assert_eq!(layer_buttons.len(), 2);
         let rows: Vec<_> = world.query::<(Entity, &SceneEditorGltfBrowserRow)>().iter(world)
             .filter_map(|(entity, row)| row.entry_index.map(|index| (entity, index))).collect();
         let layer_rows: Vec<_> = world.query::<(Entity, &components::Row)>().iter(world)
@@ -195,30 +257,41 @@ fn scene_tree_mesh_section_and_branch_columns_keep_actual_layout_aligned() {
         assert_eq!(branch_rows.len(), 2);
         let leaf = rows.iter().find_map(|&(row, index)| matches!(&browser.entries[index].kind,
             EditorGltfBrowserEntryKind::Placement { placement_id, .. } if placement_id == &child_id).then_some(row)).unwrap();
-        let icon_button = |row| world.get::<Children>(row).unwrap().iter()
-            .filter_map(|child| world.get::<Children>(child)).flat_map(|children| children.iter())
+        let arrow = |row| world.get::<Children>(row).unwrap().iter()
             .find(|&child| world.get::<PlacementTreeExpander>(child).is_some()).unwrap();
-        let object_icon = |row| world.get::<Children>(icon_button(row)).unwrap().iter()
+        let object_icon = |row| world.get::<Children>(row).unwrap().iter()
+            .filter_map(|child| world.get::<Children>(child)).flat_map(|children| children.iter())
             .find(|&child| world.get::<SceneEditorGltfBrowserRowGlyph>(child).is_some()).unwrap();
         let center = |entity| world.get::<UiGlobalTransform>(entity).unwrap().translation;
         let size = |entity| world.get::<ComputedNode>(entity).unwrap().size();
-        let branch_column = center(layer_arrows[0]).x;
+        let arrow_icon = |button| *world.get::<Children>(button).unwrap().first().unwrap();
+        let display_arrow = arrow_icon(display_arrow);
+        let layer_glyphs: Vec<_> = layer_buttons.into_iter()
+            .map(|button| [arrow_icon(button), section_type_icon(world, button)]).collect();
+        let branch_column = center(layer_glyphs[0][0]).x;
+        let icon_column = center(object_icon(branch_rows[0])).x;
+        let icon_size = size(object_icon(branch_rows[0]));
         assert!(center(display_arrow).x < branch_column);
-        assert!(layer_arrows.iter().all(|&arrow| center(display_arrow).y < center(arrow).y));
-        assert!(layer_arrows.iter().all(|&arrow| center(arrow).y < center(branch_rows[0]).y));
-        for arrow in layer_arrows {
+        assert!(icon_column > branch_column);
+        for [arrow, icon] in layer_glyphs {
+            assert!(center(display_arrow).y < center(arrow).y && center(arrow).y < center(branch_rows[0]).y);
             assert!((center(arrow).x - branch_column).abs() <= 1.1);
             assert!(size(arrow).abs_diff_eq(size(display_arrow), 1.1));
+            assert!((center(icon).x - icon_column).abs() <= 1.1);
+            assert!(size(icon).abs_diff_eq(icon_size, 1.1));
         }
-        // 首层文件夹和 GLB 图标使用分类箭头的列，文件夹下的网格仍按层级缩进。
-        assert!(branch_rows.into_iter().all(|row| (center(object_icon(row)).x - branch_column).abs() <= 1.1));
-        assert!(world.get::<bevy::ui::InteractionDisabled>(icon_button(leaf)).is_some());
-        assert_ne!(*world.get::<Visibility>(icon_button(leaf)).unwrap(), Visibility::Hidden);
+        // 同级树行各有一列箭头和类型图标，叶子保留图标列且没有可见箭头。
+        for row in branch_rows {
+            assert!((center(arrow_icon(arrow(row))).x - branch_column).abs() <= 1.1);
+            assert!((center(object_icon(row)).x - icon_column).abs() <= 1.1);
+        }
+        assert!(world.get::<bevy::ui::InteractionDisabled>(arrow(leaf)).is_some());
+        assert_eq!(*world.get::<Visibility>(arrow(leaf)).unwrap(), Visibility::Hidden);
         let layer_icon = |row| world.get::<Children>(row).unwrap().iter()
             .filter_map(|child| world.get::<Children>(child)).flat_map(|children| children.iter())
             .find(|&child| world.get::<crate::components::SceneEditorTreeGlyph>(child).is_some()).unwrap();
-        // 分类标题只有箭头，子项的实际图标与它相距一层。
-        let child_column = branch_column + crate::ui::scene_sidebar::TREE_ICON_SIZE * scale;
+        // 文件夹网格、水域和植被子项比正文首层多 14 个逻辑像素。
+        let child_column = icon_column + 14.0 * scale;
         assert!((center(object_icon(leaf)).x - child_column).abs() <= 1.1);
         assert!(layer_rows.iter().all(|&row| (center(layer_icon(row)).x - child_column).abs() <= 1.1));
     }
@@ -232,10 +305,14 @@ fn scene_tree_mesh_section_and_branch_columns_keep_actual_layout_aligned() {
 #[test]
 fn scene_layers_fold_scroll_and_same_id_vegetation_stay_with_their_source() {
     use bevy::{ecs::system::RunSystemOnce, window::PrimaryWindow};
-    use crate::ui::scene_context_menu::{SceneContextMenuState, SceneMenuAction, SceneObjectRequest};
+    use crate::ui::{gltf_browser::EditorGltfBrowserState,
+        scene_context_menu::{SceneContextMenuState, SceneMenuAction, SceneObjectRequest, select_target_for_tests}};
     let (mut app, _) = crate::ui::scene_inspector::tests::page(0);
-    // 通用属性夹具默认隐藏独立左栏，分类按钮测试需测量实际可见树并注册图标资产。
-    app.init_asset::<Image>();
+    // 通用属性夹具只计算布局。真实释放按钮还读取 Bevy 传播过的祖先可见性。
+    app.init_asset::<Image>()
+        .init_asset::<Mesh>()
+        .init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>()
+        .add_plugins(bevy::camera::visibility::VisibilityPlugin);
     let world = app.world_mut();
     let tree = world.query::<(Entity, &crate::ui::sidebars::SceneEditorSidebarPage)>().iter(world)
         .find(|(_, page)| page.0 == crate::ui::sidebars::EditorSidebarTab::Navigator(
@@ -262,55 +339,118 @@ fn scene_layers_fold_scroll_and_same_id_vegetation_stay_with_their_source() {
     }
     app.init_resource::<SceneContextMenuState>()
         .init_resource::<SceneLayerSelection>()
+        .init_resource::<LayerCategoryVisibility>()
         .init_resource::<resources::LayerTreeFolds>()
         .init_resource::<crate::resources::SceneEditorNumericScrubMouseGuard>()
         .init_resource::<crate::authoring::VegetationBrushStroke>()
-        .add_systems(Update, (systems::sync, systems::sync_vegetation_toggles, systems::sync_section_arrows).chain());
-    app.world_mut().spawn((Window { focused: true, ..default() }, PrimaryWindow));
+        .add_systems(Update, (systems::input, select_target_for_tests, systems::fold_sections, systems::sync,
+            systems::sync_vegetation_toggles, systems::sync_section_arrows, systems::sync_category_toggles).chain());
+    let window = app.world_mut().spawn((Window { focused: true, ..default() }, PrimaryWindow)).id();
     crate::ui::scene_inspector::tests::settle(&mut app);
-    let (list, arrow) = {
-        let world = app.world_mut();
+    let category = |world: &mut World, kind| {
         let list = world.query::<(Entity, &components::List)>().iter(world)
-            .find(|(_, list)| list.0 == types::LayerList::Vegetation).unwrap().0;
-        let arrow = world.query::<(Entity, &components::SectionArrow)>().iter(world)
-            .find(|(_, arrow)| arrow.list == types::LayerList::Vegetation).unwrap().0;
+            .find(|(_, list)| list.0 == kind).unwrap().0;
+        let button = world.query::<(Entity, &components::SectionArrow)>().iter(world)
+            .find(|(_, arrow)| arrow.list == kind).unwrap().0;
+        let header = world.get::<ChildOf>(button).unwrap().parent();
+        assert!(world.get::<components::SectionSelection>(header).is_some());
+        assert!(world.get::<SceneObjectRow>(header).is_some());
         let title = world.query::<(Entity, &components::Title)>().iter(world)
-            .find(|(_, title)| title.0 == types::LayerList::Vegetation).unwrap().0;
+            .find(|(_, title)| title.0 == kind).unwrap().0;
         let horizontal_edges = |entity| {
             let center = world.get::<UiGlobalTransform>(entity).unwrap().translation.x;
             let half_width = world.get::<ComputedNode>(entity).unwrap().size().x / 2.0;
             (center - half_width, center + half_width)
         };
-        let (_, arrow_right) = horizontal_edges(arrow);
-        let (_, header_right) = horizontal_edges(world.get::<ChildOf>(arrow).unwrap().parent());
+        let arrow = *world.get::<Children>(button).unwrap().first().unwrap();
+        let icon = section_type_icon(world, button);
+        let icon_path = world.get::<crate::components::SceneEditorTreeGlyph>(icon).unwrap().0;
+        assert_eq!(icon_path, if kind == types::LayerList::Water { "icons/editor/tree_water.png" } else { "icons/editor/tree_leaf.png" });
+        let (arrow_left, arrow_right) = horizontal_edges(arrow);
+        let (icon_left, icon_right) = horizontal_edges(icon);
+        let (button_left, button_right) = horizontal_edges(button);
         let (title_left, title_right) = horizontal_edges(title);
-        // 左边距与箭头共用新列，标题实际占满从箭头间距到本标题行右边缘的区间。
-        assert!(title_right > title_left
-            && (title_left - arrow_right - crate::ui::scene_sidebar::TREE_BRANCH_GAP).abs() <= 1.0
-            && (title_right - header_right).abs() <= 1.0,
-            "分类标题应占满箭头右侧的实际可用宽度");
+        assert!(button_left <= arrow_left && arrow_right <= icon_left && icon_right <= button_right
+            && (button_right - title_left).abs() <= 1.0 && title_right > title_left,
+            "开合命中区须连贯覆盖箭头和图标，止于正文");
+        let controls: Vec<_> = world.get::<Children>(header).unwrap().iter()
+            .filter_map(|child| world.get::<Children>(child)).flat_map(|children| children.iter())
+            .filter(|&child| world.get::<components::SectionToggle>(child).is_some()).collect();
+        assert_eq!(controls.len(), 3);
+        for control in controls {
+            let (left, right) = horizontal_edges(control);
+            assert!(right > left && left >= title_right - 1.0, "右侧三项有独立命中区");
+        }
         assert_eq!(world.get::<TextLayout>(title).unwrap().linebreak, TextLayout::no_wrap().linebreak);
-        (list, arrow)
+        (list, header, button, [arrow, icon], title)
+    };
+    let (list, vegetation_header, vegetation_button, [vegetation_arrow, vegetation_icon], vegetation_title) =
+        category(app.world_mut(), types::LayerList::Vegetation);
+    let (water_list, water_header, water_button, [water_arrow, water_icon], water_title) =
+        category(app.world_mut(), types::LayerList::Water);
+    let selected_category = |app: &App| {
+        let world = app.world();
+        let scene = &world.resource::<EditorAuthoringSession>().draft.as_ref().unwrap().scene_id;
+        world.resource::<EditorGltfBrowserState>().selected_author_category(scene)
     };
     app.world_mut().get_mut::<ScrollPosition>(list).unwrap().y = 81.0;
     let select_row = |app: &mut App, list, index| {
         let target = test_object(app.world().resource::<EditorAuthoringSession>(), list, index).unwrap().0;
         app.world_mut().resource_mut::<SceneLayerSelection>().0 = Some(target);
-        app.world_mut().run_system_once(crate::ui::scene_context_menu::select_target_for_tests).unwrap();
+        app.world_mut().run_system_once(select_target_for_tests).unwrap();
         app.update();
     };
-    let toggle_fold = |app: &mut App| {
+    let project = |world: &mut World, button, target, interaction| {
+        use feathrise_editor_ui::UiInteraction;
+        let center = |entity| world.get::<UiGlobalTransform>(entity).unwrap().translation;
+        let size = world.get::<ComputedNode>(button).unwrap().size();
+        let point = center(target);
+        let normalized = (point - center(button)) / size;
+        let cursor_over = normalized.abs().max_element() < 0.5;
+        assert!(world.get::<InheritedVisibility>(button).unwrap().get(), "分类须通过实际可见性传播");
+        world.get_mut::<Window>(window).unwrap().set_physical_cursor_position(Some(point.as_dvec2()));
+        world.entity_mut(button).insert((if cursor_over { interaction } else { UiInteraction::None },
+            bevy::ui::RelativeCursorPosition { cursor_over, normalized: Some(normalized) }));
+        cursor_over
+    };
+    let click = |app: &mut App, button, pressed_at, released_at| {
+        use feathrise_editor_ui::UiInteraction;
         let world = app.world_mut();
-        world.entity_mut(arrow).insert(feathrise_editor_ui::EditorButtonClick::triggered());
-        world.run_system_once(systems::fold_sections).unwrap();
-        world.entity_mut(arrow).insert(feathrise_editor_ui::EditorButtonClick::default());
+        assert!(project(world, button, pressed_at, UiInteraction::Pressed));
+        world.resource_mut::<ButtonInput<MouseButton>>().clear();
+        world.resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
         app.update();
+        let world = app.world_mut();
+        world.resource_mut::<ButtonInput<MouseButton>>().clear_just_pressed(MouseButton::Left);
+        world.resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+        let same_button = project(world, button, released_at, UiInteraction::Hovered);
+        app.update();
+        assert_eq!(app.world().get::<feathrise_editor_ui::EditorButtonClick>(button).unwrap().is_clicked(), same_button,
+            "仅在按下来源的实际命中范围内释放才产生点击");
     };
-    toggle_fold(&mut app);
+    click(&mut app, water_button, water_icon, water_title);
+    assert_eq!(app.world().get::<Node>(water_list).unwrap().display, Display::Flex);
+    assert_eq!(selected_category(&app), None);
+    click(&mut app, water_header, water_title, water_title);
+    assert_eq!(selected_category(&app), Some(AuthorLayerCategory::Water));
+    assert_eq!(app.world().get::<Node>(water_list).unwrap().display, Display::Flex);
+    click(&mut app, water_button, water_arrow, water_arrow);
+    assert_eq!(app.world().get::<Node>(water_list).unwrap().display, Display::None);
+    assert_eq!(selected_category(&app), Some(AuthorLayerCategory::Water));
+    click(&mut app, water_button, water_icon, water_icon);
+    assert_eq!(app.world().get::<Node>(water_list).unwrap().display, Display::Flex);
+    click(&mut app, vegetation_button, vegetation_icon, vegetation_title);
+    assert_eq!(app.world().get::<Node>(list).unwrap().display, Display::Flex);
+    assert_eq!(selected_category(&app), Some(AuthorLayerCategory::Water));
+    click(&mut app, vegetation_header, vegetation_title, vegetation_title);
+    assert_eq!(selected_category(&app), Some(AuthorLayerCategory::Vegetation));
+    assert_eq!(app.world().get::<Node>(list).unwrap().display, Display::Flex);
+    click(&mut app, vegetation_button, vegetation_icon, vegetation_icon);
     assert_eq!(app.world().get::<Node>(list).unwrap().display, Display::None);
+    assert_eq!(selected_category(&app), Some(AuthorLayerCategory::Vegetation));
     select_row(&mut app, types::LayerList::Water, 0);
     assert_eq!(app.world().get::<Node>(list).unwrap().display, Display::None);
-    toggle_fold(&mut app);
+    click(&mut app, vegetation_button, vegetation_arrow, vegetation_arrow);
     assert_eq!(app.world().get::<Node>(list).unwrap().display, Display::Flex);
     assert_eq!(app.world().get::<ScrollPosition>(list).unwrap().y, 81.0);
 

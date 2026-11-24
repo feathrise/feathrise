@@ -272,6 +272,7 @@ pub(super) fn selected_target(
     session: &EditorAuthoringSession,
 ) -> Option<WaterNetworkNumericTarget> {
     let draft = session.draft.as_ref()?; // 没有作者草稿时字段全部禁用。
+    if crate::authoring::layer_categories::edit_error(draft, false).is_some() { return None; }
     let water = draft.water.as_ref()?; // 当前场景必须有水域文档。
     let (feature_id, waterfall) = active_feature_identity(water, editor)?; // 工具必须选中河流或瀑布。
     let point = active_points(water, editor)?.get(editor.selected_water_control_point?)?; // 数组下标只在此刻解析一次。

@@ -83,6 +83,7 @@ pub(super) fn validated_creation_request(
     terrain_mode: NewSceneTerrainMode, // 点击确认时的显式地形方案。
 ) -> Result<SceneCreationRequest, String> {
     let display_name = normalize_display_name(display_name)?;
+    scene_directory_name(&display_name)?;
     let (width_meters, length_meters) = if terrain_mode == NewSceneTerrainMode::Empty {
         (1.0, 1.0) // 隐藏的旧输入即使为空或无效，也不能阻止创建只有名称和备注的容器。
     } else {
@@ -119,6 +120,27 @@ pub(super) fn normalize_display_name(raw: &str) -> Result<String, String> {
     }
     if name.chars().any(|character| character.is_control()) {
         return Err("场景名称不能包含控制字符".to_owned());
+    }
+    Ok(name.to_owned())
+}
+
+/// 保留 Unicode 名称，去除跨平台路径非法字符。# 在 Bevy 中用于子资产标签。
+pub(super) fn scene_directory_name(display_name: &str) -> Result<String, String> {
+    let cleaned: String = display_name.chars().filter(|&c| {
+        !c.is_control() && !matches!(c, '/' | '\\' | '<' | '>' | ':' | '"' | '|' | '?' | '*' | '#')
+    }).collect();
+    let name = cleaned.trim().trim_end_matches([' ', '.']);
+    if name.is_empty() {
+        return Err("场景名称清理后必须包含有效的目录字符".into());
+    }
+    // Windows 设备名即使带扩展名或编号上标仍然被保留。
+    let stem = name.split('.').next().unwrap_or_default().trim_end_matches(' ').to_ascii_uppercase();
+    if name.eq_ignore_ascii_case(".trash")
+        || matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
+        || stem.strip_prefix("COM").or_else(|| stem.strip_prefix("LPT"))
+            .is_some_and(|suffix| matches!(suffix, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"))
+    {
+        return Err(format!("场景目录名称“{name}”为系统保留名称"));
     }
     Ok(name.to_owned())
 }

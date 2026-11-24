@@ -3,37 +3,65 @@
 use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use super::{
-    components::*, resources::SceneContextMenuState, systems::{MenuContext, valid_target}, types::SceneMenuAction,
+    components::*, resources::SceneContextMenuState, systems::{MenuContext, valid_target},
+    types::{SceneMenuAction, SceneObjectTarget},
 };
-use crate::{components::SceneEditorRoot, resources::SceneEditorState, ui::theme as colors};
-use bevy::{prelude::*, ui::FocusPolicy};
+use crate::{authoring::EditorAuthoringSession, components::SceneEditorRoot, resources::SceneEditorState,
+    ui::{asset_context_menu::helpers::sized_menu_rect, menu_style::{self, PANEL_BORDER, PANEL_INSET, ROW_HEIGHT}, theme as colors}};
+use bevy::{prelude::*, ui::{FocusPolicy, RelativeCursorPosition}};
+
+const CREATION_WIDTH: f32 = 86.;
 
 fn label(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, text: &str, color: Color) {
-    parent.spawn((
+    parent.spawn(menu_style::label(
         feathrise_editor_ui::localization::editor_label(text),
-        TextFont {
-            font: font.clone().into(),
-            font_size: 11.0.into(),
-            ..default()
-        },
-        TextColor(color),
-        TextLayout::no_wrap(),
-        FocusPolicy::Pass,
+        font,
+        color,
     ));
 }
 
-fn button_node() -> Node {
+fn popup_node(creation: bool) -> Node {
     Node {
-        width: percent(100),
-        min_width: px(0),
-        height: px(26),
-        flex_shrink: 0.0,
-        padding: UiRect::horizontal(px(8)),
-        align_items: AlignItems::Center,
-        border: UiRect::all(px(1)),
-        border_radius: BorderRadius::all(px(3)),
-        ..default()
+        display: if creation { Display::None } else { Display::Flex },
+        width: px(if creation { CREATION_WIDTH } else { 184. }),
+        ..menu_style::panel()
     }
+}
+
+fn spawn_actions(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, creation: bool, arrow: &Handle<Image>) {
+    for action in SceneMenuAction::panel_actions(creation) {
+        let color = if action == SceneMenuAction::DeleteGlbFile { colors::DANGER_TEXT } else { colors::TEXT_PRIMARY };
+        let mut item = parent.spawn((MenuButton(action), menu_style::item()));
+        if creation { item.insert(NewGlbPopupItem); }
+        item.with_children(|parent| {
+            label(parent, font, "", color);
+            if action == SceneMenuAction::NewGlbContent {
+                parent.spawn(menu_style::arrow(arrow));
+            }
+        });
+    }
+}
+
+fn available_actions<'a>(
+    target: &'a SceneObjectTarget, session: &'a EditorAuthoringSession, creation: bool,
+) -> impl Iterator<Item = SceneMenuAction> + 'a {
+    SceneMenuAction::panel_actions(creation).filter(move |action|
+        action.is_creation_child(target) == creation && target.menu_has(*action, session))
+}
+
+/// 子菜单与主菜单相邻一个边框像素。窄窗口优先留给父菜单更多命中面积。
+pub(super) fn creation_submenu_rect(main: Rect, viewport: Vec2, parent_top: f32, desired: Vec2) -> Rect {
+    let right_edge = main.max.x - PANEL_BORDER;
+    let left_edge = main.min.x + PANEL_BORDER;
+    let room_right = (viewport.x - 4. - right_edge).max(0.);
+    let width = desired.x.min(viewport.x);
+    let x = if width <= room_right || (width > left_edge && room_right >= left_edge) {
+        right_edge
+    } else {
+        left_edge - width
+    };
+    // 通用定位会加上光标避让边距。这里传面板边线而非光标，抵消该偏移。
+    sized_menu_rect(Vec2::new(x, parent_top) - Vec2::splat(4.), viewport, desired)
 }
 
 pub(super) fn setup(
@@ -45,6 +73,7 @@ pub(super) fn setup(
         return;
     }
     let font = feathrise_editor_core::editor_font(&assets, crate::ui::scene::FONT_PATH);
+    let arrow = assets.load(menu_style::ARROW_ICON);
     for root in &roots {
         commands.entity(root).with_children(|parent| {
             parent
@@ -64,17 +93,7 @@ pub(super) fn setup(
                     overlay
                         .spawn((
                             Popup,
-                            Node {
-                                position_type: PositionType::Absolute,
-                                width: px(184),
-                                flex_direction: FlexDirection::Column,
-                                row_gap: px(2),
-                                padding: UiRect::all(px(4)),
-                                border: UiRect::all(px(1)),
-                                border_radius: BorderRadius::all(px(6)),
-                                overflow: Overflow::scroll_y(),
-                                ..default()
-                            },
+                            popup_node(false),
                             ScrollPosition::default(),
                             bevy::ui::RelativeCursorPosition::default(),
                             BackgroundColor(colors::PANEL_BG_STRONG),
@@ -82,18 +101,7 @@ pub(super) fn setup(
                             FocusPolicy::Block,
                         ))
                         .with_children(|popup| {
-                            for action in SceneMenuAction::ALL {
-                                let color = if action == SceneMenuAction::DeleteGlbFile { colors::DANGER_TEXT } else { colors::TEXT_PRIMARY };
-                                popup
-                                    .spawn((
-                                        InteractionButton,
-                                        MenuButton(action),
-                                        button_node(),
-                                        BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
-                                        BorderColor::all(colors::COPPER_BORDER_WEAK),
-                                    ))
-                                    .with_children(|parent| label(parent, &font, "", color));
-                            }
+                            spawn_actions(popup, &font, false, &arrow);
                             popup
                                 .spawn((
                                     RenamePanel,
@@ -149,24 +157,23 @@ pub(super) fn setup(
                                         ));
                                     rename
                                         .spawn((
-                                            InteractionButton,
                                             RenameConfirm,
-                                            button_node(),
-                                            BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
-                                            BorderColor::all(colors::COPPER_BORDER_WEAK),
+                                            menu_style::item(),
                                         ))
                                         .with_children(|parent| label(parent, &font, "确认", colors::TEXT_PRIMARY));
                                     rename
                                         .spawn((
-                                            InteractionButton,
                                             RenameCancel,
-                                            button_node(),
-                                            BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
-                                            BorderColor::all(colors::COPPER_BORDER_WEAK),
+                                            menu_style::item(),
                                         ))
                                         .with_children(|parent| label(parent, &font, "取消", colors::TEXT_PRIMARY));
                                 });
                         });
+                    // 侧面板与主面板为同级，主菜单自身的尺寸与滚动布局不会因展开变化。
+                    overlay.spawn((NewGlbPopup, popup_node(true), ZIndex(1), ScrollPosition::default(),
+                        RelativeCursorPosition::default(), BackgroundColor(colors::PANEL_BG_STRONG),
+                        BorderColor::all(colors::COPPER_BORDER_WEAK), FocusPolicy::Block))
+                        .with_children(|panel| spawn_actions(panel, &font, true, &arrow));
                 });
         });
     }
@@ -182,14 +189,15 @@ pub(super) fn sync(
         (
             Without<Backdrop>,
             Without<Popup>,
+            Without<NewGlbPopup>,
             Without<MenuButton>,
             Without<RenamePanel>,
         ),
     >,
     mut panels: Query<
-        (&mut Node, Has<Backdrop>, Option<&mut ScrollPosition>),
+        (&mut Node, Has<Backdrop>, Has<NewGlbPopup>, Option<&mut ScrollPosition>),
         (
-            Or<(With<Backdrop>, With<Popup>)>,
+            Or<(With<Backdrop>, With<Popup>, With<NewGlbPopup>)>,
             Without<MenuButton>,
             Without<RenamePanel>,
             Without<SceneObjectRow>,
@@ -205,10 +213,12 @@ pub(super) fn sync(
             &mut BorderColor,
             &Children,
             Has<bevy::ui::InteractionDisabled>,
+            Has<NewGlbPopupItem>,
         ),
         (
             Without<Backdrop>,
             Without<Popup>,
+            Without<NewGlbPopup>,
             Without<RenamePanel>,
             Without<SceneObjectRow>,
         ),
@@ -219,6 +229,7 @@ pub(super) fn sync(
             With<RenamePanel>,
             Without<Backdrop>,
             Without<Popup>,
+            Without<NewGlbPopup>,
             Without<MenuButton>,
             Without<SceneObjectRow>,
         ),
@@ -240,41 +251,52 @@ pub(super) fn sync(
     if !valid && menu.target.is_some() {
         menu.target = None;
         menu.renaming = false;
+        menu.creating = false;
         if inputs.iter().any(|entity| focus.get() == Some(entity)) {
             focus.clear();
         }
     }
+    let reset_scroll = std::mem::take(&mut menu.bypass_change_detection().reset_scroll);
     let target = menu.target.as_ref().map(|target| &target.object);
     let locale = locale.as_deref().copied().unwrap_or_default();
-    let count = target.map_or(0, |target| {
-        SceneMenuAction::ALL
-            .into_iter()
-            .filter(|action| menu.shows_action(target, *action, &context.session))
-            .count()
-    });
+    let count = target.map_or(0, |target| available_actions(target, &context.session, false).count());
     let desired = if menu.renaming {
         Vec2::new(240.0, 146.0)
     } else {
-        Vec2::new(184.0, 8.0 + count as f32 * 28.0)
+        Vec2::new(184.0, menu_style::panel_height(count))
     };
-    let viewport = context.roots.single().ok().map_or(Vec2::ZERO, |(root, _)| {
-        root.size() * root.inverse_scale_factor()
+    let (viewport, inverse_scale) = context.roots.single().ok()
+        .map_or((Vec2::ZERO, 1.), |(root, _)| (root.size() * root.inverse_scale_factor(), root.inverse_scale_factor()));
+    let main = sized_menu_rect(menu.anchor, viewport, desired);
+    let main_scroll = if reset_scroll { 0. } else {
+        panels.iter().find_map(|(_, backdrop, creation, scroll)| {
+            (!backdrop && !creation).then(|| scroll.map_or(0., |scroll| scroll.y))
+        }).unwrap_or(0.).clamp(0., (desired.y - main.height()).max(0.))
+    };
+    let creation = target.filter(|_| valid && menu.creating && !menu.renaming).and_then(|target| {
+        let row = available_actions(target, &context.session, false)
+            .position(|action| action == SceneMenuAction::NewGlbContent)?;
+        // 与 Bevy 布局一样把滚动偏移向下取整到物理像素，尺寸变化时仅调整侧面板。
+        let offset = (main_scroll / inverse_scale).floor() * inverse_scale;
+        let top = main.min.y + PANEL_INSET + row as f32 * menu_style::row_pitch() - offset;
+        let rows = available_actions(target, &context.session, true).count();
+        let height = menu_style::panel_height(rows);
+        (rows > 0 && top + ROW_HEIGHT > main.min.y && top < main.max.y)
+            .then(|| (creation_submenu_rect(main, viewport, top, Vec2::new(CREATION_WIDTH, height)), height))
     });
-    let rect =
-        crate::ui::asset_context_menu::helpers::sized_menu_rect(menu.anchor, viewport, desired);
-    for (mut node, backdrop, scroll) in &mut panels {
-        if menu.is_changed()
-            && let Some(mut scroll) = scroll
-            && scroll.0 != Vec2::ZERO
-        {
-            scroll.0 = Vec2::ZERO;
+    if menu.creating && creation.is_none() { menu.creating = false; }
+    let target = menu.target.as_ref().map(|target| &target.object);
+    for (mut node, backdrop, side, scroll) in &mut panels {
+        let rect = if side { creation.map(|(rect, _)| rect) } else { valid.then_some(main) };
+        let display = if rect.is_some() { Display::Flex } else { Display::None };
+        if node.display != display { node.display = display; }
+        if let Some(mut scroll) = scroll {
+            let y = if !valid || reset_scroll { 0. } else if side {
+                creation.map_or(0., |(rect, height)| scroll.y.clamp(0., (height - rect.height()).max(0.)))
+            } else { main_scroll };
+            if scroll.y != y { scroll.y = y; }
         }
-        if backdrop {
-            let display = if valid { Display::Flex } else { Display::None };
-            if node.display != display {
-                node.display = display;
-            }
-        } else {
+        if !backdrop && let Some(rect) = rect {
             let values = [
                 px(rect.min.x),
                 px(rect.min.y),
@@ -296,11 +318,11 @@ pub(super) fn sync(
             node.display = display;
         }
     }
-    for (entity, action, interaction, mut node, mut background, mut border, children, disabled) in
+    for (entity, action, interaction, mut node, mut background, mut border, children, disabled, side) in
         &mut items
     {
         let visible = !menu.renaming && target.is_some_and(|target| {
-            menu.shows_action(target, action.0, &context.session)
+            menu.shows_action(target, action.0, &context.session, side)
         });
         let enabled = visible && target.is_some_and(|target| target.allows(action.0));
         let display = if visible {
@@ -310,11 +332,6 @@ pub(super) fn sync(
         };
         if node.display != display {
             node.display = display;
-        }
-        let nested = target.is_some_and(|target| action.0.is_creation_child(target));
-        let left = px(if nested { 20.0 } else { 8.0 });
-        if node.padding.left != left {
-            node.padding.left = left;
         }
         if enabled && disabled {
             commands
@@ -326,28 +343,18 @@ pub(super) fn sync(
                 .entity(entity)
                 .insert(bevy::ui::InteractionDisabled);
         }
-        background.0 = if !enabled {
-            colors::INPUT_BG
+        let interaction = if menu.creating && action.0 == SceneMenuAction::NewGlbContent && *interaction == UiInteraction::None {
+            UiInteraction::Hovered
         } else {
-            match interaction {
-                UiInteraction::Pressed => colors::BUTTON_DEV_SMALL_PRESSED,
-                UiInteraction::Hovered => colors::BUTTON_DEV_SMALL_HOVERED,
-                UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
-            }
+            *interaction
         };
-        *border = BorderColor::all(if enabled && *interaction != UiInteraction::None {
-            colors::COPPER_BORDER
-        } else {
-            colors::COPPER_BORDER_WEAK
-        });
+        let (color, outline) = menu_style::item_colors(enabled, interaction);
+        background.set_if_neq(BackgroundColor(color));
+        border.set_if_neq(outline);
         for child in children {
             if let Ok(mut text) = texts.get_mut(*child) {
                 let label = target.map_or("", |target| locale.editor_label(action.0.label(target)));
-                if action.0 == SceneMenuAction::NewGlbContent && target.is_some() {
-                    let arrow = if menu.creating { "▾" } else { "▸" };
-                    let label = format!("{label} {arrow}");
-                    if text.0 != label { text.0 = label; }
-                } else if text.0 != label {
+                if text.0 != label {
                     text.0 = label.into();
                 }
             }
@@ -366,15 +373,16 @@ pub(super) fn sync(
 /// 极矮窗口只滚动菜单正文；输入被同一遮罩拥有，背景列表不能跟随滚轮移动。
 pub(super) fn scroll(
     menu: Res<SceneContextMenuState>,
-    session: Res<crate::authoring::EditorAuthoringSession>,
     mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
     mut popups: Query<
         (
             &ComputedNode,
-            &bevy::ui::RelativeCursorPosition,
+            &Node,
+            &RelativeCursorPosition,
             &mut ScrollPosition,
+            Has<NewGlbPopup>,
         ),
-        With<Popup>,
+        Or<(With<Popup>, With<NewGlbPopup>)>,
     >,
 ) {
     let (lines, pixels) =
@@ -384,28 +392,17 @@ pub(super) fn scroll(
                 bevy::input::mouse::MouseScrollUnit::Line => (lines + event.y, pixels),
                 bevy::input::mouse::MouseScrollUnit::Pixel => (lines, pixels + event.y),
             });
-    let Some(target) = menu.target.as_ref() else {
-        return;
-    };
-    let Ok((node, cursor, mut position)) = popups.single_mut() else {
-        return;
-    };
-    if !cursor.cursor_over() {
-        return;
-    }
-    let height = if menu.renaming {
-        146.0
-    } else {
-        8.0 + SceneMenuAction::ALL
-            .into_iter()
-            .filter(|action| menu.shows_action(&target.object, *action, &session))
-            .count() as f32
-            * 28.0
-    };
-    let maximum = (height - node.size().y * node.inverse_scale_factor()).max(0.0);
-    let delta = lines * 24.0 + pixels * node.inverse_scale_factor();
-    let value = (position.0.y - delta).clamp(0.0, maximum);
-    if position.0.y != value {
-        position.0.y = value;
+    if menu.target.is_none() || (lines == 0. && pixels == 0.) { return; }
+    // 极窄窗口可能需要部分重叠，滚轮优先交给位于顶层的侧面板。
+    for side in [true, false] {
+        if side && !menu.creating { continue; }
+        for (layout, node, cursor, mut position, creation) in &mut popups {
+            if creation != side || node.display == Display::None || !cursor.cursor_over() { continue; }
+            let maximum = ((layout.content_size().y - layout.size().y) * layout.inverse_scale_factor()).max(0.);
+            let delta = lines * 24. + pixels * layout.inverse_scale_factor();
+            let y = (position.y - delta).clamp(0., maximum);
+            if position.y != y { position.y = y; }
+            return;
+        }
     }
 }

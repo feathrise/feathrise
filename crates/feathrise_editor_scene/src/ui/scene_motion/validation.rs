@@ -17,7 +17,7 @@ use crate::{
     components::SceneEditorViewport,
     resources::{SceneEditorState, SceneEditorViewportState},
     standalone::{author_status, preview_ready_for, request_open_scene,
-        scene_format_validation::{action_button, tree_fold_icon, tree_row_glyph, visible_placement_row}},
+        scene_format_validation::{action_button, tree_branch_arrow, tree_icon_offset, tree_row_glyph, visible_placement_row}},
     types::{EditorAction, EditorView},
     ui::{
         file_manager_validation::pointer_click,
@@ -249,8 +249,8 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
         }
         FoldSelected => {
             if run.click.is_none() && !platform_selected(world) { return Ok(false); }
-            let icon = main_glb_fold_icon(world);
-            if click(world, run, icon)? { run.step = UnfoldSelected; }
+            let arrow = main_glb_arrow(world);
+            if click(world, run, arrow)? { run.step = UnfoldSelected; }
         }
         UnfoldSelected => {
             if run.click.is_none() {
@@ -264,8 +264,8 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
                     return Err("折叠主 GLB 后应保留立方体的当前选择".into());
                 }
             }
-            let icon = main_glb_fold_icon(world);
-            if click(world, run, icon)? { run.step = Properties; }
+            let arrow = main_glb_arrow(world);
+            if click(world, run, arrow)? { run.step = Properties; }
         }
         Properties => {
             if !platform_selected(world) { return Ok(false); }
@@ -550,9 +550,9 @@ fn main_glb_row(world: &mut World, kind: MainSceneGlbRow) -> Option<Entity> {
         .find_map(|(entity, row, node, v)| (row.main_glb.as_ref() == Some(&kind) && visible(node, v)).then_some(entity))
 }
 
-fn main_glb_fold_icon(world: &mut World) -> Option<Entity> {
+fn main_glb_arrow(world: &mut World) -> Option<Entity> {
     let row = main_glb_row(world, MainSceneGlbRow::File)?;
-    tree_fold_icon(world, row)
+    tree_branch_arrow(world, row)
 }
 
 fn platform_selected(world: &World) -> bool {
@@ -611,27 +611,29 @@ fn inspect_main_glb_tree(world: &mut World, reopened: bool) -> Result<Option<Val
         let [Some(main_y), Some(platform_y), Some(reference_y)] = ys else {
             return None;
         };
-        // 折叠控件与对象图标合用一列，直接比较渲染后的图标位置。
-        let icon_x = |row| ui_position(world, tree_row_glyph(world, row)?).map(|position| position.x);
-        let main_x = icon_x(main)?;
-        let aligned = |row| icon_x(row).map(|x| (x - main_x).abs() < 1.1);
+        // 主根与正文相差一级，正文中的立方体、动画和引用共用类型图标列。
+        let root = tree_row_glyph(world, main)?;
+        let cuboid = tree_row_glyph(world, platform)?;
+        let cuboid_indented = (tree_icon_offset(world, root, cuboid)? - 14.0).abs() < 1.1;
+        let aligned = |row| tree_icon_offset(world, cuboid, tree_row_glyph(world, row)?)
+            .map(|offset| offset.abs() < 1.1);
         let animation = if let Some(row) = animation {
             let y = ui_position(world, row)?.y;
             Some((tree_label(world, row)?, main_y < y && y < platform_y && aligned(row)?))
         } else { None };
         Some((main_y < platform_y && platform_y < reference_y,
-            aligned(platform)?, aligned(reference)?, tree_label(world, main)?, animation))
+            cuboid_indented, aligned(reference)?, tree_label(world, main)?, animation))
     };
-    let Some((ordered, cuboid_icon_aligned, reference_icon_aligned, main_label, animation)) = proof() else {
+    let Some((ordered, cuboid_indented, reference_icon_aligned, main_label, animation)) = proof() else {
         return Ok(None);
     };
-    if !(ordered && cuboid_icon_aligned && reference_icon_aligned && main_label.contains("scene.glb")
+    if !(ordered && cuboid_indented && reference_icon_aligned && main_label.contains("scene.glb")
         && animation.is_none_or(|(label, inside)| label == CLIP_NAME && inside))
     {
-        return Err(format!("主 GLB 树验证失败，顺序 {ordered}，立方体图标对齐 {cuboid_icon_aligned}，引用图标对齐 {reference_icon_aligned}，动画 {animation:?}"));
+        return Err(format!("主 GLB 树验证失败，顺序 {ordered}，立方体缩进 {cuboid_indented}，引用图标对齐 {reference_icon_aligned}，动画 {animation:?}"));
     }
     Ok(Some(json!({"main_glb":main_label,"animation":animation.map(|(label, _)| label),"root_above_meshes":ordered,
-        "cuboid_icon_aligned":cuboid_icon_aligned,"animation_icon_aligned":animation.map(|(_, inside)| inside),
+        "cuboid_indented_14_px":cuboid_indented,"animation_icon_aligned":animation.map(|(_, inside)| inside),
         "reference_icon_aligned":reference_icon_aligned})))
 }
 

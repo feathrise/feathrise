@@ -113,7 +113,7 @@ pub(super) fn tooltip_copy(action: TooltipAction, mesh_edit: bool) -> TooltipCop
             None,
         ),
         TooltipAction::SceneTreeBranch => (
-            "展开 / 收起", "点击图标切换分支，点击名称选中。", None, None,
+            "展开 / 收起", "点击箭头或图标展开或收起，点击名称选中。", None, None,
         ),
         TooltipAction::SceneTreeParticipation => (
             "参与场景", "勾选表示参与场景；点击切换。会写入场景，可撤销；锁定时需先解锁。", None, None,

@@ -17,9 +17,10 @@ pub(super) struct Snapshot {
 }
 
 impl Snapshot {
-    pub(super) fn capture(draft: &EditorSceneDraft) -> Self {
+    pub(super) fn capture(draft: &EditorSceneDraft, vegetation_visible: bool) -> Self {
         let active = draft.terrain_documents.active.as_ref();
         let valid = draft.manifest.terrains.is_none() || active.is_some();
+        let include_vegetation = valid && vegetation_visible;
         let manifest = draft.terrain_manifest();
         Self {
             terrain: active.map(|active| active.definition.id.clone()),
@@ -36,8 +37,8 @@ impl Snapshot {
             surface: valid.then(|| draft.surface.clone()).flatten(),
             indices: valid.then(|| draft.surface_indices.clone()).flatten(),
             weights: valid.then(|| draft.surface_weights.clone()).flatten(),
-            vegetation: valid.then(|| draft.vegetation.clone()).flatten(),
-            densities: if valid {
+            vegetation: include_vegetation.then(|| draft.vegetation.clone()).flatten(),
+            densities: if include_vegetation {
                 draft.vegetation_author_densities.clone()
             } else {
                 Default::default()

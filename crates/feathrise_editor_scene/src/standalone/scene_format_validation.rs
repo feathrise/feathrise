@@ -240,28 +240,30 @@ pub fn reference_row_visible(world: &mut World, parent: &SceneId, name: &str) ->
         })
 }
 
-fn tree_icon_parts(world: &World, row: Entity) -> Option<(Entity, Entity)> {
-    let button = world.get::<Children>(row)?.iter()
+pub(crate) fn tree_row_glyph(world: &World, row: Entity) -> Option<Entity> {
+    world.get::<Children>(row)?.iter()
         .filter_map(|child| world.get::<Children>(child))
         .flat_map(|children| children.iter())
-        .find(|&child| world.get::<PlacementTreeExpander>(child).is_some())?;
-    let glyph = world.get::<Children>(button)?.iter()
-        .find(|&child| world.get::<SceneEditorGltfBrowserRowGlyph>(child).is_some())?;
-    Some((button, glyph))
+        .find(|&child| world.get::<SceneEditorGltfBrowserRowGlyph>(child).is_some())
 }
 
-pub(crate) fn tree_row_glyph(world: &World, row: Entity) -> Option<Entity> {
-    tree_icon_parts(world, row).map(|(_, glyph)| glyph)
+/// 按真实图标中心比较逻辑像素，验收结果不受窗口 DPI 和界面缩放影响。
+pub(crate) fn tree_icon_offset(world: &World, parent: Entity, child: Entity) -> Option<f32> {
+    let parent_x = world.get::<UiGlobalTransform>(parent)?.translation.x;
+    let child_x = world.get::<UiGlobalTransform>(child)?.translation.x;
+    Some((child_x - parent_x) * world.get::<ComputedNode>(child)?.inverse_scale_factor())
 }
 
-/// 以类型图标的实际位置驱动原鼠标输入，确认图标位于可用的展开控件内。
-pub(crate) fn tree_fold_icon(world: &World, row: Entity) -> Option<Entity> {
-    let (button, glyph) = tree_icon_parts(world, row)?;
-    (world.get::<bevy::ui::InteractionDisabled>(button).is_none()
-        && ui_visible(world, button) && ui_visible(world, glyph)).then_some(glyph)
+/// 箭头保留独立图形，图标与箭头共用开合区域，名称用于选中。
+pub(crate) fn tree_branch_arrow(world: &World, row: Entity) -> Option<Entity> {
+    world.get::<Children>(row)?.iter().find(|&child| {
+        world.get::<PlacementTreeExpander>(child).is_some()
+            && world.get::<bevy::ui::InteractionDisabled>(child).is_none()
+            && ui_visible(world, child)
+    })
 }
 
-/// 只定位当前自有场景的已布局 GLB 展开图标，展开仍由宿主发送原窗口鼠标事件。
+/// 只定位当前自有场景的已布局 GLB 展开箭头，展开仍由宿主发送原窗口鼠标事件。
 pub fn main_glb_tree_arrow(world: &mut World, scene: &SceneId) -> Result<Option<Entity>, String> {
     require_owned(world)?;
     Ok(world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
@@ -269,7 +271,7 @@ pub fn main_glb_tree_arrow(world: &mut World, scene: &SceneId) -> Result<Option<
         if target.scene_id != *scene || !matches!(&target.key, SceneObjectKey::MainSceneGlb) || !ui_visible(world, entity) {
             return None;
         }
-        tree_fold_icon(world, entity)
+        tree_branch_arrow(world, entity)
     }))
 }
 

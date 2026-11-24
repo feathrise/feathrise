@@ -86,6 +86,8 @@ fn cross_mesh_grass_group_and_every_local_canvas_save_and_reopen_together() {
 fn blank_scene_save_and_reopen_never_writes_a_terrain_or_implicit_canvas() {
     let temporary = super::super::tests::SaveTransactionTestDirectory::new();
     let mut draft = crate::authoring::test_heightfield_draft(Arc::new(vec![0; 121]));
+    draft.folder = "scenes/空白..山谷".into(); // 名称目录中的连续点是合法字符。
+    draft.water_asset_path = format!("{}/{}", draft.folder, feathrise_scene_content::SCENE_WATER_FILE_NAME);
     draft.manifest.schema_version = SCENE_SCHEMA_VERSION;
     draft.placements.schema_version = SCENE_SCHEMA_VERSION;
     draft.portals.schema_version = SCENE_SCHEMA_VERSION;
@@ -112,6 +114,7 @@ fn blank_scene_save_and_reopen_never_writes_a_terrain_or_implicit_canvas() {
     assert_eq!(saved.terrain_count(), 0);
     assert!(saved.terrains.is_some());
     assert_eq!(saved.notes, "空图仅修改备注");
+    assert_eq!(saved.id, draft.scene_id);
     assert_eq!(std::fs::read(vegetation_path).unwrap(), vegetation_bytes, "保存容器不能改写占位植被文件或制造密度输出");
     assert!(!folder.join("vegetation").exists());
     for name in ["terrain.glb", SCENE_SURFACE_FILE_NAME, feathrise_scene_content::SCENE_WATER_FILE_NAME, SCENE_BOUNDARIES_FILE_NAME] {

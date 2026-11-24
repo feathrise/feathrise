@@ -27,6 +27,8 @@ pub(crate) struct SceneInspectorObservation {
     pub(super) multi_count: usize,
     pub(super) group: Option<String>,
     pub(super) main_glb: bool,
+    pub(super) animation: bool,
+    pub(super) author_category: Option<crate::ui::scene_layers::AuthorLayerCategory>,
     pub(super) scene_id: Option<SceneId>,
     pub(super) draft_scene_id: Option<SceneId>,
     pub(super) revision: u64,

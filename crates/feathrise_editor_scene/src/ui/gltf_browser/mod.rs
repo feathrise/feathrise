@@ -131,11 +131,11 @@ pub(crate) enum EditorGltfBrowserEntryKind {
 /// 右栏对crate其余作者功能公开的一条扁平场景树记录。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EditorGltfBrowserEntry {
-    /// 行类型决定选中目标以及类型图标能否展开。
+    /// 行类型决定选中目标以及是否显示分支箭头。
     pub(crate) kind: EditorGltfBrowserEntryKind,
     /// 已含树形前缀与必要诊断的短显示文本。
     pub(crate) display_name: String,
-    /// 可见父行深度；呈现时合并文件与直属内容的图标列。
+    /// 可见父子层级，图标和名称按此深度对齐。
     pub(crate) depth: usize,
     /// 只有网格行携带稳定选择值，实例根行为None。
     pub(crate) selection: Option<EditorGltfMeshSelection>,
@@ -435,6 +435,19 @@ impl EditorGltfBrowserState {
             && self.selected_placement_id.is_none() && self.selected_group.is_none()
     }
 
+    pub(crate) fn selected_author_category(&self, scene: &feathrise_scene_content::SceneId) -> Option<crate::ui::scene_layers::AuthorLayerCategory> {
+        match &self.selected_main_row {
+            Some((selected, MainSceneSelection::AuthorCategory(category))) if selected == scene => Some(*category),
+            _ => None,
+        }
+    }
+
+    pub(in crate::ui) fn select_author_category(
+        &mut self, scene: &feathrise_scene_content::SceneId, category: crate::ui::scene_layers::AuthorLayerCategory,
+    ) {
+        self.selected_main_row = Some((scene.clone(), MainSceneSelection::AuthorCategory(category)));
+    }
+
     /// 清除场景对象选择，不改变作者手动展开的场景树。
     pub(crate) fn clear_viewport_selection(&mut self) {
         self.selected_main_row = None;
@@ -505,6 +518,7 @@ pub(crate) enum MainSceneGlbRow {
 pub(super) enum MainSceneSelection {
     File,
     Animation, // 首次插键会改变 GLB 索引，选中的是同一条可编辑片段。
+    AuthorCategory(crate::ui::scene_layers::AuthorLayerCategory),
 }
 
 /// 固定场景树行槽及其当前绑定条目。

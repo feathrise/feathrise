@@ -118,6 +118,7 @@ pub(crate) fn sync_selected_water_viewport(
     mut commands: Commands,
     mut editor: ResMut<SceneEditorState>,
     session: Res<EditorAuthoringSession>,
+    categories: Option<Res<crate::ui::scene_layers::LayerCategoryVisibility>>,
     candidates: Option<Res<LayerCandidateState>>, // 独立测试无需初始化整个编辑器候选系统。
     preview: Res<WaterPreviewState>,
     source_context: WaterSourceContext,
@@ -154,7 +155,14 @@ pub(crate) fn sync_selected_water_viewport(
         && candidates
             .as_ref()
             .is_some_and(|state| state.hover.is_some()); // 悬停只允许修改表现缓存。
-    let Some(info) = selected_water_info(&editor, &session, &selection, candidates.as_deref())
+    let visible = session.draft.as_ref().is_some_and(|draft|
+        crate::authoring::layer_categories::preview_visible(draft, categories.as_deref(), false));
+    let Some(info) = selected_water_info(&editor, &session, &selection, candidates.as_deref()).filter(|info| {
+        visible && (info.identity.kind != WaterAuthoringFeatureKind::StillWater || session.draft.as_ref().is_some_and(|draft| {
+            let terrain = draft.terrain_documents.active.as_ref().map(|active| &active.definition.id);
+            crate::authoring::layer_categories::water_layer_visible(draft, categories.as_deref(), terrain, &info.identity.feature_id)
+        }))
+    })
     else {
         highlight.hide(&selection); // 立即移除完整水体选择表现但保留可复用实体。
         sync_badge(false, None, &mut selection, &mut badges, &mut badge_texts); // 中央徽标同步隐藏。

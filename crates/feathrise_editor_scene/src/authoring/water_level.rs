@@ -88,6 +88,11 @@ pub(crate) fn apply_water_level_requests(
         editor.water_level_from_cursor_requested = None;
         return; // F12关闭入口统一丢弃尚未进入作者域的离散请求。
     }
+    if let Some(reason) = session.draft.as_ref().and_then(|draft| super::layer_categories::edit_error(draft, false)) {
+        editor.water_level_from_cursor_requested = None;
+        reject_water_level_request(&mut editor, reason);
+        return;
+    }
     if session.saving {
         editor.water_level_from_cursor_requested = None;
         editor.status = "保存期间不能修改静水体水位".to_owned();
@@ -181,6 +186,7 @@ pub(crate) fn apply_water_level_requests(
                     request.target.scene_id, draft.scene_id
                 ));
             }
+            if let Some(reason) = super::water_canvas::layer_edit_error(draft, &request.target.layer_id) { return Err(reason.into()); }
             draft
                 .water
                 .as_mut()
@@ -230,11 +236,13 @@ pub(crate) fn begin_water_level_scrub(
         .draft
         .as_ref()
         .ok_or_else(|| "当前场景没有可编辑湖泊/池塘".to_owned())?;
+    if let Some(reason) = super::layer_categories::edit_error(draft, false) { return Err(reason.into()); }
     let layer = draft
         .water
         .as_ref()
         .and_then(|water| water.layers.get(editor.selected_water_layer))
         .ok_or_else(|| "当前场景没有可编辑湖泊/池塘".to_owned())?;
+    if let Some(reason) = super::water_canvas::layer_edit_error(draft, &layer.id) { return Err(reason.into()); }
     scrub.target = Some(WaterLevelInputTarget {
         scene_id: draft.scene_id.clone(),
         layer_id: layer.id.clone(),
@@ -303,7 +311,8 @@ pub(crate) fn apply_water_level_scrub(
 ) {
     let input_entity = inputs.single().ok(); // 控件换代期间仍推进reader，但不接受无主变化。
     let context_invalid =
-        !editor.open || editor.close_requested || editor.new_scene_dialog_open || session.saving; // 隐藏、模态或保存都是实时水位的异常中断边沿。
+        !editor.open || editor.close_requested || editor.new_scene_dialog_open || session.saving
+        || session.draft.as_ref().is_some_and(|draft| super::layer_categories::edit_error(draft, false).is_some());
     if scrub.target.is_some() && !scrub.aborted && context_invalid {
         abort_water_level_scrub(
             &mut editor,
@@ -363,6 +372,7 @@ pub(crate) fn apply_water_level_scrub(
                         target.scene_id, draft.scene_id
                     ));
                 }
+                if let Some(reason) = super::water_canvas::layer_edit_error(draft, &target.layer_id) { return Err(reason.into()); }
                 draft
                     .water
                     .as_mut()

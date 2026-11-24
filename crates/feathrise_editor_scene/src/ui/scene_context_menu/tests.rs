@@ -163,9 +163,10 @@ fn fixture() -> Fixture {
         .id();
     app.world_mut().spawn((RenameField, UiInteraction::None));
     // 无窗口布局不产生命中几何；显式给出非零尺寸和可见性，让共享捕获执行真实资格检查。
-    for action in SceneMenuAction::ALL {
+    for (side, action) in [false, true].into_iter().flat_map(|side|
+        SceneMenuAction::panel_actions(side).map(move |action| (side, action))) {
         let child = app.world_mut().spawn(Text::new("")).id();
-        app.world_mut()
+        let mut item = app.world_mut()
             .spawn((
                 InteractionButton,
                 MenuButton(action),
@@ -182,8 +183,9 @@ fn fixture() -> Fixture {
                 },
                 BackgroundColor::default(),
                 BorderColor::default(),
-            ))
-            .add_child(child);
+            ));
+        if side { item.insert(NewGlbPopupItem); }
+        item.add_child(child);
     }
     app.world_mut().spawn((
         InteractionButton,
@@ -218,7 +220,8 @@ fn fixture() -> Fixture {
         BorderColor::default(),
     ));
     app.world_mut().spawn((RenamePanel, Node::default()));
-    let popup = app.world_mut().spawn((Popup, Node::default())).id();
+    let popup = app.world_mut().spawn((Popup, Node::default(), ScrollPosition::default())).id();
+    app.world_mut().spawn((NewGlbPopup, Node::default(), ScrollPosition::default()));
     let backdrop = app.world_mut().spawn((Backdrop, Node::default())).id();
     let mut fixture = Fixture {
         app,
@@ -283,11 +286,11 @@ fn open(fixture: &mut Fixture) {
 
 fn choose(fixture: &mut Fixture, action: SceneMenuAction) {
     let world = fixture.app.world_mut();
-    for (button, mut interaction) in world
-        .query::<(&MenuButton, &mut UiInteraction)>()
+    for (button, node, mut interaction) in world
+        .query::<(&MenuButton, &Node, &mut UiInteraction)>()
         .iter_mut(world)
     {
-        *interaction = if button.0 == action {
+        *interaction = if button.0 == action && node.display != Display::None {
             UiInteraction::Pressed
         } else {
             UiInteraction::None
@@ -730,6 +733,110 @@ fn scene_menu_uses_reverse_labels_and_keeps_locked_objects_recoverable() {
             _ => {}
         }
     }
+}
+
+#[test]
+fn glb_creation_submenu_opens_on_hover_and_dispatches_with_the_frozen_row() {
+    let mut test = fixture();
+    open(&mut test);
+    {
+        let world = test.app.world_mut();
+        world.query_filtered::<&mut ComputedNode, With<SceneEditorRoot>>()
+            .single_mut(world).unwrap().size.y = 180.;
+        world.get_mut::<ScrollPosition>(test.popup).unwrap().y = 10.;
+    }
+    step(&mut test.app);
+    let popup_size = |world: &World| {
+        let node = world.get::<Node>(test.popup).unwrap();
+        [node.left, node.top, node.width, node.height]
+    };
+    let main = popup_size(test.app.world());
+    let side = {
+        let world = test.app.world_mut();
+        world.query_filtered::<Entity, With<NewGlbPopup>>().single(world).unwrap()
+    };
+    assert_eq!(test.app.world().get::<Node>(side).unwrap().display, Display::None);
+    let hover = |app: &mut App, action: Option<SceneMenuAction>| {
+        let world = app.world_mut();
+        for (button, node, mut interaction) in world
+            .query::<(&MenuButton, &Node, &mut UiInteraction)>().iter_mut(world)
+        {
+            *interaction = if Some(button.0) == action && node.display == Display::Flex {
+                UiInteraction::Hovered
+            } else { UiInteraction::None };
+        }
+        step(app);
+    };
+    hover(&mut test.app, Some(SceneMenuAction::NewGlbContent));
+    assert!(test.app.world().resource::<SceneContextMenuState>().creating);
+    let side_node = test.app.world().get::<Node>(side).unwrap();
+    assert_eq!(side_node.display, Display::Flex);
+    let (Val::Px(x), Val::Px(width), Val::Px(main_x)) = (side_node.left, side_node.width, main[0]) else { panic!() };
+    assert_eq!(x + width, main_x + 1., "靠近右边时应打开在主菜单左侧");
+    assert_eq!(popup_size(test.app.world()), main);
+    assert_eq!(test.app.world().get::<ScrollPosition>(test.popup).unwrap().y, 10.);
+    let Val::Px(initial_top) = side_node.top else { panic!() };
+
+    test.app.world_mut().get_mut::<ScrollPosition>(test.popup).unwrap().y = 30.;
+    hover(&mut test.app, None);
+    assert_eq!(test.app.world().get::<Node>(side).unwrap().display, Display::Flex);
+    assert_eq!(test.app.world().get::<Node>(side).unwrap().top, px(initial_top - 20.));
+    let target = test.app.world().resource::<SceneContextMenuState>().target.as_ref().unwrap().object.clone();
+    choose(&mut test, SceneMenuAction::NewGlbPlane);
+    test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+    step(&mut test.app);
+    step(&mut test.app);
+    let menu = test.app.world().resource::<SceneContextMenuState>();
+    let request = menu.ready.as_ref().unwrap();
+    assert_eq!(request.action, SceneMenuAction::NewGlbPlane);
+    assert_eq!(request.target, target);
+    assert_eq!(test.app.world().get::<Node>(side).unwrap().display, Display::None);
+}
+
+#[test]
+fn main_glb_shape_queue_uses_local_origin_for_cuboid_and_scene_center_for_plane() {
+    use crate::authoring::basic_shapes::BasicShapeState;
+    use bevy::ecs::system::RunSystemOnce;
+
+    let Fixture { mut app, .. } = fixture();
+    let center = Vec3::new(7.0, 18.0, -4.0);
+    app.init_resource::<BasicShapeState>()
+        .insert_resource(crate::authoring::test_support::viewport_state(center, Vec3::splat(16.0)));
+    let world = app.world_mut();
+    let main = {
+        let mut session = world.resource_mut::<EditorAuthoringSession>();
+        session.draft.as_mut().unwrap().placement_glb_hash = Some("fixture".into());
+        let mut main = target(&session);
+        main.key = SceneObjectKey::MainSceneGlb;
+        main
+    };
+    for (action, expected) in [(SceneMenuAction::NewGlbCuboid, Vec3::ZERO), (SceneMenuAction::NewGlbPlane, center)] {
+        world.resource_mut::<SceneContextMenuState>().ready = Some(SceneObjectRequest {
+            action, target: main.clone(), name: String::new(),
+        });
+        world.run_system_once(systems::queue_main_glb_shape).unwrap();
+        let mut shapes = world.resource_mut::<BasicShapeState>();
+        assert_eq!(shapes.creation_request.take().unwrap().position, Some(expected));
+        assert_eq!(shapes.creation_identity.take(), Some((main.scene_id.clone(), main.revision)));
+    }
+}
+
+#[test]
+fn glb_creation_submenu_positions_against_the_parent_and_clamps_to_the_window() {
+    let viewport = Vec2::new(500., 300.);
+    let desired = Vec2::new(104., 88.);
+    let main = Rect::from_corners(Vec2::new(8., 10.), Vec2::new(192., 300.));
+    let right = super::scene::creation_submenu_rect(main, viewport, 43., desired);
+    assert_eq!(right.min, Vec2::new(191., 43.));
+    let following_scroll = super::scene::creation_submenu_rect(main, viewport, 21., desired);
+    assert_eq!(following_scroll.min, Vec2::new(191., 21.));
+    let main = Rect::from_corners(Vec2::new(312., 20.), Vec2::new(496., 298.));
+    let left = super::scene::creation_submenu_rect(main, viewport, 260., desired);
+    assert_eq!(left.max.x, main.min.x + 1.);
+    assert_eq!(left.max.y, 296.);
+    let small = Vec2::new(80., 50.);
+    let clipped = super::scene::creation_submenu_rect(main, small, 12., desired);
+    assert_eq!(clipped, Rect::from_corners(Vec2::ZERO, small));
 }
 
 #[test]

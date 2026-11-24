@@ -256,6 +256,40 @@ fn formal_selection_routes_one_property_domain_and_does_not_follow_cached_placem
 }
 
 #[test]
+fn selecting_scene_animation_replaces_terrain_properties_and_keeps_pose_target() {
+    let (mut app, _) = page(1);
+    select(&mut app, false);
+    let scene = {
+        let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+        let draft = session.draft.as_mut().unwrap();
+        draft.placement_glb_hash = Some("测试主场景".into());
+        draft.motion.set_clip_name(Some("场景动画验收".into()));
+        draft.scene_id.clone()
+    };
+    let terrain = crate::viewport::LayerTarget::TerrainObject("mesh-a".into());
+    app.world_mut().resource_mut::<crate::viewport::LayerCandidateState>().selected = Some(terrain.clone());
+    app.update();
+    let visible_sections = |app: &mut App| {
+        let world = app.world_mut();
+        world.query::<(&InspectorSection, &Node)>().iter(world)
+            .filter_map(|(section, node)| (node.display == Display::Flex).then_some(*section)).collect::<Vec<_>>()
+    };
+    assert!(matches!(visible_sections(&mut app).as_slice(), [InspectorSection::Terrain]));
+
+    let before = author(&app);
+    app.world_mut().resource_mut::<EditorGltfBrowserState>().selected_main_row =
+        Some((scene, MainSceneSelection::Animation));
+    app.update();
+    assert!(visible_sections(&mut app).is_empty(), "动画选中时收起之前的地形和摆放属性");
+    assert_eq!(properties_display(&mut app), Display::Flex, "保留动画编辑入口所在面板");
+    assert_eq!(text(&mut app, SceneInspectorField::Name), "场景动画验收");
+    let world = app.world();
+    assert_eq!(world.resource::<crate::viewport::LayerCandidateState>().selected.as_ref(), Some(&terrain));
+    assert_eq!(world.resource::<EditorGltfBrowserState>().selected_placement_id.as_deref(), Some("instance-0"));
+    assert_eq!(author(&app), before);
+}
+
+#[test]
 fn multiple_selection_shows_management_and_hides_single_object_transform() {
     let (mut app, _) = page(2);
     select(&mut app, false);

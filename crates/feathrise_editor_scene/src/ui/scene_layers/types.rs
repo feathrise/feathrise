@@ -27,11 +27,42 @@ pub(super) enum LayerList {
     DomainObjects,
 }
 
-impl LayerList {
-    pub(super) fn label(self, domain: Option<&crate::game_authoring::scene_interaction::SceneInteractionState>) -> &'static str {
+/// 场景树的固定作者分类。分类选择不绑定任何成员的作者画布。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AuthorLayerCategory {
+    Water,
+    Vegetation,
+}
+
+impl AuthorLayerCategory {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Water => "水域",
             Self::Vegetation => "植被图层",
+        }
+    }
+
+    pub(super) fn icon(self) -> &'static str {
+        match self {
+            Self::Water => "icons/editor/tree_water.png",
+            Self::Vegetation => "icons/editor/tree_leaf.png",
+        }
+    }
+}
+
+impl LayerList {
+    pub(super) fn author_category(self) -> Option<AuthorLayerCategory> {
+        match self {
+            Self::Water => Some(AuthorLayerCategory::Water),
+            Self::Vegetation => Some(AuthorLayerCategory::Vegetation),
+            _ => None,
+        }
+    }
+
+    pub(super) fn label(self, domain: Option<&crate::game_authoring::scene_interaction::SceneInteractionState>) -> &'static str {
+        match self {
+            Self::Water => AuthorLayerCategory::Water.label(),
+            Self::Vegetation => AuthorLayerCategory::Vegetation.label(),
             Self::DomainLayers => domain.and_then(|state| state.snapshot.as_ref()).map_or("", |snapshot| snapshot.layer_label),
             Self::DomainObjects => domain.and_then(|state| state.snapshot.as_ref()).map_or("", |snapshot| snapshot.object_label),
         }

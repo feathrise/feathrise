@@ -184,7 +184,7 @@ pub(super) fn scene_asset_path(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     !path.is_empty()
         && !path.starts_with('/')
-        && !path.contains("..")
+        && path.split('/').all(|part| !matches!(part, "." | ".."))
         && !path.contains('\\')
         && (lower.ends_with(".glb") || lower.ends_with(".gltf"))
 }
@@ -831,8 +831,10 @@ mod tests {
     #[test]
     fn arbitrary_asset_selection_still_rejects_non_scene_files_for_placement() {
         assert!(scene_asset_path("gltf/树.glb"));
+        assert!(scene_asset_path("scenes/山..谷/models/树.glb"));
         assert!(!scene_asset_path("textures/树.png"));
         assert!(!scene_asset_path("../tree.glb"));
+        assert!(!scene_asset_path("scenes/山谷/../树.glb"));
     }
 
     #[test]

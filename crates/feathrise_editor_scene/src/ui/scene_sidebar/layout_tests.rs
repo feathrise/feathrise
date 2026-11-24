@@ -175,14 +175,19 @@ fn directory_rows_separate_icons_short_names_and_current_badge() {
     }
     settle(&mut app);
     let world = app.world_mut();
-    let icons = world.resource::<crate::ui::scene_sidebar::SceneBrowserTreeIcons>().clone();
-    let mut nested_left = Val::ZERO;
-    let mut folder_left = Val::ZERO;
-    let mut subfolder_left = Val::ZERO;
+    use crate::ui::scene_sidebar::{SceneBrowserTreeIcons, TREE_DISCLOSURE_ICON_SIZE, TREE_DISCLOSURE_WIDTH, TREE_INDENT};
+    let icons = world.resource::<SceneBrowserTreeIcons>().clone();
+    let root_glyph = world.query::<(Entity, &SceneEditorSceneRowGlyph)>().iter(world)
+        .find_map(|(entity, glyph)| matches!(glyph, SceneEditorSceneRowGlyph::Root).then_some(entity)).unwrap();
+    let root_left = horizontal_bounds(world, root_glyph).0;
+    let mut nested_left = f32::NAN;
+    let mut folder_left = f32::NAN;
+    let mut subfolder_left = f32::NAN;
+    let mut root_scene_left = f32::NAN;
     for (row, node, children) in world.query::<(&SceneEditorSceneRow, &Node, &Children)>().iter(world) {
         let Some(item) = &row.item else { continue };
         assert_eq!(node.border, UiRect::ZERO, "树行不能保留逐行按钮边框");
-        assert_eq!(children.len(), 3, "一枚类型图标、名称裁切槽和当前标记");
+        assert_eq!(children.len(), 4, "箭头槽、类型图标、名称裁切槽和当前标记");
         let current = children.iter().find_map(|child| world.get::<SceneEditorSceneRowCurrent>(child).and_then(|_| world.get::<Text>(child))).unwrap();
         assert_eq!(current.as_str(), if *item == scene_item("MAP-2") { "当前" } else { "" });
         let name = children.iter().find_map(|child| world.get::<SceneEditorSceneRowNameCell>(child).map(|_| child)).unwrap();
@@ -191,21 +196,42 @@ fn directory_rows_separate_icons_short_names_and_current_badge() {
         assert!(!text.contains("MAP-") && !text.contains("[目录]") && !text.contains("当前"));
         let glyph = children.iter().find(|child| matches!(world.get::<SceneEditorSceneRowGlyph>(*child), Some(SceneEditorSceneRowGlyph::Entry))).unwrap();
         let image = world.get::<ImageNode>(glyph).unwrap();
+        let (icon_left, icon_right) = horizontal_bounds(world, glyph);
+        let disclosure = children.iter().find(|child| world.get::<SceneEditorSceneRowDisclosure>(*child).is_some()).unwrap();
+        let arrow = world.get::<Children>(disclosure).unwrap().first().copied().unwrap();
+        let folder_row = matches!(item, SceneBrowserItem::Folder(_));
+        assert_eq!(world.get::<Node>(arrow).unwrap().display, if folder_row { Display::Flex } else { Display::None });
+        if folder_row {
+            let (slot_left, slot_right) = horizontal_bounds(world, disclosure);
+            let (arrow_left, arrow_right) = horizontal_bounds(world, arrow);
+            assert!((slot_right - horizontal_bounds(world, name).0).abs() <= 1.0, "开合区止于名称起点");
+            assert!(slot_right > icon_right, "包含类型图标和原文字前间隔");
+            assert!((icon_left - slot_left - TREE_DISCLOSURE_WIDTH).abs() <= 1.0);
+            let slot_size = world.get::<ComputedNode>(disclosure).unwrap().size();
+            let arrow_size = world.get::<ComputedNode>(arrow).unwrap().size();
+            assert!((slot_size.y - SCENE_BROWSER_ROW_HEIGHT).abs() <= 1.0);
+            assert!((arrow_size - Vec2::splat(TREE_DISCLOSURE_ICON_SIZE)).abs().max_element() <= 1.0);
+            assert!(arrow_left >= slot_left && arrow_right <= icon_left, "箭头继续画在类型图标前");
+            assert_eq!(world.get::<ImageNode>(arrow).unwrap().image, icons.branch[usize::from(*item == folder)]);
+        }
         if *item == folder {
-            folder_left = node.padding.left;
+            folder_left = icon_left;
             assert_eq!(image.image, icons.root);
         } else if *item == subfolder {
-            subfolder_left = node.padding.left;
+            subfolder_left = icon_left;
             assert_eq!(image.image, icons.folder);
         } else if *item == scene_item("MAP-1") {
-            nested_left = node.padding.left;
+            nested_left = icon_left;
             assert_eq!(image.image, icons.scene);
             assert!(text.contains("很长的中文场景名称"));
+        } else {
+            root_scene_left = icon_left;
         }
     }
-    assert_eq!(nested_left, folder_left, "直属场景图标与文件夹同列");
-    let (Val::Px(subfolder_left), Val::Px(folder_left)) = (subfolder_left, folder_left) else { panic!("树缩进必须使用逻辑像素") };
-    assert_eq!(subfolder_left - folder_left, 18.0);
+    assert_eq!(folder_left, root_scene_left, "一级场景和文件夹图标同列");
+    assert_eq!(nested_left, subfolder_left, "同级子场景和子文件夹图标同列");
+    assert!((folder_left - root_left - TREE_INDENT).abs() <= 1.0, "根目录至一级图标缩进一档");
+    assert!((nested_left - folder_left - TREE_INDENT).abs() <= 1.0, "文件夹至子项图标缩进一档");
     assert_eq!(world.resource::<SceneBrowserState>().selected_item, Some(scene_item("MAP-1")));
     assert_eq!(world.resource::<SceneEditorState>().selected_scene_id, Some(SceneId::parse("MAP-2").unwrap()), "目录高亮不能改变当前场景");
     app.world_mut().resource_mut::<SceneBrowserState>().expanded_folder_ids.clear();

@@ -30,6 +30,11 @@ impl FolderPicker {
         Self::spawn(owner, initial, "plugin")
     }
 
+    pub(crate) fn start_project_icon(owner: usize, initial: PathBuf) -> Result<Self, String> {
+        // 原生图标面板沿用所属窗口和可取消的辅助进程，不阻塞工作台。
+        Self::spawn(owner, initial, "project-icon")
+    }
+
     pub(crate) fn start_blender(owner: usize, initial: PathBuf) -> Result<Self, String> {
         Self::spawn(owner, initial, "blender")
     }
@@ -207,6 +212,7 @@ pub(crate) fn run_helper() -> Result<bool, String> {
     }
     let title = match kind.to_str() {
         Some("plugin") => "选择插件文件",
+        Some("project-icon") => super::PROJECT_ICON_TITLE,
         Some("blender") => "选择 Blender 程序",
         Some("directory") => "选择已有工程目录",
         Some("new") => "选择新工程的父目录",
@@ -242,6 +248,8 @@ pub(crate) fn run_helper() -> Result<bool, String> {
         dialog
             .add_filter("Feathrise 插件", &[extension])
             .pick_file()
+    } else if kind == "project-icon" {
+        dialog.add_filter(super::PROJECT_ICON_FILTER, &["png", "jpg", "jpeg"]).pick_file()
     } else if kind == "blender" {
         dialog.pick_file()
     } else {

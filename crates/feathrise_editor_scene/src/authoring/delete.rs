@@ -1,5 +1,6 @@
 //! 编辑器场景的保护校验、回收或永久删除事务与后台结果采用。
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf}; // 目录身份校验与同文件系统回收路径构造。
 use std::time::{SystemTime, UNIX_EPOCH}; // 回收目录使用稳定可读的时间后缀避免碰撞。
 
@@ -8,7 +9,7 @@ use bevy::tasks::IoTaskPool; // 目录扫描、JSON读写和文件夹移动全�
 use bevy::tasks::futures::check_ready; // 主线程只非阻塞探测单一删除任务。
 use feathrise_scene_content::{
     ActiveDynamicScene, GENERATED_SCENE_ID_PREFIX, SCENE_CATALOG_ASSET_PATH, SCENE_SCHEMA_VERSION, SceneCatalogAsset, SceneCatalogEntry,
-    ScenePortalsAsset,
+    SceneId, SceneManifestAsset, ScenePortalsAsset,
 }; // 删除严格复用正式目录、传送图和版本契约。
 use feathrise_scene_core::state::ScenePhase; // 只有安全到达HN-01后才允许移动当前场景目录。
 
@@ -28,24 +29,24 @@ const MAX_TRASH_NAME_ATTEMPTS: u32 = 10_000; // 同一毫秒回收目录碰撞�
 
 /// 从正式目录入口构造受限删除请求；专用场景和自定义宽目录在弹框出现前即被拒绝。
 pub(crate) fn scene_deletion_request(entry: &SceneCatalogEntry) -> Result<SceneDeletionRequest, String> {
-    let scene_id = entry.id.as_str(); // 稳定ID决定保护规则和唯一私有目录。
+    let scene_id = entry.id.as_str(); // 稳定 ID 决定保护规则，目录名取自正式目录项。
     if scene_id.strip_prefix(GENERATED_SCENE_ID_PREFIX).is_none_or(str::is_empty) {
         return Err(format!(
             "场景{}受保护；只允许删除由编辑器创建的 {GENERATED_SCENE_ID_PREFIX}* 场景",
             entry.id
         )); // HN-01、HN-02和其他正式场景永远不能从F12删除。
     }
-    let expected_folder = format!("scenes/{}", entry.id); // 创建器唯一允许的可删除私有目录形状。
-    if entry.folder.trim_end_matches('/') != expected_folder {
+    let folder = entry.folder.trim_end_matches('/');
+    if !folder.strip_prefix("scenes/").is_some_and(|name|
+        super::creation_input::scene_directory_name(name).is_ok_and(|clean| clean == name)) {
         return Err(format!(
-            "场景{}目录不是编辑器私有目录{}，已拒绝删除",
-            entry.id, expected_folder
-        )); // 禁止移动共享目录、别名目录或比单图更宽的路径。
+            "场景{}目录不是 scenes 下的独立子目录，已拒绝删除", entry.id
+        )); // 禁止移动上级、嵌套或内部回收目录。
     }
     Ok(SceneDeletionRequest {
         scene_id: entry.id.clone(),                 // 冻结作者确认时的稳定身份。
         display_name: entry.display_name.clone(), // 后台目录热更后仍能回显原名称。
-        folder: expected_folder,                  // 后台再次按精确路径校验而不信任可变目录文件。
+        folder: folder.to_owned(),                // 后台再次按精确路径校验而不信任可变目录文件。
     })
 }
 
@@ -77,7 +78,7 @@ fn ensure_no_incoming_portals(
     asset_root: &Path,           // 所有相对作者路径都从同一assets根解析。
     catalog: &SceneCatalogAsset,   // 使用准备改写的同一目录快照。
     target: &SceneDeletionRequest, // 查找指向当前删除目标的外部引用。
-) -> Result<(), String> {
+) -> Result<BTreeSet<SceneId>, String> {
     if catalog.scenes.len() > MAX_REFERENCE_SCAN_SCENES {
         return Err(format!(
             "场景目录共有{}项，超过删除引用检查上限{}项",
@@ -85,6 +86,7 @@ fn ensure_no_incoming_portals(
             MAX_REFERENCE_SCAN_SCENES
         )); // 不以一次删除请求启动无界文件IO。
     }
+    let mut absent = BTreeSet::new();
     for entry in catalog
         .scenes
         .iter()
@@ -100,6 +102,7 @@ fn ensure_no_incoming_portals(
                 let folder = safe_asset_path(asset_root, &entry.folder)?; // 例外仅适用于精确的编辑器私有目录。
                 match std::fs::symlink_metadata(&folder) {
                     Err(folder_error) if folder_error.kind() == std::io::ErrorKind::NotFound => {
+                        absent.insert(entry.id.clone());
                         continue; // 整个私有目录已手动删除，不可能再含有效传送图；保留其catalog入口供单独清理。
                     }
                     Err(folder_error) => {
@@ -128,7 +131,7 @@ fn ensure_no_incoming_portals(
             )); // 明确指出首个阻塞引用，禁止留下坏链接。
         }
     }
-    Ok(()) // 所有其他正式传送图均不存在入向引用。
+    Ok(absent) // 所有仍存在的正式传送图均不存在入向引用。
 }
 
 /// 共用目录事务先隔离完整文件夹；永久删除只在元数据发布和移动都成功后执行。
@@ -157,15 +160,30 @@ fn delete_scene_with_cleanup(
         .iter()
         .find(|entry| entry.id == request.scene_id)
         .ok_or_else(|| format!("场景{}已不在正式目录中", request.scene_id))?; // 外部热更删除目标时拒收旧确认。
-    let current_request = scene_deletion_request(entry)?; // 使用最新目录重新执行MAP前缀和精确文件夹保护。
+    let current_request = scene_deletion_request(entry)?; // 使用最新目录重新检查编辑器生成身份及路径。
     if current_request.folder != request.folder {
         return Err(format!(
             "场景{}目录在确认后发生变化，请重新操作",
             request.scene_id
         )); // 迟到确认不能移动新目录。
     }
-    ensure_no_incoming_portals(asset_root, &catalog, request)?; // 目录改写前完成全部跨场景引用检查。
-    let referrers = feathrise_scene_content::saved_scene_referrers(asset_root, &catalog, &request.scene_id)?;
+    // 按实际目录保护同名目录或嵌套来源，Windows 大小写差异也视作同一归属。
+    let target_folder = request.folder.to_lowercase();
+    if catalog.scenes.iter().filter(|other| other.id != entry.id).any(|other| {
+        let folder = other.folder.trim_end_matches(['/', '\\']).replace('\\', "/").to_lowercase();
+        Path::new(&folder).starts_with(&target_folder) || Path::new(&target_folder).starts_with(&folder)
+    }) {
+        return Err(format!("场景目录{}与其他场景共用，已拒绝删除", request.folder));
+    }
+    let absent = ensure_no_incoming_portals(asset_root, &catalog, request)?;
+    // 子场景引用只检查仍存在的清单，确认已手动移除的目录在正式目录中留待单独清理。
+    let filtered = (!absent.is_empty()).then(|| {
+        let mut filtered = catalog.clone();
+        filtered.scenes.retain(|scene| !absent.contains(&scene.id));
+        filtered
+    });
+    let existing = filtered.as_ref().unwrap_or(&catalog);
+    let referrers = feathrise_scene_content::saved_scene_referrers(asset_root, existing, &request.scene_id)?;
     if !referrers.is_empty() {
         return Err(format!("场景{}仍被以下场景作为子场景引用：{}；请先移除引用", request.scene_id,
             referrers.iter().map(ToString::to_string).collect::<Vec<_>>().join("、")));
@@ -175,7 +193,7 @@ fn delete_scene_with_cleanup(
     let resolved_scenes_root = scenes_root
         .canonicalize()
         .map_err(|error| format!("无法解析场景根{}：{error}", scenes_root.display()))?; // 后续比较使用真实绝对路径。
-    let source = asset_root.join(&request.folder); // 请求已经限定为`scenes/<SceneId>`。
+    let source = asset_root.join(&request.folder); // 请求已经限定为 scenes 的直接子目录。
     let source_exists = match std::fs::symlink_metadata(&source) {
         Ok(source_metadata) => {
             if !source_metadata.is_dir() || source_metadata.file_type().is_symlink() {
@@ -187,11 +205,31 @@ fn delete_scene_with_cleanup(
             let resolved_source = source
                 .canonicalize()
                 .map_err(|error| format!("无法解析场景目录{}：{error}", source.display()))?; // 解析junction等真实目标。
-            if resolved_source != resolved_scenes_root.join(request.scene_id.as_str()) {
+            if source.file_name().is_none_or(|name| resolved_source != resolved_scenes_root.join(name)) {
                 return Err(format!(
                     "场景目录{}不是scenes根的直接子目录",
                     source.display()
                 )); // 同级junction别名也不能冒充目标场景，更不能永久删除其真实来源。
+            }
+            // 真实路径也必须独占，阻止其他目录项经 junction 指到将被搬走的目录。
+            for other in existing.scenes.iter().filter(|other| other.id != entry.id) {
+                let other_folder = safe_asset_path(asset_root, &other.folder)?;
+                let resolved_other = other_folder.canonicalize()
+                    .map_err(|error| format!("解析其他场景目录{}失败：{error}", other_folder.display()))?;
+                if resolved_other.starts_with(&resolved_source) || resolved_source.starts_with(&resolved_other) {
+                    return Err(format!("场景目录{}与其他场景共用，已拒绝删除", request.folder));
+                }
+            }
+            if source.file_name().is_none_or(|name| name != request.scene_id.as_str()) {
+                // 名称目录可能与显示名不同，使用清单里的稳定 ID 确认真正的拥有者。
+                let path = safe_asset_path(asset_root, &entry.manifest_path())?;
+                let bytes = std::fs::read(&path)
+                    .map_err(|error| format!("读取场景清单{}失败：{error}", path.display()))?;
+                let manifest: SceneManifestAsset = serde_json::from_slice(&bytes)
+                    .map_err(|error| format!("解析场景清单{}失败：{error}", path.display()))?;
+                if manifest.id != request.scene_id {
+                    return Err(format!("场景目录{}的清单不属于{}，已拒绝删除", request.folder, request.scene_id));
+                }
             }
             true // 真实私有目录继续走可恢复回收流程。
         }
@@ -693,23 +731,26 @@ mod tests {
     }
 
     #[test]
-    fn only_exact_editor_private_scenes_can_form_a_deletion_request() {
+    fn only_editor_scenes_in_direct_scene_folders_can_form_a_deletion_request() {
         assert!(scene_deletion_request(&entry("HN-01", "开封城郊")).is_err()); // 正式HN场景始终受保护。
         let mut shared = entry("SCENE-shared", "共享目录");
-        shared.folder = "scenes/shared".to_owned(); // MAP前缀也不授权移动共享目录。
+        shared.folder = "scenes/shared/child".to_owned(); // 不授权移动共享目录中的一部分。
+        assert!(scene_deletion_request(&shared).is_err());
+        shared.folder = "scenes/.trash".to_owned();
         assert!(scene_deletion_request(&shared).is_err());
         let private = entry("SCENE-private", "私有场景");
         assert_eq!(
             scene_deletion_request(&private).unwrap().folder,
             "scenes/SCENE-private"
-        ); // 只有精确`scenes/<SceneId>`形状通过。
+        ); // 兼容旧的按 ID 命名目录。
     }
 
     #[test]
     fn deletion_removes_catalog_entry_and_moves_private_folder_to_trash() {
         let root = TestAssetRoot::new("success");
         let fallback = entry("HN-01", "开封城郊");
-        let target = entry("SCENE-delete", "待回收场景");
+        let mut target = entry("SCENE-delete", "后来改过的场景名");
+        target.folder = "scenes/原始场景名".to_owned();
         let catalog = SceneCatalogAsset {
             schema_version: SCENE_SCHEMA_VERSION,
             scenes: vec![fallback, target.clone()],
@@ -868,7 +909,8 @@ mod tests {
     fn missing_other_private_folder_does_not_block_deletion_or_later_cleanup() {
         let root = TestAssetRoot::new("missing-other-private-folder"); // 模拟catalog里残留已手动删掉的另一个场景。
         let fallback = entry("HN-01", "开封城郊"); // 受保护场景的有效传送图仍必须接受扫描。
-        let stale = entry("SCENE-stale", "残留场景"); // 缺失私有目录不提供任何可读取的传送图。
+        let mut stale = entry("SCENE-stale", "残留场景");
+        stale.folder = "scenes/残留场景".to_owned(); // 名称目录缺失也不阻止其他场景的引用检查。
         let target = entry("SCENE-delete", "待回收场景"); // 另一张仍有完整私有目录的场景应能回收。
         let catalog = SceneCatalogAsset {
             schema_version: SCENE_SCHEMA_VERSION, // 与正式目录使用同一版本。

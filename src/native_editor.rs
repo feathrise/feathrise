@@ -146,6 +146,7 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
     .add_plugins(crate::native_project_menu::NativeProjectMenuPlugin::new(
         project.clone(),
     ))
+    .add_plugins(crate::project_settings::ProjectSettingsPlugin::new(project.clone()))
     .add_plugins(crate::native_play::NativePlayPlugin::new(
         project.clone(),
         target.clone(),

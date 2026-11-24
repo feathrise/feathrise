@@ -10,6 +10,9 @@ pub(super) fn run(
     profile: ProjectBuildProfile, control: &BuildControl, progress: &SyncSender<String>,
 ) -> Result<ExportReceipt, String> {
     control.check()?;
+    // 活动会话可保存工程资料。此处冻结当前名称和清单，后续仍通过完整来源摘要复核。
+    let current = project.refresh_for_session()?;
+    let project = &current;
     let _ = progress.try_send(format!("正在构建{}工程…", profile.label()));
     // 共享原构建单飞门、Cargo 配置与缓存；交付版本由导出专用链接策略构建。
     let before = crate::code_iteration::export_source_identity(project, target, control)?;

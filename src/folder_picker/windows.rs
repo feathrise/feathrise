@@ -40,6 +40,15 @@ impl FolderPicker {
     pub fn start_plugin(owner: usize, initial: PathBuf) -> Result<Self, String> {
         Self::start_named(owner, initial, "选择插件文件", "选择插件", Some(("Feathrise 插件 (*.dll)", "*.dll")))
     }
+    pub(crate) fn start_project_icon(owner: usize, initial: PathBuf) -> Result<Self, String> {
+        // 内嵌工作台也以顶层窗口为所有者，关闭设置页时取消器可以找到同一个对话框。
+        let owner = unsafe { GetAncestor(owner as NativeHwnd, GA_ROOT) };
+        if owner.is_null() {
+            return Err("窗口尚未准备好 / Project window is not ready".into());
+        }
+        Self::start_named(owner as usize, initial, super::PROJECT_ICON_TITLE, "选择 / Select",
+            Some((super::PROJECT_ICON_FILTER, "*.png;*.jpg;*.jpeg")))
+    }
     pub(crate) fn start_blender(owner: usize, initial: PathBuf) -> Result<Self, String> {
         // 内嵌作者窗的系统对话框归顶层窗口，取消器也使用同一原生所有者。
         let owner = unsafe { GetAncestor(owner as NativeHwnd, GA_ROOT) };

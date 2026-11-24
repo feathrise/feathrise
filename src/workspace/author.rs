@@ -2,6 +2,7 @@
 use super::types::{AuthorEvent, HostEvent};
 use crate::{workspace_transport::Transport, workspace_ui::*};
 use crate::native_project_close::{CloseTarget, NativeProjectCloseState};
+use crate::project_settings::{OpenProjectSettings, ProjectSettingsSaved};
 use bevy::{
     ecs::message::MessageCursor,
     prelude::*,
@@ -87,16 +88,16 @@ fn receive(world: &mut World) {
         };
         match event {
             HostEvent::Model(mut model) => {
-                // 父方只能更新本实例的管理状态，绝不重定向不可变工程路径。
-                let current = world
-                    .resource::<WorkspaceModel>()
-                    .project
-                    .as_ref()
-                    .map(|p| p.root.clone());
-                if model.project.as_ref().map(|p| p.root.clone()) != current {
+                let current = world.resource::<WorkspaceModel>();
+                if model.project.as_ref().map(|project| &project.root)
+                    != current.project.as_ref().map(|project| &project.root)
+                {
                     continue;
                 }
-                model.revision = world.resource::<WorkspaceModel>().revision.wrapping_add(1);
+                // 本实例持有同一工程的最新保存名，父窗口尚未收到回执时不能覆盖它。
+                model.project.clone_from(&current.project);
+                sync_recent_name(&mut model);
+                model.revision = current.revision.wrapping_add(1);
                 world.insert_resource(model);
             }
             HostEvent::FillPath { field, value } => fill_path(world, field, value),
@@ -130,7 +131,42 @@ fn request_close(world: &mut World, target: CloseTarget) {
     }
 }
 
-fn send(world: &mut World, mut cursor: Local<MessageCursor<WorkspaceCommand>>) {
+fn sync_recent_name(model: &mut WorkspaceModel) {
+    if let Some(project) = &model.project
+        && let Some(recent) = model.recent.iter_mut().find(|recent| recent.path == project.root)
+    {
+        recent.name.clone_from(&project.name);
+    }
+}
+
+fn send(
+    world: &mut World,
+    mut cursor: Local<MessageCursor<WorkspaceCommand>>,
+    mut saved: Local<MessageCursor<ProjectSettingsSaved>>,
+    mut pending_name: Local<Option<AuthorEvent>>,
+) {
+    let model = world.resource::<WorkspaceModel>();
+    if let Some(project) = saved.read(world.resource::<Messages<ProjectSettingsSaved>>())
+        .map(|saved| &saved.project)
+        .filter(|saved| model.project.as_ref().is_some_and(|project| project.root == saved.root))
+        .last()
+        && model.project.as_ref().is_some_and(|active| active.name != project.name)
+    {
+        let (id, root, name) = (project.id.clone(), project.root.clone(), project.name.clone());
+        let mut model = world.resource_mut::<WorkspaceModel>();
+        if let Some(active) = &mut model.project {
+            active.name.clone_from(&name);
+        }
+        sync_recent_name(&mut model);
+        model.revision = model.revision.wrapping_add(1);
+        *pending_name = Some(AuthorEvent::ProjectSettingsSaved { id, root, name });
+    }
+    let bridge = world.non_send::<Bridge>();
+    if !bridge.candidate && let Some(event) = pending_name.as_ref()
+        && bridge.transport.try_send(event.clone()).is_ok()
+    {
+        *pending_name = None; // 队列短时间满载时保留最新回执，下一帧重新发送。
+    }
     let commands: Vec<_> = cursor
         .read(world.resource::<Messages<WorkspaceCommand>>())
         .take(4)
@@ -139,6 +175,12 @@ fn send(world: &mut World, mut cursor: Local<MessageCursor<WorkspaceCommand>>) {
     for command in commands {
         if matches!(command, WorkspaceCommand::SetStartupScene) {
             crate::native_project_menu::save_startup_from_workspace(world);
+            continue;
+        }
+        if matches!(command, WorkspaceCommand::OpenProjectSettings) {
+            if !world.non_send::<Bridge>().candidate {
+                world.write_message(OpenProjectSettings);
+            }
             continue;
         }
         if matches!(command, WorkspaceCommand::ExportProject) {

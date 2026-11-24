@@ -19,6 +19,7 @@ use bevy::{
     winit::{UpdateMode, WinitSettings},
 };
 use std::{
+    collections::BTreeMap,
     path::PathBuf,
     time::{Duration, Instant},
 };
@@ -193,6 +194,7 @@ pub(super) fn advance(
     world: &mut World,
     mut commands: Local<MessageCursor<WorkspaceCommand>>,
     mut close: Local<MessageCursor<WindowCloseRequested>>,
+    mut recent_names: Local<BTreeMap<PathBuf, String>>,
 ) {
     let mut windows = world.query_filtered::<(&RawHandleWrapper, Entity), With<PrimaryWindow>>();
     let Ok((raw, window)) = windows.single(world) else {
@@ -282,6 +284,17 @@ pub(super) fn advance(
             AuthorEvent::Command(command) if !candidate => {
                 handle(&mut host, world, parent, Some(pid), command)
             }
+            AuthorEvent::ProjectSettingsSaved { id, root, name } if !candidate => {
+                // 只接收当前采用进程的正式工程回执，退役作者或隐藏候选不能覆盖标题与最近记录。
+                if let Some(current) = host.current.as_mut().filter(|current| {
+                    current.child.id() == pid && current.project.id == id && current.project.root == root
+                }) && current.project.name != name {
+                    current.project.name.clone_from(&name);
+                    current.project.context.name.clone_from(&name);
+                    recent_names.insert(root, name);
+                    host.changed = true;
+                }
+            }
             event @ (AuthorEvent::CloseCancelled | AuthorEvent::CloseCancelledFor { .. }) if !candidate => {
                 let target = event.cancelled_target().expect("取消回执必须具有关闭目标");
                 if accepts_close_cancel(host.current.as_ref().map(|current| current.child.id()), pid,
@@ -298,6 +311,20 @@ pub(super) fn advance(
         }
     }
     poll_jobs(&mut host);
+    if host.preferences_job.is_none() && !recent_names.is_empty() {
+        // 与默认目录、固定记录共用原保存槽，避免两个个人配置事务互相覆盖。
+        let mut changed = false;
+        for (root, name) in std::mem::take(&mut *recent_names) {
+            match host.preferences.rename_recent(&root, &name) {
+                Ok(renamed) => changed |= renamed,
+                Err(error) => host.notice(error),
+            }
+        }
+        if changed {
+            host.preferences_job = Some(process::save_preferences(host.preferences.clone()));
+            host.changed = true;
+        }
+    }
     poll_prepared(&mut host, world, parent);
     #[cfg(unix)]
     poll_surfaces(&mut host, world);
@@ -332,8 +359,8 @@ fn handle(
     origin: Option<u32>,
     command: WorkspaceCommand,
 ) {
-    // 启动场景与导出由当前作者持有；全局插件入口仍须由无工程主宿主消费。
-    if matches!(command, WorkspaceCommand::SetStartupScene | WorkspaceCommand::ExportProject) {
+    // 当前工程设置、启动场景与导出由作者实例持有；无工程主宿主只消费全局插件入口。
+    if matches!(command, WorkspaceCommand::SetStartupScene | WorkspaceCommand::OpenProjectSettings | WorkspaceCommand::ExportProject) {
         return;
     }
     if matches!(command, WorkspaceCommand::QuitApp) {
@@ -427,6 +454,7 @@ fn handle(
             }
         }
         WorkspaceCommand::SetStartupScene
+        | WorkspaceCommand::OpenProjectSettings
         | WorkspaceCommand::ExportProject
         | WorkspaceCommand::OpenPlugins
         | WorkspaceCommand::CancelOperation

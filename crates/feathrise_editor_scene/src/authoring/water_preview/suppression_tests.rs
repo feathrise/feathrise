@@ -103,6 +103,49 @@ fn empty_glb_preview_replaces_legacy_root_and_its_later_formal_hot_reload() {
 }
 
 #[test]
+fn water_category_hides_and_restores_installed_glb_preview_without_regeneration() {
+    use crate::authoring::layer_categories;
+    use feathrise_scene_content::{SceneContentHandles, SceneContentRegistry, SceneManifestAsset};
+
+    let (mut app, map) = glb_fixture();
+    if !layer_categories::supported(app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap()) {
+        return; // 公开锁定的旧 SDK 没有分类可写状态。
+    }
+    let mut saved = crate::authoring::test_heightfield_draft(Arc::new(vec![0; 121]));
+    app.init_resource::<Assets<SceneManifestAsset>>();
+    let handle = app.world_mut().resource_mut::<Assets<SceneManifestAsset>>().add(saved.manifest.clone());
+    app.insert_resource(SceneContentRegistry {
+        scenes: [(map.clone(), SceneContentHandles {
+            manifest: handle.clone(), portals: default(), placements: default(),
+            characters_path: None, surface: None, vegetation: None, water: None, boundaries: None,
+        })].into(), ..default()
+    });
+    app.update(); // 先采用现有来源，后续分类显隐不应变更采用身份。
+    let author = app.world_mut().spawn((EditorWaterPreview,
+        surface(&map, PaintedWaterPurpose::EditorPreview), Visibility::Inherited)).id();
+    app.world_mut().resource_mut::<WaterPreviewState>().spawns.push(PaintedWaterSurfaceSpawn {
+        entity: author, mesh: default(), material: default(), additional_meshes: Vec::new(), additional_entities: Vec::new(),
+    });
+    // 游戏读取自己的已加载清单，关闭再打开应当恢复仍在草稿中的关闭状态。
+    for (open, enabled, visibility) in [(true, false, Visibility::Hidden), (false, false, Visibility::Inherited),
+        (true, false, Visibility::Hidden), (true, true, Visibility::Inherited)] {
+        app.world_mut().resource_mut::<SceneEditorState>().open = open;
+        let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+        layer_categories::set_state(session.draft.as_mut().unwrap(), false, (enabled, false)).unwrap();
+        app.update();
+        assert_eq!(app.world().get::<Visibility>(author), Some(&visibility));
+        let preview = app.world().resource::<WaterPreviewState>();
+        assert!(preview.ready_for(&map, 8, 0));
+        assert_eq!(preview.spawns[0].entity, author);
+    }
+    layer_categories::set_state(&mut saved, false, (false, false)).unwrap();
+    app.world_mut().resource_mut::<Assets<SceneManifestAsset>>().insert(handle.id(), saved.manifest).unwrap();
+    app.world_mut().resource_mut::<SceneEditorState>().open = false;
+    app.update();
+    assert_eq!(app.world().get::<Visibility>(author), Some(&Visibility::Hidden), "游戏清单关闭时草稿的启用不能显示水面");
+}
+
+#[test]
 fn leaving_glb_source_restores_formal_visibility_and_retires_author_preview() {
     for destination in [SceneTerrainKind::Empty, SceneTerrainKind::SparseClipmap, SceneTerrainKind::Gltf] {
         let (mut app, map) = glb_fixture();

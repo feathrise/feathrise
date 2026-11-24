@@ -391,9 +391,8 @@ mod tests {
     use bevy::asset::AssetPlugin; // 提供真实Assets存储与AssetServer基础资源。
     use bevy::state::app::StatesPlugin; // 最小测试应用显式安装真实状态迁移调度。
     use feathrise_scene_content::{
-        SCENE_SCHEMA_VERSION, SceneCatalogAsset, SceneContentHandles, ScenePlacementsAsset,
-        ScenePortalsAsset, SceneSurfaceAsset, SceneTerrainDescriptor, SceneTerrainKind, SceneVegetationAsset,
-        SceneWaterAsset,
+        SceneCatalogAsset, SceneContentHandles, ScenePlacementsAsset, ScenePortalsAsset,
+        SceneSurfaceAsset, SceneVegetationAsset, SceneWaterAsset,
     }; // 集成测试使用真实公共资产类型而不是伪造旁路状态。
 
     use super::*; // 纯函数测试锁定共享动态场景的SceneId语义。
@@ -463,45 +462,19 @@ mod tests {
             .init_resource::<PortalDestination>() // 提供统一玩家出生点。
             .init_asset::<SceneManifestAsset>() // 提供清单句柄到资产的正式查询路径。
             .add_systems(Update, drive_pending_scene_transition); // 运行与产品完全相同的切换场景驱动。
+        let mut saved_manifest = crate::authoring::test_support::test_gltf_scene_manifest(
+            &scene_id, "新建场景", "scenes/MAP-created/terrain/terrain.glb",
+        );
+        saved_manifest.world_min = [-512.0, -512.0];
+        saved_manifest.world_max = [512.0, 512.0];
+        saved_manifest.default_spawn = [0.0, 2.0, 0.0];
+        saved_manifest.terrain.resolution = [129, 129];
+        saved_manifest.terrain.base_height = -80.0;
+        saved_manifest.terrain.height_scale = 160.0;
         let manifest = app
             .world_mut()
             .resource_mut::<Assets<SceneManifestAsset>>()
-            .add(SceneManifestAsset {
-                vegetation_paint_groups: Default::default(),
-                terrains: None,
-                subscenes: Default::default(),
-                schema_version: SCENE_SCHEMA_VERSION,  // 使用当前公共数据版本。
-                id: scene_id.clone(),                  // 清单身份必须与待进入请求一致。
-                display_name: "新建场景".to_owned(), // 状态栏使用作者显示名称。
-                notes: String::new(),                // 进入场景测试不依赖可选备注。
-                runtime_scene: feathrise_scene_content::SceneRuntimeKind::DataDriven.as_str().to_owned(), // 新建场景使用公共名称。
-                world_min: [-512.0, -512.0],         // 提供合法一公里场景范围。
-                world_max: [512.0, 512.0],           // 提供合法一公里场景范围。
-                default_spawn: [0.0, 2.0, 0.0],      // 玩家在白模地形上方安全出生。
-                environment: default(),              // 缺省环境不增加天空盒加载前置条件。
-                puddles: None, // 新图及旧图夹具默认没有积水，首次有效落笔才创建。
-                terrain: SceneTerrainDescriptor {
-                    resolved_stitches:Default::default(),
-                    collision_lods: Vec::new(),         // GLB测试不消费稀疏碰撞配置。
-                    display_lods: None,                 // GLB测试不消费SparseClipmap显示LOD。
-                    kind: SceneTerrainKind::Gltf,  // 新建场景使用可编辑高度场。
-                    collision_mode: Default::default(), // 旧GLB路线不读取Clipmap碰撞选择。
-                    player_collision_preload_radius_meters:
-                        feathrise_scene_content::DEFAULT_PLAYER_COLLISION_PRELOAD_RADIUS_METERS, // GLB占位值不参与物理。
-                    role_collision_preload_radius_meters: None, // GLB不登记稀疏粗级碰撞参数。
-                    player_collision_chunk_cells: None,
-                    role_collision_chunk_cells: None,
-                    player_collision_span_meters: None, // GLB过渡不读取联动设置。
-                    role_collision_span_meters: None,   // GLB过渡不读取联动设置。
-                    glb_path: "scenes/MAP-created/terrain/terrain.glb".to_owned(), // 保持私有白模路径。
-                    height_path: None,         // 动态场景CPU高度由GLB派生。
-                    height_texture_path: None, // GPU高度Image同样只存在于内存。
-                    resolution: [129, 129],    // 默认一公里场景的受检高度点数量。
-                    base_height: -80.0,        // 与创建器默认编码范围一致。
-                    height_scale: 160.0,       // 与创建器默认编码范围一致。
-                },
-                asset_roots: Vec::new(), // 切换场景事务不依赖资产浏览根。
-            });
+            .add(saved_manifest);
         let mut scenes = BTreeMap::new(); // 注册表按稳定SceneId保存正式私有句柄。
         scenes.insert(
             scene_id.clone(), // 刚创建场景成为唯一可进入条目。

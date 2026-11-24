@@ -39,10 +39,26 @@ pub(crate) fn queue_blender_action_for_validation(world: &mut World, id: &str) -
 
 #[cfg(feature = "validation")]
 pub(crate) fn visible_action_for_validation(world: &mut World, action: SceneMenuAction) -> Option<Entity> {
-    let button = world.query::<(Entity, &components::MenuButton, &ComputedNode)>().iter(world)
-        .find_map(|(entity, button, layout)| (button.0 == action && !layout.is_empty()).then_some(entity))?;
+    let buttons: Vec<_> = world.query::<(Entity, &components::MenuButton, &ComputedNode)>().iter(world)
+        .filter_map(|(entity, button, layout)| (button.0 == action && !layout.is_empty()).then_some(entity)).collect();
     let mut nodes = world.query::<(&Node, Option<&ChildOf>)>();
-    crate::viewport::modes::controls_visible(button, &nodes.query(world)).then_some(button)
+    let nodes = nodes.query(world);
+    buttons.into_iter().find(|&button| crate::viewport::modes::controls_visible(button, &nodes))
+}
+
+/// 验收读取生产菜单面板实体及实际布局。主菜单在打开侧面板前也能测量。
+#[cfg(feature = "validation")]
+pub(crate) fn scene_menu_panels_for_validation(world: &mut World) -> Option<(Entity, Option<Entity>)> {
+    use components::{NewGlbPopup, Popup};
+    let panels: Vec<_> = world.query_filtered::<(Entity, Has<NewGlbPopup>, &ComputedNode),
+        Or<(With<Popup>, With<NewGlbPopup>)>>().iter(world)
+        .filter_map(|(entity, side, layout)| (!layout.is_empty()).then_some((entity, side))).collect();
+    let mut nodes = world.query::<(&Node, Option<&ChildOf>)>();
+    let nodes = nodes.query(world);
+    let visible = |side| panels.iter().find_map(|&(entity, is_side)| {
+        (side == is_side && crate::viewport::modes::controls_visible(entity, &nodes)).then_some(entity)
+    });
+    Some((visible(false)?, visible(true)))
 }
 
 #[cfg(feature = "validation")]
