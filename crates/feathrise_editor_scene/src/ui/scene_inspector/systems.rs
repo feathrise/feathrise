@@ -182,7 +182,8 @@ pub(crate) fn sync_scene_inspector(
             (
                 format!("{}\n{}", locale.text("label.main-scene-glb"), draft.placements_path()),
                 format!("{}  GLB\n{}  {}\n{}  {}", locale.text("label.type"), locale.text("label.scene"),
-                    draft.manifest.display_name, locale.text("project.filter.animations"), draft.motion.clip_names().len()),
+                    draft.manifest.display_name, locale.text("project.filter.animations"),
+                    draft.motion.clip_count() + draft.motion.foreign_clip_count()),
                 String::new(),
             )
         } else if let Some(record) = record {

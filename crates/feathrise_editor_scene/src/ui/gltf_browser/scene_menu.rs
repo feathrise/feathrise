@@ -17,13 +17,14 @@ pub(crate) fn bind_scene_menu_rows(
     let draft = session.draft.as_ref();
     for (entity, row, previous) in &rows {
         let target = (|| {
-            if let Some(main_row) = row.main_glb {
+            if let Some(main_row) = &row.main_glb {
                 let draft = super::systems::main_glb_draft(&editor, &session)?;
-                // 动画行只绑定工作台能编辑的片段，使用 GLB 索引区分重名片段。
+                // 菜单只接受可编辑片段的稳定 ID，滚动换绑或改名不会把请求交给相邻片段。
                 let (key, name) = match main_row {
-                    MainSceneGlbRow::Animation(index) if draft.motion.editable_clip_index() == index => (
-                        SceneObjectKey::MainSceneAnimation(index), draft.motion.clip_name()?,
-                    ),
+                    MainSceneGlbRow::Animation { index, id } => {
+                        let (_, name) = draft.motion.clip_at(*index).filter(|(current, _)| *current == id)?;
+                        (SceneObjectKey::MainSceneAnimation(id.clone()), name)
+                    }
                     _ => return None,
                 };
                 return Some(SceneObjectTarget {
@@ -33,7 +34,7 @@ pub(crate) fn bind_scene_menu_rows(
                     name: name.into(),
                     hidden: false,
                     locked: false,
-                    copyable: false,
+                    copyable: true,
                 });
             }
             if browser.signature_build.is_some() || browser.entries_build.is_some() {

@@ -187,7 +187,7 @@ pub(crate) fn sync(
     for (entity, parent, children, mut expander, click, interaction, disabled, mut fill, mut visibility) in &mut expanders {
         let Ok(row) = rows.get(parent.parent()) else { continue; };
         let entry = row.entry_index.and_then(|index| browser.entries.get(index));
-        let (collapsed, target) = match (row.main_glb, entry.map(|entry| &entry.kind)) {
+        let (collapsed, target) = match (row.main_glb.as_ref(), entry.map(|entry| &entry.kind)) {
             (Some(MainSceneGlbRow::File), _) => (
                 main_glb.map(|draft| browser.collapsed_main_glb.as_ref() == Some(&draft.scene_id)),
                 main_glb.map(|_| BranchTarget::MainGlb),

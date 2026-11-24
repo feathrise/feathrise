@@ -40,8 +40,28 @@ pub fn copy(
 }
 
 pub(super) fn build(document: &AnimationDocument, command: Command) -> Result<Edit, String> {
+    let clip_position = |id| document.clips.binary_search_by_key(&id, |clip| clip.source_index)
+        .map_err(|_| "动画片段已改变，请重新选择".to_owned());
     let clip = match &command {
         Command::CreateClip => return document.create_clip().map(|clip| Edit::AppendClip(Arc::new(clip))),
+        Command::RenameClip { id, name } => {
+            let clip = clip_position(*id)?;
+            let before = document.clips[clip].name.clone();
+            let after = document.renamed_clip_name(*id, name)?;
+            if before == after {
+                return Err("动画名称没有改变".into());
+            }
+            return Ok(Edit::RenameClip { clip, id: *id, before, after });
+        }
+        Command::DuplicateClip { id } => {
+            let snapshot = document.duplicate_clip(clip_position(*id)?)?;
+            return Ok(Edit::ClipSlot { position: document.clips.len(), snapshot, insert_forward: true });
+        }
+        Command::DeleteClip { id } => {
+            let position = clip_position(*id)?;
+            let snapshot = document.snapshot_clip(position)?;
+            return Ok(Edit::ClipSlot { position, snapshot, insert_forward: false });
+        }
         Command::Copy { clip, .. }
         | Command::Move { clip, .. }
         | Command::Delete { clip, .. }

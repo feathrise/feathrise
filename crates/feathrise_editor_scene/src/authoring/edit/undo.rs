@@ -512,30 +512,29 @@ pub(crate) fn apply_undo_redo(
                         }
                     }
                 }
-                EditorCommand::SceneMotionChanged { placement_id, before, after } => {
+                EditorCommand::SceneMotionChanged { clip_id, placement_id, before, after } => {
                     let (expected, replacement) = if undoing { (after, before) } else { (before, after) };
-                    if draft.motion.get(placement_id) != expected.as_ref() {
+                    if draft.motion.clip_name_for(clip_id).is_none() || draft.motion.get_for(clip_id, placement_id) != expected.as_ref() {
                         return Err("场景动画已变化，无法应用这笔历史".into());
                     }
-                    draft.motion.replace(placement_id, replacement.clone());
+                    draft.motion.replace_for(clip_id, placement_id, replacement.clone())?;
                 }
-                EditorCommand::SceneMotionTimingChanged { before, after } => {
+                EditorCommand::SceneMotionTimingChanged { clip_id, before, after } => {
                     let (expected, replacement) = if undoing { (after, before) } else { (before, after) };
-                    if draft.motion.timing() != *expected {
+                    if draft.motion.timing_for(clip_id) != Some(*expected) {
                         return Err("场景动画的播放设置已变化，无法应用这笔历史".into());
                     }
-                    draft.motion.set_timing(*replacement);
+                    draft.motion.set_timing_for(clip_id, *replacement)?;
                 }
-                EditorCommand::SceneMotionNameChanged { before, after } => {
+                EditorCommand::SceneMotionNameChanged { clip_id, before, after } => {
                     let (expected, replacement) = if undoing { (after, before) } else { (before, after) };
-                    if draft.motion.clip_name() != expected.as_deref() {
+                    if draft.motion.clip_name_for(clip_id) != Some(expected.as_str()) {
                         return Err("场景动画名称已变化，无法应用这笔历史".into());
                     }
-                    draft.motion.set_clip_name(replacement.clone());
+                    draft.motion.rename(clip_id, replacement)?;
                 }
-                EditorCommand::SceneMotionClipRemoved(removed) => {
-                    if undoing { draft.motion.undo_clip_removal(removed)?; }
-                    else { draft.motion.redo_clip_removal(removed)?; }
+                EditorCommand::SceneMotionClipChanged(change) => {
+                    draft.motion.apply_clip_history(change, undoing)?;
                 }
                 EditorCommand::SourceGlbsChanged { before, after, .. } => {
                     let (expected, replacement) = if undoing { (after, before) } else { (before, after) };

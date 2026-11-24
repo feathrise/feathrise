@@ -435,6 +435,13 @@ impl EditorGltfBrowserState {
             && self.selected_placement_id.is_none() && self.selected_group.is_none()
     }
 
+    pub(super) fn selected_scene_animation(&self, scene: &feathrise_scene_content::SceneId) -> Option<&str> {
+        match &self.selected_main_row {
+            Some((selected, MainSceneSelection::Animation(id))) if selected == scene => Some(id),
+            _ => None,
+        }
+    }
+
     pub(crate) fn selected_author_category(&self, scene: &feathrise_scene_content::SceneId) -> Option<crate::ui::scene_layers::AuthorLayerCategory> {
         match &self.selected_main_row {
             Some((selected, MainSceneSelection::AuthorCategory(category))) if selected == scene => Some(*category),
@@ -507,17 +514,18 @@ pub(crate) struct SceneEditorGltfBrowserListContent;
 pub(crate) struct SceneEditorGltfBrowserStatusText;
 
 /// 主 GLB 位于固定根行，动画子行复用网格列表的行池。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MainSceneGlbRow {
     File,
-    Animation(Option<usize>), // None 是无标准动画通道的命名草稿，避免把草稿当成已保存的片段索引。
+    Animation { index: usize, id: String }, // 索引用于读取可见槽，操作身份由稳定 ID 冻结。
+    ReadOnlyAnimation(usize), // 原 GLB 保留的片段，仅按源列表索引展示。
     Empty,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(super) enum MainSceneSelection {
     File,
-    Animation, // 首次插键会改变 GLB 索引，选中的是同一条可编辑片段。
+    Animation(String),
     AuthorCategory(crate::ui::scene_layers::AuthorLayerCategory),
 }
 

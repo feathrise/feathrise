@@ -22,8 +22,20 @@ pub struct PoseInputState {
 /// 历史只保存被编辑的关键帧，避免每次修改都保留整个动作文件。
 #[derive(Clone)]
 pub enum Edit {
-    /// 本会话追加的完整片段参与同一撤销历史，原 GLB 已有片段的索引保持不变。
+    /// 本会话新建的片段仍有独立稳定身份。
     AppendClip(Arc<Clip>),
+    RenameClip {
+        clip: usize,
+        id: usize,
+        before: String,
+        after: String,
+    },
+    /// 复制和删除共用一个可逆的片段槽位变更。
+    ClipSlot {
+        position: usize,
+        snapshot: ClipSnapshot,
+        insert_forward: bool,
+    },
     /// 批量编辑在后台构造，每条受影响曲线保存修改前后值；主线程仅移动共享所有权。
     Channels {
         clip: usize,
@@ -50,6 +62,8 @@ impl Edit {
     pub fn target(&self) -> (usize, usize) {
         match self {
             Self::AppendClip(clip) => (clip.source_index, 0),
+            Self::RenameClip { clip, .. } => (*clip, 0),
+            Self::ClipSlot { position, .. } => (*position, 0),
             Self::Channels { clip, values, appended: _, first_appended } => {
                 (*clip, values.first().map_or(*first_appended, |v| v.0))
             }
@@ -65,14 +79,26 @@ impl Edit {
     ) -> Result<Option<usize>, String> {
         match self {
             Self::AppendClip(clip) => {
-                if forward && doc.clips.len() == clip.source_index {
-                    doc.clips.push((**clip).clone());
-                } else if !forward
-                    && doc.clips.last().is_some_and(|last| last.source_index == clip.source_index)
-                {
-                    doc.clips.pop();
+                if forward {
+                    doc.insert_clip(doc.clips.len(), clip, None)?;
                 } else {
-                    return Err("动画片段已改变，请重新选择".into());
+                    doc.remove_clip(doc.clips.len().saturating_sub(1), clip.source_index)?;
+                }
+                Ok(None)
+            }
+            Self::RenameClip { clip, id, before, after } => {
+                let (expected, name) = if forward { (before, after) } else { (after, before) };
+                let clip = doc.clips.get_mut(*clip)
+                    .filter(|clip| clip.source_index == *id && clip.name == *expected)
+                    .ok_or("动画片段名称已改变，请重新选择")?;
+                clip.name.clone_from(name);
+                Ok(None)
+            }
+            Self::ClipSlot { position, snapshot, insert_forward } => {
+                if forward == *insert_forward {
+                    doc.insert_clip(*position, &snapshot.clip, Some(snapshot))?;
+                } else {
+                    doc.remove_clip(*position, snapshot.clip.source_index)?;
                 }
                 Ok(None)
             }
@@ -277,8 +303,9 @@ impl Session {
         self.selected_node = self.metadata.bones.get(clip).and_then(|bones| bones.first()).copied();
     }
     pub fn clip_from_source(&self, index: usize) -> Option<usize> {
-        // 解析器按 GLB 原顺序保留片段。目录传来的是原索引，不能用编辑器数组位置猜测身份。
-        self.document.clips.binary_search_by_key(&index, |clip| clip.source_index).ok()
+        // 删除并保存会压缩磁盘数组。目录仍传磁盘序号，再由会话映射到稳定片段。
+        let id = self.document.clip_id_from_disk_index(index)?;
+        self.document.clips.binary_search_by_key(&id, |clip| clip.source_index).ok()
     }
     pub fn new(document: AnimationDocument) -> Self {
         let channel = document

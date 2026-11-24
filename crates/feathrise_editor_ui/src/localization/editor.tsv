@@ -504,6 +504,9 @@ label.reload-action	重载动作	Reload Action
 label.animation-editor	动画编辑	Animation Editor
 animation.clip.current	动作 {index}/{count} · {name}	Clip {index}/{count} · {name}
 animation.clip.parameters	时长 {duration} 秒 · {fps} fps · {speed}× · {loop}	Duration {duration} s · {fps} fps · {speed}× · {loop}
+animation.clip.rename	重命名动画	Rename Animation
+animation.clip.duplicate	复制动画	Duplicate Animation
+animation.clip.delete	删除动画	Delete Animation
 animation.mode.create	新建动画	New Animation
 animation.mode.edit	编辑动画	Edit Animation
 animation.mode.exit	退出动画编辑	Exit Animation Editing

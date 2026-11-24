@@ -213,11 +213,11 @@ pub(crate) fn handle_apply_transform(
         return;
     };
     let work = (|| {
-        if draft.motion.get(&record.id).is_some() {
+        if draft.motion.has_track(&record.id) {
             return Err("此对象已有场景动画关键帧".to_owned());
         }
         let bounds = draft.manifest.world_bounds().ok_or("场景世界范围无效")?;
-        let path = if draft.placement_glb_hash.is_some() && !draft.motion.clip_names().is_empty() {
+        let path = if draft.placement_glb_hash.is_some() && draft.motion.has_saved_animation() {
             Some(feathrise_editor_assets::files::safe_asset_path(
                 &crate::authoring::workspace_asset_root(),
                 &draft.placements_path(),

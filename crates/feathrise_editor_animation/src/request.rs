@@ -206,24 +206,24 @@ pub(super) fn advance_directory_pick(
         return;
     }
     let pick = state.directory_pick.take().expect("当前标签已核对待选动作");
-    let (index, node, edit) = match pick.action {
-        DirectoryAnimationAction::Preview(index) => (index, None, false),
+    let (clip, node, edit) = match pick.action {
+        DirectoryAnimationAction::Preview(index) => (session.clip_from_source(index), None, false),
         DirectoryAnimationAction::Edit { clip, node } => {
             let target = if let Some((index, name)) = clip {
-                let Some(clip) = session.clip_from_source(index).and_then(|clip| session.document.clips.get(clip))
-                    .filter(|clip| clip.name == name) else {
+                let Some(position) = session.clip_from_source(index)
+                    .filter(|_| session.document.disk_clip_name_matches(index, &name)) else {
                         state.status = "源 GLB 动画列表已变化，请在场景树重新选择".into();
                         return;
                     };
-                Some(clip.source_index)
+                Some(position)
             } else {
-                session.document.clips.get(session.clip).map(|clip| clip.source_index)
+                session.document.clips.get(session.clip).map(|_| session.clip)
             };
-            let Some(index) = target else {
+            if target.is_none() {
                 state.status = "该 GLB 暂无动画，可在源模型中点击新建动画".into();
                 return;
-            };
-            (index, node, true)
+            }
+            (target, node, true)
         }
         DirectoryAnimationAction::Create { node } => {
             if !source_node_current(&session.document, node.as_ref()) {
@@ -245,11 +245,11 @@ pub(super) fn advance_directory_pick(
         }
         DirectoryAnimationAction::EnterCreated { clip_index, node } => {
             // 后台失败保留已有的创建诊断，不将失败结果视为进入编辑。
-            if session.clip_from_source(clip_index).is_none() { return; }
-            (clip_index, node, true)
+            if session.document.clips.get(clip_index).is_none() { return; }
+            (Some(clip_index), node, true)
         }
     };
-    let Some(clip) = session.clip_from_source(index) else {
+    let Some(clip) = clip else {
         state.status = "所选动画片段已不存在，请重新选择动作 GLB".into();
         return;
     };
@@ -299,9 +299,8 @@ pub fn rig_animation_identity(world: &World) -> Option<(u64, &str, &str, &str, u
         request.host_path.as_str(),
         request.model_path.as_str(),
         request.animation_path.as_str(),
-        state.current().map_or(request.clip_index, |session| {
-            session.document.clips[session.clip].source_index
-        }),
+        state.current().and_then(|session| session.document.clips.get(session.clip))
+            .map_or(request.clip_index, |clip| clip.source_index),
     ))
 }
 
@@ -445,12 +444,12 @@ mod tests {
     }
 
     #[test]
-    fn directory_rig_pick_uses_source_index_and_invalidates_a_previous_disk_load() {
+    fn directory_rig_pick_uses_disk_index_and_invalidates_a_previous_disk_load() {
         let mut state = AnimationEditorState::default();
         let source = PathBuf::from("assets/walk.glb");
         select(&mut state, request("walk.glb", 0), source.clone());
         let old = state.rig_preview.as_ref().unwrap().ticket;
-        let mut pick = request("walk.glb", 5);
+        let mut pick = request("walk.glb", 1);
         pick.recheck_source = true;
         select(&mut state, pick, source);
         let new = state.rig_preview.as_ref().unwrap().ticket;
@@ -458,12 +457,10 @@ mod tests {
         adopt(&mut state, old, Ok(Some(Session::new(test_document()))));
         assert!(state.current().is_none(), "同路径旧文件的迟到结果不发布");
         assert!(state.retired.take().is_some());
-        let mut replacement = test_document();
-        replacement.clips[1].source_index = 5;
-        adopt(&mut state, new, Ok(Some(Session::new(replacement))));
+        adopt(&mut state, new, Ok(Some(Session::new(test_document()))));
         let session = state.current().unwrap();
         assert_eq!(session.document.clips[session.clip].name, "待机");
-        assert_eq!(session.document.clips[session.clip].source_index, 5);
+        assert_eq!(session.document.clips[session.clip].source_index, 1);
         assert!(state.playing && !state.editable());
         assert!(state.can_edit_selected());
     }

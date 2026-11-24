@@ -259,12 +259,19 @@ fn formal_selection_routes_one_property_domain_and_does_not_follow_cached_placem
 fn selecting_scene_animation_replaces_terrain_properties_and_keeps_pose_target() {
     let (mut app, _) = page(1);
     select(&mut app, false);
-    let scene = {
+    let (scene, selected_clip) = {
         let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
         let draft = session.draft.as_mut().unwrap();
         draft.placement_glb_hash = Some("测试主场景".into());
-        draft.motion.set_clip_name(Some("场景动画验收".into()));
-        draft.scene_id.clone()
+        let path = draft.placements_path();
+        let bytes = feathrise_scene_content::write_scene_placements_glb(&draft.placements, &path, None).unwrap();
+        draft.motion = crate::authoring::scene_motion::SceneMotionDocument::from_glb(
+            std::path::Path::new(&path), bytes, &draft.placements,
+        ).unwrap();
+        let scene = draft.scene_id.clone();
+        let selected = session.new_scene_motion_clip("场景动画验收").unwrap();
+        session.new_scene_motion_clip("另一个活动片段").unwrap();
+        (scene, selected)
     };
     let terrain = crate::viewport::LayerTarget::TerrainObject("mesh-a".into());
     app.world_mut().resource_mut::<crate::viewport::LayerCandidateState>().selected = Some(terrain.clone());
@@ -278,7 +285,7 @@ fn selecting_scene_animation_replaces_terrain_properties_and_keeps_pose_target()
 
     let before = author(&app);
     app.world_mut().resource_mut::<EditorGltfBrowserState>().selected_main_row =
-        Some((scene, MainSceneSelection::Animation));
+        Some((scene, MainSceneSelection::Animation(selected_clip)));
     app.update();
     assert!(visible_sections(&mut app).is_empty(), "动画选中时收起之前的地形和摆放属性");
     assert_eq!(properties_display(&mut app), Display::Flex, "保留动画编辑入口所在面板");

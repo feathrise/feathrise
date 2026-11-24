@@ -174,6 +174,12 @@ pub fn original_button(world: &mut World, command: AnimationCommand) -> Option<E
     enabled.then_some(entity)
 }
 
+/// 只解析真实可用的片段复制按钮，验收随后经窗口鼠标路径点击。
+#[cfg(feature = "validation")]
+pub fn original_duplicate_button(world: &mut World) -> Option<Entity> {
+    super::clip_management::original_duplicate_button(world)
+}
+
 /// 返回原控件及其可用性。只读检查同时服务于动画和工程目录的真窗口验收。
 #[cfg(feature = "validation")]
 pub fn original_button_state(world: &mut World, command: AnimationCommand) -> Option<(Entity, bool)> {

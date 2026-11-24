@@ -9,11 +9,11 @@ use bevy::{
 use feathrise_editor_core::PresetWorkspaceTab;
 use feathrise_editor_animation_model::data::AnimationDocument;
 use feathrise_editor_ui::{EditorUiSystemSet, NumericInputCommitOutcome, NumericInputCommitSource,
-    NumericInputCommitted, NumericInputDisabled, NumericInputValue, NumericValue};
+    NumericInputCommitted, NumericInputDisabled, NumericInputDisplayText, NumericInputValue, NumericValue};
 use serde_json::{Value, json};
 use std::{path::{Path, PathBuf}, time::{Duration, Instant}};
 use crate::{
-    SceneEditorSystemSet, authoring::EditorAuthoringSession,
+    SceneEditorSystemSet, authoring::{EditorAuthoringSession, scene_motion::{SCENE_ANIMATION_DRAFT_EXTRA, SceneMotionTiming}},
     components::SceneEditorViewport,
     resources::{SceneEditorState, SceneEditorViewportState},
     standalone::{author_status, preview_ready_for, request_open_scene,
@@ -37,8 +37,12 @@ use super::{Channel, Workbench};
 
 const SCENE: &str = "M1-SAMPLE";
 const PLATFORM: &str = "validation-elevator";
+const PLATFORM_NAME: &str = "验收电梯";
+const OVERVIEW_SCREENSHOT: &str = "scene-motion-overview.png";
 const REFERENCED_MODEL: &str = "sample-model";
 const CLIP_NAME: &str = "电梯往返验收";
+const SECOND_CLIP_NAME: &str = "门闩复位验收";
+const SECOND_DURATION: f32 = 3.0;
 const END_FRAME: f32 = 120.0;
 const PEAK_FRAME: f32 = 105.0;
 const HEIGHT: f32 = 5.0;
@@ -49,7 +53,9 @@ const END_SCALE_X: f32 = 1.25;
 #[derive(Debug, Clone, Copy)]
 enum Step {
     Enter, Tree, MainGlbExpanded, NewAnimationMenu, OpenCreation, NewAnimation, SelectAnimationForRename, RenameMenu, RenameAnimation,
-    EnterName, ConfirmName, VerifyRename, FirstAnimationClick, SecondAnimationClick, SceneTimeline,
+    EnterName, ConfirmName, VerifyRename, SecondLength, PlayEmpty, SelectPrimaryClip, SwitchPrimaryClip, VerifyPrimaryClip,
+    FirstAnimationClick, SecondAnimationClick, SceneTimeline, CaptureOverview, AwaitOverviewCapture,
+    PickOverviewPlacement, OverviewPlacementSelected,
     Select, FoldSelected, UnfoldSelected, Properties, Length, Loop, PingPong, AutoPlay,
     KeyOrigin, SeekLow, KeyLow, SeekPeak, MoveTool, BeginMove, Move, ReleaseMove, PositionTrack, KeyPosition,
     RotateTool, BeginTurn, Turn, ReleaseTurn, EditRotationProperty, RestoreRotationProperty,
@@ -67,6 +73,7 @@ struct Run {
     click: Option<(DVec2, u8)>,
     drag_end: Vec2,
     save_before: u64,
+    clip_to_rename: &'static str,
     scene_glb_tree: Option<Value>,
     property_pose_verified: bool,
     report: Value,
@@ -84,7 +91,8 @@ struct ImageWrite(Task<Result<(), String>>);
 pub fn install(app: &mut App, directory: PathBuf, reopen: bool) {
     app.insert_resource(Run {
         directory, reopen, started: Instant::now(), step: Step::Enter, click: None,
-        drag_end: Vec2::ZERO, save_before: 0, scene_glb_tree: None, property_pose_verified: false,
+        drag_end: Vec2::ZERO, save_before: 0, clip_to_rename: CLIP_NAME,
+        scene_glb_tree: None, property_pose_verified: false,
         report: Value::Null,
     }).init_resource::<Pointer>()
         .add_systems(Update, inject_pointer.after(EditorUiSystemSet::NumericInput).before(SceneEditorSystemSet::Input))
@@ -164,11 +172,11 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
             if run.click.is_none() && (!timeline_without_placement(world)? || button(world, Action::Close).is_none()) {
                 return Ok(false);
             }
-            let row = main_glb_row(world, MainSceneGlbRow::Animation(None));
+            let row = active_animation_row(world);
             if click(world, run, row)? { run.step = RenameMenu; }
         }
         RenameMenu => {
-            let row = main_glb_row(world, MainSceneGlbRow::Animation(None));
+            let row = active_animation_row(world);
             if !row.is_some_and(|row| tree_animation_selected(world, row)) { return Ok(false); }
             if click_with_button(world, run, row, MouseButton::Right)? {
                 if let Some(proof) = &mut run.scene_glb_tree {
@@ -187,13 +195,13 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
             if world.resource::<InputFocus>().get() != Some(input) { return Ok(false); }
             let mut text = world.get_mut::<EditableText>(input).ok_or("名称输入未提供原文本编辑组件")?;
             text.queue_edit(TextEdit::SelectAll);
-            text.queue_edit(TextEdit::Insert(CLIP_NAME.into()));
+            text.queue_edit(TextEdit::Insert(run.clip_to_rename.into()));
             run.step = ConfirmName;
         }
         ConfirmName => {
             let controls = visible_rename_controls_for_validation(world);
             if run.click.is_none() && !controls.and_then(|(input, _)| world.get::<EditableText>(input))
-                .is_some_and(|text| text.value().to_string() == CLIP_NAME)
+                .is_some_and(|text| text.value().to_string() == run.clip_to_rename)
             {
                 return Ok(false);
             }
@@ -201,19 +209,70 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
         }
         VerifyRename => {
             if !timeline_without_placement(world)? { return Ok(false); }
-            let row = main_glb_row(world, MainSceneGlbRow::Animation(None));
+            let row = active_animation_row(world);
             if let Some(name) = row.filter(|&row| tree_animation_selected(world, row))
-                .and_then(|row| tree_label(world, row)).filter(|&name| name == CLIP_NAME) {
-                if let Some(proof) = &mut run.scene_glb_tree {
-                    proof["animation"] = json!(name);
-                    proof["renamed_without_placement"] = json!(true);
+                .and_then(|row| tree_label(world, row)).filter(|&name| name == run.clip_to_rename) {
+                if name == CLIP_NAME {
+                    if let Some(proof) = &mut run.scene_glb_tree {
+                        proof["animation"] = json!(name);
+                        proof["renamed_without_placement"] = json!(true);
+                    }
+                    // 在同一个主 GLB 再走一遍右键新建和改名，验证首片段存在时仍可添加。
+                    run.clip_to_rename = SECOND_CLIP_NAME;
+                    run.step = NewAnimationMenu;
+                } else {
+                    run.step = SecondLength;
                 }
-                run.step = Select;
             }
+        }
+        SecondLength => {
+            if timeline_without_placement(world)? && commit(world, SceneMotionField::EndFrame, SECOND_DURATION * super::FPS as f32) {
+                run.step = PlayEmpty;
+            }
+        }
+        PlayEmpty => {
+            if clip_settings(world).0 == SECOND_DURATION && click_button(world, run, Action::TogglePlay)? {
+                run.step = SelectPrimaryClip;
+            }
+        }
+        SelectPrimaryClip => {
+            if run.click.is_none() {
+                // 没有对象轨道的片段仍应响应真实播放按钮和计时器。
+                if world.resource::<Workbench>().frame_time() <= 0.0 { return Ok(false); }
+                if let Some(proof) = &mut run.scene_glb_tree {
+                    proof["empty_clip_played_with_requested_duration"] = json!(true);
+                }
+            }
+            let row = named_animation_row(world, CLIP_NAME);
+            if click(world, run, row)? { run.step = SwitchPrimaryClip; }
+        }
+        SwitchPrimaryClip => {
+            if run.click.is_none() {
+                let row = named_animation_row(world, CLIP_NAME);
+                if !row.is_some_and(|row| tree_animation_selected(world, row)) { return Ok(false); }
+                if active_clip_name(world) != Some(SECOND_CLIP_NAME) {
+                    return Err("单击电梯片段时，已打开的门闩时间轴应继续保留".into());
+                }
+            }
+            if click_button(world, run, Action::Open)? { run.step = VerifyPrimaryClip; }
+        }
+        VerifyPrimaryClip => {
+            if !timeline_without_placement(world)? || active_clip_name(world) != Some(CLIP_NAME) { return Ok(false); }
+            if world.resource::<Workbench>().clip_id.as_deref() != clip_id(world, CLIP_NAME)
+                || clip_settings(world).0 != SceneMotionTiming::default().duration_seconds
+            {
+                return Err("从属性栏切回电梯片段时应恢复它自己的时间轴和时长".into());
+            }
+            if let Some(proof) = &mut run.scene_glb_tree {
+                proof["secondary_animation"] = json!(SECOND_CLIP_NAME);
+                proof["single_click_kept_open_clip"] = json!(true);
+                proof["switched_to_primary_from_inspector"] = json!(true);
+            }
+            run.step = Select;
         }
         FirstAnimationClick | SecondAnimationClick => {
             let first = matches!(run.step, FirstAnimationClick);
-            let row = main_glb_row(world, MainSceneGlbRow::Animation(Some(0)));
+            let row = named_animation_row(world, CLIP_NAME);
             if run.click.is_none() {
                 if world.resource::<Workbench>().scene.is_some()
                     || world.resource::<EditorGltfBrowserState>().selected_placement_id.is_some()
@@ -234,18 +293,75 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
         }
         SceneTimeline => {
             if !timeline_without_placement(world)? { return Ok(false); }
+            let Some((row, markers)) = super::overview::visible_row_for_validation(world, PLATFORM) else {
+                return Ok(false);
+            };
+            let label = world.get::<Children>(row)
+                .and_then(|children| children.iter().find_map(|child| world.get::<Text>(child)));
+            if label.is_none_or(|label| label.as_str() != PLATFORM_NAME) || markers != 3 {
+                return Ok(false); // 位置、旋转、缩放的同一时刻应合并为一个标记。
+            }
             if button(world, Action::TogglePlay).is_some() && commit(world, SceneMotionField::Frame, PEAK_FRAME) {
                 if let Some(proof) = &mut run.scene_glb_tree {
                     proof["double_click_opened_without_placement"] = json!(true);
+                    proof["overview_object_name"] = json!(PLATFORM_NAME);
+                    proof["overview_key_markers"] = json!(markers);
                 }
-                run.step = Select;
+                run.step = CaptureOverview;
             }
         }
+        CaptureOverview => {
+            if !timeline_without_placement(world)? || !at_frame(world, PEAK_FRAME)
+                || super::overview::visible_row_for_validation(world, PLATFORM).is_none_or(|(_, markers)| markers != 3)
+            { return Ok(false); }
+            // 播放头和共享数值控件分阶段更新，等到控件的可见数字也追上第 105 帧。
+            let Some(frame) = field(world, SceneMotionField::Frame) else { return Ok(false); };
+            if world.get::<NumericInputValue>(frame).and_then(|value| value.0.as_f32()) != Some(PEAK_FRAME)
+                || !world.get::<Children>(frame).is_some_and(|children| children.iter().any(|child| {
+                    world.get::<NumericInputDisplayText>(child).is_some_and(|text| text.root == frame)
+                        && world.get::<InheritedVisibility>(child).is_some_and(|visibility| visibility.get())
+                        && world.get::<Text>(child).is_some_and(|text| text.as_str() == "105")
+                }))
+            { return Ok(false); }
+            // 截图提交到渲染后先等到写盘，再点名称进入对象明细。
+            request_screenshot(world, run.directory.join(OVERVIEW_SCREENSHOT));
+            run.step = AwaitOverviewCapture;
+        }
+        AwaitOverviewCapture => {
+            let Some(result) = screenshot_result(world) else { return Ok(false); };
+            result?;
+            if let Some(proof) = &mut run.scene_glb_tree {
+                proof["overview_screenshot"] = json!(OVERVIEW_SCREENSHOT);
+            }
+            run.step = PickOverviewPlacement;
+        }
+        PickOverviewPlacement => {
+            if run.click.is_none() && !at_frame(world, PEAK_FRAME) { return Ok(false); }
+            let row = super::overview::visible_row_for_validation(world, PLATFORM).map(|(entity, _)| entity);
+            if click(world, run, row)? { run.step = OverviewPlacementSelected; }
+        }
+        OverviewPlacementSelected => {
+            if !platform_selected(world) { return Ok(false); }
+            if !current_scene_timeline(world) || !at_frame(world, PEAK_FRAME)
+                || world.resource::<Workbench>().clip_id.as_deref() != clip_id(world, CLIP_NAME)
+            {
+                return Err("从时间轴对象总览进入轨道明细应保留当前片段和第 105 帧".into());
+            }
+            if ![Action::SelectPosition, Action::SelectRotation, Action::SelectScale].into_iter()
+                .all(|action| button(world, action).is_some())
+                || super::overview::visible_row_for_validation(world, PLATFORM).is_some()
+            { return Ok(false); }
+            if let Some(proof) = &mut run.scene_glb_tree {
+                proof["selected_from_timeline_overview"] = json!(true);
+                proof["overview_opened_transform_tracks"] = json!(true);
+                proof["overview_selection_frame"] = json!(PEAK_FRAME);
+            }
+            run.step = FoldSelected;
+        }
         Select => {
-            if run.reopen && run.click.is_none() && !at_frame(world, PEAK_FRAME) { return Ok(false); }
             let scene = feathrise_scene_content::SceneId::parse(SCENE)?;
             let row = visible_placement_row(world, &scene, PLATFORM).map(|(row, _)| row);
-            if click(world, run, row)? { run.step = if run.reopen { FoldSelected } else { Properties }; }
+            if click(world, run, row)? { run.step = Properties; }
         }
         FoldSelected => {
             if run.click.is_none() && !platform_selected(world) { return Ok(false); }
@@ -459,24 +575,31 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
         }
         Capture => {
             if !preview_ready_for(world, SCENE) || !at_peak(world, true) { return Ok(false); }
-            let output = run.directory.join("scene-motion.png");
-            world.spawn(Screenshot::primary_window()).observe(move |shot: On<ScreenshotCaptured>, mut commands: Commands| {
-                let image = shot.image.clone(); let output = output.clone();
-                commands.insert_resource(ImageWrite(IoTaskPool::get().spawn(async move {
-                    image.try_into_dynamic().map_err(|error| error.to_string())?.save(output).map_err(|error| error.to_string())
-                })));
-            });
+            request_screenshot(world, run.directory.join("scene-motion.png"));
             run.step = Finish;
         }
         Finish => {
-            let Some(result) = world.get_resource_mut::<ImageWrite>().and_then(|mut task| check_ready(&mut task.0)) else {
-                return Ok(false);
-            };
+            let Some(result) = screenshot_result(world) else { return Ok(false); };
             result?;
             return Ok(true);
         }
     }
     Ok(false)
+}
+
+fn request_screenshot(world: &mut World, output: PathBuf) {
+    world.spawn(Screenshot::primary_window()).observe(move |shot: On<ScreenshotCaptured>, mut commands: Commands| {
+        let image = shot.image.clone(); let output = output.clone();
+        commands.insert_resource(ImageWrite(IoTaskPool::get().spawn(async move {
+            image.try_into_dynamic().map_err(|error| error.to_string())?.save(output).map_err(|error| error.to_string())
+        })));
+    });
+}
+
+fn screenshot_result(world: &mut World) -> Option<Result<(), String>> {
+    let result = check_ready(&mut world.get_resource_mut::<ImageWrite>()?.0)?;
+    world.remove_resource::<ImageWrite>();
+    Some(result)
 }
 
 fn key_counts(world: &World) -> (usize, usize) {
@@ -508,6 +631,15 @@ fn clip_settings(world: &World) -> (f32, &'static str, bool) {
     })
 }
 
+fn active_clip_name(world: &World) -> Option<&str> {
+    world.resource::<EditorAuthoringSession>().draft.as_ref()?.motion.clip_name()
+}
+
+fn clip_id<'a>(world: &'a World, name: &str) -> Option<&'a str> {
+    world.resource::<EditorAuthoringSession>().draft.as_ref()?.motion.clips()
+        .find_map(|(id, item)| (item == name).then_some(id))
+}
+
 fn at_frame(world: &World, frame: f32) -> bool {
     (world.resource::<Workbench>().frame_time() * 30.0 - f64::from(frame)).abs() < 0.015
 }
@@ -536,9 +668,19 @@ fn verify_report(world: &World, run: &Run) -> Result<Value, String> {
     {
         return Err("位置与旋转关键帧、片段时长或原静态摆放不符合夹具编辑结果".into());
     }
+    let primary_id = clip_id(world, CLIP_NAME).ok_or("场景草稿缺少电梯片段")?;
+    let secondary_id = clip_id(world, SECOND_CLIP_NAME).ok_or("场景草稿缺少独立的门闩片段")?;
+    if draft.motion.clip_count() != 2 || primary_id == secondary_id || draft.motion.active_clip_id() != Some(primary_id) {
+        return Err("保存和重开需保留两个独立片段及电梯时间轴".into());
+    }
+    let secondary_timing = SceneMotionTiming { duration_seconds: SECOND_DURATION, ..default() };
+    if draft.motion.timing_for(secondary_id) != Some(secondary_timing) || draft.motion.get_for(secondary_id, PLATFORM).is_some() {
+        return Err("门闩草稿的时长未保留或混入了电梯轨道".into());
+    }
     let pose = preview_transform(world).ok_or("场景动画画面缺少对象")?;
     Ok(json!({"passed":true,"reopened":run.reopen,"scene_id":draft.scene_id,"placement_id":PLATFORM,
         "track":track,"duration_seconds":4.0,"playback":"ping_pong","auto_play":true,"translation":record.translation,
+        "primary_clip_id":primary_id,"secondary_clip_id":secondary_id,
         "preview_translation":pose.translation(),"preview_rotation":pose.rotation().to_array(),
         "save_sequence":session.successful_save_sequence,"screenshot":"scene-motion.png",
         "scene_glb_tree":run.scene_glb_tree,"property_pose_verified":run.property_pose_verified}))
@@ -548,6 +690,25 @@ fn main_glb_row(world: &mut World, kind: MainSceneGlbRow) -> Option<Entity> {
     world.query::<(Entity, &SceneEditorGltfBrowserRow, &ComputedNode, &InheritedVisibility)>()
         .iter(world)
         .find_map(|(entity, row, node, v)| (row.main_glb.as_ref() == Some(&kind) && visible(node, v)).then_some(entity))
+}
+
+fn active_animation_row(world: &mut World) -> Option<Entity> {
+    let id = world.resource::<EditorAuthoringSession>().draft.as_ref()?.motion.active_clip_id()?.to_owned();
+    animation_row(world, &id)
+}
+
+fn named_animation_row(world: &mut World, name: &str) -> Option<Entity> {
+    let id = clip_id(world, name)?.to_owned();
+    animation_row(world, &id)
+}
+
+fn animation_row(world: &mut World, id: &str) -> Option<Entity> {
+    world.query::<(Entity, &SceneEditorGltfBrowserRow, &ComputedNode, &InheritedVisibility)>()
+        .iter(world)
+        .find_map(|(entity, row, node, v)| {
+            (matches!(&row.main_glb, Some(MainSceneGlbRow::Animation { id: row_id, .. }) if row_id == id)
+                && visible(node, v)).then_some(entity)
+        })
 }
 
 fn main_glb_arrow(world: &mut World) -> Option<Entity> {
@@ -599,8 +760,9 @@ fn ui_position(world: &World, entity: Entity) -> Option<Vec2> {
 
 fn inspect_main_glb_tree(world: &mut World, reopened: bool) -> Result<Option<Value>, String> {
     let main = main_glb_row(world, MainSceneGlbRow::File);
-    let animation = main_glb_row(world, MainSceneGlbRow::Animation(Some(0)));
-    if reopened && animation.is_none() { return Ok(None); }
+    let animation_row_entity = named_animation_row(world, CLIP_NAME);
+    let secondary = named_animation_row(world, SECOND_CLIP_NAME);
+    if reopened && (animation_row_entity.is_none() || secondary.is_none()) { return Ok(None); }
     let scene = feathrise_scene_content::SceneId::parse(SCENE)?;
     let platform = visible_placement_row(world, &scene, PLATFORM).map(|(row, _)| row);
     let reference = visible_placement_row(world, &scene, REFERENCED_MODEL).map(|(row, _)| row);
@@ -617,33 +779,48 @@ fn inspect_main_glb_tree(world: &mut World, reopened: bool) -> Result<Option<Val
         let cuboid_indented = (tree_icon_offset(world, root, cuboid)? - 14.0).abs() < 1.1;
         let aligned = |row| tree_icon_offset(world, cuboid, tree_row_glyph(world, row)?)
             .map(|offset| offset.abs() < 1.1);
-        let animation = if let Some(row) = animation {
+        let animation = |row| -> Option<(&str, bool)> {
             let y = ui_position(world, row)?.y;
             Some((tree_label(world, row)?, main_y < y && y < platform_y && aligned(row)?))
-        } else { None };
+        };
         Some((main_y < platform_y && platform_y < reference_y,
-            cuboid_indented, aligned(reference)?, tree_label(world, main)?, animation))
+            cuboid_indented, aligned(reference)?, tree_label(world, main)?,
+            if let Some(row) = animation_row_entity { Some(animation(row)?) } else { None },
+            if let Some(row) = secondary { Some(animation(row)?) } else { None }))
     };
-    let Some((ordered, cuboid_indented, reference_icon_aligned, main_label, animation)) = proof() else {
+    let Some((ordered, cuboid_indented, reference_icon_aligned, main_label, animation, secondary)) = proof() else {
         return Ok(None);
     };
     if !(ordered && cuboid_indented && reference_icon_aligned && main_label.contains("scene.glb")
-        && animation.is_none_or(|(label, inside)| label == CLIP_NAME && inside))
+        && animation.is_none_or(|(label, inside)| label == CLIP_NAME && inside)
+        && secondary.is_none_or(|(label, inside)| label == SECOND_CLIP_NAME && inside))
     {
-        return Err(format!("主 GLB 树验证失败，顺序 {ordered}，立方体缩进 {cuboid_indented}，引用图标对齐 {reference_icon_aligned}，动画 {animation:?}"));
+        return Err(format!("主 GLB 树验证失败，顺序 {ordered}，立方体缩进 {cuboid_indented}，引用图标对齐 {reference_icon_aligned}，动画 {animation:?} 和 {secondary:?}"));
     }
     Ok(Some(json!({"main_glb":main_label,"animation":animation.map(|(label, _)| label),"root_above_meshes":ordered,
         "cuboid_indented_14_px":cuboid_indented,"animation_icon_aligned":animation.map(|(_, inside)| inside),
+        "secondary_animation":secondary.map(|(label, _)| label),"secondary_animation_icon_aligned":secondary.map(|(_, inside)| inside),
         "reference_icon_aligned":reference_icon_aligned})))
 }
 
 pub fn inspect_saved_glb(path: &Path, id: &str) -> Result<Value, String> {
     let saved = AnimationDocument::load(path)?;
-    let clip = saved.clips.iter().find(|clip| saved.clip_extra(clip.source_index, "feathrise_scene_animation")
-        .and_then(Value::as_bool) == Some(true)).ok_or("主场景 GLB 缺少场景动画片段")?;
-    if clip.name != CLIP_NAME {
-        return Err(format!("主场景 GLB 未保存动画名称「{CLIP_NAME}」，实际为「{}」", clip.name));
-    }
+    let clip = saved.clips.iter().find(|clip| clip.name == CLIP_NAME
+        && saved.clip_extra(clip.source_index, "feathrise_scene_animation").and_then(Value::as_bool) == Some(true))
+        .ok_or("主场景 GLB 缺少已命名的电梯片段")?;
+    let primary_id = saved.clip_extra(clip.source_index, "feathrise_clip_id")
+        .and_then(Value::as_str).filter(|id| !id.is_empty()).ok_or("主场景 GLB 缺少电梯片段 ID")?;
+    // 未插帧片段保存在场景根元数据，文件里仍只有含通道的标准 GLB 动画。
+    let secondary_id = saved.inspect_glb(|json, _| {
+        json["nodes"].as_array()?.iter().filter(|node| node["extras"]["feathrise_scene_id"].as_str() == Some(SCENE))
+            .find_map(|node| {
+                let entry = &node["extras"][SCENE_ANIMATION_DRAFT_EXTRA];
+                if entry["name"].as_str() != Some(SECOND_CLIP_NAME)
+                    || entry["duration_seconds"].as_f64() != Some(f64::from(SECOND_DURATION))
+                { return None; }
+                entry["id"].as_str().filter(|id| !id.is_empty()).map(str::to_owned)
+            })
+    }).filter(|id| id != primary_id).ok_or("主场景 GLB 缺少门闩片段的独立 ID 或时长")?;
     let auto_play = saved.clip_extra(clip.source_index, "feathrise_autoplay").and_then(Value::as_bool);
     if auto_play != Some(true) { return Err("主场景 GLB 未保存自动播放设置".into()); }
     let channel = |property| clip.channels.iter().find(|channel| channel.path == property
@@ -656,6 +833,7 @@ pub fn inspect_saved_glb(path: &Path, id: &str) -> Result<Value, String> {
     }
     if rotation.keys.iter().any(|key| key.value.len() != 4) { return Err("主 GLB 旋转通道未保存标准四元数".into()); }
     Ok(json!({"clip_name":clip.name,"position_keys":position.keys.len(),"rotation_keys":rotation.keys.len(),"scale_keys":scale.keys.len(),"auto_play":auto_play,
+        "primary_clip_id":primary_id,"secondary_clip_id":secondary_id,
         "position_times":position.keys.iter().map(|key|key.time).collect::<Vec<_>>(),
         "rotation_times":rotation.keys.iter().map(|key|key.time).collect::<Vec<_>>(),
         "end_position":position.keys.last().map(|key| &key.value),

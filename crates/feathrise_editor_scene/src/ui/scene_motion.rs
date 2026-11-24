@@ -2,6 +2,7 @@
 
 mod controls;
 mod input;
+mod overview;
 mod preview;
 #[cfg(feature = "validation")]
 pub mod validation;
@@ -15,7 +16,7 @@ use crate::{
     authoring::{EditorAuthoringSession, EditorSceneDraft, placement_pose::placement_rotation_degrees,
         scene_motion::{SceneMotionKey, SceneMotionTrack}},
     resources::SceneEditorState,
-    ui::{gltf_browser::{EditorGltfBrowserState, MainSceneSelection}, vegetation_preset_editor::VegetationPresetEditorState},
+    ui::{gltf_browser::EditorGltfBrowserState, vegetation_preset_editor::VegetationPresetEditorState},
     viewport::{multi_select::PlacementSelectionSet, placement_move::PlacementMoveState},
 };
 
@@ -24,19 +25,15 @@ const FPS: f64 = 30.0;
 
 /// 动画选中身份独立于工作台仍需使用的摆放姿势目标。
 pub(super) fn selected_clip_name<'a>(browser: &EditorGltfBrowserState, draft: &'a EditorSceneDraft) -> Option<&'a str> {
-    if draft.placement_glb_hash.is_some()
-        && matches!(&browser.selected_main_row, Some((scene, MainSceneSelection::Animation)) if scene == &draft.scene_id)
-    {
-        draft.motion.clip_name()
-    } else {
-        None
-    }
+    draft.placement_glb_hash.as_ref()?;
+    draft.motion.clip_name_for(browser.selected_scene_animation(&draft.scene_id)?)
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SceneMotionButton {
-    Open, Close, Add, First, PreviousFrame, TogglePlay, NextFrame, Last, CyclePlayback, Seek,
+    Open, CopyId, Close, Add, First, PreviousFrame, TogglePlay, NextFrame, Last, CyclePlayback, Seek,
     SelectPosition, SelectRotation, SelectScale, InsertKey, DeleteKey, ResetPose, ToggleAutoPlay,
+    ShowObjects, ChooseObject, PreviousObjects, NextObjects,
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,6 +47,18 @@ pub(super) struct OpenSceneAnimation(pub(super) super::scene_context_menu::Scene
 enum Channel { Position, Rotation, Scale }
 
 impl Channel {
+    fn label(self) -> &'static str {
+        match self { Self::Position => "位置", Self::Rotation => "旋转", Self::Scale => "缩放" }
+    }
+
+    fn select_button(self) -> SceneMotionButton {
+        match self {
+            Self::Position => SceneMotionButton::SelectPosition,
+            Self::Rotation => SceneMotionButton::SelectRotation,
+            Self::Scale => SceneMotionButton::SelectScale,
+        }
+    }
+
     fn index(self) -> usize {
         match self { Self::Position => 0, Self::Rotation => 1, Self::Scale => 2 }
     }
@@ -117,11 +126,11 @@ impl Default for KeyingTracks {
 #[derive(Resource, Default)]
 pub(crate) struct Workbench {
     scene: Option<SceneId>,
+    clip_id: Option<String>,
     target: Option<Target>,
     seconds: f64,
     elapsed: f64,
     playing: bool,
-    has_clip: bool,
     pose: Option<preview::PreviewPose>,
     // 两个索引交替使用，在选择与热重载换根时只还原已接管的场景对象。
     previews: HashMap<Entity, preview::PreviewPose>,
@@ -131,9 +140,13 @@ pub(crate) struct Workbench {
     keying_tracks: KeyingTracks,
     selected_key: Option<SelectedKey>,
     ruler_capture: Option<Entity>,
+    show_objects: bool,
+    object_page: usize,
 }
 
 impl Workbench {
+    fn shows_objects(&self, selected: bool) -> bool { self.show_objects || !selected }
+
     pub(crate) fn owns(&self, scene: &SceneId, id: &str) -> bool {
         self.target.as_ref().is_some_and(|target| target.matches(scene, id))
     }
@@ -198,19 +211,31 @@ impl Workbench {
     fn target(&mut self, target: Option<Target>) {
         if self.target == target { return; }
         self.target = target;
+        self.show_objects = false;
         self.sampled = None;
         self.draft = PoseDraft::default();
         self.selected_key = None;
         self.ruler_capture = None;
     }
 
+    fn open(&mut self, scene: &SceneId, clip_id: Option<&str>) {
+        if self.scene.as_ref() == Some(scene) && self.clip_id.as_deref() == clip_id { return; }
+        // 换片段时清除临时姿势和指针捕获，已插帧的内容仍保留在各自的草稿。
+        self.close();
+        self.scene = Some(scene.clone());
+        self.clip_id = clip_id.map(str::to_owned);
+    }
+
     fn close(&mut self) {
         self.scene = None;
+        self.clip_id = None;
         self.target(None);
         self.seconds = 0.0;
         self.elapsed = 0.0;
         self.playing = false;
-        self.has_clip = false;
+        self.ruler_capture = None;
+        self.show_objects = false;
+        self.object_page = 0;
         self.keying_tracks = KeyingTracks::default();
         // 关窗后由预览归还实际渲染根，以免覆盖新一代摆放。
     }
@@ -244,9 +269,12 @@ impl Context<'_> {
         if self.selection.members.len() > 1 || self.browser.selection.is_some() { return None; }
         let id = self.browser.selected_placement_id.as_deref()?;
         let record = self.placement(session, id)?;
-        (record.editor.selectable() && record.terrain_patch.is_none() && record.courtyard.is_none()
-            && record.building_preset_id.is_none() && record.water_surfaces.is_empty())
-            .then_some((scene, record))
+        Self::can_target(record).then_some((scene, record))
+    }
+
+    fn can_target(record: &ScenePlacementRecord) -> bool {
+        record.editor.selectable() && record.terrain_patch.is_none() && record.courtyard.is_none()
+            && record.building_preset_id.is_none() && record.water_surfaces.is_empty()
     }
 
     fn placement<'a>(&self, session: &'a EditorAuthoringSession, id: &str) -> Option<&'a ScenePlacementRecord> {
@@ -263,6 +291,13 @@ impl Context<'_> {
 
 pub(crate) fn install(app: &mut App) {
     app.init_resource::<Workbench>()
+        .init_resource::<bevy::clipboard::Clipboard>()
+        .add_systems(Update, overview::select
+            .after(super::scene_layers::read_tree_selection)
+            .after(super::numeric_scrub_mouse_guard::update_scene_editor_numeric_scrub_mouse_guard)
+            .before(super::scene_context_menu::SceneMenuDispatch)
+            .run_if(crate::scene_browser_general_input_available)
+            .in_set(SceneEditorSystemSet::Input))
         .add_systems(Update, input::input
             .after(super::scene_context_menu::SceneMenuDispatch)
             // 点插帧会使右栏数值框失焦。先接收同一帧的提交，再采样姿势。

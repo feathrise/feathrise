@@ -116,7 +116,7 @@ pub(super) fn sync_root_row(
         if row.main_glb != kind || row.entries_revision != browser.published_entries_revision
             || object.0.as_ref().map(|target| &target.scene_id) != draft.map(|draft| &draft.scene_id)
         {
-            row.main_glb = kind;
+            row.main_glb = kind.clone();
             row.entries_revision = browser.published_entries_revision;
             click.invalidate(); // 固定行换场景或文件格式时丢弃上一行的按压。
         }

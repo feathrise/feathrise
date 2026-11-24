@@ -1,7 +1,7 @@
 //! 可编辑的 TRS 通道与共享源文件；源 JSON/BIN 只读共享，撤销不会复制模型二进制。
 
 use serde_json::Value;
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::{BTreeMap, BTreeSet}, path::PathBuf, sync::Arc};
 
 #[derive(Clone, Debug)]
 pub struct AnimationDocument {
@@ -12,10 +12,12 @@ pub struct AnimationDocument {
     pub read_only: bool,
     /// 同一作者来源的编辑与保存共享身份；重新解析即换代，节点索引不能跨代复用。
     pub source_identity: Arc<()>,
-    /// 初次载入时已有的片段，即使撤销本会话添加的动作也必须保留。
-    pub(super) preserved_clip_count: usize,
     /// 记录初次读取的原始通道数，包含作者不支持的通道；保存后仍保留撤销新增轨道的边界。
     pub(super) preserved_channel_counts: Vec<usize>,
+    /// 只有显式片段事务可以删除磁盘既有动作。
+    pub(super) removed_clips: BTreeSet<usize>,
+    /// 尚不在本次磁盘版本中的复制或恢复片段，只共享各自的原片段，不持有旧模型 BIN。
+    pub(super) retained_clips: BTreeMap<usize, Arc<RetainedClip>>,
     pub(super) source: Arc<Source>,
 }
 
@@ -23,8 +25,22 @@ pub struct AnimationDocument {
 pub struct Clip {
     pub name: String,
     pub channels: Vec<Channel>,
-    /// GLB 原片段索引，目录选择和写回都依赖这个身份。
+    /// 载入时取 GLB 数组索引；在同一作者会话内保持稳定，写盘顺序另按 clips 管理。
     pub source_index: usize,
+}
+
+/// 删除、复制和还原一条片段只记录受影响的曲线及原 JSON 片段。
+#[derive(Clone, Debug)]
+pub struct ClipSnapshot {
+    pub clip: Arc<Clip>,
+    pub(super) retained: Option<Arc<RetainedClip>>,
+    pub(super) preserved_channels: usize,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct RetainedClip {
+    pub(super) original: Clip,
+    pub(super) animation: Value,
 }
 
 #[derive(Clone, Debug, PartialEq)]

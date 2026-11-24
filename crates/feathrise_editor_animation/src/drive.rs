@@ -186,6 +186,12 @@ pub(super) fn drive(
                             let previous_metadata =
                                 std::mem::replace(&mut session.metadata, metadata);
                             let mut retired_history = Vec::new();
+                            let renamed_clip = match &action {
+                                PendingAction::Edit(edit) => Some(edit),
+                                PendingAction::Undo => session.cursor.checked_sub(1).and_then(|i| session.history.get(i)),
+                                PendingAction::Redo => session.history.get(session.cursor),
+                                _ => None,
+                            }.is_some_and(|edit| matches!(edit, Edit::RenameClip { .. }));
                             match action {
                                 PendingAction::Edit(edit) => {
                                     if session
@@ -206,9 +212,10 @@ pub(super) fn drive(
                             }
                             session.pose = None;
                             clips_changed = previous.clips.len() != session.document.clips.len();
-                            if clips_changed {
+                            if clips_changed || renamed_clip && session.clip != target.0 {
+                                // 删除后选列表中相邻的片段，撤销删除直接选中还原的身份。
                                 session.select_clip(target.0);
-                            } else {
+                            } else if !renamed_clip {
                                 let channels = &session.document.clips[target.0].channels;
                                 channels_changed = channels.len() != previous.clips[target.0].channels.len();
                                 session.clip = target.0;
@@ -245,6 +252,9 @@ pub(super) fn drive(
                         debug_assert!(state.retired.is_none());
                         state.retired = Some(retired);
                         if is_current {
+                            if clips_changed && !stale_source {
+                                state.select_current_clip();
+                            }
                             if (clips_changed || channels_changed) && !stale_source && binding.as_ref().is_some_and(|binding| {
                                 binding.identity.as_ref().is_some_and(|identity| identity.source == work.path
                                     && (identity.embedded_generation.is_none() || binding.mapping.is_none() || binding.failed))
@@ -253,7 +263,6 @@ pub(super) fn drive(
                                 state.model_binding_revision = state.model_binding_revision.wrapping_add(1);
                             }
                             state.status = if created_clip && !stale_source {
-                                state.select_current_clip();
                                 "新动画已创建，可进入动画编辑"
                             } else {
                                 "动画草稿已更新"

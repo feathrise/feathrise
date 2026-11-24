@@ -19,7 +19,7 @@ impl AnimationDocument {
             return Ok(Vec::new());
         }
         let preserved = self.preserved_channel_counts.get(clip.source_index).copied().unwrap_or(0);
-        let source = array(&self.source.json, "animations").get(clip.source_index);
+        let source = self.original_clip(clip.source_index).map(|(_, animation)| animation);
         let mut occupied: HashSet<_> = source.into_iter()
             .flat_map(|animation| array(animation, "channels").iter().take(preserved))
             .filter_map(|channel| {
@@ -67,7 +67,7 @@ impl AnimationDocument {
         if !self.can_create_clip() {
             return Err("当前 GLB 没有可写入动画的节点".into());
         }
-        let source_index = self.clips.len();
+        let source_index = self.next_clip_index();
         let mut channels = Vec::new();
         for &index in &self.source.animation_nodes {
             let node = &self.nodes[index];
@@ -92,7 +92,7 @@ impl AnimationDocument {
             }
         }
         Ok(Clip {
-            name: format!("动画 {}", source_index + 1),
+            name: self.unique_clip_name(&format!("动画 {}", source_index + 1)),
             channels,
             source_index,
         })

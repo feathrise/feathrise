@@ -21,6 +21,7 @@ fn placement_arrows_and_icons_expand_while_names_select() {
     use crate::ui::{scene_context_menu::{SceneObjectKey, SceneObjectRow}, terrain_objects::page_tests::{click, page_without_tree_input}};
     use super::super::{SceneTreeContents, organize::sync_root_row, scene_tree_root_row};
     use bevy::world_serialization::WorldAsset;
+    use feathrise_editor_animation_model::data::{AnimationDocument, Clip, Keyframe};
     use feathrise_scene_content::{ScenePlacementEditorMetadata, ScenePlacementHeightMode, ScenePlacementRecord};
 
     let (mut app, window) = page_without_tree_input();
@@ -31,13 +32,29 @@ fn placement_arrows_and_icons_expand_while_names_select() {
         translation: [0.0; 3], height_mode: ScenePlacementHeightMode::FixedHeight, terrain_offset: 0.0,
         yaw_degrees: 0.0, scale: [1.0; 3], water_surfaces: Vec::new(),
     };
-    {
+    let [first_clip, second_clip] = {
         let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
         let draft = session.draft.as_mut().unwrap();
         draft.placement_glb_hash = Some("测试主场景".into());
-        draft.motion.set_clip_name(Some("测试场景动画".into()));
         draft.placements.placements = vec![record("主模型", ""), record("分组模型", "摆放组")];
-    }
+        let path = draft.placements_path();
+        let bytes = feathrise_scene_content::write_scene_placements_glb(&draft.placements, &path, None).unwrap();
+        let path = std::path::Path::new(&path);
+        let standard = AnimationDocument::from_glb_bytes(path, bytes).unwrap();
+        let mut foreign = Clip { name: "导入动画".into(), source_index: 0, channels: Vec::new() };
+        // 标准通道指向场景根，场景工作台只编辑指向摆放对象的轨道。
+        foreign.push_transform_channel(0, "场景根", "translation", vec![Keyframe {
+            time: 0.0, value: vec![0.0; 3], in_tangent: Vec::new(), out_tangent: Vec::new(),
+        }]).unwrap();
+        let bytes = standard.encode_owned_clip(None, &foreign, serde_json::Value::Null, |_, _| Ok(())).unwrap();
+        draft.motion = crate::authoring::scene_motion::SceneMotionDocument::from_glb(
+            path, bytes, &draft.placements,
+        ).unwrap();
+        let first = session.new_scene_motion_clip("开门").unwrap();
+        let second = session.new_scene_motion_clip("升降").unwrap();
+        session.undo.clear();
+        [first, second]
+    };
     let contents = {
         let world = app.world_mut();
         let root = world.query_filtered::<Entity, With<feathrise_editor_ui::EditorThemeRoot>>().single(world).unwrap();
@@ -59,7 +76,8 @@ fn placement_arrows_and_icons_expand_while_names_select() {
         .init_resource::<EditorViewportSelectionState>()
         .add_systems(Update, handle_gltf_browser_input.in_set(crate::SceneEditorSystemSet::Input))
         .add_systems(Update, super::super::refresh_gltf_browser_cache.in_set(crate::SceneEditorSystemSet::Tasks))
-        .add_systems(Update, (spawn_gltf_browser_rows, sync_gltf_browser_rows, sync_root_row, super::super::sync_gltf_row_toggles)
+        .add_systems(Update, (spawn_gltf_browser_rows, sync_gltf_browser_rows, sync_root_row,
+            super::super::sync_gltf_row_toggles, super::super::bind_scene_menu_rows)
             .chain().in_set(crate::SceneEditorSystemSet::Presentation));
     for _ in 0..5 { app.update(); }
 
@@ -165,16 +183,37 @@ fn placement_arrows_and_icons_expand_while_names_select() {
     let state = app.world().resource::<EditorGltfBrowserState>();
     assert!(state.selected_main_row.is_none());
     assert_eq!(state.selected_placement_id.as_deref(), Some("主模型"));
-    let animation = {
+    let animation_by_id = |app: &mut App, expected: &str| {
         let world = app.world_mut();
         world.query::<(Entity, &SceneEditorGltfBrowserRow)>().iter(world)
-            .find_map(|(entity, row)| (row.main_glb == Some(MainSceneGlbRow::Animation(None))).then_some(entity)).unwrap()
+            .find_map(|(entity, row)| {
+                matches!(&row.main_glb, Some(MainSceneGlbRow::Animation { id, .. }) if id == expected).then_some(entity)
+            }).unwrap()
     };
-    let animation_icon = type_icon(&app, animation, "icons/editor/tree_file.png");
+    let first = animation_by_id(&mut app, &first_clip);
+    let second = animation_by_id(&mut app, &second_clip);
+    assert_ne!(first, second, "同一主 GLB 的两个片段各有可见行");
+    let read_only = {
+        let world = app.world_mut();
+        world.query::<(Entity, &SceneEditorGltfBrowserRow)>().iter(world)
+            .find_map(|(entity, row)| (row.main_glb == Some(MainSceneGlbRow::ReadOnlyAnimation(0))).then_some(entity)).unwrap()
+    };
+    let slot = |row| app.world().get::<SceneEditorGltfBrowserRow>(row).unwrap().slot;
+    assert!(slot(first) < slot(second) && slot(second) < slot(read_only) && slot(read_only) < slot(model));
+    assert_eq!(app.world().get::<Text>(row_name(&app, read_only)).unwrap().as_str(), "导入动画");
+    assert!(app.world().get::<SceneObjectRow>(read_only).is_some_and(|target| target.0.is_none()),
+        "只读片段没有右键编辑目标");
+    let animation_icon = type_icon(&app, first, "icons/editor/tree_file.png");
     click(&mut app, window, animation_icon, MouseButton::Left);
     let state = app.world().resource::<EditorGltfBrowserState>();
-    assert!(matches!(&state.selected_main_row, Some((id, MainSceneSelection::Animation)) if id == &scene));
+    assert_eq!(state.selected_scene_animation(&scene), Some(first_clip.as_str()));
     assert_eq!(state.selected_placement_id.as_deref(), Some("主模型"), "选择动画仍保留原视口姿势目标");
+    let motion = &app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap().motion;
+    assert_eq!(motion.active_clip_id(), Some(second_clip.as_str()), "单击只选树行，保留正在编辑的片段");
+    click_name(&mut app, second);
+    assert_eq!(app.world().resource::<EditorGltfBrowserState>().selected_scene_animation(&scene), Some(second_clip.as_str()));
+    click_name(&mut app, read_only);
+    assert_eq!(app.world().resource::<EditorGltfBrowserState>().selected_scene_animation(&scene), Some(second_clip.as_str()));
     click_name(&mut app, model);
     assert!(app.world().resource::<EditorGltfBrowserState>().selected_main_row.is_none());
     let session = app.world().resource::<EditorAuthoringSession>();

@@ -263,6 +263,87 @@ fn new_clip_round_trips_with_original_clips_and_can_be_undone_after_save() {
 }
 
 #[test]
+fn clip_management_round_trips_raw_records_and_reindexes_disk_selection() {
+    use crate::resources::{Edit, Session};
+
+    let directory = TemporaryDirectory::new();
+    let path = directory.0.join("managed.glb");
+    let (mut json, binary) = fixture_parts();
+    json["animations"][0]["extras"] = json!({"retain": "clip", "feathrise_scene_animation": true,
+        "feathrise_clip_id": "original-scene-clip", "feathrise_autoplay": true, "feathrise_playback": "loop"});
+    let initial = glb(&json, &binary);
+    std::fs::write(&path, &initial).unwrap();
+    let mut document = AnimationDocument::load(&path).unwrap();
+    assert!(document.renamed_clip_name(1, "  ").is_err());
+    assert!(document.renamed_clip_name(1, "挥剑").is_err());
+    assert!(document.renamed_clip_name(1, "收\n势").is_err());
+    let name = document.renamed_clip_name(1, " 收势 ").unwrap();
+    let rename = Edit::RenameClip { clip: 1, id: 1, before: "待机".into(), after: name };
+    rename.apply(&mut document, true).unwrap();
+    assert!(document.disk_clip_name_matches(1, "待机"));
+    assert!(!document.disk_clip_name_matches(1, "收势"));
+    let snapshot = document.duplicate_clip(0).unwrap();
+    let copy = Edit::ClipSlot { position: 2, snapshot, insert_forward: true };
+    copy.apply(&mut document, true).unwrap();
+    let snapshot = document.snapshot_clip(0).unwrap();
+    let delete = Edit::ClipSlot { position: 0, snapshot, insert_forward: false };
+    delete.apply(&mut document, true).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), initial);
+
+    let mut saved = document.save_rebased(&path).unwrap();
+    let disk = AnimationDocument::load(&path).unwrap();
+    let mut expected = json["animations"][0].clone();
+    expected["name"] = json!("挥剑 副本");
+    let copy_id = disk.clip_extra(1, "feathrise_clip_id").and_then(Value::as_str).unwrap();
+    assert!(copy_id.starts_with("scene-clip-") && copy_id != "original-scene-clip");
+    expected["extras"]["feathrise_clip_id"] = json!(copy_id);
+    expected["extras"]["feathrise_autoplay"] = json!(false);
+    assert_eq!(disk.source.json["animations"][1], expected, "权重通道、共享 sampler 和 extras 都随片段复制");
+    assert_eq!(disk.clips[0].name, "收势");
+    assert_eq!(disk.source.json["nodes"], json["nodes"]);
+    assert_eq!(disk.source.buffers[0].as_ref(), binary.as_slice());
+    assert_eq!(disk.source.chunks[2].bytes.as_ref(), [9, 8, 7, 6]);
+    let session = Session::new(saved.clone());
+    assert!(saved.disk_clip_name_matches(0, "收势"));
+    assert_eq!(session.document.clips[session.clip_from_source(0).unwrap()].source_index, 1);
+    assert_eq!(session.document.clips[session.clip_from_source(1).unwrap()].source_index, 2);
+    assert_eq!(session.clip_from_source(2), None);
+
+    // 保存后仍可将已从磁盘清除的原片段及未识别通道恢复。
+    delete.apply(&mut saved, false).unwrap();
+    let mut saved = saved.save_rebased(&path).unwrap();
+    assert_eq!(saved.source.json["animations"][0], json["animations"][0]);
+    copy.apply(&mut saved, false).unwrap();
+    rename.apply(&mut saved, false).unwrap();
+    saved.save(&path).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), initial);
+}
+
+#[test]
+fn deleting_every_clip_allows_save_then_new_clip_without_reusing_identity() {
+    use crate::resources::{Edit, Session};
+
+    let directory = TemporaryDirectory::new();
+    let path = directory.0.join("empty-motion.glb");
+    let (json, binary) = fixture_parts();
+    std::fs::write(&path, glb(&json, &binary)).unwrap();
+    let mut document = AnimationDocument::load(&path).unwrap();
+    for position in [1, 0] {
+        let snapshot = document.snapshot_clip(position).unwrap();
+        Edit::ClipSlot { position, snapshot, insert_forward: false }.apply(&mut document, true).unwrap();
+    }
+    let mut saved = document.save_rebased(&path).unwrap();
+    assert!(saved.source.json.get("animations").is_none());
+    assert!(AnimationDocument::load(&path).unwrap().clips.is_empty());
+    let clip = saved.create_clip().unwrap();
+    assert_eq!(clip.source_index, 2);
+    Edit::AppendClip(Arc::new(clip)).apply(&mut saved, true).unwrap();
+    let session = Session::new(saved.save_rebased(&path).unwrap());
+    assert_eq!(session.clip_from_source(0), Some(0));
+    assert_eq!(session.document.clips[0].source_index, 2);
+}
+
+#[test]
 fn appended_pose_track_can_be_undone_and_saved_without_moving_original_channels() {
     use crate::{resources::Edit, types::PoseProperty};
 

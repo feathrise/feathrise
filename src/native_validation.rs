@@ -464,7 +464,8 @@ fn run_animation_edit(work: &Path, repository: &Path, target: &Path, control: &B
     let created = &workflow["animation_assets"]["created_clip"];
     let model = fs::read(project.context.asset_roots[0].join("scene/probe.glb")).map_err(|error| error.to_string())?;
     if created["asset_path"] != "scene/probe.glb" || created["disk_clip_count_before"] != 0
-        || created["disk_clip_count_after"] != 1 || created["created_read_only"] != true
+        || created["disk_clip_count_after"] != 2 || created["created_read_only"] != true
+        || created["duplicate_via_toolbar"] != true || created["disk_clip_names"] != json!(["动画 1", "动画 1 副本"])
         || created["entered_edit_mode"] != true || created["save_receipt"] != json!({"Ok": null})
         || created["sha256_after"] != digest(&model) || created["sha256_before"] == created["sha256_after"]
     {

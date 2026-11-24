@@ -304,6 +304,9 @@ pub struct Clipboard {
 
 pub enum Command {
     CreateClip,
+    RenameClip { id: usize, name: String },
+    DuplicateClip { id: usize },
+    DeleteClip { id: usize },
     Copy {
         clip: usize,
         selection: KeySelection,

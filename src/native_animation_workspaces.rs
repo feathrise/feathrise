@@ -127,13 +127,20 @@ pub(super) fn run(
     )?;
     let glb = assets.join("scenes").join(SCENE).join("scene.glb");
     let channels = feathrise_editor_scene::standalone::scene_motion_validation::inspect_saved_glb(&glb, ELEVATOR)?;
+    let primary_clip = channels["primary_clip_id"].as_str().filter(|id| !id.is_empty());
+    let secondary_clip = channels["secondary_clip_id"].as_str().filter(|id| !id.is_empty());
     if motion["placement_id"] != ELEVATOR
         || current["placement_id"] != ELEVATOR
         || current["reopened"] != true
         || channels["position_keys"] != 3 || channels["rotation_keys"] != 3
+        || primary_clip.is_none()
+        || secondary_clip.is_none()
+        || primary_clip == secondary_clip
+        || ["primary_clip_id", "secondary_clip_id"].into_iter()
+            .any(|key| motion[key] != channels[key] || current[key] != channels[key])
         || glb.with_file_name("motion.scene_motion.json").exists()
     {
-        return Err("主场景 GLB 的位置或旋转通道缺少保存和重开证据".into());
+        return Err("主场景 GLB 的轨道或片段 ID 缺少一致的保存和重开证据".into());
     }
     steps.push(json!({"stage":"main_scene_glb_animation","passed":true,"path":glb,"channels":channels}));
     let game = play(&project, work, target, control, &pose, &motion)?;
@@ -160,6 +167,7 @@ fn seed_elevator(assets: &Path) -> Result<(), String> {
         "asset_target":{"kind":"cuboid","size_mm":[3000,500,3000],"color_srgb":[100,146,187],
             "roughness_milli":700,"collision":true},
         "translation":[0.0,0.25,0.0],"yaw_degrees":0.0,"scale":[1.0,1.0,1.0],
+        "editor":{"name":"验收电梯"},
     }));
     let placements = serde_json::from_value(document).map_err(|error| error.to_string())?;
     fixture::write_sample_scene_glb(assets, &placements, None)
@@ -222,8 +230,12 @@ fn play(
         &json!({"pose":pose,"motion":motion}),
     )?;
     prepare_game(project, &sdk)?;
+    // 夹具在编辑器 target 下时 Cargo 会继承祖先配置，显式隔离本轮游戏解析用的锁。
+    let game_lock = output.join("Cargo.lock");
     let mut lock = Command::new("cargo");
-    lock.arg("generate-lockfile").current_dir(&project.root);
+    lock.arg("generate-lockfile")
+        .env("CARGO_RESOLVER_LOCKFILE_PATH", &game_lock)
+        .current_dir(&project.root);
     let locked = build_process::run(&lock, control, Some(Duration::from_secs(120)), tail)?;
     if locked.exit_code != 0 {
         return Err(format!("独立游戏夹具锁定失败：{}", locked.stderr));
@@ -239,6 +251,7 @@ fn play(
         ])
         .current_dir(&project.root)
         .env("CARGO_TARGET_DIR", target)
+        .env("CARGO_RESOLVER_LOCKFILE_PATH", &game_lock)
         .env("EDITOR_SAVED_PLAY", "1")
         .env("EDITOR_SAVED_PLAY_SCENE", SCENE)
         .env_remove("NEW_EDITOR_GAME_SMOKE_DIR")

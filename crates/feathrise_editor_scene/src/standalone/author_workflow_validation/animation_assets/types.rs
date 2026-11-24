@@ -51,6 +51,7 @@ pub(super) enum Phase {
     ClickCreateClip,
     VerifyCreatedClip,
     ClickEditCreatedClip,
+    ClickDuplicateCreatedClip,
     SaveCreatedClip,
     ReadCreatedClip,
     VerifyCreatedClipOnDisk,
@@ -84,7 +85,7 @@ pub(super) enum IoResult {
     Prepared(Prepared),
     Written { bytes: Arc<Vec<u8>>, sha256: String },
     SavedAnimation { sha256: String, key: Value },
-    SavedCreatedClip { sha256: String, clip_count: usize },
+    SavedCreatedClip { sha256: String, clip_names: Vec<String> },
 }
 
 #[derive(Clone, Default, Serialize)]

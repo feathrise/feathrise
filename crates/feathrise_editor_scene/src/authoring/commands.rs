@@ -61,20 +61,23 @@ pub enum EditorCommand {
         after: ScenePlacementRecord, // 操作后已经通过公共格式校验的完整记录。
     },
     SceneMotionChanged {
+        clip_id: String,
         placement_id: String,
         before: Option<super::scene_motion::SceneMotionTrack>,
         after: Option<super::scene_motion::SceneMotionTrack>,
     },
     SceneMotionTimingChanged {
+        clip_id: String,
         before: super::scene_motion::SceneMotionTiming,
         after: super::scene_motion::SceneMotionTiming,
     },
-    // 用同一条历史承载首次创建与改名，不需要选中或新建摆放。
+    // 历史始终定位原片段，从别的片段撤销时不改当前时间轴。
     SceneMotionNameChanged {
-        before: Option<String>,
-        after: Option<String>,
+        clip_id: String,
+        before: String,
+        after: String,
     },
-    SceneMotionClipRemoved(Box<super::scene_motion::SceneMotionRemovedClip>),
+    SceneMotionClipChanged(Box<super::scene_motion::SceneMotionClipChange>),
     /// 跨源移动只有一笔历史，两份 GLB 的完整版本一起采用。
     SourceGlbsChanged {
         before: super::source_glbs::SourceGlbEdits,

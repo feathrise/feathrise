@@ -10,6 +10,7 @@ use feathrise_editor_animation_model::{data, resources, types};
 use feathrise_editor_core::SceneEditorSystemSet;
 
 mod binding;
+mod clip_management;
 mod components;
 mod context;
 mod control;
@@ -68,6 +69,7 @@ impl Plugin for AnimationEditorPlugin {
                     docking::sync,
                     timeline_dock::sync,
                     presentation::sync,
+                    clip_management::sync,
                 )
                     .chain()
                     .in_set(AnimationSystems::Presentation)
@@ -82,9 +84,10 @@ impl Plugin for AnimationEditorPlugin {
 fn install_controls(app: &mut App) {
     app.init_resource::<AnimationHost>()
         .init_resource::<timeline_dock::Layout>()
+        .init_resource::<clip_management::ClipManagement>()
         .add_systems(
             Update,
-            (timeline_dock::input, control::input, timeline::input)
+            (timeline_dock::input, control::input, clip_management::input, timeline::input)
                 .chain()
                 .in_set(AnimationSystems::Input)
                 .in_set(SceneEditorSystemSet::Input),

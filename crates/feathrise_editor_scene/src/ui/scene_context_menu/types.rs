@@ -14,7 +14,7 @@ pub(crate) enum SceneObjectKey {
     PlacementTreeRoot,
     PlacementFolder { empty: bool },
     MainSceneGlb,
-    MainSceneAnimation(Option<usize>), // None 是当前尚无标准动画通道的命名草稿。
+    MainSceneAnimation(String), // 显示名可重复，菜单以主场景片段的稳定 ID 定位。
     AuthorCategory(crate::ui::scene_layers::AuthorLayerCategory),
     SourceGlbAnimation { index: usize, id: String, clip_index: usize },
     Placement {
@@ -216,8 +216,8 @@ impl SceneObjectTarget {
             SceneObjectKey::PlacementTreeRoot | SceneObjectKey::AuthorCategory(_) => true,
             SceneObjectKey::PlacementFolder { .. } => draft.object_folders.contains(&self.name),
             SceneObjectKey::MainSceneGlb => draft.placement_glb_hash.is_some(),
-            SceneObjectKey::MainSceneAnimation(index) => draft.placement_glb_hash.is_some()
-                && draft.motion.editable_clip_index() == *index && draft.motion.clip_name().is_some(),
+            SceneObjectKey::MainSceneAnimation(id) => draft.placement_glb_hash.is_some()
+                && draft.motion.clip_name_for(id).is_some(),
             SceneObjectKey::Placement { index, id, .. } | SceneObjectKey::SourceGlbAnimation { index, id, .. } => draft
                 .placements
                 .placements
@@ -289,8 +289,7 @@ impl SceneObjectTarget {
         if matches!(self.key, SceneObjectKey::MainSceneGlb) {
             return self.supports(action) && session.draft.as_ref().is_some_and(|draft|
                 draft.scene_id == self.scene_id && draft.placement_glb_hash.is_some()
-                    && (action != SceneMenuAction::NewSceneAnimation
-                        || (draft.motion.available() && draft.motion.clip_name().is_none())));
+                    && (action != SceneMenuAction::NewSceneAnimation || draft.motion.available()));
         }
         if action == SceneMenuAction::NewGlbContent {
             return self.referenced_glb_path(session).is_some();
@@ -407,7 +406,8 @@ impl SceneObjectTarget {
         }
         match (&self.key, action) {
             (SceneObjectKey::AuthorCategory(_), _) => false,
-            (SceneObjectKey::MainSceneAnimation(_), action) => matches!(action, SceneMenuAction::Rename | SceneMenuAction::Delete),
+            (SceneObjectKey::MainSceneAnimation(_), action) =>
+                matches!(action, SceneMenuAction::Rename | SceneMenuAction::Copy | SceneMenuAction::Delete),
             (SceneObjectKey::Placement { mesh: Some(mesh), .. }, SceneMenuAction::Focus)
                 if mesh.is_source_folder() => false,
             (SceneObjectKey::Placement { mesh: Some(mesh), .. },

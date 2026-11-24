@@ -129,7 +129,7 @@ pub(super) fn apply(
 ) {
     let scene = context.scene(&editor, &session).filter(|scene| workbench.scene.as_ref() == Some(*scene));
     let Some((scene, motion)) = scene.and_then(|scene| Some((scene, &session.draft.as_ref()?.motion)))
-        .filter(|(_, motion)| !workbench.has_clip || motion.clip_name().is_some())
+        .filter(|(_, motion)| workbench.clip_id.as_deref() == motion.active_clip_id())
     else {
         workbench.close();
         for (_, pose) in workbench.previews.drain() { pose.restore(&mut roots); }
@@ -137,8 +137,7 @@ pub(super) fn apply(
         return;
     };
     let selected = context.record(&editor, &session).map(|(_, record)| record);
-    let motion_ready = motion.clip_name().is_some(); // 空片段也可先摆姿势，首键才生成通道。
-    workbench.has_clip = motion_ready; // 撤销、重做导致片段消失后沿用关闭及预览归还。
+    let motion_ready = workbench.clip_id.is_some(); // 空片段也可先摆姿势，首键才生成通道。
     if !context.moving.owns_mouse() { workbench.target(selected.map(|record| Target::new(scene, record))); }
 
     if motion_ready && workbench.playing {

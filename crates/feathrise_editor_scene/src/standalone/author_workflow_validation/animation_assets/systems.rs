@@ -335,13 +335,25 @@ pub(super) fn advance(world: &mut World) -> Option<Result<Value, String>> {
                 }
                 Phase::ClickEditCreatedClip => {
                     if click_animation_button(world, &mut state, bridge::AnimationCommand::ToggleEditing)? {
+                        state.phase = Phase::ClickDuplicateCreatedClip;
+                    }
+                }
+                Phase::ClickDuplicateCreatedClip => {
+                    #[cfg(not(feature = "validation"))]
+                    return Err("动画原窗口按钮需要显式 validation 构建".into());
+                    #[cfg(feature = "validation")]
+                    if click_window_button(world, &mut state, "ClickDuplicateClip", bridge::original_duplicate_button)? {
                         state.phase = Phase::SaveCreatedClip;
                     }
                 }
                 Phase::SaveCreatedClip => {
-                    if world.resource::<AnimationEditorState>().editable()
-                        && click_animation_button(world, &mut state, bridge::AnimationCommand::Save)?
-                    {
+                    let author = world.resource::<AnimationEditorState>();
+                    let Some(document) = author.active_document() else { return Ok(()); };
+                    if author.busy() || document.clips.len() == 1 { return Ok(()); }
+                    if document.clips.len() != 2 || author.active_clip() != 1 || !author.editable() {
+                        return Err("原复制动画按钮应将副本作为当前片段".into());
+                    }
+                    if click_animation_button(world, &mut state, bridge::AnimationCommand::Save)? {
                         state.phase = Phase::ReadCreatedClip;
                     }
                 }
@@ -351,21 +363,23 @@ pub(super) fn advance(world: &mut World) -> Option<Result<Value, String>> {
                         return Err(format!("原新建动画保存失败：{error}"));
                     }
                     if probe.save_receipt != Some(Ok(())) || probe.dirty { return Ok(()); }
+                    if probe.history_len != 2 { return Err("复制片段应计入动画历史".into()); }
                     state.io = Some(IoTaskPool::get().spawn(async move { io::saved_created_clip(&paths) }));
                     state.phase = Phase::VerifyCreatedClipOnDisk;
                 }
                 Phase::VerifyCreatedClipOnDisk => {
                     let Some(result) = state.io.as_mut().and_then(check_ready) else { return Ok(()); };
                     state.io = None;
-                    let IoResult::SavedCreatedClip { sha256, clip_count } = result? else {
+                    let IoResult::SavedCreatedClip { sha256, clip_names } = result? else {
                         return Err("新建动画落盘回执身份不符".into());
                     };
                     let before = state.unanimated_model_sha256.as_ref().ok_or("缺少零动画原始摘要")?;
-                    if clip_count != 1 || sha256 == *before {
-                        return Err("保存后自有 GLB 应新增一个动画".into());
+                    if clip_names.len() != 2 || clip_names[1] != format!("{} 副本", clip_names[0]) || sha256 == *before {
+                        return Err("保存后自有 GLB 应保留原动画和有独立名称的副本".into());
                     }
                     state.created_clip_proof = Some(json!({
-                        "asset_path": MODEL, "disk_clip_count_before": 0, "disk_clip_count_after": clip_count,
+                        "asset_path": MODEL, "disk_clip_count_before": 0, "disk_clip_count_after": clip_names.len(),
+                        "disk_clip_names": clip_names, "duplicate_via_toolbar": true,
                         "created_read_only": true, "entered_edit_mode": true, "save_receipt": {"Ok": null},
                         "sha256_before": before, "sha256_after": sha256,
                     }));
@@ -433,14 +447,21 @@ pub(super) fn advance(world: &mut World) -> Option<Result<Value, String>> {
 
 #[cfg(feature = "validation")]
 fn click_animation_button(world: &mut World, state: &mut Fixture, action: bridge::AnimationCommand) -> Result<bool, String> {
+    click_window_button(world, state, &format!("Click{action:?}"), |world| bridge::original_button(world, action))
+}
+
+#[cfg(feature = "validation")]
+fn click_window_button(
+    world: &mut World, state: &mut Fixture, action: &str, button: impl FnOnce(&mut World) -> Option<Entity>,
+) -> Result<bool, String> {
     let position = if let Some((position, _)) = state.click {
         position
     } else {
         if !bridge::input_ready(world) { return Ok(false); }
-        let Some(entity) = bridge::original_button(world, action) else { return Ok(false); };
+        let Some(entity) = button(world) else { return Ok(false); };
         let Some(transform) = world.get::<UiGlobalTransform>(entity) else { return Ok(false); };
         let position = transform.translation.as_dvec2();
-        record_action(world, state, &format!("Click{action:?}"));
+        record_action(world, state, action);
         position
     };
     let window = world.query_filtered::<Entity, With<PrimaryWindow>>()

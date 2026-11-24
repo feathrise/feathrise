@@ -156,8 +156,8 @@ pub(crate) fn handle_gltf_browser_input(
     layout: Option<Res<crate::resources::SceneEditorLayoutState>>,
     workspace: Option<Res<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>>,
 ) {
-    if let Some((scene, MainSceneSelection::Animation)) = &state.selected_main_row
-        && session.draft.as_ref().is_some_and(|draft| &draft.scene_id == scene && draft.motion.clip_name().is_none())
+    if let Some((scene, MainSceneSelection::Animation(id))) = &state.selected_main_row
+        && session.draft.as_ref().is_some_and(|draft| &draft.scene_id == scene && draft.motion.clip_name_for(id).is_none())
     {
         state.selected_main_row = None; // 原片段删除后清除高亮，保留摆放和网格选择。
     }
@@ -198,17 +198,18 @@ pub(crate) fn handle_gltf_browser_input(
         if let Some(sidebar) = sidebar.as_mut() { sidebar.reveal_scene_properties(); }
         return;
     }
-    if let Some(MainSceneGlbRow::Animation(index)) = row.main_glb {
+    if let Some(MainSceneGlbRow::Animation { index, id }) = &row.main_glb {
         if let Some(draft) = main_glb_draft(&editor, &session)
-            && draft.motion.editable_clip_index() == index && draft.motion.clip_name().is_some()
+            && draft.motion.clip_at(*index).is_some_and(|(current, _)| current == id)
         {
             // 动画行选中后可经原菜单改名。保留视口姿势目标，双击仍由原时间轴入口处理。
-            state.selected_main_row = Some((draft.scene_id.clone(), MainSceneSelection::Animation));
+            state.selected_main_row = Some((draft.scene_id.clone(), MainSceneSelection::Animation(id.clone())));
             state.selected_group = None;
             if let Some(sidebar) = sidebar.as_mut() { sidebar.reveal_scene_properties(); }
         }
         return;
     }
+    if row.main_glb.is_some() { return; } // 只读动画和空提示没有可选作者对象。
     let Some(entry_index) = row.entry_index else { return; };
     if state.signature_build.is_some() || state.entries_build.is_some() {
         state.status = "场景树正在更新，请完成后再选择或展开".to_owned();
@@ -368,14 +369,13 @@ pub(crate) fn sync_gltf_browser_rows(
     }
     let main_glb = main_glb_draft(&editor, &session);
     let motion = main_glb.map(|draft| &draft.motion);
-    let editable = motion.and_then(|motion| Some((motion.editable_clip_index(), motion.clip_name()?)));
-    let animation_selected = editable.is_some()
-        && matches!(&state.selected_main_row, Some((scene, MainSceneSelection::Animation))
-            if Some(scene) == editor.selected_scene_id.as_ref());
-    let draft_name = editable.filter(|(index, _)| index.is_none()).map(|(_, name)| name);
+    let selected_animation = main_glb.and_then(|draft| {
+        let id = state.selected_scene_animation(&draft.scene_id)?;
+        draft.motion.clip_name_for(id).map(|_| id)
+    });
     let empty_hint = usize::from(state.main_glb_entry_count == 0);
     // 主文件在独立根行，滚动列表从动画和内嵌网格开始，再列引用与文件夹。
-    let main_rows = motion.map_or(0, |motion| (motion.visible_clip_count() + usize::from(draft_name.is_some())).max(empty_hint));
+    let main_rows = motion.map_or(0, |motion| (motion.clip_count() + motion.foreign_clip_count()).max(empty_hint));
     let total_rows = main_rows.saturating_add(state.entries.len());
     let (drag, locale) = view;
     let locale = locale.as_deref().copied().unwrap_or_default();
@@ -401,41 +401,44 @@ pub(crate) fn sync_gltf_browser_rows(
     }
     for (entity, interaction, mut click, mut row, mut node, mut background, mut border, children) in &mut rows {
         let tree_index = start.saturating_add(row.slot);
-        let main_row = match tree_index {
-            index if index < main_rows => {
-                if let Some((clip_index, name)) = motion.and_then(|motion| motion.visible_clip(index)) {
-                    let index = Some(clip_index);
-                    let name = editable.filter(|(editable, _)| *editable == index).map_or(name, |(_, name)| name);
-                    Some((MainSceneGlbRow::Animation(index), name))
-                } else if let Some(name) = draft_name {
-                    Some((MainSceneGlbRow::Animation(None), name))
-                } else {
-                    Some((MainSceneGlbRow::Empty, locale.text("label.main-scene-no-animations")))
-                }
-            }
-            _ => None,
+        let animation = motion.and_then(|motion| motion.clip_at(tree_index));
+        let read_only = motion.and_then(|motion| {
+            let index = tree_index.checked_sub(motion.clip_count())?;
+            Some((index, motion.foreign_clip_at(index)?))
+        });
+        let empty = tree_index < main_rows && animation.is_none() && read_only.is_none();
+        // 只读当前可见槽，ID 仅在换绑时复制。
+        let same_main_row = match (&row.main_glb, animation, read_only, empty) {
+            (Some(MainSceneGlbRow::Animation { index, id: previous }), Some((id, _)), _, _) =>
+                *index == tree_index && previous == id,
+            (Some(MainSceneGlbRow::ReadOnlyAnimation(previous)), _, Some((index, _)), _) =>
+                *previous == index,
+            (Some(MainSceneGlbRow::Empty), None, None, true) | (None, None, None, false) => true,
+            _ => false,
         };
-        let main_kind = main_row.map(|(kind, _)| kind);
         let binding = tree_index.checked_sub(main_rows)
             .filter(|&index| index < state.entries.len());
         let rebound = scene_changed || row.entries_revision != state.published_entries_revision
-            || row.entry_index != binding || row.main_glb != main_kind;
+            || row.entry_index != binding || !same_main_row;
         if rebound {
             if let Some(click) = click.as_deref_mut() {
                 click.invalidate();
             }
             row.entry_index = binding;
-            row.main_glb = main_kind;
+            row.main_glb = animation.map(|(id, _)| MainSceneGlbRow::Animation { index: tree_index, id: id.to_owned() })
+                .or_else(|| read_only.map(|(index, _)| MainSceneGlbRow::ReadOnlyAnimation(index)))
+                .or_else(|| empty.then_some(MainSceneGlbRow::Empty));
             row.entries_revision = state.published_entries_revision;
         }
         let placement = binding.and_then(|index| state.entries.get(index));
-        let (depth, name, prefix, base_color, icon, selected) = if let Some((kind, name)) = main_row {
-            let color = if kind == MainSceneGlbRow::Empty { colors::TEXT_MUTED } else { colors::TEXT_PRIMARY };
-            let selected = animation_selected
-                && matches!(kind, MainSceneGlbRow::Animation(index) if editable.is_some_and(|(editable, _)| editable == index));
-            (0, name, "", color, "icons/editor/tree_file.png", selected)
+        let (depth, name, prefix, base_color, icon, selected) = if let Some((id, name)) = animation {
+            (0, name, "", colors::TEXT_PRIMARY, "icons/editor/tree_file.png", selected_animation == Some(id))
+        } else if let Some((_, name)) = read_only {
+            (0, name, "", colors::TEXT_MUTED, "icons/editor/tree_file.png", false)
+        } else if empty {
+            (0, locale.text("label.main-scene-no-animations"), "", colors::TEXT_MUTED, "icons/editor/tree_file.png", false)
         } else if let Some(entry) = placement {
-            let selected = !animation_selected && match &entry.kind {
+            let selected = selected_animation.is_none() && match &entry.kind {
                 EditorGltfBrowserEntryKind::Group { name, .. } => state.selected_group.as_ref() == Some(name),
                 EditorGltfBrowserEntryKind::Placement { placement_id, .. } =>
                     state.selection.is_none() && (state.selected_placement_id.as_ref() == Some(placement_id)
@@ -477,12 +480,9 @@ pub(crate) fn sync_gltf_browser_rows(
                 if transform.translation != translation { transform.translation = translation; }
             }
         }
-        let interaction = match main_kind {
-            _ if drag.as_ref().is_some_and(|drag| drag.owns_mouse()) => UiInteraction::None,
-            Some(MainSceneGlbRow::Empty) => UiInteraction::None,
-            Some(MainSceneGlbRow::Animation(index)) if !editable.is_some_and(|(editable, _)| editable == index) => UiInteraction::None,
-            _ => *interaction,
-        };
+        let interaction = if empty || read_only.is_some() || drag.as_ref().is_some_and(|drag| drag.owns_mouse()) {
+            UiInteraction::None
+        } else { *interaction };
         // 行池同帧滚动换绑时，不把上一行的有效落点高亮借给新条目。
         let drop_target = !rebound && drag.as_ref().is_some_and(|drag| drag.highlights(entity));
         let (fill, outline) = tree_row_colors(selected, drop_target, interaction);

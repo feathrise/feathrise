@@ -304,7 +304,10 @@ pub(crate) fn poll_draft_save(
                     domain.value = (domain.ops.saved)(&*domain.value, &hash);
                     asset_server.reload(domain.asset_path().to_owned());
                 } // 内容hash不变时，各领域运行时保留已采用内容。
-                if let Some(motion) = motion {
+                if let Some(mut motion) = motion {
+                    if let Some(id) = draft.motion.active_clip_id() {
+                        motion.select_clip(id); // 采用保存基线时保留当前片段选择。
+                    }
                     let retired = std::mem::replace(&mut draft.motion, motion);
                     if let Some(retirement) = authoring_retirement.as_deref_mut() {
                         retirement.push(retired); // 作废的整表交给既有后台释放槽。

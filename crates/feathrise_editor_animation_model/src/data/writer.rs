@@ -41,35 +41,46 @@ impl AnimationDocument {
         extras: Value,
         finish: impl FnOnce(&mut Value, &[u8]) -> Result<(), String>,
     ) -> Result<Vec<u8>, String> {
+        let clips = (!clip.channels.is_empty()).then_some((clip, extras));
+        self.encode_scene_clips(clips, |json, binary, mut encoded| {
+            if let Some(index) = previous {
+                let animations = json["animations"].as_array_mut().ok_or("原动画列表无效")?;
+                if index >= animations.len() {
+                    return Err("原场景动画片段已换代".into());
+                }
+                if let Some(entry) = encoded.pop() {
+                    animations[index] = entry;
+                } else {
+                    animations.remove(index);
+                }
+                if animations.is_empty() {
+                    json.as_object_mut().ok_or("GLB 结构无效")?.remove("animations");
+                }
+            } else if let Some(entry) = encoded.pop() {
+                json.as_object_mut().ok_or("GLB 结构无效")?.entry("animations")
+                    .or_insert_with(|| json!([])).as_array_mut().ok_or("动画列表无效")?.push(entry);
+            }
+            finish(json, binary)
+        })
+    }
+
+    /// 所有修改的场景片段共享一次 JSON/BIN 复制和发布，未重编码的片段由原事务保留。
+    pub fn encode_scene_clips<'a>(
+        &self,
+        clips: impl IntoIterator<Item = (&'a Clip, Value)>,
+        finish: impl FnOnce(&mut Value, &[u8], Vec<Value>) -> Result<(), String>,
+    ) -> Result<Vec<u8>, String> {
         if self.read_only {
             return Err("仅支持保存独立 GLB 文件".into());
         }
         let mut json = self.source.json.clone();
         let mut binary = self.source.chunks.iter().find(|chunk| chunk.kind == BIN_CHUNK)
             .map_or_else(Vec::new, |chunk| chunk.bytes.to_vec());
-        let entry = if clip.channels.is_empty() {
-            None
-        } else {
+        let mut entries = Vec::new();
+        for (clip, extras) in clips {
             let mut encoded = encode_new_clip(&mut json, &mut binary, clip)?;
             encoded["extras"] = extras;
-            Some(encoded)
-        };
-        if let Some(index) = previous {
-            let animations = json["animations"].as_array_mut().ok_or("原动画列表无效")?;
-            if index >= animations.len() {
-                return Err("原场景动画片段已换代".into());
-            }
-            if let Some(entry) = entry {
-                animations[index] = entry;
-            } else {
-                animations.remove(index);
-            }
-            if animations.is_empty() {
-                json.as_object_mut().ok_or("GLB 结构无效")?.remove("animations");
-            }
-        } else if let Some(entry) = entry {
-            json.as_object_mut().ok_or("GLB 结构无效")?.entry("animations")
-                .or_insert_with(|| json!([])).as_array_mut().ok_or("动画列表无效")?.push(entry);
+            entries.push(encoded);
         }
         if !binary.is_empty() {
             if self.source.buffers.is_empty() {
@@ -78,7 +89,7 @@ impl AnimationDocument {
                 json["buffers"][0]["byteLength"] = json!(binary.len());
             }
         }
-        finish(&mut json, &binary)?;
+        finish(&mut json, &binary, entries)?;
         encode_chunks(&self.source.chunks, &json, &binary)
     }
 
@@ -109,7 +120,6 @@ impl AnimationDocument {
             return Err("动画保存后文件再次被外部修改，原草稿已保留，请重新载入后处理冲突".into());
         }
         saved.clips = self.clips.clone();
-        saved.preserved_clip_count = self.preserved_clip_count;
         saved.preserved_channel_counts = self.preserved_channel_counts.clone();
         // 已核对本次编码的精确字节，节点身份未变；保存不应使同源跨动作剪贴板失效。
         saved.source_identity = self.source_identity.clone();
@@ -177,43 +187,31 @@ impl AnimationDocument {
             .iter()
             .find(|chunk| chunk.kind == BIN_CHUNK)
             .map_or_else(Vec::new, |chunk| chunk.bytes.to_vec());
-        let mut changed = false;
-        if self.clips.len() < self.preserved_clip_count {
-            return Err("原 GLB 的动画片段必须保留".into());
-        }
-        if self.clips.len() < self.source.original_clips.len() {
-            // 保存后撤销新建只移去本会话追加的尾片段，已有片段的序号始终不变。
-            let animations = json["animations"].as_array_mut().ok_or("动画列表无效")?;
-            animations.truncate(self.clips.len());
-            if animations.is_empty() {
-                json.as_object_mut().ok_or("动画 JSON 无效")?.remove("animations");
-            }
-            changed = true;
-        }
+        let mut source_animations = match json.get_mut("animations") {
+            Some(Value::Array(animations)) => std::mem::take(animations),
+            Some(_) if !self.clips.is_empty() => return Err("动画列表无效".into()),
+            _ => Vec::new(),
+        };
+        let mut changed = self.clips.len() != self.source.original_clips.len();
+        let mut animations = Vec::with_capacity(self.clips.len());
         let mut clip_indices = HashSet::new();
-        for clip in &self.clips {
+        for (position, clip) in self.clips.iter().enumerate() {
             let index = clip.source_index;
-            if index >= self.clips.len() {
-                return Err("动画片段已不存在".into());
-            }
             if !clip_indices.insert(index) {
                 return Err("动画片段身份重复".into());
             }
-            let Some(original) = self.source.original_clips.get(index) else {
-                // 已有片段仍按原索引定位，仅允许新片段在当前尾部顺序追加。
-                if array(&json, "animations").len() != index {
-                    return Err("新动画片段必须按原索引顺序追加".into());
-                }
-                let animation = encode_new_clip(&mut json, &mut binary, clip)?;
-                json.as_object_mut().ok_or("动画 JSON 无效")?
-                    .entry("animations").or_insert_with(|| json!([]))
-                    .as_array_mut().ok_or("动画列表无效")?.push(animation);
+            let disk_index = self.disk_clip_index(index);
+            changed |= disk_index != Some(position);
+            let Some((original, source_animation)) = self.original_clip(index) else {
+                animations.push(encode_new_clip(&mut json, &mut binary, clip)?);
                 changed = true;
                 continue;
             };
-            let source_animation = array(&self.source.json, "animations")
-                .get(clip.source_index)
-                .ok_or("原动画片段不存在")?;
+            // 同一文件中的模型缓冲保持追加式写入；复制/撤销可继续引用原访问器，
+            // 未识别通道和扩展直接跟随原 JSON 片段恢复。
+            let mut animation = disk_index
+                .map(|index| std::mem::take(&mut source_animations[index]))
+                .unwrap_or_else(|| source_animation.clone());
             let preserved = self.preserved_channel_counts.get(index).copied().unwrap_or(0);
             let raw_channels = array(source_animation, "channels");
             let authored = clip.channels.partition_point(|channel| channel.source_index < preserved);
@@ -224,12 +222,12 @@ impl AnimationDocument {
             let desired_len = preserved + clip.channels.len() - authored;
             if desired_len < raw_channels.len() {
                 // 保存后也能撤销追加通道；原始索引（含未知通道）不移动。
-                json["animations"][index]["channels"].as_array_mut()
+                animation["channels"].as_array_mut()
                     .ok_or("动画通道列表无效")?.truncate(desired_len);
                 changed = true;
             }
             if clip.name != original.name {
-                json["animations"][clip.source_index]["name"] = Value::String(clip.name.clone());
+                animation["name"] = Value::String(clip.name.clone());
                 changed = true;
             }
             let mut channel_indices = HashSet::new();
@@ -269,7 +267,6 @@ impl AnimationDocument {
                 sampler["input"] = json!(input);
                 sampler["output"] = json!(output);
                 sampler["interpolation"] = json!(channel.interpolation);
-                let animation = &mut json["animations"][clip.source_index];
                 let samplers = animation["samplers"]
                     .as_array_mut()
                     .ok_or("动画 sampler 列表无效")?;
@@ -291,14 +288,27 @@ impl AnimationDocument {
                 }
                 changed = true;
             }
+            animations.push(animation);
+        }
+        if self.source.original_clips.iter().any(|clip|
+            !clip_indices.contains(&clip.source_index) && !self.removed_clips.contains(&clip.source_index))
+        {
+            return Err("原 GLB 的动画片段仅可通过删除操作移除".into());
         }
         if !changed {
             return Ok(self.source.bytes.to_vec());
         }
-        if self.source.buffers.is_empty() {
-            json["buffers"] = json!([{"byteLength": binary.len()}]);
+        if animations.is_empty() {
+            json.as_object_mut().ok_or("动画 JSON 无效")?.remove("animations");
         } else {
-            json["buffers"][0]["byteLength"] = json!(binary.len());
+            json["animations"] = Value::Array(animations);
+        }
+        if !binary.is_empty() {
+            if self.source.buffers.is_empty() {
+                json["buffers"] = json!([{"byteLength": binary.len()}]);
+            } else {
+                json["buffers"][0]["byteLength"] = json!(binary.len());
+            }
         }
         encode_chunks(&self.source.chunks, &json, &binary)
     }

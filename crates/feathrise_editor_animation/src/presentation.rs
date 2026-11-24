@@ -478,7 +478,7 @@ pub(super) fn sync(
             AnimationLabel::Clip => {
                 if view.clip_count > 0 {
                     locale.format("animation.clip.current", &[
-                        ("index", (view.clip_source_index + 1).to_string()),
+                        ("index", (view.clip_index + 1).to_string()),
                         ("count", view.clip_count.to_string()),
                         ("name", view.clip_name.clone()),
                     ])

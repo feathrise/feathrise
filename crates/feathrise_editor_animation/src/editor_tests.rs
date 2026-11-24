@@ -536,8 +536,11 @@ fn directory_clip_adopts_latest_source_index_without_losing_drafts_and_expires_o
     let alpha = root.join("animation-regression-alpha.glb");
     write_directory_clip_fixture(&alpha, "待机");
     let mut document = AnimationDocument::load(&alpha).unwrap();
-    document.clips[1].source_index = 5;
-    let mut draft = Session::new(document);
+    let snapshot = document.duplicate_clip(1).unwrap();
+    Edit::ClipSlot { position: 2, snapshot, insert_forward: true }.apply(&mut document, true).unwrap();
+    let snapshot = document.snapshot_clip(0).unwrap();
+    Edit::ClipSlot { position: 0, snapshot, insert_forward: false }.apply(&mut document, true).unwrap();
+    let mut draft = Session::new(document.save_rebased(&alpha).unwrap());
     draft.saved_cursor = None;
     let snapshot = draft.document.clone();
     let world = app.world_mut();
@@ -556,7 +559,7 @@ fn directory_clip_adopts_latest_source_index_without_losing_drafts_and_expires_o
         let mut state = world.resource_mut::<AnimationEditorState>();
         state.sessions.insert(alpha.clone(), draft);
         state.queue_directory_pick(root.clone(), alpha.clone(), 7, 0);
-        state.queue_directory_pick(root.clone(), alpha.clone(), 7, 5);
+        state.queue_directory_pick(root.clone(), alpha.clone(), 7, 1);
     }
     app.add_systems(Update, drive::drive);
     run_until_idle(&mut app);
@@ -564,6 +567,7 @@ fn directory_clip_adopts_latest_source_index_without_losing_drafts_and_expires_o
     {
         let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
         assert_eq!(state.active_clip(), 1);
+        assert_eq!(state.current().unwrap().document.clips[1].source_index, 2);
         assert!(state.playing);
         assert!(Arc::ptr_eq(&snapshot, &state.current().unwrap().document));
         assert!(state.current().unwrap().dirty());

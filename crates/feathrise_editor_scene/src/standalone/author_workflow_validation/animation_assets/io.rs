@@ -59,9 +59,16 @@ fn model_clip_count(bytes: &[u8]) -> Result<usize, String> {
 pub(super) fn saved_created_clip(paths: &Paths) -> Result<IoResult, String> {
     check_owner(paths)?;
     let bytes = read_asset(paths, MODEL)?;
+    let model = gltf::Gltf::from_slice(&bytes).map_err(|error| error.to_string())?;
+    let clip_names = model.animations().map(|clip| {
+        if clip.channels().next().is_none() {
+            return Err("保存的片段缺少动画通道".to_owned());
+        }
+        clip.name().map(str::to_owned).ok_or_else(|| "保存的片段没有名称".to_owned())
+    }).collect::<Result<Vec<_>, _>>()?;
     Ok(IoResult::SavedCreatedClip {
         sha256: hash(&bytes),
-        clip_count: model_clip_count(&bytes)?,
+        clip_names,
     })
 }
 

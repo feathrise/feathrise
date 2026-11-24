@@ -1,5 +1,6 @@
 //! 动画作者文档的纯数据边界；读取、曲线计算和保真保存只供后台任务调用。
 
+mod clips;
 mod creation;
 mod curves;
 mod reader;
@@ -7,8 +8,9 @@ mod structure;
 mod types;
 mod writer;
 
+pub use clips::new_scene_clip_id;
 pub use types::{
-    AnimationDocument, Channel, Clip, Keyframe, Node, PreviewJoint,
+    AnimationDocument, Channel, Clip, ClipSnapshot, Keyframe, Node, PreviewJoint,
 };
 pub use reader::preview_joint_topology;
 pub use structure::{GlbNodeInfo, GlbParent, GlbStructure, MeshGeometry};

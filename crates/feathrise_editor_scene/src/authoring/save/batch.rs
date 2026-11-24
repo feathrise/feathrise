@@ -566,12 +566,12 @@ fn prepare_placements_write<'a>(
         write_scene_placements_glb(&draft.placements, &relative, Some(&previous))?
     } else { previous };
     // 同一个文件同时含网格节点和动画。候选只发布一次，两个编辑域共用原子的冲突检查。
-    let (glb, motion) = if draft.motion.dirty || draft.motion.has_empty_clip_metadata() {
+    let (glb, motion) = if draft.motion.dirty || placements_changed && draft.motion.clip_count() != 0 {
         let (glb, saved) = draft.motion.encode_glb(&path, glb, &draft.placements, placements_changed)?;
         (glb, Some(saved))
-    } else if !draft.motion.clip_names().is_empty() {
-        let motion = draft.motion.with_saved_clip_names(&glb)?;
-        (glb, motion)
+    } else if placements_changed && draft.motion.has_saved_animation() {
+        let saved = draft.motion.refresh_foreign_clips(&glb)?;
+        (glb, Some(saved))
     } else { (glb, None) };
     let glb = if folders_changed {
         super::super::placement_folders::write_glb(&glb, &draft.object_folders)?

@@ -180,6 +180,8 @@ pub fn panel() -> impl Scene {
                     ]
                 ]
             --
+                @super::clip_management::scene()
+            --
                 ~{AnimationWriteControls::History} @wrap_row()
                 Children [@button("保存", AnimationAction::Save)-- @button("撤销", AnimationAction::Undo)--
                     @button("重做", AnimationAction::Redo)-- @button("重载动作", AnimationAction::Reload)]
