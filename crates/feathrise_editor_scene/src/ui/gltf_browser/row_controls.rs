@@ -1,15 +1,16 @@
-//! 场景树摆放和逻辑组的箭头与行内开关，共用可见行的身份校验。
+//! 场景树摆放和逻辑组的分支图标与行内开关，共用可见行的身份校验。
 
-use super::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, MainSceneGlbRow, SceneEditorGltfBrowserRow, systems::main_glb_draft};
+use super::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, MainSceneGlbRow, SceneEditorGltfBrowserRow, systems::{GltfRowCaption, main_glb_draft}};
 use crate::{
     authoring::{EditorAuthoringSession, placement_deletion::PlacementDeletionIdentity, placement_participation},
     resources::SceneEditorState,
     ui::{
         scene_objects::{SceneObjectState, effective_metadata, effective_participation},
         scene_sidebar::{
-            TreeRowToggle, load_tree_branch_images, load_tree_toggle_images, sync_tree_branch_icon,
-            sync_tree_toggle_icon, tree_branch_fill, tree_toggle_colors,
+            TreeRowToggle, load_tree_toggle_images, sync_tree_toggle_icon, tree_branch_fill, tree_toggle_colors,
         },
+        theme as colors,
+        tooltips::{EditorTooltipTarget, TooltipAction},
     },
 };
 use bevy::{prelude::*, ui::InteractionDisabled};
@@ -75,7 +76,7 @@ pub(crate) struct PlacementTreeToggle {
     binding: Option<RowBinding>,
 }
 
-/// 独立于名称区的左侧分支按钮，虚拟行复用时沿用同一释放身份门。
+/// 分支的类型图标兼作展开按钮，虚拟行复用时沿用同一释放身份门。
 #[derive(Component, Clone, Default)]
 pub(crate) struct PlacementTreeExpander(Option<RowBinding>);
 
@@ -133,16 +134,16 @@ pub(crate) fn sync(
     objects: Res<SceneObjectState>,
     server: Res<AssetServer>,
     mut images: Local<Option<[Handle<Image>; 6]>>,
-    mut expander_images: Local<Option<[Handle<Image>; 2]>>,
     rows: Query<&SceneEditorGltfBrowserRow>,
+    captions: Query<&ChildOf, With<GltfRowCaption>>,
     mut buttons: Query<(
         Entity, &ChildOf, &Children, &mut PlacementTreeToggle, &mut Node,
         Option<&mut EditorButtonClick>, &UiInteraction, Has<InteractionDisabled>,
         &mut BackgroundColor, &mut BorderColor,
     ), Without<PlacementTreeExpander>>,
     mut expanders: Query<(
-        Entity, &ChildOf, &Children, &mut PlacementTreeExpander, &mut Node, &mut Visibility,
-        Option<&mut EditorButtonClick>, &UiInteraction, Has<InteractionDisabled>, &mut BackgroundColor,
+        Entity, &ChildOf, &mut PlacementTreeExpander, Option<&mut EditorButtonClick>,
+        &UiInteraction, Has<InteractionDisabled>, &mut BackgroundColor, &mut BorderColor,
     ), Without<PlacementTreeToggle>>,
     mut icons: Query<&mut ImageNode>,
 ) {
@@ -181,10 +182,10 @@ pub(crate) fn sync(
         }
     }
 
-    let expander_images = expander_images.get_or_insert_with(|| load_tree_branch_images(&server));
     let main_glb = main_glb_draft(&editor, &session);
-    for (entity, parent, children, mut expander, mut node, mut visibility, click, interaction, disabled, mut fill) in &mut expanders {
-        let Ok(row) = rows.get(parent.parent()) else { continue; };
+    for (entity, parent, mut expander, click, interaction, disabled, mut fill, mut border) in &mut expanders {
+        let Ok(caption) = captions.get(parent.parent()) else { continue; };
+        let Ok(row) = rows.get(caption.parent()) else { continue; };
         let entry = row.entry_index.and_then(|index| browser.entries.get(index));
         let (collapsed, target) = match (row.main_glb, entry.map(|entry| &entry.kind)) {
             (Some(MainSceneGlbRow::File), _) => (
@@ -200,23 +201,23 @@ pub(crate) fn sync(
             }
             _ => (None, None),
         };
-        // 主场景动画与内嵌网格共用箭头列，省去叶子前的空槽。
-        let display = if browser.glyph_uses_arrow_column(row.entry_index, row.main_glb) { Display::None } else { Display::Flex };
-        if node.display != display { node.display = display; }
-        visibility.set_if_neq(if collapsed.is_some() { Visibility::Inherited } else { Visibility::Hidden });
         let target = target.filter(|_| ready);
         RowBinding::sync(&mut expander.0, &session, row, target, click);
         let available = target.is_some();
         if available == disabled {
             let mut entity = commands.entity(entity);
-            if available { entity.remove::<InteractionDisabled>(); }
-            else { entity.insert(InteractionDisabled); }
+            if available {
+                // 左键捕获最上层图标，父行仍参与右键和拖放命中。
+                entity.remove::<InteractionDisabled>().insert((
+                    Pickable { should_block_lower: false, is_hoverable: true },
+                    EditorTooltipTarget(TooltipAction::SceneTreeBranch),
+                ));
+            } else {
+                entity.remove::<EditorTooltipTarget>().insert((InteractionDisabled, Pickable::IGNORE));
+            }
         }
         fill.set_if_neq(tree_branch_fill(available, *interaction));
-        if let Some(collapsed) = collapsed && let Some(icon) = children.first()
-            && let Ok(mut image) = icons.get_mut(*icon)
-        {
-            sync_tree_branch_icon(collapsed, available, expander_images, &mut image);
-        }
+        // 展开态用图标下方的短线提示，避免为状态再占一列。
+        border.set_if_neq(BorderColor::all(if collapsed == Some(false) { colors::TEXT_MUTED } else { Color::NONE }));
     }
 }

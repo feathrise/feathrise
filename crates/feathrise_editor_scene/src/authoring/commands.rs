@@ -247,6 +247,7 @@ pub struct BuildingSparseTerrainChange {
 #[derive(Clone)]
 pub struct CourtyardBatchChange {
     pub(crate) model_vegetation: Option<Box<ModelVegetationTransfer>>, // 复制模型与根稀疏密度由同一后台事务及历史共同采用。
+    pub(crate) glb_delete: Option<super::source_glbs::deletion::GlbDeletion>,
     pub added: Vec<ScenePlacementRecord>, // 落印或整组复制始终向placements末尾追加。
     pub changed: Vec<(usize, ScenePlacementRecord, ScenePlacementRecord)>, // 组建和整体移动保留原数组下标、前后完整值。
     pub removed: Vec<(usize, ScenePlacementRecord)>, // 批量删除按原下标降序交换移除；撤销反向交换恢复原排列。
@@ -289,6 +290,7 @@ impl CourtyardBatchChange {
         }
         Ok(Self {
             model_vegetation: None,
+            glb_delete: None,
             added,
             changed,
             removed: Vec::new(),
@@ -313,7 +315,12 @@ impl CourtyardBatchChange {
         }
         let heap_bytes = removed.capacity() * std::mem::size_of::<(usize, ScenePlacementRecord)>()
             + removed.iter().map(|(_, record)| placement_record_heap_bytes(record)).sum::<usize>();
-        Ok(Self { model_vegetation: None, added: Vec::new(), changed: Vec::new(), removed, original_len: Some(original_len), heap_bytes })
+        Ok(Self { model_vegetation: None, glb_delete: None, added: Vec::new(), changed: Vec::new(), removed, original_len: Some(original_len), heap_bytes })
+    }
+
+    pub(crate) fn with_glb_delete(&mut self, deletion: super::source_glbs::deletion::GlbDeletion) {
+        self.heap_bytes = self.heap_bytes.saturating_add(deletion.heap_bytes());
+        self.glb_delete = Some(deletion);
     }
 
     pub(crate) fn with_model_vegetation(&mut self, change: ModelVegetationTransfer, bytes: usize) {

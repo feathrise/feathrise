@@ -385,7 +385,15 @@ fn main_scene_blender_menu_keeps_the_current_placement_selected() {
     let commands: Vec<_> = world.query::<(&MenuButton, &Node)>().iter(world)
         .filter_map(|(button, node)| (node.display == Display::Flex).then_some(button.0))
         .collect();
-    assert_eq!(commands, [SceneMenuAction::NewPlacementFolder, SceneMenuAction::EditInBlender]);
+    assert_eq!(commands, [SceneMenuAction::NewGlbContent, SceneMenuAction::NewPlacementFolder, SceneMenuAction::EditInBlender]);
+    choose(&mut test, SceneMenuAction::NewGlbContent);
+    test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+    step(&mut test.app);
+    let world = test.app.world_mut();
+    let children: Vec<_> = world.query::<(&MenuButton, &Node)>().iter(world)
+        .filter_map(|(button, node)| (node.display == Display::Flex && button.0.is_glb_shape()).then_some(button.0))
+        .collect();
+    assert_eq!(children, [SceneMenuAction::NewGlbCuboid, SceneMenuAction::NewGlbPlane]);
     choose(&mut test, SceneMenuAction::EditInBlender);
     test.app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
     step(&mut test.app);
@@ -558,7 +566,7 @@ fn scene_menu_rejects_rebound_rows_revision_changes_hidden_rows_and_unfocused_wi
                     .new_scene_dialog_open = true
             }
         }
-        choose(&mut test, SceneMenuAction::Delete);
+        choose(&mut test, SceneMenuAction::RemoveGlb);
         test.app
             .world_mut()
             .resource_mut::<ButtonInput<MouseButton>>()
@@ -582,7 +590,7 @@ fn scene_menu_queued_command_is_cancelled_if_scene_or_slot_changes_before_releas
     for invalid in 0..2 {
         let mut test = fixture();
         open(&mut test);
-        choose(&mut test, SceneMenuAction::Delete);
+        choose(&mut test, SceneMenuAction::RemoveGlb);
         if invalid == 0 {
             test.app
                 .world_mut()
@@ -716,7 +724,7 @@ fn scene_menu_uses_reverse_labels_and_keeps_locked_objects_recoverable() {
                 assert_eq!(label, "解锁");
                 assert!(!disabled);
             }
-            SceneMenuAction::Rename | SceneMenuAction::Copy | SceneMenuAction::Delete => {
+            SceneMenuAction::Rename | SceneMenuAction::Copy | SceneMenuAction::RemoveGlb | SceneMenuAction::DeleteGlbFile => {
                 assert!(disabled)
             }
             _ => {}
@@ -736,9 +744,9 @@ fn scene_menu_escape_dismisses_without_closing_editor_and_anchor_stays_inside_sc
     }
     open(&mut test);
     let popup = test.app.world().get::<Node>(test.popup).unwrap();
-    assert_eq!((popup.width, popup.height), (px(184), px(288)));
+    assert_eq!((popup.width, popup.height), (px(184), px(316)));
     assert_eq!(popup.left, px(452));
-    assert_eq!(popup.top, px(68));
+    assert_eq!(popup.top, px(40));
     test.app
         .world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
@@ -835,7 +843,12 @@ fn scene_menu_types_offer_supported_actions_and_focus_the_clicked_target() {
         let world = test.app.world_mut();
         let actions: Vec<_> = world.query::<(&MenuButton, &Node)>().iter(world)
             .filter_map(|(button, node)| (node.display == Display::Flex).then_some(button.0)).collect();
-        assert_eq!(actions.len(), [10, 5, 4, 4][kind]);
+        assert_eq!(actions.len(), [11, 5, 4, 4][kind]);
+        if kind == 0 {
+            assert!(actions.contains(&SceneMenuAction::RemoveGlb));
+            assert!(actions.contains(&SceneMenuAction::DeleteGlbFile));
+            assert!(!actions.contains(&SceneMenuAction::Delete));
+        }
         if kind == 3 {
             assert!(actions.contains(&SceneMenuAction::NewPlacementFolder));
             assert!(actions.contains(&SceneMenuAction::NewEmptyGlb));

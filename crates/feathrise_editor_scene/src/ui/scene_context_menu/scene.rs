@@ -8,7 +8,7 @@ use super::{
 use crate::{components::SceneEditorRoot, resources::SceneEditorState, ui::theme as colors};
 use bevy::{prelude::*, ui::FocusPolicy};
 
-fn label(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, text: &str) {
+fn label(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, text: &str, color: Color) {
     parent.spawn((
         feathrise_editor_ui::localization::editor_label(text),
         TextFont {
@@ -16,7 +16,7 @@ fn label(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, text: &str) {
             font_size: 11.0.into(),
             ..default()
         },
-        TextColor(colors::TEXT_PRIMARY),
+        TextColor(color),
         TextLayout::no_wrap(),
         FocusPolicy::Pass,
     ));
@@ -83,6 +83,7 @@ pub(super) fn setup(
                         ))
                         .with_children(|popup| {
                             for action in SceneMenuAction::ALL {
+                                let color = if action == SceneMenuAction::DeleteGlbFile { colors::DANGER_TEXT } else { colors::TEXT_PRIMARY };
                                 popup
                                     .spawn((
                                         InteractionButton,
@@ -91,7 +92,7 @@ pub(super) fn setup(
                                         BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
                                         BorderColor::all(colors::COPPER_BORDER_WEAK),
                                     ))
-                                    .with_children(|parent| label(parent, &font, ""));
+                                    .with_children(|parent| label(parent, &font, "", color));
                             }
                             popup
                                 .spawn((
@@ -107,7 +108,7 @@ pub(super) fn setup(
                                     },
                                 ))
                                 .with_children(|rename| {
-                                    label(rename, &font, "名称");
+                                    label(rename, &font, "名称", colors::TEXT_PRIMARY);
                                     rename
                                         .spawn((
                                             InteractionButton,
@@ -154,7 +155,7 @@ pub(super) fn setup(
                                             BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
                                             BorderColor::all(colors::COPPER_BORDER_WEAK),
                                         ))
-                                        .with_children(|parent| label(parent, &font, "确认"));
+                                        .with_children(|parent| label(parent, &font, "确认", colors::TEXT_PRIMARY));
                                     rename
                                         .spawn((
                                             InteractionButton,
@@ -163,7 +164,7 @@ pub(super) fn setup(
                                             BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL),
                                             BorderColor::all(colors::COPPER_BORDER_WEAK),
                                         ))
-                                        .with_children(|parent| label(parent, &font, "取消"));
+                                        .with_children(|parent| label(parent, &font, "取消", colors::TEXT_PRIMARY));
                                 });
                         });
                 });
@@ -248,7 +249,7 @@ pub(super) fn sync(
     let count = target.map_or(0, |target| {
         SceneMenuAction::ALL
             .into_iter()
-            .filter(|action| target.menu_has(*action, &context.session))
+            .filter(|action| menu.shows_action(target, *action, &context.session))
             .count()
     });
     let desired = if menu.renaming {
@@ -299,7 +300,7 @@ pub(super) fn sync(
         &mut items
     {
         let visible = !menu.renaming && target.is_some_and(|target| {
-            target.menu_has(action.0, &context.session)
+            menu.shows_action(target, action.0, &context.session)
         });
         let enabled = visible && target.is_some_and(|target| target.allows(action.0));
         let display = if visible {
@@ -309,6 +310,11 @@ pub(super) fn sync(
         };
         if node.display != display {
             node.display = display;
+        }
+        let nested = target.is_some_and(|target| action.0.is_creation_child(target));
+        let left = px(if nested { 20.0 } else { 8.0 });
+        if node.padding.left != left {
+            node.padding.left = left;
         }
         if enabled && disabled {
             commands
@@ -337,7 +343,11 @@ pub(super) fn sync(
         for child in children {
             if let Ok(mut text) = texts.get_mut(*child) {
                 let label = target.map_or("", |target| locale.editor_label(action.0.label(target)));
-                if text.0 != label {
+                if action.0 == SceneMenuAction::NewGlbContent && target.is_some() {
+                    let arrow = if menu.creating { "▾" } else { "▸" };
+                    let label = format!("{label} {arrow}");
+                    if text.0 != label { text.0 = label; }
+                } else if text.0 != label {
                     text.0 = label.into();
                 }
             }
@@ -388,7 +398,7 @@ pub(super) fn scroll(
     } else {
         8.0 + SceneMenuAction::ALL
             .into_iter()
-            .filter(|action| target.object.menu_has(*action, &session))
+            .filter(|action| menu.shows_action(&target.object, *action, &session))
             .count() as f32
             * 28.0
     };

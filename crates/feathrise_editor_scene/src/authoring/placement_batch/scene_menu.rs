@@ -27,6 +27,8 @@ pub(crate) fn input(
     selection: Res<PlacementSelectionSet>,
     visuals: Res<CourtyardAuthoringState>,
     guard: Res<SceneEditorNumericScrubMouseGuard>,
+    external_authors: crate::ui::file_manager::ExternalFileAuthors,
+    file_writes: Option<Res<crate::ui::file_manager::FileWriteReservations>>,
     env: BatchEnvironment,
 ) {
     let Some(request) = menu.as_ref().and_then(|menu| menu.ready.as_ref()) else {
@@ -37,7 +39,8 @@ pub(crate) fn input(
     };
     let action = match request.action {
         SceneMenuAction::Copy => PlacementBatchAction::Copy,
-        SceneMenuAction::Delete => PlacementBatchAction::Delete,
+        SceneMenuAction::Delete | SceneMenuAction::RemoveGlb => PlacementBatchAction::Delete,
+        SceneMenuAction::DeleteGlbFile => PlacementBatchAction::DeleteGlbFile,
         _ => return,
     };
     if !request.target.current(&editor, &session)
@@ -57,6 +60,25 @@ pub(crate) fn input(
     let record = &draft.placements.placements[*index];
     if !record.editor.selectable() {
         return;
+    }
+    if matches!(request.action, SceneMenuAction::RemoveGlb | SceneMenuAction::DeleteGlbFile) {
+        let Some(path) = request.target.referenced_glb_path(&session) else { return; };
+        if action == PlacementBatchAction::DeleteGlbFile {
+            if draft.source_glb_edits.version(path).is_some() {
+                editor.status = "源 GLB 存在未保存编辑，请先保存或撤销这些编辑".into();
+                return;
+            }
+            let absolute = crate::authoring::workspace_asset_root().join(path);
+            if file_writes.as_ref().is_some_and(|writes| writes.blocks(&absolute)) {
+                editor.status = "源 GLB 正在被文件操作使用，请等待操作完成".into();
+                return;
+            }
+            let sources = vec![absolute].into();
+            if let Some(reason) = external_authors.blocker(&sources) {
+                editor.status = reason;
+                return;
+            }
+        }
     }
     let Some(bounds) = draft.manifest.world_bounds() else {
         return;
@@ -103,7 +125,7 @@ mod tests {
     fn scene_context_menu_copy_and_delete_keep_the_complete_frozen_record_and_single_history() {
         for (action, cuboid) in [
             (SceneMenuAction::Copy, false),
-            (SceneMenuAction::Delete, false),
+            (SceneMenuAction::RemoveGlb, false),
             (SceneMenuAction::Delete, true),
         ] {
             let (mut app, _, _) = base_app();

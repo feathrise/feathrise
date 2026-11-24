@@ -57,17 +57,22 @@ def import_model(source, builtin_seed, require_mesh=True):
         if require_mesh:
             raise RuntimeError("输入 GLB 没有可建模的网格。")
         return None
-    for obj in bpy.context.selected_objects:
-        obj.select_set(False)
+    # 读取启动文件后可能还没有区域上下文，直接通过已刷新的视图层读写选择。
+    for obj in view_layer.objects:
+        if obj.select_get(view_layer=view_layer):
+            obj.select_set(False, view_layer=view_layer)
     for obj in meshes:
-        obj.select_set(True)
+        obj.select_set(True, view_layer=view_layer)
     view_layer.objects.active = meshes[0]
     return max(obj.dimensions.length for obj in meshes)
 
 
 def frame_model(span):
-    window = bpy.context.window
-    if bpy.app.background or window is None or window.screen is None:
+    if bpy.app.background:
+        return
+    # 从空白启动文件返回时当前窗口可能尚未设进上下文，沿用实际的主窗口聚焦网格。
+    window = bpy.context.window or next(iter(bpy.context.window_manager.windows), None)
+    if window is None or window.screen is None:
         return
     for area in window.screen.areas:
         if area.type == "VIEW_3D":

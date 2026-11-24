@@ -4,12 +4,13 @@ use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::EditorButtonClick;
 use bevy::prelude::*; // ECS资源、Interaction和鼠标按钮。
 use bevy::time::Real; // F12暂停玩法时间后，场景双击仍按真实时间识别。
+use bevy::ui::RelativeCursorPosition;
 use bevy::window::{PrimaryWindow, Window}; // 场景和文件夹按下记录使用主窗口物理光标坐标。
 use feathrise_scene_content::{
     SceneCatalogAsset, SceneContentRegistry, SceneId, SceneManifestAsset,
 }; // 编辑场景资料必须读取正式清单的只读规格。
 
-use crate::components::{SceneEditorActionButton, SceneEditorSceneRootRow, SceneEditorSceneRow}; // 虚拟行池、固定根行和静态动作按钮。
+use crate::components::{SceneEditorActionButton, SceneEditorSceneRootRow, SceneEditorSceneRow, SceneEditorSceneRowGlyph}; // 虚拟行池、固定根行和静态动作按钮。
 use crate::constants::SCENE_FOLDER_MAX_FOLDERS; // 创建按钮在打开模态框前执行结构硬预算。
 use crate::resources::{
     SceneBrowserDragState, SceneBrowserIndexState, SceneBrowserState, SceneCreationTask, SceneDeletionTask,
@@ -102,7 +103,7 @@ fn open_folder_dialog(
     set_ime_enabled(windows, mode != SceneFolderDialogMode::Delete); // 删除确认无需中文输入候选框。
 }
 
-/// 普通文件夹点击在松开时才改变展开状态，拖动不会先把源子树折叠掉。
+/// 文件夹图标在同一命中区松开时才改变展开状态，名称点击和拖动不改变分支。
 fn toggle_folder_expansion(
     browser: &mut SceneBrowserState,
     editor: &mut SceneEditorState,
@@ -127,7 +128,7 @@ fn toggle_folder_expansion(
 #[allow(clippy::too_many_arguments)] // 单系统必须在同一Interaction边沿冻结行、任务门、catalog和物理光标身份。
 pub(crate) fn handle_scene_browser_input(
     roots: Query<&EditorButtonClick, (With<SceneEditorSceneRootRow>, Changed<EditorButtonClick>)>, // 固定根目录行选择事件。
-    rows: Query<(Ref<UiInteraction>, &SceneEditorSceneRow, Ref<EditorButtonClick>),
+    rows: Query<(Entity, Ref<UiInteraction>, &SceneEditorSceneRow, Ref<EditorButtonClick>, Option<&Children>),
         Or<(Changed<UiInteraction>, Changed<EditorButtonClick>)>>, // 按下只捕获拖动候选，普通行操作等待合法松开。
     buttons: Query<
         (
@@ -161,6 +162,8 @@ pub(crate) fn handle_scene_browser_input(
         Local<crate::types::SceneBrowserSelectionWork>,
         Option<Res<crate::resources::SceneEditorSettingsState>>,
         Option<Res<crate::authoring::TerrainExternalChangeState>>,
+        Query<&RelativeCursorPosition, With<SceneEditorSceneRowGlyph>>,
+        Local<Option<Entity>>,
     ),
 ) {
     let (
@@ -174,6 +177,8 @@ pub(crate) fn handle_scene_browser_input(
         mut selection_work,
         settings,
         terrain_conflict,
+        glyphs,
+        mut folder_icon_press,
     ) = context;
     let directory_visible = sidebar_context.visible();
     let blocked = !editor.open
@@ -248,15 +253,16 @@ pub(crate) fn handle_scene_browser_input(
                         (browser.selection_count() > 1).then(|| browser.selection.clone());
                     drag.catalog_revision =
                         Some(registry.as_ref().map_or(0, |registry| registry.revision));
-                    drag.suppress_folder_toggle = true;
                 }
             }
         }
         *last_click = None;
+        *folder_icon_press = None;
         return; // 等待与采用帧都不重放期间已消费的按钮/目录Interaction。
     }
     if blocked || persistence.batch.is_some() {
         *last_click = None; // 模态、隐藏页和拖拽介入后，旧单击不能与解除阻塞后的新按下组成双击。
+        *folder_icon_press = None;
         return; // 任一模态或鼠标所有权期间只推进Changed tick，不执行迟到动作。
     }
     if !directory_visible {
@@ -297,7 +303,11 @@ pub(crate) fn handle_scene_browser_input(
         drag.selection = None;
         editor.status = "已选中根文件夹".to_owned(); // 根固定展开，不执行无意义收起。
     }
-    for (interaction, row, click) in &rows {
+    let left_just_pressed = mouse.as_ref().is_some_and(|mouse| mouse.just_pressed(MouseButton::Left));
+    if left_just_pressed || !directory_visible {
+        *folder_icon_press = None;
+    }
+    for (entity, interaction, row, click, children) in &rows {
         if !directory_visible {
             continue;
         }
@@ -309,19 +319,32 @@ pub(crate) fn handle_scene_browser_input(
             editor.status = "场景回收或进入请求完成前不能更改目录选择".to_owned(); // 冻结已有事务目标。
             continue;
         }
+        let pressed = interaction.is_changed() && *interaction == UiInteraction::Pressed;
+        let clicked = click.is_changed() && click.is_clicked();
+        if !pressed && !clicked {
+            continue;
+        }
+        let on_icon = matches!(item, SceneBrowserItem::Folder(_))
+            && children.is_some_and(|children| {
+                children.iter().any(|child| glyphs.get(child).is_ok_and(RelativeCursorPosition::cursor_over))
+            });
         let control = keys
             .as_ref()
             .is_some_and(|keys| keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]));
         let shift = keys
             .as_ref()
             .is_some_and(|keys| keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]));
-        if interaction.is_changed() && *interaction == UiInteraction::Pressed {
+        if pressed {
             // 拖放必须在按下时冻结来源，但此时不改选择、属性页或展开状态。
             drag.press = None;
             drag.selection = None;
             drag.collapse_on_release = false;
-            drag.suppress_folder_toggle = true; // 阈值内的普通松开统一由共享按钮协议确认。
-            if !shift && !matches!(item, SceneBrowserItem::Root)
+            if left_just_pressed && on_icon {
+                *folder_icon_press = Some(entity);
+            }
+            if folder_icon_press.is_none()
+                && !shift
+                && !matches!(item, SceneBrowserItem::Root)
                 && structure_change_allowed(&browser, &persistence, &creation, &deletion).is_ok()
                 && let Ok(window) = windows.single_mut()
                 && let Some(start_physical) = window.physical_cursor_position()
@@ -339,13 +362,21 @@ pub(crate) fn handle_scene_browser_input(
                     document_revision: browser.document_revision, display_name, start_physical });
             }
         }
-        if !click.is_changed() || !click.is_clicked() {
+        if !clicked {
             continue; // 悬停、持续按住和移出松开都不提交目录动作。
         }
         drag.press = None;
         drag.selection = None;
         drag.collapse_on_release = false;
-        drag.suppress_folder_toggle = control || shift;
+        let started_on_icon = folder_icon_press.take() == Some(entity);
+        if on_icon || started_on_icon {
+            // 此处仍由原行点击验证换绑与释放，图标仅区分展开区域，不创建第二个拾取目标。
+            *last_click = None;
+            if on_icon && started_on_icon && let SceneBrowserItem::Folder(id) = item {
+                toggle_folder_expansion(&mut browser, &mut editor, &id);
+            }
+            continue;
+        }
         if shift {
             if projection.is_none() {
                 *last_click = None;
@@ -381,19 +412,14 @@ pub(crate) fn handle_scene_browser_input(
         }
         match item {
             SceneBrowserItem::Folder(folder_id) => {
-                *last_click = None; // 文件夹展开/收起打断场景双击。
+                *last_click = None; // 切换到文件夹选择打断场景双击。
                 editor.scene_list_selection_id = None; // 文件夹选择绝不能误删旧场景目标。
                 let Some(folder) = folder_by_id(&browser.document, &folder_id) else {
-                    browser.select_only(None); // 热更新移除后的旧虚拟行不能修改展开集合。
+                    browser.select_only(None); // 热更新移除后的旧虚拟行不能保留为选择。
                     editor.status = "所选文件夹已不存在".to_owned();
                     continue;
                 };
-                let display_name = folder.display_name.clone();
-                if !drag.suppress_folder_toggle {
-                    toggle_folder_expansion(&mut browser, &mut editor, &folder_id); // 合法松开才导航；归类禁写仍允许展开。
-                } else {
-                    editor.status = format!("已选中文件夹“{display_name}”");
-                }
+                editor.status = format!("已选中文件夹“{}”", folder.display_name);
             }
             SceneBrowserItem::Scene(scene_id) => {
                 editor.scene_list_selection_id =
@@ -443,6 +469,10 @@ pub(crate) fn handle_scene_browser_input(
                 browser.selection_count()
             );
         }
+    }
+
+    if mouse.as_ref().is_some_and(|mouse| !mouse.pressed(MouseButton::Left)) {
+        *folder_icon_press = None;
     }
 
     let mut sidebar_before = None;
@@ -498,7 +528,7 @@ pub(crate) fn handle_scene_browser_input(
                         editor.status = "所选文件夹已不存在".to_owned();
                         continue;
                     }
-                    editor.status = "点击文件夹行展开或收起。".to_owned(); // 树结构不再切换当前目录。
+                    editor.status = "点击文件夹图标展开或收起。".to_owned(); // 树结构不再切换当前目录。
                 }
                 Some(SceneBrowserItem::Scene(scene_id)) => {
                     editor.scene_list_selection_id = Some(scene_id); // 显式同步既有切换场景保护函数目标。

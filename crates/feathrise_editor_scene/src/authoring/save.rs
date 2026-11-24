@@ -169,6 +169,7 @@ pub(crate) fn poll_draft_save(
             let motion = success.motion;
             let motion_written = success.motion_written;
             let source_glb_reload_paths = success.source_glb_reload_paths;
+            let glb_deletions = success.glb_deletions;
             let placements_changed = success.placements_changed; // 只有本批语义内容不同才允许正式发布。
             let surface_definition_changed = success.surface_definition_changed; // 只有JSON真正进入事务才发布正式定义。
             let surface_weights_changed = success.surface_weights_changed; // 只有RGBA/KTX2真正进入事务才重载权重纹理。
@@ -194,6 +195,12 @@ pub(crate) fn poll_draft_save(
             let terrain_revision = session.terrain_revision; // 水域交接仍须绑定同次Clipmap高度修订，不能借用旧河床。
             let water_revision = session.water_revision; // 水交接绑定保存成功时的作者修订，后续笔划会作废旧门。
             if let Some(draft) = session.draft.as_mut() {
+                if !draft.glb_deletions.is_empty() {
+                    let finished = std::mem::take(&mut draft.glb_deletions);
+                    if let Some(retirement) = authoring_retirement.as_deref_mut() {
+                        retirement.push(finished);
+                    }
+                }
                 if !source_glb_reload_paths.is_empty() {
                     let saved = std::mem::take(&mut draft.source_glb_edits);
                     if let Some(retirement) = authoring_retirement.as_deref_mut() {
@@ -593,8 +600,18 @@ pub(crate) fn poll_draft_save(
                     "{save_prefix}；环境 IBL、地表、植被、水域与区域边界正在热更新，当前会话继续显示正式预览"
                 ),
             };
+            if !glb_deletions.removed.is_empty() {
+                editor.status.push_str(&format!("。已永久删除 {} 个源 GLB", glb_deletions.removed.len()));
+            }
+            if !glb_deletions.failures.is_empty() {
+                editor.status.push_str(&format!("。以下源 GLB 未删除：{}", glb_deletions.failures.join("、")));
+            }
             info!("{}", editor.status);
-            editor.record_status_result(crate::types::EditorStatusKind::Success); // 只在原同票据、同修订成功分支附加表现证据。
+            editor.record_status_result(if glb_deletions.failures.is_empty() {
+                crate::types::EditorStatusKind::Success
+            } else {
+                crate::types::EditorStatusKind::Warning
+            }); // 场景保存成功和源文件删除部分失败必须分别能够从同一回执看出。
         }
         Ok(success) => {
             let scene_id = success.scene_id; // 旧作者修订已经落盘，但不得发布成当前会话正式完成证据。

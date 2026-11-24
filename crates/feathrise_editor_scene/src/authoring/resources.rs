@@ -71,6 +71,8 @@ pub struct EditorSceneDraft {
     pub(crate) object_folders: Arc<super::placement_folders::PlacementFolders>,
     pub(crate) motion: super::scene_motion::SceneMotionDocument,
     pub(crate) source_glb_edits: super::source_glbs::SourceGlbEdits,
+    /// 与摆放删除的原历史一致，只在下一次正常场景保存后删除经验证的源文件。
+    pub(crate) glb_deletions: super::source_glbs::deletion::GlbDeletions,
     /// 存在摘要时，摆放直接写回场景 GLB；摘要来自实际打开的字节。
     pub(crate) placement_glb_hash: Option<String>,
     /// 当前摆放文档的整网格水绑定总数；加载任务计算，赋水/撤销按单记录差值维护。

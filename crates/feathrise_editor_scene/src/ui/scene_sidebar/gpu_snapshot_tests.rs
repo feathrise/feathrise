@@ -26,8 +26,8 @@ fn scene_directory_gpu_snapshot() {
     let document = crate::scene_browser::decode_folder_document(
         &serde_json::to_vec(&serde_json::json!({
             "schema_version": 1,
-            "folders": [{"id": "FIXTURE-FOLDER", "display_name": "测试区域", "parent_id": null}],
-            "scene_folders": {"FIXTURE-A": "FIXTURE-FOLDER", "FIXTURE-B": "FIXTURE-FOLDER"}
+            "folders": [{"id": "FOLDER-1", "display_name": "测试区域", "parent_id": null}],
+            "scene_folders": {"FIXTURE-A": "FOLDER-1", "FIXTURE-B": "FOLDER-1"}
         })).unwrap(),
     )
     .unwrap();
@@ -157,8 +157,8 @@ fn scene_directory_gpu_snapshot() {
     let font = app.world_mut().resource_mut::<Assets<Font>>().add(Font::from_bytes(
         feathrise_runtime::app::default_font::DEFAULT_FONT_BYTES.to_vec(),
     ));
-    let output =
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.local/validation");
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
+    let output = workspace.join("target/scene-directory-validation");
     std::fs::create_dir_all(&output).unwrap();
     let (menu_scene, menu_folder) = {
         let index = app.world().resource::<SceneBrowserIndexState>();
@@ -224,16 +224,10 @@ fn scene_directory_gpu_snapshot() {
             .resource::<crate::ui::scene_sidebar::SceneBrowserTreeIcons>();
         let images = app.world().resource::<Assets<Image>>();
         assert!(
-            [
-                &icons.folder,
-                &icons.scene,
-                &icons.root,
-                &icons.expand,
-                &icons.collapse
-            ]
-            .iter()
-            .all(|icon| images.contains(icon.id())),
-            "目录五类图标必须实际加载"
+            [&icons.folder, &icons.scene, &icons.root]
+                .iter()
+                .all(|icon| images.contains(icon.id())),
+            "目录三类图标必须实际加载"
         );
         let world = app.world_mut();
         if let Some((_, item)) = context.as_ref() {

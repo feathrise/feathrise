@@ -29,6 +29,15 @@ pub(crate) use systems::start;
 pub(crate) use types::Mutation;
 pub(crate) use types::{CreationSource, CreationPlacementMode};
 
+/// 场景树使用网格工具的出厂规格，不读取作者上次编辑的面板尺寸或位置。
+pub(crate) fn tree_shape_target(plane: bool) -> Result<feathrise_scene_content::ScenePlacementAssetTarget, String> {
+    let state = TerrainObjectsEditorState {
+        creation_source: if plane { CreationSource::Plane } else { CreationSource::Cuboid },
+        ..Default::default()
+    };
+    creation::cuboid_target(&state)
+}
+
 /// 自有实窗夹具通过原开始按钮的请求槽创建；下一输入帧仍执行统一预检和原后台事务。
 #[cfg(any(test, feature = "validation"))]
 pub(crate) fn validation_request_creation(world: &mut bevy::prelude::World, source: CreationSource, values: [f32; 8]) -> Result<(), String> {

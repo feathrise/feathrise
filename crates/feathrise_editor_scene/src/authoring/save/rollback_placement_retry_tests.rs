@@ -276,6 +276,7 @@ impl RetryFixture {
     fn unchanged_save_success(&self) -> DraftSaveSuccess {
         DraftSaveSuccess {
             source_glb_reload_paths: Vec::new(),
+            glb_deletions: Default::default(),
             terrain_manifest: None, terrain_saved: Vec::new(), terrain_reload_paths: Vec::new(),
             terrain_digests: Vec::new(), terrain_water_changed: BTreeSet::new(),
             root_water_changed: false, domain_hash: None, motion: None, motion_written: false, scene_id: self.scene_id.clone(),

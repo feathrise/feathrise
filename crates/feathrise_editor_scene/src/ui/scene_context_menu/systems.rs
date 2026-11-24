@@ -242,11 +242,14 @@ pub(super) fn control_menu(
             // 菜单项按住只显示反馈，完整动作在同一项内松开并复核冻结目标后登记。
             let target = menu.target.as_ref().unwrap();
             if !target.object.allows(action)
-                || !target.object.menu_has(action, &context.session)
+                || !menu.shows_action(&target.object, action, &context.session)
             {
                 return;
             }
-            if action.requests_name() {
+            if action == SceneMenuAction::NewGlbContent {
+                // 子菜单保留本次右键冻结的 GLB，展开列表不分派任何作者命令。
+                menu.creating = !menu.creating;
+            } else if action.requests_name() {
                 if let Ok((entity, mut input)) = inputs.single_mut() {
                     let initial = match action {
                         SceneMenuAction::Rename => target.object.name.as_str(),
@@ -321,6 +324,7 @@ pub(super) fn control_menu(
     };
     menu.anchor = anchor;
     menu.target = Some(target);
+    menu.creating = false;
     menu.captured_this_frame = true;
     focus.clear(); // 菜单持有输入时让后台文本框失焦。
 }
@@ -437,6 +441,37 @@ pub(super) fn dispatch(
     }
     menu.ready = menu.queued.take().map(|(_, request)| request);
     menu.tree_focus_queued = false;
+}
+
+/// 主 GLB 的网格仍经作者摆放命令创建，由同一次场景保存写入主文件。
+pub(super) fn queue_main_glb_shape(
+    menu: Res<SceneContextMenuState>,
+    mut editor: ResMut<SceneEditorState>,
+    session: Res<EditorAuthoringSession>,
+    viewport: Option<Res<crate::resources::SceneEditorViewportState>>,
+    mut shapes: ResMut<crate::authoring::basic_shapes::BasicShapeState>,
+) {
+    let Some(request) = menu.ready.as_ref().filter(|request| {
+        request.action.is_glb_shape() && request.target.key == SceneObjectKey::MainSceneGlb
+            && request.target.current(&editor, &session)
+            && request.target.menu_has(request.action, &session)
+    }) else { return; };
+    if shapes.creation_request.is_some() { return; }
+    // 工作台先安装菜单，打开场景后才建立视口和实际场景中心。
+    let Some(viewport) = viewport else {
+        editor.status = "场景视口尚未就绪，请稍后新建网格".into();
+        return;
+    };
+    match crate::ui::terrain_objects::tree_shape_target(request.action == SceneMenuAction::NewGlbPlane) {
+        Ok(target) => {
+            shapes.creation_request = Some(crate::authoring::basic_shapes::CuboidCreationRequest {
+                target, position: Some(viewport.scene_center),
+            });
+            // 消费发生在下一输入帧，换场景或修订后原创建槽会拒绝旧请求。
+            shapes.creation_identity = Some((request.target.scene_id.clone(), request.target.revision));
+        }
+        Err(error) => editor.status = error,
+    }
 }
 
 pub(super) fn send_blender_action(

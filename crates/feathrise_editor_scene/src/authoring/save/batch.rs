@@ -140,6 +140,7 @@ impl std::fmt::Display for DraftSaveError {
 /// 保存成功后交给主线程的结构化发布决定。
 pub(crate) struct DraftSaveSuccess {
     pub(crate) source_glb_reload_paths: Vec<String>,
+    pub(crate) glb_deletions: super::super::source_glbs::deletion::GlbDeletionReceipt,
     pub(crate) terrain_manifest: Option<feathrise_scene_content::SceneManifestAsset>,
     pub(crate) terrain_saved: Vec<feathrise_scene_content::TerrainId>,
     pub(crate) terrain_reload_paths: Vec<String>,
@@ -196,6 +197,7 @@ pub(super) async fn save_draft_with_volumes(
         feathrise_scene_content::validate_saved_scene_instances(&root, &catalog, &draft.manifest)?;
     } // 同一作者锁内验证完整来源链，任何失败发生在首个stage创建之前。
     let source_guard = super::domain_files::DraftSourceSaveGuard::prepare(&root, &draft)?;
+    let glb_deletions = super::super::source_glbs::deletion::preflight(&root, &draft)?;
     let mut prepared = prepare_draft_writes(&root, &draft, global_environment)?;
     let mut terrain_reload_paths = Vec::new();
     let mut terrain_water_changed = std::collections::BTreeSet::new();
@@ -235,6 +237,13 @@ pub(super) async fn save_draft_with_volumes(
     // 私有画布和体积生成写项在此已全部合并，不能绕过根文档保留路径的零写入拒绝门。
     let root = workspace_asset_root();
     let placement_path = safe_asset_path(&root, &draft.placements_path())?;
+    for deletion in &glb_deletions {
+        let path = safe_asset_path(&root, deletion.relative())?;
+        let key = super::super::files::asset_path_collision_key(&path);
+        if writes.iter().any(|write| super::super::files::asset_path_collision_key(&write.path) == key) {
+            return Err(format!("源 GLB「{}」仍是本次保存的输出文件", deletion.relative()).into());
+        }
+    }
     let check_source = |path: &Path| {
         source_guard.check(path)?;
         source_glbs.check_source(path)?;
@@ -245,6 +254,7 @@ pub(super) async fn save_draft_with_volumes(
     };
     commit_prepared_writes_checked(writes, |_, path| check_source(path))
         .map_err(|failure| DraftSaveError::from_transaction(&root, failure))?;
+    let glb_deletions = super::super::source_glbs::deletion::finish(&root, glb_deletions);
     let source_glb_reload_paths = std::mem::take(&mut source_glbs.paths);
     drop(source_glbs); // 解除本批源文件的借用后再移交场景摆放数组。
     let domain_hash = prepared.domain_hash.take();
@@ -260,6 +270,7 @@ pub(super) async fn save_draft_with_volumes(
     let terrain_digests = Vec::new();
     Ok(DraftSaveSuccess {
         source_glb_reload_paths,
+        glb_deletions,
         domain_hash, // 成功之后才更新主世界外部文档磁盘基线。
         motion,
         motion_written,

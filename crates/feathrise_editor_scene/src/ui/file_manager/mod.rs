@@ -18,7 +18,7 @@ mod tests;
 #[cfg(feature = "validation")]
 pub(crate) use components::{FileContextLabel, FileContextPanel, FileList, FileManagerButton, FileNameInput, FileResizeHandle, FileRow, FileTaskButton, FileTitleBar};
 pub(crate) use components::FileWindowStrip;
-pub(crate) use file_identity::FileWriteReservations;
+pub(crate) use file_identity::{ExternalFileAuthors, FileWriteReservations};
 pub(crate) use messages::{CancelFileTask, ExtraRequest, FileManagerCommand, FileManagerContextRequest, FileManagerExternalDrag, OpenAnimationPicker, OpenFileWindow, OpenManagedFile, PickedSceneGlb};
 pub(crate) use resources::{FileManagerState, FixedFileSelection};
 pub(crate) use types::{ExtraAction, FileAction, ProjectMotionTarget};

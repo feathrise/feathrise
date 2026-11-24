@@ -4,6 +4,7 @@ use feathrise_editor_ui::UiInteraction;
 use feathrise_editor_ui::InteractionButton;
 use crate::ui::{asset_icons, theme as colors};
 use bevy::prelude::*; // UI实体生成、Interaction和文本查询。
+use bevy::ui::RelativeCursorPosition;
 use feathrise_scene_content::{SceneAssetKind, SceneCatalogAsset}; // 场景进入测试仍使用公共目录，资产行读取公共类型。 // 动态行使用静态BSN相同水墨配色。
 
 use crate::authoring::{EditorAuthoringSession, GlobalEnvironmentAuthoringState}; // 显式进入与最终切换场景共用同一作者保存判断。
@@ -152,10 +153,9 @@ pub(crate) fn spawn_dynamic_rows(
                     ))
                     .with_children(|row| {
                         let icons = tree_icons.as_ref().expect("场景行池与图标一起初始化");
-                        row.spawn((SceneEditorSceneRowGlyph::Disclosure, ImageNode { image: icons.expand.clone(), color: colors::TEXT_MUTED, ..default() },
-                            Node { width: px(14), height: px(14), flex_shrink: 0.0, ..default() }, Pickable::IGNORE));
+                        // 图标记录自身命中，鼠标状态仍交给整行，保留全宽右键和拖放落点。
                         row.spawn((SceneEditorSceneRowGlyph::Entry, ImageNode { image: icons.scene.clone(), color: colors::TEXT_PRIMARY, ..default() },
-                            Node { width: px(18), height: px(18), flex_shrink: 0.0, ..default() }, Pickable::IGNORE));
+                            Node { width: px(18), height: px(18), flex_shrink: 0.0, ..default() }, RelativeCursorPosition::default(), Pickable::IGNORE));
                         row.spawn((SceneEditorSceneRowNameCell, Node { flex_grow: 1.0, flex_basis: px(0), min_width: px(0), overflow: Overflow::clip_x(), ..default() }, Pickable::IGNORE))
                             .with_child((
                                 SceneEditorSceneRowText, // 文本子实体保持固定，滚动时只原地改内容。
@@ -248,7 +248,7 @@ pub(crate) fn sync_scene_rows(
     mut texts: Query<(&mut Text, &mut TextColor), With<SceneEditorSceneRowText>>,
     name_cells: Query<&Children, With<SceneEditorSceneRowNameCell>>,
     mut current_labels: Query<&mut Text, (With<SceneEditorSceneRowCurrent>, Without<SceneEditorSceneRowText>)>,
-    mut glyphs: Query<(&SceneEditorSceneRowGlyph, &mut ImageNode)>,
+    mut glyphs: Query<&mut ImageNode, With<SceneEditorSceneRowGlyph>>,
     icons: Option<Res<super::scene_sidebar::SceneBrowserTreeIcons>>,
 ) {
     let Ok((scroll, computed)) = scrolls.single() else {
@@ -304,8 +304,10 @@ pub(crate) fn sync_scene_rows(
         if node.top != top {
             node.top = top;
         } // 行保持在完整滚动内容的真实位置。
-        // 根目录单独占一行；首层目录从5px起，每级增加18px，图标列严格对齐。
-        let indentation = (entry.depth.saturating_sub(1).min(8) as f32 * 18.0).min((width - 104.0).max(0.0));
+        // 直属场景复用父文件夹的图标列；嵌套文件夹仍逐级向右，拖放沿用原树深度。
+        let grouped_scene = matches!(entry.item, SceneBrowserItem::Scene(_)) && entry.parent_folder_id.is_some();
+        let depth = entry.depth.saturating_sub(1 + usize::from(grouped_scene));
+        let indentation = (depth.min(8) as f32 * 18.0).min((width - 104.0).max(0.0));
         let left = px(5.0 + indentation); // 深层窄栏也为类型图标、短名称和右侧“当前”保留位置。
         if node.padding.left != left {
             node.padding.left = left;
@@ -336,21 +338,14 @@ pub(crate) fn sync_scene_rows(
                 if text.as_str() != value { **text = value.to_owned(); }
             }
             if let Some(icons) = icons.as_ref()
-                && let Ok((role, mut image)) = glyphs.get_mut(child)
+                && let Ok(mut image) = glyphs.get_mut(child)
             {
-                let folder = matches!(entry.item, SceneBrowserItem::Folder(_));
-                let expanded = matches!(&entry.item, SceneBrowserItem::Folder(id) if browser.expanded_folder_ids.contains(id));
-                let handle = match role {
-                    SceneEditorSceneRowGlyph::Entry if folder => &icons.folder,
-                    SceneEditorSceneRowGlyph::Entry => &icons.scene,
-                    SceneEditorSceneRowGlyph::Disclosure if expanded => &icons.collapse,
-                    SceneEditorSceneRowGlyph::Disclosure => &icons.expand,
-                    SceneEditorSceneRowGlyph::Root => &icons.root,
+                let handle = match &entry.item {
+                    SceneBrowserItem::Folder(id) if browser.expanded_folder_ids.contains(id) => &icons.root,
+                    SceneBrowserItem::Folder(_) => &icons.folder,
+                    _ => &icons.scene,
                 };
                 if image.image != *handle { image.image = handle.clone(); }
-                // 场景保留箭头列的宽度但不画箭头，名称和同级文件夹保持统一基线。
-                let color = if matches!(role, SceneEditorSceneRowGlyph::Disclosure) && !folder { Color::NONE } else { colors::TEXT_PRIMARY };
-                if image.color != color { image.color = color; }
             }
         }
         // 名称只有一份；兼容原最小夹具的直接Text子节点，正式页面经固定裁切单元访问。

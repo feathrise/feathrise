@@ -49,6 +49,7 @@ impl TerrainCanvas {
             folder: identity.folder.clone(),
             placement_glb_hash: None,
             source_glb_edits: Default::default(),
+            glb_deletions: Default::default(),
             manifest: identity.manifest.clone(),
             terrain_ground: None,
             terrain_documents: TerrainDocumentStore {

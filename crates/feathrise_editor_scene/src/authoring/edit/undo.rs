@@ -763,6 +763,11 @@ pub(crate) fn apply_undo_redo(
                         crate::authoring::model_vegetation::transfer(draft,
                             if undoing { transfer.before.clone() } else { transfer.after.clone() })?;
                     }
+                    if let Some(deletion) = &change.glb_delete {
+                        let pending = std::sync::Arc::make_mut(&mut draft.glb_deletions);
+                        if undoing { pending.remove(&deletion.placement_id); }
+                        else { pending.insert(deletion.placement_id.clone(), deletion.clone()); }
+                    } // 撤销必须取消文件删除，后续普通移除同一摆放也不会再次携带物理意图。
                 }
                 EditorCommand::PortalAdded(record) => {
                     if undoing {

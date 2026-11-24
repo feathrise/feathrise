@@ -49,19 +49,14 @@ impl FileWriteReservations {
 }
 
 #[derive(SystemParam)]
-pub(super) struct ProtectedAuthors<'w> {
+pub(crate) struct ExternalFileAuthors<'w> {
     pub(super) documents: Option<ResMut<'w, DocumentState>>,
     animation: Option<Res<'w, AnimationEditorState>>,
     weights: Option<Res<'w, WeightEditor>>,
-    scene: Option<Res<'w, SceneEditorState>>,
-    session: Option<Res<'w, EditorAuthoringSession>>,
-    scenes: Option<Res<'w, SceneDocuments>>,
-    registry: Option<Res<'w, SceneContentRegistry>>,
-    load: Option<Res<'w, DraftLoadTask>>,
 }
 
-impl ProtectedAuthors<'_> {
-    pub(super) fn blocker(&self, sources: &FileSources) -> Option<String> {
+impl ExternalFileAuthors<'_> {
+    pub(crate) fn blocker(&self, sources: &FileSources) -> Option<String> {
         if self.documents.as_ref().is_some_and(|state| state.protects_file_changes(sources)) {
             return Some("选中文件包含未保存文档或正在写入的文档，请先保存或等待任务完成".into());
         }
@@ -76,7 +71,24 @@ impl ProtectedAuthors<'_> {
         if self.weights.as_ref().is_some_and(|state| state.protects_file_changes(sources)) {
             return Some("选中文件包含未保存蒙皮权重或调权任务的文件，请先保存或等待任务完成".into());
         }
-        let root = self.documents.as_ref().map(|state| state.asset_root().to_owned())
+        None
+    }
+}
+
+#[derive(SystemParam)]
+pub(super) struct ProtectedAuthors<'w> {
+    pub(super) external: ExternalFileAuthors<'w>,
+    scene: Option<Res<'w, SceneEditorState>>,
+    session: Option<Res<'w, EditorAuthoringSession>>,
+    scenes: Option<Res<'w, SceneDocuments>>,
+    registry: Option<Res<'w, SceneContentRegistry>>,
+    load: Option<Res<'w, DraftLoadTask>>,
+}
+
+impl ProtectedAuthors<'_> {
+    pub(super) fn blocker(&self, sources: &FileSources) -> Option<String> {
+        if let Some(reason) = self.external.blocker(sources) { return Some(reason); }
+        let root = self.external.documents.as_ref().map(|state| state.asset_root().to_owned())
             .unwrap_or_else(feathrise_editor_core::workspace_asset_root);
         let matches_handle = |id: &SceneId| {
             self.registry.as_ref().and_then(|registry| registry.handles(id))
@@ -127,6 +139,7 @@ fn scene_draft_matches(root: &Path, draft: &EditorSceneDraft, matches: &impl Fn(
             .chain(draft.domain.as_ref().map(|domain| domain.asset_path()))
             .filter(|path| !path.is_empty()).any(|path| matches(&root.join(path)))
         || matches(&root.join(draft.placements_path()))
+        || draft.glb_deletions.values().any(|deletion| matches(&root.join(deletion.relative())))
 }
 
 fn scene_write_matches(root: &Path, draft: &EditorSceneDraft, dirty: bool, sources: &FileSources) -> bool {

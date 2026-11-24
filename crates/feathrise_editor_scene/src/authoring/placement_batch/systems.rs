@@ -297,15 +297,32 @@ pub(crate) fn handle_placement_batch(
             retire(&mut state, capture.identity.clone(), capture);
         } else if capture.records.len() == capture.members.len() {
             // 只在真正交给worker前共享原表，捕获跨帧期间不占用写门；其他写者持源时保持本槽等待。
-            if capture.action == PlacementBatchAction::Delete && session.placement_deletions.write_shared() {
+            if capture.action.removes_placement() && session.placement_deletions.write_shared() {
                 state.capture = Some(capture);
                 editor.status = "删除票据正在后台准备，完成后继续整批删除".into();
             } else {
-                let deletion_source = (capture.action == PlacementBatchAction::Delete)
+                let deletion_source = capture.action.removes_placement()
                     .then(|| session.placement_deletions.source());
                 let selected = (capture.selection_revision, capture.selected_id.clone());
                 start_job(&mut state, capture.identity.clone(), async move {
-                    worker::capture_with_deletions(capture, deletion_source)
+                    // 字节摘要在 I/O 池冻结，撤销票据及历史仍在原 CPU 单飞槽构建。
+                    let file_deletion = if capture.action == PlacementBatchAction::DeleteGlbFile {
+                        let record = &capture.records[0].1; // 文件删除入口始终冻结一条完整外部 GLB 摆放。
+                        let (id, path) = (record.id.clone(), record.asset_path.clone());
+                        let result = bevy::tasks::IoTaskPool::get().spawn(async move {
+                            crate::authoring::source_glbs::deletion::GlbDeletion::capture(
+                                &crate::authoring::workspace_asset_root(), id, path)
+                        }).await;
+                        match result {
+                            Ok(deletion) => Some(deletion),
+                            Err(error) => return BatchOutput::Deleted(Err(error)),
+                        }
+                    } else { None };
+                    let mut output = worker::capture_with_deletions(capture, deletion_source);
+                    if let (Some(deletion), BatchOutput::Deleted(Ok((history, ..)))) = (file_deletion, &mut output) {
+                        history.with_glb_delete(deletion);
+                    }
+                    output
                 });
                 state.job.as_mut().unwrap().selection = Some(selected);
             }
@@ -521,6 +538,10 @@ fn accept_output(
                 retired.push(draft.placements.placements.swap_remove(*index));
             }
             draft.placement_water_surface_count = next_water;
+            let deletes_source = if let Some(deletion) = &history.glb_delete {
+                std::sync::Arc::make_mut(&mut draft.glb_deletions).insert(deletion.placement_id.clone(), deletion.clone());
+                true
+            } else { false };
             let map = draft.scene_id.clone();
             crate::authoring::placement_deletion::apply_prepared(
                 &mut env.commands, session, &map, prepared,
@@ -530,7 +551,9 @@ fn accept_output(
             queue_visual_sync(visuals, session, updates);
             selection.clear();
             state.selection_request = Some(String::new());
-            editor.status = "已删除选中对象；Ctrl+Z 一次恢复整组及原顺序".into();
+            editor.status = if deletes_source {
+                "已移除摆放。保存场景时将永久删除源 GLB，Ctrl+Z 可撤销".into()
+            } else { "已移除选中对象。Ctrl+Z 一次恢复整组及原顺序".into() };
             retire(
                 state,
                 BatchIdentity::from_session(session, content(env, session)).unwrap(),

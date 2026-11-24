@@ -9,7 +9,7 @@ use crate::{
             SourceMeshProperties,
         },
     },
-    resources::SceneEditorState,
+    resources::{SceneEditorState, SceneEditorViewportState},
     ui::scene_context_menu::{
         SceneContextMenuState, SceneMenuAction, SceneObjectKey, SceneObjectTarget,
     },
@@ -143,6 +143,7 @@ fn advance(
     mut session: ResMut<EditorAuthoringSession>,
     mut editing: ResMut<Editing>,
     menu: Option<Res<SceneContextMenuState>>,
+    viewport: Option<Res<SceneEditorViewportState>>,
     mut requests: MessageReader<SourceGlbRequest>,
     mut retirement: ResMut<crate::authoring::AuthoringRetirement>,
 ) {
@@ -191,10 +192,13 @@ fn advance(
         .as_ref()
         .and_then(|menu| menu.ready.as_ref())
         .filter(|request| {
-            matches!(
-                request.action,
-                SceneMenuAction::RenameSourceNode | SceneMenuAction::NewSourceFolder | SceneMenuAction::DeleteSourceFolder
-            ) && request.target.allows(request.action)
+            let source_action = match request.action {
+                SceneMenuAction::NewGlbCuboid | SceneMenuAction::NewGlbPlane =>
+                    matches!(request.target.key, SceneObjectKey::Placement { mesh: None, .. }),
+                SceneMenuAction::RenameSourceNode | SceneMenuAction::NewSourceFolder | SceneMenuAction::DeleteSourceFolder => true,
+                _ => false,
+            };
+            source_action && request.target.allows(request.action)
         });
     let resolved = match (request, menu_request) {
         (
@@ -235,17 +239,22 @@ fn advance(
             &session,
             request.action == SceneMenuAction::RenameSourceNode,
         )
-        .map(|target| {
-            (
-                target,
-                match request.action {
-                    SceneMenuAction::RenameSourceNode => {
-                        SourceGlbOperation::Rename { name: request.name.clone(), expected_hash: None }
+        .and_then(|target| {
+            let operation = match request.action {
+                SceneMenuAction::RenameSourceNode => {
+                    SourceGlbOperation::Rename { name: request.name.clone(), expected_hash: None }
+                }
+                SceneMenuAction::DeleteSourceFolder => SourceGlbOperation::DeleteFolder,
+                SceneMenuAction::NewGlbCuboid | SceneMenuAction::NewGlbPlane => {
+                    let viewport = viewport.as_deref().ok_or("场景中心尚未就绪")?;
+                    SourceGlbOperation::AddPrimitive {
+                        shape: crate::ui::terrain_objects::tree_shape_target(request.action == SceneMenuAction::NewGlbPlane)?,
+                        center: viewport.scene_center,
                     }
-                    SceneMenuAction::DeleteSourceFolder => SourceGlbOperation::DeleteFolder,
-                    _ => SourceGlbOperation::Folder(request.name.clone()),
-                },
-            )
+                }
+                _ => SourceGlbOperation::Folder(request.name.clone()),
+            };
+            Ok((target, operation))
         }),
         _ => return,
     };

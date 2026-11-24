@@ -131,11 +131,11 @@ pub(crate) enum EditorGltfBrowserEntryKind {
 /// 右栏对crate其余作者功能公开的一条扁平场景树记录。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EditorGltfBrowserEntry {
-    /// 行类型决定选中目标以及是否显示独立的展开箭头。
+    /// 行类型决定选中目标以及类型图标能否展开。
     pub(crate) kind: EditorGltfBrowserEntryKind,
     /// 已含树形前缀与必要诊断的短显示文本。
     pub(crate) display_name: String,
-    /// 视觉缩进深度；primitive的自动Name从不计入深度或路径。
+    /// 可见父行深度；呈现时合并文件与直属内容的图标列。
     pub(crate) depth: usize,
     /// 只有网格行携带稳定选择值，实例根行为None。
     pub(crate) selection: Option<EditorGltfMeshSelection>,
@@ -428,13 +428,6 @@ impl EditorGltfBrowserState {
             _ => return,
         }
         entries::request_visible_entries_rebuild(self);
-    }
-
-    pub(super) fn glyph_uses_arrow_column(&self, entry: Option<usize>, main_row: Option<MainSceneGlbRow>) -> bool {
-        matches!(main_row, Some(MainSceneGlbRow::Animation(_) | MainSceneGlbRow::Empty))
-            || entry.filter(|&index| index < self.main_glb_entry_count)
-                .and_then(|index| self.entries.get(index))
-                .is_some_and(|entry| matches!(entry.kind, EditorGltfBrowserEntryKind::Placement { expandable: false, glb: false, .. }))
     }
 
     pub(crate) fn is_main_glb_selected(&self, scene: &feathrise_scene_content::SceneId) -> bool {

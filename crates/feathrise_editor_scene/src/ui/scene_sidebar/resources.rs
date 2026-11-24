@@ -12,20 +12,17 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use feathrise_scene_content::{SceneContentRegistry, SceneManifestAsset};
 
-/// 五个目录树图片句柄在创建原行池时加载一次，不随场景数量增加。
+/// 目录图标在创建原行池时加载一次，固定根和展开的文件夹共用打开图标。
 #[derive(Resource, Clone)]
 pub(crate) struct SceneBrowserTreeIcons {
     pub(crate) folder: Handle<Image>,
     pub(crate) scene: Handle<Image>,
     pub(crate) root: Handle<Image>,
-    pub(crate) expand: Handle<Image>,
-    pub(crate) collapse: Handle<Image>,
 }
 impl SceneBrowserTreeIcons {
     pub(crate) fn load(server: &AssetServer) -> Self {
         Self { folder: server.load("icons/editor/tree_folder.png"), scene: server.load("icons/editor/tree_scene.png"),
-            root: server.load("icons/editor/tree_root.png"), expand: server.load("icons/editor/tree_expand.png"),
-            collapse: server.load("icons/editor/tree_collapse.png") }
+            root: server.load("icons/editor/tree_root.png") }
     }
 }
 

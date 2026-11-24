@@ -134,6 +134,13 @@ impl GlbStructure {
         Ok(object_at(&self.json, "nodes", index)?.get("extras").and_then(|extras| extras.get(key)))
     }
 
+    /// 把临时生成的几何导入其他文件之前，去掉源节点专用的非标准协议。
+    pub fn clear_node_extras(&mut self, index: usize) -> Result<(), String> {
+        object_at(&self.json, "nodes", index)?;
+        self.json["nodes"][index].as_object_mut().unwrap().remove("extras");
+        Ok(())
+    }
+
     /// 只更新指定的 extras 字段，保留其他工具写入的数据。
     pub fn set_node_extra(&mut self, index: usize, key: &str, value: Option<Value>) -> Result<(), String> {
         object_at(&self.json, "nodes", index)?;

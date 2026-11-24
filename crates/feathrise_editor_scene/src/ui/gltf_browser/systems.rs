@@ -17,7 +17,7 @@ use crate::ui::list_layout::{
 };
 use crate::ui::scene_inspector::InspectorTree;
 use crate::ui::scene_sidebar::{
-    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TREE_ICON_SIZE, TreeRowToggle, tree_branch_button, tree_row_colors, tree_row_icon_left, tree_row_left,
+    TREE_BRANCH_GAP, TREE_CAPTION_GAP, TreeRowToggle, tree_row_colors, tree_row_left,
     tree_toggle_button, tree_toggle_icon,
 };
 use crate::viewport::placement_move::PlacementMoveState;
@@ -96,37 +96,27 @@ pub(crate) fn spawn_gltf_browser_rows(
                 BackgroundColor(colors::PANEL_BG),
                 BorderColor::all(colors::COPPER_BORDER_WEAK),
             )).id();
-            // 箭头有自己的释放脉冲，名称行仍负责单击选择和双击定位。
-            commands.spawn_scene(tree_branch_button()).insert((
-                ChildOf(row), PlacementTreeExpander::default(),
-                bevy::ui::InteractionDisabled, Visibility::Hidden,
-            ));
             // 单独裁切图标和文字区，为三个行内按钮保留固定宽度。
-            commands.spawn((ChildOf(row), GltfRowCaption, Node {
+            let caption = commands.spawn((ChildOf(row), GltfRowCaption, Node {
                 flex_grow: 1.0, flex_basis: px(0), min_width: px(0),
                 align_items: AlignItems::Center, column_gap: px(TREE_CAPTION_GAP),
                 overflow: Overflow::clip_x(), ..default()
-            }, Pickable::IGNORE)).with_children(|caption| {
-                caption.spawn((
-                    crate::components::SceneEditorGltfBrowserRowGlyph,
-                    ImageNode::default(),
-                    Node { width: px(TREE_ICON_SIZE), height: px(TREE_ICON_SIZE), flex_shrink: 0.0, ..default() },
-                    Pickable::IGNORE,
-                ));
-                caption.spawn((
-                    SceneEditorGltfBrowserRowText,
-                    Text::new(""),
-                    TextFont {
-                        font: font.clone().into(),
-                        font_size: feathrise_editor_ui::metrics::FONT_CONTROL.into(),
-                        ..default()
-                    },
-                    TextColor(colors::TEXT_PRIMARY),
-                    TextLayout::no_wrap(),
-                    Node { min_width: px(0), ..default() },
-                    Pickable::IGNORE,
-                ));
-            });
+            }, Pickable::IGNORE)).id();
+            commands.spawn_scene(super::scene::gltf_row_icon()).insert(ChildOf(caption));
+            commands.spawn((
+                ChildOf(caption),
+                SceneEditorGltfBrowserRowText,
+                Text::new(""),
+                TextFont {
+                    font: font.clone().into(),
+                    font_size: feathrise_editor_ui::metrics::FONT_CONTROL.into(),
+                    ..default()
+                },
+                TextColor(colors::TEXT_PRIMARY),
+                TextLayout::no_wrap(),
+                Node { min_width: px(0), ..default() },
+                Pickable::IGNORE,
+            ));
             for kind in TreeRowToggle::ALL {
                 let button = commands.spawn_scene(tree_toggle_button(kind))
                     .insert((ChildOf(row), PlacementTreeToggle::new(kind), bevy::ui::InteractionDisabled)).id();
@@ -136,12 +126,13 @@ pub(crate) fn spawn_gltf_browser_rows(
     }
 }
 
-/// 名称只选择，箭头只改变当前分支，沿用同一鼠标所有权。
+/// 名称只选择，图标只改变当前分支，沿用同一鼠标所有权。
 pub(crate) fn handle_gltf_browser_input(
     editor: Res<SceneEditorState>,
     numeric_scrub_mouse: Res<SceneEditorNumericScrubMouseGuard>, // 数值拖动和弦期间丢弃点击。
     session: Res<EditorAuthoringSession>, // 当前草稿提供不可跨场景复用的SceneId。
     rows: Query<(Ref<EditorButtonClick>, &SceneEditorGltfBrowserRow)>,
+    captions: Query<&ChildOf, With<GltfRowCaption>>,
     expanders: Query<(&EditorButtonClick, &ChildOf, &PlacementTreeExpander), Changed<EditorButtonClick>>,
     movement: Option<Res<PlacementMoveState>>,
     mut state: ResMut<EditorGltfBrowserState>, // 只修改树的折叠和选择。
@@ -167,7 +158,8 @@ pub(crate) fn handle_gltf_browser_input(
         return; // 系统持续推进Changed tick；隐藏或所有权帧保持选择且不延迟点击。
     }
     if let Some((_, parent, expander)) = expanders.iter().find(|(click, ..)| click.is_clicked()) {
-        if let Ok((_, row)) = rows.get(parent.parent())
+        if let Ok(caption) = captions.get(parent.parent())
+            && let Ok((_, row)) = rows.get(caption.parent())
             && let Some(target) = expander.target(&editor, &state, &session, row)
         {
             match target {
@@ -178,7 +170,7 @@ pub(crate) fn handle_gltf_browser_input(
                 }
             }
         }
-        return; // 只处理箭头自己的脉冲，也不让旧箭头手势改派到名称行。
+        return; // 只处理图标自己的脉冲，也不让旧图标手势改派到名称行。
     }
     let Some(row) = rows.iter().find_map(|(interaction, row)| {
         (interaction.is_changed() && interaction.is_clicked() && row.entries_revision == state.published_entries_revision)
@@ -306,6 +298,7 @@ pub(crate) fn sync_gltf_browser_rows(
     tree: Query<&ComputedNode, With<InspectorTree>>,
     mut presented_scope: Local<Option<(Option<feathrise_scene_content::SceneId>, u64, usize, f32)>>,
     mut glyphs: Query<&mut ImageNode, With<crate::components::SceneEditorGltfBrowserRowGlyph>>,
+    icon_buttons: Query<&Children, With<PlacementTreeExpander>>,
     captions: Query<&Children, With<GltfRowCaption>>,
     mut rows: Query<
         (
@@ -441,7 +434,8 @@ pub(crate) fn sync_gltf_browser_rows(
                 EditorGltfBrowserEntryKind::SourceAnimation { .. } => false,
             };
             let (prefix, base_color, icon) = match &entry.kind {
-                EditorGltfBrowserEntryKind::Group { .. } => ("", colors::TEXT_PRIMARY, "icons/editor/tree_folder.png"),
+                EditorGltfBrowserEntryKind::Group { collapsed, .. } => ("", colors::TEXT_PRIMARY,
+                    if *collapsed { "icons/editor/tree_folder.png" } else { "icons/editor/tree_root.png" }),
                 EditorGltfBrowserEntryKind::Placement { glb, .. } => ("", colors::TEXT_ACCENT,
                     if *glb { asset_icons::GLB } else { "icons/editor/tree_mesh.png" }),
                 EditorGltfBrowserEntryKind::Mesh if entry.selection.as_ref().is_some_and(|mesh| mesh.is_source_folder()) =>
@@ -455,17 +449,20 @@ pub(crate) fn sync_gltf_browser_rows(
                 EditorGltfBrowserEntryKind::MissingWaterBinding => ("×", colors::DANGER_TEXT, "icons/editor/tree_mesh.png"),
                 EditorGltfBrowserEntryKind::SourceAnimation { .. } => ("", colors::TEXT_PRIMARY, "icons/editor/tree_file.png"),
             };
-            (entry.depth, entry.display_name.as_str(), prefix, base_color, icon, selected)
+            // 文件的直属内容与文件图标同列。后续可见父级仍逐层缩进，树的实际身份和归属不变。
+            let depth = match entry.kind {
+                EditorGltfBrowserEntryKind::Mesh | EditorGltfBrowserEntryKind::MissingWaterBinding
+                | EditorGltfBrowserEntryKind::SourceAnimation { .. } => entry.depth.saturating_sub(1),
+                _ => entry.depth,
+            };
+            (depth, entry.display_name.as_str(), prefix, base_color, icon, selected)
         } else {
             node.display = Display::None; // 实体池保留但不参与布局。
             continue;
         };
         node.display = Display::Flex; // 当前条目原地复用槽位。
         node.top = px(tree_index as f32 * SCENE_OBJECT_ROW_PITCH);
-        let depth = depth.min(8);
-        node.padding.left = if state.glyph_uses_arrow_column(binding, main_kind) {
-            tree_row_icon_left(depth, TREE_ICON_SIZE)
-        } else { tree_row_left(depth) };
+        node.padding.left = tree_row_left(depth.min(8));
         let interaction = match main_kind {
             _ if drag.as_ref().is_some_and(|drag| drag.owns_mouse()) => UiInteraction::None,
             Some(MainSceneGlbRow::Empty) => UiInteraction::None,
@@ -480,7 +477,10 @@ pub(crate) fn sync_gltf_browser_rows(
         border.set_if_neq(outline);
         let Some(caption) = children.iter().find_map(|entity| captions.get(entity).ok()) else { continue; };
         for child in caption.iter() {
-            if images.is_some() && let Some(server) = asset_server.as_ref() && let Ok(mut image) = glyphs.get_mut(child) {
+            if images.is_some() && let Some(server) = asset_server.as_ref()
+                && let Ok(button) = icon_buttons.get(child) && let Some(glyph) = button.first()
+                && let Ok(mut image) = glyphs.get_mut(*glyph)
+            {
                 let handle = server.load(icon);
                 if image.image != handle { image.image = handle; }
                 let tint = asset_icons::tint(icon, base_color);

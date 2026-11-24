@@ -16,6 +16,13 @@ pub(crate) enum PlacementBatchAction {
     Paste,
     Duplicate,
     Delete,
+    DeleteGlbFile,
+}
+
+impl PlacementBatchAction {
+    pub(super) fn removes_placement(self) -> bool {
+        matches!(self, Self::Delete | Self::DeleteGlbFile)
+    }
 }
 
 #[derive(Clone)]

@@ -8,6 +8,7 @@ pub struct SceneContextMenuState {
     pub(super) target: Option<MenuTarget>,
     pub(super) anchor: Vec2,
     pub(super) renaming: bool,
+    pub(super) creating: bool,
     pub(super) name_action: Option<SceneMenuAction>,
     pub(super) captured_this_frame: bool,
     /// 关闭点击先等待原鼠标静默门，随后只发布一帧，不能在其他场景补执行。
@@ -28,6 +29,13 @@ pub struct DomainSceneRequest<'a> {
 }
 
 impl SceneContextMenuState {
+    pub(super) fn shows_action(
+        &self, target: &SceneObjectTarget, action: SceneMenuAction,
+        session: &crate::authoring::EditorAuthoringSession,
+    ) -> bool {
+        (self.creating || !action.is_creation_child(target)) && target.menu_has(action, session)
+    }
+
     pub(crate) fn rebind_loaded_vegetation(&mut self, target: &SceneObjectTarget, revision: u64) {
         let SceneObjectKey::Vegetation { index, terrain, id, output, cold: None } = &target.key else { return; };
         let pending = |previous: &SceneObjectTarget| {

@@ -4,7 +4,7 @@ use feathrise_editor_ui::metrics as ui_metrics;
 use super::components::*;
 use crate::ui::{
     scene::FONT_PATH,
-    scene_sidebar::{TREE_BRANCH_GAP, TREE_CAPTION_GAP, tree_root_icon_left_in_content},
+    scene_sidebar::{TREE_BRANCH_GAP, TREE_CAPTION_GAP, TREE_ICON_SIZE, tree_row_icon_left},
     sidebars::{EditorSidebarHelp, sidebar_help_body, sidebar_help_button},
     theme as colors,
 };
@@ -37,7 +37,7 @@ fn caption(label: &str) -> impl Scene {
 }
 fn row(index: usize) -> impl Scene {
     bsn! { InteractionButton Row(index) Node { display: Display::None, position_type: PositionType::Absolute, width: percent(100), height: px(24),
-    align_items: AlignItems::Center, padding: UiRect { left: tree_root_icon_left_in_content(), right: px(4), ..UiRect::ZERO }, flex_shrink: 0.0,
+    align_items: AlignItems::Center, padding: UiRect { left: tree_row_icon_left(0, TREE_ICON_SIZE), right: px(4), ..UiRect::ZERO }, flex_shrink: 0.0,
     column_gap: px(TREE_BRANCH_GAP), border: px(0), border_radius: BorderRadius::all(px(2)) }
     BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
     // 裁切由文本父容器承担；Text自身的overflow不会裁掉本节点绘制的超长字形。

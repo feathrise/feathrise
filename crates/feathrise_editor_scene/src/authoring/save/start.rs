@@ -69,6 +69,9 @@ pub(crate) struct SaveRuntimeReadiness<'w, 's> {
     placement_capture: Local<'s, placement_snapshot::PlacementSaveCapture>,
     authoring_retirement: Option<ResMut<'w, crate::authoring::AuthoringRetirement>>, // 独立保存工具缺省时由捕获槽承担有界后台退役。
     file_writes: Option<Res<'w, crate::ui::file_manager::FileWriteReservations>>,
+    external_file_authors: crate::ui::file_manager::ExternalFileAuthors<'w>,
+    parked_documents: Option<Res<'w, crate::ui::scene_documents::SceneDocuments>>,
+    parked_glb_references: Local<'s, crate::authoring::source_glbs::deletion::ParkedGlbReferences>,
     boundary_edit: Option<Res<'w, crate::authoring::BoundaryEditState>>, // 实时拖点未收口时不冻结半笔。
     boundary_numeric: Option<Res<'w, crate::authoring::boundary::BoundaryThicknessInputState>>, // 三个墙体数值字段共享收口门。
     surface_task: Option<Res<'w, SurfaceLayerEditTask>>, // 可选资源保持不含地表UI的既有保存测试和独立工具兼容。
@@ -139,6 +142,7 @@ pub(crate) fn start_draft_save(
         return; // 保留保存请求，等名称采用到草稿后再冻结快照。
     }
     if !editor.save_requested {
+        *readiness.parked_glb_references = default();
         *readiness.boundary_capture = default(); // 已取消的请求不保留待保存墙点。
         *readiness.water_capture = default();
         return;
@@ -153,6 +157,30 @@ pub(crate) fn start_draft_save(
         // 保存与同一场景作者文件的移动/重命名不能并发发布，未受影响的场景仍照常保存。
         editor.status = "正在整理此场景的作者文件，完成后继续保存".into();
         return;
+    }
+    if let Some(draft) = session.draft.as_ref().filter(|draft| !draft.glb_deletions.is_empty()) {
+        let root = crate::authoring::workspace_asset_root();
+        let sources = feathrise_editor_project_browser_model::file_operations::FileSources::from(
+            draft.glb_deletions.values().map(|deletion| root.join(deletion.relative())).collect::<Vec<_>>());
+        if let Some(reason) = readiness.external_file_authors.blocker(&sources) {
+            editor.save_requested = false;
+            editor.cancel_close_with_error(reason);
+            return;
+        }
+        if let Some(documents) = readiness.parked_documents.as_ref() {
+            match readiness.parked_glb_references.advance(&draft.glb_deletions, documents) {
+                Ok(true) => {}
+                Ok(false) => {
+                    editor.status = "正在核对其他打开场景中的 GLB 引用…".into();
+                    return;
+                }
+                Err(reason) => {
+                    editor.save_requested = false;
+                    editor.cancel_close_with_error(reason);
+                    return;
+                }
+            }
+        }
     }
     if let Some(content) = readiness.terrain_content.as_ref() {
         if let Some(error) = &content.failure {

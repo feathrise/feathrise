@@ -148,7 +148,7 @@ pub(crate) struct SceneFolderAsset {
 pub(crate) enum SceneBrowserItem {
     /// 固定根目录行；只用于会话选择和场景、文件夹拖回根目录，不写入归类文件。
     Root,
-    /// 虚拟文件夹行；点击直接展开或收起其树分支。
+    /// 虚拟文件夹行；文件夹图标负责切换分支的展开状态。
     Folder(String),
     /// 正式目录场景行；显式进入仍复用原切换场景链。
     Scene(SceneId),

@@ -13,6 +13,7 @@ pub(crate) enum TooltipAction {
     Layout(EditorLayoutAction),
     #[default]
     Settings,
+    SceneTreeBranch,
     SceneTreeParticipation,
     SceneTreeVisibility,
     SceneTreeLock,

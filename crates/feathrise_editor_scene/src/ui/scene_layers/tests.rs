@@ -195,27 +195,32 @@ fn scene_tree_mesh_section_and_branch_columns_keep_actual_layout_aligned() {
         assert_eq!(branch_rows.len(), 2);
         let leaf = rows.iter().find_map(|&(row, index)| matches!(&browser.entries[index].kind,
             EditorGltfBrowserEntryKind::Placement { placement_id, .. } if placement_id == &child_id).then_some(row)).unwrap();
-        let expander = |row| world.get::<Children>(row).unwrap().iter()
-            .find(|child| world.get::<PlacementTreeExpander>(*child).is_some()).unwrap();
+        let icon_button = |row| world.get::<Children>(row).unwrap().iter()
+            .filter_map(|child| world.get::<Children>(child)).flat_map(|children| children.iter())
+            .find(|&child| world.get::<PlacementTreeExpander>(child).is_some()).unwrap();
+        let object_icon = |row| world.get::<Children>(icon_button(row)).unwrap().iter()
+            .find(|&child| world.get::<SceneEditorGltfBrowserRowGlyph>(child).is_some()).unwrap();
         let center = |entity| world.get::<UiGlobalTransform>(entity).unwrap().translation;
         let size = |entity| world.get::<ComputedNode>(entity).unwrap().size();
         let branch_column = center(layer_arrows[0]).x;
         assert!(center(display_arrow).x < branch_column);
         assert!(layer_arrows.iter().all(|&arrow| center(display_arrow).y < center(arrow).y));
         assert!(layer_arrows.iter().all(|&arrow| center(arrow).y < center(branch_rows[0]).y));
-        for arrow in layer_arrows.into_iter().chain(branch_rows.into_iter().map(|row| expander(row))) {
+        for arrow in layer_arrows {
             assert!((center(arrow).x - branch_column).abs() <= 1.1);
             assert!(size(arrow).abs_diff_eq(size(display_arrow), 1.1));
         }
-        assert_eq!(*world.get::<Visibility>(expander(leaf)).unwrap(), Visibility::Hidden);
-        assert!((center(expander(leaf)).x - branch_column - crate::ui::scene_sidebar::TREE_ICON_SIZE * scale).abs() <= 1.1);
-        let glyph = |row, glb| world.get::<Children>(row).unwrap().iter()
+        // 首层文件夹和 GLB 图标使用分类箭头的列，文件夹下的网格仍按层级缩进。
+        assert!(branch_rows.into_iter().all(|row| (center(object_icon(row)).x - branch_column).abs() <= 1.1));
+        assert!(world.get::<bevy::ui::InteractionDisabled>(icon_button(leaf)).is_some());
+        assert_ne!(*world.get::<Visibility>(icon_button(leaf)).unwrap(), Visibility::Hidden);
+        let layer_icon = |row| world.get::<Children>(row).unwrap().iter()
             .filter_map(|child| world.get::<Children>(child)).flat_map(|children| children.iter())
-            .find(|child| if glb { world.get::<SceneEditorGltfBrowserRowGlyph>(*child).is_some() }
-                else { world.get::<crate::components::SceneEditorTreeGlyph>(*child).is_some() }).unwrap();
+            .find(|&child| world.get::<crate::components::SceneEditorTreeGlyph>(child).is_some()).unwrap();
         // 分类标题只有箭头，子项的实际图标与它相距一层。
         let child_column = branch_column + crate::ui::scene_sidebar::TREE_ICON_SIZE * scale;
-        assert!(layer_rows.iter().all(|&row| (center(glyph(row, false)).x - child_column).abs() <= 1.1));
+        assert!((center(object_icon(leaf)).x - child_column).abs() <= 1.1);
+        assert!(layer_rows.iter().all(|&row| (center(layer_icon(row)).x - child_column).abs() <= 1.1));
     }
     app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap().placements.placements.clear();
     settle(&mut app);

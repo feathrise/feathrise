@@ -151,7 +151,7 @@ pub(super) fn control(
             _ => {}
         }
     }
-    if reservations.is_changed() && let Some(documents) = authors.documents.as_mut() {
+    if reservations.is_changed() && let Some(documents) = authors.external.documents.as_mut() {
         documents.file_writes = reservations.clone();
     }
 }

@@ -14,14 +14,14 @@ use serde_json::{Value, json};
 use std::{path::{Path, PathBuf}, time::{Duration, Instant}};
 use crate::{
     SceneEditorSystemSet, authoring::EditorAuthoringSession,
-    components::{SceneEditorGltfBrowserRowGlyph, SceneEditorViewport},
+    components::SceneEditorViewport,
     resources::{SceneEditorState, SceneEditorViewportState},
     standalone::{author_status, preview_ready_for, request_open_scene,
-        scene_format_validation::{action_button, visible_placement_row}},
+        scene_format_validation::{action_button, tree_fold_icon, tree_row_glyph, visible_placement_row}},
     types::{EditorAction, EditorView},
     ui::{
         file_manager_validation::pointer_click,
-        gltf_browser::{EditorGltfBrowserState, MainSceneGlbRow, PlacementTreeExpander,
+        gltf_browser::{EditorGltfBrowserState, MainSceneGlbRow,
             SceneEditorGltfBrowserRow, SceneEditorGltfBrowserRowText},
         placement_transform::PlacementTransformField,
         scene_context_menu::{SceneMenuAction, visible_action_for_validation, visible_rename_controls_for_validation},
@@ -48,7 +48,7 @@ const END_SCALE_X: f32 = 1.25;
 
 #[derive(Debug, Clone, Copy)]
 enum Step {
-    Enter, Tree, MainGlbExpanded, NewAnimationMenu, NewAnimation, SelectAnimationForRename, RenameMenu, RenameAnimation,
+    Enter, Tree, MainGlbExpanded, NewAnimationMenu, OpenCreation, NewAnimation, SelectAnimationForRename, RenameMenu, RenameAnimation,
     EnterName, ConfirmName, VerifyRename, FirstAnimationClick, SecondAnimationClick, SceneTimeline,
     Select, FoldSelected, UnfoldSelected, Properties, Length, Loop, PingPong, AutoPlay,
     KeyOrigin, SeekLow, KeyLow, SeekPeak, MoveTool, BeginMove, Move, ReleaseMove, PositionTrack, KeyPosition,
@@ -150,7 +150,11 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
         }
         NewAnimationMenu => {
             let row = main_glb_row(world, MainSceneGlbRow::File);
-            if click_with_button(world, run, row, MouseButton::Right)? { run.step = NewAnimation; }
+            if click_with_button(world, run, row, MouseButton::Right)? { run.step = OpenCreation; }
+        }
+        OpenCreation => {
+            let item = visible_action_for_validation(world, SceneMenuAction::NewGlbContent);
+            if click(world, run, item)? { run.step = NewAnimation; }
         }
         NewAnimation => {
             let item = visible_action_for_validation(world, SceneMenuAction::NewSceneAnimation);
@@ -245,8 +249,8 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
         }
         FoldSelected => {
             if run.click.is_none() && !platform_selected(world) { return Ok(false); }
-            let arrow = main_glb_arrow(world);
-            if click(world, run, arrow)? { run.step = UnfoldSelected; }
+            let icon = main_glb_fold_icon(world);
+            if click(world, run, icon)? { run.step = UnfoldSelected; }
         }
         UnfoldSelected => {
             if run.click.is_none() {
@@ -260,8 +264,8 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
                     return Err("折叠主 GLB 后应保留立方体的当前选择".into());
                 }
             }
-            let arrow = main_glb_arrow(world);
-            if click(world, run, arrow)? { run.step = Properties; }
+            let icon = main_glb_fold_icon(world);
+            if click(world, run, icon)? { run.step = Properties; }
         }
         Properties => {
             if !platform_selected(world) { return Ok(false); }
@@ -546,13 +550,9 @@ fn main_glb_row(world: &mut World, kind: MainSceneGlbRow) -> Option<Entity> {
         .find_map(|(entity, row, node, v)| (row.main_glb.as_ref() == Some(&kind) && visible(node, v)).then_some(entity))
 }
 
-fn tree_arrow(world: &World, row: Entity) -> Option<Entity> {
-    world.get::<Children>(row)?.iter().find(|&child| world.get::<PlacementTreeExpander>(child).is_some())
-}
-
-fn main_glb_arrow(world: &mut World) -> Option<Entity> {
+fn main_glb_fold_icon(world: &mut World) -> Option<Entity> {
     let row = main_glb_row(world, MainSceneGlbRow::File)?;
-    tree_arrow(world, row).filter(|&arrow| world.get::<InteractionDisabled>(arrow).is_none())
+    tree_fold_icon(world, row)
 }
 
 fn platform_selected(world: &World) -> bool {
@@ -611,29 +611,28 @@ fn inspect_main_glb_tree(world: &mut World, reopened: bool) -> Result<Option<Val
         let [Some(main_y), Some(platform_y), Some(reference_y)] = ys else {
             return None;
         };
-        // 内嵌网格用图标占据箭头列，比较实际图标和按钮位置。
-        let arrow_x = |row| ui_position(world, tree_arrow(world, row)?).map(|position| position.x);
-        let platform_icon = tree_caption_child::<SceneEditorGltfBrowserRowGlyph>(world, platform)?;
-        let (main_x, platform_x, reference_x) = (arrow_x(main)?, ui_position(world, platform_icon)?.x, arrow_x(reference)?);
+        // 折叠控件与对象图标合用一列，直接比较渲染后的图标位置。
+        let icon_x = |row| ui_position(world, tree_row_glyph(world, row)?).map(|position| position.x);
+        let main_x = icon_x(main)?;
+        let aligned = |row| icon_x(row).map(|x| (x - main_x).abs() < 1.1);
         let animation = if let Some(row) = animation {
             let y = ui_position(world, row)?.y;
-            let same_depth = (arrow_x(row)? - platform_x).abs() < 1.1;
-            Some((tree_label(world, row)?, main_y < y && y < platform_y && same_depth))
+            Some((tree_label(world, row)?, main_y < y && y < platform_y && aligned(row)?))
         } else { None };
         Some((main_y < platform_y && platform_y < reference_y,
-            platform_x > main_x + 1.0, (reference_x - platform_x).abs() < 1.1, tree_label(world, main)?, animation))
+            aligned(platform)?, aligned(reference)?, tree_label(world, main)?, animation))
     };
-    let Some((ordered, cuboid_indented, reference_under_root, main_label, animation)) = proof() else {
+    let Some((ordered, cuboid_icon_aligned, reference_icon_aligned, main_label, animation)) = proof() else {
         return Ok(None);
     };
-    if !(ordered && cuboid_indented && reference_under_root && main_label.contains("scene.glb")
+    if !(ordered && cuboid_icon_aligned && reference_icon_aligned && main_label.contains("scene.glb")
         && animation.is_none_or(|(label, inside)| label == CLIP_NAME && inside))
     {
-        return Err(format!("主 GLB 树验证失败，顺序 {ordered}，立方体缩进 {cuboid_indented}，引用层级 {reference_under_root}，动画 {animation:?}"));
+        return Err(format!("主 GLB 树验证失败，顺序 {ordered}，立方体图标对齐 {cuboid_icon_aligned}，引用图标对齐 {reference_icon_aligned}，动画 {animation:?}"));
     }
     Ok(Some(json!({"main_glb":main_label,"animation":animation.map(|(label, _)| label),"root_above_meshes":ordered,
-        "cuboid_indented":cuboid_indented,"animation_indented":animation.map(|(_, inside)| inside),
-        "reference_under_root":reference_under_root})))
+        "cuboid_icon_aligned":cuboid_icon_aligned,"animation_icon_aligned":animation.map(|(_, inside)| inside),
+        "reference_icon_aligned":reference_icon_aligned})))
 }
 
 pub fn inspect_saved_glb(path: &Path, id: &str) -> Result<Value, String> {

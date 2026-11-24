@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 #[cfg(test)]
 pub(super) fn capture(capture: Capture) -> BatchOutput {
-    let source = (capture.action == PlacementBatchAction::Delete)
+    let source = capture.action.removes_placement()
         .then(|| crate::authoring::placement_deletion::PlacementDeletionIntents::default().source());
     capture_with_deletions(capture, source)
 }
@@ -18,13 +18,13 @@ pub(super) fn capture_with_deletions(capture: Capture,
     deletion_source: Option<crate::authoring::placement_deletion::PlacementDeletionSource>) -> BatchOutput {
     if capture.records.iter().any(|(_, record)| terrain_patch_pose::is_automatic_volume(record)) {
         let error = "自动三维雕刻层不能普通复制或删除，请使用其专用作者入口".into();
-        return if capture.action == PlacementBatchAction::Delete {
+        return if capture.action.removes_placement() {
             BatchOutput::Deleted(Err(error))
         } else {
             BatchOutput::Captured(Err(error), capture.action == PlacementBatchAction::Duplicate)
         }; // 先于Delete与复制分支统一核对完整捕获，混合组不能部分采用或绕过拓扑回收责任。
     }
-    if capture.action == PlacementBatchAction::Delete {
+    if capture.action.removes_placement() {
         let deletion =
             CourtyardBatchChange::new_removed(capture.records, capture.length).and_then(|history| {
                 let prepared = deletion_source.ok_or("批量删除缺少逻辑票据来源")?.prepare(

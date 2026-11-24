@@ -338,8 +338,6 @@ pub struct SceneBrowserDragState {
     pub(crate) catalog_revision: Option<u64>,
     /// 普通按下已选组时先保留整组，未拖动的松开才回到单选。
     pub(crate) collapse_on_release: bool,
-    /// Ctrl/Shift选择文件夹不附带展开操作。
-    pub(crate) suppress_folder_toggle: bool,
     /// 超过阈值后正在显示浮层并独占编辑器鼠标。
     pub(crate) active: bool,
     /// 当前光标下可接受松开的可见文件夹或固定根目录目标。

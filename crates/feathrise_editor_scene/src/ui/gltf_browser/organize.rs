@@ -1,7 +1,7 @@
 //! 场景树以固定行池解析拖拽，外层归属送原摆放管理，内部节点送 GLB 作者事务。
 
 use super::{
-    EditorGltfBrowserState, MainSceneGlbRow, SceneEditorGltfBrowserRow, SceneTreeContents, SceneTreeRootRow,
+    EditorGltfBrowserState, MainSceneGlbRow, PlacementTreeExpander, SceneEditorGltfBrowserRow, SceneTreeContents, SceneTreeRootRow,
     systems::GltfRowCaption,
 };
 use crate::{
@@ -100,6 +100,7 @@ pub(super) fn sync_root_row(
     ), (With<SceneTreeRootRow>, Without<SceneTreeContents>)>,
     mut contents: Query<&mut Node, (With<SceneTreeContents>, Without<SceneTreeRootRow>)>,
     captions: Query<&Children, With<GltfRowCaption>>,
+    icon_buttons: Query<&Children, With<PlacementTreeExpander>>,
     mut labels: Query<&mut Text>,
     mut icons: Query<&mut ImageNode, With<SceneEditorGltfBrowserRowGlyph>>,
 ) {
@@ -142,7 +143,8 @@ pub(super) fn sync_root_row(
                         label.clone_into(&mut text.0);
                     }
                     if let Some(server) = server.as_ref().filter(|_| images.is_some())
-                        && let Ok(mut image) = icons.get_mut(child)
+                        && let Ok(button) = icon_buttons.get(child) && let Some(glyph) = button.first()
+                        && let Ok(mut image) = icons.get_mut(*glyph)
                         && image.image.path().is_none_or(|path| path.path() != std::path::Path::new(icon))
                     {
                         image.image = server.load(icon);
@@ -351,7 +353,7 @@ fn capture(
             .filter(|origin| crate::scene_browser::drag_threshold_reached(*origin, position));
         let source = if let Some(origin) = moved {
             // 同一帧可能已经移动甚至松开。拾取三态只反映终点，按下坐标仍保留在有序鼠标消息中。
-            // 仅命中源行图标与名称区域，避开同一行的展开箭头和三个快捷按钮。
+            // 仅命中源行图标与名称区域，避开同一行右侧的三个快捷按钮。
             caption_at(origin, &captions, &cameras)
                 .and_then(|entity| rows.get(entity).ok())
                 .and_then(|row| target_for(row).map(|target| (origin, row.0, target)))

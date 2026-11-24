@@ -10,23 +10,28 @@ pub(super) const ROOT_FOLDER: &str = "验收根目录";
 pub(super) const ROOT_GLB: &str = "验收根空模型";
 pub(super) const NESTED_GLB: &str = "验收夹内空模型";
 const SOURCE_FOLDER: &str = "验收源节点";
+pub(super) const DELETED_GLB: &str = "验收永久删除空模型";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in super::super) enum Case {
     RootFolder, RootGlb, NestedGlb, SourceFolder, RemoveSourceFolder, RemoveEmptyFolder, RemoveGlb, RemoveCube,
-    ChooseGlb, NewMotion, RemoveMotion,
+    ChooseGlb, NewMotion, RemoveMotion, NewMainPlane, NewSourceCuboid, DisposableGlb, DeleteGlbFile,
 }
 
 impl Case {
     fn action(self) -> SceneMenuAction {
         match self {
             Self::RootFolder => SceneMenuAction::NewPlacementFolder,
-            Self::RootGlb | Self::NestedGlb => SceneMenuAction::NewEmptyGlb,
+            Self::RootGlb | Self::NestedGlb | Self::DisposableGlb => SceneMenuAction::NewEmptyGlb,
             Self::ChooseGlb => SceneMenuAction::ChooseExistingGlb,
             Self::SourceFolder => SceneMenuAction::NewSourceFolder,
             Self::RemoveSourceFolder => SceneMenuAction::DeleteSourceFolder,
             Self::NewMotion => SceneMenuAction::NewSceneAnimation,
-            Self::RemoveEmptyFolder | Self::RemoveGlb | Self::RemoveCube | Self::RemoveMotion => SceneMenuAction::Delete,
+            Self::NewMainPlane => SceneMenuAction::NewGlbPlane,
+            Self::NewSourceCuboid => SceneMenuAction::NewGlbCuboid,
+            Self::RemoveGlb => SceneMenuAction::RemoveGlb,
+            Self::DeleteGlbFile => SceneMenuAction::DeleteGlbFile,
+            Self::RemoveEmptyFolder | Self::RemoveCube | Self::RemoveMotion => SceneMenuAction::Delete,
         }
     }
 
@@ -35,6 +40,7 @@ impl Case {
             Self::RootFolder => Some(ROOT_FOLDER),
             Self::RootGlb => Some(ROOT_GLB),
             Self::NestedGlb => Some(NESTED_GLB),
+            Self::DisposableGlb => Some(DELETED_GLB),
             Self::SourceFolder => Some(SOURCE_FOLDER),
             _ => None,
         }
@@ -43,8 +49,9 @@ impl Case {
     fn node(self, world: &mut World, cube: &str) -> Option<Entity> {
         match self {
             Self::RootFolder | Self::RootGlb => world.query_filtered::<Entity, With<InspectorTree>>().single(world).ok(),
-            Self::NestedGlb | Self::ChooseGlb => folder_row(world, ROOT_FOLDER),
-            Self::SourceFolder | Self::RemoveGlb => model_row(world),
+            Self::NestedGlb | Self::ChooseGlb | Self::DisposableGlb => folder_row(world, ROOT_FOLDER),
+            Self::SourceFolder | Self::RemoveGlb | Self::NewSourceCuboid => model_row(world),
+            Self::DeleteGlbFile => named_model_row(world, DELETED_GLB),
             Self::RemoveSourceFolder => world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
                 let target = row.0.as_ref()?;
                 matches!(&target.key, SceneObjectKey::Placement { mesh: Some(mesh), .. } if mesh.is_source_folder()
@@ -53,7 +60,7 @@ impl Case {
             }),
             Self::RemoveEmptyFolder => folder_row(world, CREATED_CHILD),
             Self::RemoveCube => scene_row(world, cube, false),
-            Self::NewMotion => main_scene_row(world),
+            Self::NewMotion | Self::NewMainPlane => main_scene_row(world),
             Self::RemoveMotion => world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
                 (matches!(row.0.as_ref()?.key, SceneObjectKey::MainSceneAnimation(_)) && ui_visible(world, entity))
                     .then_some(entity)
@@ -64,7 +71,7 @@ impl Case {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in super::super) enum Stage {
-    CollapseMain(Case, u8), Menu(Case, u8), Action(Case), Name(Case), Applied(Case),
+    CollapseMain(Case, u8), Menu(Case, u8), OpenCreation(Case, u8), Action(Case), Name(Case), Applied(Case),
     RootVisible(Case), ExpandSource(u8), Mode(ViewportMode), Undo(Case), Restored(Case),
     PickDirectory(u8, u8), PickFile(u8), ConfirmFile(u8),
     MoveMesh(u8), MeshMoved, MeshRestored,
@@ -90,26 +97,37 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
     *stage = match *stage {
         Stage::CollapseMain(case, frame) => {
             let Some(root) = main_scene_row(world) else { return Ok(false); };
-            let arrow = row_arrow(world, root)?;
-            click_control(world, arrow, frame)?.map_or(Stage::Menu(case, 0), |next| Stage::CollapseMain(case, next))
+            let icon = row_fold_icon(world, root)?;
+            click_control(world, icon, frame)?.map_or(Stage::Menu(case, 0), |next| Stage::CollapseMain(case, next))
         }
         Stage::Menu(case, frame) => {
             let root_case = matches!(case, RootFolder | RootGlb);
             if root_case && frame == 0 {
                 let (contents, layout) = world.query_filtered::<(&Node, &ComputedNode), With<SceneTreeContents>>()
                     .single(world).map_err(|_| "验收缺少场景树正文")?;
-                if contents.display != Display::None { return Err("创建前应通过根箭头收起主 GLB".into()); }
+                if contents.display != Display::None { return Err("创建前应通过文件图标收起主 GLB".into()); }
                 if !layout.is_empty() { return Ok(false); }
             }
             let Some(node) = case.node(world, cube) else { return Ok(false); };
+            // 主场景和次场景的 GLB 图标也要命中父行右键菜单，而左键才负责展开。
+            let node = if matches!(case, NewMotion | NewSourceCuboid) { row_fold_icon(world, node)? } else { node };
             let (window, mut position) = pointer_context(world, node)?;
             if root_case {
                 // 先找真实滚动视口，再点其末尾留白，避免借用任何对象行。
                 position.y += f64::from(world.get::<ComputedNode>(node).ok_or("场景树尚未布局")?.size().y) * 0.5 - 14.0;
             }
             let mut click = Some((position, frame));
-            if right_click(world, &mut click, window, position) { Stage::Action(case) }
-            else { Stage::Menu(case, click.unwrap().1) }
+            if right_click(world, &mut click, window, position) {
+                if matches!(case, NewMotion | NewMainPlane | NewSourceCuboid) { Stage::OpenCreation(case, 0) }
+                else { Stage::Action(case) }
+            } else { Stage::Menu(case, click.unwrap().1) }
+        }
+        Stage::OpenCreation(case, frame) => {
+            let Some(button) = visible_action_for_validation(world, SceneMenuAction::NewGlbContent) else { return Ok(false); };
+            if frame == 0 && visible_action_for_validation(world, case.action()).is_some() {
+                return Err("GLB 新建动作应在展开子菜单后出现".into());
+            }
+            click_control(world, button, frame)?.map_or(Stage::Action(case), |next| Stage::OpenCreation(case, next))
         }
         Stage::Action(case) => {
             let Some(button) = visible_action_for_validation(world, case.action()) else { return Ok(false); };
@@ -121,6 +139,12 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
             }
             if matches!(case, NewMotion | SourceFolder) && visible_action_for_validation(world, SceneMenuAction::EditInBlender).is_none() {
                 return Err("主场景和独立 GLB 都应在文件根提供 Blender 入口".into());
+            }
+            if case == DeleteGlbFile && (visible_action_for_validation(world, SceneMenuAction::RemoveGlb).is_none()
+                || !world.get::<Children>(button).is_some_and(|labels| labels.iter().any(|label|
+                    world.get::<TextColor>(label).is_some_and(|color| color.0 == crate::ui::theme::DANGER_TEXT))))
+            {
+                return Err("整份 GLB 应提供单独的移除与红色删除".into());
             }
             world.entity_mut(button).insert(EditorButtonClick::triggered());
             *pulse = Some(button);
@@ -148,6 +172,7 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
                 RootFolder => draft.object_folders.contains(ROOT_FOLDER) && draft.object_folders.parent(ROOT_FOLDER).is_none(),
                 RootGlb => model_exists(ROOT_GLB, ""),
                 NestedGlb => model_exists(NESTED_GLB, ROOT_FOLDER),
+                DisposableGlb => model_exists(DELETED_GLB, ROOT_FOLDER),
                 ChooseGlb => draft.placements.placements.iter().any(|item| {
                     item.asset_path == ASSET_PATH && item.editor.group == ROOT_FOLDER && item.asset_target.is_scene0()
                 }),
@@ -155,25 +180,44 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
                 RemoveSourceFolder => !source_folder_exists(),
                 RemoveEmptyFolder => !draft.object_folders.contains(CREATED_CHILD),
                 RemoveGlb => !model_exists(ROOT_GLB, ""),
+                DeleteGlbFile => !model_exists(DELETED_GLB, ROOT_FOLDER),
                 RemoveCube => !draft.placements.placements.iter().any(|item| item.id == cube),
                 NewMotion => draft.motion.clip_name().is_some(),
+                NewMainPlane => matches!(session.undo.last(), Some(EditorCommand::PlacementAdded(record))
+                    if matches!(&record.asset_target, feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh {geometry, ..}
+                        if geometry.is_open())
+                    && record.translation == world.resource::<crate::resources::SceneEditorViewportState>().scene_center.to_array()),
+                NewSourceCuboid => draft.source_glb_edits.version(&source).is_some_and(|version|
+                    version.nodes.iter().any(|node| node.mesh.is_some()
+                        && node.path.last().is_some_and(|name| name.starts_with("立方体")))),
                 RemoveMotion => draft.motion.clip_name().is_none(),
             };
             if !expected { return Err(format!("场景树操作落在了错误的目标下：{case:?}")); }
+            if matches!(case, RemoveGlb | DeleteGlbFile) {
+                let paths = feathrise_editor_core::editor_project_paths().ok_or("GLB 删除验收缺少当前资产根")?;
+                let file = if case == RemoveGlb { ROOT_GLB } else { DELETED_GLB };
+                let path = format!("{}/models/{file}.glb", draft.folder.trim_end_matches('/'));
+                if !platform_path(paths.asset_root()).join(path).is_file() {
+                    return Err("移除 GLB 或提交待保存删除时应保留原文件".into());
+                }
+            }
             *revision = session.revision;
             match case {
                 RootFolder | RootGlb => Stage::RootVisible(case),
                 NestedGlb => Stage::Menu(ChooseGlb, 0),
+                DisposableGlb => Stage::Menu(DeleteGlbFile, 0),
                 ChooseGlb => Stage::MoveMesh(0),
                 SourceFolder => Stage::ExpandSource(0),
                 RemoveSourceFolder => Stage::Menu(RemoveEmptyFolder, 0),
-                RemoveEmptyFolder | RemoveGlb | RemoveCube => Stage::Undo(case),
+                RemoveEmptyFolder | RemoveGlb | RemoveCube | NewSourceCuboid => Stage::Undo(case),
+                NewMainPlane => Stage::Menu(NewSourceCuboid, 0),
                 NewMotion => Stage::MotionLayout,
-                RemoveMotion => Stage::Mode(ViewportMode::Move),
+                RemoveMotion => Stage::Menu(DisposableGlb, 0),
+                DeleteGlbFile => Stage::Mode(ViewportMode::Move),
             }
         }
         Stage::RootVisible(case) => {
-            // 创建后等真实树行布局可见，期间不向根箭头补发任何输入。
+            // 创建后等真实树行布局可见，期间不向主 GLB 图标补发任何输入。
             if case == RootFolder {
                 if folder_row(world, ROOT_FOLDER).is_none() { return Ok(false); }
                 Stage::CollapseMain(RootGlb, 0)
@@ -240,8 +284,8 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
         }
         Stage::ExpandSource(frame) => {
             let Some(row) = model_row(world) else { return Ok(false); };
-            let arrow = row_arrow(world, row)?;
-            match click_control(world, arrow, frame)? {
+            let icon = row_fold_icon(world, row)?;
+            match click_control(world, icon, frame)? {
                 Some(frame) => Stage::ExpandSource(frame),
                 None => Stage::Menu(RemoveSourceFolder, 0),
             }
@@ -255,7 +299,7 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
             if mode == ViewportMode::Select { Stage::Menu(RemoveGlb, 0) } else { Stage::SelectParent(0) }
         }
         Stage::Undo(case) => {
-            if case.node(world, cube).is_some() { return Ok(false); }
+            if case != NewSourceCuboid && case.node(world, cube).is_some() { return Ok(false); }
             let Some(button) = crate::standalone::scene_format_validation::action_button(world, EditorAction::Undo) else { return Ok(false); };
             world.entity_mut(button).insert(EditorButtonClick::triggered());
             *pulse = Some(button);
@@ -269,16 +313,21 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
                 RemoveEmptyFolder => draft.object_folders.parent(CREATED_CHILD) == Some(RENAMED_FOLDER),
                 RemoveGlb => draft.placements.placements.iter().any(|item| item.editor.name == ROOT_GLB && item.editor.group.is_empty()),
                 RemoveCube => draft.placements.placements.iter().any(|item| item.id == cube && item.asset_target.is_builtin()),
+                NewSourceCuboid => {
+                    let source = format!("{}/models/{ROOT_GLB}.glb", draft.folder.trim_end_matches('/'));
+                    draft.source_glb_edits.version(&source).is_none_or(|version| !version.nodes.iter().any(|node| node.mesh.is_some()))
+                }
                 _ => false,
             };
             if !restored || session.revision != revision.wrapping_add(1) {
-                return Err(format!("撤销删除未恢复该行：{case:?}"));
+                return Err(format!("撤销操作未恢复该行：{case:?}"));
             }
             if case.node(world, cube).is_none() { return Ok(false); }
             *revision = world.resource::<EditorAuthoringSession>().revision;
             match case {
                 RemoveEmptyFolder => Stage::Mode(ViewportMode::Select),
                 RemoveGlb => Stage::Menu(RemoveCube, 0),
+                RemoveCube => Stage::Menu(NewMainPlane, 0),
                 _ => Stage::Menu(NewMotion, 0),
             }
         }

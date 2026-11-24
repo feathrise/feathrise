@@ -497,7 +497,8 @@ fn double_clicking_a_group_member_collapses_then_opens_the_clicked_scene() {
 }
 
 #[test]
-fn folder_click_waits_for_release_and_drag_keeps_the_source_branch_expanded() {
+fn folder_icon_click_toggles_expansion_while_the_name_selects_and_drags() {
+    use bevy::ui::RelativeCursorPosition;
     use bevy::window::PrimaryWindow;
     let mut app = input_app();
     app.init_resource::<ButtonInput<MouseButton>>().add_systems(
@@ -508,17 +509,14 @@ fn folder_click_waits_for_release_and_drag_keeps_the_source_branch_expanded() {
     let mut window = Window::default();
     window.set_physical_cursor_position(Some(Vec2::new(10.0, 10.0).into()));
     let window = app.world_mut().spawn((window, PrimaryWindow)).id();
-    let row = app
-        .world_mut()
-        .spawn((
-            SceneEditorSceneRow {
-                slot: 0,
-                item: Some(SceneBrowserItem::Folder("FOLDER-1".into())),
-            },
-            UiInteraction::None,
-            feathrise_editor_ui::EditorButtonClick::default(),
-        ))
-        .id();
+    let row = folder_row(&mut app);
+    let glyph = app.world_mut().spawn((
+        SceneEditorSceneRowGlyph::Entry,
+        RelativeCursorPosition { cursor_over: true, normalized: Some(Vec2::ZERO) },
+    )).id();
+    app.world_mut().entity_mut(row).add_child(glyph);
+    let prior_selection = scene_item("SCENE-2");
+    app.world_mut().resource_mut::<SceneBrowserState>().select_only(Some(prior_selection.clone()));
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
@@ -534,19 +532,28 @@ fn folder_click_waits_for_release_and_drag_keeps_the_source_branch_expanded() {
         app.world()
             .resource::<SceneBrowserDragState>()
             .press
-            .is_some()
+            .is_none(),
+        "图标按下不登记文件夹拖动"
     );
+    // 领域夹具未安装 InputPlugin，手动清理上一帧的按下边沿。
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .clear_just_pressed(MouseButton::Left);
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .release(MouseButton::Left);
     app.world_mut().entity_mut(row).insert((UiInteraction::Hovered, feathrise_editor_ui::EditorButtonClick::triggered()));
     app.update();
-    assert!(
-        app.world()
-            .resource::<SceneBrowserState>()
-            .expanded_folder_ids
-            .contains("FOLDER-1")
-    );
+    let browser = app.world().resource::<SceneBrowserState>();
+    assert!(browser.expanded_folder_ids.contains("FOLDER-1"));
+    assert_eq!(browser.selected_item.as_ref(), Some(&prior_selection));
+
+    app.world_mut().get_mut::<RelativeCursorPosition>(glyph).unwrap().cursor_over = false;
+    click_row(&mut app, row);
+    let browser = app.world().resource::<SceneBrowserState>();
+    assert_eq!(browser.selected_item, Some(SceneBrowserItem::Folder("FOLDER-1".into())));
+    assert!(browser.expanded_folder_ids.contains("FOLDER-1"), "点击名称选中仍保留展开状态");
+
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .clear();

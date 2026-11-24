@@ -89,15 +89,23 @@ pub enum SceneMenuAction {
     NewSourceFolder,
     DeleteSourceFolder,
     RenameSourceNode,
+    RemoveGlb,
+    DeleteGlbFile,
+    NewGlbContent,
+    NewGlbCuboid,
+    NewGlbPlane,
 }
 
 impl SceneMenuAction {
-    pub(super) const ALL: [Self; 17] = [
+    pub(super) const ALL: [Self; 22] = [
         Self::Focus,
         Self::RevealGlb,
+        Self::NewGlbContent,
         Self::NewSceneAnimation,
-        Self::EditSourceGlbAnimation,
         Self::NewSourceGlbAnimation,
+        Self::NewGlbCuboid,
+        Self::NewGlbPlane,
+        Self::EditSourceGlbAnimation,
         Self::NewPlacementFolder,
         Self::NewEmptyGlb,
         Self::ChooseExistingGlb,
@@ -106,6 +114,8 @@ impl SceneMenuAction {
         Self::Rename,
         Self::RenameSourceNode,
         Self::Copy,
+        Self::RemoveGlb,
+        Self::DeleteGlbFile,
         Self::Delete,
         Self::DeleteSourceFolder,
         Self::Visibility,
@@ -120,6 +130,15 @@ impl SceneMenuAction {
         matches!(self, Self::EditSourceGlbAnimation | Self::NewSourceGlbAnimation)
     }
 
+    pub(crate) fn is_glb_shape(self) -> bool {
+        matches!(self, Self::NewGlbCuboid | Self::NewGlbPlane)
+    }
+
+    pub(super) fn is_creation_child(self, target: &SceneObjectTarget) -> bool {
+        self.is_glb_shape() || self == Self::NewSceneAnimation
+            || self == Self::NewSourceGlbAnimation && matches!(target.key, SceneObjectKey::Placement { mesh: None, .. })
+    }
+
     pub(super) fn requests_name(self) -> bool {
         matches!(self, Self::Rename | Self::RenameSourceNode | Self::NewPlacementFolder | Self::NewEmptyGlb | Self::NewSourceFolder)
     }
@@ -130,15 +149,20 @@ impl SceneMenuAction {
             Self::Rename | Self::RenameSourceNode => "重命名",
             Self::Copy if !matches!(target.key, SceneObjectKey::Placement { .. }) => "复制副本",
             Self::Copy => "复制",
-            Self::Delete | Self::DeleteSourceFolder => "删除",
+            Self::Delete | Self::DeleteSourceFolder | Self::DeleteGlbFile => "删除",
+            Self::RemoveGlb => "移除",
             Self::Visibility if target.hidden => "显示",
             Self::Visibility => "隐藏",
             Self::Lock if target.locked => "解锁",
             Self::Lock => "锁定",
             Self::EditInBlender => "在 Blender 编辑",
             Self::RevealGlb => "定位 GLB 文件",
-            Self::NewSceneAnimation => "新建动画",
+            Self::NewGlbContent => "新建",
+            Self::NewSceneAnimation => "动画",
+            Self::NewGlbCuboid => "立方体",
+            Self::NewGlbPlane => "平面",
             Self::EditSourceGlbAnimation => "编辑源 GLB 动画",
+            Self::NewSourceGlbAnimation if self.is_creation_child(target) => "动画",
             Self::NewSourceGlbAnimation => "在源 GLB 新建动画",
             Self::NewPlacementFolder | Self::NewSourceFolder => "新建文件夹",
             Self::NewEmptyGlb => "新建空 GLB",
@@ -245,11 +269,28 @@ impl SceneObjectTarget {
         action: SceneMenuAction,
         session: &EditorAuthoringSession,
     ) -> bool {
+        match action {
+            SceneMenuAction::RemoveGlb | SceneMenuAction::DeleteGlbFile => {
+                return self.referenced_glb_path(session).is_some();
+            }
+            SceneMenuAction::Delete if self.referenced_glb_path(session).is_some() => return false,
+            _ => {}
+        }
         if matches!(self.key, SceneObjectKey::MainSceneGlb) {
             return self.supports(action) && session.draft.as_ref().is_some_and(|draft|
                 draft.scene_id == self.scene_id && draft.placement_glb_hash.is_some()
                     && (action != SceneMenuAction::NewSceneAnimation
                         || (draft.motion.available() && draft.motion.clip_name().is_none())));
+        }
+        if action == SceneMenuAction::NewGlbContent {
+            return self.referenced_glb_path(session).is_some();
+        }
+        if action.is_glb_shape() {
+            // 单网格或单个 primitive 的引用无法呈现添加到整个 GLB 的新节点。
+            return self.referenced_glb_path(session).is_some()
+                && matches!(self.key, SceneObjectKey::Placement { index, .. }
+                    if session.draft.as_ref().and_then(|draft| draft.placements.placements.get(index))
+                        .is_some_and(|record| record.asset_target.is_scene0()));
         }
         if action.is_source_animation() {
             return self.supports(action) && self.source_animation_path(session).is_some();
@@ -296,7 +337,21 @@ impl SceneObjectTarget {
         (!draft.placement_glb_hash.is_some() || draft.placements_path() != path).then_some(path)
     }
 
+    /// 只对场景中的完整外部引用提供移除与删除，主 GLB 和内部节点沿用各自入口。
+    pub(crate) fn referenced_glb_path<'a>(&self, session: &'a EditorAuthoringSession) -> Option<&'a str> {
+        if !matches!(self.key, SceneObjectKey::Placement { mesh: None, .. }) {
+            return None;
+        }
+        self.source_animation_path(session)
+    }
+
     fn supports(&self, action: SceneMenuAction) -> bool {
+        if action.is_glb_shape() || action == SceneMenuAction::NewGlbContent {
+            return matches!(self.key, SceneObjectKey::MainSceneGlb | SceneObjectKey::Placement { mesh: None, .. });
+        }
+        if matches!(action, SceneMenuAction::RemoveGlb | SceneMenuAction::DeleteGlbFile) {
+            return matches!(self.key, SceneObjectKey::Placement { mesh: None, .. });
+        }
         if action == SceneMenuAction::RenameSourceNode {
             return matches!(&self.key, SceneObjectKey::Placement { mesh: Some(mesh), .. }
                 if mesh.node_index.is_some() && !mesh.orphaned_water_binding);
@@ -372,9 +427,10 @@ impl SceneObjectTarget {
             && match action {
                 SceneMenuAction::Focus | SceneMenuAction::Visibility | SceneMenuAction::Lock
                 | SceneMenuAction::RevealGlb | SceneMenuAction::NewSceneAnimation | SceneMenuAction::NewPlacementFolder
-                | SceneMenuAction::NewEmptyGlb | SceneMenuAction::ChooseExistingGlb => {
+                | SceneMenuAction::NewEmptyGlb | SceneMenuAction::ChooseExistingGlb | SceneMenuAction::NewGlbContent => {
                     true
                 }
+                SceneMenuAction::NewGlbCuboid | SceneMenuAction::NewGlbPlane => !self.locked && !self.hidden,
                 SceneMenuAction::Rename | SceneMenuAction::RenameSourceNode => !self.locked,
                 SceneMenuAction::Delete if matches!(self.key, SceneObjectKey::MainSceneAnimation(_)) => !self.locked,
                 SceneMenuAction::NewSourceFolder | SceneMenuAction::DeleteSourceFolder => !self.locked && !self.hidden,
@@ -389,7 +445,7 @@ impl SceneObjectTarget {
                 {
                     self.copyable
                 } // 原角色协议允许只读复制锁定层。
-                SceneMenuAction::Copy | SceneMenuAction::Delete => {
+                SceneMenuAction::Copy | SceneMenuAction::Delete | SceneMenuAction::RemoveGlb | SceneMenuAction::DeleteGlbFile => {
                     !self.locked
                         && self.copyable
                         && (!self.hidden || !matches!(self.key, SceneObjectKey::Placement { .. }))

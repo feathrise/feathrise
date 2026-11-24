@@ -19,6 +19,71 @@ mod rollback_placement_retry; // 水文件回滚不能接管或遗失先前失�
 static SAVE_TRANSACTION_TEST_COUNTER: AtomicU64 = AtomicU64::new(0); // 唯一测试目录后缀。
 
 #[test]
+fn source_glb_deletion_checks_shared_placements_and_actually_removes_only_the_source() {
+    use crate::authoring::source_glbs::deletion::{GlbDeletion, finish, preflight};
+    use feathrise_scene_content::{SCENE_CATALOG_ASSET_PATH, SceneCatalogEntry};
+
+    let fixture = SaveTransactionTestDirectory::new();
+    let root = &fixture.path;
+    let source = root.join("model.glb");
+    let blender = root.join("model.blend");
+    std::fs::write(&source, b"frozen GLB source").unwrap();
+    std::fs::write(&blender, b"Blender authoring source").unwrap();
+
+    let mut draft = crate::authoring::test_heightfield_draft(Arc::new(vec![0; 121]));
+    let pending = GlbDeletion::capture(root, "to-delete".into(), "model.glb".into()).unwrap();
+    Arc::make_mut(&mut draft.glb_deletions).insert(pending.placement_id.clone(), pending);
+    let mut shared = crate::viewport::placement_move::interaction_tests::record();
+    shared.asset_path = "MODEL.glb".into(); // Windows 常见大小写别名不能绕过引用保护。
+    draft.placements.placements = vec![shared.clone()];
+    assert!(preflight(root, &draft).err().unwrap().contains("仍被场景"));
+    draft.placements.placements.clear();
+
+    let entry = SceneCatalogEntry {
+        id: feathrise_scene_content::SceneId::parse("SCENE-SHARED-READER").unwrap(),
+        display_name: "共用模型的场景".into(),
+        folder: "scenes/SCENE-SHARED-READER".into(),
+        published: true,
+        placements_glb: false,
+        surface_path: None,
+        vegetation_path: None,
+        water_path: None,
+        boundary_path: None,
+        characters_path: None,
+    };
+    let catalog_path = root.join(SCENE_CATALOG_ASSET_PATH);
+    std::fs::create_dir_all(catalog_path.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(root.join(&entry.folder)).unwrap();
+    let catalog = SceneCatalogAsset { schema_version: SCENE_SCHEMA_VERSION, scenes: vec![entry.clone()] };
+    std::fs::write(&catalog_path, serde_json::to_vec(&catalog).unwrap()).unwrap();
+    let mut placements = draft.placements.clone();
+    placements.scene_id = entry.id.clone();
+    placements.placements.push(shared);
+    let placements_path = root.join(entry.placements_path());
+    std::fs::write(&placements_path, serde_json::to_vec(&placements).unwrap()).unwrap();
+    assert!(preflight(root, &draft).err().unwrap().contains(entry.id.as_str()));
+    assert!(source.is_file());
+
+    placements.placements.clear();
+    let mut manifest = draft.manifest.clone();
+    manifest.id = entry.id.clone();
+    std::fs::write(&placements_path, serde_json::to_vec(&placements).unwrap()).unwrap();
+    std::fs::write(root.join(entry.manifest_path()), serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let prepared = preflight(root, &draft).unwrap();
+    assert!(source.is_file()); // 保存前预检不得删除文件。
+    std::fs::write(&source, b"new external version").unwrap();
+    assert_eq!(finish(root, prepared).failures.len(), 1);
+    assert_eq!(std::fs::read(&source).unwrap(), b"new external version");
+    std::fs::write(&source, b"frozen GLB source").unwrap();
+    let prepared = preflight(root, &draft).unwrap();
+    let receipt = finish(root, prepared);
+    assert_eq!(receipt.removed, ["model.glb"]);
+    assert!(receipt.failures.is_empty());
+    assert!(!source.exists());
+    assert_eq!(std::fs::read(&blender).unwrap(), b"Blender authoring source");
+}
+
+#[test]
 fn source_glb_edits_stage_both_files_and_reject_externally_changed_input() {
     use super::transaction::commit_prepared_writes_checked;
     use crate::authoring::source_glbs::{SourceGlbEdits, SourceGlbOperation, SourceGlbSave, SourceGlbTarget, SourceNodeAddress, edit};
@@ -877,6 +942,7 @@ fn completed_placement_save_app(
     }); // 真实begin因缺失清单路径拒绝建门；摆放内容本身仍要求严格新Ready交接。
     let success = DraftSaveSuccess {
         source_glb_reload_paths: Vec::new(),
+        glb_deletions: Default::default(),
         terrain_manifest: None, terrain_saved: Vec::new(), terrain_reload_paths: Vec::new(),
         terrain_digests: Vec::new(), terrain_water_changed: BTreeSet::new(),
         root_water_changed: gate_failure, domain_hash: None, motion: None, motion_written: false, scene_id: map.clone(),

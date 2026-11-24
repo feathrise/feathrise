@@ -514,6 +514,18 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
     }
     let startup = &proof["scene_tree"]["startup"];
     let new_folder = startup["root_folder_from_blank"].as_str().ok_or("缺少空白处新建目录的回执")?;
+    let deleted = startup["glb_menu"]["source_staged_for_permanent_deletion"].as_str().ok_or("缺少永久删除 GLB 的菜单回执")?;
+    let deleted_path = format!("scenes/M1-SAMPLE/models/{deleted}.glb");
+    if project.context.asset_roots[0].join(&deleted_path).try_exists().map_err(|error| error.to_string())?
+        || saved.placements.iter().any(|record| record.asset_path == deleted_path)
+    {
+        return Err("永久删除后，源 GLB 与摆放记录应同时离开已保存的场景".into());
+    }
+    if !saved.placements.iter().any(|record|
+        matches!(&record.asset_target, feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { geometry, .. } if geometry.is_open()))
+    {
+        return Err("从主 GLB 新建的平面未经过原保存链写入".into());
+    }
     if !saved.placements.iter().any(|record| record.asset_path == "scene/probe.glb" && record.editor.group == new_folder) {
         return Err("从活动选择窗口添加的 GLB 没有保存在右键指向的文件夹".into());
     }

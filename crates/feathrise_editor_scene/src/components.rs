@@ -489,7 +489,6 @@ pub(crate) struct SceneEditorSceneRowCurrent;
 pub(crate) enum SceneEditorSceneRowGlyph {
     #[default]
     Entry,
-    Disclosure,
     Root,
 }
 

@@ -1,6 +1,7 @@
 //! 原生窗口验收场景树换选与来源定位，沿用原保存和截图。
 
 use super::{open_scene_tree, ui_visible};
+use crate::standalone::scene_format_validation::{tree_fold_icon, tree_row_glyph};
 use crate::{
     authoring::{EditorAuthoringSession, EditorCommand},
     components::{SceneBrowserDragPreview, SceneBrowserDragPreviewText, SceneEditorRightPanelScroll},
@@ -9,7 +10,7 @@ use crate::{
         external_files::platform_path,
         file_manager::{FileManagerState, FileRow},
         file_manager_validation::{mouse, move_cursor, pointer_click, right_click},
-        gltf_browser::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeDrag, PlacementTreeExpander, SceneBaseGltfRow, SceneTreeRootRow},
+        gltf_browser::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeDrag, SceneBaseGltfRow, SceneTreeRootRow},
         scene_context_menu::{SceneMenuAction, SceneObjectKey, SceneObjectRow, press_action_for_validation,
             visible_action_for_validation, visible_rename_controls_for_validation},
         scene_objects,
@@ -262,16 +263,16 @@ pub(super) fn advance(
                 return Err("场景树根行选择改变了移动工具".into());
             }
             if frame == 0 && !branch_collapsed(world, MODEL)? {
-                return Err("GLB 必须等待独立箭头展开".into());
+                return Err("GLB 必须等待点击文件图标展开".into());
             }
             if properties_show_path(world) && let Some(row) = scene_row(world, MODEL, false) {
-                let arrow = row_arrow(world, row)?;
-                *step = click_control(world, arrow, frame)?.map_or(Step::SelectMesh, Step::ExpandRoot);
+                let icon = row_fold_icon(world, row)?;
+                *step = click_control(world, icon, frame)?.map_or(Step::SelectMesh, Step::ExpandRoot);
             }
         }
         Step::SelectMesh => {
             if selected != Some(MODEL) {
-                return Err("点击 GLB 展开箭头改变了名称选择".into());
+                return Err("点击 GLB 文件图标改变了名称选择".into());
             }
             if let Some(row) = click_row(world, MODEL, true) {
                 *pulse = Some(row);
@@ -293,11 +294,10 @@ pub(super) fn advance(
                     let Some(mesh) = scene_row(world, MODEL, true) else { return Ok(None); };
                     let Some(model_icon) = row_icon(world, model, GLB_ICON) else { return Ok(None); };
                     let Some(mesh_icon) = row_icon(world, mesh, "icons/editor/tree_mesh.png") else { return Ok(None); };
-                    // 夹具网格经过一个无树行的变换父级，两个可见图标仍只错开一格。
-                    let icon_width = world.get::<ComputedNode>(mesh_icon).unwrap().size().x;
+                    // 夹具网格经过一个不显示的变换节点，仍与所属 GLB 共用一个图标列。
                     let icon_x = |entity| world.get::<UiGlobalTransform>(entity).unwrap().translation.x;
-                    if (icon_x(mesh_icon) - icon_x(model_icon) - icon_width).abs() >= 1.1 {
-                        return Err("GLB 子网格相对可见父行应只缩进一个图标宽度".into());
+                    if (icon_x(mesh_icon) - icon_x(model_icon)).abs() >= 1.1 {
+                        return Err("GLB 直属网格图标应与文件图标对齐".into());
                     }
                     Step::SourceSpace { index: 0, frame: 0 }
                 } else {
@@ -450,9 +450,9 @@ pub(super) fn advance(
                     return Err("双击组名定位不应改变两支的展开状态".into());
                 }
                 if let Some(row) = folder_row(world, GROUP) {
-                    let arrow = row_arrow(world, row)?;
+                    let icon = row_fold_icon(world, row)?;
                     let next = if startup_enabled() { Step::RenameFolder(0) } else { Step::RestoreMesh };
-                    *step = click_control(world, arrow, frame)?
+                    *step = click_control(world, icon, frame)?
                         .map_or(next, |frame| Step::GroupFocused { frame, before });
                 }
             }
@@ -548,7 +548,7 @@ pub(super) fn advance(
         Step::RestoreMesh => {
             let folder = if startup_enabled() { RENAMED_FOLDER } else { GROUP };
             if world.resource::<EditorGltfBrowserState>().selected_group.as_deref() != Some(folder) {
-                return Err("点击组箭头改变了选中的组".into());
+                return Err("点击文件夹图标改变了选中的组".into());
             }
             if branch_collapsed(world, folder) == Ok(false) && let Some(row) = click_row(world, MODEL, true) {
                 *pulse = Some(row);
@@ -583,6 +583,13 @@ pub(super) fn advance(
                 if branch_collapsed(world, folder)? || branch_collapsed(world, MODEL)? {
                     return Err("切回网格和定位 GLB 文件应保留展开的分支".into());
                 }
+                let glb_menu = json!({
+                    "source_staged_for_permanent_deletion": creation::DELETED_GLB,
+                    "created_main_plane_at_scene_center": true,
+                    "created_source_cuboid_and_undone": true,
+                    "removed_without_deleting_source_and_undone": true,
+                    "existing_glb_added_from_picker": true,
+                });
                 return Ok(Some(json!({
                     "viewport_mode": format!("{mode:?}"),
                     "previous_placement": cube,
@@ -593,7 +600,7 @@ pub(super) fn advance(
                     "scene_revision": *revision,
                     "selected_names_without_expansion": true,
                     "model_double_click_focused_while_folded": true,
-                    "explicit_arrows_preserved_selection": true,
+                    "fold_icons_preserved_selection": true,
                     "group_focused_center": world.resource::<SceneEditorViewportState>().center.to_array(),
                     "startup": startup_enabled().then(|| json!({
                         "vegetation_layer": PRIVATE_LAYER,
@@ -602,7 +609,7 @@ pub(super) fn advance(
                         "mesh_rows_below_vegetation": true,
                         "embedded_mesh_icon_aligned": true,
                         "terrain_root_icon_aligned": true,
-                        "source_mesh_indent_one_icon": true,
+                        "source_mesh_icon_aligned": true,
                         "terrain_icon": TERRAIN_ICON,
                         "tree_glb_icon": GLB_ICON,
                         "file_glb_icon": GLB_ICON,
@@ -620,9 +627,9 @@ pub(super) fn advance(
                         "created_child_folder": CREATED_CHILD,
                         "root_folder_from_blank": creation::ROOT_FOLDER,
                         "empty_glbs": [creation::ROOT_GLB, creation::NESTED_GLB],
+                        "glb_menu": glb_menu,
                         "empty_folder_delete_and_undo": true,
-                        "empty_glb_and_cube_delete_undo": true,
-                        "existing_glb_added_from_picker": true,
+                        "cube_deleted_and_undone": true,
                         "main_scene_animation_deleted": true,
                         "mesh_transferred_to_folded_glb_and_undone": true,
                         "animation_layout_screenshot": "scene-tree-animation-alignment.png",
@@ -660,22 +667,20 @@ fn startup_tree_visible(world: &mut World, cube: &str) -> Result<bool, String> {
     let Some(cube_icon) = row_icon(world, cuboid, "icons/editor/tree_mesh.png") else { return Ok(false); };
     let Some(terrain_icon) = row_icon(world, terrain, TERRAIN_ICON) else { return Ok(false); };
     let Some(root_icon) = row_icon(world, root, GLB_ICON) else { return Ok(false); };
-    let model_arrow = row_arrow(world, model)?;
+    let Some(model_icon) = row_icon(world, model, GLB_ICON) else { return Ok(false); };
     let has_heading = world.query::<(Entity, &Text)>().iter(world)
         .any(|(entity, text)| text.as_str() == "网格对象" && ui_visible(world, entity));
     let position = |entity| world.get::<UiGlobalTransform>(entity).unwrap().translation;
-    let left = |entity| position(entity).x - world.get::<ComputedNode>(entity).unwrap().size().x * 0.5;
     let name = world.get::<Children>(root).into_iter().flat_map(|children| children.iter())
         .flat_map(|child| world.get::<Children>(child).into_iter().flat_map(|children| children.iter()))
         .find_map(|child| world.get::<Text>(child)).map(|text| text.as_str());
     Ok(name.is_some_and(|name| name.contains("scene.glb"))
         && !has_heading
         && position(display).y < position(root).y
-        && position(root).y < position(plant).y && left(root) < left(cuboid)
+        && position(root).y < position(plant).y
         && position(plant).y < position(cuboid).y && position(cuboid).y < position(model).y
-        && (position(cube_icon).x - position(model_arrow).x).abs() < 1.1
-        && (position(terrain_icon).x - position(root_icon).x).abs() < 1.1
-        && row_has_icon(world, model, GLB_ICON))
+        && [cube_icon, terrain_icon, model_icon].into_iter()
+            .all(|icon| (position(icon).x - position(root_icon).x).abs() < 1.1))
 }
 
 fn request_screenshot(world: &mut World, name: &str) -> Result<(), String> {
@@ -709,7 +714,7 @@ fn row_has_icon(world: &World, row: Entity, path: &str) -> bool {
 
 fn row_icon(world: &World, row: Entity, path: &str) -> Option<Entity> {
     let children = |entity| world.get::<Children>(entity).into_iter().flat_map(|children| children.iter());
-    children(row).chain(children(row).flat_map(children)).find(|&entity| {
+    children(row).chain(children(row).flat_map(children)).chain(tree_row_glyph(world, row)).find(|&entity| {
         world.get::<ImageNode>(entity).is_some_and(|icon| {
             icon.image.path().is_some_and(|source| source.path() == Path::new(path))
                 && world.resource::<Assets<Image>>().get(&icon.image).is_some()
@@ -752,10 +757,8 @@ fn folder_rows_reparented(world: &World, drop: FolderDrop) -> bool {
         })
 }
 
-fn row_arrow(world: &World, row: Entity) -> Result<Entity, String> {
-    world.get::<Children>(row).and_then(|children| children.iter()
-        .find(|child| world.get::<PlacementTreeExpander>(*child).is_some()))
-        .ok_or_else(|| "场景树验收没有实际的展开按钮".into())
+fn row_fold_icon(world: &World, row: Entity) -> Result<Entity, String> {
+    tree_fold_icon(world, row).ok_or_else(|| "场景树验收没有可点击的展开图标".into())
 }
 
 fn drag_tree_rows(world: &mut World, source: Entity, target: Entity, frame: u8) -> Result<Option<u8>, String> {

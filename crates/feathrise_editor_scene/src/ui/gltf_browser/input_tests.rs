@@ -1,4 +1,4 @@
-//! 场景树真实输入回归，名称与箭头各自消费原按钮释放。
+//! 场景树真实输入回归，分别验证名称选择与类型图标展开。
 
 use super::super::{EditorGltfBrowserEntry, EditorGltfMeshSelection};
 use super::*;
@@ -17,7 +17,7 @@ fn mesh(id: &str) -> EditorGltfMeshSelection {
 }
 
 #[test]
-fn placement_and_group_names_select_but_only_arrow_releases_expand() {
+fn placement_and_group_names_select_but_only_icons_expand() {
     use crate::ui::{scene_context_menu::{SceneObjectKey, SceneObjectRow}, terrain_objects::page_tests::{click, page_without_tree_input}};
     use super::super::{SceneTreeContents, organize::sync_root_row, scene_tree_root_row};
     use bevy::world_serialization::WorldAsset;
@@ -68,9 +68,18 @@ fn placement_and_group_names_select_but_only_arrow_releases_expand() {
         world.query::<(Entity, &SceneEditorGltfBrowserRow)>().iter(world)
             .find_map(|(entity, row)| (row.entry_index == Some(index)).then_some(entity)).unwrap()
     };
-    let arrow_of = |app: &App, row| {
-        app.world().get::<Children>(row).unwrap().iter()
-            .find(|child| app.world().get::<PlacementTreeExpander>(*child).is_some()).unwrap()
+    let fold_icon = |app: &App, row, path| {
+        let world = app.world();
+        let caption = world.get::<Children>(row).unwrap().iter()
+            .find(|&child| world.get::<GltfRowCaption>(child).is_some()).unwrap();
+        let button = world.get::<Children>(caption).unwrap().iter()
+            .find(|&child| world.get::<PlacementTreeExpander>(child).is_some()).unwrap();
+        let glyph = world.get::<Children>(button).unwrap().iter()
+            .find(|&child| world.get::<crate::components::SceneEditorGltfBrowserRowGlyph>(child).is_some()).unwrap();
+        // 向图标中心发送原鼠标事件，防止控件仍留在独立的空槽。
+        let image = world.get::<ImageNode>(glyph).unwrap();
+        assert_eq!(image.image.path().unwrap().path(), std::path::Path::new(path));
+        glyph
     };
     let revision = app.world().resource::<EditorGltfBrowserState>().published_entries_revision;
     let model = row_at(&mut app, 0);
@@ -85,14 +94,14 @@ fn placement_and_group_names_select_but_only_arrow_releases_expand() {
         assert!(state.expanded_groups.is_empty() && state.expanded_placements.is_empty());
         assert!(state.asset_demand_counts.is_empty(), "选择模型根无需请求Scene0");
     }
-    let model_arrow = arrow_of(&app, model);
-    click(&mut app, window, model_arrow, MouseButton::Left);
+    let model_icon = fold_icon(&app, model, "icons/editor/tree_glb.png");
+    click(&mut app, window, model_icon, MouseButton::Left);
     let group = row_at(&mut app, 1);
-    let group_arrow = arrow_of(&app, group);
-    click(&mut app, window, group_arrow, MouseButton::Left);
+    let group_icon = fold_icon(&app, group, "icons/editor/tree_folder.png");
+    click(&mut app, window, group_icon, MouseButton::Left);
     {
         let state = app.world().resource::<EditorGltfBrowserState>();
-        assert_eq!(state.selected_group.as_deref(), Some("摆放组"), "两处箭头都保留原选择");
+        assert_eq!(state.selected_group.as_deref(), Some("摆放组"), "点击展开图标保留原选择");
         assert!(state.expanded_placements.contains("主模型") && state.expanded_groups.contains("摆放组"));
         assert_eq!(state.asset_demand_counts.get("gltf/scene-tree-input-fixture.glb"), Some(&1));
         assert!(state.entries.iter().any(|entry| entry.depth == 1 && matches!(&entry.kind,
@@ -110,12 +119,12 @@ fn placement_and_group_names_select_but_only_arrow_releases_expand() {
     assert!(state.is_main_glb_selected(&scene) && state.collapsed_main_glb.is_none());
     assert!(state.selected_group.is_none() && state.selected_placement_id.is_none());
     assert!(state.expanded_placements.contains("主模型") && state.expanded_groups.contains("摆放组"));
-    let root_arrow = arrow_of(&app, main_glb);
-    click(&mut app, window, root_arrow, MouseButton::Left);
+    let root_icon = fold_icon(&app, main_glb, "icons/editor/tree_glb.png");
+    click(&mut app, window, root_icon, MouseButton::Left);
     assert_eq!(app.world().get::<Node>(contents).unwrap().display, Display::None);
     assert!(app.world().resource::<EditorGltfBrowserState>().is_main_glb_selected(&scene));
     assert_eq!(app.world().get::<Node>(main_glb).unwrap().display, Display::Flex);
-    click(&mut app, window, root_arrow, MouseButton::Left);
+    click(&mut app, window, root_icon, MouseButton::Left);
     assert_eq!(app.world().get::<Node>(contents).unwrap().display, Display::Flex);
     let model = row_at(&mut app, 0);
     click(&mut app, window, model, MouseButton::Left);

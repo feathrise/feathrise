@@ -207,7 +207,7 @@ pub(crate) fn install(app: &mut App) {
     install_controls(app);
     app.add_systems(
         Update,
-        (systems::send_blender_action, systems::reveal_glb_file)
+        (systems::send_blender_action, systems::reveal_glb_file, systems::queue_main_glb_shape)
             .after(focus::select_target)
             .in_set(SceneMenuDispatch)
             .in_set(crate::SceneEditorSystemSet::Input),

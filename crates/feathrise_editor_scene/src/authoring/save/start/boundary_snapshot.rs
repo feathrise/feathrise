@@ -17,6 +17,7 @@ pub(super) fn snapshot(
         water_asset_path: source.water_asset_path.clone(), // 保留该领域既有快照与共享语义。
         placement_glb_hash: source.placement_glb_hash.clone(),
         source_glb_edits: source.source_glb_edits.clone(),
+        glb_deletions: source.glb_deletions.clone(),
         manifest: source.manifest.clone(), // 保留该领域既有快照与共享语义。
         terrain_ground: source.terrain_ground.clone(),
         terrain_documents: source.terrain_documents.clone(),

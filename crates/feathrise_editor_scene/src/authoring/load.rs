@@ -267,6 +267,7 @@ pub(crate) fn start_draft_load(
         motion: Default::default(),
         placement_glb_hash: None,
         source_glb_edits: Default::default(),
+        glb_deletions: Default::default(),
         placement_water_surface_count: 0, // 完整文档计数移到下方IO任务，主线程不额外扫描8192项。
         portals: portals.clone(),
         domain: None,

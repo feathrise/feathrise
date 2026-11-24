@@ -13,7 +13,7 @@ use crate::resources::{
 };
 use crate::types::{SceneBrowserDragPress, SceneBrowserDropTarget, SceneBrowserItem, SceneFolderDocument};
 
-use super::{structure_change_allowed, toggle_folder_expansion};
+use super::structure_change_allowed;
 use crate::scene_browser::helpers::{
     assign_scene_to_folder, drag_threshold_reached, expand_folder_ancestors, folder_by_id,
     folder_move_target_allowed, move_folder,
@@ -122,7 +122,7 @@ pub(crate) fn update_scene_browser_drag(
         || deletion.confirmation.is_some()
     {
         let owned = drag.press.is_some() || drag.active || drag.blocked;
-        drag.press = None; // 隐藏或模态介入后，未越阈值的文件夹点击也不能补展开。
+        drag.press = None; // 隐藏或模态介入后，未越阈值的拖动候选也不再执行。
         drag.selection = None;
         drag.active = false; // 浮层立即隐藏。
         drag.drop_target = None; // 旧文件夹落点失效。
@@ -314,15 +314,6 @@ pub(crate) fn update_scene_browser_drag(
         }
         drag.selection = None;
         drag.collapse_on_release = false;
-        if let SceneBrowserItem::Folder(id) = press.item
-            && !drag.suppress_folder_toggle
-            && rows.iter().any(|(interaction, row, cursor)| {
-                row_is_hovered(interaction, cursor)
-                    && row.item.as_ref() == Some(&SceneBrowserItem::Folder(id.clone()))
-            })
-        {
-            toggle_folder_expansion(&mut browser, &mut editor, &id); // 未越阈值且仍在原行松开才执行一次展开。
-        }
     }
 
     if drag.blocked {

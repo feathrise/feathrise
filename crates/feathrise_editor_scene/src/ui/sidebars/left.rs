@@ -184,7 +184,7 @@ pub(crate) fn scene_tree_page() -> impl Scene {
                     flex_basis: px(crate::ui::list_layout::SCENE_OBJECT_ROW_PITCH), flex_direction: FlexDirection::Column,
                     padding: UiRect::left(px(crate::ui::scene_sidebar::TREE_CONTENT_INSET)), overflow: Overflow::scroll_y() }
                 Children [
-                    // 根箭头只收起场景内容，工具入口位于子树之外。
+                    // 主 GLB 图标只收起场景内容，工具入口位于子树之外。
                     crate::ui::gltf_browser::SceneTreeContents
                     RelativeCursorPosition::default()
                     Node { width: percent(100), min_width: px(0), flex_shrink: 0.0, flex_direction: FlexDirection::Column, row_gap: px(3) }

@@ -441,6 +441,7 @@ label.volume-75	音量 75%	Volume 75%
 label.transform	变换	Transform
 help.left-drag-numeric-fields-to-adjust-right	数值框支持左拖实际值、右拖本字段灵敏度、左键单击精确输入。普通资产使用世界变换，三维地形使用关联Clipmap的源局部变换；位置使用米，缩放为无量纲倍率。	Left-drag numeric fields to adjust, right-drag for sensitivity, or left-click and release without dragging for precise input. Assets use world transforms. 3D terrain uses the source-local transform of its Clipmap. Positions are in meters and scale is unitless.
 label.delete	删除	Delete
+label.scene-tree-remove-glb	移除	Remove
 label.height-and-placement	高度与落点	Height and Placement
 help.snap-to-ground-waits-for-a-viewport	吸附地面会等待中央视口单击，并按首次摆放规则命中真实地形。跟随地形会归零离地偏移；固定高度保留模式并采用命中Y。	Snap to Ground waits for a viewport click and uses the same terrain query as placement. Follow Terrain resets the ground offset. Fixed Height uses the hit Y value and keeps the current mode.
 label.follow-terrain	跟随地形	Follow Terrain
@@ -838,6 +839,8 @@ project.log.rows	日志行数：{count}	Log lines: {count}
 project.save.done	保存成功	Saved
 project.save.failed	保存失败	Save Failed
 project.save.pending	正在保存…	Saving…
+tooltip.controls.branch	展开 / 收起	Expand / Collapse
+tooltip.controls.branch_help	点击图标切换分支，点击名称选中。	Click the icon to expand or collapse. Click the name to select.
 tooltip.controls.include	参与场景	Include in Scene
 tooltip.controls.visibility	编辑器显示	Editor Visibility
 tooltip.controls.lock	锁定 / 解锁	Lock / Unlock
@@ -1482,7 +1485,7 @@ scenes.help.range	正在按可见目录顺序连选…	Selecting a range in the 
 scenes.help.multi	Ctrl点击增减选择，Shift连续选择；拖动任一选中项整批归类，父文件夹包含子项时自动去重	Ctrl-click to toggle items or Shift-click to select a range. Drag a selected item to move the selection. A selected folder already includes its children.
 scenes.help.scene_dirty	进入前由原切换场景确认处理未保存修改；当前不能删除场景	Resolve unsaved changes before switching scenes. The current scene cannot be deleted yet.
 scenes.help.scene	双击场景或点击进入打开；Ctrl多选、Shift连选，拖动批量归类；新建项建在该场景所在文件夹	Double-click a scene or use Enter to open it. Ctrl-click or Shift-click to select multiple items, then drag to move them. New items go in the scene's folder.
-scenes.help.folder	点击文件夹展开或收起；Ctrl多选、Shift连选，拖动可整体移动；新建项建在该文件夹，只能删除空文件夹	Click a folder to expand or collapse it. Ctrl-click or Shift-click to select multiple items, then drag to move them. New items go in this folder. Empty folders can be deleted.
+scenes.help.folder	点击文件夹图标展开或收起，点击名称选中；Ctrl多选、Shift连选，拖动可整体移动；新建项建在该文件夹，只能删除空文件夹	Click the folder icon to expand or collapse it. Click the name to select it. Ctrl-click or Shift-click to select multiple items, then drag to move them. New items go in this folder. Empty folders can be deleted.
 scenes.help.root	新场景和文件夹建在根文件夹；选择文件夹不会切换场景	New scenes and folders go in the root folder. Selecting a folder keeps the current scene open.
 diagnostics.phase.waiting	等待代码编译	Waiting for a code build
 diagnostics.phase.building	正在后台编译代码	Building code in the background…

@@ -1,7 +1,8 @@
 //! 保存场景所引用 GLB 的源文件草稿；跨文件编辑沿用场景的单个写盘事务。
 
-use bevy::prelude::{Mat4, Transform};
+use bevy::prelude::{Mat4, Transform, Vec3};
 use feathrise_editor_animation_model::data::{GlbParent, GlbStructure};
+use feathrise_scene_content::ScenePlacementAssetTarget;
 use feathrise_scene_content::authoring_io::{bytes_hash, file_hash};
 use feathrise_scene_content::authoring_transaction::PreparedWrite;
 use std::{
@@ -10,7 +11,9 @@ use std::{
     sync::Arc,
 };
 
+pub(crate) mod deletion;
 mod mesh_properties;
+mod primitive;
 pub(crate) use mesh_properties::{SourceMeshHeight, SourceMeshProperties};
 
 #[derive(Clone)]
@@ -202,6 +205,7 @@ pub(crate) enum SourceGlbOperation {
     Folder(String),
     DeleteFolder,
     Move(SourceGlbTarget),
+    AddPrimitive { shape: ScenePlacementAssetTarget, center: Vec3 },
     ApplyTransform { expected_hash: String, remaining: Transform },
     NodeEdit {
         expected_hash: String,
@@ -283,6 +287,15 @@ pub(crate) fn edit(
         }
         SourceGlbOperation::DeleteFolder => {
             document.remove_empty_folder(source.node(&document)?)?;
+        }
+        SourceGlbOperation::AddPrimitive { shape, center } => {
+            // 采用被右键的引用实例的坐标系，同一个源仍由其所有实例共享。
+            let local = source.world.inverse().transform_point3(center);
+            if !local.is_finite() || source.node.is_some() {
+                return Err("请在有有效场景变换的完整 GLB 行新建网格".into());
+            }
+            let parent = source.parent(&document)?;
+            primitive::add(&mut document, parent, shape, local)?;
         }
         SourceGlbOperation::ApplyTransform { expected_hash, remaining } => {
             if expected_hash != content_hash { return Err("源 GLB 已改变，请重新选择要应用的变换".into()); }

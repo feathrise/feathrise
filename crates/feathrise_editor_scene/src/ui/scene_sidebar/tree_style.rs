@@ -22,9 +22,9 @@ pub(crate) fn tree_row_icon_left(depth: usize, width: f32) -> Val {
     px(TREE_ROW_INSET + depth as f32 * TREE_ICON_SIZE + (TREE_BRANCH_WIDTH - width) * 0.5)
 }
 
-/// 地形在带缩进的正文里，图标对齐正文外固定主场景行的文件图标。
-pub(crate) fn tree_root_icon_left_in_content() -> Val {
-    px(TREE_ROOT_BORDER + TREE_ROW_INSET + TREE_BRANCH_WIDTH + TREE_BRANCH_GAP - TREE_CONTENT_INSET)
+/// 主场景根行在滚动正文外，其图标沿用正文首列的中心。
+pub(crate) fn tree_root_row_left() -> Val {
+    px(TREE_CONTENT_INSET + TREE_ROW_INSET - TREE_ROOT_BORDER)
 }
 
 fn tree_branch_node() -> Node {
