@@ -197,7 +197,8 @@ fn drive(
                         match result {
                             Ok((src, pages)) => {
                                 d.replace_content(src, pages, default());
-                                d.mode = ViewMode::Edit;
+                                // 同一份草稿交回可视化规则工作台，作者可以继续调整条件和动作。
+                                d.mode = ViewMode::Preview;
                                 editor.status = "已将演出加入工程规则草稿，按 Ctrl+S 保存".into();
                             }
                             Err(e) => editor.status = e,

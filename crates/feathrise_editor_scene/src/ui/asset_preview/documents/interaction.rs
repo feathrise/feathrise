@@ -27,7 +27,7 @@ pub(super) fn actions(
     mut focus: ResMut<InputFocus>,
     buttons: Query<
         (&feathrise_editor_ui::EditorButtonClick, &DocumentAction),
-        Changed<feathrise_editor_ui::EditorButtonClick>,
+        (Changed<feathrise_editor_ui::EditorButtonClick>, Without<super::rules::AuthorButton>),
     >,
     source: Query<(Entity, &EditableText), With<DocumentSource>>,
     mut workspace: ResMut<VegetationPresetEditorState>,

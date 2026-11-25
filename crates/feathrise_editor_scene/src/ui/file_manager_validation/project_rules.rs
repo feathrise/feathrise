@@ -1,13 +1,17 @@
-//! 两个真实窗口分别验证首次示例、错误保存、正式写入和关闭进程后重开。
-use super::{
-    click, evidence, fixture_focus, key_state, move_cursor, visible, window_event,
-};
+//! 两个独立作者窗口从交互入口与工程文件列表打开表单，检验规则的正式编辑、保存与重开。
+mod form;
+use super::{click, evidence, fixture_focus, key_state, move_cursor, visible, window_event};
 use crate::{
+    asset_catalog::{EditorAssetCatalog, project_files::EditorProjectFileCatalog},
+    components::SceneEditorAssetRow,
     resources::SceneEditorState,
     ui::{
         asset_preview::DocumentState,
         gameplay_sidebar::project_rules::RuleButton,
-        sidebars::{EditorLeftSidebarTab, EditorSidebarTab, SceneEditorSidebarTabButton},
+        project_browser::{ProjectBrowserState, ProjectFileRow},
+        sidebars::{
+            EditorLeftSidebarTab, EditorNavigatorTab, EditorSidebarTab, SceneEditorSidebarTabButton,
+        },
     },
 };
 use bevy::{
@@ -32,12 +36,16 @@ use std::{
 enum Stage {
     Sidebar,
     Open,
+    Files,
     Loaded,
+    Form(usize),
+    Advanced,
     Edit(bool),
     Input(bool),
     Save(bool),
     Verify(bool),
     Capture,
+    CaptureSource,
     Complete,
 }
 
@@ -49,16 +57,16 @@ struct Run {
     since: Instant,
     pointer: Option<(Entity, bool)>,
     keys: u8,
-    original: String,
+    saved_form: String,
     invalid: String,
     edited: String,
     diagnostic: Option<String>,
     capture: Option<evidence::CaptureTask>,
+    form_shot: Value,
+    source_shot: Value,
 }
 
 pub(super) fn install(app: &mut App, work: PathBuf, phase: String) -> Result<(), String> {
-    // 文档的内存正文统一 LF，磁盘仍须逐字节保留本机检出的示例。
-    let original = EXAMPLE.replace("\r\n", "\n");
     app.insert_resource(Run {
         work,
         phase,
@@ -66,11 +74,13 @@ pub(super) fn install(app: &mut App, work: PathBuf, phase: String) -> Result<(),
         since: Instant::now(),
         pointer: None,
         keys: 0,
-        invalid: original.replace("\"set\": \"route\"", "\"set\": \"missing_rules_variable\""),
-        edited: original.replace("\"smith_route\"", "\"smith_route_edited\""),
-        original,
+        saved_form: String::new(),
+        invalid: String::new(),
+        edited: String::new(),
         diagnostic: None,
         capture: None,
+        form_shot: Value::Null,
+        source_shot: Value::Null,
     })
     .add_systems(PreUpdate, hold_pointer.before(bevy::ui::UiSystems::Focus))
     .add_systems(
@@ -121,8 +131,18 @@ fn drive(world: &mut World) {
         let result = if run.since.elapsed() > Duration::from_secs(30) {
             let current =
                 observe(world).map(|(text, dirty, edit, status)| (text.len(), dirty, edit, status));
+            let form = if let Stage::Form(i) = run.stage {
+                form::describe(run.phase == "reopen", i)
+            } else {
+                String::new()
+            };
+            let focus = world
+                .get_resource::<InputFocus>()
+                .and_then(|f| f.get())
+                .and_then(|e| world.get::<Name>(e))
+                .map(Name::as_str);
             Err(format!(
-                "等待 {:?} 超时，原生输入步骤 {}，文档 {:?}，操作栏 {:?}",
+                "等待 {:?} {form} 超时，原生输入步骤 {}，焦点 {focus:?}，文档 {:?}，操作栏 {:?}",
                 run.stage,
                 run.keys,
                 current,
@@ -138,7 +158,7 @@ fn drive(world: &mut World) {
                 run.keys = 0;
             }
             Ok(None) => {}
-            Err(error) => finish(world, &mut run, Value::Null, Some(error)),
+            Err(error) => finish(world, &mut run, Some(error)),
         }
     });
 }
@@ -152,40 +172,71 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
             {
                 return Ok(None);
             }
-            let tab = visible(world, |t: &SceneEditorSidebarTabButton| {
-                t.0 == EditorSidebarTab::Left(EditorLeftSidebarTab::Gameplay)
-            });
+            let target = if run.phase == "reopen" {
+                EditorSidebarTab::Navigator(EditorNavigatorTab::Assets)
+            } else {
+                EditorSidebarTab::Left(EditorLeftSidebarTab::Gameplay)
+            };
+            let tab = visible(world, |t: &SceneEditorSidebarTabButton| t.0 == target);
             if !click(world, &mut run.pointer, window, tab) {
                 return Ok(None);
             }
-            Stage::Open
+            if run.phase == "reopen" {
+                Stage::Files
+            } else {
+                Stage::Open
+            }
         }
         Stage::Open => {
-            // 第二次仍点击「从示例创建」，验证它会保留作者刚保存的工程文件。
             let button = visible(world, |b: &RuleButton| b.0);
             if !click(world, &mut run.pointer, window, button) {
                 return Ok(None);
             }
             Stage::Loaded
         }
+        Stage::Files => {
+            // 固定文件列表单击 assets 进入目录，再实际双击配置文件。这里不发送文档打开命令。
+            if observe(world).is_some() {
+                return Ok(Some(Stage::Loaded));
+            }
+            // 登记的 assets 目录采用后，文件列表改用资产行和相对资产根的路径。
+            let row = if world.resource::<ProjectBrowserState>().assets_visible() {
+                let assets = world.resource::<EditorAssetCatalog>();
+                let index = assets.entries.iter().position(|item| item.asset_path == PATH);
+                index.and_then(|i| visible(world, |r: &SceneEditorAssetRow| r.entry_index == Some(i)))
+            } else {
+                let files = world.resource::<EditorProjectFileCatalog>();
+                let index = files.entries.iter().position(|item| item.asset_path == "assets");
+                index.and_then(|i| visible(world, |r: &ProjectFileRow| r.entry_index == Some(i)))
+            };
+            click(world, &mut run.pointer, window, row);
+            return Ok(None);
+        }
         Stage::Loaded => {
+            if form::entity(world, "RulesWorkbench").is_none() {
+                return Ok(None);
+            }
             let Some((source, dirty, ..)) = observe(world) else {
                 return Ok(None);
             };
             let reopening = run.phase == "reopen";
             let expected = if reopening {
-                run.edited.as_str()
+                fs::read_to_string(run.work.join("project/assets").join(PATH))
+                    .map_err(|e| e.to_string())?
             } else {
-                run.original.as_str()
+                EXAMPLE.to_owned()
             };
-            if dirty || source != expected {
+            if dirty || source != expected.replace("\r\n", "\n") {
                 return Err("中央文档首次读取的规则正文与磁盘预期不符".into());
             }
-            if reopening {
-                Stage::Capture
-            } else {
-                Stage::Edit(false)
+            Stage::Form(0)
+        }
+        Stage::Form(index) => return form::form(world, run, window, index),
+        Stage::Advanced => {
+            if !form::named_click(world, run, window, "RulesSource") {
+                return Ok(None);
             }
+            Stage::Input(false)
         }
         Stage::Edit(valid) => {
             // 保存按钮会接走正文焦点；点击正式编辑入口把焦点交还原生完整输入。
@@ -202,55 +253,21 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
             let Some(input) = visible(world, |source: &DocumentSource| source.key.is_some()) else {
                 return Ok(None);
             };
-            if world.resource::<InputFocus>().get() != Some(input) {
+            let desired = if valid { &run.edited } else { &run.invalid };
+            if !form::replace(
+                world,
+                &mut run.pointer,
+                &mut run.keys,
+                window,
+                input,
+                desired,
+            ) {
                 return Ok(None);
             }
-            let desired = if valid { &run.edited } else { &run.invalid };
-            match run.keys {
-                0 => key_state(
-                    world,
-                    window,
-                    KeyCode::ControlLeft,
-                    Key::Control,
-                    ButtonState::Pressed,
-                ),
-                1 => key_state(
-                    world,
-                    window,
-                    KeyCode::KeyA,
-                    Key::Character("a".into()),
-                    ButtonState::Pressed,
-                ),
-                2 => {
-                    key_state(
-                        world,
-                        window,
-                        KeyCode::KeyA,
-                        Key::Character("a".into()),
-                        ButtonState::Released,
-                    );
-                    key_state(
-                        world,
-                        window,
-                        KeyCode::ControlLeft,
-                        Key::Control,
-                        ButtonState::Released,
-                    );
-                }
-                3 => window_event(
-                    world,
-                    Ime::Commit {
-                        window,
-                        value: desired.clone(),
-                    },
-                ),
-                _ if !observe(world).is_some_and(|(text, dirty, ..)| dirty && text == desired) => {
-                    return Ok(None);
-                }
-                _ => return Ok(Some(Stage::Save(valid))),
+            if !observe(world).is_some_and(|(text, dirty, ..)| dirty && text == desired) {
+                return Ok(None);
             }
-            run.keys += 1;
-            return Ok(None);
+            Stage::Save(valid)
         }
         Stage::Save(valid) => {
             let button = visible(world, |a: &DocumentAction| *a == DocumentAction::Save);
@@ -267,16 +284,16 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
                 if dirty || source != run.edited {
                     return Ok(None);
                 }
-                Stage::Capture
+                Stage::CaptureSource
             } else {
                 if !dirty || !status.contains("未声明") {
                     return Ok(None);
                 }
                 if fs::read_to_string(run.work.join("project/assets").join(PATH))
                     .map_err(|e| e.to_string())?
-                    != EXAMPLE
+                    != run.saved_form
                 {
-                    return Err("拒绝错误保存时磁盘上的原示例已改变".into());
+                    return Err("拒绝错误源码时磁盘上的表单保存结果已改变".into());
                 }
                 run.diagnostic = Some(status.to_owned());
                 Stage::Edit(true)
@@ -287,7 +304,21 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
             let Some(shot) = evidence::capture(world, &mut run.capture, &path)? else {
                 return Ok(None);
             };
-            finish(world, run, shot, None);
+            run.form_shot = shot;
+            if run.phase == "reopen" {
+                finish(world, run, None);
+                Stage::Complete
+            } else {
+                Stage::Advanced
+            }
+        }
+        Stage::CaptureSource => {
+            let path = run.work.join("rules-source.png");
+            let Some(shot) = evidence::capture(world, &mut run.capture, &path)? else {
+                return Ok(None);
+            };
+            run.source_shot = shot;
+            finish(world, run, None);
             Stage::Complete
         }
         Stage::Complete => return Ok(None),
@@ -295,10 +326,11 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
     Ok(Some(next))
 }
 
-fn finish(world: &mut World, run: &mut Run, screenshot: Value, error: Option<String>) {
+fn finish(world: &mut World, run: &mut Run, error: Option<String>) {
     let value = json!({"phase":run.phase,"passed":error.is_none(),"error":error,"stage":format!("{:?}",run.stage),
-        "diagnostic":run.diagnostic,"screenshot":screenshot,"saved_status":observe(world).map(|d|d.3),
-        "input":"Bevy WindowEvent（侧栏、原生正文输入、保存按钮）","os_input_verified":false});
+        "diagnostic":run.diagnostic,"screenshot":run.form_shot,"source_screenshot":run.source_shot,"saved_status":observe(world).map(|d|d.3),
+        "entry":if run.phase=="reopen"{"文件 → assets → 双击 project_rules.json"}else{"交互 → 从示例创建"},
+        "input":"Bevy WindowEvent（原生表单与源码输入、按钮、撤销和重做快捷键）","os_input_verified":false});
     let saved = evidence::report(&run.work.join(format!("rules-{}.json", run.phase)), &value);
     if let Err(error) = &saved {
         error!("工程规则验收报告写入失败：{error}");

@@ -1,4 +1,4 @@
-//! 两次独立作者进程复用桌面夹具隔离，退出后独立解析主资产根的正式文档。
+//! 两次独立作者进程复用桌面夹具隔离，父进程对照示例和可视操作独立回读正式文档。
 use super::*;
 pub(super) const ENV: &str = "FEATHRISE_PROJECT_RULES_VALIDATION";
 
@@ -45,6 +45,17 @@ pub(super) fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<
     );
     let mut expected: Value = serde_json::from_str(sample).map_err(|e| e.to_string())?;
     expected["rules"][0]["id"] = json!("smith_route_edited");
+    expected["variables"]["dock_ready"] = json!({"default":false});
+    expected["variables"]["a"] = json!({"default":0});
+    expected["rules"].as_array_mut().unwrap().push(json!({
+        "id":"guard_freed","when":{"event":"quest.completed","target":"dock_guard"},
+        "if":[{"variable":"dock_ready","equals":false}],"once":true,
+        "actions":[{"set":"dock_ready","value":true},{"request":"cinematic.play","target":"guard-unseal"}]
+    }));
+    expected["rules"].as_array_mut().unwrap().push(json!({
+        "id":"draw_at_three","when":{"changed":"a","to":3},
+        "actions":[{"request":"cinematic.play","target":"draw-river-sword"}]
+    }));
     for phase in ["edit", "reopen"] {
         command.env(ENV, phase);
         let child = build_process::run(
@@ -62,13 +73,24 @@ pub(super) fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<
         if child.exit_code != 0 || window["passed"] != true {
             return Err(format!("规则窗口 {phase} 未通过：{}", window["error"]));
         }
-        if read_json(&path)? != expected {
-            return Err(format!("{phase} 退出后，独立回读的规则内容与编辑结果不符"));
+        let actual = read_json(&path)?;
+        if actual != expected {
+            return Err(format!(
+                "{phase} 退出后，独立回读的规则内容与编辑结果不符：{actual}"
+            ));
         }
         let png = fs::read(work.join(format!("rules-{phase}.png"))).map_err(|e| e.to_string())?;
         if !png.starts_with(b"\x89PNG\r\n\x1a\n") || window["screenshot"]["sha256"] != sha256(&png)
         {
             return Err("规则窗口截图校验不符".into());
+        }
+        if phase == "edit" {
+            let source = fs::read(work.join("rules-source.png")).map_err(|e| e.to_string())?;
+            if !source.starts_with(b"\x89PNG\r\n\x1a\n")
+                || window["source_screenshot"]["sha256"] != sha256(&source)
+            {
+                return Err("高级源码窗口截图校验不符".into());
+            }
         }
     }
     proof["disk_reread_verified"] = json!(true);

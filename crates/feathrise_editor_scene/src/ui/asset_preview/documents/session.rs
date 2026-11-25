@@ -475,7 +475,7 @@ pub(super) fn drive_tasks(
     }
     if state.parser.is_none() && state.visible {
         if let Some(doc) = state.current().filter(|doc| {
-            !state.editing() && doc.preview_revision != Some(doc.revision) && !(state.in_center() && super::cinematic::is_path(&doc.path))
+            !state.editing() && doc.preview_revision != Some(doc.revision) && !(state.in_center() && (doc.disk.project_rules || super::cinematic::is_path(&doc.path)))
         }) {
             let path = doc.path.clone();
             let generation = doc.generation;

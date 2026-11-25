@@ -6,6 +6,7 @@ use bevy::prelude::*;
 
 mod components;
 pub(crate) mod cinematic;
+mod rules;
 mod batch_save; // 本批/全部草稿共享唯一IO槽，逐文件校验并保留失败项。
 mod constants;
 mod external; // 返回聚焦窗口或重新打开F12时核对磁盘，保留未保存草稿。
@@ -41,6 +42,7 @@ pub(crate) mod validation; // 仅显式有限验收访问固定文本会话，�
 
 pub(crate) use resources::{DocumentState, DocumentMinimapState};
 pub(crate) use project_files::OpenProjectDocument;
+pub(crate) use rules::show_project_rules_form;
 pub(crate) use source::is_project as is_project_document;
 pub(crate) use search::AssetSearchState;
 pub(crate) use search::AssetReplaceState;
@@ -57,6 +59,7 @@ pub(crate) use workspace::{install_snapshot_document_tabs, set_snapshot_document
 pub(super) fn install(app: &mut App) {
     project_files::install(app);
     cinematic::install(app);
+    rules::install(app);
     source_location::install(app);
     history::install(app);
     json::install(app);

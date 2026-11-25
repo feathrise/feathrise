@@ -214,10 +214,11 @@ pub(crate) fn handle_asset_row_clicks(
             focus.browse(workspace.active_tab); // 包括重选同一GLB；装备/角色编辑页不能吞掉显式文件预览。
         }
         if let Some(format) = super::document_format(&entry.asset_path) {
-            editor.status = format!(
-                "已选择{}文件{}；可在右侧属性中预览或编辑，Ctrl+S保存当前文件",
-                format.label(), entry.asset_path
-            );
+            editor.status = if entry.asset_path == feathrise_editor_documents_model::project_rules::PATH {
+                "已选中工程规则，双击可编辑变量、触发规则和地点范围".into()
+            } else {
+                format!("已选择{}文件{}；可在右侧属性中预览或编辑，Ctrl+S保存当前文件", format.label(), entry.asset_path)
+            };
             continue; // 可编辑文本不能再提示“仅浏览”，也不作为模型放置到场景。
         }
         match entry.kind {

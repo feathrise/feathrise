@@ -3,3 +3,17 @@
 pub const PATH: &str = "project_rules.json";
 pub const EMPTY: &str = "{\n  \"version\": 1,\n  \"variables\": {},\n  \"rules\": []\n}\n";
 pub const EXAMPLE: &str = include_str!("example.json");
+
+mod edit;
+mod form;
+mod schema;
+mod source;
+pub use edit::{RuleEdit, apply};
+pub use form::{
+    ActionForm, ConditionForm, LocationForm, RuleForm, RulesForm, TriggerForm, ValueKind,
+    VariableForm,
+};
+pub use schema::validate;
+
+#[cfg(test)]
+mod tests;

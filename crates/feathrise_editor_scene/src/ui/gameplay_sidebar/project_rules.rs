@@ -2,6 +2,7 @@
 use crate::{
     SceneEditorSystemSet, asset_catalog::project_files::EditorProjectFileCatalog,
     resources::SceneEditorState, ui::file_manager::OpenManagedFile,
+    ui::asset_preview::documents::{DocumentState, show_project_rules_form},
 };
 use bevy::{
     prelude::*,
@@ -35,9 +36,9 @@ fn button(label: &'static str, sample: bool) -> impl Scene {
 pub(super) fn panel() -> impl Scene {
     bsn! { Node { width: percent(100), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
         Children [
-            @crate::ui::context_help::section_header("工程变量与触发规则", "工程变量供 Yarn、任务和演出共用。首次可建空白文件，也可从送剑分支示例开始。已有文件会直接打开。在中央文档编辑，按 Ctrl+S 校验并保存。")--
+            @crate::ui::context_help::section_header("工程变量与触发规则", "在表单中添加变量、地点和规则。规则可监听变量变化或游戏事件，并设置变量、启动任务或播放演出。按 Ctrl+S 校验并保存。")--
             Node { width: percent(100), flex_wrap: FlexWrap::Wrap, column_gap: px(4), row_gap: px(3) }
-            Children [@button("打开或新建规则", false)-- @button("从示例创建", true)]
+            Children [@button("编辑变量与规则", false)-- @button("从示例创建", true)]
         ]
     }
 }
@@ -82,6 +83,7 @@ fn drive(
     buttons: Query<(&EditorButtonClick, &RuleButton), Changed<EditorButtonClick>>,
     catalog: Option<Res<EditorProjectFileCatalog>>,
     mut editor: ResMut<SceneEditorState>,
+    mut documents: ResMut<DocumentState>,
     mut open: MessageWriter<OpenManagedFile>,
 ) {
     let current = || Context::current(catalog.as_deref());
@@ -97,6 +99,8 @@ fn drive(
         if valid && !active.cancelled.load(Ordering::Acquire) {
             match result {
                 Ok((path, created)) => {
+                    // 已开的源码标签仍持有未存草稿；从交互入口返回表单时继续使用这份文档。
+                    show_project_rules_form(&mut documents, &path);
                     open.write(OpenManagedFile { path });
                     editor.status = if created {
                         "已创建工程规则文件"

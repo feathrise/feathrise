@@ -3448,6 +3448,8 @@ dependencies = [
  "bevy",
  "feathrise_editor_core",
  "regex",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

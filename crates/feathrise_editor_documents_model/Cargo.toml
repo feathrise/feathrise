@@ -8,4 +8,6 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 bevy = { workspace = true }
 feathrise_editor_core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] } # 保留未编辑字段的原始数字、转义和顺序。
 regex = "=1.13.1" # 复用已锁定引擎，仅后台处理转义后的字面查询、Unicode大小写及全词边界。
