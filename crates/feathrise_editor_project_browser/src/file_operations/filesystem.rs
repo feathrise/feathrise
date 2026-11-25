@@ -24,6 +24,16 @@ pub(super) fn execute(
         }
     }
     if roots.is_empty() { return Err("已打开的目录均已失效或无法访问，请重新打开一个有效目录；未操作任何文件".into()); }
+    if let Some(references) = &request.references {
+        return super::references::execute(request, references, &roots, control, receipt, current);
+    }
+    execute_plain(request, &roots, control, receipt, current, None)
+}
+
+pub(super) fn execute_plain(
+    request: &FileOperationRequest, roots: &[PathBuf], control: &Control<'_>, receipt: &mut FileOperationReceipt,
+    current: &mut Option<PathBuf>, approved: Option<&ReferencePreview>,
+) -> Result<(), String> {
     match &request.operation {
         FileOperation::Copy { sources, destination, conflict } | FileOperation::Move { sources, destination, conflict } => {
             let destination = checked(destination, &roots, true)?;
@@ -40,6 +50,7 @@ pub(super) fn execute(
                 }
             }
             for (index, (source, stamp)) in sources.iter().enumerate() {
+                let stamp = approved.and_then(|plan| plan.source_stamps.get(source)).unwrap_or(stamp);
                 control.check()?;
                 *current = Some(source.clone());
                 control.update(Some(source), 0, 0);
@@ -47,6 +58,9 @@ pub(super) fn execute(
                 let requested = destination.join(file_name);
                 if moving && requested == *source { receipt.skipped.push(source.clone()); continue; }
                 let target = target_path(&requested, *conflict)?;
+                if let Some(approved) = approved && approved.moves.get(source) != target.as_ref() {
+                    return Err(format!("目标名称在确认后改变，请重新预览：{}", requested.display()));
+                }
                 let Some(target) = target else { receipt.skipped.push(source.clone()); continue; };
                 if moving {
                     walk_tree(source, *stamp, control, |_, _, _| Ok(()))?;
@@ -167,6 +181,7 @@ pub(super) fn execute(
         FileOperation::Rename { source, stamp, name } => {
             *current = Some(source.clone());
             let (source, metadata) = checked_entry(source, &roots)?;
+            let stamp = approved.and_then(|plan| plan.source_stamps.get(&source)).unwrap_or(stamp);
             verify_source_stamp(&source, *stamp, &metadata)?;
             protect_root(&source, &roots)?;
             validate_name(name)?;
@@ -208,13 +223,13 @@ fn absolute(path: &Path) -> Result<(), String> {
     } else { Ok(()) }
 }
 
-fn checked(path: &Path, roots: &[PathBuf], require_directory: bool) -> Result<PathBuf, String> {
+pub(super) fn checked(path: &Path, roots: &[PathBuf], require_directory: bool) -> Result<PathBuf, String> {
     let (path, metadata) = checked_entry(path, roots)?;
     if require_directory && !metadata.is_dir() { return Err(format!("目标不是文件夹：{}", path.display())); }
     Ok(path)
 }
 
-fn checked_entry(path: &Path, roots: &[PathBuf]) -> Result<(PathBuf, Metadata), String> {
+pub(super) fn checked_entry(path: &Path, roots: &[PathBuf]) -> Result<(PathBuf, Metadata), String> {
     absolute(path)?;
     let resolved = path.canonicalize().map_err(|error| format!("文件路径不可用 {}：{error}", path.display()))?;
     let root = roots.iter().filter(|root| resolved.starts_with(root)).max_by_key(|root| root.components().count())
@@ -232,12 +247,12 @@ fn checked_entry(path: &Path, roots: &[PathBuf]) -> Result<(PathBuf, Metadata), 
     Ok((resolved, metadata))
 }
 
-fn verify_source_stamp(path: &Path, stamp: FileEntryStamp, metadata: &Metadata) -> Result<(), String> {
+pub(super) fn verify_source_stamp(path: &Path, stamp: FileEntryStamp, metadata: &Metadata) -> Result<(), String> {
     if stamp.matches(metadata) { return Ok(()); }
     Err(format!("选中后文件已变化，请刷新目录并重新选择：{}", path.display()))
 }
 
-fn sources_checked(
+pub(super) fn sources_checked(
     sources: &FileSources, roots: &[PathBuf], control: &Control<'_>,
     skipped: &mut Vec<PathBuf>, current: &mut Option<PathBuf>,
 ) -> Result<Vec<(PathBuf, FileEntryStamp)>, String> {
@@ -266,7 +281,7 @@ fn protect_root(path: &Path, roots: &[PathBuf]) -> Result<(), String> {
     } else { Ok(()) }
 }
 
-fn validate_name(name: &str) -> Result<(), String> {
+pub(super) fn validate_name(name: &str) -> Result<(), String> {
     let stem = name.split('.').next().unwrap_or_default().to_ascii_uppercase();
     if name.trim().is_empty() || name.len() > 240 || matches!(name, "." | "..") || name.ends_with([' ', '.'])
         || name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | '<' | '>' | ':' | '"' | '|' | '?' | '*'))
@@ -337,7 +352,15 @@ fn walk_tree(
 }
 
 fn target_path(requested: &Path, policy: ConflictPolicy) -> Result<Option<PathBuf>, String> {
-    if !requested.try_exists().map_err(|error| error.to_string())? { return Ok(Some(requested.to_owned())); }
+    planned_target(requested, policy, &HashSet::new())
+}
+
+/// 预览复用实际发布的同名策略；同一批中的早先目标也占用名称。
+pub(super) fn planned_target(requested: &Path, policy: ConflictPolicy, reserved: &HashSet<PathBuf>) -> Result<Option<PathBuf>, String> {
+    let occupied = |path: &Path| -> Result<bool, String> {
+        Ok(reserved.contains(&path_key(path)) || path.try_exists().map_err(|error| error.to_string())?)
+    };
+    if !occupied(requested)? { return Ok(Some(requested.to_owned())); }
     match policy {
         ConflictPolicy::Fail => Err(format!("目标已存在，请选择保留两者或跳过：{}", requested.display())),
         ConflictPolicy::Skip => Ok(None),
@@ -347,7 +370,7 @@ fn target_path(requested: &Path, policy: ConflictPolicy) -> Result<Option<PathBu
             let extension = requested.extension().map(|extension| format!(".{}", extension.to_string_lossy())).unwrap_or_default();
             for suffix in 2..=10_000 {
                 let path = parent.join(format!("{stem} ({suffix}){extension}"));
-                if !path.try_exists().map_err(|error| error.to_string())? { return Ok(Some(path)); }
+                if !occupied(&path)? { return Ok(Some(path)); }
             }
             Err("同名副本过多，请先更换名称".into())
         }
@@ -489,7 +512,7 @@ fn verify_cross_volume(
     _source: &Path, _target: &Path, _manifest: &mut Manifest, _control: &Control<'_>, _remove_source: bool,
 ) -> Result<(), String> { Err(cross_volume_unsupported()) }
 
-fn rename_checked(source: &Path, destination: &Path, id: u64) -> Result<(), String> {
+pub(super) fn rename_checked(source: &Path, destination: &Path, id: u64) -> Result<(), String> {
     #[cfg(windows)]
     if destination.canonicalize().ok().as_deref() == Some(source) {
         // Windows仅改大小写仍经同目录暂存跳转，两次移动都禁止覆盖。

@@ -506,6 +506,18 @@ animation.clip.current	动作 {index}/{count} · {name}	Clip {index}/{count} · 
 animation.clip.parameters	时长 {duration} 秒 · {fps} fps · {speed}× · {loop}	Duration {duration} s · {fps} fps · {speed}× · {loop}
 animation.clip.rename	重命名动画	Rename Animation
 animation.clip.duplicate	复制动画	Duplicate Animation
+animation.content.open	GLB 内容	GLB Contents
+animation.content.objects	对象	Objects
+animation.content.skins	骨架	Skeletons
+animation.content.textures	纹理	Textures
+animation.content.images	图像	Images
+animation.content.cameras	相机	Cameras
+animation.content.copy	复制动作	Copy Clips
+animation.content.paste	粘贴动作	Paste Clips
+animation.content.adapt	按预览适配粘贴	Paste Retargeted
+animation.content.export	所选另存为…	Save Selection As…
+animation.content.confirm	保存副本	Save Copy
+animation.content.overwrite	确认覆盖副本	Confirm Overwrite
 animation.clip.delete	删除动画	Delete Animation
 animation.mode.create	新建动画	New Animation
 animation.mode.edit	编辑动画	Edit Animation
@@ -654,6 +666,14 @@ label.overwrite-with-draft	使用草稿覆盖	Overwrite With Draft
 help.keep-the-current-vertices-and-replace-the	保留当前顶点并覆盖本次检测到的外部版本。外部文件再次变化时必须重新处理冲突，不能沿用旧授权。	Keep the current vertices and replace the external revision shown here. A later external change requires a new decision.
 label.basic-shapes	基础形状	Basic Shapes
 label.cube	立方体	Cube
+label.point-light	点光源	Point Light
+label.spot-light	聚光灯	Spotlight
+label.local-light	局部灯光	Local Light
+label.local-light-intensity	光强	Intensity
+label.local-light-range	照射范围	Range
+label.local-light-inner	内锥半角	Inner Cone Half Angle
+label.local-light-outer	外锥半角	Outer Cone Half Angle
+help.local-light	颜色为线性 RGB，光强使用坎德拉。聚光灯朝本地 −Z 轴照射，内、外锥角均为半角。	Color is linear RGB and intensity is in candelas. Spotlights point along local −Z. Cone angles are half angles.
 label.plane	平面	Plane
 label.import-model	导入模型	Import Model
 label.original-glb-use-selected-asset	原始 GLB · 使用所选资产	Original GLB · Use Selected Asset
@@ -1662,3 +1682,26 @@ rig.point.right_hip	右髋	Right Hip
 rig.point.right_knee	右膝	Right Knee
 rig.point.right_ankle	右踝	Right Ankle
 rig.point.right_toe	右脚趾根	Right Toe Base
+animation.curve	曲线	Curve
+motion.region.tab	动画触发	Animation Triggers
+motion.region.help	选择主场景的动画片段，在视口点选触发区域的两个对角。进入和离开的动作分别设置，切到工程预览即可试走。	Select a scene animation and click two opposite corners in the viewport. Set the entry and exit actions, then enter the region in project preview.
+motion.region.previous_clip	上一片段	Previous Clip
+motion.region.next_clip	下一片段	Next Clip
+motion.region.previous	上一区域	Previous Region
+motion.region.next	下一区域	Next Region
+motion.region.draw	绘制新区域	Draw Region
+motion.region.redraw	重画区域	Redraw Region
+motion.region.delete	删除区域	Delete Region
+motion.region.entry_action	切换进入动作	Change Entry Action
+motion.region.exit_action	切换离开动作	Change Exit Action
+motion.region.floor	底面高度	Floor Elevation
+motion.region.height	区域高度	Region Height
+motion.region.name	区域	Region
+motion.region.enter	进入	Enter
+motion.region.exit	离开	Exit
+motion.region.play	正向播放	Play Forward
+motion.region.reverse	反向播放	Play in Reverse
+motion.region.no_clips	请先在主场景 GLB 中创建动画	Create an animation in the main scene GLB first
+motion.region.corners	请在视口点选底面的两个对角，Esc 取消	Click two opposite corners of the base in the viewport. Press Esc to cancel.
+motion.region.second	请点选触发区域的另一角	Click the opposite corner of the trigger region
+motion.region.no_area	两个对角需要围成有面积的底面	Choose two corners that enclose an area

@@ -24,6 +24,7 @@ use crate::ui::gltf_browser::EditorGltfBrowserState; // 完整实例选择和O(1
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn sync_placement_transform_panel(
     mut commands: Commands,               // 增删公共NumericInputDisabled标记。
+    light_panel: Query<Entity, (With<SceneEditorPlacementTransformPanel>, Without<super::scene::LightControlsInstalled>)>,
     editor: Res<SceneEditorState>,          // F12与当前场景状态决定可编辑性。
     browser: Res<EditorGltfBrowserState>, // 当前完整实例选择。
     session: Res<EditorAuthoringSession>, // 当前记录、修订和场景清单。
@@ -102,6 +103,11 @@ pub(crate) fn sync_placement_transform_panel(
     let animation_pose = animation_target.zip(record)
         .and_then(|((workbench, target), record)| workbench.pose_for(record, &target.scene_id));
     let visible = editor.open && record.is_some(); // 重复ID、在途签名和无选择都完整收起。
+    if visible && record.is_some_and(|record| crate::authoring::local_lights::parameters(&record.asset_target).is_some())
+        && let Ok(panel) = light_panel.single() {
+        commands.spawn_scene(super::scene::light_controls()).insert(ChildOf(panel));
+        commands.entity(panel).insert(super::scene::LightControlsInstalled);
+    }
     let is_building = record.is_some_and(|record| record.building_preset_id.is_some());
     let is_cuboid = record.is_some_and(|record| record.asset_target.is_builtin());
     let collision_state = record.and_then(super::cuboid::collision_state);
@@ -210,8 +216,10 @@ pub(crate) fn sync_placement_transform_panel(
         if active.entity == Some(entity) || active_scrub.entity == Some(entity) {
             continue; // 共享 UI 控件拥有字符或指针时不得覆盖当前显示。
         }
+        // 撤销与重做会短暂等待对象索引换代；此时面板收起，不能把暂缺的作者记录当成零覆盖数值框。
+        let Some(record) = record else { continue; };
         let value = animation_pose.and_then(|pose| field.animation_value(pose))
-            .unwrap_or_else(|| record.map_or(0.0, |record| field.value(record)));
+            .unwrap_or_else(|| field.value(record));
         let value = round_to_decimals(value, field.decimals()); // 显示精度不反向量化作者高精度源。
         if current.0.as_f32() != Some(value) {
             set_values.write(NumericInputSetValue {

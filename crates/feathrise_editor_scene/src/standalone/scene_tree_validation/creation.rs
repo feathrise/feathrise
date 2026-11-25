@@ -19,7 +19,7 @@ pub(super) const CREATION_MENU_SCREENSHOT: &str = "scene-tree-new-glb-submenu.pn
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in super::super) enum Case {
     RootFolder, RootGlb, NestedGlb, SourceFolder, RemoveSourceFolder, RemoveEmptyFolder, RemoveGlb, RemoveCube,
-    ChooseGlb, NewMotion, RemoveMotion, NewMainPlane, NewMainCuboid, NewSourceCuboid, DisposableGlb, DeleteGlbFile,
+    ChooseGlb, NewMotion, RemoveMotion, NewMainPlane, NewMainCuboid, NewPointLight, NewSpotLight, NewSourceCuboid, DisposableGlb, DeleteGlbFile,
 }
 
 impl Case {
@@ -33,6 +33,8 @@ impl Case {
             Self::NewMotion => SceneMenuAction::NewSceneAnimation,
             Self::NewMainPlane => SceneMenuAction::NewGlbPlane,
             Self::NewMainCuboid | Self::NewSourceCuboid => SceneMenuAction::NewGlbCuboid,
+            Self::NewPointLight => SceneMenuAction::NewPointLight,
+            Self::NewSpotLight => SceneMenuAction::NewSpotLight,
             Self::RemoveGlb => SceneMenuAction::RemoveGlb,
             Self::DeleteGlbFile => SceneMenuAction::DeleteGlbFile,
             Self::RemoveEmptyFolder | Self::RemoveCube | Self::RemoveMotion => SceneMenuAction::Delete,
@@ -65,7 +67,7 @@ impl Case {
             }),
             Self::RemoveEmptyFolder => folder_row(world, CREATED_CHILD),
             Self::RemoveCube => scene_row(world, cube, false),
-            Self::NewMotion | Self::NewMainPlane | Self::NewMainCuboid => main_scene_row(world),
+            Self::NewMotion | Self::NewMainPlane | Self::NewMainCuboid | Self::NewPointLight | Self::NewSpotLight => main_scene_row(world),
             Self::RemoveMotion => world.query::<(Entity, &SceneObjectRow)>().iter(world).find_map(|(entity, row)| {
                 (matches!(row.0.as_ref()?.key, SceneObjectKey::MainSceneAnimation(_)) && ui_visible(world, entity))
                     .then_some(entity)
@@ -79,6 +81,7 @@ pub(in super::super) enum Stage {
     CollapseMain(Case, u8), Menu(Case, u8), OpenCreation(Case, u8, Option<(Entity, [u32; 4])>),
     VerifyCreation(Case, Entity, [u32; 4]), CreationScreenshot(Case), ChooseCreation(Case, u8),
     Action(Case), Name(Case), Applied(Case),
+    Light(Case, lights::Step),
     RootVisible(Case), ExpandSource(u8), Mode(ViewportMode), Undo(Case), Restored(Case),
     PickDirectory(u8, u8), PickFile(u8), ConfirmFile(u8),
     MoveMesh(u8), MeshMoved, MeshRestored,
@@ -86,6 +89,7 @@ pub(in super::super) enum Stage {
 }
 
 pub(super) fn begin() -> Stage { Stage::CollapseMain(Case::RootFolder, 0) }
+pub(super) fn begin_lights() -> Stage { Stage::Menu(Case::NewPointLight, 0) }
 
 fn model_row(world: &mut World) -> Option<Entity> {
     named_model_row(world, ROOT_GLB)
@@ -139,7 +143,7 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
             }
             let mut click = Some((position, frame));
             if right_click(world, &mut click, window, position) {
-                if matches!(case, NewMotion | NewMainPlane | NewMainCuboid | NewSourceCuboid) { Stage::OpenCreation(case, 0, None) }
+                if matches!(case, NewMotion | NewMainPlane | NewMainCuboid | NewSourceCuboid | NewPointLight | NewSpotLight) { Stage::OpenCreation(case, 0, None) }
                 else { Stage::Action(case) }
             } else { Stage::Menu(case, click.unwrap().1) }
         }
@@ -258,6 +262,9 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
                     if matches!(&record.asset_target, feathrise_scene_content::ScenePlacementAssetTarget::Cuboid { .. })
                         && record.translation == [0.0; 3] && record.terrain_offset == 0.0
                         && record.height_mode == feathrise_scene_content::ScenePlacementHeightMode::FixedHeight),
+                NewPointLight | NewSpotLight => matches!(session.undo.last(), Some(EditorCommand::PlacementAdded(record))
+                    if crate::authoring::local_lights::parameters(&record.asset_target).is_some_and(|p| p.3.is_some() == (case == NewSpotLight))
+                    && record.translation == (world.resource::<SceneEditorViewportState>().scene_center + Vec3::Y * 2.0).to_array()),
                 NewSourceCuboid => {
                     // 用原夹具已有偏移的引用，确认写入的是文件坐标而非场景位置。
                     let center = world.resource::<crate::resources::SceneEditorViewportState>().scene_center.to_array();
@@ -294,10 +301,17 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
                 RemoveEmptyFolder | RemoveGlb | RemoveCube | NewSourceCuboid => Stage::Undo(case),
                 NewMainPlane => Stage::Menu(NewMainCuboid, 0),
                 NewMainCuboid => Stage::Menu(NewSourceCuboid, 0),
+                NewPointLight | NewSpotLight => Stage::Light(case, lights::Step::Input(0)),
                 NewMotion => Stage::MotionLayout,
                 RemoveMotion => Stage::Menu(DisposableGlb, 0),
                 DeleteGlbFile => Stage::Mode(ViewportMode::Move),
             }
+        }
+        Stage::Light(case, mut input) => {
+            if lights::advance(world, &mut input, case == NewSpotLight, revision, pulse)? {
+                if case == NewSpotLight { return Ok(true); }
+                Stage::Menu(NewSpotLight, 0)
+            } else { Stage::Light(case, input) }
         }
         Stage::RootVisible(case) => {
             // 创建后等真实树行布局可见，期间不向主 GLB 图标补发任何输入。

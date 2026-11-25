@@ -1,6 +1,7 @@
 //! 玩法侧栏的固定工具页和只读反馈；摆放、传送和空气墙继续使用原作者事务。
 
 mod components;
+mod motion_triggers;
 mod resources;
 mod scene;
 mod systems;
@@ -14,6 +15,7 @@ pub(crate) use scene::gameplay_tools_panel;
 pub(crate) use types::GameplaySidebarPage;
 
 pub(crate) fn install(app: &mut App) {
+    motion_triggers::install(app);
     app.init_resource::<GameplaySidebarState>()
         .add_systems(
             Update,

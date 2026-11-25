@@ -29,7 +29,7 @@ pub(super) struct GameplaySidebarInputGate<'w> {
 }
 
 impl GameplaySidebarInputGate<'_> {
-    fn blocked(&self) -> bool {
+    pub(super) fn blocked(&self) -> bool {
         self.numeric.blocked()
             || self
                 .numeric_input
@@ -80,9 +80,8 @@ pub(super) fn handle_tabs(
         }
     }
     for (interaction, tab) in &tabs {
-        if interaction.is_clicked()
-            && let Some(page) = GameplaySidebarPage::for_action(tab.0)
-        {
+        if interaction.is_clicked() {
+            let page = tab.0;
             if state.page != page {
                 state.page = page;
             }
@@ -161,7 +160,7 @@ pub(super) fn sync_pages(
         }
     }
     for (interaction, tab, mut background, mut border) in &mut tabs {
-        let selected = GameplaySidebarPage::for_action(tab.0) == Some(state.page);
+        let selected = tab.0 == state.page;
         let fill = match (*interaction, selected) {
             (UiInteraction::Pressed, _) => colors::SELECT_BG_PRESSED,
             (UiInteraction::Hovered, _) => colors::SELECT_BG_HOVER,

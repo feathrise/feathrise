@@ -156,10 +156,16 @@ pub(super) fn actions(
                     .find(|entry| entry.id == *id)
                     .map(|entry| entry.path.clone());
                 if let Some(path) = path {
+                    // 内容目录跟随原来正在检查的 GLB 标签；另选资产作对照时仍保留其属性。
+                    let follow_glb = sidebar_visible && std::path::Path::new(&path).extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("glb"))
+                        && media.expanded.as_ref().is_some_and(|old| editor.selected_asset.as_deref() == Some(&old.path));
                     if let Err(error) =
                         expand(&mut media, &mut workspace, &path, &state, &navigation)
                     {
                         editor.status = error;
+                    } else if follow_glb {
+                        editor.selected_asset = Some(path);
                     }
                 }
             }
@@ -605,6 +611,7 @@ pub(super) fn sync_presentation(
                         &label,
                         (
                             AssetPreviewWorkspaceAction::ActivateTab(id),
+                            feathrise_editor_animation_model::request::GlbContentDropTarget(path.clone()),
                             crate::ui::external_files::ExternalFileTab(path.clone()),
                             RelativeCursorPosition::default(),
                         ),

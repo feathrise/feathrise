@@ -64,6 +64,7 @@ fn tool_label(tool: EditorTool) -> &'static str {
         EditorTool::Puddles => "积水绘制",
         EditorTool::Vegetation => "植被绘制",
         EditorTool::Boundary => "空气墙",
+        EditorTool::MotionTrigger => "动画触发",
     }
 }
 

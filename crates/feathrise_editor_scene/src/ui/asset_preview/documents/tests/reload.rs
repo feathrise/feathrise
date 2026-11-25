@@ -72,6 +72,7 @@ fn queued_file_rename_rejects_native_input_and_clean_tab_saves_at_receipt_destin
     let id = service.enqueue(FileOperationRequest {
         context,
         allowed_roots: vec![fixture.root.clone()],
+        references: None,
         operation: FileOperation::Rename { source: original.clone(), stamp: FileEntryStamp::Untracked, name: "说明#新版.md".into() },
     }).unwrap();
     {

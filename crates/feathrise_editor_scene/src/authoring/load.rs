@@ -338,7 +338,13 @@ pub(crate) fn start_draft_load(
             } else {
                 let path = safe_asset_path(&root, &draft.placements_path())?;
                 match std::fs::read(&path) {
-                    Ok(bytes) => draft.object_folders = Arc::new(super::placement_folders::read_json(&bytes)?),
+                    Ok(bytes) => {
+                        // 旧摆放文件与当前主 GLB 一样，以这一轮磁盘快照建立草稿，避免文件整理后复用旧句柄缓存。
+                        let placements = feathrise_scene_content::read_scene_placements(&bytes, &draft.placements_path())?;
+                        if placements.scene_id != draft.scene_id { return Err("摆放文件属于另一场景".into()); }
+                        draft.object_folders = Arc::new(super::placement_folders::read_json(&bytes)?);
+                        draft.placements = placements;
+                    }
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                     Err(error) => return Err(format!("读取摆放文件夹 {} 失败：{error}", path.display())),
                 }

@@ -23,6 +23,7 @@ struct Reservation {
     context: u64,
     id: u64,
     sources: FileSources,
+    readers: Vec<super::reference_sessions::Reader>,
 }
 
 #[derive(Clone, Default, Resource)]
@@ -44,7 +45,7 @@ impl FileWriteReservations {
     }
 
     pub(crate) fn add(&mut self, context: u64, id: u64, sources: FileSources) {
-        self.0.push(Reservation { context, id, sources });
+        self.0.push(Reservation { context, id, sources, readers: Vec::new() });
     }
 }
 
@@ -79,13 +80,60 @@ impl ExternalFileAuthors<'_> {
 pub(super) struct ProtectedAuthors<'w> {
     pub(super) external: ExternalFileAuthors<'w>,
     scene: Option<Res<'w, SceneEditorState>>,
-    session: Option<Res<'w, EditorAuthoringSession>>,
-    scenes: Option<Res<'w, SceneDocuments>>,
+    session: Option<ResMut<'w, EditorAuthoringSession>>,
+    scenes: Option<ResMut<'w, SceneDocuments>>,
     registry: Option<Res<'w, SceneContentRegistry>>,
     load: Option<Res<'w, DraftLoadTask>>,
+    vegetation: Option<Res<'w, crate::ui::vegetation_preset_editor::VegetationPresetEditorState>>,
+    water: Option<Res<'w, crate::ui::water_preset_editor::WaterPresetEditorState>>,
+    building: Option<Res<'w, crate::ui::building_presets::BuildingPresetEditorState>>,
+    surface: Option<Res<'w, feathrise_editor_surface_model::SurfacePresetEditorState>>,
 }
 
 impl ProtectedAuthors<'_> {
+    pub(super) fn reference_blocker(&self, sources: &FileSources) -> Option<String> {
+        use feathrise_scene_content::{BUILDING_PRESET_CATALOG_ASSET_PATH, VEGETATION_PRESET_CATALOG_ASSET_PATH,
+            WATER_PRESET_CATALOG_ASSET_PATH, SURFACE_PRESET_CATALOG_ASSET_PATH};
+        let root = self.external.documents.as_ref().map(|state| state.asset_root().to_owned())
+            .unwrap_or_else(feathrise_editor_core::workspace_asset_root);
+        for (path, reason) in [
+            (BUILDING_PRESET_CATALOG_ASSET_PATH, self.building.as_ref().and_then(|state| state.exit_blocker())),
+            (VEGETATION_PRESET_CATALOG_ASSET_PATH, self.vegetation.as_ref().and_then(|state| state.exit_blocker())),
+            (WATER_PRESET_CATALOG_ASSET_PATH, self.water.as_ref().and_then(|state| state.exit_blocker())),
+            (SURFACE_PRESET_CATALOG_ASSET_PATH, self.surface.as_ref().and_then(|state| state.exit_blocker())),
+        ] {
+            if let Some(reason) = reason && sources.overlaps(&root.join(path)) { return Some(reason.into()); }
+        }
+        if let Some(reason) = self.external.blocker(sources) { return Some(reason); }
+        if let Some(session) = &self.session && let Some(reason) = super::reference_sessions::blocker(
+            session, self.scene.as_ref().is_some_and(|state| state.dirty), &root, sources) { return Some(reason); }
+        if let Some(scenes) = &self.scenes {
+            if let Some(reason) = scenes.parked.values().find_map(|parked| super::reference_sessions::blocker(
+                &parked.session, parked.dirty, &root, sources)) { return Some(reason); }
+            if scenes.history_task.is_some() || scenes.pending_history.is_some() || scenes.preparing_target.is_some() {
+                return Some("场景标签正在交接，请稍后确认引用更新".into());
+            }
+        }
+        if let Some(id) = self.load.as_ref().filter(|load| load.task.is_some()).and_then(|load| load.desired_scene_id.as_ref())
+            && let Some(handles) = self.registry.as_ref().and_then(|registry| registry.handles(id))
+            && scene_handles_match(handles, &|path| sources.overlaps(&root.join(path))) {
+            return Some("受影响的场景正在加载，请稍后确认引用更新".into());
+        }
+        None
+    }
+
+    pub(super) fn hold_reference_sessions(&mut self, files: &FileSources, reservations: &mut FileWriteReservations) {
+        let Some(job) = reservations.0.last_mut() else { return; };
+        let root = self.external.documents.as_ref().map(|state| state.asset_root().to_owned())
+            .unwrap_or_else(feathrise_editor_core::workspace_asset_root);
+        let registry = self.registry.as_deref();
+        if let Some(session) = self.session.as_deref_mut()
+            && let Some(reader) = super::reference_sessions::hold(session, &root, files, registry) { job.readers.push(reader); }
+        if let Some(scenes) = self.scenes.as_deref_mut() {
+            job.readers.extend(scenes.parked.values_mut().filter_map(|parked|
+                super::reference_sessions::hold(&mut parked.session, &root, files, registry)));
+        }
+    }
     pub(super) fn blocker(&self, sources: &FileSources) -> Option<String> {
         if let Some(reason) = self.external.blocker(sources) { return Some(reason); }
         let root = self.external.documents.as_ref().map(|state| state.asset_root().to_owned())
@@ -142,7 +190,7 @@ fn scene_draft_matches(root: &Path, draft: &EditorSceneDraft, matches: &impl Fn(
         || draft.glb_deletions.values().any(|deletion| matches(&root.join(deletion.relative())))
 }
 
-fn scene_write_matches(root: &Path, draft: &EditorSceneDraft, dirty: bool, sources: &FileSources) -> bool {
+pub(super) fn scene_write_matches(root: &Path, draft: &EditorSceneDraft, dirty: bool, sources: &FileSources) -> bool {
     let matches = |path: &str| sources.overlaps(&root.join(path));
     if scene_draft_matches(root, draft, &|path| sources.overlaps(path)) { return true; }
     if !dirty { return false; }
@@ -175,13 +223,21 @@ pub(super) fn settle(
     mut animation: Option<ResMut<AnimationEditorState>>,
     mut weights: Option<ResMut<WeightEditor>>,
     mut retirement: Option<ResMut<crate::authoring::AuthoringRetirement>>,
+    mut refresh: Option<ResMut<super::reference_sessions::Pending>>,
+    server: Option<Res<AssetServer>>,
 ) {
     if reservations.0.is_empty() { return; }
     let Some(snapshot) = state.snapshot.as_ref() else { return; };
     let mut released = false;
     // 回执按执行顺序采用，连续改名 A→B→C 时标签也按同一顺序跟随。
     for receipt in &snapshot.completed {
-        let Some(index) = reservations.0.iter().position(|job| job.context == receipt.context && job.id == receipt.id) else { continue; };
+        if !reservations.0.iter().any(|job| (job.context, job.id) == (receipt.context, receipt.id)) { continue; }
+        if receipt.context == state.context && let Some(refresh) = refresh.as_deref_mut() {
+            for job in reservations.0.iter_mut().filter(|job| (job.context, job.id) == (receipt.context, receipt.id)) {
+                if !job.readers.is_empty() { refresh.published(std::mem::take(&mut job.readers), &receipt.repaired_paths, server.as_deref()); }
+            }
+        }
+        reservations.0.retain(|job| (job.context, job.id) != (receipt.context, receipt.id));
         if receipt.context == state.context {
             if let Some(documents) = documents.as_mut() { documents.apply_file_receipt(receipt, editor.as_deref_mut()); }
             if let Some(animation) = animation.as_deref_mut() {
@@ -189,7 +245,6 @@ pub(super) fn settle(
             }
             if let Some(weights) = weights.as_mut() { weights.apply_file_receipt(receipt); }
         }
-        reservations.0.remove(index);
         released = true;
     }
     if released && let Some(documents) = documents.as_mut() {

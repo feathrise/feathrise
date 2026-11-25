@@ -82,7 +82,7 @@ fn author_identity_reopened_legacy_cuboid_keeps_original_through_create_undo_red
     )).id();
     let create = |mut commands: Commands, assets: Res<AssetServer>,
                   mut editor: ResMut<SceneEditorState>, mut session: ResMut<EditorAuthoringSession>| {
-        crate::authoring::edit::create_cuboid_at(&mut commands, &assets, &mut editor, &mut session,
+        crate::authoring::edit::create_builtin_at(&mut commands, &assets, &mut editor, &mut session,
             ScenePlacementAssetTarget::DEFAULT_CUBOID, Vec3::new(7.0, 1.0, 2.0)).unwrap()
     };
     let id = app.world_mut().run_system_once(create).unwrap();

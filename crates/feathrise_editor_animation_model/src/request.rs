@@ -7,6 +7,10 @@ use std::path::{Path, PathBuf};
 
 use super::{media::{AssetPreviewState, AssetPreviewWorkspace, AssetPreviewModelTarget}, resources::AnimationEditorState};
 
+/// 内容树片段可以拖到已打开的目标文件标签；只取原标签实际保存的工程相对路径。
+#[derive(Component)]
+pub struct GlbContentDropTarget(pub String);
+
 #[derive(Message, Clone)]
 pub struct PreviewRigAnimation {
     pub model_path: String,

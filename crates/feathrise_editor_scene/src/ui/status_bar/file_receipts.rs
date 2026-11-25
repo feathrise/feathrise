@@ -116,6 +116,13 @@ fn render(receipt: &FileOperationReceipt, page: usize, pages: usize, locale: Edi
         ("completed", receipt.completed.len().to_string()), ("skipped", receipt.skipped.len().to_string()),
         ("unprocessed", receipt.unprocessed.len().to_string()),
     ]));
+    if let Some(plan) = &receipt.reference_preview {
+        text.push_str(&if locale == EditorLocale::English { format!("\n{} referencing documents found in preview", plan.documents.len()) }
+            else { format!("\n引用预览涉及 {} 份场景或预设", plan.documents.len()) });
+    } else if receipt.repaired_documents != 0 {
+        text.push_str(&if locale == EditorLocale::English { format!("\nUpdated {} referencing documents", receipt.repaired_documents) }
+            else { format!("\n已更新 {} 份引用文件", receipt.repaired_documents) });
+    }
     if receipt.cancelled {
         text.push('\n');
         text.push_str(locale.text("status.file_receipt.cancelled"));

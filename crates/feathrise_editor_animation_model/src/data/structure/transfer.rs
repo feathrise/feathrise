@@ -3,6 +3,7 @@
 use super::super::{reader::read_accessor, writer::append_accessor};
 use super::*;
 use std::collections::{BTreeSet, HashMap};
+mod selection;
 
 impl GlbStructure {
     pub fn transfer_node_to(
@@ -64,6 +65,7 @@ impl GlbStructure {
             output: &mut binary,
             indices: HashMap::new(),
             extensions: BTreeSet::new(),
+            external_images: None,
         };
         for node in ordered {
             let mut value = object_at(&self.json, "nodes", node)?.clone();
@@ -82,7 +84,7 @@ impl GlbStructure {
             }
             push(copier.draft, "nodes", value);
         }
-        copier.copy_animations(&node_indices, index, animation_offset)?;
+        copier.copy_animations(list(&self.json, "animations")?, &node_indices, index, animation_offset)?;
         copier.publish_extensions()?;
         if !binary.is_empty() {
             if list(&draft, "buffers")?.is_empty() {
@@ -108,6 +110,7 @@ struct Copier<'a> {
     output: &'a mut Vec<u8>,
     indices: HashMap<(&'static str, usize), usize>,
     extensions: BTreeSet<String>,
+    external_images: Option<(&'a std::path::Path, &'a std::path::Path)>,
 }
 
 impl Copier<'_> {
@@ -124,12 +127,24 @@ impl Copier<'_> {
             "materials" => self.copy_material(&mut value)?,
             "textures" => self.copy_texture(&mut value)?,
             "images" => {
-                if let Some(uri) = value.get("uri")
-                    && !uri.as_str().is_some_and(|uri| uri.starts_with("data:"))
+                if let Some(uri) = value.get("uri").and_then(Value::as_str)
+                    && !uri.starts_with("data:")
                 {
-                    return Err("跨 GLB 移动需要将所用贴图嵌入原 GLB".into());
+                    let (root, source) = self.external_images.ok_or("跨 GLB 移动需要将所用贴图嵌入原 GLB")?;
+                    let (bytes, mime) = selection::read_image(root,source,uri)?;
+                    let start = self.output.len().next_multiple_of(4);
+                    let length = bytes.len();
+                    start.checked_add(length).and_then(|s| u32::try_from(s).ok()).ok_or("图像超过 GLB 缓冲容量")?;
+                    self.output.resize(start,0);
+                    self.output.extend_from_slice(&bytes);
+                    let view = list(self.draft,"bufferViews")?.len();
+                    push(self.draft,"bufferViews",json!({"buffer":0,"byteOffset":start,"byteLength":length}));
+                    value.as_object_mut().ok_or("图像定义无效")?.remove("uri");
+                    value["bufferView"] = json!(view);
+                    value["mimeType"] = json!(mime);
+                } else {
+                    self.remap_field(&mut value, "bufferView", "bufferViews")?;
                 }
-                self.remap_field(&mut value, "bufferView", "bufferViews")?;
             }
             "accessors" => {
                 self.remap_field(&mut value, "bufferView", "bufferViews")?;
@@ -353,11 +368,12 @@ impl Copier<'_> {
 
     fn copy_animations(
         &mut self,
+        animations: &[Value],
         nodes: &HashMap<usize, usize>,
         root: usize,
         translation: Option<Vec3>,
     ) -> Result<(), String> {
-        for animation in list(self.source, "animations")? {
+        for animation in animations {
             let mut channels = Vec::new();
             let mut samplers = Vec::new();
             let mut sampler_indices = HashMap::new();

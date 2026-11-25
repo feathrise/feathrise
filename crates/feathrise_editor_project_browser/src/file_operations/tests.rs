@@ -19,7 +19,7 @@ impl Fixture {
         Self { root, parent, token }
     }
     pub(super) fn request(&self, operation: FileOperation) -> FileOperationRequest {
-        FileOperationRequest { context: 1, allowed_roots: vec![self.root.clone()], operation }
+        FileOperationRequest { context: 1, allowed_roots: vec![self.root.clone()], operation, references: None }
     }
     pub(super) fn path(&self, relative: &str) -> PathBuf { self.root.join(relative) }
 }
@@ -35,7 +35,7 @@ impl Drop for Fixture {
     }
 }
 
-fn execute(request: FileOperationRequest, cancelled: bool) -> (FileOperationReceipt, Result<(), String>) {
+pub(super) fn execute(request: FileOperationRequest, cancelled: bool) -> (FileOperationReceipt, Result<(), String>) {
     let shared = Shared::default();
     let job = Job { id: 1, request, cancel: Arc::new(AtomicBool::new(cancelled)) };
     let mut receipt = FileOperationReceipt::new(1, 1, job.request.operation.kind());

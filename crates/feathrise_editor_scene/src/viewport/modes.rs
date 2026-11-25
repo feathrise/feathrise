@@ -132,7 +132,7 @@ impl ViewportModeState {
             EditorTool::Vegetation => 3,   // 植被参数仍由原会话保留。
             EditorTool::Water | EditorTool::RiverSpline | EditorTool::Waterfall => 4, // 水域内部工具独立记忆。
             EditorTool::Building => 5, // 建筑点放拥有独立于普通资产的预设和校验状态。
-            EditorTool::PlaceAsset | EditorTool::Portal | EditorTool::Boundary => 6, // 玩法工具独立记忆。
+            EditorTool::PlaceAsset | EditorTool::Portal | EditorTool::Boundary | EditorTool::MotionTrigger => 6, // 玩法工具独立记忆。
         };
         if self.remembered[slot] != tool {
             self.remembered[slot] = tool; // 只更新当前请求类别，不覆盖其他模块。

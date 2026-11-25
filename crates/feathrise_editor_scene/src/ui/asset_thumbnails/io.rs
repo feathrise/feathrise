@@ -116,7 +116,7 @@ fn scene_dependencies(root: &Path, path: &Path) -> Result<Arc<[String]>, String>
         if dependencies.len() >= 256 {
             return Err("模型依赖较多，请选中后预览".into());
         }
-        let uri = decode_uri(uri)?;
+        let uri = feathrise_editor_assets::files::decode_gltf_uri(uri)?;
         let dependency = path
             .parent()
             .unwrap_or(root)
@@ -129,31 +129,6 @@ fn scene_dependencies(root: &Path, path: &Path) -> Result<Arc<[String]>, String>
         dependencies.push(relative.to_string_lossy().replace('\\', "/"));
     }
     Ok(dependencies.into())
-}
-
-fn decode_uri(uri: &str) -> Result<String, String> {
-    let bytes = uri.as_bytes();
-    let mut result = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' {
-            let hex = bytes
-                .get(index + 1..index + 3)
-                .ok_or("模型依赖路径编码无效")?;
-            let digit = |byte: u8| (byte as char).to_digit(16).map(|value| value as u8);
-            result.push(
-                digit(hex[0])
-                    .zip(digit(hex[1]))
-                    .map(|(high, low)| high * 16 + low)
-                    .ok_or("模型依赖路径编码无效")?,
-            );
-            index += 3;
-        } else {
-            result.push(bytes[index]);
-            index += 1;
-        }
-    }
-    String::from_utf8(result).map_err(|_| "模型依赖路径编码无效".into())
 }
 
 fn inspect(root: &Path, input: InspectionInput) -> Result<SourceInfo, String> {

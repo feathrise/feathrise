@@ -113,7 +113,8 @@ impl ApplyGuards<'_> {
         }
         current_record(session, &target)
             .is_some_and(|(_, record)| {
-                record.asset_target.is_builtin() && record.courtyard.is_none()
+                crate::authoring::local_lights::is_builtin_mesh(&record.asset_target)
+                    && record.courtyard.is_none()
             })
             .then_some(target)
     }

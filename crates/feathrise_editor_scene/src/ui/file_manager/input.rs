@@ -114,7 +114,7 @@ pub(super) fn control(
             }
         }
         for (button, click, _) in &controls.buttons {
-            if click.is_clicked() && matches!(button.action, FileAction::Confirm | FileAction::Cancel) {
+            if click.is_clicked() && matches!(button.action, FileAction::Confirm | FileAction::Cancel | FileAction::PreviousReferences | FileAction::NextReferences | FileAction::MoveWithoutRepair) {
                 requests.write(FileManagerCommand { action: button.action, path: None, sources: default() });
             }
         }

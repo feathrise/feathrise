@@ -533,6 +533,10 @@ pub(crate) fn apply_undo_redo(
                     }
                     draft.motion.rename(clip_id, replacement)?;
                 }
+                EditorCommand::SceneMotionRegionChanged { clip_id, index, before, after } => {
+                    let (from, to) = if undoing { (after, before) } else { (before, after) };
+                    draft.motion.change_region(clip_id, *index, *from, *to)?;
+                }
                 EditorCommand::SceneMotionClipChanged(change) => {
                     draft.motion.apply_clip_history(change, undoing)?;
                 }

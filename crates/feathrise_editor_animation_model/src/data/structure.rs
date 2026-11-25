@@ -458,7 +458,7 @@ fn checked_trs(mut transform: Transform) -> Result<Transform, String> {
     Ok(transform)
 }
 
-fn local_matrix(node: &Value) -> Result<Mat4, String> {
+pub(super) fn local_matrix(node: &Value) -> Result<Mat4, String> {
     if let Some(matrix) = node.get("matrix") {
         if ["translation", "rotation", "scale"]
             .iter()

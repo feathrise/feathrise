@@ -8,6 +8,19 @@ use feathrise_scene_content::{SCENE_SCHEMA_VERSION, SceneCatalogAsset}; // 创�
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0); // 只用于临时文件唯一后缀。
 
+/// glTF URI 使用百分号编码。缩略图依赖与组合导出共享同一解码，磁盘边界由调用方核对。
+pub fn decode_gltf_uri(uri: &str) -> Result<String, String> {
+    let mut bytes = uri.bytes();
+    let mut decoded = Vec::with_capacity(uri.len());
+    while let Some(b) = bytes.next() {
+        if b == b'%' {
+            let mut digit = || bytes.next().and_then(|v| (v as char).to_digit(16)).ok_or("模型依赖路径编码无效");
+            decoded.push((digit()? * 16 + digit()?) as u8);
+        } else { decoded.push(b); }
+    }
+    String::from_utf8(decoded).map_err(|_| "模型依赖路径编码无效".into())
+}
+
 /// 返回当前作者工程assets绝对路径；一体入口未绑定工程时沿用SDK工作区。
 pub fn workspace_asset_root() -> PathBuf {
     feathrise_editor_core::workspace_asset_root()
@@ -101,6 +114,26 @@ pub fn decode_scene_catalog(path: &Path, bytes: &[u8]) -> Result<SceneCatalogAss
 
 /// 写入同目录临时文件并原子替换目标，避免AssetServer读到半份JSON或GLB。
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    write_staged(path, bytes, true, || Ok(()))
+}
+
+/// 作者另存使用独占发布；并发创建同名输出时保留先到达的文件。
+pub fn atomic_create(path: &Path, bytes: &[u8], before_publish: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+    write_staged(path, bytes, false, before_publish)
+}
+
+pub use feathrise_scene_content::authoring_io::file_hash as destination_hash;
+
+/// 副本由作者确认覆盖时，在正式事务最终发布前再次核验作者看到的磁盘版本。
+pub fn replace_confirmed(path: &Path, bytes: &[u8], baseline: &str, before_publish: impl Fn() -> Result<(), String>) -> Result<(), String> {
+    use feathrise_scene_content::authoring_transaction::{PreparedWrite, commit_prepared_writes_checked};
+    commit_prepared_writes_checked(vec![PreparedWrite::borrowed(path.to_owned(), bytes)], |_, _| {
+        if destination_hash(path)? != baseline { return Err("目标文件已经改变，请重新确认覆盖".into()); }
+        before_publish()
+    }).map_err(|error| error.message().to_string())
+}
+
+fn write_staged(path: &Path, bytes: &[u8], replace: bool, before_publish: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| format!("作者文件没有父目录：{}", path.display()))?;
@@ -112,18 +145,19 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .and_then(|value| value.to_str())
         .ok_or_else(|| format!("作者文件名不是有效Unicode：{}", path.display()))?;
     let temporary = parent.join(format!(".{file_name}.tmp-{}-{counter}", std::process::id()));
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&temporary)
+        .map_err(|error| format!("创建临时作者文件{}失败：{error}", temporary.display()))?;
     let write_result = (|| {
-        let mut file = std::fs::File::create(&temporary)
-            .map_err(|error| format!("创建临时作者文件{}失败：{error}", temporary.display()))?;
         file.write_all(bytes)
             .map_err(|error| format!("写入临时作者文件{}失败：{error}", temporary.display()))?;
         file.sync_all()
             .map_err(|error| format!("刷新临时作者文件{}失败：{error}", temporary.display()))?;
-        replace_file(&temporary, path)
+        drop(file);
+        before_publish()?; // 完整暂存就绪后才检查授权，取消不发布同名目标。
+        publish_staged_file(&temporary, path, replace).map_err(|error| format!("发布{}失败：{error}", path.display()))
     })();
-    if write_result.is_err() {
-        let _ = std::fs::remove_file(&temporary); // 失败临时文件不属于作者数据，可安全尽力清理。
-    }
+    // Unix 独占发布使用硬链接，成功后也要释放由本次 create_new 确认归属的暂存目录项。
+    let _ = std::fs::remove_file(&temporary);
     write_result
 }
 
@@ -136,7 +170,7 @@ pub fn atomic_write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<
 }
 
 #[cfg(windows)]
-fn replace_file(source: &Path, destination: &Path) -> Result<(), String> {
+pub fn publish_staged_file(source: &Path, destination: &Path, replace: bool) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt; // Windows API要求NUL结尾UTF-16路径。
     use windows_sys::Win32::Storage::FileSystem::{
         MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
@@ -156,25 +190,13 @@ fn replace_file(source: &Path, destination: &Path) -> Result<(), String> {
         MoveFileExW(
             source_wide.as_ptr(),
             destination_wide.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            (if replace { MOVEFILE_REPLACE_EXISTING } else { 0 }) | MOVEFILE_WRITE_THROUGH,
         )
     };
-    (result != 0).then_some(()).ok_or_else(|| {
-        format!(
-            "原子替换{}失败：{}",
-            destination.display(),
-            std::io::Error::last_os_error()
-        )
-    })
+    (result != 0).then_some(()).ok_or_else(std::io::Error::last_os_error)
 }
 
 #[cfg(not(windows))]
-fn replace_file(source: &Path, destination: &Path) -> Result<(), String> {
-    std::fs::rename(source, destination).map_err(|error| {
-        format!(
-            "原子替换{}失败（源{}）：{error}",
-            destination.display(),
-            source.display()
-        )
-    })
+pub fn publish_staged_file(source: &Path, destination: &Path, replace: bool) -> std::io::Result<()> {
+    if replace { std::fs::rename(source, destination) } else { std::fs::hard_link(source, destination) }
 }

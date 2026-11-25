@@ -78,6 +78,11 @@ pub enum EditorCommand {
         after: String,
     },
     SceneMotionClipChanged(Box<super::scene_motion::SceneMotionClipChange>),
+    SceneMotionRegionChanged {
+        clip_id: String, index: usize,
+        before: Option<super::scene_motion::MotionRegion>,
+        after: Option<super::scene_motion::MotionRegion>,
+    },
     /// 跨源移动只有一笔历史，两份 GLB 的完整版本一起采用。
     SourceGlbsChanged {
         before: super::source_glbs::SourceGlbEdits,

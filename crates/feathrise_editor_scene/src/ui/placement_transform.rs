@@ -5,6 +5,8 @@
 mod actions; // 高度模式、复制、删除及运行时根定向同步。
 pub(crate) mod apply_transform; // 普通内置网格应用对象变换，完整候选就绪后发布。
 mod cuboid; // 内置立方体的米制尺寸、材质和盒碰撞，复用完整记录事务。
+mod light;
+pub(crate) use light::LightField;
 mod lod; // 普通摆放网格的显示/碰撞策略及自定义精度，写回同一作者记录。
 mod lod_preview; // 选中模型的实际档位、三角线和原始对照，只影响作者观察。
 mod numeric_input; // 七个专业数字框的精确提交、单次拖动撤销和灵敏度持久化。
@@ -66,6 +68,7 @@ pub(crate) enum PlacementTransformField {
     CuboidColorG,
     CuboidColorB,
     CuboidRoughness,
+    Light(LightField),
     LodScreenError,
     LodHysteresis,
     LodSafeNear,
@@ -122,7 +125,14 @@ impl PlacementTransformField {
         matches!(self, Self::CuboidSizeX | Self::CuboidSizeY | Self::CuboidSizeZ
             | Self::CuboidColorR | Self::CuboidColorG | Self::CuboidColorB | Self::CuboidRoughness)
     }
+    pub(super) const fn is_object_property(self) -> bool {
+        self.is_cuboid() || self.is_lod() || matches!(self, Self::Light(_))
+    }
     pub(super) fn supported_by(self, record: &ScenePlacementRecord) -> bool {
+        if let Self::Light(field) = self { return field.value(record).is_some(); }
+        if crate::authoring::local_lights::parameters(&record.asset_target).is_some() && self.is_object_property() {
+            return false;
+        }
         let orientation_only = record.terrain_patch.is_some() || record.building_preset_id.is_some()
             || record.courtyard.is_some();
         if self == Self::Yaw {
@@ -156,6 +166,7 @@ impl PlacementTransformField {
 
     pub(super) const fn label(self) -> &'static str {
         match self {
+            Self::Light(field) => field.label(),
             Self::TranslationX => "位置 X", // 明确这是世界平移而非局部轴。
             Self::TranslationY => "位置 Y", // 高度可独立精调。
             Self::TranslationZ => "位置 Z", // 世界南北轴。
@@ -186,6 +197,7 @@ impl PlacementTransformField {
 
     pub(super) const fn unit(self) -> &'static str {
         match self {
+            Self::Light(field) => field.unit(),
             Self::TranslationX | Self::TranslationY | Self::TranslationZ => "m", // 世界位置使用米。
             Self::Yaw | Self::RotationX | Self::RotationY | Self::RotationZ => "°", // 旋转使用角度而不是弧度。
             Self::ScaleX | Self::ScaleY | Self::ScaleZ => "×", // 缩放是无量纲倍率。
@@ -219,6 +231,7 @@ impl PlacementTransformField {
     }
 
     pub(super) fn limits(self, bounds: Option<Rect>, editing_animation: bool) -> (f32, f32) {
+        if let Self::Light(field) = self { return field.limits(); }
         if self.animation_rotation_axis().is_some() || editing_animation && self.translation_axis().is_some() {
             return (-f32::MAX / 2.0, f32::MAX / 2.0); // 动画帧可以越出静态摆放边界，沿用原时间轴数值范围。
         }
@@ -294,9 +307,12 @@ impl PlacementTransformField {
             Self::CuboidColorR | Self::CuboidColorG | Self::CuboidColorB => {
                 NumericInputScrubConfig::linear(1.0, 1.0, minimum, maximum, sensitivity)
             }
-            Self::CuboidRoughness => {
+            Self::CuboidRoughness | Self::Light(LightField::Red | LightField::Green | LightField::Blue) => {
                 NumericInputScrubConfig::linear(0.005, 0.001, minimum, maximum, sensitivity)
             }
+            Self::Light(LightField::Intensity) => NumericInputScrubConfig::linear(5.0, 0.1, minimum, maximum, sensitivity),
+            Self::Light(LightField::InnerAngle | LightField::OuterAngle) => NumericInputScrubConfig::linear(
+                ROTATION_UNITS_PER_PIXEL, ROTATION_STEP, minimum, maximum, sensitivity),
             Self::LodScreenError => NumericInputScrubConfig::linear(0.05, 0.1, minimum, maximum, sensitivity),
             Self::LodHysteresis => NumericInputScrubConfig::linear(0.005, 0.01, minimum, maximum, sensitivity),
             Self::LodSafeNear => NumericInputScrubConfig::linear(1.0, 1.0, minimum, maximum, sensitivity),
@@ -312,6 +328,7 @@ impl PlacementTransformField {
     }
 
     pub(super) fn value(self, record: &ScenePlacementRecord) -> f32 {
+        if let Self::Light(field) = self { return field.value(record).unwrap_or_default(); }
         if self.is_lod() { return lod::field_value(self, record); }
         if self.is_cuboid() {
             return cuboid::field_value(self, record).unwrap_or_default();
@@ -341,6 +358,7 @@ impl PlacementTransformField {
     }
 
     pub(super) fn set_value(self, record: &mut ScenePlacementRecord, value: f32) -> bool {
+        if let Self::Light(field) = self { return field.set(record, value).unwrap_or(false); }
         if self.is_lod() { return lod::set_field_value(self, record, value); }
         if self.is_cuboid() {
             return cuboid::set_field_value(self, record, value);
@@ -402,6 +420,7 @@ pub(crate) enum PlacementPropertiesSection {
     Transform,
     Geometry,
     Material,
+    Light,
     Collision,
     DisplayLod,
     CollisionLod,
@@ -417,7 +436,11 @@ pub(crate) struct SceneEditorAnimationRotationRow;
 
 impl PlacementPropertiesSection {
     pub(super) fn supported_by(self, record: &ScenePlacementRecord) -> bool {
+        if crate::authoring::local_lights::parameters(&record.asset_target).is_some() {
+            return matches!(self, Self::Light | Self::Transform);
+        }
         match self {
+            Self::Light => false,
             Self::Transform | Self::Geometry => true,
             Self::Material => record.asset_target.is_builtin(),
             Self::Collision => cuboid::collision_state(record).is_some(),

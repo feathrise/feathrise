@@ -2,6 +2,7 @@
 
 pub(crate) mod boundary; // 区域空气墙重画、控制点编辑、可视预览和未保存物理覆盖。
 pub(crate) mod basic_shapes; // 内置基础几何体添加、点放预览与显式空场景工作平面。
+pub(crate) mod local_lights;
 pub(crate) mod mesh_edit; // 独立网格编辑模式：共享顶点、边面选择、局部移动和完整记录历史。
 pub(crate) mod blender_mesh; // 外部建模会话回到同一个作者网格和保存入口。
 pub(crate) mod buildings; // 建筑实例分帧空间索引、后台落点校验和专用Gizmo预览。

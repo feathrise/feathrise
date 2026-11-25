@@ -15,6 +15,7 @@ struct SceneClip {
     name: String,
     timing: SceneMotionTiming,
     tracks: Tracks,
+    regions: Arc<Vec<MotionRegion>>,
     /// 复制片段时仍可从原片段保留采样器和未进入作者投影的通道。
     source_id: Option<String>,
     keys_changed: bool,
@@ -27,6 +28,7 @@ impl SceneClip {
             name,
             timing,
             tracks: Tracks::default(),
+            regions: Arc::default(),
             source_id: None,
             keys_changed: false,
         }
@@ -128,6 +130,11 @@ impl SceneMotionDocument {
                 auto_play,
             };
             let mut item = SceneClip::empty(id.clone(), clip.name.clone(), timing);
+            if let Some(raw) = glb.clip_extra(index, TRIGGERS) {
+                let regions: Vec<MotionRegion> = serde_json::from_value(raw.clone()).map_err(|e| format!("动画触发区域无效：{e}"))?;
+                if regions.iter().any(|r| !r.valid()) { return Err("动画触发区域的坐标或尺寸无效".into()); }
+                item.regions = Arc::new(regions);
+            }
             item.source_id = Some(id.clone());
             item.tracks = Arc::new(read_tracks(&glb, clip, &nodes, timing));
             let binding = glb.inspect_glb(|json, _| {
@@ -147,7 +154,10 @@ impl SceneMotionDocument {
             if clips.iter().any(|clip| clip.id == id) {
                 return Err("主场景的空动画片段 ID 重复".into());
             }
-            clips.push(SceneClip::empty(id, empty.name, empty.timing));
+            let mut item = SceneClip::empty(id, empty.name, empty.timing);
+            if empty.regions.iter().any(|r| !r.valid()) { return Err("动画草稿含无效触发区域".into()); }
+            item.regions = Arc::new(empty.regions);
+            clips.push(item);
         }
         let active = (!clips.is_empty()).then_some(0);
         let has_saved_animation = !editable_slots.is_empty() || !foreign_names.is_empty();
@@ -213,6 +223,38 @@ impl SceneMotionDocument {
     pub(crate) fn timing(&self) -> SceneMotionTiming {
         self.active()
             .map_or_else(SceneMotionTiming::default, |clip| clip.timing)
+    }
+
+    pub(crate) fn clip_regions_at(&self, index: usize) -> &[MotionRegion] {
+        self.clips.get(index).map_or(&[], |clip| clip.regions.as_slice())
+    }
+
+    #[cfg(any(test, feature = "validation"))]
+    pub(crate) fn regions(&self, id: &str) -> Option<&[MotionRegion]> {
+        Some(self.clip_regions_at(self.index(id)?))
+    }
+
+    /// 历史核对原位置和原值。移除后的撤销需按原下标插回，以保留相邻区域的顺序。
+    pub(crate) fn change_region(
+        &mut self, id: &str, index: usize, before: Option<MotionRegion>, after: Option<MotionRegion>,
+    ) -> Result<(), String> {
+        let clip = self.require_index(id)?;
+        let regions = &mut self.clips[clip].regions;
+        if index > regions.len()
+            || before.is_some() && regions.get(index).copied() != before
+            || after.is_some_and(|r| !r.valid())
+        {
+            return Err("动画触发区域已改变或尺寸无效".into());
+        }
+        let regions = Arc::make_mut(regions);
+        match (before, after) {
+            (Some(_), Some(value)) => regions[index] = value,
+            (Some(_), None) => { regions.remove(index); }
+            (None, Some(value)) => regions.insert(index, value),
+            (None, None) => return Ok(()),
+        }
+        self.dirty = true;
+        Ok(())
     }
     pub(crate) fn timing_for(&self, id: &str) -> Option<SceneMotionTiming> {
         Some(self.clips[self.index(id)?].timing)
@@ -308,7 +350,7 @@ impl SceneMotionDocument {
             added: true,
         }
     }
-    pub(super) fn create(&mut self, name: &str) -> Result<SceneMotionClipChange, String> {
+    pub(crate) fn create(&mut self, name: &str) -> Result<SceneMotionClipChange, String> {
         if !self.available {
             return Err("当前场景没有可编辑的主 GLB".into());
         }
@@ -329,6 +371,7 @@ impl SceneMotionDocument {
         clip.name = self.unique_name(&format!("{} 副本", clip.name));
         // 新动作默认由作者明确触发，避免复制自动片段时干扰当前机关。
         clip.timing.auto_play = false;
+        clip.regions = Arc::default();
         Ok(self.add(clip))
     }
     fn unique_name(&self, base: &str) -> String {
@@ -528,6 +571,7 @@ impl SceneMotionDocument {
                             id: Some(item.id.clone()),
                             name: item.name.clone(),
                             timing: item.timing,
+                            regions: item.regions.as_ref().clone(),
                         });
                     }
                 }
@@ -864,6 +908,8 @@ fn update_entry(entry: &mut Value, item: &SceneClip) -> Result<(), String> {
     ] {
         extras.insert(key.into(), value);
     }
+    if item.regions.is_empty() { extras.remove(TRIGGERS); }
+    else { extras.insert(TRIGGERS.into(), json!(item.regions.as_slice())); }
     Ok(())
 }
 

@@ -3,6 +3,7 @@
 #[cfg(windows)]
 mod cross_volume;
 mod filesystem;
+mod references;
 mod recycle;
 mod tree_manifest;
 #[cfg(test)]

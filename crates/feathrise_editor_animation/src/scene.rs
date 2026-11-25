@@ -246,6 +246,8 @@ pub fn panel() -> impl Scene {
                 AnimationWriteControls @button("删除关键帧", AnimationAction::DeleteKey)--
                 AnimationWriteControls @button("LINEAR", AnimationAction::CycleInterpolation)]
         --
+            AnimationWriteControls @super::curve_editor::panel()
+        --
             AnimationWriteControls @label("", AnimationLabel::Hint)
         --
             AnimationWriteControls

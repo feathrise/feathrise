@@ -2,5 +2,6 @@
 pub mod blender_export;
 pub mod files;
 pub mod glb_metadata;
+pub mod json_fields;
 pub mod ktx2;
 pub use feathrise_scene_content::authoring_transaction::commit_owned_files;

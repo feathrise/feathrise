@@ -67,6 +67,46 @@ pub struct FileOperationRequest {
     /// 仅包含用户已经在编辑器中打开的工程或目录根；后台再次核对真实路径及联接边界。
     pub allowed_roots: Vec<PathBuf>,
     pub operation: FileOperation,
+    /// 只有作者在登记资产根整理文件时使用引用事务；其他调用保留原物理文件语义。
+    pub references: Option<ReferenceUpdate>,
+}
+
+#[derive(Clone, Debug)]
+pub enum ReferenceUpdate {
+    Inspect(PathBuf),
+    Confirm(Arc<ReferencePreview>),
+    FilesOnly(Arc<ReferencePreview>),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReferencingDocument {
+    pub path: PathBuf,
+    pub matches: usize,
+    pub digest: String,
+    /// 只有实际完成的来源才更新，取消批次时无需再次解析未移动来源的文档。
+    pub sources: std::collections::BTreeSet<PathBuf>,
+}
+
+/// 扫描和确认共享同一批物理来源、最终目标及引用文件版本，显示页只访问可见范围。
+#[derive(Clone, Debug)]
+pub struct ReferencePreview {
+    pub root: PathBuf,
+    pub operation: FileOperation,
+    pub moves: std::collections::BTreeMap<PathBuf, PathBuf>,
+    pub source_stamps: std::collections::BTreeMap<PathBuf, FileEntryStamp>,
+    pub documents: Vec<ReferencingDocument>,
+    pub documents_selection: FileSources,
+    pub unrepresentable: bool,
+}
+
+impl Drop for ReferencePreview {
+    fn drop(&mut self) {
+        if let Some(pool) = bevy::tasks::AsyncComputeTaskPool::try_get() {
+            let data = (std::mem::take(&mut self.moves), std::mem::take(&mut self.source_stamps), std::mem::take(&mut self.documents),
+                std::mem::take(&mut self.documents_selection));
+            pool.spawn(async move { drop(data); }).detach();
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -100,6 +140,9 @@ pub struct FileOperationReceipt {
     pub cancelled: bool,
     pub failed: Option<PathBuf>,
     pub unprocessed: Vec<PathBuf>,
+    pub reference_preview: Option<Arc<ReferencePreview>>,
+    pub repaired_documents: usize,
+    pub repaired_paths: FileSources,
     index: ReceiptIndex,
 }
 
@@ -122,6 +165,7 @@ impl Drop for FileOperationReceipt {
                 std::mem::take(&mut self.skipped),
                 std::mem::take(&mut self.unprocessed),
                 std::mem::take(&mut self.index),
+                std::mem::take(&mut self.repaired_paths),
             );
             pool.spawn(async move { drop(data); }).detach();
         }
@@ -131,7 +175,8 @@ impl Drop for FileOperationReceipt {
 impl FileOperationReceipt {
     pub fn new(id: u64, context: u64, kind: FileOperationKind) -> Self {
         Self { id, context, kind, completed: Vec::new(), skipped: Vec::new(), error: None,
-            cancelled: false, failed: None, unprocessed: Vec::new(), index: ReceiptIndex::default() }
+            cancelled: false, failed: None, unprocessed: Vec::new(), reference_preview: None,
+            repaired_documents: 0, repaired_paths: FileSources::default(), index: ReceiptIndex::default() }
     }
 
     /// 只有后台完成时构建索引。帧系统查窗口路径和已打开文档，无需遍历整批明细。

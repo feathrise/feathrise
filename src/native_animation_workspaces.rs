@@ -79,6 +79,28 @@ pub(super) fn run(
     seed_elevator(assets)?;
     write_json(&work.join(OWNER), &owner(&project))?;
 
+    // 区域专项从带轨道的主场景开始，两个窗口分别执行绘制保存和独立重开。
+    if std::env::var("FEATHRISE_MOTION_TRIGGER_VALIDATION").as_deref() == Ok("1") {
+        use feathrise_editor_scene::standalone::scene_motion_validation::{
+            prepare_unbound_clip, read_saved_trigger_regions,
+        };
+        let glb = assets.join("scenes").join(SCENE).join("scene.glb");
+        let id = prepare_unbound_clip(&glb)?;
+        let authored = editor_stage(&project, work, target, control, "scene-author", "scene-motion", steps)?;
+        let reopened = editor_stage(&project, work, target, control, "scene-reopen", "scene-motion", steps)?;
+        let disk = read_saved_trigger_regions(&glb, &id)?;
+        let trigger = &authored["motion_trigger"];
+        if authored["save_sequence"].as_u64().unwrap_or_default() == 0
+            || reopened["reopened"] != true
+            || trigger["clip_id"].as_str() != Some(id.as_str())
+            || reopened["motion_trigger"] != *trigger
+            || disk != json!([trigger["region"]])
+        {
+            return Err("窗口绘制、保存回执、磁盘与独立进程重开的触发区域未能对齐".into());
+        }
+        steps.push(json!({"stage":"saved_scene_animation_trigger","passed":true,"path":glb,"clip_id":id,"regions":disk}));
+        return Ok(());
+    }
     let pose = editor_stage(
         &project,
         work,
@@ -187,6 +209,9 @@ fn editor_stage(
     command
         .env_remove("NEW_EDITOR_NATIVE_SMOKE_DIR")
         .env(OUTPUT, &directory);
+    if evidence == "scene-motion" && std::env::var("FEATHRISE_MOTION_TRIGGER_VALIDATION").as_deref() == Ok("1") {
+        command.env("FEATHRISE_MOTION_TRIGGER_VALIDATION", "1");
+    }
     let child = build_process::run(&command, control, Some(Duration::from_secs(170)), tail)?;
     fs::write(
         directory.join("process.log"),
@@ -206,7 +231,11 @@ fn editor_stage(
     if report["passed"] != true {
         return Err(format!("{stage} 缺少成功回执：{report}"));
     }
-    let screenshot = read_author_screenshot(&directory.join(format!("{evidence}.png")))?;
+    let filename = if evidence == "scene-motion"
+        && std::env::var("FEATHRISE_MOTION_TRIGGER_VALIDATION").as_deref() == Ok("1") {
+        "motion-trigger-region.png".to_owned()
+    } else { format!("{evidence}.png") };
+    let screenshot = read_author_screenshot(&directory.join(filename))?;
     steps.push(json!({"stage":stage,"passed":true,"report":report,"screenshot":screenshot}));
     Ok(report)
 }

@@ -210,7 +210,10 @@ pub(crate) fn sync_scene_inspector(
                     }
                 },
             );
-            let kind = if record.asset_target.is_builtin() {
+            let local_light = crate::authoring::local_lights::label(&record.asset_target);
+            let kind = if let Some(label) = local_light {
+                label
+            } else if record.asset_target.is_builtin() {
                 "网格"
             } else if record.building_preset_id.is_some() {
                 "建筑预设实例"
@@ -225,7 +228,8 @@ pub(crate) fn sync_scene_inspector(
                     "编辑网格 · 自定义拓扑"
                 } else if matches!(record.asset_target, feathrise_scene_content::ScenePlacementAssetTarget::EditableCuboid { .. }) {
                     "编辑网格 · 8点 / 12边 / 6面"
-                } else if record.asset_target.is_builtin() { "内置立方体" } else { &record.asset_path }, record.id
+                } else if local_light.is_some() { locale.text("label.main-scene-glb") }
+                else if record.asset_target.is_builtin() { "内置立方体" } else { &record.asset_path }, record.id
             );
             if let Some(selection) = mesh {
                 details.push_str(&format!(

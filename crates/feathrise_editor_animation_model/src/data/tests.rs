@@ -453,6 +453,31 @@ fn cubic_roundtrip_keeps_triplet_order_and_interpolation() {
 }
 
 #[test]
+fn tangent_preview_matches_saved_position_and_scale_on_each_axis() {
+    for track in [0, 1] {
+        for axis in 0..3 {
+            for outgoing in [false, true] {
+                let mut doc = fixture();
+                let channel = &mut doc.clips[0].channels[track];
+                channel.interpolation = "CUBICSPLINE".into();
+                channel.keys = cubic().keys;
+                let index = usize::from(!outgoing);
+                let time = (channel.keys[0].time + channel.keys[1].time)*0.5;
+                let original = channel.sample(time);
+                let preview = channel.preview_tangent(index,axis,outgoing,12.0).unwrap();
+                let key = &mut channel.keys[index];
+                if outgoing { key.out_tangent[axis]=12.0; } else { key.in_tangent[axis]=12.0; }
+                let saved = AnimationDocument::from_bytes(Path::new("curve.glb"),doc.encode().unwrap()).unwrap();
+                let sampled = saved.clips[0].channels[track].sample(time);
+                assert_eq!(sampled,preview.sample(time));
+                assert_ne!(sampled[axis],original[axis]);
+                assert_eq!(sampled[(axis+1)%3],original[(axis+1)%3]);
+            }
+        }
+    }
+}
+
+#[test]
 fn quaternion_linear_uses_shortest_spherical_path_and_step_holds_previous() {
     let mut channel = fixture().clips.remove(0).channels.remove(0);
     channel.path = "rotation".into();

@@ -26,6 +26,7 @@ pub(super) fn control(
 ) {
     let english = locale.as_deref().is_some_and(|locale| *locale == feathrise_editor_ui::localization::EditorLocale::English);
     if let Some(project) = &project {
+        if state.asset_root.as_deref() != project.asset_root() { state.asset_root = project.asset_root().map(PathBuf::from); }
         let source_context = project.source_context().unwrap_or(0);
         let root = project.project_root().map(PathBuf::from);
         if state.project != root || state.source_context != Some(source_context) {
@@ -47,6 +48,7 @@ pub(super) fn control(
             state.gesture = None;
             state.drag = None;
             state.prompt = None;
+            state.reference_reviews.clear();
             state.menu = None;
             state.notice.clear(); // 文件回执只属于打开它的工程会话。
         }
@@ -54,7 +56,7 @@ pub(super) fn control(
     for request in open.read() { state.open(request.path.clone()); }
     for request in pickers.read() { state.open_animation_picker(request); }
     if let Some(prompt) = &mut state.prompt {
-        if prompt.initialized && prompt.action != FileAction::Delete {
+        if prompt.initialized && prompt.has_input() {
             if let Ok(input) = inputs.single() {
                 if !input.is_composing() && input.pending_edits.is_empty() && input.pending_paste.is_none() {
                     prompt.value = input.value().to_string();
@@ -65,6 +67,36 @@ pub(super) fn control(
     publish_clipboard(&mut state, service.as_deref());
     paste(&mut state, service.as_deref(), &authors, &mut reservations);
     for request in requests.read() {
+        if state.prompt.as_ref().is_some_and(|p| p.action == FileAction::ReviewReferences) {
+            let Some(review) = state.reference_reviews.front().cloned() else { state.prompt = None; continue; };
+            match request.action {
+                FileAction::PreviousReferences => state.reference_page = state.reference_page.saturating_sub(1),
+                FileAction::NextReferences if (state.reference_page + 1) * super::presentation::REFERENCE_PAGE < review.documents.len() => state.reference_page += 1,
+                FileAction::Confirm | FileAction::MoveWithoutRepair => {
+                    let update = request.action == FileAction::Confirm;
+                    if update && review.unrepresentable { continue; }
+                    if update && let Some(reason) = authors.reference_blocker(&review.documents_selection) {
+                        state.prompt.as_mut().unwrap().value.clone_from(&reason);
+                        state.notice = reason;
+                        continue;
+                    }
+                    let choice = if update { ReferenceUpdate::Confirm(review.clone()) } else { ReferenceUpdate::FilesOnly(review.clone()) };
+                    if !enqueue(&mut state, service.as_deref(), &authors, &mut reservations, review.operation.clone(), Some(choice)) { continue; }
+                    if update { authors.hold_reference_sessions(&review.documents_selection, &mut reservations); }
+                    state.reference_reviews.pop_front();
+                    state.prompt = None;
+                    state.release_guard = true;
+                }
+                FileAction::Cancel => {
+                    state.reference_reviews.pop_front();
+                    state.prompt = None;
+                    state.release_guard = true;
+                    state.notice = "已取消文件整理".into();
+                }
+                _ => {}
+            }
+            continue;
+        }
         let directory = request.path.clone().filter(|path| !path.as_os_str().is_empty()).unwrap_or_else(|| fixed.directory.clone());
         // 来源由发出命令的具体窗口冻结；空选择不能借用左侧另一窗口的选中项。
         let sources = request.sources.clone();
@@ -111,7 +143,7 @@ pub(super) fn control(
                 state.release_guard = true;
             }
             FileAction::Confirm => {
-                if state.prompt.as_ref().is_some_and(|prompt| prompt.action != FileAction::Delete)
+                if state.prompt.as_ref().is_some_and(NamePrompt::has_input)
                     && inputs.single().is_ok_and(|input| input.is_composing() || !input.pending_edits.is_empty() || input.pending_paste.is_some()) {
                     state.notice = "请先完成输入法候选或等待粘贴完成，再确认文件名".into(); continue;
                 }
@@ -150,6 +182,12 @@ pub(super) fn control(
             }
             _ => {}
         }
+    }
+    if state.prompt.is_none() && !state.reference_reviews.is_empty() {
+        state.reference_page = 0;
+        state.prompt = Some(NamePrompt { action: FileAction::ReviewReferences, directory: default(), sources: default(), value: default(), initialized: false });
+        state.menu = None;
+        state.release_guard = true;
     }
     if reservations.is_changed() && let Some(documents) = authors.external.documents.as_mut() {
         documents.file_writes = reservations.clone();
@@ -249,7 +287,18 @@ fn submit(
     reservations: &mut FileWriteReservations,
     operation: FileOperation,
 ) {
-    let Some(service) = service else { state.notice = "文件操作服务尚未就绪".into(); return; };
+    let references = match &operation {
+        FileOperation::Rename { .. } | FileOperation::Move { .. } => state.asset_root.clone().map(ReferenceUpdate::Inspect),
+        _ => None,
+    };
+    enqueue(state, service, authors, reservations, operation, references);
+}
+
+fn enqueue(
+    state: &mut FileManagerState, service: Option<&FileOperationService>, authors: &ProtectedAuthors,
+    reservations: &mut FileWriteReservations, operation: FileOperation, references: Option<ReferenceUpdate>,
+) -> bool {
+    let Some(service) = service else { state.notice = "文件操作服务尚未就绪".into(); return false; };
     let sources = match &operation {
         FileOperation::Move { sources, .. } | FileOperation::Delete { sources } => Some(sources.clone()),
         FileOperation::Rename { source, .. } => Some(vec![source.clone()].into()),
@@ -258,14 +307,17 @@ fn submit(
     // 确认与入队之间再查受影响草稿。在同一输入回合占用源身份，避免排队期间出现新的写入。
     if let Some(reason) = sources.as_ref().and_then(|sources| authors.blocker(sources)) {
         state.notice = reason;
-        return;
+        return false;
     }
-    match service.enqueue(FileOperationRequest { context: state.context, allowed_roots: state.allowed_roots.clone(), operation }) {
+    let documents = match &references { Some(ReferenceUpdate::Confirm(plan)) => Some(plan.documents_selection.clone()), _ => None };
+    match service.enqueue(FileOperationRequest { context: state.context, allowed_roots: state.allowed_roots.clone(), operation, references }) {
         Ok(id) => {
             if let Some(sources) = sources { reservations.add(state.context, id, sources); }
+            if let Some(documents) = documents { reservations.add(state.context, id, documents); }
             state.notice = format!("文件任务 #{id} 已排队；可继续浏览或关闭文件窗口");
+            true
         }
-        Err(error) => state.notice = error,
+        Err(error) => { state.notice = error; false }
     }
 }
 
@@ -277,14 +329,19 @@ pub(super) fn poll(mut state: ResMut<FileManagerState>, service: Option<Res<File
         if receipt.id <= state.last_receipt { continue; }
         state.last_receipt = receipt.id;
         if receipt.context != state.context { continue; }
+        if let Some(preview) = &receipt.reference_preview {
+            state.reference_reviews.push_back(preview.clone());
+            state.notice = format!("{} 份场景或预设引用了所选资产，请确认移动与引用更新", preview.documents.len());
+            continue;
+        }
         for window in &mut state.windows {
             // 不抢占在途导航或定位；这次结果采用后再刷新受影响的目录。
             window.refresh_after_scan |= receipt.affects_directory(&window.requested_path);
         }
         state.notice = format!("任务 #{}：{} 项完成，{} 项跳过{}{}", receipt.id, receipt.completed.len(), receipt.skipped.len(),
             if receipt.cancelled { "，已取消" } else { "" }, receipt.error.as_ref().map_or(String::new(), |error| format!("；{error}")));
-        if matches!(receipt.kind, FileOperationKind::Move | FileOperationKind::Rename | FileOperationKind::Delete) && !receipt.completed.is_empty() {
-            state.notice.push_str("。文件路径已改变，已有场景或源码引用请按需更新");
+        if receipt.repaired_documents != 0 {
+            state.notice.push_str(&format!("；已更新 {} 份引用文件", receipt.repaired_documents));
         }
     }
     if let Some(clipboard) = snapshot.clipboard.as_ref() { adopt_clipboard(&mut state, clipboard); }

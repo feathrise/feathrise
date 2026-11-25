@@ -112,23 +112,9 @@ pub fn exit_blocker(world: &World) -> Option<String> {
     {
         return Some(reason.into());
     }
-    if let Some(state) = world.get_resource::<feathrise_editor_surface_model::SurfacePresetEditorState>()
-    {
-        if state.busy() {
-            return Some("地表预设写入或热采用尚未完成，请等待原事务完成".into());
-        }
-        if state.active_field.is_some() {
-            return Some("地表预设字段尚未完成，请先Enter提交或Esc取消".into());
-        }
-        if state.tabs.iter().any(|tab| {
-            tab.draft.dirty()
-                || matches!(
-                    tab.draft.mode,
-                    feathrise_editor_surface_model::types::SurfaceDraftMode::Create
-                )
-        }) {
-            return Some("存在未保存的地表预设，请先保存或使用原标签关闭确认丢弃".into());
-        }
+    if let Some(reason) = world.get_resource::<feathrise_editor_surface_model::SurfacePresetEditorState>()
+        .and_then(|state| state.exit_blocker()) {
+        return Some(reason.into());
     }
     if let Some(reason)=super::project_close::authors::exit_blocker(world) { return Some(reason); }
     // 只读取官方当前焦点实体，不能为退出去遍历整棵UI或提前提交输入法候选。

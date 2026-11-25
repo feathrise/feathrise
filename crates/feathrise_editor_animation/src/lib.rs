@@ -11,8 +11,10 @@ use feathrise_editor_core::SceneEditorSystemSet;
 
 mod binding;
 mod clip_management;
+mod composition;
 mod components;
 mod context;
+mod curve_editor;
 mod control;
 mod docking;
 mod drive;
@@ -50,6 +52,8 @@ pub struct AnimationEditorPlugin;
 impl Plugin for AnimationEditorPlugin {
     fn build(&self, app: &mut App) {
         install_controls(app);
+        curve_editor::install(app);
+        composition::install(app);
         app.init_resource::<AnimationEditorState>()
             .insert_resource(scenes())
             .insert_resource(AnimationOperations {

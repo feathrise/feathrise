@@ -6,6 +6,35 @@ use feathrise_scene_content::write_scene_placements_glb;
 
 const PATH: &str = "scenes/TEST/scene.glb";
 
+#[test]
+fn region_survives_empty_and_keyed_clip_saves_and_stays_on_its_original_clip() {
+    let path = Path::new(PATH);
+    let (placements, bytes) = scene();
+    let mut motion = SceneMotionDocument::from_glb(path, bytes.clone(), &placements).unwrap();
+    motion.create("城门").unwrap();
+    let clip = motion.active_clip_id().unwrap().to_owned();
+    let area = MotionRegion { center: Vec3::new(3.0, 1.0, -2.0), half_extents: Vec3::new(2.0, 1.0, 0.5),
+        enter: MotionRegionAction::Play, exit: MotionRegionAction::Reverse };
+    motion.change_region(&clip, 0, None, Some(area)).unwrap();
+    let (saved, _) = motion.encode_glb(path, bytes, &placements, false).unwrap();
+    let mut motion = SceneMotionDocument::from_glb(path, saved.clone(), &placements).unwrap();
+    assert_eq!(motion.regions(&clip), Some([area].as_slice()));
+    let target = &placements.placements[0].id;
+    motion.select_clip(&clip);
+    motion.replace(target,Some(SceneMotionTrack { placement_id: target.clone(), duration_seconds: 2.0,
+        playback: SceneMotionPlayback::Once, position: vec![SceneMotionKey { time: 0.0, value: [0.0;3] }],
+        rotation: Vec::new(),scale: Vec::new(),collider: None }));
+    motion.duplicate(&clip).unwrap();
+    let copy = motion.active_clip_id().unwrap().to_owned();
+    let (saved, _) = motion.encode_glb(path, saved, &placements, false).unwrap();
+    let mut motion = SceneMotionDocument::from_glb(path, saved, &placements).unwrap();
+    assert_eq!(motion.regions(&copy),Some([].as_slice()));
+    assert_eq!(motion.regions(&clip),Some([area].as_slice()));
+    motion.change_region(&clip,0,Some(area),None).unwrap();
+    motion.change_region(&clip,0,None,Some(area)).unwrap();
+    assert_eq!(motion.regions(&clip),Some([area].as_slice()));
+}
+
 fn scene() -> (ScenePlacementsAsset, Vec<u8>) {
     let mut draft = crate::authoring::test_heightfield_draft(vec![0; 121].into());
     let mut record = crate::viewport::placement_move::interaction_tests::record();

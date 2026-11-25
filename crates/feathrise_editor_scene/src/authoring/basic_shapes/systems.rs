@@ -21,6 +21,8 @@ pub(super) struct CreationContext<'w, 's> {
     asset_server: Res<'w, AssetServer>,
     browser: ResMut<'w, EditorGltfBrowserState>,
     selection: Option<ResMut<'w, crate::resources::EditorViewportSelectionState>>,
+    placements: Option<ResMut<'w, crate::viewport::multi_select::PlacementSelectionSet>>,
+    candidates: Option<ResMut<'w, crate::viewport::LayerCandidateState>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -89,13 +91,16 @@ pub(super) fn control_menu(
     state.captured_this_frame = true; // 创建按钮的释放不能同时落到视口。
     state.work_plane = None;
     if let Some(position) = request.position {
-        if let Some(id) = edit::create_cuboid_at(&mut context.commands, &context.asset_server,
+        let light = super::super::local_lights::parameters(&request.target).is_some();
+        if let Some(id) = edit::create_builtin_at(&mut context.commands, &context.asset_server,
             &mut editor, &mut session, request.target, position)
         {
-            context.browser.select_primitive_placement_from_viewport(id);
+            super::select_created(id, &session, &mut context.browser, context.placements.as_deref_mut(), context.candidates.as_deref_mut());
             if let Some(selection) = context.selection.as_deref_mut() { selection.clear_vegetation_selection(); }
             sidebar.reveal_scene_properties();
-            mode.mode = ViewportMode::Select;
+            // 灯光没有可拾取的三角面，创建后直接展示原移动手柄，用户可以立即在视口调整位置。
+            mode.mode = if light { ViewportMode::Move } else { ViewportMode::Select };
+            editor.placement_transform_enabled = light;
             state.placement_target = None;
             state.placement_identity = None;
         }

@@ -351,6 +351,8 @@ pub enum EditorTool {
     Vegetation,
     /// 绘制、闭合和拖动动态场景区域空气墙控制点。
     Boundary,
+    /// 在作者指定的水平面上绘制场景动画触发盒的底面。
+    MotionTrigger,
 }
 
 impl EditorTool {

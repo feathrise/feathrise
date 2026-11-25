@@ -95,10 +95,12 @@ pub enum SceneMenuAction {
     NewGlbContent,
     NewGlbCuboid,
     NewGlbPlane,
+    NewPointLight,
+    NewSpotLight,
 }
 
 impl SceneMenuAction {
-    pub(super) const ALL: [Self; 22] = [
+    pub(super) const ALL: [Self; 24] = [
         Self::Focus,
         Self::RevealGlb,
         Self::NewGlbContent,
@@ -106,6 +108,8 @@ impl SceneMenuAction {
         Self::NewSourceGlbAnimation,
         Self::NewGlbCuboid,
         Self::NewGlbPlane,
+        Self::NewPointLight,
+        Self::NewSpotLight,
         Self::EditSourceGlbAnimation,
         Self::NewPlacementFolder,
         Self::NewEmptyGlb,
@@ -135,14 +139,16 @@ impl SceneMenuAction {
         matches!(self, Self::NewGlbCuboid | Self::NewGlbPlane)
     }
 
+    pub(crate) fn is_local_light(self) -> bool { matches!(self, Self::NewPointLight | Self::NewSpotLight) }
+
     pub(super) fn is_creation_child(self, target: &SceneObjectTarget) -> bool {
-        self.is_glb_shape() || self == Self::NewSceneAnimation
+        self.is_glb_shape() || self.is_local_light() || self == Self::NewSceneAnimation
             || self == Self::NewSourceGlbAnimation && matches!(target.key, SceneObjectKey::Placement { mesh: None, .. })
     }
 
     pub(super) fn panel_actions(creation: bool) -> impl Iterator<Item = Self> {
         Self::ALL.into_iter().filter(move |action| match action {
-            Self::NewSceneAnimation | Self::NewGlbCuboid | Self::NewGlbPlane => creation,
+            Self::NewSceneAnimation | Self::NewGlbCuboid | Self::NewGlbPlane | Self::NewPointLight | Self::NewSpotLight => creation,
             // 源动画在 GLB 根行是子项，仍为独立源网格行保留原菜单入口。
             Self::NewSourceGlbAnimation => true,
             _ => !creation,
@@ -171,6 +177,8 @@ impl SceneMenuAction {
             Self::NewSceneAnimation => "动画",
             Self::NewGlbCuboid => "立方体",
             Self::NewGlbPlane => "平面",
+            Self::NewPointLight => "点光源",
+            Self::NewSpotLight => "聚光灯",
             Self::EditSourceGlbAnimation => "编辑源 GLB 动画",
             Self::NewSourceGlbAnimation if self.is_creation_child(target) => "动画",
             Self::NewSourceGlbAnimation => "在源 GLB 新建动画",
@@ -355,6 +363,9 @@ impl SceneObjectTarget {
     }
 
     fn supports(&self, action: SceneMenuAction) -> bool {
+        if action.is_local_light() {
+            return crate::authoring::local_lights::AVAILABLE && matches!(self.key, SceneObjectKey::MainSceneGlb);
+        }
         if action.is_glb_shape() || action == SceneMenuAction::NewGlbContent {
             return matches!(self.key, SceneObjectKey::MainSceneGlb | SceneObjectKey::Placement { mesh: None, .. });
         }
@@ -441,7 +452,7 @@ impl SceneObjectTarget {
                 | SceneMenuAction::NewEmptyGlb | SceneMenuAction::ChooseExistingGlb | SceneMenuAction::NewGlbContent => {
                     true
                 }
-                SceneMenuAction::NewGlbCuboid | SceneMenuAction::NewGlbPlane => !self.locked && !self.hidden,
+                SceneMenuAction::NewGlbCuboid | SceneMenuAction::NewGlbPlane | SceneMenuAction::NewPointLight | SceneMenuAction::NewSpotLight => !self.locked && !self.hidden,
                 SceneMenuAction::Rename | SceneMenuAction::RenameSourceNode => !self.locked,
                 SceneMenuAction::Delete if matches!(self.key, SceneObjectKey::MainSceneAnimation(_)) => !self.locked,
                 SceneMenuAction::NewSourceFolder | SceneMenuAction::DeleteSourceFolder => !self.locked && !self.hidden,

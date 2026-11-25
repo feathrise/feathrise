@@ -15,6 +15,13 @@ pub fn new_scene_clip_id() -> String {
 }
 
 impl AnimationDocument {
+    /// 历史与磁盘都按稳定片段身份编号。调用方只调整展示顺序时，编码保留既有动画槽位。
+    pub(super) fn clips_in_file_order(&self) -> Vec<&Clip> {
+        let mut ordered: Vec<_> = self.clips.iter().collect();
+        ordered.sort_unstable_by_key(|clip| clip.source_index);
+        ordered
+    }
+
     /// 目录使用磁盘中的 GLB 数组序号。已打开会话再映射成其稳定片段身份。
     pub fn clip_id_from_disk_index(&self, index: usize) -> Option<usize> {
         self.source.original_clips.get(index).map(|clip| clip.source_index)

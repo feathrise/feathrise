@@ -1,5 +1,8 @@
 //! 独占工程通过原视口手柄、时间轴和保存入口验收主 GLB 动画。
 
+mod triggers;
+pub use triggers::{prepare_unbound_clip, read_saved_trigger_regions};
+
 use bevy::{
     app::AppExit, input_focus::InputFocus, math::DVec2, prelude::*,
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
@@ -61,7 +64,7 @@ enum Step {
     RotateTool, BeginTurn, Turn, ReleaseTurn, EditRotationProperty, RestoreRotationProperty,
     RotationTrack, KeyRotation, Undo, Redo, ScaleTrack, ScaleOrigin, KeyScaleOrigin, SeekScalePeak,
     ScaleTool, BeginScale, DragScale, ReleaseScale, KeyScale,
-    First, Play, Playback, Review, Verify, Save, Receipt, Capture, Finish,
+    First, Play, Playback, Review, Verify, Triggers, Save, ReleaseSave, Receipt, Capture, Finish, FailureImage,
 }
 
 #[derive(Resource)]
@@ -76,6 +79,7 @@ struct Run {
     clip_to_rename: &'static str,
     scene_glb_tree: Option<Value>,
     property_pose_verified: bool,
+    triggers: triggers::Check,
     report: Value,
 }
 
@@ -92,7 +96,7 @@ pub fn install(app: &mut App, directory: PathBuf, reopen: bool) {
     app.insert_resource(Run {
         directory, reopen, started: Instant::now(), step: Step::Enter, click: None,
         drag_end: Vec2::ZERO, save_before: 0, clip_to_rename: CLIP_NAME,
-        scene_glb_tree: None, property_pose_verified: false,
+        scene_glb_tree: None, property_pose_verified: false, triggers: default(),
         report: Value::Null,
     }).init_resource::<Pointer>()
         .add_systems(Update, inject_pointer.after(EditorUiSystemSet::NumericInput).before(SceneEditorSystemSet::Input))
@@ -119,14 +123,22 @@ fn inject_pointer(
 
 fn drive(world: &mut World) {
     world.resource_scope(|world, mut run: Mut<Run>| {
-        let result = if run.started.elapsed() > Duration::from_secs(120) {
+        let result = if run.started.elapsed() > Duration::from_secs(120) && !matches!(run.step, Step::FailureImage) {
             Err(format!("场景动画验收超时于 {:?}：{}", run.step, author_status(world).unwrap_or_default()))
         } else { advance(world, &mut run) };
         let report = match result {
             Ok(false) => return,
             Ok(true) => run.report.clone(),
-            Err(error) => json!({"passed":false,"reopened":run.reopen,"placement_id":PLATFORM,
-                "phase":format!("{:?}",run.step),"error":error,"observed":probe(world,PLATFORM)}),
+            Err(error) => {
+                let failed = json!({"passed":false,"reopened":run.reopen,"placement_id":PLATFORM,
+                    "phase":format!("{:?}",run.step),"trigger_step":format!("{:?}",run.triggers),"error":error,"observed":probe(world,PLATFORM)});
+                if triggers::enabled() && !matches!(run.step, Step::FailureImage) {
+                    run.report=failed; run.step=Step::FailureImage;
+                    request_screenshot(world,run.directory.join("trigger-failure.png"));
+                    return;
+                }
+                failed
+            }
         };
         let written = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())
             .and_then(|bytes| std::fs::write(run.directory.join("scene-motion.json"), bytes).map_err(|error| error.to_string()));
@@ -142,7 +154,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
         Enter => {
             if preview_ready_for(world, SCENE) {
                 run.save_before = world.resource::<EditorAuthoringSession>().successful_save_sequence;
-                run.step = Tree;
+                run.step = if triggers::enabled() { Triggers } else { Tree };
             } else if world.resource::<SceneEditorState>().open { let _ = request_open_scene(world, SCENE); }
         }
         Tree => {
@@ -563,13 +575,24 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
             if run.reopen { run.report = verify_report(world, run)?; run.step = Capture; }
             else { run.step = Save; }
         }
+        Triggers => if triggers::advance(world, run)? {
+            if run.reopen { run.report = triggers::report(world,run)?; return Ok(true); }
+            else { run.step = Save; }
+        },
         Save => {
-            let entity = action_button(world, EditorAction::Save);
-            if click(world, run, entity)? { run.step = Receipt; }
+            if triggers::enabled() {
+                triggers::save_shortcut(world,true)?;
+                run.step=ReleaseSave;
+            } else {
+                let entity = action_button(world, EditorAction::Save);
+                if click(world, run, entity)? { run.step = Receipt; }
+            }
         }
+        ReleaseSave => { triggers::save_shortcut(world,false)?; run.step=Receipt; }
         Receipt => {
             let session = world.resource::<EditorAuthoringSession>();
             if session.saving || session.successful_save_sequence <= run.save_before { return Ok(false); }
+            if triggers::enabled() { run.report=triggers::report(world,run)?; return Ok(true); }
             run.report = verify_report(world, run)?;
             run.step = Capture;
         }
@@ -583,6 +606,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
             result?;
             return Ok(true);
         }
+        FailureImage => if let Some(result) = screenshot_result(world) { result?; return Ok(true); },
     }
     Ok(false)
 }

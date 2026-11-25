@@ -62,6 +62,24 @@ fn placement_axis_row(label: &str, fields: [PlacementTransformField; 3]) -> impl
     axis_row(label, fields.map(PlacementTransformInputSlot))
 }
 
+/// 首次选中灯具后才创建这组输入；以后切换对象只改显隐，保留公共数值控件和输入焦点。
+#[derive(Component)]
+pub(crate) struct LightControlsInstalled;
+
+pub(super) fn light_controls() -> impl Scene {
+    use super::LightField::*;
+    use PlacementTransformField::Light;
+    bsn! { ~{PlacementPropertiesSection::Light} ~{property_panel_layout()}
+        Children [
+            @crate::ui::context_help::section_header("局部灯光", "颜色为线性 RGB，光强使用坎德拉。聚光灯朝本地 −Z 轴照射，内、外锥角均为半角。")--
+            @placement_axis_row("颜色", [Light(Red), Light(Green), Light(Blue)])--
+            @numeric_input_slot(Light(Intensity))--
+            @numeric_input_slot(Light(Range))--
+            @numeric_input_slot(Light(InnerAngle))--
+            @numeric_input_slot(Light(OuterAngle))
+        ] }
+}
+
 /// 整件与子网格共用按钮壳，业务标记和较窄侧栏的最小列宽由调用处提供。
 pub(in crate::ui) fn property_button(
     label: &str,
@@ -276,9 +294,9 @@ pub(crate) fn setup_placement_transform_numeric_inputs(
             PlacementTransformField::TranslationX | PlacementTransformField::RotationX | PlacementTransformField::ScaleX | PlacementTransformField::CuboidSizeX => Some("X"),
             PlacementTransformField::TranslationY | PlacementTransformField::RotationY | PlacementTransformField::ScaleY | PlacementTransformField::CuboidSizeY => Some("Y"),
             PlacementTransformField::TranslationZ | PlacementTransformField::RotationZ | PlacementTransformField::ScaleZ | PlacementTransformField::CuboidSizeZ => Some("Z"),
-            PlacementTransformField::CuboidColorR => Some("R"),
-            PlacementTransformField::CuboidColorG => Some("G"),
-            PlacementTransformField::CuboidColorB => Some("B"),
+            PlacementTransformField::CuboidColorR | PlacementTransformField::Light(super::LightField::Red) => Some("R"),
+            PlacementTransformField::CuboidColorG | PlacementTransformField::Light(super::LightField::Green) => Some("G"),
+            PlacementTransformField::CuboidColorB | PlacementTransformField::Light(super::LightField::Blue) => Some("B"),
             _ => None,
         }; // 组标签已说明位置/缩放；短轴名给完整精度的数字保留更多宽度。
         let font: Handle<Font> = feathrise_editor_core::editor_font(&asset_server, FONT_PATH); // 与静态摘要使用同一字体资源。

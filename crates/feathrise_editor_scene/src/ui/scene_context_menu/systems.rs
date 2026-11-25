@@ -474,13 +474,15 @@ pub(super) fn queue_main_glb_shape(
     mut shapes: ResMut<crate::authoring::basic_shapes::BasicShapeState>,
 ) {
     let Some(request) = menu.ready.as_ref().filter(|request| {
-        request.action.is_glb_shape() && request.target.key == SceneObjectKey::MainSceneGlb
+        (request.action.is_glb_shape() || request.action.is_local_light()) && request.target.key == SceneObjectKey::MainSceneGlb
             && request.target.current(&editor, &session)
             && request.target.menu_has(request.action, &session)
     }) else { return; };
     if shapes.creation_request.is_some() { return; }
     let plane = request.action == SceneMenuAction::NewGlbPlane;
-    let position = if plane {
+    let position = if request.action.is_local_light() {
+        viewport.as_deref().map_or(Vec3::ZERO, |viewport| viewport.scene_center) + Vec3::Y * 2.0
+    } else if plane {
         // 平面沿用场景中心，需要已经建立的视口。
         let Some(viewport) = viewport else {
             editor.status = "场景视口尚未就绪，请稍后新建平面".into();
@@ -491,7 +493,10 @@ pub(super) fn queue_main_glb_shape(
         // 主 GLB 局部原点与场景原点重合，显式坐标创建使用固定高度。
         Vec3::ZERO
     };
-    match crate::ui::terrain_objects::tree_shape_target(plane) {
+    let target = if request.action.is_local_light() {
+        crate::authoring::local_lights::new(request.action == SceneMenuAction::NewSpotLight)
+    } else { crate::ui::terrain_objects::tree_shape_target(plane) };
+    match target {
         Ok(target) => {
             shapes.creation_request = Some(crate::authoring::basic_shapes::CuboidCreationRequest {
                 target, position: Some(position),

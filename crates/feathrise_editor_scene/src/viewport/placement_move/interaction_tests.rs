@@ -172,10 +172,13 @@ pub(crate) fn replace_ground_heights(app: &mut App, heights: Option<Arc<Vec<u16>
 }
 
 pub(crate) fn app() -> (App, Entity, Entity) {
+    app_with_record(record())
+}
+
+fn app_with_record(record: ScenePlacementRecord) -> (App, Entity, Entity) {
     let mut draft = test_clipmap_draft(Arc::new(vec![2; 121]), 2);
-    let record = record();
     draft.placements.placements.push(record.clone());
-    draft.placement_water_surface_count = 1;
+    draft.placement_water_surface_count = record.water_surfaces.len();
     let map = draft.scene_id.clone();
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
@@ -367,6 +370,31 @@ fn mesh_lod_restore_gate_rejects_old_press_but_keeps_document_properties_availab
         step(&mut app, node, cursor);
         begin(&mut app, node, MoveAxis::X); // 完整恢复后的新点击正常使用同一生产输入链。
     }
+}
+
+#[test]
+fn local_light_without_geometry_moves_using_the_viewport_handle_and_commits_one_history() {
+    use bevy::ecs::system::RunSystemOnce;
+    if !crate::authoring::local_lights::AVAILABLE { return; }
+    let mut lamp = record();
+    lamp.asset_path.clear();
+    lamp.water_surfaces.clear();
+    lamp.asset_target = crate::authoring::local_lights::new(true).unwrap();
+    let (mut app, root, viewport) = app_with_record(lamp.clone());
+    let target = lamp.asset_target.clone();
+    app.world_mut().run_system_once(move |mut commands: Commands| {
+        assert!(feathrise_scene::spawn_builtin_placement_visual(&mut commands, root, target.clone()));
+    }).unwrap();
+    begin(&mut app, viewport, MoveAxis::X);
+    let cursor = point_on_axis(&app, MoveAxis::X, 1.5);
+    step(&mut app, viewport, cursor);
+    assert!((app.world().get::<Transform>(root).unwrap().translation.x - 6.5).abs() < 0.002);
+    assert!(app.world().get::<SpotLight>(root).is_some() && app.world().get::<Mesh3d>(root).is_none());
+    app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+    step(&mut app, viewport, cursor);
+    assert!((draft_record(&app).translation[0] - 6.5).abs() < 0.002);
+    assert!(matches!(app.world().resource::<EditorAuthoringSession>().undo.as_slice(),
+        [EditorCommand::PlacementChanged {before, after, ..}] if before == &lamp && after.asset_target == lamp.asset_target));
 }
 
 #[test]

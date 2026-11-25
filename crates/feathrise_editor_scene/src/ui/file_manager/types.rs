@@ -139,6 +139,7 @@ pub(crate) enum FileAction {
     NewWindow, Copy, Cut, Paste, Delete, NewMenu, NewFolder, NewText, NewMarkdown, NewGlb, Rename,
     Back, Forward, Up, Refresh, Minimize, Maximize, Close,
     Confirm, Cancel, ChooseClip, CancelPicker, ConflictPolicy, CopyHere, MoveHere,
+    ReviewReferences, PreviousReferences, NextReferences, MoveWithoutRepair,
 }
 
 impl FileAction {
@@ -165,6 +166,10 @@ impl FileAction {
             (Self::ConflictPolicy, false) => "同名：保留两者", (Self::ConflictPolicy, true) => "Conflict: keep both",
             (Self::CopyHere, false) => "复制到这里", (Self::CopyHere, true) => "Copy here",
             (Self::MoveHere, false) => "移动到这里", (Self::MoveHere, true) => "Move here",
+            (Self::ReviewReferences, false) => "更新资产引用", (Self::ReviewReferences, true) => "Update asset references",
+            (Self::PreviousReferences, false) => "上一页", (Self::PreviousReferences, true) => "Previous",
+            (Self::NextReferences, false) => "下一页", (Self::NextReferences, true) => "Next",
+            (Self::MoveWithoutRepair, false) => "仅移动文件", (Self::MoveWithoutRepair, true) => "Move files only",
         }
     }
 
@@ -213,4 +218,8 @@ pub(super) struct NamePrompt {
     pub(super) sources: FileSources,
     pub(super) value: String,
     pub(super) initialized: bool,
+}
+
+impl NamePrompt {
+    pub(super) fn has_input(&self) -> bool { !matches!(self.action, FileAction::Delete | FileAction::ReviewReferences) }
 }

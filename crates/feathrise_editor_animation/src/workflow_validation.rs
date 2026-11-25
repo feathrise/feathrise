@@ -25,6 +25,11 @@ fn enabled() -> bool {
         && std::env::var("NEW_EDITOR_NATIVE_SMOKE_SAVE").as_deref() == Ok("1")
 }
 
+#[cfg(feature = "validation")]
+pub fn composition_button(world: &mut World, action: &str) -> Option<Entity> {
+    enabled().then(|| super::composition::original_button(world,action)).flatten()
+}
+
 pub fn timeline_ruler(world: &mut World) -> Option<(Entity, f32)> {
     let state = world.get_resource::<AnimationEditorState>()?;
     if !state.visible() || state.busy() {
@@ -152,10 +157,13 @@ pub fn select_channel(world: &mut World, identity: KeyIdentity) -> Result<Entity
 fn animation_action(command: AnimationCommand) -> AnimationAction {
     match command {
         AnimationCommand::ToggleEditing => AnimationAction::ToggleEditing,
+        AnimationCommand::NextClip => AnimationAction::NextClip,
+        AnimationCommand::TogglePlayback => AnimationAction::TogglePlayback,
         AnimationCommand::MovePose => AnimationAction::MovePose,
         AnimationCommand::RotatePose => AnimationAction::RotatePose,
         AnimationCommand::CreateClip => AnimationAction::CreateClip,
         AnimationCommand::ToggleAutoKey => AnimationAction::ToggleAutoKey,
+        AnimationCommand::CycleInterpolation => AnimationAction::CycleInterpolation,
         AnimationCommand::InsertPose => AnimationAction::InsertPose,
         AnimationCommand::InsertKey => AnimationAction::InsertKey,
         AnimationCommand::FirstFrame => AnimationAction::FirstFrame,
@@ -165,6 +173,12 @@ fn animation_action(command: AnimationCommand) -> AnimationAction {
         AnimationCommand::Redo => AnimationAction::Redo,
         AnimationCommand::Save => AnimationAction::Save,
     }
+}
+
+/// 返回实际曲线按钮或选中键的出切线手柄，调用方从窗口投递鼠标事件。
+#[cfg(feature = "validation")]
+pub fn curve_control(world: &mut World, grip: bool) -> Option<Entity> {
+    enabled().then(|| super::curve_editor::visible_control(world, grip)).flatten()
 }
 
 /// 通过当前绑定和真实布局找到原按钮，允许窗口驱动复用鼠标事件。

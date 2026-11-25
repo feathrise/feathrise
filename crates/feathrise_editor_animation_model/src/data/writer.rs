@@ -120,13 +120,14 @@ impl AnimationDocument {
             return Err("动画保存后文件再次被外部修改，原草稿已保留，请重新载入后处理冲突".into());
         }
         saved.clips = self.clips.clone();
+        saved.clips.sort_unstable_by_key(|clip| clip.source_index);
         saved.preserved_channel_counts = self.preserved_channel_counts.clone();
         // 已核对本次编码的精确字节，节点身份未变；保存不应使同源跨动作剪贴板失效。
         saved.source_identity = self.source_identity.clone();
         // load 返回的新 Source 没有其他持有者，更新基线不会复制大 BIN 或影响原作者版本。
         std::sync::Arc::get_mut(&mut saved.source)
             .ok_or("无法建立动画保存后的独立版本基线")?
-            .original_clips = self.clips.clone();
+            .original_clips = saved.clips.clone();
         Ok(saved)
     }
 
@@ -195,7 +196,7 @@ impl AnimationDocument {
         let mut changed = self.clips.len() != self.source.original_clips.len();
         let mut animations = Vec::with_capacity(self.clips.len());
         let mut clip_indices = HashSet::new();
-        for (position, clip) in self.clips.iter().enumerate() {
+        for (position, clip) in self.clips_in_file_order().into_iter().enumerate() {
             let index = clip.source_index;
             if !clip_indices.insert(index) {
                 return Err("动画片段身份重复".into());

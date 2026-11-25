@@ -23,7 +23,3 @@ pub(in super::super) fn accepts(path: &str) -> bool {
             .and_then(|ext| ext.to_str())
             .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
 }
-
-pub(super) fn path_field(key: &str) -> bool {
-    key == "path" || key.ends_with("_path") || key.ends_with("_paths")
-}

@@ -45,6 +45,12 @@ pub fn read_directory(path: &Path) -> Result<Value, String> {
 }
 
 pub fn read_json(path: &Path, max_bytes: u64) -> Result<Value, String> {
+    let (json, ..) = json_prefix(path, max_bytes, Some(MAX_JSON))?;
+    serde_json::from_slice(&json).map_err(|error| format!("解析 GLB 目录失败：{error}"))
+}
+
+/// 修改 Feathrise 摆放元数据时只持有 JSON；后续二进制、动画及未知块可从同一文件句柄原样流式复制。
+pub fn json_prefix(path: &Path, max_bytes: u64, json_budget: Option<usize>) -> Result<(Vec<u8>, File, u64), String> {
     let mut file = open_glb(path, max_bytes)?;
     let length = file.metadata().map_err(|error| error.to_string())?.len();
     let mut header = [0; 20];
@@ -58,7 +64,7 @@ pub fn read_json(path: &Path, max_bytes: u64) -> Result<Value, String> {
         || length > max_bytes
         || &header[16..] != b"JSON"
         || size == 0
-        || size > MAX_JSON
+        || json_budget.is_some_and(|limit| size > limit)
         || 20 + size as u64 > length
     {
         return Err(format!("无效或超出元数据预算的 GLB：{}", path.display()));
@@ -67,5 +73,5 @@ pub fn read_json(path: &Path, max_bytes: u64) -> Result<Value, String> {
     let mut bytes = vec![0; size];
     file.read_exact(&mut bytes)
         .map_err(|error| error.to_string())?;
-    serde_json::from_slice(&bytes).map_err(|error| format!("解析 GLB 目录失败：{error}"))
+    Ok((bytes, file, length - 20 - size as u64))
 }

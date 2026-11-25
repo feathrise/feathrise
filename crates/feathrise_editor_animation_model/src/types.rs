@@ -303,6 +303,7 @@ pub struct Clipboard {
 }
 
 pub enum Command {
+    ImportClips { source: Arc<super::data::AnimationDocument>, rows: Arc<[super::data::ContentSpan]>, adapt: bool },
     CreateClip,
     RenameClip { id: usize, name: String },
     DuplicateClip { id: usize },

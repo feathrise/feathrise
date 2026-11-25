@@ -116,6 +116,14 @@ impl SurfacePresetEditorState {
         self.write_task.is_some() || self.adoption.is_some()
     }
 
+    /// 工程退出和依赖资产改名共用原作者现场保护条件。
+    pub fn exit_blocker(&self) -> Option<&'static str> {
+        if self.busy() { return Some("地表预设写入或热采用尚未完成，请等待原事务完成"); }
+        if self.active_field.is_some() { return Some("地表预设字段尚未完成，请先Enter提交或Esc取消"); }
+        self.tabs.iter().any(|tab| tab.draft.dirty() || matches!(tab.draft.mode, SurfaceDraftMode::Create))
+            .then_some("存在未保存的地表预设，请先保存或使用原标签关闭确认丢弃")
+    }
+
     pub fn active_draft(&self, active: PresetWorkspaceTab) -> Option<&SurfaceDraft> {
         let PresetWorkspaceTab::Surface(id) = active else {
             return None;

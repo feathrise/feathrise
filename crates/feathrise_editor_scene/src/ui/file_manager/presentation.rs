@@ -5,6 +5,9 @@ use crate::{components::SceneEditorRoot, resources::SceneEditorLayoutState, ui::
 use bevy::{prelude::*, input_focus::{InputFocus, FocusCause}, text::EditableText, ui::InteractionDisabled};
 use feathrise_editor_project_browser_model::file_operations::ConflictPolicy;
 use feathrise_editor_ui::{EditorButtonClick, UiInteraction, localization::EditorLocale};
+use feathrise_editor_project_browser_model::file_operations::{ReferencePreview, FileOperation};
+
+pub(super) const REFERENCE_PAGE: usize = 6; // 沿用可滚动正文，每页只为当前六个文件生成文字。
 
 pub(super) fn sync(world: &mut World) {
     world.resource_scope(|world, mut state: Mut<FileManagerState>| {
@@ -43,7 +46,9 @@ pub(super) fn sync(world: &mut World) {
             }
         }
         let prompt_visible = state.prompt.is_some() && !state.suspended;
-        let delete_visible = prompt_visible && state.prompt.as_ref().is_some_and(|prompt| prompt.action == FileAction::Delete);
+        let body_visible = prompt_visible && state.prompt.as_ref().is_some_and(|prompt| !prompt.has_input());
+        let review = state.prompt.as_ref().filter(|prompt| prompt.action == FileAction::ReviewReferences)
+            .and_then(|_| state.reference_reviews.front().cloned());
         let focus_entity = world.get_resource::<InputFocus>().and_then(|focus| focus.get());
         let mut search_inputs = world.query::<(Entity, &FileSearchInput)>();
         let focused_search = search_inputs.iter(world).find_map(|(entity, input)| (focus_entity == Some(entity)).then_some(input.window));
@@ -74,9 +79,9 @@ pub(super) fn sync(world: &mut World) {
                 node.width = px(width); node.max_height = px((size.y - 80.).max(100.));
                 node.left = px(((size.x - width) * 0.5).max(0.)); node.top = px(((size.y - dialog_height) * 0.5).max(40.));
             }
-            if name.is_some() { node.display = if prompt_visible && state.prompt.as_ref().is_some_and(|prompt| prompt.action != FileAction::Delete) { Display::Flex } else { Display::None }; }
+            if name.is_some() { node.display = if prompt_visible && state.prompt.as_ref().is_some_and(NamePrompt::has_input) { Display::Flex } else { Display::None }; }
             if backdrop.is_some() { node.display = if prompt_visible { Display::Flex } else { Display::None }; }
-            if body.is_some() { node.display = if delete_visible { Display::Flex } else { Display::None }; node.max_height = px((size.y - 236.).clamp(48., 240.)); }
+            if body.is_some() { node.display = if body_visible { Display::Flex } else { Display::None }; node.max_height = px((size.y - 236.).clamp(48., 240.)); }
             if let Some(hint) = search_hint {
                 node.display = if focused_search != Some(hint.window) && state.active(hint.window).is_some_and(|window| window.filter.is_empty()) { Display::Flex } else { Display::None };
             }
@@ -180,7 +185,15 @@ pub(super) fn sync(world: &mut World) {
                     else { prompt.action.label(english).into() }
                 })
             } else if dialog_body.is_some() {
-                state.prompt.as_ref().filter(|prompt| prompt.action == FileAction::Delete).map(|prompt| delete_prompt_body(prompt, english))
+                review.as_ref().map(|plan| {
+                    let mut body = reference_body(plan, state.reference_page, english);
+                    if let Some(prompt) = &state.prompt && !prompt.value.is_empty() {
+                        body.push('\n');
+                        body.push_str(&prompt.value);
+                    }
+                    body
+                }).or_else(||
+                    state.prompt.as_ref().filter(|prompt| prompt.action == FileAction::Delete).map(|prompt| delete_prompt_body(prompt, english)))
             } else if search_hint.is_some() {
                 Some(if english { "Filter by filename".into() } else { "按文件名筛选".into() })
             } else if drag_label.is_some() {
@@ -203,6 +216,14 @@ pub(super) fn sync(world: &mut World) {
         let mut buttons = world.query::<(Entity, &FileManagerButton, &mut Node)>();
         let mut picker_buttons = Vec::new();
         for (entity, button, mut node) in buttons.iter_mut(world) {
+            let show = match button.action {
+                FileAction::PreviousReferences => Some(review.is_some() && state.reference_page != 0),
+                FileAction::NextReferences => Some(review.as_ref().is_some_and(|plan| (state.reference_page + 1) * REFERENCE_PAGE < plan.documents.len())),
+                FileAction::MoveWithoutRepair => Some(review.as_ref().is_some_and(|plan| plan.unrepresentable)),
+                FileAction::Confirm => Some(review.as_ref().is_none_or(|plan| !plan.unrepresentable)),
+                _ => None,
+            };
+            if let Some(show) = show { node.display = if show { Display::Flex } else { Display::None }; }
             if matches!(button.action, FileAction::ChooseClip | FileAction::CancelPicker) {
                 let picker = button.window.and_then(|id| picker_labels.iter().find(|(window, _)| *window == id));
                 node.display = if picker.is_some() { Display::Flex } else { Display::None };
@@ -225,7 +246,7 @@ pub(super) fn sync(world: &mut World) {
             } else if let Some(search) = search {
                 if focus_entity == Some(entity) { None } else { state.active(search.window).map(|window| window.filter.clone()) }
             } else if name.is_some() {
-                state.prompt.as_mut().filter(|prompt| prompt_visible && !prompt.initialized).map(|prompt| { prompt.initialized = true; if prompt.action != FileAction::Delete { next_focus = Some(entity); } prompt.value.clone() })
+                state.prompt.as_mut().filter(|prompt| prompt_visible && !prompt.initialized).map(|prompt| { prompt.initialized = true; if prompt.has_input() { next_focus = Some(entity); } prompt.value.clone() })
             } else { None };
             if let Some(wanted) = wanted { if input.value().to_string() != wanted { crate::ui::text_input::replace_single_line_value(&mut input, &wanted, 4096); } }
         }
@@ -256,6 +277,26 @@ fn delete_prompt_body(prompt: &NamePrompt, english: bool) -> String {
     let mut lines: Vec<_> = prompt.sources.iter().take(5).map(|source| crate::ui::external_files::platform_path(source).display().to_string()).collect();
     if prompt.sources.len() > 5 { lines.push(if english { format!("… and {} more items", prompt.sources.len() - 5) } else { format!("……另有 {} 项", prompt.sources.len() - 5) }); }
     lines.push(if english { "Existing path references will need to be updated.".into() } else { "已有路径引用不会自动更新，请按需调整。".into() });
+    lines.join("\n")
+}
+
+fn reference_body(plan: &ReferencePreview, page: usize, english: bool) -> String {
+    let mut lines = Vec::new();
+    if plan.moves.len() == 1 && let Some((source, target)) = plan.moves.first_key_value() {
+        lines.push(format!("{} → {}", source.strip_prefix(&plan.root).unwrap_or(source).display(), target.strip_prefix(&plan.root).unwrap_or(target).display()));
+    } else if let FileOperation::Move { destination, .. } = &plan.operation {
+        lines.push(format!("{} → {}", plan.moves.len(), destination.display()));
+    }
+    let total = plan.documents.len();
+    let pages = total.div_ceil(REFERENCE_PAGE);
+    lines.push(if english { format!("{total} affected files · {}/{pages}", page + 1) } else { format!("受影响的场景和预设共 {total} 份 · 第 {}／{pages} 页", page + 1) });
+    for doc in plan.documents.iter().skip(page * REFERENCE_PAGE).take(REFERENCE_PAGE) {
+        lines.push(format!("{}  ×{}", doc.path.strip_prefix(&plan.root).unwrap_or(&doc.path).display(), doc.matches));
+    }
+    if plan.unrepresentable {
+        lines.push(if english { "The destination cannot be stored as an asset reference. Moving files only leaves references at their old paths." }
+            else { "目标无法表示为资产引用。选择「仅移动文件」将保留文档中的旧路径。" }.into());
+    }
     lines.join("\n")
 }
 

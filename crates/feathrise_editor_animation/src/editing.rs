@@ -43,6 +43,7 @@ pub(super) fn build(document: &AnimationDocument, command: Command) -> Result<Ed
     let clip_position = |id| document.clips.binary_search_by_key(&id, |clip| clip.source_index)
         .map_err(|_| "动画片段已改变，请重新选择".to_owned());
     let clip = match &command {
+        Command::ImportClips { source, rows, adapt } => return super::composition::import(document, source, rows, *adapt),
         Command::CreateClip => return document.create_clip().map(|clip| Edit::AppendClip(Arc::new(clip))),
         Command::RenameClip { id, name } => {
             let clip = clip_position(*id)?;

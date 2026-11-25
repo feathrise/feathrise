@@ -20,6 +20,7 @@ pub(super) struct Fixture {
     pub edited: Option<AnimationProbe>,
     pub undone: Option<AnimationProbe>,
     pub redone: Option<AnimationProbe>,
+    pub curve_edit: Option<AnimationProbe>,
     pub saved: Option<AnimationProbe>,
     pub disk_before: String,
     pub disk_after: String,

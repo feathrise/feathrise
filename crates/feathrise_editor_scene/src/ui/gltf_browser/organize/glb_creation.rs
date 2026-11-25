@@ -88,6 +88,7 @@ fn submit(
     let id = service.enqueue(FileOperationRequest {
         context,
         allowed_roots: vec![root],
+        references: None,
         operation: FileOperation::CreateSceneGlb { parent, name: filename },
     })?;
     Ok(Pending {

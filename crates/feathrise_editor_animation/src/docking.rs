@@ -47,7 +47,7 @@ pub fn properties_host() -> impl Scene {
         AnimationPropertiesHost
         Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0,
             flex_direction: FlexDirection::Column, row_gap: px(3) }
-        Children [@super::scene::mode_controls()]
+        Children [@super::scene::mode_controls()-- @super::composition::scene()]
     }
 }
 

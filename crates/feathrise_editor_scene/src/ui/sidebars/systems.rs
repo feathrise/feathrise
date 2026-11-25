@@ -31,7 +31,7 @@ const fn left_tab_for_tool(tool: EditorTool) -> EditorLeftSidebarTab {
         }
         EditorTool::Domain(id) => EditorLeftSidebarTab::Domain(id),
         EditorTool::Building => EditorLeftSidebarTab::Building,
-        EditorTool::PlaceAsset | EditorTool::Portal | EditorTool::Boundary => {
+        EditorTool::PlaceAsset | EditorTool::Portal | EditorTool::Boundary | EditorTool::MotionTrigger => {
             EditorLeftSidebarTab::Gameplay
         }
     }

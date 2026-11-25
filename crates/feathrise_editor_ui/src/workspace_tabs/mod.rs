@@ -90,12 +90,12 @@ fn spawn_tab_button<B: Bundle>(
 }
 
 /// 三类预设共用同一紧凑标签，只传入各自原有的激活/关闭动作。
-pub fn spawn_preset_tab<B: Bundle>(
+pub fn spawn_preset_tab(
     parent: &mut ChildSpawnerCommands, // 中央横向标签内容根。
     font: &Handle<Font>,               // 同一个工作区中文字体。
     label: &str,                       // 包含类型前缀和未保存星号的完整标题。
-    activate: B,                       // 原有切换标签动作，不修改草稿。
-    close: B,                          // 原有关闭动作，继续执行忙碌保护与二次确认。
+    activate: impl Bundle,             // 激活区可携带文件拖放目标，关闭键独立保留自己的绑定。
+    close: impl Bundle,                // 原有关闭动作，继续执行忙碌保护与二次确认。
     active: bool,                      // 当前活动标签只使用选中填色与文字层级。
     close_confirmation: bool,          // 等待确认时仍显式显示“确认×”，不静默丢弃草稿。
 ) {

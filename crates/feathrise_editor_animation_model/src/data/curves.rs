@@ -4,6 +4,18 @@ use super::types::*;
 use bevy::math::Quat;
 
 impl Channel {
+    /// 拖动期间只抽出所选键两侧的曲线作为临时预览；播放和曲线图复用同一采样器。
+    pub fn preview_tangent(&self, key: usize, axis: usize, outgoing: bool, value: f32) -> Option<Self> {
+        if !value.is_finite() || self.interpolation != "CUBICSPLINE" || self.path == "rotation" || axis >= 3 { return None; }
+        let start = key.saturating_sub(1);
+        let mut keys = self.keys.get(start..(key.checked_add(2)?).min(self.keys.len()))?.to_vec();
+        let current = keys.get_mut(key-start)?;
+        let tangent = if outgoing { &mut current.out_tangent } else { &mut current.in_tangent };
+        *tangent.get_mut(axis)? = value;
+        Some(Self { node: self.node, path: self.path.clone(), node_name: self.node_name.clone(),
+            interpolation: self.interpolation.clone(), source_index: self.source_index, keys })
+    }
+
     pub fn dimensions(&self) -> usize {
         if self.path == "rotation" { 4 } else { 3 }
     }

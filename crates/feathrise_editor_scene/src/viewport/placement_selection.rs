@@ -267,6 +267,12 @@ pub(super) fn selected_placement_mesh_info(
         }
     } else { displayed_whole_placement(editor.tool, browser, candidates) };
     if let Some(id) = whole {
+        // 灯具使用变换手柄摆放，本身没有可描边的网格；不要启动网格解析或显示“未找到”。
+        if browser.placement_record_index(id, session.placement_structure_revision)
+            .and_then(|index| draft.placements.placements.get(index))
+            .is_some_and(|record| record.id == id && crate::authoring::local_lights::parameters(&record.asset_target).is_some()) {
+            return None;
+        }
         return Some(SelectedPlacementMeshInfo {
             identity: SelectedPlacementMeshIdentity {
                 scene_id: draft.scene_id.clone(), // 不跨场景复用实例。

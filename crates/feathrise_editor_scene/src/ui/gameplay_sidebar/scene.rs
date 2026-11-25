@@ -15,9 +15,8 @@ use bevy::ui::RelativeCursorPosition;
 
 fn tab(page: GameplaySidebarPage) -> impl Scene {
     let label = page.label();
-    let action = page.action();
     bsn! {
-        InteractionButton GameplaySidebarTab(action)
+        InteractionButton GameplaySidebarTab(page)
         Node {
             height: px(24), flex_grow: 1.0, flex_basis: px(0), min_width: px(0),
             border: UiRect::bottom(px(1)), align_items: AlignItems::Center,
@@ -135,7 +134,7 @@ pub(crate) fn gameplay_tools_panel() -> impl Scene {
         Children [
 
                 Node { width: percent(100), min_width: px(0), column_gap: px(3), flex_shrink: 0.0 }
-                Children [@tab(GameplaySidebarPage::Asset)-- @tab(GameplaySidebarPage::Portal)-- @tab(GameplaySidebarPage::Boundary)]
+                Children [@tab(GameplaySidebarPage::Asset)-- @tab(GameplaySidebarPage::Portal)-- @tab(GameplaySidebarPage::Boundary)-- @tab(GameplaySidebarPage::MotionTrigger)]
             -- // 工具导航不参与正文滚动，低窗口仍能切页。
 
                 GameplaySidebarScroll SceneEditorRightPanelScroll RelativeCursorPosition::default() ScrollPosition::default()
@@ -153,6 +152,7 @@ pub(crate) fn gameplay_tools_panel() -> impl Scene {
                         ] // 双完整列表及名称输入原位保留，不新增第二套作者状态。
                     --
                     @boundary_panel()--
+                    @super::motion_triggers::panel()--
                     @feedback(GameplaySidebarFeedbackKind::Message)
                 ]
 

@@ -72,6 +72,8 @@ pub(super) fn mount(
                         });
                     input(dialog, &font, FileNameInput, "");
                     dialog.spawn((Node { justify_content: JustifyContent::FlexEnd, column_gap: px(6), ..default() },)).with_children(|row| {
+                        button(row, &font, None, FileAction::PreviousReferences); button(row, &font, None, FileAction::NextReferences);
+                        button(row, &font, None, FileAction::MoveWithoutRepair);
                         button(row, &font, None, FileAction::Confirm); button(row, &font, None, FileAction::Cancel);
                     });
                 });

@@ -282,7 +282,7 @@ pub(super) fn handle_input(
                     viewport,
                 )
             })
-            .filter(|(_, record)| record.asset_target.is_builtin())
+            .filter(|(_, record)| crate::authoring::local_lights::is_builtin_mesh(&record.asset_target))
             .map(|(index, record)| (index, record.clone()));
         let (save_pressed, save_key, history_pressed) = context.preferences.as_ref().map_or_else(
             || {

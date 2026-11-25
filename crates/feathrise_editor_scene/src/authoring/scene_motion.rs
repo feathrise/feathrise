@@ -13,6 +13,7 @@ const SCENE_ID: &str = "feathrise_scene_id";
 const DURATION: &str = "feathrise_duration";
 const PLAYBACK: &str = "feathrise_playback";
 const AUTO_PLAY: &str = "feathrise_autoplay";
+const TRIGGERS: &str = "feathrise_motion_triggers";
 const COLLIDER: &str = "feathrise_motion_collider";
 pub(crate) const DEFAULT_SCENE_ANIMATION_NAME: &str = "场景动画";
 pub(crate) const SCENE_ANIMATION_DRAFT_EXTRA: &str = "feathrise_scene_animation_draft";
@@ -52,6 +53,28 @@ struct EmptySceneAnimation {
     name: String,
     #[serde(flatten)]
     timing: SceneMotionTiming,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    regions: Vec<MotionRegion>,
+}
+
+/// 作者数据以主场景的局部米保存，进入与离开分别选择运行时播放指令。
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MotionRegion {
+    pub(crate) center: Vec3,
+    pub(crate) half_extents: Vec3,
+    pub(crate) enter: MotionRegionAction,
+    pub(crate) exit: MotionRegionAction,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MotionRegionAction { None, Play, Reverse, Pause, Stop }
+
+impl MotionRegion {
+    pub(crate) fn valid(self) -> bool {
+        self.half_extents.is_finite() && self.half_extents.min_element() > 0.0
+            && (self.center - self.half_extents).is_finite() && (self.center + self.half_extents).is_finite()
+    }
 }
 
 impl Default for SceneMotionTiming {

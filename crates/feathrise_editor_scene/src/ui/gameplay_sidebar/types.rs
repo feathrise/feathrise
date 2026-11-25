@@ -1,6 +1,6 @@
 //! 工具页、浏览入口与反馈位置的固定显示契约，不包含作者对象或撤销数据。
 
-use crate::types::{EditorAction, EditorTool};
+use crate::types::EditorTool;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum GameplaySidebarPage {
@@ -8,6 +8,7 @@ pub(crate) enum GameplaySidebarPage {
     Asset,
     Portal,
     Boundary,
+    MotionTrigger,
 }
 
 impl GameplaySidebarPage {
@@ -16,6 +17,7 @@ impl GameplaySidebarPage {
             Self::Asset => "资产摆放",
             Self::Portal => "传送点",
             Self::Boundary => "空气墙",
+            Self::MotionTrigger => "动画触发",
         }
     }
 
@@ -24,23 +26,7 @@ impl GameplaySidebarPage {
             Self::Asset => EditorTool::PlaceAsset,
             Self::Portal => EditorTool::Portal,
             Self::Boundary => EditorTool::Boundary,
-        }
-    }
-
-    pub(super) const fn action(self) -> EditorAction {
-        match self {
-            Self::Asset => EditorAction::ToolPlaceAsset,
-            Self::Portal => EditorAction::ToolPortal,
-            Self::Boundary => EditorAction::ToolBoundary,
-        }
-    }
-
-    pub(super) const fn for_action(action: EditorAction) -> Option<Self> {
-        match action {
-            EditorAction::ToolPlaceAsset => Some(Self::Asset),
-            EditorAction::ToolPortal => Some(Self::Portal),
-            EditorAction::ToolBoundary => Some(Self::Boundary),
-            _ => None,
+            Self::MotionTrigger => EditorTool::MotionTrigger,
         }
     }
 
@@ -49,6 +35,7 @@ impl GameplaySidebarPage {
             EditorTool::PlaceAsset => Some(Self::Asset),
             EditorTool::Portal => Some(Self::Portal),
             EditorTool::Boundary => Some(Self::Boundary),
+            EditorTool::MotionTrigger => Some(Self::MotionTrigger),
             _ => None,
         }
     }

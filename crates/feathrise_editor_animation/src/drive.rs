@@ -46,6 +46,8 @@ pub(super) fn drive(
         })
         .map(|path| documents.asset_root().join(path));
     if state.active != desired {
+        state.composition_ticket = None;
+        state.export_overwrite = None;
         state.active = desired;
         state.playing = false;
         state.drag = None;
@@ -71,6 +73,8 @@ pub(super) fn drive(
         .clone()
         .zip(preview.model.as_ref().map(|model| model.generation));
     if state.model_generation != generation {
+        state.composition_ticket = None;
+        state.export_overwrite = None;
         if let Some((path, _)) = &generation {
             // 相同路径的热更新不能覆盖脏草稿；干净会话稍后沿唯一IO槽重新受检读取。
             if state
@@ -85,6 +89,10 @@ pub(super) fn drive(
         state.model_generation = generation;
     }
     state.visible = state.source().is_some() && context.available(&preview, &media);
+    if state.composition_ticket.is_some() && (!host.open || host.closing || host.switching_scene
+        || host.weights_own_viewport || !media.active(host.tab)) {
+        state.composition_ticket = None;
+    }
     if !state.visible {
         state.playing = false;
         state.drag = None;
@@ -98,6 +106,7 @@ pub(super) fn drive(
         .and_then(|work| check_ready(&mut work.task));
     if let Some(completed) = completed {
         let work = state.work.take().unwrap();
+        let composition_current = state.composition_ticket.take().is_some();
         let changes_view = !matches!(&completed, TaskResult::Released | TaskResult::RigLoad { .. });
         let is_current = state.author_path() == Some(work.path.as_path());
         let current_generation = state
@@ -108,14 +117,16 @@ pub(super) fn drive(
         let stale_source = state.active.as_ref() == Some(&work.path) && current_generation != work.generation;
         // 同一路径第二次热更新可先于上一轮后台结果到达；保留新标记并沿唯一槽重验最新代。
         // 切到其他文件时仍按原 path 更新其停放会话，不能把正常后台完成误当成串源。
+        let imported = matches!(&completed, TaskResult::Edit { action: PendingAction::Edit(Edit::ImportClips { .. }), .. });
         let completed =
-            if stale_source && matches!(&completed, TaskResult::Unchanged | TaskResult::Load(_)) {
-                if let Some(session) = state.sessions.get_mut(&work.path) {
+            if (stale_source && matches!(&completed, TaskResult::Unchanged | TaskResult::Load(_)))
+                || (imported && (!composition_current || !is_current || stale_source)) {
+                if stale_source && let Some(session) = state.sessions.get_mut(&work.path) {
                     session.source_changed = true;
                 }
                 state.failed = None;
                 if is_current {
-                    state.status = "动画来源再次更新，正在读取最新版本".to_owned();
+                    state.status = if stale_source { "动画来源再次更新，正在读取最新版本" } else { "目标视图已切换，已取消动作导入" }.to_owned();
                 }
                 debug_assert!(state.retired.is_none());
                 state.retired = Some(Retired::Result(completed));
@@ -125,6 +136,23 @@ pub(super) fn drive(
             };
         if let Some(completed) = completed {
             match completed {
+                TaskResult::Exported(result) => {
+                    if is_current {
+                        state.selection_written = matches!(result, Ok(SelectionOutput::Written(_)));
+                        state.status = match result {
+                            Ok(SelectionOutput::Written(path)) => format!("所选内容已另存为 {}", path.display()),
+                            Ok(SelectionOutput::ConfirmOverwrite { path, baseline }) if composition_current => {
+                                let status = format!("目标已存在，确认覆盖 {} 或更改文件名", path.display());
+                                if let Some(session) = state.sessions.get(&work.path) {
+                                    state.export_overwrite = Some((Arc::downgrade(&session.document), path, baseline));
+                                }
+                                status
+                            }
+                            Ok(SelectionOutput::ConfirmOverwrite { .. }) => "来源文件已改变，请重新选择另存内容".to_owned(),
+                            Err(error) => error,
+                        };
+                    }
+                }
                 TaskResult::Copied(result) => match result {
                     Ok(clipboard) => {
                         if let Some(old) = state.clipboard.replace(clipboard) {
@@ -186,12 +214,16 @@ pub(super) fn drive(
                             let previous_metadata =
                                 std::mem::replace(&mut session.metadata, metadata);
                             let mut retired_history = Vec::new();
-                            let renamed_clip = match &action {
+                            let applied_edit = match &action {
                                 PendingAction::Edit(edit) => Some(edit),
                                 PendingAction::Undo => session.cursor.checked_sub(1).and_then(|i| session.history.get(i)),
                                 PendingAction::Redo => session.history.get(session.cursor),
                                 _ => None,
-                            }.is_some_and(|edit| matches!(edit, Edit::RenameClip { .. }));
+                            };
+                            let renamed_clip = matches!(applied_edit, Some(Edit::RenameClip { .. }));
+                            // 切换插值只改变通道采样，保留同轨道的活动键与跨键选区，使切线可立即拖动。
+                            let keep_keys = matches!(applied_edit, Some(Edit::Interpolation { .. }))
+                                && session.clip == target.0 && session.channel == Some(target.1);
                             match action {
                                 PendingAction::Edit(edit) => {
                                     if session
@@ -224,18 +256,15 @@ pub(super) fn drive(
                                 session.page = if session.bone_filter { 0 } else {
                                     session.channel.unwrap_or(0) / super::components::CHANNEL_SLOTS
                                 };
-                                session.key = session.channel.filter(|&channel| channel == target.1).and(key);
-                                session.selected = selection.unwrap_or_default();
+                                if !keep_keys {
+                                    session.key = session.channel.filter(|&channel| channel == target.1).and(key);
+                                    session.selected = selection.unwrap_or_default();
+                                    session.position = session.key
+                                        .and_then(|index| channels.get(target.1)?.keys.get(index))
+                                        .map_or(session.position.min(session.metadata.durations[session.clip]), |key| key.time);
+                                }
                                 session.selected_node = session.channel.map(|channel| channels[channel].node)
                                     .or(session.selected_node);
-                                session.position = session.key
-                                    .and_then(|index| {
-                                        channels.get(target.1)?.keys.get(index)
-                                    })
-                                    .map_or(
-                                        session.position.min(session.metadata.durations[session.clip]),
-                                        |key| key.time,
-                                    );
                             }
                             Retired::Document {
                                 document: previous,
@@ -421,11 +450,12 @@ fn launch(state: &mut AnimationEditorState, action: PendingAction, asset_root: &
     // 任务采用前再核对当前权限。工程关闭保存走独立入口，仍可保存停放草稿。
     if !state.editable() && !matches!(&action,
         PendingAction::Reload
-            | PendingAction::Command(super::editing::Command::Copy { .. } | super::editing::Command::CreateClip)
+            | PendingAction::Command(super::editing::Command::Copy { .. } | super::editing::Command::CreateClip
+                | super::editing::Command::ImportClips { .. })
     ) {
         return;
     }
-    if matches!(&action, PendingAction::Command(super::editing::Command::CreateClip)) && !state.can_create_clip() {
+    if matches!(&action, PendingAction::Command(super::editing::Command::CreateClip | super::editing::Command::ImportClips { .. })) && !state.can_create_clip() {
         return;
     }
     let Some(path) = state.author_path().map(std::path::Path::to_path_buf) else {
@@ -442,6 +472,9 @@ fn launch(state: &mut AnimationEditorState, action: PendingAction, asset_root: &
         .map(|(_, generation)| *generation);
     if let PendingAction::Command(command) = action {
         state.playing = false;
+        if matches!(command, super::editing::Command::ImportClips { .. }) {
+            state.composition_ticket = Some(Arc::new(()));
+        }
         state.work = Some(Work {
             path,
             generation,

@@ -58,6 +58,14 @@ pub(super) fn prepare(root: &Path, label: &str) -> Result<(), String> {
     let scene_tree_startup = label == "独立工程 A" && std::env::var(super::SCENE_TREE_STARTUP).as_deref() == Ok("1");
     let mut sources = copy_probe(&staging, scene_tree_startup)?;
     write_animation(&staging)?;
+    if label == "独立工程 A" && std::env::var("FEATHRISE_GLB_COMPOSITION_VALIDATION").as_deref() == Ok("1") {
+        // 两个独立路径的同名动作检验合并命名，目标从真实的零动作蒙皮 GLB 开始。
+        let action = include_bytes!("../crates/feathrise_editor_animation/tests/fixtures/animation_preview/skinned_animated_rig.glb");
+        let model = include_bytes!("../crates/feathrise_editor_animation/tests/fixtures/animation_preview/skinned_rig.glb");
+        for (name, bytes) in [("motion-a.glb", action.as_slice()), ("motion-b.glb", action.as_slice()), ("actor.glb", model.as_slice())] {
+            fs::write(staging.join("scene").join(name), bytes).map_err(|e| e.to_string())?;
+        }
+    }
     if scene_tree_startup {
         // 完整场景工具链会从空目录新增预设。仅首次打开专项预置作者层。
         write_scene_tree_group(&staging, true)?;

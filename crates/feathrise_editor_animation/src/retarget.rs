@@ -348,6 +348,33 @@ mod tests {
     }
 
     #[test]
+    fn exported_cubic_rotation_matches_preview_between_keys_and_preserves_target_pose() {
+        use super::super::{composition, data::{ContentKind, ContentSpan, Keyframe}, resources::Edit};
+        let mut source = test_rig(0.01, std::f32::consts::PI, 0.0);
+        let target = test_rig(1.0, 0.0, -0.45);
+        let mut clip = source.new_imported_clip("抬臂");
+        let tangent = vec![0.13,-0.19,0.73,0.04];
+        clip.push_transform_channel(4, &source.nodes[4].name, "rotation", [0.,1.].into_iter().map(|time|
+            Keyframe { time, value: Quat::from_rotation_z(-0.85*time).to_array().into(), in_tangent:tangent.clone(), out_tangent:tangent.clone() }
+        ).collect()).unwrap();
+        clip.channels[0].interpolation = "CUBICSPLINE".into();
+        source.clips.push(clip);
+        let mapping = mapping(&source,&target).unwrap().retarget.unwrap();
+        let row = [ContentSpan { kind:ContentKind::Animation, first:0, last:0 }];
+        let Edit::ImportClips {clips,..} = composition::import(&target,&source,&row,true).unwrap() else { panic!() };
+        let exported = &clips[0];
+        for time in [0.,0.21,0.57,0.84,1.] {
+            let mut local = RestFrame::new(&source.nodes).local;
+            local[4].rotation=Quat::from_slice(&source.clips[0].channels[0].sample(time));
+            for (i, expected) in mapping.sample(&local) {
+                let actual = exported.channels.iter().find(|c| c.node_name == source.nodes[i].name).unwrap().sample(time);
+                assert!(Quat::from_slice(&actual).abs_diff_eq(expected.rotation,1e-5));
+                assert_eq!(expected.translation.to_array(),target.nodes[i].translation);
+            }
+        }
+    }
+
+    #[test]
     fn fitted_a_pose_uses_source_t_pose_motion_without_copying_root_motion_or_bone_length() {
         let mut source = test_rig(0.01, std::f32::consts::PI, 0.0);
         let mut target = test_rig(1.0, 0.0, -0.45);

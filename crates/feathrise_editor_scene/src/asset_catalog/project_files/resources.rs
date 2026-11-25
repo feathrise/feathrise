@@ -66,6 +66,8 @@ impl EditorProjectFileCatalog {
         self.source.as_ref().and_then(|(_, root)| root.as_deref())
     }
 
+    pub(crate) fn asset_root(&self) -> Option<&Path> { self.asset_root.as_deref() }
+
     pub(crate) fn source_context(&self) -> Option<u64> { self.source.as_ref().map(|source| source.0) }
 
     pub(crate) fn is_loading(&self) -> bool {

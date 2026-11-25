@@ -76,6 +76,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     let scene_tree_startup = std::env::var(SCENE_TREE_STARTUP).as_deref() == Ok("1");
     let animation_edit = std::env::var(ANIMATION_EDIT_VALIDATION).as_deref() == Ok("1");
     let animation_workspaces = std::env::var(animation_workspaces::ENABLE).as_deref() == Ok("1");
+    let motion_triggers = animation_workspaces && std::env::var("FEATHRISE_MOTION_TRIGGER_VALIDATION").as_deref() == Ok("1");
     let export_lifecycle = std::env::var_os("FEATHRISE_NATIVE_EXPORT").as_deref() == Some(std::ffi::OsStr::new("1"));
     let blender_mesh = std::env::var("FEATHRISE_BLENDER_MESH_VALIDATION").as_deref() == Ok("1");
     let mut steps = Vec::new();
@@ -324,7 +325,8 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     let after = protected_files(&repository)?;
     let unchanged = before == after;
     let passed = result.is_ok() && unchanged && !control.cleanup_failed();
-    let scope = if animation_workspaces { "animation_workspaces_edit_reopen_and_gameplay" }
+    let scope = if motion_triggers { "scene_motion_trigger_authoring_and_reopen" }
+        else if animation_workspaces { "animation_workspaces_edit_reopen_and_gameplay" }
         else if animation_edit { "native_editor_animation_edit_mode" }
         else if scene_tree_startup { "native_editor_scene_tree_startup" }
         else if blender_mesh { "blender_mesh_roundtrip_saved_play_and_reopened_editor" }
@@ -333,7 +335,8 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     fs::write(&report, serde_json::to_vec_pretty(&json!({
         "schema":4,"scope":scope,"passed":passed,
         "resident_mode_comparison_included":!animation_workspaces && !animation_edit && !scene_tree_startup && !blender_mesh && !export_lifecycle,
-        "excluded_scope":if animation_workspaces { "packaged export, physical keyboard and mouse, private RPG project" }
+        "excluded_scope":if motion_triggers { "independent game, packaged export, physical input" }
+            else if animation_workspaces { "packaged export, physical keyboard and mouse, private RPG project" }
             else if scene_tree_startup { "saved play, independent game and export" }
             else if animation_edit { "saved play, independent game, project reopening and export" }
             else if blender_mesh { "independent cargo runs, resident viewport comparison, export and gameplay" }
@@ -353,7 +356,8 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     if control.cleanup_failed() {
         return Err("验收进程收口未确认".into());
     }
-    let label = if animation_workspaces { "双动画工作区保存、重开与游戏验收完成" }
+    let label = if motion_triggers { "动画触发区域绘制、保存与重开验收完成" }
+        else if animation_workspaces { "双动画工作区保存、重开与游戏验收完成" }
         else if animation_edit { "动画编辑模式窗口验收完成" }
         else if scene_tree_startup { "首次打开场景树窗口验收完成" }
         else if blender_mesh { "Blender 网格往返窗口验收完成" } else { "双模式窗口验收完成" };
@@ -439,6 +443,11 @@ fn run_animation_edit(work: &Path, repository: &Path, target: &Path, control: &B
     let mut command = author_window_command(&root, target, &output, true)?;
     command.env("NEW_EDITOR_NATIVE_SMOKE_SAVE", "1").env("NEW_EDITOR_NATIVE_SMOKE_AUTHOR_TOOLS", "1")
         .env(ANIMATION_EDIT_VALIDATION, "1");
+    for option in ["FEATHRISE_CURVE_VALIDATION", "FEATHRISE_GLB_COMPOSITION_VALIDATION"] {
+        if std::env::var(option).as_deref() == Ok("1") {
+            command.env(option, "1");
+        }
+    }
     let (project, observed) = run_author_window(&command, control, &root, &output)?;
     let workflow = &observed["animation_edit"];
     let animation = &workflow["animation_assets"]["animation"];
@@ -471,9 +480,31 @@ fn run_animation_edit(work: &Path, repository: &Path, target: &Path, control: &B
     {
         return Err(format!("零动画 GLB 缺少新建、显式编辑或磁盘回执：{created}"));
     }
-    let screenshots = ["animation-read-only.png", "animation-edit-mode.png"].into_iter()
+    let mut screenshots = ["animation-read-only.png", "animation-edit-mode.png"].into_iter()
         .map(|filename| read_author_screenshot(&output.join(filename)))
         .collect::<Result<Vec<_>, _>>()?;
+    if std::env::var("FEATHRISE_CURVE_VALIDATION").as_deref() == Ok("1") {
+        let curve = &workflow["animation_assets"]["curve_tangent"];
+        if curve["key"].is_null() || curve["key"] != animation["disk_key"] {
+            return Err("曲线手柄的重做结果与独立从磁盘读取的关键帧不一致".into());
+        }
+        screenshots.push(read_author_screenshot(&output.join("curve-tangents.png"))?);
+    }
+    if std::env::var_os("FEATHRISE_GLB_COMPOSITION_VALIDATION").is_some_and(|value| value == "1") {
+        let composition = &created["composition"];
+        if composition["published_clip_times"].as_array().is_none_or(|times| times.len() != 2 || times[0] == times[1]) {
+            return Err("导入的角色动作缺少两个不同已发布姿态的时间回执".into());
+        }
+        for (file, key) in [("actor.glb", "saved_clips"), ("actor_所选.glb", "exported_clips")] {
+            let bytes = fs::read(project.context.asset_roots[0].join("scene").join(file)).map_err(|e| e.to_string())?;
+            let document = bevy::gltf::gltf::Gltf::from_slice(&bytes).map_err(|e| e.to_string())?;
+            let names: Vec<_> = document.animations().map(|a| a.name().unwrap_or_default()).collect();
+            if composition[key] != json!(names) || composition["source_count"] != 2 {
+                return Err(format!("跨 GLB 磁盘内容与编辑器回执不符：{file}"));
+            }
+        }
+        screenshots.push(read_author_screenshot(&output.join("glb-content-composition.png"))?);
+    }
     steps.push(json!({"stage":"animation_edit_mode_in_original_editor","passed":true,
         "report":observed,"screenshots":screenshots}));
     Ok(())
@@ -514,6 +545,19 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
         return Err("本轮立方体未随原保存写入该场景的 GLB".into());
     }
     let startup = &proof["scene_tree"]["startup"];
+    let mut saved_light_ids = Value::Null;
+    if startup["glb_menu"]["local_lights_supported"] == true {
+        let definitions = folder_document["extensions"]["KHR_lights_punctual"]["lights"].as_array().ok_or("主 GLB 缺少标准灯光表")?;
+        let nodes = folder_document["nodes"].as_array().ok_or("主 GLB 缺少节点")?;
+        let id = |kind: &str, cd: f64, range: f64| nodes.iter().find_map(|node| {
+            let index = node["extensions"]["KHR_lights_punctual"]["light"].as_u64()? as usize;
+            let light = definitions.get(index)?;
+            (light["type"] == kind && light["intensity"].as_f64() == Some(cd) && light["range"].as_f64() == Some(range))
+                .then(|| node["extras"]["feathrise_id"].as_str()).flatten()
+        });
+        saved_light_ids = json!({"point":id("point",650.0,9.0).ok_or("已保存点光源缺少编辑后的光强或范围")?,
+            "spot":id("spot",850.0,14.0).ok_or("已保存聚光灯缺少编辑后的光强或范围")?});
+    }
     if ["main_glb_icons_indented_14_px", "terrain_and_object_icons_aligned", "height_terrain_has_one_caption",
         "source_mesh_indented_14_px", "initial_glb_arrows_visible"]
         .into_iter().any(|key| startup["layout"][key] != true)
@@ -604,10 +648,12 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
     let nested_folder = read_author_screenshot(&output.join("scene-tree-nested-folder.png"))?;
     let creation_submenu = read_author_screenshot(&output.join("scene-tree-new-glb-submenu.png"))?;
     let still_water = read_author_screenshot(&output.join("scene-tree-still-water-toggles.png"))?;
+    let local_lights = (!saved_light_ids.is_null()).then(|| read_author_screenshot(&output.join("scene-tree-local-lights.png"))).transpose()?;
     steps.push(json!({"stage":"scene_tree_startup_in_original_editor","passed":true,"report":observed,"saved_placement_id":placement,
         "startup_screenshot":screenshot,"source_coordinates_screenshot":coordinates,"mesh_properties_screenshot":cube_properties,
         "drag_preview_screenshot":drag_preview,"nested_folder_screenshot":nested_folder,"creation_submenu_screenshot":creation_submenu,
         "still_water_screenshot":still_water,"saved_still_water":stored_water,
+        "local_lights_screenshot":local_lights,"saved_local_lights":saved_light_ids,
         "renamed_folder":"验收文件夹",
         "saved_source_local_x":local_x,"saved_source_name":"验收网格","applied_scale_x":1.0}));
 
@@ -616,6 +662,9 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
     command.env("FEATHRISE_SCENE_TREE_REOPEN_VALIDATION", "1");
     let (_, reopened) = run_author_window(&command, control, &root, &output)?;
     let node = &reopened["current_author_document"]["reopened_source_node"];
+    if node["reopened_local_lights"] != saved_light_ids {
+        return Err(format!("重开后的真实灯光组件或变换与已保存节点不符：{}", node["reopened_local_lights"]));
+    }
     expected_water["target"]["hidden"] = json!(false); // 眼睛只作用于作者进程，重开恢复可见偏好。
     if node["reopened_still_water"] != expected_water {
         return Err(format!("重开工程后静水子行参与、锁定或临时显隐不符：{}", node["reopened_still_water"]));

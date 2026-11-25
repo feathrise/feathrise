@@ -31,7 +31,7 @@ enum Stage {
     FixedEntry, FixedRootReady, EnterAssets, EnterSource, SourceReady,
     OpenSecond, SecondReady, TargetUp, TargetEnter, TargetReady,
     CopySelect, CopyCommand, CopyTarget, CopyPaste, CopyWait,
-    CutSelect, CutCommand, CutTarget, CutPaste, CutWait,
+    CutSelect, CutCommand, CutTarget, CutPaste, CutReview, CutWait,
     NestedSource, NestedDrag, NestedWait,
     NewFolderCommand, NameNewFolder, NewFolderWait,
     NewTextCommand, NameNewText, NewTextWait, NewMarkdownCommand, NameNewMarkdown, NewMarkdownWait,
@@ -41,7 +41,8 @@ enum Stage {
     DragWindow, ResizeWindow, CaptureDesktop, Maximize, VerifyMaximize, RestoreSize,
     Minimize, VerifyMinimize, RestoreTask, VerifyRestore, CaptureRestored, CloseWindow, VerifyClose,
     SingleMinimize, SingleRestore, SingleRestored, OpenCrowded, SwitchCrowded, CaptureCrowded, SelectCancelSources, CloseCrowded,
-    OpenFileDetails, StartCancelCopy, CancelCopy, ReadFileReceipt, ReadNextFileReceiptPage, CloseFileDetails, Assets, Complete,
+    OpenFileDetails, StartCancelCopy, CancelCopy, ReadFileReceipt, ReadNextFileReceiptPage, CloseFileDetails, Assets,
+    OpenReferenceScene(bool), VerifyReferenceScene(bool), Complete,
 }
 
 #[derive(Resource)]
@@ -294,13 +295,27 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
         Stage::CopyPaste => { if !context_command(world, run, window, Some(target), FileAction::Paste)? { return Ok(None); } Stage::CopyWait }
         Stage::CopyWait => { if !receipt(world, run, FileOperationKind::Copy, "copy")? { return Ok(None); } Stage::CutSelect }
         Stage::CutSelect => {
-            let path = run.source.join("move-me.txt");
+            let path = run.source.join("move-me.glb");
             if !activate(world, run, window, source) || !select(world, run, window, source, &path) { return Ok(None); }
             Stage::CutCommand
         }
         Stage::CutCommand => { if !context_command(world, run, window, Some(source), FileAction::Cut)? { return Ok(None); } Stage::CutTarget }
         Stage::CutTarget => { if !activate(world, run, window, target) { return Ok(None); } Stage::CutPaste }
-        Stage::CutPaste => { if !context_command(world, run, window, Some(target), FileAction::Paste)? { return Ok(None); } Stage::CutWait }
+        Stage::CutPaste => { if !context_command(world, run, window, Some(target), FileAction::Paste)? { return Ok(None); } Stage::CutReview }
+        Stage::CutReview => {
+            let confirm = visible(world, |button: &FileManagerButton| button.action == FileAction::Confirm);
+            if confirm.is_none() { return Ok(None); }
+            let name = "files-reference-preview.png";
+            if !run.screenshots.contains_key(name) {
+                let mut texts = world.query::<(&Text, &InheritedVisibility)>();
+                if !texts.iter(world).any(|(text, visible)| visible.get()
+                    && ["引用场景甲", "引用场景乙", "引用预设"].iter().all(|item| text.0.contains(item))) { return Ok(None); }
+                let Some(proof) = evidence::capture(world, &mut run.capture, &run.work.join(name))? else { return Ok(None); };
+                run.screenshots.insert(name.into(), proof);
+            }
+            if !click(world, &mut run.click, window, confirm) { return Ok(None); }
+            Stage::CutWait
+        }
         Stage::CutWait => { if !receipt(world, run, FileOperationKind::Move, "cut_paste_move")? { return Ok(None); } Stage::NestedSource }
         Stage::NestedSource => { if !activate(world, run, window, source) { return Ok(None); } Stage::NestedDrag }
         Stage::NestedDrag => {
@@ -538,7 +553,23 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             run.steps.insert("file_receipt_page".into(), page);
             Stage::CloseFileDetails
         }
-        Stage::Assets => { if !assets::advance(world, run, window)? { return Ok(None); } Stage::Complete }
+        Stage::Assets => { if !assets::advance(world, run, window)? { return Ok(None); } Stage::OpenReferenceScene(false) }
+        Stage::OpenReferenceScene(second) => {
+            let id = if second { "SCENE-reference-b" } else { "SCENE-reference-a" };
+            world.resource_mut::<SceneEditorState>().queue_scene_transition(feathrise_scene_content::SceneId::parse(id)?, "打开引用修复验收场景");
+            Stage::VerifyReferenceScene(second)
+        }
+        Stage::VerifyReferenceScene(second) => {
+            let id = if second { "SCENE-reference-b" } else { "SCENE-reference-a" };
+            let moved = "整理目标/move-me.glb";
+            let session = world.resource::<crate::authoring::EditorAuthoringSession>();
+            if !session.draft.as_ref().is_some_and(|draft| draft.scene_id.as_str() == id
+                && draft.placements.placements.iter().any(|p| p.id == "fixture-model" && p.asset_path == moved)) { return Ok(None); }
+            if !world.query::<&feathrise_scene::ScenePlacementInstance>().iter(world)
+                .any(|instance| instance.scene_id().as_str() == id && instance.id() == "fixture-model" && instance.asset_path() == moved) { return Ok(None); }
+            run.steps.entry("reopened_reference_scenes").or_insert_with(|| json!({}))[id] = json!(moved);
+            if second { Stage::Complete } else { Stage::OpenReferenceScene(true) }
+        }
         Stage::Complete => return Ok(None),
     };
     Ok(Some(next))
@@ -678,12 +709,12 @@ fn descendant_text(world: &World, parent: Entity) -> String {
 
 fn receipt(world: &World, run: &mut Run, kind: FileOperationKind, step: &str) -> Result<bool, String> {
     let Some(snapshot) = world.get_resource::<FileOperationService>().and_then(|service| service.snapshot()) else { return Ok(false); };
-    let Some(receipt) = snapshot.completed.iter().find(|receipt| receipt.id > run.receipt && receipt.kind == kind) else { return Ok(false); };
+    let Some(receipt) = snapshot.completed.iter().find(|receipt| receipt.id > run.receipt && receipt.kind == kind && receipt.reference_preview.is_none()) else { return Ok(false); };
     if receipt.cancelled || receipt.error.is_some() || receipt.completed.is_empty() {
         return Err(format!("文件操作 {:?} 未完成：{:?}", kind, receipt.error));
     }
     run.receipt = receipt.id;
-    run.steps.insert(step.into(), json!({"id":receipt.id,"kind":format!("{:?}",receipt.kind),"completed":receipt.completed.iter()
+    run.steps.insert(step.into(), json!({"id":receipt.id,"kind":format!("{:?}",receipt.kind),"repaired_documents":receipt.repaired_documents,"completed":receipt.completed.iter()
         .map(|change| json!({"source":change.source,"destination":change.destination})).collect::<Vec<_>>() }));
     Ok(true)
 }
@@ -926,7 +957,7 @@ fn release_pending_click(world: &mut World, pending: &mut Option<(Entity, bool)>
     if pending.take().is_some_and(|(_, pressed)| pressed) { mouse(world, window, ButtonState::Released); }
 }
 
-fn drag(world: &mut World, pending: &mut Option<(Entity, DVec2, DVec2, u8)>, window: Entity, target: Option<Entity>, destination: DVec2) -> bool {
+pub(crate) fn drag(world: &mut World, pending: &mut Option<(Entity, DVec2, DVec2, u8)>, window: Entity, target: Option<Entity>, destination: DVec2) -> bool {
     if pending.is_none() {
         let Some(entity) = target else { return false; };
         let Some(transform) = world.get::<UiGlobalTransform>(entity) else { return false; };

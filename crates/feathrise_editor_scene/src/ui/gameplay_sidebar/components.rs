@@ -9,14 +9,9 @@ pub(super) struct GameplaySidebarRoot;
 #[derive(Component, Clone, Default)]
 pub(super) struct GameplaySidebarScroll;
 
-#[derive(Component, Clone, Copy)]
-pub(super) struct GameplaySidebarTab(pub crate::types::EditorAction); // 不挂通用ActionButton，防止其绕过工具页的拖动/IME门。
-
-impl Default for GameplaySidebarTab {
-    fn default() -> Self {
-        Self(crate::types::EditorAction::ToolPlaceAsset)
-    }
-}
+/// 页签直接绑定本页身份，统一由玩法工具的输入门受理。
+#[derive(Component, Clone, Copy, Default)]
+pub(super) struct GameplaySidebarTab(pub GameplaySidebarPage);
 
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct GameplaySidebarPanel(pub GameplaySidebarPage);

@@ -209,6 +209,7 @@ fn set_field_value_with_height_mode(
     value: f32,                                // 共享 UI 控件已经规范化的目标值。
     sampler: Option<&PlacementTerrainSampler>, // 跟随模式的位置字段必须读取当前地形高度。
 ) -> Result<bool, String> {
+    if let PlacementTransformField::Light(light) = field { return light.set(record, value); }
     let before = record.clone(); // 小型完整记录保证任一采样失败都能原子恢复。
     if field.is_lod() && !field.supported_by(record) {
         return Err("当前LOD策略不是自定义，已拒绝隐藏字段的旧输入".into());
@@ -282,7 +283,7 @@ fn apply_exact_value(
         return Err("建筑数值变换已禁用；请使用受检移动或90°旋转按钮".to_owned());
     }
     let mut after = before.clone(); // 候选先在局部值中修改，失败不污染草稿。
-    let sampler = if !field.is_cuboid() && !field.is_lod() && (after.height_mode.follows_terrain() || after.terrain_binding.is_some()) {
+    let sampler = if !field.is_object_property() && (after.height_mode.follows_terrain() || after.terrain_binding.is_some()) {
         let draft = session
             .draft
             .as_ref()
@@ -371,7 +372,7 @@ fn restore_scrub_value(
             .filter(|record| record.id == transaction.target.placement_id)
             .ok_or("拖动恢复时资产记录已经失效")?;
         let bounds = crate::authoring::placement_record_bounds(draft, current)?;
-        let follows_terrain = !transaction.field.is_cuboid() && !transaction.field.is_lod() && draft
+        let follows_terrain = !transaction.field.is_object_property() && draft
             .placements
             .placements
             .get(transaction.target.record_index)
@@ -656,7 +657,7 @@ pub(crate) fn handle_placement_transform_numeric_input(
             {
                 return Err("建筑数值拖动已禁用；请使用受检移动或90°旋转按钮".to_owned());
             }
-            let follows_terrain = !field.is_cuboid() && !field.is_lod() && draft
+            let follows_terrain = !field.is_object_property() && draft
                 .placements
                 .placements
                 .get(target.record_index)

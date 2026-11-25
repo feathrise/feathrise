@@ -5,6 +5,8 @@ use super::messages::{CancelFileTask, OpenAnimationPicker};
 use bevy::prelude::*;
 use feathrise_editor_project_browser_model::file_operations::{ConflictPolicy, FileOperationProgress, FileOperationReceipt, FileOperationService, FileOperationSnapshot, FileSources};
 use std::{path::PathBuf, sync::Arc};
+use std::collections::VecDeque;
+use feathrise_editor_project_browser_model::file_operations::ReferencePreview;
 
 #[derive(Resource, Default)]
 pub(crate) struct FixedFileSelection {
@@ -39,6 +41,9 @@ pub(crate) struct FileManagerState {
     pub(super) context: u64,
     pub(super) source_context: Option<u64>,
     pub(super) project: Option<PathBuf>,
+    pub(super) asset_root: Option<PathBuf>,
+    pub(super) reference_reviews: VecDeque<Arc<ReferencePreview>>,
+    pub(super) reference_page: usize,
     pub(super) allowed_roots: Vec<PathBuf>,
     pub(super) clipboard: FileSources,
     pub(super) clipboard_generation: u64,
@@ -62,7 +67,7 @@ pub(crate) struct FileManagerState {
 impl Default for FileManagerState {
     fn default() -> Self {
         Self { windows: vec![], focused: None, notice: String::new(), bounds: Rect::from_corners(Vec2::new(8., 88.), Vec2::new(1200., 740.)), movement_bounds: Rect::from_corners(Vec2::new(8., 88.), Vec2::new(1200., 740.)), next_id: 1,
-            context: 0, source_context: None, project: None, allowed_roots: vec![], clipboard: default(), cut: false, clipboard_generation: 0, clipboard_through: 0,
+            context: 0, source_context: None, project: None, asset_root: None, reference_reviews: default(), reference_page: 0, allowed_roots: vec![], clipboard: default(), cut: false, clipboard_generation: 0, clipboard_through: 0,
             publish_clipboard: false, pending_paste: None, gesture: None,
             drag: None, prompt: None, menu: None, hovered: false, release_guard: false, conflict: ConflictPolicy::KeepBoth,
             snapshot: None, operation_revision: 0, last_receipt: 0, suspended: false }

@@ -24,6 +24,8 @@ pub struct PoseInputState {
 pub enum Edit {
     /// 本会话新建的片段仍有独立稳定身份。
     AppendClip(Arc<Clip>),
+    /// 一次资源粘贴产生的所有片段共用一次撤销，原文档只由现有后台保存事务发布。
+    ImportClips { position: usize, clips: Arc<[Clip]> },
     RenameClip {
         clip: usize,
         id: usize,
@@ -62,6 +64,7 @@ impl Edit {
     pub fn target(&self) -> (usize, usize) {
         match self {
             Self::AppendClip(clip) => (clip.source_index, 0),
+            Self::ImportClips { position, .. } => (*position, 0),
             Self::RenameClip { clip, .. } => (*clip, 0),
             Self::ClipSlot { position, .. } => (*position, 0),
             Self::Channels { clip, values, appended: _, first_appended } => {
@@ -78,6 +81,14 @@ impl Edit {
         forward: bool,
     ) -> Result<Option<usize>, String> {
         match self {
+            Self::ImportClips { position, clips } => {
+                if forward {
+                    for (offset, clip) in clips.iter().enumerate() { doc.insert_clip(position + offset, clip, None)?; }
+                } else {
+                    for (offset, clip) in clips.iter().enumerate().rev() { doc.remove_clip(position + offset, clip.source_index)?; }
+                }
+                Ok(None)
+            }
             Self::AppendClip(clip) => {
                 if forward {
                     doc.insert_clip(doc.clips.len(), clip, None)?;
@@ -405,7 +416,14 @@ pub enum PendingAction {
     Save,
     Reload,
 }
+pub enum SelectionOutput {
+    Written(PathBuf),
+    ConfirmOverwrite { path: PathBuf, baseline: String },
+}
+
 pub enum TaskResult {
+    /// 另存副本保留当前文档的保存游标、历史和磁盘基线。
+    Exported(Result<SelectionOutput, String>),
     Copied(Result<Arc<super::types::Clipboard>, String>),
     Load(Result<Session, String>),
     /// `None` 表示已复验缓存的同一文件，继续沿用作者草稿和历史。
@@ -478,6 +496,11 @@ pub struct WeightFrame {
 pub struct AnimationEditorState {
     /// 原保存结果按源路径冻结，工程收尾不能借当前可见状态栏推断隐藏源的成功。
     pub project_save_receipt: Option<(PathBuf, Result<(), String>)>,
+    /// 仅限当前内容修订的另存覆盖确认，含作者实际看到的目标磁盘摘要。
+    pub export_overwrite: Option<(std::sync::Weak<AnimationDocument>, PathBuf, String)>,
+    /// 本轮组合的唯一授权，切工程、文件或目标热更立即撤销；后台发布仅持弱引用。
+    pub composition_ticket: Option<Arc<()>>,
+    pub selection_written: bool,
     pub active: Option<PathBuf>,
     pub sessions: HashMap<PathBuf, Session>,
     pub work: Option<Work>,
@@ -517,6 +540,9 @@ impl Default for AnimationEditorState {
     fn default() -> Self {
         Self {
             project_save_receipt: None,
+            export_overwrite: None,
+            composition_ticket: None,
+            selection_written: false,
             active: None,
             sessions: HashMap::new(),
             work: None,

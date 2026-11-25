@@ -32,6 +32,8 @@ use std::{fs, path::{Path, PathBuf}};
 
 #[path = "scene_tree_validation/creation.rs"]
 mod creation;
+#[path = "scene_tree_validation/lights.rs"]
+mod lights;
 #[path = "scene_tree_validation/still_water.rs"]
 mod still_water;
 
@@ -99,6 +101,8 @@ pub(super) enum Step {
     FolderDropped(FolderDrop),
     NestedFolderScreenshot,
     RestoreMesh,
+    CreateLights(creation::Stage),
+    SelectSourceMesh,
     OpenMenu(u8),
     ChooseLocate,
     Locate,
@@ -169,6 +173,7 @@ pub(super) fn reopened_source_position(world: &mut World) -> Option<Value> {
         (instance.scene_id() == &scene && instance.id() == MODEL && instance.asset_path() == ASSET_PATH
             && instance.is_active()).then_some(entity)
     })?;
+    let local_lights = lights::rendered(world)?;
     let mut children = world.query::<&Children>();
     // 针对新进程实际采用的资产实例取数，避免用磁盘回读结果冒充重开后的世界坐标。
     children.query(world).iter_descendants(root).find_map(|entity| {
@@ -177,7 +182,7 @@ pub(super) fn reopened_source_position(world: &mut World) -> Option<Value> {
             "world_x": world.get::<GlobalTransform>(entity)?.translation().x,
             "reopened_folder_parent": folder_parent, "reopened_folder_members": folder_members,
             "reopened_created_child_parent": child_parent, "reopened_empty_glbs": restored_glbs,
-            "reopened_picked_glb": restored_picked, "reopened_still_water": still_water::proof(world)}))
+            "reopened_picked_glb": restored_picked, "reopened_local_lights":local_lights, "reopened_still_water": still_water::proof(world)}))
     })
 }
 
@@ -190,7 +195,7 @@ pub(super) fn advance(
 ) -> Result<Option<Value>, String> {
     let session = world.resource::<EditorAuthoringSession>();
     if session.revision != *revision && !matches!(step, Step::SourceSpaceEdited | Step::MeshScaleApplied | Step::MeshRenamed
-        | Step::FolderRenamed | Step::ChildFolderCreated | Step::CreateObjects(_) | Step::FolderDropped(_) | Step::StillWater(_))
+        | Step::FolderRenamed | Step::ChildFolderCreated | Step::CreateObjects(_) | Step::CreateLights(_) | Step::FolderDropped(_) | Step::StillWater(_))
     {
         return Err(format!("切换视口工具和树行选择不应修改场景修订：{step:?}，{} → {}", *revision, session.revision));
     }
@@ -575,7 +580,20 @@ pub(super) fn advance(
             if world.resource::<EditorGltfBrowserState>().selected_group.as_deref() != Some(folder) {
                 return Err("点击文件夹图标改变了选中的组".into());
             }
-            if branch_collapsed(world, folder) == Ok(false) && let Some(row) = click_row(world, MODEL, true) {
+            if branch_collapsed(world, folder) == Ok(false) {
+                // 先完成整夹拖放，两盏新增灯的树行不会挤走原夹具的拖放目标。
+                *step = if startup_enabled() && crate::authoring::local_lights::AVAILABLE {
+                    Step::CreateLights(creation::begin_lights())
+                } else { Step::SelectSourceMesh };
+            }
+        }
+        Step::CreateLights(mut stage) => {
+            *step = if creation::advance(world, &mut stage, cube, revision, pulse)? {
+                Step::SelectSourceMesh
+            } else { Step::CreateLights(stage) };
+        }
+        Step::SelectSourceMesh => {
+            if let Some(row) = click_row(world, MODEL, true) {
                 *pulse = Some(row);
                 *step = Step::OpenMenu(0);
             }
@@ -609,6 +627,7 @@ pub(super) fn advance(
                     return Err("切回网格和定位 GLB 文件应保留展开的分支".into());
                 }
                 let glb_menu = json!({
+                    "local_lights_supported":crate::authoring::local_lights::AVAILABLE,
                     "source_staged_for_permanent_deletion": creation::DELETED_GLB,
                     "created_main_plane_at_scene_center": true,
                     "created_main_cuboid_at_local_origin": true,

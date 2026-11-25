@@ -22,6 +22,10 @@ use bevy::{
 #[cfg(feature = "validation")]
 use {crate::ui::file_manager_validation::pointer_click, bevy::window::PrimaryWindow};
 use serde_json::{Value, json};
+#[cfg(feature = "validation")]
+mod composition;
+#[cfg(feature = "validation")]
+mod curve;
 use std::{path::PathBuf, time::{Duration, Instant}};
 
 #[derive(Resource)]
@@ -288,20 +292,27 @@ pub(super) fn advance(world: &mut World) -> Option<Result<Value, String>> {
                     let edited=state.edited.as_ref().unwrap();if probe.cursor!=edited.cursor{return Ok(());}
                     if probe.key!=edited.key||!probe.dirty{return Err("原动画重做未恢复同一关键帧修改".into());}
                     if !bridge::input_ready(world){return Ok(());}
-                    state.redone=Some(probe);state.animation_event_baseline=state.events.animation;state.pulse=Some(command(world,&mut state,bridge::AnimationCommand::Save)?);state.phase=Phase::Save;
+                    state.redone=Some(probe);state.animation_event_baseline=state.events.animation;
+                    if cfg!(feature="validation") && std::env::var("FEATHRISE_CURVE_VALIDATION").as_deref() == Ok("1") {
+                        state.phase=Phase::Curve;
+                    } else { state.pulse=Some(command(world,&mut state,bridge::AnimationCommand::Save)?);state.phase=Phase::Save; }
                 }
+                #[cfg(feature = "validation")]
+                Phase::Curve => if curve::advance(world,&mut state,&source,identity.unwrap())? {
+                    state.pulse=Some(command(world,&mut state,bridge::AnimationCommand::Save)?);state.phase=Phase::Save;
+                },
                 Phase::Save=>{
                     let Some(probe)=bridge::animation_probe(world,&source,identity)?else{return Ok(());};
                     if let Some(Err(error))=probe.save_receipt.as_ref(){return Err(format!("原动画保存失败：{error}"));}
                     if probe.save_receipt!=Some(Ok(()))||probe.dirty{return Ok(());}
-                    if probe.key!=state.edited.as_ref().unwrap().key{return Err("原动画保存回执与当前关键帧不一致".into());}
+                    if probe.key!=state.curve_edit.as_ref().or(state.edited.as_ref()).unwrap().key{return Err("原动画保存回执与当前关键帧不一致".into());}
                     let identity=probe.key_identity;state.saved=Some(probe);
                     state.io=Some(IoTaskPool::get().spawn(async move{io::saved(&paths,identity)}));state.phase=Phase::ReadSaved;
                 }
                 Phase::ReadSaved=>{
                     let Some(result)=state.io.as_mut().and_then(check_ready)else{return Ok(());};state.io=None;
                     let IoResult::SavedAnimation{sha256,key}=result?else{return Err("动画落盘回执身份不符".into());};
-                    if sha256==state.disk_before||key!=serde_json::to_value(&state.edited.as_ref().unwrap().key).map_err(|error|error.to_string())?{return Err("真实动画GLB没有保存原编辑后的关键帧".into());}
+                    if sha256==state.disk_before||key!=serde_json::to_value(&state.saved.as_ref().unwrap().key).map_err(|error|error.to_string())?{return Err("真实动画GLB没有保存原编辑后的关键帧".into());}
                     state.disk_after=sha256;state.disk_key=Some(key);
                     reveal_asset(world, MODEL)?;
                     state.phase = if super::super::animation_edit_only() { Phase::OpenUnanimatedModel } else { Phase::OpenModel };
@@ -383,8 +394,23 @@ pub(super) fn advance(world: &mut World) -> Option<Result<Value, String>> {
                         "created_read_only": true, "entered_edit_mode": true, "save_receipt": {"Ok": null},
                         "sha256_before": before, "sha256_after": sha256,
                     }));
+                    #[cfg(feature = "validation")]
+                    if std::env::var("FEATHRISE_GLB_COMPOSITION_VALIDATION").as_deref() == Ok("1") {
+                        composition::start(world)?;
+                        state.phase = Phase::Composition;
+                        return Ok(());
+                    }
                     state.pulse = Some(crate::standalone::validation_fixture::request_scene_tab(world)?);
                     state.phase = Phase::ReturnScene;
+                }
+                Phase::Composition => {
+                    #[cfg(not(feature = "validation"))]
+                    return Err("GLB 内容组合需要 validation 构建".into());
+                    #[cfg(feature = "validation")]
+                    if composition::advance(world,&mut state,&paths)? {
+                        state.pulse = Some(crate::standalone::validation_fixture::request_scene_tab(world)?);
+                        state.phase = Phase::ReturnScene;
+                    }
                 }
                 Phase::OpenModel=>{
                     if !expanded_model_ready(world, MODEL) { return Ok(()); }
@@ -427,7 +453,7 @@ pub(super) fn advance(world: &mut World) -> Option<Result<Value, String>> {
                         "animation":{"input":"Bevy WindowEvent clicks on original mode, pose tools and key insert buttons; original hidden-action pulses and numeric commit contract","before":state.before,"edited":state.edited,"undone":state.undone,"redone":state.redone,"saved":state.saved,"disk_key":state.disk_key,"sha256_before":state.disk_before,"sha256_after":state.disk_after,"modified_events_before_save":state.animation_event_baseline,"modified_events_after_save":state.events.animation,
                             "edit_gate":{"opened_read_only":true,"selected_read_only":true,"read_only_insert_rejected":true,"entered_edit_mode":true,"inserted_key":true,"insert_time":state.insert_time},
                             "pose_toolbar":{"hidden_in_preview":true,"rotate_selected":true,"move_selected":true,"history_unchanged":true,"hidden_after_exit":true}},
-                        "created_clip":state.created_clip_proof,
+                        "created_clip":state.created_clip_proof, "curve_tangent":state.curve_edit,
                         "asset_hot_reload":(!super::super::animation_edit_only()).then(|| json!({"input":"atomic writes to this owned project's GLB/PNG files; original watcher and loaders; no Assets mutation","model_path":MODEL,"texture_path":TEXTURE,"before":state.model_before,"mesh_reloaded":state.model_mesh,"material_reloaded":state.model_material,"texture_reloaded":state.model_texture,"model_sha256":state.model_sha256,"texture_sha256":state.texture_sha256,"modified_events":state.events})),
                         "scene_preview_restored":true,"not_verified":["physical timeline/pose dragging","Blender save callback","other formats and large assets","runtime consumption of probe unless a saved placement references it"]
                     }));state.phase=Phase::Complete;

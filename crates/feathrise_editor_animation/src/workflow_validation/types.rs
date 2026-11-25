@@ -42,10 +42,13 @@ pub struct AnimationProbe {
 #[derive(Clone, Copy, Debug)]
 pub enum AnimationCommand {
     ToggleEditing,
+    NextClip,
+    TogglePlayback,
     MovePose,
     RotatePose,
     CreateClip,
     ToggleAutoKey,
+    CycleInterpolation,
     InsertPose,
     InsertKey,
     FirstFrame,

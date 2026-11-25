@@ -1,6 +1,7 @@
 //! 动画作者文档的纯数据边界；读取、曲线计算和保真保存只供后台任务调用。
 
 mod clips;
+mod composition;
 mod creation;
 mod curves;
 mod reader;
@@ -9,6 +10,7 @@ mod types;
 mod writer;
 
 pub use clips::new_scene_clip_id;
+pub use composition::{ContentItem, ContentKind, ContentSpan, DirectClipMapping};
 pub use types::{
     AnimationDocument, Channel, Clip, ClipSnapshot, Keyframe, Node, PreviewJoint,
 };

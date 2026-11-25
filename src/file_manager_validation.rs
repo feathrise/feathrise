@@ -15,7 +15,8 @@ const ENV: &str = "FEATHRISE_FILE_MANAGER_VALIDATION";
 const OWNER: &str = ".file-manager-owner.json";
 const PURPOSE: &str = "owned-file-manager-validation";
 const COPY_BYTES: &[u8] = b"feathrise-file-manager-copy-v1\n";
-const MOVE_BYTES: &[u8] = b"feathrise-file-manager-move-v1\n";
+const REFERENCE_SCENES: [(&str, &str); 2] = [("SCENE-reference-a", "引用场景甲"), ("SCENE-reference-b", "引用场景乙")];
+const MOVED_ASSET: &str = "整理目标/move-me.glb";
 const NESTED_BYTES: &[u8] = b"feathrise-file-manager-nested-v1\n";
 const CANCEL_ITEMS: usize = 4097;
 
@@ -49,7 +50,7 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
     fs::create_dir(&source).and_then(|_| fs::create_dir(&destination))
         .and_then(|_| fs::create_dir(source.join("嵌套"))).map_err(|error| error.to_string())?;
     for (name, bytes) in [
-        ("copy-me.txt", COPY_BYTES), ("move-me.txt", MOVE_BYTES),
+        ("copy-me.txt", COPY_BYTES),
         ("remove-me.txt", b"feathrise-file-manager-recycle-v1\n".as_slice()),
         ("嵌套/inside.txt", NESTED_BYTES),
     ] {
@@ -72,6 +73,37 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
     // 明确的缺失模型引用只放在本轮自建工程的原检查范围内，供唯一搜索 worker 回报真实命中。
     let config = root.join("assets/config");
     fs::create_dir_all(&config).map_err(|error| error.to_string())?;
+    let model = fs::read(browser_assets.join("roles/nested/static.glb")).map_err(|e| e.to_string())?;
+    write_new(&source.join("move-me.glb"), &model)?;
+    let assets = root.join("assets");
+    let catalog_path = assets.join(feathrise_scene_content::SCENE_CATALOG_ASSET_PATH);
+    let mut scene_catalog = read_json(&catalog_path)?;
+    let entries = scene_catalog["scenes"].as_array_mut().filter(|entries| entries.is_empty()).ok_or("验收工程不是零场景的空模板")?;
+    for (id, name) in REFERENCE_SCENES {
+        let relative = format!("scenes/{name}");
+        let folder = assets.join(&relative);
+        fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+        entries.push(json!({"id":id,"display_name":name,"folder":relative,"published":false,"placements_glb":true}));
+        let manifest = json!({"schema_version":2,"id":id,"display_name":name,"runtime_scene":"data_driven",
+            "world_min":[-32,-32],"world_max":[32,32],"default_spawn":[0,2,6],"terrains":[],"asset_roots":["整理目标","整理来源"]});
+        let portals = json!({"schema_version":2,"scene_id":id,"portals":[]});
+        for (file, value) in [(feathrise_scene_content::SCENE_MANIFEST_FILE_NAME, manifest), (feathrise_scene_content::SCENE_PORTALS_FILE_NAME, portals)] {
+            write_new(&folder.join(file), &serde_json::to_vec(&value).map_err(|e| e.to_string())?)?;
+        }
+        let placements = serde_json::from_value(json!({"schema_version":2,"scene_id":id,"placements":[{
+            "id":"fixture-model","asset_path":"整理来源/move-me.glb","translation":[0,0,0],"yaw_degrees":0,"scale":[1,1,1]
+        }]})).map_err(|e| e.to_string())?;
+        let bytes = feathrise_scene_content::write_scene_placements_glb(&placements, &format!("scenes/{name}/scene.glb"), None)?;
+        write_new(&folder.join("scene.glb"), &bytes)?;
+    }
+    fs::write(&catalog_path, serde_json::to_vec(&scene_catalog).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let preset = config.join("引用预设.building_presets.json");
+    let catalog = feathrise_scene_content::BuildingPresetCatalogAsset {
+        schema_version: feathrise_scene_content::BUILDING_PRESET_SCHEMA_VERSION,
+        presets: vec![feathrise_scene_content::BuildingPresetDescriptor::from_asset(
+            "reference-building".into(), "引用预设".into(), "整理来源/move-me.glb".into(), Default::default())],
+    };
+    write_new(&preset, &serde_json::to_vec(&catalog).map_err(|e| e.to_string())?)?;
     let missing_fixture = config.join("文件管理验收缺失.json");
     let missing_bytes = b"{\"model_path\":\"file-manager-validation/absent.glb\"}\n";
     write_new(&missing_fixture, missing_bytes)?;
@@ -107,13 +139,13 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
         (source.join("copy-me.txt"), COPY_BYTES),
         (source.join("嵌套/inside.txt"), NESTED_BYTES),
         (destination.join("renamed.txt"), COPY_BYTES),
-        (destination.join("move-me.txt"), MOVE_BYTES),
+        (destination.join("move-me.glb"), model.as_slice()),
         (destination.join("嵌套/inside.txt"), NESTED_BYTES),
     ] {
         let bytes = fs::read(&path).map_err(|error| format!("文件管理磁盘回读 {}：{error}", path.display()))?;
         if bytes != expected { return Err(format!("文件管理磁盘字节不符：{}", path.display())); }
     }
-    if source.join("move-me.txt").exists() || source.join("remove-me.txt").exists()
+    if source.join("move-me.glb").exists() || source.join("remove-me.txt").exists()
         || destination.join("copy-me.txt").exists()
         || !destination.join("新建整理目录").is_dir()
     {
@@ -131,6 +163,24 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
         || fs::read_dir(&cancel_target).map_err(|error| error.to_string())?.next().is_some()
     { return Err("状态栏、全选、取消后逐项回执或实际磁盘验证不符".into()); }
     proof["disk_reread_verified"] = json!(true);
+    // 退出作者进程后使用正式场景读取器重开两份主 GLB，逐条验证指向的模型与移动前字节一致。
+    for (id, name) in REFERENCE_SCENES {
+        let path = format!("scenes/{name}/scene.glb");
+        let bytes = fs::read(assets.join(&path)).map_err(|e| e.to_string())?;
+        let data = feathrise_scene_content::read_scene_placements(&bytes, &path)?;
+        if data.scene_id.as_str() != id || data.placements.len() != 1 || data.placements[0].asset_path != MOVED_ASSET
+            || fs::read(assets.join(&data.placements[0].asset_path)).map_err(|e| e.to_string())? != model {
+            return Err(format!("重开场景 {name} 未找到移动后的原模型"));
+        }
+    }
+    let reopened: feathrise_scene_content::BuildingPresetCatalogAsset = serde_json::from_value(read_json(&preset)?).map_err(|e| e.to_string())?;
+    if REFERENCE_SCENES.iter().any(|(id, _)| proof["window"]["steps"]["reopened_reference_scenes"][id] != MOVED_ASSET)
+        || reopened.presets.len() != 1 || reopened.presets[0].asset_path != MOVED_ASSET
+        || reopened.presets[0].asset_target != catalog.presets[0].asset_target
+        || proof["window"]["steps"]["cut_paste_move"]["repaired_documents"] != 3 {
+        return Err("建筑预设模型路径、文件内对象目标或引用修复回执不正确".into());
+    }
+    proof["reopened_reference_scenes"] = json!(REFERENCE_SCENES);
     let mut files = serde_json::Map::new();
     for name in ["中文笔记.txt", "中文说明.md", "中文空场景.glb"] {
         let path = destination.join(name);
@@ -167,7 +217,7 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
     if isolation["fixed_sidebar_hidden"] != true || isolation["returned_search_closed"] != true {
         return Err("浮窗工具点击与固定栏隔离的实窗证据缺失".into());
     }
-    for name in ["files-context-menu.png", "files-new-submenu.png", "files-desktop.png", "files-restored.png",
+    for name in ["files-context-menu.png", "files-new-submenu.png", "files-desktop.png", "files-restored.png", "files-reference-preview.png",
         "files-status-single.png", "files-status-crowded.png",
         "files-status-file-receipt.png",
         "files-assets-thumbnails.png", "files-assets-clips.png", "files-assets-services.png",

@@ -105,7 +105,9 @@ fn sync_placement_record_world_impl(
         let (_, instance) = roots.get(entity).expect("已核对作者预览归属");
         let previous_target = instance.asset_target();
         let target_changed = previous_target != record.asset_target;
-        let builtin_changed = target_changed && previous_target.is_builtin() && record.asset_target.is_builtin();
+        // 灯光的渲染组件在根上，网格使用带碰撞的子实体；跨类型替换需要清掉上一套组件。
+        let builtin_changed = target_changed && previous_target.is_builtin() && record.asset_target.is_builtin()
+            && crate::authoring::local_lights::is_builtin_mesh(&previous_target) == crate::authoring::local_lights::is_builtin_mesh(&record.asset_target);
         // 【需求设计】GLB换源和跨来源撤销必须重建实际网格或WorldAsset根，并接过同ID的正式根遮蔽。
         let same_scene_model = previous_target.is_scene0() && record.asset_target.is_scene0();
         if instance.asset_path() != record.asset_path.as_str()

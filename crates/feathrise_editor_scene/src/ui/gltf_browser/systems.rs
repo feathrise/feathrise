@@ -277,10 +277,12 @@ pub(crate) fn handle_gltf_browser_input(
             state.selected_placement_id = Some(placement_id.clone()); // 根行同时成为五类完整资产操作目标。
             candidates.clear_for_scene_tree(); // 即使重复点同一实例，也取消旧候选悬停及迟到查询。
             state.selection = None; // 根选择不冒充具体Blender网格，网格水属性随之收起。
-            let builtin = state.placement_record_indices.get(&placement_id)
+            let target = state.placement_record_indices.get(&placement_id)
                 .and_then(|index| state.signature.get(*index))
-                .is_some_and(|signature| signature.asset_target.is_builtin());
-            state.status = if builtin {
+                .map(|signature| &signature.asset_target);
+            state.status = if let Some(label) = target.and_then(crate::authoring::local_lights::label) {
+                format!("已选{label} · {placement_id}")
+            } else if target.is_some_and(|target| target.is_builtin()) {
                 format!("已选网格 · 立方体 · {placement_id}")
             } else {
                 format!("已选场景对象 · {placement_id}")

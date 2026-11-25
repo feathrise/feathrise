@@ -413,35 +413,11 @@ pub(crate) fn publish_named(
         let destination = parent.join(name);
         let relative = relative_path(root, &destination).ok_or("输出路径越过工程资产根")?;
         // 原子创建新目录项，目标被作者或另一个任务抢先写入时选择下一个名字。
-        match persist(staged, &destination) {
+        match feathrise_editor_assets::files::publish_staged_file(staged, &destination, false) {
             Ok(()) => return Ok(relative),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(format!("发布蒙皮模型失败：{error}")),
         }
     }
     Err("已有过多同名的绑骨模型，请整理目录后重试".into())
-}
-
-#[cfg(windows)]
-fn persist(source: &Path, target: &Path) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_WRITE_THROUGH, MoveFileExW};
-    let wide = |path: &Path| {
-        path.as_os_str()
-            .encode_wide()
-            .chain(Some(0))
-            .collect::<Vec<_>>()
-    };
-    let source = wide(source);
-    let target = wide(target);
-    // 不使用 REPLACE_EXISTING，避免检查与改名之间覆盖并发保存的资产。
-    if unsafe { MoveFileExW(source.as_ptr(), target.as_ptr(), MOVEFILE_WRITE_THROUGH) } == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
-}
-
-#[cfg(not(windows))]
-fn persist(source: &Path, target: &Path) -> io::Result<()> {
-    fs::hard_link(source, target)
 }

@@ -175,6 +175,7 @@ impl Rows {
 #[derive(Clone, Debug)]
 struct ExplicitPath {
     path: PathBuf,
+    key: PathBuf,
     stamp: FileEntryStamp,
 }
 
@@ -212,19 +213,20 @@ impl Default for FileSources {
 }
 
 impl From<Vec<PathBuf>> for FileSources {
-    fn from(mut paths: Vec<PathBuf>) -> Self {
-        paths.sort_unstable();
-        paths.dedup();
-        Self(Selection::Paths(paths.into_iter().map(|path| ExplicitPath {
-            path, stamp: FileEntryStamp::Untracked,
-        }).collect()))
+    fn from(paths: Vec<PathBuf>) -> Self {
+        let mut entries: Vec<_> = paths.into_iter().map(|path| ExplicitPath {
+            key: path_key(&path), path, stamp: FileEntryStamp::Untracked,
+        }).collect();
+        entries.sort_unstable_by(|a, b| a.key.cmp(&b.key).then_with(|| a.path.cmp(&b.path)));
+        entries.dedup_by(|a, b| a.key == b.key);
+        Self(Selection::Paths(entries.into()))
     }
 }
 
 impl FileSources {
     /// 固定栏的一行保留目录取得的身份，与浮窗的行区间共用同一文件命令。
     pub fn single(path: PathBuf, stamp: FileEntryStamp) -> Self {
-        Self(Selection::Paths(Arc::from([ExplicitPath { path, stamp }])))
+        Self(Selection::Paths(Arc::from([ExplicitPath { key: path_key(&path), path, stamp }])))
     }
 
     pub fn len(&self) -> usize {
@@ -322,8 +324,10 @@ impl FileSources {
 
     fn selected_stamp(&self, path: &Path) -> Option<FileEntryStamp> {
         match &self.0 {
-            Selection::Paths(paths) => paths.binary_search_by(|entry| entry.path.as_path().cmp(path))
-                .ok().map(|index| paths[index].stamp),
+            Selection::Paths(paths) => {
+                let key = path_key(path);
+                paths.binary_search_by(|entry| entry.key.cmp(&key)).ok().map(|index| paths[index].stamp)
+            }
             Selection::Rows(rows) => rows.directory.index_of(path).filter(|index| rows.contains(*index))
                 .map(|index| rows.directory.stamp(index)),
         }
@@ -336,10 +340,12 @@ impl FileSources {
     fn overlaps_key(&self, key: &Path, tree: bool) -> bool {
         if self.is_empty() { return false; }
         match &self.0 {
-            Selection::Paths(paths) => paths.iter().any(|entry| {
-                let source = path_key(&entry.path);
-                key.starts_with(&source) || tree && source.starts_with(key)
-            }),
+            Selection::Paths(paths) => {
+                // 大批引用文件的索引在后台预览时生成，界面上查作者占用只按祖先或首个后代定位。
+                key.ancestors().any(|ancestor| paths.binary_search_by(|entry| entry.key.as_path().cmp(ancestor)).is_ok())
+                    || tree && paths.get(paths.partition_point(|entry| entry.key.as_path() < key))
+                        .is_some_and(|entry| entry.key.starts_with(key))
+            }
             Selection::Rows(rows) => {
                 let parent = &rows.directory.key;
                 if tree && parent.starts_with(key) { return true; }

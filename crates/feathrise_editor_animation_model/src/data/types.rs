@@ -25,7 +25,7 @@ pub struct AnimationDocument {
 pub struct Clip {
     pub name: String,
     pub channels: Vec<Channel>,
-    /// 载入时取 GLB 数组索引；在同一作者会话内保持稳定，写盘顺序另按 clips 管理。
+    /// 载入时取 GLB 数组索引，编辑会话内保持稳定，磁盘按此顺序紧凑编号。
     pub source_index: usize,
 }
 

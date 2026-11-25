@@ -255,7 +255,8 @@ pub(super) fn advance_visible_entries_build(state: &mut EditorGltfBrowserState) 
                 let builtin = placement.asset_target.is_builtin();
                 let source_name = if matches!(placement.asset_target, feathrise_scene_content::ScenePlacementAssetTarget::EditableCuboid { .. } | feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { .. }) {
                     "网格 · 编辑网格"
-                } else if builtin { "网格 · 立方体" } else { asset_file_name(&placement.asset_path) };
+                } else if let Some(light) = crate::authoring::local_lights::label(&placement.asset_target) { light }
+                else if builtin { "网格 · 立方体" } else { asset_file_name(&placement.asset_path) };
                 let target_hint = if expandable || builtin {
                     String::new() // 历史Scene0根保持现有紧凑名称。
                 } else {

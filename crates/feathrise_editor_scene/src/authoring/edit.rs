@@ -242,6 +242,11 @@ pub(crate) fn spawn_placement_preview(
     // 普通 GLB 和静态三维地形的未保存预览只显示模型，碰撞由保存后的正式候选采用。
     // 自动雕刻预览具有独立的完整烘焙/授信协议，不经过这个普通摆放构造入口。
     let root = root_commands.id();
+    if super::local_lights::parameters(&record.asset_target).is_some() {
+        // 作者预览和游戏由同一 SDK 解释光学参数，灯光根沿用原摆放的显隐与手柄。
+        feathrise_scene::spawn_builtin_placement_visual(commands, root, record.asset_target.clone());
+        return root;
+    }
     match record.asset_target {
         ScenePlacementAssetTarget::Cuboid { .. } | ScenePlacementAssetTarget::EditableCuboid { .. } | ScenePlacementAssetTarget::EditableMesh { .. } => {
             root_commands.insert(avian3d::prelude::RigidBody::Static); // 未保存立方体拥有独立静态刚体，删除或隐藏时可单独禁用。
@@ -357,7 +362,7 @@ pub(crate) fn refresh_owned_portal_preview(
 }
 
 /// 显式坐标创建以世界中心为准，不读取隐藏视口或替作者补贴地偏移。
-pub(super) fn create_cuboid_at(
+pub(super) fn create_builtin_at(
     commands: &mut Commands, asset_server: &AssetServer, editor: &mut SceneEditorState,
     session: &mut EditorAuthoringSession, target: ScenePlacementAssetTarget, position: Vec3,
 ) -> Option<String> {
@@ -376,6 +381,10 @@ pub(super) fn create_cuboid_at(
         height_mode: ScenePlacementHeightMode::FixedHeight, terrain_offset: 0.0,
         yaw_degrees: 0.0, scale: [1.0; 3], water_surfaces: Vec::new(),
     };
+    // 新聚光灯先照亮创建点下方，用户可用同一旋转手柄重新瞄准。
+    if super::local_lights::parameters(&record.asset_target).is_some_and(|light| light.3.is_some()) {
+        super::placement_pose::set_placement_rotation(&mut record, Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)).ok()?;
+    }
     let ordinal = session.next_serial.saturating_sub(1);
     std::sync::Arc::make_mut(&mut record.editor).name = if ordinal == 0 { label.into() }
         else { format!("{label}.{ordinal:03}") };
@@ -401,6 +410,8 @@ pub(crate) struct PlacementViewportContext<'w> {
     browser: Option<ResMut<'w, crate::ui::gltf_browser::EditorGltfBrowserState>>,
     sidebars: Option<ResMut<'w, crate::ui::sidebars::SceneEditorSidebarState>>,
     selection: Option<ResMut<'w, crate::resources::EditorViewportSelectionState>>,
+    placements: Option<ResMut<'w, crate::viewport::multi_select::PlacementSelectionSet>>,
+    candidates: Option<ResMut<'w, crate::viewport::LayerCandidateState>>,
 }
 
 pub(crate) fn place_from_viewport(
@@ -730,7 +741,7 @@ pub(crate) fn place_from_viewport(
             session.mark_placement_structure_changed(&mut editor); // 新实例根必须换代右侧GLB浏览结构。
             if builtin {
                 if let Some(browser) = context.browser.as_deref_mut() {
-                    browser.select_primitive_placement_from_viewport(id);
+                    super::basic_shapes::select_created(id, &session, browser, context.placements.as_deref_mut(), context.candidates.as_deref_mut());
                 }
                 if let Some(selection) = context.selection.as_deref_mut() { selection.clear_vegetation_selection(); }
                 if let Some(sidebars) = context.sidebars.as_deref_mut() { sidebars.reveal_scene_properties(); }
