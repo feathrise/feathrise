@@ -25,6 +25,8 @@ use serde_json::{Value, json};
 #[cfg(feature = "validation")]
 mod composition;
 #[cfg(feature = "validation")]
+mod material_slots;
+#[cfg(feature = "validation")]
 mod curve;
 use std::{path::PathBuf, time::{Duration, Instant}};
 
@@ -82,7 +84,11 @@ pub(super) fn advance(world: &mut World) -> Option<Result<Value, String>> {
             trace(&mut state,json!({"kind":"phase","phase":format!("{phase:?}"),"expected_key":expected,"actual":bridge::diagnostic_value(world)}));
         }
         let step=(||->Result<(),String>{
-            if state.started.is_some_and(|start|start.elapsed()>Duration::from_secs(180)){return Err(format!("动画资产验收超时：{:?}；{}",state.phase,bridge::diagnostic(world)));}
+            if state.started.is_some_and(|start|start.elapsed()>Duration::from_secs(180)){
+                #[cfg(feature = "validation")]
+                if state.phase==Phase::MaterialSlots {return Err(format!("材质槽验收超时：{}；{}",material_slots::diagnostic(world),bridge::diagnostic(world)));}
+                return Err(format!("动画资产验收超时：{:?}；{}",state.phase,bridge::diagnostic(world)));
+            }
             observe_events(world,&mut state)?;
             let paths=state.paths.as_ref().ok_or("动画资产验收缺少工程路径")?.clone();
             let source=paths.assets.join(ANIMATION);
@@ -400,6 +406,12 @@ pub(super) fn advance(world: &mut World) -> Option<Result<Value, String>> {
                         state.phase = Phase::Composition;
                         return Ok(());
                     }
+                    #[cfg(feature = "validation")]
+                    if material_slots::enabled() {
+                        material_slots::start(world)?;
+                        state.phase = Phase::MaterialSlots;
+                        return Ok(());
+                    }
                     state.pulse = Some(crate::standalone::validation_fixture::request_scene_tab(world)?);
                     state.phase = Phase::ReturnScene;
                 }
@@ -408,6 +420,20 @@ pub(super) fn advance(world: &mut World) -> Option<Result<Value, String>> {
                     return Err("GLB 内容组合需要 validation 构建".into());
                     #[cfg(feature = "validation")]
                     if composition::advance(world,&mut state,&paths)? {
+                        if material_slots::enabled() {
+                            material_slots::start(world)?;
+                            state.phase = Phase::MaterialSlots;
+                            return Ok(());
+                        }
+                        state.pulse = Some(crate::standalone::validation_fixture::request_scene_tab(world)?);
+                        state.phase = Phase::ReturnScene;
+                    }
+                }
+                Phase::MaterialSlots => {
+                    #[cfg(not(feature = "validation"))]
+                    return Err("材质槽专项需要 validation 构建".into());
+                    #[cfg(feature = "validation")]
+                    if material_slots::advance(world,&mut state,&paths)? {
                         state.pulse = Some(crate::standalone::validation_fixture::request_scene_tab(world)?);
                         state.phase = Phase::ReturnScene;
                     }
@@ -494,6 +520,18 @@ fn click_window_button(
         .single(world).map_err(|error| error.to_string())?;
     // 采用正常窗口鼠标路径。释放后由随后阶段确认状态变更，不把发出事件当作成功。
     Ok(pointer_click(world, &mut state.click, window, position, MouseButton::Left))
+}
+
+/// 属性栏按钮可能位于视口裁剪区外。沿用正式滚动容器，把控件移入窗口后才发送指针。
+#[cfg(feature = "validation")]
+fn click_property_button(world: &mut World, state: &mut Fixture, name: &str, button: Option<Entity>) -> Result<bool, String> {
+    if state.click.is_some() { return click_window_button(world,state,name,|_|None); }
+    let Some(button) = button else { return Ok(false); };
+    if !crate::standalone::validation_fixture::ui_visible(world,button) {
+        crate::standalone::validation_fixture::reveal_property_control(world,button)?;
+        return Ok(false);
+    }
+    click_window_button(world,state,name,|_|Some(button))
 }
 
 #[cfg(not(feature = "validation"))]

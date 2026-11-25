@@ -25,7 +25,7 @@ pub(super) fn identity_matches(identity: &ContentIdentity, doc: &Document) -> bo
             doc.source_key() == stamp.key && doc.revision == stamp.revision
         }
         ContentIdentity::Disk(digest) => &doc.disk.digest == digest && doc.revision == 0,
-        ContentIdentity::ProjectSource(_) => false,
+        ContentIdentity::ProjectSource(_) | ContentIdentity::SceneGlb => false,
     }
 }
 

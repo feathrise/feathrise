@@ -137,6 +137,13 @@ impl FileManagerState {
         }
         Some(self.open_window(root.clone(), Some(FilePicker::Glb(root))))
     }
+    pub(super) fn open_relink_picker(&mut self, missing: &std::path::Path) {
+        let Some(root) = self.asset_root.clone() else { return; };
+        let Some(relative) = missing.strip_prefix(&root).ok().and_then(std::path::Path::to_str) else { return; };
+        if self.suspended || self.prompt.is_some() || self.menu.is_some() || relative.is_empty() { return; }
+        if let Some(id) = self.windows.iter().find(|w| w.relink_missing().is_some()).map(|w| w.id) { self.close(id); }
+        self.open_window(root.clone(), Some(FilePicker::Relink { root, missing: relative.replace('\\', "/") }));
+    }
     pub(crate) fn glb_picker_open(&self, id: u64) -> bool {
         self.active(id).is_some_and(FileWindow::is_glb_picker)
     }

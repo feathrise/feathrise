@@ -44,8 +44,10 @@ fn fixture() -> (App, Entity, Entity, ScenePlacementRecord, ScenePlacementRecord
     session.placement_previews.insert(plain.id.clone(), plain_root);
     drop(session);
     app.world_mut().resource_scope(|world, mut state: Mut<CourtyardAuthoringState>| {
-        queue_visual_sync(&mut state, world.resource::<EditorAuthoringSession>(),
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        queue_visual_sync(&mut Commands::new(&mut queue, world), &mut state, world.resource::<EditorAuthoringSession>(),
             vec![(0, patch.clone(), true), (1, plain.clone(), true)]);
+        queue.apply(world);
     });
     (app, patch_root, plain_root, patch, plain, source)
 }
@@ -152,8 +154,10 @@ fn ordinary_queue_fixture(count: usize) -> (App, Vec<Entity>, Vec<ScenePlacement
         }
     }
     app.world_mut().resource_scope(|world, mut state: Mut<CourtyardAuthoringState>| {
-        queue_visual_sync(&mut state, world.resource::<EditorAuthoringSession>(),
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        queue_visual_sync(&mut Commands::new(&mut queue, world), &mut state, world.resource::<EditorAuthoringSession>(),
             records.iter().cloned().enumerate().map(|(index, record)| (index, record, true)).collect());
+        queue.apply(world);
     });
     (app, roots, records)
 }

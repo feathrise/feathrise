@@ -22,6 +22,7 @@ pub(super) struct Draft {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ContentIdentity {
+    SceneGlb, // 主场景缺失诊断定位到节点，不能当作文本或交给 IDE。
     Draft(DraftStamp),
     Disk([u8; 32]),
     ProjectSource([u8; 32]), // 项目源码只读，路径相对项目根；不能作为assets文档加载或替换。
@@ -44,6 +45,7 @@ pub(super) struct SearchRequest {
 
 #[derive(Clone, Debug)]
 pub(super) struct Hit {
+    pub missing_path: Option<String>, // 完整物理路径，仅可重新关联的正式诊断携带，不反向解析截短的界面文案。
     pub range: Range<usize>, // 与文档唯一原生输入相同的LF、无BOM字节坐标。
     pub line: usize,
     pub column: usize, // Unicode字符列，不能把中文UTF-8字节数显示成列号。
@@ -86,6 +88,14 @@ pub(super) struct PendingJump {
     pub path: String,
     pub identity: ContentIdentity,
     pub range: Range<usize>,
+}
+
+impl SearchResult {
+    pub(super) fn hit_at(&self, row: usize) -> Option<(&FileHits, &Hit)> {
+        let ResultRow::Hit(file, hit) = *self.rows.get(row)? else { return None; };
+        let file = self.files.get(file)?;
+        Some((file, file.hits.get(hit)?))
+    }
 }
 
 pub(super) struct JumpReveal {

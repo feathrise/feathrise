@@ -152,6 +152,7 @@ mod tests {
 
     fn identity(ground: &Arc<TerrainGroundSnapshot>) -> CursorIdentity {
         CursorIdentity {
+            wall_epoch: None,
             scene_id: ground.scene_id.clone(),
             revision: 0,
             terrain_revision: ground.revision,

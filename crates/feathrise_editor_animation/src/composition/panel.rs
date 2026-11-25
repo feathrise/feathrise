@@ -26,6 +26,8 @@ use std::{
     sync::Arc,
 };
 mod drag;
+mod material;
+mod material_preview;
 mod output;
 mod view;
 use output::export;
@@ -56,6 +58,13 @@ enum Button {
     Confirm,
     Overwrite,
     Cancel,
+    Slots,
+    Slot(usize),
+    SlotsPrevious,
+    SlotsNext,
+    Undo,
+    Redo,
+    Save,
 }
 
 #[derive(Clone)]
@@ -83,6 +92,13 @@ pub(super) struct State {
     copied: Option<Copied>,
     drag: Option<Copied>,
     pending_drop: Option<(PathBuf, Copied)>,
+    slots_open: bool,
+    slot_node: Option<usize>,
+    active_slot: Option<usize>,
+    slot_controls: (bool, bool, bool),
+    slot_page: usize,
+    slot_drag: Option<(std::sync::Weak<AnimationDocument>, usize)>,
+    slot_hover: Option<usize>,
 }
 
 pub(crate) fn install(app: &mut App) {
@@ -95,12 +111,13 @@ pub(crate) fn install(app: &mut App) {
         )
         .add_systems(
             Update,
-            (sync, view::feedback)
+            (sync, material::sync, view::feedback)
                 .chain()
                 .in_set(AnimationSystems::Presentation)
                 .in_set(SceneEditorSystemSet::Presentation),
         );
     drag::install(app);
+    material_preview::install(app);
 }
 
 fn selected(spans: &[ContentSpan], kind: ContentKind, i: usize) -> bool {
@@ -119,6 +136,14 @@ pub(crate) fn original_button(world: &mut World, action: &str) -> Option<Entity>
         "paste" => Button::Paste,
         "export" => Button::Export,
         "confirm" => Button::Confirm,
+        "slots" => Button::Slots,
+        "slot-first" => Button::Slot(0),
+        "slot-second" => Button::Slot(1),
+        "objects" => Button::Kind(ContentKind::Node),
+        "materials" => Button::Kind(ContentKind::Material),
+        "slot-undo" => Button::Undo,
+        "slot-redo" => Button::Redo,
+        "slot-save" => Button::Save,
         _ => return None,
     };
     world
@@ -312,8 +337,15 @@ fn input(
             let row = panel.page * ROWS + i;
             if row < doc.content_count(panel.kind) {
                 panel.select(row, ctrl, shift);
+                if panel.slots_open && panel.kind == ContentKind::Node {
+                    panel.slot_node = (doc.material_slot_count(row) > 0).then_some(row);
+                    panel.slot_page = 0;
+                    panel.active_slot = None;
+                }
             }
         }
+        Button::Slots | Button::Slot(_) | Button::SlotsNext | Button::SlotsPrevious | Button::Undo | Button::Redo | Button::Save =>
+            material::action(action, &doc, &mut panel, &mut state),
         Button::Previous => panel.page = panel.page.saturating_sub(1),
         Button::Next => {
             panel.page =

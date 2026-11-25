@@ -106,16 +106,19 @@ fn render(receipt: &FileOperationReceipt, page: usize, pages: usize, locale: Edi
         FileOperationKind::CreateFolder => "新建文件夹",
         FileOperationKind::CreateFile => "新建文件",
         FileOperationKind::Rename => "重命名",
+        FileOperationKind::Relink => "重新关联缺失资产",
     };
     let mut text = locale.format("status.file_receipt.title", &[
         ("id", receipt.id.to_string()), ("action", locale.editor_label(action).into()),
         ("page", (page + 1).to_string()), ("pages", pages.to_string()),
     ]);
-    text.push('\n');
-    text.push_str(&locale.format("status.file_receipt.summary", &[
-        ("completed", receipt.completed.len().to_string()), ("skipped", receipt.skipped.len().to_string()),
-        ("unprocessed", receipt.unprocessed.len().to_string()),
-    ]));
+    if receipt.kind != FileOperationKind::Relink {
+        text.push('\n');
+        text.push_str(&locale.format("status.file_receipt.summary", &[
+            ("completed", receipt.completed.len().to_string()), ("skipped", receipt.skipped.len().to_string()),
+            ("unprocessed", receipt.unprocessed.len().to_string()),
+        ]));
+    }
     if let Some(plan) = &receipt.reference_preview {
         text.push_str(&if locale == EditorLocale::English { format!("\n{} referencing documents found in preview", plan.documents.len()) }
             else { format!("\n引用预览涉及 {} 份场景或预设", plan.documents.len()) });

@@ -189,18 +189,17 @@ pub(super) fn group_begin(app: &mut App, node: Entity, axis: MoveAxis) -> Vec2 {
 }
 
 pub(super) fn finish(app: &mut App, node: Entity, cursor: Vec2) {
-    for _ in 0..128 {
+    // 整组校验在后台完成。用与同组回归一致的墙钟期限等真实回执，避免并行时把模拟帧数当成耗时。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
         step(app, node, cursor);
         let movement = app.world().resource::<PlacementMoveState>();
         if movement.group.is_none() && movement.group_task.is_none() {
             return;
         }
+        assert!(std::time::Instant::now() < deadline, "整组状态应完整收尾：{}", app.world().resource::<SceneEditorState>().status);
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
-    panic!(
-        "整组状态应完整收尾：{}",
-        app.world().resource::<SceneEditorState>().status
-    );
 }
 
 #[test]

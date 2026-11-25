@@ -35,6 +35,7 @@ pub(super) fn execute_plain(
     current: &mut Option<PathBuf>, approved: Option<&ReferencePreview>,
 ) -> Result<(), String> {
     match &request.operation {
+        FileOperation::Relink { .. } => return Err("重新关联资产需要先预览场景和预设的引用".into()),
         FileOperation::Copy { sources, destination, conflict } | FileOperation::Move { sources, destination, conflict } => {
             let destination = checked(destination, &roots, true)?;
             if !destination.is_dir() { return Err("粘贴目标必须是文件夹".into()); }

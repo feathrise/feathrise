@@ -12,6 +12,7 @@ pub mod test_support; // 私有游戏回归只借用固定阶段夹具，不公�
 /// 明确区分同一查询槽服务的作者对象，禁止植被与静水互相采用迟到命中。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GroundCursorTarget {
+    WallLine(u64), // 编辑意图换代后，迟到的地面点击不可用作下一条路线的控制点。
     TerrainSculpt(EditorTool), // 四种雕刻工具独立冻结身份，连续输入不得跨工具采用旧落点。
     VolumeSculpt(EditorTool),  // 真实三维表面命中，不受高度雕刻的单层投影限制。
     Surface {
@@ -65,6 +66,7 @@ impl GroundCursorTarget {
         matches!(self, Self::Domain(target) if target.click_qualified) || matches!(
             self,
             Self::River(_)
+                | Self::WallLine(_)
                 | Self::VolumeSculpt(_)
                 | Self::Waterfall(_)
                 | Self::PlaceAsset { .. }

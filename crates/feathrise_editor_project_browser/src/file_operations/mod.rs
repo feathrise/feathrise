@@ -143,6 +143,7 @@ fn progress(job: &Job) -> FileOperationProgress {
         FileOperationKind::Copy => "复制文件", FileOperationKind::Move => "移动文件",
         FileOperationKind::Delete => "移到回收站", FileOperationKind::CreateFolder => "新建文件夹",
         FileOperationKind::CreateFile => "新建文件", FileOperationKind::Rename => "重命名",
+        FileOperationKind::Relink => "重新关联缺失资产",
     };
     FileOperationProgress { id: job.id, context: job.request.context, label: label.into(), completed: 0,
         bytes: 0, current: None, cancel_requested: job.cancel.load(Ordering::Acquire) }

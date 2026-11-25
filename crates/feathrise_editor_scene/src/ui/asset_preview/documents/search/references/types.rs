@@ -5,4 +5,5 @@ use super::super::types::Hit;
 pub(in super::super) struct PathReference {
     pub hit: Hit,
     pub path: String,
+    pub authored: bool,
 }

@@ -1,5 +1,7 @@
 //! 整组历史的有限ID捕获及真实后台所有权回归，使用正式历史与删除表接口。
 
+mod wall;
+
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
 use std::{sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}, task::{Poll, Waker}, time::{Duration, Instant}};
@@ -21,7 +23,7 @@ fn history_app(count: usize) -> App {
     let draft = session.draft.as_mut().unwrap();
     draft.placements.placements = records;
     draft.placement_water_surface_count = 0;
-    session.undo = vec![EditorCommand::CourtyardBatch(Box::new(command))];
+    session.undo = vec![EditorCommand::CourtyardBatch(std::sync::Arc::new(command))];
     session.redo.clear();
     drop(session);
     app.world_mut().resource_mut::<SceneEditorState>().undo_requested = true;
@@ -72,7 +74,7 @@ fn history_captures_only_128_ids_without_popping_or_sharing_the_table_early() {
     assert_eq!(state.capture.as_ref().unwrap().cursor, 128);
     let session = app.world().resource::<EditorAuthoringSession>();
     let EditorCommand::CourtyardBatch(change) = session.undo.last().unwrap() else { panic!(); };
-    let original_box = change.as_ref() as *const _ as usize;
+    let original = change.clone();
     assert_eq!(session.undo.len(), 1);
     assert!(session.redo.is_empty());
     assert!(!session.placement_deletions.write_shared(), "未收齐ID不能提前占用作者写门");
@@ -86,9 +88,9 @@ fn history_captures_only_128_ids_without_popping_or_sharing_the_table_early() {
     });
     let session = app.world().resource::<EditorAuthoringSession>();
     let EditorCommand::CourtyardBatch(change) = session.undo.last().unwrap() else { panic!(); };
-    assert_eq!(change.as_ref() as *const _ as usize, original_box, "后台准备不克隆或转移整笔Box历史");
+    assert!(Arc::ptr_eq(change, &original), "后台准备与原栈顶共享同一笔冻结历史");
     assert!(!session.placement_deletions.write_shared(), "worker发布完成值前必须释放源强引用");
-    assert!(prepared.as_ref().unwrap().matches(&session.placement_deletions));
+    assert!(prepared.as_ref().unwrap().deletions.matches(&session.placement_deletions));
     assert!(session.placement_deletions.is_empty(), "准备完整结果不发布任何半成品");
 }
 
@@ -104,7 +106,7 @@ fn cancelled_history_keeps_the_real_worker_slot_until_it_finishes() {
         job: Some(PreparationJob { identity: Some(identity), cancelled: false,
             task: AsyncComputeTaskPool::get().spawn(async move {
                 worker_gate.wait().await;
-                JobOutput::Prepared(source.prepare(std::iter::once("history-preparation-000"), std::iter::empty()))
+                JobOutput::Prepared(Ok(PreparedHistory::tickets(source.prepare(std::iter::once("history-preparation-000"), std::iter::empty()))))
             }) }),
         ..default()
     };
@@ -168,7 +170,7 @@ fn shared_deletion_source_does_not_block_a_pure_transform_history() {
     let before = session.draft.as_ref().unwrap().placements.placements[0].clone();
     let mut after = before.clone(); after.translation[0] += 1.0;
     session.draft.as_mut().unwrap().placements.placements[0] = after.clone();
-    session.undo = vec![EditorCommand::CourtyardBatch(Box::new(
+    session.undo = vec![EditorCommand::CourtyardBatch(std::sync::Arc::new(
         CourtyardBatchChange::new(Vec::new(), vec![(0, before.clone(), after)]).unwrap(),
     ))];
     let deletion_revision = session.placement_deletions.revision();

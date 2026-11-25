@@ -1,6 +1,7 @@
 //! 「交互」的动画触发区。两次点选定义水平底面的对角点，作者可精确指定底面和高度。
 
 mod controls;
+mod handles;
 use super::{GameplaySidebarPage, GameplaySidebarState, systems::GameplaySidebarInputGate};
 use crate::{
     authoring::{
@@ -31,6 +32,7 @@ enum Action {
     NextRegion,
     Draw,
     Redraw,
+    Adjust,
     Remove,
     Enter,
     Exit,
@@ -60,6 +62,8 @@ struct Tool {
     region: usize,
     bound: Option<Binding>,
     drawing: Option<Drawing>,
+    adjusting: bool,
+    drag: Option<handles::Drag>,
     floor: f32,
     height: f32,
     enter: MotionRegionAction,
@@ -72,6 +76,8 @@ impl Default for Tool {
             region: 0,
             bound: None,
             drawing: None,
+            adjusting: false,
+            drag: None,
             floor: 0.0,
             height: 2.0,
             enter: MotionRegionAction::Play,
@@ -156,7 +162,7 @@ pub(super) fn install(app: &mut App) {
     let on_page =
         |pages: Res<GameplaySidebarState>| pages.page == GameplaySidebarPage::MotionTrigger;
     let needs_input = |pages: Res<GameplaySidebarState>, tool: Res<Tool>| {
-        pages.page == GameplaySidebarPage::MotionTrigger || tool.drawing.is_some()
+        pages.page == GameplaySidebarPage::MotionTrigger || tool.drawing.is_some() || tool.adjusting
     };
     app.init_resource::<Tool>()
         .add_systems(
@@ -223,6 +229,7 @@ struct Pointer<'w, 's> {
     viewport: Option<Res<'w, SceneEditorViewportState>>,
     canvas: Query<'w, 's, &'static RelativeCursorPosition, With<SceneEditorViewport>>,
     cameras: Query<'w, 's, (&'static Camera, &'static Transform)>,
+    windows: Query<'w, 's, &'static Window, With<bevy::window::PrimaryWindow>>,
 }
 impl Pointer<'_, '_> {
     fn on_plane(&self, y: f32) -> Option<Vec3> {
@@ -269,17 +276,22 @@ fn input(
         && pages.page == GameplaySidebarPage::MotionTrigger;
     if !active || !tool.bound_is_current(&session) || keys.just_pressed(KeyCode::Escape) {
         tool.drawing = None;
+        if !active || keys.just_pressed(KeyCode::Escape) {
+            tool.adjusting = false;
+        }
+        tool.drag = None;
         numbers.clear();
         return;
     }
-    if tool.drawing.is_some()
-        && (mode.mode != ViewportMode::Edit || editor.tool != EditorTool::MotionTrigger)
-    {
+    if mode.mode != ViewportMode::Edit || editor.tool != EditorTool::MotionTrigger {
         tool.drawing = None;
+        tool.adjusting = false;
+        tool.drag = None;
     }
     if numbers.is_empty()
         && !buttons.iter().any(|(click, _)| click.is_clicked())
         && !mouse.just_pressed(MouseButton::Left)
+        && tool.drag.is_none()
     {
         return;
     }
@@ -290,6 +302,8 @@ fn input(
     let draft = session.draft.as_ref().unwrap();
     if editor.selected_scene_id.as_ref() != Some(&draft.scene_id) {
         tool.drawing = None;
+        tool.adjusting = false;
+        tool.drag = None;
         numbers.clear();
         return;
     }
@@ -332,12 +346,15 @@ fn input(
         }
     }
     if gate.blocked() {
+        tool.drag = None;
         return;
     }
     for (click, action) in &buttons {
         if !click.is_clicked() {
             continue;
         }
+        tool.adjusting = false;
+        tool.drag = None;
         match action {
             Action::PreviousClip | Action::NextClip => {
                 tool.clip = cycle(tool.clip, clips, matches!(action, Action::NextClip));
@@ -347,6 +364,16 @@ fn input(
             Action::PreviousRegion | Action::NextRegion => {
                 tool.region = cycle(target.index, count, matches!(action, Action::NextRegion));
                 tool.drawing = None;
+            }
+            Action::Adjust => {
+                if existing.is_some() {
+                    mode.mode = ViewportMode::Edit;
+                    mode.remember_tool(EditorTool::MotionTrigger);
+                    editor.tool = EditorTool::MotionTrigger;
+                    tool.drawing = None;
+                    tool.adjusting = true;
+                    editor.status = "拖动中心移动区域，拖动四边改变宽深；Esc 取消".into();
+                }
             }
             Action::Draw | Action::Redraw => {
                 let replace = matches!(action, Action::Redraw);
@@ -400,6 +427,14 @@ fn input(
                     );
                 }
             }
+        }
+        return;
+    }
+    if tool.adjusting {
+        if let Some(before) = existing
+            && let Some(after) = handles::update(&mut tool.drag, before, &pointer, &mouse, mode.pointer_over_controls)
+        {
+            change(&mut session, &mut editor, &mut retirement, &target, target.index, Some(before), Some(after));
         }
         return;
     }
@@ -459,7 +494,9 @@ fn draw(
     pointer: Pointer,
     mut gizmos: Gizmos<SceneEditorBrushGizmos>,
 ) {
-    let area = if let Some(d) = &tool.drawing {
+    let area = if let Some(drag) = &tool.drag {
+        Some(drag.preview)
+    } else if let Some(d) = &tool.drawing {
         d.anchor
             .zip(pointer.on_plane(tool.floor))
             .and_then(|(a, b)| tool.box_between(a, b))
@@ -475,6 +512,9 @@ fn draw(
         })
     };
     if let Some(area) = area {
+        if tool.adjusting {
+            handles::draw(area, &pointer, &mut gizmos);
+        }
         gizmos.cube(
             Transform::from_translation(area.center).with_scale(area.half_extents * 2.0),
             Color::srgb(0.20, 0.86, 0.85),

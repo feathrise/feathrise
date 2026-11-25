@@ -55,9 +55,12 @@ pub(super) fn prepare(root: &Path, label: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     enable_validation_features(&mut manifest)?;
     fs::write(&manifest_path, toml::to_string_pretty(&manifest).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    let scene_tree_startup = label == "独立工程 A" && std::env::var(super::SCENE_TREE_STARTUP).as_deref() == Ok("1");
+    let scene_tree_startup = label == "独立工程 A" && super::uses_scene_tree_fixture();
     let mut sources = copy_probe(&staging, scene_tree_startup)?;
     write_animation(&staging)?;
+    if label == "独立工程 A" && std::env::var("FEATHRISE_MATERIAL_SLOT_VALIDATION").as_deref() == Ok("1") {
+        write_material_slots(&staging)?;
+    }
     if label == "独立工程 A" && std::env::var("FEATHRISE_GLB_COMPOSITION_VALIDATION").as_deref() == Ok("1") {
         // 两个独立路径的同名动作检验合并命名，目标从真实的零动作蒙皮 GLB 开始。
         let action = include_bytes!("../crates/feathrise_editor_animation/tests/fixtures/animation_preview/skinned_animated_rig.glb");
@@ -184,6 +187,29 @@ fn write_animation(assets: &Path) -> Result<(), String> {
     glb.extend_from_slice(&0x004e4942_u32.to_le_bytes());
     glb.extend_from_slice(&binary);
     write_new(&assets.join("scene/animation.glb"), &glb)
+}
+
+/// 两个对象共享一份含上下两个图元的网格，验证替换只影响左下三角，并保留原动画。
+fn write_material_slots(assets: &Path) -> Result<(), String> {
+    use std::borrow::Cow;
+    let bytes = fs::read(assets.join("scene/animation.glb")).map_err(|e| e.to_string())?;
+    let mut glb = bevy::gltf::gltf::Glb::from_slice(&bytes).map_err(|e| e.to_string())?;
+    let mut doc: Value = serde_json::from_slice(&glb.json).map_err(|e| e.to_string())?;
+    let binary = glb.bin.as_mut().ok_or("夹具缺少几何数据")?.to_mut();
+    let offset = binary.len();
+    for v in [-0.5f32,1.2,0.,0.5,1.2,0.,0.,2.2,0.] { binary.extend_from_slice(&v.to_le_bytes()); }
+    doc["buffers"][0]["byteLength"] = json!(binary.len());
+    doc["bufferViews"].as_array_mut().unwrap().push(json!({"buffer":0,"byteOffset":offset,"byteLength":36,"target":34962}));
+    doc["accessors"].as_array_mut().unwrap().push(json!({"bufferView":3,"componentType":5126,"count":3,"type":"VEC3","min":[-0.5,1.2,0.0],"max":[0.5,2.2,0.0]}));
+    doc["scenes"][0]["nodes"] = json!([0,1]);
+    doc["nodes"] = json!([{"name":"Left panel","mesh":0},{"name":"Right panel","mesh":0,"translation":[1.4,0.,0.]}]);
+    doc["meshes"][0]["primitives"].as_array_mut().unwrap().push(json!({"attributes":{"POSITION":3},"material":0}));
+    doc["materials"] = json!([
+        {"name":"Red","doubleSided":true,"pbrMetallicRoughness":{"baseColorFactor":[0.8,0.05,0.04,1.0],"metallicFactor":0.0}},
+        {"name":"Blue","doubleSided":true,"pbrMetallicRoughness":{"baseColorFactor":[0.03,0.2,0.85,1.0],"metallicFactor":0.0}}
+    ]);
+    glb.json = Cow::Owned(serde_json::to_vec(&doc).map_err(|e| e.to_string())?);
+    write_new(&assets.join("scene/material-slots.glb"), &glb.to_vec().map_err(|e| e.to_string())?)
 }
 
 /// 两层相距15厘米且互不连接。模型直接嵌入场景私有 GLB，保存仍走原摆放事务。

@@ -65,6 +65,7 @@ pub(super) fn drive(
             session.last_used = stamp;
             if !session.dirty() {
                 session.source_changed = true;
+                session.external_change_confirmed = false;
             }
         }
     }
@@ -84,6 +85,7 @@ pub(super) fn drive(
                 && let Some(session) = state.sessions.get_mut(path)
             {
                 session.source_changed = true;
+                session.external_change_confirmed = false;
             }
         }
         state.model_generation = generation;
@@ -118,11 +120,15 @@ pub(super) fn drive(
         // 同一路径第二次热更新可先于上一轮后台结果到达；保留新标记并沿唯一槽重验最新代。
         // 切到其他文件时仍按原 path 更新其停放会话，不能把正常后台完成误当成串源。
         let imported = matches!(&completed, TaskResult::Edit { action: PendingAction::Edit(Edit::ImportClips { .. }), .. });
+        let material = matches!(&completed, TaskResult::Edit { action, .. } if state.sessions.get(&work.path).is_some_and(|s| s.material_action(action)));
         let completed =
-            if (stale_source && matches!(&completed, TaskResult::Unchanged | TaskResult::Load(_)))
-                || (imported && (!composition_current || !is_current || stale_source)) {
+            if (stale_source && matches!(&completed, TaskResult::Unchanged | TaskResult::DirtySourceChanged | TaskResult::Load(_)))
+                || (imported && (!composition_current || !is_current || stale_source))
+                // 同文件材质撤销编辑的是已冻结的作者草稿。子资产在原路径换代不能吞掉用户刚确认的历史动作。
+                || (material && (!is_current || !host.open || host.closing || host.switching_scene || host.weights_own_viewport || !media.active(host.tab))) {
                 if stale_source && let Some(session) = state.sessions.get_mut(&work.path) {
                     session.source_changed = true;
+                    session.external_change_confirmed = false;
                 }
                 state.failed = None;
                 if is_current {
@@ -173,10 +179,18 @@ pub(super) fn drive(
                 TaskResult::Unchanged => {
                     if let Some(session) = state.sessions.get_mut(&work.path) {
                         session.source_changed = false;
+                        session.external_change_confirmed = false;
                     }
                     if is_current {
                         state.status = "磁盘动作未变化，已保留原草稿与历史".to_owned();
                     }
+                }
+                TaskResult::DirtySourceChanged => {
+                    if let Some(session) = state.sessions.get_mut(&work.path) {
+                        session.source_changed = true;
+                        session.external_change_confirmed = true;
+                    }
+                    if is_current { state.status = "磁盘 GLB 已被其他工具修改，当前草稿与历史已保留".into(); }
                 }
                 TaskResult::Load(result) => match result {
                     Ok(mut session) => {
@@ -211,8 +225,7 @@ pub(super) fn drive(
                         let document = Arc::new(document);
                         let retired = if let Some(session) = state.sessions.get_mut(&work.path) {
                             let previous = std::mem::replace(&mut session.document, document);
-                            let previous_metadata =
-                                std::mem::replace(&mut session.metadata, metadata);
+                            let previous_metadata = metadata.map(|next| std::mem::replace(&mut session.metadata, next));
                             let mut retired_history = Vec::new();
                             let applied_edit = match &action {
                                 PendingAction::Edit(edit) => Some(edit),
@@ -242,12 +255,12 @@ pub(super) fn drive(
                                 | PendingAction::Reload
                                 | PendingAction::Command(_) => unreachable!(),
                             }
-                            session.pose = None;
+                            if !material { session.pose = None; }
                             clips_changed = previous.clips.len() != session.document.clips.len();
                             if clips_changed || renamed_clip && session.clip != target.0 {
                                 // 删除后选列表中相邻的片段，撤销删除直接选中还原的身份。
                                 session.select_clip(target.0);
-                            } else if !renamed_clip {
+                            } else if !renamed_clip && !material {
                                 let channels = &session.document.clips[target.0].channels;
                                 channels_changed = channels.len() != previous.clips[target.0].channels.len();
                                 session.clip = target.0;
@@ -268,13 +281,13 @@ pub(super) fn drive(
                             }
                             Retired::Document {
                                 document: previous,
-                                metadata: Some(previous_metadata),
+                                metadata: previous_metadata,
                                 history: retired_history,
                             }
                         } else {
                             Retired::Document {
                                 document,
-                                metadata: Some(metadata),
+                                metadata,
                                 history: Vec::new(),
                             }
                         };
@@ -291,7 +304,9 @@ pub(super) fn drive(
                                 // 同源 Scene0 的已就绪映射包含全部节点。失败/在途映射及外部绑定按新通道复验。
                                 state.model_binding_revision = state.model_binding_revision.wrapping_add(1);
                             }
-                            state.status = if created_clip && !stale_source {
+                            state.status = if material {
+                                "材质槽草稿已更新"
+                            } else if created_clip && !stale_source {
                                 "新动画已创建，可进入动画编辑"
                             } else {
                                 "动画草稿已更新"
@@ -308,11 +323,13 @@ pub(super) fn drive(
                     state.project_save_receipt = Some((work.path.clone(), result.as_ref().map(|_| ()).map_err(Clone::clone)));
                     match result {
                     Ok(document) => {
+                        let saved_materials = document.has_material_draft();
                         let document = Arc::new(document);
                         let previous = if let Some(session) = state.sessions.get_mut(&work.path) {
                             let previous = std::mem::replace(&mut session.document, document);
                             session.saved_cursor = Some(session.cursor);
                             session.source_changed = stale_source;
+                            session.external_change_confirmed = false;
                             previous
                         } else {
                             document
@@ -324,8 +341,8 @@ pub(super) fn drive(
                             history: Vec::new(),
                         });
                         if is_current {
-                            state.status =
-                                "动画已原子保存到原GLB；重新加载可复用修改后的动作".to_owned();
+                            state.status = if saved_materials { "材质槽和文档草稿已保存到原 GLB" }
+                                else { "动画已原子保存到原GLB；重新加载可复用修改后的动作" }.to_owned();
                         }
                     }
                     Err(error) => {
@@ -401,7 +418,7 @@ pub(super) fn drive(
         } else if state.failed != state.active
             && state
                 .current()
-                .is_some_and(|session| session.source_changed && !session.dirty())
+                .is_some_and(|session| session.source_changed && (!session.dirty() || !session.external_change_confirmed))
         {
             launch(&mut state, PendingAction::Reload, documents.asset_root());
         }
@@ -448,7 +465,8 @@ pub(super) fn drive(
 
 fn launch(state: &mut AnimationEditorState, action: PendingAction, asset_root: &Path) {
     // 任务采用前再核对当前权限。工程关闭保存走独立入口，仍可保存停放草稿。
-    if !state.editable() && !matches!(&action,
+    let material = state.current().is_some_and(|s| s.material_action(&action));
+    if !state.editable() && !material && !matches!(&action,
         PendingAction::Reload
             | PendingAction::Command(super::editing::Command::Copy { .. } | super::editing::Command::CreateClip
                 | super::editing::Command::ImportClips { .. })
@@ -511,7 +529,7 @@ fn launch(state: &mut AnimationEditorState, action: PendingAction, asset_root: &
                     Ok(edit) => {
                         let mut document = (*snapshot).clone();
                         let result = edit.apply(&mut document, true).map(|_| {
-                            let metadata = Metadata::new(&document);
+                            let metadata = Some(Metadata::new(&document));
                             (document, metadata)
                         });
                         let target = edit.target();
@@ -530,9 +548,7 @@ fn launch(state: &mut AnimationEditorState, action: PendingAction, asset_root: &
         return;
     }
     if matches!(action, PendingAction::Reload) {
-        if session.dirty() {
-            return;
-        }
+        let keep_draft = session.dirty();
         state.failed = None;
         state.status = "正在后台重新载入动作".to_owned();
         let source = path.clone();
@@ -544,6 +560,7 @@ fn launch(state: &mut AnimationEditorState, action: PendingAction, asset_root: &
             task: IoTaskPool::get().spawn(async move {
                 match snapshot.disk_unchanged(&source) {
                     Ok(true) => TaskResult::Unchanged,
+                    Ok(false) if keep_draft => TaskResult::DirtySourceChanged,
                     Ok(false) => {
                         TaskResult::Load(load_project_animation(&root, &source))
                     }
@@ -584,7 +601,7 @@ fn launch(state: &mut AnimationEditorState, action: PendingAction, asset_root: &
             }
         };
         let forward = !matches!(action, PendingAction::Undo);
-        state.playing = false;
+        if !material { state.playing = false; }
         state.work = Some(Work {
             path,
             generation,
@@ -606,7 +623,7 @@ fn launch(state: &mut AnimationEditorState, action: PendingAction, asset_root: &
                     *after = document.clips[clip].channels[channel].keys[index].clone();
                 }
                 let document = result.map(|_| {
-                    let metadata = Metadata::new(&document);
+                    let metadata = (!material).then(|| Metadata::new(&document));
                     (document, metadata)
                 });
                 TaskResult::Edit {
@@ -633,7 +650,8 @@ pub(super) fn launch_save(state: &mut AnimationEditorState, path: &std::path::Pa
     let path = path.to_path_buf();
     let source = path.clone();
     state.project_save_receipt = None;
-    state.status = "正在后台校验磁盘版本并保存动画".to_owned();
+    state.status = if snapshot.has_material_draft() { "正在校验磁盘版本并保存 GLB" }
+        else { "正在后台校验磁盘版本并保存动画" }.to_owned();
     state.work = Some(Work {
         path, generation, saving: true,
         task: IoTaskPool::get().spawn(async move { TaskResult::Save(snapshot.save_rebased(&source)) }),

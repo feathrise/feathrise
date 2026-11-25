@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 /// 冻结的整组待校验输入；最多256成员，只保存有限精确点及共享BVH。
 pub(super) struct CourtyardGroundWork {
     pub(super) validator: CourtyardBuildingValidator,
-    pub(super) candidates: Vec<(ScenePlacementRecord, Option<BuildingPresetDescriptor>)>,
+    pub(super) candidates: Vec<(ScenePlacementRecord, Option<std::sync::Arc<BuildingPresetDescriptor>>)>,
     pub(super) excluded_ids: BTreeSet<String>,
     pub(super) query: Option<BuildingGroundQuery>,
 }

@@ -16,4 +16,5 @@ mod types;
 pub(in super::super) use gpu_tests::gpu_assert_references;
 pub(super) use helpers::{accepts, in_scope, valid_target};
 pub(super) use scanner::{collect_json, match_json};
+pub(super) use types::PathReference;
 pub(super) use sources::scan_sources;

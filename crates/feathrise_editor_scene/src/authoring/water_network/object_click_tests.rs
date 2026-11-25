@@ -39,6 +39,7 @@ fn fixture() -> (SceneEditorState, EditorAuthoringSession, TerrainGroundCursor) 
     let mut ground = TerrainGroundCursor::default();
     ground.test_paint_hit(terrain.clone(), Vec3::ZERO, None);
     ground.identity = Some(CursorIdentity {
+        wall_epoch: None,
         scene_id: draft.scene_id.clone(),
         revision: session.revision,
         terrain_revision: session.terrain_revision,

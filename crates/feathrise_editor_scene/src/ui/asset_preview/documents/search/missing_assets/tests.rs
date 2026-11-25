@@ -60,6 +60,7 @@ fn missing_assets_fields_arrays_and_subassets_keep_precise_unicode_locations() {
     );
     assert_eq!(result.files[0].path, "config/雪.json");
     let hit = &result.files[0].hits[0];
+    assert_eq!(hit.missing_path.as_deref(), Some("gltf/雪.glb"));
     assert_eq!((hit.line, hit.column), (2, 17));
     assert_eq!(&body[hit.range.clone()], "\"gltf/雪.glb#Scene0\"");
     assert!(
@@ -241,6 +242,7 @@ fn missing_assets_path_collection_and_metadata_budgets_cannot_claim_complete_suc
         let result = check_file(
             Arc::from(r#"{"path":"folder/ok.glb"}"#),
             &root,
+            "config/test.json",
             MAX_HITS,
             &mut checked,
             &mut metadata,

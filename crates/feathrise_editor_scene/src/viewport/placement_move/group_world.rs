@@ -278,7 +278,7 @@ impl MoveWorld<'_, '_> {
             ));
         }
         session.push_bounded_water_history(crate::authoring::EditorCommand::CourtyardBatch(
-            Box::new(history),
+            std::sync::Arc::new(history),
         ));
         session.mark_changed(editor);
         Ok(Some(retired))

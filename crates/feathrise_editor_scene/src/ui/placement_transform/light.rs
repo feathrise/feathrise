@@ -7,7 +7,7 @@ use feathrise_scene_content::ScenePlacementRecord;
 pub(crate) enum LightField { Red, Green, Blue, Intensity, Range, InnerAngle, OuterAngle }
 
 impl LightField {
-    pub(super) const fn label(self) -> &'static str {
+    pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::Red => "R", Self::Green => "G", Self::Blue => "B", Self::Intensity => "光强",
             Self::Range => "照射范围", Self::InnerAngle => "内锥半角", Self::OuterAngle => "外锥半角",
@@ -30,7 +30,7 @@ impl LightField {
         }
     }
 
-    pub(super) fn value(self, record: &ScenePlacementRecord) -> Option<f32> {
+    pub(crate) fn value(self, record: &ScenePlacementRecord) -> Option<f32> {
         let (rgb, intensity, range, cone) = local_lights::parameters(&record.asset_target)?;
         Some(match self {
             Self::Red => rgb[0], Self::Green => rgb[1], Self::Blue => rgb[2], Self::Intensity => intensity,

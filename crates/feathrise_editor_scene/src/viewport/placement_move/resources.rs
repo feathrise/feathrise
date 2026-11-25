@@ -16,11 +16,16 @@ pub(crate) struct PlacementMoveState {
 }
 
 impl PlacementMoveState {
+    /// 右栏仅借用本笔光学属性预览；已保存记录与历史在释放前不变。
+    pub(crate) fn light_preview(&self, scene: &feathrise_scene_content::SceneId, id: &str) -> Option<&feathrise_scene_content::ScenePlacementRecord> {
+        self.drag.as_ref().filter(|drag| matches!(drag.handle, MoveHandle::Light(_)) && drag.valid
+            && &drag.scene_id == scene && drag.before.id == id).map(|drag| &drag.preview)
+    }
     /// 常驻游戏只读原手势已经采用的值；不暴露可变事务，也不另行计算鼠标或写历史。
     pub(crate) fn embedded_single(&self) -> Option<(&feathrise_scene_content::SceneId, usize, u64, u64,
         &feathrise_scene_content::ScenePlacementRecord, Mat4)> {
         let drag = self.drag.as_ref().or_else(|| self.pending_building.as_ref().map(|pending| &pending.drag))?;
-        if drag.animation.is_some() { return None; } // 动画时间轴自己拥有临时姿势，不发普通摆放接管意图。
+        if drag.animation.is_some() || matches!(drag.handle, MoveHandle::Light(_)) { return None; } // 时间轴姿势与光学参数均不接管工程进程的摆放矩阵。
         Some((&drag.scene_id, drag.record_index, drag.author_revision, drag.structure_revision, &drag.before, drag.applied_world))
     }
 
@@ -47,7 +52,7 @@ impl PlacementMoveState {
     pub(crate) fn grid_reference(&self, control: bool) -> Option<(Vec3, Vec3, feathrise_editor_core::EditorTranslationSnap)> {
         if let Some(group) = &self.group { return Some((group.origin, group.origin + group.delta, group.snapping.translation_snap(control, group.origin.to_array()))); }
         let drag = self.drag.as_ref().or_else(|| self.pending_building.as_ref().map(|pending| &pending.drag))?;
-        Some((drag.world_origin, drag.preview_world_position(), drag.translation_snap()))
+        (!matches!(drag.handle, MoveHandle::Light(_))).then(|| (drag.world_origin, drag.preview_world_position(), drag.translation_snap()))
     }
     pub(crate) fn multi_transform_active(&self) -> bool { self.group.is_some() }
     pub(crate) fn group_delta(&self) -> Vec3 { self.group.as_ref().map_or(Vec3::ZERO, |group| group.delta) }

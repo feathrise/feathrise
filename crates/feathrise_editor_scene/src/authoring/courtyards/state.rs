@@ -75,6 +75,7 @@ pub(super) struct OperationIdentity {
 
 /// 新落印、移动、旋转和复制共用一个结果协议。
 pub(super) struct OperationResult {
+    pub(super) wall: Option<Box<super::wall::WallSubmission>>, // 捕获前缀、精确地基重试和最终交换属于同一笔。
     pub(super) identity: OperationIdentity,
     pub(super) source: Vec<(usize, ScenePlacementRecord)>,
     pub(super) creates_new: bool,
@@ -94,9 +95,24 @@ struct PendingVisualRecord {
 }
 
 /// 一个场景的分帧世界同步队列。
-struct PendingVisualSync {
+pub(crate) struct PendingVisualSync {
     scene_id: SceneId,                        // 切换场景后整队丢弃，绝不污染另一场景。
     items: VecDeque<PendingVisualRecord>, // 多个历史动作按发生顺序追加，世界同步按帧推进。
+}
+
+impl PendingVisualSync {
+    /// 后台把整笔结果组装为可直接安装的队列；ECS 每帧仍只消费既有预算。
+    pub(crate) fn prepare(scene_id: SceneId, structure_revision: u64,
+        updates: impl Iterator<Item = (usize, ScenePlacementRecord, bool)>) -> Self {
+        let items = updates.map(|(index, record, visible)| PendingVisualRecord {
+            index, record, visible, structure_revision,
+        }).collect();
+        Self { scene_id, items }
+    }
+
+    fn retire(self, commands: &mut Commands) {
+        commands.queue(move |world: &mut World| world.get_resource_or_init::<crate::authoring::AuthoringRetirement>().push(self));
+    }
 }
 
 /// 所有院落工作保持最多一个 CPU 校验、一个目录 IO 事务和一条视觉队列。
@@ -104,13 +120,28 @@ struct PendingVisualSync {
 pub(crate) struct CourtyardAuthoringState {
     pub(super) index: CourtyardSelectionIndex,
     pub(super) catalog_task: Option<CatalogTask>,
-    pub(super) operation_task: Option<Task<OperationResult>>,
+    pub(super) operation_task: Option<Task<Option<OperationResult>>>,
     pub(super) operation_waiting: Option<OperationResult>,
     pub(super) ticket: u64,
     visual_sync: Option<PendingVisualSync>, // 操作/历史采用后只分帧同步ECS画面。
 }
 
 impl CourtyardAuthoringState {
+    pub(super) fn start(&mut self, work: impl std::future::Future<Output = OperationResult> + Send + 'static) {
+        debug_assert!(self.operation_task.is_none());
+        self.operation_task = Some(bevy::tasks::AsyncComputeTaskPool::get().spawn(async move { Some(work.await) }));
+    }
+    pub(super) fn retire<T: Send + 'static>(&mut self, value: T) {
+        debug_assert!(self.operation_task.is_none());
+        self.operation_task = Some(bevy::tasks::AsyncComputeTaskPool::get().spawn(async move { drop(value); None }));
+    }
+    pub(super) fn discard(&mut self, result: OperationResult) {
+        if result.wall.is_some() { self.retire(result); }
+    }
+    pub(crate) fn adopt_visuals(&mut self, visuals: PendingVisualSync) {
+        debug_assert!(!self.visual_sync_pending());
+        self.visual_sync = Some(visuals);
+    }
     pub(crate) fn operation_pending(&self) -> bool {
         self.operation_task.is_some() || self.operation_waiting.is_some()
     }
@@ -136,6 +167,7 @@ mod queue_liveness_tests; // 单成员来源失效或等待不能丢弃整条有
 
 /// 作者数据及历史已采用后入队；完整记录复核确保迟到任务不会覆盖单成员新编辑。
 pub(crate) fn queue_visual_sync(
+    commands: &mut Commands,
     state: &mut CourtyardAuthoringState,
     session: &EditorAuthoringSession,
     updates: Vec<(usize, ScenePlacementRecord, bool)>,
@@ -148,7 +180,7 @@ pub(crate) fn queue_visual_sync(
         .as_ref()
         .is_some_and(|pending| pending.scene_id != draft.scene_id)
     {
-        state.visual_sync = None; // 上张图的队列不能跨场景应用。
+        if let Some(stale) = state.visual_sync.take() { stale.retire(commands); }
     }
     let queue = state.visual_sync.get_or_insert_with(|| PendingVisualSync {
         scene_id: draft.scene_id.clone(),
@@ -186,14 +218,10 @@ pub(crate) fn sync_visuals(
             return;
         };
         let pending_scene_id = pending.scene_id.clone(); // NLL 结束队列借用，下面可读取分帧索引。
-        let Some(draft) = session.draft.as_ref() else {
-            state.visual_sync = None;
+        let Some(draft) = session.draft.as_ref().filter(|draft| draft.scene_id == pending_scene_id) else {
+            if let Some(stale) = state.visual_sync.take() { stale.retire(&mut commands); }
             return;
         };
-        if draft.scene_id != pending_scene_id {
-            state.visual_sync = None; // 切换场景时整批丢弃。
-            return;
-        }
         let still_valid = if item.structure_revision == session.placement_structure_revision {
             let current = draft.placements.placements.get(item.index);
             if item.visible {

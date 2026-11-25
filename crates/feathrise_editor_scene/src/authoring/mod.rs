@@ -24,6 +24,7 @@ mod delete; // 受保护场景校验、传送引用检查与可恢复后台删�
 mod density_overlay; // 当前植被层以局部即时、全层后台方式覆盖到地形网格。
 mod edit; // 显式模型与传送点放置、目标选择和撤销重做。
 mod placement_collision;
+mod placement_append; // 沿线确认和整批历史共享有界摆放捕获与追加检查。
 mod environment; // 场景天空作者修改和F12正式天气预览同步，场景气候只读。
 mod environment_input; // 天空亮度、方向与天气过渡复用公共专业数值框。
 mod files; // 受限于assets/scenes的原子文件替换工具。

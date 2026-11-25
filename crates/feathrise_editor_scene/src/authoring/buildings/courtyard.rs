@@ -5,6 +5,7 @@
 
 use std::collections::BTreeSet; // 旧组排除ID只在显式整体操作边沿构造。
 use std::sync::Arc; // 原有8192项建筑索引只克隆强句柄。
+use std::borrow::Borrow;
 
 use bevy::prelude::*; // Rect、Vec2、Vec3与公共四边形使用同一数学语义。
 use feathrise_scene_content::{
@@ -16,6 +17,7 @@ use feathrise_scene::DynamicClipmapGroundSurface; // 一整组仍由正式建筑
 use super::index::current_identity; // 快照只能匹配当前作者、结构和建筑目录修订。
 use super::resources::BuildingAuthoringState; // 复用唯一已采用空间索引。
 use super::types::{BuildingGroundQuery, BuildingSpatialIndex, union_rect}; // BVH宽相位与单栋落点共用。
+use super::types::{BuildingBounds, BuildingBoundsTree};
 use crate::authoring::{EditorAuthoringSession, PlacementTerrainSampler}; // 地形只共享Arc量化高度。
 
 const QUARTER_TURN_EPSILON: f32 = 0.001; // 与单栋建筑允许的九十度档位一致。
@@ -84,9 +86,9 @@ pub(in crate::authoring) fn courtyard_validator_snapshot(
 
 impl CourtyardBuildingValidator {
     /// 院落最多256成员；点集在worker生成，装饰保留原点跟随，建筑保留独立五点。
-    pub(in crate::authoring) fn prepare_ground(
+    pub(in crate::authoring) fn prepare_ground<P: Borrow<BuildingPresetDescriptor>>(
         &mut self,
-        candidates: &[(ScenePlacementRecord, Option<BuildingPresetDescriptor>)],
+        candidates: &[(ScenePlacementRecord, Option<P>)],
         query: &mut Option<BuildingGroundQuery>,
     ) -> Result<bool, String> {
         let Some(sampler) = self.sampler.as_ref() else {
@@ -100,7 +102,7 @@ impl CourtyardBuildingValidator {
                 sampler,
                 candidates.iter().flat_map(|(record, preset)| {
                     if let Some(preset) = preset {
-                        preset
+                        preset.borrow()
                             .world_footprint(record.translation, record.yaw_degrees, record.scale)
                             .foundation_samples()
                             .to_vec()
@@ -147,14 +149,15 @@ impl CourtyardBuildingValidator {
 mod clipmap_tests;
 
 /// 后台完整校验并解析一组候选的最终世界高度。
-pub(in crate::authoring) fn validate_courtyard_batch(
+pub(in crate::authoring) fn validate_courtyard_batch<P: Borrow<BuildingPresetDescriptor>>(
     validator: &CourtyardBuildingValidator, // 已冻结同代旧建筑索引与地形。
-    mut candidates: Vec<(ScenePlacementRecord, Option<BuildingPresetDescriptor>)>, // 小型完整候选，预设由当前目录明确解析。
+    mut candidates: Vec<(ScenePlacementRecord, Option<P>)>,
     excluded_ids: &BTreeSet<String>, // 移动旧院落时只排除原组成员，复制或新落印为空。
 ) -> Result<Vec<ScenePlacementRecord>, String> {
-    let mut accepted_buildings = Vec::<(String, BuildingWorldQuad, BuildingWorldQuad)>::new(); // 同组新建筑互相检查。
+    let mut accepted_buildings = Vec::new();
     for (record, preset) in &mut candidates {
         if let Some(preset) = preset {
+            let preset = P::borrow(preset);
             if record.building_preset_id.as_deref() != Some(preset.id.as_str())
                 || record.asset_path != preset.asset_path
                 || record.asset_target != preset.asset_target
@@ -228,18 +231,7 @@ pub(in crate::authoring) fn validate_courtyard_batch(
                     )); // 保留具体双方身份。
                 }
             }
-            for (prior_id, prior_footprint, prior_entrance) in &accepted_buildings {
-                if footprint.overlaps(*prior_footprint)
-                    || entrance.overlaps(*prior_footprint)
-                    || footprint.overlaps(*prior_entrance)
-                {
-                    return Err(format!(
-                        "院落内建筑{}与{}占地或门前空间冲突",
-                        record.id, prior_id
-                    )); // 组内也必须完整合法。
-                }
-            }
-            accepted_buildings.push((record.id.clone(), footprint, entrance)); // 后续成员只检查此前已受检项。
+            accepted_buildings.push(BatchFootprint { id: record.id.clone(), footprint, entrance, bounds: query_bounds });
         } else if record.building_preset_id.is_some() {
             return Err(format!("院落成员{}引用了未知建筑预设", record.id)); // 目录缺失不得当普通GLB跳过规则。
         } else if record.height_mode.follows_terrain() {
@@ -263,5 +255,26 @@ pub(in crate::authoring) fn validate_courtyard_batch(
         }
         record.validated_transform(&validator.scene_id, validator.bounds)?; // 最终成员的数值和场景范围与正式运行时共享。
     }
+    let tree = BuildingBoundsTree::build(&accepted_buildings);
+    for (index, building) in accepted_buildings.iter().enumerate() {
+        for other in tree.query(&accepted_buildings, building.bounds).into_iter().filter(|i| *i < index) {
+            let previous = &accepted_buildings[other];
+            if building.footprint.overlaps(previous.footprint) || building.entrance.overlaps(previous.footprint)
+                || building.footprint.overlaps(previous.entrance) {
+                return Err(format!("院落内建筑{}与{}占地或门前空间冲突", building.id, previous.id));
+            }
+        }
+    }
     Ok(candidates.into_iter().map(|(record, _)| record).collect()) // 全组成功后才交给主线程作者事务。
+}
+
+struct BatchFootprint {
+    id: String,
+    footprint: BuildingWorldQuad,
+    entrance: BuildingWorldQuad,
+    bounds: Rect,
+}
+impl BuildingBounds for BatchFootprint {
+    fn bounds(&self) -> Rect { self.bounds }
+    fn id(&self) -> &str { &self.id }
 }

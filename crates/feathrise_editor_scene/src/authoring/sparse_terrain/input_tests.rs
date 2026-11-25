@@ -73,6 +73,7 @@ impl Fixture {
         let session = self.app.world().resource::<EditorAuthoringSession>();
         let editor = self.app.world().resource::<SceneEditorState>();
         let identity = CursorIdentity { scene_id: self.map.clone(), revision: session.revision, terrain_revision: session.terrain_revision,
+            wall_epoch: None,
             tool: editor.tool, ground_snapshot: None, asset: None, asset_target: None, portal: None,
             camera: Mat4::IDENTITY, size: UVec2::splat(128), camera_entity: Entity::PLACEHOLDER, projection: Mat4::IDENTITY,
             view: editor.view, orthographic: false, extent: 16_f32.to_bits(), visibility: 0, relocation: None, translation_snap: None };

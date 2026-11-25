@@ -52,7 +52,8 @@ pub(crate) fn building_tools_panel() -> impl Scene {
                 Node { width: percent(100), column_gap: px(4), flex_shrink: 0.0 }
                 Children [
                     @tab(BuildingSidebarPage::Single)--
-                    @tab(BuildingSidebarPage::Courtyard)
+                    @tab(BuildingSidebarPage::Courtyard)--
+                    @tab(BuildingSidebarPage::Wall)
                 ]
             --
 
@@ -64,6 +65,10 @@ pub(crate) fn building_tools_panel() -> impl Scene {
                 BuildingSidebarPanel(BuildingSidebarPage::Courtyard)
                 Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                 Children [@courtyard_panel()]
+            --
+                BuildingSidebarPanel(BuildingSidebarPage::Wall)
+                Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }
+                Children [@crate::authoring::courtyards::wall::panel()]
             --
 
                 // 切页只收起现有节点，名称输入、目录行与每域反馈都不会重建或被另一域覆盖。

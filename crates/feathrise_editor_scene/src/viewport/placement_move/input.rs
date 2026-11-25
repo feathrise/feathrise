@@ -240,6 +240,7 @@ fn drag_is_current(
                 && record.terrain_offset == drag.before.terrain_offset
                 && placement_rotation(record) == placement_rotation(&drag.before)
                 && record.scale == drag.before.scale
+                && (!matches!(drag.handle, MoveHandle::Light(_)) || record.asset_target == drag.before.asset_target)
                 && record.terrain_patch == drag.before.terrain_patch
                 && session.draft.as_ref().is_some_and(|draft| placement_record_frame(draft, record) == Ok(drag.frame))
         })
@@ -302,7 +303,10 @@ pub(crate) fn handle_placement_move(
     let camera = viewport.as_ref().and_then(|viewport| {
         node.and_then(|(_, node)| MoveCamera::new(&editor, viewport, node.inverse_scale_factor()))
     });
-    let available = context.available(&editor) && !session.saving && batch.as_ref().is_none_or(|batch| !batch.busy());
+    let can_edit = !session.saving && batch.as_ref().is_none_or(|batch| !batch.busy());
+    let available = can_edit && context.available(&editor);
+    let light_available = can_edit && context.local_gizmos() && (available || context.selection_available(&editor))
+        && multi_selection.as_ref().is_none_or(|selection| selection.members.len() <= 1);
     if state.source_drag.is_some()
         || state.drag.is_none() && state.group.is_none() && state.pending_building.is_none()
             && multi_selection.as_ref().is_none_or(|selection| selection.members.len() <= 1)
@@ -360,7 +364,7 @@ pub(crate) fn handle_placement_move(
         let escaped = keyboard.just_pressed(KeyCode::Escape);
         let chord = mouse.any_pressed([MouseButton::Right, MouseButton::Middle]);
         keyboard.clear(); // 只消费边沿，保留 Ctrl 电平用于吸附；F12/保存/撤销不能泄漏到并行入口。
-        let current = available
+        let current = (if matches!(drag.handle, MoveHandle::Light(_)) { light_available } else { available })
             && drag.formal_runtime_current(world.runtime_status.as_deref())
             && match &drag.animation {
                 Some(edit) => animation.as_deref().is_some_and(|workbench| edit.current(workbench, &drag.scene_id, &drag.before.id)),
@@ -473,10 +477,12 @@ pub(crate) fn handle_placement_move(
             drag.preview.terrain_offset,
             placement_rotation(&drag.preview),
             drag.preview.scale,
+            crate::authoring::local_lights::parameters(&drag.preview.asset_target),
         );
         let was_valid = drag.valid;
         let snapping = drag.snapping.active(keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]));
         let candidate = match drag.handle {
+            MoveHandle::Light(handle) => super::light::update(&mut drag, handle, normalized, moved),
             MoveHandle::RotationY => {
                 let step = if drag.before.building_preset_id.is_some() {
                     90.0
@@ -537,6 +543,8 @@ pub(crate) fn handle_placement_move(
                 .and_then(|position| update_preview(&mut drag, position, sampler.as_ref())),
         }; // 三类手柄只改自己的标量；旋转和缩放不重采样高度或覆盖离地偏移。
         drag.valid = candidate.is_ok();
+        let preview_changed = !was_valid || previous != (drag.preview.translation, drag.preview.terrain_offset,
+            placement_rotation(&drag.preview), drag.preview.scale, crate::authoring::local_lights::parameters(&drag.preview.asset_target));
         if let Err(error) = candidate {
             if drag.handle.mode() == ViewportMode::Move
                 && let Some(snapshot) = clipmap
@@ -554,15 +562,7 @@ pub(crate) fn handle_placement_move(
                 ); // 复用已有有界高度页通道，不创建新的任务槽。
             }
             editor.status = format!("暂不能变换：{error}；松手将取消");
-        } else if !was_valid
-            || previous
-                != (
-                    drag.preview.translation,
-                    drag.preview.terrain_offset,
-                    placement_rotation(&drag.preview),
-                    drag.preview.scale,
-                )
-        {
+        } else if preview_changed {
             if let Err(error) = world.preview(&mut session, &drag.preview) {
                 drag.valid = false;
                 editor.status = format!("变换预览失败：{error}");
@@ -577,19 +577,11 @@ pub(crate) fn handle_placement_move(
                     );
             }
         }
-        if mouse.pressed(MouseButton::Left)
-            && drag.valid
-            && (!was_valid
-                || previous
-                    != (
-                        drag.preview.translation,
-                        drag.preview.terrain_offset,
-                        placement_rotation(&drag.preview),
-                        drag.preview.scale,
-                    ))
-        {
+        if mouse.pressed(MouseButton::Left) && drag.valid && preview_changed {
             let [x, y, z] = drag.preview.translation;
-            let label = if drag.handle.mode() == ViewportMode::Rotate {
+            let label = if matches!(drag.handle, MoveHandle::Light(_)) {
+                "灯光预览"
+            } else if drag.handle.mode() == ViewportMode::Rotate {
                 "旋转预览"
             } else if drag.handle.mode() == ViewportMode::Scale {
                 "缩放预览"
@@ -599,6 +591,7 @@ pub(crate) fn handle_placement_move(
                 "移动预览"
             };
             let detail = match drag.handle {
+                MoveHandle::Light(handle) => handle.value(&drag.preview).map_or_else(String::new, |v| format!("{v:.2}")),
                 MoveHandle::RotationY => format!("{:.1}°", drag.preview.yaw_degrees),
                 MoveHandle::AnimationRotation(_) => {
                     let (x, y, z) = placement_rotation(&drag.preview).to_euler(EulerRot::XYZ);
@@ -647,8 +640,6 @@ pub(crate) fn handle_placement_move(
                     editor.status = "姿态未变化".into();
                 }
             } else {
-                // commit 的失败不能遗留暂存预览；恢复操作使用当前权威记录。
-                world.cancel(&mut session, &drag);
                 match world.commit(&mut session, &mut editor, drag) {
                     Ok(true) => editor.status = "已更新资产变换；本次拖动可撤销".into(),
                     Ok(false) => editor.status = "姿态未变化".into(),
@@ -664,7 +655,7 @@ pub(crate) fn handle_placement_move(
         keyboard.clear();
         return;
     }
-    if !available
+    if !(available || light_available)
         || guard.blocked()
         || context.mode.pointer_over_controls
         || context.candidates.pointer_over_ui
@@ -721,7 +712,11 @@ pub(crate) fn handle_placement_move(
     let handle = pick_placement_handle(context.mode.mode, camera, origin, basis, normalized,
         record.building_preset_id.is_some(), frame_pose.is_none() && yaw_only(record), local)
         .filter(|handle| local || frame_pose.is_none() || handle.mode() != ViewportMode::Rotate);
-    let Some(handle) = handle else {
+    // 轴、平面和旋转环先取得其原有命中区域，灯界只接管剩余指针位置。
+    let optical = if handle.is_none() && light_available && frame_pose.is_none() {
+        super::light::LightGuide::new(origin, basis, record).and_then(|guide| guide.pick(camera, normalized))
+    } else { None };
+    let Some(handle) = handle.or_else(|| optical.map(|(handle, _)| MoveHandle::Light(handle))) else {
         return;
     };
     state.hover = Some(handle);
@@ -756,9 +751,8 @@ pub(crate) fn handle_placement_move(
     {
         return;
     }
-    let Some(start_point) = camera
-        .ray(normalized)
-        .and_then(|ray| handle_point(ray, origin, handle))
+    let Some(start_point) = optical.map(|(_, point)| point).or_else(|| camera.ray(normalized)
+        .and_then(|ray| handle_point(ray, origin, handle)))
     else {
         return;
     };
@@ -796,6 +790,7 @@ pub(crate) fn handle_placement_move(
         valid: true,
         preview_applied: false,
     });
-    editor.status = format!("正在拖动 {}；Ctrl 吸附，Esc 取消", handle.label());
+    editor.status = if matches!(handle, MoveHandle::Light(_)) { format!("正在拖动 {}；Esc 取消", handle.label()) }
+        else { format!("正在拖动 {}；Ctrl 吸附，Esc 取消", handle.label()) };
     keyboard.clear();
 }

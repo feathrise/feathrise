@@ -7,19 +7,22 @@ use feathrise_editor_ui::{ActiveNumericInput, NumericInputConfig, NumericInputDi
 use feathrise_scene::ScenePlacementInstance;
 
 pub(super) const SCREENSHOT: &str = "scene-tree-local-lights.png";
+pub(super) const POINT_SCREENSHOT: &str = "scene-tree-point-light-range.png";
+#[path = "light_handles.rs"]
+mod handles;
 
 const POINT: &[(Field, f32)] = &[
     (Field::TranslationY, 3.5), (Field::Light(LightField::Red), 0.25),
-    (Field::Light(LightField::Intensity), 650.0), (Field::Light(LightField::Range), 9.0),
+    (Field::Light(LightField::Intensity), 650.0), (Field::Light(LightField::Range), 7.0),
 ];
 const SPOT: &[(Field, f32)] = &[
     (Field::TranslationY, 5.5), (Field::RotationX, -45.0), (Field::Light(LightField::Blue), 0.5),
-    (Field::Light(LightField::Intensity), 850.0), (Field::Light(LightField::InnerAngle), 15.0),
-    (Field::Light(LightField::OuterAngle), 32.0), (Field::Light(LightField::Range), 14.0),
+    (Field::Light(LightField::Intensity), 850.0), (Field::Light(LightField::InnerAngle), 8.0),
+    (Field::Light(LightField::OuterAngle), 24.0), (Field::Light(LightField::Range), 11.0),
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in super::super) enum Step { Input(usize), ClickIntensity(usize, Entity, u8), TypeIntensity(usize, Entity), ConfirmIntensity(usize), Applied(usize), Undo, Redo, WaitRenderer, Screenshot }
+pub(in super::super) enum Step { Input(usize), ClickIntensity(usize, Entity, u8), TypeIntensity(usize, Entity), ConfirmIntensity(usize), Applied(usize), Undo, Redo, Handles(usize, u8), WaitRenderer, Screenshot }
 
 pub(super) fn advance(world: &mut World, step: &mut Step, spot: bool, revision: &mut u64, pulse: &mut Option<Entity>) -> Result<bool, String> {
     let edits = if spot { SPOT } else { POINT };
@@ -85,13 +88,15 @@ pub(super) fn advance(world: &mut World, step: &mut Step, spot: bool, revision: 
             match *step {
                 Step::Applied(_) => { *pulse = Some(press(world, crate::types::EditorAction::Undo)?); *step = Step::Undo; }
                 Step::Undo => { *pulse = Some(press(world, crate::types::EditorAction::Redo)?); *step = Step::Redo; }
-                _ if !spot => return Ok(true),
-                _ => *step = Step::WaitRenderer,
+                _ => { handles::frame(world, spot)?; *step = Step::Handles(0, 0); }
             }
         }
+        Step::Handles(index, phase) => {
+            *step = handles::advance(world, spot, index, phase, revision, pulse)?;
+        }
         Step::WaitRenderer => {
-            if rendered(world).is_none() || !inspector_shows_spot(world) { return Ok(false); }
-            request_screenshot(world, SCREENSHOT)?;
+            if spot && (rendered(world).is_none() || !inspector_shows_spot(world)) { return Ok(false); }
+            request_screenshot(world, if spot { SCREENSHOT } else { POINT_SCREENSHOT })?;
             *step = Step::Screenshot;
         }
         Step::Screenshot => {
@@ -124,9 +129,11 @@ fn inspector_shows_spot(world: &mut World) -> bool {
     let mut labels = world.query::<(&NumericInputDisplayText, &Text, &ComputedNode)>();
     SPOT.iter().chain(&extra).all(|(field, value)| {
         let Some((entity, _, current, config)) = fields.iter(world).find(|(_, candidate, ..)| *candidate == field) else { return false; };
-        let expected = NumericValue::F32(*value);
-        current.0 == expected && labels.iter(world).any(|(label, text, node)| label.root == entity && !node.is_empty()
-            && text.as_str() == format_numeric_value(expected, config.0))
+        let expected = match field { Field::Light(LightField::Range) => 14.0, Field::Light(LightField::InnerAngle) => 15.0,
+            Field::Light(LightField::OuterAngle) => 32.0, _ => *value };
+        matches!(current.0, NumericValue::F32(actual) if (actual - expected).abs() < 0.08)
+            && labels.iter(world).any(|(label, text, node)| label.root == entity && !node.is_empty()
+            && text.as_str() == format_numeric_value(current.0, config.0))
     })
 }
 
@@ -136,13 +143,14 @@ pub(super) fn rendered(world: &mut World) -> Option<Value> {
     for (placement, transform, point, spot) in world.query::<(&ScenePlacementInstance, &Transform, Option<&PointLight>, Option<&SpotLight>)>().iter(world) {
         if !placement.is_active() || placement.scene_id().as_str() != "M1-SAMPLE" { continue; }
         let close = |a: f32, b: f32| (a - b).abs() < 0.001;
+        let dragged = |a: f32, b: f32| (a - b).abs() < 0.08;
         if let Some(point) = point && close(transform.translation.y, POINT[0].1) && point.color == Color::linear_rgb(0.25, 1.0, 1.0)
-            && close(point.intensity / (4.0 * std::f32::consts::PI), 650.0) && close(point.range, 9.0) {
+            && close(point.intensity / (4.0 * std::f32::consts::PI), 650.0) && dragged(point.range, 9.0) {
             ids[0] = Some(placement.id().to_owned());
         }
         if let Some(spot) = spot && close(transform.translation.y, SPOT[0].1) && spot.color == Color::linear_rgb(1.0, 1.0, 0.5)
-            && close(spot.intensity / (4.0 * std::f32::consts::PI), 850.0) && close(spot.range, 14.0)
-            && close(spot.inner_angle.to_degrees(), 15.0) && close(spot.outer_angle.to_degrees(), 32.0)
+            && close(spot.intensity / (4.0 * std::f32::consts::PI), 850.0) && dragged(spot.range, 14.0)
+            && dragged(spot.inner_angle.to_degrees(), 15.0) && dragged(spot.outer_angle.to_degrees(), 32.0)
             && transform.rotation.dot(Quat::from_rotation_x(-45f32.to_radians())).abs() > 0.99999 {
             ids[1] = Some(placement.id().to_owned());
         }

@@ -57,6 +57,7 @@ pub(crate) enum MoveHandle {
     AxisScale(MoveAxis),
     PlaneScale(MovePlane),
     UniformScale,
+    Light(super::light::LightHandle),
 }
 
 impl MoveHandle {
@@ -69,6 +70,7 @@ impl MoveHandle {
             Self::RotationY => "Y 轴旋转",
             Self::AnimationRotation(axis) => axis.label(),
             Self::UniformScale => "等比缩放",
+            Self::Light(handle) => handle.label(),
         }
     }
 
@@ -96,6 +98,7 @@ impl MoveHandle {
             Self::Axis(_) | Self::XyPlane | Self::XzPlane | Self::YzPlane => ViewportMode::Move,
             Self::RotationY | Self::AnimationRotation(_) => ViewportMode::Rotate,
             Self::AxisScale(_) | Self::PlaneScale(_) | Self::UniformScale => ViewportMode::Scale,
+            Self::Light(_) => ViewportMode::Select, // 灯具边界在选择和普通变换工具中均可操作。
         }
     }
 }

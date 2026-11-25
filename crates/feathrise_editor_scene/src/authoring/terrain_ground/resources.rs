@@ -38,6 +38,7 @@ impl PartialEq for CursorGroundSnapshot {
 }
 #[derive(Clone, PartialEq)]
 pub(crate) struct CursorIdentity {
+    pub wall_epoch: Option<u64>,
     pub scene_id: SceneId, pub revision: u64, pub tool: crate::types::EditorTool,
     pub terrain_revision: u64, pub ground_snapshot: Option<CursorGroundSnapshot>,
     pub asset: Option<String>, pub asset_target: Option<feathrise_scene_content::ScenePlacementAssetTarget>,

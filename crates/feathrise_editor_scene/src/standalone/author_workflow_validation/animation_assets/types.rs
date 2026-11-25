@@ -57,6 +57,7 @@ pub(super) enum Phase {
     ReadCreatedClip,
     VerifyCreatedClipOnDisk,
     Composition,
+    MaterialSlots,
     OpenModel,
     MeshWrite,
     MeshReload,

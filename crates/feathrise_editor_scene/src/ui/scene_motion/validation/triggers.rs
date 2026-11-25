@@ -1,6 +1,7 @@
 //! 点击交互页和视口绘制真实区域，保存与下一进程重开均从场景文档取证。
 use super::*;
 use crate::authoring::scene_motion::MotionRegionAction;
+use crate::authoring::scene_motion::MotionRegion;
 use feathrise_editor_ui::InteractionButton;
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -11,6 +12,12 @@ pub(super) enum Check {
     Draw,
     FirstCorner,
     SecondCorner,
+    Adjust,
+    BeginDrag(bool),
+    Drag { edge: bool, frame: u8, before: MotionRegion, history: usize },
+    UndoEdge { before: MotionRegion, after: MotionRegion },
+    RedoEdge { before: MotionRegion, after: MotionRegion },
+    CheckRedo(MotionRegion),
     Confirm,
     Present(u8),
     Image,
@@ -135,7 +142,7 @@ pub(super) fn save_shortcut(world: &mut World, press: bool) -> Result<(), String
     Ok(())
 }
 
-fn named_button(world: &mut World, label: &str) -> Option<Entity> {
+pub(super) fn named_button(world: &mut World, label: &str) -> Option<Entity> {
     let locale = *world.resource::<feathrise_editor_ui::localization::EditorLocale>();
     let label = locale.editor_label(label);
     world
@@ -171,10 +178,11 @@ fn corner(world: &mut World, run: &mut Run, offset: Vec2) -> Result<bool, String
 pub(super) fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
     use Check::*;
     match run.triggers {
-        Sidebar | Tab | Draw => {
+        Sidebar | Tab | Draw | Adjust => {
             let (text, next) = match run.triggers {
                 Sidebar => ("交互", Tab),
                 Tab => ("动画触发", if run.reopen { Confirm } else { Draw }),
+                Adjust => ("调整区域", BeginDrag(false)),
                 _ => ("绘制新区域", FirstCorner),
             };
             let entity = if matches!(run.triggers, Sidebar) {
@@ -196,8 +204,57 @@ pub(super) fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> 
         }
         SecondCorner => {
             if corner(world, run, Vec2::new(-0.08, 0.21))? {
-                run.triggers = Confirm;
+                run.triggers = Adjust;
             }
+        }
+        BeginDrag(edge) => {
+            let before = region(world)?;
+            let history = world.resource::<EditorAuthoringSession>().undo.len();
+            run.triggers = Drag { edge, frame: 0, before, history };
+        }
+        Drag { edge, frame, before, history } => {
+            use crate::ui::file_manager_validation::{move_cursor, mouse};
+            use bevy::input::ButtonState;
+            let window = world.query_filtered::<Entity, With<PrimaryWindow>>().single(world).map_err(|e| e.to_string())?;
+            let handle = before.center + if edge { Vec3::X * before.half_extents.x } else { Vec3::ZERO };
+            let delta = Vec3::new(before.half_extents.x * 0.45, 0., if edge { 0. } else { before.half_extents.z * 0.25 });
+            let screen = projected(world, if frame < 2 { handle } else { handle + delta })?;
+            match frame {
+                0 => move_cursor(world, window, screen),
+                1 => mouse(world, window, ButtonState::Pressed),
+                2 => move_cursor(world, window, screen),
+                3 => {
+                    if region(world)? != before || world.resource::<EditorAuthoringSession>().undo.len() != history {
+                        return Err("拖动中写入了权威触发区或撤销记录".into());
+                    }
+                    mouse(world, window, ButtonState::Released);
+                }
+                _ => {
+                    let after = region(world)?;
+                    let expected_center = before.center + if edge { delta * 0.5 } else { delta };
+                    let expected_half = before.half_extents + if edge { delta * 0.5 } else { Vec3::ZERO };
+                    let tolerance = delta.length() * 0.08 + 0.02;
+                    if !after.center.abs_diff_eq(expected_center, tolerance) || !after.half_extents.abs_diff_eq(expected_half, tolerance)
+                        || world.resource::<EditorAuthoringSession>().undo.len() != history + 1 {
+                        return Err(format!("区域拖动 {edge} 未按一次操作提交：{before:?} → {after:?}，期望 {expected_center:?} / {expected_half:?}"));
+                    }
+                    run.triggers = if edge { UndoEdge { before, after } } else { BeginDrag(true) };
+                    return Ok(false);
+                }
+            }
+            run.triggers = Drag { edge, frame: frame + 1, before, history };
+        }
+        UndoEdge { before, after } | RedoEdge { before, after } => {
+            let undo = matches!(run.triggers, UndoEdge {..});
+            if !undo && run.click.is_none() && region(world)? != before { return Err("撤销拖边未还原刚平移后的区域".into()); }
+            let button = action_button(world, if undo { EditorAction::Undo } else { EditorAction::Redo });
+            if click(world, run, button)? {
+                run.triggers = if undo { RedoEdge { before, after } } else { CheckRedo(after) };
+            }
+        }
+        CheckRedo(expected) => {
+            if region(world)? != expected { return Err("重做拖边未还原最终尺寸".into()); }
+            run.triggers = Confirm;
         }
         Confirm => {
             proof(world)?;
@@ -217,6 +274,22 @@ pub(super) fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> 
         }
     }
     Ok(false)
+}
+
+fn region(world: &World) -> Result<MotionRegion, String> {
+    let id = clip_id(world, CLIP_NAME).ok_or("缺少电梯片段")?;
+    world.resource::<EditorAuthoringSession>().draft.as_ref().and_then(|d| d.motion.regions(id))
+        .and_then(|r| r.first().copied()).ok_or_else(|| "缺少视口绘制的区域".into())
+}
+
+pub(super) fn projected(world: &mut World, position: Vec3) -> Result<DVec2, String> {
+    let view = world.resource::<crate::resources::SceneEditorViewportState>();
+    let camera = world.get::<Camera>(view.camera).ok_or("缺少视口相机")?;
+    let pose = world.get::<Transform>(view.camera).ok_or("缺少相机姿态")?;
+    let pixel = camera.world_to_viewport(&GlobalTransform::from(*pose), position).map_err(|e| e.to_string())?;
+    let normalized = pixel / view.render_size.as_vec2() - Vec2::splat(0.5);
+    let (node, transform) = world.query_filtered::<(&ComputedNode, &UiGlobalTransform), With<SceneEditorViewport>>().single(world).map_err(|e| e.to_string())?;
+    Ok((transform.translation + node.size() * normalized).as_dvec2())
 }
 
 fn proof(world: &World) -> Result<Value, String> {

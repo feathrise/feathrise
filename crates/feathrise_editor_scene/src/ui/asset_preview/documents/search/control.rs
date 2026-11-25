@@ -105,7 +105,8 @@ pub(super) fn input(
         &mut ScrollPosition,
         With<crate::components::SceneEditorLeftPanelScroll>,
     >,
-    mut external: MessageWriter<crate::ui::external_files::OpenExternalFile>,
+    (mut external, mut file_commands): (MessageWriter<crate::ui::external_files::OpenExternalFile>,
+        Option<ResMut<Messages<crate::ui::file_manager::FileManagerCommand>>>),
 ) {
     let search_window = gate.floating.as_ref().and_then(|browser| browser.search_window());
     let hosted = search_window.is_some();
@@ -238,11 +239,23 @@ pub(super) fn input(
             keys.clear_just_pressed(KeyCode::Escape);
         }
     }
+    // 子按钮和所属结果行可能在同一帧报告释放，只执行子按钮的重新关联操作。
+    if actions.iter().any(|(a, _)| matches!(a, SearchAction::Relink { .. })) {
+        actions.retain(|(a, _)| !matches!(a, SearchAction::Row { .. }));
+    }
     for (action, window_tool) in actions {
         if !matches!(action, SearchAction::Toggle | SearchAction::TextSearch | SearchAction::MissingAssets) && !state.open {
             continue;
         }
         match action {
+            SearchAction::Relink { ticket, index } if shown && ticket == state.ticket => {
+                let Some(result) = state.current().filter(|r| r.missing_assets && r.root == documents.root) else { continue; };
+                let Some((_, hit)) = result.hit_at(index) else { continue; };
+                if let Some(missing) = &hit.missing_path && let Some(requests) = file_commands.as_deref_mut() {
+                    requests.write(crate::ui::file_manager::FileManagerCommand { action: crate::ui::file_manager::FileAction::SelectRelinkTarget,
+                        path: Some(result.root.join(missing)), sources: default() });
+                }
+            }
             SearchAction::MissingAssets if window_tool || !state.open || !state.missing_assets => {
                 state.request_missing_assets(documents.root.clone());
                 if !hosted {
@@ -361,6 +374,7 @@ pub(super) fn input(
                 use crate::ui::external_files::{ExternalEditor, ExternalFileAction, OpenExternalFile};
                 let source = matches!(file.identity, ContentIdentity::ProjectSource(_));
                 let action = match &file.identity {
+                    ContentIdentity::SceneGlb => continue,
                     ContentIdentity::ProjectSource(digest) => ExternalFileAction::ProjectSource {
                         editor: ide, line: hit.line, column: hit.column, digest: *digest, in_project,
                     },

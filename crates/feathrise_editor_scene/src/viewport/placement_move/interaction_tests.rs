@@ -133,6 +133,9 @@ mod terrain_patch;
 #[path = "cancel_ownership_tests.rs"]
 mod cancel_ownership;
 
+#[path = "light_tests.rs"]
+mod light_handles;
+
 #[path = "runtime_identity_tests.rs"]
 mod runtime_identity;
 

@@ -4,10 +4,13 @@ use super::*;
 use crate::file_operations::tests::{Fixture, execute as run};
 use serde_json::json;
 
+#[path = "structured_targets.rs"]
+mod structured_targets;
+
 fn make_scene(asset_path: &str, scene_id: &str) -> Vec<u8> {
     let node = json!({"name":"实例", "extras":{"feathrise_id":"i",
         "feathrise_placement": json!({"asset_path":asset_path,"water_surfaces":[{"node_path":[asset_path]}]}).to_string()}});
-    let mut text = serde_json::to_vec(&json!({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0,1]}],
+    let mut text = serde_json::to_vec(&json!({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0,1]}],"materials":[{}],
         "nodes":[{"name":"Feathrise","extras":{"feathrise_scene_id":scene_id,"feathrise_scene_version":2}},node]})).unwrap();
     text.resize(text.len().next_multiple_of(4), b' ');
     let total = 20 + text.len() + 12;
@@ -22,6 +25,64 @@ fn request(f: &Fixture, op: FileOperation) -> FileOperationRequest {
     let mut r = f.request(op);
     r.references = Some(ReferenceUpdate::Inspect(f.path("assets")));
     r
+}
+
+fn missing_fixture(f: &Fixture) -> FileOperationRequest {
+    prepare(f);
+    fs::remove_file(f.path("assets/models/门.glb")).unwrap();
+    let target = f.path("assets/out/新门.glb");
+    fs::write(&target, make_scene("models/其他.glb", "new-model")).unwrap();
+    request(f, FileOperation::Relink { missing: "models/门.glb".into(), target, stamp: FileEntryStamp::Untracked })
+}
+
+#[test]
+fn relink_missing_updates_all_documents_and_preserves_distinct_fragments_and_unrelated_strings() {
+    let f = Fixture::new();
+    let mut r = missing_fixture(&f);
+    fs::write(f.path("assets/out/新门.glb"), structured_targets::mirrored_model(-1., 1., 0, true)).unwrap();
+    let preset = f.path("assets/config/显式字段.json");
+    fs::write(&preset, r#"{"model_paths":["models/门.glb#Scene0","models/门.glb#Node0","models/门.glb#Material0/std","models/门.glb#DefaultMaterial/std","models/门.glb#Material0 (inverted)/std"],"model_path":"models/门.glb/后代","label":"models/门.glb"}"#).unwrap();
+    let plan = inspect(&r);
+    assert_eq!(plan.documents.len(), 4);
+    assert_eq!(plan.documents.iter().map(|d| d.matches).sum::<usize>(), 8);
+    let target_bytes = fs::read(f.path("assets/out/新门.glb")).unwrap();
+    r.references = Some(ReferenceUpdate::Confirm(plan));
+    let (receipt, result) = run(r, false);
+    result.unwrap();
+    assert!(receipt.completed.is_empty());
+    assert_eq!(receipt.repaired_documents, 4);
+    assert!(!f.path("assets/models/门.glb").exists());
+    assert_eq!(fs::read(f.path("assets/out/新门.glb")).unwrap(), target_bytes);
+    assert_eq!(fs::read_to_string(preset).unwrap(), r#"{"model_paths":["out/新门.glb#Scene0","out/新门.glb#Node0","out/新门.glb#Material0/std","out/新门.glb#DefaultMaterial/std","out/新门.glb#Material0 (inverted)/std"],"model_path":"models/门.glb/后代","label":"models/门.glb"}"#);
+}
+
+#[test]
+fn relink_missing_rejects_restored_source_changed_target_stale_document_and_unavailable_glb_fragment() {
+    let f = Fixture::new();
+    let mut r = missing_fixture(&f);
+    let target = f.path("assets/out/新门.glb");
+    let missing = f.path("assets/models/门.glb");
+    let linked = f.path("assets/scenes/a/scene.glb");
+    let baseline = fs::read(&linked).unwrap();
+    let bytes = fs::read(&target).unwrap();
+    let plan = inspect(&r);
+    r.references = Some(ReferenceUpdate::Confirm(plan.clone()));
+    fs::write(&missing, b"external").unwrap();
+    assert!(run(r.clone(), false).1.is_err());
+    fs::remove_file(missing).unwrap();
+    fs::write(&target, make_scene("changed.glb", "other")).unwrap();
+    assert!(run(r.clone(), false).1.is_err());
+    fs::write(&target, &bytes).unwrap();
+    fs::write(f.path("assets/config/new.preset.json"), r#"{"model_path":"models/门.glb"}"#).unwrap();
+    assert!(run(r.clone(), false).1.is_err());
+    fs::write(f.path("assets/config/new.preset.json"), r#"{"model_path":"models/门.glb#Scene4"}"#).unwrap();
+    r.references = Some(ReferenceUpdate::Inspect(f.path("assets")));
+    assert!(run(r.clone(), false).1.unwrap_err().contains("Scene4"));
+    assert_eq!(fs::read(linked).unwrap(), baseline);
+    let outside = f.path("outside.glb");
+    fs::write(&outside, &bytes).unwrap();
+    r.operation = FileOperation::Relink { missing: "models/门.glb".into(), target: outside, stamp: FileEntryStamp::Untracked };
+    assert!(run(r, false).1.is_err());
 }
 
 fn inspect(r: &FileOperationRequest) -> Arc<ReferencePreview> {

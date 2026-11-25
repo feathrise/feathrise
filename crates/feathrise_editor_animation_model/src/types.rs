@@ -8,6 +8,15 @@ use std::{collections::{BTreeMap, HashMap, HashSet}, path::PathBuf, sync::Arc};
 #[reflect(Component)]
 pub struct EmbeddedNodeIndex(pub usize);
 
+/// 保留加载器的图元索引和磁盘材质，草稿预览只替换命中的渲染实例。
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct EmbeddedPrimitive {
+    pub index: usize,
+    pub material: Option<usize>,
+    pub inverted: bool,
+}
+
 /// 源文件中的原片段顺序，只供编辑器读 WorldAsset，不在每个渲染实例重复存放。
 #[derive(Component)]
 #[component(clone_behavior = Ignore)]

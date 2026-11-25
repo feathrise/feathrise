@@ -3,10 +3,11 @@
 use bevy::prelude::*;
 
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) enum BuildingSidebarPage {
+pub(crate) enum BuildingSidebarPage {
     #[default]
     Single,
     Courtyard,
+    Wall,
 }
 
 impl BuildingSidebarPage {
@@ -14,6 +15,7 @@ impl BuildingSidebarPage {
         match self {
             Self::Single => "单栋建筑",
             Self::Courtyard => "院落组合",
+            Self::Wall => "沿线围墙",
         }
     }
 }

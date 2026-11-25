@@ -155,6 +155,7 @@ fn source_result(root: PathBuf) -> SearchResult {
             identity: ContentIdentity::ProjectSource([7; 32]),
             dirty: false,
             hits: vec![Hit {
+                missing_path: None,
                 range: 10..22,
                 line: 28,
                 column: 34,

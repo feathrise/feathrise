@@ -365,7 +365,7 @@ pub(in super::super::super) fn gpu_assert_references(
         state.result = Some(std::sync::Arc::new(SearchResult {
             ticket: state.ticket, references: true, root, hits: 1,
             files: vec![FileHits { path: "crates/game/src/player.rs".into(), identity: ContentIdentity::ProjectSource([7; 32]), dirty: false,
-                hits: vec![Hit { range: 10..22, line: 28, column: 34, snippet: "model_path: String::from(‹\"gltf/中文 空格.glb\"›)".into() }] }],
+                hits: vec![Hit { missing_path: None, range: 10..22, line: 28, column: 34, snippet: "model_path: String::from(‹\"gltf/中文 空格.glb\"›)".into() }] }],
             rows: vec![ResultRow::File(0), ResultRow::Hit(0, 0)], ..default()
         }));
         state.ticket

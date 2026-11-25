@@ -435,6 +435,7 @@ pub(crate) fn sync_editor_viewport_camera(
         Option<Res<crate::ui::courtyard::CourtyardUiState>>,
         Option<Res<feathrise_scene_content::BuildingPresetRegistry>>,
         Option<Res<feathrise_scene_content::CourtyardPresetRegistry>>,
+        Option<Res<crate::authoring::courtyards::wall::WallTool>>,
     ), // 建筑参数、院落工具和目录修订共同参与点击身份。
     viewport: Option<Res<SceneEditorViewportState>>,
     cursor: Query<&RelativeCursorPosition, With<SceneEditorViewport>>,
@@ -573,6 +574,7 @@ pub(crate) fn sync_editor_viewport_camera(
             | crate::types::EditorTool::Portal
             | crate::types::EditorTool::Boundary
             | crate::types::EditorTool::Building
+            | crate::types::EditorTool::WallLine
     ) || relocation.is_some()
         || courtyard_target.is_some()
         || (matches!(editor.tool, crate::types::EditorTool::Domain(_))
@@ -615,6 +617,7 @@ pub(crate) fn sync_editor_viewport_camera(
                             )
                         })
                     }
+                    crate::types::EditorTool::WallLine => building_inputs.4.as_deref().map(|tool| super::vegetation_ground::GroundCursorTarget::WallLine(tool.epoch)),
                     crate::types::EditorTool::Raise
                     | crate::types::EditorTool::Lower
                     | crate::types::EditorTool::Smooth
@@ -805,6 +808,7 @@ pub(crate) fn sync_editor_viewport_camera(
                         (Some(settings.translation_snap(false, origin)), Some(settings.translation_snap(control, origin)))
                     } else { (None, None) }; // 身份只含偏好；实际Ctrl语义随原始点击冻结，松键后仍采用一次。
                     let identity = crate::authoring::terrain_ground::CursorIdentity { scene_id: draft.scene_id.clone(), revision: session.revision,
+                        wall_epoch: building_inputs.4.as_deref().filter(|_| editor.tool == crate::types::EditorTool::WallLine).map(|tool| tool.epoch),
                         terrain_revision: session.terrain_revision,
                         ground_snapshot: draft.terrain_ground.as_ref().filter(|snapshot| snapshot.scene_id == draft.scene_id
                             && snapshot.revision == session.terrain_revision).map(crate::authoring::terrain_ground::CursorGroundSnapshot::capture),
@@ -815,7 +819,7 @@ pub(crate) fn sync_editor_viewport_camera(
                         view: editor.view, orthographic: editor.orthographic, extent: viewport.extent.to_bits(),
                         visibility: std::sync::Arc::as_ptr(&editor.terrain_hidden) as usize, translation_snap, relocation };
                     if mouse.just_pressed(MouseButton::Left) && (transform_state.relocation_armed() || matches!(editor.tool, crate::types::EditorTool::PlaceAsset
-                        | crate::types::EditorTool::Portal | crate::types::EditorTool::Domain(_) | crate::types::EditorTool::Building | crate::types::EditorTool::Boundary
+                        | crate::types::EditorTool::Portal | crate::types::EditorTool::Domain(_) | crate::types::EditorTool::Building | crate::types::EditorTool::WallLine | crate::types::EditorTool::Boundary
                         | crate::types::EditorTool::RiverSpline | crate::types::EditorTool::Waterfall)) {
                         // 水网逐点同样消费冻结的真实地面单击，不能拿上一帧悬停补点。
                         ground.capture_click(identity.clone(), request, click_snap);

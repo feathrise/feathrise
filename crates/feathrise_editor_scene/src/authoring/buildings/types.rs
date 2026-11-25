@@ -183,42 +183,20 @@ pub(super) struct BuildingIndexGather {
     pub(super) entries: Vec<IndexedBuilding>,   // 只保存具有建筑语义的轻量派生几何。
 }
 
-/// BVH 节点；叶节点引用 `order` 中一个连续小范围。
-#[derive(Clone, Debug)]
-enum BuildingBvhNode {
-    Leaf {
-        bounds: Rect, // 该叶全部建筑联合范围。
-        start: usize, // `order` 起始下标。
-        end: usize,   // `order` 排他末尾下标。
-    },
-    Branch {
-        bounds: Rect, // 两个子树联合范围。
-        left: usize,  // 左子节点下标。
-        right: usize, // 右子节点下标。
-    },
-}
-
-impl BuildingBvhNode {
-    /// 返回节点世界 AABB。
-    fn bounds(&self) -> Rect {
-        match *self {
-            Self::Leaf { bounds, .. } | Self::Branch { bounds, .. } => bounds,
-        }
-    }
-}
+#[path = "bounds_tree.rs"]
+mod bounds_tree;
+pub(super) use bounds_tree::{BuildingBounds, BuildingBoundsTree};
 
 /// 后台完整构建并在主线程原子采用的不可变建筑 BVH。
 #[derive(Clone, Debug, Default)]
 pub(super) struct BuildingSpatialIndex {
     entries: Vec<IndexedBuilding>, // 紧凑拥有全部建筑派生项。
-    order: Vec<usize>,             // BVH 叶节点引用的确定性索引排列。
-    nodes: Vec<BuildingBvhNode>,   // 根节点固定为零；空索引没有节点。
+    tree: BuildingBoundsTree,
     vegetation_clearances: Arc<[BuildingWorldQuad]>, // 后台构建时冻结，稳定帧只浅克隆。
     vegetation_floor_heights: Arc<[f32]>, // 与净空四边形同序的真实建筑地基层。
 }
 
 impl BuildingSpatialIndex {
-    const LEAF_SIZE: usize = 8; // 小叶减少节点开销并保持候选上限明确。
 
     /// 从完整几何列表构建确定性中位切分 BVH。
     pub(super) fn build(entries: Vec<IndexedBuilding>) -> Result<Self, String> {
@@ -228,48 +206,21 @@ impl BuildingSpatialIndex {
         if entries.is_empty() {
             return Ok(Self::default()); // 空场景是完整有效索引。
         }
-        let mut index = Self {
+        let index = Self {
             vegetation_clearances: entries.iter().map(|e| e.vegetation_clearance).collect(),
             vegetation_floor_heights: entries
                 .iter()
                 .map(|e| e.translation[1] + e.foundation.model_base_y * e.scale[1])
                 .collect(),
-            order: (0..entries.len()).collect(), // 初始作者顺序用于相等中心的稳定回退。
+            tree: BuildingBoundsTree::build(&entries),
             entries,
-            nodes: Vec::new(),
         };
-        index.build_node(0, index.order.len()); // 根节点首先占用零号位置。
         Ok(index)
     }
 
     /// 返回与查询 AABB 相交的少量宽相位候选下标。
     pub(super) fn query(&self, bounds: Rect) -> Vec<usize> {
-        if self.nodes.is_empty() || !finite_rect(bounds) {
-            return Vec::new(); // 空索引或坏候选不会产生伪命中。
-        }
-        let mut result = Vec::new(); // 单次后台点击拥有自己的有界候选数组。
-        let mut stack = vec![0_usize]; // 二叉树深度对8192项保持很小。
-        while let Some(node_index) = stack.pop() {
-            let node = &self.nodes[node_index];
-            if !rects_overlap(node.bounds(), bounds) {
-                continue; // 宽相位不相交时跳过完整子树。
-            }
-            match *node {
-                BuildingBvhNode::Leaf { start, end, .. } => {
-                    result.extend(
-                        self.order[start..end]
-                            .iter()
-                            .copied()
-                            .filter(|entry| rects_overlap(self.entries[*entry].bounds, bounds)),
-                    ); // 叶内继续用单项联合范围收紧候选。
-                }
-                BuildingBvhNode::Branch { left, right, .. } => {
-                    stack.push(right); // 后进先出保证左树先处理，结果稳定。
-                    stack.push(left);
-                }
-            }
-        }
-        result
+        self.tree.query(&self.entries, bounds)
     }
 
     /// 借用一个已由 `query` 返回的现有建筑项。
@@ -294,50 +245,7 @@ impl BuildingSpatialIndex {
             self.vegetation_floor_heights.clone(),
         )
     }
-
-    /// 递归构造一个节点并返回其在紧凑数组中的下标。
-    fn build_node(&mut self, start: usize, end: usize) -> usize {
-        let bounds = self.bounds_for(start, end); // 当前范围至少包含一个已校验项。
-        let node_index = self.nodes.len();
-        self.nodes.push(BuildingBvhNode::Leaf {
-            bounds, // 递归期间使用合法占位节点。
-            start,  // 占位范围与最终节点相同。
-            end,    // 完成子树后可能替换为分支。
-        });
-        if end - start <= Self::LEAF_SIZE {
-            return node_index; // 小范围直接成为叶节点。
-        }
-        let extent = bounds.max - bounds.min;
-        let axis = usize::from(extent.y > extent.x); // 沿更长世界轴切分降低重叠。
-        self.order[start..end].sort_by(|left, right| {
-            let left_center = rect_center(self.entries[*left].bounds)[axis];
-            let right_center = rect_center(self.entries[*right].bounds)[axis];
-            left_center
-                .total_cmp(&right_center)
-                .then_with(|| self.entries[*left].id.cmp(&self.entries[*right].id))
-        }); // 相同中心按稳定实例ID确定顺序。
-        let middle = start + (end - start) / 2;
-        let left = self.build_node(start, middle);
-        let right = self.build_node(middle, end);
-        self.nodes[node_index] = BuildingBvhNode::Branch {
-            bounds, // 父范围已覆盖两个重新排列后的子范围。
-            left,   // 左半连续范围节点。
-            right,  // 右半连续范围节点。
-        };
-        node_index
-    }
-
-    /// 合并 `order` 当前连续范围的全部 AABB。
-    fn bounds_for(&self, start: usize, end: usize) -> Rect {
-        let mut bounds = self.entries[self.order[start]].bounds;
-        for entry in &self.order[start + 1..end] {
-            bounds = union_rect(bounds, self.entries[*entry].bounds);
-        }
-        bounds
-    }
 }
-
-/// 一次后台 BVH 构建的完整返回值。
 pub(super) struct BuildingIndexBuildResult {
     pub(super) identity: BuildingIndexIdentity, // 采用前必须仍是当前期望身份。
     pub(super) result: Result<BuildingIndexSnapshot, String>, // 失败保留旧场景内容但禁止新落点。

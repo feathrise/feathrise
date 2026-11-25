@@ -57,6 +57,13 @@ pub(super) fn setup(
                             TextColor(colors::TEXT_PRIMARY),
                         ));
                         // 单文件与项目定位同时可见；紧凑双按钮复用固定行池，不因IDE数量增建结果行。
+                        row.spawn((InteractionButton, SearchRelinkRow(slot), SearchAction::Inactive,
+                            Node { display: Display::None, height: px(20), flex_shrink: 0.0, padding: UiRect::horizontal(px(5)),
+                                align_items: AlignItems::Center, border: px(1).into(), ..default() },
+                            BackgroundColor(colors::SLOT_BG), BorderColor::all(colors::COPPER_BORDER_WEAK), FocusPolicy::Block))
+                            .with_child((SearchLabel::Relink, Text::new(""), TextLayout::no_wrap(),
+                                TextFont { font: font.clone().into(), font_size: ui_metrics::FONT_CONTROL.into(), ..default() },
+                                TextColor(colors::TEXT_PRIMARY), Pickable::IGNORE));
                         for in_project in [false, true] {
                             row.spawn((InteractionButton, SearchExternalRow(slot, in_project), SearchAction::Inactive,
                                 Node { display: Display::None, width: px(48), height: px(20), flex_shrink: 0.0,
@@ -89,6 +96,7 @@ pub(super) fn sync(
             Option<&SearchContent>,
             Option<&SearchRow>,
             Option<&SearchExternalRow>,
+            Option<&SearchRelinkRow>,
             Option<&SearchTextControls>,
             Option<&SearchReferenceControls>,
             Option<&SearchEditorControls>,
@@ -100,6 +108,7 @@ pub(super) fn sync(
             With<SearchContent>,
             With<SearchRow>,
             With<SearchExternalRow>,
+            With<SearchRelinkRow>,
             With<SearchTextControls>,
             With<SearchReferenceControls>,
             With<SearchEditorControls>,
@@ -111,6 +120,7 @@ pub(super) fn sync(
         &mut SearchAction,
         Option<&SearchRow>,
         Option<&SearchExternalRow>,
+        Option<&SearchRelinkRow>,
         &UiInteraction,
         &mut BackgroundColor,
         &mut BorderColor,
@@ -137,7 +147,7 @@ pub(super) fn sync(
     let (sidebar_open, sidebar_missing) = state.sidebar_display();
     let ide = state.selected_editor(&available); // 两种打开方式共享所选IDE；切工具不改变按钮宽度或结果布局。
     let count = result.map_or(0, |result| result.rows.len());
-    for (mut node, body, results, content, row, external, text_controls, reference_controls, editor_controls, editor_option) in &mut nodes {
+    for (mut node, body, results, content, row, external, relink, text_controls, reference_controls, editor_controls, editor_option) in &mut nodes {
         if text_controls.is_some() { node.display = if references { Display::None } else { Display::Flex }; }
         if reference_controls.is_some() { node.display = if references { Display::Flex } else { Display::None }; }
         if editor_controls.is_some() { node.display = if ide.is_some() { Display::Flex } else { Display::None }; }
@@ -172,13 +182,18 @@ pub(super) fn sync(
         }
         if let Some(slot) = external {
             node.display = if ide.is_some()
-                && result.is_some_and(|result| matches!(result.rows.get(start + slot.0), Some(ResultRow::Hit(..)))) {
+                && result.and_then(|r| r.hit_at(start + slot.0)).is_some_and(|(f, _)| f.identity != ContentIdentity::SceneGlb) {
                 Display::Flex
             } else { Display::None };
+        }
+        if let Some(slot) = relink {
+            node.display = if result.and_then(|r| r.hit_at(start + slot.0)).is_some_and(|(_, hit)| hit.missing_path.is_some())
+                { Display::Flex } else { Display::None };
         }
     }
     for (kind, mut text, mut color) in &mut labels {
         let value = match kind {
+            SearchLabel::Relink => if locale == feathrise_editor_ui::localization::EditorLocale::English { "Relink" } else { "重新关联" }.into(),
             SearchLabel::Toggle => locale.editor_label(if state.missing_assets && state.open {
                 "收起资产缺失检查"
             } else if state.missing_assets {
@@ -225,7 +240,7 @@ pub(super) fn sync(
                 Some((result, ResultRow::Hit(file, hit))) => {
                     color.0 = colors::TEXT_PRIMARY;
                     let hit = &result.files[*file].hits[*hit];
-                    format!("  {}:{}  {}", hit.line, hit.column, hit.snippet)
+                    if hit.line == 0 { hit.snippet.clone() } else { format!("  {}:{}  {}", hit.line, hit.column, hit.snippet) }
                 }
                 None => String::new(),
             },
@@ -234,13 +249,14 @@ pub(super) fn sync(
             text.0 = value;
         }
     }
-    for (mut action, row, external, interaction, mut background, mut border) in &mut actions {
-        if let Some(slot) = row.map(|row| row.0).or_else(|| external.map(|row| row.0)) {
+    for (mut action, row, external, relink, interaction, mut background, mut border) in &mut actions {
+        if let Some(slot) = row.map(|row| row.0).or_else(|| external.map(|row| row.0)).or_else(|| relink.map(|row| row.0)) {
             let index = start + slot;
-            *action = if result
-                .is_some_and(|result| matches!(result.rows.get(index), Some(ResultRow::Hit(..))))
-            {
-                if let Some(external) = external {
+            *action = if let Some((file, hit)) = result.and_then(|r| r.hit_at(index)) {
+                if relink.is_some() || file.identity == ContentIdentity::SceneGlb {
+                    if external.is_none() && hit.missing_path.is_some() { SearchAction::Relink { ticket: state.ticket, index } }
+                    else { SearchAction::Inactive }
+                } else if let Some(external) = external {
                     ide.map_or(SearchAction::Inactive, |editor| SearchAction::External { ticket: state.ticket, index, editor, in_project: external.1 })
                 } else { SearchAction::Row { ticket: state.ticket, index } }
             } else {

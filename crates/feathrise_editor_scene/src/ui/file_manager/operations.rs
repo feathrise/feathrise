@@ -74,7 +74,7 @@ pub(super) fn control(
                 FileAction::NextReferences if (state.reference_page + 1) * super::presentation::REFERENCE_PAGE < review.documents.len() => state.reference_page += 1,
                 FileAction::Confirm | FileAction::MoveWithoutRepair => {
                     let update = request.action == FileAction::Confirm;
-                    if update && review.unrepresentable { continue; }
+                    if update && review.unrepresentable || !update && matches!(review.operation, FileOperation::Relink { .. }) { continue; }
                     if update && let Some(reason) = authors.reference_blocker(&review.documents_selection) {
                         state.prompt.as_mut().unwrap().value.clone_from(&reason);
                         state.notice = reason;
@@ -107,6 +107,13 @@ pub(super) fn control(
             continue;
         }
         match request.action {
+            FileAction::SelectRelinkTarget => { if let Some(missing) = &request.path { state.open_relink_picker(missing); } }
+            FileAction::Relink => {
+                let Some(missing) = state.asset_root.as_ref().and_then(|root| request.path.as_ref()?.strip_prefix(root).ok()?.to_str()) else { continue; };
+                let Some((target, stamp)) = sources.iter_with_stamp().next() else { continue; };
+                let operation = FileOperation::Relink { missing: missing.replace('\\', "/"), target: target.to_owned(), stamp };
+                submit(&mut state, service.as_deref(), &authors, &mut reservations, operation);
+            }
             FileAction::NewWindow => {
                 if !directory.as_os_str().is_empty() { state.open(directory); }
             }
@@ -288,7 +295,7 @@ fn submit(
     operation: FileOperation,
 ) {
     let references = match &operation {
-        FileOperation::Rename { .. } | FileOperation::Move { .. } => state.asset_root.clone().map(ReferenceUpdate::Inspect),
+        FileOperation::Rename { .. } | FileOperation::Move { .. } | FileOperation::Relink { .. } => state.asset_root.clone().map(ReferenceUpdate::Inspect),
         _ => None,
     };
     enqueue(state, service, authors, reservations, operation, references);
@@ -321,7 +328,8 @@ fn enqueue(
     }
 }
 
-pub(super) fn poll(mut state: ResMut<FileManagerState>, service: Option<Res<FileOperationService>>) {
+pub(super) fn poll(mut state: ResMut<FileManagerState>, service: Option<Res<FileOperationService>>,
+    mut search: Option<ResMut<crate::ui::asset_preview::AssetSearchState>>) {
     let Some(snapshot) = service.as_ref().and_then(|service| service.snapshot()) else { return; };
     if snapshot.revision == state.operation_revision { return; }
     state.operation_revision = snapshot.revision;
@@ -331,12 +339,18 @@ pub(super) fn poll(mut state: ResMut<FileManagerState>, service: Option<Res<File
         if receipt.context != state.context { continue; }
         if let Some(preview) = &receipt.reference_preview {
             state.reference_reviews.push_back(preview.clone());
-            state.notice = format!("{} 份场景或预设引用了所选资产，请确认移动与引用更新", preview.documents.len());
+            state.notice = format!("{} 份场景或预设引用了所选资产，请确认引用更新", preview.documents.len());
             continue;
         }
         for window in &mut state.windows {
             // 不抢占在途导航或定位；这次结果采用后再刷新受影响的目录。
             window.refresh_after_scan |= receipt.affects_directory(&window.requested_path);
+        }
+        if receipt.kind == FileOperationKind::Relink && receipt.repaired_documents != 0 {
+            state.notice = format!("任务 #{}：重新关联完成，已更新 {} 份引用文件", receipt.id, receipt.repaired_documents);
+            if let Some(search) = search.as_deref_mut() && search.is_open() && search.is_missing_assets()
+                && let Some(root) = state.asset_root.clone() { search.request_missing_assets(root); }
+            continue;
         }
         state.notice = format!("任务 #{}：{} 项完成，{} 项跳过{}{}", receipt.id, receipt.completed.len(), receipt.skipped.len(),
             if receipt.cancelled { "，已取消" } else { "" }, receipt.error.as_ref().map_or(String::new(), |error| format!("；{error}")));

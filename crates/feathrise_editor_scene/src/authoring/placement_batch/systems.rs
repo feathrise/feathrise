@@ -546,9 +546,9 @@ fn accept_output(
             crate::authoring::placement_deletion::apply_prepared(
                 &mut env.commands, session, &map, prepared,
             ); // 完整表O(1)换入；旧表后台析构，已有根沿十六项视觉预算逐项遮蔽。
-            session.push_bounded_water_history(EditorCommand::CourtyardBatch(Box::new(history)));
+            session.push_bounded_water_history(EditorCommand::CourtyardBatch(std::sync::Arc::new(history)));
             session.mark_placement_structure_changed(editor);
-            queue_visual_sync(visuals, session, updates);
+            queue_visual_sync(&mut env.commands, visuals, session, updates);
             selection.clear();
             state.selection_request = Some(String::new());
             editor.status = if deletes_source {

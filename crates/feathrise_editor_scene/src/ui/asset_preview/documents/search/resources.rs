@@ -89,6 +89,12 @@ impl AssetSearchState {
         let result = self.current()?;
         Some((result.hits, result.files.iter().map(|file| file.path.clone()).collect()))
     }
+    #[cfg(feature = "validation")]
+    pub(crate) fn validation_relink(&self, path: &str) -> Option<(u64, usize)> {
+        let result = self.current()?;
+        let row = (0..result.rows.len()).find(|&i| result.hit_at(i).is_some_and(|(_, hit)| hit.missing_path.as_deref() == Some(path)))?;
+        Some((result.ticket, row))
+    }
     pub(in super::super) fn selected_editor(&self, available: &ExternalEditors) -> Option<ExternalEditor> {
         // 先用用户选择；入口被卸载时回退到仍可用的IDE，不能让旧缓存绕过安装门。
         self.preferred_editor.filter(|editor| available.installed(*editor))
@@ -112,7 +118,7 @@ impl AssetSearchState {
         self.open = true;
     }
 
-    pub(super) fn request_missing_assets(&mut self, root: std::path::PathBuf) {
+    pub(crate) fn request_missing_assets(&mut self, root: std::path::PathBuf) {
         self.invalidate("等待输入确认后检查资产路径…");
         self.reference_target = None;
         self.missing_assets = true;

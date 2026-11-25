@@ -591,7 +591,7 @@ fn adopt_preview(
         crate::authoring::model_vegetation::transfer(draft, transfer.after.clone())
             .expect("后台与采用前已确认同一个完整根植被来源");
     }
-    session.push_bounded_water_history(EditorCommand::CourtyardBatch(Box::new(prepared.history)));
+    session.push_bounded_water_history(EditorCommand::CourtyardBatch(std::sync::Arc::new(prepared.history)));
     if vegetation_changed { session.vegetation_revision = session.vegetation_revision.wrapping_add(1); }
     session.mark_placement_structure_changed(editor);
     selection.publish(prepared.members, session);

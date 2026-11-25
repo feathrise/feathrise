@@ -73,27 +73,13 @@ fn step(
     let exported = author.selection_written;
     let status = author.status.clone();
     let before = probe.step;
-    let visible_click =
-        |world: &mut World, fixture: &mut Fixture, name: &str, button: Option<Entity>| {
-            if fixture.click.is_some() {
-                return click_window_button(world, fixture, name, |_| None);
-            }
-            let Some(button) = button else {
-                return Ok(false);
-            };
-            if !crate::standalone::validation_fixture::ui_visible(world, button) {
-                crate::standalone::validation_fixture::reveal_property_control(world, button)?;
-                return Ok(false);
-            }
-            click_window_button(world, fixture, name, |_| Some(button))
-        };
     let click = |world: &mut World, fixture: &mut Fixture, name: &str| {
         let button = bridge::composition_button(world, name);
-        visible_click(world, fixture, name, button)
+        click_property_button(world, fixture, name, button)
     };
     let playback_control = |world: &mut World, fixture: &mut Fixture, action| {
         let button = bridge::original_button(world, action);
-        visible_click(world, fixture, &format!("Click{action:?}"), button)
+        click_property_button(world, fixture, &format!("Click{action:?}"), button)
     };
     match before {
         Step::Source if expanded_model_ready(world, SOURCES[probe.index]) => {

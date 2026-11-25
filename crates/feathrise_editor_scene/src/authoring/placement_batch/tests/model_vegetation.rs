@@ -62,7 +62,7 @@ fn copy_rebinds_model_vegetation_and_joint_undo_preserves_the_original() {
         draft.vegetation = Some(SceneVegetationAsset {
             scene_id: draft.scene_id.clone(), authoring: Some(authoring), model_surfaces: after.clone(), ..Default::default()
         });
-        session.undo.push(crate::authoring::EditorCommand::CourtyardBatch(Box::new(prepared.history)));
+        session.undo.push(crate::authoring::EditorCommand::CourtyardBatch(prepared.history.into()));
     }
     for undo in [true, false] {
         let mut editor = app.world_mut().resource_mut::<crate::resources::SceneEditorState>();

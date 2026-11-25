@@ -257,6 +257,7 @@ pub fn queue_ground_click(
     let draft = session.draft.as_ref().expect("点击夹具须先装载场景");
     let editor = world.resource::<crate::resources::SceneEditorState>();
     let identity = CursorIdentity {
+        wall_epoch: None,
         scene_id: draft.scene_id.clone(),
         revision: session.revision,
         tool: editor.tool,

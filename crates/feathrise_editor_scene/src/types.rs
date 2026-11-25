@@ -342,6 +342,8 @@ pub enum EditorTool {
     PlaceAsset,
     /// 从全局建筑预设放置带占地、正门和地基语义的建筑实例。
     Building,
+    /// 按当前工程墙段的连接点沿折线铺设，确认前保持预览。
+    WallLine,
     /// 放置或选择传送点并编辑目标引用。
     Portal,
     /// 编辑地表RGBA权重。

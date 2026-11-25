@@ -9,6 +9,7 @@ mod group; // 多选共同移动、旋转和缩放，常数节点预览、分帧
 mod group_types;
 mod group_world;
 mod input; // 按下、预览、提交和身份失效取消。
+mod light; // 点光范围和聚光锥共用投影边界与原摆放事务。
 mod math; // 真实相机投影、轴/平面拾取与冻结约束。
 mod render; // 编辑器场景几何与拾取共用，工程画布沿用原 SDK 语义。
 mod resources; // 单一拖动、建筑校验暂存与静默释放门。
@@ -26,6 +27,8 @@ pub(crate) use math::{MoveCamera, handle_point, handle_translation, handle_trans
 pub(crate) use math::plane_corners;
 
 pub(crate) use render::draw_placement_move;
+#[cfg(any(test, feature = "validation"))]
+pub(crate) use light::{LightHandle, validation::validation_drag_points};
 #[cfg(feature = "validation")]
 pub(crate) use animation::{validation_animation_drag_active, validation_animation_drag_points};
 pub(crate) use render::{active_move_color, axis_colors, handle_color, transform_axis_color, visible_axes};

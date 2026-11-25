@@ -133,6 +133,10 @@ fn startup_enabled() -> bool {
     std::env::var("FEATHRISE_SCENE_TREE_STARTUP_VALIDATION").as_deref() == Ok("1")
 }
 
+fn lights_only() -> bool {
+    std::env::var("FEATHRISE_SCENE_TREE_STARTUP_VALIDATION").as_deref() == Ok("lights")
+}
+
 pub(super) fn preflight(project: &Path, scene: &SceneId) -> Result<(), String> {
     let output = PathBuf::from(std::env::var_os("NEW_EDITOR_NATIVE_SMOKE_DIR").ok_or("场景树验收缺少输出目录")?);
     let work = output.parent().ok_or("场景树验收缺少独占工作目录")?;
@@ -154,6 +158,7 @@ pub(super) fn reopened_source_position(world: &mut World) -> Option<Value> {
     let paths = feathrise_editor_core::editor_project_paths()?;
     let scene = SceneId::parse("M1-SAMPLE").ok()?;
     preflight(paths.project_root(), &scene).ok()?;
+    if lights_only() { return Some(json!({"reopened_local_lights": lights::rendered(world)?})); }
     let draft = world.resource::<EditorAuthoringSession>().draft.as_ref()?;
     let folders = &draft.object_folders;
     let restored_glbs = [(creation::ROOT_GLB, ""), (creation::NESTED_GLB, creation::ROOT_FOLDER)]
@@ -205,7 +210,10 @@ pub(super) fn advance(
     match *step {
         Step::Open => {
             if open_scene_tree(world)? {
-                *step = Step::StartupTreeReady;
+                *step = if lights_only() {
+                    if !crate::authoring::local_lights::AVAILABLE { return Err("当前 SDK 不支持局部灯具验收".into()); }
+                    Step::CreateLights(creation::begin_lights())
+                } else { Step::StartupTreeReady };
             }
         }
         Step::StartupTreeReady => {
@@ -589,6 +597,10 @@ pub(super) fn advance(
         }
         Step::CreateLights(mut stage) => {
             *step = if creation::advance(world, &mut stage, cube, revision, pulse)? {
+                if lights_only() {
+                    return Ok(Some(json!({"startup":{"glb_menu":{"local_lights_supported":true},
+                        "dragged_local_lights":lights::rendered(world).ok_or("手柄编辑后的实际灯具参数不符")?}})));
+                }
                 Step::SelectSourceMesh
             } else { Step::CreateLights(stage) };
         }

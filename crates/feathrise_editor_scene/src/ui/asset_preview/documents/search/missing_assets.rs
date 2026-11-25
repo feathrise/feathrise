@@ -1,4 +1,4 @@
-//! 明确JSON路径的只读缺失检查；解析在计算池、文件系统检查在原搜索IO槽，主线程不扫描。
+//! 缺失诊断覆盖 JSON 字段和主 GLB 中的外部摆放。解析在计算池，文件系统检查沿用搜索 IO 槽。
 
 use super::{constants::MAX_PATH_BYTES, references, types::Hit, worker};
 use bevy::tasks::AsyncComputeTaskPool;
@@ -71,14 +71,17 @@ fn inspect(
 pub(super) async fn check_file(
     text: Arc<str>,
     root: &Path,
+    source: &str,
     maximum: usize,
     checked: &mut usize,
     metadata_checks: &mut usize,
     cancel: Arc<AtomicBool>,
 ) -> Result<(Vec<Hit>, bool), String> {
     let parsing_cancel = cancel.clone();
+    let glb = Path::new(source).file_name().is_some_and(|n| n.eq_ignore_ascii_case("scene.glb"));
     let (paths, mut limited) = AsyncComputeTaskPool::get()
-        .spawn(async move { references::collect_json(&text, MAX_PATHS_PER_FILE, &parsing_cancel) })
+        .spawn(async move { if glb { scene_references(&text, &parsing_cancel) }
+            else { references::collect_json(&text, MAX_PATHS_PER_FILE, &parsing_cancel) } })
         .await?; // 完整语法通过后才做元数据检查，坏JSON不产生半份诊断。
     let mut hits = Vec::new();
     for reference in paths {
@@ -106,6 +109,11 @@ pub(super) async fn check_file(
             if snippet.chars().nth(201).is_some() {
                 hit.snippet.push('…');
             }
+            if reference.authored && reason == "文件缺失" {
+                let mut physical = reference.path;
+                if let Some(fragment) = physical.find('#') { physical.truncate(fragment); }
+                hit.missing_path = Some(physical);
+            }
             hits.push(hit);
             if hits.len() == maximum {
                 limited = true;
@@ -114,4 +122,22 @@ pub(super) async fn check_file(
         }
     }
     Ok((hits, limited))
+}
+
+fn scene_references(text: &str, cancel: &AtomicBool) -> Result<(Vec<references::PathReference>, bool), String> {
+    use feathrise_editor_assets::json_fields::{placement_node, visit_strings};
+    let mut paths = Vec::new();
+    let mut limited = false;
+    let stopped = || cancel.load(Ordering::Relaxed);
+    visit_strings(text, None, &stopped, |pointer, _, placement, outer| {
+        let Some(node) = placement_node(pointer) else { return Ok(()); };
+        visit_strings(placement, None, &stopped, |field, _, path, _| {
+            if field != "/asset_path" || path.is_empty() { return Ok(()); }
+            if paths.len() == MAX_PATHS_PER_FILE { limited = true; return Ok(()); }
+            paths.push(references::PathReference { path: path.into(), authored: true, hit: Hit { missing_path: None,
+                line: 0, column: 0, range: outer.clone(), snippet: format!("节点 {node} · asset_path") } });
+            Ok(())
+        })
+    })?;
+    Ok((paths, limited))
 }

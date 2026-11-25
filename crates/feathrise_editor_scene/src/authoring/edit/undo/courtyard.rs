@@ -9,6 +9,7 @@ use bevy::prelude::Rect; // 每个历史快照沿用正式场景世界范围校�
 use feathrise_scene_content::{SceneId, ScenePlacementRecord};
 
 use crate::authoring::commands::CourtyardBatchChange; // 同一命令保存全部新增和原位修改的成员。
+use crate::authoring::placement_append::validated_append;
 
 /// 一条完整院落历史命令采用后应作用于当前世界根的目标状态。
 pub(super) struct CourtyardWorldChange {
@@ -51,22 +52,10 @@ pub(super) fn apply_courtyard_batch_records_by_source(
     } else {
         records.len() // 重做前新增成员尚未进入数组。
     };
-    let mut added_ids = HashSet::with_capacity(change.added.len()); // 一次落印内成员各有独立placement ID。
-    for (offset, added) in change.added.iter().enumerate() {
-        if added.id.is_empty() || !added_ids.insert(added.id.as_str()) {
-            return Err("院落整批历史包含空白或重复的新增实例 ID".to_owned()); // 无法安全区分预览根的命令拒绝应用。
-        }
-        added.validated_transform(scene_id, super::super::placement_record_bounds_by_source(world_bounds, objects, added)?)?;
-        added.validate_water_surfaces()?; // 新增记录可携带Scene0网格水，重做前仍需确认格式。
-        if undoing && records.get(base_len + offset) != Some(added) {
-            return Err(format!("院落新增成员{}的完整快照已改变", added.id)); // 任一尾段字段失配时不弹出任何成员。
-        }
-    }
-    if records[..base_len]
-        .iter()
-        .any(|record| added_ids.contains(record.id.as_str()))
-    {
-        return Err("院落新增成员 ID 已被其他摆放占用".to_owned()); // 重做与撤销都不能让同一ID同时指向前缀和尾段。
+    let mut next_water_count = validated_append(&records[..base_len], &change.added, *water_surface_count,
+        undoing, scene_id, world_bounds, objects)?;
+    if undoing && let Some((_, member)) = records[base_len..].iter().zip(&change.added).find(|(current, member)| current != member) {
+        return Err(format!("院落新增成员{}的完整快照已改变", member.id));
     }
     let mut changed_indices = HashSet::with_capacity(change.changed.len()); // 防止同一数组槽在单笔内被覆盖两次。
     for (index, before, after) in &change.changed {
@@ -79,15 +68,6 @@ pub(super) fn apply_courtyard_batch_records_by_source(
             return Err(format!("院落成员{}的完整快照或下标已失效", expected.id)); // 单成员后续编辑不能被旧批量历史覆盖。
         }
         desired.validated_transform(scene_id, super::super::placement_record_bounds_by_source(world_bounds, objects, desired)?)?;
-    }
-    let mut next_water_count = *water_surface_count; // 先计算全部差值，不提前修改缓存。
-    for added in &change.added {
-        next_water_count = if undoing {
-            next_water_count.checked_sub(added.water_surfaces.len()) // 撤销落印移除全部新增绑定。
-        } else {
-            next_water_count.checked_add(added.water_surfaces.len()) // 重做落印恢复全部新增绑定。
-        }
-        .ok_or_else(|| "院落整批历史的水绑定计数溢出或不足".to_owned())?;
     }
     for (index, before, after) in &change.changed {
         let desired = if undoing { before } else { after }; // 原位修改按完整目标快照维护缓存。

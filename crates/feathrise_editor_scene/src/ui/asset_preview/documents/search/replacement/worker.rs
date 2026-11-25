@@ -76,7 +76,7 @@ fn prepare_file(
             ContentIdentity::Disk(digest) => {
                 *digest == draft.disk.digest && draft.stamp.revision == 0
             }
-            ContentIdentity::ProjectSource(_) => false, // 源码路径结果不进入内置草稿替换。
+            ContentIdentity::ProjectSource(_) | ContentIdentity::SceneGlb => false, // 源码和二进制场景不进入文本草稿替换。
         };
         if !valid {
             return Err("文档草稿在搜索后已变化，请重新搜索".into());

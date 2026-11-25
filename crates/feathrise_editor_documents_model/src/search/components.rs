@@ -25,6 +25,8 @@ impl Default for SearchEditorOption {
 pub struct SearchRow(pub usize);
 #[derive(Component)]
 pub struct SearchExternalRow(pub usize, pub bool); // 槽位与是否打开当前项目；两种入口共享所选IDE。
+#[derive(Component)]
+pub struct SearchRelinkRow(pub usize);
 
 #[derive(Component, Default, Clone, Copy, PartialEq, Eq)]
 pub enum SearchField {
@@ -48,6 +50,7 @@ pub enum SearchAction {
         ticket: u64,
         index: usize,
     },
+    Relink { ticket: u64, index: usize },
     ChooseEditor(feathrise_editor_core::ExternalEditor),
     External {
         ticket: u64,
@@ -68,5 +71,6 @@ pub enum SearchLabel {
     ReferenceTarget,
     PathSubmit,
     External(bool),
+    Relink,
     Row(usize),
 }

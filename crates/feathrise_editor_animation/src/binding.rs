@@ -32,7 +32,8 @@ use std::path::PathBuf;
 
 pub(super) fn install(app: &mut App) {
     app.init_resource::<GltfExtensionHandlers>()
-        .register_type::<EmbeddedNodeIndex>();
+        .register_type::<EmbeddedNodeIndex>()
+        .register_type::<EmbeddedPrimitive>();
     app.world().resource::<GltfExtensionHandlers>().0.try_write()
         .expect("GLTF 加载器启动前登记动画作者节点索引")
         .push(Box::new(RecordEmbeddedNodes::default()));
@@ -85,6 +86,13 @@ impl GltfExtensionHandler for RecordEmbeddedNodes {
     fn on_scene_completed(&mut self, _: &mut LoadContext<'_>, scene: &gltf::Scene, root: Entity, world: &mut World) {
         if scene.index() == 0 && let Some(names) = self.animation_names.take().filter(|names| !names.is_empty()) {
             world.entity_mut(root).insert(EmbeddedSceneAnimations(names));
+        }
+    }
+
+    fn on_spawn_mesh_and_material(&mut self, _: &mut LoadContext<'_>, primitive: &gltf::Primitive,
+        _: &gltf::Mesh, material: &gltf::Material, entity: &mut EntityWorldMut, label: &str) {
+        if self.index_model_nodes {
+            entity.insert(EmbeddedPrimitive { index: primitive.index(), material: material.index(), inverted: label.ends_with(" (inverted)") });
         }
     }
 }

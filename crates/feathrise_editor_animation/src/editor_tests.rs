@@ -741,7 +741,7 @@ fn source_switch_keeps_inflight_credit_and_late_edit_updates_only_its_original_s
     }
     sender
         .send(TaskResult::Edit {
-            document: Ok((candidate, metadata)),
+            document: Ok((candidate, Some(metadata))),
             action: PendingAction::Edit(edit),
             key,
             target: (0, 0),
@@ -1014,6 +1014,85 @@ fn assert_new_source_generation_survives_older_result(completed: TaskResult) {
 #[test]
 fn newer_hot_reload_survives_a_late_unchanged_result() {
     assert_new_source_generation_survives_older_result(TaskResult::Unchanged);
+}
+
+#[test]
+fn a_model_asset_notification_during_material_undo_keeps_the_document_transaction() {
+    use feathrise_editor_animation_model::{data::MaterialSlot,media::ExpandedAssetPreview};
+    use feathrise_editor_core::PresetWorkspaceTab;
+    let (mut app, path, _) = app_context();
+    app.add_systems(Update,drive::drive);
+    let slot = MaterialSlot { node:0,primitive:0 };
+    let mut doc = super::data::tests::test_scene(&serde_json::json!({
+        "asset":{"version":"2.0"},"nodes":[{"mesh":0}],"meshes":[{"primitives":[{"attributes":{},"material":0}]}],"materials":[{},{}]
+    }));
+    let edit = Edit::MaterialSlot(doc.plan_material(slot,1).unwrap());
+    edit.apply(&mut doc,true).unwrap();
+    let mut candidate = doc.clone();
+    edit.apply(&mut candidate,false).unwrap();
+    let mut session = Session::new(doc);
+    session.history.push(edit);
+    session.cursor=1;
+    let completed=TaskResult::Edit { document:Ok((candidate,None)),action:PendingAction::Undo,key:None,target:(0,0),selection:None };
+    let task=IoTaskPool::get().spawn(async move {completed});
+    let deadline=Instant::now()+Duration::from_secs(5);
+    while !task.is_finished() {assert!(Instant::now()<deadline); std::thread::yield_now();}
+    {
+        let mut state=app.world_mut().resource_mut::<AnimationEditorState>();
+        state.sessions.insert(path.clone(),session);
+        state.model_generation=Some((path.clone(),1));
+        state.work=Some(Work {path,generation:Some(1),saving:false,task});
+    }
+    app.world_mut().resource_mut::<AnimationHost>().tab=PresetWorkspaceTab::AssetPreview;
+    app.world_mut().resource_mut::<AssetPreviewWorkspace>().expanded=Some(ExpandedAssetPreview {
+        id:1,path:"animation-regression-alpha.glb".into(),return_tab:PresetWorkspaceTab::Scene,view:default(),target:default(),audio_position:0.,restore_cursor:0
+    });
+    app.world_mut().resource_mut::<AssetPreviewState>().model=Some(AssetPreviewModelSession::new(2,Handle::default()));
+    app.update();
+    let s=app.world().resource::<AnimationEditorState>().current().unwrap();
+    assert_eq!(s.cursor,0);
+    assert_eq!(s.document.slot_material(slot),Some(Some(0)));
+    assert!(s.source_changed); // 已受理的撤销和待执行的磁盘复验分别保留。
+}
+
+#[test]
+fn dirty_document_checks_model_generations_against_real_disk_bytes() {
+    use super::data::tests::{TemporaryDirectory,write_directory_clip_fixture};
+    let folder = TemporaryDirectory::new();
+    let root = folder.0.canonicalize().unwrap();
+    let file = root.join("material.glb");
+    write_directory_clip_fixture(&file,"原动作");
+    let mut doc = AnimationDocument::load(&file).unwrap();
+    let edit = Edit::AppendClip(Arc::new(doc.create_clip().unwrap()));
+    edit.apply(&mut doc,true).unwrap();
+    let mut session = Session::new(doc);
+    session.history.push(edit);
+    session.cursor = 1;
+    let draft = session.document.clone();
+    let (mut app,_,_) = app_context();
+    app.add_systems(Update,drive::drive);
+    {
+        let mut host = app.world_mut().resource_mut::<AnimationHost>();
+        host.asset_root = root;
+        host.selected_asset = Some("material.glb".into());
+    }
+    {
+        let mut state = app.world_mut().resource_mut::<AnimationEditorState>();
+        state.active = Some(file.clone());
+        state.model_generation = Some((file.clone(),1));
+        state.sessions.insert(file.clone(),session);
+    }
+    app.world_mut().resource_mut::<AssetPreviewState>().selected_path = Some("material.glb".into());
+    for (generation,name,conflict) in [(2,"原动作",false),(3,"外部改名",true),(4,"原动作",false)] {
+        write_directory_clip_fixture(&file,name);
+        app.world_mut().resource_mut::<AssetPreviewState>().model = Some(AssetPreviewModelSession::new(generation,Handle::default()));
+        run_until_idle(&mut app);
+        let state = app.world().resource::<AnimationEditorState>();
+        let s = state.current().unwrap();
+        assert_eq!((s.source_changed,s.external_change_confirmed),(conflict,conflict));
+        assert!(Arc::ptr_eq(&draft,&s.document));
+        assert!(s.dirty() && s.cursor==1 && s.document.clips.len()==3);
+    }
 }
 
 #[test]

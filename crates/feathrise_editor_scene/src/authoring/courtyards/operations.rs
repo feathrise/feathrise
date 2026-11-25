@@ -4,7 +4,6 @@ use std::collections::BTreeSet; // 移动原组时排除旧成员，只处理固
 use std::time::{SystemTime, UNIX_EPOCH}; // 新副本身份仅在作者显式操作边沿生成。
 
 use bevy::prelude::*; // 鼠标输入、资源和实体命令。
-use bevy::tasks::AsyncComputeTaskPool; // 五点地基与碰撞检查绝不在主线程执行。
 use bevy::tasks::futures::check_ready; // 后台单任务只非阻塞轮询。
 use bevy::ui::RelativeCursorPosition; // 仅中央编辑视口真实点击触发落印。
 use feathrise_scene_content::{
@@ -445,7 +444,7 @@ fn submit_operation(
     } else {
         source.iter().map(|(_, record)| record.id.clone()).collect()
     }; // 移动/旋转可穿过旧本组占地。
-    let mut resolved = Vec::<(ScenePlacementRecord, Option<BuildingPresetDescriptor>)>::with_capacity(
+    let mut resolved = Vec::<(ScenePlacementRecord, Option<std::sync::Arc<BuildingPresetDescriptor>>)>::with_capacity(
         candidates.len(),
     );
     for mut record in candidates {
@@ -462,7 +461,7 @@ fn submit_operation(
                     .cloned()
                     .ok_or_else(|| format!("院落成员{}引用的建筑预设{id}不存在", record.id))?;
                 record.building_preset_id = Some(preset.id.clone()); // 历史别名在新整组操作边界迁移到规范 ID。
-                Some(preset)
+                Some(std::sync::Arc::new(preset))
             }
             None => None,
         };
@@ -480,7 +479,7 @@ fn submit_operation(
         ticket: state.ticket,
     };
     let task_identity = identity.clone();
-    state.operation_task = Some(AsyncComputeTaskPool::get().spawn(async move {
+    state.start(async move {
         let work = CourtyardGroundWork {
             validator,
             candidates: resolved,
@@ -489,6 +488,7 @@ fn submit_operation(
         };
         run_ground_operation(
             OperationResult {
+                wall: None,
                 identity: task_identity,
                 source,
                 creates_new,
@@ -500,12 +500,12 @@ fn submit_operation(
             },
             work,
         )
-    }));
+    });
     Ok(())
 }
 
 /// 同一整组CPU槽分期取得有限样本，全部点就绪后继续原地基、占地和门区规则。
-fn run_ground_operation(
+pub(super) fn run_ground_operation(
     mut result: OperationResult,
     mut work: CourtyardGroundWork,
 ) -> OperationResult {
@@ -514,8 +514,10 @@ fn run_ground_operation(
         .prepare_ground(&work.candidates, &mut work.query)
     {
         Ok(true) => {
-            result.result =
-                validate_courtyard_batch(&work.validator, work.candidates, &work.excluded_ids);
+            let records = validate_courtyard_batch(&work.validator, work.candidates, &work.excluded_ids);
+            result.result = if let Some(wall) = result.wall.as_deref_mut() {
+                records.and_then(|added| wall.prepare(added, &result.identity)).map(|()| Vec::new())
+            } else { records };
         }
         Ok(false) => {
             result.ground_work = Some(work);
@@ -530,6 +532,7 @@ fn run_ground_operation(
 /// 完整校验结果再次复核作者、目录、选取与票据，随后只压入一条场景历史命令。
 #[allow(clippy::too_many_arguments)]
 pub(super) fn poll_operation(
+    mut commands: Commands,
     mut editor: ResMut<SceneEditorState>,
     mut session: ResMut<EditorAuthoringSession>,
     courtyard_registry: Option<Res<CourtyardPresetRegistry>>,
@@ -538,13 +541,14 @@ pub(super) fn poll_operation(
     mut browser: ResMut<EditorGltfBrowserState>,
     mut ui: ResMut<CourtyardUiState>,
     mut state: ResMut<CourtyardAuthoringState>,
+    mut wall: Option<ResMut<super::wall::WallTool>>,
 ) {
     if let Some(task) = state.operation_task.as_mut() {
         let Some(result) = check_ready(task) else {
             return;
         };
         state.operation_task = None;
-        state.operation_waiting = Some(result);
+        state.operation_waiting = result;
     }
     let Some(mut result) = state.operation_waiting.take() else {
         return;
@@ -560,9 +564,13 @@ pub(super) fn poll_operation(
         && building_registry
             .as_deref()
             .is_some_and(|registry| registry.revision == result.identity.building_revision)
-        && courtyard_registry
+        && (result.wall.is_some() || courtyard_registry
             .as_deref()
-            .is_some_and(|registry| registry.revision == result.identity.courtyard_revision)
+            .is_some_and(|registry| registry.revision == result.identity.courtyard_revision))
+        && result.wall.as_deref().is_none_or(|request| editor.tool == crate::types::EditorTool::WallLine
+            && !editor.scene_transition_in_progress && editor.pending_scene_transition.is_none()
+            && editor.scene_switch_confirmation.is_none()
+            && wall.as_deref().is_some_and(|tool| tool.epoch == request.epoch) && request.matches(&session))
         && state.ticket == result.identity.ticket
         && result.required_mode.is_none_or(|mode| ui.mode == mode)
         && result.input_target.as_ref().is_none_or(|target| {
@@ -581,6 +589,13 @@ pub(super) fn poll_operation(
         && !editor.new_scene_dialog_open
         && !session.saving;
     if !valid {
+        if let Some(request) = result.wall.as_deref() {
+            if editor.tool == crate::types::EditorTool::WallLine && wall.as_deref().is_some_and(|w| w.epoch == request.epoch) {
+                editor.status = "场景或预设已改变，请重新确认围墙".into();
+            }
+            state.retire(result);
+            return;
+        }
         ui.status = "院落校验结果已过期，请按当前场景和选择重新操作".to_owned();
         editor.status = ui.status.clone();
         return;
@@ -599,9 +614,21 @@ pub(super) fn poll_operation(
         Err(error) => {
             ui.status = error;
             editor.status = ui.status.clone();
+            state.discard(result);
             return;
         }
         Ok(true) => {}
+    }
+    if let Some(request) = result.wall.as_mut() && request.start.is_some() {
+        match request.capture(draft) {
+            Ok(false) => state.operation_waiting = Some(result),
+            Ok(true) => {
+                let start = request.start.take().expect("围墙启动输入仍在");
+                state.start(async move { start.run(result) });
+            }
+            Err(error) => { editor.status = error; state.retire(result); }
+        }
+        return;
     }
     if let Some(work) = result.ground_work.as_mut() {
         let Ok(sampler) = crate::authoring::PlacementTerrainSampler::from_sources(
@@ -620,26 +647,39 @@ pub(super) fn poll_operation(
             Err(error) => {
                 ui.status = error;
                 editor.status = ui.status.clone();
+                state.discard(result);
                 return;
             }
             Ok(true) => {}
         }
         work.validator.sampler = Some(sampler);
         let work = result.ground_work.take().unwrap();
-        state.operation_task = Some(
-            AsyncComputeTaskPool::get().spawn(async move { run_ground_operation(result, work) }),
-        );
+        state.start(async move { run_ground_operation(result, work) });
         return;
     }
-    let records = match result.result {
+    let records = match std::mem::replace(&mut result.result, Ok(Vec::new())) {
         Ok(records) => records,
         Err(error) => {
-            ui.status = format!("院落位置无效：{error}");
+            ui.status = if result.wall.is_some() { format!("围墙无法铺设：{error}") } else { format!("院落位置无效：{error}") };
             editor.status = ui.status.clone();
+            state.discard(result);
             return;
         }
     };
+    if let Some(request) = result.wall.as_mut() {
+        if state.visual_sync_pending() {
+            state.operation_waiting = Some(result);
+            return;
+        }
+        let addition = request.ready.take().expect("地基完成后围墙必须携带完整替换版本");
+        let previous = addition.apply(&mut session, &mut editor, &mut state);
+        if let Some(tool) = wall.as_deref_mut() { tool.clear_route(); }
+        editor.status = format!("{}，可整笔撤销", result.description);
+        state.retire((previous, result));
+        return;
+    }
     let apply = apply_complete_batch(
+        &mut commands,
         &mut editor,
         &mut session,
         &mut browser,
@@ -660,6 +700,7 @@ pub(super) fn poll_operation(
 /// 先预检所有目标，再同时写入场景草稿、世界预览和一条可撤销命令。
 #[allow(clippy::too_many_arguments)]
 fn apply_complete_batch(
+    commands: &mut Commands,
     editor: &mut SceneEditorState,
     session: &mut EditorAuthoringSession,
     browser: &mut EditorGltfBrowserState,
@@ -734,7 +775,7 @@ fn apply_complete_batch(
     if ui.mode != CourtyardViewportMode::Stamp {
         ui.mode = CourtyardViewportMode::Idle;
     } // Stamp 保持可连续盖印。
-    session.push_bounded_water_history(EditorCommand::CourtyardBatch(Box::new(change)));
+    session.push_bounded_water_history(EditorCommand::CourtyardBatch(std::sync::Arc::new(change)));
     session.mark_placement_structure_changed(editor); // 组枢轴或成员表换代，场景树与索引下一帧重建。
     let updates = if creates_new {
         records
@@ -749,6 +790,6 @@ fn apply_complete_batch(
             .map(|((index, _), record)| (*index, record, true))
             .collect()
     };
-    queue_visual_sync(state, session, updates); // 每帧最多16个正式根或Scene0预览，避免整组单帧峰值。
+    queue_visual_sync(commands, state, session, updates); // 每帧最多16个正式根或Scene0预览，避免整组单帧峰值。
     Ok(())
 }

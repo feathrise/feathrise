@@ -284,7 +284,7 @@ fn attach_source_members(
     for (index, _, after) in &change.changed {
         draft.placements.placements[*index] = after.clone(); // 完整历史已构造后才原子写入归属。
     }
-    session.push_bounded_water_history(EditorCommand::CourtyardBatch(Box::new(change))); // 成组归属单步撤销，原模型位置不发生变化。
+    session.push_bounded_water_history(EditorCommand::CourtyardBatch(std::sync::Arc::new(change))); // 成组归属单步撤销，原模型位置不发生变化。
     session.mark_placement_structure_changed(editor);
     Ok(())
 }

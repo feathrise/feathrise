@@ -122,6 +122,8 @@ impl AnimationDocument {
         saved.clips = self.clips.clone();
         saved.clips.sort_unstable_by_key(|clip| clip.source_index);
         saved.preserved_channel_counts = self.preserved_channel_counts.clone();
+        saved.materials = self.materials.clone();
+        saved.materials.rebase();
         // 已核对本次编码的精确字节，节点身份未变；保存不应使同源跨动作剪贴板失效。
         saved.source_identity = self.source_identity.clone();
         // load 返回的新 Source 没有其他持有者，更新基线不会复制大 BIN 或影响原作者版本。
@@ -193,7 +195,7 @@ impl AnimationDocument {
             Some(_) if !self.clips.is_empty() => return Err("动画列表无效".into()),
             _ => Vec::new(),
         };
-        let mut changed = self.clips.len() != self.source.original_clips.len();
+        let mut changed = self.materials.encode(&mut json)? || self.clips.len() != self.source.original_clips.len();
         let mut animations = Vec::with_capacity(self.clips.len());
         let mut clip_indices = HashSet::new();
         for (position, clip) in self.clips_in_file_order().into_iter().enumerate() {

@@ -18,6 +18,7 @@ pub struct AnimationDocument {
     pub(super) removed_clips: BTreeSet<usize>,
     /// 尚不在本次磁盘版本中的复制或恢复片段，只共享各自的原片段，不持有旧模型 BIN。
     pub(super) retained_clips: BTreeMap<usize, Arc<RetainedClip>>,
+    pub(super) materials: super::material_slots::MaterialDraft,
     pub(super) source: Arc<Source>,
 }
 

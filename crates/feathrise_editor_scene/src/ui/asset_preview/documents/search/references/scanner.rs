@@ -20,7 +20,7 @@ pub(in super::super) fn collect_json(
     cancel: &AtomicBool,
 ) -> Result<(Vec<PathReference>, bool), String> {
     let (hits, paths, limited) = parse_json(source, None, maximum, cancel)?;
-    Ok((hits.into_iter().zip(paths).map(|(hit, path)| PathReference { hit, path }).collect(), limited))
+    Ok((hits.into_iter().zip(paths).map(|(hit, (path, authored))| PathReference { hit, path, authored }).collect(), limited))
 }
 
 fn parse_json(
@@ -28,7 +28,7 @@ fn parse_json(
     target: Option<&str>,
     maximum: usize,
     cancel: &AtomicBool,
-) -> Result<(Vec<Hit>, Vec<String>, bool), String> {
+) -> Result<(Vec<Hit>, Vec<(String, bool)>, bool), String> {
     if source.len() > super::super::super::constants::MAX_FILE_BYTES {
         return Err("JSON超过256 KiB引用解析预算".into()); // 草稿虽可输入更多字符，引用解析仍遵守文件字节预算。
     }
@@ -43,8 +43,8 @@ fn parse_json(
         if target.is_none() && value.len() > MAX_PATH_BYTES { return Err("资产路径超过1024字节检查预算".into()); }
         let mut snippet: String = pointer.chars().take(201).collect();
         if snippet.len() < pointer.len() { snippet.push('…'); }
-        hits.push(Hit { range, line: 0, column: 0, snippet });
-        if target.is_none() { paths.push(value.to_owned()); }
+        hits.push(Hit { missing_path: None, range, line: 0, column: 0, snippet });
+        if target.is_none() { paths.push((value.to_owned(), feathrise_editor_assets::json_fields::authored_asset_field(key))); }
         Ok(())
     })?;
     let (mut byte, mut line, mut column) = (0, 1, 1);

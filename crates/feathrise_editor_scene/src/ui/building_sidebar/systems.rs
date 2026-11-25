@@ -88,6 +88,8 @@ pub(super) fn sync_pages(
     if editor.open && sidebar.tool_page_visible(EditorLeftSidebarTab::Building) {
         let active = if courtyard.mode != CourtyardViewportMode::Idle {
             Some(BuildingSidebarPage::Courtyard)
+        } else if editor.tool == EditorTool::WallLine {
+            Some(BuildingSidebarPage::Wall)
         } else if editor.tool == EditorTool::Building {
             Some(BuildingSidebarPage::Single)
         } else {

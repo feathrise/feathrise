@@ -10,9 +10,10 @@ mod geometry; // 模板局部坐标与独立场景摆放记录之间的换算。
 mod operations; // 视口请求、后台整组校验及原子作者事务。
 mod state; // 分帧身份索引、单在途任务和目录保存任务。
 mod types; // 精确地基worker使用的有限候选与分页进度。
+pub(crate) mod wall;
 
 pub(crate) use geometry::clipmap_cursor_target;
-pub(crate) use state::{CourtyardAuthoringState, queue_visual_sync}; // 整组撤销把世界同步意图投递同一有界队列。
+pub(crate) use state::{CourtyardAuthoringState, PendingVisualSync, queue_visual_sync}; // 整组撤销把世界同步意图投递同一有界队列。
 #[cfg(test)]
 pub(crate) use state::sync_visuals; // 多选回归运行同一分帧队列，不假造撤销后的模型姿态。
 
@@ -22,6 +23,7 @@ use crate::SceneEditorSystemSet; // 作者请求与后台采用明确排序。
 
 /// 安装院落作者链，UI 只发送稳定 ID 和意图。
 pub(crate) fn install(app: &mut App) {
+    wall::install(app);
     app.init_resident_resource::<state::CourtyardAuthoringState>()
         .add_systems(
             Update,

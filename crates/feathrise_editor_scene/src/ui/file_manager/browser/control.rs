@@ -75,6 +75,7 @@ pub(super) fn control(
     mut wheels: MessageReader<MouseWheel>,
     mut clips: MessageWriter<PickProjectAnimationClip>,
     mut glbs: MessageWriter<PickedSceneGlb>,
+    mut file_commands: MessageWriter<super::super::FileManagerCommand>,
     search_state: Option<Res<AssetSearchState>>,
     mut navigation: MessageReader<BrowserNavigate>,
     mut extras: MessageReader<ExtraRequest>,
@@ -98,7 +99,10 @@ pub(super) fn control(
     browsers.service_pointer = false;
     if files.suspended || files.prompt.is_some() {
         browsers.popup = None;
-        browsers.service = None;
+        // 关联预览覆盖原缺失列表，确认或取消后仍回到同一结果；弹层打开时继续独占输入。
+        let relink_review = files.prompt.as_ref().is_some_and(|p| p.action == FileAction::ReviewReferences)
+            && files.reference_reviews.front().is_some_and(|p| matches!(p.operation, feathrise_editor_project_browser_model::file_operations::FileOperation::Relink { .. }));
+        if files.suspended || !relink_review { browsers.service = None; }
         extras.clear();
         navigation.clear();
         return;
@@ -254,7 +258,13 @@ pub(super) fn control(
         .filter(|window| !window.minimized && window.is_picker() && files.focused == Some(window.id)
             && (foreground.is_none() || top_hovered == Some(window.id)))
     {
-        if let Some(path) = browsers.picker_glb(window) {
+        if let Some(missing) = window.relink_missing() && browsers.picker_replacement(window).is_some() {
+            let id = window.id;
+            file_commands.write(super::super::FileManagerCommand { action: FileAction::Relink,
+                path: Some(window.picker_asset_root().unwrap().join(missing)), sources: window.selection.clone() });
+            files.close(id);
+            files.release_guard = true;
+        } else if let Some(path) = browsers.picker_glb(window) {
             glbs.write(PickedSceneGlb { window: window.id, path: path.into() });
         } else if let Some((path, clip)) = browsers.picker_clip(window) {
             let path = path.to_owned();

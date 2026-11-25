@@ -4,6 +4,7 @@ mod clips;
 mod composition;
 mod creation;
 mod curves;
+mod material_slots;
 mod reader;
 mod structure;
 mod types;
@@ -11,6 +12,7 @@ mod writer;
 
 pub use clips::new_scene_clip_id;
 pub use composition::{ContentItem, ContentKind, ContentSpan, DirectClipMapping};
+pub use material_slots::{MaterialChange, MaterialSlot};
 pub use types::{
     AnimationDocument, Channel, Clip, ClipSnapshot, Keyframe, Node, PreviewJoint,
 };

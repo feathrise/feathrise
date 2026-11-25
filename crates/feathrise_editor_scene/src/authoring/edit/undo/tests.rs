@@ -301,10 +301,10 @@ fn terrain_patch_legacy_history_deletions_reject_invalid_source_before_any_mutat
                     index: 1, record: patch.clone(), had_author_preview: operation == 1,
                 },
                 2 => EditorCommand::PlacementAdded(patch.clone()),
-                3 => EditorCommand::CourtyardBatch(Box::new(CourtyardBatchChange::new_removed(
+                3 => EditorCommand::CourtyardBatch(std::sync::Arc::new(CourtyardBatchChange::new_removed(
                     expected_records.iter().cloned().enumerate().collect(), expected_records.len(),
                 ).unwrap())),
-                _ => EditorCommand::CourtyardBatch(Box::new(CourtyardBatchChange::new(
+                _ => EditorCommand::CourtyardBatch(std::sync::Arc::new(CourtyardBatchChange::new(
                     expected_records.clone(), Vec::new(),
                 ).unwrap())),
             };

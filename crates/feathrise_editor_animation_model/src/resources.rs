@@ -26,6 +26,7 @@ pub enum Edit {
     AppendClip(Arc<Clip>),
     /// 一次资源粘贴产生的所有片段共用一次撤销，原文档只由现有后台保存事务发布。
     ImportClips { position: usize, clips: Arc<[Clip]> },
+    MaterialSlot(super::data::MaterialChange),
     RenameClip {
         clip: usize,
         id: usize,
@@ -63,6 +64,7 @@ pub enum Edit {
 impl Edit {
     pub fn target(&self) -> (usize, usize) {
         match self {
+            Self::MaterialSlot(_) => (0, 0), // 材质不指定动画轨道，采用结果时保留当前选区。
             Self::AppendClip(clip) => (clip.source_index, 0),
             Self::ImportClips { position, .. } => (*position, 0),
             Self::RenameClip { clip, .. } => (*clip, 0),
@@ -81,6 +83,7 @@ impl Edit {
         forward: bool,
     ) -> Result<Option<usize>, String> {
         match self {
+            Self::MaterialSlot(edit) => doc.apply_material(edit, forward).map(|_| None),
             Self::ImportClips { position, clips } => {
                 if forward {
                     for (offset, clip) in clips.iter().enumerate() { doc.insert_clip(position + offset, clip, None)?; }
@@ -245,6 +248,8 @@ pub struct Session {
     pub cursor: usize,
     pub saved_cursor: Option<usize>,
     pub source_changed: bool,
+    /// 模型代变化先复验磁盘字节，只有确认不同才让脏会话持续显示冲突。
+    pub external_change_confirmed: bool,
     pub last_used: u64,
     pub window_start: f32,
     pub window_span: f32,
@@ -257,6 +262,16 @@ pub struct Session {
 }
 
 impl Session {
+    pub fn material_action(&self, action: &PendingAction) -> bool {
+        match action {
+            PendingAction::Edit(Edit::MaterialSlot(_)) => true,
+            PendingAction::Undo => self.cursor.checked_sub(1).and_then(|i| self.history.get(i)).is_some_and(|e| matches!(e, Edit::MaterialSlot(_))),
+            PendingAction::Redo => self.history.get(self.cursor).is_some_and(|e| matches!(e, Edit::MaterialSlot(_))),
+            PendingAction::Save => self.document.has_material_draft() && self.dirty(),
+            _ => false,
+        }
+    }
+
     pub fn visible_channels(&self) -> Vec<usize> {
         let Some(clip) = self.document.clips.get(self.clip) else { return Vec::new(); };
         if self.bone_filter {
@@ -358,6 +373,7 @@ impl Session {
             cursor: 0,
             saved_cursor: Some(0),
             source_changed: false,
+            external_change_confirmed: false,
             last_used: 0,
             window_start: 0.0,
             window_span,
@@ -429,9 +445,11 @@ pub enum TaskResult {
     /// `None` 表示已复验缓存的同一文件，继续沿用作者草稿和历史。
     RigLoad { ticket: u64, result: Result<Option<Session>, String> },
     Unchanged,
+    DirtySourceChanged,
     Released,
     Edit {
-        document: Result<(AnimationDocument, Metadata), String>,
+        /// 材质事务复用现有轨道索引；只有曲线或片段编辑才返回新的元数据。
+        document: Result<(AnimationDocument, Option<Metadata>), String>,
         action: PendingAction,
         key: Option<usize>,
         target: (usize, usize),

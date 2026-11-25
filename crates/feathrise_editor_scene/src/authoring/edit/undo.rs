@@ -34,6 +34,7 @@ use crate::ui::placement_water::PlacementInstanceIndex; // 网格水撤销按稳
 
 mod courtyard; // 院落整批命令在修改任何成员前完成共同身份与容量预检。
 mod deletion_preparation; // 整组增删ID按固定预算捕获，完整删除表由唯一后台槽准备。
+mod wall; // 沿线围墙的全量校验、数组和视觉队列在同一历史任务中准备。
 mod surface; // 地表局部差分、懒层和整层删除的原子历史单独维护。
 pub(super) mod water_snapshot; // 静水整笔前后版本在完整预检后原子采用。
 
@@ -252,11 +253,16 @@ pub(crate) fn apply_undo_redo(
         editor.status = "删除票据正在后台准备，完成后继续撤销/重做".into();
         return; // 单体恢复同样会写表，必须保留请求与原栈顶，不能触发Arc深拷贝。
     }
-    let mut prepared_deletions = match deletion_preparation.prepare(&session, &editor, undoing, candidate) {
-        deletion_preparation::Preparation::Unneeded => None,
-        deletion_preparation::Preparation::Ready(prepared) => Some(prepared),
+    let (mut prepared_deletions, mut prepared_wall) = match deletion_preparation.prepare(&session, &editor, undoing, candidate) {
+        deletion_preparation::Preparation::Unneeded => (None, None),
+        deletion_preparation::Preparation::Ready(prepared) => (Some(prepared.deletions), prepared.wall),
+        deletion_preparation::Preparation::Failed(error) => {
+            if undoing { editor.undo_requested = false; } else { editor.redo_requested = false; }
+            editor.status = format!("{}未执行：{error}；历史记录已保留", if undoing { "撤销" } else { "重做" });
+            return;
+        }
         deletion_preparation::Preparation::Waiting => {
-            editor.status = "正在后台准备整组删除票据，完成后继续撤销/重做".into();
+            editor.status = "正在准备整组摆放历史，完成后继续撤销/重做".into();
             return;
         }
     };
@@ -728,6 +734,10 @@ pub(crate) fn apply_undo_redo(
                     }
                 }
                 EditorCommand::CourtyardBatch(change) => {
+                    if let Some(wall) = prepared_wall.take() {
+                        deletion_preparation.retire(wall.apply(draft, &mut courtyard_state));
+                        return Ok(());
+                    }
                     if let Some(transfer) = &change.model_vegetation {
                         crate::authoring::model_vegetation::validate_transfer(draft,
                             if undoing { &transfer.after } else { &transfer.before })?;
@@ -1080,7 +1090,9 @@ pub(crate) fn apply_undo_redo(
         })()
     };
     if let Err(error) = apply_result {
-        deletion_preparation.reject_prepared(prepared_deletions.take());
+        if prepared_deletions.is_some() {
+            deletion_preparation.retire((prepared_deletions.take(), prepared_wall.take()));
+        }
         let command = if let Some(id) = terrain_scope { EditorCommand::TerrainCanvas { id, command: Box::new(command) } }
             else if root_water_scope { EditorCommand::RootWater(Box::new(command)) } else { command };
         if undoing {
@@ -1326,6 +1338,7 @@ pub(crate) fn apply_undo_redo(
     }
     if let Some(updates) = courtyard_world_updates {
         crate::authoring::courtyards::queue_visual_sync(
+            &mut commands,
             &mut courtyard_state, // 唯一队列受最多十六根每帧的消费预算约束。
             &session,             // 使用本次结构修订后的场景身份冻结迟到校验。
             updates

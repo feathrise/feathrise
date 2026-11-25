@@ -72,6 +72,14 @@ impl BrowserSessions {
             .is_some_and(|extension| extension.eq_ignore_ascii_case("glb"))).then_some(path)
     }
 
+    pub(in crate::ui::file_manager) fn picker_replacement<'a>(&'a self, window: &FileWindow) -> Option<&'a str> {
+        let missing = window.relink_missing()?;
+        let (_, path) = self.picker_asset(window)?;
+        if std::path::Path::new(missing).extension().is_some_and(|e| e.eq_ignore_ascii_case("glb"))
+            && !std::path::Path::new(path).extension().is_some_and(|e| e.eq_ignore_ascii_case("glb")) { return None; }
+        (!path.contains('#')).then_some(path)
+    }
+
     pub(in crate::ui::file_manager) fn picker_clip<'a>(&'a self, window: &FileWindow) -> Option<(&'a str, &'a AnimationClipInfo)> {
         let picker = window.animation_picker()?;
         let (session, path) = self.picker_asset(window)?;

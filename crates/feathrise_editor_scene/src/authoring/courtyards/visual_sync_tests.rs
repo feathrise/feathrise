@@ -99,8 +99,8 @@ fn assert_queued_delete_after_source_change(operation: usize, with_formal: bool,
             session.placement_previews.clear();
             session.placement_previews.insert(target.id.clone(), preview);
             session.undo.clear(); session.redo.clear();
-            if undoing { session.undo.push(EditorCommand::CourtyardBatch(Box::new(command))); }
-            else { session.redo.push(EditorCommand::CourtyardBatch(Box::new(command))); }
+            if undoing { session.undo.push(EditorCommand::CourtyardBatch(std::sync::Arc::new(command))); }
+            else { session.redo.push(EditorCommand::CourtyardBatch(std::sync::Arc::new(command))); }
             (session.revision, session.placement_structure_revision)
         };
         {

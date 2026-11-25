@@ -92,12 +92,16 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
         }
         let placements = serde_json::from_value(json!({"schema_version":2,"scene_id":id,"placements":[{
             "id":"fixture-model","asset_path":"整理来源/move-me.glb","translation":[0,0,0],"yaw_degrees":0,"scale":[1,1,1]
+        },{
+            "id":"fixture-missing","asset_path":"损坏/原模型.glb","translation":[3,0,0],"yaw_degrees":0,"scale":[1,1,1]
         }]})).map_err(|e| e.to_string())?;
         let bytes = feathrise_scene_content::write_scene_placements_glb(&placements, &format!("scenes/{name}/scene.glb"), None)?;
         write_new(&folder.join("scene.glb"), &bytes)?;
     }
     fs::write(&catalog_path, serde_json::to_vec(&scene_catalog).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     let preset = config.join("引用预设.building_presets.json");
+    let relink_preset = config.join("00待关联.preset.json");
+    write_new(&relink_preset, serde_json::to_string(&json!({"model_paths":["损坏/原模型.glb#Scene0","损坏/原模型.glb#Mesh0/Primitive0"],"label":"损坏/原模型.glb"})).unwrap().as_bytes())?;
     let catalog = feathrise_scene_content::BuildingPresetCatalogAsset {
         schema_version: feathrise_scene_content::BUILDING_PRESET_SCHEMA_VERSION,
         presets: vec![feathrise_scene_content::BuildingPresetDescriptor::from_asset(
@@ -168,7 +172,7 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
         let path = format!("scenes/{name}/scene.glb");
         let bytes = fs::read(assets.join(&path)).map_err(|e| e.to_string())?;
         let data = feathrise_scene_content::read_scene_placements(&bytes, &path)?;
-        if data.scene_id.as_str() != id || data.placements.len() != 1 || data.placements[0].asset_path != MOVED_ASSET
+        if data.scene_id.as_str() != id || data.placements.len() != 2 || data.placements.iter().any(|p| p.asset_path != MOVED_ASSET)
             || fs::read(assets.join(&data.placements[0].asset_path)).map_err(|e| e.to_string())? != model {
             return Err(format!("重开场景 {name} 未找到移动后的原模型"));
         }
@@ -181,6 +185,12 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
         return Err("建筑预设模型路径、文件内对象目标或引用修复回执不正确".into());
     }
     proof["reopened_reference_scenes"] = json!(REFERENCE_SCENES);
+    let preset_data = read_json(&relink_preset)?;
+    if preset_data != json!({"model_paths":[format!("{MOVED_ASSET}#Scene0"),format!("{MOVED_ASSET}#Mesh0/Primitive0")],"label":"损坏/原模型.glb"})
+        || assets.join("损坏/原模型.glb").exists() || proof["window"]["steps"]["relink_missing"]["repaired_documents"] != 3 {
+        return Err("重新关联后的预设、子资源片段或事务回执与实际磁盘不符".into());
+    }
+    proof["relinked_preset"] = preset_data;
     let mut files = serde_json::Map::new();
     for name in ["中文笔记.txt", "中文说明.md", "中文空场景.glb"] {
         let path = destination.join(name);
@@ -217,7 +227,7 @@ fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String>
     if isolation["fixed_sidebar_hidden"] != true || isolation["returned_search_closed"] != true {
         return Err("浮窗工具点击与固定栏隔离的实窗证据缺失".into());
     }
-    for name in ["files-context-menu.png", "files-new-submenu.png", "files-desktop.png", "files-restored.png", "files-reference-preview.png",
+    for name in ["files-context-menu.png", "files-new-submenu.png", "files-desktop.png", "files-restored.png", "files-reference-preview.png", "files-relink-preview.png",
         "files-status-single.png", "files-status-crowded.png",
         "files-status-file-receipt.png",
         "files-assets-thumbnails.png", "files-assets-clips.png", "files-assets-services.png",

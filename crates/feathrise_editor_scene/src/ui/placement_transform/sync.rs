@@ -29,7 +29,7 @@ pub(crate) fn sync_placement_transform_panel(
     browser: Res<EditorGltfBrowserState>, // 当前完整实例选择。
     session: Res<EditorAuthoringSession>, // 当前记录、修订和场景清单。
     settings: (Res<EditorSettings>, Option<Res<crate::authoring::mesh_edit::MeshEditState>>,
-        Option<Res<crate::ui::scene_motion::Workbench>>), // 网格与动画工作区限定原对象属性的编辑语义。
+        Option<Res<crate::ui::scene_motion::Workbench>>, Option<Res<crate::viewport::placement_move::PlacementMoveState>>), // 网格、动画和灯光手势共享所选对象的属性。
     mut state: ResMut<PlacementTransformInputState>, // 吸附目标失效时收口模式，活动期间禁用数字框。
     active: Res<ActiveNumericInput>,      // 字符缓冲期间不得覆盖显示或规格。
     active_scrub: Res<ActiveNumericInputScrub>, // 左右拖动期间不得覆盖数值和倍率。
@@ -68,6 +68,7 @@ pub(crate) fn sync_placement_transform_panel(
 ) {
     let mesh_editing = settings.1.as_ref().is_some_and(|state| state.active());
     let animation = settings.2.as_deref();
+    let moving = settings.3.as_deref();
     let settings = &settings.0;
     let relocation_valid = state.relocation_target.as_ref().is_none_or(|target| {
         editor.open
@@ -187,6 +188,7 @@ pub(crate) fn sync_placement_transform_panel(
         && editor.pending_scene_transition.is_none()
         && !editor.scene_switch_confirmation_open()
         && !state.relocation_armed(); // 建筑只能走五点地基受检动作，禁用七个普通任意数值入口。
+    let displayed_record = record.map(|record| target.as_ref().and_then(|target| moving?.light_preview(&target.scene_id, &record.id)).unwrap_or(record));
     for (entity, field, current, disabled, mut config, mut scrub) in &mut inputs {
         let context_editable = context_editable && (!is_building || field.is_lod())
             && field.available_in_mode(editing_animation)
@@ -217,7 +219,7 @@ pub(crate) fn sync_placement_transform_panel(
             continue; // 共享 UI 控件拥有字符或指针时不得覆盖当前显示。
         }
         // 撤销与重做会短暂等待对象索引换代；此时面板收起，不能把暂缺的作者记录当成零覆盖数值框。
-        let Some(record) = record else { continue; };
+        let Some(record) = displayed_record else { continue; };
         let value = animation_pose.and_then(|pose| field.animation_value(pose))
             .unwrap_or_else(|| field.value(record));
         let value = round_to_decimals(value, field.decimals()); // 显示精度不反向量化作者高精度源。

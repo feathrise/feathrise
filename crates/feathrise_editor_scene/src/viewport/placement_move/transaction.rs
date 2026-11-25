@@ -110,6 +110,20 @@ impl MoveWorld<'_, '_> {
         editor: &mut SceneEditorState,
         mut drag: MoveDrag,
     ) -> Result<bool, String> {
+        // 已显示的候选值直接提交。先排队恢复旧组件再比对 ECS 会让恢复命令覆盖成功提交的灯具。
+        match self.check_and_preview_commit(session, &mut drag) {
+            Ok(true) => {}
+            result => { self.cancel(session, &drag); return result; }
+        }
+        session.draft.as_mut().expect("已经复核草稿").placements.placements[drag.record_index] = drag.preview.clone();
+        session.push_bounded_water_history(EditorCommand::PlacementChanged {
+            record_index: drag.record_index, before: drag.before, after: drag.preview,
+        });
+        session.mark_changed(editor);
+        Ok(true)
+    }
+
+    fn check_and_preview_commit(&mut self, session: &mut EditorAuthoringSession, drag: &mut MoveDrag) -> Result<bool, String> {
         let Some(draft) = session
             .draft
             .as_ref()
@@ -128,7 +142,7 @@ impl MoveWorld<'_, '_> {
         if current == &drag.preview {
             return Ok(false);
         } // 回到起点或单击不得清空 redo、推进修订或标脏。
-        if let Some(binding) = drag.preview.terrain_binding.as_ref() {
+        if !matches!(drag.handle, super::types::MoveHandle::Light(_)) && let Some(binding) = drag.preview.terrain_binding.as_ref() {
             let pose = feathrise_scene_content::TerrainObjectTransform {
                 translation: drag.preview.translation, scale: drag.preview.scale, ..default()
             }.with_rotation(placement_rotation(&drag.preview));
@@ -137,18 +151,6 @@ impl MoveWorld<'_, '_> {
             drag.preview.terrain_binding = Some(updated);
         }
         self.preview(session, &drag.preview)?; // 写草稿前完成公共校验和根同步，失败保持原作者值。
-        session
-            .draft
-            .as_mut()
-            .expect("已经复核草稿")
-            .placements
-            .placements[drag.record_index] = drag.preview.clone();
-        session.push_bounded_water_history(EditorCommand::PlacementChanged {
-            record_index: drag.record_index,
-            before: drag.before,
-            after: drag.preview,
-        });
-        session.mark_changed(editor);
         Ok(true)
     }
 }

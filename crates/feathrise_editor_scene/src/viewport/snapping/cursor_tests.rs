@@ -353,6 +353,7 @@ fn object_click_app(enabled: bool) -> (App, feathrise_scene_content::TerrainId) 
     };
     app.world_mut().resource_mut::<EditorSettings>().editor_snapping.enabled = enabled;
     let identity = CursorIdentity {
+        wall_epoch: None,
         scene_id: map, revision: 7, tool: EditorTool::PlaceAsset, asset: Some("gltf/test.glb".into()),
         terrain_revision: 0, ground_snapshot: app.world().resource::<EditorAuthoringSession>().draft.as_ref()
             .unwrap().terrain_ground.as_ref().map(CursorGroundSnapshot::capture),

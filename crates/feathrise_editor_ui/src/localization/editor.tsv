@@ -1,4 +1,19 @@
 # 稳定键	简体中文	English
+glb.material.slots	替换材质槽	Replace Material Slot
+glb.material.save	保存 GLB	Save GLB
+glb.material.previous	上一组图元	Previous Primitives
+glb.material.next	下一组图元	Next Primitives
+glb.material.choose_object	先选择含网格的对象	Select an object with a mesh
+glb.material.drag	点击图元，从材质列表拖入槽	Click a primitive, then drag a material onto its slot
+glb.material.release	松开以替换此图元材质	Release to replace this primitive's material
+glb.material.dragging	拖到图元材质槽后松开	Drag onto a primitive slot and release
+glb.material.primitive	图元	Primitive
+glb.material.default	默认材质	Default material
+glb.material.updated	材质槽草稿已更新	Material slot draft updated
+glb.material.saving	正在校验磁盘版本并保存 GLB	Checking the file on disk and saving the GLB
+glb.material.saved	材质槽和文档草稿已保存到原 GLB	Material slots and document edits saved to the original GLB
+glb.material.conflict	磁盘 GLB 已被其他工具修改，当前草稿与历史已保留	The GLB changed on disk. Your draft and history have been kept.
+glb.material.same	该图元已经使用所选材质	This primitive already uses the selected material
 settings.locale.title	界面语言	Language
 settings.locale.help	立即切换编辑器界面语言，重启后恢复此选择。	Change the editor language immediately. Your choice is restored on restart.
 settings.locale.system	跟随系统	System Default
@@ -1705,3 +1720,16 @@ motion.region.no_clips	请先在主场景 GLB 中创建动画	Create an animatio
 motion.region.corners	请在视口点选底面的两个对角，Esc 取消	Click two opposite corners of the base in the viewport. Press Esc to cancel.
 motion.region.second	请点选触发区域的另一角	Click the opposite corner of the trigger region
 motion.region.no_area	两个对角需要围成有面积的底面	Choose two corners that enclose an area
+motion.region.adjust	调整区域	Adjust Region
+motion.region.drag	拖动中心移动区域，拖动四边改变宽深；Esc 取消	Drag the center to move or an edge to resize. Press Esc to cancel.
+wall.tab	沿线围墙	Wall Path
+wall.title	沿线铺设围墙	Lay Walls Along a Path
+wall.help	依次点选起点、转角和终点。墙段按连接点和实际长度对齐，门楼用金色标出。确认后可整笔撤销。	Click the start, corners and end. Wall sections align at their connectors. The gate is gold. Undo removes the entire placement.
+wall.module	切换墙段	Change Wall Section
+wall.gate	切换门楼	Change Gate
+wall.start	开始绘制	Start Drawing
+wall.undo_point	撤回上一点	Remove Last Point
+wall.choose_gate	指定门楼位置	Place Gate
+wall.remove_gate	移除门楼	Remove Gate
+wall.confirm	确认铺设	Place Walls
+wall.cancel	取消铺设	Cancel Placement

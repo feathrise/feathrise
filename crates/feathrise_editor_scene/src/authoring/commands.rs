@@ -94,7 +94,7 @@ pub enum EditorCommand {
     /// 单栋稀疏平台和建筑共用一条历史，格点Arc可交给后台恢复而不在输入帧复制。
     BuildingSparseTerrainChanged(Box<BuildingSparseTerrainChange>),
     /// 院落落印、整体变换或复制作为一条有界事务恢复全部成员。
-    CourtyardBatch(Box<CourtyardBatchChange>), // 大批成员放入Box，避免扩大所有命令枚举的栈尺寸。
+    CourtyardBatch(Arc<CourtyardBatchChange>), // 栈顶和后台历史任务共享同一份冻结记录。
     PortalAdded(ScenePortalRecord), // 新增点始终追加，撤销时可O(1)移除末项。
     /// 删除已有源点时保存原数组位置及预览所有权，保证撤销恢复精确顺序和画面。
     PortalRemoved {
@@ -273,6 +273,7 @@ pub struct CourtyardBatchChange {
     pub changed: Vec<(usize, ScenePlacementRecord, ScenePlacementRecord)>, // 组建和整体移动保留原数组下标、前后完整值。
     pub removed: Vec<(usize, ScenePlacementRecord)>, // 批量删除按原下标降序交换移除；撤销反向交换恢复原排列。
     pub original_len: Option<usize>, // 删除历史核对完整长度，禁止在结构已变化时猜测尾部关系。
+    pub(super) wall_base: Option<usize>, // 沿线历史只追加普通建筑，按这次真实起始槽分帧冻结与后台重做。
     heap_bytes: usize, // 创建命令时一次计费，后续历史裁剪不重复扫描最多256个成员。
 }
 
@@ -288,6 +289,12 @@ impl CourtyardBatchChange {
                 "院落历史命令成员数{member_count}无效，最多{MAX_COURTYARD_MEMBERS_PER_PRESET}项"
             )); // 空命令和过大快照都不能进入作者历史。
         }
+        Self::for_placements(added, changed)
+    }
+
+    /// 普通场景摆放的复合历史。院落模板自身的目录成员约束只由上方入口执行。
+    fn for_placements(added: Vec<ScenePlacementRecord>, changed: Vec<(usize, ScenePlacementRecord, ScenePlacementRecord)>) -> Result<Self, String> {
+        if added.is_empty() && changed.is_empty() { return Err("没有可记录的摆放".into()); }
         if changed.iter().any(|(_, before, after)| {
             before.id != after.id || placement_water_differs(before, after)
         }) {
@@ -316,8 +323,19 @@ impl CourtyardBatchChange {
             changed,
             removed: Vec::new(),
             original_len: None,
+            wall_base: None,
             heap_bytes,
         }) // 构造后只移动或克隆，不修改冻结快照。
+    }
+
+    /// 沿线只生成普通建筑摆放。冻结追加前长度，让历史在两端都能核对整个尾段。
+    pub(crate) fn for_wall(added: Vec<ScenePlacementRecord>, base: usize) -> Result<Self, String> {
+        if added.iter().any(|record| record.terrain_patch.is_some()) {
+            return Err("沿线围墙不能包含局部地形补丁".into());
+        }
+        let mut change = Self::for_placements(added, Vec::new())?;
+        change.wall_base = Some(base);
+        Ok(change)
     }
 
     /// 删除只捕获选中的有限记录；交换移除避免按每个下标移动完整场景数组。
@@ -336,7 +354,8 @@ impl CourtyardBatchChange {
         }
         let heap_bytes = removed.capacity() * std::mem::size_of::<(usize, ScenePlacementRecord)>()
             + removed.iter().map(|(_, record)| placement_record_heap_bytes(record)).sum::<usize>();
-        Ok(Self { model_vegetation: None, glb_delete: None, added: Vec::new(), changed: Vec::new(), removed, original_len: Some(original_len), heap_bytes })
+        Ok(Self { model_vegetation: None, glb_delete: None, added: Vec::new(), changed: Vec::new(), removed,
+            original_len: Some(original_len), wall_base: None, heap_bytes })
     }
 
     pub(crate) fn with_glb_delete(&mut self, deletion: super::source_glbs::deletion::GlbDeletion) {
@@ -1154,7 +1173,7 @@ mod tests {
         .expect("院落成员测试记录合法"); // 真实JSON同时覆盖可选院落身份。
         let change =
             CourtyardBatchChange::new(vec![member], Vec::new()).expect("单成员落印可进入历史"); // 构造时冻结容量计费。
-        let command = EditorCommand::CourtyardBatch(Box::new(change)); // 整批只占一次Ctrl+Z。
+        let command = EditorCommand::CourtyardBatch(std::sync::Arc::new(change)); // 整批只占一次Ctrl+Z。
         assert!(command_uses_bounded_water_history(&command)); // 院落批量快照受现有历史硬门约束。
         let usage = water_history_usage(&[command]); // 历史裁剪不逐成员重复扫描字符串。
         assert_eq!(usage.commands, 1); // 单次印章只有一条可撤销事务。

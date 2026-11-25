@@ -7,6 +7,25 @@ pub fn asset_path_field(key: &str) -> bool {
     key == "path" || key.ends_with("_path") || key.ends_with("_paths")
 }
 
+/// 文件整理和缺失检查共用可写范围。名称、节点路径和任意用户文本仍可用于搜索。
+pub fn authored_reference_document(path: &std::path::Path) -> bool {
+    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or_default();
+    name.eq_ignore_ascii_case("scene.glb") || name.ends_with(".json")
+        && (name.contains(".scene_") || name.contains(".map_") || name.ends_with("presets.json") || name.ends_with(".preset.json"))
+}
+
+pub fn authored_asset_field(key: &str) -> bool {
+    let key = key.strip_suffix("_paths").unwrap_or_else(|| key.strip_suffix("_path").unwrap_or(""));
+    matches!(key, "asset" | "author_asset" | "model" | "mesh" | "material" | "glb" | "height" | "skybox" |
+        "texture" | "source" | "peer_source" | "surface" | "surface_fields" | "vegetation" | "water" | "boundary" | "characters")
+        || key.ends_with("_texture") || key.ends_with("_source") || key.ends_with("_array")
+}
+
+/// 只识别 glTF 节点上由场景作者保存的摆放 extras。
+pub fn placement_node(pointer: &str) -> Option<usize> {
+    pointer.strip_prefix("/nodes/")?.strip_suffix("/extras/feathrise_placement")?.parse().ok()
+}
+
 /// 数组元素沿用所属字段。调用者可以设置自己的查询预算，或在后台按文件完整处理。
 pub fn visit_strings(
     source: &str, pointer_limit: Option<usize>, cancelled: &dyn Fn() -> bool,

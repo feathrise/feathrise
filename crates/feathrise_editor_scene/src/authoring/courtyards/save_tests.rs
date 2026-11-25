@@ -283,7 +283,9 @@ fn a_completed_courtyard_visual_queue_does_not_reclaim_the_scene_save_gate() {
     {
         let session = app.world().resource::<EditorAuthoringSession>();
         let record = session.draft.as_ref().unwrap().placements.placements[0].clone();
-        queue_visual_sync(&mut state, session, vec![(0, record, true)]);
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        queue_visual_sync(&mut Commands::new(&mut queue, app.world()), &mut state, session, vec![(0, record, true)]);
+        queue.apply(app.world_mut());
     }
     assert!(state.visual_sync_pending());
     assert!(!state.save_pending());

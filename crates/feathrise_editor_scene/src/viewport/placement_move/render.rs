@@ -46,7 +46,7 @@ pub(crate) fn draw_placement_move(
     mut foreground: ResMut<Foreground>,
 ) {
     if !editor.open
-        || !editor.placement_transform_enabled
+        || !(mode.mode == ViewportMode::Select || editor.placement_transform_enabled && mode.mode.transforms_placement())
         || editor.tool != EditorTool::Inspect
         || editor.scene_transition_in_progress
         || editor.new_scene_dialog_open
@@ -112,6 +112,10 @@ pub(crate) fn draw_placement_move(
         (origin, placement_scale_basis(frame, preview.map_or(record, |drag| &drag.preview)))
     };
     let building = record.building_preset_id.is_some();
+    if local && animated.is_none() && let Some(guide) = super::light::LightGuide::new(origin, basis, preview.map_or(record, |drag| &drag.preview)) {
+        let active = preview.map(|drag| drag.handle).or(state.hover);
+        guide.draw(camera, &mut canvas, active);
+    }
     PlacementGizmo {
         camera, origin, basis, building, local, animated: animated.is_some(),
         yaw_only: animated.is_none() && yaw_only(record),

@@ -59,6 +59,7 @@ fn tool_label(tool: EditorTool) -> &'static str {
         EditorTool::Waterfall => "瀑布",
         EditorTool::PlaceAsset => "资产摆放",
         EditorTool::Building => "建筑",
+        EditorTool::WallLine => "沿线围墙",
         EditorTool::Portal => "传送点",
         EditorTool::Surface => "地表绘制",
         EditorTool::Puddles => "积水绘制",

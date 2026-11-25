@@ -30,7 +30,7 @@ const fn left_tab_for_tool(tool: EditorTool) -> EditorLeftSidebarTab {
             EditorLeftSidebarTab::Water
         }
         EditorTool::Domain(id) => EditorLeftSidebarTab::Domain(id),
-        EditorTool::Building => EditorLeftSidebarTab::Building,
+        EditorTool::Building | EditorTool::WallLine => EditorLeftSidebarTab::Building,
         EditorTool::PlaceAsset | EditorTool::Portal | EditorTool::Boundary | EditorTool::MotionTrigger => {
             EditorLeftSidebarTab::Gameplay
         }

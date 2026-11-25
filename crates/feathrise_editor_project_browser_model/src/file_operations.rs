@@ -19,7 +19,7 @@ pub enum ConflictPolicy {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FileOperationKind { Copy, Move, Delete, CreateFolder, CreateFile, Rename }
+pub enum FileOperationKind { Copy, Move, Delete, CreateFolder, CreateFile, Rename, Relink }
 
 /// “新建”菜单只决定初始内容；完整文件名由作者确认，后台不隐式改名或追加扩展名。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +36,8 @@ pub enum FileOperation {
     /// 场景树的空模型写到场景私有 models 目录，必要时创建这一层。
     CreateSceneGlb { parent: PathBuf, name: String },
     Rename { source: PathBuf, stamp: FileEntryStamp, name: String },
+    /// 旧地址已经缺失；只更新场景和预设，不移动作者选择的替代文件。
+    Relink { missing: String, target: PathBuf, stamp: FileEntryStamp },
 }
 
 impl FileOperation {
@@ -47,6 +49,7 @@ impl FileOperation {
             Self::CreateFolder { .. } => FileOperationKind::CreateFolder,
             Self::CreateFile { .. } | Self::CreateSceneGlb { .. } => FileOperationKind::CreateFile,
             Self::Rename { .. } => FileOperationKind::Rename,
+            Self::Relink { .. } => FileOperationKind::Relink,
         }
     }
 
@@ -94,6 +97,7 @@ pub struct ReferencePreview {
     pub operation: FileOperation,
     pub moves: std::collections::BTreeMap<PathBuf, PathBuf>,
     pub source_stamps: std::collections::BTreeMap<PathBuf, FileEntryStamp>,
+    pub replacement_digest: Option<String>,
     pub documents: Vec<ReferencingDocument>,
     pub documents_selection: FileSources,
     pub unrepresentable: bool,
@@ -158,7 +162,7 @@ impl Drop for FileOperationReceipt {
     fn drop(&mut self) {
         // 队列已淘汰的回执仍可能由详情持有，最后一个界面句柄只移交所有权。
         if let Some(pool) = bevy::tasks::AsyncComputeTaskPool::try_get()
-            && (!self.completed.is_empty() || !self.skipped.is_empty() || !self.unprocessed.is_empty())
+            && (!self.completed.is_empty() || !self.skipped.is_empty() || !self.unprocessed.is_empty() || !self.repaired_paths.is_empty())
         {
             let data = (
                 std::mem::take(&mut self.completed),

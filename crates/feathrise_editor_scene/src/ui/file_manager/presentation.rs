@@ -39,6 +39,7 @@ pub(super) fn sync(world: &mut World) {
             if window.is_picker() {
                 let label = world.get_resource::<super::browser::BrowserSessions>()
                     .and_then(|browser| {
+                        if window.relink_missing().is_some() { return browser.picker_replacement(window).map(str::to_owned); }
                         if window.is_glb_picker() { return browser.picker_glb(window).map(str::to_owned); }
                         browser.picker_clip(window).map(|(path, clip)| format!("{} · {}", std::path::Path::new(path).file_name().unwrap_or_default().to_string_lossy(), clip.label))
                     });
@@ -142,7 +143,8 @@ pub(super) fn sync(world: &mut World) {
         for (mut text, mut color, title, status, button, dialog_title, drag_label, row_label, parent, task_title, dialog_body, search_hint) in texts.iter_mut(world) {
             let wanted = if let Some(title) = title {
                 state.active(title.0).map(|window| format!("{} — {}", window.path.file_name().unwrap_or_default().to_string_lossy(),
-                    if window.is_glb_picker() { if english { "Choose GLB" } else { "选择 GLB" } }
+                    if window.relink_missing().is_some() { FileAction::SelectRelinkTarget.label(english) }
+                    else if window.is_glb_picker() { if english { "Choose GLB" } else { "选择 GLB" } }
                     else if window.animation_picker().is_some() { if english { "Choose Animation" } else { "选择动画" } }
                     else if english { "Files" } else { "文件" }))
             } else if let Some(task) = task_title {
@@ -159,7 +161,11 @@ pub(super) fn sync(world: &mut World) {
                 state.active(status.0).map(|window| {
                     if let Some(error) = &window.error { error.clone() }
                     else if window.loading { if english { "Reading folder…".into() } else { "正在读取目录…".into() } }
-                    else if window.is_picker() {
+                    else if let Some(missing) = window.relink_missing() {
+                        let selected = picker_labels.iter().find(|(id, _)| *id == window.id).and_then(|(_, label)| label.as_deref());
+                        if let Some(path) = selected { format!("{missing} → {path}") }
+                        else if english { format!("Choose a replacement for {missing}") } else { format!("为 {missing} 选择替代文件") }
+                    } else if window.is_picker() {
                         picker_labels.iter().find(|(id, _)| *id == window.id).and_then(|(_, label)| label.clone())
                             .unwrap_or_else(|| match (window.is_glb_picker(), english) {
                                 (true, true) => "Select a GLB file from the project assets".into(),

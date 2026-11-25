@@ -281,7 +281,7 @@ fn top_tabs_keep_one_official_name_and_original_domain_entities() {
     after.sort_unstable();
     assert_eq!(before, after, "切页不得销毁目录行或正式输入控件");
     let world = app.world_mut();
-    assert_eq!(world.query::<&BuildingSidebarTab>().iter(world).count(), 2);
+    assert_eq!(world.query::<&BuildingSidebarTab>().iter(world).count(), 3);
     for (panel, node) in world.query::<(&BuildingSidebarPanel, &Node)>().iter(world) {
         assert_eq!(
             node.display,

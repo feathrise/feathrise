@@ -9,7 +9,7 @@ fn label(value: &'static str) -> impl Scene {
     bsn! { Text(value) @label_scene(value) Pickable::IGNORE TextColor(colors::TEXT_PRIMARY)
     TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(metrics::FONT_CONTROL) } }
 }
-fn button(action: Button, value: &'static str) -> impl Scene {
+pub(super) fn button(action: Button, value: &'static str) -> impl Scene {
     bsn! { InteractionButton ~{action}
     Node { min_height: px(24), padding: UiRect::horizontal(px(5)), align_items: AlignItems::Center,
         border: UiRect::all(px(1)), border_radius: BorderRadius::all(px(2)) }
@@ -22,7 +22,7 @@ fn row(i: usize) -> impl Scene {
     Children [~{RowText(i)} Text("") TextLayout::no_wrap() Pickable::IGNORE TextColor(colors::TEXT_PRIMARY)
         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(metrics::FONT_CONTROL) }] }
 }
-fn wrap() -> Node {
+pub(super) fn wrap() -> Node {
     Node {
         width: percent(100),
         flex_wrap: FlexWrap::Wrap,
@@ -45,7 +45,8 @@ pub(crate) fn scene() -> impl Scene {
             @row(0)-- @row(1)-- @row(2)-- @row(3)-- @row(4)-- @row(5)--
             ~{wrap()} Children [@button(Button::Previous, "上一页")-- @button(Button::Next, "下一页")--
                 @button(Button::Copy, "复制动作")-- @button(Button::Paste, "粘贴动作")-- @button(Button::Adapt, "按预览适配粘贴")--
-                @button(Button::Export, "所选另存为…")]--
+                @button(Button::Export, "所选另存为…")-- @button(Button::Slots, "替换材质槽")]--
+            @material::scene()--
             Output Node { display: Display::None, width: percent(100), flex_wrap: FlexWrap::Wrap, column_gap: px(3) }
             Children [OutputName EditorTextInput ~{EditableText { allow_newlines: false, ..EditableText::new("") }}
                 TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(metrics::FONT_CONTROL) }
@@ -86,6 +87,13 @@ pub(super) fn sync(
         if panel.path != state.active {
             panel.show_feedback = false;
         }
+        if panel.path != state.active || !current.zip(panel.shown.as_ref()).is_some_and(|(a,b)| Arc::ptr_eq(&a.source_identity, &b.source_identity)) {
+            panel.slot_node = None;
+            panel.slot_page = 0;
+            panel.active_slot = None;
+            panel.slot_drag = None;
+            if panel.slots_open { panel.kind = ContentKind::Node; }
+        }
         panel.path.clone_from(&state.active);
         panel.shown = current.cloned();
         panel.page = 0;
@@ -119,7 +127,11 @@ pub(super) fn sync(
         panel.copied = None;
         panel.drag = None;
         panel.pending_drop = None;
+        panel.slot_drag = None;
     }
+    let controls = state.current().filter(|_| panel.slots_open).map_or((false,false,false), |s|
+        (s.material_action(&PendingAction::Undo),s.material_action(&PendingAction::Redo),s.dirty()));
+    if panel.slot_controls != controls { panel.slot_controls = controls; }
     if !panel.is_changed() && !refreshed {
         return;
     }
@@ -143,10 +155,22 @@ pub(super) fn sync(
             ),
             Button::Previous => (panel.page > 0, false),
             Button::Next => ((panel.page + 1) * ROWS < count, false),
+            Button::Copy => (panel.kind == ContentKind::Animation, false),
             Button::Paste | Button::Adapt => (panel.copied.is_some(), false),
             Button::Open => (current.is_some_and(|d| !d.read_only), panel.open),
             Button::Overwrite => (confirming, false),
             Button::Confirm => (!confirming, false),
+            Button::Slots => (current.is_some_and(|d| d.can_replace_material()), panel.slots_open),
+            Button::Slot(i) => {
+                let slot = panel.slot_page * material::SLOTS + i;
+                (current.zip(panel.slot_node).is_some_and(|(d,n)| slot < d.material_slot_count(n)),
+                    if panel.slot_drag.is_some() { panel.slot_hover == Some(i) } else { panel.active_slot == Some(slot) })
+            }
+            Button::SlotsPrevious => (panel.slot_page > 0, false),
+            Button::SlotsNext => (current.zip(panel.slot_node).is_some_and(|(d,n)| (panel.slot_page + 1) * material::SLOTS < d.material_slot_count(n)), false),
+            Button::Undo => (controls.0, false),
+            Button::Redo => (controls.1, false),
+            Button::Save => (controls.2, false),
             _ => (true, false),
         };
         if refreshed || node.display != display(show) {
@@ -172,11 +196,13 @@ pub(super) fn sync(
 pub(super) fn feedback(
     panel: Res<State>,
     state: Res<AnimationEditorState>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     mut lines: Query<(&mut Text, &mut Node), With<Feedback>>,
 ) {
-    if !panel.is_changed() && !state.is_changed() {
+    if !panel.is_changed() && !state.is_changed() && !locale.as_ref().is_some_and(|l| l.is_changed()) {
         return;
     }
+    let locale = locale.as_deref().copied().unwrap_or_default();
     for (mut text, mut node) in &mut lines {
         let visible = panel.open && panel.show_feedback && !state.status.is_empty();
         let display = if visible {
@@ -187,8 +213,9 @@ pub(super) fn feedback(
         if node.display != display {
             node.display = display;
         }
-        if visible && text.as_str() != state.status {
-            **text = state.status.clone();
+        if visible {
+            let message = locale.editor_notice(&state.status);
+            if text.as_str() != message.as_ref() { **text = message.into_owned(); }
         }
     }
 }

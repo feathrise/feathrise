@@ -35,6 +35,7 @@ fn identity(app: &App) -> CursorIdentity {
     let origin = crate::authoring::placement_pose::placement_record_world_position(
         draft, &draft.placements.placements[index]).unwrap().to_array();
     CursorIdentity {
+        wall_epoch: None,
         scene_id: session.draft.as_ref().unwrap().scene_id.clone(), revision: session.revision,
         terrain_revision: session.terrain_revision, ground_snapshot: session.draft.as_ref().unwrap().terrain_ground.as_ref()
             .map(crate::authoring::terrain_ground::CursorGroundSnapshot::capture),

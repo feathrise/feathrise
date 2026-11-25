@@ -10,6 +10,7 @@ use bevy::prelude::*;
 use crate::SceneEditorSystemSet;
 
 pub(crate) use scene::building_tools_panel;
+pub(crate) use resources::BuildingSidebarPage;
 
 pub(crate) fn install(app: &mut App) {
     app.init_resource::<resources::BuildingSidebarPage>()

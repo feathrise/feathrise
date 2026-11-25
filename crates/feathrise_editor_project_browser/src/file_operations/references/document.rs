@@ -1,28 +1,17 @@
 //! 仅替换结构化资产字段的原文字节。场景 GLB 解开摆放 extras 的内层 JSON，保留全部其他块和二进制。
 
 use super::Moves;
-use feathrise_editor_assets::{glb_metadata, json_fields::visit_strings};
+use feathrise_editor_assets::{glb_metadata, json_fields::{authored_asset_field, placement_node, visit_strings}};
+pub(super) use feathrise_editor_assets::json_fields::authored_reference_document as supported;
+use feathrise_scene_content::ScenePlacementAssetTarget;
+use serde_json::Value;
 use std::{collections::BTreeSet, fs::{self, File}, io::{self, Write}, ops::Range, path::{Component, Path, PathBuf}};
-
-pub(super) fn supported(path: &Path) -> bool {
-    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or_default();
-    name.eq_ignore_ascii_case("scene.glb") || name.ends_with(".json")
-        && (name.contains(".scene_") || name.contains(".map_") || name.ends_with("presets.json") || name.ends_with(".preset.json"))
-}
-
-/// 扫描搜索可以报告疑似路径，改写只接受场景和预设格式已定义的资源字段。
-/// 例如 water_surfaces 的 node_path 保存 GLB 内节点名，不能随同同名目录搬移。
-fn stored_asset_field(key: &str) -> bool {
-    let key = key.strip_suffix("_paths").unwrap_or_else(|| key.strip_suffix("_path").unwrap_or(""));
-    matches!(key, "asset" | "author_asset" | "model" | "mesh" | "material" | "glb" | "height" | "skybox" |
-        "texture" | "source" | "peer_source" | "surface" | "surface_fields" | "vegetation" | "water" | "boundary" | "characters")
-        || key.ends_with("_texture") || key.ends_with("_source") || key.ends_with("_array")
-}
 
 pub(super) struct Rewrite {
     pub count: usize,
     pub unrepresentable: bool,
     pub sources: BTreeSet<PathBuf>,
+    pub fragments: BTreeSet<String>,
     json: String,
     bom: bool,
     tail: Option<(File, u64)>,
@@ -54,15 +43,15 @@ impl Rewrite {
     }
 }
 
-pub(super) fn rewrite(path: &Path, root: &Path, moves: &Moves, cancel: &dyn Fn() -> bool) -> Result<Rewrite, String> {
-    scan(path, path, root, moves, false, cancel)
+pub(super) fn rewrite(path: &Path, root: &Path, moves: &Moves, exact: bool, cancel: &dyn Fn() -> bool) -> Result<Rewrite, String> {
+    scan(path, path, root, moves, exact, false, cancel)
 }
 
-pub(super) fn rewrite_as(path: &Path, kind: &Path, root: &Path, moves: &Moves, cancel: &dyn Fn() -> bool) -> Result<Rewrite, String> {
-    scan(path, kind, root, moves, true, cancel)
+pub(super) fn rewrite_as(path: &Path, kind: &Path, root: &Path, moves: &Moves, exact: bool, cancel: &dyn Fn() -> bool) -> Result<Rewrite, String> {
+    scan(path, kind, root, moves, exact, true, cancel)
 }
 
-fn scan(path: &Path, kind: &Path, root: &Path, moves: &Moves, prepare: bool, cancel: &dyn Fn() -> bool) -> Result<Rewrite, String> {
+fn scan(path: &Path, kind: &Path, root: &Path, moves: &Moves, exact: bool, prepare: bool, cancel: &dyn Fn() -> bool) -> Result<Rewrite, String> {
     let glb = kind.extension().is_some_and(|e| e.eq_ignore_ascii_case("glb"));
     let (bytes, tail) = if glb {
         let (json, tail, len) = glb_metadata::json_prefix(path, u64::from(u32::MAX), None)?;
@@ -75,44 +64,89 @@ fn scan(path: &Path, kind: &Path, root: &Path, moves: &Moves, prepare: bool, can
     let text = if bom { &text[3..] } else { text };
     let mut count = 0;
     let mut sources = BTreeSet::new();
+    let mut fragments = BTreeSet::new();
     let mut unrepresentable = false;
-    let mut remap = |value: &str| -> Option<String> {
+    let inspect_bindings = exact && !prepare;
+    let mut remap = |value: &str, fragments: &mut BTreeSet<String>| -> Option<Option<String>> {
         let (physical, fragment) = value.find('#').map_or((value, ""), |i| value.split_at(i));
         if physical.is_empty() || physical.contains(['\\', ':']) || physical.split('/').any(|c| c.is_empty() || c == "." || c == "..")
             || !Path::new(physical).components().all(|c| matches!(c, Component::Normal(_))) { return None; }
         let path = root.join(physical);
-        let (source, target) = path.ancestors().find_map(|source| moves.get_key_value(source))?;
+        let (source, target) = if exact { moves.get_key_value(&path) } else { path.ancestors().find_map(|source| moves.get_key_value(source)) }?;
         let suffix = path.strip_prefix(source).ok()?;
         let target = if suffix.as_os_str().is_empty() { target.clone() } else { target.join(suffix) };
         if !sources.contains(source) { sources.insert(source.clone()); }
         count += 1;
+        if inspect_bindings && let Some(label) = fragment.strip_prefix('#') { fragments.insert(label.to_owned()); }
         let relative = target.strip_prefix(root).ok().and_then(Path::to_str);
         let Some(relative) = relative.filter(|s| !s.is_empty() && !s.contains('#')) else {
             unrepresentable = true; return None;
         };
-        // 首次预览与确认复核只需统计命中。仅为即将暂存的文档生成替换文本。
-        prepare.then(|| format!("{}{fragment}", relative.replace('\\', "/")))
+        // 外层表示命中，只有暂存阶段才需要生成内层的替换字符串。
+        Some(prepare.then(|| format!("{}{fragment}", relative.replace('\\', "/"))))
     };
     let is_catalog = kind.file_name().is_some_and(|n| n == "catalog.scene_catalog.json");
+    let records = kind.file_name().and_then(|n| n.to_str()).and_then(|name| {
+        if name.ends_with(".scene_placements.json") { Some("placements") }
+        else if name.ends_with(".building_presets.json") { Some("presets") }
+        else { None }
+    });
+    let mut matched_records = Vec::new();
     let mut edits = Vec::new();
     visit_strings(text, None, cancel, |pointer, key, value, range| {
         let replacement = if glb {
-            let Some(node) = pointer.strip_prefix("/nodes/").and_then(|s| s.strip_suffix("/extras/feathrise_placement")) else { return Ok(()); };
-            if !node.bytes().all(|b| b.is_ascii_digit()) { return Ok(()); }
+            if placement_node(pointer).is_none() { return Ok(()); }
             let mut inner = Vec::new();
             visit_strings(value, None, cancel, |pointer, _, path, range| {
-                if pointer == "/asset_path" && let Some(next) = remap(path) { inner.push((range, json_string(&next)?)); }
+                if pointer == "/asset_path" && let Some(replacement) = remap(path, &mut fragments) {
+                    if inspect_bindings {
+                        let record = serde_json::from_str(value).map_err(|e| e.to_string())?;
+                        require_target(&record, path.contains('#'), &mut fragments)?;
+                    }
+                    if let Some(next) = replacement { inner.push((range, json_string(&next)?)); }
+                }
                 Ok(())
             })?;
             (!inner.is_empty()).then(|| replace_ranges(value, &inner))
-        } else if stored_asset_field(key) || key == "asset_roots"
+        } else if authored_asset_field(key) || key == "asset_roots"
             || is_catalog && key == "folder" && pointer.starts_with("/scenes/") {
-            remap(value)
+            let matched = remap(value, &mut fragments);
+            if inspect_bindings && matched.is_some() && key == "asset_path"
+                && let Some((list, index)) = pointer.strip_prefix('/').and_then(|s| s.strip_suffix("/asset_path")).and_then(|s| s.split_once('/'))
+                && records == Some(list) && let Ok(index) = index.parse::<usize>() {
+                matched_records.push((index, value.contains('#')));
+            }
+            matched.flatten()
         } else { None };
         if let Some(next) = replacement { edits.push((range, json_string(&next)?)); }
         Ok(())
     }).map_err(|e| format!("无法解析引用文件 {}：{e}", path.display()))?;
-    Ok(Rewrite { count, sources, unrepresentable, json: if edits.is_empty() { String::new() } else { replace_ranges(text, &edits) }, bom, tail })
+    // 字段顺序无关。只有命中正式摆放或建筑预设时才读取相邻绑定，普通模型清单保持原有语义。
+    if !matched_records.is_empty() {
+        let document: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        if let Some(items) = records.and_then(|key| document[key].as_array()) {
+            for (index, has_fragment) in matched_records {
+                let record = items.get(index).ok_or_else(|| format!("引用文档包含冲突的记录索引 {index}"))?;
+                require_target(record, has_fragment, &mut fragments)?;
+            }
+        }
+    }
+    Ok(Rewrite { count, sources, fragments, unrepresentable, json: if edits.is_empty() { String::new() } else { replace_ranges(text, &edits) }, bom, tail })
+}
+
+fn require_target(record: &Value, has_fragment: bool, fragments: &mut BTreeSet<String>) -> Result<(), String> {
+    let target = match record.get("asset_target") {
+        Some(raw) => serde_json::from_value::<ScenePlacementAssetTarget>(raw.clone())
+            .map_err(|e| format!("无法识别资产引用的摆放目标：{e}"))?,
+        None if has_fragment => return Ok(()), // 旧文件把标签直接放在路径后，以该标签为准。
+        None => ScenePlacementAssetTarget::Scene0,
+    };
+    if target.is_scene0() { fragments.insert("Scene0".into()); }
+    // 与运行时消费同一组 Mesh/StandardMaterial 标签；只验证绑定，不把标签补写进物理路径。
+    for label in [target.mesh_reference(""), target.material_reference("")].into_iter().flatten() {
+        if let Some(label) = label.strip_prefix('#') { fragments.insert(label.into()); }
+    }
+    Ok(())
 }
 
 fn json_string(value: &str) -> Result<String, String> { serde_json::to_string(value).map_err(|e| e.to_string()) }

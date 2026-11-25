@@ -30,6 +30,9 @@ fn drop_onto_file(
     let Some(mouse) = mouse.as_deref() else {
         return;
     };
+    let hovered_slot = || buttons.iter().find_map(|(b, c, v, n)| match b {
+        Button::Slot(row) if c.cursor_over() && v.get() && !n.is_empty() => Some(*row), _ => None,
+    });
     if !context.available(&preview, &media)
         || !media.active(context.host.tab)
         || context.host.weights_own_viewport
@@ -40,9 +43,10 @@ fn drop_onto_file(
         if panel.drag.is_some() {
             panel.drag = None;
         }
+        if panel.slot_drag.is_some() { panel.slot_drag = None; panel.slot_hover = None; }
         return;
     }
-    if mouse.just_pressed(MouseButton::Left) && panel.kind == ContentKind::Animation {
+    if mouse.just_pressed(MouseButton::Left) && (panel.kind == ContentKind::Animation || panel.slots_open && panel.kind == ContentKind::Material) {
         let Some(row) = buttons
             .iter()
             .find_map(|(b, cursor, visibility, node)| match b {
@@ -54,6 +58,10 @@ fn drop_onto_file(
         else {
             return;
         };
+        if panel.kind == ContentKind::Material {
+            panel.slot_drag = panel.shown.as_ref().map(|doc| (Arc::downgrade(doc), row));
+            return;
+        }
         // 普通或 Ctrl 单击仍由行按钮处理。拖未选中的行时仅冻结它，不提前改写多选。
         let source = if selected(&panel.spans, panel.kind, row) {
             panel.freeze()
@@ -75,7 +83,20 @@ fn drop_onto_file(
         };
         panel.drag = source;
     }
-    if !mouse.just_released(MouseButton::Left) || panel.drag.is_none() {
+    if panel.slot_drag.is_some() && mouse.pressed(MouseButton::Left) {
+        let hit = hovered_slot();
+        if hit != panel.slot_hover { panel.slot_hover = hit; }
+    }
+    if !mouse.just_released(MouseButton::Left) { return; }
+    if let Some((doc, material)) = panel.slot_drag.take() {
+        panel.slot_hover = None;
+        if panel.slots_open && panel.shown.as_ref().is_some_and(|shown| std::sync::Weak::ptr_eq(&doc, &Arc::downgrade(shown)))
+            && let Some(slot) = hovered_slot() {
+            material::drop_material(&mut panel, &mut state, material, slot);
+        }
+        return;
+    }
+    if panel.drag.is_none() {
         return;
     }
     let source = panel.drag.take().unwrap();

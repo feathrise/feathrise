@@ -1,6 +1,7 @@
 //! 独占工程通过原视口手柄、时间轴和保存入口验收主 GLB 动画。
 
 mod triggers;
+mod walls;
 pub use triggers::{prepare_unbound_clip, read_saved_trigger_regions};
 
 use bevy::{
@@ -64,7 +65,7 @@ enum Step {
     RotateTool, BeginTurn, Turn, ReleaseTurn, EditRotationProperty, RestoreRotationProperty,
     RotationTrack, KeyRotation, Undo, Redo, ScaleTrack, ScaleOrigin, KeyScaleOrigin, SeekScalePeak,
     ScaleTool, BeginScale, DragScale, ReleaseScale, KeyScale,
-    First, Play, Playback, Review, Verify, Triggers, Save, ReleaseSave, Receipt, Capture, Finish, FailureImage,
+    First, Play, Playback, Review, Verify, Triggers, Walls, Save, ReleaseSave, Receipt, Capture, Finish, FailureImage,
 }
 
 #[derive(Resource)]
@@ -80,6 +81,8 @@ struct Run {
     scene_glb_tree: Option<Value>,
     property_pose_verified: bool,
     triggers: triggers::Check,
+    walls: walls::Check,
+    wall_baseline: Option<Value>,
     report: Value,
 }
 
@@ -96,7 +99,7 @@ pub fn install(app: &mut App, directory: PathBuf, reopen: bool) {
     app.insert_resource(Run {
         directory, reopen, started: Instant::now(), step: Step::Enter, click: None,
         drag_end: Vec2::ZERO, save_before: 0, clip_to_rename: CLIP_NAME,
-        scene_glb_tree: None, property_pose_verified: false, triggers: default(),
+        scene_glb_tree: None, property_pose_verified: false, triggers: default(), walls: default(), wall_baseline: None,
         report: Value::Null,
     }).init_resource::<Pointer>()
         .add_systems(Update, inject_pointer.after(EditorUiSystemSet::NumericInput).before(SceneEditorSystemSet::Input))
@@ -131,8 +134,8 @@ fn drive(world: &mut World) {
             Ok(true) => run.report.clone(),
             Err(error) => {
                 let failed = json!({"passed":false,"reopened":run.reopen,"placement_id":PLATFORM,
-                    "phase":format!("{:?}",run.step),"trigger_step":format!("{:?}",run.triggers),"error":error,"observed":probe(world,PLATFORM)});
-                if triggers::enabled() && !matches!(run.step, Step::FailureImage) {
+                    "phase":format!("{:?}",run.step),"trigger_step":format!("{:?}",run.triggers),"wall_step":format!("{:?}",run.walls),"error":error,"observed":probe(world,PLATFORM)});
+                if (triggers::enabled() || walls::enabled()) && !matches!(run.step, Step::FailureImage) {
                     run.report=failed; run.step=Step::FailureImage;
                     request_screenshot(world,run.directory.join("trigger-failure.png"));
                     return;
@@ -154,7 +157,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
         Enter => {
             if preview_ready_for(world, SCENE) {
                 run.save_before = world.resource::<EditorAuthoringSession>().successful_save_sequence;
-                run.step = if triggers::enabled() { Triggers } else { Tree };
+                run.step = if walls::enabled() { Walls } else if triggers::enabled() { Triggers } else { Tree };
             } else if world.resource::<SceneEditorState>().open { let _ = request_open_scene(world, SCENE); }
         }
         Tree => {
@@ -575,12 +578,16 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
             if run.reopen { run.report = verify_report(world, run)?; run.step = Capture; }
             else { run.step = Save; }
         }
+        Walls => if walls::advance(world, run)? {
+            if run.reopen { run.report = walls::report(world,run)?; return Ok(true); }
+            run.step = Save;
+        },
         Triggers => if triggers::advance(world, run)? {
             if run.reopen { run.report = triggers::report(world,run)?; return Ok(true); }
             else { run.step = Save; }
         },
         Save => {
-            if triggers::enabled() {
+            if triggers::enabled() || walls::enabled() {
                 triggers::save_shortcut(world,true)?;
                 run.step=ReleaseSave;
             } else {
@@ -592,6 +599,7 @@ fn advance(world: &mut World, run: &mut Run) -> Result<bool, String> {
         Receipt => {
             let session = world.resource::<EditorAuthoringSession>();
             if session.saving || session.successful_save_sequence <= run.save_before { return Ok(false); }
+            if walls::enabled() { run.report=walls::report(world,run)?; return Ok(true); }
             if triggers::enabled() { run.report=triggers::report(world,run)?; return Ok(true); }
             run.report = verify_report(world, run)?;
             run.step = Capture;

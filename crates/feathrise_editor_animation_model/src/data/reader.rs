@@ -168,6 +168,7 @@ impl AnimationDocument {
                 .map(|animation| array(animation, "channels").len()).collect(),
             removed_clips: Default::default(),
             retained_clips: Default::default(),
+            materials: Default::default(),
             source: Arc::new(Source {
                 path: path.to_owned(),
                 bytes: bytes.into(),

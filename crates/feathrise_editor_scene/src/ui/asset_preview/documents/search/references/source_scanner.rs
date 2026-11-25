@@ -86,6 +86,7 @@ fn scan(
                     .collect();
                 let matched: String = raw.chars().take(128).collect();
                 hits.push(Hit {
+                    missing_path: None,
                     range,
                     line: 0,
                     column: 0,

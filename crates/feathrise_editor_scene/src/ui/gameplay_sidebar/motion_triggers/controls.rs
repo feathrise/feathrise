@@ -37,7 +37,7 @@ pub(in super::super) fn panel() -> impl Scene {
                 TextColor(colors::TEXT_VALUE)--
             @row() Children [@button("上一片段", Action::PreviousClip)-- @button("下一片段", Action::NextClip)]--
             @row() Children [@button("上一区域", Action::PreviousRegion)-- @button("下一区域", Action::NextRegion)]--
-            @row() Children [@button("绘制新区域", Action::Draw)-- @button("重画区域", Action::Redraw)-- @button("删除区域", Action::Remove)]--
+            @row() Children [@button("绘制新区域", Action::Draw)-- @button("调整区域", Action::Adjust)-- @button("重画区域", Action::Redraw)-- @button("删除区域", Action::Remove)]--
             @row() Children [@button("切换进入动作", Action::Enter)-- @button("切换离开动作", Action::Exit)]--
             ~{FieldSlot(Dimension::Floor)} Node { width: percent(100) }--
             ~{FieldSlot(Dimension::Height)} Node { width: percent(100) }
@@ -114,6 +114,7 @@ pub(super) fn sync(
     if rebound {
         let bound = tool.binding(&session);
         tool.drawing = None;
+        tool.drag = None;
         if let Some(b) = &bound {
             tool.region = b.index;
             if let Some(r) = draft.and_then(|d| d.motion.clip_regions_at(tool.clip).get(b.index)) {

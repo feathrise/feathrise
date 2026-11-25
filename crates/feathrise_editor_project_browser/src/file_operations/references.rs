@@ -1,6 +1,7 @@
 //! 文件整理的两阶段引用事务。确认的是当前实际目标和文件版本；目录、冲突命名和部分移动均以真实回执为准。
 
 mod document;
+mod relink;
 #[cfg(test)]
 mod tests;
 
@@ -16,6 +17,9 @@ pub(super) fn execute(
     receipt: &mut FileOperationReceipt, current: &mut Option<PathBuf>,
 ) -> Result<(), String> {
     let root = match update { ReferenceUpdate::Inspect(root) => root, ReferenceUpdate::Confirm(old) | ReferenceUpdate::FilesOnly(old) => &old.root };
+    if matches!(request.operation, FileOperation::Relink { .. }) {
+        return relink::execute(request, root, roots, update, control, receipt);
+    }
     let moves = destinations(&request.operation, roots, control)?;
     if matches!(update, ReferenceUpdate::Inspect(_))
         && !moves.keys().any(|source| platform_path(source).starts_with(platform_path(root))) {
@@ -45,7 +49,7 @@ pub(super) fn execute(
     let actual: Moves = receipt.completed.iter().filter(|c| !c.source_retained).filter_map(|c|
         Some((c.source.clone()?, c.destination.clone()?))).collect();
     if !actual.is_empty() {
-        match publish(&preview, &actual) {
+        match publish(&preview, &actual, &|| Ok(())) {
             Ok(paths) => {
                 receipt.repaired_documents = paths.len();
                 receipt.repaired_paths = paths.into();
@@ -71,6 +75,7 @@ pub(super) fn execute(
     }
     result
 }
+
 
 fn destinations(operation: &FileOperation, roots: &[PathBuf], control: &Control<'_>) -> Result<Moves, String> {
     let mut moves = Moves::new();
@@ -109,11 +114,13 @@ fn relocated(path: &Path, moves: &Moves) -> Option<PathBuf> {
 }
 
 fn inspect(root: PathBuf, operation: &FileOperation, moves: Moves, control: &Control<'_>) -> Result<ReferencePreview, String> {
-    let source_stamps = moves.keys().map(|path| {
+    let relink = matches!(operation, FileOperation::Relink { .. });
+    let source_stamps = moves.keys().filter(|_| !relink).map(|path| {
         let metadata = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
         Ok((path.clone(), FileEntryStamp::from_metadata(Some(&metadata))))
     }).collect::<Result<_, String>>()?;
     let mut documents = Vec::new();
+    let mut labels = std::collections::BTreeSet::new();
     let mut unrepresentable = false;
     let mut dirs = Vec::new();
     for name in ["config", "scenes"] {
@@ -129,20 +136,23 @@ fn inspect(root: PathBuf, operation: &FileOperation, moves: Moves, control: &Con
             let metadata = fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
             if files::reject_link(&path, &metadata).is_err() { continue; }
             if metadata.is_dir() { dirs.push(path); continue; }
-            if !document::supported(&path) { continue; }
-            let output = document::rewrite(&path, &root, &moves, &|| control.cancelled())?;
+            if !document::supported(&path) && !(relink && path.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"))) { continue; }
+            let output = document::rewrite(&path, &root, &moves, relink, &|| control.cancelled())?;
             if output.count != 0 {
+                labels.extend(output.fragments);
                 unrepresentable |= output.unrepresentable;
                 documents.push(ReferencingDocument { digest: file_hash(&path)?, path, matches: output.count, sources: output.sources });
             }
         }
     }
     documents.sort_by(|a,b| a.path.cmp(&b.path));
+    if relink && let Some(target) = moves.values().next() { relink::check_target(target, &documents, &labels)?; }
     let documents_selection = documents.iter().map(|d| platform_path(&d.path)).collect::<Vec<_>>().into();
-    Ok(ReferencePreview { root, operation: operation.clone(), moves, source_stamps, documents, documents_selection, unrepresentable })
+    Ok(ReferencePreview { root, operation: operation.clone(), moves, source_stamps, replacement_digest: None, documents, documents_selection, unrepresentable })
 }
 
-fn publish(preview: &ReferencePreview, actual: &Moves) -> Result<Vec<PathBuf>, String> {
+fn publish(preview: &ReferencePreview, actual: &Moves, check: &dyn Fn() -> Result<(), String>) -> Result<Vec<PathBuf>, String> {
+    let exact = matches!(preview.operation, FileOperation::Relink { .. });
     let mut writes = Vec::new();
     let mut baselines = BTreeMap::new();
     for doc in &preview.documents {
@@ -157,12 +167,13 @@ fn publish(preview: &ReferencePreview, actual: &Moves) -> Result<Vec<PathBuf>, S
         let original_kind = &doc.path;
         let root = &preview.root;
         writes.push(PreparedWrite::streaming(path.clone(), move |stage| {
-            let updated = document::rewrite_as(&path, original_kind, root, actual, &|| false)?;
+            let updated = document::rewrite_as(&path, original_kind, root, actual, exact, &|| false)?;
             if updated.count == 0 || updated.unrepresentable { return Err(format!("文档引用发生变化：{}", path.display())); }
             updated.write(stage)
         }));
     }
     commit_prepared_writes_checked(writes, |_, path| {
+        check()?;
         files::reject_link_chain(path)?;
         if file_hash(path)? != *baselines[path] { return Err(format!("引用文件已被外部修改：{}", path.display())); }
         Ok(())

@@ -43,6 +43,10 @@ impl FileWindow {
 
     pub(super) fn is_glb_picker(&self) -> bool { matches!(&self.picker, Some(FilePicker::Glb(_))) }
 
+    pub(crate) fn relink_missing(&self) -> Option<&str> {
+        match self.picker.as_ref()? { FilePicker::Relink { missing, .. } => Some(missing), _ => None }
+    }
+
     pub(super) fn animation_picker(&self) -> Option<&AnimationPicker> {
         match self.picker.as_ref()? { FilePicker::Animation(picker) => Some(picker), _ => None }
     }
@@ -55,6 +59,7 @@ impl FileWindow {
         Some(match self.picker.as_ref()? {
             FilePicker::Animation(picker) => &picker.target.asset_root,
             FilePicker::Glb(root) => root,
+            FilePicker::Relink { root, .. } => root,
         })
     }
 
@@ -132,6 +137,7 @@ pub(super) struct AnimationPicker {
 pub(super) enum FilePicker {
     Animation(AnimationPicker),
     Glb(PathBuf),
+    Relink { root: PathBuf, missing: String },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,6 +146,7 @@ pub(crate) enum FileAction {
     Back, Forward, Up, Refresh, Minimize, Maximize, Close,
     Confirm, Cancel, ChooseClip, CancelPicker, ConflictPolicy, CopyHere, MoveHere,
     ReviewReferences, PreviousReferences, NextReferences, MoveWithoutRepair,
+    SelectRelinkTarget, Relink,
 }
 
 impl FileAction {
@@ -167,6 +174,8 @@ impl FileAction {
             (Self::CopyHere, false) => "复制到这里", (Self::CopyHere, true) => "Copy here",
             (Self::MoveHere, false) => "移动到这里", (Self::MoveHere, true) => "Move here",
             (Self::ReviewReferences, false) => "更新资产引用", (Self::ReviewReferences, true) => "Update asset references",
+            (Self::SelectRelinkTarget, false) => "选择替代文件", (Self::SelectRelinkTarget, true) => "Choose replacement file",
+            (Self::Relink, false) => "重新关联", (Self::Relink, true) => "Relink",
             (Self::PreviousReferences, false) => "上一页", (Self::PreviousReferences, true) => "Previous",
             (Self::NextReferences, false) => "下一页", (Self::NextReferences, true) => "Next",
             (Self::MoveWithoutRepair, false) => "仅移动文件", (Self::MoveWithoutRepair, true) => "Move files only",

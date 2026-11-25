@@ -98,6 +98,7 @@ enum Step {
     ReplaceWait,
     Missing,
     MissingWait,
+    Relink, RelinkPickFolder, RelinkPickFile, RelinkChoose, RelinkPreview, RelinkSaved, RelinkRefreshed,
     DismissMissing,
     ShowNavigator,
     FixedFiles,
@@ -499,6 +500,58 @@ pub(super) fn advance(world: &mut World, run: &mut Run, window: Entity) -> Resul
                 if !inside::<SearchBody>(world, id) { return Err("缺失检查结果没有留在活动窗的共享表单".into()); }
                 verify_fixed_sidebar(world, state.fixed_view.unwrap())?;
                 run.steps.insert("floating_missing_assets".into(), json!({"hits":hits,"files":paths,"fixture":MISSING_JSON}));
+                Some(Step::Relink)
+            }
+            Step::Relink => {
+                let Some((ticket, index)) = world.resource::<AssetSearchState>().validation_relink("损坏/原模型.glb") else { return Ok(false); };
+                let action = visible(world, |a: &SearchAction| *a == SearchAction::Relink { ticket, index });
+                if !click(world, &mut run.click, window, action) { return Ok(false); }
+                Some(Step::RelinkPickFolder)
+            }
+            Step::RelinkPickFolder | Step::RelinkPickFile | Step::RelinkChoose => {
+                let Some(picker) = world.resource::<FileManagerState>().windows.iter().find(|w| w.relink_missing() == Some("损坏/原模型.glb")).map(|w| w.id) else { return Ok(false); };
+                match state.step {
+                    Step::RelinkPickFolder => {
+                        if !path_ready(world, picker, &run.destination) {
+                            let folder = run.destination.clone(); click_file(world, run, window, picker, &folder);
+                            return Ok(false);
+                        }
+                        Some(Step::RelinkPickFile)
+                    }
+                    Step::RelinkPickFile => {
+                        let model = run.destination.join("move-me.glb");
+                        if !select(world, run, window, picker, &model) { return Ok(false); }
+                        Some(Step::RelinkChoose)
+                    }
+                    _ => {
+                        if !button(world, run, window, Some(picker), FileAction::ChooseClip) { return Ok(false); }
+                        Some(Step::RelinkPreview)
+                    }
+                }
+            }
+            Step::RelinkPreview => {
+                let confirm = visible(world, |b: &super::FileManagerButton| b.action == FileAction::Confirm);
+                if confirm.is_none() { return Ok(false); }
+                let name = "files-relink-preview.png";
+                if !run.screenshots.contains_key(name) {
+                    let mut labels = world.query::<(&Text, &InheritedVisibility)>();
+                    if !labels.iter(world).any(|(t, v)| v.get() && ["损坏", "move-me.glb", "引用场景甲", "引用场景乙", "00待关联", "×2"].iter().all(|s| t.0.contains(s))) {
+                        return Err("重新关联预览未列出所选新旧路径、两个场景及预设的重复引用".into());
+                    }
+                    let Some(proof) = evidence::capture(world, &mut run.capture, &run.work.join(name))? else { return Ok(false); };
+                    run.screenshots.insert(name.into(), proof);
+                }
+                if !click(world, &mut run.click, window, confirm) { return Ok(false); }
+                Some(Step::RelinkSaved)
+            }
+            Step::RelinkSaved => {
+                if !super::receipt(world, run, feathrise_editor_project_browser_model::file_operations::FileOperationKind::Relink, "relink_missing")? { return Ok(false); }
+                Some(Step::RelinkRefreshed)
+            }
+            Step::RelinkRefreshed => {
+                let search = world.resource::<AssetSearchState>();
+                let Some((_, paths)) = search.validation_result() else { return Ok(false); };
+                if search.validation_relink("损坏/原模型.glb").is_some() || !paths.iter().any(|p| p == MISSING_JSON) { return Ok(false); }
                 Some(Step::DismissMissing)
             }
             Step::DismissMissing => {

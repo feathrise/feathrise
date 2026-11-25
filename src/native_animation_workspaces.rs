@@ -1,5 +1,8 @@
 //! 角色姿势组与场景电梯的独占工程编排。作者、重开和游戏均使用独立进程。
 
+#[path = "native_wall_line_validation.rs"]
+mod wall_line;
+
 use super::{author_window_command, fixture, read_author_screenshot, tail};
 use crate::{
     build_process::{self, BuildControl},
@@ -78,6 +81,10 @@ pub(super) fn run(
     crate::project_browser_validation::fixture::prepare(assets)?;
     seed_elevator(assets)?;
     write_json(&work.join(OWNER), &owner(&project))?;
+
+    if wall_line::enabled() {
+        return wall_line::run(assets, &project, work, target, control, steps);
+    }
 
     // 区域专项从带轨道的主场景开始，两个窗口分别执行绘制保存和独立重开。
     if std::env::var("FEATHRISE_MOTION_TRIGGER_VALIDATION").as_deref() == Ok("1") {
@@ -195,6 +202,7 @@ fn seed_elevator(assets: &Path) -> Result<(), String> {
     fixture::write_sample_scene_glb(assets, &placements, None)
 }
 
+
 fn editor_stage(
     project: &project::Project,
     work: &Path,
@@ -211,6 +219,9 @@ fn editor_stage(
         .env(OUTPUT, &directory);
     if evidence == "scene-motion" && std::env::var("FEATHRISE_MOTION_TRIGGER_VALIDATION").as_deref() == Ok("1") {
         command.env("FEATHRISE_MOTION_TRIGGER_VALIDATION", "1");
+    }
+    if evidence == "scene-motion" && wall_line::enabled() {
+        command.env("FEATHRISE_WALL_LINE_VALIDATION", "1");
     }
     let child = build_process::run(&command, control, Some(Duration::from_secs(170)), tail)?;
     fs::write(
@@ -231,7 +242,9 @@ fn editor_stage(
     if report["passed"] != true {
         return Err(format!("{stage} 缺少成功回执：{report}"));
     }
-    let filename = if evidence == "scene-motion"
+    let filename = if wall_line::enabled() {
+        "wall-line.png".to_owned()
+    } else if evidence == "scene-motion"
         && std::env::var("FEATHRISE_MOTION_TRIGGER_VALIDATION").as_deref() == Ok("1") {
         "motion-trigger-region.png".to_owned()
     } else { format!("{evidence}.png") };

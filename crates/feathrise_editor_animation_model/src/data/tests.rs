@@ -263,6 +263,80 @@ fn new_clip_round_trips_with_original_clips_and_can_be_undone_after_save() {
 }
 
 #[test]
+fn instance_material_slot_preserves_shared_geometry_other_primitives_and_animation_history() {
+    use crate::{data::MaterialSlot, resources::Edit};
+    let directory = TemporaryDirectory::new();
+    let path = directory.0.join("instances.glb");
+    let (mut json, binary) = fixture_parts();
+    json["nodes"][0]["mesh"] = json!(0);
+    json["nodes"][1]["mesh"] = json!(0);
+    json["meshes"] = json!([{"extras":{"keep":true},"primitives":[{"attributes":{"POSITION":1}},{"attributes":{"POSITION":1},"material":0}]}]);
+    json["materials"] = json!([{"name":"原材质"},{"name":"新材质"}]);
+    let original_bytes = glb(&json, &binary);
+    std::fs::write(&path, &original_bytes).unwrap();
+    let mut draft = AnimationDocument::load(&path).unwrap();
+    let first = MaterialSlot { node: 0, primitive: 0 };
+    let sibling = MaterialSlot { node: 0, primitive: 1 };
+    let neighbor = MaterialSlot { node: 1, primitive: 0 };
+    assert_eq!(draft.slot_material(first), Some(None));
+    assert!(draft.plan_material(sibling, 0).is_err());
+    assert!(draft.plan_material(first, 5).is_err());
+    assert!(draft.plan_material(MaterialSlot { node: 20, primitive: 0 }, 1).is_err());
+    let change = Edit::MaterialSlot(draft.plan_material(first, 1).unwrap());
+    let clip = Edit::AppendClip(Arc::new(draft.create_clip().unwrap()));
+    clip.apply(&mut draft, true).unwrap();
+    change.apply(&mut draft, true).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), original_bytes);
+    let mut saved = draft.save_rebased(&path).unwrap();
+    let disk = AnimationDocument::load(&path).unwrap();
+    assert_eq!((disk.slot_material(first),disk.slot_material(sibling),disk.slot_material(neighbor)), (Some(Some(1)),Some(Some(0)),Some(None)));
+    assert_eq!(disk.source.json["meshes"][0], json["meshes"][0]);
+    assert_eq!(disk.source.json["meshes"][1]["primitives"][0]["attributes"], json["meshes"][0]["primitives"][0]["attributes"]);
+    assert_eq!(disk.source.json["nodes"][1]["mesh"],0);
+    assert_eq!(disk.source.json["animations"][0], json["animations"][0]);
+    assert_eq!(disk.clips.len(),3);
+    assert_eq!(&disk.source.buffers[0][..binary.len()], &binary);
+    change.apply(&mut saved, false).unwrap();
+    let mut restored = saved.save_rebased(&path).unwrap();
+    assert_eq!(restored.source.json["nodes"], json["nodes"]);
+    assert_eq!(restored.source.json["meshes"], json["meshes"]);
+    assert_eq!(restored.clips.len(),3);
+    change.apply(&mut restored,true).unwrap();
+    assert_eq!(restored.save_rebased(&path).unwrap().source.json["meshes"].as_array().unwrap().len(),2);
+}
+
+#[test]
+fn zero_clip_material_edit_handles_save_conflicts_and_undo_before_first_save() {
+    use crate::{data::MaterialSlot, resources::Edit};
+    let directory = TemporaryDirectory::new();
+    let path = directory.0.join("shape.glb");
+    let (mut json, binary) = fixture_parts();
+    json.as_object_mut().unwrap().remove("animations");
+    json["nodes"][0]["mesh"] = json!(0);
+    json["meshes"] = json!([{"primitives":[{"attributes":{"POSITION":1},"material":0}]}]);
+    json["materials"] = json!([{},{}]);
+    let original = glb(&json, &binary);
+    std::fs::write(&path, &original).unwrap();
+    let mut doc = AnimationDocument::load(&path).unwrap();
+    let edit = Edit::MaterialSlot(doc.plan_material(MaterialSlot {node:0, primitive:0}, 1).unwrap());
+    edit.apply(&mut doc, true).unwrap();
+    edit.apply(&mut doc, false).unwrap();
+    assert_eq!(doc.encode().unwrap(),original);
+    edit.apply(&mut doc, true).unwrap();
+    let encoded = AnimationDocument::from_bytes(&path, doc.encode().unwrap()).unwrap();
+    assert_eq!(encoded.source.json["meshes"].as_array().unwrap().len(),1);
+    assert_eq!(encoded.source.json["nodes"][0]["mesh"],0);
+    assert_eq!(encoded.source.buffers[0].as_ref(),binary);
+    assert_eq!(encoded.source.chunks[2].bytes.as_ref(),[9,8,7,6]);
+    let mut external = json.clone();
+    external["extras"]["external"] = json!(true);
+    let changed = glb(&external,&binary);
+    std::fs::write(&path,&changed).unwrap();
+    assert!(doc.save_rebased(&path).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(),changed);
+}
+
+#[test]
 fn clip_management_round_trips_raw_records_and_reindexes_disk_selection() {
     use crate::resources::{Edit, Session};
 

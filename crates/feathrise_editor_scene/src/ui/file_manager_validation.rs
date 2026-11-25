@@ -564,9 +564,10 @@ fn advance(world: &mut World, run: &mut Run) -> Result<Option<Stage>, String> {
             let moved = "整理目标/move-me.glb";
             let session = world.resource::<crate::authoring::EditorAuthoringSession>();
             if !session.draft.as_ref().is_some_and(|draft| draft.scene_id.as_str() == id
-                && draft.placements.placements.iter().any(|p| p.id == "fixture-model" && p.asset_path == moved)) { return Ok(None); }
-            if !world.query::<&feathrise_scene::ScenePlacementInstance>().iter(world)
-                .any(|instance| instance.scene_id().as_str() == id && instance.id() == "fixture-model" && instance.asset_path() == moved) { return Ok(None); }
+                && ["fixture-model", "fixture-missing"].iter().all(|wanted| draft.placements.placements.iter().any(|p| p.id == *wanted && p.asset_path == moved))) { return Ok(None); }
+            let mut instances = world.query::<&feathrise_scene::ScenePlacementInstance>();
+            if !["fixture-model", "fixture-missing"].iter().all(|wanted| instances.iter(world)
+                .any(|instance| instance.scene_id().as_str() == id && instance.id() == *wanted && instance.asset_path() == moved)) { return Ok(None); }
             run.steps.entry("reopened_reference_scenes").or_insert_with(|| json!({}))[id] = json!(moved);
             if second { Stage::Complete } else { Stage::OpenReferenceScene(true) }
         }
@@ -710,7 +711,7 @@ fn descendant_text(world: &World, parent: Entity) -> String {
 fn receipt(world: &World, run: &mut Run, kind: FileOperationKind, step: &str) -> Result<bool, String> {
     let Some(snapshot) = world.get_resource::<FileOperationService>().and_then(|service| service.snapshot()) else { return Ok(false); };
     let Some(receipt) = snapshot.completed.iter().find(|receipt| receipt.id > run.receipt && receipt.kind == kind && receipt.reference_preview.is_none()) else { return Ok(false); };
-    if receipt.cancelled || receipt.error.is_some() || receipt.completed.is_empty() {
+    if receipt.cancelled || receipt.error.is_some() || (receipt.completed.is_empty() && receipt.repaired_documents == 0) {
         return Err(format!("文件操作 {:?} 未完成：{:?}", kind, receipt.error));
     }
     run.receipt = receipt.id;

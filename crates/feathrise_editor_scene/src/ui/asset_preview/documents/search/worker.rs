@@ -120,6 +120,7 @@ pub(super) fn match_text(
             .map(|ch| if ch == '\t' { ' ' } else { ch })
             .collect();
         hits.push(Hit {
+            missing_path: None,
             range: found.range(),
             line,
             column,
@@ -147,7 +148,7 @@ async fn add_file(
     let cancel = request.cancel.clone();
     let target = request.query.clone();
     let hits = if request.missing_assets {
-        match missing_assets::check_file(text, root, maximum, &mut result.checked_paths, metadata_checks, cancel).await {
+        match missing_assets::check_file(text, root, &path, maximum, &mut result.checked_paths, metadata_checks, cancel).await {
             Ok((hits, limited)) => { result.limited |= limited; Ok(hits) }
             Err(error) => Err(error),
         }
@@ -322,6 +323,15 @@ pub(super) async fn run(
             }
             match std::fs::read_dir(path) {
                 Ok(dir) => stack.push(dir),
+                Err(_) => result.skipped += 1,
+            }
+            continue;
+        }
+        if request.missing_assets && metadata.is_file() && path.file_name().is_some_and(|n| n.eq_ignore_ascii_case("scene.glb")) {
+            match feathrise_editor_assets::glb_metadata::json_prefix(&path, u32::MAX.into(), None)
+                .and_then(|(bytes, _, _)| String::from_utf8(bytes).map_err(|e| e.to_string())) {
+                Ok(text) => add_file(&request, &mut result, &regex, &root, relative, text.into(), ContentIdentity::SceneGlb,
+                    false, &mut total, &mut metadata_checks).await,
                 Err(_) => result.skipped += 1,
             }
             continue;
