@@ -7,6 +7,7 @@ pub use resources::{DocumentScenes, DocumentContentOperations};
 pub mod batch_save;
 pub mod history;
 pub mod json;
+pub mod project_rules;
 pub mod navigation;
 pub mod search;
 

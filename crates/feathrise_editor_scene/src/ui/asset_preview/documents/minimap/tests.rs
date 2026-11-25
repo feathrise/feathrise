@@ -25,6 +25,7 @@ fn document() -> Document {
         saved_revision: 0,
         history: default(),
         disk: DiskIdentity {
+            project_rules: false,
             path: PathBuf::new(),
             digest: [0; 32],
             bom: false,

@@ -152,16 +152,17 @@ pub(in super::super) fn drive(
     let source = doc.source.clone();
     let crlf = doc.disk.crlf;
     let bom = doc.disk.bom;
+    let project_rules = doc.disk.project_rules;
     let request = state
         .json
         .format
         .as_ref()
         .filter(|request| request.key == key)
         .cloned();
-    let process = content.process_json;
+    let content = *content;
     state.json.task = Some(AsyncComputeTaskPool::get().spawn(async move {
-        let processed = process(
-            &source, crlf, bom, request.as_ref().map(|request| request.selection),
+        let processed = super::process(
+            project_rules, &source, crlf, bom, request.as_ref().map(|request| request.selection), content,
         );
         WorkResult {
             validation: Validation { key, error: processed.error },

@@ -13,6 +13,7 @@ pub struct Diagnostic {
 
 impl Diagnostic {
     pub fn summary(&self) -> String {
+        if self.line == 0 { return self.message.clone(); } // 文档级规则错误用变量和规则身份定位。
         format!(
             "JSON第{}行，第{}列：{}",
             self.line, self.column, self.message

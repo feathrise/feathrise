@@ -30,6 +30,14 @@ impl Document {
 }
 
 impl DocumentState {
+    /// 验收只读取当前中央正文、草稿和保存提示，所有编辑仍经过原生输入及文档工具栏。
+    #[cfg(feature = "validation")]
+    pub(crate) fn project_rules_observed(&self) -> Option<(&str, bool, bool, &str)> {
+        let doc = self.current()?;
+        (self.in_center() && doc.disk.project_rules)
+            .then(|| (doc.source_text(), doc.dirty(), self.editing(), doc.status.as_str()))
+    }
+
     /// 路径复制只借用现有根身份，不能规范化文件系统而把当前工作树替换成链接目标。
     pub(crate) fn asset_root(&self) -> &std::path::Path { &self.root }
 

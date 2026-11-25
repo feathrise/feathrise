@@ -128,7 +128,7 @@ pub(crate) fn install_snapshot_document_tabs(app: &mut App) {
         let mut document = Document {
             path: path.into(), format: crate::asset_catalog::document_format(path).unwrap(),
             generation: 1,
-            disk: DiskIdentity { path: std::path::PathBuf::from(path), digest: [0; 32], bom: false, crlf: false },
+            disk: DiskIdentity { path: std::path::PathBuf::from(path), digest: [0; 32], project_rules: false, bom: false, crlf: false },
             pages: super::io::source_pages(source), source: Arc::from(source), revision: 0,
             saved_revision: 0, history: default(), preview: Arc::new(Vec::new()),
             preview_revision: None, preview_clipped: false, mode: ViewMode::Preview,

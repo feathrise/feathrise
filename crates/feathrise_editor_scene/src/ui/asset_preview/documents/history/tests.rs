@@ -26,6 +26,7 @@ fn document(raw: &str) -> Document {
         format: crate::asset_catalog::DocumentFormat::Config,
         generation: 1,
         disk: DiskIdentity {
+            project_rules: false,
             path: PathBuf::from("history.json"),
             digest: [0; 32],
             bom: false,

@@ -31,13 +31,25 @@ pub(super) fn supported_for_save(path: &str) -> bool { types::supported(path) }
 
 /// 单文件和批量都使用同一流式语法规则；必须由后台CPU任务调用。
 pub(super) fn validate_for_save(
+    project_rules: bool,
     source: &str,
     content: feathrise_editor_documents_model::DocumentContentOperations,
 ) -> Result<(), String> {
-    match (content.process_json)(source, false, false, None).error {
+    match process(project_rules, source, false, false, None, content).error {
         Some(error) => Err(format!("{}；保存已停止，草稿保持", error.summary())),
         None => Ok(()),
     }
+}
+
+/// 只有主资产根的约定文件使用工程规则契约，同名子目录 JSON 仍可自由编辑。
+fn process(project_rules: bool, source: &str, crlf: bool, bom: bool, selection: Option<super::history::Selection>,
+    content: feathrise_editor_documents_model::DocumentContentOperations) -> feathrise_editor_documents_model::json::types::ProcessedJson {
+    let mut result = (content.process_json)(source, crlf, bom, selection);
+    if project_rules && result.error.is_none()
+        && let Err(error) = (content.validate_project_rules)(source) {
+        result.error = Some(types::Diagnostic { line: 0, column: 0, selection: 0..0, message: error });
+    }
+    result
 }
 
 /// 跨工具GPU夹具只观察任务是否结清，不公开校验缓存或保存意图的内部结构。

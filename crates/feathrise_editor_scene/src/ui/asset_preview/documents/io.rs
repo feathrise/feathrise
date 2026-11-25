@@ -2,7 +2,7 @@
 
 use super::{constants::*, types::*};
 use crate::asset_catalog::document_format;
-use feathrise_scene_content::authoring_transaction::{PreparedWrite, commit_prepared_writes_checked};
+use feathrise_scene_content::{authoring_io::ContentAuthorLock, authoring_transaction::{PreparedWrite, commit_prepared_writes_checked}};
 use sha2::{Digest, Sha256};
 use std::{
     io::Read,
@@ -82,7 +82,15 @@ pub(super) fn source_pages(text: &str) -> Vec<Arc<str>> {
 }
 
 pub(super) fn load(root: &Path, relative: &str) -> Result<(DiskIdentity, SourceContents), String> {
+    load_document(root, relative, true)
+}
+
+fn load_document(root: &Path, relative: &str, asset: bool) -> Result<(DiskIdentity, SourceContents), String> {
     let path = checked_path(root, relative)?;
+    let rule_name = feathrise_editor_documents_model::project_rules::PATH;
+    // Windows 的大小写别名和区分大小写的目录都按实际磁盘文件识别。普通文件不增加 IO。
+    let project_rules = asset && (relative == rule_name || relative.eq_ignore_ascii_case(rule_name)
+        && root.join(rule_name).canonicalize().is_ok_and(|target| target == path));
     let bytes = read_bytes(&path)?;
     let bom = bytes.starts_with(b"\xef\xbb\xbf");
     let text = std::str::from_utf8(if bom { &bytes[3..] } else { &bytes })
@@ -102,6 +110,7 @@ pub(super) fn load(root: &Path, relative: &str) -> Result<(DiskIdentity, SourceC
     let crlf = crlf_count > lf_count || crlf_count == lf_count && first_crlf.unwrap_or(false);
     let disk = DiskIdentity {
         path,
+        project_rules,
         digest: Sha256::digest(&bytes).into(),
         bom,
         crlf,
@@ -117,7 +126,7 @@ pub(super) fn load(root: &Path, relative: &str) -> Result<(DiskIdentity, SourceC
 
 pub(super) fn load_source(roots: &super::source::SourceRoots, key: &str) -> Result<(DiskIdentity, SourceContents), String> {
     let (root, relative) = roots.resolve(key)?;
-    load(root, relative)
+    load_document(root, relative, !super::source::is_project(key))
 }
 
 pub(super) fn save_source(roots: &super::source::SourceRoots, key: &str, disk: &DiskIdentity, pages: &[Arc<str>]) -> Result<DiskIdentity, String> {
@@ -184,6 +193,9 @@ pub(super) fn save(
     disk: &DiskIdentity,
     pages: &[Arc<str>],
 ) -> Result<DiskIdentity, String> {
+    // 两个作者进程可能同时读到同一旧摘要。只在规则文件的整段校验/替换期间持有现成的工程作者锁。
+    let _rules_lock = disk.project_rules.then(|| ContentAuthorLock::acquire(root)).transpose()
+        .map_err(|error| format!("无法取得工程规则保存锁，当前草稿保留：{error}"))?;
     let mut bytes = Vec::new();
     if disk.bom {
         bytes.extend_from_slice(b"\xef\xbb\xbf");

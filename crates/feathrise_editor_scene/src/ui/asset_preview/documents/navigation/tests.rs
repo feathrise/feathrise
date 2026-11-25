@@ -35,6 +35,7 @@ pub(super) fn document(source: &str) -> Document {
         format: crate::asset_catalog::DocumentFormat::Config,
         generation: 1,
         disk: DiskIdentity {
+            project_rules: false,
             path: "unused.json".into(),
             digest: [0; 32],
             bom: false,

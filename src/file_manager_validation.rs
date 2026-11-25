@@ -19,8 +19,17 @@ const REFERENCE_SCENES: [(&str, &str); 2] = [("SCENE-reference-a", "引用场景
 const MOVED_ASSET: &str = "整理目标/move-me.glb";
 const NESTED_BYTES: &[u8] = b"feathrise-file-manager-nested-v1\n";
 const CANCEL_ITEMS: usize = 4097;
+mod project_rules;
 
 pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
+    run_report(target, report, PURPOSE, exercise)
+}
+
+pub(crate) fn run_rules(target: PathBuf, report: PathBuf) -> Result<(), String> {
+    run_report(target, report, "owned-project-rules-validation", project_rules::exercise)
+}
+
+fn run_report(target: PathBuf, report: PathBuf, purpose: &str, exercise: fn(&Path, &Path, &mut Value) -> Result<(), String>) -> Result<(), String> {
     if !report.is_absolute() || report.exists() {
         return Err("文件管理验收报告须为本轮新的绝对路径".into());
     }
@@ -29,7 +38,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     let work = report.with_extension("work");
     fs::create_dir(&work).map_err(|error| format!("文件管理工作目录必须独占新建：{error}"))?;
     let work = work.canonicalize().map_err(|error| error.to_string())?;
-    let mut proof = json!({"schema":1,"purpose":PURPOSE,"work":work,"os_input_verified":false});
+    let mut proof = json!({"schema":1,"purpose":purpose,"work":work,"os_input_verified":false});
     let result = exercise(&target, &work, &mut proof);
     proof["passed"] = json!(result.is_ok());
     proof["error"] = json!(result.as_ref().err());
@@ -288,6 +297,12 @@ pub(crate) fn preflight(project: &Project) -> Result<Option<PathBuf>, String> {
             != Some(b"feathrise-single-binary-validation-v1")
     {
         return Err("文件管理自动验收未通过工程、偏好与插件的夹具归属校验".into());
+    }
+    if let Some(phase) = std::env::var_os(project_rules::ENV) {
+        if matches!(phase.to_str(), Some("edit" | "reopen"))
+            && fs::read(work.join(".project-rules-fixture")).ok().as_deref() == Some(b"project-rules-v1")
+            && !work.join(format!("rules-{}.json", phase.to_string_lossy())).exists() { return Ok(Some(work)); }
+        return Err("工程规则验收阶段、归属或输出路径不匹配".into());
     }
     for name in ["整理来源", "整理目标"] {
         let path = project.root.join("assets").join(name);

@@ -14,6 +14,7 @@ pub(super) struct ExpandedDocument {
 pub(super) struct DiskIdentity {
     pub path: PathBuf, // 保存前再次规范化并验证目标；禁止符号链接换成另一文件。
     pub digest: [u8; 32],
+    pub project_rules: bool, // 后台按主资产根的实际文件确定，含大小写别名。
     pub bom: bool,
     pub crlf: bool,
 }

@@ -2,6 +2,7 @@
 
 mod evidence;
 mod assets;
+mod project_rules;
 
 use super::file_manager::{
     FileAction, FileContextLabel, FileContextPanel, FileList, FileManagerButton, FileManagerCommand, FileManagerState, FileNameInput, FileResizeHandle, FileRow,
@@ -82,6 +83,12 @@ pub fn install(app: &mut App, work: PathBuf, project: PathBuf) -> Result<(), Str
         || owner["work"] != json!(work) || owner["project"] != json!(project)
     {
         return Err("文件桌面驱动拒绝未核验归属的工程".into());
+    }
+    if let Ok(phase) = std::env::var("FEATHRISE_PROJECT_RULES_VALIDATION") {
+        if !matches!(phase.as_str(), "edit" | "reopen") || fs::read(work.join(".project-rules-fixture")).ok().as_deref() != Some(b"project-rules-v1") {
+            return Err("工程规则驱动拒绝未核验的阶段或夹具".into());
+        }
+        return project_rules::install(app, work, phase);
     }
     // 归属仍使用 canonical 身份核验；浏览行遵循展示路径，统一移除 Windows 扩展前缀再比较。
     let project = crate::ui::external_files::platform_path(&project);

@@ -21,8 +21,9 @@ pub(super) async fn save_sources(
             Err("保存内容超过256 KiB；草稿已保留，请减少内容后再保存".into())
         } else if json::supported_for_save(&input.key.path) {
             let source = input.source;
+            let project_rules = input.disk.project_rules;
             AsyncComputeTaskPool::get()
-                .spawn(async move { json::validate_for_save(&source, content) })
+                .spawn(async move { json::validate_for_save(project_rules, &source, content) })
                 .await
         } else {
             Ok(())

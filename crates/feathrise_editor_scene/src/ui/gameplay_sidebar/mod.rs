@@ -2,6 +2,7 @@
 
 mod components;
 mod motion_triggers;
+pub(crate) mod project_rules;
 mod resources;
 mod scene;
 mod systems;
@@ -15,6 +16,7 @@ pub(crate) use scene::gameplay_tools_panel;
 pub(crate) use types::GameplaySidebarPage;
 
 pub(crate) fn install(app: &mut App) {
+    project_rules::install(app);
     motion_triggers::install(app);
     app.init_resource::<GameplaySidebarState>()
         .add_systems(

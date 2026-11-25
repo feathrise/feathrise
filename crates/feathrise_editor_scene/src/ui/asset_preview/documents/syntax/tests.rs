@@ -220,6 +220,7 @@ fn document() -> super::super::types::Document {
         format: DocumentFormat::Code,
         generation: 4,
         disk: DiskIdentity {
+            project_rules: false,
             path: "code.rs".into(),
             digest: [0; 32],
             bom: false,

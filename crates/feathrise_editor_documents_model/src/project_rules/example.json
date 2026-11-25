@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "variables": {
+    "sword_item": { "default": "" },
+    "sword_recipient": { "default": "none", "choices": ["none", "smith", "guard"] },
+    "route": { "default": 0 }
+  },
+  "rules": [
+    {
+      "id": "smith_route",
+      "when": { "changed": "sword_recipient", "from": "none", "to": "smith" },
+      "if": [{ "variable": "route", "equals": 0 }],
+      "once": true,
+      "actions": [
+        { "set": "route", "value": 1 },
+        { "request": "quest.start", "target": "smith_delivery" }
+      ]
+    },
+    {
+      "id": "guard_route",
+      "when": { "changed": "sword_recipient", "from": "none", "to": "guard" },
+      "if": [{ "variable": "route", "equals": 0 }],
+      "once": true,
+      "actions": [
+        { "set": "route", "value": 2 },
+        { "request": "quest.start", "target": "guard_delivery" }
+      ]
+    }
+  ]
+}

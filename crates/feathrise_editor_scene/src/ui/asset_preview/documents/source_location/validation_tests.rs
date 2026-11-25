@@ -20,7 +20,7 @@ fn fixture() -> (App, Entity, Entity, Entity) {
     documents.active = Some(key.into()); documents.visible = true; documents.central_active = true;
     documents.documents.push(Document {
         path: key.into(), format: document_format(NOTE).unwrap(), generation: 1,
-        disk: DiskIdentity { path: root.join(NOTE), digest: [7; 32], bom: false, crlf: false },
+        disk: DiskIdentity { path: root.join(NOTE), digest: [7; 32], project_rules: false, bom: false, crlf: false },
         pages: vec![source.clone()], source, revision: 1, saved_revision: 0, history: default(),
         preview: Arc::new(Vec::new()), preview_revision: None, preview_clipped: false, mode: ViewMode::Edit,
         preview_scroll: Vec2::ZERO, confirm_reload: false, external: default(), status: String::new(),

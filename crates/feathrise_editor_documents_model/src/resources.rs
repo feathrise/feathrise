@@ -13,6 +13,7 @@ pub struct DocumentScenes {
 /// 只传入共享文本与值类型，不能持有World、路径状态或另建历史/任务队列。
 #[derive(Resource, Clone, Copy)]
 pub struct DocumentContentOperations {
+    pub validate_project_rules: fn(&str) -> Result<(), String>,
     pub tokenize: fn(super::syntax::Language, &str) -> Vec<super::syntax::Token>,
     pub build_text_index:
         fn(super::navigation::types::IndexKey, &str) -> super::navigation::types::TextIndex,

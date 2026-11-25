@@ -474,6 +474,54 @@ fn markdown_old_io_keeps_slot_until_finished_and_only_latest_request_is_loaded()
 }
 
 #[test]
+fn project_rules_validation_uses_the_actual_main_asset_file_for_every_spelling() {
+    use feathrise_editor_documents_model::project_rules::PATH;
+    let fixture = Fixture::new();
+    let assets = fixture.root.join("assets");
+    std::fs::create_dir(&assets).unwrap();
+    let name = "PROJECT_RULES.JSON";
+    let invalid = r#"{"version":2}"#;
+    std::fs::write(assets.join(name), invalid).unwrap();
+    std::fs::write(fixture.root.join(PATH), invalid).unwrap();
+    let roots = super::source::SourceRoots { assets: assets.clone(), project: Some(fixture.root.clone()) };
+    let schema_fails = |path: &str| {
+        let (disk, text) = io::load_source(&roots, path).unwrap();
+        super::json::validate_for_save(disk.project_rules, &text.text, feathrise_editor_documents::content_operations()).is_err()
+    };
+    // 普通 NTFS 的大小写别名须拒绝错误版本；区分大小写的卷允许独立的大写 JSON。
+    assert_eq!(schema_fails(name), assets.join(PATH).exists());
+    std::fs::write(assets.join(PATH), invalid).unwrap();
+    assert!(schema_fails(PATH));
+    assert_eq!(schema_fails(name), assets.join(PATH).canonicalize().unwrap() == assets.join(name).canonicalize().unwrap());
+    assert!(!schema_fails("project://project_rules.json"));
+}
+
+#[test]
+fn project_rules_save_lock_prevents_simultaneous_writers_from_replacing_the_same_baseline() {
+    use feathrise_editor_documents_model::project_rules::{EMPTY, PATH};
+    use feathrise_scene_content::authoring_io::ContentAuthorLock;
+    let fixture = Fixture::new();
+    std::fs::write(fixture.root.join(PATH), EMPTY).unwrap();
+    let (disk, _) = io::load(&fixture.root, PATH).unwrap();
+    let first = io::source_pages(r#"{"version":1,"variables":{"a":{"default":true}}}"#);
+    let second = io::source_pages(r#"{"version":1,"variables":{"b":{"default":true}}}"#);
+    let held = ContentAuthorLock::acquire(&fixture.root).unwrap();
+    assert!(io::save(&fixture.root, PATH, &disk, &first).unwrap_err().contains("保存锁"));
+    assert_eq!(std::fs::read_to_string(fixture.root.join(PATH)).unwrap(), EMPTY);
+    drop(held);
+    let start = std::sync::Barrier::new(2);
+    let (a, b) = std::thread::scope(|scope| {
+        let writer = scope.spawn(|| { start.wait(); io::save(&fixture.root, PATH, &disk, &first) });
+        start.wait();
+        let other = io::save(&fixture.root, PATH, &disk, &second);
+        (writer.join().unwrap(), other)
+    });
+    assert_ne!(a.is_ok(), b.is_ok());
+    let contents = std::fs::read_to_string(fixture.root.join(PATH)).unwrap();
+    assert_eq!(contents.as_str(), if a.is_ok() { first[0].as_ref() } else { second[0].as_ref() });
+}
+
+#[test]
 fn markdown_save_rejects_same_length_external_edit_and_keeps_both_versions() {
     let fixture = Fixture::new();
     fixture.write("原始文本");
