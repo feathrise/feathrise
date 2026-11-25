@@ -36,14 +36,16 @@ fn read_bytes(path: &Path) -> Result<Vec<u8>, String> {
     let metadata = file
         .metadata()
         .map_err(|error| format!("读取文档属性失败：{error}"))?;
-    if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES as u64 {
+    let limit=if feathrise_cinematic::is_cinematic_path(path){u64::MAX}else{MAX_FILE_BYTES as u64};
+    if !metadata.is_file() || metadata.len() > limit {
         return Err("文档超过256 KiB，请在外部编辑器中打开".into());
     }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    file.take(MAX_FILE_BYTES as u64 + 1)
+    let mut bytes = Vec::new();
+    bytes.try_reserve(usize::try_from(metadata.len()).map_err(|_|"文档长度无法表示")?).map_err(|_|"内存不足，无法读取文档")?;
+    file.take(limit.saturating_add(1))
         .read_to_end(&mut bytes)
         .map_err(|error| format!("文档读取失败：{error}"))?;
-    if bytes.len() > MAX_FILE_BYTES {
+    if bytes.len() as u64 > limit {
         return Err("文档超过256 KiB，请在外部编辑器中打开".into());
     }
     Ok(bytes)
@@ -108,6 +110,17 @@ fn load_document(root: &Path, relative: &str, asset: bool) -> Result<(DiskIdenti
         if crlf { crlf_count += 1; } else { lf_count += 1; }
     }
     let crlf = crlf_count > lf_count || crlf_count == lf_count && first_crlf.unwrap_or(false);
+    let normalized: Arc<str> = if crlf_count == 0 {
+        Arc::from(text)
+    } else {
+        text.replace("\r\n", "\n").into()
+    };
+    // 四轨通过后台一次产生完整不可变字节串。单块使大演出在主线程登记历史时只克隆一份 Arc。
+    let pages = if feathrise_cinematic::is_cinematic_path(&path) {
+        vec![if crlf_count == 0 { normalized.clone() } else { Arc::from(text) }]
+    } else {
+        source_pages(text)
+    };
     let disk = DiskIdentity {
         path,
         project_rules,
@@ -118,8 +131,8 @@ fn load_document(root: &Path, relative: &str, asset: bool) -> Result<(DiskIdenti
     Ok((
         disk,
         SourceContents {
-            pages: source_pages(text),
-            text: Arc::from(text.replace("\r\n", "\n")),
+            pages,
+            text: normalized,
         },
     ))
 }
@@ -194,18 +207,21 @@ pub(super) fn save(
     pages: &[Arc<str>],
 ) -> Result<DiskIdentity, String> {
     // 两个作者进程可能同时读到同一旧摘要。只在规则文件的整段校验/替换期间持有现成的工程作者锁。
-    let _rules_lock = disk.project_rules.then(|| ContentAuthorLock::acquire(root)).transpose()
-        .map_err(|error| format!("无法取得工程规则保存锁，当前草稿保留：{error}"))?;
+    let cinematic=feathrise_cinematic::is_cinematic_path(&disk.path);
+    let _rules_lock = (disk.project_rules || cinematic).then(|| ContentAuthorLock::acquire(root)).transpose()
+        .map_err(|error| format!("无法取得工程保存锁，当前草稿保留：{error}"))?;
     let mut bytes = Vec::new();
     if disk.bom {
         bytes.extend_from_slice(b"\xef\xbb\xbf");
     }
     for page in pages {
-        if bytes.len() + page.len() > MAX_FILE_BYTES {
+        if !cinematic && bytes.len() + page.len() > MAX_FILE_BYTES {
             return Err("保存内容超过256 KiB；草稿已保留，请减少内容后再保存".into());
         }
         bytes.extend_from_slice(page.as_bytes());
     }
+    // 所有保存来源（四轨、原生源码及全部保存）在同一个后台发布边界执行运行时格式校验。
+    if cinematic {feathrise_cinematic::Cinematic::from_slice(&bytes).map_err(|e|format!("剧情演出校验失败，草稿已保留：{e}"))?;}
     // 检查在stage创建之前和每次原子替换重试之前执行；外部文件变更时拒绝覆盖。
     let verify = || -> Result<(), String> {
         let path = checked_path(root, relative)?;

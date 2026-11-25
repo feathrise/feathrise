@@ -14,6 +14,7 @@ pub mod embedded_surface_trail; // 原地表即时辅助图的有界行块投影
 pub mod embedded_overlay; // 原作者工具线条的有界只读投影，供宿主桥接到游戏视口。
 pub mod embedded_tools; // 笔刷、变换手柄和三维选框的语义投影。
 pub mod viewport_projection; // 仅公开窗口几何与原输入门结论，不公开作者内部资源。
+pub use crate::ui::asset_preview::documents::cinematic::{CinematicPreview,CinematicPreviewFrame};
 mod exit;
 mod messages;
 mod navigation;

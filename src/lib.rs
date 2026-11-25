@@ -9,6 +9,7 @@ mod build_artifacts; // 所有开发启动共用独立版本副本，不占用�
 mod compiler_diagnostics;
 mod code_iteration;
 mod project_export;
+mod cinematic_movie;
 mod environment_diagnostics;
 mod folder_picker;
 #[cfg(any(test, feature = "validation"))]
@@ -80,6 +81,7 @@ pub fn run() -> Result<(), String> {
     let mut project_settings_report = None;
     let mut file_manager_report = None;
     let mut project_rules_report = None;
+    let mut cinematic_author_report = None;
     let mut plugin_package = None;
     let mut native = false;
     while let Some(arg) = args.next() {
@@ -108,10 +110,11 @@ pub fn run() -> Result<(), String> {
             Some("--project-settings-report") => project_settings_report = Some(PathBuf::from(args.next().ok_or("--project-settings-report缺少路径")?)),
             Some("--file-manager-report") => file_manager_report = Some(PathBuf::from(args.next().ok_or("--file-manager-report缺少路径")?)),
             Some("--project-rules-report") => project_rules_report = Some(PathBuf::from(args.next().ok_or("--project-rules-report缺少路径")?)),
+            Some("--cinematic-author-report") => cinematic_author_report = Some(PathBuf::from(args.next().ok_or("--cinematic-author-report缺少路径")?)),
             Some("--plugin-package") => plugin_package = Some(PathBuf::from(args.next().ok_or("--plugin-package缺少插件文件或发布目录")?)),
             _ => {
                 return Err(
-                    "用法：cargo run [-- --project <工程目录>]；无参数进入工作台开始页。验收：--native-report、--embedded-report、--embedded-build-cancel-report、--code-iteration-report、--export-report、--scene-format-report、--project-browser-report、--project-settings-report、--file-manager-report、--project-rules-report 或 --plugin-report <报告路径>（插件另需 --plugin-package <插件文件或发布目录>）；详见 docs/开发与验收.md"
+                    "用法：cargo run [-- --project <工程目录>]；无参数进入工作台开始页。验收：--native-report、--embedded-report、--embedded-build-cancel-report、--code-iteration-report、--export-report、--scene-format-report、--project-browser-report、--project-settings-report、--file-manager-report、--project-rules-report、--cinematic-author-report 或 --plugin-report <报告路径>（插件另需 --plugin-package <插件文件或发布目录>）；详见 docs/开发与验收.md"
                         .into(),
                 );
             }
@@ -124,7 +127,7 @@ pub fn run() -> Result<(), String> {
     // 默认启动也保留原缓存路径校验；返回值只由显式validation夹具使用。
     let _validation_target = writable_paths::build_target(resource_mode, target_override.clone())?;
     // 每类验收各自创建独占夹具，不能同时选择而静默忽略另一个入口。
-    let reports = [native_report.is_some(), embedded_report.is_some(), embedded_build_cancel_report.is_some(), plugin_report.is_some(), code_iteration_report.is_some(), export_report.is_some(), scene_format_report.is_some(), project_browser_report.is_some(), project_settings_report.is_some(), file_manager_report.is_some(), project_rules_report.is_some()];
+    let reports = [native_report.is_some(), embedded_report.is_some(), embedded_build_cancel_report.is_some(), plugin_report.is_some(), code_iteration_report.is_some(), export_report.is_some(), scene_format_report.is_some(), project_browser_report.is_some(), project_settings_report.is_some(), file_manager_report.is_some(), project_rules_report.is_some(), cinematic_author_report.is_some()];
     if reports.into_iter().filter(|selected| *selected).count() > 1 {
         return Err("一轮只选择一种窗口验收入口".into());
     }
@@ -163,6 +166,12 @@ pub fn run() -> Result<(), String> {
         return file_manager_validation::run_rules(_validation_target, report);
         #[cfg(not(feature = "validation"))]
         { let _ = report; return Err("工程规则窗口验收需要显式启用 validation".into()); }
+    }
+    if let Some(report) = cinematic_author_report {
+        #[cfg(feature = "validation")]
+        return file_manager_validation::run_cinematic(_validation_target, report);
+        #[cfg(not(feature = "validation"))]
+        { let _ = report; return Err("剧情演出窗口验收需要显式启用 validation".into()); }
     }
     if let Some(report) = project_settings_report {
         #[cfg(all(feature = "validation", windows))]

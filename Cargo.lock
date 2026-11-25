@@ -3370,6 +3370,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "feathrise_cinematic_author"
+version = "0.2.0"
+dependencies = [
+ "bevy_ecs",
+ "bevy_math",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "feathrise_editor_animation"
 version = "0.1.0"
 dependencies = [
@@ -3469,6 +3479,7 @@ name = "feathrise_editor_project_browser"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "feathrise_cinematic_author",
  "feathrise_editor_animation_model",
  "feathrise_editor_assets",
  "feathrise_editor_documents_model",
@@ -3510,6 +3521,7 @@ dependencies = [
  "feathrise_atmosphere",
  "feathrise_author_tools",
  "feathrise_billboard_text",
+ "feathrise_cinematic_author",
  "feathrise_editor_animation",
  "feathrise_editor_animation_model",
  "feathrise_editor_assets",
@@ -3743,10 +3755,12 @@ dependencies = [
  "bevy_internal",
  "cargo-config2",
  "feathrise_author_tools",
+ "feathrise_cinematic_author",
  "feathrise_editor_animation",
  "feathrise_editor_assets",
  "feathrise_editor_core",
  "feathrise_editor_documents",
+ "feathrise_editor_documents_model",
  "feathrise_editor_glb",
  "feathrise_editor_project_browser",
  "feathrise_editor_protocol",

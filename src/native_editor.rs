@@ -156,6 +156,7 @@ pub(crate) fn run(project: crate::project::Project, target: PathBuf) -> Result<(
     app.add_plugins(crate::embedded_viewport::EmbeddedViewportPlugin::new(project.clone(), target.clone()));
     app.add_plugins(crate::code_iteration::CodeIterationPlugin::new(project.clone(), target.clone()));
     app.add_plugins(crate::project_export::ProjectExportPlugin::new(project.clone(), target.clone()));
+    app.add_plugins(crate::cinematic_movie::CinematicMoviePlugin(project.clone(), target.clone()));
     // 作者宿主统一提供自身字体；公共传送门与FPS/F3不再选择原游戏的中文字体。
     let author_ui_font = feathrise_editor_core::editor_font(app.world().resource::<AssetServer>(), feathrise_editor_core::FONT_PATH);
     app.insert_resource(feathrise_portal::PortalLabelFont(author_ui_font.clone()));
@@ -257,5 +258,6 @@ pub(crate) fn preferences_ready_to_exit(world: &mut World, retry: bool) -> Resul
     let previews = crate::native_plugins::ready_to_exit(world)?;
     let author = preferences::ready_to_exit(world, retry)?;
     let viewport = crate::viewport_mode::ready_to_exit(world, retry)?;
-    Ok(code && export && previews && author && viewport)
+    let movie = crate::cinematic_movie::ready_to_exit(world);
+    Ok(code && export && previews && author && viewport && movie)
 }

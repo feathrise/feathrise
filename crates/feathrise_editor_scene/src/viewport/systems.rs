@@ -246,7 +246,7 @@ pub(crate) fn setup_editor_viewport(
 pub(crate) fn bind_editor_viewport_camera(
     viewport: Option<Res<SceneEditorViewportState>>,
     cameras: Query<&Camera, With<SceneEditorCamera>>,
-    mut nodes: Query<(&ComputedNode, &mut ViewportNode), With<SceneEditorViewport>>,
+    mut nodes: Query<(&ComputedNode, &mut ViewportNode), Or<(With<SceneEditorViewport>, With<crate::ui::asset_preview::documents::cinematic::FilmImage>)>>,
 ) {
     let active = viewport.as_ref().map(|viewport| viewport.camera)
         .filter(|entity| cameras.get(*entity).is_ok_and(|camera| camera.is_active));
@@ -261,12 +261,12 @@ pub(crate) fn bind_editor_viewport_camera(
 /// Bevy先算相机再跑UI布局。原生ViewportNode完成RTT调整后，在RenderApp提取前补齐当前相机的同帧尺寸。
 pub(crate) fn sync_editor_viewport_render_size(
     viewport: Option<ResMut<SceneEditorViewportState>>,
-    viewport_nodes: Query<&ViewportNode, With<SceneEditorViewport>>,
+    viewport_nodes: Query<&ViewportNode, Or<(With<SceneEditorViewport>, With<crate::ui::asset_preview::documents::cinematic::FilmImage>)>>,
     mut cameras: Query<(&RenderTarget, &mut Camera, &mut Projection), With<SceneEditorCamera>>,
     images: Res<Assets<Image>>,
 ) {
     let Some(mut viewport) = viewport else { return; };
-    if !viewport_nodes.single().is_ok_and(|node| node.camera == Some(viewport.camera)) { return; }
+    if !viewport_nodes.iter().any(|node| node.camera == Some(viewport.camera)) { return; }
     let Ok((RenderTarget::Image(target), mut camera, mut projection)) = cameras.get_mut(viewport.camera) else { return; };
     let Some(image) = images.get(&target.handle) else { return; };
     let render_size = image.size();

@@ -92,7 +92,7 @@ pub(super) fn write_with_sdk_configuration(
     Ok(())
 }
 
-fn copy_template(
+pub(super) fn copy_template(
     editor: &Path,
     configuration: &Path,
     root: &Path,

@@ -180,6 +180,7 @@ pub(super) struct Runtime {
     pub capture_error: Option<String>,
     pub previews: super::previews::PreviewFlights,
     pub tree: super::scene_tree::SceneTreeHost,
+    pub cinematic: super::cinematic::Link,
 }
 impl Drop for Runtime {
     fn drop(&mut self) {

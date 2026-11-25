@@ -160,9 +160,9 @@ pub(super) fn execute_plain(
             target_path(&destination, ConflictPolicy::Fail)?;
             control.check()?;
             reject_link_chain(&parent)?;
+            let bytes = new_file_bytes(kind, name)?;
             let stage_container = reserve_stage(&parent, control.id(), 0)?;
             let stage = stage_container.join("content");
-            let bytes = new_file_bytes(kind);
             // 即使GLB很小也先完整写入私有暂存并关闭句柄，再无覆盖发布；失败不会留下正式半文件。
             let result = (|| {
                 let mut output = OpenOptions::new().create_new(true).write(true).open(&stage)
@@ -197,10 +197,23 @@ pub(super) fn execute_plain(
     Ok(())
 }
 
-fn new_file_bytes(kind: NewFileKind) -> Vec<u8> {
-    match kind {
+fn new_file_bytes(kind: NewFileKind, name: &str) -> Result<Vec<u8>, String> {
+    Ok(match kind {
         // 空字节串本身是合法UTF-8；不写BOM或默认正文，作者打开后可直接输入。
         NewFileKind::Text | NewFileKind::Markdown => Vec::new(),
+        NewFileKind::Cinematic => {
+            let end = name.len().checked_sub(".cinematic.json".len())
+                .filter(|&end| name.get(end..).is_some_and(|s| s.eq_ignore_ascii_case(".cinematic.json")))
+                .ok_or("剧情演出文件名应以 .cinematic.json 结尾")?;
+            let title = name[..end].trim();
+            if title.is_empty() { return Err("请输入剧情演出名称".into()); }
+            // 稳定身份独立于文件位置，两个目录可各自新建同名演出。
+            let id = format!("cinematic_{}", bevy::asset::uuid::Uuid::new_v4().simple());
+            let mut bytes = serde_json::to_vec_pretty(&feathrise_cinematic::Cinematic::new(id, title.to_string()))
+                .map_err(|error| error.to_string())?;
+            bytes.push(b'\n');
+            bytes
+        }
         NewFileKind::Glb => {
             // GLB 2允许只有JSON块；提供可独立打开的空默认场景，不制造无用途的BIN块。
             let json = br#"{"asset":{"version":"2.0","generator":"Feathrise"},"scene":0,"scenes":[{"nodes":[]}]}"#;
@@ -215,7 +228,7 @@ fn new_file_bytes(kind: NewFileKind) -> Vec<u8> {
             bytes.resize(20 + padded_length, b' ');
             bytes
         }
-    }
+    })
 }
 
 fn absolute(path: &Path) -> Result<(), String> {

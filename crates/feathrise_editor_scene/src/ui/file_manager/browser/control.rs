@@ -74,6 +74,7 @@ pub(super) fn control(
     focus: Res<InputFocus>,
     mut wheels: MessageReader<MouseWheel>,
     mut clips: MessageWriter<PickProjectAnimationClip>,
+    mut cine: Option<ResMut<Messages<crate::ui::asset_preview::documents::cinematic::PickCinematicClip>>>,
     mut glbs: MessageWriter<PickedSceneGlb>,
     mut file_commands: MessageWriter<super::super::FileManagerCommand>,
     search_state: Option<Res<AssetSearchState>>,
@@ -270,6 +271,10 @@ pub(super) fn control(
             let path = path.to_owned();
             let index = clip.index;
             let target = window.animation_picker().unwrap().target.clone();
+            if crate::ui::asset_preview::documents::cinematic::is_path(&target.path) {
+                if let Some(cine)=cine.as_deref_mut(){cine.write(crate::ui::asset_preview::documents::cinematic::PickCinematicClip{target,name:clip.label.clone()});}
+                return;
+            }
             browsers.clip_intent = Some((path.clone(), index));
             clips.write(PickProjectAnimationClip { asset_path: path, clip_index: index, target: Some(target) });
         }

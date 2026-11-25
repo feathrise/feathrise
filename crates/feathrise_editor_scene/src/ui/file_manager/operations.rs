@@ -137,7 +137,12 @@ pub(super) fn control(
                     else { FileOperation::Copy { sources, destination: directory, conflict: state.conflict } };
                 submit(&mut state, service.as_deref(), &authors, &mut reservations, operation);
             }
-            FileAction::Delete | FileAction::Rename | FileAction::NewFolder | FileAction::NewText | FileAction::NewMarkdown | FileAction::NewGlb => {
+            FileAction::Delete | FileAction::Rename | FileAction::NewFolder | FileAction::NewText | FileAction::NewMarkdown | FileAction::NewGlb | FileAction::NewCinematic => {
+                // 从工程根新建演出默认落入主资产根；其余位置保留作者明确选择的目录。
+                let directory = if request.action == FileAction::NewCinematic
+                    && state.project.as_deref().is_some_and(|root| crate::ui::external_files::platform_path(root) == crate::ui::external_files::platform_path(&directory)) {
+                    state.asset_root.clone().unwrap_or(directory)
+                } else { directory };
                 if !request.action.creates_entry() && sources.is_empty() { state.notice = "请先选择文件或文件夹".into(); continue; }
                 if !request.action.creates_entry() && let Some(reason) = authors.blocker(&sources) {
                     state.notice = reason; continue;
@@ -164,10 +169,11 @@ pub(super) fn control(
                 let Some(prompt) = state.prompt.take() else { continue; };
                 let operation = match prompt.action {
                     FileAction::NewFolder => FileOperation::CreateFolder { parent: prompt.directory, name: prompt.value },
-                    FileAction::NewText | FileAction::NewMarkdown | FileAction::NewGlb => FileOperation::CreateFile {
+                    FileAction::NewText | FileAction::NewMarkdown | FileAction::NewGlb | FileAction::NewCinematic => FileOperation::CreateFile {
                         parent: prompt.directory, name: prompt.value, kind: match prompt.action {
                             FileAction::NewText => NewFileKind::Text,
                             FileAction::NewMarkdown => NewFileKind::Markdown,
+                            FileAction::NewCinematic => NewFileKind::Cinematic,
                             _ => NewFileKind::Glb,
                         },
                     },
@@ -277,14 +283,15 @@ fn new_entry_name(action: FileAction, english: bool) -> &'static str {
         (FileAction::NewText, false) => "新建文本文档.txt", (FileAction::NewText, true) => "New text document.txt",
         (FileAction::NewMarkdown, false) => "新建文档.md", (FileAction::NewMarkdown, true) => "New document.md",
         (FileAction::NewGlb, false) => "新建场景.glb", (FileAction::NewGlb, true) => "New scene.glb",
+        (FileAction::NewCinematic, false) => "新建剧情演出.cinematic.json", (FileAction::NewCinematic, true) => "New cinematic.cinematic.json",
         _ => "",
     }
 }
 
 pub(super) fn creation_extension_matches(action: FileAction, value: &str) -> bool {
     // 类型由显式“新建”动作决定；改错后缀时保留输入，不伪装成另一类型，也不静默改名。
-    action.extension().is_none_or(|extension| std::path::Path::new(value).extension()
-        .and_then(|value| value.to_str()).is_some_and(|value| value.eq_ignore_ascii_case(extension)))
+    action.extension().is_none_or(|extension| value.len().checked_sub(extension.len() + 1).is_some_and(|end|
+        end > 0 && value.get(end..).is_some_and(|suffix| suffix.starts_with('.') && suffix[1..].eq_ignore_ascii_case(extension))))
 }
 
 fn submit(
@@ -329,7 +336,7 @@ fn enqueue(
 }
 
 pub(super) fn poll(mut state: ResMut<FileManagerState>, service: Option<Res<FileOperationService>>,
-    mut search: Option<ResMut<crate::ui::asset_preview::AssetSearchState>>) {
+    mut search: Option<ResMut<crate::ui::asset_preview::AssetSearchState>>, mut open: Option<ResMut<Messages<OpenManagedFile>>>) {
     let Some(snapshot) = service.as_ref().and_then(|service| service.snapshot()) else { return; };
     if snapshot.revision == state.operation_revision { return; }
     state.operation_revision = snapshot.revision;
@@ -337,6 +344,11 @@ pub(super) fn poll(mut state: ResMut<FileManagerState>, service: Option<Res<File
         if receipt.id <= state.last_receipt { continue; }
         state.last_receipt = receipt.id;
         if receipt.context != state.context { continue; }
+        if receipt.kind == FileOperationKind::CreateFile && receipt.error.is_none()
+            && let [change] = receipt.completed.as_slice() && let Some(path) = &change.destination
+            && feathrise_cinematic::is_cinematic_path(path) && let Some(open) = open.as_deref_mut() {
+            open.write(OpenManagedFile { path: path.clone() });
+        }
         if let Some(preview) = &receipt.reference_preview {
             state.reference_reviews.push_back(preview.clone());
             state.notice = format!("{} 份场景或预设引用了所选资产，请确认引用更新", preview.documents.len());

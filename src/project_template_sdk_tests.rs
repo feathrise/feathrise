@@ -154,12 +154,12 @@ fn public_template_creates_and_reopens_while_cargo_is_unusable() {
         .load_path_sync(&Path::new(super::super::resources::DIRECTORY).join("Cargo.toml"))
         .is_ok();
     if !embedded {
-        super::super::copy_tree(
-            &source,
-            &installation.join("templates/empty"),
-            &mut super::super::CopyBudget::default(),
-            &control,
-        ).unwrap();
+        // 用正式模板配方构造接收方布局；作者对模板单独运行 Cargo 产生的 target 不属于交付内容。
+        let editor = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let template = installation.join("templates/empty");
+        let (manifest, lock) = super::super::empty::copy_template(editor, editor, &template, &control).unwrap();
+        fs::write(template.join("Cargo.toml"), manifest).unwrap();
+        fs::write(template.join("Cargo.lock"), lock).unwrap();
     }
     fs::write(installation.join("Cargo.lock"), "version = 4\n").unwrap();
 

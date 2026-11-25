@@ -30,6 +30,8 @@ initial_items = ["feathrise_runtime/initial_items"]
 validation = ["feathrise_project/validation", "feathrise_editor_scene/validation", "feathrise_runtime/validation"]
 
 [dependencies]
+feathrise_cinematic = { workspace = true }
+feathrise_editor_documents_model = { workspace = true }
 feathrise_runtime_manifest = { version = "=0.2.0" } # 固定与 SDK 构建/启动一致的交付身份，默认构建无需 DLSS 工具链。
 feathrise_plugin_api = { version = "=0.2.0", features = ["reader"] }
 libloading = "=0.8.9"
@@ -110,6 +112,7 @@ default-members = ["."]
 
 # 独立编辑器有自己的 Cargo 工作区，默认只启动作者宿主；玩法在打开工程后后台构建。
 [workspace.dependencies]
+feathrise_cinematic = { package = "feathrise_cinematic_author", path = "vendor/feathrise_cinematic" }
 feathrise_runtime = { version = "0.2.0", default-features = false, features = ["default_font"] } # 回归使用 SDK 内嵌字体，不读取同级仓库资源。
 feathrise_plugin_api = { version = "=0.2.0" }
 feathrise_author_tools = { version = "0.2.0" } # 两端共享工具语义，不交换任意线段或ECS句柄。

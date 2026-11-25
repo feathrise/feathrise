@@ -12,6 +12,7 @@ validation = ["feathrise_editor_animation_model/validation", "dep:feathrise_edit
 runtime_test_support = []
 
 [dependencies]
+feathrise_cinematic = { workspace = true }
 feathrise_editor_project_browser_model = { workspace = true }
 feathrise_editor_animation = { workspace = true, optional = true } # 仅显式验收读取动画工作流证据。
 feathrise_editor_animation_model = { workspace = true } # 宿主和动画共享唯一预览资源及操作契约。

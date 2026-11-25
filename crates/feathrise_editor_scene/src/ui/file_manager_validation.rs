@@ -1,6 +1,6 @@
 //! 桌面文件窗口真交互验收；只有显式validation和宿主核验过的自建工程才会安装驱动。
 
-mod evidence;
+pub(crate) mod evidence;
 mod assets;
 mod project_rules;
 
@@ -90,6 +90,9 @@ pub fn install(app: &mut App, work: PathBuf, project: PathBuf) -> Result<(), Str
         }
         return project_rules::install(app, work, phase);
     }
+    if let Ok(phase)=std::env::var("FEATHRISE_CINEMATIC_AUTHOR_VALIDATION") {
+        return super::asset_preview::documents::cinematic::validation::install(app,work,phase);
+    }
     // 归属仍使用 canonical 身份核验；浏览行遵循展示路径，统一移除 Windows 扩展前缀再比较。
     let project = crate::ui::external_files::platform_path(&project);
     let now = Instant::now();
@@ -122,7 +125,7 @@ fn hold_pointer(world: &mut World) {
     move_cursor(world, window, destination);
 }
 
-fn fixture_focus(mut windows: Query<&mut Window, With<PrimaryWindow>>) {
+pub(crate) fn fixture_focus(mut windows: Query<&mut Window, With<PrimaryWindow>>) {
     // 内部窗口事件只通过生产焦点门；该设置不声称取得操作系统前台或实体键鼠证据。
     if let Ok(mut window) = windows.single_mut() { window.focused = true; }
 }
@@ -912,13 +915,13 @@ fn name_prompt(world: &mut World, run: &mut Run, window: Entity, value: &str) ->
     Ok(click(world, &mut run.click, window, confirm))
 }
 
-fn visible<C: Component>(world: &mut World, predicate: impl Fn(&C) -> bool) -> Option<Entity> {
+pub(crate) fn visible<C: Component>(world: &mut World, predicate: impl Fn(&C) -> bool) -> Option<Entity> {
     world.query::<(Entity, &C, &ComputedNode, &InheritedVisibility)>().iter(world)
         .find(|(_, component, node, visibility)| predicate(component) && node.size().min_element() > 1. && visibility.get())
         .map(|(entity, ..)| entity)
 }
 
-fn click(world: &mut World, pending: &mut Option<(Entity, bool)>, window: Entity, target: Option<Entity>) -> bool {
+pub(crate) fn click(world: &mut World, pending: &mut Option<(Entity, bool)>, window: Entity, target: Option<Entity>) -> bool {
     let Some(entity) = target else { release_pending_click(world, pending, window); return false; };
     if pending.is_some_and(|(previous, _)| previous != entity) {
         release_pending_click(world, pending, window);

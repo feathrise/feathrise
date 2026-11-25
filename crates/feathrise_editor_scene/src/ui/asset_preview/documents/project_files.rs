@@ -25,7 +25,7 @@ pub(super) fn install(app: &mut App) {
 }
 
 /// 桌面窗口已经冻结绝对文件路径；打开文档不依赖固定栏是否正显示该目录。
-fn open_managed(
+pub(super) fn open_managed(
     mut requests: MessageReader<crate::ui::file_manager::OpenManagedFile>,
     model: Option<Res<WorkbenchModel>>,
     mut documents: ResMut<DocumentState>,

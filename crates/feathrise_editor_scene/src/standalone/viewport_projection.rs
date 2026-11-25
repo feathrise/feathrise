@@ -96,7 +96,7 @@ fn publish(
     mut projection: ResMut<ViewportHostProjection>,
     nodes: Query<
         (&ComputedNode, &UiGlobalTransform, &InheritedVisibility),
-        With<SceneEditorViewport>,
+        Or<(With<SceneEditorViewport>, With<crate::ui::asset_preview::documents::cinematic::FilmImage>)>,
     >,
     editor: Option<Res<SceneEditorState>>,
     buttons: Option<Res<ButtonInput<MouseButton>>>,

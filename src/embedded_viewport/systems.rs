@@ -191,6 +191,7 @@ pub(super) fn drive(world: &mut World, mut requests: Local<MessageCursor<RunSave
         sync_view(world, &mut runtime, &mut status, geometry);
         sync_snapshot(world, &mut runtime, &mut status);
         super::previews::sync(world, &mut runtime, &mut status);
+        super::cinematic::sync(world, &mut runtime, &mut status);
         sync_overlay(world, &mut runtime, &mut status);
         super::tools::synchronize(world, &mut runtime, &mut status);
         super::code_apply::after_sync(world, &mut runtime, &mut status);
@@ -613,6 +614,8 @@ fn poll(world: &mut World, runtime: &mut Runtime, status: &mut EmbeddedStatus) {
                 match frame.message {
                     Message::Ready { pid, world_id, capabilities, .. } => {
                         runtime.tree.supported = capabilities.iter().any(|cap| cap == super::scene_tree::CAPABILITY);
+                        runtime.cinematic = super::cinematic::Link::default();
+                        runtime.cinematic.supported = capabilities.iter().any(|cap| cap == super::cinematic::CAP);
                         status.ready = true;
                         status.pid = pid;
                         status.world_id = world_id;
@@ -642,6 +645,7 @@ fn poll(world: &mut World, runtime: &mut Runtime, status: &mut EmbeddedStatus) {
                         }
                     }
                     Message::PreviewApplied { kind, sequence } => {
+                        if kind == feathrise_editor_protocol::PreviewKind::AuthorDomain && runtime.cinematic.ack(sequence) { continue; }
                         super::previews::acknowledge(world, runtime, kind, sequence);
                     }
                     Message::ModeApplied {
@@ -693,6 +697,7 @@ fn poll(world: &mut World, runtime: &mut Runtime, status: &mut EmbeddedStatus) {
                         message,
                     } => {
                         let error = format!("{code}：{message}");
+                        if runtime.cinematic.fail(request_id) { feedback(world, &error); continue; }
                         if runtime.waiting_mode.is_some_and(|(id, _)| id == request_id) {
                             // 关闭所需的返回编辑若被明确拒绝，不能每帧重发并把用户困在隐藏的确认层。
                             // 由精确Job正常收口恢复作者，再走原保存/放弃/取消事务。

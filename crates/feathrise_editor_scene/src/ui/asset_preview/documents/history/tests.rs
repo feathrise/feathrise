@@ -192,6 +192,24 @@ fn history_bounds_entry_count_and_shared_snapshot_bytes() {
 }
 
 #[test]
+fn cinematic_history_retains_one_oversized_edit_and_its_redo() {
+    let raw = "a".repeat(MAX_SNAPSHOT_BYTES / 3);
+    let mut doc = document(&raw);
+    doc.path = "long.cinematic.json".into();
+    doc.pages = vec![doc.source.clone()];
+    let first: Arc<str> = format!("{raw}一").into();
+    let second: Arc<str> = format!("{raw}二").into();
+    for source in [&first, &second] {
+        doc.replace_content(source.clone(), vec![source.clone()], default());
+    }
+    assert_eq!(doc.history.undo.len(), 1);
+    assert!(doc.travel(false).is_some());
+    assert!(Arc::ptr_eq(&doc.source, &first));
+    assert!(doc.travel(true).is_some());
+    assert!(Arc::ptr_eq(&doc.source, &second));
+}
+
+#[test]
 fn history_snapshot_recording_shares_large_text_and_reports_only_its_own_cost() {
     let doc = document(&"a\n".repeat(128 * 1024));
     let snapshot = Snapshot {
@@ -213,7 +231,7 @@ fn history_snapshot_recording_shares_large_text_and_reports_only_its_own_cost() 
             content_revision: index + 1,
             ..snapshot.clone()
         };
-        history.record(before, after, EditContext::default());
+        history.record(before, after, EditContext::default(), false);
         times.push(start.elapsed().as_secs_f64() * 1_000_000.0);
     }
     assert!(history.bytes <= MAX_SNAPSHOT_BYTES);

@@ -142,7 +142,7 @@ pub(super) enum FilePicker {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FileAction {
-    NewWindow, Copy, Cut, Paste, Delete, NewMenu, NewFolder, NewText, NewMarkdown, NewGlb, Rename,
+    NewWindow, Copy, Cut, Paste, Delete, NewMenu, NewFolder, NewText, NewMarkdown, NewGlb, NewCinematic, Rename,
     Back, Forward, Up, Refresh, Minimize, Maximize, Close,
     Confirm, Cancel, ChooseClip, CancelPicker, ConflictPolicy, CopyHere, MoveHere,
     ReviewReferences, PreviousReferences, NextReferences, MoveWithoutRepair,
@@ -162,6 +162,7 @@ impl FileAction {
             (Self::NewText, false) => "文本文档 (.txt)", (Self::NewText, true) => "Text document (.txt)",
             (Self::NewMarkdown, false) => "Markdown (.md)", (Self::NewMarkdown, true) => "Markdown (.md)",
             (Self::NewGlb, false) => "GLB 场景 (.glb)", (Self::NewGlb, true) => "GLB scene (.glb)",
+            (Self::NewCinematic, false) => "剧情演出", (Self::NewCinematic, true) => "Cinematic",
             (Self::Rename, false) => "重命名", (Self::Rename, true) => "Rename",
             (Self::Back, _) => "←", (Self::Forward, _) => "→", (Self::Up, _) => "↑",
             (Self::Refresh, false) => "刷新", (Self::Refresh, true) => "Refresh",
@@ -182,9 +183,9 @@ impl FileAction {
         }
     }
 
-    pub(super) fn creates_entry(self) -> bool { matches!(self, Self::NewFolder | Self::NewText | Self::NewMarkdown | Self::NewGlb) }
+    pub(super) fn creates_entry(self) -> bool { matches!(self, Self::NewFolder | Self::NewText | Self::NewMarkdown | Self::NewGlb | Self::NewCinematic) }
     pub(super) fn extension(self) -> Option<&'static str> {
-        match self { Self::NewText => Some("txt"), Self::NewMarkdown => Some("md"), Self::NewGlb => Some("glb"), _ => None }
+        match self { Self::NewText => Some("txt"), Self::NewMarkdown => Some("md"), Self::NewGlb => Some("glb"), Self::NewCinematic => Some("cinematic.json"), _ => None }
     }
 }
 

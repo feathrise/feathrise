@@ -141,6 +141,7 @@ pub(crate) fn gameplay_tools_panel() -> impl Scene {
                 Node { width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_basis: px(0), flex_direction: FlexDirection::Column, row_gap: px(4), overflow: Overflow::scroll_y() }
                 Children [
                     @super::project_rules::panel()--
+                    @crate::ui::asset_preview::documents::cinematic::binding_panel()--
                     @feedback(GameplaySidebarFeedbackKind::Mode)--
                     @feedback(GameplaySidebarFeedbackKind::Availability)--
                     @asset_panel()--

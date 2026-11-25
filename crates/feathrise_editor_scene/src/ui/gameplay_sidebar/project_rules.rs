@@ -161,7 +161,7 @@ fn existing(root: &Path, path: &Path) -> Result<Option<PathBuf>, String> {
 }
 
 /// 打开已有内容从不改写字节。并发首次创建时采用先发布的版本，完整写入后才通知文档编辑器。
-fn open_or_create(
+pub(crate) fn open_or_create(
     project: &Path,
     assets: &Path,
     sample: bool,

@@ -283,7 +283,7 @@ pub(super) fn retire_animation_picker(
     let Some(manager) = manager.as_mut() else { return; };
     if !manager.windows.iter().any(|window| window.is_animation_picker()) { return; }
     let target = context.motion_target();
-    manager.close_stale_animation_picker(|current| target.as_ref() == Some(current));
+    manager.close_stale_animation_picker(|current| super::super::documents::cinematic::is_path(&current.path) || target.as_ref() == Some(current));
 }
 
 pub(super) fn sync_sidebar(

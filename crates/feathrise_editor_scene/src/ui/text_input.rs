@@ -188,10 +188,10 @@ pub(crate) fn collect_ime_guard(
 pub(crate) use feathrise_editor_ui::single_line_input;
 
 /// 同实体回显名称必须沿用底层编辑器；重建EditableText会丢失只在样式变化时同步的字体与布局。
-pub(crate) fn replace_single_line_value(text: &mut bevy::text::EditableText, value: &str, max: usize) {
+pub(crate) fn replace_single_line_value(text: &mut bevy::text::EditableText, value: &str, max: impl Into<Option<usize>>) {
     text.clear(); // 清理旧待处理字符、粘贴与组合状态，不替换已经配置字形样式的编辑器。
     text.editor.set_text(value);
-    text.max_characters = Some(max);
+    text.max_characters = max.into();
     text.allow_newlines = false;
     text.queue_edit(bevy::text::TextEdit::TextEnd(false)); // 原位更新布局代次并将新选择的光标移到末尾。
 }

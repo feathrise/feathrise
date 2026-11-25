@@ -15,7 +15,13 @@ impl DocumentHistory {
         !self.redo.is_empty()
     }
 
-    pub(super) fn record(&mut self, before: Snapshot, after: Snapshot, context: EditContext) {
+    pub(super) fn record(
+        &mut self,
+        before: Snapshot,
+        after: Snapshot,
+        context: EditContext,
+        keep_latest: bool,
+    ) {
         // 新编辑立即截断重做分支；快照只克隆Arc，原生输入与布局从不复制。
         for entry in self.redo.drain(..) {
             self.bytes -= entry.bytes();
@@ -44,7 +50,10 @@ impl DocumentHistory {
             at: context.at,
             selection: context.after,
         });
-        while self.undo.len() > MAX_ENTRIES || self.bytes > MAX_SNAPSHOT_BYTES {
+        // 大演出可以超过通用文本缓存。逐出旧记录后，最近一笔确认仍能完整撤销、重做。
+        while self.undo.len() > MAX_ENTRIES
+            || (self.bytes > MAX_SNAPSHOT_BYTES && (!keep_latest || self.undo.len() > 1))
+        {
             let Some(entry) = self.undo.pop_front() else {
                 break;
             };
@@ -95,7 +104,8 @@ impl Document {
         self.confirm_reload = false;
         self.status = "草稿未保存；切换资产或离开编辑后仍保留，退出程序前请保存".into();
         let after = self.snapshot(context.after);
-        self.history.record(before, after, context);
+        let keep_latest = super::super::cinematic::is_path(&self.path);
+        self.history.record(before, after, context, keep_latest);
     }
 
     /// 选区与实际保存字节成对恢复；稳定业务身份继续增长，使旧分词/预览/小场景结果失效。

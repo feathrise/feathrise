@@ -5,6 +5,7 @@ use crate::SceneEditorSystemSet;
 use bevy::prelude::*;
 
 mod components;
+pub(crate) mod cinematic;
 mod batch_save; // 本批/全部草稿共享唯一IO槽，逐文件校验并保留失败项。
 mod constants;
 mod external; // 返回聚焦窗口或重新打开F12时核对磁盘，保留未保存草稿。
@@ -55,6 +56,7 @@ pub(crate) use workspace::{install_snapshot_document_tabs, set_snapshot_document
 
 pub(super) fn install(app: &mut App) {
     project_files::install(app);
+    cinematic::install(app);
     source_location::install(app);
     history::install(app);
     json::install(app);

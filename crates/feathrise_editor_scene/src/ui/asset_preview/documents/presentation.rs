@@ -74,6 +74,7 @@ pub(super) fn sync(
     for (mut node, panel, source, edit_area, preview, launch, external) in &mut nodes {
         let show = if panel {
             state.active.is_some() && replacement.as_ref().is_none_or(|state| !state.preview_visible())
+                && !(state.in_center() && doc.is_some_and(|d| super::cinematic::is_path(&d.path) && d.mode==super::types::ViewMode::Preview))
         } else if source || edit_area {
             editing
         } else if launch {

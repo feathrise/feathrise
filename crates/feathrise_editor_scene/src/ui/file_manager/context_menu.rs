@@ -10,7 +10,7 @@ const MAIN_ACTIONS: [FileAction; 7] = [FileAction::NewWindow, FileAction::Cut, F
     FileAction::Paste, FileAction::Rename, FileAction::Delete, FileAction::NewMenu];
 const EXTRA_ACTIONS: [ExtraAction; 4] = [ExtraAction::CopyAbsolute, ExtraAction::CopyRelative,
     ExtraAction::Favorite, ExtraAction::References];
-const NEW_ACTIONS: [FileAction; 4] = [FileAction::NewFolder, FileAction::NewText, FileAction::NewMarkdown, FileAction::NewGlb];
+const NEW_ACTIONS: [FileAction; 5] = [FileAction::NewFolder, FileAction::NewText, FileAction::NewMarkdown, FileAction::NewGlb, FileAction::NewCinematic];
 
 pub(super) fn open(state: &mut FileManagerState, target: FileManagerContextRequest) {
     state.menu = Some(FileContextMenu { target, submenu: false, initialized: false, main_rect: Rect::default(), submenu_rect: Rect::default() });

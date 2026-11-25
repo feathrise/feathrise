@@ -6,6 +6,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+feathrise_cinematic = { workspace = true }
 bevy = { workspace = true }
 feathrise_editor_animation_model = { workspace = true }
 feathrise_editor_assets = { workspace = true }

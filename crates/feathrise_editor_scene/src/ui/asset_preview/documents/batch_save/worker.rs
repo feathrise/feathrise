@@ -17,7 +17,7 @@ pub(super) async fn save_sources(
             .fold(if input.disk.bom { 3_usize } else { 0 }, |total, page| {
                 total.saturating_add(page.len())
             });
-        let checked = if bytes > super::super::constants::MAX_FILE_BYTES {
+        let checked = if bytes > super::super::constants::MAX_FILE_BYTES && !feathrise_cinematic::is_cinematic_path(&input.disk.path) {
             Err("保存内容超过256 KiB；草稿已保留，请减少内容后再保存".into())
         } else if json::supported_for_save(&input.key.path) {
             let source = input.source;

@@ -14,3 +14,4 @@ pub mod search;
 mod document_format;
 pub use document_format::document_format;
 pub mod syntax;
+pub mod cinematic_export;

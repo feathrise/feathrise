@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{fs::OpenOptions, io::{Cursor, Write}, path::Path, sync::{Mutex, mpsc}};
 
-pub(super) type CaptureTask = Mutex<mpsc::Receiver<Result<Option<Value>, String>>>;
+pub(crate) type CaptureTask = Mutex<mpsc::Receiver<Result<Option<Value>, String>>>;
 pub(super) type DiskTask = Mutex<mpsc::Receiver<Result<Value, String>>>;
 
 pub(super) fn new_files(pending: &mut Option<DiskTask>, directory: &Path) -> Result<Option<Value>, String> {
@@ -53,7 +53,12 @@ pub(super) fn new_files(pending: &mut Option<DiskTask>, directory: &Path) -> Res
 
 fn digest(bytes: &[u8]) -> String { Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect() }
 
-pub(super) fn capture(world: &mut World, pending: &mut Option<CaptureTask>, path: &Path) -> Result<Option<Value>, String> {
+pub(crate) fn capture(world: &mut World, pending: &mut Option<CaptureTask>, path: &Path) -> Result<Option<Value>, String> {
+    capture_field(world,pending,path,None)
+}
+
+/// 需要验证原生输入正文时，从同一张 GPU 回读检查实际布局内部的前景像素。
+pub(crate) fn capture_field(world: &mut World, pending: &mut Option<CaptureTask>, path: &Path, field: Option<URect>) -> Result<Option<Value>, String> {
     if let Some(receiver) = pending {
         return match receiver.get_mut().map_err(|error| error.to_string())?.try_recv() {
             Ok(result) => { *pending = None; result }
@@ -75,12 +80,16 @@ pub(super) fn capture(world: &mut World, pending: &mut Option<CaptureTask>, path
                 let varied = (0..height).step_by(13).flat_map(|y| (0..width).step_by(13).map(move |x| (x, y)))
                     .filter(|&(x, y)| image.get_pixel(x, y) != clear).take(64).count();
                 if varied < 64 { return Ok(None); }
+                let field_pixels=field.map(|r|(r.min.y..r.max.y.min(height)).flat_map(|y|(r.min.x..r.max.x.min(width)).map(move|x|(x,y)))
+                    .filter(|&(x,y)|image.get_pixel(x,y).0[..3].iter().any(|&v|v>100)).count());
                 let mut output = Cursor::new(Vec::new());
                 image::DynamicImage::ImageRgba8(image).write_to(&mut output, image::ImageFormat::Png)
                     .map_err(|error| error.to_string())?;
                 let bytes = output.into_inner();
                 write_new(&path, &bytes)?;
+                if field_pixels.is_some_and(|n|n<24){return Err("原生输入已有字形排版，但截图中的文字区域仍是空白".into());}
                 Ok(Some(json!({"source":"Bevy ScreenshotCaptured","width":width,"height":height,
+                    "field_foreground_pixels":field_pixels,
                     "sha256":Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>()})))
             })();
             let _ = sender.send(result);
@@ -89,7 +98,7 @@ pub(super) fn capture(world: &mut World, pending: &mut Option<CaptureTask>, path
     Ok(None)
 }
 
-pub(super) fn report(path: &Path, value: &Value) -> Result<(), String> {
+pub(crate) fn report(path: &Path, value: &Value) -> Result<(), String> {
     write_new(path, &serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?)
 }
 

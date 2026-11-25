@@ -2,6 +2,7 @@
 //! 协议、传输、构建和业务采用分层；帧系统只处理固定消息和共享快照句柄。
 
 mod preview_sources;
+mod cinematic;
 mod previews;
 mod resources;
 mod scene_tree;
