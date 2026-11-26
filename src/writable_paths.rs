@@ -35,10 +35,15 @@ pub(crate) fn build_target(mode: ResourceMode, explicit: Option<PathBuf>) -> Res
     if mode == ResourceMode::Development {
         return default_target(mode, &resources, None, None);
     }
+    Ok(user_cache_dir()?.join("target"))
+}
+
+/// 个人工具按内容共享，位置不跟随任一工程的 target 覆盖。
+pub(crate) fn user_cache_dir() -> Result<PathBuf, String> {
     let variable = if cfg!(windows) { "LOCALAPPDATA" } else { "XDG_CACHE_HOME" };
     let local_data = std::env::var_os(variable).map(PathBuf::from);
     let home = if local_data.is_none() { Some(user_home()?) } else { None };
-    default_target(mode, &resources, local_data.as_deref(), home.as_deref())
+    local_cache_dir(local_data.as_deref(), home.as_deref())
 }
 
 /// 每个工程默认使用自己的 target；启动、热更新和导出共用本次工程冻结后的目录。
@@ -86,6 +91,10 @@ fn default_target(
         validate_absolute(resources, "开发资源目录")?;
         return Ok(resources.join("target"));
     }
+    Ok(local_cache_dir(local_data, home)?.join("target"))
+}
+
+fn local_cache_dir(local_data: Option<&Path>, home: Option<&Path>) -> Result<PathBuf, String> {
     let root = if let Some(path) = local_data {
         let variable = if cfg!(windows) { "LOCALAPPDATA" } else { "XDG_CACHE_HOME" };
         validate_absolute(path, variable)?;
@@ -96,7 +105,7 @@ fn default_target(
         // 环境变量缺席才采用平台标准位置；错误的显式变量不能悄悄改变缓存来源。
         if cfg!(windows) { home.join("AppData/Local") } else { home.join(".cache") }
     };
-    Ok(root.join("Feathrise/target"))
+    Ok(root.join("Feathrise"))
 }
 
 pub(crate) fn user_home() -> Result<PathBuf, String> {

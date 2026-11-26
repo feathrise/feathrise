@@ -1,7 +1,7 @@
 //! 正式宿主后台从可移动工程构建游戏、拍摄、编码和发布。只接受本轮新建的夹具工程。
 use super::*;
 #[test]
-#[ignore = "显式指定自建摄影夹具、Cargo 缓存和 FFmpeg，启动真实 GPU 子进程"]
+#[ignore = "显式指定自建摄影夹具、Cargo 缓存和解码器，启动真实 GPU 子进程"]
 fn render_saved_project_and_publish_playable_mp4() -> Result<(), String> {
     let env = |key| {
         std::env::var_os(key)
@@ -20,9 +20,38 @@ fn render_saved_project_and_publish_playable_mp4() -> Result<(), String> {
     }
     let game = crate::project::open(&project_root)?;
     let root = game.context.asset_roots[0].clone();
-    let ffmpeg = env("FEATHRISE_FFMPEG")?;
-    let output = evidence.join("production.mp4");
     let control = BuildControl::default();
+    let embedded = std::env::var("FEATHRISE_MOVIE_TEST_EMBEDDED").as_deref() == Ok("1");
+    let (ffmpeg, decoder, cache) = if embedded {
+        let decoder = env("FEATHRISE_MOVIE_TEST_DECODER")?;
+        let cache = crate::writable_paths::user_cache_dir()?.join("tools/embedded-ffmpeg-v1");
+        let local_app_data = env("LOCALAPPDATA")?
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        let expected = std::env::var("FEATHRISE_MOVIE_TEST_ENCODER_SHA256")
+            .map_err(|_| "缺少内嵌编码器输入的 SHA-256")?
+            .to_ascii_lowercase();
+        if !cfg!(windows)
+            || std::env::var_os("FEATHRISE_FFMPEG").is_some()
+            || !decoder.is_absolute()
+            || !decoder.is_file()
+            || expected.len() != 64
+            || !expected.bytes().all(|b| b.is_ascii_hexdigit())
+            || !local_app_data.starts_with(evidence.canonicalize().map_err(|e| e.to_string())?)
+            || cache.exists()
+        {
+            return Err("内嵌编码验收须使用本轮独占的 LOCALAPPDATA、全新编码器缓存、合法编码器摘要、绝对解码器路径且没有 FFmpeg 覆盖".into());
+        }
+        (
+            None,
+            decoder,
+            Some((cache.join(&expected).join("ready/ffmpeg.exe"), expected)),
+        )
+    } else {
+        let ffmpeg = env("FEATHRISE_FFMPEG")?;
+        (Some(ffmpeg.clone()), ffmpeg, None)
+    };
+    let output = evidence.join("production.mp4");
     let sound = evidence.join("sound.wav");
     let options = || Options {
         root: root.clone(),
@@ -36,7 +65,7 @@ fn render_saved_project_and_publish_playable_mp4() -> Result<(), String> {
             seconds_per_line: 0.5,
             ..Default::default()
         },
-        ffmpeg: Some(ffmpeg.clone()),
+        ffmpeg: ffmpeg.clone(),
         sound: sound.is_file().then(|| sound.clone()),
         replace: false,
     };
@@ -49,6 +78,17 @@ fn render_saved_project_and_publish_playable_mp4() -> Result<(), String> {
     });
     let path = export(game.clone(), target.clone(), options(), &control, tx)?;
     worker.join().map_err(|_| "进度线程退出")?;
+    if let Some((actual, expected)) = cache {
+        // 只读取真实导出留下的缓存，不在核验阶段重新调用解析器或释放编码器。
+        let (digest, _) = crate::build_artifacts::hash_file(&actual, &control)?;
+        if digest != expected {
+            return Err(format!(
+                "导出没有使用本轮释放的内嵌编码器：{}",
+                actual.display()
+            ));
+        }
+        eprintln!("内嵌 FFmpeg 已验证，SHA-256 {digest}");
+    }
     let baseline = crate::build_artifacts::digest(&fs::read(&path).map_err(|e| e.to_string())?);
     assert!(
         export(
@@ -84,7 +124,7 @@ fn render_saved_project_and_publish_playable_mp4() -> Result<(), String> {
         baseline,
         crate::build_artifacts::digest(&fs::read(&path).map_err(|e| e.to_string())?)
     );
-    let mut decode = Command::new(ffmpeg);
+    let mut decode = Command::new(&decoder);
     decode
         .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-i"])
         .arg(&path)
@@ -96,15 +136,21 @@ fn render_saved_project_and_publish_playable_mp4() -> Result<(), String> {
         .lines()
         .filter(|line| line.starts_with("0,"))
         .collect();
-    assert_eq!(frames.len(), 42, "{}", decoded.stdout);
+    let expected_frames = if embedded { 18 } else { 42 };
+    assert_eq!(frames.len(), expected_frames, "{}", decoded.stdout);
+    assert!(
+        decoded.stdout.contains("#dimensions 0: 640x360"),
+        "{}",
+        decoded.stdout
+    );
     assert_ne!(
         frames[0].rsplit(',').next(),
-        frames[32].rsplit(',').next(),
+        frames[if embedded { 9 } else { 32 }].rsplit(',').next(),
         "切镜后必须有不同像素"
     );
     if sound.is_file() {
         let pcm = evidence.join("decoded-audio.s16le");
-        let mut audio = Command::new(env("FEATHRISE_FFMPEG")?);
+        let mut audio = Command::new(decoder);
         audio
             .args(["-loglevel", "error", "-nostdin", "-n", "-i"])
             .arg(&path)
@@ -114,8 +160,8 @@ fn render_saved_project_and_publish_playable_mp4() -> Result<(), String> {
         assert_eq!(decoded.exit_code, 0, "{}", decoded.stderr);
         let samples = fs::metadata(pcm).map_err(|e| e.to_string())?.len() / 2;
         assert!(
-            samples.abs_diff(154_350) <= 1024,
-            "全片 3.5 秒的配乐应只差 AAC 编码器的一帧，实际 {samples} 个采样"
+            samples.abs_diff(44_100 * expected_frames as u64 / 12) <= 1024,
+            "整片配乐应只差 AAC 编码器的一帧，实际 {samples} 个采样"
         );
     }
     Ok(())

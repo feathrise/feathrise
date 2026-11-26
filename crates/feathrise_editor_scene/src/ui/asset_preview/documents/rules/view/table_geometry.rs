@@ -30,6 +30,7 @@ fn rules_table_cells_measure_at_their_actual_column_width() {
     ))
     .init_resource::<UiSurface>()
     .init_resource::<UiScale>()
+    .init_resource::<Studio>()
     .init_asset::<Image>()
     .init_asset::<bevy::image::TextureAtlasLayout>()
     .configure_sets(
@@ -84,21 +85,29 @@ fn rules_table_cells_measure_at_their_actual_column_width() {
                 flex_shrink: 0.,
                 ..default()
             });
-            p.spawn((TablePart::Summary(0), grid()))
-                .with_children(|r| cells(r, &font, 0));
+            p.spawn((TablePart::Summary(0), grid())).with_children(|r| {
+                cells(r, &font, Some(0));
+                button_with_icon(
+                    r,
+                    &font,
+                    "RulesRow0",
+                    "编辑",
+                    Action::Row(0),
+                    Some(&Handle::default()),
+                );
+            });
         });
     });
     app.update();
     let world = app.world_mut();
     for (cell, mut text) in world.query::<(&Cell, &mut Text)>().iter_mut(world) {
         **text = match cell.column {
-            Column::Id => "变量名称  gate_open",
-            Column::Kind => "类型  布尔",
-            Column::Value => "默认值  真",
-        }
-        .into();
+            Column::Id => "gate_open".into(),
+            Column::Kind => "文本".into(),
+            Column::Value => "包含很长默认值的普通文本".repeat(12),
+        };
     }
-    for (width, scale) in [(600., 1.), (315., 1.5), (760., 1.5)] {
+    for (width, scale) in [(600., 1.), (215., 1.5), (760., 1.5)] {
         app.world_mut().get_mut::<Node>(root).unwrap().width = px(width);
         app.world_mut().resource_mut::<UiScale>().0 = scale;
         for _ in 0..4 {
@@ -108,9 +117,21 @@ fn rules_table_cells_measure_at_their_actual_column_width() {
         let cells: Vec<_> = world
             .query::<(Entity, &Cell, &ChildOf)>()
             .iter(world)
-            .map(|(e, c, p)| (e, c.column, p.parent()))
+            .map(|(e, c, p)| {
+                (
+                    e,
+                    c.column,
+                    world.get::<ChildOf>(p.parent()).unwrap().parent(),
+                )
+            })
             .collect();
         assert_eq!(cells.len(), 3);
+        let icon = world
+            .query_filtered::<Entity, With<ImageNode>>()
+            .iter(world)
+            .find(|&e| world.get::<EditVisual>(e).is_some())
+            .unwrap();
+        let icon = rect(world, icon);
         for (e, column, parent) in cells {
             let text = rect(world, e);
             let row = rect(world, parent);
@@ -121,6 +142,8 @@ fn rules_table_cells_measure_at_their_actual_column_width() {
             );
             // 短 ID 应和单字“真”一样只占一行；先前在 1.5 倍下错误测成了 195px。
             assert!(text.height() < 2. * metrics::FONT_CONTROL * scale);
+            assert!((text.center().y - icon.center().y).abs() <= 1.);
+            assert!(text.max.x < icon.min.x);
         }
     }
 }

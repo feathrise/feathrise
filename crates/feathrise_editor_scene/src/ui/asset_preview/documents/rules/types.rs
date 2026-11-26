@@ -5,6 +5,33 @@ use feathrise_editor_documents_model::project_rules::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+/// 枚举沿用规则版本一的文本与 choices，已有工程直接显示为枚举。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum VariableKind {
+    Bool,
+    Number,
+    Text,
+    Enum,
+}
+impl VariableKind {
+    pub fn of(variable: &VariableForm) -> Self {
+        match variable.kind {
+            ValueKind::Bool => Self::Bool,
+            ValueKind::Number => Self::Number,
+            ValueKind::Text if variable.choices.is_some() => Self::Enum,
+            ValueKind::Text => Self::Text,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Bool => "布尔",
+            Self::Number => "数字",
+            Self::Text => "文本",
+            Self::Enum => "枚举",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Tab {
     #[default]
@@ -32,7 +59,7 @@ impl Tab {
 /// 类型切换时暂存当前输入；只把作者最终选中的类型写入工程文件。
 #[derive(Default)]
 pub(super) struct AlternateInputs {
-    defaults: Vec<(ValueKind, String)>,
+    defaults: Vec<(VariableKind, String)>,
     pub trigger: String,
     pub action_name: String,
     pub action_value: String,
@@ -56,16 +83,16 @@ impl AlternateInputs {
             form.action_value.clear();
         }
     }
-    pub fn change_type(&mut self, form: &mut Form, kind: ValueKind) {
+    pub fn change_type(&mut self, form: &mut Form, kind: VariableKind) {
         let next = self
             .defaults
             .iter()
             .position(|(stored, _)| *stored == kind)
             .map(|index| self.defaults.swap_remove(index).1)
             .unwrap_or_else(|| match kind {
-                ValueKind::Bool => "false".into(),
-                ValueKind::Number => "0".into(),
-                ValueKind::Text => String::new(),
+                VariableKind::Bool => "false".into(),
+                VariableKind::Number => "0".into(),
+                VariableKind::Text | VariableKind::Enum => String::new(),
             });
         let previous = std::mem::replace(&mut form.default_value, next);
         self.defaults.push((form.kind, previous));
@@ -114,7 +141,7 @@ pub(super) enum Field {
 #[derive(Clone, PartialEq)]
 pub(super) struct Form {
     pub id: String,
-    pub kind: ValueKind,
+    pub kind: VariableKind,
     pub default_value: String,
     pub choices: String,
     pub changed: bool,
@@ -139,7 +166,7 @@ impl Default for Form {
         Self {
             id: String::new(),
             // 数值行可直接填写 a 和 3；切换类型再采用该类型自己的初值。
-            kind: ValueKind::Number,
+            kind: VariableKind::Number,
             default_value: "0".into(),
             choices: String::new(),
             changed: false,
@@ -203,7 +230,7 @@ impl Form {
             Tab::Variables => {
                 if let Some(v) = model.variables.get(i) {
                     f.id = v.id.clone();
-                    f.kind = v.kind.clone();
+                    f.kind = VariableKind::of(v);
                     f.default_value = v.default.clone();
                     f.choices = v
                         .choices
@@ -281,15 +308,24 @@ impl Form {
         if self.id.trim().is_empty() {
             return Err("请输入变量名称".into());
         }
+        let choices = if self.kind == VariableKind::Enum {
+            let choices = super::values::parse_choices(&self.choices)?.ok_or("请输入枚举选项")?;
+            if !choices.contains(&self.default_value) {
+                return Err("默认值必须是枚举选项之一".into());
+            }
+            Some(choices)
+        } else {
+            None
+        };
         Ok(VariableForm {
             id: self.id.trim().into(),
-            kind: self.kind.clone(),
-            default: self.default_value.clone(),
-            choices: if self.kind == ValueKind::Text {
-                super::values::parse_choices(&self.choices)?
-            } else {
-                None
+            kind: match self.kind {
+                VariableKind::Bool => ValueKind::Bool,
+                VariableKind::Number => ValueKind::Number,
+                VariableKind::Text | VariableKind::Enum => ValueKind::Text,
             },
+            default: self.default_value.clone(),
+            choices,
         })
     }
     pub fn location(&self) -> Result<LocationForm, String> {

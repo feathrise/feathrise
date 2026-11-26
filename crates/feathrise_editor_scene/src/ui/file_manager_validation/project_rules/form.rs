@@ -22,14 +22,19 @@ enum Step {
     Returned,
     Corner(bool),
     Drawn,
-    UnsavedVariable,
+    TextWithoutChoices,
+    TryBackgroundTool(&'static str),
+    VariableModalKept,
+    RuleToolbarReduced,
+    RuleModalKept { editing: bool },
+    EnumFields { reopened: bool },
     Stored(&'static str),
     NameFocused,
     Duplicate(bool),
 }
 use Step::*;
 
-// 从真实目录进入条目列表；新建与编辑都在表内完成，回执后再切换工作页。
+// 变量和触发规则复用编辑对话框，地点区域留在右栏以便直接从视口取点。
 const FIRST: &[Step] = &[
     Layout(Sample::Empty),
     Button("RulesNew"),
@@ -45,13 +50,11 @@ const FIRST: &[Step] = &[
     Button("RulesTypeNumber"),
     Field("RulesFieldDefault", "3"),
     Button("RulesTypeText"),
+    TextWithoutChoices,
     Button("RulesTypeNumber"),
     Layout(Sample::Number),
-    Button("交互目录条目触发规则"),
-    Page("触发规则"),
-    Button("交互目录条目工程变量"),
-    Page("工程变量"),
-    UnsavedVariable,
+    TryBackgroundTool("交互目录条目触发规则"),
+    VariableModalKept,
     Button("RulesSave"),
     Stored("a"),
     Button("RulesNew"),
@@ -104,8 +107,11 @@ const EDIT: &[Step] = &[
     Stored(""),
     Button("交互目录条目触发规则"),
     Page("触发规则"),
+    RuleToolbarReduced,
     Button("RulesNew"),
     Field("RulesFieldId", "guard_freed"),
+    TryBackgroundTool("交互目录条目地点区域"),
+    RuleModalKept { editing: false },
     Field("RulesFieldTrigger", "quest.completed"),
     Field("RulesFieldEventTarget", "dock_guard"),
     Button("RulesOnce"),
@@ -117,6 +123,8 @@ const EDIT: &[Step] = &[
     Check(1),
     Stored(""),
     Selected("guard_freed"),
+    TryBackgroundTool("交互目录条目工程变量"),
+    RuleModalKept { editing: true },
     Button("RulesActionType"),
     Field("RulesFieldActionName", "cinematic.play"),
     Field("RulesFieldActionValue", "guard-unseal"),
@@ -136,6 +144,14 @@ const EDIT: &[Step] = &[
     Button("RulesSave"),
     NumberVariable,
     Stored(""),
+    Button("RulesNew"),
+    Field("RulesFieldId", "delivery"),
+    Button("RulesTypeEnum"),
+    Field("RulesFieldChoices", "harbor, mentor"),
+    Field("RulesFieldDefault", "harbor"),
+    EnumFields { reopened: false },
+    Button("RulesSave"),
+    Stored("delivery"),
     Button("交互目录条目触发规则"),
     Page("触发规则"),
     Button("RulesNew"),
@@ -153,13 +169,22 @@ const EDIT: &[Step] = &[
 
 const REOPEN: &[Step] = &[
     Page("触发规则"),
+    RuleToolbarReduced,
     InspectorWide,
     Layout(Sample::RuleWide),
     Selected("guard_freed"),
     Check(2),
+    Button("RulesCancel"),
     Selected("draw_at_three"),
     NumberTrigger,
     Button("RulesCancel"),
+    Button("交互目录条目工程变量"),
+    Page("工程变量"),
+    Selected("delivery"),
+    EnumFields { reopened: true },
+    Button("RulesCancel"),
+    Button("交互目录条目触发规则"),
+    Page("触发规则"),
     RuleNarrow,
     Layout(Sample::RuleNarrow),
     ShortWindow,
@@ -326,11 +351,15 @@ pub(super) fn form(
             true
         }
         Shortcut(code) => {
-            // 使用右侧表单的真实可视区域建立快捷键归属，光标不能停在滚动后的旧按钮位置。
-            let Some(panel) = entity(world, "工程交互工作区") else {
+            // 使用表单实际可视区域建立快捷键归属，光标不能停在滚动后的旧按钮位置。
+            let modal = entity(world, "RulesEditorDialogScroll");
+            let Some(panel) = modal.or_else(|| entity(world, "工程交互工作区")) else {
                 return Ok(None);
             };
             let Some(visible_panel) = layout::bounds(world, panel).and_then(|bounds| {
+                if modal.is_some() {
+                    return Some(bounds);
+                }
                 let area = entity(world, "交互当前工具内容")?;
                 Some(bounds.intersect(layout::bounds(world, area)?))
             }) else {
@@ -447,18 +476,91 @@ pub(super) fn form(
         Returned => directory::capture(world, run, "catalog-return", directory::SceneTool::Portal)?,
         Corner(second) => location::point(world, run, window, second)?,
         Drawn => location::restored(world, run)?,
-        UnsavedVariable => {
+        TextWithoutChoices => {
+            let confirmed = entity(world, "RulesTypeText").is_some_and(|button| {
+                world.get::<BorderColor>(button)
+                    == Some(&BorderColor::all(
+                        feathrise_editor_ui::colors::COPPER_BORDER,
+                    ))
+            }) && entity(world, "RulesFieldDefault").is_some()
+                && entity(world, "RulesFieldChoices").is_none();
+            if confirmed {
+                run.layout
+                    .insert("plain-text-no-options".into(), json!(true));
+            }
+            confirmed
+        }
+        TryBackgroundTool(name) => {
+            let Some(tab) = entity(world, name) else {
+                return Ok(None);
+            };
+            // 常规点击需命中悬停。对话框打开时仍投递背景位置的实际窗口按下与释放，核对不穿透。
+            super::super::raw_click(world, &mut run.pointer, window, tab)
+        }
+        VariableModalKept => {
             let retained = field_text(world, "RulesFieldId").as_deref() == Some("a")
                 && field_text(world, "RulesFieldDefault").as_deref() == Some("3")
+                && entity(world, "RulesEditorDialog").is_some()
+                && layout::caption(world, "RulesPageTitle").as_deref() == Some("工程变量")
                 && fs::read_to_string(run.work.join("project/assets").join(PATH))
                     .ok()
                     .and_then(|s| serde_json::from_str::<Value>(&s).ok())
                     .is_some_and(|value| value["variables"]["a"].is_null());
             if retained {
                 run.layout
-                    .insert("variable-edit-retained".into(), json!(true));
+                    .insert("variable-dialog-blocked-tool-switch".into(), json!(true));
             }
             retained
+        }
+        RuleToolbarReduced => {
+            entity(world, "RulesUndo").is_none() && entity(world, "RulesSource").is_none()
+        }
+        RuleModalKept { editing } => {
+            let title = layout::caption(world, "RulesEditorTitle");
+            let expected_title = if editing { "编辑" } else { "新建" };
+            let retained = field_text(world, "RulesFieldId").as_deref() == Some("guard_freed")
+                && entity(world, "RulesEditorDialog").is_some()
+                && layout::caption(world, "RulesPageTitle").as_deref() == Some("触发规则")
+                && entity(world, "RulesUndo").is_none()
+                && entity(world, "RulesSource").is_none()
+                && title
+                    .as_deref()
+                    .is_some_and(|title| title.starts_with(expected_title));
+            if retained {
+                let sample = if editing {
+                    "rule-edited-in-dialog"
+                } else {
+                    "rule-created-in-dialog"
+                };
+                run.layout.insert(sample.into(), json!(true));
+            } else {
+                run.layout_wait = format!("等待规则对话框保留背景点击，标题 {title:?}");
+            }
+            retained
+        }
+        EnumFields { reopened } => {
+            let options = field_text(world, "RulesFieldChoices").map(|text| {
+                text.split(',')
+                    .map(str::trim)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            });
+            let matches = field_text(world, "RulesFieldId").as_deref() == Some("delivery")
+                && field_text(world, "RulesFieldDefault").as_deref() == Some("harbor")
+                && options
+                    .as_ref()
+                    .is_some_and(|options| options == &["harbor", "mentor"])
+                && entity(world, "RulesEditorDialog").is_some();
+            if matches {
+                let name = if reopened {
+                    "enum-reread"
+                } else {
+                    "enum-editor"
+                };
+                run.layout
+                    .insert(name.into(), json!({"default":"harbor","choices":options}));
+            }
+            matches
         }
         ShortWindow => {
             let mut primary = world.get_mut::<Window>(window).ok_or("缺少实窗")?;
@@ -486,6 +588,10 @@ pub(super) fn form(
                 let (actual, expected) = match id {
                     "gate_open" => (&doc["variables"][id], json!({"default":true})),
                     "a" => (&doc["variables"][id], json!({"default":3})),
+                    "delivery" => (
+                        &doc["variables"][id],
+                        json!({"default":"harbor","choices":["harbor","mentor"]}),
+                    ),
                     "drawn_gate" => (
                         &doc["locations"][id],
                         run.layout["location-fields"]["range"].clone(),
@@ -532,6 +638,17 @@ pub(super) fn form(
                 if !status.contains("已存在")
                     || field_text(world, "RulesFieldId").as_deref() != Some("a")
                 {
+                    let nodes: Vec<_> = world
+                        .query::<(&Name, &Text, &ComputedNode, &InheritedVisibility)>()
+                        .iter(world)
+                        .filter(|(name, ..)| name.as_str() == "RulesStatus")
+                        .map(|(_, text, size, visible)| {
+                            (text.as_str().to_owned(), size.size(), visible.get())
+                        })
+                        .collect();
+                    let name = field_text(world, "RulesFieldId");
+                    run.layout_wait =
+                        format!("重复名称仍应留在对话框，当前名称 {name:?}，状态实体 {nodes:?}");
                     return Ok(None);
                 }
                 run.diagnostic = Some(status);

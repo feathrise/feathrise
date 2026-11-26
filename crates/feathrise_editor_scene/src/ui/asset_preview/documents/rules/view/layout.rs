@@ -1,4 +1,4 @@
-//! 工程工具以各自的列表打开，新增和编辑在表内展开。变量行和规则、地点详情共用单一套原生输入。
+//! 工程工具以各自的列表打开，变量行和规则、地点详情共用一套原生输入。
 use super::*;
 
 #[derive(Component)]
@@ -37,6 +37,16 @@ pub(super) fn button(
     label: &str,
     a: Action,
 ) {
+    button_with_icon(p, h, name, label, a, None);
+}
+pub(super) fn button_with_icon(
+    p: &mut ChildSpawnerCommands,
+    h: &Handle<Font>,
+    name: impl Into<String>,
+    label: &str,
+    a: Action,
+    icon: Option<&Handle<Image>>,
+) {
     let mut e = p.spawn((
         a,
         AuthorButton,
@@ -68,14 +78,37 @@ pub(super) fn button(
         }
         _ => {}
     }
-    e.with_child((
+    let text = (
         ButtonLabel(a),
         Text::new(label),
         font(h, metrics::FONT_CONTROL),
         TextLayout::no_wrap(),
         TextColor(c::TEXT_PRIMARY),
         Pickable::IGNORE,
-    ));
+    );
+    if let Some(icon) = icon {
+        use crate::ui::tooltips::{EditorTooltipTarget, TooltipAction};
+        e.insert(EditorTooltipTarget(TooltipAction::EditRulesRecord));
+        e.with_child((text, table::EditVisual::Text));
+        e.with_child((
+            Name::new("RulesRowEditIcon"),
+            table::EditVisual::Icon,
+            ImageNode {
+                image: icon.clone(),
+                color: c::TEXT_PRIMARY,
+                ..default()
+            },
+            Node {
+                display: Display::None,
+                width: px(14),
+                height: px(14),
+                ..default()
+            },
+            Pickable::IGNORE,
+        ));
+    } else {
+        e.with_child(text);
+    }
 }
 fn buttons(p: &mut ChildSpawnerCommands, h: &Handle<Font>, items: &[(&str, &str, Action)]) {
     for &(name, label, a) in items {
@@ -88,11 +121,11 @@ pub(super) fn info(p: &mut ChildSpawnerCommands, h: &Handle<Font>, role: Info, n
         Info::PageTitle | Info::EditorTitle | Info::Conditions | Info::Actions
     );
     // 标题作为同行的完整词组参与测量，空间不足时整组按钮换行。
-    let one_line = !matches!(role, Info::Yarn | Info::Status | Info::EditorTitle);
+    let one_line = !matches!(role, Info::Yarn | Info::Status);
     let layout = if one_line {
         TextLayout::no_wrap()
     } else {
-        TextLayout::default()
+        TextLayout::linebreak(bevy::text::LineBreak::WordOrCharacter)
     };
     let minimum = if matches!(role, Info::Selection) {
         px(70)
@@ -121,6 +154,9 @@ pub(super) fn info(p: &mut ChildSpawnerCommands, h: &Handle<Font>, role: Info, n
         }),
         Pickable::IGNORE,
         Node {
+            // 弹窗标题和状态显式拿到实际行宽，避免文字先按字估高、再按宽行栅格化。
+            width: if matches!(role, Info::EditorTitle | Info::Status) { percent(100) } else { Val::Auto },
+            overflow: if matches!(role, Info::EditorTitle) { Overflow::clip_x() } else { Overflow::visible() },
             min_width: minimum,
             max_width: percent(100),
             flex_shrink: 0.,
@@ -229,9 +265,10 @@ pub(super) fn editor(p: &mut ChildSpawnerCommands, h: &Handle<Font>) {
             Group::Types,
             "变量类型",
             &[
-                ("RulesTypeNumber", "数字", Action::Type(ValueKind::Number)),
-                ("RulesTypeBool", "布尔", Action::Type(ValueKind::Bool)),
-                ("RulesTypeText", "文本", Action::Type(ValueKind::Text)),
+                ("RulesTypeNumber", "数字", Action::Type(VariableKind::Number)),
+                ("RulesTypeBool", "布尔", Action::Type(VariableKind::Bool)),
+                ("RulesTypeText", "文本", Action::Type(VariableKind::Text)),
+                ("RulesTypeEnum", "枚举", Action::Type(VariableKind::Enum)),
             ],
         );
         choices(
@@ -244,10 +281,11 @@ pub(super) fn editor(p: &mut ChildSpawnerCommands, h: &Handle<Font>) {
                 ("RulesBoolTrue", "真", Action::BoolDefault(true)),
             ],
         );
+        field(p, h, Field::Choices);
         field(p, h, Field::Default);
     });
     info(p, h, Info::Yarn, "RulesYarnName");
-    for f in [Field::Choices, Field::Scene, Field::Min, Field::Max] {
+    for f in [Field::Scene, Field::Min, Field::Max] {
         field(p, h, f);
     }
     p.spawn((Group::Location, row())).with_children(|r| {
@@ -353,10 +391,10 @@ pub(super) fn editor(p: &mut ChildSpawnerCommands, h: &Handle<Font>) {
     field(p, h, Field::ActionName);
     field(p, h, Field::ActionValue);
     // 保存当前项直接写入工程。按钮放在末尾字段旁边，键盘也走同一个命令。
-    p.spawn(Node {
+    p.spawn((super::editor_dialog::FormActions, Node {
         margin: UiRect::top(px(4)),
         ..row()
-    })
+    }))
     .with_children(|r| {
         buttons(
             r,
@@ -402,6 +440,7 @@ pub(super) fn mount(
 ) {
     let Ok(host) = sidebar.single() else { return };
     let h = feathrise_editor_core::editor_font(&server, feathrise_editor_core::FONT_PATH);
+    let edit_icon = server.load("icons/editor/tool_edit.png");
     let workbench = commands
         .spawn((
             Panel,
@@ -476,7 +515,7 @@ pub(super) fn mount(
                                 ..column(5.)
                             },
                         ))
-                        .with_children(|items| table::list(items, &h));
+                        .with_children(|items| table::list(items, &h, &edit_icon));
                 });
         });
 }

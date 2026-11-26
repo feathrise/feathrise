@@ -85,12 +85,10 @@ pub(crate) fn reveal_rules_control(
             return true;
         };
         ancestor = parent.parent();
-        if world
-            .get::<Name>(ancestor)
-            .is_some_and(|name| matches!(name.as_str(), "交互当前工具内容" | "RulesFormScroll"))
+        if world.get::<ScrollPosition>(ancestor).is_some()
             && world
                 .get::<Node>(ancestor)
-                .is_some_and(|node| node.overflow == Overflow::scroll_y())
+                .is_some_and(|node| node.overflow.y == OverflowAxis::Scroll)
         {
             break ancestor;
         }
@@ -150,10 +148,21 @@ fn measured(world: &mut World, sample: Sample) -> Result<Value, String> {
     directory::verify_form_only(world, page)?;
     let directory = directory::measure(world)?;
     let details = rect(world, "RulesForm").ok();
-    let table = table::measure(world, details)?;
+    let modal = form::entity(world, "RulesEditorDialogScroll").and_then(|id| {
+        let form = form::entity(world, "RulesForm")?;
+        let card = world.get::<ChildOf>(id)?.parent();
+        bounds(world, card)
+            .filter(|_| directory::ancestor(world, form, id))
+            .map(|card| (id, card))
+    });
+    // 变量对话框浮在原工作台上，其表单和背后的只读变量列表分别核对布局。
+    let table = table::measure(world, if modal.is_some() { None } else { details })?;
     let mut data = json!({"panel":coords(panel),"scroll_view":coords(viewport),"list":coords(list),
         "new":new.map(coords), "page":page,"directory":directory,"table":table});
-    let scroll = form::entity(world, "交互当前工具内容").ok_or("缺少实际滚动区")?;
+    let scroll = modal
+        .map(|(id, _)| id)
+        .or_else(|| form::entity(world, "交互当前工具内容"))
+        .ok_or("缺少实际滚动区")?;
     let y_offset = world.get::<ScrollPosition>(scroll).ok_or("缺少滚动位置")?.y;
     data["scroll_y"] = json!(y_offset);
     match sample {
@@ -203,15 +212,16 @@ fn measured(world: &mut World, sample: Sample) -> Result<Value, String> {
             data["row"] = json!({"id":id,"bounds":row["bounds"],"cells":cells,"edit":coords(edit)});
         }
         Sample::Number | Sample::RereadNumber => {
+            let (_, dialog) = modal.ok_or("尚未打开变量对话框")?;
             let details = details.ok_or("尚未展示数字变量表单")?;
             let input = rect(world, "RulesFieldId")?;
             let save = rect(world, "RulesSave")?;
             let default = rect(world, "RulesFieldDefault")?;
             let yarn = caption(world, "RulesYarnName").ok_or("尚未展示 Yarn 读取名")?;
-            if !inside_x(details, list)
+            if !inside_x(details, dialog)
                 || !inside_x(input, details)
                 || !inside_x(default, details)
-                || !inside_x(save, details)
+                || !inside_x(save, dialog)
                 || default.min.y + 1. < input.max.y
                 || (default.min.x - input.min.x).abs() > 1.
                 || save.min.y + 1. < default.max.y.max(input.max.y)
@@ -223,24 +233,27 @@ fn measured(world: &mut World, sample: Sample) -> Result<Value, String> {
                 || form::row_slot(world, "gate_open").is_none()
             {
                 return Err(format!(
-                    "等待表内数字变量、Yarn 读取名与保存按钮正确布局，表单 {details:?}，保存 {save:?}"
+                    "等待对话框中的数字变量、Yarn 读取名与保存按钮正确布局，对话框 {dialog:?}，表单 {details:?}，保存 {save:?}"
                 ));
             }
-            data["form"] = json!({"bounds":coords(details),"input":coords(input),"default":coords(default),"save":coords(save),"yarn":yarn});
+            data["form"] = json!({"dialog":coords(dialog),"bounds":coords(details),"input":coords(input),"default":coords(default),"save":coords(save),"yarn":yarn});
         }
         Sample::RuleScrolled => {
             let details = details.ok_or("尚未展示规则表单")?;
+            let (_, dialog) = modal.ok_or("尚未打开规则对话框")?;
+            let scroller = bounds(world, scroll).ok_or("规则对话框正文未排版")?;
+            let terminal_field = rect(world, "RulesFieldActionValue")?;
             let save = rect(world, "RulesSave")?;
             if y_offset <= 0.
-                || !viewport.contains(save.center())
-                || !inside_x(details, list)
-                || !inside_x(save, details)
+                || !scroller.contains(terminal_field.center())
+                || !dialog.contains(save.center())
+                || !inside_x(details, scroller)
             {
                 return Err(format!(
-                    "窄栏尚不能操作长规则末尾的保存按钮，滚动 {y_offset}，按钮 {save:?}"
+                    "短窗规则对话框尚不能滚到末端字段，滚动 {y_offset}，字段 {terminal_field:?}，视区 {scroller:?}"
                 ));
             }
-            data["form"] = json!({"bounds":coords(details),"save":coords(save)});
+            data["form"] = json!({"dialog":coords(dialog),"bounds":coords(details),"scroll_view":coords(scroller),"last_field":coords(terminal_field),"save":coords(save)});
         }
     }
     Ok(data)
@@ -305,7 +318,7 @@ pub(super) fn capture(
     sample: Sample,
 ) -> Result<bool, String> {
     let target = match sample {
-        Sample::RuleScrolled => form::entity(world, "RulesSave"),
+        Sample::RuleScrolled => form::entity(world, "RulesFieldActionValue"),
         Sample::Number | Sample::RereadNumber => form::entity(world, "RulesFieldId"),
         Sample::Variables | Sample::Locations => form::entity(world, "RulesRow0"),
         Sample::RuleWide | Sample::RuleNarrow => form::row_slot(world, "draw_at_three")

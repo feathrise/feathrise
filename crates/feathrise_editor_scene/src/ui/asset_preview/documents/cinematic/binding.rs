@@ -323,7 +323,6 @@ fn drive(
         crate::ui::gameplay_sidebar::project_rules::open_or_create(
             &p,
             &a,
-            false,
             &AtomicBool::new(false),
         )
     });

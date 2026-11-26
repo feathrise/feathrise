@@ -14,10 +14,8 @@ use crate::{
 use bevy::{
     prelude::*,
     tasks::{IoTaskPool, Task, futures::check_ready},
-    text::FontSourceTemplate,
 };
-use feathrise_editor_documents_model::project_rules::{EMPTY, EXAMPLE, PATH};
-use feathrise_editor_ui::{InteractionButton, colors, metrics};
+use feathrise_editor_documents_model::project_rules::{EMPTY, PATH};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -27,23 +25,9 @@ use std::{
     },
 };
 
-#[derive(Component, Clone, Copy)]
-pub(crate) struct CreateRulesFromExample;
-
-pub(super) fn sample_button() -> impl Scene {
-    let label = "从示例创建";
-    bsn! { ~{Name::new(label)} InteractionButton ~{CreateRulesFromExample}
-        Node { height: px(24), padding: UiRect::horizontal(px(7)), align_items: AlignItems::Center, border: px(1) }
-        BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [Text(label) @feathrise_editor_ui::localization::label_scene(label) Pickable::IGNORE
-            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(feathrise_editor_core::FONT_PATH)), font_size: px(metrics::FONT_CONTROL) }
-            TextColor(colors::TEXT_PRIMARY)]
-    }
-}
-
 /// 作者最近一次显式打开意图，连续切分区时共用同一个 I/O 槽。
 #[derive(Resource, Default)]
-pub(super) struct RuleOpenRequest(pub(super) Option<bool>);
+pub(super) struct RuleOpenRequest(pub(super) bool);
 
 #[derive(PartialEq, Eq)]
 struct Context {
@@ -110,7 +94,7 @@ fn drive(
         if !valid {
             active.cancelled.store(true, Ordering::Release);
         } else if !active.cancelled.load(Ordering::Acquire) {
-            request.0 = None; // 同一个文件正在准备，回执按当前工具选择表单。
+            request.0 = false; // 同一个文件正在准备，回执按当前工具选择表单。
         }
         let Some(result) = check_ready(&mut active.work) else {
             return;
@@ -140,7 +124,7 @@ fn drive(
         }
         *job = None;
     }
-    let (Some(sample), Some(section)) = (request.0.take(), section) else {
+    let (true, Some(section)) = (std::mem::take(&mut request.0), section) else {
         return;
     };
     let Some(documents) = documents.as_deref_mut() else {
@@ -165,7 +149,7 @@ fn drive(
         context,
         cancelled,
         work: IoTaskPool::get()
-            .spawn(async move { open_or_create(&root, &assets, sample, &cancel) }),
+            .spawn(async move { open_or_create(&root, &assets, &cancel) }),
     });
 }
 
@@ -204,7 +188,6 @@ fn existing(root: &Path, path: &Path) -> Result<Option<PathBuf>, String> {
 pub(crate) fn open_or_create(
     project: &Path,
     assets: &Path,
-    sample: bool,
     cancel: &AtomicBool,
 ) -> Result<(PathBuf, bool), String> {
     let root = checked_assets(project, assets)?;
@@ -212,8 +195,7 @@ pub(crate) fn open_or_create(
     if let Some(actual) = existing(&root, &path)? {
         return Ok((actual, false));
     }
-    let content = if sample { EXAMPLE } else { EMPTY };
-    let created = feathrise_editor_assets::files::atomic_create(&path, content.as_bytes(), || {
+    let created = feathrise_editor_assets::files::atomic_create(&path, EMPTY.as_bytes(), || {
         if cancel.load(Ordering::Acquire) || checked_assets(project, assets)? != root {
             return Err("打开工程规则的上下文已改变".into());
         }

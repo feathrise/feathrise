@@ -5,11 +5,13 @@ use bevy::{
     text::{EditableText, LineHeight},
     ui::FocusPolicy,
 };
-use feathrise_editor_documents_model::project_rules::ValueKind;
 use feathrise_editor_ui::{InteractionButton, UiInteraction, colors as c, metrics};
 
 mod layout;
 mod table;
+mod editor_dialog;
+pub(crate) use editor_dialog::RulesEditorDialogOverlay;
+pub(super) use editor_dialog::is_open as editor_dialog_open;
 pub(super) const ROWS: usize = 8;
 pub(super) const OPTIONS: usize = 4;
 pub(super) fn install(app: &mut App) {
@@ -17,16 +19,19 @@ pub(super) fn install(app: &mut App) {
         Update,
         (
             layout::mount,
+            editor_dialog::mount,
             display,
             table::fit,
             table::sync,
             anchor_options,
+            editor_dialog::sync,
             form,
         )
             .chain()
             .after(super::super::presentation::sync)
             .in_set(crate::SceneEditorSystemSet::Presentation),
     );
+    app.add_systems(Update, editor_dialog::scroll.in_set(crate::SceneEditorSystemSet::Input));
 }
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Action {
@@ -42,7 +47,7 @@ pub(super) enum Action {
     Redo,
     KeepDraft,
     Reload,
-    Type(ValueKind),
+    Type(VariableKind),
     BoolDefault(bool),
     DrawLocation,
     Trigger(bool),
@@ -105,8 +110,8 @@ enum Group {
 pub(super) fn field_shown(tab: Tab, f: &Form, k: Field) -> bool {
     match k {
         Field::Id => true,
-        Field::Default => tab == Tab::Variables && f.kind != ValueKind::Bool,
-        Field::Choices => tab == Tab::Variables && f.kind == ValueKind::Text,
+        Field::Default => tab == Tab::Variables && f.kind != VariableKind::Bool,
+        Field::Choices => tab == Tab::Variables && f.kind == VariableKind::Enum,
         Field::From => tab == Tab::Rules && f.changed && f.use_from,
         Field::To => tab == Tab::Rules && f.changed && f.use_to,
         Field::EventTarget => tab == Tab::Rules && !f.changed,
@@ -122,7 +127,7 @@ fn field_label(tab: Tab, form: &Form, k: Field) -> &'static str {
             Tab::Locations => "地点 ID",
         },
         Field::Default => "默认值",
-        Field::Choices => "固定选项（逗号）",
+        Field::Choices => "枚举选项（用逗号分隔）",
         Field::Trigger => {
             if form.changed {
                 "变化变量"
@@ -325,7 +330,7 @@ fn display(
                 Group::Editor => s.editing_item && available,
                 Group::DraftActions => !s.editing_item && doc.dirty(),
                 Group::Types => tab == Tab::Variables,
-                Group::Boolean => tab == Tab::Variables && s.form.kind == ValueKind::Bool,
+                Group::Boolean => tab == Tab::Variables && s.form.kind == VariableKind::Bool,
                 Group::Location => tab == Tab::Locations,
                 Group::Rule => tab == Tab::Rules,
                 Group::Limits => tab == Tab::Rules && s.form.changed,
@@ -349,13 +354,14 @@ fn display(
     }
     for (a, mut n, interaction, mut bg, mut border) in &mut buttons {
         let shown = match a {
+            Action::Source => tab == Tab::Locations,
             Action::Row(i) => start + i < count,
             Action::New => sheet.is_some() && !(new && s.editing_item),
             Action::Previous => start > 0,
             Action::Next => start + ROWS < count,
             Action::Delete => !new,
             Action::Cancel => s.editing_item || s.has_unsaved_input(),
-            Action::Undo => s.has_unsaved_input() || doc.history.can_undo(),
+            Action::Undo => tab == Tab::Locations && (s.has_unsaved_input() || doc.history.can_undo()),
             Action::Redo => doc.history.can_redo(),
             Action::KeepDraft => doc.external.warning,
             Action::RuleUp => tab == Tab::Rules && s.sel.item.is_some_and(|i| i > 0),
@@ -418,10 +424,9 @@ fn display(
                 .zip(sheet)
                 .and_then(|((f, base), m)| {
                     controls::suggest(m, &s.form, f, base + i)
-                        .map(|id| choice_label(f, &s.form, id))
+                        .map(|id| choice_label(f, &s.form, &id).to_owned())
                 })
-                .unwrap_or("")
-                .to_owned(),
+                .unwrap_or_default(),
             Action::Once => if s.form.once {
                 "每个存档仅一次 · 开"
             } else {

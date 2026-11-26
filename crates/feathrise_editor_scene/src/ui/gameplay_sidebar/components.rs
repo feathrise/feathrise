@@ -11,12 +11,6 @@ pub(super) struct GameplaySidebarRoot;
 pub(crate) struct InteractionRulesHost;
 
 #[derive(Component, Clone, Default)]
-pub(super) struct TemplateMenuButton;
-
-#[derive(Component, Clone, Default)]
-pub(super) struct TemplateMenu;
-
-#[derive(Component, Clone, Default)]
 pub(super) struct ViewportFeedback;
 
 #[derive(Component, Clone, Default)]

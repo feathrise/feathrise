@@ -147,30 +147,43 @@ fn verify_window(
             "工程变量",
             "触发规则",
         ];
-        if layout["variable-edit-retained"] != true
+        if layout["variable-dialog-blocked-tool-switch"] != true
+            || layout["plain-text-no-options"] != true
             || context["center"]["tab"] != "Document"
             || !context["center"]["document"]
                 .as_str()
                 .is_some_and(|path| path.contains("inline_context.md"))
             || tools.len() != expected.len()
-            || tools
-                .iter()
-                .zip(expected)
-                .any(|(tool, name)| tool["tool"] != name || tool["directory"]["columns"] != 2)
+            || tools.iter().zip(expected).any(|(tool, name)| {
+                tool["tool"] != name || tool["directory"]["row_counts"] != json!([4, 2])
+            })
             || layout["location-drawing"]["center"] != layout["catalog-narrow"]["center"]
             || layout["catalog-narrow"]["center"]["tab"] != "Scene"
         {
-            return Err("六项直达、跨页编辑或同一场景视口的保留证据不完整".into());
+            return Err("六项直达、变量对话框或同一场景视口的保留证据不完整".into());
         }
     }
     if phase == "edit" {
         screenshot(work, "source", &window["source_screenshot"])?;
+        if window["layout"]["rule-created-in-dialog"] != true
+            || window["layout"]["rule-edited-in-dialog"] != true
+        {
+            return Err("触发规则新建和编辑未验证共用独立对话框".into());
+        }
+    }
+    if (phase == "edit"
+        && (window["direct_saves"]["delivery"]["saved"] != expected["variables"]["delivery"]
+            || window["layout"]["enum-editor"] != expected["variables"]["delivery"]))
+        || (phase == "reopen"
+            && window["layout"]["enum-reread"] != expected["variables"]["delivery"])
+    {
+        return Err("枚举默认值和选项的保存或独立窗口重开证据不完整".into());
     }
     Ok(())
 }
 
 pub(super) fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<(), String> {
-    // 空数据与示例数据走各自真实创建入口，不重写或清理另一个作者窗口生成的规则文件。
+    // 空工程由作者入口新建；示例只由验收宿主写入独占夹具，后续均走真实的打开与编辑入口。
     let blank = work.join("first-variable");
     fs::create_dir(&blank).map_err(|e| e.to_string())?;
     let mut first = fixture(target, &blank, true)?;
@@ -183,10 +196,15 @@ pub(super) fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<
     let sample = include_str!(
         "../../crates/feathrise_editor_documents_model/src/project_rules/example.json"
     );
+    write_new(
+        &work.join("project/assets/project_rules.json"),
+        sample.as_bytes(),
+    )?;
     let mut expected: Value = serde_json::from_str(sample).map_err(|e| e.to_string())?;
     expected["rules"][0]["id"] = json!("smith_route_edited");
     expected["variables"]["dock_ready"] = json!({"default":false});
     expected["variables"]["a"] = json!({"default":0});
+    expected["variables"]["delivery"] = json!({"default":"harbor","choices":["harbor","mentor"]});
     expected["rules"].as_array_mut().unwrap().push(json!({
         "id":"guard_freed","when":{"event":"quest.completed","target":"dock_guard"},
         "if":[{"variable":"dock_ready","equals":false}],"once":true,

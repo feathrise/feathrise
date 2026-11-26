@@ -1,4 +1,5 @@
 //! 一个独立工程进程产生已回读的 PNG 序列，再由 FFmpeg 编码。发布前任何失败都保留原影片。
+mod ffmpeg;
 #[cfg(test)]
 mod tests;
 use super::{Feedback, Options};
@@ -103,11 +104,7 @@ pub(super) fn export(
         serde_json::to_vec(&job).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
-    let ffmpeg = options.ffmpeg.unwrap_or_else(|| {
-        std::env::var_os("FEATHRISE_FFMPEG")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| "ffmpeg".into())
-    });
+    let ffmpeg = ffmpeg::resolve(options.ffmpeg, control)?;
     let mut check = Command::new(&ffmpeg);
     check.args(["-hide_banner", "-h", "encoder=libx264"]);
     let codec = build_process::run(&check, control, None, build_process::read_diagnostics)

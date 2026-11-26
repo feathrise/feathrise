@@ -44,7 +44,6 @@ enum Stage {
     PrepareScene,
     Sidebar,
     Directory(usize),
-    ExampleMenu,
     Open,
     OpenContext,
     ContextFile,
@@ -280,27 +279,16 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
             }
             if run.phase == "empty" {
                 Stage::Directory(0)
-            } else if run.phase == "edit" {
-                Stage::ExampleMenu
             } else {
                 Stage::Open
             }
         }
         Stage::Directory(index) => return directory::before_open(world, run, window, index),
-        Stage::ExampleMenu => {
-            let name = "工程规则模板菜单";
-            if !form::named_click(world, run, window, name) {
-                run.layout_wait = button_diagnostic(world, name);
-                return Ok(None);
-            }
-            Stage::Open
-        }
         Stage::Open => {
             let name = match run.phase.as_str() {
                 "draw-reopen" => "交互目录条目地点区域",
-                "empty" => "交互目录条目工程变量",
                 "reopen" => "交互目录条目触发规则",
-                _ => "从示例创建",
+                _ => "交互目录条目工程变量",
             };
             if !form::named_click(world, run, window, name) {
                 run.layout_wait = button_diagnostic(world, name);
@@ -382,6 +370,11 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
         }
         Stage::Form(index) => return form::form(world, run, window, index),
         Stage::Advanced => {
+            // 触发规则目录不提供高级源码。显式切到仍保留文件入口的地点区域页。
+            if layout::caption(world, "RulesPageTitle").as_deref() != Some("地点区域") {
+                form::named_click(world, run, window, "交互目录条目地点区域");
+                return Ok(None);
+            }
             if !form::named_click(world, run, window, "RulesSource") {
                 return Ok(None);
             }
@@ -491,7 +484,7 @@ fn finish(world: &mut World, run: &mut Run, error: Option<String>) {
     let value = json!({"phase":run.phase,"passed":error.is_none(),"error":error,"stage":format!("{:?}",run.stage),
         "diagnostic":run.diagnostic,"screenshot":run.form_shot,"source_screenshot":run.source_shot,"saved_status":observe(world).map(|d|d.3),
         "layout":run.layout,"direct_saves":run.direct_saves,
-        "entry":match run.phase.as_str(){"reopen"=>"交互 → 触发规则","draw-reopen"=>"交互 → 地点区域","empty"=>"交互 → 六项直达",_=>"交互 → 从示例创建"},
+        "entry":match run.phase.as_str(){"reopen"=>"交互 → 触发规则","draw-reopen"=>"交互 → 地点区域","empty"=>"交互 → 六项直达",_=>"交互 → 工程变量"},
         "input":"Bevy WindowEvent（原生表单与源码输入、按钮、撤销和重做快捷键）","os_input_verified":false});
     let saved = evidence::report(&run.work.join(format!("rules-{}.json", run.phase)), &value);
     if let Err(error) = &saved {

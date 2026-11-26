@@ -17,6 +17,7 @@ pub(crate) enum TooltipAction {
     SceneTreeParticipation,
     SceneTreeVisibility,
     SceneTreeLock,
+    EditRulesRecord,
     ViewportMode(crate::viewport::modes::ViewportMode),
     WeightSelect,
     WeightEdit,

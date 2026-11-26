@@ -2,6 +2,8 @@
 
 #[path = "build/dx.rs"]
 mod dx;
+#[path = "build/ffmpeg.rs"]
+mod ffmpeg;
 
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
@@ -9,6 +11,7 @@ fn main() {
     resource_identity();
     embed_licenses();
     dx::embed();
+    ffmpeg::embed();
     let branding = branding_resources();
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();

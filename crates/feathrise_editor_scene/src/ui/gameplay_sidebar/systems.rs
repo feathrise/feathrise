@@ -55,16 +55,6 @@ impl GameplaySidebarInputGate<'_> {
 
 pub(super) fn handle_tabs(
     tabs: Query<(&EditorButtonClick, &GameplaySidebarTab), Changed<EditorButtonClick>>,
-    template: Query<
-        (&EditorButtonClick, Has<TemplateMenuButton>),
-        (
-            Changed<EditorButtonClick>,
-            Or<(
-                With<TemplateMenuButton>,
-                With<super::project_rules::CreateRulesFromExample>,
-            )>,
-        ),
-    >,
     gate: GameplaySidebarInputGate,
     sidebar: Res<SceneEditorSidebarState>,
     session: Res<EditorAuthoringSession>,
@@ -94,24 +84,13 @@ pub(super) fn handle_tabs(
             state.page = page; // 在Select把工具收成Inspect之前保存真实准备请求。
         }
     }
-    let mut next = tabs
+    let next = tabs
         .iter()
         .find(|(click, _)| click.is_clicked())
-        .map(|(_, tab)| (tab.0, false));
-    for (click, toggle) in &template {
-        if !click.is_clicked() {
-            continue;
-        }
-        if toggle {
-            state.template_menu = !state.template_menu;
-        } else if state.template_menu {
-            next = Some((GameplaySidebarPage::Variables, true));
-        }
-    }
-    if let Some((page, sample)) = next {
+        .map(|(_, tab)| tab.0);
+    if let Some(page) = next {
         state.page = page;
-        state.template_menu = false;
-        request.0 = page.section().map(|_| sample);
+        request.0 = page.section().is_some();
         // 工具只切换右栏；空间工具仅在当前可见的场景视口准备编辑。
         let in_scene = workspace
             .as_ref()
@@ -154,13 +133,11 @@ pub(super) fn sync_pages(
         (&GameplaySidebarPanel, &mut Node, &mut Visibility),
         (
             Without<ViewportFeedback>,
-            Without<TemplateMenu>,
             Without<InteractionRulesHost>,
         ),
     >,
     mut sections: Query<
         (
-            Has<TemplateMenu>,
             Has<InteractionRulesHost>,
             &mut Node,
             &mut Visibility,
@@ -168,7 +145,6 @@ pub(super) fn sync_pages(
         (
             Or<(
                 With<ViewportFeedback>,
-                With<TemplateMenu>,
                 With<InteractionRulesHost>,
             )>,
             Without<GameplaySidebarPanel>,
@@ -223,13 +199,11 @@ pub(super) fn sync_pages(
     for (panel, node, visibility) in &mut panels {
         show(node, visibility, panel.0 == state.page);
     }
-    for (menu, rules, node, visibility) in &mut sections {
+    for (rules, node, visibility) in &mut sections {
         show(
             node,
             visibility,
-            if menu {
-                state.template_menu
-            } else if rules {
+            if rules {
                 state.page.section().is_some()
             } else {
                 state.page.tool().is_some()

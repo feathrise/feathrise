@@ -6,8 +6,29 @@ use super::{
 use bevy::{input_focus::InputFocus, text::EditableText};
 use feathrise_editor_documents_model::project_rules::ValueKind;
 use feathrise_editor_ui::EditorButtonClick;
+use std::borrow::Cow;
 
 pub(super) fn suggest<'a>(
+    sheet: &'a Sheet,
+    form: &Form,
+    field: Field,
+    i: usize,
+) -> Option<Cow<'a, str>> {
+    if field == Field::Default {
+        if form.kind != VariableKind::Enum {
+            return None;
+        }
+        // 候选来自本次输入，尚未保存的枚举同样可以选默认值。
+        return super::values::parse_choices(&form.choices)
+            .ok()??
+            .into_iter()
+            .nth(i)
+            .map(Cow::Owned);
+    }
+    saved_suggestion(sheet, form, field, i).map(Cow::Borrowed)
+}
+
+fn saved_suggestion<'a>(
     sheet: &'a Sheet,
     form: &Form,
     field: Field,
@@ -41,14 +62,6 @@ pub(super) fn suggest<'a>(
                 .get(&form.action_name)?
                 .get(i)
                 .map(String::as_str);
-        }
-        Field::Default => {
-            // 布尔默认值有真／假按钮。数字不沿用原变量的布尔或文本候选。
-            if form.kind != ValueKind::Text {
-                return None;
-            }
-            let variable = m.variables.get(sheet.position(Tab::Variables, &form.id)?)?;
-            return variable.choices.as_ref()?.get(i).map(String::as_str);
         }
         Field::From | Field::To => form.trigger.as_str(),
         Field::ConditionValue => form.condition_variable.as_str(),
@@ -129,6 +142,7 @@ pub(super) fn input(
     editor: Res<crate::resources::SceneEditorState>,
     settings: Option<Res<crate::resources::SceneEditorSettingsState>>,
     guard: Res<crate::resources::EditorTextInputGuard>,
+    mut overlay: Option<ResMut<feathrise_editor_core::EditorHostOverlay>>,
     model: Option<Res<crate::workbench::WorkbenchModel>>,
     buttons: Query<(&Action, &EditorButtonClick), Changed<EditorButtonClick>>,
     fields: Query<(Entity, &Field, Ref<EditableText>)>,
@@ -151,6 +165,10 @@ pub(super) fn input(
     {
         return;
     }
+    let modal = view::editor_dialog_open(&s, &docs);
+    if modal && let Some(overlay) = &mut overlay {
+        overlay.active = true;
+    }
     let mut action = buttons
         .iter()
         .find_map(|(a, c)| c.is_clicked().then_some(*a));
@@ -161,7 +179,7 @@ pub(super) fn input(
         // 查找框或其他面板拥有焦点时不截获其撤销。Ctrl+S 在当前文档内由表单统一收口。
         let owns = match focus.get() {
             Some(entity) => fields.get(entity).is_ok(),
-            None => pointer
+            None => modal || pointer
                 .single()
                 .is_ok_and(|position| position.cursor_over()),
         };
@@ -186,6 +204,17 @@ pub(super) fn input(
             }
         }
     }
+    if modal {
+        if keys.just_pressed(KeyCode::Escape) {
+            action = Some(Action::Cancel);
+        }
+        // 读取本弹窗命令后吞掉场景、文档与全局快捷键的边沿；保留按住状态供原生输入法。
+        let edges: Vec<_> = keys.get_just_pressed().chain(keys.get_just_released()).copied().collect();
+        for key in edges {
+            keys.clear_just_pressed(key);
+            keys.clear_just_released(key);
+        }
+    }
     // 实时反映已确认的原生输入；移动光标、IME 候选或未变字段不会刷新整个面板。
     if s.editing_item && s.sheet.is_some() && s.key.as_ref() == active(&docs).as_ref() {
         for (_, field, text) in &fields {
@@ -204,7 +233,7 @@ pub(super) fn input(
     let Some(a) = action else {
         return;
     };
-    if !shown {
+    if !shown || (a == Action::Source && s.sel.tab != Tab::Locations) {
         return;
     }
     if guard.block_shortcuts
@@ -288,7 +317,7 @@ pub(super) fn input(
                 return Err("磁盘文件已被修改，保存已停止。请先处理文件冲突。".into());
             }
             if sheet.is_none() {
-                return Err("请先在高级源码修正规则文件".into());
+                return Err("请先在文件浏览器打开并修正规则文件".into());
             }
             if s.editing_item
                 && s.form.id.trim().is_empty()
@@ -335,7 +364,7 @@ pub(super) fn input(
         }
         let m = sheet
             .as_ref()
-            .ok_or("请先在高级源码修复文件，或等待规则加载完成")?;
+            .ok_or("请等待规则加载完成，或从文件浏览器打开并修复文件")?;
         if let Some(selection) = destination(a, s.sel, m) {
             if s.editing_item && a != Action::New && selection == s.sel {
                 return Ok(());
@@ -412,7 +441,7 @@ pub(super) fn input(
                 if let Some((f, base)) = s.suggest
                     && let Some(value) = suggest(m, &s.form, f, base + i)
                 {
-                    *s.form.field(f) = value.to_owned();
+                    *s.form.field(f) = value.into_owned();
                     if f == Field::From {
                         s.form.use_from = true;
                     }

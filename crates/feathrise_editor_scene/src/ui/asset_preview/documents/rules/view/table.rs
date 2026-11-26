@@ -1,12 +1,13 @@
 //! 三个工具共用一套有界行池；选择行只移动唯一的原生表单，重排不会丢失输入法或草稿。
 use super::{
-    layout::{ScrollArea, button, column, editor, font, info, row},
+    layout::{ScrollArea, button, button_with_icon, column, editor, font, info, row},
     *,
 };
 use feathrise_editor_documents_model::project_rules::{ActionForm, TriggerForm};
 
 const CELL_PAD_X: f32 = 8.;
 const CELL_GAP: f32 = 10.;
+const EDIT_WIDTH: f32 = 34.;
 
 #[cfg(test)]
 #[path = "table_geometry.rs"]
@@ -19,6 +20,13 @@ pub(super) struct FormHost;
 pub(super) enum TablePart {
     Slot(Option<usize>),
     Summary(usize),
+    Heading,
+}
+
+#[derive(Component)]
+pub(super) enum EditVisual {
+    Text,
+    Icon,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -49,17 +57,12 @@ impl Column {
             Tab::Variables => {
                 let v = &sheet.model.variables[index];
                 match self {
-                    Self::Kind => match v.kind {
-                        ValueKind::Bool => "布尔",
-                        ValueKind::Number => "数字",
-                        ValueKind::Text => "文本",
-                    }
-                    .into(),
-                    _ if v.kind == ValueKind::Bool => {
+                    Self::Kind => VariableKind::of(v).label().into(),
+                    _ if VariableKind::of(v) == VariableKind::Bool => {
                         if v.default == "true" { "真" } else { "假" }.into()
                     }
                     _ if v.default.is_empty() => "空文本".into(),
-                    _ => v.default.clone(),
+                    _ => v.default.replace(['\r', '\n'], " "),
                 }
             }
             Tab::Rules => {
@@ -89,27 +92,33 @@ impl Column {
 
 #[derive(Component)]
 pub(super) struct Cell {
-    slot: usize,
+    slot: Option<usize>,
     column: Column,
 }
 
-fn cells(p: &mut ChildSpawnerCommands, h: &Handle<Font>, slot: usize) {
+#[derive(Component)]
+pub(super) struct ColumnTrack(Column);
+
+fn cells(p: &mut ChildSpawnerCommands, h: &Handle<Font>, slot: Option<usize>) {
     for column in [Column::Id, Column::Kind, Column::Value] {
-        p.spawn((
-            Cell { slot, column },
-            Name::new(format!("RulesCell{slot}{column:?}")),
-            Text::default(),
-            TextLayout::linebreak(bevy::text::LineBreak::WordOrCharacter),
-            font(h, metrics::FONT_CONTROL),
-            TextColor(c::TEXT_PRIMARY),
-            Node {
-                min_width: px(0),
-                ..default()
-            },
-            Pickable::IGNORE,
-        ));
+        // Bevy 的裁剪从父节点生效；独立的列容器阻止长字符串画到邻列。
+        let node = Node { min_width: px(0), ..default() };
+        p.spawn((ColumnTrack(column), node.clone(), Pickable::IGNORE))
+            .with_child((
+                Cell { slot, column },
+                ColumnTrack(column),
+                Name::new(match slot {
+                    Some(slot) => format!("RulesCell{slot}{column:?}"),
+                    None => format!("RulesHeading{column:?}"),
+                }),
+                Text::default(),
+                TextLayout::linebreak(bevy::text::LineBreak::WordOrCharacter),
+                font(h, metrics::FONT_CONTROL),
+                TextColor(if slot.is_some() { c::TEXT_PRIMARY } else { c::TEXT_MUTED }),
+                node,
+                Pickable::IGNORE,
+            ));
     }
-    button(p, h, format!("RulesRow{slot}"), "编辑", Action::Row(slot));
 }
 
 fn grid() -> Node {
@@ -130,7 +139,7 @@ fn grid() -> Node {
 fn column_width(width: f32) -> f32 {
     ((width - 2. * CELL_PAD_X - CELL_GAP) * 0.5).max(0.)
 }
-pub(super) fn list(p: &mut ChildSpawnerCommands, h: &Handle<Font>) {
+pub(super) fn list(p: &mut ChildSpawnerCommands, h: &Handle<Font>, edit_icon: &Handle<Image>) {
     p.spawn(Node {
         justify_content: JustifyContent::SpaceBetween,
         ..row()
@@ -156,6 +165,8 @@ pub(super) fn list(p: &mut ChildSpawnerCommands, h: &Handle<Font>) {
             ))
             .with_children(|f| editor(f, h));
         });
+    p.spawn((TablePart::Heading, grid()))
+        .with_children(|r| cells(r, h, None));
     for i in 0..ROWS {
         p.spawn((
             TablePart::Slot(Some(i)),
@@ -164,7 +175,12 @@ pub(super) fn list(p: &mut ChildSpawnerCommands, h: &Handle<Font>) {
         ))
         .with_children(|r| {
             r.spawn((TablePart::Summary(i), grid(), BackgroundColor(c::PANEL_BG)))
-                .with_children(|s| cells(s, h, i));
+                .with_children(|s| {
+                    cells(s, h, Some(i));
+                    button_with_icon(
+                        s, h, format!("RulesRow{i}"), "编辑", Action::Row(i), Some(edit_icon),
+                    );
+                });
         });
     }
     p.spawn(row()).with_children(|r| {
@@ -190,14 +206,18 @@ pub(super) fn sync(
         return;
     }
     let tab = s.sel.tab;
+    let variables = tab == Tab::Variables;
+    let inline = tab == Tab::Locations;
     let count = s.sheet.as_ref().map_or(0, |m| m.len(tab));
     let start = s.sel.item.unwrap_or(0) / ROWS * ROWS;
     let edit_slot = s.sel.item.map(|i| i % ROWS);
     for (entity, part, mut node, mut vis) in &mut parts {
         let shown = match *part {
-            TablePart::Slot(None) => s.editing_item && edit_slot.is_none(),
+            TablePart::Slot(None) => inline && s.editing_item && edit_slot.is_none(),
             TablePart::Slot(Some(i)) => start + i < count,
-            TablePart::Summary(i) => start + i < count && !(s.editing_item && edit_slot == Some(i)),
+            TablePart::Summary(i) => start + i < count
+                && (!inline || !(s.editing_item && edit_slot == Some(i))),
+            TablePart::Heading => variables && count > 0,
         };
         let is_grid = !matches!(part, TablePart::Slot(_));
         let display = if !shown {
@@ -215,7 +235,8 @@ pub(super) fn sync(
         } else {
             Visibility::Hidden
         });
-        if let TablePart::Slot(slot) = *part
+        if inline
+            && let TablePart::Slot(slot) = *part
             && s.editing_item
             && edit_slot == slot
             && let Ok((editor, parent)) = form.single()
@@ -230,24 +251,26 @@ pub(super) fn sync(
     *painted = Some(s.revision);
     for (cell, mut caption) in &mut values {
         let label = cell.column.label(tab);
-        let value = if start + cell.slot < count {
-            let value = cell
-                .column
-                .value(s.sheet.as_ref().unwrap(), tab, start + cell.slot);
-            format!("{label}  {value}")
-        } else {
-            String::new()
+        let value = match cell.slot {
+            None => label.to_owned(),
+            Some(slot) if start + slot < count => {
+                let value = cell.column.value(s.sheet.as_ref().unwrap(), tab, start + slot);
+                if variables { value } else { format!("{label}  {value}") }
+            }
+            Some(_) => String::new(),
         };
         set(&mut caption, &value);
     }
 }
 
 pub(super) fn fit(
+    s: Res<Studio>,
     scroll: Query<&ComputedNode, With<ScrollArea>>,
-    mut rows: Query<(&TablePart, &mut Node), Without<Cell>>,
-    mut cells: Query<&mut Node, With<Cell>>,
+    mut rows: Query<(&TablePart, &mut Node), (Without<ColumnTrack>, Without<EditVisual>)>,
+    mut cells: Query<(&ColumnTrack, &mut Node, Option<&mut TextLayout>), Without<EditVisual>>,
+    mut edits: Query<(&EditVisual, &mut Node)>,
     added: Query<(), Added<Cell>>,
-    mut last: Local<Option<f32>>,
+    mut last: Local<Option<(f32, Tab)>>,
 ) {
     let Ok(view) = scroll.single() else {
         *last = None;
@@ -258,17 +281,43 @@ pub(super) fn fit(
         *last = None;
         return;
     }
-    if *last == Some(width) && added.is_empty() {
+    if *last == Some((width, s.sel.tab)) && added.is_empty() {
         return;
     }
-    *last = Some(width);
-    let width = column_width(width);
+    *last = Some((width, s.sel.tab));
+    let variables = s.sel.tab == Tab::Variables;
+    // 侧栏宽度只分配列宽。名称、类型、默认值和铅笔始终在同一个网格轨道行。
+    let available = (width - 2. * CELL_PAD_X - 3. * CELL_GAP - EDIT_WIDTH).max(0.);
+    let kind_width = 44_f32.min(available * 0.35);
+    let value_width = (available - kind_width) * 0.48;
+    let widths = [available - kind_width - value_width, kind_width, value_width, EDIT_WIDTH];
+    let variable_tracks: Vec<_> = widths
+        .into_iter()
+        .map(|width| RepeatedGridTrack::px(1, width))
+        .collect();
+    let pair_width = column_width(width);
     for (part, mut row) in &mut rows {
-        if matches!(part, TablePart::Summary(_)) {
-            row.grid_template_columns = vec![RepeatedGridTrack::px(2, width)];
+        if !matches!(part, TablePart::Slot(_)) {
+            row.grid_template_columns = if variables {
+                variable_tracks.clone()
+            } else {
+                vec![RepeatedGridTrack::px(2, pair_width)]
+            };
         }
     }
-    for mut node in &mut cells {
-        node.width = px(width);
+    for (track, mut node, layout) in &mut cells {
+        node.width = px(if variables { widths[track.0 as usize] } else { pair_width });
+        if let Some(mut layout) = layout {
+            layout.linebreak = if variables {
+                bevy::text::LineBreak::NoWrap
+            } else {
+                bevy::text::LineBreak::WordOrCharacter
+            };
+        } else {
+            node.overflow = if variables { Overflow::clip_x() } else { Overflow::visible() };
+        }
+    }
+    for (visual, mut node) in &mut edits {
+        show(&mut node, variables == matches!(visual, EditVisual::Icon));
     }
 }

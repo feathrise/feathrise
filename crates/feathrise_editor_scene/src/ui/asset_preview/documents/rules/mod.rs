@@ -18,6 +18,7 @@ use bevy::{
 };
 use std::{path::Path, sync::Arc};
 pub(crate) use types::Tab as ProjectRulesSection;
+pub(crate) use view::RulesEditorDialogOverlay;
 const RULES_SHEET_PADDING: f32 = 9.0;
 use types::*;
 use worker::*;

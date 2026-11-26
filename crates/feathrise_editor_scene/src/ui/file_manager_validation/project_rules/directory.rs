@@ -6,12 +6,9 @@ use crate::{
 };
 use bevy::text::TextLayoutInfo;
 
-const GROUPS: &[(&str, &[&str])] = &[
-    (
-        "交互目录场景分组",
-        &["传送点", "空气墙", "动画触发", "地点区域"],
-    ),
-    ("交互目录工程分组", &["工程变量", "触发规则"]),
+const ROWS: &[&[&str]] = &[
+    &["传送点", "空气墙", "动画触发", "地点区域"],
+    &["工程变量", "触发规则"],
 ];
 
 pub(super) fn ancestor(world: &World, mut child: Entity, parent: Entity) -> bool {
@@ -47,10 +44,28 @@ pub(super) fn measure(world: &mut World) -> Result<Value, String> {
         .filter(|(entity, _)| ancestor(world, *entity, nav))
         .map(|(_, label)| label)
         .collect();
-    if entries.len() != GROUPS.iter().map(|(_, labels)| labels.len()).sum::<usize>()
+    if entries.len() != ROWS.iter().map(|labels| labels.len()).sum::<usize>()
         || entries.iter().any(|entry| entry == "资产摆放")
     {
         return Err(format!("交互目录应仅有六个工具，实际为 {entries:?}"));
+    }
+    if world
+        .query::<(Entity, &Name)>()
+        .iter(world)
+        .any(|(e, name)| {
+            matches!(
+                name.as_str(),
+                "交互目录场景分组" | "交互目录工程分组" | "工程规则模板菜单" | "从示例创建"
+            ) && ancestor(world, e, nav)
+        })
+        || world
+            .query::<(Entity, &Text)>()
+            .iter(world)
+            .any(|(e, caption)| {
+                matches!(caption.as_str(), "场景" | "工程" | "···") && ancestor(world, e, nav)
+            })
+    {
+        return Err("交互目录仍包含分组标题或示例菜单".into());
     }
     let owner = visible(world, |p: &SceneEditorPane| p.0 == EditorPane::Inspector)
         .ok_or("点击工具后右栏消失")?;
@@ -84,17 +99,16 @@ pub(super) fn measure(world: &mut World) -> Result<Value, String> {
             "六个固定入口应保留在正文上方，目录 {nav_rect:?}，正文 {body:?}"
         ));
     }
-    let mut buttons = Vec::<Rect>::new();
-    let mut groups = serde_json::Map::new();
-    for &(group_name, labels) in GROUPS {
-        let group = form::entity(world, group_name).ok_or_else(|| format!("缺少{group_name}"))?;
+    let mut rows = Vec::new();
+    let mut first_row: Option<Vec<Rect>> = None;
+    for &labels in ROWS {
         let mut records = Vec::new();
+        let mut buttons = Vec::<Rect>::new();
         for &label in labels {
             let name = format!("交互目录条目{label}");
             let id = form::entity(world, &name).ok_or_else(|| format!("缺少{name}"))?;
             let rect = layout::bounds(world, id).ok_or_else(|| format!("尚未排版{name}"))?;
-            if !ancestor(world, id, group)
-                || !ancestor(world, group, nav)
+            if !ancestor(world, id, nav)
                 || !nav_rect.inflate(1.).contains(rect.min)
                 || !nav_rect.inflate(1.).contains(rect.max)
                 || buttons
@@ -102,7 +116,7 @@ pub(super) fn measure(world: &mut World) -> Result<Value, String> {
                     .any(|other| other.intersect(rect).size().min_element() > 1.)
             {
                 return Err(format!(
-                    "目录归组、边界或按钮重叠：{name} {rect:?}，目录 {nav_rect:?}"
+                    "目录边界或按钮重叠：{name} {rect:?}，目录 {nav_rect:?}"
                 ));
             }
             // “不竖排”由中文实际排版的行号、字形数与按钮边界验证，不只检查组件上声明的宽度。
@@ -128,32 +142,38 @@ pub(super) fn measure(world: &mut World) -> Result<Value, String> {
                 ));
             }
             buttons.push(rect);
-            records.push(json!({"label":label,"bounds":layout::coords(rect)}));
+            records.push(
+                json!({"label":label,"bounds":layout::coords(rect),"glyphs":layout::coords(ink)}),
+            );
         }
-        groups.insert(group_name.into(), json!(records));
-    }
-    // 以实体几何验证场景两行、工程一行；各行共用一对列边界，检查不只依赖布局声明。
-    let (first_left, first_right) = (buttons[0], buttons[1]);
-    let mut previous_bottom = f32::NEG_INFINITY;
-    for pair in buttons.chunks_exact(2) {
-        let (left, right) = (pair[0], pair[1]);
-        if (left.min.y - right.min.y).abs() > 1.
-            || (left.max.y - right.max.y).abs() > 1.
-            || left.min.y < previous_bottom - 1.
-            || (left.min.x - first_left.min.x).abs() > 1.
-            || (left.max.x - first_left.max.x).abs() > 1.
-            || (right.min.x - first_right.min.x).abs() > 1.
-            || (right.max.x - first_right.max.x).abs() > 1.
-            || left.max.x > right.min.x + 1.
+        // 两行共用同一四列栅格，第二行只占前两列；拖动侧栏不会改变按钮的行列。
+        let first = buttons[0];
+        if buttons.iter().any(|rect| {
+            (rect.min.y - first.min.y).abs() > 1.
+                || (rect.max.y - first.max.y).abs() > 1.
+                || (rect.width() - first.width()).abs() > 1.
+        }) || buttons
+            .windows(2)
+            .any(|pair| pair[0].max.x > pair[1].min.x + 1.)
+            || first_row.as_ref().is_some_and(|top| {
+                top[0].max.y > first.min.y + 1.
+                    || buttons.iter().zip(top).any(|(button, column)| {
+                        (button.min.x - column.min.x).abs() > 1.
+                            || (button.max.x - column.max.x).abs() > 1.
+                    })
+            })
         {
-            return Err(format!("交互目录应保持两列，实际按钮为 {buttons:?}"));
+            return Err(format!("交互目录应固定首行四项、次行两项：{buttons:?}"));
         }
-        previous_bottom = left.max.y;
+        if first_row.is_none() {
+            first_row = Some(buttons);
+        }
+        rows.push(records);
     }
     Ok(
         json!({"entity":nav.to_bits(),"workspace":layout::coords(owner_bounds),
         "bounds":layout::coords(nav_rect),"content":layout::coords(body),"placement":"上方",
-        "columns":2,"groups":groups}),
+        "row_counts":[4,2],"rows":rows}),
     )
 }
 
@@ -352,7 +372,7 @@ pub(super) fn on_document(
     window: Entity,
     index: usize,
 ) -> Result<Option<Stage>, String> {
-    let finish = GROUPS.iter().map(|(_, labels)| labels.len()).sum::<usize>() * 2;
+    let finish = ROWS.iter().map(|labels| labels.len()).sum::<usize>() * 2;
     if index == finish {
         let path = run.work.join("rules-catalog-context.png");
         let Some(shot) = evidence::capture(world, &mut run.capture, &path)? else {
@@ -365,9 +385,9 @@ pub(super) fn on_document(
         record["screenshot"] = shot;
         return Ok(Some(Stage::Capture));
     }
-    let label = GROUPS
+    let label = ROWS
         .iter()
-        .flat_map(|(_, labels)| labels.iter())
+        .flat_map(|labels| labels.iter())
         .nth(index / 2)
         .copied()
         .ok_or("未知右栏工具")?;

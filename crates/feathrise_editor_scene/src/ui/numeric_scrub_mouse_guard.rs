@@ -56,7 +56,11 @@ pub(crate) fn update_scene_editor_numeric_scrub_mouse_guard(
         Option<Res<crate::authoring::mesh_edit::MeshEditState>>,
     ),
     subscene_move: Option<Res<crate::viewport::subscenes::SubsceneTransformState>>,
-    spatial: (Option<Res<crate::viewport::spatial_brush::SpatialBrushState>>, Option<Res<feathrise_editor_core::EditorHostOverlay>>),
+    spatial: (
+        Option<Res<crate::viewport::spatial_brush::SpatialBrushState>>,
+        Option<Res<feathrise_editor_core::EditorHostOverlay>>,
+        Query<&Node, With<super::asset_preview::documents::RulesEditorDialogOverlay>>,
+    ),
 ) {
     let any_button_pressed = [MouseButton::Left, MouseButton::Right, MouseButton::Middle]
         .into_iter()
@@ -79,6 +83,7 @@ pub(crate) fn update_scene_editor_numeric_scrub_mouse_guard(
             || selection_owners.6.as_ref().is_some_and(|state| state.owns_mouse()) // 网格创建确认与取消释放帧独占鼠标，不把面板点击解释为放置。
             || spatial.0.as_ref().is_some_and(|state| state.owns_mouse()) // 空间笔刷定位与手柄拖动等到三键静默后归还。
             || spatial.1.as_ref().is_some_and(|overlay| overlay.active) // 宿主工程菜单与关闭点击复用同一静默释放门。
+            || spatial.2.iter().any(|node| node.display != Display::None) // 嵌入式编辑器也阻断规则表单浮层背后的视口和滚轮。
             || editor.as_ref().is_some_and(|editor| editor.scene_switch_confirmation.is_some())
             || scene_drag.1.as_ref().is_some_and(|drag| drag.owns_mouse())
             || scene_drag.0.as_ref().is_some_and(|drag| drag.blocks_other_mouse()) // 切换场景模态及取消 release 同时阻止并列工作区输入，不只隔离场景笔刷。
