@@ -53,7 +53,7 @@ fn inspector_tree_and_properties_have_independent_scroll_hosts() {
     assert_eq!(world.query_filtered::<Entity, With<crate::components::SceneEditorLeftPanelScroll>>().iter(world).count(), 1);
     for label in [
         "变换",
-        "高度与落点",
+        "高度",
         "位置",
         "旋转 Y",
         "缩放",
@@ -65,7 +65,7 @@ fn inspector_tree_and_properties_have_independent_scroll_hosts() {
                 .iter(world)
                 .filter(|(entity, text)| {
                     if text.as_str() != label { return false; }
-                    if !matches!(label, "位置" | "缩放" | "变换" | "高度与落点") { return true; }
+                    if !matches!(label, "位置" | "缩放" | "变换" | "高度") { return true; }
                     // 应用菜单和隐藏的源节点属性也有同名文字；核对当前摆放面板参与布局的标签。
                     if world.get::<ComputedNode>(*entity).is_none_or(|node| node.size().min_element() <= 0.0) {
                         return false;
@@ -88,13 +88,16 @@ fn inspector_tree_and_properties_have_independent_scroll_hosts() {
     assert!(world.query::<&Text>().iter(world)
         .all(|text| !matches!(text.as_str(), "定位" | "复制" | "删除")),
         "检查器只保留对象属性动作");
-    let quarter = world
-        .query::<(&SceneEditorPlacementTransformActionButton, &Node)>()
-        .iter(world)
-        .find(|(marker, _)| marker.0 == PlacementTransformAction::RotateQuarterTurn)
-        .unwrap()
-        .1;
-    assert_eq!(quarter.display, Display::None); // 普通实例不展示不适用的建筑专用动作。
+    for (action, expected) in [
+        (PlacementTransformAction::RotateQuarterTurn, Display::None),
+        (PlacementTransformAction::Relocate, Display::None),
+        (PlacementTransformAction::FollowTerrain, Display::Flex),
+        (PlacementTransformAction::FixedHeight, Display::Flex),
+    ] {
+        let (_, node) = world.query::<(&SceneEditorPlacementTransformActionButton, &Node)>()
+            .iter(world).find(|(marker, _)| marker.0 == action).unwrap();
+        assert_eq!(node.display, expected);
+    }
     assert_eq!(author(&app), before);
 }
 
