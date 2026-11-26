@@ -110,6 +110,7 @@ pub(crate) fn sync_placement_transform_panel(
         commands.entity(panel).insert(super::scene::LightControlsInstalled);
     }
     let is_building = record.is_some_and(|record| record.building_preset_id.is_some());
+    let is_terrain_patch = record.is_some_and(|record| record.terrain_patch.is_some());
     let is_cuboid = record.is_some_and(|record| record.asset_target.is_builtin());
     let collision_state = record.and_then(super::cuboid::collision_state);
     let has_size_recipe = record.is_some_and(|record| matches!(record.asset_target, ScenePlacementAssetTarget::Cuboid { .. }));
@@ -236,9 +237,10 @@ pub(crate) fn sync_placement_transform_panel(
         let preview = state.lod_preview.as_ref()
             .filter(|preview| target.as_ref().is_some_and(|target| preview.matches(target)));
         let display = if (button.0 == PlacementTransformAction::RotateQuarterTurn && !is_building)
+            || (button.0 == PlacementTransformAction::Relocate && !(is_building || is_terrain_patch))
             || (button.0 == PlacementTransformAction::ToggleCuboidCollision && collision_state.is_none())
-            || (button.0 == PlacementTransformAction::FollowTerrain && record.is_some_and(|record| record.terrain_patch.is_some()))
-            || (super::lod::is_action(button.0) && record.is_some_and(|record| record.terrain_patch.is_some()))
+            || (button.0 == PlacementTransformAction::FollowTerrain && is_terrain_patch)
+            || (super::lod::is_action(button.0) && is_terrain_patch)
             || (button.0 == PlacementTransformAction::ToggleLodPreview
                 && !state.lod_preview_available)
             || (matches!(button.0, PlacementTransformAction::ToggleLodTriangles | PlacementTransformAction::CompareLodOriginal)

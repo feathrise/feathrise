@@ -468,13 +468,11 @@ fn inspector_base_terrain_and_building_use_distinct_read_only_summary() {
     {
         assert!(disabled); // 建筑仍沿用原任意变换禁用门，不能因排版重新开放。
     }
-    let quarter = world
-        .query::<(&SceneEditorPlacementTransformActionButton, &Node)>()
-        .iter(world)
-        .find(|(marker, _)| marker.0 == PlacementTransformAction::RotateQuarterTurn)
-        .unwrap()
-        .1;
-    assert_eq!(quarter.display, Display::Flex);
+    for action in [PlacementTransformAction::RotateQuarterTurn, PlacementTransformAction::Relocate] {
+        let (_, node) = world.query::<(&SceneEditorPlacementTransformActionButton, &Node)>()
+            .iter(world).find(|(marker, _)| marker.0 == action).unwrap();
+        assert_eq!(node.display, Display::Flex); // 建筑继续提供经后台校验的旋转和地基落点。
+    }
 }
 
 #[test]
@@ -578,6 +576,7 @@ fn inspector_builtin_cuboid_exposes_shape_fields_and_hides_glb_terrain_actions()
     for (button, node) in world.query::<(&SceneEditorPlacementTransformActionButton, &Node)>().iter(world) {
         match button.0 {
             PlacementTransformAction::ToggleTerrainPatch | PlacementTransformAction::ToggleTerrainCutout => assert_eq!(node.display, Display::None),
+            PlacementTransformAction::Relocate => assert_eq!(node.display, Display::None),
             PlacementTransformAction::ToggleCuboidCollision => assert_eq!(node.display, Display::Flex),
             _ => {}
         }

@@ -150,13 +150,14 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
                         Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }
                         Children [@placement_axis_row("旋转", [PlacementTransformField::RotationX, PlacementTransformField::RotationY, PlacementTransformField::RotationZ])]--
                     @action_button("建筑旋转 90°", PlacementTransformAction::RotateQuarterTurn)-- // 建筑必须先后台重检占地、门口和五点地基。
+                    @action_button("吸附地面", PlacementTransformAction::Relocate)-- // 建筑校验地基和三维地形换绑需要点选真实承托面。
                     @placement_axis_row("缩放", [PlacementTransformField::ScaleX, PlacementTransformField::ScaleY, PlacementTransformField::ScaleZ])--
                     @super::apply_transform::apply_menu()
                 ]--
 
             // 高度策略独立成组，位置和姿态字段在上方变换标题下连续排列。
             ~{property_column()} Children [
-            @crate::ui::context_help::section_header("高度与落点", "吸附地面会等待中央视口单击，并按首次摆放规则命中真实地形。跟随地形会归零离地偏移；固定高度保留模式并采用命中Y。")--
+            @crate::ui::context_help::section_header("高度", "跟随地形会保持离地偏移，固定高度会保持世界 Y。切换模式时保留当前位置的高度。")--
 
                 SceneEditorPlacementTransformSummary
                 Text("请选择场景树中的资产实例") @feathrise_editor_ui::localization::label_scene("请选择场景树中的资产实例")
@@ -176,15 +177,14 @@ pub(in crate::ui) fn placement_transform_panel() -> impl Scene {
             --
 
                 Node {
-                    width: percent(100), // 两种持久高度模式与一次性地面吸附在同一行直接选择。
-                    flex_direction: FlexDirection::Row, // 严格三列而不自动换行。
-                    column_gap: px(3), // 三个铜边按钮之间保留清晰间距。
+                    width: percent(100), // 两种持久高度模式在同一行直接选择。
+                    flex_direction: FlexDirection::Row,
+                    column_gap: px(3),
                     flex_shrink: 0.0, // 固定按钮高度不能被右栏滚动布局压扁。
                 }
                 Children [
                     @action_button("跟随地形", PlacementTransformAction::FollowTerrain)-- // 持续保持当前离地偏移。
-                    @action_button("固定高度", PlacementTransformAction::FixedHeight)-- // 持续保持当前世界Y。
-                    @action_button("吸附地面", PlacementTransformAction::Relocate) // 复用首次摆放的真实三角命中选择新落点。
+                    @action_button("固定高度", PlacementTransformAction::FixedHeight) // 持续保持当前世界Y。
                 ]
                 ]
             --
