@@ -3,18 +3,19 @@
 use bevy::prelude::*; // Commands、Added槽位与字体句柄。
 use feathrise_editor_ui::{NumericScrubFieldOptions, NumericScrubFieldStyle, NumericValue, spawn_numeric_scrub_field}; // 开箱生成标签、进度填充、数值和单位。
 
-use super::{EnvironmentNumericInput, EnvironmentNumericInputSlot}; // 槽位字段身份转换为消息根marker。
+use super::{EnvironmentNumericInput, EnvironmentNumericInputSlot, GlobalEnvironmentNumericInput, GlobalEnvironmentNumericInputSlot};
 use crate::ui::scene::FONT_PATH; // 动态控件沿用F12统一中文字体。
 
 /// 在四个 BSN 槽位内各挂载一次公共专业数值框。
 pub(crate) fn setup_environment_numeric_inputs(
     mut commands: Commands, // 为Added槽位创建一次固定子树。
-    slots: Query<(Entity, &EnvironmentNumericInputSlot), Added<EnvironmentNumericInputSlot>>, // 四个槽位分别处理一次。
+    slots: Query<(Entity, Option<&EnvironmentNumericInputSlot>, Option<&GlobalEnvironmentNumericInputSlot>),
+        Or<(Added<EnvironmentNumericInputSlot>, Added<GlobalEnvironmentNumericInputSlot>)>>,
     asset_server: Res<AssetServer>, // 公共控件需要明确字体句柄。
     settings: Res<feathrise_editor_core::EditorSettings>, // 初始倍率来自持久设置。
 ) {
-    for (slot, marker) in &slots {
-        let kind = marker.0; // 冻结当前槽位字段身份。
+    for (slot, scene, global) in &slots {
+        let kind = scene.map(|marker| marker.0).or(global.map(|marker| marker.0)).expect("环境槽位必须具有明确作用域");
         let font: Handle<Font> = feathrise_editor_core::editor_font(&asset_server, FONT_PATH); // 与右栏静态文字共享字体。
         let initial = match kind {
             super::EnvironmentNumericKind::SkyboxBrightness => 1_000.0, // 与场景环境默认天空盒日间亮度保持一致。
@@ -41,6 +42,9 @@ pub(crate) fn setup_environment_numeric_inputs(
                     ..default()
                 }),
             );
+            if global.is_some() {
+                parent.commands().entity(root).remove::<EnvironmentNumericInput>().insert(GlobalEnvironmentNumericInput(kind));
+            } // 套装和场景使用同一控件外观，各自的稳定目标拥有作者事务。
             parent
                 .commands()
                 .entity(root)

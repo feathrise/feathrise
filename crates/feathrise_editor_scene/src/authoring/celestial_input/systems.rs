@@ -44,6 +44,8 @@ fn current_stamp(
     match key.scope {
         CelestialNumericScope::Global => Some(CelestialContextStamp {
             global_revision: global.revision,
+            global_source_revision: global.source_revision,
+            profile_id: global.selected_environment_id.clone(),
             scene_id: None,
             scene_revision: None,
         }),
@@ -55,6 +57,8 @@ fn current_stamp(
             key.scene_editable(&draft.manifest.environment)
                 .then(|| CelestialContextStamp {
                     global_revision: global.revision,
+                    global_source_revision: global.source_revision,
+                    profile_id: None,
                     scene_id: Some(draft.scene_id.clone()),
                     scene_revision: Some(session.revision),
                 })
@@ -67,10 +71,12 @@ fn current_value(
     session: &EditorAuthoringSession,
     global: &GlobalEnvironmentAuthoringState,
 ) -> Option<f32> {
-    key.displayed_value(
-        &global.draft.celestial_lighting,
-        dynamic_environment(session),
-    )
+    match key.scope {
+        CelestialNumericScope::Global => Some(key.field.read(global.selected_celestial())),
+        CelestialNumericScope::Scene => Some(key.field.read(&feathrise_scene_content::resolve_scene_environment(
+            dynamic_environment(session)?, &global.draft.celestial_lighting, &global.draft.library,
+        ).celestial_lighting)),
+    }
 }
 
 fn reset_input(
@@ -93,16 +99,13 @@ fn edited_scene_environment(
     key: CelestialNumericKey,
     value: f32,
 ) -> Result<SceneEnvironmentDescriptor, String> {
-    if key.scope != CelestialNumericScope::Scene
-        || !key
-            .field
-            .property()
-            .is_overridden(&before.celestial_overrides)
-    {
+    if !key.scene_editable(before) {
         return Err(format!("{}当前正在跟随全局", key.field.property().label()));
     }
     let mut after = before.clone();
-    let mut effective = resolve(global, &after.celestial_overrides);
+    let local_base = CelestialLightingProfile::default();
+    let base = if matches!(before.source, feathrise_scene_content::SceneEnvironmentSource::Local) { &local_base } else { global };
+    let mut effective = resolve(base, &after.celestial_overrides);
     key.field.write(&mut effective, value)?;
     key.field
         .property()
@@ -121,6 +124,18 @@ fn commit_global_change(
 ) {
     if before == after {
         editor.status = "全局天体光照参数没有变化".to_owned();
+        return;
+    }
+    if let Some(id) = global.selected_environment_id.clone()
+        && let Some(mut next_profile) = global.selected_environment().cloned()
+    {
+        let mut previous_profile = next_profile.clone();
+        previous_profile.appearance.celestial_lighting = before;
+        next_profile.appearance.celestial_lighting = after;
+        match crate::authoring::environment_library::commit_profile_change(id, Some(previous_profile), next_profile, global, session, editor) {
+            Ok(()) => editor.status = status,
+            Err(error) => editor.status = error,
+        }
         return;
     }
     global.draft.celestial_lighting = after.clone();
@@ -155,7 +170,7 @@ fn apply_exact(
     }
     match key.scope {
         CelestialNumericScope::Global => {
-            let before = global.draft.celestial_lighting.clone();
+            let before = global.selected_celestial().clone();
             let mut after = before.clone();
             if let Err(error) = key.field.write(&mut after, value) {
                 editor.status = format!("{}未采用：{error}", key.field.label());
@@ -220,7 +235,15 @@ pub(super) fn rollback_owned_scrub(
 ) -> bool {
     match &transaction.before {
         CelestialScrubBefore::Global { dirty, .. } => {
-            if transaction.key.field.read(&global.draft.celestial_lighting)
+            // 同 ID 套装热载后，只有未被覆盖的脏草稿仍属于旧输入。
+            if !global.dirty && global.source_revision != transaction.stamp.global_source_revision {
+                return false;
+            }
+            let profile = if let Some(id) = &transaction.stamp.profile_id {
+                let Some(profile) = global.draft.library.profiles_mut().get_mut(id) else { return false; };
+                &mut profile.appearance.celestial_lighting
+            } else { &mut global.draft.celestial_lighting };
+            if transaction.key.field.read(profile)
                 != transaction.latest_value
             {
                 return false;
@@ -229,7 +252,7 @@ pub(super) fn rollback_owned_scrub(
                 .key
                 .field
                 .write(
-                    &mut global.draft.celestial_lighting,
+                    profile,
                     transaction.initial_value,
                 )
                 .is_err()
@@ -284,7 +307,7 @@ fn begin_scrub(
     let initial_value = current_value(key, session, global)?;
     let before = match key.scope {
         CelestialNumericScope::Global => CelestialScrubBefore::Global {
-            profile: global.draft.celestial_lighting.clone(),
+            profile: global.selected_celestial().clone(),
             dirty: global.dirty,
         },
         CelestialNumericScope::Scene => {
@@ -337,7 +360,7 @@ fn apply_scrub_changed(
     }
     let result = match key.scope {
         CelestialNumericScope::Global => {
-            key.field.write(&mut global.draft.celestial_lighting, value)
+            key.field.write(global.selected_celestial_mut(), value)
         }
         CelestialNumericScope::Scene => {
             let Some(draft) = session.draft.as_mut() else {
@@ -404,7 +427,7 @@ fn finish_scrub(
         CelestialScrubBefore::Global {
             profile: before, ..
         } => {
-            let after = global.draft.celestial_lighting.clone();
+            let after = global.selected_celestial().clone();
             if before == after {
                 editor.status = format!("{}拖动没有净变化", key.field.label());
                 return;
@@ -473,6 +496,7 @@ pub(crate) fn handle_celestial_numeric_inputs(
     mut state: ResMut<CelestialNumericInputState>,
     mut set_values: MessageWriter<NumericInputSetValue>,
 ) {
+    let mut canceled_focus = None;
     if let Some(entity) = active.entity
         && let Some(key) = input_key(&inputs, entity)
     {
@@ -488,6 +512,7 @@ pub(crate) fn handle_celestial_numeric_inputs(
         if unavailable || stale || stamp.is_none() {
             reset_input(entity, key, &session, &global, &mut set_values);
             state.focus = None;
+            canceled_focus = Some(entity);
         } else if state.focus.is_none() {
             state.focus = stamp.map(|stamp| CelestialNumericFocus { entity, key, stamp });
             editor.status = format!("正在精确输入{}；Enter 或点击空白提交", key.field.label());
@@ -516,6 +541,10 @@ pub(crate) fn handle_celestial_numeric_inputs(
         let Some(key) = input_key(&inputs, event.entity) else {
             continue;
         };
+        // 选择其他套装时，不能用新的身份重新接收上一套装同帧的输入。
+        if canceled_focus == Some(event.entity) && event.source != NumericInputCommitSource::Scrub {
+            continue;
+        }
         if event.source == NumericInputCommitSource::Scrub {
             finish_scrub(
                 event.entity,
@@ -607,6 +636,7 @@ pub(crate) fn handle_celestial_override_toggles(
             editor.status = "当前固定场景不迁移天体光照覆盖".to_owned();
             continue;
         };
+        if !matches!(before.source, feathrise_scene_content::SceneEnvironmentSource::Legacy) { continue; }
         let effective = resolve(
             &global.draft.celestial_lighting,
             &before.celestial_overrides,

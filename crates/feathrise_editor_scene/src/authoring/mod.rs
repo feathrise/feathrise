@@ -100,6 +100,7 @@ pub(crate) use boundary::{
     sync_live_boundary_override,
 };
 pub(crate) use celestial::{sync_dynamic_celestial_preview, sync_global_environment_authoring};
+pub(crate) mod environment_library;
 pub(crate) use celestial_input::{
     CelestialColorSwatch, CelestialNumericInputSlot, CelestialNumericInputState,
     CelestialNumericKey, CelestialNumericScope, CelestialOverrideProperty, CelestialOverrideToggle,
@@ -131,12 +132,14 @@ pub(crate) use edit::{
 pub(crate) use edit::drive_undo_redo_to_completion;
 #[cfg(any(test, feature = "validation"))]
 pub(crate) use environment::commit_environment_change;
+pub(crate) use environment::sky_preview_revision;
 pub(crate) use environment::{
     apply_environment_action, sync_editor_skybox_requests, sync_editor_weather_preview,
 }; // 同步天空请求和不持久化的F12天气画面覆盖，不修改场景气候身份。
 pub(crate) use environment_input::{
     EnvironmentNumericInputSlot, EnvironmentNumericInputState, EnvironmentNumericKind,
-    handle_environment_numeric_inputs, setup_environment_numeric_inputs,
+    handle_environment_numeric_inputs, handle_library_sky_inputs, setup_environment_numeric_inputs,
+    sync_library_sky_inputs, GlobalEnvironmentNumericInputSlot,
     sync_environment_numeric_inputs,
 }; // 右栏只组合固定槽位，场景环境事务和天气预览值由独立模块处理。
 pub(crate) use files::{atomic_write, safe_asset_path};

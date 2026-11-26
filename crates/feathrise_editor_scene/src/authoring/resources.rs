@@ -372,6 +372,9 @@ pub struct GlobalEnvironmentAuthoringState {
     pub load_error: Option<String>,
     /// 首次同步完成前草稿仍使用编译期安全默认值。
     pub initialized: bool,
+    /// 当前选中的全局套装与列表修订属于作者界面。
+    pub selected_environment_id: Option<String>,
+    pub library_listing_revision: u64,
 }
 
 impl Default for GlobalEnvironmentAuthoringState {
@@ -385,6 +388,8 @@ impl Default for GlobalEnvironmentAuthoringState {
             source_revision: 0,   // 尚未观察运行时资产注册表。
             load_error: None,     // 文件未决不等于失败。
             initialized: false,   // 同步系统会采用全局注册表当前有效值与错误。
+            selected_environment_id: None,
+            library_listing_revision: 0,
         }
     }
 }

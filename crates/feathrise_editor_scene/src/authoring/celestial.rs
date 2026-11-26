@@ -3,7 +3,7 @@
 use bevy::prelude::*; // Res、ResMut 与资源变更检测组成轻量同步系统。
 use feathrise_scene_content::{
     DynamicCelestialLightingPreview, WORLD_ENVIRONMENT_SCHEMA_VERSION, WorldEnvironmentAsset,
-    WorldEnvironmentRegistry, resolve,
+    WorldEnvironmentRegistry, resolve_scene_environment,
 }; // 编辑器不复制全局默认、场景继承或运行时预览协议。
 
 use super::resources::{EditorAuthoringSession, GlobalEnvironmentAuthoringState}; // 两份作者草稿共同生成最终动态场景预览。
@@ -16,6 +16,11 @@ pub(crate) fn sync_global_environment_authoring(
 ) {
     let Some(registry) = registry.as_deref() else {
         if !authoring.initialized {
+            let legacy = authoring.draft.celestial_lighting.clone();
+            authoring.draft.library = authoring.draft.library.clone().with_legacy_default(&legacy);
+            authoring.saved.library = authoring.draft.library.clone();
+            authoring.library_listing_revision = authoring.library_listing_revision.wrapping_add(1);
+            authoring.maintain_environment_selection();
             authoring.initialized = true; // 独立编辑器测试没有场景内容插件时继续使用自身安全默认值。
             authoring.load_error =
                 Some("全局世界环境注册表尚未安装；当前使用编译期默认值".to_owned()); // UI 明确说明配置来源。
@@ -34,9 +39,12 @@ pub(crate) fn sync_global_environment_authoring(
     let asset = WorldEnvironmentAsset {
         schema_version: WORLD_ENVIRONMENT_SCHEMA_VERSION, // 注册表只暴露已经通过当前版本校验的有效配置。
         celestial_lighting: registry.celestial_lighting.clone(), // 采用完整六组安全快照。
+        library: registry.library.clone().with_legacy_default(&registry.celestial_lighting),
     };
     authoring.saved = asset.clone(); // 后续撤销可判断是否回到磁盘基线。
     authoring.draft = asset; // F12 数值控件和实时预览读取同一完整值。
+    authoring.library_listing_revision = authoring.library_listing_revision.wrapping_add(1);
+    authoring.maintain_environment_selection();
 }
 
 /// F12 打开或天体草稿仍未保存时，发布“全局草稿 → 场景覆盖”的完整实时预览。
@@ -58,10 +66,9 @@ pub(crate) fn sync_dynamic_celestial_preview(
         preview.clear(); // 已关闭且两份作者配置都干净时，正式全局注册表与场景清单重新接管。
         return;
     }
-    let resolved = resolve(
-        &global.draft.celestial_lighting, // 未保存全局草稿优先于 AssetServer 正式值。
-        &draft.manifest.environment.celestial_overrides, // 六组属性逐项选择继承或场景覆盖。
-    );
+    let resolved = resolve_scene_environment(
+        &draft.manifest.environment, &global.draft.celestial_lighting, &global.draft.library,
+    ).celestial_lighting;
     if resolved.validate().is_err() {
         preview.clear(); // UI 正常不会产生非法值，防御外部草稿损坏时保持正式安全配置。
         return;
@@ -117,6 +124,7 @@ mod tests {
         let registry = WorldEnvironmentRegistry {
             handle: Handle::default(), // 纯同步测试不读取真实资产。
             celestial_lighting: CelestialLightingProfile::default(),
+            library: Default::default(),
             revision: 9,
             last_error: None,
         };
@@ -168,7 +176,7 @@ mod tests {
             azimuth_offset_degrees: Some(-45.0),     // 场景方位角覆盖应规范为三百一十五度。
             light_source_angular_diameter_degrees: Some(2.0), // 场景软阴影角范围覆盖。
         };
-        let expected = resolve(
+        let expected = feathrise_scene_content::resolve(
             &CelestialLightingProfile::default(), // 未覆盖的值理论上继续继承全局默认。
             &overrides,                           // 本测试实际覆盖全部六组字段。
         );

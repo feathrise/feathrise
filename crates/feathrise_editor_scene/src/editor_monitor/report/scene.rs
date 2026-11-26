@@ -1,9 +1,10 @@
 //! F4场景摆放、传送点、区域边界与场景环境的作者数据报告。
 
 use feathrise_atmosphere::{WeatherDebugOverride, WeatherState}; // 环境报告复用F12天气滑块的正式状态与调试覆盖来源。
+use feathrise_scene_content::{SceneEnvironmentSource, resolve_scene_environment};
 
 use super::common::{format_count, no_draft_report, page_header}; // 场景与玩法页共用场景身份和大数格式。
-use crate::authoring::EditorAuthoringSession; // 所有数据直接来自当前已加载草稿和修订。
+use crate::authoring::{EditorAuthoringSession, GlobalEnvironmentAuthoringState};
 use crate::resources::SceneEditorState; // F12与保存状态用于统一页头。
 
 /// 报告显式GLB/GLTF场景摆放总量和少量稳定身份样本。
@@ -157,6 +158,7 @@ pub(super) fn build_boundaries_report(
 pub(super) fn build_environment_report(
     editor: &SceneEditorState,                 // 当前F12与dirty状态。
     session: &EditorAuthoringSession,        // 当前清单环境与修订。
+    global: Option<&GlobalEnvironmentAuthoringState>, // 使用当前全局草稿解析场景引用。
     weather_state: &WeatherState,            // 自动天气的当前连续过渡进度。
     weather_override: &WeatherDebugOverride, // F12强制天气或手动预览覆盖。
 ) -> String {
@@ -164,7 +166,26 @@ pub(super) fn build_environment_report(
         return no_draft_report("环境");
     };
     let mut lines = page_header("环境", editor, session, draft);
-    let environment = &draft.manifest.environment; // 环境权威值与场景清单同生共存。
+    let authored = &draft.manifest.environment;
+    let resolved = global.map(|state| {
+        resolve_scene_environment(authored, &state.draft.celestial_lighting, &state.draft.library)
+    });
+    let environment = resolved.as_ref().map_or(authored, |value| &value.environment);
+    let source_mode = match &authored.source {
+        SceneEnvironmentSource::Legacy => "场景原有配置",
+        SceneEnvironmentSource::Local => "场景独立副本",
+        SceneEnvironmentSource::InheritDefault => "继承工程默认",
+        SceneEnvironmentSource::Shared(_) => "共享方案",
+    };
+    let source = if let Some(id) = resolved.as_ref().and_then(|value| value.missing_profile.as_deref()) {
+        format!("{source_mode} · {id} 缺失 · 使用场景已有外观")
+    } else if let Some(id) = resolved.as_ref().and_then(|value| value.profile_id.as_deref()) {
+        let name = global.and_then(|state| state.draft.library.profiles.get(id))
+            .map_or(id, |profile| profile.name.as_str());
+        format!("{source_mode} · {name}")
+    } else {
+        source_mode.to_owned()
+    };
     lines.push(format!(
         "环境修订：{}  |  {}",
         session.environment_revision,
@@ -174,6 +195,7 @@ pub(super) fn build_environment_report(
             "已落盘"
         }
     ));
+    lines.push(format!("环境来源：{source}"));
     lines.push(format!(
         "天空模式：{}  |  天空资源：{}",
         environment.sky_mode.display_name(),
@@ -220,7 +242,41 @@ pub(super) fn build_environment_report(
         ));
     }
     lines.push(
-        "统计口径：显示清单中的作者基准；当前实时昼夜/天气乘数仍由运行时天气系统维护。".to_owned(),
+        "统计口径：显示当前来源解析后的作者基准；实时昼夜与天气乘数由运行时维护。".to_owned(),
     );
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use feathrise_scene_content::{EnvironmentAppearance, SceneSkyMode, WorldEnvironmentProfile};
+
+    #[test]
+    fn environment_report_reads_shared_appearance_from_the_authoring_library() {
+        let mut draft = crate::authoring::test_heightfield_draft(vec![0; 121].into());
+        draft.manifest.environment.source = SceneEnvironmentSource::Shared("rain".into());
+        draft.manifest.environment.skybox_path = Some("skyboxes/old.ktx2".into());
+        let weather = draft.manifest.environment.weather;
+        let session = EditorAuthoringSession { draft: Some(draft), ..Default::default() };
+        let mut global = GlobalEnvironmentAuthoringState::default();
+        global.draft.library.default_profile_id = "rain".into();
+        global.draft.library.profiles_mut().insert("rain".into(), WorldEnvironmentProfile {
+            name: "雨天外观".into(),
+            appearance: EnvironmentAppearance {
+                sky_mode: SceneSkyMode::Skybox,
+                skybox_path: Some("skyboxes/rain.ktx2".into()),
+                environment_diffuse_intensity: 42.0,
+                ..Default::default()
+            },
+        });
+        let report = build_environment_report(&SceneEditorState::default(), &session, Some(&global),
+            &WeatherState::default(), &WeatherDebugOverride::default());
+        assert!(report.contains("共享方案 · 雨天外观"));
+        assert!(report.contains("skyboxes/rain.ktx2"));
+        assert!(!report.contains("skyboxes/old.ktx2"));
+        assert!(report.contains("漫反射补光 42.0"));
+        assert!(report.contains(weather.region.display_name()));
+        assert!(report.contains(weather.climate.display_name()));
+    }
 }

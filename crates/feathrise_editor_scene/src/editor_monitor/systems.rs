@@ -8,7 +8,7 @@ use feathrise_atmosphere::{WeatherDebugOverride, WeatherState}; // 环境页复�
 
 use super::helpers::resource_monitor_page_display;
 use super::report::build_editor_scene_report;
-use crate::authoring::{EditorAuthoringSession, VegetationPreviewState, WaterPreviewState}; // F4只复用作者会话与现有预览完成值，不启动独立统计任务。
+use crate::authoring::{EditorAuthoringSession, GlobalEnvironmentAuthoringState, VegetationPreviewState, WaterPreviewState}; // F4复用现有作者和预览状态。
 use crate::components::{
     SceneEditorMonitorGroupButton, SceneEditorMonitorPageText, SceneEditorMonitorPanel,
     SceneEditorMonitorSubTabRow, SceneEditorMonitorTabButton,
@@ -190,6 +190,7 @@ pub(super) fn refresh_editor_scene_monitor(
     session: Res<EditorAuthoringSession>,
     vegetation_preview: Res<VegetationPreviewState>,
     water_preview: Res<WaterPreviewState>,
+    environment_library: Option<Res<GlobalEnvironmentAuthoringState>>,
     weather_state: Res<WeatherState>, // 自动天气当前节点和连续过渡比例。
     weather_override: Res<WeatherDebugOverride>, // F12强制模式与手动预览比例。
     mut state: ResMut<EditorSceneMonitorState>,
@@ -211,6 +212,7 @@ pub(super) fn refresh_editor_scene_monitor(
         &session,
         &vegetation_preview,
         &water_preview,
+        environment_library.as_deref(),
         &weather_state,
         &weather_override,
     ); // 只构建当前页字符串，十七页不会在同一刷新点全部分配。

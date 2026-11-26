@@ -215,8 +215,11 @@ impl Plugin for SceneEditorPlugin {
             .init_resource::<feathrise_scene_content::SceneAuthorPreview>() // 只有活动标签的完整临时输入参与正式场景加载。
             .init_resource::<PlacementTerrainFollowState>() // 地形修订后按固定预算让跟随型显式资产重新贴地。
             .init_resource::<GlobalEnvironmentAuthoringState>() // 全局文件草稿与场景草稿保持独立脏状态和共同撤销线。
+            .init_resource::<ui::environment::EnvironmentPageState>()
+            .add_message::<authoring::environment_library::EnvironmentLibraryEditRequest>()
             .init_resource::<GlobalEnvironmentSaveTask>() // 仅全局脏时不进入任何场景预检。
             .init_resource::<DynamicCelestialLightingPreview>() // 独立编辑器测试也具备安全空预览资源。
+            .init_resource::<feathrise_scene_content::DynamicSceneEnvironmentPreview>()
             .init_resource::<EditorGltfBrowserState>() // 强持有唯一Scene0并公开稳定网格选择。
             .init_resource::<PlacementTransformInputState>() // 七字段事务与一次视口移动模式共享稳定作者身份。
             .init_resource::<ApplyTransformState>()
@@ -411,11 +414,16 @@ impl Plugin for SceneEditorPlugin {
                                 handle_water_feature_row_clicks, // 数值与水网动作收口后再切当前静水、河流或瀑布。
                                 apply_boundary_actions,
                                 handle_boundary_thickness_input, // 墙厚Gizmo实时变化，松手才发布一次碰撞修订。
-                                apply_environment_action,
-                                handle_environment_numeric_inputs, // 四项天空亮度与Yaw复用同一公共交互协议。
-                                handle_celestial_numeric_inputs, // 全局/场景天体值实时预览，提交边沿只登记一条撤销。
-                                handle_celestial_override_toggles, // 启用覆盖复制当前有效值，恢复跟随删除对应字段。
-                                handle_celestial_section_toggles,  // 两个纵向区域只改变会话布局。
+                                (
+                                    apply_environment_action,
+                                    handle_environment_numeric_inputs,
+                                    handle_library_sky_inputs,
+                                    handle_celestial_numeric_inputs,
+                                    handle_celestial_override_toggles,
+                                    handle_celestial_section_toggles,
+                                    ui::environment::handle_environment_library_buttons,
+                                    authoring::environment_library::apply_environment_library_requests,
+                                ).chain(), // 数值会话先收口，再切换环境来源或套装。
                                 (
                                     handle_world_environment_controls, // 时间、月份与运行时天气调试在推进/解析前生效。
                                     handle_grass_wind_slider, // 只写晴天基准设置，天气解析后由场景唯一风桥同帧派生实际摆幅。
@@ -656,6 +664,7 @@ impl Plugin for SceneEditorPlugin {
                                     sync_water_network_numeric_inputs, // 选择、连接、撤销和倍率变化后同步四项控制点值。
                                     sync_boundary_thickness_input, // 路径换代与保存门同步墙厚值和禁用态。
                                     sync_environment_numeric_inputs, // 四项天空作者值同步对应公共输入根。
+                                    sync_library_sky_inputs,
                                     sync_vegetation_numeric_inputs, // 切层、规则、锁定、撤销和倍率变化同步五项参数。
                                     refresh_placement_water_selection_cache, // 选择或作者修订变化时只定位一次当前水绑定。
                                     refresh_placement_water_runtime_selection_cache, // 生命周期票据变化时只聚合当前选择的少量根。
@@ -745,6 +754,7 @@ impl Plugin for SceneEditorPlugin {
                 (
                     sync_celestial_controls, // 数值、继承按钮和颜色色块读取本帧最终作者与运行时采用结果。
                     sync_editor_environment_text, // 天空与全局配置诊断在最终光照之后刷新。
+                    ui::environment::sync_environment_library,
                     sync_world_environment_controls, // 时间、月份和天气摘要等待最终效果应用后刷新。
                 )
                     .chain()

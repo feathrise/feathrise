@@ -1,7 +1,7 @@
 //! 环境页的固定回显字段及小型语义快照；不复制场景数据或建立新运行时状态机。
 
 use feathrise_atmosphere::AuthoredSkyboxStatus;
-use feathrise_scene_content::{SceneEnvironmentDescriptor, SceneId};
+use feathrise_scene_content::{SceneEnvironmentDescriptor, SceneEnvironmentSource, SceneId};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum EnvironmentTextField {
@@ -31,6 +31,8 @@ pub(crate) struct EnvironmentObservation {
     pub(super) scene_name: Option<String>,
     pub(super) runtime_scene: Option<String>,
     pub(super) environment: Option<SceneEnvironmentDescriptor>,
+    pub(super) environment_source: Option<SceneEnvironmentSource>,
+    pub(super) library_listing_revision: u64,
     pub(super) loading: bool,
     pub(super) environment_revision: u64,
     pub(super) environment_dirty: bool,

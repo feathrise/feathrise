@@ -247,6 +247,7 @@ fn create_scene(
             "default_spawn": [0.0, 2.0, 0.0],
             "asset_roots": [folder_relative.as_str(), "gltf", "textures"],
         })).map_err(|error| format!("构造新场景清单失败：{error}"))?;
+        manifest.environment = feathrise_scene_content::SceneEnvironmentDescriptor::inheriting_default(); // 只给新场景选项目默认，保留旧清单的原解析。
         manifest.terrains = (request.terrain_mode == NewSceneTerrainMode::Empty).then(Default::default);
         manifest.terrain = new_scene_terrain_descriptor(request.terrain_mode, &scene_id, &folder_relative, height_resolution);
         if request.terrain_mode == NewSceneTerrainMode::SparseClipmap {
@@ -640,6 +641,7 @@ mod tests {
             &std::fs::read(root.join(entry.manifest_path())).unwrap(),
         ).unwrap();
         assert_eq!(manifest.id, scene.scene_id);
+        assert_eq!(manifest.environment.source, feathrise_scene_content::SceneEnvironmentSource::InheritDefault);
         assert_eq!(manifest.asset_roots[0], entry.folder);
         let path = entry.placements_path();
         let glb = std::fs::read(root.join(&path)).unwrap();

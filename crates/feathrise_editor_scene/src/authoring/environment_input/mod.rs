@@ -4,6 +4,7 @@
 //! `environment_revision`；运行时天气调试已经统一迁入独立 F12 世界环境控件。
 
 mod scene; // 四个固定槽位首次挂载完整公共控件。
+mod library; // 全局套装复用同样的公共控件并按套装 ID 冻结交互。
 mod sync; // 草稿、预览、禁用态和持久倍率同步。
 mod systems; // 精确提交、左拖事务与右拖倍率消息处理。
 mod transaction; // 冲突和异常收口只恢复本事务拥有的单一环境字段。
@@ -22,6 +23,7 @@ use crate::authoring::resources::EditorAuthoringSession; // 当前环境草稿�
 use transaction::rollback_environment_scrub_if_owned; // 不用旧完整环境快照覆盖外部字段。
 
 pub(crate) use scene::setup_environment_numeric_inputs; // Presentation首次创建四个根。
+pub(crate) use library::{handle_library_sky_inputs, sync_library_sky_inputs};
 pub(crate) use sync::sync_environment_numeric_inputs; // Presentation同步当前作者与预览值。
 pub(crate) use systems::handle_environment_numeric_inputs; // Input消费四类公共消息。
 
@@ -177,6 +179,12 @@ impl EnvironmentNumericKind {
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub(crate) struct EnvironmentNumericInputSlot(pub(crate) EnvironmentNumericKind);
 
+#[derive(Component, Clone, Copy, Default)]
+pub(crate) struct GlobalEnvironmentNumericInputSlot(pub(crate) EnvironmentNumericKind);
+
+#[derive(Component)]
+pub(crate) struct GlobalEnvironmentNumericInput(pub(super) EnvironmentNumericKind);
+
 /// 公共NumericInput根上的环境字段marker。
 #[derive(Component, Clone, Copy, Debug)]
 pub(crate) struct EnvironmentNumericInput(pub(super) EnvironmentNumericKind); // lib.rs注册带该Query的系统，marker类型需保持crate可见。
@@ -229,7 +237,7 @@ pub(super) fn authored_target(
     session: &EditorAuthoringSession,
 ) -> Option<EnvironmentNumericTarget> {
     let draft = session.draft.as_ref()?; // 没有草稿时天空字段禁用。
-    (draft.manifest.is_data_driven()).then(|| EnvironmentNumericTarget {
+    (draft.manifest.is_data_driven() && super::environment_library::scene_environment_editable(&draft.manifest.environment)).then(|| EnvironmentNumericTarget {
         scene_id: draft.scene_id.clone(),         // 冻结真实场景身份。
         authoring_revision: session.revision, // 冻结作者分支身份。
     })

@@ -327,6 +327,7 @@ pub(crate) fn poll_draft_save(
                 environment_publish.authoring.load_error = None; // 联合保存也可修复缺失或损坏的启动文件。
                 if let Some(registry) = environment_publish.registry.as_deref_mut() {
                     registry.celestial_lighting = snapshot.celestial_lighting.clone().normalized(); // 动态场景同帧采用落盘配置。
+                    registry.library = snapshot.library.clone();
                     registry.last_error = None; // 清除旧加载错误。
                     registry.revision = registry.revision.wrapping_add(1); // 最终场景覆盖重新解析。
                     environment_publish.authoring.source_revision = registry.revision; // 后续同值资产事件不覆盖作者基线。

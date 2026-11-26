@@ -6,8 +6,13 @@ use super::*;
 #[test]
 fn day_and_night_rgb_channels_share_one_row_without_replacing_numeric_roots() {
     let (mut app, _) = page();
-    let world = app.world_mut();
     for scope in [CelestialNumericScope::Global, CelestialNumericScope::Scene] {
+        app.world_mut().resource_mut::<EnvironmentPageState>().page = match scope {
+            CelestialNumericScope::Global => EnvironmentPage::Library,
+            CelestialNumericScope::Scene => EnvironmentPage::Scene,
+        };
+        settle(&mut app);
+        let world = app.world_mut();
         for fields in [[CelestialValueField::DayRed, CelestialValueField::DayGreen, CelestialValueField::DayBlue],
             [CelestialValueField::NightRed, CelestialValueField::NightGreen, CelestialValueField::NightBlue]] {
             let mut cells = world.query::<(&CelestialNumericInputSlot, &Children)>().iter(world)
@@ -24,11 +29,12 @@ fn day_and_night_rgb_channels_share_one_row_without_replacing_numeric_roots() {
             }
         }
     }
-    assert_eq!(world.query_filtered::<Entity, With<NumericInputRoot>>().iter(world).count(), 24);
+    let world = app.world_mut();
+    assert_eq!(world.query_filtered::<Entity, With<NumericInputRoot>>().iter(world).count(), 28);
 }
 
 #[test]
-fn environment_reflow_preserves_twenty_four_numeric_roots_and_active_buffer() {
+fn environment_reflow_preserves_numeric_roots_and_active_buffer() {
     let (mut app, host) = page();
     app.world_mut()
         .resource_mut::<EditorAuthoringSession>()
@@ -44,11 +50,12 @@ fn environment_reflow_preserves_twenty_four_numeric_roots_and_active_buffer() {
     app.world_mut()
         .resource_mut::<GlobalEnvironmentAuthoringState>()
         .load_error = Some("全局环境来源错误：请检查完整中文资源路径。".repeat(12));
+    app.world_mut().resource_mut::<EnvironmentPageState>().page = EnvironmentPage::Library;
     settle(&mut app);
     let world = app.world_mut();
     let fields = world.query_filtered::<(Entity, &NumericInputConfig, &NumericInputValue), With<NumericInputRoot>>()
         .iter(world).map(|(entity, config, value)| (entity, *config, *value)).collect::<Vec<_>>();
-    assert_eq!(fields.len(), 24);
+    assert_eq!(fields.len(), 28);
     let slot = world
         .query::<(Entity, &CelestialNumericInputSlot)>()
         .iter(world)
@@ -92,7 +99,15 @@ fn environment_reflow_preserves_twenty_four_numeric_roots_and_active_buffer() {
                     assert_eq!(node.min_width, px(0));
                     assert_eq!(node.height, px(24));
                     let computed = world.get::<ComputedNode>(*entity).unwrap();
-                    let rgb = world.get::<ChildOf>(*entity).and_then(|parent| world.get::<CelestialNumericInputSlot>(parent.parent())).is_some_and(|input| matches!(input.0.field,
+                    let slot = world.get::<ChildOf>(*entity).unwrap().parent();
+                    let celestial = world.get::<CelestialNumericInputSlot>(slot);
+                    if world.get::<GlobalEnvironmentNumericInputSlot>(slot).is_none()
+                        && celestial.is_none_or(|input| input.0.scope == CelestialNumericScope::Scene)
+                    {
+                        assert_eq!(computed.size(), Vec2::ZERO); // 页签只隐藏场景根，保留同一实体和输入快照。
+                        continue;
+                    }
+                    let rgb = celestial.is_some_and(|input| matches!(input.0.field,
                         CelestialValueField::DayRed | CelestialValueField::DayGreen | CelestialValueField::DayBlue
                         | CelestialValueField::NightRed | CelestialValueField::NightGreen | CelestialValueField::NightBlue));
                     assert!(computed.size().x > if rgb { 40.0 } else { 180.0 } * scale * dpi);
@@ -148,7 +163,7 @@ fn environment_reflow_preserves_twenty_four_numeric_roots_and_active_buffer() {
                         .query_filtered::<Entity, With<NumericInputRoot>>()
                         .iter(world)
                         .count(),
-                    24
+                    28
                 );
             }
         }
@@ -175,8 +190,13 @@ fn environment_scope_order_and_collapsing_keep_original_entities_in_low_window()
             .translation
             .y
     };
-    assert!(y(world, "当前场景 · 持久参数") < y(world, "世界调试 · 当前运行"));
-    assert!(y(world, "世界调试 · 当前运行") < y(world, "全局默认 · 所有动态场景"));
+    assert!(y(world, "场景环境") < y(world, "环境来源"));
+    assert!(y(world, "环境来源") < y(world, "世界调试 · 当前运行"));
+    app.world_mut().resource_mut::<EnvironmentPageState>().page = EnvironmentPage::Library;
+    settle(&mut app);
+    let world = app.world_mut();
+    assert!(y(world, "全局环境库") < y(world, "全局方案"));
+    assert!(y(world, "全局方案") < y(world, "世界调试 · 当前运行"));
     let original = world
         .query_filtered::<Entity, With<NumericInputRoot>>()
         .iter(world)
@@ -212,7 +232,7 @@ fn environment_scope_order_and_collapsing_keep_original_entities_in_low_window()
                 .query_filtered::<Entity, With<NumericInputRoot>>()
                 .iter(world)
                 .count(),
-            24
+            28
         );
     }
     assert_eq!(author(&app), before);

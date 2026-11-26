@@ -2,11 +2,10 @@
 
 use bevy::prelude::*; // Commands、Query与资源变更检测。
 use feathrise_atmosphere::{AuthoredSkyMode, AuthoredSkyboxRequest, WeatherAuthoringPreview}; // 可见模式与 IBL 复用正式加载器，天气预览复用连续输出。
-use feathrise_scene_core::view::PrimarySceneView; // 当前动态场景唯一玩法窗口相机。
-use feathrise_scene_content::{ActiveDynamicScene, SceneEnvironmentDescriptor, SceneId, SceneSkyMode}; // 清单天空模式、环境格式和玩法场景稳定身份。
+use feathrise_scene_content::{ActiveDynamicScene, DynamicSceneEnvironmentPreview, SceneEnvironmentDescriptor, SceneId, SceneSkyMode, resolve_scene_environment};
 use feathrise_scene_core::state::ScenePhase; // 只有统一动态场景场景接受未保存环境覆盖。
 
-use super::resources::{EditorAuthoringSession, EditorCommand}; // 草稿、修订和统一撤销栈。
+use super::resources::{EditorAuthoringSession, EditorCommand, GlobalEnvironmentAuthoringState};
 use crate::components::SceneEditorCamera; // 只把草稿天空安装到独立离屏相机。
 use crate::resources::SceneEditorState; // 资产选择、一帧动作和用户可见状态。
 use crate::types::EnvironmentEditAction; // 右栏按钮的结构化作者动作。
@@ -14,7 +13,7 @@ use crate::types::EnvironmentEditAction; // 右栏按钮的结构化作者动作
 pub(super) const SKYBOX_MAX_BRIGHTNESS: f32 = 100_000.0; // 可见天空盒与 PBR 环境照明字段统一使用的安全硬上限。
 
 /// 从完整旧值生成离散环境动作的新值；连续亮度、方向和天气比例由公共字段处理。
-fn edited_environment(
+pub(super) fn edited_environment(
     current: &SceneEnvironmentDescriptor, // 当前草稿完整环境快照。
     action: EnvironmentEditAction,      // 本帧唯一离散动作。
     selected_asset: Option<&str>,       // 只有“设置天空资源”读取资产浏览器选择。
@@ -92,6 +91,10 @@ pub(crate) fn apply_environment_action(
         return;
     }
     let before = draft.manifest.environment.clone(); // 完整快照用于一次撤销恢复全部环境字段。
+    if !super::environment_library::scene_environment_editable(&before) {
+        editor.status = "共享场景环境请在全局环境库修改，或制作本场景副本".to_owned();
+        return;
+    }
     let after = match edited_environment(&before, action, selected_asset) {
         Ok(value) => value,
         Err(error) => {
@@ -135,56 +138,59 @@ fn can_preview_environment_in_gameplay(
         && active_dynamic.scene_id.as_ref() == Some(draft_scene_id) // 草稿和实景必须是同一个场景。
 }
 
-/// 把当前草稿环境和专用修订同步到F12相机，并把未保存修改实时覆盖到匹配玩法相机。
+pub(crate) fn sky_preview_revision(
+    session: &EditorAuthoringSession,
+    global: Option<&GlobalEnvironmentAuthoringState>,
+) -> u64 {
+    // 清洁草稿采用正式资产热更后，面板摘要与贴图请求也要进入同一新修订。
+    session.environment_revision.wrapping_add(global.map_or(0, |global| {
+        global.revision.wrapping_add(global.source_revision)
+    }))
+}
+
+/// 作者视口解析当前场景或库草稿，玩法预览通过同场景身份交由运行时接管。
 pub(crate) fn sync_editor_skybox_requests(
     mut commands: Commands,                // 只在请求真实改变时插入组件。
     session: Res<EditorAuthoringSession>,  // 草稿环境与环境专用修订是唯一输入。
     active_dynamic: Res<ActiveDynamicScene>, // 防止目录高亮或切换场景空窗误改其他场景。
     current_scene: Res<State<ScenePhase>>,  // 只有当前确实处于动态玩法场景才发布实景覆盖。
+    global: Option<Res<GlobalEnvironmentAuthoringState>>,
+    mut gameplay_preview: ResMut<DynamicSceneEnvironmentPreview>,
     editor_cameras: Query<
         (Entity, Option<&AuthoredSkyboxRequest>), // 比较请求完整值，稳定帧不重复写组件。
         With<SceneEditorCamera>,                    // 编辑器固定一台离屏相机。
-    >,
-    gameplay_cameras: Query<
-        (Entity, Option<&AuthoredSkyboxRequest>), // 复用同一天空异步状态机，不复制Image加载器。
-        (With<PrimarySceneView>, Without<SceneEditorCamera>), // 排除离屏相机，只接管唯一玩法窗口视图。
     >,
 ) {
     let environment = session
         .draft
         .as_ref()
-        .map(|draft| draft.manifest.environment.clone())
+        .map(|draft| global.as_deref().map_or_else(
+            || draft.manifest.environment.clone(),
+            |global| resolve_scene_environment(&draft.manifest.environment, &global.draft.celestial_lighting, &global.draft.library).environment,
+        ))
         .unwrap_or_default(); // 切换场景加载空窗明确恢复相机原清屏色。
     let desired = AuthoredSkyboxRequest::new_with_mode(
         authored_sky_mode(environment.sky_mode), // 场景级二选一模式同步覆盖 F12 与匹配玩法相机。
-        environment.skybox_path, // 主路径仍相对 assets 根；动态模式派生IBL，天空盒模式还加载可见Cube。
+        environment.skybox_path.clone(), // 主路径仍相对 assets 根；动态模式派生IBL，天空盒模式还加载可见Cube。
         environment.skybox_brightness, // 天空盒模式使用该日间基准，动态模式无损保留供切换。
         environment.environment_diffuse_intensity, // 人物与地形天空补光拥有独立日间基准。
         environment.environment_specular_intensity, // 水面与光滑材质反射拥有独立日间基准。
         environment.skybox_yaw_degrees, // 离屏和玩法的可见 Cube 与 IBL 保持同一方向。
-        session.environment_revision, // 迟到Image事件不能覆盖新草稿。
+        sky_preview_revision(&session, global.as_deref()), // 场景和项目草稿共同决定作者身份。
     );
     if let Ok((entity, existing)) = editor_cameras.single()
         && existing != Some(&desired)
     {
         commands.entity(entity).insert(desired.clone()); // 离屏相机始终回显当前草稿或明确清屏状态。
     }
-    let Some(draft) = session.draft.as_ref() else {
-        return; // 没有作者草稿时绝不修改玩法相机。
-    };
-    if !can_preview_environment_in_gameplay(
-        &draft.scene_id,                 // 使用真实SceneId校验当前场景。
-        &draft.manifest.runtime_scene, // 固定场景保持既有天空职责。
-        draft.environment_dirty,       // 保存前才由草稿持有临时权威。
-        &active_dynamic,               // 当前动态玩法SceneId必须完全一致。
-        *current_scene.get(),          // Loading与其他场景立即拒绝。
-    ) {
-        return; // 干净草稿或场景不匹配时由正式运行时继续拥有玩法天空。
-    }
-    if let Ok((entity, existing)) = gameplay_cameras.single()
-        && existing != Some(&desired)
-    {
-        commands.entity(entity).insert(desired); // 设置、清除、亮度和旋转同帧进入游戏实景异步采用链。
+    if let Some(draft) = session.draft.as_ref().filter(|draft| can_preview_environment_in_gameplay(
+        &draft.scene_id, &draft.manifest.runtime_scene,
+        draft.environment_dirty || global.as_ref().is_some_and(|global| global.dirty),
+        &active_dynamic, *current_scene.get(),
+    )) {
+        gameplay_preview.publish(draft.scene_id.clone(), environment);
+    } else {
+        gameplay_preview.clear(); // 关闭、保存或切图后，运行时立即恢复正式环境来源。
     }
 }
 

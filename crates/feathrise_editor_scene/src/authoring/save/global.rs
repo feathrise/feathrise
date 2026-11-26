@@ -111,6 +111,7 @@ pub(crate) fn poll_global_environment_save(
             session.successful_save_sequence = session.successful_save_sequence.wrapping_add(1); // 仅全局保存也向冻结切换场景请求提供成功回执。
             if let Some(registry) = registry.as_deref_mut() {
                 registry.celestial_lighting = snapshot.celestial_lighting.clone().normalized(); // 同帧运行时使用成功落盘值。
+                registry.library = snapshot.library.clone();
                 registry.last_error = None; // F12 全局加载错误立即清除。
                 registry.revision = registry.revision.wrapping_add(1); // 动态场景重新解析场景覆盖。
                 global.source_revision = registry.revision; // 后续热重载同值不会误判为未观察来源。
