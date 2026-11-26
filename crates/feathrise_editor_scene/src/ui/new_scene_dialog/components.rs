@@ -7,3 +7,13 @@ pub(crate) struct DialogFeedbackScroll;
 
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct DialogFooter;
+
+/// 复制透过原名称输入框提交，只有创建和资料编辑能写备注。
+#[derive(Component, Clone, Copy, Default)]
+pub(crate) struct SceneNotesFields;
+
+#[derive(Component, Clone, Copy, Default)]
+pub(crate) struct SceneDialogPrimaryAction;
+
+#[derive(Component, Clone, Copy, Default)]
+pub(crate) struct CopySavedVersionAction;

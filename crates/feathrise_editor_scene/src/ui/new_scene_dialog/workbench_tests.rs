@@ -43,7 +43,11 @@ fn every_scene_dialog_contains_only_text_metadata_and_two_actions() {
             .query::<&SceneEditorActionButton>()
             .iter(world)
             .map(|action| action.0)
+            .filter(|action| *action != EditorAction::CopySavedScene)
             .collect::<Vec<_>>();
+        let saved_button = world.query_filtered::<&Node, With<components::CopySavedVersionAction>>()
+            .single(world).unwrap();
+        assert_eq!(saved_button.display, Display::None);
         assert_eq!(actions.len(), 2);
         assert!(actions.contains(&EditorAction::ConfirmNewScene));
         assert!(actions.contains(&EditorAction::CancelNewScene));

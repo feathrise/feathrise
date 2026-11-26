@@ -89,6 +89,8 @@ pub(super) enum OperationPhase {
     EditingScene,
     Creating,
     CreateAfterSave,
+    Copying,
+    CopyAfterSave,
     Deleting,
     DeleteWaiting,
     DeleteConfirmation,

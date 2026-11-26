@@ -22,7 +22,7 @@ pub fn exit_blocker(world: &World) -> Option<String> {
         state.saving || state.vegetation_cross_busy
     }) || any::<authoring::DraftSaveTask>(world, |state| state.task.is_some())
         || any::<authoring::GlobalEnvironmentSaveTask>(world, |state| state.task.is_some())
-        || any::<resources::SceneCreationTask>(world, |state| state.task.is_some())
+        || any::<resources::SceneCreationTask>(world, resources::SceneCreationTask::busy)
         || any::<resources::SceneDeletionTask>(world, |state| state.busy())
         || any::<resources::SceneFolderPersistence>(world, |state| state.busy())
         || any::<ui::terrain_objects::TerrainObjectsEditorState>(world, |state| state.busy())

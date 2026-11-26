@@ -17,10 +17,12 @@ use std::{
 
 const ENV: &str = "FEATHRISE_SCENE_FORMAT_VALIDATION";
 const CUBE_ENV: &str = "FEATHRISE_CUBE_SAVE_WIREFRAME_VALIDATION";
+const COPY_ENV: &str = "FEATHRISE_SCENE_COPY_VALIDATION";
 const OWNER: &str = ".scene-format-validation-owner.json";
 const PURPOSE: &str = "owned-new-scene-format";
 const PARENT: &str = "验收父场景";
 const CHILD: &str = "验收子场景";
+const COPY: &str = "验收子场景 副本";
 const WINDOW_REPORT: &str = "window.json";
 const NATIVE_TIMEOUT: &str = "native-handoff-timeout.json";
 
@@ -85,20 +87,24 @@ fn cube_only() -> bool {
     std::env::var(CUBE_ENV).as_deref() == Ok("1")
 }
 
+fn copy_only() -> bool {
+    !cube_only() && std::env::var(COPY_ENV).as_deref() == Ok("1")
+}
+
 impl OwnedFixture {
     pub(crate) fn install(self, app: &mut App) {
         app.insert_resource(bevy::winit::WinitSettings::continuous());
         app.world_mut()
             .resource_mut::<feathrise_editor_core::EditorSettings>()
             .ui_locale = feathrise_editor_core::EditorLocalePreference::Chinese;
-        feathrise_editor_scene::standalone::scene_format_validation::install(app);
+        feathrise_editor_scene::standalone::scene_format_validation::install(app, copy_only());
         driver::install(app, self.directory, self.saved, self.cube_probe);
     }
 }
 
 /// 原作者入口已通过 preflight 归属校验；只为本轮重开过程旁录 SDK 自己的超时回读。
 pub(crate) fn preview_handoff_report(project: &crate::project::Project) -> Option<PathBuf> {
-    if std::env::var(ENV).as_deref() != Ok("reopen") || cube_only() {
+    if std::env::var(ENV).as_deref() != Ok("reopen") || cube_only() || copy_only() {
         return None;
     }
     Some(project.root.parent()?.join("reopen").join(NATIVE_TIMEOUT))

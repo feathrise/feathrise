@@ -43,7 +43,7 @@ impl SceneDirectoryMenuState {
             .or_else(|| self.queued.as_ref().map(|request| &request.target))
             .or_else(|| self.dispatched.as_ref().map(|request| &request.target));
         target.is_some_and(|target| match action {
-            EditorAction::EnterSelectedScene => {
+            EditorAction::EnterSelectedScene | EditorAction::CopySelectedScene => {
                 matches!(target.selected, Some(SceneBrowserItem::Scene(_)))
             }
             EditorAction::SceneFolderRename => matches!(

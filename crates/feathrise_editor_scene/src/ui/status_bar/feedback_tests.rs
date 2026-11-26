@@ -230,7 +230,7 @@ fn creation_receipt_uses_frozen_name_and_published_files_do_not_mean_scene_is_re
         feedback_target: Some(target.clone()),
         task: Some(ready_result((
             2,
-            Ok(CreatedScene {
+            Ok(crate::resources::SceneCreationResult::Created(CreatedScene {
                 scene_id: id.clone(),
                 display_name: "冻结新图".into(),
                 folder: "scenes/冻结新图".into(),
@@ -239,7 +239,7 @@ fn creation_receipt_uses_frozen_name_and_published_files_do_not_mean_scene_is_re
                 terrain_mode: NewSceneTerrainMode::SparseClipmap,
                 terrain_mesh_resolution: [129, 129],
                 folder_snapshot: None,
-            }),
+            })),
         ))),
         ..default()
     });

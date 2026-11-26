@@ -18,6 +18,7 @@ pub(crate) use commands::SceneObjectFolderRename;
 pub(crate) use commands::ByteChange; // 有限窗口夹具的来源回归复用正式差分类型，不扩大生产接口。
 pub(crate) mod courtyards; // 院落模板保存、分帧成员索引和整组受检作者事务。
 mod create; // 完整新场景事务：先构建私有目录，最后发布全局目录入口。
+pub(crate) mod scene_copy; // 独立副本重接场景归属，保留工程资产引用。
 pub(crate) mod creation_input; // 名称、米制范围与有界高度场规格校验供弹框预览复用。
 pub(crate) mod layer_categories;
 mod delete; // 受保护场景校验、传送引用检查与可恢复后台删除事务。

@@ -3,15 +3,17 @@
 use feathrise_editor_ui::UiInteraction;
 use crate::components::{
     NewSceneConfirmText, NewSceneDialog, NewSceneDialogBodyScroll, NewSceneDialogHint, NewSceneDialogTitle,
-    NewSceneStatusText,
+    NewSceneStatusText, SceneEditorActionButton,
 };
-use crate::resources::SceneEditorState;
+use crate::resources::{SceneCreationTask, SceneEditorState};
+use crate::types::EditorAction;
 use crate::ui::theme as colors;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
 
 mod components;
+pub(crate) mod copy;
 mod scene;
 mod systems;
 
@@ -90,6 +92,18 @@ pub(crate) fn scroll_new_scene_dialog_body(
 /// 名称、备注与确认动作是场景资料唯一作者入口，不读取地形类型或LOD快照。
 pub(crate) fn sync_new_scene_dialog_status(
     editor: Res<SceneEditorState>,
+    creation: Option<Res<SceneCreationTask>>,
+    locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
+    mut controls: Query<(
+        &mut Node,
+        Option<&mut SceneEditorActionButton>,
+        Has<components::SceneNotesFields>,
+        Has<components::CopySavedVersionAction>,
+    ), Or<(
+        With<components::SceneNotesFields>,
+        With<components::CopySavedVersionAction>,
+        With<components::SceneDialogPrimaryAction>,
+    )>>,
     mut texts: Query<
         (
             &mut Text,
@@ -105,25 +119,53 @@ pub(crate) fn sync_new_scene_dialog_status(
         )>,
     >,
 ) {
-    if !editor.is_changed() {
+    if !editor.is_changed()
+        && !(editor.new_scene_copy_target.is_some() && creation.as_ref().is_some_and(|task| task.is_changed()))
+        && !locale.as_ref().is_some_and(|locale| locale.is_changed())
+    {
         return;
     }
     let editing = editor.new_scene_edit_target.is_some();
+    let copying = editor.new_scene_copy_target.as_ref();
+    let busy = copying.is_some() && creation.as_ref().is_some_and(|task| task.busy());
+    for (mut node, action, notes, saved_version) in &mut controls {
+        let shown = if notes {
+            copying.is_none()
+        } else if saved_version {
+            copying.is_some_and(|copy| copy.dirty) && !busy
+        } else {
+            if let Some(mut action) = action {
+                let wanted = if copying.is_some() { EditorAction::ConfirmSceneCopy } else { EditorAction::ConfirmNewScene };
+                if action.0 != wanted { action.0 = wanted; }
+            }
+            !busy
+        };
+        let display = if shown { Display::Flex } else { Display::None };
+        if node.display != display { node.display = display; }
+    }
+    let locale = locale.as_deref().copied().unwrap_or_default();
+    let source_hint = copying.map(|copy| format!("源场景“{}”", copy.display_name));
     for (mut text, title, hint, confirm) in &mut texts {
         let value = if title {
-            if editing {
+            if copying.is_some() {
+                "复制为新场景"
+            } else if editing {
                 "编辑场景资料"
             } else {
                 "新建场景"
             }
         } else if hint {
-            if editing {
+            if let Some(source) = source_hint.as_deref() {
+                source
+            } else if editing {
                 "名称和备注在此保存；从左侧场景树选中网格后，在右侧属性编辑尺寸、表示参数和显示/碰撞LOD。"
             } else {
                 "Tab切换名称和备注；创建后在“网格”页添加网格并设置尺寸与LOD。"
             }
         } else if confirm {
-            if editing {
+            if let Some(copy) = copying {
+                if copy.dirty { "保存并复制" } else { "复制" }
+            } else if editing {
                 "保存资料"
             } else {
                 "创建空白场景"
@@ -131,8 +173,9 @@ pub(crate) fn sync_new_scene_dialog_status(
         } else {
             &editor.status
         };
-        if text.0 != value {
-            text.0 = value.to_owned();
+        let value = locale.editor_notice(value);
+        if text.as_str() != value.as_ref() {
+            text.0 = value.into_owned();
         }
     }
 }

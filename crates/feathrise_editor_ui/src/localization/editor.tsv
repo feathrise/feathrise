@@ -1,4 +1,26 @@
 # 稳定键	简体中文	English
+scene.copy.action	复制为新场景…	Duplicate as New Scene…
+scene.copy.title	复制为新场景	Duplicate as New Scene
+scene.copy.save_first	保存并复制	Save and Duplicate
+scene.copy.saved_version	复制已保存版本	Duplicate Saved Version
+scene.copy.source	源场景“{name}”	Source scene: “{name}”
+scene.copy.name_prompt	请输入副本名称，副本将归入源场景所在文件夹。	Name the copy. It will appear in the source scene's folder.
+scene.copy.dirty_prompt	源场景有未保存修改。可以保存并复制，也可以仅复制已保存版本。	The source has unsaved changes. Save them first or duplicate the saved version.
+scene.copy.operation	复制场景	Duplicate Scene
+scene.copy.activating	正在打开源场景，保存成功后继续复制	Opening the source scene before saving and duplicating
+scene.copy.saving	正在保存源场景，成功后继续复制	Saving the source scene before duplicating
+scene.copy.prepare	正在准备场景复制	Preparing scene duplication
+scene.copy.working	正在复制场景	Duplicating scene
+scene.copy.reading	正在读取源场景…	Reading the source scene…
+scene.copy.files	正在复制场景文件…	Copying scene files…
+scene.copy.validating	正在校验场景副本…	Validating the scene copy…
+scene.copy.publishing	正在登记场景副本…	Registering the scene copy…
+scene.copy.cancelling	正在取消场景复制，等待后台清理	Cancelling scene duplication and cleaning up
+scene.copy.cancelled	已取消场景复制	Scene duplication cancelled
+scene.copy.waiting	复制场景“{name}” · 等待源场景保存	Duplicate “{name}” · Waiting for source scene to save
+scene.copy.completed	场景“{name}”已复制，可在场景列表打开副本	Duplicated “{name}”. Open the copy from the Scenes list.
+scene.copy.failed	复制场景未完成：{error}	Scene duplication did not complete: {error}
+scene.copy.save_failed	无法保存并复制场景：{error}	Could not save and duplicate the scene: {error}
 glb.material.slots	替换材质槽	Replace Material Slot
 glb.material.save	保存 GLB	Save GLB
 glb.material.previous	上一组图元	Previous Primitives

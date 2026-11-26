@@ -518,11 +518,25 @@ pub(crate) enum SceneSwitchStage {
     DiscardApproved,
 }
 
+/// 复制表单冻结目录中的源身份；脏位属于该场景，而非此刻显示的任意文档。
+#[derive(Clone, Debug)]
+pub(crate) struct SceneCopyTarget {
+    pub(crate) scene_id: SceneId,
+    pub(crate) display_name: String,
+    pub(crate) dirty: bool,
+}
+
 /// UI按钮的稳定动作，不通过实体名称分派逻辑。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditorAction {
     Close,
     NewScene,
+    /// 从当前目录行复制一张独立场景。
+    CopySelectedScene,
+    /// 提交复制名称；有作者修改时先保存已选定的源场景。
+    ConfirmSceneCopy,
+    /// 从落盘内容复制，保留源场景草稿。
+    CopySavedScene,
     /// 在当前树选择所指目录中打开新建文件夹弹框。
     SceneFolderCreate,
     /// 为当前高亮文件夹打开重命名弹框。

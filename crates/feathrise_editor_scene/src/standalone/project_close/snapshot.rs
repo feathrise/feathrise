@@ -108,7 +108,7 @@ fn scene_pending(world: &World, snapshot: &mut ProjectCloseSnapshot) {
     }) || any::<authoring::EditorAuthoringSession>(world, |state| state.saving)
         || any::<authoring::DraftSaveTask>(world, |state| state.task.is_some())
         || any::<authoring::GlobalEnvironmentSaveTask>(world, |state| state.task.is_some())
-        || any::<resources::SceneCreationTask>(world, |state| state.task.is_some())
+        || any::<resources::SceneCreationTask>(world, resources::SceneCreationTask::busy)
         || any::<resources::SceneDeletionTask>(world, |state| {
             state.task.is_some() || state.pending_start.is_some()
         })

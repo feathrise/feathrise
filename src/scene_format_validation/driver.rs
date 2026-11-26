@@ -1,6 +1,6 @@
 //! 在真实作者 App 中逐项驱动生产操作。帧内只观察小夹具，截图编码和报告写入由后台任务处理。
 
-use super::{CHILD, NATIVE_TIMEOUT, PARENT, WINDOW_REPORT, cube, fixture::ScenePair, write_json_new};
+use super::{CHILD, COPY, NATIVE_TIMEOUT, PARENT, WINDOW_REPORT, copy_only, cube, fixture::ScenePair, write_json_new};
 use crate::{
     embedded_viewport::{ConnectionState, EmbeddedStatus, connection_state},
     native_project_close::embedded_validation as close,
@@ -42,13 +42,19 @@ enum Step {
     ChildReady,
     ChildObject,
     ChildSaved,
+    CopySource,
+    CopyMenu,
+    CopyForm,
+    CopyReady,
+    CopyOpen,
+    CopyObject,
+    CopySaved,
     Cube,
     CreateParent,
     CreateParentMenu,
     ParentForm,
     ParentReady,
     SelectSource,
-    OpenTools,
     AddReference,
     SaveParent,
     ParentSaved,
@@ -73,6 +79,7 @@ struct Plan {
     scenes: Option<ScenePair>,
     cube_probe: Option<cube::Probe>,
     child: Option<SceneId>,
+    copy: Option<SceneId>,
     pressed: Option<Entity>,
     creation_pointer: Option<(Entity, bool)>,
     save_before: u64,
@@ -100,6 +107,7 @@ pub(super) fn install(app: &mut App, directory: PathBuf, scenes: Option<ScenePai
         scenes,
         cube_probe,
         child,
+        copy: None,
         pressed: None,
         creation_pointer: None,
         save_before: 0,
@@ -235,6 +243,10 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
         Step::ChildObject if observed.placement_count == 1 && observed.dirty => {
             if plan.cube_probe.is_some() {
                 plan.go(Step::Cube);
+            } else if copy_only() {
+                // 让复制入口负责保存源草稿，验收必须等到该次正式保存与目录登记都完成。
+                plan.save_before = observed.save_sequence;
+                plan.go(Step::CopySource);
             } else if standalone::project_close_snapshot(world).pending.is_none() {
                 plan.save_before = observed.save_sequence;
                 standalone::request_save_all(world)?;
@@ -252,11 +264,66 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
             plan.proof["child_save_sequence"] = json!(observed.save_sequence);
             plan.go(Step::CreateParent);
         }
+        Step::CopySource if observed.directory_ready && observed.directory_visible => {
+            let source = plan.child.as_ref().ok_or("复制验收尚未取得源场景身份")?;
+            let row = author::source_row(world, source)?;
+            if click_creation(world, plan, row, MouseButton::Right) {
+                plan.go(Step::CopyMenu);
+            }
+        }
+        Step::CopyMenu if observed.directory_menu_active => {
+            let button = text_button(world, "复制为新场景…");
+            if click_creation(world, plan, button, MouseButton::Left) {
+                plan.go(Step::CopyForm);
+            }
+        }
+        Step::CopyForm => {
+            if let Some(button) = click_text(world, "保存并复制") {
+                plan.pressed = Some(button);
+                plan.go(Step::CopyReady);
+            }
+        }
+        Step::CopyReady => {
+            let source = plan.child.as_ref().ok_or("复制验收尚未取得源场景身份")?;
+            if let Some(copy) = lookup(COPY).filter(|id| observed.selected_source.as_ref() == Some(id)) {
+                if copy == *source || !current_is(source) || observed.dirty
+                    || observed.save_sequence <= plan.save_before
+                {
+                    return Err("复制没有等待同一源场景的保存回执，或改动了当前场景".into());
+                }
+                plan.proof["child_save_sequence"] = json!(observed.save_sequence);
+                plan.proof["copy"] = json!({"source": source, "destination": copy});
+                standalone::request_open_scene(world, copy.as_str())?;
+                plan.copy = Some(copy);
+                plan.go(Step::CopyOpen);
+            }
+        }
+        Step::CopyOpen => {
+            let copy = plan.copy.as_ref().ok_or("尚未取得副本场景身份")?;
+            if current_is(copy) && standalone::preview_ready_for(world, copy.as_str()) {
+                if observed.placement_count != 1 {
+                    return Err("副本未载入实际保存的源立方体".into());
+                }
+                author::request_cuboid_at(world, copy, Vec3::new(3., 1., 0.))?;
+                plan.go(Step::CopyObject);
+            }
+        }
+        Step::CopyObject if observed.placement_count == 2 && observed.dirty => {
+            if standalone::project_close_snapshot(world).pending.is_none() {
+                plan.save_before = observed.save_sequence;
+                standalone::request_save_all(world)?;
+                plan.go(Step::CopySaved);
+            }
+        }
+        Step::CopySaved if saved(world, &observed, plan.save_before)? => {
+            plan.proof["copy_save_sequence"] = json!(observed.save_sequence);
+            plan.go(Step::CreateParent);
+        }
         Step::ParentReady => {
             if let Some(parent) =
                 lookup(PARENT).filter(|id| standalone::preview_ready_for(world, id.as_str()))
             {
-                let child = plan.child.clone().ok_or("缺少新建子场景身份")?;
+                let child = plan.copy.as_ref().or(plan.child.as_ref()).cloned().ok_or("缺少新建子场景身份")?;
                 if parent == child {
                     return Err("两个场景错误共用身份".into());
                 }
@@ -267,17 +334,12 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
         Step::SelectSource if current_is(&plan.scenes().parent) => {
             if let Some(button) = author::select_source(world, &plan.scenes().child)? {
                 plan.pressed = Some(button);
-                plan.go(Step::OpenTools);
-            }
-        }
-        Step::OpenTools if observed.selected_source.as_ref() == Some(&plan.scenes().child) => {
-            if let Some(button) = click_text(world, "交互") {
-                plan.pressed = Some(button);
                 plan.go(Step::AddReference);
             }
         }
-        Step::AddReference => {
-            if let Some(button) = click_text(world, "将目录所选场景添加为子场景") {
+        Step::AddReference if observed.selected_source.as_ref() == Some(&plan.scenes().child) => {
+            // 目录选择揭示同一场景的右侧属性，子场景入口随这份正式目标显示。
+            if let Some(button) = click_text(world, "添加为子场景") {
                 plan.pressed = Some(button);
                 plan.go(Step::SaveParent);
             }
@@ -385,6 +447,14 @@ fn advance(world: &mut World, plan: &mut Plan) -> Result<(), String> {
                     return Err("工程进程采用的快照或独立进程身份错误".into());
                 }
                 let session = (status.pid, status.world_id, status.applied_revision);
+                if copy_only() {
+                    // 复制专项由导出程序另行验证游戏运行。这里保留真实快照采用证据，前台接管由通用场景专项覆盖。
+                    plan.proof["preview"] = json!({"scene_id":plan.scenes().parent,"pid":session.0,
+                        "world_id":session.1,"applied_revision":session.2,"snapshot_adopted":true,
+                        "playing":status.playing});
+                    plan.finish(None);
+                    return Ok(());
+                }
                 let focus = preview_focus(world);
                 // 首次就绪在夹具目录留一个标记，真实桌面可据此给本轮作者窗口前台。
                 if plan.preview_focus_started.is_none() {
@@ -648,12 +718,12 @@ fn capture(world: &mut World, plan: &mut Plan) -> Result<Option<Value>, String> 
         match text.as_str() {
             "场景" => labels[0] = true,
             "场景树" => labels[1] = true,
-            "工程" => labels[2] = true,
+            "文件" => labels[2] = true,
             _ => {}
         }
     }
     if !labels.into_iter().all(|visible| visible)
-        || !author::reference_row_visible(world, &plan.scenes().parent, CHILD)
+        || !author::reference_row_visible(world, &plan.scenes().parent, if copy_only() { COPY } else { CHILD })
         || plan.since.elapsed() < Duration::from_millis(300)
     {
         return Ok(None);

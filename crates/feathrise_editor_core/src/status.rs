@@ -20,10 +20,11 @@ pub enum EditorStatusOperation {
     VegetationPresetSave,
     /// 外部领域工具的真实操作结果；不要求公共编辑器认识装备等业务类型。
     NativePlugin,
+    SceneCopy,
 }
 
 impl EditorStatusOperation {
-    pub const COUNT: usize = 8;
+    pub const COUNT: usize = 9;
 
     pub fn slot(self) -> usize {
         self as usize
@@ -39,6 +40,7 @@ impl EditorStatusOperation {
             Self::WaterPresetSave => "保存水体预设",
             Self::VegetationPresetSave => "保存植被预设",
             Self::NativePlugin => "插件工具",
+            Self::SceneCopy => "复制场景",
         }
     }
 }

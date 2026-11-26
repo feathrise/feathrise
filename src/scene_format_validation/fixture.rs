@@ -1,17 +1,17 @@
 //! 在独占工作根创建生产空模板，协调两次作者进程与一次真实交付包启动。
 
 use super::{
-    CHILD, CUBE_ENV, ENV, OWNER, PARENT, PURPOSE, WINDOW_REPORT, create_dir, cube, cube_only,
-    read_json, write_json_new, write_new,
+    CHILD, COPY, COPY_ENV, CUBE_ENV, ENV, OWNER, PARENT, PURPOSE, WINDOW_REPORT, copy_only,
+    create_dir, cube, cube_only, read_json, write_json_new, write_new,
 };
 use crate::{
     build_process::{self, BuildControl},
     project::Project,
 };
 use feathrise_scene_content::{
-    SCENE_CATALOG_ASSET_PATH, SCENE_MANIFEST_FILE_NAME, SCENE_PLACEMENTS_GLB_FILE_NAME,
-    SCENE_SCHEMA_VERSION, SCENE_STARTUP_FILE_NAME, SceneCatalogAsset, SceneCatalogEntry, SceneId,
-    SceneManifestAsset, ScenePlacementAssetTarget, ScenePlacementRecord, SceneStartup,
+    SCENE_CATALOG_ASSET_PATH, SCENE_MANIFEST_FILE_NAME, SCENE_SCHEMA_VERSION, SCENE_STARTUP_FILE_NAME,
+    SceneCatalogAsset, SceneCatalogEntry, SceneId, SceneManifestAsset, ScenePlacementAssetTarget,
+    ScenePlacementRecord, ScenePlacementsAsset, SceneStartup,
 };
 use serde_json::{Value, json};
 use std::{
@@ -80,6 +80,9 @@ fn exercise(work: &Path, target: &Path, proof: &mut Value) -> Result<(), String>
     if cube_only() {
         return exercise_cube(work, target, &project, proof);
     }
+    if copy_only() {
+        proof["scope"] = json!("editor-3d-independent-scene-copy");
+    }
     proof["author"] = run_editor(work, target, &project, "author", 600)?;
     let (scenes, saved) = verify_saved(&project)?;
     if proof["author"]["startup_save_completed"] != true
@@ -88,16 +91,23 @@ fn exercise(work: &Path, target: &Path, proof: &mut Value) -> Result<(), String>
             .as_u64()
             .unwrap_or(0)
             == 0
+        || copy_only() && proof["author"]["copy_save_sequence"].as_u64().unwrap_or(0) == 0
     {
         return Err("真实作者窗口缺少创建后内容与启动场景的保存回执".into());
     }
     proof["disk"] = saved.clone();
     proof["reopen"] = run_editor(work, target, &project, "reopen", 3300)?;
+    let preview_result = &proof["reopen"]["preview"];
+    let preview_verified = if copy_only() {
+        preview_result["snapshot_adopted"] == true
+    } else {
+        preview_result["playing"] == true
+    };
     if proof["reopen"]["pid"] == proof["author"]["pid"]
         || proof["reopen"]["parent_scene_id"] != json!(scenes.parent)
         || proof["reopen"]["child_scene_id"] != json!(scenes.child)
-        || proof["reopen"]["preview"]["scene_id"] != json!(scenes.parent)
-        || proof["reopen"]["preview"]["playing"] != true
+        || preview_result["scene_id"] != json!(scenes.parent)
+        || !preview_verified
         || verify_saved(&project)?.1 != saved
     {
         return Err("重开或预览未核对同一份已保存的场景身份".into());
@@ -230,15 +240,18 @@ pub(super) fn verify_saved(project: &Project) -> Result<(ScenePair, Value), Stri
         .first()
         .ok_or("验收工程缺少资产根")?;
     let catalog: SceneCatalogAsset = read_asset(&assets.join(SCENE_CATALOG_ASSET_PATH))?;
-    if catalog.schema_version != SCENE_SCHEMA_VERSION || catalog.scenes.len() != 2 {
-        return Err("落盘场景目录没有记录本轮创建的两个场景".into());
+    let copied = copy_only();
+    let expected_count = 2 + usize::from(copied);
+    if catalog.schema_version != SCENE_SCHEMA_VERSION || catalog.scenes.len() != expected_count {
+        return Err(format!("落盘场景目录应包含本轮创建的 {expected_count} 个场景"));
     }
     let parent = find_scene(&catalog, PARENT)?;
-    let child = find_scene(&catalog, CHILD)?;
+    let source = find_scene(&catalog, CHILD)?;
+    let child = if copied { find_scene(&catalog, COPY)? } else { source };
     if catalog
         .scenes
         .first()
-        .is_none_or(|entry| entry.id != child.id || !entry.published)
+        .is_none_or(|entry| entry.id != source.id || !entry.published)
     {
         return Err("启动验证需要与目录默认首项不同的显式父场景选择".into());
     }
@@ -259,7 +272,7 @@ pub(super) fn verify_saved(project: &Project) -> Result<(ScenePair, Value), Stri
         || child_objects.schema_version != SCENE_SCHEMA_VERSION
         || !child.placements_glb
         || !parent.placements_glb
-        || child_objects.placements.len() != 1
+        || child_objects.placements.len() != 1 + usize::from(copied)
         || parent_doc.subscenes.len() != 1
         || parent_doc.subscenes[0].source_scene_id != child.id
         || !child_doc.subscenes.is_empty()
@@ -275,8 +288,54 @@ pub(super) fn verify_saved(project: &Project) -> Result<(ScenePair, Value), Stri
         parent: parent.id.clone(),
         child: child.id.clone(),
     };
-    let proof = json!({"catalog":catalog,"parent":parent_doc,"child":child_doc,"child_placements":child_objects,"startup":startup});
+    let copy_evidence = copied.then(|| verify_independent_copy(assets, source, child, &child_doc, &child_objects)).transpose()?;
+    let mut proof = json!({"catalog":catalog,"parent":parent_doc,"child":child_doc,"child_placements":child_objects,"startup":startup});
+    if let Some(evidence) = copy_evidence {
+        proof["copy"] = evidence;
+    }
     Ok((pair, proof))
+}
+
+fn verify_independent_copy(
+    assets: &Path,
+    source: &SceneCatalogEntry,
+    child: &SceneCatalogEntry,
+    child_doc: &SceneManifestAsset,
+    child_objects: &ScenePlacementsAsset,
+) -> Result<Value, String> {
+    let source_doc: SceneManifestAsset = read_asset(&assets.join(source.manifest_path()))?;
+    let source_path = source.placements_path();
+    let source_objects = feathrise_scene_content::read_scene_placements(
+        &fs::read(assets.join(&source_path)).map_err(|error| error.to_string())?,
+        &source_path,
+    )?;
+    let [source_cube] = source_objects.placements.as_slice() else {
+        return Err("修改副本后，源场景应仍只有最初保存的一件立方体".into());
+    };
+    let is_cube_at = |record: &ScenePlacementRecord, translation| {
+        record.asset_target == ScenePlacementAssetTarget::DEFAULT_CUBOID
+            && !record.editor.hidden
+            && record.translation == translation
+    };
+    // 副本必须继承同一个场景内对象身份。第二件立方体应只出现在副本的正式 GLB 中。
+    if source.id == child.id
+        || source_doc.id != source.id
+        || source_objects.scene_id != source.id
+        || source_doc.schema_version != SCENE_SCHEMA_VERSION
+        || source_objects.schema_version != SCENE_SCHEMA_VERSION
+        || !source.placements_glb
+        || !source_doc.subscenes.is_empty()
+        || source_doc.asset_roots.first() != Some(&source.folder)
+        || child_doc.asset_roots.first() != Some(&child.folder)
+        || !is_cube_at(source_cube, [0.0, 1.0, 0.0])
+        || !child_objects.placements.contains(source_cube)
+        || !child_objects.placements.iter().any(|record| {
+            record.id != source_cube.id && is_cube_at(record, [3.0, 1.0, 0.0])
+        })
+    {
+        return Err("场景副本的归属、继承立方体或独立保存结果与源场景不符".into());
+    }
+    Ok(json!({"source":source_doc,"source_glb":source_path,"source_placements":source_objects,"copy_glb":child.placements_path()}))
 }
 
 fn run_editor(
@@ -298,6 +357,8 @@ fn run_editor(
         .env(ENV, mode);
     if cube_only() {
         command.env(CUBE_ENV, "1");
+    } else if copy_only() {
+        command.env(COPY_ENV, "1");
     }
     crate::native_validation::isolate_author_command(&mut command, &directory)?;
     println!(
@@ -349,14 +410,17 @@ fn run_delivery(
     if receipt["directory"] != json!(package) || executable.parent() != Some(package.as_path()) {
         return Err("实际导出回执没有指向本轮交付包".into());
     }
+    let assets = project.context.asset_roots.first().ok_or("验收工程缺少资产根")?;
+    let assets_relative = assets.strip_prefix(&project.root).map_err(|error| error.to_string())?;
+    let catalog: SceneCatalogAsset = read_asset(&assets.join(SCENE_CATALOG_ASSET_PATH))?;
     let mut files = vec![
         PathBuf::from(SCENE_STARTUP_FILE_NAME),
-        Path::new("assets").join(SCENE_CATALOG_ASSET_PATH),
+        assets_relative.join(SCENE_CATALOG_ASSET_PATH),
     ];
-    for scene in [&scenes.parent, &scenes.child] {
-        let folder = Path::new("assets/scenes").join(scene.as_str());
-        files.push(folder.join(SCENE_MANIFEST_FILE_NAME));
-        files.push(folder.join(SCENE_PLACEMENTS_GLB_FILE_NAME));
+    // 场景 ID 与文件夹名称独立，交付包也按正式目录路径核对原版、副本和父场景。
+    for entry in &catalog.scenes {
+        files.push(assets_relative.join(entry.manifest_path()));
+        files.push(assets_relative.join(entry.placements_path()));
     }
     for relative in &files {
         if fs::read(project.root.join(relative)).map_err(|error| error.to_string())?

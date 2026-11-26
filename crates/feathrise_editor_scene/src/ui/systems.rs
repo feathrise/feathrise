@@ -300,13 +300,19 @@ pub(crate) fn handle_new_scene_form_input(
         match input.logical_key {
             Key::Enter if editor.new_scene_input_field == NewSceneInputField::Name => {
                 // 名称Enter仅确认创建；已有场景资料仍由保存按钮提交，备注Enter保留换行。
-                confirm = editor.new_scene_edit_target.is_none();
+                confirm = editor.new_scene_edit_target.is_none() && editor.new_scene_copy_target.is_none();
             }
             Key::Tab => {
-                let next = editor.new_scene_input_field.next();
-                focus_new_scene_field(&mut editor, next, &mut windows);
+                if editor.new_scene_copy_target.is_none() {
+                    let next = editor.new_scene_input_field.next();
+                    focus_new_scene_field(&mut editor, next, &mut windows);
+                }
             }
             Key::Escape => {
+                if super::new_scene_dialog::copy::cancel(&mut editor, &mut creation) {
+                    if !editor.new_scene_dialog_open { set_ime_enabled(&mut windows, false); }
+                    continue;
+                }
                 editor.new_scene_dialog_open = false;
                 editor.new_scene_edit_target = None;
                 if creation.cancel_pending_after_save() { editor.save_requested = false; }
