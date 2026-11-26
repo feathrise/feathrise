@@ -60,6 +60,16 @@ pub enum EditorInspectorTarget {
     Scene,
     Asset,
     SceneEntry, // 场景目录的显式选择；允许与当前已进入场景不同。
+    SceneConfig, // 场景树中的当前场景配置。
+}
+
+/// 场景配置的三项入口共用属性页，只查看当前已进入的场景。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum SceneConfigPage {
+    #[default]
+    Preview,
+    Variables,
+    Triggers,
 }
 
 /// 右侧完整高度的属性、工具与环境正文；资产仅是属性页的内部来源身份。
@@ -70,6 +80,7 @@ pub enum EditorRightSidebarTab {
     Tools,       // 顶部选中模块的创建与工具正文。
     Assets,      // 所选文件属性与唯一预览；界面统一显示在“属性”页签下。
     SceneEntry,         // 所选目录场景的只读属性，编辑继续使用原正式事务。
+    SceneConfig,
     Environment, // 顶部环境模块的工具正文；天空作者参数与天气调试独立，气候只读。
     Rigging,     // 当前模型的绑骨与外部动作，占用既有动态工具槽。
     Weights,     // 当前模型的蒙皮草稿，占用同一动态工具槽。
@@ -139,6 +150,8 @@ pub struct SceneEditorSidebarState {
     pub(crate) rigging_available: bool, // 中央活动绑骨或已蒙皮模型覆盖动态工具槽。
     pub(crate) weight_available: bool, // 调权只跟随具有草稿身份的中央 GLB。
     pub inspector: EditorInspectorTarget, // 切换工具后返回属性，恢复最后一次显式检查来源。
+    pub(crate) scene_config_expanded: bool,
+    scene_config_page: SceneConfigPage,
     pub observed_tool: EditorTool,    // 仅工具真正变化时执行一次自动定位。
     /// 新建/编辑场景弹框打开前的左栏页；关闭弹框时恢复，避免模态期间误切到地形。
     pub tab_before_new_scene_dialog: Option<EditorLeftSidebarTab>,
@@ -154,6 +167,8 @@ impl Default for SceneEditorSidebarState {
             rigging_available: false,
             weight_available: false,
             inspector: EditorInspectorTarget::Scene,
+            scene_config_expanded: false,
+            scene_config_page: SceneConfigPage::Preview,
             observed_tool: EditorTool::Inspect,  // 默认查看工具不把首次左页自动改成地形。
             tab_before_new_scene_dialog: None,     // 无弹框时不保留恢复目标。
             expanded_help: [false; 9],           // 默认正文完全隐藏，问号不占正文高度。
@@ -176,7 +191,7 @@ impl SceneEditorSidebarState {
                     matches!(self.right, EditorRightSidebarTab::Tools | EditorRightSidebarTab::Environment)
                 }
             }
-            EditorSidebarTab::Right(EditorRightSidebarTab::Scene) => matches!(self.right, EditorRightSidebarTab::Scene | EditorRightSidebarTab::Assets | EditorRightSidebarTab::SceneEntry),
+            EditorSidebarTab::Right(EditorRightSidebarTab::Scene) => matches!(self.right, EditorRightSidebarTab::Scene | EditorRightSidebarTab::Assets | EditorRightSidebarTab::SceneEntry | EditorRightSidebarTab::SceneConfig),
             EditorSidebarTab::Right(right) => self.right == right,
         }
     }
@@ -224,11 +239,22 @@ impl SceneEditorSidebarState {
         self.right = EditorRightSidebarTab::SceneEntry;
     }
 
+    pub(crate) fn reveal_scene_config(&mut self, page: SceneConfigPage) {
+        self.scene_config_page = page;
+        self.inspector = EditorInspectorTarget::SceneConfig;
+        self.right = EditorRightSidebarTab::SceneConfig;
+    }
+
+    pub(crate) fn scene_config_page(&self) -> Option<SceneConfigPage> {
+        (self.right == EditorRightSidebarTab::SceneConfig).then_some(self.scene_config_page)
+    }
+
     pub fn reveal_properties(&mut self) {
         self.right = match self.inspector {
             EditorInspectorTarget::Scene => EditorRightSidebarTab::Scene,
             EditorInspectorTarget::Asset => EditorRightSidebarTab::Assets,
             EditorInspectorTarget::SceneEntry => EditorRightSidebarTab::SceneEntry,
+            EditorInspectorTarget::SceneConfig => EditorRightSidebarTab::SceneConfig,
         };
     }
 

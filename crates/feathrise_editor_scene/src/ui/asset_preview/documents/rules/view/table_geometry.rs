@@ -25,12 +25,15 @@ fn rules_table_cells_measure_at_their_actual_column_width() {
         AssetPlugin::default(),
         bevy::text::TextPlugin,
         bevy::transform::TransformPlugin,
+        feathrise_editor_ui::EditorUiPlugin,
         HierarchyPropagatePlugin::<ComputedUiTargetCamera>::new(PostUpdate),
         HierarchyPropagatePlugin::<ComputedUiRenderTargetInfo>::new(PostUpdate),
     ))
     .init_resource::<UiSurface>()
     .init_resource::<UiScale>()
     .init_resource::<Studio>()
+    .init_resource::<ButtonInput<KeyCode>>()
+    .init_resource::<ButtonInput<MouseButton>>()
     .init_asset::<Image>()
     .init_asset::<bevy::image::TextureAtlasLayout>()
     .configure_sets(
@@ -72,6 +75,8 @@ fn rules_table_cells_measure_at_their_actual_column_width() {
         .world_mut()
         .spawn((
             ScrollArea,
+            RulesTable,
+            table_columns(),
             Node {
                 width: px(600),
                 ..column(5.)
@@ -85,10 +90,11 @@ fn rules_table_cells_measure_at_their_actual_column_width() {
                 flex_shrink: 0.,
                 ..default()
             });
-            p.spawn((TablePart::Summary(0), grid())).with_children(|r| {
-                cells(r, &font, Some(0));
-                row_actions(r, &font, 0, &Handle::default(), &Handle::default());
-            });
+            p.spawn((TablePart::Summary(0), data_table::row(Some(0))))
+                .with_children(|r| {
+                    cells(r, &font, root, Some(0));
+                    row_actions(r, &font, root, 0, &Handle::default(), &Handle::default());
+                });
         });
     });
     app.update();
@@ -124,9 +130,7 @@ fn rules_table_cells_measure_at_their_actual_column_width() {
             .iter(world)
             .map(|(entity, name)| (entity, name.as_str().to_owned()))
             .collect();
-        let icon = |name| {
-            rect(world, icons.iter().find(|(_, id)| id == name).unwrap().0)
-        };
+        let icon = |name| rect(world, icons.iter().find(|(_, id)| id == name).unwrap().0);
         let edit = icon("RulesRowEditIcon");
         let delete = icon("RulesRowDeleteIcon");
         assert!(edit.max.x < delete.min.x);

@@ -3,6 +3,7 @@ mod directory;
 mod form;
 mod layout;
 mod location;
+mod paging;
 mod table;
 use super::{click, evidence, fixture_focus, key_state, move_cursor, visible, window_event};
 use crate::{
@@ -49,7 +50,10 @@ enum Stage {
     ContextFile,
     ContextSidebar,
     ContextTools(usize),
+    ContextSceneConfig(usize),
     Loaded,
+    NarrowPaging,
+    Paging(usize),
     Form(usize),
     Advanced,
     Input(bool),
@@ -78,6 +82,7 @@ struct Run {
     layout: serde_json::Map<String, Value>,
     direct_saves: serde_json::Map<String, Value>,
     deletion: Option<form::DeletionCheck>,
+    column_drag: Option<table::ColumnDrag>,
     layout_wait: String,
     wheel_point: Option<Vec2>,
     splitter_target: Option<Vec2>,
@@ -90,7 +95,7 @@ const CONTEXT: &str = "inline_context.md";
 pub(super) fn install(app: &mut App, work: PathBuf, phase: String) -> Result<(), String> {
     app.insert_resource(Run {
         work,
-        stage: if phase == "empty" {
+        stage: if matches!(phase.as_str(), "empty" | "draw-reopen" | "paging") {
             Stage::PrepareScene
         } else {
             Stage::Sidebar
@@ -109,6 +114,7 @@ pub(super) fn install(app: &mut App, work: PathBuf, phase: String) -> Result<(),
         layout: default(),
         direct_saves: default(),
         deletion: None,
+        column_drag: None,
         layout_wait: String::new(),
         wheel_point: None,
         splitter_target: None,
@@ -179,7 +185,7 @@ fn check_center(world: &mut World, run: &Run) -> Result<(), String> {
         return Ok(());
     }
     Err(format!(
-        "点击右侧交互工具改变了中央页面，原 {}，现 {:?}",
+        "切换交互工具或场景配置改变了中央页面，原 {}，现 {:?}",
         run.center,
         central(world)
     ))
@@ -200,10 +206,10 @@ fn drive(world: &mut World) {
         let result = if run.since.elapsed() > Duration::from_secs(30) {
             let current =
                 observe(world).map(|(text, dirty, edit, status)| (text.len(), dirty, edit, status));
-            let form = if let Stage::Form(i) = run.stage {
-                form::describe(&run.phase, i)
-            } else {
-                String::new()
+            let form = match run.stage {
+                Stage::Form(i) => form::describe(&run.phase, i, false),
+                Stage::ContextSceneConfig(i) => form::describe(&run.phase, i, true),
+                _ => String::new(),
             };
             let focus = world
                 .get_resource::<InputFocus>()
@@ -252,13 +258,15 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
             Stage::Sidebar
         }
         Stage::Sidebar => {
+            let has_scene = matches!(run.phase.as_str(), "empty" | "draw-reopen" | "paging");
             if !world
                 .get_resource::<SceneEditorState>()
-                .is_some_and(|e| e.open && e.pending_scene_transition.is_none())
+                .is_some_and(|e| e.open && e.pending_scene_transition.is_none()
+                    && (!has_scene || !e.scene_transition_in_progress))
             {
                 return Ok(None);
             }
-            if run.phase == "empty"
+            if has_scene
                 && !world
                     .resource::<crate::authoring::EditorAuthoringSession>()
                     .draft
@@ -267,7 +275,7 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
             {
                 return Ok(None);
             }
-            if run.phase == "empty" {
+            if has_scene && run.phase != "paging" {
                 let Some(center) = central(world).filter(|value| value["tab"] == "Scene") else {
                     return Ok(None);
                 };
@@ -278,12 +286,24 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
             if !click(world, &mut run.pointer, window, tab) {
                 return Ok(None);
             }
-            if run.phase == "empty" {
-                Stage::Directory(0)
-            } else {
-                Stage::Open
+            match run.phase.as_str() {
+                "empty" => Stage::Directory(0),
+                "paging" => Stage::NarrowPaging,
+                _ => Stage::Open,
             }
         }
+        Stage::NarrowPaging => {
+            // 先缩到最窄，再固定中央场景边界供每帧核对翻页不影响视口。
+            if !layout::size_inspector(world, run, window, false) {
+                return Ok(None);
+            }
+            let Some(center) = central(world).filter(|value| value["tab"] == "Scene") else {
+                return Ok(None);
+            };
+            run.center = center;
+            Stage::Paging(0)
+        }
+        Stage::Paging(index) => return paging::advance(world, run, window, index),
         Stage::Directory(index) => return directory::before_open(world, run, window, index),
         Stage::Open => {
             let name = match run.phase.as_str() {
@@ -348,6 +368,7 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
             Stage::ContextTools(0)
         }
         Stage::ContextTools(index) => return directory::on_document(world, run, window, index),
+        Stage::ContextSceneConfig(index) => return form::form(world, run, window, index, true),
         Stage::Loaded => {
             if form::entity(world, "RulesWorkbench").is_none() {
                 return Ok(None);
@@ -369,7 +390,7 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
             }
             Stage::Form(0)
         }
-        Stage::Form(index) => return form::form(world, run, window, index),
+        Stage::Form(index) => return form::form(world, run, window, index, false),
         Stage::Advanced => {
             // 触发规则目录不提供高级源码。显式切到仍保留文件入口的地点区域页。
             if layout::caption(world, "RulesPageTitle").as_deref() != Some("地点区域") {

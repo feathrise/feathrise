@@ -1,6 +1,6 @@
 //! 界面提交前读取同一批原生输入。字段修改、子项操作与原文档撤销链按一次作者确认登记。
 use super::{
-    scope::{SceneOptions, page},
+    scope::page,
     view::{Action, OPTIONS, ROWS},
     *,
 };
@@ -94,17 +94,19 @@ fn next(i: usize, len: usize, forward: bool) -> Option<usize> {
 fn destination(a: Action, current: Selection, s: &Studio, sheet: &Sheet) -> Option<Selection> {
     let tab = current.tab;
     let scene = s.scene(tab);
-    let (tab, item) = match a {
-        Action::New => (tab, None),
-        Action::Row(_) | Action::Previous | Action::Next => {
+    let (item, list_page) = match a {
+        Action::New => (None, current.list_page),
+        Action::Row(_) | Action::Previous | Action::Next | Action::Page(_) => {
             let rows = s.rows(sheet, tab);
             let page = page(current, rows);
-            let i = match a {
-                Action::Row(slot) => page * ROWS + slot,
-                Action::Previous => page.checked_sub(1)? * ROWS,
-                _ => (page + 1) * ROWS,
+            let (target, slot) = match a {
+                Action::Row(slot) if slot < ROWS => (page, slot),
+                Action::Previous => (page.checked_sub(1)?, 0),
+                Action::Next => (page + 1, 0),
+                Action::Page(target) if tab != Tab::Locations && page != target => (target, 0),
+                _ => return None,
             };
-            (tab, Some(*rows.get(i)?))
+            (Some(*rows.get(target.checked_mul(ROWS)? + slot)?), target)
         }
         Action::ConditionPrevious | Action::ConditionNext => {
             let count = current.rule(&sheet.model, scene)?.conditions.len();
@@ -124,6 +126,7 @@ fn destination(a: Action, current: Selection, s: &Studio, sheet: &Sheet) -> Opti
     Some(Selection {
         tab,
         item,
+        list_page,
         ..default()
     })
 }
@@ -155,7 +158,6 @@ pub(super) fn input(
     guard: Res<crate::resources::EditorTextInputGuard>,
     mut overlay: Option<ResMut<feathrise_editor_core::EditorHostOverlay>>,
     model: Option<Res<crate::workbench::WorkbenchModel>>,
-    scenes: SceneOptions,
     buttons: Query<(&Action, &EditorButtonClick), Changed<EditorButtonClick>>,
     fields: Query<(Entity, &Field, Ref<EditableText>)>,
     pointer: Query<&bevy::ui::RelativeCursorPosition, With<view::Panel>>,
@@ -169,6 +171,11 @@ pub(super) fn input(
         || settings.as_ref().is_some_and(|v| v.open)
         || model.as_ref().is_some_and(|m| m.modal || m.busy)
         || active(&docs).is_none()
+        || s.scene_scope.as_ref().is_some_and(|scene| {
+            editor.scene_transition_in_progress
+                || editor.pending_scene_transition.is_some()
+                || editor.selected_scene_id.as_ref() != Some(scene)
+        })
     {
         return;
     }
@@ -262,7 +269,7 @@ pub(super) fn input(
     let name_field = fields
         .iter()
         .find_map(|(e, f, _)| (*f == Field::Id).then_some(e));
-    let edit = !matches!(a, Action::Previous | Action::Next);
+    let edit = !matches!(a, Action::Previous | Action::Next | Action::Page(_));
     let name_focus = name_field.filter(|_| matches!(a, Action::New | Action::Row(_)));
     if s.saving() {
         // 删除完成前显示旧行，不能将此时的行号排入新表的导航队列。
@@ -383,7 +390,7 @@ pub(super) fn input(
         let m = sheet
             .as_ref()
             .ok_or("请等待规则加载完成，或从文件浏览器打开并修复文件")?;
-        if s.list_control(a, m, scenes.entries(), editor.selected_scene_id.as_ref().map(|id| id.as_str()), &mut focus) {
+        if s.list_control(a, m, &mut focus) {
             return Ok(());
         }
         if let Some(selection) = destination(a, s.sel, &s, m) {
@@ -516,10 +523,19 @@ mod tests {
         }).to_string().into();
         let sheet = Arc::new(Sheet::new(RulesForm::parse(&source).unwrap()));
         let mut studio = Studio::default();
-        studio.scenes[0] = Some("MAP-test".into());
+        studio.scene_scope = Some(feathrise_scene_content::SceneId("MAP-test".into()));
         studio.tags[0] = TagFilter::Tag("route".into());
         let scene = studio.scene(Tab::Variables);
-        let current = Selection { item: Some(16), ..default() };
+        let first = Selection::default();
+        let current = destination(Action::Page(1), first, &studio, &sheet).unwrap();
+        let rows = studio.rows(&sheet, first.tab);
+        assert_eq!(current.item, Some(16));
+        assert!(destination(Action::Previous, first, &studio, &sheet).is_none());
+        assert!(destination(Action::Next, current, &studio, &sheet).is_none());
+        assert!(destination(Action::Page(usize::MAX), current, &studio, &sheet).is_none());
+        let new = destination(Action::New, current, &studio, &sheet).unwrap();
+        assert_eq!(page(new, rows), 1);
+        assert_eq!(page(new, &rows[..ROWS]), 0);
         let selected = destination(Action::Row(0), current, &studio, &sheet).unwrap();
         let neighbor = scope::neighbor(studio.rows(&sheet, selected.tab), selected.item.unwrap()).unwrap();
         let next = sheet.id(selected.tab, scene, neighbor).map(str::to_owned);

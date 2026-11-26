@@ -367,15 +367,26 @@ fn scene_display_ready(
     if visible("搜索") {
         return Err("场景树的摆放列表上方仍显示搜索框".into());
     }
-    // 展开原按钮后等待真实布局，与同一立方体的主窗口截图一起取证。
-    const COLLAPSED: &str = "▶ 场景显示 · 网格 / 碰撞 / 着色";
-    if visible(COLLAPSED) {
-        *pulse = click_text(world, COLLAPSED);
+    if !visible("场景配置") {
+        return Ok(false);
     }
-    let ready = ["▼ 场景显示 · 网格 / 碰撞 / 着色", "平滑", "平直", "显示三角线", "显示碰撞"]
-        .into_iter().all(visible);
+    if !visible("场景预览") {
+        *pulse = click_text(world, "场景配置");
+        return Ok(false);
+    }
+    // 展开树导航后只在右侧属性找到控件，随后与同一立方体的主窗口截图一起取证。
+    let controls = ["平滑", "平直", "显示三角线", "显示碰撞"];
+    if controls.into_iter().any(visible) {
+        return Err("场景预览控件仍出现在左侧场景树".into());
+    }
+    let properties = scene_format_validation::scene_preview_property_labels(world)?;
+    if properties.is_empty() {
+        *pulse = click_text(world, "场景预览");
+    }
+    let ready = controls.into_iter().all(|control| properties.iter().any(|label| label == control));
     proof["scene_tree"] = json!({"scene_id": scene, "placement_id": placement,
-        "terrain_count": 0, "display_controls_visible": ready, "visible_labels": labels});
+        "terrain_count": 0, "display_controls_visible": ready,
+        "visible_labels": labels, "preview_property_labels": properties});
     Ok(ready)
 }
 

@@ -48,7 +48,7 @@ pub(super) fn button_with_icon(
     icon: Option<&Handle<Image>>,
 ) {
     let delete = matches!(a, Action::DeleteRow(_));
-    let selector = matches!(a, Action::ListTagPicker | Action::ScopeScenePicker);
+    let selector = a == Action::ListTagPicker;
     let mut e = p.spawn((
         a,
         AuthorButton,
@@ -62,9 +62,10 @@ pub(super) fn button_with_icon(
             max_width: percent(100),
             flex_basis: if selector { px(0) } else { Val::Auto },
             flex_grow: if selector { 1. } else { 0. },
+            flex_shrink: if icon.is_some() { 0. } else { 1. },
             align_items: AlignItems::Center,
             justify_content: JustifyContent::Center,
-            padding: UiRect::horizontal(px(8)),
+            padding: UiRect::horizontal(px(if icon.is_some() { 0. } else { 8. })),
             border: UiRect::all(px(1)),
             border_radius: BorderRadius::all(px(metrics::RADIUS)),
             overflow: Overflow::clip(),
@@ -472,19 +473,10 @@ pub(super) fn editor(p: &mut ChildSpawnerCommands, h: &Handle<Font>) {
         button(r, h, "RulesOptionsClose", "收起", Action::OptionsClose);
     });
 }
-fn list_scope(p: &mut ChildSpawnerCommands, h: &Handle<Font>) {
-    p.spawn((Group::ListScope, column(5.))).with_children(|p| {
-        p.spawn(row()).with_children(|r| {
-            buttons(r, h, &[
-                ("RulesScopeProject", "工程级", Action::ScopeProject),
-                ("RulesScopeScene", "场景级", Action::ScopeScene),
-            ]);
-        });
+fn list_filter(p: &mut ChildSpawnerCommands, h: &Handle<Font>) {
+    p.spawn((Group::ListFilter, column(5.))).with_children(|p| {
         p.spawn(Node { flex_wrap: FlexWrap::NoWrap, ..row() }).with_children(|r| {
-            buttons(r, h, &[
-                ("RulesListTagPicker", "标签 · 全部", Action::ListTagPicker),
-                ("RulesScopeScenePicker", "场景", Action::ScopeScenePicker),
-            ]);
+            button(r, h, "RulesListTagPicker", "标签 · 全部", Action::ListTagPicker);
         });
         // 选择面板覆盖列表，展开、翻选项或关闭都不会重新排列现有记录。
         p.spawn((
@@ -569,6 +561,7 @@ pub(super) fn mount(
         .with_children(|p| {
             p.spawn(column(5.)).with_children(|header| {
                 info(header, &h, Info::PageTitle, "RulesPageTitle");
+                info(header, &h, Info::SceneName, "RulesSceneName");
                 header.spawn(row()).with_children(|r| {
                     buttons(
                         r,
@@ -581,7 +574,7 @@ pub(super) fn mount(
                 });
             });
             info(p, &h, Info::Status, "RulesStatus");
-            list_scope(p, &h);
+            list_filter(p, &h);
             p.spawn((ScrollArea, Name::new("RulesFormScroll"), column(0.)))
                 .with_children(|scroll| {
                     scroll
@@ -607,4 +600,23 @@ pub(super) fn mount(
                 button(r, &h, "RulesReload", "重新载入磁盘文件", Action::Reload);
             });
         });
+}
+
+pub(super) fn route_panel(
+    mut commands: Commands,
+    docs: Res<DocumentState>,
+    panel: Query<(Entity, &ChildOf), With<Panel>>,
+    interaction: Query<Entity, With<crate::ui::gameplay_sidebar::InteractionRulesHost>>,
+    properties: Query<Entity, With<crate::ui::sidebars::SceneConfigRulesHost>>,
+) {
+    let Ok((entity, parent)) = panel.single() else { return };
+    let host = if docs.sidebar_rules.page.as_ref().is_some_and(|page| page.scene.is_some()) {
+        properties.single()
+    } else {
+        interaction.single()
+    };
+    if let Ok(host) = host && parent.parent() != host {
+        // 移动工作台而非重建原生表单，草稿、分页与叠层控件仍由唯一会话处理。
+        commands.entity(entity).insert(ChildOf(host));
+    }
 }

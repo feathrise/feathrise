@@ -1,4 +1,4 @@
-//! 交互侧栏中的工程规则表单、中央高级源码及原文档工具共用一份文档会话。
+//! 工程交互、场景属性和中央源码共用同一份规则文档会话。
 mod controls;
 mod location_draw;
 mod persistence;
@@ -17,8 +17,8 @@ use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
 };
-use std::{path::{Path, PathBuf}, sync::Arc};
-use scope::ListPicker;
+use feathrise_scene_content::SceneId;
+use std::{collections::HashMap, path::{Path, PathBuf}, sync::Arc};
 pub(crate) use types::Tab as ProjectRulesSection;
 pub(crate) use view::RulesEditorDialogOverlay;
 const RULES_SHEET_PADDING: f32 = 9.0;
@@ -45,17 +45,23 @@ impl Identity {
 }
 #[derive(Default)]
 pub(super) struct SidebarDocument {
-    pub(super) visible: bool,
+    page: Option<SidebarPage>,
     pub(super) path: Option<String>,
     pub(super) pending: Option<(String, Option<(SourceKey, u64)>)>,
     pub(super) loading: bool,
     pub(super) error: String,
-    section: Option<ProjectRulesSection>,
+}
+
+/// 入口确定数据作用域。场景页绑定作者已打开的场景，正文从不自行切换作用域。
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct SidebarPage {
+    tab: Tab,
+    scene: Option<SceneId>,
 }
 
 impl SidebarDocument {
     pub(super) fn reserved_path(&self) -> Option<&str> {
-        (self.visible || self.pending.is_some() || self.loading)
+        (self.page.is_some() || self.pending.is_some() || self.loading)
             .then_some(self.path.as_deref())
             .flatten()
     }
@@ -70,7 +76,7 @@ impl DocumentState {
     }
 
     pub(super) fn rules_in_sidebar(&self) -> bool {
-        self.sidebar_rules.visible
+        self.sidebar_rules.page.is_some()
     }
 }
 
@@ -97,12 +103,7 @@ fn active(docs: &DocumentState) -> Option<Identity> {
 }
 
 fn shown_document<'a>(s: &Studio, docs: &'a DocumentState) -> Option<&'a Document> {
-    if docs
-        .sidebar_rules
-        .section
-        .is_some_and(|tab| tab != s.sel.tab)
-        || !docs.sidebar_rules.error.is_empty()
-    {
+    if !sidebar_page_matches(s, docs) || !docs.sidebar_rules.error.is_empty() {
         return None;
     }
     active_document(docs).filter(|doc| s.key.as_ref().is_some_and(|key| key.matches(doc)))
@@ -110,11 +111,15 @@ fn shown_document<'a>(s: &Studio, docs: &'a DocumentState) -> Option<&'a Documen
 
 /// 新修订解析或重载时继续显示同一磁盘文件的完整列表，写入仍按精确修订校验。
 fn listed_document<'a>(s: &Studio, docs: &'a DocumentState) -> Option<&'a Document> {
-    if !docs.rules_in_sidebar() || s.sheet.is_none() {
+    if !sidebar_page_matches(s, docs) || s.sheet.is_none() {
         return None;
     }
     let path = s.sheet_path.as_deref()?;
     docs.rules_sidebar_document().filter(|doc| doc.disk.path == path)
+}
+
+fn sidebar_page_matches(s: &Studio, docs: &DocumentState) -> bool {
+    docs.sidebar_rules.page.as_ref().is_some_and(|page| s.matches_page(page))
 }
 /// 时间线只定位刚写入该文档修订的那条绑定；后台读取完成后由同一表单选中它。
 #[derive(Message, Clone)]
@@ -156,10 +161,10 @@ pub(super) struct Studio {
     suggest: Option<(Field, usize)>,
     return_to: Option<Selection>,
     files: persistence::Persistence,
-    parked: [Option<PageDraft>; 3],
-    scenes: [Option<String>; 3],
+    parked: HashMap<SidebarPage, PageDraft>,
+    scene_scope: Option<SceneId>,
     tags: [TagFilter; 3],
-    picker: Option<(ListPicker, usize)>,
+    picker: Option<usize>,
 }
 impl Studio {
     fn refresh(&mut self) {
@@ -177,19 +182,35 @@ impl Studio {
         self.refresh();
     }
 
-    fn switch_section(&mut self, tab: Tab, focus: &mut InputFocus) {
-        if self.sel.tab == tab {
+    fn matches_page(&self, page: &SidebarPage) -> bool {
+        self.sel.tab == page.tab && self.scene_scope == page.scene
+    }
+
+    fn switch_page(&mut self, page: SidebarPage, focus: &mut InputFocus) {
+        if self.matches_page(&page) {
             return;
         }
         self.picker = None;
-        self.parked[self.sel.tab as usize] = self.editing_item.then(|| PageDraft {
-            selection: self.sel,
-            form: std::mem::take(&mut self.form),
-            baseline: std::mem::take(&mut self.baseline),
-            alternate: std::mem::take(&mut self.alternate),
-            return_to: self.return_to.take(),
-        });
-        if let Some(saved) = self.parked[tab as usize].take() {
+        if self.scene_scope != page.scene {
+            self.tags = default();
+        }
+        let preserve = self.editing_item && (self.sel.tab == Tab::Locations || self.has_unsaved_input());
+        // 同一规则文件中的跨场景草稿必须按稳定场景 ID 归还，不能只用表单种类复位。
+        let previous = SidebarPage {
+            tab: self.sel.tab,
+            scene: std::mem::replace(&mut self.scene_scope, page.scene.clone()),
+        };
+        if preserve {
+            self.parked.insert(previous, PageDraft {
+                selection: self.sel,
+                form: std::mem::take(&mut self.form),
+                baseline: std::mem::take(&mut self.baseline),
+                alternate: std::mem::take(&mut self.alternate),
+                return_to: self.return_to.take(),
+            });
+        }
+        let tab = page.tab;
+        if let Some(saved) = self.parked.remove(&page) {
             self.sel = saved.selection;
             self.notice.clear();
             if let Some(sheet) = self
@@ -241,7 +262,7 @@ impl Studio {
     }
 
     fn has_parked_input(&self) -> bool {
-        self.parked.iter().flatten().any(|p| p.form != p.baseline)
+        self.parked.values().any(|p| p.form != p.baseline)
     }
 }
 fn start(
@@ -355,8 +376,12 @@ fn sync(
                             ..job.key
                         });
                         s.sheet_path = Some(d.disk.path.clone());
+                        let mut selection = reply.selection;
+                        if selection.tab != Tab::Locations {
+                            selection.list_page = scope::page(selection, s.rows(&reply.sheet, selection.tab));
+                        }
                         s.sheet = Some(reply.sheet);
-                        s.sel = reply.selection;
+                        s.sel = selection;
                         // 写盘准备期间作者可能已输入下一个值，只采用已确认版本为新基线。
                         let keep_fields =
                             matches!(job.change, Some(Change::RuleUp | Change::RuleDown))
@@ -410,15 +435,17 @@ fn sync(
             s.editing_item = false;
             s.return_to = None;
             if active_document(&docs).is_some_and(|doc| s.sheet_path.as_ref() != Some(&doc.disk.path)) {
-                s.scenes = default();
+                s.scene_scope = None;
                 s.tags = default();
                 s.sel.item = None;
+                s.sel.list_page = 0;
             }
         }
         s.forget_stale_checkpoint(&key);
         let _ = start(&mut s, &docs, None, false, None);
     }
-    if let Some(section) = docs.sidebar_rules.section
+    if let Some(page) = docs.sidebar_rules.page.as_ref()
+        && !s.matches_page(page)
         && active(&docs)
             .as_ref()
             .is_some_and(|key| s.key.as_ref() == Some(key))
@@ -428,11 +455,10 @@ fn sync(
             .iter()
             .any(|f| f.is_composing() || f.pending_paste.is_some() || !f.pending_edits.is_empty())
     {
-        docs.sidebar_rules.section = None;
-        if s.sel.tab != section && focus.get().is_some_and(|id| fields.get(id).is_ok()) {
+        if focus.get().is_some_and(|id| fields.get(id).is_ok()) {
             focus.clear();
         }
-        s.switch_section(section, &mut focus);
+        s.switch_page(page.clone(), &mut focus);
     }
     if let Some(want) = pending.as_ref() {
         let target = Identity {
@@ -445,19 +471,22 @@ fn sync(
         } else if active(&docs).as_ref() == Some(&target)
             && s.key.as_ref() == Some(&target)
             && s.job.is_none()
+            && s.sel.tab == Tab::Rules
+            && s.scene_scope.is_none()
+            && sidebar_page_matches(&s, &docs)
         {
             if s.sheet
                 .as_ref()
                 .is_some_and(|sheet| want.index < sheet.len(Tab::Rules, None))
             {
                 // 时间线绑定写入工程级规则，定位时同步恢复这组行的身份和筛选。
-                s.scenes[Tab::Rules as usize] = None;
                 s.tags[Tab::Rules as usize] = TagFilter::All;
-                s.parked[Tab::Rules as usize] = None;
+                s.parked.remove(&SidebarPage { tab: Tab::Rules, scene: None });
                 s.select(
                     Selection {
                         tab: Tab::Rules,
                         item: Some(want.index),
+                        list_page: want.index / view::ROWS,
                         ..default()
                     },
                     true,
@@ -472,18 +501,19 @@ fn sync(
 #[derive(Component)]
 pub(super) struct AuthorButton;
 
-/// 交互目录打开工程规则时只预留后台缓存，不激活、不关闭中央标签。
+#[cfg(test)]
 pub(crate) fn open_sidebar_project_rules_section(
     docs: &mut DocumentState,
     path: &Path,
     section: ProjectRulesSection,
 ) -> Result<(), String> {
     load_sidebar_project_rules_document(docs, path)?;
-    docs.sidebar_rules.section = Some(section);
+    docs.sidebar_rules.page = Some(SidebarPage { tab: section, scene: None });
     Ok(())
 }
 
-pub(super) fn load_sidebar_project_rules_document(
+/// 两个右栏入口只预留后台缓存，不激活、不关闭中央标签。
+pub(crate) fn load_sidebar_project_rules_document(
     docs: &mut DocumentState,
     path: &Path,
 ) -> Result<(), String> {
@@ -517,22 +547,29 @@ pub(crate) fn select_loaded_sidebar_project_rules_section(
     docs: &mut DocumentState,
     section: ProjectRulesSection,
 ) -> bool {
-    let Some(doc) = docs.rules_sidebar_document() else {
-        return false;
-    };
-    if docs.file_change_pending(&doc.path) {
+    if !sidebar_project_rules_ready(docs) {
         return false;
     }
-    docs.sidebar_rules.section = Some(section);
+    docs.sidebar_rules.page = Some(SidebarPage { tab: section, scene: None });
     docs.sidebar_rules.error.clear();
     true
 }
 
 /// 先读再改，稳定帧不把文档标为已变更，也不刷新中央预览。
-pub(crate) fn set_sidebar_project_rules_visible(docs: &mut ResMut<DocumentState>, visible: bool) {
-    if docs.sidebar_rules.visible != visible {
-        docs.sidebar_rules.visible = visible;
+pub(crate) fn set_sidebar_project_rules_page(
+    docs: &mut ResMut<DocumentState>,
+    page: Option<(Tab, Option<&SceneId>)>,
+) -> bool {
+    let previous = docs.sidebar_rules.page.as_ref().map(|p| (p.tab, p.scene.as_ref()));
+    if previous == page {
+        return false;
     }
+    docs.sidebar_rules.page = page.map(|(tab, scene)| SidebarPage { tab, scene: scene.cloned() });
+    true
+}
+
+pub(crate) fn sidebar_project_rules_ready(docs: &DocumentState) -> bool {
+    docs.rules_sidebar_document().is_some_and(|doc| !docs.file_change_pending(&doc.path))
 }
 
 pub(crate) fn set_sidebar_project_rules_error(docs: &mut DocumentState, error: String) {
@@ -594,6 +631,37 @@ mod tests {
     }
 
     #[test]
+    fn parked_variable_keeps_its_original_scene_when_the_same_row_exists_elsewhere() {
+        let mut studio = Studio {
+            sheet: Some(variable_sheet(r#"{
+                "version": 1,
+                "variables": {"score": {"default": 0}},
+                "scenes": {
+                    "alpha": {"variables": {"score": {"default": 1}}},
+                    "beta": {"variables": {"score": {"default": 2}}}
+                }
+            }"#)),
+            ..default()
+        };
+        let mut focus = InputFocus::default();
+        let page = |scene: Option<&str>| SidebarPage {
+            tab: Tab::Variables,
+            scene: scene.map(|id| SceneId(id.into())),
+        };
+        studio.switch_page(page(Some("alpha")), &mut focus);
+        studio.editing_item = true;
+        studio.form.default_value = "9".into();
+        studio.switch_page(page(Some("beta")), &mut focus);
+        assert_eq!(studio.form.default_value, "2");
+        assert!(!studio.editing_item);
+        studio.switch_page(page(None), &mut focus);
+        assert_eq!(studio.form.default_value, "0");
+        studio.switch_page(page(Some("alpha")), &mut focus);
+        assert!(studio.editing_item);
+        assert_eq!(studio.form.default_value, "9");
+    }
+
+    #[test]
     fn parked_rule_form_never_overwrites_a_neighbor_after_history_moves_its_row() {
         let mut s = Studio {
             sheet: Some(variable_sheet(
@@ -609,19 +677,20 @@ mod tests {
         let mut focus = InputFocus::default();
         s.hydrate();
         s.form.default_value = "3".into();
-        s.switch_section(Tab::Rules, &mut focus);
+        let project = |tab| SidebarPage { tab, scene: None };
+        s.switch_page(project(Tab::Rules), &mut focus);
         s.sheet = Some(variable_sheet(
             r#"{"version":1,"variables":{"b":{"default":2},"a":{"default":1}}}"#,
         ));
-        s.switch_section(Tab::Variables, &mut focus);
+        s.switch_page(project(Tab::Variables), &mut focus);
         assert_eq!(s.sel.item, Some(0));
         assert_eq!((&*s.form.id, &*s.form.default_value), ("b", "3"));
 
-        s.switch_section(Tab::Rules, &mut focus);
+        s.switch_page(project(Tab::Rules), &mut focus);
         s.sheet = Some(variable_sheet(
             r#"{"version":1,"variables":{"a":{"default":1}}}"#,
         ));
-        s.switch_section(Tab::Variables, &mut focus);
+        s.switch_page(project(Tab::Variables), &mut focus);
         assert!(s.sel.item.is_none());
         assert_eq!((&*s.form.id, &*s.form.default_value), ("b", "3"));
         assert!(s.notice.contains("原条目已不存在"));

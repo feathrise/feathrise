@@ -26,6 +26,7 @@ enum Step {
     Drawn,
     BoolValues,
     CompactVariableScroll,
+    ResizeTable { separator: usize, sample: &'static str },
     DeleteRow(&'static str),
     Deleted { id: &'static str, variable: bool },
     TextWithoutChoices,
@@ -39,7 +40,12 @@ enum Step {
     FieldEquals(&'static str, &'static str),
     ListRows { present: &'static str, absent: &'static str },
     TagMenuLayout(bool),
-    ScopePickerLayout,
+    Sidebar(EditorSidebarTab),
+    OpenScene(&'static str),
+    ConfigExpanded(bool),
+    ScenePreviewProperty,
+    SceneRulesProperty { title: &'static str, scene: &'static str },
+    ScenePropertyCapture(&'static str),
     NameFocused,
     Duplicate(bool),
 }
@@ -65,6 +71,9 @@ const FIRST: &[Step] = &[
     Button("RulesSave"),
     Stored("delete_me"),
     Layout(Sample::Variables { id: "delete_me", value: "false" }),
+    ResizeTable { separator: 0, sample: "variable-column-resize" },
+    Selected("delete_me"),
+    Button("RulesCancel"),
     DeleteRow("delete_me"),
     Deleted { id: "delete_me", variable: true },
     Button("RulesNew"),
@@ -196,6 +205,10 @@ const EDIT: &[Step] = &[
     Field("RulesFieldActionValue", "false"),
     Button("RulesSave"),
     Stored("delete_rule"),
+    ResizeTable { separator: 1, sample: "rule-column-resize" },
+    Selected("delete_rule"),
+    FieldEquals("RulesFieldEventTarget", "dock_guard"),
+    Button("RulesCancel"),
     DeleteRow("delete_rule"),
     Deleted { id: "delete_rule", variable: false },
     Saved,
@@ -378,7 +391,10 @@ fn chord(world: &mut World, window: Entity, step: u8, code: KeyCode) {
     }
 }
 
-fn step_at(phase: &str, index: usize) -> Option<&'static Step> {
+fn step_at(phase: &str, index: usize, context: bool) -> Option<&'static Step> {
+    if context {
+        return scoped::CONTEXT.get(index);
+    }
     let (base, extension): (&[Step], &[Step]) = match phase {
         "empty" => (FIRST, scoped::AUTHOR),
         "draw-reopen" => (&[Page("地点区域"), Selected("drawn_gate"), Drawn], scoped::REOPEN),
@@ -393,10 +409,11 @@ pub(super) fn form(
     run: &mut Run,
     window: Entity,
     index: usize,
+    context: bool,
 ) -> Result<Option<Stage>, String> {
     let reopening = run.phase == "reopen";
-    let Some(step) = step_at(&run.phase, index) else {
-        if run.phase == "empty" {
+    let Some(step) = step_at(&run.phase, index, context) else {
+        if run.phase == "empty" && !context {
             run.center = Value::Null;
             return Ok(Some(Stage::OpenContext));
         }
@@ -413,11 +430,7 @@ pub(super) fn form(
             }
             clicked
         }
-        Page(title) => entity(world, "RulesPageTitle").is_some_and(|e| {
-            world
-                .get::<Text>(e)
-                .is_some_and(|caption| caption.as_str() == title)
-        }),
+        Page(title) => scoped::project_page(world, run, title),
         Field(id, value) => {
             let Some(e) = entity(world, id) else {
                 return Ok(None);
@@ -430,10 +443,18 @@ pub(super) fn form(
         FieldEquals(id, value) => field_text(world, id).as_deref() == Some(value),
         ListRows { present, absent } => {
             (present.is_empty() || row_slot(world, present).is_some())
-                && row_slot(world, absent).is_none()
+                && (absent.is_empty() || row_slot(world, absent).is_none())
         }
         TagMenuLayout(open) => scoped::tag_menu_layout(world, run, open)?,
-        ScopePickerLayout => scoped::scope_picker_layout(world, run)?,
+        Sidebar(tab) => {
+            let button = visible(world, |button: &SceneEditorSidebarTabButton| button.0 == tab);
+            click(world, &mut run.pointer, window, button)
+        }
+        OpenScene(scene) => scoped::open_scene(world, run, window, scene),
+        ConfigExpanded(expanded) => scoped::config_expanded(world, run, window, expanded)?,
+        ScenePreviewProperty => scoped::preview_property(world, run)?,
+        SceneRulesProperty { title, scene } => scoped::rules_property(world, run, title, scene)?,
+        ScenePropertyCapture(name) => scoped::capture(world, run, name)?,
         ScopedStored { scene, id } => scoped::stored(world, run, scene, id)?,
         Selected(id) => {
             if field_text(world, "RulesFieldId").as_deref() != Some(id) {
@@ -552,6 +573,7 @@ pub(super) fn form(
             true
         }
         Layout(sample) => layout::capture(world, run, window, sample)?,
+        ResizeTable { separator, sample } => table::resize(world, run, window, separator, sample)?,
         InspectorNarrow => {
             run.center = Value::Null;
             if layout::size_inspector(world, run, window, false)
@@ -874,9 +896,13 @@ pub(super) fn form(
             true
         }
     };
-    Ok(done.then_some(Stage::Form(index + 1)))
+    Ok(done.then_some(if context {
+        Stage::ContextSceneConfig(index + 1)
+    } else {
+        Stage::Form(index + 1)
+    }))
 }
 
-pub(super) fn describe(phase: &str, index: usize) -> String {
-    format!("{:?}", step_at(phase, index))
+pub(super) fn describe(phase: &str, index: usize, context: bool) -> String {
+    format!("{:?}", step_at(phase, index, context))
 }

@@ -14,7 +14,7 @@ use feathrise_scene_content::{SceneId, ScenePlacementHeightMode, ScenePlacementR
 use super::{components::*, sync_scene_inspector, types::*};
 use crate::authoring::EditorAuthoringSession;
 use crate::components::SceneEditorRightPanelScroll;
-use crate::resources::{SceneEditorState, TerrainShadingSession};
+use crate::resources::SceneEditorState;
 use crate::ui::gltf_browser::*;
 use crate::ui::placement_transform::*;
 use crate::ui::placement_water::*;
@@ -64,7 +64,6 @@ fn page_with_placements(placements: Vec<ScenePlacementRecord>) -> (App, Entity) 
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<PlacementTransformInputState>()
-        .init_resource::<TerrainShadingSession>()
         .insert_resource({
             let mut sidebar = crate::ui::sidebars::SceneEditorSidebarState::default();
             sidebar.navigator = crate::ui::sidebars::EditorNavigatorTab::SceneTree;
@@ -77,6 +76,7 @@ fn page_with_placements(placements: Vec<ScenePlacementRecord>) -> (App, Entity) 
         .init_resource::<PlacementWaterRuntimeSelectionCache>()
         .init_resource::<PlacementInstanceIndex>()
         .init_resource::<feathrise_scene::ScenePlacementRuntimeStatus>()
+        .init_asset::<Image>() // 对齐真实编辑器的图像资产注册，场景配置箭头沿用原树图标。
         .init_asset::<WorldAsset>()
         .add_message::<NumericInputSetValue>();
     let mut draft = crate::authoring::test_heightfield_draft(vec![0; 121].into());
@@ -104,7 +104,7 @@ fn page_with_placements(placements: Vec<ScenePlacementRecord>) -> (App, Entity) 
             refresh_placement_water_runtime_selection_cache,
             sync_placement_transform_panel,
             crate::ui::sidebars::sync_editor_sidebar_context,
-            sync_scene_base_gltf_row,
+            crate::ui::sidebars::sync_scene_config_presentation,
             sync_gltf_browser_rows,
             sync_placement_water_text,
             sync_scene_inspector,
@@ -430,30 +430,12 @@ fn inspector_invalid_structure_index_hides_fields_until_original_index_is_ready(
 }
 
 #[test]
-fn inspector_base_terrain_and_building_use_distinct_read_only_summary() {
+fn inspector_scene_and_building_use_distinct_read_only_summary() {
     let (mut app, _) = page(1);
     let before = author(&app);
-    let scene_id = app
-        .world()
-        .resource::<SceneEditorState>()
-        .selected_scene_id
-        .clone();
-    let mut shading = app.world_mut().resource_mut::<TerrainShadingSession>();
-    shading.scene_id = scene_id;
-    shading.preview_expanded = true;
-    app.update();
-    assert_eq!(text(&mut app, SceneInspectorField::Name), "原场景基础网格");
-    assert!(text(&mut app, SceneInspectorField::Details).contains("scenes/EDGE-TEST/terrain/terrain.glb"));
-    assert!(text(&mut app, SceneInspectorField::Hint).contains("下方显示网格属性"));
+    assert_eq!(text(&mut app, SceneInspectorField::Name), "场景 · 检查器测试场景");
     assert_eq!(properties_display(&mut app), Display::None);
     assert_eq!(author(&app), before);
-    {
-        let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
-        session.draft.as_mut().unwrap().manifest.terrain = feathrise_scene_content::SceneTerrainDescriptor::empty();
-        session.revision += 1;
-    }
-    app.update();
-    assert_eq!(text(&mut app, SceneInspectorField::Name), "场景 · 检查器测试场景");
     let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
     session.draft.as_mut().unwrap().placements.placements[0].building_preset_id =
         Some("courtyard-gate".into());

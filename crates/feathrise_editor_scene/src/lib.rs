@@ -91,7 +91,7 @@ use ui::terrain_conflict_dialog::{
     sync_terrain_conflict_dialog,
 }; // 外部GLB冲突在独立模态层冻结精确选择。
 use ui::terrain_shading::{
-    handle_scene_base_terrain_row, handle_terrain_grid_button, handle_terrain_shading_buttons,
+    handle_terrain_grid_button, handle_terrain_shading_buttons,
     sync_terrain_grid_button_style, sync_terrain_shading_button_styles,
     sync_terrain_shading_session,
 }; // 场景基础地形选择、双模式着色与独立网格按钮只更新本次运行的显示状态。
@@ -389,7 +389,7 @@ impl Plugin for SceneEditorPlugin {
                                 handle_editor_sidebar_input, // 页签和帮助开关先消费本帧点击，稳定工具不会抢回手动页面。
                                 handle_editor_action_buttons,
                                 viewport::snapping::handle_buttons,
-                                handle_scene_base_terrain_row, // 场景树顶部独立展开当前场景的显示选项。
+                                handle_scene_config_input, // 先选定场景级属性，再处理其预览设置。
                                 handle_terrain_shading_buttons, // 场景着色预览沿用当前场景身份与临时模式。
                                 handle_terrain_grid_button, // 显示网格独立切换，不改变平滑/平直状态。
                                 handle_water_level_input, // 普通按钮可能切层；提交仍按聚焦时冻结的完整作者身份应用。
@@ -696,7 +696,7 @@ impl Plugin for SceneEditorPlugin {
                                         sync_gltf_browser_rows, // 按滚动窗口原地回显Scene0树。
                                         ui::gltf_browser::sync_gltf_row_toggles, // 开关采用本帧已绑定的可见对象。
                                     ).chain(),
-                                    ui::gltf_browser::sync_scene_base_gltf_row, // 场景显示入口在空场景仍保留。
+                                    sync_scene_config_presentation, // 场景配置入口常驻，属性跟随当前场景草稿。
                                     (
                                         sync_placement_water_text, // 网格选择、撤销或草稿换代后回显实际水体语义。
                                         ui::scene_inspector::sync_scene_inspector, // 概览和反馈只读取同帧最终选择与真实状态。

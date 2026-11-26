@@ -109,6 +109,7 @@ pub(crate) fn right_sidebar(
             @super::super::asset_preview::weights::panel::sidebar_page(weight_scenes)--
             @asset_properties_page(scenes, weight_scenes, animation_scenes)--
             @crate::ui::scene_sidebar::scene_properties_page()--
+            @super::scene_config::properties()--
             @super::super::environment::environment_page() // 三种环境作用域在唯一滚动页内独立显示。
         ]
     }

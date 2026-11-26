@@ -39,7 +39,5 @@ pub(crate) struct SceneInspectorObservation {
     pub(super) placement_id: Option<String>,
     pub(super) mesh: Option<EditorGltfMeshSelection>,
     pub(super) record_index: Option<usize>,
-    pub(super) preview_expanded: bool,
-    pub(super) terrain_scene_id: Option<SceneId>,
     pub(super) relocation_armed: bool,
 }

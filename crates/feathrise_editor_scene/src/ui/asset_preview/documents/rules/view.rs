@@ -1,6 +1,6 @@
 //! 固定行池的列表与属性表单。长清单通过分页浏览，原生输入实体保留字体、选区与输入法状态。
 use super::{types::*, *};
-use super::scope::{SceneOptions, page};
+use super::scope::page;
 use bevy::{
     input_focus::tab_navigation::TabIndex,
     text::{EditableText, LineHeight},
@@ -11,6 +11,7 @@ use feathrise_editor_ui::{InteractionButton, UiInteraction, colors as c, metrics
 mod layout;
 mod table;
 mod editor_dialog;
+mod pager;
 pub(crate) use editor_dialog::RulesEditorDialogOverlay;
 pub(super) use editor_dialog::is_open as editor_dialog_open;
 pub(super) const ROWS: usize = 8;
@@ -20,10 +21,12 @@ pub(super) fn install(app: &mut App) {
         Update,
         (
             layout::mount,
+            layout::route_panel,
             editor_dialog::mount,
             display,
             table::fit,
             table::sync,
+            pager::sync,
             anchor_options,
             editor_dialog::sync,
             form,
@@ -40,6 +43,7 @@ pub(super) enum Action {
     DeleteRow(usize),
     Previous,
     Next,
+    Page(usize),
     New,
     Cancel,
     Delete,
@@ -74,9 +78,6 @@ pub(super) enum Action {
     OptionsPrevious,
     OptionsNext,
     OptionsClose,
-    ScopeProject,
-    ScopeScene,
-    ScopeScenePicker,
     ListTagPicker,
     ListOption(usize),
     ListOptionsPrevious,
@@ -98,6 +99,7 @@ struct FieldLabel(Field);
 #[derive(Component, Clone, Copy)]
 enum Info {
     PageTitle,
+    SceneName,
     Selection,
     EditorTitle,
     Yarn,
@@ -115,7 +117,7 @@ enum Group {
     Rule,
     Limits,
     Picker,
-    ListScope,
+    ListFilter,
     ListOptions,
     External,
 }
@@ -243,7 +245,6 @@ fn anchor_options(
 fn display(
     s: Res<Studio>,
     docs: Res<DocumentState>,
-    scenes: SceneOptions,
     mut editor: ResMut<crate::resources::SceneEditorState>,
     mut panel: Query<(&mut Node, &mut Visibility, Ref<Panel>)>,
     mut body: Query<&mut Node, (With<PanelBody>, Without<Panel>, Without<SidebarStatus>)>,
@@ -275,6 +276,7 @@ fn display(
             Without<PanelBody>,
             Without<SidebarStatus>,
             Without<FieldRow>,
+            Without<pager::PagerButton>,
         ),
     >,
     hover: Query<(), (With<AuthorButton>, Changed<UiInteraction>)>,
@@ -297,7 +299,6 @@ fn display(
 ) {
     if !s.is_changed()
         && !docs.is_changed()
-        && !(s.picker.is_some_and(|(p, _)| p == ListPicker::Scenes) && scenes.changed())
         && hover.is_empty()
         && !panel.iter().any(|(_, _, p)| p.is_added())
     {
@@ -343,8 +344,7 @@ fn display(
     let rows = list.map_or(&[][..], |m| s.rows(m, tab));
     let count = rows.len();
     let start = page(selection, rows) * ROWS;
-    let scene_entries = scenes.entries();
-    let list_option = |i| sheet.and_then(|m| s.list_option(m, scene_entries, i));
+    let list_option = |i| sheet.and_then(|m| s.list_option(m, i));
     let suggest = |f, i| sheet.and_then(|m| controls::suggest(m, tab, scene, &s.form, f, i));
     let rule = sheet.and_then(|m| s.sel.rule(&m.model, scene));
     let conditions = rule.map_or(0, |r| r.conditions.len());
@@ -362,7 +362,7 @@ fn display(
                 Group::Rule => tab == Tab::Rules,
                 Group::Limits => tab == Tab::Rules && s.form.changed,
                 Group::Picker => s.suggest.is_some_and(|(f, _)| field_shown(tab, &s.form, f)),
-                Group::ListScope => tab != Tab::Locations,
+                Group::ListFilter => tab != Tab::Locations,
                 Group::ListOptions => s.picker.is_some() && !modal,
                 Group::External => doc.external.warning || doc.confirm_reload,
             },
@@ -407,9 +407,8 @@ fn display(
             Action::OptionsNext => s.suggest.is_some_and(|(f, base)| suggest(f, base + OPTIONS).is_some()),
             Action::Option(i) => s.suggest.is_some_and(|(f, base)| suggest(f, base + i).is_some()),
             Action::Suggest(f) => suggest(*f, 0).is_some(),
-            Action::ScopeScenePicker => scene.is_some(),
             Action::ListOption(i) => list_option(*i).is_some(),
-            Action::ListOptionsPrevious => s.picker.is_some_and(|(_, base)| base != 0),
+            Action::ListOptionsPrevious => s.picker.is_some_and(|base| base != 0),
             Action::ListOptionsNext => list_option(OPTIONS).is_some(),
             _ => true,
         };
@@ -424,11 +423,7 @@ fn display(
             Action::Once => s.form.once,
             Action::From => s.form.use_from,
             Action::To => s.form.use_to,
-            Action::ScopeProject => scene.is_none(),
-            Action::ScopeScene => scene.is_some(),
-            Action::ScopeScenePicker => s.picker.is_some_and(|(p, _)| p == ListPicker::Scenes),
-            Action::ListTagPicker => *s.tag_filter(tab) != TagFilter::All
-                || s.picker.is_some_and(|(p, _)| p == ListPicker::Tags),
+            Action::ListTagPicker => *s.tag_filter(tab) != TagFilter::All || s.picker.is_some(),
             _ => false,
         };
         let primary = *a == Action::Save || (*a == Action::New && !s.editing_item);
@@ -455,7 +450,6 @@ fn display(
             Action::Option(i) => s.suggest.and_then(|(f, base)| {
                 suggest(f, base + i).map(|id| choice_label(f, &s.form, &id).to_owned())
             }).unwrap_or_default(),
-            Action::ScopeScenePicker => format!("场景 · {}", scene.unwrap_or_default()),
             Action::ListTagPicker => match s.tag_filter(tab) {
                 TagFilter::All => "标签 · 全部".into(),
                 TagFilter::Untagged => "标签 · 未标记".into(),
@@ -486,6 +480,7 @@ fn display(
     }
     for (role, mut t, mut n) in &mut infos {
         let shown = match role {
+            Info::SceneName => scene.is_some(),
             Info::Selection => sheet.is_some(),
             Info::Actions | Info::Conditions => tab == Tab::Rules,
             Info::Yarn => tab == Tab::Variables && !s.form.id.trim().is_empty(),
@@ -497,7 +492,9 @@ fn display(
         }
         let value = match role {
             Info::PageTitle if tab == Tab::Variables && scene.is_some() => "场景变量".into(),
+            Info::PageTitle if tab == Tab::Rules && scene.is_some() => "场景触发".into(),
             Info::PageTitle => tab.title().into(),
+            Info::SceneName => format!("场景 · {}", scene.unwrap_or_default()),
             Info::Selection if count == 0 && *s.tag_filter(tab) != TagFilter::All => {
                 format!("没有匹配的{}", tab.noun())
             }

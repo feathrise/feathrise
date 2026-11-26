@@ -7,15 +7,17 @@ struct Checkpoint {
     source: Arc<str>,
     pages: Vec<Arc<str>>,
     selection: Selection,
+    scene: Option<SceneId>,
 }
 impl Checkpoint {
-    fn new(doc: &Document, selection: Selection) -> Self {
+    fn new(doc: &Document, selection: Selection, scene: Option<SceneId>) -> Self {
         Self {
             key: Identity::of(doc),
             content: doc.content_revision(),
             source: doc.source.clone(),
             pages: doc.pages.clone(),
             selection,
+            scene,
         }
     }
     fn restore(self, doc: &mut Document) -> Selection {
@@ -81,7 +83,7 @@ impl Studio {
                 ..default()
             }
         };
-        self.files.before = Some(Checkpoint::new(doc, selection));
+        self.files.before = Some(Checkpoint::new(doc, selection, None));
         doc.replace_content(source, pages, default());
         self.track_edit(doc);
         Ok(())
@@ -107,7 +109,7 @@ impl Studio {
         self.files
             .before
             .as_ref()
-            .is_some_and(|before| before.selection.tab == self.sel.tab)
+            .is_some_and(|before| before.selection.tab == self.sel.tab && before.scene == self.scene_scope)
     }
     pub(super) fn saving(&self) -> bool {
         self.files.write.is_some() || self.job.as_ref().is_some_and(|j| j.save)
@@ -166,7 +168,7 @@ impl Studio {
             .as_ref()
             .is_none_or(|before| !before.key.matches(doc))
         {
-            self.files.before = Some(Checkpoint::new(doc, self.sel));
+            self.files.before = Some(Checkpoint::new(doc, self.sel, self.scene_scope.clone()));
         }
     }
     pub(super) fn track_edit(&mut self, doc: &Document) {
@@ -206,7 +208,7 @@ impl Studio {
     }
     pub(super) fn retain_deletion(&self, doc: &Document) -> Deletion {
         Deletion {
-            before: Checkpoint::new(doc, self.sel),
+            before: Checkpoint::new(doc, self.sel, self.scene_scope.clone()),
             sheet: self.sheet.clone(),
             form: self.form.clone(),
         }

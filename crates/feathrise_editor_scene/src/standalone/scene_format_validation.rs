@@ -294,11 +294,25 @@ pub fn empty_terrain_placement_tree_labels(
     let Some((_, tree)) = visible_placement_row(world, scene, placement) else {
         return Ok(None);
     };
-    let labels = world.query::<(Entity, &Text)>().iter(world).filter_map(|(entity, text)| {
-        (ui_ancestors(world, entity).any(|ancestor| ancestor == tree) && ui_visible(world, entity))
+    let parent = world.get::<ChildOf>(tree).ok_or("场景树缺少左栏宿主")?.parent();
+    // 场景配置和主 GLB 根行位于对象滚动区外，与该树共用左栏宿主。
+    Ok(Some(visible_labels_in(world, parent)))
+}
+
+/// 场景显示控件搬到属性栏后，仍在无地形场景验证同一套原生按钮。
+pub fn scene_preview_property_labels(world: &mut World) -> Result<Vec<String>, String> {
+    require_owned(world)?;
+    let panel = world.query::<(Entity, &Name)>().iter(world).find_map(|(entity, name)| {
+        (name.as_str() == "场景预览属性" && ui_visible(world, entity)).then_some(entity)
+    });
+    Ok(panel.map_or_else(Vec::new, |panel| visible_labels_in(world, panel)))
+}
+
+fn visible_labels_in(world: &mut World, root: Entity) -> Vec<String> {
+    world.query::<(Entity, &Text)>().iter(world).filter_map(|(entity, text)| {
+        (ui_ancestors(world, entity).any(|ancestor| ancestor == root) && ui_visible(world, entity))
             .then(|| text.0.clone())
-    }).collect();
-    Ok(Some(labels))
+    }).collect()
 }
 
 pub struct PlacementTreeView {

@@ -44,8 +44,8 @@ fn shell() -> impl Scene {
         PageHost Node { width: px(280), height: px(700), min_width: px(0), flex_direction: FlexDirection::Column,
             overflow: Overflow::scroll_y(), flex_shrink: 0.0 } Children [@scene::panel()]--
         ListHost Node { width: px(280), height: px(700), min_width: px(0), flex_direction: FlexDirection::Column,
-            flex_shrink: 0.0 } Children [@crate::ui::gltf_browser::scene_display_button()--
-                @crate::ui::terrain_shading::terrain_shading_controls()-- @scene::scene_list_panel()-- @scene::properties_panel()]
+            flex_shrink: 0.0 } Children [@crate::ui::sidebars::scene_config_navigation()--
+                @scene::scene_list_panel()-- @scene::properties_panel()]
     ] }
 }
 
@@ -1830,13 +1830,7 @@ fn mesh_sidebar_gpu_snapshot() {
     use std::time::{Duration, Instant};
     let (mut app, _) = page_with_render(true, true);
     crate::ui::theme::install(&mut app);
-    app.add_systems(Update, crate::ui::gltf_browser::sync_scene_base_gltf_row);
-    let map = app.world().resource::<SceneEditorState>().selected_scene_id.clone();
-    {
-        let mut shading = app.world_mut().resource_mut::<crate::resources::TerrainShadingSession>();
-        shading.scene_id = map;
-        shading.preview_expanded = true;
-    }
+    app.add_systems(Update, crate::ui::sidebars::sync_scene_config_presentation);
     let hidden = TerrainId::parse("mesh-b").unwrap();
     {
         let mut state = app.world_mut().resource_mut::<TerrainObjectsEditorState>();
@@ -1985,7 +1979,7 @@ fn editor_workbench_gpu_snapshot() {
     crate::ui::asset_preview::install_snapshot_presentation(&mut app);
     crate::ui::context_help::install(&mut app);
     crate::ui::status_bar::install(&mut app); // 与正式工作台一致：重复反馈不参与正文布局，完整文字进入详情。
-    app.add_systems(Update, crate::ui::gltf_browser::sync_scene_base_gltf_row);
+    app.add_systems(Update, crate::ui::sidebars::sync_scene_config_presentation);
     crate::ui::theme::install(&mut app);
     app.init_resource::<crate::resources::SceneEditorLayoutState>()
         .init_resource::<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>()

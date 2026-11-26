@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::components::MeshPropertySection;
 
 #[derive(bevy::ecs::system::SystemParam)]
-pub(in crate::ui) struct PanelWorkspaceGate<'w> {
+pub(crate) struct PanelWorkspaceGate<'w> {
     workspace: Option<Res<'w, crate::ui::vegetation_preset_editor::VegetationPresetEditorState>>,
     browser: Option<Res<'w, crate::resources::SceneBrowserState>>,
     settings: Option<Res<'w, crate::resources::SceneEditorSettingsState>>,
@@ -27,7 +27,7 @@ impl PanelWorkspaceGate<'_> {
     pub(in crate::ui) fn buttons_allowed(&self) -> bool {
         self.visible() && self.creation_buttons_allowed()
     }
-    pub(super) fn creation_buttons_allowed(&self) -> bool {
+    pub(in crate::ui) fn creation_buttons_allowed(&self) -> bool {
         self.creation_context_valid()
             && self.mouse.as_ref().is_none_or(|state| !state.blocked())
     }

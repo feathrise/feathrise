@@ -43,7 +43,12 @@ pub(crate) mod validation; // 仅显式有限验收访问固定文本会话，�
 pub(crate) use resources::{DocumentState, DocumentMinimapState};
 pub(crate) use project_files::OpenProjectDocument;
 pub(crate) use rules::RulesEditorDialogOverlay;
-pub(crate) use rules::{ProjectRulesSection, open_sidebar_project_rules_section, select_loaded_sidebar_project_rules_section, set_sidebar_project_rules_error, set_sidebar_project_rules_visible};
+#[cfg(test)]
+pub(crate) use rules::open_sidebar_project_rules_section;
+pub(crate) use rules::{
+    ProjectRulesSection, load_sidebar_project_rules_document, select_loaded_sidebar_project_rules_section,
+    set_sidebar_project_rules_error, set_sidebar_project_rules_page, sidebar_project_rules_ready,
+};
 pub(crate) use source::is_project as is_project_document;
 pub(crate) use search::AssetSearchState;
 pub(crate) use search::AssetReplaceState;

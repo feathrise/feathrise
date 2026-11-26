@@ -13,6 +13,7 @@ use super::scene::FONT_PATH; // 与其余编辑器控件共享同一字体资产
 mod asset_reveal; // 定位成功后一次性把高亮文件滚入当前资产页可见区域。
 mod left; // 左侧双导航、顶部模块条与复用的工具表单。
 mod right; // 全高工具、属性、资产与环境页，以及原唯一预设预览。
+mod scene_config; // 场景配置树行与场景级属性共用程序路由。
 mod state; // 页签、折叠帮助和上下文容器的轻量marker与会话状态。
 mod systems; // 页签输入、工具跟随、显隐和水墨铜木交互样式。
 
@@ -22,6 +23,9 @@ pub(crate) use left::tool_module_bar; // 顶部模块栏与左右导航共用同
 #[cfg(test)]
 pub(crate) use left::scene_tree_page; // 回归通过真实导航树验证选择和独立滚动。
 pub(crate) use right::right_sidebar; // 主三栏Scene只依赖稳定右栏构造入口。
+pub(crate) use scene_config::{SceneConfigEntries, SceneConfigRulesHost, ScenePreviewSource, current_scene_config_id, handle_scene_config_input, sync_scene_config_presentation};
+#[cfg(test)]
+pub(crate) use scene_config::{SceneConfigAction, SceneConfigArrow, navigation as scene_config_navigation};
 #[cfg(test)]
 pub(crate) use right::scene_page; // 检查器回归使用真实树、属性和唯一预览宿主。
 pub use state::*; // 插件初始化资源，邻接面板挂载上下文与帮助marker。

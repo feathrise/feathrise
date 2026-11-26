@@ -269,11 +269,17 @@ fn inspector_tree_reuses_rows_and_scrolls_to_the_last_object_in_low_window() {
             assert!(!bindings.iter(world).any(|(row, _)| row.entry_index == Some(0)));
 
             set_tree_height(&mut app, 120.0);
-            app.world_mut().resource_mut::<TerrainShadingSession>().preview_expanded = true;
+            app.world_mut().resource_mut::<crate::ui::sidebars::SceneEditorSidebarState>()
+                .scene_config_expanded = true;
             settle(&mut app);
             let world = app.world_mut();
-            let settings = world.query_filtered::<&ComputedNode, With<SceneBaseTerrainDetails>>().single(world).unwrap();
-            assert!(settings.size().y > 0.0 && settings.content_size().y > settings.size().y);
+            let mut rows = world.query::<(&Name, &ComputedNode)>();
+            for entry in ["场景预览", "场景变量", "场景触发"] {
+                assert!(rows.iter(world).any(|(name, node)| name.as_str() == entry && node.size().y > 0.));
+            }
+            let entries = world.query_filtered::<&ComputedNode, With<crate::ui::sidebars::SceneConfigEntries>>()
+                .single(world).unwrap();
+            assert!(entries.size().y > 0.0 && entries.content_size().y > entries.size().y);
             assert!(world.get::<ComputedNode>(tree).unwrap().size().y >= SCENE_OBJECT_ROW_PITCH);
         }
     }

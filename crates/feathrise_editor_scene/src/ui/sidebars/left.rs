@@ -169,9 +169,8 @@ pub(crate) fn scene_tree_page() -> impl Scene {
             SceneEditorSceneContext crate::ui::asset_preview::gltf_tree::EditorSceneTreePanel
             Node { width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_direction: FlexDirection::Column, row_gap: px(3) }
             Children [
-                // 场景级工具与主 GLB 同级，展开设置也为对象树留出一个行高。
-                @crate::ui::gltf_browser::scene_display_button()--
-                @crate::ui::terrain_shading::terrain_shading_controls()--
+                // 场景配置与主 GLB 同级，实际设置都由右侧属性承载。
+                @super::scene_config::navigation()--
                 @crate::ui::gltf_browser::scene_tree_root_row()--
                 // 根行固定在滚动区上方，正文统一缩进，滚到深处仍可拖回根级。
                 crate::ui::scene_inspector::InspectorTree

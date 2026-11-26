@@ -383,7 +383,7 @@ pub(super) fn on_document(
             .get_mut("catalog-context")
             .ok_or("缺少六项直达记录")?;
         record["screenshot"] = shot;
-        return Ok(Some(Stage::Capture));
+        return Ok(Some(Stage::ContextSceneConfig(0)));
     }
     let label = ROWS
         .iter()
@@ -401,13 +401,9 @@ pub(super) fn on_document(
         if scene_labels(world, run, tool)?.is_none() {
             return Ok(None);
         }
-    } else {
-        // 前段保留了场景作用域，六项直达名字和变量工具正文的标题各有意义。
-        let page = if label == "工程变量" { "场景变量" } else { label };
-        if let Err(reason) = verify_form_only(world, page) {
-            run.layout_wait = reason;
-            return Ok(None);
-        }
+    } else if let Err(reason) = verify_form_only(world, label) {
+        run.layout_wait = reason;
+        return Ok(None);
     }
     let geometry = match measure(world) {
         Ok(value) => value,

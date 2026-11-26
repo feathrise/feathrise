@@ -240,7 +240,7 @@ fn scene_tree_mesh_section_and_branch_columns_keep_actual_layout_aligned() {
         settle(&mut app);
         let world = app.world_mut();
         assert!(!world.query::<&Text>().iter(world).any(|text| text.as_str() == "网格对象"));
-        let display_arrow = world.query_filtered::<Entity, With<SceneBaseGltfArrow>>().single(world).unwrap();
+        let display_arrow = world.query_filtered::<Entity, With<crate::ui::sidebars::SceneConfigArrow>>().single(world).unwrap();
         let layer_buttons: Vec<_> = world.query::<(Entity, &components::SectionArrow)>().iter(world)
             .map(|(entity, _)| entity).collect();
         assert_eq!(layer_buttons.len(), 2);

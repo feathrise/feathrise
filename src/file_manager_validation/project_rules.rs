@@ -1,4 +1,4 @@
-//! 空工程检验首个变量的添加，示例工程检验编辑和重开；父进程独立核对各窗口截图及正式文档。
+//! 独占工程检验首次添加、编辑重开和分页；父进程独立核对各窗口截图及正式文档。
 use super::*;
 pub(super) const ENV: &str = "FEATHRISE_PROJECT_RULES_VALIDATION";
 
@@ -70,7 +70,7 @@ fn verify_window(
     expected: &Value,
 ) -> Result<(), String> {
     command.env(ENV, phase);
-    // 首窗包含六项工具、地点取点和两种作用域的完整新建与筛选，满载下已超过原来单窗的时限。
+    // 首窗包含六项工具、地点取点、两种作用域的保存、场景切换及两种中央页取证。
     let timeout = if phase == "empty" { 240 } else { 150 };
     let child = build_process::run(
         command,
@@ -126,12 +126,20 @@ fn verify_window(
             "empty-variable",
             "first-variable",
             "false-variable",
+            "variable-column-resize",
             "number-variable",
             "number-reread",
             "location",
             "location-drawing",
+            "scene-preview-property",
+            "scene-variable-property",
+            "scene-trigger-property",
+            "scene-alternate-property",
+            "scene-property-on-document",
         ],
+        "edit" => &["rule-column-resize"],
         "reopen" => &["rule-wide", "rule-narrow", "rule-narrow-scrolled"],
+        "paging" => &["variable-pager-first", "rule-pager-last"],
         _ => &[],
     };
     for name in samples {
@@ -170,6 +178,34 @@ fn verify_window(
         {
             return Err("六项直达、变量对话框或同一场景视口的保留证据不完整".into());
         }
+        if layout["scene-config-tree"]["labels"] != json!(["场景预览", "场景变量", "场景触发"])
+            || layout["scene-preview-controls"] != json!(["平滑", "平直", "显示三角线", "显示碰撞"])
+            || layout["scene-preview-property"]["center"]["tab"] != "Scene"
+            || layout["scene-variable-property"]["title"] != "场景变量"
+            || layout["scene-trigger-property"]["title"] != "场景触发"
+            || layout["scene-variable-property"]["scene"] != "场景 · M1-SAMPLE"
+            || layout["scene-trigger-property"]["scene"] != "场景 · M1-SAMPLE"
+            || layout["scene-alternate-property"]["scene"] != "场景 · M1-EMPTY"
+            || layout["scene-property-on-document"]["center"] != context["center"]
+        {
+            return Err("场景树配置、属性正文或中央文档保留证据不完整".into());
+        }
+    }
+    let resize = match phase {
+        "empty" => Some(("variable-column-resize", 0, "删除变量")),
+        "edit" => Some(("rule-column-resize", 1, "删除规则")),
+        _ => None,
+    };
+    if let Some((sample, separator, operation)) = resize {
+        let evidence = &window["layout"][sample];
+        if evidence["separator"] != separator
+            || evidence["geometry"]["headings"][3]["text"] != "操作列"
+            || evidence["geometry"]["footer"]["count"].as_array().map(Vec::len) != Some(4)
+            || evidence["delta"].as_f64().is_none_or(|delta| delta.abs() <= 2.)
+            || evidence["operations_width"].as_f64().is_none_or(|width| width <= 0.)
+        {
+            return Err(format!("缺少拖动列宽后{operation}的实窗表格证据"));
+        }
     }
     if phase == "edit" {
         screenshot(work, "source", &window["source_screenshot"])?;
@@ -178,6 +214,25 @@ fn verify_window(
             || window["layout"]["rule-deleted-from-list"] != "delete_rule"
         {
             return Err("触发规则弹窗或列表直接删除证据不完整".into());
+        }
+    }
+    if phase == "paging" {
+        for id in ["variable-pager", "rule-pager"] {
+            let pager = &window["layout"][id];
+            if pager["initial"]["pages"] != json!([1, 2, 3, 4])
+                || pager["initial"]["previous_disabled"] != true
+                || pager["next"]["current"] != 2
+                || pager["previous"]["current"] != 1
+                || pager["direct"]["current"] != 4
+                || pager["last"]["pages"] != json!([2, 3, 4, 5])
+                || pager["last"]["next_disabled"] != true
+                || pager["filtered"]["pager"] != false
+                || pager["filtered"]["total"] != 2
+                || pager["reset"]["current"] != 1
+                || pager["reset"]["total"] != 35
+            {
+                return Err(format!("{id} 缺少分页与筛选证据"));
+            }
         }
     }
     if (phase == "edit"
@@ -238,6 +293,39 @@ pub(super) fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<
     for phase in ["edit", "reopen"] {
         verify_window(&mut command, work, phase, proof, &expected)?;
     }
+    let pagination_work = work.join("pagination");
+    fs::create_dir(&pagination_work).map_err(|e| e.to_string())?;
+    let mut pagination = fixture(target, &pagination_work, true)?;
+    let paginated = pagination_fixture();
+    let bytes = serde_json::to_vec_pretty(&paginated).map_err(|e| e.to_string())?;
+    let source = pagination_work.join("project/assets/project_rules.json");
+    write_new(&source, &bytes)?;
+    verify_window(&mut pagination, &pagination_work, "paging", proof, &paginated)?;
+    if fs::read(source).map_err(|e| e.to_string())? != bytes {
+        return Err("分页或筛选不应重写工程规则文件".into());
+    }
     proof["disk_reread_verified"] = json!(true);
     Ok(())
+}
+
+fn pagination_fixture() -> Value {
+    let mut variables = serde_json::Map::new();
+    let mut rules = Vec::new();
+    // 35 条产生五页和三条末页；标签横跨首尾，切换时必须重新计算当前页和总数。
+    for number in 1..=35 {
+        let id = format!("p{number:02}");
+        let mut variable = json!({"default":number});
+        let mut rule = json!({
+            "id":format!("r{number:02}"),
+            "when":{"event":"quest.completed","target":"paging"},
+            "actions":[{"set":id,"value":0}]
+        });
+        if matches!(number, 1 | 35) {
+            variable["tag"] = json!("Harbor");
+            rule["tag"] = json!("Harbor");
+        }
+        variables.insert(id, variable);
+        rules.push(rule);
+    }
+    json!({"version":1,"variables":variables,"rules":rules})
 }

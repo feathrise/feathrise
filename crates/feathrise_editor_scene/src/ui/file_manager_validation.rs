@@ -76,7 +76,7 @@ struct Run {
 }
 
 /// 验收宿主启动前与实际窗口挂载时使用同一份阶段清单，避免重开窗口只通过其中一层。
-pub const PROJECT_RULES_VALIDATION_PHASES: &[&str] = &["empty", "draw-reopen", "edit", "reopen"];
+pub const PROJECT_RULES_VALIDATION_PHASES: &[&str] = &["empty", "draw-reopen", "edit", "reopen", "paging"];
 
 pub fn install(app: &mut App, work: PathBuf, project: PathBuf) -> Result<(), String> {
     let owner: Value = serde_json::from_slice(&fs::read(work.join(".file-manager-owner.json"))

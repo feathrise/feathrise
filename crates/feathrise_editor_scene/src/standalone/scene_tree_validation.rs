@@ -10,7 +10,7 @@ use crate::{
         external_files::platform_path,
         file_manager::{FileManagerState, FileRow},
         file_manager_validation::{mouse, move_cursor, pointer_click, right_click},
-        gltf_browser::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeDrag, SceneBaseGltfRow,
+        gltf_browser::{EditorGltfBrowserEntryKind, EditorGltfBrowserState, PlacementTreeDrag,
             SceneEditorGltfBrowserRowText, SceneTreeRootRow},
         scene_context_menu::{SceneMenuAction, SceneObjectKey, SceneObjectRow, press_action_for_validation,
             visible_action_for_validation, visible_rename_controls_for_validation},
@@ -746,8 +746,8 @@ fn startup_tree_visible(world: &mut World, cube: &str) -> Result<bool, String> {
         matches!(&row.0.as_ref()?.key, SceneObjectKey::Terrain { id, .. }
             if id.as_str() == PRIVATE_TERRAIN && ui_visible(world, entity)).then_some(entity)
     }) else { return Ok(false); };
-    let Some(display) = world.query_filtered::<Entity, With<SceneBaseGltfRow>>().iter(world)
-        .find(|entity| ui_visible(world, *entity)) else { return Ok(false); };
+    let Some((config, _)) = world.query::<(Entity, &Name)>().iter(world)
+        .find(|(entity, name)| name.as_str() == "场景配置" && ui_visible(world, *entity)) else { return Ok(false); };
     let Some(root) = main_scene_row(world) else { return Ok(false); };
     let Some(model) = scene_row(world, MODEL, false) else { return Ok(false); };
     let Some(cuboid) = scene_row(world, cube, false) else { return Ok(false); };
@@ -781,7 +781,7 @@ fn startup_tree_visible(world: &mut World, cube: &str) -> Result<bool, String> {
     Ok(name.is_some_and(|name| name.contains("scene.glb"))
         && !has_heading
         && terrain_captions == 1
-        && position(display).y < position(root).y
+        && position(config).y < position(root).y
         && position(root).y < position(plant).y
         && position(plant).y < position(cuboid).y && position(cuboid).y < position(model).y
         && arrows_match

@@ -6,6 +6,7 @@ pub mod animation_timeline; // 角色与场景属性动画共用帧尺、轨道�
 pub mod localization;
 pub mod context_help; // 所有分库共用隐藏帮助正文，由根工作台的唯一浮层显露。
 pub mod button_input; // 普通按钮统一在原按钮内松开时执行，真实Interaction仅用于视觉与拖动。
+pub mod data_table;
 pub use button_input::{EditorButtonClick, EditorButtonInput, EditorButtonInputPlugin, update_editor_button_clicks};
 pub mod feedback; // 跨分库反馈统一交给外壳底栏，不在参数正文中重复占位。
 pub use feedback::PanelStatusText;
@@ -42,6 +43,7 @@ impl Plugin for EditorUiPlugin {
         }
         localization::install(app);
         numeric_scrub_settings::install(app);
+        data_table::install(app);
     }
 }
 

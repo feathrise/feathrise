@@ -4,12 +4,13 @@ use super::{
     *,
 };
 use feathrise_editor_documents_model::project_rules::{ActionForm, TriggerForm};
+use feathrise_editor_ui::data_table::{self, Table};
 
 const CELL_PAD_X: f32 = 8.;
 const CELL_GAP: f32 = 10.;
-const COMPACT_CELL_GAP: f32 = 6.;
 const ACTION_GAP: f32 = 4.;
-pub(super) const ROW_ACTION_WIDTH: f32 = 34.;
+pub(super) const ROW_ACTION_WIDTH: f32 = 27.;
+const ACTION_WIDTH: f32 = 2. * ROW_ACTION_WIDTH + ACTION_GAP;
 
 #[cfg(test)]
 #[path = "table_geometry.rs"]
@@ -17,6 +18,9 @@ mod geometry;
 
 #[derive(Component)]
 pub(super) struct FormHost;
+
+#[derive(Component)]
+pub(super) struct RulesTable;
 
 #[derive(Component)]
 pub(super) enum TablePart {
@@ -98,31 +102,45 @@ pub(super) struct Cell {
 }
 
 #[derive(Component)]
-pub(super) struct ColumnTrack(Column);
+pub(super) struct ColumnTrack;
 
-fn cells(p: &mut ChildSpawnerCommands, h: &Handle<Font>, slot: Option<usize>) {
+fn cells(p: &mut ChildSpawnerCommands, h: &Handle<Font>, table: Entity, slot: Option<usize>) {
     for column in [Column::Id, Column::Kind, Column::Value] {
-        // Bevy 的裁剪从父节点生效；独立的列容器阻止长字符串画到邻列。
-        let node = Node { min_width: px(0), ..default() };
-        p.spawn((ColumnTrack(column), node.clone(), Pickable::IGNORE))
-            .with_child((
-                Cell { slot, column },
-                ColumnTrack(column),
-                Name::new(match slot {
-                    Some(slot) => format!("RulesCell{slot}{column:?}"),
-                    None => format!("RulesHeading{column:?}"),
-                }),
-                Text::default(),
-                TextLayout::linebreak(bevy::text::LineBreak::WordOrCharacter),
-                font(h, metrics::FONT_CONTROL),
-                TextColor(if slot.is_some() { c::TEXT_PRIMARY } else { c::TEXT_MUTED }),
-                node,
-                Pickable::IGNORE,
-            ));
+        p.spawn((ColumnTrack, data_table::cell(table, column as usize)))
+            .with_children(|cell| {
+                cell.spawn((
+                    Cell { slot, column },
+                    ColumnTrack,
+                    Name::new(match slot {
+                        Some(slot) => format!("RulesCell{slot}{column:?}"),
+                        None => format!("RulesHeading{column:?}"),
+                    }),
+                    Text::default(),
+                    TextLayout::no_wrap(),
+                    font(h, metrics::FONT_CONTROL),
+                    TextColor(if slot.is_some() {
+                        c::TEXT_PRIMARY
+                    } else {
+                        c::TEXT_MUTED
+                    }),
+                    Node {
+                        min_width: px(0),
+                        width: percent(100),
+                        ..default()
+                    },
+                    Pickable::IGNORE,
+                ));
+                if slot.is_none() && !matches!(column, Column::Value) {
+                    cell.spawn((
+                        Name::new(format!("RulesResize{}", column as usize)),
+                        data_table::resize_handle(table, column as usize),
+                    ));
+                }
+            });
     }
 }
 
-fn grid() -> Node {
+fn location_grid() -> Node {
     Node {
         display: Display::Grid,
         width: percent(100),
@@ -143,19 +161,47 @@ fn column_width(width: f32) -> f32 {
 fn row_actions(
     p: &mut ChildSpawnerCommands,
     h: &Handle<Font>,
+    table: Entity,
     slot: usize,
     edit_icon: &Handle<Image>,
     delete_icon: &Handle<Image>,
 ) {
-    p.spawn(Node {
-        flex_wrap: FlexWrap::NoWrap,
-        column_gap: px(ACTION_GAP),
-        ..row()
-    })
-    .with_children(|r| {
-        button_with_icon(r, h, format!("RulesRow{slot}"), "编辑", Action::Row(slot), Some(edit_icon));
-        button_with_icon(r, h, format!("RulesDeleteRow{slot}"), "删除", Action::DeleteRow(slot), Some(delete_icon));
-    });
+    p.spawn((ColumnTrack, data_table::cell(table, 3)))
+        .with_children(|cell| {
+            cell.spawn(Node {
+                width: percent(100),
+                flex_wrap: FlexWrap::NoWrap,
+                column_gap: px(ACTION_GAP),
+                ..row()
+            })
+            .with_children(|r| {
+                button_with_icon(
+                    r,
+                    h,
+                    format!("RulesRow{slot}"),
+                    "编辑",
+                    Action::Row(slot),
+                    Some(edit_icon),
+                );
+                button_with_icon(
+                    r,
+                    h,
+                    format!("RulesDeleteRow{slot}"),
+                    "删除",
+                    Action::DeleteRow(slot),
+                    Some(delete_icon),
+                );
+            });
+        });
+}
+fn table_columns() -> Table {
+    use data_table::Column;
+    Table::new([
+        Column::flex(48., 2.),
+        Column::flex(56., 1.),
+        Column::flex(43., 2.),
+        Column::fixed(ACTION_WIDTH),
+    ])
 }
 pub(super) fn list(
     p: &mut ChildSpawnerCommands,
@@ -164,49 +210,90 @@ pub(super) fn list(
     delete_icon: &Handle<Image>,
 ) {
     p.spawn(Node {
-        justify_content: JustifyContent::SpaceBetween,
+        justify_content: JustifyContent::End,
         ..row()
     })
     .with_children(|r| {
-        info(r, h, Info::Selection, "RulesSelection");
         button(r, h, "RulesNew", "新建变量", Action::New);
     });
-    p.spawn((TablePart::Slot(None), column(0.)))
-        .with_children(|r| {
-            r.spawn((
-                FormHost,
-                Group::Editor,
-                Name::new("RulesForm"),
-                Node {
-                    width: percent(100),
-                    padding: UiRect::all(px(9)),
-                    border: UiRect::all(px(1)),
-                    ..column(7.)
-                },
-                BackgroundColor(c::PANEL_BG_SECTION),
-                BorderColor::all(c::COPPER_BORDER),
-            ))
-            .with_children(|f| editor(f, h));
-        });
-    p.spawn((TablePart::Heading, grid()))
-        .with_children(|r| cells(r, h, None));
-    for i in 0..ROWS {
+    let mut data = p.spawn((
+        RulesTable,
+        Name::new("RulesDataTable"),
+        table_columns(),
+        Node {
+            width: percent(100),
+            ..column(0.)
+        },
+    ));
+    let table = data.id();
+    data.with_children(|p| {
+        p.spawn((TablePart::Slot(None), column(0.)))
+            .with_children(|r| {
+                r.spawn((
+                    FormHost,
+                    Group::Editor,
+                    Name::new("RulesForm"),
+                    Node {
+                        width: percent(100),
+                        padding: UiRect::all(px(9)),
+                        border: UiRect::all(px(1)),
+                        ..column(7.)
+                    },
+                    BackgroundColor(c::PANEL_BG_SECTION),
+                    BorderColor::all(c::COPPER_BORDER),
+                ))
+                .with_children(|f| editor(f, h));
+            });
         p.spawn((
-            TablePart::Slot(Some(i)),
-            Name::new(format!("RulesTableRow{i}")),
-            column(0.),
+            TablePart::Heading,
+            Name::new("RulesHeading"),
+            data_table::row(None),
         ))
         .with_children(|r| {
-            r.spawn((TablePart::Summary(i), grid(), BackgroundColor(c::PANEL_BG)))
-                .with_children(|s| {
-                    cells(s, h, Some(i));
-                    row_actions(s, h, i, edit_icon, delete_icon);
-                });
+            cells(r, h, table, None);
+            r.spawn(data_table::cell(table, 3)).with_child((
+                Name::new("RulesHeadingActions"),
+                Text::new("操作列"),
+                TextLayout::no_wrap(),
+                font(h, metrics::FONT_CONTROL),
+                TextColor(c::TEXT_MUTED),
+                Pickable::IGNORE,
+            ));
         });
-    }
-    p.spawn(row()).with_children(|r| {
-        button(r, h, "RulesPrevious", "上一页", Action::Previous);
-        button(r, h, "RulesNext", "下一页", Action::Next);
+        for i in 0..ROWS {
+            p.spawn((
+                TablePart::Slot(Some(i)),
+                Name::new(format!("RulesTableRow{i}")),
+                column(0.),
+            ))
+            .with_children(|r| {
+                r.spawn((
+                    TablePart::Summary(i),
+                    Name::new(format!("RulesTableBodyRow{i}")),
+                    data_table::row(Some(i)),
+                ))
+                .with_children(|s| {
+                    cells(s, h, table, Some(i));
+                    row_actions(s, h, table, i, edit_icon, delete_icon);
+                });
+            });
+        }
+    });
+    p.spawn((
+        Name::new("RulesPagination"),
+        Node {
+            justify_content: JustifyContent::SpaceBetween,
+            flex_wrap: FlexWrap::NoWrap,
+            ..row()
+        },
+    ))
+    .with_children(|r| {
+        info(r, h, Info::Selection, "RulesSelection");
+        super::pager::mount(r, h);
+        r.spawn((Group::Location, row())).with_children(|buttons| {
+            button(buttons, h, "RulesLocationPrevious", "上一页", Action::Previous);
+            button(buttons, h, "RulesLocationNext", "下一页", Action::Next);
+        });
     });
 }
 
@@ -238,11 +325,12 @@ pub(super) fn sync(
         let shown = match *part {
             TablePart::Slot(None) => inline && s.editing_item && edit_slot.is_none(),
             TablePart::Slot(Some(i)) => start + i < count,
-            TablePart::Summary(i) => start + i < count
-                && (!inline || !(s.editing_item && edit_slot == Some(i))),
+            TablePart::Summary(i) => {
+                start + i < count && (!inline || !(s.editing_item && edit_slot == Some(i)))
+            }
             TablePart::Heading => !inline && count > 0,
         };
-        let is_grid = !matches!(part, TablePart::Slot(_));
+        let is_grid = inline && matches!(part, TablePart::Summary(_));
         let display = if !shown {
             Display::None
         } else if is_grid {
@@ -277,8 +365,14 @@ pub(super) fn sync(
         let value = match cell.slot {
             None => label.to_owned(),
             Some(slot) if start + slot < count => {
-                let value = cell.column.value(sheet.unwrap(), tab, scene, rows[start + slot]);
-                if inline { format!("{label}  {value}") } else { value }
+                let value = cell
+                    .column
+                    .value(sheet.unwrap(), tab, scene, rows[start + slot]);
+                if inline {
+                    format!("{label}  {value}")
+                } else {
+                    value
+                }
             }
             Some(_) => String::new(),
         };
@@ -289,11 +383,23 @@ pub(super) fn sync(
 pub(super) fn fit(
     s: Res<Studio>,
     scroll: Query<&ComputedNode, With<ScrollArea>>,
-    mut rows: Query<(&TablePart, &mut Node), (Without<ColumnTrack>, Without<EditVisual>)>,
-    mut cells: Query<(&ColumnTrack, &mut Node, Option<&mut TextLayout>), Without<EditVisual>>,
+    mut tables: Query<&mut Table, With<RulesTable>>,
+    mut rows: Query<
+        (
+            &TablePart,
+            &mut Node,
+            &mut BackgroundColor,
+            &mut BorderColor,
+        ),
+        (Without<ColumnTrack>, Without<EditVisual>),
+    >,
+    mut cells: Query<
+        (&mut Node, Option<&mut TextLayout>),
+        (With<ColumnTrack>, Without<EditVisual>),
+    >,
     mut edits: Query<(&EditVisual, &mut Node)>,
     added: Query<(), Added<Cell>>,
-    mut last: Local<Option<(f32, Tab)>>,
+    mut last: Local<Option<(f32, bool)>>,
 ) {
     let Ok(view) = scroll.single() else {
         *last = None;
@@ -304,54 +410,72 @@ pub(super) fn fit(
         *last = None;
         return;
     }
-    if *last == Some((width, s.sel.tab)) && added.is_empty() {
+    let inline = s.sel.tab == Tab::Locations;
+    if *last == Some((width, inline)) && added.is_empty() {
         return;
     }
-    *last = Some((width, s.sel.tab));
-    let compact = s.sel.tab != Tab::Locations;
-    // 变量和规则共享单行轨道，固定给两个操作图标留位置。窄栏也要放下 number。
-    let actions_width = 2. * ROW_ACTION_WIDTH + ACTION_GAP;
-    let available = (width - 2. * CELL_PAD_X - 3. * COMPACT_CELL_GAP - actions_width).max(0.);
-    let (kind_width, value_width) = if s.sel.tab == Tab::Variables {
-        let kind = 44_f32.min(available);
-        (kind, (available - kind) * 0.48)
-    } else {
-        let value = (available * 0.38).max(48.).min(available);
-        ((available - value) * 0.46, value)
-    };
-    let widths = [available - kind_width - value_width, kind_width, value_width, actions_width];
-    let compact_tracks: Vec<_> = widths
-        .into_iter()
-        .map(|width| RepeatedGridTrack::px(1, width))
-        .collect();
+    let mode_changed = last.is_none_or(|(_, previous)| previous != inline) || !added.is_empty();
+    *last = Some((width, inline));
+    if !inline && !mode_changed {
+        return;
+    }
     let pair_width = column_width(width);
-    for (part, mut row) in &mut rows {
-        if !matches!(part, TablePart::Slot(_)) {
-            row.column_gap = px(if compact { COMPACT_CELL_GAP } else { CELL_GAP });
-            row.grid_template_columns = if compact {
-                compact_tracks.clone()
-            } else {
-                vec![RepeatedGridTrack::px(2, pair_width)]
-            };
+    if mode_changed {
+        for mut table in &mut tables {
+            table.set_enabled(!inline);
         }
     }
-    for (track, mut node, layout) in &mut cells {
-        node.width = px(if compact { widths[track.0 as usize] } else { pair_width });
+    // 地点详情仍在卡片内部编辑。切换样式沿用已经绑定的行与表单，不重建操作按钮。
+    for (part, mut node, mut fill, mut border) in &mut rows {
+        let TablePart::Summary(i) = *part else {
+            continue;
+        };
+        if inline {
+            if mode_changed {
+                let display = node.display;
+                *node = Node {
+                    display,
+                    ..location_grid()
+                };
+                *fill = BackgroundColor(c::PANEL_BG);
+            }
+            node.grid_template_columns = vec![RepeatedGridTrack::px(2, pair_width)];
+        } else if mode_changed {
+            let (mut layout, color, line, _) = data_table::row(Some(i));
+            layout.display = node.display;
+            *node = layout;
+            *fill = color;
+            *border = line;
+        }
+    }
+    for (mut node, layout) in &mut cells {
         if let Some(mut layout) = layout {
-            layout.linebreak = if compact {
-                bevy::text::LineBreak::NoWrap
-            } else {
+            node.width = if inline { px(pair_width) } else { percent(100) };
+            layout.linebreak = if inline {
                 bevy::text::LineBreak::WordOrCharacter
+            } else {
+                bevy::text::LineBreak::NoWrap
             };
-        } else {
-            node.overflow = if compact { Overflow::clip_x() } else { Overflow::visible() };
+        } else if inline {
+            node.width = px(pair_width);
+            node.padding = UiRect::ZERO;
+            node.overflow = Overflow::visible();
         }
     }
-    for (visual, mut node) in &mut edits {
-        match visual {
-            EditVisual::Button => node.width = if compact { px(ROW_ACTION_WIDTH) } else { percent(100) },
-            EditVisual::Text => show(&mut node, !compact),
-            EditVisual::Icon => show(&mut node, compact),
+    if mode_changed {
+        for (visual, mut node) in &mut edits {
+            match visual {
+                EditVisual::Button => {
+                    node.width = if inline {
+                        percent(100)
+                    } else {
+                        px(ROW_ACTION_WIDTH)
+                    };
+                    node.padding = UiRect::horizontal(px(if inline { 8. } else { 0. }));
+                }
+                EditVisual::Text => show(&mut node, inline),
+                EditVisual::Icon => show(&mut node, !inline),
+            }
         }
     }
 }

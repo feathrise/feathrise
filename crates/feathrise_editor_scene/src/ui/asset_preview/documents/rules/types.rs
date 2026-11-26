@@ -32,7 +32,7 @@ impl VariableKind {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(crate) enum Tab {
     #[default]
     Variables,
@@ -352,6 +352,7 @@ impl Form {
 pub(super) struct Selection {
     pub tab: Tab,
     pub item: Option<usize>,
+    pub list_page: usize,
     pub condition: usize,
     pub action: usize,
 }

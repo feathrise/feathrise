@@ -389,7 +389,6 @@ impl PortalNameEditState {
 pub(crate) struct TerrainShadingSession {
     pub(crate) scene_id: Option<SceneId>,
     pub(crate) editor_open: bool,
-    pub(crate) preview_expanded: bool, // 兼容旧内部名：仅表示场景显示预览展开，不授权网格对象选择。
     pub(crate) flat_scenes: BTreeSet<SceneId>, // 本进程仅记录主动选过平直的场景，重启自然回到平滑。
     pub(crate) grid_scenes: BTreeSet<SceneId>, // 本进程仅记录开启三角网格的场景，不写settings、清单或存档。
 }

@@ -398,15 +398,22 @@ pub(super) fn capture(
     };
     directory::same_directory(run, &geometry["directory"])?;
     if matches!(sample, Sample::RuleNarrow) {
-        let wide = &run.layout["rule-wide"]["directory"];
+        let wide_sample = &run.layout["rule-wide"];
+        let wide = &wide_sample["directory"];
         let narrow = &geometry["directory"];
-        let width = |doc: &Value| {
-            doc["workspace"][2].as_f64().unwrap_or_default()
-                - doc["workspace"][0].as_f64().unwrap_or_default()
+        let width = |bounds: &Value| {
+            bounds[2].as_f64().unwrap_or_default() - bounds[0].as_f64().unwrap_or_default()
         };
-        if wide["entity"] != narrow["entity"] || width(narrow) + 1. >= width(wide) {
+        if wide["entity"] != narrow["entity"]
+            || width(&narrow["workspace"]) + 1. >= width(&wide["workspace"])
+        {
             run.layout_wait = "触发规则验收尚未用同一目录拖窄右栏".into();
             return Ok(false);
+        }
+        if (width(&wide_sample["table"]["tracks"][3]) - width(&geometry["table"]["tracks"][3]))
+            .abs() > 1.
+        {
+            return Err("拖窄检查器时操作列宽度发生变化".into());
         }
     }
     let name = sample.name();

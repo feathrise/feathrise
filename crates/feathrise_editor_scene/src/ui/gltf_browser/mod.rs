@@ -8,10 +8,7 @@ mod entries; // 可见场景树按固定操作/输出预算分帧构建并在完
 mod helpers; // Scene0遍历、稳定引用校验和可见行组合保持为无系统参数的纯逻辑。
 mod retirement; // 旧活动树、签名、Scene草稿与资产缓存按固定预算分帧析构。
 mod scene; // 右栏上半区的BSN静态外壳。
-pub(crate) use scene::{
-    SceneBaseGltfArrow, SceneBaseGltfRow, SceneBaseTerrainDetails, SceneTreeContents, SceneTreeRootRow,
-    sync_scene_base_gltf_row, scene_display_button, scene_tree_root_row,
-}; // 场景显示面板与摆放实例列表各自占用独立布局。
+pub(crate) use scene::{SceneTreeContents, SceneTreeRootRow, scene_tree_root_row};
 mod scene_build; // Scene0根发现、DFS与路径物化均按固定预算分帧并原子采用。
 mod signature; // 全部摆放结构签名按每帧记录预算渐进生成。
 mod systems; // 固定行池、连续滚动、展开点击与样式同步系统。

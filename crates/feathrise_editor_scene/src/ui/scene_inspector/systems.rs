@@ -1,12 +1,11 @@
 //! 只读同步当前场景的选择身份和原状态文字，不遍历场景实例或猜测运行时成功。
 
 use bevy::prelude::*;
-use feathrise_scene_content::SceneTerrainKind;
 
 use super::components::{SceneInspectorOverview, SceneInspectorProperties, SceneInspectorText};
 use super::types::{SceneInspectorField, SceneInspectorObservation};
 use crate::authoring::EditorAuthoringSession;
-use crate::resources::{SceneEditorState, TerrainShadingSession};
+use crate::resources::SceneEditorState;
 use crate::ui::gltf_browser::EditorGltfBrowserState;
 use crate::ui::placement_transform::PlacementTransformInputState;
 use crate::viewport::{LayerCandidateState, LayerTarget};
@@ -30,7 +29,6 @@ pub(crate) fn sync_scene_inspector(
     locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     session: Res<EditorAuthoringSession>,
     browser: Res<EditorGltfBrowserState>,
-    shading: Res<TerrainShadingSession>,
     transform: Res<PlacementTransformInputState>,
     selection: (Option<Res<LayerCandidateState>>, Option<Res<crate::viewport::multi_select::PlacementSelectionSet>>),
     domain: Option<Res<crate::game_authoring::scene_interaction::SceneInteractionState>>,
@@ -93,8 +91,6 @@ pub(crate) fn sync_scene_inspector(
             && old.placement_id.as_ref() == browser.selected_placement_id.as_ref()
             && old.mesh.as_ref() == browser.selection.as_ref()
             && old.record_index == record_index
-            && old.preview_expanded == shading.preview_expanded
-            && old.terrain_scene_id.as_ref() == shading.scene_id.as_ref()
             && old.relocation_armed == relocation_armed
     });
     if unchanged && added.is_empty() && !locale.as_ref().is_some_and(|locale| locale.is_changed()) {
@@ -124,8 +120,6 @@ pub(crate) fn sync_scene_inspector(
         placement_id: browser.selected_placement_id.clone(),
         mesh: browser.selection.clone(),
         record_index,
-        preview_expanded: shading.preview_expanded,
-        terrain_scene_id: shading.scene_id.clone(),
         relocation_armed,
     }); // 只在真实身份/状态边沿拥有短快照，不复制摆放记录、水绑定或场景树。
     let record = indexed_record.map(|(_, record)| record);
@@ -257,23 +251,6 @@ pub(crate) fn sync_scene_inspector(
                 "所选对象暂不可用".to_owned(),
                 "场景树正在更新，或实例身份已失效".to_owned(),
                 "等待场景树完成后重新选择；不按名称猜测替代对象。".to_owned(),
-            )
-        } else if shading.preview_expanded && shading.scene_id.as_ref() == Some(&draft.scene_id)
-            && draft.manifest.terrains.is_none() && !draft.manifest.terrain.is_empty() {
-            // 旧场景的真实来源仍可查看，零地形场景展开显示预览时沿用通用概览。
-            let terrain = &draft.manifest.terrain;
-            let source = if terrain.kind == SceneTerrainKind::SparseClipmap {
-                terrain
-                    .height_path
-                    .as_deref()
-                    .unwrap_or("尚未指定稀疏高度块")
-            } else {
-                &terrain.glb_path
-            };
-            (
-                "原场景基础网格".to_owned(),
-                format!("来源  {source}"),
-                "在上方选择网格后，下方显示网格属性；显示预览只影响本次运行。".to_owned(),
             )
         } else {
             (
