@@ -1,5 +1,6 @@
 //! 固定行池的列表与属性表单。长清单通过分页浏览，原生输入实体保留字体、选区与输入法状态。
 use super::{types::*, *};
+use super::scope::{SceneOptions, page};
 use bevy::{
     input_focus::tab_navigation::TabIndex,
     text::{EditableText, LineHeight},
@@ -73,6 +74,14 @@ pub(super) enum Action {
     OptionsPrevious,
     OptionsNext,
     OptionsClose,
+    ScopeProject,
+    ScopeScene,
+    ScopeScenePicker,
+    ListTagPicker,
+    ListOption(usize),
+    ListOptionsPrevious,
+    ListOptionsNext,
+    ListOptionsClose,
 }
 #[derive(Component)]
 pub(super) struct Panel;
@@ -106,11 +115,14 @@ enum Group {
     Rule,
     Limits,
     Picker,
+    ListScope,
+    ListOptions,
     External,
 }
 pub(super) fn field_shown(tab: Tab, f: &Form, k: Field) -> bool {
     match k {
         Field::Id => true,
+        Field::Tag => tab != Tab::Locations,
         Field::Default => tab == Tab::Variables && f.kind != VariableKind::Bool,
         Field::Choices => tab == Tab::Variables && f.kind == VariableKind::Enum,
         Field::From => tab == Tab::Rules && f.changed && f.use_from,
@@ -127,6 +139,7 @@ fn field_label(tab: Tab, form: &Form, k: Field) -> &'static str {
             Tab::Rules => "规则 ID",
             Tab::Locations => "地点 ID",
         },
+        Field::Tag => "标签（可选）",
         Field::Default => "值",
         Field::Choices => "候选值（用逗号分隔）",
         Field::Trigger => {
@@ -230,6 +243,7 @@ fn anchor_options(
 fn display(
     s: Res<Studio>,
     docs: Res<DocumentState>,
+    scenes: SceneOptions,
     mut editor: ResMut<crate::resources::SceneEditorState>,
     mut panel: Query<(&mut Node, &mut Visibility, Ref<Panel>)>,
     mut body: Query<&mut Node, (With<PanelBody>, Without<Panel>, Without<SidebarStatus>)>,
@@ -283,6 +297,7 @@ fn display(
 ) {
     if !s.is_changed()
         && !docs.is_changed()
+        && !(s.picker.is_some_and(|(p, _)| p == ListPicker::Scenes) && scenes.changed())
         && hover.is_empty()
         && !panel.iter().any(|(_, _, p)| p.is_added())
     {
@@ -324,9 +339,14 @@ fn display(
         && !docs.file_change_pending(&doc.path);
     let modal = editor_dialog_open(&s, &docs);
     let (list, selection) = s.list_projection();
-    let count = list.map_or(0, |m| m.len(tab));
-    let start = selection.item.unwrap_or(0) / ROWS * ROWS;
-    let rule = sheet.and_then(|m| s.sel.rule(&m.model));
+    let scene = s.scene(tab);
+    let rows = list.map_or(&[][..], |m| s.rows(m, tab));
+    let count = rows.len();
+    let start = page(selection, rows) * ROWS;
+    let scene_entries = scenes.entries();
+    let list_option = |i| sheet.and_then(|m| s.list_option(m, scene_entries, i));
+    let suggest = |f, i| sheet.and_then(|m| controls::suggest(m, tab, scene, &s.form, f, i));
+    let rule = sheet.and_then(|m| s.sel.rule(&m.model, scene));
     let conditions = rule.map_or(0, |r| r.conditions.len());
     let actions = rule.map_or(0, |r| r.actions.len());
     let new = s.sel.item.is_none();
@@ -342,6 +362,8 @@ fn display(
                 Group::Rule => tab == Tab::Rules,
                 Group::Limits => tab == Tab::Rules && s.form.changed,
                 Group::Picker => s.suggest.is_some_and(|(f, _)| field_shown(tab, &s.form, f)),
+                Group::ListScope => tab != Tab::Locations,
+                Group::ListOptions => s.picker.is_some() && !modal,
                 Group::External => doc.external.warning || doc.confirm_reload,
             },
         );
@@ -373,7 +395,8 @@ fn display(
             Action::Redo => doc.history.can_redo(),
             Action::KeepDraft => doc.external.warning,
             Action::RuleUp => tab == Tab::Rules && s.sel.item.is_some_and(|i| i > 0),
-            Action::RuleDown => tab == Tab::Rules && s.sel.item.is_some_and(|i| i + 1 < count),
+            Action::RuleDown => tab == Tab::Rules
+                && s.sel.item.zip(sheet).is_some_and(|(i, m)| i + 1 < m.len(tab, scene)),
             Action::ConditionPrevious | Action::ConditionNext => conditions > 1,
             Action::ConditionDelete => conditions > 0,
             Action::ActionPrevious | Action::ActionNext => actions > 1,
@@ -381,16 +404,13 @@ fn display(
             Action::ActionDown => s.sel.action + 1 < actions,
             Action::ActionDelete => actions > 1,
             Action::OptionsPrevious => s.suggest.is_some_and(|(_, base)| base > 0),
-            Action::OptionsNext => s.suggest.zip(sheet).is_some_and(|((f, base), m)| {
-                controls::suggest(m, &s.form, f, base + OPTIONS).is_some()
-            }),
-            Action::Option(i) => s
-                .suggest
-                .zip(sheet)
-                .is_some_and(|((f, base), m)| controls::suggest(m, &s.form, f, base + i).is_some()),
-            Action::Suggest(f) => {
-                sheet.is_some_and(|m| controls::suggest(m, &s.form, *f, 0).is_some())
-            }
+            Action::OptionsNext => s.suggest.is_some_and(|(f, base)| suggest(f, base + OPTIONS).is_some()),
+            Action::Option(i) => s.suggest.is_some_and(|(f, base)| suggest(f, base + i).is_some()),
+            Action::Suggest(f) => suggest(*f, 0).is_some(),
+            Action::ScopeScenePicker => scene.is_some(),
+            Action::ListOption(i) => list_option(*i).is_some(),
+            Action::ListOptionsPrevious => s.picker.is_some_and(|(_, base)| base != 0),
+            Action::ListOptionsNext => list_option(OPTIONS).is_some(),
             _ => true,
         };
         show(&mut n, shown);
@@ -404,6 +424,11 @@ fn display(
             Action::Once => s.form.once,
             Action::From => s.form.use_from,
             Action::To => s.form.use_to,
+            Action::ScopeProject => scene.is_none(),
+            Action::ScopeScene => scene.is_some(),
+            Action::ScopeScenePicker => s.picker.is_some_and(|(p, _)| p == ListPicker::Scenes),
+            Action::ListTagPicker => *s.tag_filter(tab) != TagFilter::All
+                || s.picker.is_some_and(|(p, _)| p == ListPicker::Tags),
             _ => false,
         };
         let primary = *a == Action::Save || (*a == Action::New && !s.editing_item);
@@ -427,14 +452,16 @@ fn display(
             Action::Save => format!("保存{}", tab.noun()),
             Action::Delete => format!("删除{}", tab.noun()),
             Action::Reload if doc.confirm_reload => "确认丢弃".into(),
-            Action::Option(i) => s
-                .suggest
-                .zip(sheet)
-                .and_then(|((f, base), m)| {
-                    controls::suggest(m, &s.form, f, base + i)
-                        .map(|id| choice_label(f, &s.form, &id).to_owned())
-                })
-                .unwrap_or_default(),
+            Action::Option(i) => s.suggest.and_then(|(f, base)| {
+                suggest(f, base + i).map(|id| choice_label(f, &s.form, &id).to_owned())
+            }).unwrap_or_default(),
+            Action::ScopeScenePicker => format!("场景 · {}", scene.unwrap_or_default()),
+            Action::ListTagPicker => match s.tag_filter(tab) {
+                TagFilter::All => "标签 · 全部".into(),
+                TagFilter::Untagged => "标签 · 未标记".into(),
+                TagFilter::Tag(tag) => format!("标签 · {tag}"),
+            },
+            Action::ListOption(i) => list_option(*i).unwrap_or_default().into(),
             Action::Once => if s.form.once {
                 "每个存档仅一次 · 开"
             } else {
@@ -469,17 +496,26 @@ fn display(
             continue;
         }
         let value = match role {
+            Info::PageTitle if tab == Tab::Variables && scene.is_some() => "场景变量".into(),
             Info::PageTitle => tab.title().into(),
+            Info::Selection if count == 0 && *s.tag_filter(tab) != TagFilter::All => {
+                format!("没有匹配的{}", tab.noun())
+            }
             Info::Selection if count == 0 => format!("还没有{}", tab.noun()),
             Info::Selection => format!("共 {count} 个{}", tab.noun()),
-            Info::EditorTitle if new => format!("新建{}", tab.noun()),
-            Info::EditorTitle => format!(
-                "编辑{} · {}",
-                tab.noun(),
-                sheet
-                    .and_then(|m| m.id(tab, s.sel.item?))
-                    .unwrap_or_default()
-            ),
+            Info::EditorTitle => {
+                let mut title = if new {
+                    format!("新建{}", tab.noun())
+                } else {
+                    let id = sheet.and_then(|m| m.id(tab, scene, s.sel.item?)).unwrap_or_default();
+                    format!("编辑{} · {id}", tab.noun())
+                };
+                if let Some(scene) = scene {
+                    title.push_str(" · ");
+                    title.push_str(scene);
+                }
+                title
+            }
             Info::Yarn => format!("Yarn 读取名  $project_{}", s.form.id.trim()),
             Info::Conditions if conditions > 0 => format!(
                 "附加条件（全部满足）   {} / {conditions}",

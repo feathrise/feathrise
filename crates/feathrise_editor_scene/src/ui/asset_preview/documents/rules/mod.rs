@@ -2,6 +2,7 @@
 mod controls;
 mod location_draw;
 mod persistence;
+mod scope;
 mod types;
 mod values;
 mod view;
@@ -17,6 +18,7 @@ use bevy::{
     tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
 };
 use std::{path::{Path, PathBuf}, sync::Arc};
+use scope::ListPicker;
 pub(crate) use types::Tab as ProjectRulesSection;
 pub(crate) use view::RulesEditorDialogOverlay;
 const RULES_SHEET_PADDING: f32 = 9.0;
@@ -155,6 +157,9 @@ pub(super) struct Studio {
     return_to: Option<Selection>,
     files: persistence::Persistence,
     parked: [Option<PageDraft>; 3],
+    scenes: [Option<String>; 3],
+    tags: [TagFilter; 3],
+    picker: Option<(ListPicker, usize)>,
 }
 impl Studio {
     fn refresh(&mut self) {
@@ -164,7 +169,7 @@ impl Studio {
         self.form = self
             .sheet
             .as_ref()
-            .map(|s| Form::load(&s.model, &self.sel))
+            .map(|s| Form::load(&s.model, &self.sel, self.scene(self.sel.tab)))
             .unwrap_or_default();
         self.baseline = self.form.clone();
         self.alternate = default();
@@ -176,6 +181,7 @@ impl Studio {
         if self.sel.tab == tab {
             return;
         }
+        self.picker = None;
         self.parked[self.sel.tab as usize] = self.editing_item.then(|| PageDraft {
             selection: self.sel,
             form: std::mem::take(&mut self.form),
@@ -192,8 +198,8 @@ impl Studio {
                 .filter(|_| saved.selection.item.is_some())
             {
                 // 其它工具的编辑与撤销共用同一份正文。回到原表单时绝不能沿用旧行号覆盖邻近条目。
-                self.sel.item = sheet.position(tab, &saved.baseline.id);
-                let latest = Form::load(&sheet.model, &self.sel);
+                self.sel.item = sheet.position(tab, self.scene(tab), &saved.baseline.id);
+                let latest = Form::load(&sheet.model, &self.sel, self.scene(tab));
                 if latest != saved.baseline {
                     if saved.form == saved.baseline {
                         self.editing_item = self.sel.item.is_some();
@@ -220,8 +226,7 @@ impl Studio {
             let item = self
                 .sheet
                 .as_ref()
-                .is_some_and(|sheet| sheet.len(tab) != 0)
-                .then_some(0);
+                .and_then(|sheet| self.rows(sheet, tab).first().copied());
             self.select(
                 Selection {
                     tab,
@@ -263,19 +268,31 @@ fn start(
     // 行尾删除冻结被点击的行，表单和当前选中行无需参与导航。
     let sel = target.unwrap_or(s.sel);
     let pages = input.as_ref().map(|_| doc.pages.clone());
+    let scene = s.scene(sel.tab).map(str::to_owned);
     let want = sel
         .item
-        .and_then(|i| old.as_ref()?.id(sel.tab, i))
+        .and_then(|i| old.as_ref()?.id(sel.tab, scene.as_deref(), i))
         .map(str::to_owned);
     let change = input.as_ref().map(|submission| submission.change);
+    let deleted = (change == Some(Change::Delete)).then(|| want.clone()).flatten();
+    let want = if deleted.is_some() {
+        // 删除后的分页仍以同标签的相邻记录定位，隐藏行不能把列表带回第一页。
+        old.as_ref().and_then(|sheet| {
+            let rows = s.rows(sheet, sel.tab);
+            let i = scope::neighbor(rows, sel.item?)?;
+            sheet.id(sel.tab, scene.as_deref(), i).map(str::to_owned)
+        })
+    } else {
+        want
+    };
     s.job = Some(Job {
         key,
         change,
-        deleted: if change == Some(Change::Delete) { want.clone() } else { None },
+        deleted,
         save,
         submitted: input.as_ref().map(|submission| submission.form.clone()),
         task: AsyncComputeTaskPool::get()
-            .spawn(async move { worker::prepare(source, old, sel, want, input, pages) }),
+            .spawn(async move { worker::prepare(source, old, sel, scene, want, input, pages) }),
     });
     Ok(())
 }
@@ -389,8 +406,14 @@ fn sync(
             .is_some_and(|old| old.path != key.path || old.generation != key.generation)
         {
             s.parked = default();
+            s.picker = None;
             s.editing_item = false;
             s.return_to = None;
+            if active_document(&docs).is_some_and(|doc| s.sheet_path.as_ref() != Some(&doc.disk.path)) {
+                s.scenes = default();
+                s.tags = default();
+                s.sel.item = None;
+            }
         }
         s.forget_stale_checkpoint(&key);
         let _ = start(&mut s, &docs, None, false, None);
@@ -425,8 +448,12 @@ fn sync(
         {
             if s.sheet
                 .as_ref()
-                .is_some_and(|sheet| want.index < sheet.len(Tab::Rules))
+                .is_some_and(|sheet| want.index < sheet.len(Tab::Rules, None))
             {
+                // 时间线绑定写入工程级规则，定位时同步恢复这组行的身份和筛选。
+                s.scenes[Tab::Rules as usize] = None;
+                s.tags[Tab::Rules as usize] = TagFilter::All;
+                s.parked[Tab::Rules as usize] = None;
                 s.select(
                     Selection {
                         tab: Tab::Rules,

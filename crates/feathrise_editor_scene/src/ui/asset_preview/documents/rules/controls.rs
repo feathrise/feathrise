@@ -1,5 +1,6 @@
 //! 界面提交前读取同一批原生输入。字段修改、子项操作与原文档撤销链按一次作者确认登记。
 use super::{
+    scope::{SceneOptions, page},
     view::{Action, OPTIONS, ROWS},
     *,
 };
@@ -10,6 +11,8 @@ use std::borrow::Cow;
 
 pub(super) fn suggest<'a>(
     sheet: &'a Sheet,
+    tab: Tab,
+    scene: Option<&str>,
     form: &Form,
     field: Field,
     i: usize,
@@ -25,21 +28,24 @@ pub(super) fn suggest<'a>(
             .nth(i)
             .map(Cow::Owned);
     }
-    saved_suggestion(sheet, form, field, i).map(Cow::Borrowed)
+    saved_suggestion(sheet, tab, scene, form, field, i).map(Cow::Borrowed)
 }
 
 fn saved_suggestion<'a>(
     sheet: &'a Sheet,
+    tab: Tab,
+    scene: Option<&str>,
     form: &Form,
     field: Field,
     i: usize,
 ) -> Option<&'a str> {
     let m = &sheet.model;
     let var = match field {
+        Field::Tag => return sheet.known_tag(tab, i),
         Field::Trigger if !form.changed => return sheet.events.get(i).map(String::as_str),
         Field::ActionName if form.request => return sheet.requests.get(i).map(String::as_str),
         Field::ActionName | Field::ConditionVariable | Field::Trigger => {
-            return m.variables.get(i).map(|v| v.id.as_str());
+            return sheet.variable_name(scene, i);
         }
         Field::EventTarget
             if matches!(
@@ -68,7 +74,7 @@ fn saved_suggestion<'a>(
         Field::ActionValue => form.action_name.as_str(),
         _ => return None,
     };
-    let v = m.variables.get(sheet.position(Tab::Variables, var)?)?;
+    let v = sheet.variable(scene, var)?;
     if v.kind == ValueKind::Bool {
         ["false", "true"].get(i).copied()
     } else {
@@ -85,25 +91,23 @@ fn next(i: usize, len: usize, forward: bool) -> Option<usize> {
     })
 }
 // 导航先算出明确的目标，当前字段校验成功以后才切换。点新建时始终保留一行空表单。
-fn destination(a: Action, current: Selection, sheet: &Sheet) -> Option<Selection> {
+fn destination(a: Action, current: Selection, s: &Studio, sheet: &Sheet) -> Option<Selection> {
     let tab = current.tab;
-    let len = sheet.len(tab);
+    let scene = s.scene(tab);
     let (tab, item) = match a {
         Action::New => (tab, None),
         Action::Row(_) | Action::Previous | Action::Next => {
-            let page = current.item.unwrap_or(0) / ROWS;
+            let rows = s.rows(sheet, tab);
+            let page = page(current, rows);
             let i = match a {
                 Action::Row(slot) => page * ROWS + slot,
                 Action::Previous => page.checked_sub(1)? * ROWS,
                 _ => (page + 1) * ROWS,
             };
-            if i >= len {
-                return None;
-            }
-            (tab, Some(i))
+            (tab, Some(*rows.get(i)?))
         }
         Action::ConditionPrevious | Action::ConditionNext => {
-            let count = current.rule(&sheet.model)?.conditions.len();
+            let count = current.rule(&sheet.model, scene)?.conditions.len();
             let condition = next(current.condition, count, a == Action::ConditionNext)?;
             return Some(Selection {
                 condition,
@@ -111,7 +115,7 @@ fn destination(a: Action, current: Selection, sheet: &Sheet) -> Option<Selection
             });
         }
         Action::ActionPrevious | Action::ActionNext => {
-            let count = current.rule(&sheet.model)?.actions.len();
+            let count = current.rule(&sheet.model, scene)?.actions.len();
             let action = next(current.action, count, a == Action::ActionNext)?;
             return Some(Selection { action, ..current });
         }
@@ -151,6 +155,7 @@ pub(super) fn input(
     guard: Res<crate::resources::EditorTextInputGuard>,
     mut overlay: Option<ResMut<feathrise_editor_core::EditorHostOverlay>>,
     model: Option<Res<crate::workbench::WorkbenchModel>>,
+    scenes: SceneOptions,
     buttons: Query<(&Action, &EditorButtonClick), Changed<EditorButtonClick>>,
     fields: Query<(Entity, &Field, Ref<EditableText>)>,
     pointer: Query<&bevy::ui::RelativeCursorPosition, With<view::Panel>>,
@@ -215,6 +220,9 @@ pub(super) fn input(
         if keys.just_pressed(KeyCode::Escape) {
             action = Some(Action::Cancel);
         }
+    } else if s.picker.is_some() && keys.just_pressed(KeyCode::Escape) {
+        action = Some(Action::ListOptionsClose);
+        keys.clear_just_pressed(KeyCode::Escape);
         // 读取本弹窗命令后吞掉场景、文档与全局快捷键的边沿；保留按住状态供原生输入法。
         let edges: Vec<_> = keys.get_just_pressed().chain(keys.get_just_released()).copied().collect();
         for key in edges {
@@ -259,7 +267,7 @@ pub(super) fn input(
     if s.saving() {
         // 删除完成前显示旧行，不能将此时的行号排入新表的导航队列。
         if !s.deleting_row()
-            && let Some(selection) = s.sheet.as_deref().and_then(|m| destination(a, s.sel, m))
+            && let Some(selection) = s.sheet.as_deref().and_then(|m| destination(a, s.sel, &s, m))
         {
             s.files.next = Some((selection, edit, name_focus));
         }
@@ -375,7 +383,10 @@ pub(super) fn input(
         let m = sheet
             .as_ref()
             .ok_or("请等待规则加载完成，或从文件浏览器打开并修复文件")?;
-        if let Some(selection) = destination(a, s.sel, m) {
+        if s.list_control(a, m, scenes.entries(), editor.selected_scene_id.as_ref().map(|id| id.as_str()), &mut focus) {
+            return Ok(());
+        }
+        if let Some(selection) = destination(a, s.sel, &s, m) {
             if s.editing_item && a != Action::New && selection == s.sel {
                 return Ok(());
             }
@@ -394,7 +405,8 @@ pub(super) fn input(
             if s.has_unsaved_input() {
                 return Err(leave_hint);
             }
-            Some(destination(Action::Row(slot), s.sel, m).ok_or("要删除的条目已变化")?)
+            s.picker = None;
+            Some(destination(Action::Row(slot), s.sel, &s, m).ok_or("要删除的条目已变化")?)
         } else {
             None
         };
@@ -453,7 +465,7 @@ pub(super) fn input(
                     } else {
                         base + OPTIONS
                     };
-                    if suggest(m, &s.form, f, next).is_some() {
+                    if suggest(m, s.sel.tab, s.scene(s.sel.tab), &s.form, f, next).is_some() {
                         s.suggest = Some((f, next));
                     }
                 }
@@ -461,7 +473,7 @@ pub(super) fn input(
             Action::OptionsClose => s.suggest = None,
             Action::Option(i) => {
                 if let Some((f, base)) = s.suggest
-                    && let Some(value) = suggest(m, &s.form, f, base + i)
+                    && let Some(value) = suggest(m, s.sel.tab, s.scene(s.sel.tab), &s.form, f, base + i)
                 {
                     *s.form.field(f) = value.into_owned();
                     if f == Field::From {
@@ -480,5 +492,47 @@ pub(super) fn input(
     })();
     if let Err(e) = result {
         s.notice = e;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use feathrise_editor_documents_model::project_rules::RulesForm;
+    use serde_json::{Map, json};
+
+    #[test]
+    fn deletion_from_filtered_page_keeps_scene_and_adjacent_record() {
+        let variables = (0..22)
+            .map(|i| {
+                let tag = if i % 2 == 0 { "route" } else { "hidden" };
+                (format!("v{i:02}"), json!({ "default": i, "tag": tag }))
+            })
+            .collect::<Map<_, _>>();
+        let source: Arc<str> = json!({
+            "version": 1,
+            "variables": { "v16": { "default": 100, "tag": "global" } },
+            "scenes": { "MAP-test": { "variables": variables } },
+        }).to_string().into();
+        let sheet = Arc::new(Sheet::new(RulesForm::parse(&source).unwrap()));
+        let mut studio = Studio::default();
+        studio.scenes[0] = Some("MAP-test".into());
+        studio.tags[0] = TagFilter::Tag("route".into());
+        let scene = studio.scene(Tab::Variables);
+        let current = Selection { item: Some(16), ..default() };
+        let selected = destination(Action::Row(0), current, &studio, &sheet).unwrap();
+        let neighbor = scope::neighbor(studio.rows(&sheet, selected.tab), selected.item.unwrap()).unwrap();
+        let next = sheet.id(selected.tab, scene, neighbor).map(str::to_owned);
+        assert_eq!(sheet.id(selected.tab, scene, selected.item.unwrap()), Some("v16"));
+        assert_eq!(next.as_deref(), Some("v18"));
+
+        let reply = worker::prepare(
+            source.clone(), Some(sheet), selected, scene.map(str::to_owned), next,
+            Some(Submission { change: Change::Delete, form: Form::default() }),
+            Some(vec![source]),
+        ).unwrap();
+        assert_eq!(reply.sheet.model.variables[0].id, "v16");
+        assert!(reply.sheet.position(Tab::Variables, scene, "v16").is_none());
+        assert_eq!(page(reply.selection, studio.rows(&reply.sheet, selected.tab)), 1);
     }
 }

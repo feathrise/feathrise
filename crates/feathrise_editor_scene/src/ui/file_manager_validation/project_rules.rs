@@ -52,7 +52,6 @@ enum Stage {
     Loaded,
     Form(usize),
     Advanced,
-    Edit(bool),
     Input(bool),
     Save(bool),
     Verify(bool),
@@ -382,24 +381,29 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
             }
             Stage::Input(false)
         }
-        Stage::Edit(valid) => {
-            // 保存按钮会接走正文焦点；点击正式编辑入口把焦点交还原生完整输入。
-            let button = visible(world, |a: &DocumentAction| *a == DocumentAction::Edit);
-            if !click(world, &mut run.pointer, window, button) {
-                return Ok(None);
-            }
-            Stage::Input(valid)
-        }
         Stage::Input(valid) => {
-            if visible(world, |source: &DocumentSource| source.key.is_some()).is_none() {
-                return Ok(None);
-            }
             let Some((_, _, true, _)) = observe(world) else {
                 return Ok(None);
             };
             let Some(input) = visible(world, |source: &DocumentSource| source.key.is_some()) else {
+                run.layout_wait = format!(
+                    "源码控件 {:?}",
+                    world.query::<(Entity, &DocumentSource, &ComputedNode, &InheritedVisibility)>()
+                        .iter(world).map(|(id, source, node, visible)|
+                            (id, source.key.is_some(), node.size(), visible.get())
+                        ).collect::<Vec<_>>()
+                );
                 return Ok(None);
             };
+            if valid {
+                let focused = world.resource::<InputFocus>().get();
+                run.layout_wait = format!(
+                    "源码 {input:?} 边界 {:?} 裁剪 {:?} 焦点 {focused:?} 命中 {:?}",
+                    layout::bounds(world, input),
+                    world.get::<bevy::ui::CalculatedClip>(input),
+                    world.get::<bevy::ui::RelativeCursorPosition>(input),
+                );
+            }
             let desired = if valid { &run.edited } else { &run.invalid };
             if !form::replace(
                 world,
@@ -443,7 +447,13 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
                     return Err("拒绝错误源码时磁盘上的表单保存结果已改变".into());
                 }
                 run.diagnostic = Some(status.to_owned());
-                Stage::Edit(true)
+                let rejected = run.work.join("rules-source-rejected.png");
+                let Some(shot) = evidence::capture(world, &mut run.capture, &rejected)? else {
+                    return Ok(None);
+                };
+                run.layout.insert("source-rejected".into(), shot);
+                // 保存校验失败后源码仍处于编辑态。原生输入步骤直接点击编辑器取焦点。
+                Stage::Input(true)
             }
         }
         Stage::Capture => {

@@ -17,6 +17,17 @@ struct File {
     locations: BTreeMap<String, Location>,
     #[serde(default)]
     rules: Vec<Rule>,
+    #[serde(default, deserialize_with = "unique_ids")]
+    scenes: BTreeMap<String, Scene>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Scene {
+    #[serde(default, deserialize_with = "unique_ids")]
+    variables: BTreeMap<String, Variable>,
+    #[serde(default)]
+    rules: Vec<Rule>,
 }
 
 fn unique_ids<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
@@ -59,12 +70,16 @@ struct Location {
 struct Variable {
     default: Value,
     choices: Option<Vec<String>>,
+    #[serde(rename = "tag")]
+    _tag: Option<String>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Rule {
     id: String,
+    #[serde(rename = "tag")]
+    _tag: Option<String>,
     when: When,
     #[serde(default, rename = "if")]
     conditions: Vec<Test>,
@@ -137,7 +152,33 @@ pub fn validate(source: &str) -> Result<(), String> {
             ));
         }
     }
-    for (key, variable) in &file.variables {
+    validate_variables(&file.variables)?;
+    validate_rules(&file.rules, |key| file.variables.get(key))?;
+    for (id, scene) in &file.scenes {
+        if id.trim().is_empty() {
+            return Err("场景作用域需要非空场景 ID".into());
+        }
+        let result = validate_variables(&scene.variables).and_then(|_| {
+            // 场景覆盖保留底层类型，保证跨场景的 Yarn 声明和规则值仍可识别。
+            for (key, variable) in &scene.variables {
+                if let Some(base) = file.variables.get(key)
+                    && std::mem::discriminant(&base.default)
+                        != std::mem::discriminant(&variable.default)
+                {
+                    return Err(format!("同名变量「{key}」须与工程变量采用相同类型"));
+                }
+            }
+            validate_rules(&scene.rules, |key| {
+                scene.variables.get(key).or_else(|| file.variables.get(key))
+            })
+        });
+        result.map_err(|error| format!("场景「{id}」{error}"))?;
+    }
+    Ok(())
+}
+
+fn validate_variables(variables: &BTreeMap<String, Variable>) -> Result<(), String> {
+    for (key, variable) in variables {
         if key.is_empty() || !key.chars().all(|c| c.is_alphanumeric() || c == '_') {
             return Err(format!("变量名「{key}」须由字母、数字或下划线组成"));
         }
@@ -154,15 +195,20 @@ pub fn validate(source: &str) -> Result<(), String> {
             return Err(format!("变量「{key}」的 default 类型或选项无效"));
         }
     }
+    Ok(())
+}
+
+fn validate_rules<'a>(
+    rules: &[Rule],
+    lookup: impl Fn(&str) -> Option<&'a Variable>,
+) -> Result<(), String> {
     let mut ids = HashSet::new();
-    for (index, rule) in file.rules.iter().enumerate() {
+    for (index, rule) in rules.iter().enumerate() {
         if rule.id.trim().is_empty() || !ids.insert(&rule.id) {
             return Err(format!("第 {} 条规则的 id 为空或重复", index + 1));
         }
         let check = |key: &str, values: &[&Value]| -> Result<(), String> {
-            let variable = file
-                .variables
-                .get(key)
+            let variable = lookup(key)
                 .ok_or_else(|| format!("规则「{}」引用了未声明的变量「{key}」", rule.id))?;
             if values.iter().any(|value| !variable.accepts(value)) {
                 return Err(format!(

@@ -8,11 +8,13 @@ fn variable(id: &str, kind: ValueKind, default: &str) -> VariableForm {
         kind,
         default: default.into(),
         choices: None,
+        tag: None,
     }
 }
 fn rule(id: &str) -> RuleForm {
     RuleForm {
         id: id.into(),
+        tag: None,
         when: TriggerForm::Event {
             event: "quest.completed".into(),
             target: None,
@@ -301,4 +303,154 @@ fn blank_legacy_document_adds_first_complete_rule_and_checks_typed_inputs() {
     assert!(super::validate(duplicates).unwrap_err().contains("重复"));
     assert!(RulesForm::parse(duplicates).unwrap_err().contains("重复"));
     assert!(RulesForm::parse(EXAMPLE).is_ok());
+}
+
+#[test]
+fn scoped_edits_keep_authored_tags_rules_and_source_independent() {
+    let src = r#"{"version":1,"variables":{"time":{"default":1e0,"tag":"全局"}},
+      "rules":[{ "id":"watch","tag":"主线","when":{"changed":"time","to":2.00},"actions":[{"request":"play","target":"global"}] }],
+      "scenes":{"dock":{"variables":{"time":{"default":3.00,"tag":"本地"}}},"hill":{"variables":{"time":{"default":4.00}}}}}"#;
+    let before = RulesForm::parse(src).unwrap();
+    assert_eq!(
+        before
+            .variable(Some("dock"), "time")
+            .unwrap()
+            .tag
+            .as_deref(),
+        Some("本地")
+    );
+    assert_eq!(
+        before
+            .variable(Some("gate"), "time")
+            .unwrap()
+            .tag
+            .as_deref(),
+        Some("全局")
+    );
+    assert!(
+        before.variables_in(Some("gate")).is_empty() && before.rules_in(Some("dock")).is_empty()
+    );
+    let mut local = rule("watch");
+    local.tag = Some("  支线  ".into());
+    local.actions.push(ActionForm::Set {
+        variable: "time".into(),
+        value: "4".into(),
+    });
+    let with_rule = apply_scoped(
+        src,
+        Some("dock"),
+        RuleEdit::Rule {
+            original: None,
+            value: local,
+        },
+    )
+    .unwrap();
+    let local = &RulesForm::parse(&with_rule).unwrap().rules_in(Some("dock"))[0].clone();
+    assert_eq!(local.tag.as_deref(), Some("支线"));
+    assert_eq!(doc(&with_rule)["rules"], doc(src)["rules"]);
+    let mut item = before.variables_in(Some("dock"))[0].clone();
+    item.tag = Some(" 夜间 ".into());
+    let tagged = apply_scoped(
+        &with_rule,
+        Some("dock"),
+        RuleEdit::Variable {
+            original: Some("time".into()),
+            value: item.clone(),
+        },
+    )
+    .unwrap();
+    assert_eq!(tagged, with_rule.replace("本地", "夜间"));
+    item.tag = Some("  ".into());
+    let untagged = apply_scoped(
+        &tagged,
+        Some("dock"),
+        RuleEdit::Variable {
+            original: Some("time".into()),
+            value: item,
+        },
+    )
+    .unwrap();
+    assert_eq!(untagged, tagged.replace(",\"tag\":\"夜间\"", ""));
+    let inherited = apply_scoped(
+        &untagged,
+        Some("dock"),
+        RuleEdit::RemoveVariable("time".into()),
+    )
+    .unwrap();
+    let form = RulesForm::parse(&inherited).unwrap();
+    assert!(form.variables_in(Some("dock")).is_empty());
+    assert_eq!(
+        form.variable(Some("dock"), "time").unwrap(),
+        &before.variables[0]
+    );
+    assert_eq!(form.rules_in(Some("dock")), [local.clone()]);
+}
+
+#[test]
+fn project_rename_preserves_scoped_overrides_and_typed_references() {
+    let src = r#"{"version":1,"variables":{"a":{"default":1.00}},
+      "scenes":{"dock":{"variables":{"a":{"default":2e0,"tag":"港口"}},
+        "rules":[{"id":"local","when":{"changed":"a","to":2.00},
+          "if":[{"variable":"a","equals":3.00}],"actions":[{"set":"a","value":4e0}]}]},
+        "hill":{"rules":[{"id":"inherits","when":{"changed":"a"},"actions":[{"request":"play","target":"a"}]}]}}}"#;
+    let renamed = apply(
+        src,
+        RuleEdit::Variable {
+            original: Some("a".into()),
+            value: variable("b", ValueKind::Number, "1.0"),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        renamed,
+        src.replace("\"a\"", "\"b\"")
+            .replace("\"target\":\"b\"", "\"target\":\"a\"")
+    );
+    let local = apply_scoped(
+        &renamed,
+        Some("dock"),
+        RuleEdit::Variable {
+            original: Some("b".into()),
+            value: VariableForm {
+                tag: Some("港口".into()),
+                ..variable("c", ValueKind::Number, "2.0")
+            },
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        local,
+        renamed
+            .replace(
+                "\"variables\":{\"b\":{\"default\":2e0",
+                "\"variables\":{\"c\":{\"default\":2e0"
+            )
+            .replace("\"changed\":\"b\",\"to\"", "\"changed\":\"c\",\"to\"")
+            .replace("\"variable\":\"b\"", "\"variable\":\"c\"")
+            .replace("\"set\":\"b\"", "\"set\":\"c\"")
+    );
+}
+
+#[test]
+fn scene_validation_resolves_local_types_choices_and_dependencies() {
+    let src = r#"{"version":1,"variables":{"reward":{"default":"gold","choices":["gold","jade"]}},
+        "rules":[{"id":"quest","when":{"event":"done"},"actions":[{"set":"reward","value":"gold"}]}],
+        "scenes":{"dock":{
+          "variables":{"reward":{"default":"fish","choices":["fish"]},"count":{"default":0}},
+          "rules":[{"id":"quest","when":{"changed":"count","to":1},"actions":[{"set":"reward","value":"fish"}]}]
+        }}}"#;
+    validate(src).unwrap();
+    let incompatible = src.replace(
+        "\"default\":\"fish\",\"choices\":[\"fish\"]",
+        "\"default\":false",
+    );
+    assert!(validate(&incompatible).unwrap_err().contains("相同类型"));
+    let invalid = src.replace("\"value\":\"fish\"", "\"value\":\"gold\"");
+    assert!(
+        validate(&invalid)
+            .unwrap_err()
+            .contains("场景「dock」规则「quest」")
+    );
+    let missing = src.replace("\"changed\":\"count\"", "\"changed\":\"missing\"");
+    assert!(validate(&missing).unwrap_err().contains("未声明"));
 }

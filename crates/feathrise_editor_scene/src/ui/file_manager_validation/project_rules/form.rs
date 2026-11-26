@@ -3,6 +3,8 @@ use super::*;
 use bevy::text::EditableText;
 use layout::Sample;
 
+mod scoped;
+
 #[derive(Clone, Copy, Debug)]
 enum Step {
     Button(&'static str),
@@ -33,6 +35,11 @@ enum Step {
     RuleModalKept { editing: bool },
     EnumFields { reopened: bool },
     Stored(&'static str),
+    ScopedStored { scene: bool, id: &'static str },
+    FieldEquals(&'static str, &'static str),
+    ListRows { present: &'static str, absent: &'static str },
+    TagMenuLayout(bool),
+    ScopePickerLayout,
     NameFocused,
     Duplicate(bool),
 }
@@ -371,13 +378,14 @@ fn chord(world: &mut World, window: Entity, step: u8, code: KeyCode) {
     }
 }
 
-fn steps(phase: &str) -> &'static [Step] {
-    match phase {
-        "empty" => FIRST,
-        "draw-reopen" => &[Page("地点区域"), Selected("drawn_gate"), Drawn],
-        "reopen" => REOPEN,
-        _ => EDIT,
-    }
+fn step_at(phase: &str, index: usize) -> Option<&'static Step> {
+    let (base, extension): (&[Step], &[Step]) = match phase {
+        "empty" => (FIRST, scoped::AUTHOR),
+        "draw-reopen" => (&[Page("地点区域"), Selected("drawn_gate"), Drawn], scoped::REOPEN),
+        "reopen" => (REOPEN, &[]),
+        _ => (EDIT, &[]),
+    };
+    base.get(index).or_else(|| extension.get(index.checked_sub(base.len())?))
 }
 
 pub(super) fn form(
@@ -387,8 +395,7 @@ pub(super) fn form(
     index: usize,
 ) -> Result<Option<Stage>, String> {
     let reopening = run.phase == "reopen";
-    let script = steps(&run.phase);
-    let Some(step) = script.get(index) else {
+    let Some(step) = step_at(&run.phase, index) else {
         if run.phase == "empty" {
             run.center = Value::Null;
             return Ok(Some(Stage::OpenContext));
@@ -396,7 +403,16 @@ pub(super) fn form(
         return Ok(Some(Stage::Capture));
     };
     let done = match *step {
-        Button(id) => named_click(world, run, window, id),
+        Button(id) => {
+            let clicked = named_click(world, run, window, id);
+            if !clicked {
+                run.layout_wait = button_diagnostic(world, id);
+                if id.starts_with("RulesListOption") {
+                    run.layout_wait.push_str(&button_diagnostic(world, "RulesListOptions"));
+                }
+            }
+            clicked
+        }
         Page(title) => entity(world, "RulesPageTitle").is_some_and(|e| {
             world
                 .get::<Text>(e)
@@ -411,6 +427,14 @@ pub(super) fn form(
             }
             replace(world, &mut run.pointer, &mut run.keys, window, e, value)
         }
+        FieldEquals(id, value) => field_text(world, id).as_deref() == Some(value),
+        ListRows { present, absent } => {
+            (present.is_empty() || row_slot(world, present).is_some())
+                && row_slot(world, absent).is_none()
+        }
+        TagMenuLayout(open) => scoped::tag_menu_layout(world, run, open)?,
+        ScopePickerLayout => scoped::scope_picker_layout(world, run)?,
+        ScopedStored { scene, id } => scoped::stored(world, run, scene, id)?,
         Selected(id) => {
             if field_text(world, "RulesFieldId").as_deref() != Some(id) {
                 // 用真实名录行定位，少量项目无需显示翻页工具。
@@ -854,5 +878,5 @@ pub(super) fn form(
 }
 
 pub(super) fn describe(phase: &str, index: usize) -> String {
-    format!("{:?}", steps(phase).get(index))
+    format!("{:?}", step_at(phase, index))
 }

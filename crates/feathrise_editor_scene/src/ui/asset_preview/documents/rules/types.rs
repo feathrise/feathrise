@@ -123,6 +123,7 @@ impl Effect {
 #[derive(bevy::prelude::Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Field {
     Id,
+    Tag,
     Default,
     Choices,
     Trigger,
@@ -141,6 +142,7 @@ pub(super) enum Field {
 #[derive(Clone, PartialEq)]
 pub(super) struct Form {
     pub id: String,
+    pub tag: String,
     pub kind: VariableKind,
     pub default_value: String,
     pub choices: String,
@@ -165,6 +167,7 @@ impl Default for Form {
     fn default() -> Self {
         Self {
             id: String::new(),
+            tag: String::new(),
             // 数值行可直接填写 a 和 3；切换类型再采用该类型自己的初值。
             kind: VariableKind::Number,
             default_value: "0".into(),
@@ -192,6 +195,7 @@ impl Form {
     pub fn field(&mut self, k: Field) -> &mut String {
         match k {
             Field::Id => &mut self.id,
+            Field::Tag => &mut self.tag,
             Field::Default => &mut self.default_value,
             Field::Choices => &mut self.choices,
             Field::Trigger => &mut self.trigger,
@@ -223,13 +227,14 @@ impl Form {
         self.action_name = name.to_owned();
         self.action_value = value.to_owned();
     }
-    pub fn load(model: &RulesForm, sel: &Selection) -> Self {
+    pub fn load(model: &RulesForm, sel: &Selection, scene: Option<&str>) -> Self {
         let mut f = Self::default();
         let Some(i) = sel.item else { return f };
         match sel.tab {
             Tab::Variables => {
-                if let Some(v) = model.variables.get(i) {
+                if let Some(v) = model.variables_in(scene).get(i) {
                     f.id = v.id.clone();
+                    f.tag = v.tag.clone().unwrap_or_default();
                     f.kind = VariableKind::of(v);
                     f.default_value = v.default.clone();
                     f.choices = v
@@ -247,8 +252,9 @@ impl Form {
                 }
             }
             Tab::Rules => {
-                if let Some(r) = model.rules.get(i) {
+                if let Some(r) = model.rules_in(scene).get(i) {
                     f.id = r.id.clone();
+                    f.tag = r.tag.clone().unwrap_or_default();
                     f.once = r.once;
                     match &r.when {
                         TriggerForm::Event { event, target } => {
@@ -326,7 +332,12 @@ impl Form {
             },
             default: self.default_value.clone(),
             choices,
+            tag: self.label(),
         })
+    }
+    pub fn label(&self) -> Option<String> {
+        let tag = self.tag.trim();
+        (!tag.is_empty()).then(|| tag.to_owned())
     }
     pub fn location(&self) -> Result<LocationForm, String> {
         Ok(LocationForm {
@@ -345,18 +356,73 @@ pub(super) struct Selection {
     pub action: usize,
 }
 impl Selection {
-    pub fn rule<'a>(&self, m: &'a RulesForm) -> Option<&'a RuleForm> {
+    pub fn rule<'a>(&self, m: &'a RulesForm, scene: Option<&str>) -> Option<&'a RuleForm> {
         self.item
-            .and_then(|i| m.rules.get(i))
+            .and_then(|i| m.rules_in(scene).get(i))
             .filter(|_| self.tab == Tab::Rules)
     }
 }
+
+#[derive(Default, PartialEq, Eq)]
+pub(super) enum TagFilter {
+    #[default]
+    All,
+    Untagged,
+    Tag(String),
+}
+
+#[derive(Default)]
+struct Rows {
+    ids: BTreeMap<String, usize>,
+    tags: Vec<String>,
+    all: Vec<usize>,
+    untagged: Vec<usize>,
+    tagged: BTreeMap<String, Vec<usize>>,
+}
+impl Rows {
+    fn new<'a>(entries: impl IntoIterator<Item = (&'a str, Option<&'a str>)>) -> Self {
+        let mut rows = Self::default();
+        for (i, (id, tag)) in entries.into_iter().enumerate() {
+            rows.ids.insert(id.to_owned(), i);
+            rows.all.push(i);
+            if let Some(tag) = tag {
+                rows.tagged.entry(tag.to_owned()).or_default().push(i);
+            } else {
+                rows.untagged.push(i);
+            }
+        }
+        rows.tags = rows.tagged.keys().cloned().collect();
+        rows
+    }
+}
+
+struct Layer {
+    rows: [Rows; 2],
+    extra_variables: Vec<String>,
+}
+impl Layer {
+    fn new(variables: &[VariableForm], rules: &[RuleForm], globals: Option<&Rows>) -> Self {
+        Self {
+            rows: [
+                Rows::new(variables.iter().map(|v| (v.id.as_str(), v.tag.as_deref()))),
+                Rows::new(rules.iter().map(|r| (r.id.as_str(), r.tag.as_deref()))),
+            ],
+            extra_variables: globals.map_or_else(Vec::new, |global| {
+                variables.iter().filter(|v| !global.ids.contains_key(&v.id)).map(|v| v.id.clone()).collect()
+            }),
+        }
+    }
+}
+
 /// 按名称的索引与选项在同一后台任务中生成，绘制时只截取可见的几行。
 pub(super) struct Sheet {
     pub model: RulesForm,
     pub events: Vec<String>,
     pub requests: Vec<String>,
-    indices: [BTreeMap<String, usize>; 3],
+    project: Layer,
+    scenes: BTreeMap<String, Layer>,
+    locations: Rows,
+    tags: [Vec<String>; 2],
     pub event_targets: BTreeMap<String, Vec<String>>,
     pub request_targets: BTreeMap<String, Vec<String>>,
 }
@@ -404,9 +470,7 @@ impl Sheet {
             REQUESTS.iter().map(|(id, _)| (*id).to_owned()).collect();
         let mut event_targets: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut request_targets: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        let mut rule_indices = BTreeMap::new();
-        for (index, rule) in model.rules.iter().enumerate() {
-            rule_indices.insert(rule.id.clone(), index);
+        for rule in model.rules.iter().chain(model.scenes.values().flat_map(|s| &s.rules)) {
             if let TriggerForm::Event { event, target } = &rule.when {
                 events.insert(event.clone());
                 if let Some(t) = target {
@@ -431,44 +495,77 @@ impl Sheet {
                 .map(|(k, v)| (k, v.into_iter().collect()))
                 .collect()
         };
-        let indices = [
-            model
-                .variables
-                .iter()
-                .enumerate()
-                .map(|(i, v)| (v.id.clone(), i))
-                .collect(),
-            rule_indices,
-            model
-                .locations
-                .iter()
-                .enumerate()
-                .map(|(i, v)| (v.id.clone(), i))
-                .collect(),
-        ];
+        let project = Layer::new(&model.variables, &model.rules, None);
+        let scenes: BTreeMap<String, Layer> = model.scenes.iter().map(|(id, scene)| {
+            (id.clone(), Layer::new(&scene.variables, &scene.rules, Some(&project.rows[0])))
+        }).collect();
+        let tags = std::array::from_fn(|i| {
+            std::iter::once(&project).chain(scenes.values())
+                .flat_map(|layer| layer.rows[i].tags.iter().cloned())
+                .collect::<BTreeSet<_>>().into_iter().collect()
+        });
+        let locations = Rows::new(model.locations.iter().map(|v| (v.id.as_str(), None)));
         Self {
             model,
             events: events.into_iter().collect(),
             requests: requests.into_iter().collect(),
-            indices,
+            project,
+            scenes,
+            locations,
+            tags,
             event_targets: lists(event_targets),
             request_targets: lists(request_targets),
         }
     }
-    pub fn position(&self, tab: Tab, id: &str) -> Option<usize> {
-        self.indices[tab as usize].get(id).copied()
+    fn rows(&self, tab: Tab, scene: Option<&str>) -> Option<&Rows> {
+        if tab == Tab::Locations {
+            return Some(&self.locations);
+        }
+        let layer = if let Some(scene) = scene {
+            self.scenes.get(scene)?
+        } else {
+            &self.project
+        };
+        layer.rows.get(tab as usize)
     }
-    pub fn len(&self, tab: Tab) -> usize {
-        match tab {
-            Tab::Variables => self.model.variables.len(),
-            Tab::Rules => self.model.rules.len(),
-            Tab::Locations => self.model.locations.len(),
+    pub fn position(&self, tab: Tab, scene: Option<&str>, id: &str) -> Option<usize> {
+        self.rows(tab, scene)?.ids.get(id).copied()
+    }
+    pub fn len(&self, tab: Tab, scene: Option<&str>) -> usize {
+        self.rows(tab, scene).map_or(0, |r| r.all.len())
+    }
+    pub fn visible_rows(&self, tab: Tab, scene: Option<&str>, filter: &TagFilter) -> &[usize] {
+        let Some(rows) = self.rows(tab, scene) else { return &[] };
+        match filter {
+            TagFilter::All => &rows.all,
+            TagFilter::Untagged => &rows.untagged,
+            TagFilter::Tag(tag) => rows.tagged.get(tag).map_or(&[], Vec::as_slice),
         }
     }
-    pub fn id(&self, tab: Tab, i: usize) -> Option<&str> {
+    pub fn filter_tags(&self, tab: Tab, scene: Option<&str>) -> &[String] {
+        self.rows(tab, scene).map_or(&[], |r| r.tags.as_slice())
+    }
+    pub fn known_tag(&self, tab: Tab, i: usize) -> Option<&str> {
+        self.tags.get(tab as usize)?.get(i).map(String::as_str)
+    }
+    pub fn variable_name(&self, scene: Option<&str>, i: usize) -> Option<&str> {
+        let globals = &self.model.variables;
+        globals.get(i).map(|v| v.id.as_str()).or_else(|| {
+            self.scenes.get(scene?)?.extra_variables.get(i.checked_sub(globals.len())?).map(String::as_str)
+        })
+    }
+    pub fn variable(&self, scene: Option<&str>, id: &str) -> Option<&VariableForm> {
+        if let Some(scene) = scene
+            && let Some(i) = self.position(Tab::Variables, Some(scene), id)
+        {
+            return self.model.variables_in(Some(scene)).get(i);
+        }
+        self.model.variables.get(self.position(Tab::Variables, None, id)?)
+    }
+    pub fn id(&self, tab: Tab, scene: Option<&str>, i: usize) -> Option<&str> {
         match tab {
-            Tab::Variables => self.model.variables.get(i).map(|v| v.id.as_str()),
-            Tab::Rules => self.model.rules.get(i).map(|v| v.id.as_str()),
+            Tab::Variables => self.model.variables_in(scene).get(i).map(|v| v.id.as_str()),
+            Tab::Rules => self.model.rules_in(scene).get(i).map(|v| v.id.as_str()),
             Tab::Locations => self.model.locations.get(i).map(|v| v.id.as_str()),
         }
     }

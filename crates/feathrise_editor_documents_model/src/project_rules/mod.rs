@@ -8,10 +8,10 @@ mod edit;
 mod form;
 mod schema;
 mod source;
-pub use edit::{RuleEdit, apply};
+pub use edit::{RuleEdit, apply, apply_scoped};
 pub use form::{
-    ActionForm, ConditionForm, LocationForm, RuleForm, RulesForm, TriggerForm, ValueKind,
-    VariableForm,
+    ActionForm, ConditionForm, LocationForm, RuleForm, RulesForm, SceneForm, TriggerForm,
+    ValueKind, VariableForm,
 };
 pub use schema::validate;
 

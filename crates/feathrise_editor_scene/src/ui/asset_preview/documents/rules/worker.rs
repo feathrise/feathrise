@@ -31,16 +31,18 @@ pub(super) fn prepare(
     source: Arc<str>,
     old: Option<Arc<Sheet>>,
     mut sel: Selection,
+    scene: Option<String>,
     want: Option<String>,
     input: Option<Submission>,
     pages: Option<Vec<Arc<str>>>,
 ) -> Result<Reply, String> {
+    let scene = scene.as_deref();
     let mut wanted = want;
     let rewrite = if let Some(Submission { change, form }) = input {
         let prev = old.as_ref().ok_or("规则尚未载入")?;
         let original = sel
             .item
-            .and_then(|i| prev.id(sel.tab, i))
+            .and_then(|i| prev.id(sel.tab, scene, i))
             .map(str::to_owned);
         let edit = if matches!(change, Change::RuleUp | Change::RuleDown) {
             let index = sel.item.ok_or("请先选择要移动的规则")?;
@@ -50,14 +52,13 @@ pub(super) fn prepare(
                 index.checked_add(1)
             };
             let to = target
-                .filter(|i| *i < prev.model.rules.len())
+                .filter(|i| *i < prev.model.rules_in(scene).len())
                 .ok_or("规则已在该方向的端点")?;
             let id = original.ok_or("规则已变化")?;
             wanted = Some(id.clone());
             RuleEdit::MoveRule { id, to }
         } else if change == Change::Delete {
             let id = original.ok_or("请先选择要删除的项目")?;
-            wanted = None;
             match sel.tab {
                 Tab::Variables => RuleEdit::RemoveVariable(id),
                 Tab::Rules => RuleEdit::RemoveRule(id),
@@ -75,14 +76,16 @@ pub(super) fn prepare(
                     value: form.location()?,
                 },
                 Tab::Rules => {
-                    let mut rule = sel.rule(&prev.model).cloned().unwrap_or_else(|| RuleForm {
+                    let mut rule = sel.rule(&prev.model, scene).cloned().unwrap_or_else(|| RuleForm {
                         id: String::new(),
                         when: form.trigger(),
                         once: false,
                         conditions: Vec::new(),
                         actions: Vec::new(),
+                        tag: None,
                     });
                     rule.id = form.id.trim().into();
+                    rule.tag = form.label();
                     rule.when = form.trigger();
                     rule.once = form.once;
                     match change {
@@ -153,19 +156,19 @@ pub(super) fn prepare(
             joined = pages.iter().map(AsRef::as_ref).collect::<String>();
             &joined
         };
-        let s: Arc<str> = model::apply(raw, edit)?.into();
+        let s: Arc<str> = model::apply_scoped(raw, scene, edit)?.into();
         (s.as_ref() != raw).then_some(s)
     } else {
         None
     };
     let model = RulesForm::parse(rewrite.as_deref().unwrap_or(&source))?;
     let sheet = Arc::new(Sheet::new(model));
-    let len = sheet.len(sel.tab);
+    let len = sheet.len(sel.tab, scene);
     sel.item = wanted
         .as_ref()
-        .and_then(|id| sheet.position(sel.tab, id))
+        .and_then(|id| sheet.position(sel.tab, scene, id))
         .or_else(|| (len > 0).then(|| sel.item.unwrap_or(0).min(len - 1)));
-    if let Some(rule) = sel.rule(&sheet.model) {
+    if let Some(rule) = sel.rule(&sheet.model, scene) {
         sel.condition = sel.condition.min(rule.conditions.len().saturating_sub(1));
         sel.action = sel.action.min(rule.actions.len().saturating_sub(1));
     }

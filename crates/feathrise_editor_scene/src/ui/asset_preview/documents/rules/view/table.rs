@@ -52,13 +52,13 @@ impl Column {
             (Tab::Locations, Self::Value) => "范围（XYZ）",
         }
     }
-    fn value(self, sheet: &Sheet, tab: Tab, index: usize) -> String {
+    fn value(self, sheet: &Sheet, tab: Tab, scene: Option<&str>, index: usize) -> String {
         if matches!(self, Self::Id) {
-            return sheet.id(tab, index).unwrap_or_default().to_owned();
+            return sheet.id(tab, scene, index).unwrap_or_default().to_owned();
         }
         match tab {
             Tab::Variables => {
-                let v = &sheet.model.variables[index];
+                let v = &sheet.model.variables_in(scene)[index];
                 match self {
                     Self::Kind => VariableKind::of(v).label().into(),
                     // 默认值沿用配置中的字面值，布尔在列表和表单都显示 true / false。
@@ -67,7 +67,7 @@ impl Column {
                 }
             }
             Tab::Rules => {
-                let rule = &sheet.model.rules[index];
+                let rule = &sheet.model.rules_in(scene)[index];
                 match self {
                     Self::Kind => match &rule.when {
                         TriggerForm::Event { event, .. } => event_label(event).into(),
@@ -229,8 +229,10 @@ pub(super) fn sync(
     let (sheet, selection) = s.list_projection();
     let tab = selection.tab;
     let inline = tab == Tab::Locations;
-    let count = sheet.map_or(0, |m| m.len(tab));
-    let start = selection.item.unwrap_or(0) / ROWS * ROWS;
+    let scene = s.scene(tab);
+    let rows = sheet.map_or(&[][..], |m| s.rows(m, tab));
+    let count = rows.len();
+    let start = page(selection, rows) * ROWS;
     let edit_slot = s.sel.item.map(|i| i % ROWS);
     for (entity, part, mut node, mut vis) in &mut parts {
         let shown = match *part {
@@ -275,7 +277,7 @@ pub(super) fn sync(
         let value = match cell.slot {
             None => label.to_owned(),
             Some(slot) if start + slot < count => {
-                let value = cell.column.value(sheet.unwrap(), tab, start + slot);
+                let value = cell.column.value(sheet.unwrap(), tab, scene, rows[start + slot]);
                 if inline { format!("{label}  {value}") } else { value }
             }
             Some(_) => String::new(),

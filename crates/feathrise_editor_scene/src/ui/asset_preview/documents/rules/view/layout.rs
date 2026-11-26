@@ -48,6 +48,7 @@ pub(super) fn button_with_icon(
     icon: Option<&Handle<Image>>,
 ) {
     let delete = matches!(a, Action::DeleteRow(_));
+    let selector = matches!(a, Action::ListTagPicker | Action::ScopeScenePicker);
     let mut e = p.spawn((
         a,
         AuthorButton,
@@ -59,6 +60,8 @@ pub(super) fn button_with_icon(
             min_height: px(metrics::CONTROL_HEIGHT),
             min_width: px(0),
             max_width: percent(100),
+            flex_basis: if selector { px(0) } else { Val::Auto },
+            flex_grow: if selector { 1. } else { 0. },
             align_items: AlignItems::Center,
             justify_content: JustifyContent::Center,
             padding: UiRect::horizontal(px(8)),
@@ -88,7 +91,31 @@ pub(super) fn button_with_icon(
         TextColor(c::TEXT_PRIMARY),
         Pickable::IGNORE,
     );
-    if let Some(icon) = icon {
+    if selector {
+        // Bevy 的溢出裁剪作用于后代，标签放进独立裁剪框，避免字形盖住同级箭头。
+        e.with_children(|p| {
+            p.spawn(Node {
+                min_width: px(0),
+                flex_basis: px(0),
+                flex_grow: 1.,
+                overflow: Overflow::clip_x(),
+                ..default()
+            })
+            .with_child(text);
+        });
+        e.with_child((
+            Text::new("▼"),
+            font(h, metrics::FONT_CONTROL),
+            TextLayout::no_wrap(),
+            TextColor(c::TEXT_MUTED),
+            Pickable::IGNORE,
+            Node {
+                margin: UiRect::left(px(4)),
+                flex_shrink: 0.,
+                ..default()
+            },
+        ));
+    } else if let Some(icon) = icon {
         use crate::ui::tooltips::{EditorTooltipTarget, TooltipAction};
         e.insert(EditorTooltipTarget(if delete {
             TooltipAction::DeleteRulesRecord
@@ -270,6 +297,7 @@ pub(super) fn editor(p: &mut ChildSpawnerCommands, h: &Handle<Font>) {
     info(p, h, Info::EditorTitle, "RulesEditorTitle");
     p.spawn(column(6.)).with_children(|p| {
         field(p, h, Field::Id);
+        field(p, h, Field::Tag);
         choices(
             p,
             h,
@@ -444,6 +472,53 @@ pub(super) fn editor(p: &mut ChildSpawnerCommands, h: &Handle<Font>) {
         button(r, h, "RulesOptionsClose", "收起", Action::OptionsClose);
     });
 }
+fn list_scope(p: &mut ChildSpawnerCommands, h: &Handle<Font>) {
+    p.spawn((Group::ListScope, column(5.))).with_children(|p| {
+        p.spawn(row()).with_children(|r| {
+            buttons(r, h, &[
+                ("RulesScopeProject", "工程级", Action::ScopeProject),
+                ("RulesScopeScene", "场景级", Action::ScopeScene),
+            ]);
+        });
+        p.spawn(Node { flex_wrap: FlexWrap::NoWrap, ..row() }).with_children(|r| {
+            buttons(r, h, &[
+                ("RulesListTagPicker", "标签 · 全部", Action::ListTagPicker),
+                ("RulesScopeScenePicker", "场景", Action::ScopeScenePicker),
+            ]);
+        });
+        // 选择面板覆盖列表，展开、翻选项或关闭都不会重新排列现有记录。
+        p.spawn((
+            Group::ListOptions,
+            Name::new("RulesListOptions"),
+            GlobalZIndex(422), // 高于工作台 420，低于独立文件浮窗。
+            FocusPolicy::Block,
+            Node {
+                display: Display::None,
+                position_type: PositionType::Absolute,
+                top: percent(100),
+                left: px(0),
+                right: px(0),
+                padding: UiRect::all(px(6)),
+                border: UiRect::all(px(1)),
+                border_radius: BorderRadius::all(px(metrics::RADIUS)),
+                ..column(4.)
+            },
+            BackgroundColor(c::DIALOG_BG),
+            BorderColor::all(c::DIALOG_BORDER),
+        )).with_children(|popup| {
+            for i in 0..OPTIONS {
+                button(popup, h, format!("RulesListOption{i}"), "", Action::ListOption(i));
+            }
+            popup.spawn(row()).with_children(|r| {
+                buttons(r, h, &[
+                    ("RulesListOptionsPrevious", "上一组", Action::ListOptionsPrevious),
+                    ("RulesListOptionsNext", "下一组", Action::ListOptionsNext),
+                    ("RulesListOptionsClose", "收起", Action::ListOptionsClose),
+                ]);
+            });
+        });
+    });
+}
 pub(super) fn mount(
     mut commands: Commands,
     sidebar: Query<Entity, Added<crate::ui::gameplay_sidebar::InteractionRulesHost>>,
@@ -506,6 +581,7 @@ pub(super) fn mount(
                 });
             });
             info(p, &h, Info::Status, "RulesStatus");
+            list_scope(p, &h);
             p.spawn((ScrollArea, Name::new("RulesFormScroll"), column(0.)))
                 .with_children(|scroll| {
                     scroll

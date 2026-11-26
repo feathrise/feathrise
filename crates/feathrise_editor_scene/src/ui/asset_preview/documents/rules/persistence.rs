@@ -73,7 +73,7 @@ impl Studio {
             return Err("工程规则还有未完成的编辑，请先保存或取消修改，再绑定演出。".into());
         }
         // 演出追加在规则页确认或取消，即使侧栏此前停在变量或地点。
-        let selection = if self.sel.tab == Tab::Rules {
+        let selection = if self.sel.tab == Tab::Rules && self.scene(Tab::Rules).is_none() {
             self.sel
         } else {
             Selection {
@@ -129,7 +129,12 @@ impl Studio {
         {
             return (deletion.sheet.as_deref(), deletion.before.selection);
         }
-        (self.sheet.as_deref(), self.sel)
+        let selection = if self.editing_item && self.sel.item.is_none() {
+            self.return_to.unwrap_or(self.sel)
+        } else {
+            self.sel
+        };
+        (self.sheet.as_deref(), selection)
     }
     pub(in super::super) fn edit_pending(&self) -> bool {
         self.saving() || self.job.as_ref().is_some_and(|job| job.change.is_some())
@@ -191,7 +196,7 @@ impl Studio {
                 item: self
                     .sheet
                     .as_ref()
-                    .and_then(|s| (s.len(self.sel.tab) > 0).then_some(0)),
+                    .and_then(|s| self.rows(s, self.sel.tab).first().copied()),
                 ..default()
             });
         }
@@ -228,11 +233,13 @@ impl Studio {
         id: Option<Entity>,
         focus: &mut InputFocus,
     ) {
-        self.return_to =
-            (self.sel.tab == selection.tab && self.sel.item.is_some() && selection.item.is_none())
-                .then_some(self.sel);
+        self.return_to = (edit
+            && self.sel.tab == selection.tab
+            && self.sel.item.is_some()
+            && selection.item.is_none()).then_some(self.sel);
         self.sel = selection;
         self.editing_item = edit;
+        self.picker = None;
         self.hydrate();
         self.notice.clear();
         self.files.receipt = None;

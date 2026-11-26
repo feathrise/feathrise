@@ -225,6 +225,7 @@ pub(super) fn sync(
                     color: colors::TEXT_ACCENT.with_alpha(0.22), // 白色遮罩只描述匹配区域，颜色在绘制时随主题变化。
                     ..default()
                 },
+                Pickable::IGNORE,
                 FocusPolicy::Pass,
                 Node {
                     display: Display::None,

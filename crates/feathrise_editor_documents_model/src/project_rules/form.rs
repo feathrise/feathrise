@@ -1,7 +1,7 @@
 //! 原生表单与版本一规则文档之间的映射。输入保留文本语义，直到应用时才按变量声明解析。
 use super::{source, validate};
 use serde_json::{Map, Number, Value, json};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ValueKind {
@@ -15,6 +15,7 @@ pub struct VariableForm {
     pub kind: ValueKind,
     pub default: String,
     pub choices: Option<Vec<String>>,
+    pub tag: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LocationForm {
@@ -48,6 +49,7 @@ pub enum ActionForm {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuleForm {
     pub id: String,
+    pub tag: Option<String>,
     pub when: TriggerForm,
     pub once: bool,
     pub conditions: Vec<ConditionForm>,
@@ -58,6 +60,14 @@ pub struct RulesForm {
     pub variables: Vec<VariableForm>,
     pub rules: Vec<RuleForm>,
     pub locations: Vec<LocationForm>,
+    pub scenes: BTreeMap<String, SceneForm>,
+}
+
+/// 场景保存自己声明的条目；没有本地声明的工程条目按原 ID 继承。
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SceneForm {
+    pub variables: Vec<VariableForm>,
+    pub rules: Vec<RuleForm>,
 }
 
 fn input(value: &Value) -> String {
@@ -72,39 +82,37 @@ fn optional(value: &Value) -> Option<String> {
 fn rows(value: &Value) -> &[Value] {
     value.as_array().map(Vec::as_slice).unwrap_or(&[])
 }
+pub(super) fn tag(text: Option<&str>) -> Option<&str> {
+    text.map(str::trim).filter(|tag| !tag.is_empty())
+}
 
-impl RulesForm {
-    pub fn parse(source: &str) -> Result<Self, String> {
-        validate(source)?;
-        let document: Value = serde_json::from_str(source).map_err(|e| e.to_string())?;
-        let mut form = Self::default();
-        for id in source::keys(source, "variables")? {
-            let v = &document["variables"][&id];
+fn read_variables(raw: &str, scope: &Value) -> Result<Vec<VariableForm>, String> {
+    Ok(source::keys(raw, "variables")?
+        .into_iter()
+        .map(|id| {
+            let v = &scope["variables"][&id];
             let kind = match v["default"] {
                 Value::Bool(_) => ValueKind::Bool,
                 Value::Number(_) => ValueKind::Number,
                 _ => ValueKind::Text,
             };
-            form.variables.push(VariableForm {
+            VariableForm {
                 id,
                 kind,
                 default: input(&v["default"]),
                 choices: v["choices"]
                     .as_array()
                     .map(|a| a.iter().map(input).collect()),
-            });
-        }
-        for id in source::keys(source, "locations")? {
-            let v = &document["locations"][&id];
-            let axes = |key: &str| std::array::from_fn(|i| input(&v[key][i]));
-            form.locations.push(LocationForm {
-                id,
-                scene: input(&v["scene"]),
-                min: axes("min"),
-                max: axes("max"),
-            });
-        }
-        for rule in rows(&document["rules"]) {
+                tag: tag(v["tag"].as_str()).map(str::to_owned),
+            }
+        })
+        .collect())
+}
+
+fn read_rules(scope: &Value) -> Vec<RuleForm> {
+    rows(&scope["rules"])
+        .iter()
+        .map(|rule| {
             let w = &rule["when"];
             let when = if let Some(name) = w["event"].as_str() {
                 TriggerForm::Event {
@@ -141,13 +149,76 @@ impl RulesForm {
                     }
                 })
                 .collect();
-            form.rules.push(RuleForm {
+            RuleForm {
                 id: input(&rule["id"]),
+                tag: tag(rule["tag"].as_str()).map(str::to_owned),
                 when,
                 once: rule["once"].as_bool().unwrap_or(false),
                 conditions,
                 actions,
+            }
+        })
+        .collect()
+}
+
+impl RulesForm {
+    pub fn variables_in(&self, scene: Option<&str>) -> &[VariableForm] {
+        match scene {
+            None => &self.variables,
+            Some(id) => self
+                .scenes
+                .get(id)
+                .map_or(&[], |scope| scope.variables.as_slice()),
+        }
+    }
+    pub fn rules_in(&self, scene: Option<&str>) -> &[RuleForm] {
+        match scene {
+            None => &self.rules,
+            Some(id) => self
+                .scenes
+                .get(id)
+                .map_or(&[], |scope| scope.rules.as_slice()),
+        }
+    }
+    pub fn variable(&self, scene: Option<&str>, id: &str) -> Option<&VariableForm> {
+        scene
+            .and_then(|scene| self.variables_in(Some(scene)).iter().find(|v| v.id == id))
+            .or_else(|| self.variables.iter().find(|v| v.id == id))
+    }
+
+    pub fn parse(source: &str) -> Result<Self, String> {
+        validate(source)?;
+        let document: Value = serde_json::from_str(source).map_err(|e| e.to_string())?;
+        let mut form = Self {
+            variables: read_variables(source, &document)?,
+            rules: read_rules(&document),
+            ..Self::default()
+        };
+        for id in source::keys(source, "locations")? {
+            let v = &document["locations"][&id];
+            let axes = |key: &str| std::array::from_fn(|i| input(&v[key][i]));
+            form.locations.push(LocationForm {
+                id,
+                scene: input(&v["scene"]),
+                min: axes("min"),
+                max: axes("max"),
             });
+        }
+        if let Some((_, scenes)) = source::members(source)?
+            .into_iter()
+            .find(|(key, _)| key == "scenes")
+        {
+            for (id, raw) in source::members(scenes)? {
+                let scope = &document["scenes"][&id];
+                let variables = read_variables(raw, scope)?;
+                form.scenes.insert(
+                    id,
+                    SceneForm {
+                        variables,
+                        rules: read_rules(scope),
+                    },
+                );
+            }
         }
         Ok(form)
     }
@@ -158,14 +229,7 @@ impl RulesForm {
             .iter()
             .map(|v| (v.id.as_str(), v.kind))
             .collect();
-        let mut variables = Map::new();
-        for v in &self.variables {
-            let mut def = json!({"default":v.kind.parse(&v.default).map_err(|e|format!("变量「{}」的值：{e}",v.id))?});
-            if let Some(options) = &v.choices {
-                def["choices"] = json!(options);
-            }
-            variables.insert(v.id.clone(), def);
-        }
+        let variables = variables_json(&self.variables)?;
         let mut locations = Map::new();
         for v in &self.locations {
             let axes = |field: &str, values: &[String; 3]| {
@@ -184,61 +248,105 @@ impl RulesForm {
                 json!({"scene":v.scene,"min":axes("min",&v.min)?,"max":axes("max",&v.max)?}),
             );
         }
-        let mut rules = Vec::new();
-        for rule in &self.rules {
-            let typed = |key: &str, text: &str| {
-                let kind = kinds
-                    .get(key)
-                    .ok_or_else(|| format!("规则「{}」引用了未声明的变量「{key}」", rule.id))?;
-                kind.parse(text)
-                    .map_err(|e| format!("规则「{}」变量「{key}」：{e}", rule.id))
-            };
-            let when = match &rule.when {
-                TriggerForm::Event { event, target } => {
-                    let mut w = json!({"event":event});
-                    if let Some(t) = target {
-                        w["target"] = json!(t);
-                    }
-                    w
-                }
-                TriggerForm::Changed { variable, from, to } => {
-                    let mut w = json!({"changed":variable});
-                    for (field, datum) in [("from", from), ("to", to)] {
-                        if let Some(text) = datum {
-                            w[field] = typed(variable, text)?;
-                        }
-                    }
-                    w
-                }
-            };
-            let mut actions = Vec::new();
-            for action in &rule.actions {
-                actions.push(match action {
-                    ActionForm::Set { variable, value } => {
-                        json!({"set":variable,"value":typed(variable,value)?})
-                    }
-                    ActionForm::Request { request, target } => {
-                        json!({"request":request,"target":target})
-                    }
-                });
+        let rules = rules_json(&self.rules, |key| kinds.get(key).copied())?;
+        let mut document =
+            json!({"version":1,"variables":variables,"locations":locations,"rules":rules});
+        if !self.scenes.is_empty() {
+            let mut scenes = Map::new();
+            for (id, scope) in &self.scenes {
+                let scoped_kinds: HashMap<_, _> = scope
+                    .variables
+                    .iter()
+                    .map(|v| (v.id.as_str(), v.kind))
+                    .collect();
+                let rules = rules_json(&scope.rules, |key| {
+                    scoped_kinds.get(key).or_else(|| kinds.get(key)).copied()
+                })
+                .map_err(|error| format!("场景「{id}」{error}"))?;
+                scenes.insert(
+                    id.clone(),
+                    json!({"variables":variables_json(&scope.variables)?, "rules":rules}),
+                );
             }
-            let mut v = json!({"id":rule.id,"when":when,"actions":actions});
-            if rule.once {
-                v["once"] = json!(true);
-            }
-            if !rule.conditions.is_empty() {
-                let mut tests = Vec::new();
-                for c in &rule.conditions {
-                    tests.push(
-                        json!({"variable":c.variable,"equals":typed(&c.variable,&c.equals)?}),
-                    );
-                }
-                v["if"] = Value::Array(tests);
-            }
-            rules.push(v);
+            document["scenes"] = Value::Object(scenes);
         }
-        Ok(json!({"version":1,"variables":variables,"locations":locations,"rules":rules}))
+        Ok(document)
     }
+}
+
+fn variables_json(rows: &[VariableForm]) -> Result<Map<String, Value>, String> {
+    let mut variables = Map::new();
+    for v in rows {
+        let mut def = json!({"default":v.kind.parse(&v.default).map_err(|e|format!("变量「{}」的值：{e}",v.id))?});
+        if let Some(options) = &v.choices {
+            def["choices"] = json!(options);
+        }
+        if let Some(tag) = tag(v.tag.as_deref()) {
+            def["tag"] = json!(tag);
+        }
+        variables.insert(v.id.clone(), def);
+    }
+    Ok(variables)
+}
+
+fn rules_json(
+    rows: &[RuleForm],
+    kind: impl Fn(&str) -> Option<ValueKind>,
+) -> Result<Vec<Value>, String> {
+    let mut rules = Vec::with_capacity(rows.len());
+    for rule in rows {
+        let typed = |key: &str, text: &str| {
+            let kind = kind(key)
+                .ok_or_else(|| format!("规则「{}」引用了未声明的变量「{key}」", rule.id))?;
+            kind.parse(text)
+                .map_err(|e| format!("规则「{}」变量「{key}」：{e}", rule.id))
+        };
+        let when = match &rule.when {
+            TriggerForm::Event { event, target } => {
+                let mut w = json!({"event":event});
+                if let Some(t) = target {
+                    w["target"] = json!(t);
+                }
+                w
+            }
+            TriggerForm::Changed { variable, from, to } => {
+                let mut w = json!({"changed":variable});
+                for (field, datum) in [("from", from), ("to", to)] {
+                    if let Some(text) = datum {
+                        w[field] = typed(variable, text)?;
+                    }
+                }
+                w
+            }
+        };
+        let mut actions = Vec::new();
+        for action in &rule.actions {
+            actions.push(match action {
+                ActionForm::Set { variable, value } => {
+                    json!({"set":variable,"value":typed(variable,value)?})
+                }
+                ActionForm::Request { request, target } => {
+                    json!({"request":request,"target":target})
+                }
+            });
+        }
+        let mut v = json!({"id":rule.id,"when":when,"actions":actions});
+        if let Some(tag) = tag(rule.tag.as_deref()) {
+            v["tag"] = json!(tag);
+        }
+        if rule.once {
+            v["once"] = json!(true);
+        }
+        if !rule.conditions.is_empty() {
+            let mut tests = Vec::new();
+            for c in &rule.conditions {
+                tests.push(json!({"variable":c.variable,"equals":typed(&c.variable,&c.equals)?}));
+            }
+            v["if"] = Value::Array(tests);
+        }
+        rules.push(v);
+    }
+    Ok(rules)
 }
 
 impl ValueKind {

@@ -126,7 +126,7 @@ pub(crate) fn gutter() -> impl Scene {
 
 pub(crate) fn match_layer() -> impl Scene {
     bsn! {
-        NavigationMatchLayer ~{FocusPolicy::Pass}
+        NavigationMatchLayer ~{FocusPolicy::Pass} ~{Pickable::IGNORE}
         Node { position_type: PositionType::Absolute, left: px(4), top: px(4), right: px(4), bottom: px(4), overflow: Overflow::clip() }
         ZIndex(1)
     }

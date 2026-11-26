@@ -31,15 +31,29 @@ impl<'de> Deserialize<'de> for Fields<'de> {
 }
 
 pub(super) fn keys(source: &str, section: &str) -> Result<Vec<String>, String> {
-    let fields: Fields = serde_json::from_str(source).map_err(|e| e.to_string())?;
-    let Some((_, raw)) = fields.0.iter().find(|(key, _)| key == section) else {
+    let fields = members(source)?;
+    let Some((_, raw)) = fields.into_iter().find(|(key, _)| key == section) else {
         return Ok(Vec::new());
     };
-    let rows: Fields = serde_json::from_str(raw.get()).map_err(|e| e.to_string())?;
-    Ok(rows.0.into_iter().map(|(key, _)| key).collect())
+    Ok(members(raw)?.into_iter().map(|(key, _)| key).collect())
 }
 
-type Rename = (&'static str, String, String);
+pub(super) fn members(source: &str) -> Result<Vec<(String, &str)>, String> {
+    let fields: Fields = serde_json::from_str(source).map_err(|e| e.to_string())?;
+    Ok(fields
+        .0
+        .into_iter()
+        .map(|(key, raw)| (key, raw.get()))
+        .collect())
+}
+
+/// 改名按范围定位原始对象键，同一 ID 的其它作用域不会误用旧词元。
+pub(super) struct Rename {
+    pub scene: Option<String>,
+    pub section: &'static str,
+    pub from: String,
+    pub to: String,
+}
 struct Part<'a> {
     key: Option<String>,
     key_text: &'a str,
@@ -125,14 +139,14 @@ pub(super) fn rewrite(
     source: &str,
     before: &Value,
     after: &Value,
-    rename: Option<&Rename>,
+    renames: &[Rename],
 ) -> Result<String, String> {
     let raw = source.trim();
     let start = raw.as_ptr() as usize - source.as_ptr() as usize;
     Ok(format!(
         "{}{}{}",
         &source[..start],
-        merge(raw, before, after, "", 0, rename)?,
+        merge(raw, before, after, "", 0, None, renames)?,
         &source[start + raw.len()..]
     ))
 }
@@ -142,7 +156,8 @@ fn merge(
     after: &Value,
     field: &str,
     depth: usize,
-    rename: Option<&Rename>,
+    scene: Option<&str>,
+    renames: &[Rename],
 ) -> Result<String, String> {
     if before == after {
         return Ok(raw.into());
@@ -157,14 +172,27 @@ fn merge(
         let mut output = Vec::new();
         for part in &body.parts {
             let key = part.key.as_deref().unwrap();
-            let dest = rename
-                .filter(|(section, from, _)| depth == 1 && *section == field && from == key)
-                .map_or(key, |(_, _, to)| to.as_str());
+            let dest = renames
+                .iter()
+                .find(|rename| {
+                    rename.section == field
+                        && rename.from == key
+                        && rename.scene.as_deref() == scene
+                        && depth == if scene.is_some() { 3 } else { 1 }
+                })
+                .map_or(key, |rename| rename.to.as_str());
+            let child_scene = if depth == 1 && field == "scenes" {
+                Some(dest)
+            } else {
+                scene
+            };
             let a = old.get(key);
             let b = new.get(dest);
             let encoded = match (a, b) {
                 (Some(_), None) => continue,
-                (Some(a), Some(b)) => merge(part.value, a, b, dest, depth + 1, rename)?,
+                (Some(a), Some(b)) => {
+                    merge(part.value, a, b, dest, depth + 1, child_scene, renames)?
+                }
                 (None, Some(b)) => b.to_string(),
                 (None, None) => part.value.to_owned(), // 旧文档可能显式写出 once:false、if:[] 或可选 null。
             };
@@ -200,7 +228,15 @@ fn merge(
         for (i, (v, matched)) in new.iter().zip(matches).enumerate() {
             let prior = matched.or_else(|| (i < old.len() && !taken.contains(&i)).then_some(i));
             output.push(if let Some(j) = prior {
-                merge(body.parts[j].value, &old[j], v, "", depth + 1, rename)?
+                merge(
+                    body.parts[j].value,
+                    &old[j],
+                    v,
+                    "",
+                    depth + 1,
+                    scene,
+                    renames,
+                )?
             } else {
                 v.to_string()
             });

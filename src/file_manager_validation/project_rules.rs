@@ -70,12 +70,15 @@ fn verify_window(
     expected: &Value,
 ) -> Result<(), String> {
     command.env(ENV, phase);
+    // 首窗包含六项工具、地点取点和两种作用域的完整新建与筛选，满载下已超过原来单窗的时限。
+    let timeout = if phase == "empty" { 240 } else { 150 };
     let child = build_process::run(
         command,
         &BuildControl::default(),
-        Some(Duration::from_secs(150)),
+        Some(Duration::from_secs(timeout)),
         tail,
-    )?;
+    )
+    .map_err(|error| format!("规则窗口 {phase}：{error}"))?;
     write_new(
         &work.join(format!("rules-{phase}.log")),
         format!("{}\n{}", child.stdout, child.stderr).as_bytes(),
@@ -193,8 +196,20 @@ pub(super) fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<
     let blank = work.join("first-variable");
     fs::create_dir(&blank).map_err(|e| e.to_string())?;
     let mut first = fixture(target, &blank, true)?;
-    let first_doc = json!({"version":1,"variables":{"gate_open":{"default":true},"a":{"default":3}},
-        "locations":{"east_gate":{"scene":"river","min":[0,0,0],"max":[4,3,6]}},"rules":[]});
+    let hook = |value: u32, tag: &str| json!({
+        "id":"scene_hook","tag":tag,"when":{"event":"quest.completed","target":"harbor_entry"},
+        "actions":[{"set":"a","value":value}]
+    });
+    let first_doc = json!({
+        "version":1,
+        "variables":{"gate_open":{"default":true},"a":{"default":3,"tag":"World"}},
+        "rules":[hook(3, "World")],
+        "locations":{"east_gate":{"scene":"river","min":[0,0,0],"max":[4,3,6]}},
+        "scenes":{"M1-SAMPLE":{
+            "variables":{"a":{"default":7,"tag":"Harbor"},"dock_flag":{"default":false,"tag":"Harbor"}},
+            "rules":[hook(7, "Harbor")]
+        }}
+    });
     verify_window(&mut first, &blank, "empty", proof, &first_doc)?;
     verify_window(&mut first, &blank, "draw-reopen", proof, &first_doc)?;
 
