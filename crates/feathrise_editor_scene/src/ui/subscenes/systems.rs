@@ -20,6 +20,34 @@ pub(super) fn enabled(editor: &SceneEditorState, session: &EditorAuthoringSessio
         && state.pending.is_none() && state.rename.is_none() && session.draft.is_some()
 }
 
+/// 高亮的目录项与正在创作的父场景分别核对；多选、选中文件夹或父场景自身时没有引用目标。
+fn creation_source<'a>(editor: &SceneEditorState, session: &EditorAuthoringSession, browser: &'a SceneBrowserState) -> Option<&'a feathrise_scene_content::SceneId> {
+    let draft = session.draft.as_ref()?;
+    let crate::types::SceneBrowserItem::Scene(source) = browser.selected_item.as_ref()? else { return None; };
+    (!browser.selection_pending && browser.selection_count() == 1
+        && editor.selected_scene_id.as_ref() == Some(&draft.scene_id) && source != &draft.scene_id).then_some(source)
+}
+
+fn creation_page(sidebar: &crate::ui::sidebars::SceneEditorSidebarState) -> bool {
+    sidebar.scene_browser_visible() && sidebar.right == crate::ui::sidebars::EditorRightSidebarTab::SceneEntry
+}
+
+pub(super) fn sync_creation(
+    editor: Res<SceneEditorState>, session: Res<EditorAuthoringSession>, state: Res<SubsceneEditorState>,
+    browser: Res<SceneBrowserState>, sidebar: Res<crate::ui::sidebars::SceneEditorSidebarState>,
+    workspace: Option<Res<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>>,
+    mut slots: Query<(&mut Node, &mut Visibility), With<CreationSlot>>,
+) {
+    let visible = workspace.is_none_or(|w| w.active_tab == crate::ui::vegetation_preset_editor::PresetWorkspaceTab::Scene)
+        && enabled(&editor, &session, &state) && creation_page(&sidebar)
+        && creation_source(&editor, &session, &browser).is_some();
+    let (display, shown) = if visible { (Display::Flex, Visibility::Inherited) } else { (Display::None, Visibility::Hidden) };
+    for (mut node, mut visibility) in &mut slots {
+        if node.display != display { node.display = display; }
+        if *visibility != shown { *visibility = shown; }
+    }
+}
+
 pub(crate) fn apply(session: &mut EditorAuthoringSession, editor: &mut SceneEditorState,
     after: Arc<[SceneInstancePlacement]>) {
     let draft = session.draft.as_mut().unwrap();
@@ -58,7 +86,8 @@ pub(super) fn input(mut editor: ResMut<SceneEditorState>, mut session: ResMut<Ed
     let (mut candidates, mut browser) = context.p1();
     let properties_visible = sidebars.as_ref().is_none_or(|state| state.right == crate::ui::sidebars::EditorRightSidebarTab::Scene)
         && layout.as_ref().is_none_or(|state| state.inspector_shown());
-    let creation_visible = sidebars.as_ref().is_none_or(|state| state.tool_page_visible(crate::ui::sidebars::EditorLeftSidebarTab::Gameplay))
+    let creation_visible = sidebars.as_deref().is_none_or(creation_page)
+        && creation_source(&editor, &session, &browser).is_some()
         && layout.as_ref().is_none_or(|state| state.inspector_shown());
     let catalog = registry.as_deref().and_then(|registry| catalogs.get(&registry.catalog));
     let menu_action = menu.as_ref().and_then(|menu| menu.ready.as_ref()).and_then(|request| {
@@ -72,7 +101,7 @@ pub(super) fn input(mut editor: ResMut<SceneEditorState>, mut session: ResMut<Ed
     let actions = buttons.iter().filter_map(|(interaction, action)|
         (interaction.is_clicked()).then_some((action.0, None))).chain(menu_action);
     for (action, menu_index) in actions {
-        // 创建按钮迁到玩法页；隐藏的旧按钮不能借场景树选择继续提交作者事务。
+        // 显隐与提交共用当前目录身份，旧按钮释放不会向错误的父场景加入引用。
         if menu_index.is_none() && !(if matches!(action, Action::Add) { creation_visible } else { properties_visible }) { continue; }
         let draft = session.draft.as_ref().unwrap();
         let index = menu_index.or_else(|| state.selected.as_ref().and_then(|id| draft.manifest.subscenes.iter().position(|record| &record.id == id)));
@@ -104,9 +133,7 @@ pub(super) fn input(mut editor: ResMut<SceneEditorState>, mut session: ResMut<Ed
                 let mut record = if matches!(action, Action::Duplicate) {
                     let Some(index) = index else { continue; }; references[index].clone()
                 } else {
-                    let Some(source) = editor.scene_list_selection_id.clone() else {
-                        editor.status = "请先在场景目录里选择源场景".into(); continue;
-                    };
+                    let Some(source) = creation_source(&editor, &session, &browser).cloned() else { continue; };
                     let label = catalog.and_then(|catalog| catalog.scenes.iter()
                         .find(|entry| entry.id == source)).map(|entry| entry.display_name.clone()).unwrap_or_else(|| source.to_string());
                     SceneInstancePlacement { id: SceneInstanceId("pending".into()), source_scene_id: source,

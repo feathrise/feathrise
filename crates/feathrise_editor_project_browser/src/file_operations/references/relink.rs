@@ -74,29 +74,33 @@ pub(super) fn check_target(target: &Path, documents: &[ReferencingDocument], lab
         };
         let missing = |label: &str| format!("替代 GLB 缺少引用的子资源 #{label}，请选择包含该子资源的文件");
         let mut inverted = Vec::new();
+        let mut default = None;
         for label in labels {
             if !exists(&gltf, label) { return Err(missing(label)); }
             let material = label.strip_suffix("/std").unwrap_or(label);
+            if material == "DefaultMaterial" { default = Some(label); }
             if let Some(i) = material.strip_suffix(" (inverted)").and_then(|s| index(s, "Material")) {
                 inverted.push((label, i));
             }
         }
-        if !inverted.is_empty() {
-            let used = inverted_materials(gltf)?;
-            if let Some((label, _)) = inverted.iter().find(|(_, i)| !used.contains(i)) { return Err(missing(label)); }
+        if default.is_some() || !inverted.is_empty() {
+            let (has_default, mirrored) = scene_material_labels(gltf)?;
+            if let Some(label) = default.filter(|_| !has_default) { return Err(missing(label)); }
+            if let Some((label, _)) = inverted.iter().find(|(_, i)| !mirrored.contains(i)) { return Err(missing(label)); }
         }
     }
     Ok(())
 }
 
-// Bevy 在实例化每个场景的节点时才生成倒置材质。累计奇数个负缩放轴，且网格实际用了该材质才有标签。
-fn inverted_materials(json: Value) -> Result<HashSet<usize>, String> {
+// Bevy 在场景节点中遇到实际使用的图元时才发布默认或倒置材质标签；游离网格没有这些标签。
+fn scene_material_labels(json: Value) -> Result<(bool, HashSet<usize>), String> {
     use bevy::{gltf::gltf, math::{Mat4, Vec3}};
     let root = serde_json::from_value(json).map_err(|e| format!("替代 GLB 的节点元数据无效：{e}"))?;
-    let document = gltf::Document::from_json(root).map_err(|e| format!("无法核对替代 GLB 的倒置材质：{e}"))?;
+    let document = gltf::Document::from_json(root).map_err(|e| format!("无法核对替代 GLB 的场景材质：{e}"))?;
     let mut pending: Vec<_> = document.scenes().flat_map(|s| s.nodes().map(|n| (n, false))).collect();
     let mut visited = HashSet::new();
     let mut meshes = HashSet::new();
+    let mut has_default = false;
     let mut used = HashSet::new();
     while let Some((node, parent_inverted)) = pending.pop() {
         let local_inverted = match node.transform() {
@@ -105,12 +109,18 @@ fn inverted_materials(json: Value) -> Result<HashSet<usize>, String> {
         };
         let inverted = parent_inverted ^ local_inverted;
         if !visited.insert((node.index(), inverted)) { continue; }
-        if inverted && let Some(mesh) = node.mesh() && meshes.insert(mesh.index()) {
-            used.extend(mesh.primitives().filter_map(|p| p.material().index()));
+        if let Some(mesh) = node.mesh() && meshes.insert((mesh.index(), inverted)) {
+            for primitive in mesh.primitives() {
+                match primitive.material().index() {
+                    Some(index) if inverted => { used.insert(index); }
+                    None => has_default = true,
+                    _ => {}
+                }
+            }
         }
         pending.extend(node.children().map(|child| (child, inverted)));
     }
-    Ok(used)
+    Ok((has_default, used))
 }
 
 fn index(label: &str, prefix: &str) -> Option<usize> {

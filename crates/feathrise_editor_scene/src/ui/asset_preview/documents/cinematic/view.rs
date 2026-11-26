@@ -213,7 +213,11 @@ pub(super) fn mount(
                         ] {
                             button(r, &h, name, a);
                         }
+                        let host = r.target_entity();
+                        r.commands().spawn_scene(super::binding::toggle_button()).insert(ChildOf(host));
                     });
+                    let host = p.target_entity();
+                    p.commands().spawn_scene(super::binding::panel()).insert(ChildOf(host));
                     p.spawn(Node {
                         width: percent(100),
                         flex_grow: 1.,

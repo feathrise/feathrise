@@ -60,7 +60,8 @@ pub(crate) fn scene_properties_page() -> impl Scene {
             @field("场景", ScenePropertiesField::Runtime)--
             @field("起始位置", ScenePropertiesField::Spawn)--
             @field("清单", ScenePropertiesField::Manifest)--
-            @field("来源", ScenePropertiesField::Source)
+            @field("来源", ScenePropertiesField::Source)--
+            @crate::ui::subscenes::creation_button()
         ]
     }
 }

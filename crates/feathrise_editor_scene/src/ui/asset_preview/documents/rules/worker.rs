@@ -163,7 +163,7 @@ pub(super) fn prepare(
     let len = sheet.len(sel.tab);
     sel.item = wanted
         .as_ref()
-        .and_then(|id| (0..len).find(|i| sheet.id(sel.tab, *i) == Some(id.as_str())))
+        .and_then(|id| sheet.position(sel.tab, id))
         .or_else(|| (len > 0).then(|| sel.item.unwrap_or(0).min(len - 1)));
     if let Some(rule) = sel.rule(&sheet.model) {
         sel.condition = sel.condition.min(rule.conditions.len().saturating_sub(1));

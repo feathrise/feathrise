@@ -14,7 +14,8 @@ const BUDGET: usize = 128;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum PreviewMaterial {
-    Asset(Option<usize>),
+    Default { inverted: bool },
+    Asset(usize),
     Mirrored(usize),
 }
 
@@ -39,6 +40,39 @@ struct Draw {
 }
 
 impl Draw {
+    fn material_handle(
+        &mut self,
+        server: &AssetServer,
+        materials: &mut Assets<StandardMaterial>,
+        path: &str,
+        index: Option<usize>,
+        inverted: bool,
+    ) -> Handle<StandardMaterial> {
+        self.handles
+            .entry(index.map_or(
+                PreviewMaterial::Default { inverted },
+                PreviewMaterial::Asset,
+            ))
+            .or_insert_with(|| match index {
+                Some(index) => {
+                    let reference =
+                        bevy::asset::AssetPath::from(format!("{path}#Material{index}/std"));
+                    server
+                        .get_handle(reference.clone())
+                        .unwrap_or_else(|| server.load(reference))
+                }
+                // 保存最后一个默认槽后，GLB 已不再发布 DefaultMaterial/std。撤销草稿按 glTF
+                // 的默认金属度、粗糙度恢复视口，以便再次保存时重新省略这个槽的材质索引。
+                None => materials.add(StandardMaterial {
+                    metallic: 1.0,
+                    perceptual_roughness: 1.0,
+                    cull_mode: Some(if inverted { Face::Front } else { Face::Back }),
+                    ..default()
+                }),
+            })
+            .clone()
+    }
+
     fn retire_materials(&mut self) {
         if !self.handles.is_empty() {
             let old = std::mem::take(&mut self.handles);
@@ -241,18 +275,7 @@ fn preview(
             continue;
         }
         // 保持被替换材质的强句柄直到离开文档。热通知、撤销或双容器重建时，未被原网格使用的材质也不会反复卸载再请求。
-        let mut handle = draw
-            .handles
-            .entry(PreviewMaterial::Asset(desired))
-            .or_insert_with(|| {
-                let label = desired
-                    .map_or_else(|| "DefaultMaterial".to_owned(), |n| format!("Material{n}"));
-                let reference = bevy::asset::AssetPath::from(format!("{path}#{label}/std"));
-                server
-                    .get_handle::<StandardMaterial>(reference.clone())
-                    .unwrap_or_else(|| server.load(reference))
-            })
-            .clone();
+        let mut handle = draw.material_handle(server, assets, path, desired, inverted);
         if inverted && let Some(index) = desired {
             let key = PreviewMaterial::Mirrored(index);
             if let Some(h) = draw.handles.get(&key) {
@@ -281,6 +304,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn undo_can_preview_a_default_slot_removed_from_the_saved_glb() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()));
+        let server = app.world().resource::<AssetServer>();
+        let mut assets = Assets::<StandardMaterial>::default();
+        let mut draw = Draw::default();
+        let path = "saved-without-default.glb";
+        for (inverted, cull_mode) in [(false, Face::Back), (true, Face::Front)] {
+            let handle = draw.material_handle(server, &mut assets, path, None, inverted);
+            let material = assets
+                .get(&handle)
+                .expect("撤销预览不能依赖磁盘 GLB 的默认材质标签");
+            assert_eq!(material.metallic, 1.0);
+            assert_eq!(material.perceptual_roughness, 1.0);
+            assert_eq!(material.cull_mode, Some(cull_mode));
+            assert_eq!(
+                draw.material_handle(server, &mut assets, path, None, inverted),
+                handle
+            );
+        }
+    }
+
+    #[test]
     fn retiring_materials_shares_the_restore_budget_and_skips_empty_switches() {
         let mut assets = Assets::<StandardMaterial>::default();
         let handle = assets.add(StandardMaterial::default());
@@ -291,7 +337,7 @@ mod tests {
         let mut draw = Draw::default();
         for i in 0..BUDGET + 1 {
             draw.handles
-                .insert(PreviewMaterial::Asset(Some(i)), handle.clone());
+                .insert(PreviewMaterial::Asset(i), handle.clone());
             draw.handles
                 .insert(PreviewMaterial::Mirrored(i), handle.clone());
         }

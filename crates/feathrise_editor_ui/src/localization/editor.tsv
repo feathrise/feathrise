@@ -431,12 +431,11 @@ label.rotate-left-90	左转 90°	Rotate Left 90°
 label.rotate-right-90	右转 90°	Rotate Right 90°
 label.cancel-tool	取消当前工具	Cancel Tool
 help.adjust-a-subscene-reference-s-position-and	在父场景调整子场景引用的整体位置与朝向；内部内容请打开源场景编辑。复制或移除只操作当前引用，不修改源场景内容。	Adjust a subscene reference's position and orientation in its parent scene. Open the source scene to edit its contents. Duplicating or removing a reference affects only that instance.
-label.add-selected-scene-as-subscene	将目录所选场景添加为子场景	Add Selected Scene as Subscene
+label.add-selected-scene-as-subscene	添加为子场景	Add as Subscene
 label.duplicate-reference	复制引用	Duplicate Reference
 label.remove-reference	移除引用	Remove Reference
 label.edit-source-scene	打开源场景编辑	Edit Source Scene
 label.asset-placement	资产摆放	Asset Placement
-help.select-a-file-in-assets-enter-edit	在左侧资产页选择文件，切到编辑模式后在中央场景点击摆放；落点沿用精确地面查询。摆放参数在视口工具条。选择已有实例后，在右侧属性中调整变换、复制或删除，资产选择独立保留。	Select a file in Assets, enter Edit mode, and click the scene to place it. Placement uses precise ground queries. Adjust placement on the viewport toolbar. Select an instance to edit its transform, duplicate it, or remove it in the Inspector. Asset selection is tracked separately.
 label.1-invisible-walls	1 · 空气墙对象	1 · Invisible Walls
 label.2-path-editing	2 · 路径编辑	2 · Path Editing
 help.select-or-create-a-wall-in-edit	先选择或新建空气墙，切到编辑模式后拖控制点，Ctrl点击线段插点。开放墙左键继续加点，Delete删除明确选中的点。外框必须闭合，内部墙可开放或闭合。重画只影响所选墙。	Select or create a wall. In Edit mode, drag its points or Ctrl-click a segment to insert a point. Left-click to extend an open wall, or press Delete to remove selected points. Outer walls must be closed. Interior walls can be open or closed. Redraw applies to the selected wall.
@@ -1498,8 +1497,11 @@ vegetation.preview.wait_density	预览：等待当前完整密度发布；上一
 vegetation.catalog.error	全局库更新失败：{error}；保留上一完整目录。	Global preset library update failed: {error}. Showing the last complete library.
 interaction.waiting_scene	等待当前场景作者数据；请先进入场景	Open a scene to load its authoring data.
 interaction.current_scene	当前场景 · {name}	Current Scene · {name}
-interaction.asset_none	待摆放资产 · 尚未选择	Placement Asset · None selected
-interaction.asset	待摆放资产 · {path}	Placement Asset · {path}
+interaction.locations	地点区域	Location Regions
+interaction.variables	工程变量	Project Variables
+interaction.rules	触发规则	Trigger Rules
+interaction.template	从示例创建	Create from Example
+interaction.open-rules	正在打开工程规则…	Opening project rules…
 environment.global.source	来源  {path}\n{save}\n{source}	Source  {path}\n{save}\n{source}
 environment.global.saving	正在保存全局默认	Saving global defaults…
 environment.global.dirty	全局默认未保存 · 使用顶部保存	Global defaults have unsaved changes. Use Save in the toolbar.
@@ -1699,7 +1701,7 @@ rig.point.right_ankle	右踝	Right Ankle
 rig.point.right_toe	右脚趾根	Right Toe Base
 animation.curve	曲线	Curve
 motion.region.tab	动画触发	Animation Triggers
-motion.region.help	选择主场景的动画片段，在视口点选触发区域的两个对角。进入和离开的动作分别设置，切到工程预览即可试走。	Select a scene animation and click two opposite corners in the viewport. Set the entry and exit actions, then enter the region in project preview.
+motion.region.help	选择主场景的动画片段。新增时先点「绘制新区域」，再设置新区的高度和动作，在场景视口点选两个对角。直接修改下方参数会更新当前选中的区域。	Select a scene animation. For a new region, click Draw New Region, set its height and actions, then pick two opposite corners in the scene viewport. Editing the fields directly updates the selected region.
 motion.region.previous_clip	上一片段	Previous Clip
 motion.region.next_clip	下一片段	Next Clip
 motion.region.previous	上一区域	Previous Region

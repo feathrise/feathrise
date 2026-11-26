@@ -1,21 +1,32 @@
+//! 宣传片对话框用当前场景填初值，普通导出确认文件、场景和画质即可。
 use super::*;
-use bevy::{input_focus::tab_navigation::TabIndex, text::EditableText, ui::FocusPolicy};
+use bevy::{
+    input::mouse::{MouseScrollUnit, MouseWheel},
+    input_focus::{InputFocus, tab_navigation::TabIndex},
+    text::EditableText,
+    ui::{FocusPolicy, RelativeCursorPosition},
+};
 use feathrise_editor_scene::workbench::WorkbenchHeader;
-use feathrise_editor_ui::{InteractionButton, UiInteraction, colors as c};
+use feathrise_editor_ui::{EditorButtonClick, InteractionButton, UiInteraction, colors as c};
 use std::collections::BTreeMap;
 
 #[derive(Component)]
 pub(super) struct Panel;
 #[derive(Component)]
+pub(super) struct Body;
+#[derive(Component)]
+pub(super) struct Advanced;
+#[derive(Component)]
 pub(super) struct Status;
-#[derive(Component, Clone, Copy, PartialEq, Eq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Action {
+    Options,
     Export,
     Replace,
     Close,
 }
 #[derive(Component)]
-pub(super) struct ReplaceLabel;
+pub(super) struct ButtonLabel(Action);
 #[derive(Component, Default)]
 pub(super) struct ChoiceRow(Option<MovieChoicePrompt>);
 #[derive(Component)]
@@ -23,7 +34,7 @@ pub(super) struct ChoiceButton {
     key: String,
     id: String,
 }
-#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Field {
     File,
     Size,
@@ -79,8 +90,10 @@ pub(super) fn open(
         .to_string_lossy()
         .into_owned();
     let font = feathrise_editor_core::editor_font(&assets, feathrise_editor_core::FONT_PATH);
+    let scene = request.scene.clone().unwrap_or_default();
     state.document = Some(request);
     state.choice = None;
+    state.advanced = false;
     state.replace = false;
     state.status.clear();
     let backdrop = Node {
@@ -95,11 +108,8 @@ pub(super) fn open(
     };
     let panel = Node {
         width: Val::Vw(92.),
-        max_width: px(740),
-        max_height: Val::Vh(98.),
-        padding: UiRect::all(px(14)),
-        row_gap: px(5),
-        overflow: Overflow::scroll_y(),
+        max_width: px(680),
+        max_height: Val::Vh(92.),
         ..feathrise_editor_ui::dialog_panel_node()
     };
     commands.entity(header).with_children(|header| {
@@ -121,154 +131,266 @@ pub(super) fn open(
                         BorderColor::all(c::DIALOG_BORDER),
                         FocusPolicy::Block,
                     ))
-                    .with_children(|panel| export_form(panel, &font, &output));
+                    .with_children(|panel| export_form(panel, &font, &output, &scene));
             });
     });
 }
 
-fn export_form(panel: &mut ChildSpawnerCommands, font: &Handle<Font>, output: &str) {
-    panel.spawn(label(font, "导出宣传片 · H.264 MP4"));
+fn export_form(panel: &mut ChildSpawnerCommands, font: &Handle<Font>, output: &str, scene: &str) {
+    panel
+        .spawn((
+            feathrise_editor_ui::dialog_header_node(),
+            BackgroundColor(c::DIALOG_HEADER_BG),
+            BorderColor::all(c::DIALOG_BORDER),
+        ))
+        .with_child(label(font, "导出宣传片 · H.264 MP4"));
     let fields = [
         (Field::File, "输出文件", output),
+        (Field::Scene, "场景 ID（可留空）", scene),
         (Field::Size, "画面尺寸", "1920x1080"),
         (Field::Fps, "每秒帧数", "30"),
+    ];
+    let advanced = [
         (Field::Hold, "每句对白停留（秒）", "2"),
-        (Field::Scene, "场景 ID（空为工程开局）", ""),
         (Field::Instance, "子场景实例（可选）", ""),
-        (Field::Choices, "Yarn 分支", "{}"),
         (Field::Sound, "配乐文件（可选）", ""),
         (Field::Encoder, "FFmpeg 路径（可选）", ""),
+        (Field::Choices, "Yarn 分支 JSON", "{}"),
     ];
-    for (index, (field, title, value)) in fields.into_iter().enumerate() {
-        panel
-            .spawn(Node {
-                align_items: AlignItems::Center,
-                column_gap: px(8),
-                min_height: px(29),
-                flex_shrink: 0.,
-                ..default()
-            })
-            .with_children(|row| {
-                row.spawn((
-                    label(font, title),
-                    Node {
-                        width: px(168),
-                        flex_shrink: 0.,
-                        ..default()
-                    },
-                ));
-                let input = Node {
-                    flex_grow: 1.,
-                    flex_basis: px(0),
-                    height: px(29),
-                    min_width: px(0),
-                    padding: UiRect::axes(px(6), px(4)),
-                    overflow: Overflow::clip_x(),
-                    border: UiRect::all(px(1)),
-                    ..default()
-                };
-                row.spawn((
-                    field,
-                    feathrise_editor_core::EditorTextInput,
-                    EditableText {
-                        allow_newlines: false,
-                        ..EditableText::new(value)
-                    },
-                    TabIndex(index as i32),
-                    input,
-                    TextFont {
-                        font: font.clone().into(),
-                        font_size: 13.0.into(),
-                        ..default()
-                    },
-                    TextColor(c::TEXT_PRIMARY),
-                    TextLayout::no_wrap(),
-                    BackgroundColor(c::INPUT_BG),
-                    BorderColor::all(c::COPPER_BORDER_WEAK),
-                ));
-            });
-    }
-    panel.spawn(label(
-        font,
-        "遇到未指定的 Yarn 分支时，可直接点选要拍摄的对白。",
-    ));
-    panel.spawn((Status, label(font, "")));
-    panel.spawn((
-        ChoiceRow::default(),
-        Node {
-            flex_wrap: FlexWrap::Wrap,
-            column_gap: px(6),
-            row_gap: px(4),
-            ..default()
-        },
-    ));
+    // 标题和常用操作保持可见。短窗仅滚动设置，取消与导出入口不会被正文裁切。
     panel
-        .spawn(Node {
-            column_gap: px(8),
-            ..default()
-        })
+        .spawn((
+            Body,
+            RelativeCursorPosition::default(),
+            ScrollPosition::default(),
+            Node {
+                max_height: Val::Vh(70.),
+                overflow: Overflow::scroll_y(),
+                ..feathrise_editor_ui::dialog_body_node()
+            },
+        ))
+        .with_children(|body| {
+            for (index, (field, title, value)) in fields.into_iter().enumerate() {
+                field_row(body, font, index, field, title, value);
+            }
+            body.spawn((
+                Advanced,
+                Visibility::Hidden,
+                Node {
+                    display: Display::None,
+                    flex_direction: FlexDirection::Column,
+                    flex_shrink: 0.,
+                    row_gap: px(8),
+                    ..default()
+                },
+            ))
+            .with_children(|group| {
+                for (index, (field, title, value)) in advanced.into_iter().enumerate() {
+                    field_row(group, font, fields.len() + index, field, title, value);
+                }
+            });
+            body.spawn((
+                Status,
+                Name::new("CinematicExportStatus"),
+                label(font, ""),
+                TextLayout::linebreak(bevy::text::LineBreak::WordOrCharacter),
+                Node {
+                    flex_shrink: 0.,
+                    ..default()
+                },
+            ));
+            body.spawn((
+                ChoiceRow::default(),
+                Node {
+                    flex_wrap: FlexWrap::Wrap,
+                    column_gap: px(6),
+                    row_gap: px(4),
+                    flex_shrink: 0.,
+                    ..default()
+                },
+            ));
+        });
+    panel
+        .spawn((
+            feathrise_editor_ui::dialog_footer_node(),
+            BorderColor::all(c::DIALOG_BORDER),
+        ))
         .with_children(|row| {
-            for (action, title) in [
-                (Action::Replace, "允许覆盖：关"),
-                (Action::Close, "关闭 / 取消"),
-                (Action::Export, "导出 MP4"),
+            for (action, name, title) in [
+                (Action::Options, "CinematicExportOptions", "高级设置"),
+                (Action::Replace, "CinematicExportReplace", "允许覆盖：关"),
+                (Action::Close, "CinematicExportClose", "关闭 (Esc)"),
+                (Action::Export, "CinematicExportStart", "导出 MP4"),
             ] {
                 let style = feathrise_editor_ui::dialog_button_style(action == Action::Export);
                 row.spawn((
                     action,
+                    Name::new(name),
                     InteractionButton,
                     style.node,
                     style.colors,
                     BackgroundColor(style.colors.normal),
                     BorderColor::all(c::DIALOG_BORDER),
                 ))
-                .with_children(|button| {
-                    let mut text = button.spawn(label(font, title));
-                    if action == Action::Replace {
-                        text.insert(ReplaceLabel);
-                    }
-                });
+                .with_child((ButtonLabel(action), label(font, title)));
             }
         });
+}
+
+fn field_row(
+    p: &mut ChildSpawnerCommands,
+    font: &Handle<Font>,
+    index: usize,
+    field: Field,
+    title: &str,
+    value: &str,
+) {
+    p.spawn(Node {
+        align_items: AlignItems::Center,
+        column_gap: px(8),
+        min_height: px(29),
+        flex_shrink: 0.,
+        ..default()
+    })
+    .with_children(|row| {
+        row.spawn((
+            label(font, title),
+            Node {
+                width: px(168),
+                flex_shrink: 0.,
+                ..default()
+            },
+        ));
+        let input = Node {
+            flex_grow: 1.,
+            flex_basis: px(0),
+            height: px(29),
+            min_width: px(0),
+            padding: UiRect::axes(px(6), px(4)),
+            overflow: Overflow::clip_x(),
+            border: UiRect::all(px(1)),
+            ..default()
+        };
+        row.spawn((
+            field,
+            Name::new(format!("CinematicExport{field:?}")),
+            feathrise_editor_core::EditorTextInput,
+            EditableText {
+                allow_newlines: false,
+                ..EditableText::new(value)
+            },
+            TabIndex(index as i32),
+            input,
+            TextFont {
+                font: font.clone().into(),
+                font_size: 13.0.into(),
+                ..default()
+            },
+            TextColor(c::TEXT_PRIMARY),
+            TextLayout::no_wrap(),
+            BackgroundColor(c::INPUT_BG),
+            BorderColor::all(c::COPPER_BORDER_WEAK),
+        ));
+    });
 }
 
 pub(super) fn actions(
     mut commands: Commands,
     mut state: ResMut<MoviePanel>,
-    buttons: Query<(&Action, &UiInteraction), Changed<UiInteraction>>,
-    fields: Query<(&Field, &EditableText)>,
+    buttons: Query<(&Action, &EditorButtonClick), Changed<EditorButtonClick>>,
+    fields: Query<(Entity, &Field, &EditableText)>,
     panels: Query<Entity, With<Panel>>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut focus: ResMut<InputFocus>,
+    mut overlay: Option<ResMut<feathrise_editor_core::EditorHostOverlay>>,
+    mut guard: Option<ResMut<feathrise_editor_core::EditorTextInputGuard>>,
 ) {
-    for (&action, &interaction) in &buttons {
-        if interaction != UiInteraction::Pressed {
-            continue;
+    if state.document.is_none() {
+        return;
+    }
+    let action = if keys.just_pressed(KeyCode::Escape) {
+        Some(Action::Close)
+    } else {
+        buttons
+            .iter()
+            .find_map(|(action, click)| click.is_clicked().then_some(*action))
+    };
+    // 官方字段已接收本帧文字。直到关闭释放帧结束前，快捷键和鼠标仍由当前浮层持有。
+    if let Some(overlay) = &mut overlay {
+        overlay.active = true;
+    }
+    if let Some(guard) = &mut guard {
+        guard.block_shortcuts = true;
+    }
+    let edges: Vec<_> = keys
+        .get_just_pressed()
+        .chain(keys.get_just_released())
+        .copied()
+        .collect();
+    for key in edges {
+        keys.clear_just_pressed(key);
+        keys.clear_just_released(key);
+    }
+    let Some(action) = action else { return };
+    if fields.iter().any(|(_, _, t)| {
+        t.is_composing() || t.pending_paste.is_some() || !t.pending_edits.is_empty()
+    }) {
+        state.status = "请先完成当前输入。".into();
+        return;
+    }
+    if let Some(job) = &state.running {
+        if action == Action::Close {
+            job.control.cancel();
+            state.status = "正在取消摄影和编码".into();
         }
-        if let Some(job) = &state.running {
-            if action == Action::Close {
-                job.control.cancel();
-                state.status = "正在取消摄影和编码".into();
+        return;
+    }
+    if focus.get().is_some_and(|id| fields.contains(id)) {
+        focus.clear();
+    }
+    match action {
+        Action::Close => {
+            for e in &panels {
+                commands.entity(e).despawn();
             }
-            continue;
+            state.document = None;
         }
-        match action {
-            Action::Close => {
-                for e in &panels {
-                    commands.entity(e).despawn();
-                }
-                state.document = None;
-            }
-            Action::Replace => state.replace = !state.replace,
-            Action::Export => {
-                let values = fields
-                    .iter()
-                    .map(|(&k, v)| (k, v.value().to_string()))
-                    .collect();
-                match options(&state, &values) {
-                    Ok(v) => launch(&mut state, v),
-                    Err(error) => state.status = error,
-                }
+        Action::Options => state.advanced = !state.advanced,
+        Action::Replace => state.replace = !state.replace,
+        Action::Export => {
+            let values = fields
+                .iter()
+                .map(|(_, &k, v)| (k, v.value().to_string()))
+                .collect();
+            match options(&state, &values) {
+                Ok(v) => launch(&mut state, v),
+                Err(error) => state.status = error,
             }
         }
+    }
+}
+
+pub(super) fn scroll(
+    state: Res<MoviePanel>,
+    mut wheel: MessageReader<MouseWheel>,
+    mut bodies: Query<(&RelativeCursorPosition, &ComputedNode, &mut ScrollPosition), With<Body>>,
+) {
+    let (lines, pixels) = wheel.read().filter(|wheel| wheel.y.is_finite()).fold(
+        (0., 0.),
+        |(lines, pixels), wheel| match wheel.unit {
+            MouseScrollUnit::Line => (lines + wheel.y, pixels),
+            MouseScrollUnit::Pixel => (lines, pixels + wheel.y),
+        },
+    );
+    if state.document.is_none() || (lines == 0. && pixels == 0.) {
+        return;
+    }
+    if let Ok((cursor, node, mut scroll)) = bodies.single_mut()
+        && cursor.cursor_over()
+    {
+        let scale = node.inverse_scale_factor();
+        let max = ((node.content_size().y - node.size().y) * scale).max(0.);
+        scroll.y = (scroll.y - lines * 24. - pixels * scale).clamp(0., max);
     }
 }
 fn options(state: &MoviePanel, fields: &BTreeMap<Field, String>) -> Result<Options, String> {
@@ -347,14 +469,15 @@ pub(super) fn choice_buttons(
 }
 pub(super) fn select_choice(
     mut state: ResMut<MoviePanel>,
-    buttons: Query<(&ChoiceButton, &UiInteraction), Changed<UiInteraction>>,
+    buttons: Query<(&ChoiceButton, &EditorButtonClick), Changed<EditorButtonClick>>,
     mut fields: Query<(&Field, &mut EditableText)>,
+    mut focus: ResMut<InputFocus>,
 ) {
-    if state.running.is_some() {
+    if state.document.is_none() || state.running.is_some() {
         return;
     }
     let Some((selection, _)) = buttons.iter().find(|(choice, action)| {
-        **action == UiInteraction::Pressed
+        action.is_clicked()
             && state
                 .choice
                 .as_ref()
@@ -362,6 +485,13 @@ pub(super) fn select_choice(
     }) else {
         return;
     };
+    if fields.iter().any(|(_, field)| {
+        field.is_composing() || field.pending_paste.is_some() || !field.pending_edits.is_empty()
+    }) {
+        state.status = "请先完成当前输入。".into();
+        return;
+    }
+    focus.clear();
     let values: BTreeMap<_, _> = fields
         .iter()
         .map(|(&k, v)| (k, v.value().to_string()))
@@ -388,25 +518,41 @@ pub(super) fn select_choice(
 pub(super) fn refresh(
     state: Res<MoviePanel>,
     mut query: Query<&mut Text, With<Status>>,
-    mut replace: Query<&mut Text, (With<ReplaceLabel>, Without<Status>)>,
-    mut overlay: Option<ResMut<feathrise_editor_core::EditorHostOverlay>>,
-    mut guard: Option<ResMut<feathrise_editor_core::EditorTextInputGuard>>,
+    mut labels: Query<(&ButtonLabel, &mut Text), Without<Status>>,
+    mut advanced: Query<(&mut Node, &mut Visibility), With<Advanced>>,
 ) {
-    if state.document.is_none() {
+    if state.document.is_none() || !state.is_changed() {
         return;
     }
-    if let Some(overlay) = &mut overlay {
-        overlay.active = true
+    for (mut node, mut visible) in &mut advanced {
+        node.display = if state.advanced {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        visible.set_if_neq(if state.advanced {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
     }
-    if let Some(guard) = &mut guard {
-        guard.block_shortcuts = true
-    }
-    if state.is_changed() {
-        for mut t in &mut query {
-            t.0 = state.status.clone()
+    for mut t in &mut query {
+        if t.as_str() != state.status {
+            t.0.clone_from(&state.status);
         }
-        for mut t in &mut replace {
-            t.0 = format!("允许覆盖：{}", if state.replace { "开" } else { "关" });
+    }
+    for (ButtonLabel(action), mut t) in &mut labels {
+        let title = match action {
+            Action::Options if state.advanced => "收起高级设置",
+            Action::Options => "高级设置",
+            Action::Replace if state.replace => "允许覆盖：开",
+            Action::Replace => "允许覆盖：关",
+            Action::Close if state.running.is_some() => "取消导出 (Esc)",
+            Action::Close => "关闭 (Esc)",
+            Action::Export => "导出 MP4",
+        };
+        if t.as_str() != title {
+            t.0 = title.into();
         }
     }
 }

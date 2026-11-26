@@ -4,6 +4,8 @@ use bevy::prelude::*;
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct SceneBranch;
 #[derive(Component, Clone, Copy, Default)]
+pub(super) struct CreationSlot;
+#[derive(Component, Clone, Copy, Default)]
 pub(super) struct Summary;
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct ListViewport;

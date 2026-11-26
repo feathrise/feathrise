@@ -355,6 +355,8 @@ pub enum EditorTool {
     Boundary,
     /// 在作者指定的水平面上绘制场景动画触发盒的底面。
     MotionTrigger,
+    /// 仅在地点表单显式取点期间独占视口，完成后把范围回填到原工程文档。
+    LocationRegion,
 }
 
 impl EditorTool {

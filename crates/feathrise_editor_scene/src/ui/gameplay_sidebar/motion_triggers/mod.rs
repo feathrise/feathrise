@@ -8,16 +8,15 @@ use crate::{
         AuthoringRetirement, EditorAuthoringSession, EditorCommand,
         scene_motion::{MotionRegion, MotionRegionAction},
     },
-    components::SceneEditorViewport,
-    resources::{SceneEditorState, SceneEditorViewportState},
+    resources::SceneEditorState,
     types::EditorTool,
     ui::sidebars::{EditorLeftSidebarTab, SceneEditorSidebarState},
     viewport::{
-        SceneEditorBrushGizmos,
+        SceneEditorBrushGizmos, plane_pointer::PlanePointer as Pointer,
         modes::{ViewportMode, ViewportModeState},
     },
 };
-use bevy::{prelude::*, ui::RelativeCursorPosition};
+use bevy::prelude::*;
 pub(super) use controls::panel;
 use feathrise_editor_ui::{
     EditorButtonClick, NumericInputCommitOutcome, NumericInputCommitted, NumericValue,
@@ -224,30 +223,6 @@ fn change(
     }
 }
 
-#[derive(bevy::ecs::system::SystemParam)]
-struct Pointer<'w, 's> {
-    viewport: Option<Res<'w, SceneEditorViewportState>>,
-    canvas: Query<'w, 's, &'static RelativeCursorPosition, With<SceneEditorViewport>>,
-    cameras: Query<'w, 's, (&'static Camera, &'static Transform)>,
-    windows: Query<'w, 's, &'static Window, With<bevy::window::PrimaryWindow>>,
-}
-impl Pointer<'_, '_> {
-    fn on_plane(&self, y: f32) -> Option<Vec3> {
-        let view = self.viewport.as_ref()?;
-        let cursor = self.canvas.single().ok()?;
-        if !cursor.cursor_over() {
-            return None;
-        }
-        let pixel = (cursor.normalized? + Vec2::splat(0.5)) * view.render_size.as_vec2();
-        let (camera, pose) = self.cameras.get(view.camera).ok()?;
-        let ray = camera
-            .viewport_to_world(&GlobalTransform::from(*pose), pixel)
-            .ok()?;
-        let t = ray.intersect_plane(Vec3::Y * y, InfinitePlane3d::new(Vec3::Y))?;
-        Some(ray.get_point(t))
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn input(
     mut editor: ResMut<SceneEditorState>,
@@ -255,6 +230,7 @@ fn input(
     mut retirement: ResMut<AuthoringRetirement>,
     sidebar: Res<SceneEditorSidebarState>,
     pages: Res<GameplaySidebarState>,
+    workspace: Option<Res<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>>,
     gate: GameplaySidebarInputGate,
     mut mode: ResMut<ViewportModeState>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -283,7 +259,10 @@ fn input(
         numbers.clear();
         return;
     }
-    if mode.mode != ViewportMode::Edit || editor.tool != EditorTool::MotionTrigger {
+    let visible_scene = workspace
+        .as_ref()
+        .is_none_or(|w| w.active_tab == feathrise_editor_core::PresetWorkspaceTab::Scene);
+    if !visible_scene || mode.mode != ViewportMode::Edit || editor.tool != EditorTool::MotionTrigger {
         tool.drawing = None;
         tool.adjusting = false;
         tool.drag = None;
@@ -352,6 +331,11 @@ fn input(
     for (click, action) in &buttons {
         if !click.is_clicked() {
             continue;
+        }
+        // 中央文档打开时仍可查看参数，取点和拖动要等作者主动回到场景。
+        if !visible_scene && matches!(action, Action::Draw | Action::Redraw | Action::Adjust) {
+            editor.status = "请切回场景标签，再绘制或拖动动画触发区".into();
+            return;
         }
         tool.adjusting = false;
         tool.drag = None;

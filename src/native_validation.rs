@@ -32,9 +32,19 @@ use std::{
 pub(crate) const CLOSE_SCENE_MANIFEST_PATH: &str = "scenes/M1-SAMPLE/scene.scene_manifest.json";
 pub(crate) const SCENE_BEFORE_CLOSE_FILENAME: &str = "map-before-close.json";
 const SCENE_TREE_STARTUP: &str = "FEATHRISE_SCENE_TREE_STARTUP_VALIDATION";
+const SCENE_TREE_REOPEN: &str = "FEATHRISE_SCENE_TREE_REOPEN_VALIDATION";
+
+fn scene_tree_validation_mode() -> Option<String> {
+    std::env::var(SCENE_TREE_STARTUP).ok().filter(|mode| matches!(mode.as_str(), "1" | "lights" | "glb"))
+}
 
 fn uses_scene_tree_fixture() -> bool {
-    matches!(std::env::var(SCENE_TREE_STARTUP).as_deref(), Ok("1" | "lights"))
+    scene_tree_validation_mode().is_some()
+}
+
+pub(crate) fn expects_chosen_glb_reopened() -> bool {
+    std::env::var(SCENE_TREE_STARTUP).as_deref() == Ok("glb")
+        && std::env::var(SCENE_TREE_REOPEN).as_deref() == Ok("1")
 }
 pub(crate) const ANIMATION_EDIT_VALIDATION: &str = "FEATHRISE_ANIMATION_EDIT_VALIDATION";
 
@@ -77,7 +87,9 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     let control = BuildControl::default();
     let before = protected_files(&repository)?;
     let started = Instant::now();
-    let scene_tree_startup = uses_scene_tree_fixture();
+    let scene_tree_mode = scene_tree_validation_mode();
+    let scene_tree_startup = scene_tree_mode.is_some();
+    let scene_tree_glb = scene_tree_mode.as_deref() == Some("glb");
     let animation_edit = std::env::var(ANIMATION_EDIT_VALIDATION).as_deref() == Ok("1");
     let animation_workspaces = std::env::var(animation_workspaces::ENABLE).as_deref() == Ok("1");
     let motion_triggers = animation_workspaces && std::env::var("FEATHRISE_MOTION_TRIGGER_VALIDATION").as_deref() == Ok("1");
@@ -92,8 +104,8 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         if animation_edit {
             return run_animation_edit(&work, &repository, &target, &control, &mut steps);
         }
-        if scene_tree_startup {
-            return run_scene_tree_startup(&work, &repository, &target, &control, &mut steps);
+        if let Some(mode) = scene_tree_mode.as_deref() {
+            return run_scene_tree_startup(&work, &repository, &target, &control, &mut steps, mode);
         }
         // 旧分离管理器已随原型归档。本轮只验证当前作者实例和保存后普通游戏，
         // 不再以历史管理器的截图冒充正式同窗口工程管理验收。
@@ -334,6 +346,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         else if motion_triggers { "scene_motion_trigger_authoring_and_reopen" }
         else if animation_workspaces { "animation_workspaces_edit_reopen_and_gameplay" }
         else if animation_edit { "native_editor_animation_edit_mode" }
+        else if scene_tree_glb { "scene_tree_choose_existing_glb_save_and_reopen" }
         else if scene_tree_startup { "native_editor_scene_tree_startup" }
         else if blender_mesh { "blender_mesh_roundtrip_saved_play_and_reopened_editor" }
         else if export_lifecycle { "saved_project_lifecycle_with_same_project_export" }
@@ -366,6 +379,7 @@ pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
         else if motion_triggers { "动画触发区域绘制、保存与重开验收完成" }
         else if animation_workspaces { "双动画工作区保存、重开与游戏验收完成" }
         else if animation_edit { "动画编辑模式窗口验收完成" }
+        else if scene_tree_glb { "场景树添加已有 GLB、保存与重开验收完成" }
         else if scene_tree_startup { "首次打开场景树窗口验收完成" }
         else if blender_mesh { "Blender 网格往返窗口验收完成" } else { "双模式窗口验收完成" };
     println!("{label}：{}", report.display());
@@ -527,27 +541,17 @@ fn run_animation_edit(work: &Path, repository: &Path, target: &Path, control: &B
 }
 
 #[cfg(windows)]
-fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control: &BuildControl, steps: &mut Vec<Value>) -> Result<(), String> {
+fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control: &BuildControl, steps: &mut Vec<Value>, mode: &str) -> Result<(), String> {
     let label = "独立工程 A";
     let root = project_template::create_with_control(&work.join(label), label, repository, control)?;
     fixture::prepare(&root, label)?;
     steps.push(json!({"stage":"create_owned_scene_tree_startup_fixture","passed":true,"root":root}));
-    let output = work.join("editor-1");
-    let mut command = author_window_command(&root, target, &output, true)?;
-    let lights_only = std::env::var(SCENE_TREE_STARTUP).as_deref() == Ok("lights");
-    command.env("NEW_EDITOR_NATIVE_SMOKE_SAVE", "1").env("FEATHRISE_SCENE_TREE_VALIDATION", "1")
-        .env(SCENE_TREE_STARTUP, if lights_only { "lights" } else { "1" });
-    let (project, observed) = run_author_window(&command, control, &root, &output)?;
-    let proof = &observed["author_save"];
-    if proof["complete"] != true || proof["draft_clean"] != true || proof["handoff_complete"] != true
-        || !proof["error"].is_null() || proof["source_project_root"] != json!(project.root)
-        || proof["source_asset_root"] != json!(project.context.asset_roots[0])
-        || proof["successful_save_sequence"].as_u64().zip(proof["original_save_sequence"].as_u64())
-            .is_none_or(|(after, before)| after == before)
-        || !proof["scene_tree"]["startup"].is_object()
-    {
-        return Err(format!("首次打开场景树或原保存缺少真实回执：{proof}"));
+    if mode == "glb" {
+        return run_scene_tree_glb(&root, work, target, control, steps);
     }
+    let output = work.join("editor-1");
+    let (project, observed) = save_scene_tree(&root, target, &output, control, mode)?;
+    let proof = &observed["author_save"];
     let placement = proof["new_placement_id"].as_str().ok_or("保存报告缺少本轮新增摆放 ID")?;
     let placement_path = fixture::MODEL_SURFACE_SOURCE; // 场景树种子和保存均使用 M1-SAMPLE 私有 scene.glb。
     let saved = fs::read(project.context.asset_roots[0].join(placement_path)).map_err(|error| error.to_string())?;
@@ -578,14 +582,14 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
         saved_light_ids = json!({"point":point_id, "spot":spot_id});
         saved_light_optics = json!({"point_range_m":point["range"], "spot_range_m":spot["range"], "spot_inner_deg":inner, "spot_outer_deg":outer});
     }
-    if lights_only {
+    if mode == "lights" {
         if saved_light_ids.is_null() || startup["dragged_local_lights"] != saved_light_ids { return Err("已保存的灯具身份与实拖不符".into()); }
         let point = read_author_screenshot(&output.join("scene-tree-point-light-range.png"))?;
         let spot = read_author_screenshot(&output.join("scene-tree-local-lights.png"))?;
         steps.push(json!({"stage":"drag_local_light_handles_and_save","passed":true,"optics":saved_light_optics,
             "point_screenshot":point,"spot_screenshot":spot,"report":observed}));
         let output = work.join("editor-2");
-        let reopened = reopen_tree(&root, target, &output, control, true)?;
+        let reopened = reopen_tree(&root, target, &output, control, Some(mode))?;
         if reopened["author_save_requested"] != false || reopened["current_author_document"]["reopened_source_node"]["reopened_local_lights"] != saved_light_ids {
             return Err("重开的实际灯光组件、姿态或身份与已保存节点不符".into());
         }
@@ -697,7 +701,7 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
         "saved_source_local_x":local_x,"saved_source_name":"验收网格","applied_scale_x":1.0}));
 
     let output = work.join("editor-2");
-    let reopened = reopen_tree(&root, target, &output, control, false)?;
+    let reopened = reopen_tree(&root, target, &output, control, None)?;
     let node = &reopened["current_author_document"]["reopened_source_node"];
     if node["reopened_local_lights"] != saved_light_ids {
         return Err(format!("重开后的真实灯光组件或变换与已保存节点不符：{}", node["reopened_local_lights"]));
@@ -720,10 +724,118 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
 }
 
 #[cfg(windows)]
-fn reopen_tree(root: &Path, target: &Path, output: &Path, control: &BuildControl, lights_only: bool) -> Result<Value, String> {
+fn run_scene_tree_glb(
+    root: &Path,
+    work: &Path,
+    target: &Path,
+    control: &BuildControl,
+    steps: &mut Vec<Value>,
+) -> Result<(), String> {
+    const SOURCE: &str = "scene/probe.glb";
+    const GROUP: &str = "验收根目录";
+    let fixture = project::open(root)?;
+    let asset_root = &fixture.context.asset_roots[0];
+    let source_path = asset_root.join(SOURCE);
+    let scene_path = asset_root.join(fixture::MODEL_SURFACE_SOURCE);
+    let source_before = fs::read(&source_path).map_err(|error| error.to_string())?;
+    let before = feathrise_scene_content::read_scene_placements(
+        &fs::read(&scene_path).map_err(|error| error.to_string())?,
+        fixture::MODEL_SURFACE_SOURCE,
+    )?;
+    // 夹具已有同源摆放，必须通过新增稳定 ID 区分这次选择和原场景里的引用。
+    let existing: Vec<_> = before.placements.iter().filter(|record| record.asset_path == SOURCE).collect();
+    if existing.is_empty() || existing.iter().any(|record| record.editor.group == GROUP) {
+        return Err("场景树夹具缺少原同源引用，或目标文件夹已包含源模型".into());
+    }
+
+    let output = work.join("editor-1");
+    let (_, observed) = save_scene_tree(root, target, &output, control, "glb")?;
+    let proof = &observed["author_save"];
+    if proof["original_save_sequence"].as_u64().and_then(|sequence| sequence.checked_add(1))
+        != proof["successful_save_sequence"].as_u64()
+    {
+        return Err("添加已有 GLB 专项应由标准保存按钮产生且只产生一次成功保存回执".into());
+    }
+    let startup = &proof["scene_tree"]["startup"];
+    let chosen = &startup["chosen_glb"];
+    let id = chosen["id"].as_str().filter(|id| !id.is_empty()).ok_or("缺少文件窗口添加的 GLB ID")?;
+    let identity = json!({"id":id,"asset_path":SOURCE,"group":GROUP});
+    if chosen != &identity || proof["new_placement_id"] != id
+        || startup["visible_tree_row"] != true || startup["rendered_instance"] != true
+        || before.placements.iter().any(|record| record.id == id)
+    {
+        return Err(format!("首窗未将新 GLB 放到目标树行：{chosen}"));
+    }
+
+    // 编辑器已退出，宿主独立读取正式 scene.glb 和源 GLB，不能用窗口草稿冒充落盘。
+    let saved_bytes = fs::read(&scene_path).map_err(|error| error.to_string())?;
+    let saved = feathrise_scene_content::read_scene_placements(&saved_bytes, fixture::MODEL_SURFACE_SOURCE)?;
+    let added = saved.placements.iter().find(|record| record.id == id).ok_or("新增 GLB 未写入场景")?;
+    let glb = bevy::gltf::gltf::Glb::from_slice(&saved_bytes).map_err(|error| error.to_string())?;
+    let document: Value = serde_json::from_slice(&glb.json).map_err(|error| error.to_string())?;
+    let extras = &document["extras"];
+    if before.scene_id.as_str() != "M1-SAMPLE" || saved.scene_id != before.scene_id
+        || saved.placements.len() != before.placements.len() + 1
+        || added.asset_path != SOURCE || added.editor.group != GROUP || !added.asset_target.is_scene0()
+        || saved.placements.iter().filter(|record| record.asset_path == SOURCE).count() != existing.len() + 1
+        || !existing.iter().all(|old| saved.placements.iter().any(|record| record.id == old.id
+            && record.asset_path == old.asset_path && record.asset_target == old.asset_target
+            && record.editor.group == old.editor.group))
+        || !extras["feathrise_object_folders"].as_array().is_some_and(|folders| folders.iter().any(|folder| folder == GROUP))
+        || extras["feathrise_object_folder_parents"].get(GROUP).is_some()
+        || fs::read(&source_path).map_err(|error| error.to_string())? != source_before
+    {
+        return Err("磁盘上的完整 GLB 引用、根级文件夹或源文件不符合预期".into());
+    }
+    let screenshot = read_author_screenshot(&output.join("native-editor.png"))?;
+    steps.push(json!({"stage":"choose_existing_glb_and_save","passed":true,
+        "placement":identity,"scene_glb":scene_path,"scene_glb_sha256":digest(&saved_bytes),
+        "source_glb_sha256":digest(&source_before),"existing_source_references":existing.len(),
+        "screenshot":screenshot,"report":observed}));
+
+    let output = work.join("editor-2");
+    let reopened = reopen_tree(root, target, &output, control, Some("glb"))?;
+    let document = &reopened["current_author_document"];
+    let tree = &document["reopened_source_node"];
+    if reopened["author_save_requested"] != false || document["scene_id"] != "M1-SAMPLE"
+        || tree["chosen_glb"] != identity || tree["visible_tree_row"] != true || tree["rendered_instance"] != true
+        || fs::read(&scene_path).map_err(|error| error.to_string())? != saved_bytes
+        || fs::read(&source_path).map_err(|error| error.to_string())? != source_before
+    {
+        return Err(format!("独立窗口没有从已保存的场景回读同一 GLB、树行和渲染实例：{tree}"));
+    }
+    let screenshot = read_author_screenshot(&output.join("native-editor.png"))?;
+    steps.push(json!({"stage":"reopen_chosen_glb_in_scene_tree","passed":true,
+        "placement":identity,"screenshot":screenshot,"report":reopened}));
+    Ok(())
+}
+
+#[cfg(windows)]
+fn save_scene_tree(root: &Path, target: &Path, output: &Path, control: &BuildControl, mode: &str) -> Result<(project::Project, Value), String> {
     let mut command = author_window_command(root, target, output, true)?;
-    command.env("FEATHRISE_SCENE_TREE_REOPEN_VALIDATION", "1");
-    if lights_only { command.env(SCENE_TREE_STARTUP, "lights"); }
+    command.env("NEW_EDITOR_NATIVE_SMOKE_SAVE", "1")
+        .env("FEATHRISE_SCENE_TREE_VALIDATION", "1")
+        .env(SCENE_TREE_STARTUP, mode);
+    let (project, observed) = run_author_window(&command, control, root, output)?;
+    let proof = &observed["author_save"];
+    if observed["author_save_requested"] != true
+        || proof["complete"] != true || proof["draft_clean"] != true || proof["handoff_complete"] != true
+        || !proof["error"].is_null() || proof["source_project_root"] != json!(project.root)
+        || proof["source_asset_root"] != json!(project.context.asset_roots[0])
+        || proof["successful_save_sequence"].as_u64().zip(proof["original_save_sequence"].as_u64())
+            .is_none_or(|(after, before)| after <= before)
+        || !proof["scene_tree"]["startup"].is_object()
+    {
+        return Err(format!("首次打开场景树或原保存缺少真实回执：{proof}"));
+    }
+    Ok((project, observed))
+}
+
+#[cfg(windows)]
+fn reopen_tree(root: &Path, target: &Path, output: &Path, control: &BuildControl, mode: Option<&str>) -> Result<Value, String> {
+    let mut command = author_window_command(root, target, output, true)?;
+    command.env(SCENE_TREE_REOPEN, "1");
+    if let Some(mode) = mode { command.env(SCENE_TREE_STARTUP, mode); }
     run_author_window(&command, control, root, output).map(|(_, observed)| observed)
 }
 

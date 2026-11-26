@@ -24,5 +24,6 @@ pub(crate) fn install(app: &mut bevy::prelude::App) {
         .add_systems(Update, scene_menu::poll.in_set(crate::SceneEditorSystemSet::Tasks))
         .add_systems(Update, scene_menu::bind_rows.after(systems::sync).in_set(crate::SceneEditorSystemSet::Presentation))
         .add_systems(Update, (systems::poll, systems::publish).chain().in_set(crate::SceneEditorSystemSet::Tasks))
+        .add_systems(Update, systems::sync_creation.in_set(crate::SceneEditorSystemSet::Presentation))
         .add_systems(Update, (scene::setup, systems::sync).chain().in_set(crate::SceneEditorSystemSet::Presentation));
 }

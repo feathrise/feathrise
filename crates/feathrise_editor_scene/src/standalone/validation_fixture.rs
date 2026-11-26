@@ -233,7 +233,7 @@ pub fn install(app: &mut App) -> bool {
     true
 }
 
-/// 在原场景3D画布就绪后请求一次；位置为2m立方体的世界中心，底面正好落在样例Y=0地面。
+/// 在原场景 3D 画布就绪后请求一次保存验收；默认新增底面贴地的 2 米立方体。
 pub fn request_edit_and_save(world: &mut World, scene_id: &str) -> Result<(), String> {
     if !world.contains_resource::<Fixture>() {
         return Err("保存验收夹具未显式启用".into());
@@ -253,6 +253,10 @@ pub fn request_edit_and_save(world: &mut World, scene_id: &str) -> Result<(), St
     if scene_tree::enabled() {
         scene_tree::preflight(paths.project_root(), &map)?;
     }
+    #[cfg(feature = "validation")]
+    let choose_glb = scene_tree::enabled() && scene_tree::choose_glb_only();
+    #[cfg(not(feature = "validation"))]
+    let choose_glb = false;
     let session = world.resource::<EditorAuthoringSession>();
     let draft = session.draft.as_ref().ok_or("原场景草稿未就绪")?;
     let count_before = draft.placements.placements.len();
@@ -263,18 +267,25 @@ pub fn request_edit_and_save(world: &mut World, scene_id: &str) -> Result<(), St
         .iter(world)
         .find_map(|(entity, action)| (action.0 == EditorAction::Save).then_some(entity))
         .ok_or("原保存场景按钮尚未生成")?;
-    if plane::enabled() {
-        crate::ui::terrain_objects::validation_request_plane(world, POSITION)?;
-    } else {
-        let mut shapes = world.get_resource_mut::<BasicShapeState>().ok_or("原基础网格作者系统未安装")?;
-        if shapes.creation_request.is_some() { return Err("原网格创建槽已经占用".into()); }
-        shapes.creation_identity = Some((map.clone(), revision));
-        shapes.creation_request = Some(CuboidCreationRequest {
-            target: ScenePlacementAssetTarget::DEFAULT_CUBOID, position: Some(Vec3::from_array(POSITION)),
-        });
+    // GLB 专项只验收选择窗口实际添加的一个模型，沿用原保存按钮和回执，不先创建通用立方体。
+    if !choose_glb {
+        if plane::enabled() {
+            crate::ui::terrain_objects::validation_request_plane(world, POSITION)?;
+        } else {
+            let mut shapes = world.get_resource_mut::<BasicShapeState>().ok_or("原基础网格作者系统未安装")?;
+            if shapes.creation_request.is_some() { return Err("原网格创建槽已经占用".into()); }
+            shapes.creation_identity = Some((map.clone(), revision));
+            shapes.creation_request = Some(CuboidCreationRequest {
+                target: ScenePlacementAssetTarget::DEFAULT_CUBOID, position: Some(Vec3::from_array(POSITION)),
+            });
+        }
     }
     let mut fixture = world.resource_mut::<Fixture>();
     fixture.phase = Phase::Creating;
+    #[cfg(feature = "validation")]
+    if choose_glb {
+        fixture.phase = Phase::SceneTree(scene_tree::Step::Open);
+    }
     fixture.scene_id = Some(map);
     fixture.count_before = count_before;
     fixture.save_button = Some(save_button);
@@ -553,11 +564,27 @@ fn drive(world: &mut World) {
             Phase::SceneTree(mut step) => {
                 let fixture = &mut *fixture;
                 let proof = fixture.proof.as_mut().unwrap();
-                match scene_tree::advance(world, &mut step, proof.new_placement_id.as_deref().unwrap(),
+                match scene_tree::advance(world, &mut step, proof.new_placement_id.as_deref().unwrap_or_default(),
                     &mut proof.author_revision_after, &mut fixture.click_pulse) {
-                    Ok(Some(proof)) => {
-                        fixture.proof.as_mut().unwrap().scene_tree = Some(proof);
-                        begin_geometry_unification(world, fixture);
+                    Ok(Some(tree)) => {
+                        proof.scene_tree = Some(tree);
+                        if scene_tree::choose_glb_only() {
+                            let session = world.resource::<EditorAuthoringSession>();
+                            let added = scene_tree::chosen_glb::record(world).filter(|record| {
+                                session.draft.as_ref().is_some_and(|draft|
+                                    draft.placements.placements.len() == fixture.count_before + 1)
+                                    && matches!(session.undo.last(), Some(EditorCommand::PlacementAdded(added)) if added.id == record.id)
+                            });
+                            let Some(record) = added else {
+                                fail(fixture, "场景树选择 GLB 未产生一条新增摆放及其撤销记录");
+                                return;
+                            };
+                            proof.new_placement_id = Some(record.id.clone());
+                            proof.translation = record.translation;
+                            fixture.phase = Phase::SaveButton;
+                        } else {
+                            begin_geometry_unification(world, fixture);
+                        }
                     }
                     Ok(None) => fixture.phase = Phase::SceneTree(step),
                     Err(error) => fail(fixture, error),

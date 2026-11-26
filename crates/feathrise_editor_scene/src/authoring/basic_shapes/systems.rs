@@ -115,7 +115,6 @@ pub(super) fn control_menu(
     editor.domain_brush_active = false;
     editor.placement_transform_enabled = false;
     mode.mode = ViewportMode::Edit;
-    mode.remember_tool(EditorTool::PlaceAsset);
     sidebar.left = EditorLeftSidebarTab::Meshes;
     sidebar.observed_tool = EditorTool::PlaceAsset;
     sidebar.right = EditorLeftSidebarTab::Meshes.work_page();

@@ -207,27 +207,14 @@ pub(super) fn actions(
             continue;
         }
         if action == DocumentAction::KeepDraft {
-            if let Some(doc) = state.current_mut().filter(|doc| doc.external.warning) {
-                doc.external.warning = false;
-                doc.confirm_reload = false;
-                doc.status = "已保留内置内容；磁盘版本仍有变化，保存会继续检查冲突".into();
+            if let Some(path) = state.active.clone() {
+                state.keep_draft(&path);
             }
             continue;
         }
         if action == DocumentAction::Reload {
-            if state.io.is_some() {
-                continue;
-            }
-            if let Some(doc) = state.current_mut() {
-                if doc.dirty() && !doc.confirm_reload {
-                    doc.confirm_reload = true;
-                    doc.status = "重新载入会丢弃本文件全部草稿；再点“确认丢弃”继续".into();
-                    continue;
-                }
-                doc.mode = ViewMode::Preview; // 确认丢弃后退出输入，读取期间的新按键不能再写进待替换草稿。
-            }
             if let Some(path) = state.active.clone() {
-                state.request_load(path);
+                state.reload_document(&path, false);
             }
             continue;
         }
@@ -240,6 +227,14 @@ pub(super) fn actions(
             if let Some(doc) = state.current_mut() {
                 doc.mode = ViewMode::Preview;
                 doc.status = "正在重新载入，完成后可编辑；读取失败会保留原草稿".into();
+            }
+            continue;
+        }
+        if action == DocumentAction::Edit
+            && state.current().is_some_and(|doc| doc.owns_form(state.rules_form_input.as_ref()))
+        {
+            if let Some(doc) = state.current_mut() {
+                doc.status = "请先保存或取消交互侧栏中的工程规则修改。".into();
             }
             continue;
         }

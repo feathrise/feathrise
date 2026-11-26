@@ -10,6 +10,9 @@ use crate::ui::{
 };
 use bevy::{ecs::system::RunSystemOnce, input_focus::InputFocus,
     text::{FontCx, LayoutCx, TextEdit}};
+use feathrise_editor_project_browser_model::file_operations::{
+    FileOperation, FileOperationReceipt, FileOperationRequest, FileOperationService,
+};
 
 /// 只暂缓主线程轮询真实IO，稳定制造“任务已启动但回执未采用”的交互窗口。
 fn native_app(fixture: &Fixture, document: Document) -> (App, Entity) {
@@ -58,9 +61,21 @@ fn replace(app: &mut App, source: Entity, text: &str) {
     app.update();
 }
 
+fn operation_receipt(service: &FileOperationService, id: u64) -> std::sync::Arc<FileOperationReceipt> {
+    let started = std::time::Instant::now();
+    loop {
+        if let Some(receipt) = service.snapshot().and_then(|snapshot| snapshot.completed.into_iter().find(|receipt| receipt.id == id)) {
+            assert!(receipt.error.is_none(), "{:?}", receipt.error);
+            return receipt;
+        }
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "未收到真实后台文件操作回执");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
 #[test]
 fn queued_file_rename_rejects_native_input_and_clean_tab_saves_at_receipt_destination() {
-    use feathrise_editor_project_browser_model::file_operations::{FileEntryStamp, FileOperation, FileOperationRequest, FileSources};
+    use feathrise_editor_project_browser_model::file_operations::{FileEntryStamp, FileSources};
 
     let fixture = Fixture::new();
     fixture.write("已经保存的正文\n");
@@ -84,15 +99,7 @@ fn queued_file_rename_rejects_native_input_and_clean_tab_saves_at_receipt_destin
     let tab = app.world().resource::<DocumentState>().active_tab_id();
     replace(&mut app, source, "排队后尝试编辑的内容不能进入草稿\n");
     assert_eq!(app.world().resource::<DocumentState>().current().unwrap().source_text(), "已经保存的正文\n");
-    let started = std::time::Instant::now();
-    let receipt = loop {
-        if let Some(receipt) = service.snapshot().and_then(|snapshot| snapshot.completed.into_iter().find(|receipt| receipt.id == id)) {
-            break receipt;
-        }
-        assert!(started.elapsed() < std::time::Duration::from_secs(5), "未收到真实后台改名回执");
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    };
-    assert!(receipt.error.is_none(), "{:?}", receipt.error);
+    let receipt = operation_receipt(&service, id);
     assert_eq!(std::fs::read_to_string(&renamed).unwrap(), "已经保存的正文\n");
     {
         let mut documents = app.world_mut().resource_mut::<DocumentState>();
@@ -107,6 +114,47 @@ fn queued_file_rename_rejects_native_input_and_clean_tab_saves_at_receipt_destin
     settle_real_io(&mut app);
     assert!(!original.exists());
     assert_eq!(std::fs::read_to_string(renamed).unwrap(), "沿用原标签保存的正文\n");
+}
+
+#[test]
+fn file_receipts_classify_only_the_main_asset_root_project_rules_file() {
+    use feathrise_editor_documents_model::project_rules::{EMPTY, PATH};
+    use feathrise_editor_project_browser_model::file_operations::{ConflictPolicy, FileEntryStamp, FileSources};
+
+    bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::new);
+    let fixture = Fixture::new();
+    let original = "draft.json";
+    std::fs::write(fixture.root.join(original), EMPTY).unwrap();
+    std::fs::create_dir(fixture.root.join("nested")).unwrap();
+    let mut documents = DocumentState {
+        root: fixture.root.clone(),
+        active: Some(original.into()),
+        documents: vec![fixture.document_at(original)],
+        ..default()
+    };
+    assert!(!documents.current().unwrap().disk.project_rules);
+    let service = feathrise_editor_project_browser::file_operation_service();
+    let operation = |operation| {
+        let id = service.enqueue(FileOperationRequest {
+            context: 1, allowed_roots: vec![fixture.root.clone()], operation, references: None,
+        }).unwrap();
+        operation_receipt(&service, id)
+    };
+    documents.apply_file_receipt(&operation(FileOperation::Rename {
+        source: fixture.root.join(original), stamp: FileEntryStamp::Untracked, name: PATH.into(),
+    }), None);
+    assert!(documents.current().unwrap().disk.project_rules);
+    super::super::open_sidebar_project_rules_section(
+        &mut documents, &fixture.root.join(PATH), super::super::ProjectRulesSection::Variables,
+    ).unwrap();
+    assert!(documents.rules_sidebar_document().is_some());
+    documents.apply_file_receipt(&operation(FileOperation::Move {
+        sources: FileSources::from(vec![fixture.root.join(PATH)]),
+        destination: fixture.root.join("nested"), conflict: ConflictPolicy::Fail,
+    }), None);
+    assert!(!documents.current().unwrap().disk.project_rules);
+    assert!(documents.rules_sidebar_document().is_none());
+    assert!(documents.sidebar_rules.error.contains("已移动"));
 }
 
 #[test]

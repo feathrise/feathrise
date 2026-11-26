@@ -1,18 +1,49 @@
 //! 作者保存前核对版本 1 的声明与引用。执行事件与动作属于工程运行时。
-use serde::Deserialize;
+use serde::{
+    Deserialize, Deserializer,
+    de::{Error, MapAccess, Visitor},
+};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
+use std::{fmt, marker::PhantomData};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
     version: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "unique_ids")]
     variables: BTreeMap<String, Variable>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "unique_ids")]
     locations: BTreeMap<String, Location>,
     #[serde(default)]
     rules: Vec<Rule>,
+}
+
+fn unique_ids<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<String, T>, D::Error> {
+    struct Unique<T>(PhantomData<T>);
+    impl<'de, T: Deserialize<'de>> Visitor<'de> for Unique<T> {
+        type Value = BTreeMap<String, T>;
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("标识互不重复的 JSON 对象")
+        }
+        fn visit_map<M: MapAccess<'de>>(self, mut entries: M) -> Result<Self::Value, M::Error> {
+            let mut result = BTreeMap::new();
+            while let Some((key, value)) = entries.next_entry::<String, T>()? {
+                match result.entry(key) {
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(value);
+                    }
+                    std::collections::btree_map::Entry::Occupied(entry) => {
+                        return Err(M::Error::custom(format!("重复的标识「{}」", entry.key())));
+                    }
+                }
+            }
+            Ok(result)
+        }
+    }
+    deserializer.deserialize_map(Unique(PhantomData))
 }
 
 #[derive(Deserialize)]

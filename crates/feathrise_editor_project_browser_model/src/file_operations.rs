@@ -86,8 +86,8 @@ pub struct ReferencingDocument {
     pub path: PathBuf,
     pub matches: usize,
     pub digest: String,
-    /// 只有实际完成的来源才更新，取消批次时无需再次解析未移动来源的文档。
-    pub sources: std::collections::BTreeSet<PathBuf>,
+    /// 按文件中的前缀记住移动前已核验的物理来源。相同路径不另存一份，只记录大小写别名。
+    pub sources: std::collections::BTreeMap<PathBuf, Option<PathBuf>>,
 }
 
 /// 扫描和确认共享同一批物理来源、最终目标及引用文件版本，显示页只访问可见范围。

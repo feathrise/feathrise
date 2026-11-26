@@ -21,9 +21,9 @@ impl Module {
                 continue;
             }
             for b in &preset.connections {
-                if a.kind != b.kind
-                    || (a.outward_yaw_degrees - b.outward_yaw_degrees).rem_euclid(360.0) != 180.0
-                {
+                let turn = (a.outward_yaw_degrees - b.outward_yaw_degrees).rem_euclid(360.0);
+                // 预设里的小数角度分别以 f32 保存，反向连接相减后会累计舍入误差。
+                if a.kind != b.kind || (turn - 180.0).abs() > 0.0001 {
                     continue;
                 }
                 let axis = Quat::from_rotation_y(b.outward_yaw_degrees.to_radians()) * Vec3::Z;
@@ -331,5 +331,20 @@ mod tests {
         assert!(values[299].0.translation[1] > values[0].0.translation[1]);
         assert!(Plan::build(&[start, end, start], &wall, None).is_err());
         assert!(Module::resolve(&wall.preset, Some("unrelated")).is_none());
+    }
+
+    #[test]
+    fn wall_module_accepts_opposite_fractional_connector_angles() {
+        let wall = module("fractional", 1.5);
+        let mut preset = (*wall.preset).clone();
+        let yaw = 77.3_f32;
+        let axis = Quat::from_rotation_y(yaw.to_radians()) * Vec3::Z;
+        preset.connections[0].position = (-1.5 * axis).xz().to_array();
+        preset.connections[0].outward_yaw_degrees = 257.3;
+        preset.connections[1].position = (1.5 * axis).xz().to_array();
+        preset.connections[1].outward_yaw_degrees = yaw;
+        assert!((Module::resolve(&preset, None).unwrap().length - 3.0).abs() < 1e-5);
+        preset.connections[0].outward_yaw_degrees += 0.1;
+        assert!(Module::resolve(&preset, None).is_none());
     }
 }

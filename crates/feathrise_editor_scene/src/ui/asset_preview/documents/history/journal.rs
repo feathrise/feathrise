@@ -96,11 +96,21 @@ impl Document {
 
     /// 格式化在后台准备完整正文及保存字节；采用只移动Arc并登记同一历史，不再扫描全文。
     pub(in super::super) fn replace_content(&mut self, source: Arc<str>, pages: Vec<Arc<str>>, context: EditContext) {
+        self.set_content(source, pages, context, None);
+    }
+
+    /// 表单取消时回到开始填写前的内容身份，已有保存点以及撤销记录仍然有效。
+    pub(in super::super) fn restore_content(&mut self, source: Arc<str>, pages: Vec<Arc<str>>, revision: u64) {
+        self.set_content(source, pages, EditContext::default(), Some(revision));
+        self.status = if self.dirty() { "已恢复本次输入前的内容，文件仍有未保存修改" } else { "已恢复到保存内容" }.into();
+    }
+
+    fn set_content(&mut self, source: Arc<str>, pages: Vec<Arc<str>>, context: EditContext, content_revision: Option<u64>) {
         let before = self.snapshot(context.before);
         self.pages = pages;
         self.source = source;
         self.revision = self.revision.wrapping_add(1);
-        self.history.content_revision = Some(self.revision);
+        self.history.content_revision = Some(content_revision.unwrap_or(self.revision));
         self.confirm_reload = false;
         self.status = "草稿未保存；切换资产或离开编辑后仍保留，退出程序前请保存".into();
         let after = self.snapshot(context.after);

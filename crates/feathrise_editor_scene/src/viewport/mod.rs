@@ -12,6 +12,7 @@ pub(crate) mod group_focus; // 逻辑组聚焦按成员和实例层级分帧合�
 pub(crate) mod content_framing; // 按固定预算捕获当前内容，后台统计GPU地形真实范围。
 pub(crate) mod content_selection; // 作者层候选与各类别高亮共享稳定选择身份。
 pub(crate) mod modes; // 全视口选择/移动/编辑模式与固定类别筛选，不隶属于地形工具。
+pub(crate) mod plane_pointer;
 pub(crate) mod orientation_axis; // 场景和模型预览复用方向轴控件，各自控制原相机。
 pub(crate) mod shading; // 四球显示只作用于当前场景离屏相机。
 mod view_controls_input; // 方向球与四球共用文档、模态、外部拖动和数值焦点门。

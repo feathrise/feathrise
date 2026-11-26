@@ -7,14 +7,18 @@ use crate::ui::{
     file_manager::{
         FileAction, FileManagerButton, FileManagerContextRequest, FileNameInput, OpenManagedFile,
     },
-    file_manager_validation::{click, evidence, fixture_focus, mouse, move_cursor, visible},
-    sidebars::{EditorLeftSidebarTab, EditorSidebarTab, SceneEditorSidebarTabButton},
+    file_manager_validation::{
+        click, evidence, fixture_focus, mouse, move_cursor, reveal_rules_control, visible,
+    },
+    vegetation_preset_editor::VegetationPresetEditorState,
 };
 use bevy::{
     app::AppExit,
+    input::{ButtonState, keyboard::Key},
     text::{EditableText, TextEdit},
     window::PrimaryWindow,
 };
+use feathrise_editor_core::PresetWorkspaceTab;
 use serde_json::{Value, json};
 use std::{
     path::PathBuf,
@@ -30,11 +34,16 @@ struct Run {
     scene_requested: bool,
     hover: Option<Entity>,
     pointer: Option<bevy::math::DVec2>,
+    wheel_point: Option<Vec2>,
     drag_step: u8,
     since: Instant,
     click: Option<(Entity, bool)>,
     capture: Option<evidence::CaptureTask>,
     shot: Option<Value>,
+    export_shot: Option<Value>,
+    bound_rule: Option<String>,
+    canceled_rule: Option<String>,
+    film_id: String,
     base: Option<Transform>,
 }
 pub(crate) fn install(app: &mut App, work: PathBuf, phase: String) -> Result<(), String> {
@@ -54,11 +63,16 @@ pub(crate) fn install(app: &mut App, work: PathBuf, phase: String) -> Result<(),
         scene_requested: false,
         hover: None,
         pointer: None,
+        wheel_point: None,
         drag_step: 0,
         since: Instant::now(),
         click: None,
         capture: None,
         shot: None,
+        export_shot: None,
+        bound_rule: None,
+        canceled_rule: None,
+        film_id: String::new(),
         base: None,
     })
     .add_systems(PreUpdate, hold.before(bevy::ui::UiSystems::Focus))
@@ -71,13 +85,17 @@ pub(crate) fn install(app: &mut App, work: PathBuf, phase: String) -> Result<(),
 }
 fn hold(world: &mut World) {
     let run = world.resource::<Run>();
-    let point = run.pointer.or_else(|| {
-        run.click
-            .map(|(e, _)| e)
-            .or(run.hover)
-            .and_then(|e| world.get::<UiGlobalTransform>(e))
-            .map(|p| p.translation.as_dvec2())
-    });
+    let point = run
+        .wheel_point
+        .map(|p| p.as_dvec2())
+        .or(run.pointer)
+        .or_else(|| {
+            run.click
+                .map(|(e, _)| e)
+                .or(run.hover)
+                .and_then(|e| world.get::<UiGlobalTransform>(e))
+                .map(|p| p.translation.as_dvec2())
+        });
     if let Some(pt) = point
         && let Some(w) = world
             .query_filtered::<Entity, With<PrimaryWindow>>()
@@ -254,12 +272,74 @@ fn step(world: &mut World, r: &mut Run, w: Entity) -> Result<bool, String> {
             11 => action(world, r, w, Action::Undo),
             12 => camera_time(world) == Some(4.) && action(world, r, w, Action::Export),
             13 => {
-                if visible(world, |name: &Name| {
-                    name.as_str() == "CinematicExportDialog"
-                })
-                .is_some()
+                let Some(scene) = movie_control(world, "CinematicExportScene") else {
+                    return Ok(false);
+                };
+                if world
+                    .get::<EditableText>(scene)
+                    .is_none_or(|field| field.value() != "M1-SAMPLE")
+                    || movie_control(world, "CinematicExportEncoder").is_some()
+                    || !current_film_stays_open(world)
                 {
-                    finish(world, r, None)
+                    return Err(
+                        "导出面板未按当前场景初始化、透出了高级字段，或改变了中央演出".into(),
+                    );
+                }
+                true
+            }
+            14 => {
+                let Some(shot) = evidence::capture_field(
+                    world,
+                    &mut r.capture,
+                    &r.work.join("cinematic-export.png"),
+                    None,
+                )?
+                else {
+                    return Ok(false);
+                };
+                r.export_shot = Some(shot);
+                true
+            }
+            15 => type_in(
+                world,
+                |name: &Name| name.as_str() == "CinematicExportSize",
+                "641x360",
+            ),
+            16 => movie_action(world, r, w, "CinematicExportStart"),
+            17 => movie_status(world, "宽、高必须是正偶数"),
+            18 => movie_action(world, r, w, "CinematicExportOptions"),
+            19 => {
+                let path = r.work.join("missing-ffmpeg.exe");
+                type_in(
+                    world,
+                    |name: &Name| name.as_str() == "CinematicExportSize",
+                    "640x360",
+                ) && type_in(
+                    world,
+                    |name: &Name| name.as_str() == "CinematicExportEncoder",
+                    &path.to_string_lossy(),
+                )
+            }
+            20 => movie_action(world, r, w, "CinematicExportStart"),
+            21 => movie_status(world, "无法启动 FFmpeg"),
+            22 => {
+                use crate::standalone::validation_fixture::key_state;
+                key_state(world, w, KeyCode::Escape, Key::Escape, ButtonState::Pressed);
+                key_state(
+                    world,
+                    w,
+                    KeyCode::Escape,
+                    Key::Escape,
+                    ButtonState::Released,
+                );
+                true
+            }
+            23 => {
+                if movie_control(world, "CinematicExportDialog").is_none() {
+                    if !current_film_stays_open(world) {
+                        return Err("关闭视频对话框后未返回原演出".into());
+                    }
+                    finish(world, r, None);
                 }
                 false
             }
@@ -268,6 +348,16 @@ fn step(world: &mut World, r: &mut Run, w: Entity) -> Result<bool, String> {
     }
     if (6..=31).contains(&r.stage) && !stable(world) {
         return Ok(false);
+    }
+    if (34..=41).contains(&r.stage) {
+        let docs = world.resource::<DocumentState>();
+        let workspace = world.resource::<VegetationPresetEditorState>();
+        if workspace.active_tab != PresetWorkspaceTab::Document
+            || !docs.in_center()
+            || !docs.current().is_some_and(|doc| doc.path.ends_with(NAME))
+        {
+            return Err("创建、取消或保存触发规则时，中央离开了原演出".into());
+        }
     }
     let ready = match r.stage {
         0 => {
@@ -433,10 +523,15 @@ fn step(world: &mut World, r: &mut Run, w: Entity) -> Result<bool, String> {
                 .is_some_and(|(a, b)| a.translation.distance(b.translation) < 0.01)
         }
         32 => {
-            let b = visible(world, |b: &SceneEditorSidebarTabButton| {
-                b.0 == EditorSidebarTab::Left(EditorLeftSidebarTab::Gameplay)
-            });
-            click(world, &mut r.click, w, b)
+            r.film_id = world
+                .resource::<Studio>()
+                .timeline
+                .as_ref()
+                .unwrap()
+                .film
+                .id
+                .clone();
+            binding_fields(world, r, w)
         }
         33 => type_in(
             world,
@@ -448,23 +543,64 @@ fn step(world: &mut World, r: &mut Run, w: Entity) -> Result<bool, String> {
             click(world, &mut r.click, w, b)
         }
         35 => {
-            if !world
-                .resource::<DocumentState>()
-                .current()
-                .is_some_and(|d| d.disk.project_rules && d.dirty())
-            {
+            let Some(rule) = binding_action(world, r, w, "RulesCancel", "取消") else {
                 return Ok(false);
-            }
-            let b = visible(world, |a: &super::super::components::DocumentAction| {
-                *a == super::super::components::DocumentAction::Save
-            });
-            click(world, &mut r.click, w, b)
+            };
+            r.canceled_rule = Some(rule);
+            true
         }
         36 => {
+            let docs = world.resource::<DocumentState>();
+            let Some(doc) = docs.rules_sidebar_document().filter(|d| !d.dirty()) else {
+                return Ok(false);
+            };
+            let restored: Value = serde_json::from_str(&doc.source).map_err(|e| e.to_string())?;
+            if !restored["rules"].as_array().is_some_and(
+                |rules| matches!(rules.as_slice(), [old] if old["id"] == "existing_watch"),
+            ) {
+                return Err("取消绑定后没有恢复原来的规则".into());
+            }
+            true
+        }
+        37 => binding_fields(world, r, w),
+        38 => type_in(
+            world,
+            |b: &super::binding::BindingField| *b == super::binding::BindingField::Target,
+            "east_gate",
+        ),
+        39 => {
+            let bind = visible(world, |_: &super::binding::Bind| true);
+            click(world, &mut r.click, w, bind)
+        }
+        40 => {
+            let Some(rule) = binding_action(world, r, w, "RulesSave", "保存规则") else {
+                return Ok(false);
+            };
+            if r.canceled_rule.as_ref() == Some(&rule) {
+                return Err("重新绑定后仍选中了已取消的规则".into());
+            }
+            r.bound_rule = Some(rule);
+            true
+        }
+        41 => {
+            let listed = r.bound_rule.as_ref().is_some_and(|id| {
+                world
+                    .query::<(&Name, &Text, &ComputedNode, &InheritedVisibility)>()
+                    .iter(world)
+                    .any(|(name, text, node, vis)| {
+                        name.as_str().starts_with("RulesCell")
+                            && name.as_str().ends_with("Id")
+                            && text.split_whitespace().last() == Some(id.as_str())
+                            && vis.get()
+                            && node.size().min_element() > 1.
+                    })
+            });
             if world
                 .resource::<DocumentState>()
-                .current()
-                .is_some_and(|d| d.disk.project_rules && !d.dirty() && d.status.contains("已保存"))
+                .rules_sidebar_document()
+                .is_some_and(|d| !d.dirty() && d.status.contains("已保存"))
+                && r.bound_rule.is_some()
+                && listed
             {
                 finish(world, r, None)
             }
@@ -474,8 +610,58 @@ fn step(world: &mut World, r: &mut Run, w: Entity) -> Result<bool, String> {
     };
     Ok(ready)
 }
+
+fn binding_fields(world: &mut World, r: &mut Run, w: Entity) -> bool {
+    if visible(world, |_: &super::binding::Bind| true).is_some() {
+        return true;
+    }
+    let toggle = visible(world, |_: &super::binding::ToggleBinding| true);
+    click(world, &mut r.click, w, toggle)
+}
+
+/// 只点击正展示新绑定的表单内按钮，滚动经过剪裁边界的控件使用真实窗口滚轮。
+fn binding_action(
+    world: &mut World,
+    r: &mut Run,
+    window: Entity,
+    name: &str,
+    label: &str,
+) -> Option<String> {
+    world
+        .resource::<DocumentState>()
+        .rules_sidebar_document()
+        .filter(|d| d.dirty())?;
+    let rule = selected_binding(world, &r.film_id)?;
+    let button = visible(world, |n: &Name| n.as_str() == name)?;
+    let has_label = world.get::<Children>(button)?.iter().any(|child| {
+        world
+            .get::<Text>(child)
+            .is_some_and(|text| text.as_str() == label)
+    });
+    (has_label
+        && reveal_rules_control(world, window, button, &mut r.wheel_point)
+        && click(world, &mut r.click, window, Some(button)))
+    .then_some(rule)
+}
+
+/// 从原生输入框核对所选规则、事件目标与演出资产，避免只靠文件变脏来判定绑定成功。
+fn selected_binding(world: &mut World, film_id: &str) -> Option<String> {
+    let mut field = |name| {
+        let entity = visible(world, |n: &Name| n.as_str() == name)?;
+        Some(world.get::<EditableText>(entity)?.value().to_string())
+    };
+    let id = field("RulesFieldId")?;
+    (id.starts_with("play_")
+        && field("RulesFieldTrigger")? == "location.entered"
+        && field("RulesFieldEventTarget")? == "east_gate"
+        && field("RulesFieldActionName")? == "cinematic.play"
+        && field("RulesFieldActionValue")? == film_id)
+        .then_some(id)
+}
+
 fn finish(world: &mut World, r: &mut Run, error: Option<String>) {
-    let data = json!({"phase":r.phase,"passed":error.is_none(),"stage":r.stage,"error":error,"screenshot":r.shot,
+    let data = json!({"phase":r.phase,"passed":error.is_none(),"stage":r.stage,"error":error,"screenshot":r.shot,"saved_rule_from_form":r.bound_rule,"canceled_rule_from_form":r.canceled_rule,
+        "export_screenshot":r.export_shot,"export_input_checked":r.phase == "reopen" && r.stage == 23 && error.is_none(),
         "input":"原新建菜单、文件提示框、四轨可视按钮、原生 EditableText 编辑队列和 Bevy 鼠标事件","os_input_verified":false});
     let ok = evidence::report(&r.work.join(format!("cinematic-{}.json", r.phase)), &data).is_ok();
     r.stage = usize::MAX;
@@ -484,6 +670,29 @@ fn finish(world: &mut World, r: &mut Run, error: Option<String>) {
     } else {
         AppExit::error()
     });
+}
+
+fn movie_control(world: &mut World, name: &str) -> Option<Entity> {
+    visible(world, |label: &Name| label.as_str() == name)
+}
+
+fn movie_action(world: &mut World, r: &mut Run, window: Entity, name: &str) -> bool {
+    let target = movie_control(world, name);
+    click(world, &mut r.click, window, target)
+}
+
+fn movie_status(world: &mut World, expected: &str) -> bool {
+    movie_control(world, "CinematicExportStatus")
+        .and_then(|entity| world.get::<Text>(entity))
+        .is_some_and(|text| text.as_str().contains(expected))
+}
+
+fn current_film_stays_open(world: &World) -> bool {
+    let workspace = world.resource::<VegetationPresetEditorState>();
+    let docs = world.resource::<DocumentState>();
+    workspace.active_tab == PresetWorkspaceTab::Document
+        && docs.in_center()
+        && docs.current().is_some_and(|doc| doc.path.ends_with(NAME))
 }
 
 fn camera_time(world: &World) -> Option<f32> {

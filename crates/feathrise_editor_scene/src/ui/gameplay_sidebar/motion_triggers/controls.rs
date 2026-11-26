@@ -32,12 +32,13 @@ pub(in super::super) fn panel() -> impl Scene {
     bsn! { GameplaySidebarPanel(GameplaySidebarPage::MotionTrigger)
         Node { display: Display::None, width: percent(100), flex_direction: FlexDirection::Column, row_gap: px(4), flex_shrink: 0.0 }
         Children [
-            @crate::ui::context_help::section_header("动画触发", "选择主场景的动画片段，在视口点选触发区域的两个对角。进入和离开的动作分别设置，切到工程预览即可试走。")--
+            @crate::ui::context_help::section_header("动画触发", "选择主场景的动画片段。新增时先点「绘制新区域」，再设置新区的高度和动作，在场景视口点选两个对角。直接修改下方参数会更新当前选中的区域。")--
             Summary Text("") TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(metrics::FONT_CONTROL) }
                 TextColor(colors::TEXT_VALUE)--
             @row() Children [@button("上一片段", Action::PreviousClip)-- @button("下一片段", Action::NextClip)]--
             @row() Children [@button("上一区域", Action::PreviousRegion)-- @button("下一区域", Action::NextRegion)]--
-            @row() Children [@button("绘制新区域", Action::Draw)-- @button("调整区域", Action::Adjust)-- @button("重画区域", Action::Redraw)-- @button("删除区域", Action::Remove)]--
+            @row() Children [@button("绘制新区域", Action::Draw)-- @button("调整区域", Action::Adjust)]--
+            @row() Children [@button("重画区域", Action::Redraw)-- @button("删除区域", Action::Remove)]--
             @row() Children [@button("切换进入动作", Action::Enter)-- @button("切换离开动作", Action::Exit)]--
             ~{FieldSlot(Dimension::Floor)} Node { width: percent(100) }--
             ~{FieldSlot(Dimension::Height)} Node { width: percent(100) }
@@ -94,6 +95,7 @@ pub(super) fn sync(
             usize,
             MotionRegionAction,
             MotionRegionAction,
+            bool,
             EditorLocale,
         )>,
     >,
@@ -126,7 +128,8 @@ pub(super) fn sync(
         }
         tool.bound = bound;
     }
-    let stamp = (count, tool.clip, tool.enter, tool.exit, *locale);
+    let drawing_new = tool.drawing.as_ref().is_some_and(|drawing| !drawing.replace);
+    let stamp = (count, tool.clip, tool.enter, tool.exit, drawing_new, *locale);
     if rebound || last.as_ref() != Some(&stamp) {
         *last = Some(stamp);
         let text = if let Some(d) = draft
@@ -151,8 +154,17 @@ pub(super) fn sync(
                 .to_owned()
         };
         for mut t in &mut summaries {
-            if t.as_str() != text {
-                **t = text.clone();
+            let caption = if drawing_new {
+                if *locale == EditorLocale::English {
+                    format!("{text}\nEditing settings for a new region")
+                } else {
+                    format!("{text}\n当前参数用于正在绘制的新区域")
+                }
+            } else {
+                text.clone()
+            };
+            if t.as_str() != caption {
+                **t = caption;
             }
         }
     }

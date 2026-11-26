@@ -1,20 +1,21 @@
 //! 玩法工具准备先经过全局模式门；页面只观察稳定选择和原作者状态，不制造额外事务。
 
-use feathrise_editor_ui::UiInteraction;
-use feathrise_editor_ui::EditorButtonClick;
 use super::{components::*, resources::*, types::*};
 use crate::authoring::{BoundaryEditState, EditorAuthoringSession, TerrainExternalChangeState};
 use crate::resources::{
     SceneBrowserDragState, SceneBrowserState, SceneDeletionTask, SceneEditorNumericScrubMouseGuard,
     SceneEditorState,
 };
-use crate::ui::sidebars::{EditorLeftSidebarTab, EditorNavigatorTab, SceneEditorSidebarState};
+use crate::ui::sidebars::{EditorLeftSidebarTab, SceneEditorSidebarState};
 use crate::ui::text_input::EditorTextInputGuard;
 use crate::ui::theme as colors;
+use crate::ui::vegetation_preset_editor::{PresetWorkspaceTab, VegetationPresetEditorState};
 use crate::viewport::content_selection::{LayerCandidateState, LayerTarget};
 use crate::viewport::modes::{ViewportMode, ViewportModeState};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use feathrise_editor_ui::EditorButtonClick;
+use feathrise_editor_ui::UiInteraction;
 use feathrise_scene_content::SceneId;
 
 #[derive(SystemParam)]
@@ -54,13 +55,25 @@ impl GameplaySidebarInputGate<'_> {
 
 pub(super) fn handle_tabs(
     tabs: Query<(&EditorButtonClick, &GameplaySidebarTab), Changed<EditorButtonClick>>,
-    browse: Query<(&EditorButtonClick, &GameplaySidebarBrowseButton), Changed<EditorButtonClick>>,
+    template: Query<
+        (&EditorButtonClick, Has<TemplateMenuButton>),
+        (
+            Changed<EditorButtonClick>,
+            Or<(
+                With<TemplateMenuButton>,
+                With<super::project_rules::CreateRulesFromExample>,
+            )>,
+        ),
+    >,
     gate: GameplaySidebarInputGate,
-    mut sidebar: ResMut<SceneEditorSidebarState>,
+    sidebar: Res<SceneEditorSidebarState>,
     session: Res<EditorAuthoringSession>,
     boundary: Res<BoundaryEditState>,
     mut editor: ResMut<SceneEditorState>,
     mut state: ResMut<GameplaySidebarState>,
+    mut request: ResMut<super::project_rules::RuleOpenRequest>,
+    mut mode: ResMut<ViewportModeState>,
+    workspace: Option<Res<VegetationPresetEditorState>>,
 ) {
     if !editor.open
         || editor.close_requested
@@ -74,29 +87,59 @@ pub(super) fn handle_tabs(
     {
         return; // 保持系统运行来消费阻塞期间的Changed边沿，松键或关闭模态后不重放旧点击。
     }
-    if let Some(page) = GameplaySidebarPage::for_tool(editor.tool) {
+    if let Some(page) =
+        GameplaySidebarPage::for_tool(editor.tool).filter(|_| state.page.section().is_none())
+    {
         if state.page != page {
             state.page = page; // 在Select把工具收成Inspect之前保存真实准备请求。
         }
     }
-    for (interaction, tab) in &tabs {
-        if interaction.is_clicked() {
-            let page = tab.0;
-            if state.page != page {
-                state.page = page;
-            }
-            if editor.tool != page.tool() {
-                editor.tool = page.tool();
-            } // 同页点击也明确准备工具；只准备、不清选择、不创建对象，也不强行进入Edit。
+    let mut next = tabs
+        .iter()
+        .find(|(click, _)| click.is_clicked())
+        .map(|(_, tab)| (tab.0, false));
+    for (click, toggle) in &template {
+        if !click.is_clicked() {
+            continue;
+        }
+        if toggle {
+            state.template_menu = !state.template_menu;
+        } else if state.template_menu {
+            next = Some((GameplaySidebarPage::Variables, true));
         }
     }
-    for (interaction, button) in &browse {
-        if interaction.is_clicked() && state.page == GameplaySidebarPage::Asset {
-            match button.0 {
-                GameplaySidebarBrowse::Assets => sidebar.navigator = EditorNavigatorTab::Assets,
-                GameplaySidebarBrowse::Scene => sidebar.reveal_scene_properties(),
+    if let Some((page, sample)) = next {
+        state.page = page;
+        state.template_menu = false;
+        request.0 = page.section().map(|_| sample);
+        // 工具只切换右栏；空间工具仅在当前可见的场景视口准备编辑。
+        let in_scene = workspace
+            .as_ref()
+            .is_none_or(|work| work.active_tab == PresetWorkspaceTab::Scene);
+        if let Some(tool) = page.tool() {
+            mode.remember_tool(tool);
+            if in_scene {
+                editor.tool = tool;
+                return;
             }
         }
+        // 表单和隐藏的视口都不接收落点；手动回场景时仍能准备刚选的工具。
+        mode.mode = ViewportMode::Select;
+        editor.tool = crate::types::EditorTool::Inspect;
+    }
+}
+
+pub(super) fn show(mut node: Mut<Node>, mut visibility: Mut<Visibility>, visible: bool) {
+    let (display, inherited) = if visible {
+        (Display::Flex, Visibility::Inherited)
+    } else {
+        (Display::None, Visibility::Hidden)
+    };
+    if node.display != display {
+        node.display = display;
+    }
+    if *visibility != inherited {
+        *visibility = inherited;
     }
 }
 
@@ -107,20 +150,38 @@ pub(super) fn sync_pages(
     selection: Option<Res<LayerCandidateState>>,
     mut state: ResMut<GameplaySidebarState>,
     mut observed_selection: Local<Option<(Option<SceneId>, Option<LayerTarget>, u64)>>,
-    mut panels: Query<(&GameplaySidebarPanel, &mut Node)>,
+    mut panels: Query<
+        (&GameplaySidebarPanel, &mut Node, &mut Visibility),
+        (
+            Without<ViewportFeedback>,
+            Without<TemplateMenu>,
+            Without<InteractionRulesHost>,
+        ),
+    >,
+    mut sections: Query<
+        (
+            Has<TemplateMenu>,
+            Has<InteractionRulesHost>,
+            &mut Node,
+            &mut Visibility,
+        ),
+        (
+            Or<(
+                With<ViewportFeedback>,
+                With<TemplateMenu>,
+                With<InteractionRulesHost>,
+            )>,
+            Without<GameplaySidebarPanel>,
+        ),
+    >,
+    mut scrolls: Query<&mut ScrollPosition, With<GameplaySidebarScroll>>,
+    mut last_page: Local<Option<GameplaySidebarPage>>,
     mut tabs: Query<(
         &UiInteraction,
         &GameplaySidebarTab,
         &mut BackgroundColor,
         &mut BorderColor,
     )>,
-    mut browse: Query<
-        (&UiInteraction, &mut BackgroundColor),
-        (
-            With<GameplaySidebarBrowseButton>,
-            Without<GameplaySidebarTab>,
-        ),
-    >,
 ) {
     let identity = (
         session.draft.as_ref().map(|draft| draft.scene_id.clone()),
@@ -136,28 +197,44 @@ pub(super) fn sync_pages(
         match identity.1 {
             Some(LayerTarget::Portal(_)) => Some(GameplaySidebarPage::Portal),
             Some(LayerTarget::Boundary(_)) => Some(GameplaySidebarPage::Boundary),
-            Some(LayerTarget::Placement(_)) => Some(GameplaySidebarPage::Asset),
             _ => None,
         }
     } else {
         None // 旧选择不会每帧抢回作者手动切换的工具页。
     };
-    if editor.open && sidebar.tool_page_visible(EditorLeftSidebarTab::Gameplay) {
+    if editor.open
+        && sidebar.tool_page_visible(EditorLeftSidebarTab::Gameplay)
+        && state.page.section().is_none()
+    {
         if let Some(page) = selected_page.or_else(|| GameplaySidebarPage::for_tool(editor.tool)) {
             if state.page != page {
                 state.page = page; // 视口在Select中选择玩法对象，也展示对应属性而不落笔。
             }
         }
     }
-    for (panel, mut node) in &mut panels {
-        let display = if panel.0 == state.page {
-            Display::Flex
-        } else {
-            Display::None
-        };
-        if node.display != display {
-            node.display = display;
+    if *last_page != Some(state.page) {
+        for mut scroll in &mut scrolls {
+            if scroll.0 != Vec2::ZERO {
+                scroll.0 = Vec2::ZERO;
+            }
         }
+        *last_page = Some(state.page);
+    }
+    for (panel, node, visibility) in &mut panels {
+        show(node, visibility, panel.0 == state.page);
+    }
+    for (menu, rules, node, visibility) in &mut sections {
+        show(
+            node,
+            visibility,
+            if menu {
+                state.template_menu
+            } else if rules {
+                state.page.section().is_some()
+            } else {
+                state.page.tool().is_some()
+            },
+        );
     }
     for (interaction, tab, mut background, mut border) in &mut tabs {
         let selected = tab.0 == state.page;
@@ -179,16 +256,6 @@ pub(super) fn sync_pages(
             *border = outline;
         }
     }
-    for (interaction, mut background) in &mut browse {
-        let fill = match interaction {
-            UiInteraction::Pressed => colors::SELECT_BG_PRESSED,
-            UiInteraction::Hovered => colors::SELECT_BG_HOVER,
-            UiInteraction::None => colors::BUTTON_DEV_SMALL_NORMAL,
-        };
-        if background.0 != fill {
-            background.0 = fill;
-        }
-    }
 }
 
 pub(super) fn sync_feedback(
@@ -204,7 +271,7 @@ pub(super) fn sync_feedback(
     if !editor.open || !sidebar.tool_page_visible(EditorLeftSidebarTab::Gameplay) {
         return;
     }
-    let editing = mode.mode == ViewportMode::Edit && editor.tool == state.page.tool();
+    let editing = mode.mode == ViewportMode::Edit && Some(editor.tool) == state.page.tool();
     let locale = locale.as_deref().copied().unwrap_or_default();
     let mode_text = format!(
         "{} · {}",
@@ -247,16 +314,11 @@ pub(super) fn sync_feedback(
             colors::TEXT_ACCENT,
         )
     }; // 仅观察真实草稿与保存/拖动状态，不把隐藏视口或旧预览称为就绪。
-    let asset = editor.selected_asset.as_ref().map_or_else(
-        || "待摆放资产 · 尚未选择".to_owned(),
-        |path| format!("待摆放资产 · {path}"),
-    );
     for (marker, mut text, mut color) in &mut texts {
         let (value, tint) = match marker.0 {
             GameplaySidebarFeedbackKind::Mode => (mode_text.as_str(), colors::TEXT_ACCENT),
             GameplaySidebarFeedbackKind::Availability => (availability.as_str(), tint),
             GameplaySidebarFeedbackKind::Message => (editor.status.as_str(), colors::TEXT_MUTED),
-            GameplaySidebarFeedbackKind::Asset => (asset.as_str(), colors::TEXT_VALUE),
         };
         let value = locale.editor_notice(value);
         if text.as_str() != value.as_ref() {

@@ -14,6 +14,9 @@ pub(crate) struct DocumentState {
     pub(super) next_tab: u64,
     pub(super) center_activation: u64, // 显式打开同一文件也换激活票据，中央工具预览须让位给这次操作。
     pub(super) central_active: bool,
+    // 尚未落入正文的表单字段独占其文件代次。文件整理、缓存和外部改动复用此身份。
+    pub(super) rules_form_input: Option<SourceKey>,
+    pub(super) sidebar_rules: super::rules::SidebarDocument,
     pub(super) documents: Vec<Document>,
     pub(super) pending_load: Option<LoadRequest>,
     pub(super) loading: Option<LoadRequest>, // 唯一IO槽中真实读取的目标；保存和外部核对不能误禁编辑。
@@ -41,6 +44,8 @@ impl Default for DocumentState {
             next_tab: 0,
             center_activation: 0,
             central_active: false,
+            rules_form_input: None,
+            sidebar_rules: default(),
             documents: Vec::new(),
             pending_load: None,
             loading: None,
@@ -64,6 +69,8 @@ impl DocumentState {
     pub(super) fn is_loading(&self, path: &str) -> bool {
         self.pending_load.iter().chain(self.loading.iter())
             .any(|request| request.ticket == self.load_ticket && request.path == path)
+            || self.sidebar_rules.pending.as_ref().is_some_and(|(pending, _)| pending == path)
+            || (self.sidebar_rules.loading && self.loading.as_ref().is_some_and(|request| request.path == path))
     }
 
     /// 只等待显式写入和保存前校验，不把只读加载/语法诊断或未保存草稿当作保存。
@@ -75,6 +82,9 @@ impl DocumentState {
     pub(crate) fn exit_blocker(&self) -> Option<&'static str> {
         if self.io.is_some() || self.saving.is_some() || !self.saving_batch.is_empty() || self.json.exit_pending() {
             return Some("文件文档保存或格式化事务尚未完成");
+        }
+        if self.rules_form_input.is_some() {
+            return Some("交互工具中有未保存的工程规则表单，请回到对应工具保存或取消");
         }
         self.documents.iter().any(|document| document.dirty())
             .then_some("存在未保存的文件文档（包括已关闭标签的草稿），请用原文档全部保存或丢弃操作收口")

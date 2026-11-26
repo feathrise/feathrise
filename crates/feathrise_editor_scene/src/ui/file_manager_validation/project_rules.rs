@@ -1,17 +1,21 @@
-//! 两个独立作者窗口从交互入口与工程文件列表打开表单，检验规则的正式编辑、保存与重开。
+//! 空工程走首次添加流程，示例工程通过交互入口与文件列表验证表单编辑、布局、保存和重开。
+mod directory;
 mod form;
+mod layout;
+mod location;
+mod table;
 use super::{click, evidence, fixture_focus, key_state, move_cursor, visible, window_event};
 use crate::{
     asset_catalog::{EditorAssetCatalog, project_files::EditorProjectFileCatalog},
-    components::SceneEditorAssetRow,
+    components::{SceneEditorAssetRow, SceneEditorViewport},
     resources::SceneEditorState,
     ui::{
         asset_preview::DocumentState,
-        gameplay_sidebar::project_rules::RuleButton,
         project_browser::{ProjectBrowserState, ProjectFileRow},
         sidebars::{
             EditorLeftSidebarTab, EditorNavigatorTab, EditorSidebarTab, SceneEditorSidebarTabButton,
         },
+        vegetation_preset_editor::{PresetWorkspaceTab, VegetationPresetEditorState},
     },
 };
 use bevy::{
@@ -22,9 +26,12 @@ use bevy::{
     window::{Ime, PrimaryWindow},
 };
 use feathrise_editor_documents_model::{
-    components::{DocumentAction, DocumentSource},
-    project_rules::{EXAMPLE, PATH},
+    components::{
+        DocumentAction, DocumentCenterHost, DocumentPathText, DocumentPreviewBody, DocumentSource,
+    },
+    project_rules::{EMPTY, EXAMPLE, PATH},
 };
+pub(crate) use layout::reveal_rules_control;
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -34,9 +41,15 @@ use std::{
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Stage {
+    PrepareScene,
     Sidebar,
+    Directory(usize),
+    ExampleMenu,
     Open,
-    Files,
+    OpenContext,
+    ContextFile,
+    ContextSidebar,
+    ContextTools(usize),
     Loaded,
     Form(usize),
     Advanced,
@@ -64,13 +77,26 @@ struct Run {
     capture: Option<evidence::CaptureTask>,
     form_shot: Value,
     source_shot: Value,
+    layout: serde_json::Map<String, Value>,
+    direct_saves: serde_json::Map<String, Value>,
+    layout_wait: String,
+    wheel_point: Option<Vec2>,
+    splitter_target: Option<Vec2>,
+    pixel_tolerance: f32,
+    center: Value,
 }
+
+const CONTEXT: &str = "inline_context.md";
 
 pub(super) fn install(app: &mut App, work: PathBuf, phase: String) -> Result<(), String> {
     app.insert_resource(Run {
         work,
+        stage: if phase == "empty" {
+            Stage::PrepareScene
+        } else {
+            Stage::Sidebar
+        },
         phase,
-        stage: Stage::Sidebar,
         since: Instant::now(),
         pointer: None,
         keys: 0,
@@ -81,6 +107,13 @@ pub(super) fn install(app: &mut App, work: PathBuf, phase: String) -> Result<(),
         capture: None,
         form_shot: Value::Null,
         source_shot: Value::Null,
+        layout: default(),
+        direct_saves: default(),
+        layout_wait: String::new(),
+        wheel_point: None,
+        splitter_target: None,
+        pixel_tolerance: 0.,
+        center: Value::Null,
     })
     .add_systems(PreUpdate, hold_pointer.before(bevy::ui::UiSystems::Focus))
     .add_systems(
@@ -92,12 +125,11 @@ pub(super) fn install(app: &mut App, work: PathBuf, phase: String) -> Result<(),
 }
 
 fn hold_pointer(world: &mut World) {
-    let Some((entity, _)) = world.resource::<Run>().pointer else {
-        return;
-    };
-    let Some(point) = world
-        .get::<UiGlobalTransform>(entity)
-        .map(|t| t.translation.as_dvec2())
+    let run = world.resource::<Run>();
+    let Some(point) = run
+        .pointer
+        .and_then(|(e, _)| world.get::<UiGlobalTransform>(e).map(|t| t.translation))
+        .or(run.wheel_point)
     else {
         return;
     };
@@ -106,7 +138,7 @@ fn hold_pointer(world: &mut World) {
         .iter(world)
         .next()
     {
-        move_cursor(world, window, point);
+        move_cursor(world, window, point.as_dvec2());
     }
 }
 
@@ -114,6 +146,43 @@ fn observe(world: &World) -> Option<(&str, bool, bool, &str)> {
     world
         .get_resource::<DocumentState>()?
         .project_rules_observed()
+}
+
+/// 核对当前中央标签、可见面板实体及真实边界，防止“短暂调过去再调回来”也通过。
+fn central(world: &mut World) -> Option<Value> {
+    let tab = world.resource::<VegetationPresetEditorState>().active_tab;
+    let (id, doc, preview) = match tab {
+        PresetWorkspaceTab::Scene => (visible(world, |_: &SceneEditorViewport| true)?, None, None),
+        PresetWorkspaceTab::Document => {
+            let host = visible(world, |_: &DocumentCenterHost| true)?;
+            let path = visible(world, |_: &DocumentPathText| true)?;
+            let body = visible(world, |_: &DocumentPreviewBody| true)?;
+            if !directory::ancestor(world, path, host) || !directory::ancestor(world, body, host) {
+                return None;
+            }
+            (
+                host,
+                Some(world.get::<Text>(path)?.as_str().to_owned()),
+                Some(body.to_bits()),
+            )
+        }
+        _ => return None,
+    };
+    Some(
+        json!({"tab":format!("{tab:?}"),"entity":id.to_bits(),"document":doc, "preview":preview,
+        "bounds":layout::coords(layout::bounds(world, id)?)}),
+    )
+}
+
+fn check_center(world: &mut World, run: &Run) -> Result<(), String> {
+    if run.center.is_null() || central(world).as_ref() == Some(&run.center) {
+        return Ok(());
+    }
+    Err(format!(
+        "点击右侧交互工具改变了中央页面，原 {}，现 {:?}",
+        run.center,
+        central(world)
+    ))
 }
 
 fn drive(world: &mut World) {
@@ -132,7 +201,7 @@ fn drive(world: &mut World) {
             let current =
                 observe(world).map(|(text, dirty, edit, status)| (text.len(), dirty, edit, status));
             let form = if let Stage::Form(i) = run.stage {
-                form::describe(run.phase == "reopen", i)
+                form::describe(&run.phase, i)
             } else {
                 String::new()
             };
@@ -142,9 +211,10 @@ fn drive(world: &mut World) {
                 .and_then(|e| world.get::<Name>(e))
                 .map(Name::as_str);
             Err(format!(
-                "等待 {:?} {form} 超时，原生输入步骤 {}，焦点 {focus:?}，文档 {:?}，操作栏 {:?}",
+                "等待 {:?} {form} 超时，原生输入步骤 {}，焦点 {focus:?}，布局 {}，文档 {:?}，操作栏 {:?}",
                 run.stage,
                 run.keys,
+                run.layout_wait,
                 current,
                 world.get_resource::<SceneEditorState>().map(|s| &s.status)
             ))
@@ -156,6 +226,8 @@ fn drive(world: &mut World) {
                 run.stage = next;
                 run.since = Instant::now();
                 run.keys = 0;
+                run.layout_wait.clear();
+                run.wheel_point = None;
             }
             Ok(None) => {}
             Err(error) => finish(world, &mut run, Some(error)),
@@ -164,7 +236,21 @@ fn drive(world: &mut World) {
 }
 
 fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<Stage>, String> {
+    check_center(world, run)?;
     let next = match run.stage {
+        Stage::PrepareScene => {
+            let Some(mut editor) = world.get_resource_mut::<SceneEditorState>() else {
+                return Ok(None);
+            };
+            if !editor.open || editor.scene_transition_in_progress {
+                return Ok(None);
+            }
+            editor.queue_scene_transition(
+                feathrise_scene_content::SceneId::parse("M1-SAMPLE")?,
+                "打开本轮交互工具目录夹具场景",
+            );
+            Stage::Sidebar
+        }
         Stage::Sidebar => {
             if !world
                 .get_resource::<SceneEditorState>()
@@ -172,46 +258,107 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
             {
                 return Ok(None);
             }
-            let target = if run.phase == "reopen" {
-                EditorSidebarTab::Navigator(EditorNavigatorTab::Assets)
-            } else {
-                EditorSidebarTab::Left(EditorLeftSidebarTab::Gameplay)
-            };
+            if run.phase == "empty"
+                && !world
+                    .resource::<crate::authoring::EditorAuthoringSession>()
+                    .draft
+                    .as_ref()
+                    .is_some_and(|draft| draft.scene_id.as_str() == "M1-SAMPLE")
+            {
+                return Ok(None);
+            }
+            if run.phase == "empty" {
+                let Some(center) = central(world).filter(|value| value["tab"] == "Scene") else {
+                    return Ok(None);
+                };
+                run.center = center;
+            }
+            let target = EditorSidebarTab::Left(EditorLeftSidebarTab::Gameplay);
             let tab = visible(world, |t: &SceneEditorSidebarTabButton| t.0 == target);
             if !click(world, &mut run.pointer, window, tab) {
                 return Ok(None);
             }
-            if run.phase == "reopen" {
-                Stage::Files
+            if run.phase == "empty" {
+                Stage::Directory(0)
+            } else if run.phase == "edit" {
+                Stage::ExampleMenu
             } else {
                 Stage::Open
             }
         }
+        Stage::Directory(index) => return directory::before_open(world, run, window, index),
+        Stage::ExampleMenu => {
+            let name = "工程规则模板菜单";
+            if !form::named_click(world, run, window, name) {
+                run.layout_wait = button_diagnostic(world, name);
+                return Ok(None);
+            }
+            Stage::Open
+        }
         Stage::Open => {
-            let button = visible(world, |b: &RuleButton| b.0);
-            if !click(world, &mut run.pointer, window, button) {
+            let name = match run.phase.as_str() {
+                "draw-reopen" => "交互目录条目地点区域",
+                "empty" => "交互目录条目工程变量",
+                "reopen" => "交互目录条目触发规则",
+                _ => "从示例创建",
+            };
+            if !form::named_click(world, run, window, name) {
+                run.layout_wait = button_diagnostic(world, name);
                 return Ok(None);
             }
             Stage::Loaded
         }
-        Stage::Files => {
-            // 固定文件列表单击 assets 进入目录，再实际双击配置文件。这里不发送文档打开命令。
-            if observe(world).is_some() {
-                return Ok(Some(Stage::Loaded));
+        Stage::OpenContext => {
+            let tab = visible(world, |button: &SceneEditorSidebarTabButton| {
+                button.0 == EditorSidebarTab::Navigator(EditorNavigatorTab::Assets)
+            });
+            if !click(world, &mut run.pointer, window, tab) {
+                return Ok(None);
             }
-            // 登记的 assets 目录采用后，文件列表改用资产行和相对资产根的路径。
+            Stage::ContextFile
+        }
+        Stage::ContextFile => {
+            // 用正式文件列表双击，给中央打开独立文档，再核对每项右栏工具都保持它。
+            if let Some(center) = central(world).filter(|value| {
+                value["tab"] == "Document"
+                    && value["document"]
+                        .as_str()
+                        .is_some_and(|path| path.contains(CONTEXT))
+            }) {
+                run.center = center;
+                return Ok(Some(Stage::ContextSidebar));
+            }
             let row = if world.resource::<ProjectBrowserState>().assets_visible() {
                 let assets = world.resource::<EditorAssetCatalog>();
-                let index = assets.entries.iter().position(|item| item.asset_path == PATH);
-                index.and_then(|i| visible(world, |r: &SceneEditorAssetRow| r.entry_index == Some(i)))
+                let index = assets
+                    .entries
+                    .iter()
+                    .position(|item| item.asset_path == CONTEXT);
+                index.and_then(|i| {
+                    visible(world, |r: &SceneEditorAssetRow| r.entry_index == Some(i))
+                })
             } else {
                 let files = world.resource::<EditorProjectFileCatalog>();
-                let index = files.entries.iter().position(|item| item.asset_path == "assets");
+                let index = files
+                    .entries
+                    .iter()
+                    .position(|item| item.asset_path == "assets");
                 index.and_then(|i| visible(world, |r: &ProjectFileRow| r.entry_index == Some(i)))
             };
             click(world, &mut run.pointer, window, row);
             return Ok(None);
         }
+        Stage::ContextSidebar => {
+            // 双击资产会进入资产检查器；在中央文档仍打开时显式回到右侧交互。
+            let tab = visible(world, |button: &SceneEditorSidebarTabButton| {
+                button.0 == EditorSidebarTab::Left(EditorLeftSidebarTab::Gameplay)
+            });
+            if !click(world, &mut run.pointer, window, tab) {
+                return Ok(None);
+            }
+            Stage::ContextTools(0)
+        }
+        Stage::ContextTools(index) => return directory::on_document(world, run, window, index),
         Stage::Loaded => {
             if form::entity(world, "RulesWorkbench").is_none() {
                 return Ok(None);
@@ -219,15 +366,17 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
             let Some((source, dirty, ..)) = observe(world) else {
                 return Ok(None);
             };
-            let reopening = run.phase == "reopen";
+            let reopening = matches!(run.phase.as_str(), "reopen" | "draw-reopen");
             let expected = if reopening {
                 fs::read_to_string(run.work.join("project/assets").join(PATH))
                     .map_err(|e| e.to_string())?
+            } else if run.phase == "empty" {
+                EMPTY.to_owned()
             } else {
                 EXAMPLE.to_owned()
             };
             if dirty || source != expected.replace("\r\n", "\n") {
-                return Err("中央文档首次读取的规则正文与磁盘预期不符".into());
+                return Err("右栏表单首次读取的规则正文与磁盘预期不符".into());
             }
             Stage::Form(0)
         }
@@ -247,6 +396,9 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
             Stage::Input(valid)
         }
         Stage::Input(valid) => {
+            if visible(world, |source: &DocumentSource| source.key.is_some()).is_none() {
+                return Ok(None);
+            }
             let Some((_, _, true, _)) = observe(world) else {
                 return Ok(None);
             };
@@ -305,7 +457,7 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
                 return Ok(None);
             };
             run.form_shot = shot;
-            if run.phase == "reopen" {
+            if run.phase != "edit" {
                 finish(world, run, None);
                 Stage::Complete
             } else {
@@ -326,10 +478,20 @@ fn advance(world: &mut World, run: &mut Run, window: Entity) -> Result<Option<St
     Ok(Some(next))
 }
 
+fn button_diagnostic(world: &mut World, name: &str) -> String {
+    let Some(button) = form::entity(world, name) else {
+        return format!("{name}尚未可见");
+    };
+    let bounds = layout::bounds(world, button);
+    let interaction = world.get::<feathrise_editor_ui::UiInteraction>(button);
+    format!("{name} 边界 {bounds:?}，交互 {interaction:?}")
+}
+
 fn finish(world: &mut World, run: &mut Run, error: Option<String>) {
     let value = json!({"phase":run.phase,"passed":error.is_none(),"error":error,"stage":format!("{:?}",run.stage),
         "diagnostic":run.diagnostic,"screenshot":run.form_shot,"source_screenshot":run.source_shot,"saved_status":observe(world).map(|d|d.3),
-        "entry":if run.phase=="reopen"{"文件 → assets → 双击 project_rules.json"}else{"交互 → 从示例创建"},
+        "layout":run.layout,"direct_saves":run.direct_saves,
+        "entry":match run.phase.as_str(){"reopen"=>"交互 → 触发规则","draw-reopen"=>"交互 → 地点区域","empty"=>"交互 → 六项直达",_=>"交互 → 从示例创建"},
         "input":"Bevy WindowEvent（原生表单与源码输入、按钮、撤销和重做快捷键）","os_input_verified":false});
     let saved = evidence::report(&run.work.join(format!("rules-{}.json", run.phase)), &value);
     if let Err(error) = &saved {

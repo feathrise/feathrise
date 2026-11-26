@@ -24,7 +24,7 @@ pub(crate) mod courtyard; // 院落组合名称、多选、印章与整体操作
 pub(crate) mod delete_scene_dialog; // 可恢复场景删除的模态确认与冻结目标回显。
 pub(crate) mod editor_settings; // 偏好分组、固定动作与独立滚动；沿用编辑器设置模态所有权。
 pub(crate) mod environment; // 场景持久参数、世界调试与全局默认独立分区，真实IBL阶段增量回显。
-pub(crate) mod gameplay_sidebar; // 资产摆放、传送点与空气墙固定工具页及原状态反馈。
+pub(crate) mod gameplay_sidebar; // 交互目录、场景工具和工程规则入口。
 pub(crate) mod gltf_browser; // 已摆放GLB实例的Scene0节点与网格固定行浏览器。
 pub(crate) mod ime; // F12全部自定义文本框共享唯一最终IME所有权判定。
 pub(crate) mod layer_status; // 地表、植被作者组与独立水位层状态回显。

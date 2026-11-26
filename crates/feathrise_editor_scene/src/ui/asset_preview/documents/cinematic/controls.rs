@@ -41,6 +41,7 @@ pub(super) fn input(
     fields: Query<(&Field, &EditableText)>,
     markers: Query<(&MarkerWidget, &EditorButtonClick), Changed<EditorButtonClick>>,
     vp: Option<Res<crate::resources::SceneEditorViewportState>>,
+    authoring: Option<Res<crate::authoring::EditorAuthoringSession>>,
     camera: Query<(&Transform, &Projection)>,
     selected: Option<Res<crate::ui::gltf_browser::EditorGltfBrowserState>>,
     mut exports: MessageWriter<
@@ -115,6 +116,10 @@ pub(super) fn input(
                     feathrise_editor_documents_model::cinematic_export::OpenCinematicExport {
                         asset_root: docs.root.clone(),
                         asset_path: d.disk.path.clone(),
+                        scene: authoring
+                            .as_ref()
+                            .and_then(|session| session.draft.as_ref())
+                            .map(|draft| draft.scene_id.as_str().to_owned()),
                     },
                 );
             }

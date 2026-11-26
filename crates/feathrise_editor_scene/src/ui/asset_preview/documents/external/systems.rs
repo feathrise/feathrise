@@ -89,7 +89,8 @@ pub(in super::super) fn adopt(state: &mut DocumentState, reply: CheckReply) {
                 }
                 drop(contents);
             }
-            Ok((disk, contents)) if !state.documents[index].dirty() => {
+            Ok((disk, contents)) if !state.documents[index].dirty()
+                && state.rules_form_input.as_ref() != Some(&snapshot.key) => {
                 state.load_ticket = state.load_ticket.max(state.documents.iter().map(|doc| doc.generation).max().unwrap_or(0)).wrapping_add(1);
                 // IO核对期间可能又选择了待加载文件；更新其票据保留最新显式加载意图。
                 if let Some(request) = &mut state.pending_load {

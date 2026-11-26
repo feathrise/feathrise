@@ -31,7 +31,8 @@ const fn left_tab_for_tool(tool: EditorTool) -> EditorLeftSidebarTab {
         }
         EditorTool::Domain(id) => EditorLeftSidebarTab::Domain(id),
         EditorTool::Building | EditorTool::WallLine => EditorLeftSidebarTab::Building,
-        EditorTool::PlaceAsset | EditorTool::Portal | EditorTool::Boundary | EditorTool::MotionTrigger => {
+        EditorTool::PlaceAsset => EditorLeftSidebarTab::Scene,
+        EditorTool::Portal | EditorTool::Boundary | EditorTool::MotionTrigger | EditorTool::LocationRegion => {
             EditorLeftSidebarTab::Gameplay
         }
     }
@@ -394,7 +395,7 @@ mod tests {
             (EditorTool::RiverSpline, EditorLeftSidebarTab::Water), // 河流样条定位水域页。
             (EditorTool::Waterfall, EditorLeftSidebarTab::Water), // 瀑布工具定位水域页。
             (EditorTool::Domain("test.domain"), EditorLeftSidebarTab::Domain("test.domain")), // 场景角色定位角色页。
-            (EditorTool::PlaceAsset, EditorLeftSidebarTab::Gameplay), // 资产摆放定位玩法页。
+            (EditorTool::PlaceAsset, EditorLeftSidebarTab::Scene), // 旧显式点放工具与交互目录独立。
             (EditorTool::Portal, EditorLeftSidebarTab::Gameplay), // 传送点定位玩法页。
             (EditorTool::Boundary, EditorLeftSidebarTab::Gameplay), // 区域边界定位玩法页。
         ];
@@ -441,7 +442,7 @@ mod tests {
         app.world_mut().resource_mut::<SceneEditorState>().tool = EditorTool::PlaceAsset;
         app.update();
         let state = app.world().resource::<SceneEditorSidebarState>();
-        assert_eq!(state.left, EditorLeftSidebarTab::Gameplay);
+        assert_eq!(state.left, EditorLeftSidebarTab::Scene);
         assert_eq!(state.right, EditorRightSidebarTab::Assets);
     }
 

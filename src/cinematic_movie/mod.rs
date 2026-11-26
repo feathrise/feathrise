@@ -37,6 +37,7 @@ struct MoviePanel {
     target: PathBuf,
     document: Option<OpenCinematicExport>,
     status: String,
+    advanced: bool,
     replace: bool,
     running: Option<Running>,
 }
@@ -50,6 +51,7 @@ impl Plugin for CinematicMoviePlugin {
                 target: self.1.clone(),
                 document: None,
                 status: String::new(),
+                advanced: false,
                 replace: false,
                 running: None,
             })
@@ -58,16 +60,19 @@ impl Plugin for CinematicMoviePlugin {
                 (
                     ui::open,
                     ui::actions,
+                    ui::scroll,
                     ui::select_choice,
                     poll,
                     ui::choice_buttons,
                     ui::refresh,
                 )
                     .chain()
+                    .after(bevy::text::apply_text_edits)
                     .after(crate::project_export::ExportInput)
                     .before(crate::window_chrome::ChromeInput)
                     .before(crate::workspace_ui::WorkspaceUiSet::Input)
                     .before(crate::viewport_mode::ViewportModeInput)
+                    .before(feathrise_editor_ui::EditorUiSystemSet::NumericInput)
                     .before(feathrise_editor_core::SceneEditorSystemSet::Input),
             );
     }

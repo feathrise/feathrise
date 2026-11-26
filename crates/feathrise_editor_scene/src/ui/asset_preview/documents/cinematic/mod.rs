@@ -23,7 +23,6 @@ pub(crate) fn is_path(path: &str) -> bool {
         .and_then(|i| path.get(i..))
         .is_some_and(|s| s.eq_ignore_ascii_case(".cinematic.json"))
 }
-pub(crate) use binding::panel as binding_panel;
 pub use preview::{CinematicPreview, CinematicPreviewFrame};
 pub(crate) use view::FilmImage;
 #[derive(Message)]
@@ -60,8 +59,6 @@ struct Studio {
     settings: bool,
     control_camera: bool,
     control_player: bool,
-    /// 即使作者转回「交互」面板，也能按稳定 ID 绑定最近检查过的演出。
-    last_asset: Option<(std::path::PathBuf, String, String)>,
 }
 impl Studio {
     fn refresh(&mut self) {
@@ -170,13 +167,6 @@ fn sync(
                         s.key = Some(Identity {
                             revision,
                             ..job.key
-                        });
-                        s.last_asset = (!super::source::is_project(&document.path)).then(|| {
-                            (
-                                docs.root.clone(),
-                                prepared.timeline.film.id.clone(),
-                                prepared.timeline.film.name.clone(),
-                            )
                         });
                         s.timeline = Some(prepared.timeline);
                         if !same {

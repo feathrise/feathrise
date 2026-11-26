@@ -8,8 +8,8 @@ use feathrise_editor_ui::{NumericInputSpec, NumericInputScrubConfig, NumericScru
 use super::components::*;
 use crate::ui::{scene::FONT_PATH, theme as colors};
 
-fn button(label: &str, action: Action) -> impl Scene {
-    bsn! { InteractionButton ActionButton(action)
+fn button(label: &'static str, action: Action) -> impl Scene {
+    bsn! { ~{Name::new(label)} InteractionButton ActionButton(action)
         Node { height: px(25), flex_grow: 1.0, min_width: px(0), border: px(1),
             border_radius: BorderRadius::all(px(3)), align_items: AlignItems::Center,
             justify_content: JustifyContent::Center, padding: UiRect::horizontal(px(3)) }
@@ -47,10 +47,10 @@ pub(crate) fn panel() -> impl Scene {
         ]
     }
 }
-/// 创建入口归入顶部“玩法”，左侧场景树只显示真实存在的引用。
+/// 只在有效的所选场景目录属性中显示创建入口，场景树展示已有引用。
 pub(crate) fn creation_button() -> impl Scene {
-    bsn! { crate::components::SceneEditorSceneContext Node { width: percent(100), flex_shrink: 0.0 }
-        Children [@button("将目录所选场景添加为子场景", Action::Add)] }
+    bsn! { CreationSlot ~{Visibility::Hidden} Node { display: Display::None, width: percent(100), min_width: px(0), flex_shrink: 0.0 }
+        Children [@button("添加为子场景", Action::Add)] }
 }
 pub(super) fn setup(mut commands: Commands, slots: Query<(Entity, &Slot), Added<Slot>>, server: Res<AssetServer>) {
     for (entity, slot) in &slots {

@@ -6,11 +6,91 @@ use feathrise_editor_documents_model::project_rules::{
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) enum Tab {
+pub(crate) enum Tab {
     #[default]
     Variables,
     Rules,
     Locations,
+}
+impl Tab {
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Variables => "工程变量",
+            Self::Rules => "触发规则",
+            Self::Locations => "地点区域",
+        }
+    }
+    pub fn noun(self) -> &'static str {
+        match self {
+            Self::Variables => "变量",
+            Self::Rules => "规则",
+            Self::Locations => "地点",
+        }
+    }
+}
+
+/// 类型切换时暂存当前输入；只把作者最终选中的类型写入工程文件。
+#[derive(Default)]
+pub(super) struct AlternateInputs {
+    defaults: Vec<(ValueKind, String)>,
+    pub trigger: String,
+    pub action_name: String,
+    pub action_value: String,
+}
+impl AlternateInputs {
+    /// 快捷动作和自定义请求共用同一份请求字段；切回变量时恢复之前填写的变量和值。
+    pub fn change_effect(&mut self, form: &mut Form, effect: Effect) {
+        let request = effect != Effect::Set;
+        if request != form.request {
+            form.request = request;
+            std::mem::swap(&mut form.action_name, &mut self.action_name);
+            std::mem::swap(&mut form.action_value, &mut self.action_value);
+        }
+        if request && Effect::of(form) != effect {
+            form.action_name = match effect {
+                Effect::Play => "cinematic.play",
+                Effect::StartQuest => "quest.start",
+                _ => "",
+            }
+            .into();
+            form.action_value.clear();
+        }
+    }
+    pub fn change_type(&mut self, form: &mut Form, kind: ValueKind) {
+        let next = self
+            .defaults
+            .iter()
+            .position(|(stored, _)| *stored == kind)
+            .map(|index| self.defaults.swap_remove(index).1)
+            .unwrap_or_else(|| match kind {
+                ValueKind::Bool => "false".into(),
+                ValueKind::Number => "0".into(),
+                ValueKind::Text => String::new(),
+            });
+        let previous = std::mem::replace(&mut form.default_value, next);
+        self.defaults.push((form.kind, previous));
+        form.kind = kind;
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Effect {
+    Set,
+    Play,
+    StartQuest,
+    Other,
+}
+impl Effect {
+    pub fn of(form: &Form) -> Self {
+        if !form.request {
+            return Self::Set;
+        }
+        match form.action_name.as_str() {
+            "cinematic.play" => Self::Play,
+            "quest.start" => Self::StartQuest,
+            _ => Self::Other,
+        }
+    }
 }
 
 #[derive(bevy::prelude::Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,8 +138,9 @@ impl Default for Form {
     fn default() -> Self {
         Self {
             id: String::new(),
-            kind: ValueKind::Bool,
-            default_value: "false".into(),
+            // 数值行可直接填写 a 和 3；切换类型再采用该类型自己的初值。
+            kind: ValueKind::Number,
+            default_value: "0".into(),
             choices: String::new(),
             changed: false,
             trigger: String::new(),
@@ -186,8 +267,8 @@ impl Form {
         if self.changed {
             TriggerForm::Changed {
                 variable: self.trigger.trim().into(),
-                from: (self.use_from || !self.from.is_empty()).then(|| self.from.clone()),
-                to: (self.use_to || !self.to.is_empty()).then(|| self.to.clone()),
+                from: self.use_from.then(|| self.from.clone()),
+                to: self.use_to.then(|| self.to.clone()),
             }
         } else {
             TriggerForm::Event {
@@ -197,6 +278,9 @@ impl Form {
         }
     }
     pub fn variable(&self) -> Result<VariableForm, String> {
+        if self.id.trim().is_empty() {
+            return Err("请输入变量名称".into());
+        }
         Ok(VariableForm {
             id: self.id.trim().into(),
             kind: self.kind.clone(),
@@ -217,7 +301,7 @@ impl Form {
         })
     }
 }
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Selection {
     pub tab: Tab,
     pub item: Option<usize>,
@@ -236,7 +320,7 @@ pub(super) struct Sheet {
     pub model: RulesForm,
     pub events: Vec<String>,
     pub requests: Vec<String>,
-    pub var_index: BTreeMap<String, usize>,
+    indices: [BTreeMap<String, usize>; 3],
     pub event_targets: BTreeMap<String, Vec<String>>,
     pub request_targets: BTreeMap<String, Vec<String>>,
 }
@@ -258,11 +342,19 @@ const REQUESTS: &[(&str, &str)] = &[
 ];
 
 pub(super) fn choice_label<'a>(field: Field, form: &Form, id: &'a str) -> &'a str {
-    let entries = match field {
-        Field::Trigger if !form.changed => EVENTS,
-        Field::ActionName if form.request => REQUESTS,
-        _ => return id,
-    };
+    match field {
+        Field::Trigger if !form.changed => event_label(id),
+        Field::ActionName if form.request => request_label(id),
+        _ => id,
+    }
+}
+pub(super) fn event_label(id: &str) -> &str {
+    known_label(EVENTS, id)
+}
+pub(super) fn request_label(id: &str) -> &str {
+    known_label(REQUESTS, id)
+}
+fn known_label<'a>(entries: &'static [(&str, &str)], id: &'a str) -> &'a str {
     entries
         .iter()
         .find(|(key, _)| *key == id)
@@ -276,13 +368,9 @@ impl Sheet {
             REQUESTS.iter().map(|(id, _)| (*id).to_owned()).collect();
         let mut event_targets: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut request_targets: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        let var_index = model
-            .variables
-            .iter()
-            .enumerate()
-            .map(|(i, v)| (v.id.clone(), i))
-            .collect();
-        for rule in &model.rules {
+        let mut rule_indices = BTreeMap::new();
+        for (index, rule) in model.rules.iter().enumerate() {
+            rule_indices.insert(rule.id.clone(), index);
             if let TriggerForm::Event { event, target } = &rule.when {
                 events.insert(event.clone());
                 if let Some(t) = target {
@@ -307,14 +395,32 @@ impl Sheet {
                 .map(|(k, v)| (k, v.into_iter().collect()))
                 .collect()
         };
+        let indices = [
+            model
+                .variables
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (v.id.clone(), i))
+                .collect(),
+            rule_indices,
+            model
+                .locations
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (v.id.clone(), i))
+                .collect(),
+        ];
         Self {
             model,
             events: events.into_iter().collect(),
             requests: requests.into_iter().collect(),
-            var_index,
+            indices,
             event_targets: lists(event_targets),
             request_targets: lists(request_targets),
         }
+    }
+    pub fn position(&self, tab: Tab, id: &str) -> Option<usize> {
+        self.indices[tab as usize].get(id).copied()
     }
     pub fn len(&self, tab: Tab) -> usize {
         match tab {

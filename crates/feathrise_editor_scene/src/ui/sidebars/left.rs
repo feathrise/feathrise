@@ -132,11 +132,7 @@ fn gameplay_page() -> impl Scene {
             row_gap: px(3),
             padding: UiRect::top(px(3)),
         }
-        Children [
-            @sidebar_context_title("当前模块 · 交互工具")-- // 摆放、传送和边界均是交互页内工具。
-            @crate::ui::subscenes::creation_button()--
-            @gameplay_tools_panel()
-        ]
+        Children [@gameplay_tools_panel()]
     }
 }
 

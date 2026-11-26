@@ -43,17 +43,19 @@ pub(super) fn suggest<'a>(
                 .map(String::as_str);
         }
         Field::Default => {
-            if form.kind == ValueKind::Bool {
-                return ["false", "true"].get(i).copied();
+            // 布尔默认值有真／假按钮。数字不沿用原变量的布尔或文本候选。
+            if form.kind != ValueKind::Text {
+                return None;
             }
-            form.id.as_str()
+            let variable = m.variables.get(sheet.position(Tab::Variables, &form.id)?)?;
+            return variable.choices.as_ref()?.get(i).map(String::as_str);
         }
         Field::From | Field::To => form.trigger.as_str(),
         Field::ConditionValue => form.condition_variable.as_str(),
         Field::ActionValue => form.action_name.as_str(),
         _ => return None,
     };
-    let v = m.variables.get(*sheet.var_index.get(var)?)?;
+    let v = m.variables.get(sheet.position(Tab::Variables, var)?)?;
     if v.kind == ValueKind::Bool {
         ["false", "true"].get(i).copied()
     } else {
@@ -69,7 +71,46 @@ fn next(i: usize, len: usize, forward: bool) -> Option<usize> {
         }
     })
 }
-fn submit(s: &mut Studio, d: &DocumentState, change: Change, after: After) -> Result<(), String> {
+// 导航先算出明确的目标，当前字段校验成功以后才切换。点新建时始终保留一行空表单。
+fn destination(a: Action, current: Selection, sheet: &Sheet) -> Option<Selection> {
+    let tab = current.tab;
+    let len = sheet.len(tab);
+    let (tab, item) = match a {
+        Action::New => (tab, None),
+        Action::Row(_) | Action::Previous | Action::Next => {
+            let page = current.item.unwrap_or(0) / ROWS;
+            let i = match a {
+                Action::Row(slot) => page * ROWS + slot,
+                Action::Previous => page.checked_sub(1)? * ROWS,
+                _ => (page + 1) * ROWS,
+            };
+            if i >= len {
+                return None;
+            }
+            (tab, Some(i))
+        }
+        Action::ConditionPrevious | Action::ConditionNext => {
+            let count = current.rule(&sheet.model)?.conditions.len();
+            let condition = next(current.condition, count, a == Action::ConditionNext)?;
+            return Some(Selection {
+                condition,
+                ..current
+            });
+        }
+        Action::ActionPrevious | Action::ActionNext => {
+            let count = current.rule(&sheet.model)?.actions.len();
+            let action = next(current.action, count, a == Action::ActionNext)?;
+            return Some(Selection { action, ..current });
+        }
+        _ => return None,
+    };
+    Some(Selection {
+        tab,
+        item,
+        ..default()
+    })
+}
+fn submit(s: &mut Studio, d: &DocumentState, change: Change, save: bool) -> Result<(), String> {
     start(
         s,
         d,
@@ -77,7 +118,7 @@ fn submit(s: &mut Studio, d: &DocumentState, change: Change, after: After) -> Re
             change,
             form: s.form.clone(),
         }),
-        after,
+        save,
     )
 }
 pub(super) fn input(
@@ -90,8 +131,11 @@ pub(super) fn input(
     guard: Res<crate::resources::EditorTextInputGuard>,
     model: Option<Res<crate::workbench::WorkbenchModel>>,
     buttons: Query<(&Action, &EditorButtonClick), Changed<EditorButtonClick>>,
-    fields: Query<(Entity, &Field, &EditableText)>,
+    fields: Query<(Entity, &Field, Ref<EditableText>)>,
+    pointer: Query<&bevy::ui::RelativeCursorPosition, With<view::Panel>>,
     source: Query<Entity, With<DocumentSource>>,
+    mut workspace: Option<ResMut<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>>,
+    mut draw: MessageWriter<super::location_draw::DrawLocation>,
 ) {
     if !editor.open
         || editor.close_requested
@@ -102,16 +146,32 @@ pub(super) fn input(
     {
         return;
     }
+    if active_document(&docs)
+        .is_some_and(|d| docs.is_loading(&d.path) || docs.file_change_pending(&d.path))
+    {
+        return;
+    }
     let mut action = buttons
         .iter()
         .find_map(|(a, c)| c.is_clicked().then_some(*a));
     let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-    if control && !guard.block_shortcuts {
+    let shown = shown_document(&s, &docs).is_some();
+    if control && !guard.block_shortcuts && shown {
         // 查找框或其他面板拥有焦点时不截获其撤销。Ctrl+S 在当前文档内由表单统一收口。
-        let owns = focus.get().is_none_or(|e| fields.get(e).is_ok());
+        let owns = match focus.get() {
+            Some(entity) => fields.get(entity).is_ok(),
+            None => pointer
+                .single()
+                .is_ok_and(|position| position.cursor_over()),
+        };
         for (key, command, enabled) in [
-            (KeyCode::KeyS, Action::Save, !shift),
+            (
+                KeyCode::KeyS,
+                Action::Save,
+                owns && !shift
+                    && (s.editing_item || active_document(&docs).is_some_and(|d| d.dirty())),
+            ),
             (
                 KeyCode::KeyZ,
                 if shift { Action::Redo } else { Action::Undo },
@@ -126,9 +186,27 @@ pub(super) fn input(
             }
         }
     }
+    // 实时反映已确认的原生输入；移动光标、IME 候选或未变字段不会刷新整个面板。
+    if s.editing_item && s.sheet.is_some() && s.key.as_ref() == active(&docs).as_ref() {
+        for (_, field, text) in &fields {
+            if (action.is_some() || text.is_changed())
+                && !text.is_composing()
+                && view::field_shown(s.sel.tab, &s.form, *field)
+            {
+                let current = s.bypass_change_detection().form.field(*field);
+                if text.value() != current.as_str() {
+                    *current = text.value().to_string();
+                    s.notice.clear();
+                }
+            }
+        }
+    }
     let Some(a) = action else {
         return;
     };
+    if !shown {
+        return;
+    }
     if guard.block_shortcuts
         || fields.iter().any(|(_, _, t)| {
             t.is_composing() || t.pending_paste.is_some() || !t.pending_edits.is_empty()
@@ -137,52 +215,140 @@ pub(super) fn input(
         s.notice = "请先完成当前输入，再执行操作".into();
         return;
     }
-    if let Some(job) = s.job.as_mut() {
-        if matches!(a, Action::Save) && job.editing {
-            job.after = After::Save;
-        } else {
-            s.notice = "正在处理工程规则…".into();
+    let name_field = fields
+        .iter()
+        .find_map(|(e, f, _)| (*f == Field::Id).then_some(e));
+    let edit = !matches!(a, Action::Previous | Action::Next);
+    let name_focus = name_field.filter(|_| matches!(a, Action::New | Action::Row(_)));
+    if s.saving() {
+        if let Some(selection) = s.sheet.as_deref().and_then(|m| destination(a, s.sel, m)) {
+            s.files.next = Some((selection, edit, name_focus));
         }
         return;
     }
-    for (_, f, input) in &fields {
-        if view::field_shown(s.sel.tab, &s.form, *f) {
-            let dest = s.form.field(*f);
-            if input.value() != dest.as_str() {
-                *dest = input.value().to_string();
-            }
+    if let Some(job) = s.job.as_mut() {
+        if a == Action::Save && job.change.is_some() {
+            job.save = true;
         }
+        return;
     }
     focus.clear();
+    s.notice.clear();
+    if a == Action::DrawLocation {
+        if s.editing_item && s.sel.tab == Tab::Locations {
+            draw.write(super::location_draw::DrawLocation);
+        }
+        return;
+    }
     let result = (|| -> Result<(), String> {
         let sheet = s.sheet.clone();
-        if matches!(a, Action::Source | Action::Save) {
-            let after = if a == Action::Source {
-                After::Source
+        let leave_hint = format!(
+            "请先保存当前{}，或点「取消」放弃本次填写。",
+            s.sel.tab.noun()
+        );
+        if a == Action::Source {
+            if s.has_parked_input() {
+                return Err("请先保存或取消各工具中的未保存填写。".into());
+            } else if s.has_unsaved_input() {
+                return Err(leave_hint.clone());
+            }
+            let path = active_document(&docs)
+                .ok_or("工程规则尚未载入")?
+                .path
+                .clone();
+            let workspace = workspace.as_deref_mut().ok_or("中央文档编辑区不可用")?;
+            docs.expand(path, workspace)?;
+            active_document_mut(&mut docs)
+                .ok_or("工程规则尚未载入")?
+                .mode = ViewMode::Edit;
+            if let Ok(entity) = source.single() {
+                focus.set(entity, FocusCause::Navigated);
+            }
+            return Ok(());
+        }
+        if matches!(a, Action::KeepDraft | Action::Reload) {
+            let path = active_document(&docs)
+                .ok_or("工程规则尚未载入")?
+                .path
+                .clone();
+            if a == Action::KeepDraft {
+                docs.keep_draft(&path);
             } else {
-                After::Save
-            };
-            if sheet.is_some() && s.form != s.baseline {
-                submit(&mut s, &docs, Change::Apply, after)?;
+                docs.reload_document(&path, true);
+            }
+            return Ok(());
+        }
+        let doc = active_document_mut(&mut docs).ok_or("工程规则尚未载入")?;
+        if a == Action::Cancel {
+            s.cancel(doc);
+            return Ok(());
+        }
+        if a == Action::Save {
+            if doc.external.warning {
+                return Err("磁盘文件已被修改，保存已停止。请先处理文件冲突。".into());
+            }
+            if sheet.is_none() {
+                return Err("请先在高级源码修正规则文件".into());
+            }
+            if s.editing_item
+                && s.form.id.trim().is_empty()
+                && (s.sel.item.is_none() || s.form != s.baseline)
+            {
+                if let Some(entity) = name_field {
+                    focus.set(entity, FocusCause::Navigated);
+                }
+                return Err(format!("请输入{}名称", s.sel.tab.noun()));
+            }
+            if s.editing_item && (s.form != s.baseline || s.sel.item.is_none()) {
+                submit(&mut s, &docs, Change::Apply, true)?;
+            } else if doc.dirty() {
+                let message = if s.editing_item {
+                    format!("{}「{}」已保存", s.sel.tab.noun(), s.form.id)
+                } else {
+                    "工程规则已保存".into()
+                };
+                s.queue_write(doc, message, None);
             } else {
-                finish(&mut docs, after, &mut focus, source.single().ok());
+                s.editing_item = false;
+                s.notice = format!("当前{}没有需要保存的修改", s.sel.tab.noun());
             }
             return Ok(());
         }
         if matches!(a, Action::Undo | Action::Redo) {
-            if let Some(doc) = docs.current_mut() {
-                doc.travel(a == Action::Redo);
+            // 还没应用的无效名称或取值也能撤回，避免导航校验把作者困在表单里。
+            if s.form != s.baseline {
+                if a == Action::Redo {
+                    return Err("请先保存或撤销本次填写，再重做".into());
+                }
+                s.hydrate();
+                s.notice = "已撤销本次填写".into();
+                return Ok(());
             }
-            s.notice.clear();
+            if (a == Action::Redo && doc.history.can_redo())
+                || (a == Action::Undo && doc.history.can_undo())
+            {
+                s.remember(doc);
+                doc.travel(a == Action::Redo);
+                s.track_edit(doc);
+            }
             return Ok(());
         }
         let m = sheet
             .as_ref()
             .ok_or("请先在高级源码修复文件，或等待规则加载完成")?;
-        let tab = s.sel.tab;
-        s.notice.clear();
+        if let Some(selection) = destination(a, s.sel, m) {
+            if s.editing_item && a != Action::New && selection == s.sel {
+                return Ok(());
+            }
+            let leaves_item =
+                selection.tab != s.sel.tab || selection.item != s.sel.item || a == Action::New;
+            if s.form != s.baseline || (leaves_item && s.has_unsaved_input()) {
+                return Err(leave_hint);
+            }
+            s.select(selection, edit, name_focus, &mut focus);
+            return Ok(());
+        }
         let change = match a {
-            Action::Apply => Some(Change::Apply),
             Action::Delete => Some(Change::Delete),
             Action::ConditionAdd => Some(Change::ConditionAdd),
             Action::ConditionDelete => Some(Change::ConditionDelete),
@@ -195,85 +361,38 @@ pub(super) fn input(
             _ => None,
         };
         if let Some(change) = change {
-            if change != Change::Apply || s.sel.item.is_none() || s.form != s.baseline {
-                submit(&mut s, &docs, change, After::Stay)?;
+            if change == Change::Delete && doc.external.warning {
+                return Err("磁盘文件已被修改，删除已停止。请先处理文件冲突。".into());
             }
+            submit(&mut s, &docs, change, change == Change::Delete)?;
             return Ok(());
         }
         match a {
-            Action::Tab(t) => s.select(t, (m.len(t) > 0).then_some(0)),
-            Action::New => s.select(tab, None),
-            Action::Row(slot) => {
-                let i = s.sel.item.unwrap_or(0) / ROWS * ROWS + slot;
-                if i < m.len(tab) {
-                    s.select(tab, Some(i));
-                }
+            Action::Type(kind) if kind != s.form.kind => {
+                let s = &mut *s;
+                s.alternate.change_type(&mut s.form, kind);
+                s.suggest = None;
             }
-            Action::Previous | Action::Next => {
-                let i = s.sel.item.map_or_else(
-                    || (m.len(tab) > 0).then_some(0),
-                    |i| next(i, m.len(tab), a == Action::Next),
-                );
-                s.select(tab, i);
-            }
-            Action::Type => {
-                s.form.kind = match s.form.kind {
-                    ValueKind::Bool => ValueKind::Number,
-                    ValueKind::Number => ValueKind::Text,
-                    ValueKind::Text => ValueKind::Bool,
-                };
-                s.form.default_value = match s.form.kind {
-                    ValueKind::Bool => "false",
-                    ValueKind::Number => "0",
-                    ValueKind::Text => "",
-                }
-                .into();
-            }
-            Action::Trigger => {
-                s.form.changed = !s.form.changed;
-                s.form.trigger.clear();
+            Action::BoolDefault(value) => s.form.default_value = value.to_string(),
+            Action::Trigger(changed) if changed != s.form.changed => {
+                let s = &mut *s;
+                s.form.changed = changed;
+                std::mem::swap(&mut s.form.trigger, &mut s.alternate.trigger);
                 s.suggest = None;
             }
             Action::Once => s.form.once = !s.form.once,
             Action::From => {
                 s.form.use_from = !s.form.use_from;
-                if !s.form.use_from {
-                    s.form.from.clear();
-                }
+                s.suggest = None;
             }
             Action::To => {
                 s.form.use_to = !s.form.use_to;
-                if !s.form.use_to {
-                    s.form.to.clear();
-                }
-            }
-            Action::ActionType => {
-                s.form.request = !s.form.request;
-                s.form.action_name.clear();
-                s.form.action_value.clear();
                 s.suggest = None;
             }
-            Action::ConditionPrevious | Action::ConditionNext => {
-                if let Some(r) = s.sel.rule(&m.model)
-                    && let Some(i) = next(
-                        s.sel.condition,
-                        r.conditions.len(),
-                        a == Action::ConditionNext,
-                    )
-                {
-                    s.sel.condition = i;
-                    s.form.set_condition(r.conditions.get(i));
-                    s.baseline.set_condition(r.conditions.get(i));
-                }
-            }
-            Action::ActionPrevious | Action::ActionNext => {
-                if let Some(r) = s.sel.rule(&m.model)
-                    && let Some(i) = next(s.sel.action, r.actions.len(), a == Action::ActionNext)
-                {
-                    s.sel.action = i;
-                    s.form.set_action(r.actions.get(i));
-                    s.baseline.set_action(r.actions.get(i));
-                }
+            Action::ActionType(effect) => {
+                let s = &mut *s;
+                s.alternate.change_effect(&mut s.form, effect);
+                s.suggest = None;
             }
             Action::Suggest(f) => s.suggest = Some((f, 0)),
             Action::OptionsPrevious | Action::OptionsNext => {

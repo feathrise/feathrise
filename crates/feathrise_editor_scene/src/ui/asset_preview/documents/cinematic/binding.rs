@@ -1,6 +1,6 @@
-//! 「交互」在同一个工程规则草稿中新增带稳定演出 ID 的动作，保留已有规则、外部版本及保存回执。
+//! 从当前四轨演出创建事件规则；进入触发规则工作台后沿用原文档的保存与撤销。
+use super::super::rules::{RevealBoundRule, Studio as RulesStudio};
 use super::*;
-use crate::ui::file_manager::OpenManagedFile;
 use bevy::{
     input_focus::InputFocus,
     tasks::IoTaskPool,
@@ -17,7 +17,16 @@ pub(super) enum BindingField {
 #[derive(Component, Clone, Default)]
 pub(super) struct Bind;
 #[derive(Component, Clone, Default)]
-struct BoundFilm;
+pub(super) struct ToggleBinding;
+#[derive(Component, Clone, Default)]
+struct BindingOptions;
+
+pub(super) fn toggle_button() -> impl Scene {
+    bsn! {ToggleBinding InteractionButton
+    Node{height:px(22),padding:UiRect::horizontal(px(5)),align_items:AlignItems::Center,border:px(1),border_radius:BorderRadius::all(px(3))}
+    BackgroundColor(c::SLOT_BG) BorderColor::all(c::COPPER_BORDER_WEAK)
+    Children[Text("绑定触发规则…") TextColor(c::TEXT_PRIMARY) TextFont{font:FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(feathrise_editor_core::FONT_PATH)),font_size:px(11)} Pickable::IGNORE]}
+}
 fn field(kind: BindingField, label: &'static str, initial: &'static str) -> impl Scene {
     bsn! {Node{width:percent(100),column_gap:px(3),height:px(24),flex_shrink:0.0,align_items:AlignItems::Center}
     Children[Text(label) TextColor(c::TEXT_MUTED) TextFont{font:FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(feathrise_editor_core::FONT_PATH)),font_size:px(11)}
@@ -27,15 +36,65 @@ fn field(kind: BindingField, label: &'static str, initial: &'static str) -> impl
     TextColor(c::TEXT_VALUE) BackgroundColor(c::INPUT_BG) BorderColor::all(c::COPPER_BORDER_WEAK)
     Node{flex_grow:1.0,min_width:px(25),height:px(22),border:px(1),padding:UiRect::horizontal(px(3)),overflow:Overflow::clip()}]}
 }
-pub(crate) fn panel() -> impl Scene {
-    bsn! {Node{width:percent(100),flex_direction:FlexDirection::Column,flex_shrink:0.0,row_gap:px(2)}
+pub(super) fn panel() -> impl Scene {
+    bsn! {BindingOptions Node{display:Display::None,width:percent(100),flex_direction:FlexDirection::Column,flex_shrink:0.0,row_gap:px(2)}
     Children[
-    @crate::ui::context_help::section_header("剧情演出触发","打开一个剧情演出后，在此填写触发事件与可选目标。进入地点可用 location.entered 配合地点 ID，完成任务可用 quest.completed 配合任务 ID。确认会打开工程规则草稿，保存后在游戏生效。")--
-    BoundFilm Text("请先双击一个剧情演出资产") TextColor(c::TEXT_MUTED) TextFont{font:FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(feathrise_editor_core::FONT_PATH)),font_size:px(11)}
-    -- @field(BindingField::Event,"事件","location.entered")-- @field(BindingField::Target,"目标","")--
+    @field(BindingField::Event,"事件","location.entered")-- @field(BindingField::Target,"目标（可选）","")--
     Bind InteractionButton Node{height:px(23),padding:UiRect::horizontal(px(5)),align_items:AlignItems::Center} BackgroundColor(c::SLOT_BG)
-    Children[Text("将演出绑定到事件") TextColor(c::TEXT_PRIMARY) TextFont{font:FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(feathrise_editor_core::FONT_PATH)),font_size:px(11)} Pickable::IGNORE]
+    Children[Text("创建触发规则") TextColor(c::TEXT_PRIMARY) TextFont{font:FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(feathrise_editor_core::FONT_PATH)),font_size:px(11)} Pickable::IGNORE]
     ]}
+}
+/// 选项属于展开它的演出标签。切到另一个演出，旧目标不会被当成当前绑定。
+fn toggle(
+    docs: Res<DocumentState>,
+    buttons: Query<&EditorButtonClick, (Changed<EditorButtonClick>, With<ToggleBinding>)>,
+    mut nodes: Query<
+        (&mut Node, Has<ToggleBinding>),
+        Or<(With<ToggleBinding>, With<BindingOptions>)>,
+    >,
+    mut fields: Query<(&BindingField, &mut EditableText)>,
+    mut opened: Local<Option<(String, u64)>>,
+) {
+    let doc = docs.current().filter(|d| {
+        docs.in_center()
+            && is_path(&d.path)
+            && !super::super::source::is_project(&d.path)
+            && d.mode == ViewMode::Preview
+    });
+    let owns = |opened: &Option<(String, u64)>| {
+        doc.is_some_and(|d| {
+            opened
+                .as_ref()
+                .is_some_and(|(p, g)| p == &d.path && *g == d.generation)
+        })
+    };
+    if buttons.iter().any(EditorButtonClick::is_clicked)
+        && let Some(d) = doc
+    {
+        if owns(&opened) {
+            *opened = None;
+        } else {
+            *opened = Some((d.path.clone(), d.generation));
+            for (kind, mut text) in &mut fields {
+                let initial = if *kind == BindingField::Event {
+                    "location.entered"
+                } else {
+                    ""
+                };
+                crate::ui::text_input::replace_single_line_value(&mut text, initial, None);
+            }
+        }
+    }
+    for (mut node, button) in &mut nodes {
+        let display = if (button && doc.is_some()) || owns(&opened) {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != display {
+            node.display = display;
+        }
+    }
 }
 struct Intent {
     root: PathBuf,
@@ -45,6 +104,7 @@ struct Intent {
     target: String,
 }
 struct Pending {
+    film: Identity,
     intent: Intent,
     phase: Phase,
 }
@@ -53,8 +113,13 @@ enum Phase {
     Waiting(PathBuf),
     Edit {
         key: Identity,
-        result: Task<Result<(Arc<str>, Vec<Arc<str>>), String>>,
+        result: Task<Result<InsertedRule, String>>,
     },
+}
+pub(super) struct InsertedRule {
+    pub index: usize,
+    pub source: Arc<str>,
+    pages: Vec<Arc<str>>,
 }
 pub(super) fn insert(
     source: &str,
@@ -62,7 +127,7 @@ pub(super) fn insert(
     target: &str,
     id: &str,
     crlf: bool,
-) -> Result<(Arc<str>, Vec<Arc<str>>), String> {
+) -> Result<InsertedRule, String> {
     let mut v: Value = serde_json::from_str(source).map_err(|e| e.to_string())?;
     let rules = v
         .get_mut("rules")
@@ -79,6 +144,7 @@ pub(super) fn insert(
     {
         return Err("这个事件已经绑定到所选演出".into());
     }
+    let index = rules.len();
     rules.push(json!({"id":format!("play_{}",bevy::asset::uuid::Uuid::new_v4().simple()),"when":when,"actions":[action]}));
     let text = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())? + "\n";
     let data = if crlf {
@@ -86,12 +152,16 @@ pub(super) fn insert(
     } else {
         text.clone()
     };
-    Ok((text.into(), super::super::io::source_pages(&data)))
+    Ok(InsertedRule {
+        index,
+        source: text.into(),
+        pages: super::super::io::source_pages(&data),
+    })
 }
 pub(super) fn install(app: &mut App) {
     app.add_systems(
         Update,
-        drive
+        (toggle, drive)
             .in_set(crate::SceneEditorSystemSet::Tasks)
             .after(super::sync)
             .after(super::super::project_files::open_managed),
@@ -99,44 +169,37 @@ pub(super) fn install(app: &mut App) {
 }
 fn drive(
     s: Res<Studio>,
+    mut rules: ResMut<RulesStudio>,
     mut docs: ResMut<DocumentState>,
     mut editor: ResMut<crate::resources::SceneEditorState>,
     mut focus: ResMut<InputFocus>,
     buttons: Query<&EditorButtonClick, (With<Bind>, Changed<EditorButtonClick>)>,
     fields: Query<(&BindingField, &EditableText)>,
-    mut open: MessageWriter<OpenManagedFile>,
+    mut reveal: MessageWriter<RevealBoundRule>,
     mut pending: Local<Option<Pending>>,
-    mut labels: Query<&mut Text, With<BoundFilm>>,
+    mut sidebar: ResMut<crate::ui::sidebars::SceneEditorSidebarState>,
+    mut pages: ResMut<crate::ui::gameplay_sidebar::GameplaySidebarState>,
 ) {
-    let selected = s
-        .last_asset
-        .as_ref()
-        .filter(|(root, _, _)| root == &docs.root);
-    for mut t in &mut labels {
-        let value = selected.map_or("请先双击一个剧情演出资产", |(_, _, name)| {
-            name.as_str()
-        });
-        if t.as_str() != value {
-            **t = value.into();
-        }
-    }
     if !editor.open || editor.close_requested {
         pending.take();
         return;
     }
     if let Some(job) = pending.as_mut() {
-        if docs.root != job.intent.root || docs.project_root.as_ref() != Some(&job.intent.project) {
+        if docs.root != job.intent.root
+            || docs.project_root.as_ref() != Some(&job.intent.project)
+            || active(&docs).as_ref() != Some(&job.film)
+        {
             pending.take();
             return;
         }
         match &mut job.phase {
             Phase::Open(work) => {
                 if let Some(r) = check_ready(work) {
-                    match r {
-                        Ok((path, _)) => {
-                            open.write(OpenManagedFile { path: path.clone() });
-                            job.phase = Phase::Waiting(path);
-                        }
+                    match r.and_then(|(path, _)| {
+                        super::super::rules::load_sidebar_project_rules_document(&mut docs, &path)?;
+                        Ok(path)
+                    }) {
+                        Ok(path) => job.phase = Phase::Waiting(path),
                         Err(e) => {
                             editor.status = e;
                             pending.take();
@@ -145,10 +208,9 @@ fn drive(
                 }
             }
             Phase::Waiting(path) => {
-                if docs.in_center()
-                    && let Some(d) = docs
-                        .current()
-                        .filter(|d| d.disk.project_rules && d.disk.path == *path)
+                if let Some(d) = docs
+                    .rules_sidebar_document()
+                    .filter(|d| d.disk.path == *path)
                 {
                     let src = d.source.clone();
                     let err = docs.file_change_pending(&d.path) || docs.is_loading(&d.path);
@@ -173,17 +235,8 @@ fn drive(
                         result: AsyncComputeTaskPool::get()
                             .spawn(async move { insert(&src, &e, &t, &id, crlf) }),
                     };
-                } else if docs.expanded.as_ref().is_none_or(|tab| {
-                    tab.path != feathrise_editor_documents_model::project_rules::PATH
-                }) || docs.io.is_none()
-                    && docs.pending_load.is_none()
-                    && !docs.error.is_empty()
-                {
-                    editor.status = if docs.error.is_empty() {
-                        "规则标签已切换或打开被中止，可重新绑定".into()
-                    } else {
-                        docs.error.clone()
-                    };
+                } else if !docs.sidebar_rules.error.is_empty() {
+                    editor.status.clone_from(&docs.sidebar_rules.error);
                     pending.take();
                 }
             }
@@ -195,11 +248,31 @@ fn drive(
                             && d.revision == key.revision
                     }) {
                         match result {
-                            Ok((src, pages)) => {
-                                d.replace_content(src, pages, default());
-                                // 同一份草稿交回可视化规则工作台，作者可以继续调整条件和动作。
+                            Ok(added) => {
+                                if let Err(error) =
+                                    rules.stage_bound_rule(d, added.source, added.pages)
+                                {
+                                    editor.status = error;
+                                    pending.take();
+                                    return;
+                                }
                                 d.mode = ViewMode::Preview;
-                                editor.status = "已将演出加入工程规则草稿，按 Ctrl+S 保存".into();
+                                // 索引对应本次追加后的确切修订。由表单定位并交给作者显式保存当前文件。
+                                reveal.write(RevealBoundRule {
+                                    path: d.path.clone(),
+                                    generation: d.generation,
+                                    revision: d.revision,
+                                    index: added.index,
+                                });
+                                sidebar.left = crate::ui::sidebars::EditorLeftSidebarTab::Gameplay;
+                                sidebar.right = sidebar.left.work_page();
+                                pages.page =
+                                    crate::ui::gameplay_sidebar::GameplaySidebarPage::Rules;
+                                super::super::select_loaded_sidebar_project_rules_section(
+                                    &mut docs,
+                                    super::super::ProjectRulesSection::Rules,
+                                );
+                                editor.status = "已绑定演出，点击「保存规则」写入工程".into();
                             }
                             Err(e) => editor.status = e,
                         }
@@ -215,14 +288,17 @@ fn drive(
     if !buttons.iter().any(EditorButtonClick::is_clicked) {
         return;
     }
-    let Some((root, id, _)) = selected else {
-        editor.status = "请先在工程资产内打开要绑定的剧情演出".into();
+    // 绑定的是此刻展示的有效修订。标签刚切换或源文件重载时不能沿用上个演出的 ID。
+    let current = active(&docs)
+        .filter(|k| !super::super::source::is_project(&k.path) && s.key.as_ref() == Some(k));
+    let Some((owner, film)) = current.zip(s.timeline.as_ref()) else {
+        editor.status = "请等当前工程演出载入后再绑定触发规则".into();
         return;
     };
     let Some(project) = docs.project_root.clone() else {
         return;
     };
-    let root = root.clone();
+    let root = docs.root.clone();
     let mut event = String::new();
     let mut target = String::new();
     for (k, input) in &fields {
@@ -255,10 +331,11 @@ fn drive(
         intent: Intent {
             project,
             root,
-            id: id.clone(),
+            id: film.film.id.clone(),
             event,
             target,
         },
+        film: owner,
         phase: Phase::Open(work),
     });
 }

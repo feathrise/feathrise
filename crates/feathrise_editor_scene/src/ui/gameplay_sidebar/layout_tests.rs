@@ -6,6 +6,37 @@ use super::*;
 use bevy::text::LineHeight;
 
 #[test]
+fn directory_keeps_the_same_two_columns_at_both_widths() {
+    let (mut app, host) = page(false);
+    let rows = [
+        (GameplaySidebarPage::Portal, GameplaySidebarPage::Boundary),
+        (GameplaySidebarPage::MotionTrigger, GameplaySidebarPage::Locations),
+        (GameplaySidebarPage::Variables, GameplaySidebarPage::Rules),
+    ];
+    let mut original = None;
+    for width in [200.0, 420.0] {
+        app.world_mut().get_mut::<Node>(host).unwrap().width = px(width);
+        settle(&mut app);
+        let world = app.world_mut();
+        let entries: Vec<_> = world.query::<(&GameplaySidebarTab, &ComputedNode, &UiGlobalTransform, &Children)>().iter(world)
+            .map(|(tab, node, position, children)| (tab.0, node.size(), position.translation, children[0])).collect();
+        assert_eq!(entries.len(), 6);
+        for &(page, size, _, text) in &entries {
+            let label = world.get::<ComputedNode>(text).unwrap().size();
+            assert!(label.x > 0.0 && label.y > 0.0 && label.x <= size.x && label.y <= size.y, "{}: {label:?}/{size:?}", page.label());
+        }
+        let positions = rows.map(|(left, right)| {
+            let center = |page| entries.iter().find(|entry| entry.0 == page).unwrap().2;
+            let (left, right) = (center(left), center(right));
+            assert!(left.x < right.x && (left.y - right.y).abs() <= 1.0);
+            left.y
+        });
+        assert!(positions[0] < positions[1] && positions[1] < positions[2]);
+        assert_eq!(*original.get_or_insert(positions), positions);
+    }
+}
+
+#[test]
 fn wall_objects_use_centered_small_buttons_and_fixed_single_line_name_field() {
     use crate::ui::theme as colors;
     let (mut app, _) = page(false);
@@ -114,11 +145,8 @@ fn wall_objects_use_centered_small_buttons_and_fixed_single_line_name_field() {
 }
 
 #[test]
-fn all_tool_pages_fit_real_cjk_font_widths_scales_and_dpi_without_moving_tabs() {
+fn portal_and_wall_fit_real_cjk_font_widths_scales_and_dpi_without_moving_tabs() {
     let (mut app, host) = page(false);
-    app.world_mut()
-        .resource_mut::<SceneEditorState>()
-        .selected_asset = Some("gltf/很长的中文目录/用于验证窄栏换行的完整资产文件名称.glb".into());
     app.world_mut().resource_mut::<SceneEditorState>().status =
         "作者操作失败的完整反馈与中文路径需要在窄栏中保持可读。".repeat(12);
     {
@@ -143,7 +171,6 @@ fn all_tool_pages_fit_real_cjk_font_widths_scales_and_dpi_without_moving_tabs() 
                     camera.computed.target_info.as_mut().unwrap().scale_factor = dpi;
                 }
                 for target in [
-                    GameplaySidebarPage::Asset,
                     GameplaySidebarPage::Portal,
                     GameplaySidebarPage::Boundary,
                 ] {

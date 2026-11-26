@@ -5,7 +5,11 @@ use super::{
     context::AnimationContext,
     resources::{AnimationEditorState, Edit, PendingAction},
 };
-use bevy::{prelude::*, text::FontSourceTemplate, ui::RelativeCursorPosition};
+use bevy::{
+    prelude::*,
+    text::FontSourceTemplate,
+    ui::{InteractionDisabled, RelativeCursorPosition},
+};
 use feathrise_editor_animation_model::{
     data::Channel,
     media::{AssetPreviewState, AssetPreviewWorkspace},
@@ -26,6 +30,15 @@ enum ButtonKind {
 struct Graph;
 #[derive(Component, Clone, Default)]
 struct AxisRow;
+#[derive(Component, Clone, Copy)]
+enum ScaleLabel {
+    High,
+    Low,
+    Start,
+    End,
+}
+#[derive(Component, Clone, Default)]
+struct GraphArea;
 #[derive(Component, Clone, Copy)]
 enum Part {
     Segment(usize),
@@ -78,6 +91,16 @@ fn button(label: &'static str, kind: ButtonKind) -> impl Scene {
     }
 }
 
+const VALUE_GUTTER: f32 = 76.0;
+
+fn scale_label(label: ScaleLabel) -> impl Scene {
+    bsn! {
+        ~{label} Text("") Pickable::IGNORE TextLayout::no_wrap()
+        TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(feathrise_editor_core::FONT_PATH)),
+            font_size: px(metrics::FONT_HINT) } TextColor(colors::TEXT_MUTED)
+    }
+}
+
 pub(super) fn panel() -> impl Scene {
     bsn! { Node { width: percent(100), flex_direction: FlexDirection::Column, flex_shrink: 0.0 }
         Children [
@@ -85,9 +108,20 @@ pub(super) fn panel() -> impl Scene {
             Children [@button("曲线", ButtonKind::Toggle)--
                 AxisRow Node { display: Display::None, column_gap: px(3) }
                 Children [@button("X", ButtonKind::Axis(0))-- @button("Y", ButtonKind::Axis(1))-- @button("Z", ButtonKind::Axis(2))]]
-            -- Graph Displayed::default() InteractionButton RelativeCursorPosition::default()
-            Node { display: Display::None, width: percent(100), height: px(102), flex_shrink: 0.0, overflow: Overflow::clip() }
-            BackgroundColor(colors::PANEL_BG_STRONG)
+            -- GraphArea Node { display: Display::None, flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
+            Children [
+                Node { min_width: px(0), height: px(102), flex_shrink: 0.0 }
+                Children [
+                    Node { width: px(VALUE_GUTTER), flex_shrink: 0.0, flex_direction: FlexDirection::Column,
+                        justify_content: JustifyContent::SpaceBetween }
+                    Children [@scale_label(ScaleLabel::High)-- @scale_label(ScaleLabel::Low)]--
+                    Graph Displayed::default() InteractionButton RelativeCursorPosition::default()
+                    Node { flex_grow: 1.0, min_width: px(0), overflow: Overflow::clip(), border: px(1) }
+                    BackgroundColor(colors::PANEL_BG_STRONG) BorderColor::all(colors::COPPER_BORDER_WEAK)
+                ]--
+                Node { margin: UiRect::left(px(VALUE_GUTTER)), justify_content: JustifyContent::SpaceBetween }
+                Children [@scale_label(ScaleLabel::Start)-- @scale_label(ScaleLabel::End)]
+            ]
         ]
     }
 }
@@ -116,7 +150,7 @@ pub(super) fn install(app: &mut App) {
 fn reveal_graph(
     mut curve: ResMut<CurveEditor>,
     state: Res<AnimationEditorState>,
-    graph: Query<(Entity, &ComputedNode, &UiGlobalTransform), With<Graph>>,
+    graph: Query<(Entity, &ComputedNode, &UiGlobalTransform), With<GraphArea>>,
     parents: Query<&ChildOf>,
     mut scrollers: Query<(
         &Node,
@@ -300,7 +334,8 @@ fn input(
         }
         match *kind {
             ButtonKind::Toggle => {
-                curve.open_source = (curve.open_source.is_none()).then_some(state.source_revision);
+                curve.open_source = (curve.open_source != Some(state.source_revision))
+                    .then_some(state.source_revision);
                 curve.reveal = curve.open_source.is_some();
             }
             ButtonKind::Axis(axis) => curve.axis = axis,
@@ -421,15 +456,34 @@ fn layout(node: &mut Node, transform: &mut UiTransform, a: Vec2, b: Vec2, width:
 
 #[allow(clippy::type_complexity)]
 fn render(
+    mut commands: Commands,
     state: Res<AnimationEditorState>,
     curve: Res<CurveEditor>,
     mut graphs: Query<
         (&ComputedNode, &mut Node, &mut Displayed),
-        (With<Graph>, Without<Part>, Without<AxisRow>),
+        (
+            With<Graph>,
+            Without<Part>,
+            Without<AxisRow>,
+            Without<GraphArea>,
+        ),
     >,
-    mut axes: Query<&mut Node, (With<AxisRow>, Without<Graph>, Without<Part>)>,
+    mut areas: Query<
+        &mut Node,
+        (
+            Or<(With<AxisRow>, With<GraphArea>)>,
+            Without<Graph>,
+            Without<Part>,
+        ),
+    >,
     mut parts: Query<(&Part, &mut Node, &mut UiTransform)>,
-    mut buttons: Query<(&ButtonKind, &mut BackgroundColor)>,
+    mut buttons: Query<(
+        Entity,
+        &ButtonKind,
+        Has<InteractionDisabled>,
+        &mut BackgroundColor,
+    )>,
+    mut labels: Query<(&ScaleLabel, &mut Text)>,
     mut last: Local<Option<(Target, usize, Vec2, u32, u32, Option<(bool, u32)>)>>,
 ) {
     let Ok((computed, mut node, mut displayed)) = graphs.single_mut() else {
@@ -446,12 +500,23 @@ fn render(
     if node.display != display {
         node.display = display;
     }
-    if let Ok(mut row) = axes.single_mut()
-        && row.display != display
-    {
-        row.display = display;
+    for mut area in &mut areas {
+        if area.display != display {
+            area.display = display;
+        }
     }
-    for (action, mut background) in &mut buttons {
+    for (entity, action, disabled, mut background) in &mut buttons {
+        // 旋转和其他无曲线轨道不会再留下一个点击后无反馈的入口。
+        if matches!(action, ButtonKind::Toggle) {
+            let available = state.editable() && selected.is_some();
+            if available == disabled {
+                if available {
+                    commands.entity(entity).remove::<InteractionDisabled>();
+                } else {
+                    commands.entity(entity).insert(InteractionDisabled);
+                }
+            }
+        }
         let selected = match *action {
             ButtonKind::Toggle => visible,
             ButtonKind::Axis(i) => i == curve.axis,
@@ -531,6 +596,28 @@ fn render(
         },
         |d| d.plot,
     );
+    // 刻度和指针共用冻结的 Plot。拖动时保持量程不变，松开后按新曲线重新计算。
+    let unit = if channel.path == "translation" {
+        "m"
+    } else {
+        "×"
+    };
+    for (label, mut text) in &mut labels {
+        let (value, unit) = match label {
+            ScaleLabel::High => (plot.high, unit),
+            ScaleLabel::Low => (plot.low, unit),
+            ScaleLabel::Start => (plot.start, "s"),
+            ScaleLabel::End => (plot.start + plot.span, "s"),
+        };
+        let caption = if value == 0.0 || (0.001..1000.0).contains(&value.abs()) {
+            format!("{value:.3} {unit}")
+        } else {
+            format!("{value:.2e} {unit}")
+        };
+        if text.as_str() != caption {
+            **text = caption;
+        }
+    }
     displayed.0 = Some((target, plot));
     let key_point = key.map(|k| plot.point(k.time, k.value[axis]) * size);
     let handle = |outgoing: bool| handles[outgoing as usize].map(|p| plot.point(p.x, p.y) * size);

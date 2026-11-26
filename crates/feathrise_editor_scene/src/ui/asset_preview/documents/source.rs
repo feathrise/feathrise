@@ -78,7 +78,8 @@ impl DocumentState {
             return Err("文件会话属于另一工程，请先正常关闭旧工程".into());
         }
         if let Some(assets) = assets.filter(|assets| *assets != self.root.as_path()) {
-            if !self.documents.is_empty() || self.expanded() || self.io.is_some() || self.pending_load.is_some() {
+            if !self.documents.is_empty() || self.expanded() || self.io.is_some()
+                || self.pending_load.is_some() || self.sidebar_rules.pending.is_some() {
                 return Err("现有文档会话尚未收口，不能更换工程文件来源".into());
             }
             self.root = assets.to_path_buf();

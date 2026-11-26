@@ -79,6 +79,52 @@ fn external_dirty_document_keeps_draft_and_save_baseline_even_after_notice_is_di
 }
 
 #[test]
+fn external_form_input_only_protects_the_matching_document() {
+    let fixture = Fixture::new();
+    let mut state = fixture.state();
+    let other = "另一份.md";
+    std::fs::write(fixture.0.join(other), "原文").unwrap();
+    let mut neighbor = state.current().unwrap().clone();
+    let (disk, contents) = io::load(&fixture.0, other).unwrap();
+    neighbor.path = other.into();
+    neighbor.disk = disk;
+    neighbor.source = contents.text;
+    neighbor.pages = contents.pages;
+    state.documents.push(neighbor);
+    state.rules_form_input = Some(state.current().unwrap().source_key());
+    use feathrise_editor_project_browser_model::file_operations::FileSources;
+    assert!(state.has_unsaved_draft("说明.md"));
+    assert!(state.protects_file_changes(&FileSources::from(vec![fixture.0.join("说明.md")])));
+    assert!(!state.protects_file_changes(&FileSources::from(vec![fixture.0.join(other)])));
+    fixture.write("外部修订");
+    std::fs::write(fixture.0.join(other), "相邻文档的外部修订").unwrap();
+    let reply = check(&state);
+    systems::adopt(&mut state, reply);
+    assert!(state.documents[0].external.warning);
+    assert_eq!(state.documents[0].source_text(), "原文\n");
+    assert!(!state.documents[1].external.warning);
+    assert_eq!(state.documents[1].source_text(), "相邻文档的外部修订");
+}
+
+#[test]
+fn rules_form_draft_remains_in_cache_after_its_tab_is_closed() {
+    let fixture = Fixture::new();
+    let mut state = fixture.state();
+    let original = state.current().unwrap().clone();
+    state.rules_form_input = Some(original.source_key());
+    state.active = None;
+    for i in 1..super::super::constants::MAX_DOCUMENTS {
+        let mut other = original.clone();
+        other.path = format!("{i}.md");
+        state.documents.push(other);
+    }
+    state.request_load("新文件.md".into());
+    assert!(state.pending_load.is_some());
+    assert!(state.has_unsaved_draft("说明.md"));
+    assert!(!state.documents.iter().any(|doc| doc.path == "1.md"));
+}
+
+#[test]
 fn external_check_during_edit_or_undo_is_requeued_without_overwriting_new_input() {
     let fixture = Fixture::new(); let mut state = fixture.state();
     fixture.write("外部文本"); let reply = check(&state);

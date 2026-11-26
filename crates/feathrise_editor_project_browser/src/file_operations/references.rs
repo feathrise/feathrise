@@ -122,6 +122,7 @@ fn inspect(root: PathBuf, operation: &FileOperation, moves: Moves, control: &Con
     let mut documents = Vec::new();
     let mut labels = std::collections::BTreeSet::new();
     let mut unrepresentable = false;
+    let sources = document::SourcePaths::new(&root, &moves, relink);
     let mut dirs = Vec::new();
     for name in ["config", "scenes"] {
         let path = root.join(name);
@@ -137,7 +138,7 @@ fn inspect(root: PathBuf, operation: &FileOperation, moves: Moves, control: &Con
             if files::reject_link(&path, &metadata).is_err() { continue; }
             if metadata.is_dir() { dirs.push(path); continue; }
             if !document::supported(&path) && !(relink && path.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"))) { continue; }
-            let output = document::rewrite(&path, &root, &moves, relink, &|| control.cancelled())?;
+            let output = document::rewrite(&path, &root, &sources, relink, &|| control.cancelled())?;
             if output.count != 0 {
                 labels.extend(output.fragments);
                 unrepresentable |= output.unrepresentable;
@@ -156,7 +157,7 @@ fn publish(preview: &ReferencePreview, actual: &Moves, check: &dyn Fn() -> Resul
     let mut writes = Vec::new();
     let mut baselines = BTreeMap::new();
     for doc in &preview.documents {
-        if !doc.sources.iter().any(|source| actual.contains_key(source)) { continue; }
+        if !doc.sources.iter().any(|(prefix, alias)| actual.contains_key(alias.as_ref().unwrap_or(prefix))) { continue; }
         let path = relocated(&doc.path, actual).unwrap_or_else(|| doc.path.clone());
         files::reject_link_chain(&path)?;
         let baseline = &doc.digest;
@@ -167,7 +168,7 @@ fn publish(preview: &ReferencePreview, actual: &Moves, check: &dyn Fn() -> Resul
         let original_kind = &doc.path;
         let root = &preview.root;
         writes.push(PreparedWrite::streaming(path.clone(), move |stage| {
-            let updated = document::rewrite_as(&path, original_kind, root, actual, exact, &|| false)?;
+            let updated = document::rewrite_as(&path, original_kind, root, actual, &doc.sources, exact)?;
             if updated.count == 0 || updated.unrepresentable { return Err(format!("文档引用发生变化：{}", path.display())); }
             updated.write(stage)
         }));

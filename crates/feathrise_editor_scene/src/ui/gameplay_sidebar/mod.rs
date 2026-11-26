@@ -1,6 +1,7 @@
-//! 玩法侧栏的固定工具页和只读反馈；摆放、传送和空气墙继续使用原作者事务。
+//! 交互侧栏的常驻目录和只读反馈；场景工具使用原作者事务。
 
 mod components;
+mod directory;
 mod motion_triggers;
 pub(crate) mod project_rules;
 mod resources;
@@ -12,6 +13,7 @@ use crate::SceneEditorSystemSet;
 use bevy::prelude::*;
 
 pub(crate) use resources::GameplaySidebarState;
+pub(crate) use components::InteractionRulesHost;
 pub(crate) use scene::gameplay_tools_panel;
 pub(crate) use types::GameplaySidebarPage;
 
@@ -28,7 +30,10 @@ pub(crate) fn install(app: &mut App) {
         )
         .add_systems(
             Update,
-            (systems::sync_pages, systems::sync_feedback)
+            (
+                systems::sync_pages,
+                systems::sync_feedback,
+            )
                 .chain()
                 .before(crate::ui::portal_list::spawn_portal_list_rows)
                 .before(crate::ui::portal_list::sync_portal_selection_panel)
@@ -43,5 +48,6 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) fn install_snapshot_presentation(app: &mut App) {
-    app.init_resource::<resources::GameplaySidebarState>().add_systems(Update, systems::sync_pages);
+    app.init_resource::<resources::GameplaySidebarState>()
+        .add_systems(Update, systems::sync_pages);
 }

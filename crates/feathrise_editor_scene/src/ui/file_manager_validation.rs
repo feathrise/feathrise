@@ -3,6 +3,7 @@
 pub(crate) mod evidence;
 mod assets;
 mod project_rules;
+pub(crate) use project_rules::reveal_rules_control;
 
 use super::file_manager::{
     FileAction, FileContextLabel, FileContextPanel, FileList, FileManagerButton, FileManagerCommand, FileManagerState, FileNameInput, FileResizeHandle, FileRow,
@@ -74,6 +75,9 @@ struct Run {
     screenshots: Map<String, Value>,
 }
 
+/// 验收宿主启动前与实际窗口挂载时使用同一份阶段清单，避免重开窗口只通过其中一层。
+pub const PROJECT_RULES_VALIDATION_PHASES: &[&str] = &["empty", "draw-reopen", "edit", "reopen"];
+
 pub fn install(app: &mut App, work: PathBuf, project: PathBuf) -> Result<(), String> {
     let owner: Value = serde_json::from_slice(&fs::read(work.join(".file-manager-owner.json"))
         .map_err(|error| error.to_string())?).map_err(|error| error.to_string())?;
@@ -85,7 +89,7 @@ pub fn install(app: &mut App, work: PathBuf, project: PathBuf) -> Result<(), Str
         return Err("文件桌面驱动拒绝未核验归属的工程".into());
     }
     if let Ok(phase) = std::env::var("FEATHRISE_PROJECT_RULES_VALIDATION") {
-        if !matches!(phase.as_str(), "edit" | "reopen") || fs::read(work.join(".project-rules-fixture")).ok().as_deref() != Some(b"project-rules-v1") {
+        if !PROJECT_RULES_VALIDATION_PHASES.contains(&phase.as_str()) || fs::read(work.join(".project-rules-fixture")).ok().as_deref() != Some(b"project-rules-v1") {
             return Err("工程规则驱动拒绝未核验的阶段或夹具".into());
         }
         return project_rules::install(app, work, phase);

@@ -62,16 +62,6 @@ pub(super) struct Drag {
     pub(super) preview: MotionRegion,
 }
 
-impl Pointer<'_, '_> {
-    fn project(&self, point: Vec3) -> Option<Vec2> {
-        let view = self.viewport.as_ref()?;
-        let (camera, pose) = self.cameras.get(view.camera).ok()?;
-        camera
-            .world_to_viewport(&GlobalTransform::from(*pose), point)
-            .ok()
-    }
-}
-
 /// 每次拖动只在松开时返回一个最终值。草稿修订、焦点或视口改变都会丢弃临时值。
 pub(super) fn update(
     drag: &mut Option<Drag>,

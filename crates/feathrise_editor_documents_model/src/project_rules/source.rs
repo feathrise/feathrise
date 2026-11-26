@@ -36,14 +36,6 @@ pub(super) fn keys(source: &str, section: &str) -> Result<Vec<String>, String> {
         return Ok(Vec::new());
     };
     let rows: Fields = serde_json::from_str(raw.get()).map_err(|e| e.to_string())?;
-    let mut found = HashSet::new();
-    for (key, _) in &rows.0 {
-        if !found.insert(key.as_str()) {
-            return Err(format!(
-                "「{section}」有重复的标识「{key}」，请在源码中合并后再进入表单"
-            ));
-        }
-    }
     Ok(rows.0.into_iter().map(|(key, _)| key).collect())
 }
 

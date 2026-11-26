@@ -68,13 +68,25 @@ fn author_edits_preserve_policy_identity_interpolation_and_disk_newlines() {
 
 #[test]
 fn binding_uses_the_stable_id_preserves_existing_rules_and_prevents_duplicates() {
-    let source = r#"{"version":1,"variables":{"count":{"default":0}},"rules":[]}"#;
-    let (saved, _) =
+    let source = r#"{"version":1,"variables":{"count":{"default":0}},"rules":[{"id":"existing","when":{"event":"quest.completed"},"actions":[{"set":"count","value":1}]}]}"#;
+    let saved =
         super::binding::insert(source, "location.entered", "east_gate", "cut_gate", false).unwrap();
-    let result: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    let result: serde_json::Value = serde_json::from_str(&saved.source).unwrap();
+    assert_eq!(saved.index, 1);
     assert_eq!(result["variables"]["count"]["default"], 0);
-    assert_eq!(result["rules"][0]["actions"][0]["target"], "cut_gate");
+    assert_eq!(result["rules"][0]["id"], "existing");
+    assert_eq!(
+        result["rules"][saved.index]["actions"][0]["target"],
+        "cut_gate"
+    );
     assert!(
-        super::binding::insert(&saved, "location.entered", "east_gate", "cut_gate", false).is_err()
+        super::binding::insert(
+            &saved.source,
+            "location.entered",
+            "east_gate",
+            "cut_gate",
+            false
+        )
+        .is_err()
     );
 }

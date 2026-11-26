@@ -6,4 +6,6 @@ use std::path::PathBuf;
 pub struct OpenCinematicExport {
     pub asset_root: PathBuf,
     pub asset_path: PathBuf,
+    /// 开窗时冻结作者正在查看的已载入场景，仍可在导出面板换成其他场景。
+    pub scene: Option<String>,
 }

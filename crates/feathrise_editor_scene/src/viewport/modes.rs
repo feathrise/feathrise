@@ -98,7 +98,7 @@ impl Default for ViewportModeState {
                 EditorTool::Vegetation,
                 EditorTool::Water,
                 EditorTool::Building,
-                EditorTool::PlaceAsset,
+                EditorTool::Portal,
             ], // 固定模块提供首次编辑的合理默认工具。
             observed_tab: EditorLeftSidebarTab::Scene, // 与侧栏默认入口一致。
             was_open: false,              // 首次打开同样走安全模式收口。
@@ -117,7 +117,7 @@ impl ViewportModeState {
 
     pub fn remember_tool(&mut self, tool: EditorTool) {
         let slot = match tool {
-            EditorTool::Inspect => return, // 选择模式不覆盖编辑工具记忆。
+            EditorTool::Inspect | EditorTool::LocationRegion | EditorTool::PlaceAsset => return, // 临时点放与地点取点不覆盖交互的常驻工具。
             EditorTool::Raise
             | EditorTool::VolumeDig
             | EditorTool::VolumeFill
@@ -132,7 +132,7 @@ impl ViewportModeState {
             EditorTool::Vegetation => 3,   // 植被参数仍由原会话保留。
             EditorTool::Water | EditorTool::RiverSpline | EditorTool::Waterfall => 4, // 水域内部工具独立记忆。
             EditorTool::Building | EditorTool::WallLine => 5,
-            EditorTool::PlaceAsset | EditorTool::Portal | EditorTool::Boundary | EditorTool::MotionTrigger => 6, // 玩法工具独立记忆。
+            EditorTool::Portal | EditorTool::Boundary | EditorTool::MotionTrigger => 6, // 交互工具独立记忆。
         };
         if self.remembered[slot] != tool {
             self.remembered[slot] = tool; // 只更新当前请求类别，不覆盖其他模块。
@@ -206,6 +206,10 @@ pub fn sync_mode(
         EditorTool::Inspect // 网格仅接受明确武装的内置形状点放；普通旧画笔仍不能泄漏。
     } else if crate::authoring::basic_shapes::is_cuboid_selection(&editor) {
         EditorTool::PlaceAsset // 点放由统一网格面板显式武装，不能因Meshes共享只读记忆槽改回Inspect。
+    } else if editor.tool == EditorTool::PlaceAsset && sidebar.left == EditorLeftSidebarTab::Scene {
+        EditorTool::PlaceAsset // 旧显式工具请求仍可用；切入交互时改用独立记忆。
+    } else if editor.tool == EditorTool::LocationRegion && sidebar.left == EditorLeftSidebarTab::Gameplay {
+        EditorTool::LocationRegion // 从文件标签进入地点取点，同帧切换侧栏时仍持有本次画笔。
     } else if editor.tool == EditorTool::Inspect || mode.observed_tab != sidebar.left {
         mode.remembered[tab_slot(sidebar.left)] // 显式进入编辑或切模块时恢复该模块工具。
     } else {
@@ -294,11 +298,14 @@ mod tests {
         assert_eq!(app.world().resource::<ViewportModeState>().mode, ViewportMode::Move);
         app.world_mut().resource_mut::<SceneEditorState>().tool = EditorTool::PlaceAsset;
         // 正式宿主会在工具变化时定位模块；单系统夹具显式复现同一前置状态。
-        app.world_mut().resource_mut::<SceneEditorSidebarState>().left = EditorLeftSidebarTab::Gameplay;
+        app.world_mut().resource_mut::<SceneEditorSidebarState>().left = EditorLeftSidebarTab::Scene;
         app.update();
         assert!(!app.world().resource::<SceneEditorState>().placement_transform_enabled);
         assert_eq!(app.world().resource::<SceneEditorState>().tool, EditorTool::PlaceAsset);
         assert_eq!(app.world().resource::<ViewportModeState>().mode, ViewportMode::Edit);
+        app.world_mut().resource_mut::<SceneEditorSidebarState>().left = EditorLeftSidebarTab::Gameplay;
+        app.update();
+        assert_eq!(app.world().resource::<SceneEditorState>().tool, EditorTool::Portal);
     }
 
     #[test]

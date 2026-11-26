@@ -30,6 +30,16 @@ pub(super) fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<
         b"cinematic-author-v1",
     )?;
     crate::native_validation::prepare_workspace_fixture(&root, "剧情演出验收")?;
+    // 预置一条不同的事件，使“打开规则页”与“定位新绑定”在真窗口中可区分。
+    let existing_rule = json!({"id":"existing_watch","when":{"event":"quest.completed","target":"old_watch"},
+        "actions":[{"request":"quest.start","target":"next_watch"}]});
+    let rules_path = root.join("assets/project_rules.json");
+    write_new(
+        &rules_path,
+        json!({"version":1,"variables":{},"rules":[existing_rule]})
+            .to_string()
+            .as_bytes(),
+    )?;
     let mut command = Command::new(std::env::current_exe().map_err(|e| e.to_string())?);
     for (key, _) in std::env::vars_os() {
         let name = key.to_string_lossy();
@@ -86,14 +96,20 @@ pub(super) fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<
         {
             return Err("独立回读的四轨属性与实际作者输入不一致".into());
         }
-        let rules = read_json(&root.join("assets/project_rules.json"))?;
-        if !rules["rules"].as_array().is_some_and(|rules| {
-            rules.iter().any(|r| {
-                r["when"] == json!({"event":"location.entered","target":"east_gate"})
-                    && r["actions"] == json!([{"request":"cinematic.play","target":f.id}])
-            })
-        }) {
-            return Err("独立回读未找到绑定到此演出稳定 ID 的地点进入规则".into());
+        let selected_id = proof["edit"]["saved_rule_from_form"]
+            .as_str()
+            .filter(|id| id.starts_with("play_"))
+            .ok_or("窗口未记录显式保存的规则 ID")?;
+        let file = read_json(&rules_path)?;
+        let Some([old, added]) = file["rules"].as_array().map(Vec::as_slice) else {
+            return Err("独立回读应包含原有规则和一条新绑定".into());
+        };
+        if old != &existing_rule
+            || added["id"] != selected_id
+            || added["when"] != json!({"event":"location.entered","target":"east_gate"})
+            || added["actions"] != json!([{"request":"cinematic.play","target":f.id}])
+        {
+            return Err("工程规则回读与窗口选中的绑定或原有规则不一致".into());
         }
         let image =
             fs::read(work.join(format!("cinematic-{phase}.png"))).map_err(|e| e.to_string())?;
@@ -104,6 +120,14 @@ pub(super) fn exercise(target: &Path, work: &Path, proof: &mut Value) -> Result<
         }
         proof["asset_id"] = json!(f.id);
         proof["asset_sha256"] = json!(sha256(&bytes));
+    }
+    let export = fs::read(work.join("cinematic-export.png")).map_err(|e| e.to_string())?;
+    if proof["reopen"]["export_input_checked"] != true
+        || proof["reopen"]["export_screenshot"]["sha256"] != sha256(&export)
+        || !export.starts_with(b"\x89PNG\r\n\x1a\n")
+        || root.join("交付验收.mp4").exists()
+    {
+        return Err("视频面板截图、输入校验或失败后输出保护不符".into());
     }
     proof["disk_reread_verified"] = json!(true);
     Ok(())

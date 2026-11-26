@@ -24,18 +24,20 @@ impl Document {
             generation: self.generation,
         }
     }
+    pub(super) fn owns_form(&self, key: Option<&SourceKey>) -> bool {
+        key.is_some_and(|key| key.generation == self.generation && key.path == self.path)
+    }
     pub(super) fn source_text(&self) -> &str {
         &self.source
     }
 }
 
 impl DocumentState {
-    /// 验收只读取当前中央正文、草稿和保存提示，所有编辑仍经过原生输入及文档工具栏。
+    /// 验收读取工作台对应的同一份正文与回执，所有编辑仍经过原生输入及文档工具栏。
     #[cfg(feature = "validation")]
     pub(crate) fn project_rules_observed(&self) -> Option<(&str, bool, bool, &str)> {
-        let doc = self.current()?;
-        (self.in_center() && doc.disk.project_rules)
-            .then(|| (doc.source_text(), doc.dirty(), self.editing(), doc.status.as_str()))
+        let doc = self.rules_sidebar_document().or_else(|| self.current().filter(|d| d.disk.project_rules))?;
+        Some((doc.source_text(), doc.dirty(), doc.mode == ViewMode::Edit && self.in_center(), doc.status.as_str()))
     }
 
     /// 路径复制只借用现有根身份，不能规范化文件系统而把当前工作树替换成链接目标。
@@ -46,7 +48,7 @@ impl DocumentState {
 
     /// 外部打开只提示磁盘版本；不把未保存草稿隐式提交到外部工具。
     pub(crate) fn has_unsaved_draft(&self, path: &str) -> bool {
-        self.documents.iter().any(|doc| doc.path == path && doc.dirty())
+        self.documents.iter().any(|doc| doc.path == path && (doc.dirty() || doc.owns_form(self.rules_form_input.as_ref())))
     }
 
     /// 仅文件首次读取确已失败时压缩空画布；保存/解析诊断不得隐藏已有正文与草稿。
@@ -100,14 +102,12 @@ impl DocumentState {
 
     /// 仅关闭无草稿的文件身份；尚未载入的只读标签也可关闭，不取消文件任务或历史。
     pub(in super::super) fn close_unmodified_tabs(&mut self) -> Option<(String, PresetWorkspaceTab)> {
-        self.parked.retain(|tab| {
-            self.documents.iter().any(|doc| doc.path == tab.path && doc.dirty())
+        let keep = |tab: &ExpandedDocument| {
+            self.documents.iter().any(|doc| doc.path == tab.path && (doc.dirty() || doc.owns_form(self.rules_form_input.as_ref())))
                 || self.saving_batch.iter().any(|key| key.path == tab.path)
-        });
-        if self.expanded.as_ref().is_none_or(|tab| {
-            self.documents.iter().any(|doc| doc.path == tab.path && doc.dirty())
-                || self.saving_batch.iter().any(|key| key.path == tab.path)
-        }) {
+        };
+        self.parked.retain(keep);
+        if self.expanded.as_ref().is_none_or(keep) {
             return None;
         }
         let removed = self.expanded.take().map(|tab| (tab.path, tab.return_tab));
@@ -154,21 +154,27 @@ impl DocumentState {
     }
 
     /// 尚未读完的后台标签也预留会话槽；快速双击多个文件不能绕过8份草稿预算。
-    fn reserve_slot(&mut self, path: &str) -> Result<(), String> {
+    pub(super) fn reserve_slot(&mut self, path: &str) -> Result<(), String> {
         loop {
             let unloaded_tabs = self.tabs().filter(|tab| {
                 !self.documents.iter().any(|doc| doc.path == tab.path)
             }).count();
             let new_path = !self.documents.iter().any(|doc| doc.path == path)
                 && !self.tabs().any(|tab| tab.path == path);
-            if self.documents.len() + unloaded_tabs + usize::from(new_path) <= MAX_DOCUMENTS {
+            let sidebar = self.sidebar_rules.reserved_path();
+            let unloaded_sidebar = sidebar.is_some_and(|key| key != path
+                && !self.tabs().any(|tab| tab.path == key)
+                && !self.documents.iter().any(|doc| doc.path == key));
+            if self.documents.len() + unloaded_tabs + usize::from(new_path) + usize::from(unloaded_sidebar) <= MAX_DOCUMENTS {
                 return Ok(());
             }
             if let Some(index) = self.documents.iter().position(|doc| {
                 !doc.dirty()
+                    && !doc.owns_form(self.rules_form_input.as_ref())
                     && self.saving.as_deref() != Some(&doc.path)
                     && !self.saving_batch.iter().any(|key| key.path == doc.path && key.generation == doc.generation)
                     && !self.tabs().any(|tab| tab.path == doc.path)
+                    && sidebar != Some(&doc.path)
                     && doc.path != path
             }) {
                 self.documents.remove(index);
@@ -179,6 +185,9 @@ impl DocumentState {
     }
 
     pub(super) fn request_load(&mut self, path: String) {
+        if self.sidebar_rules.loading && self.loading.as_ref().is_some_and(|request| request.path == path) {
+            return; // 中央同时打开同一文件时，直接等待右侧已请求的共同会话。
+        }
         if let Err(error) = self.reserve_slot(&path) {
             self.error = error;
             return;
@@ -192,6 +201,35 @@ impl DocumentState {
             expected_document,
         });
         self.error.clear();
+    }
+
+    pub(super) fn keep_draft(&mut self, path: &str) {
+        if let Some(doc) = self.documents.iter_mut().find(|doc| doc.path == path && doc.external.warning) {
+            doc.external.warning = false;
+            doc.confirm_reload = false;
+            doc.status = "已保留内置内容；磁盘版本仍有变化，保存会继续检查冲突".into();
+        }
+    }
+
+    pub(super) fn reload_document(&mut self, path: &str, sidebar: bool) {
+        if self.io.is_some() {
+            return;
+        }
+        let mut expected = None;
+        if let Some(doc) = self.documents.iter_mut().find(|doc| doc.path == path) {
+            if (doc.dirty() || doc.owns_form(self.rules_form_input.as_ref())) && !doc.confirm_reload {
+                doc.confirm_reload = true;
+                doc.status = "重新载入会丢弃本文件全部草稿；再点“确认丢弃”继续".into();
+                return;
+            }
+            doc.mode = ViewMode::Preview;
+            expected = Some((doc.source_key(), doc.revision));
+        }
+        if sidebar {
+            self.sidebar_rules.pending = Some((path.to_owned(), expected));
+        } else {
+            self.request_load(path.to_owned());
+        }
     }
 
     pub(super) fn request_save(&mut self) {
@@ -348,23 +386,23 @@ pub(super) fn drive_tasks(
     {
         state.io = None;
         state.loading = None; // 成功、失败及旧票据均结清读取身份，失败后原草稿可以重新编辑。
+        let sidebar_load = std::mem::take(&mut state.sidebar_rules.loading);
         state.saving = None;
         state.saving_batch.clear();
         match result {
             IoResult::Checked(reply) => state.external.ready = Some(reply),
             IoResult::SavedBatch(reply) => super::batch_save::adopt(&mut state, batch.as_deref_mut(), reply),
             IoResult::Loaded(request, result) => {
-                if request.ticket == state.load_ticket
-                    && state.active.as_deref() == Some(&request.path)
-                {
+                let central = state.active.as_deref() == Some(&request.path);
+                if (sidebar_load && state.sidebar_rules.path.as_deref() == Some(&request.path))
+                    || (!sidebar_load && central && request.ticket == state.load_ticket) {
                     let current = state.documents.iter().find(|doc| doc.path == request.path)
                         .map(|doc| (doc.source_key(), doc.revision));
                     match result {
                         Ok(_) if current != request.expected_document => {
                             // 输入解绑之外仍复核完整旧会话身份，不能覆盖确认后发生的撤销或业务改字。
                             let error = "重新载入期间文档已变化，已取消载入；当前草稿和历史已保留";
-                            if let Some(doc) = state.current_mut() { doc.status = error.into(); }
-                            state.error = error.into();
+                            state.load_error(&request.path, error.into(), central, sidebar_load);
                         }
                         Ok((disk, pages)) => {
                             let format =
@@ -402,13 +440,13 @@ pub(super) fn drive_tasks(
                             } else {
                                 state.documents.push(document);
                             }
-                            state.error.clear();
+                            if central { state.error.clear(); }
+                            if state.sidebar_rules.path.as_deref() == Some(&request.path) {
+                                state.sidebar_rules.error.clear();
+                            }
                         }
                         Err(error) => {
-                            if let Some(doc) = state.current_mut() {
-                                doc.status = error.clone();
-                            }
-                            state.error = error;
+                            state.load_error(&request.path, error, central, sidebar_load);
                         }
                     }
                 }
@@ -450,7 +488,8 @@ pub(super) fn drive_tasks(
         super::external::drive(&mut state, busy);
     }
     if state.io.is_none() {
-        if let Some(request) = state.pending_load.take() {
+        let request = state.pending_load.take().or_else(|| state.sidebar_load_request());
+        if let Some(request) = request {
             let roots = state.source_roots();
             state.loading = Some(request.clone());
             state.io = Some(IoTaskPool::get().spawn(async move {
@@ -475,7 +514,8 @@ pub(super) fn drive_tasks(
     }
     if state.parser.is_none() && state.visible {
         if let Some(doc) = state.current().filter(|doc| {
-            !state.editing() && doc.preview_revision != Some(doc.revision) && !(state.in_center() && (doc.disk.project_rules || super::cinematic::is_path(&doc.path)))
+            !state.editing() && doc.preview_revision != Some(doc.revision)
+                && !(state.in_center() && super::cinematic::is_path(&doc.path))
         }) {
             let path = doc.path.clone();
             let generation = doc.generation;
@@ -494,5 +534,25 @@ pub(super) fn drive_tasks(
                 }
             }));
         }
+    }
+}
+
+impl DocumentState {
+    fn sidebar_load_request(&mut self) -> Option<LoadRequest> {
+        let (path, expected_document) = self.sidebar_rules.pending.take()?;
+        if expected_document.is_none() && self.documents.iter().any(|doc| doc.path == path) {
+            return None; // 可能已经通过中央标签读到了同一份文件。
+        }
+        self.load_ticket = self.load_ticket.wrapping_add(1);
+        self.sidebar_rules.loading = true;
+        Some(LoadRequest { path, ticket: self.load_ticket, expected_document })
+    }
+
+    fn load_error(&mut self, path: &str, error: String, central: bool, sidebar_load: bool) {
+        if let Some(doc) = self.documents.iter_mut().find(|doc| doc.path == path) {
+            doc.status.clone_from(&error);
+        }
+        if sidebar_load { self.sidebar_rules.error.clone_from(&error); }
+        if central { self.error = error; }
     }
 }

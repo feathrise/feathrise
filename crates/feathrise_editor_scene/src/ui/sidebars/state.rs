@@ -15,7 +15,7 @@ pub enum EditorLeftSidebarTab {
     Vegetation, // 植被正式输出、作者层与编译参数集中在同一页。
     Water,      // 静水、河流与瀑布共享统一对象页。
     Building,   // 建筑预设、地基语义与精确摆放集中在独立页。
-    Gameplay,   // 摆放、传送与区域边界归入玩法对象页。
+    Gameplay,   // 传送、区域编辑与工程规则共用交互目录。
     Environment, // 天空、天气与全局环境参数由同一个顶部模块打开。
 }
 

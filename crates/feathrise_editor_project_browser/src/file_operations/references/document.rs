@@ -5,12 +5,12 @@ use feathrise_editor_assets::{glb_metadata, json_fields::{authored_asset_field, 
 pub(super) use feathrise_editor_assets::json_fields::authored_reference_document as supported;
 use feathrise_scene_content::ScenePlacementAssetTarget;
 use serde_json::Value;
-use std::{collections::BTreeSet, fs::{self, File}, io::{self, Write}, ops::Range, path::{Component, Path, PathBuf}};
+use std::{collections::{BTreeMap, BTreeSet}, fs::{self, File}, io::{self, Write}, ops::Range, path::{Component, Path, PathBuf}};
 
 pub(super) struct Rewrite {
     pub count: usize,
     pub unrepresentable: bool,
-    pub sources: BTreeSet<PathBuf>,
+    pub sources: BTreeMap<PathBuf, Option<PathBuf>>,
     pub fragments: BTreeSet<String>,
     json: String,
     bom: bool,
@@ -43,15 +43,52 @@ impl Rewrite {
     }
 }
 
-pub(super) fn rewrite(path: &Path, root: &Path, moves: &Moves, exact: bool, cancel: &dyn Fn() -> bool) -> Result<Rewrite, String> {
-    scan(path, path, root, moves, exact, false, cancel)
+pub(super) struct SourcePaths<'a> {
+    moves: &'a Moves,
+    #[cfg(windows)]
+    root: &'a PathBuf,
+    #[cfg(windows)]
+    folded: BTreeSet<PathBuf>,
 }
 
-pub(super) fn rewrite_as(path: &Path, kind: &Path, root: &Path, moves: &Moves, exact: bool, cancel: &dyn Fn() -> bool) -> Result<Rewrite, String> {
-    scan(path, kind, root, moves, exact, true, cancel)
+impl<'a> SourcePaths<'a> {
+    pub(super) fn new(_root: &'a PathBuf, moves: &'a Moves, _exact: bool) -> Self {
+        Self {
+            moves,
+            #[cfg(windows)]
+            root: _root,
+            #[cfg(windows)]
+            folded: moves.keys().filter(|_| !_exact).map(|path| feathrise_editor_project_browser_model::file_operations::path_key(path)).collect(),
+        }
+    }
+
+    fn verify(&self, prefix: &Path) -> Option<PathBuf> {
+        if self.moves.contains_key(prefix) { return Some(prefix.to_owned()); }
+        #[cfg(windows)]
+        {
+            use feathrise_editor_project_browser_model::file_operations::path_key;
+            if !self.folded.contains(&path_key(prefix)) { return None; }
+            // 小写键只找候选。移动前检查原始路径的实际拼写及联接链，避免重写独立的同名异大小写文件。
+            let (physical, _) = super::files::checked_entry(prefix, std::slice::from_ref(self.root)).ok()?;
+            return self.moves.contains_key(&physical).then_some(physical);
+        }
+        #[cfg(not(windows))]
+        None
+    }
 }
 
-fn scan(path: &Path, kind: &Path, root: &Path, moves: &Moves, exact: bool, prepare: bool, cancel: &dyn Fn() -> bool) -> Result<Rewrite, String> {
+pub(super) fn rewrite(path: &Path, root: &Path, sources: &SourcePaths<'_>, exact: bool, cancel: &dyn Fn() -> bool) -> Result<Rewrite, String> {
+    scan(path, path, root, sources.moves, &|prefix| sources.verify(prefix), exact, false, cancel)
+}
+
+pub(super) fn rewrite_as(path: &Path, kind: &Path, root: &Path, moves: &Moves, sources: &BTreeMap<PathBuf, Option<PathBuf>>, exact: bool) -> Result<Rewrite, String> {
+    // 磁盘写入时原路径可能已经失效。只采用该文档预检时实际核验过的路径前缀。
+    scan(path, kind, root, moves, &|prefix| {
+        sources.get(prefix).map(|alias| alias.clone().unwrap_or_else(|| prefix.to_owned()))
+    }, exact, true, &|| false)
+}
+
+fn scan(path: &Path, kind: &Path, root: &Path, moves: &Moves, source_path: &dyn Fn(&Path) -> Option<PathBuf>, exact: bool, prepare: bool, cancel: &dyn Fn() -> bool) -> Result<Rewrite, String> {
     let glb = kind.extension().is_some_and(|e| e.eq_ignore_ascii_case("glb"));
     let (bytes, tail) = if glb {
         let (json, tail, len) = glb_metadata::json_prefix(path, u64::from(u32::MAX), None)?;
@@ -63,7 +100,7 @@ fn scan(path: &Path, kind: &Path, root: &Path, moves: &Moves, exact: bool, prepa
     let bom = !glb && text.starts_with('\u{feff}');
     let text = if bom { &text[3..] } else { text };
     let mut count = 0;
-    let mut sources = BTreeSet::new();
+    let mut sources = BTreeMap::<PathBuf, Option<PathBuf>>::new();
     let mut fragments = BTreeSet::new();
     let mut unrepresentable = false;
     let inspect_bindings = exact && !prepare;
@@ -72,10 +109,19 @@ fn scan(path: &Path, kind: &Path, root: &Path, moves: &Moves, exact: bool, prepa
         if physical.is_empty() || physical.contains(['\\', ':']) || physical.split('/').any(|c| c.is_empty() || c == "." || c == "..")
             || !Path::new(physical).components().all(|c| matches!(c, Component::Normal(_))) { return None; }
         let path = root.join(physical);
-        let (source, target) = if exact { moves.get_key_value(&path) } else { path.ancestors().find_map(|source| moves.get_key_value(source)) }?;
-        let suffix = path.strip_prefix(source).ok()?;
+        let (prefix, source, target) = path.ancestors().take(if exact { 1 } else { usize::MAX }).find_map(|prefix| {
+            let source = match sources.get(prefix) {
+                Some(alias) => alias.clone().unwrap_or_else(|| prefix.to_owned()),
+                None => source_path(prefix)?,
+            };
+            let target = moves.get(&source)?;
+            Some((prefix, source, target))
+        })?;
+        let suffix = path.strip_prefix(prefix).ok()?;
         let target = if suffix.as_os_str().is_empty() { target.clone() } else { target.join(suffix) };
-        if !sources.contains(source) { sources.insert(source.clone()); }
+        if !sources.contains_key(prefix) {
+            sources.insert(prefix.to_owned(), (source.as_path() != prefix).then_some(source));
+        }
         count += 1;
         if inspect_bindings && let Some(label) = fragment.strip_prefix('#') { fragments.insert(label.to_owned()); }
         let relative = target.strip_prefix(root).ok().and_then(Path::to_str);

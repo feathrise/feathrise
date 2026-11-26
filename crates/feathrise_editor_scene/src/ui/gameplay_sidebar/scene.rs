@@ -1,6 +1,5 @@
-//! 玩法工具页固定在唯一正文滚动区上方；三类原作者控件常驻且互斥显示。
+//! 交互目录和当前工具正文共用一个侧栏，只有正文随作者操作滚动。
 
-use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
 use super::{components::*, types::*};
 use crate::authoring::BoundaryThicknessInputSlot;
@@ -12,25 +11,6 @@ use crate::ui::theme as colors;
 use bevy::prelude::*;
 use bevy::text::FontSourceTemplate;
 use bevy::ui::RelativeCursorPosition;
-
-fn tab(page: GameplaySidebarPage) -> impl Scene {
-    let label = page.label();
-    bsn! {
-        InteractionButton GameplaySidebarTab(page)
-        Node {
-            height: px(24), flex_grow: 1.0, flex_basis: px(0), min_width: px(0),
-            border: UiRect::bottom(px(1)), align_items: AlignItems::Center,
-            justify_content: JustifyContent::Center,
-        }
-        BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
-        BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [
-            Text(label) @feathrise_editor_ui::localization::label_scene(label)
-            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-            TextColor(colors::TEXT_PRIMARY)
-        ]
-    }
-}
 
 fn heading(label: &str) -> impl Scene {
     bsn! {
@@ -56,38 +36,6 @@ fn feedback(kind: GameplaySidebarFeedbackKind) -> impl Scene {
         _ => None,
     };
     (node, source.map(|source| bsn! { ~{crate::ui::status_bar::PanelStatusText(source)} }))
-}
-
-fn browse(label: &str, action: GameplaySidebarBrowse) -> impl Scene {
-    bsn! {
-        InteractionButton GameplaySidebarBrowseButton(action)
-        Node {
-            width: percent(100), min_width: px(0), min_height: px(24),
-            border: UiRect::all(px(1)), padding: UiRect::horizontal(px(5)),
-            align_items: AlignItems::Center, justify_content: JustifyContent::Center,
-            flex_shrink: 0.0,
-        }
-        BackgroundColor(colors::BUTTON_DEV_SMALL_NORMAL)
-        BorderColor::all(colors::COPPER_BORDER_WEAK)
-        Children [
-            Text(label) @feathrise_editor_ui::localization::label_scene(label)
-            TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
-            TextColor(colors::TEXT_PRIMARY)
-        ]
-    }
-}
-
-fn asset_panel() -> impl Scene {
-    bsn! {
-        GameplaySidebarPanel(GameplaySidebarPage::Asset)
-        Node { width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, row_gap: px(4), flex_shrink: 0.0 }
-        Children [
-            @crate::ui::context_help::section_header("资产摆放", "在左侧资产页选择文件，切到编辑模式后在中央场景点击摆放；落点沿用精确地面查询。摆放参数在视口工具条。选择已有实例后，在右侧属性中调整变换、复制或删除，资产选择独立保留。")--
-            @feedback(GameplaySidebarFeedbackKind::Asset)--
-            @browse("打开资产浏览", GameplaySidebarBrowse::Assets)--
-            @browse("查看实例属性", GameplaySidebarBrowse::Scene)
-        ]
-    }
 }
 
 fn boundary_panel() -> impl Scene {
@@ -130,22 +78,14 @@ fn boundary_panel() -> impl Scene {
 pub(crate) fn gameplay_tools_panel() -> impl Scene {
     bsn! {
         GameplaySidebarRoot
-        Node { width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_direction: FlexDirection::Column, row_gap: px(4) }
+        Node { width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_direction: FlexDirection::Column, row_gap: px(5) }
         Children [
 
-                Node { width: percent(100), min_width: px(0), column_gap: px(3), flex_shrink: 0.0 }
-                Children [@tab(GameplaySidebarPage::Asset)-- @tab(GameplaySidebarPage::Portal)-- @tab(GameplaySidebarPage::Boundary)-- @tab(GameplaySidebarPage::MotionTrigger)]
-            -- // 工具导航不参与正文滚动，低窗口仍能切页。
+                @super::directory::directory()--
 
-                GameplaySidebarScroll SceneEditorRightPanelScroll RelativeCursorPosition::default() ScrollPosition::default()
-                Node { width: percent(100), min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_basis: px(0), flex_direction: FlexDirection::Column, row_gap: px(4), overflow: Overflow::scroll_y() }
+                ~{Name::new("交互当前工具内容")} GameplaySidebarScroll SceneEditorRightPanelScroll RelativeCursorPosition::default() ScrollPosition::default()
+                Node { min_width: px(0), min_height: px(0), flex_grow: 1.0, flex_basis: px(0), flex_direction: FlexDirection::Column, row_gap: px(4), overflow: Overflow::scroll_y() }
                 Children [
-                    @super::project_rules::panel()--
-                    @crate::ui::asset_preview::documents::cinematic::binding_panel()--
-                    @feedback(GameplaySidebarFeedbackKind::Mode)--
-                    @feedback(GameplaySidebarFeedbackKind::Availability)--
-                    @asset_panel()--
-
                         GameplaySidebarPanel(GameplaySidebarPage::Portal)
                         Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, flex_shrink: 0.0 }
                         Children [
@@ -155,7 +95,10 @@ pub(crate) fn gameplay_tools_panel() -> impl Scene {
                     --
                     @boundary_panel()--
                     @super::motion_triggers::panel()--
-                    @feedback(GameplaySidebarFeedbackKind::Message)
+                    ~{Name::new("交互工具表单")} InteractionRulesHost ~{Visibility::Hidden}
+                    Node { display: Display::None, width: percent(100), min_width: px(0), flex_direction: FlexDirection::Column, flex_shrink: 0.0 }--
+                    ViewportFeedback Node { width: percent(100), min_width: px(0), flex_shrink: 0.0, flex_direction: FlexDirection::Column, row_gap: px(2) }
+                    Children [@feedback(GameplaySidebarFeedbackKind::Mode)-- @feedback(GameplaySidebarFeedbackKind::Availability)-- @feedback(GameplaySidebarFeedbackKind::Message)]
                 ]
 
         ]

@@ -1,10 +1,23 @@
 //! 常驻工具标签、正文容器、浏览入口和反馈文本的唯一界面身份。
 
-use super::types::{GameplaySidebarBrowse, GameplaySidebarFeedbackKind, GameplaySidebarPage};
+use super::types::{GameplaySidebarFeedbackKind, GameplaySidebarPage};
 use bevy::prelude::*;
 
 #[derive(Component, Clone, Default)]
 pub(super) struct GameplaySidebarRoot;
+
+/// 工程规则表单在右栏的宿主，三个工具共用同一个文档草稿。
+#[derive(Component, Clone, Default)]
+pub(crate) struct InteractionRulesHost;
+
+#[derive(Component, Clone, Default)]
+pub(super) struct TemplateMenuButton;
+
+#[derive(Component, Clone, Default)]
+pub(super) struct TemplateMenu;
+
+#[derive(Component, Clone, Default)]
+pub(super) struct ViewportFeedback;
 
 #[derive(Component, Clone, Default)]
 pub(super) struct GameplaySidebarScroll;
@@ -15,9 +28,6 @@ pub(super) struct GameplaySidebarTab(pub GameplaySidebarPage);
 
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct GameplaySidebarPanel(pub GameplaySidebarPage);
-
-#[derive(Component, Clone, Copy, Default)]
-pub(super) struct GameplaySidebarBrowseButton(pub GameplaySidebarBrowse);
 
 #[derive(Component, Clone, Copy, Default)]
 pub(super) struct GameplaySidebarFeedbackText(pub GameplaySidebarFeedbackKind);

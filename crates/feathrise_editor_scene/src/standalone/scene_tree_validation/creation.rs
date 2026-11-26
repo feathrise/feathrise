@@ -118,6 +118,13 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
     use Case::*;
     *stage = match *stage {
         Stage::CollapseMain(case, frame) => {
+            if frame == 0 && choose_glb_only()
+                && world.query_filtered::<&Node, With<SceneTreeContents>>().single(world)
+                    .is_ok_and(|node| node.display == Display::None)
+            {
+                *stage = Stage::Menu(case, 0);
+                return Ok(false);
+            }
             let Some(root) = main_scene_row(world) else { return Ok(false); };
             let Some(icon) = tree_row_glyph(world, root) else { return Ok(false); };
             click_control(world, icon, frame)?.map_or(Stage::Menu(case, 0), |next| Stage::CollapseMain(case, next))
@@ -295,6 +302,7 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
                 RootFolder | RootGlb => Stage::RootVisible(case),
                 NestedGlb => Stage::Menu(ChooseGlb, 0),
                 DisposableGlb => Stage::Menu(DeleteGlbFile, 0),
+                ChooseGlb if choose_glb_only() => return Ok(true),
                 ChooseGlb => Stage::MoveMesh(0),
                 SourceFolder => Stage::ExpandSource(0),
                 RemoveSourceFolder => Stage::Menu(RemoveEmptyFolder, 0),
@@ -317,7 +325,8 @@ pub(super) fn advance(world: &mut World, stage: &mut Stage, cube: &str, revision
             // 创建后等真实树行布局可见，期间不向主 GLB 图标补发任何输入。
             if case == RootFolder {
                 if folder_row(world, ROOT_FOLDER).is_none() { return Ok(false); }
-                Stage::CollapseMain(RootGlb, 0)
+                if choose_glb_only() { Stage::Menu(ChooseGlb, 0) }
+                else { Stage::CollapseMain(RootGlb, 0) }
             } else {
                 if model_row(world).is_none() { return Ok(false); }
                 Stage::Menu(NestedGlb, 0)

@@ -127,6 +127,59 @@ fn reference_move_previews_and_repairs_two_scenes_and_a_preset_without_touching_
     assert_eq!(fs::read(f.path("assets/models/门楼.glb")).unwrap(), b"model");
 }
 
+#[cfg(windows)]
+#[test]
+fn reference_move_verifies_case_alias_before_preserving_suffix_and_fragment() {
+    let f = Fixture::new();
+    prepare(&f);
+    let preset = f.path("assets/config/alias.preset.json");
+    let original = r#"{"model_path":"MODELS/门.glb#Scene0","label":"MODELS/门.glb#Scene0"}"#;
+    fs::write(&preset, original).unwrap();
+    let source = f.path("assets/models");
+    let alias = f.path("assets/MODELS");
+    assert_ne!(source, alias);
+    assert_eq!(source.canonicalize().unwrap(), alias.canonicalize().unwrap());
+    let mut r = request(&f, FileOperation::Rename { source, stamp: FileEntryStamp::Untracked, name: "迁移".into() });
+    let plan = inspect(&r);
+    let doc = plan.documents.iter().find(|doc| doc.path.ends_with("alias.preset.json")).unwrap();
+    assert!(doc.sources.values().any(Option::is_some));
+    r.references = Some(ReferenceUpdate::Confirm(plan));
+    let (receipt, result) = run(r, false);
+    result.unwrap();
+    assert_eq!(receipt.repaired_documents, 4);
+    assert_eq!(fs::read_to_string(preset).unwrap(),
+        r#"{"model_path":"迁移/门.glb#Scene0","label":"MODELS/门.glb#Scene0"}"#);
+}
+
+#[cfg(windows)]
+#[test]
+fn reference_move_distinguishes_separate_files_with_the_same_folded_key() {
+    let f = Fixture::new();
+    prepare(&f);
+    let source = f.path("assets/models/K.glb");
+    let separate = f.path("assets/models/K.glb");
+    fs::write(&source, b"source").unwrap();
+    use std::io::Write;
+    match fs::OpenOptions::new().create_new(true).write(true).open(&separate) {
+        Ok(mut file) => file.write_all(b"independent").unwrap(),
+        // 某些卷会把 Kelvin 符号也视为同名，无法用这对文件验证折叠键冲突。
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return,
+        Err(error) => panic!("{error}"),
+    }
+    assert_eq!(path_key(&source), path_key(&separate));
+    assert_ne!(source.canonicalize().unwrap(), separate.canonicalize().unwrap());
+    let preset = f.path("assets/config/identity.preset.json");
+    fs::write(&preset, r#"{"model_paths":["models/k.glb","models/K.glb"]}"#).unwrap();
+    let mut r = request(&f, FileOperation::Rename { source, stamp: FileEntryStamp::Untracked, name: "Moved.glb".into() });
+    let plan = inspect(&r);
+    assert_eq!(plan.documents.len(), 1);
+    assert_eq!(plan.documents[0].matches, 1);
+    r.references = Some(ReferenceUpdate::Confirm(plan));
+    run(r, false).1.unwrap();
+    assert_eq!(fs::read_to_string(preset).unwrap(), r#"{"model_paths":["models/Moved.glb","models/K.glb"]}"#);
+    assert_eq!(fs::read(separate).unwrap(), b"independent");
+}
+
 #[test]
 fn reference_move_directory_uses_actual_conflict_name_and_preserves_external_changes() {
     let f = Fixture::new();

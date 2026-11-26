@@ -1,8 +1,15 @@
-//! 工程级规则从交互侧栏进入既有中央文档，首次创建独占发布，后续编辑复用正文草稿和保存回执。
+//! 从右侧原位加载工程规则，首次创建独占发布，编辑复用文档草稿和保存回执。
 use crate::{
-    SceneEditorSystemSet, asset_catalog::project_files::EditorProjectFileCatalog,
-    resources::SceneEditorState, ui::file_manager::OpenManagedFile,
-    ui::asset_preview::documents::{DocumentState, show_project_rules_form},
+    SceneEditorSystemSet,
+    asset_catalog::project_files::EditorProjectFileCatalog,
+    components::SceneEditorPane,
+    resources::SceneEditorState,
+    types::EditorPane,
+    ui::asset_preview::documents::{
+        DocumentState, open_sidebar_project_rules_section, select_loaded_sidebar_project_rules_section,
+        set_sidebar_project_rules_error, set_sidebar_project_rules_visible,
+    },
+    ui::sidebars::{EditorLeftSidebarTab, SceneEditorSidebarState},
 };
 use bevy::{
     prelude::*,
@@ -10,7 +17,7 @@ use bevy::{
     text::FontSourceTemplate,
 };
 use feathrise_editor_documents_model::project_rules::{EMPTY, EXAMPLE, PATH};
-use feathrise_editor_ui::{EditorButtonClick, InteractionButton, colors, metrics};
+use feathrise_editor_ui::{InteractionButton, colors, metrics};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -21,10 +28,11 @@ use std::{
 };
 
 #[derive(Component, Clone, Copy)]
-pub(crate) struct RuleButton(pub(crate) bool);
+pub(crate) struct CreateRulesFromExample;
 
-fn button(label: &'static str, sample: bool) -> impl Scene {
-    bsn! { InteractionButton ~{RuleButton(sample)}
+pub(super) fn sample_button() -> impl Scene {
+    let label = "从示例创建";
+    bsn! { ~{Name::new(label)} InteractionButton ~{CreateRulesFromExample}
         Node { height: px(24), padding: UiRect::horizontal(px(7)), align_items: AlignItems::Center, border: px(1) }
         BackgroundColor(colors::SLOT_BG) BorderColor::all(colors::COPPER_BORDER_WEAK)
         Children [Text(label) @feathrise_editor_ui::localization::label_scene(label) Pickable::IGNORE
@@ -33,15 +41,9 @@ fn button(label: &'static str, sample: bool) -> impl Scene {
     }
 }
 
-pub(super) fn panel() -> impl Scene {
-    bsn! { Node { width: percent(100), flex_direction: FlexDirection::Column, row_gap: px(3), flex_shrink: 0.0 }
-        Children [
-            @crate::ui::context_help::section_header("工程变量与触发规则", "在表单中添加变量、地点和规则。规则可监听变量变化或游戏事件，并设置变量、启动任务或播放演出。按 Ctrl+S 校验并保存。")--
-            Node { width: percent(100), flex_wrap: FlexWrap::Wrap, column_gap: px(4), row_gap: px(3) }
-            Children [@button("编辑变量与规则", false)-- @button("从示例创建", true)]
-        ]
-    }
-}
+/// 作者最近一次显式打开意图，连续切分区时共用同一个 I/O 槽。
+#[derive(Resource, Default)]
+pub(super) struct RuleOpenRequest(pub(super) Option<bool>);
 
 #[derive(PartialEq, Eq)]
 struct Context {
@@ -74,61 +76,91 @@ struct OpenTask {
 }
 
 pub(super) fn install(app: &mut App) {
-    app.add_message::<OpenManagedFile>()
-        .add_systems(Update, drive.in_set(SceneEditorSystemSet::Input));
+    app.init_resource::<RuleOpenRequest>().add_systems(
+        Update,
+        drive
+            .after(super::systems::handle_tabs)
+            .before(SceneEditorSystemSet::Tasks),
+    );
 }
 
 fn drive(
     mut job: Local<Option<OpenTask>>,
-    buttons: Query<(&EditorButtonClick, &RuleButton), Changed<EditorButtonClick>>,
+    mut request: ResMut<RuleOpenRequest>,
+    sidebar: Res<SceneEditorSidebarState>,
+    pages: Res<super::GameplaySidebarState>,
     catalog: Option<Res<EditorProjectFileCatalog>>,
+    panes: Query<(&SceneEditorPane, &Node)>,
     mut editor: ResMut<SceneEditorState>,
-    mut documents: ResMut<DocumentState>,
-    mut open: MessageWriter<OpenManagedFile>,
+    mut documents: Option<ResMut<DocumentState>>,
 ) {
     let current = || Context::current(catalog.as_deref());
+    let visible = editor.open
+        && !editor.close_requested
+        && sidebar.tool_page_visible(EditorLeftSidebarTab::Gameplay);
+    let section = pages.page.section().filter(|_| visible);
+    if let Some(documents) = documents.as_mut() {
+        let inspector = panes
+            .iter()
+            .any(|(pane, node)| pane.0 == EditorPane::Inspector && node.display != Display::None);
+        set_sidebar_project_rules_visible(documents, inspector && section.is_some());
+    }
     if let Some(active) = job.as_mut() {
-        let valid =
-            editor.open && !editor.close_requested && current().as_ref() == Some(&active.context);
+        let valid = section.is_some() && current().as_ref() == Some(&active.context);
         if !valid {
             active.cancelled.store(true, Ordering::Release);
+        } else if !active.cancelled.load(Ordering::Acquire) {
+            request.0 = None; // 同一个文件正在准备，回执按当前工具选择表单。
         }
         let Some(result) = check_ready(&mut active.work) else {
             return;
         };
-        if valid && !active.cancelled.load(Ordering::Acquire) {
+        if let (Some(section), Some(documents)) = (section, documents.as_deref_mut())
+            && valid
+            && !active.cancelled.load(Ordering::Acquire)
+        {
             match result {
                 Ok((path, created)) => {
-                    // 已开的源码标签仍持有未存草稿；从交互入口返回表单时继续使用这份文档。
-                    show_project_rules_form(&mut documents, &path);
-                    open.write(OpenManagedFile { path });
-                    editor.status = if created {
-                        "已创建工程规则文件"
-                    } else {
-                        "已找到工程规则文件"
-                    }
-                    .into();
+                    // 交互入口只加载右侧工作区，中央已有的文档选择不参与。
+                    editor.status =
+                        match open_sidebar_project_rules_section(documents, &path, section) {
+                            Ok(()) if created => "已创建工程规则文件".into(),
+                            Ok(()) => "已找到工程规则文件".into(),
+                            Err(error) => {
+                                set_sidebar_project_rules_error(documents, error.clone());
+                                error
+                            }
+                        };
                 }
-                Err(error) => editor.status = error,
+                Err(error) => {
+                    set_sidebar_project_rules_error(documents, error.clone());
+                    editor.status = error;
+                }
             }
         }
         *job = None;
     }
-    let Some((_, button)) = buttons.iter().find(|(click, _)| click.is_clicked()) else {
+    let (Some(sample), Some(section)) = (request.0.take(), section) else {
         return;
     };
-    if !editor.open || editor.close_requested {
+    let Some(documents) = documents.as_deref_mut() else {
+        return;
+    };
+    // 同一个工程中选择其他表单直接复用已读的文档，首次读取才走磁盘。
+    if select_loaded_sidebar_project_rules_section(documents, section) {
         return;
     }
     let Some(context) = current() else {
         editor.status = "请先打开要编辑规则的独立工程".into();
+        set_sidebar_project_rules_error(documents, editor.status.clone());
         return;
     };
+    set_sidebar_project_rules_error(documents, String::new());
     let root = context.project.clone();
     let assets = context.assets.clone();
-    let sample = button.0;
     let cancelled = Arc::new(AtomicBool::new(false));
     let cancel = cancelled.clone();
+    editor.status = "正在打开工程规则…".into();
     *job = Some(OpenTask {
         context,
         cancelled,
@@ -154,8 +186,12 @@ fn existing(root: &Path, path: &Path) -> Result<Option<PathBuf>, String> {
     match fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_file() => {
             // 文件浏览器使用磁盘上的真实拼写，两个入口必须找到同一份已打开的草稿。
-            let actual = path.canonicalize().map_err(|e| format!("无法定位工程规则：{e}"))?;
-            if actual.parent() != Some(root) { return Err("工程规则已经离开主资产根".into()); }
+            let actual = path
+                .canonicalize()
+                .map_err(|e| format!("无法定位工程规则：{e}"))?;
+            if actual.parent() != Some(root) {
+                return Err("工程规则已经离开主资产根".into());
+            }
             Ok(Some(actual))
         }
         Ok(_) => Err("project_rules.json 必须是主资产根内的普通文件".into()),
@@ -185,6 +221,8 @@ pub(crate) fn open_or_create(
     });
     match created {
         Ok(()) => Ok((path, true)),
-        Err(error) => existing(&root, &path)?.map(|actual| (actual, false)).ok_or(error),
+        Err(error) => existing(&root, &path)?
+            .map(|actual| (actual, false))
+            .ok_or(error),
     }
 }

@@ -114,7 +114,7 @@ fn page(shell: bool) -> (App, Entity) {
         portal_label_font: default(),
     }); // 测试不创建世界预览实体，名称事务仍走原刷新入口。
     let mut sidebar = SceneEditorSidebarState::default();
-    sidebar.right = crate::ui::sidebars::EditorRightSidebarTab::Tools;
+    sidebar.right = EditorRightSidebarTab::Tools;
     sidebar.left = EditorLeftSidebarTab::Gameplay;
     app.insert_resource(sidebar);
     app.configure_sets(
@@ -324,7 +324,6 @@ fn tabs_prepare_original_tools_without_entering_edit_or_changing_authors() {
     for target in [
         GameplaySidebarPage::Portal,
         GameplaySidebarPage::Boundary,
-        GameplaySidebarPage::Asset,
     ] {
         press(&mut app, target.label());
         assert_eq!(app.world().resource::<GameplaySidebarState>().page, target);
@@ -338,7 +337,7 @@ fn tabs_prepare_original_tools_without_entering_edit_or_changing_authors() {
         );
         app.world_mut().resource_mut::<ViewportModeState>().mode = ViewportMode::Edit;
         app.update();
-        assert_eq!(app.world().resource::<SceneEditorState>().tool, target.tool());
+        assert_eq!(Some(app.world().resource::<SceneEditorState>().tool), target.tool());
         app.world_mut().resource_mut::<ViewportModeState>().mode = ViewportMode::Select;
         app.update();
         assert_eq!(author(&app), before);
@@ -346,17 +345,6 @@ fn tabs_prepare_original_tools_without_entering_edit_or_changing_authors() {
         assert!(session.undo.is_empty());
         assert_eq!(session.revision, 0);
     }
-    press(&mut app, "打开资产浏览");
-    assert_eq!(
-        app.world().resource::<SceneEditorSidebarState>().navigator,
-        crate::ui::sidebars::EditorNavigatorTab::Assets
-    );
-    assert_eq!(app.world().resource::<SceneEditorSidebarState>().right, EditorRightSidebarTab::Tools); // 浏览左侧资产不抢右侧工具。
-    press(&mut app, "查看实例属性");
-    assert_eq!(
-        app.world().resource::<SceneEditorSidebarState>().right,
-        EditorRightSidebarTab::Scene
-    );
 }
 
 #[test]
@@ -371,10 +359,6 @@ fn selection_follows_stable_objects_but_does_not_reclaim_manual_tabs() {
         (
             LayerTarget::Boundary("wall-1".into()),
             GameplaySidebarPage::Boundary,
-        ),
-        (
-            LayerTarget::Placement("placement-1".into()),
-            GameplaySidebarPage::Asset,
         ),
     ] {
         app.world_mut()
@@ -396,6 +380,13 @@ fn selection_follows_stable_objects_but_does_not_reclaim_manual_tabs() {
             GameplaySidebarPage::Boundary
         );
     }
+    app.world_mut().resource_mut::<LayerCandidateState>().selected =
+        Some(LayerTarget::Placement("placement-1".into()));
+    app.update();
+    assert_eq!(
+        app.world().resource::<GameplaySidebarState>().page,
+        GameplaySidebarPage::Boundary
+    ); // GLB 的正式选择交给场景检查器，交互目录维持原工具。
     assert_eq!(author(&app), before);
     {
         let mut selection = app.world_mut().resource_mut::<LayerCandidateState>();
@@ -540,7 +531,7 @@ fn select_mode_keeps_every_portal_row_and_reuses_name_and_delete_transactions() 
         43
     );
     let delete = button(&mut app, "删除源点");
-    press(&mut app, "资产摆放");
+    press(&mut app, "空气墙");
     let revision = app.world().resource::<EditorAuthoringSession>().revision;
     click(&mut app, delete); // 模拟隐藏页迟到的Interaction，不能跨页执行删除。
     assert_eq!(
@@ -660,7 +651,7 @@ fn blocked_tab_clicks_are_consumed_instead_of_replayed_after_unlock() {
         app.update();
         assert_eq!(
             app.world().resource::<GameplaySidebarState>().page,
-            GameplaySidebarPage::Asset,
+            GameplaySidebarPage::Portal,
             "阻塞{blocker}"
         );
         app.world_mut()
@@ -687,7 +678,7 @@ fn blocked_tab_clicks_are_consumed_instead_of_replayed_after_unlock() {
         app.update(); // Interaction仍是Pressed，解锁帧不得延迟切页。
         assert_eq!(
             app.world().resource::<GameplaySidebarState>().page,
-            GameplaySidebarPage::Asset,
+            GameplaySidebarPage::Portal,
             "旧点击重放{blocker}"
         );
         app.world_mut()

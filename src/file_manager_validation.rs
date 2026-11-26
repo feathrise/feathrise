@@ -304,7 +304,7 @@ pub(crate) fn preflight(project: &Project) -> Result<Option<PathBuf>, String> {
         return Err("文件管理自动验收未通过工程、偏好与插件的夹具归属校验".into());
     }
     if let Some(phase) = std::env::var_os(project_rules::ENV) {
-        if matches!(phase.to_str(), Some("edit" | "reopen"))
+        if phase.to_str().is_some_and(|phase| feathrise_editor_scene::standalone::PROJECT_RULES_VALIDATION_PHASES.contains(&phase))
             && fs::read(work.join(".project-rules-fixture")).ok().as_deref() == Some(b"project-rules-v1")
             && !work.join(format!("rules-{}.json", phase.to_string_lossy())).exists() { return Ok(Some(work)); }
         return Err("工程规则验收阶段、归属或输出路径不匹配".into());

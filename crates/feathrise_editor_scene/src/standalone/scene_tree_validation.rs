@@ -32,6 +32,8 @@ use std::{fs, path::{Path, PathBuf}};
 
 #[path = "scene_tree_validation/creation.rs"]
 mod creation;
+#[path = "scene_tree_validation/chosen_glb.rs"]
+pub(super) mod chosen_glb;
 #[path = "scene_tree_validation/lights.rs"]
 mod lights;
 #[path = "scene_tree_validation/still_water.rs"]
@@ -97,6 +99,7 @@ pub(super) enum Step {
     ChildFolderName(u8),
     ChildFolderCreated,
     CreateObjects(creation::Stage),
+    ChosenGlb(u8),
     DragFolder { drop: FolderDrop, frame: u8 },
     FolderDropped(FolderDrop),
     NestedFolderScreenshot,
@@ -137,6 +140,10 @@ fn lights_only() -> bool {
     std::env::var("FEATHRISE_SCENE_TREE_STARTUP_VALIDATION").as_deref() == Ok("lights")
 }
 
+pub(super) fn choose_glb_only() -> bool {
+    std::env::var("FEATHRISE_SCENE_TREE_STARTUP_VALIDATION").as_deref() == Ok("glb")
+}
+
 pub(super) fn preflight(project: &Path, scene: &SceneId) -> Result<(), String> {
     let output = PathBuf::from(std::env::var_os("NEW_EDITOR_NATIVE_SMOKE_DIR").ok_or("场景树验收缺少输出目录")?);
     let work = output.parent().ok_or("场景树验收缺少独占工作目录")?;
@@ -157,6 +164,9 @@ pub(super) fn reopened_source_position(world: &mut World) -> Option<Value> {
 
     let paths = feathrise_editor_core::editor_project_paths()?;
     let scene = SceneId::parse("M1-SAMPLE").ok()?;
+    if choose_glb_only() {
+        return chosen_glb::reopened(world, paths.project_root(), &scene);
+    }
     preflight(paths.project_root(), &scene).ok()?;
     if lights_only() { return Some(json!({"reopened_local_lights": lights::rendered(world)?})); }
     let draft = world.resource::<EditorAuthoringSession>().draft.as_ref()?;
@@ -213,6 +223,8 @@ pub(super) fn advance(
                 *step = if lights_only() {
                     if !crate::authoring::local_lights::AVAILABLE { return Err("当前 SDK 不支持局部灯具验收".into()); }
                     Step::CreateLights(creation::begin_lights())
+                } else if choose_glb_only() {
+                    Step::CreateObjects(creation::begin())
                 } else { Step::StartupTreeReady };
             }
         }
@@ -545,8 +557,15 @@ pub(super) fn advance(
         }
         Step::CreateObjects(mut stage) => {
             *step = if creation::advance(world, &mut stage, cube, revision, pulse)? {
-                Step::DragFolder { drop: FolderDrop::IntoParent, frame: 0 }
+                if choose_glb_only() { Step::ChosenGlb(0) }
+                else { Step::DragFolder { drop: FolderDrop::IntoParent, frame: 0 } }
             } else { Step::CreateObjects(stage) };
+        }
+        Step::ChosenGlb(mut frame) => {
+            if let Some(proof) = chosen_glb::visible_proof(world, &mut frame)? {
+                return Ok(Some(json!({"startup": proof})));
+            }
+            *step = Step::ChosenGlb(frame);
         }
         Step::DragFolder { drop, frame } => {
             let Some(source) = folder_row(world, RENAMED_FOLDER) else { return Ok(None); };

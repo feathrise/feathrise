@@ -12,8 +12,16 @@ pub(crate) fn collect(
     let Some(state) = world.get_resource::<DocumentState>() else {
         return;
     };
-    if state.io.is_some() || state.pending_load.is_some() || state.json.exit_pending() {
+    if state.io.is_some() || state.pending_load.is_some() || state.sidebar_rules.pending.is_some()
+        || state.json.exit_pending() {
         snapshot.pending("文件载入、保存或JSON格式化尚未完成");
+    }
+    if world.get_resource::<super::rules::Studio>().is_some_and(super::rules::Studio::edit_pending) {
+        snapshot.pending("工程规则正在处理已提交的修改");
+    }
+    // 未提交的表单字段还不在 JSON 正文里。显式放弃仍可关闭；保存队列不能把它当作已保存。
+    if state.rules_form_input.is_some() {
+        snapshot.unsaved.push("工程规则表单（在交互工具中保存）".into());
     }
     let mut dirty = false;
     for document in &state.documents {
@@ -27,6 +35,28 @@ pub(crate) fn collect(
             target: SaveTarget::Documents,
             label: "文件文档（含隐藏草稿）".into(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsubmitted_rules_form_requires_a_close_decision() {
+        let mut world = World::new();
+        let mut docs = DocumentState::default();
+        docs.rules_form_input = Some(super::super::types::SourceKey {
+            path: feathrise_editor_documents_model::project_rules::PATH.into(),
+            generation: 1,
+        });
+        world.insert_resource(docs);
+        let mut snapshot = ProjectCloseSnapshot::default();
+        let mut items = Vec::new();
+        collect(&world, &mut snapshot, &mut items);
+        assert_eq!(snapshot.unsaved.len(), 1);
+        assert!(items.is_empty());
+        assert!(snapshot.blocked.is_none());
     }
 }
 

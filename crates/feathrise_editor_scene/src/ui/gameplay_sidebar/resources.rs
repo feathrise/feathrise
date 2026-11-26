@@ -6,4 +6,5 @@ use bevy::prelude::*;
 #[derive(Resource, Default)]
 pub(crate) struct GameplaySidebarState {
     pub(crate) page: GameplaySidebarPage,
+    pub(super) template_menu: bool,
 }

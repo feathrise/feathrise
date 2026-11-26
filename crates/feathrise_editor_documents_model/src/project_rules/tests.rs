@@ -297,10 +297,8 @@ fn blank_legacy_document_adds_first_complete_rule_and_checks_typed_inputs() {
             .is_err()
         );
     }
-    assert!(
-        RulesForm::parse(r#"{"version":1,"variables":{"a":{"default":1},"a":{"default":2}}}"#)
-            .unwrap_err()
-            .contains("重复")
-    );
+    let duplicates = r#"{"version":1,"variables":{"a":{"default":1},"\u0061":{"default":2}}}"#;
+    assert!(super::validate(duplicates).unwrap_err().contains("重复"));
+    assert!(RulesForm::parse(duplicates).unwrap_err().contains("重复"));
     assert!(RulesForm::parse(EXAMPLE).is_ok());
 }

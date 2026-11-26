@@ -65,6 +65,7 @@ pub(super) fn install(
         save_requested: false,
         save_error: None,
         save_proof: None,
+        expects_chosen_glb_reopened: crate::native_validation::expects_chosen_glb_reopened(),
         current_author_document: None,
         font,
         directory,
@@ -391,7 +392,9 @@ fn observe(
                 60
             }
             && !plan.play_requested);
-    if (plan.stable_frames < 30 || !editor_3d_ready) && !timed_out {
+    // 重开专项须等原场景树展开、正式实例采用，普通窗口就绪帧数不足以证明这两项已经完成。
+    let reopened_glb_ready = !plan.expects_chosen_glb_reopened || plan.current_author_document.is_some();
+    if (plan.stable_frames < 30 || !editor_3d_ready || !reopened_glb_ready) && !timed_out {
         return;
     }
 
@@ -411,6 +414,7 @@ fn observe(
         && !authoring_failed
         && plan.recovery_ready
         && !recovery_failed
+        && reopened_glb_ready
         && code_iteration_error.is_none()
         && (!plan.run_saved_play || plan.play_result.as_ref().is_some_and(Result::is_ok))
         && !plan.cancel_requested;
@@ -471,6 +475,9 @@ fn observe(
         report["animation_edit"] = json!(plan.animation_edit);
     }
     report["current_author_document"] = json!(plan.current_author_document);
+    if !reopened_glb_ready {
+        report["scene_tree_reopen_error"] = json!("重开后未确认已有 GLB 的实际场景树行和渲染实例");
+    }
     report["preset_authoring"] = json!((!plan.animation_only).then(|| authoring.report()));
     report["saved_play_recovery"] = json!(plan.recovery_report);
     report["placement_instances"] = json!(instances);
@@ -534,6 +541,7 @@ fn observe(
                                 .as_str()
                                 .or_else(|| report["author_save_error"].as_str())
                                 .or_else(|| report["author_save"]["error"].as_str())
+                                .or_else(|| report["scene_tree_reopen_error"].as_str())
                                 .or_else(|| report["animation_edit"]["error"].as_str())
                                 .or_else(|| report["preset_authoring"]["error"].as_str())
                                 .or_else(|| report["saved_play_recovery"]["Err"].as_str())

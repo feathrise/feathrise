@@ -56,8 +56,8 @@ pub(super) fn sync(
         &mut Node,
         &mut BackgroundColor,
         &mut BorderColor,
-    ), Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>>,
-    changed_buttons: Query<(), (With<DocumentAction>, Changed<UiInteraction>, Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>)>,
+    ), (Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>, Without<super::rules::AuthorButton>)>,
+    changed_buttons: Query<(), (With<DocumentAction>, Changed<UiInteraction>, Without<feathrise_editor_ui::workspace_tabs::WorkspaceTabButton>, Without<super::rules::AuthorButton>)>,
 ) {
     if !state.is_changed()
         && !locale.as_ref().is_some_and(|locale| locale.is_changed())
@@ -74,7 +74,8 @@ pub(super) fn sync(
     for (mut node, panel, source, edit_area, preview, launch, external) in &mut nodes {
         let show = if panel {
             state.active.is_some() && replacement.as_ref().is_none_or(|state| !state.preview_visible())
-                && !(state.in_center() && doc.is_some_and(|d| (d.disk.project_rules || super::cinematic::is_path(&d.path)) && d.mode==super::types::ViewMode::Preview))
+                && !(state.in_center() && doc.is_some_and(|d| super::cinematic::is_path(&d.path)
+                    && d.mode == super::types::ViewMode::Preview))
         } else if source || edit_area {
             editing
         } else if launch {

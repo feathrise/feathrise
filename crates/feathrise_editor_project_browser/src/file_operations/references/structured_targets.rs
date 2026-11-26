@@ -25,7 +25,7 @@ fn model_with(meshes: &[usize], materials: usize, configure: impl FnOnce(&mut se
 }
 
 pub(super) fn mirrored_model(parent_x: f32, child_x: f32, material: usize, reachable: bool) -> Vec<u8> {
-    model_with(&[1], 2, |model| {
+    model_with(&[2], 2, |model| {
         // 网格只挂在第二个场景。父节点存矩阵，子节点存 TRS，二者累计的符号决定发放的材质标签。
         model["scene"] = json!(0);
         model["scenes"] = json!([{"nodes":[0]}, {"nodes": if reachable { vec![1] } else { vec![] }}]);
@@ -66,7 +66,10 @@ fn relink_validates_mesh_primitive_and_material_bindings_from_each_saved_record_
         assert_eq!(fs::read_to_string(&legacy).unwrap(), legacy_text);
         assert_eq!(fs::read_to_string(&preset).unwrap(), preset_text);
     }
-    let complete = model(&[2,1],2);
+    let complete = model_with(&[2,1],2, |model| {
+        model["scenes"] = json!([{"nodes":[0]}]);
+        model["nodes"] = json!([{"mesh":1}]);
+    });
     fs::write(&replacement, &complete).unwrap();
     let preview = inspect(&r);
     assert_eq!(preview.documents.len(), 3);
@@ -122,6 +125,31 @@ fn relink_rejects_inverted_material_without_reachable_mirrored_use() {
         let error = run(r.clone(), false).1.unwrap_err();
         assert!(error.contains("#Material0 (inverted)/std"), "{error}");
         assert_eq!(fs::read_to_string(&config).unwrap(), original);
+    }
+}
+
+#[test]
+fn relink_rejects_default_material_when_only_unreachable_meshes_use_it() {
+    let f = Fixture::new();
+    let r = missing_fixture(&f);
+    let target = f.path("assets/out/新门.glb");
+    let config = f.path("assets/config/default.json");
+    let text = r#"{"material_path":"models/门.glb#DefaultMaterial/std"}"#;
+    fs::write(&config, text).unwrap();
+    for reachable in [false, true] {
+        let replacement = model_with(&[1,1], 1, |model| {
+            model["scenes"] = json!([{"nodes": if reachable { vec![0,1] } else { vec![0] }}]);
+            model["nodes"] = json!([{"mesh":0}, {"mesh":1}]);
+            model["meshes"][0]["primitives"][0]["material"] = json!(0);
+        });
+        fs::write(&target, replacement).unwrap();
+        if reachable {
+            assert!(inspect(&r).documents.iter().any(|doc| doc.path.ends_with("default.json")));
+        } else {
+            let error = run(r.clone(), false).1.unwrap_err();
+            assert!(error.contains("#DefaultMaterial/std"), "{error}");
+        }
+        assert_eq!(fs::read_to_string(&config).unwrap(), text);
     }
 }
 
