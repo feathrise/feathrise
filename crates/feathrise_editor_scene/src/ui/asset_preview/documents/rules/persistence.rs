@@ -112,6 +112,25 @@ impl Studio {
     pub(super) fn saving(&self) -> bool {
         self.files.write.is_some() || self.job.as_ref().is_some_and(|j| j.save)
     }
+    pub(super) fn deleting_row(&self) -> bool {
+        let key = self.key.as_ref();
+        self.sel.tab != Tab::Locations
+            && !self.editing_item
+            && (self.job.as_ref().is_some_and(|job| {
+                key == Some(&job.key) && job.change == Some(Change::Delete)
+            }) || self.files.write.as_ref().is_some_and(|write| {
+                key == Some(&write.key) && write.deletion.is_some()
+            }))
+    }
+    pub(super) fn list_projection(&self) -> (Option<&Sheet>, Selection) {
+        // 写入回执前显示完整旧表。写入失败恢复同一份表，画面不会先少一行再补回来。
+        if self.deleting_row()
+            && let Some(deletion) = self.files.write.as_ref().and_then(|write| write.deletion.as_ref())
+        {
+            return (deletion.sheet.as_deref(), deletion.before.selection);
+        }
+        (self.sheet.as_deref(), self.sel)
+    }
     pub(in super::super) fn edit_pending(&self) -> bool {
         self.saving() || self.job.as_ref().is_some_and(|job| job.change.is_some())
     }
@@ -253,7 +272,11 @@ pub(super) fn poll(s: &mut Studio, docs: &mut DocumentState, focus: &mut InputFo
             return;
         }
     };
+    let refresh_list = owns_form && s.deleting_row();
     let w = s.files.write.take().unwrap();
+    if refresh_list {
+        s.refresh();
+    }
     let next = s.files.next.take();
     if result.is_ok()
         && s.files

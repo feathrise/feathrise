@@ -160,7 +160,7 @@ impl RulesForm {
             .collect();
         let mut variables = Map::new();
         for v in &self.variables {
-            let mut def = json!({"default":v.kind.parse(&v.default).map_err(|e|format!("变量「{}」默认值：{e}",v.id))?});
+            let mut def = json!({"default":v.kind.parse(&v.default).map_err(|e|format!("变量「{}」的值：{e}",v.id))?});
             if let Some(options) = &v.choices {
                 def["choices"] = json!(options);
             }
@@ -248,7 +248,7 @@ impl ValueKind {
             Self::Bool => match raw.trim() {
                 "true" | "真" => Ok(Value::Bool(true)),
                 "false" | "假" => Ok(Value::Bool(false)),
-                _ => Err("布尔值请填 true 或 false（真或假）".into()),
+                _ => Err("bool 值请填 true 或 false".into()),
             },
             Self::Number => {
                 let text = raw.trim();

@@ -123,7 +123,13 @@ fn destination(a: Action, current: Selection, sheet: &Sheet) -> Option<Selection
         ..default()
     })
 }
-fn submit(s: &mut Studio, d: &DocumentState, change: Change, save: bool) -> Result<(), String> {
+fn submit(
+    s: &mut Studio,
+    d: &DocumentState,
+    change: Change,
+    save: bool,
+    target: Option<Selection>,
+) -> Result<(), String> {
     start(
         s,
         d,
@@ -132,6 +138,7 @@ fn submit(s: &mut Studio, d: &DocumentState, change: Change, save: bool) -> Resu
             form: s.form.clone(),
         }),
         save,
+        target,
     )
 }
 pub(super) fn input(
@@ -250,7 +257,10 @@ pub(super) fn input(
     let edit = !matches!(a, Action::Previous | Action::Next);
     let name_focus = name_field.filter(|_| matches!(a, Action::New | Action::Row(_)));
     if s.saving() {
-        if let Some(selection) = s.sheet.as_deref().and_then(|m| destination(a, s.sel, m)) {
+        // 删除完成前显示旧行，不能将此时的行号排入新表的导航队列。
+        if !s.deleting_row()
+            && let Some(selection) = s.sheet.as_deref().and_then(|m| destination(a, s.sel, m))
+        {
             s.files.next = Some((selection, edit, name_focus));
         }
         return;
@@ -329,7 +339,7 @@ pub(super) fn input(
                 return Err(format!("请输入{}名称", s.sel.tab.noun()));
             }
             if s.editing_item && (s.form != s.baseline || s.sel.item.is_none()) {
-                submit(&mut s, &docs, Change::Apply, true)?;
+                submit(&mut s, &docs, Change::Apply, true, None)?;
             } else if doc.dirty() {
                 let message = if s.editing_item {
                     format!("{}「{}」已保存", s.sel.tab.noun(), s.form.id)
@@ -377,8 +387,20 @@ pub(super) fn input(
             s.select(selection, edit, name_focus, &mut focus);
             return Ok(());
         }
+        let target = if let Action::DeleteRow(slot) = a {
+            if s.sel.tab == Tab::Locations || modal {
+                return Ok(());
+            }
+            if s.has_unsaved_input() {
+                return Err(leave_hint);
+            }
+            Some(destination(Action::Row(slot), s.sel, m).ok_or("要删除的条目已变化")?)
+        } else {
+            None
+        };
         let change = match a {
-            Action::Delete => Some(Change::Delete),
+            Action::Delete if s.sel.tab == Tab::Locations => Some(Change::Delete),
+            Action::DeleteRow(_) => Some(Change::Delete),
             Action::ConditionAdd => Some(Change::ConditionAdd),
             Action::ConditionDelete => Some(Change::ConditionDelete),
             Action::ActionAdd => Some(Change::ActionAdd),
@@ -393,7 +415,7 @@ pub(super) fn input(
             if change == Change::Delete && doc.external.warning {
                 return Err("磁盘文件已被修改，删除已停止。请先处理文件冲突。".into());
             }
-            submit(&mut s, &docs, change, change == Change::Delete)?;
+            submit(&mut s, &docs, change, change == Change::Delete, target)?;
             return Ok(());
         }
         match a {

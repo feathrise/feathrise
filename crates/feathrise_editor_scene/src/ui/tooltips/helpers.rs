@@ -11,6 +11,7 @@ use crate::ui::action_availability::EditorActionAvailability;
 pub(super) fn tooltip_copy(action: TooltipAction, mesh_edit: bool) -> TooltipCopy {
     let (title, description, shortcut, fixed_key) = match action {
         TooltipAction::EditRulesRecord => ("编辑", "打开此记录的编辑表单。", None, None),
+        TooltipAction::DeleteRulesRecord => ("删除", "删除此记录并保存工程规则。", None, None),
         TooltipAction::Editor(EditorAction::Undo) => (
             "撤销",
             "撤销当前场景的上一次作者修改，不影响其他文档。",

@@ -9,7 +9,7 @@ use bevy::text::TextLayoutInfo;
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Sample {
     Empty,
-    Variables,
+    Variables { id: &'static str, value: &'static str },
     Number,
     RereadNumber,
     Locations,
@@ -22,7 +22,8 @@ impl Sample {
     fn name(self) -> &'static str {
         match self {
             Self::Empty => "empty-variable",
-            Self::Variables => "first-variable",
+            Self::Variables { value: "true", .. } => "first-variable",
+            Self::Variables { .. } => "false-variable",
             Self::Number => "number-variable",
             Self::RereadNumber => "number-reread",
             Self::Locations => "location",
@@ -103,23 +104,84 @@ pub(crate) fn reveal_rules_control(
 
     let cursor = viewport.center();
     *wheel_point = Some(cursor);
-    move_cursor(world, window, cursor.as_dvec2());
+    scroll_lines(world, window, cursor, if y < viewport.min.y { 3. } else { -3. });
+    false
+}
+
+fn scroll_lines(world: &mut World, window: Entity, position: Vec2, lines: f32) {
+    move_cursor(world, window, position.as_dvec2());
     window_event(
         world,
         MouseWheel {
             window,
             unit: MouseScrollUnit::Line,
             x: 0.,
-            y: if y < viewport.min.y { 3. } else { -3. },
+            y: lines,
             phase: TouchPhase::Moved,
         },
     );
-    false
+}
+
+pub(super) fn compact_variable_scroll(
+    world: &mut World,
+    run: &mut Run,
+    window: Entity,
+) -> Result<bool, String> {
+    let Some(scroll) = form::entity(world, "RulesEditorDialogScroll") else {
+        return Ok(false);
+    };
+    let viewport = bounds(world, scroll).ok_or("变量弹窗正文尚未排版")?;
+    let form = rect(world, "RulesForm")?;
+    if run.keys == 0 {
+        let cursor = viewport.center();
+        run.wheel_point = Some(cursor);
+        move_cursor(world, window, cursor.as_dvec2());
+        if !world
+            .get::<bevy::ui::RelativeCursorPosition>(scroll)
+            .is_some_and(|position| position.cursor_over())
+        {
+            return Ok(false);
+        }
+        scroll_lines(world, window, cursor, -3.);
+    }
+    if run.keys < 3 {
+        run.keys += 1;
+        return Ok(false);
+    }
+    // 短表单已全部在正文中，向下滚轮不能把它送出视区。
+    let visible = viewport.inflate(1.);
+    let offset = world.get::<ScrollPosition>(scroll).ok_or("缺少变量弹窗滚动位置")?.y;
+    if offset != 0. || !visible.contains(form.min) || !visible.contains(form.max) {
+        return Err(format!("短变量表单滚入空白，滚动 {offset}，表单 {form:?}，正文 {viewport:?}"));
+    }
+    run.layout.insert("compact-variable-scroll".into(), json!({"scroll_y":offset}));
+    Ok(true)
 }
 
 fn inside_x(inner: Rect, outer: Rect) -> bool {
     // GPU 物理像素只容许边缘取整的误差。
     inner.min.x >= outer.min.x - 1. && inner.max.x <= outer.max.x + 1.
+}
+
+pub(super) fn has_field_caption(world: &World, control: Entity, label: &str) -> bool {
+    world
+        .get::<ChildOf>(control)
+        .and_then(|row| world.get::<ChildOf>(row.parent()))
+        .and_then(|group| world.get::<Children>(group.parent()))
+        .is_some_and(|parts| parts.iter().any(|part| {
+            world.get::<Text>(part).is_some_and(|text| text.as_str() == label)
+                && glyph_bounds(world, part).is_some()
+        }))
+}
+
+fn verify_bare_form(world: &mut World) -> Result<(), String> {
+    let form = form::entity(world, "RulesForm").ok_or("尚未展示弹窗表单")?;
+    if world.get::<Node>(form).is_some_and(|node| node.border != UiRect::ZERO)
+        && world.get::<BorderColor>(form).is_some_and(|color| *color != BorderColor::all(Color::NONE))
+    {
+        return Err("工程弹窗表单仍有可见的内层边框".into());
+    }
+    Ok(())
 }
 
 pub(super) fn coords(rect: Rect) -> [f32; 4] {
@@ -174,9 +236,9 @@ fn measured(world: &mut World, sample: Sample) -> Result<Value, String> {
                 return Err("空列表必须能点击新建，不能预先展开未创建的记录".into());
             }
         }
-        Sample::Variables | Sample::Locations | Sample::RuleWide | Sample::RuleNarrow => {
+        Sample::Variables { .. } | Sample::Locations | Sample::RuleWide | Sample::RuleNarrow => {
             let id = match sample {
-                Sample::Variables => "gate_open",
+                Sample::Variables { id, .. } => id,
                 Sample::Locations => "east_gate",
                 _ => "draw_at_three",
             };
@@ -188,24 +250,16 @@ fn measured(world: &mut World, sample: Sample) -> Result<Value, String> {
             if !viewport.contains(edit.center())
                 || details.is_some()
                 || (matches!(sample, Sample::RuleWide | Sample::RuleNarrow)
-                    && (!cells[0]["text"]
-                        .as_str()
-                        .is_some_and(|v| v.starts_with("规则 ID"))
-                        || !cells[2]["text"]
-                            .as_str()
-                            .is_some_and(|v| v.starts_with("执行动作"))))
+                    && [0, 1, 2].map(|i| cells[i]["text"].as_str())
+                        != [Some(id), Some("a 变化"), Some("播放剧情演出")])
             {
                 return Err(format!(
-                    "右栏记录没有按固定两行排列：文字 {cells:?}，编辑 {edit:?}"
+                    "右栏记录未正确回显：文字 {cells:?}，编辑 {edit:?}"
                 ));
             }
-            if matches!(sample, Sample::Variables)
-                && (!cells[1]["text"]
-                    .as_str()
-                    .is_some_and(|text| text.ends_with("布尔"))
-                    || !cells[2]["text"]
-                        .as_str()
-                        .is_some_and(|text| text.ends_with("真")))
+            if let Sample::Variables { value, .. } = sample
+                && (cells[1]["text"].as_str() != Some("bool")
+                    || cells[2]["text"].as_str() != Some(value))
             {
                 return Err(format!("变量表未回显已保存的值：{cells:?}"));
             }
@@ -214,6 +268,8 @@ fn measured(world: &mut World, sample: Sample) -> Result<Value, String> {
         Sample::Number | Sample::RereadNumber => {
             let (_, dialog) = modal.ok_or("尚未打开变量对话框")?;
             let details = details.ok_or("尚未展示数字变量表单")?;
+            verify_bare_form(world)?;
+            let field = form::entity(world, "RulesFieldDefault").ok_or("尚未展示值输入框")?;
             let input = rect(world, "RulesFieldId")?;
             let save = rect(world, "RulesSave")?;
             let default = rect(world, "RulesFieldDefault")?;
@@ -226,6 +282,7 @@ fn measured(world: &mut World, sample: Sample) -> Result<Value, String> {
                 || (default.min.x - input.min.x).abs() > 1.
                 || save.min.y + 1. < default.max.y.max(input.max.y)
                 || !yarn.contains("$project_a")
+                || !has_field_caption(world, field, "值")
                 || form::field_text(world, "RulesFieldId").as_deref() != Some("a")
                 || form::field_text(world, "RulesFieldDefault").as_deref() != Some("3")
                 || form::entity(world, "RulesBoolTrue").is_some()
@@ -241,6 +298,7 @@ fn measured(world: &mut World, sample: Sample) -> Result<Value, String> {
         Sample::RuleScrolled => {
             let details = details.ok_or("尚未展示规则表单")?;
             let (_, dialog) = modal.ok_or("尚未打开规则对话框")?;
+            verify_bare_form(world)?;
             let scroller = bounds(world, scroll).ok_or("规则对话框正文未排版")?;
             let terminal_field = rect(world, "RulesFieldActionValue")?;
             let save = rect(world, "RulesSave")?;
@@ -320,7 +378,7 @@ pub(super) fn capture(
     let target = match sample {
         Sample::RuleScrolled => form::entity(world, "RulesFieldActionValue"),
         Sample::Number | Sample::RereadNumber => form::entity(world, "RulesFieldId"),
-        Sample::Variables | Sample::Locations => form::entity(world, "RulesRow0"),
+        Sample::Variables { .. } | Sample::Locations => form::entity(world, "RulesRow0"),
         Sample::RuleWide | Sample::RuleNarrow => form::row_slot(world, "draw_at_three")
             .and_then(|i| form::entity(world, &format!("RulesRow{i}"))),
         Sample::Empty => form::entity(world, "RulesNew"),

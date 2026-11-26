@@ -87,14 +87,7 @@ fn rules_table_cells_measure_at_their_actual_column_width() {
             });
             p.spawn((TablePart::Summary(0), grid())).with_children(|r| {
                 cells(r, &font, Some(0));
-                button_with_icon(
-                    r,
-                    &font,
-                    "RulesRow0",
-                    "编辑",
-                    Action::Row(0),
-                    Some(&Handle::default()),
-                );
+                row_actions(r, &font, 0, &Handle::default(), &Handle::default());
             });
         });
     });
@@ -126,12 +119,18 @@ fn rules_table_cells_measure_at_their_actual_column_width() {
             })
             .collect();
         assert_eq!(cells.len(), 3);
-        let icon = world
-            .query_filtered::<Entity, With<ImageNode>>()
+        let icons: Vec<_> = world
+            .query_filtered::<(Entity, &Name), With<ImageNode>>()
             .iter(world)
-            .find(|&e| world.get::<EditVisual>(e).is_some())
-            .unwrap();
-        let icon = rect(world, icon);
+            .map(|(entity, name)| (entity, name.as_str().to_owned()))
+            .collect();
+        let icon = |name| {
+            rect(world, icons.iter().find(|(_, id)| id == name).unwrap().0)
+        };
+        let edit = icon("RulesRowEditIcon");
+        let delete = icon("RulesRowDeleteIcon");
+        assert!(edit.max.x < delete.min.x);
+        assert!((edit.center().y - delete.center().y).abs() <= 1.);
         for (e, column, parent) in cells {
             let text = rect(world, e);
             let row = rect(world, parent);
@@ -140,10 +139,10 @@ fn rules_table_cells_measure_at_their_actual_column_width() {
                 text.min.y >= row.min.y - 1. && text.max.y <= row.max.y + 1.,
                 "{width}/{scale} {column:?} {text:?} 越出 {row:?}"
             );
-            // 短 ID 应和单字“真”一样只占一行；先前在 1.5 倍下错误测成了 195px。
+            // 标识和默认值都只占一行；长值由列容器裁剪。
             assert!(text.height() < 2. * metrics::FONT_CONTROL * scale);
-            assert!((text.center().y - icon.center().y).abs() <= 1.);
-            assert!(text.max.x < icon.min.x);
+            assert!((text.center().y - edit.center().y).abs() <= 1.);
+            assert!(text.max.x < edit.min.x);
         }
     }
 }

@@ -60,6 +60,31 @@ fn named(world: &mut World, name: &str) -> Result<Entity, String> {
     form::entity(world, name).ok_or_else(|| format!("尚未显示 {name}"))
 }
 
+fn icon_button(world: &World, button: Entity, icon_name: &str, label: &str) -> Result<Cell, String> {
+    let children = world.get::<Children>(button).ok_or("行尾按钮没有图标")?;
+    if children.iter().any(|e| {
+        world.get::<Text>(e).is_some()
+            && world.get::<Node>(e).is_some_and(|node| node.display != Display::None)
+    }) {
+        return Err(format!("行尾{label}按钮仍显示文字"));
+    }
+    let icon = children.iter().find(|&e| {
+        world.get::<Name>(e).is_some_and(|name| name.as_str() == icon_name)
+            && world.get::<ImageNode>(e).is_some_and(|image| {
+                world.resource::<Assets<Image>>().get(&image.image).is_some()
+            })
+    }).ok_or_else(|| format!("行尾{label}图标尚未载入"))?;
+    let ink = layout::bounds(world, icon).ok_or("行尾图标尚未排版")?;
+    if ink.size().min_element() <= 1. {
+        return Err(format!("行尾{label}图标不可见"));
+    }
+    Ok(Cell {
+        text: label.into(),
+        bounds: layout::bounds(world, button).ok_or("行尾按钮未排版")?,
+        ink,
+    })
+}
+
 fn check_band(items: &[Cell], owner: Rect) -> Result<(), String> {
     // 以各列实际字形带判断是否同一行，容许汉字、拉丁字母、数字的上下缘天然不同。
     let (top, bottom) = items
@@ -90,6 +115,7 @@ pub(super) fn measure(world: &mut World, details: Option<Rect>) -> Result<Value,
     let mut data = json!({"rows":{}});
     let page = layout::caption(world, "RulesPageTitle");
     let variables = page.as_deref() == Some("工程变量");
+    let single_line = matches!(page.as_deref(), Some("工程变量" | "触发规则"));
     if matches!(page.as_deref(), Some("工程变量" | "触发规则"))
         && ["RulesSource", "RulesUndo"]
             .into_iter()
@@ -104,8 +130,8 @@ pub(super) fn measure(world: &mut World, details: Option<Rect>) -> Result<Value,
         .filter_map(|(name, ..)| name.as_str().strip_prefix("RulesRow")?.parse().ok())
         .collect();
     let heading = form::entity(world, "RulesHeadingId");
-    if heading.is_some() != (variables && !slots.is_empty()) {
-        return Err("变量列表表头显隐不正确".into());
+    if heading.is_some() != (single_line && !slots.is_empty()) {
+        return Err("工程列表表头显隐不正确".into());
     }
     if let Some(heading) = heading {
         let column = world.get::<ChildOf>(heading).ok_or("表头没有列")?.parent();
@@ -115,6 +141,14 @@ pub(super) fn measure(world: &mut World, details: Option<Rect>) -> Result<Value,
         });
         let [id, kind, value] = heading;
         let headings = [id?, kind?, value?];
+        let expected = if variables {
+            ["变量名称", "类型", "值"]
+        } else {
+            ["规则 ID", "监听", "执行动作"]
+        };
+        if headings.each_ref().map(|cell| cell.text.as_str()) != expected {
+            return Err(format!("工程列表表头不匹配：{headings:?}"));
+        }
         check_band(
             &headings,
             layout::bounds(world, parent).ok_or("表头未排版")?,
@@ -132,39 +166,13 @@ pub(super) fn measure(world: &mut World, details: Option<Rect>) -> Result<Value,
         let mut items = Vec::new();
         for field in ["Id", "Kind", "Value"] {
             let e = named(world, &format!("RulesCell{slot}{field}"))?;
-            items.push(cell(world, e, variables)?);
+            items.push(cell(world, e, single_line)?);
         }
         let edit = named(world, &format!("RulesRow{slot}"))?;
-        if variables {
-            let children = world.get::<Children>(edit).ok_or("编辑按钮没有图标")?;
-            if children.iter().any(|e| {
-                world.get::<Text>(e).is_some()
-                    && world
-                        .get::<Node>(e)
-                        .is_some_and(|n| n.display != Display::None)
-            }) {
-                return Err("编辑按钮仍显示文字".into());
-            }
-            let icon = children
-                .iter()
-                .find(|&e| {
-                    world.get::<ImageNode>(e).is_some_and(|image| {
-                        world
-                            .resource::<Assets<Image>>()
-                            .get(&image.image)
-                            .is_some()
-                    })
-                })
-                .ok_or("铅笔图标尚未载入")?;
-            let ink = layout::bounds(world, icon).ok_or("铅笔图标尚未排版")?;
-            if ink.size().min_element() <= 1. {
-                return Err("铅笔图标不可见".into());
-            }
-            items.push(Cell {
-                text: "编辑".to_owned(),
-                bounds: layout::bounds(world, edit).ok_or("编辑按钮尚未排版")?,
-                ink,
-            });
+        if single_line {
+            let delete = named(world, &format!("RulesDeleteRow{slot}"))?;
+            items.push(icon_button(world, edit, "RulesRowEditIcon", "编辑")?);
+            items.push(icon_button(world, delete, "RulesRowDeleteIcon", "删除")?);
             check_band(&items, owner)?;
         } else {
             items.push(cell(world, edit, false)?);

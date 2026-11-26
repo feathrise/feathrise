@@ -36,6 +36,7 @@ pub(super) fn install(app: &mut App) {
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Action {
     Row(usize),
+    DeleteRow(usize),
     Previous,
     Next,
     New,
@@ -126,8 +127,8 @@ fn field_label(tab: Tab, form: &Form, k: Field) -> &'static str {
             Tab::Rules => "规则 ID",
             Tab::Locations => "地点 ID",
         },
-        Field::Default => "默认值",
-        Field::Choices => "枚举选项（用逗号分隔）",
+        Field::Default => "值",
+        Field::Choices => "候选值（用逗号分隔）",
         Field::Trigger => {
             if form.changed {
                 "变化变量"
@@ -229,6 +230,7 @@ fn anchor_options(
 fn display(
     s: Res<Studio>,
     docs: Res<DocumentState>,
+    mut editor: ResMut<crate::resources::SceneEditorState>,
     mut panel: Query<(&mut Node, &mut Visibility, Ref<Panel>)>,
     mut body: Query<&mut Node, (With<PanelBody>, Without<Panel>, Without<SidebarStatus>)>,
     mut sidebar_status: Query<(&mut Text, &mut Node), (With<SidebarStatus>, Without<Panel>)>,
@@ -286,7 +288,8 @@ fn display(
     {
         return;
     }
-    let document = shown_document(&s, &docs);
+    let ready_document = shown_document(&s, &docs);
+    let document = ready_document.or_else(|| listed_document(&s, &docs));
     let visible = document.is_some();
     let sidebar = docs.rules_in_sidebar();
     for (mut node, mut visibility, _) in &mut panel {
@@ -316,9 +319,13 @@ fn display(
     let Some(doc) = document else { return };
     let tab = s.sel.tab;
     let sheet = s.sheet.as_deref();
-    let available = !docs.is_loading(&doc.path) && !docs.file_change_pending(&doc.path);
-    let count = sheet.map_or(0, |m| m.len(tab));
-    let start = s.sel.item.unwrap_or(0) / ROWS * ROWS;
+    let available = ready_document.is_some()
+        && !docs.is_loading(&doc.path)
+        && !docs.file_change_pending(&doc.path);
+    let modal = editor_dialog_open(&s, &docs);
+    let (list, selection) = s.list_projection();
+    let count = list.map_or(0, |m| m.len(tab));
+    let start = selection.item.unwrap_or(0) / ROWS * ROWS;
     let rule = sheet.and_then(|m| s.sel.rule(&m.model));
     let conditions = rule.map_or(0, |r| r.conditions.len());
     let actions = rule.map_or(0, |r| r.actions.len());
@@ -328,7 +335,7 @@ fn display(
             &mut n,
             match g {
                 Group::Editor => s.editing_item && available,
-                Group::DraftActions => !s.editing_item && doc.dirty(),
+                Group::DraftActions => available && !s.editing_item && !s.saving() && doc.dirty(),
                 Group::Types => tab == Tab::Variables,
                 Group::Boolean => tab == Tab::Variables && s.form.kind == VariableKind::Bool,
                 Group::Location => tab == Tab::Locations,
@@ -356,10 +363,11 @@ fn display(
         let shown = match a {
             Action::Source => tab == Tab::Locations,
             Action::Row(i) => start + i < count,
-            Action::New => sheet.is_some() && !(new && s.editing_item),
+            Action::DeleteRow(i) => tab != Tab::Locations && start + i < count,
+            Action::New => sheet.is_some() && (modal || !(new && s.editing_item)),
             Action::Previous => start > 0,
             Action::Next => start + ROWS < count,
-            Action::Delete => !new,
+            Action::Delete => tab == Tab::Locations && !new,
             Action::Cancel => s.editing_item || s.has_unsaved_input(),
             Action::Undo => tab == Tab::Locations && (s.has_unsaved_input() || doc.history.can_undo()),
             Action::Redo => doc.history.can_redo(),
@@ -456,8 +464,8 @@ fn display(
             Info::Yarn => tab == Tab::Variables && !s.form.id.trim().is_empty(),
             _ => true,
         };
-        show(&mut n, shown);
         if !shown {
+            show(&mut n, false);
             continue;
         }
         let value = match role {
@@ -485,6 +493,10 @@ fn display(
             Info::Status if doc.confirm_reload => {
                 "再次点「确认丢弃」会载入磁盘版本并放弃当前填写。".into()
             }
+            Info::Status if !docs.sidebar_rules.error.is_empty() => docs.sidebar_rules.error.clone(),
+            Info::Status if active_document(&docs).is_none() => {
+                "完成中央源码编辑后可继续使用表单。".into()
+            }
             Info::Status if !available => "正在更新文件，完成后可继续编辑。".into(),
             Info::Status if !s.notice.is_empty() => s.notice.clone(),
             Info::Status if doc.external.warning => "文件已在外部修改，请选择如何处理。".into(),
@@ -494,9 +506,15 @@ fn display(
             Info::Status if s.has_unsaved_input() || doc.dirty() => "有未保存的修改。".into(),
             Info::Status => s.saved_current().unwrap_or("").to_owned(),
         };
-        set(&mut t, &value);
         if matches!(role, Info::Status) {
-            show(&mut n, !value.is_empty());
+            // 普通回执只刷新底栏，在侧栏不占位置。弹窗仍就地提示输入校验。
+            if !modal && !value.is_empty() && t.as_str() != value.as_str() {
+                editor.status.clone_from(&value);
+            }
+            show(&mut n, modal && !value.is_empty());
+        } else {
+            show(&mut n, true);
         }
+        set(&mut t, &value);
     }
 }

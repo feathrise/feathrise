@@ -16,7 +16,7 @@ use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
 };
-use std::{path::Path, sync::Arc};
+use std::{path::{Path, PathBuf}, sync::Arc};
 pub(crate) use types::Tab as ProjectRulesSection;
 pub(crate) use view::RulesEditorDialogOverlay;
 const RULES_SHEET_PADDING: f32 = 9.0;
@@ -105,6 +105,15 @@ fn shown_document<'a>(s: &Studio, docs: &'a DocumentState) -> Option<&'a Documen
     }
     active_document(docs).filter(|doc| s.key.as_ref().is_some_and(|key| key.matches(doc)))
 }
+
+/// 新修订解析或重载时继续显示同一磁盘文件的完整列表，写入仍按精确修订校验。
+fn listed_document<'a>(s: &Studio, docs: &'a DocumentState) -> Option<&'a Document> {
+    if !docs.rules_in_sidebar() || s.sheet.is_none() {
+        return None;
+    }
+    let path = s.sheet_path.as_deref()?;
+    docs.rules_sidebar_document().filter(|doc| doc.disk.path == path)
+}
 /// 时间线只定位刚写入该文档修订的那条绑定；后台读取完成后由同一表单选中它。
 #[derive(Message, Clone)]
 pub(super) struct RevealBoundRule {
@@ -117,6 +126,7 @@ struct Job {
     key: Identity,
     task: Task<Result<Reply, String>>,
     change: Option<Change>,
+    deleted: Option<String>,
     save: bool,
     submitted: Option<Form>,
 }
@@ -132,6 +142,7 @@ struct PageDraft {
 pub(super) struct Studio {
     key: Option<Identity>,
     sheet: Option<Arc<Sheet>>,
+    sheet_path: Option<PathBuf>,
     job: Option<Job>,
     sel: Selection,
     editing_item: bool,
@@ -233,6 +244,7 @@ fn start(
     docs: &DocumentState,
     input: Option<Submission>,
     save: bool,
+    target: Option<Selection>,
 ) -> Result<(), String> {
     let doc = active_document(docs).ok_or("工程规则尚未载入")?;
     let key = Identity::of(doc);
@@ -248,15 +260,18 @@ fn start(
     }
     let source = doc.source.clone();
     let old = s.sheet.clone();
-    let sel = s.sel;
+    // 行尾删除冻结被点击的行，表单和当前选中行无需参与导航。
+    let sel = target.unwrap_or(s.sel);
     let pages = input.as_ref().map(|_| doc.pages.clone());
     let want = sel
         .item
         .and_then(|i| old.as_ref()?.id(sel.tab, i))
         .map(str::to_owned);
+    let change = input.as_ref().map(|submission| submission.change);
     s.job = Some(Job {
         key,
-        change: input.as_ref().map(|submission| submission.change),
+        change,
+        deleted: if change == Some(Change::Delete) { want.clone() } else { None },
         save,
         submitted: input.as_ref().map(|submission| submission.form.clone()),
         task: AsyncComputeTaskPool::get()
@@ -309,11 +324,7 @@ fn sync(
                         let noun = reply.selection.tab.noun();
                         let id = job.submitted.as_ref().map(|f| f.id.trim()).unwrap_or("");
                         let status = if job.change == Some(Change::Delete) {
-                            let original = s
-                                .sheet
-                                .as_ref()
-                                .and_then(|sheet| sheet.id(s.sel.tab, s.sel.item?))
-                                .unwrap_or(id);
+                            let original = job.deleted.as_deref().unwrap_or(id);
                             format!("已删除{noun}「{original}」")
                         } else {
                             format!("{noun}「{id}」已保存")
@@ -326,6 +337,7 @@ fn sync(
                             revision,
                             ..job.key
                         });
+                        s.sheet_path = Some(d.disk.path.clone());
                         s.sheet = Some(reply.sheet);
                         s.sel = reply.selection;
                         // 写盘准备期间作者可能已输入下一个值，只采用已确认版本为新基线。
@@ -359,6 +371,7 @@ fn sync(
                         s.notice = e;
                         if job.change.is_none() {
                             s.key = Some(job.key);
+                            s.sheet_path = None;
                             s.sheet = None;
                             s.hydrate();
                         }
@@ -380,7 +393,7 @@ fn sync(
             s.return_to = None;
         }
         s.forget_stale_checkpoint(&key);
-        let _ = start(&mut s, &docs, None, false);
+        let _ = start(&mut s, &docs, None, false, None);
     }
     if let Some(section) = docs.sidebar_rules.section
         && active(&docs)

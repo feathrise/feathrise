@@ -22,6 +22,10 @@ enum Step {
     Returned,
     Corner(bool),
     Drawn,
+    BoolValues,
+    CompactVariableScroll,
+    DeleteRow(&'static str),
+    Deleted { id: &'static str, variable: bool },
     TextWithoutChoices,
     TryBackgroundTool(&'static str),
     VariableModalKept,
@@ -40,10 +44,22 @@ const FIRST: &[Step] = &[
     Button("RulesNew"),
     Field("RulesFieldId", "gate_open"),
     Button("RulesTypeBool"),
+    BoolValues,
     Button("RulesBoolTrue"),
     Button("RulesSave"),
     Stored("gate_open"),
-    Layout(Sample::Variables),
+    Layout(Sample::Variables { id: "gate_open", value: "true" }),
+    Selected("gate_open"),
+    BoolValues,
+    Button("RulesCancel"),
+    Button("RulesNew"),
+    Field("RulesFieldId", "delete_me"),
+    Button("RulesTypeBool"),
+    Button("RulesSave"),
+    Stored("delete_me"),
+    Layout(Sample::Variables { id: "delete_me", value: "false" }),
+    DeleteRow("delete_me"),
+    Deleted { id: "delete_me", variable: true },
     Button("RulesNew"),
     NameFocused,
     Field("RulesFieldId", "a"),
@@ -53,6 +69,7 @@ const FIRST: &[Step] = &[
     TextWithoutChoices,
     Button("RulesTypeNumber"),
     Layout(Sample::Number),
+    CompactVariableScroll,
     TryBackgroundTool("交互目录条目触发规则"),
     VariableModalKept,
     Button("RulesSave"),
@@ -164,6 +181,16 @@ const EDIT: &[Step] = &[
     Field("RulesFieldActionValue", "draw-river-sword"),
     Button("RulesSave"),
     NumberTrigger,
+    Button("RulesNew"),
+    Field("RulesFieldId", "delete_rule"),
+    Field("RulesFieldTrigger", "quest.completed"),
+    Field("RulesFieldEventTarget", "dock_guard"),
+    Field("RulesFieldActionName", "dock_ready"),
+    Field("RulesFieldActionValue", "false"),
+    Button("RulesSave"),
+    Stored("delete_rule"),
+    DeleteRow("delete_rule"),
+    Deleted { id: "delete_rule", variable: false },
     Saved,
 ];
 
@@ -229,6 +256,53 @@ pub(super) fn row_slot(world: &mut World, id: &str) -> Option<usize> {
                 && caption.split_whitespace().last() == Some(id))
             .then_some(slot)
         })
+}
+
+#[derive(Debug, PartialEq)]
+struct DeletionLayout {
+    anchors: [(Entity, f32); 2],
+    rows: Vec<(String, f32)>,
+}
+
+pub(super) struct DeletionCheck {
+    layout: DeletionLayout,
+    frames: u32,
+    before_receipt: u32,
+}
+
+fn deletion_layout(world: &mut World, deleted: &str) -> Option<DeletionLayout> {
+    let panel = entity(world, "RulesWorkbench")?;
+    let list = entity(world, "RulesList")?;
+    let anchors = [
+        (panel, layout::bounds(world, panel)?.min.y.round()),
+        (list, layout::bounds(world, list)?.min.y.round()),
+    ];
+    // 夹具删除末尾行，其余行保持可见且留在各自原来的纵向位置。
+    let mut rows: Vec<_> = world
+        .query::<(&Name, &Text, &ComputedNode, &InheritedVisibility, &UiGlobalTransform)>()
+        .iter(world)
+        .filter(|(name, caption, node, visible, _)| {
+            name.as_str().starts_with("RulesCell")
+                && name.as_str().ends_with("Id")
+                && visible.get()
+                && node.size().min_element() > 1.
+                && !caption.is_empty()
+                && caption.as_str() != deleted
+        })
+        .map(|(_, caption, _, _, transform)| {
+            (caption.as_str().to_owned(), transform.translation.y.round())
+        })
+        .collect();
+    rows.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    (!rows.is_empty()).then_some(DeletionLayout { anchors, rows })
+}
+
+fn bottom_status(world: &mut World) -> Option<String> {
+    use super::super::{StatusText, StatusTextRole};
+    let summary = visible(world, |text: &StatusText| text.0 == StatusTextRole::Summary)?;
+    world
+        .get::<Text>(summary)
+        .map(|text| text.as_str().to_owned())
 }
 
 /// 每份按键先按下再释放，在真实焦点的原生输入框提交 IME。未向文档注册表或表单模型直接写值。
@@ -476,6 +550,106 @@ pub(super) fn form(
         Returned => directory::capture(world, run, "catalog-return", directory::SceneTool::Portal)?,
         Corner(second) => location::point(world, run, window, second)?,
         Drawn => location::restored(world, run)?,
+        BoolValues => {
+            let caption = |world: &mut World, name: &str| {
+                let button = entity(world, name)?;
+                world.get::<Children>(button)?.iter().find_map(|child| {
+                    let caption = world.get::<Text>(child)?;
+                    layout::glyph_bounds(world, child)?;
+                    Some(caption.as_str().to_owned())
+                })
+            };
+            let labels = ["RulesBoolFalse", "RulesBoolTrue"].map(|name| caption(world, name));
+            let types = ["RulesTypeNumber", "RulesTypeBool", "RulesTypeText", "RulesTypeEnum"]
+                .map(|name| caption(world, name));
+            let exact = labels[0].as_deref() == Some("false")
+                && labels[1].as_deref() == Some("true")
+                && types.each_ref().map(|text| text.as_deref())
+                    == ["number", "bool", "text", "enum"].map(Some)
+                && entity(world, "RulesBoolTrue")
+                    .is_some_and(|button| layout::has_field_caption(world, button, "值"))
+                && entity(world, "RulesDelete").is_none();
+            if exact {
+                run.layout.insert("boolean-value-buttons".into(), json!(labels));
+                run.layout.insert("variable-type-buttons".into(), json!(types));
+            }
+            exact
+        }
+        CompactVariableScroll => layout::compact_variable_scroll(world, run, window)?,
+        DeleteRow(id) => {
+            let Some(slot) = row_slot(world, id) else {
+                return Ok(None);
+            };
+            if !named_click(world, run, window, &format!("RulesDeleteRow{slot}")) {
+                return Ok(None);
+            }
+            // Last 阶段刚释放实际按钮，还没有执行删除，这是逐帧检查的基准。
+            run.deletion = Some(DeletionCheck {
+                layout: deletion_layout(world, id).ok_or("删除前缺少列表布局")?,
+                frames: 0,
+                before_receipt: 0,
+            });
+            true
+        }
+        Deleted { id, variable } => {
+            let check = run.deletion.as_mut().ok_or("缺少删除前的布局")?;
+            let current = deletion_layout(world, id);
+            if current.as_ref() != Some(&check.layout)
+                || [
+                    "RulesEditorDialog",
+                    "RulesStatus",
+                    "RulesListSave",
+                    "RulesListCancel",
+                ]
+                .into_iter()
+                .any(|name| entity(world, name).is_some())
+            {
+                return Err(format!("删除「{id}」第 {} 帧的工作台应留在原位，删除前 {:?}，当前 {current:?}", check.frames, check.layout));
+            }
+            check.frames += 1;
+            let target_visible = row_slot(world, id).is_some();
+            // 夹具 ID 独一无二，旧正文或未写入的修订都还没有本次删除回执。
+            let target_key = format!("\"{id}\"");
+            let source = match observe(world) {
+                Some((source, false, _, status))
+                    if status.contains("已保存") && !source.contains(&target_key) => source,
+                _ => {
+                    if !target_visible {
+                        return Err(format!("删除「{id}」在写盘回执前隐藏了目标行"));
+                    }
+                    check.before_receipt += 1;
+                    return Ok(None);
+                }
+            };
+            let saved = fs::read_to_string(run.work.join("project/assets").join(PATH))
+                .map_err(|e| e.to_string())?;
+            let doc: Value = serde_json::from_str(&saved).map_err(|e| e.to_string())?;
+            let (noun, kind, intact) = if variable {
+                ("变量", "variable",
+                    doc["variables"] == json!({"gate_open":{"default":true}}))
+            } else {
+                let rules = doc["rules"].as_array().ok_or("保存文件缺少规则")?;
+                ("规则", "rule",
+                    rules.iter().all(|rule| rule["id"] != id)
+                        && ["guard_freed", "draw_at_three"].into_iter()
+                            .all(|keep| rules.iter().any(|rule| rule["id"] == keep)))
+            };
+            let deleted = source == saved.replace("\r\n", "\n")
+                && !target_visible
+                && bottom_status(world).as_deref()
+                    == Some(format!("已删除{noun}「{id}」").as_str())
+                && intact;
+            if deleted {
+                if check.before_receipt == 0 {
+                    return Err(format!("没有采集到删除「{id}」等待回执的帧"));
+                }
+                run.layout.insert(format!("{kind}-deleted-from-list"), json!(id));
+                run.layout.insert(format!("{kind}-deletion-stable-frames"), json!(check.frames));
+                run.layout.insert(format!("{kind}-deletion-target-before-receipt-frames"), json!(check.before_receipt));
+                run.deletion = None;
+            }
+            deleted
+        }
         TextWithoutChoices => {
             let confirmed = entity(world, "RulesTypeText").is_some_and(|button| {
                 world.get::<BorderColor>(button)
@@ -523,6 +697,7 @@ pub(super) fn form(
                 && layout::caption(world, "RulesPageTitle").as_deref() == Some("触发规则")
                 && entity(world, "RulesUndo").is_none()
                 && entity(world, "RulesSource").is_none()
+                && entity(world, "RulesDelete").is_none()
                 && title
                     .as_deref()
                     .is_some_and(|title| title.starts_with(expected_title));
@@ -587,6 +762,13 @@ pub(super) fn form(
                 let doc: Value = serde_json::from_str(&saved).map_err(|e| e.to_string())?;
                 let (actual, expected) = match id {
                     "gate_open" => (&doc["variables"][id], json!({"default":true})),
+                    "delete_me" => (&doc["variables"][id], json!({"default":false})),
+                    "delete_rule" => (
+                        doc["rules"].as_array().and_then(|rules| rules.iter().find(|rule| rule["id"] == id))
+                            .unwrap_or(&Value::Null),
+                        json!({"id":id,"when":{"event":"quest.completed","target":"dock_guard"},
+                            "actions":[{"set":"dock_ready","value":false}]}),
+                    ),
                     "a" => (&doc["variables"][id], json!({"default":3})),
                     "delivery" => (
                         &doc["variables"][id],
@@ -604,13 +786,13 @@ pub(super) fn form(
                 if actual != &expected {
                     return Ok(None);
                 }
-                let receipt = entity(world, "RulesStatus")
-                    .and_then(|e| world.get::<Text>(e))
-                    .map(|text| text.as_str())
-                    .unwrap_or_default();
-                if !receipt.contains("已保存") || !receipt.contains(id) {
+                let receipt = [bottom_status(world), layout::caption(world, "RulesStatus")]
+                    .into_iter()
+                    .flatten()
+                    .find(|receipt| receipt.contains("已保存") && receipt.contains(id));
+                let Some(receipt) = receipt else {
                     return Ok(None);
-                }
+                };
                 run.direct_saves
                     .insert(id.into(), json!({"saved":actual,"receipt":receipt}));
                 if id == "a" {
@@ -627,9 +809,16 @@ pub(super) fn form(
         }),
         Duplicate(cancelled) => {
             if cancelled {
-                if entity(world, "RulesForm").is_some() || row_slot(world, "a").is_none() {
+                if entity(world, "RulesForm").is_some()
+                    || row_slot(world, "a").is_none()
+                    || bottom_status(world).as_deref() != Some("已取消本次修改")
+                {
                     return Ok(None);
                 }
+                if entity(world, "RulesStatus").is_some() {
+                    return Err("取消提示仍占用工程变量列表的布局".into());
+                }
+                run.layout.insert("variable-cancelled-in-status-bar".into(), json!(true));
             } else {
                 let status = entity(world, "RulesStatus")
                     .and_then(|e| world.get::<Text>(e))

@@ -89,7 +89,7 @@ pub(super) fn mount(mut commands: Commands, roots: Query<Entity, Added<SceneEdit
             RelativeCursorPosition::default(),
             ScrollPosition::default(),
             Node {
-                max_height: percent(80),
+                // 卡片达到窗口上限时，只有正文收缩，标题和操作区留在原位。
                 overflow: Overflow::scroll_y(),
                 ..feathrise_editor_ui::dialog_body_node()
             },
@@ -128,7 +128,14 @@ pub(super) fn sync(
     docs: Res<DocumentState>,
     mut overlays: Query<(&Slots, &mut Node, &mut Visibility), With<RulesEditorDialogOverlay>>,
     mut frames: Query<&mut Node, (With<DialogFrame>, Without<RulesEditorDialogOverlay>)>,
-    form: Query<Entity, With<FormHost>>,
+    mut form: Query<
+        (Entity, &mut Node, &mut BackgroundColor),
+        (
+            With<FormHost>,
+            Without<RulesEditorDialogOverlay>,
+            Without<DialogFrame>,
+        ),
+    >,
     actions: Query<Entity, With<FormActions>>,
     panel: Query<Entity, With<PanelBody>>,
     labels: Query<(Entity, &Info)>,
@@ -161,7 +168,8 @@ pub(super) fn sync(
     if open == (node.display != Display::None) {
         return;
     }
-    let (Ok(form), Ok(actions), Ok(panel)) = (form.single(), actions.single(), panel.single())
+    let (Ok((form, mut form_node, mut form_color)), Ok(actions), Ok(panel)) =
+        (form.single_mut(), actions.single(), panel.single())
     else {
         return;
     };
@@ -172,6 +180,10 @@ pub(super) fn sync(
         Visibility::Hidden
     };
     if open {
+        // 标题、字段和按钮共享弹窗外壳，正文只留其自身的内边距。
+        form_node.border = UiRect::ZERO;
+        form_node.padding = UiRect::ZERO;
+        form_color.0 = Color::NONE;
         commands.entity(slots.body).add_child(form);
         commands.entity(slots.footer).add_child(actions);
         if let Ok(mut scroll) = scrolls.get_mut(slots.body) {
@@ -179,6 +191,9 @@ pub(super) fn sync(
         }
     } else {
         // 地点区域继续使用原表格挂载，保持场景视口取点可用。
+        form_node.border = UiRect::all(px(1));
+        form_node.padding = UiRect::all(px(9));
+        form_color.0 = c::PANEL_BG_SECTION;
         commands.entity(form).add_child(actions);
     }
     for (entity, label) in &labels {
@@ -202,8 +217,10 @@ pub(super) fn sync(
 
 pub(super) fn scroll(
     mut wheels: MessageReader<MouseWheel>,
+    forms: Query<(&ComputedNode, &ChildOf), With<FormHost>>,
     mut bodies: Query<
         (
+            Entity,
             &RelativeCursorPosition,
             &ComputedNode,
             &mut ScrollPosition,
@@ -217,12 +234,19 @@ pub(super) fn scroll(
         .filter(|wheel| wheel.y.is_finite())
         .map(|wheel| crate::ui::systems::editor_scroll_delta(wheel.unit, wheel.y))
         .sum::<f32>();
-    if delta != 0.
-        && let Ok((cursor, node, mut scroll, visible)) = bodies.single_mut()
-        && visible.get()
-        && cursor.cursor_over()
-    {
-        let max = ((node.content_size().y - node.size().y) * node.inverse_scale_factor()).max(0.);
-        scroll.y = (scroll.y + delta).clamp(0., max);
+    let (Ok((body, cursor, node, mut scroll, visible)), Ok((form, parent))) =
+        (bodies.single_mut(), forms.single())
+    else {
+        return;
+    };
+    if visible.get() && parent.parent() == body {
+        // 滚动终点取唯一表单的实测高度，类型切换或放大窗口后也收回旧滚动位置。
+        let max =
+            ((form.size().y - node.content_box().height()) * node.inverse_scale_factor()).max(0.);
+        let delta = if cursor.cursor_over() { delta } else { 0. };
+        let next = (scroll.y + delta).clamp(0., max);
+        if scroll.y != next {
+            scroll.y = next;
+        }
     }
 }

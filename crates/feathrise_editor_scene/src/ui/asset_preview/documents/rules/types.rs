@@ -24,10 +24,10 @@ impl VariableKind {
     }
     pub fn label(self) -> &'static str {
         match self {
-            Self::Bool => "布尔",
-            Self::Number => "数字",
-            Self::Text => "文本",
-            Self::Enum => "枚举",
+            Self::Bool => "bool",
+            Self::Number => "number",
+            Self::Text => "text",
+            Self::Enum => "enum",
         }
     }
 }
@@ -311,7 +311,7 @@ impl Form {
         let choices = if self.kind == VariableKind::Enum {
             let choices = super::values::parse_choices(&self.choices)?.ok_or("请输入枚举选项")?;
             if !choices.contains(&self.default_value) {
-                return Err("默认值必须是枚举选项之一".into());
+                return Err("值必须是候选值之一".into());
             }
             Some(choices)
         } else {

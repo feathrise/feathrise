@@ -47,6 +47,7 @@ pub(super) fn button_with_icon(
     a: Action,
     icon: Option<&Handle<Image>>,
 ) {
+    let delete = matches!(a, Action::DeleteRow(_));
     let mut e = p.spawn((
         a,
         AuthorButton,
@@ -54,6 +55,7 @@ pub(super) fn button_with_icon(
         InteractionButton,
         FocusPolicy::Block,
         Node {
+            width: if delete { px(table::ROW_ACTION_WIDTH) } else { Val::Auto },
             min_height: px(metrics::CONTROL_HEIGHT),
             min_width: px(0),
             max_width: percent(100),
@@ -88,24 +90,33 @@ pub(super) fn button_with_icon(
     );
     if let Some(icon) = icon {
         use crate::ui::tooltips::{EditorTooltipTarget, TooltipAction};
-        e.insert(EditorTooltipTarget(TooltipAction::EditRulesRecord));
-        e.with_child((text, table::EditVisual::Text));
-        e.with_child((
-            Name::new("RulesRowEditIcon"),
-            table::EditVisual::Icon,
+        e.insert(EditorTooltipTarget(if delete {
+            TooltipAction::DeleteRulesRecord
+        } else {
+            TooltipAction::EditRulesRecord
+        }));
+        let glyph = (
+            Name::new(if delete { "RulesRowDeleteIcon" } else { "RulesRowEditIcon" }),
             ImageNode {
                 image: icon.clone(),
                 color: c::TEXT_PRIMARY,
                 ..default()
             },
             Node {
-                display: Display::None,
+                display: if delete { Display::Flex } else { Display::None },
                 width: px(14),
                 height: px(14),
                 ..default()
             },
             Pickable::IGNORE,
-        ));
+        );
+        if delete {
+            e.with_child(glyph);
+        } else {
+            e.insert(table::EditVisual::Button);
+            e.with_child((text, table::EditVisual::Text));
+            e.with_child((glyph, table::EditVisual::Icon));
+        }
     } else {
         e.with_child(text);
     }
@@ -265,20 +276,20 @@ pub(super) fn editor(p: &mut ChildSpawnerCommands, h: &Handle<Font>) {
             Group::Types,
             "变量类型",
             &[
-                ("RulesTypeNumber", "数字", Action::Type(VariableKind::Number)),
-                ("RulesTypeBool", "布尔", Action::Type(VariableKind::Bool)),
-                ("RulesTypeText", "文本", Action::Type(VariableKind::Text)),
-                ("RulesTypeEnum", "枚举", Action::Type(VariableKind::Enum)),
+                ("RulesTypeNumber", VariableKind::Number.label(), Action::Type(VariableKind::Number)),
+                ("RulesTypeBool", VariableKind::Bool.label(), Action::Type(VariableKind::Bool)),
+                ("RulesTypeText", VariableKind::Text.label(), Action::Type(VariableKind::Text)),
+                ("RulesTypeEnum", VariableKind::Enum.label(), Action::Type(VariableKind::Enum)),
             ],
         );
         choices(
             p,
             h,
             Group::Boolean,
-            "默认值",
+            "值",
             &[
-                ("RulesBoolFalse", "假", Action::BoolDefault(false)),
-                ("RulesBoolTrue", "真", Action::BoolDefault(true)),
+                ("RulesBoolFalse", "false", Action::BoolDefault(false)),
+                ("RulesBoolTrue", "true", Action::BoolDefault(true)),
             ],
         );
         field(p, h, Field::Choices);
@@ -404,7 +415,7 @@ pub(super) fn editor(p: &mut ChildSpawnerCommands, h: &Handle<Font>) {
                 ("RulesCancel", "取消", Action::Cancel),
                 ("RulesRuleUp", "规则上移", Action::RuleUp),
                 ("RulesRuleDown", "规则下移", Action::RuleDown),
-                ("RulesDelete", "删除变量", Action::Delete),
+                ("RulesDelete", "删除地点", Action::Delete),
             ],
         )
     });
@@ -441,6 +452,7 @@ pub(super) fn mount(
     let Ok(host) = sidebar.single() else { return };
     let h = feathrise_editor_core::editor_font(&server, feathrise_editor_core::FONT_PATH);
     let edit_icon = server.load("icons/editor/tool_edit.png");
+    let delete_icon = server.load("icons/editor/tool_delete.png");
     let workbench = commands
         .spawn((
             Panel,
@@ -483,28 +495,17 @@ pub(super) fn mount(
             p.spawn(column(5.)).with_children(|header| {
                 info(header, &h, Info::PageTitle, "RulesPageTitle");
                 header.spawn(row()).with_children(|r| {
-                    // 列表上的撤销/重做也会生成文档草稿，在原位保留保存与取消入口。
-                    r.spawn((Group::DraftActions, row()))
-                        .with_children(|draft| {
-                            button(draft, &h, "RulesListSave", "保存更改", Action::Save);
-                            button(draft, &h, "RulesListCancel", "取消", Action::Cancel);
-                        });
                     buttons(
                         r,
                         &h,
                         &[
                             ("RulesUndo", "撤销", Action::Undo),
-                            ("RulesRedo", "重做", Action::Redo),
                             ("RulesSource", "高级源码", Action::Source),
                         ],
                     )
                 });
             });
             info(p, &h, Info::Status, "RulesStatus");
-            p.spawn((Group::External, row())).with_children(|r| {
-                button(r, &h, "RulesKeepDraft", "保留当前修改", Action::KeepDraft);
-                button(r, &h, "RulesReload", "重新载入磁盘文件", Action::Reload);
-            });
             p.spawn((ScrollArea, Name::new("RulesFormScroll"), column(0.)))
                 .with_children(|scroll| {
                     scroll
@@ -515,7 +516,19 @@ pub(super) fn mount(
                                 ..column(5.)
                             },
                         ))
-                        .with_children(|items| table::list(items, &h, &edit_icon));
+                        .with_children(|items| table::list(items, &h, &edit_icon, &delete_icon));
                 });
+            // 草稿和文件冲突有各自的操作，放在表格之后，显隐不会推移记录。
+            p.spawn(row()).with_children(|r| {
+                button(r, &h, "RulesRedo", "重做", Action::Redo);
+                r.spawn((Group::DraftActions, row())).with_children(|draft| {
+                    button(draft, &h, "RulesListSave", "保存更改", Action::Save);
+                    button(draft, &h, "RulesListCancel", "取消", Action::Cancel);
+                });
+            });
+            p.spawn((Group::External, row())).with_children(|r| {
+                button(r, &h, "RulesKeepDraft", "保留当前修改", Action::KeepDraft);
+                button(r, &h, "RulesReload", "重新载入磁盘文件", Action::Reload);
+            });
         });
 }

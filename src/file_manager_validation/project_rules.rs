@@ -122,6 +122,7 @@ fn verify_window(
             "catalog-context",
             "empty-variable",
             "first-variable",
+            "false-variable",
             "number-variable",
             "number-reread",
             "location",
@@ -149,6 +150,10 @@ fn verify_window(
         ];
         if layout["variable-dialog-blocked-tool-switch"] != true
             || layout["plain-text-no-options"] != true
+            || layout["boolean-value-buttons"] != json!(["false", "true"])
+            || layout["variable-type-buttons"] != json!(["number", "bool", "text", "enum"])
+            || layout["compact-variable-scroll"]["scroll_y"].as_f64() != Some(0.)
+            || layout["variable-deleted-from-list"] != "delete_me"
             || context["center"]["tab"] != "Document"
             || !context["center"]["document"]
                 .as_str()
@@ -167,8 +172,9 @@ fn verify_window(
         screenshot(work, "source", &window["source_screenshot"])?;
         if window["layout"]["rule-created-in-dialog"] != true
             || window["layout"]["rule-edited-in-dialog"] != true
+            || window["layout"]["rule-deleted-from-list"] != "delete_rule"
         {
-            return Err("触发规则新建和编辑未验证共用独立对话框".into());
+            return Err("触发规则弹窗或列表直接删除证据不完整".into());
         }
     }
     if (phase == "edit"
