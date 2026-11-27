@@ -50,6 +50,7 @@ fn page() -> (App, Entity) {
         .init_resource::<CelestialSectionState>()
         .init_resource::<EnvironmentNumericInputState>()
         .init_resource::<GlobalEnvironmentSaveTask>()
+        .init_resource::<SimulationInputState>()
         .init_resource::<EnvironmentPageState>()
         .add_message::<NumericInputSetValue>()
         .add_message::<EnvironmentLibraryEditRequest>();

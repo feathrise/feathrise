@@ -38,7 +38,7 @@ pub(crate) fn handle_world_environment_controls(
     tracks: Query<(&UiInteraction, &RelativeCursorPosition, Has<WorldTimeSlider>, Has<WorldMonthSlider>,
         Has<WeatherModeSlider>, Has<WeatherPreviewSlider>),
         Or<(With<WorldTimeSlider>, With<WorldMonthSlider>, With<WeatherModeSlider>, With<WeatherPreviewSlider>, With<GrassWindSlider>)>>,
-    mut state: Local<SimulationInputState>,
+    mut state: ResMut<SimulationInputState>,
 ) {
     let target = editing_target(&editor, &sidebar, &page, &session, &global, &save);
     let cancel = keyboard.just_pressed(KeyCode::Escape);
@@ -217,6 +217,10 @@ pub(crate) fn sync_world_environment_controls(
 }
 
 #[cfg(test)]
+#[path = "save_tests.rs"]
+mod save_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use feathrise_scene_content::{EnvironmentSimulation, SceneEnvironmentSource, WorldEnvironmentLibrary};
@@ -229,6 +233,7 @@ mod tests {
             .insert_resource(EditorAuthoringSession { draft: Some(draft), ..default() })
             .init_resource::<GlobalEnvironmentAuthoringState>()
             .init_resource::<GlobalEnvironmentSaveTask>()
+            .init_resource::<SimulationInputState>()
             .init_resource::<SceneEditorSidebarState>()
             .init_resource::<EnvironmentPageState>()
             .init_resource::<ButtonInput<MouseButton>>()

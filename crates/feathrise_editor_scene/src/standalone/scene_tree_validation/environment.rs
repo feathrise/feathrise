@@ -1,6 +1,6 @@
 //! 自有工程环境验收。原控件修改全局和独立配方，引用与保存仍交给生产事务。
 
-use bevy::{prelude::*, tasks::futures::check_ready, ui::RelativeCursorPosition};
+use bevy::{input::{ButtonState, keyboard::Key}, prelude::*, tasks::futures::check_ready, ui::RelativeCursorPosition};
 use feathrise_atmosphere::{WeatherDebugOverride, WorldClock};
 use feathrise_environment::vegetation::blade::GpuBladeInteraction;
 use feathrise_scene_content::{
@@ -12,7 +12,8 @@ use serde_json::{Value, json};
 use super::{StartupScreenshot, click_control, pointer_context, request_screenshot, source_space_button, ui_visible};
 use crate::{
     authoring::{EditorAuthoringSession, GlobalEnvironmentAuthoringState},
-    ui::file_manager_validation::pointer_click,
+    standalone::validation_fixture::key_state,
+    ui::file_manager_validation::{mouse, move_cursor, pointer_click},
     world_environment_controls::WorldEnvironmentControlsSlot,
 };
 
@@ -98,10 +99,13 @@ pub(in crate::standalone) struct Step { phase: Phase, frame: u8, button: Option<
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
     Tool, Library, Create, SetDefault, Pause, Global(usize), GlobalDone, Scene, Choose,
-    Bind, Shared, MakeLocal, LocalCopy, Local(usize), UndoLocal, UndoneLocal, RedoLocal, LocalDone,
+    Bind, Shared, MakeLocal, LocalCopy, Local(usize), DragSave(DragSave), UndoLocal, UndoneLocal, RedoLocal, LocalDone,
     LocalScreenshot, Inherit, Default, RestoreLocal, RestoredLocal, InheritAgain, DefaultAgain,
     ChooseAgain, BindAgain, Capture, Screenshot,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DragSave { frame: u8, save_before: u64, revision_before: u64, undo_before: usize }
 
 impl Step {
     pub(super) fn begin() -> Self { Self { phase: Phase::Tool, frame: 0, button: None } }
@@ -128,7 +132,7 @@ fn scene_simulation(world: &World) -> Option<EnvironmentSimulation> {
 
 fn project_default(world: &World, id: &str) -> bool {
     let global = world.resource::<GlobalEnvironmentAuthoringState>();
-    global.dirty && global.draft.library.default_profile_id == id
+    global.draft.library.default_profile_id == id
 }
 
 fn scene_references(world: &World, id: &str) -> bool {
@@ -217,7 +221,18 @@ pub(super) fn advance(world: &mut World, step: &mut Step) -> Result<Option<Value
         }
         Phase::Local(index) => {
             if index == LOCAL_SLIDERS.len() { step.next(Phase::UndoLocal); }
+            else if index == 0 {
+                let session = world.resource::<EditorAuthoringSession>();
+                let probe = DragSave { frame: 0, save_before: session.successful_save_sequence,
+                    revision_before: session.revision, undo_before: session.undo.len() };
+                step.next(Phase::DragSave(probe));
+            }
             else { slider(world, step, LOCAL_SLIDERS[index], Phase::Local(index + 1))?; }
+            return Ok(None);
+        }
+        Phase::DragSave(mut probe) => {
+            if drag_save(world, &mut probe)? { step.next(Phase::Local(1)); }
+            else { step.phase = Phase::DragSave(probe); }
             return Ok(None);
         }
         Phase::UndoLocal => ("撤销", Phase::UndoneLocal),
@@ -307,6 +322,7 @@ pub(super) fn advance(world: &mut World, step: &mut Step) -> Result<Option<Value
                     "simulation": global, "local_simulation": local, "inherited_default_verified": true,
                     "shared_controls_hidden": true, "runtime_adopted": true,
                     "local_zero_wind_adopted": true, "undo_redo_verified": true,
+                    "drag_save_verified": true,
                     "local_restored": true, "local_screenshot": LOCAL_SCREENSHOT, "screenshot": SCREENSHOT
                 }}})));
             }
@@ -331,10 +347,10 @@ fn named_button(world: &mut World, label: &str) -> Option<Entity> {
     None
 }
 
-fn slider(world: &mut World, step: &mut Step, (label, ratio): (&str, f32), next: Phase) -> Result<(), String> {
+fn slider_pointer(world: &mut World, (label, ratio): (&str, f32)) -> Result<Option<(Entity, bevy::math::DVec2)>, String> {
     let label = world.query::<(Entity, &Text, &ComputedNode)>().iter(world)
         .find_map(|(entity, text, node)| (text.0 == label && !node.is_empty()).then_some(entity));
-    let Some(label) = label else { return Ok(()); };
+    let Some(label) = label else { return Ok(None); };
     let block = world.get::<ChildOf>(label).and_then(|row| world.get::<ChildOf>(row.parent()))
         .map(ChildOf::parent).ok_or("模拟参数标签没有对应的滑块块")?;
     let track = world.get::<Children>(block).into_iter().flat_map(|children| children.iter())
@@ -342,16 +358,66 @@ fn slider(world: &mut World, step: &mut Step, (label, ratio): (&str, f32), next:
         .ok_or("模拟参数缺少原滑块轨道")?;
     if !ui_visible(world, track) {
         crate::standalone::validation_fixture::reveal_property_control(world, track)?;
-        return Ok(());
+        return Ok(None);
     }
     let (window, mut position) = pointer_context(world, track)?;
     let width = world.get::<ComputedNode>(track).ok_or("模拟滑块尚未布局")?.size().x;
     // 与正式控件相同的260/14轨道映射，通过真实按压和松开提交草稿及单条历史。
     position.x += f64::from(((7.0 + 246.0 * ratio) / 260.0 - 0.5) * width);
+    Ok(Some((window, position)))
+}
+
+fn slider(world: &mut World, step: &mut Step, slider: (&str, f32), next: Phase) -> Result<(), String> {
+    let Some((window, position)) = slider_pointer(world, slider)? else { return Ok(()); };
     let mut pending = Some((position, step.frame));
     pointer_click(world, &mut pending, window, position, MouseButton::Left);
     if let Some((_, frame)) = pending { step.frame = frame; } else { step.next(next); }
     Ok(())
+}
+
+fn drag_save(world: &mut World, probe: &mut DragSave) -> Result<bool, String> {
+    let ratio = if probe.frame == 6 { 0.25 } else { 0.75 };
+    let Some((window, position)) = slider_pointer(world, ("起始时间", ratio))? else { return Ok(false); };
+    move_cursor(world, window, position);
+    let session = world.resource::<EditorAuthoringSession>();
+    if probe.frame >= 2 {
+        let value = scene_simulation(world).ok_or("拖动保存验收缺少场景独立参数")?;
+        let hour = if probe.frame == 7 { 6.0 } else { 18.0 };
+        if (value.hour - hour).abs() > 0.03 || !global_matches(&EnvironmentSimulation { hour: 6.0, ..value }) {
+            return Err("拖动中请求保存后，场景参数被回滚或未继续响应原手势".into());
+        }
+    }
+    if (5..=8).contains(&probe.frame)
+        && (session.saving || session.successful_save_sequence != probe.save_before
+            || session.revision != probe.revision_before || session.undo.len() != probe.undo_before
+            || !world.resource::<crate::resources::SceneEditorState>().save_requested)
+    { return Err("环境滑块尚未松手时保存请求未保留，或提前冻结了未收口的草稿".into()); }
+    match probe.frame {
+        0 => {}
+        1 => mouse(world, window, ButtonState::Pressed),
+        2 => {
+            if session.undo.len() != probe.undo_before { return Err("时间滑块尚未松手就提前生成历史".into()); }
+            key_state(world, window, KeyCode::ControlLeft, Key::Control, ButtonState::Pressed);
+        }
+        3 => key_state(world, window, KeyCode::KeyS, Key::Character("s".into()), ButtonState::Pressed),
+        4 => {
+            key_state(world, window, KeyCode::KeyS, Key::Character("s".into()), ButtonState::Released);
+            key_state(world, window, KeyCode::ControlLeft, Key::Control, ButtonState::Released);
+        }
+        5 | 6 | 7 => {} // 持续按住，移到六点再回十八点，证明保存等待期间仍是同一笔可编辑拖动。
+        8 => mouse(world, window, ButtonState::Released),
+        _ => {
+            // 松手后只认原保存成功回执；等待帧数或输入注入都不能冒充落盘成功。
+            if session.successful_save_sequence <= probe.save_before || session.saving { return Ok(false); }
+            if session.revision != probe.revision_before.wrapping_add(1)
+                || session.draft.as_ref().is_none_or(|draft| draft.environment_dirty)
+                || world.resource::<GlobalEnvironmentAuthoringState>().dirty
+            { return Err("拖动保存未形成单笔历史，或保存回执后仍有环境脏状态".into()); }
+            return Ok(!world.resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Left));
+        }
+    }
+    probe.frame += 1;
+    Ok(false)
 }
 
 fn click(world: &mut World, step: &mut Step, button: Entity, next: Phase) -> Result<(), String> {

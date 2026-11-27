@@ -14,3 +14,4 @@ pub(crate) use systems::{
 };
 pub(crate) use authoring::simulation_from_runtime;
 pub(crate) use helpers::{format_grass_wind_strength, format_hour};
+pub(crate) use types::SimulationInputState;

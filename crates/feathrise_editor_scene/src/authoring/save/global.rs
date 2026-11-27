@@ -22,7 +22,12 @@ pub(crate) fn start_global_environment_save(
     deletion: Res<SceneDeletionTask>,     // 回收事务拥有 catalog 与私有目录期间暂停保存。
     surface_task: Option<Res<SurfaceLayerEditTask>>, // 全局配置的独立测试场景允许没有场景删层资源。
     surface_stroke: Option<Res<SurfaceBrushStroke>>, // 若场景正在补画，保留顶部请求等待形成完整联合脏状态。
+    simulation: Option<Res<crate::world_environment_controls::SimulationInputState>>,
 ) {
+    if editor.save_requested && simulation.as_ref().is_some_and(|input| input.busy()) {
+        editor.status = "环境滑块尚未松手；松手后自动继续保存".into();
+        return; // 保留请求，不能冻结尚未正式提交的全局参数。
+    }
     if editor.save_requested // 依据完整作者条件选择有限处理分支。
         && (surface_task // 依据完整作者条件选择有限处理分支。
             .as_deref() // 完成当前地表作者事务的受检参数或值转换。

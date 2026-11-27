@@ -571,6 +571,7 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
             || environment["local_zero_wind_adopted"] != true
             || environment["undo_redo_verified"] != true
             || environment["local_restored"] != true
+            || environment["drag_save_verified"] != true
         { return Err("原环境控件未完成全局配置、独立副本和继承只读验收".into()); }
         // 原 Save 完成后，宿主独立读回两个正式文件，不能用窗口草稿冒充落盘。
         let assets = &project.context.asset_roots[0];

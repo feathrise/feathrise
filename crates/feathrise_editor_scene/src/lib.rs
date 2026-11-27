@@ -165,6 +165,7 @@ impl Plugin for SceneEditorPlugin {
             .init_gizmo_group::<viewport::snapping::EditorGridOutlineGizmos>() // 只为真实落点十字保留深边与浅芯。
             .init_resource::<WeatherAuthoringPreview>() // 独立编辑器测试未安装完整天气插件时仍使用安全无覆盖默认值。
             .init_resource::<WorldClock>() // F12 独立安装仍能直接编辑安全默认世界时钟。
+            .init_resource::<SimulationInputState>() // 原保存入口须能等待时间、天气及草尖滑块收口。
             .init_resource::<WeatherState>() // 环境页状态摘要始终有合法自然天气来源。
             .init_resource::<WeatherDebugOverride>() // 天气模式与过渡只进入运行时调试覆盖。
             .add_message::<WeatherCommand>() // 立即应用和重新随机复用天气核心唯一命令入口。
