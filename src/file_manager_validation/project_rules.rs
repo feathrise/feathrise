@@ -217,6 +217,14 @@ fn verify_window(
         }
     }
     if phase == "paging" {
+        for prefix in ["p", "r"] {
+            for action in ["edit", "delete"] {
+                let key = format!("{prefix}-{action}-row-rebind");
+                if window["layout"][&key]["old_release_canceled"] != true {
+                    return Err(format!("{key} 缺少按住期间换绑后取消松手的证据"));
+                }
+            }
+        }
         for id in ["variable-pager", "rule-pager"] {
             let pager = &window["layout"][id];
             if pager["initial"]["pages"] != json!([1, 2, 3, 4])

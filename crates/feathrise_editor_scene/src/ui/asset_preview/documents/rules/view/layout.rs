@@ -75,6 +75,9 @@ pub(super) fn button_with_icon(
         BorderColor::all(c::COPPER_BORDER_WEAK),
     ));
     // 保留通用文档命令身份，表单读取未确认的字段后再交给同一保存链。
+    if matches!(a, Action::Row(_) | Action::DeleteRow(_)) {
+        e.insert(table::RowBinding::default());
+    }
     match a {
         Action::Save => {
             e.insert(super::super::super::components::DocumentAction::Save);

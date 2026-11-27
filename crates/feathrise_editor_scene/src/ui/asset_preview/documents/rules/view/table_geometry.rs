@@ -150,3 +150,125 @@ fn rules_table_cells_measure_at_their_actual_column_width() {
         }
     }
 }
+
+#[test]
+fn row_release_cannot_follow_a_rebound_record() {
+    use bevy::{ui::RelativeCursorPosition, window::PrimaryWindow};
+    use feathrise_editor_ui::EditorButtonInputPlugin;
+    let mut app = App::new();
+    app.add_plugins(EditorButtonInputPlugin)
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<ButtonInput<KeyCode>>();
+    app.world_mut().spawn((PrimaryWindow, Window::default()));
+    let button = app
+        .world_mut()
+        .spawn((
+            InteractionButton,
+            UiInteraction::None,
+            InheritedVisibility::VISIBLE,
+            RelativeCursorPosition {
+                cursor_over: true,
+                normalized: Some(Vec2::splat(0.5)),
+            },
+            ComputedNode {
+                size: Vec2::new(27., 26.),
+                ..default()
+            },
+            RowBinding::default(),
+        ))
+        .id();
+    let identity = |record: &str, revision| {
+        Some((
+            Identity {
+                path: "project_rules.json".into(),
+                generation: 1,
+                revision,
+            },
+            Some(SceneId("town".into())),
+            Tab::Variables,
+            record.to_owned(),
+        ))
+    };
+    let bind = |app: &mut App, next| {
+        let world = app.world_mut();
+        let mut query = world.query::<(&mut RowBinding, &mut EditorButtonClick)>();
+        let (mut binding, mut click) = query.get_mut(world, button).unwrap();
+        binding.bind(next, &mut click);
+    };
+    let frame = |app: &mut App, down| {
+        *app.world_mut().get_mut::<UiInteraction>(button).unwrap() = if down {
+            UiInteraction::Pressed
+        } else {
+            UiInteraction::Hovered
+        };
+        let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        mouse.clear();
+        if down {
+            mouse.press(MouseButton::Left);
+        } else {
+            mouse.release(MouseButton::Left);
+        }
+        app.update();
+    };
+    bind(&mut app, identity("b", 1));
+    frame(&mut app, true);
+    // 删除 A 的回执把这个固定行从 B 换成 C。旧鼠标释放不能成为 C 的编辑或删除。
+    bind(&mut app, identity("c", 2));
+    frame(&mut app, false);
+    assert!(
+        !app.world()
+            .get::<EditorButtonClick>(button)
+            .unwrap()
+            .is_clicked()
+    );
+    frame(&mut app, true);
+    bind(&mut app, identity("c", 2));
+    frame(&mut app, false);
+    assert!(
+        app.world()
+            .get::<EditorButtonClick>(button)
+            .unwrap()
+            .is_clicked()
+    );
+}
+
+#[test]
+fn rule_summary_distinguishes_targets_values_and_multiple_actions() {
+    use feathrise_editor_documents_model::project_rules::RulesForm;
+    let sheet = Sheet::new(RulesForm::parse(r#"{
+        "version":1,
+        "variables":{"gate":{"default":false},"caption":{"default":""}},
+        "rules":[
+            {"id":"arrival","when":{"event":"quest.completed","target":"dock_guard"},
+             "actions":[{"set":"gate","value":true},{"request":"cinematic.play","target":"guard-unseal"}]},
+            {"id":"departure","when":{"changed":"gate","from":false,"to":true},
+             "actions":[{"request":"cinematic.play","target":"river-sword"}]},
+            {"id":"caption","when":{"changed":"caption","to":"第一行\n第二行"},
+             "actions":[{"set":"caption","value":"第一行\n第二行"}]}
+        ]
+    }"#).unwrap());
+    assert_eq!(
+        Column::Kind.value(&sheet, Tab::Rules, None, 0),
+        "完成任务 · dock_guard"
+    );
+    assert_eq!(
+        Column::Value.value(&sheet, Tab::Rules, None, 0),
+        "共 2 项 · gate = true"
+    );
+    assert_eq!(
+        Column::Kind.value(&sheet, Tab::Rules, None, 1),
+        "gate · false → true"
+    );
+    assert_eq!(
+        Column::Value.value(&sheet, Tab::Rules, None, 1),
+        "播放剧情演出 · river-sword"
+    );
+    assert_eq!(
+        Column::Kind.value(&sheet, Tab::Rules, None, 2),
+        "caption → 第一行 第二行"
+    );
+    assert_eq!(
+        Column::Value.value(&sheet, Tab::Rules, None, 2),
+        "caption = 第一行 第二行"
+    );
+}

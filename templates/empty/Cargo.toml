@@ -31,7 +31,8 @@ functions = ["src/controller.rs::walk_speed", "src/controller.rs::run_speed"]
 
 [dependencies]
 bevy = { version = "=0.20.1", default-features = false, features = ["dynamic_linking", "free_camera"] } # 工程应用显式选择开发动态链接，SDK库不替应用决定。
-feathrise_runtime = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "fca6d82a81396b758a59acdd753ee3d89c8e81e6", default-features = false, features = ["default_font"] }
+# 配套工程变量、场景覆盖、剧情演出与逐帧摄影；清单、锁和打包 GitHub 配方一起更新。
+feathrise_runtime = { git = "https://github.com/feathrise/feathrise_runtime.git", rev = "2b93715846dc4dc790ba5d4c2c1add3794e6eeb8", default-features = false, features = ["default_font"] }
 
 [workspace]
 resolver = "3"

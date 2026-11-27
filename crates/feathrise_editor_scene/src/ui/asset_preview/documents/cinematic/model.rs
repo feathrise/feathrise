@@ -106,7 +106,7 @@ impl Timeline {
         }
     }
 }
-/// 原生文字输入只携带一个当前标记的属性。任意未显示的政策、条件、收尾动作保留在原数据模型中。
+/// 原生文字输入只携带一个当前标记的属性，演出级配置由独立结构化表单编辑。
 #[derive(Clone)]
 pub(super) struct Form {
     pub at: String,
@@ -255,6 +255,7 @@ pub(super) enum Edit {
         duration: f32,
         control_camera: bool,
         control_player: bool,
+        policy: super::policy::Policy,
     },
 }
 fn remove(f: &mut Cinematic, item: Item) {
@@ -308,11 +309,13 @@ impl Edit {
                 duration,
                 control_camera,
                 control_player,
+                policy,
             } => {
                 f.name = name;
                 f.duration = duration;
                 f.control_camera = control_camera;
                 f.control_player = control_player;
+                policy.apply(f)?;
             }
             Self::Set {
                 lane,

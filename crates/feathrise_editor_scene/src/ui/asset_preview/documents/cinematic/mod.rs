@@ -3,6 +3,7 @@ mod binding;
 mod controls;
 mod drag;
 mod model;
+mod policy;
 mod preview;
 #[cfg(test)]
 mod tests;
@@ -59,6 +60,7 @@ struct Studio {
     settings: bool,
     control_camera: bool,
     control_player: bool,
+    policy: policy::Policy,
 }
 impl Studio {
     fn refresh(&mut self) {
@@ -239,7 +241,7 @@ pub(super) fn install(app: &mut App) {
         )
         .add_systems(
             Update,
-            (view::mount, view::display, view::form, view::markers)
+            (view::mount, view::display, view::form, policy::display, view::markers)
                 .chain()
                 .after(super::presentation::sync)
                 .in_set(SceneEditorSystemSet::Presentation),

@@ -251,7 +251,7 @@ fn measured(world: &mut World, sample: Sample) -> Result<Value, String> {
                 || details.is_some()
                 || (matches!(sample, Sample::RuleWide | Sample::RuleNarrow)
                     && [0, 1, 2].map(|i| cells[i]["text"].as_str())
-                        != [Some(id), Some("a 变化"), Some("播放剧情演出")])
+                        != [Some(id), Some("a → 3"), Some("播放剧情演出 · draw-river-sword")])
             {
                 return Err(format!(
                     "右栏记录未正确回显：文字 {cells:?}，编辑 {edit:?}"

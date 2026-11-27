@@ -4,6 +4,7 @@ mod form;
 mod layout;
 mod location;
 mod paging;
+mod row_rebind;
 mod table;
 use super::{click, evidence, fixture_focus, key_state, move_cursor, visible, window_event};
 use crate::{
@@ -83,6 +84,7 @@ struct Run {
     direct_saves: serde_json::Map<String, Value>,
     deletion: Option<form::DeletionCheck>,
     column_drag: Option<table::ColumnDrag>,
+    row_rebind: Option<row_rebind::HeldRow>,
     layout_wait: String,
     wheel_point: Option<Vec2>,
     splitter_target: Option<Vec2>,
@@ -115,6 +117,7 @@ pub(super) fn install(app: &mut App, work: PathBuf, phase: String) -> Result<(),
         direct_saves: default(),
         deletion: None,
         column_drag: None,
+        row_rebind: None,
         layout_wait: String::new(),
         wheel_point: None,
         splitter_target: None,

@@ -25,6 +25,8 @@ use std::{
     time::{Duration, Instant},
 };
 const NAME: &str = "交付验收.cinematic.json";
+#[path = "validation_policy.rs"]
+mod policy_validation;
 #[derive(Resource)]
 struct Run {
     work: PathBuf,
@@ -41,6 +43,7 @@ struct Run {
     capture: Option<evidence::CaptureTask>,
     shot: Option<Value>,
     export_shot: Option<Value>,
+    policy_shot: Option<Value>,
     bound_rule: Option<String>,
     canceled_rule: Option<String>,
     film_id: String,
@@ -70,6 +73,7 @@ pub(crate) fn install(app: &mut App, work: PathBuf, phase: String) -> Result<(),
         capture: None,
         shot: None,
         export_shot: None,
+        policy_shot: None,
         bound_rule: None,
         canceled_rule: None,
         film_id: String::new(),
@@ -107,6 +111,9 @@ fn hold(world: &mut World) {
 }
 fn action(world: &mut World, r: &mut Run, w: Entity, a: Action) -> bool {
     let e = visible(world, |b: &Action| *b == a);
+    if e.is_some_and(|e| !reveal_rules_control(world, w, e, &mut r.wheel_point)) {
+        return false;
+    }
     click(world, &mut r.click, w, e)
 }
 fn type_in<T: Component>(world: &mut World, select: impl Fn(&T) -> bool, value: &str) -> bool {
@@ -221,6 +228,10 @@ fn step(world: &mut World, r: &mut Run, w: Entity) -> Result<bool, String> {
                     || f.dialogue.len() != 2
                 {
                     return Err("新进程四轨回读结果不完整".into());
+                }
+                policy_validation::check_policy(&f)?;
+                if !f.dialogue[0].wait {
+                    return Err("新进程字幕等待选项没有保留".into());
                 }
                 true
             }
@@ -358,6 +369,9 @@ fn step(world: &mut World, r: &mut Run, w: Entity) -> Result<bool, String> {
         {
             return Err("创建、取消或保存触发规则时，中央离开了原演出".into());
         }
+    }
+    if r.stage >= 42 {
+        return policy_validation::step(world, r, w);
     }
     let ready = match r.stage {
         0 => {
@@ -602,7 +616,7 @@ fn step(world: &mut World, r: &mut Run, w: Entity) -> Result<bool, String> {
                 && r.bound_rule.is_some()
                 && listed
             {
-                finish(world, r, None)
+                return Ok(true);
             }
             false
         }
@@ -662,6 +676,7 @@ fn selected_binding(world: &mut World, film_id: &str) -> Option<String> {
 fn finish(world: &mut World, r: &mut Run, error: Option<String>) {
     let data = json!({"phase":r.phase,"passed":error.is_none(),"stage":r.stage,"error":error,"screenshot":r.shot,"saved_rule_from_form":r.bound_rule,"canceled_rule_from_form":r.canceled_rule,
         "export_screenshot":r.export_shot,"export_input_checked":r.phase == "reopen" && r.stage == 23 && error.is_none(),
+        "policy_screenshot":r.policy_shot,"policy_input_checked":r.phase == "edit" && r.policy_shot.is_some() && error.is_none(),
         "input":"原新建菜单、文件提示框、四轨可视按钮、原生 EditableText 编辑队列和 Bevy 鼠标事件","os_input_verified":false});
     let ok = evidence::report(&r.work.join(format!("cinematic-{}.json", r.phase)), &data).is_ok();
     r.stage = usize::MAX;

@@ -7,6 +7,18 @@ use serde_json::{Value, json};
 
 pub(crate) const PATH: &str = "feathrise-close-validation.txt";
 
+/// 自有行换绑夹具请求正常的外部核对，不改变文档正文、磁盘身份或后台任务的回执。
+#[cfg(feature = "validation")]
+pub(crate) fn recheck_project_rules(world: &mut World) -> Result<(), String> {
+    let mut state = world.resource_mut::<DocumentState>();
+    let document = state.rules_sidebar_document().ok_or("规则换绑夹具尚未加载")?;
+    if document.dirty() || state.rules_form_input.is_some() {
+        return Err("规则换绑核对要求干净的列表状态".into());
+    }
+    state.external.requested = true;
+    Ok(())
+}
+
 pub(crate) fn open(world: &mut World) -> Result<(), String> {
     world.resource_scope(|world, mut state: Mut<DocumentState>| {
         let mut workspace = world.resource_mut::<VegetationPresetEditorState>();

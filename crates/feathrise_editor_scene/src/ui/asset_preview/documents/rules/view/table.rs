@@ -4,6 +4,7 @@ use super::{
     *,
 };
 use feathrise_editor_documents_model::project_rules::{ActionForm, TriggerForm};
+use feathrise_editor_ui::EditorButtonClick;
 use feathrise_editor_ui::data_table::{self, Table};
 
 const CELL_PAD_X: f32 = 8.;
@@ -74,15 +75,42 @@ impl Column {
                 let rule = &sheet.model.rules_in(scene)[index];
                 match self {
                     Self::Kind => match &rule.when {
-                        TriggerForm::Event { event, .. } => event_label(event).into(),
-                        TriggerForm::Changed { variable, .. } => format!("{variable} 变化"),
+                        TriggerForm::Event {
+                            event,
+                            target: Some(target),
+                        } => {
+                            format!("{} · {target}", event_label(event))
+                        }
+                        TriggerForm::Event {
+                            event,
+                            target: None,
+                        } => event_label(event).into(),
+                        TriggerForm::Changed { variable, from, to } => match (from, to) {
+                            (Some(from), Some(to)) => format!("{variable} · {from} → {to}"),
+                            (None, Some(to)) => format!("{variable} → {to}"),
+                            (Some(from), None) => format!("{variable} 从 {from} 变化"),
+                            _ => format!("{variable} 变化"),
+                        },
                     },
-                    _ => match rule.actions.first() {
-                        Some(ActionForm::Request { request, .. }) => request_label(request).into(),
-                        Some(ActionForm::Set { variable, .. }) => format!("设置 {variable}"),
-                        None => "—".into(),
-                    },
+                    _ => {
+                        let first = match rule.actions.first() {
+                            Some(ActionForm::Request { request, target }) => {
+                                format!("{} · {target}", request_label(request))
+                            }
+                            Some(ActionForm::Set { variable, value }) => {
+                                format!("{variable} = {value}")
+                            }
+                            None => "—".into(),
+                        };
+                        if rule.actions.len() > 1 {
+                            format!("共 {} 项 · {first}", rule.actions.len())
+                        } else {
+                            first
+                        }
+                    }
                 }
+                // 文本值允许换行；摘要沿用变量列的单行显示，正文仍保留原值。
+                .replace(['\r', '\n'], " ")
             }
             Tab::Locations => {
                 let loc = &sheet.model.locations[index];
@@ -103,6 +131,23 @@ pub(super) struct Cell {
 
 #[derive(Component)]
 pub(super) struct ColumnTrack;
+
+/// 固定行实体只承接同一条记录的手势。写盘、筛选或外部更新换行后，旧按压失效。
+#[derive(Component, Default)]
+pub(super) struct RowBinding(Option<(Identity, Option<SceneId>, Tab, String)>);
+
+impl RowBinding {
+    fn bind(
+        &mut self,
+        identity: Option<(Identity, Option<SceneId>, Tab, String)>,
+        click: &mut EditorButtonClick,
+    ) {
+        if self.0 != identity {
+            self.0 = identity;
+            click.invalidate();
+        }
+    }
+}
 
 fn cells(p: &mut ChildSpawnerCommands, h: &Handle<Font>, table: Entity, slot: Option<usize>) {
     for column in [Column::Id, Column::Kind, Column::Value] {
@@ -303,6 +348,7 @@ pub(super) fn sync(
     mut parts: Query<(Entity, &TablePart, &mut Node, &mut Visibility)>,
     form: Query<(Entity, &ChildOf), With<FormHost>>,
     mut values: Query<(&Cell, &mut Text)>,
+    mut actions: Query<(&Action, &mut RowBinding, &mut EditorButtonClick)>,
     added: Query<(), Added<FormHost>>,
     mut painted: Local<Option<u64>>,
     mut commands: Commands,
@@ -321,6 +367,18 @@ pub(super) fn sync(
     let count = rows.len();
     let start = page(selection, rows) * ROWS;
     let edit_slot = s.sel.item.map(|i| i % ROWS);
+    for (action, mut binding, mut click) in &mut actions {
+        let slot = match action {
+            Action::Row(slot) | Action::DeleteRow(slot) => *slot,
+            _ => continue,
+        };
+        let identity = s.key.as_ref().zip(sheet).and_then(|(key, sheet)| {
+            let index = *rows.get(start + slot)?;
+            let id = sheet.id(tab, scene, index)?;
+            Some((key.clone(), s.scene_scope.clone(), tab, id.to_owned()))
+        });
+        binding.bind(identity, &mut click);
+    }
     for (entity, part, mut node, mut vis) in &mut parts {
         let shown = match *part {
             TablePart::Slot(None) => inline && s.editing_item && edit_slot.is_none(),

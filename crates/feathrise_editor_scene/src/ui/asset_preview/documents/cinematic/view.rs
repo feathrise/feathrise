@@ -60,6 +60,7 @@ pub(super) enum Action {
     Undo,
     Redo,
     Go,
+    Policy(super::policy::Action),
 }
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Field {
@@ -72,6 +73,7 @@ pub(super) enum Field {
     Rotation,
     Scale,
     Fov,
+    Policy(super::policy::Field),
 }
 const FIELDS: [Field; 9] = [
     Field::At,
@@ -89,7 +91,7 @@ pub(super) struct FieldRow(pub Field);
 #[derive(Component)]
 pub(super) struct Label(Field);
 #[derive(Component)]
-pub(super) struct OptionLabel(pub Action);
+pub(super) struct OptionLabel(pub(super) Action);
 pub(super) fn font(h: &Handle<Font>, size: f32) -> TextFont {
     TextFont {
         font: h.clone().into(),
@@ -97,7 +99,7 @@ pub(super) fn font(h: &Handle<Font>, size: f32) -> TextFont {
         ..default()
     }
 }
-fn row() -> Node {
+pub(super) fn row() -> Node {
     Node {
         width: percent(100),
         min_width: px(0),
@@ -133,7 +135,7 @@ pub(super) fn button(p: &mut ChildSpawnerCommands, h: &Handle<Font>, label: &str
         Pickable::IGNORE,
     ));
 }
-fn field(p: &mut ChildSpawnerCommands, h: &Handle<Font>, kind: Field) {
+pub(super) fn field(p: &mut ChildSpawnerCommands, h: &Handle<Font>, kind: Field) {
     p.spawn((FieldRow(kind), row())).with_children(|r| {
         r.spawn((
             Label(kind),
@@ -284,6 +286,7 @@ pub(super) fn mount(
                                 for kind in FIELDS {
                                     field(form, &h, kind);
                                 }
+                                super::policy::mount(form, &h);
                                 form.spawn(row()).with_children(|r| {
                                     for (name, a) in [
                                         ("平滑", Action::Smooth),
@@ -464,7 +467,8 @@ pub(super) fn display(
         }
     }
 }
-pub(super) fn field_value<'a>(f: &'a Form, k: Field) -> &'a str {
+pub(super) fn field_value(s: &Studio, k: Field) -> &str {
+    let f = &s.form;
     match k {
         Field::At => &f.at,
         Field::Length => &f.length,
@@ -475,6 +479,7 @@ pub(super) fn field_value<'a>(f: &'a Form, k: Field) -> &'a str {
         Field::Rotation => &f.rotation,
         Field::Scale => &f.scale,
         Field::Fov => &f.fov,
+        Field::Policy(field) => s.policy.value(field),
     }
 }
 fn label(k: Field, s: &Studio) -> Option<&'static str> {
@@ -482,6 +487,7 @@ fn label(k: Field, s: &Studio) -> Option<&'static str> {
         return match k {
             Field::Name => Some("演出名称"),
             Field::Length => Some("总时长 秒"),
+            Field::Policy(field) => s.policy.label(field),
             _ => None,
         };
     }
@@ -504,6 +510,7 @@ fn label(k: Field, s: &Studio) -> Option<&'static str> {
         Field::Rotation => (s.kind == Kind::Pose).then_some("旋转 °XYZ"),
         Field::Scale => (s.kind == Kind::Pose).then_some("缩放 XYZ"),
         Field::Fov => (s.lane == Lane::Camera).then_some("视角 °"),
+        Field::Policy(_) => None,
     }
 }
 pub(super) fn form(
@@ -520,7 +527,7 @@ pub(super) fn form(
     }
     *version = Some(s.form_revision);
     for (k, mut input) in &mut inputs {
-        let value = field_value(&s.form, *k);
+        let value = field_value(&s, *k);
         if input.value() != value {
             crate::ui::text_input::replace_single_line_value(&mut input, value, None);
         }
@@ -541,7 +548,8 @@ pub(super) fn form(
         let visible = match a {
             Action::ControlCamera | Action::ControlPlayer | Action::ApplySettings => s.settings,
             Action::Smooth => !s.settings && s.kind == Kind::Pose,
-            Action::Wait => !s.settings && s.kind == Kind::Yarn,
+            Action::Wait => !s.settings && matches!(s.kind, Kind::Subtitle | Kind::Yarn),
+            Action::Policy(action) => s.settings && s.policy.shown(*action),
             Action::Capture => !s.settings && s.lane == Lane::Camera,
             Action::PickClip => !s.settings && s.kind == Kind::Clip,
             Action::UseSelection => !s.settings && s.lane == Lane::Object,

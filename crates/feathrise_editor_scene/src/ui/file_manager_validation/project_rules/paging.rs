@@ -7,6 +7,7 @@ enum Step {
     Click(&'static str),
     Check(usize, &'static str),
     CheckEditing,
+    Rebind(bool),
 }
 use Step::*;
 
@@ -34,6 +35,9 @@ const STEPS: &[Step] = &[
     Click("RulesListTagPicker"),
     Click("RulesListOption0"),
     Check(1, "reset"),
+    Rebind(false),
+    Rebind(true),
+    Check(1, "after_rebind"),
 ];
 
 pub(super) fn advance(
@@ -51,6 +55,7 @@ pub(super) fn advance(
     let ready = match *step {
         Open => form::named_click(world, run, window, &format!("交互目录条目{title}")),
         CheckEditing => form::field_text(world, "RulesFieldId").as_deref() == Some(&format!("{prefix}33")),
+        Rebind(delete) => row_rebind::advance(world, run, window, prefix, delete)?,
         Click(name) => {
             if !form::named_click(world, run, window, name) {
                 run.layout_wait = super::button_diagnostic(world, name);

@@ -10,22 +10,26 @@ pub(super) fn control_pose(t: &Transform) -> Pose {
         scale: t.scale.to_array(),
     }
 }
-fn read_fields(form: &mut Form, fields: &Query<(&Field, &EditableText)>) -> Result<(), String> {
+fn read_fields(s: &mut Studio, fields: &Query<(&Field, &EditableText)>) -> Result<(), String> {
     for (kind, input) in fields {
         if input.is_composing() || !input.pending_edits.is_empty() || input.pending_paste.is_some()
         {
             return Err("请先确认当前输入再操作".into());
         }
         let dest = match kind {
-            Field::At => &mut form.at,
-            Field::Length => &mut form.length,
-            Field::Target => &mut form.target,
-            Field::Instance => &mut form.instance,
-            Field::Name => &mut form.name,
-            Field::Position => &mut form.position,
-            Field::Rotation => &mut form.rotation,
-            Field::Scale => &mut form.scale,
-            Field::Fov => &mut form.fov,
+            Field::At => &mut s.form.at,
+            Field::Length => &mut s.form.length,
+            Field::Target => &mut s.form.target,
+            Field::Instance => &mut s.form.instance,
+            Field::Name => &mut s.form.name,
+            Field::Position => &mut s.form.position,
+            Field::Rotation => &mut s.form.rotation,
+            Field::Scale => &mut s.form.scale,
+            Field::Fov => &mut s.form.fov,
+            Field::Policy(field) => {
+                let Some(dest) = s.policy.field(*field) else { continue };
+                dest
+            }
         };
         if input.value() != dest.as_str() {
             *dest = input.value().to_string();
@@ -65,7 +69,7 @@ pub(super) fn input(
     let Some((&a, _)) = actions.iter().find(|(_, c)| c.is_clicked()) else {
         return;
     };
-    if let Err(e) = read_fields(&mut s.form, &fields) {
+    if let Err(e) = read_fields(&mut s, &fields) {
         s.notice = e;
         return;
     }
@@ -129,6 +133,7 @@ pub(super) fn input(
                 s.form.length = t.film.duration.to_string();
                 s.control_camera = t.film.control_camera;
                 s.control_player = t.film.control_player;
+                s.policy = policy::Policy::load(&t.film);
                 s.refresh();
             }
             Action::ControlCamera => {
@@ -145,6 +150,7 @@ pub(super) fn input(
                     duration: number(&s.form.length)?,
                     control_camera: s.control_camera,
                     control_player: s.control_player,
+                    policy: s.policy.clone(),
                 };
                 start(&mut s, &docs, Some(e))?;
             }
@@ -155,6 +161,12 @@ pub(super) fn input(
             Action::Wait => {
                 s.form.wait = !s.form.wait;
                 s.refresh();
+            }
+            Action::Policy(action) => {
+                if s.settings {
+                    s.policy.act(action);
+                    s.refresh();
+                }
             }
             Action::Pose | Action::Clip | Action::Subtitle | Action::Yarn => {
                 s.kind = match a {
