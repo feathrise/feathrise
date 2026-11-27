@@ -40,14 +40,11 @@ Right-click **Main Scene · scene.glb** in the Scene Tree and choose **New → A
 
 *In the 剑与侠客 project, the cube is being repositioned at frame 24. The properties panel on the right shows its current pose.*
 
-<details>
-<summary>See animation editing in Solid and Wireframe modes</summary>
+Animation editing in Solid and Wireframe modes:
 
 ![Scene animation in Solid mode, with gray models, the reference grid, and the scale gizmo in the viewport](docs/media/scene-animation-solid.png)
 
 ![Scene animation in Wireframe mode, with mesh edges and the selected object's scale gizmo in the viewport](docs/media/scene-animation-wireframe.png)
-
-</details>
 
 ## Ray Tracing, DLSS, and FSR
 

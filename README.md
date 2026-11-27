@@ -44,14 +44,11 @@ Feathrise（羽立）把场景制作、工程预览和 Rust 开发放进同一�
 
 *《剑与侠客》工程实拍。在第 24 帧调整立方体的位置，右侧属性栏显示当前姿势。*
 
-<details>
-<summary>查看实体与线框模式下的动画编辑</summary>
+实体与线框模式下的动画编辑：
 
 ![实体模式下的场景动画，视口显示灰模、参考网格和缩放手柄](docs/media/scene-animation-solid.png)
 
 ![线框模式下的场景动画，视口显示网格边线和选中对象的缩放手柄](docs/media/scene-animation-wireframe.png)
-
-</details>
 
 ## 光追、DLSS 与 FSR
 
