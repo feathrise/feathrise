@@ -19,7 +19,7 @@ pub(super) struct CanvasItem(pub String);
 pub(super) struct Drag {
     entity: Entity,
     position: Vec2,
-    scale: f32,
+    screen_to_local: Mat2,
 }
 
 pub(super) fn input(
@@ -62,23 +62,22 @@ pub(super) fn input(
         if item.0 == layout.root.id {
             continue;
         }
-        let Some(widget) = layout.root.find(&item.0) else {
+        if layout.root.find(&item.0).is_none() {
             continue;
-        };
+        }
         let Ok((container, parent_transform)) = geometry.get(parent.parent()) else {
             continue;
         };
         let inv = bounds.inverse_scale_factor();
-        let position = widget.position.unwrap_or_else(|| {
-            (transform.affine().translation - parent_transform.affine().translation
-                + (container.size() - bounds.size()) * 0.5)
-                * inv
-        });
-        let scale = window.single().map_or(1.0, Window::scale_factor) * inv;
+        // 用父级真实变换反算设计坐标；缩小到预览区的 1920 画布不能直接使用屏幕位移。
+        let inverse = parent_transform.affine().inverse();
+        let position = (inverse.transform_point2(transform.affine().translation)
+            + (container.size() - bounds.size()) * 0.5) * inv;
+        let screen_to_local = inverse.matrix2 * (window.single().map_or(1.0, Window::scale_factor) * inv);
         *drag = Some(Drag {
             entity: event.entity,
             position,
-            scale,
+            screen_to_local,
         });
     }
     for event in movement
@@ -91,10 +90,13 @@ pub(super) fn input(
         let Ok((_, _, _, _, mut node)) = items.get_mut(track.entity) else {
             continue;
         };
-        let position = track.position + event.distance * track.scale;
+        let position = track.position + track.screen_to_local * event.distance;
         node.position_type = PositionType::Absolute;
         node.left = Val::Px(position.x);
         node.top = Val::Px(position.y);
+        node.right = Val::Auto;
+        node.bottom = Val::Auto;
+        node.margin = UiRect::ZERO;
     }
     for event in ends
         .read()
@@ -107,7 +109,7 @@ pub(super) fn input(
             continue;
         };
         let id = item.0.clone();
-        let position = track.position + event.distance * track.scale;
+        let position = track.position + track.screen_to_local * event.distance;
         state.submit(&docs, Edit::Position(id, position));
     }
     if cancelled.read().last().is_some() && drag.take().is_some() {

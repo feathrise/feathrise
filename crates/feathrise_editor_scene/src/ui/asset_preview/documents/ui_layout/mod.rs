@@ -52,6 +52,7 @@ enum Action {
     Source,
     Preview(bool),
     Narrow(bool),
+    Design,
     Select(String),
     Insert(WidgetKind),
     Remove,
@@ -88,6 +89,7 @@ pub(crate) struct UiLayouts {
     selected: String,
     interactive: bool,
     narrow: bool,
+    design: bool,
     notice: String,
 }
 
@@ -173,7 +175,7 @@ fn apply(root: &mut UiWidget, selected: &mut String, edit: Edit) -> Result<(), S
             }
             let slot = if root
                 .find(selected)
-                .is_some_and(|item| item.kind == WidgetKind::Container)
+                .is_some_and(|item| matches!(item.kind, WidgetKind::Container | WidgetKind::Button))
             {
                 root.find_mut(selected)
             } else {
@@ -209,7 +211,15 @@ fn apply(root: &mut UiWidget, selected: &mut String, edit: Edit) -> Result<(), S
         }
         Edit::Properties(values) => fields::apply(root, selected, &values)?,
         Edit::Position(id, position) => {
-            root.find_mut(&id).ok_or("拖动的控件已移除")?.position = Some(position);
+            let widget = root.find_mut(&id).ok_or("拖动的控件已移除")?;
+            widget.position = Some(position);
+            // 拖动转为明确左上坐标，不能叠加旧的右下锚点或居中负边距。
+            widget.style.left = Val::Auto;
+            widget.style.top = Val::Auto;
+            widget.style.right = Val::Auto;
+            widget.style.bottom = Val::Auto;
+            widget.style.position_type = PositionType::Relative;
+            widget.style.margin = UiRect::ZERO;
             *selected = id;
         }
     }
@@ -237,7 +247,8 @@ pub(crate) fn install(app: &mut App) {
                 .chain()
                 .after(super::presentation::sync)
                 .in_set(SceneEditorSystemSet::Presentation),
-        );
+        )
+        .add_systems(PostUpdate, view::fit_canvas.before(bevy::ui::UiSystems::Layout));
 }
 
 fn buttons(
@@ -305,6 +316,12 @@ fn buttons(
         }
         Action::Narrow(narrow) => {
             state.narrow = narrow;
+            state.design = false;
+            return;
+        }
+        Action::Design => {
+            state.design = true;
+            state.narrow = false;
             return;
         }
         _ if state.interactive => return,
@@ -401,5 +418,25 @@ fn sync(
     } else {
         state.key = None;
         state.layout = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dragging_right_bottom_anchored_widget_commits_one_unambiguous_left_top_position() {
+        let mut layout = UiLayout::parse(r#"#root Node { width: percent(100), height: percent(100) }
+            Children [ #bar Node { position_type: PositionType::Absolute, right: px(18), bottom: px(14),
+                width: px(414), margin: UiRect::left(px(-207)) } UiBind("hud.bar") ]"#).unwrap();
+        let mut selected = "root".to_string();
+        apply(&mut layout.root, &mut selected, Edit::Position("bar".into(), Vec2::new(40.0, 70.0))).unwrap();
+        let bar = layout.root.find("bar").unwrap();
+        assert_eq!(bar.position, Some(Vec2::new(40.0, 70.0)));
+        assert_eq!((bar.style.right, bar.style.bottom), (Val::Auto, Val::Auto));
+        assert_eq!(bar.style.margin, UiRect::ZERO);
+        assert_eq!(bar.binding, "hud.bar");
+        assert_eq!(UiLayout::parse(&layout.to_bsn()).unwrap(), layout);
     }
 }

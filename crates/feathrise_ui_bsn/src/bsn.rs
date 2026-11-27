@@ -4,6 +4,8 @@ use std::{collections::HashSet, fmt::Write as _};
 
 use super::*;
 
+mod style;
+
 impl UiLayout {
     pub fn parse(source: &str) -> Result<Self, String> {
         let source = source.trim_start_matches('\u{feff}').trim_start();
@@ -34,7 +36,10 @@ impl UiLayout {
             }
         }
         reader.space();
-        if !reader.rest.is_empty() || root.kind != WidgetKind::Container || root.position.is_some()
+        if !reader.rest.is_empty()
+            || root.kind != WidgetKind::Container
+            || root.position.is_some()
+            || root.style.position_type == PositionType::Absolute
         {
             return Err(reader.error("需要一个相对布局的根容器"));
         }
@@ -66,12 +71,12 @@ fn write_widget(output: &mut String, widget: &UiWidget, depth: usize) {
     };
     let _ = write!(
         output,
-        "{pad}#{} Node {{ width: {}, height: {}, flex_direction: FlexDirection::{axis}, {gap}: px({:?}f32), padding: UiRect::all(px({:?}f32))",
+        "{pad}#{} Node {{ width: {}, height: {}, flex_direction: FlexDirection::{axis}, {gap}: px({:?}f32), padding: {}",
         widget.id,
         length_text(widget.width),
         length_text(widget.height),
         widget.gap,
-        widget.padding
+        style::padding_text(widget)
     );
     if let Some(Vec2 { x, y }) = widget.position {
         let _ = write!(
@@ -79,6 +84,7 @@ fn write_widget(output: &mut String, widget: &UiWidget, depth: usize) {
             ", position_type: PositionType::Absolute, left: px({x:?}f32), top: px({y:?}f32)"
         );
     }
+    style::write_node(output, widget);
     let _ = write!(output, " }}");
     if let Some([r, g, b, a]) = widget.background {
         let _ = write!(
@@ -107,6 +113,7 @@ fn write_widget(output: &mut String, widget: &UiWidget, depth: usize) {
     if matches!(widget.kind, WidgetKind::Text | WidgetKind::Button) {
         let _ = write!(output, " UiFontSize({:?}f32)", widget.font_size);
     }
+    style::write_components(output, widget);
     output.push('\n');
     if !widget.children.is_empty() {
         let _ = writeln!(output, "{pad}Children [");
@@ -157,6 +164,7 @@ impl<'a> Reader<'a> {
         self.expect("Node")?;
         self.expect("{")?;
         let (mut left, mut top, mut absolute) = (None, None, false);
+        let (mut row_gap, mut column_gap) = (None, None);
         let mut fields = HashSet::new();
         while !self.take("}") {
             let key = self.word()?;
@@ -176,85 +184,76 @@ impl<'a> Reader<'a> {
                         _ => return Err(self.error("布局方向需要 Row 或 Column")),
                     };
                 }
-                "row_gap" | "column_gap" => {
-                    if fields.contains("row_gap") && fields.contains("column_gap") {
-                        return Err(self.error("同一容器只设置一种间距"));
-                    }
-                    widget.gap = self.pixels(false)?;
-                }
+                "row_gap" => row_gap = Some(self.pixels(false)?),
+                "column_gap" => column_gap = Some(self.pixels(false)?),
                 "padding" => {
-                    self.expect("UiRect::all(")?;
-                    widget.padding = self.pixels(false)?;
-                    self.expect(")")?;
+                    if self.take("UiRect::all(") {
+                        widget.padding = self.pixels(false)?;
+                        self.expect(")")?;
+                    } else {
+                        widget.style.padding = self.rectangle(false)?;
+                    }
                 }
                 "position_type" => {
-                    self.expect("PositionType::Absolute")?;
-                    absolute = true;
+                    self.expect("PositionType::")?;
+                    absolute = match self.word()? {
+                        "Absolute" => true,
+                        "Relative" => false,
+                        _ => return Err(self.error("定位类型需要 Absolute 或 Relative")),
+                    };
                 }
-                "left" => left = Some(self.pixels(true)?),
-                "top" => top = Some(self.pixels(true)?),
-                _ => return Err(self.error(&format!("不支持的 Node 字段 {key}"))),
+                "left" => left = Some(self.length_with_sign(true)?),
+                "top" => top = Some(self.length_with_sign(true)?),
+                _ => self.style_field(&mut widget.style, key)?,
             }
             if !self.take(",") {
                 self.expect("}")?;
                 break;
             }
         }
+        widget.gap = if widget.direction == FlexDirection::Row {
+            column_gap.or(row_gap)
+        } else {
+            row_gap.or(column_gap)
+        }
+        .unwrap_or(0.0);
+        if let Some(gap) = row_gap.filter(|gap| *gap != widget.gap) {
+            widget.style.row_gap = Val::Px(gap);
+        }
+        if let Some(gap) = column_gap.filter(|gap| *gap != widget.gap) {
+            widget.style.column_gap = Val::Px(gap);
+        }
         match (absolute, left, top) {
-            (true, Some(x), Some(y)) => widget.position = Some(Vec2::new(x, y)),
-            (false, None, None) => {}
-            _ => return Err(self.error("绝对定位需要成对的 left 和 top")),
+            // 保留旧像素坐标的模型形式，编辑器已有拖动与 X/Y 属性继续兼容。
+            (true, Some(Val::Px(x)), Some(Val::Px(y)))
+                if widget.style.right == Val::Auto && widget.style.bottom == Val::Auto =>
+            {
+                widget.position = Some(Vec2::new(x, y));
+            }
+            (true, x, y) => {
+                widget.style.position_type = PositionType::Absolute;
+                widget.style.left = x.unwrap_or(Val::Auto);
+                widget.style.top = y.unwrap_or(Val::Auto);
+            }
+            (false, None, None)
+                if widget.style.right == Val::Auto && widget.style.bottom == Val::Auto => {}
+            _ => return Err(self.error("定位偏移需要 PositionType::Absolute")),
         }
-        if self.take("BackgroundColor(") {
-            self.expect("Color::srgba_u8(")?;
-            let mut color = [0; 4];
-            for (index, channel) in color.iter_mut().enumerate() {
-                *channel = self
-                    .word()?
-                    .parse::<u8>()
-                    .map_err(|_| self.error("颜色通道需要 0 到 255"))?;
-                if index != 3 {
-                    self.expect(",")?;
-                }
-            }
-            self.expect("))")?;
-            widget.background = Some(color);
+        self.components(&mut widget)?;
+        // 控件类型在 Node 后声明；只补齐未显式指定的类型默认，不覆盖作者约束。
+        let defaults = UiWidget::default_style(widget.kind);
+        if !fields.contains("min_width") {
+            widget.style.min_width = defaults.min_width;
         }
-        if self.take("Button") {
-            widget.kind = WidgetKind::Button;
-            widget.content = self.component_string("Text")?;
-            if self.take("UiAction") {
-                widget.action = self.string_argument()?;
-            }
-        } else if self.take("Text") {
-            widget.kind = WidgetKind::Text;
-            widget.content = self.string_argument()?;
-        } else if self.take("UiImage") {
-            widget.kind = WidgetKind::Image;
-            widget.content = self.string_argument()?;
-            if !widget.content.is_empty() && !valid_asset_path(&widget.content) {
-                return Err(self.error("图片需要工程内的相对资产路径"));
-            }
-        } else if self.take("UiBinding") || self.take("UiAttribute") {
-            widget.kind = WidgetKind::Binding;
-            widget.content = self.string_argument()?;
-        }
-        if self.take("UiFontSize(") {
-            if !matches!(widget.kind, WidgetKind::Text | WidgetKind::Button) {
-                return Err(self.error("字体大小只适用于文本和按钮"));
-            }
-            widget.font_size = self.number(false)?;
-            if widget.font_size == 0.0 {
-                return Err(self.error("字体大小必须大于零"));
-            }
-            self.expect(")")?;
+        if !fields.contains("flex_shrink") {
+            widget.style.flex_shrink = defaults.flex_shrink;
         }
         let has_children = self.take("Children");
         // 分隔处及字段中的行注释随当前控件重排，字符串中的 // 仍由字符串解析器读取。
         widget.comments = std::mem::take(&mut self.comments);
         if has_children {
-            if widget.kind != WidgetKind::Container {
-                return Err(self.error("只有容器可以拥有子控件"));
+            if !matches!(widget.kind, WidgetKind::Container | WidgetKind::Button) {
+                return Err(self.error("只有容器和按钮可以拥有子控件"));
             }
             self.expect("[")?;
             if !self.take("]") {
@@ -271,15 +270,19 @@ impl<'a> Reader<'a> {
     }
 
     fn length(&mut self) -> Result<Val, String> {
+        self.length_with_sign(false)
+    }
+
+    fn length_with_sign(&mut self, signed: bool) -> Result<Val, String> {
         if self.take("Val::Auto") {
             return Ok(Val::Auto);
         }
         if self.take("percent(") {
-            let value = self.number(false)?;
+            let value = self.number(signed)?;
             self.expect(")")?;
             return Ok(Val::Percent(value));
         }
-        self.pixels(false).map(Val::Px)
+        self.pixels(signed).map(Val::Px)
     }
 
     fn pixels(&mut self, signed: bool) -> Result<f32, String> {
@@ -306,11 +309,6 @@ impl<'a> Reader<'a> {
             .ok_or_else(|| self.error("需要有限数值"))?;
         self.rest = rest;
         Ok(value)
-    }
-
-    fn component_string(&mut self, component: &str) -> Result<String, String> {
-        self.expect(component)?;
-        self.string_argument()
     }
 
     fn string_argument(&mut self) -> Result<String, String> {
@@ -464,6 +462,113 @@ mod tests {
         assert_eq!(layout.root.children[0].kind, WidgetKind::Binding);
         assert_eq!(layout.root.children[0].height, Val::Px(31.0));
         assert_eq!(layout.root.gap, 13.0);
+        assert_eq!(UiLayout::parse(&layout.to_bsn()).unwrap(), layout);
+    }
+
+    #[test]
+    fn anchored_hud_keeps_styles_bindings_and_button_children_when_edited() {
+        let source = r#"#root Node { width: percent(100), height: percent(100) }
+        Children [
+            #bar Node { width: px(426), height: px(120), position_type: PositionType::Absolute,
+                left: percent(50), bottom: px(14), margin: UiRect::left(px(-213)),
+                padding: UiRect::axes(px(14), px(10)), border: UiRect::all(px(1)),
+                border_radius: BorderRadius::all(px(7)), align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center, flex_wrap: FlexWrap::Wrap,
+                flex_grow: 1, flex_shrink: 1, min_width: px(200), max_height: px(200), overflow: Overflow::clip() }
+            BorderColor(Color::srgba_u8(190, 135, 62, 122)) BackgroundColor(Color::srgba_u8(11, 9, 8, 148))
+            Children [
+                #skill Node { width: px(40), height: px(40) } UiBind("skill.0.button") Button Text("")
+                Children [
+                    #icon Node { width: percent(100), height: percent(100) } UiImage("") UiBind("skill.0.icon")
+                    --
+                    #key Node { position_type: PositionType::Absolute, right: px(3), bottom: px(1) }
+                    Text("1") UiBind("skill.0.key") UiFontSize(8) TextColor(Color::srgba_u8(235, 226, 205, 235))
+                    UiTextShadow UiHidden UiTextAlign(Justify::Center)
+                ]
+            ]
+        ]"#;
+        let mut layout = UiLayout::parse(source).unwrap();
+        let node = widget_node(layout.root.find("bar").unwrap());
+        assert_eq!(node.left, Val::Percent(50.0));
+        assert_eq!(node.bottom, Val::Px(14.0));
+        assert_eq!(node.margin.left, Val::Px(-213.0));
+        assert_eq!(node.padding, UiRect::axes(Val::Px(14.0), Val::Px(10.0)));
+        assert_eq!(node.border_radius, BorderRadius::all(Val::Px(7.0)));
+        assert_eq!(node.flex_shrink, 1.0);
+        let key = layout.root.find("key").unwrap();
+        assert_eq!(key.binding, "skill.0.key");
+        assert_eq!(key.text_color, Some([235, 226, 205, 235]));
+        assert!(key.text_shadow);
+        assert!(key.hidden);
+        assert_eq!(widget_node(key).right, Val::Px(3.0));
+        // 普通尺寸调整不能抹掉源码写入的屏幕锚点、四边内距或动态绑定。
+        layout.root.find_mut("bar").unwrap().width = Val::Px(440.0);
+        assert_eq!(UiLayout::parse(&layout.to_bsn()).unwrap(), layout);
+    }
+
+    #[test]
+    fn native_style_errors_are_reported_without_silent_fallback() {
+        for source in [
+            "#root Node { align_items: AlignItems::Unknown }",
+            "#root Node { border: UiRect::all(px(-1)) }",
+            "#root Node {} Text(\"a\") UiImage(\"icon.png\")",
+            "#root Node {} UiBind(\"a\") UiBind(\"b\")",
+            "#root Node { right: px(1) }",
+            "#root Node { position_type: PositionType::Absolute, right: px(1) }",
+            "#root Node { margin: UiRect { left: px(1), left: px(2) } }",
+        ] {
+            assert!(UiLayout::parse(source).is_err(), "{source}");
+        }
+    }
+
+    #[test]
+    fn wrapped_layout_keeps_independent_gaps() {
+        let layout = UiLayout::parse("#root Node { flex_direction: FlexDirection::Row, row_gap: px(0), column_gap: px(3), flex_wrap: FlexWrap::Wrap }").unwrap();
+        let node = widget_node(&layout.root);
+        assert_eq!(node.row_gap, Val::Px(0.0));
+        assert_eq!(node.column_gap, Val::Px(3.0));
+        assert_eq!(UiLayout::parse(&layout.to_bsn()).unwrap(), layout);
+    }
+
+    #[test]
+    fn external_authored_asset_round_trips_when_requested() {
+        let Some(path) = std::env::var_os("FEATHRISE_UI_BSN_TEST_ASSET") else {
+            return;
+        };
+        let source = std::fs::read_to_string(&path).expect("读取指定的本轮实际界面资产");
+        let layout = UiLayout::parse(&source).expect("完整作者资产可被公共解析器读取");
+        assert_eq!(UiLayout::parse(&layout.to_bsn()).unwrap(), layout);
+    }
+
+    #[test]
+    fn text_natural_size_defaults_keep_explicit_constraints() {
+        let layout = UiLayout::parse(
+            r#"#root Node { width: px(238), flex_direction: FlexDirection::Row }
+            Children [
+                #name Node {} Text("沈照雪")
+                --
+                #constrained Node { width: px(54), min_width: px(0), flex_shrink: 0 } Text("0/100")
+            ]"#,
+        )
+        .unwrap();
+        let natural = widget_node(layout.root.find("name").unwrap());
+        assert_eq!(natural.min_width, Val::Auto);
+        assert_eq!(natural.flex_shrink, 1.0);
+        let constrained = widget_node(layout.root.find("constrained").unwrap());
+        assert_eq!(constrained.width, Val::Px(54.0));
+        assert_eq!(constrained.min_width, Val::Px(0.0));
+        assert_eq!(constrained.flex_shrink, 0.0);
+        assert_eq!(UiLayout::parse(&layout.to_bsn()).unwrap(), layout);
+    }
+
+    #[test]
+    fn elliptical_corners_keep_both_axes_and_individual_corners() {
+        let layout = UiLayout::parse("#root Node { border_radius: BorderRadius::new(CornerRadius::new(px(8), percent(20)), px(4), CornerRadius::all(px(3)), CornerRadius::circular(px(2))) }").unwrap();
+        let radius = layout.root.style.border_radius;
+        assert_eq!(radius.top_left.x, Val::Px(8.0));
+        assert_eq!(radius.top_left.y, Val::Percent(20.0));
+        assert_eq!(radius.bottom_right.y, Val::Px(3.0));
+        assert_eq!(radius.bottom_left.y, Val::Auto);
         assert_eq!(UiLayout::parse(&layout.to_bsn()).unwrap(), layout);
     }
 }

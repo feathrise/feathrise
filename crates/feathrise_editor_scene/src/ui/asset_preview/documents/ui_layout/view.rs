@@ -4,7 +4,7 @@ use super::super::components::DocumentCenterHost;
 use super::{
     Action, DocumentState, Identity, UiLayouts, active,
     canvas::CanvasItem,
-    fields::{self, Field, length_text},
+    fields::{self, Field},
 };
 use crate::components::SceneEditorRightPanelScroll;
 use bevy::{
@@ -15,10 +15,43 @@ use bevy::{
 use feathrise_editor_ui::{
     colors, dialog_compact_button_style, localization::EditorLocale, spawn_custom_text_button,
 };
-use feathrise_ui_bsn::{LayoutContext, UiWidget, WidgetKind, spawn_layout};
+use feathrise_ui_bsn::{LayoutContext, UiLayout, UiWidget, WidgetKind, spawn_layout};
 
 #[derive(Component)]
 pub(super) struct Panel;
+
+#[derive(Component)]
+pub(super) struct CanvasViewport;
+
+#[derive(Component)]
+pub(super) struct DesignCanvas(Vec2);
+
+/// 尺寸改变只更新原生变换，不重建 HUD 控件树；布局和拾取共同采用同一缩放。
+pub(super) fn fit_canvas(
+    viewports: Query<&ComputedNode, With<CanvasViewport>>,
+    mut canvases: Query<(&DesignCanvas, &ChildOf, &mut UiTransform)>,
+) {
+    for (design, parent, mut transform) in &mut canvases {
+        let Ok(viewport) = viewports.get(parent.parent()) else { continue; };
+        let size = viewport.size() * viewport.inverse_scale_factor();
+        if size.x <= 0.0 || size.y <= 0.0 { continue; }
+        let next = design_transform(size, design.0);
+        if *transform != next { *transform = next; }
+    }
+}
+
+fn design_transform(viewport: Vec2, design: Vec2) -> UiTransform {
+    let scale = (viewport / design).min_element();
+    let offset = (viewport - design) * 0.5;
+    UiTransform { scale: Vec2::splat(scale), translation: Val2::px(offset.x, offset.y), ..default() }
+}
+
+fn design_size(layout: &UiLayout, state: &UiLayouts) -> Option<Vec2> {
+    // 百分比全高是屏幕 HUD；普通自动高度文档继续沿用原画布和旧验收坐标。
+    (state.design || layout.root.height == percent(100)).then(|| {
+        if state.narrow { Vec2::new(320.0, 640.0) } else { Vec2::new(1920.0, 1080.0) }
+    })
+}
 
 pub(super) fn mount(mut commands: Commands, hosts: Query<Entity, Added<DocumentCenterHost>>) {
     for host in &hosts {
@@ -255,10 +288,11 @@ pub(super) fn present(
                                 Action::Preview(false),
                                 !state.interactive,
                             );
+                            let screen = design_size(layout, &state).is_some();
                             button(
                                 bar,
                                 &font,
-                                locale.text("ui_bsn.fit"),
+                                if screen { "1920 × 1080" } else { locale.text("ui_bsn.fit") },
                                 Action::Narrow(false),
                                 !state.narrow,
                             );
@@ -269,6 +303,9 @@ pub(super) fn present(
                                 Action::Narrow(true),
                                 state.narrow,
                             );
+                            if !screen {
+                                button(bar, &font, "1920 × 1080", Action::Design, false);
+                            }
                             button(
                                 bar,
                                 &font,
@@ -277,9 +314,12 @@ pub(super) fn present(
                                 state.interactive,
                             );
                         });
-                        center
-                            .spawn((
-                                Node {
+                        let size = design_size(layout, &state);
+                        let board_node = if size.is_some() {
+                            Node { width: percent(100), min_height: px(260), flex_grow: 1.0,
+                                flex_basis: px(0), overflow: Overflow::clip(), ..default() }
+                        } else {
+                            Node {
                                     width: if state.narrow { px(320) } else { percent(100) },
                                     max_width: percent(100),
                                     min_height: px(260),
@@ -289,40 +329,19 @@ pub(super) fn present(
                                     flex_direction: FlexDirection::Column,
                                     overflow: Overflow::clip(),
                                     ..default()
-                                },
-                                BackgroundColor(Color::srgb(0.05, 0.06, 0.08)),
-                            ))
-                            .with_children(|board| {
-                                let context = LayoutContext {
-                                    font: &font,
-                                    assets: &server,
-                                    text_color: colors::TEXT_PRIMARY,
-                                    button_color: Color::srgb(0.20, 0.26, 0.33),
-                                    interactive: state.interactive,
-                                    preview: true,
-                                };
-                                spawn_layout(
-                                    board,
-                                    layout,
-                                    &context,
-                                    |entity, widget| {
-                                        if !state.interactive {
-                                            entity.insert(CanvasItem(widget.id.clone()));
-                                            if widget.id == state.selected {
-                                                entity.insert(Outline {
-                                                    width: px(1),
-                                                    offset: px(1),
-                                                    color: Color::srgb(0.47, 0.78, 1.0),
-                                                });
-                                            }
-                                        }
-                                    },
-                                    |children, widget| {
-                                        // 绑定的真实值由工程提供。独立编辑器用绑定 ID 预览其布局。
-                                        label(children, &font, format!("‹{}›", widget.content));
-                                    },
-                                );
+                            }
+                        };
+                        let mut board = center.spawn((board_node, BackgroundColor(Color::srgb(0.05, 0.06, 0.08))));
+                        if let Some(size) = size {
+                            board.insert(CanvasViewport).with_children(|viewport| {
+                                viewport.spawn((DesignCanvas(size), UiTransform::default(), Node {
+                                    position_type: PositionType::Absolute, width: px(size.x), height: px(size.y),
+                                    left: px(0), top: px(0), flex_shrink: 0.0, ..default()
+                                })).with_children(|canvas| draw_canvas(canvas, layout, &state, &font, &server));
                             });
+                        } else {
+                            board.with_children(|canvas| draw_canvas(canvas, layout, &state, &font, &server));
+                        }
                     });
                     columns.spawn(pane(px(208), 0.0)).with_children(|right| {
                         let Some(widget) = layout.root.find(&state.selected) else {
@@ -341,6 +360,24 @@ pub(super) fn present(
                 });
             });
     }
+}
+
+fn draw_canvas(
+    board: &mut ChildSpawnerCommands, layout: &UiLayout, state: &UiLayouts,
+    font: &Handle<Font>, server: &AssetServer,
+) {
+    let context = LayoutContext { font, assets: server, text_color: colors::TEXT_PRIMARY,
+        button_color: Color::srgb(0.20, 0.26, 0.33), interactive: state.interactive, preview: true };
+    spawn_layout(board, layout, &context, |entity, widget| {
+        if !state.interactive {
+            entity.insert(CanvasItem(widget.id.clone()));
+            // 隐藏是资产状态；选择隐藏控件或其后代只临时显露所在分支，便于继续编辑。
+            if widget.hidden && widget.find(&state.selected).is_some() { entity.insert(Visibility::Inherited); }
+            if widget.id == state.selected {
+                entity.insert(Outline { width: px(1), offset: px(1), color: Color::srgb(0.47, 0.78, 1.0) });
+            }
+        }
+    }, |children, widget| label(children, font, format!("‹{}›", widget.content)));
 }
 fn parent_id<'a>(widget: &'a UiWidget, id: &str) -> Option<&'a str> {
     if widget.children.iter().any(|child| child.id == id) {
@@ -395,9 +432,10 @@ fn inspector(
     draft: &fields::Values,
     locale: EditorLocale,
 ) {
-    let input = |panel: &mut ChildSpawnerCommands, field: Field, title: &str, value: &str| {
-        label(panel, font, title);
-        field.input(panel, font, draft.get(&field).map_or(value, String::as_str));
+    let current = fields::values(widget, parent);
+    let input = |panel: &mut ChildSpawnerCommands, field: Field, key: &str| {
+        label(panel, font, locale.text(key));
+        field.input(panel, font, draft.get(&field).or_else(|| current.get(&field)).map_or("", String::as_str));
     };
     label(
         panel,
@@ -452,88 +490,55 @@ fn inspector(
         Action::Properties,
         true,
     );
-    input(panel, Field::Id, locale.text("ui_bsn.id"), &widget.id);
+    input(panel, Field::Id, "ui_bsn.id");
     if widget.kind == WidgetKind::Binding {
-        input(
-            panel,
-            Field::Content,
-            locale.text("ui_bsn.binding_id"),
-            &widget.content,
-        );
+        input(panel, Field::Content, "ui_bsn.binding_id");
     }
-    if let Some(parent) = parent {
-        input(panel, Field::Parent, locale.text("ui_bsn.parent"), parent);
-    }
-    input(
-        panel,
-        Field::Width,
-        locale.text("ui_bsn.width"),
-        &length_text(widget.width),
-    );
-    input(
-        panel,
-        Field::Height,
-        locale.text("ui_bsn.height"),
-        &length_text(widget.height),
-    );
-    input(
-        panel,
-        Field::Padding,
-        locale.text("ui_bsn.padding"),
-        &widget.padding.to_string(),
-    );
-    input(
-        panel,
-        Field::Gap,
-        locale.text("ui_bsn.gap"),
-        &widget.gap.to_string(),
-    );
     if parent.is_some() {
-        let (x, y) = widget
-            .position
-            .map(|pos| (pos.x.to_string(), pos.y.to_string()))
-            .unwrap_or_default();
-        input(panel, Field::X, locale.text("ui_bsn.x"), &x);
-        input(panel, Field::Y, locale.text("ui_bsn.y"), &y);
+        input(panel, Field::Parent, "ui_bsn.parent");
     }
-    let color = widget
-        .background
-        .map(|[r, g, b, a]| format!("#{r:02X}{g:02X}{b:02X}{a:02X}"))
-        .unwrap_or_default();
-    input(
-        panel,
-        Field::Background,
-        locale.text("ui_bsn.background"),
-        &color,
-    );
+    for (field, key) in [(Field::Width, "ui_bsn.width"), (Field::Height, "ui_bsn.height"),
+        (Field::Padding, "ui_bsn.padding"), (Field::Gap, "ui_bsn.gap")] { input(panel, field, key); }
+    if parent.is_some() {
+        input(panel, Field::X, "ui_bsn.x");
+        input(panel, Field::Y, "ui_bsn.y");
+        input(panel, Field::Right, "ui_bsn.right");
+        input(panel, Field::Bottom, "ui_bsn.bottom");
+    }
+    input(panel, Field::Background, "ui_bsn.background");
     if matches!(widget.kind, WidgetKind::Text | WidgetKind::Button) {
-        input(
-            panel,
-            Field::Content,
-            locale.text("ui_bsn.content"),
-            &widget.content,
-        );
-        input(
-            panel,
-            Field::FontSize,
-            locale.text("ui_bsn.font_size"),
-            &widget.font_size.to_string(),
-        );
+        input(panel, Field::Content, "ui_bsn.content");
+        input(panel, Field::FontSize, "ui_bsn.font_size");
+        input(panel, Field::TextColor, "ui_bsn.text_color");
+        input(panel, Field::TextShadow, "ui_bsn.text_shadow");
+        input(panel, Field::TextJustify, "ui_bsn.text_justify");
     }
     if widget.kind == WidgetKind::Image {
-        input(
-            panel,
-            Field::Content,
-            locale.text("ui_bsn.image_path"),
-            &widget.content,
-        );
+        input(panel, Field::Content, "ui_bsn.image_path");
     }
     if widget.kind == WidgetKind::Button {
-        input(
-            panel,
-            Field::Action,
-            locale.text("ui_bsn.action_id"),
-            &widget.action,
-        );
+        input(panel, Field::Action, "ui_bsn.action_id");
+    }
+    for (field, key) in [(Field::Binding, "ui_bsn.ui_bind"), (Field::Border, "ui_bsn.border"),
+        (Field::BorderColor, "ui_bsn.border_color"), (Field::Radius, "ui_bsn.radius"),
+        (Field::AlignItems, "ui_bsn.align_items"), (Field::JustifyContent, "ui_bsn.justify_content"),
+        (Field::Hidden, "ui_bsn.hidden")] { input(panel, field, key); }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn design_canvas_keeps_screen_dimensions_and_scales_uniformly_to_viewport() {
+        let design = Vec2::new(1920.0, 1080.0);
+        let transform = design_transform(Vec2::new(960.0, 720.0), design);
+        assert_eq!(transform.scale, Vec2::splat(0.5));
+        // 平移围绕设计节点中心补偿，实际左上角位于 90 像素的上下留白内。
+        let Val2 { x: Val::Px(x), y: Val::Px(y) } = transform.translation else { panic!() };
+        let min = design * 0.5 + Vec2::new(x, y) - design * transform.scale * 0.5;
+        assert_eq!(min, Vec2::new(0.0, 90.0));
+        let legacy = UiLayout::default();
+        assert_eq!(design_size(&legacy, &UiLayouts::default()), None);
     }
 }

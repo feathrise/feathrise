@@ -6,7 +6,7 @@ mod view;
 use bevy::prelude::*;
 
 pub use bsn::valid_asset_path;
-pub use view::{LayoutContext, UiLayoutAction, spawn_layout};
+pub use view::{LayoutContext, UiLayoutAction, spawn_layout, spawn_widget_tree, widget_node};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiLayout {
@@ -19,6 +19,8 @@ pub struct UiWidget {
     pub kind: WidgetKind,
     pub content: String,
     pub action: String,
+    /// 通用数据绑定不改变控件类型，画布显示样例内容，工程按此名称装配动态更新。
+    pub binding: String,
     pub width: Val,
     pub height: Val,
     pub direction: FlexDirection,
@@ -26,6 +28,15 @@ pub struct UiWidget {
     pub padding: f32,
     pub position: Option<Vec2>,
     pub background: Option<[u8; 4]>,
+    /// 额外布局直接采用原生 Node，避免另建一套对齐、锚点和边距模型。
+    /// width、height、方向、间距、内边距及旧像素坐标由上方对应字段统一合成。
+    pub style: Node,
+    pub border_color: Option<[u8; 4]>,
+    pub text_color: Option<[u8; 4]>,
+    pub text_shadow: bool,
+    pub text_justify: Justify,
+    /// 提示和临时通知可从资产声明默认隐藏，运行时仍可按原交互系统显示。
+    pub hidden: bool,
     pub font_size: f32,
     pub children: Vec<UiWidget>,
     comments: Vec<String>,
@@ -66,6 +77,7 @@ impl UiWidget {
             kind,
             content: content.into(),
             action: String::new(),
+            binding: String::new(),
             width: Val::Auto,
             height,
             direction: FlexDirection::Column,
@@ -73,9 +85,32 @@ impl UiWidget {
             padding: 0.0,
             position: None,
             background: None,
+            style: Self::default_style(kind),
+            border_color: None,
+            text_color: None,
+            text_shadow: false,
+            text_justify: Justify::Left,
+            hidden: false,
             font_size: 14.0,
             children: Vec::new(),
             comments: Vec::new(),
+        }
+    }
+
+    pub(crate) fn default_style(kind: WidgetKind) -> Node {
+        Node {
+            // Text 在自己实体上参与原生测量：Auto 才会使用内容宽度，零最小宽会被
+            // Bevy 的测量器当成有效宽度，令中文逐字换行；容器沿用旧编辑器的收缩策略。
+            min_width: if kind == WidgetKind::Text {
+                Val::Auto
+            } else {
+                Val::Px(0.0)
+            },
+            flex_shrink: if kind == WidgetKind::Text { 1.0 } else { 0.0 },
+            // Auto 表示未单独覆盖某一轴，最终由通用 gap 合成两轴间距。
+            row_gap: Val::Auto,
+            column_gap: Val::Auto,
+            ..default()
         }
     }
 

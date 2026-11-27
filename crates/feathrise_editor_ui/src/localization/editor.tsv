@@ -1766,7 +1766,7 @@ ui_bsn.id	控件 ID	Widget ID
 ui_bsn.parent	父容器 ID	Parent Container ID
 ui_bsn.width	宽度（px、% 或 auto）	Width (px, %, or auto)
 ui_bsn.height	高度（px、% 或 auto）	Height (px, %, or auto)
-ui_bsn.padding	内边距（px）	Padding (px)
+ui_bsn.padding	内边距（上 右 下 左）	Padding (top right bottom left)
 ui_bsn.gap	控件间距（px）	Gap (px)
 ui_bsn.x	X（留空使用自动布局）	X (blank for auto layout)
 ui_bsn.y	Y（留空使用自动布局）	Y (blank for auto layout)
@@ -1776,6 +1776,18 @@ ui_bsn.font_size	字号（px）	Font Size (px)
 ui_bsn.image_path	图片资产路径	Image Asset Path
 ui_bsn.action_id	动作 ID	Action ID
 ui_bsn.binding_id	绑定 ID	Binding ID
+ui_bsn.ui_bind	数据绑定（UiBind）	Data Binding (UiBind)
+ui_bsn.right	右锚点（px、%、留空自动）	Right Anchor (px, %, blank for auto)
+ui_bsn.bottom	底锚点（px、%、留空自动）	Bottom Anchor (px, %, blank for auto)
+ui_bsn.border	边框宽（上 右 下 左）	Border Width (top right bottom left)
+ui_bsn.radius	圆角（左上 右上 右下 左下）	Radius (top-left top-right bottom-right bottom-left)
+ui_bsn.border_color	边框色（RGB / RGBA）	Border Color (RGB / RGBA)
+ui_bsn.text_color	文字色（RGB / RGBA）	Text Color (RGB / RGBA)
+ui_bsn.text_shadow	文字阴影（true / false）	Text Shadow (true / false)
+ui_bsn.hidden	默认隐藏（true / false）	Initially Hidden (true / false)
+ui_bsn.align_items	交叉轴对齐（如 Center）	Cross-axis Alignment (e.g. Center)
+ui_bsn.justify_content	主轴对齐（如 SpaceBetween）	Main-axis Alignment (e.g. SpaceBetween)
+ui_bsn.text_justify	文字对齐（Left / Center / Right）	Text Alignment (Left / Center / Right)
 ui_bsn.apply	应用属性	Apply Properties
 ui_bsn.save	保存	Save
 ui_bsn.undo	撤销	Undo
