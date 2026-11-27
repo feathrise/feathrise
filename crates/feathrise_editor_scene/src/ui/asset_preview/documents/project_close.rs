@@ -19,6 +19,9 @@ pub(crate) fn collect(
     if world.get_resource::<super::rules::Studio>().is_some_and(super::rules::Studio::edit_pending) {
         snapshot.pending("工程规则正在处理已提交的修改");
     }
+    if world.get_resource::<super::ui_layout::UiLayouts>().is_some_and(super::ui_layout::UiLayouts::edit_pending) {
+        snapshot.pending("界面布局正在处理已提交的修改");
+    }
     // 未提交的表单字段还不在 JSON 正文里。显式放弃仍可关闭；保存队列不能把它当作已保存。
     if state.rules_form_input.is_some() {
         snapshot.unsaved.push("工程规则表单（在交互工具中保存）".into());

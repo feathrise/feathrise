@@ -1757,3 +1757,43 @@ wall.choose_gate	指定门楼位置	Place Gate
 wall.remove_gate	移除门楼	Remove Gate
 wall.confirm	确认铺设	Place Walls
 wall.cancel	取消铺设	Cancel Placement
+ui_bsn.up	上移	Move Up
+ui_bsn.down	下移	Move Down
+ui_bsn.remove	删除控件	Delete Widget
+ui_bsn.row	横排	Row
+ui_bsn.column	竖排	Column
+ui_bsn.id	控件 ID	Widget ID
+ui_bsn.parent	父容器 ID	Parent Container ID
+ui_bsn.width	宽度（px、% 或 auto）	Width (px, %, or auto)
+ui_bsn.height	高度（px、% 或 auto）	Height (px, %, or auto)
+ui_bsn.padding	内边距（px）	Padding (px)
+ui_bsn.gap	控件间距（px）	Gap (px)
+ui_bsn.x	X（留空使用自动布局）	X (blank for auto layout)
+ui_bsn.y	Y（留空使用自动布局）	Y (blank for auto layout)
+ui_bsn.background	背景色（RGB / RGBA）	Background (RGB / RGBA)
+ui_bsn.content	文字	Content
+ui_bsn.font_size	字号（px）	Font Size (px)
+ui_bsn.image_path	图片资产路径	Image Asset Path
+ui_bsn.action_id	动作 ID	Action ID
+ui_bsn.binding_id	绑定 ID	Binding ID
+ui_bsn.apply	应用属性	Apply Properties
+ui_bsn.save	保存	Save
+ui_bsn.undo	撤销	Undo
+ui_bsn.redo	重做	Redo
+ui_bsn.source	源码	Source
+ui_bsn.widgets	控件	Widgets
+ui_bsn.hierarchy	层级	Hierarchy
+ui_bsn.edit	编辑	Edit
+ui_bsn.fit	适应宽度	Fit Width
+ui_bsn.narrow	窄屏	Narrow
+ui_bsn.preview	交互预览	Interaction Preview
+ui_bsn.container	容器	Container
+ui_bsn.text	文本	Text
+ui_bsn.image	图片	Image
+ui_bsn.button	按钮	Button
+ui_bsn.binding	数据绑定	Data Binding
+ui_bsn.loading	正在读取界面…	Reading UI layout…
+ui_bsn.applying	正在采用上一笔界面编辑	Applying the previous UI edit
+ui_bsn.invalid_layout	布局包含无法写入 BSN 的属性	The layout contains a property that cannot be saved as BSN
+ui_bsn.select_delete	请选择可删除的控件	Select a widget to delete
+ui_bsn.select_container	请选择容器	Select a container

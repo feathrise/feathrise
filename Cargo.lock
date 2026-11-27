@@ -3550,6 +3550,7 @@ dependencies = [
  "feathrise_scene_core",
  "feathrise_settings",
  "feathrise_terrain",
+ "feathrise_ui_bsn",
  "gltf",
  "image",
  "proc-macro2",
@@ -3958,6 +3959,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "feathrise_ui_bsn"
+version = "0.1.0"
+dependencies = [
+ "bevy",
 ]
 
 [[package]]

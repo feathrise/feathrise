@@ -206,9 +206,10 @@ pub(super) fn save(
     disk: &DiskIdentity,
     pages: &[Arc<str>],
 ) -> Result<DiskIdentity, String> {
-    // 两个作者进程可能同时读到同一旧摘要。只在规则文件的整段校验/替换期间持有现成的工程作者锁。
+    // 两个作者进程可能同时读到同一旧摘要。在界面、规则与演出校验和替换期间持有工程作者锁。
     let cinematic=feathrise_cinematic::is_cinematic_path(&disk.path);
-    let _rules_lock = (disk.project_rules || cinematic).then(|| ContentAuthorLock::acquire(root)).transpose()
+    let layout = super::ui_layout::is_path(&disk.path);
+    let _author_lock = (disk.project_rules || cinematic || layout).then(|| ContentAuthorLock::acquire(root)).transpose()
         .map_err(|error| format!("无法取得工程保存锁，当前草稿保留：{error}"))?;
     let mut bytes = Vec::new();
     if disk.bom {

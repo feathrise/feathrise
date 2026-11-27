@@ -24,6 +24,7 @@ pub(super) fn actions(
     mouse: Res<SceneEditorNumericScrubMouseGuard>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut state: ResMut<DocumentState>,
+    ui_layouts: Option<Res<super::ui_layout::UiLayouts>>,
     mut focus: ResMut<InputFocus>,
     buttons: Query<
         (&feathrise_editor_ui::EditorButtonClick, &DocumentAction),
@@ -203,7 +204,14 @@ pub(super) fn actions(
             continue;
         }
         if action == DocumentAction::Save {
-            state.request_save();
+            if ui_layouts.as_ref().is_some_and(|layouts| layouts.edit_pending_for(&state)) {
+                // 快捷键和画布保存使用同一修订边界，等待应用属性或拖动结果采用。
+                if let Some(doc) = state.current_mut() {
+                    doc.status = "正在采用上一笔界面编辑".into();
+                }
+            } else {
+                state.request_save();
+            }
             continue;
         }
         if action == DocumentAction::KeepDraft {

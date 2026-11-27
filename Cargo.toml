@@ -156,6 +156,7 @@ feathrise_scene = { version = "0.2.0" } # 工程数据驱动场景、渲染与�
 feathrise_environment = { version = "0.2.0" } # 统一聚合GPU叶片植被、树木及灌木岩石固定景观，消费者通过feature按需启用。
 feathrise_editor_core = { path = "crates/feathrise_editor_core" } # 编辑器跨功能标签、输入和预览契约。
 feathrise_editor_ui = { path = "crates/feathrise_editor_ui" } # 编辑器 UI 库：独立暖墨主题与作者控件。
+feathrise_ui_bsn = { path = "crates/feathrise_ui_bsn" }
 feathrise_ui_widgets = { version = "0.2.0" } # 无主题共享控件与唯一输入状态机。
 feathrise_billboard_text = { version = "0.2.0" } # 通用离屏烘焙文字 Billboard 插件（可独立开源）
 feathrise_atmosphere = { version = "0.2.0" } # 世界时间、天体光照、天气模拟与环境表现

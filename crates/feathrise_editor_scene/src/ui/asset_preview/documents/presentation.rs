@@ -10,6 +10,7 @@ use bevy::{
 
 pub(super) fn sync(
     state: Res<DocumentState>,
+    ui_layouts: Option<Res<super::ui_layout::UiLayouts>>,
     locale: Option<Res<feathrise_editor_ui::localization::EditorLocale>>,
     replacement: Option<Res<super::search::AssetReplaceState>>,
     preview_state: Option<Res<super::super::types::AssetPreviewState>>,
@@ -74,8 +75,10 @@ pub(super) fn sync(
     for (mut node, panel, source, edit_area, preview, launch, external) in &mut nodes {
         let show = if panel {
             state.active.is_some() && replacement.as_ref().is_none_or(|state| !state.preview_visible())
-                && !(state.in_center() && doc.is_some_and(|d| super::cinematic::is_path(&d.path)
-                    && d.mode == super::types::ViewMode::Preview))
+                && !(state.in_center() && doc.is_some_and(|d| {
+                    (super::cinematic::is_path(&d.path) || ui_layouts.is_some() && super::ui_layout::is_path(&d.path))
+                        && d.mode == super::types::ViewMode::Preview
+                }))
         } else if source || edit_area {
             editing
         } else if launch {

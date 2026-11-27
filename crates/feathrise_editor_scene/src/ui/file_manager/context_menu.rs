@@ -10,7 +10,7 @@ const MAIN_ACTIONS: [FileAction; 7] = [FileAction::NewWindow, FileAction::Cut, F
     FileAction::Paste, FileAction::Rename, FileAction::Delete, FileAction::NewMenu];
 const EXTRA_ACTIONS: [ExtraAction; 4] = [ExtraAction::CopyAbsolute, ExtraAction::CopyRelative,
     ExtraAction::Favorite, ExtraAction::References];
-const NEW_ACTIONS: [FileAction; 5] = [FileAction::NewFolder, FileAction::NewText, FileAction::NewMarkdown, FileAction::NewGlb, FileAction::NewCinematic];
+const NEW_ACTIONS: [FileAction; 6] = [FileAction::NewFolder, FileAction::NewText, FileAction::NewMarkdown, FileAction::NewGlb, FileAction::NewCinematic, FileAction::NewUiLayout];
 
 pub(super) fn open(state: &mut FileManagerState, target: FileManagerContextRequest) {
     state.menu = Some(FileContextMenu { target, submenu: false, initialized: false, main_rect: Rect::default(), submenu_rect: Rect::default() });
@@ -149,6 +149,7 @@ fn item(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, action: FileCont
 }
 
 pub(super) fn sync(world: &mut World, state: &mut FileManagerState, english: bool) {
+    let ui_layouts = world.contains_resource::<crate::ui::asset_preview::documents::ui_layout::UiLayouts>();
     let available = world.get_resource::<ExternalEditors>().cloned().unwrap_or_default();
     let visible_menu = state.menu.is_some() && !state.suspended && state.prompt.is_none();
     let reset = state.menu.as_ref().is_some_and(|menu| !menu.initialized);
@@ -159,7 +160,8 @@ pub(super) fn sync(world: &mut World, state: &mut FileManagerState, english: boo
     let mut entries = world.query::<(&FileContextEntry, &UiInteraction, &mut Node, &mut BackgroundColor,
         &mut BorderColor, &mut EditorButtonClick)>();
     for (entry, interaction, mut node, mut background, mut border, mut click) in entries.iter_mut(world) {
-        let show = state.menu.as_ref().is_some_and(|menu| visible(entry.action, &menu.target, &available));
+        let show = (ui_layouts || entry.action != FileContextAction::File(FileAction::NewUiLayout))
+            && state.menu.as_ref().is_some_and(|menu| visible(entry.action, &menu.target, &available));
         node.display = if show { Display::Flex } else { Display::None };
         let active = visible_menu && enabled(entry.action, state) && state.menu.as_ref().is_some_and(|menu| !entry.submenu || menu.submenu);
         if reset || !active { click.invalidate(); }

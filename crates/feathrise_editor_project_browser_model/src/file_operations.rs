@@ -23,7 +23,7 @@ pub enum FileOperationKind { Copy, Move, Delete, CreateFolder, CreateFile, Renam
 
 /// “新建”菜单只决定初始内容；完整文件名由作者确认，后台不隐式改名或追加扩展名。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NewFileKind { Text, Markdown, Glb, Cinematic }
+pub enum NewFileKind { Text, Markdown, Glb, Cinematic, UiLayout }
 
 #[derive(Clone, Debug)]
 pub enum FileOperation {

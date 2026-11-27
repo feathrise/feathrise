@@ -377,6 +377,7 @@ pub(super) fn sync_selection(
 /// IO和解析各一个槽；结果只在路径、文档代次及内容修订仍一致时原子采用。
 pub(super) fn drive_tasks(
     mut state: ResMut<DocumentState>,
+    ui_layouts: Option<Res<super::ui_layout::UiLayouts>>,
     content: Res<feathrise_editor_documents_model::DocumentContentOperations>,
     mut batch: Option<ResMut<super::batch_save::DocumentBatchSaveState>>,
     sources: Query<&EditableText, With<DocumentSource>>,
@@ -515,7 +516,8 @@ pub(super) fn drive_tasks(
     if state.parser.is_none() && state.visible {
         if let Some(doc) = state.current().filter(|doc| {
             !state.editing() && doc.preview_revision != Some(doc.revision)
-                && !(state.in_center() && super::cinematic::is_path(&doc.path))
+                && !(state.in_center() && (super::cinematic::is_path(&doc.path)
+                    || ui_layouts.is_some() && super::ui_layout::is_path(&doc.path)))
         }) {
             let path = doc.path.clone();
             let generation = doc.generation;

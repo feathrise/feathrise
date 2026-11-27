@@ -1,0 +1,10 @@
+[package]
+name = "feathrise_ui_bsn"
+description = "Feathrise UI BSN layout model and Bevy rendering"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/feathrise/feathrise"
+
+[dependencies]
+bevy = { version = "=0.20.1", default-features = false, features = ["bevy_asset", "bevy_image", "bevy_picking", "bevy_text", "bevy_ui", "bevy_ui_widgets"] }

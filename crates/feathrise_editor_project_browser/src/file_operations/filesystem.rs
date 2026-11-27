@@ -201,6 +201,13 @@ fn new_file_bytes(kind: NewFileKind, name: &str) -> Result<Vec<u8>, String> {
     Ok(match kind {
         // 空字节串本身是合法UTF-8；不写BOM或默认正文，作者打开后可直接输入。
         NewFileKind::Text | NewFileKind::Markdown => Vec::new(),
+        NewFileKind::UiLayout => {
+            if !Path::new(name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("bsn")) {
+                return Err("界面布局文件名应以 .bsn 结尾".into());
+            }
+            // 使用空根容器作为可直接在中央画布编辑的资产。
+            b"#root Node { width: percent(100.0f32), flex_direction: FlexDirection::Column }\n".to_vec()
+        }
         NewFileKind::Cinematic => {
             let end = name.len().checked_sub(".cinematic.json".len())
                 .filter(|&end| name.get(end..).is_some_and(|s| s.eq_ignore_ascii_case(".cinematic.json")))

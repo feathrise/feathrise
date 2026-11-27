@@ -36,6 +36,7 @@ mod syntax; // 后台分词与原生可见字形着色，共用于连续预览�
 #[cfg(test)]
 mod tests;
 mod types;
+pub(crate) mod ui_layout;
 mod workspace; // 在中央与侧栏之间原位挂载同一棵文档UI。
 #[cfg(any(test, feature = "validation"))]
 pub(crate) mod validation; // 仅显式有限验收访问固定文本会话，不另建保存管线。

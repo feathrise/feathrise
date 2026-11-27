@@ -94,6 +94,9 @@ pub fn install(app: &mut App, work: PathBuf, project: PathBuf) -> Result<(), Str
         }
         return project_rules::install(app, work, phase);
     }
+    if let Ok(phase) = std::env::var("FEATHRISE_UI_BSN_VALIDATION") {
+        return super::asset_preview::documents::ui_layout::validation::install(app, work, phase);
+    }
     if let Ok(phase)=std::env::var("FEATHRISE_CINEMATIC_AUTHOR_VALIDATION") {
         return super::asset_preview::documents::cinematic::validation::install(app,work,phase);
     }
