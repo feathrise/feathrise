@@ -112,7 +112,7 @@ pub(super) fn validated_creation_request(
 }
 
 /// 校验用户可见名称并去掉首尾空白。
-pub(super) fn normalize_display_name(raw: &str) -> Result<String, String> {
+pub(crate) fn normalize_display_name(raw: &str) -> Result<String, String> {
     let name = raw.trim();
     let count = name.chars().count();
     if count == 0 || count > MAX_SCENE_NAME_CHARS {
@@ -125,7 +125,7 @@ pub(super) fn normalize_display_name(raw: &str) -> Result<String, String> {
 }
 
 /// 保留 Unicode 名称，去除跨平台路径非法字符。# 在 Bevy 中用于子资产标签。
-pub(super) fn scene_directory_name(display_name: &str) -> Result<String, String> {
+pub(crate) fn scene_directory_name(display_name: &str) -> Result<String, String> {
     let cleaned: String = display_name.chars().filter(|&c| {
         !c.is_control() && !matches!(c, '/' | '\\' | '<' | '>' | ':' | '"' | '|' | '?' | '*' | '#')
     }).collect();

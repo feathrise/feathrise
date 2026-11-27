@@ -341,6 +341,25 @@ fn create_files_write_empty_utf8_and_a_parser_validated_glb_scene() {
 }
 
 #[test]
+fn create_ui_layout_writes_editable_native_rust_without_overwriting_existing_code() {
+    let fixture = Fixture::new();
+    let request = |name: &str| fixture.request(FileOperation::CreateFile {
+        parent: fixture.path("source"), name: name.into(), kind: NewFileKind::UiLayout,
+    });
+    let (receipt, result) = execute(request("新建界面.rs"), false);
+    result.unwrap();
+    let bytes = fs::read(fixture.path("source/新建界面.rs")).unwrap();
+    let source = std::str::from_utf8(&bytes).unwrap();
+    assert!(feathrise_ui_bsn::is_rust_ui_document(source));
+    assert_eq!(feathrise_ui_bsn::UiLayout::parse_document(source).unwrap(), feathrise_ui_bsn::UiLayout::default());
+    assert_eq!(receipt.completed.len(), 1);
+    assert!(execute(request("新建界面.rs"), false).1.is_err());
+    assert_eq!(fs::read(fixture.path("source/新建界面.rs")).unwrap(), bytes);
+    assert!(execute(request("新建界面.bsn"), false).1.is_err());
+    assert!(!fixture.path("source/新建界面.bsn").exists());
+}
+
+#[test]
 fn new_scene_glb_uses_private_models_directory_without_replacing_an_asset() {
     let fixture = Fixture::new();
     let request = || fixture.request(FileOperation::CreateSceneGlb {

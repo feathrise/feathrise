@@ -2,6 +2,7 @@
 
 use crate::types::EditorAction;
 use crate::ui::asset_preview::weights::WeightCommandStatus;
+use crate::ui::asset_preview::documents::UiDocumentCommandStatus;
 use feathrise_editor_core::EditorShortcutAction;
 
 #[derive(Default)]
@@ -10,6 +11,7 @@ pub(in crate::ui) struct EditorActionAvailability {
     pub(in crate::ui) mesh_editing: bool,
     pub(in crate::ui) other_workspace: bool,
     pub(super) weights: Option<WeightCommandStatus>,
+    pub(super) document: Option<UiDocumentCommandStatus>,
     pub(in crate::ui) current_scene: bool,
     pub(super) scene_dirty: bool,
     pub(in crate::ui) viewport_ready: bool,
@@ -22,6 +24,7 @@ pub(in crate::ui) struct EditorActionAvailability {
 
 impl EditorActionAvailability {
     pub(in crate::ui) fn needs_save(&self) -> bool {
+        if let Some(document) = self.document { return document.dirty; }
         self.weights.map_or(
             self.current_scene && !self.other_workspace && self.scene_dirty,
             WeightCommandStatus::dirty,
@@ -30,6 +33,11 @@ impl EditorActionAvailability {
 
     pub(in crate::ui) fn uses_weight_context(&self, action: EditorAction) -> bool {
         self.weights.is_some()
+            && matches!(action, EditorAction::Save | EditorAction::Undo | EditorAction::Redo)
+    }
+
+    pub(in crate::ui) fn uses_document_context(&self, action: EditorAction) -> bool {
+        self.document.is_some()
             && matches!(action, EditorAction::Save | EditorAction::Undo | EditorAction::Redo)
     }
 
@@ -71,6 +79,11 @@ impl EditorActionAvailability {
         if self.mesh_editing && !matches!(action, EditorAction::Save | EditorAction::Undo | EditorAction::Redo
             | EditorAction::ViewPerspective | EditorAction::ViewTop | EditorAction::ViewFront | EditorAction::ViewSide | EditorAction::ToggleOrthographic) {
             return Some("请先按 Tab 返回对象模式");
+        }
+        if let Some(document) = self.document
+            && self.uses_document_context(action)
+        {
+            return document.reason(action); // 画布、源码与交互预览使用同一文档保存点和历史。
         }
         if let Some(weights) = self.weights
             && self.uses_weight_context(action)

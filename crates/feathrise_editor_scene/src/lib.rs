@@ -543,6 +543,7 @@ impl Plugin for SceneEditorPlugin {
                             start_sparse_terrain_save, // 新图先原子提交脏块与清单，再继续其余作者文件。
                             start_draft_save,
                             poll_draft_save,
+                            ui::new_scene_dialog::copy::resume_after_save,
                             ui::scene_switch_dialog::resume_scene_switch_after_save, // 只有完整保存成功回执才继续原来冻结的场景目标。
                         )
                             .chain(),

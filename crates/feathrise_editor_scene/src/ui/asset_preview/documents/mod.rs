@@ -5,6 +5,7 @@ use crate::SceneEditorSystemSet;
 use bevy::prelude::*;
 
 mod components;
+mod commands; // 公共工具栏绑定文件身份，继续复用原保存和历史入口。
 pub(crate) mod cinematic;
 mod rules;
 mod batch_save; // 本批/全部草稿共享唯一IO槽，逐文件校验并保留失败项。
@@ -36,11 +37,13 @@ mod syntax; // 后台分词与原生可见字形着色，共用于连续预览�
 #[cfg(test)]
 mod tests;
 mod types;
+pub(crate) mod ui_layout;
 mod workspace; // 在中央与侧栏之间原位挂载同一棵文档UI。
 #[cfg(any(test, feature = "validation"))]
 pub(crate) mod validation; // 仅显式有限验收访问固定文本会话，不另建保存管线。
 
 pub(crate) use resources::{DocumentState, DocumentMinimapState};
+pub(crate) use types::UiDocumentCommandStatus;
 pub(crate) use project_files::OpenProjectDocument;
 pub(crate) use rules::RulesEditorDialogOverlay;
 #[cfg(test)]
@@ -77,6 +80,13 @@ pub(super) fn install(app: &mut App) {
     app.init_resource::<DocumentState>()
         .init_resource::<resources::DocumentInputs>()
         .init_resource::<resources::PreviewRenderState>()
+        .add_systems(
+            Update,
+            commands::bind
+                .before(interaction::actions)
+                .before(crate::ui::actions::handle_editor_action_buttons)
+                .in_set(SceneEditorSystemSet::Input),
+        )
         .add_systems(
             Update,
             session::capture_edits

@@ -6,6 +6,7 @@ use crate::components::{SceneEditorActionButton, SceneEditorEmptyWorkspace};
 use crate::resources::{SceneEditorState, SceneEditorWorldSession};
 use crate::types::EditorAction;
 use crate::ui::asset_preview::weights::WeightCommands;
+use crate::ui::asset_preview::documents::DocumentState;
 use crate::ui::vegetation_preset_editor::{
     PresetEditorAction, PresetEditorButton, PresetWorkspaceTab, VegetationPresetEditorState,
 };
@@ -15,7 +16,8 @@ pub(crate) fn sync_editor_world_controls(
     editor: Res<SceneEditorState>,
     workspace: Res<VegetationPresetEditorState>,
     weights: WeightCommands,
-    mut previous_ready: Local<Option<(bool, bool, PresetWorkspaceTab, bool)>>,
+    documents: Option<Res<DocumentState>>,
+    mut previous_ready: Local<Option<(bool, bool, PresetWorkspaceTab, bool, bool)>>,
     mut actions: Query<
         (&SceneEditorActionButton, &mut Node),
         Without<SceneEditorEmptyWorkspace>,
@@ -48,17 +50,20 @@ pub(crate) fn sync_editor_world_controls(
         };
     }
     let weight_commands = weights.status().is_some();
+    let document_commands = workspace.active_tab == PresetWorkspaceTab::Document
+        && documents.as_ref().is_some_and(|documents| documents.ui_layout_in_center());
     let signature = (
         ready,
         editor.scene_transition_in_progress,
         workspace.active_tab,
         weight_commands,
+        document_commands,
     );
     if *previous_ready == Some(signature) {
         return; // 中央上下文稳定时不扫描顶栏按钮。
     }
     *previous_ready = Some(signature);
-    let display = if weight_commands || (ready && workspace.active_tab == PresetWorkspaceTab::Scene) {
+    let display = if document_commands || weight_commands || (ready && workspace.active_tab == PresetWorkspaceTab::Scene) {
         Display::Flex
     } else {
         Display::None

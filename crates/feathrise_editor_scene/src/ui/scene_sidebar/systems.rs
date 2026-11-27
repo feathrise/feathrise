@@ -34,6 +34,12 @@ fn operation_phase(source: &SidebarSources) -> OperationPhase {
     if source.persistence.task.is_some() || source.persistence.batch.is_some() {
         return OperationPhase::SavingFolders;
     }
+    if source.creation.copy_control.is_some() {
+        return OperationPhase::Copying;
+    }
+    if source.creation.copy_after_save.is_some() {
+        return OperationPhase::CopyAfterSave;
+    }
     if source.creation.task.is_some() {
         return OperationPhase::Creating;
     }
@@ -106,6 +112,8 @@ fn operation_message<'a>(source: &'a SidebarSources, phase: OperationPhase) -> &
         OperationPhase::EditingScene => "正在保存场景资料 · 保留原场景与作者草稿",
         OperationPhase::Creating => "正在创建场景 · 等待原事务完成",
         OperationPhase::CreateAfterSave => "保存当前场景后再创建 · 保留已冻结的创建请求",
+        OperationPhase::Copying => "正在复制场景",
+        OperationPhase::CopyAfterSave => "正在保存源场景，成功后继续复制",
         OperationPhase::Deleting => "正在回收场景 · 等待原事务完成",
         OperationPhase::DeleteWaiting => "正在等待安全场景 · 尚未执行回收",
         OperationPhase::DeleteConfirmation => "请在确认框核对待回收场景 · 尚未删除",
@@ -207,7 +215,7 @@ pub(super) fn sync_sidebar(
         let shown = if binding.menu_owned {
             source.menu.as_ref().is_some_and(|menu| menu.action_visible(button.0))
         } else { match button.0 {
-            EditorAction::EnterSelectedScene => has_scene,
+            EditorAction::EnterSelectedScene | EditorAction::CopySelectedScene => has_scene,
             EditorAction::SceneFolderRename | EditorAction::DeleteScene => has_scene || has_folder,
             _ => true,
         } };
@@ -218,6 +226,7 @@ pub(super) fn sync_sidebar(
                 && matches!(
                     button.0,
                     EditorAction::EnterSelectedScene
+                        | EditorAction::CopySelectedScene
                         | EditorAction::SceneFolderRename
                         | EditorAction::DeleteScene
                 ))
@@ -276,6 +285,7 @@ pub(super) fn sync_sidebar(
             EditorAction::SceneFolderRename if has_folder => "重命名",
             EditorAction::SceneFolderRename if source.menu.is_some() => "编辑",
             EditorAction::SceneFolderRename => "资料",
+            EditorAction::CopySelectedScene => "复制为新场景…",
             EditorAction::DeleteScene if has_folder && source.menu.is_some() => "删除空文件夹",
             EditorAction::DeleteScene => "删除",
             EditorAction::NewScene => "新场景",

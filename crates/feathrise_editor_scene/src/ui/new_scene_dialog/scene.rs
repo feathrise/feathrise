@@ -65,8 +65,10 @@ pub(super) fn panel() -> impl Scene {
                         TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                         TextColor(colors::TEXT_PRIMARY)
                     --
-                    @caption("备注 · 可选")--
-
+                    SceneNotesFields
+                    Node { width: percent(100), flex_shrink: 0.0, flex_direction: FlexDirection::Column, row_gap: px(6) }
+                    Children [
+                        @caption("备注 · 可选")--
                         ScrollPosition::default()
                         Node {
                             width: percent(100), height: px(64), flex_shrink: 0.0,
@@ -86,6 +88,7 @@ pub(super) fn panel() -> impl Scene {
                             TextFont { font: FontSourceTemplate::Handle(feathrise_editor_core::editor_font_template(FONT_PATH)), font_size: px(ui_metrics::FONT_CONTROL) }
                             TextColor(colors::TEXT_PRIMARY)
                         ]
+                    ]
                     --
 
                         NewSceneDialogHint
@@ -122,6 +125,8 @@ pub(super) fn panel() -> impl Scene {
                 Node { width: percent(100), flex_shrink: 0.0, justify_content: JustifyContent::FlexEnd, flex_wrap: FlexWrap::Wrap, column_gap: px(6), row_gap: px(4) }
                 Children [
                     @crate::ui::scene::editor_button("取消", EditorAction::CancelNewScene, 78.0)--
+                    CopySavedVersionAction Node { display: Display::None }
+                    Children [@crate::ui::scene::editor_button("复制已保存版本", EditorAction::CopySavedScene, 124.0)]--
                     @confirm_button()
                 ]
 
@@ -132,6 +137,7 @@ pub(super) fn panel() -> impl Scene {
 fn confirm_button() -> impl Scene {
     bsn! {
         InteractionButton
+        SceneDialogPrimaryAction
         SceneEditorActionButton(EditorAction::ConfirmNewScene)
         Node {
             width: px(110), height: px(26), flex_shrink: 0.0,

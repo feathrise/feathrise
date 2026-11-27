@@ -45,8 +45,7 @@ fn mutation_is_busy(
     folder_persistence: &SceneFolderPersistence, // 归类保存与删除归属改写使用同一文件。
 ) -> bool {
     editor.save_requested // 等待植被编译的保存请求尚未出现Task，仍不能与删除交叉。
-        || creation.task.is_some() // 已经进入IO线程的新建事务。
-        || creation.pending_after_save.is_some() // 保存后创建仍持有目录写入意图。
+        || creation.busy() // 创建或复制在等待保存期间也持有目录发布意图。
         || save.task.is_some() // 当前草稿保存尚未完整采用。
         || folder_persistence.busy() // 删除必须从最新已落盘归类基线准备联合事务。
 }

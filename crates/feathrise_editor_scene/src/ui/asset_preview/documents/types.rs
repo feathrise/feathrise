@@ -3,6 +3,29 @@
 use crate::asset_catalog::DocumentFormat;
 use std::{path::PathBuf, sync::Arc};
 
+/// 公共保存与历史按钮读取原文档状态，不建立第二份草稿或命令队列。
+#[derive(Clone, Copy)]
+pub(crate) struct UiDocumentCommandStatus {
+    pub dirty: bool,
+    pub undo: bool,
+    pub redo: bool,
+    pub saving: bool,
+    pub blocked: Option<&'static str>,
+}
+
+impl UiDocumentCommandStatus {
+    pub(crate) fn reason(self, action: crate::types::EditorAction) -> Option<&'static str> {
+        use crate::types::EditorAction;
+        self.blocked.or(match action {
+            EditorAction::Save if self.saving => Some("文件任务进行中，请完成后再保存"),
+            EditorAction::Save if !self.dirty => Some("文档没有未保存改动"),
+            EditorAction::Undo if !self.undo => Some("文档没有可撤销操作"),
+            EditorAction::Redo if !self.redo => Some("文档没有可重做操作"),
+            _ => None,
+        })
+    }
+}
+
 /// 每个路径拥有独立标签；数字只用于本进程激活/关闭，不作为磁盘身份。
 pub(super) struct ExpandedDocument {
     pub id: u64,

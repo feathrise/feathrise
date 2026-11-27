@@ -145,7 +145,8 @@ pub(crate) fn panel() -> impl Scene {
                     min_height: px(0), min_width: px(0), column_gap: px(6) }
                 Children [@super::navigation::gutter()--
                 DocumentSource::default() feathrise_editor_core::EditorTextInput
-                ~{bevy::input_focus::tab_navigation::TabIndex(0)} // 鼠标重新进入正文时取得原生焦点。
+                // 从画布进入源码或重新点击正文时，官方指针焦点依赖同一个 TabIndex。
+                ~{bevy::input_focus::tab_navigation::TabIndex(0)}
                 feathrise_editor_ui::EditorCodeSurface // 长源码沿用背景层级，搜索等短输入使用输入框层级。
                 feathrise_editor_core::PresetNotesScroll // 复用官方文字局部滚动与输入法门。
                 RelativeCursorPosition::default()

@@ -1,7 +1,7 @@
 //! 编辑器会话、视口、资产目录和后台作者任务资源。
 
 use std::collections::{BTreeMap, BTreeSet}; // 场景视角和目录展开均按稳定ID保存，只属于当前编辑器会话。
-use std::sync::Arc; // 完整树在后台可见投影任务之间O(1)共享，避免主线程深复制。
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}; // 作者复制任务只共享小型取消位与阶段，不深复制场景。
 
 use bevy::prelude::*; // Handle、Image、Resource、Task和数学类型。
 use bevy::tasks::Task; // 创建场景与资产扫描均使用有界后台任务。
@@ -41,7 +41,7 @@ use crate::types::{
     CreatedScene, DeletedScene, EditorLayoutAction, EditorPaneDrag, EditorTool, EditorView,
     EnvironmentEditAction, SceneBrowserDragPress, SceneBrowserDropTarget, SceneBrowserEntry,
     SceneBrowserIndexBuild, SceneBrowserIndexSignature, SceneBrowserItem, SceneCreationRequest,
-    SceneDeletionPlan, SceneDeletionRequest, SceneEditTarget, SceneEditorViewSnapshot, SceneFolderAsset,
+    SceneCopyTarget, SceneDeletionPlan, SceneDeletionRequest, SceneEditTarget, SceneEditorViewSnapshot, SceneFolderAsset,
     SceneFolderDialogState, SceneFolderDocument, SceneFolderFileSnapshot, SceneFolderWriteFailure,
     SceneSwitchConfirmation, NewSceneInputField, VegetationPreviewMode,
     WaterLevelInputTarget, WaterLevelSetRequest, WaterNetworkAction,
@@ -187,7 +187,12 @@ impl SceneEditorWorldSession<'_> {
 }
 
 /// 新场景创建事务的带票据结果。
-type SceneCreationTaskResult = (u64, Result<CreatedScene, String>);
+type SceneCreationTaskResult = (u64, Result<SceneCreationResult, String>);
+
+pub(crate) enum SceneCreationResult {
+    Created(CreatedScene),
+    Copied(crate::authoring::scene_copy::CopiedScene),
+}
 
 /// 场景删除事务的带票据结果。
 type SceneDeletionTaskResult = (u64, Result<DeletedScene, String>);
@@ -457,6 +462,8 @@ pub struct SceneEditorState {
     pub suppress_world_pick_this_frame: bool,
     /// 有目标时复用新建弹框，只允许修改名称和备注；None时仍为新建流程。
     pub(crate) new_scene_edit_target: Option<SceneEditTarget>,
+    /// 复制沿用同一模态焦点，但使用独立的源场景身份和保存选项。
+    pub(crate) new_scene_copy_target: Option<SceneCopyTarget>,
     /// 当前输入的场景显示名称。
     pub(crate) new_scene_name: String,
     /// 可选场景备注；新建请求与编辑事务在确认帧各自冻结此值。
@@ -596,6 +603,7 @@ impl Default for SceneEditorState {
             new_scene_dialog_open: false,
             suppress_world_pick_this_frame: false,
             new_scene_edit_target: None, // 初次弹框总是新建模式。
+            new_scene_copy_target: None,
             new_scene_name: String::new(),
             new_scene_notes: String::new(), // 旧场景不带备注仍可直接编辑。
             new_scene_input_field: NewSceneInputField::Name,
@@ -790,6 +798,7 @@ impl SceneEditorState {
     pub(crate) fn cancel_pending_scene_transition(&mut self) {
         self.new_scene_dialog_open = false; // 不让新建弹框残留到下次打开编辑器。
         self.new_scene_edit_target = None; // 关闭F12不保留旧场景的编辑目标。
+        self.new_scene_copy_target = None;
         self.pending_scene_transition = None; // 迟到目录热加载结果不得在关闭后突然切换场景。
         self.pending_reference_coordinates = None;
         self.scene_switch_confirmation = None; // 放弃授权不能跨编辑器关闭或下次打开复用。
@@ -867,12 +876,58 @@ pub(crate) struct SceneCreationTask {
     pub(crate) pending_after_save: Option<SceneCreationRequest>,
     /// 只用于失败回执与阶段文字，不能由后台期间继续输入的名称替换。
     pub(crate) feedback_target: Option<crate::types::EditorStatusTarget>,
+    pub(crate) copy_after_save: Option<SceneCopyAfterSave>,
+    pub(crate) copy_control: Option<SceneCopyControl>,
 }
 
 impl SceneCreationTask {
+    pub(crate) fn busy(&self) -> bool {
+        self.task.is_some() || self.pending_after_save.is_some() || self.copy_after_save.is_some()
+    }
+
     /// 取消尚未启动的“保存后创建”；已经进入IO线程的创建事务仍按原有原子发布规则完成。
     pub(crate) fn cancel_pending_after_save(&mut self) -> bool {
         self.pending_after_save.take().is_some()
+    }
+}
+
+pub(crate) struct SceneCopyAfterSave {
+    pub(crate) source: SceneId,
+    pub(crate) name: String,
+    pub(crate) stage: SceneCopySaveStage,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum SceneCopySaveStage {
+    Activating,
+    Saving { revision: u64, success_before: u64 },
+}
+
+/// 主线程只轮询阶段和设置取消位；工作线程的锁内严格不执行磁盘操作。
+#[derive(Clone)]
+pub(crate) struct SceneCopyControl {
+    pub(crate) cancelled: Arc<AtomicBool>,
+    pub(crate) progress: Arc<Mutex<&'static str>>,
+}
+
+impl SceneCopyControl {
+    pub(crate) fn new() -> Self {
+        Self {
+            cancelled: Arc::default(),
+            progress: Arc::new(Mutex::new("正在准备场景复制")),
+        }
+    }
+
+    pub(crate) fn progress(&self) -> Option<&'static str> {
+        self.progress.try_lock().ok().map(|stage| *stage)
+    }
+
+    pub(crate) fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn is_cancel_requested(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
     }
 }
 

@@ -14,7 +14,7 @@ use crate::constants::SCENE_FOLDER_ASSET_PATH; // 创建归入虚拟文件夹后
 use crate::scene_browser::prepare_scene_assignment_mutation; // 新场景归属与catalog入口组成联合发布事务。
 use crate::scene_browser::{expand_folder_ancestors, selected_container_folder_id}; // 树选择决定创建归属并在成功后展开完整父链。
 use crate::resources::{
-    EditorAssetCatalog, SceneBrowserState, SceneCreationTask, SceneEditorState, SceneFolderPersistence,
+    EditorAssetCatalog, SceneBrowserState, SceneCreationResult, SceneCreationTask, SceneEditorState, SceneFolderPersistence,
 };
 use crate::types::{CreatedScene, SceneBrowserItem, SceneCreationRequest, NewSceneTerrainMode};
 use crate::types::{EditorStatusKind, EditorStatusOperation, EditorStatusTarget};
@@ -81,7 +81,7 @@ fn default_new_scene_vegetation(
 }
 
 /// 目录名与引用身份分离，同时避开既有目录登记和 SDK 按 ID 保留的地形路径。
-fn next_scene_id(scenes_root: &Path, entries: &[SceneCatalogEntry], unix_millis: u128) -> Result<SceneId, String> {
+pub(super) fn next_scene_id(scenes_root: &Path, entries: &[SceneCatalogEntry], unix_millis: u128) -> Result<SceneId, String> {
     let base = format!("{GENERATED_SCENE_ID_PREFIX}{unix_millis}");
     for suffix in 0..10_000u32 {
         let value = if suffix == 0 {
@@ -97,6 +97,20 @@ fn next_scene_id(scenes_root: &Path, entries: &[SceneCatalogEntry], unix_millis:
         }
     }
     Err("同一时间生成的场景ID已超过上限".to_owned())
+}
+
+/// 新建和复制共用显示名、作者目录和 SDK 保留目录的冲突规则。
+pub(super) fn ensure_unique_scene_name(entries: &[SceneCatalogEntry], display_name: &str, directory_name: &str) -> Result<(), String> {
+    let folder_key = format!("scenes/{directory_name}").to_lowercase();
+    let name_key = display_name.to_lowercase();
+    if entries.iter().any(|entry| {
+        entry.display_name.trim().to_lowercase() == name_key
+            || entry.folder.trim_end_matches('/').to_lowercase() == folder_key
+            || entry.id.as_str().eq_ignore_ascii_case(directory_name)
+    }) {
+        return Err(format!("场景目录已登记同名场景或目录“{directory_name}”"));
+    }
+    Ok(())
 }
 
 /// 由冻结路线构造唯一地形作者源描述；同一清单不能同时登记两种可写源。
@@ -186,16 +200,7 @@ fn create_scene(
         .as_millis();
     let scene_id = next_scene_id(&scenes_root, &catalog.scenes, unix_millis)?;
     let folder_relative = format!("scenes/{directory_name}");
-    let folder_key = folder_relative.to_lowercase();
-    let name_key = display_name.to_lowercase();
-    if catalog.scenes.iter().any(|entry| {
-        entry.display_name.trim().to_lowercase() == name_key
-            || entry.folder.trim_end_matches('/').to_lowercase() == folder_key
-            || entry.id.as_str().eq_ignore_ascii_case(&directory_name)
-    })
-    {
-        return Err(format!("场景目录已登记同名场景或目录“{directory_name}”"));
-    }
+    ensure_unique_scene_name(&catalog.scenes, &display_name, &directory_name)?;
 
     let folder = asset_root.join(&folder_relative);
     // 独占创建成功后才写入；预先存在的普通目录、文件或链接均不能被接管。
@@ -406,7 +411,7 @@ fn start_scene_creation(
         };
         (
             ticket,
-            prepared.and_then(|terrain| create_scene(&asset_root, request, terrain)),
+            prepared.and_then(|terrain| create_scene(&asset_root, request, terrain)).map(SceneCreationResult::Created),
         )
     })); // 同一任务槽和票据覆盖可选计算、IO及发布阶段，主线程始终只非阻塞轮询。
     let grid_label = match terrain_mode {
@@ -440,7 +445,7 @@ pub(crate) fn request_scene_creation(
     persistence: &SceneFolderPersistence,
     preserve_document: bool,
 ) {
-    if task.task.is_some() || task.pending_after_save.is_some() {
+    if task.busy() {
         editor.status = "已有场景创建请求正在执行".to_owned();
         record_creation_warning(editor);
         return;
@@ -484,6 +489,32 @@ pub(crate) fn request_scene_creation(
     start_scene_creation(editor, task, request);
 }
 
+/// 创建和复制共用场景目录采用；后台确认的归属与选中身份始终属于同一个场景。
+fn adopt_created_scene_directory(
+    editor: &mut SceneEditorState,
+    browser: &mut SceneBrowserState,
+    asset_server: &AssetServer,
+    id: &SceneId,
+    folder: Option<&crate::types::SceneFolderFileSnapshot>,
+) {
+    asset_server.reload(SCENE_CATALOG_ASSET_PATH);
+    if let Some(snapshot) = folder {
+        browser.document = snapshot.document.clone();
+        browser.source_bytes = Some(snapshot.source_bytes.clone());
+        browser.initial_load_resolved = true;
+        browser.document_revision = browser.document_revision.wrapping_add(1);
+        browser.write_blocked = None;
+        browser.last_error = None;
+        asset_server.reload(SCENE_FOLDER_ASSET_PATH); // 同进程连续发布不依赖文件监听合并时序。
+    }
+    let folder = browser.document.scene_folders.get(id.as_str()).map(String::as_str);
+    if expand_folder_ancestors(&browser.document, folder, &mut browser.expanded_folder_ids) {
+        browser.expansion_revision = browser.expansion_revision.wrapping_add(1);
+    }
+    browser.select_only(Some(SceneBrowserItem::Scene(id.clone())));
+    editor.scene_list_selection_id = Some(id.clone());
+}
+
 /// 非阻塞采用新场景结果；显式刷新目录，避免连续原子替换被文件监听合并。
 pub(crate) fn poll_scene_creation(
     mut task: ResMut<SceneCreationTask>,
@@ -498,6 +529,13 @@ pub(crate) fn poll_scene_creation(
     {
         start_scene_creation(&mut editor, &mut task, request); // 保存成功后的下一帧继续原确认请求。
     }
+    if let Some(control) = task.copy_control.as_ref()
+        && !control.is_cancel_requested()
+        && let Some(stage) = control.progress()
+        && editor.status != stage
+    {
+        stage.clone_into(&mut editor.status);
+    }
     let Some(in_flight) = task.task.as_mut() else {
         return;
     };
@@ -508,36 +546,11 @@ pub(crate) fn poll_scene_creation(
     if ticket != task.ticket {
         return;
     }
+    let copy = task.copy_control.take();
     match result {
-        Ok(created) => {
-            asset_server.reload(SCENE_CATALOG_ASSET_PATH); // 同进程连续创建不只依赖文件监听时序。
-            if let Some(snapshot) = created.folder_snapshot.as_ref() {
-                browser.document = snapshot.document.clone(); // 联合事务成功值直接成为内存权威。
-                browser.source_bytes = Some(snapshot.source_bytes.clone()); // 更新下一次精确并发基线。
-                browser.initial_load_resolved = true; // 联合事务成功值已经是明确有效归类资产。
-                browser.document_revision = browser.document_revision.wrapping_add(1); // 重建完整虚拟树索引。
-                browser.write_blocked = None; // 成功事务保持结构写入开放。
-                browser.last_error = None; // 清除旧瞬时诊断。
-                asset_server.reload(SCENE_FOLDER_ASSET_PATH); // 不依赖文件监听合并时序。
-            }
-            let created_folder_id = browser
-                .document
-                .scene_folders
-                .get(created.scene_id.as_str())
-                .cloned(); // 映射缺失即根目录；联合事务成功后可直接从采用文档判断可见性。
-            let expanded_changed = {
-                let browser = &mut *browser; // 把ResMut显式还原为普通结构体借用，允许同时访问互斥字段。
-                expand_folder_ancestors(
-                    &browser.document,
-                    created_folder_id.as_deref(),
-                    &mut browser.expanded_folder_ids,
-                )
-            };
-            if expanded_changed {
-                browser.expansion_revision = browser.expansion_revision.wrapping_add(1); // 新场景所在父链完整展开后再公开高亮。
-            }
-            browser.select_only(Some(SceneBrowserItem::Scene(created.scene_id.clone()))); // 创建结果成为独立焦点，不混入旧整理选集。
-            editor.scene_list_selection_id = Some(created.scene_id.clone()); // 进入与删除按钮目标继续使用同一新场景身份。
+        Ok(SceneCreationResult::Created(created)) => {
+            adopt_created_scene_directory(&mut editor, &mut browser, &asset_server,
+                &created.scene_id, created.folder_snapshot.as_ref());
             let grid_label = match created.terrain_mode {
                 NewSceneTerrainMode::Empty => "无地形格点",
                 NewSceneTerrainMode::SparseClipmap => "稀疏作者格点",
@@ -568,14 +581,38 @@ pub(crate) fn poll_scene_creation(
             }
             info!("{}", editor.status);
         }
-        Err(error) => {
-            editor.status = format!("新建场景失败：{error}");
+        Ok(SceneCreationResult::Copied(copied)) => {
+            adopt_created_scene_directory(&mut editor, &mut browser, &asset_server,
+                &copied.scene_id, copied.folder_snapshot.as_ref());
+            // 复制只登记并选中副本，当前作者文档、视口和草稿继续由原会话持有。
+            editor.new_scene_dialog_open = false;
+            editor.new_scene_copy_target = None;
+            editor.new_scene_name.clear();
+            assets.requested_revision = assets.requested_revision.wrapping_add(1);
+            editor.status = format!("场景“{}”已复制，可在场景列表打开副本", copied.display_name);
             if let Some(target) = task.feedback_target.take() {
-                editor.record_operation_result(
-                    EditorStatusOperation::SceneCreate,
-                    &target,
-                    EditorStatusKind::Error,
-                );
+                editor.record_operation_result(EditorStatusOperation::SceneCopy, &target, EditorStatusKind::Success);
+            }
+        }
+        Err(error) => {
+            let (operation, kind) = if let Some(control) = copy {
+                if control.is_cancel_requested() {
+                    editor.new_scene_dialog_open = false;
+                    editor.new_scene_copy_target = None;
+                    editor.new_scene_name.clear();
+                }
+                editor.status = format!("复制场景未完成：{error}");
+                (EditorStatusOperation::SceneCopy, if control.is_cancel_requested() {
+                    EditorStatusKind::Warning
+                } else {
+                    EditorStatusKind::Error
+                })
+            } else {
+                editor.status = format!("新建场景失败：{error}");
+                (EditorStatusOperation::SceneCreate, EditorStatusKind::Error)
+            };
+            if let Some(target) = task.feedback_target.take() {
+                editor.record_operation_result(operation, &target, kind);
             }
             error!("{}", editor.status);
         }

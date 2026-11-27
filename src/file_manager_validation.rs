@@ -21,6 +21,7 @@ const NESTED_BYTES: &[u8] = b"feathrise-file-manager-nested-v1\n";
 const CANCEL_ITEMS: usize = 4097;
 mod project_rules;
 mod cinematic;
+mod ui_bsn;
 
 pub(crate) fn run(target: PathBuf, report: PathBuf) -> Result<(), String> {
     run_report(target, report, PURPOSE, exercise)
@@ -32,6 +33,10 @@ pub(crate) fn run_rules(target: PathBuf, report: PathBuf) -> Result<(), String> 
 
 pub(crate) fn run_cinematic(target: PathBuf, report: PathBuf) -> Result<(), String> {
     run_report(target, report, "owned-cinematic-author-validation", cinematic::exercise)
+}
+
+pub(crate) fn run_ui_bsn(target: PathBuf, report: PathBuf) -> Result<(), String> {
+    run_report(target, report, "owned-ui-bsn-validation", ui_bsn::exercise)
 }
 
 fn run_report(target: PathBuf, report: PathBuf, purpose: &str, exercise: fn(&Path, &Path, &mut Value) -> Result<(), String>) -> Result<(), String> {
@@ -308,6 +313,15 @@ pub(crate) fn preflight(project: &Project) -> Result<Option<PathBuf>, String> {
             && fs::read(work.join(".project-rules-fixture")).ok().as_deref() == Some(b"project-rules-v1")
             && !work.join(format!("rules-{}.json", phase.to_string_lossy())).exists() { return Ok(Some(work)); }
         return Err("工程规则验收阶段、归属或输出路径不匹配".into());
+    }
+    if let Some(phase) = std::env::var_os(ui_bsn::PHASE_ENV) {
+        if matches!(phase.to_str(), Some("edit" | "reopen"))
+            && fs::read(work.join(".ui-bsn-fixture")).ok().as_deref() == Some(b"feathrise-ui-bsn-v1")
+            && !work.join(format!("ui-bsn-{}.json", phase.to_string_lossy())).exists()
+        {
+            return Ok(Some(work));
+        }
+        return Err("界面布局验收阶段、归属或输出路径不匹配".into());
     }
     if let Some(phase) = std::env::var_os("FEATHRISE_CINEMATIC_AUTHOR_VALIDATION") {
         if matches!(phase.to_str(), Some("edit" | "reopen"))

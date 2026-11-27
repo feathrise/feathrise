@@ -1,6 +1,6 @@
 //! 在原生队列采用前记录事务边界，采用后只处理当前文件的显式撤销/重做。
 
-use super::super::{components::DocumentSource, resources::DocumentState};
+use super::super::{components::{DocumentSource, SharedDocumentTarget}, resources::DocumentState, types::ViewMode};
 use super::{components::HistoryAction, resources::HistoryCapture, types::*};
 use crate::resources::{
     EditorTextInputGuard, SceneEditorNumericScrubMouseGuard, SceneEditorSettingsState, SceneEditorState,
@@ -87,39 +87,66 @@ pub(super) fn input(
     mut focus: ResMut<InputFocus>,
     mut documents: ResMut<DocumentState>,
     mut sources: Query<(Entity, &DocumentSource, &mut EditableText)>,
+    fields: Query<&EditableText, (With<super::super::ui_layout::Field>, Without<DocumentSource>)>,
     buttons: Query<(&HistoryAction, &feathrise_editor_ui::EditorButtonClick), Changed<feathrise_editor_ui::EditorButtonClick>>,
+    shared_buttons: Query<(&crate::components::SceneEditorActionButton, &feathrise_editor_ui::EditorButtonClick,
+        &SharedDocumentTarget, Has<bevy::ui::InteractionDisabled>), Changed<feathrise_editor_ui::EditorButtonClick>>,
+    inputs: Query<(), Or<(With<EditableText>, With<crate::components::EditorTextInput>)>>,
+    ui_layouts: Option<Res<super::super::ui_layout::UiLayouts>>,
+    workspace: Option<Res<crate::ui::vegetation_preset_editor::VegetationPresetEditorState>>,
     mut font: ResMut<FontCx>,
     mut layout: ResMut<LayoutCx>,
 ) {
     if !editor.open
         || editor.close_requested
         || editor.new_scene_dialog_open
-        || settings.is_some_and(|settings| settings.open)
+        || editor.scene_transition_in_progress
+        || editor.pending_scene_transition.is_some()
+        || editor.scene_switch_confirmation.is_some()
+        || settings.is_some_and(|settings| settings.open || settings.owns_mouse_this_frame)
         || guard.block_shortcuts
         || mouse.blocked()
         || !documents.visible
     {
         return;
     }
-    let Ok((entity, binding, mut text)) = sources.single_mut() else {
+    let Some(doc) = documents.current() else {
         return;
     };
-    let Some(doc) = documents.current().filter(|doc| {
-        documents.editing() && binding.key.as_ref() == Some(&doc.source_key())
-    }) else {
-        return;
-    };
-    if text.is_composing() || text.pending_paste.is_some() || !text.pending_edits.is_empty() {
+    let ui_document = documents.ui_layout_in_center()
+        && workspace.as_ref().is_none_or(|workspace| {
+            workspace.active_tab == crate::ui::vegetation_preset_editor::PresetWorkspaceTab::Document
+        });
+    let source_entity = sources.iter().find_map(|(entity, binding, _)| {
+        (documents.editing() && binding.key.as_ref() == Some(&doc.source_key())).then_some(entity)
+    });
+    let canvas = ui_document && doc.mode == ViewMode::Preview;
+    if source_entity.is_none() && !canvas { return; }
+    if sources.iter().any(|(_, _, text)| super::super::ui_layout::input_pending(text))
+        || fields.iter().any(super::super::ui_layout::input_pending)
+    {
         return;
     }
     let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     let mut action = buttons
         .iter()
-        .find(|(_, interaction)| interaction.is_clicked())
+        .find(|(_, interaction)| source_entity.is_some() && interaction.is_clicked())
         .map(|(action, _)| *action);
-    // 查找框、预设字段和场景历史不接收源码撤销；只在正文拥有焦点时消费快捷键。
-    if focus.get() == Some(entity) && ctrl {
+    if ui_document {
+        action = shared_buttons.iter().find_map(|(button, click, target, disabled)| {
+            if disabled || !click.is_clicked() || !target.matches(&documents) { return None; }
+            match button.0 {
+                crate::types::EditorAction::Undo => Some(HistoryAction::Undo),
+                crate::types::EditorAction::Redo => Some(HistoryAction::Redo),
+                _ => None,
+            }
+        }).or(action);
+    }
+    // 画布沿用原文件历史；属性、查找及其他文本框仍独占自己的撤销快捷键。
+    let owns_shortcuts = source_entity.is_some_and(|entity| focus.get() == Some(entity))
+        || (canvas && focus.get().is_none_or(|entity| !inputs.contains(entity)));
+    if owns_shortcuts && ctrl {
         if keys.just_pressed(KeyCode::KeyZ) {
             action = Some(if shift {
                 HistoryAction::Redo
@@ -135,6 +162,13 @@ pub(super) fn input(
     let Some(action) = action else {
         return;
     };
+    if ui_document && documents.ui_layout_command_status(ui_layouts.as_deref()).is_none_or(|status| {
+        status.reason(if action == HistoryAction::Redo {
+            crate::types::EditorAction::Redo
+        } else { crate::types::EditorAction::Undo }).is_some()
+    }) {
+        return; // 后台属性变更采用前不能越过它撤销同一文档。
+    }
     let available = if action == HistoryAction::Redo {
         doc.history.can_redo()
     } else {
@@ -145,6 +179,8 @@ pub(super) fn input(
     }
     let doc = documents.current_mut().unwrap();
     let selection = doc.travel(action == HistoryAction::Redo).unwrap();
+    let Some(entity) = source_entity else { return; }; // 画布由新修订派生，不另造正文输入。
+    let Ok((_, _, mut text)) = sources.get_mut(entity) else { return; };
     text.editor.set_text(doc.source_text());
     // 业务快照保留UTF-8字节选区方向；官方driver一次重排并恢复光标，原实体/样式/视区保持。
     text.editor

@@ -18,7 +18,7 @@ use crate::resources::{
     SceneEditorNumericScrubMouseGuard, SceneEditorState, SceneEditorViewportState, SceneFolderPersistence,
 }; // 目录、新建、删除和数值拖动鼠标所有权状态。
 use crate::types::{
-    EditorAction, EditorTool, EditorView, EnvironmentEditAction, NewSceneInputField,
+    EditorAction, EditorTool, EditorView, EnvironmentEditAction, NewSceneInputField, SceneBrowserItem,
 }; // 按钮只发布结构化编辑器动作。
 use crate::ui::action_availability::{EditorActionAvailability, EditorActionInputs};
 use crate::ui::asset_preview::weights::RequestWeightCommand;
@@ -114,6 +114,9 @@ pub(crate) fn handle_editor_action_buttons(
             if availability.reason(button.0).is_some() {
                 continue;
             }
+            if availability.uses_document_context(button.0) {
+                continue; // 原文档接收端认领公共按钮，不能同时设置隐藏场景的保存或历史请求。
+            }
             if availability.uses_weight_context(button.0) {
                 input_guard.availability.send_weight_command(
                     button.0,
@@ -122,7 +125,10 @@ pub(crate) fn handle_editor_action_buttons(
                 continue; // 顶栏优先交给当前权重标签，保持地图的保存和历史请求独立。
             }
         }
-        if editor.scene_transition_in_progress && button.0 != EditorAction::Close {
+        if editor.scene_transition_in_progress
+            && button.0 != EditorAction::Close
+            && !(button.0 == EditorAction::CancelNewScene && editor.new_scene_copy_target.is_some())
+        {
             continue; // 外壳继续显示，但加载期间不能新建、保存或修改另一份场景草稿。
         }
         if water_edit.dragging() {
@@ -137,6 +143,8 @@ pub(crate) fn handle_editor_action_buttons(
                 button.0,
                 EditorAction::CancelNewScene
                     | EditorAction::ConfirmNewScene
+                    | EditorAction::ConfirmSceneCopy
+                    | EditorAction::CopySavedScene
                     | EditorAction::FocusNewSceneName
             )
         {
@@ -148,8 +156,8 @@ pub(crate) fn handle_editor_action_buttons(
                 editor.request_close(); // 与F12共用安全关闭门；空世界收起界面保留空场景。
             }
             EditorAction::NewScene => {
-                if deletion.busy() {
-                    editor.status = "场景删除确认或回收事务尚未完成".to_owned();
+                if deletion.busy() || creation.busy() {
+                    editor.status = "场景创建、复制或回收事务尚未完成".to_owned();
                     continue; // 新建与删除不能并发改写catalog。
                 }
                 if input_guard.folder_persistence.busy() {
@@ -165,11 +173,34 @@ pub(crate) fn handle_editor_action_buttons(
                 }
                 editor.new_scene_dialog_open = true;
                 editor.new_scene_edit_target = None; // 新建不会沿用此前编辑场景的冻结目标。
+                editor.new_scene_copy_target = None;
                 editor.new_scene_name.clear();
                 editor.new_scene_notes.clear(); // 每次创建从空可选备注开始。
                 editor.status = "请输入场景名称和可选备注，创建后可添加网格".to_owned();
                 focus_new_scene_field(&mut editor, NewSceneInputField::Name, &mut windows);
                 new_scene_focus.activate(); // 弹框本帧打开后，下一键直接路由到名称组件。
+            }
+            EditorAction::CopySelectedScene => {
+                if editor.close_requested || creation.busy() || deletion.busy()
+                    || input_guard.folder_persistence.busy() || scene_browser.write_blocked.is_some()
+                    || editor.save_requested || session.saving
+                {
+                    editor.status = "等待当前场景操作完成后再复制".into();
+                    continue;
+                }
+                let Some(SceneBrowserItem::Scene(id)) = scene_browser.selected_item.as_ref() else {
+                    continue; // 只接受目录菜单冻结的源行，不用当前打开场景替代。
+                };
+                let Some(entry) = input_guard.registry.as_deref()
+                    .and_then(|registry| input_guard.catalogs.get(&registry.catalog))
+                    .and_then(|catalog| catalog.scenes.iter().find(|entry| &entry.id == id))
+                else {
+                    editor.status = "所选源场景已不在当前目录".into();
+                    continue;
+                };
+                crate::ui::new_scene_dialog::copy::open(&mut editor, &session, input_guard.documents.as_deref(), entry);
+                focus_new_scene_field(&mut editor, NewSceneInputField::Name, &mut windows);
+                new_scene_focus.activate();
             }
             EditorAction::EnterSelectedScene
             | EditorAction::SaveAndSwitchScene
@@ -187,6 +218,7 @@ pub(crate) fn handle_editor_action_buttons(
             | EditorAction::CancelSceneFolderDialog
             | EditorAction::FocusSceneFolderName => {} // 场景树与文件夹模态由独立scene_browser功能域处理。
             EditorAction::ConfirmNewScene => {
+                if editor.new_scene_copy_target.is_some() { continue; }
                 if input_guard.input_guard.block_shortcuts {
                     editor.status = "请先确认输入法候选".to_owned();
                     continue;
@@ -196,8 +228,7 @@ pub(crate) fn handle_editor_action_buttons(
                         .registry
                         .as_deref()
                         .and_then(|registry| input_guard.catalogs.get(&registry.catalog)); // 确认时读取最新目录，不依赖打开时行索引。
-                    let result = if creation.task.is_some()
-                        || creation.pending_after_save.is_some()
+                    let result = if creation.busy()
                         || deletion.busy()
                         || input_guard.load.task.is_some()
                     {
@@ -233,7 +264,23 @@ pub(crate) fn handle_editor_action_buttons(
                     );
                 }
             }
+            EditorAction::ConfirmSceneCopy | EditorAction::CopySavedScene => {
+                if input_guard.input_guard.block_shortcuts {
+                    editor.status = "请先确认输入法候选".into();
+                } else if deletion.busy() || input_guard.folder_persistence.busy() || scene_browser.write_blocked.is_some() {
+                    editor.status = "等待场景归类或回收操作完成后再复制".into();
+                } else {
+                    crate::ui::new_scene_dialog::copy::confirm(
+                        &mut editor, &mut creation, &session, input_guard.documents.as_deref(),
+                        button.0 == EditorAction::CopySavedScene,
+                    );
+                }
+            }
             EditorAction::CancelNewScene => {
+                if crate::ui::new_scene_dialog::copy::cancel(&mut editor, &mut creation) {
+                    if !editor.new_scene_dialog_open { set_ime_enabled(&mut windows, false); }
+                    continue;
+                }
                 editor.new_scene_dialog_open = false;
                 editor.new_scene_edit_target = None; // 取消只关闭当前编辑目标，不触及磁盘。
                 if creation.cancel_pending_after_save() {

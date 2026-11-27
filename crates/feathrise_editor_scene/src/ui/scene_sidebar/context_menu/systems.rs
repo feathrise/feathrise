@@ -184,8 +184,7 @@ pub(super) fn control_menu(
         && context.drag.press.is_none()
         && !context.deletion.busy()
         && !context.persistence.busy()
-        && context.creation.task.is_none()
-        && context.creation.pending_after_save.is_none();
+        && !context.creation.busy();
     if keyboard
         .as_ref()
         .is_some_and(|keys| keys.just_pressed(KeyCode::F12))

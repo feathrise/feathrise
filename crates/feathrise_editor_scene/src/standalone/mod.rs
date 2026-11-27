@@ -77,6 +77,7 @@ impl Plugin for StandaloneEditorPlugin {
         project_close::install(app);
         cursor::install(app);
         embedded_input::install(app);
+        crate::ui::asset_preview::documents::ui_layout::install(app);
         app.init_resource::<StandaloneEditorMode>()
             .init_resource::<feathrise_editor_core::ProjectLaunchSettings>()
             .add_message::<RunSavedProject>()

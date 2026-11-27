@@ -31,11 +31,12 @@ use crate::{
 #[derive(Default, Resource)]
 struct OwnedSceneFixture {
     name_queued: bool,
+    allows_copy: bool,
 }
 
 /// 由宿主在验证本轮工程与报告目录的归属后安装。普通作者实例没有此端口。
-pub fn install(app: &mut App) {
-    app.init_resource::<OwnedSceneFixture>();
+pub fn install(app: &mut App, allows_copy: bool) {
+    app.insert_resource(OwnedSceneFixture { allows_copy, ..default() });
 }
 
 fn require_owned(world: &World) -> Result<(), String> {
@@ -103,7 +104,8 @@ pub fn observe(world: &World) -> Result<Observation, String> {
                 .get(&registry.catalog)
         })
     {
-        if catalog.scenes.len() > 2 {
+        let max_scenes = if world.resource::<OwnedSceneFixture>().allows_copy { 3 } else { 2 };
+        if catalog.scenes.len() > max_scenes {
             return Err("验收工程场景数超过本轮夹具范围".into());
         }
         observation.catalog = Some(
@@ -202,10 +204,10 @@ pub fn submit_creation(world: &mut World, name: &str) -> Result<Option<Entity>, 
     Ok(None)
 }
 
-/// 选择原目录行。已打开的源场景标签也显示同名文本，但点击标签会切换当前场景。
-pub fn select_source(world: &mut World, scene: &SceneId) -> Result<Option<Entity>, String> {
+/// 通过源身份找到正式目录行，以便在原右键入口发起复制。
+pub fn source_row(world: &mut World, scene: &SceneId) -> Result<Option<Entity>, String> {
     require_owned(world)?;
-    let entity = world
+    Ok(world
         .query_filtered::<(Entity, &SceneEditorSceneRow, &ComputedNode), (
             Without<bevy::ui::InteractionDisabled>,
             With<EditorButtonClick>,
@@ -215,7 +217,12 @@ pub fn select_source(world: &mut World, scene: &SceneId) -> Result<Option<Entity
             (matches!(&row.item, Some(SceneBrowserItem::Scene(id)) if id == scene)
                 && layout.size().min_element() > 2.)
                 .then_some(entity)
-        });
+        }))
+}
+
+/// 选择原目录行。已打开的源场景标签也显示同名文本，但点击标签会切换当前场景。
+pub fn select_source(world: &mut World, scene: &SceneId) -> Result<Option<Entity>, String> {
+    let entity = source_row(world, scene)?;
     if let Some(entity) = entity {
         world
             .entity_mut(entity)

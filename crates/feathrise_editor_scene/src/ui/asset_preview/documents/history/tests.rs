@@ -622,6 +622,133 @@ fn history_native_ime_replacement_restores_reverse_unicode_selection() {
     );
 }
 
+fn ui_app(mode: ViewMode) -> (App, Entity, Entity, Entity) {
+    let (mut app, source) = app("// feathrise-ui: editable\n// 原文\n");
+    insert(&mut app, source, "// 修改\n");
+    let key = {
+        let mut docs = app.world_mut().resource_mut::<DocumentState>();
+        let doc = docs.current_mut().unwrap();
+        doc.path = "layout.rs".into();
+        doc.mode = mode;
+        let key = doc.source_key();
+        docs.active = Some(key.path.clone());
+        docs.central_active = true;
+        docs.expanded = Some(ExpandedDocument {
+            id: 1, path: key.path.clone(),
+            return_tab: crate::ui::vegetation_preset_editor::PresetWorkspaceTab::Scene,
+        });
+        key
+    };
+    app.world_mut().get_mut::<DocumentSource>(source).unwrap().key = Some(key);
+    app.add_systems(Update, super::super::commands::bind.before(control::input));
+    let undo = app.world_mut().spawn((
+        crate::components::SceneEditorActionButton(crate::types::EditorAction::Undo),
+        feathrise_editor_ui::EditorButtonClick::default(),
+    )).id();
+    let redo = app.world_mut().spawn((
+        crate::components::SceneEditorActionButton(crate::types::EditorAction::Redo),
+        feathrise_editor_ui::EditorButtonClick::default(),
+    )).id();
+    app.update();
+    app.update();
+    (app, source, undo, redo)
+}
+
+fn shared_click(app: &mut App, entity: Entity) {
+    app.world_mut().entity_mut(entity).insert(feathrise_editor_ui::EditorButtonClick::triggered());
+    app.update();
+    app.world_mut().entity_mut(entity).insert(feathrise_editor_ui::EditorButtonClick::default());
+    app.update();
+}
+
+#[test]
+fn shared_ui_history_uses_canvas_and_source_journal_and_restores_native_selection() {
+    let original = "// feathrise-ui: editable\n// 原文\n";
+    for mode in [ViewMode::Preview, ViewMode::Edit] {
+        let (mut app, source, undo, redo) = ui_app(mode);
+        shared_click(&mut app, undo);
+        assert_eq!(app.world().resource::<DocumentState>().current().unwrap().source_text(), original);
+        assert!(!app.world().resource::<DocumentState>().current().unwrap().dirty());
+        if mode == ViewMode::Edit {
+            let text = app.world().get::<EditableText>(source).unwrap();
+            assert_eq!(text.value(), original);
+            assert_eq!(Selection::read(text), Selection { anchor: original.len(), focus: original.len() });
+        }
+        shared_click(&mut app, redo);
+        let doc = app.world().resource::<DocumentState>().current().unwrap();
+        assert_eq!(doc.source_text(), format!("{original}// 修改\n"));
+        assert!(doc.dirty());
+    }
+}
+
+#[test]
+fn shared_ui_history_cancels_old_file_generation_click_and_keeps_other_input_shortcuts() {
+    let (mut app, _source, undo, _redo) = ui_app(ViewMode::Preview);
+    app.world_mut().resource_mut::<DocumentState>().current_mut().unwrap().generation += 1;
+    shared_click(&mut app, undo);
+    assert!(app.world().resource::<DocumentState>().current().unwrap().dirty(), "旧代次点击必须失效");
+    let field = app.world_mut().spawn(EditableText::default()).id();
+    app.world_mut().resource_mut::<InputFocus>().set(field, FocusCause::Navigated);
+    chord(&mut app, KeyCode::KeyZ, false);
+    assert!(app.world().resource::<DocumentState>().current().unwrap().dirty(), "属性或查找输入不能撤销画布");
+    app.world_mut().resource_mut::<InputFocus>().clear();
+    chord(&mut app, KeyCode::KeyZ, false);
+    assert!(!app.world().resource::<DocumentState>().current().unwrap().dirty());
+}
+
+#[test]
+fn shared_ui_history_waits_for_native_input_and_ime_confirmation() {
+    let (mut app, source, undo, _redo) = ui_app(ViewMode::Edit);
+    app.world_mut().resource_mut::<crate::resources::EditorTextInputGuard>().block_shortcuts = true;
+    shared_click(&mut app, undo);
+    assert!(app.world().resource::<DocumentState>().current().unwrap().dirty());
+    app.world_mut().resource_mut::<crate::resources::EditorTextInputGuard>().block_shortcuts = false;
+    app.world_mut().get_mut::<EditableText>(source).unwrap().queue_edit(TextEdit::ImeSetCompose {
+        value: "候选".into(), cursor: None,
+    });
+    app.update();
+    shared_click(&mut app, undo);
+    assert!(app.world().get::<EditableText>(source).unwrap().is_composing());
+    assert!(app.world().resource::<DocumentState>().current().unwrap().dirty());
+}
+
+#[test]
+fn shared_ui_history_waits_for_property_paste_and_queued_edits_in_both_modes() {
+    for mode in [ViewMode::Preview, ViewMode::Edit] {
+        for redo in [false, true] {
+            for paste in [false, true] {
+                let (mut app, _source, undo, redo_button) = ui_app(mode);
+                if redo { shared_click(&mut app, undo); }
+                let button = if redo { redo_button } else { undo };
+                let before = app.world().resource::<DocumentState>().current().unwrap().revision;
+                let mut text = EditableText::new("100%");
+                if paste {
+                    text.pending_paste = Some(bevy::clipboard::ClipboardRead::Ready(Ok("80%".into())));
+                } else {
+                    text.queue_edit(TextEdit::Insert("80%".into()));
+                }
+                let field = app.world_mut().spawn((super::super::ui_layout::Field::Width, text)).id();
+                app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
+                // 定点停在官方队列采用之前，验证真实历史接收端拒绝跨过属性输入。
+                app.world_mut().run_system_cached(control::input).unwrap();
+                assert_eq!(app.world().resource::<DocumentState>().current().unwrap().revision, before);
+                {
+                    let mut text = app.world_mut().get_mut::<EditableText>(field).unwrap();
+                    assert!(text.pending_paste.is_some() || !text.pending_edits.is_empty());
+                    text.pending_paste = None;
+                    text.pending_edits.clear();
+                }
+                app.world_mut().run_system_cached(control::input).unwrap();
+                assert_eq!(app.world().resource::<DocumentState>().current().unwrap().revision, before,
+                    "输入完成后不能补发已经拒收的旧点击");
+                app.world_mut().entity_mut(button).insert(feathrise_editor_ui::EditorButtonClick::triggered());
+                app.world_mut().run_system_cached(control::input).unwrap();
+                assert!(app.world().resource::<DocumentState>().current().unwrap().revision > before);
+            }
+        }
+    }
+}
+
 /// 完整GPU夹具通过真实键盘消息验证控件路由；不直接调用travel伪造界面结果。
 pub(in super::super) fn gpu_chord(app: &mut App, window: Entity, code: KeyCode, shift: bool) {
     use bevy::input::{

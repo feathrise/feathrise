@@ -61,7 +61,7 @@ impl SceneBrowserClick {
 
 /// 判断场景创建是否已经冻结请求或占用后台catalog写入任务。
 fn scene_creation_busy(creation: &SceneCreationTask) -> bool {
-    creation.task.is_some() || creation.pending_after_save.is_some() // 保存后创建也必须冻结已选虚拟归类上下文。
+    creation.busy() // 创建或复制及等待的源保存共用目录写入互斥。
 }
 
 /// 拒绝会改变归类文件结构的操作，并把原因回显给作者。

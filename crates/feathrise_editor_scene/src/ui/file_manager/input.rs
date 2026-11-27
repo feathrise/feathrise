@@ -156,7 +156,12 @@ pub(super) fn control(
                 let target = state.menu.take().unwrap().target;
                 match action {
                     FileContextAction::File(action) => {
-                        let path = if action == FileAction::NewWindow { target.open_directory } else { target.directory };
+                        // 界面可以直接创建到右键所选文件夹，与打开该文件夹使用同一目标。
+                        let path = if matches!(action, FileAction::NewWindow | FileAction::NewUiLayout) {
+                            target.open_directory
+                        } else {
+                            target.directory
+                        };
                         requests.write(FileManagerCommand { action, path: Some(path), sources: target.sources });
                     }
                     FileContextAction::Extra(action) => { extras.write(ExtraRequest { action, target }); }

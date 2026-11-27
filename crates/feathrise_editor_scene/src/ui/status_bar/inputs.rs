@@ -207,6 +207,12 @@ impl StatusInputs<'_> {
             "准备场景".into()
         } else if self.editor.close_requested {
             "确认关闭".into() // 原地形/碰撞完成门仍在等待，不能因旧Ready或已落盘回执冒充当前就绪。
+        } else if let Some(control) = self.creation.as_ref().and_then(|state| state.copy_control.as_ref()) {
+            if control.is_cancel_requested() {
+                "正在取消场景复制，等待后台清理".into()
+            } else {
+                control.progress().unwrap_or("正在复制场景").into()
+            }
         } else if self
             .creation
             .as_ref()
@@ -250,6 +256,9 @@ impl StatusInputs<'_> {
                 &mut task,
                 &format!("新建场景“{}” · 等待当前场景保存", request.display_name),
             );
+        }
+        if let Some(request) = self.creation.as_ref().and_then(|state| state.copy_after_save.as_ref()) {
+            append_task(&mut task, &format!("复制场景“{}” · 等待源场景保存", request.name));
         }
         if let Some(plan) = self
             .deletion

@@ -30,6 +30,7 @@ fn menu() -> impl Scene {
             Children [
                 @super::super::scene::action("进入场景", EditorAction::EnterSelectedScene)--
                 @super::super::scene::action("编辑", EditorAction::SceneFolderRename)--
+                @super::super::scene::action("复制为新场景…", EditorAction::CopySelectedScene)--
                 @super::super::scene::action("删除", EditorAction::DeleteScene)--
                 @super::super::scene::action("新场景", EditorAction::NewScene)--
                 @super::super::scene::action("新建文件夹", EditorAction::SceneFolderCreate)
@@ -89,6 +90,7 @@ pub(super) fn sync(
     let rows = [
         EditorAction::EnterSelectedScene,
         EditorAction::SceneFolderRename,
+        EditorAction::CopySelectedScene,
         EditorAction::DeleteScene,
         EditorAction::NewScene,
         EditorAction::SceneFolderCreate,

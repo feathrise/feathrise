@@ -182,6 +182,7 @@ pub(super) fn input(
     gate: SearchGate,
     workspace: Res<VegetationPresetEditorState>,
     replacement: Option<Res<super::super::search::AssetReplaceState>>,
+    ui_layouts: Option<Res<super::super::ui_layout::UiLayouts>>,
     mut documents: ResMut<DocumentState>,
     mut state: ResMut<DocumentBatchSaveState>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
@@ -222,6 +223,11 @@ pub(super) fn input(
         state.shown = false;
     }
     if !menu_requested && !pressed && !save_key {
+        return;
+    }
+    if ui_layouts.as_ref().is_some_and(|layouts| layouts.edit_pending()) {
+        state.shown = true;
+        state.hint = "正在采用上一笔界面编辑".into();
         return;
     }
     if sources.iter().any(busy) {

@@ -13,6 +13,7 @@ use crate::resources::{
 };
 use crate::types::{EditorAction, EditorTool};
 use crate::ui::asset_preview::weights::{RequestWeightCommand, WeightCommands};
+use crate::ui::asset_preview::documents::{DocumentState, ui_layout::UiLayouts};
 use crate::ui::gltf_browser::EditorGltfBrowserState;
 use crate::ui::vegetation_preset_editor::{PresetWorkspaceTab, VegetationPresetEditorState};
 use crate::viewport::{LayerCandidateState, LayerTarget};
@@ -25,6 +26,9 @@ pub(crate) struct EditorActionInputs<'w> {
     world: SceneEditorWorldSession<'w>,
     workspace: Option<Res<'w, VegetationPresetEditorState>>,
     weights: WeightCommands<'w>,
+    documents: Option<Res<'w, DocumentState>>,
+    ui_layouts: Option<Res<'w, UiLayouts>>,
+    text_guard: Option<Res<'w, crate::resources::EditorTextInputGuard>>,
     browser: Option<Res<'w, EditorGltfBrowserState>>,
     candidates: Option<Res<'w, LayerCandidateState>>,
     deletion: Option<Res<'w, SceneDeletionTask>>,
@@ -76,6 +80,15 @@ impl EditorActionInputs<'_> {
                 .as_ref()
                 .is_some_and(|workspace| workspace.active_tab != PresetWorkspaceTab::Scene),
             weights: self.weights.status(),
+            document: self.documents.as_ref()
+                .filter(|_| self.workspace.as_ref().is_none_or(|workspace| workspace.active_tab == PresetWorkspaceTab::Document))
+                .and_then(|documents| documents.ui_layout_command_status(self.ui_layouts.as_deref()))
+                .map(|mut status| {
+                    if self.text_guard.as_ref().is_some_and(|guard| guard.block_shortcuts) {
+                        status.blocked = Some("请先确认中文输入或等待粘贴完成");
+                    }
+                    status
+                }),
             mesh_editing: self.mesh_edit.as_ref().is_some_and(|state| state.active()),
             current_scene: self.world.ready() && draft.is_some(),
             // 和场景保存入口读取同一组脏位。摆放和名称等普通编辑只推进编辑器脏位。

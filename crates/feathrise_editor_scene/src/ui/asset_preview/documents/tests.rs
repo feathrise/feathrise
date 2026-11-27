@@ -24,6 +24,7 @@ mod close_validation; // 普通关闭夹具通过真实文档保存队列处理�
 mod themes; // 三套正式主题的GPU绘制、设置模态与原生草稿保留。
 mod external; // 外部修改提示、真实菜单命中与单一原生输入刷新。
 mod reload; // 真实重载期间的输入冻结、失败恢复及保存/核对/其他会话的可编辑边界。
+mod shared_controls; // 中央UI公共按钮复用原文件IO，切标签和换代取消旧手势。
 struct Fixture {
     root: PathBuf,
     parent: PathBuf,

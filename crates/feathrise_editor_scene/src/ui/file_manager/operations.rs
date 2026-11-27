@@ -137,9 +137,9 @@ pub(super) fn control(
                     else { FileOperation::Copy { sources, destination: directory, conflict: state.conflict } };
                 submit(&mut state, service.as_deref(), &authors, &mut reservations, operation);
             }
-            FileAction::Delete | FileAction::Rename | FileAction::NewFolder | FileAction::NewText | FileAction::NewMarkdown | FileAction::NewGlb | FileAction::NewCinematic => {
-                // 从工程根新建演出默认落入主资产根；其余位置保留作者明确选择的目录。
-                let directory = if request.action == FileAction::NewCinematic
+            FileAction::Delete | FileAction::Rename | FileAction::NewFolder | FileAction::NewText | FileAction::NewMarkdown | FileAction::NewGlb | FileAction::NewCinematic | FileAction::NewUiLayout => {
+                // 从工程根新建演出或界面时默认落到主资产根，其他位置使用作者所选目录。
+                let directory = if matches!(request.action, FileAction::NewCinematic | FileAction::NewUiLayout)
                     && state.project.as_deref().is_some_and(|root| crate::ui::external_files::platform_path(root) == crate::ui::external_files::platform_path(&directory)) {
                     state.asset_root.clone().unwrap_or(directory)
                 } else { directory };
@@ -169,11 +169,12 @@ pub(super) fn control(
                 let Some(prompt) = state.prompt.take() else { continue; };
                 let operation = match prompt.action {
                     FileAction::NewFolder => FileOperation::CreateFolder { parent: prompt.directory, name: prompt.value },
-                    FileAction::NewText | FileAction::NewMarkdown | FileAction::NewGlb | FileAction::NewCinematic => FileOperation::CreateFile {
+                    FileAction::NewText | FileAction::NewMarkdown | FileAction::NewGlb | FileAction::NewCinematic | FileAction::NewUiLayout => FileOperation::CreateFile {
                         parent: prompt.directory, name: prompt.value, kind: match prompt.action {
                             FileAction::NewText => NewFileKind::Text,
                             FileAction::NewMarkdown => NewFileKind::Markdown,
                             FileAction::NewCinematic => NewFileKind::Cinematic,
+                            FileAction::NewUiLayout => NewFileKind::UiLayout,
                             _ => NewFileKind::Glb,
                         },
                     },
@@ -284,6 +285,7 @@ fn new_entry_name(action: FileAction, english: bool) -> &'static str {
         (FileAction::NewMarkdown, false) => "新建文档.md", (FileAction::NewMarkdown, true) => "New document.md",
         (FileAction::NewGlb, false) => "新建场景.glb", (FileAction::NewGlb, true) => "New scene.glb",
         (FileAction::NewCinematic, false) => "新建剧情演出.cinematic.json", (FileAction::NewCinematic, true) => "New cinematic.cinematic.json",
+        (FileAction::NewUiLayout, false) => "新建界面.rs", (FileAction::NewUiLayout, true) => "New UI.rs",
         _ => "",
     }
 }
@@ -346,7 +348,9 @@ pub(super) fn poll(mut state: ResMut<FileManagerState>, service: Option<Res<File
         if receipt.context != state.context { continue; }
         if receipt.kind == FileOperationKind::CreateFile && receipt.error.is_none()
             && let [change] = receipt.completed.as_slice() && let Some(path) = &change.destination
-            && feathrise_cinematic::is_cinematic_path(path) && let Some(open) = open.as_deref_mut() {
+            && (feathrise_cinematic::is_cinematic_path(path)
+                || crate::ui::asset_preview::documents::ui_layout::is_candidate_path(path))
+            && let Some(open) = open.as_deref_mut() {
             open.write(OpenManagedFile { path: path.clone() });
         }
         if let Some(preview) = &receipt.reference_preview {

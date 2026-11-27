@@ -19,10 +19,10 @@ mod batch; // 混合选集去重、整批校验与共用受检写入事务。
 pub(crate) use batch::poll_scene_folder_batch;
 
 pub(crate) use helpers::{
-    drag_threshold_reached, expand_folder_ancestors, scene_is_visible_in_tree, selected_container_folder_id,
+    decode_folder_document, drag_threshold_reached, expand_folder_ancestors, scene_is_visible_in_tree, selected_container_folder_id,
 }; // 作者创建与删除只复用树上下文纯函数，不依赖浏览系统内部状态机。
 #[cfg(test)]
-pub(crate) use helpers::{build_browser_tree, decode_folder_document}; // 目录截图复用正式整理与校验，避免另造一套树数据。
+pub(crate) use helpers::build_browser_tree; // 目录截图复用正式整理与校验，避免另造一套树数据。
 pub(crate) use index::advance_scene_browser_index; // 插件Tasks阶段驱动有界索引。
 pub(crate) use input::{
     SceneBrowserClick,

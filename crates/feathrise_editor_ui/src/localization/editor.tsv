@@ -1,4 +1,26 @@
 # 稳定键	简体中文	English
+scene.copy.action	复制为新场景…	Duplicate as New Scene…
+scene.copy.title	复制为新场景	Duplicate as New Scene
+scene.copy.save_first	保存并复制	Save and Duplicate
+scene.copy.saved_version	复制已保存版本	Duplicate Saved Version
+scene.copy.source	源场景“{name}”	Source scene: “{name}”
+scene.copy.name_prompt	请输入副本名称，副本将归入源场景所在文件夹。	Name the copy. It will appear in the source scene's folder.
+scene.copy.dirty_prompt	源场景有未保存修改。可以保存并复制，也可以仅复制已保存版本。	The source has unsaved changes. Save them first or duplicate the saved version.
+scene.copy.operation	复制场景	Duplicate Scene
+scene.copy.activating	正在打开源场景，保存成功后继续复制	Opening the source scene before saving and duplicating
+scene.copy.saving	正在保存源场景，成功后继续复制	Saving the source scene before duplicating
+scene.copy.prepare	正在准备场景复制	Preparing scene duplication
+scene.copy.working	正在复制场景	Duplicating scene
+scene.copy.reading	正在读取源场景…	Reading the source scene…
+scene.copy.files	正在复制场景文件…	Copying scene files…
+scene.copy.validating	正在校验场景副本…	Validating the scene copy…
+scene.copy.publishing	正在登记场景副本…	Registering the scene copy…
+scene.copy.cancelling	正在取消场景复制，等待后台清理	Cancelling scene duplication and cleaning up
+scene.copy.cancelled	已取消场景复制	Scene duplication cancelled
+scene.copy.waiting	复制场景“{name}” · 等待源场景保存	Duplicate “{name}” · Waiting for source scene to save
+scene.copy.completed	场景“{name}”已复制，可在场景列表打开副本	Duplicated “{name}”. Open the copy from the Scenes list.
+scene.copy.failed	复制场景未完成：{error}	Scene duplication did not complete: {error}
+scene.copy.save_failed	无法保存并复制场景：{error}	Could not save and duplicate the scene: {error}
 glb.material.slots	替换材质槽	Replace Material Slot
 glb.material.save	保存 GLB	Save GLB
 glb.material.previous	上一组图元	Previous Primitives
@@ -1737,3 +1759,55 @@ wall.choose_gate	指定门楼位置	Place Gate
 wall.remove_gate	移除门楼	Remove Gate
 wall.confirm	确认铺设	Place Walls
 wall.cancel	取消铺设	Cancel Placement
+ui_bsn.up	上移	Move Up
+ui_bsn.down	下移	Move Down
+ui_bsn.remove	删除控件	Delete Widget
+ui_bsn.row	横排	Row
+ui_bsn.column	竖排	Column
+ui_bsn.id	控件 ID	Widget ID
+ui_bsn.parent	父容器 ID	Parent Container ID
+ui_bsn.width	宽度（px、% 或 auto）	Width (px, %, or auto)
+ui_bsn.height	高度（px、% 或 auto）	Height (px, %, or auto)
+ui_bsn.padding	内边距（上 右 下 左）	Padding (top right bottom left)
+ui_bsn.gap	控件间距（px）	Gap (px)
+ui_bsn.x	X（留空使用自动布局）	X (blank for auto layout)
+ui_bsn.y	Y（留空使用自动布局）	Y (blank for auto layout)
+ui_bsn.background	背景色（RGB / RGBA）	Background (RGB / RGBA)
+ui_bsn.content	文字	Content
+ui_bsn.font_size	字号（px）	Font Size (px)
+ui_bsn.image_path	图片资产路径	Image Asset Path
+ui_bsn.action_id	动作 ID	Action ID
+ui_bsn.binding_id	绑定 ID	Binding ID
+ui_bsn.ui_bind	数据绑定（UiBind）	Data Binding (UiBind)
+ui_bsn.right	右锚点（px、%、留空自动）	Right Anchor (px, %, blank for auto)
+ui_bsn.bottom	底锚点（px、%、留空自动）	Bottom Anchor (px, %, blank for auto)
+ui_bsn.border	边框宽（上 右 下 左）	Border Width (top right bottom left)
+ui_bsn.radius	圆角（左上 右上 右下 左下）	Radius (top-left top-right bottom-right bottom-left)
+ui_bsn.border_color	边框色（RGB / RGBA）	Border Color (RGB / RGBA)
+ui_bsn.text_color	文字色（RGB / RGBA）	Text Color (RGB / RGBA)
+ui_bsn.text_shadow	文字阴影（true / false）	Text Shadow (true / false)
+ui_bsn.hidden	默认隐藏（true / false）	Initially Hidden (true / false)
+ui_bsn.align_items	交叉轴对齐（如 Center）	Cross-axis Alignment (e.g. Center)
+ui_bsn.justify_content	主轴对齐（如 SpaceBetween）	Main-axis Alignment (e.g. SpaceBetween)
+ui_bsn.text_justify	文字对齐（Left / Center / Right）	Text Alignment (Left / Center / Right)
+ui_bsn.apply	应用属性	Apply Properties
+ui_bsn.save	保存	Save
+ui_bsn.undo	撤销	Undo
+ui_bsn.redo	重做	Redo
+ui_bsn.source	源码	Source
+ui_bsn.widgets	控件	Widgets
+ui_bsn.hierarchy	层级	Hierarchy
+ui_bsn.edit	编辑	Edit
+ui_bsn.fit	适应宽度	Fit Width
+ui_bsn.narrow	窄屏	Narrow
+ui_bsn.preview	交互预览	Interaction Preview
+ui_bsn.container	容器	Container
+ui_bsn.text	文本	Text
+ui_bsn.image	图片	Image
+ui_bsn.button	按钮	Button
+ui_bsn.binding	数据绑定	Data Binding
+ui_bsn.loading	正在读取界面…	Reading UI layout…
+ui_bsn.applying	正在采用上一笔界面编辑	Applying the previous UI edit
+ui_bsn.invalid_layout	布局包含无法写入 BSN 的属性	The layout contains a property that cannot be saved as BSN
+ui_bsn.select_delete	请选择可删除的控件	Select a widget to delete
+ui_bsn.select_container	请选择容器	Select a container
