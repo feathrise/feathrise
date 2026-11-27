@@ -1,4 +1,4 @@
-//! 环境来源、库方案列表与作者事务入口。运行时调试不经过此处。
+//! 环境页签切换、环境来源与方案库作者事务。
 
 use bevy::{input_focus::InputFocus, prelude::*, text::{EditableText, FontSourceTemplate}};
 use feathrise_editor_ui::{EditorButtonClick, InteractionButton, UiInteraction, localization::EditorLocale};
@@ -26,7 +26,7 @@ pub(crate) enum EnvironmentPage {
 
 #[derive(Resource, Default)]
 pub(crate) struct EnvironmentPageState {
-    pub(super) page: EnvironmentPage,
+    pub(crate) page: EnvironmentPage,
     choosing_shared: bool,
 }
 
@@ -37,6 +37,7 @@ pub(crate) enum LibraryPanel {
     SharedPicker,
     SelectedProfile,
     LegacyOverride,
+    Simulation,
 }
 
 #[derive(Component, Clone)]
@@ -236,6 +237,10 @@ pub(crate) fn sync_environment_library(
             LibraryPanel::SharedPicker => state.choosing_shared && scene_source.is_some(),
             LibraryPanel::SelectedProfile => selected.is_some(),
             LibraryPanel::LegacyOverride => matches!(scene_source, Some(SceneEnvironmentSource::Legacy)),
+            LibraryPanel::Simulation => match state.page {
+                EnvironmentPage::Scene => matches!(scene_source, Some(SceneEnvironmentSource::Local)),
+                EnvironmentPage::Library => selected.is_some(),
+            },
         };
         let display = if visible { Display::Flex } else { Display::None };
         if node.display != display { node.display = display; }
@@ -259,7 +264,8 @@ pub(crate) fn sync_environment_library(
     for (host, list, children) in &lists {
         if state.page != list.0 || (list.0 == EnvironmentPage::Scene && !state.choosing_shared) { continue }
         let version = (host, global.library_listing_revision, locale);
-        let index = usize::from(list.0 == EnvironmentPage::Library);
+        let is_library = list.0 == EnvironmentPage::Library;
+        let index = usize::from(is_library);
         if previous.list_versions[index] == Some(version) { continue }
         previous.list_versions[index] = Some(version);
         // 只有库的目录版本改变才维护行。拖动天空或天体数值不重建方案列表。
@@ -269,9 +275,10 @@ pub(crate) fn sync_environment_library(
             let label = if *id == library.default_profile_id {
                 format!("{} · {}", profile.name, locale.editor_label("工程默认"))
             } else { profile.name.clone() };
-            let button = match list.0 {
-                EnvironmentPage::Scene => LibraryButton::UseShared(id.clone()),
-                EnvironmentPage::Library => LibraryButton::Select(id.clone()),
+            let button = if is_library {
+                LibraryButton::Select(id.clone())
+            } else {
+                LibraryButton::UseShared(id.clone())
             };
             commands.spawn((button, InteractionButton, ChildOf(host),
                 Node { width: percent(100), min_width: px(0), min_height: px(26), padding: UiRect::all(px(4)),

@@ -1,4 +1,4 @@
-//! 使用真实环境页、公共数值控件和世界调试验证作用域。
+//! 使用真实环境页、公共数值控件和方案模拟参数验证作用域。
 
 use bevy::app::{HierarchyPropagatePlugin, PropagateSet};
 use bevy::camera::{ComputedCameraValues, RenderTargetInfo, Viewport};
@@ -257,7 +257,7 @@ fn environment_domains_keep_one_scroll_host_and_original_controls() {
     for label in [
         "场景环境",
         "环境来源",
-        "世界调试 · 当前运行",
+        "时间、天气与草尖摆幅",
         "全局环境库",
         "全局方案",
     ] {
@@ -294,7 +294,7 @@ fn environment_domains_keep_one_scroll_host_and_original_controls() {
 }
 
 #[test]
-fn environment_tabs_keep_the_scene_and_library_action_routes_distinct() {
+fn environment_tabs_keep_scene_and_library_distinct() {
     use super::library::LibraryPanel;
     let (mut app, _) = page();
     let before = author(&app);
@@ -324,7 +324,51 @@ fn environment_tabs_keep_the_scene_and_library_action_routes_distinct() {
     click(&mut app, |action| matches!(action, LibraryButton::Select(_)));
     let requests = app.world().resource::<Messages<EnvironmentLibraryEditRequest>>();
     assert!(requests.get_cursor().read(requests).any(|request| matches!(request, EnvironmentLibraryEditRequest::Select(_))));
-    assert_eq!(author(&app), before); // 两种表单都经消息交付，切页本身不会写作者草稿。
+    assert_eq!(author(&app), before); // 切换页签本身不会写作者草稿。
+}
+
+#[test]
+fn environment_simulation_inputs_require_local_scene_or_library_scope() {
+    use bevy::ui::RelativeCursorPosition;
+    use feathrise_scene_content::{EnvironmentSimulation, SceneEnvironmentSource};
+
+    let (mut app, _) = page();
+    app.add_systems(Update, handle_world_environment_controls.after(handle_environment_library_buttons));
+    let world = app.world_mut();
+    let id = world.resource::<GlobalEnvironmentAuthoringState>().draft.library.default_profile_id.clone();
+    world.resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap().manifest.environment.source =
+        SceneEnvironmentSource::Shared(id.clone());
+    let before = author(&app);
+
+    let world = app.world_mut();
+    let tracks = world.query::<(Entity, &Node, &RelativeCursorPosition)>().iter(world)
+        .filter(|(_, node, _)| node.height == px(SliderVisual::default().track_height))
+        .map(|(entity, _, _)| entity).collect::<Vec<_>>();
+    assert_eq!(tracks.len(), 5);
+    world.resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+    for track in tracks {
+        world.entity_mut(track).insert((UiInteraction::Pressed, RelativeCursorPosition {
+            cursor_over: true, normalized: Some(Vec2::new(0.25, 0.0)),
+        }));
+    }
+    // 故意绕过拾取投影，把隐藏轨道的按压交给业务层，确认共享来源仍被拒绝。
+    world.run_schedule(Update);
+    assert_eq!(author(&app), before);
+
+    let world = app.world_mut();
+    world.resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap().manifest.environment.source =
+        SceneEnvironmentSource::Local;
+    world.resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap().manifest.environment.simulation =
+        Some(EnvironmentSimulation::default());
+    world.run_schedule(Update);
+    let simulation = world.resource::<EditorAuthoringSession>().draft.as_ref().unwrap().manifest.environment.simulation.unwrap();
+    assert!(simulation.hour > 12.0 && simulation.weather_mode_index > 0);
+    assert!(simulation.weather_transition < 1.0 && simulation.grass_wind_tip_strength > 0.16);
+    world.resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+    world.run_schedule(Update);
+    assert_eq!(world.resource::<EditorAuthoringSession>().undo.len(), 1);
+    assert_eq!(world.resource::<GlobalEnvironmentAuthoringState>().draft.library.profiles[&id].appearance.simulation, EnvironmentSimulation::default());
+    assert_eq!(world.resource::<feathrise_editor_core::EditorSettings>().environment.grass_wind_tip_strength, 0.16);
 }
 
 #[test]
@@ -377,6 +421,36 @@ fn environment_fixed_scenes_do_not_offer_dynamic_overrides() {
     assert_eq!(scene_display(&mut app), Display::None);
     assert!(text(&mut app, EnvironmentTextField::SceneHint).contains("固定场景"));
     assert!(text(&mut app, EnvironmentTextField::CurrentValues).is_empty());
+    assert_eq!(author(&app), before);
+}
+
+#[test]
+fn environment_inherited_simulation_is_read_only_and_refreshes_with_profile() {
+    use feathrise_scene_content::{EnvironmentSimulation, SceneEnvironmentSource};
+    let (mut app, _) = page();
+    let id = app.world().resource::<GlobalEnvironmentAuthoringState>().draft.library.default_profile_id.clone();
+    app.world_mut().resource_mut::<GlobalEnvironmentAuthoringState>().draft.library.profiles_mut()
+        .get_mut(&id).unwrap().appearance.simulation = EnvironmentSimulation {
+            hour: 18.25, month: 7, day: 15, paused: true,
+            weather_mode_index: 3, weather_transition: 0.5, grass_wind_tip_strength: 0.27,
+        };
+    app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap()
+        .manifest.environment.source = SceneEnvironmentSource::InheritDefault;
+    let before = author(&app);
+    settle(&mut app);
+    let summary = text(&mut app, EnvironmentTextField::CurrentValues);
+    assert!(summary.contains("18:15 · 7月15日"));
+    assert!(summary.contains("时间暂停 开 · 天气 小雨 · 过渡 50%"));
+    assert!(summary.contains("晴天草尖基准 27 cm"));
+    assert_eq!(scene_display(&mut app), Display::None);
+    assert_eq!(author(&app), before);
+
+    let mut global = app.world_mut().resource_mut::<GlobalEnvironmentAuthoringState>();
+    global.draft.library.profiles_mut().get_mut(&id).unwrap().appearance.simulation.hour = 8.5;
+    global.revision += 1;
+    let before = author(&app);
+    settle(&mut app);
+    assert!(text(&mut app, EnvironmentTextField::CurrentValues).contains("08:30"));
     assert_eq!(author(&app), before);
 }
 

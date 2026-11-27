@@ -34,7 +34,7 @@ impl Fixture {
     }
 
     fn action(&mut self, request: EnvironmentLibraryEditRequest) {
-        library_action(request, &mut self.global, &mut self.session, &mut self.editor).unwrap();
+        library_action(request, &mut self.global, &mut self.session, &mut self.editor, EnvironmentSimulation::default()).unwrap();
     }
 
     fn environment(&self) -> &SceneEnvironmentDescriptor {

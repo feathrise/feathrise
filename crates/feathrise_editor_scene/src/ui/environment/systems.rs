@@ -114,6 +114,9 @@ pub(crate) fn sync_editor_environment_text(
     let source = authored.map(|environment| &environment.source);
     let current = environment
         .map(|environment| displayed_values(current_ibl_values(environment, &clock, &modifiers)));
+    let simulation = environment.filter(|_| matches!(source,
+        Some(SceneEnvironmentSource::InheritDefault | SceneEnvironmentSource::Shared(_))))
+        .and_then(|environment| environment.simulation);
     let draft_scene_id = session.draft.as_ref().map(|draft| &draft.scene_id);
     let scene_name = draft.map(|draft| &draft.manifest.display_name);
     let runtime_scene = draft.map(|draft| &draft.manifest.runtime_scene);
@@ -133,7 +136,7 @@ pub(crate) fn sync_editor_environment_text(
         || old.library_listing_revision != global.library_listing_revision
         || !same_source(old.environment.as_ref(), environment)
         || old.loading != editor.scene_transition_in_progress;
-    let values_changed = scene_changed || old.current_values != current;
+    let values_changed = scene_changed || old.current_values != current || old.simulation != simulation;
     let feedback_changed = scene_changed
         || old.environment_revision != revision
         || old.environment_dirty != dirty
@@ -231,7 +234,17 @@ pub(crate) fn sync_editor_environment_text(
         } else {
             String::new()
         };
-        format!("昼夜与天气计算值\n补光 {:.0} · 反射 {:.0} cd/m²{skybox}\n环境昼夜系数 {:.0}%（不含天气）",
+        // 共享来源没有可编辑轨道，仍须能核对继承到的整套持久配置。
+        let simulation = simulation.map_or_else(String::new, |simulation| {
+            let weather = simulation.weather_mode_index.checked_sub(1)
+                .and_then(|index| feathrise_atmosphere::WeatherKind::ALL.get(index as usize))
+                .map_or(locale.text("label.auto"), |kind| locale.editor_label(kind.display_name()));
+            format!("\n方案起始时间 {} · {}月{}日\n时间暂停 {} · 天气 {weather} · 过渡 {:.0}%\n晴天草尖基准 {}",
+                crate::world_environment_controls::format_hour(simulation.hour), simulation.month, simulation.day,
+                if simulation.paused { "开" } else { "关" }, simulation.weather_transition * 100.0,
+                crate::world_environment_controls::format_grass_wind_strength(simulation.grass_wind_tip_strength))
+        });
+        format!("昼夜与天气计算值\n补光 {:.0} · 反射 {:.0} cd/m²{skybox}\n环境昼夜系数 {:.0}%（不含天气）{simulation}",
             values.diffuse, values.specular, values.day_night_factor * 100.0)
     })); // 日间基础值保留在原四个字段，避免在摘要重复；计算值不声明资源已采用。
 
@@ -342,6 +355,7 @@ pub(crate) fn sync_editor_environment_text(
     }
     if values_changed {
         old.current_values = current;
+        old.simulation = simulation;
     }
     if feedback_changed {
         old.environment_revision = revision;

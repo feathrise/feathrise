@@ -1,8 +1,8 @@
-//! 项目环境库与场景环境来源的作者事务。天气身份始终留在场景清单。
+//! 项目环境库与场景环境来源的作者事务。地域气候身份始终留在场景清单。
 
 use bevy::prelude::*;
 use feathrise_scene_content::{
-    EnvironmentAppearance, SceneEnvironmentDescriptor, SceneEnvironmentSource, SceneSkyMode,
+    EnvironmentAppearance, EnvironmentSimulation, SceneEnvironmentDescriptor, SceneEnvironmentSource, SceneSkyMode,
     WorldEnvironmentProfile, resolve_scene_environment,
 };
 
@@ -162,7 +162,7 @@ fn commit_library_change(
     Ok(())
 }
 
-pub(super) fn commit_profile_change(
+pub(crate) fn commit_profile_change(
     id: String,
     before: Option<WorldEnvironmentProfile>,
     after: WorldEnvironmentProfile,
@@ -190,6 +190,7 @@ fn change_scene_source(
     global: &GlobalEnvironmentAuthoringState,
     session: &mut EditorAuthoringSession,
     editor: &mut SceneEditorState,
+    legacy_simulation: EnvironmentSimulation,
 ) -> Result<(), String> {
     let draft = session
         .draft
@@ -211,11 +212,12 @@ fn change_scene_source(
     }
     if matches!(source, SceneEnvironmentSource::Local) && !after.local_environment_initialized {
         // 第一次制作副本冻结当前完整生效值。往返切换时恢复这份独立配置。
-        let resolved = resolve_scene_environment(
+        let mut resolved = resolve_scene_environment(
             &before,
             &global.draft.celestial_lighting,
             &global.draft.library,
         );
+        resolved.environment.simulation.get_or_insert(legacy_simulation);
         EnvironmentAppearance::from_resolved(&resolved).apply_to(&mut after);
         after.local_environment_initialized = true;
     }
@@ -230,6 +232,7 @@ fn library_action(
     global: &mut GlobalEnvironmentAuthoringState,
     session: &mut EditorAuthoringSession,
     editor: &mut SceneEditorState,
+    legacy_simulation: EnvironmentSimulation,
 ) -> Result<(), String> {
     use EnvironmentLibraryEditRequest::*;
     match request {
@@ -254,11 +257,12 @@ fn library_action(
                     .draft
                     .as_ref()
                     .map(|draft| &draft.manifest.environment);
-                let resolved = resolve_scene_environment(
+                let mut resolved = resolve_scene_environment(
                     environment.unwrap_or(&SceneEnvironmentDescriptor::inheriting_default()),
                     &global.draft.celestial_lighting,
                     &global.draft.library,
                 );
+                resolved.environment.simulation.get_or_insert(legacy_simulation);
                 WorldEnvironmentProfile {
                     name: format!("环境 {}", global.draft.library.profiles.len() + 1),
                     appearance: EnvironmentAppearance::from_resolved(&resolved),
@@ -300,11 +304,12 @@ fn library_action(
             global,
             session,
             editor,
+            legacy_simulation,
         )?,
         UseShared(id) => {
-            change_scene_source(SceneEnvironmentSource::Shared(id), global, session, editor)?
+            change_scene_source(SceneEnvironmentSource::Shared(id), global, session, editor, legacy_simulation)?
         }
-        MakeLocal => change_scene_source(SceneEnvironmentSource::Local, global, session, editor)?,
+        MakeLocal => change_scene_source(SceneEnvironmentSource::Local, global, session, editor, legacy_simulation)?,
         action => {
             let action = match action {
                 SetGlobalSkyMode(mode) => EnvironmentEditAction::SetSkyMode(mode),
@@ -339,6 +344,9 @@ pub(crate) fn apply_environment_library_requests(
     mut session: ResMut<EditorAuthoringSession>,
     mut editor: ResMut<SceneEditorState>,
     global_save: Res<super::GlobalEnvironmentSaveTask>,
+    clock: Res<feathrise_atmosphere::WorldClock>,
+    weather: Res<feathrise_atmosphere::WeatherDebugOverride>,
+    settings: Res<feathrise_editor_core::EditorSettings>,
 ) {
     for request in requests.read() {
         if !editor.open || session.saving || global_save.task.is_some() || editor.close_requested {
@@ -356,7 +364,8 @@ pub(crate) fn apply_environment_library_requests(
             continue; // 切场景空窗不把上一场景的来源按钮应用到另一份草稿。
         }
         let request = request.clone();
-        if let Err(error) = library_action(request, &mut global, &mut session, &mut editor) {
+        let legacy_simulation = crate::world_environment_controls::simulation_from_runtime(&clock, &weather, &settings);
+        if let Err(error) = library_action(request, &mut global, &mut session, &mut editor, legacy_simulation) {
             editor.status = error;
         }
     }

@@ -130,7 +130,6 @@ pub(crate) use edit::{
 }; // 传送目标改由UI双列表显式选择，名称修改可刷新未保存预览。
 #[cfg(test)]
 pub(crate) use edit::drive_undo_redo_to_completion;
-#[cfg(any(test, feature = "validation"))]
 pub(crate) use environment::commit_environment_change;
 pub(crate) use environment::sky_preview_revision;
 pub(crate) use environment::{

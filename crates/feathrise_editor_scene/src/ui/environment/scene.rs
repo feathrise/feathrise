@@ -1,4 +1,4 @@
-//! 场景外观、全局环境方案和运行时调试的布局。
+//! 场景外观、全局环境方案和持久模拟参数的布局。
 
 use feathrise_editor_ui::InteractionButton;
 use feathrise_editor_ui::metrics as ui_metrics;
@@ -412,7 +412,7 @@ fn library_environment() -> impl Scene {
     ] }
 }
 
-/// 两种作者工作页共用原滚动宿主，运行时调试保持独立。
+/// 场景与方案库共用唯一模拟参数组，按当前编辑对象显示并提交作者事务。
 pub(in crate::ui) fn environment_page() -> impl Scene {
     bsn! {
         SceneEditorSidebarPage(EditorSidebarTab::Right(EditorRightSidebarTab::Environment))
@@ -430,14 +430,11 @@ pub(in crate::ui) fn environment_page() -> impl Scene {
             @library::tabs()--
             @scene_environment()--
             @library_environment()--
-            @crate::ui::context_help::section_header("世界调试 · 当前运行", "时刻、月份与天气覆盖只调整当前运行。时间暂停及晴天草尖基准摆幅沿用全局设置保存，不写入当前场景环境参数。")--
-
-                WorldEnvironmentControlsSlot
-                Node {
-                    width: percent(100), min_width: px(0),
-                    flex_direction: FlexDirection::Column, row_gap: px(3),
-                    flex_shrink: 0.0,
-                }
+            // 全局方案与独立场景编辑同一组持久参数；共享来源只在上方显示有效值。
+            ~{LibraryPanel::Simulation} ~{library::column(Display::None)} Children [
+                @crate::ui::context_help::section_header("时间、天气与草尖摆幅", "参数随当前环境方案保存。引用或继承全局方案的场景统一使用方案配置，制作场景独立副本后可单独修改。")--
+                WorldEnvironmentControlsSlot ~{library::column(Display::Flex)}
+            ]
         ]
     }
 }

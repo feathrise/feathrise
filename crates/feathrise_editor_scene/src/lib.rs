@@ -421,14 +421,10 @@ impl Plugin for SceneEditorPlugin {
                                     handle_celestial_numeric_inputs,
                                     handle_celestial_override_toggles,
                                     handle_celestial_section_toggles,
+                                    handle_world_environment_controls, // 先收口当前参数拖动，再切换来源或方案。
                                     ui::environment::handle_environment_library_buttons,
                                     authoring::environment_library::apply_environment_library_requests,
                                 ).chain(), // 数值会话先收口，再切换环境来源或套装。
-                                (
-                                    handle_world_environment_controls, // 时间、月份与运行时天气调试在推进/解析前生效。
-                                    handle_grass_wind_slider, // 只写晴天基准设置，天气解析后由场景唯一风桥同帧派生实际摆幅。
-                                )
-                                    .chain(), // 局部嵌套避免超过外层系统元组上限，仍保持原有输入顺序。
                                 handle_new_scene_form_input, // 尺寸公共提交已在前组完成，本系统只处理名称与Enter顺序。
                                 (
                                     // 点击插帧会让右栏数字失焦，先把当帧提交交给动画，再交由全局快捷键处理。

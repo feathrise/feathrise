@@ -1,4 +1,4 @@
-//! 原生中文字体下验证环境页缩放、窄栏、调试轨道及原输入缓冲；不替代实机视觉验收。
+//! 原生中文字体下验证环境页缩放、窄栏、方案参数轨道及原输入缓冲；不替代实机视觉验收。
 
 use feathrise_editor_ui::InteractionButton;
 use super::*;
@@ -174,9 +174,25 @@ fn environment_reflow_preserves_numeric_roots_and_active_buffer() {
 #[test]
 fn environment_scope_order_and_collapsing_keep_original_entities_in_low_window() {
     let (mut app, host) = page();
-    app.world_mut().get_mut::<Node>(host).unwrap().height = px(160);
+    let world = app.world_mut();
+    let mut host_node = world.get_mut::<Node>(host).unwrap();
+    host_node.height = px(160);
+    host_node.width = px(260);
+    let shared_id = world.resource::<GlobalEnvironmentAuthoringState>()
+        .draft.library.default_profile_id.clone();
+    let mut session = world.resource_mut::<EditorAuthoringSession>();
+    let environment = &mut session.draft.as_mut().unwrap().manifest.environment;
+    environment.source = feathrise_scene_content::SceneEnvironmentSource::Shared(shared_id);
     settle(&mut app);
     let world = app.world_mut();
+    let debug = world.query_filtered::<Entity, With<WorldEnvironmentControlsSlot>>()
+        .single(world).unwrap();
+    let summary = world.query::<(&EnvironmentSidebarText, &ComputedNode, &TextLayout, &Text)>()
+        .iter(world).find(|(marker, _, _, _)| marker.0 == EnvironmentTextField::CurrentValues).unwrap();
+    assert_eq!(summary.2.linebreak, bevy::text::LineBreak::AnyCharacter);
+    assert!(summary.1.size().x > 0.0 && summary.1.size().x <= 261.0);
+    assert!(summary.1.size().y >= feathrise_editor_ui::metrics::FONT_HINT * 6.0);
+    assert!(summary.3.as_str().contains("晴天草尖基准")); // 窄栏的继承摘要自然增高，仍由原单滚动宿主访问。
     let y = |world: &mut World, label: &str| {
         let entity = world
             .query::<(Entity, &Text)>()
@@ -191,12 +207,25 @@ fn environment_scope_order_and_collapsing_keep_original_entities_in_low_window()
             .y
     };
     assert!(y(world, "场景环境") < y(world, "环境来源"));
-    assert!(y(world, "环境来源") < y(world, "世界调试 · 当前运行"));
+    assert_eq!(world.get::<ComputedNode>(debug).unwrap().size(), Vec2::ZERO);
+    assert_eq!(scene_display(&mut app), Display::None); // 引用共享方案时也隐藏场景外观编辑控件。
     app.world_mut().resource_mut::<EnvironmentPageState>().page = EnvironmentPage::Library;
     settle(&mut app);
     let world = app.world_mut();
     assert!(y(world, "全局环境库") < y(world, "全局方案"));
-    assert!(y(world, "全局方案") < y(world, "世界调试 · 当前运行"));
+    assert!(y(world, "全局方案") < y(world, "时间、天气与草尖摆幅"));
+    assert!(world.get::<ComputedNode>(debug).unwrap().size().y > 0.0);
+    let host_width = world.get::<ComputedNode>(host).unwrap().size().x;
+    let visible_tracks = world.query::<(&ComputedNode, &bevy::ui::RelativeCursorPosition, &Node)>()
+        .iter(world)
+        .filter(|(computed, _, node)| node.height == px(SliderVisual::default().track_height)
+            && (180.0..=host_width + 1.1).contains(&computed.size().x))
+        .count();
+    assert_eq!(visible_tracks, 5);
+
+    app.world_mut().resource_mut::<EnvironmentPageState>().page = EnvironmentPage::Library;
+    settle(&mut app);
+    let world = app.world_mut();
     let original = world
         .query_filtered::<Entity, With<NumericInputRoot>>()
         .iter(world)

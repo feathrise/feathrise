@@ -1,4 +1,4 @@
-//! F12 世界环境控件的局部 ECS 标记。
+//! 环境方案模拟参数控件的局部 ECS 标记。
 
 use bevy::prelude::*;
 
@@ -36,11 +36,9 @@ pub(crate) struct WeatherPreviewSliderLabel;
 pub(crate) struct WeatherRegionLabel;
 #[derive(Component, Default)]
 pub(crate) struct WeatherApplyImmediateButton;
-#[derive(Component, Default)]
-pub(crate) struct WeatherRerollButton;
-#[derive(Component, Default)] // F12天气栏只调全局晴天草尖基准摆幅。
+#[derive(Component, Default)] // 仅调整当前环境方案的晴天草尖基准摆幅。
 pub(crate) struct GrassWindSlider;
-#[derive(Component, Default)] // 手柄只显示原设置的厘米档位。
+#[derive(Component, Default)] // 手柄只显示方案基准的厘米档位。
 pub(crate) struct GrassWindSliderThumb;
-#[derive(Component, Default)] // 标签回显持久化全局设置而非天气风速。
+#[derive(Component, Default)] // 标签回显方案保存的基准摆幅而非天气风速。
 pub(crate) struct GrassWindSliderLabel;

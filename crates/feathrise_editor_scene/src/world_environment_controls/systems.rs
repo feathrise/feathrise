@@ -1,131 +1,90 @@
-//! F12 世界时间与天气调试输入及最终状态回显。
+//! 环境方案模拟参数的持久编辑、单笔拖动事务及回显。
 
 use feathrise_editor_ui::UiInteraction;
-use feathrise_editor_ui::InteractionButton;
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
-use feathrise_atmosphere::{WeatherCommand, WeatherDebugOverride, WeatherState, WorldClock};
+use feathrise_atmosphere::{WeatherDebugOverride, WorldClock};
 use feathrise_editor_core::EditorSettings;
 use feathrise_editor_ui::EditorButtonClick;
 use feathrise_editor_ui::localization::EditorLocale;
 
 use super::components::*;
+use super::authoring::{editing_target, simulation_from_runtime};
+use super::types::{SimulationDrag, SimulationInputState};
+use crate::authoring::{EditorAuthoringSession, GlobalEnvironmentAuthoringState, GlobalEnvironmentSaveTask};
+use crate::ui::{environment::EnvironmentPageState, sidebars::SceneEditorSidebarState};
 use super::helpers::{
-    centered_cursor_x_to_ratio, format_game_seconds, format_grass_wind_strength, format_hour,
+    centered_cursor_x_to_ratio, format_grass_wind_strength, format_hour,
     grass_wind_strength_from_ratio, grass_wind_thumb_left, hour_from_ratio, hour_thumb_left,
     month_from_ratio, month_thumb_left, weather_mode_from_ratio, weather_mode_thumb_left,
     weather_preview_thumb_left, WORLD_SLIDER_TRACK_WIDTH,
 };
 use crate::resources::SceneEditorState;
 
-type PauseButtonFilter = (
-    Changed<EditorButtonClick>,
-    With<InteractionButton>,
-    With<WorldTimePauseToggle>,
-);
-type ImmediateButtonFilter = (
-    Changed<EditorButtonClick>,
-    With<InteractionButton>,
-    With<WeatherApplyImmediateButton>,
-);
-type RerollButtonFilter = (
-    Changed<EditorButtonClick>,
-    With<InteractionButton>,
-    With<WeatherRerollButton>,
-);
-
-/// F12 输入在本帧时间推进与天气解析前直接写各自公开运行时资源。
+/// 输入只写明确选中的方案或独立场景，原运行时资源统一消费解析后的持久配置。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_world_environment_controls(
-    editor: Res<SceneEditorState>,
-    pause_buttons: Query<&EditorButtonClick, PauseButtonFilter>,
-    time_tracks: Query<(&UiInteraction, &RelativeCursorPosition), With<WorldTimeSlider>>,
-    month_tracks: Query<(&UiInteraction, &RelativeCursorPosition), With<WorldMonthSlider>>,
-    mode_tracks: Query<(&UiInteraction, &RelativeCursorPosition), With<WeatherModeSlider>>,
-    preview_tracks: Query<(&UiInteraction, &RelativeCursorPosition), With<WeatherPreviewSlider>>,
-    immediate_buttons: Query<&EditorButtonClick, ImmediateButtonFilter>,
-    reroll_buttons: Query<&EditorButtonClick, RerollButtonFilter>,
-    mut clock: ResMut<WorldClock>,
-    mut settings: ResMut<EditorSettings>,
-    mut weather_override: ResMut<WeatherDebugOverride>,
-    weather_state: Res<WeatherState>,
-    mut weather_commands: MessageWriter<WeatherCommand>,
+    mut editor: ResMut<SceneEditorState>,
+    sidebar: Res<SceneEditorSidebarState>,
+    page: Res<EnvironmentPageState>,
+    mut session: ResMut<EditorAuthoringSession>,
+    mut global: ResMut<GlobalEnvironmentAuthoringState>,
+    save: Res<GlobalEnvironmentSaveTask>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    runtime: (Res<WorldClock>, Res<WeatherDebugOverride>, Res<EditorSettings>),
+    buttons: Query<(&EditorButtonClick, Has<WorldTimePauseToggle>),
+        (Changed<EditorButtonClick>, Or<(With<WorldTimePauseToggle>, With<WeatherApplyImmediateButton>)>)>,
+    tracks: Query<(&UiInteraction, &RelativeCursorPosition, Has<WorldTimeSlider>, Has<WorldMonthSlider>,
+        Has<WeatherModeSlider>, Has<WeatherPreviewSlider>),
+        Or<(With<WorldTimeSlider>, With<WorldMonthSlider>, With<WeatherModeSlider>, With<WeatherPreviewSlider>, With<GrassWindSlider>)>>,
+    mut state: Local<SimulationInputState>,
 ) {
-    if !editor.open || editor.close_requested {
-        return;
+    let target = editing_target(&editor, &sidebar, &page, &session, &global, &save);
+    let cancel = keyboard.just_pressed(KeyCode::Escape);
+    let identity_changed = state.drag.as_ref().is_some_and(|drag| {
+        target.as_ref() != Some(&drag.target) || drag.target.version(&session, &global) != drag.version
+    });
+    if state.drag.is_some() && (cancel || identity_changed || !mouse.pressed(MouseButton::Left)) {
+        let drag = state.drag.take().expect("已确认存在模拟参数拖动");
+        drag.finish(cancel || identity_changed, &mut session, &mut global, &mut editor);
+        state.blocked = (cancel || identity_changed) && mouse.pressed(MouseButton::Left);
     }
-    for interaction in &pause_buttons {
-        if interaction.is_clicked() {
-            settings.environment.world_time_paused = !settings.environment.world_time_paused;
-        }
+    if !mouse.pressed(MouseButton::Left) { state.blocked = false; }
+    let Some(target) = target.filter(|_| !state.blocked && !cancel) else { return };
+    let before = target.value(&session, &global);
+    let mut value = before.unwrap_or_else(|| simulation_from_runtime(&runtime.0, &runtime.1, &runtime.2));
+    let mut discrete = false;
+    for (click, pause) in &buttons {
+        if !click.is_clicked() { continue; }
+        if pause { value.paused = !value.paused; } else { value.weather_transition = 1.0; }
+        discrete = true;
     }
-    for (interaction, cursor) in &time_tracks {
-        if *interaction == UiInteraction::Pressed
-            && let Some(position) = cursor.normalized
-        {
-            clock.set_hour(hour_from_ratio(centered_cursor_x_to_ratio(position.x)));
-        }
+    let mut touched = discrete;
+    for (interaction, cursor, hour, month, mode, transition) in &tracks {
+        if *interaction != UiInteraction::Pressed || !mouse.pressed(MouseButton::Left) { continue; }
+        let Some(position) = cursor.normalized else { continue };
+        touched = true;
+        let ratio = centered_cursor_x_to_ratio(position.x);
+        if hour { value.hour = hour_from_ratio(ratio); }
+        else if month { value.month = month_from_ratio(ratio); value.day = 15; }
+        else if mode { value.weather_mode_index = weather_mode_from_ratio(ratio) as u8; }
+        else if transition { value.weather_transition = ratio; }
+        else { value.grass_wind_tip_strength = grass_wind_strength_from_ratio(ratio); }
     }
-    for (interaction, cursor) in &month_tracks {
-        if *interaction == UiInteraction::Pressed
-            && let Some(position) = cursor.normalized
-        {
-            clock.set_month_midpoint(month_from_ratio(centered_cursor_x_to_ratio(position.x)));
-        }
+    if !touched || before == Some(value) { return; }
+    if let Err(error) = value.validate() { editor.status = error; return; }
+    if state.drag.is_none() {
+        state.drag = Some(SimulationDrag {
+            version: target.version(&session, &global), dirty_before: target.dirty(&session, &global),
+            target: target.clone(), before, latest: value,
+        });
     }
-    for (interaction, cursor) in &mode_tracks {
-        if *interaction == UiInteraction::Pressed
-            && let Some(position) = cursor.normalized
-        {
-            weather_override.set_mode_index(weather_mode_from_ratio(centered_cursor_x_to_ratio(
-                position.x,
-            )));
-        }
-    }
-    for (interaction, cursor) in &preview_tracks {
-        if *interaction == UiInteraction::Pressed
-            && let Some(position) = cursor.normalized
-        {
-            weather_override.set_preview(centered_cursor_x_to_ratio(position.x));
-        }
-    }
-    if immediate_buttons
-        .iter()
-        .any(|interaction| interaction.is_clicked())
-    {
-        let kind = weather_override
-            .forced()
-            .unwrap_or_else(|| weather_state.target());
-        weather_override.set_preview(1.0);
-        weather_commands.write(WeatherCommand::ApplyImmediate { kind });
-    }
-    if reroll_buttons
-        .iter()
-        .any(|interaction| interaction.is_clicked())
-        && weather_override.forced().is_none()
-    {
-        weather_commands.write(WeatherCommand::Reroll);
-    }
-}
-
-/// 【功能设计】滑块只保存晴天基准摆幅；天气桥在本帧天气解析后唯一写入草和Mesh风场。
-pub(crate) fn handle_grass_wind_slider(
-    editor: Res<SceneEditorState>, // F12关闭或正在关闭时不可响应隐藏控件。
-    grass_tracks: Query<(&UiInteraction, &RelativeCursorPosition), With<GrassWindSlider>>, // 只查询迁移后的唯一滑块。
-    mut settings: ResMut<EditorSettings>, // 沿用原settings.json自动保存字段。
-) {
-    if !editor.open || editor.close_requested {
-        return; // 隐藏的UI不得继续调整全局风摆。
-    }
-    for (interaction, cursor) in &grass_tracks {
-        if *interaction == UiInteraction::Pressed
-            && let Some(position) = cursor.normalized
-        {
-            let strength = grass_wind_strength_from_ratio(centered_cursor_x_to_ratio(position.x)); // 保留原F1厘米步进。
-            if (settings.environment.grass_wind_tip_strength - strength).abs() > f32::EPSILON {
-                settings.environment.grass_wind_tip_strength = strength; // 数值变更才触发原有设置自动保存。
-            }
-        }
+    target.write(Some(value), &mut session, &mut global);
+    editor.dirty = true;
+    state.drag.as_mut().expect("模拟拖动已冻结").latest = value;
+    if discrete {
+        state.drag.take().expect("离散操作立即提交").finish(false, &mut session, &mut global, &mut editor);
     }
 }
 
@@ -134,7 +93,6 @@ type WorldEnvironmentNodeFilter = Or<(
     With<WorldMonthSliderThumb>,
     With<WeatherModeSliderThumb>,
     With<WeatherPreviewSliderThumb>,
-    With<WeatherRerollButton>,
     With<GrassWindSliderThumb>, // 草尖摆幅与天气滑块同帧回显。
 )>;
 type WorldEnvironmentTextFilter = Or<(
@@ -147,14 +105,14 @@ type WorldEnvironmentTextFilter = Or<(
     With<GrassWindSliderLabel>, // 迁移后标签不依赖F1可见状态。
 )>;
 
-/// 世界光照和天气效果已经应用后，把最终运行时状态统一回写 F12 控件。
+/// 显示被编辑方案的持久值，浏览未引用方案也能准确回显自己的配置。
 pub(crate) fn sync_world_environment_controls(
     editor: Res<SceneEditorState>,
     locale: Option<Res<EditorLocale>>,
-    clock: Res<WorldClock>,
-    weather_override: Res<WeatherDebugOverride>,
-    weather_state: Res<WeatherState>,
-    settings: Res<EditorSettings>, // 全局风摆设置由同一持久资源回显。
+    page: Res<EnvironmentPageState>,
+    session: Res<EditorAuthoringSession>,
+    global: Res<GlobalEnvironmentAuthoringState>,
+    runtime: (Res<WorldClock>, Res<WeatherDebugOverride>, Res<EditorSettings>),
     mut nodes: Query<
         (
             &mut Node,
@@ -162,7 +120,6 @@ pub(crate) fn sync_world_environment_controls(
             Has<WorldMonthSliderThumb>,
             Has<WeatherModeSliderThumb>,
             Has<WeatherPreviewSliderThumb>,
-            Has<WeatherRerollButton>,
             Has<GrassWindSliderThumb>, // 只修改本控件手柄，不扫描整个编辑器UI。
         ),
         WorldEnvironmentNodeFilter,
@@ -185,59 +142,34 @@ pub(crate) fn sync_world_environment_controls(
         return;
     }
     let locale = locale.as_deref().copied().unwrap_or_default();
-    let automatic_progress = if weather_state.is_transitioning() {
-        weather_state.transition_progress()
+    let configuration = match page.page {
+        crate::ui::environment::EnvironmentPage::Library => global.selected_environment().map(|profile| profile.appearance.simulation),
+        crate::ui::environment::EnvironmentPage::Scene => session.draft.as_ref().and_then(|draft| {
+            feathrise_scene_content::resolve_scene_environment(&draft.manifest.environment,
+                &global.draft.celestial_lighting, &global.draft.library).environment.simulation
+        }),
+    }.unwrap_or_else(|| simulation_from_runtime(&runtime.0, &runtime.1, &runtime.2));
+    let mut clock = WorldClock::default();
+    clock.set_month_midpoint(configuration.month);
+    let mode_text = if configuration.weather_mode_index == 0 {
+        locale.text("label.auto")
     } else {
-        1.0
+        feathrise_atmosphere::WeatherKind::ALL.get(configuration.weather_mode_index as usize - 1)
+            .map_or(locale.text("label.auto"), |kind| locale.editor_label(kind.display_name()))
     };
-    let progress =
-        if weather_override.forced().is_some() || weather_override.preview_override_active() {
-            weather_override.preview()
-        } else {
-            automatic_progress
-        };
-    let remaining = if weather_state.is_transitioning() {
-        weather_state.transition_duration_game_seconds()
-            * (1.0 - weather_state.transition_progress()).clamp(0.0, 1.0)
-    } else {
-        weather_state.stable_remaining_game_seconds()
-    };
-    let target = weather_override
-        .forced()
-        .unwrap_or_else(|| weather_state.target());
-    let mode_text = weather_override
-        .forced()
-        .map_or_else(|| locale.text("label.auto"), |kind| locale.editor_label(kind.display_name()));
-    let current_weather = locale.editor_label(weather_state.current().display_name());
-    let status_text = format!(
-        "{} → {} · {:.0}% · {}",
-        current_weather,
-        locale.editor_label(target.display_name()),
-        progress * 100.0,
-        format_game_seconds(remaining),
-    );
+    let status_text = format!("{} · {:.0}%", mode_text, configuration.weather_transition * 100.0);
 
-    for (mut node, time, month, mode, preview, reroll, grass) in &mut nodes {
+    for (mut node, time, month, mode, preview, grass) in &mut nodes {
         let left = if time {
-            Some(hour_thumb_left(clock.hour_for_display()))
+            Some(hour_thumb_left(configuration.hour))
         } else if month {
-            Some(month_thumb_left(clock.month()))
+            Some(month_thumb_left(configuration.month))
         } else if mode {
-            Some(weather_mode_thumb_left(weather_override.mode_index()))
+            Some(weather_mode_thumb_left(configuration.weather_mode_index as usize))
         } else if preview {
-            Some(weather_preview_thumb_left(progress))
-        } else if reroll {
-            let display = if weather_override.forced().is_none() {
-                Display::Flex
-            } else {
-                Display::None
-            };
-            if node.display != display {
-                node.display = display;
-            }
-            None
+            Some(weather_preview_thumb_left(configuration.weather_transition))
         } else if grass {
-            Some(grass_wind_thumb_left(settings.environment.grass_wind_tip_strength)) // 重开F12和外部设置恢复后位置正确。
+            Some(grass_wind_thumb_left(configuration.grass_wind_tip_strength))
         } else {
             None
         };
@@ -250,11 +182,11 @@ pub(crate) fn sync_world_environment_controls(
     }
     for (mut text, pause, time, month, mode, preview, region, grass) in &mut texts {
         let desired = if pause {
-            locale.text(if settings.environment.world_time_paused { "world.pause.on" } else { "world.pause.off" }).to_owned()
+            locale.text(if configuration.paused { "world.pause.on" } else { "world.pause.off" }).to_owned()
         } else if time {
-            format_hour(clock.hour_for_display())
+            format_hour(configuration.hour)
         } else if month {
-            let month = clock.month();
+            let month = configuration.month;
             let month_name = if locale == EditorLocale::English {
                 // 世界时钟的月份只用于呈现，不受操作系统地区格式影响。
                 ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -264,7 +196,7 @@ pub(crate) fn sync_world_environment_controls(
             };
             locale.format("world.calendar.date", &[
                 ("month", month_name),
-                ("day", clock.day().to_string()),
+                ("day", configuration.day.to_string()),
                 ("season", locale.editor_label(clock.season_name()).to_owned()),
             ])
         } else if mode {
@@ -272,9 +204,9 @@ pub(crate) fn sync_world_environment_controls(
         } else if preview {
             status_text.clone()
         } else if region {
-            locale.format("world.weather.current", &[("weather", current_weather.to_owned())])
+            locale.format("world.weather.current", &[("weather", mode_text.to_owned())])
         } else if grass {
-            format_grass_wind_strength(settings.environment.grass_wind_tip_strength) // 保留原F1的厘米标签而不改变天气风速。
+            format_grass_wind_strength(configuration.grass_wind_tip_strength)
         } else {
             continue;
         };
@@ -284,89 +216,144 @@ pub(crate) fn sync_world_environment_controls(
     }
 }
 
-#[cfg(test)] // F12滑块迁移使用最小ECS世界验证同帧全局风摆与关闭隔离。
+#[cfg(test)]
 mod tests {
-    use super::*; // 复用正式滑块输入系统与标记。
+    use super::*;
+    use feathrise_scene_content::{EnvironmentSimulation, SceneEnvironmentSource, WorldEnvironmentLibrary};
+    use crate::ui::{environment::EnvironmentPage, sidebars::EditorRightSidebarTab};
 
-    #[test] // 滑块只写晴天基准设置，GPU风场由天气解析后的唯一桥负责。
-    fn grass_wind_slider_updates_base_strength_only_while_editor_is_open() {
-        let mut app = App::new(); // 不安装F1面板即可运行编辑器输入。
-        app.insert_resource(SceneEditorState {
-            open: true,  // 模拟F12天气栏打开。
-            ..default()  // 其他会话字段保持默认值。
-        }); // 模拟F12天气栏打开。
-        app.insert_resource(EditorSettings::default()); // 原F1持久设置默认十六厘米。
-        app.add_systems(Update, handle_grass_wind_slider); // 使用正式输入系统。
-        let track = app
-            .world_mut()
-            .spawn((
-                GrassWindSlider,      // 天气栏唯一草地风摆轨道。
-                UiInteraction::Pressed, // 拖动手柄。
-                RelativeCursorPosition {
-                    cursor_over: true,                     // 模拟游标处于轨道内。
-                    normalized: Some(Vec2::new(0.5, 0.0)), // 指向轨道右端。
-                }, // 指向轨道右端。
-            ))
-            .id(); // 后续复用轨道验证F12关闭隔离。
-        app.update(); // 右端拖动应在同一帧达到三十五厘米。
-        assert_eq!(
-            app.world()
-                .resource::<EditorSettings>()
-                .environment.grass_wind_tip_strength,
-            0.35
-        ); // 持久字段保留原范围。
-
-        app.world_mut().resource_mut::<SceneEditorState>().open = false; // 关闭F12但轨道实体尚未清理。
-        app.world_mut()
-            .entity_mut(track)
-            .get_mut::<RelativeCursorPosition>()
-            .unwrap()
-            .normalized = Some(Vec2::new(-0.5, 0.0)); // 隐藏轨道被重置为左端。
-        app.update(); // 隐藏控件不得改写持久风摆。
-        assert_eq!(
-            app.world()
-                .resource::<EditorSettings>()
-                .environment.grass_wind_tip_strength,
-            0.35
-        ); // 关闭隔离生效。
-        app.world_mut().resource_mut::<SceneEditorState>().open = true; // 重开F12使用同一设置。
-        app.update(); // 左端拖动归零，模拟用户调整。
-        assert_eq!(
-            app.world()
-                .resource::<EditorSettings>()
-                .environment.grass_wind_tip_strength,
-            0.0
-        ); // 原一厘米步进仍有效。
+    fn editor() -> App {
+        let mut app = App::new();
+        let draft = crate::authoring::test_heightfield_draft(vec![0; 121].into());
+        app.insert_resource(SceneEditorState { open: true, selected_scene_id: Some(draft.scene_id.clone()), ..default() })
+            .insert_resource(EditorAuthoringSession { draft: Some(draft), ..default() })
+            .init_resource::<GlobalEnvironmentAuthoringState>()
+            .init_resource::<GlobalEnvironmentSaveTask>()
+            .init_resource::<SceneEditorSidebarState>()
+            .init_resource::<EnvironmentPageState>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<WorldClock>()
+            .init_resource::<WeatherDebugOverride>()
+            .init_resource::<EditorSettings>()
+            .add_systems(Update, handle_world_environment_controls);
+        app.world_mut().resource_mut::<SceneEditorSidebarState>().right = EditorRightSidebarTab::Environment;
+        app.world_mut().resource_mut::<EnvironmentPageState>().page = EnvironmentPage::Library;
+        let mut global = app.world_mut().resource_mut::<GlobalEnvironmentAuthoringState>();
+        global.draft.library = WorldEnvironmentLibrary::default().with_legacy_default(&global.draft.celestial_lighting);
+        global.maintain_environment_selection();
+        app
     }
 
-    #[test] // 重新打开天气页要从原全局设置恢复手柄和厘米数值。
-    fn grass_wind_controls_read_saved_value_on_open() {
-        let mut app = App::new(); // 最小ECS世界验证UI回显。
-        app.insert_resource(SceneEditorState {
-            open: true,  // 模拟F12天气栏打开。
-            ..default()  // 其他会话字段不干扰控件同步。
-        }); // F12可见。
-        app.insert_resource(WorldClock::default()); // 同一回显系统的世界时间输入。
-        app.insert_resource(WeatherDebugOverride::default()); // 天气默认自然模式。
-        app.insert_resource(WeatherState::default()); // 天气状态摘要输入。
-        app.insert_resource(EditorSettings {
-            environment: feathrise_settings::EnvironmentPreviewSettings { grass_wind_tip_strength: 0.23, ..default() }, // 模拟作者用户配置已加载二十三厘米。
-            ..default()                         // 其余全局设置保持原默认值。
-        }); // 模拟settings.json已加载二十三厘米。
-        let thumb = app
-            .world_mut()
-            .spawn((GrassWindSliderThumb, Node::default()))
-            .id(); // 记录新手柄实体。
-        let label = app
-            .world_mut()
-            .spawn((GrassWindSliderLabel, Text::new("")))
-            .id(); // 记录新数值标签。
-        app.add_systems(Update, sync_world_environment_controls); // 使用正式回显系统。
-        app.update(); // 首帧读全局设置而非默认风力。
-        assert_eq!(
-            app.world().entity(thumb).get::<Node>().unwrap().left,
-            percent(grass_wind_thumb_left(0.23) / WORLD_SLIDER_TRACK_WIDTH * 100.0)
-        ); // 恢复原厘米档位置。
-        assert_eq!(app.world().entity(label).get::<Text>().unwrap().0, "23 cm"); // 恢复原显示值。
+    #[test]
+    fn grass_wind_edits_the_selected_profile_with_one_undo_per_drag() {
+        let mut app = editor();
+        let settings_before = app.world().resource::<EditorSettings>().environment.grass_wind_tip_strength;
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        let track = app.world_mut().spawn((GrassWindSlider, UiInteraction::Pressed,
+            RelativeCursorPosition { cursor_over: true, normalized: Some(Vec2::new(0.0, 0.0)) })).id();
+        app.update();
+        app.world_mut().get_mut::<RelativeCursorPosition>(track).unwrap().normalized = Some(Vec2::new(0.5, 0.0));
+        app.update();
+        assert!(app.world().resource::<EditorAuthoringSession>().undo.is_empty());
+        assert_eq!(app.world().resource::<GlobalEnvironmentAuthoringState>().selected_environment().unwrap().appearance.simulation.grass_wind_tip_strength, 0.35);
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+        app.update();
+        let session = app.world().resource::<EditorAuthoringSession>();
+        assert_eq!(session.undo.len(), 1);
+        assert!(session.undo[0].is_global_environment());
+        assert_eq!(app.world().resource::<EditorSettings>().environment.grass_wind_tip_strength, settings_before);
+    }
+
+    #[test]
+    fn a_cancelled_simulation_drag_restores_values_without_rebinding_until_release() {
+        let mut app = editor();
+        let before = app.world().resource::<GlobalEnvironmentAuthoringState>().selected_environment().unwrap().appearance.simulation;
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        app.world_mut().spawn((GrassWindSlider, UiInteraction::Pressed,
+            RelativeCursorPosition { cursor_over: true, normalized: Some(Vec2::new(0.5, 0.0)) }));
+        app.update();
+        app.world_mut().resource_mut::<EnvironmentPageState>().page = EnvironmentPage::Scene;
+        app.update();
+        assert_eq!(app.world().resource::<GlobalEnvironmentAuthoringState>().selected_environment().unwrap().appearance.simulation, before);
+        assert!(!app.world().resource::<GlobalEnvironmentAuthoringState>().dirty);
+        assert!(!app.world().resource::<SceneEditorState>().dirty);
+        app.world_mut().resource_mut::<EnvironmentPageState>().page = EnvironmentPage::Library;
+        app.update();
+        assert_eq!(app.world().resource::<GlobalEnvironmentAuthoringState>().selected_environment().unwrap().appearance.simulation, before);
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+        app.update();
+        assert!(app.world().resource::<EditorAuthoringSession>().undo.is_empty());
+    }
+
+    #[test]
+    fn returning_a_simulation_drag_to_its_start_leaves_no_dirty_state_or_undo() {
+        let mut app = editor();
+        let before = app.world().resource::<GlobalEnvironmentAuthoringState>().selected_environment().unwrap().appearance.simulation;
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        let track = app.world_mut().spawn((GrassWindSlider, UiInteraction::Pressed,
+            RelativeCursorPosition { cursor_over: true, normalized: Some(Vec2::new(0.5, 0.0)) })).id();
+        app.update();
+        let cursor = (grass_wind_thumb_left(before.grass_wind_tip_strength)
+            + super::super::helpers::WORLD_SLIDER_THUMB_WIDTH * 0.5) / WORLD_SLIDER_TRACK_WIDTH - 0.5;
+        app.world_mut().get_mut::<RelativeCursorPosition>(track).unwrap().normalized = Some(Vec2::new(cursor, 0.0));
+        app.update();
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+        app.update();
+        assert_eq!(app.world().resource::<GlobalEnvironmentAuthoringState>().selected_environment().unwrap().appearance.simulation, before);
+        assert!(!app.world().resource::<GlobalEnvironmentAuthoringState>().dirty);
+        assert!(!app.world().resource::<SceneEditorState>().dirty);
+        assert!(app.world().resource::<EditorAuthoringSession>().undo.is_empty());
+    }
+
+    #[test]
+    fn simulation_controls_read_the_selected_profile_instead_of_editor_preferences() {
+        let mut app = editor();
+        let id = app.world().resource::<GlobalEnvironmentAuthoringState>().selected_environment_id.clone().unwrap();
+        app.world_mut().resource_mut::<GlobalEnvironmentAuthoringState>().draft.library.profiles_mut()
+            .get_mut(&id).unwrap().appearance.simulation.grass_wind_tip_strength = 0.23;
+        let thumb = app.world_mut().spawn((GrassWindSliderThumb, Node::default())).id();
+        let label = app.world_mut().spawn((GrassWindSliderLabel, Text::new(""))).id();
+        app.add_systems(Update, sync_world_environment_controls.after(handle_world_environment_controls));
+        app.update();
+        assert_eq!(app.world().get::<Node>(thumb).unwrap().left,
+            percent(grass_wind_thumb_left(0.23) / WORLD_SLIDER_TRACK_WIDTH * 100.0));
+        assert_eq!(app.world().get::<Text>(label).unwrap().0, "23 cm");
+    }
+
+    #[test]
+    fn a_legacy_local_environment_is_untouched_until_actual_input() {
+        let mut app = editor();
+        app.world_mut().resource_mut::<EnvironmentPageState>().page = EnvironmentPage::Scene;
+        let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+        let environment = &mut session.draft.as_mut().unwrap().manifest.environment;
+        environment.source = SceneEnvironmentSource::Local;
+        environment.simulation = None;
+        app.update();
+        let session = app.world().resource::<EditorAuthoringSession>();
+        assert!(session.undo.is_empty());
+        assert!(session.draft.as_ref().unwrap().manifest.environment.simulation.is_none());
+        assert!(!app.world().resource::<SceneEditorState>().dirty);
+    }
+
+    #[test]
+    fn inherited_scene_rejects_hidden_inputs_and_local_copy_accepts_them() {
+        let mut app = editor();
+        app.world_mut().resource_mut::<EnvironmentPageState>().page = EnvironmentPage::Scene;
+        app.world_mut().resource_mut::<EditorAuthoringSession>().draft.as_mut().unwrap()
+            .manifest.environment.source = SceneEnvironmentSource::InheritDefault;
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        app.world_mut().spawn((WorldTimeSlider, UiInteraction::Pressed,
+            RelativeCursorPosition { cursor_over: true, normalized: Some(Vec2::new(0.25, 0.0)) }));
+        app.update();
+        assert!(app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap().manifest.environment.simulation.is_none());
+        let mut session = app.world_mut().resource_mut::<EditorAuthoringSession>();
+        session.draft.as_mut().unwrap().manifest.environment.source = SceneEnvironmentSource::Local;
+        session.draft.as_mut().unwrap().manifest.environment.simulation = Some(EnvironmentSimulation::default());
+        app.update();
+        assert!(app.world().resource::<EditorAuthoringSession>().draft.as_ref().unwrap().manifest.environment.simulation.unwrap().hour > 12.0);
+        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().release(MouseButton::Left);
+        app.update();
+        assert_eq!(app.world().resource::<EditorAuthoringSession>().undo.len(), 1);
     }
 }

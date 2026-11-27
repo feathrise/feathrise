@@ -1,4 +1,4 @@
-//! 环境页的场景外观、全局方案库与运行时调试入口。
+//! 环境页的场景配置和全局方案库入口。
 
 mod components;
 mod helpers;
@@ -8,7 +8,7 @@ mod systems;
 mod types;
 
 pub(in crate::ui) use scene::environment_page;
-pub(crate) use library::{EnvironmentPageState, handle_environment_library_buttons, sync_environment_library};
+pub(crate) use library::{EnvironmentPage, EnvironmentPageState, handle_environment_library_buttons, sync_environment_library};
 pub(crate) use systems::sync_editor_environment_text;
 
 #[cfg(test)]

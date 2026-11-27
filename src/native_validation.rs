@@ -556,6 +556,22 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
         let environment = &proof["scene_tree"]["startup"]["environment"];
         let id = environment["profile_id"].as_str().ok_or("环境验收缺少新建方案身份")?;
         let name = environment["profile_name"].as_str().ok_or("环境验收缺少新建方案名称")?;
+        let simulation: feathrise_scene_content::EnvironmentSimulation =
+            serde_json::from_value(environment["simulation"].clone()).map_err(|error| error.to_string())?;
+        let local_simulation: feathrise_scene_content::EnvironmentSimulation =
+            serde_json::from_value(environment["local_simulation"].clone()).map_err(|error| error.to_string())?;
+        if (simulation.hour - 6.0).abs() > 0.03 || simulation.month != 9 || !simulation.paused
+            || simulation.weather_mode_index != 3 || (simulation.weather_transition - 0.5).abs() > 0.01
+            || (simulation.grass_wind_tip_strength - 0.35).abs() > 0.001
+            || (local_simulation.hour - 18.0).abs() > 0.03
+            || local_simulation.grass_wind_tip_strength.abs() > 0.001
+            || environment["inherited_default_verified"] != true
+            || environment["shared_controls_hidden"] != true
+            || environment["runtime_adopted"] != true
+            || environment["local_zero_wind_adopted"] != true
+            || environment["undo_redo_verified"] != true
+            || environment["local_restored"] != true
+        { return Err("原环境控件未完成全局配置、独立副本和继承只读验收".into()); }
         // 原 Save 完成后，宿主独立读回两个正式文件，不能用窗口草稿冒充落盘。
         let assets = &project.context.asset_roots[0];
         let library_path = assets.join(feathrise_scene_content::WORLD_ENVIRONMENT_ASSET_PATH);
@@ -567,6 +583,7 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
         let manifest: feathrise_scene_content::SceneManifestAsset =
             serde_json::from_slice(&manifest_bytes).map_err(|error| error.to_string())?;
         library.validate()?;
+        manifest.environment.validate()?;
         let resolved = feathrise_scene_content::resolve_scene_environment(
             &manifest.environment, &library.celestial_lighting, &library.library,
         );
@@ -574,13 +591,18 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
             || library.library.profiles.get(id).is_none_or(|profile| profile.name != name)
             || manifest.environment.source != feathrise_scene_content::SceneEnvironmentSource::Shared(id.to_owned())
             || resolved.profile_id.as_deref() != Some(id) || resolved.missing_profile.is_some()
+            || library.library.profiles.get(id).is_none_or(|profile| profile.appearance.simulation != simulation)
+            || resolved.environment.simulation != Some(simulation)
+            || manifest.environment.simulation != Some(local_simulation)
         {
             return Err("工程默认、场景引用和保存后的生效环境必须同属界面新建的方案".into());
         }
         let screenshot = read_author_screenshot(&output.join("scene-tree-environment.png"))?;
+        let local_screenshot = read_author_screenshot(&output.join("scene-tree-environment-local.png"))?;
         let (id, name) = (id.to_owned(), name.to_owned());
         steps.push(json!({"stage":"create_share_and_save_environment","passed":true,
-            "profile_id":id,"profile_name":name,"screenshot":screenshot,"report":observed}));
+            "profile_id":id,"profile_name":name,"simulation":simulation,"local_simulation":local_simulation,
+            "screenshot":screenshot,"local_screenshot":local_screenshot,"report":observed}));
         let output = work.join("editor-2");
         let reopened = reopen_tree(&root, target, &output, control, Some(mode))?;
         let document = &reopened["current_author_document"];
@@ -589,6 +611,10 @@ fn run_scene_tree_startup(work: &Path, repository: &Path, target: &Path, control
             || environment["profile_id"] != id || environment["profile_name"] != name
             || environment["scene_source"] != "shared"
             || environment["visible_source"] != format!("环境来源  共享方案 · {name}")
+            || environment["simulation"] != serde_json::to_value(simulation).map_err(|error| error.to_string())?
+            || environment["local_simulation"] != serde_json::to_value(local_simulation).map_err(|error| error.to_string())?
+            || environment["shared_controls_hidden"] != true
+            || environment["runtime_adopted"] != true
             || fs::read(&library_path).map_err(|error| error.to_string())? != library_bytes
             || fs::read(&manifest_path).map_err(|error| error.to_string())? != manifest_bytes
         {
